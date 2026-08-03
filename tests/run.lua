@@ -32,6 +32,7 @@ local MODULES = {
   "tests.map_units_test",
   "tests.binary_writer_test",
   "tests.mesh_writer_test",
+  "tests.png_writer_test",
   "tests.rom_extractor_test",
   "tests.rom_fs_test",
   "tests.cli_test",
