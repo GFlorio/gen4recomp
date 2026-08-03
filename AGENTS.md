@@ -21,10 +21,10 @@ This file provides guidance to Coding Agents when working with code in this repo
 
 ## Architecture
 
-1. Work in three layers: interface, domain, and infrastructure.
-1.1. Domain contains all the game logic and should be testable independently of LÖVE.
-1.2. Interface and infrastructure can depend on LÖVE, but should be kept as thin as possible.
-1.3. Game modability is essential, so each layer should expose clear hook points for modders to extend the game without modifying the core code.
+- Work in three layers: interface, domain, and infrastructure.
+- Domain contains all the game logic and should be testable independently of LÖVE.
+- Interface and infrastructure can depend on LÖVE, but should be kept as thin as possible.
+- Game modability is essential, so each layer should expose clear hook points for modders to extend the game.
 
 
 ## Commands

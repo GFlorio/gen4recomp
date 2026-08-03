@@ -158,6 +158,7 @@ function NdsRom.open(source, versions)
   error(result)
 end
 
+function NdsRom:size() return self._source:size() end
 function NdsRom:header() return self._header end
 function NdsRom:nitroFs() return self._nitro end
 function NdsRom:arm9Overlays() return self._arm9Overlays end

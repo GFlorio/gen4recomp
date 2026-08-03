@@ -14,6 +14,9 @@ local MODULES = {
   "tests.nds_rom_test",
   "tests.narc_test",
   "tests.hgss_manifest_test",
+  "tests.map_matrix_test",
+  "tests.rom_extractor_test",
+  "tests.rom_fs_test",
 }
 
 local function sortedKeys(t)
