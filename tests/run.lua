@@ -33,6 +33,7 @@ local MODULES = {
   "tests.binary_writer_test",
   "tests.mesh_writer_test",
   "tests.png_writer_test",
+  "tests.hashing_test",
   "tests.rom_extractor_test",
   "tests.rom_fs_test",
   "tests.cli_test",
