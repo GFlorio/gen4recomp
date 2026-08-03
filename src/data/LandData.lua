@@ -95,6 +95,7 @@ local function parse(bytes, context)
       payload = r:bytes(BGS_OFFSET + BGS_HEADER_SIZE, bgsPayloadSize),
     },
     permissions = permissions,
+    permissionBytes = r:bytes(permissionsOffset, permissionsSize),
     buildings = buildings,
     mapModelBytes = r:bytes(modelOffset, modelSize),
     bdhcBytes = r:bytes(bdhcOffset, bdhcSize),

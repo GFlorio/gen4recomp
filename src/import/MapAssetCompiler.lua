@@ -1,0 +1,256 @@
+-- Orchestrates the full derived-map compile for one semantic map: resolve the
+-- target, decode its area/land/model/texture members, compile the map geometry
+-- and every unique placed-building model into normalized batches and
+-- content-addressed textures, and assemble a serializable bundle -- the scene
+-- descriptor, the raw permission grid, the keyed mesh/texture blobs, the model
+-- descriptors, and a dependency record hashed into a completion marker. It
+-- writes nothing; MapCacheWriter persists the bundle. Runs under LÖVE (needs an
+-- open RomFs) but the raw Nitro formats stop here.
+
+local MapResolver = require("src.data.MapResolver")
+local AreaData = require("src.data.AreaData")
+local LandData = require("src.data.LandData")
+local Nsbmd = require("src.data.nitro.Nsbmd")
+local Nsbtx = require("src.data.nitro.Nsbtx")
+local MeshCompiler = require("src.import.MeshCompiler")
+local MaterialCompiler = require("src.import.MaterialCompiler")
+local BuildingTransform = require("src.data.BuildingTransform")
+local MeshWriter = require("src.import.MeshWriter")
+local MapUnits = require("src.import.MapUnits")
+local Hashing = require("src.import.Hashing")
+local Matrix4 = require("src.render.Matrix4")
+local MapAssetCache = require("src.core.MapAssetCache")
+local Errors = require("src.import.Errors")
+
+local MapAssetCompiler = {}
+
+local COMPILER_VERSION = "map-compiler-v1"
+local COORDINATE_CONVENTION = "posScale/16-tile-v1"
+
+local function readMember(narc, alias, memberId)
+  local count = narc:memberCount()
+  assert(memberId >= 0 and memberId < count,
+    string.format("%s member %d out of range (count %d)", alias, memberId, count))
+  return assert(narc:readMember(memberId))
+end
+
+local function sortedNumbers(set)
+  local out = {}
+  for k in pairs(set) do out[#out + 1] = k end
+  table.sort(out)
+  return out
+end
+
+-- Convert MaterialCompiler records (texture = sha1 key) into scene material
+-- records (texture = cache-relative PNG path).
+local function sceneMaterials(records)
+  local out = {}
+  for _, m in ipairs(records) do
+    out[#out + 1] = {
+      id = m.id,
+      name = m.name,
+      texture = m.texture and MapAssetCache.texturePath(m.texture) or nil,
+      wrap = m.wrap,
+      flip = m.flip,
+      alphaMode = m.alphaMode,
+      diffuse = m.diffuse,
+      cullMode = m.cullMode,
+    }
+  end
+  return out
+end
+
+-- Compile one model into batches; append meshes/textures to the shared bundle
+-- accumulators; return { batches (scene refs), materials }.
+local function compileModel(model, texturePack, meshes, textures, context)
+  local mat = MaterialCompiler.compile(model.materials, texturePack, { context = context })
+  for sha1, tex in pairs(mat.textures) do textures[sha1] = tex end
+
+  local batches = {}
+  for _, batch in ipairs(MeshCompiler.compile(model)) do
+    local sha1 = Hashing.sha1hex(MeshWriter.encode(batch))
+    meshes[sha1] = batch
+    batches[#batches + 1] = {
+      geometry = MapAssetCache.geometryPath(sha1),
+      material = batch.materialIndex,
+      node = batch.nodeIndex,
+    }
+  end
+  return { batches = batches, materials = sceneMaterials(mat.materials) }
+end
+
+local function archiveForArea(area)
+  if area.areaType == "indoor" then return "interior_build_models" end
+  if area.areaType == "outdoor" then return "exterior_build_models" end
+  Errors.raise("MAP_COMPILE_UNSUPPORTED_AREA",
+    "unsupported area type for building model selection: " .. tostring(area.areaTypeRaw),
+    { areaTypeRaw = area.areaTypeRaw })
+end
+
+local function _compile(romFs, idOrSymbol)
+  local resolved = assert(MapResolver.resolve(romFs, idOrSymbol))
+  local mapId = resolved.map.id
+  local romSha1 = romFs:metadata().sha1
+
+  -- Source members.
+  local matrixNarc = assert(romFs:openNarc("map_matrices"))
+  local matrixBytes = readMember(matrixNarc, "map_matrices", resolved.matrixMemberId)
+
+  local areaNarc = assert(romFs:openNarc("area_data"))
+  local areaBytes = readMember(areaNarc, "area_data", resolved.areaDataMemberId)
+  local area = assert(AreaData.decode(areaBytes, { alias = "area_data", memberId = resolved.areaDataMemberId }))
+
+  local landNarc = assert(romFs:openNarc("land_data"))
+  local landBytes = readMember(landNarc, "land_data", resolved.landDataMemberId)
+  local land = assert(LandData.decode(landBytes,
+    { mapId = mapId, alias = "land_data", memberId = resolved.landDataMemberId }))
+
+  -- Map model + calibration.
+  local mapNsbmd = assert(Nsbmd.decode(land.mapModelBytes,
+    { alias = "land_data", memberId = resolved.landDataMemberId, section = "map-model" }))
+  local mapModel = mapNsbmd.models[1]
+  local exTiles, ezTiles = MapUnits.assertMapCalibration(mapModel.bounds, mapModel.info.posScale, { map = mapId })
+
+  -- Map texture pack.
+  local mapTexNarc = assert(romFs:openNarc("map_textures"))
+  local mapTexBytes = readMember(mapTexNarc, "map_textures", area.mapTexturePackId)
+  local mapTexPack = assert(Nsbtx.decode(mapTexBytes,
+    { alias = "map_textures", memberId = area.mapTexturePackId }))
+
+  local meshes, textures = {}, {}
+  local mapCompiled = compileModel(mapModel, mapTexPack, meshes, textures,
+    { model = "map", memberId = resolved.landDataMemberId })
+
+  -- Placed-building models (deduped by member id).
+  local archiveAlias = archiveForArea(area)
+  local bldNarc = assert(romFs:openNarc(archiveAlias))
+  local uniqueMembers = {}
+  for _, pl in ipairs(land.buildings) do uniqueMembers[pl.modelMemberId] = true end
+
+  local models, modelKeyOf, modelScaleOf, memberShaOf = {}, {}, {}, {}
+  for _, memberId in ipairs(sortedNumbers(uniqueMembers)) do
+    local mbytes = readMember(bldNarc, archiveAlias, memberId)
+    local msha = Hashing.sha1hex(mbytes)
+    local bnsbmd = assert(Nsbmd.decode(mbytes, { alias = archiveAlias, memberId = memberId }))
+    local bmodel = bnsbmd.models[1]
+    -- Placed models carry their own textures via embedded TEX0.
+    local texSource = bnsbmd.embeddedTextures
+    if not texSource then
+      Errors.raise("MAP_COMPILE_BUILDING_TEXTURES_UNRESOLVED",
+        "building model " .. memberId .. " has no embedded textures and area-pack fallback is unimplemented",
+        { memberId = memberId, archive = archiveAlias })
+    end
+    local compiled = compileModel(bmodel, texSource, meshes, textures,
+      { model = archiveAlias, memberId = memberId })
+    local modelKey = string.format("%s:%d:%s",
+      area.areaType == "indoor" and "indoor" or "outdoor", memberId, msha:sub(1, 12))
+    models[modelKey] = { key = modelKey, memberId = memberId,
+      batches = compiled.batches, materials = compiled.materials }
+    modelKeyOf[memberId] = modelKey
+    modelScaleOf[memberId] = bmodel.info.posScale
+    memberShaOf[memberId] = msha
+  end
+
+  -- Building instances.
+  local buildingInstances = {}
+  for _, pl in ipairs(land.buildings) do
+    local transform = BuildingTransform.build(pl, modelScaleOf[pl.modelMemberId])
+    buildingInstances[#buildingInstances + 1] = {
+      placementIndex = pl.index,
+      modelKey = modelKeyOf[pl.modelMemberId],
+      transform = Matrix4.toArray(transform),
+    }
+  end
+
+  -- Dependency record -> hash -> marker.
+  local buildingModelShas = {}
+  for _, memberId in ipairs(sortedNumbers(uniqueMembers)) do
+    buildingModelShas[#buildingModelShas + 1] = { memberId = memberId, sha1 = memberShaOf[memberId] }
+  end
+  local dependencies = {
+    cacheFormat = MapAssetCache.FORMAT,
+    compilerVersion = COMPILER_VERSION,
+    coordinateConventionVersion = COORDINATE_CONVENTION,
+    textureDecoderVersion = MaterialCompiler.DECODER_VERSION,
+    versionRomSha1 = romSha1,
+    mapCatalogRecord = resolved.map,
+    matrixMemberSha1 = Hashing.sha1hex(matrixBytes),
+    areaDataMemberSha1 = Hashing.sha1hex(areaBytes),
+    landDataMemberSha1 = Hashing.sha1hex(landBytes),
+    mapTextureMemberSha1 = Hashing.sha1hex(mapTexBytes),
+    buildingArchive = archiveAlias,
+    uniqueBuildingModelMemberSha1s = buildingModelShas,
+  }
+  local marker = MapAssetCache.marker(romSha1, mapId, Hashing.hashLua(dependencies))
+
+  local scene = {
+    schema = "g4-map-scene-v1",
+    versionId = romFs:version(),
+    mapId = mapId,
+    mapSymbol = resolved.map.symbol,
+    label = resolved.map.label,
+    matrix = {
+      memberId = resolved.matrixMemberId,
+      name = resolved.matrix.name,
+      x = resolved.matrixX,
+      z = resolved.matrixZ,
+      altitude = resolved.matrixAltitude,
+      worldOriginX = resolved.worldOriginX,
+      worldOriginZ = resolved.worldOriginZ,
+    },
+    area = {
+      memberId = resolved.areaDataMemberId,
+      type = area.areaType,
+      mapTexturePackId = area.mapTexturePackId,
+      buildingTexturePackId = area.buildingTexturePackId,
+      dynamicTextureType = area.dynamicTextureType,
+      lightType = area.lightType,
+    },
+    cameraType = resolved.map.cameraType,
+    collision = {
+      width = 32,
+      height = 32,
+      file = MapAssetCache.mapDir(mapId) .. "/permissions.bin",
+    },
+    mapBatches = mapCompiled.batches,
+    materials = mapCompiled.materials,
+    buildingInstances = buildingInstances,
+    calibration = { modelExtentTilesX = exTiles, modelExtentTilesZ = ezTiles,
+      posScale = mapModel.info.posScale },
+    source = {
+      romSha1 = romSha1,
+      mapMatrix = { alias = "map_matrices", memberId = resolved.matrixMemberId, sha1 = dependencies.matrixMemberSha1 },
+      areaData = { alias = "area_data", memberId = resolved.areaDataMemberId, sha1 = dependencies.areaDataMemberSha1 },
+      landData = { alias = "land_data", memberId = resolved.landDataMemberId, sha1 = dependencies.landDataMemberSha1 },
+      mapTexture = { alias = "map_textures", memberId = area.mapTexturePackId, sha1 = dependencies.mapTextureMemberSha1 },
+    },
+    limitations = {
+      dynamicTexturesStatic = true,
+      bdhcNotUsedForPlayerHeight = true,
+      approximateCamera = true,
+    },
+  }
+
+  return {
+    mapId = mapId,
+    marker = marker,
+    scene = scene,
+    dependencies = dependencies,
+    permissions = land.permissionBytes,
+    meshes = meshes,
+    textures = textures,
+    models = models,
+  }
+end
+
+function MapAssetCompiler.compile(romFs, idOrSymbol)
+  assert(romFs and romFs.openNarc, "compile requires a RomFs-shaped object")
+  local ok, result = pcall(_compile, romFs, idOrSymbol)
+  if ok then return result end
+  if Errors.is(result) then return nil, result end
+  error(result)
+end
+
+MapAssetCompiler.COMPILER_VERSION = COMPILER_VERSION
+
+return MapAssetCompiler

@@ -42,4 +42,13 @@ function T.missing_value_for_inspect_map_errors()
   Assert.throws(function() Cli.parse({ "--inspect-map" }) end)
 end
 
+function T.parses_build_map()
+  Assert.equal(Cli.parse({ "--build-map", "MAP_NEW_BARK_ELMS_LAB_1F" }).buildMap, "MAP_NEW_BARK_ELMS_LAB_1F")
+  Assert.isNil(Cli.parse({}).buildMap)
+end
+
+function T.missing_value_for_build_map_errors()
+  Assert.throws(function() Cli.parse({ "--build-map" }) end)
+end
+
 return T

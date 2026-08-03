@@ -23,6 +23,9 @@ function T.decodes_valid_member_with_empty_bgs_payload()
   Assert.equal(#land.buildings, 0)
   Assert.equal(land.mapModelBytes:sub(1, 4), "BMD0")
   Assert.equal(land.bdhcBytes, "")
+
+  -- The raw 0x800-byte permission slice is exposed for the derived cache.
+  Assert.equal(#land.permissionBytes, 0x800)
 end
 
 -- Regression for New Bark: a non-empty BGS/soundplate payload must shift the
