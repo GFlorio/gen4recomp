@@ -1,25 +1,22 @@
--- Entry point. `--test` runs the suite and exits; otherwise control passes to
--- App. Full flag parsing and import/boot orchestration (spec §15.3) land in a
--- later epic.
+-- Entry point (spec §15.3). Parse flags + env once, then dispatch: `--test` runs
+-- the suite and exits; everything else hands normalized options to App, which
+-- owns the import/boot/runtime flow and any headless exit codes.
 
-local function hasFlag(args, name)
-  for _, a in ipairs(args or {}) do
-    if a == name then return true end
-  end
-  return false
-end
+local Cli = require("src.app.Cli")
 
 local App
 
-function love.load(args)
-  if hasFlag(args, "--test") then
+function love.load(argv)
+  local opts = Cli.parse(argv, function(name) return os.getenv(name) end)
+
+  if opts.test then
     local failures = require("tests.run").run()
     love.event.quit(failures == 0 and 0 or 1)
     return
   end
 
   App = require("src.app.App")
-  App.load(args)
+  App.load(opts)
 end
 
 function love.update(dt)

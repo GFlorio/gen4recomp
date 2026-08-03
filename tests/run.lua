@@ -17,6 +17,9 @@ local MODULES = {
   "tests.map_matrix_test",
   "tests.rom_extractor_test",
   "tests.rom_fs_test",
+  "tests.cli_test",
+  "tests.rom_importer_test",
+  "tests.dump_audit_test",
   "tests.sync_narc_catalog_test",
 }
 
