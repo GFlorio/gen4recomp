@@ -33,4 +33,13 @@ function T.missing_value_for_import_rom_errors()
   Assert.throws(function() Cli.parse({ "--import-rom" }) end)
 end
 
+function T.parses_inspect_map()
+  Assert.equal(Cli.parse({ "--inspect-map", "MAP_NEW_BARK" }).inspectMap, "MAP_NEW_BARK")
+  Assert.isNil(Cli.parse({}).inspectMap)
+end
+
+function T.missing_value_for_inspect_map_errors()
+  Assert.throws(function() Cli.parse({ "--inspect-map" }) end)
+end
+
 return T

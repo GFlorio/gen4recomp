@@ -35,6 +35,9 @@ function App.load(opts)
   if App.opts.checkDump then
     return App._runCheckDump()
   end
+  if App.opts.inspectMap then
+    return App._runInspectMap(App.opts.inspectMap)
+  end
   if App.opts.importRom then
     return App._startImport(App.opts.importRom)
   end
@@ -55,6 +58,38 @@ function App._runCheckDump()
     local report = DumpAudit.run(version)
     for _, line in ipairs(DumpAudit.lines(report)) do print(line) end
     if not report.ok then allOk = false end
+  end
+  love.event.quit(allOk and 0 or 1)
+end
+
+-- Headless map inspector: resolve and inventory a map for every ready version
+-- and print a deterministic, payload-free report. Exits 0 if any version was
+-- inspected without an uncaught error, 1 otherwise.
+function App._runInspectMap(idOrSymbol)
+  App.headless = true
+  local MapAssetInspector = require("src.import.MapAssetInspector")
+  local RomFs = require("src.core.RomFs")
+  local targets = readyVersions()
+  if #targets == 0 then
+    print("inspect-map: no ready version to inspect")
+    return love.event.quit(1)
+  end
+  local allOk = true
+  for _, version in ipairs(targets) do
+    local romFs, err = RomFs.open(version)
+    if not romFs then
+      allOk = false
+      print("inspect-map: open failed for " .. version .. ": " .. Errors.format(err))
+    else
+      local ok, report = pcall(MapAssetInspector.inspect, romFs, idOrSymbol)
+      if ok then
+        for _, line in ipairs(MapAssetInspector.lines(report)) do print(line) end
+      else
+        allOk = false
+        print("inspect-map: " .. version .. " failed: " .. Errors.format(report))
+      end
+      romFs:close()
+    end
   end
   love.event.quit(allOk and 0 or 1)
 end

@@ -14,6 +14,7 @@ function Cli.parse(argv)
     importRom = nil,
     importOnly = false,
     checkDump = false,
+    inspectMap = nil,
   }
 
   local i = 1
@@ -30,6 +31,9 @@ function Cli.parse(argv)
       opts.importOnly = true
     elseif a == "--check-dump" then
       opts.checkDump = true
+    elseif a == "--inspect-map" then
+      i = i + 1
+      opts.inspectMap = argv[i] or error("--inspect-map requires a map id or symbol")
     end
     -- Unknown tokens (e.g. LÖVE's own args) are ignored so the parser stays forgiving.
     i = i + 1

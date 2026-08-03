@@ -5,7 +5,8 @@
 
 local function isHeadless()
   for _, a in ipairs(arg or {}) do
-    if a == "--test" or a == "--test-private" or a == "--import-only" or a == "--check-dump" then
+    if a == "--test" or a == "--test-private" or a == "--import-only"
+      or a == "--check-dump" or a == "--inspect-map" then
       return true
     end
   end
