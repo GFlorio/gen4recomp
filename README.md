@@ -25,13 +25,66 @@ No LuaRocks packages, no native modules, no network access.
 
 ## Running
 
+Use the scripts in `scripts/` — they redirect the cache into a gitignored
+in-repo folder during development:
+
 ```sh
-love .                          # boot: import screen, or diagnostics if a cache is ready
-love . --import-rom /path/to/pokeheartgold.us.nds
-love . --test                   # run the synthetic test suite
+scripts/run.sh                  # boot: import screen, or diagnostics if a cache is ready
+scripts/test.sh                 # run the synthetic test suite
 ```
 
 You can also drag-and-drop a `.nds` file onto the window to import it.
+
+### Headless / automation
+
+The importer runs without interaction, windowless, and exits with a status
+code, so agents and scripts can drive it. The version (HeartGold/SoulSilver) is
+detected from the ROM's SHA-1 — you never name it:
+
+```sh
+scripts/import.sh /path/to/pokeheartgold.us.nds   # import, exit 0 on success
+scripts/import.sh /path/to/pokeheartgold.zip      # a .zip works too (see below)
+```
+
+A `.zip` can be given instead of a `.nds`: it is mounted in memory and walked
+for a compatible `.nds` (matched by SHA-1), so archives with a readme or other
+junk alongside the ROM just work. The same applies to drag-and-drop.
+
+Underlying flags (also settable via `G4RECOMP_*` env vars):
+
+```text
+--import-rom <path>   --import-only
+--check-dump          # verify every ready dump using only the cache (no ROM); exits 0/1
+--diagnostic          # interactive data diagnostic
+--version heartgold|soulsilver   # optional: target one cache when both are imported
+--test
+```
+
+`--test`, `--import-only`, and `--check-dump` run windowless (no GUI). An
+explicitly imported ROM is always dumped fresh; boot-time reuse of an existing
+cache happens automatically without re-reading the ROM.
+
+### Cache location
+
+The private cache lives in LÖVE's per-user save directory by default. Set
+`G4RECOMP_SAVE_DIR` to relocate it — the committed `.envrc` points it at a
+gitignored `./.cache` for development, and `scripts/lib.sh` applies it. This is
+the single knob a future portable mode will build on.
+
+### Real-ROM integration test
+
+Not run in CI (needs a legally-obtained dump). Imports the ROM, then audits the
+dump in a **separate process that never opens the ROM**:
+
+```sh
+scripts/integration.sh /path/to/pokeheartgold.us.nds heartgold
+```
+
+### Regenerating the NARC catalog (developer-only)
+
+```sh
+scripts/sync-narc-catalog.sh /path/to/pokeheartgold <commit>
+```
 
 ## Status
 
