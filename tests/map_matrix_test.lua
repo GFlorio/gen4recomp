@@ -7,7 +7,7 @@ local T = {}
 local function u8(v) return string.char(v % 256) end
 local function u16(v) return string.char(v % 256, math.floor(v / 256) % 256) end
 
--- Assemble a map-matrix member per spec §12. Header/altitude arrays are only
+-- Assemble a map-matrix member. Header/altitude arrays are only
 -- emitted when their section flag is set.
 local function build(spec)
   local n = spec.width * spec.height

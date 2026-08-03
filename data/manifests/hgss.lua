@@ -1,7 +1,7 @@
 -- HGSS runtime manifest: the curation layer over the decomp-derived
 -- narc_catalog. It maps friendly aliases to NARC symbols, marks which archives
 -- the vertical slice requires, and resolves the version-neutral `encounters`
--- alias against the active game version (spec §11.1-§11.2). Pure Lua; the only
+-- alias against the active game version. Pure Lua; the only
 -- dependency is the pure-data catalog.
 
 local catalog = require("data.manifests.narc_catalog")
@@ -20,7 +20,7 @@ Hgss.provenance = {
   },
 }
 
--- Friendly alias -> decomp symbol (spec §11.2). Each symbol has one primary
+-- Friendly alias -> decomp symbol. Each symbol has one primary
 -- alias; version-neutral aliases are resolved separately below.
 local ALIAS_TO_SYMBOL = {
   personal = "NARC_poketool_personal_personal",

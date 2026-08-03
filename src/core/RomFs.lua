@@ -1,4 +1,4 @@
--- The only runtime entry point for the raw ROM dump (spec §16). It loads the
+-- The only runtime entry point for the raw ROM dump. It loads the
 -- generated metadata through CacheFs, validates schemas, and serves file bytes
 -- and NARC members lazily by FAT fileId, exact NitroFS source path, or curated
 -- alias/symbol. It never re-reads the original ROM and never caches large
@@ -48,7 +48,7 @@ local function _open(versionId, cache)
   requireSchema(index, 1, "romfs_index")
   requireSchema(resolved, 1, "resolved_narcs")
 
-  -- Build transient lookups once (spec §7.2 forbids duplicating them on disk).
+  -- Build transient lookups once; they must not be duplicated on disk.
   local byPath, bySymbol, byAlias = {}, {}, {}
   for fileId = 0, index.fileCount - 1 do
     local entry = index.files[fileId]

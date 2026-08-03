@@ -1,7 +1,7 @@
 -- Test helper: assemble a minimal but valid NDS ROM image in memory.
 -- Layout after the 0x200 header: arm9, arm7, arm9 overlay table, arm7 overlay
 -- table, FNT, FAT, then file payloads in fileId order. Overlay and unmapped
--- files take the lowest FAT ids; named NitroFS files follow (spec §18.2).
+-- files take the lowest FAT ids; named NitroFS files follow.
 --
 -- spec = {
 --   gameCode=, title=, makerCode=, unitCode=, romVersion=,

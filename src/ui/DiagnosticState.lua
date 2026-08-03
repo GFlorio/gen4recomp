@@ -1,4 +1,4 @@
--- Proof-of-life state shown after a successful import (spec §17). It reaches the
+-- Proof-of-life state shown after a successful import. It reaches the
 -- HGSS data foundation using only the RomFs public API: open the version dump,
 -- open the map_matrices NARC, read member 0, and decode it. All figures are
 -- gathered once at construction; draw() only renders. A failure is captured as

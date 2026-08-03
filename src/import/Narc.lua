@@ -1,4 +1,4 @@
--- Pure reader over a NARC archive string (spec §10). A NARC is a 16-byte header
+-- Pure reader over a NARC archive string. A NARC is a 16-byte header
 -- followed by blockCount blocks; BTAF holds the member allocation table, GMIF
 -- the member data, BTNF optional names (unused by HGSS). Member offsets in BTAF
 -- are relative to the GMIF payload and member IDs are zero based.
@@ -150,7 +150,7 @@ function Narc:blockInfo()
 end
 
 -- Non-authoritative peek at a member's leading byte to guess Nintendo LZ
--- compression. Never mutates and never decompresses (spec §10.4).
+-- compression. Never mutates and never decompresses.
 function Narc.detectCompression(data)
   if type(data) ~= "string" or #data == 0 then return nil end
   local kind = string.byte(data, 1)

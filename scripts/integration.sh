@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Real-ROM integration test (spec §18.5). NOT run in public CI — it needs a
+# Real-ROM integration test. NOT run in public CI — it needs a
 # legally-obtained cartridge dump. Usage:
 #   scripts/integration.sh [path-to.nds]
 #

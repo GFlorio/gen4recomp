@@ -1,5 +1,5 @@
 -- Test helper: assemble NARC archives in memory, valid or deliberately
--- malformed (spec §18.3). A NARC is a 16-byte header followed by blockCount
+-- malformed. A NARC is a 16-byte header followed by blockCount
 -- blocks (BTAF member table, BTNF names, GMIF data). Member offsets in BTAF are
 -- relative to the GMIF payload and 4-byte aligned, matching pret's o2narc.
 --

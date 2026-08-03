@@ -1,4 +1,4 @@
--- Minimal two-version selector (spec §15.3 #7, E8-S4). Shown only when both
+-- Minimal two-version selector. Shown only when both
 -- HeartGold and SoulSilver dumps are ready and no version was requested. Number
 -- keys pick a version; onPick(versionId) hands control back to App.
 

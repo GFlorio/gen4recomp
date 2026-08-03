@@ -1,14 +1,14 @@
--- First-run import orchestration and state machine (spec §15.1). Two roles:
+-- First-run import orchestration and state machine. Two roles:
 --
 --   * RomImporter.isReady(versionId) -- the cheap marker-plus-required-files
---     readiness contract RomFs and the boot flow depend on (spec §6.4). It never
+--     readiness contract RomFs and the boot flow depend on. It never
 --     loads the full index or reads large resources.
 --
 --   * An interactive/headless importer driving RomExtractor inside a coroutine:
 --     validate the ROM fully (NdsRom.open: size, SHA-1, header, game code) BEFORE
 --     any cache mutation, then extract, yielding periodically so the UI stays
---     responsive (spec §14.3). The source ROM is released on every terminal state
---     and a single GC is run (spec §14.4).
+--     responsive. The source ROM is released on every terminal state
+--     and a single GC is run.
 --
 -- Progress is monotonic by construction (RomExtractor's stage fractions). All
 -- love coupling is confined to the default `now` clock and the lazy draw helper.
@@ -48,7 +48,7 @@ function RomImporter.isReady(versionId, cache, versions)
   return true
 end
 
--- Yield roughly every 8ms of work during extraction (spec §14.3).
+-- Yield roughly every 8ms of work during extraction.
 local YIELD_INTERVAL = 0.008
 
 local function defaultNow()
@@ -180,7 +180,7 @@ function RomImporter:startDroppedFile(droppedFile)
   self:startSource(source)
 end
 
--- Drop handler with a friendly extension guard (spec §15.2, E8-S3). Accepts a
+-- Drop handler with a friendly extension guard. Accepts a
 -- raw .nds or a .zip containing one.
 function RomImporter:filedropped(droppedFile)
   local name = droppedFile:getFilename() or ""
@@ -205,7 +205,7 @@ function RomImporter:update()
   end
 end
 
--- Convenience renderer honoring the spec §15.1 API; rendering lives in the ui
+-- Convenience renderer honoring the public API; rendering lives in the ui
 -- layer and is required lazily to keep this module love-free at load time.
 function RomImporter:draw()
   require("src.ui.ImportState").render(self:status())
