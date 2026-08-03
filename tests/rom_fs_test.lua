@@ -42,7 +42,6 @@ function T.resolves_alias_and_symbol_to_path_and_file_id()
   local byAlias = fs:resolvedNarc("map_matrices")
   Assert.equal(byAlias.path, "a/0/4/1")
   Assert.equal(byAlias.fileId, 5)
-  Assert.equal(byAlias.memberCount, 1)
   local bySymbol = fs:resolvedNarc("NARC_fielddata_mapmatrix_map_matrix")
   Assert.equal(bySymbol.fileId, 5)
 end
@@ -56,6 +55,24 @@ function T.opens_narc_and_decodes_matrix()
   Assert.equal(matrix.width, 2)
   Assert.equal(matrix.name, "MM")
   Assert.equal(matrix:modelIdAt(0, 0), 40)
+end
+
+-- NARC aliases resolve purely from the checked-in manifest plus the FNT path
+-- index; no baked resolved_narcs table is produced or required. This means an
+-- alias added after a dump was imported works without re-importing the ROM.
+function T.resolves_without_a_baked_narc_table()
+  local r = DumpFixture.extract()
+  Assert.isNil(r.backend.files[r.versionId .. "/data/generated/resolved_narcs.lua"],
+    "resolved_narcs.lua should no longer be produced")
+  local fs = assert(RomFs.open(r.versionId, r.cache))
+  local entry = fs:resolvedNarc("map_matrices")
+  Assert.notNil(entry, "alias must resolve from manifest + FNT index")
+  Assert.equal(entry.path, "a/0/4/1")
+  Assert.equal(entry.fileId, 5)
+  Assert.isNil(entry.memberCount, "member count is not precomputed; open the NARC for it")
+  local narc, err = fs:openNarc("map_matrices")
+  Assert.notNil(narc, "openNarc failed: " .. tostring(err))
+  Assert.equal(narc:memberCount(), 1)
 end
 
 function T.unknown_source_path_returns_error()

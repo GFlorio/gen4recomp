@@ -209,12 +209,15 @@ function RomExtractor:_writeIndexes(map, fileCount, totalBytes, unmappedCount)
 end
 
 -- Stage 5: resolve every curated alias through the parsed FNT and open it as a
--- NARC. Required aliases that fail to resolve or open abort the import; optional
--- ones only produce warnings. Returns the resolved-entry table
--- keyed by symbol, the required count, warnings, and the opened NARC objects.
+-- NARC, proving the required archives are present and valid before the marker
+-- is written. Required aliases that fail to resolve or open abort the import;
+-- optional ones only produce warnings. This is a validation pass only: alias ->
+-- fileId resolution is derived at runtime from the manifest plus the FNT index,
+-- so nothing is persisted here. Returns the required count, warnings, and the
+-- opened NARCs (reused by the smoke decode).
 function RomExtractor:_validateNarcs()
   local byPath = self._rom:nitroFs().byPath
-  local resolved, opened, warnings = {}, {}, {}
+  local opened, warnings = {}, {}
   local requiredCount = 0
 
   for _, entry in ipairs(self._manifest.aliasList()) do
@@ -237,15 +240,6 @@ function RomExtractor:_validateNarcs()
         end
         warnings[#warnings + 1] = "non-NARC optional entry " .. entry.symbol .. " (" .. entry.path .. ")"
       else
-        resolved[entry.symbol] = {
-          symbol = entry.symbol,
-          narcId = entry.narcId,
-          path = entry.path,
-          fileId = fileId,
-          memberCount = narc:memberCount(),
-          alias = entry.alias,
-          required = entry.required,
-        }
         opened[entry.alias] = narc
         if entry.required then requiredCount = requiredCount + 1 end
       end
@@ -253,7 +247,7 @@ function RomExtractor:_validateNarcs()
   end
 
   self:_emit("validate_narcs", 1, 1)
-  return resolved, requiredCount, warnings, opened
+  return requiredCount, warnings, opened
 end
 
 -- Stage 6: prove a NARC member decodes through the runtime data layout by
@@ -280,21 +274,15 @@ function RomExtractor:_smokeDecode(openedNarcs)
   }
 end
 
--- Stage 7: write resolved_narcs and import_report, recheck the required
--- outputs, then write the marker last.
-function RomExtractor:_finalize(resolved, report)
-  self._cache:writeLua("data/generated/resolved_narcs.lua", {
-    schema = 1,
-    sourceCatalogSchema = self._manifest.schema,
-    entries = resolved,
-  })
+-- Stage 7: write import_report, recheck the required outputs, then write the
+-- marker last.
+function RomExtractor:_finalize(report)
   self._cache:writeLua("data/generated/import_report.lua", report)
 
   for _, path in ipairs({
     "data/generated/rom_metadata.lua",
     "data/generated/romfs_index.lua",
     "data/generated/overlay_index.lua",
-    "data/generated/resolved_narcs.lua",
   }) do
     if not self._cache:exists(path, "file") then
       Errors.raise("EXTRACT_OUTPUT_MISSING", "required output missing at finalize: " .. path,
@@ -311,7 +299,7 @@ function RomExtractor:_run()
   self:_writeSystemMetadata()
   local map, fileCount, totalBytes, unmappedCount = self:_dumpFiles()
   self:_writeIndexes(map, fileCount, totalBytes, unmappedCount)
-  local resolved, requiredCount, warnings, opened = self:_validateNarcs()
+  local requiredCount, warnings, opened = self:_validateNarcs()
   local matrix = self:_smokeDecode(opened)
 
   local report = {
@@ -329,7 +317,7 @@ function RomExtractor:_run()
     parserWarnings = {},
     matrix = matrix,
   }
-  self:_finalize(resolved, report)
+  self:_finalize(report)
   return report
 end
 

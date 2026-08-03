@@ -69,7 +69,8 @@ Each version gets its own subtree so the two games never interfere:
 ├── heartgold/
 │   ├── rom-dump.complete            # marker: g4-rom-dump-v1:heartgold:<sha1>
 │   ├── data/generated/              # rom_metadata, romfs_index, overlay_index,
-│   │                                #   resolved_narcs, import_report (Lua)
+│   │                                #   import_report (Lua). NARC aliases are
+│   │                                #   resolved at runtime, not baked here.
 │   ├── romfs/                        # every named NitroFS file at its exact path
 │   │   └── a/0/4/1  …  data/sound/gs_sound_data.sdat
 │   └── system/                      # header.bin, fnt.bin, fat.bin, arm9/arm7,
