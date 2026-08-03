@@ -31,6 +31,7 @@ local MODULES = {
   "tests.matrix4_test",
   "tests.map_units_test",
   "tests.binary_writer_test",
+  "tests.mesh_writer_test",
   "tests.rom_extractor_test",
   "tests.rom_fs_test",
   "tests.cli_test",
