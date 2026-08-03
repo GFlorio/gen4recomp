@@ -212,8 +212,20 @@ function MapAssetInspector.inspect(romFs, idOrSymbol)
       bdhcSize = land.sizes.bdhc,
       modelMagic = land.mapModelBytes:sub(1, 4),
       bdhcMagic = land.sizes.bdhc > 0 and land.bdhcBytes:sub(1, 4) or "",
-      collisionValues = land.permissions:usedCollisionValues(),
-      terrainValues = land.permissions:usedTerrainValues(),
+      permissionValues = land.permissions:usedPermissionValues(),
+      behaviorValues = land.permissions:usedBehaviorValues(),
+      -- Derived section offsets. The permission grid is NOT at a fixed 0x14: for
+      -- ordinary maps a non-empty soundplate (BGS) block shifts it, matching the
+      -- decomp's dynamic field loader (the fixed-0x14 TerrainAttributes path
+      -- serves only Battle Tower / dynamic-warp maps).
+      offsets = {
+        bgs = land.offsets.bgs,
+        permissions = land.offsets.permissions,
+        buildings = land.offsets.buildings,
+        model = land.offsets.model,
+        bdhc = land.offsets.bdhc,
+      },
+      memberEndMatches = (land.offsets.bdhc + land.sizes.bdhc == #landBytes),
     },
     mapModel = summarizeMapModel(mapModel),
     mapTexturePack = summarizeTexturePack(mapTexPack),
@@ -246,7 +258,12 @@ function MapAssetInspector.lines(report)
   add("land: size=%d bgs=%d perms=0x%X buildings=%d(%d recs) model=%d bdhc=%d magic=%s",
     l.memberSize, l.bgsPayloadSize, l.permissionsSize, l.buildingSectionSize, l.buildingCount,
     l.modelSize, l.bdhcSize, l.modelMagic)
-  add("  collision values: %s", table.concat(l.collisionValues, " "))
+  add("  offsets: bgs=0x%X perms=0x%X buildings=0x%X model=0x%X bdhc=0x%X endMatches=%s",
+    l.offsets.bgs, l.offsets.permissions, l.offsets.buildings, l.offsets.model,
+    l.offsets.bdhc, tostring(l.memberEndMatches))
+  add("  behavior values:   %s", table.concat(l.behaviorValues, " "))
+  add("  permission values: %s (hard-block bit 0x80 | response 0x7F)",
+    table.concat(l.permissionValues, " "))
   local mm = report.mapModel
   add("mapModel: %s models=%d nodes=%d materials=%d shapes=%d verts=%d",
     mm.modelName, mm.modelCount, mm.nodeCount, mm.materialCount, mm.shapeCount, mm.vertexCount)

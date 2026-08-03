@@ -2,9 +2,12 @@
 -- collision permissions, placed-building records, embedded map NSBMD, and BDHC
 -- envelope. The outer layout is a 0x10-byte header of four section sizes, then
 -- a BGS block (signature 0x1234 + payload), then the four sections in order.
--- Layout from the recovered HGSS field engine; ordinary map chunks carry an
--- empty BGS payload, placing permissions at 0x14. Pure domain module;
--- decode() returns (land | nil, err). BDHC bytes are preserved opaquely.
+-- Layout from the recovered HGSS field engine. The BGS payload is soundplate
+-- data; it may be empty (e.g. Elm's Lab, permissions at 0x14) or non-empty
+-- (e.g. New Bark's 88-byte payload, permissions at 0x6C), so the permission
+-- offset is always derived from the encoded payload size, never fixed. Pure
+-- domain module; decode() returns (land | nil, err). The BGS and BDHC payloads
+-- are preserved byte-for-byte and left opaque for this slice.
 
 local Errors = require("src.import.Errors")
 local BinaryReader = require("src.import.BinaryReader")
@@ -96,6 +99,7 @@ local function parse(bytes, context)
     mapModelBytes = r:bytes(modelOffset, modelSize),
     bdhcBytes = r:bytes(bdhcOffset, bdhcSize),
     offsets = {
+      bgs = BGS_OFFSET,
       permissions = permissionsOffset,
       buildings = buildingsOffset,
       model = modelOffset,
