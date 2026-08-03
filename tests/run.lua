@@ -28,6 +28,7 @@ local MODULES = {
   "tests.nsbtx_decoder_opts_test",
   "tests.mesh_compiler_test",
   "tests.building_transform_test",
+  "tests.material_compiler_test",
   "tests.texture_decoder_test",
   "tests.gx_display_list_test",
   "tests.nsbmd_test",
