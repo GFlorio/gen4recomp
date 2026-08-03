@@ -26,6 +26,7 @@ local MODULES = {
   "tests.nitro_dict_test",
   "tests.nsbtx_test",
   "tests.nsbtx_decoder_opts_test",
+  "tests.mesh_compiler_test",
   "tests.texture_decoder_test",
   "tests.gx_display_list_test",
   "tests.nsbmd_test",
