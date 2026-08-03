@@ -1,0 +1,51 @@
+-- Dependency-free test runner. Invoked via `love . --test`. Each listed module
+-- returns a table mapping test-name -> function; every function is run in a
+-- pcall and reported. run() returns the number of failed tests.
+
+local MODULES = {
+  "tests.errors_test",
+  "tests.binary_reader_test",
+  "tests.game_version_test",
+  "tests.lua_writer_test",
+  "tests.cache_fs_test",
+  "tests.rom_source_test",
+}
+
+local function sortedKeys(t)
+  local keys = {}
+  for k in pairs(t) do keys[#keys + 1] = k end
+  table.sort(keys)
+  return keys
+end
+
+local function run()
+  local passed, failed = 0, 0
+  local failures = {}
+
+  for _, modName in ipairs(MODULES) do
+    local ok, mod = pcall(require, modName)
+    if not ok then
+      failed = failed + 1
+      failures[#failures + 1] = modName .. " (load): " .. tostring(mod)
+      print("LOAD FAIL " .. modName .. ": " .. tostring(mod))
+    else
+      for _, name in ipairs(sortedKeys(mod)) do
+        local testOk, err = pcall(mod[name])
+        if testOk then
+          passed = passed + 1
+        else
+          failed = failed + 1
+          local label = modName .. " :: " .. name
+          failures[#failures + 1] = label .. "\n    " .. tostring(err)
+          print("FAIL " .. label .. "\n    " .. tostring(err))
+        end
+      end
+    end
+  end
+
+  print(string.format("\n%d passed, %d failed", passed, failed))
+  for _, f in ipairs(failures) do print("  - " .. f) end
+  return failed
+end
+
+return { run = run }
