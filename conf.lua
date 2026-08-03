@@ -1,15 +1,13 @@
--- LÖVE configuration (spec §6.1). Non-interactive invocations (--test, headless
--- import, dump audit) disable the window and GPU/audio modules so they run
--- windowless and fast; interactive boots get a normal resizable window. Headless
--- detection is a plain scan of `arg`/env here because modules are not up yet.
-
-local function truthy(v) return v ~= nil and v ~= "" and v ~= "0" end
+-- LÖVE configuration. Non-interactive invocations (--test, headless import,
+-- dump audit) disable the window and GPU/audio modules so they run windowless
+-- and fast; interactive boots get a normal resizable window. Headless detection
+-- is a plain scan of `arg` here because modules are not up yet.
 
 local function isHeadless()
   for _, a in ipairs(arg or {}) do
     if a == "--test" or a == "--import-only" or a == "--check-dump" then return true end
   end
-  return truthy(os.getenv("G4RECOMP_IMPORT_ONLY")) or truthy(os.getenv("G4RECOMP_CHECK_DUMP"))
+  return false
 end
 
 function love.conf(t)

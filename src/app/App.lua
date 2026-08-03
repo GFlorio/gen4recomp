@@ -1,8 +1,8 @@
--- Top-level state dispatcher and boot flow (spec §15.3). It owns the importer
--- (pumping it once per frame) and the current UI state. Headless modes
--- (--check-dump, --import-only) print machine-readable output and exit with a
--- status code so agents/scripts can drive imports and verification without a
--- human. Interactive modes show the import screen, a version selector, or the
+-- Top-level state dispatcher and boot flow. It owns the importer (pumping it
+-- once per frame) and the current UI state. Headless modes (--check-dump,
+-- --import-only) print machine-readable output and exit with a status code so
+-- agents/scripts can drive imports and verification without a human.
+-- Interactive modes show the import screen, a version selector, or the
 -- diagnostic. All love coupling lives here and in the ui states.
 
 local GameVersion = require("src.core.GameVersion")
@@ -41,11 +41,11 @@ function App.load(opts)
   App._bootExisting()
 end
 
--- Headless dump verification: audit the requested version, or every ready
--- version when none is named, and exit 0 only if all pass (spec §18.5).
+-- Headless dump verification: audit every ready version and exit 0 only if all
+-- pass. Proves the runtime boots from the private cache without the ROM.
 function App._runCheckDump()
   App.headless = true
-  local targets = App.opts.version and { App.opts.version } or readyVersions()
+  local targets = readyVersions()
   if #targets == 0 then
     print("check-dump: no ready version to audit")
     return love.event.quit(1)
@@ -78,23 +78,18 @@ function App._onImported(versionId)
   end
 end
 
--- Boot decision when no ROM was supplied (spec §15.3 #4-#8).
+-- Boot decision when no ROM was supplied: one ready cache boots straight into
+-- its diagnostic, both ready shows a selector, none ready offers import.
 function App._bootExisting()
-  local requested = App.opts.version
-  if requested and RomImporter.isReady(requested) then
-    App.state = DiagnosticState.new(requested)
-    return
-  end
   local ready = readyVersions()
-  if #ready == 1 and not requested then
+  if #ready == 1 then
     App.state = DiagnosticState.new(ready[1])
     return
   end
-  if #ready >= 2 and not requested then
+  if #ready >= 2 then
     App.state = VersionSelectState.new(ready, function(v) App.state = DiagnosticState.new(v) end)
     return
   end
-  -- Nothing ready (or a requested version that is not ready yet): offer import.
   App._startImport(nil)
 end
 
