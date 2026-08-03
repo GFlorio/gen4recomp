@@ -50,13 +50,11 @@ A `.zip` can be given instead of a `.nds`: it is mounted in memory and walked
 for a compatible `.nds` (matched by SHA-1), so archives with a readme or other
 junk alongside the ROM just work. The same applies to drag-and-drop.
 
-Underlying flags (also settable via `G4RECOMP_*` env vars):
+Underlying flags:
 
 ```text
 --import-rom <path>   --import-only
 --check-dump          # verify every ready dump using only the cache (no ROM); exits 0/1
---diagnostic          # interactive data diagnostic
---version heartgold|soulsilver   # optional: target one cache when both are imported
 --test
 ```
 
@@ -77,7 +75,7 @@ Not run in CI (needs a legally-obtained dump). Imports the ROM, then audits the
 dump in a **separate process that never opens the ROM**:
 
 ```sh
-scripts/integration.sh /path/to/pokeheartgold.us.nds heartgold
+scripts/integration.sh /path/to/pokeheartgold.us.nds
 ```
 
 ### Regenerating the NARC catalog (developer-only)
@@ -90,4 +88,6 @@ scripts/sync-narc-catalog.sh /path/to/pokeheartgold <commit>
 
 Vertical slice in progress: repository bootstrap, binary foundation, version and
 cache contracts, NDS/NitroFS/NARC parsing, private dump, and a runtime `RomFs`
-diagnostic. See `tmp/spec.md` for the full specification.
+diagnostic. See [`docs/architecture.md`](docs/architecture.md) for the boot,
+import, and runtime design, and [`docs/data-provenance.md`](docs/data-provenance.md)
+for where each parsed structure comes from.

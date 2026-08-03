@@ -1,6 +1,6 @@
 -- Smoke decoder for a map-matrix NARC member, proving runtime code can consume
 -- a NARC member using a layout recovered from the decompilation's
--- src/map_matrix.c (spec §12). Pure domain module. Header and altitude sections
+-- src/map_matrix.c. Pure domain module. Header and altitude sections
 -- are optional; absent sections fall back to a default map-header id and zero
 -- altitude. All logical accessors are zero-based even though Lua storage is
 -- 1-based arrays. decode() returns (matrix | nil, err) like other parsers.

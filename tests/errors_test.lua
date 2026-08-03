@@ -32,7 +32,7 @@ function T.format_tolerates_non_error_values()
   Assert.equal(Errors.format("just a string"), "just a string")
 end
 
--- Structured errors must survive pcall unchanged (spec E2-S2 acceptance).
+-- Structured errors must survive pcall unchanged.
 function T.raise_survives_pcall()
   local ok, err = pcall(function()
     Errors.raise("SHORT_HEADER", "too small", { size = 10 })

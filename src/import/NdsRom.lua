@@ -1,7 +1,7 @@
 -- Parses and validates a Nintendo DS cartridge container (header, FAT, FNT,
 -- overlay tables) over a RomSource. Does not write files; RomExtractor consumes
 -- the parsed map. Full SHA-1 is authoritative for version identity and is
--- computed before any cache mutation elsewhere (spec §9.1).
+-- computed before any cache mutation elsewhere.
 --
 -- Only this module, RomSource, and RomExtractor may hold the full ROM. open()
 -- returns (ndsRom | nil, err); malformed containers yield a structured Errors.
@@ -180,7 +180,7 @@ function NdsRom:readFatFile(fileId)
 end
 
 -- Assign exactly one cache destination to every FAT entry, in the priority
--- order FNT name > arm9 overlay > arm7 overlay > unmapped (spec §9.5).
+-- order FNT name > arm9 overlay > arm7 overlay > unmapped.
 function NdsRom:fileMap()
   local overlayByFileId = {}
   for _, ov in ipairs(self._arm9Overlays) do

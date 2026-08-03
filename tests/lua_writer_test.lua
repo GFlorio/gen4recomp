@@ -22,7 +22,7 @@ function T.round_trips_scalars_and_nesting()
   Assert.deepEqual(out, value)
 end
 
--- Zero-based FAT keys are the whole point (spec §7.2).
+-- Zero-based FAT keys are the whole point.
 function T.round_trips_zero_based_numeric_keys()
   local value = { [0] = "a", [1] = "b", [2] = "c" }
   local out = roundTrip(value)

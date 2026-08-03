@@ -1,7 +1,7 @@
 -- Test helper: build a minimal STORED (uncompressed) .zip in memory so zip-ROM
 -- support can be exercised without a real archive. PhysFS/love.filesystem mounts
--- the result. CRC32s are computed properly via LuaJIT's bit module (spec forbids
--- 5.3 bitwise syntax). files = { { name = "a/b.nds", data = "..." }, ... }.
+-- the result. CRC32s are computed properly via LuaJIT's bit module, not
+-- 5.3 bitwise syntax. files = { { name = "a/b.nds", data = "..." }, ... }.
 
 local bit = require("bit")
 

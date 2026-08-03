@@ -1,13 +1,13 @@
 -- Materializes a parsed NdsRom into the private per-version cache: a lossless
 -- raw NitroFS dump plus deterministic generated metadata, finished by a
--- marker-last transaction (spec §14). Orchestration only; all binary parsing
+-- marker-last transaction. Orchestration only; all binary parsing
 -- lives in the pure modules it drives. run() wraps a private pipeline in pcall
 -- and returns (report | nil, err); the completion marker is written only after
 -- every other output and the final recheck succeed.
 --
 -- This module is allowed to hold the full ROM (via NdsRom); releasing it is the
--- caller's responsibility (spec §14.4). Responsiveness/yielding belongs to the
--- importer coroutine that drives the progress callback, not here (spec §14.3).
+-- caller's responsibility. Responsiveness/yielding belongs to the
+-- importer coroutine that drives the progress callback, not here.
 
 local Errors = require("src.import.Errors")
 local Narc = require("src.import.Narc")
@@ -17,7 +17,7 @@ local RomExtractor = {}
 RomExtractor.__index = RomExtractor
 
 -- Raw-dump cache format. Independent of any future decoded-data format; bump
--- only when the dump layout or romfs_index schema changes (spec §6.3).
+-- only when the dump layout or romfs_index schema changes.
 RomExtractor.DUMP_FORMAT = 1
 local MARKER_PATH = "rom-dump.complete"
 
@@ -26,7 +26,7 @@ function RomExtractor.markerContent(versionId, sha1)
 end
 
 -- Ordered stages with the [start, finish) fraction each occupies of the overall
--- progress bar. Monotonic by construction (spec §14.3).
+-- progress bar. Monotonic by construction.
 local STAGES = {
   { key = "prepare",               label = "Preparing cache",       from = 0.00, to = 0.02 },
   { key = "write_system_metadata", label = "Writing system data",   from = 0.02, to = 0.10 },
@@ -73,7 +73,7 @@ local function readRom(rom, offset, length, name)
 end
 
 -- Stage 1: remove the marker first, then wipe this version's stale partial
--- output, then recreate the output directories (spec §14.2, §14.5).
+-- output, then recreate the output directories.
 function RomExtractor:_prepare()
   self._cache:remove(MARKER_PATH)
   self._cache:removeTree("")
@@ -129,7 +129,7 @@ function RomExtractor:_dumpFiles()
   return map, total, totalBytes, unmapped
 end
 
--- Stage 4: rom_metadata, romfs_index, overlay_index (spec §7.1-§7.3).
+-- Stage 4: rom_metadata, romfs_index, overlay_index.
 function RomExtractor:_writeIndexes(map, fileCount, totalBytes, unmappedCount)
   local rom, h, v = self._rom, self._rom:header(), self._version
   local arm9Ov, arm7Ov = rom:arm9Overlays(), rom:arm7Overlays()
@@ -210,7 +210,7 @@ end
 
 -- Stage 5: resolve every curated alias through the parsed FNT and open it as a
 -- NARC. Required aliases that fail to resolve or open abort the import; optional
--- ones only produce warnings (spec §14.2). Returns the resolved-entry table
+-- ones only produce warnings. Returns the resolved-entry table
 -- keyed by symbol, the required count, warnings, and the opened NARC objects.
 function RomExtractor:_validateNarcs()
   local byPath = self._rom:nitroFs().byPath
@@ -257,7 +257,7 @@ function RomExtractor:_validateNarcs()
 end
 
 -- Stage 6: prove a NARC member decodes through the runtime data layout by
--- reading map_matrices member 0 (spec §14.2, §12).
+-- reading map_matrices member 0.
 function RomExtractor:_smokeDecode(openedNarcs)
   local narc = openedNarcs.map_matrices
   assert(narc, "map_matrices must have been opened as a required NARC")
@@ -281,7 +281,7 @@ function RomExtractor:_smokeDecode(openedNarcs)
 end
 
 -- Stage 7: write resolved_narcs and import_report, recheck the required
--- outputs, then write the marker last (spec §14.2).
+-- outputs, then write the marker last.
 function RomExtractor:_finalize(resolved, report)
   self._cache:writeLua("data/generated/resolved_narcs.lua", {
     schema = 1,

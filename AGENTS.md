@@ -45,7 +45,7 @@ to avoid shell injection or permission issues.
 
 - **Layout:** pure domain modules live in `src/import/` and `src/core/`; they must not `require` love. Require siblings by full path: `require("src.import.BinaryReader")`.
 - **Module shape:** each file returns one table. Instance types set `M.__index = M` and construct with `setmetatable({...}, M)`. 2-space indent, LF, final newline.
-- **Header comment:** open each module with a short paragraph stating its role and citing the spec section it implements (e.g. `spec §9.4`).
+- **Header comment:** open each module with a short paragraph stating its role. Where it implements an external binary format, name the authoritative source (a GBATEK section, a `pret/pokeheartgold` file, or a `docs/` page) rather than an internal document.
 - **Zero-based everywhere:** offsets, `fileId`, `memberId`, overlay tables. Iterate zero-based maps with `for id = 0, count - 1`, never `ipairs`. Never expose a generic `id`; use `narcId` / `fileId` / `memberId`.
 - **Binary access:** go through `BinaryReader` (bounds-checked, zero-based, little-endian by arithmetic). No `bit`/Lua 5.3 ops needed for 8/16/32-bit values.
 - **Errors vs assert:** malformed input / user faults raise `Errors.raise(CODE, message, context)` with a `SCREAMING_SNAKE_CASE` module-prefixed code (`NDS_*`, `OVERLAY_*`, `READ_*`). Programming invariants use plain `assert`. Public `open`/`parse` entry points wrap a private `_parse` in `pcall` and return `nil, err` when `Errors.is(result)`, else re-raise.

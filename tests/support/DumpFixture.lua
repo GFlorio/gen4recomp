@@ -56,7 +56,7 @@ function DumpFixture.spec()
 end
 
 -- Open the given spec as an NdsRom, injecting a version catalog that accepts
--- exactly this synthetic ROM under game code IPKE (spec E3-S3).
+-- exactly this synthetic ROM under game code IPKE.
 function DumpFixture.openRom(spec)
   local data = NdsBuilder.build(spec or DumpFixture.spec())
   local info = { sha1 = RomSource.fromString(data):sha1(), gameCode = "IPKE", expectedSize = #data }

@@ -1,7 +1,7 @@
 -- Recursive NitroFS FNT parser. Pure domain module: turns the raw FNT byte
 -- region into exact source paths keyed by zero-based fileId, plus the reverse
 -- map. Malformed tables raise structured Errors rather than reading past the
--- supplied bytes (spec §9.3). Directory ids are 0xF000-based; the low 12 bits
+-- supplied bytes. Directory ids are 0xF000-based; the low 12 bits
 -- select the directory record.
 
 local Errors = require("src.import.Errors")

@@ -68,7 +68,7 @@ end
 function CacheFs:write(relativePath, data)
   local full = self:resolve(relativePath)
   -- Ensure the parent chain exists; the love backend's createDirectory is
-  -- mkdir -p, so one call materializes every intermediate directory (spec §13).
+  -- mkdir -p, so one call materializes every intermediate directory.
   local parent = full:match("^(.*)/[^/]+$")
   if parent then self.backend:createDirectory(parent) end
   self.backend:write(full, data)

@@ -1,5 +1,5 @@
 -- Headless verification of a completed ROM dump, using ONLY the runtime RomFs
--- API plus cheap cache metadata (spec §18.5). It never touches the original ROM,
+-- API plus cheap cache metadata. It never touches the original ROM,
 -- so a passing audit in a fresh process is proof the dump boots without the
 -- cartridge. Backs the --check-dump CLI mode and is exercised by unit tests
 -- against a synthetic dump.
@@ -17,7 +17,7 @@ local Errors = require("src.import.Errors")
 local DumpAudit = {}
 
 -- Confirm every FAT-backed output exists with the size the index recorded. Reads
--- no payloads; compares cache getInfo sizes against the index (spec §18.5 #3-#4).
+-- no payloads; compares cache getInfo sizes against the index.
 local function checkFiles(romFs, cache)
   local total = romFs:fileCount()
   local mismatches = {}

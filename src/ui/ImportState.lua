@@ -1,4 +1,4 @@
--- Interactive import screen (spec §15.4). Presentational only: it renders an
+-- Interactive import screen. Presentational only: it renders an
 -- importer's status snapshot and forwards drops; App owns the importer and pumps
 -- it. Shows the drop instruction and the save-directory path where the private
 -- cache lands, plus live stage/progress and structured error text on failure.

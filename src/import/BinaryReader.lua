@@ -1,6 +1,6 @@
 -- Bounds-checked, zero-based reader over a binary string. Pure domain module:
 -- no love dependency. Little-endian integers are assembled arithmetically,
--- which is exact for 8/16/32-bit values under LuaJIT doubles (spec §8.2).
+-- which is exact for 8/16/32-bit values under LuaJIT doubles.
 
 local Errors = require("src.import.Errors")
 

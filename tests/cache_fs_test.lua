@@ -40,7 +40,7 @@ function T.exists_checks_presence_and_type()
 end
 
 -- write() must materialize the parent chain so the love backend (no implicit
--- mkdir) can land a deeply nested NitroFS file (spec §13).
+-- mkdir) can land a deeply nested NitroFS file.
 function T.write_creates_parent_directories()
   local backend = FakeCache.new()
   cache("heartgold", backend):write("romfs/a/0/0/0", "data")
@@ -58,7 +58,7 @@ function T.remove_tree_recursively_clears_subtree()
   Assert.equal(c:read("romfs/data/x"), "x")
 end
 
--- One version's operations must never see or clear another's (spec §6.3).
+-- One version's operations must never see or clear another's.
 function T.versions_are_isolated()
   local backend = FakeCache.new()
   local hg = cache("heartgold", backend)
