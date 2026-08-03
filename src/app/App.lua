@@ -38,6 +38,9 @@ function App.load(opts)
   if App.opts.inspectMap then
     return App._runInspectMap(App.opts.inspectMap)
   end
+  if App.opts.buildMap then
+    return App._runBuildMap(App.opts.buildMap)
+  end
   if App.opts.importRom then
     return App._startImport(App.opts.importRom)
   end
@@ -89,6 +92,43 @@ function App._runInspectMap(idOrSymbol)
         print("inspect-map: " .. version .. " failed: " .. Errors.format(report))
       end
       romFs:close()
+    end
+  end
+  love.event.quit(allOk and 0 or 1)
+end
+
+-- Headless map compiler: compile the target map into the derived cache for
+-- every ready version (skipping a rebuild when the marker already matches) and
+-- print the completion marker. Exits 0 if every version compiled, 1 otherwise.
+function App._runBuildMap(idOrSymbol)
+  App.headless = true
+  local MapAssetCompiler = require("src.import.MapAssetCompiler")
+  local MapCacheWriter = require("src.import.MapCacheWriter")
+  local MapAssetCache = require("src.core.MapAssetCache")
+  local CacheFs = require("src.import.CacheFs")
+  local RomFs = require("src.core.RomFs")
+  local targets = readyVersions()
+  if #targets == 0 then
+    print("build-map: no ready version to compile")
+    return love.event.quit(1)
+  end
+  local allOk = true
+  for _, version in ipairs(targets) do
+    local ok, err = pcall(function()
+      local romFs = assert(RomFs.open(version))
+      local bundle = assert(MapAssetCompiler.compile(romFs, idOrSymbol))
+      local cacheFs = CacheFs.forVersion(version)
+      if MapAssetCache.isReady(cacheFs, bundle.mapId, bundle.marker) then
+        print(string.format("build-map: %s map %d already current (%s)", version, bundle.mapId, bundle.marker))
+      else
+        local marker = MapCacheWriter.write(cacheFs, bundle)
+        print(string.format("build-map: %s map %d compiled -> %s", version, bundle.mapId, marker))
+      end
+      romFs:close()
+    end)
+    if not ok then
+      allOk = false
+      print("build-map: " .. version .. " failed: " .. Errors.format(err))
     end
   end
   love.event.quit(allOk and 0 or 1)
