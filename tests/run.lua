@@ -28,6 +28,7 @@ local MODULES = {
   "tests.texture_decoder_test",
   "tests.gx_display_list_test",
   "tests.nsbmd_test",
+  "tests.matrix4_test",
   "tests.rom_extractor_test",
   "tests.rom_fs_test",
   "tests.cli_test",
