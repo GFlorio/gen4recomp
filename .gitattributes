@@ -1,0 +1,14 @@
+* text=auto eol=lf
+
+*.lua   text eol=lf
+*.md    text eol=lf
+*.sh    text eol=lf
+*.ps1   text eol=crlf
+
+*.nds   binary
+*.sav   binary
+*.bin   binary
+*.narc  binary
+*.sdat  binary
+*.png   binary
+*.zip   binary
