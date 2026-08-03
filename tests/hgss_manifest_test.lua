@@ -43,9 +43,26 @@ function T.rejects_unknown_alias()
   Assert.throws(function() Hgss.resolve("not_a_real_alias") end)
 end
 
+function T.resolves_map_asset_aliases()
+  local cases = {
+    { alias = "area_data", narcId = 42, path = "a/0/4/2" },
+    { alias = "map_textures", narcId = 44, path = "a/0/4/4" },
+    { alias = "building_textures", narcId = 70, path = "a/0/7/0" },
+    { alias = "interior_build_models", narcId = 148, path = "a/1/4/8" },
+    { alias = "exterior_build_models", narcId = 40, path = "a/0/4/0" },
+    { alias = "area_build_config", narcId = 43, path = "a/0/4/3" },
+  }
+  for _, c in ipairs(cases) do
+    local e = Hgss.resolve(c.alias)
+    Assert.equal(e.alias, c.alias)
+    Assert.equal(e.narcId, c.narcId)
+    Assert.equal(e.path, c.path)
+  end
+end
+
 function T.alias_list_is_complete_and_deterministic()
   local list = Hgss.aliasList()
-  Assert.equal(#list, 20)
+  Assert.equal(#list, 26)
   -- Sorted ascending by narcId.
   for i = 2, #list do
     Assert.isTrue(list[i - 1].narcId < list[i].narcId, "aliasList not sorted by narcId")

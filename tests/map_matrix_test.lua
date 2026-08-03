@@ -103,6 +103,50 @@ function T.coordinate_accessors_reject_out_of_range()
   Assert.throws(function() m:mapHeaderIdAt(0, 2) end)
 end
 
+function T.cell_bundles_header_altitude_and_land_member()
+  local m = decodeOk(sample(true, true))
+  Assert.deepEqual(m:cell(0, 0), { mapHeaderId = 10, altitude = 1, landDataMemberId = 20 })
+  Assert.deepEqual(m:cell(1, 1), { mapHeaderId = 13, altitude = 4, landDataMemberId = 23 })
+end
+
+function T.cell_rejects_out_of_range()
+  local m = decodeOk(sample(true, true))
+  Assert.throws(function() m:cell(2, 0) end)
+  Assert.throws(function() m:cell(0, -1) end)
+end
+
+function T.world_origin_is_32_tiles_per_cell()
+  local m = decodeOk(sample(true, true))
+  local x0, z0 = m:worldOrigin(0, 0)
+  Assert.equal(x0, 0)
+  Assert.equal(z0, 0)
+  local x1, z1 = m:worldOrigin(1, 1)
+  Assert.equal(x1, 32)
+  Assert.equal(z1, 32)
+end
+
+function T.find_cells_by_map_header_id()
+  local m = decodeOk(sample(true, true))
+  local cells = m:findCellsByMapHeaderId(11)
+  Assert.deepEqual(cells, { { x = 1, z = 0, index = 1 } })
+  Assert.deepEqual(m:findCellsByMapHeaderId(99), {})
+end
+
+function T.find_cells_returns_all_matches_in_row_major_order()
+  -- 2x2 where header 60 appears at (0,0) and (1,1).
+  local data = build({
+    width = 2, height = 2, name = "map",
+    hasHeaders = true, hasAltitudes = false,
+    headers = { 60, 5, 6, 60 },
+    modelIds = { 0, 1, 2, 3 },
+  })
+  local m = decodeOk(data)
+  Assert.deepEqual(m:findCellsByMapHeaderId(60), {
+    { x = 0, z = 0, index = 0 },
+    { x = 1, z = 1, index = 3 },
+  })
+end
+
 function T.rejects_zero_dimension()
   local m, err = MapMatrix.decode(u8(0) .. u8(1) .. u8(0) .. u8(0) .. u8(0))
   Assert.isNil(m)
