@@ -2,4 +2,4 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/lib.sh
-exec love . --test "$@"
+exec love . --test

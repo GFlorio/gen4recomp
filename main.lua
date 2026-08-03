@@ -1,13 +1,13 @@
--- Entry point (spec §15.3). Parse flags + env once, then dispatch: `--test` runs
--- the suite and exits; everything else hands normalized options to App, which
--- owns the import/boot/runtime flow and any headless exit codes.
+-- Entry point. Parse flags once, then dispatch: `--test` runs the suite and
+-- exits; everything else hands normalized options to App, which owns the
+-- import/boot/runtime flow and any headless exit codes.
 
 local Cli = require("src.app.Cli")
 
 local App
 
 function love.load(argv)
-  local opts = Cli.parse(argv, function(name) return os.getenv(name) end)
+  local opts = Cli.parse(argv)
 
   if opts.test then
     local failures = require("tests.run").run()
