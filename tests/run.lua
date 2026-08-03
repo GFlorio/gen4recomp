@@ -9,6 +9,9 @@ local MODULES = {
   "tests.lua_writer_test",
   "tests.cache_fs_test",
   "tests.rom_source_test",
+  "tests.nitro_fs_test",
+  "tests.overlay_table_test",
+  "tests.nds_rom_test",
 }
 
 local function sortedKeys(t)
