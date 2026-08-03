@@ -12,6 +12,8 @@ local MODULES = {
   "tests.nitro_fs_test",
   "tests.overlay_table_test",
   "tests.nds_rom_test",
+  "tests.narc_test",
+  "tests.hgss_manifest_test",
 }
 
 local function sortedKeys(t)
