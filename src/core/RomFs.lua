@@ -43,23 +43,17 @@ local function _open(versionId, cache)
 
   local metadata = loadRequired(cache, "data/generated/rom_metadata.lua")
   local index = loadRequired(cache, "data/generated/romfs_index.lua")
-  local resolved = loadRequired(cache, "data/generated/resolved_narcs.lua")
   requireSchema(metadata, 1, "rom_metadata")
   requireSchema(index, 1, "romfs_index")
-  requireSchema(resolved, 1, "resolved_narcs")
 
-  -- Build transient lookups once; they must not be duplicated on disk.
-  local byPath, bySymbol, byAlias = {}, {}, {}
+  -- Build the source-path -> fileId lookup once from the FNT index. NARC alias
+  -- resolution is derived on demand from the checked-in manifest plus this
+  -- lookup, so there is no baked alias table to persist or keep in sync.
+  local byPath = {}
   for fileId = 0, index.fileCount - 1 do
     local entry = index.files[fileId]
     assert(entry, "romfs_index missing fileId " .. fileId)
     if entry.sourcePath then byPath[entry.sourcePath] = fileId end
-  end
-  local resolvedCount = 0
-  for symbol, entry in pairs(resolved.entries) do
-    bySymbol[symbol] = entry
-    byAlias[entry.alias] = entry
-    resolvedCount = resolvedCount + 1
   end
 
   return setmetatable({
@@ -68,9 +62,6 @@ local function _open(versionId, cache)
     _metadata = metadata,
     _index = index,
     _byPath = byPath,
-    _bySymbol = bySymbol,
-    _byAlias = byAlias,
-    _resolvedCount = resolvedCount,
   }, RomFs)
 end
 
@@ -85,6 +76,16 @@ function RomFs:version() return self._version end
 function RomFs:metadata() return self._metadata end
 function RomFs:fileCount() return self._index.fileCount end
 
+-- Count curated aliases that resolve against this dump's FNT (i.e. whose path
+-- is present). Derived, not stored, so it always reflects the current manifest.
+function RomFs:_resolvedNarcCount()
+  local count = 0
+  for _, entry in ipairs(Hgss.aliasList()) do
+    if self._byPath[entry.path] then count = count + 1 end
+  end
+  return count
+end
+
 -- Aggregate counts for diagnostics, drawn straight from the loaded index.
 function RomFs:stats()
   local i = self._index
@@ -94,7 +95,7 @@ function RomFs:stats()
     overlayFileCount = i.overlayFileCount,
     unmappedFileCount = i.unmappedFileCount,
     totalFileBytes = i.totalFileBytes,
-    resolvedNarcCount = self._resolvedCount,
+    resolvedNarcCount = self:_resolvedNarcCount(),
   }
 end
 
@@ -142,14 +143,23 @@ function RomFs:readSourcePath(sourcePath)
   return self:read(sourcePath)
 end
 
--- Resolve a curated alias, version-neutral alias, or raw NARC symbol to its
--- resolved entry (with the FNT-derived fileId and memberCount).
+-- Resolve a curated alias, version-neutral alias, or raw NARC symbol to a fileId
+-- entry, using the checked-in manifest plus this dump's FNT path index. Returns
+-- nil if the manifest does not know the name or its path is absent from the FNT.
+-- No memberCount is included (that requires opening the NARC); openNarc does
+-- not need it.
 function RomFs:resolvedNarc(symbolOrAlias)
-  local entry = self._bySymbol[symbolOrAlias] or self._byAlias[symbolOrAlias]
-  if entry then return entry end
-  local ok, manifestEntry = pcall(Hgss.resolve, symbolOrAlias, self._version)
-  if ok and manifestEntry then return self._bySymbol[manifestEntry.symbol] end
-  return nil
+  local ok, entry = pcall(Hgss.resolve, symbolOrAlias, self._version)
+  if not (ok and entry) then return nil end
+  local fileId = self._byPath[entry.path]
+  if not fileId then return nil end
+  return {
+    symbol = entry.symbol,
+    alias = entry.alias,
+    narcId = entry.narcId,
+    path = entry.path,
+    fileId = fileId,
+  }
 end
 
 function RomFs:openNarc(symbolOrAlias)
@@ -168,8 +178,6 @@ function RomFs:close()
   self._metadata = nil
   self._index = nil
   self._byPath = nil
-  self._bySymbol = nil
-  self._byAlias = nil
 end
 
 return RomFs

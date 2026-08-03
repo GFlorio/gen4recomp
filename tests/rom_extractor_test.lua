@@ -67,7 +67,7 @@ end
 function T.generated_indexes_are_deterministic()
   local a = extractOk()
   local b = extractOk()
-  for _, name in ipairs({ "rom_metadata", "romfs_index", "overlay_index", "resolved_narcs" }) do
+  for _, name in ipairs({ "rom_metadata", "romfs_index", "overlay_index" }) do
     local path = HG .. "data/generated/" .. name .. ".lua"
     Assert.equal(a.backend.files[path], b.backend.files[path], name .. " must be byte-identical")
   end
