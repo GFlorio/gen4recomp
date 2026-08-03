@@ -117,4 +117,38 @@ function MapMatrix:mapHeaderIdAt(x, y) return self.headers[self:index(x, y) + 1]
 function MapMatrix:altitudeAt(x, y) return self.altitudes[self:index(x, y) + 1] end
 function MapMatrix:modelIdAt(x, y) return self.modelIds[self:index(x, y) + 1] end
 
+-- One matrix cell spans a fixed square of field tiles; the model-grid entry is
+-- the land-data member for that cell.
+local TILES_PER_CELL = 32
+
+-- Bundle the three per-cell values at (x, z). Matrix rows run along z.
+function MapMatrix:cell(x, z)
+  local i = self:index(x, z)
+  return {
+    mapHeaderId = self.headers[i + 1],
+    altitude = self.altitudes[i + 1],
+    landDataMemberId = self.modelIds[i + 1],
+  }
+end
+
+-- Global tile origin of cell (x, z): the top-left field tile it owns.
+function MapMatrix:worldOrigin(x, z)
+  self:index(x, z) -- bounds-check
+  return x * TILES_PER_CELL, z * TILES_PER_CELL
+end
+
+-- Every cell whose map-header id equals mapId, in row-major (index) order.
+function MapMatrix:findCellsByMapHeaderId(mapId)
+  local out = {}
+  for z = 0, self.height - 1 do
+    for x = 0, self.width - 1 do
+      local i = z * self.width + x
+      if self.headers[i + 1] == mapId then
+        out[#out + 1] = { x = x, z = z, index = i }
+      end
+    end
+  end
+  return out
+end
+
 return MapMatrix

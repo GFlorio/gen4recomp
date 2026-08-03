@@ -15,6 +15,12 @@ function love.load(argv)
     return
   end
 
+  if opts.testPrivate then
+    local failures = require("tests.private.run").run()
+    love.event.quit(failures == 0 and 0 or 1)
+    return
+  end
+
   App = require("src.app.App")
   App.load(opts)
 end

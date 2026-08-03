@@ -9,6 +9,7 @@ function T.defaults_are_all_off()
   Assert.isNil(o.importRom)
   Assert.isFalse(o.importOnly)
   Assert.isFalse(o.checkDump)
+  Assert.isFalse(o.testPrivate)
 end
 
 function T.parses_flags()
@@ -17,6 +18,10 @@ function T.parses_flags()
   Assert.isTrue(o.importOnly)
   Assert.isTrue(o.checkDump)
   Assert.isTrue(o.test)
+end
+
+function T.parses_test_private()
+  Assert.isTrue(Cli.parse({ "--test-private" }).testPrivate)
 end
 
 function T.ignores_unknown_tokens()
