@@ -73,6 +73,13 @@ function T.gate2_land_containers(romFs)
   Assert.equal(land.sizes.buildings % 0x30, 0)
   Assert.equal(land.mapModelBytes:sub(1, 4), "BMD0")
   Assert.notNil(land.bdhcBytes, "BDHC slice must be available as opaque bytes")
+  -- Outdoor chunk carries an 88-byte BGS/soundplate payload (excludes the
+  -- 4-byte 0x1234+size header), pushing permissions to 0x14 + 88 = 0x6C.
+  Assert.equal(#land.bgs.payload, 88)
+  Assert.equal(land.offsets.permissions, 0x14 + 88)
+  -- Observed permission bytes: only 0x80 hard-blocks; 0, 4, 6 are passable
+  -- surface responses.
+  Assert.deepEqual(land.permissions:usedPermissionValues(), { 0, 4, 6, 128 })
   local modelIds = {}
   for _, b in ipairs(land.buildings) do modelIds[#modelIds + 1] = b.modelMemberId end
   print(string.format(
@@ -80,7 +87,7 @@ function T.gate2_land_containers(romFs)
     r.landDataMemberId, #land.bgs.payload, land.sizes.permissions,
     land.sizes.buildings, #land.buildings, land.sizes.model, land.sizes.bdhc))
   print("  [new_bark] placed building model ids: " .. table.concat(modelIds, " "))
-  print("  [new_bark] collision values: " .. table.concat(land.permissions:usedCollisionValues(), " "))
+  print("  [new_bark] permission values: " .. table.concat(land.permissions:usedPermissionValues(), " "))
 end
 
 -- Gate 3: the outdoor map/building texture packs inventory cleanly, including

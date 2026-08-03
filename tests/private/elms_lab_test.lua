@@ -79,11 +79,16 @@ function T.gate2_land_containers(romFs)
   Assert.equal(land.mapModelBytes:sub(1, 4), "BMD0")
   Assert.notNil(land.bdhcBytes, "BDHC slice must be available as opaque bytes")
   Assert.notNil(land.permissions:get(0, 0))
+  -- Indoor chunk carries no BGS/soundplate payload, so permissions sit at 0x14.
+  Assert.equal(#land.bgs.payload, 0)
+  -- Observed permission bytes: only 0x80 hard-blocks; 0 and 6 are passable
+  -- surface responses, not obstacles.
+  Assert.deepEqual(land.permissions:usedPermissionValues(), { 0, 6, 128 })
   print(string.format(
     "  [elms_lab] land member %d: bgsPayload=%d permissions=0x%X buildings=%d(%d recs) model=%d bdhc=%d",
     r.landDataMemberId, #land.bgs.payload, land.sizes.permissions,
     land.sizes.buildings, #land.buildings, land.sizes.model, land.sizes.bdhc))
-  print("  [elms_lab] collision values: " .. table.concat(land.permissions:usedCollisionValues(), " "))
+  print("  [elms_lab] permission values: " .. table.concat(land.permissions:usedPermissionValues(), " "))
 end
 
 -- Gate 3: the map and building texture packs inventory cleanly, and every

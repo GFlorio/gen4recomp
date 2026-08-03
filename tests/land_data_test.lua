@@ -25,6 +25,20 @@ function T.decodes_valid_member_with_empty_bgs_payload()
   Assert.equal(land.bdhcBytes, "")
 end
 
+-- Regression for New Bark: a non-empty BGS/soundplate payload must shift the
+-- permission grid, proving the offset is derived from the encoded size and not
+-- fixed at 0x14. The 88 bytes are payload only; they exclude the 4-byte
+-- (0x1234 + size) BGS header.
+function T.derives_permission_offset_from_nonempty_bgs_payload()
+  local payload = string.rep(string.char(0xAB), 88)
+  local land = assert(LandData.decode(Builder.build({ bgsPayload = payload })))
+  Assert.equal(#land.bgs.payload, 88)
+  Assert.equal(land.bgs.payload, payload) -- preserved byte-for-byte
+  Assert.equal(land.offsets.bgs, 0x10)
+  Assert.equal(land.offsets.permissions, 0x14 + 88)
+  Assert.equal(land.offsets.buildings, 0x14 + 88 + 0x800)
+end
+
 function T.decodes_buildings_and_bdhc()
   local land = assert(LandData.decode(Builder.build({
     buildings = Builder.buildingRecord(21) .. Builder.buildingRecord(7),

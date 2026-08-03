@@ -4,7 +4,7 @@ local PermissionGrid = require("src.data.PermissionGrid")
 local T = {}
 
 -- Build a 0x800 permission section. records maps zero-based
--- index (z*32+x) -> { terrain, collision }; everything else is {0,0}.
+-- index (z*32+x) -> { behavior, permission }; everything else is {0,0}.
 local function build(records)
   records = records or {}
   local bytes = {}
@@ -16,25 +16,41 @@ local function build(records)
 end
 
 function T.addresses_records_row_major()
-  -- Distinctive terrain/collision at the four corners the spec calls out.
+  -- Distinctive behavior byte at the four corners the layout calls out.
   local g = assert(PermissionGrid.decode(build({
     [0] = { 1, 0 },      -- (0,0) -> bytes 0,1
     [31] = { 2, 0 },     -- (31,0) -> bytes 62,63
     [32] = { 3, 0 },     -- (0,1) -> bytes 64,65
     [1023] = { 4, 0 },   -- (31,31) -> last two bytes
   })))
-  Assert.equal(g:get(0, 0).terrain, 1)
-  Assert.equal(g:get(31, 0).terrain, 2)
-  Assert.equal(g:get(0, 1).terrain, 3)
-  Assert.equal(g:get(31, 31).terrain, 4)
+  Assert.equal(g:get(0, 0).behavior, 1)
+  Assert.equal(g:get(31, 0).behavior, 2)
+  Assert.equal(g:get(0, 1).behavior, 3)
+  Assert.equal(g:get(31, 31).behavior, 4)
 end
 
-function T.raw_packs_terrain_and_collision()
-  local g = assert(PermissionGrid.decode(build({ [0] = { 0x12, 0x80 } })))
-  local rec = g:get(0, 0)
-  Assert.equal(rec.terrain, 0x12)
-  Assert.equal(rec.collision, 0x80)
-  Assert.equal(rec.raw, 0x12 + 0x80 * 256)
+-- The second byte is not a plain collision flag: bit 0x80 is the hard-block
+-- flag and the low 7 bits are a terrain/footstep response id.
+function T.splits_permission_byte_into_hard_block_and_response()
+  local cases = {
+    { byte = 0x00, blocked = false, response = 0 },
+    { byte = 0x04, blocked = false, response = 4 },
+    { byte = 0x06, blocked = false, response = 6 },
+    { byte = 0x80, blocked = true, response = 0 },
+    { byte = 0x84, blocked = true, response = 4 },
+    { byte = 0x86, blocked = true, response = 6 },
+  }
+  for _, c in ipairs(cases) do
+    local g = assert(PermissionGrid.decode(build({ [0] = { 0x12, c.byte } })))
+    local rec = g:get(0, 0)
+    Assert.equal(rec.permissionRaw, c.byte)
+    Assert.equal(rec.hardBlocked, c.blocked)
+    Assert.equal(rec.terrainResponseId, c.response)
+    Assert.equal(rec.behavior, 0x12)
+    Assert.equal(rec.raw, 0x12 + c.byte * 256)
+    -- isBlocked reflects only the hard-block bit; 4 and 6 are passable.
+    Assert.equal(g:isBlocked(0, 0), c.blocked)
+  end
 end
 
 function T.contains_rejects_out_of_range_without_wrapping()
@@ -47,38 +63,14 @@ function T.contains_rejects_out_of_range_without_wrapping()
   Assert.throws(function() g:get(32, 0) end)
 end
 
-function T.collision_policy_blocks_impassable_flag()
-  local g = assert(PermissionGrid.decode(build({
-    [0] = { 0, 0x00 },
-    [1] = { 0, 0x80 },
-    [2] = { 0, 0x81 },
-    [3] = { 0, 0xFF },
-  })))
-  Assert.isFalse((g:isBlocked(0, 0)))
-  Assert.isTrue((g:isBlocked(1, 0)))
-  Assert.isTrue((g:isBlocked(2, 0)))
-  Assert.isTrue((g:isBlocked(3, 0)))
-end
-
-function T.unknown_nonzero_collision_reports_raw_value()
-  local g = assert(PermissionGrid.decode(build({ [0] = { 0, 0x05 } })))
-  local blocked, reason = g:isBlocked(0, 0)
-  Assert.isTrue(blocked)
-  Assert.isTrue(reason:find("5") ~= nil, "reason should report the raw value, got " .. reason)
-  -- Non-strict policy leaves the unknown value passable but still reported.
-  local blockedLoose, reasonLoose = g:isBlocked(0, 0, { strict = false })
-  Assert.isFalse(blockedLoose)
-  Assert.notNil(reasonLoose)
-end
-
 function T.used_value_sets_are_sorted_and_distinct()
   local g = assert(PermissionGrid.decode(build({
-    [0] = { 3, 0x80 },
+    [0] = { 3, 0x86 },
     [1] = { 1, 0x00 },
-    [2] = { 3, 0x80 },
+    [2] = { 3, 0x86 },
   })))
-  Assert.deepEqual(g:usedTerrainValues(), { 0, 1, 3 })
-  Assert.deepEqual(g:usedCollisionValues(), { 0, 0x80 })
+  Assert.deepEqual(g:usedBehaviorValues(), { 0, 1, 3 })
+  Assert.deepEqual(g:usedPermissionValues(), { 0, 0x86 })
 end
 
 function T.rejects_wrong_size()
