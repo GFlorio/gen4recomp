@@ -45,6 +45,26 @@ function BinaryReader:u32le(offset)
   return b0 + b1 * 256 + b2 * 65536 + b3 * 16777216
 end
 
+-- IEEE-754 binary32, little-endian (mirror of BinaryWriter:f32).
+function BinaryReader:f32le(offset)
+  self:assertRange(offset, 4, "f32le")
+  local b0, b1, b2, b3 = string.byte(self.data, offset + 1, offset + 4)
+  local word = b0 + b1 * 256 + b2 * 65536 + b3 * 16777216
+  local sign = math.floor(word / 2147483648) % 2
+  local biased = math.floor(word / 8388608) % 256
+  local mantissa = word % 8388608
+  local value
+  if biased == 0 then
+    value = mantissa == 0 and 0 or (mantissa / 8388608) * 2 ^ -126
+  elseif biased == 255 then
+    value = mantissa == 0 and math.huge or (0 / 0)
+  else
+    value = (1 + mantissa / 8388608) * 2 ^ (biased - 127)
+  end
+  if sign == 1 then value = -value end
+  return value
+end
+
 function BinaryReader:bytes(offset, length)
   self:assertRange(offset, length, "bytes")
   return string.sub(self.data, offset + 1, offset + length)
