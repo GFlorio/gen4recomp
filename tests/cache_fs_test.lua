@@ -39,6 +39,14 @@ function T.exists_checks_presence_and_type()
   Assert.isFalse(c:exists("absent"))
 end
 
+-- write() must materialize the parent chain so the love backend (no implicit
+-- mkdir) can land a deeply nested NitroFS file (spec §13).
+function T.write_creates_parent_directories()
+  local backend = FakeCache.new()
+  cache("heartgold", backend):write("romfs/a/0/0/0", "data")
+  Assert.isTrue(backend.dirs["heartgold/romfs/a/0/0"], "parent directory must be created")
+end
+
 function T.remove_tree_recursively_clears_subtree()
   local c = cache("heartgold")
   c:write("romfs/a/0/0/0", "0")
