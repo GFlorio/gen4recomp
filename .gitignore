@@ -1,3 +1,12 @@
+# Commercial ROMs and importer output — never commit
+*.nds
+*.sav
+.cache/
+import-output/
+data/generated/
+romfs/
+*.log
+
 # Compiled Lua sources
 luac.out
 
@@ -39,3 +48,4 @@ luac.out
 *.x86_64
 *.hex
 
+tmp/
