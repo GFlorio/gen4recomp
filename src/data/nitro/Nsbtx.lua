@@ -111,6 +111,7 @@ local function _decodeTex0(bytes, context)
   local ofsTex4x4PlttIdx = r:u32le(0x28)
   local ofsPlttDict = r:u16le(0x34)
   local ofsPlttData = r:u32le(0x38)
+  local sizePltt = r:u16le(0x30) * 8 -- palette block size, stored in 8-byte units
 
   local texDict = assert(NitroDict.decode(bytes, ofsTexDict, context))
   local plttDict = assert(NitroDict.decode(bytes, ofsPlttDict, context))
@@ -147,6 +148,7 @@ local function _decodeTex0(bytes, context)
       tex4x4Data = ofsTex4x4Data,
       tex4x4PlttIdx = ofsTex4x4PlttIdx,
       plttData = ofsPlttData,
+      plttDataEnd = ofsPlttData + sizePltt,
     },
     bytes = bytes, -- retained so TextureDecoder can slice texel/palette data
     source = context,
@@ -169,6 +171,34 @@ function Nsbtx.decode(bytes, context)
     return nil, Errors.new("NSBTX_NO_TEX0", "BTX0 file has no TEX0 section", { source = context })
   end
   return Nsbtx.decodeTex0(section.bytes, context)
+end
+
+-- Bridge a decoded texture (+ its palette, if paletted) to TextureDecoder opts
+-- by slicing the retained pack bytes. The texel slice is exact; the palette
+-- slice runs to the palette block end (over-inclusive but bounded), since a
+-- record carries no explicit length and the decoder indexes only what it needs.
+-- Direct-color (format 7) needs no palette.
+function Nsbtx.decoderOpts(pack, texture, palette)
+  local b = pack.bytes
+  local opts = {
+    format = texture.formatRaw,
+    width = texture.width,
+    height = texture.height,
+    color0Transparent = texture.color0Transparent,
+    texel = b:sub(texture.dataAbsolute + 1, texture.dataAbsolute + texture.dataSize),
+  }
+  if palette then
+    local pend = pack.offsets.plttDataEnd or #b
+    opts.palette = b:sub(palette.dataAbsolute + 1, pend)
+  else
+    opts.palette = ""
+  end
+  if texture.formatRaw == 5 then
+    -- 4x4-compressed: one u16 control word per 4x4 block == texels/8 == dataSize/2.
+    local n = math.floor(texture.dataSize / 2)
+    opts.indexData = b:sub(texture.compressedInfoOffset + 1, texture.compressedInfoOffset + n)
+  end
+  return opts
 end
 
 Nsbtx.FORMAT_NAMES = FORMAT_NAMES
