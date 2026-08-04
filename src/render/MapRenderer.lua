@@ -34,8 +34,9 @@ end
 
 function MapRenderer:_releaseCanvases()
   if self.sceneColor then self.sceneColor:release() end
+  if self.polygonId then self.polygonId:release() end
   if self.depth then self.depth:release() end
-  self.sceneColor, self.depth = nil, nil
+  self.sceneColor, self.polygonId, self.depth = nil, nil, nil
   self.canvasW, self.canvasH = nil, nil
 end
 
@@ -43,6 +44,8 @@ function MapRenderer:_ensureCanvases(w, h)
   if self.sceneColor and self.canvasW == w and self.canvasH == h then return end
   self:_releaseCanvases()
   self.sceneColor = love.graphics.newCanvas(w, h)
+  self.polygonId = love.graphics.newCanvas(w, h, { format = "r8" })
+  self.polygonId:setFilter("nearest", "nearest")
   self.depth = love.graphics.newCanvas(w, h, { format = "depth24stencil8", readable = false })
   self.canvasW, self.canvasH = w, h
 end
@@ -113,6 +116,7 @@ function MapRenderer:_drawItem(item, viewMatrix)
   shader:send("u_alphaCutoff", item.alphaCutoff or CUTOUT_EPSILON)
   shader:send("u_polygonAlpha", item.polygonAlpha or 1.0)
   shader:send("u_polygonMode", item.polygonMode == "decal" and 1 or 0)
+  shader:send("u_polygonId", (item.polygonId or 255) / 255)
   love.graphics.setMeshCullMode(item.cullMode or "back")
   love.graphics.draw(item.mesh)
   self.stats.drawCalls = self.stats.drawCalls + 1
@@ -136,6 +140,7 @@ function MapRenderer:_drawWireframe(item, viewMatrix)
   shader:send("u_alphaCutoff", CUTOUT_EPSILON)
   shader:send("u_polygonAlpha", 1.0)
   shader:send("u_polygonMode", 0)
+  shader:send("u_polygonId", 1.0)
   item.mesh:setTexture()
   love.graphics.setMeshCullMode(item.cullMode or "back")
   lg.setWireframe(true)
@@ -165,8 +170,8 @@ function MapRenderer:draw(runtime, camera, overlays)
 
   local viewMatrix = camera:view()
   local function doDraw()
-    lg.setCanvas({ self.sceneColor, depthstencil = self.depth })
-    lg.clear(BG_COLOR, false, true) -- color + depth; love already cleared the screen
+    lg.setCanvas({ self.sceneColor, self.polygonId, depthstencil = self.depth })
+    lg.clear(BG_COLOR, { 1, 0, 0, 1 }, false, true)
     lg.setShader(self.shader)
     self.shader:send("u_proj", "column", camera:projection())
     self.shader:send("u_view", "column", viewMatrix)

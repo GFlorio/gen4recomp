@@ -97,10 +97,13 @@ uniform int u_alphaMode;       // 0 opaque, 1 cutout, 2 translucent
 uniform float u_alphaCutoff;
 uniform float u_polygonAlpha;  // normalized 5-bit polygon alpha
 uniform int u_polygonMode;     // 0 modulation/toon, 1 decal
+uniform float u_polygonId;     // normalized 6-bit polygon ID (id / 255), sentinel 1.0
+uniform sampler2D MainTex;
 
-vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords)
+void effect()
 {
-  vec4 base = u_useTexture ? Texel(tex, uv) : vec4(1.0);
+  vec2 uv = VaryingTexCoord.xy;
+  vec4 base = u_useTexture ? Texel(MainTex, uv) : vec4(1.0);
 
   vec3 outRgb;
   if (u_polygonMode == 1) {
@@ -124,6 +127,7 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords)
     discard;
   }
 
-  return vec4(outRgb, alpha);
+  love_Canvases[0] = vec4(outRgb, alpha);
+  love_Canvases[1] = vec4(u_polygonId, 0.0, 0.0, 1.0);
 }
 #endif
