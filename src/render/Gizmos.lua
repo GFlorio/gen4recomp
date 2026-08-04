@@ -20,10 +20,12 @@ local FACES = {
 }
 
 -- A box spanning [-hx,hx] x [y0,y1] x [-hz,hz] (world units). y0/y1 let a marker
--- stand on the floor rather than straddle it.
-function Gizmos.box(hx, y0, y1, hz)
+-- stand on the floor rather than straddle it. `color` is an optional {r,g,b,a}
+-- in 0..1 used as the literal vertex color.
+function Gizmos.box(hx, y0, y1, hz, color)
   local cy = (y0 + y1) / 2
   local hy = (y1 - y0) / 2
+  local c = color or { 1, 1, 1, 1 }
   local verts, map = {}, {}
   for _, f in ipairs(FACES) do
     local base = #verts
@@ -32,7 +34,8 @@ function Gizmos.box(hx, y0, y1, hz)
         s[1] * hx, cy + s[2] * hy, s[3] * hz,
         0, 0,
         f.n[1], f.n[2], f.n[3],
-        1, 1, 1, 1,
+        c[1], c[2], c[3], c[4],
+        0, -- literal color source
       }
     end
     map[#map + 1] = base + 1

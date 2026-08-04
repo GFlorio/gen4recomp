@@ -1,11 +1,16 @@
 -- Draws a loaded runtime scene in real 3D. It owns the shader, the per-frame
 -- camera matrices, and the depth/cull/blend state, and runs four passes:
 -- opaque (depth write on), cutout (depth write on, shader discards alpha-zero
--- fragments), translucent (depth test on, write off), and wireframe edges. It
--- clears the depth buffer itself (love's frame clear only touches color) and
--- restores every GPU state it changed so the diagnostic UI drawn afterwards is
--- unaffected. It builds no meshes or textures and reads no ROM/NARC data --
--- those belong to the loader and compiler; here everything is already resident.
+-- fragments), translucent (depth test on, write governed by polygon bit 11),
+-- and wireframe edges. It clears the depth buffer itself (love's frame clear
+-- only touches color) and restores every GPU state it changed so the diagnostic
+-- UI drawn afterwards is unaffected. It builds no meshes or textures and reads
+-- no ROM/NARC data -- those belong to the loader and compiler; here everything
+-- is already resident.
+
+local RenderQueue = require("src.render.RenderQueue")
+local Matrix3 = require("src.render.Matrix3")
+local FieldLightProfile = require("src.data.FieldLightProfile")
 
 local MapRenderer = {}
 MapRenderer.__index = MapRenderer
@@ -29,11 +34,54 @@ local function alphaModeId(alphaClass)
   return 0 -- opaque / wireframe (wireframe is drawn separately)
 end
 
+local function rgb555ToFloat3(packed)
+  local r = (packed % 32) / 31.0
+  local g = (math.floor(packed / 32) % 32) / 31.0
+  local b = (math.floor(packed / 1024) % 32) / 31.0
+  return { r, g, b }
+end
+
+local function fx12ToFloat3(vec)
+  return { vec[1] / 4096.0, vec[2] / 4096.0, vec[3] / 4096.0 }
+end
+
+-- Select the active profile record and bind all lighting uniforms.
+function MapRenderer:_sendLighting(runtime)
+  local profile = runtime.lighting
+  if not profile or not profile.records then return end
+
+  local record = FieldLightProfile.select(profile, runtime.fieldTimeSeconds or FieldLightProfile.DEFAULT_TIME_SECONDS)
+  local shader = self.shader
+
+  for i = 1, 4 do
+    local light = record.lights[i]
+    shader:send("u_lightEnabled" .. (i - 1), light and light.enabled or false)
+    if light then
+      shader:send("u_lightVector" .. (i - 1), fx12ToFloat3(light.vectorFx12))
+      shader:send("u_lightColor" .. (i - 1), rgb555ToFloat3(light.colorRgb555))
+    else
+      shader:send("u_lightVector" .. (i - 1), { 0, 0, 0 })
+      shader:send("u_lightColor" .. (i - 1), { 0, 0, 0 })
+    end
+  end
+
+  shader:send("u_diffuseColor", rgb555ToFloat3(record.diffuseRgb555))
+  shader:send("u_ambientColor", rgb555ToFloat3(record.ambientRgb555))
+  shader:send("u_specularColor", rgb555ToFloat3(record.specularRgb555))
+  shader:send("u_emissionColor", rgb555ToFloat3(record.emissionRgb555))
+
+  return record
+end
+
 -- Bind a material's uniforms/texture/cull state, then draw the mesh.
-function MapRenderer:_drawItem(item)
+function MapRenderer:_drawItem(item, viewMatrix)
   local mat = item.material
   local shader = self.shader
+  local normalMatrix = Matrix3.normalMatrix(item.transform, viewMatrix)
+
   shader:send("u_model", "column", item.transform)
+  shader:send("u_normalMatrix", "column", normalMatrix)
+
   if mat and mat.image then
     shader:send("u_useTexture", true)
     item.mesh:setTexture(mat.image)
@@ -41,46 +89,30 @@ function MapRenderer:_drawItem(item)
     shader:send("u_useTexture", false)
     item.mesh:setTexture()
   end
-  local diffuse = mat and mat.diffuse or { 1, 1, 1, 1 }
-  shader:send("u_diffuse", diffuse)
-  shader:send("u_alphaMode", alphaModeId(item.alphaClass or (mat and mat.alphaMode) or "opaque"))
+
+  shader:send("u_alphaMode", alphaModeId(item.alphaClass or "opaque"))
   shader:send("u_alphaCutoff", item.alphaCutoff or CUTOUT_EPSILON)
   shader:send("u_polygonAlpha", item.polygonAlpha or 1.0)
   shader:send("u_polygonMode", item.polygonMode == "decal" and 1 or 0)
-  love.graphics.setMeshCullMode(item.cullMode or (mat and mat.cullMode) or "back")
+  love.graphics.setMeshCullMode(item.cullMode or "back")
   love.graphics.draw(item.mesh)
   self.stats.drawCalls = self.stats.drawCalls + 1
-end
-
-local function classify(draws)
-  local opaque, cutout, translucent, wireframe = {}, {}, {}, {}
-  for _, d in ipairs(draws) do
-    local mode = d.alphaClass or (d.material and d.material.alphaMode) or "opaque"
-    if mode == "translucent" then
-      translucent[#translucent + 1] = d
-    elseif mode == "cutout" then
-      cutout[#cutout + 1] = d
-    elseif mode == "wireframe" then
-      wireframe[#wireframe + 1] = d
-    else
-      opaque[#opaque + 1] = d
-    end
-  end
-  return opaque, cutout, translucent, wireframe
 end
 
 -- Draw the edges of a wireframe batch through the same projection path as
 -- filled geometry. The DS draws polygon alpha zero as wireframe edges rather
 -- than an invisible filled polygon.
-function MapRenderer:_drawWireframe(item)
+function MapRenderer:_drawWireframe(item, viewMatrix)
   local lg = love.graphics
   local shader = self.shader
+  local normalMatrix = Matrix3.normalMatrix(item.transform, viewMatrix)
+
   lg.setShader(shader)
   lg.setDepthMode("less", true)
   lg.setBlendMode("alpha")
   shader:send("u_model", "column", item.transform)
+  shader:send("u_normalMatrix", "column", normalMatrix)
   shader:send("u_useTexture", false)
-  shader:send("u_diffuse", { 1, 1, 1, 1 })
   shader:send("u_alphaMode", 0)
   shader:send("u_alphaCutoff", CUTOUT_EPSILON)
   shader:send("u_polygonAlpha", 1.0)
@@ -100,8 +132,7 @@ function MapRenderer:draw(runtime, camera, overlays)
   local all = {}
   for _, d in ipairs(runtime.mapDraws) do all[#all + 1] = d end
   for _, d in ipairs(runtime.buildingDraws) do all[#all + 1] = d end
-  local opaque, cutout, translucent, wireframe = classify(all)
-  for _, d in ipairs(overlays or {}) do opaque[#opaque + 1] = d end
+  for _, d in ipairs(overlays or {}) do all[#all + 1] = d end
 
   self.stats = {
     drawCalls = 0,
@@ -110,34 +141,51 @@ function MapRenderer:draw(runtime, camera, overlays)
     textureCount = runtime.stats.textureCount,
   }
 
-  lg.clear(false, false, true) -- clear depth; love already cleared color this frame
-  lg.setShader(self.shader)
-  self.shader:send("u_proj", "column", camera:projection())
-  self.shader:send("u_view", "column", camera:view())
+  local viewMatrix = camera:view()
+  local function doDraw()
+    lg.clear(false, false, true) -- clear depth; love already cleared color this frame
+    lg.setShader(self.shader)
+    self.shader:send("u_proj", "column", camera:projection())
+    self.shader:send("u_view", "column", viewMatrix)
 
-  -- Pass 1: opaque, depth test + write.
-  lg.setDepthMode("less", true)
-  lg.setBlendMode("alpha")
-  for _, d in ipairs(opaque) do self:_drawItem(d) end
+    local activeRecord = self:_sendLighting(runtime)
+    local queue = RenderQueue.build(all, viewMatrix)
 
-  -- Pass 2: cutout, depth test + write, shader discards alpha-zero fragments.
-  for _, d in ipairs(cutout) do self:_drawItem(d) end
+    -- Pass 1: opaque, depth test + write.
+    lg.setDepthMode("less", true)
+    lg.setBlendMode("alpha")
+    for _, d in ipairs(queue.opaque) do self:_drawItem(d, viewMatrix) end
 
-  -- Pass 3: blended, depth test on, write off.
-  lg.setDepthMode("less", false)
-  for _, d in ipairs(translucent) do self:_drawItem(d) end
+    -- Pass 2: cutout, depth test + write, shader discards alpha-zero fragments.
+    for _, d in ipairs(queue.cutout) do self:_drawItem(d, viewMatrix) end
 
-  -- Pass 4: wireframe edges (polygon alpha zero).
-  lg.setDepthMode("less", true)
-  lg.setBlendMode("alpha")
-  for _, d in ipairs(wireframe) do self:_drawWireframe(d) end
+    -- Pass 3: blended, depth test on, write governed by polygon state.
+    for _, d in ipairs(queue.translucent) do
+      lg.setDepthMode(d.depthEqual and "lequal" or "less", d.translucentDepthWrite or false)
+      lg.setBlendMode("alpha", "alphamultiply")
+      self:_drawItem(d, viewMatrix)
+    end
 
-  -- Restore state so the 2D diagnostic UI draws normally.
+    -- Pass 4: wireframe edges (polygon alpha zero).
+    lg.setDepthMode("less", true)
+    lg.setBlendMode("alpha")
+    for _, d in ipairs(queue.wireframe) do self:_drawWireframe(d, viewMatrix) end
+
+    return activeRecord
+  end
+
+  local ok, result = pcall(doDraw)
+
+  -- Restore state so the 2D diagnostic UI draws normally even after an error.
   lg.setShader()
   lg.setDepthMode()
   lg.setMeshCullMode("none")
   lg.setBlendMode("alpha")
+  lg.setWireframe(false)
   lg.setColor(1, 1, 1, 1)
+
+  if not ok then error(result) end
+  return result
 end
 
 function MapRenderer:release()

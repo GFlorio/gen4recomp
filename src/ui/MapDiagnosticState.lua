@@ -18,8 +18,10 @@ local MapRenderer = require("src.render.MapRenderer")
 local Camera3D = require("src.render.Camera3D")
 local Gizmos = require("src.render.Gizmos")
 local Matrix4 = require("src.render.Matrix4")
+local VertexFormat = require("src.render.VertexFormat")
 local FieldGrid = require("src.world.FieldGrid")
 local DebugPlayer = require("src.world.DebugPlayer")
+local FieldLightProfile = require("src.data.FieldLightProfile")
 local CameraProfiles = require("data.manifests.camera_profiles")
 local TargetAnchors = require("data.manifests.target_map_anchors")
 
@@ -29,12 +31,14 @@ MapDiagnosticState.__index = MapDiagnosticState
 local MOVE_KEYS = { w = "north", s = "south", a = "west", d = "east" }
 
 function MapDiagnosticState.new(versionId, idOrSymbol)
+  local envTime = os.getenv("G4RECOMP_FIELD_TIME")
   local self = setmetatable({
     versionId = versionId,
     idOrSymbol = idOrSymbol or "MAP_NEW_BARK_ELMS_LAB_1F",
     errorText = nil,
     dragging = false,
     follow = true,
+    fieldTimeSeconds = envTime and tonumber(envTime) or FieldLightProfile.DEFAULT_TIME_SECONDS,
   }, MapDiagnosticState)
   self:_load()
   return self
@@ -72,6 +76,7 @@ function MapDiagnosticState:_load()
     local mapDir = MapAssetCache.mapDir(map.id)
     local scene = assert(cacheFs:loadLua(mapDir .. "/scene.lua"), "scene.lua missing after compile")
     self.runtime = MapSceneLoader.load(cacheFs, scene)
+    self.runtime.fieldTimeSeconds = self.fieldTimeSeconds
     self.renderer = MapRenderer.new()
 
     -- Dependency-hash prefix from the completion marker, for the HUD.
@@ -83,10 +88,10 @@ function MapDiagnosticState:_load()
     self.target = TargetAnchors[scene.mapSymbol] or {}
     self.player = DebugPlayer.new(self.runtime.collision, self.target.spawn)
     self.anchors = self.target.anchors or {}
-    self.playerMesh = Gizmos.box(0.35, 0, 1.6, 0.35)
-    self.anchorMesh = Gizmos.box(0.12, 0, 2.4, 0.12)
-    self.playerMat = { diffuse = { 0.95, 0.25, 0.25, 1 }, alphaMode = "opaque", cullMode = "back" }
-    self.anchorMat = { diffuse = { 1.0, 0.85, 0.1, 1 }, alphaMode = "opaque", cullMode = "back" }
+    self.playerMesh = Gizmos.box(0.35, 0, 1.6, 0.35, { 0.95, 0.25, 0.25, 1 })
+    self.anchorMesh = Gizmos.box(0.12, 0, 2.4, 0.12, { 1.0, 0.85, 0.1, 1 })
+    self.playerMat = { alphaClass = "opaque", cullMode = "back" }
+    self.anchorMat = { alphaClass = "opaque", cullMode = "back" }
 
     self.camera = Camera3D.new({ aspect = self:_aspect() })
     self:_resetCamera()
@@ -174,10 +179,24 @@ end
 -- per development anchor. Transforms are cheap tables; the meshes are persistent.
 function MapDiagnosticState:_overlays()
   local px, py, pz = self:_playerWorld()
-  local list = { { mesh = self.playerMesh, material = self.playerMat, transform = Matrix4.translate(px, py, pz) } }
-  for _, a in ipairs(self.anchors) do
+  local list = {
+    {
+      mesh = self.playerMesh,
+      material = self.playerMat,
+      transform = Matrix4.translate(px, py, pz),
+      center = { 0, 0.8, 0 },
+      submissionIndex = 100000,
+    },
+  }
+  for i, a in ipairs(self.anchors) do
     local ax, az = FieldGrid.tileCenterToWorld(a.localX, a.localZ)
-    list[#list + 1] = { mesh = self.anchorMesh, material = self.anchorMat, transform = Matrix4.translate(ax, 0, az) }
+    list[#list + 1] = {
+      mesh = self.anchorMesh,
+      material = self.anchorMat,
+      transform = Matrix4.translate(ax, 0, az),
+      center = { 0, 1.2, 0 },
+      submissionIndex = 100000 + i,
+    }
   end
   return list
 end
@@ -196,6 +215,24 @@ function MapDiagnosticState:draw()
   self:_drawHud()
 end
 
+-- Read the VertexColorSource of the first vertex, robust to layout changes.
+local function firstVertexColorSource(mesh)
+  local data = { mesh:getVertex(1) }
+  local idx = 1
+  for _, attr in ipairs(VertexFormat.LAYOUT) do
+    if attr[1] == "VertexColorSource" then return data[idx] or 1 end
+    idx = idx + attr[3]
+  end
+  return 1
+end
+
+local function recordIndex(records, rec)
+  for i, r in ipairs(records) do
+    if r == rec then return i end
+  end
+  return -1
+end
+
 function MapDiagnosticState:_drawHud()
   local lg = love.graphics
   local s = self.renderer.stats
@@ -205,6 +242,27 @@ function MapDiagnosticState:_drawHud()
   local area = scene.area
   local src = scene.source
   local ps = self.player:status()
+
+  local lit = rt.lighting or {}
+  local rec = lit.records and FieldLightProfile.select(lit, rt.fieldTimeSeconds or FieldLightProfile.DEFAULT_TIME_SECONDS) or nil
+  local hours = math.floor((rt.fieldTimeSeconds or 0) / 3600)
+  local mins = math.floor(((rt.fieldTimeSeconds or 0) % 3600) / 60)
+
+  local classCounts = { opaque = 0, cutout = 0, translucent = 0, wireframe = 0 }
+  local sourceCounts = { literal = 0, lit = 0, diffuse = 0 }
+  local all = {}
+  for _, d in ipairs(rt.mapDraws) do all[#all + 1] = d end
+  for _, d in ipairs(rt.buildingDraws) do all[#all + 1] = d end
+  for _, d in ipairs(all) do
+    classCounts[d.alphaClass or "opaque"] = (classCounts[d.alphaClass or "opaque"] or 0) + 1
+  end
+  -- Vertex color sources are per-vertex; sample the first vertex of each mesh.
+  for _, d in ipairs(all) do
+    local src = firstVertexColorSource(d.mesh)
+    if src == 0 then sourceCounts.literal = sourceCounts.literal + 1
+    elseif src == 2 then sourceCounts.diffuse = sourceCounts.diffuse + 1
+    else sourceCounts.lit = sourceCounts.lit + 1 end
+  end
 
   local lines = {
     string.format("%s  rom %s  (%s)", self.versionId, (src.romSha1 or "?"):sub(1, 8),
@@ -225,6 +283,14 @@ function MapDiagnosticState:_drawHud()
       ps.localX, ps.localZ, ps.globalX, ps.globalZ, ps.facing, ps.y),
     string.format("under player: behavior 0x%02X  perm 0x%02X  block %s  response %d",
       ps.behavior, ps.permissionRaw, tostring(ps.hardBlocked), ps.terrainResponseId),
+    string.format("field time %02d:%02d  lightTypeRaw %d  profile %d  %s",
+      hours, mins, lit.lightTypeRaw or -1, lit.profileId or -1, lit.sourcePath or "?"),
+    string.format("active record %d  start %d  mask 0x%X",
+      rec and recordIndex(lit.records, rec) or -1, rec and rec.startHalfSeconds or -1, rec and rec.enabledLightMask or 0),
+    string.format("alpha class  op %d  cut %d  xl %d  wire %d",
+      classCounts.opaque, classCounts.cutout, classCounts.translucent, classCounts.wireframe),
+    string.format("color source  literal %d  lit %d  diffuse %d",
+      sourceCounts.literal, sourceCounts.lit, sourceCounts.diffuse),
   }
   if ps.spawnFallback then
     lines[#lines + 1] = string.format("spawn relocated from (%d,%d) to nearest passable",
@@ -235,7 +301,7 @@ function MapDiagnosticState:_drawHud()
     lines[#lines + 1] = string.format("anchor [dev]: %s @ local (%d,%d)%s", a.label, a.localX, a.localZ, g)
   end
   lines[#lines + 1] = "limitations: flat Y (no BDHC height), approximate camera"
-  lines[#lines + 1] = "WASD move   C follow/free   R reframe   drag/arrows orbit   wheel zoom   Esc quit"
+  lines[#lines + 1] = "WASD move   C follow/free   R reframe   Q/E hour   drag/arrows orbit   wheel zoom   Esc quit"
 
   lg.setColor(0, 0, 0, 0.55)
   lg.rectangle("fill", 12, 12, 640, 20 * #lines + 12)
@@ -277,6 +343,12 @@ function MapDiagnosticState:keypressed(key)
     self:_resetCamera()
   elseif key == "c" then
     if self.follow then self.follow = false else self:_centerOnPlayer() end
+  elseif key == "q" or key == "pageup" then
+    self.fieldTimeSeconds = (self.fieldTimeSeconds - 3600) % 86400
+    self.runtime.fieldTimeSeconds = self.fieldTimeSeconds
+  elseif key == "e" or key == "pagedown" then
+    self.fieldTimeSeconds = (self.fieldTimeSeconds + 3600) % 86400
+    self.runtime.fieldTimeSeconds = self.fieldTimeSeconds
   end
 end
 
