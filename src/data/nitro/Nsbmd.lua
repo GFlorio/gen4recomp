@@ -112,6 +112,32 @@ local function decodeInfo(r, base)
   }
 end
 
+local function bit(v, i) return math.floor(v / 2 ^ i) % 2 == 1 end
+
+-- Effective bit after NitroSystem's global/material resolution: the material
+-- value applies only where it owns the bit (mask set); elsewhere the global
+-- default governs, which for a standalone compile with no global override is 0.
+local function ownedBit(value, mask, i) return bit(mask, i) and bit(value, i) end
+
+-- Parse the fixed NNSG3dResMatData prefix (res_struct.h) at matBase+blockOfs.
+-- We keep texImageParam (the authoritative wrap/flip source the DS programs per
+-- material) plus the fields needed to cross-check the block was located right.
+local function decodeMaterialData(r, matBase, blockOfs)
+  local base = matBase + blockOfs
+  local texImageParam = r:u32le(base + 0x14)
+  local texImageParamMask = r:u32le(base + 0x18)
+  return {
+    texImageParam = texImageParam,
+    texImageParamMask = texImageParamMask,
+    origWidth = r:u16le(base + 0x20),
+    origHeight = r:u16le(base + 0x22),
+    repeatX = ownedBit(texImageParam, texImageParamMask, 16),
+    repeatY = ownedBit(texImageParam, texImageParamMask, 17),
+    flipX = ownedBit(texImageParam, texImageParamMask, 18),
+    flipY = ownedBit(texImageParam, texImageParamMask, 19),
+  }
+end
+
 -- Read a name->materialIndices mapping dict (texToMat / plttToMat).
 local function decodeMatBindings(r, sec, matBase, dictOffset, context)
   local dict = assert(NitroDict.decode(sec, matBase + dictOffset, context))
@@ -146,7 +172,12 @@ local function decodeModel(sec, modelBase, name, index, context)
   local matDict = assert(NitroDict.decode(sec, matBase + 4, context))
   local materials = {}
   for _, e in ipairs(matDict.entries) do
-    materials[e.index] = { index = e.index, name = e.name }
+    -- The material dict payload is a u16 offset (from matBase) to the material's
+    -- NNSG3dResMatData block.
+    local m = decodeMaterialData(r, matBase, BinaryReader.new(e.data, "matref"):u16le(0))
+    m.index = e.index
+    m.name = e.name
+    materials[e.index] = m
   end
   local textureAssociations = decodeMatBindings(r, sec, matBase, ofsTexToMat, context)
   local paletteAssociations = decodeMatBindings(r, sec, matBase, ofsPlttToMat, context)

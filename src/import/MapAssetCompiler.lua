@@ -24,7 +24,7 @@ local Errors = require("src.import.Errors")
 
 local MapAssetCompiler = {}
 
-local COMPILER_VERSION = "map-compiler-v3"
+local COMPILER_VERSION = "map-compiler-v4"
 local COORDINATE_CONVENTION = "posScale/16-tile-v2"
 
 local function readMember(narc, alias, memberId)

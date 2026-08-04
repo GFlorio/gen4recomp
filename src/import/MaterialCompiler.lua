@@ -76,13 +76,23 @@ function MaterialCompiler.compile(materials, pack, opts)
         textures[key] = { pixels = img.pixels, width = img.width, height = img.height }
       end
 
+      -- The block was located right iff the material's stored original size
+      -- matches the texture it binds; a mismatch means a parse offset is wrong.
+      if mat.origWidth then
+        assert(mat.origWidth == tex.width and mat.origHeight == tex.height,
+          "material " .. mat.name .. " origWH does not match bound texture " .. mat.textureName)
+      end
+
       record.texture = key
       -- DS texcoords are in texel units; the geometry step divides by these to
       -- normalize UVs to [0,1]. Not serialized into the scene material.
       record.texWidth = tex.width
       record.texHeight = tex.height
-      record.wrap = { x = wrapMode(tex.repeatX), y = wrapMode(tex.repeatY) }
-      record.flip = { x = tex.flipX, y = tex.flipY }
+      -- Wrap/flip come from the material's texImageParam (what the DS programs
+      -- per material), not the NSBTX texture template -- the template reads
+      -- clamp for map textures, which collapses tiling UVs (e.g. flowers).
+      record.wrap = { x = wrapMode(mat.repeatX), y = wrapMode(mat.repeatY) }
+      record.flip = { x = mat.flipX or false, y = mat.flipY or false }
       record.alphaMode = alphaMode(tex)
     end
 
