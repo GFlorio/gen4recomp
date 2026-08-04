@@ -14,6 +14,7 @@ local PermissionGrid = require("src.data.PermissionGrid")
 local CollisionGrid = require("src.world.CollisionGrid")
 local MapAssetCache = require("src.core.MapAssetCache")
 local Matrix4 = require("src.render.Matrix4")
+local FieldLightProfile = require("src.data.FieldLightProfile")
 
 local MapSceneLoader = {}
 
@@ -60,6 +61,18 @@ function MapSceneLoader.load(cacheFs, scene)
     end
   end
 
+  -- Bounding-box center of a mesh's vertices in model space.
+  local function modelCenter(verts)
+    local minx, miny, minz = math.huge, math.huge, math.huge
+    local maxx, maxy, maxz = -math.huge, -math.huge, -math.huge
+    for _, v in ipairs(verts) do
+      minx = math.min(minx, v[1]); maxx = math.max(maxx, v[1])
+      miny = math.min(miny, v[2]); maxy = math.max(maxy, v[2])
+      minz = math.min(minz, v[3]); maxz = math.max(maxz, v[3])
+    end
+    return { (minx + maxx) / 2, (miny + maxy) / 2, (minz + maxz) / 2 }
+  end
+
   -- Returns (mesh, decodedVertices); dedups by content-addressed path.
   local function meshFor(path)
     local entry = meshCache[path]
@@ -102,6 +115,7 @@ function MapSceneLoader.load(cacheFs, scene)
       polygonAlpha = batch.polygonAlpha ~= nil and (batch.polygonAlpha / 31) or 1.0,
       polygonMode = batch.polygonMode or "modulation",
       lightMask = batch.lightMask or 0,
+      polygonId = batch.polygonId or 0,
       translucentDepthWrite = batch.translucentDepthWrite or false,
       depthEqual = batch.depthEqual or false,
     }
@@ -112,10 +126,12 @@ function MapSceneLoader.load(cacheFs, scene)
   for _, m in pairs(mapMaterials) do applyWrap(m) end
   local identity = Matrix4.identity()
   local mapDraws = {}
+  local submissionCounter = 0
   for _, batch in ipairs(scene.mapBatches or {}) do
     local mesh, verts = meshFor(batch.geometry)
     growBounds(verts, identity)
     local state = batchDrawState(batch)
+    submissionCounter = submissionCounter + 1
     mapDraws[#mapDraws + 1] = {
       mesh = mesh,
       material = mapMaterials[batch.material],
@@ -126,8 +142,11 @@ function MapSceneLoader.load(cacheFs, scene)
       polygonAlpha = state.polygonAlpha,
       polygonMode = state.polygonMode,
       lightMask = state.lightMask,
+      polygonId = state.polygonId,
       translucentDepthWrite = state.translucentDepthWrite,
       depthEqual = state.depthEqual,
+      center = modelCenter(verts),
+      submissionIndex = batch.submissionIndex or submissionCounter,
     }
   end
 
@@ -153,6 +172,7 @@ function MapSceneLoader.load(cacheFs, scene)
       local mesh, verts = meshFor(batch.geometry)
       growBounds(verts, inst.transform)
       local state = batchDrawState(batch)
+      submissionCounter = submissionCounter + 1
       buildingDraws[#buildingDraws + 1] = {
         mesh = mesh,
         material = desc.materials[batch.material],
@@ -163,8 +183,11 @@ function MapSceneLoader.load(cacheFs, scene)
         polygonAlpha = state.polygonAlpha,
         polygonMode = state.polygonMode,
         lightMask = state.lightMask,
+        polygonId = state.polygonId,
         translucentDepthWrite = state.translucentDepthWrite,
         depthEqual = state.depthEqual,
+        center = modelCenter(verts),
+        submissionIndex = batch.submissionIndex or submissionCounter,
       }
     end
   end
@@ -192,6 +215,8 @@ function MapSceneLoader.load(cacheFs, scene)
     bounds = bounds,
     mapDraws = mapDraws,
     buildingDraws = buildingDraws,
+    lighting = scene.lighting,
+    fieldTimeSeconds = FieldLightProfile.DEFAULT_TIME_SECONDS,
     stats = {
       meshCount = #owned.meshes,
       textureCount = #owned.images,
