@@ -33,6 +33,8 @@ local MODULES = {
   "tests.map_cache_writer_test",
   "tests.texture_decoder_test",
   "tests.gx_display_list_test",
+  "tests.ds_polygon_attr_test",
+  "tests.ds_material_test",
   "tests.nsbmd_test",
   "tests.matrix4_test",
   "tests.camera3d_test",
