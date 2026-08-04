@@ -24,8 +24,8 @@ local Errors = require("src.import.Errors")
 
 local MapAssetCompiler = {}
 
-local COMPILER_VERSION = "map-compiler-v1"
-local COORDINATE_CONVENTION = "posScale/16-tile-v1"
+local COMPILER_VERSION = "map-compiler-v2"
+local COORDINATE_CONVENTION = "posScale/16-tile-v2"
 
 local function readMember(narc, alias, memberId)
   local count = narc:memberCount()
@@ -66,8 +66,21 @@ local function compileModel(model, texturePack, meshes, textures, context)
   local mat = MaterialCompiler.compile(model.materials, texturePack, { context = context })
   for sha1, tex in pairs(mat.textures) do textures[sha1] = tex end
 
+  -- Texture dimensions per material, to normalize DS texel UVs to [0,1].
+  local texSizeById = {}
+  for _, m in ipairs(mat.materials) do
+    if m.texWidth then texSizeById[m.id] = { w = m.texWidth, h = m.texHeight } end
+  end
+
   local batches = {}
   for _, batch in ipairs(MeshCompiler.compile(model)) do
+    local size = texSizeById[batch.materialIndex]
+    if size then
+      for _, vtx in ipairs(batch.vertices) do
+        vtx.u = vtx.u / size.w
+        vtx.v = vtx.v / size.h
+      end
+    end
     local sha1 = Hashing.sha1hex(MeshWriter.encode(batch))
     meshes[sha1] = batch
     batches[#batches + 1] = {
@@ -127,7 +140,7 @@ local function _compile(romFs, idOrSymbol)
   local uniqueMembers = {}
   for _, pl in ipairs(land.buildings) do uniqueMembers[pl.modelMemberId] = true end
 
-  local models, modelKeyOf, modelScaleOf, memberShaOf = {}, {}, {}, {}
+  local models, modelKeyOf, memberShaOf = {}, {}, {}
   for _, memberId in ipairs(sortedNumbers(uniqueMembers)) do
     local mbytes = readMember(bldNarc, archiveAlias, memberId)
     local msha = Hashing.sha1hex(mbytes)
@@ -147,14 +160,13 @@ local function _compile(romFs, idOrSymbol)
     models[modelKey] = { key = modelKey, memberId = memberId,
       batches = compiled.batches, materials = compiled.materials }
     modelKeyOf[memberId] = modelKey
-    modelScaleOf[memberId] = bmodel.info.posScale
     memberShaOf[memberId] = msha
   end
 
   -- Building instances.
   local buildingInstances = {}
   for _, pl in ipairs(land.buildings) do
-    local transform = BuildingTransform.build(pl, modelScaleOf[pl.modelMemberId])
+    local transform = BuildingTransform.build(pl)
     buildingInstances[#buildingInstances + 1] = {
       placementIndex = pl.index,
       modelKey = modelKeyOf[pl.modelMemberId],

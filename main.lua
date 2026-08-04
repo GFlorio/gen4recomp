@@ -40,3 +40,23 @@ end
 function love.keypressed(key)
   if App then App.keypressed(key) end
 end
+
+function love.mousepressed(x, y, button)
+  if App then App.mousepressed(x, y, button) end
+end
+
+function love.mousereleased(x, y, button)
+  if App then App.mousereleased(x, y, button) end
+end
+
+function love.mousemoved(x, y, dx, dy)
+  if App then App.mousemoved(x, y, dx, dy) end
+end
+
+function love.wheelmoved(x, y)
+  if App then App.wheelmoved(x, y) end
+end
+
+function love.quit()
+  if App then App.quit() end
+end

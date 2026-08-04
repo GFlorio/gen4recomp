@@ -1,12 +1,12 @@
--- BuildingTransform: rejects zero model scale, stays finite for legal inputs
--- (including fractional and negative positions and encoded rotations), and
--- reproduces the exact reference fixed-function call order.
+-- BuildingTransform: a plain tile-space TRS. Position (in tiles) lands at the
+-- translation column, default scaleRaw (16) is identity, stretch scales, and the
+-- composed order (translate * rotZ * rotY * rotX * scale) is verified against an
+-- independent re-implementation. The model's posScale is NOT reapplied here --
+-- it is already folded into the compiled mesh.
 
 local Assert = require("tests.support.Assert")
 local Matrix4 = require("src.render.Matrix4")
-local MapUnits = require("src.import.MapUnits")
 local BuildingTransform = require("src.data.BuildingTransform")
-local Errors = require("src.import.Errors")
 
 local T = {}
 
@@ -21,19 +21,14 @@ local function placement(over)
   return p
 end
 
--- Independent re-implementation of the documented reference order.
-local function reference(p, modelScale)
-  local msf = modelScale / 1024
-  local tf = 256 / modelScale
+-- Independent re-implementation of the intended tile-space TRS order.
+local function reference(p)
   local w, h, l = p.scaleRaw.width % 0x10000, p.scaleRaw.height % 0x10000, p.scaleRaw.length % 0x10000
-  local m = Matrix4.scale(msf * w, msf * h, msf * l)
-  m = Matrix4.multiply(m, Matrix4.translate(
-    p.position.x * tf / w, p.position.y * tf / h, p.position.z * tf / l))
+  local m = Matrix4.translate(p.position.x, p.position.y, p.position.z)
   m = Matrix4.multiply(m, Matrix4.rotateZ(p.rotation.z))
   m = Matrix4.multiply(m, Matrix4.rotateY(p.rotation.y))
   m = Matrix4.multiply(m, Matrix4.rotateX(p.rotation.x))
-  local f = 1 / MapUnits.MODEL_UNITS_PER_TILE
-  m[13], m[14], m[15] = m[13] * f, m[14] * f, m[15] * f
+  m = Matrix4.multiply(m, Matrix4.scale(w / 16, h / 16, l / 16))
   return m
 end
 
@@ -43,27 +38,37 @@ local function assertFinite(m)
   end
 end
 
-function T.zero_model_scale_errors()
-  local ok, err = pcall(BuildingTransform.build, placement(), 0)
-  Assert.isTrue(not ok and Errors.is(err) and err.code == "BUILDING_TRANSFORM_BAD_SCALE", "scale 0 raises")
+function T.default_scale_is_identity()
+  -- scaleRaw 16 == 1.0: no extra scaling on top of the tile-sized mesh.
+  local m = BuildingTransform.build(placement())
+  Assert.isTrue(math.abs(m[1] - 1) < 1e-9, "x scale 1")
+  Assert.isTrue(math.abs(m[6] - 1) < 1e-9, "y scale 1")
+  Assert.isTrue(math.abs(m[11] - 1) < 1e-9, "z scale 1")
 end
 
-function T.default_scale_components_are_16_units()
-  -- With modelScale 1024 (factor 1) and encoded scale 16, the diagonal scale is 16.
-  local m = BuildingTransform.build(placement(), 1024)
-  Assert.isTrue(math.abs(m[1] - 16) < 1e-9, "x scale 16")
-  Assert.isTrue(math.abs(m[6] - 16) < 1e-9, "y scale 16")
-  Assert.isTrue(math.abs(m[11] - 16) < 1e-9, "z scale 16")
+function T.position_lands_at_the_translation_column_in_tiles()
+  local m = BuildingTransform.build(placement({ position = { x = -14, y = 0, z = -6 } }))
+  Assert.isTrue(math.abs(m[13] - (-14)) < 1e-9, "tx")
+  Assert.isTrue(math.abs(m[14] - 0) < 1e-9, "ty")
+  Assert.isTrue(math.abs(m[15] - (-6)) < 1e-9, "tz")
 end
 
-function T.finite_for_fractional_and_negative_positions()
-  assertFinite(BuildingTransform.build(
-    placement({ position = { x = -3.5, y = 1.25, z = 2.0625 } }), 512))
+function T.origin_maps_to_position()
+  local m = BuildingTransform.build(placement({ position = { x = -3.5, y = 1.25, z = -2.5 } }))
+  local x, y, z = Matrix4.transformPoint(m, 0, 0, 0)
+  Assert.isTrue(math.abs(x + 3.5) < 1e-9 and math.abs(y - 1.25) < 1e-9 and math.abs(z + 2.5) < 1e-9,
+    "model origin sits at the tile position")
+end
+
+function T.stretch_scales_a_basis_vector()
+  local m = BuildingTransform.build(placement({ scaleRaw = { width = 32, height = 16, length = 8 } }))
+  local x = Matrix4.transformPoint(m, 1, 0, 0)
+  Assert.isTrue(math.abs(x - 2) < 1e-9, "width 32 -> 2x on +x")
 end
 
 function T.finite_for_quarter_turn_rotations()
   for _, r in ipairs({ math.pi / 2, math.pi, 3 * math.pi / 2 }) do
-    assertFinite(BuildingTransform.build(placement({ rotation = { x = 0, y = r, z = 0 } }), 1024))
+    assertFinite(BuildingTransform.build(placement({ rotation = { x = 0, y = r, z = 0 } })))
   end
 end
 
@@ -73,8 +78,8 @@ function T.matches_reference_call_order()
     rotation = { x = math.pi / 6, y = math.pi / 2, z = math.pi },
     scaleRaw = { width = 16, height = 32, length = 8 },
   })
-  local got = Matrix4.toArray(BuildingTransform.build(p, 512))
-  local ref = Matrix4.toArray(reference(p, 512))
+  local got = Matrix4.toArray(BuildingTransform.build(p))
+  local ref = Matrix4.toArray(reference(p))
   for i = 1, 16 do Assert.isTrue(math.abs(got[i] - ref[i]) < 1e-6, "component " .. i) end
 end
 

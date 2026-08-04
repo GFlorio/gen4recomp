@@ -56,6 +56,47 @@ function Matrix4.rotateZ(rad)
   return { c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 }
 end
 
+-- Right-handed OpenGL-style perspective projection (clip z in [-1, 1]).
+-- fovY in radians, aspect = width/height. Column-major.
+function Matrix4.perspective(fovY, aspect, near, far)
+  local f = 1 / math.tan(fovY / 2)
+  local m = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+  m[1] = f / aspect
+  m[6] = f
+  m[11] = (far + near) / (near - far)
+  m[12] = -1
+  m[15] = (2 * far * near) / (near - far)
+  return m
+end
+
+local function sub3(a, b) return { a[1] - b[1], a[2] - b[2], a[3] - b[3] } end
+local function dot3(a, b) return a[1] * b[1] + a[2] * b[2] + a[3] * b[3] end
+local function cross3(a, b)
+  return {
+    a[2] * b[3] - a[3] * b[2],
+    a[3] * b[1] - a[1] * b[3],
+    a[1] * b[2] - a[2] * b[1],
+  }
+end
+local function normalize3(v)
+  local len = math.sqrt(dot3(v, v))
+  assert(len > 0, "cannot normalize a zero-length vector")
+  return { v[1] / len, v[2] / len, v[3] / len }
+end
+
+-- Right-handed lookAt (gluLookAt). eye/center/up are {x,y,z}. Column-major.
+function Matrix4.lookAt(eye, center, up)
+  local f = normalize3(sub3(center, eye))
+  local s = normalize3(cross3(f, up))
+  local u = cross3(s, f)
+  return {
+    s[1], u[1], -f[1], 0,
+    s[2], u[2], -f[2], 0,
+    s[3], u[3], -f[3], 0,
+    -dot3(s, eye), -dot3(u, eye), dot3(f, eye), 1,
+  }
+end
+
 -- Serializable copy of the 16 components (column-major order).
 function Matrix4.toArray(m)
   local a = {}

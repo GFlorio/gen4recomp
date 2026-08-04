@@ -77,6 +77,10 @@ function MaterialCompiler.compile(materials, pack, opts)
       end
 
       record.texture = key
+      -- DS texcoords are in texel units; the geometry step divides by these to
+      -- normalize UVs to [0,1]. Not serialized into the scene material.
+      record.texWidth = tex.width
+      record.texHeight = tex.height
       record.wrap = { x = wrapMode(tex.repeatX), y = wrapMode(tex.repeatY) }
       record.flip = { x = tex.flipX, y = tex.flipY }
       record.alphaMode = alphaMode(tex)

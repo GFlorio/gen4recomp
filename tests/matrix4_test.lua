@@ -42,4 +42,27 @@ function T.toArray_is_16_floats()
   Assert.equal(a[1], 1); Assert.equal(a[6], 1); Assert.equal(a[11], 1); Assert.equal(a[16], 1)
 end
 
+function T.lookAt_puts_target_in_front_along_negative_z()
+  -- Eye above +Z looking at the origin: the origin lands at (0,0,-distance)
+  -- in view space (camera looks down -Z).
+  local v = Matrix4.lookAt({ 0, 0, 5 }, { 0, 0, 0 }, { 0, 1, 0 })
+  local x, y, z = Matrix4.transformPoint(v, 0, 0, 0)
+  Assert.isTrue(approx(x, 0) and approx(y, 0) and approx(z, -5), "origin in front")
+end
+
+-- Full 4-component transform including the perspective w row.
+local function project(m, x, y, z)
+  local cz = m[3] * x + m[7] * y + m[11] * z + m[15]
+  local cw = m[4] * x + m[8] * y + m[12] * z + m[16]
+  return cz, cw
+end
+
+function T.perspective_maps_near_and_far_planes_to_ndc()
+  local p = Matrix4.perspective(math.rad(60), 1.5, 1, 100)
+  local nz, nw = project(p, 0, 0, -1)
+  local fz, fw = project(p, 0, 0, -100)
+  Assert.isTrue(approx(nz / nw, -1), "near plane -> ndc -1")
+  Assert.isTrue(approx(fz / fw, 1), "far plane -> ndc +1")
+end
+
 return T
