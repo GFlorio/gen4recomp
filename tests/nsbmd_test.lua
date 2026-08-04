@@ -29,11 +29,20 @@ local function buildModel()
   local nodeDict = NB.dict({ { name = "root", data = u32(0) } })
   local matDict = NB.dict({ { name = "mat0", data = u32(0) } }) -- offset patched below
 
-  -- NNSG3dResMatData prefix (0x2C bytes): texImageParam at 0x14 requests repeat
-  -- S/T (bits 16-17) with a full ownership mask; origWidth/Height at 0x20/0x22.
-  local matData = NB.u16(0) .. NB.u16(0x2C) .. u32(0) .. u32(0) .. u32(0) .. u32(0)
-    .. NB.u32(0x30000) .. NB.u32(0xFFFFFFFF) .. NB.u16(0) .. NB.u16(0)
-    .. NB.u16(8) .. NB.u16(16) .. u32(0) .. u32(0)
+  -- NNSG3dResMatData prefix (0x2C bytes), distinct value in every field.
+  --   diffAmb : diffuse rgb555(31,0,0)=0x1F, set-vertex-color bit15, ambient
+  --             rgb555(0,31,0)=0x3E0 -> word 0x03E081F.. with bit15 -> +0x8000
+  --   specEmi : specular rgb555(0,0,31)=0x7C00, emission rgb555(15,15,15)=0x3DEF
+  --   polyAttr: 0x001F00C1 (lightMask 1, front render, alpha 31), full mask
+  --   flags   : diffuse+vertexColor ownership (0x40 | 0x100 = 0x140)
+  --   texImageParam at 0x14 requests repeat S/T (bits 16-17), full mask;
+  --   origWidth/Height at 0x20/0x22; magW/magH fx32 1.0 at 0x24/0x28.
+  local diffAmb = 0x1F + 0x8000 + 0x03E0 * 0x10000
+  local specEmi = 0x7C00 + 0x3DEF * 0x10000
+  local matData = NB.u16(0) .. NB.u16(0x2C) .. NB.u32(diffAmb) .. NB.u32(specEmi)
+    .. NB.u32(0x001F00C1) .. NB.u32(0xFFFFFFFF)
+    .. NB.u32(0x30000) .. NB.u32(0xFFFFFFFF) .. NB.u16(0) .. NB.u16(0x140)
+    .. NB.u16(8) .. NB.u16(16) .. NB.u32(0x1000) .. NB.u32(0x1000)
 
   -- texToMat / plttToMat: name -> u8[count] material indices placed after the
   -- dicts in the material block. Entry data: u16 ofsList, u8 count, u8 bound.
@@ -114,12 +123,39 @@ end
 
 function T.parses_material_texparam_and_wrap()
   local mat = assert(Nsbmd.decode(buildBmd0())).models[1].materials[1]
-  Assert.equal(mat.texImageParam, 0x30000)
+  Assert.equal(mat.texImageParamRaw, 0x30000)
+  Assert.equal(mat.texImageParamMask, 0xFFFFFFFF)
   Assert.isTrue(mat.repeatX and mat.repeatY, "repeat S/T derived from texImageParam")
   Assert.isFalse(mat.flipX)
   Assert.isFalse(mat.flipY)
   Assert.equal(mat.origWidth, 8)
   Assert.equal(mat.origHeight, 16)
+  Assert.equal(mat.magW, 1.0)
+  Assert.equal(mat.magH, 1.0)
+end
+
+function T.parses_full_material_prefix()
+  local mat = assert(Nsbmd.decode(buildBmd0())).models[1].materials[1]
+  Assert.equal(mat.itemTag, 0)
+  Assert.equal(mat.size, 0x2C)
+  Assert.equal(mat.polyAttrRaw, 0x001F00C1)
+  Assert.equal(mat.polyAttrMask, 0xFFFFFFFF)
+  Assert.equal(mat.flagsRaw, 0x140)
+  Assert.equal(mat.extraBytes, "")
+  -- Decoded lighting channels.
+  Assert.equal(mat.diffuseRgb555, 0x1F)
+  Assert.equal(mat.ambientRgb555, 0x03E0)
+  Assert.equal(mat.specularRgb555, 0x7C00)
+  Assert.equal(mat.emissionRgb555, 0x3DEF)
+  Assert.isTrue(mat.setVertexColor)
+  Assert.isFalse(mat.useShininessTable)
+  -- Ownership from flags 0x140 = diffuse | vertexColor.
+  Assert.isTrue(mat.owns.diffuse)
+  Assert.isTrue(mat.owns.vertexColor)
+  Assert.isFalse(mat.owns.ambient)
+  Assert.isFalse(mat.owns.specular)
+  Assert.isFalse(mat.owns.emission)
+  Assert.isFalse(mat.owns.shininess)
 end
 
 function T.recovers_texture_and_palette_associations()

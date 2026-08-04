@@ -103,6 +103,7 @@ local function newDecoder()
     vertices = {},
     indices = {},
     opcodeCounts = {},
+    polygonAttrs = {}, -- set of distinct POLYGON_ATTR words issued in-list
   }, Decoder)
 end
 
@@ -206,7 +207,7 @@ EXEC[0x28] = function(d, p) -- VTX_DIFF (10-bit signed low bits of 1.3.12)
   }
   d:emitVertex()
 end
-EXEC[0x29] = function(d, p) d.polygonAttr = p[1] end
+EXEC[0x29] = function(d, p) d.polygonAttr = p[1]; d.polygonAttrs[p[1]] = true end
 EXEC[0x2A] = function(d, p) d.texParam = p[1] end
 EXEC[0x2B] = function(d, p) d.paletteBase = p[1] end
 EXEC[0x30] = function() end
@@ -309,12 +310,17 @@ local function _decode(bytes, options)
     end
   end
 
+  local polygonAttrs = {}
+  for word in pairs(d.polygonAttrs) do polygonAttrs[#polygonAttrs + 1] = word end
+  table.sort(polygonAttrs)
+
   return {
     vertices = d.vertices,
     indices = d.indices,
     bounds = bounds,
     commands = commands,
     opcodeCounts = d.opcodeCounts,
+    polygonAttrs = polygonAttrs,
   }
 end
 

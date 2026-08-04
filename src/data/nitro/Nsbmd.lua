@@ -22,6 +22,7 @@ local NitroFile = require("src.data.nitro.NitroFile")
 local NitroDict = require("src.data.nitro.NitroDict")
 local Nsbtx = require("src.data.nitro.Nsbtx")
 local GxDisplayList = require("src.data.nitro.GxDisplayList")
+local DsMaterial = require("src.data.nitro.DsMaterial")
 
 local Nsbmd = {}
 
@@ -114,27 +115,80 @@ end
 
 local function bit(v, i) return math.floor(v / 2 ^ i) % 2 == 1 end
 
--- Effective bit after NitroSystem's global/material resolution: the material
--- value applies only where it owns the bit (mask set); elsewhere the global
--- default governs, which for a standalone compile with no global override is 0.
-local function ownedBit(value, mask, i) return bit(mask, i) and bit(value, i) end
+local MATERIAL_PREFIX = 0x2C
 
--- Parse the fixed NNSG3dResMatData prefix (res_struct.h) at matBase+blockOfs.
--- We keep texImageParam (the authoritative wrap/flip source the DS programs per
--- material) plus the fields needed to cross-check the block was located right.
-local function decodeMaterialData(r, matBase, blockOfs)
+-- Parse the fixed NNSG3dResMatData prefix (NitroSDK res_struct.h) at
+-- matBase+blockOfs. Exposes the exact file words -- the raw registers, ownership
+-- flags, and packed lighting colors -- so DsMaterial can resolve effective state
+-- later; the parser makes no field-global assumption. The transitional
+-- repeat/flip booleans read the raw texImageParam wrap bits directly (every
+-- target material fully masks that register, so raw equals effective); Slice 4
+-- moves wrap sourcing onto DsMaterial.resolve and drops them.
+local function decodeMaterialData(r, matBase, blockOfs, context)
   local base = matBase + blockOfs
-  local texImageParam = r:u32le(base + 0x14)
+  if base + MATERIAL_PREFIX > r:length() then
+    Errors.raise("NSBMD_MATERIAL_OUT_OF_RANGE",
+      string.format("material block at 0x%X + 0x%X exceeds %d-byte section", base, MATERIAL_PREFIX, r:length()),
+      { offset = base, source = context })
+  end
+  local itemTag = r:u16le(base + 0x00)
+  local size = r:u16le(base + 0x02)
+  if size < MATERIAL_PREFIX then
+    Errors.raise("NSBMD_BAD_MATERIAL_SIZE",
+      string.format("material size 0x%X is smaller than the 0x%X fixed prefix", size, MATERIAL_PREFIX),
+      { size = size, source = context })
+  end
+  if base + size > r:length() then
+    Errors.raise("NSBMD_MATERIAL_OUT_OF_RANGE",
+      string.format("material record at 0x%X size 0x%X exceeds %d-byte section", base, size, r:length()),
+      { offset = base, size = size, source = context })
+  end
+  if itemTag ~= 0 then
+    Errors.raise("NSBMD_UNSUPPORTED_MATERIAL_TAG",
+      string.format("material itemTag 0x%X is not the standard tag 0", itemTag),
+      { itemTag = itemTag, source = context })
+  end
+
+  local diffAmbRaw = r:u32le(base + 0x04)
+  local specEmiRaw = r:u32le(base + 0x08)
+  local texImageParamRaw = r:u32le(base + 0x14)
   local texImageParamMask = r:u32le(base + 0x18)
+  local flagsRaw = r:u16le(base + 0x1E)
+  local diffAmb = DsMaterial.unpackDiffAmb(diffAmbRaw)
+  local specEmi = DsMaterial.unpackSpecEmi(specEmiRaw)
+
   return {
-    texImageParam = texImageParam,
+    itemTag = itemTag,
+    size = size,
+    diffAmbRaw = diffAmbRaw,
+    specEmiRaw = specEmiRaw,
+    polyAttrRaw = r:u32le(base + 0x0C),
+    polyAttrMask = r:u32le(base + 0x10),
+    texImageParamRaw = texImageParamRaw,
     texImageParamMask = texImageParamMask,
+    texPlttBase = r:u16le(base + 0x1C),
+    flagsRaw = flagsRaw,
     origWidth = r:u16le(base + 0x20),
     origHeight = r:u16le(base + 0x22),
-    repeatX = ownedBit(texImageParam, texImageParamMask, 16),
-    repeatY = ownedBit(texImageParam, texImageParamMask, 17),
-    flipX = ownedBit(texImageParam, texImageParamMask, 18),
-    flipY = ownedBit(texImageParam, texImageParamMask, 19),
+    magW = Fixed.fx32(r:u32le(base + 0x24)),
+    magH = Fixed.fx32(r:u32le(base + 0x28)),
+
+    diffuseRgb555 = diffAmb.diffuseRgb555,
+    ambientRgb555 = diffAmb.ambientRgb555,
+    specularRgb555 = specEmi.specularRgb555,
+    emissionRgb555 = specEmi.emissionRgb555,
+    setVertexColor = diffAmb.setVertexColor,
+    useShininessTable = specEmi.useShininessTable,
+    owns = DsMaterial.ownership(flagsRaw),
+
+    extraBytes = size > MATERIAL_PREFIX and r:bytes(base + MATERIAL_PREFIX, size - MATERIAL_PREFIX) or "",
+
+    -- Transitional: raw wrap/flip bits (bits 16-19 of texImageParam), consumed by
+    -- MaterialCompiler until Slice 4 routes wrap through DsMaterial.resolve.
+    repeatX = bit(texImageParamRaw, 16),
+    repeatY = bit(texImageParamRaw, 17),
+    flipX = bit(texImageParamRaw, 18),
+    flipY = bit(texImageParamRaw, 19),
   }
 end
 
@@ -174,7 +228,8 @@ local function decodeModel(sec, modelBase, name, index, context)
   for _, e in ipairs(matDict.entries) do
     -- The material dict payload is a u16 offset (from matBase) to the material's
     -- NNSG3dResMatData block.
-    local m = decodeMaterialData(r, matBase, BinaryReader.new(e.data, "matref"):u16le(0))
+    local m = decodeMaterialData(r, matBase, BinaryReader.new(e.data, "matref"):u16le(0),
+      { model = name, material = e.name })
     m.index = e.index
     m.name = e.name
     materials[e.index] = m
