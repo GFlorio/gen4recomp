@@ -11,6 +11,10 @@ local FakeCache = require("tests.support.FakeCache")
 local MapAssetCompiler = require("src.import.MapAssetCompiler")
 local MapCacheWriter = require("src.import.MapCacheWriter")
 local MapAssetCache = require("src.core.MapAssetCache")
+local SceneMesh = require("src.render.SceneMesh")
+local PermissionGrid = require("src.data.PermissionGrid")
+local CollisionGrid = require("src.world.CollisionGrid")
+local DebugPlayer = require("src.world.DebugPlayer")
 
 local T = {}
 local SYMBOL = "MAP_NEW_BARK_ELMS_LAB_1F"
@@ -85,6 +89,48 @@ function T.gate6_uvs_are_normalized(romFs, version)
     end
   end
   Assert.isTrue(maxUV <= 8, "normalized UVs stay small, got max " .. maxUV)
+end
+
+-- Gate 8: cache-only restart. After a successful compile the map loads and
+-- traverses from the derived cache alone -- no ROM, and geometry comes from
+-- baked G4M1 batches rather than a re-parsed NSBMD. Modelled by building into an
+-- in-memory backend, then reopening a fresh CacheFs over the same backend and
+-- using nothing but cache reads below the "restart" line.
+function T.gate8_cache_only_restart(romFs, version)
+  local backend = FakeCache.new()
+  local marker
+  do
+    local c = CacheFs.forVersion(version, backend)
+    local bundle = assert(MapAssetCompiler.compile(romFs, SYMBOL))
+    marker = MapCacheWriter.write(c, bundle)
+  end
+
+  -- ---- restart: everything below reads only the cache ----
+  local cache = CacheFs.forVersion(version, backend)
+  Assert.isTrue(MapAssetCache.isReady(cache, MAP_ID, marker), "cache is ready without the ROM")
+
+  local dir = MapAssetCache.mapDir(MAP_ID)
+  local scene = assert(cache:loadLua(dir .. "/scene.lua"))
+
+  -- Geometry loads as baked G4M1 batches from the derived-asset subtree; the map
+  -- never re-parses NSBMD/NSBTX at load, and no reference escapes the cache.
+  for _, b in ipairs(scene.mapBatches) do
+    Assert.isTrue(b.geometry:find("^assets/generated/") ~= nil, "geometry is a derived asset: " .. b.geometry)
+    local decoded = SceneMesh.decode(assert(cache:read(b.geometry), "mesh present: " .. b.geometry))
+    Assert.isTrue(decoded.vertexCount > 0, "baked mesh has vertices")
+  end
+  for _, inst in ipairs(scene.buildingInstances) do
+    Assert.isTrue(cache:exists(MapAssetCache.modelPath(inst.modelKey)), "model descriptor cached")
+  end
+
+  -- Load and traverse from the cached permission grid alone.
+  local perms = assert(cache:read(dir .. "/permissions.bin"))
+  Assert.equal(#perms, 2048)
+  local collision = CollisionGrid.new(assert(PermissionGrid.decode(perms)), {
+    worldOriginX = scene.matrix.worldOriginX, worldOriginZ = scene.matrix.worldOriginZ })
+  local player = DebugPlayer.new(collision, { x = 4, z = 13 })
+  Assert.isTrue(player:tryStep("south"), "steps onto the exit warp tile from cache-only data")
+  Assert.equal(player:status().localZ, 14)
 end
 
 function T.gate5_injected_failure_leaves_no_marker(romFs, version)
