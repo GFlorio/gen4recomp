@@ -82,7 +82,12 @@ vec4 position(mat4 transform_projection, vec4 vertex_position)
     v_dsColor = quantizeRgb5(computeDsLighting(normal));
   }
 
-  return u_proj * u_view * u_model * vertex_position;
+  // LÖVE Canvas framebuffers are Y-inverted relative to the screen, and this
+  // custom projection bypasses LÖVE's compensating flip; negate clip Y so the
+  // scene renders upright (and with correct winding) into the offscreen canvas.
+  vec4 clip = u_proj * u_view * u_model * vertex_position;
+  clip.y = -clip.y;
+  return clip;
 }
 #endif
 
