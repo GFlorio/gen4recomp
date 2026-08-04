@@ -24,7 +24,7 @@ local Errors = require("src.import.Errors")
 
 local MapAssetCompiler = {}
 
-local COMPILER_VERSION = "map-compiler-v2"
+local COMPILER_VERSION = "map-compiler-v3"
 local COORDINATE_CONVENTION = "posScale/16-tile-v2"
 
 local function readMember(narc, alias, memberId)
@@ -204,8 +204,11 @@ local function _compile(romFs, idOrSymbol)
     matrix = {
       memberId = resolved.matrixMemberId,
       name = resolved.matrix.name,
+      width = resolved.matrix.width,
+      height = resolved.matrix.height,
       x = resolved.matrixX,
       z = resolved.matrixZ,
+      index = resolved.matrixIndex,
       altitude = resolved.matrixAltitude,
       worldOriginX = resolved.worldOriginX,
       worldOriginZ = resolved.worldOriginZ,

@@ -61,12 +61,15 @@ local function classify(draws)
   return opaque, mask, blend
 end
 
-function MapRenderer:draw(runtime, camera)
+-- `overlays` is an optional list of opaque diagnostic draw items (player prism,
+-- anchor pins) rendered in the opaque pass so they depth-sort against the scene.
+function MapRenderer:draw(runtime, camera, overlays)
   local lg = love.graphics
   local all = {}
   for _, d in ipairs(runtime.mapDraws) do all[#all + 1] = d end
   for _, d in ipairs(runtime.buildingDraws) do all[#all + 1] = d end
   local opaque, mask, blend = classify(all)
+  for _, d in ipairs(overlays or {}) do opaque[#opaque + 1] = d end
 
   self.stats = {
     drawCalls = 0,

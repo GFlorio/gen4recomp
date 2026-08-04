@@ -11,6 +11,15 @@ local Nsbtx = require("src.data.nitro.Nsbtx")
 local Nsbmd = require("src.data.nitro.Nsbmd")
 local TextureDecoder = require("src.data.nitro.TextureDecoder")
 local MapAssetInspector = require("src.import.MapAssetInspector")
+local CacheFs = require("src.import.CacheFs")
+local FakeCache = require("tests.support.FakeCache")
+local MapAssetCompiler = require("src.import.MapAssetCompiler")
+local MapCacheWriter = require("src.import.MapCacheWriter")
+local MapAssetCache = require("src.core.MapAssetCache")
+local PermissionGrid = require("src.data.PermissionGrid")
+local CollisionGrid = require("src.world.CollisionGrid")
+local DebugPlayer = require("src.world.DebugPlayer")
+local TargetAnchors = require("data.manifests.target_map_anchors")
 
 local T = {}
 
@@ -136,6 +145,60 @@ function T.gate4_geometry_inventory(romFs)
   Assert.equal(labo.modelName, "wk_labo")
   print(string.format("  [new_bark] map model %q: %d shapes, %d verts; lab exterior model 21 = %q",
     report.mapModel.modelName, report.mapModel.shapeCount, report.mapModel.vertexCount, labo.modelName))
+end
+
+-- Gate 9: New Bark's central cell compiles into a scene that carries all the
+-- Phase B diagnostic display data (matrix 0 cell (21,12) index 585, land 0, area
+-- 2, origin (672,384)), an outdoor map model with its map texture pack, the lab
+-- exterior model 21 resolved through the outdoor archive, and a consistent lab-
+-- entry anchor. The debug player spawns inside the local 32x32 cell.
+function T.gate9_central_cell_scene(romFs, version)
+  local c = CacheFs.forVersion(version, FakeCache.new())
+  local bundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK"))
+  MapCacheWriter.write(c, bundle)
+  local scene = bundle.scene
+
+  local m = scene.matrix
+  Assert.equal(m.memberId, 0)
+  Assert.equal(m.name, "map")
+  Assert.equal(m.width, 47)
+  Assert.equal(m.height, 17)
+  Assert.equal(m.x, 21)
+  Assert.equal(m.z, 12)
+  Assert.equal(m.index, 585)
+  Assert.equal(m.worldOriginX, 672)
+  Assert.equal(m.worldOriginZ, 384)
+  Assert.equal(scene.source.landData.memberId, 0)
+
+  Assert.equal(scene.area.memberId, 2)
+  Assert.equal(scene.area.type, "outdoor")
+  Assert.equal(scene.area.mapTexturePackId, 2)
+  Assert.equal(scene.area.buildingTexturePackId, 0)
+
+  -- Outdoor map model with its texture pack is drawn, and the laboratory
+  -- exterior (wk_labo, member 21) resolves through the outdoor archive.
+  Assert.isTrue(#scene.mapBatches > 0, "outdoor map model has draw batches")
+  local labo = false
+  for _, inst in ipairs(scene.buildingInstances) do
+    if inst.modelKey:find("^outdoor:21:") then labo = true end
+  end
+  Assert.isTrue(labo, "lab exterior model 21 placed via the outdoor archive")
+
+  -- The lab-entry anchor is coordinate-consistent: local + cell origin == global.
+  local anchor = TargetAnchors.MAP_NEW_BARK.anchors[1]
+  Assert.equal(anchor.localX + m.worldOriginX, anchor.globalX)
+  Assert.equal(anchor.localZ + m.worldOriginZ, anchor.globalZ)
+
+  -- The debug player spawns inside the central 32x32 cell on a passable tile.
+  local perms = assert(c:read(MapAssetCache.mapDir(60) .. "/permissions.bin"))
+  local collision = CollisionGrid.new(assert(PermissionGrid.decode(perms)), {
+    worldOriginX = m.worldOriginX, worldOriginZ = m.worldOriginZ })
+  local player = DebugPlayer.new(collision, TargetAnchors.MAP_NEW_BARK.spawn)
+  local s = player:status()
+  Assert.isTrue(s.localX >= 0 and s.localX < 32 and s.localZ >= 0 and s.localZ < 32, "spawn in cell")
+  Assert.isFalse(s.hardBlocked)
+  Assert.equal(s.globalX, s.localX + 672)
+  Assert.equal(s.globalZ, s.localZ + 384)
 end
 
 return T

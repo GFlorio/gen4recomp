@@ -38,6 +38,8 @@ local MODULES = {
   "tests.camera3d_test",
   "tests.scene_mesh_test",
   "tests.collision_grid_test",
+  "tests.field_grid_test",
+  "tests.debug_player_test",
   "tests.map_units_test",
   "tests.binary_writer_test",
   "tests.mesh_writer_test",
