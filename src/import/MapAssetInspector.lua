@@ -15,6 +15,7 @@ local LandData = require("src.data.LandData")
 local Nsbmd = require("src.data.nitro.Nsbmd")
 local Nsbtx = require("src.data.nitro.Nsbtx")
 local GxDisplayList = require("src.data.nitro.GxDisplayList")
+local DsPolygonAttr = require("src.data.nitro.DsPolygonAttr")
 
 local MapAssetInspector = {}
 
@@ -63,6 +64,81 @@ local function collectSbcOpcodes(model)
   return counts
 end
 
+-- Empty target-material/state inventory. Sets are keyed for dedup; bump() folds
+-- a model's materials/shapes in. accumulate() below turns it into sorted lists.
+local function newInventory()
+  return {
+    modelCount = 0,
+    materialCount = 0,
+    itemTags = {},
+    polygonModes = {},
+    polygonAlphas = {},
+    lightMasks = {},
+    cullModes = {},
+    polygonIds = {},
+    polyAttrMasks = {},
+    texImageParamMasks = {},
+    flagCounts = { translucentDepthWrite = 0, depthEqual = 0, fog = 0, farClip = 0, oneDot = 0 },
+    ownership = { diffuse = 0, ambient = 0, vertexColor = 0, specular = 0, emission = 0, shininess = 0 },
+    setVertexColor = 0,
+    useShininessTable = 0,
+    gxOpcodes = {},
+    textureFormats = {},
+    shapesWithDlPolygonAttr = 0,
+  }
+end
+
+-- Fold one decoded model's material and shape state into the inventory.
+local function accumulate(inv, model)
+  inv.modelCount = inv.modelCount + 1
+  for _, mat in ipairs(model.materials) do
+    inv.materialCount = inv.materialCount + 1
+    inv.itemTags[mat.itemTag] = true
+    inv.polyAttrMasks[string.format("0x%08X", mat.polyAttrMask)] = true
+    inv.texImageParamMasks[string.format("0x%08X", mat.texImageParamMask)] = true
+    if mat.setVertexColor then inv.setVertexColor = inv.setVertexColor + 1 end
+    if mat.useShininessTable then inv.useShininessTable = inv.useShininessTable + 1 end
+    for channel, owned in pairs(mat.owns) do
+      if owned then inv.ownership[channel] = (inv.ownership[channel] or 0) + 1 end
+    end
+    -- Effective polygon state: every target material fully masks polyAttr, so the
+    -- raw word is the effective word (asserted in the merge gate).
+    local a = DsPolygonAttr.decode(mat.polyAttrRaw)
+    inv.polygonModes[a.polygonMode] = true
+    inv.polygonAlphas[a.polygonAlpha] = true
+    inv.lightMasks[a.lightMask] = true
+    inv.cullModes[a.cullMode] = true
+    inv.polygonIds[a.polygonId] = true
+    if a.translucentDepthWrite then inv.flagCounts.translucentDepthWrite = inv.flagCounts.translucentDepthWrite + 1 end
+    if a.depthEqual then inv.flagCounts.depthEqual = inv.flagCounts.depthEqual + 1 end
+    if a.fogEnabled then inv.flagCounts.fog = inv.flagCounts.fog + 1 end
+    if a.farClipEnabled then inv.flagCounts.farClip = inv.flagCounts.farClip + 1 end
+    if a.oneDotEnabled then inv.flagCounts.oneDot = inv.flagCounts.oneDot + 1 end
+  end
+  for op, n in pairs(collectGxOpcodes(model)) do
+    inv.gxOpcodes[op] = (inv.gxOpcodes[op] or 0) + n
+  end
+  for _, shp in ipairs(model.shapes) do
+    if shp.geometry.polygonAttrs and #shp.geometry.polygonAttrs > 0 then
+      inv.shapesWithDlPolygonAttr = inv.shapesWithDlPolygonAttr + 1
+    end
+  end
+end
+
+-- Resolve the inventory sets into sorted lists for a deterministic report.
+local function finalizeInventory(inv)
+  inv.itemTags = sortedKeys(inv.itemTags)
+  inv.polygonModes = sortedKeys(inv.polygonModes)
+  inv.polygonAlphas = sortedKeys(inv.polygonAlphas)
+  inv.lightMasks = sortedKeys(inv.lightMasks)
+  inv.cullModes = sortedKeys(inv.cullModes)
+  inv.polygonIds = sortedKeys(inv.polygonIds)
+  inv.polyAttrMasks = sortedKeys(inv.polyAttrMasks)
+  inv.texImageParamMasks = sortedKeys(inv.texImageParamMasks)
+  inv.textureFormats = sortedKeys(inv.textureFormats)
+  return inv
+end
+
 local function summarizeTexturePack(nsbtx)
   local formats, dims, names, palNames = {}, {}, {}, {}
   for _, t in ipairs(nsbtx.textures) do
@@ -106,7 +182,7 @@ local function summarizeMapModel(nsbmd)
 end
 
 -- Decode every unique placed-building model in the archive chosen by area type.
-local function inspectBuildings(romFs, area, buildings, warnings)
+local function inspectBuildings(romFs, area, buildings, warnings, inv)
   local alias = area.areaType == "indoor" and "interior_build_models"
     or area.areaType == "outdoor" and "exterior_build_models"
   if not alias then
@@ -130,6 +206,10 @@ local function inspectBuildings(romFs, area, buildings, warnings)
         warnings[#warnings + 1] = string.format("building model %d decode failed: %s", memberId, tostring(err))
       else
         local model = nsbmd.models[1]
+        accumulate(inv, model)
+        if nsbmd.embeddedTextures then
+          for _, t in ipairs(nsbmd.embeddedTextures.textures) do inv.textureFormats[t.format] = true end
+        end
         summaries[#summaries + 1] = {
           memberId = memberId,
           modelName = model.name,
@@ -173,6 +253,14 @@ function MapAssetInspector.inspect(romFs, idOrSymbol)
   local bldTexBytes, bldTexSha = readMember(bldTexNarc, "building_textures", area.buildingTexturePackId)
   local bldTexPack = assert(Nsbtx.decode(bldTexBytes,
     { alias = "building_textures", memberId = area.buildingTexturePackId }))
+
+  -- Target material/polygon-state inventory (Slice 0 merge gate): fold the map
+  -- model and every placed building model, plus the area texture-pack formats.
+  local inv = newInventory()
+  accumulate(inv, mapModel.models[1])
+  for _, t in ipairs(mapTexPack.textures) do inv.textureFormats[t.format] = true end
+  for _, t in ipairs(bldTexPack.textures) do inv.textureFormats[t.format] = true end
+  local buildingReport = inspectBuildings(romFs, area, buildings, warnings, inv)
 
   local report = {
     versionId = romFs:version(),
@@ -230,7 +318,8 @@ function MapAssetInspector.inspect(romFs, idOrSymbol)
     mapModel = summarizeMapModel(mapModel),
     mapTexturePack = summarizeTexturePack(mapTexPack),
     buildingTexturePack = summarizeTexturePack(bldTexPack),
-    buildings = inspectBuildings(romFs, area, buildings, warnings),
+    buildings = buildingReport,
+    featureInventory = finalizeInventory(inv),
     source = {
       areaData = { alias = "area_data", memberId = resolved.areaDataMemberId, sha1 = areaSha },
       landData = { alias = "land_data", memberId = resolved.landDataMemberId, sha1 = landSha },
@@ -291,6 +380,25 @@ function MapAssetInspector.lines(report)
     add("  model %d %q: nodes=%d materials=%d shapes=%d embeddedTex=%s",
       s.memberId, s.modelName, s.nodeCount, s.materialCount, s.shapeCount, tostring(s.hasEmbeddedTextures))
   end
+  local fi = report.featureInventory
+  add("featureInventory: models=%d materials=%d itemTags=[%s]",
+    fi.modelCount, fi.materialCount, table.concat(fi.itemTags, ","))
+  add("  polygonModes=[%s] polygonAlphas=[%s] lightMasks=[%s] cullModes=[%s]",
+    table.concat(fi.polygonModes, ","), table.concat(fi.polygonAlphas, ","),
+    table.concat(fi.lightMasks, ","), table.concat(fi.cullModes, ","))
+  add("  polygonIds=[%s] polyAttrMasks=[%s] texImageParamMasks=[%s]",
+    table.concat(fi.polygonIds, ","), table.concat(fi.polyAttrMasks, ","),
+    table.concat(fi.texImageParamMasks, ","))
+  add("  flags: translucentDepthWrite=%d depthEqual=%d fog=%d farClip=%d oneDot=%d",
+    fi.flagCounts.translucentDepthWrite, fi.flagCounts.depthEqual, fi.flagCounts.fog,
+    fi.flagCounts.farClip, fi.flagCounts.oneDot)
+  add("  ownership: diffuse=%d ambient=%d vertexColor=%d specular=%d emission=%d shininess=%d",
+    fi.ownership.diffuse, fi.ownership.ambient, fi.ownership.vertexColor,
+    fi.ownership.specular, fi.ownership.emission, fi.ownership.shininess)
+  add("  setVertexColor=%d useShininessTable=%d shapesWithDlPolygonAttr=%d textureFormats=[%s]",
+    fi.setVertexColor, fi.useShininessTable, fi.shapesWithDlPolygonAttr,
+    table.concat(fi.textureFormats, ","))
+  opcodeLine("  GX opcodes(all models)", fi.gxOpcodes)
   if #report.warnings == 0 then
     add("warnings: none")
   else

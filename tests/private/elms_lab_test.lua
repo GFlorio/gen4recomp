@@ -11,6 +11,7 @@ local Nsbtx = require("src.data.nitro.Nsbtx")
 local Nsbmd = require("src.data.nitro.Nsbmd")
 local TextureDecoder = require("src.data.nitro.TextureDecoder")
 local MapAssetInspector = require("src.import.MapAssetInspector")
+local InventoryAssert = require("tests.support.InventoryAssert")
 local CollisionGrid = require("src.world.CollisionGrid")
 local DebugPlayer = require("src.world.DebugPlayer")
 local TargetAnchors = require("data.manifests.target_map_anchors")
@@ -164,6 +165,8 @@ function T.gate4_geometry_inventory(romFs)
   local report = assert(MapAssetInspector.inspect(romFs, "MAP_NEW_BARK_ELMS_LAB_1F"))
   Assert.equal(#report.warnings, 0)
   Assert.equal(report.buildings.archiveAlias, "interior_build_models")
+  -- The material/polygon-state inventory is finite and fully supported.
+  InventoryAssert.assertSupported(report.featureInventory, "elms_lab")
   for _, s in ipairs(report.buildings.modelSummaries) do
     Assert.notNil(s.bounds, "building model " .. s.memberId .. " produced no bounds")
   end
