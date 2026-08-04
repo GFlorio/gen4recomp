@@ -7,6 +7,7 @@
 local Assert = require("tests.support.Assert")
 local Nsbmd = require("src.data.nitro.Nsbmd")
 local NB = require("tests.support.NitroBuilder")
+local Matrix4 = require("src.render.Matrix4")
 
 local T = {}
 
@@ -24,11 +25,7 @@ local function triangleDL()
     .. string.char(0x41, 0, 0, 0)
 end
 
-local function buildModel()
-  -- Node / material / shape dictionaries.
-  local nodeDict = NB.dict({ { name = "root", data = u32(0) } })
-  local matDict = NB.dict({ { name = "mat0", data = u32(0) } }) -- offset patched below
-
+local function buildMaterialBlock()
   -- NNSG3dResMatData prefix (0x2C bytes), distinct value in every field.
   --   diffAmb : diffuse rgb555(31,0,0)=0x1F, set-vertex-color bit15, ambient
   --             rgb555(0,31,0)=0x3E0 -> word 0x03E081F.. with bit15 -> +0x8000
@@ -46,66 +43,123 @@ local function buildModel()
 
   -- texToMat / plttToMat: name -> u8[count] material indices placed after the
   -- dicts in the material block. Entry data: u16 ofsList, u8 count, u8 bound.
-  local ofsTexToMat = 4 + #matDict
   local texToMatEntry = function(ofsList) return NB.u16(ofsList) .. string.char(1, 0) end
 
-  -- Provisionally size the two binding dicts (they hold one 4-byte entry each).
-  local texDict = NB.dict({ { name = "tex0", data = texToMatEntry(0) } })
-  local ofsPlttToMat = ofsTexToMat + #texDict
-  local pltDict = NB.dict({ { name = "pal0", data = texToMatEntry(0) } })
+  -- Two-pass sizing: the binding dicts and material data block all live in the
+  -- same material section, so their offsets depend on each other's sizes.
+  local matDict0 = NB.dict({ { name = "mat0", data = u32(0) } })
+  local texDict0 = NB.dict({ { name = "tex0", data = texToMatEntry(0) } })
+  local pltDict0 = NB.dict({ { name = "pal0", data = texToMatEntry(0) } })
+  local listBase = 4 + #matDict0 + #texDict0 + #pltDict0 + 2
 
-  -- Material index arrays follow both binding dicts.
-  local listBase = ofsPlttToMat + #pltDict
-  -- Rebuild binding dicts with real ofsList values.
-  texDict = NB.dict({ { name = "tex0", data = texToMatEntry(listBase) } })
-  pltDict = NB.dict({ { name = "pal0", data = texToMatEntry(listBase + 1) } })
-  -- Material data block follows the two index arrays; point mat0 at it.
-  local ofsMatData = 4 + #matDict + #texDict + #pltDict + 2
-  matDict = NB.dict({ { name = "mat0", data = NB.u16(ofsMatData) .. NB.u16(0) } })
-  local matBlock = NB.u16(ofsTexToMat) .. NB.u16(ofsPlttToMat)
-    .. matDict .. texDict .. pltDict .. string.char(0, 0) -- material indices: tex0->[0], pal0->[0]
+  local texDict = NB.dict({ { name = "tex0", data = texToMatEntry(listBase) } })
+  local pltDict = NB.dict({ { name = "pal0", data = texToMatEntry(listBase + 1) } })
+  local ofsMatData = 4 + #matDict0 + #texDict + #pltDict + 2
+  local matDict = NB.dict({ { name = "mat0", data = NB.u16(ofsMatData) .. NB.u16(0) } })
+
+  return NB.u16(4 + #matDict) .. NB.u16(4 + #matDict + #texDict)
+    .. matDict .. texDict .. pltDict .. string.char(0, 0) -- tex0->[0], pal0->[0]
     .. matData
+end
 
-  -- Shape block: dict -> shape data (ofsDL@8, sizeDL@12) -> DL bytes.
-  local dl = triangleDL()
-  local shpDict = NB.dict({ { name = "shp0", data = u32(0) } }) -- offset patched below
-  local shapeDataOffset = #shpDict
+local function buildShapeBlock(dl)
+  local shpDict0 = NB.dict({ { name = "shp0", data = u32(0) } })
+  local shapeDataOffset = #shpDict0
   local shapeData = u32(0) .. u32(0) .. u32(16) .. u32(#dl) -- flags, flags, ofsDL=16, sizeDL
-  shpDict = NB.dict({ { name = "shp0", data = u32(shapeDataOffset) } })
-  local shpBlock = shpDict .. shapeData .. dl
+  local shpDict = NB.dict({ { name = "shp0", data = u32(shapeDataOffset) } })
+  return shpDict .. shapeData .. dl
+end
 
-  -- SBC: NODEDESC(root=0), NODE(0,vis), POSSCALE, MAT 0, SHP 0, RET.
-  local sbc = string.char(0x06, 0, 0, 0) -- NODEDESC node0 parent0 flags0 (3 args)
-    .. string.char(0x02, 0, 1) -- NODE node0 vis1
-    .. string.char(0x0B) -- POSSCALE
-    .. string.char(0x04, 0) -- MAT 0
-    .. string.char(0x05, 0) -- SHP 0
-    .. string.char(0x01) -- RET
+local function buildInfo(numNode, numMat, numShp)
+  local fields = {}
+  fields[#fields + 1] = NB.u8(0)  -- sbcType
+  fields[#fields + 1] = NB.u8(0)  -- scalingRule
+  fields[#fields + 1] = NB.u8(0)  -- texMtxMode
+  fields[#fields + 1] = NB.u8(numNode)
+  fields[#fields + 1] = NB.u8(numMat)
+  fields[#fields + 1] = NB.u8(numShp)
+  fields[#fields + 1] = NB.u8(0)  -- firstUnusedMtxStackID
+  fields[#fields + 1] = NB.u8(0)  -- dummy
+  fields[#fields + 1] = NB.u32(0x1000) -- posScale
+  fields[#fields + 1] = NB.u32(0x2000) -- invPosScale
+  fields[#fields + 1] = NB.u16(3)  -- numVertex
+  fields[#fields + 1] = NB.u16(1)  -- numPolygon
+  fields[#fields + 1] = NB.u16(1)  -- numTriangle
+  fields[#fields + 1] = NB.u16(0)  -- numQuad
+  for i = 1, 6 do fields[#fields + 1] = NB.u16(0) end -- box x,y,z,w,h,d
+  fields[#fields + 1] = NB.u32(0x4000) -- boxPosScale
+  fields[#fields + 1] = NB.u32(0x0800) -- boxInvPosScale
+  return table.concat(fields)
+end
 
-  -- Model layout: header(0x14) + info(0x2C) + nodeDict + sbc + matBlock + shpBlock.
-  local info = { string.rep("\0", 0x2C) }
-  info = info[1]
-  -- numNode/numMat/numShp at info +0x03/04/05; posScale (fx32 1.0) at +0x08.
-  info = info:sub(1, 3) .. string.char(1, 1, 1) .. info:sub(7)
-  info = info:sub(1, 8) .. NB.u32(0x1000) .. info:sub(13)
+-- Model layout: header(0x14) + info(0x2C) + nodeDict + nodeData + sbc + matBlock + shpBlock.
+local function buildModel(nodeDict, nodeData, sbc)
+  local matBlock = buildMaterialBlock()
+  local shpBlock = buildShapeBlock(triangleDL())
+  local info = buildInfo(1, 1, 1)
 
-  local ofsSbc = 0x40 + #nodeDict
+  local ofsSbc = 0x40 + #nodeDict + #nodeData
   local ofsMat = ofsSbc + #sbc
   local ofsShp = ofsMat + #matBlock
-  local body = string.rep("\0", 0x14) .. info .. nodeDict .. sbc .. matBlock .. shpBlock
+
+  local body = string.rep("\0", 0x14) .. info .. nodeDict .. nodeData .. sbc .. matBlock .. shpBlock
   local model = u32(#body) .. NB.u32(ofsSbc) .. NB.u32(ofsMat) .. NB.u32(ofsShp) .. NB.u32(0)
     .. body:sub(0x15) -- replace the zeroed header region with real offsets
 
   return model
 end
 
+local function buildModelDict(model)
+  local modelDict0 = NB.dict({ { name = "m0", data = u32(0) } })
+  local modelOffset = 8 + #modelDict0
+  local modelDict = NB.dict({ { name = "m0", data = u32(modelOffset) } })
+  return modelDict .. model
+end
+
 local function buildBmd0()
-  local model = buildModel()
-  local modelDict = NB.dict({ { name = "m0", data = u32(0) } }) -- offset patched
-  local modelOffset = 8 + #modelDict
-  modelDict = NB.dict({ { name = "m0", data = u32(modelOffset) } })
-  local mdl0Body = modelDict .. model
-  return NB.file("BMD0", { { magic = "MDL0", body = mdl0Body } })
+  -- Identity node: flags = TRANS_ZERO | ROT_ZERO | SCALE_ONE, _00 = 0.
+  local nodeDict0 = NB.dict({ { name = "root", data = u32(0) } })
+  local nodeDataOffset = #nodeDict0
+  local nodeDict = NB.dict({ { name = "root", data = u32(nodeDataOffset) } })
+  local nodeData = NB.u16(0x0007) .. NB.u16(0)
+
+  -- NODEDESC(root), NODE(0,vis), POSSCALE, MAT/SHP, POSSCALE(inverse), MAT/SHP, RET.
+  local sbc = string.char(0x06, 0, 0, 0)          -- NODEDESC node0 parent0 flags0
+    .. string.char(0x02, 0, 1)                    -- NODE node0 vis1
+    .. string.char(0x0B)                          -- POSSCALE (normal)
+    .. string.char(0x04, 0)                       -- MAT 0
+    .. string.char(0x05, 0)                       -- SHP 0
+    .. string.char(0x2B)                          -- POSSCALE (inverse)
+    .. string.char(0x04, 0)                       -- MAT 0
+    .. string.char(0x05, 0)                       -- SHP 0
+    .. string.char(0x01)                          -- RET
+
+  local model = buildModel(nodeDict, nodeData, sbc)
+  return NB.file("BMD0", { { magic = "MDL0", body = buildModelDict(model) } })
+end
+
+local function buildTransformedBmd0()
+  -- One node with translation (2,0,0), identity rotation, scale (2,1,1).
+  local nodeData = NB.u16(0x0000) .. NB.u16(0x1000) -- flags=0, _00=1.0
+    .. NB.u32(0x2000) .. NB.u32(0) .. NB.u32(0)   -- translation
+    .. NB.u16(0) .. NB.u16(0) .. NB.u16(0)        -- rotation col0 rows 1,2 + col1 row0
+    .. NB.u16(0x1000) .. NB.u16(0) .. NB.u16(0)   -- col1 row1, row2 + col2 row0
+    .. NB.u16(0) .. NB.u16(0x1000)                -- col2 row1, row2
+    .. NB.u32(0x2000) .. NB.u32(0x1000) .. NB.u32(0x1000) -- scale
+
+  local nodeDict0 = NB.dict({ { name = "root", data = u32(0) } })
+  local nodeDataOffset = #nodeDict0
+  local nodeDict = NB.dict({ { name = "root", data = u32(nodeDataOffset) } })
+
+  local sbc = string.char(0x06, 0, 0, 0)
+    .. string.char(0x02, 0, 1)
+    .. string.char(0x0B)
+    .. string.char(0x04, 0)
+    .. string.char(0x05, 0)
+    .. string.char(0x01)
+
+  local model = buildModel(nodeDict, nodeData, sbc)
+  return NB.file("BMD0", { { magic = "MDL0", body = buildModelDict(model) } })
 end
 
 function T.decodes_model_info_and_names()
@@ -116,8 +170,17 @@ function T.decodes_model_info_and_names()
   Assert.equal(model.info.numNode, 1)
   Assert.equal(model.info.numMat, 1)
   Assert.equal(model.info.numShp, 1)
+  Assert.equal(model.info.sbcType, 0)
+  Assert.equal(model.info.scalingRule, 0)
+  Assert.equal(model.info.texMtxMode, 0)
+  Assert.equal(model.info.firstUnusedMtxStackID, 0)
   Assert.equal(model.info.posScale, 1)
+  Assert.equal(model.info.invPosScale, 2)
+  Assert.equal(model.info.boxPosScale, 4)
+  Assert.equal(model.info.boxInvPosScale, 0.5)
   Assert.equal(model.nodes[1].name, "root")
+  Assert.equal(model.nodes[1].flagsRaw, 0x0007)
+  Assert.equal(model.nodes[1].matrixStackIndex, 0)
   Assert.equal(model.materials[1].name, "mat0")
 end
 
@@ -179,12 +242,75 @@ end
 
 function T.decodes_sbc_draw_instances()
   local model = assert(Nsbmd.decode(buildBmd0())).models[1]
-  Assert.equal(#model.sbc.draws, 1)
-  local draw = model.sbc.draws[1]
-  Assert.equal(draw.materialIndex, 0)
-  Assert.equal(draw.shapeIndex, 0)
-  Assert.equal(model.sbc.opcodeCounts[0x05], 1) -- one SHP
+  Assert.equal(#model.sbc.draws, 2)
+  Assert.equal(model.sbc.draws[1].materialIndex, 0)
+  Assert.equal(model.sbc.draws[1].shapeIndex, 0)
+  Assert.equal(model.sbc.draws[1].nodeIndex, 0)
+  Assert.isTrue(model.sbc.draws[1].materialReapplied)
+  Assert.equal(model.sbc.draws[2].materialIndex, 0)
+  Assert.equal(model.sbc.draws[2].shapeIndex, 0)
+  Assert.equal(model.sbc.draws[2].nodeIndex, 0)
+  Assert.isTrue(model.sbc.draws[2].materialReapplied)
+  Assert.equal(model.sbc.opcodeCounts[0x05], 2) -- two SHP
   Assert.equal(model.sbc.opcodeCounts[0x01], 1) -- one RET
+
+  local nd = model.sbc.commands[1]
+  Assert.equal(nd.name, "NODEDESC")
+  Assert.equal(nd.nodeIndex, 0)
+  Assert.equal(nd.parentIndex, 0)
+  Assert.equal(nd.flags, 0)
+
+  local poss = {}
+  for _, c in ipairs(model.sbc.commands) do
+    if c.opcode == 0x0B then poss[#poss + 1] = c end
+  end
+  Assert.equal(#poss, 2)
+  Assert.isFalse(poss[1].inverse)
+  Assert.isTrue(poss[2].inverse)
+end
+
+function T.decodes_identity_node_srt()
+  local model = assert(Nsbmd.decode(buildBmd0())).models[1]
+  local node = model.nodes[1]
+  Assert.equal(node.name, "root")
+  Assert.equal(node.flagsRaw, 0x0007)
+  Assert.equal(node.matrixStackIndex, 0)
+  Assert.deepEqual(node.translation, { x = 0, y = 0, z = 0 })
+  Assert.deepEqual(node.scale, { x = 1, y = 1, z = 1 })
+  Assert.deepEqual(node.rotation, { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
+  Assert.deepEqual(node.localMatrix, Matrix4.identity())
+end
+
+function T.decodes_transformed_node_srt()
+  local model = assert(Nsbmd.decode(buildTransformedBmd0())).models[1]
+  local node = model.nodes[1]
+  Assert.equal(node.translation.x, 2)
+  Assert.equal(node.translation.y, 0)
+  Assert.equal(node.translation.z, 0)
+  Assert.equal(node.scale.x, 2)
+  Assert.equal(node.scale.y, 1)
+  Assert.equal(node.scale.z, 1)
+  Assert.deepEqual(node.rotation, { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
+
+  local x, y, z = Matrix4.transformPoint(node.localMatrix, 1, 0, 0)
+  Assert.equal(x, 4)
+  Assert.equal(y, 0)
+  Assert.equal(z, 0)
+end
+
+function T.rejects_malformed_node_data_offset()
+  local nodeDict = NB.dict({ { name = "root", data = u32(0) } })
+  local nodeData = ""
+  local sbc = string.char(0x06, 0, 0, 0)
+    .. string.char(0x02, 0, 1)
+    .. string.char(0x0B)
+    .. string.char(0x04, 0)
+    .. string.char(0x05, 0)
+    .. string.char(0x01)
+  local model = buildModel(nodeDict, nodeData, sbc)
+  local m, err = Nsbmd.decode(NB.file("BMD0", { { magic = "MDL0", body = buildModelDict(model) } }))
+  Assert.isNil(m)
+  Assert.equal(err.code, "NSBMD_NODE_DATA_OFFSET_ZERO")
 end
 
 function T.rejects_missing_mdl0()
