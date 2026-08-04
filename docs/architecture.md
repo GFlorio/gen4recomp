@@ -14,9 +14,9 @@ thin.
 
 | Layer | Modules | LÖVE? |
 | --- | --- | --- |
-| **Domain — pure parsers/decoders** | `BinaryReader`, `NdsRom`, `NitroFs`, `OverlayTable`, `Narc`, `MapMatrix`, `LuaWriter`, `Errors`, `GameVersion` | no |
-| **Infrastructure** | `RomSource` (owns the ROM bytes, SHA-1), `CacheFs` (private per-version storage), `RomExtractor` (dump orchestration), `RomFs` (runtime read API), `DumpAudit` | `RomSource`/`CacheFs` only |
-| **Interface** | `App` (dispatch/boot), `Cli` (flag parsing, pure), `RomImporter` (state machine + coroutine), `ui/*` states | yes |
+| **Domain — pure parsers/decoders** | `BinaryReader`, `NdsRom`, `NitroFs`, `OverlayTable`, `Narc`, `MapMatrix`, `AreaData`, `LandData`, `Nsbmd`, `Nsbtx`, `GxDisplayList`, `DsMaterial`, `DsPolygonAttr`, `FieldLightProfile`, `DsLighting`, `RenderQueue`, `LuaWriter`, `Errors`, `GameVersion` | no |
+| **Infrastructure** | `RomSource` (owns the ROM bytes, SHA-1), `CacheFs` (private per-version storage), `RomExtractor` (dump orchestration), `RomFs` (runtime read API), `DumpAudit`, `MapAssetCompiler`, `MapCacheWriter`, `MapAssetCache` | `RomSource`/`CacheFs` only |
+| **Interface** | `App` (dispatch/boot), `Cli` (flag parsing, pure), `RomImporter` (state machine + coroutine), `MapSceneLoader`, `MapRenderer`, `Gizmos`, `Camera3D`, `ui/*` states | yes |
 
 The pure parsers never touch LÖVE, never read a file, and never mutate global
 state — they take a byte string and return a validated structure or a structured

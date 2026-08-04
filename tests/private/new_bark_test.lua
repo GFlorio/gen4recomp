@@ -213,6 +213,66 @@ function T.flowers_tile_via_material_wrap(romFs)
   Assert.equal(flowerMat.wrap.y, "repeat")
 end
 
+-- Binary zero-alpha textures (e.g. fence/vegetation masks) are classified as
+-- cutout, not translucent, and keep depth writes.
+function T.binary_zero_alpha_is_cutout(romFs)
+  local bundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK"))
+  local scene = bundle.scene
+
+  local function textureSha1(path)
+    return path and path:match("([0-9a-f]+)%.png$")
+  end
+
+  local function assertCutout(materials, batches)
+    local cutoutById = {}
+    for _, m in ipairs(materials or {}) do
+      local sha1 = textureSha1(m.texture)
+      local tex = sha1 and bundle.textures[sha1]
+      if m.texture and tex and tex.alphaUsage and tex.alphaUsage.hasZero
+          and m.textureFormat ~= 1 and m.textureFormat ~= 6 then
+        cutoutById[m.id] = true
+      end
+    end
+    for _, b in ipairs(batches or {}) do
+      if cutoutById[b.material] then
+        Assert.equal(b.alphaClass, "cutout",
+          "binary zero-alpha batch is cutout, not translucent")
+        Assert.isTrue(b.polygonAlpha == 31, "cutout keeps full polygon alpha")
+      end
+    end
+  end
+
+  assertCutout(scene.materials, scene.mapBatches)
+  for _, desc in pairs(bundle.models) do
+    assertCutout(desc.materials, desc.batches)
+  end
+end
+
+-- Exterior building models resolve through the outdoor archive and compile
+-- through the same material/light path as the map model (same profile, no
+-- target-specific branch, no embedded-texture fallback).
+function T.exterior_models_share_lighting_and_material_path(romFs)
+  local bundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK"))
+  local scene = bundle.scene
+  Assert.equal(scene.lighting.profileId, 0)
+  Assert.equal(scene.lighting.sourcePath, "data/area00light.txt")
+
+  local outdoorCount = 0
+  for key, desc in pairs(bundle.models) do
+    if key:find("^outdoor:") then
+      outdoorCount = outdoorCount + 1
+      -- Each exterior model descriptor carries the same lighting profile as the
+      -- map: the runtime binds one set of field-light uniforms for the scene.
+      Assert.isTrue(#desc.batches > 0, "exterior model has batches: " .. key)
+      for _, b in ipairs(desc.batches) do
+        Assert.notNil(b.alphaClass, "exterior batch has alpha class: " .. key)
+        Assert.notNil(b.cullMode, "exterior batch has cull mode: " .. key)
+      end
+    end
+  end
+  Assert.isTrue(outdoorCount > 0, "New Bark compiles exterior building models")
+end
+
 -- Gate 9: New Bark's central cell compiles into a scene that carries all the
 -- Phase B diagnostic display data (matrix 0 cell (21,12) index 585, land 0, area
 -- 2, origin (672,384)), an outdoor map model with its map texture pack, the lab

@@ -22,11 +22,10 @@ local function record()
     u32(0x4000),        -- 0x10 X rotation (low16 = 90 deg)
     u32(0x8000),        -- 0x14 Y rotation (low16 = 180 deg)
     u32(0xC000),        -- 0x18 Z rotation (low16 = 270 deg)
-    string.char(0xAB),  -- 0x1C unknown byte
-    u32(0x1000),        -- 0x1D width scale (unaligned)
-    u32(0x2000),        -- 0x21 height scale
-    u32(0x0800),        -- 0x25 length scale
-    "\1\2\3\4\5\6\7",   -- 0x29 seven trailing bytes
+    u32(0x1000),        -- 0x1C width scale (fx32 = 1.0)
+    u32(0x2000),        -- 0x20 height scale (fx32 = 2.0)
+    u32(0x0800),        -- 0x24 length scale (fx32 = 0.5)
+    "\1\2\3\4\5\6\7\8", -- 0x28 eight trailing bytes
   })
 end
 
@@ -53,12 +52,14 @@ function T.decodes_all_fields_of_one_record()
   Assert.equal(p.rotationRaw.y, 0x8000)
   Assert.equal(p.rotationRaw.z, 0xC000)
 
+  Assert.equal(p.scale.width, 1.0)
+  Assert.equal(p.scale.height, 2.0)
+  Assert.equal(p.scale.length, 0.5)
   Assert.equal(p.scaleRaw.width, 0x1000)
   Assert.equal(p.scaleRaw.height, 0x2000)
   Assert.equal(p.scaleRaw.length, 0x0800)
 
-  Assert.equal(p.unknown.byte1C, 0xAB)
-  Assert.equal(p.unknown.tail, "\1\2\3\4\5\6\7")
+  Assert.equal(p.unknown.tail, "\1\2\3\4\5\6\7\8")
 end
 
 function T.decode_all_yields_sequential_indices()
@@ -77,6 +78,14 @@ function T.rejects_length_not_multiple_of_48()
   local placements, err = BuildingPlacement.decodeAll(record() .. "\0")
   Assert.isNil(placements)
   Assert.equal(err.code, "BUILDING_BAD_SIZE")
+end
+
+function T.decodes_negative_fx32_scale()
+  local rec = record()
+  -- Overwrite the width scale word at 0x1C with -1.0 fx32.
+  local patched = rec:sub(1, 0x1C) .. u32(0xFFFFF000) .. rec:sub(0x1C + 5)
+  local p = BuildingPlacement.decode(patched, 0)
+  Assert.equal(p.scale.width, -1.0)
 end
 
 return T

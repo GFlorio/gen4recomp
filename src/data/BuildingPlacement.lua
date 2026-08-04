@@ -1,12 +1,13 @@
 -- Decoder for placed-building records inside the HGSS land-data buildings
 -- section. Each record is exactly 0x30 bytes: a building-model member id, an
 -- fx position (signed integer + unsigned 1/65536 fraction per axis), three
--- packed rotation words (angle in the low 16 bits), three intentionally
--- unaligned scale words, and reserved bytes preserved verbatim. Layout from the
--- HGSS field building-placement record. Pure domain module.
+-- packed rotation words (angle in the low 16 bits), three aligned fx32 scale
+-- words, and reserved bytes preserved verbatim. Layout from the HGSS field
+-- building-placement record. Pure domain module.
 
 local Errors = require("src.import.Errors")
 local BinaryReader = require("src.import.BinaryReader")
+local Fixed = require("src.data.nitro.Fixed")
 
 local BuildingPlacement = {}
 
@@ -36,6 +37,12 @@ function BuildingPlacement.decode(bytes, byteOffset, context)
   local zFraction, zInteger = r:u16le(byteOffset + 0x0C), s16(r, byteOffset + 0x0E)
   local rx, ry, rz = r:u32le(byteOffset + 0x10), r:u32le(byteOffset + 0x14), r:u32le(byteOffset + 0x18)
 
+  local scaleRaw = {
+    width = r:u32le(byteOffset + 0x1C),
+    height = r:u32le(byteOffset + 0x20),
+    length = r:u32le(byteOffset + 0x24),
+  }
+
   local placement = {
     index = byteOffset / RECORD_SIZE,
     modelMemberId = r:u32le(byteOffset + 0x00),
@@ -51,14 +58,14 @@ function BuildingPlacement.decode(bytes, byteOffset, context)
     },
     rotation = { x = angle(rx), y = angle(ry), z = angle(rz) },
     rotationRaw = { x = rx, y = ry, z = rz },
-    scaleRaw = {
-      width = r:u32le(byteOffset + 0x1D),
-      height = r:u32le(byteOffset + 0x21),
-      length = r:u32le(byteOffset + 0x25),
+    scale = {
+      width = Fixed.fx32(scaleRaw.width),
+      height = Fixed.fx32(scaleRaw.height),
+      length = Fixed.fx32(scaleRaw.length),
     },
+    scaleRaw = scaleRaw,
     unknown = {
-      byte1C = r:u8(byteOffset + 0x1C),
-      tail = r:bytes(byteOffset + 0x29, 7),
+      tail = r:bytes(byteOffset + 0x28, 8),
     },
     source = context,
   }

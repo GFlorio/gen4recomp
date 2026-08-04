@@ -11,6 +11,7 @@ local MODULES = {
   "tests.private.elms_lab_test",
   "tests.private.elms_lab_compile_test",
   "tests.private.new_bark_test",
+  "tests.private.code_invariants_test",
 }
 
 local function sortedKeys(t)
