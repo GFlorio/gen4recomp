@@ -39,10 +39,13 @@ local SBC = {
   [0x03] = { name = "MTX", args = fixedArgs(1) },
   [0x04] = { name = "MAT", args = fixedArgs(1) },
   [0x05] = { name = "SHP", args = fixedArgs(1) },
+  -- NODEDESC carries node/parent/flags, then optional stack slots keyed by the
+  -- command's option bits: bit0 (0x20) appends a store-slot operand, bit1 (0x40)
+  -- a restore-slot operand (store first when both are present).
   [0x06] = { name = "NODEDESC", args = function(cmd)
     local n = 3
+    if math.floor(cmd / 0x20) % 2 == 1 then n = n + 1 end
     if math.floor(cmd / 0x40) % 2 == 1 then n = n + 1 end
-    if math.floor(cmd / 0x80) % 2 == 1 then n = n + 1 end
     return n
   end },
   [0x07] = { name = "BB", args = fixedArgs(2) },

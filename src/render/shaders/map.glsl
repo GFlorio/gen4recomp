@@ -128,6 +128,6 @@ void effect()
   }
 
   love_Canvases[0] = vec4(outRgb, alpha);
-  love_Canvases[1] = vec4(u_polygonId, 0.0, 0.0, 1.0);
+  love_Canvases[1] = vec4(u_polygonId, gl_FragCoord.z, 0.0, 1.0);
 }
 #endif
