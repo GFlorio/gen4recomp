@@ -14,7 +14,8 @@ function BundleFixture.minimal(mapId)
   local modelKey = "indoor:1:abc123abc123"
 
   local function v(x, z)
-    return { x = x, y = 0, z = z, u = 0, v = 0, nx = 0, ny = 1, nz = 0, r = 255, g = 255, b = 255, a = 255 }
+    return { x = x, y = 0, z = z, u = 0, v = 0, nx = 0, ny = 1, nz = 0,
+      r = 255, g = 255, b = 255, a = 255, colorSource = 0 }
   end
 
   local scene = {

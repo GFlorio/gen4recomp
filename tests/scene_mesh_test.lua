@@ -17,7 +17,7 @@ local function sampleBatch()
   for i = 0, 3 do
     vertices[i + 1] = {
       x = i, y = i * 2, z = -i, u = 0.5, v = 0.25,
-      nx = 0, ny = 1, nz = 0, r = 255, g = 0, b = 128, a = 255,
+      nx = 0, ny = 1, nz = 0, r = 255, g = 0, b = 128, a = 255, colorSource = i % 3,
     }
   end
   return { vertices = vertices, indices = { 0, 1, 2, 0, 2, 3 } }
@@ -40,6 +40,7 @@ return {
     Assert.equal(v[9], 1)       -- r 255/255
     Assert.equal(v[11], 128 / 255) -- b
     Assert.equal(v[12], 1)      -- a
+    Assert.equal(v[13], 1)      -- colorSource (vertex 2 -> i=1)
   end,
 
   ["rejects a bad magic"] = function()
@@ -64,7 +65,14 @@ return {
 
   ["rejects a header-only truncation"] = function()
     throwsCode("MESH_TOO_SMALL", function()
-      SceneMesh.decode("G4M1")
+      SceneMesh.decode("G4M2")
+    end)
+  end,
+
+  ["rejects a G4M1 file as a stale version"] = function()
+    local bytes = MeshWriter.encode(sampleBatch())
+    throwsCode("MESH_BAD_MAGIC", function()
+      SceneMesh.decode("G4M1" .. bytes:sub(5))
     end)
   end,
 }

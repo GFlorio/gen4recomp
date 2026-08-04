@@ -1,11 +1,11 @@
--- Decoder for the project's G4M1 binary mesh batch (see src/import/MeshWriter),
+-- Decoder for the project's G4M2 binary mesh batch (see src/import/MeshWriter),
 -- the inverse of that encoder. Splits cleanly: decode() is pure and validates a
 -- batch into plain vertex/index arrays (usable under bare LuaJIT and testable
 -- without love); build() turns a decoded batch into a persistent love Mesh and
 -- is the only love-coupled entry point. Vertices come out in the render vertex
--- layout order (x,y,z, u,v, nx,ny,nz, r,g,b,a) with colors normalized to 0..1;
--- indices stay zero-based as stored, and build() rebases them to love's 1-based
--- vertex map.
+-- layout order (x,y,z, u,v, nx,ny,nz, r,g,b,a, colorSource) with colors
+-- normalized to 0..1 and colorSource kept as a raw 0/1/2 float; indices stay
+-- zero-based as stored, and build() rebases them to love's 1-based vertex map.
 
 local Errors = require("src.import.Errors")
 local BinaryReader = require("src.import.BinaryReader")
@@ -13,16 +13,16 @@ local VertexFormat = require("src.render.VertexFormat")
 
 local SceneMesh = {}
 
-local MAGIC = "G4M1"
-local VERSION = 1
-local STRIDE = 36
-local HEADER = 24 -- "G4M1", u16 ver, u16 flags, u32 vcount, u32 icount, u16 stride, u16 iwidth, u32 reserved
+local MAGIC = "G4M2"
+local VERSION = 2
+local STRIDE = 40
+local HEADER = 24 -- "G4M2", u16 ver, u16 flags, u32 vcount, u32 icount, u16 stride, u16 iwidth, u32 reserved
 
 local function isFinite(n)
   return n == n and n ~= math.huge and n ~= -math.huge
 end
 
--- Validate and unpack a G4M1 batch into { vertexCount, indexCount, vertices,
+-- Validate and unpack a G4M2 batch into { vertexCount, indexCount, vertices,
 -- indices }. Raises a structured error on any malformed field. Pure.
 function SceneMesh.decode(bytes, context)
   assert(type(bytes) == "string", "SceneMesh.decode requires a string")
@@ -31,7 +31,7 @@ function SceneMesh.decode(bytes, context)
   end
   local r = BinaryReader.new(bytes, "g4mesh")
   if r:ascii(0, 4) ~= MAGIC then
-    Errors.raise("MESH_BAD_MAGIC", "expected G4M1 magic", { source = context })
+    Errors.raise("MESH_BAD_MAGIC", "expected G4M2 magic", { source = context })
   end
   local version = r:u16le(4)
   if version ~= VERSION then
@@ -42,7 +42,7 @@ function SceneMesh.decode(bytes, context)
   local stride = r:u16le(16)
   local indexWidth = r:u16le(18)
   if stride ~= STRIDE then
-    Errors.raise("MESH_BAD_STRIDE", "expected stride 36, got " .. stride, { source = context })
+    Errors.raise("MESH_BAD_STRIDE", "expected stride 40, got " .. stride, { source = context })
   end
   if indexWidth ~= 2 and indexWidth ~= 4 then
     Errors.raise("MESH_BAD_INDEX_WIDTH", "index width must be 2 or 4, got " .. indexWidth, { source = context })
@@ -72,7 +72,11 @@ function SceneMesh.decode(bytes, context)
     local green = r:u8(off + 33) / 255
     local blue = r:u8(off + 34) / 255
     local alpha = r:u8(off + 35) / 255
-    vertices[i] = { x, y, z, u, v, nx, ny, nz, red, green, blue, alpha }
+    local colorSource = r:u8(off + 36)
+    if colorSource > 2 then
+      Errors.raise("MESH_BAD_COLOR_SOURCE", "color source out of range at vertex " .. i, { source = context })
+    end
+    vertices[i] = { x, y, z, u, v, nx, ny, nz, red, green, blue, alpha, colorSource }
     off = off + STRIDE
   end
 
