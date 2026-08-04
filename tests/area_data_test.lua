@@ -18,6 +18,7 @@ function T.decodes_elms_lab_indoor()
   Assert.equal(a.dynamicTextureType, 0xFFFF)
   Assert.equal(a.areaType, "indoor")
   Assert.equal(a.areaTypeRaw, 0)
+  Assert.equal(a.lightTypeRaw, 0)
   Assert.equal(a.lightType, 0)
 end
 
@@ -27,6 +28,7 @@ function T.decodes_new_bark_outdoor()
   Assert.equal(a.mapTexturePackId, 2)
   Assert.equal(a.dynamicTextureType, 0)
   Assert.equal(a.areaType, "outdoor")
+  Assert.equal(a.lightTypeRaw, 1)
   Assert.equal(a.lightType, 1)
 end
 

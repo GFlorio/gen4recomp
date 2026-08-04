@@ -18,6 +18,7 @@ local MODULES = {
   "tests.map_catalog_test",
   "tests.map_resolver_test",
   "tests.area_data_test",
+  "tests.field_light_profile_test",
   "tests.permission_grid_test",
   "tests.building_placement_test",
   "tests.land_data_test",

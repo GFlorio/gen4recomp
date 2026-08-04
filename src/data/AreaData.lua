@@ -21,13 +21,17 @@ local function parse(bytes, context)
   end
   local r = BinaryReader.new(bytes, "area-data")
   local areaTypeRaw = r:u8(0x06)
+  local lightTypeRaw = r:u8(0x07)
   return {
     buildingTexturePackId = r:u16le(0x00),
     mapTexturePackId = r:u16le(0x02),
     dynamicTextureType = r:u16le(0x04),
     areaType = AREA_TYPE[areaTypeRaw] or "unknown",
     areaTypeRaw = areaTypeRaw,
-    lightType = r:u8(0x07),
+    -- Selects the HGSS field-light profile (see HgssFieldLighting). lightType is
+    -- a transitional alias removed once every call site reads lightTypeRaw.
+    lightTypeRaw = lightTypeRaw,
+    lightType = lightTypeRaw,
     source = context,
   }
 end

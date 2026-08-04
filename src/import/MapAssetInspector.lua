@@ -16,6 +16,8 @@ local Nsbmd = require("src.data.nitro.Nsbmd")
 local Nsbtx = require("src.data.nitro.Nsbtx")
 local GxDisplayList = require("src.data.nitro.GxDisplayList")
 local DsPolygonAttr = require("src.data.nitro.DsPolygonAttr")
+local HgssFieldLighting = require("src.data.HgssFieldLighting")
+local FieldLightProfile = require("src.data.FieldLightProfile")
 
 local MapAssetInspector = {}
 
@@ -262,6 +264,13 @@ function MapAssetInspector.inspect(romFs, idOrSymbol)
   for _, t in ipairs(bldTexPack.textures) do inv.textureFormats[t.format] = true end
   local buildingReport = inspectBuildings(romFs, area, buildings, warnings, inv)
 
+  -- Field-light profile: resolve the area's light type, read and parse the
+  -- selected text table, and select the noon record for a deterministic sample.
+  local selected = HgssFieldLighting.resolve(area.lightTypeRaw)
+  local lightText = assert(romFs:readSourcePath(selected.sourcePath))
+  local profile = assert(FieldLightProfile.parse(lightText, { sourcePath = selected.sourcePath }))
+  local noonRecord = FieldLightProfile.select(profile, FieldLightProfile.DEFAULT_TIME_SECONDS)
+
   local report = {
     versionId = romFs:version(),
     map = {
@@ -320,6 +329,15 @@ function MapAssetInspector.inspect(romFs, idOrSymbol)
     buildingTexturePack = summarizeTexturePack(bldTexPack),
     buildings = buildingReport,
     featureInventory = finalizeInventory(inv),
+    lighting = {
+      lightTypeRaw = area.lightTypeRaw,
+      profileId = selected.profileId,
+      sourcePath = selected.sourcePath,
+      sourceSha1 = sha1(lightText),
+      recordCount = #profile.records,
+      noonStartHalfSeconds = noonRecord.startHalfSeconds,
+      noonEnabledLightMask = noonRecord.enabledLightMask,
+    },
     source = {
       areaData = { alias = "area_data", memberId = resolved.areaDataMemberId, sha1 = areaSha },
       landData = { alias = "land_data", memberId = resolved.landDataMemberId, sha1 = landSha },
@@ -399,6 +417,10 @@ function MapAssetInspector.lines(report)
     fi.setVertexColor, fi.useShininessTable, fi.shapesWithDlPolygonAttr,
     table.concat(fi.textureFormats, ","))
   opcodeLine("  GX opcodes(all models)", fi.gxOpcodes)
+  local lt = report.lighting
+  add("lighting: lightTypeRaw=%d profile=%d %s records=%d noonStart=%d noonMask=0x%X",
+    lt.lightTypeRaw, lt.profileId, lt.sourcePath, lt.recordCount,
+    lt.noonStartHalfSeconds, lt.noonEnabledLightMask)
   if #report.warnings == 0 then
     add("warnings: none")
   else

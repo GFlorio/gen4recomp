@@ -167,6 +167,13 @@ function T.gate4_geometry_inventory(romFs)
   Assert.equal(report.buildings.archiveAlias, "interior_build_models")
   -- The material/polygon-state inventory is finite and fully supported.
   InventoryAssert.assertSupported(report.featureInventory, "elms_lab")
+
+  -- Elm's indoor area selects field-light profile 1 (area01light.txt); the
+  -- profile parses and its records cover the day.
+  Assert.equal(report.lighting.lightTypeRaw, 0)
+  Assert.equal(report.lighting.profileId, 1)
+  Assert.equal(report.lighting.sourcePath, "data/area01light.txt")
+  Assert.isTrue(report.lighting.recordCount > 0, "elm profile has records")
   for _, s in ipairs(report.buildings.modelSummaries) do
     Assert.notNil(s.bounds, "building model " .. s.memberId .. " produced no bounds")
   end
