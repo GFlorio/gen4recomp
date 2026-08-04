@@ -21,11 +21,30 @@ local SHADER_PATH = "src/render/shaders/map.glsl"
 -- normalized value just below half of one 8-bit step.
 local CUTOUT_EPSILON = 0.5 / 255
 
+-- App background color; the scene canvas is cleared to it so the final blit
+-- matches the previous direct-to-screen output exactly.
+local BG_COLOR = { 0.08, 0.09, 0.12, 1 }
+
 function MapRenderer.new()
   return setmetatable({
     shader = love.graphics.newShader(SHADER_PATH),
     stats = { drawCalls = 0, triangles = 0, meshCount = 0, textureCount = 0 },
   }, MapRenderer)
+end
+
+function MapRenderer:_releaseCanvases()
+  if self.sceneColor then self.sceneColor:release() end
+  if self.depth then self.depth:release() end
+  self.sceneColor, self.depth = nil, nil
+  self.canvasW, self.canvasH = nil, nil
+end
+
+function MapRenderer:_ensureCanvases(w, h)
+  if self.sceneColor and self.canvasW == w and self.canvasH == h then return end
+  self:_releaseCanvases()
+  self.sceneColor = love.graphics.newCanvas(w, h)
+  self.depth = love.graphics.newCanvas(w, h, { format = "depth24stencil8", readable = false })
+  self.canvasW, self.canvasH = w, h
 end
 
 local function alphaModeId(alphaClass)
@@ -141,9 +160,13 @@ function MapRenderer:draw(runtime, camera, overlays)
     textureCount = runtime.stats.textureCount,
   }
 
+  local w, h = lg.getWidth(), lg.getHeight()
+  self:_ensureCanvases(w, h)
+
   local viewMatrix = camera:view()
   local function doDraw()
-    lg.clear(false, false, true) -- clear depth; love already cleared color this frame
+    lg.setCanvas({ self.sceneColor, depthstencil = self.depth })
+    lg.clear(BG_COLOR, false, true) -- color + depth; love already cleared the screen
     lg.setShader(self.shader)
     self.shader:send("u_proj", "column", camera:projection())
     self.shader:send("u_view", "column", viewMatrix)
@@ -171,12 +194,21 @@ function MapRenderer:draw(runtime, camera, overlays)
     lg.setBlendMode("alpha")
     for _, d in ipairs(queue.wireframe) do self:_drawWireframe(d, viewMatrix) end
 
+    -- Composite the scene canvas back to the screen.
+    lg.setCanvas()
+    lg.setShader()
+    lg.setDepthMode()
+    lg.setBlendMode("alpha")
+    lg.setColor(1, 1, 1, 1)
+    lg.draw(self.sceneColor, 0, 0)
+
     return activeRecord
   end
 
   local ok, result = pcall(doDraw)
 
   -- Restore state so the 2D diagnostic UI draws normally even after an error.
+  lg.setCanvas()
   lg.setShader()
   lg.setDepthMode()
   lg.setMeshCullMode("none")
@@ -191,6 +223,7 @@ end
 function MapRenderer:release()
   if self.shader then self.shader:release() end
   self.shader = nil
+  self:_releaseCanvases()
 end
 
 return MapRenderer
