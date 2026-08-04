@@ -29,5 +29,7 @@ function love.conf(t)
     t.window.title = "g4recomp"
     t.window.resizable = true
     t.window.vsync = 1
+    t.window.depth = 24   -- 3D map rendering needs a depth buffer
+    t.window.stencil = 8
   end
 end

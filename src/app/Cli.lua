@@ -16,6 +16,7 @@ function Cli.parse(argv)
     checkDump = false,
     inspectMap = nil,
     buildMap = nil,
+    map = nil,
   }
 
   local i = 1
@@ -38,6 +39,9 @@ function Cli.parse(argv)
     elseif a == "--build-map" then
       i = i + 1
       opts.buildMap = argv[i] or error("--build-map requires a map id or symbol")
+    elseif a == "--map" then
+      i = i + 1
+      opts.map = argv[i] or error("--map requires a map id or symbol")
     end
     -- Unknown tokens (e.g. LÖVE's own args) are ignored so the parser stays forgiving.
     i = i + 1

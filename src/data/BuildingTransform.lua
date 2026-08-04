@@ -1,51 +1,36 @@
--- Builds the runtime transform for a placed building model from its placement
--- record and the model's scale, reproducing the reference field tool's
--- fixed-function matrix call order exactly (scale, translate, rotateZ, rotateY,
--- rotateX) before folding in the shared model-unit/tile conversion. The order is
--- easy to misread, so it is constructed explicitly and never algebraically
--- simplified; a matrix test pins the equivalence. Pure domain module.
+-- Builds the runtime world transform for a placed building instance. The model's
+-- own posScale is already folded into its compiled mesh (MeshCompiler via
+-- MapUnits), so the mesh arrives in field-tile units, and the land record's
+-- position is likewise in field tiles. The instance transform is therefore a
+-- plain TRS in tile space: per-instance stretch (the record's scaleRaw w/h/l,
+-- where 16 encodes 1.0), then the encoded Z/Y/X rotations, then the tile
+-- translation. Composed as translate * rotZ * rotY * rotX * scale, so a vertex
+-- is stretched, rotated about the model origin, then placed. Pure domain module.
 --
--- Reference quantities (from the HGSS field building placement):
---   modelScaleFactor = modelScale / 1024
---   translationFactor = 256 / modelScale
--- width/height/length are the low 16 bits of the record's scale words.
+-- This deliberately does NOT use the field tool's raw-geometry factors
+-- (modelScale/1024 and 256/modelScale): those position un-prescaled model
+-- vertices, and applying them on top of the already-tile-scaled mesh collapsed
+-- every building into a sub-tile pile at the origin.
 
-local Errors = require("src.import.Errors")
 local Matrix4 = require("src.render.Matrix4")
-local MapUnits = require("src.import.MapUnits")
 
 local BuildingTransform = {}
 
 local function low16(v) return v % 0x10000 end
 
--- placement: a BuildingPlacement record. modelScale: the building model's scale.
-function BuildingTransform.build(placement, modelScale)
-  if modelScale == 0 then
-    Errors.raise("BUILDING_TRANSFORM_BAD_SCALE", "model scale must be non-zero",
-      { placementIndex = placement.index })
-  end
+-- placement: a BuildingPlacement record (position in tiles, scaleRaw where
+-- 16 == 1.0, rotation in radians).
+function BuildingTransform.build(placement)
+  local sx = low16(placement.scaleRaw.width) / 16
+  local sy = low16(placement.scaleRaw.height) / 16
+  local sz = low16(placement.scaleRaw.length) / 16
+  local p, r = placement.position, placement.rotation
 
-  local modelScaleFactor = modelScale / 1024
-  local translationFactor = 256 / modelScale
-  local w = low16(placement.scaleRaw.width)
-  local h = low16(placement.scaleRaw.height)
-  local l = low16(placement.scaleRaw.length)
-
-  local m = Matrix4.scale(modelScaleFactor * w, modelScaleFactor * h, modelScaleFactor * l)
-  m = Matrix4.multiply(m, Matrix4.translate(
-    placement.position.x * translationFactor / w,
-    placement.position.y * translationFactor / h,
-    placement.position.z * translationFactor / l))
-  m = Matrix4.multiply(m, Matrix4.rotateZ(placement.rotation.z))
-  m = Matrix4.multiply(m, Matrix4.rotateY(placement.rotation.y))
-  m = Matrix4.multiply(m, Matrix4.rotateX(placement.rotation.x))
-
-  -- Common model-unit -> tile conversion applies to the placement translation
-  -- (the geometry itself is already tile-scaled when its mesh is compiled).
-  local f = 1 / MapUnits.MODEL_UNITS_PER_TILE
-  m[13] = m[13] * f
-  m[14] = m[14] * f
-  m[15] = m[15] * f
+  local m = Matrix4.translate(p.x, p.y, p.z)
+  m = Matrix4.multiply(m, Matrix4.rotateZ(r.z))
+  m = Matrix4.multiply(m, Matrix4.rotateY(r.y))
+  m = Matrix4.multiply(m, Matrix4.rotateX(r.x))
+  m = Matrix4.multiply(m, Matrix4.scale(sx, sy, sz))
   return m
 end
 

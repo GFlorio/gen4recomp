@@ -71,6 +71,22 @@ function T.gate5_completeness_and_ready(romFs, version)
   end
 end
 
+-- Gate 6 regression: DS texcoords are in texel units and must be normalized to
+-- [0,1] by the bound texture size. Before the fix the healing machine (64px
+-- texture) carried UVs up to 63 and clamped to a black edge texel. Elm's models
+-- are all clamp/single-texture, so no legitimate UV should approach the raw
+-- texel magnitudes; bound them well under any texel range.
+function T.gate6_uvs_are_normalized(romFs, version)
+  local _, bundle = compileInto(romFs, version)
+  local maxUV = 0
+  for _, batch in pairs(bundle.meshes) do
+    for _, vtx in ipairs(batch.vertices) do
+      maxUV = math.max(maxUV, math.abs(vtx.u), math.abs(vtx.v))
+    end
+  end
+  Assert.isTrue(maxUV <= 8, "normalized UVs stay small, got max " .. maxUV)
+end
+
 function T.gate5_injected_failure_leaves_no_marker(romFs, version)
   local backend = FakeCache.new()
   local orig = backend.write

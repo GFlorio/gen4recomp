@@ -41,6 +41,9 @@ function App.load(opts)
   if App.opts.buildMap then
     return App._runBuildMap(App.opts.buildMap)
   end
+  if App.opts.map then
+    return App._bootMap(App.opts.map)
+  end
   if App.opts.importRom then
     return App._startImport(App.opts.importRom)
   end
@@ -134,6 +137,18 @@ function App._runBuildMap(idOrSymbol)
   love.event.quit(allOk and 0 or 1)
 end
 
+-- Interactive 3D map diagnostic (Gate 6). Boots straight into the first ready
+-- version's compiled map, compiling on demand if the cache is cold.
+function App._bootMap(idOrSymbol)
+  local MapDiagnosticState = require("src.ui.MapDiagnosticState")
+  local ready = readyVersions()
+  if #ready == 0 then
+    App._startImport(nil)
+    return
+  end
+  App.state = MapDiagnosticState.new(ready[1], idOrSymbol)
+end
+
 function App._startImport(path)
   App.headless = App.opts.importOnly == true
   App.importer = RomImporter.new({
@@ -223,6 +238,23 @@ function App.keypressed(key)
     return
   end
   if key == "escape" then love.event.quit(0) end
+end
+
+-- Forward pointer input to the active state when it wants it (the 3D map
+-- diagnostic uses these for its free camera). Other states simply lack the hook.
+local function forward(method, ...)
+  local state = App.state
+  if state and state[method] then state[method](state, ...) end
+end
+
+function App.mousepressed(x, y, button) forward("mousepressed", x, y, button) end
+function App.mousereleased(x, y, button) forward("mousereleased", x, y, button) end
+function App.mousemoved(x, y, dx, dy) forward("mousemoved", x, y, dx, dy) end
+function App.wheelmoved(x, y) forward("wheelmoved", x, y) end
+
+-- Give the active state a chance to release GPU resources on shutdown.
+function App.quit()
+  if App.state and App.state.quit then App.state:quit() end
 end
 
 return App
