@@ -11,7 +11,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/lib.sh
 
-ROM="${1:-tmp/rom.nds}"
+ROM="${1:-tmp/rom.zip}"
 
 if [ ! -f "$ROM" ]; then
   echo "integration: ROM not found at '$ROM'" >&2

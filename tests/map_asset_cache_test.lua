@@ -30,7 +30,7 @@ function T.model_path_is_filesystem_safe()
 end
 
 function T.not_ready_without_files()
-  Assert.isTrue(not MapAssetCache.isReady(cache(), 61, "map-cache-v1:x:61:y"), "no files")
+  Assert.isTrue(not MapAssetCache.isReady(cache(), 61, "map-cache-v2:x:61:y"), "no files")
 end
 
 function T.ready_only_with_exact_marker_and_files()
@@ -79,6 +79,23 @@ function T.invalidate_map_removes_only_that_map()
   MapAssetCache.invalidateMap(c, 61)
   Assert.isTrue(not c:exists(MapAssetCache.mapDir(61) .. "/complete"), "map 61 gone")
   Assert.isTrue(c:exists(MapAssetCache.mapDir(60) .. "/complete"), "map 60 kept")
+end
+
+function T.not_ready_when_model_descriptor_references_missing_asset()
+  local c = cache()
+  local marker = MapAssetCache.marker("romsha", 61, "dep")
+  local dir = MapAssetCache.mapDir(61)
+  local modelKey = "indoor:1:abc"
+  local modelPath = MapAssetCache.modelPath(modelKey)
+  local meshPath = "assets/generated/maps/geometry/missing.g4mesh"
+  c:write(dir .. "/scene.lua", string.format(
+    "return { mapBatches = {}, materials = {}, buildingInstances = { { modelKey = %q } } }\n",
+    modelKey))
+  c:write(dir .. "/dependencies.lua", "return {}\n")
+  c:write(dir .. "/permissions.bin", string.rep("\0", 2048))
+  c:write(modelPath, string.format("return { batches = { { geometry = %q } }, materials = {} }\n", meshPath))
+  c:write(dir .. "/complete", marker)
+  Assert.isTrue(not MapAssetCache.isReady(c, 61, marker), "missing model-internal geometry -> not ready")
 end
 
 return T

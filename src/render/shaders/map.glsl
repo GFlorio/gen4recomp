@@ -27,8 +27,10 @@ vec4 position(mat4 transform_projection, vec4 vertex_position)
 #ifdef PIXEL
 uniform vec4 u_diffuse;      // material diffuse, 0..1
 uniform bool u_useTexture;
-uniform int u_alphaMode;     // 0 opaque, 1 mask
+uniform int u_alphaMode;     // 0 opaque, 1 cutout, 2 translucent
 uniform float u_alphaCutoff;
+uniform float u_polygonAlpha; // normalized 5-bit polygon alpha
+uniform int u_polygonMode;    // 0 modulation/toon, 1 decal
 
 vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords)
 {
@@ -39,6 +41,19 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords)
   float ndl = max(dot(n, normalize(vec3(0.3, 1.0, 0.5))), 0.0);
   float light = 0.6 + 0.4 * ndl;
   outc.rgb *= light;
+
+  // DS 5-bit alpha composition. Recover texture alpha in 5 bits with rounding,
+  // combine with polygon alpha for modulation/toon, or use polygon alpha for decal.
+  float At = outc.a;
+  int At5 = int(floor(At * 31.0 + 0.5));
+  int Ap5 = int(floor(u_polygonAlpha * 31.0 + 0.5));
+  int Aout5;
+  if (u_polygonMode == 1) {
+    Aout5 = Ap5;
+  } else {
+    Aout5 = int(floor(float((At5 + 1) * (Ap5 + 1) - 1) / 32.0));
+  }
+  outc.a = float(Aout5) / 31.0;
 
   if (u_alphaMode == 1 && outc.a < u_alphaCutoff) {
     discard;

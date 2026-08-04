@@ -53,6 +53,12 @@ function T.textured_untextured_and_dedup()
   local asset = out.textures[out.materials[1].texture]
   Assert.equal(asset.width, 8)
   Assert.equal(#asset.pixels, 8 * 8 * 4)
+  Assert.isTrue(asset.alphaUsage.hasOpaque)
+  Assert.isFalse(asset.alphaUsage.hasZero)
+  Assert.isFalse(asset.alphaUsage.hasPartial)
+  Assert.equal(out.materials[1].textureFormat, 3)
+  Assert.isNil(out.materials[1].alphaMode)
+  Assert.isNil(out.materials[1].cullMode)
 end
 
 function T.missing_texture_raises()

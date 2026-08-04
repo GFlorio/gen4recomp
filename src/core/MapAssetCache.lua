@@ -2,13 +2,13 @@
 -- own format version, fully independent of the raw ROM dump: changing it may
 -- rebuild derived maps but must never disturb rom-dump.complete, romfs/, or the
 -- raw dump indexes. A map is ready only when its completion marker matches
--- exactly and every artifact it references is present, so a partial or stale
--- build never reads as complete. Paths are cache-relative; all IO goes through a
--- CacheFs (which confines every write to the version subtree).
+-- exactly and every artifact it references is present and loadable, so a
+-- partial or stale build never reads as complete. Paths are cache-relative; all
+-- IO goes through a CacheFs (which confines every write to the version subtree).
 
 local MapAssetCache = {}
 
-MapAssetCache.FORMAT = "map-cache-v1"
+MapAssetCache.FORMAT = "map-cache-v2"
 
 local DERIVED_DATA = "data/generated"
 local DERIVED_ASSETS = "assets/generated"
@@ -34,23 +34,37 @@ function MapAssetCache.marker(romSha1, mapId, depHash)
   return string.format("%s:%s:%d:%s", MapAssetCache.FORMAT, romSha1, mapId, depHash)
 end
 
--- A texture path in scene.materials is stored cache-relative; recover its file.
-local function referencedPaths(scene)
+-- Collect every cache-relative path the scene references, recursing into model
+-- descriptors so a stale or missing model geometry/texture is caught.
+function MapAssetCache.referencedPaths(scene, cacheFs)
   local paths = {}
-  for _, b in ipairs(scene.mapBatches or {}) do
+
+  local function addBatch(b)
     if b.geometry then paths[#paths + 1] = b.geometry end
   end
-  for _, m in ipairs(scene.materials or {}) do
+  local function addMaterial(m)
     if m.texture then paths[#paths + 1] = m.texture end
   end
+
+  for _, b in ipairs(scene.mapBatches or {}) do addBatch(b) end
+  for _, m in ipairs(scene.materials or {}) do addMaterial(m) end
   for _, inst in ipairs(scene.buildingInstances or {}) do
-    if inst.modelKey then paths[#paths + 1] = MapAssetCache.modelPath(inst.modelKey) end
+    if inst.modelKey then
+      local modelPath = MapAssetCache.modelPath(inst.modelKey)
+      paths[#paths + 1] = modelPath
+      local desc = cacheFs and cacheFs:loadLua(modelPath)
+      if type(desc) == "table" then
+        for _, b in ipairs(desc.batches or {}) do addBatch(b) end
+        for _, m in ipairs(desc.materials or {}) do addMaterial(m) end
+      end
+    end
   end
   return paths
 end
 
 -- True only if the marker is exact, scene/dependencies load, permissions.bin is
--- exactly 2048 bytes, and every referenced mesh/texture/model file exists.
+-- exactly 2048 bytes, every model descriptor opens, and every referenced
+-- mesh/texture path exists.
 function MapAssetCache.isReady(cacheFs, mapId, expectedMarker)
   local dir = MapAssetCache.mapDir(mapId)
   local marker = cacheFs:read(dir .. "/complete")
@@ -63,7 +77,7 @@ function MapAssetCache.isReady(cacheFs, mapId, expectedMarker)
   local perms = cacheFs:getInfo(dir .. "/permissions.bin")
   if not perms or perms.type ~= "file" or perms.size ~= 2048 then return false end
 
-  for _, path in ipairs(referencedPaths(scene)) do
+  for _, path in ipairs(MapAssetCache.referencedPaths(scene, cacheFs)) do
     if not cacheFs:exists(path) then return false end
   end
   return true
