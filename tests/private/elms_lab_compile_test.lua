@@ -93,7 +93,7 @@ end
 
 -- Gate 8: cache-only restart. After a successful compile the map loads and
 -- traverses from the derived cache alone -- no ROM, and geometry comes from
--- baked G4M1 batches rather than a re-parsed NSBMD. Modelled by building into an
+-- baked G4M2 batches rather than a re-parsed NSBMD. Modelled by building into an
 -- in-memory backend, then reopening a fresh CacheFs over the same backend and
 -- using nothing but cache reads below the "restart" line.
 function T.gate8_cache_only_restart(romFs, version)
@@ -112,7 +112,7 @@ function T.gate8_cache_only_restart(romFs, version)
   local dir = MapAssetCache.mapDir(MAP_ID)
   local scene = assert(cache:loadLua(dir .. "/scene.lua"))
 
-  -- Geometry loads as baked G4M1 batches from the derived-asset subtree; the map
+  -- Geometry loads as baked G4M2 batches from the derived-asset subtree; the map
   -- never re-parses NSBMD/NSBTX at load, and no reference escapes the cache.
   for _, b in ipairs(scene.mapBatches) do
     Assert.isTrue(b.geometry:find("^assets/generated/") ~= nil, "geometry is a derived asset: " .. b.geometry)

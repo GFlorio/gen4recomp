@@ -1,4 +1,4 @@
--- Little-endian byte builder for generated binary assets (the G4M1 mesh format).
+-- Little-endian byte builder for generated binary assets (the G4M2 mesh format).
 -- The mirror of BinaryReader: integers are assembled arithmetically and 32-bit
 -- floats are encoded to IEEE-754 single precision by hand, since LuaJIT/5.1 has
 -- no string.pack. Keeping the encoder pure (no love, no bit ops) makes generated

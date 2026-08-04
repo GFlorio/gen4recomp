@@ -59,6 +59,11 @@ local function decodeSbc(r, start, limit, context)
   local commands, counts, draws = {}, {}, {}
   local pos = start
   local currentNode, currentMaterial = 0, 0
+  -- Track whether a MAT was issued since the previous SHP: the compiler seeds a
+  -- shape's initial GX color state from the material only when it was reapplied,
+  -- otherwise the previous shape's final color/normal state carries over. The
+  -- stream start counts as an implicit apply.
+  local matSincePrevShp = true
   while pos < limit do
     local cmd = r:u8(pos)
     local op = cmd % 0x20 -- low 5 bits; high bits are option flags
@@ -76,13 +81,16 @@ local function decodeSbc(r, start, limit, context)
       currentNode = r:u8(pos + 1)
     elseif op == 0x04 then
       currentMaterial = r:u8(pos + 1)
+      matSincePrevShp = true
     elseif op == 0x05 then
       draws[#draws + 1] = {
         nodeIndex = currentNode,
         materialIndex = currentMaterial,
         shapeIndex = r:u8(pos + 1),
         offset = pos,
+        materialReapplied = matSincePrevShp,
       }
+      matSincePrevShp = false
     end
     pos = pos + 1 + nargs
     if def.terminates then break end
@@ -268,6 +276,12 @@ local function decodeModel(sec, modelBase, name, index, context)
       name = e.name,
       dlOffset = dlOffset,
       dlSize = sizeDL,
+      -- Raw display-list bytes, retained so the model compiler can replay the
+      -- shape with the material/GX state active at its SBC draw. `geometry` is the
+      -- neutral (stateless) decode kept for inspection.
+      displayListBytes = dlBytes,
+      displayListOffset = dlOffset,
+      displayListSize = sizeDL,
       vertexCount = #geometry.vertices,
       triangleCount = #geometry.indices / 3,
       bounds = geometry.bounds,

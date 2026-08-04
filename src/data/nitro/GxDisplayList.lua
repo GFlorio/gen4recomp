@@ -17,6 +17,11 @@ local Fixed = require("src.data.nitro.Fixed")
 
 local GxDisplayList = {}
 
+-- Per-vertex color provenance carried into the mesh (matches the G4M2 field):
+-- 0 literal RGB (COLOR or a snapshotted diffuse), 1 produced by NORMAL lighting,
+-- 2 sourced from the field-profile diffuse via the material's set-vertex-color.
+local COLOR_SOURCE = { LITERAL = 0, NORMAL_LIT = 1, FIELD_DIFFUSE = 2 }
+
 -- Parameter word count per opcode. Absent = unknown/unsupported (fatal).
 local PARAM_WORDS = {
   [0x00] = 0, -- NOP
@@ -97,6 +102,7 @@ local function newDecoder()
     normal = { 0, 1, 0 },
     uv = { 0, 0 },
     color = { 255, 255, 255 },
+    colorSource = nil, -- resolved by COLOR/NORMAL or seeded from material state
     mtxMode = 0,
     run = nil, -- current BEGIN..END vertex-index buffer
     primType = nil,
@@ -118,6 +124,7 @@ function Decoder:emitVertex()
     u = self.uv[1], v = self.uv[2],
     nx = self.normal[1], ny = self.normal[2], nz = self.normal[3],
     r = self.color[1], g = self.color[2], b = self.color[3], a = 255,
+    colorSource = self.colorSource,
   }
   self.run[#self.run + 1] = #self.vertices - 1 -- zero-based index
 end
@@ -163,12 +170,14 @@ EXEC[0x1C] = function(d, p)
   d:applyMatrix({ 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, f(p[1]), f(p[2]), f(p[3]), 1 })
 end
 
-EXEC[0x20] = function(d, p) -- COLOR (BGR555)
+EXEC[0x20] = function(d, p) -- COLOR (BGR555) -> literal vertex color
   d.color = { Fixed.rgb555(p[1] % 0x8000) }
+  d.colorSource = COLOR_SOURCE.LITERAL
 end
-EXEC[0x21] = function(d, p) -- NORMAL
+EXEC[0x21] = function(d, p) -- NORMAL -> vertex color produced by lighting
   local nx, ny, nz = Fixed.normal10(p[1])
   d.normal = { nx, ny, nz }
+  d.colorSource = COLOR_SOURCE.NORMAL_LIT
 end
 EXEC[0x22] = function(d, p) -- TEXCOORD (1.11.4 -> texel units)
   d.uv = { s16(p[1] % 0x10000) / 16, s16(math.floor(p[1] / 0x10000) % 0x10000) / 16 }
@@ -253,11 +262,22 @@ end
 
 function GxDisplayList.opcodeName(op) return OPCODE_NAMES[op] end
 
+GxDisplayList.COLOR_SOURCE = COLOR_SOURCE
+
 local function _decode(bytes, options)
   options = options or {}
   local d = newDecoder()
   if options.restoreStack then d.restoreStack = options.restoreStack end
   if options.matrix then d.matrix = options.matrix end
+  -- Seed the persistent color/normal/source state from the SBC draw's material
+  -- (the geometry engine keeps this across a display-list call). Positions and
+  -- matrices are not seeded: each shape decodes in model space as before.
+  local seed = options.initialState
+  if seed then
+    if seed.color then d.color = { seed.color[1], seed.color[2], seed.color[3] } end
+    if seed.normal then d.normal = { seed.normal[1], seed.normal[2], seed.normal[3] } end
+    d.colorSource = seed.colorSource
+  end
   local r = BinaryReader.new(bytes, "gx-dl")
   local len = #bytes
   local pos = 0
@@ -299,6 +319,18 @@ local function _decode(bytes, options)
       "display list ended inside a BEGIN_VTXS block", { source = options.context }))
   end
 
+  -- In the compile path every emitted vertex must carry a resolved color source;
+  -- a nil source would otherwise render as an unintended default color.
+  if options.requireColorSource then
+    for i, v in ipairs(d.vertices) do
+      if v.colorSource == nil then
+        error(Errors.new("GX_UNRESOLVED_VERTEX_COLOR_SOURCE",
+          string.format("vertex %d has no resolved color source (no COLOR/NORMAL and no material seed)", i - 1),
+          { source = options.context }))
+      end
+    end
+  end
+
   local bounds
   for _, v in ipairs(d.vertices) do
     if not bounds then
@@ -321,6 +353,7 @@ local function _decode(bytes, options)
     commands = commands,
     opcodeCounts = d.opcodeCounts,
     polygonAttrs = polygonAttrs,
+    finalState = { color = d.color, normal = d.normal, colorSource = d.colorSource },
   }
 end
 
