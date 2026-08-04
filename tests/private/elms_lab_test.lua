@@ -11,6 +11,7 @@ local Nsbtx = require("src.data.nitro.Nsbtx")
 local Nsbmd = require("src.data.nitro.Nsbmd")
 local TextureDecoder = require("src.data.nitro.TextureDecoder")
 local MapAssetInspector = require("src.import.MapAssetInspector")
+local MapAssetCompiler = require("src.import.MapAssetCompiler")
 local InventoryAssert = require("tests.support.InventoryAssert")
 local CollisionGrid = require("src.world.CollisionGrid")
 local DebugPlayer = require("src.world.DebugPlayer")
@@ -180,6 +181,34 @@ function T.gate4_geometry_inventory(romFs)
   print(string.format("  [elms_lab] map model %q: %d shapes, %d verts, %d placed building models",
     report.mapModel.modelName, report.mapModel.shapeCount, report.mapModel.vertexCount,
     #report.buildings.modelIds))
+end
+
+-- Gate 6 (slice 6): every parsed material record is structurally valid and
+-- every compiled vertex carries a resolved color source.
+function T.gate6_material_and_vertex_validity(romFs)
+  local r = resolve(romFs)
+  local land = assert(LandData.decode(assert(romFs:openNarc("land_data")):readMember(r.landDataMemberId),
+    { mapId = r.map.id }))
+  local nsbmd = assert(Nsbmd.decode(land.mapModelBytes))
+  local model = nsbmd.models[1]
+
+  for _, mat in ipairs(model.materials) do
+    Assert.isTrue(mat.size >= 0x2C, "material size >= 0x2C: " .. mat.name)
+    Assert.equal(mat.itemTag, 0, "standard material item tag: " .. mat.name)
+    Assert.isTrue(mat.polyAttrMask == 0xFFFFFFFF or mat.polyAttrMask == 0x3F1FF8FF,
+      "polyAttrMask covers meaningful bits: " .. mat.name)
+    Assert.equal(mat.texImageParamMask, 0xFFFFFFFF,
+      "texImageParamMask is full: " .. mat.name)
+  end
+
+  local bundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK_ELMS_LAB_1F"))
+  for sha, batch in pairs(bundle.meshes) do
+    for _, v in ipairs(batch.vertices) do
+      Assert.notNil(v.colorSource, "vertex has resolved color source in " .. sha)
+      Assert.isTrue(v.colorSource >= 0 and v.colorSource <= 2,
+        "colorSource is valid in " .. sha)
+    end
+  end
 end
 
 -- Gate 7: the debug player traverses the real permission grid tile-by-tile,

@@ -12,6 +12,7 @@ local Errors = require("src.import.Errors")
 local MapUnits = require("src.import.MapUnits")
 local GxDisplayList = require("src.data.nitro.GxDisplayList")
 local DsMaterial = require("src.data.nitro.DsMaterial")
+local DsPolygonAttr = require("src.data.nitro.DsPolygonAttr")
 local Fixed = require("src.data.nitro.Fixed")
 
 local MeshCompiler = {}
@@ -116,6 +117,14 @@ function MeshCompiler.compile(model)
 
     local indices = {}
     for i = 1, #geom.indices do indices[i] = geom.indices[i] end
+
+    local poly = DsPolygonAttr.decode(matState.polygonAttrRaw)
+    if poly.polygonMode ~= "modulation" and poly.polygonMode ~= "decal" then
+      Errors.raise("MAP_COMPILE_UNSUPPORTED_POLYGON_MODE",
+        "polygon mode " .. poly.polygonMode .. " is not supported",
+        { model = model.name, material = draw.materialIndex, shape = shp.name,
+          polygonMode = poly.polygonMode, polygonAttrRaw = matState.polygonAttrRaw })
+    end
 
     batches[#batches + 1] = {
       nodeIndex = draw.nodeIndex,

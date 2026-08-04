@@ -5,6 +5,7 @@
 
 local Assert = require("tests.support.Assert")
 local MapRenderer = require("src.render.MapRenderer")
+local MapSceneLoader = require("src.world.MapSceneLoader")
 local VertexFormat = require("src.render.VertexFormat")
 
 local T = {}
@@ -49,6 +50,12 @@ local function syntheticMesh(vertices)
   local indices = {}
   for i = 0, #vertices - 1 do indices[i + 1] = i end
   return love.graphics.newMesh(VertexFormat.LAYOUT, vertices, "triangles", "static")
+end
+
+function T.rejects_stale_scene_schema()
+  local ok, err = pcall(MapSceneLoader.load, nil, { schema = "g4-map-scene-v1" })
+  Assert.isTrue(not ok and err.code == "MAP_SCENE_UNSUPPORTED_SCHEMA",
+    "rejects old scene schema: " .. tostring(err.code))
 end
 
 function T.literal_color_triangle_ignores_light_direction()

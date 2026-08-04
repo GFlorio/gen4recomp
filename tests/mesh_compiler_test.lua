@@ -114,4 +114,12 @@ function T.unsupported_dl_command_raises()
     "rejects in-DL shininess")
 end
 
+function T.unsupported_polygon_mode_raises()
+  -- Mode bits 4-5 = 2 (toon/highlight) is not supported for field rendering.
+  local m = model("color", { polyAttrRaw = 0x001F00E1 })
+  local ok, err = pcall(MeshCompiler.compile, m)
+  Assert.isTrue(not ok and Errors.is(err) and err.code == "MAP_COMPILE_UNSUPPORTED_POLYGON_MODE",
+    "rejects toon polygon mode")
+end
+
 return T

@@ -8,7 +8,7 @@
 varying vec3 v_dsColor;
 
 #ifdef VERTEX
-attribute vec4 VertexColor;
+// VertexColor is a LÖVE built-in attribute; do not redeclare it.
 attribute float VertexColorSource;
 attribute vec3 VertexNormal;
 
@@ -93,7 +93,7 @@ uniform float u_alphaCutoff;
 uniform float u_polygonAlpha;  // normalized 5-bit polygon alpha
 uniform int u_polygonMode;     // 0 modulation/toon, 1 decal
 
-vec4 effect(vec4 color, Image tex, vec2 uv)
+vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords)
 {
   vec4 base = u_useTexture ? Texel(tex, uv) : vec4(1.0);
 

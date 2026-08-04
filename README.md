@@ -86,8 +86,11 @@ scripts/sync-narc-catalog.sh /path/to/pokeheartgold <commit>
 
 ## Status
 
-Vertical slice in progress: repository bootstrap, binary foundation, version and
-cache contracts, NDS/NitroFS/NARC parsing, private dump, and a runtime `RomFs`
-diagnostic. See [`docs/architecture.md`](docs/architecture.md) for the boot,
-import, and runtime design, and [`docs/data-provenance.md`](docs/data-provenance.md)
-for where each parsed structure comes from.
+Vertical slice complete through DS material/lighting and 3D map rendering:
+repository bootstrap, binary foundation, version and cache contracts,
+NDS/NitroFS/NARC parsing, private dump, runtime `RomFs`, map/building model
+compilation, DS vertex lighting, and a 3D map diagnostic. See
+[`docs/architecture.md`](docs/architecture.md) for the boot/import/runtime design,
+[`docs/data-provenance.md`](docs/data-provenance.md) for where each parsed
+structure comes from, and [`docs/rendering.md`](docs/rendering.md) for the
+material, lighting, and render pipeline.

@@ -89,6 +89,25 @@ function T.gate5_completeness_and_ready(romFs, version)
   end
 end
 
+-- Slice 6: the selected field-light profile is source-hashed and its records
+-- serialize deterministically; compiling twice yields identical lighting data.
+function T.gate6_lighting_profile_deterministic(romFs, version)
+  local _, b1 = compileInto(romFs, version)
+  local _, b2 = compileInto(romFs, version)
+  local l1, l2 = b1.scene.lighting, b2.scene.lighting
+  Assert.equal(l1.lightTypeRaw, l2.lightTypeRaw)
+  Assert.equal(l1.profileId, l2.profileId)
+  Assert.equal(l1.sourcePath, l2.sourcePath)
+  Assert.equal(l1.sourceSha1, l2.sourceSha1)
+  Assert.equal(#l1.records, #l2.records)
+  for i = 1, #l1.records do
+    Assert.deepEqual(l1.records[i], l2.records[i])
+  end
+  -- Profile source is hashed into cache dependencies.
+  Assert.equal(b1.dependencies.fieldLightSourceSha1, l1.sourceSha1)
+  Assert.equal(b2.dependencies.fieldLightSourceSha1, l2.sourceSha1)
+end
+
 -- Gate 6 regression: DS texcoords are in texel units and must be normalized to
 -- [0,1] by the bound texture size. Before the fix the healing machine (64px
 -- texture) carried UVs up to 63 and clamped to a black edge texel. Elm's models

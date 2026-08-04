@@ -15,6 +15,7 @@ local CollisionGrid = require("src.world.CollisionGrid")
 local MapAssetCache = require("src.core.MapAssetCache")
 local Matrix4 = require("src.render.Matrix4")
 local FieldLightProfile = require("src.data.FieldLightProfile")
+local Errors = require("src.import.Errors")
 
 local MapSceneLoader = {}
 
@@ -42,7 +43,11 @@ end
 -- Load an assembled scene from the version's derived cache. `cacheFs` is a
 -- CacheFs.forVersion; `scene` is the already-loaded scene.lua table.
 function MapSceneLoader.load(cacheFs, scene)
-  assert(scene and scene.schema == "g4-map-scene-v2", "not a g4-map-scene-v2 descriptor")
+  if not scene or scene.schema ~= "g4-map-scene-v2" then
+    Errors.raise("MAP_SCENE_UNSUPPORTED_SCHEMA",
+      "expected g4-map-scene-v2, got " .. tostring(scene and scene.schema or nil),
+      { schema = scene and scene.schema or nil })
+  end
 
   local meshCache, imageCache = {}, {}
   local owned = { meshes = {}, images = {} }
