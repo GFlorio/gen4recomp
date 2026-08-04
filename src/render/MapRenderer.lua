@@ -2,11 +2,14 @@
 -- camera matrices, and the depth/cull/blend state, and runs four passes:
 -- opaque (depth write on), cutout (depth write on, shader discards alpha-zero
 -- fragments), translucent (depth test on, write governed by polygon bit 11),
--- and wireframe edges. It clears the depth buffer itself (love's frame clear
--- only touches color) and restores every GPU state it changed so the diagnostic
--- UI drawn afterwards is unaffected. It builds no meshes or textures and reads
--- no ROM/NARC data -- those belong to the loader and compiler; here everything
--- is already resident.
+-- and wireframe edges. Opaque, cutout, and wireframe passes additionally stamp
+-- their polygon ID and depth into a second render target that the DS
+-- edge-marking post-process reads when compositing to the screen; the
+-- translucent pass deliberately leaves that target alone. It clears the depth
+-- buffer itself (love's frame clear only touches color) and restores every GPU
+-- state it changed so the diagnostic UI drawn afterwards is unaffected. It
+-- builds no meshes or textures and reads no ROM/NARC data -- those belong to
+-- the loader and compiler; here everything is already resident.
 
 local RenderQueue = require("src.render.RenderQueue")
 local Matrix3 = require("src.render.Matrix3")
@@ -16,6 +19,7 @@ local MapRenderer = {}
 MapRenderer.__index = MapRenderer
 
 local SHADER_PATH = "src/render/shaders/map.glsl"
+local EDGE_SHADER_PATH = "src/render/shaders/edge.glsl"
 
 -- Epsilon for the DS fragment alpha contract: a 5-bit alpha of zero becomes a
 -- normalized value just below half of one 8-bit step.
@@ -25,18 +29,41 @@ local CUTOUT_EPSILON = 0.5 / 255
 -- matches the previous direct-to-screen output exactly.
 local BG_COLOR = { 0.08, 0.09, 0.12, 1 }
 
-function MapRenderer.new()
+-- Rear-plane entry for the polygon-ID/depth target: the sentinel ID 255 at the
+-- far depth. Edge marking compares off-object neighbours against this, which is
+-- what outlines silhouettes against the background (GBATEK: at the screen
+-- borders edges are resolved against the rear plane's polygon_id).
+local ID_CLEAR = { 1, 1, 0, 1 }
+
+-- DS framebuffer height. Edge marking is one hardware pixel wide, so the
+-- post-process samples that many framebuffer pixels out to keep the outline at
+-- its DS-relative weight instead of thinning as the window grows.
+local DS_NATIVE_HEIGHT = 192
+local MAX_EDGE_RADIUS = 8
+
+function MapRenderer.new(opts)
+  opts = opts or {}
+  local em = opts.edgeMarking or {}
+  local colors = em.colors
+  if not colors then
+    colors = {}
+    for i = 1, 8 do colors[i] = { 0.16, 0.16, 0.16 } end
+  end
+  assert(#colors == 8, "edgeMarking.colors must have 8 entries")
   return setmetatable({
     shader = love.graphics.newShader(SHADER_PATH),
+    edgeShader = love.graphics.newShader(EDGE_SHADER_PATH),
+    edgeColors = colors,
+    edgeAlpha = em.alpha or 0.5,
     stats = { drawCalls = 0, triangles = 0, meshCount = 0, textureCount = 0 },
   }, MapRenderer)
 end
 
 function MapRenderer:_releaseCanvases()
   if self.sceneColor then self.sceneColor:release() end
-  if self.polygonId then self.polygonId:release() end
+  if self.idDepth then self.idDepth:release() end
   if self.depth then self.depth:release() end
-  self.sceneColor, self.polygonId, self.depth = nil, nil, nil
+  self.sceneColor, self.idDepth, self.depth = nil, nil, nil
   self.canvasW, self.canvasH = nil, nil
 end
 
@@ -44,10 +71,19 @@ function MapRenderer:_ensureCanvases(w, h)
   if self.sceneColor and self.canvasW == w and self.canvasH == h then return end
   self:_releaseCanvases()
   self.sceneColor = love.graphics.newCanvas(w, h)
-  self.polygonId = love.graphics.newCanvas(w, h, { format = "r8" })
-  self.polygonId:setFilter("nearest", "nearest")
+  -- Red holds the normalized polygon ID, green the window-space depth. The
+  -- format must be 32-bit float: at 16 bits the mantissa step near the far
+  -- plane is the same order as the depth difference edge marking tests for.
+  self.idDepth = love.graphics.newCanvas(w, h, { format = "rg32f" })
+  self.idDepth:setFilter("nearest", "nearest")
   self.depth = love.graphics.newCanvas(w, h, { format = "depth24stencil8", readable = false })
   self.canvasW, self.canvasH = w, h
+end
+
+-- Framebuffer pixels per DS pixel, clamped to the shader's loop bound.
+local function edgeRadius(h)
+  local scale = math.floor(h / DS_NATIVE_HEIGHT + 0.5)
+  return math.max(1, math.min(MAX_EDGE_RADIUS, scale))
 end
 
 local function alphaModeId(alphaClass)
@@ -169,9 +205,17 @@ function MapRenderer:draw(runtime, camera, overlays)
   self:_ensureCanvases(w, h)
 
   local viewMatrix = camera:view()
+  local sceneTargets = { self.sceneColor, self.idDepth, depthstencil = self.depth }
+  -- Blended geometry draws colour only: DS edge marking reads the opaque
+  -- polygon-ID buffer, and translucent fragments must not overwrite it (they
+  -- would outline themselves against whatever they cover). Unbinding the target
+  -- discards the shader's writes to it, mirroring the per-attachment colour mask
+  -- hardware renderers use for the same purpose.
+  local colorOnlyTargets = { self.sceneColor, depthstencil = self.depth }
+
   local function doDraw()
-    lg.setCanvas({ self.sceneColor, self.polygonId, depthstencil = self.depth })
-    lg.clear(BG_COLOR, { 1, 0, 0, 1 }, false, true)
+    lg.setCanvas(sceneTargets)
+    lg.clear(BG_COLOR, ID_CLEAR, false, true)
     lg.setShader(self.shader)
     self.shader:send("u_proj", "column", camera:projection())
     self.shader:send("u_view", "column", viewMatrix)
@@ -188,24 +232,34 @@ function MapRenderer:draw(runtime, camera, overlays)
     for _, d in ipairs(queue.cutout) do self:_drawItem(d, viewMatrix) end
 
     -- Pass 3: blended, depth test on, write governed by polygon state.
+    lg.setCanvas(colorOnlyTargets)
     for _, d in ipairs(queue.translucent) do
       lg.setDepthMode(d.depthEqual and "lequal" or "less", d.translucentDepthWrite or false)
       lg.setBlendMode("alpha", "alphamultiply")
       self:_drawItem(d, viewMatrix)
     end
 
-    -- Pass 4: wireframe edges (polygon alpha zero).
+    -- Pass 4: wireframe edges (polygon alpha zero). These count as opaque for
+    -- edge marking, so the ID target is bound again.
+    lg.setCanvas(sceneTargets)
     lg.setDepthMode("less", true)
     lg.setBlendMode("alpha")
     for _, d in ipairs(queue.wireframe) do self:_drawWireframe(d, viewMatrix) end
 
-    -- Composite the scene canvas back to the screen.
+    -- Composite the scene canvas back to the screen through the edge shader,
+    -- which outlines polygon-ID boundaries that carry a depth step.
     lg.setCanvas()
-    lg.setShader()
     lg.setDepthMode()
     lg.setBlendMode("alpha")
     lg.setColor(1, 1, 1, 1)
+    lg.setShader(self.edgeShader)
+    self.edgeShader:send("u_idTex", self.idDepth)
+    self.edgeShader:send("u_texelSize", { 1 / w, 1 / h })
+    self.edgeShader:send("u_edgeColors", unpack(self.edgeColors))
+    self.edgeShader:send("u_edgeAlpha", self.edgeAlpha)
+    self.edgeShader:send("u_edgeRadius", edgeRadius(h))
     lg.draw(self.sceneColor, 0, 0)
+    lg.setShader()
 
     return activeRecord
   end
@@ -227,7 +281,8 @@ end
 
 function MapRenderer:release()
   if self.shader then self.shader:release() end
-  self.shader = nil
+  if self.edgeShader then self.edgeShader:release() end
+  self.shader, self.edgeShader = nil, nil
   self:_releaseCanvases()
 end
 

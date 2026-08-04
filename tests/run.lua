@@ -21,6 +21,7 @@ local MODULES = {
   "tests.field_light_profile_test",
   "tests.permission_grid_test",
   "tests.building_placement_test",
+  "tests.build_model_anim_list_test",
   "tests.land_data_test",
   "tests.fixed_test",
   "tests.nitro_file_test",

@@ -19,7 +19,18 @@ local DsPolygonAttr = require("src.data.nitro.DsPolygonAttr")
 local HgssFieldLighting = require("src.data.HgssFieldLighting")
 local FieldLightProfile = require("src.data.FieldLightProfile")
 local MeshCompiler = require("src.import.MeshCompiler")
-local NsbmdStaticTransforms = require("src.import.NsbmdStaticTransforms")
+local BuildModelAnimList = require("src.data.BuildModelAnimList")
+
+-- NitroSystem animation-resource magic -> what it drives. The distinction the
+-- build-model transform cares about is joint (node SRT) vs. everything else:
+-- only BCA0 can move geometry; BTA0/BMA0/BVA0 animate texture, material, and
+-- visibility and leave the node matrix alone.
+local ANIM_KIND = {
+  BCA0 = "joint-srt",
+  BTA0 = "texture-srt",
+  BMA0 = "material",
+  BVA0 = "visibility",
+}
 
 local MapAssetInspector = {}
 
@@ -278,6 +289,30 @@ local function compileDiagnostics(model)
   return { drawBounds = drawBounds, aggregateBounds = aggregate }
 end
 
+-- Resolve the external animations a build model references. `listNarc` holds one
+-- 0x18-byte record per member (exterior_build_anim_list); each referenced id
+-- indexes `resNarc` (exterior_build_anim), a mixed archive of NitroSystem
+-- animation resources. Returns a list of { resourceId, magic, kind, name }.
+local function resolveAnimations(listNarc, resNarc, memberId)
+  if memberId >= listNarc:memberCount() then return {} end
+  local record = BuildModelAnimList.decode(listNarc:readMember(memberId))
+  local out = {}
+  for _, resourceId in ipairs(record.ids) do
+    local entry = { resourceId = resourceId }
+    if resourceId < resNarc:memberCount() then
+      local bytes = resNarc:readMember(resourceId)
+      entry.magic = bytes:sub(1, 4)
+      entry.kind = ANIM_KIND[entry.magic] or "unknown"
+      -- NitroSystem animation name: 16 bytes at 0x34, NUL-padded.
+      entry.name = bytes:sub(0x35, 0x44):gsub("%z.*$", "")
+    else
+      entry.kind = "missing"
+    end
+    out[#out + 1] = entry
+  end
+  return out
+end
+
 -- Decode every unique placed-building model in the archive chosen by area type.
 local function inspectBuildings(romFs, area, buildings, warnings, inv)
   local alias = area.areaType == "indoor" and "interior_build_models"
@@ -304,6 +339,9 @@ local function inspectBuildings(romFs, area, buildings, warnings, inv)
   end
 
   local narc = assert(romFs:openNarc(alias))
+  -- Outdoor build models carry external animations; indoor ones do not.
+  local animListNarc = alias == "exterior_build_models" and romFs:openNarc("exterior_build_anim_list")
+  local animResNarc = alias == "exterior_build_models" and romFs:openNarc("exterior_build_anim")
   local summaries = {}
   for _, memberId in ipairs(ids) do
     local ok, bytes = pcall(readMember, narc, alias, memberId)
@@ -337,6 +375,7 @@ local function inspectBuildings(romFs, area, buildings, warnings, inv)
           posScaleOptions = collectPosScaleOptions(model),
           rawBounds = rawDisplayListBounds(model),
           compiledDiagnostics = compileDiagnostics(model),
+          animations = animListNarc and resolveAnimations(animListNarc, animResNarc, memberId) or {},
         }
       end
     end
@@ -537,6 +576,15 @@ function MapAssetInspector.lines(report)
     end
     add("    nodes: %s", table.concat(nodeParts, " | "))
     add("    posScale ops: normal=%d inverse=%d", s.posScaleOptions.normal, s.posScaleOptions.inverse)
+    if #s.animations > 0 then
+      local parts = {}
+      for _, a in ipairs(s.animations) do
+        parts[#parts + 1] = string.format("res %d %s(%s) %q", a.resourceId, a.kind, a.magic or "?", a.name or "")
+      end
+      add("    animations: %s", table.concat(parts, " | "))
+    else
+      add("    animations: none")
+    end
     boundsLine("raw dl bounds", s.rawBounds)
     local cd = s.compiledDiagnostics
     if cd.error then

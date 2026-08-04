@@ -49,6 +49,8 @@ local ALIAS_TO_SYMBOL = {
   building_textures = "NARC_a_0_7_0",
   interior_build_models = "NARC_a_1_4_8",
   exterior_build_models = "NARC_a_0_4_0",
+  exterior_build_anim_list = "NARC_a_1_0_7",
+  exterior_build_anim = "NARC_a_1_0_6",
   encounters_soulsilver = "NARC_fielddata_encountdata_s_enc_data",
   follower_params = "NARC_fielddata_tsurepoke_tp_param",
 }
