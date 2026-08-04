@@ -11,6 +11,7 @@ local Nsbtx = require("src.data.nitro.Nsbtx")
 local Nsbmd = require("src.data.nitro.Nsbmd")
 local TextureDecoder = require("src.data.nitro.TextureDecoder")
 local MapAssetInspector = require("src.import.MapAssetInspector")
+local InventoryAssert = require("tests.support.InventoryAssert")
 local CacheFs = require("src.import.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local MapAssetCompiler = require("src.import.MapAssetCompiler")
@@ -135,6 +136,9 @@ function T.gate4_geometry_inventory(romFs)
   local report = assert(MapAssetInspector.inspect(romFs, "MAP_NEW_BARK"))
   Assert.equal(#report.warnings, 0)
   Assert.equal(report.buildings.archiveAlias, "exterior_build_models")
+  -- The material/polygon-state inventory is finite and fully supported, even
+  -- with the outdoor a3i5/a5i3 textures and NORMAL-lit geometry.
+  InventoryAssert.assertSupported(report.featureInventory, "new_bark")
 
   -- Model 21 is present and identified as wk_labo (the laboratory exterior).
   local labo
