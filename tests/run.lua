@@ -40,6 +40,7 @@ local MODULES = {
   "tests.ds_material_test",
   "tests.nsbmd_test",
   "tests.matrix4_test",
+  "tests.nsbmd_static_transforms_test",
   "tests.camera3d_test",
   "tests.scene_mesh_test",
   "tests.matrix3_test",
