@@ -18,6 +18,8 @@ local GxDisplayList = require("src.data.nitro.GxDisplayList")
 local DsPolygonAttr = require("src.data.nitro.DsPolygonAttr")
 local HgssFieldLighting = require("src.data.HgssFieldLighting")
 local FieldLightProfile = require("src.data.FieldLightProfile")
+local MeshCompiler = require("src.import.MeshCompiler")
+local NsbmdStaticTransforms = require("src.import.NsbmdStaticTransforms")
 
 local MapAssetInspector = {}
 
@@ -183,6 +185,99 @@ local function summarizeMapModel(nsbmd)
   }
 end
 
+-- Union two axis-aligned bounds in model or tile space.
+local function unionBounds(a, b)
+  if not a then return b end
+  if not b then return a end
+  return {
+    min = {
+      math.min(a.min[1], b.min[1]),
+      math.min(a.min[2], b.min[2]),
+      math.min(a.min[3], b.min[3]),
+    },
+    max = {
+      math.max(a.max[1], b.max[1]),
+      math.max(a.max[2], b.max[2]),
+      math.max(a.max[3], b.max[3]),
+    },
+  }
+end
+
+local function vertexBounds(vertices)
+  if not vertices or #vertices == 0 then return nil end
+  local minx, miny, minz = vertices[1].x, vertices[1].y, vertices[1].z
+  local maxx, maxy, maxz = minx, miny, minz
+  for i = 2, #vertices do
+    local v = vertices[i]
+    if v.x < minx then minx = v.x end
+    if v.y < miny then miny = v.y end
+    if v.z < minz then minz = v.z end
+    if v.x > maxx then maxx = v.x end
+    if v.y > maxy then maxy = v.y end
+    if v.z > maxz then maxz = v.z end
+  end
+  return { min = { minx, miny, minz }, max = { maxx, maxy, maxz } }
+end
+
+local function rawDisplayListBounds(model)
+  local bounds
+  for _, shp in ipairs(model.shapes) do
+    bounds = unionBounds(bounds, shp.geometry and shp.geometry.bounds)
+  end
+  return bounds
+end
+
+local function collectPosScaleOptions(model)
+  local normal, inverse = 0, 0
+  for _, cmd in ipairs(model.sbc.commands) do
+    if cmd.opcode == 0x0B then -- POSSCALE
+      if cmd.inverse then
+        inverse = inverse + 1
+      else
+        normal = normal + 1
+      end
+    end
+  end
+  return { normal = normal, inverse = inverse }
+end
+
+local function summarizeNodes(model)
+  local out = {}
+  for _, node in ipairs(model.nodes) do
+    out[#out + 1] = {
+      index = node.index,
+      name = node.name,
+      flagsRaw = node.flagsRaw,
+      matrixStackIndex = node.matrixStackIndex,
+    }
+  end
+  return out
+end
+
+-- Compile a building model through the same path the runtime uses and report
+-- per-draw bounds plus an aggregate. Failures are captured so the inspector can
+-- still report raw/decoder state even when a model is not yet compilable.
+local function compileDiagnostics(model)
+  local ok, batches = pcall(MeshCompiler.compile, model)
+  if not ok then
+    return { drawBounds = {}, aggregateBounds = nil, error = tostring(batches) }
+  end
+  local drawBounds = {}
+  local aggregate
+  for _, batch in ipairs(batches) do
+    local b = vertexBounds(batch.vertices)
+    drawBounds[#drawBounds + 1] = {
+      nodeIndex = batch.nodeIndex,
+      materialIndex = batch.materialIndex,
+      shapeIndex = batch.shapeIndex,
+      submissionIndex = batch.submissionIndex,
+      bounds = b,
+    }
+    aggregate = unionBounds(aggregate, b)
+  end
+  return { drawBounds = drawBounds, aggregateBounds = aggregate }
+end
+
 -- Decode every unique placed-building model in the archive chosen by area type.
 local function inspectBuildings(romFs, area, buildings, warnings, inv)
   local alias = area.areaType == "indoor" and "interior_build_models"
@@ -195,6 +290,18 @@ local function inspectBuildings(romFs, area, buildings, warnings, inv)
   local uniqueIds = {}
   for _, b in ipairs(buildings) do uniqueIds[b.modelMemberId] = true end
   local ids = sortedKeys(uniqueIds)
+
+  local placementSummaries = {}
+  for _, pl in ipairs(buildings) do
+    placementSummaries[#placementSummaries + 1] = {
+      index = pl.index,
+      modelMemberId = pl.modelMemberId,
+      position = pl.position,
+      rotation = pl.rotation,
+      scaleRaw = pl.scaleRaw,
+      scale = pl.scale,
+    }
+  end
 
   local narc = assert(romFs:openNarc(alias))
   local summaries = {}
@@ -220,11 +327,27 @@ local function inspectBuildings(romFs, area, buildings, warnings, inv)
           shapeCount = model.info.numShp,
           hasEmbeddedTextures = nsbmd.embeddedTextures ~= nil,
           bounds = model.bounds,
+          scaleInfo = {
+            posScale = model.info.posScale,
+            invPosScale = model.info.invPosScale,
+            boxPosScale = model.info.boxPosScale,
+            boxInvPosScale = model.info.boxInvPosScale,
+          },
+          nodeSummary = summarizeNodes(model),
+          posScaleOptions = collectPosScaleOptions(model),
+          rawBounds = rawDisplayListBounds(model),
+          compiledDiagnostics = compileDiagnostics(model),
         }
       end
     end
   end
-  return { archiveAlias = alias, modelIds = ids, placements = #buildings, modelSummaries = summaries }
+  return {
+    archiveAlias = alias,
+    modelIds = ids,
+    placements = #buildings,
+    modelSummaries = summaries,
+    placementSummaries = placementSummaries,
+  }
 end
 
 -- Produce the full inventory report for a semantic map id or symbol.
@@ -391,12 +514,48 @@ function MapAssetInspector.lines(report)
   local bt = report.buildingTexturePack
   add("buildingTexturePack: %d textures %d palettes formats=[%s]",
     bt.textureCount, bt.paletteCount, table.concat(bt.formats, ","))
+  local function boundsLine(label, bounds)
+    if not bounds then return add("    %s: nil", label) end
+    add("    %s: min(%.2f,%.2f,%.2f) max(%.2f,%.2f,%.2f)", label,
+      bounds.min[1], bounds.min[2], bounds.min[3],
+      bounds.max[1], bounds.max[2], bounds.max[3])
+  end
+
   local b = report.buildings
   add("buildings: archive=%s placements=%d uniqueModels=[%s]",
     tostring(b.archiveAlias), b.placements, table.concat(b.modelIds, ","))
   for _, s in ipairs(b.modelSummaries) do
     add("  model %d %q: nodes=%d materials=%d shapes=%d embeddedTex=%s",
       s.memberId, s.modelName, s.nodeCount, s.materialCount, s.shapeCount, tostring(s.hasEmbeddedTextures))
+    local si = s.scaleInfo
+    add("    scale: posScale=%.4f invPosScale=%.4f boxPosScale=%.4f boxInvPosScale=%.4f",
+      si.posScale, si.invPosScale, si.boxPosScale, si.boxInvPosScale)
+    local nodeParts = {}
+    for _, n in ipairs(s.nodeSummary) do
+      nodeParts[#nodeParts + 1] = string.format("%d:%s flags=0x%04X slot=%d",
+        n.index, n.name, n.flagsRaw, n.matrixStackIndex)
+    end
+    add("    nodes: %s", table.concat(nodeParts, " | "))
+    add("    posScale ops: normal=%d inverse=%d", s.posScaleOptions.normal, s.posScaleOptions.inverse)
+    boundsLine("raw dl bounds", s.rawBounds)
+    local cd = s.compiledDiagnostics
+    if cd.error then
+      add("    compiled: ERROR %s", cd.error)
+    else
+      add("    compiled draws: %d", #cd.drawBounds)
+      for _, d in ipairs(cd.drawBounds) do
+        boundsLine(string.format("      draw n=%d node=%d mat=%d shp=%d",
+          d.submissionIndex, d.nodeIndex, d.materialIndex, d.shapeIndex), d.bounds)
+      end
+      boundsLine("    compiled aggregate bounds", cd.aggregateBounds)
+    end
+  end
+  for _, pl in ipairs(b.placementSummaries) do
+    add("  placement %d: model=%d pos=(%.2f,%.2f,%.2f) scaleRaw=(0x%08X,0x%08X,0x%08X) scale=(%.4f,%.4f,%.4f)",
+      pl.index, pl.modelMemberId,
+      pl.position.x, pl.position.y, pl.position.z,
+      pl.scaleRaw.width, pl.scaleRaw.height, pl.scaleRaw.length,
+      pl.scale.width, pl.scale.height, pl.scale.length)
   end
   local fi = report.featureInventory
   add("featureInventory: models=%d materials=%d itemTags=[%s]",
