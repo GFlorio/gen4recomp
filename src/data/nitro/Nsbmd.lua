@@ -23,6 +23,7 @@ local NitroDict = require("src.data.nitro.NitroDict")
 local Nsbtx = require("src.data.nitro.Nsbtx")
 local GxDisplayList = require("src.data.nitro.GxDisplayList")
 local DsMaterial = require("src.data.nitro.DsMaterial")
+local Matrix4 = require("src.render.Matrix4")
 
 local Nsbmd = {}
 
@@ -53,6 +54,139 @@ local SBC = {
   [0x0D] = { name = "PRJMAP", args = fixedArgs(2) },
 }
 
+-- NNSG3dResNodeData SRT flags (res_struct.h). The high bits of `flag` encode
+-- which transform components are present and, for pivot rotations, which cell
+-- receives the fixed +/-1 and where the A/B pair is written.
+local SRTFLAG_TRANS_ZERO        = 0x0001
+local SRTFLAG_ROT_ZERO          = 0x0002
+local SRTFLAG_SCALE_ONE         = 0x0004
+local SRTFLAG_PIVOT_EXIST       = 0x0008
+local SRTFLAG_PIVOT_MINUS       = 0x0100
+local SRTFLAG_SIGN_REVC         = 0x0200
+local SRTFLAG_SIGN_REVD         = 0x0400
+
+local pivotUtil_ = {
+  { 4, 5, 7, 8 },
+  { 3, 5, 6, 8 },
+  { 3, 4, 6, 7 },
+  { 1, 2, 7, 8 },
+  { 0, 2, 6, 8 },
+  { 0, 1, 6, 7 },
+  { 1, 2, 4, 5 },
+  { 0, 2, 3, 5 },
+  { 0, 1, 3, 4 },
+}
+
+local function rotationMatrixFromComponents(a)
+  return {
+    a[1], a[2], a[3], 0,
+    a[4], a[5], a[6], 0,
+    a[7], a[8], a[9], 0,
+    0, 0, 0, 1,
+  }
+end
+
+-- Decode one NNSG3dResNodeData record. `nodeInfoBase` is the model-relative
+-- offset of the NNSG3dResNodeInfo (dict at modelBase + 0x40); the dict entry's
+-- payload is an offset from that base to the variable-length node data.
+local function decodeNodeData(r, nodeInfoBase, e, context)
+  local offset = BinaryReader.new(e.data, "node-ref"):u32le(0)
+  if offset == 0 then
+    Errors.raise("NSBMD_NODE_DATA_OFFSET_ZERO",
+      string.format("node %d (%s) has a zero data offset", e.index, e.name),
+      { nodeIndex = e.index, nodeName = e.name, source = context })
+  end
+
+  local base = nodeInfoBase + offset
+  r:assertRange(base, 4, "node-data-header")
+
+  local flags = r:u16le(base)
+  local _00 = Fixed.fx16(r:u16le(base + 2))
+  local pos = base + 4
+
+  local function bitSet(v, bit)
+    return math.floor(v / bit) % 2 == 1
+  end
+
+  local translation
+  if bitSet(flags, SRTFLAG_TRANS_ZERO) then
+    translation = { x = 0, y = 0, z = 0 }
+  else
+    r:assertRange(pos, 12, "node-translation")
+    translation = {
+      x = Fixed.fx32(r:u32le(pos)),
+      y = Fixed.fx32(r:u32le(pos + 4)),
+      z = Fixed.fx32(r:u32le(pos + 8)),
+    }
+    pos = pos + 12
+  end
+
+  local rotation
+  if bitSet(flags, SRTFLAG_ROT_ZERO) then
+    rotation = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
+  elseif bitSet(flags, SRTFLAG_PIVOT_EXIST) then
+    r:assertRange(pos, 4, "node-pivot")
+    local A = Fixed.fx16(r:u16le(pos))
+    local B = Fixed.fx16(r:u16le(pos + 2))
+    local idxPivot = math.floor(flags / 16) % 16
+    if idxPivot > 8 then
+      Errors.raise("NSBMD_NODE_PIVOT_INDEX_INVALID",
+        string.format("node %d (%s) has pivot index %d", e.index, e.name, idxPivot),
+        { nodeIndex = e.index, nodeName = e.name, idxPivot = idxPivot, source = context })
+    end
+    local rot = { 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+    rot[idxPivot + 1] = bitSet(flags, SRTFLAG_PIVOT_MINUS) and -1 or 1
+    local u = pivotUtil_[idxPivot + 1]
+    rot[u[1] + 1] = A
+    rot[u[2] + 1] = B
+    rot[u[3] + 1] = bitSet(flags, SRTFLAG_SIGN_REVC) and -B or B
+    rot[u[4] + 1] = bitSet(flags, SRTFLAG_SIGN_REVD) and -A or A
+    rotation = rot
+    pos = pos + 4
+  else
+    r:assertRange(pos, 16, "node-rotation")
+    rotation = { _00 }
+    for i = 1, 8 do
+      rotation[#rotation + 1] = Fixed.fx16(r:u16le(pos + (i - 1) * 2))
+    end
+    pos = pos + 16
+  end
+
+  local scale
+  if bitSet(flags, SRTFLAG_SCALE_ONE) then
+    scale = { x = 1, y = 1, z = 1 }
+  else
+    r:assertRange(pos, 12, "node-scale")
+    scale = {
+      x = Fixed.fx32(r:u32le(pos)),
+      y = Fixed.fx32(r:u32le(pos + 4)),
+      z = Fixed.fx32(r:u32le(pos + 8)),
+    }
+    pos = pos + 12
+  end
+
+  -- Bits 11-15 of the flag word hold the intended matrix-stack slot.
+  local matrixStackIndex = math.floor(flags / 2048) % 32
+
+  -- Standard scaling rule composes T * R * S under this project's column-major
+  -- convention, matching NNSi_G3dSendJointSRTBasic's GE command order.
+  local R = rotationMatrixFromComponents(rotation)
+  local S = Matrix4.scale(scale.x, scale.y, scale.z)
+  local T = Matrix4.translate(translation.x, translation.y, translation.z)
+  local localMatrix = Matrix4.multiply(T, Matrix4.multiply(R, S))
+
+  return {
+    index = e.index,
+    name = e.name,
+    flagsRaw = flags,
+    matrixStackIndex = matrixStackIndex,
+    translation = translation,
+    rotation = rotation,
+    scale = scale,
+    localMatrix = localMatrix,
+  }
+end
+
 -- Decode the SBC stream in [start, limit). Returns commands, opcode counts, and
 -- the ordered MAT/SHP draw instances bound to the active node.
 local function decodeSbc(r, start, limit, context)
@@ -67,6 +201,7 @@ local function decodeSbc(r, start, limit, context)
   while pos < limit do
     local cmd = r:u8(pos)
     local op = cmd % 0x20 -- low 5 bits; high bits are option flags
+    local option = math.floor(cmd / 0x20)
     local def = SBC[op]
     if not def then
       error(Errors.new("SBC_UNKNOWN_OPCODE",
@@ -75,23 +210,58 @@ local function decodeSbc(r, start, limit, context)
     end
     local nargs = def.args(cmd)
     r:assertRange(pos, 1 + nargs, "sbc-cmd")
-    commands[#commands + 1] = { opcode = op, command = cmd, offset = pos, name = def.name }
-    counts[op] = (counts[op] or 0) + 1
-    if op == 0x02 or op == 0x06 then
-      currentNode = r:u8(pos + 1)
+
+    local args = {}
+    for i = 1, nargs do args[i] = r:u8(pos + i) end
+
+    local entry = {
+      opcode = op,
+      command = cmd,
+      option = option,
+      offset = pos,
+      name = def.name,
+      args = args,
+    }
+
+    if op == 0x02 then
+      entry.nodeIndex = args[1]
+      entry.visible = args[2] % 2 == 1
+      currentNode = args[1]
+    elseif op == 0x03 then
+      entry.matrixSlot = args[1]
     elseif op == 0x04 then
-      currentMaterial = r:u8(pos + 1)
+      entry.materialIndex = args[1]
+      currentMaterial = args[1]
       matSincePrevShp = true
     elseif op == 0x05 then
+      entry.shapeIndex = args[1]
       draws[#draws + 1] = {
         nodeIndex = currentNode,
         materialIndex = currentMaterial,
-        shapeIndex = r:u8(pos + 1),
+        shapeIndex = args[1],
         offset = pos,
         materialReapplied = matSincePrevShp,
       }
       matSincePrevShp = false
+    elseif op == 0x06 then
+      entry.nodeIndex = args[1]
+      entry.parentIndex = args[2]
+      entry.flags = args[3]
+      if option == 1 or option == 3 then
+        entry.storeSlot = args[4]
+      end
+      if option == 2 then
+        entry.restoreSlot = args[4]
+      elseif option == 3 then
+        entry.restoreSlot = args[5]
+      end
+      currentNode = args[1]
+    elseif op == 0x0B then
+      entry.inverse = option == 1
     end
+
+    commands[#commands + 1] = entry
+    counts[op] = (counts[op] or 0) + 1
     pos = pos + 1 + nargs
     if def.terminates then break end
   end
@@ -102,10 +272,13 @@ local function decodeInfo(r, base)
   return {
     sbcType = r:u8(base + 0x00),
     scalingRule = r:u8(base + 0x01),
+    texMtxMode = r:u8(base + 0x02),
     numNode = r:u8(base + 0x03),
     numMat = r:u8(base + 0x04),
     numShp = r:u8(base + 0x05),
+    firstUnusedMtxStackID = r:u8(base + 0x06),
     posScale = Fixed.fx32(r:u32le(base + 0x08)),
+    invPosScale = Fixed.fx32(r:u32le(base + 0x0C)),
     numVertex = r:u16le(base + 0x10),
     numPolygon = r:u16le(base + 0x12),
     numTriangle = r:u16le(base + 0x14),
@@ -118,6 +291,8 @@ local function decodeInfo(r, base)
       h = Fixed.fx16(r:u16le(base + 0x20)),
       d = Fixed.fx16(r:u16le(base + 0x22)),
     },
+    boxPosScale = Fixed.fx32(r:u32le(base + 0x24)),
+    boxInvPosScale = Fixed.fx32(r:u32le(base + 0x28)),
   }
 end
 
@@ -223,9 +398,13 @@ local function decodeModel(sec, modelBase, name, index, context)
   local info = decodeInfo(r, modelBase + 0x14)
 
   -- Nodes.
-  local nodeDict = assert(NitroDict.decode(sec, modelBase + 0x40, context))
+  local nodeInfoBase = modelBase + 0x40
+  local nodeDict = assert(NitroDict.decode(sec, nodeInfoBase, context))
   local nodes = {}
-  for _, e in ipairs(nodeDict.entries) do nodes[#nodes + 1] = { index = e.index, name = e.name } end
+  for _, e in ipairs(nodeDict.entries) do
+    nodes[#nodes + 1] = decodeNodeData(r, nodeInfoBase, e,
+      { model = name, node = e.name })
+  end
 
   -- Materials + texture/palette associations.
   local matBase = modelBase + ofsMat
