@@ -132,4 +132,24 @@ function T.incomplete_triangle_is_fatal()
   Assert.equal(err.code, "GX_INCOMPLETE_PRIMITIVE")
 end
 
+function T.externally_supplied_restore_slot_is_honored()
+  -- An MTX_RESTORE inside the DL pulls from the restore stack supplied by the
+  -- SBC evaluator rather than defaulting to identity.
+  local translate = {
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, 1, 0,
+    2, -3, 0, 1,
+  }
+  local r = assert(Gx.decode(dl({
+    { op = 0x14, p = { 5 } }, -- MTX_RESTORE slot 5
+    { op = 0x40, p = { 0 } },
+    vtx16(0, 0, 0), vtx16(1, 0, 0), vtx16(0, 1, 0),
+    { op = 0x41 },
+  }), { restoreStack = { [5] = translate } }))
+  Assert.equal(r.vertices[1].x, 2)
+  Assert.equal(r.vertices[1].y, -3)
+  Assert.equal(r.vertices[2].x, 3)
+end
+
 return T
