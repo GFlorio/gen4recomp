@@ -30,6 +30,8 @@ local MODULES = {
   "tests.mesh_compiler_test",
   "tests.building_transform_test",
   "tests.material_compiler_test",
+  "tests.alpha_classifier_test",
+  "tests.map_asset_compiler_test",
   "tests.map_asset_cache_test",
   "tests.map_cache_writer_test",
   "tests.texture_decoder_test",

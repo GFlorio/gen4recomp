@@ -157,6 +157,37 @@ function T.gate4_geometry_inventory(romFs)
     report.mapModel.modelName, report.mapModel.shapeCount, report.mapModel.vertexCount, labo.modelName))
 end
 
+-- New Bark's outdoor texture pack includes A3I5/A5I3 partial-alpha textures;
+-- these must be classified as translucent regardless of polygon alpha.
+function T.format_1_and_6_are_translucent(romFs)
+  local bundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK"))
+  local scene = bundle.scene
+  Assert.equal(scene.schema, "g4-map-scene-v2")
+
+  local found = false
+  local function translucentBatches(materials, batches)
+    local fmtById = {}
+    for _, m in ipairs(materials or {}) do
+      if m.textureFormat == 1 or m.textureFormat == 6 then
+        fmtById[m.id] = m.textureFormat
+        found = true
+      end
+    end
+    for _, b in ipairs(batches or {}) do
+      if fmtById[b.material] then
+        Assert.equal(b.alphaClass, "translucent",
+          "format " .. fmtById[b.material] .. " batch is translucent")
+      end
+    end
+  end
+
+  translucentBatches(scene.materials, scene.mapBatches)
+  for _, desc in pairs(bundle.models) do
+    translucentBatches(desc.materials, desc.batches)
+  end
+  Assert.isTrue(found, "test found A3I5/A5I3 materials")
+end
+
 -- Flower quads tile: their UVs run outside [0,1], so they only render if the
 -- material programs repeat wrap. That wrap lives in each material's parsed
 -- texImageParam (NNSG3dResMatData), not the NSBTX template (which reads clamp

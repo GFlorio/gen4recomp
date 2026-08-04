@@ -3,7 +3,10 @@
 -- be unit tested with exact fixtures and reused for both standalone BTX0 and
 -- embedded TEX0 textures. Decode rules follow GBATEK "DS Video Texture Data"
 -- and spec section 16. Output is row-major, top-left origin, straight (not
--- premultiplied) alpha. Pure domain module, arithmetic bit extraction only.
+-- premultiplied) alpha. Also reports alphaUsage (hasZero, hasPartial,
+-- hasOpaque) derived from the decoded alpha bytes so the compiler can classify
+-- the material without re-scanning the texture. Pure domain module, arithmetic
+-- bit extraction only.
 
 local Errors = require("src.import.Errors")
 local Fixed = require("src.data.nitro.Fixed")
@@ -150,8 +153,20 @@ DECODERS[5] = function(o)
   end)
 end
 
+-- Scan the decoded RGBA8 byte string for alpha usage categories.
+local function computeAlphaUsage(pixels)
+  local hasZero, hasPartial, hasOpaque = false, false, false
+  for i = 4, #pixels, 4 do
+    local a = string.byte(pixels, i)
+    if a == 0 then hasZero = true
+    elseif a == 255 then hasOpaque = true
+    else hasPartial = true end
+  end
+  return { hasZero = hasZero, hasPartial = hasPartial, hasOpaque = hasOpaque }
+end
+
 -- opts: { format, width, height, color0Transparent, texel, palette, indexData }.
--- Returns { width, height, pixels = rgba8 string }.
+-- Returns { width, height, pixels = rgba8 string, alphaUsage = {hasZero, hasPartial, hasOpaque} }.
 function TextureDecoder.decode(opts, context)
   assert(type(opts) == "table", "TextureDecoder.decode requires an options table")
   local decoder = DECODERS[opts.format]
@@ -164,7 +179,13 @@ function TextureDecoder.decode(opts, context)
       "unsupported texture format " .. tostring(opts.format),
       { format = opts.format, name = context and context.name, source = context }))
   end
-  return { width = opts.width, height = opts.height, pixels = decoder(opts) }
+  local pixels = decoder(opts)
+  return {
+    width = opts.width,
+    height = opts.height,
+    pixels = pixels,
+    alphaUsage = computeAlphaUsage(pixels),
+  }
 end
 
 TextureDecoder.SUPPORTED = { [1] = true, [2] = true, [3] = true, [4] = true, [5] = true, [6] = true, [7] = true }

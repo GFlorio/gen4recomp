@@ -59,10 +59,24 @@ function T.gate5_completeness_and_ready(romFs, version)
   local c, bundle, marker = compileInto(romFs, version)
   Assert.isTrue(MapAssetCache.isReady(c, MAP_ID, marker), "cache reports ready")
   Assert.equal(#c:read(MapAssetCache.mapDir(MAP_ID) .. "/permissions.bin"), 2048)
-  Assert.equal(bundle.scene.schema, "g4-map-scene-v1")
+  Assert.equal(bundle.scene.schema, "g4-map-scene-v2")
 
   Assert.equal(#sortedKeys(bundle.models), 9)      -- unique indoor building models
   Assert.equal(#bundle.scene.buildingInstances, 15) -- placed instances
+
+  -- Polygon state moved from material records to batch records in slice 4.
+  for _, m in ipairs(bundle.scene.materials) do
+    Assert.isNil(m.alphaMode)
+    Assert.isNil(m.alphaCutoff)
+    Assert.isNil(m.cullMode)
+  end
+  for _, b in ipairs(bundle.scene.mapBatches) do
+    Assert.notNil(b.alphaClass)
+    Assert.notNil(b.cullMode)
+    Assert.notNil(b.polygonAlpha)
+  end
+  Assert.notNil(bundle.scene.lighting)
+  Assert.notNil(bundle.scene.lighting.records)
 
   -- Every building instance references a compiled model descriptor written to disk.
   for _, inst in ipairs(bundle.scene.buildingInstances) do

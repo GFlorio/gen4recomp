@@ -24,9 +24,6 @@ local function materialRuntime(record, imageFor)
     name = record.name,
     image = record.texture and imageFor(record.texture) or nil,
     diffuse = { d.r / 255, d.g / 255, d.b / 255, d.a / 255 },
-    alphaMode = record.alphaMode or "opaque",
-    alphaCutoff = record.alphaCutoff or 0.5,
-    cullMode = record.cullMode or "back",
     wrap = record.wrap or { x = "clamp", y = "clamp" },
     flip = record.flip or { x = false, y = false },
   }
@@ -44,7 +41,7 @@ end
 -- Load an assembled scene from the version's derived cache. `cacheFs` is a
 -- CacheFs.forVersion; `scene` is the already-loaded scene.lua table.
 function MapSceneLoader.load(cacheFs, scene)
-  assert(scene and scene.schema == "g4-map-scene-v1", "not a g4-map-scene-v1 descriptor")
+  assert(scene and scene.schema == "g4-map-scene-v2", "not a g4-map-scene-v2 descriptor")
 
   local meshCache, imageCache = {}, {}
   local owned = { meshes = {}, images = {} }
@@ -96,6 +93,20 @@ function MapSceneLoader.load(cacheFs, scene)
     end
   end
 
+  -- Per-batch draw state moved out of the material in slice 4.
+  local function batchDrawState(batch)
+    return {
+      alphaClass = batch.alphaClass or "opaque",
+      cullMode = batch.cullMode or "back",
+      alphaCutoff = 0.5 / 255,
+      polygonAlpha = batch.polygonAlpha ~= nil and (batch.polygonAlpha / 31) or 1.0,
+      polygonMode = batch.polygonMode or "modulation",
+      lightMask = batch.lightMask or 0,
+      translucentDepthWrite = batch.translucentDepthWrite or false,
+      depthEqual = batch.depthEqual or false,
+    }
+  end
+
   -- Map terrain draws: identity transform, materials from the scene list.
   local mapMaterials = materialsById(scene.materials, imageFor)
   for _, m in pairs(mapMaterials) do applyWrap(m) end
@@ -104,10 +115,19 @@ function MapSceneLoader.load(cacheFs, scene)
   for _, batch in ipairs(scene.mapBatches or {}) do
     local mesh, verts = meshFor(batch.geometry)
     growBounds(verts, identity)
+    local state = batchDrawState(batch)
     mapDraws[#mapDraws + 1] = {
       mesh = mesh,
       material = mapMaterials[batch.material],
       transform = identity,
+      alphaClass = state.alphaClass,
+      cullMode = state.cullMode,
+      alphaCutoff = state.alphaCutoff,
+      polygonAlpha = state.polygonAlpha,
+      polygonMode = state.polygonMode,
+      lightMask = state.lightMask,
+      translucentDepthWrite = state.translucentDepthWrite,
+      depthEqual = state.depthEqual,
     }
   end
 
@@ -132,10 +152,19 @@ function MapSceneLoader.load(cacheFs, scene)
     for _, batch in ipairs(desc.batches) do
       local mesh, verts = meshFor(batch.geometry)
       growBounds(verts, inst.transform)
+      local state = batchDrawState(batch)
       buildingDraws[#buildingDraws + 1] = {
         mesh = mesh,
         material = desc.materials[batch.material],
         transform = inst.transform,
+        alphaClass = state.alphaClass,
+        cullMode = state.cullMode,
+        alphaCutoff = state.alphaCutoff,
+        polygonAlpha = state.polygonAlpha,
+        polygonMode = state.polygonMode,
+        lightMask = state.lightMask,
+        translucentDepthWrite = state.translucentDepthWrite,
+        depthEqual = state.depthEqual,
       }
     end
   end

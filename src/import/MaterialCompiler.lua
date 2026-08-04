@@ -21,17 +21,10 @@ local function needsPalette(formatRaw)
   return formatRaw >= 1 and formatRaw <= 6
 end
 
-local function alphaMode(texture)
-  if texture.color0Transparent or texture.formatRaw == 1 or texture.formatRaw == 6 then
-    return "mask"
-  end
-  return "opaque"
-end
-
 local function wrapMode(repeats) return repeats and "repeat" or "clamp" end
 
 -- materials: list of { index, name, textureName?, paletteName? }.
--- pack: an Nsbtx.decode result. Returns { materials = {...}, textures = { [sha1] = {pixels,width,height} } }.
+-- pack: an Nsbtx.decode result. Returns { materials = {...}, textures = { [sha1] = {pixels,width,height,alphaUsage} } }.
 function MaterialCompiler.compile(materials, pack, opts)
   opts = opts or {}
   local records, textures = {}, {}
@@ -43,9 +36,7 @@ function MaterialCompiler.compile(materials, pack, opts)
       texture = nil,
       wrap = { x = "clamp", y = "clamp" },
       flip = { x = false, y = false },
-      alphaMode = "opaque",
       diffuse = { r = 255, g = 255, b = 255, a = 255 },
-      cullMode = "back",
     }
 
     if mat.textureName then
@@ -73,7 +64,12 @@ function MaterialCompiler.compile(materials, pack, opts)
 
       if not textures[key] then
         local img = TextureDecoder.decode(decoderOpts, { name = mat.textureName })
-        textures[key] = { pixels = img.pixels, width = img.width, height = img.height }
+        textures[key] = {
+          pixels = img.pixels,
+          width = img.width,
+          height = img.height,
+          alphaUsage = img.alphaUsage,
+        }
       end
 
       -- The block was located right iff the material's stored original size
@@ -84,6 +80,7 @@ function MaterialCompiler.compile(materials, pack, opts)
       end
 
       record.texture = key
+      record.textureFormat = tex.formatRaw
       -- DS texcoords are in texel units; the geometry step divides by these to
       -- normalize UVs to [0,1]. Not serialized into the scene material.
       record.texWidth = tex.width
@@ -93,7 +90,6 @@ function MaterialCompiler.compile(materials, pack, opts)
       -- clamp for map textures, which collapses tiling UVs (e.g. flowers).
       record.wrap = { x = wrapMode(mat.repeatX), y = wrapMode(mat.repeatY) }
       record.flip = { x = mat.flipX or false, y = mat.flipY or false }
-      record.alphaMode = alphaMode(tex)
     end
 
     records[#records + 1] = record

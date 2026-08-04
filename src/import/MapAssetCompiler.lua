@@ -14,18 +14,24 @@ local Nsbmd = require("src.data.nitro.Nsbmd")
 local Nsbtx = require("src.data.nitro.Nsbtx")
 local MeshCompiler = require("src.import.MeshCompiler")
 local MaterialCompiler = require("src.import.MaterialCompiler")
+local AlphaClassifier = require("src.import.AlphaClassifier")
+local DsPolygonAttr = require("src.data.nitro.DsPolygonAttr")
+local HgssFieldLighting = require("src.data.HgssFieldLighting")
+local FieldLightProfile = require("src.data.FieldLightProfile")
 local BuildingTransform = require("src.data.BuildingTransform")
 local MeshWriter = require("src.import.MeshWriter")
 local MapUnits = require("src.import.MapUnits")
 local Hashing = require("src.import.Hashing")
 local Matrix4 = require("src.render.Matrix4")
+local VertexFormat = require("src.render.VertexFormat")
 local MapAssetCache = require("src.core.MapAssetCache")
 local Errors = require("src.import.Errors")
 
 local MapAssetCompiler = {}
 
-local COMPILER_VERSION = "map-compiler-v4"
+local COMPILER_VERSION = "map-compiler-v5"
 local COORDINATE_CONVENTION = "posScale/16-tile-v2"
+local SCENE_SCHEMA = "g4-map-scene-v2"
 
 local function readMember(narc, alias, memberId)
   local count = narc:memberCount()
@@ -42,7 +48,8 @@ local function sortedNumbers(set)
 end
 
 -- Convert MaterialCompiler records (texture = sha1 key) into scene material
--- records (texture = cache-relative PNG path).
+-- records (texture = cache-relative PNG path). Polygon state (alpha class,
+-- cull mode, polygon alpha/mode) lives on the batch, not the material.
 local function sceneMaterials(records)
   local out = {}
   for _, m in ipairs(records) do
@@ -50,11 +57,10 @@ local function sceneMaterials(records)
       id = m.id,
       name = m.name,
       texture = m.texture and MapAssetCache.texturePath(m.texture) or nil,
+      textureFormat = m.textureFormat,
       wrap = m.wrap,
       flip = m.flip,
-      alphaMode = m.alphaMode,
       diffuse = m.diffuse,
-      cullMode = m.cullMode,
     }
   end
   return out
@@ -66,28 +72,52 @@ local function compileModel(model, texturePack, meshes, textures, context)
   local mat = MaterialCompiler.compile(model.materials, texturePack, { context = context })
   for sha1, tex in pairs(mat.textures) do textures[sha1] = tex end
 
-  -- Texture dimensions per material, to normalize DS texel UVs to [0,1].
-  local texSizeById = {}
+  -- Per-material texture info needed for batch classification and UV normalization.
+  local matInfoById = {}
   for _, m in ipairs(mat.materials) do
-    if m.texWidth then texSizeById[m.id] = { w = m.texWidth, h = m.texHeight } end
+    matInfoById[m.id] = {
+      texWidth = m.texWidth,
+      texHeight = m.texHeight,
+      textureFormat = m.textureFormat or 0,
+      alphaUsage = m.texture and textures[m.texture] and textures[m.texture].alphaUsage or nil,
+    }
   end
 
   local batches = {}
   for _, batch in ipairs(MeshCompiler.compile(model)) do
-    local size = texSizeById[batch.materialIndex]
-    if size then
-      for _, vtx in ipairs(batch.vertices) do
-        vtx.u = vtx.u / size.w
-        vtx.v = vtx.v / size.h
+    local info = matInfoById[batch.materialIndex]
+    if info then
+      if info.texWidth then
+        for _, vtx in ipairs(batch.vertices) do
+          vtx.u = vtx.u / info.texWidth
+          vtx.v = vtx.v / info.texHeight
+        end
       end
     end
-    local sha1 = Hashing.sha1hex(MeshWriter.encode(batch))
-    meshes[sha1] = batch
-    batches[#batches + 1] = {
-      geometry = MapAssetCache.geometryPath(sha1),
-      material = batch.materialIndex,
-      node = batch.nodeIndex,
-    }
+
+    local poly = DsPolygonAttr.decode(batch.polygonAttrRaw)
+    if poly.cullMode ~= "all" then
+      local fmt = info and info.textureFormat or 0
+      local alphaClass = AlphaClassifier.classify(poly.polygonAlpha, fmt,
+        info and info.alphaUsage or nil)
+      local sha1 = Hashing.sha1hex(MeshWriter.encode(batch))
+      meshes[sha1] = batch
+      batches[#batches + 1] = {
+        geometry = MapAssetCache.geometryPath(sha1),
+        material = batch.materialIndex,
+        node = batch.nodeIndex,
+        alphaClass = alphaClass,
+        cullMode = poly.cullMode,
+        polygonAlpha = poly.polygonAlpha,
+        polygonMode = poly.polygonMode,
+        lightMask = poly.lightMask,
+        translucentDepthWrite = poly.translucentDepthWrite,
+        depthEqual = poly.depthEqual,
+        farClipEnabled = poly.farClipEnabled,
+        oneDotEnabled = poly.oneDotEnabled,
+        fogEnabled = poly.fogEnabled,
+      }
+    end
   end
   return { batches = batches, materials = sceneMaterials(mat.materials) }
 end
@@ -129,6 +159,14 @@ local function _compile(romFs, idOrSymbol)
   local mapTexBytes = readMember(mapTexNarc, "map_textures", area.mapTexturePackId)
   local mapTexPack = assert(Nsbtx.decode(mapTexBytes,
     { alias = "map_textures", memberId = area.mapTexturePackId }))
+
+  -- Field-light profile selected by the area's raw light type.
+  local selectedLight = HgssFieldLighting.resolve(area.lightTypeRaw, false)
+  local lightBytes = assert(romFs:readSourcePath(selectedLight.sourcePath),
+    "missing field-light profile: " .. selectedLight.sourcePath)
+  local lightProfile = assert(FieldLightProfile.parse(lightBytes,
+    { sourcePath = selectedLight.sourcePath }))
+  local lightSha1 = Hashing.sha1hex(lightBytes)
 
   local meshes, textures = {}, {}
   local mapCompiled = compileModel(mapModel, mapTexPack, meshes, textures,
@@ -182,8 +220,14 @@ local function _compile(romFs, idOrSymbol)
   local dependencies = {
     cacheFormat = MapAssetCache.FORMAT,
     compilerVersion = COMPILER_VERSION,
+    sceneSchemaVersion = SCENE_SCHEMA,
     coordinateConventionVersion = COORDINATE_CONVENTION,
     textureDecoderVersion = MaterialCompiler.DECODER_VERSION,
+    materialNormalizerVersion = AlphaClassifier.VERSION,
+    vertexFormatVersion = VertexFormat.VERSION,
+    fieldLightParserVersion = FieldLightProfile.VERSION,
+    fieldLightSourcePath = selectedLight.sourcePath,
+    fieldLightSourceSha1 = lightSha1,
     versionRomSha1 = romSha1,
     mapCatalogRecord = resolved.map,
     matrixMemberSha1 = Hashing.sha1hex(matrixBytes),
@@ -196,7 +240,7 @@ local function _compile(romFs, idOrSymbol)
   local marker = MapAssetCache.marker(romSha1, mapId, Hashing.hashLua(dependencies))
 
   local scene = {
-    schema = "g4-map-scene-v1",
+    schema = SCENE_SCHEMA,
     versionId = romFs:version(),
     mapId = mapId,
     mapSymbol = resolved.map.symbol,
@@ -243,6 +287,14 @@ local function _compile(romFs, idOrSymbol)
       dynamicTexturesStatic = true,
       bdhcNotUsedForPlayerHeight = true,
       approximateCamera = true,
+    },
+    lighting = {
+      lightTypeRaw = area.lightTypeRaw,
+      profileId = selectedLight.profileId,
+      sourcePath = selectedLight.sourcePath,
+      sourceSha1 = lightSha1,
+      parserVersion = FieldLightProfile.VERSION,
+      records = lightProfile.records,
     },
   }
 

@@ -122,4 +122,24 @@ function T.rejects_unsupported_and_none()
   Assert.equal(err0.code, "NSBTX_FORMAT_NONE")
 end
 
+function T.reports_alpha_usage()
+  local r = TextureDecoder.decode({
+    format = 2, width = 4, height = 1, palette = TF.primaryPalette(),
+    color0Transparent = true, texel = TF.pack2({ 0, 1, 2, 3 }),
+  })
+  Assert.isTrue(r.alphaUsage.hasZero)
+  Assert.isFalse(r.alphaUsage.hasPartial)
+  Assert.isTrue(r.alphaUsage.hasOpaque)
+end
+
+function T.partial_alpha_usage_for_a5i3()
+  local r = TextureDecoder.decode({
+    format = 6, width = 2, height = 1, palette = TF.primaryPalette(),
+    texel = string.char(1 + 15 * 8, 2 + 0 * 8), -- alpha 15 and 0
+  })
+  Assert.isTrue(r.alphaUsage.hasZero)
+  Assert.isTrue(r.alphaUsage.hasPartial)
+  Assert.isFalse(r.alphaUsage.hasOpaque)
+end
+
 return T

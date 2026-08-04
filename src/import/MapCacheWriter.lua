@@ -39,26 +39,17 @@ local function persist(cacheFs, bundle)
   cacheFs:writeLua(dir .. "/scene.lua", bundle.scene)
   cacheFs:writeLua(dir .. "/dependencies.lua", bundle.dependencies)
 
-  -- 7. Read back and validate every reference before committing the marker.
-  --    isReady requires the marker too, so probe with the intended marker after
-  --    the marker file is written; here validate references directly.
+  -- 7. Read back and validate every reference (including model-descriptor
+  --    internals) before committing the marker. isReady requires the marker too,
+  --    so probe with the intended marker after the marker file is written;
+  --    here validate references directly.
   local scene = cacheFs:loadLua(dir .. "/scene.lua")
   if type(scene) ~= "table" then
     Errors.raise("MAP_CACHE_READBACK_FAILED", "scene.lua did not read back as a table", { mapId = mapId })
   end
-  for _, batch in ipairs(scene.mapBatches or {}) do
-    if batch.geometry and not cacheFs:exists(batch.geometry) then
-      Errors.raise("MAP_CACHE_MISSING_ASSET", "referenced mesh missing after write: " .. batch.geometry, { mapId = mapId })
-    end
-  end
-  for _, mat in ipairs(scene.materials or {}) do
-    if mat.texture and not cacheFs:exists(mat.texture) then
-      Errors.raise("MAP_CACHE_MISSING_ASSET", "referenced texture missing after write: " .. mat.texture, { mapId = mapId })
-    end
-  end
-  for _, inst in ipairs(scene.buildingInstances or {}) do
-    if inst.modelKey and not cacheFs:exists(MapAssetCache.modelPath(inst.modelKey)) then
-      Errors.raise("MAP_CACHE_MISSING_ASSET", "referenced model missing after write: " .. inst.modelKey, { mapId = mapId })
+  for _, path in ipairs(MapAssetCache.referencedPaths(scene, cacheFs)) do
+    if not cacheFs:exists(path) then
+      Errors.raise("MAP_CACHE_MISSING_ASSET", "referenced asset missing after write: " .. path, { mapId = mapId })
     end
   end
 
