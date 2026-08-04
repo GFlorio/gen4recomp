@@ -20,6 +20,14 @@ function MapUnits.toRuntime(x, y, z, posScale)
   return x * f, y * f, z * f
 end
 
+-- A position-matrix-transformed vertex, already in model units, converted to
+-- runtime tiles. This is the compile path after NsbmdStaticTransforms applies
+-- the SBC POSSCALE / node matrix state.
+function MapUnits.toTiles(x, y, z)
+  local f = 1 / MapUnits.MODEL_UNITS_PER_TILE
+  return x * f, y * f, z * f
+end
+
 -- X and Z extents of a { min = {x,y,z}, max = {x,y,z} } box, in runtime tiles.
 function MapUnits.extentTiles(bounds, posScale)
   local f = posScale / MapUnits.MODEL_UNITS_PER_TILE

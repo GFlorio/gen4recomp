@@ -6,7 +6,7 @@ local MapAssetCompiler = require("src.import.MapAssetCompiler")
 local T = {}
 
 function T.exports_compiler_version()
-  Assert.equal(MapAssetCompiler.COMPILER_VERSION, "map-compiler-v5")
+  Assert.equal(MapAssetCompiler.COMPILER_VERSION, "map-compiler-v6")
 end
 
 function T.compile_requires_romfs_shaped_object()

@@ -1,12 +1,14 @@
 -- Replays a decoded NSBMD model's SBC draw stream into normalized triangle-list
--- batches, one per draw (a shape bound to a material and node). Rather than reuse
--- each shape's neutral geometry, it re-decodes the shape display list with the
--- geometry-engine color/normal state seeded from the material active at that SBC
--- draw, so every vertex carries a resolved color source (literal, normal-lit, or
--- field diffuse) instead of a white default. Positions fold through posScale and
--- the map-unit calibration (MapUnits); UVs stay in texel units for the caller to
--- normalize. The material's resolved polygon-attr word rides on each batch.
--- Pure domain module; the compiler boundary at which DS geometry stops.
+-- batches, one per draw (a shape bound to a material and node). It evaluates the
+-- static SBC matrix state (node matrices + POSSCALE) once, then re-decodes each
+-- shape display list with that matrix and restore-stack snapshot so the DS
+-- geometry-engine color/normal state seeded from the active material reaches the
+-- vertices. Every vertex carries a resolved color source (literal, normal-lit, or
+-- field diffuse) and has already been transformed to model units, so the only
+-- remaining conversion is the fixed tile-size divisor (MapUnits.toTiles). UVs
+-- stay in texel units for the caller to normalize. The material's resolved
+-- polygon-attr word rides on each batch. Pure domain module; the compiler
+-- boundary at which DS geometry stops.
 
 local Errors = require("src.import.Errors")
 local MapUnits = require("src.import.MapUnits")
@@ -14,6 +16,7 @@ local GxDisplayList = require("src.data.nitro.GxDisplayList")
 local DsMaterial = require("src.data.nitro.DsMaterial")
 local DsPolygonAttr = require("src.data.nitro.DsPolygonAttr")
 local Fixed = require("src.data.nitro.Fixed")
+local NsbmdStaticTransforms = require("src.import.NsbmdStaticTransforms")
 
 local MeshCompiler = {}
 
@@ -66,23 +69,22 @@ local function assertSupportedShape(geom, context)
   end
 end
 
--- model: a Nsbmd model (info.posScale, shapes[i].{index,displayListBytes},
--- materials, sbc.draws). Returns a list of batches, each:
+-- model: a Nsbmd model (info.posScale/invPosScale, shapes[i].{index,displayListBytes},
+-- materials, sbc.commands, nodes). Returns a list of batches, each:
 -- { nodeIndex, materialIndex, shapeIndex, submissionIndex, polygonAttrRaw,
 --   vertices = { {x,y,z,u,v,nx,ny,nz,r,g,b,a,colorSource}, ... }, indices }.
 function MeshCompiler.compile(model)
-  local posScale = model.info.posScale
-  assert(type(posScale) == "number", "model.info.posScale must be a number")
-
   local shapeByIndex = {}
   for _, shp in ipairs(model.shapes) do shapeByIndex[shp.index] = shp end
 
   local stateByMaterial = {}
   for _, mat in ipairs(model.materials) do stateByMaterial[mat.index] = materialState(mat) end
 
+  local draws = NsbmdStaticTransforms.evaluate(model)
+
   local batches = {}
   local carriedState -- geometry-engine color state carried across shapes
-  for submissionIndex, draw in ipairs(model.sbc.draws) do
+  for submissionIndex, draw in ipairs(draws) do
     local shp = shapeByIndex[draw.shapeIndex]
     if not shp then
       Errors.raise("MAP_COMPILE_MISSING_SHAPE",
@@ -98,14 +100,15 @@ function MeshCompiler.compile(model)
 
     local context = { model = model.name, shape = shp.name, material = draw.materialIndex }
     local geom, err = GxDisplayList.decode(shp.displayListBytes,
-      { initialState = initialState, requireColorSource = true, context = context })
+      { initialState = initialState, matrix = draw.matrix, restoreStack = draw.restoreStack,
+        requireColorSource = true, context = context })
     if not geom then error(err) end
     assertSupportedShape(geom, context)
     carriedState = geom.finalState
 
     local vertices = {}
     for _, v in ipairs(geom.vertices) do
-      local x, y, z = MapUnits.toRuntime(v.x, v.y, v.z, posScale)
+      local x, y, z = MapUnits.toTiles(v.x, v.y, v.z)
       vertices[#vertices + 1] = {
         x = x, y = y, z = z,
         u = v.u, v = v.v,
