@@ -140,6 +140,12 @@ function T.gate4_geometry_inventory(romFs)
   -- with the outdoor a3i5/a5i3 textures and NORMAL-lit geometry.
   InventoryAssert.assertSupported(report.featureInventory, "new_bark")
 
+  -- New Bark's outdoor area selects field-light profile 0 (area00light.txt).
+  Assert.equal(report.lighting.lightTypeRaw, 1)
+  Assert.equal(report.lighting.profileId, 0)
+  Assert.equal(report.lighting.sourcePath, "data/area00light.txt")
+  Assert.isTrue(report.lighting.recordCount > 0, "new bark profile has records")
+
   -- Model 21 is present and identified as wk_labo (the laboratory exterior).
   local labo
   for _, s in ipairs(report.buildings.modelSummaries) do
