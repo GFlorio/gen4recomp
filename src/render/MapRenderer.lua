@@ -29,17 +29,34 @@ local CUTOUT_EPSILON = 0.5 / 255
 -- matches the previous direct-to-screen output exactly.
 local BG_COLOR = { 0.08, 0.09, 0.12, 1 }
 
--- Rear-plane entry for the polygon-ID/depth target: the sentinel ID 255 at the
--- far depth. Edge marking compares off-object neighbours against this, which is
--- what outlines silhouettes against the background (GBATEK: at the screen
--- borders edges are resolved against the rear plane's polygon_id).
-local ID_CLEAR = { 1, 1, 0, 1 }
+-- Rear-plane entry for the polygon-ID/depth target: the sentinel ID 255 at a
+-- depth beyond the far plane. The green channel holds linear eye-space depth, so
+-- the rear plane must clear to a large value for background neighbours to read as
+-- farther than any geometry -- that is what outlines silhouettes against the
+-- background (GBATEK: at the screen borders edges are resolved against the rear
+-- plane's polygon_id).
+local ID_CLEAR = { 1, 1e9, 0, 1 }
 
 -- DS framebuffer height. Edge marking is one hardware pixel wide, so the
 -- post-process samples that many framebuffer pixels out to keep the outline at
 -- its DS-relative weight instead of thinning as the window grows.
 local DS_NATIVE_HEIGHT = 192
 local MAX_EDGE_RADIUS = 8
+
+-- Polygon ID stamped into the ID/depth target by translucent fragments. It makes
+-- translucent geometry OCCLUDE the opaque geometry behind it for edge marking --
+-- so a back object is no longer outlined through a translucent object in front of
+-- it -- while telling the edge pass never to outline the translucent pixel itself
+-- (GBATEK: edge marking is applied to opaque and wireframe polygons only). 254
+-- stays clear of the real 6-bit IDs (0-63) and the 255 rear-plane/wireframe id.
+local TRANSLUCENT_SENTINEL_ID = 254
+
+-- Orbit distance (tile units) at which one DS pixel of outline matches the DS
+-- framing. Perspective on-screen size scales as 1/distance, so a fixed-pixel
+-- outline drifts as the camera zooms; scaling the radius by REFERENCE/distance
+-- holds the outline's world-relative weight steady at every zoom. Same lens, so
+-- the field of view cancels and only the distance ratio remains.
+local REFERENCE_DISTANCE = 26
 
 function MapRenderer.new(opts)
   opts = opts or {}
@@ -71,19 +88,22 @@ function MapRenderer:_ensureCanvases(w, h)
   if self.sceneColor and self.canvasW == w and self.canvasH == h then return end
   self:_releaseCanvases()
   self.sceneColor = love.graphics.newCanvas(w, h)
-  -- Red holds the normalized polygon ID, green the window-space depth. The
-  -- format must be 32-bit float: at 16 bits the mantissa step near the far
-  -- plane is the same order as the depth difference edge marking tests for.
+  -- Red holds the normalized polygon ID, green the linear eye-space depth in
+  -- world units. The format must be 32-bit float: the depth spans the full near
+  -- to far range (hundreds of units) and edge marking tests sub-unit steps
+  -- against it, which 16-bit floats cannot resolve across that range.
   self.idDepth = love.graphics.newCanvas(w, h, { format = "rg32f" })
   self.idDepth:setFilter("nearest", "nearest")
   self.depth = love.graphics.newCanvas(w, h, { format = "depth24stencil8", readable = false })
   self.canvasW, self.canvasH = w, h
 end
 
--- Framebuffer pixels per DS pixel, clamped to the shader's loop bound.
-local function edgeRadius(h)
-  local scale = math.floor(h / DS_NATIVE_HEIGHT + 0.5)
-  return math.max(1, math.min(MAX_EDGE_RADIUS, scale))
+-- Outline radius in framebuffer pixels: DS-relative screen weight (h/192) times
+-- the zoom correction (REFERENCE_DISTANCE/distance) that keeps it constant in
+-- world terms across zoom. Clamped to the shader's loop bound.
+local function edgeRadius(h, distance)
+  local scale = (h / DS_NATIVE_HEIGHT) * (REFERENCE_DISTANCE / distance)
+  return math.max(1, math.min(MAX_EDGE_RADIUS, math.floor(scale + 0.5)))
 end
 
 local function alphaModeId(alphaClass)
@@ -132,7 +152,7 @@ function MapRenderer:_sendLighting(runtime)
 end
 
 -- Bind a material's uniforms/texture/cull state, then draw the mesh.
-function MapRenderer:_drawItem(item, viewMatrix)
+function MapRenderer:_drawItem(item, viewMatrix, polygonIdOverride)
   local mat = item.material
   local shader = self.shader
   local normalMatrix = Matrix3.normalMatrix(item.transform, viewMatrix)
@@ -152,7 +172,7 @@ function MapRenderer:_drawItem(item, viewMatrix)
   shader:send("u_alphaCutoff", item.alphaCutoff or CUTOUT_EPSILON)
   shader:send("u_polygonAlpha", item.polygonAlpha or 1.0)
   shader:send("u_polygonMode", item.polygonMode == "decal" and 1 or 0)
-  shader:send("u_polygonId", (item.polygonId or 255) / 255)
+  shader:send("u_polygonId", polygonIdOverride or (item.polygonId or 255) / 255)
   love.graphics.setMeshCullMode(item.cullMode or "back")
   love.graphics.draw(item.mesh)
   self.stats.drawCalls = self.stats.drawCalls + 1
@@ -206,12 +226,6 @@ function MapRenderer:draw(runtime, camera, overlays)
 
   local viewMatrix = camera:view()
   local sceneTargets = { self.sceneColor, self.idDepth, depthstencil = self.depth }
-  -- Blended geometry draws colour only: DS edge marking reads the opaque
-  -- polygon-ID buffer, and translucent fragments must not overwrite it (they
-  -- would outline themselves against whatever they cover). Unbinding the target
-  -- discards the shader's writes to it, mirroring the per-attachment colour mask
-  -- hardware renderers use for the same purpose.
-  local colorOnlyTargets = { self.sceneColor, depthstencil = self.depth }
 
   local function doDraw()
     lg.setCanvas(sceneTargets)
@@ -231,16 +245,19 @@ function MapRenderer:draw(runtime, camera, overlays)
     -- Pass 2: cutout, depth test + write, shader discards alpha-zero fragments.
     for _, d in ipairs(queue.cutout) do self:_drawItem(d, viewMatrix) end
 
-    -- Pass 3: blended, depth test on, write governed by polygon state.
-    lg.setCanvas(colorOnlyTargets)
+    -- Pass 3: blended, depth test on, write governed by polygon state. The
+    -- ID/depth target stays bound so translucent fragments occlude the opaque
+    -- geometry behind them for edge marking; they stamp a sentinel ID so the edge
+    -- pass never outlines them. The ID/depth attachment carries alpha 1, so it is
+    -- replaced -- not alpha-blended -- even while the colour attachment blends.
     for _, d in ipairs(queue.translucent) do
       lg.setDepthMode(d.depthEqual and "lequal" or "less", d.translucentDepthWrite or false)
       lg.setBlendMode("alpha", "alphamultiply")
-      self:_drawItem(d, viewMatrix)
+      self:_drawItem(d, viewMatrix, TRANSLUCENT_SENTINEL_ID / 255)
     end
 
     -- Pass 4: wireframe edges (polygon alpha zero). These count as opaque for
-    -- edge marking, so the ID target is bound again.
+    -- edge marking and write their real polygon ID into the ID target.
     lg.setCanvas(sceneTargets)
     lg.setDepthMode("less", true)
     lg.setBlendMode("alpha")
@@ -257,7 +274,7 @@ function MapRenderer:draw(runtime, camera, overlays)
     self.edgeShader:send("u_texelSize", { 1 / w, 1 / h })
     self.edgeShader:send("u_edgeColors", unpack(self.edgeColors))
     self.edgeShader:send("u_edgeAlpha", self.edgeAlpha)
-    self.edgeShader:send("u_edgeRadius", edgeRadius(h))
+    self.edgeShader:send("u_edgeRadius", edgeRadius(h, camera.distance))
     lg.draw(self.sceneColor, 0, 0)
     lg.setShader()
 

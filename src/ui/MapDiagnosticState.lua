@@ -108,10 +108,20 @@ end
 -- scene from more than the default framing.
 function MapDiagnosticState:_applyShotOverrides()
   if not os.getenv("G4RECOMP_SHOT") then return end
+  if os.getenv("G4RECOMP_SHOT_RESET") then self:_resetCamera() end
   local yaw = tonumber(os.getenv("G4RECOMP_SHOT_YAW"))
   local pitch = tonumber(os.getenv("G4RECOMP_SHOT_PITCH"))
+  local dist = tonumber(os.getenv("G4RECOMP_SHOT_DIST"))
+  local target = os.getenv("G4RECOMP_SHOT_TARGET") -- "worldX,worldZ"
   if yaw then self.camera.yaw = math.rad(yaw) end
   if pitch then self.camera.pitch = math.rad(pitch) end
+  if dist then self.camera.distance = dist end
+  if target then
+    local tx, tz = target:match("^%s*(-?[%d.]+)%s*,%s*(-?[%d.]+)%s*$")
+    assert(tx, "G4RECOMP_SHOT_TARGET must be 'worldX,worldZ'")
+    self.camera.target = { tonumber(tx), self.camera.target[2], tonumber(tz) }
+    self.follow = false
+  end
 end
 
 function MapDiagnosticState:_aspect()

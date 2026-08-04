@@ -128,6 +128,9 @@ void effect()
   }
 
   love_Canvases[0] = vec4(outRgb, alpha);
-  love_Canvases[1] = vec4(u_polygonId, gl_FragCoord.z, 0.0, 1.0);
+  // Green holds LINEAR eye-space depth (world units) for edge marking: perspective
+  // window Z is too crushed at this near/far to resolve short-object silhouettes.
+  // gl_FragCoord.w is 1/clip.w and clip.w is the eye-space distance, so 1/w = depth.
+  love_Canvases[1] = vec4(u_polygonId, 1.0 / gl_FragCoord.w, 0.0, 1.0);
 }
 #endif
