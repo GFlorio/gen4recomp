@@ -147,6 +147,31 @@ function T.gate4_geometry_inventory(romFs)
     report.mapModel.modelName, report.mapModel.shapeCount, report.mapModel.vertexCount, labo.modelName))
 end
 
+-- Flower quads tile: their UVs run outside [0,1], so they only render if the
+-- material programs repeat wrap. That wrap lives in each material's parsed
+-- texImageParam (NNSG3dResMatData), not the NSBTX template (which reads clamp
+-- for map textures). Guard both the parse and the compiled scene material.
+function T.flowers_tile_via_material_wrap(romFs)
+  local r = resolve(romFs)
+  local land = assert(LandData.decode(assert(romFs:openNarc("land_data")):readMember(r.landDataMemberId),
+    { mapId = r.map.id }))
+  local model = assert(Nsbmd.decode(land.mapModelBytes)).models[1]
+  for _, mat in ipairs(model.materials) do
+    if mat.textureName and mat.textureName:find("^flower") then
+      Assert.isTrue(mat.repeatX and mat.repeatY, mat.name .. " must request repeat wrap")
+    end
+  end
+
+  local bundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK"))
+  local flowerMat
+  for _, m in ipairs(bundle.scene.materials) do
+    if m.name:find("^flower") then flowerMat = m end
+  end
+  Assert.notNil(flowerMat, "scene carries a flower material")
+  Assert.equal(flowerMat.wrap.x, "repeat")
+  Assert.equal(flowerMat.wrap.y, "repeat")
+end
+
 -- Gate 9: New Bark's central cell compiles into a scene that carries all the
 -- Phase B diagnostic display data (matrix 0 cell (21,12) index 585, land 0, area
 -- 2, origin (672,384)), an outdoor map model with its map texture pack, the lab
