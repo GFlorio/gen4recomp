@@ -2,13 +2,12 @@
 -- a debug player. It loads the derived cache through MapSceneLoader (compiling on
 -- demand in this developer path when cold), builds one persistent MapRenderer,
 -- and spawns a DebugPlayer on the map's provisional tile. WASD steps the player
--- one tile per press through the permission grid; the camera follows the player
--- (C toggles free framing, R reframes the whole scene, drag/wheel/arrows orbit
--- and zoom). A project-generated prism marks the player and yellow pins mark the
--- development coordinate anchors. All GPU objects are built once here; draw only
--- issues the renderer pass (with the player/anchor overlays) and a 2D HUD whose
--- constant mesh/texture counts show there is no per-frame resource leak. A load
--- failure is captured as text rather than crashing the window.
+-- one tile per press through the permission grid. The camera is fixed at the
+-- map's field angle (from the camera profile) and simply follows the player --
+-- no orbit or zoom. A project-generated prism marks the player and yellow pins
+-- mark the development coordinate anchors. All GPU objects are built once here;
+-- draw only issues the renderer pass (with the player/anchor overlays) and a 2D
+-- HUD. A load failure is captured as text rather than crashing the window.
 
 local CacheFs = require("src.import.CacheFs")
 local MapCatalog = require("src.data.MapCatalog")
@@ -18,7 +17,6 @@ local MapRenderer = require("src.render.MapRenderer")
 local Camera3D = require("src.render.Camera3D")
 local Gizmos = require("src.render.Gizmos")
 local Matrix4 = require("src.render.Matrix4")
-local VertexFormat = require("src.render.VertexFormat")
 local FieldGrid = require("src.world.FieldGrid")
 local DebugPlayer = require("src.world.DebugPlayer")
 local NeighborRing = require("src.world.NeighborRing")
@@ -35,14 +33,17 @@ local MOVE_KEYS = { w = "north", s = "south", a = "west", d = "east" }
 -- symbol-based (not a member-id heuristic) so the switch reads as a map identity.
 local SWITCH_TARGETS = { "MAP_NEW_BARK_ELMS_LAB_1F", "MAP_NEW_BARK" }
 
+-- Fixed camera distance (tile units) for the field preview. 26 matches the
+-- renderer's edge-marking reference distance, so outlines carry their DS-relative
+-- weight at the default framing.
+local DEFAULT_DISTANCE = 26
+
 function MapDiagnosticState.new(versionId, idOrSymbol)
   local envTime = os.getenv("G4RECOMP_FIELD_TIME")
   local self = setmetatable({
     versionId = versionId,
     idOrSymbol = idOrSymbol or "MAP_NEW_BARK_ELMS_LAB_1F",
     errorText = nil,
-    dragging = false,
-    follow = true,
     fieldTimeSeconds = envTime and tonumber(envTime) or FieldLightProfile.DEFAULT_TIME_SECONDS,
   }, MapDiagnosticState)
   self:_load()
@@ -84,10 +85,6 @@ function MapDiagnosticState:_load()
     self.runtime.fieldTimeSeconds = self.fieldTimeSeconds
     self.renderer = MapRenderer.new()
 
-    -- Dependency-hash prefix from the completion marker, for the HUD.
-    local marker = cacheFs:read(mapDir .. "/complete") or ""
-    self.depHash = marker:match(":([%x]+)$") or "?"
-
     -- Debug player at the map's provisional spawn (validated at construction),
     -- plus its prism and the anchor pins.
     self.target = TargetAnchors[scene.mapSymbol] or {}
@@ -98,9 +95,7 @@ function MapDiagnosticState:_load()
     self.playerMat = { alphaClass = "opaque", cullMode = "back" }
     self.anchorMat = { alphaClass = "opaque", cullMode = "back" }
 
-    self.camera = Camera3D.new({ aspect = self:_aspect() })
-    self:_resetCamera()
-    self:_centerOnPlayer()
+    self:_setupCamera()
     self:_applyShotOverrides()
 
     -- Presentation-only neighbor ring around the current cell. Naturally a no-op
@@ -113,11 +108,10 @@ function MapDiagnosticState:_load()
   end
 end
 
--- Smoke-mode camera-angle overrides so an automated capture can inspect the
--- scene from more than the default framing.
+-- Smoke-mode camera overrides so an automated capture can inspect the scene from
+-- a different angle/distance than the fixed field framing.
 function MapDiagnosticState:_applyShotOverrides()
   if not os.getenv("G4RECOMP_SHOT") then return end
-  if os.getenv("G4RECOMP_SHOT_RESET") then self:_resetCamera() end
   local yaw = tonumber(os.getenv("G4RECOMP_SHOT_YAW"))
   local pitch = tonumber(os.getenv("G4RECOMP_SHOT_PITCH"))
   local dist = tonumber(os.getenv("G4RECOMP_SHOT_DIST"))
@@ -129,7 +123,6 @@ function MapDiagnosticState:_applyShotOverrides()
     local tx, tz = target:match("^%s*(-?[%d.]+)%s*,%s*(-?[%d.]+)%s*$")
     assert(tx, "G4RECOMP_SHOT_TARGET must be 'worldX,worldZ'")
     self.camera.target = { tonumber(tx), self.camera.target[2], tonumber(tz) }
-    self.follow = false
   end
 end
 
@@ -145,29 +138,19 @@ function MapDiagnosticState:_playerWorld()
   return x, self.player.y, z
 end
 
--- Frame the whole scene: target its center, back off far enough for the bounds
--- radius to fit the vertical field of view, seed the angle from the profile.
--- Leaves follow mode off so the free view holds until the player moves or R/C.
-function MapDiagnosticState:_resetCamera()
-  local b = self.runtime.bounds
+-- Fixed field camera: seed the angle and lens from the map's camera profile,
+-- lock the distance, and aim at the player.
+function MapDiagnosticState:_setupCamera()
   local profile = CameraProfiles[self.runtime.cameraType] or {}
-  local seeded = Camera3D.fromProfile(profile, { b.center[1], b.center[2], b.center[3] }, self:_aspect())
-  local ex = b.max[1] - b.min[1]
-  local ey = b.max[2] - b.min[2]
-  local ez = b.max[3] - b.min[3]
-  local radius = math.max(ex, ey, ez) / 2
-  seeded.distance = math.max(4, radius / math.tan(seeded.fovY / 2) * 1.3)
-  self.camera = seeded
-  self.follow = false
+  self.camera = Camera3D.fromProfile(profile, { 0, 0, 0 }, self:_aspect())
+  self.camera.distance = DEFAULT_DISTANCE
+  self:_followPlayer()
 end
 
--- Point the current camera at the player (keeping yaw/pitch, moving to a closer
--- follow distance the first time) and enable follow.
-function MapDiagnosticState:_centerOnPlayer()
+-- Aim the camera at the player's tile (flat Y). Called on load and after each step.
+function MapDiagnosticState:_followPlayer()
   local x, y, z = self:_playerWorld()
   self.camera.target = { x, y + 0.5, z }
-  if not self.follow then self.camera.distance = math.min(self.camera.distance, 14) end
-  self.follow = true
 end
 
 -- Env-gated render smoke: when G4RECOMP_SHOT names a save-dir-relative path, let
@@ -203,16 +186,9 @@ function MapDiagnosticState:_maybeSwitchStress()
   self:_cycleMap()
 end
 
-function MapDiagnosticState:update(dt)
+function MapDiagnosticState:update()
   self:_maybeSwitchStress()
   self:_maybeCaptureAndQuit()
-  if self.errorText then return end
-  local step = dt * 6
-  local k = love.keyboard
-  if k.isDown("left") then self.camera:orbit(-step, 0) end
-  if k.isDown("right") then self.camera:orbit(step, 0) end
-  if k.isDown("up") then self.camera:orbit(0, step) end
-  if k.isDown("down") then self.camera:orbit(0, -step) end
 end
 
 -- Build the per-frame overlay draw list: the player prism plus one anchor pin
@@ -260,54 +236,14 @@ function MapDiagnosticState:draw()
   self:_drawHud()
 end
 
--- Read the VertexColorSource of the first vertex, robust to layout changes.
-local function firstVertexColorSource(mesh)
-  local data = { mesh:getVertex(1) }
-  local idx = 1
-  for _, attr in ipairs(VertexFormat.LAYOUT) do
-    if attr[1] == "VertexColorSource" then return data[idx] or 1 end
-    idx = idx + attr[3]
-  end
-  return 1
-end
-
-local function recordIndex(records, rec)
-  for i, r in ipairs(records) do
-    if r == rec then return i end
-  end
-  return -1
-end
-
 function MapDiagnosticState:_drawHud()
   local lg = love.graphics
-  local s = self.renderer.stats
   local rt = self.runtime
   local scene = rt.scene
   local m = scene.matrix
   local area = scene.area
   local src = scene.source
   local ps = self.player:status()
-
-  local lit = rt.lighting or {}
-  local rec = lit.records and FieldLightProfile.select(lit, rt.fieldTimeSeconds or FieldLightProfile.DEFAULT_TIME_SECONDS) or nil
-  local hours = math.floor((rt.fieldTimeSeconds or 0) / 3600)
-  local mins = math.floor(((rt.fieldTimeSeconds or 0) % 3600) / 60)
-
-  local classCounts = { opaque = 0, cutout = 0, translucent = 0, wireframe = 0 }
-  local sourceCounts = { literal = 0, lit = 0, diffuse = 0 }
-  local all = {}
-  for _, d in ipairs(rt.mapDraws) do all[#all + 1] = d end
-  for _, d in ipairs(rt.buildingDraws) do all[#all + 1] = d end
-  for _, d in ipairs(all) do
-    classCounts[d.alphaClass or "opaque"] = (classCounts[d.alphaClass or "opaque"] or 0) + 1
-  end
-  -- Vertex color sources are per-vertex; sample the first vertex of each mesh.
-  for _, d in ipairs(all) do
-    local src = firstVertexColorSource(d.mesh)
-    if src == 0 then sourceCounts.literal = sourceCounts.literal + 1
-    elseif src == 2 then sourceCounts.diffuse = sourceCounts.diffuse + 1
-    else sourceCounts.lit = sourceCounts.lit + 1 end
-  end
 
   local lines = {
     string.format("%s  rom %s  (%s)", self.versionId, (src.romSha1 or "?"):sub(1, 8),
@@ -318,29 +254,15 @@ function MapDiagnosticState:_drawHud()
     string.format("land member %d   origin (%d,%d)", src.landData.memberId, m.worldOriginX, m.worldOriginZ),
     string.format("area %d  %s  mapTex %d  bldTex %d  light %d",
       area.memberId, area.type, area.mapTexturePackId, area.buildingTexturePackId, area.lightType),
-    string.format("camera type %d  %s  yaw %.0f pitch %.0f dist %.1f",
-      scene.cameraType, self.follow and "follow" or "free",
-      math.deg(self.camera.yaw), math.deg(self.camera.pitch), self.camera.distance),
-    string.format("map batches %d   buildings %d   meshes %d   textures %d",
-      #(scene.mapBatches or {}), rt.stats.buildingInstances, s.meshCount, s.textureCount),
-    string.format("triangles %d   draw calls %d   dep %s", s.triangles, s.drawCalls, self.depHash:sub(1, 8)),
+    string.format("camera type %d", scene.cameraType),
     string.format("player local (%d,%d) global (%d,%d) facing %s  y=%.1f",
       ps.localX, ps.localZ, ps.globalX, ps.globalZ, ps.facing, ps.y),
     string.format("under player: behavior 0x%02X  perm 0x%02X  block %s  response %d",
       ps.behavior, ps.permissionRaw, tostring(ps.hardBlocked), ps.terrainResponseId),
-    string.format("field time %02d:%02d  lightTypeRaw %d  profile %d  %s",
-      hours, mins, lit.lightTypeRaw or -1, lit.profileId or -1, lit.sourcePath or "?"),
-    string.format("active record %d  start %d  mask 0x%X",
-      rec and recordIndex(lit.records, rec) or -1, rec and rec.startHalfSeconds or -1, rec and rec.enabledLightMask or 0),
-    string.format("alpha class  op %d  cut %d  xl %d  wire %d",
-      classCounts.opaque, classCounts.cutout, classCounts.translucent, classCounts.wireframe),
-    string.format("color source  literal %d  lit %d  diffuse %d",
-      sourceCounts.literal, sourceCounts.lit, sourceCounts.diffuse),
   }
   if self.neighborRing and self.neighborRing.stats.cellCount > 0 then
     local ns = self.neighborRing.stats
-    lines[#lines + 1] = string.format("neighbors: %d cells  %d chunks  %d meshes  %d textures",
-      ns.cellCount, ns.chunkCount, ns.meshCount, ns.textureCount)
+    lines[#lines + 1] = string.format("neighbors: %d cells  %d chunks", ns.cellCount, ns.chunkCount)
   elseif self.neighborError then
     lines[#lines + 1] = "neighbors: load failed (see stderr)"
   end
@@ -353,32 +275,12 @@ function MapDiagnosticState:_drawHud()
     lines[#lines + 1] = string.format("anchor [dev]: %s @ local (%d,%d)%s", a.label, a.localX, a.localZ, g)
   end
   lines[#lines + 1] = "limitations: flat Y (no BDHC height), approximate camera"
-  lines[#lines + 1] = "WASD move   Tab switch map   C follow/free   R reframe   Q/E hour   drag/arrows orbit   wheel zoom   Esc quit"
+  lines[#lines + 1] = "WASD move   Tab switch map   Q/E hour   Esc quit"
 
   lg.setColor(0, 0, 0, 0.55)
   lg.rectangle("fill", 12, 12, 640, 20 * #lines + 12)
   lg.setColor(0.9, 0.95, 1)
   for i, line in ipairs(lines) do lg.print(line, 20, 12 + (i - 1) * 20) end
-end
-
-function MapDiagnosticState:mousepressed(_, _, button)
-  if button == 1 then self.dragging = true end
-end
-
-function MapDiagnosticState:mousereleased(_, _, button)
-  if button == 1 then self.dragging = false end
-end
-
-function MapDiagnosticState:mousemoved(_, _, dx, dy)
-  if self.dragging and self.camera then
-    self.camera:orbit(dx * 0.01, -dy * 0.01)
-  end
-end
-
-function MapDiagnosticState:wheelmoved(_, dy)
-  if self.camera and dy ~= 0 then
-    self.camera:zoom(dy > 0 and 0.9 or 1.1)
-  end
 end
 
 function MapDiagnosticState:keypressed(key)
@@ -394,11 +296,7 @@ function MapDiagnosticState:keypressed(key)
   local dir = MOVE_KEYS[key]
   if dir then
     self.player:tryStep(dir)
-    if self.follow then self:_centerOnPlayer() end
-  elseif key == "r" then
-    self:_resetCamera()
-  elseif key == "c" then
-    if self.follow then self.follow = false else self:_centerOnPlayer() end
+    self:_followPlayer()
   elseif key == "q" or key == "pageup" then
     self.fieldTimeSeconds = (self.fieldTimeSeconds - 3600) % 86400
     self.runtime.fieldTimeSeconds = self.fieldTimeSeconds
@@ -464,7 +362,6 @@ function MapDiagnosticState:_switchTo(idOrSymbol)
   self:_releaseGpu()
   self.idOrSymbol = idOrSymbol
   self.errorText = nil
-  self.dragging = false
   self:_load()
 end
 
