@@ -9,7 +9,7 @@
 -- bit extraction only.
 
 local Errors = require("libs.rom.src.Errors")
-local Fixed = require("libs.assets.src.nitro.Fixed")
+local FixedPoint = require("libs.math.src.FixedPoint")
 
 local TextureDecoder = {}
 
@@ -17,7 +17,7 @@ local function byteAt(s, i) return string.byte(s, i + 1) or 0 end
 
 local function paletteColor(palette, index)
   local off = index * 2
-  return Fixed.rgb555(byteAt(palette, off) + byteAt(palette, off + 1) * 256)
+  return FixedPoint.rgb555(byteAt(palette, off) + byteAt(palette, off + 1) * 256)
 end
 
 -- Build an RGBA8 string from a per-texel sampler(x, y) -> r, g, b, a.
@@ -98,7 +98,7 @@ DECODERS[7] = function(o)
   return assemble(o.width, o.height, function(x, y)
     local off = (y * o.width + x) * 2
     local v = byteAt(o.texel, off) + byteAt(o.texel, off + 1) * 256
-    local r, g, b = Fixed.rgb555(v)
+    local r, g, b = FixedPoint.rgb555(v)
     local a = (v >= 0x8000) and 255 or 0
     return r, g, b, a
   end)

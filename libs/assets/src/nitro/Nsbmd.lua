@@ -17,7 +17,7 @@
 
 local Errors = require("libs.rom.src.Errors")
 local BinaryReader = require("libs.rom.src.BinaryReader")
-local Fixed = require("libs.assets.src.nitro.Fixed")
+local FixedPoint = require("libs.math.src.FixedPoint")
 local NitroFile = require("libs.assets.src.nitro.NitroFile")
 local NitroDict = require("libs.assets.src.nitro.NitroDict")
 local Nsbtx = require("libs.assets.src.nitro.Nsbtx")
@@ -104,7 +104,7 @@ local function decodeNodeData(r, nodeInfoBase, e, context)
   r:assertRange(base, 4, "node-data-header")
 
   local flags = r:u16le(base)
-  local _00 = Fixed.fx16(r:u16le(base + 2))
+  local _00 = FixedPoint.fx16(r:u16le(base + 2))
   local pos = base + 4
 
   local function bitSet(v, bit)
@@ -117,9 +117,9 @@ local function decodeNodeData(r, nodeInfoBase, e, context)
   else
     r:assertRange(pos, 12, "node-translation")
     translation = {
-      x = Fixed.fx32(r:u32le(pos)),
-      y = Fixed.fx32(r:u32le(pos + 4)),
-      z = Fixed.fx32(r:u32le(pos + 8)),
+      x = FixedPoint.fx32(r:u32le(pos)),
+      y = FixedPoint.fx32(r:u32le(pos + 4)),
+      z = FixedPoint.fx32(r:u32le(pos + 8)),
     }
     pos = pos + 12
   end
@@ -129,8 +129,8 @@ local function decodeNodeData(r, nodeInfoBase, e, context)
     rotation = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
   elseif bitSet(flags, SRTFLAG_PIVOT_EXIST) then
     r:assertRange(pos, 4, "node-pivot")
-    local A = Fixed.fx16(r:u16le(pos))
-    local B = Fixed.fx16(r:u16le(pos + 2))
+    local A = FixedPoint.fx16(r:u16le(pos))
+    local B = FixedPoint.fx16(r:u16le(pos + 2))
     local idxPivot = math.floor(flags / 16) % 16
     if idxPivot > 8 then
       Errors.raise("NSBMD_NODE_PIVOT_INDEX_INVALID",
@@ -150,7 +150,7 @@ local function decodeNodeData(r, nodeInfoBase, e, context)
     r:assertRange(pos, 16, "node-rotation")
     rotation = { _00 }
     for i = 1, 8 do
-      rotation[#rotation + 1] = Fixed.fx16(r:u16le(pos + (i - 1) * 2))
+      rotation[#rotation + 1] = FixedPoint.fx16(r:u16le(pos + (i - 1) * 2))
     end
     pos = pos + 16
   end
@@ -161,9 +161,9 @@ local function decodeNodeData(r, nodeInfoBase, e, context)
   else
     r:assertRange(pos, 12, "node-scale")
     scale = {
-      x = Fixed.fx32(r:u32le(pos)),
-      y = Fixed.fx32(r:u32le(pos + 4)),
-      z = Fixed.fx32(r:u32le(pos + 8)),
+      x = FixedPoint.fx32(r:u32le(pos)),
+      y = FixedPoint.fx32(r:u32le(pos + 4)),
+      z = FixedPoint.fx32(r:u32le(pos + 8)),
     }
     pos = pos + 12
   end
@@ -280,22 +280,22 @@ local function decodeInfo(r, base)
     numMat = r:u8(base + 0x04),
     numShp = r:u8(base + 0x05),
     firstUnusedMtxStackID = r:u8(base + 0x06),
-    posScale = Fixed.fx32(r:u32le(base + 0x08)),
-    invPosScale = Fixed.fx32(r:u32le(base + 0x0C)),
+    posScale = FixedPoint.fx32(r:u32le(base + 0x08)),
+    invPosScale = FixedPoint.fx32(r:u32le(base + 0x0C)),
     numVertex = r:u16le(base + 0x10),
     numPolygon = r:u16le(base + 0x12),
     numTriangle = r:u16le(base + 0x14),
     numQuad = r:u16le(base + 0x16),
     box = {
-      x = Fixed.fx16(r:u16le(base + 0x18)),
-      y = Fixed.fx16(r:u16le(base + 0x1A)),
-      z = Fixed.fx16(r:u16le(base + 0x1C)),
-      w = Fixed.fx16(r:u16le(base + 0x1E)),
-      h = Fixed.fx16(r:u16le(base + 0x20)),
-      d = Fixed.fx16(r:u16le(base + 0x22)),
+      x = FixedPoint.fx16(r:u16le(base + 0x18)),
+      y = FixedPoint.fx16(r:u16le(base + 0x1A)),
+      z = FixedPoint.fx16(r:u16le(base + 0x1C)),
+      w = FixedPoint.fx16(r:u16le(base + 0x1E)),
+      h = FixedPoint.fx16(r:u16le(base + 0x20)),
+      d = FixedPoint.fx16(r:u16le(base + 0x22)),
     },
-    boxPosScale = Fixed.fx32(r:u32le(base + 0x24)),
-    boxInvPosScale = Fixed.fx32(r:u32le(base + 0x28)),
+    boxPosScale = FixedPoint.fx32(r:u32le(base + 0x24)),
+    boxInvPosScale = FixedPoint.fx32(r:u32le(base + 0x28)),
   }
 end
 
@@ -356,8 +356,8 @@ local function decodeMaterialData(r, matBase, blockOfs, context)
     flagsRaw = flagsRaw,
     origWidth = r:u16le(base + 0x20),
     origHeight = r:u16le(base + 0x22),
-    magW = Fixed.fx32(r:u32le(base + 0x24)),
-    magH = Fixed.fx32(r:u32le(base + 0x28)),
+    magW = FixedPoint.fx32(r:u32le(base + 0x24)),
+    magH = FixedPoint.fx32(r:u32le(base + 0x28)),
 
     diffuseRgb555 = diffAmb.diffuseRgb555,
     ambientRgb555 = diffAmb.ambientRgb555,

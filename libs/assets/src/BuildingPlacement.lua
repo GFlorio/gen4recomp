@@ -7,7 +7,7 @@
 
 local Errors = require("libs.rom.src.Errors")
 local BinaryReader = require("libs.rom.src.BinaryReader")
-local Fixed = require("libs.assets.src.nitro.Fixed")
+local FixedPoint = require("libs.math.src.FixedPoint")
 
 local BuildingPlacement = {}
 
@@ -59,9 +59,9 @@ function BuildingPlacement.decode(bytes, byteOffset, context)
     rotation = { x = angle(rx), y = angle(ry), z = angle(rz) },
     rotationRaw = { x = rx, y = ry, z = rz },
     scale = {
-      width = Fixed.fx32(scaleRaw.width),
-      height = Fixed.fx32(scaleRaw.height),
-      length = Fixed.fx32(scaleRaw.length),
+      width = FixedPoint.fx32(scaleRaw.width),
+      height = FixedPoint.fx32(scaleRaw.height),
+      length = FixedPoint.fx32(scaleRaw.length),
     },
     scaleRaw = scaleRaw,
     unknown = {

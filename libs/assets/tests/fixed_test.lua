@@ -3,7 +3,7 @@
 -- conversions at their range ends.
 
 local Assert = require("tests.support.Assert")
-local Fixed = require("libs.assets.src.nitro.Fixed")
+local FixedPoint = require("libs.math.src.FixedPoint")
 
 local T = {}
 
