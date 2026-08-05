@@ -31,4 +31,4 @@ jobs:
           "$RUNNER_TEMP/love.AppImage" --appimage-extract-and-run --version
 
       - name: Run test suite
-        run: '"$RUNNER_TEMP/love.AppImage" --appimage-extract-and-run . --test'
+        run: '"$RUNNER_TEMP/love.AppImage" --appimage-extract-and-run game/ --test'
