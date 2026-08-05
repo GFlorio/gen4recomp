@@ -70,8 +70,9 @@ love romdump/
        ├─ --import-rom P [--import-only] → import P (version detected from SHA-1)
        ├─ --check-dump                   → audit every ready cache with DumpAudit,
        │                                   using only RomFs, never opening the ROM
-       ├─ --inspect-map ID               → payload-free map inventory
-       └─ --build-map ID                 → compile the map into the derived cache
+       ├─ --inspect                      → payload-free inventory of every catalog map
+       └─ --build                        → compile every map into the derived cache
+                                             and write world.lua
 ```
 
 ## Import flow
@@ -104,17 +105,17 @@ the selected version's subtree — importing one game never touches the other.
 
 ## Runtime flow
 
-Once a cache is ready, the runtime never needs the ROM again. `RomFs.open` loads
-the generated Lua metadata through `CacheFs`, validates its schema, and builds
-transient path/alias lookups in memory. Reads are lazy: no payload is loaded
-until requested. `DiagnosticState` is the current end of the slice — it opens
-the `map_matrices` NARC, reads member 0, and decodes it with `MapMatrix` purely
-through `RomFs`:
+Once a cache is ready, the runtime never needs the ROM again, and it never
+decodes a raw ROM format directly — everything comes from the derived cache
+that `romdump --build` wrote. `game`'s `MapDiagnosticState` loads the cache's
+`world.lua` manifest through `CacheFs`, resolves the requested map with
+`WorldLookup`, and loads that map's `scene.lua` through `MapSceneLoader`:
 
 ```lua
-local romFs = assert(RomFs.open(versionId))
-local matrices = assert(romFs:openNarc("map_matrices"))
-local matrix = assert(MapMatrix.decode(matrices:readMember(0), 0))
+local world = assert(cacheFs:loadLua(MapAssetCache.worldPath()))
+local map = WorldLookup.require(world, idOrSymbol)
+local scene = assert(cacheFs:loadLua(MapAssetCache.mapDir(map.id) .. "/scene.lua"))
+local runtime = MapSceneLoader.load(cacheFs, scene)
 ```
 
 ## Raw dump vs. derived data
