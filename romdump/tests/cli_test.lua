@@ -60,4 +60,9 @@ function T.missing_value_for_map_errors()
   Assert.throws(function() Cli.parse({ "--map" }) end)
 end
 
+function T.parses_build()
+  Assert.isTrue(Cli.parse({ "--build" }).build)
+  Assert.isFalse(Cli.parse({}).build)
+end
+
 return T
