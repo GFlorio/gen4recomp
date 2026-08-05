@@ -40,11 +40,26 @@ local function persist(cacheFs, bundle)
     Errors.raise("MAP_CACHE_BAD_TERRAIN", "terrain artifact is missing or has the wrong schema", { mapId = mapId })
   end
   cacheFs:writeLua(MapAssetCache.terrainPath(mapId), bundle.terrain)
-  -- 6. Scene descriptor. 7. Dependency record.
+  -- 6. Neighbor permission and terrain artifacts.
+  for landDataMemberId, chunk in pairs(bundle.neighborChunks or {}) do
+    if #chunk.permissions ~= 2048 then
+      Errors.raise("MAP_CACHE_BAD_NEIGHBOR_PERMISSIONS",
+        "neighbor permission grid must be 2048 bytes",
+        { mapId = mapId, landDataMemberId = landDataMemberId, size = #chunk.permissions })
+    end
+    if type(chunk.terrain) ~= "table" or chunk.terrain.schema ~= "g4-terrain-surfaces-v1" then
+      Errors.raise("MAP_CACHE_BAD_NEIGHBOR_TERRAIN", "neighbor terrain artifact is invalid",
+        { mapId = mapId, landDataMemberId = landDataMemberId })
+    end
+    cacheFs:write(MapAssetCache.neighborPermissionsPath(mapId, landDataMemberId),
+      chunk.permissions)
+    cacheFs:writeLua(MapAssetCache.neighborTerrainPath(mapId, landDataMemberId), chunk.terrain)
+  end
+  -- 7. Scene descriptor. 8. Dependency record.
   cacheFs:writeLua(dir .. "/scene.lua", bundle.scene)
   cacheFs:writeLua(dir .. "/dependencies.lua", bundle.dependencies)
 
-  -- 8. Read back and validate every reference (including model-descriptor
+  -- 9. Read back and validate every reference (including model-descriptor
   --    internals) before committing the marker. isReady requires the marker too,
   --    so probe with the intended marker after the marker file is written;
   --    here validate references directly.
@@ -58,7 +73,7 @@ local function persist(cacheFs, bundle)
     end
   end
 
-  -- 9. Completion marker, written last.
+  -- 10. Completion marker, written last.
   cacheFs:write(dir .. "/complete", bundle.marker)
   return bundle.marker
 end

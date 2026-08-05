@@ -1,6 +1,6 @@
 -- Normal field-runtime coordinator. It joins generated maps through
 -- FieldMapLoader, drives the deterministic elevation-aware player, and exposes
--- event/terrain debug overlays. Warp execution remains deferred to Epic 8.
+-- event/terrain debug overlays plus the field warp transition lifecycle.
 
 local CacheFs = require("libs.rom.src.CacheFs")
 local FieldCamera = require("libs.engine.src.FieldCamera")
@@ -10,6 +10,7 @@ local FieldInput = require("libs.engine.src.FieldInput")
 local FieldMapLoader = require("libs.engine.src.FieldMapLoader")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldSession = require("libs.engine.src.FieldSession")
+local FieldTransition = require("libs.engine.src.FieldTransition")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local Gizmos = require("libs.engine.src.Gizmos")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
@@ -80,6 +81,7 @@ function FieldState:_load()
     local profiles = assert(cacheFs:loadLua(CAMERA_PROFILES_PATH),
       "field camera cache is cold -- run `scripts/buildcache.sh` first")
     assert(profiles.schema == "g4-field-camera-profiles-v1", "unsupported field camera cache")
+    self.cameraProfiles = profiles.profiles
 
     self.mapLoader = FieldMapLoader.new(cacheFs, world)
     self.runtimeMap = self.mapLoader:load(self.idOrSymbol)
@@ -101,7 +103,7 @@ function FieldState:_load()
     self.heldDirectionKeys = {}
     local worldPoint = self.player:renderPosition()
 
-    local profile = assert(profiles.profiles[self.runtimeMap.cameraType],
+    local profile = assert(self.cameraProfiles[self.runtimeMap.cameraType],
       "field camera cache has no camera type " .. self.runtimeMap.cameraType)
     self.camera = FieldCamera.new(profile, { initialTarget = worldPoint })
     local width, height = love.graphics.getDimensions()
@@ -110,12 +112,17 @@ function FieldState:_load()
     self.envelope = terrainEnvelope(self.runtimeMap.terrain)
     self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
 
+    self.transition = FieldTransition.new({
+      loader = self.mapLoader,
+      swap = function(resolution, facing) self:_swapMap(resolution, facing) end,
+    })
     self.session = FieldSession.new({
       versionId = self.versionId,
       currentMap = self.runtimeMap,
       actor = self.actor,
       player = self.player,
       camera = self.camera,
+      transition = self.transition,
       input = self.input,
       coverage = function()
         self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
@@ -137,7 +144,44 @@ function FieldState:_load()
 end
 
 function FieldState:update(dt)
-  if self.session then self.session:update(dt) end
+  if self.session then
+    self.session:update(dt)
+    if self.transition.error then
+      local warp = self.transition.sourceWarp
+      self.errorText = string.format("%s\nsource map %s warp %s -> map %s warp %s",
+        tostring(self.transition.error), tostring(self.transition.sourceMap.mapId),
+        tostring(warp.index), tostring(warp.destinationMapId),
+        tostring(warp.destinationWarpId))
+    end
+  end
+end
+
+function FieldState:_swapMap(resolution, facing)
+  assert(self.transition.fadeAlpha == 1, "field map swap must be hidden by fade")
+  local runtimeMap = resolution.destinationMap
+  local player = FieldPlayer.new({
+    currentMap = runtimeMap,
+    fieldX = resolution.fieldX,
+    fieldZ = resolution.fieldZ,
+    surfaceId = resolution.surfaceId,
+    facing = facing,
+  })
+  local profile = assert(self.cameraProfiles[runtimeMap.cameraType],
+    "field camera cache has no camera type " .. runtimeMap.cameraType)
+  local camera = FieldCamera.new(profile, { initialTarget = player:renderPosition() })
+  camera:setProjectionAspect(self.viewport:worldAspect())
+
+  self.runtimeMap = runtimeMap
+  self.runtime = runtimeMap.sceneRuntime
+  self.player = player
+  self.actor = player
+  self.camera = camera
+  self.envelope = terrainEnvelope(runtimeMap.terrain)
+  self.session.currentMap = runtimeMap
+  self.session.player = player
+  self.session.actor = player
+  self.session.camera = camera
+  self.mapLoader:updateCoverage(runtimeMap, camera, self.envelope)
 end
 
 local function append(list, draw)
@@ -206,6 +250,11 @@ function FieldState:draw()
     self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
   end
   self.renderer:draw(self.runtime, self.camera, self:_overlays(), self.viewport)
+  if self.transition and self.transition.fadeAlpha > 0 then
+    local rectangle = self.viewport.worldViewport
+    lg.setColor(0, 0, 0, self.transition.fadeAlpha)
+    lg.rectangle("fill", rectangle.x, rectangle.y, rectangle.width, rectangle.height)
+  end
   self:_drawHud()
 end
 
@@ -231,11 +280,14 @@ function FieldState:_drawHud()
     string.format("events bg/object/warp/coord %d/%d/%d/%d",
       #(events.background or {}), #(events.objects or {}),
       #(events.warps or {}), #(events.coordinates or {})),
-    string.format("terrain %d plates  coverage %d cells  prefetch misses %d  resident maps %d",
+    string.format("terrain %d plates  coverage %d cells  visible/prefetch misses %d/%d  resident maps %d",
       #self.runtimeMap.terrain.plates, plan and #plan.cells or 0,
+      plan and #(plan.missingVisibleCells or {}) or 0,
       plan and #(plan.missingPrefetchCells or {}) or 0, self.mapLoader:residentCount()),
     string.format("tick %d  dropped %d  overlays %s",
       self.session.tick, self.session.discardedTicks, self.overlaysVisible and "on" or "off"),
+    string.format("transition %s  fade %.2f",
+      self.transition.phase, self.transition.fadeAlpha),
     "WASD/arrows move   F1 event/terrain overlays   Esc quit",
   }
   lg.setColor(0, 0, 0, 0.55)

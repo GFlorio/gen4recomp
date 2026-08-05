@@ -52,9 +52,12 @@ local MODULES = {
   "libs.engine.tests.field_coverage_planner_test",
   "libs.engine.tests.terrain_surface_test",
   "libs.engine.tests.field_coordinates_test",
+  "libs.engine.tests.field_region_test",
   "libs.engine.tests.field_map_loader_test",
   "libs.engine.tests.field_input_test",
   "libs.engine.tests.field_player_test",
+  "libs.engine.tests.warp_system_test",
+  "libs.engine.tests.field_transition_test",
   "libs.engine.tests.field_session_test",
   -- game
   "game.tests.map_diagnostic_state_test",

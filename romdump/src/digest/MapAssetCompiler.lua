@@ -32,7 +32,7 @@ local Errors = require("libs.rom.src.Errors")
 
 local MapAssetCompiler = {}
 
-local COMPILER_VERSION = "map-compiler-v9"
+local COMPILER_VERSION = "map-compiler-v10"
 local COORDINATE_CONVENTION = "nsbmd-sbc-matrix-16-tile-v3"
 local SCENE_SCHEMA = "g4-map-scene-v2"
 
@@ -238,10 +238,9 @@ local function _compile(romFs, idOrSymbol)
     }
   end
 
-  -- Presentation-only neighbour ring: plan the eight surrounding matrix cells,
-  -- compile each unique land chunk once (terrain only) into the shared mesh/
-  -- texture pools so its assets dedup, then emit one scene descriptor per drawn
-  -- cell carrying its 32-tile offset and its land member's batches/materials.
+  -- Plan the eight surrounding matrix cells and compile each unique land chunk
+  -- once. Geometry/textures feed the draw ring; permission and BDHC artifacts
+  -- make the same cells traversable in the field runtime.
   local NeighborChunkCompiler = require("romdump.src.digest.NeighborChunkCompiler")
   local plan = NeighborPlan.plan(resolved.matrix, resolved.matrixX, resolved.matrixZ,
     function(h) local rec = MapCatalog.areaForMapHeader(h); return rec and rec.areaDataMemberId or nil end)
@@ -255,17 +254,28 @@ local function _compile(romFs, idOrSymbol)
     local chunk = NeighborChunkCompiler.compile(romFs, member, memberAreaId)
     for sha1, b in pairs(chunk.meshes) do meshes[sha1] = b end
     for sha1, t in pairs(chunk.textures) do textures[sha1] = t end
-    neighborChunkByMember[member] = { batches = chunk.batches, materials = chunk.materials }
+    neighborChunkByMember[member] = chunk
   end
 
   local neighbors = {}
   for _, cell in ipairs(plan.cells) do
     local chunk = neighborChunkByMember[cell.landDataMemberId]
     neighbors[#neighbors + 1] = {
+      mapHeaderId = cell.mapHeaderId,
+      landDataMemberId = cell.landDataMemberId,
       offsetTilesX = cell.offsetTilesX,
       offsetTilesZ = cell.offsetTilesZ,
       batches = chunk.batches,
       materials = chunk.materials,
+      collision = {
+        width = 32,
+        height = 32,
+        file = MapAssetCache.neighborPermissionsPath(mapId, cell.landDataMemberId),
+      },
+      terrain = {
+        schema = chunk.terrain.schema,
+        file = MapAssetCache.neighborTerrainPath(mapId, cell.landDataMemberId),
+      },
     }
   end
 
@@ -348,7 +358,6 @@ local function _compile(romFs, idOrSymbol)
     },
     limitations = {
       dynamicTexturesStatic = true,
-      terrainNotUsedForPlayerHeight = true,
     },
     lighting = {
       lightTypeRaw = area.lightTypeRaw,
@@ -367,6 +376,7 @@ local function _compile(romFs, idOrSymbol)
     dependencies = dependencies,
     permissions = land.permissionBytes,
     terrain = terrain,
+    neighborChunks = neighborChunkByMember,
     meshes = meshes,
     textures = textures,
     models = models,

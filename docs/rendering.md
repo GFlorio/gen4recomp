@@ -176,8 +176,8 @@ light/shininess commands fail compilation with:
 Derived map caches carry explicit versions:
 
 ```lua
-MapAssetCache.FORMAT              = "map-cache-v2"
-MapAssetCompiler.COMPILER_VERSION = "map-compiler-v5"
+MapAssetCache.FORMAT              = "map-cache-v5"
+MapAssetCompiler.COMPILER_VERSION = "map-compiler-v10"
 scene.schema                      = "g4-map-scene-v2"
 VertexFormat.VERSION              = 2
 FieldLightProfile.VERSION         = "field-light-v1"

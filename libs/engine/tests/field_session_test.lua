@@ -69,4 +69,76 @@ function T.trace_is_identical_across_render_delta_patterns()
   Assert.deepEqual(run(sixtieths), run(oneTwentieths))
 end
 
+local function warpSession(options)
+  local starts = {}
+  local transition = {
+    phase = "idle", locked = false,
+    updateFixed = function() end,
+    start = function(_, map, warp, facing)
+      starts[#starts + 1] = { map = map, warp = warp, facing = facing }
+    end,
+  }
+  local warp = { index = 0, x = options.warpX, z = options.warpZ,
+    destinationMapId = 60, destinationWarpId = 0, y = 0 }
+  local map = {
+    mapId = 61, cameraType = 4, coordinateOrigin = { x = 0, z = 0 },
+    fieldData = { events = { warps = { warp } } },
+    permissions = {
+      containsLocal = function(_, x, z) return x >= 0 and x < 32 and z >= 0 and z < 32 end,
+      isBlockedLocal = function(_, x, z) return options.blocked == x .. ":" .. z end,
+    },
+  }
+  local actor = {
+    fieldX = options.fieldX, fieldZ = options.fieldZ,
+    worldX = 0, worldY = 0, worldZ = 0, surfaceId = 0,
+    facing = "south", motion = "idle",
+  }
+  function actor:updateFixed()
+    if options.commit then
+      self.fieldX, self.fieldZ = options.warpX, options.warpZ
+      options.commit = false
+      return true
+    end
+    return false
+  end
+  local camera = { updateFixed = function() end }
+  local session = FieldSession.new({ versionId = "heartgold", currentMap = map,
+    actor = actor, player = actor, camera = camera, transition = transition })
+  return session, transition, starts, warp
+end
+
+function T.blocked_facing_warp_starts_before_player_collision()
+  local session, _, starts, warp = warpSession({
+    fieldX = 4, fieldZ = 13, warpX = 4, warpZ = 14, blocked = "4:14",
+  })
+  session:updateFixed({ heldDirection = "south", pressedDirection = "south" })
+  Assert.equal(#starts, 1)
+  Assert.equal(starts[1].warp, warp)
+  Assert.equal(starts[1].facing, "south")
+  Assert.equal(session.player.fieldZ, 13)
+end
+
+function T.standing_warp_starts_only_when_a_step_commits()
+  local session, _, starts, warp = warpSession({
+    fieldX = 4, fieldZ = 13, warpX = 4, warpZ = 14, commit = true,
+  })
+  session:updateFixed({ heldDirection = "south" })
+  Assert.equal(#starts, 1)
+  Assert.equal(starts[1].warp, warp)
+  Assert.equal(session.player.fieldZ, 14)
+end
+
+function T.arrival_suppression_prevents_immediate_standing_bounce()
+  local session, transition, starts = warpSession({
+    fieldX = 4, fieldZ = 14, warpX = 4, warpZ = 14, commit = true,
+  })
+  transition.suppression = { mapId = 61, fieldX = 4, fieldZ = 14 }
+  session:updateFixed({ heldDirection = "south" })
+  Assert.equal(#starts, 0)
+  Assert.notNil(transition.suppression)
+  session.player.fieldZ = 15
+  session:updateFixed({})
+  Assert.isNil(transition.suppression)
+end
+
 return T

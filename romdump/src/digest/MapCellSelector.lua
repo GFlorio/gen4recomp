@@ -1,6 +1,6 @@
 -- Selects the representative matrix cell used to compile a map scene. Multi-
 -- cell maps use the cell nearest their matching-region centroid, maximizing the
--- useful coverage of the presentation-only neighbor ring without hand-tuning.
+-- useful coverage of the neighboring field region without hand-tuning.
 
 local MapCellSelector = {}
 

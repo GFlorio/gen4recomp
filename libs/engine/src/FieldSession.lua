@@ -1,6 +1,8 @@
 -- Runs the authoritative field simulation at 60 fixed ticks per second. Player
 -- movement advances before the camera so both consume the same continuous XYZ.
 
+local WarpSystem = require("libs.engine.src.WarpSystem")
+
 local FieldSession = {}
 FieldSession.__index = FieldSession
 
@@ -30,17 +32,51 @@ function FieldSession:actorTarget()
   return { x = self.actor.worldX, y = self.actor.worldY, z = self.actor.worldZ }
 end
 
-function FieldSession:updateFixed(inputSnapshot)
-  if self.transition and self.transition.updateFixed then
-    self.transition:updateFixed(inputSnapshot)
-    if self.transition.locked then return end
-  end
-  inputSnapshot = inputSnapshot or (self.input and self.input:snapshot()) or {}
-  if self.player.updateFixed then self.player:updateFixed(inputSnapshot) end
-  self.camera:updateFixed(self:actorTarget())
-  if self.coverage then self.coverage(self) end
+function FieldSession:_recordTick()
   self.tick = self.tick + 1
   if self.trace then self.trace(self:traceRecord()) end
+end
+
+function FieldSession:updateFixed(inputSnapshot)
+  inputSnapshot = inputSnapshot or (self.input and self.input:snapshot()) or {}
+  if self.transition and self.transition.updateFixed then
+    self.transition:updateFixed(inputSnapshot)
+    if self.transition.locked then
+      self:_recordTick()
+      return
+    end
+  end
+
+  if self.transition and self.transition.suppression then
+    self.transition.suppression = WarpSystem.updateSuppression(self.transition.suppression,
+      self.currentMap.mapId, self.player.fieldX, self.player.fieldZ)
+  end
+
+  local direction = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
+  if self.transition and self.transition.start and self.player.motion == "idle" and direction then
+    local facingWarp = WarpSystem.findBlockedFacing(self.currentMap,
+      self.player.fieldX, self.player.fieldZ, direction)
+    if facingWarp and not WarpSystem.isSuppressed(self.transition.suppression,
+      self.currentMap.mapId, facingWarp.x, facingWarp.z) then
+      self.player.facing = direction
+      self.transition:start(self.currentMap, facingWarp, direction)
+      self:_recordTick()
+      return
+    end
+  end
+
+  local stepCompleted = false
+  if self.player.updateFixed then stepCompleted = self.player:updateFixed(inputSnapshot) == true end
+  if stepCompleted and self.transition and self.transition.start then
+    local standingWarp = WarpSystem.findAt(self.currentMap, self.player.fieldX, self.player.fieldZ)
+    if standingWarp and not WarpSystem.isSuppressed(self.transition.suppression,
+      self.currentMap.mapId, self.player.fieldX, self.player.fieldZ) then
+      self.transition:start(self.currentMap, standingWarp, self.player.facing)
+    end
+  end
+  self.camera:updateFixed(self:actorTarget())
+  if self.coverage then self.coverage(self) end
+  self:_recordTick()
 end
 
 function FieldSession:traceRecord()

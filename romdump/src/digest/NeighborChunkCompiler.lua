@@ -1,18 +1,20 @@
--- Compiles a single land chunk's terrain into in-memory draw batches, for the
--- presentation-only neighbor ring. Unlike MapAssetCompiler it does not resolve a
+-- Compiles a single neighboring land chunk's geometry, permissions, and BDHC
+-- terrain. Unlike MapAssetCompiler it does not resolve a
 -- semantic map, emit a scene descriptor, or touch the derived cache: it takes an
 -- explicit land-data member and area-data member (the neighbor cell's, resolved
 -- from the matrix header id), decodes the area/land/map-model/map-texture pack,
 -- and reuses MapAssetCompiler.compileModel to produce the same content-addressed
--- batches/meshes/textures. Placed buildings are intentionally skipped -- the ring
--- is terrain-only. Runs under LÖVE (needs an open RomFs); raw Nitro formats stop
+-- batches/meshes/textures. Placed buildings are intentionally skipped. Runs
+-- under LÖVE (needs an open RomFs); raw Nitro formats stop
 -- here just as in the main compiler.
 
 local AreaData = require("romdump.src.digest.AreaData")
 local LandData = require("romdump.src.digest.LandData")
+local HgssBdhc = require("libs.assets.src.HgssBdhc")
 local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
 local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
+local Hashing = require("romdump.src.digest.Hashing")
 
 local NeighborChunkCompiler = {}
 
@@ -32,6 +34,9 @@ function NeighborChunkCompiler.compile(romFs, landMemberId, areaMemberId)
   local landBytes = readMember(assert(romFs:openNarc("land_data")), "land_data", landMemberId)
   local land = assert(LandData.decode(landBytes,
     { alias = "land_data", memberId = landMemberId }))
+  local decodedTerrain = assert(HgssBdhc.decode(land.bdhcBytes,
+    { alias = "land_data", memberId = landMemberId,
+      offset = land.offsets.bdhc, size = land.sizes.bdhc }))
 
   local mapNsbmd = assert(Nsbmd.decode(land.mapModelBytes,
     { alias = "land_data", memberId = landMemberId, section = "map-model" }))
@@ -50,6 +55,24 @@ function NeighborChunkCompiler.compile(romFs, landMemberId, areaMemberId)
     materials = compiled.materials,
     meshes = meshes,
     textures = textures,
+    permissions = land.permissionBytes,
+    terrain = {
+      schema = "g4-terrain-surfaces-v1",
+      sourceFormat = decodedTerrain.schema,
+      source = {
+        landDataMemberId = landMemberId,
+        bdhcOffset = land.offsets.bdhc,
+        bdhcSize = land.sizes.bdhc,
+        bdhcSha1 = Hashing.sha1hex(land.bdhcBytes),
+      },
+      counts = decodedTerrain.counts,
+      points = decodedTerrain.points,
+      slopes = decodedTerrain.slopes,
+      heights = decodedTerrain.heights,
+      plates = decodedTerrain.plates,
+      strips = decodedTerrain.strips,
+      accessEntries = decodedTerrain.accessEntries,
+    },
   }
 end
 
