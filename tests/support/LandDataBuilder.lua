@@ -31,9 +31,11 @@ function LandDataBuilder.build(opts)
   return sizeHeader .. bgs .. permissions .. buildings .. model .. bdhc
 end
 
--- A minimal valid 0x30-byte placed-building record referencing modelMemberId.
+-- A minimal valid 0x30-byte placed-building record referencing modelMemberId,
+-- at the origin, unrotated, at unit scale (fx32 0x1000 == 1.0).
 function LandDataBuilder.buildingRecord(modelMemberId)
-  return u32(modelMemberId or 0) .. string.rep("\0", 0x30 - 4)
+  return u32(modelMemberId or 0) .. string.rep("\0", 0x1C - 4)
+    .. u32(0x1000) .. u32(0x1000) .. u32(0x1000) .. string.rep("\0", 8)
 end
 
 return LandDataBuilder
