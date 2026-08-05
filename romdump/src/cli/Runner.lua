@@ -31,16 +31,13 @@ function Runner.load(opts)
   if Runner.opts.checkDump then
     return Runner._runCheckDump()
   end
-  if Runner.opts.inspectMap then
-    return Runner._runInspectMap(Runner.opts.inspectMap)
-  end
-  if Runner.opts.buildMap then
-    return Runner._runBuildMap(Runner.opts.buildMap)
+  if Runner.opts.inspect then
+    return Runner._runInspect()
   end
   if Runner.opts.importRom then
     return Runner._startImport(Runner.opts.importRom)
   end
-  print("romdump: no command given (expected --import-rom, --check-dump, --inspect-map, --build-map, or --build)")
+  print("romdump: no command given (expected --import-rom, --check-dump, --inspect, or --build)")
   love.event.quit(2)
 end
 
@@ -61,14 +58,15 @@ function Runner._runCheckDump()
   love.event.quit(allOk and 0 or 1)
 end
 
--- Resolve and inventory a map for every ready version and print a deterministic,
--- payload-free report. Exits 0 if any version was inspected without an uncaught
--- error, 1 otherwise.
-function Runner._runInspectMap(idOrSymbol)
+-- Inventory every catalog map for every ready version and print a deterministic,
+-- payload-free report. Exits 0 if every version was inspected without an
+-- uncaught error, 1 otherwise.
+function Runner._runInspect()
+  local MapCatalog = require("romdump.src.digest.MapCatalog")
   local MapAssetInspector = require("romdump.src.digest.MapAssetInspector")
   local targets = readyVersions()
   if #targets == 0 then
-    print("inspect-map: no ready version to inspect")
+    print("inspect: no ready version to inspect")
     return love.event.quit(1)
   end
   local allOk = true
@@ -76,51 +74,19 @@ function Runner._runInspectMap(idOrSymbol)
     local romFs, err = RomFs.open(version)
     if not romFs then
       allOk = false
-      print("inspect-map: open failed for " .. version .. ": " .. Errors.format(err))
+      print("inspect: open failed for " .. version .. ": " .. Errors.format(err))
     else
-      local ok, report = pcall(MapAssetInspector.inspect, romFs, idOrSymbol)
-      if ok then
-        for _, line in ipairs(MapAssetInspector.lines(report)) do print(line) end
-      else
+      local ok, err2 = pcall(function()
+        for rec in MapCatalog.all() do
+          local report = MapAssetInspector.inspect(romFs, rec.id)
+          for _, line in ipairs(MapAssetInspector.lines(report)) do print(line) end
+        end
+      end)
+      if not ok then
         allOk = false
-        print("inspect-map: " .. version .. " failed: " .. Errors.format(report))
+        print("inspect: " .. version .. " failed: " .. Errors.format(err2))
       end
       romFs:close()
-    end
-  end
-  love.event.quit(allOk and 0 or 1)
-end
-
--- Compile the target map into the derived cache for every ready version
--- (skipping a rebuild when the marker already matches) and print the completion
--- marker. Exits 0 if every version compiled, 1 otherwise.
-function Runner._runBuildMap(idOrSymbol)
-  local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
-  local MapCacheWriter = require("romdump.src.digest.MapCacheWriter")
-  local MapAssetCache = require("libs.assets.src.MapAssetCache")
-  local CacheFs = require("libs.rom.src.CacheFs")
-  local targets = readyVersions()
-  if #targets == 0 then
-    print("build-map: no ready version to compile")
-    return love.event.quit(1)
-  end
-  local allOk = true
-  for _, version in ipairs(targets) do
-    local ok, err = pcall(function()
-      local romFs = assert(RomFs.open(version))
-      local bundle = assert(MapAssetCompiler.compile(romFs, idOrSymbol))
-      local cacheFs = CacheFs.forVersion(version)
-      if MapAssetCache.isReady(cacheFs, bundle.mapId, bundle.marker) then
-        print(string.format("build-map: %s map %d already current (%s)", version, bundle.mapId, bundle.marker))
-      else
-        local marker = MapCacheWriter.write(cacheFs, bundle)
-        print(string.format("build-map: %s map %d compiled -> %s", version, bundle.mapId, marker))
-      end
-      romFs:close()
-    end)
-    if not ok then
-      allOk = false
-      print("build-map: " .. version .. " failed: " .. Errors.format(err))
     end
   end
   love.event.quit(allOk and 0 or 1)
