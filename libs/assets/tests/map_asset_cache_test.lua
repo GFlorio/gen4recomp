@@ -14,8 +14,11 @@ end
 
 local function writeReadyMap(c, marker)
   local dir = MapAssetCache.mapDir(61)
-  c:write(dir .. "/scene.lua", "return { mapBatches = {}, materials = {}, buildingInstances = {} }\n")
+  c:write(dir .. "/scene.lua", string.format(
+    "return { terrain = { file = %q }, mapBatches = {}, materials = {}, buildingInstances = {} }\n",
+    MapAssetCache.terrainPath(61)))
   c:write(dir .. "/dependencies.lua", "return {}\n")
+  c:write(MapAssetCache.terrainPath(61), "return { schema = 'g4-terrain-surfaces-v1' }\n")
   c:write(dir .. "/permissions.bin", string.rep("\0", 2048))
   c:write(dir .. "/complete", marker)
 end
@@ -30,7 +33,7 @@ function T.model_path_is_filesystem_safe()
 end
 
 function T.not_ready_without_files()
-  Assert.isTrue(not MapAssetCache.isReady(cache(), 61, "map-cache-v3:x:61:y"), "no files")
+  Assert.isTrue(not MapAssetCache.isReady(cache(), 61, "map-cache-v4:x:61:y"), "no files")
 end
 
 function T.ready_only_with_exact_marker_and_files()

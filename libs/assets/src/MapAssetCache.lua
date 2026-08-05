@@ -8,13 +8,17 @@
 
 local MapAssetCache = {}
 
-MapAssetCache.FORMAT = "map-cache-v3"
+MapAssetCache.FORMAT = "map-cache-v4"
 
 local DERIVED_DATA = "data/generated"
 local DERIVED_ASSETS = "assets/generated"
 
 function MapAssetCache.mapDir(mapId)
   return string.format("%s/maps/%04d", DERIVED_DATA, mapId)
+end
+
+function MapAssetCache.terrainPath(mapId)
+  return MapAssetCache.mapDir(mapId) .. "/terrain.lua"
 end
 
 -- Cache-relative path to the whole-ROM world manifest (map index the game boots
@@ -45,6 +49,8 @@ end
 function MapAssetCache.referencedPaths(scene, cacheFs)
   local paths = {}
 
+  if scene.terrain and scene.terrain.file then paths[#paths + 1] = scene.terrain.file end
+
   local function addBatch(b)
     if b.geometry then paths[#paths + 1] = b.geometry end
   end
@@ -72,9 +78,9 @@ function MapAssetCache.referencedPaths(scene, cacheFs)
   return paths
 end
 
--- True only if the marker is exact, scene/dependencies load, permissions.bin is
--- exactly 2048 bytes, every model descriptor opens, and every referenced
--- mesh/texture path exists.
+-- True only if the marker is exact, scene/dependencies/terrain load,
+-- permissions.bin is exactly 2048 bytes, every model descriptor opens, and
+-- every referenced asset exists.
 function MapAssetCache.isReady(cacheFs, mapId, expectedMarker)
   local dir = MapAssetCache.mapDir(mapId)
   local marker = cacheFs:read(dir .. "/complete")
@@ -83,6 +89,8 @@ function MapAssetCache.isReady(cacheFs, mapId, expectedMarker)
   local scene = cacheFs:loadLua(dir .. "/scene.lua")
   if type(scene) ~= "table" then return false end
   if not cacheFs:loadLua(dir .. "/dependencies.lua") then return false end
+  local terrain = cacheFs:loadLua(MapAssetCache.terrainPath(mapId))
+  if type(terrain) ~= "table" or terrain.schema ~= "g4-terrain-surfaces-v1" then return false end
 
   local perms = cacheFs:getInfo(dir .. "/permissions.bin")
   if not perms or perms.type ~= "file" or perms.size ~= 2048 then return false end

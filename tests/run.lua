@@ -30,6 +30,8 @@ local MODULES = {
   "tests.hgss_reference_test",
   "libs.assets.tests.field_light_profile_test",
   "libs.assets.tests.hgss_camera_table_test",
+  "libs.assets.tests.hgss_bdhc_test",
+  "libs.assets.tests.zone_events_test",
   "libs.assets.tests.permission_grid_test",
   "libs.assets.tests.map_asset_cache_test",
   "libs.assets.tests.mesh_writer_test",
@@ -48,6 +50,7 @@ local MODULES = {
   "libs.engine.tests.debug_player_test",
   "libs.engine.tests.neighbor_ring_test",
   "libs.engine.tests.field_coverage_planner_test",
+  "libs.engine.tests.terrain_surface_test",
   -- game
   "game.tests.map_diagnostic_state_test",
   -- romdump
@@ -81,6 +84,8 @@ local MODULES = {
   "romdump.tests.map_units_test",
   "romdump.tests.hashing_test",
   "romdump.tests.field_camera_compiler_test",
+  "romdump.tests.field_map_data_compiler_test",
+  "romdump.tests.terrain_inspector_test",
 }
 
 local function sortedKeys(t)

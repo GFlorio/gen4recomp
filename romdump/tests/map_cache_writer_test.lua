@@ -27,6 +27,16 @@ function T.writes_marker_last_and_is_ready()
   local marker = MapCacheWriter.write(c, bundle)
   Assert.equal(marker, bundle.marker)
   Assert.isTrue(MapAssetCache.isReady(c, bundle.mapId, marker), "ready after write")
+  local terrain = c:loadLua(MapAssetCache.terrainPath(bundle.mapId))
+  Assert.equal(terrain.schema, "g4-terrain-surfaces-v1")
+end
+
+function T.missing_terrain_artifact_is_not_ready()
+  local c = CacheFs.forVersion("heartgold", FakeCache.new())
+  local bundle = Bundle.minimal()
+  MapCacheWriter.write(c, bundle)
+  c:removeTree(MapAssetCache.terrainPath(bundle.mapId))
+  Assert.isFalse(MapAssetCache.isReady(c, bundle.mapId, bundle.marker))
 end
 
 function T.injected_failure_leaves_no_marker()

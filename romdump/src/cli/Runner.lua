@@ -111,6 +111,8 @@ function Runner._runInspect()
   local MapAssetInspector = require("romdump.src.digest.MapAssetInspector")
   local FieldCameraCompiler = require("romdump.src.digest.FieldCameraCompiler")
   local FieldCameraInspector = require("romdump.src.digest.FieldCameraInspector")
+  local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
+  local FieldMapDataInspector = require("romdump.src.digest.FieldMapDataInspector")
   local targets = readyVersions()
   if #targets == 0 then
     print("inspect: no ready version to inspect")
@@ -127,6 +129,10 @@ function Runner._runInspect()
         local cameraBundle = assert(FieldCameraCompiler.compile(romFs))
         local cameraReport = FieldCameraInspector.inspect(cameraBundle.profiles)
         for _, line in ipairs(FieldCameraInspector.lines(cameraReport)) do print(line) end
+        for _, fieldBundle in ipairs(assert(FieldMapDataCompiler.compileAll(romFs))) do
+          local fieldReport = FieldMapDataInspector.inspect(fieldBundle.field)
+          for _, line in ipairs(FieldMapDataInspector.lines(fieldReport)) do print(line) end
+        end
         for _, result in ipairs(MapAnalysis.analyze(romFs)) do
           if result.status == "resolved" then
             local report = MapAssetInspector.inspect(romFs, result.id)
@@ -160,6 +166,9 @@ function Runner._runBuild()
   local CacheFs = require("libs.rom.src.CacheFs")
   local FieldCameraCompiler = require("romdump.src.digest.FieldCameraCompiler")
   local FieldCameraCacheWriter = require("romdump.src.digest.FieldCameraCacheWriter")
+  local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
+  local FieldMapDataCacheWriter = require("romdump.src.digest.FieldMapDataCacheWriter")
+  local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
   local targets = readyVersions()
   if #targets == 0 then
     print("build: no ready version to compile")
@@ -179,6 +188,16 @@ function Runner._runBuild()
       else
         FieldCameraCacheWriter.write(cacheFs, cameraBundle)
         print(string.format("build-cache: %s field cameras compiled", version))
+      end
+      for _, fieldBundle in ipairs(assert(FieldMapDataCompiler.compileAll(romFs))) do
+        if FieldMapDataCache.isReady(cacheFs, fieldBundle.mapId, fieldBundle.marker) then
+          print(string.format("build-cache: %s map %d field data current",
+            version, fieldBundle.mapId))
+        else
+          FieldMapDataCacheWriter.write(cacheFs, fieldBundle)
+          print(string.format("build-cache: %s map %d field data compiled",
+            version, fieldBundle.mapId))
+        end
       end
       local entries, excluded = {}, {}
       for _, result in ipairs(MapAnalysis.analyze(romFs)) do
