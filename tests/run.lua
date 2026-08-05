@@ -69,6 +69,8 @@ local MODULES = {
   "libs.engine.tests.field_grid_test",
   "libs.engine.tests.debug_player_test",
   "libs.engine.tests.neighbor_ring_test",
+  -- game
+  "game.tests.map_diagnostic_state_test",
   -- romdump
   "romdump.tests.cli_test",
 }
