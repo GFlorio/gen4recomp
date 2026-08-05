@@ -9,7 +9,7 @@ local MeshCompiler = require("libs.assets.src.MeshCompiler")
 local Errors = require("libs.rom.src.Errors")
 local Nsbmd = require("libs.assets.src.nitro.Nsbmd")
 local NsbmdStaticTransforms = require("libs.assets.src.NsbmdStaticTransforms")
-local Matrix4 = require("libs.engine.src.Matrix4")
+local Matrix4 = require("libs.math.src.Matrix4")
 local NB = require("tests.support.NitroBuilder")
 
 local T = {}

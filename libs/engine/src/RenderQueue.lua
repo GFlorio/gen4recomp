@@ -6,7 +6,7 @@
 -- This is an explicit approximation of DS auto sorting, not a claim of exact
 -- hardware ordering. Pure domain module: no love, arithmetic only.
 
-local Matrix4 = require("libs.engine.src.Matrix4")
+local Matrix4 = require("libs.math.src.Matrix4")
 
 local RenderQueue = {}
 

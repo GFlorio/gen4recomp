@@ -6,7 +6,7 @@
 -- distance in tile units). Pure domain module (uses Matrix4, no love).
 -- Provisional profiles are explicitly not the DS camera table.
 
-local Matrix4 = require("libs.engine.src.Matrix4")
+local Matrix4 = require("libs.math.src.Matrix4")
 
 local Camera3D = {}
 Camera3D.__index = Camera3D

@@ -3,7 +3,7 @@
 
 local Assert = require("tests.support.Assert")
 local Matrix3 = require("libs.engine.src.Matrix3")
-local Matrix4 = require("libs.engine.src.Matrix4")
+local Matrix4 = require("libs.math.src.Matrix4")
 
 local T = {}
 

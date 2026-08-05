@@ -14,7 +14,7 @@
 -- Pure domain module: no love dependency.
 
 local Errors = require("libs.rom.src.Errors")
-local Matrix4 = require("libs.engine.src.Matrix4")
+local Matrix4 = require("libs.math.src.Matrix4")
 
 local NsbmdStaticTransforms = {}
 

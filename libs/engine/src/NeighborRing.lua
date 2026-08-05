@@ -9,7 +9,7 @@
 -- GPU draws from this plan. Neighbours are additive: with the feature disabled
 -- nothing is planned and the central scene is untouched.
 
-local Matrix4 = require("libs.engine.src.Matrix4")
+local Matrix4 = require("libs.math.src.Matrix4")
 local FieldGrid = require("libs.engine.src.FieldGrid")
 local NeighborChunkCompiler = require("libs.assets.src.NeighborChunkCompiler")
 local MeshWriter = require("libs.assets.src.MeshWriter")

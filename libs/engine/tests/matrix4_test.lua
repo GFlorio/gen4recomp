@@ -2,7 +2,7 @@
 -- rotation, and the serializable array form.
 
 local Assert = require("tests.support.Assert")
-local Matrix4 = require("libs.engine.src.Matrix4")
+local Matrix4 = require("libs.math.src.Matrix4")
 
 local T = {}
 

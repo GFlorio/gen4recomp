@@ -5,7 +5,7 @@
 -- it is already folded into the compiled mesh.
 
 local Assert = require("tests.support.Assert")
-local Matrix4 = require("libs.engine.src.Matrix4")
+local Matrix4 = require("libs.math.src.Matrix4")
 local BuildingTransform = require("libs.assets.src.BuildingTransform")
 
 local T = {}
