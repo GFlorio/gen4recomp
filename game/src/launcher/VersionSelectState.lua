@@ -32,7 +32,7 @@ function VersionSelectState:draw()
     lg.print(i .. ") " .. GameVersion.info(id).displayName, x, y + 12 + i * 22)
   end
   lg.setColor(0.7, 0.7, 0.75)
-  lg.print("Press the number to open its diagnostic.", x, y + 24 + (#self.ready + 1) * 22)
+  lg.print("Press the number to start or resume its field session.", x, y + 24 + (#self.ready + 1) * 22)
 end
 
 return VersionSelectState

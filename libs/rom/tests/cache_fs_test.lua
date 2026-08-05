@@ -97,6 +97,15 @@ function T.lua_round_trip_is_deterministic()
   Assert.deepEqual(c:loadLua("data/generated/x.lua"), value)
 end
 
+function T.atomic_replace_moves_a_file_over_its_destination()
+  local c = cache("heartgold")
+  c:write("save/session.lua", "old")
+  c:write("save/session.lua.tmp", "new")
+  c:replace("save/session.lua.tmp", "save/session.lua")
+  Assert.equal(c:read("save/session.lua"), "new")
+  Assert.isNil(c:read("save/session.lua.tmp"))
+end
+
 function T.load_lua_missing_returns_nil_err()
   local data, err = cache("heartgold"):loadLua("data/generated/absent.lua")
   Assert.isNil(data)

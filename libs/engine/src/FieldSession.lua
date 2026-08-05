@@ -41,6 +41,12 @@ function FieldSession:updateFixed(inputSnapshot)
   inputSnapshot = inputSnapshot or (self.input and self.input:snapshot()) or {}
   if self.transition and self.transition.updateFixed then
     self.transition:updateFixed(inputSnapshot)
+    -- Keep the just-arrived tile stable until the application consumes the
+    -- completion event and autosaves it, even when movement remains held.
+    if self.transition.completed then
+      self:_recordTick()
+      return
+    end
     if self.transition.locked then
       self:_recordTick()
       return

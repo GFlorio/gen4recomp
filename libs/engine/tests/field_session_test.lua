@@ -39,6 +39,31 @@ function T.camera_follows_the_actor_xyz_each_fixed_tick()
   Assert.deepEqual(targets[1], { x = 1.25, y = 2.5, z = 3.75 })
 end
 
+function T.completed_transition_holds_the_arrival_tile_for_autosave()
+  local updates = 0
+  local actor = {
+    fieldX = 4, fieldZ = 14, worldX = 0, worldY = 0, worldZ = 0,
+    surfaceId = 0, facing = "south", motion = "idle",
+    updateFixed = function() updates = updates + 1 end,
+  }
+  local transition = {
+    phase = "fade_in", locked = true,
+    updateFixed = function(self)
+      self.phase, self.locked = "idle", false
+      self.completed = { destinationMapId = 61 }
+    end,
+  }
+  local s = FieldSession.new({
+    versionId = "heartgold", currentMap = { mapId = 61, cameraType = 4 },
+    actor = actor, player = actor, camera = { updateFixed = function() end },
+    transition = transition,
+  })
+  s:updateFixed({ heldDirection = "south" })
+  Assert.equal(updates, 0)
+  Assert.equal(actor.fieldZ, 14)
+  Assert.notNil(transition.completed)
+end
+
 function T.trace_is_identical_across_render_delta_patterns()
   local function run(pattern)
     local records = {}

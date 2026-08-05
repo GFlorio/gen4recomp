@@ -18,7 +18,8 @@ local function fixture(mapCount)
     }
     files[string.format("data/generated/maps/%04d/scene.lua", mapId)] = scene
     files[string.format("data/generated/maps/%04d/terrain.lua", mapId)] = {
-      schema = "g4-terrain-surfaces-v1", plates = {},
+      schema = "g4-terrain-surfaces-v1", source = { bdhcSha1 = "central-" .. mapId },
+      plates = {},
     }
     files[string.format("data/generated/field/maps/%04d/field.lua", mapId)] = {
       schema = "g4-field-map-v1", mapId = mapId, mapSymbol = symbol,
@@ -128,7 +129,7 @@ function T.composes_neighbor_permissions_and_terrain_into_runtime_map()
     { id = 0, minX = 0, minZ = 0, maxX = 32, maxZ = 32,
       normal = { x = 0, y = 1, z = 0 }, distance = 0,
       slopeClass = "flat", walkable = true },
-  } }
+  }, source = { bdhcSha1 = "east" } }
   local bytes = {}
   for index = 0, 1023 do
     bytes[#bytes + 1] = string.char(0, index == 4 * 32 and 128 or 0)
@@ -150,6 +151,8 @@ function T.composes_neighbor_permissions_and_terrain_into_runtime_map()
     sceneLoader = sceneLoader, coverageLoader = coverageLoader,
   })
   local map = loader:load(0)
+  Assert.equal(map.terrainDependencyHash,
+    "g4-composite-terrain-v1|0:0:central-0|32:0:east")
   Assert.isTrue(map.permissions:containsLocal(32, 4))
   Assert.isTrue(map.permissions:isBlockedLocal(32, 4))
   local candidates = map.terrain:candidatesAt(32.5, 4.5)

@@ -50,6 +50,13 @@ function FakeCache:remove(path)
   return true
 end
 
+function FakeCache:replace(sourcePath, destinationPath)
+  assert(self.files[sourcePath] ~= nil, "replacement source is missing")
+  self.files[destinationPath] = self.files[sourcePath]
+  self.files[sourcePath] = nil
+  return true
+end
+
 function FakeCache:getDirectoryItems(path)
   local prefix = path .. "/"
   local seen, names = {}, {}

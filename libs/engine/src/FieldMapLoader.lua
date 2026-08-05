@@ -89,6 +89,16 @@ local function loadNeighborRegion(cacheFs, scene, centralCollision, centralTerra
   return FieldRegion.new(centralCollision, centralTerrain, neighbors)
 end
 
+local function terrainDependencyHash(region)
+  local identities = { "g4-composite-terrain-v1" }
+  for _, cell in ipairs(region.cells) do
+    local source = cell.terrain.artifact.source or {}
+    identities[#identities + 1] = string.format("%d:%d:%s",
+      cell.offsetTilesX, cell.offsetTilesZ, tostring(source.bdhcSha1 or "unknown"))
+  end
+  return table.concat(identities, "|")
+end
+
 function FieldMapLoader.new(cacheFs, world, options)
   assert(cacheFs and cacheFs.loadLua, "FieldMapLoader requires a CacheFs-shaped object")
   assert(world and world.maps and world.byId and world.bySymbol, "world manifest required")
@@ -188,6 +198,7 @@ function FieldMapLoader:load(idOrSymbol)
     fieldData = fieldData,
     permissions = region.permissions,
     terrain = region.terrain,
+    terrainDependencyHash = terrainDependencyHash(region),
     fieldRegion = region,
     cameraType = scene.cameraType,
     coordinateOrigin = { x = scene.matrix.worldOriginX, z = scene.matrix.worldOriginZ },

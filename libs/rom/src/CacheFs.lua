@@ -25,6 +25,16 @@ local function loveBackend()
     getInfo = function(_, path) return fs.getInfo(path) end,
     createDirectory = function(_, path) return fs.createDirectory(path) end,
     remove = function(_, path) return fs.remove(path) end,
+    replace = function(_, sourcePath, destinationPath)
+      local root = fs.getSaveDirectory()
+      local ok, err = os.rename(root .. "/" .. sourcePath, root .. "/" .. destinationPath)
+      if not ok then
+        error(Errors.new("CACHE_REPLACE_FAILED", err or "replace failed", {
+          sourcePath = sourcePath, destinationPath = destinationPath,
+        }))
+      end
+      return true
+    end,
     getDirectoryItems = function(_, path) return fs.getDirectoryItems(path) end,
   }
 end
@@ -97,6 +107,16 @@ end
 
 function CacheFs:remove(relativePath)
   self.backend:remove(self:resolve(relativePath))
+  return true
+end
+
+-- Atomically replaces destination with an already-written sibling file. The
+-- default backend uses the host rename primitive inside LÖVE's save directory.
+function CacheFs:replace(sourceRelativePath, destinationRelativePath)
+  local source = self:resolve(sourceRelativePath)
+  local destination = self:resolve(destinationRelativePath)
+  assert(self.backend.replace, "CacheFs backend does not support atomic replacement")
+  self.backend:replace(source, destination)
   return true
 end
 

@@ -11,6 +11,7 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 local FieldCamera = require("libs.engine.src.FieldCamera")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldSession = require("libs.engine.src.FieldSession")
+local FieldSave = require("libs.engine.src.FieldSave")
 local TerrainInspector = require("romdump.src.digest.TerrainInspector")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local Hashing = require("romdump.src.digest.Hashing")
@@ -189,6 +190,43 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
   Assert.equal(trace[firstHoldTick].cameraSourceY, trace[firstHoldTick - 1].cameraSourceY)
   Assert.isTrue(trace[firstHoldTick].cameraAppliedY > trace[firstHoldTick - 1].cameraAppliedY,
     "camera Y should retain the delayed ascent delta")
+end
+
+function T.upper_new_bark_staircase_state_reloads_on_the_same_surface(romFs, versionId)
+  local artifact, resolved = load(romFs, "MAP_NEW_BARK")
+  local runtimeMap = {
+    mapId = resolved.map.id,
+    coordinateOrigin = { x = resolved.worldOriginX, z = resolved.worldOriginZ },
+    permissions = {
+      containsLocal = function(_, x, z) return x >= 0 and x < 32 and z >= 0 and z < 32 end,
+      isBlockedLocal = function() return false end,
+    },
+    terrain = TerrainSurface.new(artifact),
+    terrainDependencyHash = Hashing.hashLua(artifact),
+    fieldData = { events = { warps = {} } },
+  }
+  local player = FieldPlayer.new({
+    currentMap = runtimeMap,
+    fieldX = resolved.worldOriginX + 16,
+    fieldZ = resolved.worldOriginZ + 6,
+    surfaceId = 0,
+    facing = "east",
+  })
+  local saved = FieldSave.capture({
+    versionId = versionId,
+    currentMap = runtimeMap,
+    player = player,
+    transition = { phase = "idle" },
+  })
+  local restored = assert(FieldSave.restore(saved, {
+    load = function(_, mapId)
+      Assert.equal(mapId, resolved.map.id)
+      return runtimeMap
+    end,
+  }, versionId))
+  Assert.equal(restored.surfaceId, 0)
+  near(restored.worldY, player.worldY)
+  Assert.isTrue(restored.worldY > 4, "upper staircase save must remain elevated")
 end
 
 return T

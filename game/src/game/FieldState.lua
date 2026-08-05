@@ -9,6 +9,8 @@ local FieldGrid = require("libs.engine.src.FieldGrid")
 local FieldInput = require("libs.engine.src.FieldInput")
 local FieldMapLoader = require("libs.engine.src.FieldMapLoader")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
+local FieldSave = require("libs.engine.src.FieldSave")
+local FieldSaveStore = require("libs.engine.src.FieldSaveStore")
 local FieldSession = require("libs.engine.src.FieldSession")
 local FieldTransition = require("libs.engine.src.FieldTransition")
 local FieldViewport = require("libs.engine.src.FieldViewport")
@@ -62,10 +64,13 @@ local function terrainEnvelope(terrain)
   return { minY = minY, maxY = maxY }
 end
 
-function FieldState.new(versionId, idOrSymbol)
+function FieldState.new(versionId, idOrSymbol, options)
+  options = options or {}
   local self = setmetatable({
     versionId = versionId,
     idOrSymbol = idOrSymbol or DEFAULT_MAP,
+    resumeSave = options.resumeSave == true,
+    resetSave = options.resetSave == true,
     overlaysVisible = true,
     errorText = nil,
   }, FieldState)
@@ -76,6 +81,12 @@ end
 function FieldState:_load()
   local ok, err = pcall(function()
     local cacheFs = CacheFs.forVersion(self.versionId)
+    self.saveStore = FieldSaveStore.new(cacheFs)
+    if self.resetSave then
+      self.saveStore:reset()
+      self.resetSave = false
+      self.saveStatus = "Started a new field session"
+    end
     local world = assert(cacheFs:loadLua(MapAssetCache.worldPath()),
       "world.lua missing -- run `scripts/buildcache.sh` first")
     local profiles = assert(cacheFs:loadLua(CAMERA_PROFILES_PATH),
@@ -84,19 +95,38 @@ function FieldState:_load()
     self.cameraProfiles = profiles.profiles
 
     self.mapLoader = FieldMapLoader.new(cacheFs, world)
-    self.runtimeMap = self.mapLoader:load(self.idOrSymbol)
+    local restored
+    if self.resumeSave then
+      local saved, saveErr = self.saveStore:load()
+      if saved then
+        restored, saveErr = FieldSave.restore(saved, self.mapLoader, self.versionId)
+      end
+      if saveErr and saveErr.code ~= "CACHE_FILE_MISSING" then
+        self.saveStatus = "Save ignored: " .. tostring(saveErr)
+        io.stderr:write("field save ignored: " .. tostring(saveErr) .. "\n")
+      elseif restored then
+        self.saveStatus = "Resumed saved field session"
+      end
+    end
+    self.runtimeMap = restored and restored.runtimeMap or self.mapLoader:load(self.idOrSymbol)
     self.mapLoader:protectMap(self.runtimeMap.mapId, true)
     self.runtime = self.runtimeMap.sceneRuntime
     self.renderer = MapRenderer.new()
 
     local target = TargetAnchors[self.runtimeMap.mapSymbol] or {}
     local spawn = target.spawn or { x = 0, z = 0, facing = "south" }
-    local fieldX, fieldZ = FieldCoordinates.localToField(self.runtimeMap, spawn.x, spawn.z)
-    local surface = initialSurface(self.runtimeMap, spawn.x, spawn.z)
+    local fieldX, fieldZ, surfaceId, facing
+    if restored then
+      fieldX, fieldZ = restored.fieldX, restored.fieldZ
+      surfaceId, facing = restored.surfaceId, restored.facing
+    else
+      fieldX, fieldZ = FieldCoordinates.localToField(self.runtimeMap, spawn.x, spawn.z)
+      surfaceId, facing = initialSurface(self.runtimeMap, spawn.x, spawn.z).surfaceId, spawn.facing
+    end
     self.player = FieldPlayer.new({
       currentMap = self.runtimeMap,
       fieldX = fieldX, fieldZ = fieldZ,
-      surfaceId = surface.surfaceId, facing = spawn.facing,
+      surfaceId = surfaceId, facing = facing,
     })
     self.actor = self.player
     self.input = FieldInput.new()
@@ -116,6 +146,7 @@ function FieldState:_load()
       loader = self.mapLoader,
       swap = function(resolution, facing) self:_swapMap(resolution, facing) end,
     })
+    self.transition.suppression = restored and restored.suppression or nil
     self.session = FieldSession.new({
       versionId = self.versionId,
       currentMap = self.runtimeMap,
@@ -153,7 +184,40 @@ function FieldState:update(dt)
         tostring(warp.index), tostring(warp.destinationMapId),
         tostring(warp.destinationWarpId))
     end
+    if self.transition:consumeCompleted() then self:_save("Autosaved after warp") end
   end
+end
+
+function FieldState:_save(successText)
+  if not self.session or not FieldSave.canCapture(self.session) then
+    self.saveStatus = "Save deferred: movement or transition is active"
+    return false
+  end
+  local ok, err = pcall(function()
+    self.saveStore:save(FieldSave.capture(self.session))
+  end)
+  if not ok then
+    self.saveStatus = "Save failed: " .. tostring(err)
+    io.stderr:write("field save failed: " .. tostring(err) .. "\n")
+    return false
+  end
+  self.saveStatus = successText or "Field session saved"
+  return true
+end
+
+function FieldState:_reset()
+  local ok, err = pcall(function() self.saveStore:reset() end)
+  if not ok then
+    self.saveStatus = "Reset failed: " .. tostring(err)
+    return
+  end
+  self:_release()
+  self.session, self.transition, self.camera, self.player, self.actor = nil, nil, nil, nil, nil
+  self.runtimeMap, self.runtime, self.viewport, self.saveStore = nil, nil, nil, nil
+  self.resumeSave = false
+  self.errorText = nil
+  self.saveStatus = "Field session reset"
+  self:_load()
 end
 
 function FieldState:_swapMap(resolution, facing)
@@ -288,7 +352,8 @@ function FieldState:_drawHud()
       self.session.tick, self.session.discardedTicks, self.overlaysVisible and "on" or "off"),
     string.format("transition %s  fade %.2f",
       self.transition.phase, self.transition.fadeAlpha),
-    "WASD/arrows move   F1 event/terrain overlays   Esc quit",
+    self.saveStatus or "save not written this run",
+    "WASD/arrows move   F1 overlays   F5 save   F9 reset   Esc quit",
   }
   lg.setColor(0, 0, 0, 0.55)
   lg.rectangle("fill", 12, 12, 670, 20 * #lines + 12)
@@ -299,6 +364,8 @@ end
 function FieldState:keypressed(key)
   if key == "escape" then love.event.quit(0) end
   if key == "f1" then self.overlaysVisible = not self.overlaysVisible end
+  if key == "f5" then self:_save() end
+  if key == "f9" then self:_reset() return end
   local direction = KEY_DIRECTIONS[key]
   if direction and self.input then
     self.heldDirectionKeys[key] = direction
@@ -327,6 +394,7 @@ function FieldState:_release()
 end
 
 function FieldState:quit()
+  self:_save("Field session saved on quit")
   self:_release()
 end
 

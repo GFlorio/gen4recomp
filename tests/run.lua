@@ -59,6 +59,8 @@ local MODULES = {
   "libs.engine.tests.warp_system_test",
   "libs.engine.tests.field_transition_test",
   "libs.engine.tests.field_session_test",
+  "libs.engine.tests.field_save_test",
+  "libs.engine.tests.field_save_store_test",
   -- game
   "game.tests.map_diagnostic_state_test",
   -- romdump
