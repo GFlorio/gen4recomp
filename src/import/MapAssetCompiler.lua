@@ -321,5 +321,9 @@ function MapAssetCompiler.compile(romFs, idOrSymbol)
 end
 
 MapAssetCompiler.COMPILER_VERSION = COMPILER_VERSION
+-- Exposed for the neighbour-ring chunk compiler, which reuses the exact batch
+-- build (UV normalization, alpha classification, content hashing) on a single
+-- terrain model without the full per-map resolve/scene/cache orchestration.
+MapAssetCompiler.compileModel = compileModel
 
 return MapAssetCompiler

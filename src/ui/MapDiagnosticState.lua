@@ -21,6 +21,7 @@ local Matrix4 = require("src.render.Matrix4")
 local VertexFormat = require("src.render.VertexFormat")
 local FieldGrid = require("src.world.FieldGrid")
 local DebugPlayer = require("src.world.DebugPlayer")
+local NeighborRing = require("src.world.NeighborRing")
 local FieldLightProfile = require("src.data.FieldLightProfile")
 local CameraProfiles = require("data.manifests.camera_profiles")
 local TargetAnchors = require("data.manifests.target_map_anchors")
@@ -101,6 +102,10 @@ function MapDiagnosticState:_load()
     self:_resetCamera()
     self:_centerOnPlayer()
     self:_applyShotOverrides()
+
+    -- Presentation-only neighbor ring around the current cell. Naturally a no-op
+    -- for the 1x1 Elm's Lab matrix (every neighbor is out of bounds).
+    self:_loadNeighbors()
   end)
   if not ok then
     self.errorText = tostring(err)
@@ -233,6 +238,11 @@ function MapDiagnosticState:_overlays()
       submissionIndex = 100000 + i,
     }
   end
+  -- Neighbor-ring terrain draws (each already carries its 32-tile world offset
+  -- transform and render state); they classify/depth-sort like any scene draw.
+  if self.neighborRing then
+    for _, d in ipairs(self.neighborRing.draws) do list[#list + 1] = d end
+  end
   return list
 end
 
@@ -327,6 +337,13 @@ function MapDiagnosticState:_drawHud()
     string.format("color source  literal %d  lit %d  diffuse %d",
       sourceCounts.literal, sourceCounts.lit, sourceCounts.diffuse),
   }
+  if self.neighborRing and self.neighborRing.stats.cellCount > 0 then
+    local ns = self.neighborRing.stats
+    lines[#lines + 1] = string.format("neighbors: %d cells  %d chunks  %d meshes  %d textures",
+      ns.cellCount, ns.chunkCount, ns.meshCount, ns.textureCount)
+  elseif self.neighborError then
+    lines[#lines + 1] = "neighbors: load failed (see stderr)"
+  end
   if ps.spawnFallback then
     lines[#lines + 1] = string.format("spawn relocated from (%d,%d) to nearest passable",
       self.player.requestedSpawn.x, self.player.requestedSpawn.z)
@@ -396,12 +413,48 @@ end
 -- Used both on shutdown and before switching maps so a switch cannot leak or
 -- keep stale GPU objects around.
 function MapDiagnosticState:_releaseGpu()
+  self:_releaseNeighbors()
   if self.renderer then self.renderer:release() end
   if self.runtime then self.runtime:release() end
   if self.playerMesh then self.playerMesh:release() end
   if self.anchorMesh then self.anchorMesh:release() end
   self.renderer, self.runtime = nil, nil
   self.playerMesh, self.anchorMesh = nil, nil
+end
+
+function MapDiagnosticState:_releaseNeighbors()
+  if self.neighborRing then self.neighborRing:release() end
+  self.neighborRing = nil
+end
+
+-- Build the neighbor ring for the current map: re-decode its matrix from the raw
+-- dump (the scene only carries the centre cell), plan the eight surrounding
+-- cells, and compile/instance their terrain. Reads the ROM directly (neighbours
+-- live outside the per-map derived cache); a failure is captured, not fatal.
+function MapDiagnosticState:_loadNeighbors()
+  self:_releaseNeighbors()
+  local romFs
+  local ok, ringOrErr = pcall(function()
+    local RomFs = require("src.core.RomFs")
+    local MapMatrix = require("src.data.MapMatrix")
+    local m = self.runtime.scene.matrix
+    romFs = assert(RomFs.open(self.versionId))
+    local matrixBytes = assert(assert(romFs:openNarc("map_matrices")):readMember(m.memberId))
+    local matrix = assert(MapMatrix.decode(matrixBytes, self.runtime.scene.mapId))
+    local plan = NeighborRing.plan(matrix, m.x, m.z, function(headerId)
+      local rec = MapCatalog.areaForMapHeader(headerId)
+      return rec and rec.areaDataMemberId or nil
+    end)
+    return NeighborRing.load(romFs, plan)
+  end)
+  if romFs then romFs:close() end
+  if ok then
+    self.neighborRing = ringOrErr
+    self.neighborError = nil
+  else
+    self.neighborError = tostring(ringOrErr)
+    io.stderr:write("neighbor-ring load failed: " .. self.neighborError .. "\n")
+  end
 end
 
 -- Tear the current map down and load another target from scratch. Field time is

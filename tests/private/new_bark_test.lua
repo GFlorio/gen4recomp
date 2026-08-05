@@ -1,7 +1,7 @@
 -- Private target test: New Bark Town (map 60) against a real HGSS dump. Proves
 -- the shared resolution/container pipeline handles the shared EVERYWHERE matrix
--- and an outdoor area. Runs only via `--test-private`. Asserts Gate 1 and
--- Gate 2 for the outdoor target.
+-- and an outdoor area. Runs only via `--test-private`. Asserts semantic
+-- resolution and field-container decoding for the outdoor target.
 
 local Assert = require("tests.support.Assert")
 local MapResolver = require("src.data.MapResolver")
@@ -21,6 +21,9 @@ local PermissionGrid = require("src.data.PermissionGrid")
 local CollisionGrid = require("src.world.CollisionGrid")
 local DebugPlayer = require("src.world.DebugPlayer")
 local TargetAnchors = require("data.manifests.target_map_anchors")
+local MapCatalog = require("src.data.MapCatalog")
+local NeighborRing = require("src.world.NeighborRing")
+local NeighborChunkCompiler = require("src.import.NeighborChunkCompiler")
 
 local T = {}
 
@@ -43,7 +46,7 @@ local function assertTextureInventory(label, pack, packSize)
   end
 end
 
--- Gate 1: locate cell (21,12) by map-header id in the 47x17 shared matrix.
+-- Locate cell (21,12) by map-header id in the 47x17 shared matrix.
 function T.gate1_semantic_resolution(romFs)
   local r = resolve(romFs)
   Assert.equal(r.map.id, 60)
@@ -59,7 +62,7 @@ function T.gate1_semantic_resolution(romFs)
   Assert.equal(r.worldOriginZ, 384)
 end
 
--- Gate 2: outdoor area-data member.
+-- Outdoor area-data member.
 function T.gate2_area_data(romFs)
   local r = resolve(romFs)
   local narc = assert(romFs:openNarc("area_data"))
@@ -71,7 +74,7 @@ function T.gate2_area_data(romFs)
   Assert.equal(area.lightType, 1)
 end
 
--- Gate 2: land-data container for the outdoor chunk.
+-- Land-data container for the outdoor chunk.
 function T.gate2_land_containers(romFs)
   local r = resolve(romFs)
   local narc = assert(romFs:openNarc("land_data"))
@@ -100,7 +103,7 @@ function T.gate2_land_containers(romFs)
   print("  [new_bark] permission values: " .. table.concat(land.permissions:usedPermissionValues(), " "))
 end
 
--- Gate 3: the outdoor map/building texture packs inventory cleanly, including
+-- The outdoor map/building texture packs inventory cleanly, including
 -- the extra formats (A5I3/A3I5) not present in Elm's Lab.
 function T.gate3_texture_inventory(romFs)
   local r = resolve(romFs)
@@ -113,7 +116,7 @@ function T.gate3_texture_inventory(romFs)
   assertTextureInventory("new_bark/building", assert(Nsbtx.decode(bldTexBytes)), #bldTexBytes)
 end
 
--- Gate 4: the outdoor map model and exterior building models inventory with no
+-- The outdoor map model and exterior building models inventory with no
 -- unsupported command, and the New Bark laboratory (BUILD_MODEL_WK_LABO,
 -- member 21) resolves through the exterior archive.
 function T.gate4_geometry_inventory(romFs)
@@ -273,7 +276,7 @@ function T.exterior_models_share_lighting_and_material_path(romFs)
   Assert.isTrue(outdoorCount > 0, "New Bark compiles exterior building models")
 end
 
--- Gate 9: New Bark's central cell compiles into a scene that carries all the
+-- New Bark's central cell compiles into a scene that carries all the
 -- Phase B diagnostic display data (matrix 0 cell (21,12) index 585, land 0, area
 -- 2, origin (672,384)), an outdoor map model with its map texture pack, the lab
 -- exterior model 21 resolved through the outdoor archive, and a consistent lab-
@@ -325,6 +328,46 @@ function T.gate9_central_cell_scene(romFs, version)
   Assert.isFalse(s.hardBlocked)
   Assert.equal(s.globalX, s.localX + 672)
   Assert.equal(s.globalZ, s.localZ + 384)
+end
+
+-- The optional neighbor ring resolves all eight of New Bark's matrix neighbors
+-- (Route 27 east, Route 29 west, MAP_EVERYWHERE filler elsewhere) from the
+-- decoded matrix, at exact 32-tile offsets, deduplicating the land members that
+-- repeat (208 fills four cells). Each unique chunk compiles to terrain batches
+-- through the shared model compiler. ROM-coupled but GPU-free (windowless).
+function T.neighbor_ring_plans_and_compiles(romFs)
+  local r = resolve(romFs)
+  local plan = NeighborRing.plan(r.matrix, r.matrixX, r.matrixZ, function(headerId)
+    local rec = MapCatalog.areaForMapHeader(headerId)
+    return rec and rec.areaDataMemberId or nil
+  end)
+
+  -- All eight neighbors have a checked-in header mapping, so none are skipped.
+  Assert.equal(#plan.cells, 8)
+  Assert.deepEqual(plan.uniqueLandMembers, { 3, 11, 208, 209, 210 })
+
+  -- East cell is Route 27 (header 31, land 11, reuses area 2) at +32 tiles X.
+  local east
+  for _, c in ipairs(plan.cells) do
+    if c.x == 22 and c.z == 12 then east = c end
+  end
+  Assert.notNil(east, "east neighbor present")
+  Assert.equal(east.mapHeaderId, 31)
+  Assert.equal(east.landDataMemberId, 11)
+  Assert.equal(east.areaDataMemberId, 2)
+  Assert.equal(east.offsetTilesX, 32)
+  Assert.equal(east.offsetTilesZ, 0)
+
+  -- Each unique chunk compiles to non-empty terrain batches with real geometry.
+  local areaOf = {}
+  for _, c in ipairs(plan.cells) do areaOf[c.landDataMemberId] = c.areaDataMemberId end
+  for _, member in ipairs(plan.uniqueLandMembers) do
+    local chunk = NeighborChunkCompiler.compile(romFs, member, areaOf[member])
+    Assert.isTrue(#chunk.batches > 0, "neighbor land " .. member .. " has batches")
+    Assert.isTrue(next(chunk.meshes) ~= nil, "neighbor land " .. member .. " has meshes")
+  end
+  print(string.format("  [new_bark] neighbor ring: %d cells, %d unique chunks",
+    #plan.cells, #plan.uniqueLandMembers))
 end
 
 return T
