@@ -27,7 +27,7 @@ Run the same two phases by hand to inspect the results:
 scripts/import.sh /path/to/your.nds
 
 # 2. Verify every ready dump using only the private cache — no ROM.
-love . --check-dump
+love romdump/ --check-dump
 ```
 
 Then confirm the "boots without the ROM" guarantee end to end:
@@ -35,7 +35,7 @@ Then confirm the "boots without the ROM" guarantee end to end:
 ```sh
 # 3. Move the ROM away and re-audit. It must still pass.
 mv /path/to/your.nds /somewhere/else.nds
-love . --check-dump
+love romdump/ --check-dump
 
 # 4. Launch interactively; with a ready cache this boots straight into the
 #    data diagnostic (or a version selector if both games are imported).

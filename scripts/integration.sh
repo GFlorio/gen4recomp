@@ -19,11 +19,11 @@ if [ ! -f "$ROM" ]; then
 fi
 
 echo "== import (version detected from ROM) =="
-love . --import-rom "$ROM" --import-only
+love romdump/ --import-rom "$ROM" --import-only
 
 echo
 echo "== audit ready dumps without the ROM =="
-love . --check-dump
+love romdump/ --check-dump
 
 echo
 echo "integration: OK"

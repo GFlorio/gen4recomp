@@ -10,6 +10,6 @@ MAP="${1:-MAP_NEW_BARK_ELMS_LAB_1F}"
 OUT="${2:-map-shot.png}"
 
 export G4RECOMP_SHOT="$OUT"
-love . --map "$MAP"
+love game/ --map "$MAP"
 
 echo "screenshot: $G4RECOMP_SAVE_DIR/love/g4recomp/$OUT"

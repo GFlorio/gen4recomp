@@ -25,20 +25,20 @@ is authoritative only for semantic naming and structure interpretation.
 
 | Structure | Module | Source |
 | --- | --- | --- |
-| NDS cartridge header (title, game code, ARM9/ARM7, FNT/FAT/overlay pointers) | `src/import/NdsRom.lua` | GBATEK, "DS Cartridge Header" |
-| FAT (zero-based `fileId`, exclusive end offsets) | `src/import/NdsRom.lua` | GBATEK, "NitroROM File System" |
-| FNT (recursive directory/file name table, `firstFileId`) | `src/import/NitroFs.lua` | GBATEK, "NitroROM File System" |
-| ARM9/ARM7 overlay tables (32-byte entries) | `src/import/OverlayTable.lua` | GBATEK, "DS Cartridge Header" (overlay table) |
-| NARC container (`NARC`/`BTAF`/`BTNF`/`GMIF` blocks, GMIF-relative member offsets) | `src/import/Narc.lua` | `pret/pokeheartgold`: `tools/o2narc/Narc.h`, `src/filesystem.c` |
+| NDS cartridge header (title, game code, ARM9/ARM7, FNT/FAT/overlay pointers) | `libs/rom/src/NdsRom.lua` | GBATEK, "DS Cartridge Header" |
+| FAT (zero-based `fileId`, exclusive end offsets) | `libs/rom/src/NdsRom.lua` | GBATEK, "NitroROM File System" |
+| FNT (recursive directory/file name table, `firstFileId`) | `libs/rom/src/NitroFs.lua` | GBATEK, "NitroROM File System" |
+| ARM9/ARM7 overlay tables (32-byte entries) | `libs/rom/src/OverlayTable.lua` | GBATEK, "DS Cartridge Header" (overlay table) |
+| NARC container (`NARC`/`BTAF`/`BTNF`/`GMIF` blocks, GMIF-relative member offsets) | `libs/rom/src/Narc.lua` | `pret/pokeheartgold`: `tools/o2narc/Narc.h`, `src/filesystem.c` |
 | NARC catalog (`NarcId` enum ↔ NitroFS path) | `data/manifests/narc_catalog.lua` | `pret/pokeheartgold`: `include/filesystem_files_def.h` |
 | Curated aliases + required set | `data/manifests/hgss.lua` | `pret/pokeheartgold`: `include/filesystem_files_def.h`, `include/filesystem.h`, `src/filesystem.c` |
-| Map-matrix member layout (width/height, optional headers & altitudes, model IDs) | `src/data/MapMatrix.lua` | `pret/pokeheartgold`: `src/map_matrix.c`, `include/map_matrix.h` |
-| Area-data member layout (texture packs, dynamic texture, area/light type) | `src/data/AreaData.lua` | `pret/pokeheartgold`: `src/fielddata.c`, `include/fielddata.h` |
-| Land-data container (BGS, permissions, buildings, model, BDHC) | `src/data/LandData.lua` | `pret/pokeheartgold`: `src/land_data.c`, `include/land_data.h` |
-| `NNSG3dResMatData` fixed prefix (item tag, size, color words, polygon attributes, texture params, flags, original size) | `src/data/nitro/Nsbmd.lua` | NitroSDK `res_struct.h` (`NNSG3dResMatData`), GBATEK "GX 3D" for `POLYGON_ATTR`, `DIF_AMB`, `SPE_EMI` packing |
-| DS geometry-engine display list | `src/data/nitro/GxDisplayList.lua` | GBATEK "DS Video Geometry Commands" |
-| HGSS field-light profile text format and `lightTypeRaw` → profile mapping | `src/data/FieldLightProfile.lua`, `src/data/HgssFieldLighting.lua` | `pret/pokeheartgold`: `src/field_light.c`, `include/field_light.h`; profile tables under `data/area*light.txt` |
-| Accepted ROM SHA-1s and game codes | `src/core/GameVersion.lua` | `pret/pokeheartgold`: `README.md` (canonical US hashes) |
+| Map-matrix member layout (width/height, optional headers & altitudes, model IDs) | `libs/assets/src/MapMatrix.lua` | `pret/pokeheartgold`: `src/map_matrix.c`, `include/map_matrix.h` |
+| Area-data member layout (texture packs, dynamic texture, area/light type) | `libs/assets/src/AreaData.lua` | `pret/pokeheartgold`: `src/fielddata.c`, `include/fielddata.h` |
+| Land-data container (BGS, permissions, buildings, model, BDHC) | `libs/assets/src/LandData.lua` | `pret/pokeheartgold`: `src/land_data.c`, `include/land_data.h` |
+| `NNSG3dResMatData` fixed prefix (item tag, size, color words, polygon attributes, texture params, flags, original size) | `libs/assets/src/nitro/Nsbmd.lua` | NitroSDK `res_struct.h` (`NNSG3dResMatData`), GBATEK "GX 3D" for `POLYGON_ATTR`, `DIF_AMB`, `SPE_EMI` packing |
+| DS geometry-engine display list | `libs/assets/src/nitro/GxDisplayList.lua` | GBATEK "DS Video Geometry Commands" |
+| HGSS field-light profile text format and `lightTypeRaw` → profile mapping | `libs/assets/src/FieldLightProfile.lua`, `libs/assets/src/HgssFieldLighting.lua` | `pret/pokeheartgold`: `src/field_light.c`, `include/field_light.h`; profile tables under `data/area*light.txt` |
+| Accepted ROM SHA-1s and game codes | `libs/rom/src/GameVersion.lua` | `pret/pokeheartgold`: `README.md` (canonical US hashes) |
 
 ## Refreshing the NARC catalog
 

@@ -4,4 +4,4 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/lib.sh
-exec love . --build-map "${1:?usage: build-map.sh <MAP_ID_OR_SYMBOL>}"
+exec love romdump/ --build-map "${1:?usage: build-map.sh <MAP_ID_OR_SYMBOL>}"

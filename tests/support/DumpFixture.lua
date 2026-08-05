@@ -9,12 +9,12 @@
 
 local NdsBuilder = require("tests.support.NdsBuilder")
 local NarcBuilder = require("tests.support.NarcBuilder")
-local NdsRom = require("src.import.NdsRom")
-local RomSource = require("src.import.RomSource")
-local CacheFs = require("src.import.CacheFs")
+local NdsRom = require("libs.rom.src.NdsRom")
+local RomSource = require("libs.rom.src.RomSource")
+local CacheFs = require("libs.rom.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
-local GameVersion = require("src.core.GameVersion")
-local RomExtractor = require("src.import.RomExtractor")
+local GameVersion = require("libs.rom.src.GameVersion")
+local RomExtractor = require("libs.rom.src.RomExtractor")
 local Hgss = require("data.manifests.hgss")
 
 local DumpFixture = {}

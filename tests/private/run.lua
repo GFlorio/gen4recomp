@@ -1,11 +1,11 @@
--- Private target-test runner. Invoked via `love . --test-private`. Unlike the
+-- Private target-test runner. Invoked via `love game/ --test-private`. Unlike the
 -- public suite it needs a real imported dump: it opens a RomFs for every ready
 -- game version and runs each private test function with that RomFs. With no
 -- ready dump it prints a skip and returns 0 so it is safe in any environment.
 
-local GameVersion = require("src.core.GameVersion")
-local RomImporter = require("src.import.RomImporter")
-local RomFs = require("src.core.RomFs")
+local GameVersion = require("libs.rom.src.GameVersion")
+local RomImporter = require("libs.rom.src.RomImporter")
+local RomFs = require("libs.rom.src.RomFs")
 
 local MODULES = {
   "tests.private.elms_lab_test",

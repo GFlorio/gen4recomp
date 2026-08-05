@@ -4,17 +4,17 @@
 -- and asserts the externally observable resolution and container conditions.
 
 local Assert = require("tests.support.Assert")
-local MapResolver = require("src.data.MapResolver")
-local AreaData = require("src.data.AreaData")
-local LandData = require("src.data.LandData")
-local Nsbtx = require("src.data.nitro.Nsbtx")
-local Nsbmd = require("src.data.nitro.Nsbmd")
-local TextureDecoder = require("src.data.nitro.TextureDecoder")
-local MapAssetInspector = require("src.import.MapAssetInspector")
-local MapAssetCompiler = require("src.import.MapAssetCompiler")
+local MapResolver = require("libs.assets.src.MapResolver")
+local AreaData = require("libs.assets.src.AreaData")
+local LandData = require("libs.assets.src.LandData")
+local Nsbtx = require("libs.assets.src.nitro.Nsbtx")
+local Nsbmd = require("libs.assets.src.nitro.Nsbmd")
+local TextureDecoder = require("libs.assets.src.nitro.TextureDecoder")
+local MapAssetInspector = require("libs.assets.src.MapAssetInspector")
+local MapAssetCompiler = require("libs.assets.src.MapAssetCompiler")
 local InventoryAssert = require("tests.support.InventoryAssert")
-local CollisionGrid = require("src.world.CollisionGrid")
-local DebugPlayer = require("src.world.DebugPlayer")
+local CollisionGrid = require("libs.engine.src.CollisionGrid")
+local DebugPlayer = require("libs.engine.src.DebugPlayer")
 local TargetAnchors = require("data.manifests.target_map_anchors")
 
 local T = {}

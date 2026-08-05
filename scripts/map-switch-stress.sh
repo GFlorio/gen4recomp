@@ -8,4 +8,4 @@ cd "$(dirname "$0")/.."
 source scripts/lib.sh
 
 export G4RECOMP_SWITCH_CYCLES="${1:-8}"
-exec love . --map MAP_NEW_BARK_ELMS_LAB_1F
+exec love game/ --map MAP_NEW_BARK_ELMS_LAB_1F

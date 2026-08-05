@@ -7,4 +7,4 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/lib.sh
-exec love . --test-private
+exec love game/ --test-private
