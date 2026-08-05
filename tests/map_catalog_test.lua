@@ -3,7 +3,7 @@ local MapCatalog = require("src.data.MapCatalog")
 
 local T = {}
 
--- Gate 1 semantic-resolution assertions, expressed against the canonical
+-- Semantic-resolution assertions, expressed against the canonical
 -- *MemberId record field names used throughout the pipeline.
 function T.get_elms_lab_by_symbol()
   local lab = assert(MapCatalog.get("MAP_NEW_BARK_ELMS_LAB_1F"))
@@ -53,6 +53,15 @@ function T.all_iterates_records_ascending_by_id()
     ids[#ids + 1] = record.id
   end
   Assert.deepEqual(ids, { 60, 61 })
+end
+
+function T.area_for_map_header()
+  -- Route 27/29 neighbors reuse New Bark's area 2; EVERYWHERE filler uses area 0.
+  Assert.equal(MapCatalog.areaForMapHeader(31).areaDataMemberId, 2)
+  Assert.equal(MapCatalog.areaForMapHeader(33).areaDataMemberId, 2)
+  Assert.equal(MapCatalog.areaForMapHeader(0).areaDataMemberId, 0)
+  Assert.equal(MapCatalog.areaForMapHeader(0).symbol, "MAP_EVERYWHERE")
+  Assert.isNil(MapCatalog.areaForMapHeader(9999))
 end
 
 return T

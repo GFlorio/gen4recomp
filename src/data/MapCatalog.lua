@@ -30,6 +30,13 @@ function MapCatalog.require(idOrSymbol)
   return record
 end
 
+-- Resolve a decoded map-header id to its area record ({ symbol,
+-- areaDataMemberId }) for the neighbor-ring cells, or nil when no mapping is
+-- checked in. Neighbor cells with an unknown header are simply not rendered.
+function MapCatalog.areaForMapHeader(mapHeaderId)
+  return maps.areaByMapHeaderId and maps.areaByMapHeaderId[mapHeaderId] or nil
+end
+
 function MapCatalog.idForSymbol(symbol)
   return maps.bySymbol[symbol]
 end
