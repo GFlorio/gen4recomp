@@ -1,11 +1,10 @@
--- Orbit camera over a target tile, producing the view and projection matrices
--- the map shader consumes. State is a target point plus yaw/pitch/distance and
--- lens parameters; view() places the eye on a sphere around the target and
--- looks back at it, projection() is a right-handed perspective. Two ways in:
--- the free diagnostic camera drives yaw/pitch/distance directly; fromProfile()
--- seeds those from a checked-in provisional camera profile (elevation/yaw/
--- distance/target-height in tile units). Pure domain module (uses Matrix4, no
--- love). Provisional profiles are explicitly not the DS camera table.
+-- Fixed field camera producing the view and projection matrices the map shader
+-- consumes. State is a target point plus yaw/pitch/distance and lens parameters;
+-- view() places the eye on a sphere around the target and looks back at it,
+-- projection() is a right-handed perspective. fromProfile() seeds yaw/pitch/
+-- distance/fov from a checked-in provisional camera profile (elevation/yaw/
+-- distance in tile units). Pure domain module (uses Matrix4, no love).
+-- Provisional profiles are explicitly not the DS camera table.
 
 local Matrix4 = require("src.render.Matrix4")
 
@@ -28,7 +27,7 @@ function Camera3D.new(opts)
   }, Camera3D)
 end
 
--- Seed an orbit camera from a provisional camera_profiles.lua record.
+-- Seed a camera from a provisional camera_profiles.lua record.
 function Camera3D.fromProfile(profile, target, aspect)
   return Camera3D.new({
     target = target,
@@ -42,22 +41,6 @@ end
 
 function Camera3D:setAspect(aspect)
   self.aspect = aspect
-end
-
--- Clamp pitch just shy of straight down/up so lookAt's up vector never degenerates.
-function Camera3D:orbit(dYaw, dPitch)
-  self.yaw = self.yaw + dYaw
-  local limit = math.pi / 2 - 0.01
-  self.pitch = math.max(-limit, math.min(limit, self.pitch + dPitch))
-end
-
-function Camera3D:zoom(factor)
-  self.distance = math.max(1, self.distance * factor)
-end
-
-function Camera3D:pan(dx, dz)
-  self.target[1] = self.target[1] + dx
-  self.target[3] = self.target[3] + dz
 end
 
 function Camera3D:eye()
