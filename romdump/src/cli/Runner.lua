@@ -227,6 +227,15 @@ function Runner._runBuild()
               MapCacheWriter.write(cacheFs, bundle)
               print(string.format("build-cache: %s map %d compiled", version, bundle.mapId))
             end
+            -- Untextured on the DS too, so the map is usable; still reported,
+            -- because a mis-routed pack would show up here as a flood.
+            for _, entry in ipairs(bundle.unresolvedMaterials) do
+              print(string.format(
+                "build-cache: %s map %d unresolved %s %s: material %s of %s %s:%d wants %s from %s",
+                version, bundle.mapId, entry.role, entry.kind, entry.material,
+                entry.modelName, entry.modelArchive, entry.modelMemberId,
+                entry.name, entry.source))
+            end
             entries[#entries + 1] = {
               id = bundle.mapId, symbol = bundle.scene.mapSymbol,
               width = bundle.scene.matrix.width, height = bundle.scene.matrix.height,

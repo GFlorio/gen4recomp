@@ -32,7 +32,7 @@ local Errors = require("libs.rom.src.Errors")
 
 local MapAssetCompiler = {}
 
-local COMPILER_VERSION = "map-compiler-v10"
+local COMPILER_VERSION = "map-compiler-v12"
 local COORDINATE_CONVENTION = "nsbmd-sbc-matrix-16-tile-v3"
 local SCENE_SCHEMA = "g4-map-scene-v2"
 
@@ -70,10 +70,26 @@ local function sceneMaterials(records)
 end
 
 -- Compile one model into batches; append meshes/textures to the shared bundle
--- accumulators; return { batches (scene refs), materials }.
+-- accumulators; return { batches (scene refs), materials, unresolved } -- the
+-- last being the materials whose names the bound pack does not define, tagged
+-- with the model they came from so a caller can report them.
 local function compileModel(model, texturePack, meshes, textures, context)
   local mat = MaterialCompiler.compile(model.materials, texturePack, { context = context })
   for sha1, tex in pairs(mat.textures) do textures[sha1] = tex end
+
+  local unresolved = {}
+  for _, entry in ipairs(mat.unresolved) do
+    unresolved[#unresolved + 1] = {
+      role = context.role,
+      modelArchive = context.modelArchive,
+      modelMemberId = context.modelMemberId,
+      modelName = context.modelName,
+      material = entry.material,
+      kind = entry.kind,
+      name = entry.name,
+      source = entry.source,
+    }
+  end
 
   -- Per-material texture info needed for batch classification and UV normalization.
   local matInfoById = {}
@@ -124,7 +140,8 @@ local function compileModel(model, texturePack, meshes, textures, context)
       }
     end
   end
-  return { batches = batches, materials = sceneMaterials(mat.materials) }
+  return { batches = batches, materials = sceneMaterials(mat.materials),
+    unresolved = unresolved }
 end
 
 local function archiveForArea(area)
@@ -196,29 +213,66 @@ local function _compile(romFs, idOrSymbol)
 
   local meshes, textures = {}, {}
   local mapCompiled = compileModel(mapModel, mapTexPack, meshes, textures,
-    { model = "map", memberId = resolved.landDataMemberId })
+    { mapId = mapId, mapSymbol = resolved.map.symbol, role = "map",
+      areaDataMemberId = resolved.areaDataMemberId,
+      landDataMemberId = resolved.landDataMemberId,
+      textureArchive = "map_textures", textureMemberId = area.mapTexturePackId,
+      modelArchive = "land_data", modelMemberId = resolved.landDataMemberId,
+      modelName = mapModel.name })
 
-  -- Placed-building models (deduped by member id).
+  -- Materials whose names the pack they bind to does not define. They draw
+  -- untextured, exactly as on the DS, so they are reported rather than fatal.
+  local unresolvedMaterials = {}
+  local function collectUnresolved(compiled)
+    for _, entry in ipairs(compiled.unresolved) do
+      unresolvedMaterials[#unresolvedMaterials + 1] = entry
+    end
+  end
+  collectUnresolved(mapCompiled)
+
+  -- Placed-building models (deduped by member id). HGSS binds each ordinary
+  -- placed model to the area's external building texture pack and never uploads
+  -- the model's own embedded TEX0 (pret/pokeheartgold `AreaDataManager_Load`);
+  -- an embedded block present here is diagnostic only.
   local archiveAlias = archiveForArea(area)
-  local bldNarc = assert(romFs:openNarc(archiveAlias))
-  local uniqueMembers = {}
-  for _, pl in ipairs(land.buildings) do uniqueMembers[pl.modelMemberId] = true end
+  local uniqueMembers, placementIndicesByMember = {}, {}
+  for _, pl in ipairs(land.buildings) do
+    uniqueMembers[pl.modelMemberId] = true
+    local indices = placementIndicesByMember[pl.modelMemberId] or {}
+    indices[#indices + 1] = pl.index
+    placementIndicesByMember[pl.modelMemberId] = indices
+  end
+  local memberIds = sortedNumbers(uniqueMembers)
+
+  -- An area with no placed buildings points buildingTexturePackId at one of the
+  -- four-byte placeholder members of building_textures, so the pack is loaded
+  -- only when there is a model to bind -- as in the game, which has no models to
+  -- pass to GF3dRender_BindModelSet either.
+  local bldNarc, bldTexBytes, bldTexPack
+  if #memberIds > 0 then
+    bldNarc = assert(romFs:openNarc(archiveAlias))
+    bldTexBytes = readMember(assert(romFs:openNarc("building_textures")),
+      "building_textures", area.buildingTexturePackId)
+    bldTexPack = assert(Nsbtx.decode(bldTexBytes,
+      { alias = "building_textures", memberId = area.buildingTexturePackId }))
+  end
 
   local models, modelKeyOf, memberShaOf = {}, {}, {}
-  for _, memberId in ipairs(sortedNumbers(uniqueMembers)) do
+  for _, memberId in ipairs(memberIds) do
     local mbytes = readMember(bldNarc, archiveAlias, memberId)
     local msha = Hashing.sha1hex(mbytes)
     local bnsbmd = assert(Nsbmd.decode(mbytes, { alias = archiveAlias, memberId = memberId }))
     local bmodel = bnsbmd.models[1]
-    -- Placed models carry their own textures via embedded TEX0.
-    local texSource = bnsbmd.embeddedTextures
-    if not texSource then
-      Errors.raise("MAP_COMPILE_BUILDING_TEXTURES_UNRESOLVED",
-        "building model " .. memberId .. " has no embedded textures and area-pack fallback is unimplemented",
-        { memberId = memberId, archive = archiveAlias })
-    end
-    local compiled = compileModel(bmodel, texSource, meshes, textures,
-      { model = archiveAlias, memberId = memberId })
+    local compiled = compileModel(bmodel, bldTexPack, meshes, textures,
+      { mapId = mapId, mapSymbol = resolved.map.symbol, role = "building",
+        areaDataMemberId = resolved.areaDataMemberId,
+        landDataMemberId = resolved.landDataMemberId,
+        textureArchive = "building_textures",
+        textureMemberId = area.buildingTexturePackId,
+        modelArchive = archiveAlias, modelMemberId = memberId,
+        modelName = bmodel.name, embeddedTex0Present = bnsbmd.embeddedTextures ~= nil,
+        placementIndices = placementIndicesByMember[memberId] })
+    collectUnresolved(compiled)
     local modelKey = string.format("%s:%d:%s",
       area.areaType == "indoor" and "indoor" or "outdoor", memberId, msha:sub(1, 12))
     models[modelKey] = { key = modelKey, memberId = memberId,
@@ -247,13 +301,20 @@ local function _compile(romFs, idOrSymbol)
 
   local neighborChunkByMember = {}
   for _, member in ipairs(plan.uniqueLandMembers) do
-    local memberAreaId
+    local neighborCells, memberAreaId = {}, nil
     for _, cell in ipairs(plan.cells) do
-      if cell.landDataMemberId == member then memberAreaId = cell.areaDataMemberId break end
+      if cell.landDataMemberId == member then
+        neighborCells[#neighborCells + 1] = { x = cell.x, z = cell.z }
+        memberAreaId = memberAreaId or cell.areaDataMemberId
+      end
     end
-    local chunk = NeighborChunkCompiler.compile(romFs, member, memberAreaId)
+    local chunk = NeighborChunkCompiler.compile(romFs, member, memberAreaId, {
+      mapId = mapId, mapSymbol = resolved.map.symbol,
+      neighborCells = neighborCells,
+    })
     for sha1, b in pairs(chunk.meshes) do meshes[sha1] = b end
     for sha1, t in pairs(chunk.textures) do textures[sha1] = t end
+    collectUnresolved(chunk)
     neighborChunkByMember[member] = chunk
   end
 
@@ -281,7 +342,7 @@ local function _compile(romFs, idOrSymbol)
 
   -- Dependency record -> hash -> marker.
   local buildingModelShas = {}
-  for _, memberId in ipairs(sortedNumbers(uniqueMembers)) do
+  for _, memberId in ipairs(memberIds) do
     buildingModelShas[#buildingModelShas + 1] = { memberId = memberId, sha1 = memberShaOf[memberId] }
   end
   local dependencies = {
@@ -304,6 +365,8 @@ local function _compile(romFs, idOrSymbol)
     bdhcSha1 = bdhcSha1,
     mapTextureMemberSha1 = Hashing.sha1hex(mapTexBytes),
     buildingArchive = archiveAlias,
+    buildingTextureMemberId = bldTexBytes and area.buildingTexturePackId or nil,
+    buildingTextureMemberSha1 = bldTexBytes and Hashing.sha1hex(bldTexBytes) or nil,
     uniqueBuildingModelMemberSha1s = buildingModelShas,
   }
   local marker = MapAssetCache.marker(romSha1, mapId, Hashing.hashLua(dependencies))
@@ -355,6 +418,9 @@ local function _compile(romFs, idOrSymbol)
       areaData = { alias = "area_data", memberId = resolved.areaDataMemberId, sha1 = dependencies.areaDataMemberSha1 },
       landData = { alias = "land_data", memberId = resolved.landDataMemberId, sha1 = dependencies.landDataMemberSha1 },
       mapTexture = { alias = "map_textures", memberId = area.mapTexturePackId, sha1 = dependencies.mapTextureMemberSha1 },
+      buildingTexture = bldTexBytes
+        and { alias = "building_textures", memberId = area.buildingTexturePackId,
+          sha1 = dependencies.buildingTextureMemberSha1 } or nil,
     },
     limitations = {
       dynamicTexturesStatic = true,
@@ -380,6 +446,7 @@ local function _compile(romFs, idOrSymbol)
     meshes = meshes,
     textures = textures,
     models = models,
+    unresolvedMaterials = unresolvedMaterials,
   }
 end
 

@@ -1,12 +1,23 @@
 -- Compiles a single neighboring land chunk's geometry, permissions, and BDHC
--- terrain. Unlike MapAssetCompiler it does not resolve a
--- semantic map, emit a scene descriptor, or touch the derived cache: it takes an
--- explicit land-data member and area-data member (the neighbor cell's, resolved
--- from the matrix header id), decodes the area/land/map-model/map-texture pack,
--- and reuses MapAssetCompiler.compileModel to produce the same content-addressed
--- batches/meshes/textures. Placed buildings are intentionally skipped. Runs
--- under LÖVE (needs an open RomFs); raw Nitro formats stop
--- here just as in the main compiler.
+-- terrain. Unlike MapAssetCompiler it does not resolve a semantic map, emit a
+-- scene descriptor, or touch the derived cache: it takes an explicit land-data
+-- member plus the area-data member of that cell's own map header, decodes the
+-- area/land/map-model/map-texture pack, and reuses MapAssetCompiler.compileModel
+-- to produce the same content-addressed batches/meshes/textures.
+--
+-- Using the cell's own area is a deliberate divergence. The engine binds every
+-- streamed cell against the single map TEX0 of the AreaDataManager built from the
+-- entry map header (pret/pokeheartgold `InitGraphicsAndManagers`,
+-- `ov01_021F4BE8`), and crossing a cell boundary does not rebuild it
+-- (`FieldMap_ChangeZone`); binding is by name and non-fatal, and no HGSS material
+-- stores a texture format or address of its own, so a name the entry TEX0 lacks
+-- leaves that material untextured. Emulating that exactly would leave whole
+-- chunks of e.g. MAP_ROUTE_1 untextured, since a cell's names routinely exist in
+-- only its own area's pack. The cell's own pack is the resource its model was
+-- authored against, so it is what gets bound here.
+--
+-- Placed buildings are intentionally skipped. Runs under LÖVE (needs an open
+-- RomFs); raw Nitro formats stop here just as in the main compiler.
 
 local AreaData = require("romdump.src.digest.AreaData")
 local LandData = require("romdump.src.digest.LandData")
@@ -25,11 +36,13 @@ local function readMember(narc, alias, memberId)
   return assert(narc:readMember(memberId))
 end
 
--- Compile land member `landMemberId` (textured through the map-texture pack of
--- `areaMemberId`) into { batches, materials, meshes, textures }.
-function NeighborChunkCompiler.compile(romFs, landMemberId, areaMemberId)
+-- Compile land member `landMemberId`, textured through the map-texture pack of
+-- `areaMemberId` (the cell's own area-data member), into
+-- { batches, materials, meshes, textures, permissions, terrain }.
+function NeighborChunkCompiler.compile(romFs, landMemberId, areaMemberId, context)
   local areaBytes = readMember(assert(romFs:openNarc("area_data")), "area_data", areaMemberId)
-  local area = assert(AreaData.decode(areaBytes, { alias = "area_data", memberId = areaMemberId }))
+  local area = assert(AreaData.decode(areaBytes,
+    { alias = "area_data", memberId = areaMemberId }))
 
   local landBytes = readMember(assert(romFs:openNarc("land_data")), "land_data", landMemberId)
   local land = assert(LandData.decode(landBytes,
@@ -42,17 +55,27 @@ function NeighborChunkCompiler.compile(romFs, landMemberId, areaMemberId)
     { alias = "land_data", memberId = landMemberId, section = "map-model" }))
   local mapModel = mapNsbmd.models[1]
 
-  local texBytes = readMember(assert(romFs:openNarc("map_textures")), "map_textures", area.mapTexturePackId)
+  local texBytes = readMember(assert(romFs:openNarc("map_textures")), "map_textures",
+    area.mapTexturePackId)
   local texPack = assert(Nsbtx.decode(texBytes,
     { alias = "map_textures", memberId = area.mapTexturePackId }))
 
   local meshes, textures = {}, {}
   local compiled = MapAssetCompiler.compileModel(mapModel, texPack, meshes, textures,
-    { model = "neighbor", memberId = landMemberId })
+    { mapId = context and context.mapId or nil,
+      mapSymbol = context and context.mapSymbol or nil,
+      role = "neighbor", neighborCells = context and context.neighborCells or nil,
+      areaDataMemberId = areaMemberId,
+      landDataMemberId = landMemberId,
+      textureArchive = "map_textures",
+      textureMemberId = area.mapTexturePackId,
+      modelArchive = "land_data", modelMemberId = landMemberId,
+      modelName = mapModel.name })
 
   return {
     batches = compiled.batches,
     materials = compiled.materials,
+    unresolved = compiled.unresolved,
     meshes = meshes,
     textures = textures,
     permissions = land.permissionBytes,

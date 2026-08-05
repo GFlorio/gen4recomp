@@ -1,34 +1,18 @@
 -- MaterialCompiler: textured materials get a content hash + decoded asset,
--- untextured materials get none, identical texture references deduplicate, and
--- missing texture/palette names are hard errors.
+-- untextured materials get none, identical texture references deduplicate, and a
+-- name the bound pack does not define yields an untextured material plus a
+-- reported unresolved binding -- what the DS draws, since no HGSS material stores
+-- a texture format or address of its own for a failed bind to fall back on.
 
 local Assert = require("tests.support.Assert")
 local MaterialCompiler = require("romdump.src.digest.MaterialCompiler")
-local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
-local Errors = require("libs.rom.src.Errors")
-local NB = require("tests.support.NitroBuilder")
-local TF = require("tests.support.TextureFixtures")
+local TexFixture = require("tests.support.Tex0Fixture")
 
 local T = {}
 
 -- One 8x8 palette16 texture "t" (all texels index 1) + palette "p".
 local function buildPack()
-  local paramWord = 3 * 0x4000000
-  local texDict = NB.dict({ { name = "t", data = NB.u32(paramWord) .. "\0\0\0\0" } })
-  local pltDict = NB.dict({ { name = "p", data = NB.u16(0) .. NB.u16(0) } })
-  local ofsTexDict = 0x3C
-  local ofsPlttDict = ofsTexDict + #texDict
-  local ofsTexData = ofsPlttDict + #pltDict
-  local texData = string.rep(string.char(0x11), 32)
-  local ofsPlttData = ofsTexData + #texData
-  local palData = TF.palette({ TF.BLACK, TF.RED, TF.BLACK, TF.BLACK })
-  local header = "TEX0" .. NB.u32(0)
-    .. NB.u32(0) .. NB.u16(#texData / 8) .. NB.u16(ofsTexDict) .. NB.u16(0) .. NB.u16(0) .. NB.u32(ofsTexData)
-    .. NB.u32(0) .. NB.u16(0) .. NB.u16(ofsTexDict) .. NB.u16(0) .. NB.u16(0) .. NB.u32(0) .. NB.u32(0)
-    .. NB.u32(0) .. NB.u16(#palData / 8) .. NB.u16(0) .. NB.u16(ofsPlttDict) .. NB.u16(0) .. NB.u32(ofsPlttData)
-  local block = header .. texDict .. pltDict .. texData .. palData
-  block = block:sub(1, 4) .. NB.u32(#block) .. block:sub(9)
-  return assert(Nsbtx.decodeTex0(block))
+  return TexFixture.pack({ textures = { "t" }, palettes = { "p" } })
 end
 
 local function countKeys(t)
@@ -61,16 +45,44 @@ function T.textured_untextured_and_dedup()
   Assert.isNil(out.materials[1].cullMode)
 end
 
-function T.missing_texture_raises()
-  local ok, err = pcall(MaterialCompiler.compile,
-    { { index = 0, name = "m", textureName = "nope" } }, buildPack())
-  Assert.isTrue(not ok and Errors.is(err) and err.code == "MAP_COMPILE_MISSING_TEXTURE", "raises")
+function T.resolved_materials_report_nothing_unresolved()
+  local out = MaterialCompiler.compile(
+    { { index = 0, name = "m", textureName = "t", paletteName = "p" } }, buildPack())
+  Assert.deepEqual(out.unresolved, {})
 end
 
-function T.missing_palette_raises()
-  local ok, err = pcall(MaterialCompiler.compile,
-    { { index = 0, name = "m", textureName = "t" } }, buildPack()) -- paletted format, no palette
-  Assert.isTrue(not ok and Errors.is(err) and err.code == "MAP_COMPILE_MISSING_PALETTE", "raises")
+function T.missing_texture_compiles_untextured_and_is_reported()
+  local out = MaterialCompiler.compile(
+    { { index = 0, name = "m", textureName = "nope", paletteName = "p" } }, buildPack(),
+    { context = { textureArchive = "map_textures", textureMemberId = 42 } })
+
+  Assert.isNil(out.materials[1].texture)
+  Assert.equal(#out.unresolved, 1)
+  Assert.equal(out.unresolved[1].material, "m")
+  Assert.equal(out.unresolved[1].kind, "texture")
+  Assert.equal(out.unresolved[1].name, "nope")
+  Assert.equal(out.unresolved[1].source, "map_textures member 42")
+end
+
+function T.missing_palette_compiles_untextured_and_is_reported()
+  -- Paletted format with no palette name: the texture exists but cannot be
+  -- decoded, so the DS has nothing bound either.
+  local out = MaterialCompiler.compile(
+    { { index = 0, name = "m", textureName = "t" } }, buildPack())
+
+  Assert.isNil(out.materials[1].texture)
+  Assert.equal(#out.unresolved, 1)
+  Assert.equal(out.unresolved[1].kind, "palette")
+end
+
+function T.an_unresolved_material_keeps_its_wrap_and_flip()
+  -- Wrap/flip come from the material's own register, which a failed bind leaves
+  -- untouched; only the texture reference is lost.
+  local out = MaterialCompiler.compile(
+    { { index = 0, name = "m", textureName = "nope", repeatX = true, flipY = true } },
+    buildPack())
+  Assert.equal(out.materials[1].wrap.x, "repeat")
+  Assert.isTrue(out.materials[1].flip.y)
 end
 
 return T

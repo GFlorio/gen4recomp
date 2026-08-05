@@ -23,9 +23,27 @@ function Errors.is(value)
   return type(value) == "table" and getmetatable(value) == MT
 end
 
+local function sortedKeys(value)
+  local keys = {}
+  for key in pairs(value) do keys[#keys + 1] = key end
+  table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+  return keys
+end
+
+local function formatValue(value)
+  if type(value) ~= "table" then return tostring(value) end
+  local parts = {}
+  for _, key in ipairs(sortedKeys(value)) do
+    parts[#parts + 1] = tostring(key) .. "=" .. formatValue(value[key])
+  end
+  return "{" .. table.concat(parts, ",") .. "}"
+end
+
 function Errors.format(value)
   if not Errors.is(value) then return tostring(value) end
-  return value.code .. ": " .. value.message
+  local base = value.code .. ": " .. value.message
+  if next(value.context) == nil then return base end
+  return base .. " " .. formatValue(value.context)
 end
 
 function Errors.raise(code, message, context)

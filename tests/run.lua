@@ -68,6 +68,7 @@ local MODULES = {
   "romdump.tests.cli_test",
   -- romdump/src/digest
   "romdump.tests.neighbor_plan_test",
+  "romdump.tests.neighbor_chunk_compiler_test",
   "romdump.tests.map_catalog_test",
   "romdump.tests.map_resolver_test",
   "romdump.tests.map_analysis_test",
