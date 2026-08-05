@@ -370,4 +370,26 @@ function T.neighbor_ring_plans_and_compiles(romFs)
     #plan.cells, #plan.uniqueLandMembers))
 end
 
+-- The compiled New Bark bundle carries the digested neighbour ring in
+-- scene.neighbors: one descriptor per drawn cell with integer tile offsets and
+-- real terrain batches, whose geometry is content-addressed into the shared mesh
+-- pool (so it dedups with the centre scene's assets rather than living apart).
+function T.neighbors_are_digested_into_the_scene(romFs)
+  local bundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK"))
+  local neighbors = bundle.scene.neighbors
+  Assert.isTrue(type(neighbors) == "table" and #neighbors > 0, "scene carries neighbor descriptors")
+
+  for _, d in ipairs(neighbors) do
+    Assert.isTrue(math.floor(d.offsetTilesX) == d.offsetTilesX, "integer offsetTilesX")
+    Assert.isTrue(math.floor(d.offsetTilesZ) == d.offsetTilesZ, "integer offsetTilesZ")
+    Assert.isTrue(#d.batches > 0, "descriptor has at least one batch")
+    for _, b in ipairs(d.batches) do
+      local sha1 = b.geometry:match("(%x+)%.g4mesh$")
+      Assert.notNil(sha1, "batch geometry is a .g4mesh path: " .. tostring(b.geometry))
+      Assert.notNil(bundle.meshes[sha1], "neighbor geometry present in shared mesh pool: " .. sha1)
+    end
+  end
+  print(string.format("  [new_bark] scene.neighbors: %d cells", #neighbors))
+end
+
 return T

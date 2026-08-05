@@ -25,6 +25,8 @@ local Hashing = require("libs.assets.src.Hashing")
 local Matrix4 = require("libs.math.src.Matrix4")
 local VertexFormat = require("libs.assets.src.VertexFormat")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
+local MapCatalog = require("libs.assets.src.MapCatalog")
+local NeighborPlan = require("libs.assets.src.NeighborPlan")
 local Errors = require("libs.rom.src.Errors")
 
 local MapAssetCompiler = {}
@@ -214,6 +216,37 @@ local function _compile(romFs, idOrSymbol)
     }
   end
 
+  -- Presentation-only neighbour ring: plan the eight surrounding matrix cells,
+  -- compile each unique land chunk once (terrain only) into the shared mesh/
+  -- texture pools so its assets dedup, then emit one scene descriptor per drawn
+  -- cell carrying its 32-tile offset and its land member's batches/materials.
+  local NeighborChunkCompiler = require("libs.assets.src.NeighborChunkCompiler")
+  local plan = NeighborPlan.plan(resolved.matrix, resolved.matrixX, resolved.matrixZ,
+    function(h) local rec = MapCatalog.areaForMapHeader(h); return rec and rec.areaDataMemberId or nil end)
+
+  local neighborChunkByMember = {}
+  for _, member in ipairs(plan.uniqueLandMembers) do
+    local memberAreaId
+    for _, cell in ipairs(plan.cells) do
+      if cell.landDataMemberId == member then memberAreaId = cell.areaDataMemberId break end
+    end
+    local chunk = NeighborChunkCompiler.compile(romFs, member, memberAreaId)
+    for sha1, b in pairs(chunk.meshes) do meshes[sha1] = b end
+    for sha1, t in pairs(chunk.textures) do textures[sha1] = t end
+    neighborChunkByMember[member] = { batches = chunk.batches, materials = chunk.materials }
+  end
+
+  local neighbors = {}
+  for _, cell in ipairs(plan.cells) do
+    local chunk = neighborChunkByMember[cell.landDataMemberId]
+    neighbors[#neighbors + 1] = {
+      offsetTilesX = cell.offsetTilesX,
+      offsetTilesZ = cell.offsetTilesZ,
+      batches = chunk.batches,
+      materials = chunk.materials,
+    }
+  end
+
   -- Dependency record -> hash -> marker.
   local buildingModelShas = {}
   for _, memberId in ipairs(sortedNumbers(uniqueMembers)) do
@@ -276,6 +309,7 @@ local function _compile(romFs, idOrSymbol)
     mapBatches = mapCompiled.batches,
     materials = mapCompiled.materials,
     buildingInstances = buildingInstances,
+    neighbors = neighbors,
     calibration = { modelExtentTilesX = exTiles, modelExtentTilesZ = ezTiles,
       posScale = mapModel.info.posScale },
     source = {
