@@ -25,6 +25,9 @@ function Runner.load(opts)
   Runner.opts = opts or {}
   Runner.importer = nil
 
+  if Runner.opts.build then
+    return Runner._runBuild()
+  end
   if Runner.opts.checkDump then
     return Runner._runCheckDump()
   end
@@ -37,7 +40,7 @@ function Runner.load(opts)
   if Runner.opts.importRom then
     return Runner._startImport(Runner.opts.importRom)
   end
-  print("romdump: no command given (expected --import-rom, --check-dump, --inspect-map, or --build-map)")
+  print("romdump: no command given (expected --import-rom, --check-dump, --inspect-map, --build-map, or --build)")
   love.event.quit(2)
 end
 
@@ -118,6 +121,54 @@ function Runner._runBuildMap(idOrSymbol)
     if not ok then
       allOk = false
       print("build-map: " .. version .. " failed: " .. Errors.format(err))
+    end
+  end
+  love.event.quit(allOk and 0 or 1)
+end
+
+-- Compile every catalog map into the derived cache for every ready dump and
+-- emit the world manifest. Idempotent: a map whose marker already matches is
+-- skipped. Exits 0 only if every map of every version built.
+function Runner._runBuild()
+  local MapCatalog = require("libs.assets.src.MapCatalog")
+  local MapAssetCompiler = require("libs.assets.src.MapAssetCompiler")
+  local MapCacheWriter = require("libs.assets.src.MapCacheWriter")
+  local MapAssetCache = require("libs.assets.src.MapAssetCache")
+  local WorldManifest = require("libs.assets.src.WorldManifest")
+  local CacheFs = require("libs.rom.src.CacheFs")
+  local targets = readyVersions()
+  if #targets == 0 then
+    print("build: no ready version to compile")
+    return love.event.quit(1)
+  end
+  local allOk = true
+  for _, version in ipairs(targets) do
+    local ok, err = pcall(function()
+      local romFs = assert(RomFs.open(version))
+      local cacheFs = CacheFs.forVersion(version)
+      local entries = {}
+      for rec in MapCatalog.all() do
+        local bundle = assert(MapAssetCompiler.compile(romFs, rec.id))
+        if MapAssetCache.isReady(cacheFs, bundle.mapId, bundle.marker) then
+          print(string.format("build: %s map %d current", version, bundle.mapId))
+        else
+          MapCacheWriter.write(cacheFs, bundle)
+          print(string.format("build: %s map %d compiled", version, bundle.mapId))
+        end
+        entries[#entries + 1] = {
+          id = bundle.mapId, symbol = bundle.scene.mapSymbol,
+          width = bundle.scene.matrix.width, height = bundle.scene.matrix.height,
+          matrix = { memberId = bundle.scene.matrix.memberId,
+                     x = bundle.scene.matrix.x, z = bundle.scene.matrix.z },
+        }
+      end
+      WorldManifest.write(cacheFs, entries)
+      print(string.format("build: %s world.lua written (%d maps)", version, #entries))
+      romFs:close()
+    end)
+    if not ok then
+      allOk = false
+      print("build: " .. version .. " failed: " .. Errors.format(err))
     end
   end
   love.event.quit(allOk and 0 or 1)
