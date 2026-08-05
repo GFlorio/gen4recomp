@@ -28,5 +28,9 @@ function love.conf(t)
     t.window.vsync = 1
     t.window.depth = 24   -- 3D map rendering needs a depth buffer
     t.window.stencil = 8
+    local width = tonumber(os.getenv("G4RECOMP_WINDOW_WIDTH") or "")
+    local height = tonumber(os.getenv("G4RECOMP_WINDOW_HEIGHT") or "")
+    if width then t.window.width = width end
+    if height then t.window.height = height end
   end
 end

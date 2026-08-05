@@ -108,8 +108,10 @@ function T.round_trip_reuses_both_resident_map_aggregates()
   local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader, capacity = 4 })
   local first = loader:load(0)
   local second = loader:load(1)
-  Assert.equal(loader:load(0), first)
-  Assert.equal(loader:load(1), second)
+  for _ = 1, 10 do
+    Assert.equal(loader:load(0), first)
+    Assert.equal(loader:load(1), second)
+  end
   Assert.equal(loader:residentCount(), 2)
   Assert.isNil(releases[0])
   Assert.isNil(releases[1])

@@ -74,6 +74,7 @@ function FieldCamera.new(profile, options)
     historyEnabled = options.historyEnabled ~= false,
     canonicalAspect = canonicalAspect,
     projectionAspect = canonicalAspect,
+    zoom = 1,
   }, FieldCamera)
 end
 
@@ -99,6 +100,11 @@ function FieldCamera:setProjectionAspect(aspect)
   self.projectionAspect = aspect
 end
 
+function FieldCamera:setZoom(zoom)
+  assert(type(zoom) == "number" and zoom > 0, "camera zoom must be positive")
+  self.zoom = zoom
+end
+
 function FieldCamera:view()
   return Matrix4.lookAt(
     { self.eye.x, self.eye.y, self.eye.z },
@@ -107,21 +113,27 @@ function FieldCamera:view()
   )
 end
 
-function FieldCamera:_projection(aspect)
+function FieldCamera:_projection(aspect, zoom)
+  zoom = zoom or 1
+  local projection
   if self.projectionType == "perspective" then
-    return Matrix4.perspective(self.profile.fullVerticalFovRadians, aspect, self.near, self.far)
+    projection = Matrix4.perspective(self.profile.fullVerticalFovRadians, aspect, self.near, self.far)
+  else
+    local halfY = math.tan(self.profile.halfFovRadians) * self.distance
+    local halfX = halfY * aspect
+    projection = Matrix4.orthographic(-halfX, halfX, -halfY, halfY, self.near, self.far)
   end
-  local halfY = math.tan(self.profile.halfFovRadians) * self.distance
-  local halfX = halfY * aspect
-  return Matrix4.orthographic(-halfX, halfX, -halfY, halfY, self.near, self.far)
+  projection[1] = projection[1] * zoom
+  projection[6] = projection[6] * zoom
+  return projection
 end
 
 function FieldCamera:projection()
-  return self:_projection(self.projectionAspect)
+  return self:_projection(self.projectionAspect, self.zoom)
 end
 
 function FieldCamera:canonicalProjection()
-  return self:_projection(self.canonicalAspect)
+  return self:_projection(self.canonicalAspect, 1)
 end
 
 return FieldCamera

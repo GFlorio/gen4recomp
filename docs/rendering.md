@@ -214,3 +214,7 @@ automated capture, and `G4RECOMP_SHOT=<path>` to save a screenshot and exit.
 Known discrepancies to record: no BDHC height (player Y is flat) and the
 deferred behaviors listed above. The diagnostic uses the exact ROM-derived
 camera profile for each map.
+
+Field-camera projection, adaptive aspect behavior, zoom tuning, safe-area
+policy, and camera-specific parity gaps are documented in
+[field-camera.md](field-camera.md).

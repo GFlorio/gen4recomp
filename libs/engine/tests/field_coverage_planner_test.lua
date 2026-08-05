@@ -12,7 +12,7 @@ local function approx(a, b, tolerance)
   return math.abs(a - b) <= (tolerance or 1e-6)
 end
 
-local function typeZeroCamera(aspect)
+local function typeZeroCamera(aspect, zoom)
   local distance = 0x0029AEC1 / 4096 / 16
   local angleX = 0xDD62 * 2 * math.pi / 65536
   local halfFov = 0x05C1 * 2 * math.pi / 65536
@@ -26,6 +26,7 @@ local function typeZeroCamera(aspect)
     target = { x = target[1], y = target[2], z = target[3] },
     up = { x = 0, y = 1, z = 0 },
     projectionAspect = aspect,
+    zoom = zoom or 1,
     profile = {
       projectionType = "perspective",
       fullVerticalFovRadians = 2 * halfFov,
@@ -34,6 +35,16 @@ local function typeZeroCamera(aspect)
       distanceTiles = distance,
     },
   }
+end
+
+function T.zoomed_out_camera_plans_wider_ground_coverage()
+  local canonical = FieldCoveragePlanner.frustumGroundBounds(
+    typeZeroCamera(4 / 3, 1), { minY = 0, maxY = 0 })
+  local zoomedOut = FieldCoveragePlanner.frustumGroundBounds(
+    typeZeroCamera(4 / 3, 0.5), { minY = 0, maxY = 0 })
+  Assert.isTrue(zoomedOut.minX < canonical.minX)
+  Assert.isTrue(zoomedOut.maxX > canonical.maxX)
+  Assert.isTrue(zoomedOut.minZ < canonical.minZ)
 end
 
 function T.type_zero_ground_footprint_expands_horizontally_at_32_9()

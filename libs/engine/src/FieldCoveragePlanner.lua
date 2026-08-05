@@ -58,6 +58,9 @@ local function planeCorners(camera, distance)
   else
     error("unknown field projection " .. tostring(profile.projectionType))
   end
+  local zoom = camera.zoom or 1
+  assert(zoom > 0, "camera zoom must be positive")
+  halfY = halfY / zoom
   local halfX = halfY * camera.projectionAspect
   local center = add(camera.eye, forward, distance)
   return {

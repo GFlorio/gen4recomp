@@ -40,6 +40,7 @@ local MODULES = {
   -- libs/engine
   "libs.engine.tests.camera_history_test",
   "libs.engine.tests.field_camera_test",
+  "libs.engine.tests.field_zoom_test",
   "libs.engine.tests.field_viewport_test",
   "libs.engine.tests.scene_mesh_test",
   "libs.engine.tests.ds_lighting_test",
