@@ -71,6 +71,24 @@ local function transformPoint(m, x, y, z)
     m[3] * x + m[7] * y + m[11] * z + m[15]
 end
 
+-- A direction is transformed by the matrix's linear part only, matching the DS
+-- vector matrix, which is 3x3 and so never picks up a translation.
+local function transformDirection(m, x, y, z)
+  return m[1] * x + m[5] * y + m[9] * z,
+    m[2] * x + m[6] * y + m[10] * z,
+    m[3] * x + m[7] * y + m[11] * z
+end
+
+-- The linear part of a 4x4, as the 4x4 a direction matrix accumulates.
+local function linear(m)
+  return {
+    m[1], m[2], m[3], 0,
+    m[5], m[6], m[7], 0,
+    m[9], m[10], m[11], 0,
+    0, 0, 0, 1,
+  }
+end
+
 -- 12 fx32 params (column-major 4x3) -> 4x4 with implicit (0,0,0,1) last row.
 local function mat4x3(p)
   local f = FixedPoint.fx32
@@ -93,17 +111,28 @@ end
 local Decoder = {}
 Decoder.__index = Decoder
 
+-- GX_MTXMODE_*: which of the geometry engine's matrices the matrix commands act
+-- on. The SBC stream leaves POSITION_VECTOR active before calling a shape's
+-- display list (NitroSystem sbc.c restores it after every path that changes it),
+-- so that is the mode a list starts in.
+local MTXMODE = { PROJECTION = 0, POSITION = 1, POSITION_VECTOR = 2, TEXTURE = 3 }
+
 local function newDecoder()
   return setmetatable({
     matrix = identity(),
+    -- The vector matrix, which transforms normals. It tracks the position
+    -- matrix's linear part except where MTX_MODE selects the position matrix
+    -- alone, which is the only way the two can diverge.
+    directionMatrix = identity(),
     pushStack = {},
     restoreStack = {}, -- MTX_RESTORE slots, default identity
+    directionRestoreStack = {},
     pos = { 0, 0, 0 },
     normal = { 0, 1, 0 },
     uv = { 0, 0 },
     color = { 255, 255, 255 },
     colorSource = nil, -- resolved by COLOR/NORMAL or seeded from material state
-    mtxMode = 0,
+    mtxMode = MTXMODE.POSITION_VECTOR,
     run = nil, -- current BEGIN..END vertex-index buffer
     primType = nil,
     vertices = {},
@@ -117,12 +146,33 @@ function Decoder:restoreSlot(idx)
   return self.restoreStack[idx] or identity()
 end
 
+function Decoder:directionRestoreSlot(idx)
+  return self.directionRestoreStack[idx] or linear(self:restoreSlot(idx))
+end
+
+-- Which matrices the current MTX_MODE selects.
+function Decoder:touchesPosition()
+  return self.mtxMode == MTXMODE.POSITION or self.mtxMode == MTXMODE.POSITION_VECTOR
+end
+
+function Decoder:touchesDirection()
+  return self.mtxMode == MTXMODE.POSITION_VECTOR
+end
+
 function Decoder:emitVertex()
   local wx, wy, wz = transformPoint(self.matrix, self.pos[1], self.pos[2], self.pos[3])
+  local nx, ny, nz = transformDirection(self.directionMatrix,
+    self.normal[1], self.normal[2], self.normal[3])
+  -- The DS feeds the raw transformed normal to its lighting unit, where a joint
+  -- or posScale magnification just saturates the result. This pipeline instead
+  -- bakes a normal for the engine's own shader to light, so the direction is
+  -- what carries meaning and the magnitude is renormalized away.
+  local length = math.sqrt(nx * nx + ny * ny + nz * nz)
+  if length > 0 then nx, ny, nz = nx / length, ny / length, nz / length end
   self.vertices[#self.vertices + 1] = {
     x = wx, y = wy, z = wz,
     u = self.uv[1], v = self.uv[2],
-    nx = self.normal[1], ny = self.normal[2], nz = self.normal[3],
+    nx = nx, ny = ny, nz = nz,
     r = self.color[1], g = self.color[2], b = self.color[3], a = 255,
     colorSource = self.colorSource,
   }
@@ -132,26 +182,61 @@ end
 local function s16(word) if word >= 0x8000 then return word - 0x10000 end return word end
 local function s10(v) return FixedPoint.s10(v) end
 
--- Apply a matrix op to the position matrix; texture-matrix ops (mode 3) are
--- consumed but not applied, since they do not affect vertex bounds.
+-- Apply a matrix op to whichever matrices the current MTX_MODE selects.
+-- Texture-matrix ops are consumed but not applied, since they do not affect
+-- vertex bounds; the direction matrix takes only the op's linear part.
 function Decoder:applyMatrix(m)
-  if self.mtxMode == 3 then return end
-  self.matrix = multiply(self.matrix, m)
+  if self:touchesPosition() then self.matrix = multiply(self.matrix, m) end
+  if self:touchesDirection() then
+    self.directionMatrix = multiply(self.directionMatrix, linear(m))
+  end
+end
+
+function Decoder:loadMatrix(m)
+  if self:touchesPosition() then self.matrix = m end
+  if self:touchesDirection() then self.directionMatrix = linear(m) end
 end
 
 local EXEC = {}
 
-EXEC[0x10] = function(d, p) d.mtxMode = p[1] % 4 end
-EXEC[0x11] = function(d) d.pushStack[#d.pushStack + 1] = d.matrix end
-EXEC[0x12] = function(d)
-  local m = d.pushStack[#d.pushStack]
-  if m then d.matrix = m; d.pushStack[#d.pushStack] = nil end
+EXEC[0x10] = function(d, p, offset, context)
+  local mode = p[1] % 4
+  -- Projection-matrix ops would have to be replayed against a projection this
+  -- decoder never sees; no target shape selects it.
+  if mode == MTXMODE.PROJECTION then
+    error(Errors.new("GX_PROJECTION_MATRIX_MODE_UNSUPPORTED",
+      "display list selects the projection matrix, which the shape decoder cannot replay",
+      { offset = offset, source = context }))
+  end
+  d.mtxMode = mode
 end
-EXEC[0x13] = function(d, p) d.restoreStack[p[1] % 32] = d.matrix end
-EXEC[0x14] = function(d, p) d.matrix = d:restoreSlot(p[1] % 32) end
-EXEC[0x15] = function(d) d.matrix = identity() end
-EXEC[0x16] = function(d, p) if d.mtxMode ~= 3 then d.matrix = mat4x4(p) end end
-EXEC[0x17] = function(d, p) if d.mtxMode ~= 3 then d.matrix = mat4x3(p) end end
+EXEC[0x11] = function(d)
+  d.pushStack[#d.pushStack + 1] = { d.matrix, d.directionMatrix }
+end
+EXEC[0x12] = function(d)
+  local top = d.pushStack[#d.pushStack]
+  if top then
+    if d:touchesPosition() then d.matrix = top[1] end
+    if d:touchesDirection() then d.directionMatrix = top[2] end
+    d.pushStack[#d.pushStack] = nil
+  end
+end
+EXEC[0x13] = function(d, p)
+  local slot = p[1] % 32
+  if d:touchesPosition() then d.restoreStack[slot] = d.matrix end
+  if d:touchesDirection() then d.directionRestoreStack[slot] = d.directionMatrix end
+end
+EXEC[0x14] = function(d, p)
+  local slot = p[1] % 32
+  -- Read the direction slot before the position one: an SBC-supplied slot has
+  -- no stored direction, so it is derived from the position matrix it replaces.
+  local direction = d:directionRestoreSlot(slot)
+  if d:touchesPosition() then d.matrix = d:restoreSlot(slot) end
+  if d:touchesDirection() then d.directionMatrix = direction end
+end
+EXEC[0x15] = function(d) d:loadMatrix(identity()) end
+EXEC[0x16] = function(d, p) d:loadMatrix(mat4x4(p)) end
+EXEC[0x17] = function(d, p) d:loadMatrix(mat4x3(p)) end
 EXEC[0x18] = function(d, p) d:applyMatrix(mat4x4(p)) end
 EXEC[0x19] = function(d, p) d:applyMatrix(mat4x3(p)) end
 EXEC[0x1A] = function(d, p)
@@ -267,8 +352,13 @@ GxDisplayList.COLOR_SOURCE = COLOR_SOURCE
 local function _decode(bytes, options)
   options = options or {}
   local d = newDecoder()
+  -- The SBC evaluator supplies position matrices only; their direction
+  -- counterparts are the linear parts, derived on demand.
   if options.restoreStack then d.restoreStack = options.restoreStack end
-  if options.matrix then d.matrix = options.matrix end
+  if options.matrix then
+    d.matrix = options.matrix
+    d.directionMatrix = linear(options.matrix)
+  end
   -- Seed the persistent color/normal/source state from the SBC draw's material
   -- (the geometry engine keeps this across a display-list call). Positions and
   -- matrices are not seeded: each shape decodes in model space as before.
@@ -308,7 +398,7 @@ local function _decode(bytes, options)
         if op == 0x41 then
           convertRun(d, cmdOffset)
         else
-          EXEC[op](d, params)
+          EXEC[op](d, params, cmdOffset + i - 1, options.context)
         end
       end
     end

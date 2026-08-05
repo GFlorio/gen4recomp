@@ -131,7 +131,9 @@ function T.decodes_identity_node_srt()
   Assert.deepEqual(node.translation, { x = 0, y = 0, z = 0 })
   Assert.deepEqual(node.scale, { x = 1, y = 1, z = 1 })
   Assert.deepEqual(node.rotation, { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
-  Assert.deepEqual(node.localMatrix, Matrix4.identity())
+  Assert.isTrue(node.transZero and node.rotZero and node.scaleOne)
+  -- Only the standard rule's joints omit an inverse scale.
+  Assert.isNil(node.inverseScale)
 end
 
 function T.decodes_transformed_node_srt()
@@ -145,10 +147,9 @@ function T.decodes_transformed_node_srt()
   Assert.equal(node.scale.z, 1)
   Assert.deepEqual(node.rotation, { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
 
-  local x, y, z = Matrix4.transformPoint(node.localMatrix, 1, 0, 0)
-  Assert.equal(x, 4)
-  Assert.equal(y, 0)
-  Assert.equal(z, 0)
+  Assert.isFalse(node.transZero)
+  Assert.isFalse(node.rotZero)
+  Assert.isFalse(node.scaleOne)
 end
 
 function T.rejects_malformed_node_data_offset()

@@ -94,6 +94,7 @@ local MODULES = {
   "romdump.tests.nsbmd_test",
   "romdump.tests.nsbmd_sbc_test",
   "romdump.tests.sbc_inventory_test",
+  "romdump.tests.nsbmd_joint_transforms_test",
   "romdump.tests.nsbmd_static_transforms_test",
   "romdump.tests.map_units_test",
   "romdump.tests.hashing_test",
