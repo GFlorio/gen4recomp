@@ -23,7 +23,7 @@ local NitroDict = require("libs.assets.src.nitro.NitroDict")
 local Nsbtx = require("libs.assets.src.nitro.Nsbtx")
 local GxDisplayList = require("libs.assets.src.nitro.GxDisplayList")
 local DsMaterial = require("libs.assets.src.nitro.DsMaterial")
-local Matrix4 = require("libs.engine.src.Matrix4")
+local Matrix4 = require("libs.math.src.Matrix4")
 
 local Nsbmd = {}
 

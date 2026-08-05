@@ -4,7 +4,7 @@
 
 local Assert = require("tests.support.Assert")
 local RenderQueue = require("libs.engine.src.RenderQueue")
-local Matrix4 = require("libs.engine.src.Matrix4")
+local Matrix4 = require("libs.math.src.Matrix4")
 
 local T = {}
 

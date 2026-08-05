@@ -12,7 +12,7 @@
 -- vertices, and applying them on top of the already-tile-scaled mesh collapsed
 -- every building into a sub-tile pile at the origin.
 
-local Matrix4 = require("libs.engine.src.Matrix4")
+local Matrix4 = require("libs.math.src.Matrix4")
 
 local BuildingTransform = {}
 

@@ -7,7 +7,7 @@
 local Assert = require("tests.support.Assert")
 local Nsbmd = require("libs.assets.src.nitro.Nsbmd")
 local NB = require("tests.support.NitroBuilder")
-local Matrix4 = require("libs.engine.src.Matrix4")
+local Matrix4 = require("libs.math.src.Matrix4")
 
 local T = {}
 
