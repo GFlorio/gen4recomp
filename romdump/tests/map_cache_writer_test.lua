@@ -31,6 +31,26 @@ function T.writes_marker_last_and_is_ready()
   Assert.equal(terrain.schema, "g4-terrain-surfaces-v1")
 end
 
+function T.writes_neighbor_permission_and_terrain_artifacts()
+  local c = CacheFs.forVersion("heartgold", FakeCache.new())
+  local bundle = Bundle.minimal(60)
+  local permissionPath = MapAssetCache.neighborPermissionsPath(60, 3)
+  local terrainPath = MapAssetCache.neighborTerrainPath(60, 3)
+  bundle.neighborChunks = {
+    [3] = { permissions = string.rep("\0", 2048), terrain = bundle.terrain },
+  }
+  bundle.scene.neighbors = { {
+    collision = { file = permissionPath }, terrain = { file = terrainPath },
+    batches = {}, materials = {},
+  } }
+  MapCacheWriter.write(c, bundle)
+  Assert.equal(#assert(c:read(permissionPath)), 2048)
+  Assert.equal(assert(c:loadLua(terrainPath)).schema, "g4-terrain-surfaces-v1")
+  Assert.isTrue(MapAssetCache.isReady(c, bundle.mapId, bundle.marker))
+  c:write(permissionPath, "short")
+  Assert.isFalse(MapAssetCache.isReady(c, bundle.mapId, bundle.marker))
+end
+
 function T.missing_terrain_artifact_is_not_ready()
   local c = CacheFs.forVersion("heartgold", FakeCache.new())
   local bundle = Bundle.minimal()

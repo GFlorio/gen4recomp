@@ -14,6 +14,8 @@ local MODULES = {
   "tests.private.field_camera_table_test",
   "tests.private.zone_events_test",
   "tests.private.terrain_surfaces_test",
+  "tests.private.field_warps_test",
+  "tests.private.neighbor_traversal_test",
   "tests.private.code_invariants_test",
 }
 

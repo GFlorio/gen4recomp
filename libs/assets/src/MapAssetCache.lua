@@ -8,7 +8,7 @@
 
 local MapAssetCache = {}
 
-MapAssetCache.FORMAT = "map-cache-v4"
+MapAssetCache.FORMAT = "map-cache-v5"
 
 local DERIVED_DATA = "data/generated"
 local DERIVED_ASSETS = "assets/generated"
@@ -19,6 +19,16 @@ end
 
 function MapAssetCache.terrainPath(mapId)
   return MapAssetCache.mapDir(mapId) .. "/terrain.lua"
+end
+
+function MapAssetCache.neighborPermissionsPath(mapId, landDataMemberId)
+  return string.format("%s/neighbors/%d/permissions.bin",
+    MapAssetCache.mapDir(mapId), landDataMemberId)
+end
+
+function MapAssetCache.neighborTerrainPath(mapId, landDataMemberId)
+  return string.format("%s/neighbors/%d/terrain.lua",
+    MapAssetCache.mapDir(mapId), landDataMemberId)
 end
 
 -- Cache-relative path to the whole-ROM world manifest (map index the game boots
@@ -63,6 +73,8 @@ function MapAssetCache.referencedPaths(scene, cacheFs)
   for _, cell in ipairs(scene.neighbors or {}) do
     for _, b in ipairs(cell.batches or {}) do addBatch(b) end
     for _, m in ipairs(cell.materials or {}) do addMaterial(m) end
+    if cell.collision and cell.collision.file then paths[#paths + 1] = cell.collision.file end
+    if cell.terrain and cell.terrain.file then paths[#paths + 1] = cell.terrain.file end
   end
   for _, inst in ipairs(scene.buildingInstances or {}) do
     if inst.modelKey then
@@ -97,6 +109,17 @@ function MapAssetCache.isReady(cacheFs, mapId, expectedMarker)
 
   for _, path in ipairs(MapAssetCache.referencedPaths(scene, cacheFs)) do
     if not cacheFs:exists(path) then return false end
+  end
+  for _, cell in ipairs(scene.neighbors or {}) do
+    if cell.collision and cell.collision.file then
+      local info = cacheFs:getInfo(cell.collision.file)
+      if not info or info.type ~= "file" or info.size ~= 2048 then return false end
+    end
+    if cell.terrain and cell.terrain.file then
+      local neighborTerrain = cacheFs:loadLua(cell.terrain.file)
+      if type(neighborTerrain) ~= "table"
+        or neighborTerrain.schema ~= "g4-terrain-surfaces-v1" then return false end
+    end
   end
   return true
 end

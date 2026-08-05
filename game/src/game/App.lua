@@ -42,7 +42,7 @@ function App.load(opts)
   App._bootExisting()
 end
 
--- Boot the stationary fixed-step field shell. A bare --field selects Elm's Lab;
+-- Boot the fixed-step field runtime. A bare --field selects Elm's Lab;
 -- an argument may select another compiled map by semantic symbol or numeric id.
 function App._bootField(idOrSymbol)
   local ready = readyVersions()

@@ -1,5 +1,5 @@
--- Pure plan of the presentation-only ring of the eight matrix cells surrounding
--- a central map cell. Given a decoded MapMatrix, the centre cell, and a
+-- Pure plan of the eight matrix cells surrounding a central map cell. Given a
+-- decoded MapMatrix, the centre cell, and a
 -- header->area resolver, plan() returns the neighbour cells to draw -- each with
 -- its exact 32-tile world offset, decoded map-header id, land-data member, and
 -- resolved area member -- plus the deduplicated set of land members so the

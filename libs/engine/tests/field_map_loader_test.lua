@@ -29,7 +29,10 @@ local function fixture(mapCount)
     world.bySymbol[symbol] = mapId
   end
   local releases = {}
-  local cache = { loadLua = function(_, path) return files[path] end }
+  local cache = {
+    loadLua = function(_, path) return files[path] end,
+    read = function(_, path) return files[path] end,
+  }
   local sceneLoader = { load = function(_, scene)
     return {
       scene = scene, collision = { containsLocal = function() return true end },
@@ -48,8 +51,8 @@ function T.loads_visual_field_permission_and_terrain_into_one_aggregate()
   Assert.equal(map.mapId, 0)
   Assert.equal(map.sceneRuntime.scene.mapSymbol, "MAP_0")
   Assert.equal(map.fieldData.schema, "g4-field-map-v1")
-  Assert.equal(map.permissions, map.sceneRuntime.collision)
-  Assert.equal(map.terrain.artifact.schema, "g4-terrain-surfaces-v1")
+  Assert.equal(map.fieldRegion.cells[1].collision, map.sceneRuntime.collision)
+  Assert.equal(map.terrain.artifact.schema, "g4-composite-terrain-v1")
   Assert.deepEqual(map.coordinateOrigin, { x = 0, z = 0 })
   loader:release()
 end
@@ -99,6 +102,62 @@ function T.visible_cell_protection_keeps_its_aggregate_resident()
   loader:release()
 end
 
+function T.round_trip_reuses_both_resident_map_aggregates()
+  local cache, world, sceneLoader, releases = fixture(2)
+  local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader, capacity = 4 })
+  local first = loader:load(0)
+  local second = loader:load(1)
+  Assert.equal(loader:load(0), first)
+  Assert.equal(loader:load(1), second)
+  Assert.equal(loader:residentCount(), 2)
+  Assert.isNil(releases[0])
+  Assert.isNil(releases[1])
+  loader:release()
+end
+
+function T.composes_neighbor_permissions_and_terrain_into_runtime_map()
+  local cache, world, _, _, files = fixture(1)
+  local permissionPath = "data/generated/maps/0000/neighbors/3/permissions.bin"
+  local terrainPath = "data/generated/maps/0000/neighbors/3/terrain.lua"
+  files["data/generated/maps/0000/scene.lua"].neighbors = { {
+    offsetTilesX = 32, offsetTilesZ = 0,
+    collision = { file = permissionPath }, terrain = { file = terrainPath },
+    batches = {}, materials = {},
+  } }
+  files[terrainPath] = { schema = "g4-terrain-surfaces-v1", plates = {
+    { id = 0, minX = 0, minZ = 0, maxX = 32, maxZ = 32,
+      normal = { x = 0, y = 1, z = 0 }, distance = 0,
+      slopeClass = "flat", walkable = true },
+  } }
+  local bytes = {}
+  for index = 0, 1023 do
+    bytes[#bytes + 1] = string.char(0, index == 4 * 32 and 128 or 0)
+  end
+  local blobs = { [permissionPath] = table.concat(bytes) }
+  cache.read = function(_, path) return blobs[path] end
+  local centralCollision = {
+    containsLocal = function(_, x, z) return x >= 0 and x < 32 and z >= 0 and z < 32 end,
+    isBlockedLocal = function() return false end,
+    getLocal = function() return { hardBlocked = false } end,
+  }
+  local sceneLoader = { load = function()
+    return { collision = centralCollision, release = function() end }
+  end }
+  local coverageLoader = { load = function()
+    return { draws = {}, release = function() end }
+  end }
+  local loader = FieldMapLoader.new(cache, world, {
+    sceneLoader = sceneLoader, coverageLoader = coverageLoader,
+  })
+  local map = loader:load(0)
+  Assert.isTrue(map.permissions:containsLocal(32, 4))
+  Assert.isTrue(map.permissions:isBlockedLocal(32, 4))
+  local candidates = map.terrain:candidatesAt(32.5, 4.5)
+  Assert.equal(#candidates, 1)
+  Assert.equal(candidates[1].cellOffsetX, 32)
+  loader:release()
+end
+
 function T.missing_prefetch_cells_do_not_reject_loaded_visible_cells()
   local cache, world, sceneLoader, _, files = fixture(1)
   local scene = files["data/generated/maps/0000/scene.lua"]
@@ -108,8 +167,14 @@ function T.missing_prefetch_cells_do_not_reject_loaded_visible_cells()
   for z = -1, 1 do
     for x = -1, 1 do
       if x ~= 0 or z ~= 0 then
+        local key = x .. "_" .. z
+        local permissionPath = "neighbor_" .. key .. ".bin"
+        local terrainPath = "neighbor_" .. key .. ".lua"
+        files[permissionPath] = string.rep("\0", 2048)
+        files[terrainPath] = { schema = "g4-terrain-surfaces-v1", plates = {} }
         scene.neighbors[#scene.neighbors + 1] = {
           offsetTilesX = x * 32, offsetTilesZ = z * 32,
+          collision = { file = permissionPath }, terrain = { file = terrainPath },
         }
       end
     end
@@ -134,6 +199,45 @@ function T.missing_prefetch_cells_do_not_reject_loaded_visible_cells()
   local plan = loader:updateCoverage(map, camera, { minY = 0, maxY = 0 })
   Assert.equal(#plan.missingPrefetchCells, 3)
   for _, cell in ipairs(plan.cells) do Assert.isTrue(cell.x <= 3) end
+  loader:release()
+end
+
+function T.finite_neighbor_region_reports_missing_visible_cells_without_crashing()
+  local cache, world, sceneLoader, _, files = fixture(1)
+  local scene = files["data/generated/maps/0000/scene.lua"]
+  scene.matrix = { width = 5, height = 5, x = 2, z = 2,
+    worldOriginX = 64, worldOriginZ = 64 }
+  scene.neighbors = {}
+  for z = -1, 1 do
+    for x = -1, 1 do
+      if x ~= 0 or z ~= 0 then
+        local key = x .. "_" .. z
+        local permissionPath = "finite_" .. key .. ".bin"
+        local terrainPath = "finite_" .. key .. ".lua"
+        files[permissionPath] = string.rep("\0", 2048)
+        files[terrainPath] = { schema = "g4-terrain-surfaces-v1", plates = {} }
+        scene.neighbors[#scene.neighbors + 1] = {
+          offsetTilesX = x * 32, offsetTilesZ = z * 32,
+          collision = { file = permissionPath }, terrain = { file = terrainPath },
+        }
+      end
+    end
+  end
+  local coverageLoader = { load = function()
+    return { draws = {}, release = function() end }
+  end }
+  local loader = FieldMapLoader.new(cache, world, {
+    sceneLoader = sceneLoader, coverageLoader = coverageLoader,
+  })
+  local map = loader:load(0)
+  local camera = {
+    eye = { x = 55, y = 10, z = 0 }, target = { x = 55, y = 0, z = 0 },
+    up = { x = 0, y = 0, z = -1 }, projectionAspect = 1,
+    profile = { projectionType = "orthographic", halfFovRadians = math.atan(1),
+      distanceTiles = 10, nearTiles = 1, farTiles = 20 },
+  }
+  local plan = loader:updateCoverage(map, camera, { minY = 0, maxY = 0 })
+  Assert.isTrue(#plan.missingVisibleCells > 0)
   loader:release()
 end
 

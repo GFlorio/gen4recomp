@@ -5,7 +5,10 @@
 local Errors = require("libs.rom.src.Errors")
 local FieldCoveragePlanner = require("libs.engine.src.FieldCoveragePlanner")
 local FieldGrid = require("libs.engine.src.FieldGrid")
+local FieldRegion = require("libs.engine.src.FieldRegion")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
+local PermissionGrid = require("libs.assets.src.PermissionGrid")
+local CollisionGrid = require("libs.engine.src.CollisionGrid")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local NeighborRing = require("libs.engine.src.NeighborRing")
@@ -54,6 +57,36 @@ local function releaseAggregate(runtimeMap)
   runtimeMap.released = true
   if runtimeMap.coverageRuntime then runtimeMap.coverageRuntime:release() end
   runtimeMap.sceneRuntime:release()
+end
+
+local function loadNeighborRegion(cacheFs, scene, centralCollision, centralTerrain)
+  local neighbors = {}
+  for _, descriptor in ipairs(scene.neighbors or {}) do
+    if not descriptor.collision or not descriptor.terrain then
+      Errors.raise("FIELD_MAP_NEIGHBOR_CACHE_MISSING",
+        "neighbor collision or terrain is missing; rebuild the derived cache",
+        { mapId = scene.mapId, offsetTilesX = descriptor.offsetTilesX,
+          offsetTilesZ = descriptor.offsetTilesZ })
+    end
+    local permissionBytes = cacheFs:read(descriptor.collision.file)
+    if not permissionBytes then
+      Errors.raise("FIELD_MAP_NEIGHBOR_CACHE_MISSING", "neighbor permissions are unavailable",
+        { mapId = scene.mapId, path = descriptor.collision.file })
+    end
+    local permissionGrid, permissionErr = PermissionGrid.decode(permissionBytes, {
+      mapId = scene.mapId, path = descriptor.collision.file,
+    })
+    if not permissionGrid then error(permissionErr) end
+    local terrainArtifact = loadRequired(cacheFs, descriptor.terrain.file,
+      "FIELD_MAP_NEIGHBOR_CACHE_MISSING")
+    neighbors[#neighbors + 1] = {
+      offsetTilesX = descriptor.offsetTilesX,
+      offsetTilesZ = descriptor.offsetTilesZ,
+      collision = CollisionGrid.new(permissionGrid),
+      terrain = TerrainSurface.new(terrainArtifact),
+    }
+  end
+  return FieldRegion.new(centralCollision, centralTerrain, neighbors)
 end
 
 function FieldMapLoader.new(cacheFs, world, options)
@@ -145,14 +178,17 @@ function FieldMapLoader:load(idOrSymbol)
     error(loadErr)
   end
 
+  local centralTerrain = TerrainSurface.new(terrainArtifact)
+  local region = loadNeighborRegion(self.cacheFs, scene, sceneRuntime.collision, centralTerrain)
   local runtimeMap = {
     mapId = record.id,
     mapSymbol = record.symbol,
     sceneRuntime = sceneRuntime,
     scene = scene,
     fieldData = fieldData,
-    permissions = sceneRuntime.collision,
-    terrain = TerrainSurface.new(terrainArtifact),
+    permissions = region.permissions,
+    terrain = region.terrain,
+    fieldRegion = region,
     cameraType = scene.cameraType,
     coordinateOrigin = { x = scene.matrix.worldOriginX, z = scene.matrix.worldOriginZ },
     coverageRuntime = coverageRuntime,
@@ -208,7 +244,13 @@ function FieldMapLoader:updateCoverage(runtimeMap, camera, envelope, options)
   local bounds = FieldCoveragePlanner.frustumGroundBounds(camera, envelope)
   planOptions.prefetchMargin = 0
   local visiblePlan = FieldCoveragePlanner.planBounds(bounds, planOptions)
-  FieldCoveragePlanner.assertAvailable(visiblePlan, runtimeMap.availableCells)
+  local missingVisible, visibleKeys = {}, {}
+  for _, cell in ipairs(visiblePlan.cells) do
+    visibleKeys[cell.x .. ":" .. cell.z] = true
+    if not runtimeMap.availableCells[cell.x .. ":" .. cell.z] then
+      missingVisible[#missingVisible + 1] = cell
+    end
+  end
 
   -- The compiled neighbour ring is finite. Visible cells are mandatory, while
   -- the one-cell lookahead is best-effort at that boundary.
@@ -218,11 +260,12 @@ function FieldMapLoader:updateCoverage(runtimeMap, camera, envelope, options)
   for _, cell in ipairs(plan.cells) do
     if runtimeMap.availableCells[cell.x .. ":" .. cell.z] then
       loaded[#loaded + 1] = cell
-    else
+    elseif not visibleKeys[cell.x .. ":" .. cell.z] then
       missing[#missing + 1] = cell
     end
   end
   plan.cells = loaded
+  plan.missingVisibleCells = missingVisible
   plan.missingPrefetchCells = missing
   self:protectCells(runtimeMap.mapId, plan.cells)
   runtimeMap.coveragePlan = plan

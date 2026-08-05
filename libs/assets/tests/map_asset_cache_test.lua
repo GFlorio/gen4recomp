@@ -33,7 +33,7 @@ function T.model_path_is_filesystem_safe()
 end
 
 function T.not_ready_without_files()
-  Assert.isTrue(not MapAssetCache.isReady(cache(), 61, "map-cache-v4:x:61:y"), "no files")
+  Assert.isTrue(not MapAssetCache.isReady(cache(), 61, "map-cache-v5:x:61:y"), "no files")
 end
 
 function T.ready_only_with_exact_marker_and_files()
@@ -119,6 +119,8 @@ end
 function T.referenced_paths_includes_neighbor_batches_and_materials()
   local neighborGeometry = "assets/generated/maps/geometry/abc.g4mesh"
   local neighborTexture = "assets/generated/maps/textures/def.png"
+  local neighborPermissions = "data/generated/maps/0060/neighbors/3/permissions.bin"
+  local neighborTerrain = "data/generated/maps/0060/neighbors/3/terrain.lua"
   local scene = {
     neighbors = {
       {
@@ -126,12 +128,16 @@ function T.referenced_paths_includes_neighbor_batches_and_materials()
         offsetTilesZ = 0,
         batches = { { geometry = neighborGeometry, material = 0 } },
         materials = { { id = 0, texture = neighborTexture } },
+        collision = { file = neighborPermissions },
+        terrain = { file = neighborTerrain },
       },
     },
   }
   local paths = MapAssetCache.referencedPaths(scene, nil)
   Assert.isTrue(contains(paths, neighborGeometry), "missing neighbor geometry path")
   Assert.isTrue(contains(paths, neighborTexture), "missing neighbor texture path")
+  Assert.isTrue(contains(paths, neighborPermissions), "missing neighbor permissions path")
+  Assert.isTrue(contains(paths, neighborTerrain), "missing neighbor terrain path")
 end
 
 function T.world_path_is_stable()
