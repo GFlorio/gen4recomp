@@ -27,4 +27,10 @@ function T.build_rejects_duplicate_symbol()
   Assert.throws(function() WorldManifest.build(dup) end)
 end
 
+function T.build_rejects_duplicate_id()
+  local dup = sample()
+  dup[1].id = 60
+  Assert.throws(function() WorldManifest.build(dup) end)
+end
+
 return T
