@@ -20,6 +20,10 @@ local MODULES = {
   "libs.rom.tests.rom_fs_test",
   "libs.rom.tests.rom_importer_test",
   "libs.rom.tests.dump_audit_test",
+  -- libs/math
+  "libs.math.tests.matrix4_test",
+  "libs.math.tests.matrix3_test",
+  "libs.math.tests.fixed_point_test",
   -- libs/assets
   "libs.assets.tests.hgss_manifest_test",
   "libs.assets.tests.map_matrix_test",
@@ -32,7 +36,6 @@ local MODULES = {
   "libs.assets.tests.building_transform_test",
   "libs.assets.tests.build_model_anim_list_test",
   "libs.assets.tests.land_data_test",
-  "libs.assets.tests.fixed_test",
   "libs.assets.tests.nitro_file_test",
   "libs.assets.tests.nitro_dict_test",
   "libs.assets.tests.nsbtx_test",
@@ -55,8 +58,6 @@ local MODULES = {
   "libs.assets.tests.hashing_test",
   "libs.assets.tests.sync_narc_catalog_test",
   -- libs/engine
-  "libs.engine.tests.matrix4_test",
-  "libs.engine.tests.matrix3_test",
   "libs.engine.tests.camera3d_test",
   "libs.engine.tests.scene_mesh_test",
   "libs.engine.tests.ds_lighting_test",
