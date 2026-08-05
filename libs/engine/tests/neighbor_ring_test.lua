@@ -1,96 +1,92 @@
--- Pure tests for NeighborRing.plan: matrix-driven neighbor selection, exact
--- 32-tile offsets, land-member dedup, out-of-bounds skipping without wrapping,
--- and skipping cells whose header has no area mapping. No ROM, no love.
+-- Tests for NeighborRing.load: it turns compiled scene.neighbors descriptors
+-- into GPU draws, reading geometry/textures from a cacheFs, baking each cell's
+-- world offset into the draw transform and sort center, and deduplicating a
+-- shared geometry path across cells into a single owned mesh. love-backed (it
+-- builds real meshes/images) but ROM-free: cacheFs bytes are canned in-process.
+-- load() needs a graphics context, so these skip in the headless suite, matching
+-- map_renderer_test.
 
 local Assert = require("tests.support.Assert")
-local MapMatrix = require("libs.assets.src.MapMatrix")
+local MeshWriter = require("libs.assets.src.MeshWriter")
+local PngWriter = require("libs.assets.src.PngWriter")
+local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local NeighborRing = require("libs.engine.src.NeighborRing")
 
 local T = {}
 
-local function u8(v) return string.char(v % 256) end
-local function u16(v) return string.char(v % 256, math.floor(v / 256) % 256) end
-
--- Assemble a 5x5 matrix member with explicit header/land grids (row-major,
--- index = z*5 + x + 1).
-local function build(headers, landIds)
-  local parts = { u8(5), u8(5), u8(1), u8(0), u8(0) }
-  for i = 1, 25 do parts[#parts + 1] = u16(headers[i]) end
-  for i = 1, 25 do parts[#parts + 1] = u16(landIds[i]) end
-  return table.concat(parts)
+local function hasGraphics()
+  return love and love.graphics and love.graphics.newMesh
 end
 
-local function idx(x, z) return z * 5 + x + 1 end
-
--- Area resolver mirroring the checked-in New Bark neighbor mapping.
-local function areaForHeader(h)
-  return ({ [0] = 0, [31] = 2, [33] = 2 })[h]
-end
-
--- A 5x5 matrix centred on (2,2): eight neighbours with a mix of mapped headers,
--- one unmapped header (skipped), and a land member shared by three cells.
-local function sampleMatrix()
-  local headers, land = {}, {}
-  for i = 1, 25 do headers[i] = 7; land[i] = 999 end -- 7 is unmapped; non-neighbours are irrelevant
-  headers[idx(2, 2)] = 60; land[idx(2, 2)] = 0        -- centre
-  headers[idx(1, 1)] = 0;  land[idx(1, 1)] = 208
-  headers[idx(2, 1)] = 0;  land[idx(2, 1)] = 208      -- shares 208
-  headers[idx(3, 1)] = 99; land[idx(3, 1)] = 500      -- unmapped header -> skipped
-  headers[idx(1, 2)] = 33; land[idx(1, 2)] = 3
-  headers[idx(3, 2)] = 31; land[idx(3, 2)] = 11
-  headers[idx(1, 3)] = 0;  land[idx(1, 3)] = 208      -- shares 208
-  headers[idx(2, 3)] = 0;  land[idx(2, 3)] = 209
-  headers[idx(3, 3)] = 0;  land[idx(3, 3)] = 210
-  return assert(MapMatrix.decode(build(headers, land)))
-end
-
-local function cellAt(plan, x, z)
-  for _, c in ipairs(plan.cells) do
-    if c.x == x and c.z == z then return c end
+-- One-triangle batch in the MeshWriter vertex layout.
+local function triangleBatch()
+  local function v(x, z)
+    return { x = x, y = 0, z = z, u = 0, v = 0, nx = 0, ny = 1, nz = 0,
+      r = 255, g = 255, b = 255, a = 255, colorSource = 0 }
   end
-  return nil
+  return { vertices = { v(0, 0), v(2, 0), v(0, 2) }, indices = { 0, 1, 2 } }
 end
 
-function T.selects_mapped_neighbors_and_skips_unmapped()
-  local plan = NeighborRing.plan(sampleMatrix(), 2, 2, areaForHeader)
-  -- Seven of the eight neighbours are kept; (3,1)'s header 99 has no mapping.
-  Assert.equal(#plan.cells, 7)
-  Assert.isNil(cellAt(plan, 3, 1))
-  local w = cellAt(plan, 1, 2)
-  Assert.equal(w.mapHeaderId, 33)
-  Assert.equal(w.landDataMemberId, 3)
-  Assert.equal(w.areaDataMemberId, 2)
+-- A cacheFs whose :read(path) returns canned bytes for the known geometry and
+-- texture paths, mirroring CacheFs:read's string-or-nil contract.
+local function fakeCacheFs()
+  local meshBytes = MeshWriter.encode(triangleBatch())
+  local pngBytes = PngWriter.encode(1, 1, string.char(255, 0, 0, 255))
+  local geomPath = MapAssetCache.geometryPath("aaaa")
+  local texPath = MapAssetCache.texturePath("bbbb")
+  local blob = { [geomPath] = meshBytes, [texPath] = pngBytes }
+  return { read = function(_, path) return blob[path] end }, geomPath, texPath
 end
 
-function T.offsets_are_exactly_32_tiles()
-  local plan = NeighborRing.plan(sampleMatrix(), 2, 2, areaForHeader)
-  local e = cellAt(plan, 3, 2) -- east: dx=+1, dz=0
-  Assert.equal(e.offsetTilesX, 32)
-  Assert.equal(e.offsetTilesZ, 0)
-  local nw = cellAt(plan, 1, 1) -- north-west: dx=-1, dz=-1
-  Assert.equal(nw.offsetTilesX, -32)
-  Assert.equal(nw.offsetTilesZ, -32)
-end
-
-function T.dedups_shared_land_members()
-  local plan = NeighborRing.plan(sampleMatrix(), 2, 2, areaForHeader)
-  -- Land 208 is used by three cells but appears once in the unique set.
-  Assert.deepEqual(plan.uniqueLandMembers, { 3, 11, 208, 209, 210 })
-end
-
-function T.skips_out_of_bounds_without_wrapping()
-  -- Centre at the corner (0,0): only (1,0), (0,1), (1,1) are in bounds; the five
-  -- negative-coordinate neighbours are dropped, never wrapped to the far edge.
-  local plan = NeighborRing.plan(sampleMatrix(), 0, 0, areaForHeader)
-  for _, c in ipairs(plan.cells) do
-    Assert.isTrue(c.x >= 0 and c.x <= 1 and c.z >= 0 and c.z <= 1,
-      "no wrapped cell; got (" .. c.x .. "," .. c.z .. ")")
+-- Two cells sharing one geometry path (dedup) and one material each.
+local function descriptors(geomPath, texPath)
+  local function cell(ox, oz)
+    return {
+      offsetTilesX = ox, offsetTilesZ = oz,
+      batches = { { geometry = geomPath, material = 0, alphaClass = "opaque",
+        cullMode = "back", polygonAlpha = 31, polygonMode = "modulation",
+        lightMask = 0, polygonId = 0, translucentDepthWrite = false, depthEqual = false } },
+      materials = { { id = 0, name = "terrain", texture = texPath,
+        wrap = { x = "repeat", y = "clamp" }, diffuse = { r = 255, g = 255, b = 255, a = 255 } } },
+    }
   end
-  -- Only (1,1) has a mapped header among the three in-bounds neighbours.
-  Assert.equal(#plan.cells, 1)
-  local c = cellAt(plan, 1, 1)
-  Assert.equal(c.offsetTilesX, 32)
-  Assert.equal(c.offsetTilesZ, 32)
+  return { cell(32, 0), cell(-32, -32) }
+end
+
+function T.builds_one_draw_per_cell_batch_with_offset_baked()
+  if not hasGraphics() then return end
+  local cacheFs, geomPath, texPath = fakeCacheFs()
+  local ring = NeighborRing.load(cacheFs, descriptors(geomPath, texPath))
+
+  Assert.equal(#ring.draws, 2) -- one batch per cell
+  Assert.equal(ring.stats.cellCount, 2)
+
+  -- The triangle's model-space center is (2/3, 0, 2/3); each draw bakes its
+  -- cell offset into both the transform translation and the sort center.
+  local d1 = ring.draws[1]
+  Assert.equal(d1.transform[13], 32) -- translate X column of Matrix4
+  Assert.equal(d1.transform[15], 0)  -- translate Z
+  Assert.isTrue(math.abs(d1.center[1] - (2 / 3 + 32)) < 1e-4, "center X offset baked")
+  Assert.isTrue(math.abs(d1.center[3] - (2 / 3 + 0)) < 1e-4, "center Z offset baked")
+
+  local d2 = ring.draws[2]
+  Assert.equal(d2.transform[13], -32)
+  Assert.equal(d2.transform[15], -32)
+  Assert.isTrue(d2.submissionIndex > d1.submissionIndex, "submission indices are stable/ascending")
+  Assert.isTrue(d1.submissionIndex > 200000, "submission base is 200000")
+
+  ring:release()
+end
+
+function T.dedups_shared_geometry_into_one_owned_mesh()
+  if not hasGraphics() then return end
+  local cacheFs, geomPath, texPath = fakeCacheFs()
+  local ring = NeighborRing.load(cacheFs, descriptors(geomPath, texPath))
+  -- Both cells reference the same geometry/texture path, so only one mesh and
+  -- one image are built and owned.
+  Assert.equal(ring.stats.meshCount, 1)
+  Assert.equal(ring.stats.textureCount, 1)
+  ring:release()
 end
 
 return T
