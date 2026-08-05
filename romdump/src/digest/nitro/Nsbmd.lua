@@ -27,34 +27,55 @@ local Matrix4 = require("libs.math.src.Matrix4")
 
 local Nsbmd = {}
 
--- SBC opcode -> { name, argBytes(cmd) }. argBytes is the number of argument
--- bytes after the opcode; a function when it depends on the command's flag
--- bits (0x20/0x40/0x80 in the high bits). RET terminates the stream.
+-- SBC opcode -> { name, args(cmd, r, pos), options }. The low 5 bits of a
+-- command byte are the opcode (NNS_G3D_SBCCMD_MASK) and the high 3 bits are an
+-- option field (NNS_G3D_SBCFLG_MASK 0xE0), so option values run 0..7. `args` is
+-- the number of operand bytes after the opcode, matching how each
+-- NNSi_G3dFuncSbc_* in NitroSystem g3d/src/sbc.c advances rs->c; it reads the
+-- stream for NODEMIX, whose length depends on an operand. `options` is the set
+-- of option values that function acts on -- any other value would be decoded
+-- with a length or meaning the SDK never defines, so it is rejected rather than
+-- silently mis-executed. RET terminates the stream.
 local function fixedArgs(n) return function() return n end end
 
-local SBC = {
-  [0x00] = { name = "NOP", args = fixedArgs(0) },
-  [0x01] = { name = "RET", args = fixedArgs(0), terminates = true },
-  [0x02] = { name = "NODE", args = fixedArgs(2) },
-  [0x03] = { name = "MTX", args = fixedArgs(1) },
-  [0x04] = { name = "MAT", args = fixedArgs(1) },
-  [0x05] = { name = "SHP", args = fixedArgs(1) },
-  -- NODEDESC carries node/parent/flags, then optional stack slots keyed by the
-  -- command's option bits: bit0 (0x20) appends a store-slot operand, bit1 (0x40)
-  -- a restore-slot operand (store first when both are present).
-  [0x06] = { name = "NODEDESC", args = function(cmd)
-    local n = 3
+-- Option bit0 (0x20) appends a store-slot operand and bit1 (0x40) a restore-slot
+-- operand, store first: sbc.c reads the restore index at rs->c + 2 for
+-- SBCFLG_010 but at rs->c + 3 for SBCFLG_011 (BB; +4 / +5 for NODEDESC).
+local function storeRestoreArgs(base)
+  return function(cmd)
+    local n = base
     if math.floor(cmd / 0x20) % 2 == 1 then n = n + 1 end
     if math.floor(cmd / 0x40) % 2 == 1 then n = n + 1 end
     return n
+  end
+end
+
+local OPT_NONE = { [0] = true }
+local OPT_STORE_RESTORE = { [0] = true, [1] = true, [2] = true, [3] = true }
+
+local SBC = {
+  [0x00] = { name = "NOP", args = fixedArgs(0), options = OPT_NONE },
+  [0x01] = { name = "RET", args = fixedArgs(0), options = OPT_NONE, terminates = true },
+  [0x02] = { name = "NODE", args = fixedArgs(2), options = OPT_NONE },
+  [0x03] = { name = "MTX", args = fixedArgs(1), options = OPT_NONE },
+  -- MAT's option selects which material state the command overrides
+  -- (NNSi_G3dFuncSbc_MAT_InternalDefault tests SBCFLG_001 and SBCFLG_010).
+  [0x04] = { name = "MAT", args = fixedArgs(1), options = { [0] = true, [1] = true, [2] = true } },
+  [0x05] = { name = "SHP", args = fixedArgs(1), options = OPT_NONE },
+  [0x06] = { name = "NODEDESC", args = storeRestoreArgs(3), options = OPT_STORE_RESTORE },
+  [0x07] = { name = "BB", args = storeRestoreArgs(1), options = OPT_STORE_RESTORE },
+  [0x08] = { name = "BBY", args = storeRestoreArgs(1), options = OPT_STORE_RESTORE },
+  -- NODEMIX: destination stack slot, term count, then that many
+  -- (stack slot, node index, ratio) triples -- `rs->c += 3 + *(rs->c + 2) * 3`.
+  [0x09] = { name = "NODEMIX", options = OPT_NONE, args = function(_, r, pos)
+    r:assertRange(pos, 3, "sbc-nodemix-count")
+    return 2 + r:u8(pos + 2) * 3
   end },
-  [0x07] = { name = "BB", args = fixedArgs(2) },
-  [0x08] = { name = "BBY", args = fixedArgs(2) },
-  [0x09] = { name = "NODEMIX", args = fixedArgs(0) }, -- variable; unused by targets
-  [0x0A] = { name = "CALLDL", args = fixedArgs(4) },
-  [0x0B] = { name = "POSSCALE", args = fixedArgs(0) },
-  [0x0C] = { name = "ENVMAP", args = fixedArgs(2) },
-  [0x0D] = { name = "PRJMAP", args = fixedArgs(2) },
+  -- CALLDL: u32 display-list offset relative to the command, then a u32 size.
+  [0x0A] = { name = "CALLDL", args = fixedArgs(8), options = OPT_NONE },
+  [0x0B] = { name = "POSSCALE", args = fixedArgs(0), options = { [0] = true, [1] = true } },
+  [0x0C] = { name = "ENVMAP", args = fixedArgs(2), options = OPT_NONE },
+  [0x0D] = { name = "PRJMAP", args = fixedArgs(2), options = OPT_NONE },
 }
 
 -- NNSG3dResNodeData SRT flags (res_struct.h). The high bits of `flag` encode
@@ -211,7 +232,14 @@ local function decodeSbc(r, start, limit, context)
         string.format("unknown SBC opcode 0x%02X at offset 0x%X", cmd, pos),
         { opcode = cmd, offset = pos, source = context }))
     end
-    local nargs = def.args(cmd)
+    if not def.options[option] then
+      error(Errors.new("SBC_INVALID_OPTION_BITS",
+        string.format("%s at offset 0x%X has option bits 0x%02X, which the command does not define",
+          def.name, pos, option * 0x20),
+        { opcode = op, command = cmd, optionBits = option * 0x20, offset = pos, source = context }))
+    end
+
+    local nargs = def.args(cmd, r, pos)
     r:assertRange(pos, 1 + nargs, "sbc-cmd")
 
     local args = {}
@@ -221,6 +249,7 @@ local function decodeSbc(r, start, limit, context)
       opcode = op,
       command = cmd,
       option = option,
+      optionBits = option * 0x20,
       offset = pos,
       name = def.name,
       args = args,
@@ -246,19 +275,37 @@ local function decodeSbc(r, start, limit, context)
         materialReapplied = matSincePrevShp,
       }
       matSincePrevShp = false
-    elseif op == 0x06 then
+    elseif op == 0x06 or op == 0x07 or op == 0x08 then
+      -- NODEDESC carries node/parent/flags; BB and BBY only a node index. All
+      -- three then share the optional store/restore slot operands.
+      local fixed = op == 0x06 and 3 or 1
       entry.nodeIndex = args[1]
-      entry.parentIndex = args[2]
-      entry.flags = args[3]
+      if op == 0x06 then
+        entry.parentIndex = args[2]
+        entry.flags = args[3]
+      end
       if option == 1 or option == 3 then
-        entry.storeSlot = args[4]
+        entry.storeSlot = args[fixed + 1]
       end
       if option == 2 then
-        entry.restoreSlot = args[4]
+        entry.restoreSlot = args[fixed + 1]
       elseif option == 3 then
-        entry.restoreSlot = args[5]
+        entry.restoreSlot = args[fixed + 2]
       end
       currentNode = args[1]
+    elseif op == 0x09 then
+      entry.storeSlot = args[1]
+      entry.terms = {}
+      for i = 0, args[2] - 1 do
+        entry.terms[#entry.terms + 1] = {
+          matrixSlot = args[3 + i * 3],
+          nodeIndex = args[4 + i * 3],
+          ratio = args[5 + i * 3],
+        }
+      end
+    elseif op == 0x0A then
+      entry.displayListOffset = args[1] + args[2] * 0x100 + args[3] * 0x10000 + args[4] * 0x1000000
+      entry.displayListSize = args[5] + args[6] * 0x100 + args[7] * 0x10000 + args[8] * 0x1000000
     elseif op == 0x0B then
       entry.inverse = option == 1
     end
