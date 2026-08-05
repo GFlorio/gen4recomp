@@ -37,6 +37,37 @@ function T.info_resolves_source_path_and_file_id()
   Assert.equal(fs:info(0).kind, "overlay9")
 end
 
+function T.reads_overlay_by_cpu_and_overlay_id()
+  local fs = openFs()
+  local info = assert(fs:overlayInfo("arm9", 0))
+  Assert.equal(info.cpu, "arm9")
+  Assert.equal(info.overlayId, 0)
+  Assert.equal(info.fileId, 0)
+  Assert.equal(info.path, "system/overlay9/overlay_0.bin")
+  local bytes, readInfo = fs:readOverlay("arm9", 0)
+  Assert.equal(bytes, "OVERLAY0-DATA")
+  Assert.equal(readInfo.fileId, info.fileId)
+end
+
+function T.overlay_lookup_returns_typed_errors()
+  local fs = openFs()
+  local info, cpuErr = fs:overlayInfo("arm11", 0)
+  Assert.isNil(info)
+  Assert.equal(cpuErr.code, "ROMFS_OVERLAY_UNKNOWN_CPU")
+  local bytes, idErr = fs:readOverlay("arm9", 99)
+  Assert.isNil(bytes)
+  Assert.equal(idErr.code, "ROMFS_OVERLAY_UNKNOWN_ID")
+end
+
+function T.missing_overlay_file_returns_overlay_error()
+  local fs, fixture = openFs()
+  fixture.cache:remove("system/overlay9/overlay_0.bin")
+  local bytes, err = fs:readOverlay("arm9", 0)
+  Assert.isNil(bytes)
+  Assert.equal(err.code, "ROMFS_OVERLAY_FILE_MISSING")
+  Assert.equal(err.context.fileId, 0)
+end
+
 function T.resolves_alias_and_symbol_to_path_and_file_id()
   local fs = openFs()
   local byAlias = fs:resolvedNarc("map_matrices")
@@ -97,6 +128,14 @@ function T.open_rejects_schema_mismatch()
   local fs, err = RomFs.open(r.versionId, r.cache)
   Assert.isNil(fs)
   Assert.equal(err.code, "ROMFS_SCHEMA_MISMATCH")
+end
+
+function T.open_rejects_overlay_schema_mismatch()
+  local r = DumpFixture.extract()
+  r.cache:writeLua("data/generated/overlay_index.lua", { schema = 2 })
+  local fs, err = RomFs.open(r.versionId, r.cache)
+  Assert.isNil(fs)
+  Assert.equal(err.code, "ROMFS_OVERLAY_INDEX_SCHEMA")
 end
 
 return T

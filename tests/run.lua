@@ -14,6 +14,7 @@ local MODULES = {
   "libs.rom.tests.rom_source_test",
   "libs.rom.tests.nitro_fs_test",
   "libs.rom.tests.overlay_table_test",
+  "libs.rom.tests.overlay_compression_test",
   "libs.rom.tests.nds_rom_test",
   "libs.rom.tests.narc_test",
   "libs.rom.tests.rom_extractor_test",
@@ -28,13 +29,16 @@ local MODULES = {
   "libs.assets.tests.hgss_manifest_test",
   "tests.hgss_reference_test",
   "libs.assets.tests.field_light_profile_test",
+  "libs.assets.tests.hgss_camera_table_test",
   "libs.assets.tests.permission_grid_test",
   "libs.assets.tests.map_asset_cache_test",
   "libs.assets.tests.mesh_writer_test",
   "libs.assets.tests.png_writer_test",
   "libs.assets.tests.map_matrix_test",
   -- libs/engine
-  "libs.engine.tests.camera3d_test",
+  "libs.engine.tests.camera_history_test",
+  "libs.engine.tests.field_camera_test",
+  "libs.engine.tests.field_viewport_test",
   "libs.engine.tests.scene_mesh_test",
   "libs.engine.tests.ds_lighting_test",
   "libs.engine.tests.render_queue_test",
@@ -43,6 +47,7 @@ local MODULES = {
   "libs.engine.tests.field_grid_test",
   "libs.engine.tests.debug_player_test",
   "libs.engine.tests.neighbor_ring_test",
+  "libs.engine.tests.field_coverage_planner_test",
   -- game
   "game.tests.map_diagnostic_state_test",
   -- romdump
@@ -75,6 +80,7 @@ local MODULES = {
   "romdump.tests.nsbmd_static_transforms_test",
   "romdump.tests.map_units_test",
   "romdump.tests.hashing_test",
+  "romdump.tests.field_camera_compiler_test",
 }
 
 local function sortedKeys(t)

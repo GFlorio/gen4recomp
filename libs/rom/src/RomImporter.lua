@@ -27,6 +27,7 @@ RomImporter.__index = RomImporter
 local REQUIRED_FILES = {
   "data/generated/rom_metadata.lua",
   "data/generated/romfs_index.lua",
+  "data/generated/overlay_index.lua",
   "romfs/a/0/0/2",
   "romfs/a/0/4/1",
   "romfs/data/sound/gs_sound_data.sdat",

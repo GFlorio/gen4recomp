@@ -62,13 +62,6 @@ local MAX_EDGE_RADIUS = 8
 -- stays clear of the real 6-bit IDs (0-63) and the 255 rear-plane/wireframe id.
 local TRANSLUCENT_SENTINEL_ID = 254
 
--- Orbit distance (tile units) at which one DS pixel of outline matches the DS
--- framing. Perspective on-screen size scales as 1/distance, so a fixed-pixel
--- outline drifts as the camera zooms; scaling the radius by REFERENCE/distance
--- holds the outline's world-relative weight steady at every zoom. Same lens, so
--- the field of view cancels and only the distance ratio remains.
-local REFERENCE_DISTANCE = 26
-
 function MapRenderer.new(opts)
   opts = opts or {}
   local em = opts.edgeMarking or {}
@@ -109,12 +102,11 @@ function MapRenderer:_ensureCanvases(w, h)
   self.canvasW, self.canvasH = w, h
 end
 
--- Outline radius in framebuffer pixels: DS-relative screen weight (h/192) times
--- the zoom correction (REFERENCE_DISTANCE/distance) that keeps it constant in
--- world terms across zoom. Clamped to the shader's loop bound.
-local function edgeRadius(h, distance)
-  local scale = (h / DS_NATIVE_HEIGHT) * (REFERENCE_DISTANCE / distance)
-  return math.max(1, math.min(MAX_EDGE_RADIUS, math.floor(scale + 0.5)))
+-- Field cameras have an authored, immutable distance. DS-pixel effects scale
+-- only with viewport height.
+function MapRenderer.fieldEdgeRadiusPixels(viewportHeight)
+  return math.max(1, math.min(MAX_EDGE_RADIUS,
+    math.floor(viewportHeight / DS_NATIVE_HEIGHT + 0.5)))
 end
 
 local function alphaModeId(alphaClass)
@@ -218,7 +210,10 @@ end
 
 -- `overlays` is an optional list of opaque diagnostic draw items (player prism,
 -- anchor pins) rendered in the opaque pass so they depth-sort against the scene.
-function MapRenderer:draw(runtime, camera, overlays)
+-- FieldViewport limits the render-target size and places the result inside the
+-- host drawable.
+function MapRenderer:draw(runtime, camera, overlays, viewport)
+  assert(viewport and viewport.worldViewport, "MapRenderer requires a FieldViewport")
   local lg = love.graphics
   local all = {}
   for _, d in ipairs(runtime.mapDraws) do all[#all + 1] = d end
@@ -232,7 +227,9 @@ function MapRenderer:draw(runtime, camera, overlays)
     textureCount = runtime.stats.textureCount,
   }
 
-  local w, h = lg.getWidth(), lg.getHeight()
+  local rectangle = viewport.worldViewport
+  local w = math.max(1, math.floor(rectangle.width + 0.5))
+  local h = math.max(1, math.floor(rectangle.height + 0.5))
   self:_ensureCanvases(w, h)
 
   local viewMatrix = camera:view()
@@ -285,8 +282,9 @@ function MapRenderer:draw(runtime, camera, overlays)
     self.edgeShader:send("u_texelSize", { 1 / w, 1 / h })
     self.edgeShader:send("u_edgeColors", unpack(self.edgeColors))
     self.edgeShader:send("u_edgeAlpha", self.edgeAlpha)
-    self.edgeShader:send("u_edgeRadius", edgeRadius(h, camera.distance))
-    lg.draw(self.sceneColor, 0, 0)
+    self.edgeShader:send("u_edgeRadius", MapRenderer.fieldEdgeRadiusPixels(h))
+    lg.draw(self.sceneColor, rectangle.x, rectangle.y, 0,
+      rectangle.width / w, rectangle.height / h)
     lg.setShader()
 
     return activeRecord

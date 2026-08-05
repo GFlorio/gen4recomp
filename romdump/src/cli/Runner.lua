@@ -109,6 +109,8 @@ end
 function Runner._runInspect()
   local MapAnalysis = require("romdump.src.digest.MapAnalysis")
   local MapAssetInspector = require("romdump.src.digest.MapAssetInspector")
+  local FieldCameraCompiler = require("romdump.src.digest.FieldCameraCompiler")
+  local FieldCameraInspector = require("romdump.src.digest.FieldCameraInspector")
   local targets = readyVersions()
   if #targets == 0 then
     print("inspect: no ready version to inspect")
@@ -122,6 +124,9 @@ function Runner._runInspect()
       print("inspect: open failed for " .. version .. ": " .. Errors.format(err))
     else
       local ok, err2 = pcall(function()
+        local cameraBundle = assert(FieldCameraCompiler.compile(romFs))
+        local cameraReport = FieldCameraInspector.inspect(cameraBundle.profiles)
+        for _, line in ipairs(FieldCameraInspector.lines(cameraReport)) do print(line) end
         for _, result in ipairs(MapAnalysis.analyze(romFs)) do
           if result.status == "resolved" then
             local report = MapAssetInspector.inspect(romFs, result.id)
@@ -153,6 +158,8 @@ function Runner._runBuild()
   local MapAssetCache = require("libs.assets.src.MapAssetCache")
   local WorldManifest = require("romdump.src.digest.WorldManifest")
   local CacheFs = require("libs.rom.src.CacheFs")
+  local FieldCameraCompiler = require("romdump.src.digest.FieldCameraCompiler")
+  local FieldCameraCacheWriter = require("romdump.src.digest.FieldCameraCacheWriter")
   local targets = readyVersions()
   if #targets == 0 then
     print("build: no ready version to compile")
@@ -166,6 +173,13 @@ function Runner._runBuild()
       local cacheFs = CacheFs.forVersion(version)
       MapAssetCache.invalidateAllDerived(cacheFs)
       print(string.format("build-cache: %s derived cache cleared", version))
+      local cameraBundle = assert(FieldCameraCompiler.compile(romFs))
+      if FieldCameraCacheWriter.isReady(cacheFs, cameraBundle.marker) then
+        print(string.format("build-cache: %s field cameras current", version))
+      else
+        FieldCameraCacheWriter.write(cacheFs, cameraBundle)
+        print(string.format("build-cache: %s field cameras compiled", version))
+      end
       local entries, excluded = {}, {}
       for _, result in ipairs(MapAnalysis.analyze(romFs)) do
         if result.status == "excluded" then

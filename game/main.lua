@@ -3,22 +3,29 @@
 -- resolves libs and sibling apps by their full repo-relative path (libs.*,
 -- game.src.*, data.*) independent of the working directory. Flags: --test and
 -- --test-private run the suites and exit; --map jumps into the 3D map
--- diagnostic; otherwise App drives the normal boot/import flow.
+-- diagnostic; --field reserves the field-runtime bootstrap; otherwise App
+-- drives the normal boot/import flow.
 local ROOT = love.filesystem.getSourceBaseDirectory()
 package.path = ROOT .. "/?.lua;" .. ROOT .. "/?/init.lua;" .. package.path
 
 local function parse(argv)
-  local opts = { test = false, testPrivate = false, map = nil }
+  local opts = { test = false, testPrivate = false, map = nil, field = nil }
   local i = 1
   while i <= #(argv or {}) do
-    local a = argv[i]
-    if a == "--test" then
+    local option = argv[i]
+    if option == "--test" then
       opts.test = true
-    elseif a == "--test-private" then
+    elseif option == "--test-private" then
       opts.testPrivate = true
-    elseif a == "--map" then
+    elseif option == "--map" then
       i = i + 1
       opts.map = argv[i] or error("--map requires a map id or symbol")
+    elseif option == "--field" then
+      opts.field = true
+      if argv[i + 1] and argv[i + 1]:sub(1, 2) ~= "--" then
+        i = i + 1
+        opts.field = argv[i]
+      end
     end
     i = i + 1
   end
@@ -60,22 +67,6 @@ end
 
 function love.keypressed(key)
   if App then App.keypressed(key) end
-end
-
-function love.mousepressed(x, y, button)
-  if App then App.mousepressed(x, y, button) end
-end
-
-function love.mousereleased(x, y, button)
-  if App then App.mousereleased(x, y, button) end
-end
-
-function love.mousemoved(x, y, dx, dy)
-  if App then App.mousemoved(x, y, dx, dy) end
-end
-
-function love.wheelmoved(x, y)
-  if App then App.wheelmoved(x, y) end
 end
 
 function love.quit()

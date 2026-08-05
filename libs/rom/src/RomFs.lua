@@ -12,6 +12,7 @@ local Errors = require("libs.rom.src.Errors")
 local CacheFs = require("libs.rom.src.CacheFs")
 local Narc = require("libs.rom.src.Narc")
 local RomImporter = require("libs.rom.src.RomImporter")
+local OverlayCompression = require("libs.rom.src.OverlayCompression")
 local Hgss = require("data.manifests.hgss")
 
 local RomFs = {}
@@ -43,8 +44,15 @@ local function _open(versionId, cache)
 
   local metadata = loadRequired(cache, "data/generated/rom_metadata.lua")
   local index = loadRequired(cache, "data/generated/romfs_index.lua")
+  local overlayIndex = loadRequired(cache, "data/generated/overlay_index.lua")
   requireSchema(metadata, 1, "rom_metadata")
   requireSchema(index, 1, "romfs_index")
+  if overlayIndex.schema ~= 1 or type(overlayIndex.arm9) ~= "table"
+      or type(overlayIndex.arm7) ~= "table" then
+    Errors.raise("ROMFS_OVERLAY_INDEX_SCHEMA",
+      "overlay_index must use schema 1 with arm9 and arm7 tables",
+      { schema = overlayIndex.schema })
+  end
 
   -- Build the source-path -> fileId lookup once from the FNT index. NARC alias
   -- resolution is derived on demand from the checked-in manifest plus this
@@ -61,6 +69,7 @@ local function _open(versionId, cache)
     _cache = cache,
     _metadata = metadata,
     _index = index,
+    _overlayIndex = overlayIndex,
     _byPath = byPath,
   }, RomFs)
 end
@@ -143,6 +152,56 @@ function RomFs:readSourcePath(sourcePath)
   return self:read(sourcePath)
 end
 
+-- Resolve an imported ARM overlay by its CPU and zero-based overlayId. Overlay
+-- metadata comes from the generated overlay table; bytes still flow through
+-- the ordinary FAT-backed file index.
+function RomFs:overlayInfo(cpu, overlayId)
+  if cpu ~= "arm9" and cpu ~= "arm7" then
+    return nil, Errors.new("ROMFS_OVERLAY_UNKNOWN_CPU", "unknown overlay CPU " .. tostring(cpu),
+      { cpu = cpu, overlayId = overlayId })
+  end
+  local raw = self._overlayIndex[cpu][overlayId]
+  if not raw then
+    return nil, Errors.new("ROMFS_OVERLAY_UNKNOWN_ID",
+      "no " .. cpu .. " overlay for overlayId " .. tostring(overlayId),
+      { cpu = cpu, overlayId = overlayId })
+  end
+  local file = self._index.files[raw.fileId]
+  assert(file, "overlay_index references missing fileId " .. tostring(raw.fileId))
+  return {
+    cpu = cpu,
+    overlayId = raw.overlayId,
+    fileId = raw.fileId,
+    path = file.path,
+    ramAddress = raw.ramAddress,
+    ramSize = raw.ramSize,
+    bssSize = raw.bssSize,
+    staticInitStart = raw.staticInitStart,
+    staticInitEnd = raw.staticInitEnd,
+    flags = raw.flags,
+    compressedSize = raw.flags % 16777216,
+    isCompressed = math.floor(raw.flags / 16777216) % 2 == 1,
+  }
+end
+
+function RomFs:readOverlay(cpu, overlayId)
+  local info, err = self:overlayInfo(cpu, overlayId)
+  if not info then return nil, err end
+  local bytes, readErr = self:read(info.fileId)
+  if not bytes then
+    return nil, Errors.new("ROMFS_OVERLAY_FILE_MISSING",
+      "dumped overlay file is missing: " .. info.path,
+      { cpu = cpu, overlayId = overlayId, fileId = info.fileId,
+        path = info.path, cause = readErr and readErr.code })
+  end
+  if info.isCompressed then
+    local decoded, decodeErr = OverlayCompression.decode(bytes, info.ramSize)
+    if not decoded then return nil, decodeErr end
+    bytes = decoded
+  end
+  return bytes, info
+end
+
 -- Resolve a curated alias, version-neutral alias, or raw NARC symbol to a fileId
 -- entry, using the checked-in manifest plus this dump's FNT path index. Returns
 -- nil if the manifest does not know the name or its path is absent from the FNT.
@@ -177,6 +236,7 @@ function RomFs:close()
   self._cache = nil
   self._metadata = nil
   self._index = nil
+  self._overlayIndex = nil
   self._byPath = nil
 end
 

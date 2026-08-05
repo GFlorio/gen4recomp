@@ -65,4 +65,12 @@ function T.perspective_maps_near_and_far_planes_to_ndc()
   Assert.isTrue(approx(fz / fw, 1), "far plane -> ndc +1")
 end
 
+function T.orthographic_maps_bounds_to_ndc()
+  local p = Matrix4.orthographic(-4, 6, -3, 7, 2, 12)
+  local left, bottom, near = Matrix4.transformPoint(p, -4, -3, -2)
+  local right, top, far = Matrix4.transformPoint(p, 6, 7, -12)
+  Assert.isTrue(approx(left, -1) and approx(bottom, -1) and approx(near, -1), "minimum bounds")
+  Assert.isTrue(approx(right, 1) and approx(top, 1) and approx(far, 1), "maximum bounds")
+end
+
 return T
