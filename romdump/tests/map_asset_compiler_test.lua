@@ -30,7 +30,7 @@ local function onlyModel(bundle)
 end
 
 function T.exports_compiler_version()
-  Assert.equal(MapAssetCompiler.COMPILER_VERSION, "map-compiler-v12")
+  Assert.equal(MapAssetCompiler.COMPILER_VERSION, "map-compiler-v13")
 end
 
 function T.compile_requires_romfs_shaped_object()

@@ -23,7 +23,6 @@ local NitroDict = require("romdump.src.digest.nitro.NitroDict")
 local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
 local GxDisplayList = require("romdump.src.digest.nitro.GxDisplayList")
 local DsMaterial = require("romdump.src.digest.nitro.DsMaterial")
-local Matrix4 = require("libs.math.src.Matrix4")
 
 local Nsbmd = {}
 
@@ -101,19 +100,16 @@ local pivotUtil_ = {
   { 0, 1, 3, 4 },
 }
 
-local function rotationMatrixFromComponents(a)
-  return {
-    a[1], a[2], a[3], 0,
-    a[4], a[5], a[6], 0,
-    a[7], a[8], a[9], 0,
-    0, 0, 0, 1,
-  }
-end
-
 -- Decode one NNSG3dResNodeData record. `nodeInfoBase` is the model-relative
 -- offset of the NNSG3dResNodeInfo (dict at modelBase + 0x40); the dict entry's
 -- payload is an offset from that base to the variable-length node data.
-local function decodeNodeData(r, nodeInfoBase, e, context)
+--
+-- The record's length depends on the model's scaling rule: NODEDESC hands the
+-- post-rotation pointer to the rule's GetJointScale, and the non-standard rules
+-- read three further fx32 there as the joint's inverse scale
+-- (NNSi_G3dGetJointScaleMaya reads p+3..p+5). Only the raw SRT components are
+-- returned -- composing them is the scaling rule's job, not the parser's.
+local function decodeNodeData(r, nodeInfoBase, e, scalingRule, context)
   local offset = BinaryReader.new(e.data, "node-ref"):u32le(0)
   if offset == 0 then
     Errors.raise("NSBMD_NODE_DATA_OFFSET_ZERO",
@@ -176,8 +172,9 @@ local function decodeNodeData(r, nodeInfoBase, e, context)
     pos = pos + 16
   end
 
-  local scale
-  if bitSet(flags, SRTFLAG_SCALE_ONE) then
+  local scaleOne = bitSet(flags, SRTFLAG_SCALE_ONE)
+  local scale, inverseScale
+  if scaleOne then
     scale = { x = 1, y = 1, z = 1 }
   else
     r:assertRange(pos, 12, "node-scale")
@@ -187,17 +184,18 @@ local function decodeNodeData(r, nodeInfoBase, e, context)
       z = FixedPoint.fx32(r:u32le(pos + 8)),
     }
     pos = pos + 12
+    if scalingRule ~= 0 then
+      r:assertRange(pos, 12, "node-inverse-scale")
+      inverseScale = {
+        x = FixedPoint.fx32(r:u32le(pos)),
+        y = FixedPoint.fx32(r:u32le(pos + 4)),
+        z = FixedPoint.fx32(r:u32le(pos + 8)),
+      }
+    end
   end
 
   -- Bits 11-15 of the flag word hold the intended matrix-stack slot.
   local matrixStackIndex = math.floor(flags / 2048) % 32
-
-  -- Standard scaling rule composes T * R * S under this project's column-major
-  -- convention, matching NNSi_G3dSendJointSRTBasic's GE command order.
-  local R = rotationMatrixFromComponents(rotation)
-  local S = Matrix4.scale(scale.x, scale.y, scale.z)
-  local T = Matrix4.translate(translation.x, translation.y, translation.z)
-  local localMatrix = Matrix4.multiply(T, Matrix4.multiply(R, S))
 
   return {
     index = e.index,
@@ -207,7 +205,10 @@ local function decodeNodeData(r, nodeInfoBase, e, context)
     translation = translation,
     rotation = rotation,
     scale = scale,
-    localMatrix = localMatrix,
+    inverseScale = inverseScale,
+    transZero = bitSet(flags, SRTFLAG_TRANS_ZERO),
+    rotZero = bitSet(flags, SRTFLAG_ROT_ZERO),
+    scaleOne = scaleOne,
   }
 end
 
@@ -452,7 +453,7 @@ local function decodeModel(sec, modelBase, name, index, context)
   local nodeDict = assert(NitroDict.decode(sec, nodeInfoBase, context))
   local nodes = {}
   for _, e in ipairs(nodeDict.entries) do
-    nodes[#nodes + 1] = decodeNodeData(r, nodeInfoBase, e,
+    nodes[#nodes + 1] = decodeNodeData(r, nodeInfoBase, e, info.scalingRule,
       { model = name, node = e.name })
   end
 

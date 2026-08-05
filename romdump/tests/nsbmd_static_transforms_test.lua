@@ -129,6 +129,15 @@ local function decodeModel(nodeDict, nodeData, sbc, posScale, invPosScale)
   return m.models[1]
 end
 
+-- The same model with NNSG3dResMdlInfo.scalingRule overwritten. The info block
+-- starts at model offset 0x14 and scalingRule is its second byte.
+local function decodeModelWithScalingRule(rule, nodeDict, nodeData, sbc)
+  local model = buildModel(nodeDict, nodeData, sbc, 0x1000, 0x1000)
+  model = model:sub(1, 0x15) .. string.char(rule) .. model:sub(0x17)
+  local file = NB.file("BMD0", { { magic = "MDL0", body = buildModelDict(model) } })
+  return assert(Nsbmd.decode(file)).models[1]
+end
+
 local function identityNodeDictAndData(slot)
   slot = slot or 0
   -- flags = TRANS_ZERO | ROT_ZERO | SCALE_ONE; matrix-stack index in bits 11-15.
@@ -306,30 +315,34 @@ function T.invisible_node_skips_draw()
   Assert.equal(#draws, 0)
 end
 
-function T.rejects_unsupported_scaling_rule()
+-- Si3D (rule 2) is unimplemented: no model in the target world uses it.
+function T.rejects_si3d_scaling_rule()
   local nodeDict, nodeData = identityNodeDictAndData()
   local sbc = string.char(0x06, 0, 0, 0) .. string.char(0x01)
-  local model = decodeModel(nodeDict, nodeData, sbc, 0x1000, 0x1000)
-  -- Patch scalingRule to 1.
-  -- info starts at model header + 0x14 = offset 0x14 within MDL0 body.
-  -- scalingRule is at info+0x01.
-  local sec = NB.file("BMD0", { { magic = "MDL0", body = buildModelDict(buildModel(nodeDict, nodeData, sbc, 0x1000, 0x1000)) } })
-  -- Re-decode after patching is awkward; instead build a fresh info with rule=1.
-  local matBlock = buildMaterialBlock()
-  local shpBlock = buildShapeBlock(triangleDL())
-  local info = buildInfo(1, 1, 1, 0x1000, 0x1000)
-  -- Replace scalingRule byte.
-  info = info:sub(1, 1) .. string.char(1) .. info:sub(3)
-  local ofsSbc = 0x40 + #nodeDict + #nodeData
-  local ofsMat = ofsSbc + #sbc
-  local ofsShp = ofsMat + #matBlock
-  local body = string.rep("\0", 0x14) .. info .. nodeDict .. nodeData .. sbc .. matBlock .. shpBlock
-  local modelBytes = u32(#body) .. NB.u32(ofsSbc) .. NB.u32(ofsMat) .. NB.u32(ofsShp) .. NB.u32(0)
-    .. body:sub(0x15)
-  local file = NB.file("BMD0", { { magic = "MDL0", body = buildModelDict(modelBytes) } })
-  local m = assert(Nsbmd.decode(file))
-  local err = Assert.throws(function() NsbmdStaticTransforms.evaluate(m.models[1]) end)
+  local model = decodeModelWithScalingRule(2, nodeDict, nodeData, sbc)
+  local err = Assert.throws(function() NsbmdStaticTransforms.evaluate(model) end)
   Assert.equal(err.code, "NSBMD_STATIC_UNSUPPORTED_SCALING_RULE")
+end
+
+function T.accepts_the_maya_scaling_rule()
+  local nodeDict, nodeData = identityNodeDictAndData()
+  local sbc = string.char(0x06, 0, 0, 0) .. string.char(0x04, 0) .. string.char(0x05, 0)
+    .. string.char(0x01)
+  local draws = NsbmdStaticTransforms.evaluate(
+    decodeModelWithScalingRule(1, nodeDict, nodeData, sbc))
+  Assert.equal(#draws, 1)
+  assertMatrixClose(draws[1].matrix, Matrix4.identity())
+end
+
+-- NODEDESC byte 3 carries the Maya scale-compensate bits, so a nonzero value
+-- under the standard rule means the model was misread.
+function T.rejects_nodedesc_flags_under_the_standard_rule()
+  local nodeDict, nodeData = identityNodeDictAndData()
+  local sbc = string.char(0x06, 0, 0, 0x01) .. string.char(0x01)
+  local err = Assert.throws(function()
+    NsbmdStaticTransforms.evaluate(decodeModel(nodeDict, nodeData, sbc, 0x1000, 0x1000))
+  end)
+  Assert.equal(err.code, "NSBMD_JOINT_UNEXPECTED_NODEDESC_FLAGS")
 end
 
 function T.rejects_billboard_command()

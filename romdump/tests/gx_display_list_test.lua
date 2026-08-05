@@ -152,4 +152,87 @@ function T.externally_supplied_restore_slot_is_honored()
   Assert.equal(r.vertices[2].x, 3)
 end
 
+-- ---- direction (vector) matrix ----
+
+-- NORMAL encodes each component as a signed 10-bit 1.0.9 value, so the largest
+-- magnitude it can carry is 511/512; the decoder renormalizes the transformed
+-- result, which is what lets these cases assert exact unit components.
+local function normalCmd(x, y, z)
+  local function raw(c) return math.floor(c * 511 + 0.5) % 1024 end
+  return { op = 0x21, p = { raw(x) + raw(y) * 1024 + raw(z) * 1048576 } }
+end
+
+-- The DS vector matrix is 3x3, so a pure translation moves vertices but leaves
+-- normals alone.
+function T.translation_does_not_rotate_normals()
+  local r = assert(Gx.decode(dl({
+    { op = 0x1C, p = { fx32(2), fx32(-3), fx32(0) } }, -- MTX_TRANS
+    normalCmd(0, 1, 0),
+    { op = 0x40, p = { 0 } },
+    vtx16(0, 0, 0), vtx16(1, 0, 0), vtx16(0, 1, 0),
+    { op = 0x41 },
+  })))
+  local v = r.vertices[1]
+  Assert.equal(v.x, 2)
+  Assert.equal(v.ny, 1)
+  Assert.equal(v.nx, 0)
+  Assert.equal(v.nz, 0)
+end
+
+-- A rotation in the incoming SBC matrix must reach the normals: 90 degrees
+-- about Y sends +X to -Z.
+function T.node_rotation_reaches_normals()
+  local rotY90 = {
+    0, 0, -1, 0,
+    0, 1, 0, 0,
+    1, 0, 0, 0,
+    0, 0, 0, 1,
+  }
+  local r = assert(Gx.decode(dl({
+    normalCmd(1, 0, 0),
+    { op = 0x40, p = { 0 } },
+    vtx16(1, 0, 0), vtx16(0, 1, 0), vtx16(0, 0, 1),
+    { op = 0x41 },
+  }), { matrix = rotY90 }))
+  local v = r.vertices[1]
+  Assert.equal(v.nx, 0)
+  Assert.equal(v.ny, 0)
+  Assert.equal(v.nz, -1)
+end
+
+-- A scaled matrix changes vertex positions but leaves the baked normal a unit
+-- direction for the engine's own lighting.
+function T.scaled_matrix_keeps_normals_unit_length()
+  local r = assert(Gx.decode(dl({
+    { op = 0x1B, p = { fx32(4), fx32(4), fx32(4) } }, -- MTX_SCALE
+    normalCmd(0, 1, 0),
+    { op = 0x40, p = { 0 } },
+    vtx16(1, 0, 0), vtx16(0, 1, 0), vtx16(0, 0, 1),
+    { op = 0x41 },
+  })))
+  Assert.equal(r.vertices[1].x, 4)
+  Assert.equal(r.vertices[1].ny, 1)
+end
+
+-- MTX_MODE position-only leaves the vector matrix behind, so the normal keeps
+-- the orientation the position matrix had before the divergence.
+function T.position_only_matrix_mode_does_not_move_normals()
+  local r = assert(Gx.decode(dl({
+    { op = 0x10, p = { 1 } }, -- MTX_MODE position
+    { op = 0x1B, p = { fx32(4), fx32(1), fx32(1) } }, -- MTX_SCALE, position only
+    normalCmd(1, 0, 0),
+    { op = 0x40, p = { 0 } },
+    vtx16(1, 0, 0), vtx16(0, 1, 0), vtx16(0, 0, 1),
+    { op = 0x41 },
+  })))
+  Assert.equal(r.vertices[1].x, 4)
+  Assert.equal(r.vertices[1].nx, 1)
+end
+
+function T.projection_matrix_mode_is_fatal()
+  local r, err = Gx.decode(dl({ { op = 0x10, p = { 0 } } }))
+  Assert.isNil(r)
+  Assert.equal(err.code, "GX_PROJECTION_MATRIX_MODE_UNSUPPORTED")
+end
+
 return T

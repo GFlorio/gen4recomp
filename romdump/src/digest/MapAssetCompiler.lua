@@ -32,7 +32,7 @@ local Errors = require("libs.rom.src.Errors")
 
 local MapAssetCompiler = {}
 
-local COMPILER_VERSION = "map-compiler-v12"
+local COMPILER_VERSION = "map-compiler-v13"
 local COORDINATE_CONVENTION = "nsbmd-sbc-matrix-16-tile-v3"
 local SCENE_SCHEMA = "g4-map-scene-v2"
 

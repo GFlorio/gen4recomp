@@ -8,13 +8,18 @@
 -- inherit. See GBATEK "DS Video Geometry Commands" and NitroSystem g3d/sbc for
 -- the command semantics; Nsbmd.lua already decodes the operands.
 --
--- Out of scope (fail loudly): billboards (BB/BBY), skinning (NODEMIX),
--- non-standard scaling rules, and NODEDESC flags beyond plain joints.
+-- Joint matrices come from NsbmdJointTransforms, which reproduces the geometry-
+-- engine command sequence the model's scaling rule emits; this module only
+-- supplies the parent/stack context and the Maya inverse-scale cache.
+--
+-- Out of scope (fail loudly): billboards (BB/BBY), skinning (NODEMIX), external
+-- display lists (CALLDL), and the Si3D scaling rule.
 --
 -- Pure domain module: no love dependency.
 
 local Errors = require("libs.rom.src.Errors")
 local Matrix4 = require("libs.math.src.Matrix4")
+local NsbmdJointTransforms = require("romdump.src.digest.nitro.NsbmdJointTransforms")
 
 local NsbmdStaticTransforms = {}
 
@@ -35,10 +40,15 @@ local function slotOrIdentity(slots, slot)
   return m and copyMatrix(m) or Matrix4.identity()
 end
 
+local SUPPORTED_SCALING_RULES = {
+  [NsbmdJointTransforms.STANDARD] = true,
+  [NsbmdJointTransforms.MAYA] = true,
+}
+
 local function assertSupportedModel(model)
-  if model.info.scalingRule ~= 0 then
+  if not SUPPORTED_SCALING_RULES[model.info.scalingRule] then
     Errors.raise("NSBMD_STATIC_UNSUPPORTED_SCALING_RULE",
-      "only standard scaling rule (0) is supported by static SBC evaluation",
+      "only the standard (0) and Maya (1) scaling rules are supported by static SBC evaluation",
       { scalingRule = model.info.scalingRule, model = model.name })
   end
 end
@@ -63,6 +73,9 @@ function NsbmdStaticTransforms.evaluate(model)
   local currentNode = 0
   local currentMaterial = 0
   local materialReapplied = true
+  -- Written by joints flagged MAYASSC_PARENT and read by their children; the
+  -- SDK keeps the equivalent state in NNS_G3dRSOnGlb.scaleCache for one walk.
+  local mayaScaleCache = {}
 
   local draws = {}
 
@@ -99,12 +112,6 @@ function NsbmdStaticTransforms.evaluate(model)
           { nodeIndex = cmd.nodeIndex, model = model.name })
       end
 
-      if cmd.flags ~= 0 then
-        Errors.raise("NSBMD_STATIC_NODEDESC_FLAGS_UNSUPPORTED",
-          "NODEDESC flags " .. tostring(cmd.flags) .. " are not supported",
-          { flags = cmd.flags, nodeIndex = cmd.nodeIndex, model = model.name })
-      end
-
       local baseMatrix
       if cmd.restoreSlot ~= nil then
         baseMatrix = slotOrIdentity(matrixSlots, cmd.restoreSlot)
@@ -114,7 +121,9 @@ function NsbmdStaticTransforms.evaluate(model)
         baseMatrix = Matrix4.identity()
       end
 
-      local world = Matrix4.multiply(baseMatrix, node.localMatrix)
+      local localMatrix = NsbmdJointTransforms.localMatrix(
+        model.info.scalingRule, node, cmd, mayaScaleCache)
+      local world = Matrix4.multiply(baseMatrix, localMatrix)
       nodeMatrices[cmd.nodeIndex] = world
       matrixSlots[node.matrixStackIndex] = world
       if cmd.storeSlot ~= nil then
@@ -122,7 +131,10 @@ function NsbmdStaticTransforms.evaluate(model)
       end
       currentMatrix = copyMatrix(world)
       currentNode = cmd.nodeIndex
-    elseif op == 0x07 or op == 0x08 or op == 0x09 then -- BB, BBY, NODEMIX
+    elseif op == 0x07 or op == 0x08 or op == 0x09 or op == 0x0A then
+      -- BB, BBY, NODEMIX, CALLDL. CALLDL would submit geometry from a display
+      -- list this evaluator never sees, so ignoring it would silently drop
+      -- draws; no model in the target world issues one.
       Errors.raise("NSBMD_STATIC_UNSUPPORTED_SBC_COMMAND",
         cmd.name .. " is not supported by static SBC evaluation",
         { opcode = op, command = cmd.command, offset = cmd.offset, model = model.name })
