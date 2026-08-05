@@ -3,7 +3,7 @@
 -- resolves libs and sibling apps by their full repo-relative path (libs.*,
 -- game.src.*, data.*) independent of the working directory. Flags: --test and
 -- --test-private run the suites and exit; --map jumps into the 3D map
--- diagnostic; --field reserves the field-runtime bootstrap; otherwise App
+-- diagnostic; --field boots the fixed-step field runtime; otherwise App
 -- drives the normal boot/import flow.
 local ROOT = love.filesystem.getSourceBaseDirectory()
 package.path = ROOT .. "/?.lua;" .. ROOT .. "/?/init.lua;" .. package.path
@@ -65,8 +65,12 @@ function love.filedropped(file)
   if App then App.filedropped(file) end
 end
 
-function love.keypressed(key)
-  if App then App.keypressed(key) end
+function love.keypressed(key, scancode, isrepeat)
+  if App then App.keypressed(key, scancode, isrepeat) end
+end
+
+function love.keyreleased(key, scancode)
+  if App then App.keyreleased(key, scancode) end
 end
 
 function love.quit()

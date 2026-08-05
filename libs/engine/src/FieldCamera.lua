@@ -65,6 +65,8 @@ function FieldCamera.new(profile, options)
     near = profile.nearTiles,
     far = profile.farTiles,
     sourceTarget = sourceTarget,
+    cameraSourceY = sourceTarget.y,
+    cameraAppliedY = sourceTarget.y,
     target = target,
     eye = eyeFromTarget(target, profile),
     up = { x = 0, y = 1, z = 0 },
@@ -88,6 +90,8 @@ function FieldCamera:updateFixed(playerTarget)
   self.eye.y = self.eye.y + appliedY
   self.eye.z = self.eye.z + deltaZ
   self.sourceTarget = current
+  self.cameraSourceY = current.y
+  self.cameraAppliedY = self.target.y - self.profile.targetOffsetTiles.y
 end
 
 function FieldCamera:setProjectionAspect(aspect)

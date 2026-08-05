@@ -8,6 +8,9 @@ local LandData = require("romdump.src.digest.LandData")
 local HgssBdhc = require("libs.assets.src.HgssBdhc")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
+local FieldCamera = require("libs.engine.src.FieldCamera")
+local FieldPlayer = require("libs.engine.src.FieldPlayer")
+local FieldSession = require("libs.engine.src.FieldSession")
 local TerrainInspector = require("romdump.src.digest.TerrainInspector")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local Hashing = require("romdump.src.digest.Hashing")
@@ -117,6 +120,75 @@ function T.new_bark_east_staircase_facts_and_path_are_frozen(romFs)
   print(string.format("  [terrain] map %d origin (%d,%d) staircase metadata:",
     resolved.map.id, resolved.worldOriginX, resolved.worldOriginZ))
   for _, line in ipairs(TerrainInspector.lines(report)) do print("  " .. line) end
+end
+
+function T.field_player_traverses_new_bark_east_staircase(romFs)
+  local artifact, resolved = load(romFs, "MAP_NEW_BARK")
+  local terrain = TerrainSurface.new(artifact)
+  local runtimeMap = {
+    mapId = resolved.map.id,
+    cameraType = resolved.map.cameraType,
+    coordinateOrigin = { x = resolved.worldOriginX, z = resolved.worldOriginZ },
+    permissions = {
+      containsLocal = function(_, x, z) return x >= 0 and x < 32 and z >= 0 and z < 32 end,
+      isBlockedLocal = function() return false end,
+    },
+    terrain = terrain,
+  }
+  local player = FieldPlayer.new({
+    currentMap = runtimeMap,
+    fieldX = resolved.worldOriginX + 16,
+    fieldZ = resolved.worldOriginZ + 10,
+    surfaceId = 4,
+    facing = "north",
+  })
+  local profile = {
+    projectionType = "perspective", distanceTiles = 10,
+    angleXRaw = -8192, angleYRaw = 0,
+    halfFovRadians = math.rad(15), fullVerticalFovRadians = math.rad(30),
+    nearTiles = 1, farTiles = 100,
+    targetOffsetTiles = { x = 0, y = 0, z = 0 },
+  }
+  local camera = FieldCamera.new(profile, { initialTarget = player:renderPosition() })
+  local trace = {}
+  local session = FieldSession.new({
+    versionId = "private", currentMap = runtimeMap,
+    actor = player, player = player, camera = camera,
+    trace = function(record) trace[#trace + 1] = record end,
+  })
+
+  local directions = {
+    "north", "north", "north", "north", "east",
+    "south", "south", "south", "south",
+  }
+  local committedSurfaces = {}
+  for _, direction in ipairs(directions) do
+    local beforeY = player.worldY
+    for tick = 1, FieldPlayer.WALK_STEP_TICKS do
+      session:updateFixed({
+        heldDirection = direction,
+        pressedDirection = tick == 1 and direction or nil,
+      })
+      if direction == "north" then
+        Assert.isTrue(player.worldY >= beforeY - 1e-9, "stair ascent must be monotonic")
+      elseif direction == "south" then
+        Assert.isTrue(player.worldY <= beforeY + 1e-9, "stair descent must be monotonic")
+      end
+      beforeY = player.worldY
+    end
+    committedSurfaces[#committedSurfaces + 1] = player.surfaceId
+  end
+  Assert.deepEqual(committedSurfaces, { 0, 0, 0, 0, 0, 0, 0, 0, 11 })
+  Assert.equal(player.fieldX, resolved.worldOriginX + 17)
+  Assert.equal(player.fieldZ, resolved.worldOriginZ + 10)
+  Assert.equal(player.motion, "idle")
+
+  -- The east hold begins after ascent. Its source Y is flat while the recovered
+  -- seven-entry history continues applying the earlier slope deltas.
+  local firstHoldTick = 4 * FieldPlayer.WALK_STEP_TICKS + 1
+  Assert.equal(trace[firstHoldTick].cameraSourceY, trace[firstHoldTick - 1].cameraSourceY)
+  Assert.isTrue(trace[firstHoldTick].cameraAppliedY > trace[firstHoldTick - 1].cameraAppliedY,
+    "camera Y should retain the delayed ascent delta")
 end
 
 return T
