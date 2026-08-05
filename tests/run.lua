@@ -45,6 +45,7 @@ local MODULES = {
   "libs.assets.tests.alpha_classifier_test",
   "libs.assets.tests.map_asset_compiler_test",
   "libs.assets.tests.map_asset_cache_test",
+  "libs.assets.tests.world_manifest_test",
   "libs.assets.tests.map_cache_writer_test",
   "libs.assets.tests.texture_decoder_test",
   "libs.assets.tests.gx_display_list_test",
