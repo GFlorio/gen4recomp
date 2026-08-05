@@ -14,9 +14,7 @@ function Cli.parse(argv)
     importRom = nil,
     importOnly = false,
     checkDump = false,
-    inspectMap = nil,
-    buildMap = nil,
-    map = nil,
+    inspect = false,
     build = false,
   }
 
@@ -34,15 +32,8 @@ function Cli.parse(argv)
       opts.importOnly = true
     elseif a == "--check-dump" then
       opts.checkDump = true
-    elseif a == "--inspect-map" then
-      i = i + 1
-      opts.inspectMap = argv[i] or error("--inspect-map requires a map id or symbol")
-    elseif a == "--build-map" then
-      i = i + 1
-      opts.buildMap = argv[i] or error("--build-map requires a map id or symbol")
-    elseif a == "--map" then
-      i = i + 1
-      opts.map = argv[i] or error("--map requires a map id or symbol")
+    elseif a == "--inspect" then
+      opts.inspect = true
     elseif a == "--build" then
       opts.build = true
     end

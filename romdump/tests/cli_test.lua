@@ -33,31 +33,9 @@ function T.missing_value_for_import_rom_errors()
   Assert.throws(function() Cli.parse({ "--import-rom" }) end)
 end
 
-function T.parses_inspect_map()
-  Assert.equal(Cli.parse({ "--inspect-map", "MAP_NEW_BARK" }).inspectMap, "MAP_NEW_BARK")
-  Assert.isNil(Cli.parse({}).inspectMap)
-end
-
-function T.missing_value_for_inspect_map_errors()
-  Assert.throws(function() Cli.parse({ "--inspect-map" }) end)
-end
-
-function T.parses_build_map()
-  Assert.equal(Cli.parse({ "--build-map", "MAP_NEW_BARK_ELMS_LAB_1F" }).buildMap, "MAP_NEW_BARK_ELMS_LAB_1F")
-  Assert.isNil(Cli.parse({}).buildMap)
-end
-
-function T.missing_value_for_build_map_errors()
-  Assert.throws(function() Cli.parse({ "--build-map" }) end)
-end
-
-function T.parses_map()
-  Assert.equal(Cli.parse({ "--map", "MAP_NEW_BARK_ELMS_LAB_1F" }).map, "MAP_NEW_BARK_ELMS_LAB_1F")
-  Assert.isNil(Cli.parse({}).map)
-end
-
-function T.missing_value_for_map_errors()
-  Assert.throws(function() Cli.parse({ "--map" }) end)
+function T.parses_inspect()
+  Assert.isTrue(Cli.parse({ "--inspect" }).inspect)
+  Assert.isFalse(Cli.parse({}).inspect)
 end
 
 function T.parses_build()
