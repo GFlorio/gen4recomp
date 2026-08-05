@@ -8,7 +8,7 @@
 
 local MapAssetCache = {}
 
-MapAssetCache.FORMAT = "map-cache-v2"
+MapAssetCache.FORMAT = "map-cache-v3"
 
 local DERIVED_DATA = "data/generated"
 local DERIVED_ASSETS = "assets/generated"
