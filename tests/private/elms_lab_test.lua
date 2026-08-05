@@ -1,7 +1,7 @@
 -- Private target test: Professor Elm's Lab 1F (map 61) against a real HGSS dump.
 -- Each function receives the open RomFs. This module is NOT in the public
 -- tests/run.lua suite; it runs only via `--test-private` where a dump exists,
--- and asserts the externally observable Gate 1 and Gate 2 conditions.
+-- and asserts the externally observable resolution and container conditions.
 
 local Assert = require("tests.support.Assert")
 local MapResolver = require("src.data.MapResolver")
@@ -28,7 +28,7 @@ local function isFinite(n)
 end
 
 -- Every texture must decode to a supported, finitely-dimensioned record with a
--- byte range inside the pack -- the observable Gate 3 texture inventory.
+-- byte range inside the pack -- the observable texture inventory.
 local function assertTextureInventory(label, pack, packSize)
   Assert.isTrue(#pack.textures > 0, label .. ": pack has textures")
   for _, t in ipairs(pack.textures) do
@@ -43,7 +43,7 @@ local function assertTextureInventory(label, pack, packSize)
   end
 end
 
--- Gate 1: semantic resolution through the catalog, matrix, and model grid.
+-- Semantic resolution through the catalog, matrix, and model grid.
 function T.gate1_semantic_resolution(romFs)
   local r = resolve(romFs)
   Assert.equal(r.map.id, 61)
@@ -58,7 +58,7 @@ function T.gate1_semantic_resolution(romFs)
   Assert.equal(r.worldOriginZ, 0)
 end
 
--- Gate 2: area-data member is exactly 8 bytes and decodes to the indoor pack.
+-- Area-data member is exactly 8 bytes and decodes to the indoor pack.
 function T.gate2_area_data(romFs)
   local r = resolve(romFs)
   local narc = assert(romFs:openNarc("area_data"))
@@ -70,7 +70,7 @@ function T.gate2_area_data(romFs)
   Assert.equal(area.lightType, 0)
 end
 
--- Gate 2: land-data container boundaries, BGS, permissions, buildings, model,
+-- Land-data container boundaries, BGS, permissions, buildings, model,
 -- BDHC.
 function T.gate2_land_containers(romFs)
   local r = resolve(romFs)
@@ -96,7 +96,7 @@ function T.gate2_land_containers(romFs)
   print("  [elms_lab] permission values: " .. table.concat(land.permissions:usedPermissionValues(), " "))
 end
 
--- Gate 3: the map and building texture packs inventory cleanly, and every
+-- The map and building texture packs inventory cleanly, and every
 -- material name the map model references resolves to a real texture.
 function T.gate3_texture_inventory(romFs)
   local r = resolve(romFs)
@@ -120,7 +120,7 @@ function T.gate3_texture_inventory(romFs)
   end
 end
 
--- Gate 4: the map model inventories fully -- counts, SBC/GX opcode coverage,
+-- The map model inventories fully -- counts, SBC/GX opcode coverage,
 -- material associations, and finite bounds for every shape batch -- with no
 -- unsupported command in the Elm target set.
 function T.gate4_geometry_inventory(romFs)
@@ -183,7 +183,7 @@ function T.gate4_geometry_inventory(romFs)
     #report.buildings.modelIds))
 end
 
--- Gate 6 (slice 6): every parsed material record is structurally valid and
+-- Every parsed material record is structurally valid and
 -- every compiled vertex carries a resolved color source.
 function T.gate6_material_and_vertex_validity(romFs)
   local r = resolve(romFs)
@@ -211,7 +211,7 @@ function T.gate6_material_and_vertex_validity(romFs)
   end
 end
 
--- Gate 7: the debug player traverses the real permission grid tile-by-tile,
+-- The debug player traverses the real permission grid tile-by-tile,
 -- stays inside the 32x32 cell, is blocked only by the 0x80 hard-block bit
 -- (responses 4/6 stay passable), and can stand at and around the exit warp.
 function T.gate7_traversal(romFs)

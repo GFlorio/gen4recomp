@@ -137,7 +137,7 @@ function App._runBuildMap(idOrSymbol)
   love.event.quit(allOk and 0 or 1)
 end
 
--- Interactive 3D map diagnostic (Gate 6). Boots straight into the first ready
+-- Interactive 3D map diagnostic. Boots straight into the first ready
 -- version's compiled map, compiling on demand if the cache is cold.
 function App._bootMap(idOrSymbol)
   local MapDiagnosticState = require("src.ui.MapDiagnosticState")

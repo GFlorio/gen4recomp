@@ -108,7 +108,7 @@ function T.gate6_lighting_profile_deterministic(romFs, version)
   Assert.equal(b2.dependencies.fieldLightSourceSha1, l2.sourceSha1)
 end
 
--- Gate 6 regression: DS texcoords are in texel units and must be normalized to
+-- Regression: DS texcoords are in texel units and must be normalized to
 -- [0,1] by the bound texture size. Before the fix the healing machine (64px
 -- texture) carried UVs up to 63 and clamped to a black edge texel. Elm's models
 -- are all clamp/single-texture, so no legitimate UV should approach the raw
@@ -124,7 +124,7 @@ function T.gate6_uvs_are_normalized(romFs, version)
   Assert.isTrue(maxUV <= 8, "normalized UVs stay small, got max " .. maxUV)
 end
 
--- Gate 8: cache-only restart. After a successful compile the map loads and
+-- Cache-only restart. After a successful compile the map loads and
 -- traverses from the derived cache alone -- no ROM, and geometry comes from
 -- baked G4M2 batches rather than a re-parsed NSBMD. Modelled by building into an
 -- in-memory backend, then reopening a fresh CacheFs over the same backend and
