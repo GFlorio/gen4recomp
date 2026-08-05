@@ -30,6 +30,10 @@ MapDiagnosticState.__index = MapDiagnosticState
 
 local MOVE_KEYS = { w = "north", s = "south", a = "west", d = "east" }
 
+-- Tab cycles the diagnostic between the two vertical-slice targets. The list is
+-- symbol-based (not a member-id heuristic) so the switch reads as a map identity.
+local SWITCH_TARGETS = { "MAP_NEW_BARK_ELMS_LAB_1F", "MAP_NEW_BARK" }
+
 function MapDiagnosticState.new(versionId, idOrSymbol)
   local envTime = os.getenv("G4RECOMP_FIELD_TIME")
   local self = setmetatable({
@@ -174,7 +178,28 @@ function MapDiagnosticState:_maybeCaptureAndQuit()
   end
 end
 
+-- Env-gated switch stress: after a short warmup, toggle between the two targets
+-- once per frame for G4RECOMP_SWITCH_CYCLES iterations, releasing and rebuilding
+-- all GPU objects each time. Any failed load exits nonzero; completing every
+-- switch exits zero. Automated proof that repeated switching is stable/leak-free.
+function MapDiagnosticState:_maybeSwitchStress()
+  local n = tonumber(os.getenv("G4RECOMP_SWITCH_CYCLES") or "")
+  if not n then return end
+  self._switchStep = (self._switchStep or -3) + 1 -- warmup frames before the first switch
+  if self._switchStep <= 0 then return end
+  if self.errorText then
+    io.stderr:write("switch-stress: FAIL on load: " .. self.errorText .. "\n")
+    return love.event.quit(1)
+  end
+  if self._switchStep > n then
+    print(string.format("switch-stress: OK (%d switches, ended on %s)", n, self.runtime.scene.mapSymbol))
+    return love.event.quit(0)
+  end
+  self:_cycleMap()
+end
+
 function MapDiagnosticState:update(dt)
+  self:_maybeSwitchStress()
   self:_maybeCaptureAndQuit()
   if self.errorText then return end
   local step = dt * 6
@@ -311,7 +336,7 @@ function MapDiagnosticState:_drawHud()
     lines[#lines + 1] = string.format("anchor [dev]: %s @ local (%d,%d)%s", a.label, a.localX, a.localZ, g)
   end
   lines[#lines + 1] = "limitations: flat Y (no BDHC height), approximate camera"
-  lines[#lines + 1] = "WASD move   C follow/free   R reframe   Q/E hour   drag/arrows orbit   wheel zoom   Esc quit"
+  lines[#lines + 1] = "WASD move   Tab switch map   C follow/free   R reframe   Q/E hour   drag/arrows orbit   wheel zoom   Esc quit"
 
   lg.setColor(0, 0, 0, 0.55)
   lg.rectangle("fill", 12, 12, 640, 20 * #lines + 12)
@@ -344,6 +369,10 @@ function MapDiagnosticState:keypressed(key)
     love.event.quit(0)
     return
   end
+  if key == "tab" then
+    self:_cycleMap()
+    return
+  end
   if not self.runtime then return end
   local dir = MOVE_KEYS[key]
   if dir then
@@ -362,11 +391,42 @@ function MapDiagnosticState:keypressed(key)
   end
 end
 
-function MapDiagnosticState:quit()
+-- Release every GPU object this state owns (renderer canvases/shaders, the
+-- runtime's meshes/textures, and the overlay gizmo meshes) and drop the handles.
+-- Used both on shutdown and before switching maps so a switch cannot leak or
+-- keep stale GPU objects around.
+function MapDiagnosticState:_releaseGpu()
   if self.renderer then self.renderer:release() end
   if self.runtime then self.runtime:release() end
   if self.playerMesh then self.playerMesh:release() end
   if self.anchorMesh then self.anchorMesh:release() end
+  self.renderer, self.runtime = nil, nil
+  self.playerMesh, self.anchorMesh = nil, nil
+end
+
+-- Tear the current map down and load another target from scratch. Field time is
+-- preserved so the lighting/HUD state carries across; everything else (camera,
+-- player, meshes) is rebuilt by _load for the new scene.
+function MapDiagnosticState:_switchTo(idOrSymbol)
+  self:_releaseGpu()
+  self.idOrSymbol = idOrSymbol
+  self.errorText = nil
+  self.dragging = false
+  self:_load()
+end
+
+-- Cycle to the next vertical-slice target (Elm's Lab <-> New Bark).
+function MapDiagnosticState:_cycleMap()
+  local current = self.runtime and self.runtime.scene.mapSymbol or MapCatalog.require(self.idOrSymbol).symbol
+  local at = 1
+  for i, sym in ipairs(SWITCH_TARGETS) do
+    if sym == current then at = i break end
+  end
+  self:_switchTo(SWITCH_TARGETS[at % #SWITCH_TARGETS + 1])
+end
+
+function MapDiagnosticState:quit()
+  self:_releaseGpu()
 end
 
 return MapDiagnosticState
