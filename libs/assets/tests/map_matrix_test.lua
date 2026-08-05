@@ -1,6 +1,6 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.rom.src.Errors")
-local MapMatrix = require("romdump.src.digest.MapMatrix")
+local MapMatrix = require("libs.assets.src.MapMatrix")
 
 local T = {}
 

@@ -11,7 +11,7 @@
 
 local Errors = require("libs.rom.src.Errors")
 local Narc = require("libs.rom.src.Narc")
-local MapMatrix = require("romdump.src.digest.MapMatrix")
+local MapMatrix = require("libs.assets.src.MapMatrix")
 
 local RomExtractor = {}
 RomExtractor.__index = RomExtractor
