@@ -11,4 +11,4 @@ cd "$(dirname "$0")/.."
 source scripts/lib.sh
 
 MAP="${1:-MAP_NEW_BARK_ELMS_LAB_1F}"
-exec love . --inspect-map "$MAP"
+exec love romdump/ --inspect-map "$MAP"

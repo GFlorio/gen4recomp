@@ -6,17 +6,39 @@ runtime. This document covers the boot/import/runtime flow, the split between th
 raw dump and future derived data, and the three ID namespaces the code keeps
 strictly apart.
 
+## Repository layout
+
+The repository is a small monorepo: top-level directories are applications you
+run; `libs/` holds the capabilities they share. Each app is its own LÖVE root.
+
+```text
+game/         Interactive app — launcher, boot, and the 3D map diagnostic (love game/)
+romdump/      Headless ROM/asset CLI — import, audit, inspect, compile (love romdump/)
+libs/rom/     NDS/NitroFS/NARC formats, binary reading, ROM validation, dump filesystem
+libs/assets/  HGSS data decoding, map/mesh/material compilation, derived-cache formats
+libs/engine/  Rendering, cameras, scenes, collision/world primitives
+data/         Shared manifests (data/manifests/*.lua)
+tests/        Aggregate + private-target runners and shared fixtures (tests/support)
+```
+
+Unit tests live beside their library under `libs/<lib>/tests`; `tests/run.lua`
+is the aggregate list the runner iterates. An app's `main.lua` adds the repo
+root (its LÖVE source base directory) to `package.path`, so every module is
+required by its full repo-relative path — `libs.rom.src.NdsRom`,
+`game.src.game.App`, `data.manifests.hgss`.
+
 ## Layers
 
-The code follows three layers. The domain layer is pure and testable without
-LÖVE; interface and infrastructure are allowed to depend on LÖVE and are kept
-thin.
+Cutting across that layout, the code follows three conceptual layers. The domain
+layer is pure and testable without LÖVE; interface and infrastructure are
+allowed to depend on LÖVE and are kept thin. `libs/rom` and `libs/assets` are
+overwhelmingly domain; `libs/engine` and the app `src/` trees are interface.
 
 | Layer | Modules | LÖVE? |
 | --- | --- | --- |
 | **Domain — pure parsers/decoders** | `BinaryReader`, `NdsRom`, `NitroFs`, `OverlayTable`, `Narc`, `MapMatrix`, `AreaData`, `LandData`, `Nsbmd`, `Nsbtx`, `GxDisplayList`, `DsMaterial`, `DsPolygonAttr`, `FieldLightProfile`, `DsLighting`, `RenderQueue`, `LuaWriter`, `Errors`, `GameVersion` | no |
 | **Infrastructure** | `RomSource` (owns the ROM bytes, SHA-1), `CacheFs` (private per-version storage), `RomExtractor` (dump orchestration), `RomFs` (runtime read API), `DumpAudit`, `MapAssetCompiler`, `MapCacheWriter`, `MapAssetCache` | `RomSource`/`CacheFs` only |
-| **Interface** | `App` (dispatch/boot), `Cli` (flag parsing, pure), `RomImporter` (state machine + coroutine), `MapSceneLoader`, `MapRenderer`, `Gizmos`, `Camera3D`, `ui/*` states | yes |
+| **Interface** | `game` `App` (dispatch/boot), `romdump` `Cli` (flag parsing, pure) + `Runner` (headless commands), `RomImporter` (state machine + coroutine), `MapSceneLoader`, `MapRenderer`, `Gizmos`, `Camera3D`, the `game/src` UI states | yes |
 
 The pure parsers never touch LÖVE, never read a file, and never mutate global
 state — they take a byte string and return a validated structure or a structured
@@ -25,21 +47,32 @@ state — they take a byte string and return a validated structure or a structur
 
 ## Boot flow
 
-`main.lua` parses flags with `Cli`, then hands off to `App`:
+The interactive `game/main.lua` parses its flags inline, then hands off to
+`App`:
 
 ```
-love.load
-  └─ Cli.parse(argv)
-       ├─ --test          → run the synthetic suite, exit 0/1
-       ├─ --import-rom P   → App starts an import of P (headless if --import-only)
-       └─ (no rom)         → App inspects both version caches:
-                              0 ready → import screen
-                              1 ready → that version's diagnostic
-                              2 ready → version selector → diagnostic
+love game/
+  └─ love.load(argv)
+       ├─ --test / --test-private → run a suite, exit 0/1
+       ├─ --map ID                → boot straight into the 3D map diagnostic
+       └─ (no flags)              → App inspects both version caches:
+                                     0 ready → import screen
+                                     1 ready → that version's diagnostic
+                                     2 ready → version selector → diagnostic
 ```
 
-`--check-dump` is a headless verification path: it audits every ready cache with
-`DumpAudit` using only `RomFs`, never opening the ROM, and exits 0/1.
+The headless `romdump/main.lua` parses with `Cli` and dispatches to `Runner`,
+which drives `libs/rom` and `libs/assets` and exits with a status code:
+
+```
+love romdump/
+  └─ Runner.load(Cli.parse(argv))
+       ├─ --import-rom P [--import-only] → import P (version detected from SHA-1)
+       ├─ --check-dump                   → audit every ready cache with DumpAudit,
+       │                                   using only RomFs, never opening the ROM
+       ├─ --inspect-map ID               → payload-free map inventory
+       └─ --build-map ID                 → compile the map into the derived cache
+```
 
 ## Import flow
 

@@ -12,11 +12,11 @@ local T = {}
 -- anchors, and diagnostic state -- never in the renderer or compiler core.
 function T.no_target_specific_branches_in_core()
   local modules = {
-    "src/data/nitro/Nsbmd.lua",
-    "src/import/MaterialCompiler.lua",
-    "src/import/MeshCompiler.lua",
-    "src/render/MapRenderer.lua",
-    "src/render/shaders/map.glsl",
+    "libs/assets/src/nitro/Nsbmd.lua",
+    "libs/assets/src/MaterialCompiler.lua",
+    "libs/assets/src/MeshCompiler.lua",
+    "libs/engine/src/MapRenderer.lua",
+    "libs/engine/src/shaders/map.glsl",
   }
   local forbidden = {
     "MAP_NEW_BARK",

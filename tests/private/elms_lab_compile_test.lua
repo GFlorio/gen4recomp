@@ -6,15 +6,15 @@
 -- and spare the raw-dump marker. Runs only via --test-private.
 
 local Assert = require("tests.support.Assert")
-local CacheFs = require("src.import.CacheFs")
+local CacheFs = require("libs.rom.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
-local MapAssetCompiler = require("src.import.MapAssetCompiler")
-local MapCacheWriter = require("src.import.MapCacheWriter")
-local MapAssetCache = require("src.core.MapAssetCache")
-local SceneMesh = require("src.render.SceneMesh")
-local PermissionGrid = require("src.data.PermissionGrid")
-local CollisionGrid = require("src.world.CollisionGrid")
-local DebugPlayer = require("src.world.DebugPlayer")
+local MapAssetCompiler = require("libs.assets.src.MapAssetCompiler")
+local MapCacheWriter = require("libs.assets.src.MapCacheWriter")
+local MapAssetCache = require("libs.assets.src.MapAssetCache")
+local SceneMesh = require("libs.engine.src.SceneMesh")
+local PermissionGrid = require("libs.assets.src.PermissionGrid")
+local CollisionGrid = require("libs.engine.src.CollisionGrid")
+local DebugPlayer = require("libs.engine.src.DebugPlayer")
 
 local T = {}
 local SYMBOL = "MAP_NEW_BARK_ELMS_LAB_1F"

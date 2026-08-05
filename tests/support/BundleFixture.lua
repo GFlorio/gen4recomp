@@ -3,7 +3,7 @@
 -- one model descriptor, and a scene that references all three by their cache
 -- paths, plus a 2048-byte permission grid and a marker.
 
-local MapAssetCache = require("src.core.MapAssetCache")
+local MapAssetCache = require("libs.assets.src.MapAssetCache")
 
 local BundleFixture = {}
 

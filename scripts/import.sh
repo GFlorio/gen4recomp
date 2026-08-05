@@ -9,4 +9,4 @@ source scripts/lib.sh
 
 ROM="${1:?usage: import.sh <path-to.nds>}"
 
-exec love . --import-rom "$ROM" --import-only
+exec love romdump/ --import-rom "$ROM" --import-only
