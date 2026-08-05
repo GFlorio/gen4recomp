@@ -12,6 +12,8 @@ local MODULES = {
   "tests.private.elms_lab_compile_test",
   "tests.private.new_bark_test",
   "tests.private.field_camera_table_test",
+  "tests.private.zone_events_test",
+  "tests.private.terrain_surfaces_test",
   "tests.private.code_invariants_test",
 }
 

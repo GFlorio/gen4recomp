@@ -1,0 +1,111 @@
+-- Selects a reachable BDHC surface at a destination point. Compatibility
+-- policy for overlaps is continuity first, then unique nearest height; exact
+-- ties raise instead of silently choosing highest/lowest. Pure domain module.
+
+local Errors = require("libs.rom.src.Errors")
+
+local SurfaceResolver = {}
+SurfaceResolver.__index = SurfaceResolver
+
+local DEFAULT_JOIN_EPSILON = 1 / 4096
+local HEIGHT_TIE_EPSILON = 1e-9
+
+function SurfaceResolver.new(terrain, opts)
+  assert(terrain and terrain.candidatesAt and terrain.sampleHeight,
+    "SurfaceResolver.new requires a TerrainSurface")
+  opts = opts or {}
+  return setmetatable({ terrain = terrain, joinEpsilon = opts.joinEpsilon or DEFAULT_JOIN_EPSILON },
+    SurfaceResolver)
+end
+
+local function raise(code, message, opts, extra)
+  extra = extra or {}
+  extra.localX = opts.localX
+  extra.localZ = opts.localZ
+  extra.currentSurfaceId = opts.currentSurfaceId
+  Errors.raise(code, message, extra)
+end
+
+local function closestUnique(terrain, candidates, localX, localZ, currentY, opts)
+  if #candidates == 1 then return candidates[1] end
+  if currentY == nil then
+    raise("TERRAIN_SURFACE_AMBIGUOUS", "multiple terrain surfaces cover the coordinate", opts,
+      { candidateCount = #candidates })
+  end
+  local best, bestDelta, tied
+  for _, plate in ipairs(candidates) do
+    local delta = math.abs(terrain:sampleHeight(plate.id, localX, localZ) - currentY)
+    if not bestDelta or delta < bestDelta - HEIGHT_TIE_EPSILON then
+      best, bestDelta, tied = plate, delta, false
+    elseif math.abs(delta - bestDelta) <= HEIGHT_TIE_EPSILON then
+      tied = true
+    end
+  end
+  if tied then
+    raise("TERRAIN_SURFACE_AMBIGUOUS", "equally near terrain surfaces cover the coordinate", opts,
+      { candidateCount = #candidates, heightDelta = bestDelta })
+  end
+  return best
+end
+
+function SurfaceResolver:resolve(opts)
+  assert(type(opts) == "table", "SurfaceResolver.resolve requires options")
+  assert(type(opts.localX) == "number" and type(opts.localZ) == "number",
+    "destination coordinates must be numbers")
+  local candidates = self.terrain:candidatesAt(opts.localX, opts.localZ)
+  if #candidates == 0 then
+    raise("TERRAIN_SURFACE_NOT_FOUND", "no terrain surface covers the coordinate", opts)
+  end
+
+  local current = opts.currentSurfaceId ~= nil and self.terrain:plate(opts.currentSurfaceId) or nil
+  if opts.currentSurfaceId ~= nil and not current then
+    raise("TERRAIN_SURFACE_NOT_FOUND", "current terrain surface does not exist", opts)
+  end
+
+  if current and opts.crossing then
+    local crossing = opts.crossing
+    assert(type(crossing.fromX) == "number" and type(crossing.fromZ) == "number"
+      and type(crossing.toX) == "number" and type(crossing.toZ) == "number",
+      "crossing requires numeric endpoints")
+    if not self.terrain:contains(current.id, crossing.fromX, crossing.fromZ) then
+      raise("TERRAIN_SURFACE_DISCONNECTED", "current surface does not cover the crossing source",
+        opts, { fromX = crossing.fromX, fromZ = crossing.fromZ })
+    end
+  end
+
+  if current and self.terrain:contains(current.id, opts.localX, opts.localZ) then
+    return self.terrain:sample(current.id, opts.localX, opts.localZ)
+  end
+
+  local eligible = candidates
+  if current and opts.crossing then
+    local crossing = opts.crossing
+    local edgeX = (crossing.fromX + crossing.toX) / 2
+    local edgeZ = (crossing.fromZ + crossing.toZ) / 2
+    if not self.terrain:contains(current.id, edgeX, edgeZ) then
+      raise("TERRAIN_SURFACE_DISCONNECTED", "current surface does not reach the shared edge",
+        opts, { edgeX = edgeX, edgeZ = edgeZ })
+    end
+    local sourceY = self.terrain:sampleHeight(current.id, edgeX, edgeZ)
+    eligible = {}
+    for _, plate in ipairs(candidates) do
+      if self.terrain:contains(plate.id, edgeX, edgeZ) then
+        local destinationY = self.terrain:sampleHeight(plate.id, edgeX, edgeZ)
+        if math.abs(sourceY - destinationY) <= self.joinEpsilon then
+          eligible[#eligible + 1] = plate
+        end
+      end
+    end
+    if #eligible == 0 then
+      raise("TERRAIN_SURFACE_DISCONNECTED", "destination surfaces do not meet the current surface",
+        opts, { edgeX = edgeX, edgeZ = edgeZ, joinEpsilon = self.joinEpsilon })
+    end
+  end
+
+  local selected = closestUnique(self.terrain, eligible, opts.localX, opts.localZ, opts.currentY, opts)
+  return self.terrain:sample(selected.id, opts.localX, opts.localZ)
+end
+
+SurfaceResolver.SURFACE_JOIN_EPSILON = DEFAULT_JOIN_EPSILON
+
+return SurfaceResolver

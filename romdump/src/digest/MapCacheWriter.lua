@@ -1,6 +1,6 @@
 -- Persists a compiled map bundle to the derived cache in a marker-last
 -- transaction: shared content-addressed meshes and textures first, then model
--- descriptors, the permission grid, the scene descriptor, and the dependency
+-- descriptors, the permission grid, terrain surfaces, the scene descriptor, and the dependency
 -- record; only after reading everything back and confirming the map validates
 -- is the completion marker written. Any failure rolls back the map's own subtree
 -- and re-raises, never touching the raw ROM dump. All writes go through CacheFs,
@@ -35,11 +35,16 @@ local function persist(cacheFs, bundle)
       "permission grid is " .. #bundle.permissions .. " bytes, expected 2048", { mapId = mapId })
   end
   cacheFs:write(dir .. "/permissions.bin", bundle.permissions)
-  -- 5. Scene descriptor. 6. Dependency record.
+  -- 5. Terrain surfaces.
+  if type(bundle.terrain) ~= "table" or bundle.terrain.schema ~= "g4-terrain-surfaces-v1" then
+    Errors.raise("MAP_CACHE_BAD_TERRAIN", "terrain artifact is missing or has the wrong schema", { mapId = mapId })
+  end
+  cacheFs:writeLua(MapAssetCache.terrainPath(mapId), bundle.terrain)
+  -- 6. Scene descriptor. 7. Dependency record.
   cacheFs:writeLua(dir .. "/scene.lua", bundle.scene)
   cacheFs:writeLua(dir .. "/dependencies.lua", bundle.dependencies)
 
-  -- 7. Read back and validate every reference (including model-descriptor
+  -- 8. Read back and validate every reference (including model-descriptor
   --    internals) before committing the marker. isReady requires the marker too,
   --    so probe with the intended marker after the marker file is written;
   --    here validate references directly.
@@ -53,7 +58,7 @@ local function persist(cacheFs, bundle)
     end
   end
 
-  -- 8. Completion marker, written last.
+  -- 9. Completion marker, written last.
   cacheFs:write(dir .. "/complete", bundle.marker)
   return bundle.marker
 end

@@ -35,6 +35,7 @@ is authoritative only for semantic naming and structure interpretation.
 | Map-matrix member layout (width/height, optional headers & altitudes, model IDs) | `libs/assets/src/MapMatrix.lua` | `pret/pokeheartgold`: `src/map_matrix.c`, `include/map_matrix.h` |
 | Area-data member layout (texture packs, dynamic texture, area/light type) | `libs/assets/src/AreaData.lua` | `pret/pokeheartgold`: `src/fielddata.c`, `include/fielddata.h` |
 | Land-data container (BGS, permissions, buildings, model, BDHC) | `libs/assets/src/LandData.lua` | `pret/pokeheartgold`: `src/land_data.c`, `include/land_data.h` |
+| HGSS BDHC points, slopes, heights, plates, strips, and access lists | `libs/assets/src/HgssBdhc.lua` | `Pokemon-DS-Map-Studio`: `BdhcLoaderHGSS.java`, `BdhcWriterHGSS.java` at `ac30b653e5b090ce116278ed6ba9758fff956673`; target facts checked against the canonical dump |
 | `NNSG3dResMatData` fixed prefix (item tag, size, color words, polygon attributes, texture params, flags, original size) | `libs/assets/src/nitro/Nsbmd.lua` | NitroSDK `res_struct.h` (`NNSG3dResMatData`), GBATEK "GX 3D" for `POLYGON_ATTR`, `DIF_AMB`, `SPE_EMI` packing |
 | DS geometry-engine display list | `libs/assets/src/nitro/GxDisplayList.lua` | GBATEK "DS Video Geometry Commands" |
 | HGSS field-light profile text format and `lightTypeRaw` → profile mapping | `libs/assets/src/FieldLightProfile.lua`, `libs/assets/src/HgssFieldLighting.lua` | `pret/pokeheartgold`: `src/field_light.c`, `include/field_light.h`; profile tables under `data/area*light.txt` |

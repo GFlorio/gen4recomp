@@ -42,6 +42,7 @@ function T.gate5_deterministic_bytes(romFs, version)
   Assert.equal(b1.marker, b2.marker)
   Assert.equal(c1:read(dir .. "/scene.lua"), c2:read(dir .. "/scene.lua"))
   Assert.equal(c1:read(dir .. "/dependencies.lua"), c2:read(dir .. "/dependencies.lua"))
+  Assert.equal(c1:read(MapAssetCache.terrainPath(MAP_ID)), c2:read(MapAssetCache.terrainPath(MAP_ID)))
   Assert.deepEqual(sortedKeys(b1.meshes), sortedKeys(b2.meshes))
   Assert.deepEqual(sortedKeys(b1.textures), sortedKeys(b2.textures))
 
@@ -60,6 +61,8 @@ function T.gate5_completeness_and_ready(romFs, version)
   Assert.isTrue(MapAssetCache.isReady(c, MAP_ID, marker), "cache reports ready")
   Assert.equal(#c:read(MapAssetCache.mapDir(MAP_ID) .. "/permissions.bin"), 2048)
   Assert.equal(bundle.scene.schema, "g4-map-scene-v2")
+  Assert.equal(bundle.terrain.schema, "g4-terrain-surfaces-v1")
+  Assert.isTrue(c:exists(MapAssetCache.terrainPath(MAP_ID)), "terrain artifact on disk")
 
   Assert.equal(#sortedKeys(bundle.models), 9)      -- unique indoor building models
   Assert.equal(#bundle.scene.buildingInstances, 15) -- placed instances
@@ -144,6 +147,8 @@ function T.gate8_cache_only_restart(romFs, version)
 
   local dir = MapAssetCache.mapDir(MAP_ID)
   local scene = assert(cache:loadLua(dir .. "/scene.lua"))
+  local terrain = assert(cache:loadLua(MapAssetCache.terrainPath(MAP_ID)))
+  Assert.equal(terrain.schema, "g4-terrain-surfaces-v1")
 
   -- Geometry loads as baked G4M2 batches from the derived-asset subtree; the map
   -- never re-parses NSBMD/NSBTX at load, and no reference escapes the cache.

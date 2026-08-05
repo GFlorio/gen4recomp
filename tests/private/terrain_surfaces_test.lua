@@ -1,0 +1,122 @@
+-- Private Gate 6 facts for the canonical target BDHC payloads and New Bark's
+-- east laboratory staircase. These assertions intentionally freeze normalized
+-- metadata and the geometric traversal path before FieldPlayer consumes it.
+
+local Assert = require("tests.support.Assert")
+local MapResolver = require("romdump.src.digest.MapResolver")
+local LandData = require("romdump.src.digest.LandData")
+local HgssBdhc = require("libs.assets.src.HgssBdhc")
+local TerrainSurface = require("libs.engine.src.TerrainSurface")
+local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
+local TerrainInspector = require("romdump.src.digest.TerrainInspector")
+local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
+local Hashing = require("romdump.src.digest.Hashing")
+
+local T = {}
+
+local function near(actual, expected, epsilon)
+  Assert.isTrue(math.abs(actual - expected) <= (epsilon or 1e-5),
+    string.format("expected %.8f, got %.8f", expected, actual))
+end
+
+local function load(romFs, symbol)
+  local resolved = assert(MapResolver.resolve(romFs, symbol))
+  local bytes = assert(romFs:openNarc("land_data")):readMember(resolved.landDataMemberId)
+  local land = assert(LandData.decode(bytes, { mapId = resolved.map.id,
+    alias = "land_data", memberId = resolved.landDataMemberId }))
+  return assert(HgssBdhc.decode(land.bdhcBytes, { mapId = resolved.map.id,
+    alias = "land_data", memberId = resolved.landDataMemberId })), resolved
+end
+
+function T.target_payloads_decode_completely(romFs)
+  local newBark = load(romFs, "MAP_NEW_BARK")
+  Assert.deepEqual(newBark.counts, {
+    points = 37, slopes = 2, heights = 3, plates = 20, strips = 7, accessEntries = 47,
+  })
+  local lab = load(romFs, "MAP_NEW_BARK_ELMS_LAB_1F")
+  Assert.deepEqual(lab.counts, {
+    points = 2, slopes = 1, heights = 1, plates = 1, strips = 1, accessEntries = 1,
+  })
+  Assert.equal(lab.plates[1].id, 0)
+  Assert.equal(lab.plates[1].minX, 0)
+  Assert.equal(lab.plates[1].minZ, 0)
+  Assert.equal(lab.plates[1].maxX, 32)
+  Assert.equal(lab.plates[1].maxZ, 32)
+  near(lab.plates[1].distance, 0)
+end
+
+function T.every_land_member_bdhc_decodes_completely(romFs)
+  local narc = assert(romFs:openNarc("land_data"))
+  for memberId = 0, narc:memberCount() - 1 do
+    local land = assert(LandData.decode(assert(narc:readMember(memberId)),
+      { alias = "land_data", memberId = memberId }))
+    local terrain = assert(HgssBdhc.decode(land.bdhcBytes,
+      { alias = "land_data", memberId = memberId }))
+    Assert.equal(terrain.counts.plates, #terrain.plates)
+    Assert.equal(terrain.counts.accessEntries, #terrain.accessEntries)
+  end
+end
+
+function T.target_terrain_artifacts_are_deterministic(romFs)
+  for _, symbol in ipairs({ "MAP_NEW_BARK", "MAP_NEW_BARK_ELMS_LAB_1F" }) do
+    local first = assert(MapAssetCompiler.compile(romFs, symbol))
+    local second = assert(MapAssetCompiler.compile(romFs, symbol))
+    Assert.equal(first.terrain.schema, "g4-terrain-surfaces-v1")
+    Assert.equal(first.scene.terrain.file, first.scene.collision.file:gsub("permissions%.bin$", "terrain.lua"))
+    Assert.equal(Hashing.hashLua(first.terrain), Hashing.hashLua(second.terrain))
+    Assert.equal(first.dependencies.bdhcSha1, first.terrain.source.bdhcSha1)
+  end
+end
+
+function T.new_bark_east_staircase_facts_and_path_are_frozen(romFs)
+  local artifact, resolved = load(romFs, "MAP_NEW_BARK")
+  local terrain = TerrainSurface.new(artifact)
+  local stair = artifact.plates[1]
+  Assert.equal(stair.id, 0)
+  Assert.deepEqual({ stair.minX, stair.minZ, stair.maxX, stair.maxZ }, { 16, 6, 18, 10 })
+  local slope = artifact.slopes[stair.slopeIndex + 1]
+  Assert.deepEqual({ slope.nxRaw, slope.nyRaw, slope.nzRaw }, { 0, 2896, 2896 })
+  near(stair.normal.x, 0)
+  near(stair.normal.y, math.sqrt(0.5))
+  near(stair.normal.z, math.sqrt(0.5))
+  near(terrain:sampleHeight(0, 16.5, 10), 1)
+  near(terrain:sampleHeight(0, 16.5, 6), 5)
+
+  -- Plate 4 joins the west half of the lower edge; plate 11 joins the east
+  -- half. The upper hold step crosses X while remaining on ramp plate 0.
+  near(terrain:sampleHeight(4, 16.5, 10), 1)
+  near(terrain:sampleHeight(11, 17.5, 10), 1)
+  local path = {
+    { x = 16.5, z = 10.5, surfaceId = 4 },
+    { x = 16.5, z = 9.5, surfaceId = 0 },
+    { x = 16.5, z = 8.5, surfaceId = 0 },
+    { x = 16.5, z = 7.5, surfaceId = 0 },
+    { x = 16.5, z = 6.5, surfaceId = 0 },
+    { x = 17.5, z = 6.5, surfaceId = 0 },
+    { x = 17.5, z = 7.5, surfaceId = 0 },
+    { x = 17.5, z = 8.5, surfaceId = 0 },
+    { x = 17.5, z = 9.5, surfaceId = 0 },
+    { x = 17.5, z = 10.5, surfaceId = 11 },
+  }
+  local resolver = SurfaceResolver.new(terrain)
+  local current = path[1]
+  local currentY = terrain:sampleHeight(current.surfaceId, current.x, current.z)
+  for index = 2, #path do
+    local destination = path[index]
+    local sample = resolver:resolve({
+      localX = destination.x, localZ = destination.z,
+      currentSurfaceId = current.surfaceId, currentY = currentY,
+      crossing = { fromX = current.x, fromZ = current.z,
+        toX = destination.x, toZ = destination.z },
+    })
+    Assert.equal(sample.surfaceId, destination.surfaceId, "path surface at step " .. index)
+    current, currentY = destination, sample.worldY
+  end
+
+  local report = TerrainInspector.inspect(artifact, { minX = 16, minZ = 6, maxX = 18, maxZ = 10 })
+  print(string.format("  [terrain] map %d origin (%d,%d) staircase metadata:",
+    resolved.map.id, resolved.worldOriginX, resolved.worldOriginZ))
+  for _, line in ipairs(TerrainInspector.lines(report)) do print("  " .. line) end
+end
+
+return T

@@ -32,6 +32,11 @@ function BundleFixture.minimal(mapId)
     scene = scene,
     dependencies = { cacheFormat = MapAssetCache.FORMAT },
     permissions = string.rep("\0", 2048),
+    terrain = {
+      schema = "g4-terrain-surfaces-v1",
+      source = { landDataMemberId = 0, bdhcOffset = 0, bdhcSize = 16, bdhcSha1 = "bdhcsha1" },
+      points = {}, slopes = {}, heights = {}, plates = {}, strips = {}, accessEntries = {},
+    },
     meshes = { [meshSha] = { vertices = { v(0, 0), v(1, 0), v(0, 1) }, indices = { 0, 1, 2 } } },
     textures = { [texSha] = { pixels = string.char(10, 20, 30, 255), width = 1, height = 1 } },
     models = { [modelKey] = { materials = {}, batches = {} } },

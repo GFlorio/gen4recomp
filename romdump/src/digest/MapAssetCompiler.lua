@@ -10,6 +10,7 @@
 local MapResolver = require("romdump.src.digest.MapResolver")
 local AreaData = require("romdump.src.digest.AreaData")
 local LandData = require("romdump.src.digest.LandData")
+local HgssBdhc = require("libs.assets.src.HgssBdhc")
 local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
 local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
 local MeshCompiler = require("romdump.src.digest.MeshCompiler")
@@ -31,7 +32,7 @@ local Errors = require("libs.rom.src.Errors")
 
 local MapAssetCompiler = {}
 
-local COMPILER_VERSION = "map-compiler-v8"
+local COMPILER_VERSION = "map-compiler-v9"
 local COORDINATE_CONVENTION = "nsbmd-sbc-matrix-16-tile-v3"
 local SCENE_SCHEMA = "g4-map-scene-v2"
 
@@ -151,6 +152,27 @@ local function _compile(romFs, idOrSymbol)
   local landBytes = readMember(landNarc, "land_data", resolved.landDataMemberId)
   local land = assert(LandData.decode(landBytes,
     { mapId = mapId, alias = "land_data", memberId = resolved.landDataMemberId }))
+  local decodedTerrain = assert(HgssBdhc.decode(land.bdhcBytes,
+    { mapId = mapId, alias = "land_data", memberId = resolved.landDataMemberId,
+      offset = land.offsets.bdhc, size = land.sizes.bdhc }))
+  local bdhcSha1 = Hashing.sha1hex(land.bdhcBytes)
+  local terrain = {
+    schema = "g4-terrain-surfaces-v1",
+    sourceFormat = decodedTerrain.schema,
+    source = {
+      landDataMemberId = resolved.landDataMemberId,
+      bdhcOffset = land.offsets.bdhc,
+      bdhcSize = land.sizes.bdhc,
+      bdhcSha1 = bdhcSha1,
+    },
+    counts = decodedTerrain.counts,
+    points = decodedTerrain.points,
+    slopes = decodedTerrain.slopes,
+    heights = decodedTerrain.heights,
+    plates = decodedTerrain.plates,
+    strips = decodedTerrain.strips,
+    accessEntries = decodedTerrain.accessEntries,
+  }
 
   -- Map model + calibration.
   local mapNsbmd = assert(Nsbmd.decode(land.mapModelBytes,
@@ -268,6 +290,8 @@ local function _compile(romFs, idOrSymbol)
     matrixMemberSha1 = Hashing.sha1hex(matrixBytes),
     areaDataMemberSha1 = Hashing.sha1hex(areaBytes),
     landDataMemberSha1 = Hashing.sha1hex(landBytes),
+    terrainSchemaVersion = terrain.schema,
+    bdhcSha1 = bdhcSha1,
     mapTextureMemberSha1 = Hashing.sha1hex(mapTexBytes),
     buildingArchive = archiveAlias,
     uniqueBuildingModelMemberSha1s = buildingModelShas,
@@ -305,6 +329,10 @@ local function _compile(romFs, idOrSymbol)
       height = 32,
       file = MapAssetCache.mapDir(mapId) .. "/permissions.bin",
     },
+    terrain = {
+      schema = terrain.schema,
+      file = MapAssetCache.terrainPath(mapId),
+    },
     mapBatches = mapCompiled.batches,
     materials = mapCompiled.materials,
     buildingInstances = buildingInstances,
@@ -320,8 +348,7 @@ local function _compile(romFs, idOrSymbol)
     },
     limitations = {
       dynamicTexturesStatic = true,
-      bdhcNotUsedForPlayerHeight = true,
-      approximateCamera = true,
+      terrainNotUsedForPlayerHeight = true,
     },
     lighting = {
       lightTypeRaw = area.lightTypeRaw,
@@ -339,6 +366,7 @@ local function _compile(romFs, idOrSymbol)
     scene = scene,
     dependencies = dependencies,
     permissions = land.permissionBytes,
+    terrain = terrain,
     meshes = meshes,
     textures = textures,
     models = models,
