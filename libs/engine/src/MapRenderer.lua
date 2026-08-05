@@ -12,7 +12,7 @@
 -- the loader and compiler; here everything is already resident.
 
 local RenderQueue = require("libs.engine.src.RenderQueue")
-local Matrix3 = require("libs.engine.src.Matrix3")
+local Matrix3 = require("libs.math.src.Matrix3")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
 
 local MapRenderer = {}

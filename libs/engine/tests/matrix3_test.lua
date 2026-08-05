@@ -2,7 +2,7 @@
 -- matrix under rotation and nonuniform scale, and vector transformation.
 
 local Assert = require("tests.support.Assert")
-local Matrix3 = require("libs.engine.src.Matrix3")
+local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")
 
 local T = {}
