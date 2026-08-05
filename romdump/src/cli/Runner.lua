@@ -65,7 +65,7 @@ end
 -- payload-free report. Exits 0 if any version was inspected without an uncaught
 -- error, 1 otherwise.
 function Runner._runInspectMap(idOrSymbol)
-  local MapAssetInspector = require("libs.assets.src.MapAssetInspector")
+  local MapAssetInspector = require("romdump.src.digest.MapAssetInspector")
   local targets = readyVersions()
   if #targets == 0 then
     print("inspect-map: no ready version to inspect")
@@ -95,8 +95,8 @@ end
 -- (skipping a rebuild when the marker already matches) and print the completion
 -- marker. Exits 0 if every version compiled, 1 otherwise.
 function Runner._runBuildMap(idOrSymbol)
-  local MapAssetCompiler = require("libs.assets.src.MapAssetCompiler")
-  local MapCacheWriter = require("libs.assets.src.MapCacheWriter")
+  local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
+  local MapCacheWriter = require("romdump.src.digest.MapCacheWriter")
   local MapAssetCache = require("libs.assets.src.MapAssetCache")
   local CacheFs = require("libs.rom.src.CacheFs")
   local targets = readyVersions()
@@ -130,11 +130,11 @@ end
 -- emit the world manifest. Idempotent: a map whose marker already matches is
 -- skipped. Exits 0 only if every map of every version built.
 function Runner._runBuild()
-  local MapCatalog = require("libs.assets.src.MapCatalog")
-  local MapAssetCompiler = require("libs.assets.src.MapAssetCompiler")
-  local MapCacheWriter = require("libs.assets.src.MapCacheWriter")
+  local MapCatalog = require("romdump.src.digest.MapCatalog")
+  local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
+  local MapCacheWriter = require("romdump.src.digest.MapCacheWriter")
   local MapAssetCache = require("libs.assets.src.MapAssetCache")
-  local WorldManifest = require("libs.assets.src.WorldManifest")
+  local WorldManifest = require("romdump.src.digest.WorldManifest")
   local CacheFs = require("libs.rom.src.CacheFs")
   local targets = readyVersions()
   if #targets == 0 then
