@@ -1,0 +1,186 @@
+-- Deterministic field actor movement over permission and BDHC terrain data.
+-- Integer field coordinates commit only after a fixed-duration tile step;
+-- continuous XYZ is the shared camera and renderer position throughout it.
+
+local Errors = require("libs.rom.src.Errors")
+local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
+local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
+
+local FieldPlayer = {}
+FieldPlayer.__index = FieldPlayer
+
+-- Provisional gameplay timing, centralized for later emulator calibration.
+FieldPlayer.WALK_STEP_TICKS = 8
+
+local DELTAS = {
+  north = { x = 0, z = -1 },
+  south = { x = 0, z = 1 },
+  west = { x = -1, z = 0 },
+  east = { x = 1, z = 0 },
+}
+
+local function isInteger(value)
+  return type(value) == "number" and value == math.floor(value)
+end
+
+local function recoverableMovementError(err)
+  return Errors.is(err) and (err.code == "FIELD_COORDINATES_OUT_OF_COVERAGE"
+    or err.code:match("^TERRAIN_SURFACE_") ~= nil)
+end
+
+function FieldPlayer.new(options)
+  assert(type(options) == "table" and options.currentMap, "FieldPlayer map required")
+  assert(isInteger(options.fieldX) and isInteger(options.fieldZ),
+    "FieldPlayer integer field coordinates required")
+  assert(type(options.surfaceId) == "number", "FieldPlayer surface id required")
+  local map = options.currentMap
+  local localX, localZ = FieldCoordinates.fieldToLocal(map, options.fieldX, options.fieldZ)
+  local sample = map.terrain:sample(options.surfaceId, localX + 0.5, localZ + 0.5)
+  local point = FieldCoordinates.fieldToWorld(map, options.fieldX, options.fieldZ, sample.worldY)
+  return setmetatable({
+    currentMap = map,
+    resolver = SurfaceResolver.new(map.terrain),
+    fieldX = options.fieldX,
+    fieldZ = options.fieldZ,
+    localX = localX,
+    localZ = localZ,
+    worldX = point.x,
+    worldY = point.y,
+    worldZ = point.z,
+    previousWorldX = point.x,
+    previousWorldY = point.y,
+    previousWorldZ = point.z,
+    surfaceId = sample.surfaceId,
+    facing = options.facing or "south",
+    motion = "idle",
+    progressTicks = 0,
+    durationTicks = FieldPlayer.WALK_STEP_TICKS,
+  }, FieldPlayer)
+end
+
+function FieldPlayer:_resolveStep(direction)
+  local delta = assert(DELTAS[direction], "unknown field direction " .. tostring(direction))
+  local destinationX, destinationZ = self.fieldX + delta.x, self.fieldZ + delta.z
+  local ok, result = pcall(function()
+    local destinationLocalX, destinationLocalZ =
+      FieldCoordinates.fieldToLocal(self.currentMap, destinationX, destinationZ)
+    if self.currentMap.permissions:isBlockedLocal(destinationLocalX, destinationLocalZ) then
+      return nil
+    end
+    local sourceX, sourceZ = self.localX + 0.5, self.localZ + 0.5
+    local destinationCenterX, destinationCenterZ = destinationLocalX + 0.5, destinationLocalZ + 0.5
+    local sample = self.resolver:resolve({
+      localX = destinationCenterX,
+      localZ = destinationCenterZ,
+      currentSurfaceId = self.surfaceId,
+      currentY = self.worldY,
+      crossing = {
+        fromX = sourceX, fromZ = sourceZ,
+        toX = destinationCenterX, toZ = destinationCenterZ,
+      },
+    })
+    local point = FieldCoordinates.fieldToWorld(
+      self.currentMap, destinationX, destinationZ, sample.worldY)
+    return {
+      fieldX = destinationX, fieldZ = destinationZ,
+      localX = destinationLocalX, localZ = destinationLocalZ,
+      worldX = point.x, worldY = point.y, worldZ = point.z,
+      surfaceId = sample.surfaceId,
+    }
+  end)
+  if not ok then
+    if recoverableMovementError(result) then return nil end
+    error(result)
+  end
+  return result
+end
+
+function FieldPlayer:tryStep(direction)
+  assert(DELTAS[direction], "unknown field direction " .. tostring(direction))
+  assert(self.motion == "idle", "cannot begin a field step while walking")
+  self.facing = direction
+  local destination = self:_resolveStep(direction)
+  if not destination then return false end
+  self.from = {
+    fieldX = self.fieldX, fieldZ = self.fieldZ,
+    localX = self.localX, localZ = self.localZ,
+    worldX = self.worldX, worldY = self.worldY, worldZ = self.worldZ,
+    surfaceId = self.surfaceId,
+  }
+  self.to = destination
+  self.motion = "walking"
+  self.progressTicks = 0
+  return true
+end
+
+function FieldPlayer:_advanceStep()
+  assert(self.motion == "walking" and self.from and self.to, "walking step endpoints required")
+  self.progressTicks = self.progressTicks + 1
+  local progress = self.progressTicks / self.durationTicks
+  self.worldX = self.from.worldX + (self.to.worldX - self.from.worldX) * progress
+  self.worldZ = self.from.worldZ + (self.to.worldZ - self.from.worldZ) * progress
+  if self.from.surfaceId == self.to.surfaceId then
+    local localX = self.from.localX + 0.5 + (self.to.localX - self.from.localX) * progress
+    local localZ = self.from.localZ + 0.5 + (self.to.localZ - self.from.localZ) * progress
+    self.worldY = self.currentMap.terrain:sampleHeight(self.to.surfaceId, localX, localZ)
+  else
+    self.worldY = self.from.worldY + (self.to.worldY - self.from.worldY) * progress
+  end
+  if self.progressTicks < self.durationTicks then return false end
+
+  self.fieldX, self.fieldZ = self.to.fieldX, self.to.fieldZ
+  self.localX, self.localZ = self.to.localX, self.to.localZ
+  self.worldX, self.worldY, self.worldZ = self.to.worldX, self.to.worldY, self.to.worldZ
+  self.surfaceId = self.to.surfaceId
+  self.motion = "idle"
+  self.progressTicks = 0
+  self.from, self.to = nil, nil
+  return true
+end
+
+function FieldPlayer:updateFixed(input)
+  input = input or {}
+  self.previousWorldX, self.previousWorldY, self.previousWorldZ =
+    self.worldX, self.worldY, self.worldZ
+
+  if self.motion == "walking" then
+    if input.pressedDirection then self.bufferedDirection = input.pressedDirection end
+    return self:_advanceStep()
+  end
+
+  local direction
+  if self.bufferedDirection and self.bufferedDirection == input.heldDirection then
+    direction = self.bufferedDirection
+  else
+    self.bufferedDirection = nil
+    direction = input.pressedDirection or input.heldDirection
+  end
+  if not direction then return false end
+  self.bufferedDirection = nil
+  if self:tryStep(direction) then self:_advanceStep() end
+  return false
+end
+
+function FieldPlayer:renderPosition(alpha)
+  alpha = alpha == nil and 1 or math.max(0, math.min(1, alpha))
+  return {
+    x = self.previousWorldX + (self.worldX - self.previousWorldX) * alpha,
+    y = self.previousWorldY + (self.worldY - self.previousWorldY) * alpha,
+    z = self.previousWorldZ + (self.worldZ - self.previousWorldZ) * alpha,
+  }
+end
+
+function FieldPlayer:status()
+  local plate = assert(self.currentMap.terrain:plate(self.surfaceId), "player surface missing")
+  return {
+    fieldX = self.fieldX, fieldZ = self.fieldZ,
+    localX = self.localX, localZ = self.localZ,
+    worldY = self.worldY, surfaceId = self.surfaceId,
+    surfaceNormal = { x = plate.normal.x, y = plate.normal.y, z = plate.normal.z },
+    slopeClass = plate.slopeClass,
+    destinationSurfaceId = self.to and self.to.surfaceId or nil,
+    facing = self.facing, motion = self.motion,
+  }
+end
+
+return FieldPlayer

@@ -7,12 +7,18 @@
 
 local GameVersion = require("libs.rom.src.GameVersion")
 local RomImporter = require("libs.rom.src.RomImporter")
-local Errors = require("libs.rom.src.Errors")
+local FieldState = require("game.src.game.FieldState")
 local MapDiagnosticState = require("game.src.game.MapDiagnosticState")
 local ImportState = require("game.src.launcher.ImportState")
 local VersionSelectState = require("game.src.launcher.VersionSelectState")
 
 local App = {}
+
+local function fieldTarget(option)
+  local target = option == true and nil or option
+  if type(target) == "string" and target:match("^%d+$") then return tonumber(target) end
+  return target
+end
 
 local function readyVersions()
   local out = {}
@@ -29,15 +35,22 @@ function App.load(opts)
   love.graphics.setBackgroundColor(0.08, 0.09, 0.12)
   App.saveDir = love.filesystem.getSaveDirectory()
 
-  if App.opts.field then
-    Errors.raise("FIELD_RUNTIME_UNAVAILABLE",
-      "--field is reserved, but the field runtime is not implemented yet",
-      { target = App.opts.field == true and nil or App.opts.field })
-  end
+  if App.opts.field then return App._bootField(App.opts.field) end
   if App.opts.map then
     return App._bootMap(App.opts.map)
   end
   App._bootExisting()
+end
+
+-- Boot the stationary fixed-step field shell. A bare --field selects Elm's Lab;
+-- an argument may select another compiled map by semantic symbol or numeric id.
+function App._bootField(idOrSymbol)
+  local ready = readyVersions()
+  if #ready == 0 then
+    App._startImport()
+    return
+  end
+  App.state = FieldState.new(ready[1], fieldTarget(idOrSymbol))
 end
 
 -- Boot straight into the first ready version's compiled map from the warm
@@ -60,7 +73,11 @@ end
 
 -- Fired once on a successful import: enter the diagnostic.
 function App._onImported(versionId)
-  App.state = MapDiagnosticState.new(versionId)
+  if App.opts.field then
+    App.state = FieldState.new(versionId, fieldTarget(App.opts.field))
+  else
+    App.state = MapDiagnosticState.new(versionId)
+  end
 end
 
 -- Boot decision when no ROM was supplied: one ready cache boots straight into
@@ -68,7 +85,7 @@ end
 function App._bootExisting()
   local ready = readyVersions()
   if #ready == 1 then
-    App.state = MapDiagnosticState.new(ready[1])
+    App.state = FieldState.new(ready[1])
     return
   end
   if #ready >= 2 then
@@ -102,12 +119,17 @@ function App.filedropped(file)
   App.importer:filedropped(file)
 end
 
-function App.keypressed(key)
+function App.keypressed(key, scancode, isrepeat)
   if App.state and App.state.keypressed then
-    App.state:keypressed(key)
+    App.state:keypressed(key, scancode, isrepeat)
     return
   end
   if key == "escape" then love.event.quit(0) end
+end
+
+
+function App.keyreleased(key, scancode)
+  if App.state and App.state.keyreleased then App.state:keyreleased(key, scancode) end
 end
 
 -- Give the active state a chance to release GPU resources on shutdown.
