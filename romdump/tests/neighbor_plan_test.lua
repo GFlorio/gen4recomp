@@ -93,4 +93,12 @@ function T.skips_out_of_bounds_without_wrapping()
   Assert.equal(c.offsetTilesZ, 32)
 end
 
+function T.skips_neighbors_without_land_data()
+  local matrix = sampleMatrix()
+  matrix.modelIds[idx(1, 1)] = 0xFFFF
+  local plan = NeighborPlan.plan(matrix, 2, 2, areaForHeader)
+  Assert.isNil(cellAt(plan, 1, 1))
+  Assert.deepEqual(plan.uniqueLandMembers, { 3, 11, 208, 209, 210 })
+end
+
 return T

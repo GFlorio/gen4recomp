@@ -35,7 +35,7 @@ function NeighborPlan.plan(matrix, cx, cz, areaForHeader)
     if inBounds(matrix, x, z) then
       local cell = matrix:cell(x, z)
       local area = areaForHeader(cell.mapHeaderId)
-      if area ~= nil then
+      if area ~= nil and cell.landDataMemberId ~= 0xFFFF then
         cells[#cells + 1] = {
           x = x,
           z = z,

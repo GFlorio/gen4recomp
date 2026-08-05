@@ -19,6 +19,13 @@ function MapAnalysis.analyzeRecord(record, matrix)
   end
 
   local landDataMemberId = matrix:cell(chosen.x, chosen.z).landDataMemberId
+  if landDataMemberId == 0xFFFF then
+    return {
+      status = "excluded",
+      reason = "no_land_data",
+      matchCount = matchCount,
+    }
+  end
   return {
     status = "resolved",
     matchCount = matchCount,

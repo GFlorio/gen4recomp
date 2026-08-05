@@ -34,15 +34,18 @@ function MapUnits.extentTiles(bounds, posScale)
   return (bounds.max[1] - bounds.min[1]) * f, (bounds.max[3] - bounds.min[3]) * f
 end
 
--- Sanity-check a map model spans a plausible fraction of a 32-tile cell. A cell
--- is 32 tiles; allow slack for walls/overhang. A dominant extent that is
--- non-positive or far past a cell signals a broken posScale/axis assumption.
+local function isFinitePositive(n)
+  return n > 0 and n < math.huge
+end
+
+-- Sanity-check that scale conversion produces usable planar bounds. Land
+-- models may legitimately span several 32-tile matrix cells, so their size is
+-- not itself a calibration invariant.
 function MapUnits.assertMapCalibration(bounds, posScale, context)
   local ex, ez = MapUnits.extentTiles(bounds, posScale)
-  local dominant = math.max(ex, ez)
-  if dominant <= 0 or dominant > 34 then
+  if not (isFinitePositive(posScale) and isFinitePositive(ex) and isFinitePositive(ez)) then
     Errors.raise("MAP_COMPILE_CALIBRATION",
-      string.format("map model dominant extent %.2f tiles is outside (0, 34]", dominant),
+      string.format("map model extents must be finite and positive (x=%.2f, z=%.2f)", ex, ez),
       { context = context, exTiles = ex, ezTiles = ez, posScale = posScale })
   end
   return ex, ez
