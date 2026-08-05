@@ -142,9 +142,10 @@ function Runner._runInspect()
   love.event.quit(allOk and 0 or 1)
 end
 
--- Compile every renderable map into the derived cache for every ready dump and
--- emit the world manifest. A build-cache invocation first clears all derived
--- output. Exits 0 only if every map of every version built.
+-- Compile every supported map into the derived cache for every ready dump and
+-- emit the world manifest. Maps rejected with a structured compiler error are
+-- recorded as exclusions; programming errors still abort the build. A
+-- build-cache invocation first clears all derived output.
 function Runner._runBuild()
   local MapAnalysis = require("romdump.src.digest.MapAnalysis")
   local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
@@ -173,26 +174,41 @@ function Runner._runBuild()
             matchCount = result.matchCount,
           }
         else
-          local bundle = assert(MapAssetCompiler.compile(romFs, result.id))
-          if MapAssetCache.isReady(cacheFs, bundle.mapId, bundle.marker) then
-            print(string.format("build-cache: %s map %d current", version, bundle.mapId))
+          local bundle, compileErr = MapAssetCompiler.compile(romFs, result.id)
+          if not bundle then
+            assert(Errors.is(compileErr), "compiler failure must be a structured error")
+            excluded[#excluded + 1] = {
+              id = result.id,
+              symbol = result.symbol,
+              reason = "compile_error",
+              matchCount = result.matchCount,
+              errorCode = compileErr.code,
+              errorMessage = compileErr.message,
+            }
+            print(string.format("build-cache: %s map %d excluded: %s",
+              version, result.id, Errors.format(compileErr)))
           else
-            MapCacheWriter.write(cacheFs, bundle)
-            print(string.format("build-cache: %s map %d compiled", version, bundle.mapId))
+            if MapAssetCache.isReady(cacheFs, bundle.mapId, bundle.marker) then
+              print(string.format("build-cache: %s map %d current", version, bundle.mapId))
+            else
+              MapCacheWriter.write(cacheFs, bundle)
+              print(string.format("build-cache: %s map %d compiled", version, bundle.mapId))
+            end
+            entries[#entries + 1] = {
+              id = bundle.mapId, symbol = bundle.scene.mapSymbol,
+              width = bundle.scene.matrix.width, height = bundle.scene.matrix.height,
+              matrix = { memberId = result.matrixMemberId,
+                         x = result.matrixX, z = result.matrixZ,
+                         index = result.matrixIndex,
+                         landDataMemberId = result.landDataMemberId,
+                         selection = result.source, matchCount = result.matchCount },
+            }
           end
-          entries[#entries + 1] = {
-            id = bundle.mapId, symbol = bundle.scene.mapSymbol,
-            width = bundle.scene.matrix.width, height = bundle.scene.matrix.height,
-            matrix = { memberId = result.matrixMemberId,
-                       x = result.matrixX, z = result.matrixZ,
-                       index = result.matrixIndex,
-                       landDataMemberId = result.landDataMemberId,
-                       selection = result.source, matchCount = result.matchCount },
-          }
         end
       end
       WorldManifest.write(cacheFs, entries, excluded)
-      print(string.format("build-cache: %s world.lua written (%d maps)", version, #entries))
+      print(string.format("build-cache: %s world.lua written (%d maps, %d excluded)",
+        version, #entries, #excluded))
     end)
     if romFs then romFs:close() end
     if not ok then

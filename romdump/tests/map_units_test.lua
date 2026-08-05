@@ -1,5 +1,5 @@
--- MapUnits calibration: posScale/tile folding, tile extents at the Elm scale,
--- and rejection of an absurdly-sized model.
+-- MapUnits calibration: posScale/tile folding, tile extents at representative
+-- indoor and multi-cell map scales, and rejection of degenerate models.
 
 local Assert = require("tests.support.Assert")
 local MapUnits = require("romdump.src.digest.MapUnits")
@@ -26,8 +26,15 @@ function T.calibration_accepts_elm_bounds()
   Assert.notNil(select(1, MapUnits.assertMapCalibration(bounds, 64, { map = "elm" })))
 end
 
-function T.calibration_rejects_absurd_extent()
-  local bounds = { min = { -100, 0, 0 }, max = { 100, 1, 1 } }
+function T.calibration_accepts_multi_cell_map_bounds()
+  local bounds = { min = { -4.15, 0, -7.99 }, max = { 4.15, 1.71, 4 } }
+  local ex, ez = MapUnits.assertMapCalibration(bounds, 64, { map = "bellchime" })
+  Assert.isTrue(ex > 33 and ex < 34, "x extent ~33.2 tiles, got " .. ex)
+  Assert.isTrue(ez > 47 and ez < 49, "z extent ~48 tiles, got " .. ez)
+end
+
+function T.calibration_rejects_degenerate_extent()
+  local bounds = { min = { 1, 0, 1 }, max = { 1, 1, 1 } }
   local ok, err = pcall(MapUnits.assertMapCalibration, bounds, 64, { map = "x" })
   Assert.isTrue(not ok, "raises")
   Assert.isTrue(Errors.is(err) and err.code == "MAP_COMPILE_CALIBRATION", "code")

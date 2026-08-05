@@ -79,4 +79,13 @@ function T.default_header_filler_is_excluded()
   Assert.equal(result.reason, "default_header_filler")
 end
 
+function T.excludes_cell_without_land_data()
+  local result = MapAnalysis.analyzeRecord({ id = 7 }, matrix({
+    width = 1, height = 1, headers = { 7 }, models = { 0xFFFF },
+  }))
+  Assert.equal(result.status, "excluded")
+  Assert.equal(result.reason, "no_land_data")
+  Assert.equal(result.matchCount, 1)
+end
+
 return T

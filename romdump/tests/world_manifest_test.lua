@@ -15,7 +15,8 @@ end
 function T.build_sorts_by_id_and_indexes()
   local m = WorldManifest.build(sample(), {
     { id = 1, symbol = "MAP_NOTHING", reason = "no_matching_cell", matchCount = 0 },
-    { id = 0, symbol = "MAP_EVERYWHERE", reason = "default_header_filler", matchCount = 598 },
+    { id = 0, symbol = "MAP_EVERYWHERE", reason = "compile_error", matchCount = 598,
+      errorCode = "NSBMD_STATIC_UNSUPPORTED_SBC_COMMAND", errorMessage = "BB is unsupported" },
   })
   Assert.equal(m.maps[1].id, 60)
   Assert.equal(m.maps[2].id, 61)
@@ -25,6 +26,8 @@ function T.build_sorts_by_id_and_indexes()
   Assert.equal(m.analysis.mapHeaderCount, 4)
   Assert.equal(m.analysis.renderableCount, 2)
   Assert.equal(m.analysis.excluded[1].id, 0)
+  Assert.equal(m.analysis.excluded[1].errorCode, "NSBMD_STATIC_UNSUPPORTED_SBC_COMMAND")
+  Assert.equal(m.analysis.excluded[1].errorMessage, "BB is unsupported")
   Assert.equal(m.analysis.excluded[2].id, 1)
 end
 
