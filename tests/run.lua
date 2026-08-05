@@ -27,6 +27,7 @@ local MODULES = {
   -- libs/assets
   "libs.assets.tests.hgss_manifest_test",
   "libs.assets.tests.map_matrix_test",
+  "libs.assets.tests.neighbor_plan_test",
   "libs.assets.tests.map_catalog_test",
   "libs.assets.tests.map_resolver_test",
   "libs.assets.tests.area_data_test",
