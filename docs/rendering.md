@@ -205,14 +205,12 @@ When validating locally, capture (but do not commit):
 Controls in the map diagnostic:
 
 * `WASD` — move the debug player;
-* `C` — toggle camera follow/free;
-* `R` — reframe the whole scene;
 * `Q/E` or `PageUp/PageDown` — step time backward/forward by one hour;
-* drag / arrows / wheel — orbit and zoom;
 * `Esc` — quit.
 
 Set `G4RECOMP_FIELD_TIME=<seconds>` to override the default noon time for an
 automated capture, and `G4RECOMP_SHOT=<path>` to save a screenshot and exit.
 
-Known discrepancies to record: no BDHC height (player Y is flat), approximate
-camera, and the deferred behaviors listed above.
+Known discrepancies to record: no BDHC height (player Y is flat) and the
+deferred behaviors listed above. The diagnostic uses the exact ROM-derived
+camera profile for each map.

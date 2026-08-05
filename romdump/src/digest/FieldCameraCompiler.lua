@@ -1,0 +1,63 @@
+-- Compiles ROM-derived HGSS camera records into deterministic normalized field
+-- profiles. Overlay discovery, decoding, and provenance remain separate steps.
+
+local Errors = require("libs.rom.src.Errors")
+local HgssCameraTable = require("libs.assets.src.HgssCameraTable")
+local FieldCameraDiscovery = require("romdump.src.digest.FieldCameraDiscovery")
+local Hashing = require("romdump.src.digest.Hashing")
+local Manifest = require("data.manifests.field_cameras")
+
+local FieldCameraCompiler = {}
+FieldCameraCompiler.COMPILER_VERSION = "field-camera-compiler-v1"
+
+local function _compile(romFs, config, sha1hex)
+  assert(romFs and romFs.readOverlay, "compile requires a RomFs-shaped object")
+  config = config or Manifest[romFs:version()]
+  if not config then
+    Errors.raise("FIELD_CAMERA_VERSION_UNSUPPORTED",
+      "no field-camera discovery metadata for " .. tostring(romFs:version()),
+      { version = romFs:version() })
+  end
+  local overlayBytes, overlayInfo = romFs:readOverlay(config.cpu, config.overlayId)
+  if not overlayBytes then error(overlayInfo) end
+  local found, discoveryErr = FieldCameraDiscovery.discover(overlayBytes, overlayInfo, config)
+  if not found then error(discoveryErr) end
+  local decoded, decodeErr = HgssCameraTable.decode(overlayBytes, {
+    tableOffset = found.tableFileOffset,
+    recordCount = config.recordCount,
+    source = config.cpu .. "-overlay-" .. config.overlayId,
+  })
+  if not decoded then error(decodeErr) end
+  assert(decoded.recordCount == config.recordCount)
+  local overlaySha1 = (sha1hex or Hashing.sha1hex)(overlayBytes)
+  local provenance = {
+    cpu = config.cpu,
+    overlayId = config.overlayId,
+    fileId = overlayInfo.fileId,
+    path = overlayInfo.path,
+    pointerFileOffsets = config.pointerFileOffsets,
+    tableRamAddress = found.tableRamAddress,
+    tableFileOffset = found.tableFileOffset,
+    recordSize = config.recordSize,
+    recordCount = config.recordCount,
+    overlaySha1 = overlaySha1,
+  }
+  local profiles = {
+    schema = "g4-field-camera-profiles-v1",
+    source = provenance,
+    recordCount = decoded.recordCount,
+    profiles = decoded.records,
+  }
+  local marker = "g4-field-camera-cache-v1:" .. romFs:metadata().sha1 .. ":"
+    .. overlaySha1 .. ":" .. FieldCameraCompiler.COMPILER_VERSION
+  return { profiles = profiles, provenance = provenance, marker = marker }
+end
+
+function FieldCameraCompiler.compile(romFs, config, sha1hex)
+  local ok, result = pcall(_compile, romFs, config, sha1hex)
+  if ok then return result end
+  if Errors.is(result) then return nil, result end
+  error(result)
+end
+
+return FieldCameraCompiler

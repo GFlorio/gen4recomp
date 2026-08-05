@@ -7,6 +7,7 @@ local Assert = require("tests.support.Assert")
 local MapRenderer = require("libs.engine.src.MapRenderer")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local VertexFormat = require("libs.assets.src.VertexFormat")
+local FieldViewport = require("libs.engine.src.FieldViewport")
 
 local T = {}
 
@@ -42,6 +43,38 @@ function T.shader_has_normal_matrix_uniform()
   -- Send as a 3x3 column-major matrix (nine values).
   r.shader:send("u_normalMatrix", "column", { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
   r:release()
+end
+
+function T.field_edge_radius_uses_only_viewport_height()
+  Assert.equal(MapRenderer.fieldEdgeRadiusPixels(192), 1)
+  Assert.equal(MapRenderer.fieldEdgeRadiusPixels(384), 2)
+  Assert.equal(MapRenderer.fieldEdgeRadiusPixels(1080), 6)
+end
+
+function T.field_viewport_sizes_and_rebuilds_render_targets()
+  if not hasGraphics() then return end
+  local renderer = MapRenderer.new()
+  -- Spell the identity explicitly to keep this smoke independent of Matrix4.
+  local identity = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1 }
+  local camera = {
+    distance = 26,
+    view = function() return identity end,
+    projection = function() return identity end,
+  }
+  local runtime = {
+    mapDraws = {}, buildingDraws = {},
+    stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
+  }
+  local viewport = FieldViewport.new(1280, 720, { mode = "strict" })
+  renderer:draw(runtime, camera, nil, viewport)
+  Assert.equal(renderer.canvasW, 960)
+  Assert.equal(renderer.canvasH, 720)
+
+  viewport = FieldViewport.new(1280, 720, { mode = "expanded" })
+  renderer:draw(runtime, camera, nil, viewport)
+  Assert.equal(renderer.canvasW, 1280)
+  Assert.equal(renderer.canvasH, 720)
+  renderer:release()
 end
 
 -- Build a tiny mesh with the project's vertex layout so the shader can be

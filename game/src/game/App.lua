@@ -7,6 +7,7 @@
 
 local GameVersion = require("libs.rom.src.GameVersion")
 local RomImporter = require("libs.rom.src.RomImporter")
+local Errors = require("libs.rom.src.Errors")
 local MapDiagnosticState = require("game.src.game.MapDiagnosticState")
 local ImportState = require("game.src.launcher.ImportState")
 local VersionSelectState = require("game.src.launcher.VersionSelectState")
@@ -28,6 +29,11 @@ function App.load(opts)
   love.graphics.setBackgroundColor(0.08, 0.09, 0.12)
   App.saveDir = love.filesystem.getSaveDirectory()
 
+  if App.opts.field then
+    Errors.raise("FIELD_RUNTIME_UNAVAILABLE",
+      "--field is reserved, but the field runtime is not implemented yet",
+      { target = App.opts.field == true and nil or App.opts.field })
+  end
   if App.opts.map then
     return App._bootMap(App.opts.map)
   end
@@ -103,18 +109,6 @@ function App.keypressed(key)
   end
   if key == "escape" then love.event.quit(0) end
 end
-
--- Forward pointer input to the active state when it wants it (the 3D map
--- diagnostic uses these for its free camera). Other states simply lack the hook.
-local function forward(method, ...)
-  local state = App.state
-  if state and state[method] then state[method](state, ...) end
-end
-
-function App.mousepressed(x, y, button) forward("mousepressed", x, y, button) end
-function App.mousereleased(x, y, button) forward("mousereleased", x, y, button) end
-function App.mousemoved(x, y, dx, dy) forward("mousemoved", x, y, dx, dy) end
-function App.wheelmoved(x, y) forward("wheelmoved", x, y) end
 
 -- Give the active state a chance to release GPU resources on shutdown.
 function App.quit()

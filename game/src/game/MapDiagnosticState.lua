@@ -2,9 +2,9 @@
 -- a debug player. It reads the derived cache through MapSceneLoader (a cold cache
 -- is a hard error -- build it first), builds one persistent MapRenderer,
 -- and spawns a DebugPlayer on the map's provisional tile. WASD steps the player
--- one tile per press through the permission grid. The camera is fixed at the
--- map's field angle (from the camera profile) and simply follows the player --
--- no orbit or zoom. A project-generated prism marks the player and yellow pins
+-- one tile per press through the permission grid. The ROM-derived FieldCamera
+-- follows the player with the map's exact projection and framing. A
+-- project-generated prism marks the player and yellow pins
 -- mark the development coordinate anchors. All GPU objects are built once here;
 -- draw only issues the renderer pass (with the player/anchor overlays) and a 2D
 -- HUD. A load failure is captured as text rather than crashing the window.
@@ -14,14 +14,14 @@ local WorldLookup = require("game.src.game.WorldLookup")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local MapRenderer = require("libs.engine.src.MapRenderer")
-local Camera3D = require("libs.engine.src.Camera3D")
+local FieldCamera = require("libs.engine.src.FieldCamera")
+local FieldViewport = require("libs.engine.src.FieldViewport")
 local Gizmos = require("libs.engine.src.Gizmos")
 local Matrix4 = require("libs.math.src.Matrix4")
 local FieldGrid = require("libs.engine.src.FieldGrid")
 local DebugPlayer = require("libs.engine.src.DebugPlayer")
 local NeighborRing = require("libs.engine.src.NeighborRing")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
-local CameraProfiles = require("data.manifests.camera_profiles")
 local TargetAnchors = require("data.manifests.target_map_anchors")
 
 local MapDiagnosticState = {}
@@ -33,10 +33,7 @@ local MOVE_KEYS = { w = "north", s = "south", a = "west", d = "east" }
 -- symbol-based (not a member-id heuristic) so the switch reads as a map identity.
 local SWITCH_TARGETS = { "MAP_NEW_BARK_ELMS_LAB_1F", "MAP_NEW_BARK" }
 
--- Fixed camera distance (tile units) for the field preview. 26 matches the
--- renderer's edge-marking reference distance, so outlines carry their DS-relative
--- weight at the default framing.
-local DEFAULT_DISTANCE = 26
+local CAMERA_PROFILES_PATH = "data/generated/field/camera/profiles.lua"
 
 function MapDiagnosticState.new(versionId, idOrSymbol)
   local envTime = os.getenv("G4RECOMP_FIELD_TIME")
@@ -62,6 +59,16 @@ function MapDiagnosticState:_load()
     if not scene then
       error("map cache is cold — run `scripts/buildcache.sh` first")
     end
+    local cameraProfiles = assert(cacheFs:loadLua(CAMERA_PROFILES_PATH),
+      "field camera cache is cold — run `scripts/buildcache.sh` first")
+    assert(cameraProfiles.schema == "g4-field-camera-profiles-v1"
+      and type(cameraProfiles.profiles) == "table"
+      and type(cameraProfiles.source) == "table",
+      "unsupported field camera cache schema")
+    self.cameraProfile = assert(cameraProfiles.profiles[scene.cameraType],
+      "field camera cache has no camera type " .. scene.cameraType)
+    self.cameraSource = cameraProfiles.source
+
     self.runtime = MapSceneLoader.load(cacheFs, scene)
     self.runtime.fieldTimeSeconds = self.fieldTimeSeconds
     self.renderer = MapRenderer.new()
@@ -77,7 +84,6 @@ function MapDiagnosticState:_load()
     self.anchorMat = { alphaClass = "opaque", cullMode = "back" }
 
     self:_setupCamera()
-    self:_applyShotOverrides()
 
     -- Presentation-only neighbor ring around the current cell. Naturally a no-op
     -- for the 1x1 Elm's Lab matrix (every neighbor is out of bounds).
@@ -89,49 +95,31 @@ function MapDiagnosticState:_load()
   end
 end
 
--- Smoke-mode camera overrides so an automated capture can inspect the scene from
--- a different angle/distance than the fixed field framing.
-function MapDiagnosticState:_applyShotOverrides()
-  if not os.getenv("G4RECOMP_SHOT") then return end
-  local yaw = tonumber(os.getenv("G4RECOMP_SHOT_YAW"))
-  local pitch = tonumber(os.getenv("G4RECOMP_SHOT_PITCH"))
-  local dist = tonumber(os.getenv("G4RECOMP_SHOT_DIST"))
-  local target = os.getenv("G4RECOMP_SHOT_TARGET") -- "worldX,worldZ"
-  if yaw then self.camera.yaw = math.rad(yaw) end
-  if pitch then self.camera.pitch = math.rad(pitch) end
-  if dist then self.camera.distance = dist end
-  if target then
-    local tx, tz = target:match("^%s*(-?[%d.]+)%s*,%s*(-?[%d.]+)%s*$")
-    assert(tx, "G4RECOMP_SHOT_TARGET must be 'worldX,worldZ'")
-    self.camera.target = { tonumber(tx), self.camera.target[2], tonumber(tz) }
-  end
-end
-
-function MapDiagnosticState:_aspect()
-  if not love.graphics then return 1 end
-  local w, h = love.graphics.getDimensions()
-  return h > 0 and w / h or 1
-end
-
 -- World-space centre of the player's current tile (flat Y).
 function MapDiagnosticState:_playerWorld()
   local x, z = FieldGrid.tileCenterToWorld(self.player.localX, self.player.localZ)
   return x, self.player.y, z
 end
 
--- Fixed field camera: seed the angle and lens from the map's camera profile,
--- lock the distance, and aim at the player.
-function MapDiagnosticState:_setupCamera()
-  local profile = CameraProfiles[self.runtime.cameraType] or {}
-  self.camera = Camera3D.fromProfile(profile, { 0, 0, 0 }, self:_aspect())
-  self.camera.distance = DEFAULT_DISTANCE
-  self:_followPlayer()
+function MapDiagnosticState:_playerTarget()
+  local x, y, z = self:_playerWorld()
+  return { x = x, y = y, z = z }
 end
 
--- Aim the camera at the player's tile (flat Y). Called on load and after each step.
+-- Initialize exact ROM-derived framing against the debug player's position.
+function MapDiagnosticState:_setupCamera()
+  self.camera = FieldCamera.new(self.cameraProfile, {
+    initialTarget = self:_playerTarget(),
+  })
+  local width, height = love.graphics.getDimensions()
+  self.viewport = FieldViewport.new(width, height, { mode = "expanded" })
+  self.camera:setProjectionAspect(self.viewport:worldAspect())
+end
+
+-- The diagnostic moves one tile per press; FieldCamera still applies the exact
+-- fixed-update follow contract, including its Y history when elevation lands.
 function MapDiagnosticState:_followPlayer()
-  local x, y, z = self:_playerWorld()
-  self.camera.target = { x, y + 0.5, z }
+  self.camera:updateFixed(self:_playerTarget())
 end
 
 -- Env-gated render smoke: when G4RECOMP_SHOT names a save-dir-relative path, let
@@ -212,8 +200,12 @@ function MapDiagnosticState:draw()
     return
   end
 
-  self.camera:setAspect(self:_aspect())
-  self.renderer:draw(self.runtime, self.camera, self:_overlays())
+  local width, height = lg.getDimensions()
+  if self.viewport.width ~= width or self.viewport.height ~= height then
+    self.viewport:resize(width, height)
+    self.camera:setProjectionAspect(self.viewport:worldAspect())
+  end
+  self.renderer:draw(self.runtime, self.camera, self:_overlays(), self.viewport)
   self:_drawHud()
 end
 
@@ -234,7 +226,9 @@ function MapDiagnosticState:_drawHud()
     string.format("land member %d   origin (%d,%d)", src.landData.memberId, m.worldOriginX, m.worldOriginZ),
     string.format("area %d  %s  mapTex %d  bldTex %d  light %d",
       area.memberId, area.type, area.mapTexturePackId, area.buildingTexturePackId, area.lightType),
-    string.format("camera type %d", scene.cameraType),
+    string.format("camera type %d  %s  exact overlay %s",
+      scene.cameraType, self.camera.projectionType,
+      (self.cameraSource.overlaySha1 or "?"):sub(1, 8)),
     string.format("player local (%d,%d) global (%d,%d) facing %s  y=%.1f",
       ps.localX, ps.localZ, ps.globalX, ps.globalZ, ps.facing, ps.y),
     string.format("under player: behavior 0x%02X  perm 0x%02X  block %s  response %d",
@@ -254,7 +248,7 @@ function MapDiagnosticState:_drawHud()
     local g = a.globalX and string.format(" global (%d,%d)", a.globalX, a.globalZ) or ""
     lines[#lines + 1] = string.format("anchor [dev]: %s @ local (%d,%d)%s", a.label, a.localX, a.localZ, g)
   end
-  lines[#lines + 1] = "limitations: flat Y (no BDHC height), approximate camera"
+  lines[#lines + 1] = "limitations: flat Y (no BDHC height)"
   lines[#lines + 1] = "WASD move   Tab switch map   Q/E hour   Esc quit"
 
   lg.setColor(0, 0, 0, 0.55)

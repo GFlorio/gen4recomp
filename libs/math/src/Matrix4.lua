@@ -69,6 +69,23 @@ function Matrix4.perspective(fovY, aspect, near, far)
   return m
 end
 
+-- Right-handed OpenGL-style orthographic projection (clip z in [-1, 1]).
+-- Bounds are expressed in camera space. Column-major.
+function Matrix4.orthographic(left, right, bottom, top, near, far)
+  assert(right ~= left, "orthographic width must be non-zero")
+  assert(top ~= bottom, "orthographic height must be non-zero")
+  assert(far ~= near, "orthographic depth must be non-zero")
+  return {
+    2 / (right - left), 0, 0, 0,
+    0, 2 / (top - bottom), 0, 0,
+    0, 0, -2 / (far - near), 0,
+    -(right + left) / (right - left),
+    -(top + bottom) / (top - bottom),
+    -(far + near) / (far - near),
+    1,
+  }
+end
+
 local function sub3(a, b) return { a[1] - b[1], a[2] - b[2], a[3] - b[3] } end
 local function dot3(a, b) return a[1] * b[1] + a[2] * b[2] + a[3] * b[3] end
 local function cross3(a, b)
