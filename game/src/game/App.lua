@@ -7,7 +7,7 @@
 
 local GameVersion = require("libs.rom.src.GameVersion")
 local RomImporter = require("libs.rom.src.RomImporter")
-local DiagnosticState = require("game.src.game.DiagnosticState")
+local MapDiagnosticState = require("game.src.game.MapDiagnosticState")
 local ImportState = require("game.src.launcher.ImportState")
 local VersionSelectState = require("game.src.launcher.VersionSelectState")
 
@@ -34,10 +34,9 @@ function App.load(opts)
   App._bootExisting()
 end
 
--- Boot straight into the first ready version's compiled map, compiling on
--- demand if the cache is cold. With nothing ready, fall back to the importer.
+-- Boot straight into the first ready version's compiled map from the warm
+-- cache. With nothing ready, fall back to the importer.
 function App._bootMap(idOrSymbol)
-  local MapDiagnosticState = require("game.src.game.MapDiagnosticState")
   local ready = readyVersions()
   if #ready == 0 then
     App._startImport()
@@ -55,7 +54,7 @@ end
 
 -- Fired once on a successful import: enter the diagnostic.
 function App._onImported(versionId)
-  App.state = DiagnosticState.new(versionId)
+  App.state = MapDiagnosticState.new(versionId)
 end
 
 -- Boot decision when no ROM was supplied: one ready cache boots straight into
@@ -63,11 +62,11 @@ end
 function App._bootExisting()
   local ready = readyVersions()
   if #ready == 1 then
-    App.state = DiagnosticState.new(ready[1])
+    App.state = MapDiagnosticState.new(ready[1])
     return
   end
   if #ready >= 2 then
-    App.state = VersionSelectState.new(ready, function(v) App.state = DiagnosticState.new(v) end)
+    App.state = VersionSelectState.new(ready, function(v) App.state = MapDiagnosticState.new(v) end)
     return
   end
   App._startImport()
