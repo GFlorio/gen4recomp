@@ -98,6 +98,31 @@ function T.not_ready_when_model_descriptor_references_missing_asset()
   Assert.isTrue(not MapAssetCache.isReady(c, 61, marker), "missing model-internal geometry -> not ready")
 end
 
+local function contains(list, value)
+  for _, v in ipairs(list) do
+    if v == value then return true end
+  end
+  return false
+end
+
+function T.referenced_paths_includes_neighbor_batches_and_materials()
+  local neighborGeometry = "assets/generated/maps/geometry/abc.g4mesh"
+  local neighborTexture = "assets/generated/maps/textures/def.png"
+  local scene = {
+    neighbors = {
+      {
+        offsetTilesX = 1,
+        offsetTilesZ = 0,
+        batches = { { geometry = neighborGeometry, material = 0 } },
+        materials = { { id = 0, texture = neighborTexture } },
+      },
+    },
+  }
+  local paths = MapAssetCache.referencedPaths(scene, nil)
+  Assert.isTrue(contains(paths, neighborGeometry), "missing neighbor geometry path")
+  Assert.isTrue(contains(paths, neighborTexture), "missing neighbor texture path")
+end
+
 function T.world_path_is_stable()
   Assert.equal(type(MapAssetCache.worldPath()), "string")
   Assert.isTrue(MapAssetCache.worldPath():match("world%.lua$") ~= nil)

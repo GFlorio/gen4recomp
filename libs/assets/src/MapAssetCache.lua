@@ -54,6 +54,10 @@ function MapAssetCache.referencedPaths(scene, cacheFs)
 
   for _, b in ipairs(scene.mapBatches or {}) do addBatch(b) end
   for _, m in ipairs(scene.materials or {}) do addMaterial(m) end
+  for _, cell in ipairs(scene.neighbors or {}) do
+    for _, b in ipairs(cell.batches or {}) do addBatch(b) end
+    for _, m in ipairs(cell.materials or {}) do addMaterial(m) end
+  end
   for _, inst in ipairs(scene.buildingInstances or {}) do
     if inst.modelKey then
       local modelPath = MapAssetCache.modelPath(inst.modelKey)
