@@ -36,6 +36,10 @@ end
 
 function T.resize_recomputes_rectangles_without_replacing_the_object()
   local viewport = FieldViewport.new(800, 600, { mode = "expanded" })
+  for _ = 1, 10 do
+    viewport:resize(960, 720)
+    viewport:resize(2560, 720)
+  end
   viewport:resize(1600, 900)
   Assert.deepEqual(viewport.worldViewport, { x = 0, y = 0, width = 1600, height = 900 })
   Assert.equal(viewport.referenceFrame.x, 200)

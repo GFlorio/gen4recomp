@@ -71,6 +71,13 @@ function T.field_viewport_sizes_and_rebuilds_render_targets()
   Assert.equal(renderer.canvasH, 720)
 
   viewport = FieldViewport.new(1280, 720, { mode = "expanded" })
+  for _ = 1, 10 do
+    for _, size in ipairs({ { 960, 720 }, { 1280, 720 }, { 1680, 720 }, { 2560, 720 } }) do
+      viewport:resize(size[1], size[2])
+      renderer:draw(runtime, camera, nil, viewport)
+    end
+  end
+  viewport:resize(1280, 720)
   renderer:draw(runtime, camera, nil, viewport)
   Assert.equal(renderer.canvasW, 1280)
   Assert.equal(renderer.canvasH, 720)

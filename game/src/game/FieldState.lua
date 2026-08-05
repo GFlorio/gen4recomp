@@ -14,11 +14,13 @@ local FieldSaveStore = require("libs.engine.src.FieldSaveStore")
 local FieldSession = require("libs.engine.src.FieldSession")
 local FieldTransition = require("libs.engine.src.FieldTransition")
 local FieldViewport = require("libs.engine.src.FieldViewport")
+local FieldZoom = require("libs.engine.src.FieldZoom")
 local Gizmos = require("libs.engine.src.Gizmos")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapRenderer = require("libs.engine.src.MapRenderer")
 local Matrix4 = require("libs.math.src.Matrix4")
 local TargetAnchors = require("data.manifests.target_map_anchors")
+local FieldPresentation = require("data.manifests.field_presentation")
 
 local FieldState = {}
 FieldState.__index = FieldState
@@ -73,6 +75,7 @@ function FieldState.new(versionId, idOrSymbol, options)
     resetSave = options.resetSave == true,
     overlaysVisible = true,
     errorText = nil,
+    zoom = FieldZoom.new(options.zoomConfig or FieldPresentation.zoom),
   }, FieldState)
   self:_load()
   return self
@@ -138,7 +141,7 @@ function FieldState:_load()
     self.camera = FieldCamera.new(profile, { initialTarget = worldPoint })
     local width, height = love.graphics.getDimensions()
     self.viewport = FieldViewport.new(width, height, { mode = "expanded" })
-    self.camera:setProjectionAspect(self.viewport:worldAspect())
+    self:_updateCameraProjection()
     self.envelope = terrainEnvelope(self.runtimeMap.terrain)
     self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
 
@@ -185,6 +188,29 @@ function FieldState:update(dt)
         tostring(warp.destinationWarpId))
     end
     if self.transition:consumeCompleted() then self:_save("Autosaved after warp") end
+  end
+  self:_maybeRunSmoke()
+end
+
+function FieldState:_maybeRunSmoke()
+  if not os.getenv("G4RECOMP_FIELD_SMOKE") then return end
+  if self.errorText then
+    io.stderr:write("field-smoke: " .. self.errorText .. "\n")
+    love.event.quit(1)
+    return
+  end
+  self._smokeFrame = (self._smokeFrame or 0) + 1
+  if self._smokeFrame == 8 then
+    local missing = self.runtimeMap.coveragePlan.missingVisibleCells or {}
+    if #missing > 0 then
+      io.stderr:write(string.format("field-smoke: %d visible cells are missing\n", #missing))
+      love.event.quit(1)
+      return
+    end
+    local path = os.getenv("G4RECOMP_SHOT")
+    if path then love.graphics.captureScreenshot(path) end
+  elseif self._smokeFrame >= 9 then
+    love.event.quit(0)
   end
 end
 
@@ -234,6 +260,7 @@ function FieldState:_swapMap(resolution, facing)
     "field camera cache has no camera type " .. runtimeMap.cameraType)
   local camera = FieldCamera.new(profile, { initialTarget = player:renderPosition() })
   camera:setProjectionAspect(self.viewport:worldAspect())
+  camera:setZoom(self.zoom:effectiveZoom())
 
   self.runtimeMap = runtimeMap
   self.runtime = runtimeMap.sceneRuntime
@@ -246,6 +273,17 @@ function FieldState:_swapMap(resolution, facing)
   self.session.actor = player
   self.session.camera = camera
   self.mapLoader:updateCoverage(runtimeMap, camera, self.envelope)
+end
+
+function FieldState:_updateCameraProjection()
+  self.zoom:resize(self.viewport.worldViewport.height)
+  self.camera:setProjectionAspect(self.viewport:worldAspect())
+  self.camera:setZoom(self.zoom:effectiveZoom())
+end
+
+function FieldState:_applyZoomChange()
+  self:_updateCameraProjection()
+  self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
 end
 
 local function append(list, draw)
@@ -310,7 +348,7 @@ function FieldState:draw()
   local width, height = lg.getDimensions()
   if self.viewport.width ~= width or self.viewport.height ~= height then
     self.viewport:resize(width, height)
-    self.camera:setProjectionAspect(self.viewport:worldAspect())
+    self:_updateCameraProjection()
     self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
   end
   self.renderer:draw(self.runtime, self.camera, self:_overlays(), self.viewport)
@@ -339,8 +377,9 @@ function FieldState:_drawHud()
       tostring(playerStatus.slopeClass), playerStatus.surfaceNormal.x,
       playerStatus.surfaceNormal.y, playerStatus.surfaceNormal.z,
       tostring(playerStatus.destinationSurfaceId)),
-    string.format("camera y source/applied %.3f/%.3f",
-      self.camera.cameraSourceY, self.camera.cameraAppliedY),
+    string.format("camera y source/applied %.3f/%.3f  zoom %.2f (manual %.2f)",
+      self.camera.cameraSourceY, self.camera.cameraAppliedY,
+      self.camera.zoom, self.zoom.manualZoom),
     string.format("events bg/object/warp/coord %d/%d/%d/%d",
       #(events.background or {}), #(events.objects or {}),
       #(events.warps or {}), #(events.coordinates or {})),
@@ -353,7 +392,7 @@ function FieldState:_drawHud()
     string.format("transition %s  fade %.2f",
       self.transition.phase, self.transition.fadeAlpha),
     self.saveStatus or "save not written this run",
-    "WASD/arrows move   F1 overlays   F5 save   F9 reset   Esc quit",
+    "WASD/arrows move   -/= zoom   0 reset zoom   F1 overlays   F5 save   F9 reset   Esc quit",
   }
   lg.setColor(0, 0, 0, 0.55)
   lg.rectangle("fill", 12, 12, 670, 20 * #lines + 12)
@@ -366,6 +405,21 @@ function FieldState:keypressed(key)
   if key == "f1" then self.overlaysVisible = not self.overlaysVisible end
   if key == "f5" then self:_save() end
   if key == "f9" then self:_reset() return end
+  if key == "-" or key == "kp-" then
+    self.zoom:zoomOut()
+    self:_applyZoomChange()
+    return
+  end
+  if key == "=" or key == "+" or key == "kp+" then
+    self.zoom:zoomIn()
+    self:_applyZoomChange()
+    return
+  end
+  if key == "0" or key == "kp0" then
+    self.zoom:reset()
+    self:_applyZoomChange()
+    return
+  end
   local direction = KEY_DIRECTIONS[key]
   if direction and self.input then
     self.heldDirectionKeys[key] = direction

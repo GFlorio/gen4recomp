@@ -66,6 +66,26 @@ function T.perspective_projection_preserves_vertical_fov_when_aspect_changes()
   Assert.isTrue(wide[1] < canonical[1], "wider horizontal extent")
 end
 
+function T.zoom_changes_projection_scale_without_moving_the_rom_camera()
+  local camera = FieldCamera.new(profile(), { initialTarget = { x = 0, y = 0, z = 0 } })
+  local eye = { x = camera.eye.x, y = camera.eye.y, z = camera.eye.z }
+  local canonical = camera:projection()
+  camera:setZoom(0.75)
+  local zoomedOut = camera:projection()
+  Assert.isTrue(approx(zoomedOut[1], canonical[1] * 0.75))
+  Assert.isTrue(approx(zoomedOut[6], canonical[6] * 0.75))
+  Assert.deepEqual(camera.eye, eye)
+  Assert.throws(function() camera:setZoom(0) end)
+end
+
+function T.canonical_projection_ignores_runtime_aspect_and_zoom()
+  local camera = FieldCamera.new(profile(), { initialTarget = { x = 0, y = 0, z = 0 } })
+  local canonical = camera:canonicalProjection()
+  camera:setProjectionAspect(32 / 9)
+  camera:setZoom(0.5)
+  Assert.deepEqual(camera:canonicalProjection(), canonical)
+end
+
 function T.history_can_be_disabled()
   local camera = FieldCamera.new(profile(), {
     initialTarget = { x = 0, y = 0, z = 0 }, historyEnabled = false,

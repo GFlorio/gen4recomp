@@ -16,6 +16,7 @@ local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local MapRenderer = require("libs.engine.src.MapRenderer")
 local FieldCamera = require("libs.engine.src.FieldCamera")
 local FieldViewport = require("libs.engine.src.FieldViewport")
+local FieldZoom = require("libs.engine.src.FieldZoom")
 local Gizmos = require("libs.engine.src.Gizmos")
 local Matrix4 = require("libs.math.src.Matrix4")
 local FieldGrid = require("libs.engine.src.FieldGrid")
@@ -23,6 +24,7 @@ local DebugPlayer = require("libs.engine.src.DebugPlayer")
 local NeighborRing = require("libs.engine.src.NeighborRing")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
 local TargetAnchors = require("data.manifests.target_map_anchors")
+local FieldPresentation = require("data.manifests.field_presentation")
 
 local MapDiagnosticState = {}
 MapDiagnosticState.__index = MapDiagnosticState
@@ -42,6 +44,7 @@ function MapDiagnosticState.new(versionId, idOrSymbol)
     idOrSymbol = idOrSymbol or "MAP_NEW_BARK_ELMS_LAB_1F",
     errorText = nil,
     fieldTimeSeconds = envTime and tonumber(envTime) or FieldLightProfile.DEFAULT_TIME_SECONDS,
+    zoom = FieldZoom.new(FieldPresentation.zoom),
   }, MapDiagnosticState)
   self:_load()
   return self
@@ -113,7 +116,13 @@ function MapDiagnosticState:_setupCamera()
   })
   local width, height = love.graphics.getDimensions()
   self.viewport = FieldViewport.new(width, height, { mode = "expanded" })
+  self:_updateCameraProjection()
+end
+
+function MapDiagnosticState:_updateCameraProjection()
+  self.zoom:resize(self.viewport.worldViewport.height)
   self.camera:setProjectionAspect(self.viewport:worldAspect())
+  self.camera:setZoom(self.zoom:effectiveZoom())
 end
 
 -- The diagnostic moves one tile per press; FieldCamera still applies the exact
@@ -203,7 +212,7 @@ function MapDiagnosticState:draw()
   local width, height = lg.getDimensions()
   if self.viewport.width ~= width or self.viewport.height ~= height then
     self.viewport:resize(width, height)
-    self.camera:setProjectionAspect(self.viewport:worldAspect())
+    self:_updateCameraProjection()
   end
   self.renderer:draw(self.runtime, self.camera, self:_overlays(), self.viewport)
   self:_drawHud()
@@ -229,6 +238,8 @@ function MapDiagnosticState:_drawHud()
     string.format("camera type %d  %s  exact overlay %s",
       scene.cameraType, self.camera.projectionType,
       (self.cameraSource.overlaySha1 or "?"):sub(1, 8)),
+    string.format("zoom %.2f  manual %.2f  resize compensation %.2f",
+      self.camera.zoom, self.zoom.manualZoom, self.zoom.resizeCompensation),
     string.format("player local (%d,%d) global (%d,%d) facing %s  y=%.1f",
       ps.localX, ps.localZ, ps.globalX, ps.globalZ, ps.facing, ps.y),
     string.format("under player: behavior 0x%02X  perm 0x%02X  block %s  response %d",
@@ -249,7 +260,7 @@ function MapDiagnosticState:_drawHud()
     lines[#lines + 1] = string.format("anchor [dev]: %s @ local (%d,%d)%s", a.label, a.localX, a.localZ, g)
   end
   lines[#lines + 1] = "limitations: flat Y (no BDHC height)"
-  lines[#lines + 1] = "WASD move   Tab switch map   Q/E hour   Esc quit"
+  lines[#lines + 1] = "WASD move   -/= zoom   0 reset zoom   Tab switch map   Q/E hour   Esc quit"
 
   lg.setColor(0, 0, 0, 0.55)
   lg.rectangle("fill", 12, 12, 640, 20 * #lines + 12)
@@ -264,6 +275,21 @@ function MapDiagnosticState:keypressed(key)
   end
   if key == "tab" then
     self:_cycleMap()
+    return
+  end
+  if key == "-" or key == "kp-" then
+    self.zoom:zoomOut()
+    self:_updateCameraProjection()
+    return
+  end
+  if key == "=" or key == "+" or key == "kp+" then
+    self.zoom:zoomIn()
+    self:_updateCameraProjection()
+    return
+  end
+  if key == "0" or key == "kp0" then
+    self.zoom:reset()
+    self:_updateCameraProjection()
     return
   end
   if not self.runtime then return end
