@@ -1,6 +1,6 @@
 -- Interactive diagnostic state: render a compiled map in 3D and traverse it with
--- a debug player. It loads the derived cache through MapSceneLoader (compiling on
--- demand in this developer path when cold), builds one persistent MapRenderer,
+-- a debug player. It reads the derived cache through MapSceneLoader (a cold cache
+-- is a hard error -- build it first), builds one persistent MapRenderer,
 -- and spawns a DebugPlayer on the map's provisional tile. WASD steps the player
 -- one tile per press through the permission grid. The camera is fixed at the
 -- map's field angle (from the camera profile) and simply follows the player --
@@ -50,37 +50,16 @@ function MapDiagnosticState.new(versionId, idOrSymbol)
   return self
 end
 
--- Compile the target map into the derived cache if not already present. Returns
--- "hit" when the cache already had the scene (no ROM/NSBMD touched), "miss" when
--- it had to compile. Developer-path only.
-local function ensureCompiled(versionId, cacheFs, idOrSymbol)
-  local map = MapCatalog.require(idOrSymbol)
-  local scenePath = MapAssetCache.mapDir(map.id) .. "/scene.lua"
-  if cacheFs:read(scenePath) then return "hit" end
-
-  local MapAssetCompiler = require("libs.assets.src.MapAssetCompiler")
-  local MapCacheWriter = require("libs.assets.src.MapCacheWriter")
-  local RomFs = require("libs.rom.src.RomFs")
-  local romFs = assert(RomFs.open(versionId))
-  local ok, bundle = pcall(MapAssetCompiler.compile, romFs, idOrSymbol)
-  if ok and bundle then
-    if not MapAssetCache.isReady(cacheFs, bundle.mapId, bundle.marker) then
-      MapCacheWriter.write(cacheFs, bundle)
-    end
-  end
-  romFs:close()
-  if not ok then error(bundle) end
-  return "miss"
-end
-
 function MapDiagnosticState:_load()
   local ok, err = pcall(function()
     local cacheFs = CacheFs.forVersion(self.versionId)
-    self.cacheStatus = ensureCompiled(self.versionId, cacheFs, self.idOrSymbol)
 
     local map = MapCatalog.require(self.idOrSymbol)
     local mapDir = MapAssetCache.mapDir(map.id)
-    local scene = assert(cacheFs:loadLua(mapDir .. "/scene.lua"), "scene.lua missing after compile")
+    if not cacheFs:read(mapDir .. "/scene.lua") then
+      error("map cache is cold — run `love romdump/ --build` first")
+    end
+    local scene = assert(cacheFs:loadLua(mapDir .. "/scene.lua"), "scene.lua missing")
     self.runtime = MapSceneLoader.load(cacheFs, scene)
     self.runtime.fieldTimeSeconds = self.fieldTimeSeconds
     self.renderer = MapRenderer.new()
@@ -246,8 +225,7 @@ function MapDiagnosticState:_drawHud()
   local ps = self.player:status()
 
   local lines = {
-    string.format("%s  rom %s  (%s)", self.versionId, (src.romSha1 or "?"):sub(1, 8),
-      self.cacheStatus == "hit" and "cache hit" or "cache miss"),
+    string.format("%s  rom %s", self.versionId, (src.romSha1 or "?"):sub(1, 8)),
     string.format("map %d  %s  %q", scene.mapId, scene.mapSymbol, scene.label),
     string.format("matrix %d %q  %dx%d  cell (%d,%d)  index %d",
       m.memberId, m.name, m.width or 0, m.height or 0, m.x, m.z, m.index or (m.z * (m.width or 0) + m.x)),
