@@ -15,6 +15,7 @@ function Cli.parse(argv)
     importOnly = false,
     checkDump = false,
     inspect = false,
+    inspectSbc = false,
     analyzeMaps = false,
     buildCache = false,
     forceDump = false,
@@ -36,6 +37,8 @@ function Cli.parse(argv)
       opts.checkDump = true
     elseif a == "--inspect" then
       opts.inspect = true
+    elseif a == "--inspect-sbc" then
+      opts.inspectSbc = true
     elseif a == "--analyze-maps" then
       opts.analyzeMaps = true
     elseif a == "--build-cache" then
