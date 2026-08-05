@@ -22,7 +22,7 @@ local CollisionGrid = require("libs.engine.src.CollisionGrid")
 local DebugPlayer = require("libs.engine.src.DebugPlayer")
 local TargetAnchors = require("data.manifests.target_map_anchors")
 local MapCatalog = require("libs.assets.src.MapCatalog")
-local NeighborRing = require("libs.engine.src.NeighborRing")
+local NeighborPlan = require("libs.assets.src.NeighborPlan")
 local NeighborChunkCompiler = require("libs.assets.src.NeighborChunkCompiler")
 
 local T = {}
@@ -337,7 +337,7 @@ end
 -- through the shared model compiler. ROM-coupled but GPU-free (windowless).
 function T.neighbor_ring_plans_and_compiles(romFs)
   local r = resolve(romFs)
-  local plan = NeighborRing.plan(r.matrix, r.matrixX, r.matrixZ, function(headerId)
+  local plan = NeighborPlan.plan(r.matrix, r.matrixX, r.matrixZ, function(headerId)
     local rec = MapCatalog.areaForMapHeader(headerId)
     return rec and rec.areaDataMemberId or nil
   end)

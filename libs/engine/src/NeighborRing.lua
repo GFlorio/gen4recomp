@@ -1,69 +1,56 @@
--- Optional presentation-only ring of the eight matrix cells surrounding a
--- central map cell. plan() is pure: given a decoded MapMatrix, the centre cell,
--- and a header->area resolver, it returns the neighbour cells to draw -- each
--- with its exact 32-tile world offset, decoded map-header id, land-data member,
--- and resolved area member -- plus the deduplicated set of land members so the
--- loader compiles/instances each unique chunk once. Out-of-bounds cells are
--- skipped without wrapping; cells whose header has no checked-in area mapping
--- are skipped too. load() (the love/ROM-coupled half) lives below and builds the
--- GPU draws from this plan. Neighbours are additive: with the feature disabled
--- nothing is planned and the central scene is untouched.
+-- Loads the presentation-only neighbour ring from the derived cache into GPU
+-- draws. The ring is planned and compiled upstream (libs/assets NeighborPlan +
+-- MapAssetCompiler), which digests the eight surrounding matrix cells into
+-- scene.neighbors -- one descriptor per drawn cell carrying its 32-tile offset,
+-- terrain batches (content-addressed .g4mesh paths), and scene-form materials.
+-- load() reads those assets from the cache, builds one persistent Mesh per
+-- unique geometry path and one Image per unique texture path (deduplicated
+-- across cells), and bakes each cell's world offset into the draw transform and
+-- sort center. All GPU construction happens here, once; release() frees every
+-- owned mesh/image. Neighbours are additive: an empty descriptor list yields no
+-- draws and the central scene is untouched.
 
 local Matrix4 = require("libs.math.src.Matrix4")
-local NeighborPlan = require("libs.assets.src.NeighborPlan")
-local NeighborChunkCompiler = require("libs.assets.src.NeighborChunkCompiler")
-local MeshWriter = require("libs.assets.src.MeshWriter")
 local SceneMesh = require("libs.engine.src.SceneMesh")
 
 local NeighborRing = {}
 
--- The pure ring plan now lives in libs/assets; delegate for callers still on the
--- old surface (removed once the engine loader consumes compiled descriptors).
-NeighborRing.plan = NeighborPlan.plan
-
--- Parse the content-address out of a compiler-produced geometry path.
-local function meshSha1(geometryPath)
-  return assert(geometryPath:match("([0-9a-f]+)%.g4mesh$"), "unexpected geometry path " .. geometryPath)
-end
-
-local function textureSha1(texturePath)
-  return texturePath and texturePath:match("([0-9a-f]+)%.png$") or nil
-end
-
--- Build (or fetch from the shared cache) a persistent love Mesh for a compiled
--- batch, deduplicated across every chunk by its content hash. The cache keeps
--- the decoded vertices too, for the sort-center computation.
-local function meshEntry(sha1, compiled, meshCache, owned)
-  local entry = meshCache[sha1]
+-- Build (or fetch) a persistent love Mesh for a batch's content-addressed
+-- geometry path, deduplicated across cells. Keeps the decoded vertices too, for
+-- the sort-center computation. Returns { mesh, verts }.
+local function meshEntry(path, cacheFs, meshCache, owned)
+  local entry = meshCache[path]
   if not entry then
-    local decoded = SceneMesh.decode(MeshWriter.encode(compiled.meshes[sha1]))
+    local decoded = SceneMesh.decode(assert(cacheFs:read(path), "missing mesh " .. path), path)
     entry = { mesh = SceneMesh.build(decoded), verts = decoded.vertices }
-    meshCache[sha1] = entry
+    meshCache[path] = entry
     owned.meshes[#owned.meshes + 1] = entry.mesh
   end
   return entry
 end
 
--- Build (or fetch) a persistent love Image for a decoded texture, deduplicated
--- across chunks by content hash. Returns the image with the material's wrap set.
-local function imageFor(sha1, compiled, imageCache, owned)
-  if not sha1 then return nil end
-  local image = imageCache[sha1]
+-- Build (or fetch) a persistent love Image for a texture's content-addressed
+-- path, deduplicated across cells.
+local function imageFor(path, cacheFs, imageCache, owned)
+  if not path then return nil end
+  local image = imageCache[path]
   if not image then
-    local tex = compiled.textures[sha1]
-    local data = love.image.newImageData(tex.width, tex.height, "rgba8", tex.pixels)
+    local bytes = assert(cacheFs:read(path), "missing texture " .. path)
+    local data = love.filesystem.newFileData(bytes, "tex.png")
     image = love.graphics.newImage(data)
     image:setFilter("nearest", "nearest")
-    imageCache[sha1] = image
+    imageCache[path] = image
     owned.images[#owned.images + 1] = image
   end
   return image
 end
 
-local function materialsById(compiled, imageCache, owned)
+-- Index a descriptor's scene-form material list by id, resolving each image and
+-- applying the material's wrap (mirrors MapSceneLoader's material handling).
+local function materialsById(list, cacheFs, imageCache, owned)
   local byId = {}
-  for _, m in ipairs(compiled.materials) do
-    local image = imageFor(textureSha1(m.texture), compiled, imageCache, owned)
+  for _, m in ipairs(list or {}) do
+    local image = imageFor(m.texture, cacheFs, imageCache, owned)
     if image then
       local function mode(w) return w == "repeat" and "repeat" or "clamp" end
       local wrap = m.wrap or { x = "clamp", y = "clamp" }
@@ -91,32 +78,29 @@ local function modelCenter(verts)
   return { (minx + maxx) / 2, (miny + maxy) / 2, (minz + maxz) / 2 }
 end
 
--- Load the planned neighbour ring into GPU draw items. `romFs` is an open RomFs;
--- neighbours are terrain-only and read the ROM directly (they are outside the
--- per-map derived cache). Returns { draws, stats, release }.
-function NeighborRing.load(romFs, plan)
+-- Load the compiled neighbour ring into GPU draw items. `cacheFs` is a
+-- CacheFs.forVersion; `descriptors` is scene.neighbors. Returns
+-- { draws, stats, release }.
+function NeighborRing.load(cacheFs, descriptors)
   local meshCache, imageCache = {}, {}
   local owned = { meshes = {}, images = {} }
 
-  -- Compile each unique land member's terrain chunk once, then wrap it into a
-  -- reusable set of draw templates (mesh + material + render state + center).
-  local chunkByMember = {}
-  for _, member in ipairs(plan.uniqueLandMembers) do
-    -- Every cell using this land member shares one area (same header), so the
-    -- first matching cell's area is representative.
-    local areaMemberId
-    for _, cell in ipairs(plan.cells) do
-      if cell.landDataMemberId == member then areaMemberId = cell.areaDataMemberId break end
-    end
-    local compiled = NeighborChunkCompiler.compile(romFs, member, areaMemberId)
-    local materials = materialsById(compiled, imageCache, owned)
-
-    local templates = {}
-    for _, batch in ipairs(compiled.batches) do
-      local entry = meshEntry(meshSha1(batch.geometry), compiled, meshCache, owned)
-      templates[#templates + 1] = {
+  -- One draw per (cell, batch), with the cell's 32-tile world offset baked into
+  -- the transform and the sort center.
+  local draws = {}
+  local submission = 200000 -- behind the diagnostic overlays' index space
+  for _, cell in ipairs(descriptors or {}) do
+    local ox, oz = cell.offsetTilesX, cell.offsetTilesZ
+    local transform = Matrix4.translate(ox, 0, oz)
+    local materials = materialsById(cell.materials, cacheFs, imageCache, owned)
+    for _, batch in ipairs(cell.batches) do
+      local entry = meshEntry(batch.geometry, cacheFs, meshCache, owned)
+      local c = modelCenter(entry.verts)
+      submission = submission + 1
+      draws[#draws + 1] = {
         mesh = entry.mesh,
         material = materials[batch.material],
+        transform = transform,
         alphaClass = batch.alphaClass or "opaque",
         cullMode = batch.cullMode or "back",
         alphaCutoff = 0.5 / 255,
@@ -126,35 +110,7 @@ function NeighborRing.load(romFs, plan)
         polygonId = batch.polygonId or 0,
         translucentDepthWrite = batch.translucentDepthWrite or false,
         depthEqual = batch.depthEqual or false,
-        center = modelCenter(entry.verts),
-      }
-    end
-    chunkByMember[member] = templates
-  end
-
-  -- One draw per (cell, batch), with the cell's 32-tile world offset baked into
-  -- the transform and the sort center.
-  local draws = {}
-  local submission = 200000 -- behind the diagnostic overlays' index space
-  for _, cell in ipairs(plan.cells) do
-    local ox, oz = cell.offsetTilesX, cell.offsetTilesZ
-    local transform = Matrix4.translate(ox, 0, oz)
-    for _, t in ipairs(chunkByMember[cell.landDataMemberId] or {}) do
-      submission = submission + 1
-      draws[#draws + 1] = {
-        mesh = t.mesh,
-        material = t.material,
-        transform = transform,
-        alphaClass = t.alphaClass,
-        cullMode = t.cullMode,
-        alphaCutoff = t.alphaCutoff,
-        polygonAlpha = t.polygonAlpha,
-        polygonMode = t.polygonMode,
-        lightMask = t.lightMask,
-        polygonId = t.polygonId,
-        translucentDepthWrite = t.translucentDepthWrite,
-        depthEqual = t.depthEqual,
-        center = { t.center[1] + ox, t.center[2], t.center[3] + oz },
+        center = { c[1] + ox, c[2], c[3] + oz },
         submissionIndex = submission,
       }
     end
@@ -163,8 +119,7 @@ function NeighborRing.load(romFs, plan)
   local ring = {
     draws = draws,
     stats = {
-      cellCount = #plan.cells,
-      chunkCount = #plan.uniqueLandMembers,
+      cellCount = #(descriptors or {}),
       meshCount = #owned.meshes,
       textureCount = #owned.images,
     },
