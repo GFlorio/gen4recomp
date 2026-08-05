@@ -31,6 +31,7 @@ local MODULES = {
   "libs.assets.tests.map_asset_cache_test",
   "libs.assets.tests.mesh_writer_test",
   "libs.assets.tests.png_writer_test",
+  "libs.assets.tests.map_matrix_test",
   -- libs/engine
   "libs.engine.tests.camera3d_test",
   "libs.engine.tests.scene_mesh_test",
@@ -46,7 +47,6 @@ local MODULES = {
   -- romdump
   "romdump.tests.cli_test",
   -- romdump/src/digest
-  "romdump.tests.map_matrix_test",
   "romdump.tests.neighbor_plan_test",
   "romdump.tests.map_catalog_test",
   "romdump.tests.map_resolver_test",
