@@ -58,10 +58,10 @@ function MapDiagnosticState:_load()
 
     local map = WorldLookup.require(self.world, self.idOrSymbol)
     local mapDir = MapAssetCache.mapDir(map.id)
-    if not cacheFs:read(mapDir .. "/scene.lua") then
+    local scene = cacheFs:loadLua(mapDir .. "/scene.lua")
+    if not scene then
       error("map cache is cold — run `love romdump/ --build` first")
     end
-    local scene = assert(cacheFs:loadLua(mapDir .. "/scene.lua"), "scene.lua missing")
     self.runtime = MapSceneLoader.load(cacheFs, scene)
     self.runtime.fieldTimeSeconds = self.fieldTimeSeconds
     self.renderer = MapRenderer.new()
