@@ -1,6 +1,6 @@
 local Assert = require("tests.support.Assert")
 local RomFs = require("libs.rom.src.RomFs")
-local MapMatrix = require("libs.assets.src.MapMatrix")
+local MapMatrix = require("romdump.src.digest.MapMatrix")
 local DumpFixture = require("tests.support.DumpFixture")
 
 local T = {}
