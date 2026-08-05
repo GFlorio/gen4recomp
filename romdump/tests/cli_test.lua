@@ -10,6 +10,8 @@ function T.defaults_are_all_off()
   Assert.isFalse(o.importOnly)
   Assert.isFalse(o.checkDump)
   Assert.isFalse(o.testPrivate)
+  Assert.isFalse(o.buildCache)
+  Assert.isFalse(o.forceDump)
 end
 
 function T.parses_flags()
@@ -38,9 +40,31 @@ function T.parses_inspect()
   Assert.isFalse(Cli.parse({}).inspect)
 end
 
-function T.parses_build()
-  Assert.isTrue(Cli.parse({ "--build" }).build)
-  Assert.isFalse(Cli.parse({}).build)
+function T.parses_analyze_maps()
+  Assert.isTrue(Cli.parse({ "--analyze-maps" }).analyzeMaps)
+  Assert.isFalse(Cli.parse({}).analyzeMaps)
+end
+
+function T.parses_build_cache_with_optional_rom()
+  local withoutRom = Cli.parse({ "--build-cache" })
+  Assert.isTrue(withoutRom.buildCache)
+  Assert.isNil(withoutRom.importRom)
+
+  local withRom = Cli.parse({ "--build-cache", "/tmp/hg.nds" })
+  Assert.isTrue(withRom.buildCache)
+  Assert.equal(withRom.importRom, "/tmp/hg.nds")
+end
+
+function T.parses_forcedump_with_required_rom()
+  local o = Cli.parse({ "--build-cache", "--forcedump", "/tmp/hg.nds" })
+  Assert.isTrue(o.buildCache)
+  Assert.isTrue(o.forceDump)
+  Assert.equal(o.importRom, "/tmp/hg.nds")
+end
+
+function T.forcedump_requires_rom()
+  Assert.throws(function() Cli.parse({ "--build-cache", "--forcedump" }) end)
+  Assert.throws(function() Cli.parse({ "--forcedump", "--build-cache" }) end)
 end
 
 return T

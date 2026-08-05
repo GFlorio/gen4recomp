@@ -7,7 +7,7 @@ local Errors = require("libs.rom.src.Errors")
 
 local WorldManifest = {}
 
-function WorldManifest.build(entries)
+function WorldManifest.build(entries, excluded)
   local maps = {}
   for _, e in ipairs(entries) do maps[#maps + 1] = e end
   table.sort(maps, function(a, b) return a.id < b.id end)
@@ -23,11 +23,32 @@ function WorldManifest.build(entries)
     bySymbol[e.symbol] = e.id
     byId[e.id] = index
   end
-  return { maps = maps, bySymbol = bySymbol, byId = byId }
+  local excludedMaps = {}
+  for _, record in ipairs(excluded or {}) do excludedMaps[#excludedMaps + 1] = record end
+  table.sort(excludedMaps, function(a, b) return a.id < b.id end)
+  local excludedIds, excludedSymbols = {}, {}
+  for _, record in ipairs(excludedMaps) do
+    assert(not byId[record.id], "excluded map id is renderable: " .. record.id)
+    assert(not excludedIds[record.id], "duplicate excluded map id " .. record.id)
+    assert(not bySymbol[record.symbol], "excluded map symbol is renderable: " .. record.symbol)
+    assert(not excludedSymbols[record.symbol], "duplicate excluded map symbol " .. record.symbol)
+    excludedIds[record.id] = true
+    excludedSymbols[record.symbol] = true
+  end
+  return {
+    maps = maps,
+    bySymbol = bySymbol,
+    byId = byId,
+    analysis = {
+      mapHeaderCount = #maps + #excludedMaps,
+      renderableCount = #maps,
+      excluded = excludedMaps,
+    },
+  }
 end
 
-function WorldManifest.write(cacheFs, entries)
-  local manifest = WorldManifest.build(entries)
+function WorldManifest.write(cacheFs, entries, excluded)
+  local manifest = WorldManifest.build(entries, excluded)
   cacheFs:writeLua(MapAssetCache.worldPath(), manifest)
   return manifest
 end

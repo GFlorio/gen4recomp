@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Inventory every catalog map from the private dump for every ready version.
+# Inventory every renderable map from the private dump for every ready version.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/lib.sh

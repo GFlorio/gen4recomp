@@ -6,7 +6,7 @@ local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local T = {}
 
 function T.exports_compiler_version()
-  Assert.equal(MapAssetCompiler.COMPILER_VERSION, "map-compiler-v7")
+  Assert.equal(MapAssetCompiler.COMPILER_VERSION, "map-compiler-v8")
 end
 
 function T.compile_requires_romfs_shaped_object()

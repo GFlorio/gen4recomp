@@ -214,7 +214,6 @@ function MapSceneLoader.load(cacheFs, scene)
   local runtime = {
     scene = scene,
     mapId = scene.mapId,
-    label = scene.label,
     cameraType = scene.cameraType,
     collision = collision,
     bounds = bounds,

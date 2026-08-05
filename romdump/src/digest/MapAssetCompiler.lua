@@ -31,7 +31,7 @@ local Errors = require("libs.rom.src.Errors")
 
 local MapAssetCompiler = {}
 
-local COMPILER_VERSION = "map-compiler-v7"
+local COMPILER_VERSION = "map-compiler-v8"
 local COORDINATE_CONVENTION = "nsbmd-sbc-matrix-16-tile-v3"
 local SCENE_SCHEMA = "g4-map-scene-v2"
 
@@ -279,7 +279,6 @@ local function _compile(romFs, idOrSymbol)
     versionId = romFs:version(),
     mapId = mapId,
     mapSymbol = resolved.map.symbol,
-    label = resolved.map.label,
     matrix = {
       memberId = resolved.matrixMemberId,
       name = resolved.matrix.name,

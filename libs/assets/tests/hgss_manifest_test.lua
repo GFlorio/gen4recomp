@@ -19,6 +19,14 @@ function T.resolves_by_symbol()
   Assert.isTrue(e.required)
 end
 
+function T.resolves_unaliased_raw_symbol()
+  local e = Hgss.resolve("NARC_a_0_0_0")
+  Assert.isNil(e.alias)
+  Assert.equal(e.narcId, 0)
+  Assert.equal(e.path, "a/0/0/0")
+  Assert.isFalse(e.required)
+end
+
 function T.optional_alias_is_not_required()
   Assert.isFalse(Hgss.resolve("font").required)
 end

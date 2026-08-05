@@ -17,7 +17,7 @@ romdump/      Headless ROM/asset CLI — import, audit, inspect, compile (love r
 libs/rom/     NDS/NitroFS/NARC formats, binary reading, ROM validation, dump filesystem
 libs/assets/  HGSS data decoding, map/mesh/material compilation, derived-cache formats
 libs/engine/  Rendering, cameras, scenes, collision/world primitives
-data/         Shared manifests (data/manifests/*.lua)
+data/         Frozen references and runtime manifests
 tests/        Aggregate + private-target runners and shared fixtures (tests/support)
 ```
 
@@ -70,9 +70,12 @@ love romdump/
        ├─ --import-rom P [--import-only] → import P (version detected from SHA-1)
        ├─ --check-dump                   → audit every ready cache with DumpAudit,
        │                                   using only RomFs, never opening the ROM
-       ├─ --inspect                      → payload-free inventory of every catalog map
-       └─ --build                        → compile every map into the derived cache
-                                             and write world.lua
+       ├─ --analyze-maps                 → derive map-cell resolution inventory
+       ├─ --inspect                      → payload-free inventory of every renderable map
+       └─ --build-cache [P] [--forcedump P]
+                                           → reuse a ready dump, import P if none exists,
+                                             or forcibly redump P;
+                                             clear and rebuild all game-facing data
 ```
 
 ## Import flow
@@ -107,7 +110,7 @@ the selected version's subtree — importing one game never touches the other.
 
 Once a cache is ready, the runtime never needs the ROM again, and it never
 decodes a raw ROM format directly — everything comes from the derived cache
-that `romdump --build` wrote. `game`'s `MapDiagnosticState` loads the cache's
+that `scripts/buildcache.sh` wrote. `game`'s `MapDiagnosticState` loads the cache's
 `world.lua` manifest through `CacheFs`, resolves the requested map with
 `WorldLookup`, and loads that map's `scene.lua` through `MapSceneLoader`:
 

@@ -26,6 +26,7 @@ local MODULES = {
   "libs.math.tests.fixed_point_test",
   -- libs/assets
   "libs.assets.tests.hgss_manifest_test",
+  "tests.hgss_reference_test",
   "libs.assets.tests.field_light_profile_test",
   "libs.assets.tests.permission_grid_test",
   "libs.assets.tests.map_asset_cache_test",
@@ -50,6 +51,7 @@ local MODULES = {
   "romdump.tests.neighbor_plan_test",
   "romdump.tests.map_catalog_test",
   "romdump.tests.map_resolver_test",
+  "romdump.tests.map_analysis_test",
   "romdump.tests.area_data_test",
   "romdump.tests.building_placement_test",
   "romdump.tests.building_transform_test",
@@ -73,7 +75,6 @@ local MODULES = {
   "romdump.tests.nsbmd_static_transforms_test",
   "romdump.tests.map_units_test",
   "romdump.tests.hashing_test",
-  "romdump.tests.sync_narc_catalog_test",
 }
 
 local function sortedKeys(t)

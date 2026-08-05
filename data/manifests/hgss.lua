@@ -1,10 +1,10 @@
--- HGSS runtime manifest: the curation layer over the decomp-derived
--- narc_catalog. It maps friendly aliases to NARC symbols, marks which archives
+-- HGSS runtime manifest: the curation layer over the frozen NARC reference
+-- catalog. It maps friendly aliases to NARC symbols, marks which archives
 -- the vertical slice requires, and resolves the version-neutral `encounters`
 -- alias against the active game version. Pure Lua; the only
 -- dependency is the pure-data catalog.
 
-local catalog = require("data.manifests.narc_catalog")
+local catalog = require("data.reference.hgss.narcs")
 
 local Hgss = {}
 
@@ -86,6 +86,19 @@ local function entryForAlias(alias)
   }
 end
 
+local function entryForSymbol(symbol)
+  local data = catalog.entries[symbol]
+  assert(data, "unknown NARC alias or symbol: " .. symbol)
+  local alias = SYMBOL_TO_ALIAS[symbol]
+  return {
+    symbol = symbol,
+    alias = alias,
+    narcId = data.narcId,
+    path = data.path,
+    required = alias ~= nil and REQUIRED[alias] == true,
+  }
+end
+
 -- Resolve a friendly alias, a version-neutral alias, or a raw NARC symbol to a
 -- full catalog entry. Version-neutral aliases require an active versionId.
 function Hgss.resolve(nameOrSymbol, versionId)
@@ -103,9 +116,7 @@ function Hgss.resolve(nameOrSymbol, versionId)
     return entryForAlias(nameOrSymbol)
   end
 
-  local alias = SYMBOL_TO_ALIAS[nameOrSymbol]
-  assert(alias, "unknown NARC alias or symbol: " .. nameOrSymbol)
-  return entryForAlias(alias)
+  return entryForSymbol(nameOrSymbol)
 end
 
 -- Every curated entry, ascending by narcId for deterministic iteration.

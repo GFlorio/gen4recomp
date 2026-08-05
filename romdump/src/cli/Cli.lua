@@ -15,7 +15,9 @@ function Cli.parse(argv)
     importOnly = false,
     checkDump = false,
     inspect = false,
-    build = false,
+    analyzeMaps = false,
+    buildCache = false,
+    forceDump = false,
   }
 
   local i = 1
@@ -34,8 +36,22 @@ function Cli.parse(argv)
       opts.checkDump = true
     elseif a == "--inspect" then
       opts.inspect = true
-    elseif a == "--build" then
-      opts.build = true
+    elseif a == "--analyze-maps" then
+      opts.analyzeMaps = true
+    elseif a == "--build-cache" then
+      opts.buildCache = true
+      if argv[i + 1] and argv[i + 1]:sub(1, 2) ~= "--" then
+        i = i + 1
+        opts.importRom = argv[i]
+      end
+    elseif a == "--forcedump" then
+      opts.forceDump = true
+      i = i + 1
+      local path = argv[i]
+      if not path or path:sub(1, 2) == "--" then
+        error("--forcedump requires a ROM path")
+      end
+      opts.importRom = path
     end
     -- Unknown tokens (e.g. LÖVE's own args) are ignored so the parser stays forgiving.
     i = i + 1
