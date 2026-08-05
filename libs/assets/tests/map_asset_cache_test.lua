@@ -98,4 +98,9 @@ function T.not_ready_when_model_descriptor_references_missing_asset()
   Assert.isTrue(not MapAssetCache.isReady(c, 61, marker), "missing model-internal geometry -> not ready")
 end
 
+function T.world_path_is_stable()
+  Assert.equal(type(MapAssetCache.worldPath()), "string")
+  Assert.isTrue(MapAssetCache.worldPath():match("world%.lua$") ~= nil)
+end
+
 return T

@@ -17,6 +17,12 @@ function MapAssetCache.mapDir(mapId)
   return string.format("%s/maps/%04d", DERIVED_DATA, mapId)
 end
 
+-- Cache-relative path to the whole-ROM world manifest (map index the game boots
+-- and switches on). Lives next to the per-map dirs, under the derived root.
+function MapAssetCache.worldPath()
+  return DERIVED_DATA .. "/world.lua"
+end
+
 function MapAssetCache.geometryPath(sha1)
   return string.format("%s/maps/geometry/%s.g4mesh", DERIVED_ASSETS, sha1)
 end
