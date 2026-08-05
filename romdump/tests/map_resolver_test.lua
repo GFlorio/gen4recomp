@@ -110,23 +110,29 @@ function T.resolves_by_numeric_id()
   Assert.equal(r.map.symbol, "MAP_NEW_BARK_ELMS_LAB_1F")
 end
 
-function T.fails_when_expected_cell_not_matched()
-  local r, err = MapResolver.resolve(newBarkRomFs({ x = 5, z = 5 }), "MAP_NEW_BARK")
-  Assert.isNil(r)
-  Assert.equal(err.code, "MAP_RESOLVE_EXPECTED_CELL_MISMATCH")
-end
-
-function T.fails_when_land_member_mismatches_expectation()
+function T.resolves_multi_cell_map_at_matching_region_centroid()
+  local width, height = 3, 1
   local rom = fakeRomFs({
-    [100] = buildMatrix({
-      width = 1, height = 1, name = "m_labo01_",
-      hasHeaders = false, hasAltitudes = false,
-      modelIds = { 999 },
+    [0] = buildMatrix({
+      width = width, height = height, hasHeaders = true,
+      headers = { 31, 31, 31 }, modelIds = { 10, 11, 12 },
     }),
   })
-  local r, err = MapResolver.resolve(rom, "MAP_NEW_BARK_ELMS_LAB_1F")
+  local r = assert(MapResolver.resolve(rom, "MAP_ROUTE_27"))
+  Assert.equal(r.matrixX, 1)
+  Assert.equal(r.matrixZ, 0)
+  Assert.equal(r.landDataMemberId, 11)
+end
+
+function T.rejects_non_renderable_catalog_header()
+  local rom = fakeRomFs({
+    [0] = buildMatrix({
+      width = 1, height = 1, hasHeaders = true, headers = { 0 }, modelIds = { 10 },
+    }),
+  })
+  local r, err = MapResolver.resolve(rom, "MAP_EVERYWHERE")
   Assert.isNil(r)
-  Assert.equal(err.code, "MAP_RESOLVE_LAND_MEMBER_MISMATCH")
+  Assert.equal(err.code, "MAP_RESOLVE_NOT_RENDERABLE")
 end
 
 function T.fails_on_unknown_map()

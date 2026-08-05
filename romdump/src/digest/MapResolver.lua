@@ -7,6 +7,7 @@
 
 local Errors = require("libs.rom.src.Errors")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
+local MapCellSelector = require("romdump.src.digest.MapCellSelector")
 local MapMatrix = require("libs.assets.src.MapMatrix")
 
 local MapResolver = {}
@@ -16,37 +17,6 @@ local function must(value, err)
   return value
 end
 
--- Apply the section 9.2 cell-selection rules. Returns the chosen
--- { x, z, index } or raises a structured error.
-local function chooseCell(matrix, record, cells)
-  if #cells == 1 then
-    return cells[1]
-  end
-
-  local expected = record.expectedMatrixCell
-  if expected then
-    for _, c in ipairs(cells) do
-      if c.x == expected.x and c.z == expected.z then return c end
-    end
-    Errors.raise("MAP_RESOLVE_EXPECTED_CELL_MISMATCH",
-      "expected matrix cell not among map-header matches",
-      { mapId = record.id, expected = expected, matchCount = #cells })
-  end
-
-  if not matrix.hasHeaders and matrix.width == 1 and matrix.height == 1 then
-    return { x = 0, z = 0, index = 0 }
-  end
-
-  if #cells == 0 then
-    Errors.raise("MAP_RESOLVE_NO_MATCHING_CELL",
-      "no matrix cell references map-header id " .. record.id, { mapId = record.id })
-  end
-  Errors.raise("AMBIGUOUS_MAP_MATRIX_CELL",
-    #cells .. " matrix cells reference map-header id " .. record.id
-      .. " and the catalog has no expectedMatrixCell",
-    { mapId = record.id, matchCount = #cells })
-end
-
 local function resolve(romFs, idOrSymbol)
   local record = MapCatalog.require(idOrSymbol)
 
@@ -54,25 +24,16 @@ local function resolve(romFs, idOrSymbol)
   local bytes = must(narc:readMember(record.matrixMemberId))
   local matrix = must(MapMatrix.decode(bytes, record.id))
 
-  local cells = matrix:findCellsByMapHeaderId(record.id)
-  local chosen = chooseCell(matrix, record, cells)
+  local chosen, reason = MapCellSelector.choose(matrix, record)
+  if not chosen then
+    if reason == "default_header_filler" then
+      Errors.raise("MAP_RESOLVE_NOT_RENDERABLE", "map is excluded from rendering",
+        { mapId = record.id })
+    end
+    Errors.raise("MAP_RESOLVE_NO_MATCHING_CELL",
+      "no matrix cell references map-header id " .. record.id, { mapId = record.id })
+  end
   local cell = matrix:cell(chosen.x, chosen.z)
-
-  -- Section 9.2 step 10: compare the resolved cell and land member against the
-  -- checked-in catalog expectations before trusting them.
-  local expected = record.expectedMatrixCell
-  if expected and (chosen.x ~= expected.x or chosen.z ~= expected.z) then
-    Errors.raise("MAP_RESOLVE_EXPECTED_CELL_MISMATCH",
-      "resolved cell does not match catalog expectedMatrixCell",
-      { mapId = record.id, expected = expected, resolved = { x = chosen.x, z = chosen.z } })
-  end
-  if record.expectedLandDataMemberId ~= nil
-      and cell.landDataMemberId ~= record.expectedLandDataMemberId then
-    Errors.raise("MAP_RESOLVE_LAND_MEMBER_MISMATCH",
-      "resolved land-data member does not match catalog expectation",
-      { mapId = record.id, expected = record.expectedLandDataMemberId,
-        resolved = cell.landDataMemberId })
-  end
 
   local worldOriginX, worldOriginZ = matrix:worldOrigin(chosen.x, chosen.z)
 

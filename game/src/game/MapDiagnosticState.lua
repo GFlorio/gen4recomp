@@ -54,13 +54,13 @@ function MapDiagnosticState:_load()
   local ok, err = pcall(function()
     local cacheFs = CacheFs.forVersion(self.versionId)
     self.world = assert(cacheFs:loadLua(MapAssetCache.worldPath()),
-      "world.lua missing — run `love romdump/ --build` first")
+      "world.lua missing — run `scripts/buildcache.sh` first")
 
     local map = WorldLookup.require(self.world, self.idOrSymbol)
     local mapDir = MapAssetCache.mapDir(map.id)
     local scene = cacheFs:loadLua(mapDir .. "/scene.lua")
     if not scene then
-      error("map cache is cold — run `love romdump/ --build` first")
+      error("map cache is cold — run `scripts/buildcache.sh` first")
     end
     self.runtime = MapSceneLoader.load(cacheFs, scene)
     self.runtime.fieldTimeSeconds = self.fieldTimeSeconds
@@ -228,7 +228,7 @@ function MapDiagnosticState:_drawHud()
 
   local lines = {
     string.format("%s  rom %s", self.versionId, (src.romSha1 or "?"):sub(1, 8)),
-    string.format("map %d  %s  %q", scene.mapId, scene.mapSymbol, scene.label),
+    string.format("map %d  %s", scene.mapId, scene.mapSymbol),
     string.format("matrix %d %q  %dx%d  cell (%d,%d)  index %d",
       m.memberId, m.name, m.width or 0, m.height or 0, m.x, m.z, m.index or (m.z * (m.width or 0) + m.x)),
     string.format("land member %d   origin (%d,%d)", src.landData.memberId, m.worldOriginX, m.worldOriginZ),

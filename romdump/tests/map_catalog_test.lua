@@ -11,8 +11,6 @@ function T.get_elms_lab_by_symbol()
   Assert.equal(lab.matrixMemberId, 100)
   Assert.equal(lab.areaDataMemberId, 25)
   Assert.equal(lab.eventMemberId, 58)
-  Assert.equal(lab.expectedLandDataMemberId, 244)
-  Assert.deepEqual(lab.expectedMatrixCell, { x = 0, z = 0 })
 end
 
 function T.get_new_bark_by_symbol()
@@ -21,13 +19,16 @@ function T.get_new_bark_by_symbol()
   Assert.equal(town.matrixMemberId, 0)
   Assert.equal(town.areaDataMemberId, 2)
   Assert.equal(town.eventMemberId, 57)
-  Assert.equal(town.expectedLandDataMemberId, 0)
-  Assert.deepEqual(town.expectedMatrixCell, { x = 21, z = 12 })
 end
 
 function T.get_by_numeric_id()
   local lab = assert(MapCatalog.get(61))
   Assert.equal(lab.symbol, "MAP_NEW_BARK_ELMS_LAB_1F")
+end
+
+function T.get_representative_non_slice_map()
+  local route = assert(MapCatalog.get("MAP_ROUTE_27"))
+  Assert.equal(route.id, 31)
 end
 
 function T.id_for_symbol_and_symbol_for_id()
@@ -41,6 +42,10 @@ function T.get_unknown_returns_error()
   local rec, err = MapCatalog.get("MAP_NOPE")
   Assert.isNil(rec)
   Assert.equal(err.code, "MAP_CATALOG_UNKNOWN")
+
+  rec, err = MapCatalog.get(9999)
+  Assert.isNil(rec)
+  Assert.equal(err.code, "MAP_CATALOG_UNKNOWN")
 end
 
 function T.require_raises_on_unknown()
@@ -52,7 +57,8 @@ function T.all_iterates_records_ascending_by_id()
   for record in MapCatalog.all() do
     ids[#ids + 1] = record.id
   end
-  Assert.deepEqual(ids, { 60, 61 })
+  Assert.equal(#ids, 540)
+  for i = 1, #ids do Assert.equal(ids[i], i - 1) end
 end
 
 function T.area_for_map_header()
@@ -61,6 +67,7 @@ function T.area_for_map_header()
   Assert.equal(MapCatalog.areaForMapHeader(33).areaDataMemberId, 2)
   Assert.equal(MapCatalog.areaForMapHeader(0).areaDataMemberId, 0)
   Assert.equal(MapCatalog.areaForMapHeader(0).symbol, "MAP_EVERYWHERE")
+  Assert.equal(MapCatalog.areaForMapHeader(60).areaDataMemberId, 2)
   Assert.isNil(MapCatalog.areaForMapHeader(9999))
 end
 

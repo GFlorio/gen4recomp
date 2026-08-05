@@ -25,8 +25,20 @@ function Runner.load(opts)
   Runner.opts = opts or {}
   Runner.importer = nil
 
-  if Runner.opts.build then
-    return Runner._runBuild()
+  if Runner.opts.buildCache then
+    if Runner.opts.forceDump then
+      assert(Runner.opts.importRom, "forcedump requires a ROM path")
+      return Runner._startImport(Runner.opts.importRom)
+    end
+    local targets = readyVersions()
+    if #targets > 0 then
+      return Runner._runBuild()
+    end
+    if Runner.opts.importRom then
+      return Runner._startImport(Runner.opts.importRom)
+    end
+    print("build-cache: no ready dump; pass a ROM path")
+    return love.event.quit(2)
   end
   if Runner.opts.checkDump then
     return Runner._runCheckDump()
@@ -34,11 +46,44 @@ function Runner.load(opts)
   if Runner.opts.inspect then
     return Runner._runInspect()
   end
+  if Runner.opts.analyzeMaps then
+    return Runner._runAnalyzeMaps()
+  end
   if Runner.opts.importRom then
     return Runner._startImport(Runner.opts.importRom)
   end
-  print("romdump: no command given (expected --import-rom, --check-dump, --inspect, or --build)")
+  print("romdump: no command given (expected --import-rom, --check-dump, "
+    .. "--analyze-maps, --inspect, or --build-cache)")
   love.event.quit(2)
+end
+
+-- Derive payload-free map resolution facts from every ready canonical dump.
+function Runner._runAnalyzeMaps()
+  local MapAnalysis = require("romdump.src.digest.MapAnalysis")
+  local targets = readyVersions()
+  if #targets == 0 then
+    print("analyze-maps: no ready version to analyze")
+    return love.event.quit(1)
+  end
+  local allOk = true
+  for _, version in ipairs(targets) do
+    local romFs, err = RomFs.open(version)
+    if not romFs then
+      allOk = false
+      print("analyze-maps: open failed for " .. version .. ": " .. Errors.format(err))
+    else
+      print("version\t" .. version)
+      local ok, results = pcall(MapAnalysis.analyze, romFs)
+      if ok then
+        for _, line in ipairs(MapAnalysis.lines(results)) do print(line) end
+      else
+        allOk = false
+        print("analyze-maps: " .. version .. " failed: " .. Errors.format(results))
+      end
+      romFs:close()
+    end
+  end
+  love.event.quit(allOk and 0 or 1)
 end
 
 -- Audit every ready version and exit 0 only if all pass. Proves the runtime
@@ -58,11 +103,11 @@ function Runner._runCheckDump()
   love.event.quit(allOk and 0 or 1)
 end
 
--- Inventory every catalog map for every ready version and print a deterministic,
+-- Inventory every renderable map for every ready version and print a deterministic,
 -- payload-free report. Exits 0 if every version was inspected without an
 -- uncaught error, 1 otherwise.
 function Runner._runInspect()
-  local MapCatalog = require("romdump.src.digest.MapCatalog")
+  local MapAnalysis = require("romdump.src.digest.MapAnalysis")
   local MapAssetInspector = require("romdump.src.digest.MapAssetInspector")
   local targets = readyVersions()
   if #targets == 0 then
@@ -77,9 +122,14 @@ function Runner._runInspect()
       print("inspect: open failed for " .. version .. ": " .. Errors.format(err))
     else
       local ok, err2 = pcall(function()
-        for rec in MapCatalog.all() do
-          local report = MapAssetInspector.inspect(romFs, rec.id)
-          for _, line in ipairs(MapAssetInspector.lines(report)) do print(line) end
+        for _, result in ipairs(MapAnalysis.analyze(romFs)) do
+          if result.status == "resolved" then
+            local report = MapAssetInspector.inspect(romFs, result.id)
+            for _, line in ipairs(MapAssetInspector.lines(report)) do print(line) end
+          else
+            print(string.format("inspect: %s map %d %s excluded: %s",
+              version, result.id, result.symbol, result.reason))
+          end
         end
       end)
       if not ok then
@@ -92,11 +142,11 @@ function Runner._runInspect()
   love.event.quit(allOk and 0 or 1)
 end
 
--- Compile every catalog map into the derived cache for every ready dump and
--- emit the world manifest. Idempotent: a map whose marker already matches is
--- skipped. Exits 0 only if every map of every version built.
+-- Compile every renderable map into the derived cache for every ready dump and
+-- emit the world manifest. A build-cache invocation first clears all derived
+-- output. Exits 0 only if every map of every version built.
 function Runner._runBuild()
-  local MapCatalog = require("romdump.src.digest.MapCatalog")
+  local MapAnalysis = require("romdump.src.digest.MapAnalysis")
   local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
   local MapCacheWriter = require("romdump.src.digest.MapCacheWriter")
   local MapAssetCache = require("libs.assets.src.MapAssetCache")
@@ -113,29 +163,41 @@ function Runner._runBuild()
     local ok, err = pcall(function()
       romFs = assert(RomFs.open(version))
       local cacheFs = CacheFs.forVersion(version)
-      local entries = {}
-      for rec in MapCatalog.all() do
-        local bundle = assert(MapAssetCompiler.compile(romFs, rec.id))
-        if MapAssetCache.isReady(cacheFs, bundle.mapId, bundle.marker) then
-          print(string.format("build: %s map %d current", version, bundle.mapId))
+      MapAssetCache.invalidateAllDerived(cacheFs)
+      print(string.format("build-cache: %s derived cache cleared", version))
+      local entries, excluded = {}, {}
+      for _, result in ipairs(MapAnalysis.analyze(romFs)) do
+        if result.status == "excluded" then
+          excluded[#excluded + 1] = {
+            id = result.id, symbol = result.symbol, reason = result.reason,
+            matchCount = result.matchCount,
+          }
         else
-          MapCacheWriter.write(cacheFs, bundle)
-          print(string.format("build: %s map %d compiled", version, bundle.mapId))
+          local bundle = assert(MapAssetCompiler.compile(romFs, result.id))
+          if MapAssetCache.isReady(cacheFs, bundle.mapId, bundle.marker) then
+            print(string.format("build-cache: %s map %d current", version, bundle.mapId))
+          else
+            MapCacheWriter.write(cacheFs, bundle)
+            print(string.format("build-cache: %s map %d compiled", version, bundle.mapId))
+          end
+          entries[#entries + 1] = {
+            id = bundle.mapId, symbol = bundle.scene.mapSymbol,
+            width = bundle.scene.matrix.width, height = bundle.scene.matrix.height,
+            matrix = { memberId = result.matrixMemberId,
+                       x = result.matrixX, z = result.matrixZ,
+                       index = result.matrixIndex,
+                       landDataMemberId = result.landDataMemberId,
+                       selection = result.source, matchCount = result.matchCount },
+          }
         end
-        entries[#entries + 1] = {
-          id = bundle.mapId, symbol = bundle.scene.mapSymbol,
-          width = bundle.scene.matrix.width, height = bundle.scene.matrix.height,
-          matrix = { memberId = bundle.scene.matrix.memberId,
-                     x = bundle.scene.matrix.x, z = bundle.scene.matrix.z },
-        }
       end
-      WorldManifest.write(cacheFs, entries)
-      print(string.format("build: %s world.lua written (%d maps)", version, #entries))
+      WorldManifest.write(cacheFs, entries, excluded)
+      print(string.format("build-cache: %s world.lua written (%d maps)", version, #entries))
     end)
     if romFs then romFs:close() end
     if not ok then
       allOk = false
-      print("build: " .. version .. " failed: " .. Errors.format(err))
+      print("build-cache: " .. version .. " failed: " .. Errors.format(err))
     end
   end
   love.event.quit(allOk and 0 or 1)
@@ -162,7 +224,12 @@ function Runner._maybeExit()
   if not imp then return end
   if imp.state == "complete" then
     printImportResult(imp:status())
-    love.event.quit(0)
+    Runner.importer = nil
+    if Runner.opts.buildCache then
+      Runner._runBuild()
+    else
+      love.event.quit(0)
+    end
   elseif imp.state == "error" then
     local s = imp:status()
     print("import failed [" .. tostring(s.errorCode or "ERROR") .. "]: " .. Errors.format(s.error))

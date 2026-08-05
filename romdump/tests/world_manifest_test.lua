@@ -13,12 +13,19 @@ local function sample()
 end
 
 function T.build_sorts_by_id_and_indexes()
-  local m = WorldManifest.build(sample())
+  local m = WorldManifest.build(sample(), {
+    { id = 1, symbol = "MAP_NOTHING", reason = "no_matching_cell", matchCount = 0 },
+    { id = 0, symbol = "MAP_EVERYWHERE", reason = "default_header_filler", matchCount = 598 },
+  })
   Assert.equal(m.maps[1].id, 60)
   Assert.equal(m.maps[2].id, 61)
   Assert.equal(m.bySymbol["MAP_NEW_BARK"], 60)
   Assert.equal(m.byId[61], 2)
   Assert.equal(m.maps[1].matrix.x, 21)
+  Assert.equal(m.analysis.mapHeaderCount, 4)
+  Assert.equal(m.analysis.renderableCount, 2)
+  Assert.equal(m.analysis.excluded[1].id, 0)
+  Assert.equal(m.analysis.excluded[2].id, 1)
 end
 
 function T.build_rejects_duplicate_symbol()

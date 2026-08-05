@@ -105,7 +105,13 @@ end
 -- Remove all derived subtrees, never the raw dump. Asserts it targets only the
 -- generated roots so a refactor can't point it at rom-dump.complete or romfs/.
 function MapAssetCache.invalidateAllDerived(cacheFs)
-  for _, root in ipairs({ DERIVED_DATA, DERIVED_ASSETS }) do
+  local derivedPaths = {
+    DERIVED_DATA .. "/maps",
+    DERIVED_DATA .. "/models",
+    MapAssetCache.worldPath(),
+    DERIVED_ASSETS,
+  }
+  for _, root in ipairs(derivedPaths) do
     assert(root:find("generated", 1, true), "derived root must live under a generated subtree")
     cacheFs:removeTree(root)
   end

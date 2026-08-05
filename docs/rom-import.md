@@ -18,26 +18,35 @@ the ROM**, audits every ready dump. Any failure exits nonzero. The version
 A `.zip` containing the `.nds` works too; it is mounted in memory and walked for
 a compatible ROM.
 
-## Manual steps
+## Build the game cache
 
-Run the same two phases by hand to inspect the results:
+One command imports a ROM when necessary and force-rebuilds all derived data
+used by the game:
 
 ```sh
-# 1. Import (windowless, exit 0 on success). Version detected from SHA-1.
-scripts/import.sh /path/to/your.nds
+scripts/buildcache.sh /path/to/your.nds
+```
 
-# 2. Verify every ready dump using only the private cache — no ROM.
-love romdump/ --check-dump
+Once the raw dump exists, omit the ROM path:
+
+```sh
+scripts/buildcache.sh
+```
+
+Force a fresh dump from the ROM before rebuilding with:
+
+```sh
+scripts/buildcache.sh --forcedump /path/to/your.nds
 ```
 
 Then confirm the "boots without the ROM" guarantee end to end:
 
 ```sh
-# 3. Move the ROM away and re-audit. It must still pass.
+# Move the ROM away and audit. It must still pass.
 mv /path/to/your.nds /somewhere/else.nds
 love romdump/ --check-dump
 
-# 4. Launch interactively; with a ready cache this boots straight into the
+# Launch interactively; with a ready cache this boots straight into the
 #    data diagnostic (or a version selector if both games are imported).
 scripts/run.sh
 ```
