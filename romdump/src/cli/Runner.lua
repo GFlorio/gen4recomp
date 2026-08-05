@@ -109,8 +109,9 @@ function Runner._runBuild()
   end
   local allOk = true
   for _, version in ipairs(targets) do
+    local romFs
     local ok, err = pcall(function()
-      local romFs = assert(RomFs.open(version))
+      romFs = assert(RomFs.open(version))
       local cacheFs = CacheFs.forVersion(version)
       local entries = {}
       for rec in MapCatalog.all() do
@@ -130,8 +131,8 @@ function Runner._runBuild()
       end
       WorldManifest.write(cacheFs, entries)
       print(string.format("build: %s world.lua written (%d maps)", version, #entries))
-      romFs:close()
     end)
+    if romFs then romFs:close() end
     if not ok then
       allOk = false
       print("build: " .. version .. " failed: " .. Errors.format(err))

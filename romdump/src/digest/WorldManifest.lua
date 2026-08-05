@@ -14,6 +14,9 @@ function WorldManifest.build(entries)
 
   local bySymbol, byId = {}, {}
   for index, e in ipairs(maps) do
+    if byId[e.id] then
+      Errors.raise("WORLD_MANIFEST_DUP_ID", "duplicate map id " .. e.id, { id = e.id })
+    end
     if bySymbol[e.symbol] then
       Errors.raise("WORLD_MANIFEST_DUP_SYMBOL", "duplicate map symbol " .. e.symbol, { symbol = e.symbol })
     end
