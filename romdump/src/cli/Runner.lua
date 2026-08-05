@@ -46,6 +46,9 @@ function Runner.load(opts)
   if Runner.opts.inspect then
     return Runner._runInspect()
   end
+  if Runner.opts.inspectSbc then
+    return Runner._runInspectSbc()
+  end
   if Runner.opts.analyzeMaps then
     return Runner._runAnalyzeMaps()
   end
@@ -53,7 +56,7 @@ function Runner.load(opts)
     return Runner._startImport(Runner.opts.importRom)
   end
   print("romdump: no command given (expected --import-rom, --check-dump, "
-    .. "--analyze-maps, --inspect, or --build-cache)")
+    .. "--analyze-maps, --inspect, --inspect-sbc, or --build-cache)")
   love.event.quit(2)
 end
 
@@ -99,6 +102,36 @@ function Runner._runCheckDump()
     local report = DumpAudit.run(version)
     for _, line in ipairs(DumpAudit.lines(report)) do print(line) end
     if not report.ok then allOk = false end
+  end
+  love.event.quit(allOk and 0 or 1)
+end
+
+-- Inventory the SBC transform features used by every terrain and building model
+-- in the ROM. Read-only: it decodes models and writes no cache artifacts.
+function Runner._runInspectSbc()
+  local SbcInventory = require("romdump.src.digest.SbcInventory")
+  local targets = readyVersions()
+  if #targets == 0 then
+    print("inspect-sbc: no ready version to inspect")
+    return love.event.quit(1)
+  end
+  local allOk = true
+  for _, version in ipairs(targets) do
+    local romFs, err = RomFs.open(version)
+    if not romFs then
+      allOk = false
+      print("inspect-sbc: open failed for " .. version .. ": " .. Errors.format(err))
+    else
+      local ok, report = pcall(SbcInventory.scan, romFs)
+      if ok then
+        print("version\t" .. version)
+        for _, line in ipairs(SbcInventory.lines(report)) do print(line) end
+      else
+        allOk = false
+        print("inspect-sbc: " .. version .. " failed: " .. Errors.format(report))
+      end
+      romFs:close()
+    end
   end
   love.event.quit(allOk and 0 or 1)
 end
