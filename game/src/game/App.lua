@@ -1,7 +1,7 @@
 -- Interactive boot flow and top-level state dispatcher. It owns the importer
 -- (pumped once per frame while a first-run import is in progress) and the
 -- current UI state. Boot picks between the import screen, a version selector,
--- and the diagnostic; --map jumps straight into the 3D map diagnostic. All love
+-- and the field runtime; --map jumps straight into the 3D map diagnostic. All love
 -- coupling lives here and in the launcher/game UI states. Headless ROM/asset
 -- flows live in the romdump app, not here.
 
@@ -28,6 +28,13 @@ local function readyVersions()
   return out
 end
 
+local function newFieldState(versionId, target, resumeSave)
+  return FieldState.new(versionId, target, {
+    resumeSave = resumeSave and not App.opts.newFieldSession,
+    resetSave = App.opts.newFieldSession,
+  })
+end
+
 function App.load(opts)
   App.opts = opts or {}
   App.importer = nil
@@ -50,7 +57,7 @@ function App._bootField(idOrSymbol)
     App._startImport()
     return
   end
-  App.state = FieldState.new(ready[1], fieldTarget(idOrSymbol))
+  App.state = newFieldState(ready[1], fieldTarget(idOrSymbol), false)
 end
 
 -- Boot straight into the first ready version's compiled map from the warm
@@ -71,25 +78,28 @@ function App._startImport()
   App.state = ImportState.new(App.importer, App.saveDir)
 end
 
--- Fired once on a successful import: enter the diagnostic.
+-- Fired once on a successful import: enter the normal field runtime unless an
+-- explicit developer field target was requested.
 function App._onImported(versionId)
   if App.opts.field then
-    App.state = FieldState.new(versionId, fieldTarget(App.opts.field))
+    App.state = newFieldState(versionId, fieldTarget(App.opts.field), false)
   else
-    App.state = MapDiagnosticState.new(versionId)
+    App.state = newFieldState(versionId, nil, true)
   end
 end
 
--- Boot decision when no ROM was supplied: one ready cache boots straight into
--- its diagnostic, both ready shows a selector, none ready offers import.
+-- Boot decision when no ROM was supplied: one ready cache resumes its field
+-- session, both ready shows a selector, and none ready offers import.
 function App._bootExisting()
   local ready = readyVersions()
   if #ready == 1 then
-    App.state = FieldState.new(ready[1])
+    App.state = newFieldState(ready[1], nil, true)
     return
   end
   if #ready >= 2 then
-    App.state = VersionSelectState.new(ready, function(v) App.state = MapDiagnosticState.new(v) end)
+    App.state = VersionSelectState.new(ready, function(versionId)
+      App.state = newFieldState(versionId, nil, true)
+    end)
     return
   end
   App._startImport()

@@ -3,13 +3,15 @@
 -- resolves libs and sibling apps by their full repo-relative path (libs.*,
 -- game.src.*, data.*) independent of the working directory. Flags: --test and
 -- --test-private run the suites and exit; --map jumps into the 3D map
--- diagnostic; --field boots the fixed-step field runtime; otherwise App
+-- diagnostic; --field boots a fixed field target; --new-field-session clears
+-- the selected version's project save; otherwise App
 -- drives the normal boot/import flow.
 local ROOT = love.filesystem.getSourceBaseDirectory()
 package.path = ROOT .. "/?.lua;" .. ROOT .. "/?/init.lua;" .. package.path
 
 local function parse(argv)
-  local opts = { test = false, testPrivate = false, map = nil, field = nil }
+  local opts = { test = false, testPrivate = false, map = nil, field = nil,
+    newFieldSession = false }
   local i = 1
   while i <= #(argv or {}) do
     local option = argv[i]
@@ -26,6 +28,8 @@ local function parse(argv)
         i = i + 1
         opts.field = argv[i]
       end
+    elseif option == "--new-field-session" then
+      opts.newFieldSession = true
     end
     i = i + 1
   end
