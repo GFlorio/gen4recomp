@@ -200,6 +200,13 @@ function NsbmdFixture.buildTransformed(opts)
   return file(opts or {}, nodeDictFor("root"), nodeData, SBC_ONE_DRAW)
 end
 
+-- The identity-node model with a caller-supplied SBC byte stream, so SBC decoder
+-- tests can exercise operand forms the two canned streams do not cover.
+function NsbmdFixture.buildWithSbc(sbc, opts)
+  local nodeData = NB.u16(0x0007) .. NB.u16(0)
+  return file(opts or {}, nodeDictFor("root"), nodeData, sbc)
+end
+
 -- A node dictionary entry storing offset 0, which the decoder must reject
 -- rather than read node data from the dictionary itself.
 function NsbmdFixture.buildZeroNodeDataOffset()
