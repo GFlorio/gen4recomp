@@ -242,7 +242,7 @@ function MapDiagnosticState:_drawHud()
   }
   if self.neighborRing and self.neighborRing.stats.cellCount > 0 then
     local ns = self.neighborRing.stats
-    lines[#lines + 1] = string.format("neighbors: %d cells  %d chunks", ns.cellCount, ns.chunkCount)
+    lines[#lines + 1] = string.format("neighbors: %d cells  %d meshes", ns.cellCount, ns.meshCount)
   elseif self.neighborError then
     lines[#lines + 1] = "neighbors: load failed (see stderr)"
   end
@@ -305,30 +305,21 @@ function MapDiagnosticState:_releaseNeighbors()
   self.neighborRing = nil
 end
 
--- Build the neighbor ring for the current map: re-decode its matrix from the raw
--- dump (the scene only carries the centre cell), plan the eight surrounding
--- cells, and compile/instance their terrain. Reads the ROM directly (neighbours
--- live outside the per-map derived cache); a failure is captured, not fatal.
+-- Load the neighbor ring for the current map straight from the compiled scene:
+-- scene.neighbors carries one descriptor per surrounding cell (offset + terrain
+-- assets), so this only reads the derived cache -- no ROM. An empty list is a
+-- no-op (e.g. the 1x1 Elm's Lab matrix); a load failure is captured, not fatal.
 function MapDiagnosticState:_loadNeighbors()
   self:_releaseNeighbors()
-  local romFs
-  local ok, ringOrErr = pcall(function()
-    local RomFs = require("libs.rom.src.RomFs")
-    local MapMatrix = require("libs.assets.src.MapMatrix")
-    local m = self.runtime.scene.matrix
-    romFs = assert(RomFs.open(self.versionId))
-    local matrixBytes = assert(assert(romFs:openNarc("map_matrices")):readMember(m.memberId))
-    local matrix = assert(MapMatrix.decode(matrixBytes, self.runtime.scene.mapId))
-    local plan = NeighborRing.plan(matrix, m.x, m.z, function(headerId)
-      local rec = MapCatalog.areaForMapHeader(headerId)
-      return rec and rec.areaDataMemberId or nil
-    end)
-    return NeighborRing.load(romFs, plan)
-  end)
-  if romFs then romFs:close() end
+  local descriptors = self.runtime.scene.neighbors
+  if not descriptors or #descriptors == 0 then
+    self.neighborRing, self.neighborError = nil, nil
+    return
+  end
+  local cacheFs = CacheFs.forVersion(self.versionId)
+  local ok, ringOrErr = pcall(NeighborRing.load, cacheFs, descriptors)
   if ok then
-    self.neighborRing = ringOrErr
-    self.neighborError = nil
+    self.neighborRing, self.neighborError = ringOrErr, nil
   else
     self.neighborError = tostring(ringOrErr)
     io.stderr:write("neighbor-ring load failed: " .. self.neighborError .. "\n")
