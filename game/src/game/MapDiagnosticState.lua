@@ -10,7 +10,7 @@
 -- HUD. A load failure is captured as text rather than crashing the window.
 
 local CacheFs = require("libs.rom.src.CacheFs")
-local MapCatalog = require("libs.assets.src.MapCatalog")
+local WorldLookup = require("game.src.game.WorldLookup")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local MapRenderer = require("libs.engine.src.MapRenderer")
@@ -53,8 +53,10 @@ end
 function MapDiagnosticState:_load()
   local ok, err = pcall(function()
     local cacheFs = CacheFs.forVersion(self.versionId)
+    self.world = assert(cacheFs:loadLua(MapAssetCache.worldPath()),
+      "world.lua missing — run `love romdump/ --build` first")
 
-    local map = MapCatalog.require(self.idOrSymbol)
+    local map = WorldLookup.require(self.world, self.idOrSymbol)
     local mapDir = MapAssetCache.mapDir(map.id)
     if not cacheFs:read(mapDir .. "/scene.lua") then
       error("map cache is cold — run `love romdump/ --build` first")
@@ -345,7 +347,8 @@ end
 
 -- Cycle to the next vertical-slice target (Elm's Lab <-> New Bark).
 function MapDiagnosticState:_cycleMap()
-  local current = self.runtime and self.runtime.scene.mapSymbol or MapCatalog.require(self.idOrSymbol).symbol
+  local current = self.runtime and self.runtime.scene.mapSymbol
+    or (self.world and WorldLookup.require(self.world, self.idOrSymbol).symbol)
   local at = 1
   for i, sym in ipairs(SWITCH_TARGETS) do
     if sym == current then at = i break end
