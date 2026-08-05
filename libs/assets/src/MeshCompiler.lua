@@ -15,7 +15,7 @@ local MapUnits = require("libs.assets.src.MapUnits")
 local GxDisplayList = require("libs.assets.src.nitro.GxDisplayList")
 local DsMaterial = require("libs.assets.src.nitro.DsMaterial")
 local DsPolygonAttr = require("libs.assets.src.nitro.DsPolygonAttr")
-local Fixed = require("libs.assets.src.nitro.Fixed")
+local FixedPoint = require("libs.math.src.FixedPoint")
 local NsbmdStaticTransforms = require("libs.assets.src.NsbmdStaticTransforms")
 
 local MeshCompiler = {}
@@ -41,7 +41,7 @@ local function materialState(rawMaterial)
   local seed
   if rawMaterial.setVertexColor then
     local diffuse = resolved.colors.diffuse
-    local r, g, b = Fixed.rgb555(diffuse.rgb555)
+    local r, g, b = FixedPoint.rgb555(diffuse.rgb555)
     seed = {
       color = { r, g, b },
       colorSource = diffuse.source == "field" and COLOR_SOURCE.FIELD_DIFFUSE or COLOR_SOURCE.LITERAL,

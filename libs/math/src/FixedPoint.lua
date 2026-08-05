@@ -5,7 +5,7 @@
 -- point is 1.M.12 (both fx16 and fx32 divide by 4096), normals are 1.0.9
 -- packed 10-bit triples, colors are BGR555, angles use 0x10000 == 360 degrees.
 
-local Fixed = {}
+local FixedPoint = {}
 
 local TWO_PI = 2 * math.pi
 
@@ -19,32 +19,32 @@ local function signExtend(value, bits)
 end
 
 -- Signed 20.12 (fx32) -> real number. Input is the raw unsigned 32-bit word.
-function Fixed.fx32(value)
+function FixedPoint.fx32(value)
   return signExtend(value, 32) / 4096
 end
 
 -- Signed 3.12 (fx16) -> real number. Input is the raw unsigned 16-bit word.
-function Fixed.fx16(value)
+function FixedPoint.fx16(value)
   return signExtend(value, 16) / 4096
 end
 
 -- Sign-extend a 10-bit integer (0..1023) to -512..511.
-function Fixed.s10(value)
+function FixedPoint.s10(value)
   return signExtend(value, 10)
 end
 
 -- Unpack a NORMAL command word: three signed 10-bit 1.0.9 components at bits
 -- 0-9, 10-19, 20-29. Returns nx, ny, nz in -1..~1 (component / 512).
-function Fixed.normal10(word)
+function FixedPoint.normal10(word)
   local x = word % 1024
   local y = math.floor(word / 1024) % 1024
   local z = math.floor(word / 1048576) % 1024
-  return Fixed.s10(x) / 512, Fixed.s10(y) / 512, Fixed.s10(z) / 512
+  return FixedPoint.s10(x) / 512, FixedPoint.s10(y) / 512, FixedPoint.s10(z) / 512
 end
 
 -- BGR555 -> r, g, b each 0..255. Bits 0-4 red, 5-9 green, 10-14 blue. The high
 -- bit is ignored here; callers decide alpha per format.
-function Fixed.rgb555(value)
+function FixedPoint.rgb555(value)
   local r5 = value % 32
   local g5 = math.floor(value / 32) % 32
   local b5 = math.floor(value / 1024) % 32
@@ -54,8 +54,8 @@ function Fixed.rgb555(value)
 end
 
 -- DS angle word (0x10000 == full turn) -> radians.
-function Fixed.angle16(value)
+function FixedPoint.angle16(value)
   return value * TWO_PI / 65536
 end
 
-return Fixed
+return FixedPoint

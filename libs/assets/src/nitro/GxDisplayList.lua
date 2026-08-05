@@ -13,7 +13,7 @@
 
 local Errors = require("libs.rom.src.Errors")
 local BinaryReader = require("libs.rom.src.BinaryReader")
-local Fixed = require("libs.assets.src.nitro.Fixed")
+local FixedPoint = require("libs.math.src.FixedPoint")
 
 local GxDisplayList = {}
 
@@ -73,7 +73,7 @@ end
 
 -- 12 fx32 params (column-major 4x3) -> 4x4 with implicit (0,0,0,1) last row.
 local function mat4x3(p)
-  local f = Fixed.fx32
+  local f = FixedPoint.fx32
   return {
     f(p[1]), f(p[2]), f(p[3]), 0,
     f(p[4]), f(p[5]), f(p[6]), 0,
@@ -84,7 +84,7 @@ end
 
 local function mat4x4(p)
   local m = {}
-  for i = 1, 16 do m[i] = Fixed.fx32(p[i]) end
+  for i = 1, 16 do m[i] = FixedPoint.fx32(p[i]) end
   return m
 end
 
@@ -130,7 +130,7 @@ function Decoder:emitVertex()
 end
 
 local function s16(word) if word >= 0x8000 then return word - 0x10000 end return word end
-local function s10(v) return Fixed.s10(v) end
+local function s10(v) return FixedPoint.s10(v) end
 
 -- Apply a matrix op to the position matrix; texture-matrix ops (mode 3) are
 -- consumed but not applied, since they do not affect vertex bounds.
@@ -155,27 +155,27 @@ EXEC[0x17] = function(d, p) if d.mtxMode ~= 3 then d.matrix = mat4x3(p) end end
 EXEC[0x18] = function(d, p) d:applyMatrix(mat4x4(p)) end
 EXEC[0x19] = function(d, p) d:applyMatrix(mat4x3(p)) end
 EXEC[0x1A] = function(d, p)
-  local f = Fixed.fx32
+  local f = FixedPoint.fx32
   d:applyMatrix({
     f(p[1]), f(p[2]), f(p[3]), 0, f(p[4]), f(p[5]), f(p[6]), 0,
     f(p[7]), f(p[8]), f(p[9]), 0, 0, 0, 0, 1,
   })
 end
 EXEC[0x1B] = function(d, p)
-  local f = Fixed.fx32
+  local f = FixedPoint.fx32
   d:applyMatrix({ f(p[1]), 0, 0, 0, 0, f(p[2]), 0, 0, 0, 0, f(p[3]), 0, 0, 0, 0, 1 })
 end
 EXEC[0x1C] = function(d, p)
-  local f = Fixed.fx32
+  local f = FixedPoint.fx32
   d:applyMatrix({ 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, f(p[1]), f(p[2]), f(p[3]), 1 })
 end
 
 EXEC[0x20] = function(d, p) -- COLOR (BGR555) -> literal vertex color
-  d.color = { Fixed.rgb555(p[1] % 0x8000) }
+  d.color = { FixedPoint.rgb555(p[1] % 0x8000) }
   d.colorSource = COLOR_SOURCE.LITERAL
 end
 EXEC[0x21] = function(d, p) -- NORMAL -> vertex color produced by lighting
-  local nx, ny, nz = Fixed.normal10(p[1])
+  local nx, ny, nz = FixedPoint.normal10(p[1])
   d.normal = { nx, ny, nz }
   d.colorSource = COLOR_SOURCE.NORMAL_LIT
 end
