@@ -9,6 +9,7 @@ local GameVersion = require("libs.rom.src.GameVersion")
 local RomImporter = require("libs.rom.src.RomImporter")
 local FieldState = require("game.src.game.FieldState")
 local MapDiagnosticState = require("game.src.game.MapDiagnosticState")
+local ActorPreviewState = require("game.src.game.ActorPreviewState")
 local ImportState = require("game.src.launcher.ImportState")
 local VersionSelectState = require("game.src.launcher.VersionSelectState")
 
@@ -42,11 +43,22 @@ function App.load(opts)
   love.graphics.setBackgroundColor(0.08, 0.09, 0.12)
   App.saveDir = love.filesystem.getSaveDirectory()
 
+  if App.opts.actors then return App._bootActorPreview() end
   if App.opts.field then return App._bootField(App.opts.field) end
   if App.opts.map then
     return App._bootMap(App.opts.map)
   end
   App._bootExisting()
+end
+
+-- Boot the developer preview grid over the compiled actor visuals.
+function App._bootActorPreview()
+  local ready = readyVersions()
+  if #ready == 0 then
+    App._startImport()
+    return
+  end
+  App.state = ActorPreviewState.new(ready[1])
 end
 
 -- Boot the fixed-step field runtime. A bare --field selects Elm's Lab;

@@ -16,6 +16,7 @@ local MODULES = {
   "tests.private.terrain_surfaces_test",
   "tests.private.field_warps_test",
   "tests.private.neighbor_traversal_test",
+  "tests.private.field_actors_test",
   "tests.private.code_invariants_test",
 }
 

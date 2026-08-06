@@ -16,6 +16,7 @@ function Cli.parse(argv)
     checkDump = false,
     inspect = false,
     inspectSbc = false,
+    inspectActors = false,
     analyzeMaps = false,
     buildCache = false,
     forceDump = false,
@@ -40,6 +41,8 @@ function Cli.parse(argv)
       opts.inspect = true
     elseif a == "--inspect-sbc" then
       opts.inspectSbc = true
+    elseif a == "--inspect-actors" then
+      opts.inspectActors = true
     elseif a == "--analyze-maps" then
       opts.analyzeMaps = true
     elseif a == "--allow-compile-exclusions" then

@@ -55,6 +55,7 @@ love game/
   └─ love.load(argv)
        ├─ --test / --test-private → run a suite, exit 0/1
        ├─ --map ID                → boot straight into the 3D map diagnostic
+       ├─ --actors                → boot the compiled field-actor preview grid
        └─ (no flags)              → App inspects both version caches:
                                      0 ready → import screen
                                      1 ready → that version's diagnostic
@@ -72,6 +73,7 @@ love romdump/
        │                                   using only RomFs, never opening the ROM
        ├─ --analyze-maps                 → derive map-cell resolution inventory
        ├─ --inspect                      → payload-free inventory of every renderable map
+       ├─ --inspect-actors               → payload-free inventory of the compiled actor set
        └─ --build-cache [P] [--forcedump P]
                                            → reuse a ready dump, import P if none exists,
                                              or forcibly redump P;
@@ -139,9 +141,13 @@ The cache separates two concerns so future format work never forces a re-import:
   `romfs/` and `system/`, plus generated indexes. Its layout is versioned by
   `ROM_DUMP_FORMAT`; only a layout or index-schema change bumps it and requires
   re-importing.
-- **Derived data** (future) — decoded formats (models, text, Pokémon data) will
-  be built *from* the raw dump and carry their own separate cache marker.
-  Changing a decoder must never invalidate `rom-dump.complete`.
+- **Derived data** — decoded formats built *from* the raw dump, each an
+  independently rebuildable class with its own completion marker: compiled maps
+  (`data/generated/maps`), field cameras (`data/generated/field/camera`), field
+  map data (`data/generated/field/maps`), and field-actor visuals
+  (`data/generated/field/actors` plus `assets/generated/field/actors`). Changing
+  one decoder rebuilds only its class and must never invalidate
+  `rom-dump.complete`. Text and Pokémon data follow the same pattern.
 
 This is why the dump is kept lossless and unnormalized: the ROM is presented
 once, and every later format iteration works from the private dump.
