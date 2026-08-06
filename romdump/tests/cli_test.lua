@@ -13,6 +13,13 @@ function T.defaults_are_all_off()
   Assert.isFalse(o.buildCache)
   Assert.isFalse(o.forceDump)
   Assert.isFalse(o.allowCompileExclusions)
+  Assert.isFalse(o.inspectActors)
+end
+
+function T.parses_inspect_actors()
+  local o = Cli.parse({ "--inspect-actors" })
+  Assert.isTrue(o.inspectActors)
+  Assert.isFalse(o.inspect)
 end
 
 function T.parses_allow_compile_exclusions()

@@ -63,6 +63,7 @@ local MODULES = {
   "libs.engine.tests.field_session_test",
   "libs.engine.tests.field_save_test",
   "libs.engine.tests.field_save_store_test",
+  "libs.engine.tests.field_actor_asset_provider_test",
   -- game
   "game.tests.map_diagnostic_state_test",
   -- romdump
@@ -104,6 +105,7 @@ local MODULES = {
   "romdump.tests.terrain_inspector_test",
   "romdump.tests.field_actor_graphics_test",
   "romdump.tests.field_actor_timeline_test",
+  "romdump.tests.field_actor_cache_writer_test",
 }
 
 local function sortedKeys(t)

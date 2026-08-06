@@ -49,6 +49,9 @@ function Runner.load(opts)
   if Runner.opts.inspectSbc then
     return Runner._runInspectSbc()
   end
+  if Runner.opts.inspectActors then
+    return Runner._runInspectActors()
+  end
   if Runner.opts.analyzeMaps then
     return Runner._runAnalyzeMaps()
   end
@@ -56,7 +59,7 @@ function Runner.load(opts)
     return Runner._startImport(Runner.opts.importRom)
   end
   print("romdump: no command given (expected --import-rom, --check-dump, "
-    .. "--analyze-maps, --inspect, --inspect-sbc, or --build-cache)")
+    .. "--analyze-maps, --inspect, --inspect-sbc, --inspect-actors, or --build-cache)")
   love.event.quit(2)
 end
 
@@ -136,6 +139,40 @@ function Runner._runInspectSbc()
   love.event.quit(allOk and 0 or 1)
 end
 
+-- Compile the selected field-actor set for every ready version and print its
+-- structural facts. Read-only: it writes no cache artifact and emits no
+-- ROM-derived image bytes.
+function Runner._runInspectActors()
+  local FieldActorCompiler = require("romdump.src.digest.FieldActorCompiler")
+  local FieldActorInspector = require("romdump.src.digest.FieldActorInspector")
+  local targets = readyVersions()
+  if #targets == 0 then
+    print("inspect-actors: no ready version to inspect")
+    return love.event.quit(1)
+  end
+  local allOk = true
+  for _, version in ipairs(targets) do
+    local romFs, err = RomFs.open(version)
+    if not romFs then
+      allOk = false
+      print("inspect-actors: open failed for " .. version .. ": " .. Errors.format(err))
+    else
+      local ok, bundle = pcall(function() return assert(FieldActorCompiler.compile(romFs)) end)
+      if ok then
+        print("version\t" .. version)
+        for _, line in ipairs(FieldActorInspector.lines(FieldActorInspector.inspect(bundle))) do
+          print(line)
+        end
+      else
+        allOk = false
+        print("inspect-actors: " .. version .. " failed: " .. Errors.format(bundle))
+      end
+      romFs:close()
+    end
+  end
+  love.event.quit(allOk and 0 or 1)
+end
+
 -- Inventory every renderable map for every ready version and print a deterministic,
 -- payload-free report. Exits 0 if every version was inspected without an
 -- uncaught error, 1 otherwise.
@@ -204,6 +241,9 @@ function Runner._runBuild()
   local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
   local FieldMapDataCacheWriter = require("romdump.src.digest.FieldMapDataCacheWriter")
   local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
+  local FieldActorCompiler = require("romdump.src.digest.FieldActorCompiler")
+  local FieldActorCacheWriter = require("romdump.src.digest.FieldActorCacheWriter")
+  local FieldActorCache = require("libs.assets.src.FieldActorCache")
   local targets = readyVersions()
   if #targets == 0 then
     print("build: no ready version to compile")
@@ -216,6 +256,7 @@ function Runner._runBuild()
       romFs = assert(RomFs.open(version))
       local cacheFs = CacheFs.forVersion(version)
       MapAssetCache.invalidateAllDerived(cacheFs)
+      FieldActorCache.invalidate(cacheFs)
       print(string.format("build-cache: %s derived cache cleared", version))
       local cameraBundle = assert(FieldCameraCompiler.compile(romFs))
       if FieldCameraCacheWriter.isReady(cacheFs, cameraBundle.marker) then
@@ -223,6 +264,14 @@ function Runner._runBuild()
       else
         FieldCameraCacheWriter.write(cacheFs, cameraBundle)
         print(string.format("build-cache: %s field cameras compiled", version))
+      end
+      local actorBundle = assert(FieldActorCompiler.compile(romFs))
+      if FieldActorCacheWriter.isReady(cacheFs, actorBundle.marker) then
+        print(string.format("build-cache: %s field actors current", version))
+      else
+        FieldActorCacheWriter.write(cacheFs, actorBundle)
+        print(string.format("build-cache: %s field actors compiled (%d sprites)",
+          version, #actorBundle.index.spriteIds))
       end
       for _, fieldBundle in ipairs(assert(FieldMapDataCompiler.compileAll(romFs))) do
         if FieldMapDataCache.isReady(cacheFs, fieldBundle.mapId, fieldBundle.marker) then
