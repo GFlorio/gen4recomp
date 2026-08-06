@@ -5,6 +5,7 @@
 local CacheFs = require("libs.rom.src.CacheFs")
 local Errors = require("libs.rom.src.Errors")
 local FieldActorAssetProvider = require("libs.engine.src.FieldActorAssetProvider")
+local FieldActorDraw = require("libs.engine.src.FieldActorDraw")
 local FieldActorManager = require("libs.engine.src.FieldActorManager")
 local FieldCamera = require("libs.engine.src.FieldCamera")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
@@ -14,6 +15,7 @@ local FieldInput = require("libs.engine.src.FieldInput")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldMapLoader = require("libs.engine.src.FieldMapLoader")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
+local FieldPlayerVisual = require("libs.engine.src.FieldPlayerVisual")
 local FieldSave = require("libs.engine.src.FieldSave")
 local FieldScenario = require("libs.engine.src.FieldScenario")
 local FieldSaveStore = require("libs.engine.src.FieldSaveStore")
@@ -81,7 +83,9 @@ function FieldState.new(versionId, idOrSymbol, options)
     idOrSymbol = idOrSymbol or DEFAULT_MAP,
     resumeSave = options.resumeSave == true,
     resetSave = options.resetSave == true,
-    overlaysVisible = true,
+    -- Developer pins are off by default: normal play shows only the ROM-derived
+    -- actors, never the placeholder prisms.
+    overlaysVisible = false,
     errorText = nil,
     zoom = FieldZoom.new(options.zoomConfig or FieldPresentation.zoom),
   }, FieldState)
@@ -172,6 +176,18 @@ function FieldState:_load()
     })
     self.actors:enterMap(self.runtimeMap, self.eventState)
     self.inspectorIndex = 0
+    self.posePlaceholders = {}
+
+    -- The player's graphic is one more compiled actor visual: it is acquired from
+    -- the same reference-counted provider, and FieldPlayer keeps every bit of
+    -- movement authority.
+    self.avatar = FieldScenario.avatar(FieldScenarioManifest, FieldActorManifest.avatars)
+    self.avatarAsset = self.actorAssets:acquire(self.avatar.spriteId)
+    self.playerVisual = FieldPlayerVisual.new({
+      player = self.player,
+      spriteId = self.avatar.spriteId,
+      visualDef = self.avatarAsset.visual,
+    })
 
     self.transition = FieldTransition.new({
       loader = self.mapLoader,
@@ -186,6 +202,7 @@ function FieldState:_load()
       camera = self.camera,
       transition = self.transition,
       actors = self.actors,
+      playerVisual = self.playerVisual,
       input = self.input,
       coverage = function()
         self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
@@ -304,6 +321,12 @@ function FieldState:_swapMap(resolution, facing)
   self.runtime = runtimeMap.sceneRuntime
   self.player = player
   self.actor = player
+  self.playerVisual = FieldPlayerVisual.new({
+    player = player,
+    spriteId = self.avatar.spriteId,
+    visualDef = self.avatarAsset.visual,
+  })
+  self.session.playerVisual = self.playerVisual
   self.camera = camera
   self.envelope = terrainEnvelope(runtimeMap.terrain)
   self.session.currentMap = runtimeMap
@@ -335,20 +358,41 @@ function FieldState:_eventPoint(event)
   return ok and point or nil
 end
 
-function FieldState:_overlays()
-  local list = {}
-  append(list, {
-    mesh = self.playerMesh, material = self.playerMaterial,
-    transform = Matrix4.translate(self.actor.worldX, self.actor.worldY, self.actor.worldZ),
-    center = { 0, 0.8, 0 },
-  })
+-- Every actor the frame draws: the ROM-derived player billboard first, then the
+-- object actors the manager considers present. Records stay presentation-neutral;
+-- FieldActorDraw turns them into world draw items against the resident visuals.
+function FieldState:_actorDraws(alpha)
+  local records = { self.playerVisual:drawRecord(alpha) }
+  for _, record in ipairs(self.actors:drawRecords(alpha)) do records[#records + 1] = record end
+  local items = FieldActorDraw.items(records, function(spriteId)
+    return self.actorAssets:resident(spriteId)
+  end)
+  -- A sprite class whose requested clip is absent draws its verified idle pose.
+  -- Report it once per actor, never once per frame.
+  for _, item in ipairs(items) do
+    if item.poseFellBack and not self.posePlaceholders[item.actorId] then
+      self.posePlaceholders[item.actorId] = true
+      io.stderr:write(string.format("actor.pose_fallback %s sprite %d\n",
+        item.actorId, item.spriteId or -1))
+    end
+  end
+  return items
+end
+
+function FieldState:_worldDraws(alpha)
+  local list = self:_actorDraws(alpha)
   if self.runtimeMap.coverageRuntime then
     for _, draw in ipairs(self.runtimeMap.coverageRuntime.draws) do list[#list + 1] = draw end
   end
   if not self.overlaysVisible then return list end
 
-  -- Object events draw from the actor manager, not the raw records, so the
-  -- overlay shows exactly what the runtime considers present.
+  -- Developer pins only. The player prism and the object-event boxes mark the
+  -- logical anchor of each actor, which the drawn billboards are placed from.
+  append(list, {
+    mesh = self.playerMesh, material = self.playerMaterial,
+    transform = Matrix4.translate(self.actor.worldX, self.actor.worldY, self.actor.worldZ),
+    center = { 0, 0.8, 0 },
+  })
   for _, record in ipairs(self.actors:drawRecords(0)) do
     append(list, {
       mesh = self.actorMesh, material = self.eventMaterial,
@@ -399,7 +443,8 @@ function FieldState:draw()
     self:_updateCameraProjection()
     self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
   end
-  self.renderer:draw(self.runtime, self.camera, self:_overlays(), self.viewport)
+  self.renderer:draw(self.runtime, self.camera,
+    self:_worldDraws(self.session:renderAlpha()), self.viewport)
   if self.transition and self.transition.fadeAlpha > 0 then
     local rectangle = self.viewport.worldViewport
     lg.setColor(0, 0, 0, self.transition.fadeAlpha)
@@ -448,6 +493,22 @@ function FieldState:_toggleInspectorFlag()
     self.runtimeMap.mapId, event.objectEventId, event.eventFlag, set and "set" or "cleared")
 end
 
+-- Developer control: cycle the player graphic through the manifest order, so
+-- both avatars are verifiable before the save schema carries the choice.
+function FieldState:_cycleAvatar()
+  local avatars = FieldActorManifest.avatars
+  local index = self.avatar.index % #avatars + 1
+  local avatar = avatars[index]
+  -- Acquire before releasing: cycling back to the same sprite must not let its
+  -- last reference drop and dispose the resident visual.
+  local asset = self.actorAssets:acquire(avatar.spriteId)
+  self.actorAssets:release(self.avatarAsset.spriteId)
+  self.avatar = { index = index, id = avatar.id, spriteId = avatar.spriteId }
+  self.avatarAsset = asset
+  self.playerVisual:setAvatar(avatar.spriteId, asset.visual)
+  self.saveStatus = string.format("developer: avatar %s (sprite %d)", avatar.id, avatar.spriteId)
+end
+
 function FieldState:_drawHud()
   local lg = love.graphics
   local events = self.runtimeMap.fieldData.events
@@ -469,6 +530,8 @@ function FieldState:_drawHud()
     string.format("camera y source/applied %.3f/%.3f  zoom %.2f (manual %.2f)",
       self.camera.cameraSourceY, self.camera.cameraAppliedY,
       self.camera.zoom, self.zoom.manualZoom),
+    string.format("viewport height %d  reference height %d  resize compensation %.2f",
+      self.viewport.worldViewport.height, self.zoom.referenceHeight, self.zoom.resizeCompensation),
     string.format("events bg/object/warp/coord %d/%d/%d/%d",
       #(events.background or {}), #(events.objects or {}),
       #(events.warps or {}), #(events.coordinates or {})),
@@ -480,6 +543,9 @@ function FieldState:_drawHud()
       #self.actors:actorsOf(self.runtimeMap.mapId), #(events.objects or {}),
       visuals.live, visuals.references,
       FieldScenarioManifest.id, #self.scenarioApplied),
+    string.format("avatar %s sprite %d  pose %s tick %d  facing %s",
+      self.avatar.id, self.avatar.spriteId, self.playerVisual.pose,
+      self.playerVisual.poseTick, self.player.facing),
     self:_inspectorLine(),
     string.format("tick %d  dropped %d  overlays %s",
       self.session.tick, self.session.discardedTicks, self.overlaysVisible and "on" or "off"),
@@ -487,7 +553,7 @@ function FieldState:_drawHud()
       self.transition.phase, self.transition.fadeAlpha),
     self.saveStatus or "save not written this run",
     "WASD/arrows move   -/= zoom   0 reset zoom   F1 overlays   F2 inspect   F3 toggle flag"
-      .. "   F5 save   F9 reset   Esc quit",
+      .. "   F4 avatar   F5 save   F9 reset   Esc quit",
   }
   lg.setColor(0, 0, 0, 0.55)
   lg.rectangle("fill", 12, 12, 900, 20 * #lines + 12)
@@ -503,6 +569,7 @@ function FieldState:keypressed(key)
     if count > 0 then self.inspectorIndex = (self.inspectorIndex + 1) % count end
   end
   if key == "f3" then self:_toggleInspectorFlag() end
+  if key == "f4" then self:_cycleAvatar() end
   if key == "f5" then self:_save() end
   if key == "f9" then self:_reset() return end
   if key == "-" or key == "kp-" then
@@ -539,6 +606,10 @@ end
 
 function FieldState:_release()
   if self.actors then self.actors:dispose() end
+  if self.avatarAsset and self.actorAssets then
+    self.actorAssets:release(self.avatarAsset.spriteId)
+  end
+  self.avatarAsset, self.playerVisual = nil, nil
   if self.actorAssets then self.actorAssets:dispose() end
   if self.renderer then self.renderer:release() end
   if self.mapLoader then self.mapLoader:release() end

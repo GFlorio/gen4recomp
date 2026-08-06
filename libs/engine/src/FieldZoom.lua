@@ -14,7 +14,7 @@ function FieldZoom.new(config)
   local minimum = config.minZoom or 0.5
   local maximum = config.maxZoom or 1.5
   local initial = config.manualZoom or 1
-  local referenceHeight = config.referenceHeight or 720
+  local referenceHeight = config.referenceHeight or 600
   local compensation = config.resizeCompensation or 0
   local step = config.step or 0.1
   assert(type(minimum) == "number" and minimum > 0, "minimum zoom must be positive")

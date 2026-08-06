@@ -67,6 +67,10 @@ local MODULES = {
   "libs.engine.tests.field_event_state_test",
   "libs.engine.tests.field_object_actor_test",
   "libs.engine.tests.field_actor_manager_test",
+  "libs.engine.tests.field_actor_pose_test",
+  "libs.engine.tests.field_actor_mesh_test",
+  "libs.engine.tests.field_actor_draw_test",
+  "libs.engine.tests.field_player_visual_test",
   "libs.engine.tests.field_scenario_test",
   -- game
   "game.tests.map_diagnostic_state_test",
@@ -108,6 +112,9 @@ local MODULES = {
   "romdump.tests.field_map_data_compiler_test",
   "romdump.tests.terrain_inspector_test",
   "romdump.tests.field_actor_graphics_test",
+  "romdump.tests.field_actor_model_test",
+  "romdump.tests.field_actor_static_model_test",
+  "romdump.tests.field_actor_frames_test",
   "romdump.tests.field_actor_timeline_test",
   "romdump.tests.field_actor_cache_writer_test",
 }

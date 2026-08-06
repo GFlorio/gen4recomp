@@ -139,7 +139,7 @@ function Runner._runInspectSbc()
   love.event.quit(allOk and 0 or 1)
 end
 
--- Compile the selected field-actor set for every ready version and print its
+-- Compile the complete field-actor set for every ready version and print its
 -- structural facts. Read-only: it writes no cache artifact and emits no
 -- ROM-derived image bytes.
 function Runner._runInspectActors()

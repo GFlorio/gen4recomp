@@ -35,6 +35,16 @@ function Assert.equal(actual, expected, msg)
   end
 end
 
+-- Equality within a tolerance, for values that pass through fixed-point or
+-- matrix arithmetic.
+function Assert.near(actual, expected, tolerance, msg)
+  tolerance = tolerance or 1e-9
+  if type(actual) ~= "number" or math.abs(actual - expected) > tolerance then
+    fail(msg or ("expected " .. repr(expected) .. " +/- " .. repr(tolerance)
+      .. ", got " .. repr(actual)))
+  end
+end
+
 -- Deep structural equality for tables of scalars/tables.
 function Assert.deepEqual(actual, expected, path)
   path = path or "value"

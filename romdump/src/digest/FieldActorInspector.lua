@@ -41,12 +41,34 @@ function FieldActorInspector.lines(report)
   end
   for _, entry in ipairs(report.sprites) do
     local v, a = entry.visual, entry.atlas
-    out[#out + 1] = string.format(
-      "actors\tsprite\tid=%d\ttexture=%d\tmodel=%d\ttimeline=%d\tpacked=0x%04X"
-        .. "\tdescriptor=%d\tframes=%d\tatlas=%dx%d\talpha=%s",
-      v.spriteId, v.source.textureMemberId, v.source.modelMemberId, v.source.timelineMemberId,
-      v.rawGraphicsFlags, v.original.visualDescriptor, v.render.frameCount, a.width, a.height,
-      (v.render.alphaUsage.hasZero and "cutout" or "opaque"))
+    local parts = v.render.kind == "staticModel" and v.render.parts or { v.render }
+    for partIndex, part in ipairs(parts) do
+      local geometry, polygon = part.geometry, part.polygon
+      out[#out + 1] = string.format(
+        "actors\tmodel\tid=%d\tpart=%d\tname=%s\tsize=%.3fx%.3fx%.3f tiles"
+          .. "\talpha=%s\tpolyAttr=0x%08X\tpolygonId=%d\tpolygonAlpha=%d\tmode=%s"
+          .. "\tlightMask=0x%X\tcull=%s\tcolorSource=%d",
+        v.spriteId, partIndex, geometry.modelName, geometry.bounds.width,
+        geometry.bounds.height, geometry.bounds.depth, part.alphaClass,
+        polygon.polygonAttrRaw, polygon.polygonId, polygon.polygonAlpha,
+        polygon.polygonMode, polygon.lightMask, polygon.cullMode,
+        geometry.vertices[1].colorSource)
+    end
+    if v.render.kind == "staticModel" then
+      out[#out + 1] = string.format(
+        "actors\tsprite\tid=%d\tstaticModel=%d\tpacked=0x%04X\tdescriptor=%d"
+          .. "\tparts=%d\tatlas=%dx%d",
+        v.spriteId, v.source.staticModelMemberId or v.source.modelMemberId,
+        v.rawGraphicsFlags, v.original.visualDescriptor, #v.render.parts, a.width, a.height)
+    else
+      out[#out + 1] = string.format(
+        "actors\tsprite\tid=%d\ttexture=%d\tmodel=%d\ttimeline=%d\tpacked=0x%04X"
+          .. "\tdescriptor=%d\tframes=%d\tatlas=%dx%d\talpha=%s",
+        v.spriteId, v.source.textureMemberId, v.source.modelMemberId,
+        v.source.timelineMemberId, v.rawGraphicsFlags, v.original.visualDescriptor,
+        v.render.frameCount, a.width, a.height,
+        (v.render.alphaUsage.hasZero and "cutout" or "opaque"))
+    end
     for _, direction in ipairs({ "north", "south", "west", "east" }) do
       local pose = v.directions[direction]
       out[#out + 1] = string.format("actors\tpose\tid=%d\t%s\tidle=%d\twalk=%s\tloop=%s",

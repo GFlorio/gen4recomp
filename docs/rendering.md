@@ -157,6 +157,39 @@ billboard matrix covers a whole shape, so a billboard display list that restores
 a matrix mid-stream raises
 `MAP_COMPILE_BILLBOARD_MATRIX_RESTORE_UNSUPPORTED`; none in the ROM does.
 
+## Field actors
+
+Field actors are world geometry, not a 2D overlay. Ordinary actors use the shared
+`mmodel` model member's single quad, replayed at import time through the same
+`MeshCompiler` the map and building models use, so its vertices (in tiles), its
+normal, its vertex-colour source, its UVs, its `BB` base transform, and its
+effective `POLYGON_ATTR` all come from the ROM. `FieldActorMesh` builds one mesh
+per atlas frame -- identical geometry with the U range slid onto that frame --
+and `FieldActorDraw` turns a presentation-neutral `ActorDrawRecord` into a draw
+item whose `billboardBase` is the actor's world placement composed onto that base
+transform. Static map-object actors instead retain each NSBMD geometry and
+polygon-state part and draw without a billboard transform. Pose selection
+(`FieldActorPose`) is independent of both paths.
+
+The state the ordinary shared model declares (asserted per original target class
+by the private suite):
+
+| Fact | Value | Consequence |
+| --- | --- | --- |
+| Quad | 4 vertices, 2 x 2 tiles, bottom-centered, zero depth | placed by the actor's feet |
+| Anchor | 6 model units on Y, i.e. 0.375 tiles | applied at draw time, never baked into the atlas |
+| Billboard | Nitro `BB`, full camera-facing | the sprite never foreshortens with camera pitch |
+| Polygon alpha | 31, modulation mode, single-sided (`back` cull) | ordinary opaque-pass ordering |
+| Texture | 32x32 `palette16`, colour 0 transparent | classified `cutout`, so the shader discards alpha-zero fragments |
+| Vertex colour source | `NORMAL` with light mask 1 | the field light profile shades actors like map geometry |
+| Polygon ID | 0 | actor polygons take part in edge marking with the same ID map terrain uses |
+
+Because the quad is camera-facing, its whole surface sits at the pivot's view
+depth: it depth-tests against map geometry as a flat card at the actor's own
+distance, which is what makes walls and foreground geometry occlude it correctly.
+A world-upright quad would instead be squashed by the camera pitch --
+`scripts/field-shot.sh` captures make the difference obvious.
+
 ## Exact versus approximate behavior
 
 ### Implemented exactly (or close enough for the target maps)

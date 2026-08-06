@@ -1,0 +1,184 @@
+-- Normalizes the shared field-actor model member into the geometry and polygon
+-- draw state a compiled actor visual carries.
+--
+-- Every field actor in this class is drawn from one `mmodel` model member
+-- (`mmdl_m32x32`): a single quad with a bottom-center origin, issued through the
+-- Nitro `NNS_G3D_SBC_BB` full camera-facing billboard command. This module
+-- replays that member through the same MeshCompiler the map and building models
+-- use, so the actor quad's vertices, normal, vertex colour source, UVs, billboard
+-- base transform, and effective POLYGON_ATTR state all come from the ROM rather
+-- than from a hand-authored quad. The recovered facts are checked against the
+-- manifest's placement invariants; a member that stops matching them fails loudly.
+--
+-- References: GBATEK "GX POLYGON_ATTR"; NitroSystem g3d res_struct.h for
+-- `NNS_G3D_SBC_BB`; docs/adr/field-actor-visual-representation.md.
+-- Pure domain module; no love dependency.
+
+local Errors = require("libs.rom.src.Errors")
+local AlphaClassifier = require("romdump.src.digest.AlphaClassifier")
+local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
+local MapUnits = require("romdump.src.digest.MapUnits")
+local MeshCompiler = require("romdump.src.digest.MeshCompiler")
+local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
+
+local FieldActorModel = {}
+
+FieldActorModel.DECODER_VERSION = "field-actor-model-v1"
+
+-- Model-space geometry is compared against the manifest placement in tiles.
+local EPSILON = 1e-6
+
+local function fail(code, message, context)
+  Errors.raise(code, message, context)
+end
+
+local function near(a, b) return math.abs(a - b) <= EPSILON end
+
+local function extent(values)
+  local min, max = math.huge, -math.huge
+  for _, value in ipairs(values) do
+    min, max = math.min(min, value), math.max(max, value)
+  end
+  return min, max
+end
+
+-- The quad must be the bottom-centered plane the actor loader positions by its
+-- feet: symmetric in X, resting on Y=0, and flat in Z.
+local function assertPlacement(vertices, placement, context)
+  local xs, ys, zs = {}, {}, {}
+  for _, vertex in ipairs(vertices) do
+    xs[#xs + 1], ys[#ys + 1], zs[#zs + 1] = vertex.x, vertex.y, vertex.z
+  end
+  local minX, maxX = extent(xs)
+  local minY, maxY = extent(ys)
+  local minZ, maxZ = extent(zs)
+  local width = placement.sourceSize.width / MapUnits.MODEL_UNITS_PER_TILE
+  local height = placement.sourceSize.height / MapUnits.MODEL_UNITS_PER_TILE
+
+  if not (near(minX, -width / 2) and near(maxX, width / 2)
+    and near(minY, 0) and near(maxY, height)
+    and near(minZ, 0) and near(maxZ, 0)) then
+    fail("FIELD_ACTOR_MODEL_PLACEMENT_UNEXPECTED",
+      string.format("actor quad spans x[%.4f,%.4f] y[%.4f,%.4f] z[%.4f,%.4f] tiles, expected"
+        .. " a bottom-centered %.4fx%.4f plane", minX, maxX, minY, maxY, minZ, maxZ, width, height),
+      { context = context })
+  end
+  return { width = maxX - minX, height = maxY - minY, depth = maxZ - minZ }
+end
+
+-- Source UVs are in texel units over the actor's own texture. Normalizing them
+-- here keeps the runtime's per-frame atlas offset a pure `(frame + u) / frames`.
+local function normalizeUvs(vertices, size, context)
+  local us, vs = {}, {}
+  for _, vertex in ipairs(vertices) do
+    us[#us + 1], vs[#vs + 1] = vertex.u, vertex.v
+  end
+  local minU, maxU = extent(us)
+  local minV, maxV = extent(vs)
+  if not (near(minU, 0) and near(maxU, size.width) and near(minV, 0) and near(maxV, size.height)) then
+    fail("FIELD_ACTOR_MODEL_UV_UNEXPECTED",
+      string.format("actor quad UVs span [%.2f,%.2f]x[%.2f,%.2f] texels, expected the whole"
+        .. " %dx%d texture", minU, maxU, minV, maxV, size.width, size.height),
+      { context = context })
+  end
+  for _, vertex in ipairs(vertices) do
+    vertex.u, vertex.v = vertex.u / size.width, vertex.v / size.height
+  end
+end
+
+-- modelBytes: the shared model member. opts.placement: the manifest placement
+-- invariants. opts.textureFormat / opts.alphaUsage: the compiled atlas's source
+-- texture facts, used for the same alpha classification map batches get.
+function FieldActorModel.compile(modelBytes, opts)
+  assert(type(modelBytes) == "string", "FieldActorModel needs the model member bytes")
+  assert(type(opts) == "table" and opts.placement, "FieldActorModel needs the placement invariants")
+  local context = opts.context
+
+  local file = assert(Nsbmd.decode(modelBytes, context))
+  if #file.models ~= 1 then
+    fail("FIELD_ACTOR_MODEL_SHAPE_UNEXPECTED",
+      "shared actor model member holds " .. #file.models .. " models, expected exactly one",
+      { context = context })
+  end
+  local model = file.models[1]
+
+  local batches = MeshCompiler.compile(model)
+  if #batches ~= 1 then
+    fail("FIELD_ACTOR_MODEL_SHAPE_UNEXPECTED",
+      "shared actor model draws " .. #batches .. " batches, expected exactly one quad",
+      { context = context, modelName = model.name })
+  end
+  local batch = batches[1]
+
+  if batch.transformMode ~= "billboard" or not batch.baseTransform then
+    fail("FIELD_ACTOR_MODEL_NOT_BILLBOARD",
+      "shared actor model draw is " .. tostring(batch.transformMode or "static")
+        .. ", expected the Nitro full camera-facing billboard command",
+      { context = context, modelName = model.name })
+  end
+  if #batch.vertices ~= 4 or #batch.indices ~= 6 then
+    fail("FIELD_ACTOR_MODEL_SHAPE_UNEXPECTED",
+      "shared actor model draws " .. #batch.vertices .. " vertices and " .. #batch.indices
+        .. " indices, expected one 4-vertex quad", { context = context, modelName = model.name })
+  end
+
+  local bounds = assertPlacement(batch.vertices, opts.placement, context)
+  normalizeUvs(batch.vertices, opts.placement.sourceSize, context)
+
+  local polygon = DsPolygonAttr.decode(batch.polygonAttrRaw)
+  if polygon.cullMode == "all" then
+    fail("FIELD_ACTOR_MODEL_INVISIBLE",
+      "shared actor model renders neither polygon surface", { context = context })
+  end
+  local alphaClass = AlphaClassifier.classify(polygon.polygonAlpha,
+    opts.textureFormat or 0, opts.alphaUsage)
+  if alphaClass ~= "cutout" and alphaClass ~= "opaque" then
+    -- A translucent or wireframe actor would need a different render pass and a
+    -- sorting contract; no target actor asks for one.
+    fail("FIELD_ACTOR_MODEL_ALPHA_UNSUPPORTED",
+      "shared actor model classifies as " .. alphaClass .. ", expected opaque or cutout",
+      { context = context, polygonAlpha = polygon.polygonAlpha,
+        textureFormat = opts.textureFormat })
+  end
+
+  -- The actor loader adds a fixed Y offset in model units before installing the
+  -- draw position. Converting it here keeps every runtime-facing number in tiles.
+  local anchorX, anchorY, anchorZ = MapUnits.toTiles(0, opts.placement.modelYOffset, 0)
+
+  return {
+    modelName = model.name,
+    vertices = batch.vertices,
+    indices = batch.indices,
+    baseTransform = batch.baseTransform,
+    anchorTiles = { x = anchorX, y = anchorY, z = anchorZ },
+    bounds = bounds,
+    alphaClass = alphaClass,
+    polygon = {
+      polygonAttrRaw = polygon.polygonAttrRaw,
+      polygonAlpha = polygon.polygonAlpha,
+      polygonMode = polygon.polygonMode,
+      polygonId = polygon.polygonId,
+      lightMask = polygon.lightMask,
+      cullMode = polygon.cullMode,
+      translucentDepthWrite = polygon.translucentDepthWrite,
+      depthEqual = polygon.depthEqual,
+      farClipEnabled = polygon.farClipEnabled,
+      oneDotEnabled = polygon.oneDotEnabled,
+      fogEnabled = polygon.fogEnabled,
+    },
+  }
+end
+
+function FieldActorModel.drawMode(modelBytes, context)
+  local file = assert(Nsbmd.decode(modelBytes, context))
+  if #file.models ~= 1 then return "unsupported" end
+  local batches = MeshCompiler.compile(file.models[1])
+  local mode
+  for _, batch in ipairs(batches) do
+    mode = mode or batch.transformMode
+    if batch.transformMode ~= mode then return "mixed" end
+  end
+  return mode or "unsupported"
+end
+
+return FieldActorModel

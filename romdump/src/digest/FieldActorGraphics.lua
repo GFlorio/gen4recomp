@@ -226,6 +226,21 @@ local function decodeDescriptors(reader, locator, tables)
   return descriptors
 end
 
+local function decodeStaticModels(reader, locator, config)
+  if not config then return nil end
+  local offset = offsetFor(locator, config.table.address, "static model table")
+  local bySpriteId, order = {}, {}
+  for _ = 1, config.table.count do
+    local spriteId = reader:u32le(offset)
+    local memberId = reader:u32le(offset + 4)
+    assert(not bySpriteId[spriteId], "duplicate static model spriteId " .. spriteId)
+    bySpriteId[spriteId] = memberId
+    order[#order + 1] = spriteId
+    offset = offset + 8
+  end
+  return { descriptor = config.descriptor, bySpriteId = bySpriteId, order = order }
+end
+
 local function _decode(overlayBytes, locator, manifest)
   assert(type(overlayBytes) == "string", "overlay bytes must be a string")
   assert(type(locator) == "table" and locator.ramAddress, "locator requires a ramAddress")
@@ -251,6 +266,7 @@ local function _decode(overlayBytes, locator, manifest)
     modelMembers = decodeKeyTable(reader, bounded, tables.modelKeys.address, "model key table"),
     timelineMembers = decodeKeyTable(reader, bounded,
       tables.timelineKeys.address, "timeline key table"),
+    staticModels = decodeStaticModels(reader, bounded, manifest.staticModels),
   }
 
   -- Every descriptor must resolve through both key tables, or the bundle a
@@ -295,6 +311,16 @@ function FieldActorGraphics.resolve(decoded, spriteId)
   end
   local descriptor = decoded.descriptors[record.visualDescriptor]
   if not descriptor then
+    local staticModels = decoded.staticModels
+    if staticModels and record.visualDescriptor == staticModels.descriptor then
+      local memberId = staticModels.bySpriteId[spriteId]
+      if not memberId then
+        return nil, Errors.new("FIELD_ACTOR_STATIC_MODEL_UNKNOWN",
+          "spriteId " .. spriteId .. " has no static model member mapping",
+          { spriteId = spriteId, descriptor = record.visualDescriptor })
+      end
+      return { record = record, staticModelMemberId = memberId }
+    end
     return nil, Errors.new("FIELD_ACTOR_DESCRIPTOR_UNKNOWN",
       "spriteId " .. spriteId .. " selects descriptor " .. record.visualDescriptor
         .. ", which the table does not define",

@@ -9,6 +9,7 @@ local CacheFs = require("libs.rom.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local FieldActorAssetProvider = require("libs.engine.src.FieldActorAssetProvider")
+local FieldActorFixture = require("tests.support.FieldActorFixture")
 
 local T = {}
 
@@ -25,6 +26,12 @@ local function stubGraphics(created)
       return image
     end,
     newQuad = function(x, y, w, h) return { x = x, y = y, w = w, h = h } end,
+    newMesh = function(_, vertices)
+      local mesh = { vertices = vertices, released = false }
+      function mesh:setVertexMap(map) self.map = map end
+      function mesh:release() self.released = true end
+      return mesh
+    end,
   }
 end
 
@@ -35,11 +42,8 @@ local function seed(spriteIds)
     spriteIds = spriteIds, variableSprites = {}, recordCount = #spriteIds,
   })
   for _, spriteId in ipairs(spriteIds) do
-    cache:writeLua(FieldActorCache.visualPath(spriteId), {
-      schema = FieldActorCache.SCHEMA, spriteId = spriteId,
-      render = { kind = "atlas", image = FieldActorCache.atlasPath(spriteId),
-        frameWidth = 32, frameHeight = 32, frameCount = 2 },
-    })
+    cache:writeLua(FieldActorCache.visualPath(spriteId),
+      FieldActorFixture.visual(spriteId, { frameCount = 2 }))
     cache:write(FieldActorCache.atlasPath(spriteId), "png-bytes")
   end
   return cache
@@ -63,12 +67,14 @@ function T.acquire_loads_once_and_shares_the_entry()
   Assert.equal(p:stats().references, 2)
 end
 
-function T.builds_one_quad_per_frame()
+function T.builds_one_quad_and_one_billboard_mesh_per_frame()
   local p = provider({ 0 })
   local entry = p:acquire(0)
   Assert.equal(#entry.quads, 2)
   Assert.equal(entry.quads[2].x, 32)
   Assert.equal(entry.quads[2].w, 32)
+  Assert.equal(#entry.meshes, 2, "one world mesh per atlas frame")
+  Assert.equal(entry.meshes[2].vertices[2][4], 1, "frame 2 slides its U range onto the strip")
 end
 
 function T.last_release_keeps_the_entry_resident_until_evicted()
