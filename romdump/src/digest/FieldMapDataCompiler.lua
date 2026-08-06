@@ -10,7 +10,7 @@ local Hashing = require("romdump.src.digest.Hashing")
 
 local FieldMapDataCompiler = {}
 
-FieldMapDataCompiler.COMPILER_VERSION = "field-map-data-compiler-v1"
+FieldMapDataCompiler.COMPILER_VERSION = "field-map-data-compiler-v2"
 FieldMapDataCompiler.DECODER_VERSION = "hgss-zone-events-v1"
 
 local function must(value, err)
@@ -65,6 +65,11 @@ local function compileMap(romFs, map, source, sha1hex, hashLua)
     mapId = map.id,
     mapSymbol = map.symbol,
     cameraType = map.cameraType,
+    -- Map-header message/script associations (src/data/map_headers.h via the
+    -- frozen catalog). Runtime code must never branch on map IDs to choose a
+    -- bank; it reads these fields.
+    messageBankId = map.messageMemberId,
+    scriptBankId = map.scriptsMemberId,
     source = {
       eventNarc = "fielddata_eventdata_zone_event",
       eventMemberId = map.eventMemberId,

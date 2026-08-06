@@ -72,6 +72,8 @@ local MODULES = {
   "libs.engine.tests.field_actor_draw_test",
   "libs.engine.tests.field_player_visual_test",
   "libs.engine.tests.field_scenario_test",
+  "libs.engine.tests.field_message_provider_test",
+  "libs.engine.tests.dialogue_layout_test",
   -- game
   "game.tests.map_diagnostic_state_test",
   -- romdump
@@ -117,6 +119,14 @@ local MODULES = {
   "romdump.tests.field_actor_frames_test",
   "romdump.tests.field_actor_timeline_test",
   "romdump.tests.field_actor_cache_writer_test",
+  -- libs/assets (message/font derived classes)
+  "libs.assets.tests.field_message_text_test",
+  -- romdump (message/font digesters and compilers)
+  "romdump.tests.field_message_bank_test",
+  "romdump.tests.field_message_tokenizer_test",
+  "romdump.tests.field_font_decoder_test",
+  "romdump.tests.field_message_compiler_test",
+  "romdump.tests.field_font_compiler_test",
 }
 
 local function sortedKeys(t)

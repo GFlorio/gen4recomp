@@ -1,0 +1,55 @@
+-- Frozen HGSS field-character reference, normalized from
+-- pret/pokeheartgold charmap.txt and include/constants/charcode.h.
+-- The charmap.txt file defines the code unit -> display text mapping;
+-- charcode.h names the control-code families (STRVAR/YESNO/COLOR/...)
+-- and the single-unit specials (CHAR_LF 0xE000, EXT_CTRL_CODE_BEGIN 0xFFFE,
+-- EOS 0xFFFF). This reference covers the English/Latin subset only
+-- (selected-set policy); kana and Korean ranges are deliberately absent
+-- so an unmapped code fails loudly instead of rendering wrongly.
+
+return {
+  schema = 1,
+  source = {
+    repo = "pret/pokeheartgold",
+    commit = "1a7f2c301c954df2d19d7f9211529f6decc8dede",
+    inputs = {
+      { path = "charmap.txt", sha256 = "58861d34f40623fd2a9b29c10a79ee2ec872182285a288381759a3b251412ded" },
+      { path = "include/constants/charcode.h", sha256 = "82b62438a985729619e3be22bf2ae0c343449704bb7656f8d6c97b78c46e5fec" },
+    },
+  },
+  -- code unit -> UTF-8 display text. Widths live in the font, not here.
+  glyphs = {
+    [0x0000] = "\\x0000", [0x0121] = "0", [0x0122] = "1", [0x0123] = "2", [0x0124] = "3", [0x0125] = "4", [0x0126] = "5", [0x0127] = "6",
+    [0x0128] = "7", [0x0129] = "8", [0x012A] = "9", [0x012B] = "A", [0x012C] = "B", [0x012D] = "C", [0x012E] = "D", [0x012F] = "E",
+    [0x0130] = "F", [0x0131] = "G", [0x0132] = "H", [0x0133] = "I", [0x0134] = "J", [0x0135] = "K", [0x0136] = "L", [0x0137] = "M",
+    [0x0138] = "N", [0x0139] = "O", [0x013A] = "P", [0x013B] = "Q", [0x013C] = "R", [0x013D] = "S", [0x013E] = "T", [0x013F] = "U",
+    [0x0140] = "V", [0x0141] = "W", [0x0142] = "X", [0x0143] = "Y", [0x0144] = "Z", [0x0145] = "a", [0x0146] = "b", [0x0147] = "c",
+    [0x0148] = "d", [0x0149] = "e", [0x014A] = "f", [0x014B] = "g", [0x014C] = "h", [0x014D] = "i", [0x014E] = "j", [0x014F] = "k",
+    [0x0150] = "l", [0x0151] = "m", [0x0152] = "n", [0x0153] = "o", [0x0154] = "p", [0x0155] = "q", [0x0156] = "r", [0x0157] = "s",
+    [0x0158] = "t", [0x0159] = "u", [0x015A] = "v", [0x015B] = "w", [0x015C] = "x", [0x015D] = "y", [0x015E] = "z", [0x015F] = "À",
+    [0x0160] = "Á", [0x0161] = "Â", [0x0162] = "Ã", [0x0163] = "Ä", [0x0164] = "Å", [0x0165] = "Æ", [0x0166] = "Ç", [0x0167] = "È",
+    [0x0168] = "É", [0x0169] = "Ê", [0x016A] = "Ë", [0x016B] = "Ì", [0x016C] = "Í", [0x016D] = "Î", [0x016E] = "Ï", [0x016F] = "Ð",
+    [0x0170] = "Ñ", [0x0171] = "Ò", [0x0172] = "Ó", [0x0173] = "Ô", [0x0174] = "Õ", [0x0175] = "Ö", [0x0176] = "×", [0x0177] = "Ø",
+    [0x0178] = "Ù", [0x0179] = "Ú", [0x017A] = "Û", [0x017B] = "Ü", [0x017C] = "Ý", [0x017D] = "Þ", [0x017E] = "ß", [0x017F] = "à",
+    [0x0180] = "á", [0x0181] = "â", [0x0182] = "ã", [0x0183] = "ä", [0x0184] = "å", [0x0185] = "æ", [0x0186] = "ç", [0x0187] = "è",
+    [0x0188] = "é", [0x0189] = "ê", [0x018A] = "ë", [0x018B] = "ì", [0x018C] = "í", [0x018D] = "î", [0x018E] = "ï", [0x018F] = "ð",
+    [0x0190] = "ñ", [0x0191] = "ò", [0x0192] = "ó", [0x0193] = "ô", [0x0194] = "õ", [0x0195] = "ö", [0x0196] = "÷", [0x0197] = "ø",
+    [0x0198] = "ù", [0x0199] = "ú", [0x019A] = "û", [0x019B] = "ü", [0x019C] = "ý", [0x019D] = "þ", [0x019E] = "ÿ", [0x019F] = "Œ",
+    [0x01A0] = "œ", [0x01A1] = "Ş", [0x01A2] = "ş", [0x01A3] = "ª", [0x01A4] = "º", [0x01A5] = "¹", [0x01A6] = "²", [0x01A7] = "³",
+    [0x01A8] = "$", [0x01A9] = "¡", [0x01AA] = "¿", [0x01AB] = "!", [0x01AC] = "?", [0x01AD] = ",", [0x01AE] = ".", [0x01AF] = "…",
+    [0x01B0] = "·", [0x01B1] = "/", [0x01B2] = "‘", [0x01B3] = "’", [0x01B4] = "“", [0x01B5] = "”", [0x01B6] = "„", [0x01B7] = "《",
+    [0x01B8] = "》", [0x01B9] = "(", [0x01BA] = ")", [0x01BB] = "♂", [0x01BC] = "♀", [0x01BD] = "+", [0x01BE] = "-", [0x01BF] = "*",
+    [0x01C0] = "#", [0x01C1] = "=", [0x01C2] = "&", [0x01C3] = "~", [0x01C4] = ":", [0x01C5] = ";", [0x01C6] = "♠", [0x01C7] = "♣",
+    [0x01C8] = "♥", [0x01C9] = "♦", [0x01CA] = "★", [0x01CB] = "◉", [0x01CC] = "●", [0x01CD] = "■", [0x01CE] = "▲", [0x01CF] = "◆",
+    [0x01D0] = "@", [0x01D1] = "♪", [0x01D2] = "%", [0x01D3] = "☀", [0x01D4] = "☁", [0x01D5] = "☂", [0x01D6] = "☃", [0x01D7] = "☺",
+    [0x01D8] = "♚", [0x01D9] = "♛", [0x01DA] = "☹", [0x01DB] = "↗", [0x01DC] = "↘", [0x01DD] = "☽", [0x01DE] = " ", [0x01DF] = "⁴",
+    [0x01E0] = "₧", [0x01E1] = "₦", [0x01E2] = " ", [0x01E8] = "°", [0x01E9] = "_", [0x01EA] = "＿",
+  },
+  -- extended-control code unit -> decomp name (classification is the
+  -- tokenizer's policy; this is the source-backed name registry).
+  controlNames = {
+    [0x0100] = "STRVAR_1", [0x0200] = "YESNO", [0x0201] = "PAUSE", [0x0202] = "WAIT", [0x0203] = "CURSOR_X", [0x0204] = "CURSOR_Y",
+    [0x0205] = "ALN_CENTER", [0x0206] = "ALN_RIGHT", [0x0207] = "UNK_207", [0x0208] = "UNK_208", [0x0300] = "STRVAR_3", [0x0400] = "STRVAR_4",
+    [0x3400] = "STRVAR_34", [0xFF00] = "COLOR", [0xFF01] = "SIZE", [0xFF02] = "UNK_FF02",
+  },
+}

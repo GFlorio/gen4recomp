@@ -28,7 +28,7 @@ local function fixture()
     openNarc = function(_, alias)
       Assert.equal(alias, "zone_events")
       return { readMember = function(_, memberId)
-        Assert.equal(memberId, 57)
+        Assert.isTrue(memberId == 57 or memberId == 58, "unexpected member " .. memberId)
         return member
       end }
     end,
@@ -74,6 +74,19 @@ function T.compiles_catalog_identity_source_and_events()
 
   local again = assert(FieldMapDataCompiler.compile(romFs, "MAP_NEW_BARK", sha1, hashLua))
   Assert.equal(LuaWriter.encode(bundle.field), LuaWriter.encode(again.field))
+end
+
+function T.map_header_message_and_script_banks_are_emitted()
+  -- Maps 60/61 associate to message banks 542/543 through the frozen map
+  -- catalog (src/data/map_headers.h); the artifact must carry them so runtime
+  -- code never branches on map ids.
+  local romFs, sha1, hashLua = fixture()
+  local newBark = assert(FieldMapDataCompiler.compile(romFs, 60, sha1, hashLua))
+  Assert.equal(newBark.field.messageBankId, 542)
+  Assert.equal(newBark.field.scriptBankId, 842)
+  local elmsLab = assert(FieldMapDataCompiler.compile(romFs, 61, sha1, hashLua))
+  Assert.equal(elmsLab.field.messageBankId, 543)
+  Assert.equal(elmsLab.field.scriptBankId, 843)
 end
 
 function T.writer_commits_marker_last_and_inspector_is_stable()
