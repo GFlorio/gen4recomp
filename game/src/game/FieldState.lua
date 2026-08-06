@@ -44,6 +44,16 @@ local KEY_DIRECTIONS = {
   d = "east", right = "east",
 }
 
+-- The player consults the manager's occupancy index through this predicate,
+-- keyed by the map the player is on, so FieldPlayer never imports the manager.
+local function playerOccupancy(self)
+  return function(fieldX, fieldZ, surfaceId)
+    if not self.actors then return nil end
+    local occupant = self.actors:getAt(self.runtimeMap.mapId, fieldX, fieldZ, surfaceId)
+    return occupant and occupant.actorId or nil
+  end
+end
+
 local function initialSurface(runtimeMap, localX, localZ)
   local x, z = localX + 0.5, localZ + 0.5
   local best
@@ -142,6 +152,7 @@ function FieldState:_load()
       currentMap = self.runtimeMap,
       fieldX = fieldX, fieldZ = fieldZ,
       surfaceId = surfaceId, facing = facing,
+      occupancy = playerOccupancy(self),
     })
     self.actor = self.player
     self.input = FieldInput.new()
@@ -305,6 +316,7 @@ function FieldState:_swapMap(resolution, facing)
     fieldZ = resolution.fieldZ,
     surfaceId = resolution.surfaceId,
     facing = facing,
+    occupancy = playerOccupancy(self),
   })
   local profile = assert(self.cameraProfiles[runtimeMap.cameraType],
     "field camera cache has no camera type " .. runtimeMap.cameraType)

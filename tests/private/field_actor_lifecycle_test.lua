@@ -130,6 +130,29 @@ function T.visible_lab_actors_resolve_one_surface_and_occupy_their_cell(romFs)
   Assert.equal(elm.sourceEvent.scriptId, 1)
 end
 
+function T.no_visible_scenario_actor_stands_on_a_warp_cell(romFs)
+  local reader = fieldDataFor(romFs)
+  local eventState = FieldEventState.new()
+  FieldScenario.apply(scenarioManifest, eventState, reader)
+  for _, mapId in ipairs({ 60, LAB }) do
+    local field = reader(mapId)
+    local warpCells = {}
+    for _, warp in ipairs(field.events.warps) do
+      warpCells[warp.x .. ":" .. warp.z] = warp
+    end
+    for _, event in ipairs(field.events.objects) do
+      -- The same visibility rule the manager applies: an object exists only
+      -- while its event flag is clear. A visible actor on a warp cell would
+      -- block a walking entry into the warp.
+      if not eventState:isFlagSet(event.eventFlag) then
+        Assert.isNil(warpCells[event.x .. ":" .. event.z],
+          "map " .. mapId .. " visible object " .. event.objectEventId
+            .. " stands on warp cell (" .. event.x .. "," .. event.z .. ")")
+      end
+    end
+  end
+end
+
 function T.flag_toggles_remove_and_restore_elm_on_one_step(romFs)
   local manager, eventState = labSession(romFs)
   local elm = manager:getById("map:61:object:0")

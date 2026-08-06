@@ -51,8 +51,10 @@ A `.zip` can be given instead of a `.nds`: it is mounted in memory and walked
 for a compatible `.nds` (matched by SHA-1), so archives with a readme or other
 junk alongside the ROM just work. The same applies to drag-and-drop.
 
-Once a dump exists, no ROM argument is needed. Every invocation clears and
-rebuilds the complete derived cache consumed by `game`:
+Once a dump exists, no ROM argument is needed. Every invocation rebuilds the
+derived cache consumed by `game`, recompiling only what is stale — a map or
+class whose completion marker already matches the current build is left in
+place:
 
 ```sh
 scripts/buildcache.sh
