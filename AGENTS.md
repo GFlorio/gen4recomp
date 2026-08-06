@@ -8,6 +8,7 @@ This file provides guidance to Coding Agents when working with code in this repo
 - Strongly bias towards simplicity.
 - Strongly bias towards asking for clarification.
 - Less code is better code.
+- Thoroughly add type annotations to all functions and tables you touch.
 - Be concrete.
 - Look for opportunities for refactoring or trimming code at the end of each task.
 - Flat is better than nested.
@@ -20,7 +21,6 @@ This file provides guidance to Coding Agents when working with code in this repo
 - Prefer pure functions.
 - Thoroughly remove debug/trace code after each task.
 
-
 ## Architecture
 
 - The repo is a small monorepo: top-level `game/` and `romdump/` are runnable apps (each its own LÖVE root); `libs/rom`, `libs/assets`, and `libs/engine` are the shared capabilities they build on. See `docs/architecture.md`.
@@ -28,6 +28,7 @@ This file provides guidance to Coding Agents when working with code in this repo
 - Domain contains all the game logic and should be testable independently of LÖVE. `libs/rom` and `libs/assets` are overwhelmingly domain and must not `require` love.
 - Interface and infrastructure can depend on LÖVE, but should be kept as thin as possible.
 - Game modability is essential, so each layer should expose clear hook points for modders to extend the game.
+- Derived data crosses three roles (see docs/architecture.md "Digestion, assets, and the game"): romdump digests raw ROM bytes, libs/assets owns the modder-facing asset contracts (text + metadata shapes), and the game operates only on the asset level — no raw-ROM decoding, no decomp-derived reference imports in libs/engine or game/src.
 
 
 ## Commands
@@ -35,6 +36,7 @@ This file provides guidance to Coding Agents when working with code in this repo
 - Prefer running scripts from the scripts directory instead of ad-hoc commands.
 - If there isn't a script for a common task, bias towards creating one.
 - When authoring scripts, assume a UNIX-like environment.
+- Write temporary files to `.agents/tmp/`
 
 When calling skills or any commands, prefer a direct syntax (avoiding e.g. variable substitution)
 to avoid shell injection or permission issues.

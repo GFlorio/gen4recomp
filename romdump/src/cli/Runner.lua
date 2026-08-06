@@ -246,6 +246,12 @@ function Runner._runBuild()
   local FieldActorCompiler = require("romdump.src.digest.FieldActorCompiler")
   local FieldActorCacheWriter = require("romdump.src.digest.FieldActorCacheWriter")
   local FieldActorCache = require("libs.assets.src.FieldActorCache")
+  local FieldMessageCompiler = require("romdump.src.digest.FieldMessageCompiler")
+  local FieldMessageCacheWriter = require("romdump.src.digest.FieldMessageCacheWriter")
+  local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
+  local FieldFontCompiler = require("romdump.src.digest.FieldFontCompiler")
+  local FieldFontCacheWriter = require("romdump.src.digest.FieldFontCacheWriter")
+  local FieldFontCache = require("libs.assets.src.FieldFontCache")
   local targets = readyVersions()
   if #targets == 0 then
     print("build: no ready version to compile")
@@ -282,6 +288,21 @@ function Runner._runBuild()
           print(string.format("build-cache: %s map %d field data compiled",
             version, fieldBundle.mapId))
         end
+      end
+      local fontBundle = assert(FieldFontCompiler.compile(romFs))
+      if FieldFontCacheWriter.isReady(cacheFs, fontBundle.fontId, fontBundle.marker) then
+        print(string.format("build-cache: %s field font current", version))
+      else
+        FieldFontCacheWriter.write(cacheFs, fontBundle)
+        print(string.format("build-cache: %s field font compiled", version))
+      end
+      local messageBundle = assert(FieldMessageCompiler.compile(romFs))
+      if FieldMessageCacheWriter.isReady(cacheFs, messageBundle.marker) then
+        print(string.format("build-cache: %s field messages current", version))
+      else
+        FieldMessageCacheWriter.write(cacheFs, messageBundle)
+        print(string.format("build-cache: %s field messages compiled (%d banks)",
+          version, #messageBundle.index.bankIds))
       end
       local entries, excluded, compileExcluded = {}, {}, {}
       for _, result in ipairs(MapAnalysis.analyze(romFs)) do

@@ -15,7 +15,9 @@ run; `libs/` holds the capabilities they share. Each app is its own LÖVE root.
 game/         Interactive app — launcher, boot, and the 3D map diagnostic (love game/)
 romdump/      Headless ROM/asset CLI — import, audit, inspect, compile (love romdump/)
 libs/rom/     NDS/NitroFS/NARC formats, binary reading, ROM validation, dump filesystem
-libs/assets/  HGSS data decoding, map/mesh/material compilation, derived-cache formats
+libs/assets/  Asset contracts for generated data (schemas, cache paths/readiness,
+             modder-facing text forms), plus shared section readers and
+             map/mesh/material compilation
 libs/engine/  Rendering, cameras, scenes, collision/world primitives
 data/         Frozen references and runtime manifests
 tests/        Aggregate + private-target runners and shared fixtures (tests/support)
@@ -180,6 +182,35 @@ The cache separates two concerns so future format work never forces a re-import:
 
 This is why the dump is kept lossless and unnormalized: the ROM is presented
 once, and every later format iteration works from the private dump.
+
+## Digestion, assets, and the game
+
+Derived data crosses three roles, each with a hard rule. The message/font
+classes are the reference implementation of the split; the map classes still
+carry their section readers in `libs/assets` and are the planned follow-up.
+
+| Role | Owner | Rule |
+| --- | --- | --- |
+| **Digestion** | `romdump/src/digest` — raw-byte decoders (MAT decryption, tile bit-packing, charmap mapping) and the compilers that emit artifacts | every ROM-byte interpretation happens here: NARC members in, generated artifacts out. Nothing else may know a MAT header, a 2bpp tile layout, or a code unit |
+| **Asset contract** | `libs/assets/src` — artifact schemas, cache paths/readiness, modder-facing text forms (`FieldMessageText`) | generated artifacts are presented as traditional game assets — for text, a display string with metadata — and the contract is stable, documented, and modder-facing |
+| **Game** | `libs/engine` + `game/src` — runtime models and behavior | operates only on the asset level: message banks are text with a lossless token stream, fonts are atlases with metrics. No NARC/member parsing, no ROM access, no decomp-derived reference imports |
+
+The message/font classes follow it strictly: `romdump` digests msgdata MAT
+members and font tiles into bank artifacts whose messages are
+`{ id, text, tokens, raw }` with GMM-style markers (`{STRVAR_1 3, 0, 0}`), and
+a font definition that carries its own charmap metadata; the runtime renders,
+formats, and substitutes text without ever seeing a code unit or importing the
+frozen charmap reference. Markers are a first-class API (`FieldMessageText`:
+constants, `marker()`, `parse()`, `tokensToText()`), so mods can read and write
+the text form directly.
+
+The map classes are the known exception: section readers such as
+`PermissionGrid`, `HgssBdhc`, and `MapMatrix` live in `libs/assets` and are
+shared by the importer (which extracts and validates the sections) and the
+runtime (which decodes the artifact bytes at map load). Moving their raw
+readers into `romdump/src/digest` — leaving `libs/assets` with only the
+artifact-format readers the runtime genuinely needs — is the planned follow-up
+so the boundary is uniform.
 
 ## The three ID namespaces
 

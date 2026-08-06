@@ -18,6 +18,7 @@ local MODULES = {
   "tests.private.neighbor_traversal_test",
   "tests.private.field_actors_test",
   "tests.private.field_actor_lifecycle_test",
+  "tests.private.field_messages_test",
   "tests.private.code_invariants_test",
 }
 
