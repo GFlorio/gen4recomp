@@ -172,6 +172,10 @@ a matrix mid-stream raises
 * Culling from polygon bits 6-7.
 * Translucent bit-11 depth writes.
 * `BB` billboards, resolved per frame from the captured base transform.
+* `NODEMIX` position blending through the joints' inverse bind poses. Its normal
+  blend is not computed separately: it follows from the position blend while each
+  bind pose is rigid, which the compiler checks per joint and raises
+  `NSBMD_STATIC_NODEMIX_NONRIGID_BIND_POSE` if violated.
 * Scene v3 / G4M2 / cache v5 explicit versioning and invalidation.
 
 ### Deferred / approximate
@@ -188,8 +192,8 @@ one, the compiler raises a structured error instead of rendering incorrectly.
 * Exact fixed-point clipping/raster interpolation.
 * Local shininess-table rendering (table data is parsed but not used).
 * Animated materials/textures/joints.
-* `BBY` yaw-only billboards, `NODEMIX` matrix blending, `CALLDL` external display
-  lists, and the Si3D scaling rule.
+* `BBY` yaw-only billboards, `CALLDL` external display lists, non-rigid `NODEMIX`
+  bind poses, and the Si3D scaling rule.
 
 Unsupported polygon modes (`toon`, `shadow`) and in-display-list local
 light/shininess commands fail compilation with:
