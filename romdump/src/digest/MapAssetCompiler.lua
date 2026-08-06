@@ -32,9 +32,9 @@ local Errors = require("libs.rom.src.Errors")
 
 local MapAssetCompiler = {}
 
-local COMPILER_VERSION = "map-compiler-v13"
+local COMPILER_VERSION = "map-compiler-v14"
 local COORDINATE_CONVENTION = "nsbmd-sbc-matrix-16-tile-v3"
-local SCENE_SCHEMA = "g4-map-scene-v2"
+local SCENE_SCHEMA = "g4-map-scene-v3"
 
 local function readMember(narc, alias, memberId)
   local count = narc:memberCount()
@@ -126,6 +126,12 @@ local function compileModel(model, texturePack, meshes, textures, context)
         material = batch.materialIndex,
         node = batch.nodeIndex,
         submissionIndex = batch.submissionIndex,
+        -- A billboard batch's geometry is in billboard-local space and its
+        -- matrix is only resolvable against a live camera; the runtime rebuilds
+        -- it from baseTransform every frame. "static" is the default and is left
+        -- off, so it does not repeat on every batch of every scene.
+        transformMode = batch.transformMode ~= "static" and batch.transformMode or nil,
+        baseTransform = batch.baseTransform,
         alphaClass = alphaClass,
         cullMode = poly.cullMode,
         polygonAlpha = poly.polygonAlpha,

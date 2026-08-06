@@ -26,6 +26,7 @@ local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
 local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local Hashing = require("romdump.src.digest.Hashing")
+local Errors = require("libs.rom.src.Errors")
 
 local NeighborChunkCompiler = {}
 
@@ -71,6 +72,18 @@ function NeighborChunkCompiler.compile(romFs, landMemberId, areaMemberId, contex
       textureMemberId = area.mapTexturePackId,
       modelArchive = "land_data", modelMemberId = landMemberId,
       modelName = mapModel.name })
+
+  -- NeighborRing bakes a fixed world offset into each draw, so it has nowhere to
+  -- put a camera-resolved billboard. No terrain model in the target world has a
+  -- BB command; one that did would otherwise draw silently static.
+  for _, batch in ipairs(compiled.batches) do
+    if batch.transformMode then
+      Errors.raise("NEIGHBOR_CHUNK_BILLBOARD_UNSUPPORTED",
+        "neighbor terrain batch requires transform mode " .. batch.transformMode,
+        { landDataMemberId = landMemberId, modelName = mapModel.name,
+          transformMode = batch.transformMode })
+    end
+  end
 
   return {
     batches = compiled.batches,

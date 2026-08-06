@@ -165,7 +165,7 @@ end
 function T.format_1_and_6_are_translucent(romFs)
   local bundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK"))
   local scene = bundle.scene
-  Assert.equal(scene.schema, "g4-map-scene-v2")
+  Assert.equal(scene.schema, "g4-map-scene-v3")
 
   local found = false
   local function translucentBatches(materials, batches)

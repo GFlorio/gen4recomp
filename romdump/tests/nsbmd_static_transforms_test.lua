@@ -345,10 +345,91 @@ function T.rejects_nodedesc_flags_under_the_standard_rule()
   Assert.equal(err.code, "NSBMD_JOINT_UNEXPECTED_NODEDESC_FLAGS")
 end
 
-function T.rejects_billboard_command()
+-- A translated, non-uniformly scaled joint whose SBC then issues BB. The draw
+-- must come out billboard-mode with the joint matrix as its base and an identity
+-- local matrix, so the shape's vertices stay in billboard-local space.
+local function billboardModel(extraAfterBB)
+  local nodeData = transformedNodeData(2, 5, 0, 3, 1, 1)
+  local nodeDict0 = NB.dict({ { name = "root", data = u32(0) } })
+  local nodeDict = NB.dict({ { name = "root", data = u32(#nodeDict0) } })
+  local sbc = string.char(0x06, 0, 0, 0)  -- NODEDESC node0
+    .. string.char(0x02, 0, 1)            -- NODE node0 visible
+    .. string.char(0x07, 0)               -- BB node0, option 0
+    .. (extraAfterBB or "")
+    .. string.char(0x04, 0)               -- MAT 0
+    .. string.char(0x05, 0)               -- SHP 0
+    .. string.char(0x01)
+  return decodeModel(nodeDict, nodeData, sbc, 0x1000, 0x1000)
+end
+
+function T.billboard_reports_the_captured_joint_matrix()
+  local draws = NsbmdStaticTransforms.evaluate(billboardModel())
+  Assert.equal(#draws, 1)
+  Assert.equal(draws[1].transformMode, "billboard")
+  assertMatrixClose(draws[1].matrix, Matrix4.identity(),
+    "billboard geometry stays in billboard-local space")
+  -- Base = T(2,5,0) * S(3,1,1): the translation the runtime places the billboard
+  -- at, and the per-axis scale it stretches by.
+  assertMatrixAtPoint(draws[1].baseTransform, 0, 0, 0, 2, 5, 0, "base translation")
+  assertMatrixAtPoint(draws[1].baseTransform, 1, 0, 0, 5, 5, 0, "base x scale")
+end
+
+function T.static_draws_report_static_mode()
+  local nodeDict, nodeData = identityNodeDictAndData()
+  local sbc = string.char(0x06, 0, 0, 0) .. string.char(0x04, 0) .. string.char(0x05, 0)
+    .. string.char(0x01)
+  local draws = NsbmdStaticTransforms.evaluate(decodeModel(nodeDict, nodeData, sbc, 0x1000, 0x1000))
+  Assert.equal(draws[1].transformMode, "static")
+  Assert.equal(draws[1].baseTransform, nil)
+end
+
+-- POSSCALE after BB acts on the installed billboard matrix, so it belongs to the
+-- shape's local matrix and must not disturb the captured base.
+function T.posscale_after_billboard_scales_the_local_matrix()
+  local draws = NsbmdStaticTransforms.evaluate(billboardModel(string.char(0x0B)))
+  Assert.equal(#draws, 1)
+  Assert.equal(draws[1].transformMode, "billboard")
+  assertMatrixAtPoint(draws[1].matrix, 1, 0, 0, 1, 0, 0, "posScale 1.0 leaves the local matrix")
+  assertMatrixAtPoint(draws[1].baseTransform, 0, 0, 0, 2, 5, 0, "base translation unchanged")
+end
+
+-- MTX loads the position matrix outright, which ends the billboard.
+function T.matrix_restore_after_billboard_returns_to_static()
+  local nodeData = transformedNodeData(2, 0, 0, 1, 1, 1)
+  local nodeDict0 = NB.dict({ { name = "root", data = u32(0) } })
+  local nodeDict = NB.dict({ { name = "root", data = u32(#nodeDict0) } })
+  local sbc = string.char(0x06, 0, 0, 0)
+    .. string.char(0x07, 0)  -- BB
+    .. string.char(0x05, 0)  -- SHP 0 (billboard)
+    .. string.char(0x03, 0)  -- MTX restore slot 0
+    .. string.char(0x05, 0)  -- SHP 0 (static again)
+    .. string.char(0x01)
+  local draws = NsbmdStaticTransforms.evaluate(decodeModel(nodeDict, nodeData, sbc, 0x1000, 0x1000))
+  Assert.equal(#draws, 2)
+  Assert.equal(draws[1].transformMode, "billboard")
+  Assert.equal(draws[2].transformMode, "static")
+  Assert.equal(draws[2].baseTransform, nil)
+  assertMatrixAtPoint(draws[2].matrix, 0, 0, 0, 2, 0, 0, "static draw back on the joint matrix")
+end
+
+-- Moving a billboard matrix through the matrix stack cannot be expressed by a
+-- per-shape compiled transform; no BB in the target world uses the operands.
+function T.rejects_billboard_with_matrix_slot_operands()
   local nodeDict, nodeData = identityNodeDictAndData()
   local sbc = string.char(0x06, 0, 0, 0)
-    .. string.char(0x07, 0, 0) -- BB
+    .. string.char(0x27, 0, 1) -- BB with the store option, storing into slot 1
+    .. string.char(0x01)
+  local model = decodeModel(nodeDict, nodeData, sbc, 0x1000, 0x1000)
+  local err = Assert.throws(function() NsbmdStaticTransforms.evaluate(model) end)
+  Assert.equal(err.code, "NSBMD_STATIC_BILLBOARD_MATRIX_SLOT_UNSUPPORTED")
+end
+
+-- No model in the target world issues BBY, so its yaw-only semantics are
+-- deliberately unimplemented rather than guessed at.
+function T.rejects_y_billboard_command()
+  local nodeDict, nodeData = identityNodeDictAndData()
+  local sbc = string.char(0x06, 0, 0, 0)
+    .. string.char(0x08, 0) -- BBY
     .. string.char(0x01)
   local model = decodeModel(nodeDict, nodeData, sbc, 0x1000, 0x1000)
   local err = Assert.throws(function() NsbmdStaticTransforms.evaluate(model) end)

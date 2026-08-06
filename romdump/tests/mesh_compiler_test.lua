@@ -299,4 +299,49 @@ function T.wind_like_large_posscale_compensated_by_node_scale()
     "large posScale compensated by node scale yields sane tile size")
 end
 
+-- One identity-slot node translated by 32 model units and stretched along x,
+-- then BB. `dl` defaults to the ordinary one-triangle list.
+local function billboardModel(dl)
+  local nodeData = transformedNodeData(32, 0, 0, 2, 1, 1)
+  local nodeDict0 = NB.dict({ { name = "root", data = u32(0) } })
+  local nodeDict = NB.dict({ { name = "root", data = u32(#nodeDict0) } })
+  local sbc = string.char(0x06, 0, 0, 0)  -- NODEDESC node0
+    .. string.char(0x02, 0, 1)            -- NODE node0 visible
+    .. string.char(0x07, 0)               -- BB node0
+    .. string.char(0x04, 0)               -- MAT 0
+    .. string.char(0x05, 0)               -- SHP 0
+    .. string.char(0x01)
+  return decodeModel(1, nodeDict, nodeData, sbc, 0x1000, 0x1000, dl or triangleDL("color"))
+end
+
+function T.billboard_batch_keeps_local_geometry_and_a_tile_space_base()
+  local b = MeshCompiler.compile(billboardModel())
+  Assert.equal(#b, 1)
+  Assert.equal(b[1].transformMode, "billboard")
+  -- Vertices are billboard-local: (1,0,0) only passes through the tile divisor.
+  Assert.isTrue(math.abs(b[1].vertices[1].x - 1 / 16) < 1e-9, "geometry stays billboard-local")
+  -- Base translation is in tiles (32 model units / 16); the linear part is
+  -- untouched, so the runtime reads the x stretch of 2 straight off it.
+  local tx, ty, tz = Matrix4.transformPoint(b[1].baseTransform, 0, 0, 0)
+  Assert.isTrue(math.abs(tx - 2) < 1e-9 and ty == 0 and tz == 0, "base translation in tiles")
+  Assert.isTrue(math.abs(b[1].baseTransform[1] - 2) < 1e-9, "base keeps the per-axis scale")
+end
+
+function T.static_batch_has_no_base_transform()
+  local b = MeshCompiler.compile(model("color"))
+  Assert.equal(b[1].transformMode, "static")
+  Assert.equal(b[1].baseTransform, nil)
+end
+
+function T.billboard_shape_using_matrix_restore_raises()
+  -- MTX_RESTORE (0x14, one param word) inside the shape would need a different
+  -- matrix per primitive, which one billboard matrix per shape cannot express.
+  local dl = string.char(0x14, 0x20, 0x40, 0x23)
+    .. NB.u32(0) .. NB.u32(31) .. NB.u32(0) .. vtx16(1, 0, 0)
+    .. string.char(0x23, 0x23, 0x41, 0) .. vtx16(0, 0, 1) .. vtx16(0, 0, 0)
+  local ok, err = pcall(MeshCompiler.compile, billboardModel(dl))
+  Assert.isTrue(not ok and Errors.is(err)
+    and err.code == "MAP_COMPILE_BILLBOARD_MATRIX_RESTORE_UNSUPPORTED", "rejects per-primitive matrices")
+end
+
 return T
