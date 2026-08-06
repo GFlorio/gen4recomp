@@ -1,0 +1,64 @@
+FROM docker.io/library/ubuntu:24.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG USER_ID=1000
+ARG GROUP_ID=1000
+ARG OPENCODE_VERSION=latest
+
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+RUN test "$(. /etc/os-release && printf '%s' "$VERSION_ID")" = "24.04"
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        bash \
+        build-essential \
+        ca-certificates \
+        curl \
+        fd-find \
+        git \
+        jq \
+        less \
+        nodejs \
+        npm \
+        procps \
+        python3 \
+        ripgrep \
+        shellcheck \
+        software-properties-common \
+        unzip \
+        xz-utils \
+    && add-apt-repository --yes ppa:bartbes/love-stable \
+    && apt-get update \
+    && apt-cache policy love \
+    && apt-get install -y --no-install-recommends love \
+    && love --version \
+    && love --version | grep -E 'LOVE 11\.5|LÖVE 11\.5' \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN npm install --global "opencode-ai@${OPENCODE_VERSION}" \
+    && npm cache clean --force
+
+# RUN groupadd --gid "${GROUP_ID}" agent \
+#     && useradd \
+#         --uid "${USER_ID}" \
+#         --gid "${GROUP_ID}" \
+#         --create-home \
+#         --shell /bin/bash \
+#         agent \
+#     && mkdir -p \
+#         /home/agent/.cache \
+#         /home/agent/.config \
+#         /home/agent/.local/share \
+#     && chown -R "${USER_ID}:${GROUP_ID}" /home/agent
+
+ENV HOME=/home/agent
+ENV XDG_CACHE_HOME=/home/agent/.cache
+ENV XDG_CONFIG_HOME=/home/agent/.config
+ENV XDG_DATA_HOME=/home/agent/.local/share
+
+WORKDIR /workspace
+USER agent
+
+CMD ["opencode", "--dir", "/workspace"]
