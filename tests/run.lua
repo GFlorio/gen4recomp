@@ -102,6 +102,8 @@ local MODULES = {
   "romdump.tests.field_camera_compiler_test",
   "romdump.tests.field_map_data_compiler_test",
   "romdump.tests.terrain_inspector_test",
+  "romdump.tests.field_actor_graphics_test",
+  "romdump.tests.field_actor_timeline_test",
 }
 
 local function sortedKeys(t)
