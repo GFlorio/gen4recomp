@@ -53,6 +53,12 @@ return {
   -- table by design. Every value they can take is a player graphic.
   variableSpriteRange = { first = 101, last = 117 },
 
+  -- Movement codes whose runtime behavior is verified to be "stand still".
+  -- Every other code is preserved on the actor and reported once through the
+  -- developer trace; autonomous motion is out of scope for this milestone, so
+  -- widening this set requires verifying the code against original behavior.
+  staticMovementCodes = { 0 },
+
   -- Selected-set policy (specification 17.1): the player graphics plus every
   -- object-event sprite used by these maps. Production code never branches on a
   -- map ID; this manifest is the single configuration point that widens the set.
