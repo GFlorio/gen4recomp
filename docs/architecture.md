@@ -133,6 +133,26 @@ local scene = assert(cacheFs:loadLua(MapAssetCache.mapDir(map.id) .. "/scene.lua
 local runtime = MapSceneLoader.load(cacheFs, scene)
 ```
 
+### Field actors
+
+`FieldState` owns the actor chain and wires it into the fixed-step session:
+
+```text
+FieldEventState  (numeric flags/vars; the visibility authority)
+  └─ FieldActorManager  (object actors + the occupancy index, one per live map)
+       ├─ FieldObjectActor   (immutable source event, mutable runtime state)
+       └─ FieldActorAssetProvider  (shared compiled visuals, acquire/release)
+```
+
+An object exists only while its event flag is clear, matching the original
+engine. Flag writes are queued and applied at one point in the fixed tick —
+before movement reads occupancy — so the draw list and collision never disagree
+within a tick. Actors in this milestone are static: a movement code outside the
+verified static set is preserved on the actor and reported once through the
+developer trace, never executed. `data/manifests/field_scenario.lua` seeds which
+target objects start hidden; it names objects by map/object identity and
+`FieldScenario` resolves each to the ROM's numeric flag.
+
 ## Raw dump vs. derived data
 
 The cache separates two concerns so future format work never forces a re-import:

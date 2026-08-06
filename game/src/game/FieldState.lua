@@ -3,13 +3,19 @@
 -- event/terrain debug overlays plus the field warp transition lifecycle.
 
 local CacheFs = require("libs.rom.src.CacheFs")
+local Errors = require("libs.rom.src.Errors")
+local FieldActorAssetProvider = require("libs.engine.src.FieldActorAssetProvider")
+local FieldActorManager = require("libs.engine.src.FieldActorManager")
 local FieldCamera = require("libs.engine.src.FieldCamera")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
+local FieldEventState = require("libs.engine.src.FieldEventState")
 local FieldGrid = require("libs.engine.src.FieldGrid")
 local FieldInput = require("libs.engine.src.FieldInput")
+local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldMapLoader = require("libs.engine.src.FieldMapLoader")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldSave = require("libs.engine.src.FieldSave")
+local FieldScenario = require("libs.engine.src.FieldScenario")
 local FieldSaveStore = require("libs.engine.src.FieldSaveStore")
 local FieldSession = require("libs.engine.src.FieldSession")
 local FieldTransition = require("libs.engine.src.FieldTransition")
@@ -20,7 +26,9 @@ local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapRenderer = require("libs.engine.src.MapRenderer")
 local Matrix4 = require("libs.math.src.Matrix4")
 local TargetAnchors = require("data.manifests.target_map_anchors")
+local FieldActorManifest = require("data.manifests.field_actors")
 local FieldPresentation = require("data.manifests.field_presentation")
+local FieldScenarioManifest = require("data.manifests.field_scenario")
 
 local FieldState = {}
 FieldState.__index = FieldState
@@ -145,6 +153,26 @@ function FieldState:_load()
     self.envelope = terrainEnvelope(self.runtimeMap.terrain)
     self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
 
+    -- The event store is rebuilt from the demo scenario on every boot until the
+    -- save schema carries it; nothing persists event state yet.
+    self.eventState = FieldEventState.new()
+    self.scenarioApplied = FieldScenario.apply(FieldScenarioManifest, self.eventState,
+      function(mapId) return cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId)) end)
+    self.actorAssets = FieldActorAssetProvider.new(cacheFs)
+    self.actors = FieldActorManager.new({
+      assets = self.actorAssets,
+      policy = {
+        variableSpriteRange = FieldActorManifest.variableSpriteRange,
+        staticMovementCodes = FieldActorManifest.staticMovementCodes,
+      },
+      trace = function(record)
+        io.stderr:write(string.format("%s %s sprite %d movement %d\n",
+          record.kind, record.actorId, record.spriteId, record.movement))
+      end,
+    })
+    self.actors:enterMap(self.runtimeMap, self.eventState)
+    self.inspectorIndex = 0
+
     self.transition = FieldTransition.new({
       loader = self.mapLoader,
       swap = function(resolution, facing) self:_swapMap(resolution, facing) end,
@@ -157,6 +185,7 @@ function FieldState:_load()
       player = self.player,
       camera = self.camera,
       transition = self.transition,
+      actors = self.actors,
       input = self.input,
       coverage = function()
         self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
@@ -164,6 +193,7 @@ function FieldState:_load()
     })
 
     self.playerMesh = Gizmos.box(0.35, 0, 1.6, 0.35, { 0.95, 0.25, 0.25, 1 })
+    self.actorMesh = Gizmos.box(0.30, 0, 1.6, 0.30, { 0.35, 0.9, 0.45, 1 })
     self.eventMesh = Gizmos.box(0.10, 0, 1.9, 0.10, { 1.0, 0.85, 0.1, 1 })
     self.terrainMesh = Gizmos.box(0.08, 0, 1.2, 0.08, { 0.2, 0.75, 1.0, 1 })
     self.playerMaterial = { alphaClass = "opaque", cullMode = "back" }
@@ -179,7 +209,10 @@ end
 
 function FieldState:update(dt)
   if self.session then
-    self.session:update(dt)
+    -- A developer flag toggle can make an actor unresolvable on the next tick;
+    -- report it in the field HUD instead of dropping to the LÖVE error screen.
+    local ok, err = pcall(self.session.update, self.session, dt)
+    if not ok then self.errorText = Errors.format(err) end
     if self.transition.error then
       local warp = self.transition.sourceWarp
       self.errorText = string.format("%s\nsource map %s warp %s -> map %s warp %s",
@@ -262,6 +295,11 @@ function FieldState:_swapMap(resolution, facing)
   camera:setProjectionAspect(self.viewport:worldAspect())
   camera:setZoom(self.zoom:effectiveZoom())
 
+  local previousMapId = self.runtimeMap.mapId
+  self.actors:enterMap(runtimeMap, self.eventState)
+  if runtimeMap.mapId ~= previousMapId then self.actors:leaveMap(previousMapId) end
+  self.inspectorIndex = 0
+
   self.runtimeMap = runtimeMap
   self.runtime = runtimeMap.sceneRuntime
   self.player = player
@@ -309,8 +347,18 @@ function FieldState:_overlays()
   end
   if not self.overlaysVisible then return list end
 
+  -- Object events draw from the actor manager, not the raw records, so the
+  -- overlay shows exactly what the runtime considers present.
+  for _, record in ipairs(self.actors:drawRecords(0)) do
+    append(list, {
+      mesh = self.actorMesh, material = self.eventMaterial,
+      transform = Matrix4.translate(record.world.x, record.world.y, record.world.z),
+      center = { 0, 0.8, 0 },
+    })
+  end
+
   local events = self.runtimeMap.fieldData.events
-  for _, category in ipairs({ "background", "objects", "warps", "coordinates" }) do
+  for _, category in ipairs({ "background", "warps", "coordinates" }) do
     for _, event in ipairs(events[category] or {}) do
       local point = self:_eventPoint(event)
       if point then
@@ -360,11 +408,52 @@ function FieldState:draw()
   self:_drawHud()
 end
 
+-- The inspector walks the map's object-event records, not the live actors, so a
+-- hidden actor can still be selected and toggled back into existence.
+function FieldState:_inspectorLine()
+  local objects = self.runtimeMap.fieldData.events.objects or {}
+  if #objects == 0 then return "inspector: map has no object events" end
+  local event = objects[self.inspectorIndex + 1]
+  local actor = self.actors:getById(
+    string.format("map:%d:object:%d", self.runtimeMap.mapId, event.objectEventId))
+  if not actor then
+    return string.format(
+      "inspector %d/%d  object %d  sprite %d  field (%d,%d)  flag %d  script %d  HIDDEN",
+      self.inspectorIndex + 1, #objects, event.objectEventId, event.spriteId,
+      event.x, event.z, event.eventFlag, event.scriptId)
+  end
+  local info = actor:describe()
+  return string.format(
+    "inspector %d/%d  object %d  sprite %d (mmodel %s)  field (%d,%d) surface %d  %s"
+      .. "  movement %d  flag %d  script %d",
+    self.inspectorIndex + 1, #objects, info.objectEventId, info.spriteId,
+    tostring(info.mapModelId), info.fieldX, info.fieldZ, info.surfaceId, info.facing,
+    info.movement, info.eventFlag, info.scriptId)
+end
+
+-- Developer mutation: writes through FieldEventState, never the actor manager,
+-- so the runtime path under test is the same one a script will later use.
+function FieldState:_toggleInspectorFlag()
+  local objects = self.runtimeMap.fieldData.events.objects or {}
+  local event = objects[self.inspectorIndex + 1]
+  if not event then return end
+  if event.eventFlag == 0 then
+    self.saveStatus = "developer: object " .. event.objectEventId .. " has no dedicated flag"
+    return
+  end
+  local set = not self.eventState:isFlagSet(event.eventFlag)
+  if set then self.eventState:setFlag(event.eventFlag)
+  else self.eventState:clearFlag(event.eventFlag) end
+  self.saveStatus = string.format("developer: map %d object %d flag %d %s",
+    self.runtimeMap.mapId, event.objectEventId, event.eventFlag, set and "set" or "cleared")
+end
+
 function FieldState:_drawHud()
   local lg = love.graphics
   local events = self.runtimeMap.fieldData.events
   local plan = self.runtimeMap.coveragePlan
   local playerStatus = self.player:status()
+  local visuals = self.actorAssets:stats()
   local lines = {
     string.format("field  %s", self.versionId),
     string.format("map %d  %s  camera %d/%s", self.runtimeMap.mapId,
@@ -387,15 +476,21 @@ function FieldState:_drawHud()
       #self.runtimeMap.terrain.plates, plan and #plan.cells or 0,
       plan and #(plan.missingVisibleCells or {}) or 0,
       plan and #(plan.missingPrefetchCells or {}) or 0, self.mapLoader:residentCount()),
+    string.format("actors %d visible of %d  visuals live/refs %d/%d  scenario %s (%d hidden)",
+      #self.actors:actorsOf(self.runtimeMap.mapId), #(events.objects or {}),
+      visuals.live, visuals.references,
+      FieldScenarioManifest.id, #self.scenarioApplied),
+    self:_inspectorLine(),
     string.format("tick %d  dropped %d  overlays %s",
       self.session.tick, self.session.discardedTicks, self.overlaysVisible and "on" or "off"),
     string.format("transition %s  fade %.2f",
       self.transition.phase, self.transition.fadeAlpha),
     self.saveStatus or "save not written this run",
-    "WASD/arrows move   -/= zoom   0 reset zoom   F1 overlays   F5 save   F9 reset   Esc quit",
+    "WASD/arrows move   -/= zoom   0 reset zoom   F1 overlays   F2 inspect   F3 toggle flag"
+      .. "   F5 save   F9 reset   Esc quit",
   }
   lg.setColor(0, 0, 0, 0.55)
-  lg.rectangle("fill", 12, 12, 670, 20 * #lines + 12)
+  lg.rectangle("fill", 12, 12, 900, 20 * #lines + 12)
   lg.setColor(0.9, 0.95, 1)
   for index, line in ipairs(lines) do lg.print(line, 20, 12 + (index - 1) * 20) end
 end
@@ -403,6 +498,11 @@ end
 function FieldState:keypressed(key)
   if key == "escape" then love.event.quit(0) end
   if key == "f1" then self.overlaysVisible = not self.overlaysVisible end
+  if key == "f2" then
+    local count = #(self.runtimeMap.fieldData.events.objects or {})
+    if count > 0 then self.inspectorIndex = (self.inspectorIndex + 1) % count end
+  end
+  if key == "f3" then self:_toggleInspectorFlag() end
   if key == "f5" then self:_save() end
   if key == "f9" then self:_reset() return end
   if key == "-" or key == "kp-" then
@@ -438,13 +538,15 @@ function FieldState:keyreleased(key)
 end
 
 function FieldState:_release()
+  if self.actors then self.actors:dispose() end
+  if self.actorAssets then self.actorAssets:dispose() end
   if self.renderer then self.renderer:release() end
   if self.mapLoader then self.mapLoader:release() end
-  if self.playerMesh then self.playerMesh:release() end
-  if self.eventMesh then self.eventMesh:release() end
-  if self.terrainMesh then self.terrainMesh:release() end
-  self.renderer, self.mapLoader = nil, nil
-  self.playerMesh, self.eventMesh, self.terrainMesh = nil, nil, nil
+  for _, key in ipairs({ "playerMesh", "actorMesh", "eventMesh", "terrainMesh" }) do
+    if self[key] then self[key]:release() end
+    self[key] = nil
+  end
+  self.actors, self.actorAssets, self.renderer, self.mapLoader = nil, nil, nil, nil
 end
 
 function FieldState:quit()

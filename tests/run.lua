@@ -64,6 +64,10 @@ local MODULES = {
   "libs.engine.tests.field_save_test",
   "libs.engine.tests.field_save_store_test",
   "libs.engine.tests.field_actor_asset_provider_test",
+  "libs.engine.tests.field_event_state_test",
+  "libs.engine.tests.field_object_actor_test",
+  "libs.engine.tests.field_actor_manager_test",
+  "libs.engine.tests.field_scenario_test",
   -- game
   "game.tests.map_diagnostic_state_test",
   -- romdump

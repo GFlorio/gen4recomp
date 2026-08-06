@@ -1,0 +1,278 @@
+-- Owns the object actors of every runtime map the session currently holds, plus
+-- the occupancy index they contribute to collision. Visibility follows
+-- pret/pokeheartgold's rule that an object exists only while its event flag is
+-- clear (`src/map_object.c`), so this manager subscribes to FieldEventState and
+-- applies queued changes on one fixed-tick boundary: an actor never draws while
+-- collision considers it absent, or the reverse.
+--
+-- It is not the player's movement authority and it never draws: `drawRecords`
+-- returns presentation-neutral values for the renderer to consume.
+
+local Errors = require("libs.rom.src.Errors")
+local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
+local FieldObjectActor = require("libs.engine.src.FieldObjectActor")
+local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
+
+local FieldActorManager = {}
+FieldActorManager.__index = FieldActorManager
+
+-- Raw event Y is a 1/16-unit fixed-point hint, matching the field event decoder.
+local EVENT_Y_UNITS = 16
+
+local SURFACE_ERROR_CODES = {
+  TERRAIN_SURFACE_NOT_FOUND = "ACTOR_SURFACE_MISSING",
+  TERRAIN_SURFACE_AMBIGUOUS = "ACTOR_SURFACE_AMBIGUOUS",
+  TERRAIN_SURFACE_DISCONNECTED = "ACTOR_SURFACE_AMBIGUOUS",
+}
+
+-- opts.assets: a FieldActorAssetProvider-shaped acquire/release/knows owner.
+-- opts.policy: { variableSpriteRange, staticMovementCodes } from the field-actor
+-- manifest, so no decomp-derived constant is inlined here.
+-- opts.trace: optional developer sink for structured lifecycle records.
+function FieldActorManager.new(opts)
+  assert(type(opts) == "table" and opts.assets, "FieldActorManager requires an asset provider")
+  local policy = opts.policy
+  assert(type(policy) == "table" and policy.variableSpriteRange and policy.staticMovementCodes,
+    "FieldActorManager requires a sprite/movement policy")
+  local static = {}
+  for _, code in ipairs(policy.staticMovementCodes) do static[code] = true end
+  return setmetatable({
+    assets = opts.assets,
+    variableSpriteRange = policy.variableSpriteRange,
+    staticMovementCodes = static,
+    trace = opts.trace,
+    maps = {},
+    eventState = nil,
+    unsubscribe = nil,
+    pendingFlags = {},
+  }, FieldActorManager)
+end
+
+local function occupancyKey(mapId, fieldX, fieldZ, surfaceId)
+  return string.format("%d:%d:%d:%d", mapId, fieldX, fieldZ, surfaceId)
+end
+
+local function resolveSurface(runtimeMap, event, actorId)
+  local ok, result = pcall(function()
+    local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, event.x, event.z)
+    -- Terrain is sampled at the tile centre, as the player and camera do.
+    return SurfaceResolver.new(runtimeMap.terrain):resolve({
+      localX = localX + 0.5, localZ = localZ + 0.5,
+      currentY = event.y / EVENT_Y_UNITS,
+    })
+  end)
+  if ok then return result end
+  if not Errors.is(result) then error(result) end
+  local code = SURFACE_ERROR_CODES[result.code] or "ACTOR_SURFACE_MISSING"
+  Errors.raise(code, "actor " .. actorId .. " has no single terrain surface: " .. result.message,
+    { actorId = actorId, fieldX = event.x, fieldZ = event.z, sourceY = event.y,
+      cause = result.code })
+end
+
+function FieldActorManager:_acquireVisual(event, actorId)
+  local range = self.variableSpriteRange
+  if event.spriteId >= range.first and event.spriteId <= range.last then
+    -- FieldSystem_ResolveObjectSpriteID redirects this range through a field
+    -- variable before the graphics lookup. That indirection is not yet decoded,
+    -- so a variable actor may exist in map data but must not be guessed at.
+    Errors.raise("ACTOR_SPRITE_UNRESOLVED",
+      "spriteId " .. event.spriteId .. " for " .. actorId
+        .. " is variable and its field-variable redirection is not implemented",
+      { actorId = actorId, spriteId = event.spriteId })
+  end
+  if not self.assets:knows(event.spriteId) then
+    Errors.raise("ACTOR_VISUAL_MISSING",
+      "spriteId " .. event.spriteId .. " for " .. actorId .. " is not in the compiled actor set",
+      { actorId = actorId, spriteId = event.spriteId })
+  end
+  return self.assets:acquire(event.spriteId)
+end
+
+function FieldActorManager:_reportDeferredMovement(actor)
+  if self.staticMovementCodes[actor.rawMovement] or not self.trace then return end
+  self.trace({
+    kind = "actor.movement_deferred",
+    actorId = actor.actorId,
+    spriteId = actor.spriteId,
+    movement = actor.rawMovement,
+    xRange = actor.sourceEvent.xRange,
+    yRange = actor.sourceEvent.yRange,
+  })
+end
+
+function FieldActorManager:_instantiate(entry, event)
+  local runtimeMap = entry.runtimeMap
+  local actorId = FieldObjectActor.actorId(runtimeMap.mapId, event.objectEventId)
+  if entry.actors[actorId] then
+    Errors.raise("ACTOR_DUPLICATE_ID", "map " .. runtimeMap.mapId
+      .. " declares object event " .. event.objectEventId .. " more than once",
+      { actorId = actorId, mapId = runtimeMap.mapId, objectEventId = event.objectEventId })
+  end
+  local surface = resolveSurface(runtimeMap, event, actorId)
+  local world = FieldCoordinates.fieldToWorld(runtimeMap, event.x, event.z, surface.worldY)
+  local asset = self:_acquireVisual(event, actorId)
+
+  local actor = FieldObjectActor.new({
+    mapId = runtimeMap.mapId,
+    sourceEvent = event,
+    visualDef = asset.visual,
+    fieldX = event.x, fieldZ = event.z, surfaceId = surface.surfaceId,
+    worldX = world.x, worldY = world.y, worldZ = world.z,
+  })
+  actor.visualAsset = asset
+
+  local key = occupancyKey(runtimeMap.mapId, actor.fieldX, actor.fieldZ, actor.surfaceId)
+  local occupant = entry.occupancy[key]
+  if actor.solid and occupant then
+    self.assets:release(actor.spriteId)
+    Errors.raise("ACTOR_OCCUPANCY_CONFLICT",
+      actorId .. " and " .. occupant.actorId .. " occupy the same field cell and surface",
+      { actorId = actorId, otherActorId = occupant.actorId, mapId = runtimeMap.mapId,
+        fieldX = actor.fieldX, fieldZ = actor.fieldZ, surfaceId = actor.surfaceId })
+  end
+  if actor.solid then entry.occupancy[key] = actor end
+  entry.actors[actorId] = actor
+  entry.order[#entry.order + 1] = actor
+  self:_reportDeferredMovement(actor)
+  return actor
+end
+
+function FieldActorManager:_destroy(entry, actor)
+  actor:clearFacingOverride()
+  actor.visible = false
+  entry.actors[actor.actorId] = nil
+  entry.occupancy[occupancyKey(actor.mapId, actor.fieldX, actor.fieldZ, actor.surfaceId)] = nil
+  for index, candidate in ipairs(entry.order) do
+    if candidate == actor then table.remove(entry.order, index) break end
+  end
+  self.assets:release(actor.spriteId)
+  actor.visualAsset, actor.visualDef = nil, nil
+end
+
+-- Idempotent for an already-active runtime map, so a transition's overlapping
+-- load and commit phases cannot duplicate a map's actors.
+function FieldActorManager:enterMap(runtimeMap, eventState)
+  assert(runtimeMap and runtimeMap.fieldData, "enterMap requires a runtime map")
+  assert(eventState, "enterMap requires a field event state")
+  if self.eventState ~= eventState then
+    if self.unsubscribe then self.unsubscribe() end
+    self.eventState = eventState
+    self.unsubscribe = eventState:subscribe(function(change)
+      self:onEventStateChanged(change)
+    end)
+  end
+
+  local existing = self.maps[runtimeMap.mapId]
+  if existing then
+    if existing.runtimeMap == runtimeMap then return end
+    self:leaveMap(runtimeMap.mapId)
+  end
+
+  local entry = { runtimeMap = runtimeMap, actors = {}, order = {}, occupancy = {}, byFlag = {} }
+  self.maps[runtimeMap.mapId] = entry
+  local ok, err = pcall(function()
+    for _, event in ipairs(runtimeMap.fieldData.events.objects or {}) do
+      local flagged = entry.byFlag[event.eventFlag] or {}
+      flagged[#flagged + 1] = event
+      entry.byFlag[event.eventFlag] = flagged
+      if not eventState:isFlagSet(event.eventFlag) then self:_instantiate(entry, event) end
+    end
+  end)
+  if not ok then
+    self:leaveMap(runtimeMap.mapId)
+    error(err)
+  end
+end
+
+function FieldActorManager:leaveMap(mapId)
+  local entry = self.maps[mapId]
+  if not entry then return end
+  self.maps[mapId] = nil
+  while #entry.order > 0 do self:_destroy(entry, entry.order[#entry.order]) end
+end
+
+-- Queued rather than applied inline: a flag written mid-tick must not change
+-- the world under code that has already consulted occupancy this tick.
+function FieldActorManager:onEventStateChanged(change)
+  if change.kind ~= "flag" then return end
+  self.pendingFlags[#self.pendingFlags + 1] = change
+end
+
+function FieldActorManager:_applyFlag(change)
+  for _, entry in pairs(self.maps) do
+    for _, event in ipairs(entry.byFlag[change.id] or {}) do
+      local actorId = FieldObjectActor.actorId(entry.runtimeMap.mapId, event.objectEventId)
+      local actor = entry.actors[actorId]
+      if change.newValue and actor then
+        self:_destroy(entry, actor)
+      elseif not change.newValue and not actor then
+        self:_instantiate(entry, event)
+      end
+    end
+  end
+end
+
+function FieldActorManager:step(tick)
+  if self.eventState then self.eventState:setTick(tick) end
+  local pending = self.pendingFlags
+  if #pending > 0 then
+    self.pendingFlags = {}
+    for _, change in ipairs(pending) do self:_applyFlag(change) end
+  end
+  for _, entry in pairs(self.maps) do
+    for _, actor in ipairs(entry.order) do actor.poseTick = actor.poseTick + 1 end
+  end
+end
+
+function FieldActorManager:drawRecords(alpha)
+  local records = {}
+  for _, entry in pairs(self.maps) do
+    for _, actor in ipairs(entry.order) do
+      records[#records + 1] = {
+        actorId = actor.actorId,
+        spriteId = actor.spriteId,
+        visualDef = actor.visualDef,
+        world = { x = actor.worldX, y = actor.worldY, z = actor.worldZ },
+        facing = actor.facing,
+        pose = actor.pose,
+        poseTick = actor.poseTick,
+        alpha = 1,
+        visible = true,
+        interpolation = alpha,
+      }
+    end
+  end
+  return records
+end
+
+function FieldActorManager:getById(actorId)
+  for _, entry in pairs(self.maps) do
+    local actor = entry.actors[actorId]
+    if actor then return actor end
+  end
+  return nil
+end
+
+function FieldActorManager:getAt(mapId, fieldX, fieldZ, surfaceId)
+  local entry = self.maps[mapId]
+  return entry and entry.occupancy[occupancyKey(mapId, fieldX, fieldZ, surfaceId)] or nil
+end
+
+function FieldActorManager:isOccupied(mapId, fieldX, fieldZ, surfaceId, exceptActorId)
+  local actor = self:getAt(mapId, fieldX, fieldZ, surfaceId)
+  return actor ~= nil and actor.actorId ~= exceptActorId
+end
+
+function FieldActorManager:actorsOf(mapId)
+  local entry = self.maps[mapId]
+  return entry and entry.order or {}
+end
+
+function FieldActorManager:dispose()
+  for mapId in pairs(self.maps) do self:leaveMap(mapId) end
+  if self.unsubscribe then self.unsubscribe() end
+  self.unsubscribe, self.eventState = nil, nil
+  self.pendingFlags = {}
+end
+
+return FieldActorManager

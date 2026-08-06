@@ -19,6 +19,7 @@ function FieldSession.new(options)
     player = options.player or options.actor,
     camera = options.camera,
     transition = options.transition,
+    actors = options.actors,
     input = options.input,
     coverage = options.coverage,
     trace = options.trace,
@@ -57,6 +58,10 @@ function FieldSession:updateFixed(inputSnapshot)
     self.transition.suppression = WarpSystem.updateSuppression(self.transition.suppression,
       self.currentMap.mapId, self.player.fieldX, self.player.fieldZ)
   end
+
+  -- Queued visibility changes land before anything reads occupancy or starts a
+  -- move, so collision and the draw list never disagree within a tick.
+  if self.actors then self.actors:step(self.tick + 1) end
 
   local direction = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
   if self.transition and self.transition.start and self.player.motion == "idle" and direction then
