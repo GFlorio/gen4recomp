@@ -12,7 +12,7 @@ The pipeline has four stages:
 1. **Parse** raw Nitro formats (`Nsbmd`, `Nsbtx`, `GxDisplayList`) independently
    of LÖVE.
 2. **Compile** a map + its placed buildings into derived, content-addressed
-   assets: `g4-map-scene-v2` descriptors, `G4M2` mesh batches, and PNG textures.
+   assets: `g4-map-scene-v3` descriptors, `G4M2` mesh batches, and PNG textures.
 3. **Load** the derived cache into runtime GPU objects (`MapSceneLoader`).
 4. **Draw** with the DS-shaped shader and render queue (`MapRenderer`).
 
@@ -133,6 +133,30 @@ are sorted back-to-front in view space (submission index breaks ties) and honor
 the polygon bit-11 translucent depth-write flag. Wireframe edges are drawn with
 opaque alpha after the filled passes.
 
+## Billboards
+
+An SBC `BB` command installs a position matrix that depends on the camera, so its
+shapes cannot be baked. Such a batch is compiled with `transformMode =
+"billboard"` and a `baseTransform`: the position matrix the command captured,
+with its translation converted to tiles, and geometry left in billboard-local
+space. `MapSceneLoader` composes that base with the placement transform;
+`MapRenderer` calls `BillboardTransform.resolve` once per draw per frame, before
+the queue is built, so `u_model`, the normal matrix, translucent sorting, and
+every pass share one matrix.
+
+Following NitroSystem `sbc.c`, the resolved matrix keeps the base translation and
+the magnitude of each base basis vector and discards the base rotation:
+
+```text
+translate(base translation) * inverse(view rotation) * scale(base scale)
+```
+
+It is not a lookAt, and full `BB` responds to camera pitch as well as yaw. `BBY`
+(yaw only) is not implemented: no model in the target ROM issues one. One
+billboard matrix covers a whole shape, so a billboard display list that restores
+a matrix mid-stream raises
+`MAP_COMPILE_BILLBOARD_MATRIX_RESTORE_UNSUPPORTED`; none in the ROM does.
+
 ## Exact versus approximate behavior
 
 ### Implemented exactly (or close enough for the target maps)
@@ -147,7 +171,8 @@ opaque alpha after the filled passes.
 * A3I5/A5I3 → translucent; binary zero-alpha → cutout.
 * Culling from polygon bits 6-7.
 * Translucent bit-11 depth writes.
-* Scene v2 / G4M2 / cache v2 explicit versioning and invalidation.
+* `BB` billboards, resolved per frame from the captured base transform.
+* Scene v3 / G4M2 / cache v5 explicit versioning and invalidation.
 
 ### Deferred / approximate
 
@@ -163,6 +188,8 @@ one, the compiler raises a structured error instead of rendering incorrectly.
 * Exact fixed-point clipping/raster interpolation.
 * Local shininess-table rendering (table data is parsed but not used).
 * Animated materials/textures/joints.
+* `BBY` yaw-only billboards, `NODEMIX` matrix blending, `CALLDL` external display
+  lists, and the Si3D scaling rule.
 
 Unsupported polygon modes (`toon`, `shadow`) and in-display-list local
 light/shininess commands fail compilation with:
@@ -177,8 +204,8 @@ Derived map caches carry explicit versions:
 
 ```lua
 MapAssetCache.FORMAT              = "map-cache-v5"
-MapAssetCompiler.COMPILER_VERSION = "map-compiler-v10"
-scene.schema                      = "g4-map-scene-v2"
+MapAssetCompiler.COMPILER_VERSION = "map-compiler-v14"
+scene.schema                      = "g4-map-scene-v3"
 VertexFormat.VERSION              = 2
 FieldLightProfile.VERSION         = "field-light-v1"
 ```

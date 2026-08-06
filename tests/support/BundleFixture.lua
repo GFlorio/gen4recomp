@@ -19,7 +19,7 @@ function BundleFixture.minimal(mapId)
   end
 
   local scene = {
-    schema = "g4-map-scene-v2",
+    schema = "g4-map-scene-v3",
     mapId = mapId,
     mapBatches = { { geometry = MapAssetCache.geometryPath(meshSha), material = 0, node = 0 } },
     materials = { { id = 0, name = "m0", texture = MapAssetCache.texturePath(texSha) } },

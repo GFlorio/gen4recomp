@@ -11,7 +11,7 @@ local function fixture(mapCount)
   for mapId = 0, mapCount - 1 do
     local symbol = "MAP_" .. mapId
     local scene = {
-      schema = "g4-map-scene-v2", mapId = mapId, mapSymbol = symbol,
+      schema = "g4-map-scene-v3", mapId = mapId, mapSymbol = symbol,
       cameraType = mapId, neighbors = {},
       matrix = { width = 1, height = 1, x = 0, z = 0,
         worldOriginX = mapId * 32, worldOriginZ = 0 },

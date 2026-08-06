@@ -28,6 +28,19 @@ function MapUnits.toTiles(x, y, z)
   return x * f, y * f, z * f
 end
 
+-- A column-major position matrix rescaled to act on already-tiled vertices:
+-- only the translation column is divided by the tile size. Since the tile
+-- conversion is a uniform scale, M applied before toTiles and this matrix
+-- applied after it land a vertex in the same place -- which is what lets a
+-- billboard's base transform ride alongside toTiles-converted geometry.
+function MapUnits.matrixToTiles(m)
+  local out = {}
+  for i = 1, 12 do out[i] = m[i] end
+  out[13], out[14], out[15] = MapUnits.toTiles(m[13], m[14], m[15])
+  out[16] = m[16]
+  return out
+end
+
 -- X and Z extents of a { min = {x,y,z}, max = {x,y,z} } box, in runtime tiles.
 function MapUnits.extentTiles(bounds, posScale)
   local f = posScale / MapUnits.MODEL_UNITS_PER_TILE

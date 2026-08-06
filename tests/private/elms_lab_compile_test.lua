@@ -60,7 +60,7 @@ function T.gate5_completeness_and_ready(romFs, version)
   local c, bundle, marker = compileInto(romFs, version)
   Assert.isTrue(MapAssetCache.isReady(c, MAP_ID, marker), "cache reports ready")
   Assert.equal(#c:read(MapAssetCache.mapDir(MAP_ID) .. "/permissions.bin"), 2048)
-  Assert.equal(bundle.scene.schema, "g4-map-scene-v2")
+  Assert.equal(bundle.scene.schema, "g4-map-scene-v3")
   Assert.equal(bundle.terrain.schema, "g4-terrain-surfaces-v1")
   Assert.isTrue(c:exists(MapAssetCache.terrainPath(MAP_ID)), "terrain artifact on disk")
 

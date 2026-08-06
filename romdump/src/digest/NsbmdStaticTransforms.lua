@@ -12,8 +12,16 @@
 -- engine command sequence the model's scaling rule emits; this module only
 -- supplies the parent/stack context and the Maya inverse-scale cache.
 --
--- Out of scope (fail loudly): billboards (BB/BBY), skinning (NODEMIX), external
--- display lists (CALLDL), and the Si3D scaling rule.
+-- BB cannot be baked, because the matrix it installs depends on the camera. It
+-- is therefore evaluated in two halves: this module reports the position matrix
+-- the command captured (`baseTransform`) and marks the draws it covers
+-- `billboard`, and the engine's BillboardTransform rebuilds the real matrix each
+-- frame. See NitroSystem g3d/src/sbc.c NNSi_G3dFuncSbc_BB: the command replaces
+-- the position matrix with the accumulated translation and per-axis scale of the
+-- matrix it captured, in view space, discarding its rotation.
+--
+-- Out of scope (fail loudly): BBY, skinning (NODEMIX), external display lists
+-- (CALLDL), and the Si3D scaling rule.
 --
 -- Pure domain module: no love dependency.
 
@@ -61,8 +69,14 @@ end
 --     shapeIndex = <number>,
 --     materialReapplied = <boolean>,
 --     matrix = <16-element column-major matrix>,
---     restoreStack = { [slot] = <matrix>, ... }
+--     restoreStack = { [slot] = <matrix>, ... },
+--     transformMode = "static" | "billboard",
+--     baseTransform = <matrix>,  -- billboard draws only
 --   }
+-- For a billboard draw, `matrix` holds only what the stream accumulated after
+-- the BB command (normally identity), so the shape's vertices stay in
+-- billboard-local space; `baseTransform` is the matrix BB captured, from which
+-- the runtime takes the translation and per-axis scale.
 function NsbmdStaticTransforms.evaluate(model)
   assertSupportedModel(model)
 
@@ -76,6 +90,10 @@ function NsbmdStaticTransforms.evaluate(model)
   -- Written by joints flagged MAYASSC_PARENT and read by their children; the
   -- SDK keeps the equivalent state in NNS_G3dRSOnGlb.scaleCache for one walk.
   local mayaScaleCache = {}
+  -- The position matrix a BB command captured, or nil while the current matrix is
+  -- an ordinary joint matrix. Any command that loads the position matrix outright
+  -- ends the billboard.
+  local billboardBase = nil
 
   local draws = {}
 
@@ -89,6 +107,7 @@ function NsbmdStaticTransforms.evaluate(model)
       nodeVisibility[cmd.nodeIndex] = cmd.visible
     elseif op == 0x03 then -- MTX
       currentMatrix = slotOrIdentity(matrixSlots, cmd.matrixSlot)
+      billboardBase = nil
     elseif op == 0x04 then -- MAT
       currentMaterial = cmd.materialIndex
       materialReapplied = true
@@ -101,6 +120,8 @@ function NsbmdStaticTransforms.evaluate(model)
           materialReapplied = materialReapplied,
           matrix = copyMatrix(currentMatrix),
           restoreStack = copyRestoreStack(matrixSlots),
+          transformMode = billboardBase and "billboard" or "static",
+          baseTransform = billboardBase and copyMatrix(billboardBase) or nil,
         }
       end
       materialReapplied = false
@@ -131,10 +152,23 @@ function NsbmdStaticTransforms.evaluate(model)
       end
       currentMatrix = copyMatrix(world)
       currentNode = cmd.nodeIndex
-    elseif op == 0x07 or op == 0x08 or op == 0x09 or op == 0x0A then
-      -- BB, BBY, NODEMIX, CALLDL. CALLDL would submit geometry from a display
-      -- list this evaluator never sees, so ignoring it would silently drop
-      -- draws; no model in the target world issues one.
+      billboardBase = nil
+    elseif op == 0x07 then -- BB
+      -- The store/restore option operands would move a billboard matrix through
+      -- the matrix stack, which the compiled per-shape contract cannot express.
+      -- Every BB in the target world is option 0.
+      if cmd.option ~= 0 then
+        Errors.raise("NSBMD_STATIC_BILLBOARD_MATRIX_SLOT_UNSUPPORTED",
+          "BB with store/restore option bits is not supported",
+          { optionBits = cmd.optionBits, offset = cmd.offset, model = model.name })
+      end
+      billboardBase = copyMatrix(currentMatrix)
+      currentMatrix = Matrix4.identity()
+      currentNode = cmd.nodeIndex
+    elseif op == 0x08 or op == 0x09 or op == 0x0A then
+      -- BBY, NODEMIX, CALLDL. CALLDL would submit geometry from a display list
+      -- this evaluator never sees, so ignoring it would silently drop draws; no
+      -- model in the target world issues any of the three.
       Errors.raise("NSBMD_STATIC_UNSUPPORTED_SBC_COMMAND",
         cmd.name .. " is not supported by static SBC evaluation",
         { opcode = op, command = cmd.command, offset = cmd.offset, model = model.name })

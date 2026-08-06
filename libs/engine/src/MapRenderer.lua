@@ -1,5 +1,6 @@
 -- Draws a loaded runtime scene in real 3D. It owns the shader, the per-frame
--- camera matrices, and the depth/cull/blend state, and runs four passes:
+-- camera matrices, and the depth/cull/blend state, resolves each billboard draw
+-- against the frame's camera through BillboardTransform, and runs four passes:
 -- opaque (depth write on), cutout (depth write on, shader discards alpha-zero
 -- fragments), translucent (depth test on, write governed by polygon bit 11),
 -- and wireframe edges. Opaque, cutout, and wireframe passes additionally stamp
@@ -12,6 +13,7 @@
 -- the loader and compiler; here everything is already resident.
 
 local RenderQueue = require("libs.engine.src.RenderQueue")
+local BillboardTransform = require("libs.engine.src.BillboardTransform")
 local Matrix3 = require("libs.math.src.Matrix3")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
 
@@ -233,6 +235,16 @@ function MapRenderer:draw(runtime, camera, overlays, viewport)
   self:_ensureCanvases(w, h)
 
   local viewMatrix = camera:view()
+
+  -- Billboard draws own no baked matrix: resolve each one against this frame's
+  -- camera before anything reads `transform`, so u_model, the normal matrix,
+  -- translucent sorting, and every pass all use the same orientation.
+  for _, d in ipairs(all) do
+    if d.billboardBase then
+      d.transform = BillboardTransform.resolve(d.billboardBase, viewMatrix)
+    end
+  end
+
   local sceneTargets = { self.sceneColor, self.idDepth, depthstencil = self.depth }
 
   local function doDraw()

@@ -69,10 +69,24 @@ local function assertSupportedShape(geom, context)
   end
 end
 
+-- A billboard's matrix is rebuilt from the camera each frame, so its base
+-- transform applies to the whole shape at once. A display list that restores a
+-- matrix mid-stream would need a different matrix per primitive, which that
+-- contract cannot express; no billboard shape in the target world does.
+local function assertWholeShapeBillboard(geom, context)
+  if geom.opcodeCounts[0x14] then
+    Errors.raise("MAP_COMPILE_BILLBOARD_MATRIX_RESTORE_UNSUPPORTED",
+      "a billboard shape's display list restores a matrix, so one billboard matrix cannot cover it",
+      context)
+  end
+end
+
 -- model: a Nsbmd model (info.posScale/invPosScale, shapes[i].{index,displayListBytes},
 -- materials, sbc.commands, nodes). Returns a list of batches, each:
 -- { nodeIndex, materialIndex, shapeIndex, submissionIndex, polygonAttrRaw,
---   vertices = { {x,y,z,u,v,nx,ny,nz,r,g,b,a,colorSource}, ... }, indices }.
+--   transformMode, baseTransform, vertices = { {x,y,z,u,v,nx,ny,nz,r,g,b,a,
+--   colorSource}, ... }, indices }. Billboard batches carry `baseTransform`
+-- (tile-space translation, see MapUnits.matrixToTiles); static ones do not.
 function MeshCompiler.compile(model)
   local shapeByIndex = {}
   for _, shp in ipairs(model.shapes) do shapeByIndex[shp.index] = shp end
@@ -104,6 +118,7 @@ function MeshCompiler.compile(model)
         requireColorSource = true, context = context })
     if not geom then error(err) end
     assertSupportedShape(geom, context)
+    if draw.transformMode == "billboard" then assertWholeShapeBillboard(geom, context) end
     carriedState = geom.finalState
 
     local vertices = {}
@@ -135,6 +150,8 @@ function MeshCompiler.compile(model)
       shapeIndex = draw.shapeIndex,
       submissionIndex = submissionIndex,
       polygonAttrRaw = matState.polygonAttrRaw,
+      transformMode = draw.transformMode,
+      baseTransform = draw.baseTransform and MapUnits.matrixToTiles(draw.baseTransform) or nil,
       vertices = vertices,
       indices = indices,
     }

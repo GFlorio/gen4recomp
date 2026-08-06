@@ -3,7 +3,9 @@
 -- Image per unique texture (both deduplicated by content-addressed path so
 -- repeated building models and shared textures cost a single GPU object), wraps
 -- each material's render state, resolves every placed building instance through
--- its model descriptor, and loads permissions.bin into a CollisionGrid. All GPU
+-- its model descriptor, and loads permissions.bin into a CollisionGrid. A
+-- billboard batch keeps the base transform the renderer resolves against the
+-- camera each frame instead of a baked matrix. All GPU
 -- construction happens here, once, never in draw. release() frees every owned
 -- mesh/image. The only ROM knowledge that reaches this layer is the normalized
 -- scene descriptor; raw Nitro formats stopped at the compiler.
@@ -43,9 +45,9 @@ end
 -- Load an assembled scene from the version's derived cache. `cacheFs` is a
 -- CacheFs.forVersion; `scene` is the already-loaded scene.lua table.
 function MapSceneLoader.load(cacheFs, scene)
-  if not scene or scene.schema ~= "g4-map-scene-v2" then
+  if not scene or scene.schema ~= "g4-map-scene-v3" then
     Errors.raise("MAP_SCENE_UNSUPPORTED_SCHEMA",
-      "expected g4-map-scene-v2, got " .. tostring(scene and scene.schema or nil),
+      "expected g4-map-scene-v3, got " .. tostring(scene and scene.schema or nil),
       { schema = scene and scene.schema or nil })
   end
 
@@ -126,21 +128,33 @@ function MapSceneLoader.load(cacheFs, scene)
     }
   end
 
-  -- Map terrain draws: identity transform, materials from the scene list.
-  local mapMaterials = materialsById(scene.materials, imageFor)
-  for _, m in pairs(mapMaterials) do applyWrap(m) end
-  local identity = Matrix4.identity()
-  local mapDraws = {}
   local submissionCounter = 0
-  for _, batch in ipairs(scene.mapBatches or {}) do
+
+  -- One draw item for one batch under `instanceTransform` (identity for terrain,
+  -- the placement matrix for a building). A billboard batch's geometry is in
+  -- billboard-local space and its matrix depends on the camera, so the composed
+  -- transform becomes `billboardBase` for the renderer to resolve each frame; its
+  -- static equivalent seeds `transform` and the scene bounds.
+  local function drawItem(batch, materials, instanceTransform)
     local mesh, verts = meshFor(batch.geometry)
-    growBounds(verts, identity)
+    local billboardBase
+    if batch.transformMode == "billboard" then
+      billboardBase = Matrix4.multiply(instanceTransform,
+        assert(batch.baseTransform, "billboard batch is missing baseTransform"))
+    elseif batch.transformMode ~= nil then
+      Errors.raise("MAP_SCENE_UNSUPPORTED_TRANSFORM_MODE",
+        "unknown batch transform mode " .. tostring(batch.transformMode),
+        { transformMode = batch.transformMode, geometry = batch.geometry })
+    end
+    local transform = billboardBase or instanceTransform
+    growBounds(verts, transform)
     local state = batchDrawState(batch)
     submissionCounter = submissionCounter + 1
-    mapDraws[#mapDraws + 1] = {
+    return {
       mesh = mesh,
-      material = mapMaterials[batch.material],
-      transform = identity,
+      material = materials[batch.material],
+      transform = transform,
+      billboardBase = billboardBase,
       alphaClass = state.alphaClass,
       cullMode = state.cullMode,
       alphaCutoff = state.alphaCutoff,
@@ -153,6 +167,15 @@ function MapSceneLoader.load(cacheFs, scene)
       center = modelCenter(verts),
       submissionIndex = batch.submissionIndex or submissionCounter,
     }
+  end
+
+  -- Map terrain draws: identity transform, materials from the scene list.
+  local mapMaterials = materialsById(scene.materials, imageFor)
+  for _, m in pairs(mapMaterials) do applyWrap(m) end
+  local identity = Matrix4.identity()
+  local mapDraws = {}
+  for _, batch in ipairs(scene.mapBatches or {}) do
+    mapDraws[#mapDraws + 1] = drawItem(batch, mapMaterials, identity)
   end
 
   -- Placed building instances: resolve each modelKey's descriptor (batches +
@@ -174,26 +197,7 @@ function MapSceneLoader.load(cacheFs, scene)
   for _, inst in ipairs(scene.buildingInstances or {}) do
     local desc = descriptorFor(inst.modelKey)
     for _, batch in ipairs(desc.batches) do
-      local mesh, verts = meshFor(batch.geometry)
-      growBounds(verts, inst.transform)
-      local state = batchDrawState(batch)
-      submissionCounter = submissionCounter + 1
-      buildingDraws[#buildingDraws + 1] = {
-        mesh = mesh,
-        material = desc.materials[batch.material],
-        transform = inst.transform,
-        alphaClass = state.alphaClass,
-        cullMode = state.cullMode,
-        alphaCutoff = state.alphaCutoff,
-        polygonAlpha = state.polygonAlpha,
-        polygonMode = state.polygonMode,
-        lightMask = state.lightMask,
-        polygonId = state.polygonId,
-        translucentDepthWrite = state.translucentDepthWrite,
-        depthEqual = state.depthEqual,
-        center = modelCenter(verts),
-        submissionIndex = batch.submissionIndex or submissionCounter,
-      }
+      buildingDraws[#buildingDraws + 1] = drawItem(batch, desc.materials, inst.transform)
     end
   end
 
