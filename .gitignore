@@ -49,3 +49,5 @@ luac.out
 *.hex
 
 tmp/
+.agents/
+opencode.json
