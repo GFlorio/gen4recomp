@@ -73,8 +73,10 @@ end
 -- transform applies to the whole shape at once. A display list that restores a
 -- matrix mid-stream would need a different matrix per primitive, which that
 -- contract cannot express; no billboard shape in the target world does.
+local MTX_RESTORE = 0x14
+
 local function assertWholeShapeBillboard(geom, context)
-  if geom.opcodeCounts[0x14] then
+  if geom.opcodeCounts[MTX_RESTORE] then
     Errors.raise("MAP_COMPILE_BILLBOARD_MATRIX_RESTORE_UNSUPPORTED",
       "a billboard shape's display list restores a matrix, so one billboard matrix cannot cover it",
       context)
