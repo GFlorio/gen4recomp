@@ -12,6 +12,14 @@ function T.defaults_are_all_off()
   Assert.isFalse(o.testPrivate)
   Assert.isFalse(o.buildCache)
   Assert.isFalse(o.forceDump)
+  Assert.isFalse(o.allowCompileExclusions)
+end
+
+function T.parses_allow_compile_exclusions()
+  local o = Cli.parse({ "--build-cache", "--allow-compile-exclusions" })
+  Assert.isTrue(o.buildCache)
+  Assert.isTrue(o.allowCompileExclusions)
+  Assert.isNil(o.importRom)
 end
 
 function T.parses_flags()

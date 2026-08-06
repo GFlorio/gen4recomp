@@ -19,6 +19,7 @@ function Cli.parse(argv)
     analyzeMaps = false,
     buildCache = false,
     forceDump = false,
+    allowCompileExclusions = false,
   }
 
   local i = 1
@@ -41,6 +42,8 @@ function Cli.parse(argv)
       opts.inspectSbc = true
     elseif a == "--analyze-maps" then
       opts.analyzeMaps = true
+    elseif a == "--allow-compile-exclusions" then
+      opts.allowCompileExclusions = true
     elseif a == "--build-cache" then
       opts.buildCache = true
       if argv[i + 1] and argv[i + 1]:sub(1, 2) ~= "--" then

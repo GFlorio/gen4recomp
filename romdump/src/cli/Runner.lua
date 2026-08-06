@@ -187,9 +187,11 @@ function Runner._runInspect()
 end
 
 -- Compile every supported map into the derived cache for every ready dump and
--- emit the world manifest. Maps rejected with a structured compiler error are
--- recorded as exclusions; programming errors still abort the build. A
--- build-cache invocation first clears all derived output.
+-- emit the world manifest. A map whose cell could not be selected is recorded as
+-- `excluded`; a resolved map rejected with a structured compiler error is
+-- recorded as `compileExcluded`, writes no partial artifacts, and makes the build
+-- exit nonzero unless --allow-compile-exclusions is given. Programming errors
+-- still abort the build. A build-cache invocation first clears all derived output.
 function Runner._runBuild()
   local MapAnalysis = require("romdump.src.digest.MapAnalysis")
   local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
@@ -207,7 +209,7 @@ function Runner._runBuild()
     print("build: no ready version to compile")
     return love.event.quit(1)
   end
-  local allOk = true
+  local allOk, compileExclusions = true, false
   for _, version in ipairs(targets) do
     local romFs
     local ok, err = pcall(function()
@@ -232,7 +234,7 @@ function Runner._runBuild()
             version, fieldBundle.mapId))
         end
       end
-      local entries, excluded = {}, {}
+      local entries, excluded, compileExcluded = {}, {}, {}
       for _, result in ipairs(MapAnalysis.analyze(romFs)) do
         if result.status == "excluded" then
           excluded[#excluded + 1] = {
@@ -243,13 +245,12 @@ function Runner._runBuild()
           local bundle, compileErr = MapAssetCompiler.compile(romFs, result.id)
           if not bundle then
             assert(Errors.is(compileErr), "compiler failure must be a structured error")
-            excluded[#excluded + 1] = {
+            compileExcluded[#compileExcluded + 1] = {
               id = result.id,
               symbol = result.symbol,
-              reason = "compile_error",
-              matchCount = result.matchCount,
               errorCode = compileErr.code,
-              errorMessage = compileErr.message,
+              message = compileErr.message,
+              context = compileErr.context,
             }
             print(string.format("build-cache: %s map %d excluded: %s",
               version, result.id, Errors.format(compileErr)))
@@ -281,15 +282,25 @@ function Runner._runBuild()
           end
         end
       end
-      WorldManifest.write(cacheFs, entries, excluded)
-      print(string.format("build-cache: %s world.lua written (%d maps, %d excluded)",
-        version, #entries, #excluded))
+      WorldManifest.write(cacheFs, entries, excluded, compileExcluded)
+      print(string.format(
+        "build-cache: %s world.lua written (%d maps, %d unresolved cells, %d compile-excluded)",
+        version, #entries, #excluded, #compileExcluded))
+      if #compileExcluded > 0 then compileExclusions = true end
     end)
     if romFs then romFs:close() end
     if not ok then
       allOk = false
       print("build-cache: " .. version .. " failed: " .. Errors.format(err))
     end
+  end
+  -- The cache written above is usable, so the scan always finishes; an
+  -- unsupported asset still has to be visible to CI, hence the nonzero exit
+  -- unless the caller asked for an exploratory run.
+  if compileExclusions and not Runner.opts.allowCompileExclusions then
+    print("build-cache: compile exclusions remain; "
+      .. "rerun with --allow-compile-exclusions to accept them")
+    allOk = false
   end
   love.event.quit(allOk and 0 or 1)
 end

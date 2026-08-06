@@ -106,6 +106,16 @@ The completion marker (`rom-dump.complete`, content
 dump without the exact marker is never treated as ready, and a retry removes only
 the selected version's subtree — importing one game never touches the other.
 
+`world.lua` records the two kinds of omission separately, because they call for
+different work: `analysis.excluded` holds map headers whose matrix cell could not
+be selected, and `analysis.compileExcluded` holds resolved maps whose asset
+compilation raised a structured error, each with its `errorCode`, `message`, and
+`context`. A compile failure writes no partial map — `MapCacheWriter` commits the
+completion marker only after the whole bundle succeeds — and makes
+`scripts/buildcache.sh` exit nonzero so the gap stays visible to CI;
+`--allow-compile-exclusions` accepts it for an exploratory run. A programming
+error still aborts the build outright.
+
 ## Runtime flow
 
 Once a cache is ready, the runtime never needs the ROM again, and it never
