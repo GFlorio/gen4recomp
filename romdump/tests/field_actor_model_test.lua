@@ -13,7 +13,7 @@ local T = {}
 local PLACEMENT = {
   sourceSize = { width = 32, height = 32 },
   pivot = { x = 0.5, y = 1.0 },
-  modelYOffset = 6,
+  modelOffset = { x = 0, y = 0, z = 6 },
 }
 
 local function compile(bytes, opts)

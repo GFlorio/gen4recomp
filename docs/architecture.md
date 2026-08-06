@@ -77,7 +77,8 @@ love romdump/
        └─ --build-cache [P] [--forcedump P]
                                            → reuse a ready dump, import P if none exists,
                                              or forcibly redump P;
-                                             clear and rebuild all game-facing data
+                                             rebuild game-facing data, recompiling
+                                             only the classes whose markers are stale
 ```
 
 ## Import flow
@@ -152,6 +153,14 @@ verified static set is preserved on the actor and reported once through the
 developer trace, never executed. `data/manifests/field_scenario.lua` seeds which
 target objects start hidden; it names objects by map/object identity and
 `FieldScenario` resolves each to the ROM's numeric flag.
+
+The player's movement decision order is permissions, then terrain surface
+transition, then actor occupancy (`FieldPlayer` consults the manager's
+occupancy index through an injected predicate that returns the blocking
+actor's id, keyed by the resolved destination surface), then the move commits.
+Because the warp checks run before a move starts in `FieldSession`, a visible
+actor can never block a facing-warp trigger; a walkable warp cell with an actor
+standing on it blocks the step, matching the original engine's behavior.
 
 ## Raw dump vs. derived data
 

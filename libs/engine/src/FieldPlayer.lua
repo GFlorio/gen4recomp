@@ -1,6 +1,12 @@
 -- Deterministic field actor movement over permission and BDHC terrain data.
 -- Integer field coordinates commit only after a fixed-duration tile step;
 -- continuous XYZ is the shared camera and renderer position throughout it.
+--
+-- Collision follows the spec decision order: permissions, then terrain surface
+-- transition, then dynamic occupancy. The occupancy check is injected as a
+-- pure predicate -- `occupancy(fieldX, fieldZ, surfaceId) -> truthy blocks` --
+-- so the player never knows which object blocks it, and the actor manager
+-- stays the only owner of the occupancy index.
 
 local Errors = require("libs.rom.src.Errors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
@@ -33,6 +39,8 @@ function FieldPlayer.new(options)
   assert(isInteger(options.fieldX) and isInteger(options.fieldZ),
     "FieldPlayer integer field coordinates required")
   assert(type(options.surfaceId) == "number", "FieldPlayer surface id required")
+  assert(options.occupancy == nil or type(options.occupancy) == "function",
+    "FieldPlayer occupancy predicate must be a function")
   local map = options.currentMap
   local localX, localZ = FieldCoordinates.fieldToLocal(map, options.fieldX, options.fieldZ)
   local sample = map.terrain:sample(options.surfaceId, localX + 0.5, localZ + 0.5)
@@ -40,6 +48,7 @@ function FieldPlayer.new(options)
   return setmetatable({
     currentMap = map,
     resolver = SurfaceResolver.new(map.terrain),
+    occupancy = options.occupancy,
     fieldX = options.fieldX,
     fieldZ = options.fieldZ,
     localX = localX,
@@ -81,6 +90,12 @@ function FieldPlayer:_resolveStep(direction)
     })
     local point = FieldCoordinates.fieldToWorld(
       self.currentMap, destinationX, destinationZ, sample.worldY)
+    -- Occupancy is checked against the resolved destination surface, so an
+    -- actor on a different surface never blocks a same-cell approach, and it
+    -- runs only after terrain accepts the step.
+    if self.occupancy and self.occupancy(destinationX, destinationZ, sample.surfaceId) then
+      return nil
+    end
     return {
       fieldX = destinationX, fieldZ = destinationZ,
       localX = destinationLocalX, localZ = destinationLocalZ,

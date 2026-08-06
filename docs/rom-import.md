@@ -20,8 +20,9 @@ a compatible ROM.
 
 ## Build the game cache
 
-One command imports a ROM when necessary and force-rebuilds all derived data
-used by the game:
+One command imports a ROM when necessary and rebuilds all derived data used by
+the game — classes whose completion markers already match are skipped, so an
+unchanged cache rebuilds only what is stale:
 
 ```sh
 scripts/buildcache.sh /path/to/your.nds

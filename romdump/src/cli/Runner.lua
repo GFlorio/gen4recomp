@@ -228,7 +228,9 @@ end
 -- `excluded`; a resolved map rejected with a structured compiler error is
 -- recorded as `compileExcluded`, writes no partial artifacts, and makes the build
 -- exit nonzero unless --allow-compile-exclusions is given. Programming errors
--- still abort the build. A build-cache invocation first clears all derived output.
+-- still abort the build. A map whose completion marker already matches the
+-- current build is left in place, so an unchanged cache rebuilds only what is
+-- stale.
 function Runner._runBuild()
   local MapAnalysis = require("romdump.src.digest.MapAnalysis")
   local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
@@ -255,9 +257,7 @@ function Runner._runBuild()
     local ok, err = pcall(function()
       romFs = assert(RomFs.open(version))
       local cacheFs = CacheFs.forVersion(version)
-      MapAssetCache.invalidateAllDerived(cacheFs)
       FieldActorCache.invalidate(cacheFs)
-      print(string.format("build-cache: %s derived cache cleared", version))
       local cameraBundle = assert(FieldCameraCompiler.compile(romFs))
       if FieldCameraCacheWriter.isReady(cacheFs, cameraBundle.marker) then
         print(string.format("build-cache: %s field cameras current", version))

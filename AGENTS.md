@@ -16,8 +16,9 @@ This file provides guidance to Coding Agents when working with code in this repo
 - Make liberal use of assertions to enforce assumptions and invariants.
 - Throw instead of returning error codes or nil.
 - Aggressively remove dead code, no "just in case" compatibility.
-- Tests first, but ask before testing boundaries.
+- Use TDD: Tests first, but ask before testing boundaries.
 - Prefer pure functions.
+- Thoroughly remove debug/trace code after each task.
 
 
 ## Architecture

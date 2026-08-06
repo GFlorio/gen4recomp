@@ -2,7 +2,9 @@
 -- and that the camera consumes the placeholder actor's continuous 3D target.
 
 local Assert = require("tests.support.Assert")
+local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldSession = require("libs.engine.src.FieldSession")
+local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = {}
 
@@ -164,6 +166,89 @@ function T.blocked_facing_warp_starts_before_player_collision()
   Assert.equal(starts[1].warp, warp)
   Assert.equal(starts[1].facing, "south")
   Assert.equal(session.player.fieldZ, 13)
+end
+
+function T.actor_on_a_blocked_warp_cell_does_not_block_the_facing_warp()
+  -- A permission-blocked cell with a warp (the lab exit pattern) triggers the
+  -- warp before a movement start is ever attempted, so occupancy must not
+  -- interfere with it.
+  local starts = {}
+  local transition = {
+    phase = "idle", locked = false,
+    updateFixed = function() end,
+    start = function(_, map, warp, facing)
+      starts[#starts + 1] = { map = map, warp = warp, facing = facing }
+    end,
+  }
+  local warp = { index = 0, x = 4, z = 14, destinationMapId = 60, destinationWarpId = 0, y = 0 }
+  local map = {
+    mapId = 61, cameraType = 4, coordinateOrigin = { x = 0, z = 0 },
+    fieldData = { events = { warps = { warp } } },
+    permissions = {
+      containsLocal = function(_, x, z) return x >= 0 and x < 32 and z >= 0 and z < 32 end,
+      isBlockedLocal = function(_, x, z) return x == 4 and z == 14 end,
+    },
+    terrain = TerrainSurface.new({ plates = {
+      { id = 0, minX = 0, minZ = 0, maxX = 32, maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 }, distance = 0, slopeClass = "flat" },
+    } }),
+  }
+  local player = FieldPlayer.new({
+    currentMap = map, fieldX = 4, fieldZ = 13, surfaceId = 0, facing = "south",
+    occupancy = function(x, z, surface)
+      if x == 4 and z == 14 and surface == 0 then return "map:61:object:0" end
+      return nil
+    end,
+  })
+  local camera = { updateFixed = function() end }
+  local session = FieldSession.new({ versionId = "heartgold", currentMap = map,
+    actor = player, player = player, camera = camera, transition = transition })
+  session:updateFixed({ heldDirection = "south", pressedDirection = "south" })
+  Assert.equal(#starts, 1)
+  Assert.equal(starts[1].warp, warp)
+  Assert.equal(player.fieldZ, 13)
+  Assert.equal(player.motion, "idle")
+end
+
+function T.actor_on_an_open_warp_cell_blocks_the_walk_but_not_the_route()
+  -- A walkable warp cell is entered by stepping in. An actor standing on it
+  -- blocks that step -- the original engine's NPC-on-warp-tile behavior -- and
+  -- the standing-warp check never fires because the move never commits.
+  local starts = {}
+  local transition = {
+    phase = "idle", locked = false,
+    updateFixed = function() end,
+    start = function(_, map, warp, facing)
+      starts[#starts + 1] = { map = map, warp = warp, facing = facing }
+    end,
+  }
+  local warp = { index = 0, x = 4, z = 14, destinationMapId = 60, destinationWarpId = 0, y = 0 }
+  local map = {
+    mapId = 61, cameraType = 4, coordinateOrigin = { x = 0, z = 0 },
+    fieldData = { events = { warps = { warp } } },
+    permissions = {
+      containsLocal = function(_, x, z) return x >= 0 and x < 32 and z >= 0 and z < 32 end,
+      isBlockedLocal = function() return false end,
+    },
+    terrain = TerrainSurface.new({ plates = {
+      { id = 0, minX = 0, minZ = 0, maxX = 32, maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 }, distance = 0, slopeClass = "flat" },
+    } }),
+  }
+  local player = FieldPlayer.new({
+    currentMap = map, fieldX = 4, fieldZ = 13, surfaceId = 0, facing = "south",
+    occupancy = function(x, z, surface)
+      if x == 4 and z == 14 and surface == 0 then return "map:61:object:0" end
+      return nil
+    end,
+  })
+  local camera = { updateFixed = function() end }
+  local session = FieldSession.new({ versionId = "heartgold", currentMap = map,
+    actor = player, player = player, camera = camera, transition = transition })
+  session:updateFixed({ heldDirection = "south", pressedDirection = "south" })
+  Assert.equal(#starts, 0)
+  Assert.equal(player.fieldZ, 13)
+  Assert.equal(player.motion, "idle")
 end
 
 function T.standing_warp_starts_only_when_a_step_commits()

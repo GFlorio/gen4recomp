@@ -112,4 +112,58 @@ function T.render_position_interpolates_previous_and_current_fixed_points()
   Assert.equal(point.y, p.previousWorldY + (p.worldY - p.previousWorldY) * 0.5)
 end
 
+-- Occupancy is an injected predicate so FieldPlayer never imports the actor
+-- manager; it only needs truthy/nil answers per destination cell.
+local function occupyingPlayer(map, x, z, surfaceId, occupantCells)
+  local p = FieldPlayer.new({
+    currentMap = map, fieldX = x, fieldZ = z,
+    surfaceId = surfaceId, facing = "south",
+    occupancy = function(cellX, cellZ, cellSurface)
+      local key = cellX .. ":" .. cellZ .. ":" .. cellSurface
+      return occupantCells[key] or nil
+    end,
+  })
+  return p
+end
+
+function T.actor_on_the_resolved_destination_surface_blocks_the_step()
+  local p = occupyingPlayer(runtimeMap(), 0, 4, 0,
+    { ["1:4:1"] = "map:61:object:0" })
+  tick(p, "east", "east")
+  Assert.equal(p.facing, "east")
+  Assert.equal(p.fieldX, 0)
+  Assert.equal(p.motion, "idle")
+end
+
+function T.actor_on_a_different_surface_does_not_block_the_same_cell()
+  -- The east step resolves onto surface 1; an occupant on surface 0 at the
+  -- same cell must not block it.
+  local p = occupyingPlayer(runtimeMap(), 0, 4, 0,
+    { ["1:4:0"] = "map:61:object:0" })
+  tick(p, "east", "east")
+  Assert.equal(p.motion, "walking")
+  for _ = 2, 8 do tick(p, "east") end
+  Assert.equal(p.fieldX, 1)
+  Assert.equal(p.surfaceId, 1)
+end
+
+function T.terrain_rejection_takes_precedence_over_occupancy()
+  -- A disconnected height jump fails surface resolution before occupancy is
+  -- ever consulted.
+  local map = runtimeMap()
+  map.terrain.plates[2].distance = 5 * ROOT_HALF
+  local p = occupyingPlayer(map, 0, 4, 0, { ["1:4:1"] = "map:61:object:0" })
+  tick(p, "east", "east")
+  Assert.equal(p.fieldX, 0)
+  Assert.equal(p.motion, "idle")
+end
+
+function T.occupancy_blocks_only_the_cell_it_names()
+  local p = occupyingPlayer(runtimeMap(), 0, 4, 0, { ["3:4:2"] = "map:61:object:0" })
+  tick(p, "east", "east")
+  Assert.equal(p.motion, "walking")
+  for _ = 2, 16 do tick(p, "east") end
+  Assert.equal(p.fieldX, 2)
+end
+
 return T

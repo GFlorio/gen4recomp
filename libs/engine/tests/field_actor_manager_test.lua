@@ -6,6 +6,7 @@ local Assert = require("tests.support.Assert")
 local Errors = require("libs.rom.src.Errors")
 local FieldActorManager = require("libs.engine.src.FieldActorManager")
 local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = {}
@@ -231,6 +232,57 @@ function T.two_maps_stay_independent_during_a_transition()
   mgr:leaveMap(61)
   Assert.isFalse(mgr:isOccupied(61, 2, 3, 0))
   Assert.isTrue(mgr:isOccupied(60, 2, 3, 0))
+end
+
+-- A real FieldPlayer whose occupancy predicate reads this manager's index:
+-- the integration point Epic 5 adds between the terrain resolver and the move.
+local function playerOn(mgr, map, fieldX, fieldZ, surfaceId)
+  map.permissions.isBlockedLocal = function() return false end
+  local p = FieldPlayer.new({
+    currentMap = map, fieldX = fieldX, fieldZ = fieldZ,
+    surfaceId = surfaceId, facing = "south",
+    occupancy = function(x, z, surface)
+      local occupant = mgr:getAt(map.mapId, x, z, surface)
+      return occupant and occupant.actorId or nil
+    end,
+  })
+  return p
+end
+
+function T.player_cannot_step_into_a_visible_solid_actor_cell()
+  local mgr, _, _, _, map = manager({ object({ objectEventId = 0, x = 9, z = 3 }) })
+  local p = playerOn(mgr, map, 9, 2, 0)
+  p:updateFixed({ heldDirection = "south", pressedDirection = "south" })
+  Assert.equal(p.facing, "south")
+  Assert.equal(p.fieldZ, 2)
+  Assert.equal(p.motion, "idle")
+end
+
+function T.hiding_the_actor_opens_the_cell_for_the_player()
+  local mgr, eventState, _, _, map =
+    manager({ object({ objectEventId = 0, x = 9, z = 3, eventFlag = 401 }) })
+  local p = playerOn(mgr, map, 9, 2, 0)
+  eventState:setFlag(401)
+  mgr:step(1)
+  p:updateFixed({ heldDirection = "south", pressedDirection = "south" })
+  Assert.equal(p.motion, "walking")
+  for _ = 2, 8 do p:updateFixed({ heldDirection = "south" }) end
+  Assert.equal(p.fieldZ, 3)
+  Assert.isFalse(mgr:isOccupied(61, 9, 3, 0))
+end
+
+function T.an_actor_on_the_lower_surface_does_not_block_the_stacked_cell()
+  -- The actor sits on plate 0 at (9,3); the player approaches on plate 1
+  -- (four units higher), so the resolved destination surface is 1 and the
+  -- step must succeed even though x/z match.
+  local mgr, _, _, _, map = manager({ object({ objectEventId = 0, x = 9, z = 3 }) })
+  local p = playerOn(mgr, map, 9, 2, 1)
+  p:updateFixed({ heldDirection = "south", pressedDirection = "south" })
+  Assert.equal(p.motion, "walking")
+  for _ = 2, 8 do p:updateFixed({ heldDirection = "south" }) end
+  Assert.equal(p.fieldZ, 3)
+  Assert.equal(p.surfaceId, 1)
+  Assert.isTrue(mgr:isOccupied(61, 9, 3, 0))
 end
 
 function T.non_static_movement_is_deferred_once_per_actor()
