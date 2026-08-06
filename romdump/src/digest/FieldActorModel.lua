@@ -143,7 +143,8 @@ function FieldActorModel.compile(modelBytes, opts)
 
   -- The actor loader adds a fixed Y offset in model units before installing the
   -- draw position. Converting it here keeps every runtime-facing number in tiles.
-  local anchorX, anchorY, anchorZ = MapUnits.toTiles(0, opts.placement.modelYOffset, 0)
+  local offset = opts.placement.modelOffset
+  local anchorX, anchorY, anchorZ = MapUnits.toTiles(offset.x, offset.y, offset.z)
 
   return {
     modelName = model.name,

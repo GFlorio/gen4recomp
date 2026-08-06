@@ -306,7 +306,7 @@ local function compileSprite(romFs, spriteId, graphics, archive, staticArchive, 
   local placement = {
     sourceSize = { width = atlas.frameWidth, height = atlas.frameHeight },
     pivot = manifest.placement.pivot,
-    modelYOffset = manifest.placement.modelYOffset,
+    modelOffset = manifest.placement.modelOffset,
     billboardMode = manifest.placement.billboardMode,
     mirrorEastWest = manifest.placement.mirrorEastWest,
   }

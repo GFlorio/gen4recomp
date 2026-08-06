@@ -82,7 +82,7 @@ return {
   -- from each resource; the ordinary actor model is 32x32 and rocks are 16x16.
   placement = {
     pivot = { x = 0.5, y = 1.0 },
-    modelYOffset = 6,
+    modelOffset = { x = 0, y = 0, z = 6 },
     billboardMode = "cameraFacingFull",
     mirrorEastWest = false,
   },
