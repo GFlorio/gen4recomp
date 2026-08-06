@@ -7,7 +7,12 @@ local Errors = require("libs.rom.src.Errors")
 
 local WorldManifest = {}
 
-function WorldManifest.build(entries, excluded)
+-- `excluded` holds maps whose matrix cell could not be selected; `compileExcluded`
+-- holds resolved maps whose asset compilation raised a structured error. The two
+-- are separate collections because they mean different things: the first is a
+-- map-selection limit, the second an asset-support gap with an error code and
+-- context to act on.
+function WorldManifest.build(entries, excluded, compileExcluded)
   local maps = {}
   for _, e in ipairs(entries) do maps[#maps + 1] = e end
   table.sort(maps, function(a, b) return a.id < b.id end)
@@ -23,32 +28,42 @@ function WorldManifest.build(entries, excluded)
     bySymbol[e.symbol] = e.id
     byId[e.id] = index
   end
-  local excludedMaps = {}
-  for _, record in ipairs(excluded or {}) do excludedMaps[#excludedMaps + 1] = record end
-  table.sort(excludedMaps, function(a, b) return a.id < b.id end)
-  local excludedIds, excludedSymbols = {}, {}
-  for _, record in ipairs(excludedMaps) do
-    assert(not byId[record.id], "excluded map id is renderable: " .. record.id)
-    assert(not excludedIds[record.id], "duplicate excluded map id " .. record.id)
-    assert(not bySymbol[record.symbol], "excluded map symbol is renderable: " .. record.symbol)
-    assert(not excludedSymbols[record.symbol], "duplicate excluded map symbol " .. record.symbol)
-    excludedIds[record.id] = true
-    excludedSymbols[record.symbol] = true
+  local function sortedById(records)
+    local out = {}
+    for _, record in ipairs(records or {}) do out[#out + 1] = record end
+    table.sort(out, function(a, b) return a.id < b.id end)
+    return out
+  end
+  local excludedMaps = sortedById(excluded)
+  local compileExcludedMaps = sortedById(compileExcluded)
+
+  -- Every map header appears exactly once across the three collections.
+  local seenIds, seenSymbols = {}, {}
+  for _, list in ipairs({ excludedMaps, compileExcludedMaps }) do
+    for _, record in ipairs(list) do
+      assert(not byId[record.id], "excluded map id is renderable: " .. record.id)
+      assert(not seenIds[record.id], "duplicate excluded map id " .. record.id)
+      assert(not bySymbol[record.symbol], "excluded map symbol is renderable: " .. record.symbol)
+      assert(not seenSymbols[record.symbol], "duplicate excluded map symbol " .. record.symbol)
+      seenIds[record.id] = true
+      seenSymbols[record.symbol] = true
+    end
   end
   return {
     maps = maps,
     bySymbol = bySymbol,
     byId = byId,
     analysis = {
-      mapHeaderCount = #maps + #excludedMaps,
+      mapHeaderCount = #maps + #excludedMaps + #compileExcludedMaps,
       renderableCount = #maps,
       excluded = excludedMaps,
+      compileExcluded = compileExcludedMaps,
     },
   }
 end
 
-function WorldManifest.write(cacheFs, entries, excluded)
-  local manifest = WorldManifest.build(entries, excluded)
+function WorldManifest.write(cacheFs, entries, excluded, compileExcluded)
+  local manifest = WorldManifest.build(entries, excluded, compileExcluded)
   cacheFs:writeLua(MapAssetCache.worldPath(), manifest)
   return manifest
 end
