@@ -436,4 +436,140 @@ function T.rejects_y_billboard_command()
   Assert.equal(err.code, "NSBMD_STATIC_UNSUPPORTED_SBC_COMMAND")
 end
 
+-- ---- NODEMIX ----
+
+local function fx32(v) return u32(math.floor(v * 4096)) end
+
+-- One NNSG3dResEvpMtx: MtxFx43 invM (identity rotation plus `tx,ty,tz`) then
+-- MtxFx33 invN. `invNScale` scales invN's diagonal, so 1 is a rigid bind pose and
+-- anything else is not.
+local function evpEntry(tx, ty, tz, invNScale)
+  invNScale = invNScale or 1
+  return fx32(1) .. fx32(0) .. fx32(0)
+    .. fx32(0) .. fx32(1) .. fx32(0)
+    .. fx32(0) .. fx32(0) .. fx32(1)
+    .. fx32(tx) .. fx32(ty) .. fx32(tz)
+    .. fx32(invNScale) .. fx32(0) .. fx32(0)
+    .. fx32(0) .. fx32(invNScale) .. fx32(0)
+    .. fx32(0) .. fx32(0) .. fx32(invNScale)
+end
+
+-- Two root joints in matrix slots 0 and 1, translated (10,0,0) and (0,20,0). The
+-- SBC blends both slots with `sbcTail` and draws. `evpBlock` is the model's
+-- inverse-bind array, or nil to omit it (ofsEvpMtx = 0).
+local function nodemixModel(sbcTail, evpBlock)
+  local node0Data = transformedNodeData(10, 0, 0, 1, 1, 1, 0)
+  local node1Data = transformedNodeData(0, 20, 0, 1, 1, 1, 1)
+  local nodeData = node0Data .. node1Data
+  local nodeDict0 = NB.dict({
+    { name = "a", data = u32(0) },
+    { name = "b", data = u32(#node0Data) },
+  })
+  local nodeDict = NB.dict({
+    { name = "a", data = u32(#nodeDict0) },
+    { name = "b", data = u32(#nodeDict0 + #node0Data) },
+  })
+  local sbc = string.char(0x06, 0, 0, 0) -- NODEDESC node0 -> slot 0
+    .. string.char(0x06, 1, 1, 0)        -- NODEDESC node1 -> slot 1
+    .. sbcTail
+
+  local matBlock = buildMaterialBlock()
+  local shpBlock = buildShapeBlock(triangleDL())
+  local info = buildInfo(2, 1, 1, 0x1000, 0x1000)
+  local ofsSbc = 0x40 + #nodeDict + #nodeData
+  local ofsMat = ofsSbc + #sbc
+  local ofsShp = ofsMat + #matBlock
+  local ofsEvp = evpBlock and (ofsShp + #shpBlock) or 0
+
+  local body = string.rep("\0", 0x14) .. info .. nodeDict .. nodeData .. sbc
+    .. matBlock .. shpBlock .. (evpBlock or "")
+  local modelBytes = u32(#body) .. u32(ofsSbc) .. u32(ofsMat) .. u32(ofsShp) .. u32(ofsEvp)
+    .. body:sub(0x15)
+  local file = NB.file("BMD0", { { magic = "MDL0", body = buildModelDict(modelBytes) } })
+  return assert(Nsbmd.decode(file)).models[1]
+end
+
+-- NODEMIX: storeSlot 2, two terms of ratio 128 (half each) over slots 0 and 1.
+local EVEN_BLEND = string.char(0x09, 2, 2, 0, 0, 128, 1, 1, 128)
+  .. string.char(0x05, 0) -- SHP 0
+  .. string.char(0x01)
+
+function T.nodemix_blends_slots_through_the_inverse_bind_poses()
+  local model = nodemixModel(EVEN_BLEND, evpEntry(0, 0, 0) .. evpEntry(0, 0, 0))
+  local draws = NsbmdStaticTransforms.evaluate(model)
+  Assert.equal(#draws, 1)
+  -- Half of T(10,0,0) plus half of T(0,20,0).
+  assertMatrixAtPoint(draws[1].matrix, 0, 0, 0, 5, 10, 0, "even blend of the two joint slots")
+  assertMatrixAtPoint(draws[1].matrix, 1, 0, 0, 6, 10, 0, "identity bind poses leave the basis alone")
+end
+
+function T.nodemix_applies_the_inverse_bind_pose_before_the_slot()
+  -- Joint 0's inverse bind pose pulls a vertex back by 4 on x before its slot
+  -- matrix places it, so its term contributes 10 - 4 = 6.
+  local model = nodemixModel(EVEN_BLEND, evpEntry(-4, 0, 0) .. evpEntry(0, 0, 0))
+  local draws = NsbmdStaticTransforms.evaluate(model)
+  assertMatrixAtPoint(draws[1].matrix, 0, 0, 0, 3, 10, 0, "inverse bind pose applied first")
+end
+
+function T.nodemix_stores_the_blend_in_its_destination_slot()
+  local tail = string.char(0x09, 2, 2, 0, 0, 128, 1, 1, 128)
+    .. string.char(0x03, 0)  -- MTX restore slot 0 (moves off the blend)
+    .. string.char(0x03, 2)  -- MTX restore slot 2 (the stored blend)
+    .. string.char(0x05, 0)
+    .. string.char(0x01)
+  local draws = NsbmdStaticTransforms.evaluate(
+    nodemixModel(tail, evpEntry(0, 0, 0) .. evpEntry(0, 0, 0)))
+  Assert.equal(#draws, 1)
+  Assert.equal(draws[1].transformMode, "static")
+  assertMatrixAtPoint(draws[1].matrix, 0, 0, 0, 5, 10, 0, "slot 2 holds the blended matrix")
+end
+
+function T.nodemix_weights_follow_the_operand_ratios()
+  -- 192/64 of 256: three quarters of joint 0, one quarter of joint 1.
+  local tail = string.char(0x09, 2, 2, 0, 0, 192, 1, 1, 64)
+    .. string.char(0x05, 0) .. string.char(0x01)
+  local draws = NsbmdStaticTransforms.evaluate(
+    nodemixModel(tail, evpEntry(0, 0, 0) .. evpEntry(0, 0, 0)))
+  assertMatrixAtPoint(draws[1].matrix, 0, 0, 0, 7.5, 5, 0, "ratio/256 weights")
+end
+
+-- The evaluator carries one matrix per slot, so a blended normal matrix only
+-- follows from the blended position matrix while the bind poses are rigid.
+function T.nodemix_rejects_a_non_rigid_bind_pose()
+  local model = nodemixModel(EVEN_BLEND, evpEntry(0, 0, 0, 2) .. evpEntry(0, 0, 0))
+  local err = Assert.throws(function() NsbmdStaticTransforms.evaluate(model) end)
+  Assert.equal(err.code, "NSBMD_STATIC_NODEMIX_NONRIGID_BIND_POSE")
+end
+
+function T.nodemix_without_an_evp_block_raises()
+  local err = Assert.throws(function()
+    NsbmdStaticTransforms.evaluate(nodemixModel(EVEN_BLEND, nil))
+  end)
+  Assert.equal(err.code, "NSBMD_STATIC_NODEMIX_NO_EVP_MATRICES")
+end
+
+function T.nodemix_referencing_an_absent_joint_raises()
+  -- Term two names joint 7, beyond the model's two nodes.
+  local tail = string.char(0x09, 2, 2, 0, 0, 128, 1, 7, 128)
+    .. string.char(0x05, 0) .. string.char(0x01)
+  local err = Assert.throws(function()
+    NsbmdStaticTransforms.evaluate(
+      nodemixModel(tail, evpEntry(0, 0, 0) .. evpEntry(0, 0, 0)))
+  end)
+  Assert.equal(err.code, "NSBMD_STATIC_NODEMIX_JOINT_NOT_FOUND")
+end
+
+-- A model with no NODEMIX still stores an ofsEvpMtx pointing past its data, so
+-- the block must not be read speculatively.
+function T.evp_matrices_are_only_decoded_for_a_model_that_blends()
+  local nodeDict, nodeData = identityNodeDictAndData()
+  local sbc = string.char(0x06, 0, 0, 0) .. string.char(0x05, 0) .. string.char(0x01)
+  local plain = decodeModel(nodeDict, nodeData, sbc, 0x1000, 0x1000)
+  Assert.equal(plain.evpMatrices, nil)
+
+  local blending = nodemixModel(EVEN_BLEND, evpEntry(0, 0, 0) .. evpEntry(0, 0, 0))
+  Assert.notNil(blending.evpMatrices[0])
+  Assert.notNil(blending.evpMatrices[1])
+end
+
 return T

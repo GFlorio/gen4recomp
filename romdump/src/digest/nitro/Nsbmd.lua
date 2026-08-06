@@ -12,6 +12,7 @@
 --   texToMat/plttToMat dict entry (4 bytes): u16 ofsList, u8 count, u8 bound;
 --                  ofsList points at a u8[count] of material indices
 --   Shape data:    +0x08 u32 ofsDL, +0x0C u32 sizeDL  (relative to shape data)
+--   EvpMtx array:  NNSG3dResEvpMtx[numNode], MtxFx43 invM then MtxFx33 invN
 --   SBC:           packed byte stream, MAT(0x04)/SHP(0x05) form draw calls
 -- Pure domain module.
 
@@ -441,11 +442,42 @@ local function decodeMatBindings(r, sec, matBase, dictOffset, context)
   return list
 end
 
+-- NNSG3dResEvpMtx: the inverse bind pose of one joint, read by NODEMIX to bring a
+-- vertex out of that joint's space before blending. `MtxFx43 invM` (12 fx32) then
+-- `MtxFx33 invN` (9 fx32), 84 bytes per entry, indexed by joint. Both are stored
+-- as DS rows, which are the columns of this project's column-major matrices --
+-- the same mapping GxDisplayList uses for MTX_LOAD_4x3.
+local EVP_MTX_SIZE = (12 + 9) * 4
+
+local function decodeEvpMatrices(r, base, count)
+  local out = {}
+  for joint = 0, count - 1 do
+    local at = base + joint * EVP_MTX_SIZE
+    local function fx(i) return FixedPoint.fx32(r:u32le(at + i * 4)) end
+    out[joint] = {
+      invM = {
+        fx(0), fx(1), fx(2), 0,
+        fx(3), fx(4), fx(5), 0,
+        fx(6), fx(7), fx(8), 0,
+        fx(9), fx(10), fx(11), 1,
+      },
+      invN = {
+        fx(12), fx(13), fx(14), 0,
+        fx(15), fx(16), fx(17), 0,
+        fx(18), fx(19), fx(20), 0,
+        0, 0, 0, 1,
+      },
+    }
+  end
+  return out
+end
+
 local function decodeModel(sec, modelBase, name, index, context)
   local r = BinaryReader.new(sec, "mdl0")
   local ofsSbc = r:u32le(modelBase + 0x04)
   local ofsMat = r:u32le(modelBase + 0x08)
   local ofsShp = r:u32le(modelBase + 0x0C)
+  local ofsEvpMtx = r:u32le(modelBase + 0x10)
   local info = decodeInfo(r, modelBase + 0x14)
 
   -- Nodes.
@@ -533,11 +565,17 @@ local function decodeModel(sec, modelBase, name, index, context)
 
   local sbc = decodeSbc(r, modelBase + ofsSbc, modelBase + ofsMat, context)
 
+  -- A model without skinning still stores an ofsEvpMtx, pointing just past its
+  -- data, so the block is read only when the SBC actually issues NODEMIX.
+  local evpMatrices = (ofsEvpMtx ~= 0 and sbc.opcodeCounts[0x09])
+    and decodeEvpMatrices(r, modelBase + ofsEvpMtx, info.numNode) or nil
+
   return {
     index = index,
     name = name,
     info = info,
     nodes = nodes,
+    evpMatrices = evpMatrices,
     materials = materialList,
     shapes = shapes,
     textureAssociations = textureAssociations,
