@@ -84,9 +84,20 @@ function T.compiled_visuals_cover_the_target_maps(romFs)
   local compiled = {}
   for _, spriteId in ipairs(bundle.index.spriteIds) do compiled[spriteId] = true end
   for _, expected in ipairs(EXPECTED) do
-    Assert.isTrue(compiled[expected.spriteId], expected.label .. " must be in the selected set")
+    Assert.isTrue(compiled[expected.spriteId], expected.label .. " must be compiled")
   end
-  Assert.deepEqual(bundle.index.variableSprites, { manifest.variableSpriteRange.first })
+  local previous
+  for _, spriteId in ipairs(bundle.index.variableSprites) do
+    Assert.isTrue(spriteId >= manifest.variableSpriteRange.first
+      and spriteId <= manifest.variableSpriteRange.last,
+      "deferred sprite IDs stay inside the variable range")
+    Assert.isTrue(not previous or spriteId > previous, "deferred sprite IDs are sorted and unique")
+    previous = spriteId
+  end
+  Assert.equal(bundle.index.variableSprites[1], manifest.variableSpriteRange.first)
+  for _, avatar in ipairs(manifest.avatars) do
+    Assert.isTrue(compiled[avatar.spriteId], avatar.id .. " variable target must be compiled")
+  end
 
   local aide = bundle.visuals[29]
   Assert.equal(aide.render.frameWidth, 32)
@@ -104,6 +115,36 @@ function T.compiled_visuals_cover_the_target_maps(romFs)
   -- East is never a mirror of west: the two use different source texture slots.
   Assert.isTrue(aide.frames[aide.directions.west.walk.frames[1].frameIndex].textureSlot
     ~= aide.frames[aide.directions.east.walk.frames[1].frameIndex].textureSlot)
+end
+
+-- The render facts every target class must inherit from the shared model member:
+-- one bottom-centered quad two tiles on a side, drawn single-sided in modulation
+-- mode at full polygon alpha under polygon id 0, lit from the field profile
+-- through its own normal. This is the answer to how actor polygons take part in
+-- edge marking, read from the ROM rather than assumed.
+function T.the_shared_model_supplies_one_lit_cutout_quad(romFs)
+  local bundle = assert(FieldActorCompiler.compile(romFs))
+  for _, expected in ipairs(EXPECTED) do
+    local render = bundle.visuals[expected.spriteId].render
+    local geometry, polygon = render.geometry, render.polygon
+    Assert.equal(geometry.modelName, "mmdl_m32x32", expected.label .. " model")
+    Assert.equal(#geometry.vertices, 4, expected.label .. " quad vertices")
+    Assert.equal(#geometry.indices, 6)
+    Assert.equal(geometry.bounds.width, 2, expected.label .. " quad width in tiles")
+    Assert.equal(geometry.bounds.height, 2)
+    Assert.equal(geometry.bounds.depth, 0)
+    Assert.equal(geometry.anchorTiles.y, manifest.placement.modelYOffset / 16)
+    Assert.equal(render.alphaClass, "cutout", expected.label .. " alpha class")
+    Assert.equal(polygon.polygonAlpha, 31)
+    Assert.equal(polygon.polygonMode, "modulation")
+    Assert.equal(polygon.polygonId, 0)
+    Assert.equal(polygon.cullMode, "back")
+    Assert.equal(polygon.lightMask, 1)
+    for _, vertex in ipairs(geometry.vertices) do
+      Assert.equal(vertex.colorSource, 1, expected.label .. " vertex is normal-lit")
+      Assert.isTrue(vertex.u == 0 or vertex.u == 1, "UVs span exactly one atlas frame")
+    end
+  end
 end
 
 function T.marill_keeps_its_uneven_south_loop(romFs)

@@ -64,6 +64,29 @@ function T.completed_transition_holds_the_arrival_tile_for_autosave()
   Assert.notNil(transition.completed)
 end
 
+function T.the_player_pose_clock_advances_once_per_tick_and_freezes_under_a_transition()
+  local steps = 0
+  local playerVisual = { updateFixed = function() steps = steps + 1 end }
+  local actor = {
+    fieldX = 0, fieldZ = 0, worldX = 0, worldY = 0, worldZ = 0,
+    surfaceId = 0, facing = "south", motion = "idle",
+    updateFixed = function() return false end,
+  }
+  local transition = { phase = "idle", updateFixed = function() end }
+  local s = FieldSession.new({
+    versionId = "heartgold", currentMap = { mapId = 61, cameraType = 4 },
+    actor = actor, player = actor, camera = { updateFixed = function() end },
+    transition = transition, playerVisual = playerVisual,
+  })
+  s:updateFixed({})
+  s:updateFixed({})
+  Assert.equal(steps, 2)
+
+  transition.locked = true
+  s:updateFixed({})
+  Assert.equal(steps, 2, "a locked transition owns the tick, so no pose advances")
+end
+
 function T.trace_is_identical_across_render_delta_patterns()
   local function run(pattern)
     local records = {}

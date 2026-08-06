@@ -10,6 +10,7 @@
 
 local Errors = require("libs.rom.src.Errors")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
+local FieldActorMesh = require("libs.engine.src.FieldActorMesh")
 
 local FieldActorAssetProvider = {}
 FieldActorAssetProvider.__index = FieldActorAssetProvider
@@ -47,6 +48,10 @@ function FieldActorAssetProvider:index() return self._index end
 
 function FieldActorAssetProvider:knows(spriteId) return self._known[spriteId] == true end
 
+-- The resident entry for a referenced sprite, without touching its reference
+-- count: the draw path reads what the actor set already acquired.
+function FieldActorAssetProvider:resident(spriteId) return self._entries[spriteId] end
+
 local function removeIdle(self, spriteId)
   for i, id in ipairs(self._idle) do
     if id == spriteId then table.remove(self._idle, i) return end
@@ -55,7 +60,8 @@ end
 
 local function disposeEntry(self, entry)
   if entry.image and entry.image.release then entry.image:release() end
-  entry.image = nil
+  FieldActorMesh.release(entry.meshes)
+  entry.image, entry.meshes = nil, nil
   self._entries[entry.spriteId] = nil
   self._stats.disposals = self._stats.disposals + 1
 end
@@ -95,6 +101,9 @@ local function load(self, spriteId)
     entry.image:setFilter("nearest", "nearest")
     entry.quads = buildQuads(self, visual, entry.image:getWidth(), entry.image:getHeight())
   end
+  -- The world billboard meshes are independent of the atlas Image, so headless
+  -- callers with a mesh-capable graphics stub still get them.
+  entry.meshes = FieldActorMesh.build(self._graphics, visual)
   self._stats.loads = self._stats.loads + 1
   return entry
 end
@@ -161,6 +170,7 @@ end
 function FieldActorAssetProvider:dispose()
   for _, entry in pairs(self._entries) do
     if entry.image and entry.image.release then entry.image:release() end
+    FieldActorMesh.release(entry.meshes)
     self._stats.disposals = self._stats.disposals + 1
   end
   self._entries = {}

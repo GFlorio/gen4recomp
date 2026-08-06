@@ -20,6 +20,7 @@ function FieldSession.new(options)
     camera = options.camera,
     transition = options.transition,
     actors = options.actors,
+    playerVisual = options.playerVisual,
     input = options.input,
     coverage = options.coverage,
     trace = options.trace,
@@ -85,6 +86,9 @@ function FieldSession:updateFixed(inputSnapshot)
       self.transition:start(self.currentMap, standingWarp, self.player.facing)
     end
   end
+  -- Pose clocks advance only on a tick that could change the world, so a fade or
+  -- a locked transition freezes animation instead of walking it in place.
+  if self.playerVisual then self.playerVisual:updateFixed() end
   self.camera:updateFixed(self:actorTarget())
   if self.coverage then self.coverage(self) end
   self:_recordTick()

@@ -14,6 +14,11 @@
 return {
   id = "pre-script-demo-v1",
 
+  -- Which compiled player graphic the demo starts with, by avatar id from
+  -- data/manifests/field_actors.lua. Persisting a runtime change is save-schema
+  -- work; this is the one configuration point that picks the initial avatar.
+  avatar = "hero",
+
   visibility = {
     -- Professor Elm's Lab 1F (map 61). Object 0 (Elm) and object 2 (the aide)
     -- stay visible as the interaction targets; the officer and the

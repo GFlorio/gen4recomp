@@ -92,6 +92,53 @@ local function syntheticMesh(vertices)
   return love.graphics.newMesh(VertexFormat.LAYOUT, vertices, "triangles", "static")
 end
 
+-- An actor draw is a cutout billboard submitted as an overlay item, and it sets
+-- per-item cull, depth, and alpha state. Nothing it touches may survive the
+-- frame, or the 2D dialogue UI and the next map's draws inherit it.
+function T.an_actor_billboard_draw_leaks_no_render_state()
+  if not hasGraphics() then return end
+  local lg = love.graphics
+  local identity = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 }
+  local renderer = MapRenderer.new()
+  local camera = {
+    distance = 26,
+    view = function() return identity end,
+    projection = function() return identity end,
+  }
+  local runtime = {
+    mapDraws = {}, buildingDraws = {},
+    stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
+  }
+  local mesh = syntheticMesh({
+    { -1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1 },
+    { 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1 },
+    { 1, 2, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1 },
+  })
+  local actor = {
+    mesh = mesh, material = { alphaClass = "cutout" },
+    transform = identity, billboardBase = identity,
+    alphaClass = "cutout", cullMode = "back", polygonAlpha = 1.0,
+    polygonMode = "modulation", polygonId = 0, lightMask = 1,
+    center = { 0, 1, 0 }, submissionIndex = 1,
+  }
+
+  lg.setMeshCullMode("none")
+  lg.setBlendMode("alpha")
+  lg.setColor(1, 1, 1, 1)
+  renderer:draw(runtime, camera, { actor }, FieldViewport.new(640, 480, { mode = "strict" }))
+
+  Assert.isNil(lg.getCanvas(), "the scene canvas is unbound")
+  Assert.isNil(lg.getShader(), "the map and edge shaders are unbound")
+  Assert.equal(lg.getMeshCullMode(), "none")
+  Assert.equal(lg.getBlendMode(), "alpha")
+  Assert.isFalse(lg.isWireframe())
+  local compare, depthWrite = lg.getDepthMode()
+  Assert.equal(compare, "always", "depth testing is left disabled")
+  Assert.isFalse(depthWrite)
+  mesh:release()
+  renderer:release()
+end
+
 function T.rejects_stale_scene_schema()
   local ok, err = pcall(MapSceneLoader.load, nil, { schema = "g4-map-scene-v1" })
   Assert.isTrue(not ok and err.code == "MAP_SCENE_UNSUPPORTED_SCHEMA",

@@ -145,4 +145,71 @@ function FieldActorFixture.sampleOverlay(opts)
   return bytes, { ramAddress = RAM }, manifest
 end
 
+-- A synthetic `g4-field-actor-v1` visual definition: the runtime-facing shape
+-- the actor compiler emits. One atlas frame per direction plus one extra, so a
+-- direction, a pose clock, and an atlas offset are all distinguishable.
+-- opts.frameCount widens the strip; opts.omitWalk drops the walk clips so the
+-- idle fallback is testable.
+function FieldActorFixture.visual(spriteId, opts)
+  opts = opts or {}
+  local frameCount = opts.frameCount or 5
+  local directions = {}
+  for index, direction in ipairs({ "north", "south", "west", "east" }) do
+    local set = {
+      idle = { frames = { { frameIndex = index, ticks = 1 } }, loop = true, durationTicks = 1 },
+    }
+    if not opts.omitWalk then
+      set.walk = {
+        frames = { { frameIndex = index, ticks = 2 }, { frameIndex = 5, ticks = 3 } },
+        loop = true, durationTicks = 5,
+        sourceRange = { startFrame = 0, endFrame = 15, endMode = 0 },
+      }
+    end
+    directions[direction] = set
+  end
+
+  local function vertex(x, y, u, v)
+    return { x = x, y = y, z = 0, u = u, v = v, nx = 0, ny = 0, nz = 1,
+      r = 0, g = 0, b = 0, a = 255, colorSource = 1 }
+  end
+
+  return {
+    schema = "g4-field-actor-v1",
+    spriteId = spriteId,
+    mapModelId = 25,
+    rawGraphicsFlags = 0,
+    original = { movementProfile = 0, actorFamily = 0, visualDescriptor = 0 },
+    render = {
+      kind = "atlas",
+      image = string.format("assets/generated/field/actors/%04d.png", spriteId),
+      frameWidth = 32, frameHeight = 32, frameCount = frameCount,
+      billboardMode = "cameraFacingFull", mirrorEastWest = false,
+      textureFormat = 3,
+      alphaUsage = { hasZero = true, hasPartial = false, hasOpaque = true },
+      alphaClass = "cutout",
+      polygon = {
+        polygonAttrRaw = 0x001F8081, polygonAlpha = 31, polygonMode = "modulation",
+        polygonId = 0, lightMask = 1, cullMode = "back",
+        translucentDepthWrite = false, depthEqual = false,
+        farClipEnabled = false, oneDotEnabled = false, fogEnabled = true,
+      },
+      geometry = {
+        modelName = "mmdl_m32x32",
+        vertices = {
+          vertex(-1, 0, 0, 1), vertex(1, 0, 1, 1), vertex(1, 2, 1, 0), vertex(-1, 2, 0, 0),
+        },
+        indices = { 0, 1, 2, 0, 2, 3 },
+        baseTransform = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 },
+        anchorTiles = { x = 0, y = 6 / 16, z = 0 },
+        bounds = { width = 2, height = 2, depth = 0 },
+      },
+    },
+    anchor = { x = 0, y = 6, z = 0 },
+    bounds = { width = 32, height = 32, depth = 0 },
+    pivot = { x = 0.5, y = 1 },
+    frames = { { textureSlot = 0, paletteSlot = 0 } },
+    directions = directions,
+  }
+end
+
 return FieldActorFixture

@@ -8,7 +8,7 @@ return {
     minZoom = 0.5,
     maxZoom = 1.5,
     step = 0.1,
-    referenceHeight = 720,
+    referenceHeight = 600,
     resizeCompensation = 0.7,
   },
 }
