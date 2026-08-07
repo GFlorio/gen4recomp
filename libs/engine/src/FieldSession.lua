@@ -4,6 +4,16 @@
 -- be active while a dialogue is open) has advanced, the session steps only the
 -- dialogue and returns, so movement, warps, interactions, and actor pose
 -- clocks freeze until the dialogue closes (spec section 11.3).
+--
+-- Spec section 11.3 step 6 is wired through the optional `interactions`
+-- service: `resolve(snapshot)` returns an immutable InteractionIntent for an
+-- idle player's Action edge and `consume(intent)` dispatches it to the
+-- configured interaction client (the pre-script adapter). A consumed
+-- interaction owns the tick, so the same edge can never also start a move or
+-- a warp. The session never imports the adapter; FieldState constructs the
+-- replacement point. The service methods are invoked with the interactions
+-- table as self (colon style), so implementations must declare a leading
+-- self parameter.
 
 local WarpSystem = require("libs.engine.src.WarpSystem")
 
@@ -18,6 +28,7 @@ local WarpSystem = require("libs.engine.src.WarpSystem")
 ---@field playerVisual table?
 ---@field dialogue FieldDialogueController?
 ---@field input FieldInput?
+---@field interactions { resolve: fun(self: table, snapshot: table): table?, consume: fun(self: table, intent: table): boolean }?
 ---@field coverage fun(session: FieldSession)?
 ---@field trace fun(record: table)?
 ---@field tick integer
@@ -26,7 +37,7 @@ local WarpSystem = require("libs.engine.src.WarpSystem")
 local FieldSession = {}
 FieldSession.__index = FieldSession
 
-FieldSession.FIXED_DT = 1 / 60
+FieldSession.FIXED_DT = 1 / 30
 FieldSession.MAX_CATCH_UP_TICKS = 5
 
 ---@param options table
@@ -45,6 +56,7 @@ function FieldSession.new(options)
     playerVisual = options.playerVisual,
     dialogue = options.dialogue,
     input = options.input,
+    interactions = options.interactions,
     coverage = options.coverage,
     trace = options.trace,
     tick = 0,
@@ -96,6 +108,32 @@ function FieldSession:updateFixed(inputSnapshot)
   -- Queued visibility changes land before anything reads occupancy or starts a
   -- move, so collision and the draw list never disagree within a tick.
   if self.actors then self.actors:step(self.tick + 1) end
+
+  -- Spec 11.3 step 6: an idle player's Action edge resolves an interaction
+  -- before movement or warps are evaluated. A consumed interaction owns the
+  -- tick (the dialogue becomes modal on it), so the same edge cannot also
+  -- start a move or warp. The edge itself was already consumed by the input
+  -- snapshot, so a held Action cannot re-open anything.
+  if self.interactions and self.player.motion == "idle" and inputSnapshot.actionPressed then
+    local intent = self.interactions:resolve({
+      runtimeMap = self.currentMap,
+      mapId = self.currentMap.mapId,
+      fieldX = self.player.fieldX,
+      fieldZ = self.player.fieldZ,
+      surfaceId = self.player.surfaceId,
+      worldY = self.player.worldY,
+      facing = self.player.facing,
+      playerIdle = self.player.motion == "idle",
+      actionPressed = inputSnapshot.actionPressed == true,
+      transitionActive = self.transition ~= nil and self.transition.phase ~= "idle",
+      modalActive = self.dialogue ~= nil and self.dialogue:isModal(),
+      tick = self.tick + 1,
+    })
+    if intent and self.interactions:consume(intent) then
+      self:_recordTick()
+      return
+    end
+  end
 
   local direction = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
   if self.transition and self.transition.start and self.player.motion == "idle" and direction then

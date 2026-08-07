@@ -2,7 +2,8 @@
 
 Specification: `tmp/spec.md` (revision 1). Implementation targets the working
 tree on top of integration commit `27c826d` ("game: first pass on message
-engine"), the state after Epics 1–7 landed.
+engine"), the state after Epics 1–7 landed. Epics 9–10 land on top of that
+tree (working tree includes the dialogue/UI work of Epic 8).
 
 - Integration commit: `27c826d`
 - Entry gate (§3.1): predecessor milestone checks pass (normal `FieldState`
@@ -26,8 +27,8 @@ engine"), the state after Epics 1–7 landed.
 | 6 Message and font extraction | done |
 | 7 Message provider and layout | done |
 | 8 Dialogue controller + UI renderer | done |
-| 9 Interaction resolver | pending |
-| 10 Pre-script adapter | pending |
+| 9 Interaction resolver | done |
+| 10 Pre-script adapter | done |
 | 11 Save migration | pending |
 | 12 Hardening + handoff | pending |
 

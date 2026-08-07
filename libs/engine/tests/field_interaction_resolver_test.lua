@@ -1,0 +1,319 @@
+-- Pure interaction-resolution tests (spec section 21.3): gates, object-first
+-- priority, background direction compatibility, surface reachability, and
+-- immutable intent values. Uses synthetic maps and a fake actor lookup, so no
+-- LÖVE or ROM data is involved.
+
+local Assert = require("tests.support.Assert")
+local FieldInteractionResolver = require("libs.engine.src.FieldInteractionResolver")
+local TerrainSurface = require("libs.engine.src.TerrainSurface")
+
+local T = {}
+
+-- A flat synthetic map centered at field origin (0,0) covering local
+-- (0..31, 0..31). Optional background events with raw direction codes.
+local function map(backgrounds)
+  return {
+    mapId = 61,
+    cameraType = 4,
+    coordinateOrigin = { x = 0, z = 0 },
+    fieldData = {
+      scriptBankId = 843,
+      messageBankId = 543,
+      events = { background = backgrounds or {} },
+    },
+    permissions = {
+      containsLocal = function(_, x, z) return x >= 0 and x < 32 and z >= 0 and z < 32 end,
+      isBlockedLocal = function() return false end,
+    },
+    terrain = TerrainSurface.new({ plates = {
+      { id = 0, minX = 0, minZ = 0, maxX = 32, maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 }, distance = 0, slopeClass = "flat" },
+    } }),
+  }
+end
+
+local function bgEvent(index, scriptId, x, z, directionRaw, eventType)
+  return { index = index, scriptId = scriptId, type = eventType or 0,
+    x = x, z = z, y = 0, directionRaw = directionRaw,
+    direction = "unknown" }
+end
+
+local function actor(id, objectEventId, spriteId, x, z, scriptId)
+  return {
+    actorId = id,
+    objectEventId = objectEventId,
+    spriteId = spriteId,
+    fieldX = x,
+    fieldZ = z,
+    surfaceId = 0,
+    facing = "south",
+    sourceEvent = { scriptId = scriptId },
+  }
+end
+
+-- resolver with an actor lookup table keyed by "x:z"
+local function resolver(actorsByCell, trace)
+  local actorAt = function(_, fieldX, fieldZ, surfaceId)
+    local entry = actorsByCell and actorsByCell[fieldX .. ":" .. fieldZ]
+    return entry and entry.surfaceId == surfaceId and entry.actor or nil
+  end
+  return FieldInteractionResolver.new({ actorAt = actorAt, trace = trace })
+end
+
+local function baseSnapshot(overrides)
+  local snapshot = {
+    runtimeMap = map(),
+    mapId = 61,
+    fieldX = 4, fieldZ = 14, surfaceId = 0, worldY = 0,
+    facing = "north",
+    playerIdle = true,
+    actionPressed = true,
+    transitionActive = false,
+    modalActive = false,
+    tick = 100,
+  }
+  for key, value in pairs(overrides or {}) do snapshot[key] = value end
+  return snapshot
+end
+
+function T.background_direction_compatibility_matches_the_source_table()
+  -- The pinned assembly's BgEventDirectionIsCompatibleWithPlayerFacing.
+  Assert.isTrue(FieldInteractionResolver.backgroundDirectionCompatible(0, 0))
+  Assert.isTrue(FieldInteractionResolver.backgroundDirectionCompatible(0, 6))
+  Assert.isFalse(FieldInteractionResolver.backgroundDirectionCompatible(0, 3))
+  Assert.isTrue(FieldInteractionResolver.backgroundDirectionCompatible(1, 3))
+  Assert.isTrue(FieldInteractionResolver.backgroundDirectionCompatible(1, 6))
+  Assert.isFalse(FieldInteractionResolver.backgroundDirectionCompatible(1, 0))
+  Assert.isTrue(FieldInteractionResolver.backgroundDirectionCompatible(2, 2))
+  Assert.isTrue(FieldInteractionResolver.backgroundDirectionCompatible(2, 5))
+  Assert.isFalse(FieldInteractionResolver.backgroundDirectionCompatible(2, 1))
+  Assert.isTrue(FieldInteractionResolver.backgroundDirectionCompatible(3, 1))
+  Assert.isTrue(FieldInteractionResolver.backgroundDirectionCompatible(3, 5))
+  Assert.isFalse(FieldInteractionResolver.backgroundDirectionCompatible(3, 0))
+  for facing = 0, 3 do
+    Assert.isTrue(FieldInteractionResolver.backgroundDirectionCompatible(facing, 4),
+      "raw 4 is the wildcard for every facing")
+  end
+end
+
+function T.named_facing_mapping_agrees_with_the_zone_event_direction_normalization()
+  -- The named -> raw mapping must agree with the decoder's raw -> named
+  -- DIRECTIONS table so north/south are not accidentally inverted.
+  local zoneDirections = { [0] = "north", [1] = "south", [2] = "west", [3] = "east" }
+  for raw, named in pairs(zoneDirections) do
+    Assert.equal(FieldInteractionResolver.RAW_FACING[named], raw)
+  end
+end
+
+function T.settled_player_with_actor_ahead_resolves_an_object_intent()
+  local elm = actor("map:61:object:0", 0, 99, 4, 13, 1)
+  local r = resolver({ ["4:13"] = { surfaceId = 0, actor = elm } })
+  local intent = r:resolve(baseSnapshot())
+  assert(intent, "actor ahead must resolve")
+  Assert.equal(intent.kind, "object")
+  Assert.equal(intent.mapId, 61)
+  Assert.equal(intent.sourceFieldX, 4)
+  Assert.equal(intent.sourceFieldZ, 14)
+  Assert.equal(intent.sourceSurfaceId, 0)
+  Assert.equal(intent.targetFieldX, 4)
+  Assert.equal(intent.targetFieldZ, 13)
+  Assert.equal(intent.playerFacing, "north")
+  Assert.equal(intent.scriptBankId, 843)
+  Assert.equal(intent.scriptId, 1)
+  Assert.equal(intent.object.actorId, "map:61:object:0")
+  Assert.equal(intent.object.objectEventId, 0)
+  Assert.equal(intent.object.spriteId, 99)
+  Assert.isNil(intent.background)
+  Assert.equal(intent.tick, 100)
+end
+
+function T.actor_and_background_ahead_object_wins()
+  local elm = actor("map:61:object:0", 0, 99, 4, 13, 1)
+  local r = resolver({ ["4:13"] = { surfaceId = 0, actor = elm } })
+  local m = map({ bgEvent(0, 6, 4, 13, 0) })
+  local intent = r:resolve(baseSnapshot({ runtimeMap = m }))
+  assert(intent, "object priority wins over a co-located background event")
+  Assert.equal(intent.kind, "object")
+  Assert.equal(intent.object.actorId, "map:61:object:0")
+end
+
+function T.no_actor_with_compatible_background_resolves_a_background_intent()
+  local m = map({ bgEvent(0, 6, 4, 13, 0) })
+  local r = resolver()
+  local intent = r:resolve(baseSnapshot({ runtimeMap = m }))
+  assert(intent, "compatible background must resolve")
+  Assert.equal(intent.kind, "background")
+  Assert.equal(intent.targetFieldX, 4)
+  Assert.equal(intent.targetFieldZ, 13)
+  Assert.equal(intent.scriptId, 6)
+  Assert.equal(intent.scriptBankId, 843)
+  Assert.equal(intent.background.eventIndex, 0)
+  Assert.equal(intent.background.type, 0)
+  Assert.equal(intent.background.direction, 0)
+  Assert.isNil(intent.object)
+end
+
+function T.incompatible_raw_direction_returns_nil()
+  -- Facing north (raw 0) accepts {0, 6}; a south-facing event (raw 3) must not.
+  local m = map({ bgEvent(0, 6, 4, 13, 3) })
+  local r = resolver()
+  Assert.isNil(r:resolve(baseSnapshot({ runtimeMap = m })))
+end
+
+function T.wildcard_direction_4_matches_every_facing()
+  local facingCells = {
+    north = { 4, 13 }, south = { 4, 15 }, west = { 3, 14 }, east = { 5, 14 },
+  }
+  for _, facing in ipairs({ "north", "south", "west", "east" }) do
+    local cell = facingCells[facing]
+    local m = map({ bgEvent(0, 10, cell[1], cell[2], 4) })
+    local r = resolver()
+    local snapshot = baseSnapshot({ runtimeMap = m, facing = facing })
+    local intent = r:resolve(snapshot)
+    assert(intent, "raw 4 must match facing " .. facing)
+    Assert.equal(intent.kind, "background")
+  end
+end
+
+function T.vertical_and_horizontal_direction_rows()
+  -- South-facing player (raw 1) accepts 3 and 6; west-facing (raw 2) accepts
+  -- 2 and 5; east-facing (raw 3) accepts 1 and 5; a north event (raw 0) only
+  -- pairs with a north-facing player. Events sit on the facing cell of each
+  -- direction so only the direction compatibility is under test.
+  local facingCells = {
+    north = { 4, 13 }, south = { 4, 15 }, west = { 3, 14 }, east = { 5, 14 },
+  }
+  local cases = {
+    { facing = "south", compatible = { 3, 6 }, incompatible = { 0, 1, 2, 5 } },
+    { facing = "west", compatible = { 2, 5 }, incompatible = { 0, 1, 3, 6 } },
+    { facing = "east", compatible = { 1, 5 }, incompatible = { 0, 2, 3, 6 } },
+    { facing = "north", compatible = { 0, 6 }, incompatible = { 1, 2, 3, 5 } },
+  }
+  for _, case in ipairs(cases) do
+    local cell = facingCells[case.facing]
+    for _, raw in ipairs(case.compatible) do
+      local m = map({ bgEvent(0, 6, cell[1], cell[2], raw) })
+      local intent = FieldInteractionResolver.new({ actorAt = function() return nil end })
+        :resolve(baseSnapshot({ runtimeMap = m, facing = case.facing }))
+      assert(intent, "facing " .. case.facing .. " accepts raw " .. raw)
+      Assert.equal(intent.kind, "background")
+    end
+    for _, raw in ipairs(case.incompatible) do
+      local m = map({ bgEvent(0, 6, cell[1], cell[2], raw) })
+      local intent = FieldInteractionResolver.new({ actorAt = function() return nil end })
+        :resolve(baseSnapshot({ runtimeMap = m, facing = case.facing }))
+      Assert.isNil(intent, "facing " .. case.facing .. " rejects raw " .. raw)
+    end
+  end
+end
+
+function T.background_requires_exact_facing_cell_match()
+  local m = map({ bgEvent(0, 6, 4, 12, 0) })
+  local r = resolver()
+  Assert.isNil(r:resolve(baseSnapshot({ runtimeMap = m })),
+    "an event one cell short of the facing tile does not resolve")
+end
+
+function T.type_two_background_events_are_traced_and_skipped()
+  local m = map({ bgEvent(0, 100, 4, 13, 4, 2) })
+  local traces = {}
+  local r = resolver(nil, function(record) traces[#traces + 1] = record end)
+  Assert.isNil(r:resolve(baseSnapshot({ runtimeMap = m })))
+  Assert.equal(traces[1].kind, "field.interaction.background_type2_deferred")
+  Assert.equal(traces[1].eventIndex, 0)
+end
+
+function T.type_two_does_not_block_a_later_compatible_event()
+  local m = map({
+    bgEvent(0, 100, 4, 13, 4, 2),
+    bgEvent(1, 6, 4, 13, 0),
+  })
+  local r = resolver()
+  local intent = r:resolve(baseSnapshot({ runtimeMap = m }))
+  assert(intent, "the type-2 record is skipped, the later compatible one wins")
+  Assert.equal(intent.kind, "background")
+  Assert.equal(intent.background.eventIndex, 1)
+end
+
+function T.hidden_actor_leaves_the_background_to_win()
+  local m = map({ bgEvent(0, 6, 4, 13, 0) })
+  local r = resolver({}) -- no actor at the cell (hidden actors are not in the index)
+  local intent = r:resolve(baseSnapshot({ runtimeMap = m }))
+  assert(intent, "no visible actor means the background may win")
+  Assert.equal(intent.kind, "background")
+end
+
+function T.actor_on_another_surface_is_ineligible()
+  -- The actor occupies surface 1 while the player stands on surface 0, so the
+  -- occupancy lookup misses and the compatible background on the facing cell
+  -- wins (spec section 12.6: different surfaces do not interact).
+  local elm = actor("map:61:object:0", 0, 99, 4, 13, 1)
+  local actorAt = function(_, _, _, surfaceId)
+    if surfaceId == 0 then return nil end
+    return elm
+  end
+  local m = map({ bgEvent(0, 6, 4, 13, 0) })
+  local r = FieldInteractionResolver.new({ actorAt = actorAt })
+  local intent = r:resolve(baseSnapshot({ runtimeMap = m }))
+  assert(intent, "the background on the reachable surface wins")
+  Assert.equal(intent.kind, "background")
+end
+
+function T.moving_player_returns_nil()
+  local r = resolver()
+  Assert.isNil(r:resolve(baseSnapshot({ playerIdle = false })))
+end
+
+function T.transition_active_returns_nil()
+  local r = resolver()
+  Assert.isNil(r:resolve(baseSnapshot({ transitionActive = true })))
+end
+
+function T.modal_active_returns_nil()
+  local r = resolver()
+  Assert.isNil(r:resolve(baseSnapshot({ modalActive = true })))
+end
+
+function T.held_action_after_the_first_edge_produces_one_intent_only()
+  local elm = actor("map:61:object:0", 0, 99, 4, 13, 1)
+  local r = resolver({ ["4:13"] = { surfaceId = 0, actor = elm } })
+  local first = r:resolve(baseSnapshot({ actionPressed = true }))
+  local second = r:resolve(baseSnapshot({ actionPressed = false }))
+  assert(first, "the edge tick resolves")
+  Assert.isNil(second, "a held Action does not re-resolve without a new edge")
+end
+
+function T.facing_outside_coverage_returns_nil()
+  local m = map()
+  -- Player at the coverage edge facing north would step outside the map.
+  local r = resolver()
+  Assert.isNil(r:resolve(baseSnapshot({ runtimeMap = m, fieldZ = 0, facing = "north" })))
+end
+
+function T.intent_values_survive_source_mutation()
+  local elm = actor("map:61:object:0", 0, 99, 4, 13, 1)
+  local r = resolver({ ["4:13"] = { surfaceId = 0, actor = elm } })
+  local intent = r:resolve(baseSnapshot())
+  elm.facing = "east"
+  elm.actorId = "mutated"
+  elm.sourceEvent.scriptId = 999
+  Assert.equal(intent.object.actorId, "map:61:object:0")
+  Assert.equal(intent.scriptId, 1)
+  Assert.equal(intent.playerFacing, "north")
+end
+
+function T.resolved_trace_reports_kind_and_identity()
+  local traces = {}
+  local elm = actor("map:61:object:0", 0, 99, 4, 13, 1)
+  local r = resolver({ ["4:13"] = { surfaceId = 0, actor = elm } }, function(record)
+    traces[#traces + 1] = record
+  end)
+  r:resolve(baseSnapshot())
+  Assert.equal(traces[1].kind, "field.interaction.resolved")
+  Assert.equal(traces[1].intentKind, "object")
+  Assert.equal(traces[1].objectEventId, 0)
+  Assert.equal(traces[1].scriptId, 1)
+  Assert.equal(traces[1].tick, 100)
+end
+
+return T

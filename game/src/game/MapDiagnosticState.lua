@@ -131,44 +131,6 @@ function MapDiagnosticState:_followPlayer()
   self.camera:updateFixed(self:_playerTarget())
 end
 
--- Env-gated render smoke: when G4RECOMP_SHOT names a save-dir-relative path, let
--- a few frames warm up, capture the framebuffer once, and quit.
-function MapDiagnosticState:_maybeCaptureAndQuit()
-  local path = os.getenv("G4RECOMP_SHOT")
-  if not path then return end
-  self._frames = (self._frames or 0) + 1
-  if self._frames == 8 then
-    love.graphics.captureScreenshot(path)
-  elseif self._frames >= 9 then
-    love.event.quit(0)
-  end
-end
-
--- Env-gated switch stress: after a short warmup, toggle between the two targets
--- once per frame for G4RECOMP_SWITCH_CYCLES iterations, releasing and rebuilding
--- all GPU objects each time. Any failed load exits nonzero; completing every
--- switch exits zero. Automated proof that repeated switching is stable/leak-free.
-function MapDiagnosticState:_maybeSwitchStress()
-  local n = tonumber(os.getenv("G4RECOMP_SWITCH_CYCLES") or "")
-  if not n then return end
-  self._switchStep = (self._switchStep or -3) + 1 -- warmup frames before the first switch
-  if self._switchStep <= 0 then return end
-  if self.errorText then
-    io.stderr:write("switch-stress: FAIL on load: " .. self.errorText .. "\n")
-    return love.event.quit(1)
-  end
-  if self._switchStep > n then
-    print(string.format("switch-stress: OK (%d switches, ended on %s)", n, self.runtime.scene.mapSymbol))
-    return love.event.quit(0)
-  end
-  self:_cycleMap()
-end
-
-function MapDiagnosticState:update()
-  self:_maybeSwitchStress()
-  self:_maybeCaptureAndQuit()
-end
-
 -- Build the per-frame overlay draw list: the player prism plus one anchor pin
 -- per development anchor. Transforms are cheap tables; the meshes are persistent.
 function MapDiagnosticState:_overlays()

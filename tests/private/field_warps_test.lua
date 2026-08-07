@@ -2,36 +2,15 @@
 -- the way through destination terrain selection without hardcoded endpoints.
 
 local Assert = require("tests.support.Assert")
-local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
-local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
-local CollisionGrid = require("libs.engine.src.CollisionGrid")
-local PermissionGrid = require("libs.assets.src.PermissionGrid")
-local TerrainSurface = require("libs.engine.src.TerrainSurface")
+local RomRuntimeMap = require("tests.support.RomRuntimeMap")
 local WarpSystem = require("libs.engine.src.WarpSystem")
 
 local T = {}
 
-local function runtimeMap(romFs, symbol)
-  local assets = assert(MapAssetCompiler.compile(romFs, symbol))
-  local field = assert(FieldMapDataCompiler.compile(romFs, symbol)).field
-  local matrix = assets.scene.matrix
-  local permissions = assert(PermissionGrid.decode(assets.permissions,
-    { mapId = assets.scene.mapId }))
-  return {
-    mapId = assets.scene.mapId,
-    coordinateOrigin = { x = matrix.worldOriginX, z = matrix.worldOriginZ },
-    fieldData = field,
-    permissions = CollisionGrid.new(permissions, {
-      worldOriginX = matrix.worldOriginX, worldOriginZ = matrix.worldOriginZ,
-    }),
-    terrain = TerrainSurface.new(assets.terrain),
-  }
-end
-
 function T.elms_lab_and_new_bark_warps_resolve_both_directions(romFs)
   local maps = {
-    [60] = runtimeMap(romFs, "MAP_NEW_BARK"),
-    [61] = runtimeMap(romFs, "MAP_NEW_BARK_ELMS_LAB_1F"),
+    [60] = RomRuntimeMap.compile(romFs, "MAP_NEW_BARK"),
+    [61] = RomRuntimeMap.compile(romFs, "MAP_NEW_BARK_ELMS_LAB_1F"),
   }
   local loader = { load = function(_, mapId) return assert(maps[mapId]) end }
 

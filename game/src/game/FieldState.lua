@@ -1,6 +1,6 @@
 -- Normal field-runtime coordinator. It joins generated maps through
--- FieldMapLoader, drives the deterministic elevation-aware player, and exposes
--- event/terrain debug overlays plus the field warp transition lifecycle.
+-- FieldMapLoader, drives the deterministic elevation-aware player, and
+-- exposes the field warp transition lifecycle.
 
 local CacheFs = require("libs.rom.src.CacheFs")
 local Errors = require("libs.rom.src.Errors")
@@ -14,13 +14,14 @@ local FieldDialogueController = require("libs.engine.src.FieldDialogueController
 local FieldDialogueRenderer = require("libs.engine.src.FieldDialogueRenderer")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local FieldEventState = require("libs.engine.src.FieldEventState")
-local FieldGrid = require("libs.engine.src.FieldGrid")
 local FieldInput = require("libs.engine.src.FieldInput")
+local FieldInteractionResolver = require("libs.engine.src.FieldInteractionResolver")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldMapLoader = require("libs.engine.src.FieldMapLoader")
-local FieldMessageText = require("libs.assets.src.FieldMessageText")
+local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldPlayerVisual = require("libs.engine.src.FieldPlayerVisual")
+local PreScriptInteractionAdapter = require("libs.engine.src.PreScriptInteractionAdapter")
 local FieldSave = require("libs.engine.src.FieldSave")
 local FieldScenario = require("libs.engine.src.FieldScenario")
 local FieldSaveStore = require("libs.engine.src.FieldSaveStore")
@@ -28,21 +29,19 @@ local FieldSession = require("libs.engine.src.FieldSession")
 local FieldTransition = require("libs.engine.src.FieldTransition")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local FieldZoom = require("libs.engine.src.FieldZoom")
-local Gizmos = require("libs.engine.src.Gizmos")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapRenderer = require("libs.engine.src.MapRenderer")
-local Matrix4 = require("libs.math.src.Matrix4")
 local TargetAnchors = require("data.manifests.target_map_anchors")
 local FieldActorManifest = require("data.manifests.field_actors")
 local FieldPresentation = require("data.manifests.field_presentation")
 local FieldScenarioManifest = require("data.manifests.field_scenario")
+local PreScriptInteractions = require("data.manifests.pre_script_interactions")
 
 ---@class FieldState
 ---@field versionId string
 ---@field idOrSymbol string|integer?
 ---@field resumeSave boolean
 ---@field resetSave boolean
----@field overlaysVisible boolean
 ---@field errorText string?
 ---@field zoom FieldZoom
 ---@field saveStatus string?
@@ -51,7 +50,6 @@ local FieldScenarioManifest = require("data.manifests.field_scenario")
 ---@field dialogueRenderer FieldDialogueRenderer?
 ---@field actionKeys table<string, boolean>?
 ---@field cancelKeys table<string, boolean>?
----@field _dialogueSmoke { phase: string, shot: boolean, ticks: integer }?
 local FieldState = {}
 FieldState.__index = FieldState
 
@@ -63,14 +61,6 @@ local KEY_DIRECTIONS = {
   a = "west", left = "west",
   d = "east", right = "east",
 }
-
--- Developer dialogue for the F6 key and the dialogue render smoke: a
--- project-authored two-page message exercising glyphs and a prompt boundary.
--- Not retail text. (The unsupported-control marker path is covered by unit
--- tests; the demo deliberately avoids it because fallback glyphs for { and }
--- make the line look corrupted.)
-local DEMO_DIALOGUE_TEXT = "Hello from the field dialogue smoke."
-  .. "\rThis second page wraps exactly like a real bank message."
 
 ---@return table<string, boolean>
 local function actionBindings()
@@ -98,6 +88,24 @@ local function playerOccupancy(self)
     local occupant = self.actors:getAt(self.runtimeMap.mapId, fieldX, fieldZ, surfaceId)
     return occupant and occupant.actorId or nil
   end
+end
+
+-- Structured trace sink shared by the actor manager, the player, the
+-- interaction resolver, and the pre-script adapter (spec section 21.8).
+local TRACE_FIELDS = {
+  "actorId", "mapId", "objectEventId", "eventIndex", "spriteId", "movement",
+  "scriptBankId", "scriptId", "intentKind", "fixtureKey", "bankId",
+  "messageId", "requestId", "owner", "resultKind", "direction", "reason",
+}
+
+---@param record table
+function FieldState:_fieldTrace(record)
+  if not record or not record.kind then return end
+  local parts = { record.kind }
+  for _, key in ipairs(TRACE_FIELDS) do
+    if record[key] ~= nil then parts[#parts + 1] = key .. "=" .. tostring(record[key]) end
+  end
+  io.stderr:write(table.concat(parts, " ") .. "\n")
 end
 
 local function initialSurface(runtimeMap, localX, localZ)
@@ -139,9 +147,6 @@ function FieldState.new(versionId, idOrSymbol, options)
     idOrSymbol = idOrSymbol or DEFAULT_MAP,
     resumeSave = options.resumeSave == true,
     resetSave = options.resetSave == true,
-    -- Developer pins are off by default: normal play shows only the ROM-derived
-    -- actors, never the placeholder prisms.
-    overlaysVisible = false,
     errorText = nil,
     zoom = FieldZoom.new(options.zoomConfig or FieldPresentation.zoom),
   }, FieldState)
@@ -199,6 +204,7 @@ function FieldState:_load()
       fieldX = fieldX, fieldZ = fieldZ,
       surfaceId = surfaceId, facing = facing,
       occupancy = playerOccupancy(self),
+      trace = function(record) self:_fieldTrace(record) end,
     })
     self.actor = self.player
     self.input = FieldInput.new()
@@ -226,13 +232,9 @@ function FieldState:_load()
         variableSpriteRange = FieldActorManifest.variableSpriteRange,
         staticMovementCodes = FieldActorManifest.staticMovementCodes,
       },
-      trace = function(record)
-        io.stderr:write(string.format("%s %s sprite %d movement %d\n",
-          record.kind, record.actorId, record.spriteId, record.movement))
-      end,
+      trace = function(record) self:_fieldTrace(record) end,
     })
     self.actors:enterMap(self.runtimeMap, self.eventState)
-    self.inspectorIndex = 0
     self.posePlaceholders = {}
 
     -- The player's graphic is one more compiled actor visual: it is acquired from
@@ -256,14 +258,44 @@ function FieldState:_load()
     -- the compiled font def/atlas and draws inside the centered 4:3 frame.
     self.dialogueRenderer = FieldDialogueRenderer.new({ cacheFs = cacheFs })
     local fontMetrics = FieldDialogueTheme.fontMetrics(self.dialogueRenderer.fontDef)
-    self.dialogue = FieldDialogueController.new({
-      layout = function(formatted)
-        return DialogueLayout.layout(formatted.tokens, fontMetrics,
-          { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines })
-      end,
-    })
+    local layoutMessage = function(formatted)
+      return DialogueLayout.layout(formatted.tokens, fontMetrics,
+        { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines })
+    end
+    self.dialogue = FieldDialogueController.new({ layout = layoutMessage })
     self.actionKeys = actionBindings()
     self.cancelKeys = cancelBindings()
+
+    -- Interaction discovery and the temporary pre-script client. The resolver
+    -- is pure and consults the manager's occupancy index; the adapter is the
+    -- one construction point the scripting milestone replaces (spec section
+    -- 6.3). Disabling the adapter leaves discovery and traces intact.
+    self.messageProvider = FieldMessageProvider.new(cacheFs)
+    self.interactionResolver = FieldInteractionResolver.new({
+      actorAt = function(mapId, fieldX, fieldZ, surfaceId)
+        return self.actors and self.actors:getAt(mapId, fieldX, fieldZ, surfaceId) or nil
+      end,
+      trace = function(record) self:_fieldTrace(record) end,
+    })
+    self.preScript = PreScriptInteractionAdapter.new({
+      dialogue = self.dialogue,
+      provider = self.messageProvider,
+      layout = layoutMessage,
+      fontDef = self.dialogueRenderer.fontDef,
+      getActor = function(actorId)
+        return self.actors and self.actors:getById(actorId) or nil
+      end,
+      mapMessageBank = function(mapId)
+        if mapId ~= self.runtimeMap.mapId then return nil end
+        return self.runtimeMap.fieldData.messageBankId
+      end,
+      fixtures = PreScriptInteractions,
+      trace = function(record) self:_fieldTrace(record) end,
+      -- Developer builds surface unmapped interactions as a diagnostic box
+      -- (spec section 13.4); release builds choose "nothing".
+      unmappedMode = "diagnostic",
+    })
+    self.lastInteraction = nil
 
     self.session = FieldSession.new({
       versionId = self.versionId,
@@ -276,18 +308,20 @@ function FieldState:_load()
       playerVisual = self.playerVisual,
       dialogue = self.dialogue,
       input = self.input,
+      interactions = {
+        resolve = function(_, snapshot)
+          local intent = self.interactionResolver:resolve(snapshot)
+          if intent then self.lastInteraction = intent end
+          return intent
+        end,
+        consume = function(_, intent)
+          return self.preScript:consume(intent)
+        end,
+      },
       coverage = function()
         self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
       end,
     })
-
-    self.playerMesh = Gizmos.box(0.35, 0, 1.6, 0.35, { 0.95, 0.25, 0.25, 1 })
-    self.actorMesh = Gizmos.box(0.30, 0, 1.6, 0.30, { 0.35, 0.9, 0.45, 1 })
-    self.eventMesh = Gizmos.box(0.10, 0, 1.9, 0.10, { 1.0, 0.85, 0.1, 1 })
-    self.terrainMesh = Gizmos.box(0.08, 0, 1.2, 0.08, { 0.2, 0.75, 1.0, 1 })
-    self.playerMaterial = { alphaClass = "opaque", cullMode = "back" }
-    self.eventMaterial = { alphaClass = "opaque", cullMode = "back" }
-    self.terrainMaterial = { alphaClass = "opaque", cullMode = "back" }
   end)
   if not ok then
     self.errorText = tostring(err)
@@ -298,8 +332,8 @@ end
 
 function FieldState:update(dt)
   if self.session then
-    -- A developer flag toggle can make an actor unresolvable on the next tick;
-    -- report it in the field HUD instead of dropping to the LÖVE error screen.
+    -- Report a session fault in the field HUD instead of dropping to the
+    -- LÖVE error screen.
     local ok, err = pcall(self.session.update, self.session, dt)
     if not ok then self.errorText = Errors.format(err) end
     if self.transition.error then
@@ -310,126 +344,6 @@ function FieldState:update(dt)
         tostring(warp.destinationWarpId))
     end
     if self.transition:consumeCompleted() then self:_save("Autosaved after warp") end
-  end
-  self:_maybeRunSmoke()
-  self:_maybeRunDialogueSmoke()
-end
-
-function FieldState:_maybeRunSmoke()
-  if not os.getenv("G4RECOMP_FIELD_SMOKE") then return end
-  if self.errorText then
-    io.stderr:write("field-smoke: " .. self.errorText .. "\n")
-    love.event.quit(1)
-    return
-  end
-  self._smokeFrame = (self._smokeFrame or 0) + 1
-  if self._smokeFrame == 8 then
-    local missing = self.runtimeMap.coveragePlan.missingVisibleCells or {}
-    if #missing > 0 then
-      io.stderr:write(string.format("field-smoke: %d visible cells are missing\n", #missing))
-      love.event.quit(1)
-      return
-    end
-    local path = os.getenv("G4RECOMP_SHOT")
-    if path then love.graphics.captureScreenshot(path) end
-  elseif self._smokeFrame >= 9 then
-    love.event.quit(0)
-  end
-end
-
--- Opens the developer dialogue used by F6 and the dialogue render smoke.
-function FieldState:_openDevDialogue()
-  if not self.dialogue or self.dialogue:isModal() then return end
-  local renderer = self.dialogueRenderer
-  if not renderer or not renderer.fontDef then
-    self.saveStatus = "developer: dialogue font is unavailable"
-    return
-  end
-  local tokens, err = FieldMessageText.parse(DEMO_DIALOGUE_TEXT, renderer.fontDef,
-    { eos = false })
-  if not tokens then
-    self.saveStatus = "developer: demo dialogue parse failed: " .. tostring(err)
-    return
-  end
-  local ok, handle = pcall(self.dialogue.open, self.dialogue, {
-    id = "dev-smoke",
-    message = {
-      bankId = nil,
-      messageId = nil,
-      text = DEMO_DIALOGUE_TEXT,
-      tokens = tokens,
-      hadUnresolvedSubstitutions = false,
-    },
-    style = "field",
-    modal = true,
-    allowCancel = false,
-    metadata = { source = "developer dialogue smoke" },
-  })
-  if not ok or not handle then
-    self.saveStatus = "developer: dialogue open failed: " .. tostring(handle)
-    return
-  end
-  self.saveStatus = "developer: dialogue smoke message open"
-end
-
--- Render smoke driver for the dialogue UI: opens the developer dialogue,
--- captures one screenshot mid-reveal, then advances it through every state
--- with Action and quits 0 only when it closes cleanly. Run on a machine with
--- a display: G4RECOMP_DIALOGUE_SMOKE=1 G4RECOMP_SHOT=out.png love game/ --field
-function FieldState:_maybeRunDialogueSmoke()
-  if not os.getenv("G4RECOMP_DIALOGUE_SMOKE") then return end
-  if self.errorText then
-    io.stderr:write("dialogue-smoke: " .. self.errorText .. "\n")
-    love.event.quit(1)
-    return
-  end
-  local smoke = self._dialogueSmoke
-  if not smoke then
-    self._dialogueSmoke = { phase = "open", shot = false, ticks = 0 }
-    self:_openDevDialogue()
-    return
-  end
-  smoke.ticks = smoke.ticks + 1
-  local status = self.dialogue:status()
-  if not status.modal then
-    io.stderr:write(string.format(
-      "dialogue-smoke: closed cleanly after %d ticks, %d pages, %d warnings\n",
-      smoke.ticks, status.pageCount, #status.warnings))
-    love.event.quit(0)
-    return
-  end
-  if smoke.phase == "open" then
-    local revealing = status.state == "REVEALING"
-    local waiting = status.state == "WAITING_BOUNDARY"
-    if not revealing and not waiting and status.state ~= "OPENING" then
-      io.stderr:write("dialogue-smoke: unexpected state " .. status.state .. "\n")
-      love.event.quit(1)
-      return
-    end
-    if not smoke.shot and (waiting or status.revealedGlyphs >= 4) then
-      smoke.shot = true
-      local path = os.getenv("G4RECOMP_SHOT")
-      if path then love.graphics.captureScreenshot(path) end
-      if revealing then self.input:pressAction() end
-      smoke.phase = "advance"
-    end
-  elseif smoke.phase == "advance" then
-    if status.state == "WAITING_BOUNDARY" then
-      self.input:pressAction()
-      smoke.phase = "close"
-    elseif status.state == "WAITING_CLOSE" then
-      self.input:pressAction()
-      smoke.phase = "done"
-    end
-  elseif smoke.phase == "close" then
-    if status.state == "WAITING_CLOSE" then
-      self.input:pressAction()
-      smoke.phase = "done"
-    end
-  end
-  if smoke.ticks > 900 then
-    io.stderr:write("dialogue-smoke: timed out in state " .. status.state .. "\n")
-    love.event.quit(1)
   end
 end
 
@@ -475,6 +389,7 @@ function FieldState:_swapMap(resolution, facing)
     surfaceId = resolution.surfaceId,
     facing = facing,
     occupancy = playerOccupancy(self),
+    trace = function(record) self:_fieldTrace(record) end,
   })
   local profile = assert(self.cameraProfiles[runtimeMap.cameraType],
     "field camera cache has no camera type " .. runtimeMap.cameraType)
@@ -485,7 +400,6 @@ function FieldState:_swapMap(resolution, facing)
   local previousMapId = self.runtimeMap.mapId
   self.actors:enterMap(runtimeMap, self.eventState)
   if runtimeMap.mapId ~= previousMapId then self.actors:leaveMap(previousMapId) end
-  self.inspectorIndex = 0
 
   self.runtimeMap = runtimeMap
   self.runtime = runtimeMap.sceneRuntime
@@ -517,17 +431,6 @@ function FieldState:_applyZoomChange()
   self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
 end
 
-local function append(list, draw)
-  draw.submissionIndex = 100000 + #list
-  list[#list + 1] = draw
-end
-
-function FieldState:_eventPoint(event)
-  local ok, point = pcall(FieldCoordinates.fieldToWorld,
-    self.runtimeMap, event.x, event.z, (event.y or 0) / 16)
-  return ok and point or nil
-end
-
 -- Every actor the frame draws: the ROM-derived player billboard first, then the
 -- object actors the manager considers present. Records stay presentation-neutral;
 -- FieldActorDraw turns them into world draw items against the resident visuals.
@@ -553,48 +456,6 @@ function FieldState:_worldDraws(alpha)
   local list = self:_actorDraws(alpha)
   if self.runtimeMap.coverageRuntime then
     for _, draw in ipairs(self.runtimeMap.coverageRuntime.draws) do list[#list + 1] = draw end
-  end
-  if not self.overlaysVisible then return list end
-
-  -- Developer pins only. The player prism and the object-event boxes mark the
-  -- logical anchor of each actor, which the drawn billboards are placed from.
-  append(list, {
-    mesh = self.playerMesh, material = self.playerMaterial,
-    transform = Matrix4.translate(self.actor.worldX, self.actor.worldY, self.actor.worldZ),
-    center = { 0, 0.8, 0 },
-  })
-  for _, record in ipairs(self.actors:drawRecords(0)) do
-    append(list, {
-      mesh = self.actorMesh, material = self.eventMaterial,
-      transform = Matrix4.translate(record.world.x, record.world.y, record.world.z),
-      center = { 0, 0.8, 0 },
-    })
-  end
-
-  local events = self.runtimeMap.fieldData.events
-  for _, category in ipairs({ "background", "warps", "coordinates" }) do
-    for _, event in ipairs(events[category] or {}) do
-      local point = self:_eventPoint(event)
-      if point then
-        append(list, {
-          mesh = self.eventMesh, material = self.eventMaterial,
-          transform = Matrix4.translate(point.x, point.y, point.z),
-          center = { 0, 0.95, 0 },
-        })
-      end
-    end
-  end
-  for _, plate in ipairs(self.runtimeMap.terrain.plates) do
-    if plate.walkable ~= false then
-      local localX, localZ = (plate.minX + plate.maxX) / 2, (plate.minZ + plate.maxZ) / 2
-      local worldX, worldZ = FieldGrid.tileCenterToWorld(localX - 0.5, localZ - 0.5)
-      local worldY = self.runtimeMap.terrain:sampleHeight(plate.id, localX, localZ)
-      append(list, {
-        mesh = self.terrainMesh, material = self.terrainMaterial,
-        transform = Matrix4.translate(worldX, worldY, worldZ),
-        center = { 0, 0.6, 0 },
-      })
-    end
   end
   return list
 end
@@ -628,60 +489,29 @@ function FieldState:draw()
   self:_drawHud()
 end
 
--- The inspector walks the map's object-event records, not the live actors, so a
--- hidden actor can still be selected and toggled back into existence.
+-- The inspector readout walks the map's object-event records (spec section 2:
+-- map, objectEventId, spriteId, mmodel source, field coordinate, surface,
+-- facing, movement code, event flag, and scriptId), so a hidden actor still
+-- shows its HIDDEN state.
 function FieldState:_inspectorLine()
   local objects = self.runtimeMap.fieldData.events.objects or {}
   if #objects == 0 then return "inspector: map has no object events" end
-  local event = objects[self.inspectorIndex + 1]
+  local event = objects[1]
   local actor = self.actors:getById(
     string.format("map:%d:object:%d", self.runtimeMap.mapId, event.objectEventId))
   if not actor then
     return string.format(
-      "inspector %d/%d  object %d  sprite %d  field (%d,%d)  flag %d  script %d  HIDDEN",
-      self.inspectorIndex + 1, #objects, event.objectEventId, event.spriteId,
+      "inspector 1/%d  object %d  sprite %d  field (%d,%d)  flag %d  script %d  HIDDEN",
+      #objects, event.objectEventId, event.spriteId,
       event.x, event.z, event.eventFlag, event.scriptId)
   end
   local info = actor:describe()
   return string.format(
-    "inspector %d/%d  object %d  sprite %d (mmodel %s)  field (%d,%d) surface %d  %s"
+    "inspector 1/%d  object %d  sprite %d (mmodel %s)  field (%d,%d) surface %d  %s"
       .. "  movement %d  flag %d  script %d",
-    self.inspectorIndex + 1, #objects, info.objectEventId, info.spriteId,
+    #objects, info.objectEventId, info.spriteId,
     tostring(info.mapModelId), info.fieldX, info.fieldZ, info.surfaceId, info.facing,
     info.movement, info.eventFlag, info.scriptId)
-end
-
--- Developer mutation: writes through FieldEventState, never the actor manager,
--- so the runtime path under test is the same one a script will later use.
-function FieldState:_toggleInspectorFlag()
-  local objects = self.runtimeMap.fieldData.events.objects or {}
-  local event = objects[self.inspectorIndex + 1]
-  if not event then return end
-  if event.eventFlag == 0 then
-    self.saveStatus = "developer: object " .. event.objectEventId .. " has no dedicated flag"
-    return
-  end
-  local set = not self.eventState:isFlagSet(event.eventFlag)
-  if set then self.eventState:setFlag(event.eventFlag)
-  else self.eventState:clearFlag(event.eventFlag) end
-  self.saveStatus = string.format("developer: map %d object %d flag %d %s",
-    self.runtimeMap.mapId, event.objectEventId, event.eventFlag, set and "set" or "cleared")
-end
-
--- Developer control: cycle the player graphic through the manifest order, so
--- both avatars are verifiable before the save schema carries the choice.
-function FieldState:_cycleAvatar()
-  local avatars = FieldActorManifest.avatars
-  local index = self.avatar.index % #avatars + 1
-  local avatar = avatars[index]
-  -- Acquire before releasing: cycling back to the same sprite must not let its
-  -- last reference drop and dispose the resident visual.
-  local asset = self.actorAssets:acquire(avatar.spriteId)
-  self.actorAssets:release(self.avatarAsset.spriteId)
-  self.avatar = { index = index, id = avatar.id, spriteId = avatar.spriteId }
-  self.avatarAsset = asset
-  self.playerVisual:setAvatar(avatar.spriteId, asset.visual)
-  self.saveStatus = string.format("developer: avatar %s (sprite %d)", avatar.id, avatar.spriteId)
 end
 
 function FieldState:_drawHud()
@@ -722,9 +552,14 @@ function FieldState:_drawHud()
     string.format("avatar %s sprite %d  pose %s tick %d  facing %s",
       self.avatar.id, self.avatar.spriteId, self.playerVisual.pose,
       self.playerVisual.poseTick, self.player.facing),
+    self.lastInteraction and string.format("interaction %s map %d target (%d,%d) script %d/%d",
+      self.lastInteraction.kind, self.lastInteraction.mapId,
+      self.lastInteraction.targetFieldX, self.lastInteraction.targetFieldZ,
+      self.lastInteraction.scriptId, tostring(self.lastInteraction.scriptBankId))
+      or "interaction none yet",
     self:_inspectorLine(),
-    string.format("tick %d  dropped %d  overlays %s",
-      self.session.tick, self.session.discardedTicks, self.overlaysVisible and "on" or "off"),
+    string.format("tick %d  dropped %d",
+      self.session.tick, self.session.discardedTicks),
     string.format("transition %s  fade %.2f",
       self.transition.phase, self.transition.fadeAlpha),
     string.format("dialogue %s page %d/%d  reveal %d/%d  cursor %s",
@@ -733,8 +568,7 @@ function FieldState:_drawHud()
       dialogueStatus.waiting and (dialogueStatus.cursorOn and "on" or "off") or "-"),
     self.saveStatus or "save not written this run",
     "WASD/arrows move   Z/Space/Enter action   X/Backspace cancel   -/= zoom"
-      .. "   0 reset zoom   F1 overlays   F2 inspect   F3 toggle flag"
-      .. "   F4 avatar   F5 save   F6 dialogue   F9 reset   Esc quit",
+      .. "   0 reset zoom   F1 save   F2 reset   Esc quit",
   }
   lg.setColor(0, 0, 0, 0.55)
   lg.rectangle("fill", 12, 12, 900, 20 * #lines + 12)
@@ -744,16 +578,8 @@ end
 
 function FieldState:keypressed(key)
   if key == "escape" then love.event.quit(0) end
-  if key == "f1" then self.overlaysVisible = not self.overlaysVisible end
-  if key == "f2" then
-    local count = #(self.runtimeMap.fieldData.events.objects or {})
-    if count > 0 then self.inspectorIndex = (self.inspectorIndex + 1) % count end
-  end
-  if key == "f3" then self:_toggleInspectorFlag() end
-  if key == "f4" then self:_cycleAvatar() end
-  if key == "f5" then self:_save() end
-  if key == "f6" then self:_openDevDialogue() end
-  if key == "f9" then self:_reset() return end
+  if key == "f1" then self:_save() end
+  if key == "f2" then self:_reset() return end
   if self.actionKeys and self.actionKeys[key] and self.input then
     self.input:pressAction()
   end
@@ -829,6 +655,8 @@ function FieldState:_release()
   if self.dialogue then self.dialogue:dispose() end
   if self.dialogueRenderer then self.dialogueRenderer:release() end
   self.dialogue, self.dialogueRenderer = nil, nil
+  if self.messageProvider then self.messageProvider:dispose() end
+  self.messageProvider = nil
   if self.actors then self.actors:dispose() end
   if self.avatarAsset and self.actorAssets then
     self.actorAssets:release(self.avatarAsset.spriteId)
@@ -837,10 +665,6 @@ function FieldState:_release()
   if self.actorAssets then self.actorAssets:dispose() end
   if self.renderer then self.renderer:release() end
   if self.mapLoader then self.mapLoader:release() end
-  for _, key in ipairs({ "playerMesh", "actorMesh", "eventMesh", "terrainMesh" }) do
-    if self[key] then self[key]:release() end
-    self[key] = nil
-  end
   self.actors, self.actorAssets, self.renderer, self.mapLoader = nil, nil, nil, nil
 end
 
