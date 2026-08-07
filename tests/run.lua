@@ -78,6 +78,9 @@ local MODULES = {
   "libs.engine.tests.field_dialogue_theme_test",
   "libs.engine.tests.field_dialogue_controller_test",
   "libs.engine.tests.field_dialogue_renderer_test",
+  "libs.engine.tests.script.dsl_tests",
+  "libs.engine.tests.script.validator_tests",
+  "libs.engine.tests.script.docgen_test",
   -- game
   "game.tests.app_boot_test",
   -- romdump
