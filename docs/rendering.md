@@ -272,8 +272,7 @@ Controls in the map diagnostic:
 * `Q/E` or `PageUp/PageDown` — step time backward/forward by one hour;
 * `Esc` — quit.
 
-Set `G4RECOMP_FIELD_TIME=<seconds>` to override the default noon time for an
-automated capture, and `G4RECOMP_SHOT=<path>` to save a screenshot and exit.
+Set `G4RECOMP_FIELD_TIME=<seconds>` to override the default noon time.
 
 Known discrepancies to record: no BDHC height (player Y is flat) and the
 deferred behaviors listed above. The diagnostic uses the exact ROM-derived

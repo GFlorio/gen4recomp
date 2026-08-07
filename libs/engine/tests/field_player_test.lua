@@ -166,4 +166,38 @@ function T.occupancy_blocks_only_the_cell_it_names()
   Assert.equal(p.fieldX, 2)
 end
 
+function T.blocked_move_emits_a_trace_with_the_blocking_actor()
+  local traces = {}
+  local p = FieldPlayer.new({
+    currentMap = runtimeMap(), fieldX = 0, fieldZ = 4,
+    surfaceId = 0, facing = "south",
+    occupancy = function(cellX, cellZ, cellSurface)
+      if cellX == 1 and cellZ == 4 and cellSurface == 1 then return "map:61:object:0" end
+      return nil
+    end,
+    trace = function(record) traces[#traces + 1] = record end,
+  })
+  tick(p, "east", "east")
+  Assert.equal(p.fieldX, 0)
+  Assert.equal(#traces, 1)
+  Assert.equal(traces[1].kind, "field.player.move.blocked")
+  Assert.equal(traces[1].actorId, "map:61:object:0")
+  Assert.equal(traces[1].direction, "east")
+  Assert.equal(traces[1].fieldX, 1)
+  Assert.equal(traces[1].fieldZ, 4)
+end
+
+function T.unblocked_and_terrain_rejected_steps_emit_no_trace()
+  local traces = {}
+  local p = FieldPlayer.new({
+    currentMap = runtimeMap(), fieldX = 0, fieldZ = 4,
+    surfaceId = 0, facing = "south",
+    occupancy = function() return nil end,
+    trace = function(record) traces[#traces + 1] = record end,
+  })
+  tick(p, "east", "east")
+  Assert.equal(p.motion, "walking")
+  Assert.equal(#traces, 0)
+end
+
 return T

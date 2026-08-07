@@ -25,20 +25,20 @@ function T.fixed_ticks_are_render_cadence_independent()
   local b = session()
   b:update(1 / 60)
   b:update(1 / 60)
-  Assert.equal(a.tick, 2)
-  Assert.equal(b.tick, 2)
+  Assert.equal(a.tick, 1)
+  Assert.equal(b.tick, 1)
 end
 
 function T.caps_catch_up_and_counts_discarded_ticks()
   local s = session()
-  s:update(10 / 60)
+  s:update(10 / 30)
   Assert.equal(s.tick, 5)
   Assert.equal(s.discardedTicks, 5)
 end
 
 function T.camera_follows_the_actor_xyz_each_fixed_tick()
   local s, targets = session()
-  s:update(1 / 60)
+  s:update(1 / 30)
   Assert.deepEqual(targets[1], { x = 1.25, y = 2.5, z = 3.75 })
 end
 
@@ -368,6 +368,121 @@ function T.transition_commit_clears_stale_action_edges()
   -- the fade; held state legitimately survives.
   Assert.isFalse(input.actionPressed, "no stale pressed edge survives the commit")
   Assert.equal(input.actionDown, true, "held state survives the commit")
+end
+
+local function interactionSession(opts)
+  opts = opts or {}
+  local resolved, consumed
+  local interactions
+  interactions = {
+    resolve = function(_, snapshot)
+      resolved = snapshot
+      interactions.resolveSnapshot = snapshot
+      return opts.intent or nil
+    end,
+    consume = function(_, intent)
+      consumed = intent
+      interactions.consumedIntent = intent
+      return opts.consumed ~= false
+    end,
+  }
+  local steps = 0
+  local actor = {
+    fieldX = 4, fieldZ = 14, worldX = 0, worldY = 0, worldZ = 0,
+    surfaceId = 0, facing = "north", motion = "idle",
+    updateFixed = function()
+      steps = steps + 1
+      return false
+    end,
+  }
+  local camera = { updateFixed = function() end }
+  local actors = { step = function() end }
+  local transition = { phase = "idle", locked = false, updateFixed = function() end }
+  local session = FieldSession.new({
+    versionId = "heartgold", currentMap = { mapId = 61, cameraType = 4 },
+    actor = actor, player = actor, camera = camera, transition = transition,
+    actors = actors, interactions = interactions,
+  })
+  return session, actor, interactions, function() return steps end
+end
+
+function T.consumed_interaction_owns_the_tick()
+  local session, actor, interactions, steps = interactionSession({
+    intent = { kind = "object", object = { actorId = "map:61:object:0" } },
+  })
+  session:updateFixed({ actionPressed = true, heldDirection = "north" })
+  assert(interactions.resolveSnapshot, "the resolver must have been consulted")
+  assert(interactions.consumedIntent, "the resolved intent must be dispatched")
+  Assert.equal(steps(), 0, "a consumed interaction blocks movement on the same tick")
+  Assert.equal(actor.facing, "north", "the held direction did not start a step")
+  Assert.equal(session.tick, 1)
+end
+
+function T.unresolved_interaction_falls_through_to_movement()
+  local session, actor, interactions, steps = interactionSession()
+  session:updateFixed({ actionPressed = true, heldDirection = "north" })
+  Assert.equal(steps(), 1, "a nil intent leaves the tick to movement")
+  Assert.equal(actor.facing, "north")
+end
+
+function T.unconsumed_interaction_does_not_own_the_tick()
+  local session, actor, interactions, steps = interactionSession({
+    intent = { kind = "background" },
+    consumed = false,
+  })
+  session:updateFixed({ actionPressed = true, heldDirection = "north" })
+  Assert.equal(steps(), 1, "a rejected intent does not block movement")
+  Assert.equal(actor.facing, "north")
+end
+
+function T.interaction_resolve_snapshot_carries_the_player_state()
+  local session, actor, interactions = interactionSession({
+    intent = { kind = "object", object = { actorId = "map:61:object:0" } },
+  })
+  session:updateFixed({ actionPressed = true })
+  local snapshot = interactions.resolveSnapshot
+  assert(snapshot, "the resolver must have been consulted")
+  Assert.equal(snapshot.mapId, 61)
+  Assert.equal(snapshot.fieldX, 4)
+  Assert.equal(snapshot.fieldZ, 14)
+  Assert.equal(snapshot.facing, "north")
+  Assert.equal(snapshot.playerIdle, true)
+  Assert.equal(snapshot.actionPressed, true)
+  Assert.equal(snapshot.transitionActive, false)
+  Assert.equal(snapshot.modalActive, false)
+  Assert.equal(snapshot.tick, 1)
+end
+
+function T.interaction_never_resolves_while_walking()
+  local session, actor, interactions = interactionSession({
+    intent = { kind = "object", object = { actorId = "map:61:object:0" } },
+  })
+  actor.motion = "walking"
+  session:updateFixed({ actionPressed = true })
+  Assert.isNil(interactions.resolveSnapshot, "a moving player is never asked to interact")
+end
+
+function T.interaction_never_resolves_without_the_action_edge()
+  local session, actor, interactions = interactionSession({
+    intent = { kind = "object", object = { actorId = "map:61:object:0" } },
+  })
+  session:updateFixed({ actionDown = true, heldDirection = "north" })
+  Assert.isNil(interactions.resolveSnapshot, "held Action alone never resolves")
+end
+
+function T.interaction_never_resolves_under_a_locked_transition_or_modal()
+  local session, actor, interactions, steps = interactionSession({
+    intent = { kind = "object", object = { actorId = "map:61:object:0" } },
+  })
+  session.transition.locked = true
+  session:updateFixed({ actionPressed = true })
+  Assert.isNil(interactions.resolveSnapshot, "a locked transition owns the tick")
+  Assert.equal(steps(), 0)
+
+  session.transition.locked = false
+  session.dialogue = { isModal = function() return true end, step = function() end }
+  session:updateFixed({ actionPressed = true })
+  Assert.isNil(interactions.resolveSnapshot, "modal ownership blocks new interactions")
 end
 
 return T

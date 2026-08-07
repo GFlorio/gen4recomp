@@ -41,13 +41,12 @@ function ActorPreviewState.new(versionId)
 end
 
 function ActorPreviewState:update(dt)
-  if self.errorText then return self:_maybeCaptureAndQuit() end
+  if self.errorText then return end
   self.accumulator = self.accumulator + math.min(dt, 0.25)
   while self.accumulator >= FIXED_DT do
     self.accumulator = self.accumulator - FIXED_DT
     if not self.paused then self.tick = self.tick + 1 end
   end
-  self:_maybeCaptureAndQuit()
 end
 
 -- Select the displayed frame of a looping pose from the fixed tick, exactly as
@@ -106,19 +105,6 @@ function ActorPreviewState:keypressed(key)
   if key == "space" then self.paused = not self.paused end
   if key == "down" then self.scroll = math.min(self.scroll + 1, #self.entries - 1) end
   if key == "up" then self.scroll = math.max(self.scroll - 1, 0) end
-end
-
--- Env-gated render smoke, matching the map diagnostic: capture one warmed frame
--- to a save-dir-relative path and quit.
-function ActorPreviewState:_maybeCaptureAndQuit()
-  local path = os.getenv("G4RECOMP_SHOT")
-  if not path then return end
-  self._frames = (self._frames or 0) + 1
-  if self._frames == 20 then
-    love.graphics.captureScreenshot(path)
-  elseif self._frames >= 21 then
-    love.event.quit(self.errorText and 1 or 0)
-  end
 end
 
 function ActorPreviewState:quit()

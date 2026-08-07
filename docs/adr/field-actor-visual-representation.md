@@ -140,7 +140,7 @@ per-sprite source bundle for all eleven target classes, the absence of
 descriptors, Marill's uneven loop, the shared model's quad and polygon state,
 and byte-reproducible compilation.
 `scripts/inspect-actors.sh` prints the same facts without writing anything, and
-`scripts/actor-preview.sh` renders all four directions and the animated walk for
+`love game/ --actors` renders all four directions and the animated walk for
 every compiled sprite with a ground line at the pivot.
 
 ## Render state

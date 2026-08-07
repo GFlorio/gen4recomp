@@ -72,6 +72,8 @@ local MODULES = {
   "libs.engine.tests.field_actor_draw_test",
   "libs.engine.tests.field_player_visual_test",
   "libs.engine.tests.field_scenario_test",
+  "libs.engine.tests.field_interaction_resolver_test",
+  "libs.engine.tests.pre_script_interaction_adapter_test",
   "libs.engine.tests.field_message_provider_test",
   "libs.engine.tests.dialogue_layout_test",
   "libs.engine.tests.field_dialogue_theme_test",

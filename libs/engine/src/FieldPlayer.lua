@@ -4,9 +4,11 @@
 --
 -- Collision follows the spec decision order: permissions, then terrain surface
 -- transition, then dynamic occupancy. The occupancy check is injected as a
--- pure predicate -- `occupancy(fieldX, fieldZ, surfaceId) -> truthy blocks` --
--- so the player never knows which object blocks it, and the actor manager
--- stays the only owner of the occupancy index.
+-- pure predicate -- `occupancy(fieldX, fieldZ, surfaceId) -> blockingActorId or
+-- nil` -- so the player never knows which object blocks it, and the actor
+-- manager stays the only owner of the occupancy index. An optional `trace`
+-- sink receives `field.player.move.blocked` records for the exit demo trace
+-- (spec section 21.8).
 
 local Errors = require("libs.rom.src.Errors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
@@ -41,6 +43,8 @@ function FieldPlayer.new(options)
   assert(type(options.surfaceId) == "number", "FieldPlayer surface id required")
   assert(options.occupancy == nil or type(options.occupancy) == "function",
     "FieldPlayer occupancy predicate must be a function")
+  assert(options.trace == nil or type(options.trace) == "function",
+    "FieldPlayer trace sink must be a function")
   local map = options.currentMap
   local localX, localZ = FieldCoordinates.fieldToLocal(map, options.fieldX, options.fieldZ)
   local sample = map.terrain:sample(options.surfaceId, localX + 0.5, localZ + 0.5)
@@ -49,6 +53,7 @@ function FieldPlayer.new(options)
     currentMap = map,
     resolver = SurfaceResolver.new(map.terrain),
     occupancy = options.occupancy,
+    trace = options.trace,
     fieldX = options.fieldX,
     fieldZ = options.fieldZ,
     localX = localX,
@@ -93,8 +98,20 @@ function FieldPlayer:_resolveStep(direction)
     -- Occupancy is checked against the resolved destination surface, so an
     -- actor on a different surface never blocks a same-cell approach, and it
     -- runs only after terrain accepts the step.
-    if self.occupancy and self.occupancy(destinationX, destinationZ, sample.surfaceId) then
-      return nil
+    if self.occupancy then
+      local blockingActorId = self.occupancy(destinationX, destinationZ, sample.surfaceId)
+      if blockingActorId then
+        if self.trace then
+          self.trace({
+            kind = "field.player.move.blocked",
+            actorId = blockingActorId,
+            direction = direction,
+            fieldX = destinationX,
+            fieldZ = destinationZ,
+          })
+        end
+        return nil
+      end
     end
     return {
       fieldX = destinationX, fieldZ = destinationZ,
