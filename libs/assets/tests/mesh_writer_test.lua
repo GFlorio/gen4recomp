@@ -16,6 +16,12 @@ local function triangle()
   return { vertices = { v(0, 0, 0, 0), v(1, 0, 0, 1), v(0, 0, 1, 2) }, indices = { 0, 1, 2 } }
 end
 
+local function raisesCode(code, fn, ...)
+  local ok, err = pcall(fn, ...)
+  Assert.isTrue(not ok and Errors.is(err), "expected " .. code .. " to be raised")
+  Assert.equal(err.code, code)
+end
+
 function T.header_fields()
   local s = MeshWriter.encode(triangle())
   local r = BinaryReader.new(s, "mesh")
@@ -49,19 +55,16 @@ end
 
 function T.rejects_unresolved_color_source()
   local b = triangle(); b.vertices[1].colorSource = nil
-  local ok, err = pcall(MeshWriter.encode, b)
-  Assert.isTrue(not ok and Errors.is(err) and err.code == "MESH_UNRESOLVED_COLOR_SOURCE", "nil source raises")
+  raisesCode("MESH_UNRESOLVED_COLOR_SOURCE", MeshWriter.encode, b)
 end
 
 function T.rejects_empty_batch()
-  local ok, err = pcall(MeshWriter.encode, { vertices = {}, indices = {} })
-  Assert.isTrue(not ok and Errors.is(err) and err.code == "MESH_EMPTY", "empty raises")
+  raisesCode("MESH_EMPTY", MeshWriter.encode, { vertices = {}, indices = {} })
 end
 
 function T.rejects_non_triangle_index_count()
   local b = triangle(); b.indices = { 0, 1 }
-  local ok, err = pcall(MeshWriter.encode, b)
-  Assert.isTrue(not ok and Errors.is(err) and err.code == "MESH_BAD_INDEX_COUNT", "bad count raises")
+  raisesCode("MESH_BAD_INDEX_COUNT", MeshWriter.encode, b)
 end
 
 return T

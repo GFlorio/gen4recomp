@@ -73,7 +73,7 @@ end
 -- transition active, and no half-open modal dialogue (spec section 16.3).
 
 ---@param session FieldSession?
----@return boolean
+---@return boolean?
 function FieldSave.canCapture(session)
   return session and session.player and session.player.motion == "idle"
     and (not session.transition or session.transition.phase == "idle")

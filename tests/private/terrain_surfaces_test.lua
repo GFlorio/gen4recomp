@@ -142,6 +142,7 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
     fieldZ = resolved.worldOriginZ + 10,
     surfaceId = 4,
     facing = "north",
+    occupancy = function() return nil end,
   })
   local profile = {
     projectionType = "perspective", distanceTiles = 10,
@@ -214,6 +215,7 @@ function T.upper_new_bark_staircase_state_reloads_on_the_same_surface(romFs, ver
     fieldZ = resolved.worldOriginZ + 6,
     surfaceId = 0,
     facing = "east",
+    occupancy = function() return nil end,
   })
   local saved = FieldSave.capture({
     versionId = versionId,

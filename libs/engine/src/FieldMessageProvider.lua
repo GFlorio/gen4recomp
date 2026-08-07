@@ -8,8 +8,32 @@ local Errors = require("libs.rom.src.Errors")
 local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
 local FieldMessageText = require("libs.assets.src.FieldMessageText")
 
+---@class FieldMessageProvider
+---@field private _cacheFs CacheFs
+---@field private _maxCachedBanks integer
+---@field private _banks table<integer, table>
+---@field private _order integer[]
+---@field private _tick integer
+---@field private _stats table
 local FieldMessageProvider = {}
 FieldMessageProvider.__index = FieldMessageProvider
+
+---@class MessageToken
+---@field kind "glyph"|"substitution"|"eos"|"line_break"|"prompt_break"|"page_break"|"unsupported_control"
+---@field raw integer[]
+---@field code integer?
+---@field text string?
+---@field control integer?
+---@field name string?
+---@field args integer[]?
+
+---@class FieldMessageProvider.FormattedMessage
+---@field bankId integer
+---@field messageId integer
+---@field text string
+---@field tokens MessageToken[]
+---@field hadUnresolvedSubstitutions boolean
+
 
 local DEFAULT_MAX_CACHED_BANKS = 4
 

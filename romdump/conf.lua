@@ -1,3 +1,4 @@
+---@diagnostic disable: duplicate-set-field
 -- LÖVE configuration for the romdump CLI. It is always windowless and runs
 -- without GPU/audio: every command is headless, prints machine-readable output,
 -- and exits with a status code.

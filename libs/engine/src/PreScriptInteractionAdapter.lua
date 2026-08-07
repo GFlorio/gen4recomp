@@ -15,6 +15,14 @@ local Errors = require("libs.rom.src.Errors")
 local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
 local FieldMessageText = require("libs.assets.src.FieldMessageText")
 
+---@class PreScriptInteractionAdapter
+---@field dialogue FieldDialogueController
+---@field provider FieldMessageProvider
+---@field layout fun(formatted: FieldMessageProvider.FormattedMessage): DialogueLayout.Result
+---@field fontDef table
+---@field getActor fun(actorId: string): FieldObjectActor?
+---@field mapMessageBank fun(mapId: integer): integer?
+---@field fixtures table<string, table>
 local PreScriptInteractionAdapter = {}
 PreScriptInteractionAdapter.__index = PreScriptInteractionAdapter
 
@@ -32,6 +40,7 @@ local SUBSTITUTION_CONTROLS = {
 }
 
 local UNMAPPED_RELEASE_TEXT = "Nothing is wired here yet."
+
 
 ---@class PreScriptInteractionAdapterOptions
 ---@field dialogue FieldDialogueController
@@ -199,13 +208,18 @@ function PreScriptInteractionAdapter:consume(intent)
   -- dummy interaction and is restored on every exit path (spec section 8.8).
   local actor, token
   if fixture.facePlayer then
-    actor = self.getActor(intent.object and intent.object.actorId)
+    local actorId = assert(intent.object and intent.object.actorId,
+      "a facePlayer fixture requires an object intent")
+    actor = self.getActor(actorId)
     if not actor then
       Errors.raise("INTERACTION_FIXTURE_MISSING",
-        "fixture " .. key .. " needs actor " .. tostring(intent.object and intent.object.actorId)
+        "fixture " .. key .. " needs actor " .. tostring(actorId)
           .. " but no such actor is live",
-        { fixtureKey = key, actorId = intent.object and intent.object.actorId, mapId = intent.mapId })
+        { fixtureKey = key, actorId = actorId, mapId = intent.mapId })
     end
+    -- The guard above raises on a missing fixture; LuaLS cannot see through
+    -- Errors.raise, so the assert narrows actor to the live instance.
+    actor = assert(actor)
     local facing = assert(OPPOSITE_FACING[intent.playerFacing],
       "unknown player facing " .. tostring(intent.playerFacing))
     token = actor:pushFacingOverride({ owner = OVERRIDE_OWNER, facing = facing })

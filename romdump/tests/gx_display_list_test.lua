@@ -114,14 +114,14 @@ function T.unknown_opcode_is_fatal()
   local bytes = string.char(0x99, 0, 0, 0)
   local r, err = Gx.decode(bytes)
   Assert.isNil(r)
-  Assert.equal(err.code, "GX_UNKNOWN_OPCODE")
-  Assert.equal(err.context.opcode, 0x99)
+  Assert.equal(assert(err).code, "GX_UNKNOWN_OPCODE")
+  Assert.equal(assert(err).context.opcode, 0x99)
 end
 
 function T.unterminated_primitive_is_fatal()
   local r, err = Gx.decode(dl({ { op = 0x40, p = { 0 } }, vtx16(0, 0, 0) }))
   Assert.isNil(r)
-  Assert.equal(err.code, "GX_UNTERMINATED_PRIMITIVE")
+  Assert.equal(assert(err).code, "GX_UNTERMINATED_PRIMITIVE")
 end
 
 function T.incomplete_triangle_is_fatal()
@@ -129,7 +129,7 @@ function T.incomplete_triangle_is_fatal()
     { op = 0x40, p = { 0 } }, vtx16(0, 0, 0), vtx16(1, 0, 0), { op = 0x41 },
   }))
   Assert.isNil(r)
-  Assert.equal(err.code, "GX_INCOMPLETE_PRIMITIVE")
+  Assert.equal(assert(err).code, "GX_INCOMPLETE_PRIMITIVE")
 end
 
 function T.externally_supplied_restore_slot_is_honored()
@@ -232,7 +232,7 @@ end
 function T.projection_matrix_mode_is_fatal()
   local r, err = Gx.decode(dl({ { op = 0x10, p = { 0 } } }))
   Assert.isNil(r)
-  Assert.equal(err.code, "GX_PROJECTION_MATRIX_MODE_UNSUPPORTED")
+  Assert.equal(assert(err).code, "GX_PROJECTION_MATRIX_MODE_UNSUPPORTED")
 end
 
 return T

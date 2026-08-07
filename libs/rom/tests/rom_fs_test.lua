@@ -1,16 +1,25 @@
 local Assert = require("tests.support.Assert")
+local Errors = require("libs.rom.src.Errors")
 local RomFs = require("libs.rom.src.RomFs")
 local MapMatrix = require("libs.assets.src.MapMatrix")
 local DumpFixture = require("tests.support.DumpFixture")
 
 local T = {}
 
+-- RomFs.open returns its error unannotated, so err arrives typed as RomFs
+-- itself; cast to the Errors.Error contract the test has already verified.
+---@param e any
+---@return Errors.Error
+local function asError(e)
+  return e
+end
+
 local function openFs()
   local r = DumpFixture.extract()
   Assert.notNil(r.report, "fixture extraction failed: " .. tostring(r.err))
   local fs, err = RomFs.open(r.versionId, r.cache)
   Assert.notNil(fs, "RomFs.open failed: " .. tostring(err))
-  return fs, r
+  return assert(fs), r
 end
 
 function T.loads_index_and_builds_path_map()
@@ -46,6 +55,7 @@ function T.reads_overlay_by_cpu_and_overlay_id()
   Assert.equal(info.path, "system/overlay9/overlay_0.bin")
   local bytes, readInfo = fs:readOverlay("arm9", 0)
   Assert.equal(bytes, "OVERLAY0-DATA")
+  assert(readInfo)
   Assert.equal(readInfo.fileId, info.fileId)
 end
 
@@ -53,10 +63,10 @@ function T.overlay_lookup_returns_typed_errors()
   local fs = openFs()
   local info, cpuErr = fs:overlayInfo("arm11", 0)
   Assert.isNil(info)
-  Assert.equal(cpuErr.code, "ROMFS_OVERLAY_UNKNOWN_CPU")
+  Assert.equal(assert(cpuErr).code, "ROMFS_OVERLAY_UNKNOWN_CPU")
   local bytes, idErr = fs:readOverlay("arm9", 99)
   Assert.isNil(bytes)
-  Assert.equal(idErr.code, "ROMFS_OVERLAY_UNKNOWN_ID")
+  Assert.equal(assert(idErr).code, "ROMFS_OVERLAY_UNKNOWN_ID")
 end
 
 function T.missing_overlay_file_returns_overlay_error()
@@ -64,16 +74,16 @@ function T.missing_overlay_file_returns_overlay_error()
   fixture.cache:remove("system/overlay9/overlay_0.bin")
   local bytes, err = fs:readOverlay("arm9", 0)
   Assert.isNil(bytes)
-  Assert.equal(err.code, "ROMFS_OVERLAY_FILE_MISSING")
-  Assert.equal(err.context.fileId, 0)
+  Assert.equal(assert(err).code, "ROMFS_OVERLAY_FILE_MISSING")
+  Assert.equal(assert(err).context.fileId, 0)
 end
 
 function T.resolves_alias_and_symbol_to_path_and_file_id()
   local fs = openFs()
-  local byAlias = fs:resolvedNarc("map_matrices")
+  local byAlias = assert(fs:resolvedNarc("map_matrices"))
   Assert.equal(byAlias.path, "a/0/4/1")
   Assert.equal(byAlias.fileId, 5)
-  local bySymbol = fs:resolvedNarc("NARC_fielddata_mapmatrix_map_matrix")
+  local bySymbol = assert(fs:resolvedNarc("NARC_fielddata_mapmatrix_map_matrix"))
   Assert.equal(bySymbol.fileId, 5)
 end
 
@@ -81,6 +91,7 @@ function T.opens_narc_and_decodes_matrix()
   local fs = openFs()
   local narc, err = fs:openNarc("map_matrices")
   Assert.notNil(narc, "openNarc failed: " .. tostring(err))
+  assert(narc)
   Assert.equal(narc:memberCount(), 1)
   local matrix = assert(MapMatrix.decode(narc:readMember(0), 0))
   Assert.equal(matrix.width, 2)
@@ -96,13 +107,14 @@ function T.resolves_without_a_baked_narc_table()
   Assert.isNil(r.backend.files[r.versionId .. "/data/generated/resolved_narcs.lua"],
     "resolved_narcs.lua should no longer be produced")
   local fs = assert(RomFs.open(r.versionId, r.cache))
-  local entry = fs:resolvedNarc("map_matrices")
+  local entry = assert(fs:resolvedNarc("map_matrices"))
   Assert.notNil(entry, "alias must resolve from manifest + FNT index")
   Assert.equal(entry.path, "a/0/4/1")
   Assert.equal(entry.fileId, 5)
   Assert.isNil(entry.memberCount, "member count is not precomputed; open the NARC for it")
   local narc, err = fs:openNarc("map_matrices")
   Assert.notNil(narc, "openNarc failed: " .. tostring(err))
+  assert(narc)
   Assert.equal(narc:memberCount(), 1)
 end
 
@@ -110,7 +122,7 @@ function T.unknown_source_path_returns_error()
   local fs = openFs()
   local data, err = fs:read("a/9/9/9")
   Assert.isNil(data)
-  Assert.equal(err.code, "ROMFS_PATH_UNKNOWN")
+  Assert.equal(assert(err).code, "ROMFS_PATH_UNKNOWN")
 end
 
 function T.open_fails_when_not_ready()
@@ -119,7 +131,7 @@ function T.open_fails_when_not_ready()
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   local fs, err = RomFs.open("heartgold", cache)
   Assert.isNil(fs)
-  Assert.equal(err.code, "ROMFS_NOT_READY")
+  Assert.equal(asError(err).code, "ROMFS_NOT_READY")
 end
 
 function T.open_rejects_schema_mismatch()
@@ -127,7 +139,7 @@ function T.open_rejects_schema_mismatch()
   r.cache:writeLua("data/generated/romfs_index.lua", { schema = 2 })
   local fs, err = RomFs.open(r.versionId, r.cache)
   Assert.isNil(fs)
-  Assert.equal(err.code, "ROMFS_SCHEMA_MISMATCH")
+  Assert.equal(asError(err).code, "ROMFS_SCHEMA_MISMATCH")
 end
 
 function T.open_rejects_overlay_schema_mismatch()
@@ -135,7 +147,7 @@ function T.open_rejects_overlay_schema_mismatch()
   r.cache:writeLua("data/generated/overlay_index.lua", { schema = 2 })
   local fs, err = RomFs.open(r.versionId, r.cache)
   Assert.isNil(fs)
-  Assert.equal(err.code, "ROMFS_OVERLAY_INDEX_SCHEMA")
+  Assert.equal(asError(err).code, "ROMFS_OVERLAY_INDEX_SCHEMA")
 end
 
 return T

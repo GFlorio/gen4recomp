@@ -1,9 +1,20 @@
 -- Nintendo DS backwards-LZ overlay decompression.
 
 local Assert = require("tests.support.Assert")
+local Errors = require("libs.rom.src.Errors")
 local OverlayCompression = require("libs.rom.src.OverlayCompression")
 
 local T = {}
+
+-- OverlayCompression.decode returns its error unannotated, so err arrives
+-- typed as the payload; cast to the Errors.Error contract the test has
+-- already verified.
+---@param e any
+---@return Errors.Error
+local function asError(e)
+  return e
+end
+
 local function u8(v) return string.char(v % 256) end
 local function u32(v)
   return u8(v) .. u8(math.floor(v / 256)) .. u8(math.floor(v / 65536))
@@ -22,7 +33,7 @@ function T.rejects_expected_size_mismatch()
     .. u32(0x0800000E) .. u32(2)
   local bytes, err = OverlayCompression.decode(packed, 17)
   Assert.isNil(bytes)
-  Assert.equal(err.code, "OVERLAY_COMPRESSION_SIZE_MISMATCH")
+  Assert.equal(asError(err).code, "OVERLAY_COMPRESSION_SIZE_MISMATCH")
 end
 
 return T

@@ -242,8 +242,8 @@ end
 function FieldFontDecoder.decodeMember(data, opts)
   assert(type(data) == "string", "FieldFontDecoder.decodeMember requires a string")
   local ok, result = pcall(openMember, data, opts)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then return result, nil end
+  if Errors.is(result) then return nil, result --[[@as Errors.Error]] end
   error(result)
 end
 
@@ -254,8 +254,8 @@ end
 function FieldFontDecoder.decodePalette(data, opts)
   assert(type(data) == "string", "FieldFontDecoder.decodePalette requires a string")
   local ok, result = pcall(decodePalette, data, opts)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then return result, nil end
+  if Errors.is(result) then return nil, result --[[@as Errors.Error]] end
   error(result)
 end
 

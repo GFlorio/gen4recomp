@@ -12,6 +12,28 @@ local Errors = require("libs.rom.src.Errors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 
+---@class FieldPlayer
+---@field currentMap RuntimeFieldMap
+---@field resolver SurfaceResolver
+---@field occupancy fun(fieldX: integer, fieldZ: integer, surfaceId: integer): string|nil?
+---@field fieldX integer
+---@field fieldZ integer
+---@field localX integer
+---@field localZ integer
+---@field worldX number
+---@field worldY number
+---@field worldZ number
+---@field previousWorldX number
+---@field previousWorldY number
+---@field previousWorldZ number
+---@field surfaceId integer
+---@field facing FieldDirection
+---@field motion "idle"|"walking"
+---@field progressTicks integer
+---@field durationTicks integer
+---@field bufferedDirection FieldDirection?
+---@field from table?
+---@field to table?
 local FieldPlayer = {}
 FieldPlayer.__index = FieldPlayer
 
@@ -26,7 +48,8 @@ FieldPlayer.WALK_STEP_TICKS = 8
 ---@field fieldZ integer
 ---@field surfaceId integer
 ---@field facing FieldDirection?
----@field occupancy fun(fieldX: integer, fieldZ: integer, surfaceId: integer): string|nil?
+---@field occupancy? fun(fieldX: integer, fieldZ: integer, surfaceId: integer): string|nil
+
 
 local DELTAS = {
   north = { x = 0, z = -1 },

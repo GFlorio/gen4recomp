@@ -4,6 +4,7 @@
 -- failure the whole class is invalidated so a partial build never reads as
 -- complete.
 
+local Errors = require("libs.rom.src.Errors")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 
 local FieldFontCacheWriter = {}

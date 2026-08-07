@@ -56,7 +56,7 @@ function T.selects_mapped_neighbors_and_skips_unmapped()
   -- Seven of the eight neighbours are kept; (3,1)'s header 99 has no mapping.
   Assert.equal(#plan.cells, 7)
   Assert.isNil(cellAt(plan, 3, 1))
-  local w = cellAt(plan, 1, 2)
+  local w = assert(cellAt(plan, 1, 2))
   Assert.equal(w.mapHeaderId, 33)
   Assert.equal(w.landDataMemberId, 3)
   Assert.equal(w.areaDataMemberId, 2)
@@ -64,10 +64,10 @@ end
 
 function T.offsets_are_exactly_32_tiles()
   local plan = NeighborPlan.plan(sampleMatrix(), 2, 2, areaForHeader)
-  local e = cellAt(plan, 3, 2) -- east: dx=+1, dz=0
+  local e = assert(cellAt(plan, 3, 2)) -- east: dx=+1, dz=0
   Assert.equal(e.offsetTilesX, 32)
   Assert.equal(e.offsetTilesZ, 0)
-  local nw = cellAt(plan, 1, 1) -- north-west: dx=-1, dz=-1
+  local nw = assert(cellAt(plan, 1, 1)) -- north-west: dx=-1, dz=-1
   Assert.equal(nw.offsetTilesX, -32)
   Assert.equal(nw.offsetTilesZ, -32)
 end
@@ -88,7 +88,7 @@ function T.skips_out_of_bounds_without_wrapping()
   end
   -- Only (1,1) has a mapped header among the three in-bounds neighbours.
   Assert.equal(#plan.cells, 1)
-  local c = cellAt(plan, 1, 1)
+  local c = assert(cellAt(plan, 1, 1))
   Assert.equal(c.offsetTilesX, 32)
   Assert.equal(c.offsetTilesZ, 32)
 end

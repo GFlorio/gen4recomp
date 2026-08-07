@@ -16,6 +16,13 @@
 
 local Errors = require("libs.rom.src.Errors")
 
+---@class FieldPlayerVisual
+---@field actorId string
+---@field player FieldPlayer
+---@field spriteId integer?
+---@field visualDef table?
+---@field pose string
+---@field poseTick integer
 local FieldPlayerVisual = {}
 FieldPlayerVisual.__index = FieldPlayerVisual
 

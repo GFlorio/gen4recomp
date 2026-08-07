@@ -41,11 +41,11 @@ end
 function T.get_unknown_returns_error()
   local rec, err = MapCatalog.get("MAP_NOPE")
   Assert.isNil(rec)
-  Assert.equal(err.code, "MAP_CATALOG_UNKNOWN")
+  Assert.equal(assert(err).code, "MAP_CATALOG_UNKNOWN")
 
   rec, err = MapCatalog.get(9999)
   Assert.isNil(rec)
-  Assert.equal(err.code, "MAP_CATALOG_UNKNOWN")
+  Assert.equal(assert(err).code, "MAP_CATALOG_UNKNOWN")
 end
 
 function T.require_raises_on_unknown()

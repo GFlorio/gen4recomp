@@ -15,7 +15,9 @@ local FieldEventState = require("libs.engine.src.FieldEventState")
 local FieldFontCompiler = require("romdump.src.digest.FieldFontCompiler")
 local FieldInteractionResolver = require("libs.engine.src.FieldInteractionResolver")
 local FieldMessageCompiler = require("romdump.src.digest.FieldMessageCompiler")
+local Hashing = require("romdump.src.digest.Hashing")
 local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
+local FieldObjectActor = require("libs.engine.src.FieldObjectActor")
 local FieldScenario = require("libs.engine.src.FieldScenario")
 local PreScriptInteractionAdapter = require("libs.engine.src.PreScriptInteractionAdapter")
 local RomRuntimeMap = require("tests.support.RomRuntimeMap")
@@ -161,7 +163,7 @@ end
 
 function T.fixture_message_ids_are_in_range_for_their_banks(romFs)
   local cache = bankCache(romFs)
-  local provider = FieldMessageProvider.new(cache)
+  local provider = assert(FieldMessageProvider.new(cache))
   for key, fixture in pairs(fixtures) do
     local bank = assert(provider:acquireBank(fixture.messageBankId),
       "fixture " .. key .. " references a bank outside the compiled set")
@@ -234,9 +236,9 @@ function T.adapter_drives_the_elm_preview_end_to_end(romFs)
   local all = maps(romFs)
   local lab = all[LAB]
   local manager, eventState = managerFor(romFs, lab, all)
-  local font = assert(FieldFontCompiler.compile(romFs)).font
+  local font = assert(FieldFontCompiler.compile(romFs, Hashing.sha1hex, Hashing.hashLua)).font
   local cache = bankCache(romFs)
-  local provider = FieldMessageProvider.new(cache, { maxCachedBanks = 2 })
+  local provider = assert(FieldMessageProvider.new(cache, { maxCachedBanks = 2 }))
   local metrics = FieldDialogueTheme.fontMetrics(font)
   local layout = function(message)
     return DialogueLayout.layout(message.tokens, metrics,
@@ -254,7 +256,8 @@ function T.adapter_drives_the_elm_preview_end_to_end(romFs)
   })
 
   local elmActor = assert(manager:getById("map:61:object:0"))
-  local elm = manager:getAt(61, 6, 5, elmActor.surfaceId)
+  ---@type FieldObjectActor
+  local elm = assert(manager:getAt(61, 6, 5, elmActor.surfaceId))
   local resolver = FieldInteractionResolver.new({
     actorAt = function(mapId, x, z, surfaceId)
       return manager:getAt(mapId, x, z, surfaceId)
@@ -276,8 +279,8 @@ function T.adapter_drives_the_elm_preview_end_to_end(romFs)
     ticks = ticks + 1
   end
   Assert.isTrue(ticks < 1000, "the Elm preview closes within 1000 ticks")
-  Assert.equal(result.kind, "complete")
-  Assert.equal(result.metadata.interactionIntent.object.actorId, "map:61:object:0")
+  Assert.equal(assert(result).kind, "complete")
+  Assert.equal(assert(result).metadata.interactionIntent.object.actorId, "map:61:object:0")
   Assert.isNil(elm.interactionFacingOverride, "the override releases on completion")
   Assert.equal(elm.facing, elm.initialFacing, "the prior facing is restored")
   Assert.equal(provider:stats().references, 0, "the bank reference releases")

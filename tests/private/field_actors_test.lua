@@ -63,7 +63,7 @@ function T.the_variable_friend_sprite_is_absent_by_design(romFs)
   local decoded = decodeTable(romFs)
   local record, err = FieldActorGraphics.resolve(decoded, manifest.variableSpriteRange.first)
   Assert.isNil(record, "SPRITE_VAR_1 resolves through a field variable, not the table")
-  Assert.equal(err.code, "FIELD_ACTOR_SPRITE_ABSENT")
+  Assert.equal(assert(err).code, "FIELD_ACTOR_SPRITE_ABSENT")
 end
 
 function T.player_and_ordinary_timelines_differ_as_the_source_says(romFs)

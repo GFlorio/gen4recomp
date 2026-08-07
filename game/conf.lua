@@ -1,3 +1,4 @@
+---@diagnostic disable: duplicate-set-field
 -- LÖVE configuration for the game app. The test runners (--test,
 -- --test-private) run windowless and without GPU/audio so they are fast and
 -- headless; an ordinary boot gets a normal resizable window. Headless detection

@@ -33,6 +33,8 @@ local function resolve(romFs, idOrSymbol)
     Errors.raise("MAP_RESOLVE_NO_MATCHING_CELL",
       "no matrix cell references map-header id " .. record.id, { mapId = record.id })
   end
+  -- LuaLS cannot see through Errors.raise; the assert narrows the cell.
+  chosen = assert(chosen)
   local cell = matrix:cell(chosen.x, chosen.z)
 
   local worldOriginX, worldOriginZ = matrix:worldOrigin(chosen.x, chosen.z)

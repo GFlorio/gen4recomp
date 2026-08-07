@@ -67,17 +67,17 @@ function T.stable_state_round_trips_exactly()
 end
 
 function T.refuses_mid_step_and_mid_transition_capture()
-  Assert.isFalse(FieldSave.canCapture({ player = { motion = "walking" },
-    transition = { phase = "idle" } }))
-  Assert.isFalse(FieldSave.canCapture({ player = { motion = "idle" },
-    transition = { phase = "fade_out" } }))
+  local walking = { player = { motion = "walking" }, transition = { phase = "idle" } }
+  Assert.isFalse(FieldSave.canCapture(walking))
+  local fading = { player = { motion = "idle" }, transition = { phase = "fade_out" } }
+  Assert.isFalse(FieldSave.canCapture(fading))
   -- A half-open dialogue must never be captured (spec section 16.3).
-  Assert.isFalse(FieldSave.canCapture({ player = { motion = "idle" },
-    transition = { phase = "idle" },
-    dialogue = { isModal = function() return true end } }))
-  Assert.isTrue(FieldSave.canCapture({ player = { motion = "idle" },
-    transition = { phase = "idle" },
-    dialogue = { isModal = function() return false end } }))
+  local halfOpen = { player = { motion = "idle" }, transition = { phase = "idle" },
+    dialogue = { isModal = function() return true end } }
+  Assert.isFalse(FieldSave.canCapture(halfOpen))
+  local closed = { player = { motion = "idle" }, transition = { phase = "idle" },
+    dialogue = { isModal = function() return false end } }
+  Assert.isTrue(FieldSave.canCapture(closed))
 end
 
 function T.stale_surface_id_resamples_nearest_saved_height()

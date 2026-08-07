@@ -5,17 +5,25 @@ local NarcBuilder = require("tests.support.NarcBuilder")
 
 local T = {}
 
+-- Narc.open returns its error unannotated, so err arrives typed as the narc
+-- itself; cast to the Errors.Error contract the test has already verified.
+---@param e any
+---@return Errors.Error
+local function asError(e)
+  return e
+end
+
 local function openOrFail(members, opts)
   local narc, err = Narc.open(NarcBuilder.build(members, opts))
   Assert.notNil(narc, "expected open to succeed: " .. tostring(err))
-  return narc
+  return assert(narc)
 end
 
 local function rejects(code, members, opts)
   local narc, err = Narc.open(NarcBuilder.build(members, opts))
   Assert.isNil(narc, "expected open to fail with " .. code)
   Assert.isTrue(Errors.is(err), "expected an Errors object, got " .. tostring(err))
-  Assert.equal(err.code, code)
+  Assert.equal(asError(err).code, code)
 end
 
 function T.reads_all_members_by_zero_based_id()
@@ -44,7 +52,7 @@ function T.honors_gmif_relative_aligned_offsets()
 end
 
 function T.member_info_reports_zero_based_id_and_size()
-  local info = openOrFail({ "AAAA", "BBBBBB" }):memberInfo(1)
+  local info = assert(openOrFail({ "AAAA", "BBBBBB" }):memberInfo(1))
   Assert.equal(info.memberId, 1)
   Assert.equal(info.startOffset, 4)
   Assert.equal(info.endOffset, 10)
@@ -70,7 +78,7 @@ function T.rejects_bad_magic()
   local ok = NarcBuilder.build({ "AAAA" })
   local narc, err = Narc.open("XXXX" .. ok:sub(5))
   Assert.isNil(narc)
-  Assert.equal(err.code, "NARC_BAD_MAGIC")
+  Assert.equal(asError(err).code, "NARC_BAD_MAGIC")
 end
 
 function T.rejects_declared_size_past_supplied_bytes()

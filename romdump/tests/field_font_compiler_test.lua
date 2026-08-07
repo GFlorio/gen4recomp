@@ -193,7 +193,7 @@ function T.compiles_font_def_and_atlas()
 end
 
 function T.compilation_is_deterministic()
-  local romFs, sha1 = fixture()
+  local romFs, sha1, hashLua = fixture()
   local a = assert(FieldFontCompiler.compile(romFs, sha1, hashLua))
   local b = assert(FieldFontCompiler.compile(romFs, sha1, hashLua))
   Assert.equal(a.atlas, b.atlas)
@@ -202,22 +202,23 @@ function T.compilation_is_deterministic()
 end
 
 function T.writer_commits_marker_last_and_reads_back()
-  local romFs, sha1 = fixture()
+  local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldFontCompiler.compile(romFs, sha1, hashLua))
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   FieldFontCacheWriter.write(cache, bundle)
   Assert.isTrue(FieldFontCache.isReady(cache, 0, bundle.marker))
   Assert.isFalse(FieldFontCache.isReady(cache, 0, bundle.marker .. "-stale"))
-  local def = cache:loadLua(FieldFontCache.defPath(0))
+  local def = assert(cache:loadLua(FieldFontCache.defPath(0)))
   Assert.equal(def.schema, FieldFontCache.SCHEMA)
   Assert.isTrue(cache:exists(FieldFontCache.atlasPath(0), "file"))
 end
 
 function T.writer_failure_invalidates_the_class()
-  local romFs, sha1 = fixture()
+  local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldFontCompiler.compile(romFs, sha1, hashLua))
   local backend = FakeCache.new()
   local originalWrite = backend.write
+  ---@diagnostic disable: duplicate-set-field
   backend.write = function(self, path, data)
     if path:find("font-0.png", 1, true) then error("injected") end
     return originalWrite(self, path, data)
@@ -229,7 +230,7 @@ end
 
 function T.corrupt_palette_member_is_typed()
   local glyphMember = buildFontMember(1, glyph64(), { 6 })
-  local romFs, sha1 = fixture()
+  local romFs, sha1, hashLua = fixture()
   romFs.openNarc = function()
     return { readMember = function(_, memberId)
       if memberId == 0 then return glyphMember end
@@ -239,7 +240,7 @@ function T.corrupt_palette_member_is_typed()
   local bundle, err = FieldFontCompiler.compile(romFs, sha1, hashLua)
   Assert.isNil(bundle, "expected a failure result")
   Assert.isTrue(Errors.is(err))
-  Assert.equal(err.code, "FONT_FORMAT_INVALID")
+  Assert.equal(assert(err).code, "FONT_FORMAT_INVALID")
 end
 
 return T

@@ -12,6 +12,22 @@ local Errors = require("libs.rom.src.Errors")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local FieldActorMesh = require("libs.engine.src.FieldActorMesh")
 
+---@class FieldActorAssetProvider
+---@field private _cacheFs CacheFs
+---@field private _index table
+---@field private _known table<integer, boolean>
+---@field private _graphics love.Graphics?
+---@field private _idleLimit integer
+---@field private _entries table<integer, table>
+---@field private _idle integer[]
+---@field private _stats table
+---@field new fun(cacheFs: CacheFs, opts?: table): FieldActorAssetProvider
+---@field knows fun(self: FieldActorAssetProvider, spriteId: integer): boolean
+---@field acquire fun(self: FieldActorAssetProvider, spriteId: integer): table
+---@field release fun(self: FieldActorAssetProvider, spriteId: integer)
+---@field stats fun(self: FieldActorAssetProvider): table
+---@field dispose fun(self: FieldActorAssetProvider)
+
 local FieldActorAssetProvider = {}
 FieldActorAssetProvider.__index = FieldActorAssetProvider
 

@@ -37,13 +37,13 @@ function NitroBuilder.dict(entries)
   local ofsEntry = 8 + #tree
   local dataBlock = {}
   for _, e in ipairs(entries) do dataBlock[#dataBlock + 1] = e.data end
-  dataBlock = table.concat(dataBlock)
-  local ofsName = 4 + #dataBlock -- names follow the data, relative to entry header
+  local data = table.concat(dataBlock)
+  local ofsName = 4 + #data -- names follow the data, relative to entry header
   local names = {}
   for _, e in ipairs(entries) do names[#names + 1] = name16(e.name) end
-  names = table.concat(names)
+  local nameBlock = table.concat(names)
 
-  local entrySection = u16(sizeUnit) .. u16(ofsName) .. dataBlock .. names
+  local entrySection = u16(sizeUnit) .. u16(ofsName) .. data .. nameBlock
   local body = u8(0) .. u8(count) .. u16(0) .. u16(0) .. u16(ofsEntry) .. tree .. entrySection
   -- Patch sizeDictBlk to the real total size.
   return u8(0) .. u8(count) .. u16(#body) .. body:sub(5)

@@ -13,7 +13,7 @@ local function record(header, ids)
   local parts = { header }
   for _, id in ipairs(ids) do parts[#parts + 1] = u32(id) end
   local body = table.concat(parts)
-  return body .. string.rep("\xFF", 0x18 - #body)
+  return body .. string.rep("\255", 0x18 - #body)
 end
 
 function T.decodes_single_referenced_resource()
@@ -34,7 +34,7 @@ end
 function T.no_animation_record_yields_no_ids()
   -- Non-animated models start with the 0xFFFF sentinel; the id region is all
   -- 0xFFFFFFFF, so no resources are referenced.
-  local r = BuildModelAnimList.decode(record("\xFF\xFF\0\0\0\0\0\0", {}))
+  local r = BuildModelAnimList.decode(record("\255\255\0\0\0\0\0\0", {}))
   Assert.equal(#r.ids, 0)
 end
 

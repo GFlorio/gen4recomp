@@ -4,6 +4,20 @@
 
 local WarpSystem = require("libs.engine.src.WarpSystem")
 
+---@class FieldTransition
+---@field loader FieldMapLoader
+---@field swap fun(resolution: table, facing: FieldDirection)
+---@field resolveDestination function
+---@field fadeOutTicks integer
+---@field fadeInTicks integer
+---@field phase "idle"|"fade_out"|"fade_in"|string
+---@field fadeAlpha number
+---@field locked boolean
+---@field completed table?
+---@field error Errors.Error?
+---@field suppression table?
+---@field sourceMap RuntimeFieldMap?
+---@field sourceWarp table?
 local FieldTransition = {}
 FieldTransition.__index = FieldTransition
 

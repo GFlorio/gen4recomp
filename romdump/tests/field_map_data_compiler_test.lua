@@ -112,6 +112,7 @@ function T.writer_failure_rolls_back_only_its_map()
   local bundle = assert(FieldMapDataCompiler.compile(romFs, 60, sha1, hashLua))
   local backend = FakeCache.new()
   local originalWrite = backend.write
+  ---@diagnostic disable: duplicate-set-field
   backend.write = function(self, path, data)
     if path:find("dependencies.lua", 1, true) then error("injected") end
     return originalWrite(self, path, data)

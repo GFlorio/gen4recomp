@@ -89,7 +89,7 @@ end
 function T.rejects_non_tex0_block()
   local tex, err = Nsbtx.decodeTex0("XXXX" .. string.rep("\0", 60))
   Assert.isNil(tex)
-  Assert.equal(err.code, "NSBTX_BAD_MAGIC")
+  Assert.equal(assert(err).code, "NSBTX_BAD_MAGIC")
 end
 
 return T

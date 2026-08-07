@@ -77,7 +77,7 @@ function T.rejects_negative_length()
 end
 
 function T.assertRange_passes_within_bounds()
-  Assert.isTrue(reader():assertRange(0, 5))
+  Assert.isTrue(reader():assertRange(0, 5, "probe"))
 end
 
 return T

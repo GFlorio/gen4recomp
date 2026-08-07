@@ -24,6 +24,8 @@ local Errors = require("libs.rom.src.Errors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 
+---@class FieldInteractionResolver
+---@field actorAt fun(mapId: integer, fieldX: integer, fieldZ: integer, surfaceId: integer): table|nil
 local FieldInteractionResolver = {}
 FieldInteractionResolver.__index = FieldInteractionResolver
 
@@ -60,6 +62,7 @@ FieldInteractionResolver.__index = FieldInteractionResolver
 ---@field worldY number
 ---@field facing FieldDirection
 ---@field tick integer
+
 
 ---@class FieldInteractionResolverOptions
 ---@field actorAt fun(mapId: integer, fieldX: integer, fieldZ: integer, surfaceId: integer): table|nil
@@ -109,7 +112,7 @@ end
 -- opts.actorAt: function(mapId, fieldX, fieldZ, surfaceId) -> actor | nil.
 -- The actor manager's occupancy index is the lookup (spec section 12.4);
 -- hidden actors never appear there.
----@param options FieldInteractionResolverOptions
+---@param opts FieldInteractionResolverOptions
 ---@return FieldInteractionResolver
 function FieldInteractionResolver.new(opts)
   assert(type(opts) == "table" and type(opts.actorAt) == "function",

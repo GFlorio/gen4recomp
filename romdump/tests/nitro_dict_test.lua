@@ -50,7 +50,7 @@ function T.rejects_duplicate_names()
   })
   local d, err = NitroDict.decode(bytes)
   Assert.isNil(d)
-  Assert.equal(err.code, "NITRO_DICT_DUPLICATE_NAME")
+  Assert.equal(assert(err).code, "NITRO_DICT_DUPLICATE_NAME")
 end
 
 return T

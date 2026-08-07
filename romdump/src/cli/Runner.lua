@@ -315,6 +315,7 @@ function Runner._runBuild()
           local bundle, compileErr = MapAssetCompiler.compile(romFs, result.id)
           if not bundle then
             assert(Errors.is(compileErr), "compiler failure must be a structured error")
+            compileErr = assert(compileErr)
             compileExcluded[#compileExcluded + 1] = {
               id = result.id,
               symbol = result.symbol,

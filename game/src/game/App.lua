@@ -22,7 +22,7 @@ local App = {}
 local function fieldTarget(option)
   if option == true then return nil end
   if type(option) == "string" and option:match("^%d+$") then return tonumber(option) end
-  return option
+  return option --[[@as string|integer|nil]]
 end
 
 App.fieldTarget = fieldTarget

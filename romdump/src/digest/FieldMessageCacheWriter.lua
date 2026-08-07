@@ -4,6 +4,7 @@
 -- completion marker. On any failure the whole class is invalidated so a
 -- partial build never reads as complete.
 
+local Errors = require("libs.rom.src.Errors")
 local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
 
 local FieldMessageCacheWriter = {}

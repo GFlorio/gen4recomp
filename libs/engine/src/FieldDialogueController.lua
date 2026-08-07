@@ -81,7 +81,12 @@ end
 -- opts.layout(formattedMessage) -> DialogueLayout.Result
 -- opts.ticksPerGlyph (default 2), opts.cursorBlinkTicks (default 30).
 
----@param opts { layout: fun(message: FieldMessageProvider.FormattedMessage): DialogueLayout.Result, ticksPerGlyph?: integer, cursorBlinkTicks?: integer }
+---@class FieldDialogueControllerOptions
+---@field layout fun(message: FieldMessageProvider.FormattedMessage): DialogueLayout.Result
+---@field ticksPerGlyph integer?
+---@field cursorBlinkTicks integer?
+
+---@param opts FieldDialogueControllerOptions
 ---@return FieldDialogueController
 function FieldDialogueController.new(opts)
   assert(type(opts) == "table" and type(opts.layout) == "function",
@@ -150,7 +155,7 @@ end
 ---@param extra table?
 ---@return FieldDialogueController.Result
 function FieldDialogueController:_result(kind, extra)
-  local request = self._request
+  local request = assert(self._request)
   local result = {
     kind = kind,
     requestId = request.id,
@@ -334,7 +339,7 @@ function FieldDialogueController:step(snapshot)
 
   if self._state == "OPENING" then
     if self._pendingClose then
-      local pending = self._pendingClose
+      local pending = assert(self._pendingClose)
       self._pendingClose = nil
       self._state = "CLOSED"
       if pending.kind == "error" then

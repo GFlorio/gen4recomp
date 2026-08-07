@@ -93,12 +93,12 @@ function T.text_area_fits_two_lines_of_font_height()
 end
 
 function T.font_metrics_resolve_advances_with_fallback()
-  local metrics = FieldDialogueTheme.fontMetrics({
-    glyphs = {
-      [1] = { advance = 6 },
-      [0] = { advance = 4 },
-    },
-  })
+  local fontDef = {}
+  fontDef.glyphs = {
+    [1] = { advance = 6 },
+    [0] = { advance = 4 },
+  }
+  local metrics = FieldDialogueTheme.fontMetrics(fontDef)
   Assert.equal(metrics.glyphWidth(1), 6)
   Assert.equal(metrics.glyphWidth(99), 4, "unknown codes use the fallback glyph")
 end

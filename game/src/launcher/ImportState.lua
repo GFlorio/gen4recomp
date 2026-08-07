@@ -18,7 +18,10 @@ function ImportState:filedropped(file)
   self.importer:filedropped(file)
 end
 
-function ImportState:keypressed(key)
+---@param key string
+---@param scancode string
+---@param isrepeat boolean
+function ImportState:keypressed(key, scancode, isrepeat)
   if key == "escape" then love.event.quit(0) end
 end
 

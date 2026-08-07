@@ -13,7 +13,10 @@ end
 
 function VersionSelectState:update(dt) end
 
-function VersionSelectState:keypressed(key)
+---@param key string
+---@param scancode string
+---@param isrepeat boolean
+function VersionSelectState:keypressed(key, scancode, isrepeat)
   local n = tonumber(key)
   if n and self.ready[n] then
     self.onPick(self.ready[n])

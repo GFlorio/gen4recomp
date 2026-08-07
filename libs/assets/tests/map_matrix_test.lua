@@ -46,7 +46,7 @@ local function decodeOk(data, default)
 end
 
 function T.decodes_both_sections_present()
-  local m = decodeOk(sample(true, true))
+  local m = assert(decodeOk(sample(true, true)))
   Assert.equal(m.width, 2)
   Assert.equal(m.height, 2)
   Assert.equal(m.name, "MAP")
@@ -62,7 +62,7 @@ function T.decodes_both_sections_present()
 end
 
 function T.headers_absent_fill_with_default()
-  local m = decodeOk(sample(false, true), 7)
+  local m = assert(decodeOk(sample(false, true), 7))
   Assert.isFalse(m.hasHeaders)
   Assert.equal(m:mapHeaderIdAt(0, 0), 7)
   Assert.equal(m:mapHeaderIdAt(1, 1), 7)
@@ -72,7 +72,7 @@ function T.headers_absent_fill_with_default()
 end
 
 function T.altitudes_absent_fill_with_zero()
-  local m = decodeOk(sample(true, false))
+  local m = assert(decodeOk(sample(true, false)))
   Assert.isFalse(m.hasAltitudes)
   Assert.equal(m:altitudeAt(0, 0), 0)
   Assert.equal(m:altitudeAt(1, 1), 0)
@@ -81,14 +81,14 @@ function T.altitudes_absent_fill_with_zero()
 end
 
 function T.both_sections_absent()
-  local m = decodeOk(sample(false, false), 5)
+  local m = assert(decodeOk(sample(false, false), 5))
   Assert.equal(m:mapHeaderIdAt(1, 1), 5)
   Assert.equal(m:altitudeAt(1, 1), 0)
   Assert.equal(m:modelIdAt(1, 1), 23)
 end
 
 function T.index_is_zero_based_row_major()
-  local m = decodeOk(sample(true, true))
+  local m = assert(decodeOk(sample(true, true)))
   Assert.equal(m:index(0, 0), 0)
   Assert.equal(m:index(1, 0), 1)
   Assert.equal(m:index(0, 1), 2)
@@ -96,7 +96,7 @@ function T.index_is_zero_based_row_major()
 end
 
 function T.coordinate_accessors_reject_out_of_range()
-  local m = decodeOk(sample(true, true))
+  local m = assert(decodeOk(sample(true, true)))
   Assert.throws(function() m:index(2, 0) end)
   Assert.throws(function() m:index(0, 2) end)
   Assert.throws(function() m:index(-1, 0) end)
@@ -104,19 +104,19 @@ function T.coordinate_accessors_reject_out_of_range()
 end
 
 function T.cell_bundles_header_altitude_and_land_member()
-  local m = decodeOk(sample(true, true))
+  local m = assert(decodeOk(sample(true, true)))
   Assert.deepEqual(m:cell(0, 0), { mapHeaderId = 10, altitude = 1, landDataMemberId = 20 })
   Assert.deepEqual(m:cell(1, 1), { mapHeaderId = 13, altitude = 4, landDataMemberId = 23 })
 end
 
 function T.cell_rejects_out_of_range()
-  local m = decodeOk(sample(true, true))
+  local m = assert(decodeOk(sample(true, true)))
   Assert.throws(function() m:cell(2, 0) end)
   Assert.throws(function() m:cell(0, -1) end)
 end
 
 function T.world_origin_is_32_tiles_per_cell()
-  local m = decodeOk(sample(true, true))
+  local m = assert(decodeOk(sample(true, true)))
   local x0, z0 = m:worldOrigin(0, 0)
   Assert.equal(x0, 0)
   Assert.equal(z0, 0)
@@ -126,7 +126,7 @@ function T.world_origin_is_32_tiles_per_cell()
 end
 
 function T.find_cells_by_map_header_id()
-  local m = decodeOk(sample(true, true))
+  local m = assert(decodeOk(sample(true, true)))
   local cells = m:findCellsByMapHeaderId(11)
   Assert.deepEqual(cells, { { x = 1, z = 0, index = 1 } })
   Assert.deepEqual(m:findCellsByMapHeaderId(99), {})
@@ -140,7 +140,7 @@ function T.find_cells_returns_all_matches_in_row_major_order()
     headers = { 60, 5, 6, 60 },
     modelIds = { 0, 1, 2, 3 },
   })
-  local m = decodeOk(data)
+  local m = assert(decodeOk(data))
   Assert.deepEqual(m:findCellsByMapHeaderId(60), {
     { x = 0, z = 0, index = 0 },
     { x = 1, z = 1, index = 3 },
@@ -150,26 +150,26 @@ end
 function T.rejects_zero_dimension()
   local m, err = MapMatrix.decode(u8(0) .. u8(1) .. u8(0) .. u8(0) .. u8(0))
   Assert.isNil(m)
-  Assert.equal(err.code, "MAP_MATRIX_EMPTY")
+  Assert.equal(assert(err).code, "MAP_MATRIX_EMPTY")
 end
 
 -- 40x20 = 800 cells, one past the decompilation's 799-cell capacity.
 function T.rejects_cell_count_over_limit()
   local m, err = MapMatrix.decode(u8(40) .. u8(20) .. u8(0) .. u8(0) .. u8(0))
   Assert.isNil(m)
-  Assert.equal(err.code, "MAP_MATRIX_TOO_LARGE")
+  Assert.equal(assert(err).code, "MAP_MATRIX_TOO_LARGE")
 end
 
 function T.rejects_name_over_limit()
   local m, err = MapMatrix.decode(u8(1) .. u8(1) .. u8(0) .. u8(0) .. u8(17))
   Assert.isNil(m)
-  Assert.equal(err.code, "MAP_MATRIX_NAME_TOO_LONG")
+  Assert.equal(assert(err).code, "MAP_MATRIX_NAME_TOO_LONG")
 end
 
 function T.rejects_bad_section_flag()
   local m, err = MapMatrix.decode(u8(1) .. u8(1) .. u8(2) .. u8(0) .. u8(0))
   Assert.isNil(m)
-  Assert.equal(err.code, "MAP_MATRIX_BAD_FLAG")
+  Assert.equal(assert(err).code, "MAP_MATRIX_BAD_FLAG")
 end
 
 function T.rejects_truncated_model_section()
@@ -177,7 +177,7 @@ function T.rejects_truncated_model_section()
   local m, err = MapMatrix.decode(full:sub(1, #full - 1))
   Assert.isNil(m)
   Assert.isTrue(Errors.is(err), "expected an Errors object, got " .. tostring(err))
-  Assert.equal(err.code, "READ_OUT_OF_BOUNDS")
+  Assert.equal(assert(err).code, "READ_OUT_OF_BOUNDS")
 end
 
 return T

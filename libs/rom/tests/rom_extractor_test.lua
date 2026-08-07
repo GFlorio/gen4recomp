@@ -76,7 +76,7 @@ end
 -- romfs_index round-trips: zero-based fileId keys and named source paths survive.
 function T.romfs_index_preserves_zero_based_ids()
   local r = extractOk()
-  local index = r.cache:loadLua("data/generated/romfs_index.lua")
+  local index = assert(r.cache:loadLua("data/generated/romfs_index.lua"))
   Assert.equal(index.files[0].kind, "overlay9")
   Assert.equal(index.files[1].kind, "unmapped")
   Assert.equal(index.files[2].sourcePath, "a/0/0/2")
