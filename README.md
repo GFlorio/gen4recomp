@@ -7,7 +7,9 @@ per-user cache, and reads game data from that dump at runtime.
 > **This is not an emulator and does not recompile DS machine code.** It is a
 > pure-Lua reader for the Nintendo DS cartridge container (header, FAT, FNT,
 > overlay tables) and the HGSS NARC archive format. The current milestone ends
-> at a **data diagnostic**, not a playable game.
+> at an interactive field runtime over the compiled assets — walkable maps,
+> deterministic movement and collision, warps, object interactions, and modal
+> dialogue — not a playable game.
 
 ## Legal / ROM requirement
 
@@ -29,7 +31,7 @@ Use the scripts in `scripts/` — they redirect the cache into a gitignored
 in-repo folder during development:
 
 ```sh
-scripts/run.sh                  # boot: import screen, or diagnostics if a cache is ready
+scripts/run.sh                  # boot: import screen, or the field runtime if a cache is ready
 scripts/buildcache.sh [ROM]     # import if needed, then rebuild the game cache
 scripts/test.sh                 # run the synthetic test suite
 ```
@@ -84,10 +86,11 @@ scripts/integration.sh /path/to/pokeheartgold.us.nds
 
 ## Status
 
-Vertical slice complete through DS material/lighting and 3D map rendering:
-repository bootstrap, binary foundation, version and cache contracts,
-NDS/NitroFS/NARC parsing, private dump, runtime `RomFs`, map/building model
-compilation, DS vertex lighting, and a 3D map diagnostic. See
+Vertical slice complete through DS material/lighting, 3D map rendering, and the
+interactive field runtime: repository bootstrap, binary foundation, version and
+cache contracts, NDS/NitroFS/NARC parsing, private dump, runtime `RomFs`,
+map/building model compilation, DS vertex lighting, deterministic field
+movement and collision, warps, object interactions, and modal dialogue. See
 [`docs/architecture.md`](docs/architecture.md) for the boot/import/runtime design,
 [`docs/data-provenance.md`](docs/data-provenance.md) for where each parsed
 structure comes from, and [`docs/rendering.md`](docs/rendering.md) for the

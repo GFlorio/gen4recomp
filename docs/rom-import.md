@@ -48,7 +48,7 @@ mv /path/to/your.nds /somewhere/else.nds
 love romdump/ --check-dump
 
 # Launch interactively; with a ready cache this boots straight into the
-#    data diagnostic (or a version selector if both games are imported).
+#    field runtime (or a version selector if both games are imported).
 scripts/run.sh
 ```
 
@@ -60,7 +60,7 @@ scripts/run.sh
   the FAT `end - start` range.
 - The required NARC aliases (`personal`, `moves`, `messages`, `map_matrices`)
   resolve and open as NARCs.
-- Map-matrix member 0 decodes, and the diagnostic shows its name, dimensions,
+- Map-matrix member 0 decodes, and the map list shows its name, dimensions,
   and model-cell count.
 - Importing both games leaves two independent caches that never collide.
 

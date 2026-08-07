@@ -8,7 +8,7 @@
 -- progression: it hides the story-guarded actors (rival, friend, Marill,
 -- photographer, and the variable-sprite duplicates) and leaves the residents and
 -- the two laboratory interaction targets visible. Spawn tile and facing stay in
--- data/manifests/target_map_anchors.lua; this file owns visibility only.
+-- data/manifests/field_spawns.lua; this file owns visibility only.
 -- Pure data; no love dependency.
 
 return {

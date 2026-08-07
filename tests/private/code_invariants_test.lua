@@ -8,8 +8,8 @@ local Assert = require("tests.support.Assert")
 local T = {}
 
 -- Modules that must remain target-agnostic: no map symbol, area id, or profile
--- path may appear in their source. Target-specific logic lives in the catalog,
--- anchors, and diagnostic state -- never in the renderer or compiler core.
+-- path may appear in their source. Target-specific logic lives in the catalog
+-- and the runtime manifests -- never in the renderer or compiler core.
 function T.no_target_specific_branches_in_core()
   local modules = {
     "romdump/src/digest/nitro/Nsbmd.lua",
@@ -59,6 +59,39 @@ function T.no_rom_payload_tracked()
     for _, pat in ipairs(disallowedPatterns) do
       Assert.isTrue(line:find(pat) == nil,
         "tracked file must not be a ROM payload or derived asset: " .. line)
+    end
+  end
+end
+
+-- A bare global `print(` not preceded by `.` or `:` (i.e. not
+-- love.graphics.print or a method call) would be terminal output.
+local function hasBarePrint(src)
+  return src:match("[^%.%:]print%(") ~= nil or src:match("^print%(") ~= nil
+end
+
+-- The interactive game and the reusable runtime libraries must never write to
+-- the terminal: recoverable failures surface through state (saveStatus,
+-- errorText) or a structured Errors object, and programming failures raise.
+-- Deliberate command-line output lives only in the headless romdump CLI and
+-- the test runners.
+function T.no_terminal_output_from_game_or_runtime_source()
+  local pipe = io.popen("git -C . ls-files 2>/dev/null", "r")
+  if not pipe then return end
+  local tracked = pipe:read("*a")
+  pipe:close()
+  if tracked == "" then return end -- not a git checkout, skip
+
+  for line in tracked:gmatch("[^\r\n]+") do
+    if line:match("^game/src/.*%.lua$") or line:match("^libs/[^/]+/src/.*%.lua$") then
+      local f = assert(io.open(line, "r"), "can read " .. line)
+      local src = f:read("*a")
+      f:close()
+      Assert.isTrue(src:find("io.stderr", 1, true) == nil,
+        line .. " must not write to stderr")
+      Assert.isTrue(src:find("io.stdout", 1, true) == nil,
+        line .. " must not write to stdout")
+      Assert.isTrue(not hasBarePrint(src),
+        line .. " must not call global print")
     end
   end
 end
