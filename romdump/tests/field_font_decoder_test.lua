@@ -38,7 +38,7 @@ local function buildFontMember(numGlyphs, glyphBytes, widths, opts)
 end
 
 -- One 16x16 glyph: four 8x8 sub-tiles (TL, TR, BL, BR), each 16 bytes where a
--- row is (rightByte, leftByte) and pixel p of a byte is its low two bits.
+-- row is (rightByte, leftByte) and pixel 0 of a byte is its high two bits.
 local function glyph64(tile)
   local tiles = {}
   for _ = 1, 4 do
@@ -94,7 +94,9 @@ end
 function T.glyph_tile_semantics_match_decompress_glyph_tile()
   -- Row byte pair (0x00, 0x55): left half = value 1 pixels, right = 0.
   -- Pair (0xAA, 0x00): left = 0, right = value 2. Second byte holds the left
-  -- half and pixel 0 of a byte is its low two bits (DecompressGlyphTile).
+  -- half and pixel 0 of a byte is its high two bits (DecompressGlyphTile:
+  -- the half-row lookup table puts the source byte's bits 6-7 into the
+  -- dest's low nibble, which is pixel 0 of a 4bpp group).
   local tl = row16({
     { 0x00, 0x55 }, { 0x00, 0x55 }, { 0xAA, 0x00 }, { 0xAA, 0x00 },
     { 0x00, 0x55 }, { 0x00, 0x55 }, { 0xAA, 0x00 }, { 0xAA, 0x00 },

@@ -4,16 +4,21 @@
 
 local CacheFs = require("libs.rom.src.CacheFs")
 local Errors = require("libs.rom.src.Errors")
+local DialogueLayout = require("libs.engine.src.DialogueLayout")
 local FieldActorAssetProvider = require("libs.engine.src.FieldActorAssetProvider")
 local FieldActorDraw = require("libs.engine.src.FieldActorDraw")
 local FieldActorManager = require("libs.engine.src.FieldActorManager")
 local FieldCamera = require("libs.engine.src.FieldCamera")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
+local FieldDialogueController = require("libs.engine.src.FieldDialogueController")
+local FieldDialogueRenderer = require("libs.engine.src.FieldDialogueRenderer")
+local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local FieldEventState = require("libs.engine.src.FieldEventState")
 local FieldGrid = require("libs.engine.src.FieldGrid")
 local FieldInput = require("libs.engine.src.FieldInput")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldMapLoader = require("libs.engine.src.FieldMapLoader")
+local FieldMessageText = require("libs.assets.src.FieldMessageText")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldPlayerVisual = require("libs.engine.src.FieldPlayerVisual")
 local FieldSave = require("libs.engine.src.FieldSave")
@@ -32,6 +37,21 @@ local FieldActorManifest = require("data.manifests.field_actors")
 local FieldPresentation = require("data.manifests.field_presentation")
 local FieldScenarioManifest = require("data.manifests.field_scenario")
 
+---@class FieldState
+---@field versionId string
+---@field idOrSymbol string|integer?
+---@field resumeSave boolean
+---@field resetSave boolean
+---@field overlaysVisible boolean
+---@field errorText string?
+---@field zoom FieldZoom
+---@field saveStatus string?
+---@field session FieldSession?
+---@field dialogue FieldDialogueController?
+---@field dialogueRenderer FieldDialogueRenderer?
+---@field actionKeys table<string, boolean>?
+---@field cancelKeys table<string, boolean>?
+---@field _dialogueSmoke { phase: string, shot: boolean, ticks: integer }?
 local FieldState = {}
 FieldState.__index = FieldState
 
@@ -43,6 +63,32 @@ local KEY_DIRECTIONS = {
   a = "west", left = "west",
   d = "east", right = "east",
 }
+
+-- Developer dialogue for the F6 key and the dialogue render smoke: a
+-- project-authored two-page message exercising glyphs and a prompt boundary.
+-- Not retail text. (The unsupported-control marker path is covered by unit
+-- tests; the demo deliberately avoids it because fallback glyphs for { and }
+-- make the line look corrupted.)
+local DEMO_DIALOGUE_TEXT = "Hello from the field dialogue smoke."
+  .. "\rThis second page wraps exactly like a real bank message."
+
+---@return table<string, boolean>
+local function actionBindings()
+  local keys = {}
+  for _, key in ipairs(FieldPresentation.input and FieldPresentation.input.action or {}) do
+    keys[key] = true
+  end
+  return keys
+end
+
+---@return table<string, boolean>
+local function cancelBindings()
+  local keys = {}
+  for _, key in ipairs(FieldPresentation.input and FieldPresentation.input.cancel or {}) do
+    keys[key] = true
+  end
+  return keys
+end
 
 -- The player consults the manager's occupancy index through this predicate,
 -- keyed by the map the player is on, so FieldPlayer never imports the manager.
@@ -205,6 +251,20 @@ function FieldState:_load()
       swap = function(resolution, facing) self:_swapMap(resolution, facing) end,
     })
     self.transition.suppression = restored and restored.suppression or nil
+
+    -- Modal dialogue: the controller is pure and fixed-tick; the renderer owns
+    -- the compiled font def/atlas and draws inside the centered 4:3 frame.
+    self.dialogueRenderer = FieldDialogueRenderer.new({ cacheFs = cacheFs })
+    local fontMetrics = FieldDialogueTheme.fontMetrics(self.dialogueRenderer.fontDef)
+    self.dialogue = FieldDialogueController.new({
+      layout = function(formatted)
+        return DialogueLayout.layout(formatted.tokens, fontMetrics,
+          { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines })
+      end,
+    })
+    self.actionKeys = actionBindings()
+    self.cancelKeys = cancelBindings()
+
     self.session = FieldSession.new({
       versionId = self.versionId,
       currentMap = self.runtimeMap,
@@ -214,6 +274,7 @@ function FieldState:_load()
       transition = self.transition,
       actors = self.actors,
       playerVisual = self.playerVisual,
+      dialogue = self.dialogue,
       input = self.input,
       coverage = function()
         self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
@@ -251,6 +312,7 @@ function FieldState:update(dt)
     if self.transition:consumeCompleted() then self:_save("Autosaved after warp") end
   end
   self:_maybeRunSmoke()
+  self:_maybeRunDialogueSmoke()
 end
 
 function FieldState:_maybeRunSmoke()
@@ -272,6 +334,102 @@ function FieldState:_maybeRunSmoke()
     if path then love.graphics.captureScreenshot(path) end
   elseif self._smokeFrame >= 9 then
     love.event.quit(0)
+  end
+end
+
+-- Opens the developer dialogue used by F6 and the dialogue render smoke.
+function FieldState:_openDevDialogue()
+  if not self.dialogue or self.dialogue:isModal() then return end
+  local renderer = self.dialogueRenderer
+  if not renderer or not renderer.fontDef then
+    self.saveStatus = "developer: dialogue font is unavailable"
+    return
+  end
+  local tokens, err = FieldMessageText.parse(DEMO_DIALOGUE_TEXT, renderer.fontDef,
+    { eos = false })
+  if not tokens then
+    self.saveStatus = "developer: demo dialogue parse failed: " .. tostring(err)
+    return
+  end
+  local ok, handle = pcall(self.dialogue.open, self.dialogue, {
+    id = "dev-smoke",
+    message = {
+      bankId = nil,
+      messageId = nil,
+      text = DEMO_DIALOGUE_TEXT,
+      tokens = tokens,
+      hadUnresolvedSubstitutions = false,
+    },
+    style = "field",
+    modal = true,
+    allowCancel = false,
+    metadata = { source = "developer dialogue smoke" },
+  })
+  if not ok or not handle then
+    self.saveStatus = "developer: dialogue open failed: " .. tostring(handle)
+    return
+  end
+  self.saveStatus = "developer: dialogue smoke message open"
+end
+
+-- Render smoke driver for the dialogue UI: opens the developer dialogue,
+-- captures one screenshot mid-reveal, then advances it through every state
+-- with Action and quits 0 only when it closes cleanly. Run on a machine with
+-- a display: G4RECOMP_DIALOGUE_SMOKE=1 G4RECOMP_SHOT=out.png love game/ --field
+function FieldState:_maybeRunDialogueSmoke()
+  if not os.getenv("G4RECOMP_DIALOGUE_SMOKE") then return end
+  if self.errorText then
+    io.stderr:write("dialogue-smoke: " .. self.errorText .. "\n")
+    love.event.quit(1)
+    return
+  end
+  local smoke = self._dialogueSmoke
+  if not smoke then
+    self._dialogueSmoke = { phase = "open", shot = false, ticks = 0 }
+    self:_openDevDialogue()
+    return
+  end
+  smoke.ticks = smoke.ticks + 1
+  local status = self.dialogue:status()
+  if not status.modal then
+    io.stderr:write(string.format(
+      "dialogue-smoke: closed cleanly after %d ticks, %d pages, %d warnings\n",
+      smoke.ticks, status.pageCount, #status.warnings))
+    love.event.quit(0)
+    return
+  end
+  if smoke.phase == "open" then
+    local revealing = status.state == "REVEALING"
+    local waiting = status.state == "WAITING_BOUNDARY"
+    if not revealing and not waiting and status.state ~= "OPENING" then
+      io.stderr:write("dialogue-smoke: unexpected state " .. status.state .. "\n")
+      love.event.quit(1)
+      return
+    end
+    if not smoke.shot and (waiting or status.revealedGlyphs >= 4) then
+      smoke.shot = true
+      local path = os.getenv("G4RECOMP_SHOT")
+      if path then love.graphics.captureScreenshot(path) end
+      if revealing then self.input:pressAction() end
+      smoke.phase = "advance"
+    end
+  elseif smoke.phase == "advance" then
+    if status.state == "WAITING_BOUNDARY" then
+      self.input:pressAction()
+      smoke.phase = "close"
+    elseif status.state == "WAITING_CLOSE" then
+      self.input:pressAction()
+      smoke.phase = "done"
+    end
+  elseif smoke.phase == "close" then
+    if status.state == "WAITING_CLOSE" then
+      self.input:pressAction()
+      smoke.phase = "done"
+    end
+  end
+  if smoke.ticks > 900 then
+    io.stderr:write("dialogue-smoke: timed out in state " .. status.state .. "\n")
+    love.event.quit(1)
   end
 end
 
@@ -462,6 +620,11 @@ function FieldState:draw()
     lg.setColor(0, 0, 0, self.transition.fadeAlpha)
     lg.rectangle("fill", rectangle.x, rectangle.y, rectangle.width, rectangle.height)
   end
+  -- The dialogue UI composites after the world and the fade, inside the
+  -- centered 4:3 reference frame, and before the developer HUD.
+  if self.dialogue and self.dialogue:isModal() then
+    self.dialogueRenderer:draw(self.dialogue, self.viewport)
+  end
   self:_drawHud()
 end
 
@@ -527,6 +690,7 @@ function FieldState:_drawHud()
   local plan = self.runtimeMap.coveragePlan
   local playerStatus = self.player:status()
   local visuals = self.actorAssets:stats()
+  local dialogueStatus = self.dialogue:status()
   local lines = {
     string.format("field  %s", self.versionId),
     string.format("map %d  %s  camera %d/%s", self.runtimeMap.mapId,
@@ -563,9 +727,14 @@ function FieldState:_drawHud()
       self.session.tick, self.session.discardedTicks, self.overlaysVisible and "on" or "off"),
     string.format("transition %s  fade %.2f",
       self.transition.phase, self.transition.fadeAlpha),
+    string.format("dialogue %s page %d/%d  reveal %d/%d  cursor %s",
+      dialogueStatus.state, dialogueStatus.pageIndex, dialogueStatus.pageCount,
+      dialogueStatus.revealedGlyphs, dialogueStatus.pageGlyphCount,
+      dialogueStatus.waiting and (dialogueStatus.cursorOn and "on" or "off") or "-"),
     self.saveStatus or "save not written this run",
-    "WASD/arrows move   -/= zoom   0 reset zoom   F1 overlays   F2 inspect   F3 toggle flag"
-      .. "   F4 avatar   F5 save   F9 reset   Esc quit",
+    "WASD/arrows move   Z/Space/Enter action   X/Backspace cancel   -/= zoom"
+      .. "   0 reset zoom   F1 overlays   F2 inspect   F3 toggle flag"
+      .. "   F4 avatar   F5 save   F6 dialogue   F9 reset   Esc quit",
   }
   lg.setColor(0, 0, 0, 0.55)
   lg.rectangle("fill", 12, 12, 900, 20 * #lines + 12)
@@ -583,7 +752,14 @@ function FieldState:keypressed(key)
   if key == "f3" then self:_toggleInspectorFlag() end
   if key == "f4" then self:_cycleAvatar() end
   if key == "f5" then self:_save() end
+  if key == "f6" then self:_openDevDialogue() end
   if key == "f9" then self:_reset() return end
+  if self.actionKeys and self.actionKeys[key] and self.input then
+    self.input:pressAction()
+  end
+  if self.cancelKeys and self.cancelKeys[key] and self.input then
+    self.input:pressCancel()
+  end
   if key == "-" or key == "kp-" then
     self.zoom:zoomOut()
     self:_applyZoomChange()
@@ -607,6 +783,14 @@ function FieldState:keypressed(key)
 end
 
 function FieldState:keyreleased(key)
+  if self.actionKeys and self.actionKeys[key] and self.input then
+    self.input:releaseAction()
+    return
+  end
+  if self.cancelKeys and self.cancelKeys[key] and self.input then
+    self.input:releaseCancel()
+    return
+  end
   local direction = self.heldDirectionKeys and self.heldDirectionKeys[key]
   if not direction or not self.input then return end
   self.heldDirectionKeys[key] = nil
@@ -616,7 +800,35 @@ function FieldState:keyreleased(key)
   self.input:release(direction)
 end
 
+-- Focus loss clears held and edge state so a blurred window cannot feed a
+-- stale Action into the next frame's dialogue or movement (spec section 11.2).
+---@param focused boolean
+function FieldState:focus(focused)
+  if not focused and self.input then self.input:clearAll() end
+end
+
+-- Gamepad Action is the south face button ("a") and Cancel the east face
+-- button ("b"), mapped alongside the keyboard bindings (spec section 11.1).
+---@param _ love.Joystick
+---@param button string
+function FieldState:gamepadpressed(_, button)
+  if not self.input then return end
+  if button == "a" then self.input:pressAction() end
+  if button == "b" then self.input:pressCancel() end
+end
+
+---@param _ love.Joystick
+---@param button string
+function FieldState:gamepadreleased(_, button)
+  if not self.input then return end
+  if button == "a" then self.input:releaseAction() end
+  if button == "b" then self.input:releaseCancel() end
+end
+
 function FieldState:_release()
+  if self.dialogue then self.dialogue:dispose() end
+  if self.dialogueRenderer then self.dialogueRenderer:release() end
+  self.dialogue, self.dialogueRenderer = nil, nil
   if self.actors then self.actors:dispose() end
   if self.avatarAsset and self.actorAssets then
     self.actorAssets:release(self.avatarAsset.spriteId)
@@ -633,6 +845,9 @@ function FieldState:_release()
 end
 
 function FieldState:quit()
+  -- A half-open dialogue must never be persisted; disposal cancels it cleanly
+  -- before the capture (spec section 16.3).
+  if self.dialogue then self.dialogue:dispose() end
   self:_save("Field session saved on quit")
   self:_release()
 end

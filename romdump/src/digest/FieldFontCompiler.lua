@@ -16,8 +16,8 @@ local manifest = require("data.manifests.field_messages")
 
 local FieldFontCompiler = {}
 
-FieldFontCompiler.COMPILER_VERSION = "field-font-compiler-v2"
-FieldFontCompiler.DECODER_VERSION = "hgss-field-font-decoder-v1"
+FieldFontCompiler.COMPILER_VERSION = "field-font-compiler-v4"
+FieldFontCompiler.DECODER_VERSION = "hgss-field-font-decoder-v2"
 
 local GLYPH_SIZE = 16
 
@@ -41,17 +41,35 @@ local function loadSource(romFs, sha1hex)
   }
 end
 
+-- Composite-atlas pixel mapping: 0 = transparent, 1 = foreground ink,
+-- 2 = shadow, 3 = the font's background slot. The slot numbers come from
+-- sFontInfos[0] in src/font.c (fgColor = 0x01, shadowColor = 0x02,
+-- bgColor = 0x0F) applied through GenerateFontHalfRowLookupTable
+-- (src/text.c); palette.colors is 1-based (colors[i] = slot i-1), so the
+-- index is slot + 1. The DS drew the background slot in the window fill color
+-- so it *looked* transparent; in a composited atlas it must be actually
+-- transparent (spec section 7.7 "transparent glyph background"), otherwise
+-- every 16x16 glyph cell becomes an opaque rectangle that chops the narrower
+-- glyphs placed before it.
+
+---@param value integer
+---@param palette FieldFontDecoder.Palette
+---@return integer, integer, integer, integer
 local function pixelToRgba(value, palette)
-  if value == 0 then
+  if value == 0 or value == 3 then
     return 0, 0, 0, 0
   end
-  local index = value == 1 and FieldFontDecoder.FG_PALETTE_INDEX
-    or value == 2 and FieldFontDecoder.SHADOW_PALETTE_INDEX
-    or FieldFontDecoder.BG_PALETTE_INDEX
+  local index = value == 1 and FieldFontDecoder.FG_PALETTE_INDEX + 1
+    or FieldFontDecoder.SHADOW_PALETTE_INDEX + 1
   local color = palette[index] or { r = 0, g = 0, b = 0 }
   return color.r, color.g, color.b, 255
 end
 
+---@param romFs RomFs
+---@param source { archive: RomFs.Narc, archiveInfo: RomFs.NarcInfo, archiveSha1: string }
+---@param sha1hex fun(bytes: string): string
+---@param hashLua fun(value: any): string
+---@return FieldFontCompiler.Bundle
 local function compileFont(romFs, source, sha1hex, hashLua)
   local fontId = manifest.fontId
   local glyphMember = must(source.archive:readMember(manifest.fontGlyphMember))
@@ -202,6 +220,10 @@ local function compileFont(romFs, source, sha1hex, hashLua)
   }
 end
 
+---@param romFs RomFs
+---@param sha1hex fun(bytes: string): string?
+---@param hashLua fun(value: any): string?
+---@return FieldFontCompiler.Bundle
 local function _compile(romFs, sha1hex, hashLua)
   assert(romFs and romFs.read and romFs.openNarc and romFs.resolvedNarc,
     "compile requires a RomFs-shaped object")
@@ -210,11 +232,44 @@ local function _compile(romFs, sha1hex, hashLua)
   return compileFont(romFs, loadSource(romFs, sha1hex), sha1hex, hashLua)
 end
 
+---@param romFs RomFs
+---@param sha1hex fun(bytes: string): string?
+---@param hashLua fun(value: any): string?
+---@return FieldFontCompiler.Bundle?
+---@return Errors.Error?
 function FieldFontCompiler.compile(romFs, sha1hex, hashLua)
   local ok, result = pcall(_compile, romFs, sha1hex, hashLua)
   if ok then return result end
   if Errors.is(result) then return nil, result end
   error(result)
 end
+
+-- The compiled font class: the g4-field-font-v1 definition, the atlas PNG,
+-- and the cache marker derived from every source dependency.
+
+---@class FieldFontCompiler.Bundle
+---@field fontId integer
+---@field marker string
+---@field font FieldFontDef
+---@field atlas string
+---@field dependencies table
+
+-- The g4-field-font-v1 runtime definition consumed by the dialogue layout and
+-- renderer: geometry, per-code glyph quads/advances, the text-to-code charmap,
+-- the 16-color palette, and source provenance.
+
+---@class FieldFontDef
+---@field schema string
+---@field fontId integer
+---@field lineHeight integer
+---@field maxLetterHeight integer
+---@field letterSpacing integer
+---@field glyphCount integer
+---@field fallbackCode integer
+---@field atlas { width: integer, height: integer, glyphsPerRow: integer, glyphWidth: integer, glyphHeight: integer }
+---@field glyphs table<integer, { x: integer, y: integer, w: integer, h: integer, advance: integer, bearingX: integer, bearingY: integer }>
+---@field charmap table<string, integer>
+---@field palette { r: integer, g: integer, b: integer }[]
+---@field source table
 
 return FieldFontCompiler

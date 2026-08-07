@@ -60,14 +60,19 @@ end
 
 local function fixture()
   -- One glyph: value-1 pixels on the left half, value-2 on the right, so the
-  -- atlas and def expose both ink colors.
+  -- atlas and def expose both ink colors; the first row's right half also
+  -- carries value-3 (background-slot) pixels, which must composite as
+  -- transparent (0xBB = pixels 2,3,2,3 with pixel 0 = high bits, matching
+  -- DecompressGlyphTile).
   -- Row bytes (right, left): left half = value 1 (fg), right half = value 2.
-  local tile = string.rep(string.char(0xAA, 0x55), 8)
+  local tile = string.char(0xBB, 0x55) .. string.rep(string.char(0xAA, 0x55), 7)
   local glyphMember = buildFontMember(1, glyph64(tile), { 6 })
-  -- Font palette slots: 1 = fg (near-black), 2 = shadow (gray), 15 = bg (white),
-  -- mirroring the ROM font palette (src/font.c default fg=1 shadow=2 bg=0xF).
-  local paletteMember = buildPalette({ 0x296B, 0x5EF5, 0x089D, 0x5EBF,
-    0x0F45, 0x47B3, 0x7DC0, 0x76EF, 0x5E5F, 0x737F, 0, 0, 0, 0, 0, 0x7FFF })
+  -- Font palette slots mirroring the ROM font palette (src/font.c
+  -- sFontInfos[0]: fgColor=1, shadowColor=2, bgColor=0xF): slot 0 = unused
+  -- green, 1 = fg (0x296B dark), 2 = shadow (0x5EF5 gray), 15 = bg (white).
+  -- palette.colors is 1-based, so the compiler resolves slot N at colors[N+1].
+  local paletteMember = buildPalette({ 0x3713, 0x296B, 0x5EF5, 0x089D,
+    0x5EBF, 0x0F45, 0x47B3, 0x7DC0, 0x76EF, 0x5E5F, 0x737F, 0, 0, 0, 0, 0x7FFF })
   local romFs = {
     resolvedNarc = function(_, alias)
       Assert.equal(alias, "font")
@@ -158,7 +163,8 @@ function T.compiles_font_def_and_atlas()
 
   -- The 8x8 sub-tile is repeated for all four quadrants: each row is
   -- (right=0xAA shadow, left=0x55 fg), so every quadrant's left half is
-  -- fg (0x296B -> 82,90,90) and its right half is shadow (0x5EF5 -> 114,120,120).
+  -- fg (slot 1, 0x296B -> 82,90,90) and its right half is shadow
+  -- (slot 2, 0x5EF5 -> 189,189,173), resolved at colors[slot+1].
   local atlasWidth, _, rgba = pngRgba(bundle.atlas)
   Assert.equal(atlasWidth, 1024)
   local r, g, b, a = px(rgba, atlasWidth, 0, 0)
@@ -177,6 +183,13 @@ function T.compiles_font_def_and_atlas()
   local r4, g4, b4, a4 = px(rgba, atlasWidth, 12, 8)
   Assert.equal(a4, 255)
   Assert.equal(r4, 189) -- BR right half carries the shadow too
+  -- Background-slot pixels (value 3) composite as transparent so glyph cells
+  -- never paint opaque rectangles over the narrower glyphs before them.
+  local r5, g5, b5, a5 = px(rgba, atlasWidth, 5, 0)
+  Assert.equal(a5, 0)
+  Assert.equal(r5, 0)
+  local r6, g6, b6, a6 = px(rgba, atlasWidth, 7, 0)
+  Assert.equal(a6, 0)
 end
 
 function T.compilation_is_deterministic()

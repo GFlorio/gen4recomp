@@ -11,6 +11,13 @@
 local BinaryReader = require("libs.rom.src.BinaryReader")
 local Errors = require("libs.rom.src.Errors")
 
+---@class FieldFontDecoder
+---@field FALLBACK_GLYPH_INDEX integer
+---@field FG_PALETTE_INDEX integer
+---@field SHADOW_PALETTE_INDEX integer
+---@field BG_PALETTE_INDEX integer
+---@field MAX_GLYPHS integer
+---@field MAX_PALETTE_BYTES integer
 local FieldFontDecoder = {}
 
 -- Glyph index used by TryLoadGlyph for code 0 and codes above numGlyphs.
@@ -25,6 +32,8 @@ FieldFontDecoder.MAX_PALETTE_BYTES = 0x200
 
 local TILE_BYTES = 16
 
+---@param word integer
+---@return { r: integer, g: integer, b: integer }
 local function colorFromU16(word)
   local b = word % 32
   local g = math.floor(word / 32) % 32
@@ -37,6 +46,10 @@ end
 
 -- Decodes the member into a font object with per-glyph accessors. The member
 -- keeps its byte string; callers must not mutate it.
+
+---@param data string
+---@param opts { label?: string }
+---@return FieldFontDecoder.DecodedFont
 local function openMember(data, opts)
   opts = opts or {}
   local reader = BinaryReader.new(data, opts.label or "field-font-glyphs")
@@ -115,7 +128,15 @@ local function openMember(data, opts)
   -- Returns pixel values 0..3 as a glyphHeight*8 x glyphWidth*8 grid (rows of
   -- width glyphWidth*8). Sub-tiles run row-major (TL, TR, BL, BR); each tile
   -- row is two bytes with the SECOND byte holding the left half, and pixel 0
-  -- of a byte is its low two bits (DecompressGlyphTile semantics).
+  -- of a byte is its HIGH two bits. The high-bit order follows
+  -- DecompressGlyphTile (src/text.c): the half-row lookup table places the
+  -- source byte's bits 6-7 into dest bits 0-3, and pixel 0 of a 4bpp group is
+  -- the low nibble -- so the leftmost pixel is the byte's most significant
+  -- pair. (The DS shadow sits down-right of the ink; low-bit ordering would
+  -- mirror each 4-pixel group and put the shadow on the wrong side.)
+
+  ---@param glyphIndex integer
+  ---@return FieldFontDecoder.Glyph
   function font.glyphPixels(glyphIndex)
     if glyphIndex >= numGlyphs then
       Errors.raise("FONT_GLYPH_MISSING",
@@ -137,8 +158,8 @@ local function openMember(data, opts)
         for p = 0, 3 do
           local y = tileY + row + 1
           pixels[y] = pixels[y] or {}
-          pixels[y][tileX + p + 1] = math.floor(left / 2 ^ (p * 2)) % 4
-          pixels[y][tileX + 4 + p + 1] = math.floor(right / 2 ^ (p * 2)) % 4
+          pixels[y][tileX + p + 1] = math.floor(left / 2 ^ (6 - p * 2)) % 4
+          pixels[y][tileX + 4 + p + 1] = math.floor(right / 2 ^ (6 - p * 2)) % 4
         end
       end
     end
@@ -151,6 +172,10 @@ end
 -- Decodes an RLCN-wrapped TTLP palette member (16-bit colors). The container
 -- layout follows GBATEK's Nitro Color Palette entry and the TTLP chunk of the
 -- NNS G2D compressed palette format.
+
+---@param data string
+---@param opts { label?: string }
+---@return FieldFontDecoder.Palette
 local function decodePalette(data, opts)
   opts = opts or {}
   local reader = BinaryReader.new(data, opts.label or "field-font-palette")
@@ -210,6 +235,10 @@ local function decodePalette(data, opts)
   return { colors = colors, colorCount = colorCount, depth = depth }
 end
 
+---@param data string
+---@param opts { label?: string }
+---@return FieldFontDecoder.DecodedFont?
+---@return Errors.Error?
 function FieldFontDecoder.decodeMember(data, opts)
   assert(type(data) == "string", "FieldFontDecoder.decodeMember requires a string")
   local ok, result = pcall(openMember, data, opts)
@@ -218,6 +247,10 @@ function FieldFontDecoder.decodeMember(data, opts)
   error(result)
 end
 
+---@param data string
+---@param opts { label?: string }
+---@return FieldFontDecoder.Palette?
+---@return Errors.Error?
 function FieldFontDecoder.decodePalette(data, opts)
   assert(type(data) == "string", "FieldFontDecoder.decodePalette requires a string")
   local ok, result = pcall(decodePalette, data, opts)
@@ -225,5 +258,37 @@ function FieldFontDecoder.decodePalette(data, opts)
   if Errors.is(result) then return nil, result end
   error(result)
 end
+
+-- The decoded glyph member: header facts plus per-glyph accessors
+-- (TryLoadGlyph semantics from src/font_data.c).
+
+---@class FieldFontDecoder.DecodedFont
+---@field schema string
+---@field headerSize integer
+---@field widthDataStart integer
+---@field numGlyphs integer
+---@field fixedWidth integer
+---@field fixedHeight integer
+---@field tileColumns integer
+---@field tileRows integer
+---@field glyphSize integer
+---@field widths integer[]
+---@field glyphWidth fun(glyphIndex: integer): integer
+---@field glyphIndexForCode fun(code: integer): integer
+---@field glyphPixels fun(glyphIndex: integer): FieldFontDecoder.Glyph
+
+-- One decoded glyph: a width x height grid of 2-bit pixel values (0..3).
+
+---@class FieldFontDecoder.Glyph
+---@field width integer
+---@field height integer
+---@field values integer[][]
+
+-- The decoded palette member: colors is 1-based (colors[i] = slot i-1).
+
+---@class FieldFontDecoder.Palette
+---@field colors { r: integer, g: integer, b: integer }[]
+---@field colorCount integer
+---@field depth integer
 
 return FieldFontDecoder
