@@ -1,3 +1,4 @@
+---@diagnostic disable: duplicate-set-field
 -- Game entry point. This app is its own LÖVE root (`love game/`); the repo root
 -- (the source base directory) is added to package.path first so `require`
 -- resolves libs and sibling apps by their full repo-relative path (libs.*,

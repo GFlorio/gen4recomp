@@ -14,8 +14,20 @@ local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local NeighborRing = require("libs.engine.src.NeighborRing")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
+---@class FieldMapLoader
+---@field cacheFs CacheFs
+---@field world table
+---@field capacity integer
+---@field sceneLoader table
+---@field coverageLoader table
+---@field entries table<integer, table>
+---@field protectedMaps table<integer, boolean>
+---@field protectedCells table<integer, table>
+---@field clock integer
+---@field released boolean
 local FieldMapLoader = {}
 FieldMapLoader.__index = FieldMapLoader
+
 
 ---@class RuntimeFieldMap
 ---@field mapId integer
@@ -34,6 +46,9 @@ FieldMapLoader.__index = FieldMapLoader
 ---@field availableCells table<string, boolean>
 ---@field release fun(self: RuntimeFieldMap)
 
+---@param world table
+---@param idOrSymbol string|integer
+---@return table
 local function worldRecord(world, idOrSymbol)
   local mapId = type(idOrSymbol) == "string" and world.bySymbol[idOrSymbol] or idOrSymbol
   local index = mapId ~= nil and world.byId[mapId] or nil
@@ -42,9 +57,13 @@ local function worldRecord(world, idOrSymbol)
     Errors.raise("FIELD_MAP_UNKNOWN", "no runtime map for " .. tostring(idOrSymbol),
       { key = idOrSymbol })
   end
-  return record
+  return assert(record)
 end
 
+---@param cacheFs CacheFs
+---@param path string
+---@param code string
+---@return table
 local function loadRequired(cacheFs, path, code)
   local value, err = cacheFs:loadLua(path)
   if value == nil then
@@ -52,7 +71,7 @@ local function loadRequired(cacheFs, path, code)
       path = path, cause = err and err.code,
     })
   end
-  return value
+  return value --[[@as table]]
 end
 
 local function availableCells(scene)

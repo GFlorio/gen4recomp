@@ -23,7 +23,7 @@ local function failsWith(code, bytes)
   local result, err = FieldActorTimeline.decode(bytes, "fixture")
   Assert.isNil(result)
   Assert.isTrue(Errors.is(err), "expected an Errors object, got " .. tostring(err))
-  Assert.equal(err.code, code)
+  Assert.equal(assert(err).code, code)
 end
 
 function T.decodes_count_thresholds_and_slots()

@@ -7,6 +7,11 @@
 
 local Errors = require("libs.rom.src.Errors")
 
+---@class FieldEventState
+---@field private _flags table<integer, boolean>
+---@field private _vars table<integer, integer>
+---@field private _tick integer
+---@field private _listeners fun(change: table)[]
 local FieldEventState = {}
 FieldEventState.__index = FieldEventState
 

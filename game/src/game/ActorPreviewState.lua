@@ -100,7 +100,10 @@ function ActorPreviewState:draw()
   end
 end
 
-function ActorPreviewState:keypressed(key)
+---@param key string
+---@param scancode string
+---@param isrepeat boolean
+function ActorPreviewState:keypressed(key, scancode, isrepeat)
   if key == "escape" then return love.event.quit(0) end
   if key == "space" then self.paused = not self.paused end
   if key == "down" then self.scroll = math.min(self.scroll + 1, #self.entries - 1) end

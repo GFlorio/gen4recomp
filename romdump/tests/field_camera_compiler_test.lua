@@ -73,7 +73,7 @@ function T.rejects_disagreeing_pointers()
   local bundle, err = FieldCameraCompiler.compile(romFs, discovery,
     function() return "overlay-sha" end)
   Assert.isNil(bundle)
-  Assert.equal(err.code, "FIELD_CAMERA_POINTER_MISMATCH")
+  Assert.equal(assert(err).code, "FIELD_CAMERA_POINTER_MISMATCH")
 end
 
 function T.rejects_pointer_offsets_outside_overlay()
@@ -82,7 +82,7 @@ function T.rejects_pointer_offsets_outside_overlay()
   local bundle, err = FieldCameraCompiler.compile(romFs, discovery,
     function() return "overlay-sha" end)
   Assert.isNil(bundle)
-  Assert.equal(err.code, "FIELD_CAMERA_POINTER_OUT_OF_BOUNDS")
+  Assert.equal(assert(err).code, "FIELD_CAMERA_POINTER_OUT_OF_BOUNDS")
 end
 
 function T.writer_commits_marker_last_and_is_deterministic()

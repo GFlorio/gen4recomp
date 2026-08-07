@@ -71,11 +71,11 @@ function T.rejects_bad_projection_and_truncated_table()
   local result, err = HgssCameraTable.decode(bad,
     { tableOffset = 0, recordCount = 1, source = "bad" })
   Assert.isNil(result)
-  Assert.equal(err.code, "FIELD_CAMERA_PROJECTION_UNKNOWN")
+  Assert.equal(assert(err).code, "FIELD_CAMERA_PROJECTION_UNKNOWN")
   result, err = HgssCameraTable.decode(bad:sub(1, 35),
     { tableOffset = 0, recordCount = 1, source = "short" })
   Assert.isNil(result)
-  Assert.equal(err.code, "FIELD_CAMERA_TABLE_OUT_OF_BOUNDS")
+  Assert.equal(assert(err).code, "FIELD_CAMERA_TABLE_OUT_OF_BOUNDS")
 end
 
 return T

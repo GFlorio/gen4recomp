@@ -45,8 +45,8 @@ function T.raise_survives_pcall()
   end)
   Assert.isFalse(ok)
   Assert.isTrue(Errors.is(err))
-  Assert.equal(err.code, "SHORT_HEADER")
-  Assert.equal(err.context.size, 10)
+  Assert.equal(assert(err).code, "SHORT_HEADER")
+  Assert.equal(assert(err).context.size, 10)
 end
 
 return T

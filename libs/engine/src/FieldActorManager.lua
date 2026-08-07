@@ -13,6 +13,14 @@ local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local FieldObjectActor = require("libs.engine.src.FieldObjectActor")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 
+---@class FieldActorManager
+---@field assets FieldActorAssetProvider
+---@field variableSpriteRange { first: integer, last: integer }
+---@field variableVarBase integer
+---@field maps table<integer, table>
+---@field eventState FieldEventState?
+---@field unsubscribe fun()?
+---@field pendingFlags table[]
 local FieldActorManager = {}
 FieldActorManager.__index = FieldActorManager
 
@@ -24,6 +32,7 @@ local SURFACE_ERROR_CODES = {
   TERRAIN_SURFACE_AMBIGUOUS = "ACTOR_SURFACE_AMBIGUOUS",
   TERRAIN_SURFACE_DISCONNECTED = "ACTOR_SURFACE_AMBIGUOUS",
 }
+
 
 ---@class FieldActorManagerOptions
 ---@field assets FieldActorAssetProvider

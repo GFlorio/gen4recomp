@@ -63,7 +63,7 @@ local function decodeErr(bytes)
   local land, err = LandData.decode(bytes, { mapId = 61, alias = "land_data", memberId = 244 })
   Assert.isNil(land)
   Assert.notNil(err)
-  return err
+  return assert(err)
 end
 
 function T.rejects_member_too_small()

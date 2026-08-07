@@ -46,7 +46,7 @@ end
 function T.rejects_wrong_length()
   local short, sErr = AreaData.decode(string.rep("\0", 7))
   Assert.isNil(short)
-  Assert.equal(sErr.code, "AREA_DATA_BAD_SIZE")
+  Assert.equal(assert(sErr).code, "AREA_DATA_BAD_SIZE")
   local long = AreaData.decode(string.rep("\0", 9))
   Assert.isNil(long)
 end

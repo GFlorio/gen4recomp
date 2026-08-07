@@ -132,13 +132,13 @@ function T.rejects_non_renderable_catalog_header()
   })
   local r, err = MapResolver.resolve(rom, "MAP_EVERYWHERE")
   Assert.isNil(r)
-  Assert.equal(err.code, "MAP_RESOLVE_NOT_RENDERABLE")
+  Assert.equal(assert(err).code, "MAP_RESOLVE_NOT_RENDERABLE")
 end
 
 function T.fails_on_unknown_map()
   local r, err = MapResolver.resolve(elmsLabRomFs(), "MAP_NOPE")
   Assert.isNil(r)
-  Assert.equal(err.code, "MAP_CATALOG_UNKNOWN")
+  Assert.equal(assert(err).code, "MAP_CATALOG_UNKNOWN")
 end
 
 return T

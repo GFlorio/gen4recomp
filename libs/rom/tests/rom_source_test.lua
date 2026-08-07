@@ -60,6 +60,7 @@ function T.from_path_reads_file_bytes()
 
   local s, err = RomSource.fromPath(path)
   Assert.notNil(s, err and tostring(err))
+  assert(s)
   Assert.equal(s:size(), 3)
   Assert.equal(s:read(0, 3), "abc")
   Assert.equal(s:sha1(), ABC_SHA1)
@@ -83,6 +84,7 @@ function T.from_zip_finds_compatible_nds()
   })
   local s, err = RomSource.fromZipData(zip, "rom.zip", versionsFor(sha1))
   Assert.notNil(s, err and tostring(err))
+  assert(s)
   Assert.equal(s:size(), #nds)
   Assert.equal(s:sha1(), sha1)
   Assert.isTrue(s:read(0, #nds) == nds, "zip-extracted bytes must match the .nds")
@@ -105,7 +107,7 @@ function T.from_zip_without_nds_errors()
   local zip = ZipBuilder.build({ { name = "a.txt", data = "x" }, { name = "b.sav", data = "y" } })
   local s, err = RomSource.fromZipData(zip, "rom.zip", versionsFor("none"))
   Assert.isNil(s)
-  Assert.equal(err.code, "ZIP_NO_NDS")
+  Assert.equal(assert(err).code, "ZIP_NO_NDS")
 end
 
 -- A single unsupported .nds is still returned so NdsRom.open can report its hash.
@@ -123,7 +125,7 @@ function T.from_dropped_file_reads_contents()
     close = function() return true end,
     getFilename = function() return "dropped.nds" end,
   }
-  local s = RomSource.fromDroppedFile(stub)
+  local s = assert(RomSource.fromDroppedFile(stub))
   Assert.equal(s:displayName(), "dropped.nds")
   Assert.equal(s:read(0, 3), "abc")
 end

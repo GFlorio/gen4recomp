@@ -41,9 +41,19 @@ local function message(pages)
   }
 end
 
+local function request(id, message, allowCancel)
+  return {
+    id = id,
+    message = message,
+    style = "default",
+    modal = true,
+    allowCancel = allowCancel == true,
+  }
+end
+
 function T.fixed_ticks_reveal_expected_glyph_count()
   local c = controller({ page({ line({ glyph("A", 1), glyph("B", 2), glyph("C", 3) }) }, "eos") })
-  c:open({ id = "t", message = message() })
+  c:open(request("t", message()))
   Assert.equal(c:status().state, "OPENING")
   c:step({})
   Assert.equal(c:status().state, "REVEALING")
@@ -66,7 +76,7 @@ function T.action_during_reveal_jumps_to_boundary_only()
     page({ line({ glyph("A", 1), glyph("B", 2), glyph("C", 3), glyph("D", 4), glyph("E", 5) }) }, "prompt"),
     page({ line({ glyph("F", 6) }) }, "eos"),
   })
-  c:open({ id = "t", message = message() })
+  c:open(request("t", message()))
   c:step({})
   c:step({ actionPressed = true })
   Assert.equal(c:status().state, "WAITING_BOUNDARY")
@@ -87,7 +97,7 @@ function T.held_action_does_not_skip_multiple_pages()
     page({ line({ glyph("A", 1) }) }, "prompt"),
     page({ line({ glyph("B", 2), glyph("C", 3), glyph("D", 4) }) }, "eos"),
   })
-  c:open({ id = "t", message = message() })
+  c:open(request("t", message()))
   c:step({})
   c:step({ actionPressed = true }) -- skip page 1 reveal
   c:step({ actionPressed = true }) -- advance to page 2
@@ -106,7 +116,7 @@ function T.final_action_closes_and_completes_exactly_once()
   local c = controller({ page({ line({ glyph("A", 1) }) }, "eos") })
   local completed = 0
   local result
-  local handle = c:open({ id = "t", message = message() })
+  local handle = c:open(request("t", message()))
   handle:onComplete(function(r) completed = completed + 1 result = r end)
   c:step({})
   c:step({ actionPressed = true }) -- skip reveal
@@ -131,7 +141,7 @@ function T.open_consumes_the_initiating_edge()
   })
   -- The opener consumes the edge that opened the dialogue; the first step
   -- carries only held state, so nothing is skipped or advanced.
-  local handle = c:open({ id = "t", message = message() })
+  local handle = c:open(request("t", message()))
   c:step({ actionDown = true })
   Assert.equal(c:status().state, "REVEALING")
   Assert.equal(c:status().revealedGlyphs, 0)
@@ -148,7 +158,7 @@ function T.auto_scroll_pages_advance_without_action()
     page({ line({ glyph("A", 1), glyph("B", 2) }) }, "line"),
     page({ line({ glyph("C", 3) }) }, "eos"),
   })
-  c:open({ id = "t", message = message() })
+  c:open(request("t", message()))
   c:step({})
   c:step({})
   c:step({})
@@ -165,7 +175,7 @@ function T.zero_glyph_pages_reach_boundary_without_ticks()
     page({ line({ { kind = "style", control = 0xFF00, name = "COLOR", args = { 1 } } }) }, "prompt"),
     page({ line({ glyph("A", 1) }) }, "eos"),
   })
-  c:open({ id = "t", message = message() })
+  c:open(request("t", message()))
   c:step({})
   Assert.equal(c:status().state, "WAITING_BOUNDARY", "zero-glyph page waits immediately")
 end
@@ -173,7 +183,7 @@ end
 function T.empty_message_closes_safely_on_open()
   local c = controller({})
   local completed = 0
-  local handle = c:open({ id = "t", message = message() })
+  local handle = c:open(request("t", message()))
   handle:onComplete(function() completed = completed + 1 end)
   Assert.isTrue(c:isModal(), "modal ownership engages so the session drives close")
   c:step({})
@@ -187,11 +197,11 @@ end
 function T.malformed_message_fires_error_once_and_stays_closed()
   local c = FieldDialogueController.new({
     layout = function()
-      Errors.raise("FONT_GLYPH_MISSING", "fixture layout failure", { code = 0x9999 })
+      error(Errors.new("FONT_GLYPH_MISSING", "fixture layout failure", { code = 0x9999 }))
     end,
   })
   local errors = 0
-  local handle = c:open({ id = "t", message = message() })
+  local handle = c:open(request("t", message()))
   handle:onError(function(result)
     errors = errors + 1
     Assert.equal(result.kind, "error")
@@ -206,7 +216,7 @@ function T.malformed_message_fires_error_once_and_stays_closed()
   -- A subsequent valid open works.
   local c2 = controller({ page({ line({ glyph("A", 1) }) }, "eos") })
   local done = false
-  local h2 = c2:open({ id = "t2", message = message() })
+  local h2 = c2:open(request("t2", message()))
   h2:onComplete(function() done = true end)
   c2:step({})
   c2:step({ actionPressed = true })
@@ -217,14 +227,14 @@ end
 
 function T.cancel_ignored_unless_allow_cancel()
   local c = controller({ page({ line({ glyph("A", 1) }) }, "eos") })
-  c:open({ id = "t", message = message() })
+  c:open(request("t", message()))
   c:step({ cancelPressed = true })
   Assert.isTrue(c:isModal(), "cancel is ignored by default")
 
   local c2 = controller({ page({ line({ glyph("A", 1) }) }, "eos") })
   local cancelled = 0
   local result
-  local handle = c2:open({ id = "t", message = message(), allowCancel = true })
+  local handle = c2:open(request("t", message(), true))
   handle:onCancel(function(r) cancelled = cancelled + 1 result = r end)
   c2:step({ cancelPressed = true })
   Assert.equal(cancelled, 1)
@@ -237,9 +247,9 @@ end
 function T.close_is_idempotent_and_dispose_cancels()
   local c = controller({ page({ line({ glyph("A", 1) }) }, "eos") })
   local completed = 0
-  local handle = c:open({ id = "t", message = message() })
+  local handle = c:open(request("t", message()))
   handle:onComplete(function() completed = completed + 1 end)
-  local result = c:close()
+  local result = assert(c:close())
   Assert.equal(result.kind, "complete")
   Assert.equal(completed, 1)
   Assert.isNil(c:close(), "second close is a no-op")
@@ -247,7 +257,7 @@ function T.close_is_idempotent_and_dispose_cancels()
 
   local c2 = controller({ page({ line({ glyph("A", 1) }) }, "eos") })
   local cancelled = 0
-  local h2 = c2:open({ id = "t", message = message() })
+  local h2 = c2:open(request("t", message()))
   h2:onCancel(function() cancelled = cancelled + 1 end)
   Assert.notNil(c2:dispose())
   Assert.equal(cancelled, 1)
@@ -261,9 +271,9 @@ function T.callback_can_queue_a_next_dialogue_but_not_step_it()
     page({ line({ glyph("B", 1) }) }, "eos"),
   })
   local second = false
-  local handle = c:open({ id = "first", message = message() })
+  local handle = c:open(request("first", message()))
   handle:onComplete(function()
-    local h2 = c:open({ id = "second", message = message() })
+    local h2 = c:open(request("second", message()))
     h2:onComplete(function() second = true end)
     Assert.equal(c:status().state, "OPENING")
   end)
@@ -283,7 +293,7 @@ end
 function T.cursor_blink_is_deterministic()
   local c = controller({ page({ line({ glyph("A", 1) }) }, "prompt") },
     { cursorBlinkTicks = 3 })
-  c:open({ id = "t", message = message() })
+  c:open(request("t", message()))
   c:step({}) -- open -> revealing
   c:step({}) -- reveal the glyph, wait begins
   Assert.equal(c:status().state, "WAITING_BOUNDARY")
@@ -297,11 +307,11 @@ end
 
 function T.open_while_modal_raises()
   local c = controller({ page({ line({ glyph("A", 1) }) }, "eos") })
-  c:open({ id = "t", message = message() })
-  local err = Assert.throws(function() c:open({ id = "t2", message = message() }) end)
+  c:open(request("t", message()))
+  local err = Assert.throws(function() c:open(request("t2", message())) end)
   Assert.isTrue(Errors.is(err) and err.code == "DIALOGUE_ALREADY_OPEN", "raises DIALOGUE_ALREADY_OPEN")
   c:close()
-  local h2 = c:open({ id = "t2", message = message() })
+  local h2 = c:open(request("t2", message()))
   Assert.notNil(h2)
 end
 
@@ -312,7 +322,7 @@ function T.status_exposes_visible_lines_up_to_the_reveal()
       line({ glyph("D", 4), glyph("E", 5) }),
     }, "eos"),
   })
-  c:open({ id = "t", message = message() })
+  c:open(request("t", message()))
   c:step({})
   Assert.equal(#c:status().visibleLines, 0, "nothing revealed yet")
   c:step({})

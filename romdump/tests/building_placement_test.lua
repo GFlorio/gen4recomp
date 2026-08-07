@@ -63,7 +63,7 @@ function T.decodes_all_fields_of_one_record()
 end
 
 function T.decode_all_yields_sequential_indices()
-  local placements = BuildingPlacement.decodeAll(record() .. record())
+  local placements = assert(BuildingPlacement.decodeAll(record() .. record()))
   Assert.equal(#placements, 2)
   Assert.equal(placements[1].index, 0)
   Assert.equal(placements[2].index, 1)
@@ -77,7 +77,7 @@ end
 function T.rejects_length_not_multiple_of_48()
   local placements, err = BuildingPlacement.decodeAll(record() .. "\0")
   Assert.isNil(placements)
-  Assert.equal(err.code, "BUILDING_BAD_SIZE")
+  Assert.equal(assert(err).code, "BUILDING_BAD_SIZE")
 end
 
 function T.decodes_negative_fx32_scale()

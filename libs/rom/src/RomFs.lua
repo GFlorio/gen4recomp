@@ -15,8 +15,24 @@ local RomImporter = require("libs.rom.src.RomImporter")
 local OverlayCompression = require("libs.rom.src.OverlayCompression")
 local Hgss = require("data.manifests.hgss")
 
+---@class RomFs
+---@field private _version string
+---@field private _metadata table
 local RomFs = {}
 RomFs.__index = RomFs
+
+
+---@class RomFs.Narc
+---@field readMember fun(self: RomFs.Narc, memberId: integer): string?, Errors.Error?
+---@field memberCount fun(self: RomFs.Narc): integer
+---@field memberInfo fun(self: RomFs.Narc, memberId: integer): table?, Errors.Error?
+
+---@class RomFs.NarcInfo
+---@field symbol string
+---@field alias string
+---@field narcId integer
+---@field path string
+---@field fileId integer
 
 local function loadRequired(cache, path)
   local value, err = cache:loadLua(path)

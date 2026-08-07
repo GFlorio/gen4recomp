@@ -172,6 +172,7 @@ end
 function T.gate5_injected_failure_leaves_no_marker(romFs, version)
   local backend = FakeCache.new()
   local orig = backend.write
+  ---@diagnostic disable: duplicate-set-field
   backend.write = function(self, path, data)
     if path:find("scene.lua", 1, true) then error("injected write failure") end
     return orig(self, path, data)

@@ -265,6 +265,8 @@ function RomExtractor:_smokeDecode(openedNarcs)
     Errors.raise("EXTRACT_SMOKE_DECODE_FAILED",
       "map_matrices member 0 did not decode: " .. Errors.format(decodeErr), {})
   end
+  -- LuaLS cannot see through Errors.raise; the assert narrows the decode.
+  matrix = assert(matrix)
   self:_emit("smoke_decode", 1, 1)
   return {
     name = matrix.name,

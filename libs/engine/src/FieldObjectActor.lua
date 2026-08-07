@@ -6,6 +6,32 @@
 
 local Errors = require("libs.rom.src.Errors")
 
+---@class FieldObjectActor
+---@field actorId string
+---@field mapId integer
+---@field objectEventId integer
+---@field sourceEvent table
+---@field spriteId integer
+---@field visualDef table?
+---@field visualAsset table?
+---@field fieldX integer
+---@field fieldZ integer
+---@field surfaceId integer
+---@field worldX number
+---@field worldY number
+---@field worldZ number
+---@field initialFacing FieldDirection
+---@field facing FieldDirection
+---@field pose string
+---@field poseTick integer
+---@field visible boolean
+---@field solid boolean
+---@field rawMovement integer
+---@field interactionFacingOverride { owner: string, facing: FieldDirection, restoreFacing: FieldDirection }?
+---@field pushFacingOverride fun(self: FieldObjectActor, request: { owner: string, facing: FieldDirection }): table
+---@field releaseFacingOverride fun(self: FieldObjectActor, token: table)
+---@field clearFacingOverride fun(self: FieldObjectActor)
+
 local FieldObjectActor = {}
 FieldObjectActor.__index = FieldObjectActor
 

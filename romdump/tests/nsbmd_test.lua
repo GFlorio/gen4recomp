@@ -155,14 +155,14 @@ end
 function T.rejects_malformed_node_data_offset()
   local m, err = Nsbmd.decode(Fixture.buildZeroNodeDataOffset())
   Assert.isNil(m)
-  Assert.equal(err.code, "NSBMD_NODE_DATA_OFFSET_ZERO")
+  Assert.equal(assert(err).code, "NSBMD_NODE_DATA_OFFSET_ZERO")
 end
 
 function T.rejects_missing_mdl0()
   local bytes = NB.file("BMD0", { { magic = "TEX0", body = string.rep("\0", 60) } })
   local m, err = Nsbmd.decode(bytes)
   Assert.isNil(m)
-  Assert.equal(err.code, "NSBMD_NO_MDL0")
+  Assert.equal(assert(err).code, "NSBMD_NO_MDL0")
 end
 
 return T

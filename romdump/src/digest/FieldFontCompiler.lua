@@ -233,14 +233,14 @@ local function _compile(romFs, sha1hex, hashLua)
 end
 
 ---@param romFs RomFs
----@param sha1hex fun(bytes: string): string?
----@param hashLua fun(value: any): string?
+---@param sha1hex? fun(bytes: string): string|nil
+---@param hashLua? fun(value: any): string|nil
 ---@return FieldFontCompiler.Bundle?
 ---@return Errors.Error?
 function FieldFontCompiler.compile(romFs, sha1hex, hashLua)
   local ok, result = pcall(_compile, romFs, sha1hex, hashLua)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then return result, nil end
+  if Errors.is(result) then return nil, result --[[@as Errors.Error]] end
   error(result)
 end
 

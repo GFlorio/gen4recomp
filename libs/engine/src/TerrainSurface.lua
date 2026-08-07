@@ -2,8 +2,13 @@
 -- and evaluates the authoritative gameplay plane; permission/collision policy
 -- deliberately remains outside this pure domain module.
 
+---@class TerrainSurface
+---@field artifact table
+---@field plates table[]
+---@field plateById table<integer, table>
 local TerrainSurface = {}
 TerrainSurface.__index = TerrainSurface
+
 
 local CONTAINMENT_EPSILON = 1e-9
 

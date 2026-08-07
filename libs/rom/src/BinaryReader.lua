@@ -4,6 +4,20 @@
 
 local Errors = require("libs.rom.src.Errors")
 
+---@class BinaryReader
+---@field private _data string
+---@field private _name string
+---@field data string
+---@field label string?
+---@field length fun(self: BinaryReader): integer
+---@field assertRange fun(self: BinaryReader, offset: integer, length: integer, fieldName: string): boolean
+---@field u8 fun(self: BinaryReader, offset: integer): integer
+---@field u16le fun(self: BinaryReader, offset: integer): integer
+---@field u32le fun(self: BinaryReader, offset: integer): integer
+---@field f32le fun(self: BinaryReader, offset: integer): number
+---@field bytes fun(self: BinaryReader, offset: integer, length: integer): string
+---@field ascii fun(self: BinaryReader, offset: integer, length: integer, trimNul: boolean?): string
+---@field slice fun(self: BinaryReader, offset: integer, length: integer, label: string?): BinaryReader
 local BinaryReader = {}
 BinaryReader.__index = BinaryReader
 

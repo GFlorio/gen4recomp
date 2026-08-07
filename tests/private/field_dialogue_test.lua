@@ -26,7 +26,7 @@ end
 local function runMessage(version, bankId, messageId)
   local def = fontDef(version)
   local cache = CacheFs.forVersion(version)
-  local provider = FieldMessageProvider.new(cache)
+  local provider = assert(FieldMessageProvider.new(cache))
   local bank = provider:acquireBank(bankId)
   assert(bank, "message bank cache is cold")
   local template = assert(provider:get(bankId, messageId))
@@ -47,6 +47,7 @@ local function runMessage(version, bankId, messageId)
   local handle = controller:open({
     id = string.format("target-%d-%d", bankId, messageId),
     message = formatted,
+    style = "field",
     modal = true,
     allowCancel = false,
     metadata = { bankId = bankId, messageId = messageId },
@@ -89,7 +90,7 @@ end
 function T.target_lines_stay_inside_the_reference_text_width(romFs, version)
   local def = fontDef(version)
   local cache = CacheFs.forVersion(version)
-  local provider = FieldMessageProvider.new(cache)
+  local provider = assert(FieldMessageProvider.new(cache))
   local bank = provider:acquireBank(543)
   local metrics = FieldDialogueTheme.fontMetrics(def)
   local widths = {}

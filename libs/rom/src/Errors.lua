@@ -4,6 +4,11 @@
 
 local Errors = {}
 
+---@class Errors.Error
+---@field code string
+---@field message string
+---@field context table
+
 local MT = { __index = {}, __tostring = function(e)
   return Errors.format(e)
 end }

@@ -148,7 +148,7 @@ function T.the_demo_walk_to_the_door_warps_to_town_and_back(romFs)
   Assert.equal(townPlayer.fieldZ, 394)
   local facingWarp = WarpSystem.findBlockedFacing(town, 684, 394, "north")
   Assert.notNil(facingWarp, "facing the blocked town door resolves the warp")
-  Assert.equal(facingWarp.destinationMapId, 61)
+  Assert.equal(assert(facingWarp).destinationMapId, 61)
   Assert.notNil(WarpSystem.findAt(town, 684, 393))
   townManager:dispose()
 end

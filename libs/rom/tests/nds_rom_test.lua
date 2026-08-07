@@ -115,7 +115,7 @@ local function throwsOpenCode(code, source, versions)
   local rom, err = NdsRom.open(source, versions)
   Assert.isNil(rom, "expected open to fail")
   Assert.isTrue(Errors.is(err), "expected an Errors object, got " .. tostring(err))
-  Assert.equal(err.code, code)
+  Assert.equal(assert(err).code, code)
 end
 
 function T.rejects_short_header()

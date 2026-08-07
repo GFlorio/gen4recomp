@@ -311,7 +311,7 @@ function FieldState:update(dt)
   if self.session then
     self.session:update(dt)
     if self.transition.error then
-      local warp = self.transition.sourceWarp
+      local warp = assert(self.transition.sourceWarp)
       self.errorText = string.format("%s\nsource map %s warp %s -> map %s warp %s",
         tostring(self.transition.error), tostring(self.transition.sourceMap.mapId),
         tostring(warp.index), tostring(warp.destinationMapId),
@@ -472,7 +472,10 @@ function FieldState:_drawHud()
   for index, line in ipairs(lines) do lg.print(line, 20, 12 + (index - 1) * 20) end
 end
 
-function FieldState:keypressed(key)
+---@param key string
+---@param scancode string
+---@param isrepeat boolean
+function FieldState:keypressed(key, scancode, isrepeat)
   if key == "escape" then love.event.quit(0) end
   if key == "f1" then self:_save() end
   if key == "f2" then self:_reset() return end
@@ -504,7 +507,9 @@ function FieldState:keypressed(key)
   end
 end
 
-function FieldState:keyreleased(key)
+---@param key string
+---@param scancode string
+function FieldState:keyreleased(key, scancode)
   if self.actionKeys and self.actionKeys[key] and self.input then
     self.input:releaseAction()
     return

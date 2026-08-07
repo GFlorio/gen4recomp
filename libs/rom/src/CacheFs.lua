@@ -8,8 +8,26 @@ local Errors = require("libs.rom.src.Errors")
 local LuaWriter = require("libs.rom.src.LuaWriter")
 local GameVersion = require("libs.rom.src.GameVersion")
 
+---@class CacheFs
+---@field versionId string
+---@field private _prefix string
+---@field private _root string
+---@field backend table
+---@field prefix fun(self: CacheFs): string
+---@field resolve fun(self: CacheFs, relativePath: string): string
+---@field write fun(self: CacheFs, relativePath: string, data: string): boolean
+---@field read fun(self: CacheFs, relativePath: string): string?
+---@field getInfo fun(self: CacheFs, relativePath: string): table?
+---@field exists fun(self: CacheFs, relativePath: string, expectedType?: string): boolean
+---@field createDirectory fun(self: CacheFs, relativePath: string): boolean
+---@field remove fun(self: CacheFs, relativePath: string): boolean
+---@field replace fun(self: CacheFs, sourceRelativePath: string, destinationRelativePath: string): boolean
+---@field removeTree fun(self: CacheFs, relativePath: string): boolean
+---@field writeLua fun(self: CacheFs, relativePath: string, value: table): boolean
+---@field loadLua fun(self: CacheFs, relativePath: string): table?, Errors.Error?
 local CacheFs = {}
 CacheFs.__index = CacheFs
+
 
 -- love.filesystem-backed backend, constructed lazily so requiring this module
 -- never touches love (keeps the domain testable off-runtime).

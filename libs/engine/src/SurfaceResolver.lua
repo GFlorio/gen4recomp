@@ -11,6 +11,9 @@
 
 local Errors = require("libs.rom.src.Errors")
 
+---@class SurfaceResolver
+---@field terrain TerrainSurface
+---@field stepHeightLimit number
 local SurfaceResolver = {}
 SurfaceResolver.__index = SurfaceResolver
 

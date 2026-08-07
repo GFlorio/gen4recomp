@@ -261,7 +261,7 @@ end
 function T.intent_values_survive_source_mutation()
   local elm = actor("map:61:object:0", 0, 99, 4, 13, 1)
   local r = resolver({ ["4:13"] = { surfaceId = 0, actor = elm } })
-  local intent = r:resolve(baseSnapshot())
+  local intent = assert(r:resolve(baseSnapshot()))
   elm.facing = "east"
   elm.actorId = "mutated"
   elm.sourceEvent.scriptId = 999

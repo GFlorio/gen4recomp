@@ -103,7 +103,7 @@ local function harness(opts)
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   cache:writeLua(FieldMessageCache.bankPath(opts.bankId or 543),
     bankArtifact(opts.bankId or 543))
-  local provider = FieldMessageProvider.new(cache, { maxCachedBanks = 2 })
+  local provider = assert(FieldMessageProvider.new(cache, { maxCachedBanks = 2 }))
   local metrics = FieldDialogueTheme.fontMetrics(def)
   local layout = function(message)
     return DialogueLayout.layout(message.tokens, metrics,
@@ -247,7 +247,7 @@ function T.bank_mismatch_raises_a_typed_error_and_opens_nothing()
   })
   local ok, err = pcall(h.adapter.consume, h.adapter, objectIntent())
   Assert.isFalse(ok)
-  Assert.equal(err.code, "INTERACTION_BANK_MISMATCH")
+  Assert.equal(type(err) == "table" and err.code or err, "INTERACTION_BANK_MISMATCH")
   Assert.isFalse(h.dialogue:isModal())
   Assert.isNil(h.elm.interactionFacingOverride)
 end
@@ -269,7 +269,7 @@ function T.dispose_releases_the_override_via_cancel()
     },
   })
   h.adapter:consume(objectIntent())
-  local result = h.dialogue:dispose()
+  local result = assert(h.dialogue:dispose())
   Assert.equal(result.kind, "cancel")
   Assert.isNil(h.elm.interactionFacingOverride)
   -- dispose again is a no-op; the release still happened exactly once and the
@@ -316,7 +316,7 @@ function T.open_failure_unwinds_the_override()
   local ok, err = pcall(h.adapter.consume, h.adapter,
     objectIntent({ object = { actorId = "map:61:object:2", objectEventId = 2, spriteId = 29 } }))
   Assert.isFalse(ok)
-  Assert.equal(err.code, "DIALOGUE_ALREADY_OPEN")
+  Assert.equal(type(err) == "table" and err.code or err, "DIALOGUE_ALREADY_OPEN")
   Assert.isNil(h.aide.interactionFacingOverride, "the failed open releases its override")
   Assert.equal(h.elm.interactionFacingOverride.owner, "pre-script-dialogue",
     "the first dialogue's override is untouched")

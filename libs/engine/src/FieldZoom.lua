@@ -2,8 +2,18 @@
 -- height changes. It is pure presentation state and never alters simulation or
 -- ROM-derived camera geometry.
 
+---@class FieldZoom
+---@field minZoom number
+---@field maxZoom number
+---@field defaultManualZoom number
+---@field manualZoom number
+---@field referenceHeight number
+---@field resizeCompensation number
+---@field step number
+---@field viewportHeight number
 local FieldZoom = {}
 FieldZoom.__index = FieldZoom
+
 
 local function clamp(value, minimum, maximum)
   return math.max(minimum, math.min(maximum, value))

@@ -80,8 +80,9 @@ function FieldDialogueRenderer.new(opts)
 end
 
 function FieldDialogueRenderer:_buildQuads()
-  local lg = self._graphics
-  local width, height = self.atlas:getWidth(), self.atlas:getHeight()
+  local lg = assert(self._graphics)
+  local atlas = assert(self.atlas)
+  local width, height = atlas:getWidth(), atlas:getHeight()
   local quads = {}
   for code, glyph in pairs(self.fontDef.glyphs) do
     quads[code] = lg.newQuad(glyph.x, glyph.y, glyph.w, glyph.h, width, height)
@@ -92,7 +93,7 @@ end
 -- The 6x6 slice source: 2px border ring (border color) around a stretchable
 -- center (window fill). Quads are split at the 2/4 grid lines.
 function FieldDialogueRenderer:_buildSlice()
-  local lg = self._graphics
+  local lg = assert(self._graphics)
   local colors = self._theme.colors
   local size = self._theme.slice.size
   local imageData = love.image.newImageData(size, size)
@@ -154,7 +155,8 @@ end
 ---@param y number
 ---@param advanceX number[]
 function FieldDialogueRenderer:_drawMarkerTokens(tokens, x, y, advanceX)
-  local lg = self._graphics
+  local lg = assert(self._graphics)
+  local atlas = assert(self.atlas)
   local color = self._theme.colors.marker
   lg.setColor(color[1], color[2], color[3], color[4])
   for _, token in ipairs(tokens) do
@@ -175,7 +177,8 @@ end
 ---@param x number
 ---@param y number
 function FieldDialogueRenderer:_drawLine(tokens, x, y)
-  local lg = self._graphics
+  local lg = assert(self._graphics)
+  local atlas = assert(self.atlas)
   local advanceX = { x }
   local markers = {}
   lg.setColor(1, 1, 1, 1)
@@ -183,7 +186,7 @@ function FieldDialogueRenderer:_drawLine(tokens, x, y)
     if token.kind == "glyph" then
       self:_flushMarkers(markers, advanceX, y)
       local quad = self._quads[token.code] or self._quads[0]
-      if quad then lg.draw(self.atlas, quad, advanceX[1], y) end
+      if quad then lg.draw(atlas, quad, advanceX[1], y) end
       local glyph = self.fontDef.glyphs[token.code] or self.fontDef.glyphs[0]
       advanceX[1] = advanceX[1] + glyph.advance + (self.fontDef.letterSpacing or 0)
     else
@@ -209,7 +212,7 @@ end
 ---@param layout FieldDialogueTheme.Layout
 function FieldDialogueRenderer:_drawCursor(status, layout)
   if not status.waiting or not status.cursorOn then return end
-  local lg = self._graphics
+  local lg = assert(self._graphics)
   local cursor = layout.cursor
   local color = self._theme.colors.cursor
   lg.setColor(color[1], color[2], color[3], color[4])
@@ -226,7 +229,9 @@ end
 
 ---@param layout FieldDialogueTheme.Layout
 function FieldDialogueRenderer:_drawBox(layout)
-  local lg = self._graphics
+  local lg = assert(self._graphics)
+  local sliceImage = assert(self._sliceImage)
+  local sliceQuads = assert(self._sliceQuads)
   local box = layout.box
   local spansX = { box.x, box.x + SLICE_BORDER, box.x + box.width - SLICE_BORDER }
   local spansY = { box.y, box.y + SLICE_BORDER, box.y + box.height - SLICE_BORDER }
@@ -236,7 +241,7 @@ function FieldDialogueRenderer:_drawBox(layout)
   for row = 1, 3 do
     for col = 1, 3 do
       index = index + 1
-      lg.draw(self._sliceImage, self._sliceQuads[index],
+      lg.draw(sliceImage, sliceQuads[index],
         spansX[col], spansY[row], 0,
         widths[col] / SLICE_BORDER, heights[row] / SLICE_BORDER)
     end
@@ -252,7 +257,7 @@ end
 ---@param viewport { referenceFrame: FieldDialogueTheme.Rect }
 function FieldDialogueRenderer:draw(controller, viewport)
   if not controller or not controller:isModal() or not self.atlas then return end
-  local lg = self._graphics
+  local lg = assert(self._graphics)
   local status = controller:status()
 
   local canvas = lg.getCanvas()

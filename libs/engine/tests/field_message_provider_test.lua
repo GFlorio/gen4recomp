@@ -42,8 +42,8 @@ end
 
 function T.acquire_pins_bank_and_release_evicts()
   local cache = cacheWith({ [542] = bankArtifact(542, 2), [543] = bankArtifact(543, 2) })
-  local provider = FieldMessageProvider.new(cache, { maxCachedBanks = 2 })
-  local bank = provider:acquireBank(542)
+  local provider = assert(FieldMessageProvider.new(cache, { maxCachedBanks = 2 }))
+  local bank = assert(provider:acquireBank(542))
   Assert.equal(bank.bankId, 542)
   Assert.equal(provider:stats().loads, 1)
   local again = provider:acquireBank(542)
@@ -55,9 +55,9 @@ function T.acquire_pins_bank_and_release_evicts()
 end
 
 function T.get_returns_immutable_templates_and_bounds_errors()
-  local provider = FieldMessageProvider.new(cacheWith({ [543] = bankArtifact(543, 3) }))
+  local provider = assert(FieldMessageProvider.new(cacheWith({ [543] = bankArtifact(543, 3) })))
   provider:acquireBank(543)
-  local template = provider:get(543, 1)
+  local template = assert(provider:get(543, 1))
   Assert.equal(template.bankId, 543)
   Assert.equal(template.messageId, 1)
   Assert.equal(template.text, "1") -- modder-facing text rides on the template
@@ -66,25 +66,25 @@ function T.get_returns_immutable_templates_and_bounds_errors()
   local missing, err = provider:get(543, 9)
   Assert.isNil(missing)
   Assert.isTrue(Errors.is(err))
-  Assert.equal(err.code, "MESSAGE_ID_OUT_OF_RANGE")
+  Assert.equal(assert(err).code, "MESSAGE_ID_OUT_OF_RANGE")
 
   local unacquired, unacquiredErr = provider:get(542, 0)
   Assert.isNil(unacquired)
-  Assert.equal(unacquiredErr.code, "MESSAGE_BANK_NOT_ACQUIRED")
+  Assert.equal(assert(unacquiredErr).code, "MESSAGE_BANK_NOT_ACQUIRED")
 end
 
 function T.missing_bank_artifact_is_typed()
-  local provider = FieldMessageProvider.new(cacheWith({}))
+  local provider = assert(FieldMessageProvider.new(cacheWith({})))
   local bank, err = provider:acquireBank(542)
   Assert.isNil(bank)
   Assert.isTrue(Errors.is(err))
-  Assert.equal(err.code, "MESSAGE_BANK_MISSING")
+  Assert.equal(assert(err).code, "MESSAGE_BANK_MISSING")
 end
 
 function T.format_substitutes_before_wrapping_and_never_mutates()
-  local provider = FieldMessageProvider.new(cacheWith({ [542] = bankArtifact(542, 1) }))
+  local provider = assert(FieldMessageProvider.new(cacheWith({ [542] = bankArtifact(542, 1) })))
   provider:acquireBank(542)
-  local template = provider:get(542, 0)
+  local template = assert(provider:get(542, 0))
   local context = { playerName = "GOLD" }
   local fontDef = {
     charmap = {
@@ -122,7 +122,7 @@ function T.format_substitutes_before_wrapping_and_never_mutates()
 end
 
 function T.unresolved_substitution_stays_visible_and_traced()
-  local provider = FieldMessageProvider.new(cacheWith({ [542] = bankArtifact(542, 1) }))
+  local provider = assert(FieldMessageProvider.new(cacheWith({ [542] = bankArtifact(542, 1) })))
   local tokens = {
     { kind = "substitution", control = 0x0103, args = { 0, 0 }, raw = { 0xFFFE, 0x0103, 0x0002, 0, 0 } },
     { kind = "eos", raw = { 0xFFFF } },
@@ -144,7 +144,7 @@ function T.ascii_glyph_tokens_cover_the_demo_name()
   Assert.equal(tokens[4].code, 0x012E) -- 'D'
   local bad, err = FieldMessageProvider.asciiGlyphTokens("GOLD!", fontDef)
   Assert.isNil(bad)
-  Assert.equal(err.code, "MESSAGE_SUBSTITUTION_UNRESOLVED")
+  Assert.equal(assert(err).code, "MESSAGE_SUBSTITUTION_UNRESOLVED")
   local accented = assert(FieldMessageProvider.asciiGlyphTokens("é", fontDef))
   Assert.equal(accented[1].code, 0x0188)
 end
@@ -153,7 +153,7 @@ function T.bounded_lru_evicts_only_unreferenced_banks()
   local cache = cacheWith({
     [542] = bankArtifact(542, 1), [543] = bankArtifact(543, 1), [544] = bankArtifact(544, 1),
   })
-  local provider = FieldMessageProvider.new(cache, { maxCachedBanks = 2 })
+  local provider = assert(FieldMessageProvider.new(cache, { maxCachedBanks = 2 }))
   provider:acquireBank(542)
   provider:acquireBank(543)
   provider:releaseBank(542)
@@ -163,7 +163,7 @@ function T.bounded_lru_evicts_only_unreferenced_banks()
   Assert.equal(provider:stats().disposals, 1)
   local missing, err = provider:get(542, 0)
   Assert.isNil(missing)
-  Assert.equal(err.code, "MESSAGE_BANK_NOT_ACQUIRED")
+  Assert.equal(assert(err).code, "MESSAGE_BANK_NOT_ACQUIRED")
 
   -- A referenced bank is never evicted: with 544 released, re-acquiring 542
   -- evicts 543, and re-acquiring 543 evicts 544.
@@ -178,7 +178,7 @@ function T.bounded_lru_evicts_only_unreferenced_banks()
 end
 
 function T.dispose_releases_everything()
-  local provider = FieldMessageProvider.new(cacheWith({ [542] = bankArtifact(542, 1) }))
+  local provider = assert(FieldMessageProvider.new(cacheWith({ [542] = bankArtifact(542, 1) })))
   provider:acquireBank(542)
   provider:dispose()
   Assert.equal(provider:stats().live, 0)

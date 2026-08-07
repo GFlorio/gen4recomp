@@ -17,7 +17,8 @@ local function session()
     targets[#targets + 1] = { x = target.x, y = target.y, z = target.z }
   end }
   local actor = { worldX = 1.25, worldY = 2.5, worldZ = 3.75 }
-  return FieldSession.new({ versionId = "heartgold", currentMap = { mapId = 61 },
+  local map = { mapId = 61 }
+  return FieldSession.new({ versionId = "heartgold", currentMap = map,
     actor = actor, camera = camera }), targets
 end
 
@@ -60,9 +61,11 @@ function T.completed_transition_holds_the_arrival_tile_for_autosave()
       self.completed = { destinationMapId = 61 }
     end,
   }
+  local map = { mapId = 61, cameraType = 4 }
+  local camera = { updateFixed = function() end }
   local s = FieldSession.new({
-    versionId = "heartgold", currentMap = { mapId = 61, cameraType = 4 },
-    actor = actor, player = actor, camera = { updateFixed = function() end },
+    versionId = "heartgold", currentMap = map,
+    actor = actor, player = actor, camera = camera,
     transition = transition,
   })
   s:updateFixed({ heldDirection = "south" })
@@ -80,9 +83,11 @@ function T.the_player_pose_clock_advances_once_per_tick_and_freezes_under_a_tran
     updateFixed = function() return false end,
   }
   local transition = { phase = "idle", updateFixed = function() end }
+  local map = { mapId = 61, cameraType = 4 }
+  local camera = { updateFixed = function() end }
   local s = FieldSession.new({
-    versionId = "heartgold", currentMap = { mapId = 61, cameraType = 4 },
-    actor = actor, player = actor, camera = { updateFixed = function() end },
+    versionId = "heartgold", currentMap = map,
+    actor = actor, player = actor, camera = camera,
     transition = transition, playerVisual = playerVisual,
   })
   s:updateFixed({})
@@ -274,12 +279,13 @@ local function dialogueSession(opts)
   local actors = { step = function() worldSteps.actors = worldSteps.actors + 1 end }
   local playerVisual = { updateFixed = function() worldSteps.visual = worldSteps.visual + 1 end }
   local transition = { phase = "idle", locked = false, updateFixed = function() end }
+  local map = { mapId = 61, cameraType = 4 }
   local session = FieldSession.new({
-    versionId = "heartgold", currentMap = { mapId = 61, cameraType = 4 },
+    versionId = "heartgold", currentMap = map,
     actor = actor, player = actor, camera = camera, transition = transition,
     actors = actors, playerVisual = playerVisual, dialogue = dialogue,
   })
-  return session, worldSteps, function() return dialogueSteps, received end
+  return session, worldSteps, function() return dialogueSteps, received end, dialogue
 end
 
 function T.modal_dialogue_freezes_every_world_step_and_steps_the_dialogue()
@@ -304,12 +310,12 @@ function T.modal_dialogue_blocks_warp_evaluation()
 end
 
 function T.world_resumes_once_the_dialogue_closes()
-  local session, worldSteps, dialogueState = dialogueSession()
+  local session, worldSteps, dialogueState, dialogue = dialogueSession()
   session:updateFixed({})
   Assert.equal(worldSteps.player, 0)
   -- The dialogue closes (its own step dispatches the completion); the next
   -- session tick runs the world again.
-  session.dialogue.modal = false
+  dialogue.modal = false
   session:updateFixed({ heldDirection = "south" })
   Assert.equal(worldSteps.player, 1)
   Assert.equal(worldSteps.camera, 1)
@@ -331,8 +337,9 @@ function T.transition_commit_clears_stale_action_edges()
     end,
   }
   local camera = { updateFixed = function() end }
+  local map = { mapId = 61, cameraType = 4 }
   local session = FieldSession.new({
-    versionId = "heartgold", currentMap = { mapId = 61, cameraType = 4 },
+    versionId = "heartgold", currentMap = map,
     actor = actor, player = actor, camera = camera, transition = transition,
     input = input,
   })
@@ -372,8 +379,9 @@ local function interactionSession(opts)
   local camera = { updateFixed = function() end }
   local actors = { step = function() end }
   local transition = { phase = "idle", locked = false, updateFixed = function() end }
+  local map = { mapId = 61, cameraType = 4 }
   local session = FieldSession.new({
-    versionId = "heartgold", currentMap = { mapId = 61, cameraType = 4 },
+    versionId = "heartgold", currentMap = map,
     actor = actor, player = actor, camera = camera, transition = transition,
     actors = actors, interactions = interactions,
   })
@@ -450,7 +458,8 @@ function T.interaction_never_resolves_under_a_locked_transition_or_modal()
   Assert.equal(steps(), 0)
 
   session.transition.locked = false
-  session.dialogue = { isModal = function() return true end, step = function() end }
+  local modal = { isModal = function() return true end, step = function() end }
+  session.dialogue = modal
   session:updateFixed({ actionPressed = true })
   Assert.isNil(interactions.resolveSnapshot, "modal ownership blocks new interactions")
 end
@@ -472,7 +481,7 @@ function T.a_two_tile_walk_keeps_one_phase_across_the_session_ticks()
     } }),
   }
   local player = FieldPlayer.new({ currentMap = map, fieldX = 4, fieldZ = 13,
-    surfaceId = 0, facing = "south" })
+    surfaceId = 0, facing = "south", occupancy = function() return nil end })
   local visual = FieldPlayerVisual.new({
     player = player, spriteId = 0, visualDef = FieldActorFixture.visual(0),
   })

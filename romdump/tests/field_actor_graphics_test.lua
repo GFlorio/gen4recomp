@@ -18,7 +18,7 @@ local function failsWith(code, opts)
   local result, err = decode(opts)
   Assert.isNil(result)
   Assert.isTrue(Errors.is(err), "expected an Errors object, got " .. tostring(err))
-  Assert.equal(err.code, code)
+  Assert.equal(assert(err).code, code)
 end
 
 function T.decodes_records_in_table_order()
@@ -73,7 +73,7 @@ function T.rejects_table_address_outside_the_overlay()
   manifest.tables.graphics.address = locator.ramAddress + #bytes + 4
   local result, err = FieldActorGraphics.decode(bytes, locator, manifest)
   Assert.isNil(result)
-  Assert.equal(err.code, "FIELD_ACTOR_ADDRESS_OUT_OF_OVERLAY")
+  Assert.equal(assert(err).code, "FIELD_ACTOR_ADDRESS_OUT_OF_OVERLAY")
 end
 
 function T.key_tables_resolve_descriptor_members()
@@ -122,14 +122,14 @@ function T.resolve_reports_absent_sprite_and_unknown_descriptor()
 
   local missing, err = FieldActorGraphics.resolve(decoded, 101)
   Assert.isNil(missing)
-  Assert.equal(err.code, "FIELD_ACTOR_SPRITE_ABSENT")
+  Assert.equal(assert(err).code, "FIELD_ACTOR_SPRITE_ABSENT")
 
   local other = assert(decode({ records = {
     { spriteId = 5, mapModelId = 1, packed = 0x0400 }, -- selects descriptor 1
   } }))
   local unknown, descErr = FieldActorGraphics.resolve(other, 5)
   Assert.isNil(unknown)
-  Assert.equal(descErr.code, "FIELD_ACTOR_DESCRIPTOR_UNKNOWN")
+  Assert.equal(assert(descErr).code, "FIELD_ACTOR_DESCRIPTOR_UNKNOWN")
 end
 
 return T

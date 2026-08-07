@@ -122,10 +122,10 @@ function T.parse_reads_marker_text_back_into_tokens()
     end
   end
   Assert.notNil(strvar)
-  Assert.deepEqual(strvar.args, { 0, 0 })
-  Assert.equal(strvar.name, "STRVAR_1")
+  Assert.deepEqual(assert(strvar).args, { 0, 0 })
+  Assert.equal(assert(strvar).name, "STRVAR_1")
   Assert.notNil(cursor)
-  Assert.deepEqual(cursor.args, { 4 })
+  Assert.deepEqual(assert(cursor).args, { 4 })
   Assert.deepEqual(breaks, { "line_break", "prompt_break" })
   Assert.equal(tokens[#tokens].kind, "eos")
   -- Marker glyphs resolve through the font def charmap.

@@ -123,7 +123,7 @@ function T.visible_lab_actors_resolve_one_surface_and_occupy_their_cell(romFs)
     Assert.equal(actor.worldY, 0)
     Assert.isTrue(manager:isOccupied(LAB, actor.fieldX, actor.fieldZ, actor.surfaceId))
   end
-  local elm = manager:getById("map:61:object:0")
+  local elm = assert(manager:getById("map:61:object:0"))
   Assert.equal(elm.spriteId, 99)
   Assert.equal(elm.facing, "south")
   Assert.equal(elm.sourceEvent.eventFlag, 401)
@@ -155,7 +155,7 @@ end
 
 function T.flag_toggles_remove_and_restore_elm_on_one_step(romFs)
   local manager, eventState = labSession(romFs)
-  local elm = manager:getById("map:61:object:0")
+  local elm = assert(manager:getById("map:61:object:0"))
   eventState:setFlag(elm.sourceEvent.eventFlag)
   manager:step(1)
   Assert.isNil(manager:getById("map:61:object:0"))

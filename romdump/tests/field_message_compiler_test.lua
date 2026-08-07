@@ -93,7 +93,7 @@ function T.writer_commits_marker_last_and_reads_back()
   FieldMessageCacheWriter.write(cache, bundle)
   Assert.isTrue(FieldMessageCache.isReady(cache, bundle.marker))
   Assert.isFalse(FieldMessageCache.isReady(cache, bundle.marker .. "-stale"))
-  local loaded = cache:loadLua(FieldMessageCache.bankPath(542))
+  local loaded = assert(cache:loadLua(FieldMessageCache.bankPath(542)))
   Assert.equal(loaded.bankId, 542)
   Assert.equal(loaded.schema, FieldMessageCache.SCHEMA)
 end
@@ -103,6 +103,7 @@ function T.writer_failure_invalidates_the_class()
   local bundle = assert(FieldMessageCompiler.compile(romFs, sha1, hashLua))
   local backend = FakeCache.new()
   local originalWrite = backend.write
+  ---@diagnostic disable: duplicate-set-field
   backend.write = function(self, path, data)
     if path:find("banks/0543.lua", 1, true) then error("injected") end
     return originalWrite(self, path, data)
@@ -127,9 +128,9 @@ function T.unmapped_glyph_fails_compilation_with_context()
   local bundle, err = FieldMessageCompiler.compile(romFs)
   Assert.isNil(bundle, "expected a failure result")
   Assert.isTrue(Errors.is(err))
-  Assert.equal(err.code, "MESSAGE_GLYPH_UNMAPPED")
-  Assert.equal(err.context.bankId, 542)
-  Assert.equal(err.context.messageId, 0)
+  Assert.equal(assert(err).code, "MESSAGE_GLYPH_UNMAPPED")
+  Assert.equal(assert(err).context.bankId, 542)
+  Assert.equal(assert(err).context.messageId, 0)
 end
 
 return T

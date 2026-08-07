@@ -13,6 +13,12 @@ local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
 local charmap = require("data.reference.hgss.charmap")
 local manifest = require("data.manifests.field_messages")
 
+---@class FieldMessageCompiler.Bundle
+---@field marker string
+---@field index { schema: string, version: string, bankIds: integer[] }
+---@field banks table<integer, table>
+---@field dependencies table
+
 local FieldMessageCompiler = {}
 
 FieldMessageCompiler.COMPILER_VERSION = "field-message-compiler-v2"
@@ -56,6 +62,7 @@ local function compileBank(romFs, source, bankId, sha1hex)
       messageId = index,
     })
     if not tokens then
+      tokenizeErr = assert(tokenizeErr)
       tokenizeErr.context = tokenizeErr.context or {}
       tokenizeErr.context.bankId = bankId
       tokenizeErr.context.messageId = index
@@ -132,10 +139,15 @@ local function _compile(romFs, sha1hex, hashLua)
   }
 end
 
+---@param romFs RomFs
+---@param sha1hex? fun(bytes: string): string|nil
+---@param hashLua? fun(value: any): string|nil
+---@return FieldMessageCompiler.Bundle?
+---@return Errors.Error?
 function FieldMessageCompiler.compile(romFs, sha1hex, hashLua)
   local ok, result = pcall(_compile, romFs, sha1hex, hashLua)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then return result, nil end
+  if Errors.is(result) then return nil, result --[[@as Errors.Error]] end
   error(result)
 end
 

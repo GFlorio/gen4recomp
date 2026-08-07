@@ -118,7 +118,7 @@ function T.releases_rom_on_completion()
   -- Source is released: further reads fail predictably.
   local bytes, err = source:read(0, 4)
   Assert.isNil(bytes)
-  Assert.equal(err.code, "ROM_RELEASED")
+  Assert.equal(assert(err).code, "ROM_RELEASED")
 end
 
 function T.progress_is_monotonic()

@@ -1,3 +1,4 @@
+---@diagnostic disable: duplicate-set-field
 -- ROM dump CLI entry point. This app is its own LÖVE root (`love romdump/`);
 -- the repo root (the source base directory) is added to package.path first so
 -- `require` resolves libs by their full repo-relative path (libs.rom.*,

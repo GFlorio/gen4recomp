@@ -27,7 +27,7 @@ function T.writes_marker_last_and_is_ready()
   local marker = MapCacheWriter.write(c, bundle)
   Assert.equal(marker, bundle.marker)
   Assert.isTrue(MapAssetCache.isReady(c, bundle.mapId, marker), "ready after write")
-  local terrain = c:loadLua(MapAssetCache.terrainPath(bundle.mapId))
+  local terrain = assert(c:loadLua(MapAssetCache.terrainPath(bundle.mapId)))
   Assert.equal(terrain.schema, "g4-terrain-surfaces-v1")
 end
 

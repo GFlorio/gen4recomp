@@ -83,6 +83,7 @@ function T.rolls_back_the_actor_subtree_on_a_failed_write()
   local backend = FakeCache.new()
   local cache = CacheFs.forVersion("heartgold", backend)
   local original = backend.write
+  ---@diagnostic disable: duplicate-set-field
   backend.write = function(self, path, data)
     if path:find("0029.png", 1, true) then error("injected write failure") end
     return original(self, path, data)

@@ -8,6 +8,25 @@
 local CameraHistory = require("libs.engine.src.CameraHistory")
 local Matrix4 = require("libs.math.src.Matrix4")
 
+---@class FieldCamera
+---@field cameraSourceY number
+---@field cameraAppliedY number
+---@field zoom number
+---@field projectionType "perspective"|"orthographic"
+---@field profile table
+---@field distance number
+---@field near number
+---@field far number
+---@field sourceTarget { x: number, y: number, z: number }
+---@field target { x: number, y: number, z: number }
+---@field previousTarget { x: number, y: number, z: number }
+---@field eye { x: number, y: number, z: number }
+---@field previousEye { x: number, y: number, z: number }
+---@field up { x: number, y: number, z: number }
+---@field history table
+---@field historyEnabled boolean
+---@field canonicalAspect number
+---@field projectionAspect number
 local FieldCamera = {}
 FieldCamera.__index = FieldCamera
 

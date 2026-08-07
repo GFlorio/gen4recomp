@@ -9,6 +9,11 @@
 local Errors = require("libs.rom.src.Errors")
 local BinaryReader = require("libs.rom.src.BinaryReader")
 
+---@class Narc
+---@field private _reader BinaryReader
+---@field private _blocks table[]
+---@field private _gmifOffset integer
+---@field private _members table[]
 local Narc = {}
 Narc.__index = Narc
 
