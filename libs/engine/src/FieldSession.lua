@@ -1,9 +1,11 @@
--- Runs the authoritative field simulation at 60 fixed ticks per second. Player
--- movement advances before the camera so both consume the same continuous XYZ.
--- A modal dialogue owns the tick: once the fade/transition phase (which cannot
--- be active while a dialogue is open) has advanced, the session steps only the
--- dialogue and returns, so movement, warps, interactions, and actor pose
--- clocks freeze until the dialogue closes (spec section 11.3).
+-- Runs the authoritative field simulation at 30 fixed ticks per second, the
+-- DS field cadence (the fixed-step accumulator is render-delta independent).
+-- Player movement advances before the camera so both consume the same
+-- continuous XYZ. A modal dialogue owns the tick: once the fade/transition
+-- phase (which cannot be active while a dialogue is open) has advanced, the
+-- session steps only the dialogue and returns, so movement, warps,
+-- interactions, and actor pose clocks freeze until the dialogue closes
+-- (spec section 11.3).
 --
 -- Spec section 11.3 step 6 is wired through the optional `interactions`
 -- service: `resolve(snapshot)` returns an immutable InteractionIntent for an
@@ -30,15 +32,17 @@ local WarpSystem = require("libs.engine.src.WarpSystem")
 ---@field input FieldInput?
 ---@field interactions { resolve: fun(self: table, snapshot: table): table?, consume: fun(self: table, intent: table): boolean }?
 ---@field coverage fun(session: FieldSession)?
----@field trace fun(record: table)?
 ---@field tick integer
 ---@field accumulator number
----@field discardedTicks integer
 local FieldSession = {}
 FieldSession.__index = FieldSession
 
 FieldSession.FIXED_DT = 1 / 30
 FieldSession.MAX_CATCH_UP_TICKS = 5
+
+-- Float slack so a render delta that lands exactly on a tick boundary does
+-- not leave a stale full tick in the accumulator.
+local ACCUMULATOR_EPSILON = 1e-12
 
 ---@param options table
 ---@return FieldSession
@@ -58,10 +62,8 @@ function FieldSession.new(options)
     input = options.input,
     interactions = options.interactions,
     coverage = options.coverage,
-    trace = options.trace,
     tick = 0,
     accumulator = 0,
-    discardedTicks = 0,
   }, FieldSession)
 end
 
@@ -69,9 +71,8 @@ function FieldSession:actorTarget()
   return { x = self.actor.worldX, y = self.actor.worldY, z = self.actor.worldZ }
 end
 
-function FieldSession:_recordTick()
+function FieldSession:_advanceTick()
   self.tick = self.tick + 1
-  if self.trace then self.trace(self:traceRecord()) end
 end
 
 function FieldSession:updateFixed(inputSnapshot)
@@ -82,11 +83,11 @@ function FieldSession:updateFixed(inputSnapshot)
     -- completion event and autosaves it, even when movement remains held.
     if self.transition.completed then
       if self.input and self.input.clearEdges then self.input:clearEdges() end
-      self:_recordTick()
+      self:_advanceTick()
       return
     end
     if self.transition.locked then
-      self:_recordTick()
+      self:_advanceTick()
       return
     end
   end
@@ -96,7 +97,7 @@ function FieldSession:updateFixed(inputSnapshot)
   -- pose clocks, no camera motion. Only the dialogue reads this tick's input.
   if self.dialogue and self.dialogue:isModal() then
     self.dialogue:step(inputSnapshot)
-    self:_recordTick()
+    self:_advanceTick()
     return
   end
 
@@ -130,7 +131,7 @@ function FieldSession:updateFixed(inputSnapshot)
       tick = self.tick + 1,
     })
     if intent and self.interactions:consume(intent) then
-      self:_recordTick()
+      self:_advanceTick()
       return
     end
   end
@@ -143,7 +144,7 @@ function FieldSession:updateFixed(inputSnapshot)
       self.currentMap.mapId, facingWarp.x, facingWarp.z) then
       self.player.facing = direction
       self.transition:start(self.currentMap, facingWarp, direction)
-      self:_recordTick()
+      self:_advanceTick()
       return
     end
   end
@@ -167,47 +168,21 @@ function FieldSession:updateFixed(inputSnapshot)
   if self.playerVisual then self.playerVisual:updateFixed(walkingAtTickStart) end
   self.camera:updateFixed(self:actorTarget())
   if self.coverage then self.coverage(self) end
-  self:_recordTick()
-end
-
-function FieldSession:traceRecord()
-  local record = {
-    tick = self.tick,
-    mapId = self.currentMap.mapId,
-    fieldX = self.player.fieldX,
-    fieldZ = self.player.fieldZ,
-    worldY = self.player.worldY,
-    surfaceId = self.player.surfaceId,
-    facing = self.player.facing,
-    motion = self.player.motion,
-    transitionState = self.transition and self.transition.phase or nil,
-    cameraType = self.currentMap.cameraType,
-    cameraSourceY = self.camera.cameraSourceY,
-    cameraAppliedY = self.camera.cameraAppliedY,
-  }
-  if self.player.status then
-    local status = self.player:status()
-    record.localX, record.localZ = status.localX, status.localZ
-    record.surfaceNormal = status.surfaceNormal
-    record.slopeClass = status.slopeClass
-    record.destinationSurfaceId = status.destinationSurfaceId
-  end
-  return record
+  self:_advanceTick()
 end
 
 function FieldSession:update(dt, inputSnapshot)
   assert(type(dt) == "number" and dt >= 0, "non-negative update dt required")
   self.accumulator = self.accumulator + dt
   local executed = 0
-  while self.accumulator + 1e-12 >= FieldSession.FIXED_DT
+  while self.accumulator + ACCUMULATOR_EPSILON >= FieldSession.FIXED_DT
     and executed < FieldSession.MAX_CATCH_UP_TICKS do
     self.accumulator = self.accumulator - FieldSession.FIXED_DT
     self:updateFixed(inputSnapshot)
     executed = executed + 1
   end
-  if self.accumulator + 1e-12 >= FieldSession.FIXED_DT then
-    local discarded = math.floor((self.accumulator + 1e-12) / FieldSession.FIXED_DT)
-    self.discardedTicks = self.discardedTicks + discarded
+  if self.accumulator + ACCUMULATOR_EPSILON >= FieldSession.FIXED_DT then
+    local discarded = math.floor((self.accumulator + ACCUMULATOR_EPSILON) / FieldSession.FIXED_DT)
     self.accumulator = self.accumulator - discarded * FieldSession.FIXED_DT
   end
   return executed

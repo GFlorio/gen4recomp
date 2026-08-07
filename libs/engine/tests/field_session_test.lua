@@ -31,11 +31,13 @@ function T.fixed_ticks_are_render_cadence_independent()
   Assert.equal(b.tick, 1)
 end
 
-function T.caps_catch_up_and_counts_discarded_ticks()
+function T.excess_backlog_is_discarded_after_max_catch_up()
   local s = session()
   s:update(10 / 30)
   Assert.equal(s.tick, 5)
-  Assert.equal(s.discardedTicks, 5)
+  -- The 5 excess ticks were dropped, not deferred to the next frame.
+  s:update(1 / 30)
+  Assert.equal(s.tick, 6)
 end
 
 function T.camera_follows_the_actor_xyz_each_fixed_tick()
@@ -90,36 +92,6 @@ function T.the_player_pose_clock_advances_once_per_tick_and_freezes_under_a_tran
   transition.locked = true
   s:updateFixed({})
   Assert.equal(steps, 2, "a locked transition owns the tick, so no pose advances")
-end
-
-function T.trace_is_identical_across_render_delta_patterns()
-  local function run(pattern)
-    local records = {}
-    local actor = {
-      fieldX = 1, fieldZ = 2, worldX = 0, worldY = 0, worldZ = 0,
-      surfaceId = 3, facing = "north", motion = "walking",
-    }
-    function actor:updateFixed()
-      self.worldY = self.worldY + 0.125
-    end
-    local camera = {
-      updateFixed = function(self, target)
-        self.cameraSourceY, self.cameraAppliedY = target.y, target.y
-      end,
-    }
-    local s = FieldSession.new({
-      versionId = "heartgold", currentMap = { mapId = 60, cameraType = 0 },
-      actor = actor, player = actor, camera = camera,
-      trace = function(record) records[#records + 1] = record end,
-    })
-    for _, dt in ipairs(pattern) do s:update(dt, {}) end
-    return records
-  end
-  local sixtieths = {}
-  local oneTwentieths = {}
-  for _ = 1, 24 do sixtieths[#sixtieths + 1] = 1 / 60 end
-  for _ = 1, 8 do oneTwentieths[#oneTwentieths + 1] = 1 / 20 end
-  Assert.deepEqual(run(sixtieths), run(oneTwentieths))
 end
 
 local function warpSession(options)

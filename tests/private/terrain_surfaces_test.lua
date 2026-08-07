@@ -151,11 +151,10 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
     targetOffsetTiles = { x = 0, y = 0, z = 0 },
   }
   local camera = FieldCamera.new(profile, { initialTarget = player:renderPosition() })
-  local trace = {}
+  local cameraSamples = {}
   local session = FieldSession.new({
     versionId = "private", currentMap = runtimeMap,
     actor = player, player = player, camera = camera,
-    trace = function(record) trace[#trace + 1] = record end,
   })
 
   local directions = {
@@ -170,6 +169,10 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
         heldDirection = direction,
         pressedDirection = tick == 1 and direction or nil,
       })
+      cameraSamples[#cameraSamples + 1] = {
+        sourceY = camera.cameraSourceY,
+        appliedY = camera.cameraAppliedY,
+      }
       if direction == "north" then
         Assert.isTrue(player.worldY >= beforeY - 1e-9, "stair ascent must be monotonic")
       elseif direction == "south" then
@@ -187,8 +190,8 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
   -- The east hold begins after ascent. Its source Y is flat while the recovered
   -- seven-entry history continues applying the earlier slope deltas.
   local firstHoldTick = 4 * FieldPlayer.WALK_STEP_TICKS + 1
-  Assert.equal(trace[firstHoldTick].cameraSourceY, trace[firstHoldTick - 1].cameraSourceY)
-  Assert.isTrue(trace[firstHoldTick].cameraAppliedY > trace[firstHoldTick - 1].cameraAppliedY,
+  Assert.equal(cameraSamples[firstHoldTick].sourceY, cameraSamples[firstHoldTick - 1].sourceY)
+  Assert.isTrue(cameraSamples[firstHoldTick].appliedY > cameraSamples[firstHoldTick - 1].appliedY,
     "camera Y should retain the delayed ascent delta")
 end
 

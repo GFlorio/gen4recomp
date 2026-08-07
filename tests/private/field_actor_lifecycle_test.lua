@@ -26,7 +26,6 @@ local LAB = 61
 local POLICY = {
   variableSpriteRange = actorManifest.variableSpriteRange,
   variableVarBase = actorManifest.variableVarBase,
-  staticMovementCodes = actorManifest.staticMovementCodes,
 }
 
 local function stubAssets()

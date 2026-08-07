@@ -1,6 +1,6 @@
 -- FieldActorManager tests freeze the object-actor lifecycle: flag visibility,
--- surface resolution, the occupancy index, idempotent map entry, balanced
--- visual acquire/release, and one deferred-movement report per actor.
+-- surface resolution, the occupancy index, idempotent map entry, and balanced
+-- visual acquire/release.
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.rom.src.Errors")
@@ -14,7 +14,6 @@ local T = {}
 local POLICY = {
   variableSpriteRange = { first = 101, last = 117 },
   variableVarBase = 0x4020,
-  staticMovementCodes = { 0 },
 }
 
 local function throwsCode(code, fn)
@@ -87,14 +86,10 @@ local function manager(objects, opts)
   opts = opts or {}
   local assets = opts.assets or fakeAssets({ [99] = true, [34] = true, [29] = true, [0] = true })
   local eventState = opts.eventState or FieldEventState.new()
-  local traced = {}
-  local mgr = FieldActorManager.new({
-    assets = assets, policy = POLICY,
-    trace = function(record) traced[#traced + 1] = record end,
-  })
+  local mgr = FieldActorManager.new({ assets = assets, policy = POLICY })
   local map = opts.map or runtimeMap(objects)
   mgr:enterMap(map, eventState)
-  return mgr, eventState, assets, traced, map
+  return mgr, eventState, assets, map
 end
 
 function T.visible_objects_become_actors_and_flagged_ones_do_not()
@@ -225,7 +220,7 @@ function T.hiding_an_actor_drops_its_facing_override()
 end
 
 function T.entering_the_same_map_twice_is_idempotent()
-  local mgr, eventState, assets, _, map = manager({ object({}) })
+  local mgr, eventState, assets, map = manager({ object({}) })
   mgr:enterMap(map, eventState)
   Assert.equal(#mgr:drawRecords(0), 1)
   Assert.equal(assets:total(), 1)
@@ -240,7 +235,7 @@ function T.leaving_a_map_releases_every_visual()
 end
 
 function T.repeated_map_round_trips_do_not_leak_actors_or_visuals()
-  local mgr, eventState, assets, _, map = manager({ object({}) })
+  local mgr, eventState, assets, map = manager({ object({}) })
   for _ = 1, 3 do
     mgr:leaveMap(61)
     mgr:enterMap(map, eventState)
@@ -280,7 +275,7 @@ local function playerOn(mgr, map, fieldX, fieldZ, surfaceId)
 end
 
 function T.player_cannot_step_into_a_visible_solid_actor_cell()
-  local mgr, _, _, _, map = manager({ object({ objectEventId = 0, x = 9, z = 3 }) })
+  local mgr, _, _, map = manager({ object({ objectEventId = 0, x = 9, z = 3 }) })
   local p = playerOn(mgr, map, 9, 2, 0)
   p:updateFixed({ heldDirection = "south", pressedDirection = "south" })
   Assert.equal(p.facing, "south")
@@ -289,7 +284,7 @@ function T.player_cannot_step_into_a_visible_solid_actor_cell()
 end
 
 function T.hiding_the_actor_opens_the_cell_for_the_player()
-  local mgr, eventState, _, _, map =
+  local mgr, eventState, _, map =
     manager({ object({ objectEventId = 0, x = 9, z = 3, eventFlag = 401 }) })
   local p = playerOn(mgr, map, 9, 2, 0)
   eventState:setFlag(401)
@@ -305,7 +300,7 @@ function T.an_actor_on_the_lower_surface_does_not_block_the_stacked_cell()
   -- The actor sits on plate 0 at (9,3); the player approaches on plate 1
   -- (four units higher), so the resolved destination surface is 1 and the
   -- step must succeed even though x/z match.
-  local mgr, _, _, _, map = manager({ object({ objectEventId = 0, x = 9, z = 3 }) })
+  local mgr, _, _, map = manager({ object({ objectEventId = 0, x = 9, z = 3 }) })
   local p = playerOn(mgr, map, 9, 2, 1)
   p:updateFixed({ heldDirection = "south", pressedDirection = "south" })
   Assert.equal(p.motion, "walking")
@@ -313,19 +308,6 @@ function T.an_actor_on_the_lower_surface_does_not_block_the_stacked_cell()
   Assert.equal(p.fieldZ, 3)
   Assert.equal(p.surfaceId, 1)
   Assert.isTrue(mgr:isOccupied(61, 9, 3, 0))
-end
-
-function T.non_static_movement_is_deferred_once_per_actor()
-  local _, _, _, traced = manager({ object({ movement = 14 }) })
-  Assert.equal(#traced, 1)
-  Assert.equal(traced[1].kind, "actor.movement_deferred")
-  Assert.equal(traced[1].actorId, "map:61:object:0")
-  Assert.equal(traced[1].movement, 14)
-end
-
-function T.static_movement_is_not_reported()
-  local _, _, _, traced = manager({ object({ movement = 0 }) })
-  Assert.equal(#traced, 0)
 end
 
 function T.pose_clock_advances_only_for_visible_actors()

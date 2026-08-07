@@ -2,7 +2,7 @@
 -- data; every value the runtime may change (facing, pose clock, visibility)
 -- lives on the actor, mirroring pret/pokeheartgold's split between the event
 -- record and the `MapObject` it constructs. Actors in this milestone are static:
--- `rawMovement` is preserved and reported, never executed. Pure domain module.
+-- `rawMovement` is preserved, never executed. Pure domain module.
 
 local Errors = require("libs.rom.src.Errors")
 

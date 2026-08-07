@@ -112,7 +112,6 @@ local function harness(opts)
   local dialogue = FieldDialogueController.new({ layout = layout })
   local elm = actor(0, "south")
   local aide = actor(2, "west")
-  local traces = {}
   local adapter = PreScriptInteractionAdapter.new({
     dialogue = dialogue,
     provider = provider,
@@ -125,13 +124,10 @@ local function harness(opts)
     end,
     mapMessageBank = opts.mapMessageBank or function() return 543 end,
     fixtures = opts.fixtures or {},
-    trace = function(record) traces[#traces + 1] = record end,
-    enabled = opts.enabled,
-    unmappedMode = opts.unmappedMode,
   })
   return {
     adapter = adapter, dialogue = dialogue, provider = provider,
-    elm = elm, aide = aide, traces = traces,
+    elm = elm, aide = aide,
   }
 end
 
@@ -207,19 +203,6 @@ function T.object_fixture_opens_and_releases_the_override_exactly_once()
   Assert.isFalse(h.dialogue:isModal())
   Assert.isNil(h.elm.interactionFacingOverride, "the override is released on close")
   Assert.equal(h.elm.facing, h.elm.initialFacing, "the prior facing is restored")
-
-  local kinds = {}
-  for _, record in ipairs(h.traces) do kinds[#kinds + 1] = record.kind end
-  local function count(kind)
-    local n = 0
-    for _, k in ipairs(kinds) do if k == kind then n = n + 1 end end
-    return n
-  end
-  Assert.equal(count("field.actor.facing_override.push"), 1)
-  Assert.equal(count("field.actor.facing_override.release"), 1)
-  Assert.equal(count("field.dialogue.open"), 1)
-  Assert.equal(count("field.dialogue.close"), 1)
-  Assert.equal(count("field.message.bank.acquire"), 1)
   Assert.equal(h.provider:stats().references, 0, "the bank reference is released")
 end
 
@@ -269,37 +252,14 @@ function T.bank_mismatch_raises_a_typed_error_and_opens_nothing()
   Assert.isNil(h.elm.interactionFacingOverride)
 end
 
-function T.unmapped_intent_opens_the_developer_diagnostic()
-  local h = harness({ unmappedMode = "diagnostic" })
+function T.unmapped_intent_opens_the_release_text()
+  local h = harness()
   local consumed = h.adapter:consume(objectIntent({ object = { actorId = "map:61:object:0", objectEventId = 0, spriteId = 99 } }))
   Assert.equal(consumed, true)
   Assert.isTrue(h.dialogue:isModal())
   Assert.equal(h.dialogue:status().requestId, "pre-script-map:61:object:0")
-  Assert.equal(h.traces[1].kind, "field.interaction.unmapped")
-  Assert.equal(h.traces[1].fixtureKey, "map:61:object:0")
-  Assert.equal(h.traces[1].scriptId, 1)
+  Assert.equal(h.dialogue._request.message.text, "Nothing is wired here yet.")
   Assert.isTrue(closeDialogue(h.dialogue))
-end
-
-function T.unmapped_release_mode_shows_nothing_is_wired()
-  local h = harness({ unmappedMode = "nothing" })
-  h.adapter:consume(objectIntent({ object = { actorId = "map:61:object:0", objectEventId = 0, spriteId = 99 } }))
-  Assert.isTrue(h.dialogue:isModal())
-  Assert.isTrue(closeDialogue(h.dialogue))
-end
-
-function T.disabled_adapter_consumes_nothing_and_still_traces()
-  local h = harness({
-    enabled = false,
-    fixtures = {
-      ["map:61:object:0"] = { messageBankId = 543, messageId = 5, facePlayer = true },
-    },
-  })
-  local consumed = h.adapter:consume(objectIntent())
-  Assert.equal(consumed, false)
-  Assert.isFalse(h.dialogue:isModal())
-  Assert.isNil(h.elm.interactionFacingOverride)
-  Assert.equal(h.traces[1].kind, "field.interaction.adapter_disabled")
 end
 
 function T.dispose_releases_the_override_via_cancel()
@@ -312,13 +272,11 @@ function T.dispose_releases_the_override_via_cancel()
   local result = h.dialogue:dispose()
   Assert.equal(result.kind, "cancel")
   Assert.isNil(h.elm.interactionFacingOverride)
-  -- dispose again is a no-op; the release still happened exactly once.
+  -- dispose again is a no-op; the release still happened exactly once and the
+  -- repeated dispose cannot double-release (the token ownership invariant
+  -- would throw).
   h.dialogue:dispose()
-  local releases = 0
-  for _, record in ipairs(h.traces) do
-    if record.kind == "field.actor.facing_override.release" then releases = releases + 1 end
-  end
-  Assert.equal(releases, 1)
+  Assert.isNil(h.elm.interactionFacingOverride)
 end
 
 function T.layout_error_releases_the_override_via_error()

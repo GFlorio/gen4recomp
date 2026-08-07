@@ -23,7 +23,6 @@ local TOWN = 60
 local POLICY = {
   variableSpriteRange = actorManifest.variableSpriteRange,
   variableVarBase = actorManifest.variableVarBase,
-  staticMovementCodes = actorManifest.staticMovementCodes,
 }
 
 -- Manager + player on one map under the deterministic scenario. The scenario
