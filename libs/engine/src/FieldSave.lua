@@ -1,9 +1,15 @@
--- Defines and restores the project-owned field session save. It validates only
--- stable simulation state and safely reselects terrain by saved height when the
--- compiled BDHC identity changes. This is not a Nintendo DS save format.
+-- Defines and restores the project-owned field session save. The schema
+-- `g4-field-save-v1` carries the player field location, the persisted avatar
+-- id, the numeric event flag/variable store, and the scenario id that explains
+-- initialization. It is the only schema: there are no players yet and no
+-- previous format exists, so a save that is not exactly this schema is
+-- rejected. Validation covers stable simulation state only: no dialogue,
+-- facing override, or actor position is persisted (spec section 16). This is
+-- not a Nintendo DS save format.
 
 local Errors = require("libs.rom.src.Errors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
+local FieldEventState = require("libs.engine.src.FieldEventState")
 local WarpSystem = require("libs.engine.src.WarpSystem")
 
 local FieldSave = {}
@@ -23,14 +29,9 @@ local function integer(value)
   return finite(value) and value == math.floor(value)
 end
 
-local function validate(record)
-  if type(record) ~= "table" then
-    Errors.raise("FIELD_SAVE_INVALID", "field save must be a table", {})
-  end
-  if record.schema ~= FieldSave.SCHEMA then
-    Errors.raise("FIELD_SAVE_SCHEMA", "unsupported field save schema",
-      { schema = record.schema })
-  end
+-- The field-location subset of the schema. Raising variant; the public entry
+-- points wrap it in pcall per the project error convention.
+local function validateFieldState(record)
   if type(record.versionId) ~= "string" or record.versionId == "" then
     Errors.raise("FIELD_SAVE_VERSION_INVALID", "field save version is missing", {})
   end
@@ -62,8 +63,68 @@ local function validate(record)
   return record
 end
 
-function FieldSave.validate(record)
-  local ok, result = pcall(validate, record)
+local function validateAvatar(record, opts)
+  if type(record.avatar) ~= "string" or record.avatar == "" then
+    Errors.raise("FIELD_SAVE_AVATAR_INVALID",
+      "field save avatar must be a non-empty id string", { avatar = record.avatar })
+  end
+  local avatars = opts and opts.avatars
+  if avatars and not avatars[record.avatar] then
+    Errors.raise("FIELD_SAVE_AVATAR_INVALID",
+      "field save avatar is not one of the compiled player graphics",
+      { avatar = record.avatar })
+  end
+end
+
+local function validateScenario(record)
+  if record.scenario ~= nil
+    and (type(record.scenario) ~= "string" or record.scenario == "") then
+    Errors.raise("FIELD_SAVE_SCENARIO_INVALID",
+      "field save scenario must be an id string or absent", { scenario = record.scenario })
+  end
+end
+
+-- The persisted event store is validated through FieldEventState itself so
+-- flag/var id and value rules and the entry safety limit live in one place;
+-- failures surface as one save-scoped error with the domain cause attached.
+local function validateEvents(record)
+  if record.events == nil then return end
+  if type(record.events) ~= "table" then
+    Errors.raise("FIELD_SAVE_EVENT_STATE_INVALID",
+      "field save events must be a table", { eventsType = type(record.events) })
+  end
+  local ok, err = pcall(FieldEventState.new, record.events)
+  if not ok then
+    local thrown = err --[[@as any]]
+    Errors.raise("FIELD_SAVE_EVENT_STATE_INVALID",
+      "field save event state is invalid: " .. tostring(thrown),
+      Errors.is(thrown) and { cause = thrown.code } or {})
+  end
+end
+
+local function requireCurrentSchema(record)
+  if record.schema ~= FieldSave.SCHEMA then
+    Errors.raise("FIELD_SAVE_SCHEMA_NEWER",
+      "unknown field save schema; newer than runtime or corrupt",
+      { schema = record.schema })
+  end
+end
+
+-- Strict schema validation (raising). Used by save and restore paths.
+local function validate(record, opts)
+  if type(record) ~= "table" then
+    Errors.raise("FIELD_SAVE_INVALID", "field save must be a table", {})
+  end
+  requireCurrentSchema(record)
+  validateFieldState(record)
+  validateAvatar(record, opts)
+  validateScenario(record)
+  validateEvents(record)
+  return record
+end
+
+function FieldSave.validate(record, opts)
+  local ok, result = pcall(validate, record, opts)
   if ok then return result end
   if Errors.is(result) then return nil, result end
   error(result)
@@ -80,12 +141,27 @@ function FieldSave.canCapture(session)
     and (not session.dialogue or not session.dialogue:isModal())
 end
 
-function FieldSave.capture(session)
+-- `opts.avatarId` is the id of the compiled player graphic; `opts.eventState`
+-- (optional) is serialized into the record; `opts.scenario` (optional) names
+-- the project-owned scenario whose seeds explain the event store.
+
+---@param session FieldSession
+---@param opts table
+---@return table v1 record
+function FieldSave.capture(session, opts)
   assert(FieldSave.canCapture(session), "field save requires an idle tile boundary")
+  assert(opts and type(opts.avatarId) == "string" and opts.avatarId ~= "",
+    "field save capture requires an avatar id")
   local player = session.player
   local runtimeMap = session.currentMap
   assert(type(runtimeMap.terrainDependencyHash) == "string",
     "runtime map terrain dependency identity required")
+  local events = { flags = {}, vars = {} }
+  if opts.eventState then
+    assert(type(opts.eventState.serialize) == "function",
+      "field save capture requires an event state with serialize")
+    events = opts.eventState:serialize()
+  end
   return {
     schema = FieldSave.SCHEMA,
     versionId = session.versionId,
@@ -96,6 +172,9 @@ function FieldSave.capture(session)
     surfaceId = player.surfaceId,
     terrainDependencyHash = runtimeMap.terrainDependencyHash,
     facing = player.facing,
+    avatar = opts.avatarId,
+    scenario = opts.scenario or nil,
+    events = events,
   }
 end
 
@@ -125,6 +204,9 @@ local function closestSurface(runtimeMap, localX, localZ, savedY)
   return samples[1]
 end
 
+-- Strict restore of the only schema. Returns the restored location plus the
+-- persisted avatar id, event store, and scenario id, so the caller rebuilds
+-- exactly what the save holds.
 local function restore(record, loader, expectedVersionId)
   validate(record)
   if record.versionId ~= expectedVersionId then
@@ -152,6 +234,9 @@ local function restore(record, loader, expectedVersionId)
     surfaceId = surface.surfaceId,
     facing = record.facing,
     suppression = suppression,
+    avatar = record.avatar,
+    events = record.events or { flags = {}, vars = {} },
+    scenario = record.scenario,
   }
 end
 

@@ -57,21 +57,20 @@ function FieldScenario.apply(manifest, eventState, fieldDataFor)
   return applied
 end
 
--- Resolve the scenario's avatar id against the ordered avatar list from the
--- field-actor manifest. Returns its index in that list plus its compiled
--- spriteId, so a developer toggle can cycle the same source of truth.
-function FieldScenario.avatar(manifest, avatars)
-  assert(type(manifest) == "table" and type(avatars) == "table",
-    "FieldScenario.avatar requires a scenario manifest and an avatar list")
+-- Resolve an avatar id against the ordered avatar list from the field-actor
+-- manifest. Returns its index in that list plus its compiled spriteId, so the
+-- scenario, the save schema, and a developer toggle share one source of truth.
+function FieldScenario.avatarById(avatars, id)
+  assert(type(avatars) == "table", "FieldScenario.avatarById requires the avatar list")
+  assert(type(id) == "string", "FieldScenario.avatarById requires an avatar id string")
   for index, avatar in ipairs(avatars) do
-    if avatar.id == manifest.avatar then
+    if avatar.id == id then
       return { index = index, id = avatar.id, spriteId = avatar.spriteId }
     end
   end
   Errors.raise("SCENARIO_AVATAR_UNKNOWN",
-    "scenario " .. tostring(manifest.id) .. " selects avatar " .. tostring(manifest.avatar)
-      .. ", which the field-actor manifest does not define",
-    { scenario = manifest.id, avatar = manifest.avatar })
+    "avatar " .. tostring(id) .. " is not one of the compiled player graphics",
+    { avatar = id })
 end
 
 return FieldScenario

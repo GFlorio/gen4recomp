@@ -10,10 +10,14 @@ tree (working tree includes the dialogue/UI work of Epic 8).
   boot, 60 Hz `FieldSession`, maps 60/61 through `FieldMapLoader`, camera
   paths, terrain/collision, warp round trip).
 - Predecessor save/resume at the integration point: schema `g4-field-save-v1`
-  exists with round-trip tests; save v2 (event state, avatar) is Epic 11 and
-  was still blocked at sprint start — Epic 8 deliberately does not add a
+  existed with round-trip tests; saving event state and the avatar was Epic 11
+  and was still blocked at sprint start — Epic 8 deliberately does not add a
   second save system (`FieldSave.canCapture` now also refuses while the
-  dialogue is modal).
+  dialogue is modal). Epic 11 extended the schema with event flags/vars and
+  the avatar. Since there are no players yet, the extension replaced the old
+  schema in place and now carries the plain name `g4-field-save-v1`: there is
+  exactly one schema, no version history, and a resumed save owns flags/vars
+  and avatar while the demo scenario seeds only a fresh boot.
 
 ## Epic status
 
@@ -29,7 +33,7 @@ tree (working tree includes the dialogue/UI work of Epic 8).
 | 8 Dialogue controller + UI renderer | done |
 | 9 Interaction resolver | done |
 | 10 Pre-script adapter | done |
-| 11 Save migration | pending |
+| 11 Save and resume | done |
 | 12 Hardening + handoff | pending |
 
 Per-epic facts, contract decisions, and verification live in `tmp/notes.md`
