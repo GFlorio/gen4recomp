@@ -4,9 +4,12 @@
 -- FieldPlayer stays the only owner of the player's tile, surface, facing, and
 -- step timing; this adapter reads that state, keeps the deterministic pose clock
 -- the original advances once per field update while walking, and emits the same
--- ActorDrawRecord shape the object actors emit. Its interpolated world position
--- comes from FieldPlayer:renderPosition, so the player and the camera continue to
--- consume one continuous position.
+-- ActorDrawRecord shape the object actors emit. The clock represents continuous
+-- locomotion: it carries the gait phase across tile boundaries and resets only
+-- when the player stops or changes facing, matching the original range-based
+-- timeline. Its interpolated world position comes from
+-- FieldPlayer:renderPosition, so the player and the camera continue to consume
+-- one continuous position.
 --
 -- Pure domain module: no love dependency and no resource ownership. The caller
 -- acquires the avatar's visual from FieldActorAssetProvider and hands it in.
@@ -27,6 +30,7 @@ function FieldPlayerVisual.new(opts)
     visualDef = nil,
     pose = "idle",
     poseTick = 0,
+    lastFacing = opts.player.facing,
   }, FieldPlayerVisual)
   self:setAvatar(opts.spriteId, opts.visualDef)
   return self
@@ -44,11 +48,24 @@ function FieldPlayerVisual:setAvatar(spriteId, visualDef)
   self.poseTick = 0
 end
 
--- Called once per fixed simulation tick. The animation clock advances only while
--- the player is mid-step, matching the original timeline: a standing actor holds
--- the first frame of its facing range.
-function FieldPlayerVisual:updateFixed()
-  if self.player.motion == "walking" then
+-- Called once per fixed simulation tick with `walkingAtTickStart`, whether the
+-- player was mid-step when the tick began. The animation clock advances on any
+-- tick that touches walking -- including the commit tick that arrives at a
+-- tile, which is why the caller captures the state before advancing the player
+-- -- so the gait phase carries across tile boundaries. It resets only when the
+-- player stops (the first genuinely idle tick) or changes facing, matching the
+-- original timeline: a standing actor holds the first frame of its facing
+-- range, and a turn starts the new range at its first frame.
+function FieldPlayerVisual:updateFixed(walkingAtTickStart)
+  local walking = walkingAtTickStart == true or self.player.motion == "walking"
+
+  local facingChanged = self.lastFacing ~= self.player.facing
+  if facingChanged then
+    self.poseTick = 0
+  end
+  self.lastFacing = self.player.facing
+
+  if walking then
     self.pose = "walk"
     self.poseTick = self.poseTick + 1
   else

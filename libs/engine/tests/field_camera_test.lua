@@ -2,6 +2,7 @@
 
 local Assert = require("tests.support.Assert")
 local FieldCamera = require("libs.engine.src.FieldCamera")
+local Matrix4 = require("libs.math.src.Matrix4")
 
 local T = {}
 local function approx(a, b, tolerance) return math.abs(a - b) < (tolerance or 1e-6) end
@@ -93,6 +94,37 @@ function T.history_can_be_disabled()
   for tick = 1, 8 do camera:updateFixed({ x = 0, y = tick, z = 0 }) end
   camera:updateFixed({ x = 0, y = 20, z = 0 })
   Assert.equal(camera.target.y, 22)
+end
+
+function T.view_interpolates_between_the_previous_and_current_states()
+  local camera = FieldCamera.new(profile({ targetOffsetTiles = { x = 0, y = 0, z = 0 } }), {
+    initialTarget = { x = 0, y = 0, z = 0 },
+  })
+  -- Before any fixed update, previous and current are the initial state, so
+  -- every alpha renders the same view.
+  local before = camera:view()
+  Assert.deepEqual(camera:view(0), before, "alpha zero shows the previous state")
+  Assert.deepEqual(camera:view(0.5), before, "no movement means nothing to interpolate")
+
+  camera:updateFixed({ x = 0, y = 0, z = 10 })
+  local after = Matrix4.lookAt(
+    { camera.eye.x, camera.eye.y, camera.eye.z },
+    { camera.target.x, camera.target.y, camera.target.z },
+    { 0, 1, 0 })
+  Assert.deepEqual(camera:view(1), after, "alpha one shows the current state")
+  Assert.deepEqual(camera:view(0), before, "alpha zero still shows the previous state")
+  Assert.deepEqual(camera:view(), camera:view(1), "nil alpha defaults to the current state")
+
+  local half = camera:view(0.5)
+  local expected = Matrix4.lookAt(
+    { (camera.previousEye.x + camera.eye.x) / 2, (camera.previousEye.y + camera.eye.y) / 2,
+      (camera.previousEye.z + camera.eye.z) / 2 },
+    { (camera.previousTarget.x + camera.target.x) / 2, (camera.previousTarget.y + camera.target.y) / 2,
+      (camera.previousTarget.z + camera.target.z) / 2 },
+    { 0, 1, 0 })
+  Assert.deepEqual(half, expected, "half alpha looks from the midpoint state")
+  Assert.deepEqual(camera:view(-0.5), camera:view(0), "alpha clamps at zero")
+  Assert.deepEqual(camera:view(1.5), camera:view(1), "alpha clamps at one")
 end
 
 function T.new_bark_profile_uses_full_vertical_fov_and_exact_eye_orbit()

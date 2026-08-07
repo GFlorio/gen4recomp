@@ -2,8 +2,10 @@
 -- and that the camera consumes the placeholder actor's continuous 3D target.
 
 local Assert = require("tests.support.Assert")
+local FieldActorFixture = require("tests.support.FieldActorFixture")
 local FieldInput = require("libs.engine.src.FieldInput")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
+local FieldPlayerVisual = require("libs.engine.src.FieldPlayerVisual")
 local FieldSession = require("libs.engine.src.FieldSession")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
@@ -483,6 +485,40 @@ function T.interaction_never_resolves_under_a_locked_transition_or_modal()
   session.dialogue = { isModal = function() return true end, step = function() end }
   session:updateFixed({ actionPressed = true })
   Assert.isNil(interactions.resolveSnapshot, "modal ownership blocks new interactions")
+end
+
+-- The session captures the player's walking state before the movement update
+-- and hands it to the pose clock, so a two-tile walk (16 ticks, the ROM's full
+-- gait range) keeps one continuous phase instead of restarting at each commit.
+function T.a_two_tile_walk_keeps_one_phase_across_the_session_ticks()
+  local map = {
+    mapId = 61, cameraType = 4, coordinateOrigin = { x = 0, z = 0 },
+    fieldData = { events = { warps = {} } },
+    permissions = {
+      containsLocal = function(_, x, z) return x >= 0 and x < 32 and z >= 0 and z < 32 end,
+      isBlockedLocal = function() return false end,
+    },
+    terrain = TerrainSurface.new({ plates = {
+      { id = 0, minX = 0, minZ = 0, maxX = 32, maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 }, distance = 0, slopeClass = "flat" },
+    } }),
+  }
+  local player = FieldPlayer.new({ currentMap = map, fieldX = 4, fieldZ = 13,
+    surfaceId = 0, facing = "south" })
+  local visual = FieldPlayerVisual.new({
+    player = player, spriteId = 0, visualDef = FieldActorFixture.visual(0),
+  })
+  local camera = { updateFixed = function() end }
+  local session = FieldSession.new({ versionId = "heartgold", currentMap = map,
+    actor = player, player = player, camera = camera, playerVisual = visual })
+
+  session:updateFixed({ heldDirection = "east", pressedDirection = "east" })
+  for tick = 2, 16 do session:updateFixed({ heldDirection = "east" }) end
+
+  Assert.equal(player.fieldX, 6, "two eight-tick steps committed")
+  Assert.equal(player.motion, "idle")
+  Assert.equal(visual.pose, "walk")
+  Assert.equal(visual.poseTick, 16, "the session never lets the gait phase restart mid-walk")
 end
 
 return T

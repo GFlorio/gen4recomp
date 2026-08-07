@@ -26,19 +26,21 @@ local SURFACE_ERROR_CODES = {
 }
 
 -- opts.assets: a FieldActorAssetProvider-shaped acquire/release/knows owner.
--- opts.policy: { variableSpriteRange, staticMovementCodes } from the field-actor
--- manifest, so no decomp-derived constant is inlined here.
+-- opts.policy: { variableSpriteRange, variableVarBase, staticMovementCodes } from
+-- the field-actor manifest, so no decomp-derived constant is inlined here.
 -- opts.trace: optional developer sink for structured lifecycle records.
 function FieldActorManager.new(opts)
   assert(type(opts) == "table" and opts.assets, "FieldActorManager requires an asset provider")
   local policy = opts.policy
-  assert(type(policy) == "table" and policy.variableSpriteRange and policy.staticMovementCodes,
+  assert(type(policy) == "table" and policy.variableSpriteRange and policy.variableVarBase
+    and policy.staticMovementCodes,
     "FieldActorManager requires a sprite/movement policy")
   local static = {}
   for _, code in ipairs(policy.staticMovementCodes) do static[code] = true end
   return setmetatable({
     assets = opts.assets,
     variableSpriteRange = policy.variableSpriteRange,
+    variableVarBase = policy.variableVarBase,
     staticMovementCodes = static,
     trace = opts.trace,
     maps = {},
@@ -69,23 +71,27 @@ local function resolveSurface(runtimeMap, event, actorId)
       cause = result.code })
 end
 
-function FieldActorManager:_acquireVisual(event, actorId)
+-- The runtime sprite of an object event. FieldSystem_ResolveObjectSpriteID
+-- redirects the variable range through the VAR_OBJ_* save variables before the
+-- graphics lookup, once at object creation (pret/pokeheartgold src/map_object.c),
+-- so this mirrors that call. The variables default to 0, the hero graphic, so a
+-- variable actor exists even when no script has written one.
+function FieldActorManager:_resolveSpriteId(event)
   local range = self.variableSpriteRange
-  if event.spriteId >= range.first and event.spriteId <= range.last then
-    -- FieldSystem_ResolveObjectSpriteID redirects this range through a field
-    -- variable before the graphics lookup. That indirection is not yet decoded,
-    -- so a variable actor may exist in map data but must not be guessed at.
-    Errors.raise("ACTOR_SPRITE_UNRESOLVED",
-      "spriteId " .. event.spriteId .. " for " .. actorId
-        .. " is variable and its field-variable redirection is not implemented",
-      { actorId = actorId, spriteId = event.spriteId })
+  if event.spriteId < range.first or event.spriteId > range.last then
+    return event.spriteId
   end
-  if not self.assets:knows(event.spriteId) then
+  assert(self.eventState, "variable sprite resolution requires an event state")
+  return self.eventState:getVar(self.variableVarBase + (event.spriteId - range.first))
+end
+
+function FieldActorManager:_acquireVisual(spriteId, actorId)
+  if not self.assets:knows(spriteId) then
     Errors.raise("ACTOR_VISUAL_MISSING",
-      "spriteId " .. event.spriteId .. " for " .. actorId .. " is not in the compiled actor set",
-      { actorId = actorId, spriteId = event.spriteId })
+      "spriteId " .. spriteId .. " for " .. actorId .. " is not in the compiled actor set",
+      { actorId = actorId, spriteId = spriteId })
   end
-  return self.assets:acquire(event.spriteId)
+  return self.assets:acquire(spriteId)
 end
 
 function FieldActorManager:_reportDeferredMovement(actor)
@@ -110,11 +116,13 @@ function FieldActorManager:_instantiate(entry, event)
   end
   local surface = resolveSurface(runtimeMap, event, actorId)
   local world = FieldCoordinates.fieldToWorld(runtimeMap, event.x, event.z, surface.worldY)
-  local asset = self:_acquireVisual(event, actorId)
+  local spriteId = self:_resolveSpriteId(event)
+  local asset = self:_acquireVisual(spriteId, actorId)
 
   local actor = FieldObjectActor.new({
     mapId = runtimeMap.mapId,
     sourceEvent = event,
+    spriteId = spriteId,
     visualDef = asset.visual,
     fieldX = event.x, fieldZ = event.z, surfaceId = surface.surfaceId,
     worldX = world.x, worldY = world.y, worldZ = world.z,

@@ -1,20 +1,31 @@
 -- Selects a reachable BDHC surface at a destination point. Compatibility
 -- policy for overlaps is continuity first, then unique nearest height; exact
--- ties raise instead of silently choosing highest/lowest. Pure domain module.
+-- ties raise instead of silently choosing highest/lowest. A crossing onto a
+-- new surface is allowed when the destination surface's height at the shared
+-- edge stays within the step-height limit of the current surface's height
+-- there. The limit is the pinned movement collision's (asm/unk_02054648.s
+-- `sub_02054954`: 5 << 14 in 16.16 tile units, i.e. 1.25 tiles): only steps
+-- changing height by 1.25 tiles or more are rejected. No plane-join epsilon
+-- is applied -- real ROM floors (e.g. MAP_NEW_BARK_PLAYER_HOUSE_1F) have
+-- quantized-height seams between adjacent plates. Pure domain module.
 
 local Errors = require("libs.rom.src.Errors")
 
 local SurfaceResolver = {}
 SurfaceResolver.__index = SurfaceResolver
 
-local DEFAULT_JOIN_EPSILON = 1 / 4096
+-- Maximum step-up height in world units (1 unit == 1 tile). Mirrors the
+-- original movement collision's step check (asm/unk_02054648.s
+-- `sub_02054954`), which rejects a destination surface whose height differs
+-- from the current height by 5 << 14 in 16.16 fixed-point tile units.
+local STEP_HEIGHT_LIMIT = 5 * 2 ^ 14 / 2 ^ 16
 local HEIGHT_TIE_EPSILON = 1e-9
 
 function SurfaceResolver.new(terrain, opts)
   assert(terrain and terrain.candidatesAt and terrain.sampleHeight,
     "SurfaceResolver.new requires a TerrainSurface")
   opts = opts or {}
-  return setmetatable({ terrain = terrain, joinEpsilon = opts.joinEpsilon or DEFAULT_JOIN_EPSILON },
+  return setmetatable({ terrain = terrain, stepHeightLimit = opts.stepHeightLimit or STEP_HEIGHT_LIMIT },
     SurfaceResolver)
 end
 
@@ -91,21 +102,19 @@ function SurfaceResolver:resolve(opts)
     for _, plate in ipairs(candidates) do
       if self.terrain:contains(plate.id, edgeX, edgeZ) then
         local destinationY = self.terrain:sampleHeight(plate.id, edgeX, edgeZ)
-        if math.abs(sourceY - destinationY) <= self.joinEpsilon then
+        if math.abs(sourceY - destinationY) < self.stepHeightLimit then
           eligible[#eligible + 1] = plate
         end
       end
     end
     if #eligible == 0 then
-      raise("TERRAIN_SURFACE_DISCONNECTED", "destination surfaces do not meet the current surface",
-        opts, { edgeX = edgeX, edgeZ = edgeZ, joinEpsilon = self.joinEpsilon })
+      raise("TERRAIN_SURFACE_DISCONNECTED", "destination surfaces are a step beyond the current surface",
+        opts, { edgeX = edgeX, edgeZ = edgeZ, stepHeightLimit = self.stepHeightLimit })
     end
   end
 
   local selected = closestUnique(self.terrain, eligible, opts.localX, opts.localZ, opts.currentY, opts)
   return self.terrain:sample(selected.id, opts.localX, opts.localZ)
 end
-
-SurfaceResolver.SURFACE_JOIN_EPSILON = DEFAULT_JOIN_EPSILON
 
 return SurfaceResolver

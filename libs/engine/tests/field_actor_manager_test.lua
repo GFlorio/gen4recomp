@@ -11,7 +11,11 @@ local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = {}
 
-local POLICY = { variableSpriteRange = { first = 101, last = 117 }, staticMovementCodes = { 0 } }
+local POLICY = {
+  variableSpriteRange = { first = 101, last = 117 },
+  variableVarBase = 0x4020,
+  staticMovementCodes = { 0 },
+}
 
 local function throwsCode(code, fn)
   local err = Assert.throws(fn)
@@ -81,7 +85,7 @@ end
 
 local function manager(objects, opts)
   opts = opts or {}
-  local assets = opts.assets or fakeAssets({ [99] = true, [34] = true, [29] = true })
+  local assets = opts.assets or fakeAssets({ [99] = true, [34] = true, [29] = true, [0] = true })
   local eventState = opts.eventState or FieldEventState.new()
   local traced = {}
   local mgr = FieldActorManager.new({
@@ -143,8 +147,34 @@ function T.uncompiled_sprite_is_fatal()
   throwsCode("ACTOR_VISUAL_MISSING", function() manager({ object({ spriteId = 148 }) }) end)
 end
 
-function T.variable_sprite_is_reported_as_unresolved()
-  throwsCode("ACTOR_SPRITE_UNRESOLVED", function() manager({ object({ spriteId = 101 }) }) end)
+function T.variable_sprite_resolves_to_the_hero_graphic_by_default()
+  local mgr, _, assets = manager({ object({ spriteId = 101 }) })
+  local actor = mgr:getById("map:61:object:0")
+  Assert.equal(actor.spriteId, 0)
+  Assert.equal(assets.references[0], 1)
+end
+
+function T.variable_sprite_resolves_through_the_event_state_var()
+  local eventState = FieldEventState.new({ vars = { [0x4020] = 34 } })
+  local mgr, _, assets = manager({ object({ spriteId = 101 }) }, { eventState = eventState })
+  local actor = mgr:getById("map:61:object:0")
+  Assert.equal(actor.spriteId, 34)
+  Assert.equal(actor.sourceEvent.spriteId, 101)
+  Assert.equal(assets.references[34], 1)
+end
+
+function T.variable_sprite_re_resolves_at_each_object_creation()
+  local eventState = FieldEventState.new({ flags = { [401] = true } })
+  local mgr, _, assets = manager({ object({ spriteId = 101, eventFlag = 401 }) },
+    { eventState = eventState })
+  Assert.isNil(mgr:getById("map:61:object:0"))
+  eventState:setVar(0x4020, 34)
+  eventState:clearFlag(401)
+  mgr:step(1)
+  local actor = mgr:getById("map:61:object:0")
+  Assert.notNil(actor)
+  Assert.equal(actor.spriteId, 34)
+  Assert.equal(assets.references[34], 1)
 end
 
 function T.occupancy_is_keyed_by_map_cell_and_surface()

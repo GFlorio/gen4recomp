@@ -230,6 +230,7 @@ function FieldState:_load()
       assets = self.actorAssets,
       policy = {
         variableSpriteRange = FieldActorManifest.variableSpriteRange,
+        variableVarBase = FieldActorManifest.variableVarBase,
         staticMovementCodes = FieldActorManifest.staticMovementCodes,
       },
       trace = function(record) self:_fieldTrace(record) end,
@@ -474,8 +475,9 @@ function FieldState:draw()
     self:_updateCameraProjection()
     self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
   end
+  local alpha = self.session:renderAlpha()
   self.renderer:draw(self.runtime, self.camera,
-    self:_worldDraws(self.session:renderAlpha()), self.viewport)
+    self:_worldDraws(alpha), self.viewport, alpha)
   if self.transition and self.transition.fadeAlpha > 0 then
     local rectangle = self.viewport.worldViewport
     lg.setColor(0, 0, 0, self.transition.fadeAlpha)

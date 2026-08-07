@@ -35,7 +35,9 @@ function FieldObjectActor.new(opts)
     mapId = opts.mapId,
     objectEventId = event.objectEventId,
     sourceEvent = event,
-    spriteId = event.spriteId,
+    -- The runtime sprite: the zone-event value unless the creator resolved a
+    -- variable sprite through the field vars (the source record stays raw).
+    spriteId = opts.spriteId or event.spriteId,
     visualDef = opts.visualDef,
     fieldX = opts.fieldX,
     fieldZ = opts.fieldZ,

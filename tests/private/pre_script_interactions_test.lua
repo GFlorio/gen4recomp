@@ -31,6 +31,7 @@ local TOWN = 60
 
 local POLICY = {
   variableSpriteRange = actorManifest.variableSpriteRange,
+  variableVarBase = actorManifest.variableVarBase,
   staticMovementCodes = actorManifest.staticMovementCodes,
 }
 
