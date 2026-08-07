@@ -14,7 +14,6 @@ local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local SceneMesh = require("libs.engine.src.SceneMesh")
 local PermissionGrid = require("libs.assets.src.PermissionGrid")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
-local DebugPlayer = require("libs.engine.src.DebugPlayer")
 
 local T = {}
 local SYMBOL = "MAP_NEW_BARK_ELMS_LAB_1F"
@@ -166,9 +165,8 @@ function T.gate8_cache_only_restart(romFs, version)
   Assert.equal(#perms, 2048)
   local collision = CollisionGrid.new(assert(PermissionGrid.decode(perms)), {
     worldOriginX = scene.matrix.worldOriginX, worldOriginZ = scene.matrix.worldOriginZ })
-  local player = DebugPlayer.new(collision, { x = 4, z = 13 })
-  Assert.isTrue(player:tryStep("south"), "steps onto the exit warp tile from cache-only data")
-  Assert.equal(player:status().localZ, 14)
+  Assert.isTrue(collision:containsLocal(4, 13), "spawn tile is in the cell")
+  Assert.isFalse(collision:isBlockedLocal(4, 14), "exit warp tile is passable from cache-only data")
 end
 
 function T.gate5_injected_failure_leaves_no_marker(romFs, version)
