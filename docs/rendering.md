@@ -187,8 +187,7 @@ by the private suite):
 Because the quad is camera-facing, its whole surface sits at the pivot's view
 depth: it depth-tests against map geometry as a flat card at the actor's own
 distance, which is what makes walls and foreground geometry occlude it correctly.
-A world-upright quad would instead be squashed by the camera pitch --
-`scripts/field-shot.sh` captures make the difference obvious.
+A world-upright quad would instead be squashed by the camera pitch.
 
 ## Exact versus approximate behavior
 
@@ -254,29 +253,6 @@ the raw dump rather than loading old data.
 
 Old scene schemas (`g4-map-scene-v1`) and mesh versions (`G4M1`) are rejected
 explicitly with `MAP_SCENE_UNSUPPORTED_SCHEMA` and `MESH_BAD_VERSION`.
-
-## Manual visual validation
-
-When validating locally, capture (but do not commit):
-
-* Elm at noon;
-* New Bark at noon;
-* New Bark near sunrise;
-* New Bark at night;
-* a view containing cutout vegetation;
-* a view containing variable-alpha material.
-
-Controls in the map diagnostic:
-
-* `WASD` — move the debug player;
-* `Q/E` or `PageUp/PageDown` — step time backward/forward by one hour;
-* `Esc` — quit.
-
-Set `G4RECOMP_FIELD_TIME=<seconds>` to override the default noon time.
-
-Known discrepancies to record: no BDHC height (player Y is flat) and the
-deferred behaviors listed above. The diagnostic uses the exact ROM-derived
-camera profile for each map.
 
 Field-camera projection, adaptive aspect behavior, zoom tuning, safe-area
 policy, and camera-specific parity gaps are documented in

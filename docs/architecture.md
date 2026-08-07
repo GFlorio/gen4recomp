@@ -12,7 +12,7 @@ The repository is a small monorepo: top-level directories are applications you
 run; `libs/` holds the capabilities they share. Each app is its own LÖVE root.
 
 ```text
-game/         Interactive app — launcher, boot, and the 3D map diagnostic (love game/)
+game/         Interactive app — launcher, boot, and the field runtime (love game/)
 romdump/      Headless ROM/asset CLI — import, audit, inspect, compile (love romdump/)
 libs/rom/     NDS/NitroFS/NARC formats, binary reading, ROM validation, dump filesystem
 libs/assets/  Asset contracts for generated data (schemas, cache paths/readiness,
@@ -40,7 +40,7 @@ overwhelmingly domain; `libs/engine` and the app `src/` trees are interface.
 | --- | --- | --- |
 | **Domain — pure parsers/decoders** | `BinaryReader`, `NdsRom`, `NitroFs`, `OverlayTable`, `Narc`, `MapMatrix`, `AreaData`, `LandData`, `Nsbmd`, `Nsbtx`, `GxDisplayList`, `DsMaterial`, `DsPolygonAttr`, `FieldLightProfile`, `DsLighting`, `RenderQueue`, `LuaWriter`, `Errors`, `GameVersion` | no |
 | **Infrastructure** | `RomSource` (owns the ROM bytes, SHA-1), `CacheFs` (private per-version storage), `RomExtractor` (dump orchestration), `RomFs` (runtime read API), `DumpAudit`, `MapAssetCompiler`, `MapCacheWriter`, `MapAssetCache` | `RomSource`/`CacheFs` only |
-| **Interface** | `game` `App` (dispatch/boot), `romdump` `Cli` (flag parsing, pure) + `Runner` (headless commands), `RomImporter` (state machine + coroutine), `MapSceneLoader`, `MapRenderer`, `Gizmos`, `FieldCamera`, `FieldViewport`, the `game/src` UI states | yes |
+| **Interface** | `game` `App` (dispatch/boot), `romdump` `Cli` (flag parsing, pure) + `Runner` (headless commands), `RomImporter` (state machine + coroutine), `MapSceneLoader`, `MapRenderer`, `FieldCamera`, `FieldViewport`, the `game/src` UI states | yes |
 
 The pure parsers never touch LÖVE, never read a file, and never mutate global
 state — they take a byte string and return a validated structure or a structured
@@ -56,12 +56,12 @@ The interactive `game/main.lua` parses its flags inline, then hands off to
 love game/
   └─ love.load(argv)
        ├─ --test / --test-private → run a suite, exit 0/1
-       ├─ --map ID                → boot straight into the 3D map diagnostic
+       ├─ --field [map]           → boot the field runtime on a target map
        ├─ --actors                → boot the compiled field-actor preview grid
        └─ (no flags)              → App inspects both version caches:
-                                     0 ready → import screen
-                                     1 ready → that version's diagnostic
-                                     2 ready → version selector → diagnostic
+                                      0 ready → import screen
+                                      1 ready → that version's field runtime
+                                      2 ready → version selector → field runtime
 ```
 
 The headless `romdump/main.lua` parses with `Cli` and dispatches to `Runner`,
@@ -125,16 +125,12 @@ error still aborts the build outright.
 
 Once a cache is ready, the runtime never needs the ROM again, and it never
 decodes a raw ROM format directly — everything comes from the derived cache
-that `scripts/buildcache.sh` wrote. `game`'s `MapDiagnosticState` loads the cache's
-`world.lua` manifest through `CacheFs`, resolves the requested map with
-`WorldLookup`, and loads that map's `scene.lua` through `MapSceneLoader`:
-
-```lua
-local world = assert(cacheFs:loadLua(MapAssetCache.worldPath()))
-local map = WorldLookup.require(world, idOrSymbol)
-local scene = assert(cacheFs:loadLua(MapAssetCache.mapDir(map.id) .. "/scene.lua"))
-local runtime = MapSceneLoader.load(cacheFs, scene)
-```
+that `scripts/buildcache.sh` wrote. `FieldState` is the normal runtime
+coordinator: it loads the cache's `world.lua` manifest and the per-map visual,
+field-data, and terrain artifacts through `FieldMapLoader`, which joins them
+into the `RuntimeFieldMap` the player, camera, and renderer consume. A loaded
+map stays resident under the loader's LRU policy while warps, actor
+occupancy, and coverage keep working from the derived data alone.
 
 ### Field actors
 
@@ -150,11 +146,10 @@ FieldEventState  (numeric flags/vars; the visibility authority)
 An object exists only while its event flag is clear, matching the original
 engine. Flag writes are queued and applied at one point in the fixed tick —
 before movement reads occupancy — so the draw list and collision never disagree
-within a tick. Actors in this milestone are static: a movement code outside the
-verified static set is preserved on the actor and reported once through the
-developer trace, never executed. `data/manifests/field_scenario.lua` seeds which
-target objects start hidden; it names objects by map/object identity and
-`FieldScenario` resolves each to the ROM's numeric flag.
+within a tick. Actors in this milestone are static: raw movement codes are
+preserved on the actor, never executed. `data/manifests/field_scenario.lua`
+seeds which target objects start hidden; it names objects by map/object
+identity and `FieldScenario` resolves each to the ROM's numeric flag.
 
 The player's movement decision order is permissions, then terrain surface
 transition, then actor occupancy (`FieldPlayer` consults the manager's
@@ -180,8 +175,8 @@ The resolver mirrors `pret/pokeheartgold`'s field-control order: the facing
 object actor from the occupancy index wins, then a source-order background
 event whose raw direction passes the pinned assembly's compatibility table
 (raw 4 wildcard; 0/1/2/3 accept {0,6}/{3,6}/{2,5}/{1,5}), then nothing.
-Type-2 background events (hidden items) are traced and skipped because their
-collection flags are not tracked yet. The adapter is the one replacement point
+Type-2 background events (hidden items) are skipped because their collection
+flags are not tracked yet. The adapter is the one replacement point
 the scripting milestone removes (`InteractionIntent -> FieldScriptScheduler ->
 commands -> DialogueRequest`); it matches intents against
 `data/manifests/pre_script_interactions.lua`, formats the fixture message

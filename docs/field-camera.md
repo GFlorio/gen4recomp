@@ -63,10 +63,9 @@ planning uses effective zoom, so zooming out requests the newly visible cells.
 
 ## Validation and known gaps
 
-Run `scripts/test.sh` for projection, history, viewport, resize, coverage, trace,
-and cache ownership contracts. A private imported cache enables
-`scripts/test-private.sh`. `scripts/field-aspect-smoke.sh` renders both target
-maps at 4:3, 16:9, 21:9, and 32:9 and fails if visible coverage is missing.
+Run `scripts/test.sh` for projection, history, viewport, resize, coverage, and
+cache ownership contracts. A private imported cache enables
+`scripts/test-private.sh`.
 
 Deferred parity includes dynamic/script cameras, exact overlapping-surface
 tie-breaking outside the target staircase, aspects narrower than 4:3 as a
