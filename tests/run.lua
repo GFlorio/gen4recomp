@@ -74,8 +74,12 @@ local MODULES = {
   "libs.engine.tests.field_scenario_test",
   "libs.engine.tests.field_message_provider_test",
   "libs.engine.tests.dialogue_layout_test",
+  "libs.engine.tests.field_dialogue_theme_test",
+  "libs.engine.tests.field_dialogue_controller_test",
+  "libs.engine.tests.field_dialogue_renderer_test",
   -- game
   "game.tests.map_diagnostic_state_test",
+  "game.tests.app_boot_test",
   -- romdump
   "romdump.tests.cli_test",
   -- romdump/src/digest

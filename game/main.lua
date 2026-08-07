@@ -80,6 +80,18 @@ function love.keyreleased(key, scancode)
   if App then App.keyreleased(key, scancode) end
 end
 
+function love.gamepadpressed(joystick, button)
+  if App then App.gamepadpressed(joystick, button) end
+end
+
+function love.gamepadreleased(joystick, button)
+  if App then App.gamepadreleased(joystick, button) end
+end
+
+function love.focus(focused)
+  if App then App.focus(focused) end
+end
+
 function love.quit()
   if App then App.quit() end
 end

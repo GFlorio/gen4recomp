@@ -1,14 +1,36 @@
 -- Runs the authoritative field simulation at 60 fixed ticks per second. Player
 -- movement advances before the camera so both consume the same continuous XYZ.
+-- A modal dialogue owns the tick: once the fade/transition phase (which cannot
+-- be active while a dialogue is open) has advanced, the session steps only the
+-- dialogue and returns, so movement, warps, interactions, and actor pose
+-- clocks freeze until the dialogue closes (spec section 11.3).
 
 local WarpSystem = require("libs.engine.src.WarpSystem")
 
+---@class FieldSession
+---@field versionId string
+---@field currentMap RuntimeFieldMap
+---@field actor table
+---@field player table
+---@field camera table
+---@field transition table?
+---@field actors table?
+---@field playerVisual table?
+---@field dialogue FieldDialogueController?
+---@field input FieldInput?
+---@field coverage fun(session: FieldSession)?
+---@field trace fun(record: table)?
+---@field tick integer
+---@field accumulator number
+---@field discardedTicks integer
 local FieldSession = {}
 FieldSession.__index = FieldSession
 
 FieldSession.FIXED_DT = 1 / 60
 FieldSession.MAX_CATCH_UP_TICKS = 5
 
+---@param options table
+---@return FieldSession
 function FieldSession.new(options)
   assert(options and options.versionId and options.currentMap, "field session identity required")
   assert(options.actor and options.camera, "field session actor and camera required")
@@ -21,6 +43,7 @@ function FieldSession.new(options)
     transition = options.transition,
     actors = options.actors,
     playerVisual = options.playerVisual,
+    dialogue = options.dialogue,
     input = options.input,
     coverage = options.coverage,
     trace = options.trace,
@@ -46,6 +69,7 @@ function FieldSession:updateFixed(inputSnapshot)
     -- Keep the just-arrived tile stable until the application consumes the
     -- completion event and autosaves it, even when movement remains held.
     if self.transition.completed then
+      if self.input and self.input.clearEdges then self.input:clearEdges() end
       self:_recordTick()
       return
     end
@@ -53,6 +77,15 @@ function FieldSession:updateFixed(inputSnapshot)
       self:_recordTick()
       return
     end
+  end
+
+  -- Modal ownership: while a dialogue is open the world freezes -- no queued
+  -- visibility changes, no facing-warp check, no movement, no warp commit, no
+  -- pose clocks, no camera motion. Only the dialogue reads this tick's input.
+  if self.dialogue and self.dialogue:isModal() then
+    self.dialogue:step(inputSnapshot)
+    self:_recordTick()
+    return
   end
 
   if self.transition and self.transition.suppression then

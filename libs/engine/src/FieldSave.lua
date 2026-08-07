@@ -69,9 +69,15 @@ function FieldSave.validate(record)
   error(result)
 end
 
+-- True only when a stable tile boundary can be captured: the player idle, no
+-- transition active, and no half-open modal dialogue (spec section 16.3).
+
+---@param session FieldSession?
+---@return boolean
 function FieldSave.canCapture(session)
   return session and session.player and session.player.motion == "idle"
     and (not session.transition or session.transition.phase == "idle")
+    and (not session.dialogue or not session.dialogue:isModal())
 end
 
 function FieldSave.capture(session)

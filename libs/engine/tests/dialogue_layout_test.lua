@@ -191,4 +191,56 @@ function T.layout_is_immutable_across_reuse()
   Assert.equal(#tokens, 9)
 end
 
+-- A metrics object with nonGlyphWidth gives marker tokens a measured width so
+-- the rendered marker never overflows a line the layout did not budget for
+-- (spec section 15.4).
+local function markerMetrics(nonGlyphWidth)
+  return {
+    glyphWidth = function(code)
+      local glyph = FONT[code]
+      return glyph and glyph.advance or nil
+    end,
+    nonGlyphWidth = nonGlyphWidth,
+  }
+end
+
+function T.marker_width_counts_toward_the_line_budget()
+  local tokens = {
+    { kind = "unsupported_control", control = 0x0707, name = nil, args = {}, raw = { 1 } },
+    { kind = "glyph", code = 0x0121, text = "A", raw = { 0x0121 } },
+    { kind = "glyph", code = 0x01DE, text = " ", raw = { 0x01DE } },
+    { kind = "glyph", code = 0x0121, text = "B", raw = { 0x0121 } },
+    { kind = "eos", raw = { 0xFFFF } },
+  }
+  local m = markerMetrics(function() return 18 end)
+  local layout = DialogueLayout.layout(tokens, m, { width = 24, maxLines = 2 })
+  Assert.equal(layout.pages[1].lines[1].width, 18 + 6, "marker width is part of the line")
+  -- Without nonGlyphWidth the marker stays widthless (legacy contract).
+  local plain = DialogueLayout.layout(tokens, metrics(FONT), { width = 24, maxLines = 2 })
+  Assert.equal(plain.pages[1].lines[1].width, 18)
+end
+
+function T.marker_width_affects_wrap_positions()
+  -- "{marker} BBBB" at width 24: an 18px marker leaves room for one 6px
+  -- glyph, so BBBB wraps; without the measured width everything fits on one
+  -- line and the rendered marker would overflow the box.
+  local function build()
+    return {
+      { kind = "unsupported_control", control = 0x0707, name = nil, args = {}, raw = { 1 } },
+      { kind = "glyph", code = 0x01DE, text = " ", raw = { 0x01DE } },
+      { kind = "glyph", code = 0x0121, text = "B", raw = { 0x0121 } },
+      { kind = "glyph", code = 0x0121, text = "B", raw = { 0x0121 } },
+      { kind = "glyph", code = 0x0121, text = "B", raw = { 0x0121 } },
+      { kind = "eos", raw = { 0xFFFF } },
+    }
+  end
+  local m = markerMetrics(function() return 18 end)
+  local layout = DialogueLayout.layout(build(), m, { width = 24, maxLines = 2 })
+  Assert.equal(#layout.pages[1].lines, 2, "marker width forces the wrap")
+  Assert.equal(layout.pages[1].lines[1].width, 18)
+  Assert.equal(textOf(layout.pages[1].lines[2]), "BBB")
+  local plain = DialogueLayout.layout(build(), metrics(FONT), { width = 24, maxLines = 2 })
+  Assert.equal(#plain.pages[1].lines, 1, "widthless marker fits the whole line")
+end
+
 return T

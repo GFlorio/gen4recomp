@@ -20,6 +20,7 @@ This file provides guidance to Coding Agents when working with code in this repo
 - Use TDD: Tests first, but ask before testing boundaries.
 - Prefer pure functions.
 - Thoroughly remove debug/trace code after each task.
+- Assume unexpected changes are from the human.
 
 ## Architecture
 

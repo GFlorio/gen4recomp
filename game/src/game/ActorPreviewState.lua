@@ -13,7 +13,7 @@ local FieldActorAssetProvider = require("libs.engine.src.FieldActorAssetProvider
 local ActorPreviewState = {}
 ActorPreviewState.__index = ActorPreviewState
 
-local FIXED_DT = 1 / 60
+local FIXED_DT = 1 / 30
 local DIRECTIONS = { "north", "south", "west", "east" }
 local SCALE = 2
 local CELL = 32 * SCALE + 8
@@ -114,9 +114,9 @@ function ActorPreviewState:_maybeCaptureAndQuit()
   local path = os.getenv("G4RECOMP_SHOT")
   if not path then return end
   self._frames = (self._frames or 0) + 1
-  if self._frames == 8 then
+  if self._frames == 20 then
     love.graphics.captureScreenshot(path)
-  elseif self._frames >= 9 then
+  elseif self._frames >= 21 then
     love.event.quit(self.errorText and 1 or 0)
   end
 end

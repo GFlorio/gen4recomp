@@ -2,6 +2,7 @@
 -- and that the camera consumes the placeholder actor's continuous 3D target.
 
 local Assert = require("tests.support.Assert")
+local FieldInput = require("libs.engine.src.FieldInput")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldSession = require("libs.engine.src.FieldSession")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
@@ -272,6 +273,101 @@ function T.arrival_suppression_prevents_immediate_standing_bounce()
   session.player.fieldZ = 15
   session:updateFixed({})
   Assert.isNil(transition.suppression)
+end
+
+local function dialogueSession(opts)
+  opts = opts or {}
+  local worldSteps = { player = 0, actors = 0, camera = 0, visual = 0 }
+  local dialogueSteps = 0
+  local received
+  local dialogue = {
+    modal = opts.modal ~= false,
+    isModal = function(self) return self.modal end,
+    step = function(self, snapshot)
+      dialogueSteps = dialogueSteps + 1
+      received = snapshot
+    end,
+  }
+  local actor = {
+    fieldX = 4, fieldZ = 13, worldX = 0, worldY = 0, worldZ = 0,
+    surfaceId = 0, facing = "south", motion = "idle",
+    updateFixed = function()
+      worldSteps.player = worldSteps.player + 1
+      return false
+    end,
+  }
+  local camera = { updateFixed = function() worldSteps.camera = worldSteps.camera + 1 end }
+  local actors = { step = function() worldSteps.actors = worldSteps.actors + 1 end }
+  local playerVisual = { updateFixed = function() worldSteps.visual = worldSteps.visual + 1 end }
+  local transition = { phase = "idle", locked = false, updateFixed = function() end }
+  local session = FieldSession.new({
+    versionId = "heartgold", currentMap = { mapId = 61, cameraType = 4 },
+    actor = actor, player = actor, camera = camera, transition = transition,
+    actors = actors, playerVisual = playerVisual, dialogue = dialogue,
+  })
+  return session, worldSteps, function() return dialogueSteps, received end
+end
+
+function T.modal_dialogue_freezes_every_world_step_and_steps_the_dialogue()
+  local session, worldSteps, dialogueState = dialogueSession()
+  session:updateFixed({ heldDirection = "south", actionDown = true })
+  Assert.equal(worldSteps.player, 0, "player does not move")
+  Assert.equal(worldSteps.actors, 0, "visibility changes do not apply")
+  Assert.equal(worldSteps.camera, 0, "camera holds its target")
+  Assert.equal(worldSteps.visual, 0, "pose clocks pause")
+  local steps, received = dialogueState()
+  Assert.equal(steps, 1)
+  Assert.equal(received.actionDown, true)
+  Assert.equal(received.heldDirection, "south")
+end
+
+function T.modal_dialogue_blocks_warp_evaluation()
+  local session, _, _ = dialogueSession()
+  local map = { mapId = 61, fieldData = { events = { warps = {} } } }
+  session.currentMap = map
+  session:updateFixed({ heldDirection = "south", pressedDirection = "south" })
+  Assert.equal(session.player.fieldZ, 13, "no movement and no warp from the modal tick")
+end
+
+function T.world_resumes_once_the_dialogue_closes()
+  local session, worldSteps, dialogueState = dialogueSession()
+  session:updateFixed({})
+  Assert.equal(worldSteps.player, 0)
+  -- The dialogue closes (its own step dispatches the completion); the next
+  -- session tick runs the world again.
+  session.dialogue.modal = false
+  session:updateFixed({ heldDirection = "south" })
+  Assert.equal(worldSteps.player, 1)
+  Assert.equal(worldSteps.camera, 1)
+end
+
+function T.transition_commit_clears_stale_action_edges()
+  local input = FieldInput.new()
+  input:pressAction()
+  local actor = {
+    fieldX = 4, fieldZ = 14, worldX = 0, worldY = 0, worldZ = 0,
+    surfaceId = 0, facing = "south", motion = "idle",
+    updateFixed = function() return false end,
+  }
+  local transition = {
+    phase = "fade_in", locked = true,
+    updateFixed = function(self)
+      self.phase, self.locked = "idle", false
+      self.completed = { destinationMapId = 60 }
+    end,
+  }
+  local camera = { updateFixed = function() end }
+  local session = FieldSession.new({
+    versionId = "heartgold", currentMap = { mapId = 61, cameraType = 4 },
+    actor = actor, player = actor, camera = camera, transition = transition,
+    input = input,
+  })
+  session:updateFixed({ actionPressed = true })
+  -- The commit tick consumed the snapshot edge and cleared the input object's
+  -- pending edges, so a later tick cannot act on a stale action edge after
+  -- the fade; held state legitimately survives.
+  Assert.isFalse(input.actionPressed, "no stale pressed edge survives the commit")
+  Assert.equal(input.actionDown, true, "held state survives the commit")
 end
 
 return T

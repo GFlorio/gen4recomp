@@ -71,6 +71,13 @@ function T.refuses_mid_step_and_mid_transition_capture()
     transition = { phase = "idle" } }))
   Assert.isFalse(FieldSave.canCapture({ player = { motion = "idle" },
     transition = { phase = "fade_out" } }))
+  -- A half-open dialogue must never be captured (spec section 16.3).
+  Assert.isFalse(FieldSave.canCapture({ player = { motion = "idle" },
+    transition = { phase = "idle" },
+    dialogue = { isModal = function() return true end } }))
+  Assert.isTrue(FieldSave.canCapture({ player = { motion = "idle" },
+    transition = { phase = "idle" },
+    dialogue = { isModal = function() return false end } }))
 end
 
 function T.stale_surface_id_resamples_nearest_saved_height()

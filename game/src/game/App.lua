@@ -15,11 +15,18 @@ local VersionSelectState = require("game.src.launcher.VersionSelectState")
 
 local App = {}
 
+-- A bare `--field` (option == true) selects the runtime default map; a
+-- numeric string is a map id, anything else a semantic map symbol.
+
+---@param option boolean|string|nil
+---@return string|integer|nil
 local function fieldTarget(option)
-  local target = option == true and nil or option
-  if type(target) == "string" and target:match("^%d+$") then return tonumber(target) end
-  return target
+  if option == true then return nil end
+  if type(option) == "string" and option:match("^%d+$") then return tonumber(option) end
+  return option
 end
+
+App.fieldTarget = fieldTarget
 
 local function readyVersions()
   local out = {}
@@ -152,6 +159,24 @@ end
 
 function App.keyreleased(key, scancode)
   if App.state and App.state.keyreleased then App.state:keyreleased(key, scancode) end
+end
+
+function App.gamepadpressed(joystick, button)
+  if App.state and App.state.gamepadpressed then
+    App.state:gamepadpressed(joystick, button)
+  end
+end
+
+function App.gamepadreleased(joystick, button)
+  if App.state and App.state.gamepadreleased then
+    App.state:gamepadreleased(joystick, button)
+  end
+end
+
+-- Focus loss reaches the active state so held and edge input state clears
+-- (spec section 11.2).
+function App.focus(focused)
+  if App.state and App.state.focus then App.state:focus(focused) end
 end
 
 -- Give the active state a chance to release GPU resources on shutdown.
