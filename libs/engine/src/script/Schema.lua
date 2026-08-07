@@ -516,6 +516,23 @@ Schema.OPERATIONS = {
   },
 }
 
+-- Step-level fields shared by every operation (spec section 24.1). `key`
+-- stabilizes a node's identity across non-semantic edits; `provenance` carries
+-- source offsets/opcodes and drives generated `src:` node IDs (the compiler
+-- maps it onto the node's `source` field). The step field is named
+-- `provenance` because `copy_var` owns the `source` operand name. Both are
+-- additive API 1 fields: identity and provenance, never runtime semantics,
+-- and both are excluded from the graph revision hash.
+Schema.STEP_FIELDS = {
+  key = { type = "string" },
+  provenance = { type = "source_provenance" },
+}
+for _, op in pairs(Schema.OPERATIONS) do
+  for name, spec in pairs(Schema.STEP_FIELDS) do
+    op.fields[name] = spec
+  end
+end
+
 -- Normative constructor index (spec section 45). Grouped exactly like the
 -- spec tables; the doc generator renders this into docs/script-api-v1.md.
 Schema.CONSTRUCTORS = {

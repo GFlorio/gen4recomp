@@ -444,6 +444,28 @@ CHECKERS.scalar_list = function(v, path, field)
     end
   end
 end
+CHECKERS.source_provenance = function(v, path, field)
+  if type(v) ~= "table" then
+    fail("SCRIPT_SCHEMA_INVALID", path, "expected a source provenance table", { field = field })
+  end
+  local offsets = v.offsets
+  local opcodes = v.opcodes
+  local count = checkArray(offsets, path .. "/offsets", field)
+  if type(opcodes) ~= "table" or #opcodes ~= count then
+    fail("SCRIPT_SCHEMA_INVALID", path,
+      "source offsets and opcodes must be arrays of equal length", { field = field })
+  end
+  for i = 1, count do
+    if type(offsets[i]) ~= "number" or offsets[i] % 1 ~= 0 then
+      fail("SCRIPT_SCHEMA_INVALID", path .. "/offsets/" .. tostring(i - 1),
+        "source offsets must be integers", { field = field })
+    end
+    if type(opcodes[i]) ~= "number" or opcodes[i] % 1 ~= 0 then
+      fail("SCRIPT_SCHEMA_INVALID", path .. "/opcodes/" .. tostring(i - 1),
+        "source opcodes must be integers", { field = field })
+    end
+  end
+end
 CHECKERS.params = checkDeclarationMap
 CHECKERS.locals = checkDeclarationMap
 CHECKERS.serializable = function() end

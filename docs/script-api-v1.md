@@ -482,13 +482,17 @@ No fields.
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `amount` | scalar | yes |  |
+| `key` | string |  |  |
 | `name` | string | yes |  |
+| `provenance` | source_provenance |  |  |
 
 ### `add_var`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `amount` | scalar_or_value | yes |  |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `variable` | id_or_var | yes |  |
 
 ### `apply_movement`
@@ -496,21 +500,27 @@ No fields.
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `actor` | actor | yes |  |
+| `key` | string |  |  |
 | `movement` | movement | yes |  |
 | `movementId` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `ask_yes_no`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `bindings` | bindings |  | `{}` |
+| `key` | string |  |  |
 | `message` | message |  |  |
+| `provenance` | source_provenance |  |  |
 | `result` | value | yes |  |
 
 ### `buffer_text`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `slot` | buffer_slot | yes |  |
 | `value` | text_value | yes |  |
 
@@ -519,6 +529,8 @@ No fields.
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `args` | args |  | `{}` |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `result` | value |  |  |
 | `target` | string | yes |  |
 
@@ -527,13 +539,17 @@ No fields.
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `args` | args |  | `{}` |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `target` | string | yes |  |
 
 ### `call_compared`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
+| `key` | string |  |  |
 | `operator` | enum:compare_operator | yes |  |
+| `provenance` | source_provenance |  |  |
 | `target` | string | yes |  |
 
 ### `clear_flag`
@@ -541,18 +557,24 @@ No fields.
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `flag` | id_or_var | yes |  |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `close_message`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `erase` | boolean |  | `true` |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `compare`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
+| `key` | string |  |  |
 | `left` | scalar_or_value | yes |  |
+| `provenance` | source_provenance |  |  |
 | `right` | scalar_or_value | yes |  |
 
 ### `copy_local`
@@ -560,6 +582,8 @@ No fields.
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `destination` | string | yes |  |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `source` | string | yes |  |
 
 ### `copy_var`
@@ -567,6 +591,8 @@ No fields.
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `destination` | id_or_var | yes |  |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `source` | id_or_var | yes |  |
 
 ### `face`
@@ -575,24 +601,32 @@ No fields.
 |---|---|---|---|
 | `actor` | actor | yes |  |
 | `direction` | enum:direction | yes |  |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `face_player`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `actor` | actor |  | `self` |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `fade_music_in`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `durationTicks` | integer | yes |  |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `fade_music_out`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `durationTicks` | integer | yes |  |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `target` | integer |  | `0` |
 
 ### `fade_screen`
@@ -601,7 +635,9 @@ No fields.
 |---|---|---|---|
 | `color` | enum:fade_color | yes |  |
 | `direction` | enum:fade_direction | yes |  |
+| `key` | string |  |  |
 | `kind` | integer | yes |  |
+| `provenance` | source_provenance |  |  |
 | `speed` | integer | yes |  |
 
 ### `get_object_coords`
@@ -609,6 +645,8 @@ No fields.
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `actor` | actor | yes |  |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `x` | value | yes |  |
 | `z` | value | yes |  |
 
@@ -616,6 +654,8 @@ No fields.
 
 | Field | Type | Required | Default |
 |---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `x` | value | yes |  |
 | `z` | value | yes |  |
 
@@ -623,19 +663,25 @@ No fields.
 
 | Field | Type | Required | Default |
 |---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `result` | value | yes |  |
 
 ### `goto`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `target` | string | yes |  |
 
 ### `goto_compared`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
+| `key` | string |  |  |
 | `operator` | enum:compare_operator | yes |  |
+| `provenance` | source_provenance |  |  |
 | `target` | string | yes |  |
 
 ### `goto_if`
@@ -643,6 +689,8 @@ No fields.
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `condition` | condition | yes |  |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `target` | string | yes |  |
 
 ### `hide_object`
@@ -650,43 +698,63 @@ No fields.
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `actor` | actor | yes |  |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `hide_waiting_icon`
 
-No fields.
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `hold_message`
 
-No fields.
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `if`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `condition` | condition | yes |  |
+| `key` | string |  |  |
 | `no` | steps |  | `{}` |
+| `provenance` | source_provenance |  |  |
 | `yes` | steps | yes |  |
 
 ### `label`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
+| `key` | string |  |  |
 | `name` | string | yes |  |
+| `provenance` | source_provenance |  |  |
 
 ### `lock_actor`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `actor` | actor | yes |  |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `waitUntilPausable` | boolean |  | `false` |
 
 ### `lock_all`
 
-No fields.
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `lock_player`
 
-No fields.
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `lua`
 
@@ -694,7 +762,9 @@ No fields.
 |---|---|---|---|
 | `args` | args |  | `{}` |
 | `fn` | string | yes |  |
+| `key` | string |  |  |
 | `module` | string | yes |  |
+| `provenance` | source_provenance |  |  |
 | `result` | value |  |  |
 
 ### `message`
@@ -702,7 +772,9 @@ No fields.
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `bindings` | bindings |  | `{}` |
+| `key` | string |  |  |
 | `message` | message | yes |  |
+| `provenance` | source_provenance |  |  |
 | `style` | enum:dialogue_style |  | `npc` |
 | `waitForPrint` | boolean |  | `true` |
 
@@ -711,21 +783,31 @@ No fields.
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `actor` | actor | yes |  |
+| `key` | string |  |  |
 | `movement` | movement | yes |  |
 | `movementId` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `next`
 
-No fields.
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `noop`
 
-No fields.
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `open_message`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `style` | enum:dialogue_style |  | `npc` |
 
 ### `play_cry`
@@ -733,6 +815,8 @@ No fields.
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `form` | integer |  | `0` |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `species` | scalar_or_value | yes |  |
 
 ### `play_fanfare`
@@ -740,24 +824,32 @@ No fields.
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `fanfare` | string | yes |  |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `play_music`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
+| `key` | string |  |  |
 | `music` | string | yes |  |
+| `provenance` | source_provenance |  |  |
 
 ### `play_sound`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `sound` | string | yes |  |
 
 ### `random`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
+| `key` | string |  |  |
 | `maxExclusive` | integer | yes |  |
+| `provenance` | source_provenance |  |  |
 | `result` | value | yes |  |
 
 ### `release_actor`
@@ -765,31 +857,46 @@ No fields.
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `actor` | actor | yes |  |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `release_all`
 
-No fields.
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `release_player`
 
-No fields.
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `reset_music`
 
-No fields.
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `resolve_common_message_bank`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `bankResult` | value | yes |  |
+| `key` | string |  |  |
 | `memberResult` | value | yes |  |
+| `provenance` | source_provenance |  |  |
 | `script` | string | yes |  |
 
 ### `return`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `value` | scalar_or_value |  |  |
 
 ### `say`
@@ -798,7 +905,9 @@ No fields.
 |---|---|---|---|
 | `bindings` | bindings |  | `{}` |
 | `close` | boolean |  | `true` |
+| `key` | string |  |  |
 | `message` | message | yes |  |
+| `provenance` | source_provenance |  |  |
 | `style` | enum:dialogue_style |  | `npc` |
 | `timingProfile` | enum:timing_profile |  | `hgss` |
 | `wait` | enum:say_wait |  | `button` |
@@ -808,12 +917,16 @@ No fields.
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `flag` | id_or_var | yes |  |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `set_local`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
+| `key` | string |  |  |
 | `name` | string | yes |  |
+| `provenance` | source_provenance |  |  |
 | `value` | scalar | yes |  |
 
 ### `set_object_facing`
@@ -822,13 +935,17 @@ No fields.
 |---|---|---|---|
 | `actor` | actor | yes |  |
 | `direction` | enum:direction | yes |  |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `set_object_movement_type`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `actor` | actor | yes |  |
+| `key` | string |  |  |
 | `movementType` | string | yes |  |
+| `provenance` | source_provenance |  |  |
 
 ### `set_object_position`
 
@@ -837,18 +954,24 @@ No fields.
 | `actor` | actor | yes |  |
 | `fieldX` | integer | yes |  |
 | `fieldZ` | integer | yes |  |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `worldY` | number |  |  |
 
 ### `set_spawn`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `spawn` | string | yes |  |
 
 ### `set_var`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `value` | scalar_or_value | yes |  |
 | `variable` | id_or_var | yes |  |
 
@@ -860,31 +983,45 @@ No fields.
 | `amplitudeY` | number | yes |  |
 | `count` | integer | yes |  |
 | `intervalTicks` | integer | yes |  |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `show_object`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `actor` | actor | yes |  |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `show_waiting_icon`
 
-No fields.
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `stop`
 
-No fields.
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `stop_music`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
+| `key` | string |  |  |
 | `music` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `stop_sound`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `sound` | string | yes |  |
 
 ### `sub_local`
@@ -892,13 +1029,17 @@ No fields.
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `amount` | scalar | yes |  |
+| `key` | string |  |  |
 | `name` | string | yes |  |
+| `provenance` | source_provenance |  |  |
 
 ### `sub_var`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `amount` | scalar_or_value | yes |  |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `variable` | id_or_var | yes |  |
 
 ### `switch`
@@ -907,13 +1048,17 @@ No fields.
 |---|---|---|---|
 | `cases` | cases | yes |  |
 | `default` | steps |  | `{}` |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `value` | scalar_or_value | yes |  |
 
 ### `temporary_music`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
+| `key` | string |  |  |
 | `music` | string | yes |  |
+| `provenance` | source_provenance |  |  |
 
 ### `unsupported`
 
@@ -921,21 +1066,32 @@ No fields.
 |---|---|---|---|
 | `arguments` | scalar_list |  | `{}` |
 | `command` | integer | yes |  |
+| `key` | string |  |  |
 | `originalName` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `reason` | string |  |  |
 | `sourceOffset` | integer |  |  |
 
 ### `wait_cry`
 
-No fields.
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `wait_fade`
 
-No fields.
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `wait_fanfare`
 
-No fields.
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `wait_input`
 
@@ -943,6 +1099,8 @@ No fields.
 |---|---|---|---|
 | `allowDpad` | boolean |  | `false` |
 | `buttons` | buttons |  | `{"a", "b"}` |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `turnPlayerOnDpad` | boolean |  | `false` |
 
 ### `wait_input_or_ticks`
@@ -951,6 +1109,8 @@ No fields.
 |---|---|---|---|
 | `allowDpad` | boolean |  | `true` |
 | `buttons` | buttons |  | `{"a", "b"}` |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `ticks` | integer | yes |  |
 | `turnPlayerOnDpad` | boolean |  | `false` |
 
@@ -959,18 +1119,24 @@ No fields.
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `actors` | actor_list |  |  |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `scope` | enum:movement_scope |  | `environment` |
 
 ### `wait_sound`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `sound` | string |  |  |
 
 ### `wait_ticks`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 | `ticks` | integer | yes |  |
 
 ### `warp`
@@ -980,12 +1146,17 @@ No fields.
 | `facing` | enum:direction | yes |  |
 | `fieldX` | integer | yes |  |
 | `fieldZ` | integer | yes |  |
+| `key` | string |  |  |
 | `map` | string | yes |  |
+| `provenance` | source_provenance |  |  |
 | `warp` | integer | yes |  |
 
 ### `yield_tick`
 
-No fields.
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ## Enums
 
