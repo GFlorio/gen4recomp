@@ -97,27 +97,4 @@ function FieldObjectActor:clearFacingOverride()
   self.interactionFacingOverride = nil
 end
 
-function FieldObjectActor:describe()
-  local event = self.sourceEvent
-  return {
-    actorId = self.actorId,
-    mapId = self.mapId,
-    objectEventId = self.objectEventId,
-    spriteId = self.spriteId,
-    mapModelId = self.visualDef and self.visualDef.mapModelId or nil,
-    fieldX = self.fieldX,
-    fieldZ = self.fieldZ,
-    surfaceId = self.surfaceId,
-    facing = self.facing,
-    initialFacing = self.initialFacing,
-    movement = self.rawMovement,
-    eventFlag = event.eventFlag,
-    scriptId = event.scriptId,
-    type = event.type,
-    sourceY = event.y,
-    visible = self.visible,
-    solid = self.solid,
-  }
-end
-
 return FieldObjectActor

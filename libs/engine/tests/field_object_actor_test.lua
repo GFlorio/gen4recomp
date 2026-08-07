@@ -106,27 +106,4 @@ function T.clear_facing_override_is_unconditional_and_idempotent()
   Assert.equal(a.facing, "south")
 end
 
-function T.describe_reports_the_inspector_contract()
-  local a = actor()
-  Assert.deepEqual(a:describe(), {
-    actorId = "map:61:object:0",
-    mapId = 61,
-    objectEventId = 0,
-    spriteId = 99,
-    mapModelId = 266,
-    fieldX = 6,
-    fieldZ = 5,
-    surfaceId = 0,
-    facing = "south",
-    initialFacing = "south",
-    movement = 0,
-    eventFlag = 401,
-    scriptId = 1,
-    type = 0,
-    sourceY = 0,
-    visible = true,
-    solid = true,
-  })
-end
-
 return T

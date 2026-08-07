@@ -3,7 +3,6 @@
 -- exposes the field warp transition lifecycle.
 
 local CacheFs = require("libs.rom.src.CacheFs")
-local Errors = require("libs.rom.src.Errors")
 local DialogueLayout = require("libs.engine.src.DialogueLayout")
 local FieldActorAssetProvider = require("libs.engine.src.FieldActorAssetProvider")
 local FieldActorDraw = require("libs.engine.src.FieldActorDraw")
@@ -90,24 +89,6 @@ local function playerOccupancy(self)
   end
 end
 
--- Structured trace sink shared by the actor manager, the player, the
--- interaction resolver, and the pre-script adapter (spec section 21.8).
-local TRACE_FIELDS = {
-  "actorId", "mapId", "objectEventId", "eventIndex", "spriteId", "movement",
-  "scriptBankId", "scriptId", "intentKind", "fixtureKey", "bankId",
-  "messageId", "requestId", "owner", "resultKind", "direction", "reason",
-}
-
----@param record table
-function FieldState:_fieldTrace(record)
-  if not record or not record.kind then return end
-  local parts = { record.kind }
-  for _, key in ipairs(TRACE_FIELDS) do
-    if record[key] ~= nil then parts[#parts + 1] = key .. "=" .. tostring(record[key]) end
-  end
-  io.stderr:write(table.concat(parts, " ") .. "\n")
-end
-
 local function initialSurface(runtimeMap, localX, localZ)
   local x, z = localX + 0.5, localZ + 0.5
   local best
@@ -179,7 +160,6 @@ function FieldState:_load()
       end
       if saveErr and saveErr.code ~= "CACHE_FILE_MISSING" then
         self.saveStatus = "Save ignored: " .. tostring(saveErr)
-        io.stderr:write("field save ignored: " .. tostring(saveErr) .. "\n")
       elseif restored then
         self.saveStatus = "Resumed saved field session"
       end
@@ -204,7 +184,6 @@ function FieldState:_load()
       fieldX = fieldX, fieldZ = fieldZ,
       surfaceId = surfaceId, facing = facing,
       occupancy = playerOccupancy(self),
-      trace = function(record) self:_fieldTrace(record) end,
     })
     self.actor = self.player
     self.input = FieldInput.new()
@@ -223,7 +202,7 @@ function FieldState:_load()
     -- The event store is rebuilt from the demo scenario on every boot until the
     -- save schema carries it; nothing persists event state yet.
     self.eventState = FieldEventState.new()
-    self.scenarioApplied = FieldScenario.apply(FieldScenarioManifest, self.eventState,
+    FieldScenario.apply(FieldScenarioManifest, self.eventState,
       function(mapId) return cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId)) end)
     self.actorAssets = FieldActorAssetProvider.new(cacheFs)
     self.actors = FieldActorManager.new({
@@ -233,10 +212,8 @@ function FieldState:_load()
         variableVarBase = FieldActorManifest.variableVarBase,
         staticMovementCodes = FieldActorManifest.staticMovementCodes,
       },
-      trace = function(record) self:_fieldTrace(record) end,
     })
     self.actors:enterMap(self.runtimeMap, self.eventState)
-    self.posePlaceholders = {}
 
     -- The player's graphic is one more compiled actor visual: it is acquired from
     -- the same reference-counted provider, and FieldPlayer keeps every bit of
@@ -270,13 +247,12 @@ function FieldState:_load()
     -- Interaction discovery and the temporary pre-script client. The resolver
     -- is pure and consults the manager's occupancy index; the adapter is the
     -- one construction point the scripting milestone replaces (spec section
-    -- 6.3). Disabling the adapter leaves discovery and traces intact.
+    -- 6.3).
     self.messageProvider = FieldMessageProvider.new(cacheFs)
     self.interactionResolver = FieldInteractionResolver.new({
       actorAt = function(mapId, fieldX, fieldZ, surfaceId)
         return self.actors and self.actors:getAt(mapId, fieldX, fieldZ, surfaceId) or nil
       end,
-      trace = function(record) self:_fieldTrace(record) end,
     })
     self.preScript = PreScriptInteractionAdapter.new({
       dialogue = self.dialogue,
@@ -291,12 +267,10 @@ function FieldState:_load()
         return self.runtimeMap.fieldData.messageBankId
       end,
       fixtures = PreScriptInteractions,
-      trace = function(record) self:_fieldTrace(record) end,
       -- Developer builds surface unmapped interactions as a diagnostic box
       -- (spec section 13.4); release builds choose "nothing".
       unmappedMode = "diagnostic",
     })
-    self.lastInteraction = nil
 
     self.session = FieldSession.new({
       versionId = self.versionId,
@@ -311,9 +285,7 @@ function FieldState:_load()
       input = self.input,
       interactions = {
         resolve = function(_, snapshot)
-          local intent = self.interactionResolver:resolve(snapshot)
-          if intent then self.lastInteraction = intent end
-          return intent
+          return self.interactionResolver:resolve(snapshot)
         end,
         consume = function(_, intent)
           return self.preScript:consume(intent)
@@ -327,16 +299,12 @@ function FieldState:_load()
   if not ok then
     self.errorText = tostring(err)
     self:_release()
-    io.stderr:write("field-state load failed: " .. self.errorText .. "\n")
   end
 end
 
 function FieldState:update(dt)
   if self.session then
-    -- Report a session fault in the field HUD instead of dropping to the
-    -- LÖVE error screen.
-    local ok, err = pcall(self.session.update, self.session, dt)
-    if not ok then self.errorText = Errors.format(err) end
+    self.session:update(dt)
     if self.transition.error then
       local warp = self.transition.sourceWarp
       self.errorText = string.format("%s\nsource map %s warp %s -> map %s warp %s",
@@ -358,7 +326,6 @@ function FieldState:_save(successText)
   end)
   if not ok then
     self.saveStatus = "Save failed: " .. tostring(err)
-    io.stderr:write("field save failed: " .. tostring(err) .. "\n")
     return false
   end
   self.saveStatus = successText or "Field session saved"
@@ -390,7 +357,6 @@ function FieldState:_swapMap(resolution, facing)
     surfaceId = resolution.surfaceId,
     facing = facing,
     occupancy = playerOccupancy(self),
-    trace = function(record) self:_fieldTrace(record) end,
   })
   local profile = assert(self.cameraProfiles[runtimeMap.cameraType],
     "field camera cache has no camera type " .. runtimeMap.cameraType)
@@ -438,19 +404,9 @@ end
 function FieldState:_actorDraws(alpha)
   local records = { self.playerVisual:drawRecord(alpha) }
   for _, record in ipairs(self.actors:drawRecords(alpha)) do records[#records + 1] = record end
-  local items = FieldActorDraw.items(records, function(spriteId)
+  return FieldActorDraw.items(records, function(spriteId)
     return self.actorAssets:resident(spriteId)
   end)
-  -- A sprite class whose requested clip is absent draws its verified idle pose.
-  -- Report it once per actor, never once per frame.
-  for _, item in ipairs(items) do
-    if item.poseFellBack and not self.posePlaceholders[item.actorId] then
-      self.posePlaceholders[item.actorId] = true
-      io.stderr:write(string.format("actor.pose_fallback %s sprite %d\n",
-        item.actorId, item.spriteId or -1))
-    end
-  end
-  return items
 end
 
 function FieldState:_worldDraws(alpha)
@@ -491,83 +447,16 @@ function FieldState:draw()
   self:_drawHud()
 end
 
--- The inspector readout walks the map's object-event records (spec section 2:
--- map, objectEventId, spriteId, mmodel source, field coordinate, surface,
--- facing, movement code, event flag, and scriptId), so a hidden actor still
--- shows its HIDDEN state.
-function FieldState:_inspectorLine()
-  local objects = self.runtimeMap.fieldData.events.objects or {}
-  if #objects == 0 then return "inspector: map has no object events" end
-  local event = objects[1]
-  local actor = self.actors:getById(
-    string.format("map:%d:object:%d", self.runtimeMap.mapId, event.objectEventId))
-  if not actor then
-    return string.format(
-      "inspector 1/%d  object %d  sprite %d  field (%d,%d)  flag %d  script %d  HIDDEN",
-      #objects, event.objectEventId, event.spriteId,
-      event.x, event.z, event.eventFlag, event.scriptId)
-  end
-  local info = actor:describe()
-  return string.format(
-    "inspector 1/%d  object %d  sprite %d (mmodel %s)  field (%d,%d) surface %d  %s"
-      .. "  movement %d  flag %d  script %d",
-    #objects, info.objectEventId, info.spriteId,
-    tostring(info.mapModelId), info.fieldX, info.fieldZ, info.surfaceId, info.facing,
-    info.movement, info.eventFlag, info.scriptId)
-end
-
+-- The playtest HUD: map identity, the player's field state, the save status,
+-- and the controls. Everything else stays out of the frame until the real
+-- game UI replaces even this.
 function FieldState:_drawHud()
   local lg = love.graphics
-  local events = self.runtimeMap.fieldData.events
-  local plan = self.runtimeMap.coveragePlan
-  local playerStatus = self.player:status()
-  local visuals = self.actorAssets:stats()
-  local dialogueStatus = self.dialogue:status()
   local lines = {
-    string.format("field  %s", self.versionId),
-    string.format("map %d  %s  camera %d/%s", self.runtimeMap.mapId,
-      self.runtimeMap.mapSymbol, self.runtimeMap.cameraType, self.camera.projectionType),
-    string.format("player field (%d,%d) local (%d,%d) y %.3f surface %d facing %s %s %d/%d",
-      self.actor.fieldX, self.actor.fieldZ, self.actor.localX, self.actor.localZ,
-      self.actor.worldY, self.actor.surfaceId, self.actor.facing, self.actor.motion,
-      self.actor.progressTicks, self.actor.durationTicks),
-    string.format("terrain %s normal %.3f/%.3f/%.3f destination %s",
-      tostring(playerStatus.slopeClass), playerStatus.surfaceNormal.x,
-      playerStatus.surfaceNormal.y, playerStatus.surfaceNormal.z,
-      tostring(playerStatus.destinationSurfaceId)),
-    string.format("camera y source/applied %.3f/%.3f  zoom %.2f (manual %.2f)",
-      self.camera.cameraSourceY, self.camera.cameraAppliedY,
-      self.camera.zoom, self.zoom.manualZoom),
-    string.format("viewport height %d  reference height %d  resize compensation %.2f",
-      self.viewport.worldViewport.height, self.zoom.referenceHeight, self.zoom.resizeCompensation),
-    string.format("events bg/object/warp/coord %d/%d/%d/%d",
-      #(events.background or {}), #(events.objects or {}),
-      #(events.warps or {}), #(events.coordinates or {})),
-    string.format("terrain %d plates  coverage %d cells  visible/prefetch misses %d/%d  resident maps %d",
-      #self.runtimeMap.terrain.plates, plan and #plan.cells or 0,
-      plan and #(plan.missingVisibleCells or {}) or 0,
-      plan and #(plan.missingPrefetchCells or {}) or 0, self.mapLoader:residentCount()),
-    string.format("actors %d visible of %d  visuals live/refs %d/%d  scenario %s (%d hidden)",
-      #self.actors:actorsOf(self.runtimeMap.mapId), #(events.objects or {}),
-      visuals.live, visuals.references,
-      FieldScenarioManifest.id, #self.scenarioApplied),
-    string.format("avatar %s sprite %d  pose %s tick %d  facing %s",
-      self.avatar.id, self.avatar.spriteId, self.playerVisual.pose,
-      self.playerVisual.poseTick, self.player.facing),
-    self.lastInteraction and string.format("interaction %s map %d target (%d,%d) script %d/%d",
-      self.lastInteraction.kind, self.lastInteraction.mapId,
-      self.lastInteraction.targetFieldX, self.lastInteraction.targetFieldZ,
-      self.lastInteraction.scriptId, tostring(self.lastInteraction.scriptBankId))
-      or "interaction none yet",
-    self:_inspectorLine(),
-    string.format("tick %d  dropped %d",
-      self.session.tick, self.session.discardedTicks),
-    string.format("transition %s  fade %.2f",
-      self.transition.phase, self.transition.fadeAlpha),
-    string.format("dialogue %s page %d/%d  reveal %d/%d  cursor %s",
-      dialogueStatus.state, dialogueStatus.pageIndex, dialogueStatus.pageCount,
-      dialogueStatus.revealedGlyphs, dialogueStatus.pageGlyphCount,
-      dialogueStatus.waiting and (dialogueStatus.cursorOn and "on" or "off") or "-"),
+    string.format("map %d  %s", self.runtimeMap.mapId, self.runtimeMap.mapSymbol),
+    string.format("player (%d,%d) y %.3f surface %d %s %s",
+      self.actor.fieldX, self.actor.fieldZ, self.actor.worldY,
+      self.actor.surfaceId, self.actor.facing, self.actor.motion),
     self.saveStatus or "save not written this run",
     "WASD/arrows move   Z/Space/Enter action   X/Backspace cancel   -/= zoom"
       .. "   0 reset zoom   F1 save   F2 reset   Esc quit",
