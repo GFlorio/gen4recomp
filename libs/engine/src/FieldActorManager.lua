@@ -53,7 +53,7 @@ local function resolveSurface(runtimeMap, event, actorId)
     local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, event.x, event.z)
     -- Terrain is sampled at the tile centre, as the player and camera do.
     return SurfaceResolver.new(runtimeMap.terrain):resolve({
-      localX = localX + 0.5, localZ = localZ + 0.5,
+      localX = localX + FieldCoordinates.TILE_CENTER_OFFSET, localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
       currentY = event.y / EVENT_Y_UNITS,
     })
   end)
