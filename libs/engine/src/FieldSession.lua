@@ -118,16 +118,11 @@ function FieldSession:updateFixed(inputSnapshot)
   if self.interactions and self.player.motion == "idle" and inputSnapshot.actionPressed then
     local intent = self.interactions:resolve({
       runtimeMap = self.currentMap,
-      mapId = self.currentMap.mapId,
       fieldX = self.player.fieldX,
       fieldZ = self.player.fieldZ,
       surfaceId = self.player.surfaceId,
       worldY = self.player.worldY,
       facing = self.player.facing,
-      playerIdle = self.player.motion == "idle",
-      actionPressed = inputSnapshot.actionPressed == true,
-      transitionActive = self.transition ~= nil and self.transition.phase ~= "idle",
-      modalActive = self.dialogue ~= nil and self.dialogue:isModal(),
       tick = self.tick + 1,
     })
     if intent and self.interactions:consume(intent) then

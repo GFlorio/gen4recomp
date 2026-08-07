@@ -1,4 +1,4 @@
--- Pure interaction-resolution tests (spec section 21.3): gates, object-first
+-- Pure interaction-resolution tests (spec section 21.3): object-first
 -- priority, background direction compatibility, surface reachability, and
 -- immutable intent values. Uses synthetic maps and a fake actor lookup, so no
 -- LÖVE or ROM data is involved.
@@ -63,13 +63,8 @@ end
 local function baseSnapshot(overrides)
   local snapshot = {
     runtimeMap = map(),
-    mapId = 61,
     fieldX = 4, fieldZ = 14, surfaceId = 0, worldY = 0,
     facing = "north",
-    playerIdle = true,
-    actionPressed = true,
-    transitionActive = false,
-    modalActive = false,
     tick = 100,
   }
   for key, value in pairs(overrides or {}) do snapshot[key] = value end
@@ -254,30 +249,6 @@ function T.actor_on_another_surface_is_ineligible()
   local intent = r:resolve(baseSnapshot({ runtimeMap = m }))
   assert(intent, "the background on the reachable surface wins")
   Assert.equal(intent.kind, "background")
-end
-
-function T.moving_player_returns_nil()
-  local r = resolver()
-  Assert.isNil(r:resolve(baseSnapshot({ playerIdle = false })))
-end
-
-function T.transition_active_returns_nil()
-  local r = resolver()
-  Assert.isNil(r:resolve(baseSnapshot({ transitionActive = true })))
-end
-
-function T.modal_active_returns_nil()
-  local r = resolver()
-  Assert.isNil(r:resolve(baseSnapshot({ modalActive = true })))
-end
-
-function T.held_action_after_the_first_edge_produces_one_intent_only()
-  local elm = actor("map:61:object:0", 0, 99, 4, 13, 1)
-  local r = resolver({ ["4:13"] = { surfaceId = 0, actor = elm } })
-  local first = r:resolve(baseSnapshot({ actionPressed = true }))
-  local second = r:resolve(baseSnapshot({ actionPressed = false }))
-  assert(first, "the edge tick resolves")
-  Assert.isNil(second, "a held Action does not re-resolve without a new edge")
 end
 
 function T.facing_outside_coverage_returns_nil()

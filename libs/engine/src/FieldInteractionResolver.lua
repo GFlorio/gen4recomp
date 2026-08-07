@@ -5,9 +5,11 @@
 -- compatibility table is the pinned assembly's `BgEventDirectionIsCompatibleWithPlayerFacing`
 -- (raw 4 is a wildcard; facing 0/1/2/3 accept {0,6}/{3,6}/{2,5}/{1,5}).
 --
--- Eligibility gates (spec section 12.2) are checked here so the module is
--- testable headlessly: no transition, no modal, player idle, Action edge,
--- and the facing tile resolving inside the map's coordinate profile.
+-- The session owns interaction eligibility timing (spec section 11.3 step 6):
+-- calling resolve means the player is idle, the Action edge is present, and
+-- no transition or modal is active. This module answers only what is in front
+-- of the player, and requires the facing tile to resolve inside the map's
+-- coordinate profile.
 --
 -- The resolver never turns an actor, locks the player, selects a message, or
 -- touches presentation: it returns an immutable InteractionIntent (fresh
@@ -138,15 +140,10 @@ end
 
 -- Resolves one Action press into an immutable InteractionIntent or nil.
 -- snapshot fields:
---   runtimeMap, fieldX, fieldZ, surfaceId, worldY, facing,
---   playerIdle, actionPressed, transitionActive, modalActive, tick
+--   runtimeMap, fieldX, fieldZ, surfaceId, worldY, facing, tick
 function FieldInteractionResolver:resolve(snapshot)
   assert(type(snapshot) == "table" and type(snapshot.runtimeMap) == "table",
     "resolve requires a runtime map")
-  if not snapshot.playerIdle then return nil end
-  if not snapshot.actionPressed then return nil end
-  if snapshot.transitionActive then return nil end
-  if snapshot.modalActive then return nil end
 
   local map = snapshot.runtimeMap
   local delta = DIRECTION_DELTAS[snapshot.facing]
