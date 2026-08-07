@@ -5,9 +5,27 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.rom.src.Errors")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
+local FieldActorPose = require("libs.engine.src.FieldActorPose")
+local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldPlayerVisual = require("libs.engine.src.FieldPlayerVisual")
+local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = {}
+
+local function runtimeMap()
+  return {
+    mapId = 60,
+    coordinateOrigin = { x = 0, z = 0 },
+    permissions = {
+      containsLocal = function(_, x, z) return x >= 0 and x < 32 and z >= 0 and z < 32 end,
+      isBlockedLocal = function() return false end,
+    },
+    terrain = TerrainSurface.new({ plates = {
+      { id = 0, minX = 0, minZ = 0, maxX = 32, maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 }, distance = 0, slopeClass = "flat" },
+    } }),
+  }
+end
 
 -- A FieldPlayer-shaped stub: the adapter must depend only on this surface.
 local function player()
@@ -24,6 +42,20 @@ local function player()
       }
     end,
   }
+end
+
+-- A real FieldPlayer on an open flat map, for the tile-boundary phase tests.
+local function movingPlayer()
+  return FieldPlayer.new({ currentMap = runtimeMap(), fieldX = 0, fieldZ = 4,
+    surfaceId = 0, facing = "south" })
+end
+
+-- Drive one full session-style tick: capture the pre-update walking state,
+-- advance the player, then advance the visual with that capture.
+local function walkTick(subject, presentation, direction)
+  local walkingAtTickStart = subject.motion == "walking"
+  subject:updateFixed({ heldDirection = direction, pressedDirection = direction })
+  presentation:updateFixed(walkingAtTickStart)
 end
 
 local function visual(subject)
@@ -87,6 +119,86 @@ function T.rejects_an_avatar_without_a_compiled_visual()
   end)
   Assert.isTrue(Errors.is(err) and err.code == "PLAYER_AVATAR_INVALID",
     "expected PLAYER_AVATAR_INVALID, got " .. tostring(err))
+end
+
+-- A two-tile walk is the gait the ROM spans: the character animation range is
+-- 16 ticks long, exactly two eight-tick walking tiles, so the phase must
+-- survive the tile commit instead of restarting on every arrival.
+function T.a_two_tile_walk_carries_the_phase_across_the_tile_commit()
+  local subject = movingPlayer()
+  local presentation = visual(subject)
+  for tick = 1, 8 do walkTick(subject, presentation, "east") end
+  Assert.equal(subject.motion, "idle", "the first tile committed")
+  Assert.equal(subject.fieldX, 1)
+  Assert.equal(presentation.pose, "walk", "the commit tick is still a walking tick")
+  Assert.equal(presentation.poseTick, 8, "the phase holds through the tile boundary")
+
+  for tick = 1, 8 do walkTick(subject, presentation, "east") end
+  Assert.equal(subject.fieldX, 2, "the second tile committed")
+  Assert.equal(presentation.pose, "walk")
+  Assert.equal(presentation.poseTick, 16, "two tiles advance the full 16-tick cycle")
+end
+
+-- With the phase allowed to reach the full ROM range, every frame of that range
+-- displays: frame 3 of a 16-tick range is unreachable if the clock resets every
+-- eight ticks, which is exactly the bug this guards against.
+function T.sixteen_continuous_ticks_traverse_the_entire_rom_range()
+  local subject = movingPlayer()
+  local def = FieldActorFixture.visual(0, { frameCount = 8 })
+  for _, direction in pairs(def.directions) do
+    direction.walk = {
+      frames = {
+        { frameIndex = 1, ticks = 4 }, { frameIndex = 2, ticks = 4 },
+        { frameIndex = 3, ticks = 4 }, { frameIndex = 4, ticks = 4 },
+      },
+      loop = true, durationTicks = 16,
+      sourceRange = { startFrame = 0, endFrame = 15, endMode = 0 },
+    }
+  end
+  local presentation = FieldPlayerVisual.new({
+    player = subject, spriteId = 0, visualDef = def,
+  })
+  local framesAtTick = {}
+  for tick = 1, 16 do
+    walkTick(subject, presentation, "east")
+    framesAtTick[tick] = FieldActorPose.frameIndex(def, "east", "walk", presentation.poseTick)
+  end
+  Assert.equal(presentation.poseTick, 16)
+  Assert.equal(framesAtTick[8], 3, "the back half of the range is reachable mid-cycle")
+  Assert.equal(framesAtTick[12], 4)
+  Assert.equal(framesAtTick[16], 1, "the cycle wraps to its first frame")
+end
+
+function T.the_first_genuinely_idle_tick_resets_the_phase()
+  local subject = movingPlayer()
+  local presentation = visual(subject)
+  for tick = 1, 8 do walkTick(subject, presentation, "east") end
+  Assert.equal(presentation.poseTick, 8)
+  Assert.equal(presentation.pose, "walk")
+
+  local walkingAtTickStart = subject.motion == "walking"
+  Assert.isFalse(walkingAtTickStart, "the player settled on the commit tick")
+  subject:updateFixed({})
+  presentation:updateFixed(walkingAtTickStart)
+  Assert.equal(presentation.pose, "idle")
+  Assert.equal(presentation.poseTick, 0, "only a genuinely idle tick resets the clock")
+end
+
+function T.changing_facing_during_continuous_movement_resets_the_phase()
+  local subject = movingPlayer()
+  local presentation = visual(subject)
+  for tick = 1, 8 do walkTick(subject, presentation, "east") end
+  Assert.equal(presentation.poseTick, 8)
+
+  -- Turning mid-walk (buffered to the next step) must start the new facing's
+  -- range at its first frame, not import the old range's phase.
+  for tick = 1, 4 do walkTick(subject, presentation, "south") end
+  Assert.equal(subject.facing, "south")
+  Assert.equal(presentation.poseTick, 4, "the phase restarted on the turn tick")
+
+  for tick = 1, 4 do walkTick(subject, presentation, "south") end
+  Assert.equal(subject.fieldZ, 5, "the south tile committed")
+  Assert.equal(presentation.poseTick, 8)
 end
 
 return T

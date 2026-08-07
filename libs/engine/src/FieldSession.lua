@@ -148,6 +148,11 @@ function FieldSession:updateFixed(inputSnapshot)
     end
   end
 
+  -- The pose clock treats a tick as walking if the player was mid-step at either
+  -- end of it, so the gait phase carries across the tile commit instead of
+  -- restarting on every arrival (the ROM's walk range spans two tiles).
+  local walkingAtTickStart = self.player.motion == "walking"
+
   local stepCompleted = false
   if self.player.updateFixed then stepCompleted = self.player:updateFixed(inputSnapshot) == true end
   if stepCompleted and self.transition and self.transition.start then
@@ -159,7 +164,7 @@ function FieldSession:updateFixed(inputSnapshot)
   end
   -- Pose clocks advance only on a tick that could change the world, so a fade or
   -- a locked transition freezes animation instead of walking it in place.
-  if self.playerVisual then self.playerVisual:updateFixed() end
+  if self.playerVisual then self.playerVisual:updateFixed(walkingAtTickStart) end
   self.camera:updateFixed(self:actorTarget())
   if self.coverage then self.coverage(self) end
   self:_recordTick()

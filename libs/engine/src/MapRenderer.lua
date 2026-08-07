@@ -212,9 +212,11 @@ end
 
 -- `overlays` is an optional list of opaque diagnostic draw items (player prism,
 -- anchor pins) rendered in the opaque pass so they depth-sort against the scene.
+-- `alpha` is the render interpolation factor forwarded to the camera so the
+-- scene is viewed from the same smoothed state the actors render at.
 -- FieldViewport limits the render-target size and places the result inside the
 -- host drawable.
-function MapRenderer:draw(runtime, camera, overlays, viewport)
+function MapRenderer:draw(runtime, camera, overlays, viewport, alpha)
   assert(viewport and viewport.worldViewport, "MapRenderer requires a FieldViewport")
   local lg = love.graphics
   local all = {}
@@ -234,7 +236,7 @@ function MapRenderer:draw(runtime, camera, overlays, viewport)
   local h = math.max(1, math.floor(rectangle.height + 0.5))
   self:_ensureCanvases(w, h)
 
-  local viewMatrix = camera:view()
+  local viewMatrix = camera:view(alpha)
 
   -- Billboard draws own no baked matrix: resolve each one against this frame's
   -- camera before anything reads `transform`, so u_model, the normal matrix,

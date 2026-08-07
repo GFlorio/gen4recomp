@@ -58,9 +58,15 @@ return {
   directionOrder = { "north", "south", "west", "east" },
 
   -- FieldSystem_ResolveObjectSpriteID redirects this inclusive range through
-  -- field variables before the graphics lookup, so these IDs are absent from the
-  -- table by design. Every value they can take is a player graphic.
+  -- field variables before the graphics lookup (`src/map_object.c`), so these
+  -- IDs are absent from the table by design. spriteId `s` reads variable
+  -- `variableVarBase + (s - first)` once, at object creation
+  -- (`src/script_manager.c`). Every variable defaults to 0, the hero graphic.
   variableSpriteRange = { first = 101, last = 117 },
+  -- VAR_OBJ_GFX_BASE (`include/constants/vars.h`). The decomp flags spriteId
+  -- 117 as an off-by-one reading the variable past the sixteen VAR_OBJ_* slots;
+  -- the var-base formula above reproduces that original behavior.
+  variableVarBase = 0x4020,
 
   -- Movement codes whose runtime behavior is verified to be "stand still".
   -- Every other code is preserved on the actor and reported once through the
