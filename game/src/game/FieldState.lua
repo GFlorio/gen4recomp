@@ -210,7 +210,6 @@ function FieldState:_load()
       policy = {
         variableSpriteRange = FieldActorManifest.variableSpriteRange,
         variableVarBase = FieldActorManifest.variableVarBase,
-        staticMovementCodes = FieldActorManifest.staticMovementCodes,
       },
     })
     self.actors:enterMap(self.runtimeMap, self.eventState)
@@ -267,9 +266,6 @@ function FieldState:_load()
         return self.runtimeMap.fieldData.messageBankId
       end,
       fixtures = PreScriptInteractions,
-      -- Developer builds surface unmapped interactions as a diagnostic box
-      -- (spec section 13.4); release builds choose "nothing".
-      unmappedMode = "diagnostic",
     })
 
     self.session = FieldSession.new({

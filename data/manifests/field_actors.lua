@@ -68,12 +68,6 @@ return {
   -- the var-base formula above reproduces that original behavior.
   variableVarBase = 0x4020,
 
-  -- Movement codes whose runtime behavior is verified to be "stand still".
-  -- Every other code is preserved on the actor and reported once through the
-  -- developer trace; autonomous motion is out of scope for this milestone, so
-  -- widening this set requires verifying the code against original behavior.
-  staticMovementCodes = { 0 },
-
   -- The player graphics the runtime avatar selection chooses between, in a
   -- stable order so a developer toggle cycles deterministically. Every value the
   -- variable sprite range can take is one of these, so they are always compiled.

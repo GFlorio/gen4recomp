@@ -15,8 +15,8 @@
 -- raw scriptId -- the original always starts the scene script with the raw
 -- u16, so 0 or 0xFFFF is the script engine's business, not ours. Type-2
 -- background events are the hidden-item path and depend on collection flags
--- that this milestone does not track: they are traced and skipped. Pure
--- domain module: no love dependency.
+-- that this milestone does not track: they are skipped. Pure domain module:
+-- no love dependency.
 
 local Errors = require("libs.rom.src.Errors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
@@ -62,18 +62,12 @@ end
 -- opts.actorAt: function(mapId, fieldX, fieldZ, surfaceId) -> actor | nil.
 -- The actor manager's occupancy index is the lookup (spec section 12.4);
 -- hidden actors never appear there.
--- opts.trace: optional developer sink for structured records.
 function FieldInteractionResolver.new(opts)
   assert(type(opts) == "table" and type(opts.actorAt) == "function",
     "FieldInteractionResolver requires an actor lookup")
   return setmetatable({
     actorAt = opts.actorAt,
-    trace = opts.trace,
   }, FieldInteractionResolver)
-end
-
-function FieldInteractionResolver:_trace(record)
-  if self.trace then self.trace(record) end
 end
 
 -- The facing tile is one cardinal field cell from the player's logical
@@ -104,35 +98,21 @@ function FieldInteractionResolver:_facingCellReachable(snapshot, targetX, target
 end
 
 -- Scans background events in source order and returns the first eligible
--- record, or nil. Type-2 records (the hidden-item path) are traced and
--- skipped because their collection flags are not tracked yet; every other
--- type must pass the raw direction compatibility check.
+-- record, or nil. Type-2 records (the hidden-item path) are skipped because
+-- their collection flags are not tracked yet; every other type must pass the
+-- raw direction compatibility check.
 function FieldInteractionResolver:_firstEligibleBackground(snapshot, targetX, targetZ)
   local map = snapshot.runtimeMap
   local events = map.fieldData and map.fieldData.events and map.fieldData.events.background or {}
   local playerRaw = assert(FieldInteractionResolver.RAW_FACING[snapshot.facing],
     "unknown player facing " .. tostring(snapshot.facing))
-  local matched
   for _, event in ipairs(events) do
-    if event.x == targetX and event.z == targetZ then
-      if event.type == 2 then
-        self:_trace({
-          kind = "field.interaction.background_type2_deferred",
-          mapId = map.mapId, eventIndex = event.index, scriptId = event.scriptId,
-        })
-      elseif FieldInteractionResolver.backgroundDirectionCompatible(playerRaw, event.directionRaw) then
-        if matched then
-          self:_trace({
-            kind = "field.interaction.multiple_background_candidates",
-            mapId = map.mapId, eventIndex = matched.index, otherIndex = event.index,
-          })
-        else
-          matched = event
-        end
-      end
+    if event.x == targetX and event.z == targetZ and event.type ~= 2
+      and FieldInteractionResolver.backgroundDirectionCompatible(playerRaw, event.directionRaw) then
+      return event
     end
   end
-  return matched
+  return nil
 end
 
 -- The intent fields every interaction shares. The immutable identity
@@ -156,29 +136,9 @@ local function baseIntent(kind, snapshot, targetX, targetZ, scriptId)
   }
 end
 
--- The resolved trace record; the identity table (intent.object or
--- intent.background) already carries the kind-specific fields.
-local function resolvedTrace(intent, identity)
-  return {
-    kind = "field.interaction.resolved",
-    intentKind = intent.kind,
-    mapId = intent.mapId,
-    scriptBankId = intent.scriptBankId,
-    scriptId = intent.scriptId,
-    playerFacing = intent.playerFacing,
-    targetFieldX = intent.targetFieldX,
-    targetFieldZ = intent.targetFieldZ,
-    tick = intent.tick,
-    objectEventId = identity.objectEventId,
-    spriteId = identity.spriteId,
-    eventIndex = identity.eventIndex,
-    type = identity.type,
-  }
-end
-
 -- Resolves one Action press into an immutable InteractionIntent or nil.
 -- snapshot fields:
---   runtimeMap, mapId, fieldX, fieldZ, surfaceId, worldY, facing,
+--   runtimeMap, fieldX, fieldZ, surfaceId, worldY, facing,
 --   playerIdle, actionPressed, transitionActive, modalActive, tick
 function FieldInteractionResolver:resolve(snapshot)
   assert(type(snapshot) == "table" and type(snapshot.runtimeMap) == "table",
@@ -197,8 +157,6 @@ function FieldInteractionResolver:resolve(snapshot)
   local targetX, targetZ = snapshot.fieldX + delta.x, snapshot.fieldZ + delta.z
 
   if not self:_facingCellReachable(snapshot, targetX, targetZ) then
-    self:_trace({ kind = "field.interaction.none", mapId = map.mapId,
-      playerFacing = snapshot.facing, reason = "facing_tile_unreachable" })
     return nil
   end
 
@@ -212,7 +170,6 @@ function FieldInteractionResolver:resolve(snapshot)
       objectEventId = actor.objectEventId,
       spriteId = actor.spriteId,
     }
-    self:_trace(resolvedTrace(intent, intent.object))
     return intent
   end
 
@@ -225,12 +182,9 @@ function FieldInteractionResolver:resolve(snapshot)
       type = event.type,
       direction = event.directionRaw,
     }
-    self:_trace(resolvedTrace(intent, intent.background))
     return intent
   end
 
-  self:_trace({ kind = "field.interaction.none", mapId = map.mapId,
-    playerFacing = snapshot.facing, targetFieldX = targetX, targetFieldZ = targetZ })
   return nil
 end
 

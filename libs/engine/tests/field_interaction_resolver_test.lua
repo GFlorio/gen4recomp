@@ -52,12 +52,12 @@ local function actor(id, objectEventId, spriteId, x, z, scriptId)
 end
 
 -- resolver with an actor lookup table keyed by "x:z"
-local function resolver(actorsByCell, trace)
+local function resolver(actorsByCell)
   local actorAt = function(_, fieldX, fieldZ, surfaceId)
     local entry = actorsByCell and actorsByCell[fieldX .. ":" .. fieldZ]
     return entry and entry.surfaceId == surfaceId and entry.actor or nil
   end
-  return FieldInteractionResolver.new({ actorAt = actorAt, trace = trace })
+  return FieldInteractionResolver.new({ actorAt = actorAt })
 end
 
 local function baseSnapshot(overrides)
@@ -214,13 +214,10 @@ function T.background_requires_exact_facing_cell_match()
     "an event one cell short of the facing tile does not resolve")
 end
 
-function T.type_two_background_events_are_traced_and_skipped()
+function T.type_two_background_events_are_skipped()
   local m = map({ bgEvent(0, 100, 4, 13, 4, 2) })
-  local traces = {}
-  local r = resolver(nil, function(record) traces[#traces + 1] = record end)
+  local r = resolver()
   Assert.isNil(r:resolve(baseSnapshot({ runtimeMap = m })))
-  Assert.equal(traces[1].kind, "field.interaction.background_type2_deferred")
-  Assert.equal(traces[1].eventIndex, 0)
 end
 
 function T.type_two_does_not_block_a_later_compatible_event()
@@ -300,20 +297,6 @@ function T.intent_values_survive_source_mutation()
   Assert.equal(intent.object.actorId, "map:61:object:0")
   Assert.equal(intent.scriptId, 1)
   Assert.equal(intent.playerFacing, "north")
-end
-
-function T.resolved_trace_reports_kind_and_identity()
-  local traces = {}
-  local elm = actor("map:61:object:0", 0, 99, 4, 13, 1)
-  local r = resolver({ ["4:13"] = { surfaceId = 0, actor = elm } }, function(record)
-    traces[#traces + 1] = record
-  end)
-  r:resolve(baseSnapshot())
-  Assert.equal(traces[1].kind, "field.interaction.resolved")
-  Assert.equal(traces[1].intentKind, "object")
-  Assert.equal(traces[1].objectEventId, 0)
-  Assert.equal(traces[1].scriptId, 1)
-  Assert.equal(traces[1].tick, 100)
 end
 
 return T

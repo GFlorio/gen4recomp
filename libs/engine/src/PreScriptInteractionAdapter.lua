@@ -8,9 +8,8 @@
 --
 -- This module is the one construction point the next milestone replaces with
 -- the field script scheduler (spec section 6.3): it never reads script
--- bytes, never mutates flags or variables, and never moves actors. Disabling
--- it leaves discovery and resolver traces intact. Pure domain module: no
--- love dependency.
+-- bytes, never mutates flags or variables, and never moves actors. Pure
+-- domain module: no love dependency.
 
 local Errors = require("libs.rom.src.Errors")
 local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
@@ -41,9 +40,6 @@ local UNMAPPED_RELEASE_TEXT = "Nothing is wired here yet."
 --   getActor  fun(actorId) -> FieldObjectActor | nil
 --   mapMessageBank fun(mapId) -> messageBankId | nil
 --   fixtures  project-owned preview manifest (spec section 13.2)
---   trace     optional developer sink
---   enabled   default true; false consumes nothing but still traces
---   unmappedMode "diagnostic" (default) or "nothing"
 function PreScriptInteractionAdapter.new(opts)
   assert(type(opts) == "table" and opts.dialogue and opts.provider, "adapter services required")
   assert(type(opts.layout) == "function", "adapter requires the dialogue layout closure")
@@ -60,14 +56,7 @@ function PreScriptInteractionAdapter.new(opts)
     getActor = opts.getActor,
     mapMessageBank = opts.mapMessageBank,
     fixtures = opts.fixtures,
-    trace = opts.trace,
-    enabled = opts.enabled ~= false,
-    unmappedMode = opts.unmappedMode or "diagnostic",
   }, PreScriptInteractionAdapter)
-end
-
-function PreScriptInteractionAdapter:_trace(record)
-  if self.trace then self.trace(record) end
 end
 
 local function fixtureKey(intent)
@@ -110,7 +99,6 @@ function PreScriptInteractionAdapter:_formatMessage(fixture, bankId, messageId)
       bankErr and bankErr.message or "message bank " .. tostring(bankId) .. " is unavailable",
       { bankId = bankId, cause = bankErr and bankErr.context or nil })
   end
-  self:_trace({ kind = "field.message.bank.acquire", bankId = bankId })
   local template, templateErr = self.provider:get(bankId, messageId)
   if not template then
     self.provider:releaseBank(bankId)
@@ -137,12 +125,12 @@ function PreScriptInteractionAdapter:_formatMessage(fixture, bankId, messageId)
   return formatted
 end
 
--- Opens one request through the controller and traces it. Every request this
--- adapter makes is a modal field dialogue with cancel disabled (spec section
--- 15.2), so the shape lives here. Raises on open failure; the caller unwinds
--- any pre-open override.
+-- Opens one request through the controller. Every request this adapter makes
+-- is a modal field dialogue with cancel disabled (spec section 15.2), so the
+-- shape lives here. Raises on open failure; the caller unwinds any pre-open
+-- override.
 function PreScriptInteractionAdapter:_openRequest(id, message, metadata)
-  local ok, handle = pcall(self.dialogue.open, self.dialogue, {
+  return self.dialogue:open({
     id = id,
     message = message,
     style = "field",
@@ -150,56 +138,27 @@ function PreScriptInteractionAdapter:_openRequest(id, message, metadata)
     allowCancel = false,
     metadata = metadata,
   })
-  if not ok then error(handle) end
-  self:_trace({ kind = "field.dialogue.open", requestId = id,
-    bankId = metadata.bankId, messageId = metadata.messageId })
-  return handle
 end
 
--- Developer unmapped behavior: a compact project-owned diagnostic showing
--- the intent's kind, identity, and raw script ID (spec section 13.4). The
--- release text is the spec's "Nothing is wired here yet." Both go through
--- the same dialogue path so input ownership and traces stay uniform.
+-- Unmapped behavior: a compact project-owned message (spec section 13.4)
+-- shown through the same dialogue path so input ownership stays uniform.
 function PreScriptInteractionAdapter:_openUnmapped(intent)
   local key = fixtureKey(intent)
-  local identity
-  if intent.kind == "object" then
-    identity = string.format("object %d", intent.object.objectEventId)
-  else
-    identity = string.format("background %d", intent.background.eventIndex)
-  end
-  local text
-  if self.unmappedMode == "nothing" then
-    text = UNMAPPED_RELEASE_TEXT
-  else
-    text = string.format("Developer: no preview fixture for map %d %s, script %d.",
-      intent.mapId, identity, intent.scriptId)
-  end
-  local tokens = FieldMessageText.parse(text, self.fontDef, { eos = false })
-  self:_trace({
-    kind = "field.interaction.unmapped", intentKind = intent.kind,
-    mapId = intent.mapId, scriptId = intent.scriptId, fixtureKey = key,
-  })
+  local tokens = FieldMessageText.parse(UNMAPPED_RELEASE_TEXT, self.fontDef, { eos = false })
   self:_openRequest(requestIdFor(key), {
     bankId = nil,
     messageId = nil,
-    text = text,
+    text = UNMAPPED_RELEASE_TEXT,
     tokens = tokens,
     hadUnresolvedSubstitutions = false,
   }, { interactionIntent = copyIntent(intent) })
 end
 
 -- Dispatches one immutable InteractionIntent. Returns true when the tick is
--- consumed (a dialogue or diagnostic opened); false leaves the session free
--- to move (adapter disabled).
+-- consumed (a dialogue opened).
 function PreScriptInteractionAdapter:consume(intent)
   assert(type(intent) == "table" and type(intent.kind) == "string",
     "consume requires an InteractionIntent")
-  if not self.enabled then
-    self:_trace({ kind = "field.interaction.adapter_disabled", intentKind = intent.kind,
-      mapId = intent.mapId, scriptId = intent.scriptId })
-    return false
-  end
 
   local key = fixtureKey(intent)
   local fixture = self.fixtures[key]
@@ -236,8 +195,6 @@ function PreScriptInteractionAdapter:consume(intent)
     local facing = assert(OPPOSITE_FACING[intent.playerFacing],
       "unknown player facing " .. tostring(intent.playerFacing))
     token = actor:pushFacingOverride({ owner = OVERRIDE_OWNER, facing = facing })
-    self:_trace({ kind = "field.actor.facing_override.push", actorId = actor.actorId,
-      owner = OVERRIDE_OWNER, facing = facing })
   end
 
   local requestId = requestIdFor(key)
@@ -254,14 +211,10 @@ function PreScriptInteractionAdapter:consume(intent)
   end
 
   local released = false
-  local function release(result)
+  local function release()
     if released then return end
     released = true
     if token then actor:releaseFacingOverride(token) end
-    self:_trace({ kind = "field.actor.facing_override.release", actorId = actor and actor.actorId,
-      owner = OVERRIDE_OWNER })
-    self:_trace({ kind = "field.dialogue.close", requestId = requestId,
-      resultKind = result and result.kind or nil })
   end
   handle:onComplete(release)
   handle:onCancel(release)

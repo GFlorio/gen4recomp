@@ -26,23 +26,17 @@ local SURFACE_ERROR_CODES = {
 }
 
 -- opts.assets: a FieldActorAssetProvider-shaped acquire/release/knows owner.
--- opts.policy: { variableSpriteRange, variableVarBase, staticMovementCodes } from
+-- opts.policy: { variableSpriteRange, variableVarBase } from
 -- the field-actor manifest, so no decomp-derived constant is inlined here.
--- opts.trace: optional developer sink for structured lifecycle records.
 function FieldActorManager.new(opts)
   assert(type(opts) == "table" and opts.assets, "FieldActorManager requires an asset provider")
   local policy = opts.policy
-  assert(type(policy) == "table" and policy.variableSpriteRange and policy.variableVarBase
-    and policy.staticMovementCodes,
-    "FieldActorManager requires a sprite/movement policy")
-  local static = {}
-  for _, code in ipairs(policy.staticMovementCodes) do static[code] = true end
+  assert(type(policy) == "table" and policy.variableSpriteRange and policy.variableVarBase,
+    "FieldActorManager requires a sprite policy")
   return setmetatable({
     assets = opts.assets,
     variableSpriteRange = policy.variableSpriteRange,
     variableVarBase = policy.variableVarBase,
-    staticMovementCodes = static,
-    trace = opts.trace,
     maps = {},
     eventState = nil,
     unsubscribe = nil,
@@ -94,18 +88,6 @@ function FieldActorManager:_acquireVisual(spriteId, actorId)
   return self.assets:acquire(spriteId)
 end
 
-function FieldActorManager:_reportDeferredMovement(actor)
-  if self.staticMovementCodes[actor.rawMovement] or not self.trace then return end
-  self.trace({
-    kind = "actor.movement_deferred",
-    actorId = actor.actorId,
-    spriteId = actor.spriteId,
-    movement = actor.rawMovement,
-    xRange = actor.sourceEvent.xRange,
-    yRange = actor.sourceEvent.yRange,
-  })
-end
-
 function FieldActorManager:_instantiate(entry, event)
   local runtimeMap = entry.runtimeMap
   local actorId = FieldObjectActor.actorId(runtimeMap.mapId, event.objectEventId)
@@ -141,7 +123,6 @@ function FieldActorManager:_instantiate(entry, event)
   if actor.solid then entry.occupancy[key] = actor end
   entry.actors[actorId] = actor
   entry.order[#entry.order + 1] = actor
-  self:_reportDeferredMovement(actor)
   return actor
 end
 

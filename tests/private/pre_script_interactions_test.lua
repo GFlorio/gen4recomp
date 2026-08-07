@@ -32,7 +32,6 @@ local TOWN = 60
 local POLICY = {
   variableSpriteRange = actorManifest.variableSpriteRange,
   variableVarBase = actorManifest.variableVarBase,
-  staticMovementCodes = actorManifest.staticMovementCodes,
 }
 
 local function maps(romFs)
@@ -183,12 +182,10 @@ function T.resolver_resolves_the_lab_object_and_background_targets_on_real_data(
   local all = maps(romFs)
   local lab = all[LAB]
   local manager = managerFor(romFs, lab, all)
-  local traces = {}
   local resolver = FieldInteractionResolver.new({
     actorAt = function(mapId, x, z, surfaceId)
       return manager:getAt(mapId, x, z, surfaceId)
     end,
-    trace = function(record) traces[#traces + 1] = record end,
   })
 
   -- Stand south of Elm (object 0 at (6,5)) facing north.
@@ -251,7 +248,6 @@ function T.adapter_drives_the_elm_preview_end_to_end(romFs)
       { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines })
   end
   local dialogue = FieldDialogueController.new({ layout = layout })
-  local traces = {}
   local adapter = PreScriptInteractionAdapter.new({
     dialogue = dialogue,
     provider = provider,
@@ -260,7 +256,6 @@ function T.adapter_drives_the_elm_preview_end_to_end(romFs)
     getActor = function(actorId) return manager:getById(actorId) end,
     mapMessageBank = function(mapId) return lab.fieldData.messageBankId end,
     fixtures = fixtures,
-    trace = function(record) traces[#traces + 1] = record end,
   })
 
   local elmActor = assert(manager:getById("map:61:object:0"))
@@ -291,13 +286,6 @@ function T.adapter_drives_the_elm_preview_end_to_end(romFs)
   Assert.isNil(elm.interactionFacingOverride, "the override releases on completion")
   Assert.equal(elm.facing, elm.initialFacing, "the prior facing is restored")
   Assert.equal(provider:stats().references, 0, "the bank reference releases")
-
-  local kinds = {}
-  for _, record in ipairs(traces) do kinds[record.kind] = (kinds[record.kind] or 0) + 1 end
-  Assert.equal(kinds["field.actor.facing_override.push"], 1)
-  Assert.equal(kinds["field.actor.facing_override.release"], 1)
-  Assert.equal(kinds["field.dialogue.open"], 1)
-  Assert.equal(kinds["field.dialogue.close"], 1)
   provider:dispose()
   manager:dispose()
 end
