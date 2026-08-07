@@ -84,6 +84,15 @@ local function cancelBindings()
   return keys
 end
 
+-- The save validation set of compiled avatar ids, so a corrupt save naming an
+-- unbuilt player graphic is rejected before it reaches the runtime.
+---@return table<string, boolean>
+local function avatarIdSet()
+  local set = {}
+  for _, avatar in ipairs(FieldActorManifest.avatars or {}) do set[avatar.id] = true end
+  return set
+end
+
 -- The player consults the manager's occupancy index through this predicate,
 -- keyed by the map the player is on, so FieldPlayer never imports the manager.
 local function playerOccupancy(self)
@@ -147,7 +156,7 @@ end
 function FieldState:_load()
   local ok, err = pcall(function()
     local cacheFs = CacheFs.forVersion(self.versionId)
-    self.saveStore = FieldSaveStore.new(cacheFs)
+    self.saveStore = FieldSaveStore.new(cacheFs, { avatars = avatarIdSet() })
     if self.resetSave then
       self.saveStore:reset()
       self.resetSave = false
@@ -208,11 +217,14 @@ function FieldState:_load()
     self.envelope = terrainEnvelope(self.runtimeMap.terrain)
     self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
 
-    -- The event store is rebuilt from the demo scenario on every boot until the
-    -- save schema carries it; nothing persists event state yet.
-    self.eventState = FieldEventState.new()
-    FieldScenario.apply(FieldScenarioManifest, self.eventState,
-      function(mapId) return cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId)) end)
+    -- Event state: a persisted save owns the flags/vars and wins over the
+    -- demo scenario. Only a fresh boot (no save) seeds the scenario (spec
+    -- section 10.2).
+    self.eventState = FieldEventState.new(restored and restored.events or nil)
+    if not restored then
+      FieldScenario.apply(FieldScenarioManifest, self.eventState,
+        function(mapId) return cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId)) end)
+    end
     self.actorAssets = FieldActorAssetProvider.new(cacheFs)
     self.actors = FieldActorManager.new({
       assets = self.actorAssets,
@@ -225,8 +237,10 @@ function FieldState:_load()
 
     -- The player's graphic is one more compiled actor visual: it is acquired from
     -- the same reference-counted provider, and FieldPlayer keeps every bit of
-    -- movement authority.
-    self.avatar = FieldScenario.avatar(FieldScenarioManifest, FieldActorManifest.avatars)
+    -- movement authority. A resumed save names the avatar; a fresh boot uses the
+    -- scenario's configured pick (spec section 16.1).
+    self.avatar = FieldScenario.avatarById(FieldActorManifest.avatars,
+      (restored and restored.avatar) or FieldScenarioManifest.avatar)
     self.avatarAsset = self.actorAssets:acquire(self.avatar.spriteId)
     self.playerVisual = FieldPlayerVisual.new({
       player = self.player,
@@ -327,7 +341,11 @@ function FieldState:_save(successText)
     return false
   end
   local ok, err = pcall(function()
-    self.saveStore:save(FieldSave.capture(self.session))
+    self.saveStore:save(FieldSave.capture(self.session, {
+      avatarId = self.avatar.id,
+      eventState = self.eventState,
+      scenario = FieldScenarioManifest.id,
+    }))
   end)
   if not ok then
     self.saveStatus = "Save failed: " .. tostring(err)

@@ -75,16 +75,19 @@ end
 
 local AVATARS = { { id = "hero", spriteId = 0 }, { id = "heroine", spriteId = 97 } }
 
-function T.resolves_the_scenario_avatar_against_the_manifest_order()
-  local resolved = FieldScenario.avatar({ id = "demo", avatar = "heroine" }, AVATARS)
-  Assert.equal(resolved.index, 2)
-  Assert.equal(resolved.id, "heroine")
-  Assert.equal(resolved.spriteId, 97)
+function T.resolves_an_explicit_avatar_id_against_the_manifest_order()
+  local resolved = FieldScenario.avatarById(AVATARS, "hero")
+  Assert.equal(resolved.index, 1)
+  Assert.equal(resolved.id, "hero")
+  Assert.equal(resolved.spriteId, 0)
+  local heroine = FieldScenario.avatarById(AVATARS, "heroine")
+  Assert.equal(heroine.index, 2)
+  Assert.equal(heroine.spriteId, 97)
 end
 
 function T.an_unknown_avatar_is_fatal()
   throwsCode("SCENARIO_AVATAR_UNKNOWN", function()
-    FieldScenario.avatar({ id = "demo", avatar = "rival" }, AVATARS)
+    FieldScenario.avatarById(AVATARS, "rival")
   end)
 end
 
@@ -92,7 +95,7 @@ function T.the_shipped_demo_manifest_is_well_formed()
   local demo = require("data.manifests.field_scenario")
   local actors = require("data.manifests.field_actors")
   Assert.equal(demo.id, "pre-script-demo-v1")
-  Assert.notNil(FieldScenario.avatar(demo, actors.avatars),
+  Assert.notNil(FieldScenario.avatarById(actors.avatars, demo.avatar),
     "the demo avatar must name one of the compiled player graphics")
   Assert.isTrue(#demo.visibility > 0)
   for _, entry in ipairs(demo.visibility) do

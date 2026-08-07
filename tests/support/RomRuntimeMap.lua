@@ -5,6 +5,7 @@
 
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
 local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
+local Hashing = require("romdump.src.digest.Hashing")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local PermissionGrid = require("libs.assets.src.PermissionGrid")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
@@ -28,6 +29,7 @@ function RomRuntimeMap.compile(romFs, symbol)
       worldOriginX = matrix.worldOriginX, worldOriginZ = matrix.worldOriginZ,
     }),
     terrain = TerrainSurface.new(assets.terrain),
+    terrainDependencyHash = Hashing.hashLua(assets.terrain),
   }
 end
 
