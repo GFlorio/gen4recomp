@@ -19,8 +19,7 @@ local MapCacheWriter = require("romdump.src.digest.MapCacheWriter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local PermissionGrid = require("libs.assets.src.PermissionGrid")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
-local DebugPlayer = require("libs.engine.src.DebugPlayer")
-local TargetAnchors = require("data.manifests.target_map_anchors")
+local FieldSpawns = require("data.manifests.field_spawns")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
 local NeighborPlan = require("romdump.src.digest.NeighborPlan")
 local NeighborChunkCompiler = require("romdump.src.digest.NeighborChunkCompiler")
@@ -313,21 +312,20 @@ function T.gate9_central_cell_scene(romFs, version)
   end
   Assert.isTrue(labo, "lab exterior model 21 placed via the outdoor archive")
 
-  -- The lab-entry anchor is coordinate-consistent: local + cell origin == global.
-  local anchor = TargetAnchors.MAP_NEW_BARK.anchors[1]
-  Assert.equal(anchor.localX + m.worldOriginX, anchor.globalX)
-  Assert.equal(anchor.localZ + m.worldOriginZ, anchor.globalZ)
+  -- The provisional spawn is coordinate-consistent: local + cell origin == global.
+  local spawn = FieldSpawns.MAP_NEW_BARK
+  Assert.equal(spawn.x + m.worldOriginX, 684)
+  Assert.equal(spawn.z + m.worldOriginZ, 394)
 
-  -- The debug player spawns inside the central 32x32 cell on a passable tile.
+  -- The spawn lands inside the central 32x32 cell on a passable tile.
   local perms = assert(c:read(MapAssetCache.mapDir(60) .. "/permissions.bin"))
   local collision = CollisionGrid.new(assert(PermissionGrid.decode(perms)), {
     worldOriginX = m.worldOriginX, worldOriginZ = m.worldOriginZ })
-  local player = DebugPlayer.new(collision, TargetAnchors.MAP_NEW_BARK.spawn)
-  local s = player:status()
-  Assert.isTrue(s.localX >= 0 and s.localX < 32 and s.localZ >= 0 and s.localZ < 32, "spawn in cell")
-  Assert.isFalse(s.hardBlocked)
-  Assert.equal(s.globalX, s.localX + 672)
-  Assert.equal(s.globalZ, s.localZ + 384)
+  Assert.isTrue(collision:containsLocal(spawn.x, spawn.z), "spawn in cell")
+  Assert.isFalse(collision:isBlockedLocal(spawn.x, spawn.z))
+  local globalX, globalZ = collision:localToGlobal(spawn.x, spawn.z)
+  Assert.equal(globalX, spawn.x + 672)
+  Assert.equal(globalZ, spawn.z + 384)
 end
 
 -- The optional neighbor ring resolves all eight of New Bark's matrix neighbors

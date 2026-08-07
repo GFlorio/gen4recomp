@@ -14,8 +14,7 @@ local MapAssetInspector = require("romdump.src.digest.MapAssetInspector")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local InventoryAssert = require("tests.support.InventoryAssert")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
-local DebugPlayer = require("libs.engine.src.DebugPlayer")
-local TargetAnchors = require("data.manifests.target_map_anchors")
+local FieldSpawns = require("data.manifests.field_spawns")
 
 local T = {}
 
@@ -211,9 +210,9 @@ function T.gate6_material_and_vertex_validity(romFs)
   end
 end
 
--- The debug player traverses the real permission grid tile-by-tile,
--- stays inside the 32x32 cell, is blocked only by the 0x80 hard-block bit
--- (responses 4/6 stay passable), and can stand at and around the exit warp.
+-- The provisional spawn and the exit warp are passable tiles on the real
+-- permission grid: spawn (4,13), one step south onto the warp tile (4,14).
+-- Only the 0x80 hard-block bit blocks; the 32x32 cell is a hard boundary.
 function T.gate7_traversal(romFs)
   local r = resolve(romFs)
   local land = assert(LandData.decode(assert(romFs:openNarc("land_data")):readMember(r.landDataMemberId),
@@ -223,18 +222,15 @@ function T.gate7_traversal(romFs)
     worldOriginX = r.worldOriginX, worldOriginZ = r.worldOriginZ })
 
   -- Provisional spawn is in-bounds and passable (no relocation needed).
-  local spawn = TargetAnchors.MAP_NEW_BARK_ELMS_LAB_1F.spawn
-  local player = DebugPlayer.new(collision, spawn)
-  local s = player:status()
-  Assert.isFalse(s.spawnFallback)
-  Assert.equal(s.localX, 4)
-  Assert.equal(s.localZ, 13)
-  Assert.isFalse(s.hardBlocked)
+  local spawn = FieldSpawns.MAP_NEW_BARK_ELMS_LAB_1F
+  Assert.isTrue(collision:containsLocal(spawn.x, spawn.z))
+  Assert.isFalse(collision:isBlockedLocal(spawn.x, spawn.z))
+  Assert.equal(spawn.x, 4)
+  Assert.equal(spawn.z, 13)
 
   -- The exit warp (4,14) is passable and one step south of the spawn.
   Assert.isFalse(collision:isBlockedLocal(4, 14))
-  Assert.isTrue(player:tryStep("south"))
-  Assert.equal(player:status().localZ, 14)
+  Assert.isTrue(collision:containsLocal(4, 14))
 
   -- Only the 0x80 bit blocks: the perimeter wall hard-blocks, interior floor
   -- (behavior 0 / response 6) does not.
@@ -242,21 +238,12 @@ function T.gate7_traversal(romFs)
   Assert.isFalse(grid:isBlocked(4, 13))
   Assert.deepEqual(grid:usedPermissionValues(), { 0, 6, 128 })
 
-  -- Movement respects a wall: stepping east into the (12,13) wall is refused but
-  -- still turns the player, and never leaves the tile.
-  local wallward = DebugPlayer.new(collision, { x = 11, z = 13 })
-  Assert.isFalse(wallward:tryStep("east"))
-  Assert.equal(wallward:status().localX, 11)
-  Assert.equal(wallward:status().facing, "east")
+  -- Movement respects a wall: the (12,13) wall tile is hard-blocked.
+  Assert.isTrue(collision:isBlockedLocal(12, 13))
 
-  -- The 32x32 cell is a hard boundary: from passable edge tiles a step off the
-  -- grid is refused without wrapping.
-  local westEdge = DebugPlayer.new(collision, { x = 0, z = 16 })
-  Assert.isFalse(westEdge.spawnFallback)
-  Assert.isFalse(westEdge:tryStep("west"))
-  local northEdge = DebugPlayer.new(collision, { x = 16, z = 0 })
-  Assert.isFalse(northEdge.spawnFallback)
-  Assert.isFalse(northEdge:tryStep("north"))
+  -- The 32x32 cell is a hard boundary: a step off the grid is refused.
+  Assert.isFalse(collision:containsLocal(-1, 16))
+  Assert.isFalse(collision:containsLocal(16, -1))
 end
 
 return T

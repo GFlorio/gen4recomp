@@ -49,7 +49,6 @@ local MODULES = {
   "libs.engine.tests.map_renderer_test",
   "libs.engine.tests.collision_grid_test",
   "libs.engine.tests.field_grid_test",
-  "libs.engine.tests.debug_player_test",
   "libs.engine.tests.neighbor_ring_test",
   "libs.engine.tests.field_coverage_planner_test",
   "libs.engine.tests.terrain_surface_test",
@@ -80,7 +79,6 @@ local MODULES = {
   "libs.engine.tests.field_dialogue_controller_test",
   "libs.engine.tests.field_dialogue_renderer_test",
   -- game
-  "game.tests.map_diagnostic_state_test",
   "game.tests.app_boot_test",
   -- romdump
   "romdump.tests.cli_test",

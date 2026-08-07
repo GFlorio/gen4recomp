@@ -31,7 +31,7 @@ local FieldViewport = require("libs.engine.src.FieldViewport")
 local FieldZoom = require("libs.engine.src.FieldZoom")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapRenderer = require("libs.engine.src.MapRenderer")
-local TargetAnchors = require("data.manifests.target_map_anchors")
+local TargetSpawns = require("data.manifests.field_spawns")
 local FieldActorManifest = require("data.manifests.field_actors")
 local FieldPresentation = require("data.manifests.field_presentation")
 local FieldScenarioManifest = require("data.manifests.field_scenario")
@@ -189,7 +189,7 @@ function FieldState:_load()
     self.runtime = self.runtimeMap.sceneRuntime
     self.renderer = MapRenderer.new()
 
-    local target = TargetAnchors[self.runtimeMap.mapSymbol] or {}
+    local target = TargetSpawns[self.runtimeMap.mapSymbol] or {}
     local spawn = target.spawn or { x = 0, z = 0, facing = "south" }
     local fieldX, fieldZ, surfaceId, facing
     if restored then
