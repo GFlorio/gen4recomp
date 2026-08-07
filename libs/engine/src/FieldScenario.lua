@@ -36,7 +36,8 @@ end
 
 -- fieldDataFor(mapId) returns the compiled `g4-field-map-v1` artifact, so the
 -- bootstrap costs a cache read per map rather than a full runtime map load.
--- Returns the applied entries for trace and inspector output.
+-- Returns the applied entries (mapId/objectEventId/eventFlag), which the
+-- private suite uses to pin the scenario against the real ROM.
 function FieldScenario.apply(manifest, eventState, fieldDataFor)
   assert(type(manifest) == "table" and type(manifest.id) == "string",
     "FieldScenario requires an identified manifest")

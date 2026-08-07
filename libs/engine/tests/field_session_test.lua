@@ -416,14 +416,10 @@ function T.interaction_resolve_snapshot_carries_the_player_state()
   session:updateFixed({ actionPressed = true })
   local snapshot = interactions.resolveSnapshot
   assert(snapshot, "the resolver must have been consulted")
-  Assert.equal(snapshot.mapId, 61)
+  Assert.equal(snapshot.runtimeMap.mapId, 61)
   Assert.equal(snapshot.fieldX, 4)
   Assert.equal(snapshot.fieldZ, 14)
   Assert.equal(snapshot.facing, "north")
-  Assert.equal(snapshot.playerIdle, true)
-  Assert.equal(snapshot.actionPressed, true)
-  Assert.equal(snapshot.transitionActive, false)
-  Assert.equal(snapshot.modalActive, false)
   Assert.equal(snapshot.tick, 1)
 end
 

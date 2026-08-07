@@ -78,16 +78,11 @@ local function playerSnapshot(map, fieldX, fieldZ, facing, tick)
   local sample = surfaceAt(map, fieldX, fieldZ)
   return {
     runtimeMap = map,
-    mapId = map.mapId,
     fieldX = fieldX,
     fieldZ = fieldZ,
     surfaceId = sample.surfaceId,
     worldY = sample.worldY,
     facing = facing,
-    playerIdle = true,
-    actionPressed = true,
-    transitionActive = false,
-    modalActive = false,
     tick = tick,
   }
 end
