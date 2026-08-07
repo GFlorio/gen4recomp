@@ -90,7 +90,7 @@ local function playerOccupancy(self)
 end
 
 local function initialSurface(runtimeMap, localX, localZ)
-  local x, z = localX + 0.5, localZ + 0.5
+  local x, z = localX + FieldCoordinates.TILE_CENTER_OFFSET, localZ + FieldCoordinates.TILE_CENTER_OFFSET
   local best
   for _, plate in ipairs(runtimeMap.terrain:candidatesAt(x, z)) do
     local sample = runtimeMap.terrain:sample(plate.id, x, z)

@@ -79,8 +79,8 @@ function WarpSystem.resolveDestination(loader, sourceMap, warp)
     destinationMap, destinationWarp.x, destinationWarp.z)
   local hintY = destinationWarp.y / WARP_Y_SCALE
   local sample = SurfaceResolver.new(destinationMap.terrain):resolve({
-    localX = localX + 0.5,
-    localZ = localZ + 0.5,
+    localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
+    localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
     currentY = hintY,
   })
   return {

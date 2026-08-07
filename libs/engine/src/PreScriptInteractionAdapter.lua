@@ -26,8 +26,9 @@ local OPPOSITE_FACING = { north = "south", south = "north", west = "east", east 
 -- Fixture substitution kinds -> extended control. Only the player-name
 -- STRVAR (0x0103, `{STRVAR_1 3, 0, 0}`) is used by the selected messages
 -- (spec section 14.3); the fixture names the value, never the control.
+local PLAYER_NAME_CONTROL = FieldMessageText.STRVAR_1 + 3
 local SUBSTITUTION_CONTROLS = {
-  playerName = FieldMessageText.STRVAR_1 + 3,
+  playerName = PLAYER_NAME_CONTROL,
 }
 
 local UNMAPPED_RELEASE_TEXT = "Nothing is wired here yet."

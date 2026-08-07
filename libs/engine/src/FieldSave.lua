@@ -101,8 +101,8 @@ end
 
 local function closestSurface(runtimeMap, localX, localZ, savedY)
   local samples = {}
-  for _, plate in ipairs(runtimeMap.terrain:candidatesAt(localX + 0.5, localZ + 0.5)) do
-    local sample = runtimeMap.terrain:sample(plate.id, localX + 0.5, localZ + 0.5)
+  for _, plate in ipairs(runtimeMap.terrain:candidatesAt(localX + FieldCoordinates.TILE_CENTER_OFFSET, localZ + FieldCoordinates.TILE_CENTER_OFFSET)) do
+    local sample = runtimeMap.terrain:sample(plate.id, localX + FieldCoordinates.TILE_CENTER_OFFSET, localZ + FieldCoordinates.TILE_CENTER_OFFSET)
     sample.distance = math.abs(sample.worldY - savedY)
     samples[#samples + 1] = sample
   end
@@ -135,8 +135,8 @@ local function restore(record, loader, expectedVersionId)
   local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, record.fieldX, record.fieldZ)
   local surface
   if record.terrainDependencyHash == runtimeMap.terrainDependencyHash
-    and runtimeMap.terrain:contains(record.surfaceId, localX + 0.5, localZ + 0.5) then
-    surface = runtimeMap.terrain:sample(record.surfaceId, localX + 0.5, localZ + 0.5)
+    and runtimeMap.terrain:contains(record.surfaceId, localX + FieldCoordinates.TILE_CENTER_OFFSET, localZ + FieldCoordinates.TILE_CENTER_OFFSET) then
+    surface = runtimeMap.terrain:sample(record.surfaceId, localX + FieldCoordinates.TILE_CENTER_OFFSET, localZ + FieldCoordinates.TILE_CENTER_OFFSET)
   else
     surface = closestSurface(runtimeMap, localX, localZ, record.worldY)
   end

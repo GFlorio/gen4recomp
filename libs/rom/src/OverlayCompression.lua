@@ -7,16 +7,27 @@ local Errors = require("libs.rom.src.Errors")
 
 local OverlayCompression = {}
 
+-- GBATEK DS overlay footer: one u32 whose top 8 bits hold the compressed
+-- header length and bottom 24 bits the packed length.
+local HEADER_LENGTH_BITS = 24
+local FOOTER_BYTES = 8
+
+-- Backwards-LZ match token: the first byte's high nibble is (length - 3) and
+-- its low nibble with the following byte is (displacement - 3).
+local MATCH_LENGTH_NIBBLE_BITS = 4
+local MIN_MATCH_LENGTH = 3
+local MIN_DISPLACEMENT = 3
+
 local function _decode(bytes, expectedSize)
   assert(type(bytes) == "string", "overlay bytes must be a string")
-  if #bytes < 8 then
+  if #bytes < FOOTER_BYTES then
     Errors.raise("OVERLAY_COMPRESSION_HEADER_INVALID", "compressed overlay is shorter than its footer",
       { size = #bytes })
   end
   local reader = BinaryReader.new(bytes, "compressed-overlay")
-  local header = reader:u32le(#bytes - 8)
-  local packedLength = header % 16777216
-  local headerLength = math.floor(header / 16777216)
+  local header = reader:u32le(#bytes - FOOTER_BYTES)
+  local packedLength = header % (2 ^ HEADER_LENGTH_BITS)
+  local headerLength = math.floor(header / (2 ^ HEADER_LENGTH_BITS))
   local addedLength = reader:u32le(#bytes - 4)
   if headerLength < 8 or packedLength > #bytes or packedLength < headerLength then
     Errors.raise("OVERLAY_COMPRESSION_HEADER_INVALID", "invalid backwards-LZ footer",
@@ -46,8 +57,9 @@ local function _decode(bytes, expectedSize)
         local first = string.byte(bytes, sourceOffset + 1)
         local second = string.byte(bytes, sourceOffset)
         sourceOffset = sourceOffset - 2
-        local length = math.floor(first / 16) + 3
-        local displacement = (first % 16) * 256 + second + 3
+        local length = math.floor(first / (2 ^ MATCH_LENGTH_NIBBLE_BITS)) + MIN_MATCH_LENGTH
+        local displacement = (first % (2 ^ MATCH_LENGTH_NIBBLE_BITS)) * 256 + second
+          + MIN_DISPLACEMENT
         for _ = 1, length do
           local copyOffset = outputOffset + displacement
           if copyOffset >= outputLength or output[copyOffset] == nil then

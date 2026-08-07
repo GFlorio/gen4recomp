@@ -7,6 +7,10 @@ local FieldGrid = require("libs.engine.src.FieldGrid")
 
 local FieldCoordinates = {}
 
+-- Half-tile offset from a local tile index to its centre, where terrain is
+-- sampled and surfaces are resolved throughout the field runtime.
+FieldCoordinates.TILE_CENTER_OFFSET = 0.5
+
 local function origin(runtimeMap)
   assert(runtimeMap and runtimeMap.coordinateOrigin, "runtime map coordinate origin required")
   return runtimeMap.coordinateOrigin.x, runtimeMap.coordinateOrigin.z

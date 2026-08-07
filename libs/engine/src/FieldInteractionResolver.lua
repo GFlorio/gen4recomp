@@ -31,9 +31,17 @@ FieldInteractionResolver.__index = FieldInteractionResolver
 -- decoder's DIRECTIONS table (0 north, 1 south, 2 west, 3 east).
 FieldInteractionResolver.RAW_FACING = { north = 0, south = 1, west = 2, east = 3 }
 
+-- Raw background direction code that matches every player facing
+-- (`BgEventDirectionIsCompatibleWithPlayerFacing`, asm/unk_0203DB6C.s).
+FieldInteractionResolver.BACKGROUND_DIRECTION_WILDCARD = 4
+
+-- Background event type of the hidden-item path, which this milestone does not
+-- track (collection flags); the resolver skips it.
+FieldInteractionResolver.HIDDEN_ITEM_EVENT_TYPE = 2
+
 -- Player facing raw code -> background event raw direction codes that
 -- resolve. Derived from `BgEventDirectionIsCompatibleWithPlayerFacing`
--- (asm/unk_0203DB6C.s); raw 4 is handled separately as a wildcard.
+-- (asm/unk_0203DB6C.s); BACKGROUND_DIRECTION_WILDCARD is handled separately.
 local COMPATIBLE_DIRECTIONS = {
   [0] = { 0, 6 },
   [1] = { 3, 6 },
@@ -47,12 +55,12 @@ local DIRECTION_DELTAS = {
 }
 
 -- Named pure function for the raw direction compatibility table (spec
--- section 12.5). Background direction raw 4 is the "any facing" wildcard.
+-- section 12.5). BACKGROUND_DIRECTION_WILDCARD matches every facing.
 ---@param playerFacingRaw integer
 ---@param backgroundDirectionRaw integer
 ---@return boolean
 function FieldInteractionResolver.backgroundDirectionCompatible(playerFacingRaw, backgroundDirectionRaw)
-  if backgroundDirectionRaw == 4 then return true end
+  if backgroundDirectionRaw == FieldInteractionResolver.BACKGROUND_DIRECTION_WILDCARD then return true end
   local compatible = COMPATIBLE_DIRECTIONS[playerFacingRaw]
   if not compatible then return false end
   for _, code in ipairs(compatible) do
@@ -84,15 +92,15 @@ function FieldInteractionResolver:_facingCellReachable(snapshot, targetX, target
   if not ok then return false end
   local okSample = pcall(function()
     return SurfaceResolver.new(map.terrain):resolve({
-      localX = localX + 0.5,
-      localZ = localZ + 0.5,
+      localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
+      localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
       currentSurfaceId = snapshot.surfaceId,
       currentY = snapshot.worldY,
       crossing = {
-        fromX = snapshot.fieldX - map.coordinateOrigin.x + 0.5,
-        fromZ = snapshot.fieldZ - map.coordinateOrigin.z + 0.5,
-        toX = localX + 0.5,
-        toZ = localZ + 0.5,
+        fromX = snapshot.fieldX - map.coordinateOrigin.x + FieldCoordinates.TILE_CENTER_OFFSET,
+        fromZ = snapshot.fieldZ - map.coordinateOrigin.z + FieldCoordinates.TILE_CENTER_OFFSET,
+        toX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
+        toZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
       },
     })
   end)
@@ -109,7 +117,8 @@ function FieldInteractionResolver:_firstEligibleBackground(snapshot, targetX, ta
   local playerRaw = assert(FieldInteractionResolver.RAW_FACING[snapshot.facing],
     "unknown player facing " .. tostring(snapshot.facing))
   for _, event in ipairs(events) do
-    if event.x == targetX and event.z == targetZ and event.type ~= 2
+    if event.x == targetX and event.z == targetZ
+      and event.type ~= FieldInteractionResolver.HIDDEN_ITEM_EVENT_TYPE
       and FieldInteractionResolver.backgroundDirectionCompatible(playerRaw, event.directionRaw) then
       return event
     end

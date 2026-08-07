@@ -43,7 +43,8 @@ function FieldPlayer.new(options)
     "FieldPlayer occupancy predicate must be a function")
   local map = options.currentMap
   local localX, localZ = FieldCoordinates.fieldToLocal(map, options.fieldX, options.fieldZ)
-  local sample = map.terrain:sample(options.surfaceId, localX + 0.5, localZ + 0.5)
+  local sample = map.terrain:sample(options.surfaceId,
+    localX + FieldCoordinates.TILE_CENTER_OFFSET, localZ + FieldCoordinates.TILE_CENTER_OFFSET)
   local point = FieldCoordinates.fieldToWorld(map, options.fieldX, options.fieldZ, sample.worldY)
   return setmetatable({
     currentMap = map,
@@ -76,8 +77,9 @@ function FieldPlayer:_resolveStep(direction)
     if self.currentMap.permissions:isBlockedLocal(destinationLocalX, destinationLocalZ) then
       return nil
     end
-    local sourceX, sourceZ = self.localX + 0.5, self.localZ + 0.5
-    local destinationCenterX, destinationCenterZ = destinationLocalX + 0.5, destinationLocalZ + 0.5
+    local sourceX, sourceZ = self.localX + FieldCoordinates.TILE_CENTER_OFFSET, self.localZ + FieldCoordinates.TILE_CENTER_OFFSET
+    local destinationCenterX, destinationCenterZ =
+      destinationLocalX + FieldCoordinates.TILE_CENTER_OFFSET, destinationLocalZ + FieldCoordinates.TILE_CENTER_OFFSET
     local sample = self.resolver:resolve({
       localX = destinationCenterX,
       localZ = destinationCenterZ,
@@ -135,8 +137,8 @@ function FieldPlayer:_advanceStep()
   self.worldX = self.from.worldX + (self.to.worldX - self.from.worldX) * progress
   self.worldZ = self.from.worldZ + (self.to.worldZ - self.from.worldZ) * progress
   if self.from.surfaceId == self.to.surfaceId then
-    local localX = self.from.localX + 0.5 + (self.to.localX - self.from.localX) * progress
-    local localZ = self.from.localZ + 0.5 + (self.to.localZ - self.from.localZ) * progress
+    local localX = self.from.localX + FieldCoordinates.TILE_CENTER_OFFSET + (self.to.localX - self.from.localX) * progress
+    local localZ = self.from.localZ + FieldCoordinates.TILE_CENTER_OFFSET + (self.to.localZ - self.from.localZ) * progress
     self.worldY = self.currentMap.terrain:sampleHeight(self.to.surfaceId, localX, localZ)
   else
     self.worldY = self.from.worldY + (self.to.worldY - self.from.worldY) * progress
