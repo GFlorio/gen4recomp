@@ -18,6 +18,16 @@ FieldPlayer.__index = FieldPlayer
 -- Provisional gameplay timing, centralized for later emulator calibration.
 FieldPlayer.WALK_STEP_TICKS = 8
 
+---@alias FieldDirection "north"|"south"|"west"|"east"
+
+---@class FieldPlayerOptions
+---@field currentMap RuntimeFieldMap
+---@field fieldX integer
+---@field fieldZ integer
+---@field surfaceId integer
+---@field facing FieldDirection?
+---@field occupancy fun(fieldX: integer, fieldZ: integer, surfaceId: integer): string|nil?
+
 local DELTAS = {
   north = { x = 0, z = -1 },
   south = { x = 0, z = 1 },
@@ -34,6 +44,8 @@ local function recoverableMovementError(err)
     or err.code:match("^TERRAIN_SURFACE_") ~= nil)
 end
 
+---@param options FieldPlayerOptions
+---@return FieldPlayer
 function FieldPlayer.new(options)
   assert(type(options) == "table" and options.currentMap, "FieldPlayer map required")
   assert(isInteger(options.fieldX) and isInteger(options.fieldZ),

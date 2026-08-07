@@ -27,6 +27,43 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 local FieldInteractionResolver = {}
 FieldInteractionResolver.__index = FieldInteractionResolver
 
+---@class InteractionObjectIdentity
+---@field actorId string
+---@field objectEventId integer
+---@field spriteId integer
+
+---@class InteractionBackgroundIdentity
+---@field eventIndex integer
+---@field type integer
+---@field direction integer
+
+---@class InteractionIntent
+---@field kind "object"|"background"
+---@field mapId integer
+---@field sourceFieldX integer
+---@field sourceFieldZ integer
+---@field sourceSurfaceId integer
+---@field targetFieldX integer
+---@field targetFieldZ integer
+---@field playerFacing FieldDirection
+---@field scriptBankId integer?
+---@field scriptId integer
+---@field object InteractionObjectIdentity?
+---@field background InteractionBackgroundIdentity?
+---@field tick integer
+
+---@class InteractionResolverSnapshot
+---@field runtimeMap RuntimeFieldMap
+---@field fieldX integer
+---@field fieldZ integer
+---@field surfaceId integer
+---@field worldY number
+---@field facing FieldDirection
+---@field tick integer
+
+---@class FieldInteractionResolverOptions
+---@field actorAt fun(mapId: integer, fieldX: integer, fieldZ: integer, surfaceId: integer): table|nil
+
 -- Named facing -> raw player-facing code. Raw codes match the zone-event
 -- decoder's DIRECTIONS table (0 north, 1 south, 2 west, 3 east).
 FieldInteractionResolver.RAW_FACING = { north = 0, south = 1, west = 2, east = 3 }
@@ -72,6 +109,8 @@ end
 -- opts.actorAt: function(mapId, fieldX, fieldZ, surfaceId) -> actor | nil.
 -- The actor manager's occupancy index is the lookup (spec section 12.4);
 -- hidden actors never appear there.
+---@param options FieldInteractionResolverOptions
+---@return FieldInteractionResolver
 function FieldInteractionResolver.new(opts)
   assert(type(opts) == "table" and type(opts.actorAt) == "function",
     "FieldInteractionResolver requires an actor lookup")
@@ -148,8 +187,8 @@ local function baseIntent(kind, snapshot, targetX, targetZ, scriptId)
 end
 
 -- Resolves one Action press into an immutable InteractionIntent or nil.
--- snapshot fields:
---   runtimeMap, fieldX, fieldZ, surfaceId, worldY, facing, tick
+---@param snapshot InteractionResolverSnapshot
+---@return InteractionIntent?
 function FieldInteractionResolver:resolve(snapshot)
   assert(type(snapshot) == "table" and type(snapshot.runtimeMap) == "table",
     "resolve requires a runtime map")
