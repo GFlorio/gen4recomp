@@ -36,6 +36,11 @@ local FieldPresentation = require("data.manifests.field_presentation")
 local FieldScenarioManifest = require("data.manifests.field_scenario")
 local PreScriptInteractions = require("data.manifests.pre_script_interactions")
 
+---@class FieldStateOptions
+---@field resumeSave boolean?
+---@field resetSave boolean?
+---@field zoomConfig table?
+
 ---@class FieldState
 ---@field versionId string
 ---@field idOrSymbol string|integer?
@@ -121,6 +126,10 @@ local function terrainEnvelope(terrain)
   return { minY = minY, maxY = maxY }
 end
 
+---@param versionId string
+---@param idOrSymbol string|integer|nil
+---@param options FieldStateOptions|nil
+---@return FieldState
 function FieldState.new(versionId, idOrSymbol, options)
   options = options or {}
   local self = setmetatable({

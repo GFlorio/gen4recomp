@@ -17,6 +17,23 @@ local TerrainSurface = require("libs.engine.src.TerrainSurface")
 local FieldMapLoader = {}
 FieldMapLoader.__index = FieldMapLoader
 
+---@class RuntimeFieldMap
+---@field mapId integer
+---@field mapSymbol string
+---@field sceneRuntime table
+---@field scene table
+---@field fieldData table
+---@field permissions table
+---@field terrain TerrainSurface
+---@field terrainDependencyHash string
+---@field fieldRegion table
+---@field cameraType integer
+---@field coordinateOrigin { x: integer, z: integer }
+---@field coverageRuntime table?
+---@field coveragePlan table?
+---@field availableCells table<string, boolean>
+---@field release fun(self: RuntimeFieldMap)
+
 local function worldRecord(world, idOrSymbol)
   local mapId = type(idOrSymbol) == "string" and world.bySymbol[idOrSymbol] or idOrSymbol
   local index = mapId ~= nil and world.byId[mapId] or nil

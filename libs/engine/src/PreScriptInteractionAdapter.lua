@@ -33,6 +33,15 @@ local SUBSTITUTION_CONTROLS = {
 
 local UNMAPPED_RELEASE_TEXT = "Nothing is wired here yet."
 
+---@class PreScriptInteractionAdapterOptions
+---@field dialogue FieldDialogueController
+---@field provider FieldMessageProvider
+---@field layout fun(formatted: table): DialogueLayout.Result
+---@field fontDef table
+---@field getActor fun(actorId: string): FieldObjectActor?
+---@field mapMessageBank fun(mapId: integer): integer?
+---@field fixtures table<string, table>
+
 -- opts:
 --   dialogue  FieldDialogueController (owns input while modal)
 --   provider  FieldMessageProvider
@@ -41,6 +50,8 @@ local UNMAPPED_RELEASE_TEXT = "Nothing is wired here yet."
 --   getActor  fun(actorId) -> FieldObjectActor | nil
 --   mapMessageBank fun(mapId) -> messageBankId | nil
 --   fixtures  project-owned preview manifest (spec section 13.2)
+---@param opts PreScriptInteractionAdapterOptions
+---@return PreScriptInteractionAdapter
 function PreScriptInteractionAdapter.new(opts)
   assert(type(opts) == "table" and opts.dialogue and opts.provider, "adapter services required")
   assert(type(opts.layout) == "function", "adapter requires the dialogue layout closure")
@@ -157,6 +168,8 @@ end
 
 -- Dispatches one immutable InteractionIntent. Returns true when the tick is
 -- consumed (a dialogue opened).
+---@param intent InteractionIntent
+---@return boolean
 function PreScriptInteractionAdapter:consume(intent)
   assert(type(intent) == "table" and type(intent.kind) == "string",
     "consume requires an InteractionIntent")

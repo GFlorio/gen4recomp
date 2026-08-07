@@ -25,9 +25,15 @@ local SURFACE_ERROR_CODES = {
   TERRAIN_SURFACE_DISCONNECTED = "ACTOR_SURFACE_AMBIGUOUS",
 }
 
+---@class FieldActorManagerOptions
+---@field assets FieldActorAssetProvider
+---@field policy { variableSpriteRange: { first: integer, last: integer }, variableVarBase: integer }
+
 -- opts.assets: a FieldActorAssetProvider-shaped acquire/release/knows owner.
 -- opts.policy: { variableSpriteRange, variableVarBase } from
 -- the field-actor manifest, so no decomp-derived constant is inlined here.
+---@param opts FieldActorManagerOptions
+---@return FieldActorManager
 function FieldActorManager.new(opts)
   assert(type(opts) == "table" and opts.assets, "FieldActorManager requires an asset provider")
   local policy = opts.policy

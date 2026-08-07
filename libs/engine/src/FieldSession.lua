@@ -19,18 +19,36 @@
 
 local WarpSystem = require("libs.engine.src.WarpSystem")
 
+---@class FieldSessionOptions
+---@field versionId string
+---@field currentMap RuntimeFieldMap
+---@field actor FieldPlayer
+---@field player FieldPlayer?
+---@field camera FieldCamera
+---@field transition FieldTransition?
+---@field actors FieldActorManager?
+---@field playerVisual FieldPlayerVisual?
+---@field dialogue FieldDialogueController?
+---@field input FieldInput?
+---@field interactions FieldSession.Interactions?
+---@field coverage fun(session: FieldSession)?
+
+---@class FieldSession.Interactions
+---@field resolve fun(self: FieldSession.Interactions, snapshot: InteractionResolverSnapshot): InteractionIntent?
+---@field consume fun(self: FieldSession.Interactions, intent: InteractionIntent): boolean
+
 ---@class FieldSession
 ---@field versionId string
 ---@field currentMap RuntimeFieldMap
----@field actor table
----@field player table
----@field camera table
----@field transition table?
----@field actors table?
----@field playerVisual table?
+---@field actor FieldPlayer
+---@field player FieldPlayer
+---@field camera FieldCamera
+---@field transition FieldTransition?
+---@field actors FieldActorManager?
+---@field playerVisual FieldPlayerVisual?
 ---@field dialogue FieldDialogueController?
 ---@field input FieldInput?
----@field interactions { resolve: fun(self: table, snapshot: table): table?, consume: fun(self: table, intent: table): boolean }?
+---@field interactions FieldSession.Interactions?
 ---@field coverage fun(session: FieldSession)?
 ---@field tick integer
 ---@field accumulator number
@@ -44,7 +62,7 @@ FieldSession.MAX_CATCH_UP_TICKS = 5
 -- not leave a stale full tick in the accumulator.
 local ACCUMULATOR_EPSILON = 1e-12
 
----@param options table
+---@param options FieldSessionOptions
 ---@return FieldSession
 function FieldSession.new(options)
   assert(options and options.versionId and options.currentMap, "field session identity required")
