@@ -14,5 +14,6 @@ RUN set -eux \
     && mkdir -p /opt/lua-language-server \
     && tar -xzf /tmp/lua-language-server.tar.gz -C /opt/lua-language-server \
     && ln -s /opt/lua-language-server/bin/lua-language-server /usr/local/bin/lua-language-server \
+    && chown -R 1000:1000 /opt/lua-language-server \
     && rm -rf /tmp/lua-language-server.tar.gz
 USER 1000:1000
