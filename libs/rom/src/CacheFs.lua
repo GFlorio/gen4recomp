@@ -202,4 +202,25 @@ function CacheFs:loadLua(relativePath)
   return result
 end
 
+-- Loads a generated Lua module (a file that `require`s other modules) with
+-- the standard library and require access. Used by the script-cache readback
+-- and by runtime loaders that consume generated DSL modules. Must never be
+-- pointed at raw ROM file contents.
+function CacheFs:loadModule(relativePath)
+  local data = self:read(relativePath)
+  if data == nil then
+    return nil, Errors.new("CACHE_FILE_MISSING", "no such cache file", { path = relativePath })
+  end
+  local chunk, loadErr = loadstring(data, "@" .. relativePath)
+  if not chunk then
+    return nil, Errors.new("CACHE_LUA_PARSE_FAILED", loadErr, { path = relativePath })
+  end
+  setfenv(chunk, { require = require, package = package })
+  local ok, result = pcall(chunk)
+  if not ok then
+    return nil, Errors.new("CACHE_LUA_EVAL_FAILED", tostring(result), { path = relativePath })
+  end
+  return result
+end
+
 return CacheFs
