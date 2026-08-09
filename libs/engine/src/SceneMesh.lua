@@ -1,11 +1,20 @@
--- Decoder for the project's G4M2 binary mesh batch (see libs/assets/src/MeshWriter),
+-- Decoder for the project's binary mesh batches (see libs/assets/src/MeshWriter),
 -- the inverse of that encoder. Splits cleanly: decode() is pure and validates a
 -- batch into plain vertex/index arrays (usable under bare LuaJIT and testable
 -- without love); build() turns a decoded batch into a persistent love Mesh and
--- is the only love-coupled entry point. Vertices come out in the render vertex
--- layout order (x,y,z, u,v, nx,ny,nz, r,g,b,a, colorSource) with colors
--- normalized to 0..1 and colorSource kept as a raw 0/1/2 float; indices stay
--- zero-based as stored, and build() rebases them to love's 1-based vertex map.
+-- is the only love-coupled entry point.
+--
+-- Both serialized formats decode: G4M2 (the baked static layout) and G4M3,
+-- which appends four joint indices and four joint weights per vertex for the
+-- animation-capable path (the serialization contract in docs/model-ir.md).
+-- Vertices come out in the render vertex layout order (x,y,z, u,v, nx,ny,nz,
+-- r,g,b,a, colorSource) with colors normalized to 0..1 and colorSource kept
+-- as a raw 0/1/2 float; G4M3 batches additionally return parallel
+-- joints/weights arrays (raw integers) that the pose-time skinning path
+-- consumes. build() uploads the base layout only -- the renderer's vertex
+-- format is unchanged (VertexFormat), and the joints/weights are pose-time
+-- data, not upload attributes. Indices stay zero-based as stored, and
+-- build() rebases them to love's 1-based vertex map.
 
 local Errors = require("libs.errors.src.Errors")
 local BinaryReader = require("libs.codec.src.BinaryReader")
@@ -14,36 +23,43 @@ local Contract = require("libs.assets.src.DerivedAssetContract")
 
 local SceneMesh = {}
 
-local MAGIC = Contract.mesh.magic
-local VERSION = Contract.mesh.version
-local STRIDE = 40
-local HEADER = 24 -- "G4M2", u16 ver, u16 flags, u32 vcount, u32 icount, u16 stride, u16 iwidth, u32 reserved
+local HEADER = 24 -- magic, u16 ver, u16 flags, u32 vcount, u32 icount, u16 stride, u16 iwidth, u32 reserved
+local LAYOUTS = {
+  g4m2 = { magic = Contract.mesh.magic, version = Contract.mesh.version, stride = 40 },
+  g4m3 = { magic = "G4M3", version = 3, stride = 48 },
+}
 
 local function isFinite(n)
   return n == n and n ~= math.huge and n ~= -math.huge
 end
 
--- Validate and unpack a G4M2 batch into { vertexCount, indexCount, vertices,
--- indices }. Raises a structured error on any malformed field. Pure.
+-- Validate and unpack a G4M2/G4M3 batch into { format, vertexCount,
+-- indexCount, vertices, indices, joints?, weights? }. Raises a structured
+-- error on any malformed field. Pure.
 function SceneMesh.decode(bytes, context)
   assert(type(bytes) == "string", "SceneMesh.decode requires a string")
   if #bytes < HEADER then
     Errors.raise("MESH_TOO_SMALL", "mesh shorter than header", { size = #bytes, source = context })
   end
   local r = BinaryReader.new(bytes, "g4mesh")
-  if r:ascii(0, 4) ~= MAGIC then
-    Errors.raise("MESH_BAD_MAGIC", "expected G4M2 magic", { source = context })
+  local magic = r:ascii(0, 4)
+
+  local layout = LAYOUTS[magic == "G4M3" and "g4m3" or (magic == "G4M2" and "g4m2" or nil)]
+  if not layout then
+    Errors.raise("MESH_BAD_MAGIC",
+      "expected G4M2 or G4M3 magic, got " .. magic, { source = context })
   end
   local version = r:u16le(4)
-  if version ~= VERSION then
+  if version ~= layout.version then
     Errors.raise("MESH_BAD_VERSION", "unsupported mesh version " .. version, { source = context })
   end
   local vertexCount = r:u32le(8)
   local indexCount = r:u32le(12)
   local stride = r:u16le(16)
   local indexWidth = r:u16le(18)
-  if stride ~= STRIDE then
-    Errors.raise("MESH_BAD_STRIDE", "expected stride 40, got " .. stride, { source = context })
+  if stride ~= layout.stride then
+    Errors.raise("MESH_BAD_STRIDE",
+      "expected stride " .. layout.stride .. ", got " .. stride, { source = context })
   end
   if indexWidth ~= 2 and indexWidth ~= 4 then
     Errors.raise("MESH_BAD_INDEX_WIDTH", "index width must be 2 or 4, got " .. indexWidth, { source = context })
@@ -52,12 +68,14 @@ function SceneMesh.decode(bytes, context)
     Errors.raise("MESH_BAD_INDEX_COUNT", "index count not a multiple of 3: " .. indexCount, { source = context })
   end
 
-  local expected = HEADER + vertexCount * STRIDE + indexCount * indexWidth
+  local expected = HEADER + vertexCount * layout.stride + indexCount * indexWidth
   if expected ~= #bytes then
     Errors.raise("MESH_BAD_LENGTH", "expected " .. expected .. " bytes, got " .. #bytes, { source = context })
   end
 
   local vertices = {}
+  local joints, weights
+  if layout.stride == LAYOUTS.g4m3.stride then joints, weights = {}, {} end
   local off = HEADER
   for i = 1, vertexCount do
     local x, y, z = r:f32le(off), r:f32le(off + 4), r:f32le(off + 8)
@@ -77,7 +95,11 @@ function SceneMesh.decode(bytes, context)
       Errors.raise("MESH_BAD_COLOR_SOURCE", "color source out of range at vertex " .. i, { source = context })
     end
     vertices[i] = { x, y, z, u, v, nx, ny, nz, red, green, blue, alpha, colorSource }
-    off = off + STRIDE
+    if joints then
+      joints[i] = { r:u8(off + 40), r:u8(off + 41), r:u8(off + 42), r:u8(off + 43) }
+      weights[i] = { r:u8(off + 44), r:u8(off + 45), r:u8(off + 46), r:u8(off + 47) }
+    end
+    off = off + layout.stride
   end
 
   local indices = {}
@@ -94,17 +116,22 @@ function SceneMesh.decode(bytes, context)
     off = off + indexWidth
   end
 
-  return {
+  local decoded = {
+    format = (magic == "G4M3") and "g4m3" or "g4m2",
     vertexCount = vertexCount,
     indexCount = indexCount,
     indexWidth = indexWidth,
     vertices = vertices,
     indices = indices,
   }
+  if joints then decoded.joints, decoded.weights = joints, weights end
+  return decoded
 end
 
--- Build a persistent, static love Mesh from a decoded batch. Rebases the
--- zero-based file indices to love's 1-based vertex map. love-coupled.
+-- Build a persistent, static love Mesh from a decoded batch. Uploads the base
+-- vertex layout (G4M3 joints/weights are pose-time data, see header).
+-- Rebases the zero-based file indices to love's 1-based vertex map.
+-- love-coupled.
 function SceneMesh.build(decoded)
   local mesh = love.graphics.newMesh(VertexFormat.LAYOUT, decoded.vertices, "triangles", "static")
   local map = {}

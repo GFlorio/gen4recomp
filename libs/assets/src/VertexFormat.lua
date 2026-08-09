@@ -1,6 +1,8 @@
 -- The single source of truth for the renderer's vertex layout, matching the
--- G4M2 mesh record (position, texcoord, normal, color, color-source). Kept in one module so a
--- future love upgrade that changes the newMesh format syntax touches one place.
+-- base attributes shared by the G4M2 and G4M3 mesh records (position, texcoord,
+-- normal, color, color-source; the G4M3 joint indices/weights are pose-time
+-- data and are not upload attributes). Kept in one module so a future love
+-- upgrade that changes the newMesh format syntax touches one place.
 -- The table is plain data (no love calls), so it is safe to require anywhere.
 -- Color is carried as float4 in 0..1 to keep the shader read unambiguous.
 

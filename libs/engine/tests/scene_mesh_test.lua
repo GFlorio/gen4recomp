@@ -87,5 +87,41 @@ return {
         SceneMesh.decode("G4M1" .. bytes:sub(5))
       end)
     end,
+
+    ["round-trips a G4M3 batch with skin attributes"] = function()
+      local function v(i)
+        return {
+          x = i, y = i * 2, z = -i, u = 0.5, v = 0.25,
+          nx = 0, ny = 1, nz = 0, r = 255, g = 0, b = 128, a = 255,
+          colorSource = i % 3,
+          joints = { 0, 1, 2, 3 }, weights = { 64, 64, 64, 63 },
+        }
+      end
+      local batch = {
+        vertices = { v(0), v(1), v(2), v(3) },
+        indices = { 0, 1, 2, 0, 2, 3 },
+      }
+      local decoded = SceneMesh.decode(MeshWriter.encode(batch, { format = "g4m3" }))
+      Assert.equal(decoded.format, "g4m3")
+      Assert.equal(decoded.vertexCount, 4)
+      Assert.deepEqual(decoded.joints[2], { 0, 1, 2, 3 })
+      Assert.deepEqual(decoded.weights[2], { 64, 64, 64, 63 })
+      -- The base vertex layout is unchanged.
+      Assert.equal(decoded.vertices[2][13], 1) -- colorSource
+      Assert.equal(decoded.indices[6], 3)
+    end,
+
+    ["rejects a G4M3 with a stale version"] = function()
+      local bytes = MeshWriter.encode({
+        vertices = { { x = 0, y = 0, z = 0, u = 0, v = 0, nx = 0, ny = 1, nz = 0,
+          r = 255, g = 255, b = 255, a = 255, colorSource = 0,
+          joints = { 0, 0, 0, 0 }, weights = { 0, 0, 0, 0 } } },
+        indices = { 0, 0, 0 },
+      }, { format = "g4m3" })
+      local patched = bytes:sub(1, 4) .. "\2" .. bytes:sub(6)
+      throwsCode("MESH_BAD_VERSION", function()
+        SceneMesh.decode(patched)
+      end)
+    end,
   },
 }
