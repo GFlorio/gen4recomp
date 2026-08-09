@@ -28,7 +28,9 @@ end
 
 local function sortedKeys(t)
   local k = {}
-  for x in pairs(t) do k[#k + 1] = x end
+  for x in pairs(t) do
+    k[#k + 1] = x
+  end
   table.sort(k)
   return k
 end
@@ -51,8 +53,14 @@ function T.gate5_deterministic_bytes(romFs, version)
   for sha in pairs(b1.textures) do
     Assert.equal(c1:read(MapAssetCache.texturePath(sha)), c2:read(MapAssetCache.texturePath(sha)))
   end
-  print(string.format("  [elms_lab] compiled %d meshes, %d textures, %d building models deterministically",
-    #sortedKeys(b1.meshes), #sortedKeys(b1.textures), #sortedKeys(b1.models)))
+  print(
+    string.format(
+      "  [elms_lab] compiled %d meshes, %d textures, %d building models deterministically",
+      #sortedKeys(b1.meshes),
+      #sortedKeys(b1.textures),
+      #sortedKeys(b1.models)
+    )
+  )
 end
 
 function T.gate5_completeness_and_ready(romFs, version)
@@ -63,7 +71,7 @@ function T.gate5_completeness_and_ready(romFs, version)
   Assert.equal(bundle.terrain.schema, "g4-terrain-surfaces-v1")
   Assert.isTrue(c:exists(MapAssetCache.terrainPath(MAP_ID)), "terrain artifact on disk")
 
-  Assert.equal(#sortedKeys(bundle.models), 9)      -- unique indoor building models
+  Assert.equal(#sortedKeys(bundle.models), 9) -- unique indoor building models
   Assert.equal(#bundle.scene.buildingInstances, 15) -- placed instances
 
   -- Polygon state moved from material records to batch records in slice 4.
@@ -164,7 +172,9 @@ function T.gate8_cache_only_restart(romFs, version)
   local perms = assert(cache:read(dir .. "/permissions.bin"))
   Assert.equal(#perms, 2048)
   local collision = CollisionGrid.new(assert(PermissionGrid.decode(perms)), {
-    worldOriginX = scene.matrix.worldOriginX, worldOriginZ = scene.matrix.worldOriginZ })
+    worldOriginX = scene.matrix.worldOriginX,
+    worldOriginZ = scene.matrix.worldOriginZ,
+  })
   Assert.isTrue(collision:containsLocal(4, 13), "spawn tile is in the cell")
   Assert.isFalse(collision:isBlockedLocal(4, 14), "exit warp tile is passable from cache-only data")
 end
@@ -174,7 +184,9 @@ function T.gate5_injected_failure_leaves_no_marker(romFs, version)
   local orig = backend.write
   ---@diagnostic disable: duplicate-set-field
   backend.write = function(self, path, data)
-    if path:find("scene.lua", 1, true) then error("injected write failure") end
+    if path:find("scene.lua", 1, true) then
+      error("injected write failure")
+    end
     return orig(self, path, data)
   end
   local c = CacheFs.forVersion(version, backend)

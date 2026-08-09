@@ -41,7 +41,9 @@ function T.compiles_the_bottom_centered_billboard_quad()
   Assert.near(result.bounds.depth, 0, 1e-6, "the actor quad is flat")
 
   local minY = math.huge
-  for _, vertex in ipairs(result.vertices) do minY = math.min(minY, vertex.y) end
+  for _, vertex in ipairs(result.vertices) do
+    minY = math.min(minY, vertex.y)
+  end
   Assert.near(minY, 0, 1e-6, "the quad rests on its own origin, which is the actor's feet")
 end
 
@@ -75,8 +77,10 @@ function T.resolves_the_polygon_draw_state()
 end
 
 function T.an_opaque_texture_stays_opaque()
-  local result = compile(NsbmdFixture.buildBillboardQuad(),
-    { alphaUsage = { hasZero = false, hasOpaque = true, hasPartial = false } })
+  local result = compile(
+    NsbmdFixture.buildBillboardQuad(),
+    { alphaUsage = { hasZero = false, hasOpaque = true, hasPartial = false } }
+  )
   Assert.equal(result.alphaClass, "opaque")
 end
 

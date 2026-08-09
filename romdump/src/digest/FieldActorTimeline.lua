@@ -27,22 +27,27 @@ local function _decode(bytes, context)
   assert(type(bytes) == "string", "timeline bytes must be a string")
   local reader = BinaryReader.new(bytes, "actor-timeline")
   if #bytes < 4 then
-    Errors.raise("FIELD_ACTOR_TIMELINE_TRUNCATED",
+    Errors.raise(
+      "FIELD_ACTOR_TIMELINE_TRUNCATED",
       "timeline member is " .. #bytes .. " bytes, too short for its count",
-      { size = #bytes, context = context })
+      { size = #bytes, context = context }
+    )
   end
   local count = reader:u32le(0)
   if count == 0 or count > MAX_ENTRIES then
-    Errors.raise("FIELD_ACTOR_TIMELINE_COUNT_INVALID",
+    Errors.raise(
+      "FIELD_ACTOR_TIMELINE_COUNT_INVALID",
       "timeline declares " .. count .. " entries, outside 1.." .. MAX_ENTRIES,
-      { count = count, context = context })
+      { count = count, context = context }
+    )
   end
   local expected = 4 + count * 4
   if #bytes ~= expected then
-    Errors.raise("FIELD_ACTOR_TIMELINE_SIZE_MISMATCH",
-      "timeline with " .. count .. " entries should be " .. expected
-        .. " bytes, member is " .. #bytes,
-      { count = count, expected = expected, actual = #bytes, context = context })
+    Errors.raise(
+      "FIELD_ACTOR_TIMELINE_SIZE_MISMATCH",
+      "timeline with " .. count .. " entries should be " .. expected .. " bytes, member is " .. #bytes,
+      { count = count, expected = expected, actual = #bytes, context = context }
+    )
   end
 
   local thresholds = 4
@@ -53,9 +58,11 @@ local function _decode(bytes, context)
   for i = 0, count - 1 do
     local threshold = reader:u16le(thresholds + i * 2)
     if threshold < previous then
-      Errors.raise("FIELD_ACTOR_TIMELINE_UNORDERED",
+      Errors.raise(
+        "FIELD_ACTOR_TIMELINE_UNORDERED",
         "timeline threshold " .. i .. " (" .. threshold .. ") is below its predecessor",
-        { index = i, threshold = threshold, previous = previous, context = context })
+        { index = i, threshold = threshold, previous = previous, context = context }
+      )
     end
     previous = threshold
     entries[i] = {
@@ -65,10 +72,11 @@ local function _decode(bytes, context)
     }
   end
   if entries[0].threshold ~= 0 then
-    Errors.raise("FIELD_ACTOR_TIMELINE_NO_ORIGIN",
-      "timeline does not define a slot at frame 0 (first threshold is "
-        .. entries[0].threshold .. ")",
-      { threshold = entries[0].threshold, context = context })
+    Errors.raise(
+      "FIELD_ACTOR_TIMELINE_NO_ORIGIN",
+      "timeline does not define a slot at frame 0 (first threshold is " .. entries[0].threshold .. ")",
+      { threshold = entries[0].threshold, context = context }
+    )
   end
 
   return {
@@ -80,8 +88,12 @@ end
 
 function FieldActorTimeline.decode(bytes, context)
   local ok, result = pcall(_decode, bytes, context)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 
@@ -91,7 +103,9 @@ function FieldActorTimeline.at(timeline, frame)
   local chosen = timeline.entries[0]
   for i = 0, timeline.count - 1 do
     local entry = timeline.entries[i]
-    if entry.threshold > frame then break end
+    if entry.threshold > frame then
+      break
+    end
     chosen = entry
   end
   return chosen.textureSlot, chosen.paletteSlot

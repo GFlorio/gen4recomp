@@ -21,7 +21,7 @@ function T.f32_roundtrips_representable_values()
   local s = BinaryWriter.new():f32(1.5):f32(-0.25):f32(0):tostring()
   local r = BinaryReader.new(s, "bw")
   Assert.isTrue(math.abs(r:f32le(0) - 1.5) < 1e-12, "1.5")
-  Assert.isTrue(math.abs(r:f32le(4) - (-0.25)) < 1e-12, "-0.25")
+  Assert.isTrue(math.abs(r:f32le(4) - -0.25) < 1e-12, "-0.25")
   Assert.equal(r:f32le(8), 0)
 end
 

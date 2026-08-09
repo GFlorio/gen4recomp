@@ -60,17 +60,24 @@ function MapAnalysis.lines(results)
   for _, result in ipairs(results) do
     counts[result.status] = counts[result.status] + 1
     if result.status == "resolved" then
-      lines[#lines + 1] = string.format("resolved\t%d\t%s\t%d\t%d\t%d\t%d\t%d\t%s\t%d",
-        result.id, result.symbol, result.matrixMemberId, result.matrixX,
-        result.matrixZ, result.matrixIndex, result.landDataMemberId,
-        result.source, result.matchCount)
+      lines[#lines + 1] = string.format(
+        "resolved\t%d\t%s\t%d\t%d\t%d\t%d\t%d\t%s\t%d",
+        result.id,
+        result.symbol,
+        result.matrixMemberId,
+        result.matrixX,
+        result.matrixZ,
+        result.matrixIndex,
+        result.landDataMemberId,
+        result.source,
+        result.matchCount
+      )
     else
-      lines[#lines + 1] = string.format("%s\t%d\t%s\t%s\t%d",
-        result.status, result.id, result.symbol, result.reason, result.matchCount)
+      lines[#lines + 1] =
+        string.format("%s\t%d\t%s\t%s\t%d", result.status, result.id, result.symbol, result.reason, result.matchCount)
     end
   end
-  lines[#lines + 1] = string.format("summary\tresolved=%d\texcluded=%d",
-    counts.resolved, counts.excluded)
+  lines[#lines + 1] = string.format("summary\tresolved=%d\texcluded=%d", counts.resolved, counts.excluded)
   return lines
 end
 

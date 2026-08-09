@@ -20,8 +20,12 @@ local function rawFnt(dirs)
   return table.concat(main) .. table.concat(subs)
 end
 
-local function fileEntry(name) return string.char(#name) .. name end
-local function dirEntry(name, childId) return string.char(0x80 + #name) .. name .. u16(childId) end
+local function fileEntry(name)
+  return string.char(#name) .. name
+end
+local function dirEntry(name, childId)
+  return string.char(0x80 + #name) .. name .. u16(childId)
+end
 local ENDB = "\0"
 
 local function throwsCode(code, fn)
@@ -78,27 +82,36 @@ end
 
 function T.rejects_duplicate_path()
   throwsCode("FNT_DUPLICATE_PATH", function()
-    NitroFs.parse(rawFnt({
-      { firstFileId = 0, field = 1, entries = fileEntry("x.bin") .. fileEntry("x.bin") .. ENDB },
-    }), 100)
+    NitroFs.parse(
+      rawFnt({
+        { firstFileId = 0, field = 1, entries = fileEntry("x.bin") .. fileEntry("x.bin") .. ENDB },
+      }),
+      100
+    )
   end)
 end
 
 function T.rejects_duplicate_file_id()
   throwsCode("FNT_DUPLICATE_FILE_ID", function()
-    NitroFs.parse(rawFnt({
-      { firstFileId = 0, field = 2, entries = fileEntry("r.bin") .. dirEntry("a", 0xF001) .. ENDB },
-      { firstFileId = 0, field = 0xF000, entries = fileEntry("g.bin") .. ENDB },
-    }), 100)
+    NitroFs.parse(
+      rawFnt({
+        { firstFileId = 0, field = 2, entries = fileEntry("r.bin") .. dirEntry("a", 0xF001) .. ENDB },
+        { firstFileId = 0, field = 0xF000, entries = fileEntry("g.bin") .. ENDB },
+      }),
+      100
+    )
   end)
 end
 
 function T.rejects_recursive_cycle()
   throwsCode("FNT_DIRECTORY_CYCLE", function()
-    NitroFs.parse(rawFnt({
-      { firstFileId = 0, field = 2, entries = dirEntry("a", 0xF001) .. ENDB },
-      { firstFileId = 0, field = 0xF000, entries = dirEntry("self", 0xF001) .. ENDB },
-    }), 100)
+    NitroFs.parse(
+      rawFnt({
+        { firstFileId = 0, field = 2, entries = dirEntry("a", 0xF001) .. ENDB },
+        { firstFileId = 0, field = 0xF000, entries = dirEntry("self", 0xF001) .. ENDB },
+      }),
+      100
+    )
   end)
 end
 

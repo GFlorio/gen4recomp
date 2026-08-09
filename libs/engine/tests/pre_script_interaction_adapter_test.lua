@@ -48,7 +48,10 @@ local function bankArtifact(bankId)
     for i = 1, #chars do
       local char = chars:sub(i, i)
       tokens[#tokens + 1] = {
-        kind = "glyph", code = def.charmap[char], text = char, raw = { 0 },
+        kind = "glyph",
+        code = def.charmap[char],
+        text = char,
+        raw = { 0 },
       }
     end
     return tokens
@@ -72,8 +75,13 @@ local function bankArtifact(bankId)
         raw = { 0xFFFE, 0x0103, 2, 0, 0, 0xFFFF },
         text = "{STRVAR_1 3, 0, 0}",
         tokens = {
-          { kind = "substitution", control = 0x0103, name = "STRVAR_1",
-            args = { 0, 0 }, raw = { 0xFFFE, 0x0103, 2, 0, 0 } },
+          {
+            kind = "substitution",
+            control = 0x0103,
+            name = "STRVAR_1",
+            args = { 0, 0 },
+            raw = { 0xFFFE, 0x0103, 2, 0, 0 },
+          },
           { kind = "eos", raw = { 0xFFFF } },
         },
       },
@@ -85,14 +93,25 @@ local function actor(objectEventId, initialFacing)
   local instance = FieldObjectActor.new({
     mapId = 61,
     sourceEvent = {
-      objectEventId = objectEventId, spriteId = 99, movement = 0, type = 0,
-      eventFlag = 0, scriptId = 1, facingDirectionRaw = 1,
+      objectEventId = objectEventId,
+      spriteId = 99,
+      movement = 0,
+      type = 0,
+      eventFlag = 0,
+      scriptId = 1,
+      facingDirectionRaw = 1,
       facingDirection = initialFacing or "south",
-      x = 6, z = 5, y = 0,
+      x = 6,
+      z = 5,
+      y = 0,
     },
     visualDef = { mapModelId = 1 },
-    fieldX = 6, fieldZ = 5, surfaceId = 0,
-    worldX = 0, worldY = 0, worldZ = 0,
+    fieldX = 6,
+    fieldZ = 5,
+    surfaceId = 0,
+    worldX = 0,
+    worldY = 0,
+    worldZ = 0,
   })
   return instance
 end
@@ -101,13 +120,15 @@ local function harness(opts)
   opts = opts or {}
   local def = fontDef()
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
-  cache:writeLua(FieldMessageCache.bankPath(opts.bankId or 543),
-    bankArtifact(opts.bankId or 543))
+  cache:writeLua(FieldMessageCache.bankPath(opts.bankId or 543), bankArtifact(opts.bankId or 543))
   local provider = assert(FieldMessageProvider.new(cache, { maxCachedBanks = 2 }))
   local metrics = FieldDialogueTheme.fontMetrics(def)
   local layout = function(message)
-    return DialogueLayout.layout(message.tokens, metrics,
-      { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines })
+    return DialogueLayout.layout(
+      message.tokens,
+      metrics,
+      { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines }
+    )
   end
   local dialogue = FieldDialogueController.new({ layout = layout })
   local elm = actor(0, "south")
@@ -118,16 +139,25 @@ local function harness(opts)
     layout = layout,
     fontDef = def,
     getActor = function(actorId)
-      if actorId == elm.actorId then return elm end
-      if actorId == aide.actorId then return aide end
+      if actorId == elm.actorId then
+        return elm
+      end
+      if actorId == aide.actorId then
+        return aide
+      end
       return nil
     end,
-    mapMessageBank = opts.mapMessageBank or function() return 543 end,
+    mapMessageBank = opts.mapMessageBank or function()
+      return 543
+    end,
     fixtures = opts.fixtures or {},
   })
   return {
-    adapter = adapter, dialogue = dialogue, provider = provider,
-    elm = elm, aide = aide,
+    adapter = adapter,
+    dialogue = dialogue,
+    provider = provider,
+    elm = elm,
+    aide = aide,
   }
 end
 
@@ -135,8 +165,11 @@ local function objectIntent(overrides)
   local intent = {
     kind = "object",
     mapId = 61,
-    sourceFieldX = 6, sourceFieldZ = 6, sourceSurfaceId = 0,
-    targetFieldX = 6, targetFieldZ = 5,
+    sourceFieldX = 6,
+    sourceFieldZ = 6,
+    sourceSurfaceId = 0,
+    targetFieldX = 6,
+    targetFieldZ = 5,
     playerFacing = "north",
     scriptBankId = 843,
     scriptId = 1,
@@ -144,7 +177,9 @@ local function objectIntent(overrides)
     background = nil,
     tick = 1,
   }
-  for key, value in pairs(overrides or {}) do intent[key] = value end
+  for key, value in pairs(overrides or {}) do
+    intent[key] = value
+  end
   return intent
 end
 
@@ -152,8 +187,11 @@ local function backgroundIntent(overrides)
   local intent = {
     kind = "background",
     mapId = 61,
-    sourceFieldX = 4, sourceFieldZ = 4, sourceSurfaceId = 0,
-    targetFieldX = 4, targetFieldZ = 3,
+    sourceFieldX = 4,
+    sourceFieldZ = 4,
+    sourceSurfaceId = 0,
+    targetFieldX = 4,
+    targetFieldZ = 3,
     playerFacing = "north",
     scriptBankId = 843,
     scriptId = 14,
@@ -161,7 +199,9 @@ local function backgroundIntent(overrides)
     background = { eventIndex = 10, type = 0, direction = 0 },
     tick = 2,
   }
-  for key, value in pairs(overrides or {}) do intent[key] = value end
+  for key, value in pairs(overrides or {}) do
+    intent[key] = value
+  end
   return intent
 end
 
@@ -181,7 +221,9 @@ function T.object_fixture_opens_and_releases_the_override_exactly_once()
   local h = harness({
     fixtures = {
       ["map:61:object:0"] = {
-        messageBankId = 543, messageId = 5, facePlayer = true,
+        messageBankId = 543,
+        messageId = 5,
+        facePlayer = true,
         substitutions = { playerName = "GOLD" },
       },
     },
@@ -210,7 +252,9 @@ function T.player_name_substitution_flows_into_the_formatted_message()
   local h = harness({
     fixtures = {
       ["map:61:object:0"] = {
-        messageBankId = 543, messageId = 93, facePlayer = false,
+        messageBankId = 543,
+        messageId = 93,
+        facePlayer = false,
         substitutions = { playerName = "GOLD" },
       },
     },
@@ -243,7 +287,9 @@ function T.bank_mismatch_raises_a_typed_error_and_opens_nothing()
     fixtures = {
       ["map:61:object:0"] = { messageBankId = 543, messageId = 5, facePlayer = true },
     },
-    mapMessageBank = function() return 542 end,
+    mapMessageBank = function()
+      return 542
+    end,
   })
   local ok, err = pcall(h.adapter.consume, h.adapter, objectIntent())
   Assert.isFalse(ok)
@@ -254,7 +300,8 @@ end
 
 function T.unmapped_intent_opens_the_release_text()
   local h = harness()
-  local consumed = h.adapter:consume(objectIntent({ object = { actorId = "map:61:object:0", objectEventId = 0, spriteId = 99 } }))
+  local consumed =
+    h.adapter:consume(objectIntent({ object = { actorId = "map:61:object:0", objectEventId = 0, spriteId = 99 } }))
   Assert.equal(consumed, true)
   Assert.isTrue(h.dialogue:isModal())
   Assert.equal(h.dialogue:status().requestId, "pre-script-map:61:object:0")
@@ -296,7 +343,9 @@ function T.layout_error_releases_the_override_via_error()
   local ticks = 0
   while h.dialogue:isModal() and ticks < 500 do
     local result = h.dialogue:step({ actionPressed = true })
-    if result and result.kind == "error" then errors = errors + 1 end
+    if result and result.kind == "error" then
+      errors = errors + 1
+    end
     ticks = ticks + 1
   end
   Assert.equal(errors, 1)
@@ -313,13 +362,19 @@ function T.open_failure_unwinds_the_override()
   h.adapter:consume(objectIntent())
   -- A second consume while modal cannot reach the session gate, but the
   -- adapter must still unwind the second actor's override if open() raises.
-  local ok, err = pcall(h.adapter.consume, h.adapter,
-    objectIntent({ object = { actorId = "map:61:object:2", objectEventId = 2, spriteId = 29 } }))
+  local ok, err = pcall(
+    h.adapter.consume,
+    h.adapter,
+    objectIntent({ object = { actorId = "map:61:object:2", objectEventId = 2, spriteId = 29 } })
+  )
   Assert.isFalse(ok)
   Assert.equal(type(err) == "table" and err.code or err, "DIALOGUE_ALREADY_OPEN")
   Assert.isNil(h.aide.interactionFacingOverride, "the failed open releases its override")
-  Assert.equal(h.elm.interactionFacingOverride.owner, "pre-script-dialogue",
-    "the first dialogue's override is untouched")
+  Assert.equal(
+    h.elm.interactionFacingOverride.owner,
+    "pre-script-dialogue",
+    "the first dialogue's override is untouched"
+  )
   h.dialogue:dispose()
 end
 

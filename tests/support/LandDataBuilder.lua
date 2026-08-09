@@ -5,10 +5,11 @@
 
 local LandDataBuilder = {}
 
-local function u16(v) return string.char(v % 256, math.floor(v / 256) % 256) end
+local function u16(v)
+  return string.char(v % 256, math.floor(v / 256) % 256)
+end
 local function u32(v)
-  return string.char(v % 256, math.floor(v / 256) % 256,
-    math.floor(v / 65536) % 256, math.floor(v / 16777216) % 256)
+  return string.char(v % 256, math.floor(v / 256) % 256, math.floor(v / 65536) % 256, math.floor(v / 16777216) % 256)
 end
 
 -- opts (all optional):
@@ -34,8 +35,12 @@ end
 -- A minimal valid 0x30-byte placed-building record referencing modelMemberId,
 -- at the origin, unrotated, at unit scale (fx32 0x1000 == 1.0).
 function LandDataBuilder.buildingRecord(modelMemberId)
-  return u32(modelMemberId or 0) .. string.rep("\0", 0x1C - 4)
-    .. u32(0x1000) .. u32(0x1000) .. u32(0x1000) .. string.rep("\0", 8)
+  return u32(modelMemberId or 0)
+    .. string.rep("\0", 0x1C - 4)
+    .. u32(0x1000)
+    .. u32(0x1000)
+    .. u32(0x1000)
+    .. string.rep("\0", 8)
 end
 
 return LandDataBuilder

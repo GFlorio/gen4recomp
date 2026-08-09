@@ -45,12 +45,22 @@ FieldMessageText.UNK_FF02 = 0xFF02
 -- sync with data/reference/hgss/charmap.lua controlNames (verified by the
 -- importer tests).
 FieldMessageText.controlNames = {
-  [0x0100] = "STRVAR_1", [0x0300] = "STRVAR_3", [0x0400] = "STRVAR_4",
+  [0x0100] = "STRVAR_1",
+  [0x0300] = "STRVAR_3",
+  [0x0400] = "STRVAR_4",
   [0x3400] = "STRVAR_34",
-  [0x0200] = "YESNO", [0x0201] = "PAUSE", [0x0202] = "WAIT",
-  [0x0203] = "CURSOR_X", [0x0204] = "CURSOR_Y", [0x0205] = "ALN_CENTER",
-  [0x0206] = "ALN_RIGHT", [0x0207] = "UNK_207", [0x0208] = "UNK_208",
-  [0xFF00] = "COLOR", [0xFF01] = "SIZE", [0xFF02] = "UNK_FF02",
+  [0x0200] = "YESNO",
+  [0x0201] = "PAUSE",
+  [0x0202] = "WAIT",
+  [0x0203] = "CURSOR_X",
+  [0x0204] = "CURSOR_Y",
+  [0x0205] = "ALN_CENTER",
+  [0x0206] = "ALN_RIGHT",
+  [0x0207] = "UNK_207",
+  [0x0208] = "UNK_208",
+  [0xFF00] = "COLOR",
+  [0xFF01] = "SIZE",
+  [0xFF02] = "UNK_FF02",
 }
 
 local namesByCode = FieldMessageText.controlNames
@@ -83,9 +93,12 @@ end
 -- Token kind for a control code: substitution, style, wait, or
 -- unsupported_control. Matches the import tokenizer's classification.
 function FieldMessageText.controlKind(control)
-  if FieldMessageText.isStrvarFamily(control) then return "substitution" end
-  if control == FieldMessageText.COLOR or control == FieldMessageText.SIZE
-      or control == FieldMessageText.UNK_FF02 then return "style" end
+  if FieldMessageText.isStrvarFamily(control) then
+    return "substitution"
+  end
+  if control == FieldMessageText.COLOR or control == FieldMessageText.SIZE or control == FieldMessageText.UNK_FF02 then
+    return "style"
+  end
   if control == FieldMessageText.PAUSE or control == FieldMessageText.WAIT then
     return "wait"
   end
@@ -104,8 +117,7 @@ end
 -- includes its field selector as the first value.
 function FieldMessageText.marker(control, ...)
   local args = { ... }
-  local label = FieldMessageText.controlName(control)
-    or string.format("CTRL 0x%04X", control)
+  local label = FieldMessageText.controlName(control) or string.format("CTRL 0x%04X", control)
   local values = {}
   if FieldMessageText.isStrvarFamily(control) then
     values[#values + 1] = tostring(control % 256)
@@ -139,8 +151,7 @@ function FieldMessageText.tokensToText(tokens)
     elseif token.kind == "substitution" and token.control == FieldMessageText.TRNAME then
       out[#out + 1] = "{TRNAME}"
     else
-      out[#out + 1] = FieldMessageText.marker(token.control,
-        unpack(token.args or {}))
+      out[#out + 1] = FieldMessageText.marker(token.control, unpack(token.args or {}))
     end
   end
   return table.concat(out)
@@ -154,12 +165,17 @@ local function parseBody(text, fontDef, opts)
   local function pushGlyphs(char)
     local code = fontDef.charmap[char]
     if not code then
-      Errors.raise("MESSAGE_SUBSTITUTION_UNRESOLVED",
+      Errors.raise(
+        "MESSAGE_SUBSTITUTION_UNRESOLVED",
         "character " .. string.format("%q", char) .. " has no field glyph",
-        { character = char, index = position })
+        { character = char, index = position }
+      )
     end
     tokens[#tokens + 1] = {
-      kind = "glyph", code = code, text = char, raw = { code },
+      kind = "glyph",
+      code = code,
+      text = char,
+      raw = { code },
     }
   end
 
@@ -167,17 +183,21 @@ local function parseBody(text, fontDef, opts)
     -- position points at the '{'; find the closing brace.
     local close = text:find("}", position, true)
     if not close then
-      Errors.raise("MESSAGE_MARKER_INVALID",
+      Errors.raise(
+        "MESSAGE_MARKER_INVALID",
         "unterminated marker at index " .. position,
-        { index = position, marker = text:sub(position) })
+        { index = position, marker = text:sub(position) }
+      )
     end
     local body = text:sub(position + 1, close - 1)
     position = close + 1
     local name, rest = body:match("^([^%s]+)%s*(.*)$")
     if not name or name == "" then
-      Errors.raise("MESSAGE_MARKER_INVALID",
+      Errors.raise(
+        "MESSAGE_MARKER_INVALID",
         "empty marker at index " .. position,
-        { index = position, marker = text:sub(position - 1, close) })
+        { index = position, marker = text:sub(position - 1, close) }
+      )
     end
     -- Values are comma- or space-separated: "{STRVAR_1 3, 0, 0}" and
     -- "{CTRL 0x0707 9}" both parse.
@@ -187,9 +207,11 @@ local function parseBody(text, fontDef, opts)
         local trimmed = value:match("^%s*(.-)%s*$")
         local number = tonumber(trimmed)
         if not number or number < 0 or number > 65535 or number % 1 ~= 0 then
-          Errors.raise("MESSAGE_MARKER_INVALID",
+          Errors.raise(
+            "MESSAGE_MARKER_INVALID",
             "marker argument " .. string.format("%q", trimmed) .. " is not a u16",
-            { index = position, argument = trimmed, marker = body })
+            { index = position, argument = trimmed, marker = body }
+          )
         end
         values[#values + 1] = number
       end
@@ -200,46 +222,60 @@ local function parseBody(text, fontDef, opts)
     if name == "CTRL" then
       local code = body:match("^CTRL%s+0x(%x%x%x%x)")
       if not code then
-        Errors.raise("MESSAGE_MARKER_INVALID",
+        Errors.raise(
+          "MESSAGE_MARKER_INVALID",
           "CTRL marker needs a 0xXXXX code: " .. body,
-          { index = position, marker = body })
+          { index = position, marker = body }
+        )
       end
       control = tonumber(code, 16)
       args = {}
-      for i = 2, #values do args[#args + 1] = values[i] end
+      for i = 2, #values do
+        args[#args + 1] = values[i]
+      end
     elseif name == "TRNAME" then
       if #values > 0 then
-        Errors.raise("MESSAGE_MARKER_INVALID",
+        Errors.raise(
+          "MESSAGE_MARKER_INVALID",
           "TRNAME takes no arguments: " .. body,
-          { index = position, marker = body })
+          { index = position, marker = body }
+        )
       end
       control = FieldMessageText.TRNAME
     else
       local base = codesByName[name]
       if not base then
-        Errors.raise("MESSAGE_MARKER_INVALID",
+        Errors.raise(
+          "MESSAGE_MARKER_INVALID",
           "unknown marker name " .. string.format("%q", name),
-          { index = position, name = name, marker = body })
+          { index = position, name = name, marker = body }
+        )
       end
       control = base
       if FieldMessageText.isStrvarFamily(base) then
         if #values == 0 then
-          Errors.raise("MESSAGE_MARKER_INVALID",
+          Errors.raise(
+            "MESSAGE_MARKER_INVALID",
             "STRVAR marker needs a field selector: " .. body,
-            { index = position, marker = body })
+            { index = position, marker = body }
+          )
         end
         local field = table.remove(values, 1)
         if field > 255 then
-          Errors.raise("MESSAGE_MARKER_INVALID",
+          Errors.raise(
+            "MESSAGE_MARKER_INVALID",
             "STRVAR field selector is not a byte: " .. body,
-            { index = position, marker = body })
+            { index = position, marker = body }
+          )
         end
         control = base + field
       end
     end
 
     local raw = { FieldMessageText.EXT_CTRL_CODE_BEGIN, control, #args }
-    for _, arg in ipairs(args) do raw[#raw + 1] = arg end
+    for _, arg in ipairs(args) do
+      raw[#raw + 1] = arg
+    end
     tokens[#tokens + 1] = {
       kind = FieldMessageText.controlKind(control),
       control = control,
@@ -279,8 +315,12 @@ end
 
 local function parseEntry(text, fontDef, opts)
   local ok, result = pcall(parseBody, text, fontDef, opts)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 
@@ -291,8 +331,10 @@ end
 -- MESSAGE_SUBSTITUTION_UNRESOLVED on characters without a glyph.
 function FieldMessageText.parse(text, fontDef, opts)
   assert(type(text) == "string", "parse requires marker text")
-  assert(type(fontDef) == "table" and type(fontDef.charmap) == "table",
-    "parse requires a font definition with charmap metadata")
+  assert(
+    type(fontDef) == "table" and type(fontDef.charmap) == "table",
+    "parse requires a font definition with charmap metadata"
+  )
   return parseEntry(text, fontDef, opts)
 end
 

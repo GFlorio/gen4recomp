@@ -25,13 +25,26 @@ end
 
 function FieldCameraInspector.lines(report)
   local source = report.provenance
-  local lines = { string.format("field-camera\toverlay=%s:%d\ttable=0x%08X\tsha1=%s",
-    source.cpu, source.overlayId, source.tableRamAddress, source.overlaySha1) }
+  local lines = {
+    string.format(
+      "field-camera\toverlay=%s:%d\ttable=0x%08X\tsha1=%s",
+      source.cpu,
+      source.overlayId,
+      source.tableRamAddress,
+      source.overlaySha1
+    ),
+  }
   for _, profile in ipairs(report.records) do
     lines[#lines + 1] = string.format(
       "camera\ttype=%d\tprojection=%s\tdistance=%.6f\televation=%.6f\thalfFov=%.6f\tnear=%.6f\tfar=%.6f",
-      profile.cameraType, profile.projection, profile.distanceTiles,
-      profile.elevationDegrees, profile.halfFovDegrees, profile.nearTiles, profile.farTiles)
+      profile.cameraType,
+      profile.projection,
+      profile.distanceTiles,
+      profile.elevationDegrees,
+      profile.halfFovDegrees,
+      profile.nearTiles,
+      profile.farTiles
+    )
   end
   return lines
 end

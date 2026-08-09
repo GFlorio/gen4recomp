@@ -17,15 +17,21 @@ local function origin(runtimeMap)
 end
 
 local function requireLocal(runtimeMap, localX, localZ, context)
-  assert(runtimeMap.permissions and runtimeMap.permissions.containsLocal,
-    "runtime map permission coverage required")
+  assert(runtimeMap.permissions and runtimeMap.permissions.containsLocal, "runtime map permission coverage required")
   if not runtimeMap.permissions:containsLocal(localX, localZ) then
     context = context or {}
     context.localX, context.localZ = localX, localZ
     context.mapId = runtimeMap.mapId
-    Errors.raise("FIELD_COORDINATES_OUT_OF_COVERAGE",
-      string.format("coordinate (%s,%s) is outside map %s permission coverage",
-        tostring(localX), tostring(localZ), tostring(runtimeMap.mapId)), context)
+    Errors.raise(
+      "FIELD_COORDINATES_OUT_OF_COVERAGE",
+      string.format(
+        "coordinate (%s,%s) is outside map %s permission coverage",
+        tostring(localX),
+        tostring(localZ),
+        tostring(runtimeMap.mapId)
+      ),
+      context
+    )
   end
 end
 

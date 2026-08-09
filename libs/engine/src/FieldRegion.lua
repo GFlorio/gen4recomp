@@ -8,7 +8,9 @@ local FieldRegion = {}
 
 local function copyPlate(plate, id, offsetX, offsetZ)
   local copy = {}
-  for key, value in pairs(plate) do copy[key] = value end
+  for key, value in pairs(plate) do
+    copy[key] = value
+  end
   copy.id = id
   copy.sourceSurfaceId = plate.id
   copy.cellOffsetX = offsetX
@@ -28,7 +30,9 @@ local function collisionRegion(cells)
   local function cellAt(localX, localZ)
     for _, cell in ipairs(cells) do
       local x, z = localX - cell.offsetTilesX, localZ - cell.offsetTilesZ
-      if cell.collision:containsLocal(x, z) then return cell, x, z end
+      if cell.collision:containsLocal(x, z) then
+        return cell, x, z
+      end
     end
     return nil
   end
@@ -56,12 +60,14 @@ function FieldRegion.new(centralCollision, centralTerrain, neighbors)
   assert(centralCollision and centralCollision.containsLocal, "central collision grid required")
   assert(centralTerrain and centralTerrain.plates, "central terrain surfaces required")
 
-  local cells = { {
-    offsetTilesX = 0,
-    offsetTilesZ = 0,
-    collision = centralCollision,
-    terrain = centralTerrain,
-  } }
+  local cells = {
+    {
+      offsetTilesX = 0,
+      offsetTilesZ = 0,
+      collision = centralCollision,
+      terrain = centralTerrain,
+    },
+  }
   for _, neighbor in ipairs(neighbors or {}) do
     assert(neighbor.collision and neighbor.terrain, "neighbor collision and terrain required")
     cells[#cells + 1] = neighbor
@@ -76,8 +82,7 @@ function FieldRegion.new(centralCollision, centralTerrain, neighbors)
   for index = 2, #cells do
     local cell = cells[index]
     for _, plate in ipairs(cell.terrain.plates) do
-      plates[#plates + 1] = copyPlate(plate, nextSurfaceId,
-        cell.offsetTilesX, cell.offsetTilesZ)
+      plates[#plates + 1] = copyPlate(plate, nextSurfaceId, cell.offsetTilesX, cell.offsetTilesZ)
       nextSurfaceId = nextSurfaceId + 1
     end
   end

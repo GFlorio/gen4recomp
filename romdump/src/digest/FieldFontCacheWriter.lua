@@ -14,8 +14,7 @@ function FieldFontCacheWriter.isReady(cacheFs, fontId, marker)
 end
 
 function FieldFontCacheWriter.write(cacheFs, bundle)
-  assert(bundle and bundle.marker and bundle.font and bundle.atlas,
-    "write requires a font bundle")
+  assert(bundle and bundle.marker and bundle.font and bundle.atlas, "write requires a font bundle")
   assert(bundle.font.schema == FieldFontCache.SCHEMA, "font def schema mismatch")
   local ok, err = pcall(function()
     cacheFs:remove(FieldFontCache.markerPath())
@@ -26,19 +25,20 @@ function FieldFontCacheWriter.write(cacheFs, bundle)
     cacheFs:write(FieldFontCache.atlasPath(bundle.fontId), bundle.atlas)
     cacheFs:writeLua(FieldFontCache.defPath(bundle.fontId), bundle.font)
     local def = cacheFs:loadLua(FieldFontCache.defPath(bundle.fontId))
-    if type(def) ~= "table" or def.schema ~= FieldFontCache.SCHEMA
-        or def.fontId ~= bundle.fontId then
-      Errors.raise("FIELD_FONT_CACHE_READBACK_FAILED", "font def readback failed",
-        { fontId = bundle.fontId })
+    if type(def) ~= "table" or def.schema ~= FieldFontCache.SCHEMA or def.fontId ~= bundle.fontId then
+      Errors.raise("FIELD_FONT_CACHE_READBACK_FAILED", "font def readback failed", { fontId = bundle.fontId })
     end
     if not cacheFs:exists(FieldFontCache.atlasPath(bundle.fontId), "file") then
-      Errors.raise("FIELD_FONT_CACHE_READBACK_FAILED", "font atlas readback failed",
-        { fontId = bundle.fontId })
+      Errors.raise("FIELD_FONT_CACHE_READBACK_FAILED", "font atlas readback failed", { fontId = bundle.fontId })
     end
     cacheFs:write(FieldFontCache.markerPath(), bundle.marker)
   end)
-  if ok then return true end
-  pcall(function() FieldFontCache.invalidate(cacheFs) end)
+  if ok then
+    return true
+  end
+  pcall(function()
+    FieldFontCache.invalidate(cacheFs)
+  end)
   error(err)
 end
 

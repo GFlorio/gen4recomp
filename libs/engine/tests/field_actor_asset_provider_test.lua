@@ -18,18 +18,30 @@ local function stubGraphics(created)
   return {
     newImage = function()
       local image = { released = false, quads = 0 }
-      function image:getWidth() return 64 end
-      function image:getHeight() return 32 end
+      function image:getWidth()
+        return 64
+      end
+      function image:getHeight()
+        return 32
+      end
       function image:setFilter() end
-      function image:release() self.released = true end
+      function image:release()
+        self.released = true
+      end
       created[#created + 1] = image
       return image
     end,
-    newQuad = function(x, y, w, h) return { x = x, y = y, w = w, h = h } end,
+    newQuad = function(x, y, w, h)
+      return { x = x, y = y, w = w, h = h }
+    end,
     newMesh = function(_, vertices)
       local mesh = { vertices = vertices, released = false }
-      function mesh:setVertexMap(map) self.map = map end
-      function mesh:release() self.released = true end
+      function mesh:setVertexMap(map)
+        self.map = map
+      end
+      function mesh:release()
+        self.released = true
+      end
       return mesh
     end,
   }
@@ -38,12 +50,14 @@ end
 local function seed(spriteIds)
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   cache:writeLua(FieldActorCache.indexPath(), {
-    schema = FieldActorCache.INDEX_SCHEMA, romVersion = "heartgold",
-    spriteIds = spriteIds, variableSprites = {}, recordCount = #spriteIds,
+    schema = FieldActorCache.INDEX_SCHEMA,
+    romVersion = "heartgold",
+    spriteIds = spriteIds,
+    variableSprites = {},
+    recordCount = #spriteIds,
   })
   for _, spriteId in ipairs(spriteIds) do
-    cache:writeLua(FieldActorCache.visualPath(spriteId),
-      FieldActorFixture.visual(spriteId, { frameCount = 2 }))
+    cache:writeLua(FieldActorCache.visualPath(spriteId), FieldActorFixture.visual(spriteId, { frameCount = 2 }))
     cache:write(FieldActorCache.atlasPath(spriteId), "png-bytes")
   end
   return cache
@@ -121,27 +135,37 @@ end
 
 function T.rejects_an_uncompiled_sprite()
   local p = provider({ 0 })
-  throwsCode("FIELD_ACTOR_SPRITE_NOT_COMPILED", function() p:acquire(1032) end)
+  throwsCode("FIELD_ACTOR_SPRITE_NOT_COMPILED", function()
+    p:acquire(1032)
+  end)
 end
 
 function T.rejects_unbalanced_release()
   local p = provider({ 0 })
-  throwsCode("FIELD_ACTOR_RELEASE_UNKNOWN", function() p:release(0) end)
+  throwsCode("FIELD_ACTOR_RELEASE_UNKNOWN", function()
+    p:release(0)
+  end)
   p:acquire(0)
   p:release(0)
-  throwsCode("FIELD_ACTOR_RELEASE_UNBALANCED", function() p:release(0) end)
+  throwsCode("FIELD_ACTOR_RELEASE_UNBALANCED", function()
+    p:release(0)
+  end)
 end
 
 function T.missing_artifacts_are_fatal()
   local cache = seed({ 0 })
   cache:remove(FieldActorCache.atlasPath(0))
   local p = FieldActorAssetProvider.new(cache, { graphics = stubGraphics({}) })
-  throwsCode("FIELD_ACTOR_ATLAS_MISSING", function() p:acquire(0) end)
+  throwsCode("FIELD_ACTOR_ATLAS_MISSING", function()
+    p:acquire(0)
+  end)
 
   local other = seed({ 0 })
   other:remove(FieldActorCache.visualPath(0))
   local q = FieldActorAssetProvider.new(other, { graphics = stubGraphics({}) })
-  throwsCode("FIELD_ACTOR_VISUAL_UNAVAILABLE", function() q:acquire(0) end)
+  throwsCode("FIELD_ACTOR_VISUAL_UNAVAILABLE", function()
+    q:acquire(0)
+  end)
 end
 
 function T.rejects_a_cache_without_an_index()

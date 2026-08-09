@@ -12,7 +12,11 @@ function T.elms_lab_and_new_bark_warps_resolve_both_directions(romFs)
     [60] = RomRuntimeMap.compile(romFs, "MAP_NEW_BARK"),
     [61] = RomRuntimeMap.compile(romFs, "MAP_NEW_BARK_ELMS_LAB_1F"),
   }
-  local loader = { load = function(_, mapId) return assert(maps[mapId]) end }
+  local loader = {
+    load = function(_, mapId)
+      return assert(maps[mapId])
+    end,
+  }
 
   local labWarp = assert(WarpSystem.findAt(maps[61], 4, 14))
   local outside = WarpSystem.resolveDestination(loader, maps[61], labWarp)

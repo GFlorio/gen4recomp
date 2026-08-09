@@ -16,8 +16,19 @@ local function sampleBatch()
   local vertices = {}
   for i = 0, 3 do
     vertices[i + 1] = {
-      x = i, y = i * 2, z = -i, u = 0.5, v = 0.25,
-      nx = 0, ny = 1, nz = 0, r = 255, g = 0, b = 128, a = 255, colorSource = i % 3,
+      x = i,
+      y = i * 2,
+      z = -i,
+      u = 0.5,
+      v = 0.25,
+      nx = 0,
+      ny = 1,
+      nz = 0,
+      r = 255,
+      g = 0,
+      b = 128,
+      a = 255,
+      colorSource = i % 3,
     }
   end
   return { vertices = vertices, indices = { 0, 1, 2, 0, 2, 3 } }
@@ -31,16 +42,16 @@ return {
     Assert.equal(decoded.indexWidth, 2)
     Assert.deepEqual(decoded.indices, { 0, 1, 2, 0, 2, 3 })
     local v = decoded.vertices[2]
-    Assert.equal(v[1], 1)       -- x
-    Assert.equal(v[2], 2)       -- y
-    Assert.equal(v[3], -1)      -- z
-    Assert.equal(v[4], 0.5)     -- u
-    Assert.equal(v[6], 0)       -- nx
-    Assert.equal(v[7], 1)       -- ny
-    Assert.equal(v[9], 1)       -- r 255/255
+    Assert.equal(v[1], 1) -- x
+    Assert.equal(v[2], 2) -- y
+    Assert.equal(v[3], -1) -- z
+    Assert.equal(v[4], 0.5) -- u
+    Assert.equal(v[6], 0) -- nx
+    Assert.equal(v[7], 1) -- ny
+    Assert.equal(v[9], 1) -- r 255/255
     Assert.equal(v[11], 128 / 255) -- b
-    Assert.equal(v[12], 1)      -- a
-    Assert.equal(v[13], 1)      -- colorSource (vertex 2 -> i=1)
+    Assert.equal(v[12], 1) -- a
+    Assert.equal(v[13], 1) -- colorSource (vertex 2 -> i=1)
   end,
 
   ["rejects a bad magic"] = function()

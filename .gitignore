@@ -48,6 +48,5 @@ luac.out
 *.x86_64
 *.hex
 
-tmp/
-.agents/
+**/tmp/
 opencode.json

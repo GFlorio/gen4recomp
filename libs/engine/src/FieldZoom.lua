@@ -14,7 +14,6 @@
 local FieldZoom = {}
 FieldZoom.__index = FieldZoom
 
-
 local function clamp(value, minimum, maximum)
   return math.max(minimum, math.min(maximum, value))
 end
@@ -29,11 +28,12 @@ function FieldZoom.new(config)
   local step = config.step or 0.1
   assert(type(minimum) == "number" and minimum > 0, "minimum zoom must be positive")
   assert(type(maximum) == "number" and maximum >= minimum, "maximum zoom must not be below minimum")
-  assert(type(initial) == "number" and initial >= minimum and initial <= maximum,
-    "manual zoom must be within bounds")
+  assert(type(initial) == "number" and initial >= minimum and initial <= maximum, "manual zoom must be within bounds")
   assert(type(referenceHeight) == "number" and referenceHeight > 0, "reference height must be positive")
-  assert(type(compensation) == "number" and compensation >= 0 and compensation <= 1,
-    "resize compensation must be between zero and one")
+  assert(
+    type(compensation) == "number" and compensation >= 0 and compensation <= 1,
+    "resize compensation must be between zero and one"
+  )
   assert(type(step) == "number" and step > 0, "zoom step must be positive")
   return setmetatable({
     minZoom = minimum,
@@ -48,8 +48,7 @@ function FieldZoom.new(config)
 end
 
 function FieldZoom:resize(viewportHeight)
-  assert(type(viewportHeight) == "number" and viewportHeight > 0,
-    "zoom viewport height must be positive")
+  assert(type(viewportHeight) == "number" and viewportHeight > 0, "zoom viewport height must be positive")
   self.viewportHeight = viewportHeight
 end
 

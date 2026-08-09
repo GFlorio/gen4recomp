@@ -11,7 +11,7 @@ local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
 
 local Tex0Fixture = {}
 
-local TEXEL_BYTES = 32  -- 8x8 at 4bpp
+local TEXEL_BYTES = 32 -- 8x8 at 4bpp
 local PALETTE_BYTES = 8 -- four rgb555 entries
 local FORMAT_PALETTE16 = 3
 
@@ -30,8 +30,7 @@ function Tex0Fixture.block(opts)
     texEntries[#texEntries + 1] = { name = name, data = NB.u32(param) .. "\0\0\0\0" }
   end
   for i, name in ipairs(palNames) do
-    palEntries[#palEntries + 1] =
-      { name = name, data = NB.u16((i - 1) * PALETTE_BYTES / 8) .. NB.u16(0) }
+    palEntries[#palEntries + 1] = { name = name, data = NB.u16((i - 1) * PALETTE_BYTES / 8) .. NB.u16(0) }
   end
 
   local texDict = NB.dict(texEntries)
@@ -43,10 +42,27 @@ function Tex0Fixture.block(opts)
   local ofsPlttData = ofsTexData + #texData
   local palData = string.rep(TF.palette({ TF.BLACK, TF.RED, TF.BLACK, TF.BLACK }), #palNames)
 
-  local header = "TEX0" .. NB.u32(0)
-    .. NB.u32(0) .. NB.u16(#texData / 8) .. NB.u16(ofsTexDict) .. NB.u16(0) .. NB.u16(0) .. NB.u32(ofsTexData)
-    .. NB.u32(0) .. NB.u16(0) .. NB.u16(ofsTexDict) .. NB.u16(0) .. NB.u16(0) .. NB.u32(0) .. NB.u32(0)
-    .. NB.u32(0) .. NB.u16(#palData / 8) .. NB.u16(0) .. NB.u16(ofsPlttDict) .. NB.u16(0) .. NB.u32(ofsPlttData)
+  local header = "TEX0"
+    .. NB.u32(0)
+    .. NB.u32(0)
+    .. NB.u16(#texData / 8)
+    .. NB.u16(ofsTexDict)
+    .. NB.u16(0)
+    .. NB.u16(0)
+    .. NB.u32(ofsTexData)
+    .. NB.u32(0)
+    .. NB.u16(0)
+    .. NB.u16(ofsTexDict)
+    .. NB.u16(0)
+    .. NB.u16(0)
+    .. NB.u32(0)
+    .. NB.u32(0)
+    .. NB.u32(0)
+    .. NB.u16(#palData / 8)
+    .. NB.u16(0)
+    .. NB.u16(ofsPlttDict)
+    .. NB.u16(0)
+    .. NB.u32(ofsPlttData)
   assert(#header == 0x3C, "TEX0 header must be 0x3C, got " .. #header)
 
   local block = header .. texDict .. pltDict .. texData .. palData

@@ -18,31 +18,49 @@ local function harness(spec)
   local data = NdsBuilder.build(spec or DumpFixture.spec())
   local sha1 = RomSource.fromString(data):sha1()
   local info = {
-    id = "heartgold", label = "HeartGold", displayName = "Pokemon HeartGold",
-    sha1 = sha1, gameCode = "IPKE", expectedSize = #data, cachePrefix = "heartgold/",
+    id = "heartgold",
+    label = "HeartGold",
+    displayName = "Pokemon HeartGold",
+    sha1 = sha1,
+    gameCode = "IPKE",
+    expectedSize = #data,
+    cachePrefix = "heartgold/",
   }
   local versions = {
-    info = function(id) return id == "heartgold" and info or nil end,
-    forSha1 = function(h) return h == sha1 and info or nil end,
-    forGameCode = function(c) return c == "IPKE" and info or nil end,
+    info = function(id)
+      return id == "heartgold" and info or nil
+    end,
+    forSha1 = function(h)
+      return h == sha1 and info or nil
+    end,
+    forGameCode = function(c)
+      return c == "IPKE" and info or nil
+    end,
   }
   local backend = FakeCache.new()
   local events = {}
   local importer = RomImporter.new({
     versions = versions,
-    now = function() return 0 end,
-    cacheFactory = function(id) return CacheFs.forVersion(id, backend) end,
-    onComplete = function(id) events[#events + 1] = id end,
+    now = function()
+      return 0
+    end,
+    cacheFactory = function(id)
+      return CacheFs.forVersion(id, backend)
+    end,
+    onComplete = function(id)
+      events[#events + 1] = id
+    end,
   })
-  return { data = data, info = info, versions = versions, backend = backend,
-    importer = importer, events = events }
+  return { data = data, info = info, versions = versions, backend = backend, importer = importer, events = events }
 end
 
 -- Drive update() until the importer reaches a terminal state (or a step cap).
 local function runToTerminal(importer)
   for _ = 1, 10000 do
     importer:update()
-    if importer.state == "complete" or importer.state == "error" then return end
+    if importer.state == "complete" or importer.state == "error" then
+      return
+    end
   end
   error("importer did not terminate")
 end
@@ -54,15 +72,22 @@ function T.yields_and_still_completes_across_pcall()
   local t = 0
   local importer = RomImporter.new({
     versions = h.versions,
-    now = function() t = t + 1 return t end,
-    cacheFactory = function(id) return CacheFs.forVersion(id, h.backend) end,
+    now = function()
+      t = t + 1
+      return t
+    end,
+    cacheFactory = function(id)
+      return CacheFs.forVersion(id, h.backend)
+    end,
   })
   importer:startSource(RomSource.fromString(h.data))
   local ticks = 0
   for _ = 1, 10000 do
     importer:update()
     ticks = ticks + 1
-    if importer.state == "complete" or importer.state == "error" then break end
+    if importer.state == "complete" or importer.state == "error" then
+      break
+    end
   end
   Assert.equal(importer.state, "complete")
   Assert.isTrue(ticks > 1, "expected the import to span multiple update() slices")
@@ -89,8 +114,12 @@ function T.validation_precedes_cache_cleanup()
   local blind = { info = function() end, forSha1 = function() end, forGameCode = function() end }
   local importer = RomImporter.new({
     versions = blind,
-    now = function() return 0 end,
-    cacheFactory = function(id) return CacheFs.forVersion(id, h.backend) end,
+    now = function()
+      return 0
+    end,
+    cacheFactory = function(id)
+      return CacheFs.forVersion(id, h.backend)
+    end,
   })
   importer:startSource(RomSource.fromString(h.data))
   runToTerminal(importer)
@@ -103,8 +132,16 @@ end
 -- A dropped non-.nds file is rejected with a friendly error before any read,
 -- leaving caches untouched (E8-S3).
 function T.rejects_non_nds_drop()
-  local importer = RomImporter.new({ now = function() return 0 end })
-  local stub = { getFilename = function() return "photo.png" end }
+  local importer = RomImporter.new({
+    now = function()
+      return 0
+    end,
+  })
+  local stub = {
+    getFilename = function()
+      return "photo.png"
+    end,
+  }
   importer:filedropped(stub)
   Assert.equal(importer.state, "error")
   Assert.equal(importer:status().errorCode, "IMPORT_NOT_NDS")
@@ -131,7 +168,9 @@ function T.progress_is_monotonic()
     local p = h.importer.progress or 0
     Assert.isTrue(p >= last, "progress regressed: " .. p .. " < " .. last)
     last = p
-    if h.importer.state == "complete" or h.importer.state == "error" then break end
+    if h.importer.state == "complete" or h.importer.state == "error" then
+      break
+    end
   end
   Assert.equal(h.importer.state, "complete")
   Assert.equal(last, 1)
@@ -147,8 +186,12 @@ function T.reimport_always_extracts()
 
   local again = RomImporter.new({
     versions = h.versions,
-    now = function() return 0 end,
-    cacheFactory = function(id) return CacheFs.forVersion(id, h.backend) end,
+    now = function()
+      return 0
+    end,
+    cacheFactory = function(id)
+      return CacheFs.forVersion(id, h.backend)
+    end,
   })
   again:startSource(RomSource.fromString(h.data))
   runToTerminal(again)

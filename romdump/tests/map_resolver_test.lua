@@ -4,26 +4,38 @@ local MapResolver = require("romdump.src.digest.MapResolver")
 
 local T = {}
 
-local function u8(v) return string.char(v % 256) end
-local function u16(v) return string.char(v % 256, math.floor(v / 256) % 256) end
+local function u8(v)
+  return string.char(v % 256)
+end
+local function u16(v)
+  return string.char(v % 256, math.floor(v / 256) % 256)
+end
 
 -- Assemble a map-matrix member (same layout MapMatrix.decode consumes).
 local function buildMatrix(spec)
   local n = spec.width * spec.height
   local name = spec.name or ""
   local parts = {
-    u8(spec.width), u8(spec.height),
+    u8(spec.width),
+    u8(spec.height),
     u8(spec.hasHeaders and 1 or 0),
     u8(spec.hasAltitudes and 1 or 0),
-    u8(#name), name,
+    u8(#name),
+    name,
   }
   if spec.hasHeaders then
-    for i = 1, n do parts[#parts + 1] = u16((spec.headers and spec.headers[i]) or 0) end
+    for i = 1, n do
+      parts[#parts + 1] = u16((spec.headers and spec.headers[i]) or 0)
+    end
   end
   if spec.hasAltitudes then
-    for i = 1, n do parts[#parts + 1] = u8((spec.altitudes and spec.altitudes[i]) or 0) end
+    for i = 1, n do
+      parts[#parts + 1] = u8((spec.altitudes and spec.altitudes[i]) or 0)
+    end
   end
-  for i = 1, n do parts[#parts + 1] = u16((spec.modelIds and spec.modelIds[i]) or 0) end
+  for i = 1, n do
+    parts[#parts + 1] = u16((spec.modelIds and spec.modelIds[i]) or 0)
+  end
   return table.concat(parts)
 end
 
@@ -48,8 +60,11 @@ end
 local function elmsLabRomFs()
   return fakeRomFs({
     [100] = buildMatrix({
-      width = 1, height = 1, name = "m_labo01_",
-      hasHeaders = false, hasAltitudes = false,
+      width = 1,
+      height = 1,
+      name = "m_labo01_",
+      hasHeaders = false,
+      hasAltitudes = false,
       modelIds = { 244 },
     }),
   })
@@ -60,12 +75,17 @@ local function newBarkRomFs(headerCell)
   headerCell = headerCell or { x = 21, z = 12 }
   local width, height = 47, 17
   local headers = {}
-  for i = 1, width * height do headers[i] = 0 end
+  for i = 1, width * height do
+    headers[i] = 0
+  end
   headers[headerCell.z * width + headerCell.x + 1] = 60
   return fakeRomFs({
     [0] = buildMatrix({
-      width = width, height = height, name = "map",
-      hasHeaders = true, hasAltitudes = true,
+      width = width,
+      height = height,
+      name = "map",
+      hasHeaders = true,
+      hasAltitudes = true,
       headers = headers,
     }),
   })
@@ -114,8 +134,11 @@ function T.resolves_multi_cell_map_at_matching_region_centroid()
   local width, height = 3, 1
   local rom = fakeRomFs({
     [0] = buildMatrix({
-      width = width, height = height, hasHeaders = true,
-      headers = { 31, 31, 31 }, modelIds = { 10, 11, 12 },
+      width = width,
+      height = height,
+      hasHeaders = true,
+      headers = { 31, 31, 31 },
+      modelIds = { 10, 11, 12 },
     }),
   })
   local r = assert(MapResolver.resolve(rom, "MAP_ROUTE_27"))
@@ -127,7 +150,11 @@ end
 function T.rejects_non_renderable_catalog_header()
   local rom = fakeRomFs({
     [0] = buildMatrix({
-      width = 1, height = 1, hasHeaders = true, headers = { 0 }, modelIds = { 10 },
+      width = 1,
+      height = 1,
+      hasHeaders = true,
+      headers = { 0 },
+      modelIds = { 10 },
     }),
   })
   local r, err = MapResolver.resolve(rom, "MAP_EVERYWHERE")

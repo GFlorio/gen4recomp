@@ -33,16 +33,17 @@ function MapCatalog.get(idOrSymbol)
   end
   local record = id ~= nil and byId[id] or nil
   if not record then
-    return nil, Errors.new("MAP_CATALOG_UNKNOWN",
-      "no catalog record for " .. tostring(idOrSymbol),
-      { key = idOrSymbol })
+    return nil,
+      Errors.new("MAP_CATALOG_UNKNOWN", "no catalog record for " .. tostring(idOrSymbol), { key = idOrSymbol })
   end
   return record
 end
 
 function MapCatalog.require(idOrSymbol)
   local record, err = MapCatalog.get(idOrSymbol)
-  if not record then error(err) end
+  if not record then
+    error(err)
+  end
   return record
 end
 
@@ -67,7 +68,9 @@ function MapCatalog.all()
   local id = -1
   return function()
     id = id + 1
-    if id == COUNT then return nil end
+    if id == COUNT then
+      return nil
+    end
     return byId[id]
   end
 end

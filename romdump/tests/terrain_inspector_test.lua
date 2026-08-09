@@ -11,8 +11,10 @@ local T = {}
 function T.filters_plate_metadata_and_builds_height_gizmos()
   local terrain = assert(HgssBdhc.decode(Builder.build({
     points = {
-      { x = -16, z = -16 }, { x = 0, z = 16 },
-      { x = 0, z = -16 }, { x = 16, z = 16 },
+      { x = -16, z = -16 },
+      { x = 0, z = 16 },
+      { x = 0, z = -16 },
+      { x = 16, z = 16 },
     },
     heights = { Builder.heightRaw(2) },
     plates = {

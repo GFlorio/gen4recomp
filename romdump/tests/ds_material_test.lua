@@ -7,7 +7,9 @@ local DsMaterial = require("romdump.src.digest.nitro.DsMaterial")
 local T = {}
 
 -- Pack a 15-bit BGR555 triple.
-local function rgb555(r, g, b) return r + g * 32 + b * 1024 end
+local function rgb555(r, g, b)
+  return r + g * 32 + b * 1024
+end
 
 function T.unpacks_diff_amb()
   local diffuse = rgb555(31, 0, 0)
@@ -61,8 +63,12 @@ function T.resolve_merges_masked_registers()
     texImageParamRaw = 0x00030000,
     texImageParamMask = 0xFFFFFFFF,
     flagsRaw = 0xFFFF,
-    diffuseRgb555 = 10, ambientRgb555 = 20, specularRgb555 = 30, emissionRgb555 = 40,
-    setVertexColor = false, useShininessTable = false,
+    diffuseRgb555 = 10,
+    ambientRgb555 = 20,
+    specularRgb555 = 30,
+    emissionRgb555 = 40,
+    setVertexColor = false,
+    useShininessTable = false,
   }
   local globals = { polyAttr = 0x0000FF00, texImageParam = 0xFFFFFFFF }
   local eff = DsMaterial.resolve(raw, globals, DsMaterial.applyFieldPolicy(raw))
@@ -79,11 +85,17 @@ end
 function T.resolve_honors_material_owned_channel()
   local raw = {
     name = "m",
-    polyAttrRaw = 0, polyAttrMask = 0xFFFFFFFF,
-    texImageParamRaw = 0, texImageParamMask = 0xFFFFFFFF,
+    polyAttrRaw = 0,
+    polyAttrMask = 0xFFFFFFFF,
+    texImageParamRaw = 0,
+    texImageParamMask = 0xFFFFFFFF,
     flagsRaw = DsMaterial.FLAG.vertexColor,
-    diffuseRgb555 = 7, ambientRgb555 = 0, specularRgb555 = 0, emissionRgb555 = 0,
-    setVertexColor = false, useShininessTable = false,
+    diffuseRgb555 = 7,
+    ambientRgb555 = 0,
+    specularRgb555 = 0,
+    emissionRgb555 = 0,
+    setVertexColor = false,
+    useShininessTable = false,
   }
   -- A policy that keeps diffuse ownership makes diffuse a material channel.
   local policy = DsMaterial.ownership(DsMaterial.FLAG.diffuse)
@@ -94,8 +106,11 @@ end
 
 function T.resolve_rejects_partial_mask()
   local raw = {
-    name = "m", polyAttrRaw = 0, polyAttrMask = 0x0000FFFF,
-    texImageParamRaw = 0, texImageParamMask = 0xFFFFFFFF,
+    name = "m",
+    polyAttrRaw = 0,
+    polyAttrMask = 0x0000FFFF,
+    texImageParamRaw = 0,
+    texImageParamMask = 0xFFFFFFFF,
   }
   Assert.throws(function()
     DsMaterial.resolve(raw, { polyAttr = 0, texImageParam = 0 }, DsMaterial.applyFieldPolicy({ flagsRaw = 0 }))

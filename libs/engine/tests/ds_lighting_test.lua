@@ -7,7 +7,9 @@ local DsLighting = require("libs.engine.src.DsLighting")
 
 local T = {}
 
-local function rgb555(r, g, b) return r + g * 32 + b * 1024 end
+local function rgb555(r, g, b)
+  return r + g * 32 + b * 1024
+end
 
 local function light(color, vec)
   return { enabled = true, colorRgb555 = rgb555(color, color, color), vectorFx12 = vec }
@@ -29,7 +31,9 @@ end
 function T.emission_with_no_enabled_lights()
   local c = DsLighting.vertexColorRgb5(params({ emission = rgb555(5, 10, 15), lightMask = 0 }))
   local r, g, b = DsLighting.unpackRgb555(c)
-  Assert.equal(r, 5); Assert.equal(g, 10); Assert.equal(b, 15)
+  Assert.equal(r, 5)
+  Assert.equal(g, 10)
+  Assert.equal(b, 15)
 end
 
 function T.ambient_from_one_enabled_light()
@@ -72,12 +76,14 @@ function T.disabled_light_is_ignored()
     lightMask = 0,
   }))
   local r, g, b = DsLighting.unpackRgb555(c)
-  Assert.equal(r, 4); Assert.equal(g, 4); Assert.equal(b, 4)
+  Assert.equal(r, 4)
+  Assert.equal(g, 4)
+  Assert.equal(b, 4)
 end
 
 function T.light_mask_selects_lights()
   local l1 = light(31, { 0, 0, -4096 }) -- travels -Z, lights +Z surface
-  local l2 = light(31, { 0, 0, 4096 })  -- travels +Z, behind +Z surface
+  local l2 = light(31, { 0, 0, 4096 }) -- travels +Z, behind +Z surface
   -- Only light 2 (mask bit 1) is enabled; it is behind the +Z normal so no diffuse.
   local c = DsLighting.vertexColorRgb5(params({
     diffuse = rgb555(10, 10, 10),
@@ -105,7 +111,9 @@ function T.saturates_per_channel()
     lightMask = 1,
   }))
   local r, g, b = DsLighting.unpackRgb555(c)
-  Assert.equal(r, 31); Assert.equal(g, 25); Assert.equal(b, 25)
+  Assert.equal(r, 31)
+  Assert.equal(g, 25)
+  Assert.equal(b, 25)
 end
 
 function T.material_owned_channel_used_when_passed()
@@ -120,7 +128,9 @@ function T.material_owned_channel_used_when_passed()
   }))
   local r, g, b = DsLighting.unpackRgb555(c)
   -- lightColor * (ambient + diffuse) = 1 * (10, 18, 26)
-  Assert.equal(r, 10); Assert.equal(g, 18); Assert.equal(b, 26)
+  Assert.equal(r, 10)
+  Assert.equal(g, 18)
+  Assert.equal(b, 26)
 end
 
 function T.composes_modulation_alpha_5bit()

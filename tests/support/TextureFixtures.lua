@@ -18,14 +18,19 @@ TextureFixtures.WHITE = 0x7FFF
 -- Palette string from a list of BGR555 u16 values.
 function TextureFixtures.palette(values)
   local out = {}
-  for _, v in ipairs(values) do out[#out + 1] = TextureFixtures.u16(v) end
+  for _, v in ipairs(values) do
+    out[#out + 1] = TextureFixtures.u16(v)
+  end
   return table.concat(out)
 end
 
 -- Default 4-entry palette: index 0 black, 1 red, 2 green, 3 blue.
 function TextureFixtures.primaryPalette()
   return TextureFixtures.palette({
-    TextureFixtures.BLACK, TextureFixtures.RED, TextureFixtures.GREEN, TextureFixtures.BLUE,
+    TextureFixtures.BLACK,
+    TextureFixtures.RED,
+    TextureFixtures.GREEN,
+    TextureFixtures.BLUE,
   })
 end
 

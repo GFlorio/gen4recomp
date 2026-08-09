@@ -24,7 +24,9 @@ end
 
 local function names(sbc)
   local out = {}
-  for _, c in ipairs(sbc.commands) do out[#out + 1] = c.name end
+  for _, c in ipairs(sbc.commands) do
+    out[#out + 1] = c.name
+  end
   return table.concat(out, " ")
 end
 

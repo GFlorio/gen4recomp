@@ -14,10 +14,8 @@ function FieldMessageCacheWriter.isReady(cacheFs, marker)
 end
 
 function FieldMessageCacheWriter.write(cacheFs, bundle)
-  assert(bundle and bundle.marker and bundle.index and bundle.banks,
-    "write requires a message bundle")
-  assert(bundle.index.schema == FieldMessageCache.INDEX_SCHEMA,
-    "bundle index schema mismatch")
+  assert(bundle and bundle.marker and bundle.index and bundle.banks, "write requires a message bundle")
+  assert(bundle.index.schema == FieldMessageCache.INDEX_SCHEMA, "bundle index schema mismatch")
   local ok, err = pcall(function()
     cacheFs:remove(FieldMessageCache.markerPath())
     cacheFs:writeLua(FieldMessageCache.provenancePath(), {
@@ -27,8 +25,7 @@ function FieldMessageCacheWriter.write(cacheFs, bundle)
     cacheFs:writeLua(FieldMessageCache.indexPath(), bundle.index)
     for _, bankId in ipairs(bundle.index.bankIds) do
       local bank = bundle.banks[bankId]
-      assert(bank and bank.schema == FieldMessageCache.SCHEMA,
-        "bundle is missing bank " .. tostring(bankId))
+      assert(bank and bank.schema == FieldMessageCache.SCHEMA, "bundle is missing bank " .. tostring(bankId))
       cacheFs:writeLua(FieldMessageCache.bankPath(bankId), bank)
     end
     local readIndex = cacheFs:loadLua(FieldMessageCache.indexPath())
@@ -37,16 +34,22 @@ function FieldMessageCacheWriter.write(cacheFs, bundle)
     end
     for _, bankId in ipairs(bundle.index.bankIds) do
       local bank = cacheFs:loadLua(FieldMessageCache.bankPath(bankId))
-      if type(bank) ~= "table" or bank.schema ~= FieldMessageCache.SCHEMA
-          or bank.bankId ~= bankId then
-        Errors.raise("FIELD_MESSAGE_CACHE_READBACK_FAILED",
-          "bank " .. tostring(bankId) .. " readback failed", { bankId = bankId })
+      if type(bank) ~= "table" or bank.schema ~= FieldMessageCache.SCHEMA or bank.bankId ~= bankId then
+        Errors.raise(
+          "FIELD_MESSAGE_CACHE_READBACK_FAILED",
+          "bank " .. tostring(bankId) .. " readback failed",
+          { bankId = bankId }
+        )
       end
     end
     cacheFs:write(FieldMessageCache.markerPath(), bundle.marker)
   end)
-  if ok then return true end
-  pcall(function() FieldMessageCache.invalidate(cacheFs) end)
+  if ok then
+    return true
+  end
+  pcall(function()
+    FieldMessageCache.invalidate(cacheFs)
+  end)
   error(err)
 end
 

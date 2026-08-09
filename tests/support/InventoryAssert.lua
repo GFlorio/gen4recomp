@@ -9,7 +9,11 @@ local Assert = require("tests.support.Assert")
 local SUPPORTED_MODES = { modulation = true, decal = true }
 
 local function contains(list, value)
-  for _, v in ipairs(list) do if v == value then return true end end
+  for _, v in ipairs(list) do
+    if v == value then
+      return true
+    end
+  end
   return false
 end
 
@@ -40,8 +44,7 @@ function M.assertSupported(inv, label)
   Assert.isNil(inv.gxOpcodes.SHININESS, label .. ": local SHININESS present")
 
   -- Wrap/flip bits are fully material-owned (texImageParamMask 0xFFFFFFFF).
-  Assert.isTrue(contains(inv.texImageParamMasks, "0xFFFFFFFF"),
-    label .. ": expected a full texImageParamMask")
+  Assert.isTrue(contains(inv.texImageParamMasks, "0xFFFFFFFF"), label .. ": expected a full texImageParamMask")
 end
 
 return M

@@ -23,9 +23,12 @@ local HARD_BLOCK_FLAG = 0x80
 function PermissionGrid.decode(bytes, context)
   assert(type(bytes) == "string", "PermissionGrid.decode requires a string")
   if #bytes ~= SIZE then
-    return nil, Errors.new("PERMISSION_BAD_SIZE",
-      "permission section must be " .. SIZE .. " bytes, got " .. #bytes,
-      { size = #bytes, expected = SIZE, source = context })
+    return nil,
+      Errors.new(
+        "PERMISSION_BAD_SIZE",
+        "permission section must be " .. SIZE .. " bytes, got " .. #bytes,
+        { size = #bytes, expected = SIZE, source = context }
+      )
   end
   return setmetatable({
     _reader = BinaryReader.new(bytes, "permissions"),
@@ -36,15 +39,16 @@ function PermissionGrid.decode(bytes, context)
 end
 
 function PermissionGrid:contains(x, z)
-  return type(x) == "number" and type(z) == "number"
-    and x >= 0 and z >= 0 and x < WIDTH and z < HEIGHT
+  return type(x) == "number" and type(z) == "number" and x >= 0 and z >= 0 and x < WIDTH and z < HEIGHT
 end
 
 function PermissionGrid:get(x, z)
   if not self:contains(x, z) then
-    Errors.raise("PERMISSION_OUT_OF_BOUNDS",
+    Errors.raise(
+      "PERMISSION_OUT_OF_BOUNDS",
       "local tile (" .. tostring(x) .. ", " .. tostring(z) .. ") outside 32x32 grid",
-      { x = x, z = z })
+      { x = x, z = z }
+    )
   end
   local offset = (z * WIDTH + x) * 2
   local behavior = self._reader:u8(offset)
@@ -71,14 +75,20 @@ local function usedValues(self, byteIndex)
     seen[self._reader:u8(index * 2 + byteIndex)] = true
   end
   local out = {}
-  for value in pairs(seen) do out[#out + 1] = value end
+  for value in pairs(seen) do
+    out[#out + 1] = value
+  end
   table.sort(out)
   return out
 end
 
 -- Distinct terrain/metatile behavior bytes (byte 0), sorted.
-function PermissionGrid:usedBehaviorValues() return usedValues(self, 0) end
+function PermissionGrid:usedBehaviorValues()
+  return usedValues(self, 0)
+end
 -- Distinct raw permission bytes (byte 1, hard-block bit + response id), sorted.
-function PermissionGrid:usedPermissionValues() return usedValues(self, 1) end
+function PermissionGrid:usedPermissionValues()
+  return usedValues(self, 1)
+end
 
 return PermissionGrid

@@ -26,7 +26,9 @@ local function bxor(a, b)
   local result = 0
   local bit = 1
   while a > 0 or b > 0 do
-    if (a % 2) ~= (b % 2) then result = result + bit end
+    if (a % 2) ~= (b % 2) then
+      result = result + bit
+    end
     a = math.floor(a / 2)
     b = math.floor(b / 2)
     bit = bit * 2
@@ -70,44 +72,61 @@ local function _decode(data, opts)
   local size = reader:length()
 
   if size < 4 then
-    Errors.raise("MESSAGE_HEADER_TRUNCATED",
+    Errors.raise(
+      "MESSAGE_HEADER_TRUNCATED",
       label .. " is " .. size .. " bytes, need at least a 4-byte MAT header",
-      { size = size })
+      { size = size }
+    )
   end
 
   local messageCount = reader:u16le(0)
   local key = reader:u16le(2)
   if messageCount > maxMessages then
-    Errors.raise("MESSAGE_COUNT_INVALID",
+    Errors.raise(
+      "MESSAGE_COUNT_INVALID",
       "message count " .. messageCount .. " exceeds configured maximum " .. maxMessages,
-      { messageCount = messageCount, maxMessages = maxMessages })
+      { messageCount = messageCount, maxMessages = maxMessages }
+    )
   end
 
   local tableEnd = 4 + messageCount * 8
   if tableEnd > size then
-    Errors.raise("MESSAGE_TABLE_OUT_OF_BOUNDS",
+    Errors.raise(
+      "MESSAGE_TABLE_OUT_OF_BOUNDS",
       "entry table ends at " .. tableEnd .. " but member is " .. size .. " bytes",
-      { tableEnd = tableEnd, size = size, messageCount = messageCount })
+      { tableEnd = tableEnd, size = size, messageCount = messageCount }
+    )
   end
 
   local entries = {}
   for index = 0, messageCount - 1 do
     local offset, length = decryptEntry(reader, key, index)
     if offset % 2 ~= 0 then
-      Errors.raise("MESSAGE_ENTRY_OUT_OF_BOUNDS",
+      Errors.raise(
+        "MESSAGE_ENTRY_OUT_OF_BOUNDS",
         "message " .. index .. " offset " .. offset .. " is not u16 aligned",
-        { messageId = index, offset = offset })
+        { messageId = index, offset = offset }
+      )
     end
     if length == 0 then
-      Errors.raise("MESSAGE_ENTRY_OUT_OF_BOUNDS",
-        "message " .. index .. " has zero length",
-        { messageId = index })
+      Errors.raise("MESSAGE_ENTRY_OUT_OF_BOUNDS", "message " .. index .. " has zero length", { messageId = index })
     end
     if offset < tableEnd or offset + length * 2 > size then
-      Errors.raise("MESSAGE_ENTRY_OUT_OF_BOUNDS",
-        "message " .. index .. " region [" .. offset .. ", " .. offset + length * 2
-          .. ") is outside the member body [" .. tableEnd .. ", " .. size .. ")",
-        { messageId = index, offset = offset, length = length, tableEnd = tableEnd, size = size })
+      Errors.raise(
+        "MESSAGE_ENTRY_OUT_OF_BOUNDS",
+        "message "
+          .. index
+          .. " region ["
+          .. offset
+          .. ", "
+          .. offset + length * 2
+          .. ") is outside the member body ["
+          .. tableEnd
+          .. ", "
+          .. size
+          .. ")",
+        { messageId = index, offset = offset, length = length, tableEnd = tableEnd, size = size }
+      )
     end
     entries[index + 1] = { messageId = index, offset = offset, length = length }
   end
@@ -119,11 +138,19 @@ local function _decode(data, opts)
       local bEnd = eb.offset + eb.length * 2
       local overlap = not (aEnd <= eb.offset or bEnd <= ea.offset)
       if overlap then
-        Errors.raise("MESSAGE_ENTRY_OVERLAP",
-          "messages " .. ea.messageId .. " and " .. eb.messageId .. " overlap; "
+        Errors.raise(
+          "MESSAGE_ENTRY_OVERLAP",
+          "messages "
+            .. ea.messageId
+            .. " and "
+            .. eb.messageId
+            .. " overlap; "
             .. "shared regions must be verified before they are allowed",
-          { first = { messageId = ea.messageId, offset = ea.offset, length = ea.length },
-            second = { messageId = eb.messageId, offset = eb.offset, length = eb.length } })
+          {
+            first = { messageId = ea.messageId, offset = ea.offset, length = ea.length },
+            second = { messageId = eb.messageId, offset = eb.offset, length = eb.length },
+          }
+        )
       end
     end
   end
@@ -133,9 +160,11 @@ local function _decode(data, opts)
     local entry = entries[index + 1]
     local units = decryptText(reader, entry.offset, entry.length, index)
     if units[#units] ~= 0xFFFF then
-      Errors.raise("MESSAGE_EOS_MISSING",
+      Errors.raise(
+        "MESSAGE_EOS_MISSING",
         "message " .. index .. " does not terminate with EOS (0xFFFF)",
-        { messageId = index, lastUnit = units[#units] })
+        { messageId = index, lastUnit = units[#units] }
+      )
     end
     messages[index + 1] = {
       messageId = index,
@@ -156,8 +185,12 @@ end
 function FieldMessageBank.decode(data, opts)
   assert(type(data) == "string", "FieldMessageBank.decode requires a string")
   local ok, result = pcall(_decode, data, opts)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 
@@ -181,10 +214,15 @@ function FieldMessageBank.encodeForTests(messages, key)
     local encryptedOffset = xor32(offset, seed32)
     local encryptedLength = xor32(length, seed32)
     local entry = string.char(
-      encryptedOffset % 256, math.floor(encryptedOffset / 256) % 256,
-      math.floor(encryptedOffset / 65536) % 256, math.floor(encryptedOffset / 16777216) % 256,
-      encryptedLength % 256, math.floor(encryptedLength / 256) % 256,
-      math.floor(encryptedLength / 65536) % 256, math.floor(encryptedLength / 16777216) % 256)
+      encryptedOffset % 256,
+      math.floor(encryptedOffset / 256) % 256,
+      math.floor(encryptedOffset / 65536) % 256,
+      math.floor(encryptedOffset / 16777216) % 256,
+      encryptedLength % 256,
+      math.floor(encryptedLength / 256) % 256,
+      math.floor(encryptedLength / 65536) % 256,
+      math.floor(encryptedLength / 16777216) % 256
+    )
     tableBytes[#tableBytes + 1] = entry
     local seed = mulmod(FieldMessageBank.DECRYPT2_SEED, index)
     local bytes = {}

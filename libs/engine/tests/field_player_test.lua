@@ -9,35 +9,62 @@ local T = {}
 local ROOT_HALF = math.sqrt(0.5)
 
 local function near(actual, expected)
-  Assert.isTrue(math.abs(actual - expected) <= 1e-9,
-    string.format("expected %.9f, got %.9f", expected, actual))
+  Assert.isTrue(math.abs(actual - expected) <= 1e-9, string.format("expected %.9f, got %.9f", expected, actual))
 end
 
 local function runtimeMap(blocked)
   local plates = {
-    { id = 0, minX = 0, minZ = 0, maxX = 1, maxZ = 32,
-      normal = { x = 0, y = 1, z = 0 }, distance = 0, slopeClass = "flat" },
-    { id = 1, minX = 1, minZ = 0, maxX = 3, maxZ = 32,
+    {
+      id = 0,
+      minX = 0,
+      minZ = 0,
+      maxX = 1,
+      maxZ = 32,
+      normal = { x = 0, y = 1, z = 0 },
+      distance = 0,
+      slopeClass = "flat",
+    },
+    {
+      id = 1,
+      minX = 1,
+      minZ = 0,
+      maxX = 3,
+      maxZ = 32,
       normal = { x = -ROOT_HALF, y = ROOT_HALF, z = 0 },
-      distance = -ROOT_HALF, slopeClass = "ramp-east" },
-    { id = 2, minX = 3, minZ = 0, maxX = 32, maxZ = 32,
-      normal = { x = 0, y = 1, z = 0 }, distance = 2, slopeClass = "flat" },
+      distance = -ROOT_HALF,
+      slopeClass = "ramp-east",
+    },
+    {
+      id = 2,
+      minX = 3,
+      minZ = 0,
+      maxX = 32,
+      maxZ = 32,
+      normal = { x = 0, y = 1, z = 0 },
+      distance = 2,
+      slopeClass = "flat",
+    },
   }
   return {
     mapId = 60,
     coordinateOrigin = { x = 0, z = 0 },
     permissions = {
-      containsLocal = function(_, x, z) return x >= 0 and x < 32 and z >= 0 and z < 32 end,
-      isBlockedLocal = function(_, x, z) return blocked and blocked[x .. ":" .. z] or false end,
-      getLocal = function() return { hardBlocked = false } end,
+      containsLocal = function(_, x, z)
+        return x >= 0 and x < 32 and z >= 0 and z < 32
+      end,
+      isBlockedLocal = function(_, x, z)
+        return blocked and blocked[x .. ":" .. z] or false
+      end,
+      getLocal = function()
+        return { hardBlocked = false }
+      end,
     },
     terrain = TerrainSurface.new({ plates = plates }),
   }
 end
 
 local function player(map, x, z, surfaceId)
-  return FieldPlayer.new({ currentMap = map, fieldX = x, fieldZ = z,
-    surfaceId = surfaceId, facing = "south" })
+  return FieldPlayer.new({ currentMap = map, fieldX = x, fieldZ = z, surfaceId = surfaceId, facing = "south" })
 end
 
 local function tick(p, held, pressed)
@@ -93,14 +120,20 @@ end
 function T.latest_pressed_direction_buffers_during_a_step()
   local p = player(runtimeMap(), 0, 4, 0)
   tick(p, "east", "east")
-  for _ = 2, 4 do tick(p, "east") end
+  for _ = 2, 4 do
+    tick(p, "east")
+  end
   tick(p, "south", "south")
-  for _ = 6, 8 do tick(p, "south") end
+  for _ = 6, 8 do
+    tick(p, "south")
+  end
   Assert.equal(p.fieldX, 1)
   Assert.equal(p.fieldZ, 4)
   tick(p, "south")
   Assert.equal(p.motion, "walking")
-  for _ = 2, 8 do tick(p, "south") end
+  for _ = 2, 8 do
+    tick(p, "south")
+  end
   Assert.equal(p.fieldZ, 5)
 end
 
@@ -116,8 +149,11 @@ end
 -- manager; it only needs truthy/nil answers per destination cell.
 local function occupyingPlayer(map, x, z, surfaceId, occupantCells)
   local p = FieldPlayer.new({
-    currentMap = map, fieldX = x, fieldZ = z,
-    surfaceId = surfaceId, facing = "south",
+    currentMap = map,
+    fieldX = x,
+    fieldZ = z,
+    surfaceId = surfaceId,
+    facing = "south",
     occupancy = function(cellX, cellZ, cellSurface)
       local key = cellX .. ":" .. cellZ .. ":" .. cellSurface
       return occupantCells[key] or nil
@@ -127,8 +163,7 @@ local function occupyingPlayer(map, x, z, surfaceId, occupantCells)
 end
 
 function T.actor_on_the_resolved_destination_surface_blocks_the_step()
-  local p = occupyingPlayer(runtimeMap(), 0, 4, 0,
-    { ["1:4:1"] = "map:61:object:0" })
+  local p = occupyingPlayer(runtimeMap(), 0, 4, 0, { ["1:4:1"] = "map:61:object:0" })
   tick(p, "east", "east")
   Assert.equal(p.facing, "east")
   Assert.equal(p.fieldX, 0)
@@ -138,11 +173,12 @@ end
 function T.actor_on_a_different_surface_does_not_block_the_same_cell()
   -- The east step resolves onto surface 1; an occupant on surface 0 at the
   -- same cell must not block it.
-  local p = occupyingPlayer(runtimeMap(), 0, 4, 0,
-    { ["1:4:0"] = "map:61:object:0" })
+  local p = occupyingPlayer(runtimeMap(), 0, 4, 0, { ["1:4:0"] = "map:61:object:0" })
   tick(p, "east", "east")
   Assert.equal(p.motion, "walking")
-  for _ = 2, 8 do tick(p, "east") end
+  for _ = 2, 8 do
+    tick(p, "east")
+  end
   Assert.equal(p.fieldX, 1)
   Assert.equal(p.surfaceId, 1)
 end
@@ -162,7 +198,9 @@ function T.occupancy_blocks_only_the_cell_it_names()
   local p = occupyingPlayer(runtimeMap(), 0, 4, 0, { ["3:4:2"] = "map:61:object:0" })
   tick(p, "east", "east")
   Assert.equal(p.motion, "walking")
-  for _ = 2, 16 do tick(p, "east") end
+  for _ = 2, 16 do
+    tick(p, "east")
+  end
   Assert.equal(p.fieldX, 2)
 end
 

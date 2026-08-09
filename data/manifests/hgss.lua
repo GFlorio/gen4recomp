@@ -127,7 +127,9 @@ function Hgss.aliasList()
   for alias in pairs(ALIAS_TO_SYMBOL) do
     list[#list + 1] = entryForAlias(alias)
   end
-  table.sort(list, function(a, b) return a.narcId < b.narcId end)
+  table.sort(list, function(a, b)
+    return a.narcId < b.narcId
+  end)
   return list
 end
 

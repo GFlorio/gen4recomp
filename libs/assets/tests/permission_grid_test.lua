@@ -18,10 +18,10 @@ end
 function T.addresses_records_row_major()
   -- Distinctive behavior byte at the four corners the layout calls out.
   local g = assert(PermissionGrid.decode(build({
-    [0] = { 1, 0 },      -- (0,0) -> bytes 0,1
-    [31] = { 2, 0 },     -- (31,0) -> bytes 62,63
-    [32] = { 3, 0 },     -- (0,1) -> bytes 64,65
-    [1023] = { 4, 0 },   -- (31,31) -> last two bytes
+    [0] = { 1, 0 }, -- (0,0) -> bytes 0,1
+    [31] = { 2, 0 }, -- (31,0) -> bytes 62,63
+    [32] = { 3, 0 }, -- (0,1) -> bytes 64,65
+    [1023] = { 4, 0 }, -- (31,31) -> last two bytes
   })))
   Assert.equal(g:get(0, 0).behavior, 1)
   Assert.equal(g:get(31, 0).behavior, 2)
@@ -60,7 +60,9 @@ function T.contains_rejects_out_of_range_without_wrapping()
   Assert.isFalse(g:contains(32, 0))
   Assert.isFalse(g:contains(0, 32))
   Assert.isFalse(g:contains(-1, 0))
-  Assert.throws(function() g:get(32, 0) end)
+  Assert.throws(function()
+    g:get(32, 0)
+  end)
 end
 
 function T.used_value_sets_are_sorted_and_distinct()

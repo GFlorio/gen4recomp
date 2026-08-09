@@ -16,7 +16,9 @@ local Runner = {}
 local function readyVersions()
   local out = {}
   for _, id in ipairs(GameVersion.ORDER) do
-    if RomImporter.isReady(id) then out[#out + 1] = id end
+    if RomImporter.isReady(id) then
+      out[#out + 1] = id
+    end
   end
   return out
 end
@@ -58,8 +60,10 @@ function Runner.load(opts)
   if Runner.opts.importRom then
     return Runner._startImport(Runner.opts.importRom)
   end
-  print("romdump: no command given (expected --import-rom, --check-dump, "
-    .. "--analyze-maps, --inspect, --inspect-sbc, --inspect-actors, or --build-cache)")
+  print(
+    "romdump: no command given (expected --import-rom, --check-dump, "
+      .. "--analyze-maps, --inspect, --inspect-sbc, --inspect-actors, or --build-cache)"
+  )
   love.event.quit(2)
 end
 
@@ -81,7 +85,9 @@ function Runner._runAnalyzeMaps()
       print("version\t" .. version)
       local ok, results = pcall(MapAnalysis.analyze, romFs)
       if ok then
-        for _, line in ipairs(MapAnalysis.lines(results)) do print(line) end
+        for _, line in ipairs(MapAnalysis.lines(results)) do
+          print(line)
+        end
       else
         allOk = false
         print("analyze-maps: " .. version .. " failed: " .. Errors.format(results))
@@ -103,8 +109,12 @@ function Runner._runCheckDump()
   local allOk = true
   for _, version in ipairs(targets) do
     local report = DumpAudit.run(version)
-    for _, line in ipairs(DumpAudit.lines(report)) do print(line) end
-    if not report.ok then allOk = false end
+    for _, line in ipairs(DumpAudit.lines(report)) do
+      print(line)
+    end
+    if not report.ok then
+      allOk = false
+    end
   end
   love.event.quit(allOk and 0 or 1)
 end
@@ -128,7 +138,9 @@ function Runner._runInspectSbc()
       local ok, report = pcall(SbcInventory.scan, romFs)
       if ok then
         print("version\t" .. version)
-        for _, line in ipairs(SbcInventory.lines(report)) do print(line) end
+        for _, line in ipairs(SbcInventory.lines(report)) do
+          print(line)
+        end
       else
         allOk = false
         print("inspect-sbc: " .. version .. " failed: " .. Errors.format(report))
@@ -157,7 +169,9 @@ function Runner._runInspectActors()
       allOk = false
       print("inspect-actors: open failed for " .. version .. ": " .. Errors.format(err))
     else
-      local ok, bundle = pcall(function() return assert(FieldActorCompiler.compile(romFs)) end)
+      local ok, bundle = pcall(function()
+        return assert(FieldActorCompiler.compile(romFs))
+      end)
       if ok then
         print("version\t" .. version)
         for _, line in ipairs(FieldActorInspector.lines(FieldActorInspector.inspect(bundle))) do
@@ -198,18 +212,23 @@ function Runner._runInspect()
       local ok, err2 = pcall(function()
         local cameraBundle = assert(FieldCameraCompiler.compile(romFs))
         local cameraReport = FieldCameraInspector.inspect(cameraBundle.profiles)
-        for _, line in ipairs(FieldCameraInspector.lines(cameraReport)) do print(line) end
+        for _, line in ipairs(FieldCameraInspector.lines(cameraReport)) do
+          print(line)
+        end
         for _, fieldBundle in ipairs(assert(FieldMapDataCompiler.compileAll(romFs))) do
           local fieldReport = FieldMapDataInspector.inspect(fieldBundle.field)
-          for _, line in ipairs(FieldMapDataInspector.lines(fieldReport)) do print(line) end
+          for _, line in ipairs(FieldMapDataInspector.lines(fieldReport)) do
+            print(line)
+          end
         end
         for _, result in ipairs(MapAnalysis.analyze(romFs)) do
           if result.status == "resolved" then
             local report = MapAssetInspector.inspect(romFs, result.id)
-            for _, line in ipairs(MapAssetInspector.lines(report)) do print(line) end
+            for _, line in ipairs(MapAssetInspector.lines(report)) do
+              print(line)
+            end
           else
-            print(string.format("inspect: %s map %d %s excluded: %s",
-              version, result.id, result.symbol, result.reason))
+            print(string.format("inspect: %s map %d %s excluded: %s", version, result.id, result.symbol, result.reason))
           end
         end
       end)
@@ -276,17 +295,16 @@ function Runner._runBuild()
         print(string.format("build-cache: %s field actors current", version))
       else
         FieldActorCacheWriter.write(cacheFs, actorBundle)
-        print(string.format("build-cache: %s field actors compiled (%d sprites)",
-          version, #actorBundle.index.spriteIds))
+        print(
+          string.format("build-cache: %s field actors compiled (%d sprites)", version, #actorBundle.index.spriteIds)
+        )
       end
       for _, fieldBundle in ipairs(assert(FieldMapDataCompiler.compileAll(romFs))) do
         if FieldMapDataCache.isReady(cacheFs, fieldBundle.mapId, fieldBundle.marker) then
-          print(string.format("build-cache: %s map %d field data current",
-            version, fieldBundle.mapId))
+          print(string.format("build-cache: %s map %d field data current", version, fieldBundle.mapId))
         else
           FieldMapDataCacheWriter.write(cacheFs, fieldBundle)
-          print(string.format("build-cache: %s map %d field data compiled",
-            version, fieldBundle.mapId))
+          print(string.format("build-cache: %s map %d field data compiled", version, fieldBundle.mapId))
         end
       end
       local fontBundle = assert(FieldFontCompiler.compile(romFs))
@@ -301,14 +319,17 @@ function Runner._runBuild()
         print(string.format("build-cache: %s field messages current", version))
       else
         FieldMessageCacheWriter.write(cacheFs, messageBundle)
-        print(string.format("build-cache: %s field messages compiled (%d banks)",
-          version, #messageBundle.index.bankIds))
+        print(
+          string.format("build-cache: %s field messages compiled (%d banks)", version, #messageBundle.index.bankIds)
+        )
       end
       local entries, excluded, compileExcluded = {}, {}, {}
       for _, result in ipairs(MapAnalysis.analyze(romFs)) do
         if result.status == "excluded" then
           excluded[#excluded + 1] = {
-            id = result.id, symbol = result.symbol, reason = result.reason,
+            id = result.id,
+            symbol = result.symbol,
+            reason = result.reason,
             matchCount = result.matchCount,
           }
         else
@@ -323,8 +344,7 @@ function Runner._runBuild()
               message = compileErr.message,
               context = compileErr.context,
             }
-            print(string.format("build-cache: %s map %d excluded: %s",
-              version, result.id, Errors.format(compileErr)))
+            print(string.format("build-cache: %s map %d excluded: %s", version, result.id, Errors.format(compileErr)))
           else
             if MapAssetCache.isReady(cacheFs, bundle.mapId, bundle.marker) then
               print(string.format("build-cache: %s map %d current", version, bundle.mapId))
@@ -335,31 +355,57 @@ function Runner._runBuild()
             -- Untextured on the DS too, so the map is usable; still reported,
             -- because a mis-routed pack would show up here as a flood.
             for _, entry in ipairs(bundle.unresolvedMaterials) do
-              print(string.format(
-                "build-cache: %s map %d unresolved %s %s: material %s of %s %s:%d wants %s from %s",
-                version, bundle.mapId, entry.role, entry.kind, entry.material,
-                entry.modelName, entry.modelArchive, entry.modelMemberId,
-                entry.name, entry.source))
+              print(
+                string.format(
+                  "build-cache: %s map %d unresolved %s %s: material %s of %s %s:%d wants %s from %s",
+                  version,
+                  bundle.mapId,
+                  entry.role,
+                  entry.kind,
+                  entry.material,
+                  entry.modelName,
+                  entry.modelArchive,
+                  entry.modelMemberId,
+                  entry.name,
+                  entry.source
+                )
+              )
             end
             entries[#entries + 1] = {
-              id = bundle.mapId, symbol = bundle.scene.mapSymbol,
-              width = bundle.scene.matrix.width, height = bundle.scene.matrix.height,
-              matrix = { memberId = result.matrixMemberId,
-                         x = result.matrixX, z = result.matrixZ,
-                         index = result.matrixIndex,
-                         landDataMemberId = result.landDataMemberId,
-                         selection = result.source, matchCount = result.matchCount },
+              id = bundle.mapId,
+              symbol = bundle.scene.mapSymbol,
+              width = bundle.scene.matrix.width,
+              height = bundle.scene.matrix.height,
+              matrix = {
+                memberId = result.matrixMemberId,
+                x = result.matrixX,
+                z = result.matrixZ,
+                index = result.matrixIndex,
+                landDataMemberId = result.landDataMemberId,
+                selection = result.source,
+                matchCount = result.matchCount,
+              },
             }
           end
         end
       end
       WorldManifest.write(cacheFs, entries, excluded, compileExcluded)
-      print(string.format(
-        "build-cache: %s world.lua written (%d maps, %d unresolved cells, %d compile-excluded)",
-        version, #entries, #excluded, #compileExcluded))
-      if #compileExcluded > 0 then compileExclusions = true end
+      print(
+        string.format(
+          "build-cache: %s world.lua written (%d maps, %d unresolved cells, %d compile-excluded)",
+          version,
+          #entries,
+          #excluded,
+          #compileExcluded
+        )
+      )
+      if #compileExcluded > 0 then
+        compileExclusions = true
+      end
     end)
-    if romFs then romFs:close() end
+    if romFs then
+      romFs:close()
+    end
     if not ok then
       allOk = false
       print("build-cache: " .. version .. " failed: " .. Errors.format(err))
@@ -369,8 +415,7 @@ function Runner._runBuild()
   -- unsupported asset still has to be visible to CI, hence the nonzero exit
   -- unless the caller asked for an exploratory run.
   if compileExclusions and not Runner.opts.allowCompileExclusions then
-    print("build-cache: compile exclusions remain; "
-      .. "rerun with --allow-compile-exclusions to accept them")
+    print("build-cache: compile exclusions remain; " .. "rerun with --allow-compile-exclusions to accept them")
     allOk = false
   end
   love.event.quit(allOk and 0 or 1)
@@ -394,7 +439,9 @@ end
 
 function Runner._maybeExit()
   local imp = Runner.importer
-  if not imp then return end
+  if not imp then
+    return
+  end
   if imp.state == "complete" then
     printImportResult(imp:status())
     Runner.importer = nil
@@ -412,8 +459,12 @@ end
 
 function Runner.update()
   local imp = Runner.importer
-  if not imp then return end
-  if imp:isBusy() then imp:update() end
+  if not imp then
+    return
+  end
+  if imp:isBusy() then
+    imp:update()
+  end
   Runner._maybeExit()
 end
 

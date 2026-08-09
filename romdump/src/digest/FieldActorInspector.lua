@@ -33,11 +33,15 @@ function FieldActorInspector.lines(report)
   local overlay = report.overlay
   out[#out + 1] = string.format(
     "actors\ttable\trecords=%d\tramAddress=0x%08X\ttableOffset=0x%X\tspan=%d\tsha1=%s",
-    report.recordCount, overlay.ramAddress, overlay.tableOffset, overlay.spanBytes,
-    overlay.spanSha1)
+    report.recordCount,
+    overlay.ramAddress,
+    overlay.tableOffset,
+    overlay.spanBytes,
+    overlay.spanSha1
+  )
   for _, spriteId in ipairs(report.variableSprites) do
-    out[#out + 1] = string.format(
-      "actors\tvariable\tspriteId=%d\tresolved through a field variable before lookup", spriteId)
+    out[#out + 1] =
+      string.format("actors\tvariable\tspriteId=%d\tresolved through a field variable before lookup", spriteId)
   end
   for _, entry in ipairs(report.sprites) do
     local v, a = entry.visual, entry.atlas
@@ -48,36 +52,63 @@ function FieldActorInspector.lines(report)
         "actors\tmodel\tid=%d\tpart=%d\tname=%s\tsize=%.3fx%.3fx%.3f tiles"
           .. "\talpha=%s\tpolyAttr=0x%08X\tpolygonId=%d\tpolygonAlpha=%d\tmode=%s"
           .. "\tlightMask=0x%X\tcull=%s\tcolorSource=%d",
-        v.spriteId, partIndex, geometry.modelName, geometry.bounds.width,
-        geometry.bounds.height, geometry.bounds.depth, part.alphaClass,
-        polygon.polygonAttrRaw, polygon.polygonId, polygon.polygonAlpha,
-        polygon.polygonMode, polygon.lightMask, polygon.cullMode,
-        geometry.vertices[1].colorSource)
+        v.spriteId,
+        partIndex,
+        geometry.modelName,
+        geometry.bounds.width,
+        geometry.bounds.height,
+        geometry.bounds.depth,
+        part.alphaClass,
+        polygon.polygonAttrRaw,
+        polygon.polygonId,
+        polygon.polygonAlpha,
+        polygon.polygonMode,
+        polygon.lightMask,
+        polygon.cullMode,
+        geometry.vertices[1].colorSource
+      )
     end
     if v.render.kind == "staticModel" then
       out[#out + 1] = string.format(
-        "actors\tsprite\tid=%d\tstaticModel=%d\tpacked=0x%04X\tdescriptor=%d"
-          .. "\tparts=%d\tatlas=%dx%d",
-        v.spriteId, v.source.staticModelMemberId or v.source.modelMemberId,
-        v.rawGraphicsFlags, v.original.visualDescriptor, #v.render.parts, a.width, a.height)
+        "actors\tsprite\tid=%d\tstaticModel=%d\tpacked=0x%04X\tdescriptor=%d" .. "\tparts=%d\tatlas=%dx%d",
+        v.spriteId,
+        v.source.staticModelMemberId or v.source.modelMemberId,
+        v.rawGraphicsFlags,
+        v.original.visualDescriptor,
+        #v.render.parts,
+        a.width,
+        a.height
+      )
     else
       out[#out + 1] = string.format(
         "actors\tsprite\tid=%d\ttexture=%d\tmodel=%d\ttimeline=%d\tpacked=0x%04X"
           .. "\tdescriptor=%d\tframes=%d\tatlas=%dx%d\talpha=%s",
-        v.spriteId, v.source.textureMemberId, v.source.modelMemberId,
-        v.source.timelineMemberId, v.rawGraphicsFlags, v.original.visualDescriptor,
-        v.render.frameCount, a.width, a.height,
-        (v.render.alphaUsage.hasZero and "cutout" or "opaque"))
+        v.spriteId,
+        v.source.textureMemberId,
+        v.source.modelMemberId,
+        v.source.timelineMemberId,
+        v.rawGraphicsFlags,
+        v.original.visualDescriptor,
+        v.render.frameCount,
+        a.width,
+        a.height,
+        (v.render.alphaUsage.hasZero and "cutout" or "opaque")
+      )
     end
     for _, direction in ipairs({ "north", "south", "west", "east" }) do
       local pose = v.directions[direction]
-      out[#out + 1] = string.format("actors\tpose\tid=%d\t%s\tidle=%d\twalk=%s\tloop=%s",
-        v.spriteId, direction, pose.idle.frames[1].frameIndex - 1, poseSummary(pose.walk),
-        tostring(pose.walk.loop))
+      out[#out + 1] = string.format(
+        "actors\tpose\tid=%d\t%s\tidle=%d\twalk=%s\tloop=%s",
+        v.spriteId,
+        direction,
+        pose.idle.frames[1].frameIndex - 1,
+        poseSummary(pose.walk),
+        tostring(pose.walk.loop)
+      )
     end
     if v.directionalSet2 then
-      out[#out + 1] = string.format("actors\tpose\tid=%d\tdirectionalSet2\t%s",
-        v.spriteId, poseSummary(v.directionalSet2.north))
+      out[#out + 1] =
+        string.format("actors\tpose\tid=%d\tdirectionalSet2\t%s", v.spriteId, poseSummary(v.directionalSet2.north))
     end
   end
   return out

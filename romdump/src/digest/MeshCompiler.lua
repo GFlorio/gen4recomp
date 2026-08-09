@@ -36,8 +36,8 @@ local UNSUPPORTED_DL_OPCODES = {
 -- color seed a shape inherits when this material is (re)applied. Every field
 -- material sets vertex color, so the seed always resolves a color source.
 local function materialState(rawMaterial)
-  local resolved = DsMaterial.resolve(rawMaterial, DsMaterial.HGSS_FIELD_DEFAULTS,
-    DsMaterial.applyFieldPolicy(rawMaterial))
+  local resolved =
+    DsMaterial.resolve(rawMaterial, DsMaterial.HGSS_FIELD_DEFAULTS, DsMaterial.applyFieldPolicy(rawMaterial))
   local seed
   if rawMaterial.setVertexColor then
     local diffuse = resolved.colors.diffuse
@@ -59,13 +59,15 @@ end
 local function assertSupportedShape(geom, context)
   for opcode, info in pairs(UNSUPPORTED_DL_OPCODES) do
     if geom.opcodeCounts[opcode] then
-      Errors.raise(info.code,
-        "shape display list issues unsupported " .. info.name .. " command", context)
+      Errors.raise(info.code, "shape display list issues unsupported " .. info.name .. " command", context)
     end
   end
   if #geom.polygonAttrs > 0 then
-    Errors.raise("GX_STATE_CHANGE_INSIDE_PRIMITIVE",
-      "shape display list overrides POLYGON_ATTR; field polygon state must come from the material", context)
+    Errors.raise(
+      "GX_STATE_CHANGE_INSIDE_PRIMITIVE",
+      "shape display list overrides POLYGON_ATTR; field polygon state must come from the material",
+      context
+    )
   end
 end
 
@@ -77,9 +79,11 @@ local MTX_RESTORE = 0x14
 
 local function assertWholeShapeBillboard(geom, context)
   if geom.opcodeCounts[MTX_RESTORE] then
-    Errors.raise("MAP_COMPILE_BILLBOARD_MATRIX_RESTORE_UNSUPPORTED",
+    Errors.raise(
+      "MAP_COMPILE_BILLBOARD_MATRIX_RESTORE_UNSUPPORTED",
       "a billboard shape's display list restores a matrix, so one billboard matrix cannot cover it",
-      context)
+      context
+    )
   end
 end
 
@@ -91,10 +95,14 @@ end
 -- (tile-space translation, see MapUnits.matrixToTiles); static ones do not.
 function MeshCompiler.compile(model)
   local shapeByIndex = {}
-  for _, shp in ipairs(model.shapes) do shapeByIndex[shp.index] = shp end
+  for _, shp in ipairs(model.shapes) do
+    shapeByIndex[shp.index] = shp
+  end
 
   local stateByMaterial = {}
-  for _, mat in ipairs(model.materials) do stateByMaterial[mat.index] = materialState(mat) end
+  for _, mat in ipairs(model.materials) do
+    stateByMaterial[mat.index] = materialState(mat)
+  end
 
   local draws = NsbmdStaticTransforms.evaluate(model)
 
@@ -103,9 +111,11 @@ function MeshCompiler.compile(model)
   for submissionIndex, draw in ipairs(draws) do
     local shp = shapeByIndex[draw.shapeIndex]
     if not shp then
-      Errors.raise("MAP_COMPILE_MISSING_SHAPE",
+      Errors.raise(
+        "MAP_COMPILE_MISSING_SHAPE",
         "SBC draw references shape index " .. tostring(draw.shapeIndex) .. " not in the model",
-        { shapeIndex = draw.shapeIndex, materialIndex = draw.materialIndex })
+        { shapeIndex = draw.shapeIndex, materialIndex = draw.materialIndex }
+      )
     end
     local matState = stateByMaterial[draw.materialIndex]
     assert(matState, "SBC draw references material " .. tostring(draw.materialIndex) .. " not in the model")
@@ -115,35 +125,56 @@ function MeshCompiler.compile(model)
     local initialState = draw.materialReapplied and matState.seed or carriedState or matState.seed
 
     local context = { model = model.name, shape = shp.name, material = draw.materialIndex }
-    local geom, err = GxDisplayList.decode(shp.displayListBytes,
-      { initialState = initialState, matrix = draw.matrix, restoreStack = draw.restoreStack,
-        requireColorSource = true, context = context })
-    if not geom then error(err) end
+    local geom, err = GxDisplayList.decode(shp.displayListBytes, {
+      initialState = initialState,
+      matrix = draw.matrix,
+      restoreStack = draw.restoreStack,
+      requireColorSource = true,
+      context = context,
+    })
+    if not geom then
+      error(err)
+    end
     assertSupportedShape(geom, context)
-    if draw.transformMode == "billboard" then assertWholeShapeBillboard(geom, context) end
+    if draw.transformMode == "billboard" then
+      assertWholeShapeBillboard(geom, context)
+    end
     carriedState = geom.finalState
 
     local vertices = {}
     for _, v in ipairs(geom.vertices) do
       local x, y, z = MapUnits.toTiles(v.x, v.y, v.z)
       vertices[#vertices + 1] = {
-        x = x, y = y, z = z,
-        u = v.u, v = v.v,
-        nx = v.nx, ny = v.ny, nz = v.nz,
-        r = v.r, g = v.g, b = v.b, a = v.a or 255,
+        x = x,
+        y = y,
+        z = z,
+        u = v.u,
+        v = v.v,
+        nx = v.nx,
+        ny = v.ny,
+        nz = v.nz,
+        r = v.r,
+        g = v.g,
+        b = v.b,
+        a = v.a or 255,
         colorSource = v.colorSource,
       }
     end
 
     local indices = {}
-    for i = 1, #geom.indices do indices[i] = geom.indices[i] end
+    for i = 1, #geom.indices do
+      indices[i] = geom.indices[i]
+    end
 
     local poly = DsPolygonAttr.decode(matState.polygonAttrRaw)
     if poly.polygonMode ~= "modulation" and poly.polygonMode ~= "decal" then
-      Errors.raise("MAP_COMPILE_UNSUPPORTED_POLYGON_MODE",
-        "polygon mode " .. poly.polygonMode .. " is not supported",
-        { model = model.name, material = draw.materialIndex, shape = shp.name,
-          polygonMode = poly.polygonMode, polygonAttrRaw = matState.polygonAttrRaw })
+      Errors.raise("MAP_COMPILE_UNSUPPORTED_POLYGON_MODE", "polygon mode " .. poly.polygonMode .. " is not supported", {
+        model = model.name,
+        material = draw.materialIndex,
+        shape = shp.name,
+        polygonMode = poly.polygonMode,
+        polygonAttrRaw = matState.polygonAttrRaw,
+      })
     end
 
     batches[#batches + 1] = {

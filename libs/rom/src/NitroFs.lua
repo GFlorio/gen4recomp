@@ -13,8 +13,12 @@ local DIR_ID_BASE = 0xF000
 local DIR_RECORD_SIZE = 8
 
 local function validName(name)
-  if #name == 0 then return false end
-  if name == "." or name == ".." then return false end
+  if #name == 0 then
+    return false
+  end
+  if name == "." or name == ".." then
+    return false
+  end
   return name:find("[/\\%z]") == nil
 end
 
@@ -35,9 +39,7 @@ function NitroFs.parse(fntBytes, fatCount)
   local root = readDirRecord(reader, 0)
   local dirCount = root.field
   if dirCount < 1 or dirCount > 4096 then
-    Errors.raise("FNT_DIR_COUNT_INVALID",
-      "directory count " .. dirCount .. " outside 1..4096",
-      { dirCount = dirCount })
+    Errors.raise("FNT_DIR_COUNT_INVALID", "directory count " .. dirCount .. " outside 1..4096", { dirCount = dirCount })
   end
   reader:assertRange(0, dirCount * DIR_RECORD_SIZE, "fnt main table")
 
@@ -48,34 +50,42 @@ function NitroFs.parse(fntBytes, fatCount)
   local function walk(dirId, parentPath)
     local recordIndex = dirId - DIR_ID_BASE
     if recordIndex < 0 or recordIndex >= dirCount then
-      Errors.raise("FNT_DIR_ID_OUT_OF_RANGE",
+      Errors.raise(
+        "FNT_DIR_ID_OUT_OF_RANGE",
         "directory id " .. string.format("0x%X", dirId) .. " outside table",
-        { dirId = dirId, dirCount = dirCount })
+        { dirId = dirId, dirCount = dirCount }
+      )
     end
     if visited[dirId] then
-      Errors.raise("FNT_DIRECTORY_CYCLE",
+      Errors.raise(
+        "FNT_DIRECTORY_CYCLE",
         "directory " .. string.format("0x%X", dirId) .. " visited twice",
-        { dirId = dirId })
+        { dirId = dirId }
+      )
     end
     visited[dirId] = true
 
     local record = readDirRecord(reader, recordIndex)
-    directories[#directories + 1] =
-      { dirId = dirId, path = parentPath, firstFileId = record.firstFileId }
+    directories[#directories + 1] = { dirId = dirId, path = parentPath, firstFileId = record.firstFileId }
 
     local cursor = record.subtableOffset
     local fileId = record.firstFileId
     while true do
       local typeByte = reader:u8(cursor)
       cursor = cursor + 1
-      if typeByte == 0 then break end
+      if typeByte == 0 then
+        break
+      end
       local nameLen = typeByte % 0x80
       local isDir = typeByte >= 0x80
       local name = reader:ascii(cursor, nameLen)
       cursor = cursor + nameLen
       if not validName(name) then
-        Errors.raise("FNT_INVALID_NAME", "invalid entry name " .. string.format("%q", name),
-          { name = name, dirId = dirId })
+        Errors.raise(
+          "FNT_INVALID_NAME",
+          "invalid entry name " .. string.format("%q", name),
+          { name = name, dirId = dirId }
+        )
       end
       local fullPath = parentPath .. name
       if isDir then
@@ -84,16 +94,21 @@ function NitroFs.parse(fntBytes, fatCount)
         walk(childId, fullPath .. "/")
       else
         if fileId >= fatCount then
-          Errors.raise("FNT_FILE_ID_OUT_OF_FAT",
+          Errors.raise(
+            "FNT_FILE_ID_OUT_OF_FAT",
             "named file id " .. fileId .. " outside FAT of " .. fatCount,
-            { fileId = fileId, fatCount = fatCount, path = fullPath })
+            { fileId = fileId, fatCount = fatCount, path = fullPath }
+          )
         end
         if byPath[fullPath] ~= nil then
           Errors.raise("FNT_DUPLICATE_PATH", "duplicate path " .. fullPath, { path = fullPath })
         end
         if byFileId[fileId] ~= nil then
-          Errors.raise("FNT_DUPLICATE_FILE_ID", "file id " .. fileId .. " assigned twice",
-            { fileId = fileId, path = fullPath, existing = byFileId[fileId] })
+          Errors.raise(
+            "FNT_DUPLICATE_FILE_ID",
+            "file id " .. fileId .. " assigned twice",
+            { fileId = fileId, path = fullPath, existing = byFileId[fileId] }
+          )
         end
         byFileId[fileId] = fullPath
         byPath[fullPath] = fileId

@@ -12,10 +12,14 @@ local T = {}
 -- Pack a GX TEXIMAGE_PARAM-style word from fields.
 local function param(o)
   return (o.texelUnits or 0)
-    + (o.repeatS or 0) * 0x10000 + (o.repeatT or 0) * 0x20000
-    + (o.flipS or 0) * 0x40000 + (o.flipT or 0) * 0x80000
-    + (o.sizeS or 0) * 0x100000 + (o.sizeT or 0) * 0x800000
-    + (o.format or 0) * 0x4000000 + (o.color0 or 0) * 0x20000000
+    + (o.repeatS or 0) * 0x10000
+    + (o.repeatT or 0) * 0x20000
+    + (o.flipS or 0) * 0x40000
+    + (o.flipT or 0) * 0x80000
+    + (o.sizeS or 0) * 0x100000
+    + (o.sizeT or 0) * 0x800000
+    + (o.format or 0) * 0x4000000
+    + (o.color0 or 0) * 0x20000000
 end
 
 local function buildTex0()
@@ -40,15 +44,31 @@ local function buildTex0()
   local sizeTex = math.floor(#texData / 8)
   local sizePltt = math.floor(#palData / 8)
 
-  local header = "TEX0" .. NB.u32(0) -- size patched below
-    .. NB.u32(0) .. NB.u16(sizeTex) .. NB.u16(ofsTexDict) .. NB.u16(0) .. NB.u16(0) .. NB.u32(ofsTexData)
-    .. NB.u32(0) .. NB.u16(0) .. NB.u16(ofsTexDict) .. NB.u16(0) .. NB.u16(0) .. NB.u32(0) .. NB.u32(0)
-    .. NB.u32(0) .. NB.u16(sizePltt) .. NB.u16(0) .. NB.u16(ofsPlttDict) .. NB.u16(0) .. NB.u32(ofsPlttData)
+  local header = "TEX0"
+    .. NB.u32(0) -- size patched below
+    .. NB.u32(0)
+    .. NB.u16(sizeTex)
+    .. NB.u16(ofsTexDict)
+    .. NB.u16(0)
+    .. NB.u16(0)
+    .. NB.u32(ofsTexData)
+    .. NB.u32(0)
+    .. NB.u16(0)
+    .. NB.u16(ofsTexDict)
+    .. NB.u16(0)
+    .. NB.u16(0)
+    .. NB.u32(0)
+    .. NB.u32(0)
+    .. NB.u32(0)
+    .. NB.u16(sizePltt)
+    .. NB.u16(0)
+    .. NB.u16(ofsPlttDict)
+    .. NB.u16(0)
+    .. NB.u32(ofsPlttData)
   assert(#header == 0x3C, "TEX0 header must be 0x3C, got " .. #header)
 
   local block = header .. texDict .. pltDict .. texData .. palData
-  return block:sub(1, 4) .. NB.u32(#block) .. block:sub(9),
-    { ofsTexData = ofsTexData, ofsPlttData = ofsPlttData }
+  return block:sub(1, 4) .. NB.u32(#block) .. block:sub(9), { ofsTexData = ofsTexData, ofsPlttData = ofsPlttData }
 end
 
 function T.decodes_texture_records()

@@ -50,7 +50,6 @@ FieldPlayer.WALK_STEP_TICKS = 8
 ---@field facing FieldDirection?
 ---@field occupancy? fun(fieldX: integer, fieldZ: integer, surfaceId: integer): string|nil
 
-
 local DELTAS = {
   north = { x = 0, z = -1 },
   south = { x = 0, z = 1 },
@@ -63,23 +62,27 @@ local function isInteger(value)
 end
 
 local function recoverableMovementError(err)
-  return Errors.is(err) and (err.code == "FIELD_COORDINATES_OUT_OF_COVERAGE"
-    or err.code:match("^TERRAIN_SURFACE_") ~= nil)
+  return Errors.is(err)
+    and (err.code == "FIELD_COORDINATES_OUT_OF_COVERAGE" or err.code:match("^TERRAIN_SURFACE_") ~= nil)
 end
 
 ---@param options FieldPlayerOptions
 ---@return FieldPlayer
 function FieldPlayer.new(options)
   assert(type(options) == "table" and options.currentMap, "FieldPlayer map required")
-  assert(isInteger(options.fieldX) and isInteger(options.fieldZ),
-    "FieldPlayer integer field coordinates required")
+  assert(isInteger(options.fieldX) and isInteger(options.fieldZ), "FieldPlayer integer field coordinates required")
   assert(type(options.surfaceId) == "number", "FieldPlayer surface id required")
-  assert(options.occupancy == nil or type(options.occupancy) == "function",
-    "FieldPlayer occupancy predicate must be a function")
+  assert(
+    options.occupancy == nil or type(options.occupancy) == "function",
+    "FieldPlayer occupancy predicate must be a function"
+  )
   local map = options.currentMap
   local localX, localZ = FieldCoordinates.fieldToLocal(map, options.fieldX, options.fieldZ)
-  local sample = map.terrain:sample(options.surfaceId,
-    localX + FieldCoordinates.TILE_CENTER_OFFSET, localZ + FieldCoordinates.TILE_CENTER_OFFSET)
+  local sample = map.terrain:sample(
+    options.surfaceId,
+    localX + FieldCoordinates.TILE_CENTER_OFFSET,
+    localZ + FieldCoordinates.TILE_CENTER_OFFSET
+  )
   local point = FieldCoordinates.fieldToWorld(map, options.fieldX, options.fieldZ, sample.worldY)
   return setmetatable({
     currentMap = map,
@@ -112,7 +115,8 @@ function FieldPlayer:_resolveStep(direction)
     if self.currentMap.permissions:isBlockedLocal(destinationLocalX, destinationLocalZ) then
       return nil
     end
-    local sourceX, sourceZ = self.localX + FieldCoordinates.TILE_CENTER_OFFSET, self.localZ + FieldCoordinates.TILE_CENTER_OFFSET
+    local sourceX, sourceZ =
+      self.localX + FieldCoordinates.TILE_CENTER_OFFSET, self.localZ + FieldCoordinates.TILE_CENTER_OFFSET
     local destinationCenterX, destinationCenterZ =
       destinationLocalX + FieldCoordinates.TILE_CENTER_OFFSET, destinationLocalZ + FieldCoordinates.TILE_CENTER_OFFSET
     local sample = self.resolver:resolve({
@@ -121,27 +125,36 @@ function FieldPlayer:_resolveStep(direction)
       currentSurfaceId = self.surfaceId,
       currentY = self.worldY,
       crossing = {
-        fromX = sourceX, fromZ = sourceZ,
-        toX = destinationCenterX, toZ = destinationCenterZ,
+        fromX = sourceX,
+        fromZ = sourceZ,
+        toX = destinationCenterX,
+        toZ = destinationCenterZ,
       },
     })
-    local point = FieldCoordinates.fieldToWorld(
-      self.currentMap, destinationX, destinationZ, sample.worldY)
+    local point = FieldCoordinates.fieldToWorld(self.currentMap, destinationX, destinationZ, sample.worldY)
     -- Occupancy is checked against the resolved destination surface, so an
     -- actor on a different surface never blocks a same-cell approach, and it
     -- runs only after terrain accepts the step.
     if self.occupancy then
-      if self.occupancy(destinationX, destinationZ, sample.surfaceId) then return nil end
+      if self.occupancy(destinationX, destinationZ, sample.surfaceId) then
+        return nil
+      end
     end
     return {
-      fieldX = destinationX, fieldZ = destinationZ,
-      localX = destinationLocalX, localZ = destinationLocalZ,
-      worldX = point.x, worldY = point.y, worldZ = point.z,
+      fieldX = destinationX,
+      fieldZ = destinationZ,
+      localX = destinationLocalX,
+      localZ = destinationLocalZ,
+      worldX = point.x,
+      worldY = point.y,
+      worldZ = point.z,
       surfaceId = sample.surfaceId,
     }
   end)
   if not ok then
-    if recoverableMovementError(result) then return nil end
+    if recoverableMovementError(result) then
+      return nil
+    end
     error(result)
   end
   return result
@@ -152,11 +165,17 @@ function FieldPlayer:tryStep(direction)
   assert(self.motion == "idle", "cannot begin a field step while walking")
   self.facing = direction
   local destination = self:_resolveStep(direction)
-  if not destination then return false end
+  if not destination then
+    return false
+  end
   self.from = {
-    fieldX = self.fieldX, fieldZ = self.fieldZ,
-    localX = self.localX, localZ = self.localZ,
-    worldX = self.worldX, worldY = self.worldY, worldZ = self.worldZ,
+    fieldX = self.fieldX,
+    fieldZ = self.fieldZ,
+    localX = self.localX,
+    localZ = self.localZ,
+    worldX = self.worldX,
+    worldY = self.worldY,
+    worldZ = self.worldZ,
     surfaceId = self.surfaceId,
   }
   self.to = destination
@@ -172,13 +191,19 @@ function FieldPlayer:_advanceStep()
   self.worldX = self.from.worldX + (self.to.worldX - self.from.worldX) * progress
   self.worldZ = self.from.worldZ + (self.to.worldZ - self.from.worldZ) * progress
   if self.from.surfaceId == self.to.surfaceId then
-    local localX = self.from.localX + FieldCoordinates.TILE_CENTER_OFFSET + (self.to.localX - self.from.localX) * progress
-    local localZ = self.from.localZ + FieldCoordinates.TILE_CENTER_OFFSET + (self.to.localZ - self.from.localZ) * progress
+    local localX = self.from.localX
+      + FieldCoordinates.TILE_CENTER_OFFSET
+      + (self.to.localX - self.from.localX) * progress
+    local localZ = self.from.localZ
+      + FieldCoordinates.TILE_CENTER_OFFSET
+      + (self.to.localZ - self.from.localZ) * progress
     self.worldY = self.currentMap.terrain:sampleHeight(self.to.surfaceId, localX, localZ)
   else
     self.worldY = self.from.worldY + (self.to.worldY - self.from.worldY) * progress
   end
-  if self.progressTicks < self.durationTicks then return false end
+  if self.progressTicks < self.durationTicks then
+    return false
+  end
 
   self.fieldX, self.fieldZ = self.to.fieldX, self.to.fieldZ
   self.localX, self.localZ = self.to.localX, self.to.localZ
@@ -192,11 +217,12 @@ end
 
 function FieldPlayer:updateFixed(input)
   input = input or {}
-  self.previousWorldX, self.previousWorldY, self.previousWorldZ =
-    self.worldX, self.worldY, self.worldZ
+  self.previousWorldX, self.previousWorldY, self.previousWorldZ = self.worldX, self.worldY, self.worldZ
 
   if self.motion == "walking" then
-    if input.pressedDirection then self.bufferedDirection = input.pressedDirection end
+    if input.pressedDirection then
+      self.bufferedDirection = input.pressedDirection
+    end
     return self:_advanceStep()
   end
 
@@ -207,9 +233,13 @@ function FieldPlayer:updateFixed(input)
     self.bufferedDirection = nil
     direction = input.pressedDirection or input.heldDirection
   end
-  if not direction then return false end
+  if not direction then
+    return false
+  end
   self.bufferedDirection = nil
-  if self:tryStep(direction) then self:_advanceStep() end
+  if self:tryStep(direction) then
+    self:_advanceStep()
+  end
   return false
 end
 
@@ -225,13 +255,17 @@ end
 function FieldPlayer:status()
   local plate = assert(self.currentMap.terrain:plate(self.surfaceId), "player surface missing")
   return {
-    fieldX = self.fieldX, fieldZ = self.fieldZ,
-    localX = self.localX, localZ = self.localZ,
-    worldY = self.worldY, surfaceId = self.surfaceId,
+    fieldX = self.fieldX,
+    fieldZ = self.fieldZ,
+    localX = self.localX,
+    localZ = self.localZ,
+    worldY = self.worldY,
+    surfaceId = self.surfaceId,
     surfaceNormal = { x = plate.normal.x, y = plate.normal.y, z = plate.normal.z },
     slopeClass = plate.slopeClass,
     destinationSurfaceId = self.to and self.to.surfaceId or nil,
-    facing = self.facing, motion = self.motion,
+    facing = self.facing,
+    motion = self.motion,
   }
 end
 

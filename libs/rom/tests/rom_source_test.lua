@@ -11,7 +11,11 @@ local T = {}
 
 -- A version catalog that recognizes exactly the given SHA-1 (as DumpFixture does).
 local function versionsFor(sha1)
-  return { forSha1 = function(h) return h == sha1 and {} or nil end }
+  return {
+    forSha1 = function(h)
+      return h == sha1 and {} or nil
+    end,
+  }
 end
 
 function T.from_string_reports_size_and_name()
@@ -120,10 +124,18 @@ end
 -- Dropped files arrive as LÖVE File objects; verify the wiring against a stub.
 function T.from_dropped_file_reads_contents()
   local stub = {
-    open = function() return true end,
-    read = function() return "abc" end,
-    close = function() return true end,
-    getFilename = function() return "dropped.nds" end,
+    open = function()
+      return true
+    end,
+    read = function()
+      return "abc"
+    end,
+    close = function()
+      return true
+    end,
+    getFilename = function()
+      return "dropped.nds"
+    end,
   }
   local s = assert(RomSource.fromDroppedFile(stub))
   Assert.equal(s:displayName(), "dropped.nds")

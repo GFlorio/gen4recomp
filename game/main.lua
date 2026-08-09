@@ -11,8 +11,7 @@ local ROOT = love.filesystem.getSourceBaseDirectory()
 package.path = ROOT .. "/?.lua;" .. ROOT .. "/?/init.lua;" .. package.path
 
 local function parse(argv)
-  local opts = { test = false, testPrivate = false, field = nil,
-    actors = false, newFieldSession = false }
+  local opts = { test = false, testPrivate = false, field = nil, actors = false, newFieldSession = false }
   local i = 1
   while i <= #(argv or {}) do
     local option = argv[i]
@@ -58,37 +57,55 @@ function love.load(argv)
 end
 
 function love.update(dt)
-  if App then App.update(dt) end
+  if App then
+    App.update(dt)
+  end
 end
 
 function love.draw()
-  if App then App.draw() end
+  if App then
+    App.draw()
+  end
 end
 
 function love.filedropped(file)
-  if App then App.filedropped(file) end
+  if App then
+    App.filedropped(file)
+  end
 end
 
 function love.keypressed(key, scancode, isrepeat)
-  if App then App.keypressed(key, scancode, isrepeat) end
+  if App then
+    App.keypressed(key, scancode, isrepeat)
+  end
 end
 
 function love.keyreleased(key, scancode)
-  if App then App.keyreleased(key, scancode) end
+  if App then
+    App.keyreleased(key, scancode)
+  end
 end
 
 function love.gamepadpressed(joystick, button)
-  if App then App.gamepadpressed(joystick, button) end
+  if App then
+    App.gamepadpressed(joystick, button)
+  end
 end
 
 function love.gamepadreleased(joystick, button)
-  if App then App.gamepadreleased(joystick, button) end
+  if App then
+    App.gamepadreleased(joystick, button)
+  end
 end
 
 function love.focus(focused)
-  if App then App.focus(focused) end
+  if App then
+    App.focus(focused)
+  end
 end
 
 function love.quit()
-  if App then App.quit() end
+  if App then
+    App.quit()
+  end
 end

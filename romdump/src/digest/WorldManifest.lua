@@ -14,8 +14,12 @@ local WorldManifest = {}
 -- context to act on.
 function WorldManifest.build(entries, excluded, compileExcluded)
   local maps = {}
-  for _, e in ipairs(entries) do maps[#maps + 1] = e end
-  table.sort(maps, function(a, b) return a.id < b.id end)
+  for _, e in ipairs(entries) do
+    maps[#maps + 1] = e
+  end
+  table.sort(maps, function(a, b)
+    return a.id < b.id
+  end)
 
   local bySymbol, byId = {}, {}
   for index, e in ipairs(maps) do
@@ -30,8 +34,12 @@ function WorldManifest.build(entries, excluded, compileExcluded)
   end
   local function sortedById(records)
     local out = {}
-    for _, record in ipairs(records or {}) do out[#out + 1] = record end
-    table.sort(out, function(a, b) return a.id < b.id end)
+    for _, record in ipairs(records or {}) do
+      out[#out + 1] = record
+    end
+    table.sort(out, function(a, b)
+      return a.id < b.id
+    end)
     return out
   end
   local excludedMaps = sortedById(excluded)

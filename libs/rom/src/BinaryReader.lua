@@ -31,13 +31,25 @@ function BinaryReader:length()
 end
 
 function BinaryReader:assertRange(offset, length, fieldName)
-  if type(offset) ~= "number" or offset < 0
-      or type(length) ~= "number" or length < 0
-      or offset + length > #self.data then
-    Errors.raise("READ_OUT_OF_BOUNDS",
-      string.format("%s: read of %s bytes at offset %s exceeds %d-byte %s",
-        fieldName or "read", tostring(length), tostring(offset), #self.data, self.label),
-      { offset = offset, length = length, available = #self.data, field = fieldName })
+  if
+    type(offset) ~= "number"
+    or offset < 0
+    or type(length) ~= "number"
+    or length < 0
+    or offset + length > #self.data
+  then
+    Errors.raise(
+      "READ_OUT_OF_BOUNDS",
+      string.format(
+        "%s: read of %s bytes at offset %s exceeds %d-byte %s",
+        fieldName or "read",
+        tostring(length),
+        tostring(offset),
+        #self.data,
+        self.label
+      ),
+      { offset = offset, length = length, available = #self.data, field = fieldName }
+    )
   end
   return true
 end
@@ -75,7 +87,9 @@ function BinaryReader:f32le(offset)
   else
     value = (1 + mantissa / 8388608) * 2 ^ (biased - 127)
   end
-  if sign == 1 then value = -value end
+  if sign == 1 then
+    value = -value
+  end
   return value
 end
 
@@ -88,7 +102,9 @@ function BinaryReader:ascii(offset, length, trimNul)
   local s = self:bytes(offset, length)
   if trimNul then
     local nul = string.find(s, "\0", 1, true)
-    if nul then s = string.sub(s, 1, nul - 1) end
+    if nul then
+      s = string.sub(s, 1, nul - 1)
+    end
   end
   return s
 end

@@ -42,7 +42,9 @@ local SCALING_RULE_NAMES = { [0] = "standard", [1] = "maya", [2] = "si3d" }
 --   billboardShapes    shapes submitted while a billboard matrix is current
 function SbcInventory.inspectModel(model)
   local shapeByIndex = {}
-  for _, shp in ipairs(model.shapes) do shapeByIndex[shp.index] = shp end
+  for _, shp in ipairs(model.shapes) do
+    shapeByIndex[shp.index] = shp
+  end
 
   local commands, flagBytes, billboardShapes = {}, {}, {}
   local billboardActive = false
@@ -56,7 +58,9 @@ function SbcInventory.inspectModel(model)
     end
 
     if op == 0x06 then
-      if cmd.flags ~= 0 then flagBytes[cmd.flags] = true end
+      if cmd.flags ~= 0 then
+        flagBytes[cmd.flags] = true
+      end
       billboardActive = false
     elseif op == 0x03 then -- MTX replaces the current matrix outright
       billboardActive = false
@@ -75,7 +79,9 @@ function SbcInventory.inspectModel(model)
   end
 
   local sorted = {}
-  for flags in pairs(flagBytes) do sorted[#sorted + 1] = flags end
+  for flags in pairs(flagBytes) do
+    sorted[#sorted + 1] = flags
+  end
   table.sort(sorted)
 
   local rule = model.info.scalingRule
@@ -92,10 +98,16 @@ end
 -- True when a model uses nothing beyond plain joints -- the case the current
 -- static evaluator already handles.
 function SbcInventory.isPlain(entry)
-  if entry.scalingRule ~= 0 then return false end
-  if #entry.nodedescFlagBytes > 0 then return false end
+  if entry.scalingRule ~= 0 then
+    return false
+  end
+  if #entry.nodedescFlagBytes > 0 then
+    return false
+  end
   for key in pairs(entry.commands) do
-    if key:sub(1, 8) ~= "NODEDESC" then return false end
+    if key:sub(1, 8) ~= "NODEDESC" then
+      return false
+    end
   end
   return true
 end
@@ -104,7 +116,9 @@ end
 
 local function decodeMembers(romFs, alias, modelsOf)
   local narc, err = romFs:openNarc(alias)
-  if not narc then error(err) end
+  if not narc then
+    error(err)
+  end
   local out, skipped = {}, {}
   for memberId = 0, narc:memberCount() - 1 do
     local ok, result = pcall(modelsOf, narc, memberId)
@@ -118,7 +132,8 @@ local function decodeMembers(romFs, alias, modelsOf)
       -- A member that is not a Nitro file at all (the archives contain
       -- placeholder stubs) is reported, not treated as an inventory result.
       skipped[#skipped + 1] = {
-        archive = alias, memberId = memberId,
+        archive = alias,
+        memberId = memberId,
         code = Errors.is(result) and result.code or "LUA_ERROR",
         message = Errors.is(result) and result.message or tostring(result),
       }
@@ -128,17 +143,15 @@ local function decodeMembers(romFs, alias, modelsOf)
 end
 
 local function landModels(narc, memberId)
-  local land = assert(LandData.decode(assert(narc:readMember(memberId)),
-    { alias = "land_data", memberId = memberId }))
-  local file = assert(Nsbmd.decode(land.mapModelBytes,
-    { alias = "land_data", memberId = memberId, section = "map-model" }))
+  local land = assert(LandData.decode(assert(narc:readMember(memberId)), { alias = "land_data", memberId = memberId }))
+  local file =
+    assert(Nsbmd.decode(land.mapModelBytes, { alias = "land_data", memberId = memberId, section = "map-model" }))
   return file.models
 end
 
 local function buildModels(alias)
   return function(narc, memberId)
-    local file = assert(Nsbmd.decode(assert(narc:readMember(memberId)),
-      { alias = alias, memberId = memberId }))
+    local file = assert(Nsbmd.decode(assert(narc:readMember(memberId)), { alias = alias, memberId = memberId }))
     return file.models
   end
 end
@@ -154,8 +167,12 @@ function SbcInventory.scan(romFs)
   }
   for _, source in ipairs(sources) do
     local got, missed = decodeMembers(romFs, source.alias, source.modelsOf)
-    for _, e in ipairs(got) do entries[#entries + 1] = e end
-    for _, s in ipairs(missed) do skipped[#skipped + 1] = s end
+    for _, e in ipairs(got) do
+      entries[#entries + 1] = e
+    end
+    for _, s in ipairs(missed) do
+      skipped[#skipped + 1] = s
+    end
   end
   return { entries = entries, skipped = skipped }
 end
@@ -168,7 +185,9 @@ end
 
 local function sortedPairs(map)
   local keys = {}
-  for k in pairs(map) do keys[#keys + 1] = k end
+  for k in pairs(map) do
+    keys[#keys + 1] = k
+  end
   table.sort(keys)
   return keys
 end
@@ -176,7 +195,9 @@ end
 -- Deterministic, payload-free summary lines.
 function SbcInventory.lines(report)
   local lines = {}
-  local function add(fmt, ...) lines[#lines + 1] = string.format(fmt, ...) end
+  local function add(fmt, ...)
+    lines[#lines + 1] = string.format(fmt, ...)
+  end
 
   local ruleCounts, ruleExamples = {}, {}
   local commandTotals, commandOwners = {}, {}
@@ -195,22 +216,27 @@ function SbcInventory.lines(report)
       if key ~= "NODEDESC/0" then -- the ordinary joint; only variants are notable
         commandTotals[key] = (commandTotals[key] or 0) + n
         commandOwners[key] = commandOwners[key] or {}
-        if #commandOwners[key] < 12 then table.insert(commandOwners[key], identity(e)) end
+        if #commandOwners[key] < 12 then
+          table.insert(commandOwners[key], identity(e))
+        end
       end
     end
     if #e.nodedescFlagBytes > 0 then
       local parts = {}
-      for _, f in ipairs(e.nodedescFlagBytes) do parts[#parts + 1] = string.format("0x%02X", f) end
+      for _, f in ipairs(e.nodedescFlagBytes) do
+        parts[#parts + 1] = string.format("0x%02X", f)
+      end
       table.insert(flagged, identity(e) .. " flags=" .. table.concat(parts, ","))
     end
     for _, shp in ipairs(e.billboardShapes) do
       billboardTotal = billboardTotal + 1
       if shp.usesMatrixRestore then
-        table.insert(billboardWithRestore,
-          identity(e) .. " shape " .. shp.shapeIndex .. " " .. tostring(shp.shapeName))
+        table.insert(billboardWithRestore, identity(e) .. " shape " .. shp.shapeIndex .. " " .. tostring(shp.shapeName))
       end
     end
-    if SbcInventory.isPlain(e) then plain = plain + 1 end
+    if SbcInventory.isPlain(e) then
+      plain = plain + 1
+    end
   end
 
   add("sbc-inventory\tmodels\t%d", #report.entries)

@@ -14,8 +14,7 @@ local EPS = 1e-9
 local function assertPoint(m, x, y, z, ex, ey, ez, msg)
   local ax, ay, az = Matrix4.transformPoint(m, x, y, z)
   if math.abs(ax - ex) > 1e-6 or math.abs(ay - ey) > 1e-6 or math.abs(az - ez) > 1e-6 then
-    error(string.format("%s: expected (%g,%g,%g), got (%g,%g,%g)",
-      msg or "point mismatch", ex, ey, ez, ax, ay, az))
+    error(string.format("%s: expected (%g,%g,%g), got (%g,%g,%g)", msg or "point mismatch", ex, ey, ez, ax, ay, az))
   end
 end
 
@@ -48,8 +47,7 @@ function T.elevated_camera_pitches_the_billboard()
   -- Full BB responds to pitch: the facing normal points back along the view
   -- direction, so local +z lands on the normalized eye direction.
   local len = math.sqrt(eye[1] ^ 2 + eye[2] ^ 2 + eye[3] ^ 2)
-  assertPoint(m, 0, 0, 1, eye[1] / len, eye[2] / len, eye[3] / len,
-    "local +z points at an elevated camera")
+  assertPoint(m, 0, 0, 1, eye[1] / len, eye[2] / len, eye[3] / len, "local +z points at an elevated camera")
   assertPoint(m, 1, 0, 0, 1, 0, 0, "x stays horizontal under pure pitch")
 end
 
@@ -77,7 +75,9 @@ function T.scale_is_read_from_basis_magnitudes()
 end
 
 function T.rejects_a_matrix_of_the_wrong_size()
-  Assert.throws(function() BillboardTransform.resolve({ 1, 0, 0 }, Matrix4.identity()) end)
+  Assert.throws(function()
+    BillboardTransform.resolve({ 1, 0, 0 }, Matrix4.identity())
+  end)
 end
 
 function T.result_is_a_fresh_matrix()

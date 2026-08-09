@@ -32,14 +32,28 @@ NsbmdJointTransforms.SI3D = 2
 local MAYASSC_APPLY = 0x01
 local MAYASSC_PARENT = 0x02
 
-local function bitSet(v, mask) return math.floor(v / mask) % 2 == 1 end
+local function bitSet(v, mask)
+  return math.floor(v / mask) % 2 == 1
+end
 
 local function rotationMatrix(rot)
   return {
-    rot[1], rot[2], rot[3], 0,
-    rot[4], rot[5], rot[6], 0,
-    rot[7], rot[8], rot[9], 0,
-    0, 0, 0, 1,
+    rot[1],
+    rot[2],
+    rot[3],
+    0,
+    rot[4],
+    rot[5],
+    rot[6],
+    0,
+    rot[7],
+    rot[8],
+    rot[9],
+    0,
+    0,
+    0,
+    0,
+    1,
   }
 end
 
@@ -48,7 +62,9 @@ end
 -- emission order, left to right.
 local function compose(ops)
   local m = Matrix4.identity()
-  for _, op in ipairs(ops) do m = Matrix4.multiply(m, op) end
+  for _, op in ipairs(ops) do
+    m = Matrix4.multiply(m, op)
+  end
   return m
 end
 
@@ -64,9 +80,15 @@ end
 -- MULT_4x3 sends the rotation and translation as one 4x3, which is T * R.
 local function standardOps(node)
   local ops = {}
-  if not node.transZero then ops[#ops + 1] = translation(node) end
-  if not node.rotZero then ops[#ops + 1] = rotationMatrix(node.rotation) end
-  if not node.scaleOne then ops[#ops + 1] = scaleOf(node.scale) end
+  if not node.transZero then
+    ops[#ops + 1] = translation(node)
+  end
+  if not node.rotZero then
+    ops[#ops + 1] = rotationMatrix(node.rotation)
+  end
+  if not node.scaleOne then
+    ops[#ops + 1] = scaleOf(node.scale)
+  end
   return ops
 end
 
@@ -75,10 +97,18 @@ end
 -- rotation; otherwise the sequence is the standard one.
 local function mayaOps(node, scaleEx0)
   local ops = {}
-  if not node.transZero then ops[#ops + 1] = translation(node) end
-  if scaleEx0 then ops[#ops + 1] = scaleOf(scaleEx0) end
-  if not node.rotZero then ops[#ops + 1] = rotationMatrix(node.rotation) end
-  if not node.scaleOne then ops[#ops + 1] = scaleOf(node.scale) end
+  if not node.transZero then
+    ops[#ops + 1] = translation(node)
+  end
+  if scaleEx0 then
+    ops[#ops + 1] = scaleOf(scaleEx0)
+  end
+  if not node.rotZero then
+    ops[#ops + 1] = rotationMatrix(node.rotation)
+  end
+  if not node.scaleOne then
+    ops[#ops + 1] = scaleOf(node.scale)
+  end
   return ops
 end
 
@@ -89,11 +119,15 @@ local function mayaScaleEx0(node, cmd, cache)
   if bitSet(cmd.flags, MAYASSC_PARENT) then
     cache[cmd.nodeIndex] = (not node.scaleOne) and node.inverseScale or false
   end
-  if not bitSet(cmd.flags, MAYASSC_APPLY) then return nil end
+  if not bitSet(cmd.flags, MAYASSC_APPLY) then
+    return nil
+  end
   local parent = cache[cmd.parentIndex]
   -- A parent that never published a scale, or published scale one, contributes
   -- nothing: NNS_G3dRS->isScaleCacheOne starts set for every node.
-  if not parent then return nil end
+  if not parent then
+    return nil
+  end
   return parent
 end
 
@@ -105,25 +139,31 @@ end
 function NsbmdJointTransforms.localMatrix(scalingRule, node, cmd, cache)
   if scalingRule == NsbmdJointTransforms.STANDARD then
     if cmd.flags ~= 0 then
-      Errors.raise("NSBMD_JOINT_UNEXPECTED_NODEDESC_FLAGS",
+      Errors.raise(
+        "NSBMD_JOINT_UNEXPECTED_NODEDESC_FLAGS",
         string.format("NODEDESC flags 0x%02X are only defined for the Maya scaling rule", cmd.flags),
-        { flags = cmd.flags, nodeIndex = cmd.nodeIndex, scalingRule = scalingRule })
+        { flags = cmd.flags, nodeIndex = cmd.nodeIndex, scalingRule = scalingRule }
+      )
     end
     return compose(standardOps(node))
   end
 
   if scalingRule == NsbmdJointTransforms.MAYA then
     if not node.scaleOne and not node.inverseScale then
-      Errors.raise("NSBMD_JOINT_MISSING_INVERSE_SCALE",
+      Errors.raise(
+        "NSBMD_JOINT_MISSING_INVERSE_SCALE",
         "a Maya joint with a scale must carry an inverse scale",
-        { nodeIndex = cmd.nodeIndex, scalingRule = scalingRule })
+        { nodeIndex = cmd.nodeIndex, scalingRule = scalingRule }
+      )
     end
     return compose(mayaOps(node, mayaScaleEx0(node, cmd, cache)))
   end
 
-  Errors.raise("NSBMD_JOINT_UNSUPPORTED_SCALING_RULE",
+  Errors.raise(
+    "NSBMD_JOINT_UNSUPPORTED_SCALING_RULE",
     "scaling rule " .. tostring(scalingRule) .. " is not implemented",
-    { scalingRule = scalingRule, nodeIndex = cmd.nodeIndex })
+    { scalingRule = scalingRule, nodeIndex = cmd.nodeIndex }
+  )
 end
 
 return NsbmdJointTransforms

@@ -3,33 +3,36 @@ local BuildingPlacement = require("romdump.src.digest.BuildingPlacement")
 
 local T = {}
 
-local function u16(v) return string.char(v % 256, math.floor(v / 256) % 256) end
+local function u16(v)
+  return string.char(v % 256, math.floor(v / 256) % 256)
+end
 local function u32(v)
-  return string.char(v % 256, math.floor(v / 256) % 256,
-    math.floor(v / 65536) % 256, math.floor(v / 16777216) % 256)
+  return string.char(v % 256, math.floor(v / 256) % 256, math.floor(v / 65536) % 256, math.floor(v / 16777216) % 256)
 end
 
 -- A single 0x30 record with distinctive values in every field.
 local function record()
   return table.concat({
-    u32(21),            -- 0x00 model member id
-    u16(0x8000),        -- 0x04 X fraction (0.5)
-    u16(5),             -- 0x06 X integer
-    u16(0),             -- 0x08 Y fraction
-    u16(0xFFFF),        -- 0x0A Y integer (-1 s16)
-    u16(0x4000),        -- 0x0C Z fraction (0.25)
-    u16(3),             -- 0x0E Z integer
-    u32(0x4000),        -- 0x10 X rotation (low16 = 90 deg)
-    u32(0x8000),        -- 0x14 Y rotation (low16 = 180 deg)
-    u32(0xC000),        -- 0x18 Z rotation (low16 = 270 deg)
-    u32(0x1000),        -- 0x1C width scale (fx32 = 1.0)
-    u32(0x2000),        -- 0x20 height scale (fx32 = 2.0)
-    u32(0x0800),        -- 0x24 length scale (fx32 = 0.5)
+    u32(21), -- 0x00 model member id
+    u16(0x8000), -- 0x04 X fraction (0.5)
+    u16(5), -- 0x06 X integer
+    u16(0), -- 0x08 Y fraction
+    u16(0xFFFF), -- 0x0A Y integer (-1 s16)
+    u16(0x4000), -- 0x0C Z fraction (0.25)
+    u16(3), -- 0x0E Z integer
+    u32(0x4000), -- 0x10 X rotation (low16 = 90 deg)
+    u32(0x8000), -- 0x14 Y rotation (low16 = 180 deg)
+    u32(0xC000), -- 0x18 Z rotation (low16 = 270 deg)
+    u32(0x1000), -- 0x1C width scale (fx32 = 1.0)
+    u32(0x2000), -- 0x20 height scale (fx32 = 2.0)
+    u32(0x0800), -- 0x24 length scale (fx32 = 0.5)
     "\1\2\3\4\5\6\7\8", -- 0x28 eight trailing bytes
   })
 end
 
-local function angle(low16) return low16 * 2 * math.pi / 65536 end
+local function angle(low16)
+  return low16 * 2 * math.pi / 65536
+end
 
 function T.decodes_all_fields_of_one_record()
   local p, nextOffset = BuildingPlacement.decode(record(), 0)

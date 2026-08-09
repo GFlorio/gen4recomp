@@ -31,13 +31,27 @@ local function s32(value)
 end
 
 local function need(reader, offset, length, category, recordIndex)
-  if offset + length <= reader:length() then return end
-  Errors.raise("ZONE_EVENTS_TRUNCATED",
-    string.format("%s record %s at offset %d needs %d bytes, only %d remain",
-      category, tostring(recordIndex), offset, length, math.max(0, reader:length() - offset)),
-    { sourceOffset = offset, requiredBytes = length,
+  if offset + length <= reader:length() then
+    return
+  end
+  Errors.raise(
+    "ZONE_EVENTS_TRUNCATED",
+    string.format(
+      "%s record %s at offset %d needs %d bytes, only %d remain",
+      category,
+      tostring(recordIndex),
+      offset,
+      length,
+      math.max(0, reader:length() - offset)
+    ),
+    {
+      sourceOffset = offset,
+      requiredBytes = length,
       availableBytes = math.max(0, reader:length() - offset),
-      category = category, recordIndex = recordIndex })
+      category = category,
+      recordIndex = recordIndex,
+    }
+  )
 end
 
 local function readCount(reader, offset, category)
@@ -50,13 +64,17 @@ local function ensureRecords(reader, offset, count, category)
   -- u32 counts cannot overflow Lua's exact-integer range at these record sizes,
   -- but retain the explicit invariant at this untrusted-input boundary.
   if count > math.floor(9007199254740991 / size) then
-    Errors.raise("ZONE_EVENTS_COUNT_INVALID",
+    Errors.raise(
+      "ZONE_EVENTS_COUNT_INVALID",
       category .. " count cannot be represented safely: " .. count,
-      { sourceOffset = offset - 4, category = category, count = count, recordSize = size })
+      { sourceOffset = offset - 4, category = category, count = count, recordSize = size }
+    )
   end
   local available = reader:length() - offset
   local required = count * size
-  if required <= available then return end
+  if required <= available then
+    return
+  end
   local recordIndex = math.floor(math.max(0, available) / size)
   need(reader, offset + recordIndex * size, size, category, recordIndex)
 end
@@ -149,9 +167,11 @@ local function _decode(bytes, opts)
   local trailingBytes
   if offset ~= reader:length() then
     if not opts.allowTrailingBytes then
-      Errors.raise("ZONE_EVENTS_TRAILING_BYTES",
+      Errors.raise(
+        "ZONE_EVENTS_TRAILING_BYTES",
         string.format("%d trailing bytes at offset %d", reader:length() - offset, offset),
-        { sourceOffset = offset, trailingByteCount = reader:length() - offset })
+        { sourceOffset = offset, trailingByteCount = reader:length() - offset }
+      )
     end
     trailingBytes = reader:bytes(offset, reader:length() - offset)
   end
@@ -173,8 +193,12 @@ end
 function ZoneEvents.decode(bytes, opts)
   assert(type(bytes) == "string", "decode requires member bytes")
   local ok, result = pcall(_decode, bytes, opts)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 

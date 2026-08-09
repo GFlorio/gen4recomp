@@ -22,8 +22,7 @@ local function pack(f)
 end
 
 function T.decodes_light_mask_mode_and_alpha()
-  local a = DsPolygonAttr.decode(pack({ lightMask = 0xB, mode = 1, alpha = 31, polygonId = 63,
-    renderFront = true }))
+  local a = DsPolygonAttr.decode(pack({ lightMask = 0xB, mode = 1, alpha = 31, polygonId = 63, renderFront = true }))
   Assert.equal(a.lightMask, 0xB)
   Assert.equal(a.polygonModeRaw, 1)
   Assert.equal(a.polygonMode, "decal")
@@ -40,8 +39,13 @@ end
 
 function T.decodes_every_flag()
   local a = DsPolygonAttr.decode(pack({
-    renderFront = true, translucentDepthWrite = true, farClip = true, oneDot = true,
-    depthEqual = true, fog = true }))
+    renderFront = true,
+    translucentDepthWrite = true,
+    farClip = true,
+    oneDot = true,
+    depthEqual = true,
+    fog = true,
+  }))
   Assert.isTrue(a.translucentDepthWrite)
   Assert.isTrue(a.farClipEnabled)
   Assert.isTrue(a.oneDotEnabled)
@@ -66,8 +70,12 @@ function T.derives_cull_from_render_flags()
 end
 
 function T.rejects_non_32bit_word()
-  Assert.throws(function() DsPolygonAttr.decode(-1) end)
-  Assert.throws(function() DsPolygonAttr.decode(2 ^ 32) end)
+  Assert.throws(function()
+    DsPolygonAttr.decode(-1)
+  end)
+  Assert.throws(function()
+    DsPolygonAttr.decode(2 ^ 32)
+  end)
 end
 
 return T

@@ -31,8 +31,11 @@ local function persist(cacheFs, bundle)
   end
   -- 4. Permission grid.
   if #bundle.permissions ~= 2048 then
-    Errors.raise("MAP_CACHE_BAD_PERMISSIONS",
-      "permission grid is " .. #bundle.permissions .. " bytes, expected 2048", { mapId = mapId })
+    Errors.raise(
+      "MAP_CACHE_BAD_PERMISSIONS",
+      "permission grid is " .. #bundle.permissions .. " bytes, expected 2048",
+      { mapId = mapId }
+    )
   end
   cacheFs:write(dir .. "/permissions.bin", bundle.permissions)
   -- 5. Terrain surfaces.
@@ -43,16 +46,20 @@ local function persist(cacheFs, bundle)
   -- 6. Neighbor permission and terrain artifacts.
   for landDataMemberId, chunk in pairs(bundle.neighborChunks or {}) do
     if #chunk.permissions ~= 2048 then
-      Errors.raise("MAP_CACHE_BAD_NEIGHBOR_PERMISSIONS",
+      Errors.raise(
+        "MAP_CACHE_BAD_NEIGHBOR_PERMISSIONS",
         "neighbor permission grid must be 2048 bytes",
-        { mapId = mapId, landDataMemberId = landDataMemberId, size = #chunk.permissions })
+        { mapId = mapId, landDataMemberId = landDataMemberId, size = #chunk.permissions }
+      )
     end
     if type(chunk.terrain) ~= "table" or chunk.terrain.schema ~= "g4-terrain-surfaces-v1" then
-      Errors.raise("MAP_CACHE_BAD_NEIGHBOR_TERRAIN", "neighbor terrain artifact is invalid",
-        { mapId = mapId, landDataMemberId = landDataMemberId })
+      Errors.raise(
+        "MAP_CACHE_BAD_NEIGHBOR_TERRAIN",
+        "neighbor terrain artifact is invalid",
+        { mapId = mapId, landDataMemberId = landDataMemberId }
+      )
     end
-    cacheFs:write(MapAssetCache.neighborPermissionsPath(mapId, landDataMemberId),
-      chunk.permissions)
+    cacheFs:write(MapAssetCache.neighborPermissionsPath(mapId, landDataMemberId), chunk.permissions)
     cacheFs:writeLua(MapAssetCache.neighborTerrainPath(mapId, landDataMemberId), chunk.terrain)
   end
   -- 7. Scene descriptor. 8. Dependency record.
@@ -83,9 +90,13 @@ end
 function MapCacheWriter.write(cacheFs, bundle)
   assert(type(bundle) == "table" and bundle.mapId and bundle.marker, "invalid bundle")
   local ok, result = pcall(persist, cacheFs, bundle)
-  if ok then return result end
+  if ok then
+    return result
+  end
   -- Roll back this map's artifacts; leave shared orphans and the raw dump alone.
-  pcall(function() MapAssetCache.invalidateMap(cacheFs, bundle.mapId) end)
+  pcall(function()
+    MapAssetCache.invalidateMap(cacheFs, bundle.mapId)
+  end)
   error(result)
 end
 

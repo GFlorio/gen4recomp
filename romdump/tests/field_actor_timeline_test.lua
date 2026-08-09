@@ -84,10 +84,14 @@ function T.palette_slots_participate_in_frame_identity()
 end
 
 function T.rejects_size_mismatch()
-  failsWith("FIELD_ACTOR_TIMELINE_SIZE_MISMATCH",
-    Fixture.timeline({ { threshold = 0, textureSlot = 0 } }, { trailer = "\0\0" }))
-  failsWith("FIELD_ACTOR_TIMELINE_SIZE_MISMATCH",
-    Fixture.timeline({ { threshold = 0, textureSlot = 0 } }, { declaredCount = 4 }))
+  failsWith(
+    "FIELD_ACTOR_TIMELINE_SIZE_MISMATCH",
+    Fixture.timeline({ { threshold = 0, textureSlot = 0 } }, { trailer = "\0\0" })
+  )
+  failsWith(
+    "FIELD_ACTOR_TIMELINE_SIZE_MISMATCH",
+    Fixture.timeline({ { threshold = 0, textureSlot = 0 } }, { declaredCount = 4 })
+  )
 end
 
 function T.rejects_zero_count_and_truncated_member()
@@ -96,17 +100,23 @@ function T.rejects_zero_count_and_truncated_member()
 end
 
 function T.rejects_non_monotonic_thresholds()
-  failsWith("FIELD_ACTOR_TIMELINE_UNORDERED", Fixture.timeline({
-    { threshold = 0, textureSlot = 0 },
-    { threshold = 8, textureSlot = 1 },
-    { threshold = 4, textureSlot = 2 },
-  }))
+  failsWith(
+    "FIELD_ACTOR_TIMELINE_UNORDERED",
+    Fixture.timeline({
+      { threshold = 0, textureSlot = 0 },
+      { threshold = 8, textureSlot = 1 },
+      { threshold = 4, textureSlot = 2 },
+    })
+  )
 end
 
 function T.rejects_a_timeline_that_does_not_start_at_frame_zero()
-  failsWith("FIELD_ACTOR_TIMELINE_NO_ORIGIN", Fixture.timeline({
-    { threshold = 3, textureSlot = 0 },
-  }))
+  failsWith(
+    "FIELD_ACTOR_TIMELINE_NO_ORIGIN",
+    Fixture.timeline({
+      { threshold = 3, textureSlot = 0 },
+    })
+  )
 end
 
 return T

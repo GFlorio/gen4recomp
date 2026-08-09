@@ -31,14 +31,17 @@ end
 local function assertTextureInventory(label, pack, packSize)
   Assert.isTrue(#pack.textures > 0, label .. ": pack has textures")
   for _, t in ipairs(pack.textures) do
-    Assert.isTrue(TextureDecoder.SUPPORTED[t.formatRaw],
-      label .. ": unsupported format " .. tostring(t.formatRaw) .. " for " .. t.name)
+    Assert.isTrue(
+      TextureDecoder.SUPPORTED[t.formatRaw],
+      label .. ": unsupported format " .. tostring(t.formatRaw) .. " for " .. t.name
+    )
     Assert.isTrue(t.width >= 8 and t.height >= 8, label .. ": finite dimensions for " .. t.name)
     Assert.isTrue(type(t.color0Transparent) == "boolean", label .. ": color0 flag for " .. t.name)
-    Assert.isTrue(type(t.repeatX) == "boolean" and type(t.flipX) == "boolean",
-      label .. ": wrap/flip flags for " .. t.name)
-    Assert.isTrue(t.dataAbsolute + t.dataSize <= packSize,
-      label .. ": texel byte range in bounds for " .. t.name)
+    Assert.isTrue(
+      type(t.repeatX) == "boolean" and type(t.flipX) == "boolean",
+      label .. ": wrap/flip flags for " .. t.name
+    )
+    Assert.isTrue(t.dataAbsolute + t.dataSize <= packSize, label .. ": texel byte range in bounds for " .. t.name)
   end
 end
 
@@ -75,8 +78,7 @@ function T.gate2_land_containers(romFs)
   local r = resolve(romFs)
   local narc = assert(romFs:openNarc("land_data"))
   local bytes = assert(narc:readMember(r.landDataMemberId))
-  local land = assert(LandData.decode(bytes,
-    { mapId = r.map.id, alias = "land_data", memberId = r.landDataMemberId }))
+  local land = assert(LandData.decode(bytes, { mapId = r.map.id, alias = "land_data", memberId = r.landDataMemberId }))
   Assert.equal(land.bgs.signature, 0x1234)
   Assert.equal(land.sizes.permissions, 0x800)
   Assert.equal(land.sizes.buildings % 0x30, 0)
@@ -88,10 +90,18 @@ function T.gate2_land_containers(romFs)
   -- Observed permission bytes: only 0x80 hard-blocks; 0 and 6 are passable
   -- surface responses, not obstacles.
   Assert.deepEqual(land.permissions:usedPermissionValues(), { 0, 6, 128 })
-  print(string.format(
-    "  [elms_lab] land member %d: bgsPayload=%d permissions=0x%X buildings=%d(%d recs) model=%d bdhc=%d",
-    r.landDataMemberId, #land.bgs.payload, land.sizes.permissions,
-    land.sizes.buildings, #land.buildings, land.sizes.model, land.sizes.bdhc))
+  print(
+    string.format(
+      "  [elms_lab] land member %d: bgsPayload=%d permissions=0x%X buildings=%d(%d recs) model=%d bdhc=%d",
+      r.landDataMemberId,
+      #land.bgs.payload,
+      land.sizes.permissions,
+      land.sizes.buildings,
+      #land.buildings,
+      land.sizes.model,
+      land.sizes.bdhc
+    )
+  )
   print("  [elms_lab] permission values: " .. table.concat(land.permissions:usedPermissionValues(), " "))
 end
 
@@ -110,12 +120,11 @@ function T.gate3_texture_inventory(romFs)
   assertTextureInventory("elms_lab/building", bldPack, #bldTexBytes)
 
   -- Every texture the map model binds must exist in the map texture pack.
-  local land = assert(LandData.decode(assert(romFs:openNarc("land_data")):readMember(r.landDataMemberId),
-    { mapId = r.map.id }))
+  local land =
+    assert(LandData.decode(assert(romFs:openNarc("land_data")):readMember(r.landDataMemberId), { mapId = r.map.id }))
   local model = assert(Nsbmd.decode(land.mapModelBytes)).models[1]
   for _, assoc in ipairs(model.textureAssociations) do
-    Assert.notNil(mapPack.textureByName[assoc.name],
-      "map material texture missing from pack: " .. assoc.name)
+    Assert.notNil(mapPack.textureByName[assoc.name], "map material texture missing from pack: " .. assoc.name)
   end
 end
 
@@ -124,8 +133,8 @@ end
 -- unsupported command in the Elm target set.
 function T.gate4_geometry_inventory(romFs)
   local r = resolve(romFs)
-  local land = assert(LandData.decode(assert(romFs:openNarc("land_data")):readMember(r.landDataMemberId),
-    { mapId = r.map.id }))
+  local land =
+    assert(LandData.decode(assert(romFs:openNarc("land_data")):readMember(r.landDataMemberId), { mapId = r.map.id }))
   local nsbmd = assert(Nsbmd.decode(land.mapModelBytes))
   Assert.equal(#nsbmd.models, 1)
   local model = nsbmd.models[1]
@@ -144,8 +153,10 @@ function T.gate4_geometry_inventory(romFs)
   for _, shp in ipairs(model.shapes) do
     Assert.notNil(shp.bounds, "shape " .. shp.name .. " produced no geometry bounds")
     for k = 1, 3 do
-      Assert.isTrue(isFinite(shp.bounds.min[k]) and isFinite(shp.bounds.max[k]),
-        "non-finite bound in shape " .. shp.name)
+      Assert.isTrue(
+        isFinite(shp.bounds.min[k]) and isFinite(shp.bounds.max[k]),
+        "non-finite bound in shape " .. shp.name
+      )
     end
     Assert.isTrue(shp.triangleCount > 0, "shape " .. shp.name .. " has no triangles")
   end
@@ -177,35 +188,41 @@ function T.gate4_geometry_inventory(romFs)
   for _, s in ipairs(report.buildings.modelSummaries) do
     Assert.notNil(s.bounds, "building model " .. s.memberId .. " produced no bounds")
   end
-  print(string.format("  [elms_lab] map model %q: %d shapes, %d verts, %d placed building models",
-    report.mapModel.modelName, report.mapModel.shapeCount, report.mapModel.vertexCount,
-    #report.buildings.modelIds))
+  print(
+    string.format(
+      "  [elms_lab] map model %q: %d shapes, %d verts, %d placed building models",
+      report.mapModel.modelName,
+      report.mapModel.shapeCount,
+      report.mapModel.vertexCount,
+      #report.buildings.modelIds
+    )
+  )
 end
 
 -- Every parsed material record is structurally valid and
 -- every compiled vertex carries a resolved color source.
 function T.gate6_material_and_vertex_validity(romFs)
   local r = resolve(romFs)
-  local land = assert(LandData.decode(assert(romFs:openNarc("land_data")):readMember(r.landDataMemberId),
-    { mapId = r.map.id }))
+  local land =
+    assert(LandData.decode(assert(romFs:openNarc("land_data")):readMember(r.landDataMemberId), { mapId = r.map.id }))
   local nsbmd = assert(Nsbmd.decode(land.mapModelBytes))
   local model = nsbmd.models[1]
 
   for _, mat in ipairs(model.materials) do
     Assert.isTrue(mat.size >= 0x2C, "material size >= 0x2C: " .. mat.name)
     Assert.equal(mat.itemTag, 0, "standard material item tag: " .. mat.name)
-    Assert.isTrue(mat.polyAttrMask == 0xFFFFFFFF or mat.polyAttrMask == 0x3F1FF8FF,
-      "polyAttrMask covers meaningful bits: " .. mat.name)
-    Assert.equal(mat.texImageParamMask, 0xFFFFFFFF,
-      "texImageParamMask is full: " .. mat.name)
+    Assert.isTrue(
+      mat.polyAttrMask == 0xFFFFFFFF or mat.polyAttrMask == 0x3F1FF8FF,
+      "polyAttrMask covers meaningful bits: " .. mat.name
+    )
+    Assert.equal(mat.texImageParamMask, 0xFFFFFFFF, "texImageParamMask is full: " .. mat.name)
   end
 
   local bundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK_ELMS_LAB_1F"))
   for sha, batch in pairs(bundle.meshes) do
     for _, v in ipairs(batch.vertices) do
       Assert.notNil(v.colorSource, "vertex has resolved color source in " .. sha)
-      Assert.isTrue(v.colorSource >= 0 and v.colorSource <= 2,
-        "colorSource is valid in " .. sha)
+      Assert.isTrue(v.colorSource >= 0 and v.colorSource <= 2, "colorSource is valid in " .. sha)
     end
   end
 end
@@ -215,11 +232,13 @@ end
 -- Only the 0x80 hard-block bit blocks; the 32x32 cell is a hard boundary.
 function T.gate7_traversal(romFs)
   local r = resolve(romFs)
-  local land = assert(LandData.decode(assert(romFs:openNarc("land_data")):readMember(r.landDataMemberId),
-    { mapId = r.map.id }))
+  local land =
+    assert(LandData.decode(assert(romFs:openNarc("land_data")):readMember(r.landDataMemberId), { mapId = r.map.id }))
   local grid = land.permissions
   local collision = CollisionGrid.new(grid, {
-    worldOriginX = r.worldOriginX, worldOriginZ = r.worldOriginZ })
+    worldOriginX = r.worldOriginX,
+    worldOriginZ = r.worldOriginZ,
+  })
 
   -- Provisional spawn is in-bounds and passable (no relocation needed).
   local spawn = FieldSpawns.MAP_NEW_BARK_ELMS_LAB_1F

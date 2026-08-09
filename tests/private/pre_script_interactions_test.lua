@@ -54,7 +54,9 @@ local function managerFor(romFs, map, mapsById)
   FieldScenario.apply(scenarioManifest, eventState, reader)
   local references = {}
   local assets = {
-    knows = function() return true end,
+    knows = function()
+      return true
+    end,
     acquire = function(_, spriteId)
       references[spriteId] = (references[spriteId] or 0) + 1
       return { spriteId = spriteId, visual = { spriteId = spriteId } }
@@ -109,21 +111,32 @@ function T.fixture_keys_resolve_to_real_target_events(romFs)
     local found = false
     if kind == "object" then
       for _, event in ipairs(map.fieldData.events.objects or {}) do
-        if event.objectEventId == tonumber(identity) then found = true end
+        if event.objectEventId == tonumber(identity) then
+          found = true
+        end
       end
     else
       for _, event in ipairs(map.fieldData.events.background or {}) do
-        if event.index == tonumber(identity) then found = true end
+        if event.index == tonumber(identity) then
+          found = true
+        end
       end
     end
     Assert.isTrue(found, "fixture key " .. key .. " does not resolve to a real event")
-    Assert.isTrue(type(fixture.messageBankId) == "number" and type(fixture.messageId) == "number",
-      "fixture " .. key .. " requires numeric message identity")
-    Assert.isTrue(fixture.facePlayer == nil or fixture.facePlayer == true or fixture.facePlayer == false,
-      "fixture " .. key .. " facePlayer must be a boolean")
+    Assert.isTrue(
+      type(fixture.messageBankId) == "number" and type(fixture.messageId) == "number",
+      "fixture " .. key .. " requires numeric message identity"
+    )
+    Assert.isTrue(
+      fixture.facePlayer == nil or fixture.facePlayer == true or fixture.facePlayer == false,
+      "fixture " .. key .. " facePlayer must be a boolean"
+    )
     if fixture.substitutions then
-      Assert.equal(type(fixture.substitutions.playerName), "string",
-        "fixture " .. key .. " only supports the playerName substitution")
+      Assert.equal(
+        type(fixture.substitutions.playerName),
+        "string",
+        "fixture " .. key .. " only supports the playerName substitution"
+      )
     end
   end
 end
@@ -136,8 +149,11 @@ function T.fixture_banks_match_the_map_header_association(romFs)
   Assert.equal(all[TOWN].fieldData.scriptBankId, 842)
   for key, fixture in pairs(fixtures) do
     local mapId = tonumber(key:match("^map:(%d+)"))
-    Assert.equal(fixture.messageBankId, all[mapId].fieldData.messageBankId,
-      "fixture " .. key .. " bank must match its map's generated association")
+    Assert.equal(
+      fixture.messageBankId,
+      all[mapId].fieldData.messageBankId,
+      "fixture " .. key .. " bank must match its map's generated association"
+    )
   end
 end
 
@@ -152,11 +168,9 @@ function T.background_fixture_script_families_match_the_pinned_json(romFs)
     local mapId, kind, identity = key:match("^map:(%d+):(%w+):(%d+)$")
     if tonumber(mapId) == LAB and kind == "background" then
       local index = tonumber(identity)
-      local actual = assert(expected[index],
-        "fixture " .. key .. " is not in the documented background family")
+      local actual = assert(expected[index], "fixture " .. key .. " is not in the documented background family")
       local event = lab.fieldData.events.background[index + 1]
-      Assert.equal(event.scriptId, actual,
-        "fixture " .. key .. " scriptId drifted from the pinned zone-event JSON")
+      Assert.equal(event.scriptId, actual, "fixture " .. key .. " scriptId drifted from the pinned zone-event JSON")
     end
   end
 end
@@ -165,12 +179,22 @@ function T.fixture_message_ids_are_in_range_for_their_banks(romFs)
   local cache = bankCache(romFs)
   local provider = assert(FieldMessageProvider.new(cache))
   for key, fixture in pairs(fixtures) do
-    local bank = assert(provider:acquireBank(fixture.messageBankId),
-      "fixture " .. key .. " references a bank outside the compiled set")
-    Assert.isTrue(fixture.messageId < bank.messageCount,
-      "fixture " .. key .. " message " .. fixture.messageId
-        .. " is out of range for bank " .. fixture.messageBankId
-        .. " (" .. bank.messageCount .. " messages)")
+    local bank = assert(
+      provider:acquireBank(fixture.messageBankId),
+      "fixture " .. key .. " references a bank outside the compiled set"
+    )
+    Assert.isTrue(
+      fixture.messageId < bank.messageCount,
+      "fixture "
+        .. key
+        .. " message "
+        .. fixture.messageId
+        .. " is out of range for bank "
+        .. fixture.messageBankId
+        .. " ("
+        .. bank.messageCount
+        .. " messages)"
+    )
     provider:releaseBank(fixture.messageBankId)
   end
 end
@@ -241,8 +265,11 @@ function T.adapter_drives_the_elm_preview_end_to_end(romFs)
   local provider = assert(FieldMessageProvider.new(cache, { maxCachedBanks = 2 }))
   local metrics = FieldDialogueTheme.fontMetrics(font)
   local layout = function(message)
-    return DialogueLayout.layout(message.tokens, metrics,
-      { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines })
+    return DialogueLayout.layout(
+      message.tokens,
+      metrics,
+      { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines }
+    )
   end
   local dialogue = FieldDialogueController.new({ layout = layout })
   local adapter = PreScriptInteractionAdapter.new({
@@ -250,8 +277,12 @@ function T.adapter_drives_the_elm_preview_end_to_end(romFs)
     provider = provider,
     layout = layout,
     fontDef = font,
-    getActor = function(actorId) return manager:getById(actorId) end,
-    mapMessageBank = function(mapId) return lab.fieldData.messageBankId end,
+    getActor = function(actorId)
+      return manager:getById(actorId)
+    end,
+    mapMessageBank = function(mapId)
+      return lab.fieldData.messageBankId
+    end,
     fixtures = fixtures,
   })
 
@@ -302,8 +333,11 @@ function T.no_target_map_has_ambiguous_eligible_background_duplicates(romFs)
       end
     end
     for key, count in pairs(cells) do
-      Assert.equal(count, 1, "map " .. map.mapId .. " cell " .. key
-        .. " has " .. count .. " eligible background events")
+      Assert.equal(
+        count,
+        1,
+        "map " .. map.mapId .. " cell " .. key .. " has " .. count .. " eligible background events"
+      )
     end
   end
 end

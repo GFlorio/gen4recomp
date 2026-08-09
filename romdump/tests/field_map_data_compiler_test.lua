@@ -21,22 +21,40 @@ local function fixture()
   local romFs = {
     resolvedNarc = function(_, alias)
       Assert.equal(alias, "zone_events")
-      return { symbol = "NARC_fielddata_eventdata_zone_event", alias = "zone_events",
-        narcId = 32, fileId = 99, path = "a/0/3/2" }
+      return {
+        symbol = "NARC_fielddata_eventdata_zone_event",
+        alias = "zone_events",
+        narcId = 32,
+        fileId = 99,
+        path = "a/0/3/2",
+      }
     end,
-    read = function(_, fileId) Assert.equal(fileId, 99); return archiveBytes end,
+    read = function(_, fileId)
+      Assert.equal(fileId, 99)
+      return archiveBytes
+    end,
     openNarc = function(_, alias)
       Assert.equal(alias, "zone_events")
-      return { readMember = function(_, memberId)
-        Assert.isTrue(memberId == 57 or memberId == 58, "unexpected member " .. memberId)
-        return member
-      end }
+      return {
+        readMember = function(_, memberId)
+          Assert.isTrue(memberId == 57 or memberId == 58, "unexpected member " .. memberId)
+          return member
+        end,
+      }
     end,
-    metadata = function() return { sha1 = "rom-sha" } end,
-    version = function() return "heartgold" end,
+    metadata = function()
+      return { sha1 = "rom-sha" }
+    end,
+    version = function()
+      return "heartgold"
+    end,
   }
-  local function sha1(bytes) return bytes == member and "member-sha" or "archive-sha" end
-  local function hashLua() return "dependency-sha" end
+  local function sha1(bytes)
+    return bytes == member and "member-sha" or "archive-sha"
+  end
+  local function hashLua()
+    return "dependency-sha"
+  end
   return romFs, sha1, hashLua
 end
 
@@ -44,16 +62,32 @@ local function allMapsFixture()
   local member = Builder.build()
   return {
     resolvedNarc = function()
-      return { symbol = "NARC_fielddata_eventdata_zone_event", alias = "zone_events",
-        narcId = 32, fileId = 99, path = "a/0/3/2" }
+      return {
+        symbol = "NARC_fielddata_eventdata_zone_event",
+        alias = "zone_events",
+        narcId = 32,
+        fileId = 99,
+        path = "a/0/3/2",
+      }
     end,
-    read = function() return "synthetic-narc" end,
+    read = function()
+      return "synthetic-narc"
+    end,
     openNarc = function()
-      return { readMember = function() return member end }
+      return {
+        readMember = function()
+          return member
+        end,
+      }
     end,
-    metadata = function() return { sha1 = "rom-sha" } end,
-  }, function(bytes) return bytes == member and "member-sha" or "archive-sha" end,
-    function() return "dependency-sha" end
+    metadata = function()
+      return { sha1 = "rom-sha" }
+    end,
+  }, function(bytes)
+    return bytes == member and "member-sha" or "archive-sha"
+  end, function()
+    return "dependency-sha"
+  end
 end
 
 function T.compiles_catalog_identity_source_and_events()
@@ -69,8 +103,7 @@ function T.compiles_catalog_identity_source_and_events()
   Assert.equal(bundle.dependencies.eventNarc.fileId, 99)
   Assert.equal(bundle.dependencies.eventNarc.sha1, "archive-sha")
   Assert.equal(bundle.dependencies.eventMemberSha1, "member-sha")
-  Assert.equal(bundle.marker,
-    "g4-field-map-cache-v1:rom-sha:60:dependency-sha")
+  Assert.equal(bundle.marker, "g4-field-map-cache-v1:rom-sha:60:dependency-sha")
 
   local again = assert(FieldMapDataCompiler.compile(romFs, "MAP_NEW_BARK", sha1, hashLua))
   Assert.equal(LuaWriter.encode(bundle.field), LuaWriter.encode(again.field))
@@ -98,13 +131,10 @@ function T.writer_commits_marker_last_and_inspector_is_stable()
   Assert.isFalse(FieldMapDataCache.isReady(cache, 60, bundle.marker .. "-old"))
 
   local report = FieldMapDataInspector.inspect(bundle.field)
-  Assert.deepEqual(report.counts,
-    { background = 0, objects = 0, warps = 1, coordinates = 0 })
+  Assert.deepEqual(report.counts, { background = 0, objects = 0, warps = 1, coordinates = 0 })
   local lines = FieldMapDataInspector.lines(report)
-  Assert.equal(lines[1],
-    "field-map\tmap=60\tsymbol=MAP_NEW_BARK\tcamera=0\tmember=57\tcounts=0/0/1/0")
-  Assert.equal(lines[2],
-    "warp\tmap=60\tindex=0\tx=684\tz=393\ty=0\tdestination=61:0")
+  Assert.equal(lines[1], "field-map\tmap=60\tsymbol=MAP_NEW_BARK\tcamera=0\tmember=57\tcounts=0/0/1/0")
+  Assert.equal(lines[2], "warp\tmap=60\tindex=0\tx=684\tz=393\ty=0\tdestination=61:0")
 end
 
 function T.writer_failure_rolls_back_only_its_map()
@@ -114,12 +144,16 @@ function T.writer_failure_rolls_back_only_its_map()
   local originalWrite = backend.write
   ---@diagnostic disable: duplicate-set-field
   backend.write = function(self, path, data)
-    if path:find("dependencies.lua", 1, true) then error("injected") end
+    if path:find("dependencies.lua", 1, true) then
+      error("injected")
+    end
     return originalWrite(self, path, data)
   end
   local cache = CacheFs.forVersion("heartgold", backend)
   cache:write("rom-dump.complete", "raw")
-  Assert.throws(function() FieldMapDataCacheWriter.write(cache, bundle) end)
+  Assert.throws(function()
+    FieldMapDataCacheWriter.write(cache, bundle)
+  end)
   Assert.isFalse(cache:exists(FieldMapDataCache.mapDir(60)))
   Assert.isTrue(cache:exists("rom-dump.complete"))
 end

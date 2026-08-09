@@ -63,7 +63,6 @@ FieldInteractionResolver.__index = FieldInteractionResolver
 ---@field facing FieldDirection
 ---@field tick integer
 
-
 ---@class FieldInteractionResolverOptions
 ---@field actorAt fun(mapId: integer, fieldX: integer, fieldZ: integer, surfaceId: integer): table|nil
 
@@ -90,8 +89,10 @@ local COMPATIBLE_DIRECTIONS = {
 }
 
 local DIRECTION_DELTAS = {
-  north = { x = 0, z = -1 }, south = { x = 0, z = 1 },
-  west = { x = -1, z = 0 }, east = { x = 1, z = 0 },
+  north = { x = 0, z = -1 },
+  south = { x = 0, z = 1 },
+  west = { x = -1, z = 0 },
+  east = { x = 1, z = 0 },
 }
 
 -- Named pure function for the raw direction compatibility table (spec
@@ -100,11 +101,17 @@ local DIRECTION_DELTAS = {
 ---@param backgroundDirectionRaw integer
 ---@return boolean
 function FieldInteractionResolver.backgroundDirectionCompatible(playerFacingRaw, backgroundDirectionRaw)
-  if backgroundDirectionRaw == FieldInteractionResolver.BACKGROUND_DIRECTION_WILDCARD then return true end
+  if backgroundDirectionRaw == FieldInteractionResolver.BACKGROUND_DIRECTION_WILDCARD then
+    return true
+  end
   local compatible = COMPATIBLE_DIRECTIONS[playerFacingRaw]
-  if not compatible then return false end
+  if not compatible then
+    return false
+  end
   for _, code in ipairs(compatible) do
-    if code == backgroundDirectionRaw then return true end
+    if code == backgroundDirectionRaw then
+      return true
+    end
   end
   return false
 end
@@ -115,8 +122,10 @@ end
 ---@param opts FieldInteractionResolverOptions
 ---@return FieldInteractionResolver
 function FieldInteractionResolver.new(opts)
-  assert(type(opts) == "table" and type(opts.actorAt) == "function",
-    "FieldInteractionResolver requires an actor lookup")
+  assert(
+    type(opts) == "table" and type(opts.actorAt) == "function",
+    "FieldInteractionResolver requires an actor lookup"
+  )
   return setmetatable({
     actorAt = opts.actorAt,
   }, FieldInteractionResolver)
@@ -131,7 +140,9 @@ end
 function FieldInteractionResolver:_facingCellReachable(snapshot, targetX, targetZ)
   local map = snapshot.runtimeMap
   local ok, localX, localZ = pcall(FieldCoordinates.fieldToLocal, map, targetX, targetZ)
-  if not ok then return false end
+  if not ok then
+    return false
+  end
   local okSample = pcall(function()
     return SurfaceResolver.new(map.terrain):resolve({
       localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
@@ -156,12 +167,15 @@ end
 function FieldInteractionResolver:_firstEligibleBackground(snapshot, targetX, targetZ)
   local map = snapshot.runtimeMap
   local events = map.fieldData and map.fieldData.events and map.fieldData.events.background or {}
-  local playerRaw = assert(FieldInteractionResolver.RAW_FACING[snapshot.facing],
-    "unknown player facing " .. tostring(snapshot.facing))
+  local playerRaw =
+    assert(FieldInteractionResolver.RAW_FACING[snapshot.facing], "unknown player facing " .. tostring(snapshot.facing))
   for _, event in ipairs(events) do
-    if event.x == targetX and event.z == targetZ
+    if
+      event.x == targetX
+      and event.z == targetZ
       and event.type ~= FieldInteractionResolver.HIDDEN_ITEM_EVENT_TYPE
-      and FieldInteractionResolver.backgroundDirectionCompatible(playerRaw, event.directionRaw) then
+      and FieldInteractionResolver.backgroundDirectionCompatible(playerRaw, event.directionRaw)
+    then
       return event
     end
   end
@@ -193,14 +207,16 @@ end
 ---@param snapshot InteractionResolverSnapshot
 ---@return InteractionIntent?
 function FieldInteractionResolver:resolve(snapshot)
-  assert(type(snapshot) == "table" and type(snapshot.runtimeMap) == "table",
-    "resolve requires a runtime map")
+  assert(type(snapshot) == "table" and type(snapshot.runtimeMap) == "table", "resolve requires a runtime map")
 
   local map = snapshot.runtimeMap
   local delta = DIRECTION_DELTAS[snapshot.facing]
   if not delta then
-    Errors.raise("ACTOR_FACING_INVALID", "unsupported player facing " .. tostring(snapshot.facing),
-      { mapId = map.mapId })
+    Errors.raise(
+      "ACTOR_FACING_INVALID",
+      "unsupported player facing " .. tostring(snapshot.facing),
+      { mapId = map.mapId }
+    )
   end
   local targetX, targetZ = snapshot.fieldX + delta.x, snapshot.fieldZ + delta.z
 

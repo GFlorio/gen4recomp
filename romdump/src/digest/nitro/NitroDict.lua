@@ -57,9 +57,11 @@ local function _decode(bytes, base, context)
     local data = r:bytes(dataOffset, sizeUnit)
     local name = r:ascii(nameStart + index * NAME_SIZE, NAME_SIZE, true)
     if byName[name] then
-      raise("NITRO_DICT_DUPLICATE_NAME",
+      raise(
+        "NITRO_DICT_DUPLICATE_NAME",
         string.format("duplicate dictionary name %q at index %d", name, index),
-        { name = name, index = index, source = context })
+        { name = name, index = index, source = context }
+      )
     end
     local entry = { index = index, name = name, data = data, dataOffset = dataOffset }
     entries[#entries + 1] = entry
@@ -81,8 +83,12 @@ end
 
 function NitroDict.decode(bytes, base, context)
   local ok, result = pcall(_decode, bytes, base, context)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 

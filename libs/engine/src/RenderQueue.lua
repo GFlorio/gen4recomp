@@ -50,7 +50,9 @@ function RenderQueue.build(items, viewMatrix)
   end
 
   table.sort(translucent, function(a, b)
-    if a._viewZ ~= b._viewZ then return a._viewZ < b._viewZ end
+    if a._viewZ ~= b._viewZ then
+      return a._viewZ < b._viewZ
+    end
     return (a.submissionIndex or 0) < (b.submissionIndex or 0)
   end)
 

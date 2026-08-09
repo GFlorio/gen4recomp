@@ -6,7 +6,9 @@ local Matrix4 = require("libs.math.src.Matrix4")
 
 local T = {}
 
-local function approx(a, b) return math.abs(a - b) < 1e-9 end
+local function approx(a, b)
+  return math.abs(a - b) < 1e-9
+end
 
 function T.identity_is_neutral()
   local m = Matrix4.multiply(Matrix4.identity(), Matrix4.translate(2, 3, 4))
@@ -39,7 +41,10 @@ end
 function T.toArray_is_16_floats()
   local a = Matrix4.toArray(Matrix4.identity())
   Assert.equal(#a, 16)
-  Assert.equal(a[1], 1); Assert.equal(a[6], 1); Assert.equal(a[11], 1); Assert.equal(a[16], 1)
+  Assert.equal(a[1], 1)
+  Assert.equal(a[6], 1)
+  Assert.equal(a[11], 1)
+  Assert.equal(a[16], 1)
 end
 
 function T.lookAt_puts_target_in_front_along_negative_z()

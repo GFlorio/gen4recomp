@@ -35,7 +35,9 @@ local MODEL_MAGIC = "BMD0"
 local TEXTURE_MAGIC = "BTX0"
 
 local function must(value, err)
-  if value == nil then error(err) end
+  if value == nil then
+    error(err)
+  end
   return value
 end
 
@@ -46,17 +48,25 @@ local function selectedSpriteIds(romFs)
   local variable = manifest.variableSpriteRange
   local wanted, order = {}, {}
   local function add(spriteId)
-    if wanted[spriteId] then return end
+    if wanted[spriteId] then
+      return
+    end
     wanted[spriteId] = true
     order[#order + 1] = spriteId
   end
-  for _, avatar in ipairs(manifest.avatars) do add(avatar.spriteId) end
+  for _, avatar in ipairs(manifest.avatars) do
+    add(avatar.spriteId)
+  end
 
   local archive = must(romFs:openNarc("zone_events"), "zone_event archive is unavailable")
   local variableSprites = {}
   for map in MapCatalog.all() do
-    local decoded = must(ZoneEvents.decode(must(archive:readMember(map.eventMemberId)),
-      { mapId = map.id, eventMemberId = map.eventMemberId }))
+    local decoded = must(
+      ZoneEvents.decode(
+        must(archive:readMember(map.eventMemberId)),
+        { mapId = map.id, eventMemberId = map.eventMemberId }
+      )
+    )
     for _, object in ipairs(decoded.objectEvents) do
       if object.spriteId >= variable.first and object.spriteId <= variable.last then
         variableSprites[object.spriteId] = true
@@ -68,7 +78,9 @@ local function selectedSpriteIds(romFs)
 
   table.sort(order)
   local deferred = {}
-  for spriteId in pairs(variableSprites) do deferred[#deferred + 1] = spriteId end
+  for spriteId in pairs(variableSprites) do
+    deferred[#deferred + 1] = spriteId
+  end
   table.sort(deferred)
   return order, deferred
 end
@@ -78,25 +90,37 @@ local function decodeAtlas(pack, frames, context)
   for _, frame in ipairs(frames) do
     local texture = pack.textures[frame.textureSlot + 1]
     if not texture then
-      Errors.raise("FIELD_ACTOR_TEXTURE_SLOT_MISSING",
-        "timeline references texture slot " .. frame.textureSlot .. " but the actor resource has "
-          .. #pack.textures, { textureSlot = frame.textureSlot, count = #pack.textures,
-            context = context })
+      Errors.raise(
+        "FIELD_ACTOR_TEXTURE_SLOT_MISSING",
+        "timeline references texture slot " .. frame.textureSlot .. " but the actor resource has " .. #pack.textures,
+        { textureSlot = frame.textureSlot, count = #pack.textures, context = context }
+      )
     end
     local palette = pack.palettes[frame.paletteSlot + 1]
     if not palette then
-      Errors.raise("FIELD_ACTOR_PALETTE_SLOT_MISSING",
-        "timeline references palette slot " .. frame.paletteSlot .. " but the actor resource has "
-          .. #pack.palettes, { paletteSlot = frame.paletteSlot, count = #pack.palettes,
-            context = context })
+      Errors.raise(
+        "FIELD_ACTOR_PALETTE_SLOT_MISSING",
+        "timeline references palette slot " .. frame.paletteSlot .. " but the actor resource has " .. #pack.palettes,
+        { paletteSlot = frame.paletteSlot, count = #pack.palettes, context = context }
+      )
     end
     width = width or texture.width
     height = height or texture.height
     if texture.width ~= width or texture.height ~= height then
-      Errors.raise("FIELD_ACTOR_FRAME_SIZE_MISMATCH",
-        "actor frames must share one size; slot " .. frame.textureSlot .. " is "
-          .. texture.width .. "x" .. texture.height .. ", expected " .. width .. "x" .. height,
-        { textureSlot = frame.textureSlot, context = context })
+      Errors.raise(
+        "FIELD_ACTOR_FRAME_SIZE_MISMATCH",
+        "actor frames must share one size; slot "
+          .. frame.textureSlot
+          .. " is "
+          .. texture.width
+          .. "x"
+          .. texture.height
+          .. ", expected "
+          .. width
+          .. "x"
+          .. height,
+        { textureSlot = frame.textureSlot, context = context }
+      )
     end
     frame.texture, frame.paletteRecord = texture, palette
   end
@@ -108,15 +132,20 @@ local function decodeAtlas(pack, frames, context)
     local format = pack.textures[frame.textureSlot + 1].formatRaw
     textureFormat = textureFormat or format
     if format ~= textureFormat then
-      Errors.raise("FIELD_ACTOR_FRAME_FORMAT_MISMATCH",
-        "actor frames must share one texture format; slot " .. frame.textureSlot .. " is "
-          .. format .. ", expected " .. textureFormat,
-        { textureSlot = frame.textureSlot, context = context })
+      Errors.raise(
+        "FIELD_ACTOR_FRAME_FORMAT_MISMATCH",
+        "actor frames must share one texture format; slot "
+          .. frame.textureSlot
+          .. " is "
+          .. format
+          .. ", expected "
+          .. textureFormat,
+        { textureSlot = frame.textureSlot, context = context }
+      )
     end
   end
   for i, frame in ipairs(frames) do
-    local pixels = TextureDecoder.decode(
-      Nsbtx.decoderOpts(pack, frame.texture, frame.paletteRecord), context)
+    local pixels = TextureDecoder.decode(Nsbtx.decoderOpts(pack, frame.texture, frame.paletteRecord), context)
     decoded[i] = pixels
     for key in pairs(alphaUsage) do
       alphaUsage[key] = alphaUsage[key] or pixels.alphaUsage[key]
@@ -156,20 +185,23 @@ local function buildPoses(perRange, ranges, context)
     local range = ranges[index]
     local frames = perRange[index]
     local ticks = 0
-    for _, frame in ipairs(frames) do ticks = ticks + frame.ticks end
+    for _, frame in ipairs(frames) do
+      ticks = ticks + frame.ticks
+    end
     return {
       frames = frames,
       loop = range.loop,
       durationTicks = ticks,
-      sourceRange = { startFrame = range.startFrame, endFrame = range.endFrame,
-        endMode = range.endMode },
+      sourceRange = { startFrame = range.startFrame, endFrame = range.endFrame, endMode = range.endMode },
     }
   end
 
   local directions, alternate = {}, nil
   if #ranges < #order then
     local animations = {}
-    for index = 1, #ranges do animations[index] = poseFor(index) end
+    for index = 1, #ranges do
+      animations[index] = poseFor(index)
+    end
     for _, direction in ipairs(order) do
       directions[direction] = { idle = animations[1], walk = animations[1] }
     end
@@ -180,8 +212,11 @@ local function buildPoses(perRange, ranges, context)
     -- An idle actor never advances its animation clock, so it holds the first
     -- displayed frame of its facing range.
     directions[direction] = {
-      idle = { frames = { { frameIndex = walk.frames[1].frameIndex, ticks = 1 } },
-               loop = true, durationTicks = 1 },
+      idle = {
+        frames = { { frameIndex = walk.frames[1].frameIndex, ticks = 1 } },
+        loop = true,
+        durationTicks = 1,
+      },
       walk = walk,
     }
   end
@@ -197,8 +232,7 @@ end
 local function staticDirections()
   local directions = {}
   for _, direction in ipairs(manifest.directionOrder) do
-    local pose = { frames = { { frameIndex = 1, ticks = 1 } },
-      loop = true, durationTicks = 1 }
+    local pose = { frames = { { frameIndex = 1, ticks = 1 } }, loop = true, durationTicks = 1 }
     directions[direction] = { idle = pose, walk = pose }
   end
   return directions
@@ -228,14 +262,16 @@ local function finishStaticModel(spriteId, record, compiled, sourceRecord)
   return visual, atlas
 end
 
-
 local function compileStaticModel(spriteId, record, memberId, archive, source, context)
-  local modelBytes = must(archive:readMember(memberId),
-    Errors.new("FIELD_ACTOR_STATIC_MODEL_MEMBER_MISSING",
+  local modelBytes = must(
+    archive:readMember(memberId),
+    Errors.new(
+      "FIELD_ACTOR_STATIC_MODEL_MEMBER_MISSING",
       "static model member " .. memberId .. " is absent",
-      { memberId = memberId, context = context }))
-  local compiled = FieldActorStaticModel.compile(modelBytes, context, nil,
-    manifest.staticModels.archive.path)
+      { memberId = memberId, context = context }
+    )
+  )
+  local compiled = FieldActorStaticModel.compile(modelBytes, context, nil, manifest.staticModels.archive.path)
   return finishStaticModel(spriteId, record, compiled, {
     archive = manifest.staticModels.archive.path,
     staticModelMemberId = memberId,
@@ -250,34 +286,40 @@ local function compileSprite(romFs, spriteId, graphics, archive, staticArchive, 
   local resolved = must(FieldActorGraphics.resolve(graphics, spriteId))
   local record = resolved.record
   if resolved.staticModelMemberId then
-    return compileStaticModel(spriteId, record, resolved.staticModelMemberId,
-      staticArchive, source, context)
+    return compileStaticModel(spriteId, record, resolved.staticModelMemberId, staticArchive, source, context)
   end
   local descriptor = resolved.descriptor
 
   local modelBytes = archive:readMember(descriptor.modelMemberId)
   if not modelBytes or modelBytes:sub(1, 4) ~= MODEL_MAGIC then
-    Errors.raise("FIELD_ACTOR_MODEL_MEMBER_INVALID",
-      "shared model member " .. descriptor.modelMemberId .. " is not a " .. MODEL_MAGIC
-        .. " resource", { memberId = descriptor.modelMemberId, context = context })
+    Errors.raise(
+      "FIELD_ACTOR_MODEL_MEMBER_INVALID",
+      "shared model member " .. descriptor.modelMemberId .. " is not a " .. MODEL_MAGIC .. " resource",
+      { memberId = descriptor.modelMemberId, context = context }
+    )
   end
   local textureBytes = archive:readMember(record.mapModelId)
   if not textureBytes or textureBytes:sub(1, 4) ~= TEXTURE_MAGIC then
-    Errors.raise("FIELD_ACTOR_TEXTURE_MEMBER_INVALID",
-      "actor texture member " .. record.mapModelId .. " is not a " .. TEXTURE_MAGIC
-        .. " resource", { memberId = record.mapModelId, context = context })
+    Errors.raise(
+      "FIELD_ACTOR_TEXTURE_MEMBER_INVALID",
+      "actor texture member " .. record.mapModelId .. " is not a " .. TEXTURE_MAGIC .. " resource",
+      { memberId = record.mapModelId, context = context }
+    )
   end
-  local timelineBytes = must(archive:readMember(descriptor.timelineMemberId),
-    Errors.new("FIELD_ACTOR_TIMELINE_MEMBER_MISSING",
+  local timelineBytes = must(
+    archive:readMember(descriptor.timelineMemberId),
+    Errors.new(
+      "FIELD_ACTOR_TIMELINE_MEMBER_MISSING",
       "timeline member " .. descriptor.timelineMemberId .. " is absent",
-      { memberId = descriptor.timelineMemberId, context = context }))
+      { memberId = descriptor.timelineMemberId, context = context }
+    )
+  )
 
   local timeline = must(FieldActorTimeline.decode(timelineBytes, context))
   local pack = must(Nsbtx.decode(textureBytes, context))
   local drawMode = FieldActorModel.drawMode(modelBytes, context)
   if drawMode == "static" then
-    local compiled = FieldActorStaticModel.compile(modelBytes, context, pack,
-      manifest.archive.path)
+    local compiled = FieldActorStaticModel.compile(modelBytes, context, pack, manifest.archive.path)
     return finishStaticModel(spriteId, record, compiled, {
       archive = manifest.archive.path,
       modelMemberId = descriptor.modelMemberId,
@@ -293,12 +335,13 @@ local function compileSprite(romFs, spriteId, graphics, archive, staticArchive, 
     })
   end
   if drawMode ~= "billboard" then
-    Errors.raise("FIELD_ACTOR_MODEL_DRAW_MODE_UNSUPPORTED",
+    Errors.raise(
+      "FIELD_ACTOR_MODEL_DRAW_MODE_UNSUPPORTED",
       "actor model draw mode is " .. drawMode,
-      { drawMode = drawMode, context = context })
+      { drawMode = drawMode, context = context }
+    )
   end
-  local frameSet = FieldActorFrames.collect(timeline, descriptor.ranges,
-    #pack.textures, #pack.palettes, context)
+  local frameSet = FieldActorFrames.collect(timeline, descriptor.ranges, #pack.textures, #pack.palettes, context)
   local frames, perRange = frameSet.frames, frameSet.perRange
   local atlas = decodeAtlas(pack, frames, context)
   local directions, alternate, animations = buildPoses(perRange, descriptor.ranges, context)
@@ -382,21 +425,25 @@ local function _compile(romFs)
 
   local overlayBytes, overlayInfo = romFs:readOverlay(manifest.overlay.cpu, manifest.overlay.overlayId)
   must(overlayBytes, overlayInfo)
-  local graphics = must(FieldActorGraphics.decode(overlayBytes,
-    { ramAddress = overlayInfo.ramAddress }, manifest))
+  local graphics = must(FieldActorGraphics.decode(overlayBytes, { ramAddress = overlayInfo.ramAddress }, manifest))
 
   local archiveInfo = romFs:resolvedNarc(manifest.archive.alias)
   if not archiveInfo then
-    Errors.raise("ROMFS_NARC_UNRESOLVED", manifest.archive.alias .. " NARC is unavailable",
-      { name = manifest.archive.alias })
+    Errors.raise(
+      "ROMFS_NARC_UNRESOLVED",
+      manifest.archive.alias .. " NARC is unavailable",
+      { name = manifest.archive.alias }
+    )
   end
   local archiveBytes = must(romFs:read(archiveInfo.fileId))
   local archive = must(romFs:openNarc(manifest.archive.alias))
   local staticArchiveInfo = romFs:resolvedNarc(manifest.staticModels.archive.alias)
   if not staticArchiveInfo then
-    Errors.raise("ROMFS_NARC_UNRESOLVED",
+    Errors.raise(
+      "ROMFS_NARC_UNRESOLVED",
       manifest.staticModels.archive.alias .. " NARC is unavailable",
-      { name = manifest.staticModels.archive.alias })
+      { name = manifest.staticModels.archive.alias }
+    )
   end
   local staticArchiveBytes = must(romFs:read(staticArchiveInfo.fileId))
   local staticArchive = must(romFs:openNarc(manifest.staticModels.archive.alias))
@@ -404,15 +451,15 @@ local function _compile(romFs)
   local source = {
     -- The logical table span only, not the whole overlay: a change anywhere else
     -- in overlay 1 must not invalidate compiled actors.
-    overlaySha1 = Hashing.sha1hex(overlayBytes:sub(graphics.tableOffset + 1,
-      graphics.tableOffset + graphics.spanBytes)),
+    overlaySha1 = Hashing.sha1hex(
+      overlayBytes:sub(graphics.tableOffset + 1, graphics.tableOffset + graphics.spanBytes)
+    ),
   }
 
   local spriteIds, variableSprites = selectedSpriteIds(romFs)
   local visuals, atlases = {}, {}
   for _, spriteId in ipairs(spriteIds) do
-    visuals[spriteId], atlases[spriteId] = compileSprite(romFs, spriteId, graphics,
-      archive, staticArchive, source)
+    visuals[spriteId], atlases[spriteId] = compileSprite(romFs, spriteId, graphics, archive, staticArchive, source)
   end
 
   local dependencies = {
@@ -436,8 +483,11 @@ local function _compile(romFs)
       spanSha1 = source.overlaySha1,
     },
     archive = {
-      symbol = archiveInfo.symbol, alias = archiveInfo.alias, narcId = archiveInfo.narcId,
-      fileId = archiveInfo.fileId, path = archiveInfo.path,
+      symbol = archiveInfo.symbol,
+      alias = archiveInfo.alias,
+      narcId = archiveInfo.narcId,
+      fileId = archiveInfo.fileId,
+      path = archiveInfo.path,
       sha1 = Hashing.sha1hex(archiveBytes),
     },
     staticArchive = {
@@ -484,8 +534,12 @@ end
 
 function FieldActorCompiler.compile(romFs)
   local ok, result = pcall(_compile, romFs)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 

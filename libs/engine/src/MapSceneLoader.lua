@@ -46,9 +46,11 @@ end
 -- CacheFs.forVersion; `scene` is the already-loaded scene.lua table.
 function MapSceneLoader.load(cacheFs, scene)
   if not scene or scene.schema ~= "g4-map-scene-v3" then
-    Errors.raise("MAP_SCENE_UNSUPPORTED_SCHEMA",
+    Errors.raise(
+      "MAP_SCENE_UNSUPPORTED_SCHEMA",
       "expected g4-map-scene-v3, got " .. tostring(scene and scene.schema or nil),
-      { schema = scene and scene.schema or nil })
+      { schema = scene and scene.schema or nil }
+    )
   end
 
   local meshCache, imageCache = {}, {}
@@ -59,12 +61,24 @@ function MapSceneLoader.load(cacheFs, scene)
   local function growBounds(verts, transform)
     for _, v in ipairs(verts) do
       local x, y, z = Matrix4.transformPoint(transform, v[1], v[2], v[3])
-      if x < bounds.min[1] then bounds.min[1] = x end
-      if y < bounds.min[2] then bounds.min[2] = y end
-      if z < bounds.min[3] then bounds.min[3] = z end
-      if x > bounds.max[1] then bounds.max[1] = x end
-      if y > bounds.max[2] then bounds.max[2] = y end
-      if z > bounds.max[3] then bounds.max[3] = z end
+      if x < bounds.min[1] then
+        bounds.min[1] = x
+      end
+      if y < bounds.min[2] then
+        bounds.min[2] = y
+      end
+      if z < bounds.min[3] then
+        bounds.min[3] = z
+      end
+      if x > bounds.max[1] then
+        bounds.max[1] = x
+      end
+      if y > bounds.max[2] then
+        bounds.max[2] = y
+      end
+      if z > bounds.max[3] then
+        bounds.max[3] = z
+      end
     end
   end
 
@@ -73,9 +87,12 @@ function MapSceneLoader.load(cacheFs, scene)
     local minx, miny, minz = math.huge, math.huge, math.huge
     local maxx, maxy, maxz = -math.huge, -math.huge, -math.huge
     for _, v in ipairs(verts) do
-      minx = math.min(minx, v[1]); maxx = math.max(maxx, v[1])
-      miny = math.min(miny, v[2]); maxy = math.max(maxy, v[2])
-      minz = math.min(minz, v[3]); maxz = math.max(maxz, v[3])
+      minx = math.min(minx, v[1])
+      maxx = math.max(maxx, v[1])
+      miny = math.min(miny, v[2])
+      maxy = math.max(maxy, v[2])
+      minz = math.min(minz, v[3])
+      maxz = math.max(maxz, v[3])
     end
     return { (minx + maxx) / 2, (miny + maxy) / 2, (minz + maxz) / 2 }
   end
@@ -108,7 +125,9 @@ function MapSceneLoader.load(cacheFs, scene)
 
   local function applyWrap(material)
     if material.image then
-      local function mode(w) return w == "repeat" and "repeat" or "clamp" end
+      local function mode(w)
+        return w == "repeat" and "repeat" or "clamp"
+      end
       material.image:setWrap(mode(material.wrap.x), mode(material.wrap.y))
     end
   end
@@ -139,12 +158,14 @@ function MapSceneLoader.load(cacheFs, scene)
     local mesh, verts = meshFor(batch.geometry)
     local billboardBase
     if batch.transformMode == "billboard" then
-      billboardBase = Matrix4.multiply(instanceTransform,
-        assert(batch.baseTransform, "billboard batch is missing baseTransform"))
+      billboardBase =
+        Matrix4.multiply(instanceTransform, assert(batch.baseTransform, "billboard batch is missing baseTransform"))
     elseif batch.transformMode ~= nil then
-      Errors.raise("MAP_SCENE_UNSUPPORTED_TRANSFORM_MODE",
+      Errors.raise(
+        "MAP_SCENE_UNSUPPORTED_TRANSFORM_MODE",
         "unknown batch transform mode " .. tostring(batch.transformMode),
-        { transformMode = batch.transformMode, geometry = batch.geometry })
+        { transformMode = batch.transformMode, geometry = batch.geometry }
+      )
     end
     local transform = billboardBase or instanceTransform
     growBounds(verts, transform)
@@ -171,7 +192,9 @@ function MapSceneLoader.load(cacheFs, scene)
 
   -- Map terrain draws: identity transform, materials from the scene list.
   local mapMaterials = materialsById(scene.materials, imageFor)
-  for _, m in pairs(mapMaterials) do applyWrap(m) end
+  for _, m in pairs(mapMaterials) do
+    applyWrap(m)
+  end
   local identity = Matrix4.identity()
   local mapDraws = {}
   for _, batch in ipairs(scene.mapBatches or {}) do
@@ -186,7 +209,9 @@ function MapSceneLoader.load(cacheFs, scene)
     if not cached then
       local desc = assert(cacheFs:loadLua(MapAssetCache.modelPath(modelKey)), "missing model " .. modelKey)
       local mats = materialsById(desc.materials, imageFor)
-      for _, m in pairs(mats) do applyWrap(m) end
+      for _, m in pairs(mats) do
+        applyWrap(m)
+      end
       cached = { batches = desc.batches, materials = mats }
       descriptorCache[modelKey] = cached
     end
@@ -234,8 +259,12 @@ function MapSceneLoader.load(cacheFs, scene)
   }
 
   function runtime:release()
-    for _, mesh in ipairs(owned.meshes) do mesh:release() end
-    for _, image in ipairs(owned.images) do image:release() end
+    for _, mesh in ipairs(owned.meshes) do
+      mesh:release()
+    end
+    for _, image in ipairs(owned.images) do
+      image:release()
+    end
     owned.meshes, owned.images = {}, {}
   end
 

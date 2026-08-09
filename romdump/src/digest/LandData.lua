@@ -33,9 +33,12 @@ end
 
 local function parse(bytes, context)
   if #bytes < MIN_SIZE then
-    fail("LAND_DATA_TOO_SMALL",
+    fail(
+      "LAND_DATA_TOO_SMALL",
       "land-data member is " .. #bytes .. " bytes, need at least " .. MIN_SIZE,
-      context, { size = #bytes, expected = MIN_SIZE })
+      context,
+      { size = #bytes, expected = MIN_SIZE }
+    )
   end
   local r = BinaryReader.new(bytes, "land-data")
 
@@ -46,9 +49,12 @@ local function parse(bytes, context)
 
   local signature = r:u16le(BGS_OFFSET)
   if signature ~= BGS_SIGNATURE then
-    fail("LAND_DATA_BAD_BGS_MAGIC",
+    fail(
+      "LAND_DATA_BAD_BGS_MAGIC",
       string.format("BGS signature 0x%04X != 0x%04X", signature, BGS_SIGNATURE),
-      context, { offset = BGS_OFFSET, expected = BGS_SIGNATURE, actual = signature })
+      context,
+      { offset = BGS_OFFSET, expected = BGS_SIGNATURE, actual = signature }
+    )
   end
   local bgsPayloadSize = r:u16le(BGS_OFFSET + 2)
 
@@ -59,35 +65,54 @@ local function parse(bytes, context)
   local expectedEnd = bdhcOffset + bdhcSize
 
   if expectedEnd ~= #bytes then
-    fail("LAND_DATA_BAD_SECTION_SUM",
+    fail(
+      "LAND_DATA_BAD_SECTION_SUM",
       "section sizes sum to " .. expectedEnd .. " but member is " .. #bytes .. " bytes",
-      context, { offset = 0x00, expected = #bytes, actual = expectedEnd })
+      context,
+      { offset = 0x00, expected = #bytes, actual = expectedEnd }
+    )
   end
   if permissionsSize ~= PERMISSIONS_SIZE then
-    fail("LAND_DATA_BAD_PERMISSION_SIZE",
+    fail(
+      "LAND_DATA_BAD_PERMISSION_SIZE",
       "permissions section is " .. permissionsSize .. " bytes, expected " .. PERMISSIONS_SIZE,
-      context, { offset = 0x00, expected = PERMISSIONS_SIZE, actual = permissionsSize })
+      context,
+      { offset = 0x00, expected = PERMISSIONS_SIZE, actual = permissionsSize }
+    )
   end
   if buildingsSize % BUILDING_RECORD_SIZE ~= 0 then
-    fail("LAND_DATA_BAD_BUILDING_SIZE",
+    fail(
+      "LAND_DATA_BAD_BUILDING_SIZE",
       "buildings section " .. buildingsSize .. " is not a multiple of " .. BUILDING_RECORD_SIZE,
-      context, { offset = 0x04, actual = buildingsSize })
+      context,
+      { offset = 0x04, actual = buildingsSize }
+    )
   end
   if modelSize < MIN_MODEL_SIZE or r:bytes(modelOffset, 4) ~= "BMD0" then
-    fail("LAND_DATA_BAD_MODEL_MAGIC",
+    fail(
+      "LAND_DATA_BAD_MODEL_MAGIC",
       "embedded model does not begin with BMD0",
-      context, { offset = modelOffset, expected = "BMD0", actual = r:bytes(modelOffset, math.min(4, modelSize)) })
+      context,
+      { offset = modelOffset, expected = "BMD0", actual = r:bytes(modelOffset, math.min(4, modelSize)) }
+    )
   end
   if bdhcSize > 0 and r:bytes(bdhcOffset, 4) ~= "BDHC" then
-    fail("LAND_DATA_BAD_BDHC_MAGIC",
+    fail(
+      "LAND_DATA_BAD_BDHC_MAGIC",
       "BDHC section does not begin with BDHC",
-      context, { offset = bdhcOffset, expected = "BDHC", actual = r:bytes(bdhcOffset, 4) })
+      context,
+      { offset = bdhcOffset, expected = "BDHC", actual = r:bytes(bdhcOffset, 4) }
+    )
   end
 
   local permissions, permErr = PermissionGrid.decode(r:bytes(permissionsOffset, permissionsSize), context)
-  if not permissions then error(permErr) end
+  if not permissions then
+    error(permErr)
+  end
   local buildings, buildErr = BuildingPlacement.decodeAll(r:bytes(buildingsOffset, buildingsSize), context)
-  if not buildings then error(buildErr) end
+  if not buildings then
+    error(buildErr)
+  end
 
   return {
     bgs = {
@@ -119,8 +144,12 @@ end
 function LandData.decode(bytes, context)
   assert(type(bytes) == "string", "LandData.decode requires a string")
   local ok, result = pcall(parse, bytes, context)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 

@@ -13,8 +13,14 @@ local function record(threshold, lightColor, vec)
   local off = "0,0,0,0,0,0,0,"
   return table.concat({
     threshold .. ",",
-    light, off, off, off,
-    "14,14,16,", "10,10,10,", "14,14,16,", "8,8,11,",
+    light,
+    off,
+    off,
+    off,
+    "14,14,16,",
+    "10,10,10,",
+    "14,14,16,",
+    "8,8,11,",
     "",
   }, "\r\n")
 end
@@ -49,9 +55,9 @@ function T.selection_wraps_before_first_threshold()
   -- Elm's area01 profile starts at 900, not midnight; a pre-threshold time must
   -- carry over the day's final record rather than fail.
   local p = assert(FieldLightProfile.parse(profileText(record(900, 11, 0), record(21600, 18, 0))))
-  Assert.equal(FieldLightProfile.select(p, 0).startHalfSeconds, 21600)      -- midnight -> wrap to last
-  Assert.equal(FieldLightProfile.select(p, 800).startHalfSeconds, 21600)    -- 400 hs (< 900) -> wrap
-  Assert.equal(FieldLightProfile.select(p, 2000).startHalfSeconds, 900)     -- 1000 hs -> first record
+  Assert.equal(FieldLightProfile.select(p, 0).startHalfSeconds, 21600) -- midnight -> wrap to last
+  Assert.equal(FieldLightProfile.select(p, 800).startHalfSeconds, 21600) -- 400 hs (< 900) -> wrap
+  Assert.equal(FieldLightProfile.select(p, 2000).startHalfSeconds, 900) -- 1000 hs -> first record
 end
 
 function T.accepts_lf_line_endings()
@@ -103,7 +109,7 @@ function T.maps_light_type_to_profile_and_path()
   Assert.equal(HgssFieldLighting.profileIdForLightType(1), 0)
   Assert.equal(HgssFieldLighting.profileIdForLightType(2), 3)
   Assert.equal(HgssFieldLighting.profileIdForLightType(2, true), 4) -- second-dungeon override
-  Assert.equal(HgssFieldLighting.profileIdForLightType(9), 0)      -- unknown -> profile 0
+  Assert.equal(HgssFieldLighting.profileIdForLightType(9), 0) -- unknown -> profile 0
   Assert.equal(HgssFieldLighting.pathForProfile(1), "data/area01light.txt")
   Assert.equal(HgssFieldLighting.resolve(0).sourcePath, "data/area01light.txt")
   Assert.equal(HgssFieldLighting.resolve(1).sourcePath, "data/area00light.txt")

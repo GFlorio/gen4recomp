@@ -17,7 +17,9 @@ local function placement(over)
     rotation = { x = 0, y = 0, z = 0 },
     scale = { width = 1, height = 1, length = 1 },
   }
-  for k, v in pairs(over or {}) do p[k] = v end
+  for k, v in pairs(over or {}) do
+    p[k] = v
+  end
   return p
 end
 
@@ -48,16 +50,18 @@ end
 
 function T.position_lands_at_the_translation_column_in_tiles()
   local m = BuildingTransform.build(placement({ position = { x = -14, y = 0, z = -6 } }))
-  Assert.isTrue(math.abs(m[13] - (-14)) < 1e-9, "tx")
+  Assert.isTrue(math.abs(m[13] - -14) < 1e-9, "tx")
   Assert.isTrue(math.abs(m[14] - 0) < 1e-9, "ty")
-  Assert.isTrue(math.abs(m[15] - (-6)) < 1e-9, "tz")
+  Assert.isTrue(math.abs(m[15] - -6) < 1e-9, "tz")
 end
 
 function T.origin_maps_to_position()
   local m = BuildingTransform.build(placement({ position = { x = -3.5, y = 1.25, z = -2.5 } }))
   local x, y, z = Matrix4.transformPoint(m, 0, 0, 0)
-  Assert.isTrue(math.abs(x + 3.5) < 1e-9 and math.abs(y - 1.25) < 1e-9 and math.abs(z + 2.5) < 1e-9,
-    "model origin sits at the tile position")
+  Assert.isTrue(
+    math.abs(x + 3.5) < 1e-9 and math.abs(y - 1.25) < 1e-9 and math.abs(z + 2.5) < 1e-9,
+    "model origin sits at the tile position"
+  )
 end
 
 function T.stretch_scales_a_basis_vector()
@@ -80,7 +84,9 @@ function T.matches_reference_call_order()
   })
   local got = Matrix4.toArray(BuildingTransform.build(p))
   local ref = Matrix4.toArray(reference(p))
-  for i = 1, 16 do Assert.isTrue(math.abs(got[i] - ref[i]) < 1e-6, "component " .. i) end
+  for i = 1, 16 do
+    Assert.isTrue(math.abs(got[i] - ref[i]) < 1e-6, "component " .. i)
+  end
 end
 
 return T

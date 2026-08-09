@@ -33,7 +33,6 @@ local SURFACE_ERROR_CODES = {
   TERRAIN_SURFACE_DISCONNECTED = "ACTOR_SURFACE_AMBIGUOUS",
 }
 
-
 ---@class FieldActorManagerOptions
 ---@field assets FieldActorAssetProvider
 ---@field policy { variableSpriteRange: { first: integer, last: integer }, variableVarBase: integer }
@@ -46,8 +45,10 @@ local SURFACE_ERROR_CODES = {
 function FieldActorManager.new(opts)
   assert(type(opts) == "table" and opts.assets, "FieldActorManager requires an asset provider")
   local policy = opts.policy
-  assert(type(policy) == "table" and policy.variableSpriteRange and policy.variableVarBase,
-    "FieldActorManager requires a sprite policy")
+  assert(
+    type(policy) == "table" and policy.variableSpriteRange and policy.variableVarBase,
+    "FieldActorManager requires a sprite policy"
+  )
   return setmetatable({
     assets = opts.assets,
     variableSpriteRange = policy.variableSpriteRange,
@@ -68,16 +69,23 @@ local function resolveSurface(runtimeMap, event, actorId)
     local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, event.x, event.z)
     -- Terrain is sampled at the tile centre, as the player and camera do.
     return SurfaceResolver.new(runtimeMap.terrain):resolve({
-      localX = localX + FieldCoordinates.TILE_CENTER_OFFSET, localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
+      localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
+      localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
       currentY = event.y / EVENT_Y_UNITS,
     })
   end)
-  if ok then return result end
-  if not Errors.is(result) then error(result) end
+  if ok then
+    return result
+  end
+  if not Errors.is(result) then
+    error(result)
+  end
   local code = SURFACE_ERROR_CODES[result.code] or "ACTOR_SURFACE_MISSING"
-  Errors.raise(code, "actor " .. actorId .. " has no single terrain surface: " .. result.message,
-    { actorId = actorId, fieldX = event.x, fieldZ = event.z, sourceY = event.y,
-      cause = result.code })
+  Errors.raise(
+    code,
+    "actor " .. actorId .. " has no single terrain surface: " .. result.message,
+    { actorId = actorId, fieldX = event.x, fieldZ = event.z, sourceY = event.y, cause = result.code }
+  )
 end
 
 -- The runtime sprite of an object event. FieldSystem_ResolveObjectSpriteID
@@ -96,9 +104,11 @@ end
 
 function FieldActorManager:_acquireVisual(spriteId, actorId)
   if not self.assets:knows(spriteId) then
-    Errors.raise("ACTOR_VISUAL_MISSING",
+    Errors.raise(
+      "ACTOR_VISUAL_MISSING",
       "spriteId " .. spriteId .. " for " .. actorId .. " is not in the compiled actor set",
-      { actorId = actorId, spriteId = spriteId })
+      { actorId = actorId, spriteId = spriteId }
+    )
   end
   return self.assets:acquire(spriteId)
 end
@@ -107,9 +117,11 @@ function FieldActorManager:_instantiate(entry, event)
   local runtimeMap = entry.runtimeMap
   local actorId = FieldObjectActor.actorId(runtimeMap.mapId, event.objectEventId)
   if entry.actors[actorId] then
-    Errors.raise("ACTOR_DUPLICATE_ID", "map " .. runtimeMap.mapId
-      .. " declares object event " .. event.objectEventId .. " more than once",
-      { actorId = actorId, mapId = runtimeMap.mapId, objectEventId = event.objectEventId })
+    Errors.raise(
+      "ACTOR_DUPLICATE_ID",
+      "map " .. runtimeMap.mapId .. " declares object event " .. event.objectEventId .. " more than once",
+      { actorId = actorId, mapId = runtimeMap.mapId, objectEventId = event.objectEventId }
+    )
   end
   local surface = resolveSurface(runtimeMap, event, actorId)
   local world = FieldCoordinates.fieldToWorld(runtimeMap, event.x, event.z, surface.worldY)
@@ -121,8 +133,12 @@ function FieldActorManager:_instantiate(entry, event)
     sourceEvent = event,
     spriteId = spriteId,
     visualDef = asset.visual,
-    fieldX = event.x, fieldZ = event.z, surfaceId = surface.surfaceId,
-    worldX = world.x, worldY = world.y, worldZ = world.z,
+    fieldX = event.x,
+    fieldZ = event.z,
+    surfaceId = surface.surfaceId,
+    worldX = world.x,
+    worldY = world.y,
+    worldZ = world.z,
   })
   actor.visualAsset = asset
 
@@ -130,12 +146,22 @@ function FieldActorManager:_instantiate(entry, event)
   local occupant = entry.occupancy[key]
   if actor.solid and occupant then
     self.assets:release(actor.spriteId)
-    Errors.raise("ACTOR_OCCUPANCY_CONFLICT",
+    Errors.raise(
+      "ACTOR_OCCUPANCY_CONFLICT",
       actorId .. " and " .. occupant.actorId .. " occupy the same field cell and surface",
-      { actorId = actorId, otherActorId = occupant.actorId, mapId = runtimeMap.mapId,
-        fieldX = actor.fieldX, fieldZ = actor.fieldZ, surfaceId = actor.surfaceId })
+      {
+        actorId = actorId,
+        otherActorId = occupant.actorId,
+        mapId = runtimeMap.mapId,
+        fieldX = actor.fieldX,
+        fieldZ = actor.fieldZ,
+        surfaceId = actor.surfaceId,
+      }
+    )
   end
-  if actor.solid then entry.occupancy[key] = actor end
+  if actor.solid then
+    entry.occupancy[key] = actor
+  end
   entry.actors[actorId] = actor
   entry.order[#entry.order + 1] = actor
   return actor
@@ -147,7 +173,10 @@ function FieldActorManager:_destroy(entry, actor)
   entry.actors[actor.actorId] = nil
   entry.occupancy[occupancyKey(actor.mapId, actor.fieldX, actor.fieldZ, actor.surfaceId)] = nil
   for index, candidate in ipairs(entry.order) do
-    if candidate == actor then table.remove(entry.order, index) break end
+    if candidate == actor then
+      table.remove(entry.order, index)
+      break
+    end
   end
   self.assets:release(actor.spriteId)
   actor.visualAsset, actor.visualDef = nil, nil
@@ -159,7 +188,9 @@ function FieldActorManager:enterMap(runtimeMap, eventState)
   assert(runtimeMap and runtimeMap.fieldData, "enterMap requires a runtime map")
   assert(eventState, "enterMap requires a field event state")
   if self.eventState ~= eventState then
-    if self.unsubscribe then self.unsubscribe() end
+    if self.unsubscribe then
+      self.unsubscribe()
+    end
     self.eventState = eventState
     self.unsubscribe = eventState:subscribe(function(change)
       self:onEventStateChanged(change)
@@ -168,7 +199,9 @@ function FieldActorManager:enterMap(runtimeMap, eventState)
 
   local existing = self.maps[runtimeMap.mapId]
   if existing then
-    if existing.runtimeMap == runtimeMap then return end
+    if existing.runtimeMap == runtimeMap then
+      return
+    end
     self:leaveMap(runtimeMap.mapId)
   end
 
@@ -179,7 +212,9 @@ function FieldActorManager:enterMap(runtimeMap, eventState)
       local flagged = entry.byFlag[event.eventFlag] or {}
       flagged[#flagged + 1] = event
       entry.byFlag[event.eventFlag] = flagged
-      if not eventState:isFlagSet(event.eventFlag) then self:_instantiate(entry, event) end
+      if not eventState:isFlagSet(event.eventFlag) then
+        self:_instantiate(entry, event)
+      end
     end
   end)
   if not ok then
@@ -190,15 +225,21 @@ end
 
 function FieldActorManager:leaveMap(mapId)
   local entry = self.maps[mapId]
-  if not entry then return end
+  if not entry then
+    return
+  end
   self.maps[mapId] = nil
-  while #entry.order > 0 do self:_destroy(entry, entry.order[#entry.order]) end
+  while #entry.order > 0 do
+    self:_destroy(entry, entry.order[#entry.order])
+  end
 end
 
 -- Queued rather than applied inline: a flag written mid-tick must not change
 -- the world under code that has already consulted occupancy this tick.
 function FieldActorManager:onEventStateChanged(change)
-  if change.kind ~= "flag" then return end
+  if change.kind ~= "flag" then
+    return
+  end
   self.pendingFlags[#self.pendingFlags + 1] = change
 end
 
@@ -217,14 +258,20 @@ function FieldActorManager:_applyFlag(change)
 end
 
 function FieldActorManager:step(tick)
-  if self.eventState then self.eventState:setTick(tick) end
+  if self.eventState then
+    self.eventState:setTick(tick)
+  end
   local pending = self.pendingFlags
   if #pending > 0 then
     self.pendingFlags = {}
-    for _, change in ipairs(pending) do self:_applyFlag(change) end
+    for _, change in ipairs(pending) do
+      self:_applyFlag(change)
+    end
   end
   for _, entry in pairs(self.maps) do
-    for _, actor in ipairs(entry.order) do actor.poseTick = actor.poseTick + 1 end
+    for _, actor in ipairs(entry.order) do
+      actor.poseTick = actor.poseTick + 1
+    end
   end
 end
 
@@ -252,7 +299,9 @@ end
 function FieldActorManager:getById(actorId)
   for _, entry in pairs(self.maps) do
     local actor = entry.actors[actorId]
-    if actor then return actor end
+    if actor then
+      return actor
+    end
   end
   return nil
 end
@@ -273,8 +322,12 @@ function FieldActorManager:actorsOf(mapId)
 end
 
 function FieldActorManager:dispose()
-  for mapId in pairs(self.maps) do self:leaveMap(mapId) end
-  if self.unsubscribe then self.unsubscribe() end
+  for mapId in pairs(self.maps) do
+    self:leaveMap(mapId)
+  end
+  if self.unsubscribe then
+    self.unsubscribe()
+  end
   self.unsubscribe, self.eventState = nil, nil
   self.pendingFlags = {}
 end

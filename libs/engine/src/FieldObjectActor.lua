@@ -44,17 +44,18 @@ function FieldObjectActor.actorId(mapId, objectEventId)
 end
 
 local function requireFacing(facing, context)
-  if FACINGS[facing] then return facing end
+  if FACINGS[facing] then
+    return facing
+  end
   Errors.raise("ACTOR_FACING_INVALID", "unsupported actor facing " .. tostring(facing), context)
 end
 
 function FieldObjectActor.new(opts)
-  assert(type(opts) == "table" and type(opts.sourceEvent) == "table",
-    "FieldObjectActor requires a source event")
+  assert(type(opts) == "table" and type(opts.sourceEvent) == "table", "FieldObjectActor requires a source event")
   local event = opts.sourceEvent
   local actorId = FieldObjectActor.actorId(opts.mapId, event.objectEventId)
-  local facing = requireFacing(event.facingDirection,
-    { actorId = actorId, facingDirectionRaw = event.facingDirectionRaw })
+  local facing =
+    requireFacing(event.facingDirection, { actorId = actorId, facingDirectionRaw = event.facingDirectionRaw })
 
   return setmetatable({
     actorId = actorId,
@@ -85,14 +86,13 @@ end
 -- Temporary facing owned by an interaction client. Only one override may be
 -- live: a foreign owner must not be able to silently take or drop another's.
 function FieldObjectActor:pushFacingOverride(request)
-  assert(type(request) == "table" and type(request.owner) == "string",
-    "a facing override requires an owner")
+  assert(type(request) == "table" and type(request.owner) == "string", "a facing override requires an owner")
   if self.interactionFacingOverride then
-    Errors.raise("ACTOR_OVERRIDE_OWNER_MISMATCH",
-      "actor " .. self.actorId .. " already has a facing override owned by "
-        .. self.interactionFacingOverride.owner,
-      { actorId = self.actorId, owner = self.interactionFacingOverride.owner,
-        requestedBy = request.owner })
+    Errors.raise(
+      "ACTOR_OVERRIDE_OWNER_MISMATCH",
+      "actor " .. self.actorId .. " already has a facing override owned by " .. self.interactionFacingOverride.owner,
+      { actorId = self.actorId, owner = self.interactionFacingOverride.owner, requestedBy = request.owner }
+    )
   end
   local token = {
     owner = request.owner,
@@ -106,9 +106,11 @@ end
 
 function FieldObjectActor:releaseFacingOverride(token)
   if self.interactionFacingOverride == nil or self.interactionFacingOverride ~= token then
-    Errors.raise("ACTOR_OVERRIDE_OWNER_MISMATCH",
+    Errors.raise(
+      "ACTOR_OVERRIDE_OWNER_MISMATCH",
       "released a facing override that actor " .. self.actorId .. " does not hold",
-      { actorId = self.actorId })
+      { actorId = self.actorId }
+    )
   end
   self.facing = token.restoreFacing
   self.interactionFacingOverride = nil
@@ -118,7 +120,9 @@ end
 -- is live without needing its token, and is safe to call when none is.
 function FieldObjectActor:clearFacingOverride()
   local token = self.interactionFacingOverride
-  if not token then return end
+  if not token then
+    return
+  end
   self.facing = token.restoreFacing
   self.interactionFacingOverride = nil
 end

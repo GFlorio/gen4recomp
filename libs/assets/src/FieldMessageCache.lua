@@ -15,10 +15,18 @@ FieldMessageCache.PROVENANCE_SCHEMA = "g4-field-message-provenance-v1"
 
 local DATA_DIR = "data/generated/field/messages"
 
-function FieldMessageCache.dir() return DATA_DIR end
-function FieldMessageCache.indexPath() return DATA_DIR .. "/index.lua" end
-function FieldMessageCache.provenancePath() return DATA_DIR .. "/provenance.lua" end
-function FieldMessageCache.markerPath() return DATA_DIR .. "/complete" end
+function FieldMessageCache.dir()
+  return DATA_DIR
+end
+function FieldMessageCache.indexPath()
+  return DATA_DIR .. "/index.lua"
+end
+function FieldMessageCache.provenancePath()
+  return DATA_DIR .. "/provenance.lua"
+end
+function FieldMessageCache.markerPath()
+  return DATA_DIR .. "/complete"
+end
 
 function FieldMessageCache.bankPath(bankId)
   return string.format("%s/banks/%04d.lua", DATA_DIR, bankId)
@@ -31,11 +39,17 @@ end
 -- True only if the marker is exact, the index loads with the expected schema,
 -- and every indexed bank's file is present.
 function FieldMessageCache.isReady(cacheFs, expectedMarker)
-  if cacheFs:read(FieldMessageCache.markerPath()) ~= expectedMarker then return false end
+  if cacheFs:read(FieldMessageCache.markerPath()) ~= expectedMarker then
+    return false
+  end
   local index = cacheFs:loadLua(FieldMessageCache.indexPath())
-  if type(index) ~= "table" or index.schema ~= FieldMessageCache.INDEX_SCHEMA then return false end
+  if type(index) ~= "table" or index.schema ~= FieldMessageCache.INDEX_SCHEMA then
+    return false
+  end
   for _, bankId in ipairs(index.bankIds or {}) do
-    if not cacheFs:exists(FieldMessageCache.bankPath(bankId), "file") then return false end
+    if not cacheFs:exists(FieldMessageCache.bankPath(bankId), "file") then
+      return false
+    end
   end
   return true
 end

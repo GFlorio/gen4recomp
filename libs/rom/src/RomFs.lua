@@ -21,7 +21,6 @@ local Hgss = require("data.manifests.hgss")
 local RomFs = {}
 RomFs.__index = RomFs
 
-
 ---@class RomFs.Narc
 ---@field readMember fun(self: RomFs.Narc, memberId: integer): string?, Errors.Error?
 ---@field memberCount fun(self: RomFs.Narc): integer
@@ -37,25 +36,25 @@ RomFs.__index = RomFs
 local function loadRequired(cache, path)
   local value, err = cache:loadLua(path)
   if not value then
-    Errors.raise("ROMFS_LOAD_FAILED", "could not load " .. path .. ": " .. Errors.format(err),
-      { path = path })
+    Errors.raise("ROMFS_LOAD_FAILED", "could not load " .. path .. ": " .. Errors.format(err), { path = path })
   end
   return value
 end
 
 local function requireSchema(value, expected, name)
   if value.schema ~= expected then
-    Errors.raise("ROMFS_SCHEMA_MISMATCH",
+    Errors.raise(
+      "ROMFS_SCHEMA_MISMATCH",
       name .. " schema " .. tostring(value.schema) .. " ~= expected " .. expected,
-      { name = name, schema = value.schema, expected = expected })
+      { name = name, schema = value.schema, expected = expected }
+    )
   end
 end
 
 local function _open(versionId, cache)
   cache = cache or CacheFs.forVersion(versionId)
   if not RomImporter.isReady(versionId, cache) then
-    Errors.raise("ROMFS_NOT_READY",
-      "no ready dump for version " .. tostring(versionId), { version = versionId })
+    Errors.raise("ROMFS_NOT_READY", "no ready dump for version " .. tostring(versionId), { version = versionId })
   end
 
   local metadata = loadRequired(cache, "data/generated/rom_metadata.lua")
@@ -63,11 +62,12 @@ local function _open(versionId, cache)
   local overlayIndex = loadRequired(cache, "data/generated/overlay_index.lua")
   requireSchema(metadata, 1, "rom_metadata")
   requireSchema(index, 1, "romfs_index")
-  if overlayIndex.schema ~= 1 or type(overlayIndex.arm9) ~= "table"
-      or type(overlayIndex.arm7) ~= "table" then
-    Errors.raise("ROMFS_OVERLAY_INDEX_SCHEMA",
+  if overlayIndex.schema ~= 1 or type(overlayIndex.arm9) ~= "table" or type(overlayIndex.arm7) ~= "table" then
+    Errors.raise(
+      "ROMFS_OVERLAY_INDEX_SCHEMA",
       "overlay_index must use schema 1 with arm9 and arm7 tables",
-      { schema = overlayIndex.schema })
+      { schema = overlayIndex.schema }
+    )
   end
 
   -- Build the source-path -> fileId lookup once from the FNT index. NARC alias
@@ -77,7 +77,9 @@ local function _open(versionId, cache)
   for fileId = 0, index.fileCount - 1 do
     local entry = index.files[fileId]
     assert(entry, "romfs_index missing fileId " .. fileId)
-    if entry.sourcePath then byPath[entry.sourcePath] = fileId end
+    if entry.sourcePath then
+      byPath[entry.sourcePath] = fileId
+    end
   end
 
   return setmetatable({
@@ -92,21 +94,33 @@ end
 
 function RomFs.open(versionId, cache)
   local ok, result = pcall(_open, versionId, cache)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 
-function RomFs:version() return self._version end
-function RomFs:metadata() return self._metadata end
-function RomFs:fileCount() return self._index.fileCount end
+function RomFs:version()
+  return self._version
+end
+function RomFs:metadata()
+  return self._metadata
+end
+function RomFs:fileCount()
+  return self._index.fileCount
+end
 
 -- Count curated aliases that resolve against this dump's FNT (i.e. whose path
 -- is present). Derived, not stored, so it always reflects the current manifest.
 function RomFs:_resolvedNarcCount()
   local count = 0
   for _, entry in ipairs(Hgss.aliasList()) do
-    if self._byPath[entry.path] then count = count + 1 end
+    if self._byPath[entry.path] then
+      count = count + 1
+    end
   end
   return count
 end
@@ -130,14 +144,12 @@ function RomFs:info(pathOrFileId)
   if type(pathOrFileId) == "string" then
     fileId = self._byPath[pathOrFileId]
     if not fileId then
-      return nil, Errors.new("ROMFS_PATH_UNKNOWN", "no NitroFS file at " .. pathOrFileId,
-        { sourcePath = pathOrFileId })
+      return nil, Errors.new("ROMFS_PATH_UNKNOWN", "no NitroFS file at " .. pathOrFileId, { sourcePath = pathOrFileId })
     end
   end
   local entry = self._index.files[fileId]
   if not entry then
-    return nil, Errors.new("ROMFS_FILE_ID_UNKNOWN", "no file for fileId " .. tostring(fileId),
-      { fileId = fileId })
+    return nil, Errors.new("ROMFS_FILE_ID_UNKNOWN", "no file for fileId " .. tostring(fileId), { fileId = fileId })
   end
   return entry
 end
@@ -154,11 +166,12 @@ end
 -- Read a FAT-backed file by fileId or by exact source path.
 function RomFs:read(pathOrFileId)
   local entry, err = self:info(pathOrFileId)
-  if not entry then return nil, err end
+  if not entry then
+    return nil, err
+  end
   local data = self._cache:read(entry.path)
   if data == nil then
-    return nil, Errors.new("ROMFS_FILE_MISSING", "dump file missing: " .. entry.path,
-      { path = entry.path })
+    return nil, Errors.new("ROMFS_FILE_MISSING", "dump file missing: " .. entry.path, { path = entry.path })
   end
   return data
 end
@@ -173,14 +186,21 @@ end
 -- the ordinary FAT-backed file index.
 function RomFs:overlayInfo(cpu, overlayId)
   if cpu ~= "arm9" and cpu ~= "arm7" then
-    return nil, Errors.new("ROMFS_OVERLAY_UNKNOWN_CPU", "unknown overlay CPU " .. tostring(cpu),
-      { cpu = cpu, overlayId = overlayId })
+    return nil,
+      Errors.new(
+        "ROMFS_OVERLAY_UNKNOWN_CPU",
+        "unknown overlay CPU " .. tostring(cpu),
+        { cpu = cpu, overlayId = overlayId }
+      )
   end
   local raw = self._overlayIndex[cpu][overlayId]
   if not raw then
-    return nil, Errors.new("ROMFS_OVERLAY_UNKNOWN_ID",
-      "no " .. cpu .. " overlay for overlayId " .. tostring(overlayId),
-      { cpu = cpu, overlayId = overlayId })
+    return nil,
+      Errors.new(
+        "ROMFS_OVERLAY_UNKNOWN_ID",
+        "no " .. cpu .. " overlay for overlayId " .. tostring(overlayId),
+        { cpu = cpu, overlayId = overlayId }
+      )
   end
   local file = self._index.files[raw.fileId]
   assert(file, "overlay_index references missing fileId " .. tostring(raw.fileId))
@@ -202,17 +222,23 @@ end
 
 function RomFs:readOverlay(cpu, overlayId)
   local info, err = self:overlayInfo(cpu, overlayId)
-  if not info then return nil, err end
+  if not info then
+    return nil, err
+  end
   local bytes, readErr = self:read(info.fileId)
   if not bytes then
-    return nil, Errors.new("ROMFS_OVERLAY_FILE_MISSING",
-      "dumped overlay file is missing: " .. info.path,
-      { cpu = cpu, overlayId = overlayId, fileId = info.fileId,
-        path = info.path, cause = readErr and readErr.code })
+    return nil,
+      Errors.new(
+        "ROMFS_OVERLAY_FILE_MISSING",
+        "dumped overlay file is missing: " .. info.path,
+        { cpu = cpu, overlayId = overlayId, fileId = info.fileId, path = info.path, cause = readErr and readErr.code }
+      )
   end
   if info.isCompressed then
     local decoded, decodeErr = OverlayCompression.decode(bytes, info.ramSize)
-    if not decoded then return nil, decodeErr end
+    if not decoded then
+      return nil, decodeErr
+    end
     bytes = decoded
   end
   return bytes, info
@@ -225,9 +251,13 @@ end
 -- not need it.
 function RomFs:resolvedNarc(symbolOrAlias)
   local ok, entry = pcall(Hgss.resolve, symbolOrAlias, self._version)
-  if not (ok and entry) then return nil end
+  if not (ok and entry) then
+    return nil
+  end
   local fileId = self._byPath[entry.path]
-  if not fileId then return nil end
+  if not fileId then
+    return nil
+  end
   return {
     symbol = entry.symbol,
     alias = entry.alias,
@@ -240,11 +270,13 @@ end
 function RomFs:openNarc(symbolOrAlias)
   local entry = self:resolvedNarc(symbolOrAlias)
   if not entry then
-    return nil, Errors.new("ROMFS_NARC_UNRESOLVED", "no resolved NARC for " .. tostring(symbolOrAlias),
-      { name = symbolOrAlias })
+    return nil,
+      Errors.new("ROMFS_NARC_UNRESOLVED", "no resolved NARC for " .. tostring(symbolOrAlias), { name = symbolOrAlias })
   end
   local data, err = self:read(entry.fileId)
-  if not data then return nil, err end
+  if not data then
+    return nil, err
+  end
   return Narc.open(data, entry.path)
 end
 

@@ -32,7 +32,9 @@ end
 -- Build (or fetch) a persistent love Image for a texture's content-addressed
 -- path, deduplicated across cells.
 local function imageFor(path, cacheFs, imageCache, owned)
-  if not path then return nil end
+  if not path then
+    return nil
+  end
   local image = imageCache[path]
   if not image then
     local bytes = assert(cacheFs:read(path), "missing texture " .. path)
@@ -52,7 +54,9 @@ local function materialsById(list, cacheFs, imageCache, owned)
   for _, m in ipairs(list or {}) do
     local image = imageFor(m.texture, cacheFs, imageCache, owned)
     if image then
-      local function mode(w) return w == "repeat" and "repeat" or "clamp" end
+      local function mode(w)
+        return w == "repeat" and "repeat" or "clamp"
+      end
       local wrap = m.wrap or { x = "clamp", y = "clamp" }
       image:setWrap(mode(wrap.x), mode(wrap.y))
     end
@@ -71,9 +75,12 @@ local function modelCenter(verts)
   local minx, miny, minz = math.huge, math.huge, math.huge
   local maxx, maxy, maxz = -math.huge, -math.huge, -math.huge
   for _, v in ipairs(verts) do
-    minx = math.min(minx, v[1]); maxx = math.max(maxx, v[1])
-    miny = math.min(miny, v[2]); maxy = math.max(maxy, v[2])
-    minz = math.min(minz, v[3]); maxz = math.max(maxz, v[3])
+    minx = math.min(minx, v[1])
+    maxx = math.max(maxx, v[1])
+    miny = math.min(miny, v[2])
+    maxy = math.max(maxy, v[2])
+    minz = math.min(minz, v[3])
+    maxz = math.max(maxz, v[3])
   end
   return { (minx + maxx) / 2, (miny + maxy) / 2, (minz + maxz) / 2 }
 end
@@ -125,8 +132,12 @@ function NeighborRing.load(cacheFs, descriptors)
     },
   }
   function ring:release()
-    for _, mesh in ipairs(owned.meshes) do mesh:release() end
-    for _, image in ipairs(owned.images) do image:release() end
+    for _, mesh in ipairs(owned.meshes) do
+      mesh:release()
+    end
+    for _, image in ipairs(owned.images) do
+      image:release()
+    end
     owned.meshes, owned.images = {}, {}
   end
   return ring

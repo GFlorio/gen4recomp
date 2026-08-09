@@ -38,20 +38,16 @@ local function typeZeroCamera(aspect, zoom)
 end
 
 function T.zoomed_out_camera_plans_wider_ground_coverage()
-  local canonical = FieldCoveragePlanner.frustumGroundBounds(
-    typeZeroCamera(4 / 3, 1), { minY = 0, maxY = 0 })
-  local zoomedOut = FieldCoveragePlanner.frustumGroundBounds(
-    typeZeroCamera(4 / 3, 0.5), { minY = 0, maxY = 0 })
+  local canonical = FieldCoveragePlanner.frustumGroundBounds(typeZeroCamera(4 / 3, 1), { minY = 0, maxY = 0 })
+  local zoomedOut = FieldCoveragePlanner.frustumGroundBounds(typeZeroCamera(4 / 3, 0.5), { minY = 0, maxY = 0 })
   Assert.isTrue(zoomedOut.minX < canonical.minX)
   Assert.isTrue(zoomedOut.maxX > canonical.maxX)
   Assert.isTrue(zoomedOut.minZ < canonical.minZ)
 end
 
 function T.type_zero_ground_footprint_expands_horizontally_at_32_9()
-  local canonical = FieldCoveragePlanner.frustumGroundBounds(
-    typeZeroCamera(4 / 3), { minY = 0, maxY = 0 })
-  local ultrawide = FieldCoveragePlanner.frustumGroundBounds(
-    typeZeroCamera(32 / 9), { minY = 0, maxY = 0 })
+  local canonical = FieldCoveragePlanner.frustumGroundBounds(typeZeroCamera(4 / 3), { minY = 0, maxY = 0 })
+  local ultrawide = FieldCoveragePlanner.frustumGroundBounds(typeZeroCamera(32 / 9), { minY = 0, maxY = 0 })
 
   Assert.isTrue(approx(canonical.minZ, ultrawide.minZ, 1e-5))
   Assert.isTrue(approx(canonical.maxZ, ultrawide.maxZ, 1e-5))
@@ -61,11 +57,17 @@ end
 
 function T.plans_zero_based_cells_with_prefetch_and_clamping()
   local plan = FieldCoveragePlanner.planBounds({
-    minX = 33, maxX = 95, minZ = 65, maxZ = 95,
+    minX = 33,
+    maxX = 95,
+    minZ = 65,
+    maxZ = 95,
   }, {
-    matrixWidth = 5, matrixHeight = 4,
-    worldOriginX = 0, worldOriginZ = 0,
-    cellSize = 32, prefetchMargin = 1,
+    matrixWidth = 5,
+    matrixHeight = 4,
+    worldOriginX = 0,
+    worldOriginZ = 0,
+    cellSize = 32,
+    prefetchMargin = 1,
   })
 
   Assert.deepEqual(plan.cellBounds, { minX = 0, maxX = 3, minZ = 1, maxZ = 3 })

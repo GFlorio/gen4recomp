@@ -29,8 +29,7 @@ local function collectContents(node, prefix, out)
 end
 
 local function overlayEntry(overlayId, fileId)
-  return u32(overlayId) .. u32(0) .. u32(0) .. u32(0)
-    .. u32(0) .. u32(0) .. u32(fileId) .. u32(0)
+  return u32(overlayId) .. u32(0) .. u32(0) .. u32(0) .. u32(0) .. u32(0) .. u32(fileId) .. u32(0)
 end
 
 function NdsBuilder.build(spec)
@@ -47,8 +46,12 @@ function NdsBuilder.build(spec)
   local pathContent = {}
   collectContents(tree, "", pathContent)
   local payloads = {}
-  for i = 1, #overlays9 do payloads[i - 1] = overlays9[i] end
-  for i = 1, #unmapped do payloads[#overlays9 + i - 1] = unmapped[i] end
+  for i = 1, #overlays9 do
+    payloads[i - 1] = overlays9[i]
+  end
+  for i = 1, #unmapped do
+    payloads[#overlays9 + i - 1] = unmapped[i]
+  end
   local namedCount = 0
   for id, path in pairs(byFileId) do
     assert(pathContent[path], "no content for named file " .. path)
@@ -59,7 +62,9 @@ function NdsBuilder.build(spec)
 
   -- Overlay tables.
   local ov9Parts = {}
-  for i = 1, #overlays9 do ov9Parts[i] = overlayEntry(i - 1, i - 1) end
+  for i = 1, #overlays9 do
+    ov9Parts[i] = overlayEntry(i - 1, i - 1)
+  end
   local ov9Bytes = table.concat(ov9Parts)
   local ov7Bytes = ""
 
@@ -68,12 +73,19 @@ function NdsBuilder.build(spec)
 
   -- Section offsets.
   local cursor = HEADER_SIZE
-  local arm9Off = cursor; cursor = cursor + #arm9
-  local arm7Off = cursor; cursor = cursor + #arm7
-  local ov9Off = cursor; cursor = cursor + #ov9Bytes
-  local ov7Off = cursor; cursor = cursor + #ov7Bytes
-  local fntOff = cursor; cursor = cursor + #fntBytes
-  local fatOff = cursor; local fatSize = 8 * total; cursor = cursor + fatSize
+  local arm9Off = cursor
+  cursor = cursor + #arm9
+  local arm7Off = cursor
+  cursor = cursor + #arm7
+  local ov9Off = cursor
+  cursor = cursor + #ov9Bytes
+  local ov7Off = cursor
+  cursor = cursor + #ov7Bytes
+  local fntOff = cursor
+  cursor = cursor + #fntBytes
+  local fatOff = cursor
+  local fatSize = 8 * total
+  cursor = cursor + fatSize
 
   -- Payload offsets and FAT bytes.
   local starts = {}
@@ -90,9 +102,13 @@ function NdsBuilder.build(spec)
 
   -- Header.
   local h = {}
-  for i = 1, HEADER_SIZE do h[i] = "\0" end
+  for i = 1, HEADER_SIZE do
+    h[i] = "\0"
+  end
   local function put(off, s)
-    for i = 1, #s do h[off + i] = s:sub(i, i) end
+    for i = 1, #s do
+      h[off + i] = s:sub(i, i)
+    end
   end
   put(0x00, spec.title or "TESTROM")
   put(0x0C, spec.gameCode or "IPKE")
@@ -109,14 +125,26 @@ function NdsBuilder.build(spec)
   put(0x80, u32(romSize))
   put(0x84, u32(0x4000))
 
-  if corrupt.fatNotDiv8 then put(0x4C, u32(fatSize + 4)) end
-  if corrupt.sectionOutOfRange then put(0x44, u32(romSize + 0x1000)) end
+  if corrupt.fatNotDiv8 then
+    put(0x4C, u32(fatSize + 4))
+  end
+  if corrupt.sectionOutOfRange then
+    put(0x44, u32(romSize + 0x1000))
+  end
 
   local payloadParts = {}
-  for id = 0, total - 1 do payloadParts[id + 1] = payloads[id] end
+  for id = 0, total - 1 do
+    payloadParts[id + 1] = payloads[id]
+  end
 
-  local data = table.concat(h) .. arm9 .. arm7 .. ov9Bytes .. ov7Bytes
-    .. fntBytes .. fatBytes .. table.concat(payloadParts)
+  local data = table.concat(h)
+    .. arm9
+    .. arm7
+    .. ov9Bytes
+    .. ov7Bytes
+    .. fntBytes
+    .. fatBytes
+    .. table.concat(payloadParts)
 
   return data, { fileCount = total, gameCode = spec.gameCode or "IPKE", romSize = romSize }
 end

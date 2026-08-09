@@ -19,15 +19,21 @@ local C = { scriptId = nil, strict = true, usedLocals = {}, usedArgs = {} }
 local ENUM_SETS = {}
 for name, values in pairs(Schema.ENUMS) do
   local set = {}
-  for _, v in ipairs(values) do set[v] = true end
+  for _, v in ipairs(values) do
+    set[v] = true
+  end
   ENUM_SETS[name] = set
 end
 
 local PARAM_TYPES_SET = {}
-for _, ty in ipairs(Schema.PARAM_TYPES) do PARAM_TYPES_SET[ty] = true end
+for _, ty in ipairs(Schema.PARAM_TYPES) do
+  PARAM_TYPES_SET[ty] = true
+end
 
 local ACTOR_SPECIALS_SET = {}
-for _, special in ipairs(Schema.ACTOR_SPECIALS) do ACTOR_SPECIALS_SET[special] = true end
+for _, special in ipairs(Schema.ACTOR_SPECIALS) do
+  ACTOR_SPECIALS_SET[special] = true
+end
 
 -- Field-type checkers, filled below; declared up front so checkFields can
 -- close over it.
@@ -39,9 +45,13 @@ local CHECKERS = {}
 ---@param extra table|nil
 local function fail(code, path, message, extra)
   local context = { path = path }
-  if C.scriptId then context.scriptId = C.scriptId end
+  if C.scriptId then
+    context.scriptId = C.scriptId
+  end
   if extra then
-    for k, v in pairs(extra) do context[k] = v end
+    for k, v in pairs(extra) do
+      context[k] = v
+    end
   end
   Errors.raise(code, message, context)
 end
@@ -73,8 +83,7 @@ local function checkSerializable(value, path, seen)
       fail("SCRIPT_SCHEMA_INVALID", path, "script data must not contain non-finite numbers")
     end
   elseif ty ~= "string" and ty ~= "boolean" then
-    fail("SCRIPT_SCHEMA_INVALID", path,
-      "script data must be numbers, strings, booleans, or tables (got " .. ty .. ")")
+    fail("SCRIPT_SCHEMA_INVALID", path, "script data must be numbers, strings, booleans, or tables (got " .. ty .. ")")
   end
 end
 
@@ -99,7 +108,9 @@ end
 -- failures and nested checkers report the exact field path; the root `steps`
 -- field reads as `steps/N` to match the node-path style used by graph node IDs.
 local function fieldPath(path, name)
-  if path == "script" and name == "steps" then return "steps" end
+  if path == "script" and name == "steps" then
+    return "steps"
+  end
   return path .. "/" .. name
 end
 
@@ -116,8 +127,12 @@ local function checkFields(owner, fieldSpecs, given, path, skipKeys)
         local set = ENUM_SETS[ty:sub(6)]
         assert(set, "unknown enum in schema: " .. ty)
         if not set[v] then
-          fail("SCRIPT_SCHEMA_INVALID", fieldPath(path, name), "invalid enum value for " .. ty,
-            { field = name, op = owner, value = v })
+          fail(
+            "SCRIPT_SCHEMA_INVALID",
+            fieldPath(path, name),
+            "invalid enum value for " .. ty,
+            { field = name, op = owner, value = v }
+          )
         end
       else
         local checker = CHECKERS[ty]
@@ -146,8 +161,7 @@ local function checkValueRef(v, path, field)
   end
   local kind = v.value
   if type(kind) ~= "string" then
-    fail("SCRIPT_SCHEMA_INVALID", path, "expected a value reference with a kind",
-      { field = field })
+    fail("SCRIPT_SCHEMA_INVALID", path, "expected a value reference with a kind", { field = field })
   end
   local spec = Schema.VALUES[kind]
   if not spec then
@@ -159,8 +173,7 @@ end
 local function checkVarRef(v, path, field)
   checkValueRef(v, path, field)
   if v.value ~= "var" then
-    fail("SCRIPT_INVALID_REFERENCE", path, "expected a variable reference",
-      { field = field, kind = v.value })
+    fail("SCRIPT_INVALID_REFERENCE", path, "expected a variable reference", { field = field, kind = v.value })
   end
 end
 
@@ -170,8 +183,7 @@ local function checkTextValue(v, path, field)
   end
   local kind = v.text
   if type(kind) ~= "string" then
-    fail("SCRIPT_SCHEMA_INVALID", path, "expected a text value with a kind",
-      { field = field })
+    fail("SCRIPT_SCHEMA_INVALID", path, "expected a text value with a kind", { field = field })
   end
   local spec = Schema.TEXT_VALUES[kind]
   if not spec then
@@ -186,8 +198,7 @@ local function checkCondition(v, path, field)
   end
   local kind = v.condition
   if type(kind) ~= "string" then
-    fail("SCRIPT_SCHEMA_INVALID", path, "expected a condition with a kind",
-      { field = field })
+    fail("SCRIPT_SCHEMA_INVALID", path, "expected a condition with a kind", { field = field })
   end
   local spec = Schema.CONDITIONS[kind]
   if not spec then
@@ -206,10 +217,18 @@ local function checkActor(v, path, field)
   if type(v) ~= "table" or v.ref ~= "actor" then
     fail("SCRIPT_INVALID_REFERENCE", path, "expected an actor reference", { field = field })
   end
-  if type(v.id) == "string" and #v.id > 0 then return end
-  if type(v.special) == "string" and ACTOR_SPECIALS_SET[v.special] then return end
-  fail("SCRIPT_SCHEMA_INVALID", path, "actor reference must carry id or a known special",
-    { field = field, special = v.special })
+  if type(v.id) == "string" and #v.id > 0 then
+    return
+  end
+  if type(v.special) == "string" and ACTOR_SPECIALS_SET[v.special] then
+    return
+  end
+  fail(
+    "SCRIPT_SCHEMA_INVALID",
+    path,
+    "actor reference must carry id or a known special",
+    { field = field, special = v.special }
+  )
 end
 
 local function checkMessage(v, path, field)
@@ -247,13 +266,11 @@ local function checkMovement(v, path, field)
     end
     local name = item.action
     if type(name) ~= "string" then
-      fail("SCRIPT_UNKNOWN_OPERATION", actionPath, "movement action is missing a name",
-        { field = field })
+      fail("SCRIPT_UNKNOWN_OPERATION", actionPath, "movement action is missing a name", { field = field })
     end
     local spec = Schema.MOVEMENT_ACTIONS[name]
     if not spec then
-      fail("SCRIPT_UNKNOWN_OPERATION", actionPath, "unknown movement action",
-        { field = field, action = name })
+      fail("SCRIPT_UNKNOWN_OPERATION", actionPath, "unknown movement action", { field = field, action = name })
     end
     checkFields(name, spec.fields, item, actionPath, { action = true })
   end
@@ -288,14 +305,18 @@ local function checkSteps(v, path, field)
 end
 
 local function collectRefs(value, path)
-  if type(value) ~= "table" then return end
+  if type(value) ~= "table" then
+    return
+  end
   if value.value == "local" and type(value.name) == "string" then
     C.usedLocals[value.name] = path
   elseif value.value == "arg" and type(value.name) == "string" then
     C.usedArgs[value.name] = path
   end
   for k, v in pairs(value) do
-    if type(k) ~= "table" then collectRefs(v, path .. "/" .. tostring(k)) end
+    if type(k) ~= "table" then
+      collectRefs(v, path .. "/" .. tostring(k))
+    end
   end
 end
 
@@ -305,21 +326,20 @@ local function checkDeclarationMap(v, path, field)
   end
   for name, ty in pairs(v) do
     if type(name) ~= "string" or #name == 0 then
-      fail("SCRIPT_SCHEMA_INVALID", path, "declaration names must be non-empty strings",
-        { field = field })
+      fail("SCRIPT_SCHEMA_INVALID", path, "declaration names must be non-empty strings", { field = field })
     end
     if not PARAM_TYPES_SET[ty] then
-      fail("SCRIPT_SCHEMA_INVALID", path, "unknown declared type",
-        { field = field, name = name, declaredType = ty })
+      fail("SCRIPT_SCHEMA_INVALID", path, "unknown declared type", { field = field, name = name, declaredType = ty })
     end
   end
 end
 
 local function checkArgValue(v, path, field)
-  if isScalar(v) then return end
+  if isScalar(v) then
+    return
+  end
   if type(v) ~= "table" then
-    fail("SCRIPT_SCHEMA_INVALID", path, "arg must be a scalar, value, actor, or text reference",
-      { field = field })
+    fail("SCRIPT_SCHEMA_INVALID", path, "arg must be a scalar, value, actor, or text reference", { field = field })
   end
   if v.value ~= nil then
     checkValueRef(v, path, field)
@@ -358,13 +378,17 @@ CHECKERS.scalar = function(v, path, field)
   end
 end
 CHECKERS.scalar_or_value = function(v, path, field)
-  if isScalar(v) then return end
+  if isScalar(v) then
+    return
+  end
   checkValueRef(v, path, field)
 end
 CHECKERS.value = checkValueRef
 CHECKERS.text_value = checkTextValue
 CHECKERS.id_or_var = function(v, path, field)
-  if type(v) == "string" and #v > 0 then return end
+  if type(v) == "string" and #v > 0 then
+    return
+  end
   checkVarRef(v, path, field)
 end
 CHECKERS.actor = checkActor
@@ -390,8 +414,7 @@ CHECKERS.cases = function(v, path, field)
   end
   for k, caseSteps in pairs(v) do
     if type(k) ~= "number" or k % 1 ~= 0 then
-      fail("SCRIPT_SCHEMA_INVALID", path, "switch cases must be integer-keyed",
-        { field = field, key = tostring(k) })
+      fail("SCRIPT_SCHEMA_INVALID", path, "switch cases must be integer-keyed", { field = field, key = tostring(k) })
     end
     checkSteps(caseSteps, path .. "/" .. tostring(k))
   end
@@ -413,16 +436,19 @@ CHECKERS.bindings = function(v, path, field)
   end
   for slot, textValue in pairs(v) do
     if type(slot) ~= "number" or slot % 1 ~= 0 or slot < 0 or slot > 7 then
-      fail("SCRIPT_SCHEMA_INVALID", path, "binding slots must be integers in 0..7",
-        { field = field, slot = tostring(slot) })
+      fail(
+        "SCRIPT_SCHEMA_INVALID",
+        path,
+        "binding slots must be integers in 0..7",
+        { field = field, slot = tostring(slot) }
+      )
     end
     checkTextValue(textValue, path .. "/" .. tostring(slot), field)
   end
 end
 CHECKERS.buffer_slot = function(v, path, field)
   if type(v) ~= "number" or v % 1 ~= 0 or v < 0 or v > 7 then
-    fail("SCRIPT_SCHEMA_INVALID", path, "buffer slot must be an integer in 0..7",
-      { field = field, slot = v })
+    fail("SCRIPT_SCHEMA_INVALID", path, "buffer slot must be an integer in 0..7", { field = field, slot = v })
   end
 end
 CHECKERS.buttons = function(v, path, field)
@@ -430,8 +456,7 @@ CHECKERS.buttons = function(v, path, field)
   local set = ENUM_SETS.button
   for i = 1, count do
     if not set[v[i]] then
-      fail("SCRIPT_SCHEMA_INVALID", path, "invalid button",
-        { field = field, button = v[i] })
+      fail("SCRIPT_SCHEMA_INVALID", path, "invalid button", { field = field, button = v[i] })
     end
   end
 end
@@ -439,8 +464,7 @@ CHECKERS.scalar_list = function(v, path, field)
   local count = checkArray(v, path, field)
   for i = 1, count do
     if not isScalar(v[i]) then
-      fail("SCRIPT_SCHEMA_INVALID", path, "arguments must be scalars",
-        { field = field })
+      fail("SCRIPT_SCHEMA_INVALID", path, "arguments must be scalars", { field = field })
     end
   end
 end
@@ -452,17 +476,24 @@ CHECKERS.source_provenance = function(v, path, field)
   local opcodes = v.opcodes
   local count = checkArray(offsets, path .. "/offsets", field)
   if type(opcodes) ~= "table" or #opcodes ~= count then
-    fail("SCRIPT_SCHEMA_INVALID", path,
-      "source offsets and opcodes must be arrays of equal length", { field = field })
+    fail("SCRIPT_SCHEMA_INVALID", path, "source offsets and opcodes must be arrays of equal length", { field = field })
   end
   for i = 1, count do
     if type(offsets[i]) ~= "number" or offsets[i] % 1 ~= 0 then
-      fail("SCRIPT_SCHEMA_INVALID", path .. "/offsets/" .. tostring(i - 1),
-        "source offsets must be integers", { field = field })
+      fail(
+        "SCRIPT_SCHEMA_INVALID",
+        path .. "/offsets/" .. tostring(i - 1),
+        "source offsets must be integers",
+        { field = field }
+      )
     end
     if type(opcodes[i]) ~= "number" or opcodes[i] % 1 ~= 0 then
-      fail("SCRIPT_SCHEMA_INVALID", path .. "/opcodes/" .. tostring(i - 1),
-        "source opcodes must be integers", { field = field })
+      fail(
+        "SCRIPT_SCHEMA_INVALID",
+        path .. "/opcodes/" .. tostring(i - 1),
+        "source opcodes must be integers",
+        { field = field }
+      )
     end
   end
 end
@@ -483,10 +514,11 @@ function Validator._validate(script, opts)
   checkSerializable(script, "script", {})
   checkFields("script", Schema.SCRIPT.fields, script, "script")
   if script.api ~= Schema.API_VERSION then
-    Errors.raise("SCRIPT_API_UNSUPPORTED",
-      string.format("api %s is not supported (supported major: %d)",
-        tostring(script.api), Schema.API_VERSION),
-      { path = "api", scriptId = C.scriptId, api = script.api })
+    Errors.raise(
+      "SCRIPT_API_UNSUPPORTED",
+      string.format("api %s is not supported (supported major: %d)", tostring(script.api), Schema.API_VERSION),
+      { path = "api", scriptId = C.scriptId, api = script.api }
+    )
   end
   collectRefs(script.steps, "steps")
   for name, path in pairs(C.usedLocals) do
@@ -509,7 +541,9 @@ end
 ---@return boolean|nil, Errors.Error|nil
 function Validator.validate(script, opts)
   local ok, err = pcall(Validator._validate, script, opts)
-  if ok then return true end
+  if ok then
+    return true
+  end
   if Errors.is(err) then
     local thrown = err --[[@as any]]
     return nil, thrown

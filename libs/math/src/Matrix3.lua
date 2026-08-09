@@ -11,9 +11,15 @@ end
 -- Extract the upper-left 3x3 of a 4x4 column-major matrix.
 function Matrix3.from4x4(m)
   return {
-    m[1], m[2], m[3],
-    m[5], m[6], m[7],
-    m[9], m[10], m[11],
+    m[1],
+    m[2],
+    m[3],
+    m[5],
+    m[6],
+    m[7],
+    m[9],
+    m[10],
+    m[11],
   }
 end
 
@@ -34,23 +40,29 @@ end
 
 function Matrix3.transpose(m)
   return {
-    m[1], m[4], m[7],
-    m[2], m[5], m[8],
-    m[3], m[6], m[9],
+    m[1],
+    m[4],
+    m[7],
+    m[2],
+    m[5],
+    m[8],
+    m[3],
+    m[6],
+    m[9],
   }
 end
 
 -- Determinant of a 3x3 matrix.
 local function determinant(m)
-  return m[1] * (m[5] * m[9] - m[6] * m[8])
-      - m[4] * (m[2] * m[9] - m[3] * m[8])
-      + m[7] * (m[2] * m[6] - m[3] * m[5])
+  return m[1] * (m[5] * m[9] - m[6] * m[8]) - m[4] * (m[2] * m[9] - m[3] * m[8]) + m[7] * (m[2] * m[6] - m[3] * m[5])
 end
 
 -- Inverse of a 3x3 matrix, or nil if singular.
 function Matrix3.inverse(m)
   local det = determinant(m)
-  if math.abs(det) < 1e-12 then return nil end
+  if math.abs(det) < 1e-12 then
+    return nil
+  end
   local invDet = 1 / det
   return {
     (m[5] * m[9] - m[6] * m[8]) * invDet,
@@ -67,9 +79,7 @@ end
 
 -- Transform a 3-vector by a 3x3 matrix.
 function Matrix3.transform(m, x, y, z)
-  return m[1] * x + m[4] * y + m[7] * z,
-      m[2] * x + m[5] * y + m[8] * z,
-      m[3] * x + m[6] * y + m[9] * z
+  return m[1] * x + m[4] * y + m[7] * z, m[2] * x + m[5] * y + m[8] * z, m[3] * x + m[6] * y + m[9] * z
 end
 
 -- Normal matrix: inverse-transpose of the upper 3x3 of (view * model).
@@ -78,7 +88,9 @@ end
 function Matrix3.normalMatrix(model, view)
   local mv = Matrix3.multiply(Matrix3.from4x4(view), Matrix3.from4x4(model))
   local inv = Matrix3.inverse(mv)
-  if not inv then return Matrix3.identity() end
+  if not inv then
+    return Matrix3.identity()
+  end
   return Matrix3.transpose(inv)
 end
 

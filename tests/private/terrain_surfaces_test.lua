@@ -19,27 +19,45 @@ local Hashing = require("romdump.src.digest.Hashing")
 local T = {}
 
 local function near(actual, expected, epsilon)
-  Assert.isTrue(math.abs(actual - expected) <= (epsilon or 1e-5),
-    string.format("expected %.8f, got %.8f", expected, actual))
+  Assert.isTrue(
+    math.abs(actual - expected) <= (epsilon or 1e-5),
+    string.format("expected %.8f, got %.8f", expected, actual)
+  )
 end
 
 local function load(romFs, symbol)
   local resolved = assert(MapResolver.resolve(romFs, symbol))
   local bytes = assert(romFs:openNarc("land_data")):readMember(resolved.landDataMemberId)
-  local land = assert(LandData.decode(bytes, { mapId = resolved.map.id,
-    alias = "land_data", memberId = resolved.landDataMemberId }))
-  return assert(HgssBdhc.decode(land.bdhcBytes, { mapId = resolved.map.id,
-    alias = "land_data", memberId = resolved.landDataMemberId })), resolved
+  local land = assert(
+    LandData.decode(bytes, { mapId = resolved.map.id, alias = "land_data", memberId = resolved.landDataMemberId })
+  )
+  return assert(
+    HgssBdhc.decode(
+      land.bdhcBytes,
+      { mapId = resolved.map.id, alias = "land_data", memberId = resolved.landDataMemberId }
+    )
+  ),
+    resolved
 end
 
 function T.target_payloads_decode_completely(romFs)
   local newBark = load(romFs, "MAP_NEW_BARK")
   Assert.deepEqual(newBark.counts, {
-    points = 37, slopes = 2, heights = 3, plates = 20, strips = 7, accessEntries = 47,
+    points = 37,
+    slopes = 2,
+    heights = 3,
+    plates = 20,
+    strips = 7,
+    accessEntries = 47,
   })
   local lab = load(romFs, "MAP_NEW_BARK_ELMS_LAB_1F")
   Assert.deepEqual(lab.counts, {
-    points = 2, slopes = 1, heights = 1, plates = 1, strips = 1, accessEntries = 1,
+    points = 2,
+    slopes = 1,
+    heights = 1,
+    plates = 1,
+    strips = 1,
+    accessEntries = 1,
   })
   Assert.equal(lab.plates[1].id, 0)
   Assert.equal(lab.plates[1].minX, 0)
@@ -52,10 +70,9 @@ end
 function T.every_land_member_bdhc_decodes_completely(romFs)
   local narc = assert(romFs:openNarc("land_data"))
   for memberId = 0, narc:memberCount() - 1 do
-    local land = assert(LandData.decode(assert(narc:readMember(memberId)),
-      { alias = "land_data", memberId = memberId }))
-    local terrain = assert(HgssBdhc.decode(land.bdhcBytes,
-      { alias = "land_data", memberId = memberId }))
+    local land =
+      assert(LandData.decode(assert(narc:readMember(memberId)), { alias = "land_data", memberId = memberId }))
+    local terrain = assert(HgssBdhc.decode(land.bdhcBytes, { alias = "land_data", memberId = memberId }))
     Assert.equal(terrain.counts.plates, #terrain.plates)
     Assert.equal(terrain.counts.accessEntries, #terrain.accessEntries)
   end
@@ -108,19 +125,28 @@ function T.new_bark_east_staircase_facts_and_path_are_frozen(romFs)
   for index = 2, #path do
     local destination = path[index]
     local sample = resolver:resolve({
-      localX = destination.x, localZ = destination.z,
-      currentSurfaceId = current.surfaceId, currentY = currentY,
-      crossing = { fromX = current.x, fromZ = current.z,
-        toX = destination.x, toZ = destination.z },
+      localX = destination.x,
+      localZ = destination.z,
+      currentSurfaceId = current.surfaceId,
+      currentY = currentY,
+      crossing = { fromX = current.x, fromZ = current.z, toX = destination.x, toZ = destination.z },
     })
     Assert.equal(sample.surfaceId, destination.surfaceId, "path surface at step " .. index)
     current, currentY = destination, sample.worldY
   end
 
   local report = TerrainInspector.inspect(artifact, { minX = 16, minZ = 6, maxX = 18, maxZ = 10 })
-  print(string.format("  [terrain] map %d origin (%d,%d) staircase metadata:",
-    resolved.map.id, resolved.worldOriginX, resolved.worldOriginZ))
-  for _, line in ipairs(TerrainInspector.lines(report)) do print("  " .. line) end
+  print(
+    string.format(
+      "  [terrain] map %d origin (%d,%d) staircase metadata:",
+      resolved.map.id,
+      resolved.worldOriginX,
+      resolved.worldOriginZ
+    )
+  )
+  for _, line in ipairs(TerrainInspector.lines(report)) do
+    print("  " .. line)
+  end
 end
 
 function T.field_player_traverses_new_bark_east_staircase(romFs)
@@ -131,8 +157,12 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
     cameraType = resolved.map.cameraType,
     coordinateOrigin = { x = resolved.worldOriginX, z = resolved.worldOriginZ },
     permissions = {
-      containsLocal = function(_, x, z) return x >= 0 and x < 32 and z >= 0 and z < 32 end,
-      isBlockedLocal = function() return false end,
+      containsLocal = function(_, x, z)
+        return x >= 0 and x < 32 and z >= 0 and z < 32
+      end,
+      isBlockedLocal = function()
+        return false
+      end,
     },
     terrain = terrain,
   }
@@ -142,25 +172,41 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
     fieldZ = resolved.worldOriginZ + 10,
     surfaceId = 4,
     facing = "north",
-    occupancy = function() return nil end,
+    occupancy = function()
+      return nil
+    end,
   })
   local profile = {
-    projectionType = "perspective", distanceTiles = 10,
-    angleXRaw = -8192, angleYRaw = 0,
-    halfFovRadians = math.rad(15), fullVerticalFovRadians = math.rad(30),
-    nearTiles = 1, farTiles = 100,
+    projectionType = "perspective",
+    distanceTiles = 10,
+    angleXRaw = -8192,
+    angleYRaw = 0,
+    halfFovRadians = math.rad(15),
+    fullVerticalFovRadians = math.rad(30),
+    nearTiles = 1,
+    farTiles = 100,
     targetOffsetTiles = { x = 0, y = 0, z = 0 },
   }
   local camera = FieldCamera.new(profile, { initialTarget = player:renderPosition() })
   local cameraSamples = {}
   local session = FieldSession.new({
-    versionId = "private", currentMap = runtimeMap,
-    actor = player, player = player, camera = camera,
+    versionId = "private",
+    currentMap = runtimeMap,
+    actor = player,
+    player = player,
+    camera = camera,
   })
 
   local directions = {
-    "north", "north", "north", "north", "east",
-    "south", "south", "south", "south",
+    "north",
+    "north",
+    "north",
+    "north",
+    "east",
+    "south",
+    "south",
+    "south",
+    "south",
   }
   local committedSurfaces = {}
   for _, direction in ipairs(directions) do
@@ -192,8 +238,10 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
   -- seven-entry history continues applying the earlier slope deltas.
   local firstHoldTick = 4 * FieldPlayer.WALK_STEP_TICKS + 1
   Assert.equal(cameraSamples[firstHoldTick].sourceY, cameraSamples[firstHoldTick - 1].sourceY)
-  Assert.isTrue(cameraSamples[firstHoldTick].appliedY > cameraSamples[firstHoldTick - 1].appliedY,
-    "camera Y should retain the delayed ascent delta")
+  Assert.isTrue(
+    cameraSamples[firstHoldTick].appliedY > cameraSamples[firstHoldTick - 1].appliedY,
+    "camera Y should retain the delayed ascent delta"
+  )
 end
 
 function T.upper_new_bark_staircase_state_reloads_on_the_same_surface(romFs, versionId)
@@ -202,8 +250,12 @@ function T.upper_new_bark_staircase_state_reloads_on_the_same_surface(romFs, ver
     mapId = resolved.map.id,
     coordinateOrigin = { x = resolved.worldOriginX, z = resolved.worldOriginZ },
     permissions = {
-      containsLocal = function(_, x, z) return x >= 0 and x < 32 and z >= 0 and z < 32 end,
-      isBlockedLocal = function() return false end,
+      containsLocal = function(_, x, z)
+        return x >= 0 and x < 32 and z >= 0 and z < 32
+      end,
+      isBlockedLocal = function()
+        return false
+      end,
     },
     terrain = TerrainSurface.new(artifact),
     terrainDependencyHash = Hashing.hashLua(artifact),
@@ -215,7 +267,9 @@ function T.upper_new_bark_staircase_state_reloads_on_the_same_surface(romFs, ver
     fieldZ = resolved.worldOriginZ + 6,
     surfaceId = 0,
     facing = "east",
-    occupancy = function() return nil end,
+    occupancy = function()
+      return nil
+    end,
   })
   local session = {
     versionId = versionId,

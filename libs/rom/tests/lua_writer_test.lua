@@ -46,14 +46,18 @@ function T.output_is_deterministic_and_key_sorted()
 end
 
 function T.rejects_function_values()
-  local err = Assert.throws(function() LuaWriter.encode({ f = function() end }) end)
+  local err = Assert.throws(function()
+    LuaWriter.encode({ f = function() end })
+  end)
   Assert.isTrue(tostring(err):lower():find("function", 1, true) ~= nil)
 end
 
 function T.rejects_cyclic_tables()
   local t = {}
   t.self = t
-  local err = Assert.throws(function() LuaWriter.encode(t) end)
+  local err = Assert.throws(function()
+    LuaWriter.encode(t)
+  end)
   Assert.isTrue(tostring(err):lower():find("cycl", 1, true) ~= nil)
 end
 

@@ -14,10 +14,18 @@ local VERSION = "alpha-classifier-v1"
 -- raw NSBTX format (0 for untextured); `alphaUsage` comes from
 -- TextureDecoder.decode (nil when untextured).
 function AlphaClassifier.classify(polygonAlpha, textureFormat, alphaUsage)
-  if polygonAlpha == 0 then return "wireframe" end
-  if polygonAlpha < 31 then return "translucent" end
-  if textureFormat == 1 or textureFormat == 6 then return "translucent" end
-  if alphaUsage and alphaUsage.hasZero then return "cutout" end
+  if polygonAlpha == 0 then
+    return "wireframe"
+  end
+  if polygonAlpha < 31 then
+    return "translucent"
+  end
+  if textureFormat == 1 or textureFormat == 6 then
+    return "translucent"
+  end
+  if alphaUsage and alphaUsage.hasZero then
+    return "cutout"
+  end
   return "opaque"
 end
 

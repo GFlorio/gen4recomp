@@ -15,8 +15,12 @@ local function runtimeMap(hash, plates, warps)
     mapId = 60,
     coordinateOrigin = { x = 680, z = 390 },
     permissions = {
-      containsLocal = function(_, x, z) return x >= 0 and x < 32 and z >= 0 and z < 32 end,
-      isBlockedLocal = function() return false end,
+      containsLocal = function(_, x, z)
+        return x >= 0 and x < 32 and z >= 0 and z < 32
+      end,
+      isBlockedLocal = function()
+        return false
+      end,
     },
     terrain = TerrainSurface.new({ plates = plates }),
     terrainDependencyHash = hash,
@@ -25,28 +29,45 @@ local function runtimeMap(hash, plates, warps)
 end
 
 local function flat(id, y)
-  return { id = id, minX = 0, minZ = 0, maxX = 32, maxZ = 32,
-    normal = { x = 0, y = 1, z = 0 }, distance = y,
-    slopeClass = "flat", walkable = true }
+  return {
+    id = id,
+    minX = 0,
+    minZ = 0,
+    maxX = 32,
+    maxZ = 32,
+    normal = { x = 0, y = 1, z = 0 },
+    distance = y,
+    slopeClass = "flat",
+    walkable = true,
+  }
 end
 
 local function record(overrides)
   local value = {
-    schema = FieldSave.SCHEMA, versionId = "heartgold", mapId = 60,
-    fieldX = 684, fieldZ = 393, worldY = 4, surfaceId = 11,
-    terrainDependencyHash = "terrain-a", facing = "north",
-    avatar = "hero", scenario = "pre-script-demo-v1",
+    schema = FieldSave.SCHEMA,
+    versionId = "heartgold",
+    mapId = 60,
+    fieldX = 684,
+    fieldZ = 393,
+    worldY = 4,
+    surfaceId = 11,
+    terrainDependencyHash = "terrain-a",
+    facing = "north",
+    avatar = "hero",
+    scenario = "pre-script-demo-v1",
     events = { flags = {}, vars = {} },
   }
-  for key, item in pairs(overrides or {}) do value[key] = item end
+  for key, item in pairs(overrides or {}) do
+    value[key] = item
+  end
   return value
 end
 
 local function session(map)
   return {
-    versionId = "heartgold", currentMap = map,
-    player = { motion = "idle", fieldX = 684, fieldZ = 393,
-      worldY = 4, surfaceId = 11, facing = "north" },
+    versionId = "heartgold",
+    currentMap = map,
+    player = { motion = "idle", fieldX = 684, fieldZ = 393, worldY = 4, surfaceId = 11, facing = "north" },
     transition = { phase = "idle" },
   }
 end
@@ -61,10 +82,12 @@ local function capture(map, opts)
 end
 
 local function restore(value, map)
-  return FieldSave.restore(value, { load = function(_, mapId)
-    Assert.equal(mapId, 60)
-    return map
-  end }, "heartgold")
+  return FieldSave.restore(value, {
+    load = function(_, mapId)
+      Assert.equal(mapId, 60)
+      return map
+    end,
+  }, "heartgold")
 end
 
 local function throwsCode(code, fn)
@@ -92,8 +115,7 @@ function T.event_flags_and_vars_round_trip()
   state:setFlag(744)
   state:setVar(0x4020, 97)
   local saved = capture(map, { eventState = state, avatarId = "heroine" })
-  Assert.deepEqual(saved.events, { flags = { [413] = true, [744] = true },
-    vars = { [0x4020] = 97 } })
+  Assert.deepEqual(saved.events, { flags = { [413] = true, [744] = true }, vars = { [0x4020] = 97 } })
   local result = assert(restore(saved, map))
   Assert.equal(result.avatar, "heroine")
   Assert.deepEqual(result.events, saved.events)
@@ -111,11 +133,25 @@ function T.refuses_mid_step_and_mid_transition_capture()
   local fading = { player = { motion = "idle" }, transition = { phase = "fade_out" } }
   Assert.isFalse(FieldSave.canCapture(fading))
   -- A half-open dialogue must never be captured (spec section 16.3).
-  local halfOpen = { player = { motion = "idle" }, transition = { phase = "idle" },
-    dialogue = { isModal = function() return true end } }
+  local halfOpen = {
+    player = { motion = "idle" },
+    transition = { phase = "idle" },
+    dialogue = {
+      isModal = function()
+        return true
+      end,
+    },
+  }
   Assert.isFalse(FieldSave.canCapture(halfOpen))
-  local closed = { player = { motion = "idle" }, transition = { phase = "idle" },
-    dialogue = { isModal = function() return false end } }
+  local closed = {
+    player = { motion = "idle" },
+    transition = { phase = "idle" },
+    dialogue = {
+      isModal = function()
+        return false
+      end,
+    },
+  }
   Assert.isTrue(FieldSave.canCapture(closed))
 end
 
@@ -190,13 +226,11 @@ function T.invalid_avatar_identifiers_are_rejected()
   end)
   -- With the compiled avatar set provided, an unbuilt graphic is rejected.
   throwsCode("FIELD_SAVE_AVATAR_INVALID", function()
-    local _, err = FieldSave.validate(record({ avatar = "rival" }),
-      { avatars = { hero = true, heroine = true } })
+    local _, err = FieldSave.validate(record({ avatar = "rival" }), { avatars = { hero = true, heroine = true } })
     error(err)
   end)
   -- The compiled set accepts the built player graphics.
-  Assert.notNil(FieldSave.validate(record({ avatar = "heroine" }),
-    { avatars = { hero = true, heroine = true } }))
+  Assert.notNil(FieldSave.validate(record({ avatar = "heroine" }), { avatars = { hero = true, heroine = true } }))
 end
 
 function T.invalid_scenario_ids_are_rejected()
@@ -228,7 +262,9 @@ end
 
 function T.event_state_over_the_safety_limit_is_rejected()
   local flags = {}
-  for id = 1, FieldEventState.MAX_ENTRIES + 1 do flags[id] = true end
+  for id = 1, FieldEventState.MAX_ENTRIES + 1 do
+    flags[id] = true
+  end
   throwsCode("FIELD_SAVE_EVENT_STATE_INVALID", function()
     local _, err = FieldSave.validate(record({ events = { flags = flags, vars = {} } }))
     error(err)

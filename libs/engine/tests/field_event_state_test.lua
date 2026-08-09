@@ -39,7 +39,9 @@ end
 function T.subscribers_receive_old_new_and_tick()
   local state = FieldEventState.new()
   local seen = {}
-  state:subscribe(function(change) seen[#seen + 1] = change end)
+  state:subscribe(function(change)
+    seen[#seen + 1] = change
+  end)
   state:setTick(42)
   state:setFlag(401)
   state:setVar(3, 7)
@@ -51,7 +53,9 @@ end
 function T.idempotent_writes_do_not_notify()
   local state = FieldEventState.new({ flags = { [401] = true } })
   local count = 0
-  state:subscribe(function() count = count + 1 end)
+  state:subscribe(function()
+    count = count + 1
+  end)
   state:setFlag(401)
   state:clearFlag(9)
   state:setVar(3, 0)
@@ -61,7 +65,9 @@ end
 function T.unsubscribe_stops_notifications()
   local state = FieldEventState.new()
   local count = 0
-  local unsubscribe = state:subscribe(function() count = count + 1 end)
+  local unsubscribe = state:subscribe(function()
+    count = count + 1
+  end)
   state:setFlag(1)
   unsubscribe()
   state:setFlag(2)
@@ -86,16 +92,28 @@ end
 
 function T.invalid_flag_ids_are_rejected()
   local state = FieldEventState.new()
-  throwsCode("EVENT_FLAG_ID_INVALID", function() state:setFlag(-1) end)
-  throwsCode("EVENT_FLAG_ID_INVALID", function() state:setFlag(0x10000) end)
-  throwsCode("EVENT_FLAG_ID_INVALID", function() state:isFlagSet(1.5) end)
+  throwsCode("EVENT_FLAG_ID_INVALID", function()
+    state:setFlag(-1)
+  end)
+  throwsCode("EVENT_FLAG_ID_INVALID", function()
+    state:setFlag(0x10000)
+  end)
+  throwsCode("EVENT_FLAG_ID_INVALID", function()
+    state:isFlagSet(1.5)
+  end)
 end
 
 function T.invalid_variable_ids_and_values_are_rejected()
   local state = FieldEventState.new()
-  throwsCode("EVENT_VAR_ID_INVALID", function() state:setVar(0x10000, 1) end)
-  throwsCode("EVENT_VAR_VALUE_INVALID", function() state:setVar(3, -1) end)
-  throwsCode("EVENT_VAR_VALUE_INVALID", function() state:setVar(3, 0x10000) end)
+  throwsCode("EVENT_VAR_ID_INVALID", function()
+    state:setVar(0x10000, 1)
+  end)
+  throwsCode("EVENT_VAR_VALUE_INVALID", function()
+    state:setVar(3, -1)
+  end)
+  throwsCode("EVENT_VAR_VALUE_INVALID", function()
+    state:setVar(3, 0x10000)
+  end)
 end
 
 function T.serialized_input_is_validated()
@@ -109,8 +127,12 @@ end
 
 function T.oversized_stores_are_rejected()
   local flags = {}
-  for id = 0, FieldEventState.MAX_ENTRIES do flags[id] = true end
-  throwsCode("EVENT_STATE_TOO_LARGE", function() FieldEventState.new({ flags = flags }) end)
+  for id = 0, FieldEventState.MAX_ENTRIES do
+    flags[id] = true
+  end
+  throwsCode("EVENT_STATE_TOO_LARGE", function()
+    FieldEventState.new({ flags = flags })
+  end)
 end
 
 return T

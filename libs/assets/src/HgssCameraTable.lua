@@ -30,11 +30,17 @@ local function _decode(bytes, options)
   local source = options.source or "hgss-camera-table"
   local byteLength = recordCount * RECORD_SIZE
   if tableOffset < 0 or tableOffset + byteLength > #bytes then
-    Errors.raise("FIELD_CAMERA_TABLE_OUT_OF_BOUNDS",
-      string.format("%d camera records at 0x%X exceed %d-byte %s",
-        recordCount, tableOffset, #bytes, source),
-      { tableOffset = tableOffset, recordCount = recordCount,
-        recordSize = RECORD_SIZE, overlayByteLength = #bytes, source = source })
+    Errors.raise(
+      "FIELD_CAMERA_TABLE_OUT_OF_BOUNDS",
+      string.format("%d camera records at 0x%X exceed %d-byte %s", recordCount, tableOffset, #bytes, source),
+      {
+        tableOffset = tableOffset,
+        recordCount = recordCount,
+        recordSize = RECORD_SIZE,
+        overlayByteLength = #bytes,
+        source = source,
+      }
+    )
   end
 
   local reader = BinaryReader.new(bytes, source)
@@ -43,9 +49,11 @@ local function _decode(bytes, options)
     local base = tableOffset + cameraType * RECORD_SIZE
     local projectionTypeRaw = reader:u8(base + 0x0C)
     if projectionTypeRaw ~= 0 and projectionTypeRaw ~= 1 then
-      Errors.raise("FIELD_CAMERA_PROJECTION_UNKNOWN",
+      Errors.raise(
+        "FIELD_CAMERA_PROJECTION_UNKNOWN",
         "camera type " .. cameraType .. " has projection type " .. projectionTypeRaw,
-        { cameraType = cameraType, projectionTypeRaw = projectionTypeRaw, source = source })
+        { cameraType = cameraType, projectionTypeRaw = projectionTypeRaw, source = source }
+      )
     end
     local distanceRaw = reader:u32le(base)
     local angleXRaw = signed(reader:u16le(base + 0x04), 65536)
@@ -94,7 +102,9 @@ local function _decode(bytes, options)
       nearTiles = tiles(nearRaw),
       farTiles = tiles(farRaw),
       targetOffsetTiles = {
-        x = tiles(offsetXRaw), y = tiles(offsetYRaw), z = tiles(offsetZRaw),
+        x = tiles(offsetXRaw),
+        y = tiles(offsetYRaw),
+        z = tiles(offsetZRaw),
       },
     }
   end
@@ -108,8 +118,12 @@ end
 
 function HgssCameraTable.decode(bytes, options)
   local ok, result = pcall(_decode, bytes, options)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 

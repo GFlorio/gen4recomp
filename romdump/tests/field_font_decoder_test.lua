@@ -60,27 +60,44 @@ local function buildPalette(colors, opts)
   opts = opts or {}
   local paletteBytes = #colors * 2
   local chunkSize = 0x18 + paletteBytes
-  local ttlp = "TTLP" .. string.char(chunkSize % 256, math.floor(chunkSize / 256) % 256,
-    math.floor(chunkSize / 65536) % 256, math.floor(chunkSize / 16777216) % 256)
+  local ttlp = "TTLP"
+    .. string.char(
+      chunkSize % 256,
+      math.floor(chunkSize / 256) % 256,
+      math.floor(chunkSize / 65536) % 256,
+      math.floor(chunkSize / 16777216) % 256
+    )
     .. string.char(3, 0, 0, 0, 0, 0, 0, 0)
-    .. string.char(paletteBytes % 256, math.floor(paletteBytes / 256) % 256,
-      math.floor(paletteBytes / 65536) % 256, math.floor(paletteBytes / 16777216) % 256)
+    .. string.char(
+      paletteBytes % 256,
+      math.floor(paletteBytes / 256) % 256,
+      math.floor(paletteBytes / 65536) % 256,
+      math.floor(paletteBytes / 16777216) % 256
+    )
     .. string.char(0x10, 0, 0, 0)
   local body = {}
   for _, c in ipairs(colors) do
     body[#body + 1] = string.char(c % 256, math.floor(c / 256))
   end
   local total = 0x10 + #ttlp + #table.concat(body)
-  local header = "RLCN" .. string.char(0xFF, 0xFE, 0x00, 0x01)
-    .. string.char(total % 256, math.floor(total / 256) % 256,
-      math.floor(total / 65536) % 256, math.floor(total / 16777216) % 256)
+  local header = "RLCN"
+    .. string.char(0xFF, 0xFE, 0x00, 0x01)
+    .. string.char(
+      total % 256,
+      math.floor(total / 256) % 256,
+      math.floor(total / 65536) % 256,
+      math.floor(total / 16777216) % 256
+    )
     .. string.char(0x10, 0, 1, 0)
   return header .. ttlp .. table.concat(body)
 end
 
 function T.decodes_font_member_header_and_widths()
-  local member = buildFontMember(8, glyph64() .. glyph64() .. glyph64() .. glyph64()
-    .. glyph64() .. glyph64() .. glyph64() .. glyph64(), { 6, 7, 5 })
+  local member = buildFontMember(
+    8,
+    glyph64() .. glyph64() .. glyph64() .. glyph64() .. glyph64() .. glyph64() .. glyph64() .. glyph64(),
+    { 6, 7, 5 }
+  )
   local font = assert(FieldFontDecoder.decodeMember(member, {}))
   Assert.equal(font.numGlyphs, 8)
   Assert.equal(font.fixedWidth, 16)
@@ -98,8 +115,14 @@ function T.glyph_tile_semantics_match_decompress_glyph_tile()
   -- the half-row lookup table puts the source byte's bits 6-7 into the
   -- dest's low nibble, which is pixel 0 of a 4bpp group).
   local tl = row16({
-    { 0x00, 0x55 }, { 0x00, 0x55 }, { 0xAA, 0x00 }, { 0xAA, 0x00 },
-    { 0x00, 0x55 }, { 0x00, 0x55 }, { 0xAA, 0x00 }, { 0xAA, 0x00 },
+    { 0x00, 0x55 },
+    { 0x00, 0x55 },
+    { 0xAA, 0x00 },
+    { 0xAA, 0x00 },
+    { 0x00, 0x55 },
+    { 0x00, 0x55 },
+    { 0xAA, 0x00 },
+    { 0xAA, 0x00 },
   })
   local member = buildFontMember(1, glyph64(tl), { 6 })
   local font = assert(FieldFontDecoder.decodeMember(member, {}))
@@ -149,7 +172,9 @@ function T.member_validation_is_typed()
   local member = buildFontMember(2, glyph64() .. glyph64(), { 6 })
   local font, decodeErr = FieldFontDecoder.decodeMember(member, {})
   Assert.isNil(decodeErr, "fixture must be a valid member")
-  local glyphErr = Assert.throws(function() return assert(font).glyphPixels(5) end)
+  local glyphErr = Assert.throws(function()
+    return assert(font).glyphPixels(5)
+  end)
   Assert.isTrue(Errors.is(glyphErr))
   Assert.equal(glyphErr.code, "FONT_GLYPH_MISSING")
 end

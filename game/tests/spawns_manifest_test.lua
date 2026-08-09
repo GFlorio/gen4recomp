@@ -13,10 +13,8 @@ local FACING = { north = true, south = true, west = true, east = true }
 function T.entries_are_flat_spawn_records()
   assert(next(FieldSpawns) ~= nil, "spawn manifest is empty")
   for symbol, spawn in pairs(FieldSpawns) do
-    Assert.isTrue(type(spawn.x) == "number" and type(spawn.z) == "number",
-      symbol .. " must define numeric x and z")
-    Assert.isTrue(FACING[spawn.facing] == true,
-      symbol .. " must define a valid facing")
+    Assert.isTrue(type(spawn.x) == "number" and type(spawn.z) == "number", symbol .. " must define numeric x and z")
+    Assert.isTrue(FACING[spawn.facing] == true, symbol .. " must define a valid facing")
     Assert.isNil(spawn.spawn, symbol .. " must not nest under a spawn key")
   end
 end

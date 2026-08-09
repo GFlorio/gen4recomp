@@ -34,7 +34,9 @@ function T.exports_compiler_version()
 end
 
 function T.compile_requires_romfs_shaped_object()
-  local err = Assert.throws(function() MapAssetCompiler.compile({}, "x") end)
+  local err = Assert.throws(function()
+    MapAssetCompiler.compile({}, "x")
+  end)
   Assert.isTrue(tostring(err):find("RomFs") ~= nil, "error mentions RomFs")
 end
 
@@ -53,10 +55,14 @@ function T.building_ignores_its_own_embedded_tex0()
   -- compiler that silently fell back to the embedded block would pass here.
   local bundle = assert(compile({
     buildingModel = NsbmdFixture.build({
-      textureName = "embedded_tex", paletteName = "embedded_pal", origHeight = 8,
+      textureName = "embedded_tex",
+      paletteName = "embedded_pal",
+      origHeight = 8,
       triangle = { { 0, 0, 0 }, { 2, 0, 0 }, { 0, 0, 3 } },
       embeddedTex0 = Tex0Fixture.block({
-        textures = { "embedded_tex" }, palettes = { "embedded_pal" } }),
+        textures = { "embedded_tex" },
+        palettes = { "embedded_pal" },
+      }),
     }),
   }))
   Assert.isNil(onlyModel(bundle).materials[1].texture)
@@ -70,7 +76,9 @@ function T.building_with_no_named_bindings_compiles_as_a_no_op()
   -- bindings; Nitro's bind loops run zero times and succeed.
   local bundle = assert(compile({
     buildingModel = NsbmdFixture.build({
-      untextured = true, triangle = { { 0, 0, 0 }, { 2, 0, 0 }, { 0, 0, 3 } } }),
+      untextured = true,
+      triangle = { { 0, 0, 0 }, { 2, 0, 0 }, { 0, 0, 3 } },
+    }),
   }))
   local model = onlyModel(bundle)
   Assert.equal(#model.batches, 2)
@@ -114,8 +122,10 @@ function T.an_unresolved_material_names_the_source_that_was_checked()
   local bundle = assert(compile({
     buildingPack = { textures = { "unrelated" }, palettes = { "unrelated_pal" } },
   }))
-  Assert.equal(bundle.unresolvedMaterials[1].source,
-    "building_textures member " .. MapRomFixture.BUILDING_TEXTURE_PACK_ID)
+  Assert.equal(
+    bundle.unresolvedMaterials[1].source,
+    "building_textures member " .. MapRomFixture.BUILDING_TEXTURE_PACK_ID
+  )
 end
 
 function T.a_fully_resolved_map_reports_nothing_unresolved()
@@ -125,12 +135,9 @@ end
 function T.records_the_building_pack_in_dependencies_and_scene_source()
   local bundle = assert(compile())
   Assert.equal(bundle.scene.source.buildingTexture.alias, "building_textures")
-  Assert.equal(bundle.scene.source.buildingTexture.memberId,
-    MapRomFixture.BUILDING_TEXTURE_PACK_ID)
-  Assert.equal(bundle.scene.source.buildingTexture.sha1,
-    bundle.dependencies.buildingTextureMemberSha1)
-  Assert.equal(bundle.dependencies.buildingTextureMemberId,
-    MapRomFixture.BUILDING_TEXTURE_PACK_ID)
+  Assert.equal(bundle.scene.source.buildingTexture.memberId, MapRomFixture.BUILDING_TEXTURE_PACK_ID)
+  Assert.equal(bundle.scene.source.buildingTexture.sha1, bundle.dependencies.buildingTextureMemberSha1)
+  Assert.equal(bundle.dependencies.buildingTextureMemberId, MapRomFixture.BUILDING_TEXTURE_PACK_ID)
 end
 
 function T.changing_the_building_texture_member_changes_the_marker()

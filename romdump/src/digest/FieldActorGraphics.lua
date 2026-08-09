@@ -51,10 +51,17 @@ end
 local function offsetFor(locator, address, label)
   local offset = address - locator.ramAddress
   if offset < 0 or offset >= locator.size then
-    raise("FIELD_ACTOR_ADDRESS_OUT_OF_OVERLAY",
-      string.format("%s address 0x%08X is outside the overlay loaded at 0x%08X (%d bytes)",
-        label, address, locator.ramAddress, locator.size),
-      { label = label, address = address, ramAddress = locator.ramAddress, size = locator.size })
+    raise(
+      "FIELD_ACTOR_ADDRESS_OUT_OF_OVERLAY",
+      string.format(
+        "%s address 0x%08X is outside the overlay loaded at 0x%08X (%d bytes)",
+        label,
+        address,
+        locator.ramAddress,
+        locator.size
+      ),
+      { label = label, address = address, ramAddress = locator.ramAddress, size = locator.size }
+    )
   end
   return offset
 end
@@ -76,17 +83,22 @@ local function decodeRecords(reader, locator, tables)
 
   while true do
     if offset + RECORD_SIZE > locator.size then
-      raise("FIELD_ACTOR_TABLE_UNTERMINATED",
+      raise(
+        "FIELD_ACTOR_TABLE_UNTERMINATED",
         "graphics table ran past the end of the overlay without a 0xFFFF terminator",
-        { offset = offset, size = locator.size })
+        { offset = offset, size = locator.size }
+      )
     end
     local spriteId = reader:u16le(offset)
-    if spriteId == TERMINATOR_SPRITE_ID then break end
+    if spriteId == TERMINATOR_SPRITE_ID then
+      break
+    end
     if bySpriteId[spriteId] then
-      raise("FIELD_ACTOR_DUPLICATE_SPRITE_ID",
+      raise(
+        "FIELD_ACTOR_DUPLICATE_SPRITE_ID",
         "spriteId " .. spriteId .. " appears more than once in the graphics table",
-        { spriteId = spriteId, offset = offset,
-          firstOffset = bySpriteId[spriteId].offset })
+        { spriteId = spriteId, offset = offset, firstOffset = bySpriteId[spriteId].offset }
+      )
     end
     local packed = reader:u16le(offset + 4)
     local fields = splitPacked(packed)
@@ -103,25 +115,30 @@ local function decodeRecords(reader, locator, tables)
     bySpriteId[spriteId] = record
     offset = offset + RECORD_SIZE
     if #records > MAX_RECORDS then
-      raise("FIELD_ACTOR_TABLE_TOO_LARGE",
+      raise(
+        "FIELD_ACTOR_TABLE_TOO_LARGE",
         "graphics table exceeded the " .. MAX_RECORDS .. "-record safety limit",
-        { limit = MAX_RECORDS })
+        { limit = MAX_RECORDS }
+      )
     end
   end
 
   local terminatorOffset = offset - base
   local expectedCount = tables.graphics.expectedRecordCount
   if expectedCount and #records ~= expectedCount then
-    raise("FIELD_ACTOR_RECORD_COUNT_MISMATCH",
+    raise(
+      "FIELD_ACTOR_RECORD_COUNT_MISMATCH",
       "graphics table has " .. #records .. " records, expected " .. expectedCount,
-      { actual = #records, expected = expectedCount })
+      { actual = #records, expected = expectedCount }
+    )
   end
   local expectedTerminator = tables.graphics.expectedTerminatorOffset
   if expectedTerminator and terminatorOffset ~= expectedTerminator then
-    raise("FIELD_ACTOR_TERMINATOR_MISPLACED",
-      string.format("graphics terminator sits at 0x%X, expected 0x%X",
-        terminatorOffset, expectedTerminator),
-      { actual = terminatorOffset, expected = expectedTerminator })
+    raise(
+      "FIELD_ACTOR_TERMINATOR_MISPLACED",
+      string.format("graphics terminator sits at 0x%X, expected 0x%X", terminatorOffset, expectedTerminator),
+      { actual = terminatorOffset, expected = expectedTerminator }
+    )
   end
 
   return {
@@ -138,22 +155,28 @@ local function decodeKeyTable(reader, locator, address, label)
   local byKey, order = {}, {}
   while true do
     if offset + 4 > locator.size then
-      raise("FIELD_ACTOR_KEY_TABLE_UNTERMINATED",
+      raise(
+        "FIELD_ACTOR_KEY_TABLE_UNTERMINATED",
         label .. " ran past the end of the overlay without a key-255 terminator",
-        { label = label, offset = offset })
+        { label = label, offset = offset }
+      )
     end
     local key = reader:u16le(offset)
-    if key == KEY_TERMINATOR then break end
+    if key == KEY_TERMINATOR then
+      break
+    end
     if byKey[key] then
-      raise("FIELD_ACTOR_DUPLICATE_KEY", label .. " defines key " .. key .. " twice",
-        { label = label, key = key })
+      raise("FIELD_ACTOR_DUPLICATE_KEY", label .. " defines key " .. key .. " twice", { label = label, key = key })
     end
     byKey[key] = reader:u16le(offset + 2)
     order[#order + 1] = key
     offset = offset + 4
     if #order > MAX_RECORDS then
-      raise("FIELD_ACTOR_KEY_TABLE_TOO_LARGE", label .. " exceeded its safety limit",
-        { label = label, limit = MAX_RECORDS })
+      raise(
+        "FIELD_ACTOR_KEY_TABLE_TOO_LARGE",
+        label .. " exceeded its safety limit",
+        { label = label, limit = MAX_RECORDS }
+      )
     end
   end
   return { byKey = byKey, order = order }
@@ -164,9 +187,11 @@ local function decodeRanges(reader, locator, address, descriptorIndex)
   local ranges = {}
   while true do
     if offset + RANGE_SIZE > locator.size then
-      raise("FIELD_ACTOR_RANGES_UNTERMINATED",
+      raise(
+        "FIELD_ACTOR_RANGES_UNTERMINATED",
         "animation ranges for descriptor " .. descriptorIndex .. " ran past the overlay",
-        { descriptor = descriptorIndex, offset = offset })
+        { descriptor = descriptorIndex, offset = offset }
+      )
     end
     local startFrame = reader:u32le(offset)
     local endFrame = reader:u32le(offset + 4)
@@ -174,13 +199,15 @@ local function decodeRanges(reader, locator, address, descriptorIndex)
     -- Every range array in the ROM ends with exactly this record. A zero-length
     -- range is otherwise legitimate -- descriptor 21 opens with [0, 0, 0] -- so
     -- the end mode is part of the terminator, not just the frame bounds.
-    if startFrame == 0 and endFrame == 0 and endMode == RANGE_TERMINATOR_END_MODE then break end
+    if startFrame == 0 and endFrame == 0 and endMode == RANGE_TERMINATOR_END_MODE then
+      break
+    end
     if endFrame < startFrame then
-      raise("FIELD_ACTOR_RANGE_INVERTED",
-        "animation range " .. #ranges .. " of descriptor " .. descriptorIndex
-          .. " ends before it starts",
-        { descriptor = descriptorIndex, index = #ranges,
-          startFrame = startFrame, endFrame = endFrame })
+      raise(
+        "FIELD_ACTOR_RANGE_INVERTED",
+        "animation range " .. #ranges .. " of descriptor " .. descriptorIndex .. " ends before it starts",
+        { descriptor = descriptorIndex, index = #ranges, startFrame = startFrame, endFrame = endFrame }
+      )
     end
     ranges[#ranges + 1] = {
       startFrame = startFrame,
@@ -190,15 +217,19 @@ local function decodeRanges(reader, locator, address, descriptorIndex)
     }
     offset = offset + RANGE_SIZE
     if #ranges > MAX_RANGES then
-      raise("FIELD_ACTOR_RANGES_TOO_LARGE",
+      raise(
+        "FIELD_ACTOR_RANGES_TOO_LARGE",
         "descriptor " .. descriptorIndex .. " declares more than " .. MAX_RANGES .. " ranges",
-        { descriptor = descriptorIndex, limit = MAX_RANGES })
+        { descriptor = descriptorIndex, limit = MAX_RANGES }
+      )
     end
   end
   if #ranges == 0 then
-    raise("FIELD_ACTOR_RANGES_EMPTY",
+    raise(
+      "FIELD_ACTOR_RANGES_EMPTY",
       "descriptor " .. descriptorIndex .. " has no animation ranges",
-      { descriptor = descriptorIndex })
+      { descriptor = descriptorIndex }
+    )
   end
   return ranges
 end
@@ -209,9 +240,11 @@ local function decodeDescriptors(reader, locator, tables)
   for index = 0, tables.descriptors.count - 1 do
     local offset = base + index * DESCRIPTOR_SIZE
     if offset + DESCRIPTOR_SIZE > locator.size then
-      raise("FIELD_ACTOR_DESCRIPTOR_OUT_OF_OVERLAY",
+      raise(
+        "FIELD_ACTOR_DESCRIPTOR_OUT_OF_OVERLAY",
         "descriptor " .. index .. " reaches past the end of the overlay",
-        { descriptor = index, offset = offset })
+        { descriptor = index, offset = offset }
+      )
     end
     local rangesAddress = reader:u32le(offset + 4)
     descriptors[index] = {
@@ -227,7 +260,9 @@ local function decodeDescriptors(reader, locator, tables)
 end
 
 local function decodeStaticModels(reader, locator, config)
-  if not config then return nil end
+  if not config then
+    return nil
+  end
   local offset = offsetFor(locator, config.table.address, "static model table")
   local bySpriteId, order = {}, {}
   for _ = 1, config.table.count do
@@ -264,8 +299,7 @@ local function _decode(overlayBytes, locator, manifest)
     spanBytes = graphics.spanBytes,
     descriptors = decodeDescriptors(reader, bounded, tables),
     modelMembers = decodeKeyTable(reader, bounded, tables.modelKeys.address, "model key table"),
-    timelineMembers = decodeKeyTable(reader, bounded,
-      tables.timelineKeys.address, "timeline key table"),
+    timelineMembers = decodeKeyTable(reader, bounded, tables.timelineKeys.address, "timeline key table"),
     staticModels = decodeStaticModels(reader, bounded, manifest.staticModels),
   }
 
@@ -276,14 +310,18 @@ local function _decode(overlayBytes, locator, manifest)
     descriptor.modelMemberId = result.modelMembers.byKey[descriptor.modelKey]
     descriptor.timelineMemberId = result.timelineMembers.byKey[descriptor.timelineKey]
     if not descriptor.modelMemberId then
-      raise("FIELD_ACTOR_MODEL_KEY_UNKNOWN",
+      raise(
+        "FIELD_ACTOR_MODEL_KEY_UNKNOWN",
         "descriptor " .. index .. " uses unmapped model key " .. descriptor.modelKey,
-        { descriptor = index, modelKey = descriptor.modelKey })
+        { descriptor = index, modelKey = descriptor.modelKey }
+      )
     end
     if not descriptor.timelineMemberId then
-      raise("FIELD_ACTOR_TIMELINE_KEY_UNKNOWN",
+      raise(
+        "FIELD_ACTOR_TIMELINE_KEY_UNKNOWN",
         "descriptor " .. index .. " uses unmapped timeline key " .. descriptor.timelineKey,
-        { descriptor = index, timelineKey = descriptor.timelineKey })
+        { descriptor = index, timelineKey = descriptor.timelineKey }
+      )
     end
   end
 
@@ -295,8 +333,12 @@ end
 -- manifest: data/manifests/field_actors.lua (or a fixture with the same shape).
 function FieldActorGraphics.decode(overlayBytes, locator, manifest)
   local ok, result = pcall(_decode, overlayBytes, locator, manifest)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 
@@ -305,9 +347,12 @@ end
 function FieldActorGraphics.resolve(decoded, spriteId)
   local record = decoded.bySpriteId[spriteId]
   if not record then
-    return nil, Errors.new("FIELD_ACTOR_SPRITE_ABSENT",
-      "spriteId " .. tostring(spriteId) .. " is not in the graphics table",
-      { spriteId = spriteId })
+    return nil,
+      Errors.new(
+        "FIELD_ACTOR_SPRITE_ABSENT",
+        "spriteId " .. tostring(spriteId) .. " is not in the graphics table",
+        { spriteId = spriteId }
+      )
   end
   local descriptor = decoded.descriptors[record.visualDescriptor]
   if not descriptor then
@@ -315,16 +360,25 @@ function FieldActorGraphics.resolve(decoded, spriteId)
     if staticModels and record.visualDescriptor == staticModels.descriptor then
       local memberId = staticModels.bySpriteId[spriteId]
       if not memberId then
-        return nil, Errors.new("FIELD_ACTOR_STATIC_MODEL_UNKNOWN",
-          "spriteId " .. spriteId .. " has no static model member mapping",
-          { spriteId = spriteId, descriptor = record.visualDescriptor })
+        return nil,
+          Errors.new(
+            "FIELD_ACTOR_STATIC_MODEL_UNKNOWN",
+            "spriteId " .. spriteId .. " has no static model member mapping",
+            { spriteId = spriteId, descriptor = record.visualDescriptor }
+          )
       end
       return { record = record, staticModelMemberId = memberId }
     end
-    return nil, Errors.new("FIELD_ACTOR_DESCRIPTOR_UNKNOWN",
-      "spriteId " .. spriteId .. " selects descriptor " .. record.visualDescriptor
-        .. ", which the table does not define",
-      { spriteId = spriteId, descriptor = record.visualDescriptor })
+    return nil,
+      Errors.new(
+        "FIELD_ACTOR_DESCRIPTOR_UNKNOWN",
+        "spriteId "
+          .. spriteId
+          .. " selects descriptor "
+          .. record.visualDescriptor
+          .. ", which the table does not define",
+        { spriteId = spriteId, descriptor = record.visualDescriptor }
+      )
   end
   return { record = record, descriptor = descriptor }
 end

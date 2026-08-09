@@ -9,15 +9,21 @@ local DocGen = {}
 
 local function sortedKeys(t)
   local keys = {}
-  for k in pairs(t) do keys[#keys + 1] = k end
+  for k in pairs(t) do
+    keys[#keys + 1] = k
+  end
   table.sort(keys)
   return keys
 end
 
 local function renderDefault(default)
-  if type(default) ~= "table" then return "`" .. tostring(default) .. "`" end
+  if type(default) ~= "table" then
+    return "`" .. tostring(default) .. "`"
+  end
   local parts = {}
-  for _, v in ipairs(default) do parts[#parts + 1] = string.format("%q", v) end
+  for _, v in ipairs(default) do
+    parts[#parts + 1] = string.format("%q", v)
+  end
   return "`{" .. table.concat(parts, ", ") .. "}`"
 end
 
@@ -28,8 +34,7 @@ local function fieldTable(fields)
     local spec = fields[name]
     local required = spec.required and "yes" or ""
     local default = spec.default == nil and "" or renderDefault(spec.default)
-    lines[#lines + 1] = string.format("| `%s` | %s | %s | %s |",
-      name, spec.type, required, default)
+    lines[#lines + 1] = string.format("| `%s` | %s | %s | %s |", name, spec.type, required, default)
   end
   return table.concat(lines, "\n")
 end
@@ -42,8 +47,8 @@ local function constructorTables()
     parts[#parts + 1] = "| Signature | Canonical | Notes |"
     parts[#parts + 1] = "|---|---|---|"
     for _, row in ipairs(group.rows) do
-      parts[#parts + 1] = string.format("| `%s` | `%s` | %s |",
-        row.signature, row.canonical, row.notes ~= "" and row.notes or "")
+      parts[#parts + 1] =
+        string.format("| `%s` | `%s` | %s |", row.signature, row.canonical, row.notes ~= "" and row.notes or "")
     end
     parts[#parts + 1] = ""
   end
@@ -88,8 +93,7 @@ local function enumSection()
   local parts = { "## Enums" }
   for _, name in ipairs(sortedKeys(Schema.ENUMS)) do
     parts[#parts + 1] = ""
-    parts[#parts + 1] = string.format("`%s`: %s", name,
-      table.concat(Schema.ENUMS[name], ", "))
+    parts[#parts + 1] = string.format("`%s`: %s", name, table.concat(Schema.ENUMS[name], ", "))
   end
   parts[#parts + 1] = ""
   return table.concat(parts, "\n")

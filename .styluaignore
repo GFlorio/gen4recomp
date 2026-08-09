@@ -1,0 +1,7 @@
+# Mirror .luarc.json workspace.ignoreDir: derived output and scratch space are
+# not source, and must not fail the formatting check.
+.cache/
+.agents/
+data/generated/
+import-output/
+tmp/

@@ -73,21 +73,33 @@ function T.versions_are_isolated()
 end
 
 function T.rejects_absolute_paths()
-  Assert.throws(function() cache("heartgold"):write("/etc/passwd", "x") end)
+  Assert.throws(function()
+    cache("heartgold"):write("/etc/passwd", "x")
+  end)
 end
 
 function T.rejects_drive_letters()
-  Assert.throws(function() cache("heartgold"):write("C:/x", "x") end)
+  Assert.throws(function()
+    cache("heartgold"):write("C:/x", "x")
+  end)
 end
 
 function T.rejects_parent_components()
-  Assert.throws(function() cache("heartgold"):read("../soulsilver/marker") end)
-  Assert.throws(function() cache("heartgold"):read("a/../../b") end)
+  Assert.throws(function()
+    cache("heartgold"):read("../soulsilver/marker")
+  end)
+  Assert.throws(function()
+    cache("heartgold"):read("a/../../b")
+  end)
 end
 
 function T.rejects_dot_and_nul_components()
-  Assert.throws(function() cache("heartgold"):read("a/./b") end)
-  Assert.throws(function() cache("heartgold"):read("a\0b") end)
+  Assert.throws(function()
+    cache("heartgold"):read("a/./b")
+  end)
+  Assert.throws(function()
+    cache("heartgold"):read("a\0b")
+  end)
 end
 
 function T.lua_round_trip_is_deterministic()

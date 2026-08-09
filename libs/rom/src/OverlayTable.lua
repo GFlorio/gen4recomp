@@ -14,9 +14,11 @@ function OverlayTable.parse(tableBytes, fatCount, label)
   assert(type(tableBytes) == "string", "overlay table bytes must be a string")
   assert(type(fatCount) == "number", "fatCount must be a number")
   if #tableBytes % ENTRY_SIZE ~= 0 then
-    Errors.raise("OVERLAY_TABLE_SIZE_INVALID",
+    Errors.raise(
+      "OVERLAY_TABLE_SIZE_INVALID",
       "overlay table size " .. #tableBytes .. " is not a multiple of " .. ENTRY_SIZE,
-      { size = #tableBytes })
+      { size = #tableBytes }
+    )
   end
 
   local reader = BinaryReader.new(tableBytes, label or "overlay-table")
@@ -37,19 +39,21 @@ function OverlayTable.parse(tableBytes, fatCount, label)
       flags = reader:u32le(base + 28),
     }
     if entry.fileId >= fatCount then
-      Errors.raise("OVERLAY_FILE_ID_OUT_OF_FAT",
-        "overlay " .. entry.overlayId .. " references fileId " .. entry.fileId
-          .. " outside FAT of " .. fatCount,
-        { overlayId = entry.overlayId, fileId = entry.fileId, fatCount = fatCount })
+      Errors.raise(
+        "OVERLAY_FILE_ID_OUT_OF_FAT",
+        "overlay " .. entry.overlayId .. " references fileId " .. entry.fileId .. " outside FAT of " .. fatCount,
+        { overlayId = entry.overlayId, fileId = entry.fileId, fatCount = fatCount }
+      )
     end
     if seenOverlayId[entry.overlayId] then
-      Errors.raise("OVERLAY_DUPLICATE_ID", "duplicate overlayId " .. entry.overlayId,
-        { overlayId = entry.overlayId })
+      Errors.raise("OVERLAY_DUPLICATE_ID", "duplicate overlayId " .. entry.overlayId, { overlayId = entry.overlayId })
     end
     if seenFileId[entry.fileId] then
-      Errors.raise("OVERLAY_DUPLICATE_FILE_ID",
+      Errors.raise(
+        "OVERLAY_DUPLICATE_FILE_ID",
         "fileId " .. entry.fileId .. " assigned to more than one overlay",
-        { fileId = entry.fileId, overlayId = entry.overlayId })
+        { fileId = entry.fileId, overlayId = entry.overlayId }
+      )
     end
     seenOverlayId[entry.overlayId] = true
     seenFileId[entry.fileId] = true

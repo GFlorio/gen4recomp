@@ -9,24 +9,34 @@ local function fail(msg)
 end
 
 local function repr(v)
-  if type(v) == "string" then return string.format("%q", v) end
+  if type(v) == "string" then
+    return string.format("%q", v)
+  end
   return tostring(v)
 end
 
 function Assert.isTrue(v, msg)
-  if not v then fail(msg or ("expected truthy, got " .. repr(v))) end
+  if not v then
+    fail(msg or ("expected truthy, got " .. repr(v)))
+  end
 end
 
 function Assert.isFalse(v, msg)
-  if v then fail(msg or ("expected falsy, got " .. repr(v))) end
+  if v then
+    fail(msg or ("expected falsy, got " .. repr(v)))
+  end
 end
 
 function Assert.isNil(v, msg)
-  if v ~= nil then fail(msg or ("expected nil, got " .. repr(v))) end
+  if v ~= nil then
+    fail(msg or ("expected nil, got " .. repr(v)))
+  end
 end
 
 function Assert.notNil(v, msg)
-  if v == nil then fail(msg or "expected non-nil, got nil") end
+  if v == nil then
+    fail(msg or "expected non-nil, got nil")
+  end
 end
 
 function Assert.equal(actual, expected, msg)
@@ -40,8 +50,7 @@ end
 function Assert.near(actual, expected, tolerance, msg)
   tolerance = tolerance or 1e-9
   if type(actual) ~= "number" or math.abs(actual - expected) > tolerance then
-    fail(msg or ("expected " .. repr(expected) .. " +/- " .. repr(tolerance)
-      .. ", got " .. repr(actual)))
+    fail(msg or ("expected " .. repr(expected) .. " +/- " .. repr(tolerance) .. ", got " .. repr(actual)))
   end
 end
 
@@ -70,7 +79,9 @@ end
 -- Runs fn(); asserts it raised. Returns the raised value (string or table).
 function Assert.throws(fn, msg)
   local ok, err = pcall(fn)
-  if ok then fail(msg or "expected error, but call succeeded") end
+  if ok then
+    fail(msg or "expected error, but call succeeded")
+  end
   return err
 end
 

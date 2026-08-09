@@ -41,13 +41,17 @@ function T.matrix_to_tiles_converts_only_the_translation()
   local m = Matrix4.multiply(Matrix4.translate(32, 16, -48), Matrix4.scale(2, 3, 4))
   local tiled = MapUnits.matrixToTiles(m)
   local bx, by, bz = Matrix4.transformPoint(tiled, 0, 0, 0)
-  Assert.equal(bx, 2); Assert.equal(by, 1); Assert.equal(bz, -3)
+  Assert.equal(bx, 2)
+  Assert.equal(by, 1)
+  Assert.equal(bz, -3)
 
   local wx, wy, wz = Matrix4.transformPoint(m, 1, 1, 1)
   local ex, ey, ez = MapUnits.toTiles(wx, wy, wz)
   local ax, ay, az = Matrix4.transformPoint(tiled, MapUnits.toTiles(1, 1, 1))
-  Assert.isTrue(math.abs(ax - ex) < 1e-9 and math.abs(ay - ey) < 1e-9
-    and math.abs(az - ez) < 1e-9, "tiled matrix on a tiled vertex matches tiling the result")
+  Assert.isTrue(
+    math.abs(ax - ex) < 1e-9 and math.abs(ay - ey) < 1e-9 and math.abs(az - ez) < 1e-9,
+    "tiled matrix on a tiled vertex matches tiling the result"
+  )
 end
 
 function T.calibration_rejects_degenerate_extent()

@@ -35,8 +35,11 @@ function T.target_bank_counts_and_decryption_vectors(romFs)
     Assert.equal(bank.tableEnd, 4 + spec.count * 8)
     if spec.firstMessage then
       Assert.deepEqual(bank.messages[1].raw[1] and {
-        bank.messages[1].raw[1], bank.messages[1].raw[2], bank.messages[1].raw[3],
-        bank.messages[1].raw[4], bank.messages[1].raw[5],
+        bank.messages[1].raw[1],
+        bank.messages[1].raw[2],
+        bank.messages[1].raw[3],
+        bank.messages[1].raw[4],
+        bank.messages[1].raw[5],
       }, spec.firstMessage)
     end
   end
@@ -58,10 +61,14 @@ function T.target_control_signatures_are_stable(romFs)
     end
   end
   local expected = {
-    ["substitution:0100"] = true, ["substitution:0101"] = true,
-    ["substitution:0103"] = true, ["unsupported_control:0200"] = true,
-    ["style:ff00"] = true, ["line_break:0000"] = true,
-    ["prompt_break:0000"] = true, ["page_break:0000"] = true,
+    ["substitution:0100"] = true,
+    ["substitution:0101"] = true,
+    ["substitution:0103"] = true,
+    ["unsupported_control:0200"] = true,
+    ["style:ff00"] = true,
+    ["line_break:0000"] = true,
+    ["prompt_break:0000"] = true,
+    ["page_break:0000"] = true,
   }
   for key in pairs(expected) do
     Assert.isTrue(signatures[key], "missing control signature " .. key)
@@ -83,12 +90,16 @@ function T.target_glyph_set_resolves_in_the_font(romFs)
     for _, message in ipairs(bank.messages) do
       local tokens = assert(FieldMessageTokenizer.tokenize(message.raw, charmap, {}))
       for _, token in ipairs(tokens) do
-        if token.kind == "glyph" then glyphs[token.code] = true end
+        if token.kind == "glyph" then
+          glyphs[token.code] = true
+        end
       end
     end
   end
   local glyphCount = 0
-  for _ in pairs(glyphs) do glyphCount = glyphCount + 1 end
+  for _ in pairs(glyphs) do
+    glyphCount = glyphCount + 1
+  end
   Assert.isTrue(glyphCount > 60)
   for code in pairs(glyphs) do
     Assert.notNil(charmap.glyphs[code], string.format("unmapped glyph 0x%04X", code))
@@ -124,7 +135,9 @@ function T.font_geometry_matches_the_rom_member(romFs)
   for y = 1, 16 do
     local count = 0
     for x = 1, 16 do
-      if glyph.values[y][x] ~= 0 then count = count + 1 end
+      if glyph.values[y][x] ~= 0 then
+        count = count + 1
+      end
     end
     inkRows[y] = count
   end
@@ -138,26 +151,26 @@ function T.artifact_text_round_trips_through_marker_parse(romFs, version)
   -- the compiled font charmap and rendering it back yields the same string.
   local messages = assert(romFs:openNarc("messages"))
   local fontDef = {
-    charmap = assert(CacheFs.forVersion(version):loadLua(
-      "data/generated/field/font/font-0.lua")).charmap,
+    charmap = assert(CacheFs.forVersion(version):loadLua("data/generated/field/font/font-0.lua")).charmap,
   }
   local samples = { [542] = { 0, 1, 4, 5 }, [543] = { 0, 5, 14, 18, 93, 97 } }
   for bankId, messageIds in pairs(samples) do
     local bank = assert(FieldMessageBank.decode(messages:readMember(bankId), {}))
     for _, messageId in ipairs(messageIds) do
-      local tokens = assert(FieldMessageTokenizer.tokenize(
-        bank.messages[messageId + 1].raw, charmap, {}))
+      local tokens = assert(FieldMessageTokenizer.tokenize(bank.messages[messageId + 1].raw, charmap, {}))
       local text = FieldMessageText.tokensToText(tokens)
       local reparsed = assert(FieldMessageText.parse(text, fontDef))
-      Assert.equal(FieldMessageText.tokensToText(reparsed), text,
-        string.format("bank %d message %d round trip", bankId, messageId))
+      Assert.equal(
+        FieldMessageText.tokensToText(reparsed),
+        text,
+        string.format("bank %d message %d round trip", bankId, messageId)
+      )
     end
   end
 end
 
 function T.font_palette_matches_the_rom_member(romFs)
-  local palette = assert(FieldFontDecoder.decodePalette(
-    assert(romFs:openNarc("font")):readMember(7)))
+  local palette = assert(FieldFontDecoder.decodePalette(assert(romFs:openNarc("font")):readMember(7)))
   Assert.equal(palette.colorCount, 16)
   Assert.equal(palette.depth, 3)
   -- Slot 1 = foreground ink, slot 2 = shadow, slot 15 = white background.
@@ -175,8 +188,7 @@ function T.compiled_cache_artifacts_are_ready_and_stable(romFs, version)
     return require("romdump.src.digest.Hashing").sha1hex(assert(romFs:read(info.fileId)))
   end
   local function memberSha(alias, memberId)
-    return require("romdump.src.digest.Hashing").sha1hex(
-      assert(assert(romFs:openNarc(alias)):readMember(memberId)))
+    return require("romdump.src.digest.Hashing").sha1hex(assert(assert(romFs:openNarc(alias)):readMember(memberId)))
   end
   -- Deterministic markers: compilers run with real hashes, so the marker
   -- depends only on ROM contents and the checked-in compiler versions.
@@ -186,8 +198,7 @@ function T.compiled_cache_artifacts_are_ready_and_stable(romFs, version)
   Assert.isTrue(FieldMessageCache.isReady(cache, messageBundle.marker))
   Assert.equal(FieldMessageCache.bankPath(542), "data/generated/field/messages/banks/0542.lua")
   local fontBundle = assert(FieldFontCompiler.compile(romFs))
-  Assert.isTrue(require("romdump.src.digest.FieldFontCacheWriter").isReady(
-    cache, 0, fontBundle.marker))
+  Assert.isTrue(require("romdump.src.digest.FieldFontCacheWriter").isReady(cache, 0, fontBundle.marker))
   Assert.equal(fontBundle.font.glyphCount, 509)
   Assert.equal(fontBundle.font.source.glyphMemberSha1, memberSha("font", 0))
   Assert.equal(fontBundle.dependencies.paletteMemberSha1, memberSha("font", 7))

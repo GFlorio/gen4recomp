@@ -16,9 +16,13 @@ local FIXTURE = {
   tree = {
     files = { { name = "root.bin", content = "ROOT" } },
     dirs = {
-      { name = "folder", files = { { name = "a.bin", content = "AAAA" } }, dirs = {
-        { name = "nested", files = { { name = "b.bin", content = "BB" } } },
-      } },
+      {
+        name = "folder",
+        files = { { name = "a.bin", content = "AAAA" } },
+        dirs = {
+          { name = "nested", files = { { name = "b.bin", content = "BB" } } },
+        },
+      },
     },
   },
 }
@@ -27,15 +31,21 @@ local FIXTURE = {
 local function matchingVersions(data, gameCode)
   local info = { sha1 = RomSource.fromString(data):sha1(), gameCode = gameCode, expectedSize = #data }
   return {
-    forSha1 = function(h) return h == info.sha1 and info or nil end,
-    forGameCode = function(c) return c == gameCode and info or nil end,
+    forSha1 = function(h)
+      return h == info.sha1 and info or nil
+    end,
+    forGameCode = function(c)
+      return c == gameCode and info or nil
+    end,
   }
 end
 
 -- FIXTURE with an injected corruption flag.
 local function corruptFixture(corrupt)
   local spec = {}
-  for k, v in pairs(FIXTURE) do spec[k] = v end
+  for k, v in pairs(FIXTURE) do
+    spec[k] = v
+  end
   spec.corrupt = corrupt
   return spec
 end
@@ -120,15 +130,20 @@ end
 
 function T.rejects_short_header()
   throwsOpenCode("NDS_TOO_SMALL", RomSource.fromString("short"), {
-    forSha1 = function() end, forGameCode = function() end,
+    forSha1 = function() end,
+    forGameCode = function() end,
   })
 end
 
 function T.rejects_unknown_sha1()
   local data = NdsBuilder.build(FIXTURE)
   local versions = {
-    forSha1 = function() return nil end,
-    forGameCode = function() return nil end,
+    forSha1 = function()
+      return nil
+    end,
+    forGameCode = function()
+      return nil
+    end,
   }
   throwsOpenCode("NDS_UNKNOWN_ROM", RomSource.fromString(data), versions)
 end

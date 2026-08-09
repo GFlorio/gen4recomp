@@ -26,7 +26,9 @@ end
 local function controller(pages, opts)
   opts = opts or {}
   return FieldDialogueController.new({
-    layout = function() return { pages = pages, warnings = opts.warnings or {} } end,
+    layout = function()
+      return { pages = pages, warnings = opts.warnings or {} }
+    end,
     ticksPerGlyph = opts.ticksPerGlyph or 2,
     cursorBlinkTicks = opts.cursorBlinkTicks or 30,
   })
@@ -117,7 +119,10 @@ function T.final_action_closes_and_completes_exactly_once()
   local completed = 0
   local result
   local handle = c:open(request("t", message()))
-  handle:onComplete(function(r) completed = completed + 1 result = r end)
+  handle:onComplete(function(r)
+    completed = completed + 1
+    result = r
+  end)
   c:step({})
   c:step({ actionPressed = true }) -- skip reveal
   Assert.equal(c:status().state, "WAITING_CLOSE")
@@ -184,7 +189,9 @@ function T.empty_message_closes_safely_on_open()
   local c = controller({})
   local completed = 0
   local handle = c:open(request("t", message()))
-  handle:onComplete(function() completed = completed + 1 end)
+  handle:onComplete(function()
+    completed = completed + 1
+  end)
   Assert.isTrue(c:isModal(), "modal ownership engages so the session drives close")
   c:step({})
   Assert.equal(completed, 1, "empty message completes on its first step")
@@ -217,7 +224,9 @@ function T.malformed_message_fires_error_once_and_stays_closed()
   local c2 = controller({ page({ line({ glyph("A", 1) }) }, "eos") })
   local done = false
   local h2 = c2:open(request("t2", message()))
-  h2:onComplete(function() done = true end)
+  h2:onComplete(function()
+    done = true
+  end)
   c2:step({})
   c2:step({ actionPressed = true })
   c2:step({ actionPressed = true })
@@ -235,7 +244,10 @@ function T.cancel_ignored_unless_allow_cancel()
   local cancelled = 0
   local result
   local handle = c2:open(request("t", message(), true))
-  handle:onCancel(function(r) cancelled = cancelled + 1 result = r end)
+  handle:onCancel(function(r)
+    cancelled = cancelled + 1
+    result = r
+  end)
   c2:step({ cancelPressed = true })
   Assert.equal(cancelled, 1)
   Assert.equal(result.kind, "cancel")
@@ -248,7 +260,9 @@ function T.close_is_idempotent_and_dispose_cancels()
   local c = controller({ page({ line({ glyph("A", 1) }) }, "eos") })
   local completed = 0
   local handle = c:open(request("t", message()))
-  handle:onComplete(function() completed = completed + 1 end)
+  handle:onComplete(function()
+    completed = completed + 1
+  end)
   local result = assert(c:close())
   Assert.equal(result.kind, "complete")
   Assert.equal(completed, 1)
@@ -258,7 +272,9 @@ function T.close_is_idempotent_and_dispose_cancels()
   local c2 = controller({ page({ line({ glyph("A", 1) }) }, "eos") })
   local cancelled = 0
   local h2 = c2:open(request("t", message()))
-  h2:onCancel(function() cancelled = cancelled + 1 end)
+  h2:onCancel(function()
+    cancelled = cancelled + 1
+  end)
   Assert.notNil(c2:dispose())
   Assert.equal(cancelled, 1)
   Assert.isNil(c2:dispose(), "second dispose is a no-op")
@@ -274,7 +290,9 @@ function T.callback_can_queue_a_next_dialogue_but_not_step_it()
   local handle = c:open(request("first", message()))
   handle:onComplete(function()
     local h2 = c:open(request("second", message()))
-    h2:onComplete(function() second = true end)
+    h2:onComplete(function()
+      second = true
+    end)
     Assert.equal(c:status().state, "OPENING")
   end)
   c:step({})
@@ -291,8 +309,7 @@ function T.callback_can_queue_a_next_dialogue_but_not_step_it()
 end
 
 function T.cursor_blink_is_deterministic()
-  local c = controller({ page({ line({ glyph("A", 1) }) }, "prompt") },
-    { cursorBlinkTicks = 3 })
+  local c = controller({ page({ line({ glyph("A", 1) }) }, "prompt") }, { cursorBlinkTicks = 3 })
   c:open(request("t", message()))
   c:step({}) -- open -> revealing
   c:step({}) -- reveal the glyph, wait begins
@@ -308,7 +325,9 @@ end
 function T.open_while_modal_raises()
   local c = controller({ page({ line({ glyph("A", 1) }) }, "eos") })
   c:open(request("t", message()))
-  local err = Assert.throws(function() c:open(request("t2", message())) end)
+  local err = Assert.throws(function()
+    c:open(request("t2", message()))
+  end)
   Assert.isTrue(Errors.is(err) and err.code == "DIALOGUE_ALREADY_OPEN", "raises DIALOGUE_ALREADY_OPEN")
   c:close()
   local h2 = c:open(request("t2", message()))

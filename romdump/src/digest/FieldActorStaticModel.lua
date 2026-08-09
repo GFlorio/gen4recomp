@@ -79,26 +79,37 @@ function FieldActorStaticModel.compile(modelBytes, context, texturePack, texture
   local file = assert(Nsbmd.decode(modelBytes, context))
   local pack = texturePack or file.embeddedTextures
   if #file.models ~= 1 or not pack then
-    fail("FIELD_ACTOR_STATIC_MODEL_SHAPE_UNSUPPORTED",
-      "static actor resource must contain one model and embedded textures", context)
+    fail(
+      "FIELD_ACTOR_STATIC_MODEL_SHAPE_UNSUPPORTED",
+      "static actor resource must contain one model and embedded textures",
+      context
+    )
   end
   local model = file.models[1]
   local batches = MeshCompiler.compile(model)
 
-  local compiled = MaterialCompiler.compile(model.materials, pack,
-    { context = { textureArchive = textureArchive or "embedded" } })
+  local compiled =
+    MaterialCompiler.compile(model.materials, pack, { context = { textureArchive = textureArchive or "embedded" } })
   if #compiled.unresolved > 0 then
-    fail("FIELD_ACTOR_STATIC_MODEL_TEXTURE_UNRESOLVED",
-      "static actor model " .. model.name .. " has an unresolved texture binding", context)
+    fail(
+      "FIELD_ACTOR_STATIC_MODEL_TEXTURE_UNRESOLVED",
+      "static actor model " .. model.name .. " has an unresolved texture binding",
+      context
+    )
   end
   local materialById = {}
-  for _, material in ipairs(compiled.materials) do materialById[material.id] = material end
+  for _, material in ipairs(compiled.materials) do
+    materialById[material.id] = material
+  end
   local textureOrder, textureByKey = {}, {}
   for _, batch in ipairs(batches) do
     local material = materialById[batch.materialIndex]
     if not material then
-      fail("FIELD_ACTOR_STATIC_MODEL_TEXTURE_UNRESOLVED",
-        "static actor model " .. model.name .. " has no material for a draw", context)
+      fail(
+        "FIELD_ACTOR_STATIC_MODEL_TEXTURE_UNRESOLVED",
+        "static actor model " .. model.name .. " has no material for a draw",
+        context
+      )
     end
     if material.texture and not textureByKey[material.texture] then
       local entry = { key = material.texture, texture = assert(compiled.textures[material.texture]) }
@@ -123,8 +134,11 @@ function FieldActorStaticModel.compile(modelBytes, context, texturePack, texture
       allVertices[#allVertices + 1] = vertex
     end
     local polygon = polygonRecord(batch.polygonAttrRaw)
-    local alphaClass = AlphaClassifier.classify(polygon.polygonAlpha,
-      material.textureFormat or 0, textureEntry and textureEntry.texture.alphaUsage or nil)
+    local alphaClass = AlphaClassifier.classify(
+      polygon.polygonAlpha,
+      material.textureFormat or 0,
+      textureEntry and textureEntry.texture.alphaUsage or nil
+    )
     local partBounds = bounds(batch.vertices)
     parts[#parts + 1] = {
       textured = textureEntry ~= nil,

@@ -8,13 +8,16 @@
 
 local FntWriter = {}
 
-local function u16(v) return string.char(v % 256, math.floor(v / 256) % 256) end
+local function u16(v)
+  return string.char(v % 256, math.floor(v / 256) % 256)
+end
 local function u32(v)
-  return string.char(v % 256, math.floor(v / 256) % 256,
-    math.floor(v / 65536) % 256, math.floor(v / 16777216) % 256)
+  return string.char(v % 256, math.floor(v / 256) % 256, math.floor(v / 65536) % 256, math.floor(v / 16777216) % 256)
 end
 
-local function nameOf(f) return type(f) == "table" and f.name or f end
+local function nameOf(f)
+  return type(f) == "table" and f.name or f
+end
 
 function FntWriter.encode(tree, baseFileId)
   baseFileId = baseFileId or 0

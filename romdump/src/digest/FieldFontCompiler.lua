@@ -22,15 +22,16 @@ FieldFontCompiler.DECODER_VERSION = "hgss-field-font-decoder-v2"
 local GLYPH_SIZE = 16
 
 local function must(value, err)
-  if value == nil then error(err) end
+  if value == nil then
+    error(err)
+  end
   return value
 end
 
 local function loadSource(romFs, sha1hex)
   local archiveInfo = romFs:resolvedNarc("font")
   if not archiveInfo then
-    Errors.raise("ROMFS_NARC_UNRESOLVED", "font NARC is unavailable",
-      { name = "font" })
+    Errors.raise("ROMFS_NARC_UNRESOLVED", "font NARC is unavailable", { name = "font" })
   end
   local archiveBytes = must(romFs:read(archiveInfo.fileId))
   local archive = must(romFs:openNarc("font"))
@@ -59,8 +60,7 @@ local function pixelToRgba(value, palette)
   if value == 0 or value == 3 then
     return 0, 0, 0, 0
   end
-  local index = value == 1 and FieldFontDecoder.FG_PALETTE_INDEX + 1
-    or FieldFontDecoder.SHADOW_PALETTE_INDEX + 1
+  local index = value == 1 and FieldFontDecoder.FG_PALETTE_INDEX + 1 or FieldFontDecoder.SHADOW_PALETTE_INDEX + 1
   local color = palette[index] or { r = 0, g = 0, b = 0 }
   return color.r, color.g, color.b, 255
 end
@@ -84,9 +84,11 @@ local function compileFont(romFs, source, sha1hex, hashLua)
     label = "field-font-palette",
   }))
   if palette.colorCount < 16 then
-    Errors.raise("FONT_FORMAT_INVALID",
+    Errors.raise(
+      "FONT_FORMAT_INVALID",
       "font palette has " .. palette.colorCount .. " colors, need at least 16",
-      { colorCount = palette.colorCount })
+      { colorCount = palette.colorCount }
+    )
   end
 
   local perRow = manifest.atlasGlyphsPerRow
@@ -95,7 +97,9 @@ local function compileFont(romFs, source, sha1hex, hashLua)
   local height = rows * GLYPH_SIZE
 
   local rgba = {}
-  for i = 1, width * height * 4 do rgba[i] = 0 end
+  for i = 1, width * height * 4 do
+    rgba[i] = 0
+  end
   for glyphIndex = 0, font.numGlyphs - 1 do
     local glyph = font.glyphPixels(glyphIndex)
     local baseX = (glyphIndex % perRow) * GLYPH_SIZE
@@ -148,15 +152,16 @@ local function compileFont(romFs, source, sha1hex, hashLua)
     local sequences = 0
     for i = 1, #text do
       local byte = text:byte(i)
-      if byte < 0x80 or byte >= 0xC0 then sequences = sequences + 1 end
+      if byte < 0x80 or byte >= 0xC0 then
+        sequences = sequences + 1
+      end
     end
     return sequences == 1
   end
   local textToCode = {}
   for code, text in pairs(charmap.glyphs) do
     if isSingleCharacter(text) then
-      assert(textToCode[text] == nil,
-        "charmap maps multiple codes to the single character " .. text)
+      assert(textToCode[text] == nil, "charmap maps multiple codes to the single character " .. text)
       textToCode[text] = code
     end
   end
@@ -225,8 +230,7 @@ end
 ---@param hashLua fun(value: any): string?
 ---@return FieldFontCompiler.Bundle
 local function _compile(romFs, sha1hex, hashLua)
-  assert(romFs and romFs.read and romFs.openNarc and romFs.resolvedNarc,
-    "compile requires a RomFs-shaped object")
+  assert(romFs and romFs.read and romFs.openNarc and romFs.resolvedNarc, "compile requires a RomFs-shaped object")
   sha1hex = sha1hex or Hashing.sha1hex
   hashLua = hashLua or Hashing.hashLua
   return compileFont(romFs, loadSource(romFs, sha1hex), sha1hex, hashLua)
@@ -239,8 +243,12 @@ end
 ---@return Errors.Error?
 function FieldFontCompiler.compile(romFs, sha1hex, hashLua)
   local ok, result = pcall(_compile, romFs, sha1hex, hashLua)
-  if ok then return result, nil end
-  if Errors.is(result) then return nil, result --[[@as Errors.Error]] end
+  if ok then
+    return result, nil
+  end
+  if Errors.is(result) then
+    return nil, result --[[@as Errors.Error]]
+  end
   error(result)
 end
 

@@ -47,8 +47,12 @@ local MEANINGFUL_POLYATTR = 0x3F1FF8FF
 -- texImageParam wrap S/T (16-17) and flip S/T (18-19), read for material wrap.
 local MEANINGFUL_TEXPARAM = 0x000F0000
 
-local function bit(word, i) return math.floor(word / 2 ^ i) % 2 == 1 end
-local function rgb555(word) return word % 0x8000 end
+local function bit(word, i)
+  return math.floor(word / 2 ^ i) % 2 == 1
+end
+local function rgb555(word)
+  return word % 0x8000
+end
 
 -- DIF_AMB (GX 0x30): diffuse 0-14, set-vertex-color bit 15, ambient 16-30.
 function DsMaterial.unpackDiffAmb(word)
@@ -97,7 +101,9 @@ local function merge(globalWord, materialWord, mask)
   local out = 0
   for i = 0, 31 do
     local source = bit(mask, i) and materialWord or globalWord
-    if bit(source, i) then out = out + 2 ^ i end
+    if bit(source, i) then
+      out = out + 2 ^ i
+    end
   end
   return out
 end
@@ -105,7 +111,9 @@ end
 -- True iff `mask` sets every bit in `required` (material owns all those fields).
 local function owns(mask, required)
   for i = 0, 31 do
-    if bit(required, i) and not bit(mask, i) then return false end
+    if bit(required, i) and not bit(mask, i) then
+      return false
+    end
   end
   return true
 end
@@ -120,12 +128,14 @@ function DsMaterial.resolve(rawMaterial, globalState, policy)
   assert(type(policy) == "table", "resolve requires an ownership policy")
   -- Every field DsPolygonAttr reads, and the wrap/flip bits, must be material-
   -- owned so the (unverified) field globals cannot surface in the decoded state.
-  assert(owns(rawMaterial.polyAttrMask, MEANINGFUL_POLYATTR),
-    "material " .. tostring(rawMaterial.name)
-      .. " leaves meaningful polyAttr bits to the field global (unverified)")
-  assert(owns(rawMaterial.texImageParamMask, MEANINGFUL_TEXPARAM),
-    "material " .. tostring(rawMaterial.name)
-      .. " leaves wrap/flip bits to the field global (unverified)")
+  assert(
+    owns(rawMaterial.polyAttrMask, MEANINGFUL_POLYATTR),
+    "material " .. tostring(rawMaterial.name) .. " leaves meaningful polyAttr bits to the field global (unverified)"
+  )
+  assert(
+    owns(rawMaterial.texImageParamMask, MEANINGFUL_TEXPARAM),
+    "material " .. tostring(rawMaterial.name) .. " leaves wrap/flip bits to the field global (unverified)"
+  )
 
   local function channel(owned, rgb555Value)
     return { source = owned and "material" or "field", rgb555 = rgb555Value }

@@ -88,7 +88,10 @@ function T.format_substitutes_before_wrapping_and_never_mutates()
   local context = { playerName = "GOLD" }
   local fontDef = {
     charmap = {
-      ["G"] = 0x0131, ["O"] = 0x013B, ["L"] = 0x0138, ["D"] = 0x012E,
+      ["G"] = 0x0131,
+      ["O"] = 0x013B,
+      ["L"] = 0x0138,
+      ["D"] = 0x012E,
     },
   }
   local resolvers = {
@@ -136,8 +139,7 @@ end
 function T.ascii_glyph_tokens_cover_the_demo_name()
   -- The text->code mapping comes from the generated font definition's
   -- charmap metadata, never from a runtime reference import.
-  local fontDef = { charmap = { ["G"] = 0x0131, ["O"] = 0x013B, ["L"] = 0x0138,
-    ["D"] = 0x012E, ["é"] = 0x0188 } }
+  local fontDef = { charmap = { ["G"] = 0x0131, ["O"] = 0x013B, ["L"] = 0x0138, ["D"] = 0x012E, ["é"] = 0x0188 } }
   local tokens = assert(FieldMessageProvider.asciiGlyphTokens("GOLD", fontDef))
   Assert.equal(#tokens, 4)
   Assert.equal(tokens[1].code, 0x0131) -- 'G'
@@ -151,7 +153,9 @@ end
 
 function T.bounded_lru_evicts_only_unreferenced_banks()
   local cache = cacheWith({
-    [542] = bankArtifact(542, 1), [543] = bankArtifact(543, 1), [544] = bankArtifact(544, 1),
+    [542] = bankArtifact(542, 1),
+    [543] = bankArtifact(543, 1),
+    [544] = bankArtifact(544, 1),
   })
   local provider = assert(FieldMessageProvider.new(cache, { maxCachedBanks = 2 }))
   provider:acquireBank(542)

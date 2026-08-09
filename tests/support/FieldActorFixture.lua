@@ -6,7 +6,9 @@
 
 local FieldActorFixture = {}
 
-local function u8(v) return string.char(v % 256) end
+local function u8(v)
+  return string.char(v % 256)
+end
 
 local function u16(v)
   v = v % 65536
@@ -74,8 +76,11 @@ function FieldActorFixture.timeline(entries, opts)
     palettes[#palettes + 1] = u8(e.paletteSlot or 0)
   end
   local count = opts.declaredCount or #entries
-  return u32(count) .. table.concat(thresholds) .. table.concat(textures)
-    .. table.concat(palettes) .. (opts.trailer or "")
+  return u32(count)
+    .. table.concat(thresholds)
+    .. table.concat(textures)
+    .. table.concat(palettes)
+    .. (opts.trailer or "")
 end
 
 -- Place named byte blocks at explicit runtime addresses inside one overlay
@@ -89,10 +94,14 @@ function FieldActorFixture.overlay(ramAddress, blocks, opts)
   end
   local size = opts.size or highest
   local image = {}
-  for i = 1, size do image[i] = "\0" end
+  for i = 1, size do
+    image[i] = "\0"
+  end
   for _, b in ipairs(blocks) do
     local offset = b.address - ramAddress
-    for i = 1, #b.bytes do image[offset + i] = b.bytes:sub(i, i) end
+    for i = 1, #b.bytes do
+      image[offset + i] = b.bytes:sub(i, i)
+    end
   end
   return table.concat(image)
 end
@@ -110,23 +119,37 @@ function FieldActorFixture.sampleOverlay(opts)
     timelineKeys = 0x020002C0,
     graphics = 0x02000300,
   }
-  local records = opts.records or {
-    { spriteId = 0, mapModelId = 69, packed = 0x0000 },
-    { spriteId = 29, mapModelId = 25, packed = 0x0000 },
-    { spriteId = 1032, mapModelId = 483, packed = 0x0000 },
-  }
+  local records = opts.records
+    or {
+      { spriteId = 0, mapModelId = 69, packed = 0x0000 },
+      { spriteId = 29, mapModelId = 25, packed = 0x0000 },
+      { spriteId = 1032, mapModelId = 483, packed = 0x0000 },
+    }
   local bytes = FieldActorFixture.overlay(RAM, {
-    { address = A.ranges, bytes = FieldActorFixture.rangeTable(opts.ranges or {
-      { startFrame = 0, endFrame = 15 }, { startFrame = 16, endFrame = 31 },
-      { startFrame = 32, endFrame = 47 }, { startFrame = 48, endFrame = 63 },
-    }) },
+    {
+      address = A.ranges,
+      bytes = FieldActorFixture.rangeTable(opts.ranges or {
+        { startFrame = 0, endFrame = 15 },
+        { startFrame = 16, endFrame = 31 },
+        { startFrame = 32, endFrame = 47 },
+        { startFrame = 48, endFrame = 63 },
+      }),
+    },
     { address = A.graphics, bytes = FieldActorFixture.graphicsTable(records, opts) },
-    { address = A.descriptors, bytes = FieldActorFixture.descriptorTable(
-      opts.descriptors or { { modelKey = 3, timelineKey = 4, rangesAddress = A.ranges } }) },
-    { address = A.modelKeys, bytes = FieldActorFixture.keyTable(
-      opts.modelKeys or { { key = 3, memberId = 266 } }) },
-    { address = A.timelineKeys, bytes = FieldActorFixture.keyTable(
-      opts.timelineKeys or { { key = 4, memberId = 280 } }) },
+    {
+      address = A.descriptors,
+      bytes = FieldActorFixture.descriptorTable(
+        opts.descriptors or { { modelKey = 3, timelineKey = 4, rangesAddress = A.ranges } }
+      ),
+    },
+    {
+      address = A.modelKeys,
+      bytes = FieldActorFixture.keyTable(opts.modelKeys or { { key = 3, memberId = 266 } }),
+    },
+    {
+      address = A.timelineKeys,
+      bytes = FieldActorFixture.keyTable(opts.timelineKeys or { { key = 4, memberId = 280 } }),
+    },
   })
   local manifest = {
     tables = {
@@ -161,7 +184,8 @@ function FieldActorFixture.visual(spriteId, opts)
     if not opts.omitWalk then
       set.walk = {
         frames = { { frameIndex = index, ticks = 2 }, { frameIndex = 5, ticks = 3 } },
-        loop = true, durationTicks = 5,
+        loop = true,
+        durationTicks = 5,
         sourceRange = { startFrame = 0, endFrame = 15, endMode = 0 },
       }
     end
@@ -169,8 +193,21 @@ function FieldActorFixture.visual(spriteId, opts)
   end
 
   local function vertex(x, y, u, v)
-    return { x = x, y = y, z = 0, u = u, v = v, nx = 0, ny = 0, nz = 1,
-      r = 0, g = 0, b = 0, a = 255, colorSource = 1 }
+    return {
+      x = x,
+      y = y,
+      z = 0,
+      u = u,
+      v = v,
+      nx = 0,
+      ny = 0,
+      nz = 1,
+      r = 0,
+      g = 0,
+      b = 0,
+      a = 255,
+      colorSource = 1,
+    }
   end
 
   return {
@@ -182,21 +219,34 @@ function FieldActorFixture.visual(spriteId, opts)
     render = {
       kind = "atlas",
       image = string.format("assets/generated/field/actors/%04d.png", spriteId),
-      frameWidth = 32, frameHeight = 32, frameCount = frameCount,
-      billboardMode = "cameraFacingFull", mirrorEastWest = false,
+      frameWidth = 32,
+      frameHeight = 32,
+      frameCount = frameCount,
+      billboardMode = "cameraFacingFull",
+      mirrorEastWest = false,
       textureFormat = 3,
       alphaUsage = { hasZero = true, hasPartial = false, hasOpaque = true },
       alphaClass = "cutout",
       polygon = {
-        polygonAttrRaw = 0x001F8081, polygonAlpha = 31, polygonMode = "modulation",
-        polygonId = 0, lightMask = 1, cullMode = "back",
-        translucentDepthWrite = false, depthEqual = false,
-        farClipEnabled = false, oneDotEnabled = false, fogEnabled = true,
+        polygonAttrRaw = 0x001F8081,
+        polygonAlpha = 31,
+        polygonMode = "modulation",
+        polygonId = 0,
+        lightMask = 1,
+        cullMode = "back",
+        translucentDepthWrite = false,
+        depthEqual = false,
+        farClipEnabled = false,
+        oneDotEnabled = false,
+        fogEnabled = true,
       },
       geometry = {
         modelName = "mmdl_m32x32",
         vertices = {
-          vertex(-1, 0, 0, 1), vertex(1, 0, 1, 1), vertex(1, 2, 1, 0), vertex(-1, 2, 0, 0),
+          vertex(-1, 0, 0, 1),
+          vertex(1, 0, 1, 1),
+          vertex(1, 2, 1, 0),
+          vertex(-1, 2, 0, 0),
         },
         indices = { 0, 1, 2, 0, 2, 3 },
         baseTransform = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 },

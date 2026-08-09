@@ -25,15 +25,17 @@ local DEFAULT_MAX_LINES = 2
 ---@return DialogueLayout.Result
 function DialogueLayout.layout(tokens, metrics, opts)
   assert(type(tokens) == "table", "layout requires a token stream")
-  assert(type(metrics) == "table" and type(metrics.glyphWidth) == "function",
-    "layout requires a metrics object with glyphWidth(code)")
+  assert(
+    type(metrics) == "table" and type(metrics.glyphWidth) == "function",
+    "layout requires a metrics object with glyphWidth(code)"
+  )
   opts = opts or {}
   local width = assert(opts.width, "layout requires opts.width")
   local maxLines = opts.maxLines or DEFAULT_MAX_LINES
   assert(width > 0 and maxLines > 0, "layout width and maxLines must be positive")
 
   local pages = {}
-  local lines = {}   -- array of { tokens = {}, width = 0 }
+  local lines = {} -- array of { tokens = {}, width = 0 }
   local warnings = {}
 
   local function currentLine()
@@ -42,7 +44,9 @@ function DialogueLayout.layout(tokens, metrics, opts)
 
   local function hasContent()
     for _, line in ipairs(lines) do
-      if #line.tokens > 0 then return true end
+      if #line.tokens > 0 then
+        return true
+      end
     end
     return false
   end
@@ -70,7 +74,9 @@ function DialogueLayout.layout(tokens, metrics, opts)
   -- Width contribution of a non-glyph token: measured marker width when the
   -- metrics object provides it, otherwise zero.
   local function extraWidth(token)
-    if not metrics.nonGlyphWidth then return 0 end
+    if not metrics.nonGlyphWidth then
+      return 0
+    end
     local measured = metrics.nonGlyphWidth(token)
     return type(measured) == "number" and measured or 0
   end
@@ -102,9 +108,11 @@ function DialogueLayout.layout(tokens, metrics, opts)
     if token.kind == "glyph" then
       local advance = metrics.glyphWidth(token.code)
       if advance == nil then
-        Errors.raise("FONT_GLYPH_MISSING",
+        Errors.raise(
+          "FONT_GLYPH_MISSING",
           "no advance for glyph code " .. string.format("0x%04X", token.code),
-          { code = token.code })
+          { code = token.code }
+        )
       end
       local line = currentLine()
       -- A space at a wrap point or at the start of a fresh line carries no
@@ -130,7 +138,9 @@ function DialogueLayout.layout(tokens, metrics, opts)
             -- the space (markers) carry to the new line instead of vanishing.
             local kept = {}
             local carried = {}
-            for i = 1, breakIndex - 1 do kept[#kept + 1] = line.tokens[i] end
+            for i = 1, breakIndex - 1 do
+              kept[#kept + 1] = line.tokens[i]
+            end
             for i = breakIndex + 1, #line.tokens do
               carried[#carried + 1] = line.tokens[i]
             end

@@ -27,16 +27,22 @@ end
 ---@return FieldInput
 function FieldInput.new()
   return setmetatable({
-    held = {}, order = {}, nextOrder = 0,
-    actionDown = false, actionPressed = false,
-    cancelDown = false, cancelPressed = false,
+    held = {},
+    order = {},
+    nextOrder = 0,
+    actionDown = false,
+    actionPressed = false,
+    cancelDown = false,
+    cancelPressed = false,
   }, FieldInput)
 end
 
 ---@param direction string
 function FieldInput:press(direction)
   requireDirection(direction)
-  if self.held[direction] then return end
+  if self.held[direction] then
+    return
+  end
   self.nextOrder = self.nextOrder + 1
   self.held[direction] = true
   self.order[direction] = self.nextOrder
@@ -95,9 +101,15 @@ function FieldInput:snapshot()
     actionDown = self.actionDown,
     cancelDown = self.cancelDown,
   }
-  if self.pressedDirection then snapshot.pressedDirection = self.pressedDirection end
-  if self.actionPressed then snapshot.actionPressed = true end
-  if self.cancelPressed then snapshot.cancelPressed = true end
+  if self.pressedDirection then
+    snapshot.pressedDirection = self.pressedDirection
+  end
+  if self.actionPressed then
+    snapshot.actionPressed = true
+  end
+  if self.cancelPressed then
+    snapshot.cancelPressed = true
+  end
   self.pressedDirection = nil
   self.actionPressed = nil
   self.cancelPressed = nil

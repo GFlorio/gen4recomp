@@ -41,12 +41,16 @@ function FieldActorAssetProvider.new(cacheFs, opts)
   opts = opts or {}
   local index = FieldActorCache.loadIndex(cacheFs)
   if type(index) ~= "table" or index.schema ~= FieldActorCache.INDEX_SCHEMA then
-    Errors.raise("FIELD_ACTOR_INDEX_UNAVAILABLE",
+    Errors.raise(
+      "FIELD_ACTOR_INDEX_UNAVAILABLE",
       "no compiled field-actor index at " .. FieldActorCache.indexPath(),
-      { path = FieldActorCache.indexPath() })
+      { path = FieldActorCache.indexPath() }
+    )
   end
   local known = {}
-  for _, spriteId in ipairs(index.spriteIds) do known[spriteId] = true end
+  for _, spriteId in ipairs(index.spriteIds) do
+    known[spriteId] = true
+  end
 
   return setmetatable({
     _cacheFs = cacheFs,
@@ -60,22 +64,33 @@ function FieldActorAssetProvider.new(cacheFs, opts)
   }, FieldActorAssetProvider)
 end
 
-function FieldActorAssetProvider:index() return self._index end
+function FieldActorAssetProvider:index()
+  return self._index
+end
 
-function FieldActorAssetProvider:knows(spriteId) return self._known[spriteId] == true end
+function FieldActorAssetProvider:knows(spriteId)
+  return self._known[spriteId] == true
+end
 
 -- The resident entry for a referenced sprite, without touching its reference
 -- count: the draw path reads what the actor set already acquired.
-function FieldActorAssetProvider:resident(spriteId) return self._entries[spriteId] end
+function FieldActorAssetProvider:resident(spriteId)
+  return self._entries[spriteId]
+end
 
 local function removeIdle(self, spriteId)
   for i, id in ipairs(self._idle) do
-    if id == spriteId then table.remove(self._idle, i) return end
+    if id == spriteId then
+      table.remove(self._idle, i)
+      return
+    end
   end
 end
 
 local function disposeEntry(self, entry)
-  if entry.image and entry.image.release then entry.image:release() end
+  if entry.image and entry.image.release then
+    entry.image:release()
+  end
   FieldActorMesh.release(entry.meshes)
   entry.image, entry.meshes = nil, nil
   self._entries[entry.spriteId] = nil
@@ -86,11 +101,19 @@ end
 -- pose lookup is an index, never a rectangle computation at draw time.
 local function buildQuads(self, visual, imageWidth, imageHeight)
   local newQuad = self._graphics and self._graphics.newQuad
-  if not newQuad then return nil end
+  if not newQuad then
+    return nil
+  end
   local quads = {}
   for i = 1, visual.render.frameCount do
-    quads[i] = newQuad((i - 1) * visual.render.frameWidth, 0,
-      visual.render.frameWidth, visual.render.frameHeight, imageWidth, imageHeight)
+    quads[i] = newQuad(
+      (i - 1) * visual.render.frameWidth,
+      0,
+      visual.render.frameWidth,
+      visual.render.frameHeight,
+      imageWidth,
+      imageHeight
+    )
   end
   return quads
 end
@@ -98,21 +121,24 @@ end
 local function load(self, spriteId)
   local visual = self._cacheFs:loadLua(FieldActorCache.visualPath(spriteId))
   if type(visual) ~= "table" or visual.schema ~= FieldActorCache.SCHEMA then
-    Errors.raise("FIELD_ACTOR_VISUAL_UNAVAILABLE",
+    Errors.raise(
+      "FIELD_ACTOR_VISUAL_UNAVAILABLE",
       "no " .. FieldActorCache.SCHEMA .. " definition for spriteId " .. spriteId,
-      { spriteId = spriteId, path = FieldActorCache.visualPath(spriteId) })
+      { spriteId = spriteId, path = FieldActorCache.visualPath(spriteId) }
+    )
   end
 
   local entry = { spriteId = spriteId, visual = visual, references = 0 }
   if self._graphics then
     local data = self._cacheFs:read(visual.render.image)
     if not data then
-      Errors.raise("FIELD_ACTOR_ATLAS_MISSING",
+      Errors.raise(
+        "FIELD_ACTOR_ATLAS_MISSING",
         "atlas missing for spriteId " .. spriteId .. ": " .. visual.render.image,
-        { spriteId = spriteId, path = visual.render.image })
+        { spriteId = spriteId, path = visual.render.image }
+      )
     end
-    entry.image = self._graphics.newImage(
-      love.filesystem.newFileData(data, visual.render.image))
+    entry.image = self._graphics.newImage(love.filesystem.newFileData(data, visual.render.image))
     -- DS textures are point-sampled; anything else fringes the cutout edges.
     entry.image:setFilter("nearest", "nearest")
     entry.quads = buildQuads(self, visual, entry.image:getWidth(), entry.image:getHeight())
@@ -127,14 +153,18 @@ end
 -- Acquire a shared visual. Every acquire must be matched by exactly one release.
 function FieldActorAssetProvider:acquire(spriteId)
   if not self._known[spriteId] then
-    Errors.raise("FIELD_ACTOR_SPRITE_NOT_COMPILED",
+    Errors.raise(
+      "FIELD_ACTOR_SPRITE_NOT_COMPILED",
       "spriteId " .. tostring(spriteId) .. " is not in the compiled actor set",
-      { spriteId = spriteId })
+      { spriteId = spriteId }
+    )
   end
   local entry = self._entries[spriteId]
   if entry then
     self._stats.hits = self._stats.hits + 1
-    if entry.references == 0 then removeIdle(self, spriteId) end
+    if entry.references == 0 then
+      removeIdle(self, spriteId)
+    end
   else
     entry = load(self, spriteId)
     self._entries[spriteId] = entry
@@ -146,17 +176,23 @@ end
 function FieldActorAssetProvider:release(spriteId)
   local entry = self._entries[spriteId]
   if not entry then
-    Errors.raise("FIELD_ACTOR_RELEASE_UNKNOWN",
+    Errors.raise(
+      "FIELD_ACTOR_RELEASE_UNKNOWN",
       "released spriteId " .. tostring(spriteId) .. ", which is not resident",
-      { spriteId = spriteId })
+      { spriteId = spriteId }
+    )
   end
   if entry.references == 0 then
-    Errors.raise("FIELD_ACTOR_RELEASE_UNBALANCED",
+    Errors.raise(
+      "FIELD_ACTOR_RELEASE_UNBALANCED",
       "released spriteId " .. spriteId .. " more times than it was acquired",
-      { spriteId = spriteId })
+      { spriteId = spriteId }
+    )
   end
   entry.references = entry.references - 1
-  if entry.references > 0 then return end
+  if entry.references > 0 then
+    return
+  end
 
   self._idle[#self._idle + 1] = spriteId
   while #self._idle > self._idleLimit do
@@ -185,7 +221,9 @@ end
 
 function FieldActorAssetProvider:dispose()
   for _, entry in pairs(self._entries) do
-    if entry.image and entry.image.release then entry.image:release() end
+    if entry.image and entry.image.release then
+      entry.image:release()
+    end
     FieldActorMesh.release(entry.meshes)
     self._stats.disposals = self._stats.disposals + 1
   end

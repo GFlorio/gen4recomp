@@ -18,14 +18,15 @@ local NONE = 0xFFFFFFFF
 -- when the model has no animations).
 function BuildModelAnimList.decode(bytes)
   assert(type(bytes) == "string", "BuildModelAnimList.decode requires a string")
-  assert(#bytes == RECORD_SIZE,
-    "build-model anim-list record must be " .. RECORD_SIZE .. " bytes, got " .. #bytes)
+  assert(#bytes == RECORD_SIZE, "build-model anim-list record must be " .. RECORD_SIZE .. " bytes, got " .. #bytes)
   local r = BinaryReader.new(bytes, "build-model-anim-list")
 
   local ids = {}
   for offset = ID_BASE, RECORD_SIZE - 4, 4 do
     local id = r:u32le(offset)
-    if id == NONE then break end
+    if id == NONE then
+      break
+    end
     ids[#ids + 1] = id
   end
   return { ids = ids }

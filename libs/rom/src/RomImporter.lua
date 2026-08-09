@@ -37,13 +37,17 @@ local REQUIRED_FILES = {
 -- tests; production callers (RomFs, boot flow) use the default GameVersion.
 function RomImporter.isReady(versionId, cache, versions)
   local info = (versions or GameVersion).info(versionId)
-  if not info then return false end
+  if not info then
+    return false
+  end
   cache = cache or CacheFs.forVersion(versionId)
   if cache:read("rom-dump.complete") ~= RomExtractor.markerContent(versionId, info.sha1) then
     return false
   end
   for _, path in ipairs(REQUIRED_FILES) do
-    if not cache:exists(path, "file") then return false end
+    if not cache:exists(path, "file") then
+      return false
+    end
   end
   return true
 end
@@ -52,7 +56,9 @@ end
 local YIELD_INTERVAL = 0.008
 
 local function defaultNow()
-  if love and love.timer then return love.timer.getTime() end
+  if love and love.timer then
+    return love.timer.getTime()
+  end
   return 0
 end
 
@@ -65,7 +71,9 @@ function RomImporter.new(opts)
     _onComplete = opts.onComplete,
     _versions = opts.versions or GameVersion,
     _manifest = opts.manifest or Hgss,
-    _cacheFactory = opts.cacheFactory or function(id) return CacheFs.forVersion(id) end,
+    _cacheFactory = opts.cacheFactory or function(id)
+      return CacheFs.forVersion(id)
+    end,
     _now = opts.now or defaultNow,
     state = "idle",
     progress = 0,
@@ -97,7 +105,9 @@ function RomImporter:_setState(state)
 end
 
 function RomImporter:_fail(err)
-  if self._source then self._source:release() end
+  if self._source then
+    self._source:release()
+  end
   self._source, self._co = nil, nil
   self._error = err
   self._errorCode = Errors.is(err) and err.code or nil
@@ -134,7 +144,9 @@ function RomImporter:_beginWork()
   self._co = coroutine.create(function()
     self:_setState("verifying")
     local rom, err = NdsRom.open(source, self._versions)
-    if not rom then return self:_fail(err) end
+    if not rom then
+      return self:_fail(err)
+    end
 
     local info = rom:versionInfo()
     self._versionId = info.id
@@ -143,11 +155,14 @@ function RomImporter:_beginWork()
 
     self:_setState("extracting")
     self._lastYield = self._now()
-    local extractor = RomExtractor.new(rom, info, cache, self._manifest,
-      function(p) self:_onProgress(p) end)
+    local extractor = RomExtractor.new(rom, info, cache, self._manifest, function(p)
+      self:_onProgress(p)
+    end)
     local report, exErr = extractor:run()
     rom:release()
-    if not report then return self:_fail(exErr) end
+    if not report then
+      return self:_fail(exErr)
+    end
     return self:_complete(report)
   end)
 end
@@ -169,14 +184,18 @@ end
 function RomImporter:startPath(path)
   self.state = "reading"
   local source, err = RomSource.fromPath(path)
-  if not source then return self:_fail(err) end
+  if not source then
+    return self:_fail(err)
+  end
   self:startSource(source)
 end
 
 function RomImporter:startDroppedFile(droppedFile)
   self.state = "reading"
   local source, err = RomSource.fromDroppedFile(droppedFile)
-  if not source then return self:_fail(err) end
+  if not source then
+    return self:_fail(err)
+  end
   self:startSource(source)
 end
 
@@ -185,8 +204,7 @@ end
 function RomImporter:filedropped(droppedFile)
   local name = droppedFile:getFilename() or ""
   if not name:lower():match("%.nds$") and not name:lower():match("%.zip$") then
-    return self:_fail(Errors.new("IMPORT_NOT_NDS",
-      "dropped file is not a .nds or .zip ROM: " .. name, { name = name }))
+    return self:_fail(Errors.new("IMPORT_NOT_NDS", "dropped file is not a .nds or .zip ROM: " .. name, { name = name }))
   end
   self:startDroppedFile(droppedFile)
 end
@@ -197,11 +215,15 @@ function RomImporter:update()
   local co = self._co
   if co and coroutine.status(co) ~= "dead" then
     local ok, err = coroutine.resume(co)
-    if not ok and self.state ~= "error" then self:_fail(err) end
+    if not ok and self.state ~= "error" then
+      self:_fail(err)
+    end
   end
   if self.state == "complete" and not self._completeFired then
     self._completeFired = true
-    if self._onComplete then self._onComplete(self._versionId, self._report) end
+    if self._onComplete then
+      self._onComplete(self._versionId, self._report)
+    end
   end
 end
 

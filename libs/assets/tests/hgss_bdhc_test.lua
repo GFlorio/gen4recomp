@@ -7,8 +7,10 @@ local HgssBdhc = require("libs.assets.src.HgssBdhc")
 local T = {}
 
 local function near(actual, expected, epsilon)
-  Assert.isTrue(math.abs(actual - expected) <= (epsilon or 1e-6),
-    string.format("expected %.9f, got %.9f", expected, actual))
+  Assert.isTrue(
+    math.abs(actual - expected) <= (epsilon or 1e-6),
+    string.format("expected %.9f, got %.9f", expected, actual)
+  )
 end
 
 local function decodeError(bytes)
@@ -29,10 +31,22 @@ function T.decodes_all_arrays_and_normalizes_a_flat_plate()
 
   Assert.equal(terrain.schema, "hgss-bdhc-v1")
   Assert.deepEqual(terrain.counts, {
-    points = 2, slopes = 1, heights = 1, plates = 1, strips = 1, accessEntries = 1,
+    points = 2,
+    slopes = 1,
+    heights = 1,
+    plates = 1,
+    strips = 1,
+    accessEntries = 1,
   })
-  Assert.deepEqual(terrain.points[1], { id = 0, raw0 = 7, x = -4, raw4 = 9, z = -3,
-    localEdgeX = 12, localEdgeZ = 13 })
+  Assert.deepEqual(terrain.points[1], {
+    id = 0,
+    raw0 = 7,
+    x = -4,
+    raw4 = 9,
+    z = -3,
+    localEdgeX = 12,
+    localEdgeZ = 13,
+  })
   Assert.equal(terrain.slopes[1].nxRaw, 0)
   Assert.equal(terrain.slopes[1].nyRaw, 4096)
   Assert.equal(terrain.slopes[1].nzRaw, 0)

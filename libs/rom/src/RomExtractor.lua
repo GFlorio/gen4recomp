@@ -28,19 +28,24 @@ end
 -- Ordered stages with the [start, finish) fraction each occupies of the overall
 -- progress bar. Monotonic by construction.
 local STAGES = {
-  { key = "prepare",               label = "Preparing cache",       from = 0.00, to = 0.02 },
-  { key = "write_system_metadata", label = "Writing system data",   from = 0.02, to = 0.10 },
-  { key = "dump_files",            label = "Dumping NitroFS",       from = 0.10, to = 0.80 },
-  { key = "write_indexes",         label = "Writing indexes",       from = 0.80, to = 0.88 },
-  { key = "validate_narcs",        label = "Validating NARCs",      from = 0.88, to = 0.94 },
-  { key = "smoke_decode",          label = "Decoding map matrix",   from = 0.94, to = 0.97 },
-  { key = "finalize",              label = "Finalizing",            from = 0.97, to = 1.00 },
+  { key = "prepare", label = "Preparing cache", from = 0.00, to = 0.02 },
+  { key = "write_system_metadata", label = "Writing system data", from = 0.02, to = 0.10 },
+  { key = "dump_files", label = "Dumping NitroFS", from = 0.10, to = 0.80 },
+  { key = "write_indexes", label = "Writing indexes", from = 0.80, to = 0.88 },
+  { key = "validate_narcs", label = "Validating NARCs", from = 0.88, to = 0.94 },
+  { key = "smoke_decode", label = "Decoding map matrix", from = 0.94, to = 0.97 },
+  { key = "finalize", label = "Finalizing", from = 0.97, to = 1.00 },
 }
 local STAGE_BY_KEY = {}
-for _, s in ipairs(STAGES) do STAGE_BY_KEY[s.key] = s end
+for _, s in ipairs(STAGES) do
+  STAGE_BY_KEY[s.key] = s
+end
 
 function RomExtractor.new(ndsRom, versionInfo, cache, manifest, progressCallback)
-  assert(ndsRom and versionInfo and cache and manifest, "RomExtractor.new requires ndsRom, versionInfo, cache, manifest")
+  assert(
+    ndsRom and versionInfo and cache and manifest,
+    "RomExtractor.new requires ndsRom, versionInfo, cache, manifest"
+  )
   return setmetatable({
     _rom = ndsRom,
     _version = versionInfo,
@@ -51,7 +56,9 @@ function RomExtractor.new(ndsRom, versionInfo, cache, manifest, progressCallback
 end
 
 function RomExtractor:_emit(stageKey, current, total, detail)
-  if not self._progress then return end
+  if not self._progress then
+    return
+  end
   local s = STAGE_BY_KEY[stageKey]
   local frac = total > 0 and (current / total) or 1
   self._progress({
@@ -78,8 +85,12 @@ function RomExtractor:_prepare()
   self._cache:remove(MARKER_PATH)
   self._cache:removeTree("")
   for _, dir in ipairs({
-    "data/generated", "romfs", "system",
-    "system/overlay9", "system/overlay7", "system/unmapped",
+    "data/generated",
+    "romfs",
+    "system",
+    "system/overlay9",
+    "system/overlay7",
+    "system/unmapped",
   }) do
     self._cache:createDirectory(dir)
   end
@@ -92,10 +103,14 @@ function RomExtractor:_writeSystemMetadata()
   self._cache:write("system/header.bin", readRom(rom, 0, 0x200, "header"))
   self._cache:write("system/fnt.bin", readRom(rom, h.fnt.offset, h.fnt.size, "fnt"))
   self._cache:write("system/fat.bin", readRom(rom, h.fat.offset, h.fat.size, "fat"))
-  self._cache:write("system/arm9_overlay_table.bin",
-    readRom(rom, h.arm9Overlays.offset, h.arm9Overlays.size, "arm9_overlay_table"))
-  self._cache:write("system/arm7_overlay_table.bin",
-    readRom(rom, h.arm7Overlays.offset, h.arm7Overlays.size, "arm7_overlay_table"))
+  self._cache:write(
+    "system/arm9_overlay_table.bin",
+    readRom(rom, h.arm9Overlays.offset, h.arm9Overlays.size, "arm9_overlay_table")
+  )
+  self._cache:write(
+    "system/arm7_overlay_table.bin",
+    readRom(rom, h.arm7Overlays.offset, h.arm7Overlays.size, "arm7_overlay_table")
+  )
   self._cache:write("system/arm9.bin", readRom(rom, h.arm9.offset, h.arm9.size, "arm9"))
   self._cache:write("system/arm7.bin", readRom(rom, h.arm7.offset, h.arm7.size, "arm7"))
   self:_emit("write_system_metadata", 1, 1)
@@ -114,14 +129,16 @@ function RomExtractor:_dumpFiles()
     self._cache:write(dest.path, data)
     local info = self._cache:getInfo(dest.path)
     if not info or info.size ~= dest.size then
-      Errors.raise("EXTRACT_WRITE_SIZE_MISMATCH",
-        "wrote " .. tostring(info and info.size) .. " bytes to " .. dest.path
-          .. ", expected " .. dest.size,
-        { path = dest.path, fileId = fileId, expected = dest.size,
-          actual = info and info.size })
+      Errors.raise(
+        "EXTRACT_WRITE_SIZE_MISMATCH",
+        "wrote " .. tostring(info and info.size) .. " bytes to " .. dest.path .. ", expected " .. dest.size,
+        { path = dest.path, fileId = fileId, expected = dest.size, actual = info and info.size }
+      )
     end
     totalBytes = totalBytes + dest.size
-    if dest.kind == "unmapped" then unmapped = unmapped + 1 end
+    if dest.kind == "unmapped" then
+      unmapped = unmapped + 1
+    end
     if fileId % 16 == 0 or fileId == total - 1 then
       self:_emit("dump_files", fileId + 1, total, dest.path)
     end
@@ -148,10 +165,18 @@ function RomExtractor:_writeIndexes(map, fileCount, totalBytes, unmappedCount)
     romVersion = h.romVersion,
     headerSize = h.headerSize,
     usedRomSize = h.usedRomSize,
-    arm9 = { offset = h.arm9.offset, size = h.arm9.size,
-      entryAddress = h.arm9.entryAddress, ramAddress = h.arm9.ramAddress },
-    arm7 = { offset = h.arm7.offset, size = h.arm7.size,
-      entryAddress = h.arm7.entryAddress, ramAddress = h.arm7.ramAddress },
+    arm9 = {
+      offset = h.arm9.offset,
+      size = h.arm9.size,
+      entryAddress = h.arm9.entryAddress,
+      ramAddress = h.arm9.ramAddress,
+    },
+    arm7 = {
+      offset = h.arm7.offset,
+      size = h.arm7.size,
+      entryAddress = h.arm7.entryAddress,
+      ramAddress = h.arm7.ramAddress,
+    },
     fnt = { offset = h.fnt.offset, size = h.fnt.size },
     fat = { offset = h.fat.offset, size = h.fat.size },
     arm9Overlays = { offset = h.arm9Overlays.offset, size = h.arm9Overlays.size },
@@ -224,24 +249,29 @@ function RomExtractor:_validateNarcs()
     local fileId = byPath[entry.path]
     if not fileId then
       if entry.required then
-        Errors.raise("EXTRACT_REQUIRED_NARC_MISSING",
+        Errors.raise(
+          "EXTRACT_REQUIRED_NARC_MISSING",
           "required NARC " .. entry.symbol .. " path " .. entry.path .. " not in FNT",
-          { symbol = entry.symbol, path = entry.path })
+          { symbol = entry.symbol, path = entry.path }
+        )
       end
       warnings[#warnings + 1] = "unresolved optional NARC " .. entry.symbol .. " (" .. entry.path .. ")"
     else
       local narc, err = Narc.open(self._rom:readFatFile(fileId), entry.path)
       if not narc then
         if entry.required then
-          Errors.raise("EXTRACT_REQUIRED_NARC_INVALID",
-            "required NARC " .. entry.symbol .. " (" .. entry.path .. ") failed to open: "
-              .. Errors.format(err),
-            { symbol = entry.symbol, path = entry.path, fileId = fileId })
+          Errors.raise(
+            "EXTRACT_REQUIRED_NARC_INVALID",
+            "required NARC " .. entry.symbol .. " (" .. entry.path .. ") failed to open: " .. Errors.format(err),
+            { symbol = entry.symbol, path = entry.path, fileId = fileId }
+          )
         end
         warnings[#warnings + 1] = "non-NARC optional entry " .. entry.symbol .. " (" .. entry.path .. ")"
       else
         opened[entry.alias] = narc
-        if entry.required then requiredCount = requiredCount + 1 end
+        if entry.required then
+          requiredCount = requiredCount + 1
+        end
       end
     end
   end
@@ -257,13 +287,15 @@ function RomExtractor:_smokeDecode(openedNarcs)
   assert(narc, "map_matrices must have been opened as a required NARC")
   local member, err = narc:readMember(0)
   if not member then
-    Errors.raise("EXTRACT_SMOKE_READ_FAILED",
-      "map_matrices member 0: " .. Errors.format(err), {})
+    Errors.raise("EXTRACT_SMOKE_READ_FAILED", "map_matrices member 0: " .. Errors.format(err), {})
   end
   local matrix, decodeErr = MapMatrix.decode(member, 0)
   if not matrix then
-    Errors.raise("EXTRACT_SMOKE_DECODE_FAILED",
-      "map_matrices member 0 did not decode: " .. Errors.format(decodeErr), {})
+    Errors.raise(
+      "EXTRACT_SMOKE_DECODE_FAILED",
+      "map_matrices member 0 did not decode: " .. Errors.format(decodeErr),
+      {}
+    )
   end
   -- LuaLS cannot see through Errors.raise; the assert narrows the decode.
   matrix = assert(matrix)
@@ -287,8 +319,7 @@ function RomExtractor:_finalize(report)
     "data/generated/overlay_index.lua",
   }) do
     if not self._cache:exists(path, "file") then
-      Errors.raise("EXTRACT_OUTPUT_MISSING", "required output missing at finalize: " .. path,
-        { path = path })
+      Errors.raise("EXTRACT_OUTPUT_MISSING", "required output missing at finalize: " .. path, { path = path })
     end
   end
 
@@ -325,8 +356,12 @@ end
 
 function RomExtractor:run()
   local ok, result = pcall(self._run, self)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 

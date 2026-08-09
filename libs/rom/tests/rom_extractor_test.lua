@@ -96,11 +96,15 @@ end
 
 function T.progress_is_monotonic_and_reaches_one()
   local last, sawFinal = -1, false
-  extractOk({ progress = function(p)
-    Assert.isTrue(p.overall >= last, "overall regressed at stage " .. p.stage)
-    last = p.overall
-    if p.stage == "finalize" then sawFinal = true end
-  end })
+  extractOk({
+    progress = function(p)
+      Assert.isTrue(p.overall >= last, "overall regressed at stage " .. p.stage)
+      last = p.overall
+      if p.stage == "finalize" then
+        sawFinal = true
+      end
+    end,
+  })
   Assert.isTrue(sawFinal, "finalize stage must report")
   Assert.equal(last, 1)
 end

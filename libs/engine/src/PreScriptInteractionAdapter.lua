@@ -41,7 +41,6 @@ local SUBSTITUTION_CONTROLS = {
 
 local UNMAPPED_RELEASE_TEXT = "Nothing is wired here yet."
 
-
 ---@class PreScriptInteractionAdapterOptions
 ---@field dialogue FieldDialogueController
 ---@field provider FieldMessageProvider
@@ -64,10 +63,14 @@ local UNMAPPED_RELEASE_TEXT = "Nothing is wired here yet."
 function PreScriptInteractionAdapter.new(opts)
   assert(type(opts) == "table" and opts.dialogue and opts.provider, "adapter services required")
   assert(type(opts.layout) == "function", "adapter requires the dialogue layout closure")
-  assert(type(opts.fontDef) == "table" and type(opts.fontDef.charmap) == "table",
-    "adapter requires the generated font definition")
-  assert(type(opts.getActor) == "function" and type(opts.mapMessageBank) == "function",
-    "adapter requires actor and map-bank lookups")
+  assert(
+    type(opts.fontDef) == "table" and type(opts.fontDef.charmap) == "table",
+    "adapter requires the generated font definition"
+  )
+  assert(
+    type(opts.getActor) == "function" and type(opts.mapMessageBank) == "function",
+    "adapter requires actor and map-bank lookups"
+  )
   assert(type(opts.fixtures) == "table", "adapter requires the preview fixture manifest")
   return setmetatable({
     dialogue = opts.dialogue,
@@ -96,7 +99,9 @@ local function copyIntent(intent)
   for key, value in pairs(intent) do
     if type(value) == "table" then
       local inner = {}
-      for innerKey, innerValue in pairs(value) do inner[innerKey] = innerValue end
+      for innerKey, innerValue in pairs(value) do
+        inner[innerKey] = innerValue
+      end
       copy[key] = inner
     else
       copy[key] = value
@@ -116,18 +121,20 @@ end
 function PreScriptInteractionAdapter:_formatMessage(fixture, bankId, messageId)
   local bank, bankErr = self.provider:acquireBank(bankId)
   if not bank then
-    Errors.raise(bankErr and bankErr.code or "MESSAGE_BANK_MISSING",
+    Errors.raise(
+      bankErr and bankErr.code or "MESSAGE_BANK_MISSING",
       bankErr and bankErr.message or "message bank " .. tostring(bankId) .. " is unavailable",
-      { bankId = bankId, cause = bankErr and bankErr.context or nil })
+      { bankId = bankId, cause = bankErr and bankErr.context or nil }
+    )
   end
   local template, templateErr = self.provider:get(bankId, messageId)
   if not template then
     self.provider:releaseBank(bankId)
-    Errors.raise(templateErr and templateErr.code or "MESSAGE_ID_OUT_OF_RANGE",
-      templateErr and templateErr.message or "message " .. tostring(messageId)
-        .. " not in bank " .. tostring(bankId),
-      { bankId = bankId, messageId = messageId,
-        cause = templateErr and templateErr.context or nil })
+    Errors.raise(
+      templateErr and templateErr.code or "MESSAGE_ID_OUT_OF_RANGE",
+      templateErr and templateErr.message or "message " .. tostring(messageId) .. " not in bank " .. tostring(bankId),
+      { bankId = bankId, messageId = messageId, cause = templateErr and templateErr.context or nil }
+    )
   end
   local context = {}
   local resolvers = {}
@@ -142,7 +149,9 @@ function PreScriptInteractionAdapter:_formatMessage(fixture, bankId, messageId)
   end
   local okFormat, formatted = pcall(self.provider.format, self.provider, template, context, resolvers)
   self.provider:releaseBank(bankId)
-  if not okFormat then error(formatted) end
+  if not okFormat then
+    error(formatted)
+  end
   return formatted
 end
 
@@ -180,8 +189,7 @@ end
 ---@param intent InteractionIntent
 ---@return boolean
 function PreScriptInteractionAdapter:consume(intent)
-  assert(type(intent) == "table" and type(intent.kind) == "string",
-    "consume requires an InteractionIntent")
+  assert(type(intent) == "table" and type(intent.kind) == "string", "consume requires an InteractionIntent")
 
   local key = fixtureKey(intent)
   local fixture = self.fixtures[key]
@@ -194,12 +202,18 @@ function PreScriptInteractionAdapter:consume(intent)
   -- (spec section 13.2); a cross-bank fixture is not allowed.
   local mapBankId = self.mapMessageBank(intent.mapId)
   if fixture.messageBankId ~= mapBankId then
-    Errors.raise("INTERACTION_BANK_MISMATCH",
-      "fixture " .. key .. " selects message bank " .. tostring(fixture.messageBankId)
-        .. " but map " .. intent.mapId .. " is associated with "
+    Errors.raise(
+      "INTERACTION_BANK_MISMATCH",
+      "fixture "
+        .. key
+        .. " selects message bank "
+        .. tostring(fixture.messageBankId)
+        .. " but map "
+        .. intent.mapId
+        .. " is associated with "
         .. tostring(mapBankId),
-      { fixtureKey = key, fixtureBankId = fixture.messageBankId,
-        mapId = intent.mapId, mapBankId = mapBankId })
+      { fixtureKey = key, fixtureBankId = fixture.messageBankId, mapId = intent.mapId, mapBankId = mapBankId }
+    )
   end
 
   local formatted = self:_formatMessage(fixture, fixture.messageBankId, fixture.messageId)
@@ -208,20 +222,20 @@ function PreScriptInteractionAdapter:consume(intent)
   -- dummy interaction and is restored on every exit path (spec section 8.8).
   local actor, token
   if fixture.facePlayer then
-    local actorId = assert(intent.object and intent.object.actorId,
-      "a facePlayer fixture requires an object intent")
+    local actorId = assert(intent.object and intent.object.actorId, "a facePlayer fixture requires an object intent")
     actor = self.getActor(actorId)
     if not actor then
-      Errors.raise("INTERACTION_FIXTURE_MISSING",
-        "fixture " .. key .. " needs actor " .. tostring(actorId)
-          .. " but no such actor is live",
-        { fixtureKey = key, actorId = actorId, mapId = intent.mapId })
+      Errors.raise(
+        "INTERACTION_FIXTURE_MISSING",
+        "fixture " .. key .. " needs actor " .. tostring(actorId) .. " but no such actor is live",
+        { fixtureKey = key, actorId = actorId, mapId = intent.mapId }
+      )
     end
     -- The guard above raises on a missing fixture; LuaLS cannot see through
     -- Errors.raise, so the assert narrows actor to the live instance.
     actor = assert(actor)
-    local facing = assert(OPPOSITE_FACING[intent.playerFacing],
-      "unknown player facing " .. tostring(intent.playerFacing))
+    local facing =
+      assert(OPPOSITE_FACING[intent.playerFacing], "unknown player facing " .. tostring(intent.playerFacing))
     token = actor:pushFacingOverride({ owner = OVERRIDE_OWNER, facing = facing })
   end
 
@@ -234,15 +248,21 @@ function PreScriptInteractionAdapter:consume(intent)
   if not ok then
     -- open() raised (e.g. a dialogue is already open): the override must not
     -- outlive the failed request.
-    if token then actor:releaseFacingOverride(token) end
+    if token then
+      actor:releaseFacingOverride(token)
+    end
     error(handle)
   end
 
   local released = false
   local function release()
-    if released then return end
+    if released then
+      return
+    end
     released = true
-    if token then actor:releaseFacingOverride(token) end
+    if token then
+      actor:releaseFacingOverride(token)
+    end
   end
   handle:onComplete(release)
   handle:onCancel(release)

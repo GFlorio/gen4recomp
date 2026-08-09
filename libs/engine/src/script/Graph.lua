@@ -37,8 +37,7 @@ end
 ---@param graph table
 ---@return string
 function Graph.inspect(graph)
-  assert(graph ~= nil and graph.graphSchema == Graph.SCHEMA_NAME,
-    "expected a compiled script graph")
+  assert(graph ~= nil and graph.graphSchema == Graph.SCHEMA_NAME, "expected a compiled script graph")
   return LuaWriter.encode(graph)
 end
 
@@ -54,19 +53,31 @@ function Graph.collectEdges(node)
     out[1], out[2] = node.yes, node.no
   elseif op == "switch" then
     local keys = {}
-    for k in pairs(node.cases) do keys[#keys + 1] = k end
+    for k in pairs(node.cases) do
+      keys[#keys + 1] = k
+    end
     table.sort(keys)
-    for _, k in ipairs(keys) do out[#out + 1] = node.cases[k] end
-    if node.default then out[#out + 1] = node.default end
+    for _, k in ipairs(keys) do
+      out[#out + 1] = node.cases[k]
+    end
+    if node.default then
+      out[#out + 1] = node.default
+    end
   elseif op == "goto" then
     out[1] = node.targetNode
   elseif op == "goto_if" or op == "goto_compared" then
     out[1], out[2] = node.targetNode, node.next
   elseif op == "call" or op == "call_compared" then
-    if node.targetNode then out[#out + 1] = node.targetNode end
-    if node.returnNode then out[#out + 1] = node.returnNode end
+    if node.targetNode then
+      out[#out + 1] = node.targetNode
+    end
+    if node.returnNode then
+      out[#out + 1] = node.returnNode
+    end
   else
-    if node.next then out[1] = node.next end
+    if node.next then
+      out[1] = node.next
+    end
   end
   return out
 end
@@ -80,7 +91,9 @@ function Graph.reachableNodes(graph)
   local visited = {}
   local order = {}
   local function visit(id)
-    if id == nil or visited[id] then return end
+    if id == nil or visited[id] then
+      return
+    end
     visited[id] = true
     order[#order + 1] = id
     local node = graph.nodes[id]

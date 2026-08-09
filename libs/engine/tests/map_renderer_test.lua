@@ -16,14 +16,18 @@ local function hasGraphics()
 end
 
 function T.shader_compiles()
-  if not hasGraphics() then return end
+  if not hasGraphics() then
+    return
+  end
   local r = MapRenderer.new()
   Assert.notNil(r.shader)
   r:release()
 end
 
 function T.shader_has_required_lighting_uniforms()
-  if not hasGraphics() then return end
+  if not hasGraphics() then
+    return
+  end
   local r = MapRenderer.new()
   local s = r.shader
   -- Presence is checked by sending a value; LÖVE errors for unknown names.
@@ -38,7 +42,9 @@ function T.shader_has_required_lighting_uniforms()
 end
 
 function T.shader_has_normal_matrix_uniform()
-  if not hasGraphics() then return end
+  if not hasGraphics() then
+    return
+  end
   local r = MapRenderer.new()
   -- Send as a 3x3 column-major matrix (nine values).
   r.shader:send("u_normalMatrix", "column", { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
@@ -52,18 +58,27 @@ function T.field_edge_radius_uses_only_viewport_height()
 end
 
 function T.field_viewport_sizes_and_rebuilds_render_targets()
-  if not hasGraphics() then return end
+  if not hasGraphics() then
+    return
+  end
   local renderer = MapRenderer.new()
   -- Spell the identity explicitly to keep this smoke independent of Matrix4.
   local identity = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1 }
   local camera = {
     distance = 26,
-    view = function() return identity end,
-    projection = function() return identity end,
-    billboardProjection = function() return identity end,
+    view = function()
+      return identity
+    end,
+    projection = function()
+      return identity
+    end,
+    billboardProjection = function()
+      return identity
+    end,
   }
   local runtime = {
-    mapDraws = {}, buildingDraws = {},
+    mapDraws = {},
+    buildingDraws = {},
     stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
   }
   local viewport = FieldViewport.new(1280, 720, { mode = "strict" })
@@ -89,7 +104,9 @@ end
 -- exercised end-to-end without touching any compiled scene.
 local function syntheticMesh(vertices)
   local indices = {}
-  for i = 0, #vertices - 1 do indices[i + 1] = i end
+  for i = 0, #vertices - 1 do
+    indices[i + 1] = i
+  end
   return love.graphics.newMesh(VertexFormat.LAYOUT, vertices, "triangles", "static")
 end
 
@@ -97,18 +114,27 @@ end
 -- per-item cull, depth, and alpha state. Nothing it touches may survive the
 -- frame, or the 2D dialogue UI and the next map's draws inherit it.
 function T.an_actor_billboard_draw_leaks_no_render_state()
-  if not hasGraphics() then return end
+  if not hasGraphics() then
+    return
+  end
   local lg = love.graphics
   local identity = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 }
   local renderer = MapRenderer.new()
   local camera = {
     distance = 26,
-    view = function() return identity end,
-    projection = function() return identity end,
-    billboardProjection = function() return identity end,
+    view = function()
+      return identity
+    end,
+    projection = function()
+      return identity
+    end,
+    billboardProjection = function()
+      return identity
+    end,
   }
   local runtime = {
-    mapDraws = {}, buildingDraws = {},
+    mapDraws = {},
+    buildingDraws = {},
     stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
   }
   local mesh = syntheticMesh({
@@ -117,11 +143,18 @@ function T.an_actor_billboard_draw_leaks_no_render_state()
     { 1, 2, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1 },
   })
   local actor = {
-    mesh = mesh, material = { alphaClass = "cutout" },
-    transform = identity, billboardBase = identity,
-    alphaClass = "cutout", cullMode = "back", polygonAlpha = 1.0,
-    polygonMode = "modulation", polygonId = 0, lightMask = 1,
-    center = { 0, 1, 0 }, submissionIndex = 1,
+    mesh = mesh,
+    material = { alphaClass = "cutout" },
+    transform = identity,
+    billboardBase = identity,
+    alphaClass = "cutout",
+    cullMode = "back",
+    polygonAlpha = 1.0,
+    polygonMode = "modulation",
+    polygonId = 0,
+    lightMask = 1,
+    center = { 0, 1, 0 },
+    submissionIndex = 1,
   }
 
   lg.setMeshCullMode("none")
@@ -143,22 +176,71 @@ end
 
 function T.rejects_stale_scene_schema()
   local ok, err = pcall(MapSceneLoader.load, nil, { schema = "g4-map-scene-v1" })
-  Assert.isTrue(not ok and err.code == "MAP_SCENE_UNSUPPORTED_SCHEMA",
-    "rejects old scene schema: " .. tostring(err.code))
+  Assert.isTrue(
+    not ok and err.code == "MAP_SCENE_UNSUPPORTED_SCHEMA",
+    "rejects old scene schema: " .. tostring(err.code)
+  )
 end
 
 function T.literal_color_triangle_ignores_light_direction()
-  if not hasGraphics() then return end
+  if not hasGraphics() then
+    return
+  end
   local r = MapRenderer.new()
   local s = r.shader
   s:send("u_proj", "column", {
-    1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
   })
   s:send("u_view", "column", {
-    1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
   })
   s:send("u_model", "column", {
-    1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
   })
   s:send("u_normalMatrix", "column", { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
 

@@ -27,26 +27,35 @@ local function tokenizeUnits(units, charmap, opts)
       index = index + 1
     elseif code == FieldMessageText.EXT_CTRL_CODE_BEGIN then
       if index + 3 > #units then
-        Errors.raise("MESSAGE_CONTROL_TRUNCATED",
+        Errors.raise(
+          "MESSAGE_CONTROL_TRUNCATED",
           "extended control at code-unit " .. index .. " lacks its control code or argument count",
-          { codeUnitIndex = index, code = code })
+          { codeUnitIndex = index, code = code }
+        )
       end
       local control = units[index + 2]
       local argumentCount = units[index + 3]
       if index + 3 + argumentCount > #units then
-        Errors.raise("MESSAGE_CONTROL_TRUNCATED",
-          "extended control " .. string.format("0x%04X", control) .. " declares "
-            .. argumentCount .. " arguments but only " .. (#units - index - 3)
+        Errors.raise(
+          "MESSAGE_CONTROL_TRUNCATED",
+          "extended control "
+            .. string.format("0x%04X", control)
+            .. " declares "
+            .. argumentCount
+            .. " arguments but only "
+            .. (#units - index - 3)
             .. " code units remain",
-          { codeUnitIndex = index, control = control, argumentCount = argumentCount,
-            remaining = #units - index - 3 })
+          { codeUnitIndex = index, control = control, argumentCount = argumentCount, remaining = #units - index - 3 }
+        )
       end
       local args = {}
       for a = 1, argumentCount do
         args[a] = units[index + 3 + a]
       end
       local raw = {}
-      for i = 0, 2 + argumentCount do raw[i + 1] = units[index + 1 + i] end
+      for i = 0, 2 + argumentCount do
+        raw[i + 1] = units[index + 1 + i]
+      end
       tokens[#tokens + 1] = {
         kind = FieldMessageText.controlKind(control),
         control = control,
@@ -66,21 +75,30 @@ local function tokenizeUnits(units, charmap, opts)
       index = index + 1
     elseif code == FieldMessageText.TRNAME then
       tokens[#tokens + 1] = {
-        kind = "substitution", control = code, name = "TRNAME", args = {}, raw = raw,
+        kind = "substitution",
+        control = code,
+        name = "TRNAME",
+        args = {},
+        raw = raw,
       }
       index = index + 1
     elseif code < FieldMessageText.CHAR_LF then
       local text = charmap.glyphs[code]
       if text == nil then
-        Errors.raise("MESSAGE_GLYPH_UNMAPPED",
+        Errors.raise(
+          "MESSAGE_GLYPH_UNMAPPED",
           string.format("glyph code 0x%04X has no charmap display text", code),
-          { code = code, codeUnitIndex = index })
+          { code = code, codeUnitIndex = index }
+        )
       end
       tokens[#tokens + 1] = { kind = "glyph", code = code, text = text, raw = raw }
       index = index + 1
     else
       tokens[#tokens + 1] = {
-        kind = "unsupported_control", control = code, args = {}, raw = raw,
+        kind = "unsupported_control",
+        control = code,
+        args = {},
+        raw = raw,
       }
       index = index + 1
     end
@@ -93,11 +111,14 @@ end
 -- token stream; raises MESSAGE_CONTROL_TRUNCATED / MESSAGE_GLYPH_UNMAPPED.
 function FieldMessageTokenizer.tokenize(units, charmap, opts)
   assert(type(units) == "table", "tokenize requires a code-unit array")
-  assert(type(charmap) == "table" and type(charmap.glyphs) == "table",
-    "tokenize requires the frozen charmap reference")
+  assert(type(charmap) == "table" and type(charmap.glyphs) == "table", "tokenize requires the frozen charmap reference")
   local ok, result = pcall(tokenizeUnits, units, charmap, opts)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 

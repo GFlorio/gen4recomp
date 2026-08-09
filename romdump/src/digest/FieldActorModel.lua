@@ -32,7 +32,9 @@ local function fail(code, message, context)
   Errors.raise(code, message, context)
 end
 
-local function near(a, b) return math.abs(a - b) <= EPSILON end
+local function near(a, b)
+  return math.abs(a - b) <= EPSILON
+end
 
 local function extent(values)
   local min, max = math.huge, -math.huge
@@ -55,13 +57,32 @@ local function assertPlacement(vertices, placement, context)
   local width = placement.sourceSize.width / MapUnits.MODEL_UNITS_PER_TILE
   local height = placement.sourceSize.height / MapUnits.MODEL_UNITS_PER_TILE
 
-  if not (near(minX, -width / 2) and near(maxX, width / 2)
-    and near(minY, 0) and near(maxY, height)
-    and near(minZ, 0) and near(maxZ, 0)) then
-    fail("FIELD_ACTOR_MODEL_PLACEMENT_UNEXPECTED",
-      string.format("actor quad spans x[%.4f,%.4f] y[%.4f,%.4f] z[%.4f,%.4f] tiles, expected"
-        .. " a bottom-centered %.4fx%.4f plane", minX, maxX, minY, maxY, minZ, maxZ, width, height),
-      { context = context })
+  if
+    not (
+      near(minX, -width / 2)
+      and near(maxX, width / 2)
+      and near(minY, 0)
+      and near(maxY, height)
+      and near(minZ, 0)
+      and near(maxZ, 0)
+    )
+  then
+    fail(
+      "FIELD_ACTOR_MODEL_PLACEMENT_UNEXPECTED",
+      string.format(
+        "actor quad spans x[%.4f,%.4f] y[%.4f,%.4f] z[%.4f,%.4f] tiles, expected"
+          .. " a bottom-centered %.4fx%.4f plane",
+        minX,
+        maxX,
+        minY,
+        maxY,
+        minZ,
+        maxZ,
+        width,
+        height
+      ),
+      { context = context }
+    )
   end
   return { width = maxX - minX, height = maxY - minY, depth = maxZ - minZ }
 end
@@ -76,10 +97,19 @@ local function normalizeUvs(vertices, size, context)
   local minU, maxU = extent(us)
   local minV, maxV = extent(vs)
   if not (near(minU, 0) and near(maxU, size.width) and near(minV, 0) and near(maxV, size.height)) then
-    fail("FIELD_ACTOR_MODEL_UV_UNEXPECTED",
-      string.format("actor quad UVs span [%.2f,%.2f]x[%.2f,%.2f] texels, expected the whole"
-        .. " %dx%d texture", minU, maxU, minV, maxV, size.width, size.height),
-      { context = context })
+    fail(
+      "FIELD_ACTOR_MODEL_UV_UNEXPECTED",
+      string.format(
+        "actor quad UVs span [%.2f,%.2f]x[%.2f,%.2f] texels, expected the whole" .. " %dx%d texture",
+        minU,
+        maxU,
+        minV,
+        maxV,
+        size.width,
+        size.height
+      ),
+      { context = context }
+    )
   end
   for _, vertex in ipairs(vertices) do
     vertex.u, vertex.v = vertex.u / size.width, vertex.v / size.height
@@ -96,30 +126,43 @@ function FieldActorModel.compile(modelBytes, opts)
 
   local file = assert(Nsbmd.decode(modelBytes, context))
   if #file.models ~= 1 then
-    fail("FIELD_ACTOR_MODEL_SHAPE_UNEXPECTED",
+    fail(
+      "FIELD_ACTOR_MODEL_SHAPE_UNEXPECTED",
       "shared actor model member holds " .. #file.models .. " models, expected exactly one",
-      { context = context })
+      { context = context }
+    )
   end
   local model = file.models[1]
 
   local batches = MeshCompiler.compile(model)
   if #batches ~= 1 then
-    fail("FIELD_ACTOR_MODEL_SHAPE_UNEXPECTED",
+    fail(
+      "FIELD_ACTOR_MODEL_SHAPE_UNEXPECTED",
       "shared actor model draws " .. #batches .. " batches, expected exactly one quad",
-      { context = context, modelName = model.name })
+      { context = context, modelName = model.name }
+    )
   end
   local batch = batches[1]
 
   if batch.transformMode ~= "billboard" or not batch.baseTransform then
-    fail("FIELD_ACTOR_MODEL_NOT_BILLBOARD",
-      "shared actor model draw is " .. tostring(batch.transformMode or "static")
+    fail(
+      "FIELD_ACTOR_MODEL_NOT_BILLBOARD",
+      "shared actor model draw is "
+        .. tostring(batch.transformMode or "static")
         .. ", expected the Nitro full camera-facing billboard command",
-      { context = context, modelName = model.name })
+      { context = context, modelName = model.name }
+    )
   end
   if #batch.vertices ~= 4 or #batch.indices ~= 6 then
-    fail("FIELD_ACTOR_MODEL_SHAPE_UNEXPECTED",
-      "shared actor model draws " .. #batch.vertices .. " vertices and " .. #batch.indices
-        .. " indices, expected one 4-vertex quad", { context = context, modelName = model.name })
+    fail(
+      "FIELD_ACTOR_MODEL_SHAPE_UNEXPECTED",
+      "shared actor model draws "
+        .. #batch.vertices
+        .. " vertices and "
+        .. #batch.indices
+        .. " indices, expected one 4-vertex quad",
+      { context = context, modelName = model.name }
+    )
   end
 
   local bounds = assertPlacement(batch.vertices, opts.placement, context)
@@ -127,18 +170,17 @@ function FieldActorModel.compile(modelBytes, opts)
 
   local polygon = DsPolygonAttr.decode(batch.polygonAttrRaw)
   if polygon.cullMode == "all" then
-    fail("FIELD_ACTOR_MODEL_INVISIBLE",
-      "shared actor model renders neither polygon surface", { context = context })
+    fail("FIELD_ACTOR_MODEL_INVISIBLE", "shared actor model renders neither polygon surface", { context = context })
   end
-  local alphaClass = AlphaClassifier.classify(polygon.polygonAlpha,
-    opts.textureFormat or 0, opts.alphaUsage)
+  local alphaClass = AlphaClassifier.classify(polygon.polygonAlpha, opts.textureFormat or 0, opts.alphaUsage)
   if alphaClass ~= "cutout" and alphaClass ~= "opaque" then
     -- A translucent or wireframe actor would need a different render pass and a
     -- sorting contract; no target actor asks for one.
-    fail("FIELD_ACTOR_MODEL_ALPHA_UNSUPPORTED",
+    fail(
+      "FIELD_ACTOR_MODEL_ALPHA_UNSUPPORTED",
       "shared actor model classifies as " .. alphaClass .. ", expected opaque or cutout",
-      { context = context, polygonAlpha = polygon.polygonAlpha,
-        textureFormat = opts.textureFormat })
+      { context = context, polygonAlpha = polygon.polygonAlpha, textureFormat = opts.textureFormat }
+    )
   end
 
   -- The actor loader adds a fixed Y offset in model units before installing the
@@ -172,12 +214,16 @@ end
 
 function FieldActorModel.drawMode(modelBytes, context)
   local file = assert(Nsbmd.decode(modelBytes, context))
-  if #file.models ~= 1 then return "unsupported" end
+  if #file.models ~= 1 then
+    return "unsupported"
+  end
   local batches = MeshCompiler.compile(file.models[1])
   local mode
   for _, batch in ipairs(batches) do
     mode = mode or batch.transformMode
-    if batch.transformMode ~= mode then return "mixed" end
+    if batch.transformMode ~= mode then
+      return "mixed"
+    end
   end
   return mode or "unsupported"
 end

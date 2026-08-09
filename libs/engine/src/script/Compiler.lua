@@ -25,24 +25,48 @@ Compiler.MAX_STATIC_NESTING = 64
 -- can never suspend and would burn the step budget, so the compiler rejects it
 -- at load time (spec section 25.1).
 local CYCLE_BREAKING_OPS = {
-  yield_tick = true, wait_ticks = true, wait_input = true,
-  wait_input_or_ticks = true, say = true, message = true, ask_yes_no = true,
-  wait_movement = true, move = true, wait_sound = true, wait_cry = true,
-  wait_fanfare = true, wait_fade = true, warp = true, lock_all = true,
-  lock_actor = true, call_common = true, lua = true, stop = true,
+  yield_tick = true,
+  wait_ticks = true,
+  wait_input = true,
+  wait_input_or_ticks = true,
+  say = true,
+  message = true,
+  ask_yes_no = true,
+  wait_movement = true,
+  move = true,
+  wait_sound = true,
+  wait_cry = true,
+  wait_fanfare = true,
+  wait_fade = true,
+  warp = true,
+  lock_all = true,
+  lock_actor = true,
+  call_common = true,
+  lua = true,
+  stop = true,
 }
 
 -- Ops whose linear continuation is not a `next` edge: branch nodes carry
 -- explicit edges, calls carry return frames, and stop/return/next terminate.
 local NO_CHAIN_NEXT = {
-  ["if"] = true, switch = true, goto = true, goto_if = true,
-  goto_compared = true, call = true, call_compared = true,
-  ["return"] = true, stop = true, next = true,
+  ["if"] = true,
+  switch = true,
+  ["goto"] = true,
+  goto_if = true,
+  goto_compared = true,
+  call = true,
+  call_compared = true,
+  ["return"] = true,
+  stop = true,
+  next = true,
 }
 
 -- Ops that warn on handwritten (non-generated) scripts per spec section 25.2.
 local FALLBACK_OPS = {
-  label = true, goto = true, goto_if = true, goto_compared = true,
+  label = true,
+  ["goto"] = true,
+  goto_if = true,
+  goto_compared = true,
   call_compared = true,
 }
 
@@ -69,7 +93,9 @@ local C = {
 ---@param value any
 ---@return any
 local function deepCopy(value)
-  if type(value) ~= "table" then return value end
+  if type(value) ~= "table" then
+    return value
+  end
   local out = {}
   for k, v in pairs(value) do
     out[k] = deepCopy(v)
@@ -107,29 +133,43 @@ local function normalizeKind(v, kindMap, discriminator)
   local out = deepCopy(v)
   applyDefaults(out, spec)
   for name, field in pairs(spec.fields) do
-    if out[name] ~= nil then out[name] = normalizeByType(out[name], field.type) end
+    if out[name] ~= nil then
+      out[name] = normalizeByType(out[name], field.type)
+    end
   end
   return out
 end
 
-local function normalizeValue(v) return normalizeKind(v, Schema.VALUES, "value") end
-local function normalizeCondition(v) return normalizeKind(v, Schema.CONDITIONS, "condition") end
-local function normalizeText(v) return normalizeKind(v, Schema.TEXT_VALUES, "text") end
+local function normalizeValue(v)
+  return normalizeKind(v, Schema.VALUES, "value")
+end
+local function normalizeCondition(v)
+  return normalizeKind(v, Schema.CONDITIONS, "condition")
+end
+local function normalizeText(v)
+  return normalizeKind(v, Schema.TEXT_VALUES, "text")
+end
 
 -- String actor shorthand becomes an actor reference (spec section 10.2).
 ---@param v any
 ---@return table
 local function normalizeActor(v)
   if type(v) == "string" then
-    if ACTOR_SPECIALS_SET[v] then return { ref = "actor", special = v } end
+    if ACTOR_SPECIALS_SET[v] then
+      return { ref = "actor", special = v }
+    end
     return { ref = "actor", id = v }
   end
   return deepCopy(v)
 end
 
 local function normalizeMessage(v)
-  if type(v) == "string" then return v end
-  if v.value ~= nil then return normalizeValue(v) end
+  if type(v) == "string" then
+    return v
+  end
+  if v.value ~= nil then
+    return normalizeValue(v)
+  end
   if v.message == "external" then
     local out = deepCopy(v)
     out.bank = normalizeByType(out.bank, "scalar_or_value")
@@ -158,32 +198,44 @@ normalizeStep = function(t)
   local out = deepCopy(t)
   applyDefaults(out, spec)
   for name, field in pairs(spec.fields) do
-    if out[name] ~= nil then out[name] = normalizeByType(out[name], field.type) end
+    if out[name] ~= nil then
+      out[name] = normalizeByType(out[name], field.type)
+    end
   end
   return out
 end
 
 normalizeByType = function(v, ty)
-  if v == nil then return nil end
+  if v == nil then
+    return nil
+  end
   if ty == "steps" then
     return normalizeSteps(v)
   elseif ty == "cases" then
     local out = {}
-    for k, caseSteps in pairs(v) do out[k] = normalizeSteps(caseSteps) end
+    for k, caseSteps in pairs(v) do
+      out[k] = normalizeSteps(caseSteps)
+    end
     return out
   elseif ty == "condition" then
     return normalizeCondition(v)
   elseif ty == "condition_list" then
     local out = {}
-    for i = 1, #v do out[i] = normalizeCondition(v[i]) end
+    for i = 1, #v do
+      out[i] = normalizeCondition(v[i])
+    end
     return out
   elseif ty == "value" then
     return normalizeValue(v)
   elseif ty == "scalar_or_value" then
-    if type(v) == "table" then return normalizeValue(v) end
+    if type(v) == "table" then
+      return normalizeValue(v)
+    end
     return v
   elseif ty == "id_or_var" then
-    if type(v) == "table" then return normalizeValue(v) end
+    if type(v) == "table" then
+      return normalizeValue(v)
+    end
     return v
   elseif ty == "text_value" then
     return normalizeText(v)
@@ -193,7 +245,9 @@ normalizeByType = function(v, ty)
     return normalizeActor(v)
   elseif ty == "actor_list" then
     local out = {}
-    for i = 1, #v do out[i] = normalizeActor(v[i]) end
+    for i = 1, #v do
+      out[i] = normalizeActor(v[i])
+    end
     return out
   elseif ty == "movement" then
     local out = {}
@@ -207,16 +261,22 @@ normalizeByType = function(v, ty)
     local out = {}
     for k, arg in pairs(v) do
       if type(arg) == "table" then
-        if arg.value ~= nil then arg = normalizeValue(arg)
-        elseif arg.text ~= nil then arg = normalizeText(arg)
-        else arg = normalizeActor(arg) end
+        if arg.value ~= nil then
+          arg = normalizeValue(arg)
+        elseif arg.text ~= nil then
+          arg = normalizeText(arg)
+        else
+          arg = normalizeActor(arg)
+        end
       end
       out[k] = arg
     end
     return out
   elseif ty == "bindings" then
     local out = {}
-    for k, textValue in pairs(v) do out[k] = normalizeText(textValue) end
+    for k, textValue in pairs(v) do
+      out[k] = normalizeText(textValue)
+    end
     return out
   end
   return deepCopy(v)
@@ -228,20 +288,25 @@ end
 ---@param path string
 ---@return string
 local function nodeIdFor(step, path)
-  if step.key ~= nil then return "key:" .. step.key end
+  if step.key ~= nil then
+    return "key:" .. step.key
+  end
   local provenance = step.provenance
   if provenance ~= nil then
     local metaSource = C.script.metadata and C.script.metadata.source
     local member = metaSource and metaSource.member
     local scriptIndex = metaSource and metaSource.scriptIndex
     if member == nil or scriptIndex == nil then
-      Errors.raise("SCRIPT_SCHEMA_INVALID",
+      Errors.raise(
+        "SCRIPT_SCHEMA_INVALID",
         "step provenance requires script metadata.source member and scriptIndex",
-        { scriptId = C.script.id, path = path, op = step.op })
+        { scriptId = C.script.id, path = path, op = step.op }
+      )
     end
-    local id = string.format("src:%04d:%03d:%04x",
-      member, scriptIndex, provenance.offsets[1])
-    if #provenance.offsets > 1 then id = id .. "/" .. step.op end
+    local id = string.format("src:%04d:%03d:%04x", member, scriptIndex, provenance.offsets[1])
+    if #provenance.offsets > 1 then
+      id = id .. "/" .. step.op
+    end
     return id
   end
   return "path:" .. path
@@ -261,8 +326,11 @@ local function prewalk(steps, path)
     if step.op == "label" then
       local name = step.name
       if C.labelNodeIds[name] ~= nil then
-        Errors.raise("SCRIPT_SCHEMA_INVALID", "duplicate label name",
-          { scriptId = C.script.id, path = p, label = name })
+        Errors.raise(
+          "SCRIPT_SCHEMA_INVALID",
+          "duplicate label name",
+          { scriptId = C.script.id, path = p, label = name }
+        )
       end
       C.labelNodeIds[name] = nodeIdFor(step, p)
     end
@@ -283,7 +351,10 @@ end
 ---@return table
 local function setFor(map, key)
   local set = map[key]
-  if set == nil then set = {}; map[key] = set end
+  if set == nil then
+    set = {}
+    map[key] = set
+  end
   return set
 end
 
@@ -309,8 +380,7 @@ local function compileStep(step, path, cont, owner, depth)
   local op = step.op
   local id = nodeIdFor(step, path)
   if C.nodes[id] ~= nil then
-    Errors.raise("SCRIPT_SCHEMA_INVALID", "duplicate node id",
-      { scriptId = C.script.id, path = path, nodeId = id })
+    Errors.raise("SCRIPT_SCHEMA_INVALID", "duplicate node id", { scriptId = C.script.id, path = path, nodeId = id })
   end
 
   local ownerBucket = setFor(C.ownerSteps, owner)
@@ -318,39 +388,59 @@ local function compileStep(step, path, cont, owner, depth)
 
   local node = { op = op }
   for k, v in pairs(step) do
-    if k ~= "key" and k ~= "provenance" then node[k] = v end
+    if k ~= "key" and k ~= "provenance" then
+      node[k] = v
+    end
   end
-  if step.provenance ~= nil then node.source = step.provenance end
+  if step.provenance ~= nil then
+    node.source = step.provenance
+  end
 
   if op == "if" or op == "switch" then
     if depth + 1 > Compiler.MAX_STATIC_NESTING then
-      Errors.raise("SCRIPT_SCHEMA_INVALID", "maximum static nesting exceeded",
-        { scriptId = C.script.id, path = path, depth = depth + 1 })
+      Errors.raise(
+        "SCRIPT_SCHEMA_INVALID",
+        "maximum static nesting exceeded",
+        { scriptId = C.script.id, path = path, depth = depth + 1 }
+      )
     end
   end
   if op == "if" then
     node.yes = compileSteps(step.yes, path .. "/yes", cont, owner, depth + 1) or cont
     node.no = compileSteps(step.no, path .. "/no", cont, owner, depth + 1) or cont
-    if #step.yes == 0 then addWarning("empty yes branch", id) end
-    if #step.no == 0 then addWarning("empty no branch", id) end
+    if #step.yes == 0 then
+      addWarning("empty yes branch", id)
+    end
+    if #step.no == 0 then
+      addWarning("empty no branch", id)
+    end
   elseif op == "switch" then
     node.cases = {}
     local keys = {}
-    for k in pairs(step.cases) do keys[#keys + 1] = k end
+    for k in pairs(step.cases) do
+      keys[#keys + 1] = k
+    end
     table.sort(keys)
     for _, k in ipairs(keys) do
       node.cases[k] = compileSteps(step.cases[k], path .. "/" .. tostring(k), cont, owner, depth + 1) or cont
-      if #step.cases[k] == 0 then addWarning("empty switch case", id) end
+      if #step.cases[k] == 0 then
+        addWarning("empty switch case", id)
+      end
     end
     node.default = compileSteps(step.default, path .. "/default", cont, owner, depth + 1) or cont
   elseif op == "goto" or op == "goto_if" or op == "goto_compared" then
     local labelId = C.labelNodeIds[step.target]
     if labelId == nil then
-      Errors.raise("SCRIPT_LABEL_MISSING", "control target is not a local label",
-        { scriptId = C.script.id, path = path, target = step.target })
+      Errors.raise(
+        "SCRIPT_LABEL_MISSING",
+        "control target is not a local label",
+        { scriptId = C.script.id, path = path, target = step.target }
+      )
     end
     node.targetNode = labelId
-    if op ~= "goto" then node.next = cont end
+    if op ~= "goto" then
+      node.next = cont
+    end
   elseif op == "call" or op == "call_compared" then
     node.returnNode = cont
     local labelId = C.labelNodeIds[step.target]
@@ -363,8 +453,11 @@ local function compileStep(step, path, cont, owner, depth)
   elseif op == "next" then
     C.usesNext = true
     if not C.opts.allowNext then
-      Errors.raise("SCRIPT_WRAPPER_INVALID", "next requires wrapper registration",
-        { scriptId = C.script.id, path = path })
+      Errors.raise(
+        "SCRIPT_WRAPPER_INVALID",
+        "next requires wrapper registration",
+        { scriptId = C.script.id, path = path }
+      )
     end
   end
 
@@ -392,8 +485,12 @@ compileSteps = function(steps, path, cont, owner, depth)
     local step = steps[i]
     compileStep(step, path .. "/" .. tostring(i - 1), ids[i + 1] or cont, currentOwner, depth)
     local node = C.nodes[ids[i]]
-    if not NO_CHAIN_NEXT[node.op] then node.next = ids[i + 1] or cont end
-    if step.op == "label" then currentOwner = step.name end
+    if not NO_CHAIN_NEXT[node.op] then
+      node.next = ids[i + 1] or cont
+    end
+    if step.op == "label" then
+      currentOwner = step.name
+    end
   end
   return ids[1]
 end
@@ -415,8 +512,12 @@ local function cycleCheck()
   local function sccBreaks(scc)
     for _, owner in ipairs(scc) do
       for _, op in ipairs(C.ownerSteps[owner] or {}) do
-        if CYCLE_BREAKING_OPS[op] then return true end
-        if op == "call" or op == "call_compared" then break end
+        if CYCLE_BREAKING_OPS[op] then
+          return true
+        end
+        if op == "call" or op == "call_compared" then
+          break
+        end
       end
     end
     return false
@@ -429,7 +530,9 @@ local function cycleCheck()
     stack[#stack + 1] = v
     onStack[v] = true
     local targets = {}
-    for t in pairs(C.subroutineEdges[v] or {}) do targets[#targets + 1] = t end
+    for t in pairs(C.subroutineEdges[v] or {}) do
+      targets[#targets + 1] = t
+    end
     table.sort(targets)
     for _, t in ipairs(targets) do
       if indices[t] == nil then
@@ -445,15 +548,19 @@ local function cycleCheck()
         local w = table.remove(stack)
         onStack[w] = nil
         scc[#scc + 1] = w
-        if w == v then break end
+        if w == v then
+          break
+        end
       end
       local edges = C.subroutineEdges[v] or {}
       local hasCycle = #scc > 1 or edges[v] ~= nil
       if hasCycle and not sccBreaks(scc) then
         table.sort(scc)
-        Errors.raise("SCRIPT_SCHEMA_INVALID",
+        Errors.raise(
+          "SCRIPT_SCHEMA_INVALID",
           "direct recursive call cycle without a blocking edge",
-          { scriptId = C.script.id, cycle = scc })
+          { scriptId = C.script.id, cycle = scc }
+        )
       end
     end
   end
@@ -469,7 +576,9 @@ local function analyze(graph)
   local reachable = {}
   for _, id in ipairs(Graph.reachableNodes(graph)) do
     visited[id] = true
-    if graph.nodes[id].op == "unsupported" then reachable[#reachable + 1] = id end
+    if graph.nodes[id].op == "unsupported" then
+      reachable[#reachable + 1] = id
+    end
   end
   table.sort(reachable)
   graph.hasUnsupported = #reachable > 0
@@ -477,10 +586,14 @@ local function analyze(graph)
 
   local unreachable = {}
   for id in pairs(graph.nodes) do
-    if not visited[id] then unreachable[#unreachable + 1] = id end
+    if not visited[id] then
+      unreachable[#unreachable + 1] = id
+    end
   end
   table.sort(unreachable)
-  for _, id in ipairs(unreachable) do addWarning("unreachable node", id) end
+  for _, id in ipairs(unreachable) do
+    addWarning("unreachable node", id)
+  end
 
   local generated = C.script.metadata ~= nil and C.script.metadata.generated == true
   if not generated then
@@ -503,13 +616,19 @@ local function buildProjection(graph)
   for id, node in pairs(graph.nodes) do
     local copy = {}
     for k, v in pairs(node) do
-      if k ~= "source" then copy[k] = v end
+      if k ~= "source" then
+        copy[k] = v
+      end
     end
     nodes[id] = copy
   end
   local payload = { api = graph.api, entry = graph.entry, nodes = nodes }
-  if graph.params ~= nil then payload.params = graph.params end
-  if graph.locals ~= nil then payload.locals = graph.locals end
+  if graph.params ~= nil then
+    payload.params = graph.params
+  end
+  if graph.locals ~= nil then
+    payload.locals = graph.locals
+  end
   return payload
 end
 
@@ -525,7 +644,9 @@ function Compiler._compile(script, opts)
   C.usesNext = false
 
   local ok, err = Validator.validate(script)
-  if not ok then error(err) end
+  if not ok then
+    error(err)
+  end
 
   C.ownerSteps[ROOT_OWNER] = {}
 
@@ -552,7 +673,9 @@ function Compiler._compile(script, opts)
 
   analyze(graph)
   table.sort(C.warnings, function(a, b)
-    if a.nodeId ~= b.nodeId then return a.nodeId < b.nodeId end
+    if a.nodeId ~= b.nodeId then
+      return a.nodeId < b.nodeId
+    end
     return a.message < b.message
   end)
   graph.warnings = C.warnings
@@ -568,7 +691,9 @@ end
 ---@return table|nil, Errors.Error|nil
 function Compiler.compile(script, opts)
   local ok, result = pcall(Compiler._compile, script, opts)
-  if ok then return result end
+  if ok then
+    return result
+  end
   if Errors.is(result) then
     local thrown = result --[[@as any]]
     return nil, thrown

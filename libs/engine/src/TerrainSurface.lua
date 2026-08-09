@@ -9,12 +9,13 @@
 local TerrainSurface = {}
 TerrainSurface.__index = TerrainSurface
 
-
 local CONTAINMENT_EPSILON = 1e-9
 
 function TerrainSurface.new(artifact)
-  assert(type(artifact) == "table" and type(artifact.plates) == "table",
-    "TerrainSurface.new requires a terrain artifact")
+  assert(
+    type(artifact) == "table" and type(artifact.plates) == "table",
+    "TerrainSurface.new requires a terrain artifact"
+  )
   local plateById = {}
   for _, plate in ipairs(artifact.plates) do
     assert(plateById[plate.id] == nil, "duplicate terrain surface id")
@@ -29,7 +30,9 @@ end
 
 function TerrainSurface:contains(surfaceId, localX, localZ)
   local plate = self.plateById[surfaceId]
-  if not plate then return false end
+  if not plate then
+    return false
+  end
   return localX >= plate.minX - CONTAINMENT_EPSILON
     and localX <= plate.maxX + CONTAINMENT_EPSILON
     and localZ >= plate.minZ - CONTAINMENT_EPSILON

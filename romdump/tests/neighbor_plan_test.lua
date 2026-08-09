@@ -8,19 +8,29 @@ local NeighborPlan = require("romdump.src.digest.NeighborPlan")
 
 local T = {}
 
-local function u8(v) return string.char(v % 256) end
-local function u16(v) return string.char(v % 256, math.floor(v / 256) % 256) end
+local function u8(v)
+  return string.char(v % 256)
+end
+local function u16(v)
+  return string.char(v % 256, math.floor(v / 256) % 256)
+end
 
 -- Assemble a 5x5 matrix member with explicit header/land grids (row-major,
 -- index = z*5 + x + 1).
 local function build(headers, landIds)
   local parts = { u8(5), u8(5), u8(1), u8(0), u8(0) }
-  for i = 1, 25 do parts[#parts + 1] = u16(headers[i]) end
-  for i = 1, 25 do parts[#parts + 1] = u16(landIds[i]) end
+  for i = 1, 25 do
+    parts[#parts + 1] = u16(headers[i])
+  end
+  for i = 1, 25 do
+    parts[#parts + 1] = u16(landIds[i])
+  end
   return table.concat(parts)
 end
 
-local function idx(x, z) return z * 5 + x + 1 end
+local function idx(x, z)
+  return z * 5 + x + 1
+end
 
 -- Area resolver mirroring the checked-in New Bark neighbor mapping.
 local function areaForHeader(h)
@@ -31,22 +41,36 @@ end
 -- one unmapped header (skipped), and a land member shared by three cells.
 local function sampleMatrix()
   local headers, land = {}, {}
-  for i = 1, 25 do headers[i] = 7; land[i] = 999 end -- 7 is unmapped; non-neighbours are irrelevant
-  headers[idx(2, 2)] = 60; land[idx(2, 2)] = 0        -- centre
-  headers[idx(1, 1)] = 0;  land[idx(1, 1)] = 208
-  headers[idx(2, 1)] = 0;  land[idx(2, 1)] = 208      -- shares 208
-  headers[idx(3, 1)] = 99; land[idx(3, 1)] = 500      -- unmapped header -> skipped
-  headers[idx(1, 2)] = 33; land[idx(1, 2)] = 3
-  headers[idx(3, 2)] = 31; land[idx(3, 2)] = 11
-  headers[idx(1, 3)] = 0;  land[idx(1, 3)] = 208      -- shares 208
-  headers[idx(2, 3)] = 0;  land[idx(2, 3)] = 209
-  headers[idx(3, 3)] = 0;  land[idx(3, 3)] = 210
+  for i = 1, 25 do
+    headers[i] = 7
+    land[i] = 999
+  end -- 7 is unmapped; non-neighbours are irrelevant
+  headers[idx(2, 2)] = 60
+  land[idx(2, 2)] = 0 -- centre
+  headers[idx(1, 1)] = 0
+  land[idx(1, 1)] = 208
+  headers[idx(2, 1)] = 0
+  land[idx(2, 1)] = 208 -- shares 208
+  headers[idx(3, 1)] = 99
+  land[idx(3, 1)] = 500 -- unmapped header -> skipped
+  headers[idx(1, 2)] = 33
+  land[idx(1, 2)] = 3
+  headers[idx(3, 2)] = 31
+  land[idx(3, 2)] = 11
+  headers[idx(1, 3)] = 0
+  land[idx(1, 3)] = 208 -- shares 208
+  headers[idx(2, 3)] = 0
+  land[idx(2, 3)] = 209
+  headers[idx(3, 3)] = 0
+  land[idx(3, 3)] = 210
   return assert(MapMatrix.decode(build(headers, land)))
 end
 
 local function cellAt(plan, x, z)
   for _, c in ipairs(plan.cells) do
-    if c.x == x and c.z == z then return c end
+    if c.x == x and c.z == z then
+      return c
+    end
   end
   return nil
 end
@@ -83,8 +107,7 @@ function T.skips_out_of_bounds_without_wrapping()
   -- negative-coordinate neighbours are dropped, never wrapped to the far edge.
   local plan = NeighborPlan.plan(sampleMatrix(), 0, 0, areaForHeader)
   for _, c in ipairs(plan.cells) do
-    Assert.isTrue(c.x >= 0 and c.x <= 1 and c.z >= 0 and c.z <= 1,
-      "no wrapped cell; got (" .. c.x .. "," .. c.z .. ")")
+    Assert.isTrue(c.x >= 0 and c.x <= 1 and c.z >= 0 and c.z <= 1, "no wrapped cell; got (" .. c.x .. "," .. c.z .. ")")
   end
   -- Only (1,1) has a mapped header among the three in-bounds neighbours.
   Assert.equal(#plan.cells, 1)

@@ -36,10 +36,22 @@ function BillboardTransform.resolve(base, viewMatrix)
   -- j of the rotation transpose is row j of the rotation, i.e. viewMatrix[j+1],
   -- viewMatrix[j+5], viewMatrix[j+9].
   return {
-    viewMatrix[1] * sx, viewMatrix[5] * sx, viewMatrix[9] * sx, 0,
-    viewMatrix[2] * sy, viewMatrix[6] * sy, viewMatrix[10] * sy, 0,
-    viewMatrix[3] * sz, viewMatrix[7] * sz, viewMatrix[11] * sz, 0,
-    base[13], base[14], base[15], 1,
+    viewMatrix[1] * sx,
+    viewMatrix[5] * sx,
+    viewMatrix[9] * sx,
+    0,
+    viewMatrix[2] * sy,
+    viewMatrix[6] * sy,
+    viewMatrix[10] * sy,
+    0,
+    viewMatrix[3] * sz,
+    viewMatrix[7] * sz,
+    viewMatrix[11] * sz,
+    0,
+    base[13],
+    base[14],
+    base[15],
+    1,
   }
 end
 

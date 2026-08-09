@@ -14,12 +14,17 @@ local NeighborPlan = {}
 -- The eight surrounding cells in a deterministic row-major order so the planned
 -- list (and every downstream draw list) is stable.
 local OFFSETS = {
-  { dx = -1, dz = -1 }, { dx = 0, dz = -1 }, { dx = 1, dz = -1 },
-  { dx = -1, dz = 0 }, { dx = 1, dz = 0 },
-  { dx = -1, dz = 1 }, { dx = 0, dz = 1 }, { dx = 1, dz = 1 },
+  { dx = -1, dz = -1 },
+  { dx = 0, dz = -1 },
+  { dx = 1, dz = -1 },
+  { dx = -1, dz = 0 },
+  { dx = 1, dz = 0 },
+  { dx = -1, dz = 1 },
+  { dx = 0, dz = 1 },
+  { dx = 1, dz = 1 },
 }
 
-local TILES_PER_CELL = 32  -- DS matrix cell is 32x32 tiles (FieldGrid.CELL_TILES); inlined so this pure-domain module stays free of the libs/engine dependency
+local TILES_PER_CELL = 32 -- DS matrix cell is 32x32 tiles (FieldGrid.CELL_TILES); inlined so this pure-domain module stays free of the libs/engine dependency
 
 local function inBounds(matrix, x, z)
   return x >= 0 and z >= 0 and x < matrix.width and z < matrix.height
@@ -53,7 +58,9 @@ function NeighborPlan.plan(matrix, cx, cz, areaForHeader)
   end
 
   local uniqueLandMembers = {}
-  for member in pairs(uniqueSet) do uniqueLandMembers[#uniqueLandMembers + 1] = member end
+  for member in pairs(uniqueSet) do
+    uniqueLandMembers[#uniqueLandMembers + 1] = member
+  end
   table.sort(uniqueLandMembers)
 
   return { cells = cells, uniqueLandMembers = uniqueLandMembers }

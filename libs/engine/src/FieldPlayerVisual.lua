@@ -47,9 +47,11 @@ end
 -- a swap cannot display a frame index the new atlas does not have.
 function FieldPlayerVisual:setAvatar(spriteId, visualDef)
   if type(spriteId) ~= "number" or type(visualDef) ~= "table" then
-    Errors.raise("PLAYER_AVATAR_INVALID",
+    Errors.raise(
+      "PLAYER_AVATAR_INVALID",
       "the player avatar requires a compiled spriteId and visual definition",
-      { spriteId = spriteId })
+      { spriteId = spriteId }
+    )
   end
   self.spriteId, self.visualDef = spriteId, visualDef
   self.poseTick = 0

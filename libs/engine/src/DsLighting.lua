@@ -28,8 +28,12 @@ local function unpackColor(packed)
   return { r, g, b }
 end
 
-local function dot3(a, b) return a[1] * b[1] + a[2] * b[2] + a[3] * b[3] end
-local function scale3(v, s) return { v[1] * s, v[2] * s, v[3] * s } end
+local function dot3(a, b)
+  return a[1] * b[1] + a[2] * b[2] + a[3] * b[3]
+end
+local function scale3(v, s)
+  return { v[1] * s, v[2] * s, v[3] * s }
+end
 
 local function length3(v)
   return math.sqrt(v[1] * v[1] + v[2] * v[2] + v[3] * v[3])
@@ -37,7 +41,9 @@ end
 
 local function normalize3(v)
   local len = length3(v)
-  if len < 1e-12 then return { 0, 0, 0 } end
+  if len < 1e-12 then
+    return { 0, 0, 0 }
+  end
   return { v[1] / len, v[2] / len, v[3] / len }
 end
 
@@ -106,7 +112,9 @@ end
 -- DS 5-bit alpha composition. `At5` is the rounded texture alpha (0..31),
 -- `Ap5` the polygon alpha (0..31). `polygonMode` is "modulation" or "decal".
 function DsLighting.composeAlpha5(At5, Ap5, polygonMode)
-  if polygonMode == "decal" then return Ap5 end
+  if polygonMode == "decal" then
+    return Ap5
+  end
   return math.floor((((At5 + 1) * (Ap5 + 1)) - 1) / 32)
 end
 

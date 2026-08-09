@@ -13,7 +13,9 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 
 local TextureDecoder = {}
 
-local function byteAt(s, i) return string.byte(s, i + 1) or 0 end
+local function byteAt(s, i)
+  return string.byte(s, i + 1) or 0
+end
 
 local function paletteColor(palette, index)
   local off = index * 2
@@ -38,7 +40,9 @@ local function palettedSampler(palette, color0Transparent, index)
     local i = index(x, y)
     local r, g, b = paletteColor(palette, i)
     local a = 255
-    if color0Transparent and i == 0 then a = 0 end
+    if color0Transparent and i == 0 then
+      a = 0
+    end
     return r, g, b, a
   end
 end
@@ -58,28 +62,42 @@ end
 
 -- Format 2: 4-color -- 2-bit indices, 4 texels per byte, LSB first.
 DECODERS[2] = function(o)
-  return assemble(o.width, o.height, palettedSampler(o.palette, o.color0Transparent, function(x, y)
-    local linear = y * o.width + x
-    local v = byteAt(o.texel, math.floor(linear / 4))
-    return math.floor(v / 4 ^ (linear % 4)) % 4
-  end))
+  return assemble(
+    o.width,
+    o.height,
+    palettedSampler(o.palette, o.color0Transparent, function(x, y)
+      local linear = y * o.width + x
+      local v = byteAt(o.texel, math.floor(linear / 4))
+      return math.floor(v / 4 ^ (linear % 4)) % 4
+    end)
+  )
 end
 
 -- Format 3: 16-color -- 4-bit indices, 2 texels per byte, low nibble first.
 DECODERS[3] = function(o)
-  return assemble(o.width, o.height, palettedSampler(o.palette, o.color0Transparent, function(x, y)
-    local linear = y * o.width + x
-    local v = byteAt(o.texel, math.floor(linear / 2))
-    if linear % 2 == 0 then return v % 16 end
-    return math.floor(v / 16) % 16
-  end))
+  return assemble(
+    o.width,
+    o.height,
+    palettedSampler(o.palette, o.color0Transparent, function(x, y)
+      local linear = y * o.width + x
+      local v = byteAt(o.texel, math.floor(linear / 2))
+      if linear % 2 == 0 then
+        return v % 16
+      end
+      return math.floor(v / 16) % 16
+    end)
+  )
 end
 
 -- Format 4: 256-color -- one 8-bit index per texel.
 DECODERS[4] = function(o)
-  return assemble(o.width, o.height, palettedSampler(o.palette, o.color0Transparent, function(x, y)
-    return byteAt(o.texel, y * o.width + x)
-  end))
+  return assemble(
+    o.width,
+    o.height,
+    palettedSampler(o.palette, o.color0Transparent, function(x, y)
+      return byteAt(o.texel, y * o.width + x)
+    end)
+  )
 end
 
 -- Format 6: A5I3 -- 3-bit palette index, 5-bit alpha, one byte per texel.
@@ -109,7 +127,9 @@ local function blend(palette, a, b, numA, den)
   local ra, ga, ba = paletteColor(palette, a)
   local rb, gb, bb = paletteColor(palette, b)
   local numB = den - numA
-  local function mix(ca, cb) return math.floor((ca * numA + cb * numB) / den + 0.5) end
+  local function mix(ca, cb)
+    return math.floor((ca * numA + cb * numB) / den + 0.5)
+  end
   return mix(ra, rb), mix(ga, gb), mix(ba, bb)
 end
 
@@ -124,8 +144,7 @@ DECODERS[5] = function(o)
     local rowByte = byteAt(o.texel, blockIndex * 4 + (y % 4))
     local texel = math.floor(rowByte / 4 ^ (x % 4)) % 4
 
-    local control = byteAt(o.indexData, blockIndex * 2)
-      + byteAt(o.indexData, blockIndex * 2 + 1) * 256
+    local control = byteAt(o.indexData, blockIndex * 2) + byteAt(o.indexData, blockIndex * 2 + 1) * 256
     local base = (control % 0x4000) * 2
     local mode = math.floor(control / 0x4000)
 
@@ -134,11 +153,15 @@ DECODERS[5] = function(o)
       return r, g, b, 255
     end
     if mode == 0 then -- 0,1,2 from palette; 3 transparent
-      if texel == 3 then return 0, 0, 0, 0 end
+      if texel == 3 then
+        return 0, 0, 0, 0
+      end
       local r, g, b = paletteColor(o.palette, base + texel)
       return r, g, b, 255
     elseif mode == 1 then -- 2 = mean(0,1); 3 transparent
-      if texel == 3 then return 0, 0, 0, 0 end
+      if texel == 3 then
+        return 0, 0, 0, 0
+      end
       local r, g, b = blend(o.palette, base, base + 1, 1, 2)
       return r, g, b, 255
     elseif mode == 2 then -- all four explicit
@@ -146,8 +169,11 @@ DECODERS[5] = function(o)
       return r, g, b, 255
     else -- mode 3: 2 = 5:3, 3 = 3:5
       local r, g, b
-      if texel == 2 then r, g, b = blend(o.palette, base, base + 1, 5, 8)
-      else r, g, b = blend(o.palette, base, base + 1, 3, 8) end
+      if texel == 2 then
+        r, g, b = blend(o.palette, base, base + 1, 5, 8)
+      else
+        r, g, b = blend(o.palette, base, base + 1, 3, 8)
+      end
       return r, g, b, 255
     end
   end)
@@ -158,9 +184,13 @@ local function computeAlphaUsage(pixels)
   local hasZero, hasPartial, hasOpaque = false, false, false
   for i = 4, #pixels, 4 do
     local a = string.byte(pixels, i)
-    if a == 0 then hasZero = true
-    elseif a == 255 then hasOpaque = true
-    else hasPartial = true end
+    if a == 0 then
+      hasZero = true
+    elseif a == 255 then
+      hasOpaque = true
+    else
+      hasPartial = true
+    end
   end
   return { hasZero = hasZero, hasPartial = hasPartial, hasOpaque = hasOpaque }
 end
@@ -172,12 +202,21 @@ function TextureDecoder.decode(opts, context)
   local decoder = DECODERS[opts.format]
   if not decoder then
     if opts.format == 0 then
-      error(Errors.new("NSBTX_FORMAT_NONE", "format 0 is 'no texture' and cannot be decoded",
-        { format = 0, source = context }))
+      error(
+        Errors.new(
+          "NSBTX_FORMAT_NONE",
+          "format 0 is 'no texture' and cannot be decoded",
+          { format = 0, source = context }
+        )
+      )
     end
-    error(Errors.new("NSBTX_UNSUPPORTED_FORMAT",
-      "unsupported texture format " .. tostring(opts.format),
-      { format = opts.format, name = context and context.name, source = context }))
+    error(
+      Errors.new(
+        "NSBTX_UNSUPPORTED_FORMAT",
+        "unsupported texture format " .. tostring(opts.format),
+        { format = opts.format, name = context and context.name, source = context }
+      )
+    )
   end
   local pixels = decoder(opts)
   return {

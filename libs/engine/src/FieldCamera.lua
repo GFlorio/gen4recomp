@@ -45,8 +45,10 @@ local TAU = 2 * math.pi
 
 local function copyVector(vector)
   assert(type(vector) == "table", "camera vector must be a table")
-  assert(type(vector.x) == "number" and type(vector.y) == "number" and type(vector.z) == "number",
-    "camera vector must contain numeric x, y, and z")
+  assert(
+    type(vector.x) == "number" and type(vector.y) == "number" and type(vector.z) == "number",
+    "camera vector must contain numeric x, y, and z"
+  )
   return { x = vector.x, y = vector.y, z = vector.z }
 end
 
@@ -75,15 +77,24 @@ end
 
 local function validateProfile(profile)
   assert(type(profile) == "table", "camera profile is required")
-  assert(profile.projectionType == "perspective" or profile.projectionType == "orthographic",
-    "unsupported camera projection type")
+  assert(
+    profile.projectionType == "perspective" or profile.projectionType == "orthographic",
+    "unsupported camera projection type"
+  )
   assert(type(profile.distanceTiles) == "number" and profile.distanceTiles > 0, "camera distance must be positive")
   assert(type(profile.angleXRaw) == "number" and type(profile.angleYRaw) == "number", "camera angles are required")
   assert(type(profile.halfFovRadians) == "number" and profile.halfFovRadians > 0, "camera half FOV is required")
-  assert(type(profile.fullVerticalFovRadians) == "number" and profile.fullVerticalFovRadians > 0,
-    "camera full vertical FOV is required")
-  assert(type(profile.nearTiles) == "number" and type(profile.farTiles) == "number"
-    and profile.nearTiles > 0 and profile.farTiles > profile.nearTiles, "invalid camera clipping planes")
+  assert(
+    type(profile.fullVerticalFovRadians) == "number" and profile.fullVerticalFovRadians > 0,
+    "camera full vertical FOV is required"
+  )
+  assert(
+    type(profile.nearTiles) == "number"
+      and type(profile.farTiles) == "number"
+      and profile.nearTiles > 0
+      and profile.farTiles > profile.nearTiles,
+    "invalid camera clipping planes"
+  )
   copyVector(profile.targetOffsetTiles)
 end
 
@@ -158,11 +169,7 @@ function FieldCamera:view(alpha)
   alpha = alpha == nil and 1 or math.max(0, math.min(1, alpha))
   local eye = lerpVector(self.previousEye, self.eye, alpha)
   local target = lerpVector(self.previousTarget, self.target, alpha)
-  return Matrix4.lookAt(
-    { eye.x, eye.y, eye.z },
-    { target.x, target.y, target.z },
-    { self.up.x, self.up.y, self.up.z }
-  )
+  return Matrix4.lookAt({ eye.x, eye.y, eye.z }, { target.x, target.y, target.z }, { self.up.x, self.up.y, self.up.z })
 end
 
 function FieldCamera:_projection(aspect, zoom)

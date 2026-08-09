@@ -9,9 +9,12 @@ local Errors = {}
 ---@field message string
 ---@field context table
 
-local MT = { __index = {}, __tostring = function(e)
-  return Errors.format(e)
-end }
+local MT = {
+  __index = {},
+  __tostring = function(e)
+    return Errors.format(e)
+  end,
+}
 
 function Errors.new(code, message, context)
   assert(type(code) == "string", "error code must be a string")
@@ -30,13 +33,19 @@ end
 
 local function sortedKeys(value)
   local keys = {}
-  for key in pairs(value) do keys[#keys + 1] = key end
-  table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+  for key in pairs(value) do
+    keys[#keys + 1] = key
+  end
+  table.sort(keys, function(a, b)
+    return tostring(a) < tostring(b)
+  end)
   return keys
 end
 
 local function formatValue(value)
-  if type(value) ~= "table" then return tostring(value) end
+  if type(value) ~= "table" then
+    return tostring(value)
+  end
   local parts = {}
   for _, key in ipairs(sortedKeys(value)) do
     parts[#parts + 1] = tostring(key) .. "=" .. formatValue(value[key])
@@ -45,9 +54,13 @@ local function formatValue(value)
 end
 
 function Errors.format(value)
-  if not Errors.is(value) then return tostring(value) end
+  if not Errors.is(value) then
+    return tostring(value)
+  end
   local base = value.code .. ": " .. value.message
-  if next(value.context) == nil then return base end
+  if next(value.context) == nil then
+    return base
+  end
   return base .. " " .. formatValue(value.context)
 end
 

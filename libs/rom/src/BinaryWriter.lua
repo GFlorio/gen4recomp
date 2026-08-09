@@ -26,8 +26,10 @@ function BinaryWriter:u16(v)
 end
 
 function BinaryWriter:u32(v)
-  return push(self, string.char(v % 256, math.floor(v / 256) % 256,
-    math.floor(v / 65536) % 256, math.floor(v / 16777216) % 256))
+  return push(
+    self,
+    string.char(v % 256, math.floor(v / 256) % 256, math.floor(v / 65536) % 256, math.floor(v / 16777216) % 256)
+  )
 end
 
 -- IEEE-754 binary32, little-endian. Handles zero, infinity, NaN, and normals;
@@ -37,7 +39,10 @@ function BinaryWriter:f32(v)
   if v ~= v then -- NaN
     return push(self, string.char(0x00, 0x00, 0xC0, 0x7F))
   end
-  if v < 0 or (v == 0 and 1 / v == -math.huge) then neg = true; v = -v end
+  if v < 0 or (v == 0 and 1 / v == -math.huge) then
+    neg = true
+    v = -v
+  end
   local sign = neg and 2147483648 or 0 -- bit 31
   if v == math.huge then
     return self:u32(sign + 255 * 8388608)
@@ -51,14 +56,19 @@ function BinaryWriter:f32(v)
   if biased <= 0 then -- subnormal / underflow
     mantissa = math.floor(v / 2 ^ -149 + 0.5)
     biased = 0
-    if mantissa >= 8388608 then biased = 1; mantissa = mantissa - 8388608 end
+    if mantissa >= 8388608 then
+      biased = 1
+      mantissa = mantissa - 8388608
+    end
   else
     mantissa = math.floor((mant * 2 - 1) * 8388608 + 0.5)
     if mantissa >= 8388608 then -- mantissa rounded up into the next exponent
       mantissa = 0
       biased = biased + 1
     end
-    if biased >= 255 then return self:u32(sign + 255 * 8388608) end
+    if biased >= 255 then
+      return self:u32(sign + 255 * 8388608)
+    end
   end
   return self:u32(sign + biased * 8388608 + mantissa)
 end

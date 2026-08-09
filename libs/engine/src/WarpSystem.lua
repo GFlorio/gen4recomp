@@ -10,38 +10,51 @@ local WarpSystem = {}
 
 local WARP_Y_SCALE = 16
 local DIRECTION_DELTAS = {
-  north = { x = 0, z = -1 }, south = { x = 0, z = 1 },
-  west = { x = -1, z = 0 }, east = { x = 1, z = 0 },
+  north = { x = 0, z = -1 },
+  south = { x = 0, z = 1 },
+  west = { x = -1, z = 0 },
+  east = { x = 1, z = 0 },
 }
 
 local function warps(runtimeMap)
-  return assert(runtimeMap and runtimeMap.fieldData and runtimeMap.fieldData.events
-    and runtimeMap.fieldData.events.warps, "runtime map warp data required")
+  return assert(
+    runtimeMap and runtimeMap.fieldData and runtimeMap.fieldData.events and runtimeMap.fieldData.events.warps,
+    "runtime map warp data required"
+  )
 end
 
 function WarpSystem.findAt(runtimeMap, fieldX, fieldZ)
   for _, warp in ipairs(warps(runtimeMap)) do
-    if warp.x == fieldX and warp.z == fieldZ then return warp end
+    if warp.x == fieldX and warp.z == fieldZ then
+      return warp
+    end
   end
   return nil
 end
 
 function WarpSystem.findBlockedFacing(runtimeMap, fieldX, fieldZ, direction)
   local delta = DIRECTION_DELTAS[direction]
-  if not delta then return nil end
+  if not delta then
+    return nil
+  end
   local destinationX, destinationZ = fieldX + delta.x, fieldZ + delta.z
   local warp = WarpSystem.findAt(runtimeMap, destinationX, destinationZ)
-  if not warp then return nil end
+  if not warp then
+    return nil
+  end
   local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, destinationX, destinationZ)
-  if runtimeMap.permissions:isBlockedLocal(localX, localZ) then return warp end
+  if runtimeMap.permissions:isBlockedLocal(localX, localZ) then
+    return warp
+  end
   return nil
 end
 
 local function loadDestination(loader, sourceMap, warp)
   local ok, result = pcall(loader.load, loader, warp.destinationMapId)
-  if ok then return result end
-  if Errors.is(result) and (result.code == "FIELD_MAP_UNKNOWN"
-    or result.code == "FIELD_DESTINATION_MAP_UNKNOWN") then
+  if ok then
+    return result
+  end
+  if Errors.is(result) and (result.code == "FIELD_MAP_UNKNOWN" or result.code == "FIELD_DESTINATION_MAP_UNKNOWN") then
     Errors.raise("FIELD_DESTINATION_MAP_UNKNOWN", "warp destination map is unavailable", {
       sourceMapId = sourceMap.mapId,
       sourceWarpId = warp.index,
@@ -75,8 +88,7 @@ function WarpSystem.resolveDestination(loader, sourceMap, warp)
     })
   end
 
-  local localX, localZ = FieldCoordinates.fieldToLocal(
-    destinationMap, destinationWarp.x, destinationWarp.z)
+  local localX, localZ = FieldCoordinates.fieldToLocal(destinationMap, destinationWarp.x, destinationWarp.z)
   local hintY = destinationWarp.y / WARP_Y_SCALE
   local sample = SurfaceResolver.new(destinationMap.terrain):resolve({
     localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
@@ -102,12 +114,13 @@ function WarpSystem.resolveDestination(loader, sourceMap, warp)
 end
 
 function WarpSystem.isSuppressed(token, mapId, fieldX, fieldZ)
-  return token ~= nil and token.mapId == mapId
-    and token.fieldX == fieldX and token.fieldZ == fieldZ
+  return token ~= nil and token.mapId == mapId and token.fieldX == fieldX and token.fieldZ == fieldZ
 end
 
 function WarpSystem.updateSuppression(token, mapId, fieldX, fieldZ)
-  if WarpSystem.isSuppressed(token, mapId, fieldX, fieldZ) then return token end
+  if WarpSystem.isSuppressed(token, mapId, fieldX, fieldZ) then
+    return token
+  end
   return nil
 end
 

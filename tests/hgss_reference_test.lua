@@ -8,13 +8,23 @@ local narcs = require("data.reference.hgss.narcs")
 local T = {}
 
 local BOOLEAN_FIELDS = {
-  "bikeAllowed", "runningAllowedUnused", "escapeRopeAllowed", "flyAllowed",
-  "outgoingCalls", "incomingCalls", "radioSignal",
+  "bikeAllowed",
+  "runningAllowedUnused",
+  "escapeRopeAllowed",
+  "flyAllowed",
+  "outgoingCalls",
+  "incomingCalls",
+  "radioSignal",
 }
 
 local MEMBER_ID_FIELDS = {
-  "wildEncounterMemberId", "areaDataMemberId", "matrixMemberId",
-  "scriptsMemberId", "scriptHeaderMemberId", "messageMemberId", "eventMemberId",
+  "wildEncounterMemberId",
+  "areaDataMemberId",
+  "matrixMemberId",
+  "scriptsMemberId",
+  "scriptHeaderMemberId",
+  "messageMemberId",
+  "eventMemberId",
 }
 
 function T.narc_catalog_is_complete_and_unique()
@@ -31,7 +41,9 @@ function T.narc_catalog_is_complete_and_unique()
     count = count + 1
   end
   Assert.equal(count, 267)
-  for narcId = 0, 266 do Assert.isTrue(ids[narcId]) end
+  for narcId = 0, 266 do
+    Assert.isTrue(ids[narcId])
+  end
 end
 
 function T.map_catalog_is_complete_and_well_typed()
@@ -61,15 +73,25 @@ end
 function T.new_bark_records_are_stable()
   local town = maps.byId[60]
   Assert.equal(town.symbol, "MAP_NEW_BARK")
-  Assert.deepEqual({ town.matrixMemberId, town.areaDataMemberId, town.scriptsMemberId,
-    town.scriptHeaderMemberId, town.messageMemberId, town.eventMemberId },
-    { 0, 2, 842, 615, 542, 57 })
+  Assert.deepEqual({
+    town.matrixMemberId,
+    town.areaDataMemberId,
+    town.scriptsMemberId,
+    town.scriptHeaderMemberId,
+    town.messageMemberId,
+    town.eventMemberId,
+  }, { 0, 2, 842, 615, 542, 57 })
 
   local lab = maps.byId[61]
   Assert.equal(lab.symbol, "MAP_NEW_BARK_ELMS_LAB_1F")
-  Assert.deepEqual({ lab.matrixMemberId, lab.areaDataMemberId, lab.scriptsMemberId,
-    lab.scriptHeaderMemberId, lab.messageMemberId, lab.eventMemberId },
-    { 100, 25, 843, 616, 543, 58 })
+  Assert.deepEqual({
+    lab.matrixMemberId,
+    lab.areaDataMemberId,
+    lab.scriptsMemberId,
+    lab.scriptHeaderMemberId,
+    lab.messageMemberId,
+    lab.eventMemberId,
+  }, { 100, 25, 843, 616, 543, 58 })
 end
 
 return T

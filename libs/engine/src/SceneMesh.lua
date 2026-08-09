@@ -53,8 +53,7 @@ function SceneMesh.decode(bytes, context)
 
   local expected = HEADER + vertexCount * STRIDE + indexCount * indexWidth
   if expected ~= #bytes then
-    Errors.raise("MESH_BAD_LENGTH",
-      "expected " .. expected .. " bytes, got " .. #bytes, { source = context })
+    Errors.raise("MESH_BAD_LENGTH", "expected " .. expected .. " bytes, got " .. #bytes, { source = context })
   end
 
   local vertices = {}
@@ -84,8 +83,11 @@ function SceneMesh.decode(bytes, context)
   for i = 1, indexCount do
     local value = (indexWidth == 2) and r:u16le(off) or r:u32le(off)
     if value >= vertexCount then
-      Errors.raise("MESH_INDEX_OUT_OF_RANGE",
-        "index " .. value .. " >= vertex count " .. vertexCount, { source = context })
+      Errors.raise(
+        "MESH_INDEX_OUT_OF_RANGE",
+        "index " .. value .. " >= vertex count " .. vertexCount,
+        { source = context }
+      )
     end
     indices[i] = value
     off = off + indexWidth

@@ -6,12 +6,20 @@ local Errors = require("libs.rom.src.Errors")
 local FieldCameraCacheWriter = {}
 local DIR = "data/generated/field/camera"
 
-function FieldCameraCacheWriter.profilesPath() return DIR .. "/profiles.lua" end
-function FieldCameraCacheWriter.provenancePath() return DIR .. "/provenance.lua" end
-function FieldCameraCacheWriter.markerPath() return DIR .. "/complete" end
+function FieldCameraCacheWriter.profilesPath()
+  return DIR .. "/profiles.lua"
+end
+function FieldCameraCacheWriter.provenancePath()
+  return DIR .. "/provenance.lua"
+end
+function FieldCameraCacheWriter.markerPath()
+  return DIR .. "/complete"
+end
 
 function FieldCameraCacheWriter.isReady(cacheFs, marker)
-  if cacheFs:read(FieldCameraCacheWriter.markerPath()) ~= marker then return false end
+  if cacheFs:read(FieldCameraCacheWriter.markerPath()) ~= marker then
+    return false
+  end
   return cacheFs:exists(FieldCameraCacheWriter.profilesPath(), "file")
     and cacheFs:exists(FieldCameraCacheWriter.provenancePath(), "file")
 end
@@ -23,8 +31,11 @@ local function persist(cacheFs, bundle)
   local profiles, profileErr = cacheFs:loadLua(FieldCameraCacheWriter.profilesPath())
   local provenance, provenanceErr = cacheFs:loadLua(FieldCameraCacheWriter.provenancePath())
   if not profiles or not provenance then
-    Errors.raise("FIELD_CAMERA_CACHE_STALE",
-      "camera artifacts failed readback: " .. tostring(profileErr or provenanceErr), {})
+    Errors.raise(
+      "FIELD_CAMERA_CACHE_STALE",
+      "camera artifacts failed readback: " .. tostring(profileErr or provenanceErr),
+      {}
+    )
   end
   assert(profiles.schema == "g4-field-camera-profiles-v1")
   assert(profiles.recordCount == bundle.profiles.recordCount)
@@ -35,8 +46,12 @@ end
 function FieldCameraCacheWriter.write(cacheFs, bundle)
   assert(cacheFs and type(bundle) == "table" and bundle.marker, "invalid camera bundle")
   local ok, result = pcall(persist, cacheFs, bundle)
-  if ok then return result end
-  pcall(function() cacheFs:removeTree(DIR) end)
+  if ok then
+    return result
+  end
+  pcall(function()
+    cacheFs:removeTree(DIR)
+  end)
   error(result)
 end
 

@@ -8,7 +8,9 @@ local CollisionGrid = require("libs.engine.src.CollisionGrid")
 -- 0x800 permission section; set tile (lx,lz) byte 1 to `perm`.
 local function gridWith(entries)
   local bytes = {}
-  for i = 1, 0x800 do bytes[i] = "\0" end
+  for i = 1, 0x800 do
+    bytes[i] = "\0"
+  end
   for _, e in ipairs(entries) do
     local index = e.z * 32 + e.x
     bytes[index * 2 + 2] = string.char(e.perm) -- byte 1 (permission)
@@ -38,12 +40,15 @@ return {
   end,
 
   ["blocks only the 0x80 bit, local and global"] = function()
-    local c = CollisionGrid.new(gridWith({
-      { x = 1, z = 2, perm = 0x80 },
-      { x = 3, z = 2, perm = 0x06 },
-    }), { worldOriginX = 100, worldOriginZ = 200 })
+    local c = CollisionGrid.new(
+      gridWith({
+        { x = 1, z = 2, perm = 0x80 },
+        { x = 3, z = 2, perm = 0x06 },
+      }),
+      { worldOriginX = 100, worldOriginZ = 200 }
+    )
     Assert.isTrue(c:isBlockedLocal(1, 2))
-    Assert.isFalse(c:isBlockedLocal(3, 2))     -- surface response 6, passable
+    Assert.isFalse(c:isBlockedLocal(3, 2)) -- surface response 6, passable
     Assert.isTrue(c:isBlockedGlobal(101, 202)) -- same tile via global
     Assert.isFalse(c:isBlockedGlobal(103, 202))
   end,

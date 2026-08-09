@@ -35,20 +35,25 @@ local SLICE_BORDER = 2
 ---@param opts { cacheFs: CacheFs, fontId?: integer, theme?: FieldDialogueTheme, graphics?: love.Graphics? }
 ---@return FieldDialogueRenderer
 function FieldDialogueRenderer.new(opts)
-  assert(type(opts) == "table" and opts.cacheFs and opts.cacheFs.loadLua,
-    "FieldDialogueRenderer requires a CacheFs-shaped object")
+  assert(
+    type(opts) == "table" and opts.cacheFs and opts.cacheFs.loadLua,
+    "FieldDialogueRenderer requires a CacheFs-shaped object"
+  )
   local fontId = opts.fontId or 0
   local theme = opts.theme or FieldDialogueTheme
   local graphics = opts.graphics
-  if graphics == nil then graphics = love and love.graphics end
+  if graphics == nil then
+    graphics = love and love.graphics
+  end
   local cacheFs = opts.cacheFs
 
   local def = cacheFs:loadLua(FieldFontCache.defPath(fontId))
   if type(def) ~= "table" or def.schema ~= FieldFontCache.SCHEMA then
-    Errors.raise("FONT_DEF_MISSING",
-      "no " .. FieldFontCache.SCHEMA .. " definition at "
-        .. FieldFontCache.defPath(fontId),
-      { fontId = fontId, path = FieldFontCache.defPath(fontId) })
+    Errors.raise(
+      "FONT_DEF_MISSING",
+      "no " .. FieldFontCache.SCHEMA .. " definition at " .. FieldFontCache.defPath(fontId),
+      { fontId = fontId, path = FieldFontCache.defPath(fontId) }
+    )
   end
 
   local self = setmetatable({
@@ -66,12 +71,13 @@ function FieldDialogueRenderer.new(opts)
   if graphics and graphics.newImage then
     local data = cacheFs:read(FieldFontCache.atlasPath(fontId))
     if not data then
-      Errors.raise("FONT_ATLAS_MISSING",
+      Errors.raise(
+        "FONT_ATLAS_MISSING",
         "font atlas missing at " .. FieldFontCache.atlasPath(fontId),
-        { fontId = fontId, path = FieldFontCache.atlasPath(fontId) })
+        { fontId = fontId, path = FieldFontCache.atlasPath(fontId) }
+      )
     end
-    self.atlas = graphics.newImage(love.filesystem.newFileData(data,
-      FieldFontCache.atlasPath(fontId)))
+    self.atlas = graphics.newImage(love.filesystem.newFileData(data, FieldFontCache.atlasPath(fontId)))
     self.atlas:setFilter("nearest", "nearest")
     self:_buildQuads()
     self:_buildSlice()
@@ -100,8 +106,7 @@ function FieldDialogueRenderer:_buildSlice()
   local border, fill = colors.border, colors.fill
   for y = 0, size - 1 do
     for x = 0, size - 1 do
-      local onBorder = x < SLICE_BORDER or y < SLICE_BORDER
-        or x >= size - SLICE_BORDER or y >= size - SLICE_BORDER
+      local onBorder = x < SLICE_BORDER or y < SLICE_BORDER or x >= size - SLICE_BORDER or y >= size - SLICE_BORDER
       local c = onBorder and border or fill
       imageData:setPixel(x, y, c[1], c[2], c[3], c[4])
     end
@@ -162,7 +167,9 @@ function FieldDialogueRenderer:_drawMarkerTokens(tokens, x, y, advanceX)
   for _, token in ipairs(tokens) do
     local runs = self:_glyphRuns(FieldMessageText.tokensToText({ token }))
     for _, run in ipairs(runs) do
-      if run.quad then lg.draw(self.atlas, run.quad, x, y) end
+      if run.quad then
+        lg.draw(self.atlas, run.quad, x, y)
+      end
       x = x + run.advance
     end
     advanceX[1] = x
@@ -186,7 +193,9 @@ function FieldDialogueRenderer:_drawLine(tokens, x, y)
     if token.kind == "glyph" then
       self:_flushMarkers(markers, advanceX, y)
       local quad = self._quads[token.code] or self._quads[0]
-      if quad then lg.draw(atlas, quad, advanceX[1], y) end
+      if quad then
+        lg.draw(atlas, quad, advanceX[1], y)
+      end
       local glyph = self.fontDef.glyphs[token.code] or self.fontDef.glyphs[0]
       advanceX[1] = advanceX[1] + glyph.advance + (self.fontDef.letterSpacing or 0)
     else
@@ -200,9 +209,13 @@ end
 ---@param advanceX number[]
 ---@param y number
 function FieldDialogueRenderer:_flushMarkers(markers, advanceX, y)
-  if #markers == 0 then return end
+  if #markers == 0 then
+    return
+  end
   self:_drawMarkerTokens(markers, advanceX[1], y, advanceX)
-  for i = 1, #markers do markers[i] = nil end
+  for i = 1, #markers do
+    markers[i] = nil
+  end
 end
 
 -- Draws the continue cursor at the text area's bottom-right while the
@@ -211,15 +224,22 @@ end
 ---@param status FieldDialogueController.Status
 ---@param layout FieldDialogueTheme.Layout
 function FieldDialogueRenderer:_drawCursor(status, layout)
-  if not status.waiting or not status.cursorOn then return end
+  if not status.waiting or not status.cursorOn then
+    return
+  end
   local lg = assert(self._graphics)
   local cursor = layout.cursor
   local color = self._theme.colors.cursor
   lg.setColor(color[1], color[2], color[3], color[4])
-  lg.polygon("fill",
-    cursor.x, cursor.y,
-    cursor.x + cursor.width, cursor.y,
-    cursor.x + cursor.width / 2, cursor.y + cursor.height)
+  lg.polygon(
+    "fill",
+    cursor.x,
+    cursor.y,
+    cursor.x + cursor.width,
+    cursor.y,
+    cursor.x + cursor.width / 2,
+    cursor.y + cursor.height
+  )
 end
 
 -- Draws the window nine-slice over the box rect in reference coordinates.
@@ -241,9 +261,15 @@ function FieldDialogueRenderer:_drawBox(layout)
   for row = 1, 3 do
     for col = 1, 3 do
       index = index + 1
-      lg.draw(sliceImage, sliceQuads[index],
-        spansX[col], spansY[row], 0,
-        widths[col] / SLICE_BORDER, heights[row] / SLICE_BORDER)
+      lg.draw(
+        sliceImage,
+        sliceQuads[index],
+        spansX[col],
+        spansY[row],
+        0,
+        widths[col] / SLICE_BORDER,
+        heights[row] / SLICE_BORDER
+      )
     end
   end
 end
@@ -256,7 +282,9 @@ end
 ---@param controller FieldDialogueController
 ---@param viewport { referenceFrame: FieldDialogueTheme.Rect }
 function FieldDialogueRenderer:draw(controller, viewport)
-  if not controller or not controller:isModal() or not self.atlas then return end
+  if not controller or not controller:isModal() or not self.atlas then
+    return
+  end
   local lg = assert(self._graphics)
   local status = controller:status()
 
@@ -290,10 +318,16 @@ function FieldDialogueRenderer:draw(controller, viewport)
 
   lg.setCanvas(canvas)
   lg.setShader(shader)
-  if blendMode then lg.setBlendMode(blendMode, blendAlpha) end
-  if depthMode then lg.setDepthMode(depthMode, depthWrite) end
+  if blendMode then
+    lg.setBlendMode(blendMode, blendAlpha)
+  end
+  if depthMode then
+    lg.setDepthMode(depthMode, depthWrite)
+  end
   lg.setWireframe(wireframe)
-  if cullMode then lg.setMeshCullMode(cullMode) end
+  if cullMode then
+    lg.setMeshCullMode(cullMode)
+  end
   lg.setColor(color[1], color[2], color[3], color[4])
   if scissorX then
     lg.setScissor(scissorX, scissorY, scissorW, scissorH)
@@ -301,12 +335,18 @@ function FieldDialogueRenderer:draw(controller, viewport)
     lg.setScissor()
   end
 
-  if not ok then error(err) end
+  if not ok then
+    error(err)
+  end
 end
 
 function FieldDialogueRenderer:release()
-  if self.atlas and self.atlas.release then self.atlas:release() end
-  if self._sliceImage and self._sliceImage.release then self._sliceImage:release() end
+  if self.atlas and self.atlas.release then
+    self.atlas:release()
+  end
+  if self._sliceImage and self._sliceImage.release then
+    self._sliceImage:release()
+  end
   self.atlas, self._sliceImage = nil, nil
   self._quads, self._sliceQuads = nil, nil
 end

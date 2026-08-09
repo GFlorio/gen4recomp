@@ -40,15 +40,20 @@ function T.record_offsets_are_relative_to_the_table_start()
 end
 
 function T.packed_word_splits_into_movement_family_and_visual()
-  Assert.deepEqual(FieldActorGraphics.splitPacked(0x0000),
-    { movementProfile = 0, actorFamily = 0, visualDescriptor = 0 })
-  Assert.deepEqual(FieldActorGraphics.splitPacked(0x1C60),
-    { movementProfile = 0, actorFamily = 3, visualDescriptor = 7 })
-  Assert.deepEqual(FieldActorGraphics.splitPacked(0x4E27),
-    { movementProfile = 7, actorFamily = 17, visualDescriptor = 19 })
+  Assert.deepEqual(
+    FieldActorGraphics.splitPacked(0x0000),
+    { movementProfile = 0, actorFamily = 0, visualDescriptor = 0 }
+  )
+  Assert.deepEqual(
+    FieldActorGraphics.splitPacked(0x1C60),
+    { movementProfile = 0, actorFamily = 3, visualDescriptor = 7 }
+  )
+  Assert.deepEqual(
+    FieldActorGraphics.splitPacked(0x4E27),
+    { movementProfile = 7, actorFamily = 17, visualDescriptor = 19 }
+  )
   -- The three fields together account for every bit of the word.
-  Assert.equal(0x4E27 % 32 + math.floor(0x4E27 / 32) % 32 * 32
-    + math.floor(0x4E27 / 1024) * 1024, 0x4E27)
+  Assert.equal(0x4E27 % 32 + math.floor(0x4E27 / 32) % 32 * 32 + math.floor(0x4E27 / 1024) * 1024, 0x4E27)
 end
 
 function T.expected_count_and_terminator_offset_are_enforced()
@@ -58,10 +63,12 @@ function T.expected_count_and_terminator_offset_are_enforced()
 end
 
 function T.rejects_duplicate_sprite_id()
-  failsWith("FIELD_ACTOR_DUPLICATE_SPRITE_ID", { records = {
-    { spriteId = 7, mapModelId = 1, packed = 0 },
-    { spriteId = 7, mapModelId = 2, packed = 0 },
-  } })
+  failsWith("FIELD_ACTOR_DUPLICATE_SPRITE_ID", {
+    records = {
+      { spriteId = 7, mapModelId = 1, packed = 0 },
+      { spriteId = 7, mapModelId = 2, packed = 0 },
+    },
+  })
 end
 
 function T.rejects_missing_terminator()
@@ -85,9 +92,13 @@ function T.key_tables_resolve_descriptor_members()
 end
 
 function T.rejects_duplicate_and_unmapped_keys()
-  failsWith("FIELD_ACTOR_DUPLICATE_KEY", { modelKeys = {
-    { key = 3, memberId = 266 }, { key = 3, memberId = 267 },
-  } })
+  failsWith(
+    "FIELD_ACTOR_DUPLICATE_KEY",
+    { modelKeys = {
+      { key = 3, memberId = 266 },
+      { key = 3, memberId = 267 },
+    } }
+  )
   failsWith("FIELD_ACTOR_MODEL_KEY_UNKNOWN", { modelKeys = { { key = 9, memberId = 266 } } })
   failsWith("FIELD_ACTOR_TIMELINE_KEY_UNKNOWN", { timelineKeys = { { key = 9, memberId = 280 } } })
 end
@@ -124,9 +135,11 @@ function T.resolve_reports_absent_sprite_and_unknown_descriptor()
   Assert.isNil(missing)
   Assert.equal(assert(err).code, "FIELD_ACTOR_SPRITE_ABSENT")
 
-  local other = assert(decode({ records = {
-    { spriteId = 5, mapModelId = 1, packed = 0x0400 }, -- selects descriptor 1
-  } }))
+  local other = assert(decode({
+    records = {
+      { spriteId = 5, mapModelId = 1, packed = 0x0400 }, -- selects descriptor 1
+    },
+  }))
   local unknown, descErr = FieldActorGraphics.resolve(other, 5)
   Assert.isNil(unknown)
   Assert.equal(assert(descErr).code, "FIELD_ACTOR_DESCRIPTOR_UNKNOWN")

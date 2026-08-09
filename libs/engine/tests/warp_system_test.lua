@@ -14,13 +14,27 @@ local function runtimeMap(mapId, originX, originZ, warps, plates)
     coordinateOrigin = { x = originX, z = originZ },
     fieldData = { events = { warps = warps } },
     permissions = {
-      containsLocal = function(_, x, z) return x >= 0 and x < 32 and z >= 0 and z < 32 end,
-      isBlockedLocal = function() return false end,
+      containsLocal = function(_, x, z)
+        return x >= 0 and x < 32 and z >= 0 and z < 32
+      end,
+      isBlockedLocal = function()
+        return false
+      end,
     },
-    terrain = TerrainSurface.new({ plates = plates or {
-      { id = 0, minX = 0, minZ = 0, maxX = 32, maxZ = 32,
-        normal = { x = 0, y = 1, z = 0 }, distance = 0, slopeClass = "flat" },
-    } }),
+    terrain = TerrainSurface.new({
+      plates = plates or {
+        {
+          id = 0,
+          minX = 0,
+          minZ = 0,
+          maxX = 32,
+          maxZ = 32,
+          normal = { x = 0, y = 1, z = 0 },
+          distance = 0,
+          slopeClass = "flat",
+        },
+      },
+    }),
   }
 end
 
@@ -38,20 +52,36 @@ function T.finds_warp_by_authoritative_field_coordinate()
 end
 
 function T.resolves_destination_warp_and_nearest_height_surface()
-  local sourceWarp = { index = 0, x = 4, z = 14,
-    destinationMapId = 60, destinationWarpId = 0, y = 0 }
-  local destinationWarp = { index = 0, x = 684, z = 393,
-    destinationMapId = 61, destinationWarpId = 0, y = 32 }
+  local sourceWarp = { index = 0, x = 4, z = 14, destinationMapId = 60, destinationWarpId = 0, y = 0 }
+  local destinationWarp = { index = 0, x = 684, z = 393, destinationMapId = 61, destinationWarpId = 0, y = 32 }
   local destination = runtimeMap(60, 672, 384, { destinationWarp }, {
-    { id = 3, minX = 0, minZ = 0, maxX = 32, maxZ = 32,
-      normal = { x = 0, y = 1, z = 0 }, distance = 0, slopeClass = "flat" },
-    { id = 7, minX = 0, minZ = 0, maxX = 32, maxZ = 32,
-      normal = { x = 0, y = 1, z = 0 }, distance = 2, slopeClass = "flat" },
+    {
+      id = 3,
+      minX = 0,
+      minZ = 0,
+      maxX = 32,
+      maxZ = 32,
+      normal = { x = 0, y = 1, z = 0 },
+      distance = 0,
+      slopeClass = "flat",
+    },
+    {
+      id = 7,
+      minX = 0,
+      minZ = 0,
+      maxX = 32,
+      maxZ = 32,
+      normal = { x = 0, y = 1, z = 0 },
+      distance = 2,
+      slopeClass = "flat",
+    },
   })
-  local loader = { load = function(_, mapId)
-    Assert.equal(mapId, 60)
-    return destination
-  end }
+  local loader = {
+    load = function(_, mapId)
+      Assert.equal(mapId, 60)
+      return destination
+    end,
+  }
   local result = WarpSystem.resolveDestination(loader, runtimeMap(61, 0, 0, { sourceWarp }), sourceWarp)
   Assert.equal(result.destinationMap, destination)
   Assert.equal(result.destinationWarp, destinationWarp)
@@ -64,15 +94,17 @@ end
 
 function T.rejects_dynamic_and_missing_destination_warps()
   local destination = runtimeMap(60, 0, 0, {})
-  local loader = { load = function() return destination end }
+  local loader = {
+    load = function()
+      return destination
+    end,
+  }
   local source = runtimeMap(61, 0, 0, {})
   throwsCode("FIELD_DYNAMIC_WARP_UNSUPPORTED", function()
-    WarpSystem.resolveDestination(loader, source,
-      { index = 0, destinationMapId = 60, destinationWarpId = 0x100 })
+    WarpSystem.resolveDestination(loader, source, { index = 0, destinationMapId = 60, destinationWarpId = 0x100 })
   end)
   throwsCode("FIELD_DESTINATION_WARP_UNKNOWN", function()
-    WarpSystem.resolveDestination(loader, source,
-      { index = 0, destinationMapId = 60, destinationWarpId = 4 })
+    WarpSystem.resolveDestination(loader, source, { index = 0, destinationMapId = 60, destinationWarpId = 4 })
   end)
 end
 

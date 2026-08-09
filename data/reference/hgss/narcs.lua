@@ -8,7 +8,10 @@ return {
     repo = "pret/pokeheartgold",
     commit = "7e25c842061d026f43fe6efbd7be0ec94c50839d",
     inputs = {
-      { path = "include/filesystem_files_def.h", sha256 = "04110cac8df41aa13e93fb1536e93b43b0148ff836dac6637ba9d523763c493f" },
+      {
+        path = "include/filesystem_files_def.h",
+        sha256 = "04110cac8df41aa13e93fb1536e93b43b0148ff836dac6637ba9d523763c493f",
+      },
     },
     normalization = "NarcId symbol and zero-based value paired with sNarcFileList path",
   },

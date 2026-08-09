@@ -11,23 +11,32 @@ local DsPolygonAttr = {}
 -- 0=modulation, 1=decal, 2=toon/highlight, 3=shadow.
 local POLYGON_MODES = { [0] = "modulation", [1] = "decal", [2] = "toon", [3] = "shadow" }
 
-local function bit(word, i) return math.floor(word / 2 ^ i) % 2 == 1 end
-local function field(word, shift, width) return math.floor(word / 2 ^ shift) % (2 ^ width) end
+local function bit(word, i)
+  return math.floor(word / 2 ^ i) % 2 == 1
+end
+local function field(word, shift, width)
+  return math.floor(word / 2 ^ shift) % (2 ^ width)
+end
 
 -- Derive the love cull mode from the two surface-render flags. "all" is a
 -- sentinel: the DS hides a polygon that renders neither surface, so the compiler
 -- must skip such a batch rather than pass "all" to setMeshCullMode.
 local function cullMode(renderFront, renderBack)
-  if renderFront and renderBack then return "none" end
-  if renderFront then return "back" end
-  if renderBack then return "front" end
+  if renderFront and renderBack then
+    return "none"
+  end
+  if renderFront then
+    return "back"
+  end
+  if renderBack then
+    return "front"
+  end
   return "all"
 end
 
 -- Decode a resolved POLYGON_ATTR word into a normalized state record.
 function DsPolygonAttr.decode(word)
-  assert(type(word) == "number" and word >= 0 and word < 2 ^ 32,
-    "POLYGON_ATTR must be a 32-bit word")
+  assert(type(word) == "number" and word >= 0 and word < 2 ^ 32, "POLYGON_ATTR must be a 32-bit word")
   local modeRaw = field(word, 4, 2)
   local renderBack = bit(word, 6)
   local renderFront = bit(word, 7)

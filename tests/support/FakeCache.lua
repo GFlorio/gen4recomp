@@ -21,10 +21,14 @@ end
 local function hasChildren(self, path)
   local prefix = path .. "/"
   for k in pairs(self.files) do
-    if k:sub(1, #prefix) == prefix then return true end
+    if k:sub(1, #prefix) == prefix then
+      return true
+    end
   end
   for k in pairs(self.dirs) do
-    if k:sub(1, #prefix) == prefix then return true end
+    if k:sub(1, #prefix) == prefix then
+      return true
+    end
   end
   return false
 end
@@ -70,8 +74,12 @@ function FakeCache:getDirectoryItems(path)
       end
     end
   end
-  for k in pairs(self.files) do consider(k) end
-  for k in pairs(self.dirs) do consider(k) end
+  for k in pairs(self.files) do
+    consider(k)
+  end
+  for k in pairs(self.dirs) do
+    consider(k)
+  end
   table.sort(names)
   return names
 end

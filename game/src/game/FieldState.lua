@@ -60,10 +60,14 @@ FieldState.__index = FieldState
 local CAMERA_PROFILES_PATH = "data/generated/field/camera/profiles.lua"
 local DEFAULT_MAP = "MAP_NEW_BARK_ELMS_LAB_1F"
 local KEY_DIRECTIONS = {
-  w = "north", up = "north",
-  s = "south", down = "south",
-  a = "west", left = "west",
-  d = "east", right = "east",
+  w = "north",
+  up = "north",
+  s = "south",
+  down = "south",
+  a = "west",
+  left = "west",
+  d = "east",
+  right = "east",
 }
 
 ---@return table<string, boolean>
@@ -89,7 +93,9 @@ end
 ---@return table<string, boolean>
 local function avatarIdSet()
   local set = {}
-  for _, avatar in ipairs(FieldActorManifest.avatars or {}) do set[avatar.id] = true end
+  for _, avatar in ipairs(FieldActorManifest.avatars or {}) do
+    set[avatar.id] = true
+  end
   return set
 end
 
@@ -97,7 +103,9 @@ end
 -- keyed by the map the player is on, so FieldPlayer never imports the manager.
 local function playerOccupancy(self)
   return function(fieldX, fieldZ, surfaceId)
-    if not self.actors then return nil end
+    if not self.actors then
+      return nil
+    end
     local occupant = self.actors:getAt(self.runtimeMap.mapId, fieldX, fieldZ, surfaceId)
     return occupant and occupant.actorId or nil
   end
@@ -108,8 +116,11 @@ local function initialSurface(runtimeMap, localX, localZ)
   local best
   for _, plate in ipairs(runtimeMap.terrain:candidatesAt(x, z)) do
     local sample = runtimeMap.terrain:sample(plate.id, x, z)
-    if not best or math.abs(sample.worldY) < math.abs(best.worldY)
-      or (math.abs(sample.worldY) == math.abs(best.worldY) and sample.surfaceId < best.surfaceId) then
+    if
+      not best
+      or math.abs(sample.worldY) < math.abs(best.worldY)
+      or (math.abs(sample.worldY) == math.abs(best.worldY) and sample.surfaceId < best.surfaceId)
+    then
       best = sample
     end
   end
@@ -122,8 +133,10 @@ local function terrainEnvelope(terrain)
   for _, plate in ipairs(terrain.plates) do
     if plate.walkable ~= false then
       local corners = {
-        { plate.minX, plate.minZ }, { plate.maxX, plate.minZ },
-        { plate.maxX, plate.maxZ }, { plate.minX, plate.maxZ },
+        { plate.minX, plate.minZ },
+        { plate.maxX, plate.minZ },
+        { plate.maxX, plate.maxZ },
+        { plate.minX, plate.maxZ },
       }
       for _, point in ipairs(corners) do
         local y = terrain:sampleHeight(plate.id, point[1], point[2])
@@ -162,10 +175,10 @@ function FieldState:_load()
       self.resetSave = false
       self.saveStatus = "Started a new field session"
     end
-    local world = assert(cacheFs:loadLua(MapAssetCache.worldPath()),
-      "world.lua missing -- run `scripts/buildcache.sh` first")
-    local profiles = assert(cacheFs:loadLua(CAMERA_PROFILES_PATH),
-      "field camera cache is cold -- run `scripts/buildcache.sh` first")
+    local world =
+      assert(cacheFs:loadLua(MapAssetCache.worldPath()), "world.lua missing -- run `scripts/buildcache.sh` first")
+    local profiles =
+      assert(cacheFs:loadLua(CAMERA_PROFILES_PATH), "field camera cache is cold -- run `scripts/buildcache.sh` first")
     assert(profiles.schema == "g4-field-camera-profiles-v1", "unsupported field camera cache")
     self.cameraProfiles = profiles.profiles
 
@@ -195,8 +208,10 @@ function FieldState:_load()
     if not spawn then
       spawn = { x = 0, z = 0, facing = "south" }
     else
-      assert(type(spawn.x) == "number" and type(spawn.z) == "number",
-        "spawn manifest must define x and z for " .. self.runtimeMap.mapSymbol)
+      assert(
+        type(spawn.x) == "number" and type(spawn.z) == "number",
+        "spawn manifest must define x and z for " .. self.runtimeMap.mapSymbol
+      )
     end
     local fieldX, fieldZ, surfaceId, facing
     if restored then
@@ -208,8 +223,10 @@ function FieldState:_load()
     end
     self.player = FieldPlayer.new({
       currentMap = self.runtimeMap,
-      fieldX = fieldX, fieldZ = fieldZ,
-      surfaceId = surfaceId, facing = facing,
+      fieldX = fieldX,
+      fieldZ = fieldZ,
+      surfaceId = surfaceId,
+      facing = facing,
       occupancy = playerOccupancy(self),
     })
     self.actor = self.player
@@ -217,8 +234,10 @@ function FieldState:_load()
     self.heldDirectionKeys = {}
     local worldPoint = self.player:renderPosition()
 
-    local profile = assert(self.cameraProfiles[self.runtimeMap.cameraType],
-      "field camera cache has no camera type " .. self.runtimeMap.cameraType)
+    local profile = assert(
+      self.cameraProfiles[self.runtimeMap.cameraType],
+      "field camera cache has no camera type " .. self.runtimeMap.cameraType
+    )
     self.camera = FieldCamera.new(profile, { initialTarget = worldPoint })
     local width, height = love.graphics.getDimensions()
     self.viewport = FieldViewport.new(width, height, { mode = "expanded" })
@@ -231,8 +250,9 @@ function FieldState:_load()
     -- section 10.2).
     self.eventState = FieldEventState.new(restored and restored.events or nil)
     if not restored then
-      FieldScenario.apply(FieldScenarioManifest, self.eventState,
-        function(mapId) return cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId)) end)
+      FieldScenario.apply(FieldScenarioManifest, self.eventState, function(mapId)
+        return cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId))
+      end)
     end
     self.actorAssets = FieldActorAssetProvider.new(cacheFs)
     self.actors = FieldActorManager.new({
@@ -248,8 +268,10 @@ function FieldState:_load()
     -- the same reference-counted provider, and FieldPlayer keeps every bit of
     -- movement authority. A resumed save names the avatar; a fresh boot uses the
     -- scenario's configured pick (spec section 16.1).
-    self.avatar = FieldScenario.avatarById(FieldActorManifest.avatars,
-      (restored and restored.avatar) or FieldScenarioManifest.avatar)
+    self.avatar = FieldScenario.avatarById(
+      FieldActorManifest.avatars,
+      (restored and restored.avatar) or FieldScenarioManifest.avatar
+    )
     self.avatarAsset = self.actorAssets:acquire(self.avatar.spriteId)
     self.playerVisual = FieldPlayerVisual.new({
       player = self.player,
@@ -259,7 +281,9 @@ function FieldState:_load()
 
     self.transition = FieldTransition.new({
       loader = self.mapLoader,
-      swap = function(resolution, facing) self:_swapMap(resolution, facing) end,
+      swap = function(resolution, facing)
+        self:_swapMap(resolution, facing)
+      end,
     })
     self.transition.suppression = restored and restored.suppression or nil
 
@@ -268,8 +292,11 @@ function FieldState:_load()
     self.dialogueRenderer = FieldDialogueRenderer.new({ cacheFs = cacheFs })
     local fontMetrics = FieldDialogueTheme.fontMetrics(self.dialogueRenderer.fontDef)
     local layoutMessage = function(formatted)
-      return DialogueLayout.layout(formatted.tokens, fontMetrics,
-        { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines })
+      return DialogueLayout.layout(
+        formatted.tokens,
+        fontMetrics,
+        { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines }
+      )
     end
     self.dialogue = FieldDialogueController.new({ layout = layoutMessage })
     self.actionKeys = actionBindings()
@@ -294,7 +321,9 @@ function FieldState:_load()
         return self.actors and self.actors:getById(actorId) or nil
       end,
       mapMessageBank = function(mapId)
-        if mapId ~= self.runtimeMap.mapId then return nil end
+        if mapId ~= self.runtimeMap.mapId then
+          return nil
+        end
         return self.runtimeMap.fieldData.messageBankId
       end,
       fixtures = PreScriptInteractions,
@@ -335,12 +364,18 @@ function FieldState:update(dt)
     self.session:update(dt)
     if self.transition.error then
       local warp = assert(self.transition.sourceWarp)
-      self.errorText = string.format("%s\nsource map %s warp %s -> map %s warp %s",
-        tostring(self.transition.error), tostring(self.transition.sourceMap.mapId),
-        tostring(warp.index), tostring(warp.destinationMapId),
-        tostring(warp.destinationWarpId))
+      self.errorText = string.format(
+        "%s\nsource map %s warp %s -> map %s warp %s",
+        tostring(self.transition.error),
+        tostring(self.transition.sourceMap.mapId),
+        tostring(warp.index),
+        tostring(warp.destinationMapId),
+        tostring(warp.destinationWarpId)
+      )
     end
-    if self.transition:consumeCompleted() then self:_save("Autosaved after warp") end
+    if self.transition:consumeCompleted() then
+      self:_save("Autosaved after warp")
+    end
   end
 end
 
@@ -365,7 +400,9 @@ function FieldState:_save(successText)
 end
 
 function FieldState:_reset()
-  local ok, err = pcall(function() self.saveStore:reset() end)
+  local ok, err = pcall(function()
+    self.saveStore:reset()
+  end)
   if not ok then
     self.saveStatus = "Reset failed: " .. tostring(err)
     return
@@ -390,15 +427,19 @@ function FieldState:_swapMap(resolution, facing)
     facing = facing,
     occupancy = playerOccupancy(self),
   })
-  local profile = assert(self.cameraProfiles[runtimeMap.cameraType],
-    "field camera cache has no camera type " .. runtimeMap.cameraType)
+  local profile = assert(
+    self.cameraProfiles[runtimeMap.cameraType],
+    "field camera cache has no camera type " .. runtimeMap.cameraType
+  )
   local camera = FieldCamera.new(profile, { initialTarget = player:renderPosition() })
   camera:setProjectionAspect(self.viewport:worldAspect())
   camera:setZoom(self.zoom:effectiveZoom())
 
   local previousMapId = self.runtimeMap.mapId
   self.actors:enterMap(runtimeMap, self.eventState)
-  if runtimeMap.mapId ~= previousMapId then self.actors:leaveMap(previousMapId) end
+  if runtimeMap.mapId ~= previousMapId then
+    self.actors:leaveMap(previousMapId)
+  end
 
   self.runtimeMap = runtimeMap
   self.runtime = runtimeMap.sceneRuntime
@@ -435,7 +476,9 @@ end
 -- FieldActorDraw turns them into world draw items against the resident visuals.
 function FieldState:_actorDraws(alpha)
   local records = { self.playerVisual:drawRecord(alpha) }
-  for _, record in ipairs(self.actors:drawRecords(alpha)) do records[#records + 1] = record end
+  for _, record in ipairs(self.actors:drawRecords(alpha)) do
+    records[#records + 1] = record
+  end
   return FieldActorDraw.items(records, function(spriteId)
     return self.actorAssets:resident(spriteId)
   end)
@@ -444,7 +487,9 @@ end
 function FieldState:_worldDraws(alpha)
   local list = self:_actorDraws(alpha)
   if self.runtimeMap.coverageRuntime then
-    for _, draw in ipairs(self.runtimeMap.coverageRuntime.draws) do list[#list + 1] = draw end
+    for _, draw in ipairs(self.runtimeMap.coverageRuntime.draws) do
+      list[#list + 1] = draw
+    end
   end
   return list
 end
@@ -464,8 +509,7 @@ function FieldState:draw()
     self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
   end
   local alpha = self.session:renderAlpha()
-  self.renderer:draw(self.runtime, self.camera,
-    self:_worldDraws(alpha), self.viewport, alpha)
+  self.renderer:draw(self.runtime, self.camera, self:_worldDraws(alpha), self.viewport, alpha)
   if self.transition and self.transition.fadeAlpha > 0 then
     local rectangle = self.viewport.worldViewport
     lg.setColor(0, 0, 0, self.transition.fadeAlpha)
@@ -486,9 +530,15 @@ function FieldState:_drawHud()
   local lg = love.graphics
   local lines = {
     string.format("map %d  %s", self.runtimeMap.mapId, self.runtimeMap.mapSymbol),
-    string.format("player (%d,%d) y %.3f surface %d %s %s",
-      self.actor.fieldX, self.actor.fieldZ, self.actor.worldY,
-      self.actor.surfaceId, self.actor.facing, self.actor.motion),
+    string.format(
+      "player (%d,%d) y %.3f surface %d %s %s",
+      self.actor.fieldX,
+      self.actor.fieldZ,
+      self.actor.worldY,
+      self.actor.surfaceId,
+      self.actor.facing,
+      self.actor.motion
+    ),
     self.saveStatus or "save not written this run",
     "WASD/arrows move   Z/Space/Enter action   X/Backspace cancel   -/= zoom"
       .. "   0 reset zoom   F1 save   F2 reset   Esc quit",
@@ -496,16 +546,25 @@ function FieldState:_drawHud()
   lg.setColor(0, 0, 0, 0.55)
   lg.rectangle("fill", 12, 12, 900, 20 * #lines + 12)
   lg.setColor(0.9, 0.95, 1)
-  for index, line in ipairs(lines) do lg.print(line, 20, 12 + (index - 1) * 20) end
+  for index, line in ipairs(lines) do
+    lg.print(line, 20, 12 + (index - 1) * 20)
+  end
 end
 
 ---@param key string
 ---@param scancode string
 ---@param isrepeat boolean
 function FieldState:keypressed(key, scancode, isrepeat)
-  if key == "escape" then love.event.quit(0) end
-  if key == "f1" then self:_save() end
-  if key == "f2" then self:_reset() return end
+  if key == "escape" then
+    love.event.quit(0)
+  end
+  if key == "f1" then
+    self:_save()
+  end
+  if key == "f2" then
+    self:_reset()
+    return
+  end
   if self.actionKeys and self.actionKeys[key] and self.input then
     self.input:pressAction()
   end
@@ -546,10 +605,14 @@ function FieldState:keyreleased(key, scancode)
     return
   end
   local direction = self.heldDirectionKeys and self.heldDirectionKeys[key]
-  if not direction or not self.input then return end
+  if not direction or not self.input then
+    return
+  end
   self.heldDirectionKeys[key] = nil
   for _, heldDirection in pairs(self.heldDirectionKeys) do
-    if heldDirection == direction then return end
+    if heldDirection == direction then
+      return
+    end
   end
   self.input:release(direction)
 end
@@ -558,7 +621,9 @@ end
 -- stale Action into the next frame's dialogue or movement (spec section 11.2).
 ---@param focused boolean
 function FieldState:focus(focused)
-  if not focused and self.input then self.input:clearAll() end
+  if not focused and self.input then
+    self.input:clearAll()
+  end
 end
 
 -- Gamepad Action is the south face button ("a") and Cancel the east face
@@ -566,40 +631,68 @@ end
 ---@param _ love.Joystick
 ---@param button string
 function FieldState:gamepadpressed(_, button)
-  if not self.input then return end
-  if button == "a" then self.input:pressAction() end
-  if button == "b" then self.input:pressCancel() end
+  if not self.input then
+    return
+  end
+  if button == "a" then
+    self.input:pressAction()
+  end
+  if button == "b" then
+    self.input:pressCancel()
+  end
 end
 
 ---@param _ love.Joystick
 ---@param button string
 function FieldState:gamepadreleased(_, button)
-  if not self.input then return end
-  if button == "a" then self.input:releaseAction() end
-  if button == "b" then self.input:releaseCancel() end
+  if not self.input then
+    return
+  end
+  if button == "a" then
+    self.input:releaseAction()
+  end
+  if button == "b" then
+    self.input:releaseCancel()
+  end
 end
 
 function FieldState:_release()
-  if self.dialogue then self.dialogue:dispose() end
-  if self.dialogueRenderer then self.dialogueRenderer:release() end
+  if self.dialogue then
+    self.dialogue:dispose()
+  end
+  if self.dialogueRenderer then
+    self.dialogueRenderer:release()
+  end
   self.dialogue, self.dialogueRenderer = nil, nil
-  if self.messageProvider then self.messageProvider:dispose() end
+  if self.messageProvider then
+    self.messageProvider:dispose()
+  end
   self.messageProvider = nil
-  if self.actors then self.actors:dispose() end
+  if self.actors then
+    self.actors:dispose()
+  end
   if self.avatarAsset and self.actorAssets then
     self.actorAssets:release(self.avatarAsset.spriteId)
   end
   self.avatarAsset, self.playerVisual = nil, nil
-  if self.actorAssets then self.actorAssets:dispose() end
-  if self.renderer then self.renderer:release() end
-  if self.mapLoader then self.mapLoader:release() end
+  if self.actorAssets then
+    self.actorAssets:dispose()
+  end
+  if self.renderer then
+    self.renderer:release()
+  end
+  if self.mapLoader then
+    self.mapLoader:release()
+  end
   self.actors, self.actorAssets, self.renderer, self.mapLoader = nil, nil, nil, nil
 end
 
 function FieldState:quit()
   -- A half-open dialogue must never be persisted; disposal cancels it cleanly
   -- before the capture (spec section 16.3).
-  if self.dialogue then self.dialogue:dispose() end
+  if self.dialogue then
+    self.dialogue:dispose()
+  end
   self:_save("Field session saved on quit")
   self:_release()
 end

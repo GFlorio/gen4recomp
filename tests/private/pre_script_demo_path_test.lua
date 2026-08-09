@@ -34,8 +34,12 @@ local function scene(romFs, mapsById, map)
   local eventState = FieldEventState.new()
   FieldScenario.apply(scenarioManifest, eventState, reader)
   local assets = {
-    knows = function() return true end,
-    acquire = function(_, spriteId) return { spriteId = spriteId, visual = { spriteId = spriteId } } end,
+    knows = function()
+      return true
+    end,
+    acquire = function(_, spriteId)
+      return { spriteId = spriteId, visual = { spriteId = spriteId } }
+    end,
     release = function() end,
   }
   local manager = FieldActorManager.new({ assets = assets, policy = POLICY })
@@ -46,12 +50,16 @@ end
 local function playerAt(map, manager, fieldX, fieldZ, facing)
   local localX, localZ = fieldX - map.coordinateOrigin.x, fieldZ - map.coordinateOrigin.z
   local sample = assert(SurfaceResolver.new(map.terrain):resolve({
-    localX = localX + 0.5, localZ = localZ + 0.5, currentY = 0,
+    localX = localX + 0.5,
+    localZ = localZ + 0.5,
+    currentY = 0,
   }))
   return FieldPlayer.new({
     currentMap = map,
-    fieldX = fieldX, fieldZ = fieldZ,
-    surfaceId = sample.surfaceId, facing = facing,
+    fieldX = fieldX,
+    fieldZ = fieldZ,
+    surfaceId = sample.surfaceId,
+    facing = facing,
     occupancy = function(x, z, surfaceId)
       local occupant = manager:getAt(map.mapId, x, z, surfaceId)
       return occupant and occupant.actorId or nil
@@ -62,7 +70,9 @@ end
 -- One full 8-tick step in the held direction; returns false when blocked.
 local function step(player, direction)
   player:updateFixed({ pressedDirection = direction, heldDirection = direction })
-  if player.motion ~= "walking" then return false end
+  if player.motion ~= "walking" then
+    return false
+  end
   for _ = 2, FieldPlayer.WALK_STEP_TICKS do
     player:updateFixed({ heldDirection = direction })
   end
@@ -74,15 +84,21 @@ local function walkTo(player, targetX, targetZ)
   while (player.fieldX ~= targetX or player.fieldZ ~= targetZ) and guard < 64 do
     guard = guard + 1
     local direction
-    if player.fieldZ > targetZ then direction = "north"
-    elseif player.fieldZ < targetZ then direction = "south"
-    elseif player.fieldX > targetX then direction = "west"
-    else direction = "east" end
-    assert(step(player, direction), string.format(
-      "cell (%d,%d) is not walkable from (%d,%d)", targetX, targetZ, player.fieldX, player.fieldZ))
+    if player.fieldZ > targetZ then
+      direction = "north"
+    elseif player.fieldZ < targetZ then
+      direction = "south"
+    elseif player.fieldX > targetX then
+      direction = "west"
+    else
+      direction = "east"
+    end
+    assert(
+      step(player, direction),
+      string.format("cell (%d,%d) is not walkable from (%d,%d)", targetX, targetZ, player.fieldX, player.fieldZ)
+    )
   end
-  Assert.isTrue(player.fieldX == targetX and player.fieldZ == targetZ,
-    "walk reached its target cell")
+  Assert.isTrue(player.fieldX == targetX and player.fieldZ == targetZ, "walk reached its target cell")
 end
 
 function T.the_demo_walk_to_elm_is_walkable_and_elm_blocks(romFs)
@@ -139,8 +155,7 @@ function T.the_demo_walk_to_the_door_warps_to_town_and_back(romFs)
     end
   end
   Assert.isTrue(moved, "at least one cell around the town door is walkable")
-  Assert.isFalse(townPlayer.fieldX == 684 and townPlayer.fieldZ == 393,
-    "the step-off actually moved")
+  Assert.isFalse(townPlayer.fieldX == 684 and townPlayer.fieldZ == 393, "the step-off actually moved")
   -- The only walkable neighbor is south (684,394): facing north from there
   -- triggers the blocked-door warp without any step (spec section 8.6 note
   -- on warp semantics).
@@ -161,12 +176,10 @@ function T.the_town_scenario_population_matches_the_demo(romFs)
   local town = mapsById[TOWN]
   local manager = scene(romFs, mapsById, town)
   local actors = manager:actorsOf(TOWN)
-  local expected = { ["map:60:object:1"] = true, ["map:60:object:2"] = true,
-    ["map:60:object:5"] = true }
+  local expected = { ["map:60:object:1"] = true, ["map:60:object:2"] = true, ["map:60:object:5"] = true }
   Assert.equal(#actors, 3)
   for _, actor in ipairs(actors) do
-    Assert.isTrue(expected[actor.actorId],
-      "unexpected visible town actor " .. actor.actorId)
+    Assert.isTrue(expected[actor.actorId], "unexpected visible town actor " .. actor.actorId)
   end
   Assert.isNil(manager:getById("map:60:object:0"), "the rival stays hidden")
   manager:dispose()

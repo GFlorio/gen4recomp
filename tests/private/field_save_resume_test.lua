@@ -42,21 +42,31 @@ end
 local function sampleAt(map, fieldX, fieldZ)
   local localX, localZ = fieldX - map.coordinateOrigin.x, fieldZ - map.coordinateOrigin.z
   return assert(SurfaceResolver.new(map.terrain):resolve({
-    localX = localX + 0.5, localZ = localZ + 0.5, currentY = 0,
+    localX = localX + 0.5,
+    localZ = localZ + 0.5,
+    currentY = 0,
   }))
 end
 
 local function fakeAssets()
   return {
-    knows = function() return true end,
-    acquire = function(_, spriteId) return { spriteId = spriteId, visual = { spriteId = spriteId } } end,
+    knows = function()
+      return true
+    end,
+    acquire = function(_, spriteId)
+      return { spriteId = spriteId, visual = { spriteId = spriteId } }
+    end,
     release = function() end,
   }
 end
 
 function T.field_state_avatar_and_events_resume_on_both_target_maps(romFs, versionId)
   local maps = mapsById(romFs)
-  local loader = { load = function(_, mapId) return assert(maps[mapId], "map " .. mapId) end }
+  local loader = {
+    load = function(_, mapId)
+      return assert(maps[mapId], "map " .. mapId)
+    end,
+  }
   local cases = {
     -- The demo spawn tile: a real warp cell, so restore must also arm the
     -- arrival suppression the runtime needs.
@@ -66,8 +76,10 @@ function T.field_state_avatar_and_events_resume_on_both_target_maps(romFs, versi
   }
   for _, case in ipairs(cases) do
     local map = case.map
-    Assert.isTrue(WarpSystem.findAt(map, case.fieldX, case.fieldZ) ~= nil
-      == case.expectsWarp, "the case cell warp expectation must hold")
+    Assert.isTrue(
+      WarpSystem.findAt(map, case.fieldX, case.fieldZ) ~= nil == case.expectsWarp,
+      "the case cell warp expectation must hold"
+    )
     local sample = sampleAt(map, case.fieldX, case.fieldZ)
     local state = FieldEventState.new()
     FieldScenario.apply(scenarioManifest, state, scenarioReader(maps))
@@ -75,8 +87,14 @@ function T.field_state_avatar_and_events_resume_on_both_target_maps(romFs, versi
     local session = {
       versionId = versionId,
       currentMap = map,
-      player = { motion = "idle", fieldX = case.fieldX, fieldZ = case.fieldZ,
-        worldY = sample.worldY, surfaceId = sample.surfaceId, facing = "south" },
+      player = {
+        motion = "idle",
+        fieldX = case.fieldX,
+        fieldZ = case.fieldZ,
+        worldY = sample.worldY,
+        surfaceId = sample.surfaceId,
+        facing = "south",
+      },
       transition = { phase = "idle" },
     }
     local saved = FieldSave.capture(session, {
@@ -110,14 +128,22 @@ function T.a_resumed_event_store_keeps_scenario_actors_hidden(romFs)
   local session = {
     versionId = "heartgold",
     currentMap = maps[LAB],
-    player = { motion = "idle", fieldX = 4, fieldZ = 14,
-      worldY = sample.worldY, surfaceId = sample.surfaceId, facing = "south" },
+    player = {
+      motion = "idle",
+      fieldX = 4,
+      fieldZ = 14,
+      worldY = sample.worldY,
+      surfaceId = sample.surfaceId,
+      facing = "south",
+    },
     transition = { phase = "idle" },
   }
-  local saved = FieldSave.capture(session,
-    { avatarId = "hero", eventState = state, scenario = scenarioManifest.id })
-  local restored = assert(FieldSave.restore(saved,
-    { load = function(_, mapId) return assert(maps[mapId]) end }, "heartgold"))
+  local saved = FieldSave.capture(session, { avatarId = "hero", eventState = state, scenario = scenarioManifest.id })
+  local restored = assert(FieldSave.restore(saved, {
+    load = function(_, mapId)
+      return assert(maps[mapId])
+    end,
+  }, "heartgold"))
   local revived = FieldEventState.new(restored.events)
   local manager = FieldActorManager.new({ assets = fakeAssets(), policy = POLICY })
   manager:enterMap(maps[LAB], revived)

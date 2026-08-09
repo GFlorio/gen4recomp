@@ -7,7 +7,9 @@ local Errors = require("libs.rom.src.Errors")
 
 local T = {}
 
-local function px(r, g, b, a) return string.char(r, g, b, a) end
+local function px(r, g, b, a)
+  return string.char(r, g, b, a)
+end
 
 function T.starts_with_signature_and_has_ihdr_idat_iend()
   local png = PngWriter.encode(1, 1, px(10, 20, 30, 255))
@@ -28,7 +30,9 @@ function T.rejects_wrong_length()
 end
 
 function T.decodes_back_to_the_same_pixels()
-  if not (love and love.image) then return end -- decode check only under love
+  if not (love and love.image) then
+    return
+  end -- decode check only under love
   local rgba = px(10, 20, 30, 255) .. px(200, 150, 100, 128)
   local png = PngWriter.encode(2, 1, rgba)
   local data = love.image.newImageData(love.filesystem.newFileData(png, "t.png"))

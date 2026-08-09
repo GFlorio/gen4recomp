@@ -12,7 +12,9 @@ function T.fades_loads_swaps_while_black_and_completes()
   local warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 }
   local protections, cellProtections, swaps = {}, {}, {}
   local loader = {
-    load = function() return destination end,
+    load = function()
+      return destination
+    end,
     protectMap = function(_, mapId, protected)
       protections[#protections + 1] = { mapId, protected }
     end,
@@ -25,9 +27,14 @@ function T.fades_loads_swaps_while_black_and_completes()
     fadeOutTicks = 2,
     fadeInTicks = 2,
     resolveDestination = function()
-      return { destinationMap = destination, fieldX = 684, fieldZ = 393,
-        surfaceId = 0, worldY = 0,
-        suppression = { mapId = 60, fieldX = 684, fieldZ = 393 } }
+      return {
+        destinationMap = destination,
+        fieldX = 684,
+        fieldZ = 393,
+        surfaceId = 0,
+        worldY = 0,
+        suppression = { mapId = 60, fieldX = 684, fieldZ = 393 },
+      }
     end,
     swap = function(result, facing)
       swaps[#swaps + 1] = { result = result, facing = facing }
@@ -57,11 +64,15 @@ function T.fades_loads_swaps_while_black_and_completes()
   Assert.isFalse(transition.locked)
   Assert.equal(transition.fadeAlpha, 0)
   Assert.deepEqual(transition:consumeCompleted(), {
-    sourceMapId = 61, destinationMapId = 60, sourceWarpId = 0,
+    sourceMapId = 61,
+    destinationMapId = 60,
+    sourceWarpId = 0,
   })
   Assert.isNil(transition:consumeCompleted())
   Assert.deepEqual(protections, {
-    { 61, true }, { 60, true }, { 61, false },
+    { 61, true },
+    { 60, true },
+    { 61, false },
   })
   Assert.deepEqual(cellProtections, { { 61, 0 } })
 end

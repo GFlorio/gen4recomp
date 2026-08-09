@@ -22,20 +22,41 @@ local function map(backgrounds)
       events = { background = backgrounds or {} },
     },
     permissions = {
-      containsLocal = function(_, x, z) return x >= 0 and x < 32 and z >= 0 and z < 32 end,
-      isBlockedLocal = function() return false end,
+      containsLocal = function(_, x, z)
+        return x >= 0 and x < 32 and z >= 0 and z < 32
+      end,
+      isBlockedLocal = function()
+        return false
+      end,
     },
-    terrain = TerrainSurface.new({ plates = {
-      { id = 0, minX = 0, minZ = 0, maxX = 32, maxZ = 32,
-        normal = { x = 0, y = 1, z = 0 }, distance = 0, slopeClass = "flat" },
-    } }),
+    terrain = TerrainSurface.new({
+      plates = {
+        {
+          id = 0,
+          minX = 0,
+          minZ = 0,
+          maxX = 32,
+          maxZ = 32,
+          normal = { x = 0, y = 1, z = 0 },
+          distance = 0,
+          slopeClass = "flat",
+        },
+      },
+    }),
   }
 end
 
 local function bgEvent(index, scriptId, x, z, directionRaw, eventType)
-  return { index = index, scriptId = scriptId, type = eventType or 0,
-    x = x, z = z, y = 0, directionRaw = directionRaw,
-    direction = "unknown" }
+  return {
+    index = index,
+    scriptId = scriptId,
+    type = eventType or 0,
+    x = x,
+    z = z,
+    y = 0,
+    directionRaw = directionRaw,
+    direction = "unknown",
+  }
 end
 
 local function actor(id, objectEventId, spriteId, x, z, scriptId)
@@ -63,11 +84,16 @@ end
 local function baseSnapshot(overrides)
   local snapshot = {
     runtimeMap = map(),
-    fieldX = 4, fieldZ = 14, surfaceId = 0, worldY = 0,
+    fieldX = 4,
+    fieldZ = 14,
+    surfaceId = 0,
+    worldY = 0,
     facing = "north",
     tick = 100,
   }
-  for key, value in pairs(overrides or {}) do snapshot[key] = value end
+  for key, value in pairs(overrides or {}) do
+    snapshot[key] = value
+  end
   return snapshot
 end
 
@@ -86,8 +112,10 @@ function T.background_direction_compatibility_matches_the_source_table()
   Assert.isTrue(FieldInteractionResolver.backgroundDirectionCompatible(3, 5))
   Assert.isFalse(FieldInteractionResolver.backgroundDirectionCompatible(3, 0))
   for facing = 0, 3 do
-    Assert.isTrue(FieldInteractionResolver.backgroundDirectionCompatible(facing, 4),
-      "raw 4 is the wildcard for every facing")
+    Assert.isTrue(
+      FieldInteractionResolver.backgroundDirectionCompatible(facing, 4),
+      "raw 4 is the wildcard for every facing"
+    )
   end
 end
 
@@ -157,7 +185,10 @@ end
 
 function T.wildcard_direction_4_matches_every_facing()
   local facingCells = {
-    north = { 4, 13 }, south = { 4, 15 }, west = { 3, 14 }, east = { 5, 14 },
+    north = { 4, 13 },
+    south = { 4, 15 },
+    west = { 3, 14 },
+    east = { 5, 14 },
   }
   for _, facing in ipairs({ "north", "south", "west", "east" }) do
     local cell = facingCells[facing]
@@ -176,7 +207,10 @@ function T.vertical_and_horizontal_direction_rows()
   -- pairs with a north-facing player. Events sit on the facing cell of each
   -- direction so only the direction compatibility is under test.
   local facingCells = {
-    north = { 4, 13 }, south = { 4, 15 }, west = { 3, 14 }, east = { 5, 14 },
+    north = { 4, 13 },
+    south = { 4, 15 },
+    west = { 3, 14 },
+    east = { 5, 14 },
   }
   local cases = {
     { facing = "south", compatible = { 3, 6 }, incompatible = { 0, 1, 2, 5 } },
@@ -188,15 +222,21 @@ function T.vertical_and_horizontal_direction_rows()
     local cell = facingCells[case.facing]
     for _, raw in ipairs(case.compatible) do
       local m = map({ bgEvent(0, 6, cell[1], cell[2], raw) })
-      local intent = FieldInteractionResolver.new({ actorAt = function() return nil end })
-        :resolve(baseSnapshot({ runtimeMap = m, facing = case.facing }))
+      local intent = FieldInteractionResolver.new({
+        actorAt = function()
+          return nil
+        end,
+      }):resolve(baseSnapshot({ runtimeMap = m, facing = case.facing }))
       assert(intent, "facing " .. case.facing .. " accepts raw " .. raw)
       Assert.equal(intent.kind, "background")
     end
     for _, raw in ipairs(case.incompatible) do
       local m = map({ bgEvent(0, 6, cell[1], cell[2], raw) })
-      local intent = FieldInteractionResolver.new({ actorAt = function() return nil end })
-        :resolve(baseSnapshot({ runtimeMap = m, facing = case.facing }))
+      local intent = FieldInteractionResolver.new({
+        actorAt = function()
+          return nil
+        end,
+      }):resolve(baseSnapshot({ runtimeMap = m, facing = case.facing }))
       Assert.isNil(intent, "facing " .. case.facing .. " rejects raw " .. raw)
     end
   end
@@ -205,8 +245,10 @@ end
 function T.background_requires_exact_facing_cell_match()
   local m = map({ bgEvent(0, 6, 4, 12, 0) })
   local r = resolver()
-  Assert.isNil(r:resolve(baseSnapshot({ runtimeMap = m })),
-    "an event one cell short of the facing tile does not resolve")
+  Assert.isNil(
+    r:resolve(baseSnapshot({ runtimeMap = m })),
+    "an event one cell short of the facing tile does not resolve"
+  )
 end
 
 function T.type_two_background_events_are_skipped()
@@ -241,7 +283,9 @@ function T.actor_on_another_surface_is_ineligible()
   -- wins (spec section 12.6: different surfaces do not interact).
   local elm = actor("map:61:object:0", 0, 99, 4, 13, 1)
   local actorAt = function(_, _, _, surfaceId)
-    if surfaceId == 0 then return nil end
+    if surfaceId == 0 then
+      return nil
+    end
     return elm
   end
   local m = map({ bgEvent(0, 6, 4, 13, 0) })

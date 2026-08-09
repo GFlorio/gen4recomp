@@ -5,7 +5,9 @@ local Assert = require("tests.support.Assert")
 local FieldZoom = require("libs.engine.src.FieldZoom")
 
 local T = {}
-local function approx(a, b) return math.abs(a - b) < 1e-9 end
+local function approx(a, b)
+  return math.abs(a - b) < 1e-9
+end
 
 function T.resize_compensation_endpoints_are_predictable()
   local fixed = FieldZoom.new({ referenceHeight = 720, resizeCompensation = 0 })
@@ -38,8 +40,10 @@ end
 
 function T.effective_zoom_respects_constraints_after_resize()
   local zoom = FieldZoom.new({
-    referenceHeight = 720, resizeCompensation = 1,
-    minZoom = 0.5, maxZoom = 2,
+    referenceHeight = 720,
+    resizeCompensation = 1,
+    minZoom = 0.5,
+    maxZoom = 2,
   })
   zoom:resize(2160)
   Assert.equal(zoom:effectiveZoom(), 0.5)
@@ -48,9 +52,15 @@ function T.effective_zoom_respects_constraints_after_resize()
 end
 
 function T.invalid_configuration_is_rejected()
-  Assert.throws(function() FieldZoom.new({ resizeCompensation = 1.1 }) end)
-  Assert.throws(function() FieldZoom.new({ minZoom = 2, maxZoom = 1 }) end)
-  Assert.throws(function() FieldZoom.new({ referenceHeight = 0 }) end)
+  Assert.throws(function()
+    FieldZoom.new({ resizeCompensation = 1.1 })
+  end)
+  Assert.throws(function()
+    FieldZoom.new({ minZoom = 2, maxZoom = 1 })
+  end)
+  Assert.throws(function()
+    FieldZoom.new({ referenceHeight = 0 })
+  end)
 end
 
 return T

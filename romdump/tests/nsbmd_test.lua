@@ -12,8 +12,12 @@ local Matrix4 = require("libs.math.src.Matrix4")
 
 local T = {}
 
-local function buildBmd0() return Fixture.build() end
-local function buildTransformedBmd0() return Fixture.buildTransformed() end
+local function buildBmd0()
+  return Fixture.build()
+end
+local function buildTransformedBmd0()
+  return Fixture.buildTransformed()
+end
 
 function T.decodes_model_info_and_names()
   local m = assert(Nsbmd.decode(buildBmd0()))
@@ -115,7 +119,9 @@ function T.decodes_sbc_draw_instances()
 
   local poss = {}
   for _, c in ipairs(model.sbc.commands) do
-    if c.opcode == 0x0B then poss[#poss + 1] = c end
+    if c.opcode == 0x0B then
+      poss[#poss + 1] = c
+    end
   end
   Assert.equal(#poss, 2)
   Assert.isFalse(poss[1].inverse)

@@ -16,7 +16,9 @@ function Hashing.sha1hex(bytes)
     Errors.raise("HASHING_UNAVAILABLE", "love.data is required for SHA-1 hashing", {})
   end
   local raw = love.data.hash("sha1", bytes)
-  return (raw:gsub(".", function(c) return string.format("%02x", string.byte(c)) end))
+  return (raw:gsub(".", function(c)
+    return string.format("%02x", string.byte(c))
+  end))
 end
 
 -- Deterministic hash of a Lua data value: serialize with sorted keys, then hash.

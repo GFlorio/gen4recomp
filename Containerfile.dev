@@ -16,4 +16,12 @@ RUN set -eux \
     && printf '#!/bin/sh\nexec /opt/lua-language-server/bin/lua-language-server --metapath="${HOME:-/tmp}/.cache/lua-language-server/meta" "$@"\n' > /usr/local/bin/lua-language-server \
     && chmod 0755 /usr/local/bin/lua-language-server \
     && rm -rf /tmp/lua-language-server.tar.gz
+RUN set -eux \
+    && url=$(curl -fsSL https://api.github.com/repos/JohnnyMorganz/StyLua/releases/latest \
+        | grep -o '"browser_download_url": *"[^"]*linux-x86_64\.zip"' \
+        | cut -d '"' -f 4) \
+    && curl -fsSL "$url" -o /tmp/stylua.zip \
+    && unzip -j /tmp/stylua.zip stylua -d /usr/local/bin \
+    && chmod 0755 /usr/local/bin/stylua \
+    && rm -rf /tmp/stylua.zip
 USER 1000:1000

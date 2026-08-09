@@ -58,10 +58,8 @@ local function staticResult(ranges)
 end
 
 function FieldActorFrames.collect(timeline, ranges, textureCount, paletteCount, context)
-  assert(type(textureCount) == "number" and textureCount > 0,
-    "field actor needs at least one texture")
-  assert(type(paletteCount) == "number" and paletteCount > 0,
-    "field actor needs at least one palette")
+  assert(type(textureCount) == "number" and textureCount > 0, "field actor needs at least one texture")
+  assert(type(paletteCount) == "number" and paletteCount > 0, "field actor needs at least one palette")
 
   local frames, perRange = timelineFrames(timeline, ranges)
   local kind, slot = missingSlot(frames, textureCount, paletteCount)
@@ -72,15 +70,17 @@ function FieldActorFrames.collect(timeline, ranges, textureCount, paletteCount, 
     return staticResult(ranges)
   end
   if kind == "texture" then
-    Errors.raise("FIELD_ACTOR_TEXTURE_SLOT_MISSING",
-      "timeline references texture slot " .. slot .. " but the actor resource has "
-        .. textureCount,
-      { textureSlot = slot, count = textureCount, context = context })
+    Errors.raise(
+      "FIELD_ACTOR_TEXTURE_SLOT_MISSING",
+      "timeline references texture slot " .. slot .. " but the actor resource has " .. textureCount,
+      { textureSlot = slot, count = textureCount, context = context }
+    )
   end
-  Errors.raise("FIELD_ACTOR_PALETTE_SLOT_MISSING",
-    "timeline references palette slot " .. slot .. " but the actor resource has "
-      .. paletteCount,
-    { paletteSlot = slot, count = paletteCount, context = context })
+  Errors.raise(
+    "FIELD_ACTOR_PALETTE_SLOT_MISSING",
+    "timeline references palette slot " .. slot .. " but the actor resource has " .. paletteCount,
+    { paletteSlot = slot, count = paletteCount, context = context }
+  )
 end
 
 return FieldActorFrames

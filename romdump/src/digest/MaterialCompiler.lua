@@ -23,13 +23,19 @@ local function needsPalette(formatRaw)
   return formatRaw >= 1 and formatRaw <= 6
 end
 
-local function wrapMode(repeats) return repeats and "repeat" or "clamp" end
+local function wrapMode(repeats)
+  return repeats and "repeat" or "clamp"
+end
 
 -- "building_textures member 7" -- names the resource that was actually searched,
 -- so a miss is attributable without re-running the audit.
 local function describeSource(context)
-  if not (context and context.textureArchive) then return "the supplied pack" end
-  if not context.textureMemberId then return context.textureArchive end
+  if not (context and context.textureArchive) then
+    return "the supplied pack"
+  end
+  if not context.textureMemberId then
+    return context.textureArchive
+  end
   return context.textureArchive .. " member " .. context.textureMemberId
 end
 
@@ -62,23 +68,28 @@ function MaterialCompiler.compile(materials, pack, opts)
     local tex = mat.textureName and pack.textureByName[mat.textureName] or nil
     local pal
     if mat.textureName and not tex then
-      unresolved[#unresolved + 1] = { material = mat.name, kind = "texture",
-        name = mat.textureName, source = describeSource(opts.context) }
+      unresolved[#unresolved + 1] =
+        { material = mat.name, kind = "texture", name = mat.textureName, source = describeSource(opts.context) }
     elseif tex and needsPalette(tex.formatRaw) then
       pal = mat.paletteName and pack.paletteByName[mat.paletteName] or nil
       if not pal then
-        unresolved[#unresolved + 1] = { material = mat.name, kind = "palette",
-          name = mat.paletteName, source = describeSource(opts.context) }
+        unresolved[#unresolved + 1] = {
+          material = mat.name,
+          kind = "palette",
+          name = mat.paletteName,
+          source = describeSource(opts.context),
+        }
         tex = nil
       end
     end
 
     if tex then
       local decoderOpts = Nsbtx.decoderOpts(pack, tex, pal)
-      local definition = string.format("%d:%dx%d:%s", tex.formatRaw, tex.width, tex.height,
-        tex.color0Transparent and "1" or "0")
-      local key = Hashing.sha1hex(DECODER_VERSION .. definition
-        .. decoderOpts.texel .. decoderOpts.palette .. (decoderOpts.indexData or ""))
+      local definition =
+        string.format("%d:%dx%d:%s", tex.formatRaw, tex.width, tex.height, tex.color0Transparent and "1" or "0")
+      local key = Hashing.sha1hex(
+        DECODER_VERSION .. definition .. decoderOpts.texel .. decoderOpts.palette .. (decoderOpts.indexData or "")
+      )
 
       if not textures[key] then
         local img = TextureDecoder.decode(decoderOpts, { name = mat.textureName })
@@ -93,8 +104,10 @@ function MaterialCompiler.compile(materials, pack, opts)
       -- The block was located right iff the material's stored original size
       -- matches the texture it binds; a mismatch means a parse offset is wrong.
       if mat.origWidth then
-        assert(mat.origWidth == tex.width and mat.origHeight == tex.height,
-          "material " .. mat.name .. " origWH does not match bound texture " .. mat.textureName)
+        assert(
+          mat.origWidth == tex.width and mat.origHeight == tex.height,
+          "material " .. mat.name .. " origWH does not match bound texture " .. mat.textureName
+        )
       end
 
       record.texture = key

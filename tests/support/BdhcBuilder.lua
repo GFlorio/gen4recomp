@@ -15,13 +15,11 @@ local function writeSlope(w, slope)
 end
 
 local function writePlate(w, plate)
-  w:u16(plate.minPointIndex):u16(plate.maxPointIndex)
-    :u16(plate.slopeIndex):u16(plate.heightIndex)
+  w:u16(plate.minPointIndex):u16(plate.maxPointIndex):u16(plate.slopeIndex):u16(plate.heightIndex)
 end
 
 local function writeStrip(w, strip)
-  w:u16(strip.reserved or 0):u16(strip.maxZ)
-    :u16(strip.accessCount):u16(strip.accessStart)
+  w:u16(strip.reserved or 0):u16(strip.maxZ):u16(strip.accessCount):u16(strip.accessStart)
 end
 
 function BdhcBuilder.heightRaw(distance)
@@ -46,19 +44,31 @@ function BdhcBuilder.build(opts)
   local accessEntries = opts.accessEntries
   if not accessEntries then
     accessEntries = {}
-    for plateId = 0, #plates - 1 do accessEntries[#accessEntries + 1] = plateId end
+    for plateId = 0, #plates - 1 do
+      accessEntries[#accessEntries + 1] = plateId
+    end
   end
 
   local w = BinaryWriter.new()
-  w:bytes(opts.magic or "BDHC")
-    :u16(#points):u16(#slopes):u16(#heights):u16(#plates)
-    :u16(#strips):u16(#accessEntries)
-  for _, point in ipairs(points) do writePoint(w, point) end
-  for _, slope in ipairs(slopes) do writeSlope(w, slope) end
-  for _, height in ipairs(heights) do w:u32(height) end
-  for _, plate in ipairs(plates) do writePlate(w, plate) end
-  for _, strip in ipairs(strips) do writeStrip(w, strip) end
-  for _, plateId in ipairs(accessEntries) do w:u16(plateId) end
+  w:bytes(opts.magic or "BDHC"):u16(#points):u16(#slopes):u16(#heights):u16(#plates):u16(#strips):u16(#accessEntries)
+  for _, point in ipairs(points) do
+    writePoint(w, point)
+  end
+  for _, slope in ipairs(slopes) do
+    writeSlope(w, slope)
+  end
+  for _, height in ipairs(heights) do
+    w:u32(height)
+  end
+  for _, plate in ipairs(plates) do
+    writePlate(w, plate)
+  end
+  for _, strip in ipairs(strips) do
+    writeStrip(w, strip)
+  end
+  for _, plateId in ipairs(accessEntries) do
+    w:u16(plateId)
+  end
   return w:tostring()
 end
 

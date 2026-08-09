@@ -33,9 +33,14 @@ function T.format_tolerates_non_error_values()
 end
 
 function T.format_emits_nested_context_in_stable_key_order()
-  Assert.equal(Errors.format(Errors.new("BAD", "broken", {
-    z = 2, context = { role = "building", mapId = 4 }, a = 1,
-  })), "BAD: broken {a=1,context={mapId=4,role=building},z=2}")
+  Assert.equal(
+    Errors.format(Errors.new("BAD", "broken", {
+      z = 2,
+      context = { role = "building", mapId = 4 },
+      a = 1,
+    })),
+    "BAD: broken {a=1,context={mapId=4,role=building},z=2}"
+  )
 end
 
 -- Structured errors must survive pcall unchanged.

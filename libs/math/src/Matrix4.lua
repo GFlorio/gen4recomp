@@ -76,9 +76,18 @@ function Matrix4.orthographic(left, right, bottom, top, near, far)
   assert(top ~= bottom, "orthographic height must be non-zero")
   assert(far ~= near, "orthographic depth must be non-zero")
   return {
-    2 / (right - left), 0, 0, 0,
-    0, 2 / (top - bottom), 0, 0,
-    0, 0, -2 / (far - near), 0,
+    2 / (right - left),
+    0,
+    0,
+    0,
+    0,
+    2 / (top - bottom),
+    0,
+    0,
+    0,
+    0,
+    -2 / (far - near),
+    0,
     -(right + left) / (right - left),
     -(top + bottom) / (top - bottom),
     -(far + near) / (far - near),
@@ -86,8 +95,12 @@ function Matrix4.orthographic(left, right, bottom, top, near, far)
   }
 end
 
-local function sub3(a, b) return { a[1] - b[1], a[2] - b[2], a[3] - b[3] } end
-local function dot3(a, b) return a[1] * b[1] + a[2] * b[2] + a[3] * b[3] end
+local function sub3(a, b)
+  return { a[1] - b[1], a[2] - b[2], a[3] - b[3] }
+end
+local function dot3(a, b)
+  return a[1] * b[1] + a[2] * b[2] + a[3] * b[3]
+end
 local function cross3(a, b)
   return {
     a[2] * b[3] - a[3] * b[2],
@@ -107,17 +120,31 @@ function Matrix4.lookAt(eye, center, up)
   local s = normalize3(cross3(f, up))
   local u = cross3(s, f)
   return {
-    s[1], u[1], -f[1], 0,
-    s[2], u[2], -f[2], 0,
-    s[3], u[3], -f[3], 0,
-    -dot3(s, eye), -dot3(u, eye), dot3(f, eye), 1,
+    s[1],
+    u[1],
+    -f[1],
+    0,
+    s[2],
+    u[2],
+    -f[2],
+    0,
+    s[3],
+    u[3],
+    -f[3],
+    0,
+    -dot3(s, eye),
+    -dot3(u, eye),
+    dot3(f, eye),
+    1,
   }
 end
 
 -- Serializable copy of the 16 components (column-major order).
 function Matrix4.toArray(m)
   local a = {}
-  for i = 1, 16 do a[i] = m[i] end
+  for i = 1, 16 do
+    a[i] = m[i]
+  end
   return a
 end
 

@@ -49,7 +49,9 @@ function T.get_unknown_returns_error()
 end
 
 function T.require_raises_on_unknown()
-  Assert.throws(function() MapCatalog.require(4242) end)
+  Assert.throws(function()
+    MapCatalog.require(4242)
+  end)
 end
 
 function T.all_iterates_records_ascending_by_id()
@@ -58,7 +60,9 @@ function T.all_iterates_records_ascending_by_id()
     ids[#ids + 1] = record.id
   end
   Assert.equal(#ids, 540)
-  for i = 1, #ids do Assert.equal(ids[i], i - 1) end
+  for i = 1, #ids do
+    Assert.equal(ids[i], i - 1)
+  end
 end
 
 function T.area_for_map_header()

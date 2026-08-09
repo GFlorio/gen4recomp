@@ -32,20 +32,34 @@ end
 local function buildPalette(colors)
   local paletteBytes = #colors * 2
   local chunkSize = 0x18 + paletteBytes
-  local ttlp = "TTLP" .. string.char(chunkSize % 256, math.floor(chunkSize / 256) % 256,
-    math.floor(chunkSize / 65536) % 256, math.floor(chunkSize / 16777216) % 256)
+  local ttlp = "TTLP"
+    .. string.char(
+      chunkSize % 256,
+      math.floor(chunkSize / 256) % 256,
+      math.floor(chunkSize / 65536) % 256,
+      math.floor(chunkSize / 16777216) % 256
+    )
     .. string.char(3, 0, 0, 0, 0, 0, 0, 0)
-    .. string.char(paletteBytes % 256, math.floor(paletteBytes / 256) % 256,
-      math.floor(paletteBytes / 65536) % 256, math.floor(paletteBytes / 16777216) % 256)
+    .. string.char(
+      paletteBytes % 256,
+      math.floor(paletteBytes / 256) % 256,
+      math.floor(paletteBytes / 65536) % 256,
+      math.floor(paletteBytes / 16777216) % 256
+    )
     .. string.char(0x10, 0, 0, 0)
   local body = {}
   for _, c in ipairs(colors) do
     body[#body + 1] = string.char(c % 256, math.floor(c / 256))
   end
   local total = 0x10 + #ttlp + #table.concat(body)
-  local header = "RLCN" .. string.char(0xFF, 0xFE, 0x00, 0x01)
-    .. string.char(total % 256, math.floor(total / 256) % 256,
-      math.floor(total / 65536) % 256, math.floor(total / 16777216) % 256)
+  local header = "RLCN"
+    .. string.char(0xFF, 0xFE, 0x00, 0x01)
+    .. string.char(
+      total % 256,
+      math.floor(total / 256) % 256,
+      math.floor(total / 65536) % 256,
+      math.floor(total / 16777216) % 256
+    )
     .. string.char(0x10, 0, 1, 0)
   return header .. ttlp .. table.concat(body)
 end
@@ -71,45 +85,85 @@ local function fixture()
   -- sFontInfos[0]: fgColor=1, shadowColor=2, bgColor=0xF): slot 0 = unused
   -- green, 1 = fg (0x296B dark), 2 = shadow (0x5EF5 gray), 15 = bg (white).
   -- palette.colors is 1-based, so the compiler resolves slot N at colors[N+1].
-  local paletteMember = buildPalette({ 0x3713, 0x296B, 0x5EF5, 0x089D,
-    0x5EBF, 0x0F45, 0x47B3, 0x7DC0, 0x76EF, 0x5E5F, 0x737F, 0, 0, 0, 0, 0x7FFF })
+  local paletteMember = buildPalette({
+    0x3713,
+    0x296B,
+    0x5EF5,
+    0x089D,
+    0x5EBF,
+    0x0F45,
+    0x47B3,
+    0x7DC0,
+    0x76EF,
+    0x5E5F,
+    0x737F,
+    0,
+    0,
+    0,
+    0,
+    0x7FFF,
+  })
   local romFs = {
     resolvedNarc = function(_, alias)
       Assert.equal(alias, "font")
-      return { symbol = "NARC_graphic_font", alias = "font", narcId = 16,
-        fileId = 66, path = "a/0/1/6" }
+      return { symbol = "NARC_graphic_font", alias = "font", narcId = 16, fileId = 66, path = "a/0/1/6" }
     end,
-    read = function(_, fileId) Assert.equal(fileId, 66); return "archive-bytes" end,
+    read = function(_, fileId)
+      Assert.equal(fileId, 66)
+      return "archive-bytes"
+    end,
     openNarc = function(_, alias)
       Assert.equal(alias, "font")
-      return { readMember = function(_, memberId)
-        if memberId == 0 then return glyphMember end
-        if memberId == 7 then return paletteMember end
-        Assert.fail("unexpected font member " .. tostring(memberId))
-      end }
+      return {
+        readMember = function(_, memberId)
+          if memberId == 0 then
+            return glyphMember
+          end
+          if memberId == 7 then
+            return paletteMember
+          end
+          Assert.fail("unexpected font member " .. tostring(memberId))
+        end,
+      }
     end,
-    metadata = function() return { sha1 = "rom-sha" } end,
-    version = function() return "heartgold" end,
+    metadata = function()
+      return { sha1 = "rom-sha" }
+    end,
+    version = function()
+      return "heartgold"
+    end,
   }
   local function sha1(bytes)
-    if bytes == glyphMember then return "glyph-member-sha" end
-    if bytes == paletteMember then return "palette-member-sha" end
+    if bytes == glyphMember then
+      return "glyph-member-sha"
+    end
+    if bytes == paletteMember then
+      return "palette-member-sha"
+    end
     return "archive-sha"
   end
-  return romFs, sha1, function() return "dependency-sha" end
+  return romFs, sha1, function()
+    return "dependency-sha"
+  end
 end
 
 -- PngWriter emits a stored-DEFLATE, filter-0 RGBA PNG; this test-side reader
 -- recovers the raw RGBA rows so pixel colors can be asserted directly.
 local function pngRgba(png)
   Assert.equal(png:sub(1, 8), string.char(137, 80, 78, 71, 13, 10, 26, 10))
-  local width = string.byte(png, 17) * 16777216 + string.byte(png, 18) * 65536
-    + string.byte(png, 19) * 256 + string.byte(png, 20)
-  local height = string.byte(png, 21) * 16777216 + string.byte(png, 22) * 65536
-    + string.byte(png, 23) * 256 + string.byte(png, 24)
+  local width = string.byte(png, 17) * 16777216
+    + string.byte(png, 18) * 65536
+    + string.byte(png, 19) * 256
+    + string.byte(png, 20)
+  local height = string.byte(png, 21) * 16777216
+    + string.byte(png, 22) * 65536
+    + string.byte(png, 23) * 256
+    + string.byte(png, 24)
   -- Find the IDAT payload (first chunk after IHDR).
-  local idatLen = string.byte(png, 34) * 16777216 + string.byte(png, 35) * 65536
-    + string.byte(png, 36) * 256 + string.byte(png, 37)
+  local idatLen = string.byte(png, 34) * 16777216
+    + string.byte(png, 35) * 65536
+    + string.byte(png, 36) * 256
+    + string.byte(png, 37)
   local payload = png:sub(42, 41 + idatLen)
   -- Skip the zlib header (2 bytes), then consume stored DEFLATE blocks.
   local pos = 3
@@ -133,8 +187,10 @@ end
 
 local function px(rgba, width, x, y)
   local offset = (y * width + x) * 4 + 1
-  return string.byte(rgba, offset), string.byte(rgba, offset + 1),
-    string.byte(rgba, offset + 2), string.byte(rgba, offset + 3)
+  return string.byte(rgba, offset),
+    string.byte(rgba, offset + 1),
+    string.byte(rgba, offset + 2),
+    string.byte(rgba, offset + 3)
 end
 
 function T.compiles_font_def_and_atlas()
@@ -220,11 +276,15 @@ function T.writer_failure_invalidates_the_class()
   local originalWrite = backend.write
   ---@diagnostic disable: duplicate-set-field
   backend.write = function(self, path, data)
-    if path:find("font-0.png", 1, true) then error("injected") end
+    if path:find("font-0.png", 1, true) then
+      error("injected")
+    end
     return originalWrite(self, path, data)
   end
   local cache = CacheFs.forVersion("heartgold", backend)
-  Assert.throws(function() FieldFontCacheWriter.write(cache, bundle) end)
+  Assert.throws(function()
+    FieldFontCacheWriter.write(cache, bundle)
+  end)
   Assert.isFalse(cache:exists(FieldFontCache.dir()))
 end
 
@@ -232,10 +292,14 @@ function T.corrupt_palette_member_is_typed()
   local glyphMember = buildFontMember(1, glyph64(), { 6 })
   local romFs, sha1, hashLua = fixture()
   romFs.openNarc = function()
-    return { readMember = function(_, memberId)
-      if memberId == 0 then return glyphMember end
-      return "not-rlcn"
-    end }
+    return {
+      readMember = function(_, memberId)
+        if memberId == 0 then
+          return glyphMember
+        end
+        return "not-rlcn"
+      end,
+    }
   end
   local bundle, err = FieldFontCompiler.compile(romFs, sha1, hashLua)
   Assert.isNil(bundle, "expected a failure result")

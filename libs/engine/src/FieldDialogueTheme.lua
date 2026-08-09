@@ -83,8 +83,10 @@ FieldDialogueTheme.slice = { size = 6, corner = 2 }
 ---@param referenceFrame FieldDialogueTheme.Rect
 ---@return FieldDialogueTheme.Layout
 function FieldDialogueTheme.layout(referenceFrame)
-  assert(type(referenceFrame) == "table" and referenceFrame.width > 0,
-    "FieldDialogueTheme.layout requires a reference frame")
+  assert(
+    type(referenceFrame) == "table" and referenceFrame.width > 0,
+    "FieldDialogueTheme.layout requires a reference frame"
+  )
   local scale = referenceFrame.width / FieldDialogueTheme.referenceWidth
   local box = {
     x = FieldDialogueTheme.box.x,
@@ -104,10 +106,8 @@ function FieldDialogueTheme.layout(referenceFrame)
     box = box,
     text = text,
     cursor = {
-      x = text.x + text.width - FieldDialogueTheme.cursor.width
-        - FieldDialogueTheme.cursor.offsetX,
-      y = text.y + text.height - FieldDialogueTheme.cursor.height
-        - FieldDialogueTheme.cursor.offsetY,
+      x = text.x + text.width - FieldDialogueTheme.cursor.width - FieldDialogueTheme.cursor.offsetX,
+      y = text.y + text.height - FieldDialogueTheme.cursor.height - FieldDialogueTheme.cursor.offsetY,
       width = FieldDialogueTheme.cursor.width,
       height = FieldDialogueTheme.cursor.height,
     },
@@ -121,10 +121,8 @@ end
 ---@param rect FieldDialogueTheme.Rect
 ---@return FieldDialogueTheme.Rect
 function FieldDialogueTheme.screenRect(layout, rect)
-  assert(type(layout) == "table" and layout.origin and layout.scale,
-    "screenRect requires a layout")
-  assert(type(rect) == "table" and rect.x and rect.y and rect.width and rect.height,
-    "screenRect requires a rect")
+  assert(type(layout) == "table" and layout.origin and layout.scale, "screenRect requires a layout")
+  assert(type(rect) == "table" and rect.x and rect.y and rect.width and rect.height, "screenRect requires a rect")
   return {
     x = layout.origin.x + rect.x * layout.scale,
     y = layout.origin.y + rect.y * layout.scale,
@@ -142,8 +140,10 @@ end
 ---@param fontDef FieldFontDef
 ---@return FieldDialogueTheme.Metrics
 function FieldDialogueTheme.fontMetrics(fontDef)
-  assert(type(fontDef) == "table" and type(fontDef.glyphs) == "table",
-    "font metrics require a g4-field-font-v1 definition")
+  assert(
+    type(fontDef) == "table" and type(fontDef.glyphs) == "table",
+    "font metrics require a g4-field-font-v1 definition"
+  )
   local function glyphAdvance(code)
     local glyph = fontDef.glyphs[code] or fontDef.glyphs[0]
     return glyph and glyph.advance or 0

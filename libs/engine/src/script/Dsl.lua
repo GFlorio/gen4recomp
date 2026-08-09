@@ -10,16 +10,22 @@ local Schema = require("libs.engine.src.script.Schema")
 local M = {}
 
 local function copyDefault(value)
-  if type(value) ~= "table" then return value end
+  if type(value) ~= "table" then
+    return value
+  end
   local out = {}
-  for k, v in pairs(value) do out[k] = v end
+  for k, v in pairs(value) do
+    out[k] = v
+  end
   return out
 end
 
 local function defaultsFor(fields)
   local out = {}
   for name, spec in pairs(fields) do
-    if spec.default ~= nil then out[name] = copyDefault(spec.default) end
+    if spec.default ~= nil then
+      out[name] = copyDefault(spec.default)
+    end
   end
   return out
 end
@@ -27,7 +33,9 @@ end
 local function mergeFields(kind, given)
   local fields = kind.fields
   local out = defaultsFor(fields)
-  for k, v in pairs(given or {}) do out[k] = v end
+  for k, v in pairs(given or {}) do
+    out[k] = v
+  end
   return out
 end
 
@@ -92,17 +100,23 @@ end
 -- values so unset optionals leave no keys behind.
 local function extend(given, opts)
   if opts then
-    for k, v in pairs(opts) do given[k] = v end
+    for k, v in pairs(opts) do
+      given[k] = v
+    end
   end
   return given
 end
 
 local DIRECTION_SET = {}
-for _, name in ipairs(Schema.ENUMS.direction) do DIRECTION_SET[name] = true end
+for _, name in ipairs(Schema.ENUMS.direction) do
+  DIRECTION_SET[name] = true
+end
 
 local function requireDirection(v)
-  assert(type(v) == "string" and DIRECTION_SET[v] ~= nil,
-    "direction must be one of: " .. table.concat(Schema.ENUMS.direction, ", "))
+  assert(
+    type(v) == "string" and DIRECTION_SET[v] ~= nil,
+    "direction must be one of: " .. table.concat(Schema.ENUMS.direction, ", ")
+  )
   return v
 end
 
@@ -115,7 +129,9 @@ function M.script(spec)
   assert(type(spec.id) == "string" and #spec.id > 0, "script id must be a non-empty string")
   requireTable(spec.steps, "script steps")
   local out = {}
-  for k, v in pairs(spec) do out[k] = v end
+  for k, v in pairs(spec) do
+    out[k] = v
+  end
   out.kind = Schema.SCRIPT_KIND
   return out
 end
@@ -158,9 +174,15 @@ end
 
 -- 45.2 Text-value constructors
 
-function M.playerName() return text("player_name") end
-function M.rivalName() return text("rival_name") end
-function M.friendName() return text("friend_name") end
+function M.playerName()
+  return text("player_name")
+end
+function M.rivalName()
+  return text("rival_name")
+end
+function M.friendName()
+  return text("friend_name")
+end
 
 function M.integerText(value, opts)
   local given = { value = value }
@@ -168,11 +190,21 @@ function M.integerText(value, opts)
   return text("integer", given)
 end
 
-function M.itemName(v) return text("item_name", { value = v }) end
-function M.pocketName(v) return text("pocket_name", { value = v }) end
-function M.moveName(v) return text("move_name", { value = v }) end
-function M.tmhmMoveName(v) return text("tmhm_move_name", { value = v }) end
-function M.speciesName(v) return text("species_name", { value = v }) end
+function M.itemName(v)
+  return text("item_name", { value = v })
+end
+function M.pocketName(v)
+  return text("pocket_name", { value = v })
+end
+function M.moveName(v)
+  return text("move_name", { value = v })
+end
+function M.tmhmMoveName(v)
+  return text("tmhm_move_name", { value = v })
+end
+function M.speciesName(v)
+  return text("species_name", { value = v })
+end
 
 function M.partySpeciesName(position)
   return text("party_species_name", { position = requireInteger(position, "party position") })
@@ -182,9 +214,15 @@ function M.partyNickname(position)
   return text("party_nickname", { position = requireInteger(position, "party position") })
 end
 
-function M.trainerClassName(v) return text("trainer_class_name", { value = v }) end
-function M.starterSpeciesName() return text("starter_species_name") end
-function M.mapName(v) return text("map_name", { value = v }) end
+function M.trainerClassName(v)
+  return text("trainer_class_name", { value = v })
+end
+function M.starterSpeciesName()
+  return text("starter_species_name")
+end
+function M.mapName(v)
+  return text("map_name", { value = v })
+end
 
 function M.gendered(maleMessage, femaleMessage)
   return text("gendered_message", { male = maleMessage, female = femaleMessage })
@@ -218,12 +256,24 @@ local function compareOp(operator, a, b)
   return cond("compare", { operator = operator, left = a, right = b })
 end
 
-function M.eq(a, b) return compareOp("eq", a, b) end
-function M.ne(a, b) return compareOp("ne", a, b) end
-function M.lt(a, b) return compareOp("lt", a, b) end
-function M.le(a, b) return compareOp("le", a, b) end
-function M.gt(a, b) return compareOp("gt", a, b) end
-function M.ge(a, b) return compareOp("ge", a, b) end
+function M.eq(a, b)
+  return compareOp("eq", a, b)
+end
+function M.ne(a, b)
+  return compareOp("ne", a, b)
+end
+function M.lt(a, b)
+  return compareOp("lt", a, b)
+end
+function M.le(a, b)
+  return compareOp("le", a, b)
+end
+function M.gt(a, b)
+  return compareOp("gt", a, b)
+end
+function M.ge(a, b)
+  return compareOp("ge", a, b)
+end
 
 function M.flag(flag)
   return cond("flag", { id = flag })
@@ -251,9 +301,15 @@ end
 
 -- 45.5 Control-flow constructors
 
-function M.noop() return op("noop") end
-function M.stop() return op("stop") end
-function M.yieldTick() return op("yield_tick") end
+function M.noop()
+  return op("noop")
+end
+function M.stop()
+  return op("stop")
+end
+function M.yieldTick()
+  return op("yield_tick")
+end
 
 function M.waitTicks(ticks)
   return op("wait_ticks", { ticks = requireInteger(ticks, "ticks") })
@@ -283,7 +339,9 @@ end
 
 function M.return_(v)
   local given = {}
-  if v ~= nil then given.value = v end
+  if v ~= nil then
+    given.value = v
+  end
   return op("return", given)
 end
 
@@ -311,20 +369,42 @@ function M.callCompared(operator, target)
   return op("call_compared", { operator = operator, target = requireString(target, "call_compared target") })
 end
 
-function M.next() return op("next") end
+function M.next()
+  return op("next")
+end
 
 -- 45.6 State constructors
 
-function M.setFlag(flag) return op("set_flag", { flag = flag }) end
-function M.clearFlag(flag) return op("clear_flag", { flag = flag }) end
-function M.setVar(id, v) return op("set_var", { variable = id, value = v }) end
-function M.copyVar(dst, src) return op("copy_var", { destination = dst, source = src }) end
-function M.addVar(id, amount) return op("add_var", { variable = id, amount = amount }) end
-function M.subVar(id, amount) return op("sub_var", { variable = id, amount = amount }) end
-function M.setLocal(name, v) return op("set_local", { name = name, value = v }) end
-function M.copyLocal(dst, src) return op("copy_local", { destination = dst, source = src }) end
-function M.addLocal(name, amount) return op("add_local", { name = name, amount = amount }) end
-function M.subLocal(name, amount) return op("sub_local", { name = name, amount = amount }) end
+function M.setFlag(flag)
+  return op("set_flag", { flag = flag })
+end
+function M.clearFlag(flag)
+  return op("clear_flag", { flag = flag })
+end
+function M.setVar(id, v)
+  return op("set_var", { variable = id, value = v })
+end
+function M.copyVar(dst, src)
+  return op("copy_var", { destination = dst, source = src })
+end
+function M.addVar(id, amount)
+  return op("add_var", { variable = id, amount = amount })
+end
+function M.subVar(id, amount)
+  return op("sub_var", { variable = id, amount = amount })
+end
+function M.setLocal(name, v)
+  return op("set_local", { name = name, value = v })
+end
+function M.copyLocal(dst, src)
+  return op("copy_local", { destination = dst, source = src })
+end
+function M.addLocal(name, amount)
+  return op("add_local", { name = name, amount = amount })
+end
+function M.subLocal(name, amount)
+  return op("sub_local", { name = name, amount = amount })
+end
 
 -- 45.7 Dialogue constructors
 
@@ -357,11 +437,15 @@ function M.closeMessage(opts)
   return op("close_message", opts)
 end
 
-function M.holdMessage() return op("hold_message") end
+function M.holdMessage()
+  return op("hold_message")
+end
 
 function M.askYesNo(message, opts)
   local given = {}
-  if message ~= nil then given.message = message end
+  if message ~= nil then
+    given.message = message
+  end
   extend(given, opts)
   return op("ask_yes_no", given)
 end
@@ -370,8 +454,12 @@ function M.bufferText(slot, v)
   return op("buffer_text", { slot = requireInteger(slot, "buffer slot"), value = v })
 end
 
-function M.showWaitingIcon() return op("show_waiting_icon") end
-function M.hideWaitingIcon() return op("hide_waiting_icon") end
+function M.showWaitingIcon()
+  return op("show_waiting_icon")
+end
+function M.hideWaitingIcon()
+  return op("hide_waiting_icon")
+end
 
 function M.resolveCommonMessageBank(spec)
   requireTable(spec, "resolveCommonMessageBank spec")
@@ -380,10 +468,18 @@ end
 
 -- 45.8 Lock and actor constructors
 
-function M.lockPlayer() return op("lock_player") end
-function M.releasePlayer() return op("release_player") end
-function M.lockAll() return op("lock_all") end
-function M.releaseAll() return op("release_all") end
+function M.lockPlayer()
+  return op("lock_player")
+end
+function M.releasePlayer()
+  return op("release_player")
+end
+function M.lockAll()
+  return op("lock_all")
+end
+function M.releaseAll()
+  return op("release_all")
+end
 
 function M.lockActor(actor, opts)
   local given = { actor = actor }
@@ -397,7 +493,9 @@ end
 
 function M.facePlayer(actor)
   local given = {}
-  if actor ~= nil then given.actor = actor end
+  if actor ~= nil then
+    given.actor = actor
+  end
   return op("face_player", given)
 end
 
@@ -405,8 +503,12 @@ function M.face(actor, direction)
   return op("face", { actor = actor, direction = requireDirection(direction) })
 end
 
-function M.showObject(actor) return op("show_object", { actor = actor }) end
-function M.hideObject(actor) return op("hide_object", { actor = actor }) end
+function M.showObject(actor)
+  return op("show_object", { actor = actor })
+end
+function M.hideObject(actor)
+  return op("hide_object", { actor = actor })
+end
 
 function M.setObjectPosition(actor, position)
   requireTable(position, "position")
@@ -460,7 +562,9 @@ M.m = {}
 
 function M.m.face(direction, count)
   local given = { direction = requireDirection(direction) }
-  if count ~= nil then given.count = count end
+  if count ~= nil then
+    given.count = count
+  end
   return action("face", given)
 end
 
@@ -484,7 +588,9 @@ end
 
 function M.m.delay(ticks, count)
   local given = { ticks = requireInteger(ticks, "delay ticks") }
-  if count ~= nil then given.count = count end
+  if count ~= nil then
+    given.count = count
+  end
   return action("delay", given)
 end
 
@@ -492,20 +598,32 @@ function M.m.setVisible(visible)
   return action("set_visible", { visible = visible })
 end
 
-function M.m.lockFacing() return action("lock_facing") end
-function M.m.unlockFacing() return action("unlock_facing") end
-function M.m.pauseAnimation() return action("pause_animation") end
-function M.m.resumeAnimation() return action("resume_animation") end
+function M.m.lockFacing()
+  return action("lock_facing")
+end
+function M.m.unlockFacing()
+  return action("unlock_facing")
+end
+function M.m.pauseAnimation()
+  return action("pause_animation")
+end
+function M.m.resumeAnimation()
+  return action("resume_animation")
+end
 
 function M.m.emote(name, count)
   local given = { name = name }
-  if count ~= nil then given.count = count end
+  if count ~= nil then
+    given.count = count
+  end
   return action("emote", given)
 end
 
 function M.m.gesture(name, count)
   local given = { name = name }
-  if count ~= nil then given.count = count end
+  if count ~= nil then
+    given.count = count
+  end
   return action("gesture", given)
 end
 
@@ -526,7 +644,9 @@ end
 
 function M.waitSound(id)
   local given = {}
-  if id ~= nil then given.sound = requireString(id, "sound id") end
+  if id ~= nil then
+    given.sound = requireString(id, "sound id")
+  end
   return op("wait_sound", given)
 end
 
@@ -536,13 +656,17 @@ function M.playCry(species, opts)
   return op("play_cry", given)
 end
 
-function M.waitCry() return op("wait_cry") end
+function M.waitCry()
+  return op("wait_cry")
+end
 
 function M.playFanfare(id)
   return op("play_fanfare", { fanfare = requireString(id, "fanfare id") })
 end
 
-function M.waitFanfare() return op("wait_fanfare") end
+function M.waitFanfare()
+  return op("wait_fanfare")
+end
 
 function M.playMusic(id)
   return op("play_music", { music = requireString(id, "music id") })
@@ -550,11 +674,15 @@ end
 
 function M.stopMusic(id)
   local given = {}
-  if id ~= nil then given.music = requireString(id, "music id") end
+  if id ~= nil then
+    given.music = requireString(id, "music id")
+  end
   return op("stop_music", given)
 end
 
-function M.resetMusic() return op("reset_music") end
+function M.resetMusic()
+  return op("reset_music")
+end
 
 function M.temporaryMusic(id)
   return op("temporary_music", { music = requireString(id, "music id") })
@@ -577,7 +705,9 @@ function M.fadeScreen(spec)
   return op("fade_screen", spec)
 end
 
-function M.waitFade() return op("wait_fade") end
+function M.waitFade()
+  return op("wait_fade")
+end
 
 function M.warp(spec)
   requireTable(spec, "warp spec")

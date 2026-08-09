@@ -44,10 +44,19 @@ local EPS = 1e-9
 
 local function assertSends(m, from, expected, msg)
   local x, y, z = Matrix4.transformPoint(m, from[1], from[2], from[3])
-  if math.abs(x - expected[1]) > EPS or math.abs(y - expected[2]) > EPS
-    or math.abs(z - expected[3]) > EPS then
-    error(string.format("%s: expected (%s,%s,%s), got (%s,%s,%s)",
-      msg or "transform mismatch", expected[1], expected[2], expected[3], x, y, z))
+  if math.abs(x - expected[1]) > EPS or math.abs(y - expected[2]) > EPS or math.abs(z - expected[3]) > EPS then
+    error(
+      string.format(
+        "%s: expected (%s,%s,%s), got (%s,%s,%s)",
+        msg or "transform mismatch",
+        expected[1],
+        expected[2],
+        expected[3],
+        x,
+        y,
+        z
+      )
+    )
   end
 end
 
@@ -67,19 +76,24 @@ end
 
 -- TRANS(1,2,3) then SCALE(2,4,8): the point is scaled first, then translated.
 function T.standard_composes_translation_then_scale()
-  local m = Joint.localMatrix(Joint.STANDARD,
+  local m = Joint.localMatrix(
+    Joint.STANDARD,
     node({ translation = { x = 1, y = 2, z = 3 }, scale = { x = 2, y = 4, z = 8 } }),
-    cmd(0, 0), {})
+    cmd(0, 0),
+    {}
+  )
   assertSends(m, { 1, 1, 1 }, { 3, 6, 11 })
 end
 
 -- MULT_4x3 sends rotation and translation as one command, so the rotation is
 -- applied before the translation and after the scale.
 function T.standard_composes_translation_rotation_scale()
-  local m = Joint.localMatrix(Joint.STANDARD,
-    node({ translation = { x = 10, y = 0, z = 0 }, rotation = ROT_Y90,
-           scale = { x = 2, y = 1, z = 1 } }),
-    cmd(0, 0), {})
+  local m = Joint.localMatrix(
+    Joint.STANDARD,
+    node({ translation = { x = 10, y = 0, z = 0 }, rotation = ROT_Y90, scale = { x = 2, y = 1, z = 1 } }),
+    cmd(0, 0),
+    {}
+  )
   assertSends(m, { 1, 0, 0 }, { 10, 0, -2 })
 end
 
@@ -93,8 +107,11 @@ end
 
 -- Without the scale-compensate bits Maya emits exactly the standard sequence.
 function T.maya_without_compensation_matches_standard()
-  local n = node({ translation = { x = 1, y = 2, z = 3 }, scale = { x = 2, y = 4, z = 8 },
-                   inverseScale = { x = 0.5, y = 0.25, z = 0.125 } })
+  local n = node({
+    translation = { x = 1, y = 2, z = 3 },
+    scale = { x = 2, y = 4, z = 8 },
+    inverseScale = { x = 0.5, y = 0.25, z = 0.125 },
+  })
   local maya = Joint.localMatrix(Joint.MAYA, n, cmd(0, 0), {})
   assertSends(maya, { 1, 1, 1 }, { 3, 6, 11 })
 end
@@ -104,20 +121,25 @@ end
 -- the parent's scale for the child's subtree.
 function T.maya_child_compensates_a_non_uniform_parent_scale()
   local cache = {}
-  Joint.localMatrix(Joint.MAYA,
+  Joint.localMatrix(
+    Joint.MAYA,
     node({ scale = { x = 2, y = 4, z = 8 }, inverseScale = { x = 0.5, y = 0.25, z = 0.125 } }),
-    cmd(0, 0, 0x02), cache)
+    cmd(0, 0, 0x02),
+    cache
+  )
 
-  local child = Joint.localMatrix(Joint.MAYA,
-    node({ translation = { x = 1, y = 0, z = 0 } }), cmd(1, 0, 0x01), cache)
+  local child = Joint.localMatrix(Joint.MAYA, node({ translation = { x = 1, y = 0, z = 0 } }), cmd(1, 0, 0x01), cache)
   assertSends(child, { 1, 1, 1 }, { 1.5, 0.25, 0.125 })
 end
 
 function T.maya_child_compensates_a_uniform_parent_scale()
   local cache = {}
-  Joint.localMatrix(Joint.MAYA,
+  Joint.localMatrix(
+    Joint.MAYA,
     node({ scale = { x = 4, y = 4, z = 4 }, inverseScale = { x = 0.25, y = 0.25, z = 0.25 } }),
-    cmd(0, 0, 0x02), cache)
+    cmd(0, 0, 0x02),
+    cache
+  )
 
   local child = Joint.localMatrix(Joint.MAYA, node({}), cmd(1, 0, 0x01), cache)
   assertSends(child, { 4, 8, 12 }, { 1, 2, 3 })
@@ -129,8 +151,7 @@ function T.maya_child_of_an_unscaled_parent_is_unchanged()
   local cache = {}
   Joint.localMatrix(Joint.MAYA, node({}), cmd(0, 0, 0x02), cache)
 
-  local child = Joint.localMatrix(Joint.MAYA,
-    node({ translation = { x = 1, y = 0, z = 0 } }), cmd(1, 0, 0x01), cache)
+  local child = Joint.localMatrix(Joint.MAYA, node({ translation = { x = 1, y = 0, z = 0 } }), cmd(1, 0, 0x01), cache)
   assertSends(child, { 1, 1, 1 }, { 2, 1, 1 })
 end
 
@@ -138,14 +159,23 @@ end
 -- own offset is not divided by the parent's scale.
 function T.maya_translated_child_under_a_scaled_parent()
   local cache = {}
-  Joint.localMatrix(Joint.MAYA,
+  Joint.localMatrix(
+    Joint.MAYA,
     node({ scale = { x = 2, y = 2, z = 2 }, inverseScale = { x = 0.5, y = 0.5, z = 0.5 } }),
-    cmd(0, 0, 0x02), cache)
+    cmd(0, 0, 0x02),
+    cache
+  )
 
-  local child = Joint.localMatrix(Joint.MAYA,
-    node({ translation = { x = 3, y = 0, z = 0 }, scale = { x = 2, y = 1, z = 1 },
-           inverseScale = { x = 0.5, y = 1, z = 1 } }),
-    cmd(1, 0, 0x01), cache)
+  local child = Joint.localMatrix(
+    Joint.MAYA,
+    node({
+      translation = { x = 3, y = 0, z = 0 },
+      scale = { x = 2, y = 1, z = 1 },
+      inverseScale = { x = 0.5, y = 1, z = 1 },
+    }),
+    cmd(1, 0, 0x01),
+    cache
+  )
   -- TRANS(3,0,0), SCALE(0.5,0.5,0.5), SCALE(2,1,1) applied right to left.
   assertSends(child, { 1, 2, 2 }, { 4, 1, 1 })
 end
@@ -153,13 +183,19 @@ end
 -- A joint that both publishes and compensates carries both bits.
 function T.maya_joint_can_publish_and_compensate()
   local cache = {}
-  Joint.localMatrix(Joint.MAYA,
+  Joint.localMatrix(
+    Joint.MAYA,
     node({ scale = { x = 2, y = 2, z = 2 }, inverseScale = { x = 0.5, y = 0.5, z = 0.5 } }),
-    cmd(0, 0, 0x02), cache)
+    cmd(0, 0, 0x02),
+    cache
+  )
 
-  Joint.localMatrix(Joint.MAYA,
+  Joint.localMatrix(
+    Joint.MAYA,
     node({ scale = { x = 4, y = 4, z = 4 }, inverseScale = { x = 0.25, y = 0.25, z = 0.25 } }),
-    cmd(1, 0, 0x03), cache)
+    cmd(1, 0, 0x03),
+    cache
+  )
 
   local grandchild = Joint.localMatrix(Joint.MAYA, node({}), cmd(2, 1, 0x01), cache)
   assertSends(grandchild, { 4, 4, 4 }, { 1, 1, 1 })

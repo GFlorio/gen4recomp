@@ -41,8 +41,14 @@ local function lightProfileText()
   local off = "0,0,0,0,0,0,0,"
   local block = table.concat({
     "0,",
-    "1,11,11,11,-296,-296,-296,", off, off, off,
-    "14,14,16,", "10,10,10,", "14,14,16,", "8,8,11,",
+    "1,11,11,11,-296,-296,-296,",
+    off,
+    off,
+    off,
+    "14,14,16,",
+    "10,10,10,",
+    "14,14,16,",
+    "8,8,11,",
     "",
   }, "\r\n")
   return block .. "\r\nEOF\r\n"
@@ -51,13 +57,15 @@ end
 -- A 1x1 matrix with neither headers nor altitudes, referencing one land member.
 local function matrixMember(landMemberId)
   local name = "m_labo01_"
-  return NB.u8(1) .. NB.u8(1) .. NB.u8(0) .. NB.u8(0) .. NB.u8(#name) .. name
-    .. NB.u16(landMemberId)
+  return NB.u8(1) .. NB.u8(1) .. NB.u8(0) .. NB.u8(0) .. NB.u8(#name) .. name .. NB.u16(landMemberId)
 end
 
 local function areaMember(opts)
-  return NB.u16(opts.buildingTexturePackId) .. NB.u16(opts.mapTexturePackId)
-    .. NB.u16(0) .. NB.u8(0) .. NB.u8(opts.lightTypeRaw or 0) -- areaType 0 == indoor
+  return NB.u16(opts.buildingTexturePackId)
+    .. NB.u16(opts.mapTexturePackId)
+    .. NB.u16(0)
+    .. NB.u8(0)
+    .. NB.u8(opts.lightTypeRaw or 0) -- areaType 0 == indoor
 end
 
 -- opts (all optional):
@@ -74,47 +82,54 @@ end
 function MapRomFixture.build(opts)
   opts = opts or {}
   local mapTexturePackId = opts.mapTexturePackId or MapRomFixture.MAP_TEXTURE_PACK_ID
-  local buildingTexturePackId =
-    opts.buildingTexturePackId or MapRomFixture.BUILDING_TEXTURE_PACK_ID
+  local buildingTexturePackId = opts.buildingTexturePackId or MapRomFixture.BUILDING_TEXTURE_PACK_ID
 
-  local landModel = opts.landModel or NsbmdFixture.build({
-    modelName = "labo01",
-    textureName = MapRomFixture.MAP_TEXTURE,
-    paletteName = MapRomFixture.MAP_PALETTE,
-    origHeight = 8,
-    triangle = { { 0, 0, 0 }, { 2, 0, 0 }, { 0, 0, 3 } },
-  })
-  local buildingModel = opts.buildingModel or NsbmdFixture.build({
-    modelName = "leage_o03",
-    textureName = MapRomFixture.BUILDING_TEXTURE,
-    paletteName = MapRomFixture.BUILDING_PALETTE,
-    origHeight = 8,
-    triangle = { { 0, 0, 0 }, { 2, 0, 0 }, { 0, 0, 3 } },
-  })
+  local landModel = opts.landModel
+    or NsbmdFixture.build({
+      modelName = "labo01",
+      textureName = MapRomFixture.MAP_TEXTURE,
+      paletteName = MapRomFixture.MAP_PALETTE,
+      origHeight = 8,
+      triangle = { { 0, 0, 0 }, { 2, 0, 0 }, { 0, 0, 3 } },
+    })
+  local buildingModel = opts.buildingModel
+    or NsbmdFixture.build({
+      modelName = "leage_o03",
+      textureName = MapRomFixture.BUILDING_TEXTURE,
+      paletteName = MapRomFixture.BUILDING_PALETTE,
+      origHeight = 8,
+      triangle = { { 0, 0, 0 }, { 2, 0, 0 }, { 0, 0, 3 } },
+    })
 
   local members = {
-    map_matrices = { [MapRomFixture.MATRIX_MEMBER_ID] =
-      matrixMember(MapRomFixture.LAND_DATA_MEMBER_ID) },
-    area_data = { [MapRomFixture.AREA_DATA_MEMBER_ID] = areaMember({
-      mapTexturePackId = mapTexturePackId,
-      buildingTexturePackId = buildingTexturePackId,
-      lightTypeRaw = opts.lightTypeRaw,
-    }) },
-    land_data = { [MapRomFixture.LAND_DATA_MEMBER_ID] = LandDataBuilder.build({
-      buildings = opts.buildings
-        or LandDataBuilder.buildingRecord(MapRomFixture.BUILDING_MODEL_MEMBER_ID),
-      model = landModel,
-      bdhc = BdhcBuilder.build(),
-    }) },
-    map_textures = { [mapTexturePackId] = Tex0Fixture.btx0(opts.mapPack or {
-      textures = { MapRomFixture.MAP_TEXTURE }, palettes = { MapRomFixture.MAP_PALETTE },
-    }) },
-    building_textures = { [buildingTexturePackId] = opts.buildingPack == false
-      and PLACEHOLDER_PACK
-      or Tex0Fixture.btx0(opts.buildingPack or {
-        textures = { MapRomFixture.BUILDING_TEXTURE },
-        palettes = { MapRomFixture.BUILDING_PALETTE },
-      }) },
+    map_matrices = { [MapRomFixture.MATRIX_MEMBER_ID] = matrixMember(MapRomFixture.LAND_DATA_MEMBER_ID) },
+    area_data = {
+      [MapRomFixture.AREA_DATA_MEMBER_ID] = areaMember({
+        mapTexturePackId = mapTexturePackId,
+        buildingTexturePackId = buildingTexturePackId,
+        lightTypeRaw = opts.lightTypeRaw,
+      }),
+    },
+    land_data = {
+      [MapRomFixture.LAND_DATA_MEMBER_ID] = LandDataBuilder.build({
+        buildings = opts.buildings or LandDataBuilder.buildingRecord(MapRomFixture.BUILDING_MODEL_MEMBER_ID),
+        model = landModel,
+        bdhc = BdhcBuilder.build(),
+      }),
+    },
+    map_textures = {
+      [mapTexturePackId] = Tex0Fixture.btx0(opts.mapPack or {
+        textures = { MapRomFixture.MAP_TEXTURE },
+        palettes = { MapRomFixture.MAP_PALETTE },
+      }),
+    },
+    building_textures = {
+      [buildingTexturePackId] = opts.buildingPack == false and PLACEHOLDER_PACK
+        or Tex0Fixture.btx0(opts.buildingPack or {
+          textures = { MapRomFixture.BUILDING_TEXTURE },
+          palettes = { MapRomFixture.BUILDING_PALETTE },
+        }),
+    },
     interior_build_models = { [MapRomFixture.BUILDING_MODEL_MEMBER_ID] = buildingModel },
   }
 
@@ -123,22 +138,31 @@ function MapRomFixture.build(opts)
       local byId = members[alias]
       assert(byId, "fixture has no archive " .. alias)
       local highest = 0
-      for id in pairs(byId) do highest = math.max(highest, id) end
+      for id in pairs(byId) do
+        highest = math.max(highest, id)
+      end
       return {
-        memberCount = function() return highest + 1 end,
+        memberCount = function()
+          return highest + 1
+        end,
         readMember = function(_, memberId)
-          return assert(byId[memberId],
-            string.format("fixture %s has no member %d", alias, memberId))
+          return assert(byId[memberId], string.format("fixture %s has no member %d", alias, memberId))
         end,
       }
     end,
     readSourcePath = function(_, path)
-      assert(path:sub(1, #LIGHT_PATH_PREFIX) == LIGHT_PATH_PREFIX,
-        "fixture only serves field-light profiles, got " .. path)
+      assert(
+        path:sub(1, #LIGHT_PATH_PREFIX) == LIGHT_PATH_PREFIX,
+        "fixture only serves field-light profiles, got " .. path
+      )
       return lightProfileText()
     end,
-    metadata = function() return { sha1 = "rom-sha" } end,
-    version = function() return "heartgold" end,
+    metadata = function()
+      return { sha1 = "rom-sha" }
+    end,
+    version = function()
+      return "heartgold"
+    end,
   }
   return romFs, members
 end

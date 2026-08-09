@@ -36,16 +36,22 @@ function ActorPreviewState.new(versionId)
       self.entries[#self.entries + 1] = self.provider:acquire(spriteId)
     end
   end)
-  if not ok then self.errorText = Errors.format(err) end
+  if not ok then
+    self.errorText = Errors.format(err)
+  end
   return self
 end
 
 function ActorPreviewState:update(dt)
-  if self.errorText then return end
+  if self.errorText then
+    return
+  end
   self.accumulator = self.accumulator + math.min(dt, 0.25)
   while self.accumulator >= FIXED_DT do
     self.accumulator = self.accumulator - FIXED_DT
-    if not self.paused then self.tick = self.tick + 1 end
+    if not self.paused then
+      self.tick = self.tick + 1
+    end
   end
 end
 
@@ -56,7 +62,9 @@ local function frameIndexAt(pose, tick)
   local total = pose.durationTicks
   local position = pose.loop and (tick % total) or math.min(tick, total - 1)
   for _, frame in ipairs(pose.frames) do
-    if position < frame.ticks then return frame.frameIndex end
+    if position < frame.ticks then
+      return frame.frameIndex
+    end
     position = position - frame.ticks
   end
   return pose.frames[#pose.frames].frameIndex
@@ -71,10 +79,16 @@ function ActorPreviewState:draw()
     return
   end
 
-  love.graphics.print(string.format(
-    "%s  %d sprites  tick %d  [space] pause  [up/down] scroll  [esc] quit"
-      .. "   columns: idle then walk, N S W E",
-    self.versionId, #self.entries, self.tick), MARGIN, MARGIN)
+  love.graphics.print(
+    string.format(
+      "%s  %d sprites  tick %d  [space] pause  [up/down] scroll  [esc] quit" .. "   columns: idle then walk, N S W E",
+      self.versionId,
+      #self.entries,
+      self.tick
+    ),
+    MARGIN,
+    MARGIN
+  )
 
   local y = MARGIN + 24 - self.scroll * (CELL + 4)
   for _, entry in ipairs(self.entries) do
@@ -104,15 +118,27 @@ end
 ---@param scancode string
 ---@param isrepeat boolean
 function ActorPreviewState:keypressed(key, scancode, isrepeat)
-  if key == "escape" then return love.event.quit(0) end
-  if key == "space" then self.paused = not self.paused end
-  if key == "down" then self.scroll = math.min(self.scroll + 1, #self.entries - 1) end
-  if key == "up" then self.scroll = math.max(self.scroll - 1, 0) end
+  if key == "escape" then
+    return love.event.quit(0)
+  end
+  if key == "space" then
+    self.paused = not self.paused
+  end
+  if key == "down" then
+    self.scroll = math.min(self.scroll + 1, #self.entries - 1)
+  end
+  if key == "up" then
+    self.scroll = math.max(self.scroll - 1, 0)
+  end
 end
 
 function ActorPreviewState:quit()
-  if not self.provider then return end
-  for _, entry in ipairs(self.entries) do self.provider:release(entry.spriteId) end
+  if not self.provider then
+    return
+  end
+  for _, entry in ipairs(self.entries) do
+    self.provider:release(entry.spriteId)
+  end
   self.provider:dispose()
 end
 

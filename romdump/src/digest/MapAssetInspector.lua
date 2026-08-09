@@ -37,14 +37,18 @@ local MapAssetInspector = {}
 local function sha1(bytes)
   if love and love.data then
     local raw = love.data.hash("sha1", bytes)
-    return (raw:gsub(".", function(c) return string.format("%02x", string.byte(c)) end))
+    return (raw:gsub(".", function(c)
+      return string.format("%02x", string.byte(c))
+    end))
   end
   return nil
 end
 
 local function sortedKeys(set)
   local out = {}
-  for k in pairs(set) do out[#out + 1] = k end
+  for k in pairs(set) do
+    out[#out + 1] = k
+  end
   table.sort(out)
   return out
 end
@@ -53,8 +57,10 @@ end
 -- 13.5). Returns bytes, member sha1.
 local function readMember(narc, alias, memberId)
   local count = narc:memberCount()
-  assert(memberId >= 0 and memberId < count,
-    string.format("%s member %d out of range (count %d)", alias, memberId, count))
+  assert(
+    memberId >= 0 and memberId < count,
+    string.format("%s member %d out of range (count %d)", alias, memberId, count)
+  )
   local bytes = assert(narc:readMember(memberId))
   return bytes, sha1(bytes)
 end
@@ -111,10 +117,16 @@ local function accumulate(inv, model)
     inv.itemTags[mat.itemTag] = true
     inv.polyAttrMasks[string.format("0x%08X", mat.polyAttrMask)] = true
     inv.texImageParamMasks[string.format("0x%08X", mat.texImageParamMask)] = true
-    if mat.setVertexColor then inv.setVertexColor = inv.setVertexColor + 1 end
-    if mat.useShininessTable then inv.useShininessTable = inv.useShininessTable + 1 end
+    if mat.setVertexColor then
+      inv.setVertexColor = inv.setVertexColor + 1
+    end
+    if mat.useShininessTable then
+      inv.useShininessTable = inv.useShininessTable + 1
+    end
     for channel, owned in pairs(mat.owns) do
-      if owned then inv.ownership[channel] = (inv.ownership[channel] or 0) + 1 end
+      if owned then
+        inv.ownership[channel] = (inv.ownership[channel] or 0) + 1
+      end
     end
     -- Effective polygon state: every target material fully masks polyAttr, so the
     -- raw word is the effective word (asserted in the merge gate).
@@ -124,11 +136,21 @@ local function accumulate(inv, model)
     inv.lightMasks[a.lightMask] = true
     inv.cullModes[a.cullMode] = true
     inv.polygonIds[a.polygonId] = true
-    if a.translucentDepthWrite then inv.flagCounts.translucentDepthWrite = inv.flagCounts.translucentDepthWrite + 1 end
-    if a.depthEqual then inv.flagCounts.depthEqual = inv.flagCounts.depthEqual + 1 end
-    if a.fogEnabled then inv.flagCounts.fog = inv.flagCounts.fog + 1 end
-    if a.farClipEnabled then inv.flagCounts.farClip = inv.flagCounts.farClip + 1 end
-    if a.oneDotEnabled then inv.flagCounts.oneDot = inv.flagCounts.oneDot + 1 end
+    if a.translucentDepthWrite then
+      inv.flagCounts.translucentDepthWrite = inv.flagCounts.translucentDepthWrite + 1
+    end
+    if a.depthEqual then
+      inv.flagCounts.depthEqual = inv.flagCounts.depthEqual + 1
+    end
+    if a.fogEnabled then
+      inv.flagCounts.fog = inv.flagCounts.fog + 1
+    end
+    if a.farClipEnabled then
+      inv.flagCounts.farClip = inv.flagCounts.farClip + 1
+    end
+    if a.oneDotEnabled then
+      inv.flagCounts.oneDot = inv.flagCounts.oneDot + 1
+    end
   end
   for op, n in pairs(collectGxOpcodes(model)) do
     inv.gxOpcodes[op] = (inv.gxOpcodes[op] or 0) + n
@@ -161,7 +183,9 @@ local function summarizeTexturePack(nsbtx)
     dims[string.format("%dx%d", t.width, t.height)] = true
     names[#names + 1] = t.name
   end
-  for _, p in ipairs(nsbtx.palettes) do palNames[#palNames + 1] = p.name end
+  for _, p in ipairs(nsbtx.palettes) do
+    palNames[#palNames + 1] = p.name
+  end
   table.sort(names)
   table.sort(palNames)
   return {
@@ -177,9 +201,14 @@ end
 local function summarizeMapModel(nsbmd)
   local model = nsbmd.models[1]
   local texNames, palNames = {}, {}
-  for _, a in ipairs(model.textureAssociations) do texNames[#texNames + 1] = a.name end
-  for _, a in ipairs(model.paletteAssociations) do palNames[#palNames + 1] = a.name end
-  table.sort(texNames); table.sort(palNames)
+  for _, a in ipairs(model.textureAssociations) do
+    texNames[#texNames + 1] = a.name
+  end
+  for _, a in ipairs(model.paletteAssociations) do
+    palNames[#palNames + 1] = a.name
+  end
+  table.sort(texNames)
+  table.sort(palNames)
   return {
     modelCount = #nsbmd.models,
     modelName = model.name,
@@ -198,8 +227,12 @@ end
 
 -- Union two axis-aligned bounds in model or tile space.
 local function unionBounds(a, b)
-  if not a then return b end
-  if not b then return a end
+  if not a then
+    return b
+  end
+  if not b then
+    return a
+  end
   return {
     min = {
       math.min(a.min[1], b.min[1]),
@@ -215,17 +248,31 @@ local function unionBounds(a, b)
 end
 
 local function vertexBounds(vertices)
-  if not vertices or #vertices == 0 then return nil end
+  if not vertices or #vertices == 0 then
+    return nil
+  end
   local minx, miny, minz = vertices[1].x, vertices[1].y, vertices[1].z
   local maxx, maxy, maxz = minx, miny, minz
   for i = 2, #vertices do
     local v = vertices[i]
-    if v.x < minx then minx = v.x end
-    if v.y < miny then miny = v.y end
-    if v.z < minz then minz = v.z end
-    if v.x > maxx then maxx = v.x end
-    if v.y > maxy then maxy = v.y end
-    if v.z > maxz then maxz = v.z end
+    if v.x < minx then
+      minx = v.x
+    end
+    if v.y < miny then
+      miny = v.y
+    end
+    if v.z < minz then
+      minz = v.z
+    end
+    if v.x > maxx then
+      maxx = v.x
+    end
+    if v.y > maxy then
+      maxy = v.y
+    end
+    if v.z > maxz then
+      maxz = v.z
+    end
   end
   return { min = { minx, miny, minz }, max = { maxx, maxy, maxz } }
 end
@@ -294,7 +341,9 @@ end
 -- indexes `resNarc` (exterior_build_anim), a mixed archive of NitroSystem
 -- animation resources. Returns a list of { resourceId, magic, kind, name }.
 local function resolveAnimations(listNarc, resNarc, memberId)
-  if memberId >= listNarc:memberCount() then return {} end
+  if memberId >= listNarc:memberCount() then
+    return {}
+  end
   local record = BuildModelAnimList.decode(listNarc:readMember(memberId))
   local out = {}
   for _, resourceId in ipairs(record.ids) do
@@ -323,7 +372,9 @@ local function inspectBuildings(romFs, area, buildings, warnings, inv)
   end
 
   local uniqueIds = {}
-  for _, b in ipairs(buildings) do uniqueIds[b.modelMemberId] = true end
+  for _, b in ipairs(buildings) do
+    uniqueIds[b.modelMemberId] = true
+  end
   local ids = sortedKeys(uniqueIds)
 
   local placementSummaries = {}
@@ -355,7 +406,9 @@ local function inspectBuildings(romFs, area, buildings, warnings, inv)
         local model = nsbmd.models[1]
         accumulate(inv, model)
         if nsbmd.embeddedTextures then
-          for _, t in ipairs(nsbmd.embeddedTextures.textures) do inv.textureFormats[t.format] = true end
+          for _, t in ipairs(nsbmd.embeddedTextures.textures) do
+            inv.textureFormats[t.format] = true
+          end
         end
         summaries[#summaries + 1] = {
           memberId = memberId,
@@ -400,30 +453,38 @@ function MapAssetInspector.inspect(romFs, idOrSymbol)
 
   local landNarc = assert(romFs:openNarc("land_data"))
   local landBytes, landSha = readMember(landNarc, "land_data", resolved.landDataMemberId)
-  local land = assert(LandData.decode(landBytes,
-    { mapId = resolved.map.id, alias = "land_data", memberId = resolved.landDataMemberId }))
+  local land = assert(
+    LandData.decode(landBytes, { mapId = resolved.map.id, alias = "land_data", memberId = resolved.landDataMemberId })
+  )
   -- LandData already decoded the placed-building records; reuse them.
   local buildings = land.buildings
 
-  local mapModel = assert(Nsbmd.decode(land.mapModelBytes,
-    { alias = "land_data", memberId = resolved.landDataMemberId, section = "map-model" }))
+  local mapModel = assert(
+    Nsbmd.decode(
+      land.mapModelBytes,
+      { alias = "land_data", memberId = resolved.landDataMemberId, section = "map-model" }
+    )
+  )
 
   local mapTexNarc = assert(romFs:openNarc("map_textures"))
   local mapTexBytes, mapTexSha = readMember(mapTexNarc, "map_textures", area.mapTexturePackId)
-  local mapTexPack = assert(Nsbtx.decode(mapTexBytes,
-    { alias = "map_textures", memberId = area.mapTexturePackId }))
+  local mapTexPack = assert(Nsbtx.decode(mapTexBytes, { alias = "map_textures", memberId = area.mapTexturePackId }))
 
   local bldTexNarc = assert(romFs:openNarc("building_textures"))
   local bldTexBytes, bldTexSha = readMember(bldTexNarc, "building_textures", area.buildingTexturePackId)
-  local bldTexPack = assert(Nsbtx.decode(bldTexBytes,
-    { alias = "building_textures", memberId = area.buildingTexturePackId }))
+  local bldTexPack =
+    assert(Nsbtx.decode(bldTexBytes, { alias = "building_textures", memberId = area.buildingTexturePackId }))
 
   -- Target material/polygon-state inventory (Slice 0 merge gate): fold the map
   -- model and every placed building model, plus the area texture-pack formats.
   local inv = newInventory()
   accumulate(inv, mapModel.models[1])
-  for _, t in ipairs(mapTexPack.textures) do inv.textureFormats[t.format] = true end
-  for _, t in ipairs(bldTexPack.textures) do inv.textureFormats[t.format] = true end
+  for _, t in ipairs(mapTexPack.textures) do
+    inv.textureFormats[t.format] = true
+  end
+  for _, t in ipairs(bldTexPack.textures) do
+    inv.textureFormats[t.format] = true
+  end
   local buildingReport = inspectBuildings(romFs, area, buildings, warnings, inv)
 
   -- Field-light profile: resolve the area's light type, read and parse the
@@ -514,65 +575,142 @@ end
 -- Format a report as a deterministic, human-readable line list for stdout.
 function MapAssetInspector.lines(report)
   local L = {}
-  local function add(fmt, ...) L[#L + 1] = string.format(fmt, ...) end
+  local function add(fmt, ...)
+    L[#L + 1] = string.format(fmt, ...)
+  end
   add("== %s :: %s (id %d) ==", report.versionId, report.map.symbol, report.map.id)
-  add("resolved: matrix %q %dx%d cell (%d,%d) index %d land %d origin (%d,%d)",
-    report.resolved.matrixName, report.resolved.matrixWidth, report.resolved.matrixHeight,
-    report.resolved.matrixX, report.resolved.matrixZ, report.resolved.matrixIndex,
-    report.resolved.landDataMemberId, report.resolved.worldOriginX, report.resolved.worldOriginZ)
-  add("area: type=%s mapTexPack=%d bldTexPack=%d dynTex=0x%X light=%d",
-    report.area.areaType, report.area.mapTexturePackId, report.area.buildingTexturePackId,
-    report.area.dynamicTextureType, report.area.lightType)
+  add(
+    "resolved: matrix %q %dx%d cell (%d,%d) index %d land %d origin (%d,%d)",
+    report.resolved.matrixName,
+    report.resolved.matrixWidth,
+    report.resolved.matrixHeight,
+    report.resolved.matrixX,
+    report.resolved.matrixZ,
+    report.resolved.matrixIndex,
+    report.resolved.landDataMemberId,
+    report.resolved.worldOriginX,
+    report.resolved.worldOriginZ
+  )
+  add(
+    "area: type=%s mapTexPack=%d bldTexPack=%d dynTex=0x%X light=%d",
+    report.area.areaType,
+    report.area.mapTexturePackId,
+    report.area.buildingTexturePackId,
+    report.area.dynamicTextureType,
+    report.area.lightType
+  )
   local l = report.land
-  add("land: size=%d bgs=%d perms=0x%X buildings=%d(%d recs) model=%d bdhc=%d magic=%s",
-    l.memberSize, l.bgsPayloadSize, l.permissionsSize, l.buildingSectionSize, l.buildingCount,
-    l.modelSize, l.bdhcSize, l.modelMagic)
-  add("  offsets: bgs=0x%X perms=0x%X buildings=0x%X model=0x%X bdhc=0x%X endMatches=%s",
-    l.offsets.bgs, l.offsets.permissions, l.offsets.buildings, l.offsets.model,
-    l.offsets.bdhc, tostring(l.memberEndMatches))
+  add(
+    "land: size=%d bgs=%d perms=0x%X buildings=%d(%d recs) model=%d bdhc=%d magic=%s",
+    l.memberSize,
+    l.bgsPayloadSize,
+    l.permissionsSize,
+    l.buildingSectionSize,
+    l.buildingCount,
+    l.modelSize,
+    l.bdhcSize,
+    l.modelMagic
+  )
+  add(
+    "  offsets: bgs=0x%X perms=0x%X buildings=0x%X model=0x%X bdhc=0x%X endMatches=%s",
+    l.offsets.bgs,
+    l.offsets.permissions,
+    l.offsets.buildings,
+    l.offsets.model,
+    l.offsets.bdhc,
+    tostring(l.memberEndMatches)
+  )
   add("  behavior values:   %s", table.concat(l.behaviorValues, " "))
-  add("  permission values: %s (hard-block bit 0x80 | response 0x7F)",
-    table.concat(l.permissionValues, " "))
+  add("  permission values: %s (hard-block bit 0x80 | response 0x7F)", table.concat(l.permissionValues, " "))
   local mm = report.mapModel
-  add("mapModel: %s models=%d nodes=%d materials=%d shapes=%d verts=%d",
-    mm.modelName, mm.modelCount, mm.nodeCount, mm.materialCount, mm.shapeCount, mm.vertexCount)
-  add("  bounds min(%.2f,%.2f,%.2f) max(%.2f,%.2f,%.2f)",
-    mm.bounds.min[1], mm.bounds.min[2], mm.bounds.min[3],
-    mm.bounds.max[1], mm.bounds.max[2], mm.bounds.max[3])
+  add(
+    "mapModel: %s models=%d nodes=%d materials=%d shapes=%d verts=%d",
+    mm.modelName,
+    mm.modelCount,
+    mm.nodeCount,
+    mm.materialCount,
+    mm.shapeCount,
+    mm.vertexCount
+  )
+  add(
+    "  bounds min(%.2f,%.2f,%.2f) max(%.2f,%.2f,%.2f)",
+    mm.bounds.min[1],
+    mm.bounds.min[2],
+    mm.bounds.min[3],
+    mm.bounds.max[1],
+    mm.bounds.max[2],
+    mm.bounds.max[3]
+  )
   local function opcodeLine(label, counts)
     local parts = {}
-    for _, name in ipairs(sortedKeys(counts)) do parts[#parts + 1] = name .. "=" .. counts[name] end
+    for _, name in ipairs(sortedKeys(counts)) do
+      parts[#parts + 1] = name .. "=" .. counts[name]
+    end
     add("  %s: %s", label, table.concat(parts, " "))
   end
   opcodeLine("SBC opcodes", mm.sbcOpcodes)
   opcodeLine("GX opcodes", mm.gxOpcodes)
   add("  textures referenced: %s", table.concat(mm.referencedTextureNames, " "))
   local mt = report.mapTexturePack
-  add("mapTexturePack: %d textures %d palettes formats=[%s] dims=[%s]",
-    mt.textureCount, mt.paletteCount, table.concat(mt.formats, ","), table.concat(mt.dimensions, ","))
+  add(
+    "mapTexturePack: %d textures %d palettes formats=[%s] dims=[%s]",
+    mt.textureCount,
+    mt.paletteCount,
+    table.concat(mt.formats, ","),
+    table.concat(mt.dimensions, ",")
+  )
   local bt = report.buildingTexturePack
-  add("buildingTexturePack: %d textures %d palettes formats=[%s]",
-    bt.textureCount, bt.paletteCount, table.concat(bt.formats, ","))
+  add(
+    "buildingTexturePack: %d textures %d palettes formats=[%s]",
+    bt.textureCount,
+    bt.paletteCount,
+    table.concat(bt.formats, ",")
+  )
   local function boundsLine(label, bounds)
-    if not bounds then return add("    %s: nil", label) end
-    add("    %s: min(%.2f,%.2f,%.2f) max(%.2f,%.2f,%.2f)", label,
-      bounds.min[1], bounds.min[2], bounds.min[3],
-      bounds.max[1], bounds.max[2], bounds.max[3])
+    if not bounds then
+      return add("    %s: nil", label)
+    end
+    add(
+      "    %s: min(%.2f,%.2f,%.2f) max(%.2f,%.2f,%.2f)",
+      label,
+      bounds.min[1],
+      bounds.min[2],
+      bounds.min[3],
+      bounds.max[1],
+      bounds.max[2],
+      bounds.max[3]
+    )
   end
 
   local b = report.buildings
-  add("buildings: archive=%s placements=%d uniqueModels=[%s]",
-    tostring(b.archiveAlias), b.placements, table.concat(b.modelIds, ","))
+  add(
+    "buildings: archive=%s placements=%d uniqueModels=[%s]",
+    tostring(b.archiveAlias),
+    b.placements,
+    table.concat(b.modelIds, ",")
+  )
   for _, s in ipairs(b.modelSummaries) do
-    add("  model %d %q: nodes=%d materials=%d shapes=%d embeddedTex=%s",
-      s.memberId, s.modelName, s.nodeCount, s.materialCount, s.shapeCount, tostring(s.hasEmbeddedTextures))
+    add(
+      "  model %d %q: nodes=%d materials=%d shapes=%d embeddedTex=%s",
+      s.memberId,
+      s.modelName,
+      s.nodeCount,
+      s.materialCount,
+      s.shapeCount,
+      tostring(s.hasEmbeddedTextures)
+    )
     local si = s.scaleInfo
-    add("    scale: posScale=%.4f invPosScale=%.4f boxPosScale=%.4f boxInvPosScale=%.4f",
-      si.posScale, si.invPosScale, si.boxPosScale, si.boxInvPosScale)
+    add(
+      "    scale: posScale=%.4f invPosScale=%.4f boxPosScale=%.4f boxInvPosScale=%.4f",
+      si.posScale,
+      si.invPosScale,
+      si.boxPosScale,
+      si.boxInvPosScale
+    )
     local nodeParts = {}
     for _, n in ipairs(s.nodeSummary) do
-      nodeParts[#nodeParts + 1] = string.format("%d:%s flags=0x%04X slot=%d",
-        n.index, n.name, n.flagsRaw, n.matrixStackIndex)
+      nodeParts[#nodeParts + 1] =
+        string.format("%d:%s flags=0x%04X slot=%d", n.index, n.name, n.flagsRaw, n.matrixStackIndex)
     end
     add("    nodes: %s", table.concat(nodeParts, " | "))
     add("    posScale ops: normal=%d inverse=%d", s.posScaleOptions.normal, s.posScaleOptions.inverse)
@@ -592,47 +730,98 @@ function MapAssetInspector.lines(report)
     else
       add("    compiled draws: %d", #cd.drawBounds)
       for _, d in ipairs(cd.drawBounds) do
-        boundsLine(string.format("      draw n=%d node=%d mat=%d shp=%d",
-          d.submissionIndex, d.nodeIndex, d.materialIndex, d.shapeIndex), d.bounds)
+        boundsLine(
+          string.format(
+            "      draw n=%d node=%d mat=%d shp=%d",
+            d.submissionIndex,
+            d.nodeIndex,
+            d.materialIndex,
+            d.shapeIndex
+          ),
+          d.bounds
+        )
       end
       boundsLine("    compiled aggregate bounds", cd.aggregateBounds)
     end
   end
   for _, pl in ipairs(b.placementSummaries) do
-    add("  placement %d: model=%d pos=(%.2f,%.2f,%.2f) scaleRaw=(0x%08X,0x%08X,0x%08X) scale=(%.4f,%.4f,%.4f)",
-      pl.index, pl.modelMemberId,
-      pl.position.x, pl.position.y, pl.position.z,
-      pl.scaleRaw.width, pl.scaleRaw.height, pl.scaleRaw.length,
-      pl.scale.width, pl.scale.height, pl.scale.length)
+    add(
+      "  placement %d: model=%d pos=(%.2f,%.2f,%.2f) scaleRaw=(0x%08X,0x%08X,0x%08X) scale=(%.4f,%.4f,%.4f)",
+      pl.index,
+      pl.modelMemberId,
+      pl.position.x,
+      pl.position.y,
+      pl.position.z,
+      pl.scaleRaw.width,
+      pl.scaleRaw.height,
+      pl.scaleRaw.length,
+      pl.scale.width,
+      pl.scale.height,
+      pl.scale.length
+    )
   end
   local fi = report.featureInventory
-  add("featureInventory: models=%d materials=%d itemTags=[%s]",
-    fi.modelCount, fi.materialCount, table.concat(fi.itemTags, ","))
-  add("  polygonModes=[%s] polygonAlphas=[%s] lightMasks=[%s] cullModes=[%s]",
-    table.concat(fi.polygonModes, ","), table.concat(fi.polygonAlphas, ","),
-    table.concat(fi.lightMasks, ","), table.concat(fi.cullModes, ","))
-  add("  polygonIds=[%s] polyAttrMasks=[%s] texImageParamMasks=[%s]",
-    table.concat(fi.polygonIds, ","), table.concat(fi.polyAttrMasks, ","),
-    table.concat(fi.texImageParamMasks, ","))
-  add("  flags: translucentDepthWrite=%d depthEqual=%d fog=%d farClip=%d oneDot=%d",
-    fi.flagCounts.translucentDepthWrite, fi.flagCounts.depthEqual, fi.flagCounts.fog,
-    fi.flagCounts.farClip, fi.flagCounts.oneDot)
-  add("  ownership: diffuse=%d ambient=%d vertexColor=%d specular=%d emission=%d shininess=%d",
-    fi.ownership.diffuse, fi.ownership.ambient, fi.ownership.vertexColor,
-    fi.ownership.specular, fi.ownership.emission, fi.ownership.shininess)
-  add("  setVertexColor=%d useShininessTable=%d shapesWithDlPolygonAttr=%d textureFormats=[%s]",
-    fi.setVertexColor, fi.useShininessTable, fi.shapesWithDlPolygonAttr,
-    table.concat(fi.textureFormats, ","))
+  add(
+    "featureInventory: models=%d materials=%d itemTags=[%s]",
+    fi.modelCount,
+    fi.materialCount,
+    table.concat(fi.itemTags, ",")
+  )
+  add(
+    "  polygonModes=[%s] polygonAlphas=[%s] lightMasks=[%s] cullModes=[%s]",
+    table.concat(fi.polygonModes, ","),
+    table.concat(fi.polygonAlphas, ","),
+    table.concat(fi.lightMasks, ","),
+    table.concat(fi.cullModes, ",")
+  )
+  add(
+    "  polygonIds=[%s] polyAttrMasks=[%s] texImageParamMasks=[%s]",
+    table.concat(fi.polygonIds, ","),
+    table.concat(fi.polyAttrMasks, ","),
+    table.concat(fi.texImageParamMasks, ",")
+  )
+  add(
+    "  flags: translucentDepthWrite=%d depthEqual=%d fog=%d farClip=%d oneDot=%d",
+    fi.flagCounts.translucentDepthWrite,
+    fi.flagCounts.depthEqual,
+    fi.flagCounts.fog,
+    fi.flagCounts.farClip,
+    fi.flagCounts.oneDot
+  )
+  add(
+    "  ownership: diffuse=%d ambient=%d vertexColor=%d specular=%d emission=%d shininess=%d",
+    fi.ownership.diffuse,
+    fi.ownership.ambient,
+    fi.ownership.vertexColor,
+    fi.ownership.specular,
+    fi.ownership.emission,
+    fi.ownership.shininess
+  )
+  add(
+    "  setVertexColor=%d useShininessTable=%d shapesWithDlPolygonAttr=%d textureFormats=[%s]",
+    fi.setVertexColor,
+    fi.useShininessTable,
+    fi.shapesWithDlPolygonAttr,
+    table.concat(fi.textureFormats, ",")
+  )
   opcodeLine("  GX opcodes(all models)", fi.gxOpcodes)
   local lt = report.lighting
-  add("lighting: lightTypeRaw=%d profile=%d %s records=%d noonStart=%d noonMask=0x%X",
-    lt.lightTypeRaw, lt.profileId, lt.sourcePath, lt.recordCount,
-    lt.noonStartHalfSeconds, lt.noonEnabledLightMask)
+  add(
+    "lighting: lightTypeRaw=%d profile=%d %s records=%d noonStart=%d noonMask=0x%X",
+    lt.lightTypeRaw,
+    lt.profileId,
+    lt.sourcePath,
+    lt.recordCount,
+    lt.noonStartHalfSeconds,
+    lt.noonEnabledLightMask
+  )
   if #report.warnings == 0 then
     add("warnings: none")
   else
     table.sort(report.warnings)
-    for _, w in ipairs(report.warnings) do add("WARNING: %s", w) end
+    for _, w in ipairs(report.warnings) do
+      add("WARNING: %s", w)
+    end
   end
   return L
 end

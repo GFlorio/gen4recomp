@@ -34,7 +34,6 @@ FieldMessageProvider.__index = FieldMessageProvider
 ---@field tokens MessageToken[]
 ---@field hadUnresolvedSubstitutions boolean
 
-
 local DEFAULT_MAX_CACHED_BANKS = 4
 
 local FieldMessageProvider_new = function(cacheFs, opts)
@@ -43,8 +42,8 @@ local FieldMessageProvider_new = function(cacheFs, opts)
   return setmetatable({
     _cacheFs = cacheFs,
     _maxCachedBanks = opts.maxCachedBanks or DEFAULT_MAX_CACHED_BANKS,
-    _banks = {},      -- bankId -> { bank = artifact, references = n, lastUsed = tick }
-    _order = {},      -- bankIds most-recently-used first (eviction order)
+    _banks = {}, -- bankId -> { bank = artifact, references = n, lastUsed = tick }
+    _order = {}, -- bankIds most-recently-used first (eviction order)
     _tick = 0,
     _stats = { loads = 0, hits = 0, disposals = 0 },
   }, FieldMessageProvider)
@@ -52,14 +51,23 @@ end
 
 function FieldMessageProvider.new(cacheFs, opts)
   local ok, result = pcall(FieldMessageProvider_new, cacheFs, opts)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 
 function FieldMessageProvider:stats()
-  local stats = { loads = self._stats.loads, hits = self._stats.hits,
-    disposals = self._stats.disposals, live = 0, references = 0 }
+  local stats = {
+    loads = self._stats.loads,
+    hits = self._stats.hits,
+    disposals = self._stats.disposals,
+    live = 0,
+    references = 0,
+  }
   for _, entry in pairs(self._banks) do
     stats.live = stats.live + 1
     stats.references = stats.references + entry.references
@@ -78,11 +86,13 @@ function FieldMessageProvider:acquireBank(bankId)
     return entry.bank
   end
   local bank, err = self._cacheFs:loadLua(FieldMessageCache.bankPath(bankId))
-  if type(bank) ~= "table" or bank.schema ~= FieldMessageCache.SCHEMA
-      or bank.bankId ~= bankId then
-    return nil, Errors.new("MESSAGE_BANK_MISSING",
-      "message bank " .. tostring(bankId) .. " is unavailable in the generated cache",
-      { bankId = bankId, loadError = err })
+  if type(bank) ~= "table" or bank.schema ~= FieldMessageCache.SCHEMA or bank.bankId ~= bankId then
+    return nil,
+      Errors.new(
+        "MESSAGE_BANK_MISSING",
+        "message bank " .. tostring(bankId) .. " is unavailable in the generated cache",
+        { bankId = bankId, loadError = err }
+      )
   end
   self._banks[bankId] = { bank = bank, references = 1, lastUsed = self._tick }
   table.insert(self._order, 1, bankId) -- most-recently-used first
@@ -94,9 +104,11 @@ end
 function FieldMessageProvider:releaseBank(bankId)
   local entry = self._banks[bankId]
   if not entry then
-    Errors.raise("MESSAGE_BANK_NOT_ACQUIRED",
+    Errors.raise(
+      "MESSAGE_BANK_NOT_ACQUIRED",
       "release of unacquired message bank " .. tostring(bankId),
-      { bankId = bankId })
+      { bankId = bankId }
+    )
   end
   entry.references = entry.references - 1
   assert(entry.references >= 0, "message bank reference count went negative")
@@ -124,7 +136,10 @@ end
 function FieldMessageProvider:_touch(bankId)
   local position
   for i, id in ipairs(self._order) do
-    if id == bankId then position = i break end
+    if id == bankId then
+      position = i
+      break
+    end
   end
   if position then
     table.remove(self._order, position)
@@ -139,16 +154,26 @@ end
 function FieldMessageProvider:get(bankId, messageId)
   local entry = self._banks[bankId]
   if not entry then
-    return nil, Errors.new("MESSAGE_BANK_NOT_ACQUIRED",
-      "message bank " .. tostring(bankId) .. " is not acquired",
-      { bankId = bankId })
+    return nil,
+      Errors.new(
+        "MESSAGE_BANK_NOT_ACQUIRED",
+        "message bank " .. tostring(bankId) .. " is not acquired",
+        { bankId = bankId }
+      )
   end
   local message = entry.bank.messages[messageId]
   if not message then
-    return nil, Errors.new("MESSAGE_ID_OUT_OF_RANGE",
-      "message " .. tostring(messageId) .. " not in bank " .. tostring(bankId)
-        .. " of " .. tostring(entry.bank.messageCount),
-      { bankId = bankId, messageId = messageId, messageCount = entry.bank.messageCount })
+    return nil,
+      Errors.new(
+        "MESSAGE_ID_OUT_OF_RANGE",
+        "message "
+          .. tostring(messageId)
+          .. " not in bank "
+          .. tostring(bankId)
+          .. " of "
+          .. tostring(entry.bank.messageCount),
+        { bankId = bankId, messageId = messageId, messageCount = entry.bank.messageCount }
+      )
   end
   return {
     bankId = bankId,

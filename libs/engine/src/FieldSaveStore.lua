@@ -18,13 +18,17 @@ end
 
 function FieldSaveStore:load()
   local record, loadErr = self.cacheFs:loadLua(FieldSave.PATH)
-  if not record then return nil, loadErr end
+  if not record then
+    return nil, loadErr
+  end
   return FieldSave.validate(record, self.opts)
 end
 
 function FieldSaveStore:save(record)
   local valid, validationErr = FieldSave.validate(record, self.opts)
-  if not valid then error(validationErr) end
+  if not valid then
+    error(validationErr)
+  end
   self.cacheFs:writeLua(TEMP_PATH, valid)
   self.cacheFs:replace(TEMP_PATH, FieldSave.PATH)
   return true

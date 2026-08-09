@@ -44,29 +44,41 @@ return {
   -- share script 5, 2/3 script 6, 4/5 script 7, 6/7 script 8; one per script
   -- is mapped here. Scripts 93-96 substitute the player name.
   ["map:61:background:0"] = {
-    messageBankId = 543, messageId = 93, facePlayer = false,
+    messageBankId = 543,
+    messageId = 93,
+    facePlayer = false,
     substitutions = { playerName = "GOLD" },
   },
   ["map:61:background:2"] = {
-    messageBankId = 543, messageId = 94, facePlayer = false,
+    messageBankId = 543,
+    messageId = 94,
+    facePlayer = false,
     substitutions = { playerName = "GOLD" },
   },
   ["map:61:background:4"] = {
-    messageBankId = 543, messageId = 95, facePlayer = false,
+    messageBankId = 543,
+    messageId = 95,
+    facePlayer = false,
     substitutions = { playerName = "GOLD" },
   },
   ["map:61:background:6"] = {
-    messageBankId = 543, messageId = 96, facePlayer = false,
+    messageBankId = 543,
+    messageId = 96,
+    facePlayer = false,
     substitutions = { playerName = "GOLD" },
   },
   ["map:61:background:8"] = {
-    messageBankId = 543, messageId = 97, facePlayer = false,
+    messageBankId = 543,
+    messageId = 97,
+    facePlayer = false,
   },
   ["map:61:background:10"] = {
     -- Healing PC: raw scriptId 14 -> scr_seq_T20R0101_013, which shows
     -- msg_0543_T20R0101_00014 before the heal/choice logic (FLAG_GOT_STARTER
     -- unset). Readable preview without executing heal/menu logic.
-    messageBankId = 543, messageId = 14, facePlayer = false,
+    messageBankId = 543,
+    messageId = 14,
+    facePlayer = false,
   },
   -- Event 9 (raw scriptId 13) is the starter table (scr_seq_T20R0101_012,
   -- ChooseStarter) and is deliberately unmapped: it mutates story state.

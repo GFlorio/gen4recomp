@@ -36,7 +36,11 @@ local Nsbmd = {}
 -- of option values that function acts on -- any other value would be decoded
 -- with a length or meaning the SDK never defines, so it is rejected rather than
 -- silently mis-executed. RET terminates the stream.
-local function fixedArgs(n) return function() return n end end
+local function fixedArgs(n)
+  return function()
+    return n
+  end
+end
 
 -- Option bit0 (0x20) appends a store-slot operand and bit1 (0x40) a restore-slot
 -- operand, store first: sbc.c reads the restore index at rs->c + 2 for
@@ -44,8 +48,12 @@ local function fixedArgs(n) return function() return n end end
 local function storeRestoreArgs(base)
   return function(cmd)
     local n = base
-    if math.floor(cmd / 0x20) % 2 == 1 then n = n + 1 end
-    if math.floor(cmd / 0x40) % 2 == 1 then n = n + 1 end
+    if math.floor(cmd / 0x20) % 2 == 1 then
+      n = n + 1
+    end
+    if math.floor(cmd / 0x40) % 2 == 1 then
+      n = n + 1
+    end
     return n
   end
 end
@@ -67,10 +75,14 @@ local SBC = {
   [0x08] = { name = "BBY", args = storeRestoreArgs(1), options = OPT_STORE_RESTORE },
   -- NODEMIX: destination stack slot, term count, then that many
   -- (stack slot, node index, ratio) triples -- `rs->c += 3 + *(rs->c + 2) * 3`.
-  [0x09] = { name = "NODEMIX", options = OPT_NONE, args = function(_, r, pos)
-    r:assertRange(pos, 3, "sbc-nodemix-count")
-    return 2 + r:u8(pos + 2) * 3
-  end },
+  [0x09] = {
+    name = "NODEMIX",
+    options = OPT_NONE,
+    args = function(_, r, pos)
+      r:assertRange(pos, 3, "sbc-nodemix-count")
+      return 2 + r:u8(pos + 2) * 3
+    end,
+  },
   -- CALLDL: u32 display-list offset relative to the command, then a u32 size.
   [0x0A] = { name = "CALLDL", args = fixedArgs(8), options = OPT_NONE },
   [0x0B] = { name = "POSSCALE", args = fixedArgs(0), options = { [0] = true, [1] = true } },
@@ -81,13 +93,13 @@ local SBC = {
 -- NNSG3dResNodeData SRT flags (res_struct.h). The high bits of `flag` encode
 -- which transform components are present and, for pivot rotations, which cell
 -- receives the fixed +/-1 and where the A/B pair is written.
-local SRTFLAG_TRANS_ZERO        = 0x0001
-local SRTFLAG_ROT_ZERO          = 0x0002
-local SRTFLAG_SCALE_ONE         = 0x0004
-local SRTFLAG_PIVOT_EXIST       = 0x0008
-local SRTFLAG_PIVOT_MINUS       = 0x0100
-local SRTFLAG_SIGN_REVC         = 0x0200
-local SRTFLAG_SIGN_REVD         = 0x0400
+local SRTFLAG_TRANS_ZERO = 0x0001
+local SRTFLAG_ROT_ZERO = 0x0002
+local SRTFLAG_SCALE_ONE = 0x0004
+local SRTFLAG_PIVOT_EXIST = 0x0008
+local SRTFLAG_PIVOT_MINUS = 0x0100
+local SRTFLAG_SIGN_REVC = 0x0200
+local SRTFLAG_SIGN_REVD = 0x0400
 
 local pivotUtil_ = {
   { 4, 5, 7, 8 },
@@ -113,9 +125,11 @@ local pivotUtil_ = {
 local function decodeNodeData(r, nodeInfoBase, e, scalingRule, context)
   local offset = BinaryReader.new(e.data, "node-ref"):u32le(0)
   if offset == 0 then
-    Errors.raise("NSBMD_NODE_DATA_OFFSET_ZERO",
+    Errors.raise(
+      "NSBMD_NODE_DATA_OFFSET_ZERO",
       string.format("node %d (%s) has a zero data offset", e.index, e.name),
-      { nodeIndex = e.index, nodeName = e.name, source = context })
+      { nodeIndex = e.index, nodeName = e.name, source = context }
+    )
   end
 
   local base = nodeInfoBase + offset
@@ -151,9 +165,11 @@ local function decodeNodeData(r, nodeInfoBase, e, scalingRule, context)
     local B = FixedPoint.fx16(r:u16le(pos + 2))
     local idxPivot = math.floor(flags / 16) % 16
     if idxPivot > 8 then
-      Errors.raise("NSBMD_NODE_PIVOT_INDEX_INVALID",
+      Errors.raise(
+        "NSBMD_NODE_PIVOT_INDEX_INVALID",
         string.format("node %d (%s) has pivot index %d", e.index, e.name, idxPivot),
-        { nodeIndex = e.index, nodeName = e.name, idxPivot = idxPivot, source = context })
+        { nodeIndex = e.index, nodeName = e.name, idxPivot = idxPivot, source = context }
+      )
     end
     local rot = { 0, 0, 0, 0, 0, 0, 0, 0, 0 }
     rot[idxPivot + 1] = bitSet(flags, SRTFLAG_PIVOT_MINUS) and -1 or 1
@@ -230,22 +246,36 @@ local function decodeSbc(r, start, limit, context)
     local option = math.floor(cmd / 0x20)
     local def = SBC[op]
     if not def then
-      error(Errors.new("SBC_UNKNOWN_OPCODE",
-        string.format("unknown SBC opcode 0x%02X at offset 0x%X", cmd, pos),
-        { opcode = cmd, offset = pos, source = context }))
+      error(
+        Errors.new(
+          "SBC_UNKNOWN_OPCODE",
+          string.format("unknown SBC opcode 0x%02X at offset 0x%X", cmd, pos),
+          { opcode = cmd, offset = pos, source = context }
+        )
+      )
     end
     if not def.options[option] then
-      error(Errors.new("SBC_INVALID_OPTION_BITS",
-        string.format("%s at offset 0x%X has option bits 0x%02X, which the command does not define",
-          def.name, pos, option * 0x20),
-        { opcode = op, command = cmd, optionBits = option * 0x20, offset = pos, source = context }))
+      error(
+        Errors.new(
+          "SBC_INVALID_OPTION_BITS",
+          string.format(
+            "%s at offset 0x%X has option bits 0x%02X, which the command does not define",
+            def.name,
+            pos,
+            option * 0x20
+          ),
+          { opcode = op, command = cmd, optionBits = option * 0x20, offset = pos, source = context }
+        )
+      )
     end
 
     local nargs = def.args(cmd, r, pos)
     r:assertRange(pos, 1 + nargs, "sbc-cmd")
 
     local args = {}
-    for i = 1, nargs do args[i] = r:u8(pos + i) end
+    for i = 1, nargs do
+      args[i] = r:u8(pos + i)
+    end
 
     local entry = {
       opcode = op,
@@ -315,7 +345,9 @@ local function decodeSbc(r, start, limit, context)
     commands[#commands + 1] = entry
     counts[op] = (counts[op] or 0) + 1
     pos = pos + 1 + nargs
-    if def.terminates then break end
+    if def.terminates then
+      break
+    end
   end
   return { commands = commands, opcodeCounts = counts, draws = draws }
 end
@@ -348,7 +380,9 @@ local function decodeInfo(r, base)
   }
 end
 
-local function bit(v, i) return math.floor(v / 2 ^ i) % 2 == 1 end
+local function bit(v, i)
+  return math.floor(v / 2 ^ i) % 2 == 1
+end
 
 local MATERIAL_PREFIX = 0x2C
 
@@ -362,26 +396,34 @@ local MATERIAL_PREFIX = 0x2C
 local function decodeMaterialData(r, matBase, blockOfs, context)
   local base = matBase + blockOfs
   if base + MATERIAL_PREFIX > r:length() then
-    Errors.raise("NSBMD_MATERIAL_OUT_OF_RANGE",
+    Errors.raise(
+      "NSBMD_MATERIAL_OUT_OF_RANGE",
       string.format("material block at 0x%X + 0x%X exceeds %d-byte section", base, MATERIAL_PREFIX, r:length()),
-      { offset = base, source = context })
+      { offset = base, source = context }
+    )
   end
   local itemTag = r:u16le(base + 0x00)
   local size = r:u16le(base + 0x02)
   if size < MATERIAL_PREFIX then
-    Errors.raise("NSBMD_BAD_MATERIAL_SIZE",
+    Errors.raise(
+      "NSBMD_BAD_MATERIAL_SIZE",
       string.format("material size 0x%X is smaller than the 0x%X fixed prefix", size, MATERIAL_PREFIX),
-      { size = size, source = context })
+      { size = size, source = context }
+    )
   end
   if base + size > r:length() then
-    Errors.raise("NSBMD_MATERIAL_OUT_OF_RANGE",
+    Errors.raise(
+      "NSBMD_MATERIAL_OUT_OF_RANGE",
       string.format("material record at 0x%X size 0x%X exceeds %d-byte section", base, size, r:length()),
-      { offset = base, size = size, source = context })
+      { offset = base, size = size, source = context }
+    )
   end
   if itemTag ~= 0 then
-    Errors.raise("NSBMD_UNSUPPORTED_MATERIAL_TAG",
+    Errors.raise(
+      "NSBMD_UNSUPPORTED_MATERIAL_TAG",
       string.format("material itemTag 0x%X is not the standard tag 0", itemTag),
-      { itemTag = itemTag, source = context })
+      { itemTag = itemTag, source = context }
+    )
   end
 
   local diffAmbRaw = r:u32le(base + 0x04)
@@ -436,7 +478,9 @@ local function decodeMatBindings(r, sec, matBase, dictOffset, context)
     local ofsList = br:u16le(0)
     local count = br:u8(2)
     local materials = {}
-    for i = 0, count - 1 do materials[#materials + 1] = r:u8(matBase + ofsList + i) end
+    for i = 0, count - 1 do
+      materials[#materials + 1] = r:u8(matBase + ofsList + i)
+    end
     list[#list + 1] = { name = e.name, materials = materials }
   end
   return list
@@ -453,19 +497,45 @@ local function decodeEvpMatrices(r, base, count)
   local out = {}
   for joint = 0, count - 1 do
     local at = base + joint * EVP_MTX_SIZE
-    local function fx(i) return FixedPoint.fx32(r:u32le(at + i * 4)) end
+    local function fx(i)
+      return FixedPoint.fx32(r:u32le(at + i * 4))
+    end
     out[joint] = {
       invM = {
-        fx(0), fx(1), fx(2), 0,
-        fx(3), fx(4), fx(5), 0,
-        fx(6), fx(7), fx(8), 0,
-        fx(9), fx(10), fx(11), 1,
+        fx(0),
+        fx(1),
+        fx(2),
+        0,
+        fx(3),
+        fx(4),
+        fx(5),
+        0,
+        fx(6),
+        fx(7),
+        fx(8),
+        0,
+        fx(9),
+        fx(10),
+        fx(11),
+        1,
       },
       invN = {
-        fx(12), fx(13), fx(14), 0,
-        fx(15), fx(16), fx(17), 0,
-        fx(18), fx(19), fx(20), 0,
-        0, 0, 0, 1,
+        fx(12),
+        fx(13),
+        fx(14),
+        0,
+        fx(15),
+        fx(16),
+        fx(17),
+        0,
+        fx(18),
+        fx(19),
+        fx(20),
+        0,
+        0,
+        0,
+        0,
+        1,
       },
     }
   end
@@ -485,8 +555,7 @@ local function decodeModel(sec, modelBase, name, index, context)
   local nodeDict = assert(NitroDict.decode(sec, nodeInfoBase, context))
   local nodes = {}
   for _, e in ipairs(nodeDict.entries) do
-    nodes[#nodes + 1] = decodeNodeData(r, nodeInfoBase, e, info.scalingRule,
-      { model = name, node = e.name })
+    nodes[#nodes + 1] = decodeNodeData(r, nodeInfoBase, e, info.scalingRule, { model = name, node = e.name })
   end
 
   -- Materials + texture/palette associations.
@@ -498,8 +567,8 @@ local function decodeModel(sec, modelBase, name, index, context)
   for _, e in ipairs(matDict.entries) do
     -- The material dict payload is a u16 offset (from matBase) to the material's
     -- NNSG3dResMatData block.
-    local m = decodeMaterialData(r, matBase, BinaryReader.new(e.data, "matref"):u16le(0),
-      { model = name, material = e.name })
+    local m =
+      decodeMaterialData(r, matBase, BinaryReader.new(e.data, "matref"):u16le(0), { model = name, material = e.name })
     m.index = e.index
     m.name = e.name
     materials[e.index] = m
@@ -508,16 +577,22 @@ local function decodeModel(sec, modelBase, name, index, context)
   local paletteAssociations = decodeMatBindings(r, sec, matBase, ofsPlttToMat, context)
   for _, assoc in ipairs(textureAssociations) do
     for _, mi in ipairs(assoc.materials) do
-      if materials[mi] then materials[mi].textureName = assoc.name end
+      if materials[mi] then
+        materials[mi].textureName = assoc.name
+      end
     end
   end
   for _, assoc in ipairs(paletteAssociations) do
     for _, mi in ipairs(assoc.materials) do
-      if materials[mi] then materials[mi].paletteName = assoc.name end
+      if materials[mi] then
+        materials[mi].paletteName = assoc.name
+      end
     end
   end
   local materialList = {}
-  for i = 0, info.numMat - 1 do materialList[#materialList + 1] = materials[i] end
+  for i = 0, info.numMat - 1 do
+    materialList[#materialList + 1] = materials[i]
+  end
 
   -- Shapes + geometry.
   local shpBase = modelBase + ofsShp
@@ -530,9 +605,10 @@ local function decodeModel(sec, modelBase, name, index, context)
     local sizeDL = r:u32le(shpDataOffset + 0x0C)
     local dlOffset = shpDataOffset + ofsDL
     local dlBytes = r:bytes(dlOffset, sizeDL)
-    local geometry, gerr = GxDisplayList.decode(dlBytes,
-      { context = { model = name, shape = e.name } })
-    if not geometry then error(gerr) end
+    local geometry, gerr = GxDisplayList.decode(dlBytes, { context = { model = name, shape = e.name } })
+    if not geometry then
+      error(gerr)
+    end
     shapes[#shapes + 1] = {
       index = e.index,
       name = e.name,
@@ -568,7 +644,8 @@ local function decodeModel(sec, modelBase, name, index, context)
   -- A model without skinning still stores an ofsEvpMtx, pointing just past its
   -- data, so the block is read only when the SBC actually issues NODEMIX.
   local evpMatrices = (ofsEvpMtx ~= 0 and sbc.opcodeCounts[0x09])
-    and decodeEvpMatrices(r, modelBase + ofsEvpMtx, info.numNode) or nil
+      and decodeEvpMatrices(r, modelBase + ofsEvpMtx, info.numNode)
+    or nil
 
   return {
     index = index,
@@ -587,7 +664,9 @@ end
 
 local function _decode(bytes, context)
   local file, err = NitroFile.decode(bytes, "BMD0", context)
-  if not file then error(err) end
+  if not file then
+    error(err)
+  end
   local mdlSection = NitroFile.section(file, "MDL0")
   if not mdlSection then
     error(Errors.new("NSBMD_NO_MDL0", "BMD0 file has no MDL0 section", { source = context }))
@@ -624,8 +703,12 @@ end
 
 function Nsbmd.decode(bytes, context)
   local ok, result = pcall(_decode, bytes, context)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 

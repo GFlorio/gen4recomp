@@ -75,15 +75,30 @@ local function frustumCorners(camera)
   local near = planeCorners(camera, camera.profile.nearTiles)
   local far = planeCorners(camera, camera.profile.farTiles)
   return {
-    near[1], near[2], near[3], near[4],
-    far[1], far[2], far[3], far[4],
+    near[1],
+    near[2],
+    near[3],
+    near[4],
+    far[1],
+    far[2],
+    far[3],
+    far[4],
   }
 end
 
 local EDGES = {
-  { 1, 2 }, { 2, 3 }, { 3, 4 }, { 4, 1 },
-  { 5, 6 }, { 6, 7 }, { 7, 8 }, { 8, 5 },
-  { 1, 5 }, { 2, 6 }, { 3, 7 }, { 4, 8 },
+  { 1, 2 },
+  { 2, 3 },
+  { 3, 4 },
+  { 4, 1 },
+  { 5, 6 },
+  { 6, 7 },
+  { 7, 8 },
+  { 8, 5 },
+  { 1, 5 },
+  { 2, 6 },
+  { 3, 7 },
+  { 4, 8 },
 }
 
 -- Project the clipped frustum volume onto X/Z after intersecting it with the
@@ -100,22 +115,22 @@ function FieldCoveragePlanner.frustumGroundBounds(camera, envelope)
     end
   end
 
-  local planes = envelope.minY == envelope.maxY
-    and { envelope.minY } or { envelope.minY, envelope.maxY }
+  local planes = envelope.minY == envelope.maxY and { envelope.minY } or { envelope.minY, envelope.maxY }
   for _, edge in ipairs(EDGES) do
     local a, b = corners[edge[1]], corners[edge[2]]
     local dy = b[2] - a[2]
     if dy ~= 0 then
       for _, y in ipairs(planes) do
         local t = (y - a[2]) / dy
-        if t >= 0 and t <= 1 then points[#points + 1] = add(a, subtract(b, a), t) end
+        if t >= 0 and t <= 1 then
+          points[#points + 1] = add(a, subtract(b, a), t)
+        end
       end
     end
   end
 
   if #points == 0 then
-    Errors.raise("FIELD_COVERAGE_INCOMPLETE",
-      "camera frustum does not intersect the terrain height envelope", envelope)
+    Errors.raise("FIELD_COVERAGE_INCOMPLETE", "camera frustum does not intersect the terrain height envelope", envelope)
   end
 
   local bounds = { minX = math.huge, maxX = -math.huge, minZ = math.huge, maxZ = -math.huge }
@@ -144,7 +159,9 @@ function FieldCoveragePlanner.planBounds(bounds, opts)
   local cells = {}
   if minX <= maxX and minZ <= maxZ then
     for z = minZ, maxZ do
-      for x = minX, maxX do cells[#cells + 1] = { x = x, z = z } end
+      for x = minX, maxX do
+        cells[#cells + 1] = { x = x, z = z }
+      end
     end
   end
   return {
@@ -155,8 +172,7 @@ function FieldCoveragePlanner.planBounds(bounds, opts)
 end
 
 function FieldCoveragePlanner.plan(camera, envelope, opts)
-  return FieldCoveragePlanner.planBounds(
-    FieldCoveragePlanner.frustumGroundBounds(camera, envelope), opts)
+  return FieldCoveragePlanner.planBounds(FieldCoveragePlanner.frustumGroundBounds(camera, envelope), opts)
 end
 
 -- `available` is keyed as "x:z". Keeping ownership outside this module lets a
@@ -164,8 +180,7 @@ end
 function FieldCoveragePlanner.assertAvailable(plan, available)
   for _, cell in ipairs(plan.cells) do
     if not available[cell.x .. ":" .. cell.z] then
-      Errors.raise("FIELD_COVERAGE_INCOMPLETE", "planned field cell is not loaded",
-        { x = cell.x, z = cell.z })
+      Errors.raise("FIELD_COVERAGE_INCOMPLETE", "planned field cell is not loaded", { x = cell.x, z = cell.z })
     end
   end
   return true

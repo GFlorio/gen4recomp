@@ -11,7 +11,9 @@ local NsbmdFixture = {}
 
 local u32 = NB.u32
 
-local function fx16(v) return math.floor(v * 4096) % 0x10000 end
+local function fx16(v)
+  return math.floor(v * 4096) % 0x10000
+end
 
 -- One-triangle display list (BEGIN triangles, 3x VTX_16, END) over three
 -- { x, y, z } vertices.
@@ -20,8 +22,11 @@ local function triangleDL(verts)
     return NB.u32(fx16(v[1]) + fx16(v[2]) * 0x10000) .. NB.u32(fx16(v[3]))
   end
   -- command group 1: 0x40 BEGIN, 0x23,0x23,0x23 ; group 2: 0x41 END, NOP,NOP,NOP
-  return string.char(0x40, 0x23, 0x23, 0x23) .. NB.u32(0)
-    .. vtx16(verts[1]) .. vtx16(verts[2]) .. vtx16(verts[3])
+  return string.char(0x40, 0x23, 0x23, 0x23)
+    .. NB.u32(0)
+    .. vtx16(verts[1])
+    .. vtx16(verts[2])
+    .. vtx16(verts[3])
     .. string.char(0x41, 0, 0, 0)
 end
 
@@ -32,7 +37,9 @@ end
 -- as the DS geometry FIFO requires.
 local function quadDL(verts, uvs)
   local function normal10(nx, ny, nz)
-    local function c(v) return math.floor(v * 511) % 1024 end
+    local function c(v)
+      return math.floor(v * 511) % 1024
+    end
     return NB.u32(c(nx) + c(ny) * 1024 + c(nz) * 1048576)
   end
   local function texcoord(uv)
@@ -48,17 +55,21 @@ local function quadDL(verts, uvs)
     ops[#ops + 1], params[#params + 1] = 0x22, texcoord(uvs[i])
     ops[#ops + 1], params[#params + 1] = 0x23, vtx16(verts[i])
   end
-  ops[#ops + 1], params[#params + 1] = 0x41, ""    -- END_VTXS takes no parameter
+  ops[#ops + 1], params[#params + 1] = 0x41, "" -- END_VTXS takes no parameter
   while #ops % 4 ~= 0 do
-    ops[#ops + 1], params[#params + 1] = 0x00, ""  -- NOP padding
+    ops[#ops + 1], params[#params + 1] = 0x00, "" -- NOP padding
   end
 
   local out = {}
   for group = 0, #ops / 4 - 1 do
     local bytes = {}
-    for slot = 1, 4 do bytes[slot] = string.char(ops[group * 4 + slot]) end
+    for slot = 1, 4 do
+      bytes[slot] = string.char(ops[group * 4 + slot])
+    end
     out[#out + 1] = table.concat(bytes)
-    for slot = 1, 4 do out[#out + 1] = params[group * 4 + slot] end
+    for slot = 1, 4 do
+      out[#out + 1] = params[group * 4 + slot]
+    end
   end
   return table.concat(out)
 end
@@ -76,15 +87,27 @@ end
 local function materialData(origWidth, origHeight, polyAttr)
   local diffAmb = 0x1F + 0x8000 + 0x03E0 * 0x10000
   local specEmi = 0x7C00 + 0x3DEF * 0x10000
-  return NB.u16(0) .. NB.u16(0x2C) .. NB.u32(diffAmb) .. NB.u32(specEmi)
-    .. NB.u32(polyAttr or 0x001F00C1) .. NB.u32(0xFFFFFFFF)
-    .. NB.u32(0x30000) .. NB.u32(0xFFFFFFFF) .. NB.u16(0) .. NB.u16(0x140)
-    .. NB.u16(origWidth) .. NB.u16(origHeight) .. NB.u32(0x1000) .. NB.u32(0x1000)
+  return NB.u16(0)
+    .. NB.u16(0x2C)
+    .. NB.u32(diffAmb)
+    .. NB.u32(specEmi)
+    .. NB.u32(polyAttr or 0x001F00C1)
+    .. NB.u32(0xFFFFFFFF)
+    .. NB.u32(0x30000)
+    .. NB.u32(0xFFFFFFFF)
+    .. NB.u16(0)
+    .. NB.u16(0x140)
+    .. NB.u16(origWidth)
+    .. NB.u16(origHeight)
+    .. NB.u32(0x1000)
+    .. NB.u32(0x1000)
 end
 
 -- texToMat / plttToMat entry: u16 ofsList, u8 count, u8 bound. The lists are
 -- u8 material indices placed after the dicts in the same material block.
-local function bindingEntry(ofsList) return NB.u16(ofsList) .. string.char(1, 0) end
+local function bindingEntry(ofsList)
+  return NB.u16(ofsList) .. string.char(1, 0)
+end
 
 -- Material block holding one material named `materialName`, optionally bound to
 -- one texture name and one palette name.
@@ -100,15 +123,12 @@ local function buildMaterialBlock(opts, materialName, textureName, paletteName)
   local lists = hasBindings and string.char(0, 0) or ""
   local listBase = 4 + #matDict0 + #texDict0 + #pltDict0 + 2
 
-  local texDict = hasBindings
-    and NB.dict({ { name = textureName, data = bindingEntry(listBase) } }) or texDict0
-  local pltDict = hasBindings
-    and NB.dict({ { name = paletteName, data = bindingEntry(listBase + 1) } }) or pltDict0
+  local texDict = hasBindings and NB.dict({ { name = textureName, data = bindingEntry(listBase) } }) or texDict0
+  local pltDict = hasBindings and NB.dict({ { name = paletteName, data = bindingEntry(listBase + 1) } }) or pltDict0
   local ofsMatData = 4 + #matDict0 + #texDict + #pltDict + #lists
   local matDict = NB.dict({ { name = materialName, data = NB.u16(ofsMatData) .. NB.u16(0) } })
 
-  return NB.u16(4 + #matDict) .. NB.u16(4 + #matDict + #texDict)
-    .. matDict .. texDict .. pltDict .. lists .. matData
+  return NB.u16(4 + #matDict) .. NB.u16(4 + #matDict + #texDict) .. matDict .. texDict .. pltDict .. lists .. matData
 end
 
 local function buildShapeBlock(dl)
@@ -132,24 +152,28 @@ local function buildInfo(verts, opts)
     end
   end
   local fields = {}
-  fields[#fields + 1] = NB.u8(0)  -- sbcType
-  fields[#fields + 1] = NB.u8(0)  -- scalingRule
-  fields[#fields + 1] = NB.u8(0)  -- texMtxMode
-  fields[#fields + 1] = NB.u8(1)  -- numNode
-  fields[#fields + 1] = NB.u8(1)  -- numMat
-  fields[#fields + 1] = NB.u8(1)  -- numShp
-  fields[#fields + 1] = NB.u8(0)  -- firstUnusedMtxStackID
-  fields[#fields + 1] = NB.u8(0)  -- dummy
+  fields[#fields + 1] = NB.u8(0) -- sbcType
+  fields[#fields + 1] = NB.u8(0) -- scalingRule
+  fields[#fields + 1] = NB.u8(0) -- texMtxMode
+  fields[#fields + 1] = NB.u8(1) -- numNode
+  fields[#fields + 1] = NB.u8(1) -- numMat
+  fields[#fields + 1] = NB.u8(1) -- numShp
+  fields[#fields + 1] = NB.u8(0) -- firstUnusedMtxStackID
+  fields[#fields + 1] = NB.u8(0) -- dummy
   -- The default pair is deliberately not reciprocal, so a decoder reading one
   -- field at the other's offset is visible. opts.posScale sets both consistently.
   fields[#fields + 1] = NB.u32(0x1000 * (opts.posScale or 1)) -- posScale
   fields[#fields + 1] = NB.u32(opts.posScale and math.floor(0x1000 / opts.posScale) or 0x2000)
-  fields[#fields + 1] = NB.u16(#verts)  -- numVertex
-  fields[#fields + 1] = NB.u16(1)  -- numPolygon
-  fields[#fields + 1] = NB.u16(1)  -- numTriangle
-  fields[#fields + 1] = NB.u16(0)  -- numQuad
-  for axis = 1, 3 do fields[#fields + 1] = NB.u16(fx16(min[axis])) end
-  for axis = 1, 3 do fields[#fields + 1] = NB.u16(fx16(max[axis] - min[axis])) end
+  fields[#fields + 1] = NB.u16(#verts) -- numVertex
+  fields[#fields + 1] = NB.u16(1) -- numPolygon
+  fields[#fields + 1] = NB.u16(1) -- numTriangle
+  fields[#fields + 1] = NB.u16(0) -- numQuad
+  for axis = 1, 3 do
+    fields[#fields + 1] = NB.u16(fx16(min[axis]))
+  end
+  for axis = 1, 3 do
+    fields[#fields + 1] = NB.u16(fx16(max[axis] - min[axis]))
+  end
   fields[#fields + 1] = NB.u32(0x4000) -- boxPosScale
   fields[#fields + 1] = NB.u32(0x0800) -- boxInvPosScale
   return table.concat(fields)
@@ -157,9 +181,12 @@ end
 
 -- Model layout: header(0x14) + info(0x2C) + nodeDict + nodeData + sbc + matBlock + shpBlock.
 local function buildModel(opts, nodeDict, nodeData, sbc)
-  local matBlock = buildMaterialBlock(opts, opts.materialName or "mat0",
+  local matBlock = buildMaterialBlock(
+    opts,
+    opts.materialName or "mat0",
     not opts.untextured and (opts.textureName or NsbmdFixture.TEXTURE_NAME) or nil,
-    opts.paletteName or NsbmdFixture.PALETTE_NAME)
+    opts.paletteName or NsbmdFixture.PALETTE_NAME
+  )
   local verts, dl
   if opts.quad then
     verts, dl = opts.quad.verts, quadDL(opts.quad.verts, opts.quad.uvs)
@@ -175,8 +202,7 @@ local function buildModel(opts, nodeDict, nodeData, sbc)
   local ofsShp = ofsMat + #matBlock
 
   local body = string.rep("\0", 0x14) .. info .. nodeDict .. nodeData .. sbc .. matBlock .. shpBlock
-  return u32(#body) .. NB.u32(ofsSbc) .. NB.u32(ofsMat) .. NB.u32(ofsShp) .. NB.u32(0)
-    .. body:sub(0x15) -- replace the zeroed header region with real offsets
+  return u32(#body) .. NB.u32(ofsSbc) .. NB.u32(ofsMat) .. NB.u32(ofsShp) .. NB.u32(0) .. body:sub(0x15) -- replace the zeroed header region with real offsets
 end
 
 local function buildModelDict(modelName, model)
@@ -192,8 +218,8 @@ local function nodeDictFor(name)
 end
 
 local function file(opts, nodeDict, nodeData, sbc)
-  local sections = { { magic = "MDL0",
-    body = buildModelDict(opts.modelName or "m0", buildModel(opts, nodeDict, nodeData, sbc)) } }
+  local sections =
+    { { magic = "MDL0", body = buildModelDict(opts.modelName or "m0", buildModel(opts, nodeDict, nodeData, sbc)) } }
   if opts.embeddedTex0 then
     -- NitroBuilder.file re-emits the 8-byte block header, so strip the one the
     -- TEX0 fixture already wrote.
@@ -203,17 +229,17 @@ local function file(opts, nodeDict, nodeData, sbc)
 end
 
 -- NODEDESC(root), NODE(0,vis), POSSCALE, MAT/SHP, RET.
-local SBC_ONE_DRAW = string.char(0x06, 0, 0, 0)   -- NODEDESC node0 parent0 flags0
-  .. string.char(0x02, 0, 1)                      -- NODE node0 vis1
-  .. string.char(0x0B)                            -- POSSCALE (normal)
-  .. string.char(0x04, 0)                         -- MAT 0
-  .. string.char(0x05, 0)                         -- SHP 0
-  .. string.char(0x01)                            -- RET
+local SBC_ONE_DRAW = string.char(0x06, 0, 0, 0) -- NODEDESC node0 parent0 flags0
+  .. string.char(0x02, 0, 1) -- NODE node0 vis1
+  .. string.char(0x0B) -- POSSCALE (normal)
+  .. string.char(0x04, 0) -- MAT 0
+  .. string.char(0x05, 0) -- SHP 0
+  .. string.char(0x01) -- RET
 
 -- The same stream with a second MAT/SHP pair after the inverse POSSCALE, so
 -- tests see two draw instances of one shape.
 local SBC_TWO_DRAWS = SBC_ONE_DRAW:sub(1, -2)
-  .. string.char(0x2B)                            -- POSSCALE (inverse)
+  .. string.char(0x2B) -- POSSCALE (inverse)
   .. string.char(0x04, 0)
   .. string.char(0x05, 0)
   .. string.char(0x01)
@@ -238,19 +264,29 @@ end
 -- The same model with its node translated (2,0,0), identity rotation, scale
 -- (2,1,1), and a single MAT/SHP draw.
 function NsbmdFixture.buildTransformed(opts)
-  local nodeData = NB.u16(0x0000) .. NB.u16(0x1000) -- flags=0, _00=1.0
-    .. NB.u32(0x2000) .. NB.u32(0) .. NB.u32(0)   -- translation
-    .. NB.u16(0) .. NB.u16(0) .. NB.u16(0)        -- rotation col0 rows 1,2 + col1 row0
-    .. NB.u16(0x1000) .. NB.u16(0) .. NB.u16(0)   -- col1 row1, row2 + col2 row0
-    .. NB.u16(0) .. NB.u16(0x1000)                -- col2 row1, row2
-    .. NB.u32(0x2000) .. NB.u32(0x1000) .. NB.u32(0x1000) -- scale
+  local nodeData = NB.u16(0x0000)
+    .. NB.u16(0x1000) -- flags=0, _00=1.0
+    .. NB.u32(0x2000)
+    .. NB.u32(0)
+    .. NB.u32(0) -- translation
+    .. NB.u16(0)
+    .. NB.u16(0)
+    .. NB.u16(0) -- rotation col0 rows 1,2 + col1 row0
+    .. NB.u16(0x1000)
+    .. NB.u16(0)
+    .. NB.u16(0) -- col1 row1, row2 + col2 row0
+    .. NB.u16(0)
+    .. NB.u16(0x1000) -- col2 row1, row2
+    .. NB.u32(0x2000)
+    .. NB.u32(0x1000)
+    .. NB.u32(0x1000) -- scale
   return file(opts or {}, nodeDictFor("root"), nodeData, SBC_ONE_DRAW)
 end
 
 -- NODEDESC(root), BB(node0), POSSCALE, MAT/SHP, RET: the field-actor shape, whose
 -- one quad is drawn as a Nitro full camera-facing billboard.
 local SBC_BILLBOARD_DRAW = string.char(0x06, 0, 0, 0)
-  .. string.char(0x07, 0)                         -- BB node0
+  .. string.char(0x07, 0) -- BB node0
   .. string.char(0x0B)
   .. string.char(0x04, 0)
   .. string.char(0x05, 0)
@@ -273,12 +309,18 @@ function NsbmdFixture.buildBillboardQuad(opts)
   local posScale = opts.posScale or 8
   local size = (opts.size or 32) / posScale
   local uv = opts.uvSize or 32
-  local merged = { posScale = posScale, polyAttr = opts.polyAttr or 0x001F8081, quad = {
-    verts = { { -size / 2, 0, 0 }, { size / 2, 0, 0 }, { size / 2, size, 0 }, { -size / 2, size, 0 } },
-    uvs = { { 0, uv }, { uv, uv }, { uv, 0 }, { 0, 0 } },
-  } }
+  local merged = {
+    posScale = posScale,
+    polyAttr = opts.polyAttr or 0x001F8081,
+    quad = {
+      verts = { { -size / 2, 0, 0 }, { size / 2, 0, 0 }, { size / 2, size, 0 }, { -size / 2, size, 0 } },
+      uvs = { { 0, uv }, { uv, uv }, { uv, 0 }, { 0, 0 } },
+    },
+  }
   for key, value in pairs(opts) do
-    if key ~= "size" and key ~= "uvSize" and key ~= "posScale" then merged[key] = value end
+    if key ~= "size" and key ~= "uvSize" and key ~= "posScale" then
+      merged[key] = value
+    end
   end
   local nodeData = NB.u16(0x0007) .. NB.u16(0)
   return file(merged, nodeDictFor("root"), nodeData, SBC_BILLBOARD_DRAW)
@@ -289,13 +331,18 @@ function NsbmdFixture.buildStaticQuad(opts)
   local posScale = opts.posScale or 8
   local size = (opts.size or 16) / posScale
   local uv = opts.uvSize or 8
-  local merged = { posScale = posScale, polyAttr = opts.polyAttr or 0x001F00C1, quad = {
-    verts = { { -size / 2, 0, 0 }, { size / 2, 0, 0 },
-      { size / 2, size, 0 }, { -size / 2, size, 0 } },
-    uvs = { { 0, uv }, { uv, uv }, { uv, 0 }, { 0, 0 } },
-  } }
+  local merged = {
+    posScale = posScale,
+    polyAttr = opts.polyAttr or 0x001F00C1,
+    quad = {
+      verts = { { -size / 2, 0, 0 }, { size / 2, 0, 0 }, { size / 2, size, 0 }, { -size / 2, size, 0 } },
+      uvs = { { 0, uv }, { uv, uv }, { uv, 0 }, { 0, 0 } },
+    },
+  }
   for key, value in pairs(opts) do
-    if key ~= "size" and key ~= "uvSize" and key ~= "posScale" then merged[key] = value end
+    if key ~= "size" and key ~= "uvSize" and key ~= "posScale" then
+      merged[key] = value
+    end
   end
   local nodeData = NB.u16(0x0007) .. NB.u16(0)
   return file(merged, nodeDictFor("root"), nodeData, SBC_STATIC_QUAD_DRAW)

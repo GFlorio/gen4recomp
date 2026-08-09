@@ -9,8 +9,10 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 local T = {}
 
 local function near(actual, expected, epsilon)
-  Assert.isTrue(math.abs(actual - expected) <= (epsilon or 1e-6),
-    string.format("expected %.9f, got %.9f", expected, actual))
+  Assert.isTrue(
+    math.abs(actual - expected) <= (epsilon or 1e-6),
+    string.format("expected %.9f, got %.9f", expected, actual)
+  )
 end
 
 local function terrain(opts)
@@ -68,9 +70,13 @@ function T.resolver_keeps_current_surface_through_an_overlap()
     },
   })
   local resolver = SurfaceResolver.new(t)
-  local sample = resolver:resolve({ localX = 6.5, localZ = 6.5,
-    currentSurfaceId = 1, currentY = 5,
-    crossing = { fromX = 5.5, fromZ = 6.5, toX = 6.5, toZ = 6.5 } })
+  local sample = resolver:resolve({
+    localX = 6.5,
+    localZ = 6.5,
+    currentSurfaceId = 1,
+    currentY = 5,
+    crossing = { fromX = 5.5, fromZ = 6.5, toX = 6.5, toZ = 6.5 },
+  })
   Assert.equal(sample.surfaceId, 1)
   near(sample.worldY, 5)
 end
@@ -78,8 +84,10 @@ end
 function T.resolver_connects_joined_edges_and_rejects_height_jumps()
   local joined = terrain({
     points = {
-      { x = -16, z = -16 }, { x = 0, z = 16 },
-      { x = 0, z = -16 }, { x = 16, z = 16 },
+      { x = -16, z = -16 },
+      { x = 0, z = 16 },
+      { x = 0, z = -16 },
+      { x = 16, z = 16 },
     },
     heights = { Builder.heightRaw(0) },
     plates = {
@@ -87,15 +95,21 @@ function T.resolver_connects_joined_edges_and_rejects_height_jumps()
       { minPointIndex = 2, maxPointIndex = 3, slopeIndex = 0, heightIndex = 0 },
     },
   })
-  local sample = SurfaceResolver.new(joined):resolve({ localX = 16.5, localZ = 8.5,
-    currentSurfaceId = 0, currentY = 0,
-    crossing = { fromX = 15.5, fromZ = 8.5, toX = 16.5, toZ = 8.5 } })
+  local sample = SurfaceResolver.new(joined):resolve({
+    localX = 16.5,
+    localZ = 8.5,
+    currentSurfaceId = 0,
+    currentY = 0,
+    crossing = { fromX = 15.5, fromZ = 8.5, toX = 16.5, toZ = 8.5 },
+  })
   Assert.equal(sample.surfaceId, 1)
 
   local jumped = terrain({
     points = {
-      { x = -16, z = -16 }, { x = 0, z = 16 },
-      { x = 0, z = -16 }, { x = 16, z = 16 },
+      { x = -16, z = -16 },
+      { x = 0, z = 16 },
+      { x = 0, z = -16 },
+      { x = 16, z = 16 },
     },
     heights = { Builder.heightRaw(0), Builder.heightRaw(2) },
     plates = {
@@ -104,9 +118,13 @@ function T.resolver_connects_joined_edges_and_rejects_height_jumps()
     },
   })
   local err = Assert.throws(function()
-    SurfaceResolver.new(jumped):resolve({ localX = 16.5, localZ = 8.5,
-      currentSurfaceId = 0, currentY = 0,
-      crossing = { fromX = 15.5, fromZ = 8.5, toX = 16.5, toZ = 8.5 } })
+    SurfaceResolver.new(jumped):resolve({
+      localX = 16.5,
+      localZ = 8.5,
+      currentSurfaceId = 0,
+      currentY = 0,
+      crossing = { fromX = 15.5, fromZ = 8.5, toX = 16.5, toZ = 8.5 },
+    })
   end)
   Assert.equal(err.code, "TERRAIN_SURFACE_DISCONNECTED")
 end
@@ -119,8 +137,10 @@ function T.resolver_crosses_seams_within_the_step_height_limit()
   -- in both directions.
   local seamed = terrain({
     points = {
-      { x = -16, z = -16 }, { x = 0, z = 16 },
-      { x = 0, z = -16 }, { x = 16, z = 16 },
+      { x = -16, z = -16 },
+      { x = 0, z = 16 },
+      { x = 0, z = -16 },
+      { x = 16, z = 16 },
     },
     heights = { Builder.heightRaw(0), Builder.heightRaw(0.0014) },
     plates = {
@@ -129,13 +149,21 @@ function T.resolver_crosses_seams_within_the_step_height_limit()
     },
   })
   local resolver = SurfaceResolver.new(seamed)
-  local east = resolver:resolve({ localX = 16.5, localZ = 8.5,
-    currentSurfaceId = 0, currentY = 0,
-    crossing = { fromX = 15.5, fromZ = 8.5, toX = 16.5, toZ = 8.5 } })
+  local east = resolver:resolve({
+    localX = 16.5,
+    localZ = 8.5,
+    currentSurfaceId = 0,
+    currentY = 0,
+    crossing = { fromX = 15.5, fromZ = 8.5, toX = 16.5, toZ = 8.5 },
+  })
   Assert.equal(east.surfaceId, 1)
-  local west = resolver:resolve({ localX = 15.5, localZ = 8.5,
-    currentSurfaceId = 1, currentY = 0.0014,
-    crossing = { fromX = 16.5, fromZ = 8.5, toX = 15.5, toZ = 8.5 } })
+  local west = resolver:resolve({
+    localX = 15.5,
+    localZ = 8.5,
+    currentSurfaceId = 1,
+    currentY = 0.0014,
+    crossing = { fromX = 16.5, fromZ = 8.5, toX = 15.5, toZ = 8.5 },
+  })
   Assert.equal(west.surfaceId, 0)
 end
 
@@ -144,8 +172,10 @@ function T.resolver_rejects_a_step_at_the_height_limit()
   -- units): a step of exactly that height is not a walkable seam.
   local limit = terrain({
     points = {
-      { x = -16, z = -16 }, { x = 0, z = 16 },
-      { x = 0, z = -16 }, { x = 16, z = 16 },
+      { x = -16, z = -16 },
+      { x = 0, z = 16 },
+      { x = 0, z = -16 },
+      { x = 16, z = 16 },
     },
     heights = { Builder.heightRaw(0), Builder.heightRaw(1.25) },
     plates = {
@@ -154,9 +184,13 @@ function T.resolver_rejects_a_step_at_the_height_limit()
     },
   })
   local err = Assert.throws(function()
-    SurfaceResolver.new(limit):resolve({ localX = 16.5, localZ = 8.5,
-      currentSurfaceId = 0, currentY = 0,
-      crossing = { fromX = 15.5, fromZ = 8.5, toX = 16.5, toZ = 8.5 } })
+    SurfaceResolver.new(limit):resolve({
+      localX = 16.5,
+      localZ = 8.5,
+      currentSurfaceId = 0,
+      currentY = 0,
+      crossing = { fromX = 15.5, fromZ = 8.5, toX = 16.5, toZ = 8.5 },
+    })
   end)
   Assert.equal(err.code, "TERRAIN_SURFACE_DISCONNECTED")
 end

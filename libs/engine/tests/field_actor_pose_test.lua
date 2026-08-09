@@ -20,14 +20,17 @@ end
 local function unevenPose(loop)
   return {
     frames = { { frameIndex = 7, ticks = 2 }, { frameIndex = 9, ticks = 3 } },
-    loop = loop, durationTicks = 5,
+    loop = loop,
+    durationTicks = 5,
   }
 end
 
 function T.walks_uneven_frame_durations()
   local pose = unevenPose(true)
   local seen = {}
-  for tick = 0, 4 do seen[#seen + 1] = FieldActorPose.frameIndexAt(pose, tick) end
+  for tick = 0, 4 do
+    seen[#seen + 1] = FieldActorPose.frameIndexAt(pose, tick)
+  end
   Assert.deepEqual(seen, { 7, 7, 9, 9, 9 })
 end
 
@@ -46,8 +49,11 @@ end
 function T.selects_the_facing_pose_set()
   local visual = FieldActorFixture.visual(29)
   Assert.equal(FieldActorPose.frameIndex(visual, "north", "idle", 0), 1)
-  Assert.equal(FieldActorPose.frameIndex(visual, "east", "idle", 0), 4,
-    "each direction holds the first frame of its own range")
+  Assert.equal(
+    FieldActorPose.frameIndex(visual, "east", "idle", 0),
+    4,
+    "each direction holds the first frame of its own range"
+  )
   Assert.equal(FieldActorPose.frameIndex(visual, "west", "walk", 2), 5)
 end
 

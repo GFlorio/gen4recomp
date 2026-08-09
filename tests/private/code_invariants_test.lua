@@ -30,8 +30,7 @@ function T.no_target_specific_branches_in_core()
     local src = f:read("*a")
     f:close()
     for _, phrase in ipairs(forbidden) do
-      Assert.isTrue(src:find(phrase, 1, true) == nil,
-        path .. " must not contain target-specific phrase: " .. phrase)
+      Assert.isTrue(src:find(phrase, 1, true) == nil, path .. " must not contain target-specific phrase: " .. phrase)
     end
   end
 end
@@ -41,10 +40,14 @@ end
 -- data/generated/.
 function T.no_rom_payload_tracked()
   local pipe = io.popen("git -C . ls-files 2>/dev/null", "r")
-  if not pipe then return end
+  if not pipe then
+    return
+  end
   local tracked = pipe:read("*a")
   pipe:close()
-  if tracked == "" then return end -- not a git checkout, skip
+  if tracked == "" then
+    return
+  end -- not a git checkout, skip
 
   local disallowedPatterns = {
     "%.nds$",
@@ -57,8 +60,7 @@ function T.no_rom_payload_tracked()
   }
   for line in tracked:gmatch("[^\r\n]+") do
     for _, pat in ipairs(disallowedPatterns) do
-      Assert.isTrue(line:find(pat) == nil,
-        "tracked file must not be a ROM payload or derived asset: " .. line)
+      Assert.isTrue(line:find(pat) == nil, "tracked file must not be a ROM payload or derived asset: " .. line)
     end
   end
 end
@@ -76,22 +78,23 @@ end
 -- the test runners.
 function T.no_terminal_output_from_game_or_runtime_source()
   local pipe = io.popen("git -C . ls-files 2>/dev/null", "r")
-  if not pipe then return end
+  if not pipe then
+    return
+  end
   local tracked = pipe:read("*a")
   pipe:close()
-  if tracked == "" then return end -- not a git checkout, skip
+  if tracked == "" then
+    return
+  end -- not a git checkout, skip
 
   for line in tracked:gmatch("[^\r\n]+") do
     if line:match("^game/src/.*%.lua$") or line:match("^libs/[^/]+/src/.*%.lua$") then
       local f = assert(io.open(line, "r"), "can read " .. line)
       local src = f:read("*a")
       f:close()
-      Assert.isTrue(src:find("io.stderr", 1, true) == nil,
-        line .. " must not write to stderr")
-      Assert.isTrue(src:find("io.stdout", 1, true) == nil,
-        line .. " must not write to stdout")
-      Assert.isTrue(not hasBarePrint(src),
-        line .. " must not call global print")
+      Assert.isTrue(src:find("io.stderr", 1, true) == nil, line .. " must not write to stderr")
+      Assert.isTrue(src:find("io.stdout", 1, true) == nil, line .. " must not write to stdout")
+      Assert.isTrue(not hasBarePrint(src), line .. " must not call global print")
     end
   end
 end

@@ -4,8 +4,12 @@ local MapMatrix = require("libs.assets.src.MapMatrix")
 
 local T = {}
 
-local function u8(v) return string.char(v % 256) end
-local function u16(v) return string.char(v % 256, math.floor(v / 256) % 256) end
+local function u8(v)
+  return string.char(v % 256)
+end
+local function u16(v)
+  return string.char(v % 256, math.floor(v / 256) % 256)
+end
 
 -- Assemble a map-matrix member. Header/altitude arrays are only
 -- emitted when their section flag is set.
@@ -13,26 +17,37 @@ local function build(spec)
   local n = spec.width * spec.height
   local name = spec.name or ""
   local parts = {
-    u8(spec.width), u8(spec.height),
+    u8(spec.width),
+    u8(spec.height),
     u8(spec.hasHeaders and 1 or 0),
     u8(spec.hasAltitudes and 1 or 0),
-    u8(#name), name,
+    u8(#name),
+    name,
   }
   if spec.hasHeaders then
-    for i = 1, n do parts[#parts + 1] = u16(spec.headers[i]) end
+    for i = 1, n do
+      parts[#parts + 1] = u16(spec.headers[i])
+    end
   end
   if spec.hasAltitudes then
-    for i = 1, n do parts[#parts + 1] = u8(spec.altitudes[i]) end
+    for i = 1, n do
+      parts[#parts + 1] = u8(spec.altitudes[i])
+    end
   end
-  for i = 1, n do parts[#parts + 1] = u16(spec.modelIds[i]) end
+  for i = 1, n do
+    parts[#parts + 1] = u16(spec.modelIds[i])
+  end
   return table.concat(parts)
 end
 
 -- 2x2 with distinct values in every section, laid out row-major.
 local function sample(hasHeaders, hasAltitudes)
   return build({
-    width = 2, height = 2, name = "MAP",
-    hasHeaders = hasHeaders, hasAltitudes = hasAltitudes,
+    width = 2,
+    height = 2,
+    name = "MAP",
+    hasHeaders = hasHeaders,
+    hasAltitudes = hasAltitudes,
     headers = { 10, 11, 12, 13 },
     altitudes = { 1, 2, 3, 4 },
     modelIds = { 20, 21, 22, 23 },
@@ -97,10 +112,18 @@ end
 
 function T.coordinate_accessors_reject_out_of_range()
   local m = assert(decodeOk(sample(true, true)))
-  Assert.throws(function() m:index(2, 0) end)
-  Assert.throws(function() m:index(0, 2) end)
-  Assert.throws(function() m:index(-1, 0) end)
-  Assert.throws(function() m:mapHeaderIdAt(0, 2) end)
+  Assert.throws(function()
+    m:index(2, 0)
+  end)
+  Assert.throws(function()
+    m:index(0, 2)
+  end)
+  Assert.throws(function()
+    m:index(-1, 0)
+  end)
+  Assert.throws(function()
+    m:mapHeaderIdAt(0, 2)
+  end)
 end
 
 function T.cell_bundles_header_altitude_and_land_member()
@@ -111,8 +134,12 @@ end
 
 function T.cell_rejects_out_of_range()
   local m = assert(decodeOk(sample(true, true)))
-  Assert.throws(function() m:cell(2, 0) end)
-  Assert.throws(function() m:cell(0, -1) end)
+  Assert.throws(function()
+    m:cell(2, 0)
+  end)
+  Assert.throws(function()
+    m:cell(0, -1)
+  end)
 end
 
 function T.world_origin_is_32_tiles_per_cell()
@@ -135,8 +162,11 @@ end
 function T.find_cells_returns_all_matches_in_row_major_order()
   -- 2x2 where header 60 appears at (0,0) and (1,1).
   local data = build({
-    width = 2, height = 2, name = "map",
-    hasHeaders = true, hasAltitudes = false,
+    width = 2,
+    height = 2,
+    name = "map",
+    hasHeaders = true,
+    hasAltitudes = false,
     headers = { 60, 5, 6, 60 },
     modelIds = { 0, 1, 2, 3 },
   })

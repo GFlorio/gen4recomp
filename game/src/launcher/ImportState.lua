@@ -22,7 +22,9 @@ end
 ---@param scancode string
 ---@param isrepeat boolean
 function ImportState:keypressed(key, scancode, isrepeat)
-  if key == "escape" then love.event.quit(0) end
+  if key == "escape" then
+    love.event.quit(0)
+  end
 end
 
 function ImportState:draw()
@@ -45,12 +47,15 @@ function ImportState.render(status, saveDir)
   y = y + 116
   lg.setColor(0.85, 0.9, 0.95)
   lg.print("State:  " .. status.state, x, y)
-  if status.sourceName then lg.print("File:   " .. status.sourceName, x, y + 20) end
-  if status.displayName then lg.print("Target: " .. status.displayName, x, y + 40) end
+  if status.sourceName then
+    lg.print("File:   " .. status.sourceName, x, y + 20)
+  end
+  if status.displayName then
+    lg.print("Target: " .. status.displayName, x, y + 40)
+  end
 
   if status.state == "extracting" or status.state == "complete" then
-    lg.print((status.stageLabel or "Working") .. (status.detail and ("  " .. status.detail) or ""),
-      x, y + 68)
+    lg.print((status.stageLabel or "Working") .. (status.detail and ("  " .. status.detail) or ""), x, y + 68)
     local w, h = 360, 14
     lg.setColor(0.2, 0.22, 0.28)
     lg.rectangle("fill", x, y + 92, w, h)

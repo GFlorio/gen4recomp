@@ -104,8 +104,10 @@ end
 -- alias added after a dump was imported works without re-importing the ROM.
 function T.resolves_without_a_baked_narc_table()
   local r = DumpFixture.extract()
-  Assert.isNil(r.backend.files[r.versionId .. "/data/generated/resolved_narcs.lua"],
-    "resolved_narcs.lua should no longer be produced")
+  Assert.isNil(
+    r.backend.files[r.versionId .. "/data/generated/resolved_narcs.lua"],
+    "resolved_narcs.lua should no longer be produced"
+  )
   local fs = assert(RomFs.open(r.versionId, r.cache))
   local entry = assert(fs:resolvedNarc("map_matrices"))
   Assert.notNil(entry, "alias must resolve from manifest + FNT index")

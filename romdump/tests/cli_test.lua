@@ -47,7 +47,9 @@ function T.ignores_unknown_tokens()
 end
 
 function T.missing_value_for_import_rom_errors()
-  Assert.throws(function() Cli.parse({ "--import-rom" }) end)
+  Assert.throws(function()
+    Cli.parse({ "--import-rom" })
+  end)
 end
 
 function T.parses_inspect()
@@ -78,8 +80,12 @@ function T.parses_forcedump_with_required_rom()
 end
 
 function T.forcedump_requires_rom()
-  Assert.throws(function() Cli.parse({ "--build-cache", "--forcedump" }) end)
-  Assert.throws(function() Cli.parse({ "--forcedump", "--build-cache" }) end)
+  Assert.throws(function()
+    Cli.parse({ "--build-cache", "--forcedump" })
+  end)
+  Assert.throws(function()
+    Cli.parse({ "--forcedump", "--build-cache" })
+  end)
 end
 
 return T

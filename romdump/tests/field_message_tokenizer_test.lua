@@ -26,12 +26,10 @@ function T.marker_contract_matches_the_frozen_charmap()
   -- agree with the frozen charmap reference so parsed/rendered markers always
   -- round trip with the names the importer emits.
   for code, name in pairs(charmap.controlNames) do
-    Assert.equal(FieldMessageText.controlName(code), name,
-      string.format("control 0x%04X name drift", code))
+    Assert.equal(FieldMessageText.controlName(code), name, string.format("control 0x%04X name drift", code))
   end
   for code, name in pairs(FieldMessageText.controlNames) do
-    Assert.equal(charmap.controlNames[code], name,
-      string.format("control 0x%04X registry drift", code))
+    Assert.equal(charmap.controlNames[code], name, string.format("control 0x%04X registry drift", code))
   end
 end
 
@@ -131,9 +129,27 @@ function T.trainer_name_code_is_a_substitution()
 end
 
 function T.stream_is_lossless_through_eos()
-  local units = { 0x013A, 0x0156, 0x0153, 0x014A, 0x0149, 0x0157, 0x0157, 0x0153,
-    0x0156, 0x01DE, 0xFFFE, 0x0103, 0x0002, 0x0000, 0x0000, 0xE000, 0x25BC,
-    0x25BD, 0xFFFF }
+  local units = {
+    0x013A,
+    0x0156,
+    0x0153,
+    0x014A,
+    0x0149,
+    0x0157,
+    0x0157,
+    0x0153,
+    0x0156,
+    0x01DE,
+    0xFFFE,
+    0x0103,
+    0x0002,
+    0x0000,
+    0x0000,
+    0xE000,
+    0x25BC,
+    0x25BD,
+    0xFFFF,
+  }
   local tokens = tokenize(units)
   local rebuilt = {}
   for _, token in ipairs(tokens) do

@@ -21,9 +21,15 @@ local PATHS = {
 -- caller-supplied flag, never a map-id branch, so no target-specific logic lives
 -- here.
 function HgssFieldLighting.profileIdForLightType(lightTypeRaw, secondDungeon)
-  if lightTypeRaw == 0 then return 1 end
-  if lightTypeRaw == 1 then return 0 end
-  if lightTypeRaw == 2 then return secondDungeon and 4 or 3 end
+  if lightTypeRaw == 0 then
+    return 1
+  end
+  if lightTypeRaw == 1 then
+    return 0
+  end
+  if lightTypeRaw == 2 then
+    return secondDungeon and 4 or 3
+  end
   return 0
 end
 

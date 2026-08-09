@@ -63,17 +63,27 @@ local function assertRangeError(fn)
 end
 
 function T.rejects_negative_offset()
-  assertRangeError(function() reader():u8(-1) end)
+  assertRangeError(function()
+    reader():u8(-1)
+  end)
 end
 
 function T.rejects_read_past_end()
-  assertRangeError(function() reader():u8(5) end)
-  assertRangeError(function() reader():u32le(2) end)
-  assertRangeError(function() reader():bytes(3, 5) end)
+  assertRangeError(function()
+    reader():u8(5)
+  end)
+  assertRangeError(function()
+    reader():u32le(2)
+  end)
+  assertRangeError(function()
+    reader():bytes(3, 5)
+  end)
 end
 
 function T.rejects_negative_length()
-  assertRangeError(function() reader():bytes(0, -1) end)
+  assertRangeError(function()
+    reader():bytes(0, -1)
+  end)
 end
 
 function T.assertRange_passes_within_bounds()

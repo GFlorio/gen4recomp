@@ -3,8 +3,12 @@ local AreaData = require("romdump.src.digest.AreaData")
 
 local T = {}
 
-local function u16(v) return string.char(v % 256, math.floor(v / 256) % 256) end
-local function u8(v) return string.char(v % 256) end
+local function u16(v)
+  return string.char(v % 256, math.floor(v / 256) % 256)
+end
+local function u8(v)
+  return string.char(v % 256)
+end
 
 -- building, map, dynamic (u16le each), areaType, lightType (u8 each).
 local function build(building, map, dynamic, areaType, lightType)

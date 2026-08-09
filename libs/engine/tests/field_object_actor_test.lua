@@ -16,11 +16,27 @@ end
 
 local function sourceEvent(overrides)
   local event = {
-    index = 0, objectEventId = 0, spriteId = 99, movement = 0, type = 0,
-    eventFlag = 401, scriptId = 1, facingDirection = "south", facingDirectionRaw = 1,
-    param0 = 0, param1 = 0, param2 = 0, xRange = 0, yRange = 0, x = 6, z = 5, y = 0,
+    index = 0,
+    objectEventId = 0,
+    spriteId = 99,
+    movement = 0,
+    type = 0,
+    eventFlag = 401,
+    scriptId = 1,
+    facingDirection = "south",
+    facingDirectionRaw = 1,
+    param0 = 0,
+    param1 = 0,
+    param2 = 0,
+    xRange = 0,
+    yRange = 0,
+    x = 6,
+    z = 5,
+    y = 0,
   }
-  for key, value in pairs(overrides or {}) do event[key] = value end
+  for key, value in pairs(overrides or {}) do
+    event[key] = value
+  end
   return event
 end
 
@@ -29,8 +45,12 @@ local function actor(overrides)
     mapId = 61,
     sourceEvent = sourceEvent(overrides),
     visualDef = { spriteId = 99, mapModelId = 266 },
-    fieldX = 6, fieldZ = 5, surfaceId = 0,
-    worldX = 6.5, worldY = 0, worldZ = 5.5,
+    fieldX = 6,
+    fieldZ = 5,
+    surfaceId = 0,
+    worldX = 6.5,
+    worldY = 0,
+    worldZ = 5.5,
   })
 end
 
@@ -87,7 +107,9 @@ end
 function T.releasing_a_foreign_token_is_rejected()
   local a = actor()
   a:pushFacingOverride({ owner = "pre-script-dialogue", facing = "north" })
-  throwsCode("ACTOR_OVERRIDE_OWNER_MISMATCH", function() a:releaseFacingOverride({}) end)
+  throwsCode("ACTOR_OVERRIDE_OWNER_MISMATCH", function()
+    a:releaseFacingOverride({})
+  end)
   Assert.equal(a.facing, "north")
 end
 
@@ -95,7 +117,9 @@ function T.releasing_twice_is_rejected()
   local a = actor()
   local token = a:pushFacingOverride({ owner = "pre-script-dialogue", facing = "north" })
   a:releaseFacingOverride(token)
-  throwsCode("ACTOR_OVERRIDE_OWNER_MISMATCH", function() a:releaseFacingOverride(token) end)
+  throwsCode("ACTOR_OVERRIDE_OWNER_MISMATCH", function()
+    a:releaseFacingOverride(token)
+  end)
 end
 
 function T.clear_facing_override_is_unconditional_and_idempotent()

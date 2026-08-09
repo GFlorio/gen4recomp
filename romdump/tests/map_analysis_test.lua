@@ -34,9 +34,15 @@ local function matrix(spec)
 end
 
 function T.derives_unique_cell_and_land_member()
-  local result = MapAnalysis.analyzeRecord({ id = 7 }, matrix({
-    width = 2, height = 1, headers = { 0, 7 }, models = { 10, 11 },
-  }))
+  local result = MapAnalysis.analyzeRecord(
+    { id = 7 },
+    matrix({
+      width = 2,
+      height = 1,
+      headers = { 0, 7 },
+      models = { 10, 11 },
+    })
+  )
   Assert.equal(result.status, "resolved")
   Assert.equal(result.matrixX, 1)
   Assert.equal(result.matrixZ, 0)
@@ -44,9 +50,16 @@ function T.derives_unique_cell_and_land_member()
 end
 
 function T.resolves_headerless_single_cell()
-  local result = MapAnalysis.analyzeRecord({ id = 8 }, matrix({
-    width = 1, height = 1, hasHeaders = false, headers = { 8 }, models = { 42 },
-  }))
+  local result = MapAnalysis.analyzeRecord(
+    { id = 8 },
+    matrix({
+      width = 1,
+      height = 1,
+      hasHeaders = false,
+      headers = { 8 },
+      models = { 42 },
+    })
+  )
   Assert.equal(result.status, "resolved")
   Assert.equal(result.matrixX, 0)
   Assert.equal(result.matrixZ, 0)
@@ -54,16 +67,28 @@ function T.resolves_headerless_single_cell()
 end
 
 function T.excludes_missing_cell_and_selects_multi_cell_region_centroid()
-  local missing = MapAnalysis.analyzeRecord({ id = 9 }, matrix({
-    width = 1, height = 1, headers = { 0 }, models = { 10 },
-  }))
+  local missing = MapAnalysis.analyzeRecord(
+    { id = 9 },
+    matrix({
+      width = 1,
+      height = 1,
+      headers = { 0 },
+      models = { 10 },
+    })
+  )
   Assert.equal(missing.status, "excluded")
   Assert.equal(missing.reason, "no_matching_cell")
   Assert.equal(missing.matchCount, 0)
 
-  local multiCell = MapAnalysis.analyzeRecord({ id = 10 }, matrix({
-    width = 3, height = 1, headers = { 10, 10, 10 }, models = { 10, 11, 12 },
-  }))
+  local multiCell = MapAnalysis.analyzeRecord(
+    { id = 10 },
+    matrix({
+      width = 3,
+      height = 1,
+      headers = { 10, 10, 10 },
+      models = { 10, 11, 12 },
+    })
+  )
   Assert.equal(multiCell.status, "resolved")
   Assert.equal(multiCell.source, "matching_region_centroid")
   Assert.equal(multiCell.matrixX, 1)
@@ -72,17 +97,29 @@ function T.excludes_missing_cell_and_selects_multi_cell_region_centroid()
 end
 
 function T.default_header_filler_is_excluded()
-  local result = MapAnalysis.analyzeRecord({ id = 0 }, matrix({
-    width = 2, height = 1, headers = { 0, 0 }, models = { 30, 31 },
-  }))
+  local result = MapAnalysis.analyzeRecord(
+    { id = 0 },
+    matrix({
+      width = 2,
+      height = 1,
+      headers = { 0, 0 },
+      models = { 30, 31 },
+    })
+  )
   Assert.equal(result.status, "excluded")
   Assert.equal(result.reason, "default_header_filler")
 end
 
 function T.excludes_cell_without_land_data()
-  local result = MapAnalysis.analyzeRecord({ id = 7 }, matrix({
-    width = 1, height = 1, headers = { 7 }, models = { 0xFFFF },
-  }))
+  local result = MapAnalysis.analyzeRecord(
+    { id = 7 },
+    matrix({
+      width = 1,
+      height = 1,
+      headers = { 7 },
+      models = { 0xFFFF },
+    })
+  )
   Assert.equal(result.status, "excluded")
   Assert.equal(result.reason, "no_land_data")
   Assert.equal(result.matchCount, 1)

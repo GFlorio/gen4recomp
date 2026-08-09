@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Installed by scripts/repo-setup.sh via core.hooksPath. Bypass with --no-verify;
+# CI runs the same checks, so a bypass only defers the failure.
+set -euo pipefail
+exec "$(git rev-parse --show-toplevel)/scripts/lint.sh"

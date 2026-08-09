@@ -28,7 +28,6 @@ local GameVersion = require("libs.rom.src.GameVersion")
 local CacheFs = {}
 CacheFs.__index = CacheFs
 
-
 -- love.filesystem-backed backend, constructed lazily so requiring this module
 -- never touches love (keeps the domain testable off-runtime).
 local function loveBackend()
@@ -36,24 +35,37 @@ local function loveBackend()
   return {
     write = function(_, path, data)
       local ok, err = fs.write(path, data)
-      if not ok then error(Errors.new("CACHE_WRITE_FAILED", err or "write failed", { path = path })) end
+      if not ok then
+        error(Errors.new("CACHE_WRITE_FAILED", err or "write failed", { path = path }))
+      end
       return true
     end,
-    read = function(_, path) return (fs.read(path)) end,
-    getInfo = function(_, path) return fs.getInfo(path) end,
-    createDirectory = function(_, path) return fs.createDirectory(path) end,
-    remove = function(_, path) return fs.remove(path) end,
+    read = function(_, path)
+      return (fs.read(path))
+    end,
+    getInfo = function(_, path)
+      return fs.getInfo(path)
+    end,
+    createDirectory = function(_, path)
+      return fs.createDirectory(path)
+    end,
+    remove = function(_, path)
+      return fs.remove(path)
+    end,
     replace = function(_, sourcePath, destinationPath)
       local root = fs.getSaveDirectory()
       local ok, err = os.rename(root .. "/" .. sourcePath, root .. "/" .. destinationPath)
       if not ok then
         error(Errors.new("CACHE_REPLACE_FAILED", err or "replace failed", {
-          sourcePath = sourcePath, destinationPath = destinationPath,
+          sourcePath = sourcePath,
+          destinationPath = destinationPath,
         }))
       end
       return true
     end,
-    getDirectoryItems = function(_, path) return fs.getDirectoryItems(path) end,
+    getDirectoryItems = function(_, path)
+      return fs.getDirectoryItems(path)
+    end,
   }
 end
 
@@ -80,14 +92,19 @@ function CacheFs:resolve(relativePath)
   if path:find("\0", 1, true) then
     Errors.raise("CACHE_PATH_INVALID", "path contains NUL", { path = relativePath })
   end
-  if path == "" then return self._root end
+  if path == "" then
+    return self._root
+  end
   if path:sub(1, 1) == "/" or path:match("^%a:") then
     Errors.raise("CACHE_PATH_INVALID", "path must be relative", { path = relativePath })
   end
   for component in (path .. "/"):gmatch("(.-)/") do
     if component == "" or component == "." or component == ".." then
-      Errors.raise("CACHE_PATH_INVALID", "illegal path component: '" .. component .. "'",
-        { path = relativePath, component = component })
+      Errors.raise(
+        "CACHE_PATH_INVALID",
+        "illegal path component: '" .. component .. "'",
+        { path = relativePath, component = component }
+      )
     end
   end
   return self._root .. "/" .. path
@@ -98,7 +115,9 @@ function CacheFs:write(relativePath, data)
   -- Ensure the parent chain exists; the love backend's createDirectory is
   -- mkdir -p, so one call materializes every intermediate directory.
   local parent = full:match("^(.*)/[^/]+$")
-  if parent then self.backend:createDirectory(parent) end
+  if parent then
+    self.backend:createDirectory(parent)
+  end
   self.backend:write(full, data)
   return true
 end
@@ -113,8 +132,12 @@ end
 
 function CacheFs:exists(relativePath, expectedType)
   local info = self.backend:getInfo(self:resolve(relativePath))
-  if not info then return false end
-  if expectedType then return info.type == expectedType end
+  if not info then
+    return false
+  end
+  if expectedType then
+    return info.type == expectedType
+  end
   return true
 end
 
@@ -142,7 +165,9 @@ function CacheFs:removeTree(relativePath)
   local root = self:resolve(relativePath)
   local function rec(fullPath)
     local info = self.backend:getInfo(fullPath)
-    if not info then return end
+    if not info then
+      return
+    end
     if info.type == "directory" then
       for _, name in ipairs(self.backend:getDirectoryItems(fullPath)) do
         rec(fullPath .. "/" .. name)

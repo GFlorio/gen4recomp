@@ -68,7 +68,9 @@ function FieldTransition:_fail(err)
 end
 
 function FieldTransition:updateFixed()
-  if self.phase == "idle" or self.phase == "error" then return end
+  if self.phase == "idle" or self.phase == "error" then
+    return
+  end
   if self.phase == "fade_out" then
     self.progressTicks = self.progressTicks + 1
     self.fadeAlpha = self.progressTicks / self.fadeOutTicks
@@ -79,9 +81,10 @@ function FieldTransition:updateFixed()
     return
   end
   if self.phase == "load_destination" then
-    local ok, result = pcall(self.resolveDestination,
-      self.loader, self.sourceMap, self.sourceWarp)
-    if not ok then return self:_fail(result) end
+    local ok, result = pcall(self.resolveDestination, self.loader, self.sourceMap, self.sourceWarp)
+    if not ok then
+      return self:_fail(result)
+    end
     self.resolution = result
     self.suppression = result.suppression
     self.loader:protectMap(result.destinationMap.mapId, true)
@@ -98,7 +101,9 @@ function FieldTransition:updateFixed()
   assert(self.phase == "fade_in", "unknown field transition phase")
   self.progressTicks = self.progressTicks + 1
   self.fadeAlpha = 1 - self.progressTicks / self.fadeInTicks
-  if self.progressTicks < self.fadeInTicks then return end
+  if self.progressTicks < self.fadeInTicks then
+    return
+  end
   self.fadeAlpha = 0
   self.phase = "idle"
   self.locked = false
@@ -108,7 +113,9 @@ function FieldTransition:updateFixed()
     sourceWarpId = self.sourceWarp.index,
   }
   if self.sourceMap.mapId ~= self.resolution.destinationMap.mapId then
-    if self.loader.protectCells then self.loader:protectCells(self.sourceMap.mapId, {}) end
+    if self.loader.protectCells then
+      self.loader:protectCells(self.sourceMap.mapId, {})
+    end
     self.loader:protectMap(self.sourceMap.mapId, false)
   end
   self.sourceMap, self.sourceWarp, self.resolution = nil, nil, nil

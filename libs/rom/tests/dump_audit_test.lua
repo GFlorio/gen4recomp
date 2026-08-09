@@ -9,8 +9,7 @@ local HG = "heartgold/"
 function T.passes_on_a_complete_dump()
   local d = DumpFixture.extract()
   local report = DumpAudit.run("heartgold", d.cache)
-  Assert.isTrue(report.ok, "expected audit to pass: "
-    .. table.concat(DumpAudit.lines(report), " | "))
+  Assert.isTrue(report.ok, "expected audit to pass: " .. table.concat(DumpAudit.lines(report), " | "))
   Assert.equal(report.fileCheck.total, 7)
   Assert.isTrue(report.requiredNarcs.ok)
   Assert.equal(report.matrix.name, "MM")

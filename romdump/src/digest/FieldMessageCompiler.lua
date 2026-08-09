@@ -23,19 +23,22 @@ local FieldMessageCompiler = {}
 
 FieldMessageCompiler.COMPILER_VERSION = "field-message-compiler-v2"
 FieldMessageCompiler.TOKENIZER_VERSION = "g4-field-message-tokenizer-v1"
-FieldMessageCompiler.CHARMAP_VERSION =
-  "hgss-charmap-v1:" .. charmap.source.commit .. ":" .. charmap.source.inputs[1].sha256
+FieldMessageCompiler.CHARMAP_VERSION = "hgss-charmap-v1:"
+  .. charmap.source.commit
+  .. ":"
+  .. charmap.source.inputs[1].sha256
 
 local function must(value, err)
-  if value == nil then error(err) end
+  if value == nil then
+    error(err)
+  end
   return value
 end
 
 local function loadSource(romFs, sha1hex)
   local archiveInfo = romFs:resolvedNarc("messages")
   if not archiveInfo then
-    Errors.raise("ROMFS_NARC_UNRESOLVED", "messages NARC is unavailable",
-      { name = "messages" })
+    Errors.raise("ROMFS_NARC_UNRESOLVED", "messages NARC is unavailable", { name = "messages" })
   end
   local archiveBytes = must(romFs:read(archiveInfo.fileId))
   local archive = must(romFs:openNarc("messages"))
@@ -93,8 +96,7 @@ local function compileBank(romFs, source, bankId, sha1hex)
 end
 
 local function _compile(romFs, sha1hex, hashLua)
-  assert(romFs and romFs.read and romFs.openNarc and romFs.resolvedNarc,
-    "compile requires a RomFs-shaped object")
+  assert(romFs and romFs.read and romFs.openNarc and romFs.resolvedNarc, "compile requires a RomFs-shaped object")
   sha1hex = sha1hex or Hashing.sha1hex
   hashLua = hashLua or Hashing.hashLua
   local source = loadSource(romFs, sha1hex)
@@ -146,8 +148,12 @@ end
 ---@return Errors.Error?
 function FieldMessageCompiler.compile(romFs, sha1hex, hashLua)
   local ok, result = pcall(_compile, romFs, sha1hex, hashLua)
-  if ok then return result, nil end
-  if Errors.is(result) then return nil, result --[[@as Errors.Error]] end
+  if ok then
+    return result, nil
+  end
+  if Errors.is(result) then
+    return nil, result --[[@as Errors.Error]]
+  end
   error(result)
 end
 

@@ -5,15 +5,19 @@ local OverlayTable = require("libs.rom.src.OverlayTable")
 local T = {}
 
 local function u32(v)
-  return string.char(v % 256, math.floor(v / 256) % 256,
-    math.floor(v / 65536) % 256, math.floor(v / 16777216) % 256)
+  return string.char(v % 256, math.floor(v / 256) % 256, math.floor(v / 65536) % 256, math.floor(v / 16777216) % 256)
 end
 
 -- One 32-byte overlay-table entry with sensible defaults.
 local function entry(o)
-  return u32(o.overlayId or 0) .. u32(o.ramAddress or 0) .. u32(o.ramSize or 0)
-    .. u32(o.bssSize or 0) .. u32(o.staticInitStart or 0) .. u32(o.staticInitEnd or 0)
-    .. u32(o.fileId or 0) .. u32(o.flags or 0)
+  return u32(o.overlayId or 0)
+    .. u32(o.ramAddress or 0)
+    .. u32(o.ramSize or 0)
+    .. u32(o.bssSize or 0)
+    .. u32(o.staticInitStart or 0)
+    .. u32(o.staticInitEnd or 0)
+    .. u32(o.fileId or 0)
+    .. u32(o.flags or 0)
 end
 
 local function throwsCode(code, fn)
@@ -23,9 +27,16 @@ local function throwsCode(code, fn)
 end
 
 function T.parses_entries_preserving_all_fields()
-  local bytes = entry({ overlayId = 0, ramAddress = 0x2000000, ramSize = 16, bssSize = 4,
-    staticInitStart = 0x2000010, staticInitEnd = 0x2000014, fileId = 3, flags = 0x0102 })
-    .. entry({ overlayId = 1, fileId = 4 })
+  local bytes = entry({
+    overlayId = 0,
+    ramAddress = 0x2000000,
+    ramSize = 16,
+    bssSize = 4,
+    staticInitStart = 0x2000010,
+    staticInitEnd = 0x2000014,
+    fileId = 3,
+    flags = 0x0102,
+  }) .. entry({ overlayId = 1, fileId = 4 })
   local overlays = OverlayTable.parse(bytes, 10)
   Assert.equal(#overlays, 2)
   local e = overlays[1]

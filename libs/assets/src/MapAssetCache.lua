@@ -22,13 +22,11 @@ function MapAssetCache.terrainPath(mapId)
 end
 
 function MapAssetCache.neighborPermissionsPath(mapId, landDataMemberId)
-  return string.format("%s/neighbors/%d/permissions.bin",
-    MapAssetCache.mapDir(mapId), landDataMemberId)
+  return string.format("%s/neighbors/%d/permissions.bin", MapAssetCache.mapDir(mapId), landDataMemberId)
 end
 
 function MapAssetCache.neighborTerrainPath(mapId, landDataMemberId)
-  return string.format("%s/neighbors/%d/terrain.lua",
-    MapAssetCache.mapDir(mapId), landDataMemberId)
+  return string.format("%s/neighbors/%d/terrain.lua", MapAssetCache.mapDir(mapId), landDataMemberId)
 end
 
 -- Cache-relative path to the whole-ROM world manifest (map index the game boots
@@ -59,22 +57,40 @@ end
 function MapAssetCache.referencedPaths(scene, cacheFs)
   local paths = {}
 
-  if scene.terrain and scene.terrain.file then paths[#paths + 1] = scene.terrain.file end
+  if scene.terrain and scene.terrain.file then
+    paths[#paths + 1] = scene.terrain.file
+  end
 
   local function addBatch(b)
-    if b.geometry then paths[#paths + 1] = b.geometry end
+    if b.geometry then
+      paths[#paths + 1] = b.geometry
+    end
   end
   local function addMaterial(m)
-    if m.texture then paths[#paths + 1] = m.texture end
+    if m.texture then
+      paths[#paths + 1] = m.texture
+    end
   end
 
-  for _, b in ipairs(scene.mapBatches or {}) do addBatch(b) end
-  for _, m in ipairs(scene.materials or {}) do addMaterial(m) end
+  for _, b in ipairs(scene.mapBatches or {}) do
+    addBatch(b)
+  end
+  for _, m in ipairs(scene.materials or {}) do
+    addMaterial(m)
+  end
   for _, cell in ipairs(scene.neighbors or {}) do
-    for _, b in ipairs(cell.batches or {}) do addBatch(b) end
-    for _, m in ipairs(cell.materials or {}) do addMaterial(m) end
-    if cell.collision and cell.collision.file then paths[#paths + 1] = cell.collision.file end
-    if cell.terrain and cell.terrain.file then paths[#paths + 1] = cell.terrain.file end
+    for _, b in ipairs(cell.batches or {}) do
+      addBatch(b)
+    end
+    for _, m in ipairs(cell.materials or {}) do
+      addMaterial(m)
+    end
+    if cell.collision and cell.collision.file then
+      paths[#paths + 1] = cell.collision.file
+    end
+    if cell.terrain and cell.terrain.file then
+      paths[#paths + 1] = cell.terrain.file
+    end
   end
   for _, inst in ipairs(scene.buildingInstances or {}) do
     if inst.modelKey then
@@ -82,8 +98,12 @@ function MapAssetCache.referencedPaths(scene, cacheFs)
       paths[#paths + 1] = modelPath
       local desc = cacheFs and cacheFs:loadLua(modelPath)
       if type(desc) == "table" then
-        for _, b in ipairs(desc.batches or {}) do addBatch(b) end
-        for _, m in ipairs(desc.materials or {}) do addMaterial(m) end
+        for _, b in ipairs(desc.batches or {}) do
+          addBatch(b)
+        end
+        for _, m in ipairs(desc.materials or {}) do
+          addMaterial(m)
+        end
       end
     end
   end
@@ -96,29 +116,44 @@ end
 function MapAssetCache.isReady(cacheFs, mapId, expectedMarker)
   local dir = MapAssetCache.mapDir(mapId)
   local marker = cacheFs:read(dir .. "/complete")
-  if marker ~= expectedMarker then return false end
+  if marker ~= expectedMarker then
+    return false
+  end
 
   local scene = cacheFs:loadLua(dir .. "/scene.lua")
-  if type(scene) ~= "table" then return false end
-  if not cacheFs:loadLua(dir .. "/dependencies.lua") then return false end
+  if type(scene) ~= "table" then
+    return false
+  end
+  if not cacheFs:loadLua(dir .. "/dependencies.lua") then
+    return false
+  end
   local terrain = cacheFs:loadLua(MapAssetCache.terrainPath(mapId))
-  if type(terrain) ~= "table" or terrain.schema ~= "g4-terrain-surfaces-v1" then return false end
+  if type(terrain) ~= "table" or terrain.schema ~= "g4-terrain-surfaces-v1" then
+    return false
+  end
 
   local perms = cacheFs:getInfo(dir .. "/permissions.bin")
-  if not perms or perms.type ~= "file" or perms.size ~= 2048 then return false end
+  if not perms or perms.type ~= "file" or perms.size ~= 2048 then
+    return false
+  end
 
   for _, path in ipairs(MapAssetCache.referencedPaths(scene, cacheFs)) do
-    if not cacheFs:exists(path) then return false end
+    if not cacheFs:exists(path) then
+      return false
+    end
   end
   for _, cell in ipairs(scene.neighbors or {}) do
     if cell.collision and cell.collision.file then
       local info = cacheFs:getInfo(cell.collision.file)
-      if not info or info.type ~= "file" or info.size ~= 2048 then return false end
+      if not info or info.type ~= "file" or info.size ~= 2048 then
+        return false
+      end
     end
     if cell.terrain and cell.terrain.file then
       local neighborTerrain = cacheFs:loadLua(cell.terrain.file)
-      if type(neighborTerrain) ~= "table"
-        or neighborTerrain.schema ~= "g4-terrain-surfaces-v1" then return false end
+      if type(neighborTerrain) ~= "table" or neighborTerrain.schema ~= "g4-terrain-surfaces-v1" then
+        return false
+      end
     end
   end
   return true

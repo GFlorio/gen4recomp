@@ -13,7 +13,9 @@ local MapMatrix = require("libs.assets.src.MapMatrix")
 local MapResolver = {}
 
 local function must(value, err)
-  if value == nil then error(err) end
+  if value == nil then
+    error(err)
+  end
   return value
 end
 
@@ -27,11 +29,13 @@ local function resolve(romFs, idOrSymbol)
   local chosen, reason = MapCellSelector.choose(matrix, record)
   if not chosen then
     if reason == "default_header_filler" then
-      Errors.raise("MAP_RESOLVE_NOT_RENDERABLE", "map is excluded from rendering",
-        { mapId = record.id })
+      Errors.raise("MAP_RESOLVE_NOT_RENDERABLE", "map is excluded from rendering", { mapId = record.id })
     end
-    Errors.raise("MAP_RESOLVE_NO_MATCHING_CELL",
-      "no matrix cell references map-header id " .. record.id, { mapId = record.id })
+    Errors.raise(
+      "MAP_RESOLVE_NO_MATCHING_CELL",
+      "no matrix cell references map-header id " .. record.id,
+      { mapId = record.id }
+    )
   end
   -- LuaLS cannot see through Errors.raise; the assert narrows the cell.
   chosen = assert(chosen)
@@ -62,8 +66,12 @@ end
 function MapResolver.resolve(romFs, idOrSymbol)
   assert(romFs and romFs.openNarc, "resolve requires a RomFs-shaped object")
   local ok, result = pcall(resolve, romFs, idOrSymbol)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 

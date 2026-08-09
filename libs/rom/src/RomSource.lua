@@ -14,7 +14,9 @@ RomSource.__index = RomSource
 
 local function toHex(bin)
   local out = {}
-  for i = 1, #bin do out[i] = string.format("%02x", bin:byte(i)) end
+  for i = 1, #bin do
+    out[i] = string.format("%02x", bin:byte(i))
+  end
   return table.concat(out)
 end
 
@@ -65,7 +67,9 @@ end
 function RomSource.fromZipData(zipBytes, displayName, versions)
   versions = versions or GameVersion
   local entries, err = collectNdsEntries(zipBytes, displayName)
-  if not entries then return nil, err end
+  if not entries then
+    return nil, err
+  end
   if #entries == 0 then
     return nil, Errors.new("ZIP_NO_NDS", "no .nds ROM found in " .. displayName, { name = displayName })
   end
@@ -73,7 +77,9 @@ function RomSource.fromZipData(zipBytes, displayName, versions)
   for _, e in ipairs(entries) do
     local source = RomSource.fromString(e.data, displayName .. ":" .. e.name)
     first = first or source
-    if versions.forSha1(source:sha1()) then return source end
+    if versions.forSha1(source:sha1()) then
+      return source
+    end
   end
   return first
 end
@@ -117,11 +123,19 @@ function RomSource:read(offset, length)
   if not self.data then
     return nil, Errors.new("ROM_RELEASED", "ROM source has been released", {})
   end
-  if type(offset) ~= "number" or offset < 0
-      or type(length) ~= "number" or length < 0
-      or offset + length > #self.data then
-    return nil, Errors.new("ROM_READ_OUT_OF_BOUNDS", "read outside ROM bounds",
-      { offset = offset, length = length, size = #self.data })
+  if
+    type(offset) ~= "number"
+    or offset < 0
+    or type(length) ~= "number"
+    or length < 0
+    or offset + length > #self.data
+  then
+    return nil,
+      Errors.new(
+        "ROM_READ_OUT_OF_BOUNDS",
+        "read outside ROM bounds",
+        { offset = offset, length = length, size = #self.data }
+      )
   end
   return string.sub(self.data, offset + 1, offset + length)
 end
@@ -139,7 +153,9 @@ function RomSource:displayName()
 end
 
 function RomSource:release()
-  if self.data then self._size = #self.data end
+  if self.data then
+    self._size = #self.data
+  end
   self.data = nil
 end
 

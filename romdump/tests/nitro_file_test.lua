@@ -50,7 +50,9 @@ end
 function T.rejects_bad_bom()
   local bytes = sampleFile()
   bytes = bytes:sub(1, 4) .. string.char(0, 0) .. bytes:sub(7)
-  throwsCode("NITRO_FILE_BAD_BOM", function() return NitroFile.decode(bytes) end)
+  throwsCode("NITRO_FILE_BAD_BOM", function()
+    return NitroFile.decode(bytes)
+  end)
 end
 
 function T.rejects_size_mismatch()
@@ -60,7 +62,9 @@ function T.rejects_size_mismatch()
 end
 
 function T.rejects_too_small()
-  throwsCode("NITRO_FILE_TOO_SMALL", function() return NitroFile.decode("BTX0") end)
+  throwsCode("NITRO_FILE_TOO_SMALL", function()
+    return NitroFile.decode("BTX0")
+  end)
 end
 
 return T

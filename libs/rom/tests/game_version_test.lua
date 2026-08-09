@@ -47,7 +47,9 @@ function T.set_and_get_round_trip()
 end
 
 function T.set_rejects_unknown_version()
-  Assert.throws(function() GameVersion.set("crystal") end)
+  Assert.throws(function()
+    GameVersion.set("crystal")
+  end)
 end
 
 function T.cache_prefixes_do_not_collide()

@@ -14,9 +14,13 @@ end
 
 local function writeReadyMap(c, marker)
   local dir = MapAssetCache.mapDir(61)
-  c:write(dir .. "/scene.lua", string.format(
-    "return { terrain = { file = %q }, mapBatches = {}, materials = {}, buildingInstances = {} }\n",
-    MapAssetCache.terrainPath(61)))
+  c:write(
+    dir .. "/scene.lua",
+    string.format(
+      "return { terrain = { file = %q }, mapBatches = {}, materials = {}, buildingInstances = {} }\n",
+      MapAssetCache.terrainPath(61)
+    )
+  )
   c:write(dir .. "/dependencies.lua", "return {}\n")
   c:write(MapAssetCache.terrainPath(61), "return { schema = 'g4-terrain-surfaces-v1' }\n")
   c:write(dir .. "/permissions.bin", string.rep("\0", 2048))
@@ -48,8 +52,10 @@ function T.not_ready_when_referenced_asset_missing()
   local c = cache()
   local marker = MapAssetCache.marker("romsha", 61, "dep")
   local dir = MapAssetCache.mapDir(61)
-  c:write(dir .. "/scene.lua",
-    "return { mapBatches = { { geometry = 'assets/generated/maps/geometry/abc.g4mesh' } }, materials = {}, buildingInstances = {} }\n")
+  c:write(
+    dir .. "/scene.lua",
+    "return { mapBatches = { { geometry = 'assets/generated/maps/geometry/abc.g4mesh' } }, materials = {}, buildingInstances = {} }\n"
+  )
   c:write(dir .. "/dependencies.lua", "return {}\n")
   c:write(dir .. "/permissions.bin", string.rep("\0", 2048))
   c:write(dir .. "/complete", marker)
@@ -99,9 +105,10 @@ function T.not_ready_when_model_descriptor_references_missing_asset()
   local modelKey = "indoor:1:abc"
   local modelPath = MapAssetCache.modelPath(modelKey)
   local meshPath = "assets/generated/maps/geometry/missing.g4mesh"
-  c:write(dir .. "/scene.lua", string.format(
-    "return { mapBatches = {}, materials = {}, buildingInstances = { { modelKey = %q } } }\n",
-    modelKey))
+  c:write(
+    dir .. "/scene.lua",
+    string.format("return { mapBatches = {}, materials = {}, buildingInstances = { { modelKey = %q } } }\n", modelKey)
+  )
   c:write(dir .. "/dependencies.lua", "return {}\n")
   c:write(dir .. "/permissions.bin", string.rep("\0", 2048))
   c:write(modelPath, string.format("return { batches = { { geometry = %q } }, materials = {} }\n", meshPath))
@@ -111,7 +118,9 @@ end
 
 local function contains(list, value)
   for _, v in ipairs(list) do
-    if v == value then return true end
+    if v == value then
+      return true
+    end
   end
   return false
 end

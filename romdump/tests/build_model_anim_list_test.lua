@@ -4,14 +4,15 @@ local BuildModelAnimList = require("romdump.src.digest.BuildModelAnimList")
 local T = {}
 
 local function u32(v)
-  return string.char(v % 256, math.floor(v / 256) % 256,
-    math.floor(v / 65536) % 256, math.floor(v / 16777216) % 256)
+  return string.char(v % 256, math.floor(v / 256) % 256, math.floor(v / 65536) % 256, math.floor(v / 16777216) % 256)
 end
 
 -- 0x18-byte record: 8-byte header, then u32 ids padded with 0xFFFFFFFF.
 local function record(header, ids)
   local parts = { header }
-  for _, id in ipairs(ids) do parts[#parts + 1] = u32(id) end
+  for _, id in ipairs(ids) do
+    parts[#parts + 1] = u32(id)
+  end
   local body = table.concat(parts)
   return body .. string.rep("\255", 0x18 - #body)
 end
@@ -39,7 +40,9 @@ function T.no_animation_record_yields_no_ids()
 end
 
 function T.rejects_wrong_record_size()
-  Assert.throws(function() BuildModelAnimList.decode("\0\0\0\0") end)
+  Assert.throws(function()
+    BuildModelAnimList.decode("\0\0\0\0")
+  end)
 end
 
 return T

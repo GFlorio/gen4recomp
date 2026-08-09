@@ -48,12 +48,13 @@ end
 function T.every_target_sprite_resolves_to_its_source_bundle(romFs)
   local decoded = decodeTable(romFs)
   for _, expected in ipairs(EXPECTED) do
-    local resolved = assert(FieldActorGraphics.resolve(decoded, expected.spriteId),
-      expected.label .. " must be present in the graphics table")
+    local resolved = assert(
+      FieldActorGraphics.resolve(decoded, expected.spriteId),
+      expected.label .. " must be present in the graphics table"
+    )
     Assert.equal(resolved.record.mapModelId, expected.mapModelId, expected.label .. " NSBTX member")
     Assert.equal(resolved.record.packed, expected.packed, expected.label .. " packed word")
-    Assert.equal(resolved.record.visualDescriptor, expected.descriptor,
-      expected.label .. " visual descriptor")
+    Assert.equal(resolved.record.visualDescriptor, expected.descriptor, expected.label .. " visual descriptor")
     -- Every target class shares the same billboard model member.
     Assert.equal(resolved.descriptor.modelMemberId, 266, expected.label .. " shared model")
   end
@@ -82,15 +83,18 @@ end
 function T.compiled_visuals_cover_the_target_maps(romFs)
   local bundle = assert(FieldActorCompiler.compile(romFs))
   local compiled = {}
-  for _, spriteId in ipairs(bundle.index.spriteIds) do compiled[spriteId] = true end
+  for _, spriteId in ipairs(bundle.index.spriteIds) do
+    compiled[spriteId] = true
+  end
   for _, expected in ipairs(EXPECTED) do
     Assert.isTrue(compiled[expected.spriteId], expected.label .. " must be compiled")
   end
   local previous
   for _, spriteId in ipairs(bundle.index.variableSprites) do
-    Assert.isTrue(spriteId >= manifest.variableSpriteRange.first
-      and spriteId <= manifest.variableSpriteRange.last,
-      "deferred sprite IDs stay inside the variable range")
+    Assert.isTrue(
+      spriteId >= manifest.variableSpriteRange.first and spriteId <= manifest.variableSpriteRange.last,
+      "deferred sprite IDs stay inside the variable range"
+    )
     Assert.isTrue(not previous or spriteId > previous, "deferred sprite IDs are sorted and unique")
     previous = spriteId
   end
@@ -113,8 +117,10 @@ function T.compiled_visuals_cover_the_target_maps(romFs)
     Assert.equal(walk.frames[1].ticks, 4)
   end
   -- East is never a mirror of west: the two use different source texture slots.
-  Assert.isTrue(aide.frames[aide.directions.west.walk.frames[1].frameIndex].textureSlot
-    ~= aide.frames[aide.directions.east.walk.frames[1].frameIndex].textureSlot)
+  Assert.isTrue(
+    aide.frames[aide.directions.west.walk.frames[1].frameIndex].textureSlot
+      ~= aide.frames[aide.directions.east.walk.frames[1].frameIndex].textureSlot
+  )
 end
 
 -- The render facts every target class must inherit from the shared model member:
@@ -153,10 +159,8 @@ function T.marill_keeps_its_uneven_south_loop(romFs)
   local bundle = assert(FieldActorCompiler.compile(romFs))
   local south = bundle.visuals[1032].directions.south.walk
   Assert.equal(south.durationTicks, 20)
-  Assert.deepEqual({ south.frames[1].ticks, south.frames[2].ticks, south.frames[3].ticks },
-    { 5, 10, 5 })
-  Assert.equal(south.frames[1].frameIndex, south.frames[3].frameIndex,
-    "the loop returns to its first slot")
+  Assert.deepEqual({ south.frames[1].ticks, south.frames[2].ticks, south.frames[3].ticks }, { 5, 10, 5 })
+  Assert.equal(south.frames[1].frameIndex, south.frames[3].frameIndex, "the loop returns to its first slot")
 end
 
 function T.compilation_is_deterministic_and_writes_a_ready_cache(romFs, version)
@@ -171,10 +175,16 @@ function T.compilation_is_deterministic_and_writes_a_ready_cache(romFs, version)
   local other = CacheFs.forVersion(version, FakeCache.new())
   FieldActorCacheWriter.write(other, second)
   for _, spriteId in ipairs(first.index.spriteIds) do
-    Assert.equal(cache:read(FieldActorCache.atlasPath(spriteId)),
-      other:read(FieldActorCache.atlasPath(spriteId)), "atlas bytes are reproducible")
-    Assert.equal(cache:read(FieldActorCache.visualPath(spriteId)),
-      other:read(FieldActorCache.visualPath(spriteId)), "visual bytes are reproducible")
+    Assert.equal(
+      cache:read(FieldActorCache.atlasPath(spriteId)),
+      other:read(FieldActorCache.atlasPath(spriteId)),
+      "atlas bytes are reproducible"
+    )
+    Assert.equal(
+      cache:read(FieldActorCache.visualPath(spriteId)),
+      other:read(FieldActorCache.visualPath(spriteId)),
+      "visual bytes are reproducible"
+    )
   end
 end
 

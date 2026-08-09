@@ -23,11 +23,18 @@ FieldActorDraw.SUBMISSION_BASE = 200000
 
 local function requireMesh(entry, meshIndex, record)
   local mesh = entry.meshes and entry.meshes[meshIndex]
-  if mesh then return mesh end
-  Errors.raise("ACTOR_DRAW_FRAME_MISSING",
-    "actor " .. tostring(record.actorId) .. " selected mesh " .. tostring(meshIndex)
+  if mesh then
+    return mesh
+  end
+  Errors.raise(
+    "ACTOR_DRAW_FRAME_MISSING",
+    "actor "
+      .. tostring(record.actorId)
+      .. " selected mesh "
+      .. tostring(meshIndex)
       .. ", which the resident visual does not provide",
-    { actorId = record.actorId, spriteId = record.spriteId, frameIndex = meshIndex })
+    { actorId = record.actorId, spriteId = record.spriteId, frameIndex = meshIndex }
+  )
 end
 
 -- record: an ActorDrawRecord (actorId, spriteId, world, facing, pose, poseTick).
@@ -39,12 +46,11 @@ function FieldActorDraw.item(record, entry, submissionIndex, partIndex)
   local render = visual.render
   local part = render.kind == "staticModel" and assert(render.parts[partIndex or 1]) or render
   local geometry = part.geometry
-  local frameIndex, poseFellBack = FieldActorPose.frameIndex(visual, record.facing,
-    record.pose or "idle", record.poseTick or 0)
+  local frameIndex, poseFellBack =
+    FieldActorPose.frameIndex(visual, record.facing, record.pose or "idle", record.poseTick or 0)
 
   local anchor = geometry.anchorTiles
-  local placement = Matrix4.translate(record.world.x + anchor.x,
-    record.world.y + anchor.y, record.world.z + anchor.z)
+  local placement = Matrix4.translate(record.world.x + anchor.x, record.world.y + anchor.y, record.world.z + anchor.z)
   local isBillboard = render.kind ~= "staticModel"
   local billboardBase
   if isBillboard then
@@ -53,7 +59,9 @@ function FieldActorDraw.item(record, entry, submissionIndex, partIndex)
   local transform = billboardBase or placement
   local polygon = part.polygon
   local image = entry.image
-  if part.textured == false then image = nil end
+  if part.textured == false then
+    image = nil
+  end
 
   return {
     mesh = requireMesh(entry, render.kind == "staticModel" and (partIndex or 1) or frameIndex, record),
@@ -91,15 +99,15 @@ function FieldActorDraw.items(records, assetFor)
     if record.visible ~= false then
       local entry = assetFor(record.spriteId)
       if not entry then
-        Errors.raise("ACTOR_DRAW_VISUAL_MISSING",
-          "actor " .. tostring(record.actorId) .. " has no resident visual for spriteId "
-            .. tostring(record.spriteId),
-          { actorId = record.actorId, spriteId = record.spriteId })
+        Errors.raise(
+          "ACTOR_DRAW_VISUAL_MISSING",
+          "actor " .. tostring(record.actorId) .. " has no resident visual for spriteId " .. tostring(record.spriteId),
+          { actorId = record.actorId, spriteId = record.spriteId }
+        )
       end
       if entry.visual.render.kind == "staticModel" then
         for partIndex = 1, #entry.visual.render.parts do
-          items[#items + 1] = FieldActorDraw.item(record, entry,
-            index * 100 + partIndex, partIndex)
+          items[#items + 1] = FieldActorDraw.item(record, entry, index * 100 + partIndex, partIndex)
         end
       else
         items[#items + 1] = FieldActorDraw.item(record, entry, index)

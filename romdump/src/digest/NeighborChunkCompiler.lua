@@ -32,8 +32,10 @@ local NeighborChunkCompiler = {}
 
 local function readMember(narc, alias, memberId)
   local count = narc:memberCount()
-  assert(memberId >= 0 and memberId < count,
-    string.format("%s member %d out of range (count %d)", alias, memberId, count))
+  assert(
+    memberId >= 0 and memberId < count,
+    string.format("%s member %d out of range (count %d)", alias, memberId, count)
+  )
   return assert(narc:readMember(memberId))
 end
 
@@ -42,46 +44,49 @@ end
 -- { batches, materials, meshes, textures, permissions, terrain }.
 function NeighborChunkCompiler.compile(romFs, landMemberId, areaMemberId, context)
   local areaBytes = readMember(assert(romFs:openNarc("area_data")), "area_data", areaMemberId)
-  local area = assert(AreaData.decode(areaBytes,
-    { alias = "area_data", memberId = areaMemberId }))
+  local area = assert(AreaData.decode(areaBytes, { alias = "area_data", memberId = areaMemberId }))
 
   local landBytes = readMember(assert(romFs:openNarc("land_data")), "land_data", landMemberId)
-  local land = assert(LandData.decode(landBytes,
-    { alias = "land_data", memberId = landMemberId }))
-  local decodedTerrain = assert(HgssBdhc.decode(land.bdhcBytes,
-    { alias = "land_data", memberId = landMemberId,
-      offset = land.offsets.bdhc, size = land.sizes.bdhc }))
+  local land = assert(LandData.decode(landBytes, { alias = "land_data", memberId = landMemberId }))
+  local decodedTerrain = assert(
+    HgssBdhc.decode(
+      land.bdhcBytes,
+      { alias = "land_data", memberId = landMemberId, offset = land.offsets.bdhc, size = land.sizes.bdhc }
+    )
+  )
 
-  local mapNsbmd = assert(Nsbmd.decode(land.mapModelBytes,
-    { alias = "land_data", memberId = landMemberId, section = "map-model" }))
+  local mapNsbmd =
+    assert(Nsbmd.decode(land.mapModelBytes, { alias = "land_data", memberId = landMemberId, section = "map-model" }))
   local mapModel = mapNsbmd.models[1]
 
-  local texBytes = readMember(assert(romFs:openNarc("map_textures")), "map_textures",
-    area.mapTexturePackId)
-  local texPack = assert(Nsbtx.decode(texBytes,
-    { alias = "map_textures", memberId = area.mapTexturePackId }))
+  local texBytes = readMember(assert(romFs:openNarc("map_textures")), "map_textures", area.mapTexturePackId)
+  local texPack = assert(Nsbtx.decode(texBytes, { alias = "map_textures", memberId = area.mapTexturePackId }))
 
   local meshes, textures = {}, {}
-  local compiled = MapAssetCompiler.compileModel(mapModel, texPack, meshes, textures,
-    { mapId = context and context.mapId or nil,
-      mapSymbol = context and context.mapSymbol or nil,
-      role = "neighbor", neighborCells = context and context.neighborCells or nil,
-      areaDataMemberId = areaMemberId,
-      landDataMemberId = landMemberId,
-      textureArchive = "map_textures",
-      textureMemberId = area.mapTexturePackId,
-      modelArchive = "land_data", modelMemberId = landMemberId,
-      modelName = mapModel.name })
+  local compiled = MapAssetCompiler.compileModel(mapModel, texPack, meshes, textures, {
+    mapId = context and context.mapId or nil,
+    mapSymbol = context and context.mapSymbol or nil,
+    role = "neighbor",
+    neighborCells = context and context.neighborCells or nil,
+    areaDataMemberId = areaMemberId,
+    landDataMemberId = landMemberId,
+    textureArchive = "map_textures",
+    textureMemberId = area.mapTexturePackId,
+    modelArchive = "land_data",
+    modelMemberId = landMemberId,
+    modelName = mapModel.name,
+  })
 
   -- NeighborRing bakes a fixed world offset into each draw, so it has nowhere to
   -- put a camera-resolved billboard. No terrain model in the target world has a
   -- BB command; one that did would otherwise draw silently static.
   for _, batch in ipairs(compiled.batches) do
     if batch.transformMode then
-      Errors.raise("NEIGHBOR_CHUNK_BILLBOARD_UNSUPPORTED",
+      Errors.raise(
+        "NEIGHBOR_CHUNK_BILLBOARD_UNSUPPORTED",
         "neighbor terrain batch requires transform mode " .. batch.transformMode,
-        { landDataMemberId = landMemberId, modelName = mapModel.name,
-          transformMode = batch.transformMode })
+        { landDataMemberId = landMemberId, modelName = mapModel.name, transformMode = batch.transformMode }
+      )
     end
   end
 

@@ -44,11 +44,15 @@ function T.version_neutral_encounters_selects_soulsilver()
 end
 
 function T.version_neutral_encounters_requires_a_version()
-  Assert.throws(function() Hgss.resolve("encounters") end)
+  Assert.throws(function()
+    Hgss.resolve("encounters")
+  end)
 end
 
 function T.rejects_unknown_alias()
-  Assert.throws(function() Hgss.resolve("not_a_real_alias") end)
+  Assert.throws(function()
+    Hgss.resolve("not_a_real_alias")
+  end)
 end
 
 function T.resolves_map_asset_aliases()

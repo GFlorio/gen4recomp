@@ -23,10 +23,27 @@ local function buildPack()
   local ofsPlttData = ofsTexData + #texData
   local palData = TF.palette({ TF.BLACK, TF.RED, TF.BLACK, TF.BLACK }) -- 8 bytes
 
-  local header = "TEX0" .. NB.u32(0)
-    .. NB.u32(0) .. NB.u16(#texData / 8) .. NB.u16(ofsTexDict) .. NB.u16(0) .. NB.u16(0) .. NB.u32(ofsTexData)
-    .. NB.u32(0) .. NB.u16(0) .. NB.u16(ofsTexDict) .. NB.u16(0) .. NB.u16(0) .. NB.u32(0) .. NB.u32(0)
-    .. NB.u32(0) .. NB.u16(#palData / 8) .. NB.u16(0) .. NB.u16(ofsPlttDict) .. NB.u16(0) .. NB.u32(ofsPlttData)
+  local header = "TEX0"
+    .. NB.u32(0)
+    .. NB.u32(0)
+    .. NB.u16(#texData / 8)
+    .. NB.u16(ofsTexDict)
+    .. NB.u16(0)
+    .. NB.u16(0)
+    .. NB.u32(ofsTexData)
+    .. NB.u32(0)
+    .. NB.u16(0)
+    .. NB.u16(ofsTexDict)
+    .. NB.u16(0)
+    .. NB.u16(0)
+    .. NB.u32(0)
+    .. NB.u32(0)
+    .. NB.u32(0)
+    .. NB.u16(#palData / 8)
+    .. NB.u16(0)
+    .. NB.u16(ofsPlttDict)
+    .. NB.u16(0)
+    .. NB.u32(ofsPlttData)
   assert(#header == 0x3C, "TEX0 header must be 0x3C, got " .. #header)
 
   local block = header .. texDict .. pltDict .. texData .. palData
@@ -48,8 +65,8 @@ function T.bridges_texture_and_palette_to_decodable_opts()
   Assert.equal(#img.pixels, 8 * 8 * 4)
   -- Top-left pixel indexes palette entry 1 = red, fully opaque.
   Assert.equal(string.byte(img.pixels, 1), 255) -- r
-  Assert.equal(string.byte(img.pixels, 2), 0)   -- g
-  Assert.equal(string.byte(img.pixels, 3), 0)   -- b
+  Assert.equal(string.byte(img.pixels, 2), 0) -- g
+  Assert.equal(string.byte(img.pixels, 3), 0) -- b
   Assert.equal(string.byte(img.pixels, 4), 255) -- a
 end
 

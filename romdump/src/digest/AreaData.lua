@@ -15,9 +15,11 @@ local SIZE = 8
 
 local function parse(bytes, context)
   if #bytes ~= SIZE then
-    Errors.raise("AREA_DATA_BAD_SIZE",
+    Errors.raise(
+      "AREA_DATA_BAD_SIZE",
       "HGSS area-data member must be " .. SIZE .. " bytes, got " .. #bytes,
-      { size = #bytes, expected = SIZE, source = context })
+      { size = #bytes, expected = SIZE, source = context }
+    )
   end
   local r = BinaryReader.new(bytes, "area-data")
   local areaTypeRaw = r:u8(0x06)
@@ -39,8 +41,12 @@ end
 function AreaData.decode(bytes, context)
   assert(type(bytes) == "string", "AreaData.decode requires a string")
   local ok, result = pcall(parse, bytes, context)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 

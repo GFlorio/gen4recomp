@@ -14,24 +14,36 @@ FieldFontCache.SCHEMA = "g4-field-font-v1"
 local DATA_DIR = "data/generated/field/font"
 local ASSET_DIR = "assets/generated/field/font"
 
-function FieldFontCache.dir() return DATA_DIR end
+function FieldFontCache.dir()
+  return DATA_DIR
+end
 function FieldFontCache.defPath(fontId)
   return string.format("%s/font-%d.lua", DATA_DIR, fontId)
 end
 function FieldFontCache.atlasPath(fontId)
   return string.format("%s/font-%d.png", ASSET_DIR, fontId)
 end
-function FieldFontCache.provenancePath() return DATA_DIR .. "/provenance.lua" end
-function FieldFontCache.markerPath() return DATA_DIR .. "/complete" end
+function FieldFontCache.provenancePath()
+  return DATA_DIR .. "/provenance.lua"
+end
+function FieldFontCache.markerPath()
+  return DATA_DIR .. "/complete"
+end
 
 function FieldFontCache.marker(romSha1, depHash)
   return string.format("%s:%s:%s", FieldFontCache.FORMAT, romSha1, depHash)
 end
 
 function FieldFontCache.isReady(cacheFs, fontId, expectedMarker)
-  if cacheFs:read(FieldFontCache.markerPath()) ~= expectedMarker then return false end
-  if not cacheFs:exists(FieldFontCache.defPath(fontId), "file") then return false end
-  if not cacheFs:exists(FieldFontCache.atlasPath(fontId), "file") then return false end
+  if cacheFs:read(FieldFontCache.markerPath()) ~= expectedMarker then
+    return false
+  end
+  if not cacheFs:exists(FieldFontCache.defPath(fontId), "file") then
+    return false
+  end
+  if not cacheFs:exists(FieldFontCache.atlasPath(fontId), "file") then
+    return false
+  end
   return true
 end
 

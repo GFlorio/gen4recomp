@@ -19,9 +19,13 @@ local function visual(spriteId)
     rawGraphicsFlags = 0,
     original = { movementProfile = 0, actorFamily = 0, visualDescriptor = 0 },
     render = {
-      kind = "atlas", image = FieldActorCache.atlasPath(spriteId),
-      frameWidth = 2, frameHeight = 1, frameCount = 2,
-      billboardMode = "cameraFacingFull", mirrorEastWest = false,
+      kind = "atlas",
+      image = FieldActorCache.atlasPath(spriteId),
+      frameWidth = 2,
+      frameHeight = 1,
+      frameCount = 2,
+      billboardMode = "cameraFacingFull",
+      mirrorEastWest = false,
     },
     frames = { { textureSlot = 0, paletteSlot = 0 }, { textureSlot = 1, paletteSlot = 0 } },
     directions = {},
@@ -36,8 +40,13 @@ local function bundle(spriteIds)
   end
   return {
     marker = FieldActorCache.marker("abc", "dep"),
-    index = { schema = FieldActorCache.INDEX_SCHEMA, romVersion = "heartgold",
-      spriteIds = spriteIds, variableSprites = {}, recordCount = 3 },
+    index = {
+      schema = FieldActorCache.INDEX_SCHEMA,
+      romVersion = "heartgold",
+      spriteIds = spriteIds,
+      variableSprites = {},
+      recordCount = 3,
+    },
     visuals = visuals,
     atlases = atlases,
     provenance = { schema = "g4-field-actor-provenance-v1" },
@@ -73,7 +82,9 @@ function T.rejects_a_bundle_missing_an_indexed_sprite()
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   local b = bundle({ 0 })
   b.index.spriteIds = { 0, 99 }
-  local err = Assert.throws(function() FieldActorCacheWriter.write(cache, b) end)
+  local err = Assert.throws(function()
+    FieldActorCacheWriter.write(cache, b)
+  end)
   Assert.isTrue(Errors.is(err), "expected an Errors object")
   Assert.equal(err.code, "FIELD_ACTOR_BUNDLE_INCOMPLETE")
   Assert.isNil(cache:read(FieldActorCache.markerPath()))
@@ -85,13 +96,16 @@ function T.rolls_back_the_actor_subtree_on_a_failed_write()
   local original = backend.write
   ---@diagnostic disable: duplicate-set-field
   backend.write = function(self, path, data)
-    if path:find("0029.png", 1, true) then error("injected write failure") end
+    if path:find("0029.png", 1, true) then
+      error("injected write failure")
+    end
     return original(self, path, data)
   end
-  Assert.throws(function() FieldActorCacheWriter.write(cache, bundle({ 0, 29 })) end)
+  Assert.throws(function()
+    FieldActorCacheWriter.write(cache, bundle({ 0, 29 }))
+  end)
   Assert.isNil(cache:read(FieldActorCache.markerPath()))
-  Assert.isFalse(cache:exists(FieldActorCache.visualPath(0), "file"),
-    "a partial build leaves no visual behind")
+  Assert.isFalse(cache:exists(FieldActorCache.visualPath(0), "file"), "a partial build leaves no visual behind")
 end
 
 return T

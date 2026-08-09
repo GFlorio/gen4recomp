@@ -14,13 +14,21 @@ local function encodeString(s)
   for i = 1, #s do
     local b = string.byte(s, i)
     local c = string.sub(s, i, i)
-    if c == '"' then out[#out + 1] = '\\"'
-    elseif c == "\\" then out[#out + 1] = "\\\\"
-    elseif c == "\n" then out[#out + 1] = "\\n"
-    elseif c == "\r" then out[#out + 1] = "\\r"
-    elseif c == "\t" then out[#out + 1] = "\\t"
-    elseif b < 32 or b == 127 then out[#out + 1] = string.format("\\%d", b)
-    else out[#out + 1] = c end
+    if c == '"' then
+      out[#out + 1] = '\\"'
+    elseif c == "\\" then
+      out[#out + 1] = "\\\\"
+    elseif c == "\n" then
+      out[#out + 1] = "\\n"
+    elseif c == "\r" then
+      out[#out + 1] = "\\r"
+    elseif c == "\t" then
+      out[#out + 1] = "\\t"
+    elseif b < 32 or b == 127 then
+      out[#out + 1] = string.format("\\%d", b)
+    else
+      out[#out + 1] = c
+    end
   end
   out[#out + 1] = '"'
   return table.concat(out)
@@ -30,7 +38,9 @@ local function encodeNumber(n)
   if n ~= n or n == math.huge or n == -math.huge then
     error("cannot serialize non-finite number: " .. tostring(n))
   end
-  if n % 1 == 0 then return string.format("%d", n) end
+  if n % 1 == 0 then
+    return string.format("%d", n)
+  end
   return string.format("%.17g", n)
 end
 
@@ -38,22 +48,32 @@ end
 local function sortedKeys(t)
   local numeric, strings = {}, {}
   for k in pairs(t) do
-    if type(k) == "number" then numeric[#numeric + 1] = k
-    elseif type(k) == "string" then strings[#strings + 1] = k
-    else error("unsupported table key type: " .. type(k)) end
+    if type(k) == "number" then
+      numeric[#numeric + 1] = k
+    elseif type(k) == "string" then
+      strings[#strings + 1] = k
+    else
+      error("unsupported table key type: " .. type(k))
+    end
   end
   table.sort(numeric)
   table.sort(strings)
   local keys = {}
-  for _, k in ipairs(numeric) do keys[#keys + 1] = k end
-  for _, k in ipairs(strings) do keys[#keys + 1] = k end
+  for _, k in ipairs(numeric) do
+    keys[#keys + 1] = k
+  end
+  for _, k in ipairs(strings) do
+    keys[#keys + 1] = k
+  end
   return keys
 end
 
 local encodeValue
 
 local function encodeTable(t, indent, seen)
-  if seen[t] then error("cannot serialize cyclic table") end
+  if seen[t] then
+    error("cannot serialize cyclic table")
+  end
   seen[t] = true
   local keys = sortedKeys(t)
   if #keys == 0 then
@@ -64,9 +84,13 @@ local function encodeTable(t, indent, seen)
   local parts = { "{\n" }
   for _, k in ipairs(keys) do
     local keyStr
-    if type(k) == "number" then keyStr = "[" .. encodeNumber(k) .. "]"
-    elseif isIdentifier(k) then keyStr = k
-    else keyStr = "[" .. encodeString(k) .. "]" end
+    if type(k) == "number" then
+      keyStr = "[" .. encodeNumber(k) .. "]"
+    elseif isIdentifier(k) then
+      keyStr = k
+    else
+      keyStr = "[" .. encodeString(k) .. "]"
+    end
     parts[#parts + 1] = inner .. keyStr .. " = " .. encodeValue(t[k], inner, seen) .. ",\n"
   end
   parts[#parts + 1] = indent .. "}"
@@ -76,12 +100,19 @@ end
 
 encodeValue = function(v, indent, seen)
   local ty = type(v)
-  if ty == "nil" then return "nil"
-  elseif ty == "boolean" then return tostring(v)
-  elseif ty == "number" then return encodeNumber(v)
-  elseif ty == "string" then return encodeString(v)
-  elseif ty == "table" then return encodeTable(v, indent, seen)
-  else error("cannot serialize value of type: " .. ty) end
+  if ty == "nil" then
+    return "nil"
+  elseif ty == "boolean" then
+    return tostring(v)
+  elseif ty == "number" then
+    return encodeNumber(v)
+  elseif ty == "string" then
+    return encodeString(v)
+  elseif ty == "table" then
+    return encodeTable(v, indent, seen)
+  else
+    error("cannot serialize value of type: " .. ty)
+  end
 end
 
 function LuaWriter.encode(value)

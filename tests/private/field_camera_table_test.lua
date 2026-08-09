@@ -7,8 +7,10 @@ local FieldCameraCompiler = require("romdump.src.digest.FieldCameraCompiler")
 local T = {}
 
 local function near(actual, expected, epsilon)
-  Assert.isTrue(math.abs(actual - expected) <= epsilon,
-    string.format("%.9f not within %.9f of %.9f", actual, epsilon, expected))
+  Assert.isTrue(
+    math.abs(actual - expected) <= epsilon,
+    string.format("%.9f not within %.9f of %.9f", actual, epsilon, expected)
+  )
 end
 
 function T.overlay_one_contains_exact_camera_table(romFs)

@@ -140,7 +140,9 @@ local MODULES = {
 
 local function sortedKeys(t)
   local keys = {}
-  for k in pairs(t) do keys[#keys + 1] = k end
+  for k in pairs(t) do
+    keys[#keys + 1] = k
+  end
   table.sort(keys)
   return keys
 end
@@ -171,7 +173,9 @@ local function run()
   end
 
   print(string.format("\n%d passed, %d failed", passed, failed))
-  for _, f in ipairs(failures) do print("  - " .. f) end
+  for _, f in ipairs(failures) do
+    print("  - " .. f)
+  end
   return failed
 end
 

@@ -10,8 +10,14 @@ return {
     repo = "pret/pokeheartgold",
     commit = "7e25c842061d026f43fe6efbd7be0ec94c50839d",
     inputs = {
-      { path = "include/constants/maps.h", sha256 = "2e0fc9ed58b8e83935e80db1b8dad2309acf042537d9cfa689b15318ba3717ba" },
-      { path = "include/encounter_tables_narc.h", sha256 = "6dc485c1a57b5d16697ba71af957ddbf94334b8b286bf1581f62ee21a12947d5" },
+      {
+        path = "include/constants/maps.h",
+        sha256 = "2e0fc9ed58b8e83935e80db1b8dad2309acf042537d9cfa689b15318ba3717ba",
+      },
+      {
+        path = "include/encounter_tables_narc.h",
+        sha256 = "6dc485c1a57b5d16697ba71af957ddbf94334b8b286bf1581f62ee21a12947d5",
+      },
       { path = "src/data/map_headers.h", sha256 = "3bddcadc5569386a1b54b89252524038506e72717a61e9c36c8fef8093d8cbd3" },
     },
   },

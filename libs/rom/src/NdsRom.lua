@@ -18,7 +18,9 @@ NdsRom.__index = NdsRom
 local MIN_HEADER = 0x200
 
 local function parseHeader(reader)
-  local function region(off) return { offset = reader:u32le(off), size = reader:u32le(off + 4) } end
+  local function region(off)
+    return { offset = reader:u32le(off), size = reader:u32le(off + 4) }
+  end
   return {
     title = reader:ascii(0x00, 12, true),
     gameCode = reader:ascii(0x0C, 4),
@@ -28,12 +30,16 @@ local function parseHeader(reader)
     romVersion = reader:u8(0x1E),
     flags = reader:u8(0x1F),
     arm9 = {
-      offset = reader:u32le(0x20), entryAddress = reader:u32le(0x24),
-      ramAddress = reader:u32le(0x28), size = reader:u32le(0x2C),
+      offset = reader:u32le(0x20),
+      entryAddress = reader:u32le(0x24),
+      ramAddress = reader:u32le(0x28),
+      size = reader:u32le(0x2C),
     },
     arm7 = {
-      offset = reader:u32le(0x30), entryAddress = reader:u32le(0x34),
-      ramAddress = reader:u32le(0x38), size = reader:u32le(0x3C),
+      offset = reader:u32le(0x30),
+      entryAddress = reader:u32le(0x34),
+      ramAddress = reader:u32le(0x38),
+      size = reader:u32le(0x3C),
     },
     fnt = region(0x40),
     fat = region(0x48),
@@ -47,9 +53,11 @@ end
 
 local function assertInRomSize(name, offset, size, romSize)
   if offset < 0 or size < 0 or offset + size > romSize then
-    Errors.raise("NDS_SECTION_OUT_OF_RANGE",
+    Errors.raise(
+      "NDS_SECTION_OUT_OF_RANGE",
       name .. " region (offset " .. offset .. ", size " .. size .. ") exceeds ROM of " .. romSize,
-      { section = name, offset = offset, size = size, romSize = romSize })
+      { section = name, offset = offset, size = size, romSize = romSize }
+    )
   end
 end
 
@@ -71,12 +79,18 @@ local function parseFat(source, fatOffset, fatSize, romSize)
     local startOffset = reader:u32le(base)
     local endOffset = reader:u32le(base + 4)
     if startOffset > endOffset then
-      Errors.raise("FAT_ENTRY_INVALID", "FAT entry " .. fileId .. " has start past end",
-        { fileId = fileId, startOffset = startOffset, endOffset = endOffset })
+      Errors.raise(
+        "FAT_ENTRY_INVALID",
+        "FAT entry " .. fileId .. " has start past end",
+        { fileId = fileId, startOffset = startOffset, endOffset = endOffset }
+      )
     end
     if endOffset > romSize then
-      Errors.raise("FAT_RANGE_OUT_OF_BOUNDS", "FAT entry " .. fileId .. " ends past the ROM",
-        { fileId = fileId, startOffset = startOffset, endOffset = endOffset, romSize = romSize })
+      Errors.raise(
+        "FAT_RANGE_OUT_OF_BOUNDS",
+        "FAT entry " .. fileId .. " ends past the ROM",
+        { fileId = fileId, startOffset = startOffset, endOffset = endOffset, romSize = romSize }
+      )
     end
     fat[fileId] = { startOffset = startOffset, endOffset = endOffset, size = endOffset - startOffset }
   end
@@ -86,8 +100,7 @@ end
 function NdsRom._parse(source, versions)
   local romSize = source:size()
   if romSize < MIN_HEADER then
-    Errors.raise("NDS_TOO_SMALL", "ROM is " .. romSize .. " bytes, need at least " .. MIN_HEADER,
-      { size = romSize })
+    Errors.raise("NDS_TOO_SMALL", "ROM is " .. romSize .. " bytes, need at least " .. MIN_HEADER, { size = romSize })
   end
 
   local header = parseHeader(BinaryReader.new(readOrRaise(source, 0, MIN_HEADER, "header"), "header"))
@@ -96,25 +109,28 @@ function NdsRom._parse(source, versions)
   -- substitute for SHA-1, which is authoritative.
   local byCode = versions.forGameCode(header.gameCode)
   if byCode and byCode.expectedSize and byCode.expectedSize ~= romSize then
-    Errors.raise("NDS_SIZE_MISMATCH",
-      "ROM size " .. romSize .. " does not match expected " .. byCode.expectedSize
-        .. " for " .. header.gameCode,
-      { size = romSize, expectedSize = byCode.expectedSize, gameCode = header.gameCode })
+    Errors.raise(
+      "NDS_SIZE_MISMATCH",
+      "ROM size " .. romSize .. " does not match expected " .. byCode.expectedSize .. " for " .. header.gameCode,
+      { size = romSize, expectedSize = byCode.expectedSize, gameCode = header.gameCode }
+    )
   end
 
   local sha1 = source:sha1()
   local versionInfo = versions.forSha1(sha1)
   if not versionInfo then
-    Errors.raise("NDS_UNKNOWN_ROM",
-      "no supported version matches SHA-1 " .. sha1
-        .. " (patched, modified, overdumped, or unsupported)",
-      { sha1 = sha1, gameCode = header.gameCode })
+    Errors.raise(
+      "NDS_UNKNOWN_ROM",
+      "no supported version matches SHA-1 " .. sha1 .. " (patched, modified, overdumped, or unsupported)",
+      { sha1 = sha1, gameCode = header.gameCode }
+    )
   end
   if versionInfo.gameCode ~= header.gameCode then
-    Errors.raise("NDS_GAME_CODE_MISMATCH",
-      "header game code " .. header.gameCode .. " does not match "
-        .. versionInfo.gameCode .. " for the matched version",
-      { headerGameCode = header.gameCode, versionGameCode = versionInfo.gameCode, sha1 = sha1 })
+    Errors.raise(
+      "NDS_GAME_CODE_MISMATCH",
+      "header game code " .. header.gameCode .. " does not match " .. versionInfo.gameCode .. " for the matched version",
+      { headerGameCode = header.gameCode, versionGameCode = versionInfo.gameCode, sha1 = sha1 }
+    )
   end
 
   assertInRomSize("arm9", header.arm9.offset, header.arm9.size, romSize)
@@ -125,18 +141,25 @@ function NdsRom._parse(source, versions)
   assertInRomSize("arm7Overlays", header.arm7Overlays.offset, header.arm7Overlays.size, romSize)
 
   if header.fat.size == 0 or header.fat.size % 8 ~= 0 then
-    Errors.raise("NDS_FAT_SIZE_INVALID", "FAT size " .. header.fat.size .. " must be nonzero and divisible by 8",
-      { fatSize = header.fat.size })
+    Errors.raise(
+      "NDS_FAT_SIZE_INVALID",
+      "FAT size " .. header.fat.size .. " must be nonzero and divisible by 8",
+      { fatSize = header.fat.size }
+    )
   end
 
   local fat, fatCount = parseFat(source, header.fat.offset, header.fat.size, romSize)
   local nitro = NitroFs.parse(readOrRaise(source, header.fnt.offset, header.fnt.size, "fnt"), fatCount)
   local arm9Overlays = OverlayTable.parse(
     readOrRaise(source, header.arm9Overlays.offset, header.arm9Overlays.size, "arm9Overlays"),
-    fatCount, "arm9")
+    fatCount,
+    "arm9"
+  )
   local arm7Overlays = OverlayTable.parse(
     readOrRaise(source, header.arm7Overlays.offset, header.arm7Overlays.size, "arm7Overlays"),
-    fatCount, "arm7")
+    fatCount,
+    "arm7"
+  )
 
   return setmetatable({
     _source = source,
@@ -153,18 +176,36 @@ end
 function NdsRom.open(source, versions)
   versions = versions or GameVersion
   local ok, result = pcall(NdsRom._parse, source, versions)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 
-function NdsRom:size() return self._source:size() end
-function NdsRom:header() return self._header end
-function NdsRom:nitroFs() return self._nitro end
-function NdsRom:arm9Overlays() return self._arm9Overlays end
-function NdsRom:arm7Overlays() return self._arm7Overlays end
-function NdsRom:fatCount() return self._fatCount end
-function NdsRom:versionInfo() return self._versionInfo end
+function NdsRom:size()
+  return self._source:size()
+end
+function NdsRom:header()
+  return self._header
+end
+function NdsRom:nitroFs()
+  return self._nitro
+end
+function NdsRom:arm9Overlays()
+  return self._arm9Overlays
+end
+function NdsRom:arm7Overlays()
+  return self._arm7Overlays
+end
+function NdsRom:fatCount()
+  return self._fatCount
+end
+function NdsRom:versionInfo()
+  return self._versionInfo
+end
 
 function NdsRom:read(offset, length)
   return self._source:read(offset, length)
@@ -173,8 +214,11 @@ end
 function NdsRom:readFatFile(fileId)
   local entry = self._fat[fileId]
   if not entry then
-    Errors.raise("NDS_FILE_ID_OUT_OF_RANGE", "no FAT entry for fileId " .. tostring(fileId),
-      { fileId = fileId, fatCount = self._fatCount })
+    Errors.raise(
+      "NDS_FILE_ID_OUT_OF_RANGE",
+      "no FAT entry for fileId " .. tostring(fileId),
+      { fileId = fileId, fatCount = self._fatCount }
+    )
   end
   return readOrRaise(self._source, entry.startOffset, entry.size, "fat file " .. fileId)
 end

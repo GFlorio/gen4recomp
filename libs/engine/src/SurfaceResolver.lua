@@ -25,11 +25,12 @@ local STEP_HEIGHT_LIMIT = 5 * 2 ^ 14 / 2 ^ 16
 local HEIGHT_TIE_EPSILON = 1e-9
 
 function SurfaceResolver.new(terrain, opts)
-  assert(terrain and terrain.candidatesAt and terrain.sampleHeight,
-    "SurfaceResolver.new requires a TerrainSurface")
+  assert(terrain and terrain.candidatesAt and terrain.sampleHeight, "SurfaceResolver.new requires a TerrainSurface")
   opts = opts or {}
-  return setmetatable({ terrain = terrain, stepHeightLimit = opts.stepHeightLimit or STEP_HEIGHT_LIMIT },
-    SurfaceResolver)
+  return setmetatable(
+    { terrain = terrain, stepHeightLimit = opts.stepHeightLimit or STEP_HEIGHT_LIMIT },
+    SurfaceResolver
+  )
 end
 
 local function raise(code, message, opts, extra)
@@ -41,10 +42,16 @@ local function raise(code, message, opts, extra)
 end
 
 local function closestUnique(terrain, candidates, localX, localZ, currentY, opts)
-  if #candidates == 1 then return candidates[1] end
+  if #candidates == 1 then
+    return candidates[1]
+  end
   if currentY == nil then
-    raise("TERRAIN_SURFACE_AMBIGUOUS", "multiple terrain surfaces cover the coordinate", opts,
-      { candidateCount = #candidates })
+    raise(
+      "TERRAIN_SURFACE_AMBIGUOUS",
+      "multiple terrain surfaces cover the coordinate",
+      opts,
+      { candidateCount = #candidates }
+    )
   end
   local best, bestDelta, tied
   for _, plate in ipairs(candidates) do
@@ -56,16 +63,19 @@ local function closestUnique(terrain, candidates, localX, localZ, currentY, opts
     end
   end
   if tied then
-    raise("TERRAIN_SURFACE_AMBIGUOUS", "equally near terrain surfaces cover the coordinate", opts,
-      { candidateCount = #candidates, heightDelta = bestDelta })
+    raise(
+      "TERRAIN_SURFACE_AMBIGUOUS",
+      "equally near terrain surfaces cover the coordinate",
+      opts,
+      { candidateCount = #candidates, heightDelta = bestDelta }
+    )
   end
   return best
 end
 
 function SurfaceResolver:resolve(opts)
   assert(type(opts) == "table", "SurfaceResolver.resolve requires options")
-  assert(type(opts.localX) == "number" and type(opts.localZ) == "number",
-    "destination coordinates must be numbers")
+  assert(type(opts.localX) == "number" and type(opts.localZ) == "number", "destination coordinates must be numbers")
   local candidates = self.terrain:candidatesAt(opts.localX, opts.localZ)
   if #candidates == 0 then
     raise("TERRAIN_SURFACE_NOT_FOUND", "no terrain surface covers the coordinate", opts)
@@ -78,12 +88,20 @@ function SurfaceResolver:resolve(opts)
 
   if current and opts.crossing then
     local crossing = opts.crossing
-    assert(type(crossing.fromX) == "number" and type(crossing.fromZ) == "number"
-      and type(crossing.toX) == "number" and type(crossing.toZ) == "number",
-      "crossing requires numeric endpoints")
+    assert(
+      type(crossing.fromX) == "number"
+        and type(crossing.fromZ) == "number"
+        and type(crossing.toX) == "number"
+        and type(crossing.toZ) == "number",
+      "crossing requires numeric endpoints"
+    )
     if not self.terrain:contains(current.id, crossing.fromX, crossing.fromZ) then
-      raise("TERRAIN_SURFACE_DISCONNECTED", "current surface does not cover the crossing source",
-        opts, { fromX = crossing.fromX, fromZ = crossing.fromZ })
+      raise(
+        "TERRAIN_SURFACE_DISCONNECTED",
+        "current surface does not cover the crossing source",
+        opts,
+        { fromX = crossing.fromX, fromZ = crossing.fromZ }
+      )
     end
   end
 
@@ -97,8 +115,12 @@ function SurfaceResolver:resolve(opts)
     local edgeX = (crossing.fromX + crossing.toX) / 2
     local edgeZ = (crossing.fromZ + crossing.toZ) / 2
     if not self.terrain:contains(current.id, edgeX, edgeZ) then
-      raise("TERRAIN_SURFACE_DISCONNECTED", "current surface does not reach the shared edge",
-        opts, { edgeX = edgeX, edgeZ = edgeZ })
+      raise(
+        "TERRAIN_SURFACE_DISCONNECTED",
+        "current surface does not reach the shared edge",
+        opts,
+        { edgeX = edgeX, edgeZ = edgeZ }
+      )
     end
     local sourceY = self.terrain:sampleHeight(current.id, edgeX, edgeZ)
     eligible = {}
@@ -111,8 +133,12 @@ function SurfaceResolver:resolve(opts)
       end
     end
     if #eligible == 0 then
-      raise("TERRAIN_SURFACE_DISCONNECTED", "destination surfaces are a step beyond the current surface",
-        opts, { edgeX = edgeX, edgeZ = edgeZ, stepHeightLimit = self.stepHeightLimit })
+      raise(
+        "TERRAIN_SURFACE_DISCONNECTED",
+        "destination surfaces are a step beyond the current surface",
+        opts,
+        { edgeX = edgeX, edgeZ = edgeZ, stepHeightLimit = self.stepHeightLimit }
+      )
     end
   end
 

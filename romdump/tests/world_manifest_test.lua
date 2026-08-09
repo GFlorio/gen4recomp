@@ -5,10 +5,14 @@ local T = {}
 
 local function sample()
   return {
-    { id = 61, symbol = "MAP_NEW_BARK_ELMS_LAB_1F", width = 1, height = 1,
-      matrix = { memberId = 0, x = 0, z = 0 } },
-    { id = 60, symbol = "MAP_NEW_BARK", width = 3, height = 3,
-      matrix = { memberId = 0, x = 21, z = 12 } },
+    {
+      id = 61,
+      symbol = "MAP_NEW_BARK_ELMS_LAB_1F",
+      width = 1,
+      height = 1,
+      matrix = { memberId = 0, x = 0, z = 0 },
+    },
+    { id = 60, symbol = "MAP_NEW_BARK", width = 3, height = 3, matrix = { memberId = 0, x = 21, z = 12 } },
   }
 end
 
@@ -21,9 +25,13 @@ end
 
 local function compileExcluded()
   return {
-    { id = 0, symbol = "MAP_EVERYWHERE",
-      errorCode = "NSBMD_STATIC_UNSUPPORTED_SBC_COMMAND", message = "BBY is unsupported",
-      context = { model = "snap_came_in", opcode = 8 } },
+    {
+      id = 0,
+      symbol = "MAP_EVERYWHERE",
+      errorCode = "NSBMD_STATIC_UNSUPPORTED_SBC_COMMAND",
+      message = "BBY is unsupported",
+      context = { model = "snap_came_in", opcode = 8 },
+    },
   }
 end
 
@@ -61,29 +69,34 @@ end
 
 function T.a_map_cannot_be_excluded_twice_across_the_collections()
   Assert.throws(function()
-    WorldManifest.build(sample(),
+    WorldManifest.build(
+      sample(),
       { { id = 0, symbol = "MAP_EVERYWHERE", reason = "no_matching_cell" } },
-      compileExcluded())
+      compileExcluded()
+    )
   end)
 end
 
 function T.a_compile_excluded_map_cannot_also_be_renderable()
   Assert.throws(function()
-    WorldManifest.build(sample(), {},
-      { { id = 60, symbol = "MAP_NEW_BARK", errorCode = "X", message = "y" } })
+    WorldManifest.build(sample(), {}, { { id = 60, symbol = "MAP_NEW_BARK", errorCode = "X", message = "y" } })
   end)
 end
 
 function T.build_rejects_duplicate_symbol()
   local dup = sample()
   dup[1].symbol = "MAP_NEW_BARK"
-  Assert.throws(function() WorldManifest.build(dup) end)
+  Assert.throws(function()
+    WorldManifest.build(dup)
+  end)
 end
 
 function T.build_rejects_duplicate_id()
   local dup = sample()
   dup[1].id = 60
-  Assert.throws(function() WorldManifest.build(dup) end)
+  Assert.throws(function()
+    WorldManifest.build(dup)
+  end)
 end
 
 return T

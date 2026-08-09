@@ -4,7 +4,9 @@ local Assert = require("tests.support.Assert")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 
 local T = {}
-local function approx(a, b) return math.abs(a - b) < 1e-9 end
+local function approx(a, b)
+  return math.abs(a - b) < 1e-9
+end
 
 function T.expanded_uses_full_wide_drawable_and_centered_reference_frame()
   local viewport = FieldViewport.new(1920, 1080, { mode = "expanded" })
@@ -46,8 +48,12 @@ function T.resize_recomputes_rectangles_without_replacing_the_object()
 end
 
 function T.invalid_dimensions_and_modes_are_rejected()
-  Assert.throws(function() FieldViewport.new(0, 100) end)
-  Assert.throws(function() FieldViewport.new(100, 100, { mode = "crop" }) end)
+  Assert.throws(function()
+    FieldViewport.new(0, 100)
+  end)
+  Assert.throws(function()
+    FieldViewport.new(100, 100, { mode = "crop" })
+  end)
 end
 
 return T

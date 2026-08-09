@@ -70,7 +70,9 @@ function MapRenderer.new(opts)
   local colors = em.colors
   if not colors then
     colors = {}
-    for i = 1, 8 do colors[i] = { 0.16, 0.16, 0.16 } end
+    for i = 1, 8 do
+      colors[i] = { 0.16, 0.16, 0.16 }
+    end
   end
   assert(#colors == 8, "edgeMarking.colors must have 8 entries")
   return setmetatable({
@@ -83,15 +85,23 @@ function MapRenderer.new(opts)
 end
 
 function MapRenderer:_releaseCanvases()
-  if self.sceneColor then self.sceneColor:release() end
-  if self.idDepth then self.idDepth:release() end
-  if self.depth then self.depth:release() end
+  if self.sceneColor then
+    self.sceneColor:release()
+  end
+  if self.idDepth then
+    self.idDepth:release()
+  end
+  if self.depth then
+    self.depth:release()
+  end
   self.sceneColor, self.idDepth, self.depth = nil, nil, nil
   self.canvasW, self.canvasH = nil, nil
 end
 
 function MapRenderer:_ensureCanvases(w, h)
-  if self.sceneColor and self.canvasW == w and self.canvasH == h then return end
+  if self.sceneColor and self.canvasW == w and self.canvasH == h then
+    return
+  end
   self:_releaseCanvases()
   self.sceneColor = love.graphics.newCanvas(w, h)
   -- Red holds the normalized polygon ID, green the linear eye-space depth in
@@ -107,13 +117,16 @@ end
 -- Field cameras have an authored, immutable distance. DS-pixel effects scale
 -- only with viewport height.
 function MapRenderer.fieldEdgeRadiusPixels(viewportHeight)
-  return math.max(1, math.min(MAX_EDGE_RADIUS,
-    math.floor(viewportHeight / DS_NATIVE_HEIGHT + 0.5)))
+  return math.max(1, math.min(MAX_EDGE_RADIUS, math.floor(viewportHeight / DS_NATIVE_HEIGHT + 0.5)))
 end
 
 local function alphaModeId(alphaClass)
-  if alphaClass == "cutout" then return 1 end
-  if alphaClass == "translucent" then return 2 end
+  if alphaClass == "cutout" then
+    return 1
+  end
+  if alphaClass == "translucent" then
+    return 2
+  end
   return 0 -- opaque / wireframe (wireframe is drawn separately)
 end
 
@@ -131,7 +144,9 @@ end
 -- Select the active profile record and bind all lighting uniforms.
 function MapRenderer:_sendLighting(runtime)
   local profile = runtime.lighting
-  if not profile or not profile.records then return end
+  if not profile or not profile.records then
+    return
+  end
 
   local record = FieldLightProfile.select(profile, runtime.fieldTimeSeconds or FieldLightProfile.DEFAULT_TIME_SECONDS)
   local shader = self.shader
@@ -224,9 +239,15 @@ function MapRenderer:draw(runtime, camera, overlays, viewport, alpha)
   assert(viewport and viewport.worldViewport, "MapRenderer requires a FieldViewport")
   local lg = love.graphics
   local all = {}
-  for _, d in ipairs(runtime.mapDraws) do all[#all + 1] = d end
-  for _, d in ipairs(runtime.buildingDraws) do all[#all + 1] = d end
-  for _, d in ipairs(overlays or {}) do all[#all + 1] = d end
+  for _, d in ipairs(runtime.mapDraws) do
+    all[#all + 1] = d
+  end
+  for _, d in ipairs(runtime.buildingDraws) do
+    all[#all + 1] = d
+  end
+  for _, d in ipairs(overlays or {}) do
+    all[#all + 1] = d
+  end
 
   self.stats = {
     drawCalls = 0,
@@ -300,7 +321,9 @@ function MapRenderer:draw(runtime, camera, overlays, viewport, alpha)
     -- Pass 4: wireframe edges (polygon alpha zero). These count as opaque for
     -- edge marking and write their real polygon ID into the ID target.
     lg.setCanvas(sceneTargets)
-    for _, d in ipairs(queue.wireframe) do self:_drawWireframe(d, viewMatrix, projectionFor(d)) end
+    for _, d in ipairs(queue.wireframe) do
+      self:_drawWireframe(d, viewMatrix, projectionFor(d))
+    end
 
     -- Composite the scene canvas back to the screen through the edge shader,
     -- which outlines polygon-ID boundaries that carry a depth step.
@@ -314,8 +337,7 @@ function MapRenderer:draw(runtime, camera, overlays, viewport, alpha)
     self.edgeShader:send("u_edgeColors", unpack(self.edgeColors))
     self.edgeShader:send("u_edgeAlpha", self.edgeAlpha)
     self.edgeShader:send("u_edgeRadius", MapRenderer.fieldEdgeRadiusPixels(h))
-    lg.draw(self.sceneColor, rectangle.x, rectangle.y, 0,
-      rectangle.width / w, rectangle.height / h)
+    lg.draw(self.sceneColor, rectangle.x, rectangle.y, 0, rectangle.width / w, rectangle.height / h)
     lg.setShader()
 
     return activeRecord
@@ -332,13 +354,19 @@ function MapRenderer:draw(runtime, camera, overlays, viewport, alpha)
   lg.setWireframe(false)
   lg.setColor(1, 1, 1, 1)
 
-  if not ok then error(result) end
+  if not ok then
+    error(result)
+  end
   return result
 end
 
 function MapRenderer:release()
-  if self.shader then self.shader:release() end
-  if self.edgeShader then self.edgeShader:release() end
+  if self.shader then
+    self.shader:release()
+  end
+  if self.edgeShader then
+    self.edgeShader:release()
+  end
   self.shader, self.edgeShader = nil, nil
   self:_releaseCanvases()
 end

@@ -35,7 +35,9 @@ end
 -- billboard's base transform ride alongside toTiles-converted geometry.
 function MapUnits.matrixToTiles(m)
   local out = {}
-  for i = 1, 12 do out[i] = m[i] end
+  for i = 1, 12 do
+    out[i] = m[i]
+  end
   out[13], out[14], out[15] = MapUnits.toTiles(m[13], m[14], m[15])
   out[16] = m[16]
   return out
@@ -57,9 +59,11 @@ end
 function MapUnits.assertMapCalibration(bounds, posScale, context)
   local ex, ez = MapUnits.extentTiles(bounds, posScale)
   if not (isFinitePositive(posScale) and isFinitePositive(ex) and isFinitePositive(ez)) then
-    Errors.raise("MAP_COMPILE_CALIBRATION",
+    Errors.raise(
+      "MAP_COMPILE_CALIBRATION",
       string.format("map model extents must be finite and positive (x=%.2f, z=%.2f)", ex, ez),
-      { context = context, exTiles = ex, ezTiles = ez, posScale = posScale })
+      { context = context, exTiles = ex, ezTiles = ez, posScale = posScale }
+    )
   end
   return ex, ez
 end

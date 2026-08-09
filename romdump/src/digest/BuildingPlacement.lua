@@ -16,7 +16,9 @@ local TWO_PI = 2 * math.pi
 
 local function s16(reader, offset)
   local v = reader:u16le(offset)
-  if v >= 0x8000 then return v - 0x10000 end
+  if v >= 0x8000 then
+    return v - 0x10000
+  end
   return v
 end
 
@@ -52,9 +54,12 @@ function BuildingPlacement.decode(bytes, byteOffset, context)
       z = zInteger + zFraction / 65536,
     },
     positionRaw = {
-      xInteger = xInteger, xFraction = xFraction,
-      yInteger = yInteger, yFraction = yFraction,
-      zInteger = zInteger, zFraction = zFraction,
+      xInteger = xInteger,
+      xFraction = xFraction,
+      yInteger = yInteger,
+      yFraction = yFraction,
+      zInteger = zInteger,
+      zFraction = zFraction,
     },
     rotation = { x = angle(rx), y = angle(ry), z = angle(rz) },
     rotationRaw = { x = rx, y = ry, z = rz },
@@ -75,9 +80,12 @@ end
 function BuildingPlacement.decodeAll(bytes, context)
   assert(type(bytes) == "string", "BuildingPlacement.decodeAll requires a string")
   if #bytes % RECORD_SIZE ~= 0 then
-    return nil, Errors.new("BUILDING_BAD_SIZE",
-      "buildings section length " .. #bytes .. " is not a multiple of " .. RECORD_SIZE,
-      { size = #bytes, recordSize = RECORD_SIZE, source = context })
+    return nil,
+      Errors.new(
+        "BUILDING_BAD_SIZE",
+        "buildings section length " .. #bytes .. " is not a multiple of " .. RECORD_SIZE,
+        { size = #bytes, recordSize = RECORD_SIZE, source = context }
+      )
   end
   local placements = {}
   local offset = 0

@@ -5,9 +5,13 @@
 local TerrainInspector = {}
 
 local function intersects(plate, bounds)
-  if not bounds then return true end
-  return plate.maxX >= bounds.minX and plate.minX <= bounds.maxX
-    and plate.maxZ >= bounds.minZ and plate.minZ <= bounds.maxZ
+  if not bounds then
+    return true
+  end
+  return plate.maxX >= bounds.minX
+    and plate.minX <= bounds.maxX
+    and plate.maxZ >= bounds.minZ
+    and plate.minZ <= bounds.maxZ
 end
 
 local function copyPlate(plate)
@@ -27,11 +31,15 @@ local function copyPlate(plate)
 end
 
 function TerrainInspector.inspect(terrain, bounds)
-  assert(type(terrain) == "table" and type(terrain.plates) == "table",
-    "TerrainInspector.inspect requires normalized terrain")
+  assert(
+    type(terrain) == "table" and type(terrain.plates) == "table",
+    "TerrainInspector.inspect requires normalized terrain"
+  )
   local plates = {}
   for _, plate in ipairs(terrain.plates) do
-    if intersects(plate, bounds) then plates[#plates + 1] = copyPlate(plate) end
+    if intersects(plate, bounds) then
+      plates[#plates + 1] = copyPlate(plate)
+    end
   end
   return {
     schema = terrain.schema,
@@ -55,8 +63,10 @@ end
 -- Return renderer-neutral quad records. A diagnostic renderer may turn these
 -- into line or translucent triangle meshes without learning BDHC plane math.
 function TerrainInspector.gizmos(terrain, plates)
-  assert(type(terrain) == "table" and type(terrain.plates) == "table",
-    "TerrainInspector.gizmos requires normalized terrain")
+  assert(
+    type(terrain) == "table" and type(terrain.plates) == "table",
+    "TerrainInspector.gizmos requires normalized terrain"
+  )
   plates = plates or terrain.plates
   local out = {}
   for _, plate in ipairs(plates) do
@@ -78,14 +88,33 @@ end
 
 function TerrainInspector.lines(report)
   local c = report.counts
-  local lines = { string.format("terrain\tcounts=%d/%d/%d/%d/%d/%d\tselected=%d",
-    c.points, c.slopes, c.heights, c.plates, c.strips, c.accessEntries, #report.plates) }
+  local lines = {
+    string.format(
+      "terrain\tcounts=%d/%d/%d/%d/%d/%d\tselected=%d",
+      c.points,
+      c.slopes,
+      c.heights,
+      c.plates,
+      c.strips,
+      c.accessEntries,
+      #report.plates
+    ),
+  }
   for _, plate in ipairs(report.plates) do
     lines[#lines + 1] = string.format(
       "plate\tid=%d\tbounds=%.3f,%.3f:%.3f,%.3f\tnormal=%.8f,%.8f,%.8f\td=%.8f\tclass=%s\twalkable=%s",
-      plate.id, plate.minX, plate.minZ, plate.maxX, plate.maxZ,
-      plate.normal.x, plate.normal.y, plate.normal.z, plate.distance, plate.slopeClass,
-      tostring(plate.walkable))
+      plate.id,
+      plate.minX,
+      plate.minZ,
+      plate.maxX,
+      plate.maxZ,
+      plate.normal.x,
+      plate.normal.y,
+      plate.normal.z,
+      plate.distance,
+      plate.slopeClass,
+      tostring(plate.walkable)
+    )
   end
   return lines
 end

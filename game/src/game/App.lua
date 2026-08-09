@@ -20,8 +20,12 @@ local App = {}
 ---@param option boolean|string|nil
 ---@return string|integer|nil
 local function fieldTarget(option)
-  if option == true then return nil end
-  if type(option) == "string" and option:match("^%d+$") then return tonumber(option) end
+  if option == true then
+    return nil
+  end
+  if type(option) == "string" and option:match("^%d+$") then
+    return tonumber(option)
+  end
   return option --[[@as string|integer|nil]]
 end
 
@@ -30,7 +34,9 @@ App.fieldTarget = fieldTarget
 local function readyVersions()
   local out = {}
   for _, id in ipairs(GameVersion.ORDER) do
-    if RomImporter.isReady(id) then out[#out + 1] = id end
+    if RomImporter.isReady(id) then
+      out[#out + 1] = id
+    end
   end
   return out
 end
@@ -49,8 +55,12 @@ function App.load(opts)
   love.graphics.setBackgroundColor(0.08, 0.09, 0.12)
   App.saveDir = love.filesystem.getSaveDirectory()
 
-  if App.opts.actors then return App._bootActorPreview() end
-  if App.opts.field then return App._bootField(App.opts.field) end
+  if App.opts.actors then
+    return App._bootActorPreview()
+  end
+  if App.opts.field then
+    return App._bootField(App.opts.field)
+  end
   App._bootExisting()
 end
 
@@ -77,7 +87,9 @@ end
 
 function App._startImport()
   App.importer = RomImporter.new({
-    onComplete = function(versionId) App._onImported(versionId) end,
+    onComplete = function(versionId)
+      App._onImported(versionId)
+    end,
   })
   App.state = ImportState.new(App.importer, App.saveDir)
 end
@@ -113,7 +125,9 @@ function App.update(dt)
   if App.importer and App.importer:isBusy() then
     App.importer:update()
   end
-  if App.state and App.state.update then App.state:update(dt) end
+  if App.state and App.state.update then
+    App.state:update(dt)
+  end
 end
 
 function App.draw()
@@ -128,8 +142,12 @@ end
 function App.filedropped(file)
   -- If an importer is present (import screen) route the drop there; otherwise
   -- spin one up. Ignore drops while a busy import is running.
-  if App.importer and App.importer:isBusy() then return end
-  if not App.importer then App._startImport() end
+  if App.importer and App.importer:isBusy() then
+    return
+  end
+  if not App.importer then
+    App._startImport()
+  end
   App.importer:filedropped(file)
 end
 
@@ -138,12 +156,15 @@ function App.keypressed(key, scancode, isrepeat)
     App.state:keypressed(key, scancode, isrepeat)
     return
   end
-  if key == "escape" then love.event.quit(0) end
+  if key == "escape" then
+    love.event.quit(0)
+  end
 end
 
-
 function App.keyreleased(key, scancode)
-  if App.state and App.state.keyreleased then App.state:keyreleased(key, scancode) end
+  if App.state and App.state.keyreleased then
+    App.state:keyreleased(key, scancode)
+  end
 end
 
 function App.gamepadpressed(joystick, button)
@@ -161,12 +182,16 @@ end
 -- Focus loss reaches the active state so held and edge input state clears
 -- (spec section 11.2).
 function App.focus(focused)
-  if App.state and App.state.focus then App.state:focus(focused) end
+  if App.state and App.state.focus then
+    App.state:focus(focused)
+  end
 end
 
 -- Give the active state a chance to release GPU resources on shutdown.
 function App.quit()
-  if App.state and App.state.quit then App.state:quit() end
+  if App.state and App.state.quit then
+    App.state:quit()
+  end
 end
 
 return App

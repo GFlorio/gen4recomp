@@ -17,8 +17,11 @@ local CRC_TABLE = {}
 for n = 0, 255 do
   local c = n
   for _ = 1, 8 do
-    if bit.band(c, 1) == 1 then c = bit.bxor(0xEDB88320, bit.rshift(c, 1))
-    else c = bit.rshift(c, 1) end
+    if bit.band(c, 1) == 1 then
+      c = bit.bxor(0xEDB88320, bit.rshift(c, 1))
+    else
+      c = bit.rshift(c, 1)
+    end
   end
   CRC_TABLE[n] = c
 end
@@ -33,8 +36,12 @@ end
 
 -- Big-endian u32 from any 32-bit value (bit ops normalize to 32 bits).
 local function be32(x)
-  return string.char(bit.band(bit.rshift(x, 24), 0xFF), bit.band(bit.rshift(x, 16), 0xFF),
-    bit.band(bit.rshift(x, 8), 0xFF), bit.band(x, 0xFF))
+  return string.char(
+    bit.band(bit.rshift(x, 24), 0xFF),
+    bit.band(bit.rshift(x, 16), 0xFF),
+    bit.band(bit.rshift(x, 8), 0xFF),
+    bit.band(x, 0xFF)
+  )
 end
 
 local function adler32(s)
@@ -70,9 +77,11 @@ end
 -- rgba: width*height*4 bytes, row-major, top-left origin, straight alpha.
 function PngWriter.encode(width, height, rgba)
   if #rgba ~= width * height * 4 then
-    Errors.raise("PNG_BAD_RGBA_LENGTH",
+    Errors.raise(
+      "PNG_BAD_RGBA_LENGTH",
       string.format("rgba is %d bytes, expected %d (%dx%d*4)", #rgba, width * height * 4, width, height),
-      { width = width, height = height, length = #rgba })
+      { width = width, height = height, length = #rgba }
+    )
   end
 
   local ihdr = be32(width) .. be32(height) .. string.char(8, 6, 0, 0, 0)

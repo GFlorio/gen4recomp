@@ -37,11 +37,12 @@ end
 local function assertTextureInventory(label, pack, packSize)
   Assert.isTrue(#pack.textures > 0, label .. ": pack has textures")
   for _, t in ipairs(pack.textures) do
-    Assert.isTrue(TextureDecoder.SUPPORTED[t.formatRaw],
-      label .. ": unsupported format " .. tostring(t.formatRaw) .. " for " .. t.name)
+    Assert.isTrue(
+      TextureDecoder.SUPPORTED[t.formatRaw],
+      label .. ": unsupported format " .. tostring(t.formatRaw) .. " for " .. t.name
+    )
     Assert.isTrue(t.width >= 8 and t.height >= 8, label .. ": finite dimensions for " .. t.name)
-    Assert.isTrue(t.dataAbsolute + t.dataSize <= packSize,
-      label .. ": texel byte range in bounds for " .. t.name)
+    Assert.isTrue(t.dataAbsolute + t.dataSize <= packSize, label .. ": texel byte range in bounds for " .. t.name)
   end
 end
 
@@ -78,8 +79,7 @@ function T.gate2_land_containers(romFs)
   local r = resolve(romFs)
   local narc = assert(romFs:openNarc("land_data"))
   local bytes = assert(narc:readMember(r.landDataMemberId))
-  local land = assert(LandData.decode(bytes,
-    { mapId = r.map.id, alias = "land_data", memberId = r.landDataMemberId }))
+  local land = assert(LandData.decode(bytes, { mapId = r.map.id, alias = "land_data", memberId = r.landDataMemberId }))
   Assert.equal(land.bgs.signature, 0x1234)
   Assert.equal(land.sizes.permissions, 0x800)
   Assert.equal(land.sizes.buildings % 0x30, 0)
@@ -93,11 +93,21 @@ function T.gate2_land_containers(romFs)
   -- surface responses.
   Assert.deepEqual(land.permissions:usedPermissionValues(), { 0, 4, 6, 128 })
   local modelIds = {}
-  for _, b in ipairs(land.buildings) do modelIds[#modelIds + 1] = b.modelMemberId end
-  print(string.format(
-    "  [new_bark] land member %d: bgsPayload=%d permissions=0x%X buildings=%d(%d recs) model=%d bdhc=%d",
-    r.landDataMemberId, #land.bgs.payload, land.sizes.permissions,
-    land.sizes.buildings, #land.buildings, land.sizes.model, land.sizes.bdhc))
+  for _, b in ipairs(land.buildings) do
+    modelIds[#modelIds + 1] = b.modelMemberId
+  end
+  print(
+    string.format(
+      "  [new_bark] land member %d: bgsPayload=%d permissions=0x%X buildings=%d(%d recs) model=%d bdhc=%d",
+      r.landDataMemberId,
+      #land.bgs.payload,
+      land.sizes.permissions,
+      land.sizes.buildings,
+      #land.buildings,
+      land.sizes.model,
+      land.sizes.bdhc
+    )
+  )
   print("  [new_bark] placed building model ids: " .. table.concat(modelIds, " "))
   print("  [new_bark] permission values: " .. table.concat(land.permissions:usedPermissionValues(), " "))
 end
@@ -120,8 +130,8 @@ end
 -- member 21) resolves through the exterior archive.
 function T.gate4_geometry_inventory(romFs)
   local r = resolve(romFs)
-  local land = assert(LandData.decode(assert(romFs:openNarc("land_data")):readMember(r.landDataMemberId),
-    { mapId = r.map.id }))
+  local land =
+    assert(LandData.decode(assert(romFs:openNarc("land_data")):readMember(r.landDataMemberId), { mapId = r.map.id }))
   local model = assert(Nsbmd.decode(land.mapModelBytes)).models[1]
   Assert.equal(model.info.numShp, 18)
   Assert.equal(#model.sbc.draws, 18)
@@ -130,8 +140,10 @@ function T.gate4_geometry_inventory(romFs)
   for _, shp in ipairs(model.shapes) do
     Assert.notNil(shp.bounds, "shape " .. shp.name .. " produced no geometry bounds")
     for k = 1, 3 do
-      Assert.isTrue(isFinite(shp.bounds.min[k]) and isFinite(shp.bounds.max[k]),
-        "non-finite bound in shape " .. shp.name)
+      Assert.isTrue(
+        isFinite(shp.bounds.min[k]) and isFinite(shp.bounds.max[k]),
+        "non-finite bound in shape " .. shp.name
+      )
     end
   end
 
@@ -151,12 +163,21 @@ function T.gate4_geometry_inventory(romFs)
   -- Model 21 is present and identified as wk_labo (the laboratory exterior).
   local labo
   for _, s in ipairs(report.buildings.modelSummaries) do
-    if s.memberId == 21 then labo = s end
+    if s.memberId == 21 then
+      labo = s
+    end
   end
   Assert.notNil(labo, "New Bark should place exterior building model 21")
   Assert.equal(labo.modelName, "wk_labo")
-  print(string.format("  [new_bark] map model %q: %d shapes, %d verts; lab exterior model 21 = %q",
-    report.mapModel.modelName, report.mapModel.shapeCount, report.mapModel.vertexCount, labo.modelName))
+  print(
+    string.format(
+      "  [new_bark] map model %q: %d shapes, %d verts; lab exterior model 21 = %q",
+      report.mapModel.modelName,
+      report.mapModel.shapeCount,
+      report.mapModel.vertexCount,
+      labo.modelName
+    )
+  )
 end
 
 -- New Bark's outdoor texture pack includes A3I5/A5I3 partial-alpha textures;
@@ -177,8 +198,7 @@ function T.format_1_and_6_are_translucent(romFs)
     end
     for _, b in ipairs(batches or {}) do
       if fmtById[b.material] then
-        Assert.equal(b.alphaClass, "translucent",
-          "format " .. fmtById[b.material] .. " batch is translucent")
+        Assert.equal(b.alphaClass, "translucent", "format " .. fmtById[b.material] .. " batch is translucent")
       end
     end
   end
@@ -196,8 +216,8 @@ end
 -- for map textures). Guard both the parse and the compiled scene material.
 function T.flowers_tile_via_material_wrap(romFs)
   local r = resolve(romFs)
-  local land = assert(LandData.decode(assert(romFs:openNarc("land_data")):readMember(r.landDataMemberId),
-    { mapId = r.map.id }))
+  local land =
+    assert(LandData.decode(assert(romFs:openNarc("land_data")):readMember(r.landDataMemberId), { mapId = r.map.id }))
   local model = assert(Nsbmd.decode(land.mapModelBytes)).models[1]
   for _, mat in ipairs(model.materials) do
     if mat.textureName and mat.textureName:find("^flower") then
@@ -208,7 +228,9 @@ function T.flowers_tile_via_material_wrap(romFs)
   local bundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK"))
   local flowerMat
   for _, m in ipairs(bundle.scene.materials) do
-    if m.name:find("^flower") then flowerMat = m end
+    if m.name:find("^flower") then
+      flowerMat = m
+    end
   end
   Assert.notNil(flowerMat, "scene carries a flower material")
   Assert.equal(flowerMat.wrap.x, "repeat")
@@ -230,15 +252,20 @@ function T.binary_zero_alpha_is_cutout(romFs)
     for _, m in ipairs(materials or {}) do
       local sha1 = textureSha1(m.texture)
       local tex = sha1 and bundle.textures[sha1]
-      if m.texture and tex and tex.alphaUsage and tex.alphaUsage.hasZero
-          and m.textureFormat ~= 1 and m.textureFormat ~= 6 then
+      if
+        m.texture
+        and tex
+        and tex.alphaUsage
+        and tex.alphaUsage.hasZero
+        and m.textureFormat ~= 1
+        and m.textureFormat ~= 6
+      then
         cutoutById[m.id] = true
       end
     end
     for _, b in ipairs(batches or {}) do
       if cutoutById[b.material] then
-        Assert.equal(b.alphaClass, "cutout",
-          "binary zero-alpha batch is cutout, not translucent")
+        Assert.equal(b.alphaClass, "cutout", "binary zero-alpha batch is cutout, not translucent")
         Assert.isTrue(b.polygonAlpha == 31, "cutout keeps full polygon alpha")
       end
     end
@@ -308,7 +335,9 @@ function T.gate9_central_cell_scene(romFs, version)
   Assert.isTrue(#scene.mapBatches > 0, "outdoor map model has draw batches")
   local labo = false
   for _, inst in ipairs(scene.buildingInstances) do
-    if inst.modelKey:find("^outdoor:21:") then labo = true end
+    if inst.modelKey:find("^outdoor:21:") then
+      labo = true
+    end
   end
   Assert.isTrue(labo, "lab exterior model 21 placed via the outdoor archive")
 
@@ -320,7 +349,9 @@ function T.gate9_central_cell_scene(romFs, version)
   -- The spawn lands inside the central 32x32 cell on a passable tile.
   local perms = assert(c:read(MapAssetCache.mapDir(60) .. "/permissions.bin"))
   local collision = CollisionGrid.new(assert(PermissionGrid.decode(perms)), {
-    worldOriginX = m.worldOriginX, worldOriginZ = m.worldOriginZ })
+    worldOriginX = m.worldOriginX,
+    worldOriginZ = m.worldOriginZ,
+  })
   Assert.isTrue(collision:containsLocal(spawn.x, spawn.z), "spawn in cell")
   Assert.isFalse(collision:isBlockedLocal(spawn.x, spawn.z))
   local globalX, globalZ = collision:localToGlobal(spawn.x, spawn.z)
@@ -347,7 +378,9 @@ function T.neighbor_ring_plans_and_compiles(romFs)
   -- East cell is Route 27 (header 31, land 11, reuses area 2) at +32 tiles X.
   local east
   for _, c in ipairs(plan.cells) do
-    if c.x == 22 and c.z == 12 then east = c end
+    if c.x == 22 and c.z == 12 then
+      east = c
+    end
   end
   Assert.notNil(east, "east neighbor present")
   Assert.equal(east.mapHeaderId, 31)
@@ -358,14 +391,15 @@ function T.neighbor_ring_plans_and_compiles(romFs)
 
   -- Each unique chunk compiles to non-empty terrain batches with real geometry.
   local areaOf = {}
-  for _, c in ipairs(plan.cells) do areaOf[c.landDataMemberId] = c.areaDataMemberId end
+  for _, c in ipairs(plan.cells) do
+    areaOf[c.landDataMemberId] = c.areaDataMemberId
+  end
   for _, member in ipairs(plan.uniqueLandMembers) do
     local chunk = NeighborChunkCompiler.compile(romFs, member, areaOf[member])
     Assert.isTrue(#chunk.batches > 0, "neighbor land " .. member .. " has batches")
     Assert.isTrue(next(chunk.meshes) ~= nil, "neighbor land " .. member .. " has meshes")
   end
-  print(string.format("  [new_bark] neighbor ring: %d cells, %d unique chunks",
-    #plan.cells, #plan.uniqueLandMembers))
+  print(string.format("  [new_bark] neighbor ring: %d cells, %d unique chunks", #plan.cells, #plan.uniqueLandMembers))
 end
 
 -- The compiled New Bark bundle carries the digested neighbour ring in

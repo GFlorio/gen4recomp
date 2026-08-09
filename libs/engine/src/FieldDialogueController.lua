@@ -38,8 +38,7 @@ FieldDialogueController.DEFAULT_CURSOR_BLINK_TICKS = 30
 ---@param page DialogueLayout.Page
 ---@return boolean
 local function waitsForAction(page)
-  return page.breakKind == "prompt" or page.breakKind == "page"
-    or page.breakKind == "eos"
+  return page.breakKind == "prompt" or page.breakKind == "page" or page.breakKind == "eos"
 end
 
 ---@param page DialogueLayout.Page
@@ -48,7 +47,9 @@ local function glyphCount(page)
   local count = 0
   for _, line in ipairs(page.lines) do
     for _, token in ipairs(line.tokens) do
-      if token.kind == "glyph" then count = count + 1 end
+      if token.kind == "glyph" then
+        count = count + 1
+      end
     end
   end
   return count
@@ -68,12 +69,16 @@ local function visibleLines(page, revealed)
     local tokens = {}
     for _, token in ipairs(line.tokens) do
       if token.kind == "glyph" then
-        if seen >= revealed then break end
+        if seen >= revealed then
+          break
+        end
         seen = seen + 1
       end
       tokens[#tokens + 1] = token
     end
-    if #tokens > 0 then out[#out + 1] = tokens end
+    if #tokens > 0 then
+      out[#out + 1] = tokens
+    end
   end
   return out
 end
@@ -89,15 +94,20 @@ end
 ---@param opts FieldDialogueControllerOptions
 ---@return FieldDialogueController
 function FieldDialogueController.new(opts)
-  assert(type(opts) == "table" and type(opts.layout) == "function",
-    "FieldDialogueController requires a layout function")
+  assert(
+    type(opts) == "table" and type(opts.layout) == "function",
+    "FieldDialogueController requires a layout function"
+  )
   local ticksPerGlyph = opts.ticksPerGlyph or FieldDialogueController.DEFAULT_TICKS_PER_GLYPH
-  assert(ticksPerGlyph >= 1 and ticksPerGlyph == math.floor(ticksPerGlyph),
-    "ticks per glyph must be a positive integer")
-  local cursorBlinkTicks = opts.cursorBlinkTicks
-    or FieldDialogueController.DEFAULT_CURSOR_BLINK_TICKS
-  assert(cursorBlinkTicks >= 1 and cursorBlinkTicks == math.floor(cursorBlinkTicks),
-    "cursor blink ticks must be a positive integer")
+  assert(
+    ticksPerGlyph >= 1 and ticksPerGlyph == math.floor(ticksPerGlyph),
+    "ticks per glyph must be a positive integer"
+  )
+  local cursorBlinkTicks = opts.cursorBlinkTicks or FieldDialogueController.DEFAULT_CURSOR_BLINK_TICKS
+  assert(
+    cursorBlinkTicks >= 1 and cursorBlinkTicks == math.floor(cursorBlinkTicks),
+    "cursor blink ticks must be a positive integer"
+  )
   return setmetatable({
     _layout = opts.layout,
     _ticksPerGlyph = ticksPerGlyph,
@@ -164,7 +174,9 @@ function FieldDialogueController:_result(kind, extra)
     metadata = request.metadata,
   }
   if extra then
-    for key, value in pairs(extra) do result[key] = value end
+    for key, value in pairs(extra) do
+      result[key] = value
+    end
   end
   return result
 end
@@ -187,17 +199,23 @@ end
 ---@return FieldDialogueController.Result?
 function FieldDialogueController:_dispatch()
   local terminal = self._terminal
-  if not terminal then return nil end
+  if not terminal then
+    return nil
+  end
   self._terminal = nil
   local callback = terminal.kind == "complete" and self._handle._onComplete
     or terminal.kind == "cancel" and self._handle._onCancel
     or self._handle._onError
   self._dispatching = true
   local ok, err = pcall(function()
-    if callback then callback(terminal.result) end
+    if callback then
+      callback(terminal.result)
+    end
   end)
   self._dispatching = false
-  if not ok then error(err) end
+  if not ok then
+    error(err)
+  end
   return terminal.result
 end
 
@@ -209,19 +227,31 @@ end
 ---@param request FieldDialogueController.Request
 ---@return FieldDialogueController.Handle
 function FieldDialogueController:open(request)
-  assert(type(request) == "table" and type(request.id) == "string",
-    "dialogue request requires an id")
-  assert(type(request.message) == "table" and type(request.message.tokens) == "table",
-    "dialogue request requires a formatted message with a token stream")
+  assert(type(request) == "table" and type(request.id) == "string", "dialogue request requires an id")
+  assert(
+    type(request.message) == "table" and type(request.message.tokens) == "table",
+    "dialogue request requires a formatted message with a token stream"
+  )
   if self._state ~= "CLOSED" then
-    Errors.raise("DIALOGUE_ALREADY_OPEN",
+    Errors.raise(
+      "DIALOGUE_ALREADY_OPEN",
       "a dialogue is already open; open() while modal is not allowed",
-      { requestId = self._request and self._request.id })
+      { requestId = self._request and self._request.id }
+    )
   end
   local handle = {}
-  handle.onComplete = function(self, fn) self._onComplete = fn return self end
-  handle.onCancel = function(self, fn) self._onCancel = fn return self end
-  handle.onError = function(self, fn) self._onError = fn return self end
+  handle.onComplete = function(self, fn)
+    self._onComplete = fn
+    return self
+  end
+  handle.onCancel = function(self, fn)
+    self._onCancel = fn
+    return self
+  end
+  handle.onError = function(self, fn)
+    self._onError = fn
+    return self
+  end
   local ok, pages = pcall(self._layout, request.message)
   self._request = request
   self._handle = handle
@@ -294,9 +324,13 @@ function FieldDialogueController:_atPageEnd()
   -- tick. Zero-glyph auto-scroll pages step through until a wait or a real
   -- reveal, bounded by the page count.
   while not waitsForAction(page) do
-    if not self:_advancePage() then return end
+    if not self:_advancePage() then
+      return
+    end
     page = self._pages[self._pageIndex]
-    if self._pageGlyphs[self._pageIndex] > 0 then return end
+    if self._pageGlyphs[self._pageIndex] > 0 then
+      return
+    end
   end
   self:_enterWait()
 end
@@ -314,9 +348,13 @@ function FieldDialogueController:_revealTick(snapshot)
       self._revealTicks = self._revealTicks - self._ticksPerGlyph
       self._revealed = self._revealed + 1
     end
-    if self._revealed > total then self._revealed = total end
+    if self._revealed > total then
+      self._revealed = total
+    end
   end
-  if self._revealed >= total then self:_atPageEnd() end
+  if self._revealed >= total then
+    self:_atPageEnd()
+  end
 end
 
 -- One fixed simulation tick. snapshot = { actionPressed, actionDown,
@@ -326,12 +364,13 @@ end
 ---@param snapshot FieldDialogueController.Input?
 ---@return FieldDialogueController.Result?
 function FieldDialogueController:step(snapshot)
-  if self._state == "CLOSED" then return nil end
+  if self._state == "CLOSED" then
+    return nil
+  end
   snapshot = snapshot or {}
   self._tick = self._tick + 1
 
-  if self._request.allowCancel and snapshot.cancelPressed
-      and self._state ~= "CLOSING" then
+  if self._request.allowCancel and snapshot.cancelPressed and self._state ~= "CLOSING" then
     self._state = "CLOSED"
     self:_complete("cancel")
     return self:_dispatch()
@@ -377,7 +416,9 @@ end
 
 ---@return FieldDialogueController.Result?
 function FieldDialogueController:close()
-  if self._state == "CLOSED" then return nil end
+  if self._state == "CLOSED" then
+    return nil
+  end
   if self._state ~= "CLOSING" then
     self._state = "CLOSING"
   end
@@ -391,7 +432,9 @@ end
 
 ---@return FieldDialogueController.Result?
 function FieldDialogueController:dispose()
-  if self._state == "CLOSED" then return nil end
+  if self._state == "CLOSED" then
+    return nil
+  end
   self._state = "CLOSED"
   self:_complete("cancel")
   return self:_dispatch()

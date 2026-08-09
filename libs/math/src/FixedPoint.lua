@@ -48,9 +48,7 @@ function FixedPoint.rgb555(value)
   local r5 = value % 32
   local g5 = math.floor(value / 32) % 32
   local b5 = math.floor(value / 1024) % 32
-  return math.floor(r5 * 255 / 31 + 0.5),
-    math.floor(g5 * 255 / 31 + 0.5),
-    math.floor(b5 * 255 / 31 + 0.5)
+  return math.floor(r5 * 255 / 31 + 0.5), math.floor(g5 * 255 / 31 + 0.5), math.floor(b5 * 255 / 31 + 0.5)
 end
 
 -- DS angle word (0x10000 == full turn) -> radians.

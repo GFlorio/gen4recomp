@@ -100,7 +100,9 @@ function FieldSession:updateFixed(inputSnapshot)
     -- Keep the just-arrived tile stable until the application consumes the
     -- completion event and autosaves it, even when movement remains held.
     if self.transition.completed then
-      if self.input and self.input.clearEdges then self.input:clearEdges() end
+      if self.input and self.input.clearEdges then
+        self.input:clearEdges()
+      end
       self:_advanceTick()
       return
     end
@@ -120,13 +122,19 @@ function FieldSession:updateFixed(inputSnapshot)
   end
 
   if self.transition and self.transition.suppression then
-    self.transition.suppression = WarpSystem.updateSuppression(self.transition.suppression,
-      self.currentMap.mapId, self.player.fieldX, self.player.fieldZ)
+    self.transition.suppression = WarpSystem.updateSuppression(
+      self.transition.suppression,
+      self.currentMap.mapId,
+      self.player.fieldX,
+      self.player.fieldZ
+    )
   end
 
   -- Queued visibility changes land before anything reads occupancy or starts a
   -- move, so collision and the draw list never disagree within a tick.
-  if self.actors then self.actors:step(self.tick + 1) end
+  if self.actors then
+    self.actors:step(self.tick + 1)
+  end
 
   -- Spec 11.3 step 6: an idle player's Action edge resolves an interaction
   -- before movement or warps are evaluated. A consumed interaction owns the
@@ -151,10 +159,11 @@ function FieldSession:updateFixed(inputSnapshot)
 
   local direction = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
   if self.transition and self.transition.start and self.player.motion == "idle" and direction then
-    local facingWarp = WarpSystem.findBlockedFacing(self.currentMap,
-      self.player.fieldX, self.player.fieldZ, direction)
-    if facingWarp and not WarpSystem.isSuppressed(self.transition.suppression,
-      self.currentMap.mapId, facingWarp.x, facingWarp.z) then
+    local facingWarp = WarpSystem.findBlockedFacing(self.currentMap, self.player.fieldX, self.player.fieldZ, direction)
+    if
+      facingWarp
+      and not WarpSystem.isSuppressed(self.transition.suppression, self.currentMap.mapId, facingWarp.x, facingWarp.z)
+    then
       self.player.facing = direction
       self.transition:start(self.currentMap, facingWarp, direction)
       self:_advanceTick()
@@ -168,19 +177,32 @@ function FieldSession:updateFixed(inputSnapshot)
   local walkingAtTickStart = self.player.motion == "walking"
 
   local stepCompleted = false
-  if self.player.updateFixed then stepCompleted = self.player:updateFixed(inputSnapshot) == true end
+  if self.player.updateFixed then
+    stepCompleted = self.player:updateFixed(inputSnapshot) == true
+  end
   if stepCompleted and self.transition and self.transition.start then
     local standingWarp = WarpSystem.findAt(self.currentMap, self.player.fieldX, self.player.fieldZ)
-    if standingWarp and not WarpSystem.isSuppressed(self.transition.suppression,
-      self.currentMap.mapId, self.player.fieldX, self.player.fieldZ) then
+    if
+      standingWarp
+      and not WarpSystem.isSuppressed(
+        self.transition.suppression,
+        self.currentMap.mapId,
+        self.player.fieldX,
+        self.player.fieldZ
+      )
+    then
       self.transition:start(self.currentMap, standingWarp, self.player.facing)
     end
   end
   -- Pose clocks advance only on a tick that could change the world, so a fade or
   -- a locked transition freezes animation instead of walking it in place.
-  if self.playerVisual then self.playerVisual:updateFixed(walkingAtTickStart) end
+  if self.playerVisual then
+    self.playerVisual:updateFixed(walkingAtTickStart)
+  end
   self.camera:updateFixed(self:actorTarget())
-  if self.coverage then self.coverage(self) end
+  if self.coverage then
+    self.coverage(self)
+  end
   self:_advanceTick()
 end
 
@@ -188,8 +210,9 @@ function FieldSession:update(dt, inputSnapshot)
   assert(type(dt) == "number" and dt >= 0, "non-negative update dt required")
   self.accumulator = self.accumulator + dt
   local executed = 0
-  while self.accumulator + ACCUMULATOR_EPSILON >= FieldSession.FIXED_DT
-    and executed < FieldSession.MAX_CATCH_UP_TICKS do
+  while
+    self.accumulator + ACCUMULATOR_EPSILON >= FieldSession.FIXED_DT and executed < FieldSession.MAX_CATCH_UP_TICKS
+  do
     self.accumulator = self.accumulator - FieldSession.FIXED_DT
     self:updateFixed(inputSnapshot)
     executed = executed + 1

@@ -28,7 +28,9 @@ local MODULES = {
 
 local function sortedKeys(t)
   local keys = {}
-  for k in pairs(t) do keys[#keys + 1] = k end
+  for k in pairs(t) do
+    keys[#keys + 1] = k
+  end
   table.sort(keys)
   return keys
 end
@@ -36,7 +38,9 @@ end
 local function readyVersions()
   local out = {}
   for _, id in ipairs(GameVersion.ORDER) do
-    if RomImporter.isReady(id) then out[#out + 1] = id end
+    if RomImporter.isReady(id) then
+      out[#out + 1] = id
+    end
   end
   return out
 end

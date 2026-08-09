@@ -15,10 +15,18 @@ FieldActorCache.INDEX_SCHEMA = "g4-field-actor-index-v1"
 local DATA_DIR = "data/generated/field/actors"
 local ASSET_DIR = "assets/generated/field/actors"
 
-function FieldActorCache.dir() return DATA_DIR end
-function FieldActorCache.indexPath() return DATA_DIR .. "/index.lua" end
-function FieldActorCache.provenancePath() return DATA_DIR .. "/provenance.lua" end
-function FieldActorCache.markerPath() return DATA_DIR .. "/complete" end
+function FieldActorCache.dir()
+  return DATA_DIR
+end
+function FieldActorCache.indexPath()
+  return DATA_DIR .. "/index.lua"
+end
+function FieldActorCache.provenancePath()
+  return DATA_DIR .. "/provenance.lua"
+end
+function FieldActorCache.markerPath()
+  return DATA_DIR .. "/complete"
+end
 
 function FieldActorCache.visualPath(spriteId)
   return string.format("%s/visuals/%04d.lua", DATA_DIR, spriteId)
@@ -35,12 +43,20 @@ end
 -- True only if the marker is exact, the index loads with the expected schema,
 -- and every indexed sprite's visual definition and atlas is present.
 function FieldActorCache.isReady(cacheFs, expectedMarker)
-  if cacheFs:read(FieldActorCache.markerPath()) ~= expectedMarker then return false end
+  if cacheFs:read(FieldActorCache.markerPath()) ~= expectedMarker then
+    return false
+  end
   local index = cacheFs:loadLua(FieldActorCache.indexPath())
-  if type(index) ~= "table" or index.schema ~= FieldActorCache.INDEX_SCHEMA then return false end
+  if type(index) ~= "table" or index.schema ~= FieldActorCache.INDEX_SCHEMA then
+    return false
+  end
   for _, spriteId in ipairs(index.spriteIds or {}) do
-    if not cacheFs:exists(FieldActorCache.visualPath(spriteId), "file") then return false end
-    if not cacheFs:exists(FieldActorCache.atlasPath(spriteId), "file") then return false end
+    if not cacheFs:exists(FieldActorCache.visualPath(spriteId), "file") then
+      return false
+    end
+    if not cacheFs:exists(FieldActorCache.atlasPath(spriteId), "file") then
+      return false
+    end
   end
   return true
 end

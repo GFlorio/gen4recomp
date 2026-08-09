@@ -16,8 +16,24 @@ local T = {}
 local function fixture()
   local messages = {
     { 0x0141, 0x0153, 0x015B, 0x01AD, 0x01DE, 0xFFFF },
-    { 0x013A, 0x0156, 0x0153, 0x014A, 0x0149, 0x0157, 0x0157, 0x0153,
-      0x0156, 0x01DE, 0xFFFE, 0x0103, 0x0002, 0x0000, 0x0000, 0xFFFF },
+    {
+      0x013A,
+      0x0156,
+      0x0153,
+      0x014A,
+      0x0149,
+      0x0157,
+      0x0157,
+      0x0153,
+      0x0156,
+      0x01DE,
+      0xFFFE,
+      0x0103,
+      0x0002,
+      0x0000,
+      0x0000,
+      0xFFFF,
+    },
   }
   local members = {
     [542] = FieldMessageBank.encodeForTests(messages, 0x4F2F),
@@ -28,26 +44,40 @@ local function fixture()
   local romFs = {
     resolvedNarc = function(_, alias)
       Assert.equal(alias, "messages")
-      return { symbol = "NARC_msgdata_msg", alias = "messages", narcId = 27,
-        fileId = 77, path = "a/0/2/7" }
+      return { symbol = "NARC_msgdata_msg", alias = "messages", narcId = 27, fileId = 77, path = "a/0/2/7" }
     end,
-    read = function(_, fileId) Assert.equal(fileId, 77); return "archive-bytes" end,
+    read = function(_, fileId)
+      Assert.equal(fileId, 77)
+      return "archive-bytes"
+    end,
     openNarc = function(_, alias)
       Assert.equal(alias, "messages")
-      return { readMember = function(_, memberId)
-        Assert.notNil(members[memberId])
-        return members[memberId]
-      end }
+      return {
+        readMember = function(_, memberId)
+          Assert.notNil(members[memberId])
+          return members[memberId]
+        end,
+      }
     end,
-    metadata = function() return { sha1 = "rom-sha" } end,
-    version = function() return "heartgold" end,
+    metadata = function()
+      return { sha1 = "rom-sha" }
+    end,
+    version = function()
+      return "heartgold"
+    end,
   }
   local function sha1(bytes)
-    if bytes == members[542] then return "member-542-sha" end
-    if bytes == members[543] then return "member-543-sha" end
+    if bytes == members[542] then
+      return "member-542-sha"
+    end
+    if bytes == members[543] then
+      return "member-543-sha"
+    end
     return "archive-sha"
   end
-  return romFs, sha1, function() return "dependency-sha" end
+  return romFs, sha1, function()
+    return "dependency-sha"
+  end
 end
 
 function T.compiles_tokenized_lossless_banks()
@@ -61,8 +91,7 @@ function T.compiles_tokenized_lossless_banks()
   Assert.equal(bank.bankId, 542)
   Assert.equal(bank.messageCount, 2)
   Assert.equal(bank.source.memberSha1, "member-542-sha")
-  Assert.deepEqual(bank.messages[0].raw,
-    { 0x0141, 0x0153, 0x015B, 0x01AD, 0x01DE, 0xFFFF })
+  Assert.deepEqual(bank.messages[0].raw, { 0x0141, 0x0153, 0x015B, 0x01AD, 0x01DE, 0xFFFF })
   -- The asset carries the modder-facing display text beside the tokens.
   Assert.equal(bank.messages[0].text, "Wow, ")
   Assert.equal(bank.messages[1].text, "Professor {STRVAR_1 3, 0, 0}")
@@ -105,11 +134,15 @@ function T.writer_failure_invalidates_the_class()
   local originalWrite = backend.write
   ---@diagnostic disable: duplicate-set-field
   backend.write = function(self, path, data)
-    if path:find("banks/0543.lua", 1, true) then error("injected") end
+    if path:find("banks/0543.lua", 1, true) then
+      error("injected")
+    end
     return originalWrite(self, path, data)
   end
   local cache = CacheFs.forVersion("heartgold", backend)
-  Assert.throws(function() FieldMessageCacheWriter.write(cache, bundle) end)
+  Assert.throws(function()
+    FieldMessageCacheWriter.write(cache, bundle)
+  end)
   Assert.isFalse(cache:exists(FieldMessageCache.dir()))
 end
 
@@ -117,13 +150,22 @@ function T.unmapped_glyph_fails_compilation_with_context()
   local messages = { { 0x0001, 0xFFFF } } -- kana code outside the selected set
   local member = FieldMessageBank.encodeForTests(messages, 0x1234)
   local romFs = {
-    resolvedNarc = function() return { symbol = "NARC_msgdata_msg", alias = "messages",
-      narcId = 27, fileId = 77, path = "a/0/2/7" } end,
-    read = function() return "archive-bytes" end,
-    openNarc = function()
-      return { readMember = function() return member end }
+    resolvedNarc = function()
+      return { symbol = "NARC_msgdata_msg", alias = "messages", narcId = 27, fileId = 77, path = "a/0/2/7" }
     end,
-    metadata = function() return { sha1 = "rom-sha" } end,
+    read = function()
+      return "archive-bytes"
+    end,
+    openNarc = function()
+      return {
+        readMember = function()
+          return member
+        end,
+      }
+    end,
+    metadata = function()
+      return { sha1 = "rom-sha" }
+    end,
   }
   local bundle, err = FieldMessageCompiler.compile(romFs)
   Assert.isNil(bundle, "expected a failure result")

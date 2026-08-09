@@ -13,25 +13,36 @@ local function fixture()
       { scriptId = 10, type = 11, x = -12, z = 13, y = -14, direction = 3 },
     },
     objectEvents = {
-      { objectEventId = 21, spriteId = 22, movement = 23, type = 24,
-        eventFlag = 25, scriptId = 26, facingDirection = 0,
-        param0 = 27, param1 = 28, param2 = 29, xRange = -2, yRange = 3,
-        x = 30, z = 31, y = -32 },
+      {
+        objectEventId = 21,
+        spriteId = 22,
+        movement = 23,
+        type = 24,
+        eventFlag = 25,
+        scriptId = 26,
+        facingDirection = 0,
+        param0 = 27,
+        param1 = 28,
+        param2 = 29,
+        xRange = -2,
+        yRange = 3,
+        x = 30,
+        z = 31,
+        y = -32,
+      },
     },
     warps = {
       { x = 684, z = 393, destinationMapId = 61, destinationWarpId = 4, y = 7 },
     },
     coordinateEvents = {
-      { scriptId = 41, x = -42, z = 43, width = 44, height = 45, y = 46,
-        requiredValue = 47, variableId = 48 },
+      { scriptId = 41, x = -42, z = 43, width = 44, height = 45, y = 46, requiredValue = 47, variableId = 48 },
     },
   }
 end
 
 function T.decodes_every_field_and_preserves_zero_based_indexes()
   local bytes = Builder.build(fixture())
-  local result = assert(ZoneEvents.decode(bytes,
-    { mapId = 60, eventMemberId = 57, source = "fixture" }))
+  local result = assert(ZoneEvents.decode(bytes, { mapId = 60, eventMemberId = 57, source = "fixture" }))
   Assert.equal(result.schema, "hgss-zone-events-v1")
   Assert.equal(result.mapId, 60)
   Assert.equal(result.eventMemberId, 57)
@@ -40,22 +51,52 @@ function T.decodes_every_field_and_preserves_zero_based_indexes()
   Assert.isNil(result.trailingBytes)
 
   Assert.deepEqual(result.backgroundEvents[1], {
-    index = 0, scriptId = 10, type = 11, x = -12, z = 13, y = -14,
-    directionRaw = 3, direction = "east",
+    index = 0,
+    scriptId = 10,
+    type = 11,
+    x = -12,
+    z = 13,
+    y = -14,
+    directionRaw = 3,
+    direction = "east",
   })
   Assert.deepEqual(result.objectEvents[1], {
-    index = 0, objectEventId = 21, spriteId = 22, movement = 23, type = 24,
-    eventFlag = 25, scriptId = 26, facingDirectionRaw = 0,
-    facingDirection = "north", param0 = 27, param1 = 28, param2 = 29,
-    xRange = -2, yRange = 3, x = 30, z = 31, y = -32,
+    index = 0,
+    objectEventId = 21,
+    spriteId = 22,
+    movement = 23,
+    type = 24,
+    eventFlag = 25,
+    scriptId = 26,
+    facingDirectionRaw = 0,
+    facingDirection = "north",
+    param0 = 27,
+    param1 = 28,
+    param2 = 29,
+    xRange = -2,
+    yRange = 3,
+    x = 30,
+    z = 31,
+    y = -32,
   })
   Assert.deepEqual(result.warps[1], {
-    index = 0, x = 684, z = 393, destinationMapId = 61,
-    destinationWarpId = 4, y = 7,
+    index = 0,
+    x = 684,
+    z = 393,
+    destinationMapId = 61,
+    destinationWarpId = 4,
+    y = 7,
   })
   Assert.deepEqual(result.coordinateEvents[1], {
-    index = 0, scriptId = 41, x = -42, z = 43, width = 44, height = 45,
-    y = 46, requiredValue = 47, variableId = 48,
+    index = 0,
+    scriptId = 41,
+    x = -42,
+    z = 43,
+    width = 44,
+    height = 45,
+    y = 46,
+    requiredValue = 47,
+    variableId = 48,
   })
 end
 

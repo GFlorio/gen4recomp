@@ -27,23 +27,65 @@ end
 -- surface selection and same-x/z different-surface occupancy are testable.
 -- Plate 2 duplicates plate 0's height over x 20..24 to force an exact tie.
 local function terrain()
-  return TerrainSurface.new({ plates = {
-    { id = 0, minX = 0, minZ = 0, maxX = 32, maxZ = 32,
-      normal = { x = 0, y = 1, z = 0 }, distance = 0, slopeClass = "flat" },
-    { id = 1, minX = 8, minZ = 0, maxX = 32, maxZ = 32,
-      normal = { x = 0, y = 1, z = 0 }, distance = 4, slopeClass = "flat" },
-    { id = 2, minX = 20, minZ = 0, maxX = 24, maxZ = 32,
-      normal = { x = 0, y = 1, z = 0 }, distance = 0, slopeClass = "flat" },
-  } })
+  return TerrainSurface.new({
+    plates = {
+      {
+        id = 0,
+        minX = 0,
+        minZ = 0,
+        maxX = 32,
+        maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 },
+        distance = 0,
+        slopeClass = "flat",
+      },
+      {
+        id = 1,
+        minX = 8,
+        minZ = 0,
+        maxX = 32,
+        maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 },
+        distance = 4,
+        slopeClass = "flat",
+      },
+      {
+        id = 2,
+        minX = 20,
+        minZ = 0,
+        maxX = 24,
+        maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 },
+        distance = 0,
+        slopeClass = "flat",
+      },
+    },
+  })
 end
 
 local function object(overrides)
   local event = {
-    index = 0, objectEventId = 0, spriteId = 99, movement = 0, type = 0,
-    eventFlag = 0, scriptId = 1, facingDirection = "south", facingDirectionRaw = 1,
-    param0 = 0, param1 = 0, param2 = 0, xRange = 0, yRange = 0, x = 2, z = 3, y = 0,
+    index = 0,
+    objectEventId = 0,
+    spriteId = 99,
+    movement = 0,
+    type = 0,
+    eventFlag = 0,
+    scriptId = 1,
+    facingDirection = "south",
+    facingDirectionRaw = 1,
+    param0 = 0,
+    param1 = 0,
+    param2 = 0,
+    xRange = 0,
+    yRange = 0,
+    x = 2,
+    z = 3,
+    y = 0,
   }
-  for key, value in pairs(overrides or {}) do event[key] = value end
+  for key, value in pairs(overrides or {}) do
+    event[key] = value
+  end
   return event
 end
 
@@ -52,7 +94,9 @@ local function runtimeMap(objects, mapId)
     mapId = mapId or 61,
     coordinateOrigin = { x = 0, z = 0 },
     permissions = {
-      containsLocal = function(_, x, z) return x >= 0 and x < 40 and z >= 0 and z < 32 end,
+      containsLocal = function(_, x, z)
+        return x >= 0 and x < 40 and z >= 0 and z < 32
+      end,
     },
     terrain = terrain(),
     fieldData = { events = { objects = objects, background = {}, warps = {}, coordinates = {} } },
@@ -64,7 +108,9 @@ end
 local function fakeAssets(known)
   return {
     references = {},
-    knows = function(self, spriteId) return known[spriteId] == true end,
+    knows = function(self, spriteId)
+      return known[spriteId] == true
+    end,
     acquire = function(self, spriteId)
       self.references[spriteId] = (self.references[spriteId] or 0) + 1
       return { spriteId = spriteId, visual = { spriteId = spriteId, mapModelId = spriteId } }
@@ -76,7 +122,9 @@ local function fakeAssets(known)
     end,
     total = function(self)
       local sum = 0
-      for _, count in pairs(self.references) do sum = sum + count end
+      for _, count in pairs(self.references) do
+        sum = sum + count
+      end
       return sum
     end,
   }
@@ -119,11 +167,15 @@ function T.raw_event_y_hint_selects_the_stacked_surface()
 end
 
 function T.actor_off_the_terrain_is_fatal()
-  throwsCode("ACTOR_SURFACE_MISSING", function() manager({ object({ x = 35, z = 3 }) }) end)
+  throwsCode("ACTOR_SURFACE_MISSING", function()
+    manager({ object({ x = 35, z = 3 }) })
+  end)
 end
 
 function T.equally_near_surfaces_are_ambiguous_rather_than_guessed()
-  throwsCode("ACTOR_SURFACE_AMBIGUOUS", function() manager({ object({ x = 21, z = 3 }) }) end)
+  throwsCode("ACTOR_SURFACE_AMBIGUOUS", function()
+    manager({ object({ x = 21, z = 3 }) })
+  end)
 end
 
 function T.duplicate_object_event_ids_are_rejected()
@@ -139,7 +191,9 @@ function T.two_solid_actors_on_one_cell_conflict()
 end
 
 function T.uncompiled_sprite_is_fatal()
-  throwsCode("ACTOR_VISUAL_MISSING", function() manager({ object({ spriteId = 148 }) }) end)
+  throwsCode("ACTOR_VISUAL_MISSING", function()
+    manager({ object({ spriteId = 148 }) })
+  end)
 end
 
 function T.variable_sprite_resolves_to_the_hero_graphic_by_default()
@@ -160,8 +214,7 @@ end
 
 function T.variable_sprite_re_resolves_at_each_object_creation()
   local eventState = FieldEventState.new({ flags = { [401] = true } })
-  local mgr, _, assets = manager({ object({ spriteId = 101, eventFlag = 401 }) },
-    { eventState = eventState })
+  local mgr, _, assets = manager({ object({ spriteId = 101, eventFlag = 401 }) }, { eventState = eventState })
   Assert.isNil(mgr:getById("map:61:object:0"))
   eventState:setVar(0x4020, 34)
   eventState:clearFlag(401)
@@ -197,8 +250,7 @@ end
 
 function T.clearing_a_flag_restores_the_actor_at_its_source_state()
   local eventState = FieldEventState.new({ flags = { [401] = true } })
-  local mgr, _, assets = manager({ object({ eventFlag = 401, facingDirection = "west" }) },
-    { eventState = eventState })
+  local mgr, _, assets = manager({ object({ eventFlag = 401, facingDirection = "west" }) }, { eventState = eventState })
   Assert.isNil(mgr:getById("map:61:object:0"))
   eventState:clearFlag(401)
   mgr:step(1)
@@ -262,10 +314,15 @@ end
 -- A real FieldPlayer whose occupancy predicate reads this manager's index:
 -- the integration point Epic 5 adds between the terrain resolver and the move.
 local function playerOn(mgr, map, fieldX, fieldZ, surfaceId)
-  map.permissions.isBlockedLocal = function() return false end
+  map.permissions.isBlockedLocal = function()
+    return false
+  end
   local p = FieldPlayer.new({
-    currentMap = map, fieldX = fieldX, fieldZ = fieldZ,
-    surfaceId = surfaceId, facing = "south",
+    currentMap = map,
+    fieldX = fieldX,
+    fieldZ = fieldZ,
+    surfaceId = surfaceId,
+    facing = "south",
     occupancy = function(x, z, surface)
       local occupant = mgr:getAt(map.mapId, x, z, surface)
       return occupant and occupant.actorId or nil
@@ -284,14 +341,15 @@ function T.player_cannot_step_into_a_visible_solid_actor_cell()
 end
 
 function T.hiding_the_actor_opens_the_cell_for_the_player()
-  local mgr, eventState, _, map =
-    manager({ object({ objectEventId = 0, x = 9, z = 3, eventFlag = 401 }) })
+  local mgr, eventState, _, map = manager({ object({ objectEventId = 0, x = 9, z = 3, eventFlag = 401 }) })
   local p = playerOn(mgr, map, 9, 2, 0)
   eventState:setFlag(401)
   mgr:step(1)
   p:updateFixed({ heldDirection = "south", pressedDirection = "south" })
   Assert.equal(p.motion, "walking")
-  for _ = 2, 8 do p:updateFixed({ heldDirection = "south" }) end
+  for _ = 2, 8 do
+    p:updateFixed({ heldDirection = "south" })
+  end
   Assert.equal(p.fieldZ, 3)
   Assert.isFalse(mgr:isOccupied(61, 9, 3, 0))
 end
@@ -304,7 +362,9 @@ function T.an_actor_on_the_lower_surface_does_not_block_the_stacked_cell()
   local p = playerOn(mgr, map, 9, 2, 1)
   p:updateFixed({ heldDirection = "south", pressedDirection = "south" })
   Assert.equal(p.motion, "walking")
-  for _ = 2, 8 do p:updateFixed({ heldDirection = "south" }) end
+  for _ = 2, 8 do
+    p:updateFixed({ heldDirection = "south" })
+  end
   Assert.equal(p.fieldZ, 3)
   Assert.equal(p.surfaceId, 1)
   Assert.isTrue(mgr:isOccupied(61, 9, 3, 0))

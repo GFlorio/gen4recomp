@@ -14,8 +14,7 @@ local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
 local T = {}
 
 local function fontDef(version)
-  local def = assert(CacheFs.forVersion(version):loadLua(
-    "data/generated/field/font/font-0.lua"))
+  local def = assert(CacheFs.forVersion(version):loadLua("data/generated/field/font/font-0.lua"))
   assert(def.schema == "g4-field-font-v1", "field font cache is cold")
   return def
 end
@@ -31,12 +30,17 @@ local function runMessage(version, bankId, messageId)
   assert(bank, "message bank cache is cold")
   local template = assert(provider:get(bankId, messageId))
   local formatted = provider:format(template, { playerName = "GOLD" }, {
-    [0x0103] = function() return FieldMessageProvider.asciiGlyphTokens("GOLD", def) end,
+    [0x0103] = function()
+      return FieldMessageProvider.asciiGlyphTokens("GOLD", def)
+    end,
   })
   local metrics = FieldDialogueTheme.fontMetrics(def)
   local layout = function(message)
-    return DialogueLayout.layout(message.tokens, metrics,
-      { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines })
+    return DialogueLayout.layout(
+      message.tokens,
+      metrics,
+      { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines }
+    )
   end
   local first = layout(formatted)
   local second = layout(formatted)
@@ -52,7 +56,9 @@ local function runMessage(version, bankId, messageId)
     allowCancel = false,
     metadata = { bankId = bankId, messageId = messageId },
   })
-  handle:onComplete(function(result) completed = result end)
+  handle:onComplete(function(result)
+    completed = result
+  end)
   local ticks = 0
   while controller:isModal() and ticks < 500 do
     controller:step({ actionPressed = true })
@@ -78,12 +84,12 @@ function T.target_fixture_messages_lay_out_and_close(romFs, version)
   }
   for _, spec in ipairs(cases) do
     local pages, result = runMessage(version, spec.bankId, spec.messageId)
-    Assert.isTrue(pages >= 1,
-      string.format("bank %d message %d produces at least one page",
-        spec.bankId, spec.messageId))
+    Assert.isTrue(
+      pages >= 1,
+      string.format("bank %d message %d produces at least one page", spec.bankId, spec.messageId)
+    )
     Assert.equal(result.kind, "complete")
-    Assert.equal(result.requestId,
-      string.format("target-%d-%d", spec.bankId, spec.messageId))
+    Assert.equal(result.requestId, string.format("target-%d-%d", spec.bankId, spec.messageId))
   end
 end
 
@@ -97,23 +103,30 @@ function T.target_lines_stay_inside_the_reference_text_width(romFs, version)
   for messageId = 0, 105 do
     local template = assert(provider:get(543, messageId))
     local formatted = provider:format(template, { playerName = "GOLD" }, {
-      [0x0103] = function() return FieldMessageProvider.asciiGlyphTokens("GOLD", def) end,
+      [0x0103] = function()
+        return FieldMessageProvider.asciiGlyphTokens("GOLD", def)
+      end,
     })
-    local layout = DialogueLayout.layout(formatted.tokens, metrics,
-      { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines })
+    local layout = DialogueLayout.layout(
+      formatted.tokens,
+      metrics,
+      { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines }
+    )
     local warnedWidths = {}
     for _, warning in ipairs(layout.warnings) do
-      if warning.kind == "overwide" then warnedWidths[warning.width] = true end
+      if warning.kind == "overwide" then
+        warnedWidths[warning.width] = true
+      end
     end
     for _, page in ipairs(layout.pages) do
       for _, line in ipairs(page.lines) do
         widths[#widths + 1] = line.width
         -- Only unwrappable marker tokens may exceed the budget, and each
         -- such line is traced as an overwide warning (spec section 15.4).
-        Assert.isTrue(line.width <= FieldDialogueTheme.textWidth
-            or warnedWidths[line.width] == true,
-          string.format("bank 543 message %d line %d exceeds the text width untraced",
-            messageId, line.width))
+        Assert.isTrue(
+          line.width <= FieldDialogueTheme.textWidth or warnedWidths[line.width] == true,
+          string.format("bank 543 message %d line %d exceeds the text width untraced", messageId, line.width)
+        )
       end
     end
   end

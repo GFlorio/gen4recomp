@@ -47,14 +47,18 @@ end
 function GameVersion.forSha1(hexSha1)
   local wanted = string.lower(hexSha1)
   for _, info in pairs(GameVersion.VERSIONS) do
-    if info.sha1 == wanted then return info end
+    if info.sha1 == wanted then
+      return info
+    end
   end
   return nil
 end
 
 function GameVersion.forGameCode(gameCode)
   for _, info in pairs(GameVersion.VERSIONS) do
-    if info.gameCode == gameCode then return info end
+    if info.gameCode == gameCode then
+      return info
+    end
   end
   return nil
 end

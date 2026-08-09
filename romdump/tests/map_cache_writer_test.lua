@@ -15,7 +15,9 @@ local T = {}
 local function failOn(backend, substr)
   local orig = backend.write
   backend.write = function(self, path, data)
-    if path:find(substr, 1, true) then error("injected write failure") end
+    if path:find(substr, 1, true) then
+      error("injected write failure")
+    end
     return orig(self, path, data)
   end
   return backend
@@ -39,10 +41,14 @@ function T.writes_neighbor_permission_and_terrain_artifacts()
   bundle.neighborChunks = {
     [3] = { permissions = string.rep("\0", 2048), terrain = bundle.terrain },
   }
-  bundle.scene.neighbors = { {
-    collision = { file = permissionPath }, terrain = { file = terrainPath },
-    batches = {}, materials = {},
-  } }
+  bundle.scene.neighbors = {
+    {
+      collision = { file = permissionPath },
+      terrain = { file = terrainPath },
+      batches = {},
+      materials = {},
+    },
+  }
   MapCacheWriter.write(c, bundle)
   Assert.equal(#assert(c:read(permissionPath)), 2048)
   Assert.equal(assert(c:loadLua(terrainPath)).schema, "g4-terrain-surfaces-v1")

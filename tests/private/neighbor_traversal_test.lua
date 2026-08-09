@@ -30,8 +30,8 @@ local function runtimeMap(romFs)
       terrain = TerrainSurface.new(chunk.terrain),
     }
   end
-  local region = FieldRegion.new(collision(bundle.permissions, bundle.mapId),
-    TerrainSurface.new(bundle.terrain), neighbors)
+  local region =
+    FieldRegion.new(collision(bundle.permissions, bundle.mapId), TerrainSurface.new(bundle.terrain), neighbors)
   return {
     mapId = bundle.mapId,
     coordinateOrigin = {
@@ -40,13 +40,13 @@ local function runtimeMap(romFs)
     },
     permissions = region.permissions,
     terrain = region.terrain,
-  }, bundle.scene.neighbors
+  },
+    bundle.scene.neighbors
 end
 
 local function crossesBoundary(map, sourceX, destinationX, direction)
   for z = 0, 31 do
-    if not map.permissions:isBlockedLocal(sourceX, z)
-      and not map.permissions:isBlockedLocal(destinationX, z) then
+    if not map.permissions:isBlockedLocal(sourceX, z) and not map.permissions:isBlockedLocal(destinationX, z) then
       for _, plate in ipairs(map.terrain:candidatesAt(sourceX + 0.5, z + 0.5)) do
         local player = FieldPlayer.new({
           currentMap = map,
@@ -56,7 +56,9 @@ local function crossesBoundary(map, sourceX, destinationX, direction)
           facing = direction,
         })
         if player:tryStep(direction) then
-          for _ = 1, FieldPlayer.WALK_STEP_TICKS do player:updateFixed({}) end
+          for _ = 1, FieldPlayer.WALK_STEP_TICKS do
+            player:updateFixed({})
+          end
           Assert.equal(player.fieldX, map.coordinateOrigin.x + destinationX)
           return z
         end
@@ -85,15 +87,20 @@ end
 function T.generated_cache_loads_as_traversable_region(_, versionId)
   local cacheFs = CacheFs.forVersion(versionId)
   local world = assert(cacheFs:loadLua(MapAssetCache.worldPath()))
-  local sceneLoader = { load = function(cache, scene)
-    local grid = assert(PermissionGrid.decode(assert(cache:read(scene.collision.file)), scene.mapId))
-    return { collision = CollisionGrid.new(grid), release = function() end }
-  end }
-  local coverageLoader = { load = function()
-    return { draws = {}, release = function() end }
-  end }
+  local sceneLoader = {
+    load = function(cache, scene)
+      local grid = assert(PermissionGrid.decode(assert(cache:read(scene.collision.file)), scene.mapId))
+      return { collision = CollisionGrid.new(grid), release = function() end }
+    end,
+  }
+  local coverageLoader = {
+    load = function()
+      return { draws = {}, release = function() end }
+    end,
+  }
   local loader = FieldMapLoader.new(cacheFs, world, {
-    sceneLoader = sceneLoader, coverageLoader = coverageLoader,
+    sceneLoader = sceneLoader,
+    coverageLoader = coverageLoader,
   })
   local map = loader:load(60)
   Assert.notNil(crossesBoundary(map, 0, -1, "west"))

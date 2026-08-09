@@ -43,19 +43,26 @@ local function romFsFor(opts)
   local members = {
     land_data = { [LAND_MEMBER] = landMember() },
     area_data = { [AREA_MEMBER] = areaMember(CELL_PACK_ID) },
-    map_textures = { [CELL_PACK_ID] = Tex0Fixture.btx0(opts.pack or {
-      textures = { CELL_TEXTURE }, palettes = { CELL_PALETTE } }) },
+    map_textures = {
+      [CELL_PACK_ID] = Tex0Fixture.btx0(opts.pack or {
+        textures = { CELL_TEXTURE },
+        palettes = { CELL_PALETTE },
+      }),
+    },
   }
   return {
     openNarc = function(_, alias)
       local byId = assert(members[alias], "unexpected archive " .. alias)
       local highest = 0
-      for id in pairs(byId) do highest = math.max(highest, id) end
+      for id in pairs(byId) do
+        highest = math.max(highest, id)
+      end
       return {
-        memberCount = function() return highest + 1 end,
+        memberCount = function()
+          return highest + 1
+        end,
         readMember = function(_, memberId)
-          return assert(byId[memberId],
-            string.format("fixture %s has no member %d", alias, memberId))
+          return assert(byId[memberId], string.format("fixture %s has no member %d", alias, memberId))
         end,
       }
     end,
@@ -63,8 +70,12 @@ local function romFsFor(opts)
 end
 
 function T.binds_against_the_neighbour_cells_own_area_pack()
-  local chunk = NeighborChunkCompiler.compile(romFsFor(), LAND_MEMBER, AREA_MEMBER,
-    { mapId = 457, mapSymbol = "MAP_X", neighborCells = { { x = 1, z = 2 } } })
+  local chunk = NeighborChunkCompiler.compile(
+    romFsFor(),
+    LAND_MEMBER,
+    AREA_MEMBER,
+    { mapId = 457, mapSymbol = "MAP_X", neighborCells = { { x = 1, z = 2 } } }
+  )
 
   Assert.equal(#chunk.batches, 2)
   Assert.equal(chunk.materials[1].name, "mat0")

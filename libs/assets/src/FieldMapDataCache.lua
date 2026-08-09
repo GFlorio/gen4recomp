@@ -23,16 +23,19 @@ function FieldMapDataCache.markerPath(mapId)
 end
 
 function FieldMapDataCache.marker(romSha1, mapId, dependencyHash)
-  return string.format("%s:%s:%d:%s",
-    FieldMapDataCache.FORMAT, romSha1, mapId, dependencyHash)
+  return string.format("%s:%s:%d:%s", FieldMapDataCache.FORMAT, romSha1, mapId, dependencyHash)
 end
 
 function FieldMapDataCache.isReady(cacheFs, mapId, expectedMarker)
-  if cacheFs:read(FieldMapDataCache.markerPath(mapId)) ~= expectedMarker then return false end
+  if cacheFs:read(FieldMapDataCache.markerPath(mapId)) ~= expectedMarker then
+    return false
+  end
   local field = cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId))
   local dependencies = cacheFs:loadLua(FieldMapDataCache.dependenciesPath(mapId))
-  return type(field) == "table" and field.schema == "g4-field-map-v1"
-    and field.mapId == mapId and type(dependencies) == "table"
+  return type(field) == "table"
+    and field.schema == "g4-field-map-v1"
+    and field.mapId == mapId
+    and type(dependencies) == "table"
 end
 
 function FieldMapDataCache.invalidateMap(cacheFs, mapId)

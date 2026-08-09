@@ -30,11 +30,17 @@ local function checkFiles(romFs, cache)
       if not info then
         mismatches[#mismatches + 1] = "fileId " .. fileId .. " has no output at " .. entry.path
       elseif info.size ~= entry.size then
-        mismatches[#mismatches + 1] = "fileId " .. fileId .. " size " .. tostring(info.size)
-          .. " != recorded " .. entry.size
+        mismatches[#mismatches + 1] = "fileId "
+          .. fileId
+          .. " size "
+          .. tostring(info.size)
+          .. " != recorded "
+          .. entry.size
       end
     end
-    if #mismatches >= 8 then break end -- cap noise; one failure is enough to fail
+    if #mismatches >= 8 then
+      break
+    end -- cap noise; one failure is enough to fail
   end
   return { total = total, mismatches = mismatches, ok = #mismatches == 0 }
 end
@@ -56,17 +62,25 @@ local function checkRequiredNarcs(romFs)
       }
     end
   end
-  table.sort(entries, function(a, b) return a.symbol < b.symbol end)
+  table.sort(entries, function(a, b)
+    return a.symbol < b.symbol
+  end)
   return { entries = entries, ok = allOk }
 end
 
 local function decodeMatrix(romFs)
   local narc, err = romFs:openNarc("map_matrices")
-  if not narc then return nil, "map_matrices did not open: " .. Errors.format(err) end
+  if not narc then
+    return nil, "map_matrices did not open: " .. Errors.format(err)
+  end
   local member, mErr = narc:readMember(0)
-  if not member then return nil, "member 0 unreadable: " .. Errors.format(mErr) end
+  if not member then
+    return nil, "member 0 unreadable: " .. Errors.format(mErr)
+  end
   local matrix, dErr = MapMatrix.decode(member, 0)
-  if not matrix then return nil, "member 0 did not decode: " .. Errors.format(dErr) end
+  if not matrix then
+    return nil, "member 0 did not decode: " .. Errors.format(dErr)
+  end
   return {
     name = matrix.name,
     width = matrix.width,
@@ -98,8 +112,7 @@ function DumpAudit.run(versionId, cache)
   report.checks[#report.checks + 1] = {
     name = "file_outputs",
     ok = report.fileCheck.ok,
-    detail = report.fileCheck.ok
-      and (report.fileCheck.total .. " files present with matching sizes")
+    detail = report.fileCheck.ok and (report.fileCheck.total .. " files present with matching sizes")
       or table.concat(report.fileCheck.mismatches, "; "),
   }
 
@@ -115,16 +128,16 @@ function DumpAudit.run(versionId, cache)
   report.checks[#report.checks + 1] = {
     name = "map_matrix_decode",
     ok = matrix ~= nil,
-    detail = matrix
-      and string.format("member 0 %q %dx%d", matrix.name, matrix.width, matrix.height)
-      or matrixErr,
+    detail = matrix and string.format("member 0 %q %dx%d", matrix.name, matrix.width, matrix.height) or matrixErr,
   }
 
   romFs:close()
 
   report.ok = true
   for _, c in ipairs(report.checks) do
-    if not c.ok then report.ok = false end
+    if not c.ok then
+      report.ok = false
+    end
   end
   return report
 end
@@ -138,12 +151,17 @@ function DumpAudit.lines(report)
     local s = report.stats
     out[#out + 1] = string.format(
       "  files:     %d (named %d, overlay %d, unmapped %d), %d bytes",
-      s.fileCount, s.namedFileCount, s.overlayFileCount, s.unmappedFileCount, s.totalFileBytes)
+      s.fileCount,
+      s.namedFileCount,
+      s.overlayFileCount,
+      s.unmappedFileCount,
+      s.totalFileBytes
+    )
     out[#out + 1] = "  narcs:     " .. s.resolvedNarcCount .. " resolved"
   end
   for _, c in ipairs(report.checks) do
-    out[#out + 1] = string.format("  [%s] %s%s",
-      c.ok and "ok" or "FAIL", c.name, c.detail and (" - " .. c.detail) or "")
+    out[#out + 1] =
+      string.format("  [%s] %s%s", c.ok and "ok" or "FAIL", c.name, c.detail and (" - " .. c.detail) or "")
   end
   return out
 end

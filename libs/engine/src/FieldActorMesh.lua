@@ -18,17 +18,26 @@ local FieldActorMesh = {}
 -- Vertex-attribute rows in VertexFormat.LAYOUT order, with the frame's U slide
 -- applied and colours normalized to 0..1 as the shader expects.
 function FieldActorMesh.frameVertices(geometry, frameIndex, frameCount)
-  assert(type(geometry) == "table" and type(geometry.vertices) == "table",
-    "actor geometry requires vertices")
-  assert(frameIndex >= 1 and frameIndex <= frameCount,
-    "frame index " .. tostring(frameIndex) .. " is outside the atlas strip")
+  assert(type(geometry) == "table" and type(geometry.vertices) == "table", "actor geometry requires vertices")
+  assert(
+    frameIndex >= 1 and frameIndex <= frameCount,
+    "frame index " .. tostring(frameIndex) .. " is outside the atlas strip"
+  )
   local rows = {}
   for index, vertex in ipairs(geometry.vertices) do
     rows[index] = {
-      vertex.x, vertex.y, vertex.z,
-      (frameIndex - 1 + vertex.u) / frameCount, vertex.v,
-      vertex.nx, vertex.ny, vertex.nz,
-      vertex.r / 255, vertex.g / 255, vertex.b / 255, (vertex.a or 255) / 255,
+      vertex.x,
+      vertex.y,
+      vertex.z,
+      (frameIndex - 1 + vertex.u) / frameCount,
+      vertex.v,
+      vertex.nx,
+      vertex.ny,
+      vertex.nz,
+      vertex.r / 255,
+      vertex.g / 255,
+      vertex.b / 255,
+      (vertex.a or 255) / 255,
       vertex.colorSource,
     }
   end
@@ -39,28 +48,35 @@ end
 -- returns nil when none is available, so headless callers can load a visual
 -- without building GPU resources.
 function FieldActorMesh.build(graphics, visual)
-  assert(type(visual) == "table" and type(visual.render) == "table",
-    "FieldActorMesh requires a compiled actor visual")
+  assert(type(visual) == "table" and type(visual.render) == "table", "FieldActorMesh requires a compiled actor visual")
   local render = visual.render
   local geometries = {}
   if render.kind == "staticModel" then
-    for _, part in ipairs(render.parts or {}) do geometries[#geometries + 1] = part.geometry end
+    for _, part in ipairs(render.parts or {}) do
+      geometries[#geometries + 1] = part.geometry
+    end
   else
     geometries[1] = render.geometry
   end
   for _, geometry in ipairs(geometries) do
     if not (geometry and geometry.vertices and geometry.indices) then
-      Errors.raise("FIELD_ACTOR_GEOMETRY_MISSING",
+      Errors.raise(
+        "FIELD_ACTOR_GEOMETRY_MISSING",
         "compiled visual for spriteId " .. tostring(visual.spriteId) .. " carries no geometry",
-        { spriteId = visual.spriteId })
+        { spriteId = visual.spriteId }
+      )
     end
   end
   if #geometries == 0 then
-    Errors.raise("FIELD_ACTOR_GEOMETRY_MISSING",
+    Errors.raise(
+      "FIELD_ACTOR_GEOMETRY_MISSING",
       "compiled visual for spriteId " .. tostring(visual.spriteId) .. " carries no geometry",
-      { spriteId = visual.spriteId })
+      { spriteId = visual.spriteId }
+    )
   end
-  if not (graphics and graphics.newMesh) then return nil end
+  if not (graphics and graphics.newMesh) then
+    return nil
+  end
 
   local meshes = {}
   local count = render.kind == "staticModel" and #geometries or render.frameCount
@@ -68,11 +84,15 @@ function FieldActorMesh.build(graphics, visual)
     local geometry = render.kind == "staticModel" and geometries[meshIndex] or geometries[1]
     local frameIndex = render.kind == "staticModel" and 1 or meshIndex
     local map = {}
-    for i, index in ipairs(geometry.indices) do map[i] = index + 1 end
-    local mesh = graphics.newMesh(VertexFormat.LAYOUT,
-      FieldActorMesh.frameVertices(geometry, frameIndex,
-        render.kind == "staticModel" and 1 or render.frameCount),
-      "triangles", "static")
+    for i, index in ipairs(geometry.indices) do
+      map[i] = index + 1
+    end
+    local mesh = graphics.newMesh(
+      VertexFormat.LAYOUT,
+      FieldActorMesh.frameVertices(geometry, frameIndex, render.kind == "staticModel" and 1 or render.frameCount),
+      "triangles",
+      "static"
+    )
     mesh:setVertexMap(map)
     meshes[meshIndex] = mesh
   end
@@ -81,7 +101,9 @@ end
 
 function FieldActorMesh.release(meshes)
   for _, mesh in ipairs(meshes or {}) do
-    if mesh.release then mesh:release() end
+    if mesh.release then
+      mesh:release()
+    end
   end
 end
 

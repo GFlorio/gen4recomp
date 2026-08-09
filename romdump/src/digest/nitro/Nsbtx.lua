@@ -40,11 +40,21 @@ local FORMAT_NAMES = {
 -- Texel data size in bytes for a width*height texture in the given format.
 local function texelBytes(format, width, height)
   local texels = width * height
-  if format == 1 or format == 4 or format == 6 then return texels end
-  if format == 2 then return math.floor(texels / 4) end
-  if format == 3 then return math.floor(texels / 2) end
-  if format == 5 then return math.floor(texels / 4) end
-  if format == 7 then return texels * 2 end
+  if format == 1 or format == 4 or format == 6 then
+    return texels
+  end
+  if format == 2 then
+    return math.floor(texels / 4)
+  end
+  if format == 3 then
+    return math.floor(texels / 2)
+  end
+  if format == 5 then
+    return math.floor(texels / 4)
+  end
+  if format == 7 then
+    return texels * 2
+  end
   return 0
 end
 
@@ -101,8 +111,13 @@ local function _decodeTex0(bytes, context)
   local r = BinaryReader.new(bytes, "tex0")
   local kind = r:ascii(0, 4)
   if kind ~= "TEX0" then
-    error(Errors.new("NSBTX_BAD_MAGIC",
-      string.format("expected TEX0 block, got %q", kind), { magic = kind, source = context }))
+    error(
+      Errors.new(
+        "NSBTX_BAD_MAGIC",
+        string.format("expected TEX0 block, got %q", kind),
+        { magic = kind, source = context }
+      )
+    )
   end
 
   local ofsTexDict = r:u16le(0x0E)
@@ -157,15 +172,21 @@ end
 
 function Nsbtx.decodeTex0(bytes, context)
   local ok, result = pcall(_decodeTex0, bytes, context)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 
 -- Standalone BTX0 file -> TEX0 inventory.
 function Nsbtx.decode(bytes, context)
   local file, err = NitroFile.decode(bytes, "BTX0", context)
-  if not file then return nil, err end
+  if not file then
+    return nil, err
+  end
   local section = NitroFile.section(file, "TEX0")
   if not section then
     return nil, Errors.new("NSBTX_NO_TEX0", "BTX0 file has no TEX0 section", { source = context })

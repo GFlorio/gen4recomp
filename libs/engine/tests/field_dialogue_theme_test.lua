@@ -25,8 +25,10 @@ function T.box_is_bottom_anchored_inside_the_reference_canvas()
   Assert.equal(box.x, 8)
   Assert.equal(box.y + box.height, 192 - 8, "bottom inset is 8 reference pixels")
   -- Two 16px text lines plus symmetric padding fit inside the box height.
-  Assert.isTrue(FieldDialogueTheme.textInsetY * 2 + FieldDialogueTheme.lineHeight
-    * FieldDialogueTheme.maxLines <= box.height, "two lines fit with padding")
+  Assert.isTrue(
+    FieldDialogueTheme.textInsetY * 2 + FieldDialogueTheme.lineHeight * FieldDialogueTheme.maxLines <= box.height,
+    "two lines fit with padding"
+  )
 end
 
 -- The renderer draws under one translate(origin)+scale transform, so layout
@@ -36,13 +38,12 @@ function T.reference_geometry_stays_in_reference_canvas()
   for _, size in ipairs({ { 960, 720 }, { 1280, 720 }, { 1920, 720 } }) do
     local layout = FieldDialogueTheme.layout(frame(size[1], size[2]))
     Assert.isTrue(layout.box.x >= 0 and layout.box.y >= 0, "box in reference space")
-    Assert.isTrue(layout.box.x + layout.box.width
-      <= FieldDialogueTheme.referenceWidth + 1e-9)
-    Assert.isTrue(layout.box.y + layout.box.height
-      <= FieldDialogueTheme.referenceHeight + 1e-9)
-    Assert.isTrue(layout.text.y >= layout.box.y
-      and layout.text.y + layout.text.height <= layout.box.y + layout.box.height + 1e-9,
-      "text area inside the box")
+    Assert.isTrue(layout.box.x + layout.box.width <= FieldDialogueTheme.referenceWidth + 1e-9)
+    Assert.isTrue(layout.box.y + layout.box.height <= FieldDialogueTheme.referenceHeight + 1e-9)
+    Assert.isTrue(
+      layout.text.y >= layout.box.y and layout.text.y + layout.text.height <= layout.box.y + layout.box.height + 1e-9,
+      "text area inside the box"
+    )
   end
 end
 
@@ -63,28 +64,26 @@ function T.layout_maps_inside_the_centered_frame_at_169()
   Assert.near(reference.x, (1280 - reference.width) / 2)
   local layout = FieldDialogueTheme.layout(reference)
   local box = screen(layout, layout.box)
-  Assert.isTrue(box.x >= reference.x and box.x + box.width
-    <= reference.x + reference.width + 1e-9)
-  Assert.isTrue(box.y >= reference.y and box.y + box.height
-    <= reference.y + reference.height + 1e-9)
+  Assert.isTrue(box.x >= reference.x and box.x + box.width <= reference.x + reference.width + 1e-9)
+  Assert.isTrue(box.y >= reference.y and box.y + box.height <= reference.y + reference.height + 1e-9)
 end
 
 function T.layout_maps_inside_the_centered_frame_ultrawide()
   local reference = frame(1920, 720)
   local layout = FieldDialogueTheme.layout(reference)
   local box = screen(layout, layout.box)
-  Assert.isTrue(box.x >= reference.x and box.x + box.width
-    <= reference.x + reference.width + 1e-9, "box does not spill into ultrawide gutters")
-  Assert.isTrue(box.y >= reference.y and box.y + box.height
-    <= reference.y + reference.height + 1e-9)
+  Assert.isTrue(
+    box.x >= reference.x and box.x + box.width <= reference.x + reference.width + 1e-9,
+    "box does not spill into ultrawide gutters"
+  )
+  Assert.isTrue(box.y >= reference.y and box.y + box.height <= reference.y + reference.height + 1e-9)
 end
 
 function T.text_area_fits_two_lines_of_font_height()
   local layout = FieldDialogueTheme.layout(frame(960, 720))
   local box = screen(layout, layout.box)
   local text = screen(layout, layout.text)
-  Assert.isTrue(text.y + layout.lineHeight * layout.scale * FieldDialogueTheme.maxLines
-    <= box.y + box.height + 1e-9)
+  Assert.isTrue(text.y + layout.lineHeight * layout.scale * FieldDialogueTheme.maxLines <= box.y + box.height + 1e-9)
   Assert.near(text.width, FieldDialogueTheme.textWidth * layout.scale)
   -- The cursor sits inside the text area's bottom-right corner.
   local cursor = screen(layout, layout.cursor)

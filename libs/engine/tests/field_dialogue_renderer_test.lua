@@ -54,8 +54,7 @@ end
 
 local function cacheWithFont()
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
-  cache:write("data/generated/field/font/font-0.lua",
-    require("libs.rom.src.LuaWriter").encode(fontDef()))
+  cache:write("data/generated/field/font/font-0.lua", require("libs.rom.src.LuaWriter").encode(fontDef()))
   cache:write("assets/generated/field/font/font-0.png", atlasBytes())
   return cache
 end
@@ -77,8 +76,7 @@ local function openDialogue(renderer, text)
   })
   controller:open({
     id = "smoke",
-    message = { bankId = 543, messageId = 5, text = text, tokens = tokens,
-      hadUnresolvedSubstitutions = false },
+    message = { bankId = 543, messageId = 5, text = text, tokens = tokens, hadUnresolvedSubstitutions = false },
     style = "default",
     modal = true,
     allowCancel = false,
@@ -87,7 +85,9 @@ local function openDialogue(renderer, text)
 end
 
 function T.loads_def_and_atlas()
-  if not hasGraphics() then return end
+  if not hasGraphics() then
+    return
+  end
   local renderer = FieldDialogueRenderer.new({ cacheFs = cacheWithFont() })
   Assert.equal(renderer.fontDef.schema, "g4-field-font-v1")
   Assert.notNil(renderer.atlas)
@@ -99,8 +99,7 @@ function T.missing_def_is_a_typed_error()
   local err = Assert.throws(function()
     FieldDialogueRenderer.new({ cacheFs = CacheFs.forVersion("heartgold", FakeCache.new()) })
   end)
-  Assert.isTrue(Errors.is(err) and err.code == "FONT_DEF_MISSING",
-    "raises FONT_DEF_MISSING")
+  Assert.isTrue(Errors.is(err) and err.code == "FONT_DEF_MISSING", "raises FONT_DEF_MISSING")
 end
 
 function T.does_not_require_graphics_headless()
@@ -114,7 +113,9 @@ function T.does_not_require_graphics_headless()
 end
 
 function T.restores_graphics_state_after_draw()
-  if not hasGraphics() then return end
+  if not hasGraphics() then
+    return
+  end
   local lg = love.graphics
   local renderer = FieldDialogueRenderer.new({ cacheFs = cacheWithFont() })
   local controller = openDialogue(renderer, "AB")
@@ -156,11 +157,15 @@ function T.restores_graphics_state_after_draw()
 end
 
 function T.closed_controller_draws_nothing_without_state_changes()
-  if not hasGraphics() then return end
+  if not hasGraphics() then
+    return
+  end
   local lg = love.graphics
   local renderer = FieldDialogueRenderer.new({ cacheFs = cacheWithFont() })
   local controller = FieldDialogueController.new({
-    layout = function() return { pages = {}, warnings = {} } end,
+    layout = function()
+      return { pages = {}, warnings = {} }
+    end,
   })
   local viewport = FieldViewport.new(960, 720, { mode = "expanded" })
   lg.setColor(0.1, 0.2, 0.3, 0.4)
@@ -172,7 +177,9 @@ function T.closed_controller_draws_nothing_without_state_changes()
 end
 
 function T.draw_works_at_every_host_aspect()
-  if not hasGraphics() then return end
+  if not hasGraphics() then
+    return
+  end
   local renderer = FieldDialogueRenderer.new({ cacheFs = cacheWithFont() })
   for _, size in ipairs({ { 960, 720 }, { 1280, 720 }, { 1920, 720 }, { 640, 480 } }) do
     local controller = openDialogue(renderer, "AB")
@@ -181,17 +188,19 @@ function T.draw_works_at_every_host_aspect()
     local layout = FieldDialogueTheme.layout(viewport.referenceFrame)
     local box = FieldDialogueTheme.screenRect(layout, layout.box)
     Assert.isTrue(box.x >= viewport.referenceFrame.x, "box inside frame at " .. size[1] .. "x" .. size[2])
-    Assert.isTrue(box.x + box.width
-      <= viewport.referenceFrame.x + viewport.referenceFrame.width + 1e-9)
-    Assert.isTrue(box.y >= viewport.referenceFrame.y
-      and box.y + box.height <= viewport.referenceFrame.y
-        + viewport.referenceFrame.height + 1e-9)
+    Assert.isTrue(box.x + box.width <= viewport.referenceFrame.x + viewport.referenceFrame.width + 1e-9)
+    Assert.isTrue(
+      box.y >= viewport.referenceFrame.y
+        and box.y + box.height <= viewport.referenceFrame.y + viewport.referenceFrame.height + 1e-9
+    )
   end
   renderer:release()
 end
 
 function T.nine_slice_draws_border_and_fill_at_correct_pixels()
-  if not hasGraphics() then return end
+  if not hasGraphics() then
+    return
+  end
   local lg = love.graphics
   local renderer = FieldDialogueRenderer.new({ cacheFs = cacheWithFont() })
   local controller = openDialogue(renderer, "AB")
@@ -207,28 +216,27 @@ function T.nine_slice_draws_border_and_fill_at_correct_pixels()
   local layout = FieldDialogueTheme.layout(viewport.referenceFrame)
   local box = FieldDialogueTheme.screenRect(layout, layout.box)
   -- Top border slice (2 reference px tall -> 7.5 screen px).
-  local br, bg, bb, ba = data:getPixel(math.floor(box.x + box.width / 2),
-    math.floor(box.y + 3))
+  local br, bg, bb, ba = data:getPixel(math.floor(box.x + box.width / 2), math.floor(box.y + 3))
   Assert.near(br, 0.16, 0.05, "top border red")
   Assert.near(bg, 0.20, 0.05, "top border green")
   Assert.near(bb, 0.42, 0.05, "top border blue")
   -- Left border slice, vertically centered (clear of the text lines).
-  local lr, lgg, lb = data:getPixel(math.floor(box.x + 3),
-    math.floor(box.y + box.height / 2))
+  local lr, lgg, lb = data:getPixel(math.floor(box.x + 3), math.floor(box.y + box.height / 2))
   Assert.near(lr, 0.16, 0.05, "left border red")
   Assert.near(lgg, 0.20, 0.05, "left border green")
   Assert.near(lb, 0.42, 0.05, "left border blue")
   -- Center fill below the text lines: the light window color alpha-blended
   -- over the cleared canvas (0.93 * 0.96).
-  local fr, fg, fb = data:getPixel(math.floor(box.x + box.width / 2),
-    math.floor(box.y + box.height - 12))
+  local fr, fg, fb = data:getPixel(math.floor(box.x + box.width / 2), math.floor(box.y + box.height - 12))
   Assert.near(fr, 0.89, 0.05, "fill red")
   Assert.near(fg, 0.89, 0.05, "fill green")
   Assert.near(fb, 0.93, 0.05, "fill blue")
 end
 
 function T.release_frees_owned_images()
-  if not hasGraphics() then return end
+  if not hasGraphics() then
+    return
+  end
   local renderer = FieldDialogueRenderer.new({ cacheFs = cacheWithFont() })
   renderer:release()
   Assert.isNil(renderer.atlas)

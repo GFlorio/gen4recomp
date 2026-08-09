@@ -21,8 +21,21 @@ end
 -- One-triangle batch in the MeshWriter vertex layout.
 local function triangleBatch()
   local function v(x, z)
-    return { x = x, y = 0, z = z, u = 0, v = 0, nx = 0, ny = 1, nz = 0,
-      r = 255, g = 255, b = 255, a = 255, colorSource = 0 }
+    return {
+      x = x,
+      y = 0,
+      z = z,
+      u = 0,
+      v = 0,
+      nx = 0,
+      ny = 1,
+      nz = 0,
+      r = 255,
+      g = 255,
+      b = 255,
+      a = 255,
+      colorSource = 0,
+    }
   end
   return { vertices = { v(0, 0), v(2, 0), v(0, 2) }, indices = { 0, 1, 2 } }
 end
@@ -35,26 +48,51 @@ local function fakeCacheFs()
   local geomPath = MapAssetCache.geometryPath("aaaa")
   local texPath = MapAssetCache.texturePath("bbbb")
   local blob = { [geomPath] = meshBytes, [texPath] = pngBytes }
-  return { read = function(_, path) return blob[path] end }, geomPath, texPath
+  return {
+    read = function(_, path)
+      return blob[path]
+    end,
+  }, geomPath, texPath
 end
 
 -- Two cells sharing one geometry path (dedup) and one material each.
 local function descriptors(geomPath, texPath)
   local function cell(ox, oz)
     return {
-      offsetTilesX = ox, offsetTilesZ = oz,
-      batches = { { geometry = geomPath, material = 0, alphaClass = "opaque",
-        cullMode = "back", polygonAlpha = 31, polygonMode = "modulation",
-        lightMask = 0, polygonId = 0, translucentDepthWrite = false, depthEqual = false } },
-      materials = { { id = 0, name = "terrain", texture = texPath,
-        wrap = { x = "repeat", y = "clamp" }, diffuse = { r = 255, g = 255, b = 255, a = 255 } } },
+      offsetTilesX = ox,
+      offsetTilesZ = oz,
+      batches = {
+        {
+          geometry = geomPath,
+          material = 0,
+          alphaClass = "opaque",
+          cullMode = "back",
+          polygonAlpha = 31,
+          polygonMode = "modulation",
+          lightMask = 0,
+          polygonId = 0,
+          translucentDepthWrite = false,
+          depthEqual = false,
+        },
+      },
+      materials = {
+        {
+          id = 0,
+          name = "terrain",
+          texture = texPath,
+          wrap = { x = "repeat", y = "clamp" },
+          diffuse = { r = 255, g = 255, b = 255, a = 255 },
+        },
+      },
     }
   end
   return { cell(32, 0), cell(-32, -32) }
 end
 
 function T.builds_one_draw_per_cell_batch_with_offset_baked()
-  if not hasGraphics() then return end
+  if not hasGraphics() then
+    return
+  end
   local cacheFs, geomPath, texPath = fakeCacheFs()
   local ring = NeighborRing.load(cacheFs, descriptors(geomPath, texPath))
 
@@ -65,7 +103,7 @@ function T.builds_one_draw_per_cell_batch_with_offset_baked()
   -- cell offset into both the transform translation and the sort center.
   local d1 = ring.draws[1]
   Assert.equal(d1.transform[13], 32) -- translate X column of Matrix4
-  Assert.equal(d1.transform[15], 0)  -- translate Z
+  Assert.equal(d1.transform[15], 0) -- translate Z
   Assert.isTrue(math.abs(d1.center[1] - (2 / 3 + 32)) < 1e-4, "center X offset baked")
   Assert.isTrue(math.abs(d1.center[3] - (2 / 3 + 0)) < 1e-4, "center Z offset baked")
 
@@ -79,7 +117,9 @@ function T.builds_one_draw_per_cell_batch_with_offset_baked()
 end
 
 function T.dedups_shared_geometry_into_one_owned_mesh()
-  if not hasGraphics() then return end
+  if not hasGraphics() then
+    return
+  end
   local cacheFs, geomPath, texPath = fakeCacheFs()
   local ring = NeighborRing.load(cacheFs, descriptors(geomPath, texPath))
   -- Both cells reference the same geometry/texture path, so only one mesh and

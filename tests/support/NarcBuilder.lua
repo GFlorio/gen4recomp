@@ -59,17 +59,24 @@ function NarcBuilder.build(members, opts)
   end
 
   local blocks = {}
-  if not opts.missingBtaf then blocks[#blocks + 1] = btaf end
-  if opts.duplicateBtaf then blocks[#blocks + 1] = btaf end
+  if not opts.missingBtaf then
+    blocks[#blocks + 1] = btaf
+  end
+  if opts.duplicateBtaf then
+    blocks[#blocks + 1] = btaf
+  end
   blocks[#blocks + 1] = btnf
-  if not opts.missingGmif then blocks[#blocks + 1] = gmif end
+  if not opts.missingGmif then
+    blocks[#blocks + 1] = gmif
+  end
   local body = table.concat(blocks)
 
   local fileSize = HEADER_SIZE + #body
-  if opts.declaredSizeTooLarge then fileSize = fileSize + 64 end
+  if opts.declaredSizeTooLarge then
+    fileSize = fileSize + 64
+  end
 
-  local header = "NARC" .. u16(0xFFFE) .. u16(0x0100) .. u32(fileSize)
-    .. u16(HEADER_SIZE) .. u16(#blocks)
+  local header = "NARC" .. u16(0xFFFE) .. u16(0x0100) .. u32(fileSize) .. u16(HEADER_SIZE) .. u16(#blocks)
   return header .. body
 end
 

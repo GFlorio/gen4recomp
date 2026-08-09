@@ -75,11 +75,12 @@ local FX32_STEP = 1 / 4096
 local function assertRigidBindPose(evp, jointIndex, model)
   for _, i in ipairs(LINEAR_INDICES) do
     if math.abs(evp.invN[i] - evp.invM[i]) > FX32_STEP then
-      Errors.raise("NSBMD_STATIC_NODEMIX_NONRIGID_BIND_POSE",
+      Errors.raise(
+        "NSBMD_STATIC_NODEMIX_NONRIGID_BIND_POSE",
         "NODEMIX joint has an inverse normal matrix that is not the linear part of "
           .. "its inverse position matrix, so blended normals need separate direction slots",
-        { jointIndex = jointIndex, model = model.name, element = i,
-          invM = evp.invM[i], invN = evp.invN[i] })
+        { jointIndex = jointIndex, model = model.name, element = i, invM = evp.invM[i], invN = evp.invN[i] }
+      )
     end
   end
 end
@@ -87,9 +88,11 @@ end
 -- The blended matrix a NODEMIX command installs and stores.
 local function nodemixMatrix(model, cmd, matrixSlots)
   if not model.evpMatrices then
-    Errors.raise("NSBMD_STATIC_NODEMIX_NO_EVP_MATRICES",
+    Errors.raise(
+      "NSBMD_STATIC_NODEMIX_NO_EVP_MATRICES",
       "NODEMIX needs the model's inverse bind matrices, but it has no EvpMtx block",
-      { model = model.name, offset = cmd.offset })
+      { model = model.name, offset = cmd.offset }
+    )
   end
   -- NNS_G3D_ASSERT(numMtx >= 2): fewer terms would be a plain MTX restore.
   assert(#cmd.terms >= 2, "NODEMIX must blend at least two matrices")
@@ -98,16 +101,20 @@ local function nodemixMatrix(model, cmd, matrixSlots)
   for _, term in ipairs(cmd.terms) do
     local evp = model.evpMatrices[term.nodeIndex]
     if not evp then
-      Errors.raise("NSBMD_STATIC_NODEMIX_JOINT_NOT_FOUND",
+      Errors.raise(
+        "NSBMD_STATIC_NODEMIX_JOINT_NOT_FOUND",
         "NODEMIX references joint index " .. tostring(term.nodeIndex),
-        { jointIndex = term.nodeIndex, model = model.name, offset = cmd.offset })
+        { jointIndex = term.nodeIndex, model = model.name, offset = cmd.offset }
+      )
     end
     assertRigidBindPose(evp, term.nodeIndex, model)
     -- The SDK restores the slot then multiplies invM into it, which in row-vector
     -- order applies invM to the vertex first.
     local m = Matrix4.multiply(slotOrIdentity(matrixSlots, term.matrixSlot), evp.invM)
     local weight = term.ratio / 256 -- the operand is `ratio << 4` in fx32
-    for _, i in ipairs(AFFINE_INDICES) do sum[i] = sum[i] + weight * m[i] end
+    for _, i in ipairs(AFFINE_INDICES) do
+      sum[i] = sum[i] + weight * m[i]
+    end
   end
   return sum
 end
@@ -119,9 +126,11 @@ local SUPPORTED_SCALING_RULES = {
 
 local function assertSupportedModel(model)
   if not SUPPORTED_SCALING_RULES[model.info.scalingRule] then
-    Errors.raise("NSBMD_STATIC_UNSUPPORTED_SCALING_RULE",
+    Errors.raise(
+      "NSBMD_STATIC_UNSUPPORTED_SCALING_RULE",
       "only the standard (0) and Maya (1) scaling rules are supported by static SBC evaluation",
-      { scalingRule = model.info.scalingRule, model = model.name })
+      { scalingRule = model.info.scalingRule, model = model.name }
+    )
   end
 end
 
@@ -192,9 +201,11 @@ function NsbmdStaticTransforms.evaluate(model)
     elseif op == 0x06 then -- NODEDESC
       local node = model.nodes[cmd.nodeIndex + 1]
       if not node then
-        Errors.raise("NSBMD_STATIC_NODE_NOT_FOUND",
+        Errors.raise(
+          "NSBMD_STATIC_NODE_NOT_FOUND",
           "NODEDESC references node index " .. tostring(cmd.nodeIndex),
-          { nodeIndex = cmd.nodeIndex, model = model.name })
+          { nodeIndex = cmd.nodeIndex, model = model.name }
+        )
       end
 
       local baseMatrix
@@ -206,8 +217,7 @@ function NsbmdStaticTransforms.evaluate(model)
         baseMatrix = Matrix4.identity()
       end
 
-      local localMatrix = NsbmdJointTransforms.localMatrix(
-        model.info.scalingRule, node, cmd, mayaScaleCache)
+      local localMatrix = NsbmdJointTransforms.localMatrix(model.info.scalingRule, node, cmd, mayaScaleCache)
       local world = Matrix4.multiply(baseMatrix, localMatrix)
       nodeMatrices[cmd.nodeIndex] = world
       matrixSlots[node.matrixStackIndex] = world
@@ -222,9 +232,11 @@ function NsbmdStaticTransforms.evaluate(model)
       -- the matrix stack, which the compiled per-shape contract cannot express.
       -- Every BB in the target world is option 0.
       if cmd.option ~= 0 then
-        Errors.raise("NSBMD_STATIC_BILLBOARD_MATRIX_SLOT_UNSUPPORTED",
+        Errors.raise(
+          "NSBMD_STATIC_BILLBOARD_MATRIX_SLOT_UNSUPPORTED",
           "BB with store/restore option bits is not supported",
-          { optionBits = cmd.optionBits, offset = cmd.offset, model = model.name })
+          { optionBits = cmd.optionBits, offset = cmd.offset, model = model.name }
+        )
       end
       billboardBase = copyMatrix(currentMatrix)
       currentMatrix = Matrix4.identity()
@@ -238,9 +250,11 @@ function NsbmdStaticTransforms.evaluate(model)
       -- BBY and CALLDL. CALLDL would submit geometry from a display list this
       -- evaluator never sees, so ignoring it would silently drop draws; no model
       -- in the target world issues either.
-      Errors.raise("NSBMD_STATIC_UNSUPPORTED_SBC_COMMAND",
+      Errors.raise(
+        "NSBMD_STATIC_UNSUPPORTED_SBC_COMMAND",
         cmd.name .. " is not supported by static SBC evaluation",
-        { opcode = op, command = cmd.command, offset = cmd.offset, model = model.name })
+        { opcode = op, command = cmd.command, offset = cmd.offset, model = model.name }
+      )
     elseif op == 0x0B then -- POSSCALE
       local scale = cmd.inverse and model.info.invPosScale or model.info.posScale
       currentMatrix = Matrix4.multiply(currentMatrix, Matrix4.scale(scale, scale, scale))

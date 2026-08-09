@@ -42,12 +42,18 @@ end
 
 function T.rgb555_range_ends()
   local r, g, b = FixedPoint.rgb555(0)
-  Assert.equal(r, 0); Assert.equal(g, 0); Assert.equal(b, 0)
+  Assert.equal(r, 0)
+  Assert.equal(g, 0)
+  Assert.equal(b, 0)
   r, g, b = FixedPoint.rgb555(0x7FFF) -- all 5-bit fields set
-  Assert.equal(r, 255); Assert.equal(g, 255); Assert.equal(b, 255)
+  Assert.equal(r, 255)
+  Assert.equal(g, 255)
+  Assert.equal(b, 255)
   -- pure red (r5=31), high bit set must not leak into blue.
   r, g, b = FixedPoint.rgb555(0x801F)
-  Assert.equal(r, 255); Assert.equal(g, 0); Assert.equal(b, 0)
+  Assert.equal(r, 255)
+  Assert.equal(g, 0)
+  Assert.equal(b, 0)
 end
 
 function T.angle16_range()

@@ -11,13 +11,22 @@ local T = {}
 
 local function record(versionId, overrides)
   local value = {
-    schema = FieldSave.SCHEMA, versionId = versionId, mapId = 60,
-    fieldX = 684, fieldZ = 393, worldY = 0, surfaceId = 0,
-    terrainDependencyHash = "terrain", facing = "south",
-    avatar = "hero", scenario = "pre-script-demo-v1",
+    schema = FieldSave.SCHEMA,
+    versionId = versionId,
+    mapId = 60,
+    fieldX = 684,
+    fieldZ = 393,
+    worldY = 0,
+    surfaceId = 0,
+    terrainDependencyHash = "terrain",
+    facing = "south",
+    avatar = "hero",
+    scenario = "pre-script-demo-v1",
     events = { flags = {}, vars = {} },
   }
-  for key, item in pairs(overrides or {}) do value[key] = item end
+  for key, item in pairs(overrides or {}) do
+    value[key] = item
+  end
   return value
 end
 
@@ -43,26 +52,36 @@ function T.load_rejects_unknown_schemas()
   local backend = FakeCache.new()
   local cacheFs = CacheFs.forVersion("heartgold", backend)
   cacheFs:writeLua(FieldSave.PATH, {
-    schema = "g4-field-save-v0", versionId = "heartgold", mapId = 60,
-    fieldX = 684, fieldZ = 393, worldY = 0, surfaceId = 0,
-    terrainDependencyHash = "terrain", facing = "south",
+    schema = "g4-field-save-v0",
+    versionId = "heartgold",
+    mapId = 60,
+    fieldX = 684,
+    fieldZ = 393,
+    worldY = 0,
+    surfaceId = 0,
+    terrainDependencyHash = "terrain",
+    facing = "south",
   })
   local store = FieldSaveStore.new(cacheFs)
   local loaded, loadErr = store:load()
   Assert.isNil(loaded)
-  Assert.isTrue(loadErr and loadErr.code == "FIELD_SAVE_SCHEMA_NEWER",
-    "expected FIELD_SAVE_SCHEMA_NEWER, got " .. tostring(loadErr))
+  Assert.isTrue(
+    loadErr and loadErr.code == "FIELD_SAVE_SCHEMA_NEWER",
+    "expected FIELD_SAVE_SCHEMA_NEWER, got " .. tostring(loadErr)
+  )
 end
 
 function T.save_validates_the_compiled_avatar_set()
   local backend = FakeCache.new()
-  local store = FieldSaveStore.new(CacheFs.forVersion("heartgold", backend),
-    { avatars = { hero = true, heroine = true } })
+  local store =
+    FieldSaveStore.new(CacheFs.forVersion("heartgold", backend), { avatars = { hero = true, heroine = true } })
   local err = Assert.throws(function()
     store:save(record("heartgold", { avatar = "rival" }))
   end)
-  Assert.isTrue(err and err.code == "FIELD_SAVE_AVATAR_INVALID",
-    "expected FIELD_SAVE_AVATAR_INVALID, got " .. tostring(err))
+  Assert.isTrue(
+    err and err.code == "FIELD_SAVE_AVATAR_INVALID",
+    "expected FIELD_SAVE_AVATAR_INVALID, got " .. tostring(err)
+  )
   Assert.isNil(store:load(), "the rejected save must not be published")
   store:save(record("heartgold", { avatar = "heroine" }))
   Assert.equal(assert(store:load()).avatar, "heroine")

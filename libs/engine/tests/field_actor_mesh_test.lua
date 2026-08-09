@@ -13,8 +13,12 @@ local function graphics(built)
   return {
     newMesh = function(layout, vertices, mode, usage)
       local mesh = { layout = layout, vertices = vertices, mode = mode, usage = usage }
-      function mesh:setVertexMap(map) self.map = map end
-      function mesh:release() self.released = true end
+      function mesh:setVertexMap(map)
+        self.map = map
+      end
+      function mesh:release()
+        self.released = true
+      end
       built[#built + 1] = mesh
       return mesh
     end,
@@ -72,9 +76,13 @@ end
 function T.a_visual_without_geometry_is_fatal()
   local visual = FieldActorFixture.visual(29)
   visual.render.geometry = nil
-  local err = Assert.throws(function() FieldActorMesh.build(graphics({}), visual) end)
-  Assert.isTrue(Errors.is(err) and err.code == "FIELD_ACTOR_GEOMETRY_MISSING",
-    "expected FIELD_ACTOR_GEOMETRY_MISSING, got " .. tostring(err))
+  local err = Assert.throws(function()
+    FieldActorMesh.build(graphics({}), visual)
+  end)
+  Assert.isTrue(
+    Errors.is(err) and err.code == "FIELD_ACTOR_GEOMETRY_MISSING",
+    "expected FIELD_ACTOR_GEOMETRY_MISSING, got " .. tostring(err)
+  )
 end
 
 function T.releases_every_mesh()

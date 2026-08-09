@@ -5,8 +5,12 @@ local FieldCamera = require("libs.engine.src.FieldCamera")
 local Matrix4 = require("libs.math.src.Matrix4")
 
 local T = {}
-local function approx(a, b, tolerance) return math.abs(a - b) < (tolerance or 1e-6) end
-local function angleIndexToRadians(raw) return raw * 2 * math.pi / 65536 end
+local function approx(a, b, tolerance)
+  return math.abs(a - b) < (tolerance or 1e-6)
+end
+local function angleIndexToRadians(raw)
+  return raw * 2 * math.pi / 65536
+end
 
 local function profile(overrides)
   local value = {
@@ -20,7 +24,9 @@ local function profile(overrides)
     farTiles = 100,
     targetOffsetTiles = { x = 1, y = 2, z = 3 },
   }
-  for key, replacement in pairs(overrides or {}) do value[key] = replacement end
+  for key, replacement in pairs(overrides or {}) do
+    value[key] = replacement
+  end
   return value
 end
 
@@ -60,11 +66,14 @@ function T.fixed_update_applies_xz_immediately_and_delays_y_after_priming()
 end
 
 function T.orthographic_projection_uses_distance_and_half_angle()
-  local camera = FieldCamera.new(profile({
-    projectionType = "orthographic",
-    distanceTiles = 20,
-    halfFovRadians = math.rad(30),
-  }), { initialTarget = { x = 0, y = 0, z = 0 }, canonicalAspect = 4 / 3 })
+  local camera = FieldCamera.new(
+    profile({
+      projectionType = "orthographic",
+      distanceTiles = 20,
+      halfFovRadians = math.rad(30),
+    }),
+    { initialTarget = { x = 0, y = 0, z = 0 }, canonicalAspect = 4 / 3 }
+  )
   local halfY = math.tan(math.rad(30)) * 20
   local projection = camera:projection()
   Assert.isTrue(approx(projection[1], 1 / (halfY * 4 / 3)))
@@ -89,7 +98,9 @@ function T.zoom_changes_projection_scale_without_moving_the_rom_camera()
   Assert.isTrue(approx(zoomedOut[1], canonical[1] * 0.75))
   Assert.isTrue(approx(zoomedOut[6], canonical[6] * 0.75))
   Assert.deepEqual(camera.eye, eye)
-  Assert.throws(function() camera:setZoom(0) end)
+  Assert.throws(function()
+    camera:setZoom(0)
+  end)
 end
 
 function T.canonical_projection_ignores_runtime_aspect_and_zoom()
@@ -109,8 +120,7 @@ function T.billboard_projection_bumps_only_the_z_translation()
   local billboard = camera:billboardProjection()
   local angleX = angleIndexToRadians(prof.angleXRaw)
   local expectedDelta = normal[11] * FieldCamera.FIELD_BILLBOARD_DEPTH_OFFSET_TILES * math.cos(angleX)
-  Assert.near(billboard[15], normal[15] + expectedDelta, 1e-9,
-    "the Z-row translation gains the depth pull")
+  Assert.near(billboard[15], normal[15] + expectedDelta, 1e-9, "the Z-row translation gains the depth pull")
   for i = 1, 16 do
     if i ~= 15 then
       Assert.near(billboard[i], normal[i], 1e-9, "element " .. i .. " is unchanged")
@@ -123,8 +133,7 @@ function T.billboard_projection_pulls_toward_the_camera_for_field_pitches()
   local camera = FieldCamera.new(newBarkProfile(), { initialTarget = { x = 0, y = 0, z = 0 } })
   local normal = camera:projection()
   local billboard = camera:billboardProjection()
-  Assert.isTrue(billboard[15] < normal[15],
-    "the negative z-scale times a positive offset pulls the depth row down")
+  Assert.isTrue(billboard[15] < normal[15], "the negative z-scale times a positive offset pulls the depth row down")
 end
 
 function T.billboard_projection_applies_to_orthographic_profiles_too()
@@ -137,16 +146,22 @@ function T.billboard_projection_applies_to_orthographic_profiles_too()
   local normal = camera:projection()
   local billboard = camera:billboardProjection()
   local angleX = angleIndexToRadians(prof.angleXRaw)
-  Assert.near(billboard[15],
-    normal[15] + normal[11] * FieldCamera.FIELD_BILLBOARD_DEPTH_OFFSET_TILES * math.cos(angleX), 1e-9)
+  Assert.near(
+    billboard[15],
+    normal[15] + normal[11] * FieldCamera.FIELD_BILLBOARD_DEPTH_OFFSET_TILES * math.cos(angleX),
+    1e-9
+  )
   Assert.near(billboard[12], normal[12], 1e-9, "the orthographic w row is untouched")
 end
 
 function T.history_can_be_disabled()
   local camera = FieldCamera.new(profile(), {
-    initialTarget = { x = 0, y = 0, z = 0 }, historyEnabled = false,
+    initialTarget = { x = 0, y = 0, z = 0 },
+    historyEnabled = false,
   })
-  for tick = 1, 8 do camera:updateFixed({ x = 0, y = tick, z = 0 }) end
+  for tick = 1, 8 do
+    camera:updateFixed({ x = 0, y = tick, z = 0 })
+  end
   camera:updateFixed({ x = 0, y = 20, z = 0 })
   Assert.equal(camera.target.y, 22)
 end
@@ -165,18 +180,22 @@ function T.view_interpolates_between_the_previous_and_current_states()
   local after = Matrix4.lookAt(
     { camera.eye.x, camera.eye.y, camera.eye.z },
     { camera.target.x, camera.target.y, camera.target.z },
-    { 0, 1, 0 })
+    { 0, 1, 0 }
+  )
   Assert.deepEqual(camera:view(1), after, "alpha one shows the current state")
   Assert.deepEqual(camera:view(0), before, "alpha zero still shows the previous state")
   Assert.deepEqual(camera:view(), camera:view(1), "nil alpha defaults to the current state")
 
   local half = camera:view(0.5)
-  local expected = Matrix4.lookAt(
-    { (camera.previousEye.x + camera.eye.x) / 2, (camera.previousEye.y + camera.eye.y) / 2,
-      (camera.previousEye.z + camera.eye.z) / 2 },
-    { (camera.previousTarget.x + camera.target.x) / 2, (camera.previousTarget.y + camera.target.y) / 2,
-      (camera.previousTarget.z + camera.target.z) / 2 },
-    { 0, 1, 0 })
+  local expected = Matrix4.lookAt({
+    (camera.previousEye.x + camera.eye.x) / 2,
+    (camera.previousEye.y + camera.eye.y) / 2,
+    (camera.previousEye.z + camera.eye.z) / 2,
+  }, {
+    (camera.previousTarget.x + camera.target.x) / 2,
+    (camera.previousTarget.y + camera.target.y) / 2,
+    (camera.previousTarget.z + camera.target.z) / 2,
+  }, { 0, 1, 0 })
   Assert.deepEqual(half, expected, "half alpha looks from the midpoint state")
   Assert.deepEqual(camera:view(-0.5), camera:view(0), "alpha clamps at zero")
   Assert.deepEqual(camera:view(1.5), camera:view(1), "alpha clamps at one")
@@ -193,16 +212,19 @@ end
 
 function T.elms_lab_profile_has_exact_canonical_orthographic_extents()
   local halfFov = angleIndexToRadians(0x0281)
-  local camera = FieldCamera.new(profile({
-    projectionType = "orthographic",
-    distanceTiles = 0x0061B89B / 65536,
-    angleXRaw = 0xDC82 - 0x10000,
-    halfFovRadians = halfFov,
-    fullVerticalFovRadians = halfFov * 2,
-    nearTiles = 0x00096000 / 65536,
-    farTiles = 0x006C7000 / 65536,
-    targetOffsetTiles = { x = 0, y = 0, z = 0 },
-  }), { initialTarget = { x = 0, y = 0, z = 0 } })
+  local camera = FieldCamera.new(
+    profile({
+      projectionType = "orthographic",
+      distanceTiles = 0x0061B89B / 65536,
+      angleXRaw = 0xDC82 - 0x10000,
+      halfFovRadians = halfFov,
+      fullVerticalFovRadians = halfFov * 2,
+      nearTiles = 0x00096000 / 65536,
+      farTiles = 0x006C7000 / 65536,
+      targetOffsetTiles = { x = 0, y = 0, z = 0 },
+    }),
+    { initialTarget = { x = 0, y = 0, z = 0 } }
+  )
   local projection = camera:canonicalProjection()
   Assert.isTrue(approx(1 / projection[6], 6.013033, 1e-5), "half-height")
   Assert.isTrue(approx(1 / projection[1], 8.017378, 1e-5), "half-width")

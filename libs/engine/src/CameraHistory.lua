@@ -25,7 +25,9 @@ function CameraHistory:push(value)
   self.writeIndex = (self.writeIndex + 1) % self.count
   self.values[self.writeIndex] = value
   self.writes = self.writes + 1
-  if self.writes <= self.count then return value end
+  if self.writes <= self.count then
+    return value
+  end
   return self.values[(self.writeIndex + 1) % self.count]
 end
 

@@ -23,15 +23,30 @@ end
 
 function FieldMapDataInspector.lines(report)
   local c = report.counts
-  local lines = { string.format(
-    "field-map\tmap=%d\tsymbol=%s\tcamera=%d\tmember=%d\tcounts=%d/%d/%d/%d",
-    report.mapId, report.mapSymbol, report.cameraType, report.eventMemberId,
-    c.background, c.objects, c.warps, c.coordinates) }
+  local lines = {
+    string.format(
+      "field-map\tmap=%d\tsymbol=%s\tcamera=%d\tmember=%d\tcounts=%d/%d/%d/%d",
+      report.mapId,
+      report.mapSymbol,
+      report.cameraType,
+      report.eventMemberId,
+      c.background,
+      c.objects,
+      c.warps,
+      c.coordinates
+    ),
+  }
   for _, warp in ipairs(report.warps) do
     lines[#lines + 1] = string.format(
       "warp\tmap=%d\tindex=%d\tx=%d\tz=%d\ty=%d\tdestination=%d:%d",
-      report.mapId, warp.index, warp.x, warp.z, warp.y,
-      warp.destinationMapId, warp.destinationWarpId)
+      report.mapId,
+      warp.index,
+      warp.x,
+      warp.z,
+      warp.y,
+      warp.destinationMapId,
+      warp.destinationWarpId
+    )
   end
   return lines
 end

@@ -13,13 +13,14 @@ local T = {}
 
 local function session()
   local targets = {}
-  local camera = { updateFixed = function(_, target)
-    targets[#targets + 1] = { x = target.x, y = target.y, z = target.z }
-  end }
+  local camera = {
+    updateFixed = function(_, target)
+      targets[#targets + 1] = { x = target.x, y = target.y, z = target.z }
+    end,
+  }
   local actor = { worldX = 1.25, worldY = 2.5, worldZ = 3.75 }
   local map = { mapId = 61 }
-  return FieldSession.new({ versionId = "heartgold", currentMap = map,
-    actor = actor, camera = camera }), targets
+  return FieldSession.new({ versionId = "heartgold", currentMap = map, actor = actor, camera = camera }), targets
 end
 
 function T.fixed_ticks_are_render_cadence_independent()
@@ -50,12 +51,21 @@ end
 function T.completed_transition_holds_the_arrival_tile_for_autosave()
   local updates = 0
   local actor = {
-    fieldX = 4, fieldZ = 14, worldX = 0, worldY = 0, worldZ = 0,
-    surfaceId = 0, facing = "south", motion = "idle",
-    updateFixed = function() updates = updates + 1 end,
+    fieldX = 4,
+    fieldZ = 14,
+    worldX = 0,
+    worldY = 0,
+    worldZ = 0,
+    surfaceId = 0,
+    facing = "south",
+    motion = "idle",
+    updateFixed = function()
+      updates = updates + 1
+    end,
   }
   local transition = {
-    phase = "fade_in", locked = true,
+    phase = "fade_in",
+    locked = true,
     updateFixed = function(self)
       self.phase, self.locked = "idle", false
       self.completed = { destinationMapId = 61 }
@@ -64,8 +74,11 @@ function T.completed_transition_holds_the_arrival_tile_for_autosave()
   local map = { mapId = 61, cameraType = 4 }
   local camera = { updateFixed = function() end }
   local s = FieldSession.new({
-    versionId = "heartgold", currentMap = map,
-    actor = actor, player = actor, camera = camera,
+    versionId = "heartgold",
+    currentMap = map,
+    actor = actor,
+    player = actor,
+    camera = camera,
     transition = transition,
   })
   s:updateFixed({ heldDirection = "south" })
@@ -76,19 +89,35 @@ end
 
 function T.the_player_pose_clock_advances_once_per_tick_and_freezes_under_a_transition()
   local steps = 0
-  local playerVisual = { updateFixed = function() steps = steps + 1 end }
+  local playerVisual = {
+    updateFixed = function()
+      steps = steps + 1
+    end,
+  }
   local actor = {
-    fieldX = 0, fieldZ = 0, worldX = 0, worldY = 0, worldZ = 0,
-    surfaceId = 0, facing = "south", motion = "idle",
-    updateFixed = function() return false end,
+    fieldX = 0,
+    fieldZ = 0,
+    worldX = 0,
+    worldY = 0,
+    worldZ = 0,
+    surfaceId = 0,
+    facing = "south",
+    motion = "idle",
+    updateFixed = function()
+      return false
+    end,
   }
   local transition = { phase = "idle", updateFixed = function() end }
   local map = { mapId = 61, cameraType = 4 }
   local camera = { updateFixed = function() end }
   local s = FieldSession.new({
-    versionId = "heartgold", currentMap = map,
-    actor = actor, player = actor, camera = camera,
-    transition = transition, playerVisual = playerVisual,
+    versionId = "heartgold",
+    currentMap = map,
+    actor = actor,
+    player = actor,
+    camera = camera,
+    transition = transition,
+    playerVisual = playerVisual,
   })
   s:updateFixed({})
   s:updateFixed({})
@@ -102,26 +131,37 @@ end
 local function warpSession(options)
   local starts = {}
   local transition = {
-    phase = "idle", locked = false,
+    phase = "idle",
+    locked = false,
     updateFixed = function() end,
     start = function(_, map, warp, facing)
       starts[#starts + 1] = { map = map, warp = warp, facing = facing }
     end,
   }
-  local warp = { index = 0, x = options.warpX, z = options.warpZ,
-    destinationMapId = 60, destinationWarpId = 0, y = 0 }
+  local warp = { index = 0, x = options.warpX, z = options.warpZ, destinationMapId = 60, destinationWarpId = 0, y = 0 }
   local map = {
-    mapId = 61, cameraType = 4, coordinateOrigin = { x = 0, z = 0 },
+    mapId = 61,
+    cameraType = 4,
+    coordinateOrigin = { x = 0, z = 0 },
     fieldData = { events = { warps = { warp } } },
     permissions = {
-      containsLocal = function(_, x, z) return x >= 0 and x < 32 and z >= 0 and z < 32 end,
-      isBlockedLocal = function(_, x, z) return options.blocked == x .. ":" .. z end,
+      containsLocal = function(_, x, z)
+        return x >= 0 and x < 32 and z >= 0 and z < 32
+      end,
+      isBlockedLocal = function(_, x, z)
+        return options.blocked == x .. ":" .. z
+      end,
     },
   }
   local actor = {
-    fieldX = options.fieldX, fieldZ = options.fieldZ,
-    worldX = 0, worldY = 0, worldZ = 0, surfaceId = 0,
-    facing = "south", motion = "idle",
+    fieldX = options.fieldX,
+    fieldZ = options.fieldZ,
+    worldX = 0,
+    worldY = 0,
+    worldZ = 0,
+    surfaceId = 0,
+    facing = "south",
+    motion = "idle",
   }
   function actor:updateFixed()
     if options.commit then
@@ -132,14 +172,24 @@ local function warpSession(options)
     return false
   end
   local camera = { updateFixed = function() end }
-  local session = FieldSession.new({ versionId = "heartgold", currentMap = map,
-    actor = actor, player = actor, camera = camera, transition = transition })
+  local session = FieldSession.new({
+    versionId = "heartgold",
+    currentMap = map,
+    actor = actor,
+    player = actor,
+    camera = camera,
+    transition = transition,
+  })
   return session, transition, starts, warp
 end
 
 function T.blocked_facing_warp_starts_before_player_collision()
   local session, _, starts, warp = warpSession({
-    fieldX = 4, fieldZ = 13, warpX = 4, warpZ = 14, blocked = "4:14",
+    fieldX = 4,
+    fieldZ = 13,
+    warpX = 4,
+    warpZ = 14,
+    blocked = "4:14",
   })
   session:updateFixed({ heldDirection = "south", pressedDirection = "south" })
   Assert.equal(#starts, 1)
@@ -154,7 +204,8 @@ function T.actor_on_a_blocked_warp_cell_does_not_block_the_facing_warp()
   -- interfere with it.
   local starts = {}
   local transition = {
-    phase = "idle", locked = false,
+    phase = "idle",
+    locked = false,
     updateFixed = function() end,
     start = function(_, map, warp, facing)
       starts[#starts + 1] = { map = map, warp = warp, facing = facing }
@@ -162,27 +213,55 @@ function T.actor_on_a_blocked_warp_cell_does_not_block_the_facing_warp()
   }
   local warp = { index = 0, x = 4, z = 14, destinationMapId = 60, destinationWarpId = 0, y = 0 }
   local map = {
-    mapId = 61, cameraType = 4, coordinateOrigin = { x = 0, z = 0 },
+    mapId = 61,
+    cameraType = 4,
+    coordinateOrigin = { x = 0, z = 0 },
     fieldData = { events = { warps = { warp } } },
     permissions = {
-      containsLocal = function(_, x, z) return x >= 0 and x < 32 and z >= 0 and z < 32 end,
-      isBlockedLocal = function(_, x, z) return x == 4 and z == 14 end,
+      containsLocal = function(_, x, z)
+        return x >= 0 and x < 32 and z >= 0 and z < 32
+      end,
+      isBlockedLocal = function(_, x, z)
+        return x == 4 and z == 14
+      end,
     },
-    terrain = TerrainSurface.new({ plates = {
-      { id = 0, minX = 0, minZ = 0, maxX = 32, maxZ = 32,
-        normal = { x = 0, y = 1, z = 0 }, distance = 0, slopeClass = "flat" },
-    } }),
+    terrain = TerrainSurface.new({
+      plates = {
+        {
+          id = 0,
+          minX = 0,
+          minZ = 0,
+          maxX = 32,
+          maxZ = 32,
+          normal = { x = 0, y = 1, z = 0 },
+          distance = 0,
+          slopeClass = "flat",
+        },
+      },
+    }),
   }
   local player = FieldPlayer.new({
-    currentMap = map, fieldX = 4, fieldZ = 13, surfaceId = 0, facing = "south",
+    currentMap = map,
+    fieldX = 4,
+    fieldZ = 13,
+    surfaceId = 0,
+    facing = "south",
     occupancy = function(x, z, surface)
-      if x == 4 and z == 14 and surface == 0 then return "map:61:object:0" end
+      if x == 4 and z == 14 and surface == 0 then
+        return "map:61:object:0"
+      end
       return nil
     end,
   })
   local camera = { updateFixed = function() end }
-  local session = FieldSession.new({ versionId = "heartgold", currentMap = map,
-    actor = player, player = player, camera = camera, transition = transition })
+  local session = FieldSession.new({
+    versionId = "heartgold",
+    currentMap = map,
+    actor = player,
+    player = player,
+    camera = camera,
+    transition = transition,
+  })
   session:updateFixed({ heldDirection = "south", pressedDirection = "south" })
   Assert.equal(#starts, 1)
   Assert.equal(starts[1].warp, warp)
@@ -196,7 +275,8 @@ function T.actor_on_an_open_warp_cell_blocks_the_walk_but_not_the_route()
   -- the standing-warp check never fires because the move never commits.
   local starts = {}
   local transition = {
-    phase = "idle", locked = false,
+    phase = "idle",
+    locked = false,
     updateFixed = function() end,
     start = function(_, map, warp, facing)
       starts[#starts + 1] = { map = map, warp = warp, facing = facing }
@@ -204,27 +284,55 @@ function T.actor_on_an_open_warp_cell_blocks_the_walk_but_not_the_route()
   }
   local warp = { index = 0, x = 4, z = 14, destinationMapId = 60, destinationWarpId = 0, y = 0 }
   local map = {
-    mapId = 61, cameraType = 4, coordinateOrigin = { x = 0, z = 0 },
+    mapId = 61,
+    cameraType = 4,
+    coordinateOrigin = { x = 0, z = 0 },
     fieldData = { events = { warps = { warp } } },
     permissions = {
-      containsLocal = function(_, x, z) return x >= 0 and x < 32 and z >= 0 and z < 32 end,
-      isBlockedLocal = function() return false end,
+      containsLocal = function(_, x, z)
+        return x >= 0 and x < 32 and z >= 0 and z < 32
+      end,
+      isBlockedLocal = function()
+        return false
+      end,
     },
-    terrain = TerrainSurface.new({ plates = {
-      { id = 0, minX = 0, minZ = 0, maxX = 32, maxZ = 32,
-        normal = { x = 0, y = 1, z = 0 }, distance = 0, slopeClass = "flat" },
-    } }),
+    terrain = TerrainSurface.new({
+      plates = {
+        {
+          id = 0,
+          minX = 0,
+          minZ = 0,
+          maxX = 32,
+          maxZ = 32,
+          normal = { x = 0, y = 1, z = 0 },
+          distance = 0,
+          slopeClass = "flat",
+        },
+      },
+    }),
   }
   local player = FieldPlayer.new({
-    currentMap = map, fieldX = 4, fieldZ = 13, surfaceId = 0, facing = "south",
+    currentMap = map,
+    fieldX = 4,
+    fieldZ = 13,
+    surfaceId = 0,
+    facing = "south",
     occupancy = function(x, z, surface)
-      if x == 4 and z == 14 and surface == 0 then return "map:61:object:0" end
+      if x == 4 and z == 14 and surface == 0 then
+        return "map:61:object:0"
+      end
       return nil
     end,
   })
   local camera = { updateFixed = function() end }
-  local session = FieldSession.new({ versionId = "heartgold", currentMap = map,
-    actor = player, player = player, camera = camera, transition = transition })
+  local session = FieldSession.new({
+    versionId = "heartgold",
+    currentMap = map,
+    actor = player,
+    player = player,
+    camera = camera,
+    transition = transition,
+  })
   session:updateFixed({ heldDirection = "south", pressedDirection = "south" })
   Assert.equal(#starts, 0)
   Assert.equal(player.fieldZ, 13)
@@ -233,7 +341,11 @@ end
 
 function T.standing_warp_starts_only_when_a_step_commits()
   local session, _, starts, warp = warpSession({
-    fieldX = 4, fieldZ = 13, warpX = 4, warpZ = 14, commit = true,
+    fieldX = 4,
+    fieldZ = 13,
+    warpX = 4,
+    warpZ = 14,
+    commit = true,
   })
   session:updateFixed({ heldDirection = "south" })
   Assert.equal(#starts, 1)
@@ -243,7 +355,11 @@ end
 
 function T.arrival_suppression_prevents_immediate_standing_bounce()
   local session, transition, starts = warpSession({
-    fieldX = 4, fieldZ = 14, warpX = 4, warpZ = 14, commit = true,
+    fieldX = 4,
+    fieldZ = 14,
+    warpX = 4,
+    warpZ = 14,
+    commit = true,
   })
   transition.suppression = { mapId = 61, fieldX = 4, fieldZ = 14 }
   session:updateFixed({ heldDirection = "south" })
@@ -261,31 +377,59 @@ local function dialogueSession(opts)
   local received
   local dialogue = {
     modal = opts.modal ~= false,
-    isModal = function(self) return self.modal end,
+    isModal = function(self)
+      return self.modal
+    end,
     step = function(self, snapshot)
       dialogueSteps = dialogueSteps + 1
       received = snapshot
     end,
   }
   local actor = {
-    fieldX = 4, fieldZ = 13, worldX = 0, worldY = 0, worldZ = 0,
-    surfaceId = 0, facing = "south", motion = "idle",
+    fieldX = 4,
+    fieldZ = 13,
+    worldX = 0,
+    worldY = 0,
+    worldZ = 0,
+    surfaceId = 0,
+    facing = "south",
+    motion = "idle",
     updateFixed = function()
       worldSteps.player = worldSteps.player + 1
       return false
     end,
   }
-  local camera = { updateFixed = function() worldSteps.camera = worldSteps.camera + 1 end }
-  local actors = { step = function() worldSteps.actors = worldSteps.actors + 1 end }
-  local playerVisual = { updateFixed = function() worldSteps.visual = worldSteps.visual + 1 end }
+  local camera = {
+    updateFixed = function()
+      worldSteps.camera = worldSteps.camera + 1
+    end,
+  }
+  local actors = {
+    step = function()
+      worldSteps.actors = worldSteps.actors + 1
+    end,
+  }
+  local playerVisual = {
+    updateFixed = function()
+      worldSteps.visual = worldSteps.visual + 1
+    end,
+  }
   local transition = { phase = "idle", locked = false, updateFixed = function() end }
   local map = { mapId = 61, cameraType = 4 }
   local session = FieldSession.new({
-    versionId = "heartgold", currentMap = map,
-    actor = actor, player = actor, camera = camera, transition = transition,
-    actors = actors, playerVisual = playerVisual, dialogue = dialogue,
+    versionId = "heartgold",
+    currentMap = map,
+    actor = actor,
+    player = actor,
+    camera = camera,
+    transition = transition,
+    actors = actors,
+    playerVisual = playerVisual,
+    dialogue = dialogue,
   })
-  return session, worldSteps, function() return dialogueSteps, received end, dialogue
+  return session, worldSteps, function()
+    return dialogueSteps, received
+  end, dialogue
 end
 
 function T.modal_dialogue_freezes_every_world_step_and_steps_the_dialogue()
@@ -325,12 +469,21 @@ function T.transition_commit_clears_stale_action_edges()
   local input = FieldInput.new()
   input:pressAction()
   local actor = {
-    fieldX = 4, fieldZ = 14, worldX = 0, worldY = 0, worldZ = 0,
-    surfaceId = 0, facing = "south", motion = "idle",
-    updateFixed = function() return false end,
+    fieldX = 4,
+    fieldZ = 14,
+    worldX = 0,
+    worldY = 0,
+    worldZ = 0,
+    surfaceId = 0,
+    facing = "south",
+    motion = "idle",
+    updateFixed = function()
+      return false
+    end,
   }
   local transition = {
-    phase = "fade_in", locked = true,
+    phase = "fade_in",
+    locked = true,
     updateFixed = function(self)
       self.phase, self.locked = "idle", false
       self.completed = { destinationMapId = 60 }
@@ -339,8 +492,12 @@ function T.transition_commit_clears_stale_action_edges()
   local camera = { updateFixed = function() end }
   local map = { mapId = 61, cameraType = 4 }
   local session = FieldSession.new({
-    versionId = "heartgold", currentMap = map,
-    actor = actor, player = actor, camera = camera, transition = transition,
+    versionId = "heartgold",
+    currentMap = map,
+    actor = actor,
+    player = actor,
+    camera = camera,
+    transition = transition,
     input = input,
   })
   session:updateFixed({ actionPressed = true })
@@ -369,8 +526,14 @@ local function interactionSession(opts)
   }
   local steps = 0
   local actor = {
-    fieldX = 4, fieldZ = 14, worldX = 0, worldY = 0, worldZ = 0,
-    surfaceId = 0, facing = "north", motion = "idle",
+    fieldX = 4,
+    fieldZ = 14,
+    worldX = 0,
+    worldY = 0,
+    worldZ = 0,
+    surfaceId = 0,
+    facing = "north",
+    motion = "idle",
     updateFixed = function()
       steps = steps + 1
       return false
@@ -381,11 +544,18 @@ local function interactionSession(opts)
   local transition = { phase = "idle", locked = false, updateFixed = function() end }
   local map = { mapId = 61, cameraType = 4 }
   local session = FieldSession.new({
-    versionId = "heartgold", currentMap = map,
-    actor = actor, player = actor, camera = camera, transition = transition,
-    actors = actors, interactions = interactions,
+    versionId = "heartgold",
+    currentMap = map,
+    actor = actor,
+    player = actor,
+    camera = camera,
+    transition = transition,
+    actors = actors,
+    interactions = interactions,
   })
-  return session, actor, interactions, function() return steps end
+  return session, actor, interactions, function()
+    return steps
+  end
 end
 
 function T.consumed_interaction_owns_the_tick()
@@ -458,7 +628,12 @@ function T.interaction_never_resolves_under_a_locked_transition_or_modal()
   Assert.equal(steps(), 0)
 
   session.transition.locked = false
-  local modal = { isModal = function() return true end, step = function() end }
+  local modal = {
+    isModal = function()
+      return true
+    end,
+    step = function() end,
+  }
   session.dialogue = modal
   session:updateFixed({ actionPressed = true })
   Assert.isNil(interactions.resolveSnapshot, "modal ownership blocks new interactions")
@@ -469,28 +644,62 @@ end
 -- gait range) keeps one continuous phase instead of restarting at each commit.
 function T.a_two_tile_walk_keeps_one_phase_across_the_session_ticks()
   local map = {
-    mapId = 61, cameraType = 4, coordinateOrigin = { x = 0, z = 0 },
+    mapId = 61,
+    cameraType = 4,
+    coordinateOrigin = { x = 0, z = 0 },
     fieldData = { events = { warps = {} } },
     permissions = {
-      containsLocal = function(_, x, z) return x >= 0 and x < 32 and z >= 0 and z < 32 end,
-      isBlockedLocal = function() return false end,
+      containsLocal = function(_, x, z)
+        return x >= 0 and x < 32 and z >= 0 and z < 32
+      end,
+      isBlockedLocal = function()
+        return false
+      end,
     },
-    terrain = TerrainSurface.new({ plates = {
-      { id = 0, minX = 0, minZ = 0, maxX = 32, maxZ = 32,
-        normal = { x = 0, y = 1, z = 0 }, distance = 0, slopeClass = "flat" },
-    } }),
+    terrain = TerrainSurface.new({
+      plates = {
+        {
+          id = 0,
+          minX = 0,
+          minZ = 0,
+          maxX = 32,
+          maxZ = 32,
+          normal = { x = 0, y = 1, z = 0 },
+          distance = 0,
+          slopeClass = "flat",
+        },
+      },
+    }),
   }
-  local player = FieldPlayer.new({ currentMap = map, fieldX = 4, fieldZ = 13,
-    surfaceId = 0, facing = "south", occupancy = function() return nil end })
+  local player = FieldPlayer.new({
+    currentMap = map,
+    fieldX = 4,
+    fieldZ = 13,
+    surfaceId = 0,
+    facing = "south",
+    occupancy = function()
+      return nil
+    end,
+  })
   local visual = FieldPlayerVisual.new({
-    player = player, spriteId = 0, visualDef = FieldActorFixture.visual(0),
+    player = player,
+    spriteId = 0,
+    visualDef = FieldActorFixture.visual(0),
   })
   local camera = { updateFixed = function() end }
-  local session = FieldSession.new({ versionId = "heartgold", currentMap = map,
-    actor = player, player = player, camera = camera, playerVisual = visual })
+  local session = FieldSession.new({
+    versionId = "heartgold",
+    currentMap = map,
+    actor = player,
+    player = player,
+    camera = camera,
+    playerVisual = visual,
+  })
 
   session:updateFixed({ heldDirection = "east", pressedDirection = "east" })
-  for tick = 2, 16 do session:updateFixed({ heldDirection = "east" }) end
+  for tick = 2, 16 do
+    session:updateFixed({ heldDirection = "east" })
+  end
 
   Assert.equal(player.fieldX, 6, "two eight-tick steps committed")
   Assert.equal(player.motion, "idle")

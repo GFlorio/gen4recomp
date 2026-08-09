@@ -14,7 +14,9 @@ FieldMapDataCompiler.COMPILER_VERSION = "field-map-data-compiler-v2"
 FieldMapDataCompiler.DECODER_VERSION = "hgss-zone-events-v1"
 
 local function must(value, err)
-  if value == nil then error(err) end
+  if value == nil then
+    error(err)
+  end
   return value
 end
 
@@ -22,8 +24,7 @@ local function loadSource(romFs, sha1hex)
   sha1hex = sha1hex or Hashing.sha1hex
   local archiveInfo = romFs:resolvedNarc("zone_events")
   if not archiveInfo then
-    Errors.raise("ROMFS_NARC_UNRESOLVED", "zone_events NARC is unavailable",
-      { name = "zone_events" })
+    Errors.raise("ROMFS_NARC_UNRESOLVED", "zone_events NARC is unavailable", { name = "zone_events" })
   end
   local archiveBytes = must(romFs:read(archiveInfo.fileId))
   local archive = must(romFs:openNarc("zone_events"))
@@ -82,30 +83,30 @@ local function compileMap(romFs, map, source, sha1hex, hashLua)
       coordinates = decoded.coordinateEvents,
     },
   }
-  local marker = FieldMapDataCache.marker(
-    romFs:metadata().sha1, map.id, hashLua(dependencies))
+  local marker = FieldMapDataCache.marker(romFs:metadata().sha1, map.id, hashLua(dependencies))
   return { mapId = map.id, field = field, dependencies = dependencies, marker = marker }
 end
 
 local function _compile(romFs, idOrSymbol, sha1hex, hashLua)
-  assert(romFs and romFs.read and romFs.openNarc and romFs.resolvedNarc,
-    "compile requires a RomFs-shaped object")
+  assert(romFs and romFs.read and romFs.openNarc and romFs.resolvedNarc, "compile requires a RomFs-shaped object")
   sha1hex = sha1hex or Hashing.sha1hex
   hashLua = hashLua or Hashing.hashLua
-  return compileMap(romFs, MapCatalog.require(idOrSymbol),
-    loadSource(romFs, sha1hex), sha1hex, hashLua)
+  return compileMap(romFs, MapCatalog.require(idOrSymbol), loadSource(romFs, sha1hex), sha1hex, hashLua)
 end
 
 function FieldMapDataCompiler.compile(romFs, idOrSymbol, sha1hex, hashLua)
   local ok, result = pcall(_compile, romFs, idOrSymbol, sha1hex, hashLua)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 
 function FieldMapDataCompiler.compileAll(romFs, sha1hex, hashLua)
-  assert(romFs and romFs.read and romFs.openNarc and romFs.resolvedNarc,
-    "compileAll requires a RomFs-shaped object")
+  assert(romFs and romFs.read and romFs.openNarc and romFs.resolvedNarc, "compileAll requires a RomFs-shaped object")
   sha1hex = sha1hex or Hashing.sha1hex
   hashLua = hashLua or Hashing.hashLua
   local ok, result = pcall(function()
@@ -116,8 +117,12 @@ function FieldMapDataCompiler.compileAll(romFs, sha1hex, hashLua)
     end
     return bundles
   end)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 

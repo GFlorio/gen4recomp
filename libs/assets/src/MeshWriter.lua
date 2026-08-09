@@ -22,8 +22,7 @@ function MeshWriter.encode(batch)
     Errors.raise("MESH_EMPTY", "mesh batch has no vertices or indices", {})
   end
   if #indices % 3 ~= 0 then
-    Errors.raise("MESH_BAD_INDEX_COUNT",
-      "index count " .. #indices .. " is not a multiple of 3", { count = #indices })
+    Errors.raise("MESH_BAD_INDEX_COUNT", "index count " .. #indices .. " is not a multiple of 3", { count = #indices })
   end
   local indexWidth = (#vertices <= 65535) and 2 or 4
 
@@ -33,15 +32,22 @@ function MeshWriter.encode(batch)
   for _, v in ipairs(vertices) do
     local source = v.colorSource
     if source == nil or source < 0 or source > 2 then
-      Errors.raise("MESH_UNRESOLVED_COLOR_SOURCE",
-        "vertex color source must be 0, 1, or 2, got " .. tostring(source), {})
+      Errors.raise(
+        "MESH_UNRESOLVED_COLOR_SOURCE",
+        "vertex color source must be 0, 1, or 2, got " .. tostring(source),
+        {}
+      )
     end
     w:f32(v.x):f32(v.y):f32(v.z):f32(v.u):f32(v.v):f32(v.nx):f32(v.ny):f32(v.nz)
     w:u8(v.r):u8(v.g):u8(v.b):u8(v.a):u8(source):u8(0):u8(0):u8(0)
   end
 
   for _, i in ipairs(indices) do
-    if indexWidth == 2 then w:u16(i) else w:u32(i) end
+    if indexWidth == 2 then
+      w:u16(i)
+    else
+      w:u32(i)
+    end
   end
 
   return w:tostring()

@@ -16,22 +16,31 @@ end
 local function resolveFlag(entry, fieldDataFor)
   local fieldData = fieldDataFor(entry.mapId)
   if type(fieldData) ~= "table" or type(fieldData.events) ~= "table" then
-    fail("scenario references map " .. tostring(entry.mapId) .. ", which has no compiled data",
-      { mapId = entry.mapId, objectEventId = entry.objectEventId })
+    fail(
+      "scenario references map " .. tostring(entry.mapId) .. ", which has no compiled data",
+      { mapId = entry.mapId, objectEventId = entry.objectEventId }
+    )
   end
   for _, event in ipairs(fieldData.events.objects or {}) do
     if event.objectEventId == entry.objectEventId then
       if event.eventFlag == 0 then
-        fail("object event " .. entry.objectEventId .. " on map " .. entry.mapId
-          .. " has no dedicated event flag and cannot be hidden individually",
-          { mapId = entry.mapId, objectEventId = entry.objectEventId })
+        fail(
+          "object event "
+            .. entry.objectEventId
+            .. " on map "
+            .. entry.mapId
+            .. " has no dedicated event flag and cannot be hidden individually",
+          { mapId = entry.mapId, objectEventId = entry.objectEventId }
+        )
       end
       return event.eventFlag
     end
   end
-  Errors.raise("SCENARIO_OBJECT_NOT_FOUND",
+  Errors.raise(
+    "SCENARIO_OBJECT_NOT_FOUND",
     "map " .. entry.mapId .. " has no object event " .. entry.objectEventId,
-    { mapId = entry.mapId, objectEventId = entry.objectEventId })
+    { mapId = entry.mapId, objectEventId = entry.objectEventId }
+  )
 end
 
 -- fieldDataFor(mapId) returns the compiled `g4-field-map-v1` artifact, so the
@@ -39,10 +48,11 @@ end
 -- Returns the applied entries (mapId/objectEventId/eventFlag), which the
 -- private suite uses to pin the scenario against the real ROM.
 function FieldScenario.apply(manifest, eventState, fieldDataFor)
-  assert(type(manifest) == "table" and type(manifest.id) == "string",
-    "FieldScenario requires an identified manifest")
-  assert(eventState and type(fieldDataFor) == "function",
-    "FieldScenario requires an event state and a compiled-map reader")
+  assert(type(manifest) == "table" and type(manifest.id) == "string", "FieldScenario requires an identified manifest")
+  assert(
+    eventState and type(fieldDataFor) == "function",
+    "FieldScenario requires an event state and a compiled-map reader"
+  )
   local applied = {}
   for _, entry in ipairs(manifest.visibility or {}) do
     if entry.op ~= "set_object_event_flag" then
@@ -51,7 +61,9 @@ function FieldScenario.apply(manifest, eventState, fieldDataFor)
     local eventFlag = resolveFlag(entry, fieldDataFor)
     eventState:setFlag(eventFlag)
     applied[#applied + 1] = {
-      mapId = entry.mapId, objectEventId = entry.objectEventId, eventFlag = eventFlag,
+      mapId = entry.mapId,
+      objectEventId = entry.objectEventId,
+      eventFlag = eventFlag,
     }
   end
   return applied
@@ -68,9 +80,11 @@ function FieldScenario.avatarById(avatars, id)
       return { index = index, id = avatar.id, spriteId = avatar.spriteId }
     end
   end
-  Errors.raise("SCENARIO_AVATAR_UNKNOWN",
+  Errors.raise(
+    "SCENARIO_AVATAR_UNKNOWN",
     "avatar " .. tostring(id) .. " is not one of the compiled player graphics",
-    { avatar = id })
+    { avatar = id }
+  )
 end
 
 return FieldScenario

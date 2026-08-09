@@ -5,15 +5,16 @@
 
 local NitroBuilder = {}
 
-function NitroBuilder.u8(v) return string.char(v % 256) end
+function NitroBuilder.u8(v)
+  return string.char(v % 256)
+end
 
 function NitroBuilder.u16(v)
   return string.char(v % 256, math.floor(v / 256) % 256)
 end
 
 function NitroBuilder.u32(v)
-  return string.char(v % 256, math.floor(v / 256) % 256,
-    math.floor(v / 65536) % 256, math.floor(v / 16777216) % 256)
+  return string.char(v % 256, math.floor(v / 256) % 256, math.floor(v / 65536) % 256, math.floor(v / 16777216) % 256)
 end
 
 -- Pad/truncate a name to a fixed 16-byte NUL-padded field.
@@ -36,11 +37,15 @@ function NitroBuilder.dict(entries)
   local tree = string.rep("\0", (count + 1) * 4) -- N+1 nodes, contents unused
   local ofsEntry = 8 + #tree
   local dataBlock = {}
-  for _, e in ipairs(entries) do dataBlock[#dataBlock + 1] = e.data end
+  for _, e in ipairs(entries) do
+    dataBlock[#dataBlock + 1] = e.data
+  end
   local data = table.concat(dataBlock)
   local ofsName = 4 + #data -- names follow the data, relative to entry header
   local names = {}
-  for _, e in ipairs(entries) do names[#names + 1] = name16(e.name) end
+  for _, e in ipairs(entries) do
+    names[#names + 1] = name16(e.name)
+  end
   local nameBlock = table.concat(names)
 
   local entrySection = u16(sizeUnit) .. u16(ofsName) .. data .. nameBlock
@@ -71,11 +76,16 @@ function NitroBuilder.file(magic, sections)
 
   local fileSize = cursor
   local offsetTable = {}
-  for _, o in ipairs(offsets) do offsetTable[#offsetTable + 1] = u32(o) end
+  for _, o in ipairs(offsets) do
+    offsetTable[#offsetTable + 1] = u32(o)
+  end
 
   return magic
-    .. u16(0xFEFF) .. u16(0) .. u32(fileSize)
-    .. u16(headerSize) .. u16(#sections)
+    .. u16(0xFEFF)
+    .. u16(0)
+    .. u32(fileSize)
+    .. u16(headerSize)
+    .. u16(#sections)
     .. table.concat(offsetTable)
     .. table.concat(blocks)
 end
