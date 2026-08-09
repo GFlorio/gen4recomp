@@ -1,0 +1,631 @@
+-- Save and resume tests : the serializable
+-- scripts bucket of g4-field-save-v2. They freeze relative-timing capture and
+-- rebasing (section 28.2): no tick is duplicated or skipped across a
+-- capture/restore boundary, completed-but-unconsumed tasks restore as
+-- completed and are never polled again, resume_pending owners preserve their
+-- delay, common child contexts and caller signals survive, and fingerprint or
+-- revision mismatches are attributed load errors. The exit criterion: a
+-- non-UI script saves and resumes with an identical per-tick node/task trace.
+
+local Assert = require("tests.support.Assert")
+local Errors = require("libs.rom.src.Errors")
+local S = require("gen4.script")
+local Registry = require("libs.engine.src.script.Registry")
+local Composition = require("libs.engine.src.script.Composition")
+local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
+local Scheduler = require("libs.engine.src.script.Scheduler")
+local ScriptSave = require("libs.engine.src.script.ScriptSave")
+local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
+local ChildScriptTask = require("libs.engine.src.script.tasks.ChildScriptTask")
+local FakeServices = require("tests.support.script.FakeServices")
+local Diagnostics = require("libs.engine.src.script.Diagnostics")
+local FieldSave = require("libs.engine.src.FieldSave")
+
+local T = {}
+
+---@class SaveHarness
+---@field services FakeServices
+---@field registry Registry
+---@field composition Composition
+---@field taskRegistry TaskRegistry
+---@field scheduler Scheduler
+---@field trace Diagnostics.TraceRecorder
+
+---@param opts table|nil
+---@return SaveHarness
+local function harness(opts)
+  opts = opts or {}
+  local services = FakeServices.new(opts)
+  local registry = Registry.new()
+  local composition = Composition.new(registry)
+  local taskRegistry = TaskRegistry.new()
+  taskRegistry:register("wait_ticks", 1, WaitTicksTask)
+  taskRegistry:register("child_script", 1, ChildScriptTask)
+  local recorder = Diagnostics.newTraceRecorder()
+  local scheduler = Scheduler.new({
+    services = services,
+    taskRegistry = taskRegistry,
+    trace = function(record)
+      recorder:record(record)
+    end,
+    resolveComposition = function(id)
+      return composition:effective(id)
+    end,
+  })
+  return {
+    services = services,
+    registry = registry,
+    composition = composition,
+    taskRegistry = taskRegistry,
+    scheduler = scheduler,
+    trace = recorder,
+  }
+end
+
+local function script(id, steps)
+  return S.script({ api = 1, id = id, steps = steps })
+end
+
+local function startForeground(h, resource, tick)
+  if h.registry:base(resource.id) == nil then
+    h.registry:installBase(resource.id, resource, "generated")
+  end
+  local composed = assert(h.composition:effective(resource.id))
+  return h.scheduler:createForeground(composed, nil, tick)
+end
+
+-- Capture the scripts bucket and restore it into a fresh scheduler attached
+-- to the same services; returns the resumed scheduler and its recorder.
+---@param h SaveHarness
+---@param tick integer
+---@return Scheduler, Diagnostics.TraceRecorder
+local function saveAndResume(h, tick)
+  local bucket = ScriptSave.capture(h.scheduler, tick, { registryFingerprint = h.registry:fingerprint() })
+  local recorder = Diagnostics.newTraceRecorder()
+  local scheduler = Scheduler.new({
+    services = h.services,
+    taskRegistry = h.taskRegistry,
+    trace = function(record)
+      recorder:record(record)
+    end,
+    resolveComposition = function(id)
+      return h.composition:effective(id)
+    end,
+  })
+  ScriptSave.restore(bucket, scheduler, tick, {})
+  return scheduler, recorder
+end
+
+-- Run a scenario uninterruptedly and compare the resumed trace suffix with
+-- the uninterrupted one .
+---@param resource table
+---@param from integer
+---@param to integer
+---@param saveAt integer
+local function traceSuffixMatch(resource, from, to, saveAt)
+  local h = harness()
+  startForeground(h, resource, from)
+  for tick = from, to do
+    h.scheduler:step(tick, nil)
+  end
+  local full = {}
+  for _, record in ipairs(h.trace:records()) do
+    full[#full + 1] = record
+  end
+
+  local h2 = harness()
+  startForeground(h2, resource, from)
+  for tick = from, saveAt do
+    h2.scheduler:step(tick, nil)
+  end
+  local resumed, recorder = saveAndResume(h2, saveAt)
+  for tick = saveAt + 1, to do
+    resumed:step(tick, nil)
+  end
+
+  local resumedRecords = recorder:records()
+  local expectedCount = 0
+  for _, record in ipairs(full) do
+    if record.tick ~= nil and record.tick > saveAt then
+      expectedCount = expectedCount + 1
+    end
+  end
+  Assert.equal(#resumedRecords, expectedCount, "post-restore trace must match the uninterrupted suffix")
+  local resumedIndex = 1
+  for _, record in ipairs(full) do
+    if record.tick ~= nil and record.tick > saveAt then
+      local actual = resumedRecords[resumedIndex]
+      Assert.equal(actual.kind, record.kind)
+      Assert.equal(actual.tick, record.tick)
+      for key, value in pairs(record) do
+        if key ~= "tick" then
+          Assert.equal(actual[key], value, "trace field " .. key .. " diverges")
+        end
+      end
+      resumedIndex = resumedIndex + 1
+    end
+  end
+end
+
+-- 1. Deterministic capture: two captures of identical state are deep-equal.
+T["deterministic capture"] = function()
+  local h = harness()
+  startForeground(
+    h,
+    script("test.cap", {
+      S.waitTicks(5),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  h.scheduler:step(101, nil)
+  local a = ScriptSave.capture(h.scheduler, 101, { registryFingerprint = h.registry:fingerprint() })
+  local b = ScriptSave.capture(h.scheduler, 101, { registryFingerprint = h.registry:fingerprint() })
+  Assert.deepEqual(a, b)
+  Assert.equal(a.schema, ScriptSave.SCHEMA_NAME)
+  Assert.equal(a.registryFingerprint, h.registry:fingerprint())
+end
+
+-- 2. Save and resume during an active wait: the countdown continues with no
+-- tick duplicated or skipped .
+T["resume active wait"] = function()
+  local resource = script("test.wait", {
+    S.waitTicks(3),
+    S.setVar("VAR_A", 1),
+    S.stop(),
+  })
+  traceSuffixMatch(resource, 100, 105, 102)
+end
+
+-- 3. Save immediately before a task poll: the restored task polls exactly
+-- when the uninterrupted one would (first eligible poll, section 26.6).
+T["save before poll"] = function()
+  local resource = script("test.poll", {
+    S.waitTicks(2),
+    S.setVar("VAR_A", 1),
+    S.stop(),
+  })
+  traceSuffixMatch(resource, 100, 104, 101)
+end
+
+-- 4. Save after task completion but before owner continuation: the
+-- completed-but-unconsumed task restores as completed and is never polled
+-- again; the owner's resume delay survives (sections 27.2 and 28.2).
+T["save between completion and continuation"] = function()
+  local resource = script("test.handoff", {
+    S.waitTicks(1),
+    S.setVar("VAR_A", 1),
+    S.stop(),
+  })
+  traceSuffixMatch(resource, 100, 103, 101)
+end
+
+-- 5. Save and resume a script with nested local calls (spec 28.2: no extra
+-- run merely because loading occurred).
+T["resume nested local calls"] = function()
+  local resource = script("test.nested", {
+    S.waitTicks(2),
+    S.call("sub"),
+    S.setVar("VAR_AFTER", 1),
+    S.stop(),
+    S.label("sub"),
+    S.call("inner"),
+    S.setVar("VAR_SUB", 1),
+    S.return_(),
+    S.label("inner"),
+    S.setVar("VAR_INNER", 1),
+    S.return_(),
+  })
+  traceSuffixMatch(resource, 100, 108, 103)
+end
+
+-- 6. Save and resume a blocked common child context with its caller signal
+-- : the child continues, signals, and the parent resumes
+-- one tick after the successful poll.
+T["resume common child context"] = function()
+  local h = harness()
+  local common = script("common.greet", {
+    S.waitTicks(2),
+    S.setVar("VAR_CHILD", 1),
+    { op = "signal_caller" },
+    S.stop(),
+  })
+  h.registry:installBase(common.id, common, "generated")
+  local root = script("test.std", {
+    S.callCommon("common.greet"),
+    S.setVar("VAR_PARENT", 1),
+    S.stop(),
+  })
+  startForeground(h, root, 100)
+  h.scheduler:step(100, nil)
+  h.scheduler:step(101, nil)
+  local resumed, recorder = saveAndResume(h, 101)
+  for tick = 102, 107 do
+    resumed:step(tick, nil)
+  end
+  Assert.equal(h.services.world:getVar("VAR_CHILD"), 1)
+  Assert.equal(h.services.world:getVar("VAR_PARENT"), 1)
+  local expected = {
+    "task_polled",
+    "task_polled",
+    "task_polled",
+    "resume_promoted",
+    "context_run",
+    "context_completed",
+    "task_polled",
+    "resume_promoted",
+    "context_run",
+    "context_completed",
+    "environment_torn_down",
+  }
+  local kinds = {}
+  for _, record in ipairs(recorder:records()) do
+    kinds[#kinds + 1] = record.kind
+  end
+  Assert.deepEqual(kinds, expected)
+end
+
+-- 7. Restore does not poll a completed task twice and does not skip the
+-- native-to-bytecode delay: the resumed continuation lands exactly one tick
+-- after the poll that completed at save time.
+T["no double poll and no skipped delay"] = function()
+  local h = harness()
+  local resource = script("test.delay", {
+    S.waitTicks(1),
+    S.setVar("VAR_A", 1),
+    S.stop(),
+  })
+  startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  h.scheduler:step(101, nil)
+  local resumed, recorder = saveAndResume(h, 101)
+  -- The completed task must not be polled again at 102; the owner promotes
+  -- and runs exactly at 102.
+  resumed:step(102, nil)
+  Assert.equal(h.services.world:getVar("VAR_A"), 1)
+  local kinds = {}
+  for _, record in ipairs(recorder:records()) do
+    kinds[#kinds + 1] = record.kind
+  end
+  Assert.deepEqual(kinds, { "resume_promoted", "context_run", "context_completed", "environment_torn_down" })
+end
+
+-- 8. Task version rejection on load .
+T["task version rejection"] = function()
+  local h = harness()
+  startForeground(
+    h,
+    script("test.version", {
+      S.waitTicks(5),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  local bucket = ScriptSave.capture(h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
+  bucket.tasks[1].taskVersion = 99
+  local ok, err = pcall(
+    ScriptSave.restore,
+    bucket,
+    Scheduler.new({
+      services = h.services,
+      taskRegistry = h.taskRegistry,
+      resolveComposition = function(id)
+        return h.composition:effective(id)
+      end,
+    }),
+    100,
+    {}
+  )
+  Assert.isFalse(ok)
+  Assert.isTrue(Errors.is(err))
+  ---@cast err Errors.Error
+  Assert.equal(err.code, "SCRIPT_TASK_VERSION_UNSUPPORTED")
+end
+
+-- 9. Missing graph revision on load : the runtime does not
+-- restart or redirect the active script.
+T["missing graph revision"] = function()
+  local h = harness()
+  startForeground(
+    h,
+    script("test.rev", {
+      S.waitTicks(5),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  local bucket = ScriptSave.capture(h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
+  bucket.instances[1].frames[1].chainRevision = "deadbeef"
+  local ok, err = pcall(
+    ScriptSave.restore,
+    bucket,
+    Scheduler.new({
+      services = h.services,
+      taskRegistry = h.taskRegistry,
+      resolveComposition = function(id)
+        return h.composition:effective(id)
+      end,
+    }),
+    100,
+    {}
+  )
+  Assert.isFalse(ok)
+  Assert.isTrue(Errors.is(err))
+  ---@cast err Errors.Error
+  Assert.equal(err.code, "SCRIPT_SAVE_REVISION_MISMATCH")
+end
+
+-- 10. A removed mod changes the registry fingerprint, which rejects the load
+-- .
+T["mod removed changes fingerprint"] = function()
+  local h = harness()
+  startForeground(
+    h,
+    script("test.mod", {
+      S.waitTicks(5),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  local bucket = ScriptSave.capture(h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
+  local ok, err = pcall(
+    ScriptSave.restore,
+    bucket,
+    Scheduler.new({
+      services = h.services,
+      taskRegistry = h.taskRegistry,
+      resolveComposition = function(id)
+        return h.composition:effective(id)
+      end,
+    }),
+    100,
+    { expectedRegistryFingerprint = "different-registry" }
+  )
+  Assert.isFalse(ok)
+  Assert.isTrue(Errors.is(err))
+  ---@cast err Errors.Error
+  Assert.equal(err.code, "SCRIPT_REGISTRY_FINGERPRINT_MISMATCH")
+end
+
+-- 11. Capture refuses a running context: saves occur only at fixed-tick
+-- phase boundaries .
+T["capture requires phase boundary"] = function()
+  local h = harness()
+  startForeground(
+    h,
+    script("test.boundary", {
+      S.setVar("VAR_A", 1),
+      S.stop(),
+    }),
+    100
+  )
+  local instance = h.scheduler:instances()[1]
+  instance.status = "running"
+  local ok = pcall(ScriptSave.capture, h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
+  Assert.isFalse(ok)
+end
+
+-- 12. g4-field-save-v2: the field bucket stays valid and the scripts bucket
+-- rides along; v1 migration produces an empty-world v2 record.
+T["field save v2 round trip"] = function()
+  local FieldEventState = require("libs.engine.src.FieldEventState")
+  local eventState = FieldEventState.new()
+  eventState:setFlag(0x800)
+  eventState:setVar(0x4000, 3)
+  local session = {
+    versionId = "heartgold",
+    currentMap = {
+      mapId = 58,
+      coordinateOrigin = { x = 680, z = 390 },
+      permissions = {
+        containsLocal = function()
+          return true
+        end,
+        isBlockedLocal = function()
+          return false
+        end,
+      },
+      terrainDependencyHash = "terrain-a",
+      fieldData = { events = { warps = {} } },
+      terrain = {
+        contains = function()
+          return false
+        end,
+        candidatesAt = function()
+          return { { id = 0, worldY = 4, surfaceId = 11, distance = 0 } }
+        end,
+        sample = function()
+          return { worldY = 4, surfaceId = 11 }
+        end,
+      },
+    },
+    player = { motion = "idle", fieldX = 4, fieldZ = 6, worldY = 4, surfaceId = 11, facing = "north" },
+    transition = { phase = "idle" },
+  }
+  local record = FieldSave.captureV2(session, {
+    avatarId = "hero",
+    eventState = eventState,
+    scenario = "scenario-a",
+    world = { flags = { [5] = true }, variables = {}, objects = {}, rng = {} },
+    scriptsBucket = { schema = ScriptSave.SCHEMA_NAME, placeholder = true },
+  })
+  Assert.equal(record.schema, FieldSave.SCHEMA_V2)
+  Assert.equal(record.world.flags[5], true)
+  Assert.equal(record.scripts.schema, ScriptSave.SCHEMA_NAME)
+  local restored, err = FieldSave.restoreV2(
+    record,
+    {
+      load = function()
+        return session.currentMap
+      end,
+    },
+    "heartgold",
+    {
+      scriptsValidate = function(bucket)
+        if bucket.placeholder ~= true then
+          return Errors.new("SCRIPT_TASK_UNSERIALIZABLE", "bad bucket", {})
+        end
+        return nil
+      end,
+    }
+  )
+  Assert.isTrue(restored ~= nil, tostring(err))
+  ---@cast restored table
+  Assert.equal(restored.scripts.placeholder, true)
+  Assert.equal(restored.world.flags[5], true)
+end
+-- 13. v1 -> v2 migration: events become world flags/variables; scripts empty.
+T["v1 field save migration"] = function()
+  local v1 = {
+    schema = FieldSave.SCHEMA,
+    versionId = "heartgold",
+    mapId = 58,
+    fieldX = 4,
+    fieldZ = 6,
+    worldY = 4,
+    surfaceId = 11,
+    terrainDependencyHash = "terrain-a",
+    facing = "north",
+    avatar = "hero",
+    scenario = "pre-script-demo-v1",
+    events = { flags = { [0x800] = true }, vars = { [0x4000] = 3 } },
+  }
+  local v2 = FieldSave.migrateV1ToV2(v1)
+  Assert.equal(v2.schema, FieldSave.SCHEMA_V2)
+  Assert.equal(v2.world.flags[0x800], true)
+  Assert.equal(v2.world.variables[0x4000], 3)
+  Assert.isNil(v2.scripts)
+  Assert.equal(v2.avatar, "hero")
+  Assert.isNil(v2.events, "v1 events move into the world bucket")
+  -- The v1 record is never mutated.
+  Assert.equal(v1.schema, FieldSave.SCHEMA)
+  Assert.notNil(v1.events)
+end
+
+-- 14. The resumed trace suffix equals the uninterrupted suffix for a longer
+-- script combining waits, calls, and branches .
+T["trace suffix determinism"] = function()
+  local resource = script("test.suffix", {
+    S.setVar("VAR_A", 1),
+    S.waitTicks(2),
+    S.call("sub"),
+    S.if_({
+      condition = S.eq(S.var("VAR_A"), 1),
+      yes = { S.setFlag("FLAG_YES"), S.stop() },
+      no = { S.setFlag("FLAG_NO"), S.stop() },
+    }),
+    S.label("sub"),
+    S.waitTicks(1),
+    S.setVar("VAR_SUB", 1),
+    S.return_(),
+  })
+  traceSuffixMatch(resource, 100, 110, 104)
+end
+
+-- 3q. A save taken after a cross-script jump pins the target script's frame
+-- identity: the resumed scheduler continues on the target graph and the
+-- trace suffix matches the uninterrupted run .
+T["cross-script jump saves and resumes"] = function()
+  local h = harness()
+  h.registry:installBase(
+    "test.tail",
+    script("test.tail", {
+      S.label("_0050"),
+      S.setFlag("FLAG_TAIL"),
+      S.waitTicks(1),
+      S.setVar("VAR_TAIL_DONE", 1),
+      S.stop(),
+    }),
+    "generated"
+  )
+  local jumper = script("test.jumper", {
+    S.gotoScript("test.tail", { label = "_0050" }),
+    S.setVar("VAR_NEVER", 1),
+    S.stop(),
+  })
+  startForeground(h, jumper, 100)
+  h.scheduler:step(100, nil)
+  Assert.isTrue(h.services.world:isFlagSet("FLAG_TAIL"))
+
+  local resumed, recorder = saveAndResume(h, 100)
+  resumed:step(101, nil)
+  Assert.equal(h.services.world:getVar("VAR_TAIL_DONE"), 0, "successful poll must not continue same tick")
+  resumed:step(102, nil)
+  Assert.equal(h.services.world:getVar("VAR_TAIL_DONE"), 1)
+  Assert.equal(h.services.world:getVar("VAR_NEVER"), 0)
+  Assert.isTrue(#recorder:records() > 0)
+end
+
+-- 3r. A save pinned to a superseded cross-script target revision is
+-- rejected .
+T["cross-script jump pins the target revision"] = function()
+  local h = harness()
+  h.registry:installBase(
+    "test.tail",
+    script("test.tail", {
+      S.label("_0050"),
+      S.waitTicks(1),
+      S.setVar("VAR_TAIL_DONE", 1),
+      S.stop(),
+    }),
+    "generated"
+  )
+  local jumper = script("test.jumper", {
+    S.gotoScript("test.tail", { label = "_0050" }),
+    S.stop(),
+  })
+  startForeground(h, jumper, 100)
+  h.scheduler:step(100, nil)
+  local bucket = ScriptSave.capture(h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
+
+  -- Replace the target script and restore: the pinned revision is gone.
+  h.registry:override(
+    "test.tail",
+    script("test.tail", {
+      S.label("_0050"),
+      S.setVar("VAR_REPLACED", 2),
+      S.stop(),
+    }),
+    { modId = "mod.a" },
+    {}
+  )
+  local scheduler = Scheduler.new({
+    services = h.services,
+    taskRegistry = h.taskRegistry,
+    resolveComposition = function(id)
+      return h.composition:effective(id)
+    end,
+  })
+  local ok, err = pcall(ScriptSave.restore, bucket, scheduler, 100, {})
+  Assert.isFalse(ok)
+  Assert.equal(err.code, "SCRIPT_SAVE_REVISION_MISMATCH")
+end
+
+-- 3s. A mirrored countdown variable resumes through a save: the task state
+-- keeps the variable identity and the world store keeps the value, so the
+-- restored task keeps decrementing in lockstep .
+T["countdown mirror saves and resumes"] = function()
+  local h = harness()
+  startForeground(
+    h,
+    script("test.mirror", {
+      S.waitTicks(3, { countdownVariable = "VAR_COUNTDOWN" }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  h.scheduler:step(101, nil)
+  Assert.equal(h.services.world:getVar("VAR_COUNTDOWN"), 2)
+  local resumed = saveAndResume(h, 101)
+  resumed:step(102, nil)
+  Assert.equal(h.services.world:getVar("VAR_COUNTDOWN"), 1)
+  resumed:step(103, nil)
+  Assert.equal(h.services.world:getVar("VAR_COUNTDOWN"), 0)
+end
+
+return T
