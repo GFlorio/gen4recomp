@@ -81,6 +81,7 @@ local MODULES = {
   "libs.engine.tests.script.dsl_tests",
   "libs.engine.tests.script.validator_tests",
   "libs.engine.tests.script.compiler_tests",
+  "libs.engine.tests.script.loader_tests",
   "libs.engine.tests.script.docgen_test",
   -- game
   "game.tests.app_boot_test",

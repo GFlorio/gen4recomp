@@ -22,6 +22,8 @@ local MODULES = {
   "tests.private.field_dialogue_test",
   "tests.private.pre_script_interactions_test",
   "tests.private.pre_script_demo_path_test",
+  "tests.private.script_corpus_test",
+  "tests.private.new_bark_script_slice_test",
   "tests.private.field_save_resume_test",
   "tests.private.code_invariants_test",
 }

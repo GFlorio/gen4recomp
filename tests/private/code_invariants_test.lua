@@ -66,9 +66,11 @@ function T.no_rom_payload_tracked()
 end
 
 -- A bare global `print(` not preceded by `.` or `:` (i.e. not
--- love.graphics.print or a method call) would be terminal output.
+-- love.graphics.print or a method call) would be terminal output. The
+-- preceding-character check excludes identifier characters too, so method
+-- names ending in `print` (e.g. `fingerprint(`) are not false positives.
 local function hasBarePrint(src)
-  return src:match("[^%.%:]print%(") ~= nil or src:match("^print%(") ~= nil
+  return src:match("[^%w_%.%:]print%(") ~= nil or src:match("^print%(") ~= nil
 end
 
 -- The interactive game and the reusable runtime libraries must never write to
