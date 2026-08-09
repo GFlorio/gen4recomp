@@ -6,21 +6,22 @@ RUN apt-get update \
     && apt-get update \
     && apt-get install -y --no-install-recommends luajit love \
     && rm -rf /var/lib/apt/lists/*
+# Versions are pinned to the ones CI installs (.github/workflows/ci.yml). A
+# formatter or analyzer that differs from CI's makes the pre-commit hook
+# disagree with the binding gate.
+ARG LUALS_VERSION=3.19.0
+ARG STYLUA_VERSION=2.5.2
 RUN set -eux \
-    && url=$(curl -fsSL https://api.github.com/repos/LuaLS/lua-language-server/releases/latest \
-        | grep -o '"browser_download_url": *"[^"]*linux-x64\.tar\.gz"' \
-        | cut -d '"' -f 4) \
-    && curl -fsSL "$url" -o /tmp/lua-language-server.tar.gz \
+    && curl -fsSL "https://github.com/LuaLS/lua-language-server/releases/download/${LUALS_VERSION}/lua-language-server-${LUALS_VERSION}-linux-x64.tar.gz" \
+        -o /tmp/lua-language-server.tar.gz \
     && mkdir -p /opt/lua-language-server \
     && tar -xzf /tmp/lua-language-server.tar.gz -C /opt/lua-language-server \
     && printf '#!/bin/sh\nexec /opt/lua-language-server/bin/lua-language-server --metapath="${HOME:-/tmp}/.cache/lua-language-server/meta" "$@"\n' > /usr/local/bin/lua-language-server \
     && chmod 0755 /usr/local/bin/lua-language-server \
     && rm -rf /tmp/lua-language-server.tar.gz
 RUN set -eux \
-    && url=$(curl -fsSL https://api.github.com/repos/JohnnyMorganz/StyLua/releases/latest \
-        | grep -o '"browser_download_url": *"[^"]*linux-x86_64\.zip"' \
-        | cut -d '"' -f 4) \
-    && curl -fsSL "$url" -o /tmp/stylua.zip \
+    && curl -fsSL "https://github.com/JohnnyMorganz/StyLua/releases/download/v${STYLUA_VERSION}/stylua-linux-x86_64.zip" \
+        -o /tmp/stylua.zip \
     && unzip -j /tmp/stylua.zip stylua -d /usr/local/bin \
     && chmod 0755 /usr/local/bin/stylua \
     && rm -rf /tmp/stylua.zip

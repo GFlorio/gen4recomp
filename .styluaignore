@@ -1,5 +1,6 @@
-# Mirror .luarc.json workspace.ignoreDir: derived output and scratch space are
-# not source, and must not fail the formatting check.
+# Derived output and scratch space are not source, and must not fail the
+# formatting check. Kept separate from .luarc.json workspace.ignoreDir: the
+# analyzer also skips directories that hold no Lua at all.
 .cache/
 .agents/
 data/generated/

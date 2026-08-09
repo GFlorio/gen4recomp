@@ -27,16 +27,9 @@ No LuaRocks packages, no native modules, no network access.
 
 To contribute you also need [stylua](https://github.com/JohnnyMorganz/StyLua) and
 [lua-language-server](https://github.com/LuaLS/lua-language-server) on your
-`PATH` (both ship in the dev container). Then run the one-time setup, which
-points git at the committed hooks:
-
-```sh
-scripts/repo-setup.sh           # installs the pre-commit hook
-scripts/lint.sh                 # stylua --check + luals diagnostics
-```
-
-Git never installs hooks on clone, so each contributor runs `repo-setup.sh`
-once. CI runs the same checks, so bypassing the hook only defers the failure.
+`PATH` (both ship in the dev container). Then run `scripts/repo-setup.sh` once
+to point git at the committed hooks — git never installs hooks on clone. CI runs
+the same checks as the hook, so bypassing it only defers the failure.
 
 ## Running
 
@@ -47,7 +40,7 @@ in-repo folder during development:
 scripts/run.sh                  # boot: import screen, or the field runtime if a cache is ready
 scripts/buildcache.sh [ROM]     # import if needed, then rebuild the game cache
 scripts/test.sh                 # run the synthetic test suite
-scripts/lint.sh                 # run the static checks
+scripts/lint.sh                 # stylua --check + lua-language-server diagnostics
 ```
 
 You can also drag-and-drop a `.nds` file onto the window to import it.

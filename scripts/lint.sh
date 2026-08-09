@@ -17,5 +17,4 @@ echo "==> stylua --check"
 stylua --check .
 
 echo "==> lua-language-server --check"
-mkdir -p .agents/tmp/luals
 lua-language-server --check . --checklevel=Warning --logpath=.agents/tmp/luals
