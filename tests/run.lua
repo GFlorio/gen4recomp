@@ -84,6 +84,7 @@ local MODULES = {
   "libs.engine.tests.script.docgen_test",
   -- game
   "game.tests.app_boot_test",
+  "game.tests.spawns_manifest_test",
   -- romdump
   "romdump.tests.cli_test",
   -- romdump/src/digest

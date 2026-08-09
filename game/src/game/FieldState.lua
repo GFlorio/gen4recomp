@@ -187,8 +187,17 @@ function FieldState:_load()
     self.runtime = self.runtimeMap.sceneRuntime
     self.renderer = MapRenderer.new()
 
-    local target = TargetSpawns[self.runtimeMap.mapSymbol] or {}
-    local spawn = target.spawn or { x = 0, z = 0, facing = "south" }
+    -- The provisional spawn manifest is flat: each entry is itself the spawn
+    -- record (x, z, facing). Unmapped maps keep the historic default so any
+    -- map can be booted by id; a malformed entry is a manifest bug and must
+    -- fail loudly instead of dumping the player onto a blocked tile.
+    local spawn = TargetSpawns[self.runtimeMap.mapSymbol]
+    if not spawn then
+      spawn = { x = 0, z = 0, facing = "south" }
+    else
+      assert(type(spawn.x) == "number" and type(spawn.z) == "number",
+        "spawn manifest must define x and z for " .. self.runtimeMap.mapSymbol)
+    end
     local fieldX, fieldZ, surfaceId, facing
     if restored then
       fieldX, fieldZ = restored.fieldX, restored.fieldZ
