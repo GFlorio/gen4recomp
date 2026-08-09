@@ -1,5 +1,5 @@
 -- DSL constructor compatibility tests. These freeze the exact table output of
--- every API 1 constructor from the sprint spec section 45, so accidental
+-- every API 1 constructor from the sprint , so accidental
 -- changes to operation names, value kinds, field names, or defaults fail here.
 -- Direct-table equivalence and metatable-freedom are asserted separately.
 

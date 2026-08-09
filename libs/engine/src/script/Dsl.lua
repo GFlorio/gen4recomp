@@ -47,6 +47,38 @@ local function op(kind, given)
   return out
 end
 
+-- Generated files call constructors with a spec table (`S.setVar { ... }`),
+-- while the documented section 45 signatures are positional. A constructor
+-- accepts a spec table when its first argument is a table carrying at least
+-- one of the op's own field names (keys never present on value/actor/
+-- condition/message reference tables), or any table when the positional
+-- first argument is always a scalar.
+local function asSpec(first, keys)
+  if type(first) == "table" then
+    if keys == nil then
+      return first
+    end
+    for _, key in ipairs(keys) do
+      if first[key] ~= nil then
+        return first
+      end
+    end
+  end
+  return nil
+end
+
+-- Whether a table is a message/condition/value reference (never a step spec).
+-- Used where the positional first argument may itself be a reference table.
+local function looksLikeRef(t)
+  return t.value ~= nil
+    or t.ref ~= nil
+    or t.condition ~= nil
+    or t.text ~= nil
+    or t.message == "external"
+    or t.bank ~= nil
+    or t.male ~= nil
+end
+
 local function value(kind, given)
   local spec = Schema.VALUES[kind]
   assert(spec, "unknown value kind: " .. tostring(kind))
@@ -166,6 +198,18 @@ end
 
 function M.partner()
   return { ref = "actor", special = "partner" }
+end
+
+function M.cameraTarget()
+  return { ref = "actor", special = "camera_target" }
+end
+
+-- A numeric local map-object index, resolved against the current map at
+-- runtime (the pinned HGSS object-id path).
+---@param index integer
+---@return table
+function M.actorIndex(index)
+  return { ref = "actor", mapIndex = requireInteger(index, "actor map index") }
 end
 
 function M.externalMessage(bank, id)
@@ -311,8 +355,16 @@ function M.yieldTick()
   return op("yield_tick")
 end
 
-function M.waitTicks(ticks)
-  return op("wait_ticks", { ticks = requireInteger(ticks, "ticks") })
+function M.waitTicks(ticks, opts)
+  local spec = asSpec(ticks, { "ticks" })
+  if spec then
+    return op("wait_ticks", spec)
+  end
+  local given = { ticks = requireInteger(ticks, "ticks") }
+  if opts ~= nil and opts.countdownVariable ~= nil then
+    given.countdownVariable = opts.countdownVariable
+  end
+  return op("wait_ticks", given)
 end
 
 function M.if_(spec)
@@ -326,18 +378,30 @@ function M.switch(spec)
 end
 
 function M.call(scriptId, opts)
+  local spec = asSpec(scriptId)
+  if spec then
+    return op("call", spec)
+  end
   local given = { target = requireString(scriptId, "call target") }
   extend(given, opts)
   return op("call", given)
 end
 
 function M.callCommon(scriptId, opts)
+  local spec = asSpec(scriptId)
+  if spec then
+    return op("call_common", spec)
+  end
   local given = { target = requireString(scriptId, "call_common target") }
   extend(given, opts)
   return op("call_common", given)
 end
 
 function M.return_(v)
+  local spec = asSpec(v, { "provenance" })
+  if spec then
+    return op("return", spec)
+  end
   local given = {}
   if v ~= nil then
     given.value = v
@@ -346,26 +410,87 @@ function M.return_(v)
 end
 
 function M.label(name)
+  local spec = asSpec(name)
+  if spec then
+    return op("label", spec)
+  end
   return op("label", { name = requireString(name, "label name") })
 end
 
 function M.goto_(name)
+  local spec = asSpec(name)
+  if spec then
+    return op("goto", spec)
+  end
   return op("goto", { target = requireString(name, "goto target") })
 end
 
 function M.gotoIf(condition, name)
+  local spec = asSpec(condition, { "target" })
+  if spec then
+    return op("goto_if", spec)
+  end
   return op("goto_if", { condition = condition, target = requireString(name, "goto_if target") })
 end
 
+function M.gotoScript(scriptId, opts)
+  local spec = asSpec(scriptId)
+  if spec then
+    return op("goto_script", spec)
+  end
+  local given = { script = requireString(scriptId, "goto_script target") }
+  if opts ~= nil then
+    requireTable(opts, "gotoScript opts")
+    if opts.label ~= nil then
+      given.label = requireString(opts.label, "goto_script label")
+    end
+  end
+  return op("goto_script", given)
+end
+
 function M.compare(a, b)
+  local spec = asSpec(a, { "left" })
+  if spec then
+    return op("compare", spec)
+  end
   return op("compare", { left = a, right = b })
 end
 
-function M.gotoCompared(operator, name)
+function M.gotoCompared(operator, name, opts)
+  local spec = asSpec(operator)
+  if spec then
+    return op("goto_compared", spec)
+  end
+  if name == nil and type(opts) == "table" then
+    -- Cross-script compare-state form: resolve the composed target at
+    -- runtime, consuming the compare state like the source engine.
+    local given = { operator = operator }
+    if opts.script ~= nil then
+      given.script = requireString(opts.script, "goto_compared script")
+    end
+    if opts.label ~= nil then
+      given.label = requireString(opts.label, "goto_compared label")
+    end
+    return op("goto_compared", given)
+  end
   return op("goto_compared", { operator = operator, target = requireString(name, "goto_compared target") })
 end
 
-function M.callCompared(operator, target)
+function M.callCompared(operator, target, opts)
+  local spec = asSpec(operator)
+  if spec then
+    return op("call_compared", spec)
+  end
+  if target == nil and type(opts) == "table" then
+    local given = { operator = operator }
+    if opts.script ~= nil then
+      given.script = requireString(opts.script, "call_compared script")
+    end
+    if opts.label ~= nil then
+      given.label = requireString(opts.label, "call_compared label")
+    end
+    return op("call_compared", given)
+  end
   return op("call_compared", { operator = operator, target = requireString(target, "call_compared target") })
 end
 
@@ -376,39 +501,86 @@ end
 -- 45.6 State constructors
 
 function M.setFlag(flag)
+  local spec = asSpec(flag, { "flag" })
+  if spec then
+    return op("set_flag", spec)
+  end
   return op("set_flag", { flag = flag })
 end
 function M.clearFlag(flag)
+  local spec = asSpec(flag, { "flag" })
+  if spec then
+    return op("clear_flag", spec)
+  end
   return op("clear_flag", { flag = flag })
 end
 function M.setVar(id, v)
+  local spec = asSpec(id, { "variable" })
+  if spec then
+    return op("set_var", spec)
+  end
   return op("set_var", { variable = id, value = v })
 end
 function M.copyVar(dst, src)
+  local spec = asSpec(dst, { "destination" })
+  if spec then
+    return op("copy_var", spec)
+  end
   return op("copy_var", { destination = dst, source = src })
 end
 function M.addVar(id, amount)
+  local spec = asSpec(id, { "variable" })
+  if spec then
+    return op("add_var", spec)
+  end
   return op("add_var", { variable = id, amount = amount })
 end
 function M.subVar(id, amount)
+  local spec = asSpec(id, { "variable" })
+  if spec then
+    return op("sub_var", spec)
+  end
   return op("sub_var", { variable = id, amount = amount })
 end
 function M.setLocal(name, v)
+  local spec = asSpec(name)
+  if spec then
+    return op("set_local", spec)
+  end
   return op("set_local", { name = name, value = v })
 end
 function M.copyLocal(dst, src)
+  local spec = asSpec(dst)
+  if spec then
+    return op("copy_local", spec)
+  end
   return op("copy_local", { destination = dst, source = src })
 end
 function M.addLocal(name, amount)
+  local spec = asSpec(name)
+  if spec then
+    return op("add_local", spec)
+  end
   return op("add_local", { name = name, amount = amount })
 end
 function M.subLocal(name, amount)
+  local spec = asSpec(name)
+  if spec then
+    return op("sub_local", spec)
+  end
   return op("sub_local", { name = name, amount = amount })
 end
 
 -- 45.7 Dialogue constructors
 
 function M.say(message, opts)
+  local spec = asSpec(message, { "style", "wait", "close", "timingProfile", "bindings", "provenance" })
+  if spec == nil and type(message) == "table" and not looksLikeRef(message) and message.message ~= nil then
+    spec = message
+  end
+  if spec then
+    return op("say", spec)
+  end
   local given = { message = message }
   extend(given, opts)
   return op("say", given)
@@ -419,6 +591,13 @@ function M.openMessage(opts)
 end
 
 function M.message(message, opts)
+  local spec = asSpec(message, { "style", "waitForPrint", "bindings", "provenance" })
+  if spec == nil and type(message) == "table" and not looksLikeRef(message) and message.message ~= nil then
+    spec = message
+  end
+  if spec then
+    return op("message", spec)
+  end
   local given = { message = message }
   extend(given, opts)
   return op("message", given)
@@ -442,6 +621,13 @@ function M.holdMessage()
 end
 
 function M.askYesNo(message, opts)
+  local spec = asSpec(message, { "result", "bindings", "provenance" })
+  if spec == nil and type(message) == "table" and not looksLikeRef(message) and message.message ~= nil then
+    spec = message
+  end
+  if spec then
+    return op("ask_yes_no", spec)
+  end
   local given = {}
   if message ~= nil then
     given.message = message
@@ -451,6 +637,10 @@ function M.askYesNo(message, opts)
 end
 
 function M.bufferText(slot, v)
+  local spec = asSpec(slot, { "slot" })
+  if spec then
+    return op("buffer_text", spec)
+  end
   return op("buffer_text", { slot = requireInteger(slot, "buffer slot"), value = v })
 end
 
@@ -482,16 +672,28 @@ function M.releaseAll()
 end
 
 function M.lockActor(actor, opts)
+  local spec = asSpec(actor, { "actor", "waitUntilPausable", "provenance" })
+  if spec then
+    return op("lock_actor", spec)
+  end
   local given = { actor = actor }
   extend(given, opts)
   return op("lock_actor", given)
 end
 
 function M.releaseActor(actor)
+  local spec = asSpec(actor, { "actor" })
+  if spec then
+    return op("release_actor", spec)
+  end
   return op("release_actor", { actor = actor })
 end
 
 function M.facePlayer(actor)
+  local spec = asSpec(actor)
+  if spec then
+    return op("face_player", spec)
+  end
   local given = {}
   if actor ~= nil then
     given.actor = actor
@@ -500,26 +702,50 @@ function M.facePlayer(actor)
 end
 
 function M.face(actor, direction)
+  local spec = asSpec(actor, { "actor", "direction" })
+  if spec then
+    return op("face", spec)
+  end
   return op("face", { actor = actor, direction = requireDirection(direction) })
 end
 
 function M.showObject(actor)
+  local spec = asSpec(actor, { "actor" })
+  if spec then
+    return op("show_object", spec)
+  end
   return op("show_object", { actor = actor })
 end
 function M.hideObject(actor)
+  local spec = asSpec(actor, { "actor" })
+  if spec then
+    return op("hide_object", spec)
+  end
   return op("hide_object", { actor = actor })
 end
 
 function M.setObjectPosition(actor, position)
+  local spec = asSpec(actor, { "fieldX", "fieldZ", "worldY" })
+  if spec then
+    return op("set_object_position", spec)
+  end
   requireTable(position, "position")
   return op("set_object_position", extend({ actor = actor }, position))
 end
 
 function M.setObjectFacing(actor, direction)
+  local spec = asSpec(actor, { "actor", "direction" })
+  if spec then
+    return op("set_object_facing", spec)
+  end
   return op("set_object_facing", { actor = actor, direction = requireDirection(direction) })
 end
 
 function M.setObjectMovementType(actor, movementType)
+  local spec = asSpec(actor, { "actor", "movementType" })
+  if spec then
+    return op("set_object_movement_type", spec)
+  end
   return op("set_object_movement_type", { actor = actor, movementType = movementType })
 end
 
@@ -529,6 +755,10 @@ function M.getPlayerCoords(spec)
 end
 
 function M.getObjectCoords(actor, spec)
+  local asSpecTable = asSpec(actor, { "actor", "x", "z" })
+  if asSpecTable then
+    return op("get_object_coords", asSpecTable)
+  end
   requireTable(spec, "getObjectCoords spec")
   return op("get_object_coords", extend({ actor = actor }, spec))
 end
@@ -541,6 +771,10 @@ end
 -- 45.9 Movement constructors
 
 function M.applyMovement(actor, sequence, opts)
+  local spec = asSpec(actor, { "actor", "movement", "movementId" })
+  if spec then
+    return op("apply_movement", spec)
+  end
   requireTable(sequence, "movement sequence")
   local given = { actor = actor, movement = sequence }
   extend(given, opts)
@@ -552,6 +786,10 @@ function M.waitMovement(opts)
 end
 
 function M.move(actor, sequence, opts)
+  local spec = asSpec(actor, { "actor", "movement", "movementId" })
+  if spec then
+    return op("move", spec)
+  end
   requireTable(sequence, "movement sequence")
   local given = { actor = actor, movement = sequence }
   extend(given, opts)
@@ -635,14 +873,26 @@ end
 -- 45.10 Audio constructors
 
 function M.playSound(id)
+  local spec = asSpec(id)
+  if spec then
+    return op("play_sound", spec)
+  end
   return op("play_sound", { sound = requireString(id, "sound id") })
 end
 
 function M.stopSound(id)
+  local spec = asSpec(id)
+  if spec then
+    return op("stop_sound", spec)
+  end
   return op("stop_sound", { sound = requireString(id, "sound id") })
 end
 
 function M.waitSound(id)
+  local spec = asSpec(id)
+  if spec then
+    return op("wait_sound", spec)
+  end
   local given = {}
   if id ~= nil then
     given.sound = requireString(id, "sound id")
@@ -651,6 +901,10 @@ function M.waitSound(id)
 end
 
 function M.playCry(species, opts)
+  local spec = asSpec(species, { "species", "form" })
+  if spec then
+    return op("play_cry", spec)
+  end
   local given = { species = species }
   extend(given, opts)
   return op("play_cry", given)
@@ -661,6 +915,10 @@ function M.waitCry()
 end
 
 function M.playFanfare(id)
+  local spec = asSpec(id)
+  if spec then
+    return op("play_fanfare", spec)
+  end
   return op("play_fanfare", { fanfare = requireString(id, "fanfare id") })
 end
 
@@ -669,10 +927,18 @@ function M.waitFanfare()
 end
 
 function M.playMusic(id)
+  local spec = asSpec(id)
+  if spec then
+    return op("play_music", spec)
+  end
   return op("play_music", { music = requireString(id, "music id") })
 end
 
 function M.stopMusic(id)
+  local spec = asSpec(id)
+  if spec then
+    return op("stop_music", spec)
+  end
   local given = {}
   if id ~= nil then
     given.music = requireString(id, "music id")
@@ -685,6 +951,10 @@ function M.resetMusic()
 end
 
 function M.temporaryMusic(id)
+  local spec = asSpec(id)
+  if spec then
+    return op("temporary_music", spec)
+  end
   return op("temporary_music", { music = requireString(id, "music id") })
 end
 
@@ -715,6 +985,10 @@ function M.warp(spec)
 end
 
 function M.setSpawn(spawn)
+  local spec = asSpec(spawn)
+  if spec then
+    return op("set_spawn", spec)
+  end
   return op("set_spawn", { spawn = requireString(spawn, "spawn id") })
 end
 

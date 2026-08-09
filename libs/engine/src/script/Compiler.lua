@@ -1,5 +1,5 @@
 -- Compiles a validated gen4 field-script resource into the immutable internal
--- graph (spec section 24) that the runtime executes. Node IDs follow section
+-- graph  that the runtime executes. Node IDs follow section
 -- 24.1 (author `key`, generated `src:<member>:<index>:<offset>[/<op>]`, else
 -- structural `path:steps/3/no/2`); the revision hash follows section 24.2 and
 -- covers only normalized semantics. Load-time structural validation from
@@ -9,6 +9,7 @@
 -- are never shared and never mutated.
 
 local Errors = require("libs.rom.src.Errors")
+local ScriptErrors = require("libs.engine.src.script.errors")
 local LuaWriter = require("libs.rom.src.LuaWriter")
 local Schema = require("libs.engine.src.script.Schema")
 local Validator = require("libs.engine.src.script.Validator")
@@ -17,13 +18,13 @@ local Graph = require("libs.engine.src.script.Graph")
 
 local Compiler = {}
 
--- Maximum static if/switch nesting depth (spec section 25.1).
+-- Maximum static if/switch nesting depth .
 Compiler.MAX_STATIC_NESTING = 64
 
 -- Ops that end a run phase (yield or block) or terminate the script. A local
 -- call cycle whose subroutines contain none of these before their first call
 -- can never suspend and would burn the step budget, so the compiler rejects it
--- at load time (spec section 25.1).
+-- at load time .
 local CYCLE_BREAKING_OPS = {
   yield_tick = true,
   wait_ticks = true,
@@ -61,13 +62,14 @@ local NO_CHAIN_NEXT = {
   next = true,
 }
 
--- Ops that warn on handwritten (non-generated) scripts per spec section 25.2.
+-- Ops that warn on handwritten (non-generated) scripts
 local FALLBACK_OPS = {
   label = true,
   ["goto"] = true,
   goto_if = true,
   goto_compared = true,
   call_compared = true,
+  goto_script = true,
 }
 
 local ROOT_OWNER = "<root>"
@@ -150,7 +152,7 @@ local function normalizeText(v)
   return normalizeKind(v, Schema.TEXT_VALUES, "text")
 end
 
--- String actor shorthand becomes an actor reference (spec section 10.2).
+-- String actor shorthand becomes an actor reference .
 ---@param v any
 ---@return table
 local function normalizeActor(v)
@@ -282,7 +284,7 @@ normalizeByType = function(v, ty)
   return deepCopy(v)
 end
 
--- Node ID for a step (spec section 24.1): author `key`, else generated
+-- Node ID for a step : author `key`, else generated
 -- `src:<member>:<script-index>:<first-offset>[/<op>]`, else structural path.
 ---@param step table
 ---@param path string
@@ -298,7 +300,7 @@ local function nodeIdFor(step, path)
     local scriptIndex = metaSource and metaSource.scriptIndex
     if member == nil or scriptIndex == nil then
       Errors.raise(
-        "SCRIPT_SCHEMA_INVALID",
+        ScriptErrors.SCRIPT_SCHEMA_INVALID,
         "step provenance requires script metadata.source member and scriptIndex",
         { scriptId = C.script.id, path = path, op = step.op }
       )
@@ -327,7 +329,7 @@ local function prewalk(steps, path)
       local name = step.name
       if C.labelNodeIds[name] ~= nil then
         Errors.raise(
-          "SCRIPT_SCHEMA_INVALID",
+          ScriptErrors.SCRIPT_SCHEMA_INVALID,
           "duplicate label name",
           { scriptId = C.script.id, path = p, label = name }
         )
@@ -380,7 +382,11 @@ local function compileStep(step, path, cont, owner, depth)
   local op = step.op
   local id = nodeIdFor(step, path)
   if C.nodes[id] ~= nil then
-    Errors.raise("SCRIPT_SCHEMA_INVALID", "duplicate node id", { scriptId = C.script.id, path = path, nodeId = id })
+    Errors.raise(
+      ScriptErrors.SCRIPT_SCHEMA_INVALID,
+      "duplicate node id",
+      { scriptId = C.script.id, path = path, nodeId = id }
+    )
   end
 
   local ownerBucket = setFor(C.ownerSteps, owner)
@@ -399,7 +405,7 @@ local function compileStep(step, path, cont, owner, depth)
   if op == "if" or op == "switch" then
     if depth + 1 > Compiler.MAX_STATIC_NESTING then
       Errors.raise(
-        "SCRIPT_SCHEMA_INVALID",
+        ScriptErrors.SCRIPT_SCHEMA_INVALID,
         "maximum static nesting exceeded",
         { scriptId = C.script.id, path = path, depth = depth + 1 }
       )
@@ -429,22 +435,52 @@ local function compileStep(step, path, cont, owner, depth)
     end
     node.default = compileSteps(step.default, path .. "/default", cont, owner, depth + 1) or cont
   elseif op == "goto" or op == "goto_if" or op == "goto_compared" then
-    local labelId = C.labelNodeIds[step.target]
-    if labelId == nil then
-      Errors.raise(
-        "SCRIPT_LABEL_MISSING",
-        "control target is not a local label",
-        { scriptId = C.script.id, path = path, target = step.target }
-      )
-    end
-    node.targetNode = labelId
-    if op ~= "goto" then
+    if op == "goto_compared" and step.script ~= nil then
+      -- Cross-script compare-state form: resolved through the composition
+      -- registry at runtime like goto_script; no local label.
+      if step.target ~= nil then
+        Errors.raise(
+          ScriptErrors.SCRIPT_SCHEMA_INVALID,
+          "goto_compared must not combine a local target with a script",
+          { scriptId = C.script.id, path = path, target = step.target, script = step.script }
+        )
+      end
       node.next = cont
+    else
+      local labelId = C.labelNodeIds[step.target]
+      if labelId == nil then
+        Errors.raise(
+          ScriptErrors.SCRIPT_LABEL_MISSING,
+          "control target is not a local label",
+          { scriptId = C.script.id, path = path, target = step.target }
+        )
+      end
+      node.targetNode = labelId
+      if op ~= "goto" then
+        node.next = cont
+      end
+    end
+  elseif op == "goto_script" then
+    -- A cross-script jump resolved through the composition registry at
+    -- runtime; the graph carries the label reference as-is.
+    if step.label ~= nil and C.labelNodeIds[step.label] ~= nil then
+      Errors.raise(
+        ScriptErrors.SCRIPT_SCHEMA_INVALID,
+        "goto_script label must not name a local label",
+        { scriptId = C.script.id, path = path, label = step.label }
+      )
     end
   elseif op == "call" or op == "call_compared" then
     node.returnNode = cont
     local labelId = C.labelNodeIds[step.target]
     if labelId ~= nil then
+      if step.label ~= nil then
+        Errors.raise(
+          ScriptErrors.SCRIPT_SCHEMA_INVALID,
+          "call label must not be combined with a local label target",
+          { scriptId = C.script.id, path = path, target = step.target, label = step.label }
+        )
+      end
       node.targetNode = labelId
       addSubroutineEdge(owner, step.target)
     end
@@ -454,7 +490,7 @@ local function compileStep(step, path, cont, owner, depth)
     C.usesNext = true
     if not C.opts.allowNext then
       Errors.raise(
-        "SCRIPT_WRAPPER_INVALID",
+        ScriptErrors.SCRIPT_WRAPPER_INVALID,
         "next requires wrapper registration",
         { scriptId = C.script.id, path = path }
       )
@@ -496,7 +532,7 @@ compileSteps = function(steps, path, cont, owner, depth)
 end
 
 -- Reject local call cycles whose subroutines can never suspend or terminate
--- (spec section 25.1). Subroutine-flow edges run from a span owner to a label:
+-- . Subroutine-flow edges run from a span owner to a label:
 -- a call step, or a linear fallthrough that lands on a later label's marker.
 -- An SCC in this graph is recursive control flow; it is allowed only when some
 -- span in the cycle contains a cycle-breaking op before its first call step,
@@ -557,7 +593,7 @@ local function cycleCheck()
       if hasCycle and not sccBreaks(scc) then
         table.sort(scc)
         Errors.raise(
-          "SCRIPT_SCHEMA_INVALID",
+          ScriptErrors.SCRIPT_SCHEMA_INVALID,
           "direct recursive call cycle without a blocking edge",
           { scriptId = C.script.id, cycle = scc }
         )
@@ -569,7 +605,7 @@ local function cycleCheck()
 end
 
 -- Reachability, unsupported-node analysis, and load-time warnings on the
--- completed graph (spec sections 22, 25.1, 25.2).
+-- completed graph .
 ---@param graph table
 local function analyze(graph)
   local visited = {}
@@ -605,7 +641,7 @@ local function analyze(graph)
   end
 end
 
--- Semantic projection for the revision hash (spec section 24.2): API version,
+-- Semantic projection for the revision hash : API version,
 -- operation names, operands, resolved control edges, declared params/locals.
 -- Provenance (`source`), node `key`s, warnings, and script metadata are
 -- excluded, so provenance-only edits never change the revision.
@@ -628,6 +664,9 @@ local function buildProjection(graph)
   end
   if graph.locals ~= nil then
     payload.locals = graph.locals
+  end
+  if graph.labels ~= nil and next(graph.labels) ~= nil then
+    payload.labels = graph.labels
   end
   return payload
 end
@@ -661,6 +700,7 @@ function Compiler._compile(script, opts)
     scriptId = script.id,
     entry = entry,
     nodes = C.nodes,
+    labels = C.labelNodeIds,
     usesNext = C.usesNext,
     warnings = {},
   }

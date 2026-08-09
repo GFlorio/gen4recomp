@@ -11,7 +11,7 @@ Schema.API_VERSION = 1
 Schema.SCRIPT_KIND = "field_script"
 Schema.SCHEMA_NAME = "gen4-script-schema-v1"
 
--- Declared param/local value types (spec section 9.2).
+-- Declared param/local value types .
 Schema.PARAM_TYPES = {
   "bool",
   "integer",
@@ -58,10 +58,11 @@ Schema.ENUMS = {
   button = { "a", "b" },
 }
 
--- Special actor references (spec section 10.2).
-Schema.ACTOR_SPECIALS = { "player", "self", "last_talked", "partner" }
+-- Special actor references . `camera_target` covers the
+-- pinned HGSS object id 0xF1 (the field camera target).
+Schema.ACTOR_SPECIALS = { "player", "self", "last_talked", "partner", "camera_target" }
 
--- Script resource schema (spec section 9.2). `kind` is constructor-supplied;
+-- Script resource schema . `kind` is constructor-supplied;
 -- direct tables may omit it.
 Schema.SCRIPT = {
   fields = {
@@ -76,7 +77,7 @@ Schema.SCRIPT = {
   },
 }
 
--- General value references (spec section 10.1 and 45.3). Each kind's fields
+-- General value references . Each kind's fields
 -- are validated against its own spec; unknown kinds are invalid references.
 Schema.VALUES = {
   var = { fields = { id = { type = "string", required = true } } },
@@ -89,7 +90,7 @@ Schema.VALUES = {
   trigger_direction = { fields = {} },
 }
 
--- Text-value descriptors (spec section 10.3 and 45.2). Descriptors are never
+-- Text-value descriptors . Descriptors are never
 -- eagerly rendered strings.
 Schema.TEXT_VALUES = {
   player_name = { fields = {} },
@@ -108,8 +109,8 @@ Schema.TEXT_VALUES = {
   move_name = { fields = { value = { type = "scalar_or_value", required = true } } },
   tmhm_move_name = { fields = { value = { type = "scalar_or_value", required = true } } },
   species_name = { fields = { value = { type = "scalar_or_value", required = true } } },
-  party_species_name = { fields = { position = { type = "integer", required = true } } },
-  party_nickname = { fields = { position = { type = "integer", required = true } } },
+  party_species_name = { fields = { position = { type = "scalar_or_value", required = true } } },
+  party_nickname = { fields = { position = { type = "scalar_or_value", required = true } } },
   trainer_class_name = { fields = { value = { type = "scalar_or_value", required = true } } },
   starter_species_name = { fields = {} },
   map_name = { fields = { value = { type = "scalar_or_value", required = true } } },
@@ -121,7 +122,7 @@ Schema.TEXT_VALUES = {
   },
 }
 
--- Condition references (spec section 11 and 45.4).
+-- Condition references .
 Schema.CONDITIONS = {
   compare = {
     fields = {
@@ -143,7 +144,7 @@ Schema.CONDITIONS = {
   truthy = { fields = { value = { type = "scalar_or_value", required = true } } },
 }
 
--- Movement actions (spec section 17.2 and 35.1). A movement sequence is an
+-- Movement actions . A movement sequence is an
 -- array of these.
 Schema.MOVEMENT_ACTIONS = {
   face = {
@@ -206,14 +207,24 @@ Schema.MOVEMENT_ACTIONS = {
   },
 }
 
--- Canonical operations (spec section 45). Every step is a table with `op` set
+-- Canonical operations . Every step is a table with `op` set
 -- to one of these names and the declared fields; unknown fields are rejected
 -- in strict mode.
 Schema.OPERATIONS = {
   noop = { fields = {} },
   stop = { fields = {} },
   yield_tick = { fields = {} },
-  wait_ticks = { fields = { ticks = { type = "integer", required = true } } },
+  wait_ticks = {
+    fields = {
+      ticks = { type = "integer", required = true },
+      -- Observable countdown mirror : when the source
+      -- destination variable is read elsewhere, the task mirrors the
+      -- countdown into it exactly like ScrCmd_Wait + RunPauseTimer (initial
+      -- write at creation, one decrement per poll). Without this field the
+      -- countdown stays internal to the task state.
+      countdownVariable = { type = "id_or_var" },
+    },
+  },
   ["if"] = {
     fields = {
       condition = { type = "condition", required = true },
@@ -231,6 +242,10 @@ Schema.OPERATIONS = {
   call = {
     fields = {
       target = { type = "string", required = true },
+      -- Optional cross-script entry label: the call enters the composed
+      -- target at this label instead of its entry (shared script tails).
+      -- Only valid when the target is not a local label.
+      label = { type = "string" },
       args = { type = "args", default = {} },
       result = { type = "value" },
     },
@@ -241,6 +256,11 @@ Schema.OPERATIONS = {
       args = { type = "args", default = {} },
     },
   },
+  -- Translator-internal caller-signal operation :
+  -- lowered from HGSS `RestartCurrentScript` inside verified common-script
+  -- contexts. Not exposed as a public constructor; generated scripts may use
+  -- it and handwritten scripts are warned.
+  signal_caller = { fields = {} },
   ["return"] = { fields = { value = { type = "scalar_or_value" } } },
   label = { fields = { name = { type = "string", required = true } } },
   ["goto"] = { fields = { target = { type = "string", required = true } } },
@@ -248,6 +268,18 @@ Schema.OPERATIONS = {
     fields = {
       condition = { type = "condition", required = true },
       target = { type = "string", required = true },
+    },
+  },
+  -- Cross-script jump (shared script tails,  rows 22/28):
+  -- a same-context, same-tick jump into another script's graph, resolved
+  -- through the composition registry at runtime like the raw-Lua escape
+  -- hatch. `label` names an entry point inside the target; without it the
+  -- jump lands on the composed target's entry. Handwritten scripts are
+  -- warned (same bucket as label/goto fallback).
+  goto_script = {
+    fields = {
+      script = { type = "string", required = true },
+      label = { type = "string" },
     },
   },
   compare = {
@@ -259,13 +291,20 @@ Schema.OPERATIONS = {
   goto_compared = {
     fields = {
       operator = { type = "enum:compare_operator", required = true },
-      target = { type = "string", required = true },
+      -- Either a local label `target` or a cross-script reference (`script`
+      -- plus optional `label`), resolved through the composition registry at
+      -- runtime; the compare state is consumed exactly as the source does.
+      target = { type = "string" },
+      script = { type = "string" },
+      label = { type = "string" },
     },
   },
   call_compared = {
     fields = {
       operator = { type = "enum:compare_operator", required = true },
-      target = { type = "string", required = true },
+      target = { type = "string" },
+      script = { type = "string" },
+      label = { type = "string" },
     },
   },
   next = { fields = {} },
@@ -400,9 +439,9 @@ Schema.OPERATIONS = {
   set_object_position = {
     fields = {
       actor = { type = "actor", required = true },
-      fieldX = { type = "integer", required = true },
-      fieldZ = { type = "integer", required = true },
-      worldY = { type = "number" },
+      fieldX = { type = "scalar_or_value", required = true },
+      fieldZ = { type = "scalar_or_value", required = true },
+      worldY = { type = "scalar_or_value" },
     },
   },
   set_object_facing = {
@@ -461,7 +500,7 @@ Schema.OPERATIONS = {
     },
   },
   wait_cry = { fields = {} },
-  play_fanfare = { fields = { fanfare = { type = "string", required = true } } },
+  play_fanfare = { fields = { fanfare = { type = "scalar_or_value", required = true } } },
   wait_fanfare = { fields = {} },
   play_music = { fields = { music = { type = "string", required = true } } },
   stop_music = { fields = { music = { type = "string" } } },
@@ -485,11 +524,11 @@ Schema.OPERATIONS = {
   wait_fade = { fields = {} },
   warp = {
     fields = {
-      map = { type = "string", required = true },
-      warp = { type = "integer", required = true },
-      fieldX = { type = "integer", required = true },
-      fieldZ = { type = "integer", required = true },
-      facing = { type = "enum:direction", required = true },
+      map = { type = "scalar_or_value", required = true },
+      warp = { type = "scalar_or_value", required = true },
+      fieldX = { type = "scalar_or_value", required = true },
+      fieldZ = { type = "scalar_or_value", required = true },
+      facing = { type = "scalar_or_value", required = true },
     },
   },
   set_spawn = { fields = { spawn = { type = "string", required = true } } },
@@ -526,7 +565,7 @@ Schema.OPERATIONS = {
   },
 }
 
--- Step-level fields shared by every operation (spec section 24.1). `key`
+-- Step-level fields shared by every operation . `key`
 -- stabilizes a node's identity across non-semantic edits; `provenance` carries
 -- source offsets/opcodes and drives generated `src:` node IDs (the compiler
 -- maps it onto the node's `source` field). The step field is named
@@ -543,7 +582,7 @@ for _, op in pairs(Schema.OPERATIONS) do
   end
 end
 
--- Normative constructor index (spec section 45). Grouped exactly like the
+-- Normative constructor index . Grouped exactly like the
 -- spec tables; the doc generator renders this into docs/script-api-v1.md.
 Schema.CONSTRUCTORS = {
   {
@@ -667,16 +706,16 @@ Schema.CONSTRUCTORS = {
         notes = "Generated/advanced explicit one-tick source yield.",
       },
       {
-        signature = "S.waitTicks(ticks)",
+        signature = "S.waitTicks(ticks, opts)",
         canonical = "op=wait_ticks",
-        notes = "ticks >= 1; first poll next tick, continuation one tick after completion.",
+        notes = "ticks >= 1; first poll next tick, continuation one tick after completion; opts.countdownVariable mirrors the countdown into an observable variable like the source engine.",
       },
       { signature = "S.if_(spec)", canonical = "op=if", notes = "spec={condition,yes={},no={}}." },
       { signature = "S.switch(spec)", canonical = "op=switch", notes = "spec={value,cases,default={}}." },
       {
         signature = "S.call(scriptId, opts)",
         canonical = "op=call",
-        notes = "Same-context call; opts={args={},result=nil}.",
+        notes = "Same-context call; opts={args={},result=nil}; opts.label enters the composed target at a label instead of its entry.",
       },
       {
         signature = "S.callCommon(scriptId, opts)",
@@ -687,16 +726,21 @@ Schema.CONSTRUCTORS = {
       { signature = "S.label(name)", canonical = "op=label", notes = "Generated fallback." },
       { signature = "S.goto_(name)", canonical = "op=goto", notes = "Generated fallback." },
       { signature = "S.gotoIf(condition, name)", canonical = "op=goto_if", notes = "Generated fallback." },
+      {
+        signature = "S.gotoScript(scriptId, opts)",
+        canonical = "op=goto_script",
+        notes = "Cross-script same-context jump (shared script tails); opts={label=nil}; resolved through the composition registry at runtime; handwritten scripts are warned.",
+      },
       { signature = "S.compare(a, b)", canonical = "op=compare", notes = "Generated low-level fallback." },
       {
-        signature = "S.gotoCompared(operator, name)",
+        signature = "S.gotoCompared(operator, name, opts)",
         canonical = "op=goto_compared",
-        notes = "Generated low-level fallback.",
+        notes = "Generated low-level fallback; opts={script,label} is the cross-script form resolved through the composition registry at runtime.",
       },
       {
-        signature = "S.callCompared(operator, target)",
+        signature = "S.callCompared(operator, target, opts)",
         canonical = "op=call_compared",
-        notes = "Generated low-level fallback.",
+        notes = "Generated low-level fallback; opts={script,label} is the cross-script form.",
       },
       { signature = "S.next()", canonical = "op=next", notes = "Wrapper resources only." },
     },

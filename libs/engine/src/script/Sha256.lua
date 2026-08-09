@@ -1,12 +1,24 @@
 -- Pure-Lua SHA-256 (FIPS 180-4) for compiled-script revision hashing. Runs on
--- plain Lua 5.1, LuaJIT, and LÖVE without a bit library: all 32-bit words are
--- computed arithmetically with exact double arithmetic. This is a fingerprint,
--- not a security boundary. Header data and the spec section 24.2 revision rule
--- are the authoritative uses.
+-- plain Lua 5.1, LuaJIT, and LÖVE without requiring a bit library: all 32-bit
+-- words are computed arithmetically with exact double arithmetic when the
+-- runtime lacks `bit` (the LuaJIT/LÖVE fast path uses `bit` and produces
+-- identical digests). This is a fingerprint, not a security boundary. Header
+-- data and the  revision rule are the authoritative uses.
 
 local Sha256 = {}
 
 local MOD = 4294967296 -- 2^32
+
+-- LuaJIT's `bit` library when available; arithmetic emulation otherwise. The
+-- two paths agree bit-for-bit: LuaJIT bit results are unsigned 32-bit values,
+-- which the arithmetic state already assumes.
+local bit = nil
+do
+  local ok, loaded = pcall(require, "bit")
+  if ok and type(loaded) == "table" then
+    bit = loaded
+  end
+end
 
 -- SHA-256 round constants (K, 64 entries).
 local K = {
@@ -78,34 +90,40 @@ local K = {
 
 -- 32-bit bitwise AND without a bit library. Both operands are below 2^32, so
 -- the divisions and the running sum stay exact in doubles.
-local function band(a, b)
-  local r, bit = 0, 1
+local function arithmeticBand(a, b)
+  local r, bitv = 0, 1
   for _ = 0, 31 do
     if a % 2 == 1 and b % 2 == 1 then
-      r = r + bit
+      r = r + bitv
     end
     a = math.floor(a / 2)
     b = math.floor(b / 2)
-    bit = bit * 2
+    bitv = bitv * 2
   end
   return r
 end
 
-local function bxor(a, b)
-  return (a + b) - 2 * band(a, b)
+local function arithmeticBxor(a, b)
+  return (a + b) - 2 * arithmeticBand(a, b)
+end
+
+local function arithmeticRor(x, n)
+  return ((x % (2 ^ n)) * (2 ^ (32 - n)) + math.floor(x / (2 ^ n))) % MOD
+end
+
+local function arithmeticShr(x, n)
+  return math.floor(x / (2 ^ n)) % MOD
+end
+
+local band, bxor, ror, shr
+if bit ~= nil then
+  band, bxor, ror, shr = bit.band, bit.bxor, bit.ror, bit.rshift
+else
+  band, bxor, ror, shr = arithmeticBand, arithmeticBxor, arithmeticRor, arithmeticShr
 end
 
 local function add32(a, b)
   return (a + b) % MOD
-end
-
--- Rotate a 32-bit word right by n bits.
-local function ror(x, n)
-  return ((x % (2 ^ n)) * (2 ^ (32 - n)) + math.floor(x / (2 ^ n))) % MOD
-end
-
-local function shr(x, n)
-  return math.floor(x / (2 ^ n)) % MOD
 end
 
 local function sigma0(x)
