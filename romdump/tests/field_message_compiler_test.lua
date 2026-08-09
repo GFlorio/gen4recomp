@@ -1,5 +1,5 @@
 -- Deterministic message-bank compilation and cache readiness/rollback using a
--- synthetic encrypted bank member (spec section 21.1).
+-- synthetic encrypted bank member .
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.rom.src.Errors")
@@ -41,6 +41,14 @@ local function fixture()
       { 0x012F, 0x0150, 0x0151, 0x01DE, 0x0131, 0x0148, 0x01DE, 0xFFFF },
     }, 0xB447),
   }
+  -- The New Bark interior banks (544-549) joined the selected set with the
+  -- script override slice; each fixture member is one short message.
+  local interiorKeys = { 0x4C11, 0x5C22, 0x6C33, 0x7C44, 0x8C55, 0x9C66 }
+  for index, bankId in ipairs({ 544, 545, 546, 547, 548, 549 }) do
+    members[bankId] = FieldMessageBank.encodeForTests({
+      { 0x012F, 0x0150, 0x0151, 0x01DE, 0xFFFF },
+    }, interiorKeys[index])
+  end
   local romFs = {
     resolvedNarc = function(_, alias)
       Assert.equal(alias, "messages")
@@ -67,11 +75,10 @@ local function fixture()
     end,
   }
   local function sha1(bytes)
-    if bytes == members[542] then
-      return "member-542-sha"
-    end
-    if bytes == members[543] then
-      return "member-543-sha"
+    for bankId, memberBytes in pairs(members) do
+      if bytes == memberBytes then
+        return string.format("member-%d-sha", bankId)
+      end
     end
     return "archive-sha"
   end
@@ -83,7 +90,7 @@ end
 function T.compiles_tokenized_lossless_banks()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldMessageCompiler.compile(romFs, sha1, hashLua))
-  Assert.deepEqual(bundle.index.bankIds, { 542, 543 })
+  Assert.deepEqual(bundle.index.bankIds, { 542, 543, 544, 545, 546, 547, 548, 549 })
   Assert.equal(bundle.index.schema, FieldMessageCache.INDEX_SCHEMA)
 
   local bank = bundle.banks[542]

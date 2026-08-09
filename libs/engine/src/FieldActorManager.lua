@@ -9,6 +9,7 @@
 -- returns presentation-neutral values for the renderer to consume.
 
 local Errors = require("libs.rom.src.Errors")
+local ScriptErrors = require("libs.engine.src.script.errors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local FieldObjectActor = require("libs.engine.src.FieldObjectActor")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
@@ -319,6 +320,112 @@ end
 function FieldActorManager:actorsOf(mapId)
   local entry = self.maps[mapId]
   return entry and entry.order or {}
+end
+
+-- --- Scripted actor API ------------------------------------------------------
+
+-- Alias of `getById` for the script actor world contract.
+function FieldActorManager:getActor(actorId)
+  return self:getById(actorId)
+end
+
+function FieldActorManager:getPosition(actorId)
+  local actor = self:getById(actorId)
+  if actor == nil then
+    return nil
+  end
+  return { fieldX = actor.fieldX, fieldZ = actor.fieldZ, worldY = actor.worldY }
+end
+
+function FieldActorManager:getFacing(actorId)
+  local actor = self:getById(actorId)
+  if actor == nil then
+    return nil
+  end
+  return actor.facing
+end
+
+function FieldActorManager:setFacing(actorId, direction)
+  local actor = self:getById(actorId)
+  if actor == nil then
+    Errors.raise(ScriptErrors.SCRIPT_ACTOR_NOT_FOUND, "no live actor " .. tostring(actorId), { actor = actorId })
+  end
+  actor:setFacing(direction)
+end
+
+-- Scripted position set: recomputes the world coordinates from the terrain
+-- and rekeys the occupancy index so collision and the draw list never
+-- disagree (the actor's surface is preserved; scripted movement stays on the
+-- actor's current terrain surface).
+function FieldActorManager:setPosition(actorId, position)
+  local actor = self:getById(actorId)
+  if actor == nil then
+    Errors.raise(ScriptErrors.SCRIPT_ACTOR_NOT_FOUND, "no live actor " .. tostring(actorId), { actor = actorId })
+  end
+  local entry = assert(self.maps[actor.mapId], "actor map entry missing")
+  local key = occupancyKey(actor.mapId, actor.fieldX, actor.fieldZ, actor.surfaceId)
+  if entry.occupancy[key] == actor then
+    entry.occupancy[key] = nil
+  end
+  local worldY = position.worldY or actor.worldY
+  local world = FieldCoordinates.fieldToWorld(entry.runtimeMap, position.fieldX, position.fieldZ, worldY)
+  actor:setPosition({
+    fieldX = position.fieldX,
+    fieldZ = position.fieldZ,
+    worldY = world.y,
+    worldX = world.x,
+    worldZ = world.z,
+  })
+  if actor.solid then
+    local newKey = occupancyKey(actor.mapId, actor.fieldX, actor.fieldZ, actor.surfaceId)
+    entry.occupancy[newKey] = actor
+  end
+end
+
+function FieldActorManager:show(actorId)
+  local actor = self:getById(actorId)
+  if actor == nil then
+    Errors.raise(ScriptErrors.SCRIPT_ACTOR_NOT_FOUND, "no live actor " .. tostring(actorId), { actor = actorId })
+  end
+  actor:setVisible(true)
+end
+
+function FieldActorManager:hide(actorId)
+  local actor = self:getById(actorId)
+  if actor == nil then
+    Errors.raise(ScriptErrors.SCRIPT_ACTOR_NOT_FOUND, "no live actor " .. tostring(actorId), { actor = actorId })
+  end
+  actor:setVisible(false)
+end
+
+function FieldActorManager:setMovementType(actorId, movementType)
+  local actor = self:getById(actorId)
+  if actor == nil then
+    Errors.raise(ScriptErrors.SCRIPT_ACTOR_NOT_FOUND, "no live actor " .. tostring(actorId), { actor = actorId })
+  end
+  actor.scriptMovementType = movementType
+end
+
+-- Actors in this milestone have no autonomous movement engine, so a scripted
+-- pause never waits on one; `lock_all` blocks only on outstanding scripted
+-- movement tasks (the environment's movement generation).
+function FieldActorManager:isBusy(actorId)
+  return false
+end
+
+function FieldActorManager:canMove(actorId, direction)
+  return self:getById(actorId) ~= nil
+end
+
+-- The numeric local map-object index of one actor (the pinned HGSS object
+-- id), used by trigger comparisons.
+function FieldActorManager:numericId(actorId)
+  local actor = self:getById(actorId)
+  return actor and actor.objectEventId or nil
+end
+
+function FieldActorManager:partnerId()
+  return nil
 end
 
 function FieldActorManager:dispose()

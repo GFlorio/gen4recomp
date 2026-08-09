@@ -24,17 +24,21 @@ local PreScriptInteractionAdapter = require("libs.engine.src.PreScriptInteractio
 local FieldSave = require("libs.engine.src.FieldSave")
 local FieldScenario = require("libs.engine.src.FieldScenario")
 local FieldSaveStore = require("libs.engine.src.FieldSaveStore")
+local FieldScripts = require("game.src.game.FieldScripts")
 local FieldSession = require("libs.engine.src.FieldSession")
 local FieldTransition = require("libs.engine.src.FieldTransition")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local FieldZoom = require("libs.engine.src.FieldZoom")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapRenderer = require("libs.engine.src.MapRenderer")
+local ScriptSave = require("libs.engine.src.script.ScriptSave")
 local TargetSpawns = require("data.manifests.field_spawns")
 local FieldActorManifest = require("data.manifests.field_actors")
 local FieldPresentation = require("data.manifests.field_presentation")
 local FieldScenarioManifest = require("data.manifests.field_scenario")
 local PreScriptInteractions = require("data.manifests.pre_script_interactions")
+local RepoFs = require("game.src.game.RepoFs")
+local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 
 ---@class FieldStateOptions
 ---@field resumeSave boolean?
@@ -185,9 +189,9 @@ function FieldState:_load()
     self.mapLoader = FieldMapLoader.new(cacheFs, world)
     local restored
     if self.resumeSave then
-      local saved, saveErr = self.saveStore:load()
+      local saved, saveErr = self.saveStore:loadV2()
       if saved then
-        restored, saveErr = FieldSave.restore(saved, self.mapLoader, self.versionId)
+        restored, saveErr = FieldSave.restoreV2(saved, self.mapLoader, self.versionId)
       end
       if saveErr and saveErr.code ~= "CACHE_FILE_MISSING" then
         self.saveStatus = "Save ignored: " .. tostring(saveErr)
@@ -247,8 +251,13 @@ function FieldState:_load()
 
     -- Event state: a persisted save owns the flags/vars and wins over the
     -- demo scenario. Only a fresh boot (no save) seeds the scenario (spec
-    -- section 10.2).
-    self.eventState = FieldEventState.new(restored and restored.events or nil)
+    -- section 10.2). The v2 save's world bucket carries the numeric
+    -- flag/var maps in the event-state shape.
+    local restoredWorld = restored and restored.world or nil
+    self.eventState = FieldEventState.new(restoredWorld and {
+      flags = restoredWorld.flags,
+      vars = restoredWorld.variables,
+    } or nil)
     if not restored then
       FieldScenario.apply(FieldScenarioManifest, self.eventState, function(mapId)
         return cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId))
@@ -267,7 +276,7 @@ function FieldState:_load()
     -- The player's graphic is one more compiled actor visual: it is acquired from
     -- the same reference-counted provider, and FieldPlayer keeps every bit of
     -- movement authority. A resumed save names the avatar; a fresh boot uses the
-    -- scenario's configured pick (spec section 16.1).
+    -- scenario's configured pick .
     self.avatar = FieldScenario.avatarById(
       FieldActorManifest.avatars,
       (restored and restored.avatar) or FieldScenarioManifest.avatar
@@ -279,8 +288,43 @@ function FieldState:_load()
       visualDef = self.avatarAsset.visual,
     })
 
+    -- Warp resolution: ordinary warp records follow WarpSystem; scripted
+    -- warps carry pre-resolved direct coordinates (the script maps service
+    -- synthesizes `direct` records with global destination coordinates and
+    -- the destination map id).
+    local WarpSystem = require("libs.engine.src.WarpSystem")
+    local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
+    local resolveDestination = function(loader, sourceMap, warp)
+      if warp.direct then
+        local destinationMap = loader:load(warp.destinationMapId)
+        local localX, localZ = FieldCoordinates.fieldToLocal(destinationMap, warp.x, warp.z)
+        local sample = SurfaceResolver.new(destinationMap.terrain):resolve({
+          localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
+          localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
+          currentY = 0,
+        })
+        return {
+          sourceMap = sourceMap,
+          sourceWarp = warp,
+          destinationMap = destinationMap,
+          destinationWarp = warp,
+          fieldX = warp.x,
+          fieldZ = warp.z,
+          warpYHint = 0,
+          surfaceId = sample.surfaceId,
+          worldY = sample.worldY,
+          suppression = {
+            mapId = destinationMap.mapId,
+            fieldX = warp.x,
+            fieldZ = warp.z,
+          },
+        }
+      end
+      return WarpSystem.resolveDestination(loader, sourceMap, warp)
+    end
     self.transition = FieldTransition.new({
       loader = self.mapLoader,
+      resolveDestination = resolveDestination,
       swap = function(resolution, facing)
         self:_swapMap(resolution, facing)
       end,
@@ -304,8 +348,7 @@ function FieldState:_load()
 
     -- Interaction discovery and the temporary pre-script client. The resolver
     -- is pure and consults the manager's occupancy index; the adapter is the
-    -- one construction point the scripting milestone replaces (spec section
-    -- 6.3).
+    -- one construction point the scripting milestone replaces.
     self.messageProvider = FieldMessageProvider.new(cacheFs)
     self.interactionResolver = FieldInteractionResolver.new({
       actorAt = function(mapId, fieldX, fieldZ, surfaceId)
@@ -329,6 +372,38 @@ function FieldState:_load()
       fixtures = PreScriptInteractions,
     })
 
+    -- The field-script platform (the script override system): registry over
+    -- the compiled cache + data/scripts/overrides, composition, bindings,
+    -- scheduler, and interaction client. Bound interactions now run through
+    -- the scheduler; the pre-script fixture client stays as the fallback for
+    -- unmapped events. A resumed v2 save reattaches its script bucket.
+    -- The override files live in the repo tree outside the LÖVE source dir,
+    -- so the loader reads them through the io-backed repo filesystem.
+    self.scripts = FieldScripts.new({
+      cacheFs = cacheFs,
+      overrideFs = RepoFs.new(love.filesystem.getSourceBaseDirectory()),
+      bindingsManifest = BindingsManifest,
+      eventState = self.eventState,
+      actors = self.actors,
+      player = self.player,
+      dialogue = self.dialogue,
+      messageProvider = self.messageProvider,
+      layout = layoutMessage,
+      fontDef = self.dialogueRenderer.fontDef,
+      transition = self.transition,
+      mapLoader = self.mapLoader,
+      sourceMap = self.runtimeMap,
+      seedText = self.versionId .. ":" .. self.runtimeMap.mapId,
+    })
+    if restored and restored.scripts then
+      ScriptSave.restore(restored.scripts, self.scripts.scheduler, 0, {
+        expectedRegistryFingerprint = self.scripts.registry:fingerprint(),
+      })
+    end
+    if restored and restored.world then
+      self.scripts.worldState:restoreRng(restored.world)
+    end
+
     self.session = FieldSession.new({
       versionId = self.versionId,
       currentMap = self.runtimeMap,
@@ -340,6 +415,8 @@ function FieldState:_load()
       playerVisual = self.playerVisual,
       dialogue = self.dialogue,
       input = self.input,
+      scriptScheduler = self.scripts.scheduler,
+      scriptClient = self.scripts.client,
       interactions = {
         resolve = function(_, snapshot)
           return self.interactionResolver:resolve(snapshot)
@@ -385,10 +462,18 @@ function FieldState:_save(successText)
     return false
   end
   local ok, err = pcall(function()
-    self.saveStore:save(FieldSave.capture(self.session, {
+    local scriptsBucket
+    if self.scripts then
+      scriptsBucket = ScriptSave.capture(self.scripts.scheduler, self.session.tick, {
+        registryFingerprint = self.scripts.registry:fingerprint(),
+      })
+    end
+    self.saveStore:saveV2(FieldSave.captureV2(self.session, {
       avatarId = self.avatar.id,
       eventState = self.eventState,
       scenario = FieldScenarioManifest.id,
+      world = self.scripts and self.scripts.worldState:capture() or nil,
+      scriptsBucket = scriptsBucket,
     }))
   end)
   if not ok then
@@ -457,6 +542,9 @@ function FieldState:_swapMap(resolution, facing)
   self.session.player = player
   self.session.actor = player
   self.session.camera = camera
+  if self.scripts then
+    self.scripts:onMapSwap(player, runtimeMap)
+  end
   self.mapLoader:updateCoverage(runtimeMap, camera, self.envelope)
 end
 
@@ -618,7 +706,7 @@ function FieldState:keyreleased(key, scancode)
 end
 
 -- Focus loss clears held and edge state so a blurred window cannot feed a
--- stale Action into the next frame's dialogue or movement (spec section 11.2).
+-- stale Action into the next frame's dialogue or movement .
 ---@param focused boolean
 function FieldState:focus(focused)
   if not focused and self.input then
@@ -627,7 +715,7 @@ function FieldState:focus(focused)
 end
 
 -- Gamepad Action is the south face button ("a") and Cancel the east face
--- button ("b"), mapped alongside the keyboard bindings (spec section 11.1).
+-- button ("b"), mapped alongside the keyboard bindings .
 ---@param _ love.Joystick
 ---@param button string
 function FieldState:gamepadpressed(_, button)
@@ -689,7 +777,7 @@ end
 
 function FieldState:quit()
   -- A half-open dialogue must never be persisted; disposal cancels it cleanly
-  -- before the capture (spec section 16.3).
+  -- before the capture .
   if self.dialogue then
     self.dialogue:dispose()
   end

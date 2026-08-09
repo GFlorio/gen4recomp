@@ -64,6 +64,7 @@ function T.resolves_map_asset_aliases()
     { alias = "exterior_build_models", narcId = 40, path = "a/0/4/0" },
     { alias = "exterior_build_anim_list", narcId = 107, path = "a/1/0/7" },
     { alias = "exterior_build_anim", narcId = 106, path = "a/1/0/6" },
+    { alias = "interior_build_anim_list", narcId = 108, path = "a/1/0/8" },
     { alias = "field_static_models", narcId = 103, path = "a/1/0/3" },
     { alias = "area_build_config", narcId = 43, path = "a/0/4/3" },
   }
@@ -77,7 +78,7 @@ end
 
 function T.alias_list_is_complete_and_deterministic()
   local list = Hgss.aliasList()
-  Assert.equal(#list, 30)
+  Assert.equal(#list, 31)
   -- Sorted ascending by narcId.
   for i = 2, #list do
     Assert.isTrue(list[i - 1].narcId < list[i].narcId, "aliasList not sorted by narcId")

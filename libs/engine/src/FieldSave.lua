@@ -4,7 +4,7 @@
 -- initialization. It is the only schema: there are no players yet and no
 -- previous format exists, so a save that is not exactly this schema is
 -- rejected. Validation covers stable simulation state only: no dialogue,
--- facing override, or actor position is persisted (spec section 16). This is
+-- facing override, or actor position is persisted . This is
 -- not a Nintendo DS save format.
 
 local Errors = require("libs.rom.src.Errors")
@@ -16,6 +16,11 @@ local FieldSave = {}
 
 FieldSave.SCHEMA = "g4-field-save-v1"
 FieldSave.PATH = "save/field-session-v1.lua"
+-- The scripting-era schema : the v1 identity and location
+-- fields plus a `world` bucket (flags, variables, objects, rng) and the
+-- serializable `scripts` bucket owned by ScriptSave.
+FieldSave.SCHEMA_V2 = "g4-field-save-v2"
+FieldSave.PATH_V2 = "save/field-session-v2.lua"
 
 local FACING = { north = true, south = true, west = true, east = true }
 local HEIGHT_EPSILON = 1e-9
@@ -147,7 +152,7 @@ function FieldSave.validate(record, opts)
 end
 
 -- True only when a stable tile boundary can be captured: the player idle, no
--- transition active, and no half-open modal dialogue (spec section 16.3).
+-- transition active, and no half-open modal dialogue .
 
 ---@param session FieldSession?
 ---@return boolean?
@@ -296,6 +301,209 @@ function FieldSave.restore(record, loader, expectedVersionId)
     return nil, result
   end
   error(result)
+end
+
+-- --- g4-field-save-v2 ----------------------------------------------------------
+
+-- The v2 world bucket : project-owned serializable state.
+-- Flags and variables are numeric maps in the FieldEventState shape; objects
+-- and rng arrive with their owning workstreams and default to empty.
+local function defaultWorld()
+  return { flags = {}, variables = {}, objects = {}, rng = {} }
+end
+
+local function validateWorld(record, opts)
+  if record.world == nil then
+    return
+  end
+  if type(record.world) ~= "table" then
+    Errors.raise("FIELD_SAVE_WORLD_INVALID", "field save world must be a table", {})
+  end
+  if opts and opts.worldValidate then
+    local err = opts.worldValidate(record.world)
+    if err ~= nil then
+      Errors.raise(
+        "FIELD_SAVE_WORLD_INVALID",
+        "field save world is invalid: " .. tostring(err.message),
+        { cause = err.code }
+      )
+    end
+  end
+end
+
+local function validateScripts(record, opts)
+  if record.scripts == nil then
+    return
+  end
+  if opts and opts.scriptsValidate then
+    local err = opts.scriptsValidate(record.scripts)
+    if err ~= nil then
+      Errors.raise(
+        "FIELD_SAVE_SCRIPTS_INVALID",
+        "field save scripts bucket is invalid: " .. tostring(err.message),
+        { cause = err.code }
+      )
+    end
+  end
+end
+
+-- v2 validation: the v1 field-state rules plus the world and scripts buckets.
+local function validateV2(record, opts)
+  if type(record) ~= "table" then
+    Errors.raise("FIELD_SAVE_INVALID", "field save must be a table", {})
+  end
+  if record.schema ~= FieldSave.SCHEMA_V2 then
+    Errors.raise(
+      "FIELD_SAVE_SCHEMA_NEWER",
+      "unknown field save schema; newer than runtime or corrupt",
+      { schema = record.schema }
+    )
+  end
+  if type(record.versionId) ~= "string" or record.versionId == "" then
+    Errors.raise("FIELD_SAVE_VERSION_INVALID", "field save version is missing", {})
+  end
+  validateFieldState(record)
+  validateAvatar(record, opts)
+  validateScenario(record)
+  validateWorld(record, opts)
+  validateScripts(record, opts)
+  return record
+end
+
+function FieldSave.validateV2(record, opts)
+  local ok, result = pcall(validateV2, record, opts)
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
+  error(result)
+end
+
+-- Capture the v2 record: the v1 identity/location fields plus the world and
+-- scripts buckets. `opts.scriptsBucket` is the ScriptSave capture output;
+-- `opts.world` defaults to empty project state.
+---@param session FieldSession
+---@param opts table
+---@return table v2 record
+function FieldSave.captureV2(session, opts)
+  assert(FieldSave.canCapture(session), "field save requires an idle tile boundary")
+  assert(opts and type(opts.avatarId) == "string" and opts.avatarId ~= "", "field save capture requires an avatar id")
+  local player = session.player
+  local runtimeMap = session.currentMap
+  local events = { flags = {}, vars = {} }
+  if opts.eventState then
+    assert(type(opts.eventState.serialize) == "function", "field save capture requires an event state with serialize")
+    events = opts.eventState:serialize()
+  end
+  return {
+    schema = FieldSave.SCHEMA_V2,
+    versionId = session.versionId,
+    mapId = runtimeMap.mapId,
+    fieldX = player.fieldX,
+    fieldZ = player.fieldZ,
+    worldY = player.worldY,
+    surfaceId = player.surfaceId,
+    terrainDependencyHash = runtimeMap.terrainDependencyHash,
+    facing = player.facing,
+    avatar = opts.avatarId,
+    scenario = opts.scenario or nil,
+    world = opts.world or defaultWorld(),
+    scripts = opts.scriptsBucket,
+  }
+end
+
+-- Strict v2 restore: same location recovery as v1, plus the world and scripts
+-- buckets returned to the caller. `opts.scriptsValidate` and
+-- `opts.worldValidate` are the domain validators wired by the game layer
+-- (ScriptSave.validate for the scripts bucket).
+local function restoreV2(record, loader, expectedVersionId, opts)
+  validateV2(record, opts)
+  if record.versionId ~= expectedVersionId then
+    Errors.raise(
+      "FIELD_SAVE_VERSION_MISMATCH",
+      "field save belongs to another imported version",
+      { expected = expectedVersionId, actual = record.versionId }
+    )
+  end
+  local runtimeMap = loader:load(record.mapId)
+  local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, record.fieldX, record.fieldZ)
+  local surface
+  if
+    record.terrainDependencyHash == runtimeMap.terrainDependencyHash
+    and runtimeMap.terrain:contains(
+      record.surfaceId,
+      localX + FieldCoordinates.TILE_CENTER_OFFSET,
+      localZ + FieldCoordinates.TILE_CENTER_OFFSET
+    )
+  then
+    surface = runtimeMap.terrain:sample(
+      record.surfaceId,
+      localX + FieldCoordinates.TILE_CENTER_OFFSET,
+      localZ + FieldCoordinates.TILE_CENTER_OFFSET
+    )
+  else
+    surface = closestSurface(runtimeMap, localX, localZ, record.worldY)
+  end
+  local suppression
+  if WarpSystem.findAt(runtimeMap, record.fieldX, record.fieldZ) then
+    suppression = { mapId = runtimeMap.mapId, fieldX = record.fieldX, fieldZ = record.fieldZ }
+  end
+  return {
+    runtimeMap = runtimeMap,
+    fieldX = record.fieldX,
+    fieldZ = record.fieldZ,
+    worldY = surface.worldY,
+    surfaceId = surface.surfaceId,
+    facing = record.facing,
+    suppression = suppression,
+    avatar = record.avatar,
+    scenario = record.scenario,
+    world = record.world or defaultWorld(),
+    scripts = record.scripts,
+  }
+end
+
+function FieldSave.restoreV2(record, loader, expectedVersionId, opts)
+  assert(loader and loader.load, "field save restore loader required")
+  local ok, result = pcall(restoreV2, record, loader, expectedVersionId, opts or {})
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
+  error(result)
+end
+
+-- Migration reader from g4-field-save-v1 to v2 : the v1
+-- events bucket becomes the world flags/variables, and the scripts bucket
+-- starts empty. The v1 record is never mutated.
+---@param record table
+---@return table v2 record
+function FieldSave.migrateV1ToV2(record)
+  if record.schema ~= FieldSave.SCHEMA then
+    Errors.raise(
+      "FIELD_SAVE_SCHEMA_NEWER",
+      "cannot migrate a save that is not g4-field-save-v1",
+      { schema = record.schema }
+    )
+  end
+  local world = defaultWorld()
+  local events = record.events or {}
+  world.flags = events.flags or {}
+  world.variables = events.vars or {}
+  local migrated = {}
+  for key, value in pairs(record) do
+    if key ~= "schema" and key ~= "events" then
+      migrated[key] = value
+    end
+  end
+  migrated.schema = FieldSave.SCHEMA_V2
+  migrated.world = world
+  migrated.scripts = nil
+  return migrated
 end
 
 return FieldSave

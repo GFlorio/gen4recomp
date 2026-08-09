@@ -1,4 +1,4 @@
--- Fixed-tick modal dialogue controller (spec sections 15.5-15.7). Owns the
+-- Fixed-tick modal dialogue controller . Owns the
 -- typewriter reveal state machine, Action reveal/advance/close semantics,
 -- cancel policy, and the exactly-once completion handle. Layout and input are
 -- injected, so headless tests drive the full lifecycle without LÖVE; the
@@ -132,6 +132,19 @@ end
 ---@return boolean
 function FieldDialogueController:isModal()
   return self._state ~= "CLOSED"
+end
+
+-- True when the open request is owned by the field-script runtime (the
+-- script dialogue host opens requests with `metadata.scriptOwned`). The
+-- session's modal gate skips script-owned boxes: the script scheduler steps
+-- them from its engine-owned async phase instead.
+---@return boolean
+function FieldDialogueController:isScriptOwned()
+  if self._state == "CLOSED" or self._request == nil then
+    return false
+  end
+  local metadata = self._request.metadata
+  return metadata ~= nil and metadata.scriptOwned == true
 end
 
 ---@return FieldDialogueController.Status
@@ -440,7 +453,7 @@ function FieldDialogueController:dispose()
   return self:_dispatch()
 end
 
--- A DialogueRequest is the immutable open() argument (spec section 15.2).
+-- A DialogueRequest is the immutable open() argument .
 -- The message is a formatted, pre-layout message; the adapter (Epic 10) will
 -- build it from the message provider.
 

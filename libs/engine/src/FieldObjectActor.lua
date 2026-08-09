@@ -127,4 +127,33 @@ function FieldObjectActor:clearFacingOverride()
   self.interactionFacingOverride = nil
 end
 
+-- --- Scripted mutation  ------------------------------------
+
+-- Direct facing set for scripted operations (`face_player`, `face`, movement
+-- tasks). Unlike the interaction override it has no owner and nothing to
+-- restore; the script layer is the authority while it owns the field.
+---@param direction FieldDirection
+function FieldObjectActor:setFacing(direction)
+  self.facing = requireFacing(direction, { actorId = self.actorId })
+end
+
+-- Scripted visibility toggle (`show_object`/`hide_object`). The flag-driven
+-- existence rule stays authoritative at map entry; these are transient
+-- scripted states on the live actor.
+---@param visible boolean
+function FieldObjectActor:setVisible(visible)
+  self.visible = visible ~= false
+end
+
+-- Scripted position set: the caller (the actor manager) has already resolved
+-- the world coordinates and the occupancy index key for the new cell.
+---@param position { fieldX: integer, fieldZ: integer, worldY: number, worldX: number, worldZ: number }
+function FieldObjectActor:setPosition(position)
+  self.fieldX = position.fieldX
+  self.fieldZ = position.fieldZ
+  self.worldY = position.worldY
+  self.worldX = position.worldX
+  self.worldZ = position.worldZ
+end
+
 return FieldObjectActor

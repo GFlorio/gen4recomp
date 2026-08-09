@@ -1,5 +1,5 @@
 -- Selected-set manifest for the field message and font derived classes
--- (spec section 17.1). The bank list is project-owned policy: required
+-- . The bank list is project-owned policy: required
 -- startup compiles only what the target demo needs, never the full
 -- NARC_msgdata_msg archive. Association of a map to a bank comes from the
 -- frozen map catalog (data/reference/hgss/maps.lua), never from this table.
@@ -20,8 +20,10 @@ return {
       { path = "files/msgdata/msg/msg_0543_T20R0101.gmm" },
     },
   },
-  -- Message banks selected for the demo scenario (spec section 13.3).
-  banks = { 542, 543 },
+  -- Message banks selected for the demo scenario : the
+  -- two town banks plus every New Bark interior bank (544-549), because the
+  -- bound scripts of the New Bark slice reference their maps' own banks.
+  banks = { 542, 543, 544, 545, 546, 547, 548, 549 },
   -- Font 0 is the field dialogue font (src/font.c sFontArcParam[0]).
   fontId = 0,
   fontGlyphMember = 0,

@@ -5,9 +5,9 @@
 -- phase (which cannot be active while a dialogue is open) has advanced, the
 -- session steps only the dialogue and returns, so movement, warps,
 -- interactions, and actor pose clocks freeze until the dialogue closes
--- (spec section 11.3).
+-- .
 --
--- Spec section 11.3 step 6 is wired through the optional `interactions`
+-- Step 6 is wired through the optional `interactions`
 -- service: `resolve(snapshot)` returns an immutable InteractionIntent for an
 -- idle player's Action edge and `consume(intent)` dispatches it to the
 -- configured interaction client (the pre-script adapter). A consumed
@@ -31,6 +31,8 @@ local WarpSystem = require("libs.engine.src.WarpSystem")
 ---@field dialogue FieldDialogueController?
 ---@field input FieldInput?
 ---@field interactions FieldSession.Interactions?
+---@field scriptScheduler Scheduler?
+---@field scriptClient ScriptInteractionClient?
 ---@field coverage fun(session: FieldSession)?
 
 ---@class FieldSession.Interactions
@@ -49,6 +51,8 @@ local WarpSystem = require("libs.engine.src.WarpSystem")
 ---@field dialogue FieldDialogueController?
 ---@field input FieldInput?
 ---@field interactions FieldSession.Interactions?
+---@field scriptScheduler Scheduler?
+---@field scriptClient ScriptInteractionClient?
 ---@field coverage fun(session: FieldSession)?
 ---@field tick integer
 ---@field accumulator number
@@ -79,6 +83,8 @@ function FieldSession.new(options)
     dialogue = options.dialogue,
     input = options.input,
     interactions = options.interactions,
+    scriptScheduler = options.scriptScheduler,
+    scriptClient = options.scriptClient --[[@as any]],
     coverage = options.coverage,
     tick = 0,
     accumulator = 0,
@@ -115,10 +121,35 @@ function FieldSession:updateFixed(inputSnapshot)
   -- Modal ownership: while a dialogue is open the world freezes -- no queued
   -- visibility changes, no facing-warp check, no movement, no warp commit, no
   -- pose clocks, no camera motion. Only the dialogue reads this tick's input.
-  if self.dialogue and self.dialogue:isModal() then
+  -- Script-owned boxes are exempt: the script scheduler steps them from its
+  -- own async phase and the script phase owns the tick instead.
+  if
+    self.dialogue
+    and self.dialogue:isModal()
+    and not (self.dialogue.isScriptOwned and self.dialogue:isScriptOwned())
+  then
     self.dialogue:step(inputSnapshot)
     self:_advanceTick()
     return
+  end
+
+  -- Script phase : the field-script scheduler
+  -- advances script-owned asynchronous work, polls tasks, promotes completed
+  -- handoffs, runs ready contexts to yield, and resolves at most one new
+  -- interaction. The session never steps the scheduler twice per tick.
+  if self.scriptScheduler then
+    self.scriptScheduler:step(self.tick + 1, {
+      heldDirection = inputSnapshot.heldDirection,
+      pressedDirection = inputSnapshot.pressedDirection,
+      pressedAction = inputSnapshot.actionPressed or inputSnapshot.pressedAction,
+      pressedCancel = inputSnapshot.cancelPressed or inputSnapshot.pressedCancel,
+    })
+    -- A foreground root owns the field or a player lock suppresses movement
+    -- and new triggers ; the tick is consumed.
+    if self.scriptScheduler:playerMovementLocked() then
+      self:_advanceTick()
+      return
+    end
   end
 
   if self.transition and self.transition.suppression then
@@ -151,9 +182,21 @@ function FieldSession:updateFixed(inputSnapshot)
       facing = self.player.facing,
       tick = self.tick + 1,
     })
-    if intent and self.interactions:consume(intent) then
-      self:_advanceTick()
-      return
+    if intent then
+      -- The script client replaces the pre-script adapter: it resolves the
+      -- binding, starts the composed script, and runs it during this tick.
+      -- Unmapped intents fall through to the fixture client.
+      if self.scriptClient then
+        local result = self.scriptClient:consume(intent, self.tick + 1)
+        if result == "started" or result == "blocked" then
+          self:_advanceTick()
+          return
+        end
+      end
+      if self.interactions:consume(intent) then
+        self:_advanceTick()
+        return
+      end
     end
   end
 
