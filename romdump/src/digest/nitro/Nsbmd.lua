@@ -24,6 +24,7 @@ local NitroDict = require("romdump.src.digest.nitro.NitroDict")
 local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
 local GxDisplayList = require("romdump.src.digest.nitro.GxDisplayList")
 local DsMaterial = require("romdump.src.digest.nitro.DsMaterial")
+local NsbmdMaterialSrt = require("romdump.src.digest.nitro.NsbmdMaterialSrt")
 
 local Nsbmd = {}
 
@@ -459,6 +460,12 @@ local function decodeMaterialData(r, matBase, blockOfs, context)
     owns = DsMaterial.ownership(flagsRaw),
 
     extraBytes = size > MATERIAL_PREFIX and r:bytes(base + MATERIAL_PREFIX, size - MATERIAL_PREFIX) or "",
+
+    -- The static texture-SRT extension (Epic 2): decoded from the flags and
+    -- the extra bytes; nil when the material carries no texture transform.
+    textureSrt = size > MATERIAL_PREFIX
+      and NsbmdMaterialSrt.decode(flagsRaw, r:bytes(base + MATERIAL_PREFIX, size - MATERIAL_PREFIX))
+      or nil,
 
     -- Transitional: raw wrap/flip bits (bits 16-19 of texImageParam), consumed by
     -- MaterialCompiler until wrap sourcing routes through DsMaterial.resolve.
