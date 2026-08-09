@@ -8,6 +8,8 @@
 
 local Bindings = require("libs.engine.src.script.Bindings")
 local Composition = require("libs.engine.src.script.Composition")
+local Errors = require("libs.rom.src.Errors")
+local ScriptErrors = require("libs.engine.src.script.errors")
 local ScriptActorWorld = require("libs.engine.src.script.ScriptActorWorld")
 local ScriptDialogueHost = require("libs.engine.src.script.ScriptDialogueHost")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
@@ -33,11 +35,11 @@ local TASK_MODULES = {
   "libs.engine.src.script.tasks.WarpTask",
   "libs.engine.src.script.tasks.ChildScriptTask",
   "libs.engine.src.script.tasks.AskYesNoTask",
-  "libs.engine.src.script.tasks.LuaTask",
   "libs.engine.src.script.tasks.StarterChoiceTask",
 }
 
--- Build the task registry with every registered task type.
+-- Build the task registry with every registered task type. `actor_pause`
+-- shares the movement pause implementation, scoped to one actor.
 ---@return TaskRegistry
 local function taskRegistry()
   local registry = TaskRegistry.new()
@@ -45,6 +47,8 @@ local function taskRegistry()
     local impl = require(moduleName)
     registry:register(impl.type, impl.version, impl)
   end
+  local pause = require("libs.engine.src.script.tasks.MovementPauseTask")
+  registry:register("actor_pause", pause.version, pause)
   return registry
 end
 
@@ -66,6 +70,7 @@ end
 -- FieldPlayer by reference so map swaps can rebind it.
 ---@class ScriptPlayerFacade
 ---@field private _player FieldPlayer|nil
+---@field private _profile table|nil { gender: integer, name: string }
 local ScriptPlayerFacade = {}
 ScriptPlayerFacade.__index = ScriptPlayerFacade
 
@@ -74,11 +79,20 @@ ScriptPlayerFacade.__index = ScriptPlayerFacade
 local function playerFacade(player)
   return setmetatable({
     _player = player,
+    _profile = nil,
   }, ScriptPlayerFacade)
 end
 
 function ScriptPlayerFacade:setPlayer(player)
   self._player = player
+end
+
+-- Wire the real player profile (gender and name) when the game owns one;
+-- until then profile-dependent operations fault instead of fabricating
+-- values.
+---@param profile table { gender: integer, name: string }
+function ScriptPlayerFacade:setProfile(profile)
+  self._profile = profile
 end
 
 function ScriptPlayerFacade:position()
@@ -92,11 +106,23 @@ function ScriptPlayerFacade:facing()
 end
 
 function ScriptPlayerFacade:gender()
-  return 0
+  local profile = self._profile
+  if profile == nil or profile.gender == nil then
+    Errors.raise(
+      ScriptErrors.SCRIPT_SERVICE_MISSING,
+      "no player profile is wired; gendered messages cannot resolve",
+      {}
+    )
+  end
+  return profile.gender
 end
 
 function ScriptPlayerFacade:name()
-  return "GOLD"
+  local profile = self._profile
+  if profile == nil or profile.name == nil then
+    Errors.raise(ScriptErrors.SCRIPT_SERVICE_MISSING, "no player profile is wired; player-name text cannot resolve", {})
+  end
+  return profile.name
 end
 
 function ScriptPlayerFacade:turn(direction)
@@ -115,11 +141,12 @@ end
 
 ---@class FieldScriptsOptions
 ---@field cacheFs CacheFs
----@field overrideFs table directory-shaped filesystem for data/scripts/overrides
+---@field overrideFs table read-shaped filesystem for data/scripts/overrides
 ---@field bindingsManifest table
 ---@field eventState FieldEventState
 ---@field actors FieldActorManager
 ---@field player FieldPlayer
+---@field profile table|nil { gender: integer, name: string }
 ---@field dialogue FieldDialogueController
 ---@field messageProvider FieldMessageProvider
 ---@field layout fun(formatted: table): table
@@ -128,6 +155,10 @@ end
 ---@field mapLoader FieldMapLoader
 ---@field sourceMap RuntimeFieldMap
 ---@field seedText string|nil
+---@field audio table|nil optional audio backend (absent -> SCRIPT_SERVICE_MISSING on use)
+---@field camera table|nil optional camera backend
+---@field screen table|nil optional screen backend
+---@field events table|nil optional event sink
 
 ---@class FieldScripts
 ---@field registry table
@@ -142,8 +173,9 @@ end
 local FieldScripts = {}
 FieldScripts.__index = FieldScripts
 
--- opts.overrideFs: love.filesystem-shaped directory access for the repo
--- `data/scripts/overrides` tree (the game mounts `data` before calling).
+-- opts.overrideFs: love.filesystem-shaped read access for the repo
+-- `data/scripts/overrides` tree (the game mounts `data` before calling);
+-- the loader enumerates overrides through the checked-in manifest.
 ---@param opts FieldScriptsOptions
 ---@return FieldScripts
 function FieldScripts.new(opts)
@@ -176,6 +208,12 @@ function FieldScripts.new(opts)
     seed = opts.seedText or opts.cacheFs.versionId,
   })
   local player = playerFacade(opts.player)
+  -- The real player profile (gender and name) is wired when the game owns
+  -- one; without it, profile-dependent operations fault instead of
+  -- fabricating values.
+  if opts.profile ~= nil then
+    player:setProfile(opts.profile)
+  end
   local actors = ScriptActorWorld.new(opts.actors --[[@as ScriptActorManager]], player)
   local dialogueHost = ScriptDialogueHost.new({
     controller = opts.dialogue,
@@ -183,6 +221,7 @@ function FieldScripts.new(opts)
     layout = opts.layout,
     fontDef = opts.fontDef,
     player = player,
+    world = worldState,
   })
   local mapsService = ScriptMapsService.new({
     transition = opts.transition,
@@ -211,10 +250,14 @@ function FieldScripts.new(opts)
       player = player,
       dialogue = dialogueHost,
       maps = mapsService,
-      audio = nil,
-      camera = nil,
-      screen = nil,
-      events = nil,
+      -- Optional backends: an absent service faults the operation that
+      -- needs it (SCRIPT_SERVICE_MISSING) instead of silently succeeding.
+      -- The production game wires real audio/camera/screen/events here when
+      -- those subsystems land; tests inject deterministic fakes.
+      audio = opts.audio,
+      camera = opts.camera,
+      screen = opts.screen,
+      events = opts.events,
       advanceAsync = advanceAsync,
     },
     taskRegistry = taskRegistry(),

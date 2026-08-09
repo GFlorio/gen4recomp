@@ -46,7 +46,10 @@ end
 ---@param maxExclusive integer
 ---@return integer
 function ScriptRng:nextInt(maxExclusive)
-  assert(type(maxExclusive) == "number" and maxExclusive > 0, "maxExclusive must be a positive integer")
+  assert(
+    type(maxExclusive) == "number" and maxExclusive % 1 == 0 and maxExclusive > 0,
+    "maxExclusive must be a positive integer"
+  )
   return self:nextRaw() % maxExclusive
 end
 
@@ -55,6 +58,14 @@ end
 ---@param maxInclusive integer
 ---@return integer
 function ScriptRng:range(minInclusive, maxInclusive)
+  assert(
+    type(minInclusive) == "number"
+      and minInclusive % 1 == 0
+      and type(maxInclusive) == "number"
+      and maxInclusive % 1 == 0
+      and minInclusive <= maxInclusive,
+    "range bounds must be integers with min <= max"
+  )
   local span = maxInclusive - minInclusive + 1
   return minInclusive + self:nextRaw() % span
 end
@@ -64,6 +75,16 @@ end
 ---@param denominator integer
 ---@return boolean
 function ScriptRng:chance(numerator, denominator)
+  assert(
+    type(numerator) == "number"
+      and numerator % 1 == 0
+      and type(denominator) == "number"
+      and denominator % 1 == 0
+      and denominator > 0
+      and numerator >= 0
+      and numerator <= denominator,
+    "chance requires 0 <= numerator <= denominator with denominator > 0"
+  )
   return self:nextRaw() % denominator < numerator
 end
 
@@ -81,11 +102,12 @@ function ScriptRng.new(seed)
   if type(seed) == "string" then
     state = ScriptRng.deriveSeed(seed)
   elseif type(seed) == "number" then
+    assert(seed % 1 == 0, "rng seed must be an integer")
     state = seed
   else
     state = ScriptRng.deriveSeed(nil)
   end
-  if state == 0 then
+  if state <= 0 then
     state = 1
   end
   return setmetatable({
@@ -98,8 +120,16 @@ end
 ---@param record table
 ---@return table rng
 function ScriptRng.restore(record)
-  local rng = ScriptRng.new(record.state or ScriptRng.deriveSeed(nil))
-  rng._calls = record.calls or 0
+  assert(
+    type(record) == "table" and type(record.state) == "number" and record.state % 1 == 0 and record.state > 0,
+    "serialized rng state must be a positive integer"
+  )
+  assert(
+    type(record.calls) == "number" and record.calls % 1 == 0 and record.calls >= 0,
+    "serialized rng call count must be a non-negative integer"
+  )
+  local rng = ScriptRng.new(record.state)
+  rng._calls = record.calls
   return rng
 end
 

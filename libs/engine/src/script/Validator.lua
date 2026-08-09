@@ -540,6 +540,9 @@ CHECKERS.source_provenance = function(v, path, field)
   local offsets = v.offsets
   local opcodes = v.opcodes
   local count = checkArray(offsets, path .. "/offsets", field)
+  if count == 0 then
+    fail(ScriptErrors.SCRIPT_SCHEMA_INVALID, path, "source provenance must name at least one offset", { field = field })
+  end
   if type(opcodes) ~= "table" or #opcodes ~= count then
     fail(
       ScriptErrors.SCRIPT_SCHEMA_INVALID,

@@ -48,7 +48,6 @@ local function translate(bytes, member, scriptIndex)
   local ir = assert(ScriptBinaryDecoder.parseMember(bytes, member, "synthetic", { msgBank = 543, catalog = CATALOG }))
   local lowered = SemanticLowering.lowerScript(ir.scripts[scriptIndex], ir, { stdCatalog = SourceCatalog.catalog() })
   local steps = Structurer.structure(lowered, scriptIndex)
-  local report = Verifier.verifyScript(lowered, ir.scripts[scriptIndex], ir)
   local function scrub(items)
     for _, item in ipairs(items) do
       if item.op == "if" then
@@ -57,12 +56,12 @@ local function translate(bytes, member, scriptIndex)
       end
       item.movementComplete = nil
       item.movementUnsupported = nil
-      item.sourceFacing = nil
       item.yieldsNextTick = nil
       item.sourceNotes = nil
     end
   end
   scrub(steps)
+  local report = Verifier.verifyScript(steps, ir.scripts[scriptIndex], ir, lowered.omissions)
   return ir, steps, report
 end
 
@@ -92,7 +91,7 @@ T["emitter determinism and validation"] = function()
     member = 843,
     scriptIndex = 9,
     sourcePath = "romfs/scr_seq.narc",
-    commit = "rom-sha",
+    romSha1 = "rom-sha",
     repository = "g4recomp",
     game = "heartgold",
     sourceHash = "member-sha",
@@ -127,7 +126,7 @@ T["unsupported instructions stay explicit"] = function()
   Assert.equal(#lowered.unsupported, 1)
   Assert.equal(lowered.unsupported[1].command, 36)
   Assert.equal(lowered.unsupported[1].originalName, "ScrCmd_SetTrainerFlag")
-  local report = Verifier.verifyScript(lowered, ir.scripts[0], ir)
+  local report = Verifier.verifyScript(Structurer.structure(lowered, 0), ir.scripts[0], ir, lowered.omissions)
   Assert.isFalse(report.complete)
   Assert.equal(report.unsupportedCount, 1)
 end
@@ -138,10 +137,10 @@ T["coverage record counts opcodes"] = function()
     assert(ScriptBinaryDecoder.parseMember(labSignMember(), 843, "synthetic", { msgBank = 543, catalog = CATALOG }))
   local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
   local steps = Structurer.structure(lowered, 0)
-  local report = Verifier.verifyScript(lowered, ir.scripts[0], ir)
+  local report = Verifier.verifyScript(steps, ir.scripts[0], ir, lowered.omissions)
   local record = Coverage.record(ir, {
     [0] = { script = ir.scripts[0], resource = { id = "x" }, report = report },
-  }, { repository = "g4recomp", commit = "rom-sha" })
+  }, { repository = "g4recomp", romSha1 = "rom-sha" })
   Assert.equal(record.totals.scripts, 1)
   Assert.equal(record.totals.reachableInstructions, 7)
   Assert.equal(record.opcodes[73].name, "ScrCmd_PlaySE")
@@ -158,6 +157,164 @@ T["call std resolves common ids"] = function()
   Assert.isTrue(name == "common.std_" .. tostring(0x30A) or name:match("^common%.") ~= nil)
   Assert.equal(catalog.locate(2000).member, 3)
   Assert.equal(catalog.locate(2000).scriptIndex, 0)
+end
+
+-- 6. A conditional call is never peeled into a branch region: the emitted
+-- program keeps the structured if wrapping the call.
+T["call_if stays a structured call"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          -- 0x20: compare (6 bytes) -> 0x26
+          { op = 17, args = { { value = 1, width = 2 }, { value = 2, width = 2 } } },
+          -- 0x26: CallIf (7 bytes) -> 0x2D, target 0x33 (the subroutine entry)
+          { op = 29, args = { { value = 1, width = 1 }, { target = 0x33, width = 4 } } },
+          -- 0x2D: SetFlag (4 bytes) -> 0x31
+          { op = 30, args = { { value = 3, width = 2 } } },
+          -- 0x31: End (2 bytes) -> 0x33
+          { op = 2, args = {} },
+          -- 0x33: subroutine entry (branch target label), SetFlag (4) -> 0x37
+          { op = 30, args = { { value = 4, width = 2 } } },
+          -- 0x37: Return (2 bytes) -> 0x39
+          { op = 27, args = {} },
+        },
+      },
+    },
+  })
+  local _, steps = translate(bytes, 5, 0)
+  local function walk(list, depth, out)
+    for _, step in ipairs(list) do
+      if step.op == "if" then
+        walk(step.yes, depth + 1, out)
+        walk(step.no, depth + 1, out)
+      else
+        out[#out + 1] = { op = step.op, target = step.target, depth = depth }
+      end
+    end
+  end
+  local flat = {}
+  walk(steps, 0, flat)
+  local callSeen = false
+  for _, entry in ipairs(flat) do
+    if entry.op == "call" then
+      callSeen = true
+      Assert.equal(entry.depth, 1, "the conditional call sits inside one if")
+    end
+  end
+  Assert.isTrue(callSeen, "the conditional call survives as a call")
+end
+
+-- 7. A label on the second instruction of a candidate fold keeps the
+-- instructions separate: jumping into the fold's interior must not execute
+-- the folded head.
+T["fold respects interior labels"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          -- 0x20: Goto (6 bytes) -> 0x26, target 0x2C (labels the GoToIf)
+          { op = 22, args = { { target = 0x2C, width = 4 } } },
+          -- 0x26: compare (6 bytes) -> 0x2C
+          { op = 17, args = { { value = 1, width = 2 }, { value = 2, width = 2 } } },
+          -- 0x2C: GoToIf (7 bytes) -> 0x33, target 0x44 (labeled entry)
+          { op = 28, args = { { value = 1, width = 1 }, { target = 0x3A, width = 4 } } },
+          -- 0x33: NPCMsg (3 bytes) -> 0x36
+          { op = 45, args = { { value = 97, width = 1 } } },
+          -- 0x36: WaitButton (2) -> 0x38
+          { op = 50, args = {} },
+          -- 0x38: CloseMsg (2) -> 0x3A
+          { op = 53, args = {} },
+          -- 0x3A: End (2) -> 0x3C
+          { op = 2, args = {} },
+          -- 0x3C: Goto (6) -> 0x42, target 0x42
+          { op = 22, args = { { target = 0x42, width = 4 } } },
+          -- 0x42: End (2) -> 0x44
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local _, steps = translate(bytes, 5, 0)
+  -- The compare and the GoToIf stay separate instructions; the label owns
+  -- the branch alone.
+  local ops = {}
+  local function walk(list)
+    for _, step in ipairs(list) do
+      if step.op == "if" then
+        walk(step.yes)
+        walk(step.no)
+      else
+        ops[#ops + 1] = step.op
+      end
+    end
+  end
+  walk(steps)
+  Assert.isTrue(ops[2] == "compare" or ops[3] == "compare", "the compare survives as its own instruction")
+  local controlSeen = false
+  for _, op in ipairs(ops) do
+    if op == "goto_if" or op == "goto_compared" then
+      controlSeen = true
+    end
+  end
+  Assert.isTrue(controlSeen, "the labeled branch survives as its own control node")
+end
+
+-- 8. MovePersonFacing (opcode 339) emits position then facing: the facing
+-- side effect is a canonical operation, never diagnostic data.
+T["move person facing emits position and facing"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          {
+            op = 339,
+            args = {
+              { value = 2, width = 2 },
+              { value = 684, width = 2 },
+              { value = 393, width = 2 },
+              { value = 0, width = 2 },
+              { value = 0, width = 2 },
+            },
+          },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local _, steps = translate(bytes, 5, 0)
+  Assert.equal(steps[1].op, "set_object_position")
+  Assert.equal(steps[2].op, "set_object_facing")
+  Assert.equal(steps[2].direction, "north")
+  Assert.isNil(steps[1].sourceFacing, "no diagnostic facing field survives")
+end
+
+-- 9. The verifier runs on the final structured program: a scrub that strips
+-- a step's provenance leaves the source instruction uncovered and fails.
+T["verifier catches post-lowering damage"] = function()
+  local bytes = labSignMember()
+  local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 843, "synthetic", { msgBank = 543, catalog = CATALOG }))
+  local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+  local steps = Structurer.structure(lowered, 0)
+  steps[3].provenance = nil -- the say's coverage vanishes
+  local report = Verifier.verifyScript(steps, ir.scripts[0], ir, lowered.omissions)
+  Assert.isFalse(report.ok, "the verifier sees the final program")
+end
+
+-- 10. Every emitted step retains its source provenance: the emitted text of
+-- a translated script covers every reachable instruction offset.
+T["emitted steps keep provenance"] = function()
+  local _, steps, report = translate(labSignMember(), 843, 0)
+  Assert.isTrue(report.ok)
+  for i, step in ipairs(steps) do
+    if step.op ~= "label" and step.op ~= "yield_tick" then
+      Assert.notNil(step.provenance, "step " .. i .. " (" .. step.op .. ") keeps provenance")
+      Assert.isTrue(#step.provenance.offsets > 0)
+    end
+  end
 end
 
 return T

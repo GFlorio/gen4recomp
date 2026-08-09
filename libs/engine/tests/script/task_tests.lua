@@ -105,8 +105,8 @@ T["say hgss timeline"] = function()
   startForeground(
     h,
     script("new_bark.lab_sign", {
-      S.say("msg.hgss.0543.00097"),
-      S.setVar("VAR_AFTER", 1),
+      S.say({ message = "msg.hgss.0543.00097" }),
+      S.setVar({ variable = "VAR_AFTER", value = 1 }),
       S.stop(),
     }),
     100
@@ -141,8 +141,8 @@ T["input waits read edges only"] = function()
   startForeground(
     h,
     script("test.held", {
-      S.say("msg.test"),
-      S.setVar("VAR_AFTER", 1),
+      S.say({ message = "msg.test" }),
+      S.setVar({ variable = "VAR_AFTER", value = 1 }),
       S.stop(),
     }),
     100
@@ -166,8 +166,8 @@ end
 T["trigger edge cannot satisfy its own wait"] = function()
   local h = harness({ printTicks = 1 })
   local resource = script("new_bark.npc.woman_1", {
-    S.say("msg.hgss.0542.00009"),
-    S.setVar("VAR_AFTER", 1),
+    S.say({ message = "msg.hgss.0542.00009" }),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
     S.stop(),
   })
   h.registry:installBase(resource.id, resource, "generated")
@@ -203,7 +203,7 @@ T["waitInput buttons and dpad"] = function()
     h,
     script("test.input", {
       S.waitInput({ buttons = { "a" }, allowDpad = true, turnPlayerOnDpad = true }),
-      S.setVar("VAR_AFTER", 1),
+      S.setVar({ variable = "VAR_AFTER", value = 1 }),
       S.stop(),
     }),
     100
@@ -223,7 +223,7 @@ T["waitInput ignores dpad when disabled"] = function()
     h,
     script("test.input2", {
       S.waitInput({ buttons = { "a", "b" }, allowDpad = false }),
-      S.setVar("VAR_AFTER", 1),
+      S.setVar({ variable = "VAR_AFTER", value = 1 }),
       S.stop(),
     }),
     100
@@ -244,7 +244,7 @@ T["waitInputOrTicks ticks path"] = function()
     h,
     script("test.or", {
       S.waitInputOrTicks({ ticks = 2, buttons = { "a" } }),
-      S.setVar("VAR_AFTER", 1),
+      S.setVar({ variable = "VAR_AFTER", value = 1 }),
       S.stop(),
     }),
     100
@@ -263,7 +263,7 @@ T["gendered message selection"] = function()
   startForeground(
     h,
     script("test.gender", {
-      S.say(S.gendered("msg.male", "msg.female")),
+      S.say({ message = S.gendered("msg.male", "msg.female") }),
       S.stop(),
     }),
     100
@@ -275,7 +275,7 @@ T["gendered message selection"] = function()
   startForeground(
     h2,
     script("test.gender", {
-      S.say(S.gendered("msg.male", "msg.female")),
+      S.say({ message = S.gendered("msg.male", "msg.female") }),
       S.stop(),
     }),
     100
@@ -284,8 +284,9 @@ T["gendered message selection"] = function()
   Assert.equal(h2.host.calls[2].args[1], "msg.female")
 end
 
--- 8. askYesNo writes the canonical boolean result through the task result
--- .
+-- 8. askYesNo writes the canonical boolean result through the task result,
+-- and a real script condition reads it (the branch is driven by the written
+-- value, not by script-construction-time truthiness).
 T["askYesNo result"] = function()
   local h = harness({ printTicks = 1 })
   startForeground(
@@ -293,9 +294,13 @@ T["askYesNo result"] = function()
     script("test.yesno", {
       locals = { accepted = "serializable" },
       steps = {
-        S.say("msg.question"),
-        S.askYesNo("msg.choose", { result = S.local_("accepted") }),
-        S.setVar("VAR_AFTER", S.local_("accepted") and 1 or 0),
+        S.say({ message = "msg.question" }),
+        S.askYesNo({ message = "msg.choose", result = S.local_("accepted") }),
+        S.if_({
+          condition = S.truthy(S.local_("accepted")),
+          yes = { S.setVar({ variable = "VAR_AFTER", value = 1 }) },
+          no = { S.setVar({ variable = "VAR_AFTER", value = 0 }) },
+        }),
         S.stop(),
       },
     }),
@@ -327,8 +332,8 @@ T["message bindings"] = function()
   startForeground(
     h,
     script("test.bind", {
-      S.bufferText(0, S.playerName()),
-      S.say("msg.greeting", { bindings = { [0] = S.playerName() } }),
+      S.bufferText({ slot = 0, value = S.playerName() }),
+      S.say({ message = "msg.greeting", bindings = { [0] = S.playerName() } }),
       S.stop(),
     }),
     100
@@ -343,8 +348,8 @@ end
 T["save during dialogue"] = function()
   local h = harness({ printTicks = 3 })
   local resource = script("test.savedial", {
-    S.say("msg.test"),
-    S.setVar("VAR_AFTER", 1),
+    S.say({ message = "msg.test" }),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
     S.stop(),
   })
   startForeground(h, resource, 100)
@@ -385,8 +390,8 @@ T["nonblocking message continues same tick"] = function()
   startForeground(
     h,
     script("test.nonblock", {
-      S.message("msg.system", { style = "system", waitForPrint = false }),
-      S.setVar("VAR_AFTER", 1),
+      S.message({ message = "msg.system", style = "system", waitForPrint = false }),
+      S.setVar({ variable = "VAR_AFTER", value = 1 }),
       S.stop(),
     }),
     100
@@ -416,6 +421,35 @@ T["open close primitives"] = function()
     names[#names + 1] = call.name
   end
   Assert.deepEqual(names, { "openMessage", "close", "openMessage", "hold" })
+end
+
+-- 13. Cancelling an environment invokes the dialogue task's implementation
+-- cancel: the engine-owned box is closed even though the task never reached
+-- its close delay.
+T["cancellation closes the open box"] = function()
+  local h = harness({ printTicks = 5 })
+  startForeground(
+    h,
+    script("test.cancelbox", {
+      S.say({ message = "msg.question" }),
+      S.setVar({ variable = "VAR_AFTER", value = 1 }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, {})
+  h.scheduler:step(101, {})
+  Assert.isTrue(h.host:isOpen(), "the box is open mid-print")
+  local env = assert(h.scheduler:environments()[1])
+  h.scheduler:cancelEnvironment(env.environmentId, "cancelled")
+  Assert.isFalse(h.host:isOpen(), "the implementation cancel closed the engine-owned box")
+  local closed = false
+  for _, call in ipairs(h.host.calls) do
+    if call.name == "close" then
+      closed = true
+    end
+  end
+  Assert.isTrue(closed, "the host received a close during cancellation")
 end
 
 return T

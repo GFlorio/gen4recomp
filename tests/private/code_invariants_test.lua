@@ -91,13 +91,19 @@ function T.no_terminal_output_from_game_or_runtime_source()
 
   for line in tracked:gmatch("[^\r\n]+") do
     if line:match("^game/src/.*%.lua$") or line:match("^libs/[^/]+/src/.*%.lua$") then
-      local f = assert(io.open(line, "r"), "can read " .. line)
+      local f = io.open(line, "r")
+      if not f then
+        -- A tracked file deleted from the working tree (a pending deletion)
+        -- has no source content to scan.
+        goto continue
+      end
       local src = f:read("*a")
       f:close()
       Assert.isTrue(src:find("io.stderr", 1, true) == nil, line .. " must not write to stderr")
       Assert.isTrue(src:find("io.stdout", 1, true) == nil, line .. " must not write to stdout")
       Assert.isTrue(not hasBarePrint(src), line .. " must not call global print")
     end
+    ::continue::
   end
 end
 

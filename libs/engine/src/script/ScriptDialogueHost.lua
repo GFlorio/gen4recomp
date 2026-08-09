@@ -19,6 +19,7 @@ local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
 ---@field private _layout fun(formatted: table): table
 ---@field private _fontDef table
 ---@field private _player table|nil
+---@field private _pendingNode table|nil
 local ScriptDialogueHost = {}
 ScriptDialogueHost.__index = ScriptDialogueHost
 
@@ -27,18 +28,15 @@ ScriptDialogueHost.__index = ScriptDialogueHost
 ScriptDialogueHost.PLACEHOLDER_REF = "msg.project.placeholder"
 ScriptDialogueHost.PLACEHOLDER_TEXT = "..."
 
--- STRVAR family bases; the low byte of a substitution control is its field
--- selector (the HGSS buffer value kind: 3 = player name, 0 = integer).
-local STRVAR_BASE = 0x0100
-
--- Text-value descriptor resolvers for the slice: player name and integers.
--- Unresolved kinds leave the marker in the stream (visible, traced by the
--- formatter), matching the pre-script adapter's behavior.
+-- Text-value descriptor resolvers for the implemented forms: player name
+-- and integers backed by a variable. Any other form is a fault: the
+-- resolver contract never leaves a marker visible in the stream.
 ---@param descriptor table
 ---@param player table
 ---@param fontDef table
+---@param world table|nil
 ---@return table|nil replacementTokens
-local function resolveTextValue(descriptor, player, fontDef)
+local function resolveTextValue(descriptor, player, fontDef, world)
   if type(descriptor) ~= "table" or descriptor.text == nil then
     return nil
   end
@@ -50,16 +48,23 @@ local function resolveTextValue(descriptor, player, fontDef)
     if value == nil or type(value) ~= "table" or value.value ~= "var" then
       return nil
     end
-    local resolved = value.id
-    if resolved == nil then
-      return nil
+    if world == nil or world.getVar == nil then
+      Errors.raise(
+        ScriptErrors.SCRIPT_SERVICE_MISSING,
+        "integer text values require the world state",
+        { kind = kind, value = value }
+      )
     end
-    return FieldMessageProvider.asciiGlyphTokens(tostring(resolved), fontDef)
+    return FieldMessageProvider.asciiGlyphTokens(tostring(world:getVar(value.id)), fontDef)
   end
-  return nil
+  Errors.raise(
+    ScriptErrors.SCRIPT_UNSUPPORTED_REACHABLE,
+    "unsupported buffered text form " .. tostring(kind),
+    { kind = kind }
+  )
 end
 
----@param opts table { controller, provider, layout, fontDef, player }
+---@param opts table { controller, provider, layout, fontDef, player, world }
 ---@return ScriptDialogueHost
 function ScriptDialogueHost.new(opts)
   assert(
@@ -78,6 +83,7 @@ function ScriptDialogueHost.new(opts)
     _layout = opts.layout,
     _fontDef = opts.fontDef,
     _player = opts.player,
+    _world = opts.world,
   }, ScriptDialogueHost)
 end
 
@@ -109,20 +115,14 @@ function ScriptDialogueHost:resolveMessage(message, bindings, textArgs)
   bankId, messageId = tonumber(bankId), tonumber(messageId)
   local bank, bankErr = self._provider:acquireBank(bankId)
   if not bank then
-    Errors.raise(
-      bankErr and bankErr.code or "MESSAGE_BANK_MISSING",
-      bankErr and bankErr.message or "message bank " .. tostring(bankId) .. " is unavailable",
-      { bankId = bankId, cause = bankErr and bankErr.context or nil }
-    )
+    local err = bankErr --[[@as Errors.Error]]
+    Errors.raise(err.code, err.message, { bankId = bankId, cause = err.context })
   end
   local template, templateErr = self._provider:get(bankId, messageId)
   if not template then
     self._provider:releaseBank(bankId)
-    Errors.raise(
-      templateErr and templateErr.code or "MESSAGE_ID_OUT_OF_RANGE",
-      templateErr and templateErr.message or "message " .. tostring(messageId) .. " not in bank " .. tostring(bankId),
-      { bankId = bankId, messageId = messageId, cause = templateErr and templateErr.context or nil }
-    )
+    local err = templateErr --[[@as Errors.Error]]
+    Errors.raise(err.code, err.message, { bankId = bankId, messageId = messageId, cause = err.context })
   end
   -- One resolver per substitution control; the buffer slot is the marker's
   -- first argument. The node's own bindings win over instance textArgs.
@@ -133,7 +133,7 @@ function ScriptDialogueHost:resolveMessage(message, bindings, textArgs)
       if slot ~= nil and resolvers[token.control] == nil then
         resolvers[token.control] = function(control, args, context)
           local descriptor = bindings[slot] or textArgs[slot]
-          return resolveTextValue(descriptor, self._player, self._fontDef)
+          return resolveTextValue(descriptor, self._player, self._fontDef, self._world)
         end
       end
     end
@@ -162,10 +162,11 @@ function ScriptDialogueHost:startPrint(message, bindings, textArgs)
   local node = self._pendingNode or {}
   self._pendingNode = nil
   local formatted = self:resolveMessage(message, bindings or {}, textArgs or {})
+  -- Stable per-node identity for diagnostics: the full reference string,
+  -- never a digit run that could collide across banks.
   local id = "script-dialogue"
   if node.message ~= nil then
-    -- Stable per-node identity for diagnostics.
-    id = "script-" .. tostring(node.message):gsub("%D+", "")
+    id = "script-" .. tostring(node.message):gsub("[^%w]", "_")
   end
   self._controller:open({
     id = id,
@@ -197,15 +198,31 @@ function ScriptDialogueHost:printProgress()
   }
 end
 
--- Close the box (idempotent on the controller).
+-- Close the box (idempotent on the controller). A non-erasing close would
+-- need a message buffer the controller does not own; requesting one is an
+-- attributed fault rather than a silent ignore.
 ---@param erase boolean
 function ScriptDialogueHost:close(erase)
+  if erase == false then
+    Errors.raise(ScriptErrors.SCRIPT_SERVICE_MISSING, "the dialogue controller cannot preserve a closed message box")
+  end
   self._controller:close()
 end
 
-function ScriptDialogueHost:hold() end
-function ScriptDialogueHost:showWaitingIcon() end
-function ScriptDialogueHost:hideWaitingIcon() end
+-- Message-hold and waiting-icon controls are part of the script dialogue
+-- contract the controller does not implement; reaching them is an
+-- attributed fault, never a silent no-op.
+function ScriptDialogueHost:hold()
+  Errors.raise(ScriptErrors.SCRIPT_SERVICE_MISSING, "the dialogue controller cannot hold a message")
+end
+
+function ScriptDialogueHost:showWaitingIcon()
+  Errors.raise(ScriptErrors.SCRIPT_SERVICE_MISSING, "the dialogue controller has no waiting icon")
+end
+
+function ScriptDialogueHost:hideWaitingIcon()
+  Errors.raise(ScriptErrors.SCRIPT_SERVICE_MISSING, "the dialogue controller has no waiting icon")
+end
 
 -- Advance an open script-owned box by one fixed tick. The scheduler calls
 -- this from its engine-owned async phase with the immutable input snapshot;

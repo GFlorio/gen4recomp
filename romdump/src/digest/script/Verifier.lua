@@ -2,19 +2,19 @@
 -- and CFG against the lowered semantic IR. It verifies translation-accounting
 -- and control-flow preservation, not full game-behavior equivalence:
 --
---   1. Every reachable source instruction is covered by one semantic node
---      or an explicit unsupported node (Nop/Dummy are the only documented
---      implementation-detail erasures).
---   2. Every original control edge is represented by a control node.
---   3. Every semantic side effect maps back to source offsets.
---   4. Every source execution classification is represented by an
---      equivalent graph boundary or timing profile.
---   5. Discarded implementation variables are proven unobservable.
---   6. Canonicalized operands resolve to the same constants.
---   7. Call/return balance is preserved.
---   8. Movement sequence termination is preserved.
---   9. No command disappears except an explicitly documented erasure.
---  10. Unsupported instructions prevent a `complete` result.
+-- 1. Every reachable source instruction is covered by one semantic node
+-- or an explicit unsupported node (Nop/Dummy are the only documented
+-- implementation-detail erasures).
+-- 2. Every original control edge is represented by a control node.
+-- 3. Every semantic side effect maps back to source offsets.
+-- 4. Every source execution classification is represented by an
+-- equivalent graph boundary or timing profile.
+-- 5. Discarded implementation variables are proven unobservable.
+-- 6. Canonicalized operands resolve to the same constants.
+-- 7. Call/return balance is preserved.
+-- 8. Movement sequence termination is preserved.
+-- 9. No command disappears except an explicitly documented erasure.
+-- 10. Unsupported instructions prevent a `complete` result.
 --
 -- every supported terminal path of a common script must signal its caller
 -- (RestartCurrentScript -> signal_caller) before ending, matching the pinned
@@ -66,9 +66,11 @@ local YIELD_OPS = {
 }
 
 -- The documented multi-instruction folds (they own a timing profile of their
--- own, so per-instruction classification checks do not apply to them). `if`
--- covers the conditional cross-script branch wrap.
-local FOLD_OPS = { say = true, if_cond = true, call_if = true, ["if"] = true }
+-- own, so per-instruction classification checks do not apply to them).
+-- `if` covers the conditional cross-script branch wrap; `goto_if` is the
+-- label/goto fallback of a compare+GoToIf fold that the structurer could
+-- not peel.
+local FOLD_OPS = { say = true, if_cond = true, call_if = true, ["if"] = true, goto_if = true }
 
 -- Whether a lowered node ends the run phase by blocking (native wait). The
 -- `message` op blocks only with waitForPrint; `lock_actor` blocks only with
@@ -254,14 +256,18 @@ local function coveredByOffset(items)
   return byOffset
 end
 
--- Verify one lowered script against its raw instructions and CFG.
----@param lowered table
+-- Verify one script's final structured steps against its raw instructions
+-- and CFG. The steps are the post-structuring, post-scrub program that is
+-- actually emitted and executed; `omissions` are the lowering's documented
+-- erasures (the only instructions allowed to disappear).
+---@param steps table[]
 ---@param script table raw script (instructions)
 ---@param memberIr table|nil
+---@param omissions table|nil
 ---@return table report
-function Verifier.verifyScript(lowered, script, memberIr)
+function Verifier.verifyScript(steps, script, memberIr, omissions)
   local cfg = Cfg.build(script, memberIr)
-  local byOffset = coveredByOffset(lowered.items)
+  local byOffset = coveredByOffset(steps)
   -- A synthesized prelude script is a shared-subroutine library that the
   -- source engine never enters from its entry: its returns without calls
   -- are the defining shape, so the balance and stray-return checks warn
@@ -278,7 +284,7 @@ function Verifier.verifyScript(lowered, script, memberIr)
 
   -- Item 9: every command disappears only through a documented omission.
   local omissionsByOffset = {}
-  for _, omission in ipairs(lowered.omissions or {}) do
+  for _, omission in ipairs(omissions or {}) do
     omissionsByOffset[omission.offset] = true
     if omission.opcode ~= 0 and omission.opcode ~= 1 then
       problem("omission recorded for a non-erasure opcode", { offset = omission.offset, opcode = omission.opcode })
@@ -510,7 +516,7 @@ function Verifier.verifyScript(lowered, script, memberIr)
         end
       end
     end
-    walkCrossScript(lowered.items)
+    walkCrossScript(steps)
   end
 
   -- Item 6: canonicalized operands resolve to the same constants.
@@ -597,7 +603,7 @@ function Verifier.verifyScript(lowered, script, memberIr)
   report.unsupported = unsupportedNodes
   report.irreducible = cfg.irreducibleRegions
   report.balance = cfg.balance
-  report.complete = report.ok and covered + #lowered.omissions >= total and reachableUnsupported == 0
+  report.complete = report.ok and covered + #(omissions or {}) >= total and reachableUnsupported == 0
   return report
 end
 

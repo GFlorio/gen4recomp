@@ -78,11 +78,21 @@ local MODULES = {
   "libs.engine.tests.field_dialogue_theme_test",
   "libs.engine.tests.field_dialogue_controller_test",
   "libs.engine.tests.field_dialogue_renderer_test",
+  "libs.engine.tests.script_dialogue_host_test",
   "libs.engine.tests.script.dsl_tests",
   "libs.engine.tests.script.validator_tests",
   "libs.engine.tests.script.compiler_tests",
   "libs.engine.tests.script.loader_tests",
   "libs.engine.tests.script.docgen_test",
+  "libs.engine.tests.script.scheduler_tests",
+  "libs.engine.tests.script.save_tests",
+  "libs.engine.tests.script.task_tests",
+  "libs.engine.tests.script.context_tests",
+  "libs.engine.tests.script.composition_tests",
+  "libs.engine.tests.script.binding_tests",
+  "libs.engine.tests.script.movement_tests",
+  "libs.engine.tests.script.audio_fade_warp_tests",
+  "libs.engine.tests.script.world_state_tests",
   -- game
   "game.tests.app_boot_test",
   "game.tests.spawns_manifest_test",
@@ -137,6 +147,9 @@ local MODULES = {
   "romdump.tests.field_font_decoder_test",
   "romdump.tests.field_message_compiler_test",
   "romdump.tests.field_font_compiler_test",
+  "romdump.tests.script_binary_decoder_test",
+  "romdump.tests.script_cache_writer_test",
+  "romdump.tests.script_translator_test",
 }
 
 local function sortedKeys(t)
@@ -148,7 +161,40 @@ local function sortedKeys(t)
   return keys
 end
 
+-- Every test module on disk must be registered above; a suite that is never
+-- run cannot guard the code it covers. Enumerated through love.filesystem
+-- (the runner's only invocation path); a no-op when love is absent.
+local TEST_DIRS = {
+  { path = "libs/rom/tests", prefix = "libs.rom.tests" },
+  { path = "libs/math/tests", prefix = "libs.math.tests" },
+  { path = "libs/assets/tests", prefix = "libs.assets.tests" },
+  { path = "libs/engine/tests", prefix = "libs.engine.tests" },
+  { path = "game/tests", prefix = "game.tests" },
+  { path = "romdump/tests", prefix = "romdump.tests" },
+}
+
+local function assertAllTestModulesRegistered()
+  if love == nil or love.filesystem == nil then
+    return
+  end
+  local registered = {}
+  for _, modName in ipairs(MODULES) do
+    registered[modName] = true
+  end
+  for _, dir in ipairs(TEST_DIRS) do
+    local entries = love.filesystem.getDirectoryItems(dir.path)
+    for _, name in ipairs(entries) do
+      local moduleName = name:match("^(.*%.lua)$")
+      if moduleName ~= nil then
+        moduleName = dir.prefix .. "." .. moduleName:sub(1, -5)
+        assert(registered[moduleName], "test module exists but is not registered in tests/run.lua: " .. moduleName)
+      end
+    end
+  end
+end
+
 local function run()
+  assertAllTestModulesRegistered()
   local passed, failed = 0, 0
   local failures = {}
 

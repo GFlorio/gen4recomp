@@ -1,7 +1,7 @@
 -- Interaction binding tests : the binding
 -- manifest, trigger descriptors, interaction resolution order, the
 -- interaction client's started/blocked/unmapped outcomes, the actor world
--- adapter contract, and the session-level script phase. The exit criterion:
+-- adapter contract, and the session-level script phase. The contract:
 -- the target script IDs start from actual field interactions.
 
 local Assert = require("tests.support.Assert")
@@ -132,8 +132,8 @@ end
 T["client starts script in trigger tick"] = function()
   local p = platform()
   local resource = script("new_bark.npc.woman_1", {
-    S.setVar("VAR_SCENE", 1),
-    S.waitTicks(1),
+    S.setVar({ variable = "VAR_SCENE", value = 1 }),
+    S.waitTicks({ ticks = 1 }),
     S.stop(),
   })
   p.registry:installBase(resource.id, resource, "generated")
@@ -160,7 +160,7 @@ end
 T["interaction while locked"] = function()
   local p = platform()
   local resource = script("new_bark.npc.woman_1", {
-    S.waitTicks(5),
+    S.waitTicks({ ticks = 5 }),
     S.stop(),
   })
   p.registry:installBase(resource.id, resource, "generated")
@@ -234,11 +234,20 @@ T["actor world adapter"] = function()
     setFacing = function(self, id, direction)
       actors[id].facing = direction
     end,
-    isBusy = function()
-      return false
+    setMovementType = function(self, id, movementType)
+      actors[id].movementType = movementType
+    end,
+    setAnimationPaused = function(self, id, paused)
+      actors[id].animationPaused = paused
     end,
     numericId = function(self, id)
       return actors[id] and 7 or nil
+    end,
+    actorIdForMapIndex = function()
+      return nil
+    end,
+    cameraTargetId = function()
+      return nil
     end,
     partnerId = function()
       return nil
@@ -280,10 +289,34 @@ T["missing actor fault through binding path"] = function()
     getActor = function()
       return nil
     end,
+    getPosition = function()
+      return nil
+    end,
+    getFacing = function()
+      return nil
+    end,
+    show = function() end,
+    hide = function() end,
+    setPosition = function() end,
+    setFacing = function() end,
+    setMovementType = function() end,
+    setAnimationPaused = function() end,
+    numericId = function()
+      return nil
+    end,
+    actorIdForMapIndex = function()
+      return nil
+    end,
+    cameraTargetId = function()
+      return nil
+    end,
+    partnerId = function()
+      return nil
+    end,
   }
-  p.services.actors = ScriptActorWorld.new(manager) --[[@as any]]
+  p.services.actors = ScriptActorWorld.new(manager, p.services.player)
   local resource = script("elms_lab.elm", {
-    S.facePlayer("self"),
+    S.facePlayer({ actor = "self" }),
     S.stop(),
   })
   p.registry:installBase(resource.id, resource, "generated")
@@ -309,7 +342,7 @@ T["map transition cancels scripts"] = function()
   local p = platform()
   local resource = script("new_bark.npc.woman_1", {
     S.lockAll(),
-    S.waitTicks(5),
+    S.waitTicks({ ticks = 5 }),
     S.stop(),
   })
   p.registry:installBase(resource.id, resource, "generated")
@@ -334,8 +367,8 @@ end
 T["session script phase"] = function()
   local p = platform()
   local resource = script("new_bark.npc.woman_1", {
-    S.setVar("VAR_SCENE", 1),
-    S.waitTicks(1),
+    S.setVar({ variable = "VAR_SCENE", value = 1 }),
+    S.waitTicks({ ticks = 1 }),
     S.stop(),
   })
   p.registry:installBase(resource.id, resource, "generated")
@@ -391,6 +424,26 @@ T["session script phase"] = function()
   session:updateFixed({})
   session:updateFixed({})
   Assert.isNil(p.scheduler:foregroundEnvironmentId())
+end
+
+-- 12b. A live foreground root locks player movement even before the script
+-- has issued any explicit lock: foreground ownership is field ownership.
+T["foreground root locks movement without an explicit lock"] = function()
+  local p = platform()
+  local resource = script("new_bark.npc.woman_1", {
+    S.waitTicks({ ticks = 2 }),
+    S.stop(),
+  })
+  p.registry:installBase(resource.id, resource, "generated")
+  local composed = assert(p.composition:effective(resource.id))
+  p.scheduler:createForeground(composed, nil, 100)
+  Assert.isTrue(p.scheduler:playerMovementLocked(), "a live foreground root suppresses movement without lock_player")
+  p.scheduler:step(100, nil)
+  p.scheduler:step(101, nil)
+  p.scheduler:step(102, nil)
+  p.scheduler:step(103, nil)
+  Assert.isNil(p.scheduler:foregroundEnvironmentId())
+  Assert.isFalse(p.scheduler:playerMovementLocked(), "the field unlocks when the foreground root ends")
 end
 
 return T

@@ -1,11 +1,14 @@
 -- Control-flow structuring : turns the lowered item list
--- (linear items plus if_cond/goto/call_if control items) into structured
+-- (linear items plus if_cond/goto control items) into structured
 -- `if`/`else` blocks where provable, retaining labels and gotos otherwise.
--- The v1 algorithm peels the canonical conditional-skip pattern (a
--- conditional branch to a forward label whose fallthrough chain ends with an
+-- The algorithm peels the canonical conditional-skip pattern (a conditional
+-- branch to a forward label whose fallthrough chain ends with an
 -- unconditional goto to the region join); anything else falls back to
--- labels and gotos. Correctness beats readability. Pure domain module: no
--- love dependency.
+-- labels and gotos. A conditional call (`call_if`) is never a branch region:
+-- its source semantics are "conditionally call target, then return to the
+-- following instruction", so it always becomes a structured `if` wrapping
+-- the call. Correctness beats readability. Pure domain module: no love
+-- dependency.
 
 local Structurer = {}
 
@@ -48,38 +51,18 @@ local function labelPositions(items)
   return positions
 end
 
--- Build the per-item branch targets (after label resolution): index -> list
--- of target indices.
----@param items table[]
----@param positions table<string, integer>
----@return table<integer, integer[]>
-local function edges(items, positions)
-  local out = {}
-  for i, item in ipairs(items) do
-    local targets = {}
-    if item.op == "if_cond" or item.op == "call_if" or item.op == "goto" then
-      local target = positions[item.target]
-      if target ~= nil then
-        targets[#targets + 1] = target
-      end
-    end
-    out[i] = targets
-  end
-  return out
-end
-
 -- Count every control item that targets each label. A conditional's boundary
 -- label is consumed by the structured peel; when another control item also
 -- targets that label (a jump into the middle of the candidate region), the
--- peel must not run and the label/goto fallback is retained instead (spec
--- section 32.6: ambiguous branch ownership).
+-- peel must not run and the label/goto fallback is retained instead
+-- (ambiguous branch ownership).
 ---@param items table[]
 ---@param positions table<string, integer>
 ---@return table<string, integer>
 local function labelRefCounts(items, positions)
   local counts = {}
   for i, item in ipairs(items) do
-    if item.op == "if_cond" or item.op == "call_if" or item.op == "goto" then
+    if item.op == "if_cond" or item.op == "goto" or item.op == "goto_if" then
       if positions[item.target] ~= nil then
         counts[item.target] = (counts[item.target] or 0) + 1
       end
@@ -89,7 +72,7 @@ local function labelRefCounts(items, positions)
 end
 
 -- The join of a region: the first index not reachable from the region's
--- entry without passing through the exit label. For the v1 peel we require
+-- entry without passing through the exit label. For the peel we require
 -- the fallthrough chain's terminal goto target to equal the else-chain
 -- entry's join. Returns nil when the region cannot be proven structured.
 -- `exit` is the enclosing region's exclusive bound: a join beyond it would
@@ -131,7 +114,7 @@ local function findJoin(items, positions, entry, exit)
         return nil
       end
       return { join = join, terminal = cursor }
-    elseif item.op == "if_cond" or item.op == "call_if" or item.op == "stop" or item.op == "return" then
+    elseif item.op == "if_cond" or item.op == "stop" or item.op == "return" then
       return nil
     end
     cursor = cursor + 1
@@ -142,56 +125,41 @@ end
 -- Structure the linear item list recursively (forward declaration).
 local structure
 
--- Emit the straight-line steps between two item indices (exclusive of
--- terminators and labels that are not region boundaries).
----@param items table[]
----@param from integer
----@param to integer
----@return table[] steps
-local function linearSteps(items, from, to)
-  -- unused in v1; retained for diagnostics
-  items = items
-  local out = {}
-  for i = from, to do
-    local item = items[i]
-    if item.op == "label" then
-      out[#out + 1] = { op = "label", name = item.name }
-    elseif not isTerminator(item) then
-      local copy = {}
-      for key, value in pairs(item) do
-        copy[key] = value
-      end
-      out[#out + 1] = copy
-    end
-  end
-  return out
-end
-
 -- Peel one conditional region: `if <condition> then <fallthrough> else
 -- <target..join>`. Returns the steps plus the new cursor.
 ---@param items table[]
 ---@param entry integer
 ---@param join integer
 ---@param positions table<string, integer>
----@param depth integer
 ---@return table[] steps
-local function peelConditional(items, entry, join, terminal, positions, depth, refCounts)
+local function peelConditional(items, entry, join, terminal, positions, refCounts)
   local item = items[entry]
-  local steps = {
+  local yes = structure(items, entry + 1, terminal, positions, refCounts)
+  -- The items between the fallthrough terminal and the conditional target
+  -- are skipped by both branch paths, but their labels can be branch
+  -- targets from elsewhere; they are appended inside the then-region after
+  -- the terminal goto (so both branch paths still skip them) and every
+  -- referenced label resolves in the final program.
+  local skipped = structure(items, terminal + 1, positions[item.target] - 1, positions, refCounts)
+  for _, step in ipairs(skipped) do
+    yes[#yes + 1] = step
+  end
+  return {
     {
       op = "if",
       condition = negate(item.condition),
-      -- The then-region is the fallthrough chain up to (not including) its
-      -- terminal goto; the else-region is the conditional target's chain
-      -- (the boundary label itself is consumed by the structure).
-      yes = structure(items, entry + 1, terminal - 1, positions, depth + 1, refCounts),
-      no = structure(items, positions[item.target] + 1, join - 1, positions, depth + 1, refCounts),
+      provenance = item.provenance,
+      -- The then-region is the fallthrough chain through its terminal goto
+      -- (the goto is retained so the source instruction stays covered); the
+      -- else-region is the conditional target's chain (the boundary label
+      -- itself is consumed by the structure).
+      yes = yes,
+      no = structure(items, positions[item.target] + 1, join - 1, positions, refCounts),
     },
   }
-  return steps
 end
 
-structure = function(items, entry, exit, positions, depth, refCounts)
+structure = function(items, entry, exit, positions, refCounts)
   local steps = {}
   local cursor = entry
   while cursor <= (exit or #items) do
@@ -199,7 +167,19 @@ structure = function(items, entry, exit, positions, depth, refCounts)
     if item.op == "label" then
       steps[#steps + 1] = { op = "label", name = item.name }
       cursor = cursor + 1
-    elseif item.op == "if_cond" or item.op == "call_if" then
+    elseif item.op == "call_if" then
+      -- A conditional call is never a branch region: it conditionally calls
+      -- the target and returns to the following instruction, so the
+      -- structured `if` wrapping the call is the only faithful shape.
+      steps[#steps + 1] = {
+        op = "if",
+        condition = item.condition,
+        provenance = item.provenance,
+        yes = { { op = "call", target = item.target } },
+        no = {},
+      }
+      cursor = cursor + 1
+    elseif item.op == "if_cond" then
       local region = findJoin(items, positions, cursor, exit)
       -- The conditional target label must be owned by exactly this
       -- conditional; a second referent means the label is a region entry
@@ -207,38 +187,30 @@ structure = function(items, entry, exit, positions, depth, refCounts)
       -- fallback gotos still need.
       local owned = region ~= nil and (refCounts[item.target] or 0) <= 1
       if owned then
-        local peeled = peelConditional(items, cursor, region.join, region.terminal, positions, depth, refCounts)
+        local peeled = peelConditional(items, cursor, region.join, region.terminal, positions, refCounts)
         for _, step in ipairs(peeled) do
           steps[#steps + 1] = step
         end
         cursor = region.join
       else
-        -- Irreducible or ambiguous: retain the label/goto fallback. A
-        -- conditional call becomes a structured if wrapping the call (the
-        -- call returns to the fallthrough position, so the semantics match
-        -- the source CallIf exactly).
-        if item.op == "call_if" then
-          steps[#steps + 1] = {
-            op = "if",
-            condition = item.condition,
-            yes = { { op = "call", target = item.target } },
-            no = {},
-          }
-        else
-          steps[#steps + 1] = {
-            op = "goto_if",
-            condition = item.condition,
-            target = item.target,
-          }
-        end
+        -- Irreducible or ambiguous: retain the label/goto fallback.
+        steps[#steps + 1] = {
+          op = "goto_if",
+          condition = item.condition,
+          target = item.target,
+          provenance = item.provenance,
+        }
         cursor = cursor + 1
       end
     elseif item.op == "goto" then
-      -- A region-terminal goto that targets the region's own join falls
-      -- through naturally and is dropped.
-      if positions[item.target] ~= exit then
-        steps[#steps + 1] = { op = "goto", target = item.target }
-      end
+      -- Every goto is retained with its provenance: a region-terminal goto
+      -- whose target falls through is a provable no-op, but dropping it
+      -- would leave the source instruction uncovered by the final program.
+      steps[#steps + 1] = {
+        op = "goto",
+        target = item.target,
+        provenance = item.provenance,
+      }
       cursor = cursor + 1
     elseif item.op == "stop" or item.op == "return" or item.op == "next" then
       local copy = {}
@@ -267,21 +239,17 @@ function Structurer.structure(lowered, scriptIndex)
   local items = lowered.items
   -- Label markers are inserted where if_cond/goto targets land.
   local positions = labelPositions(items)
-  local stepPositions = {}
-  for name, index in pairs(positions) do
-    stepPositions[name] = index
-  end
-  -- The fallback target map for unresolved labels: every control target
-  -- must resolve at compile time, so an unresolved target gets a synthesized
-  -- label marker appended after the region and the positions map grows.
+  -- The lowering resolves every branch target (SemanticLowering
+  -- resolveControlTargets turns unresolvable targets into explicit
+  -- unsupported nodes), so an unresolved target here is an invariant
+  -- violation, not a synthesizable fallback.
   for i, item in ipairs(items) do
-    if (item.op == "if_cond" or item.op == "call_if" or item.op == "goto") and positions[item.target] == nil then
-      items[#items + 1] = { op = "label", name = item.target }
-      positions[item.target] = #items
+    if (item.op == "if_cond" or item.op == "goto_if" or item.op == "goto") and positions[item.target] == nil then
+      assert(false, "unresolved branch target " .. tostring(item.target))
     end
   end
   local refCounts = labelRefCounts(items, positions)
-  return structure(items, 1, nil, positions, 0, refCounts)
+  return structure(items, 1, nil, positions, refCounts)
 end
 
 return Structurer

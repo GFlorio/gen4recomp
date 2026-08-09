@@ -37,6 +37,103 @@ local POLICY = {
   variableVarBase = actorManifest.variableVarBase,
 }
 
+-- Deterministic fake backends for the unwired production services (audio,
+-- camera, screen, events): headless tests inject deterministic fakes; the
+-- production platform faults on absence.
+local function fakeServices()
+  local audio = {
+    playing = {},
+    calls = {},
+  }
+  function audio:play(id)
+    self.playing[id] = true
+    self.calls[#self.calls + 1] = { op = "play", id = id }
+  end
+  function audio:stop(id)
+    self.playing[id] = nil
+  end
+  function audio:playMusic(id)
+    self.calls[#self.calls + 1] = { op = "playMusic", id = id }
+  end
+  function audio:stopMusic(id)
+    self.calls[#self.calls + 1] = { op = "stopMusic", id = id }
+  end
+  function audio:resetMusic()
+    self.calls[#self.calls + 1] = { op = "resetMusic" }
+  end
+  function audio:temporaryMusic(id)
+    self.calls[#self.calls + 1] = { op = "temporaryMusic", id = id }
+  end
+  function audio:fadeMusicOut(spec)
+    self.calls[#self.calls + 1] = { op = "fadeMusicOut", spec = spec }
+  end
+  function audio:fadeMusicIn(spec)
+    self.calls[#self.calls + 1] = { op = "fadeMusicIn", spec = spec }
+  end
+  function audio:playCry(species, form)
+    self.playing["cry:" .. tostring(species)] = true
+    self.calls[#self.calls + 1] = { op = "playCry", species = species, form = form }
+  end
+  function audio:playFanfare(fanfare)
+    self.playing["fanfare:" .. tostring(fanfare)] = true
+    self.calls[#self.calls + 1] = { op = "playFanfare", fanfare = fanfare }
+  end
+  function audio:isPlaying(id)
+    return self.playing[id] == true
+  end
+  function audio:currentEffect()
+    for id in pairs(self.playing) do
+      return id
+    end
+    return nil
+  end
+  function audio:currentCry()
+    for id in pairs(self.playing) do
+      if id:sub(1, 4) == "cry:" then
+        return id
+      end
+    end
+    return nil
+  end
+  function audio:currentFanfare()
+    for id in pairs(self.playing) do
+      if id:sub(1, 8) == "fanfare:" then
+        return id
+      end
+    end
+    return nil
+  end
+  -- Engine-owned async: recorded effects end before the next tick's poll.
+  function audio:advance()
+    for id in pairs(self.playing) do
+      self.playing[id] = nil
+    end
+  end
+  local screen = {
+    fading = false,
+    calls = {},
+  }
+  function screen:startFade(spec)
+    self.fading = true
+    self.calls[#self.calls + 1] = { op = "startFade", spec = spec }
+  end
+  function screen:advance()
+    self.fading = false
+  end
+  function screen:fadeDone()
+    return not self.fading
+  end
+  local camera = { calls = {} }
+  function camera:startShake(spec)
+    self.calls[#self.calls + 1] = { op = "startShake", spec = spec }
+  end
+  local events = { records = {} }
+  function events:emit(name, payload)
+    self.records[#self.records + 1] = { name = name, payload = payload }
+  end
+  return { audio = audio, camera = camera, screen = screen, events = events }
+end
+
 local function stubAssets()
   return {
     knows = function()
@@ -130,6 +227,7 @@ local function harness(romFs, versionId, mapId, opts)
     end,
   })
 
+  local backends = opts.services == false and {} or fakeServices()
   local scripts = FieldScripts.new({
     cacheFs = cacheFs,
     overrideFs = repoFs(),
@@ -137,8 +235,13 @@ local function harness(romFs, versionId, mapId, opts)
     eventState = eventState,
     actors = actors,
     player = player,
+    profile = opts.profile or { gender = 0, name = "Gold" },
     dialogue = dialogue,
     messageProvider = provider,
+    audio = backends.audio,
+    camera = backends.camera,
+    screen = backends.screen,
+    events = backends.events,
     layout = function(formatted)
       return DialogueLayout.layout(
         formatted.tokens,
@@ -248,9 +351,12 @@ end
 -- and armed (or mid-typing, which fast-forwards), until the foreground
 -- environment is gone. Returns true when the script finished.
 local function runToCompletion(h, limit)
+  -- Press the action edge on a fixed cadence: boxes close on the edge, and
+  -- a bare wait_input after the close (an unfolded labeled WaitButton) needs
+  -- a later edge that arrives while no box is open.
   for tick = 1, (limit or 600) do
     local input = {}
-    if h.dialogue:isModal() and tick > 20 then
+    if tick > 20 and tick % 3 == 0 then
       input.pressedAction = true
     end
     h.session:updateFixed(input)
@@ -364,7 +470,28 @@ T["unsupported script runs its override placeholder"] = function(romFs, versionI
   Assert.isNil(h.scripts.scheduler:foregroundEnvironmentId())
 end
 
--- 5. The overrides and bindings are coherent: every bound script id resolves
+-- 5. Without the optional backends (the production wiring), a bound script
+-- reaching an unwired capability faults with attribution and releases the
+-- field cleanly instead of silently succeeding.
+T["unwired capability faults with attribution"] = function(romFs, versionId)
+  local h = harness(romFs, versionId, TOWN, {
+    fieldX = 683,
+    fieldZ = 400,
+    facing = "north",
+    surfaceId = sampleAt(RomRuntimeMap.compile(romFs, TOWN), 683, 400).surfaceId,
+    services = false,
+  })
+  h.session:updateFixed({ actionPressed = true })
+  for _ = 1, 10 do
+    h.session:updateFixed({})
+  end
+  local instances = h.scripts.scheduler:instances()
+  Assert.equal(instances[1].status, "faulted")
+  Assert.equal(instances[1].endReason, "SCRIPT_SERVICE_MISSING")
+  Assert.isNil(h.scripts.scheduler:foregroundEnvironmentId(), "the fault released the field")
+end
+
+-- 6. The overrides and bindings are coherent: every bound script id resolves
 -- through the composition (base or override), every bound script whose
 -- generated translation carries unsupported commands has an override, and
 -- every override file on disk loads and validates.

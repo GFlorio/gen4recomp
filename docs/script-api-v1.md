@@ -24,6 +24,8 @@ Constructors return ordinary serializable Lua tables. Direct table form is alway
 | `S.self()` | `ref="actor", special="self"` | Trigger-owning object. |
 | `S.lastTalked()` | `ref="actor", special="last_talked"` |  |
 | `S.partner()` | `ref="actor", special="partner"` |  |
+| `S.cameraTarget()` | `ref="actor", special="camera_target"` |  |
+| `S.actorIndex(index)` | `ref="actor", mapIndex=index` | Numeric local map-object index resolved against the current map at runtime. |
 | `S.externalMessage(bank, id)` | `message="external"` | Both operands may be values. |
 
 ### Text-value constructors
@@ -33,7 +35,7 @@ Constructors return ordinary serializable Lua tables. Direct table form is alway
 | `S.playerName()` | `text=player_name` |  |
 | `S.rivalName()` | `text=rival_name` |  |
 | `S.friendName()` | `text=friend_name` |  |
-| `S.integerText(value, opts)` | `text=integer` | opts={width=nil,pad="none",sign=false}; width omitted when nil. |
+| `S.integerText(value)` | `text=integer` |  |
 | `S.itemName(value)` | `text=item_name` |  |
 | `S.pocketName(value)` | `text=pocket_name` |  |
 | `S.moveName(value)` | `text=move_name` |  |
@@ -77,118 +79,118 @@ Constructors return ordinary serializable Lua tables. Direct table form is alway
 
 | Signature | Canonical | Notes |
 |---|---|---|
-| `S.noop()` | `op=noop` |  |
-| `S.stop()` | `op=stop` | Normal script completion. |
-| `S.yieldTick()` | `op=yield_tick` | Generated/advanced explicit one-tick source yield. |
-| `S.waitTicks(ticks, opts)` | `op=wait_ticks` | ticks >= 1; first poll next tick, continuation one tick after completion; opts.countdownVariable mirrors the countdown into an observable variable like the source engine. |
+| `S.noop(spec)` | `op=noop` | spec optional. |
+| `S.stop(spec)` | `op=stop` | Normal script completion; spec optional. |
+| `S.yieldTick(spec)` | `op=yield_tick` | Generated/advanced explicit one-tick source yield; spec optional. |
+| `S.waitTicks(spec)` | `op=wait_ticks` | spec={ticks>=1,countdownVariable=nil}; first poll next tick, continuation one tick after completion; countdownVariable mirrors the countdown into an observable variable like the source engine. |
 | `S.if_(spec)` | `op=if` | spec={condition,yes={},no={}}. |
 | `S.switch(spec)` | `op=switch` | spec={value,cases,default={}}. |
-| `S.call(scriptId, opts)` | `op=call` | Same-context call; opts={args={},result=nil}; opts.label enters the composed target at a label instead of its entry. |
-| `S.callCommon(scriptId, opts)` | `op=call_common` | Generated/advanced common child context; opts={args={}}. |
-| `S.return_([value])` | `op=return` | Trailing underscore is part of API. |
-| `S.label(name)` | `op=label` | Generated fallback. |
-| `S.goto_(name)` | `op=goto` | Generated fallback. |
-| `S.gotoIf(condition, name)` | `op=goto_if` | Generated fallback. |
-| `S.gotoScript(scriptId, opts)` | `op=goto_script` | Cross-script same-context jump (shared script tails); opts={label=nil}; resolved through the composition registry at runtime; handwritten scripts are warned. |
-| `S.compare(a, b)` | `op=compare` | Generated low-level fallback. |
-| `S.gotoCompared(operator, name, opts)` | `op=goto_compared` | Generated low-level fallback; opts={script,label} is the cross-script form resolved through the composition registry at runtime. |
-| `S.callCompared(operator, target, opts)` | `op=call_compared` | Generated low-level fallback; opts={script,label} is the cross-script form. |
-| `S.next()` | `op=next` | Wrapper resources only. |
+| `S.call(spec)` | `op=call` | spec={target,args={},result=nil,label=nil}; label enters the composed target at a label instead of its entry. |
+| `S.callCommon(spec)` | `op=call_common` | Generated/advanced common child context; spec={target,args={}}. |
+| `S.return_(spec)` | `op=return` | Trailing underscore is part of API; spec={value=nil}. |
+| `S.label(spec)` | `op=label` | spec={name}; generated fallback. |
+| `S.goto_(spec)` | `op=goto` | spec={target}; generated fallback. |
+| `S.gotoIf(spec)` | `op=goto_if` | spec={condition,target}; generated fallback. |
+| `S.gotoScript(spec)` | `op=goto_script` | spec={script,label=nil}; cross-script same-context jump (shared script tails); resolved through the composition registry at runtime; handwritten scripts are warned. |
+| `S.compare(spec)` | `op=compare` | spec={left,right}; generated low-level fallback. |
+| `S.gotoCompared(spec)` | `op=goto_compared` | spec={operator,target=nil,script=nil,label=nil}; the script/label form is cross-script, resolved through the composition registry at runtime. |
+| `S.callCompared(spec)` | `op=call_compared` | spec={operator,target=nil,script=nil,label=nil}; the script/label form is cross-script. |
+| `S.next(spec)` | `op=next` | Wrapper resources only; spec optional. |
 
 ### State constructors
 
 | Signature | Canonical | Notes |
 |---|---|---|
-| `S.setFlag(flag)` | `op=set_flag` |  |
-| `S.clearFlag(flag)` | `op=clear_flag` |  |
-| `S.setVar(id, value)` | `op=set_var` |  |
-| `S.copyVar(dst, src)` | `op=copy_var` | src is a variable ID. |
-| `S.addVar(id, amount)` | `op=add_var` |  |
-| `S.subVar(id, amount)` | `op=sub_var` |  |
-| `S.setLocal(name, value)` | `op=set_local` |  |
-| `S.copyLocal(dst, src)` | `op=copy_local` |  |
-| `S.addLocal(name, amount)` | `op=add_local` |  |
-| `S.subLocal(name, amount)` | `op=sub_local` |  |
+| `S.setFlag(spec)` | `op=set_flag` | spec={flag}. |
+| `S.clearFlag(spec)` | `op=clear_flag` | spec={flag}. |
+| `S.setVar(spec)` | `op=set_var` | spec={variable,value}. |
+| `S.copyVar(spec)` | `op=copy_var` | spec={destination,source}; source is a variable ID. |
+| `S.addVar(spec)` | `op=add_var` | spec={variable,amount}. |
+| `S.subVar(spec)` | `op=sub_var` | spec={variable,amount}. |
+| `S.setLocal(spec)` | `op=set_local` | spec={name,value}. |
+| `S.copyLocal(spec)` | `op=copy_local` | spec={destination,source}. |
+| `S.addLocal(spec)` | `op=add_local` | spec={name,amount}. |
+| `S.subLocal(spec)` | `op=sub_local` | spec={name,amount}. |
 
 ### Dialogue constructors
 
 | Signature | Canonical | Notes |
 |---|---|---|
-| `S.say(message, opts)` | `op=say` | opts={style="npc",wait="button",close=true,timingProfile="hgss",bindings={}}. |
-| `S.openMessage(opts)` | `op=open_message` | opts={style="npc"}. |
-| `S.message(message, opts)` | `op=message` | opts={style="npc",waitForPrint=true,bindings={}}; generated scripts emit waitForPrint explicitly. |
-| `S.waitInput(opts)` | `op=wait_input` | Requires/accepts buttons; defaults {a,b}, no d-pad. |
-| `S.waitInputOrTicks(opts)` | `op=wait_input_or_ticks` | opts={ticks,buttons={"a","b"},allowDpad=true,turnPlayerOnDpad=false}. |
-| `S.closeMessage(opts)` | `op=close_message` | opts={erase=true}. |
-| `S.holdMessage()` | `op=hold_message` |  |
-| `S.askYesNo(message, opts)` | `op=ask_yes_no` | message=nil uses current box; opts={result,bindings={}}. |
-| `S.bufferText(slot, value)` | `op=buffer_text` | Slot is 0..7. |
-| `S.showWaitingIcon()` | `op=show_waiting_icon` |  |
-| `S.hideWaitingIcon()` | `op=hide_waiting_icon` |  |
+| `S.say(spec)` | `op=say` | spec={message,style="npc",wait="button",close=true,timingProfile="hgss",bindings={}}. |
+| `S.openMessage(spec)` | `op=open_message` | spec={style="npc"}. |
+| `S.message(spec)` | `op=message` | spec={message,style="npc",waitForPrint=true,bindings={}}; generated scripts emit waitForPrint explicitly. |
+| `S.waitInput(spec)` | `op=wait_input` | spec={buttons={a,b},allowDpad=false}. |
+| `S.waitInputOrTicks(spec)` | `op=wait_input_or_ticks` | spec={ticks,buttons={"a","b"},allowDpad=true,turnPlayerOnDpad=false}. |
+| `S.closeMessage(spec)` | `op=close_message` | spec={erase=true}. |
+| `S.holdMessage(spec)` | `op=hold_message` | spec optional. |
+| `S.askYesNo(spec)` | `op=ask_yes_no` | spec={message=nil,result,bindings={}}; message=nil uses current box. |
+| `S.bufferText(spec)` | `op=buffer_text` | spec={slot 0..7,value}. |
+| `S.showWaitingIcon(spec)` | `op=show_waiting_icon` | spec optional. |
+| `S.hideWaitingIcon(spec)` | `op=hide_waiting_icon` | spec optional. |
 | `S.resolveCommonMessageBank(spec)` | `op=resolve_common_message_bank` | spec={script,bankResult,memberResult}. |
 
 ### Lock and actor constructors
 
 | Signature | Canonical | Notes |
 |---|---|---|
-| `S.lockPlayer()` | `op=lock_player` | Player input and interaction only. |
-| `S.releasePlayer()` | `op=release_player` |  |
-| `S.lockAll()` | `op=lock_all` | Player plus autonomous behavior; returns yield_tick or blocks until pausable. |
-| `S.releaseAll()` | `op=release_all` | Handwritten semantic is immediate; imported HGSS emits a following yield_tick. |
-| `S.lockActor(actor, opts)` | `op=lock_actor` | opts={waitUntilPausable=false}; imported LockLastTalked sets true. |
-| `S.releaseActor(actor)` | `op=release_actor` |  |
-| `S.facePlayer(actor)` | `op=face_player` | actor defaults to "self" when omitted. |
-| `S.face(actor, direction)` | `op=face` | Immediate facing operation. |
-| `S.showObject(actor)` | `op=show_object` |  |
-| `S.hideObject(actor)` | `op=hide_object` |  |
-| `S.setObjectPosition(actor, position)` | `op=set_object_position` | Position requires fieldX and fieldZ; worldY optional. |
-| `S.setObjectFacing(actor, direction)` | `op=set_object_facing` |  |
-| `S.setObjectMovementType(actor, movementType)` | `op=set_object_movement_type` |  |
+| `S.lockPlayer(spec)` | `op=lock_player` | Player input and interaction only; spec optional. |
+| `S.releasePlayer(spec)` | `op=release_player` | spec optional. |
+| `S.lockAll(spec)` | `op=lock_all` | Player plus autonomous behavior; returns yield_tick or blocks until pausable; spec optional. |
+| `S.releaseAll(spec)` | `op=release_all` | Handwritten semantic is immediate; imported HGSS emits a following yield_tick; spec optional. |
+| `S.lockActor(spec)` | `op=lock_actor` | spec={actor,waitUntilPausable=false}; imported LockLastTalked sets true. |
+| `S.releaseActor(spec)` | `op=release_actor` | spec={actor}. |
+| `S.facePlayer(spec)` | `op=face_player` | spec={actor=nil}; actor defaults to "self" when omitted. |
+| `S.face(spec)` | `op=face` | spec={actor,direction}; immediate facing operation. |
+| `S.showObject(spec)` | `op=show_object` | spec={actor}. |
+| `S.hideObject(spec)` | `op=hide_object` | spec={actor}. |
+| `S.setObjectPosition(spec)` | `op=set_object_position` | spec={actor,fieldX,fieldZ,worldY=nil}. |
+| `S.setObjectFacing(spec)` | `op=set_object_facing` | spec={actor,direction}. |
+| `S.setObjectMovementType(spec)` | `op=set_object_movement_type` | spec={actor,movementType}. |
 | `S.getPlayerCoords(spec)` | `op=get_player_coords` | spec={x,z} result refs. |
-| `S.getObjectCoords(actor, spec)` | `op=get_object_coords` | spec={x,z} result refs. |
+| `S.getObjectCoords(spec)` | `op=get_object_coords` | spec={actor,x,z} result refs. |
 | `S.getPlayerFacing(spec)` | `op=get_player_facing` | spec={result}. |
 
 ### Movement constructors
 
 | Signature | Canonical | Notes |
 |---|---|---|
-| `S.applyMovement(actor, sequence, opts)` | `op=apply_movement` | opts={movementId=nil}; non-blocking. |
-| `S.waitMovement(opts)` | `op=wait_movement` | opts=nil means current environment generation; actor scope uses {scope="actors",actors={...}}. |
-| `S.move(actor, sequence, opts)` | `op=move` | Blocking convenience; opts={}. |
+| `S.applyMovement(spec)` | `op=apply_movement` | spec={actor,movement,{movementId=nil}}; non-blocking. |
+| `S.waitMovement(spec)` | `op=wait_movement` | spec=nil means current environment generation; actor scope uses {scope="actors",actors={...}}. |
+| `S.move(spec)` | `op=move` | spec={actor,movement}; blocking convenience. |
 
 ### Movement action namespace
 
 | Signature | Canonical | Notes |
 |---|---|---|
-| `S.m.face(direction, [count])` | `action=face` | count=1. |
-| `S.m.walk(direction, opts)` | `action=walk` | opts={speed="normal",tiles=1}. |
-| `S.m.walkInPlace(direction, opts)` | `action=walk_in_place` | opts={speed="normal",count=1}. |
-| `S.m.jump(direction, opts)` | `action=jump` | opts={distance="zero",speed="fast",count=1}. |
-| `S.m.delay(ticks, [count])` | `action=delay` | count=1. |
-| `S.m.setVisible(visible)` | `action=set_visible` |  |
-| `S.m.lockFacing()` | `action=lock_facing` |  |
-| `S.m.unlockFacing()` | `action=unlock_facing` |  |
-| `S.m.pauseAnimation()` | `action=pause_animation` |  |
-| `S.m.resumeAnimation()` | `action=resume_animation` |  |
-| `S.m.emote(name, [count])` | `action=emote` | count=1. |
-| `S.m.gesture(name, [count])` | `action=gesture` | count=1. |
+| `S.m.face(spec)` | `action=face` | spec={direction,count=1}. |
+| `S.m.walk(spec)` | `action=walk` | spec={direction,speed="normal",tiles=1}. |
+| `S.m.walkInPlace(spec)` | `action=walk_in_place` | spec={direction,speed="normal",count=1}. |
+| `S.m.jump(spec)` | `action=jump` | spec={direction,distance="zero",speed="fast",count=1}. |
+| `S.m.delay(spec)` | `action=delay` | spec={ticks,count=1}. |
+| `S.m.setVisible(spec)` | `action=set_visible` | spec={visible}. |
+| `S.m.lockFacing(spec)` | `action=lock_facing` | spec optional. |
+| `S.m.unlockFacing(spec)` | `action=unlock_facing` | spec optional. |
+| `S.m.pauseAnimation(spec)` | `action=pause_animation` | spec optional. |
+| `S.m.resumeAnimation(spec)` | `action=resume_animation` | spec optional. |
+| `S.m.emote(spec)` | `action=emote` | spec={name,count=1}. |
+| `S.m.gesture(spec)` | `action=gesture` | spec={name,count=1}. |
 | `S.m.unsupported(spec)` | `action=unsupported` | Requires source code/count metadata. |
 
 ### Audio constructors
 
 | Signature | Canonical | Notes |
 |---|---|---|
-| `S.playSound(id)` | `op=play_sound` |  |
-| `S.stopSound(id)` | `op=stop_sound` |  |
-| `S.waitSound([id])` | `op=wait_sound` | Missing ID waits for the currently tracked effect. |
-| `S.playCry(species, opts)` | `op=play_cry` | opts={form=0}. |
-| `S.waitCry()` | `op=wait_cry` |  |
-| `S.playFanfare(id)` | `op=play_fanfare` |  |
-| `S.waitFanfare()` | `op=wait_fanfare` |  |
-| `S.playMusic(id)` | `op=play_music` |  |
-| `S.stopMusic([id])` | `op=stop_music` | Missing ID stops the active field BGM. |
-| `S.resetMusic()` | `op=reset_music` |  |
-| `S.temporaryMusic(id)` | `op=temporary_music` |  |
+| `S.playSound(spec)` | `op=play_sound` | spec={sound}. |
+| `S.stopSound(spec)` | `op=stop_sound` | spec={sound}. |
+| `S.waitSound(spec)` | `op=wait_sound` | spec={sound=nil}; missing ID waits for the currently tracked effect. |
+| `S.playCry(spec)` | `op=play_cry` | spec={species,form=0}. |
+| `S.waitCry(spec)` | `op=wait_cry` | spec optional. |
+| `S.playFanfare(spec)` | `op=play_fanfare` | spec={fanfare}. |
+| `S.waitFanfare(spec)` | `op=wait_fanfare` | spec optional. |
+| `S.playMusic(spec)` | `op=play_music` | spec={music}. |
+| `S.stopMusic(spec)` | `op=stop_music` | spec={music=nil}; missing ID stops the active field BGM. |
+| `S.resetMusic(spec)` | `op=reset_music` | spec optional. |
+| `S.temporaryMusic(spec)` | `op=temporary_music` | spec={music}. |
 | `S.fadeMusicOut(spec)` | `op=fade_music_out` | spec={target=0,durationTicks}. |
 | `S.fadeMusicIn(spec)` | `op=fade_music_in` | spec={durationTicks}. |
 
@@ -197,9 +199,9 @@ Constructors return ordinary serializable Lua tables. Direct table form is alway
 | Signature | Canonical | Notes |
 |---|---|---|
 | `S.fadeScreen(spec)` | `op=fade_screen` | Requires source kind/speed/direction/color or normalized equivalents. |
-| `S.waitFade()` | `op=wait_fade` |  |
+| `S.waitFade(spec)` | `op=wait_fade` | spec optional. |
 | `S.warp(spec)` | `op=warp` | Requires map and target coordinates/warp. |
-| `S.setSpawn(spawn)` | `op=set_spawn` |  |
+| `S.setSpawn(spec)` | `op=set_spawn` | spec={spawn}. |
 | `S.shakeCamera(spec)` | `op=shake_camera` | Requires amplitude/interval/count fields. |
 
 ### Random, raw, and diagnostic constructors

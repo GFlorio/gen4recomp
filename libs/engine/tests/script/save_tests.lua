@@ -1,10 +1,10 @@
 -- Save and resume tests : the serializable
 -- scripts bucket of g4-field-save-v2. They freeze relative-timing capture and
--- rebasing (section 28.2): no tick is duplicated or skipped across a
+-- rebasing: no tick is duplicated or skipped across a
 -- capture/restore boundary, completed-but-unconsumed tasks restore as
 -- completed and are never polled again, resume_pending owners preserve their
 -- delay, common child contexts and caller signals survive, and fingerprint or
--- revision mismatches are attributed load errors. The exit criterion: a
+-- revision mismatches are attributed load errors. a
 -- non-UI script saves and resumes with an identical per-tick node/task trace.
 
 local Assert = require("tests.support.Assert")
@@ -153,7 +153,7 @@ T["deterministic capture"] = function()
   startForeground(
     h,
     script("test.cap", {
-      S.waitTicks(5),
+      S.waitTicks({ ticks = 5 }),
       S.stop(),
     }),
     100
@@ -171,8 +171,8 @@ end
 -- tick duplicated or skipped .
 T["resume active wait"] = function()
   local resource = script("test.wait", {
-    S.waitTicks(3),
-    S.setVar("VAR_A", 1),
+    S.waitTicks({ ticks = 3 }),
+    S.setVar({ variable = "VAR_A", value = 1 }),
     S.stop(),
   })
   traceSuffixMatch(resource, 100, 105, 102)
@@ -182,8 +182,8 @@ end
 -- when the uninterrupted one would (first eligible poll, section 26.6).
 T["save before poll"] = function()
   local resource = script("test.poll", {
-    S.waitTicks(2),
-    S.setVar("VAR_A", 1),
+    S.waitTicks({ ticks = 2 }),
+    S.setVar({ variable = "VAR_A", value = 1 }),
     S.stop(),
   })
   traceSuffixMatch(resource, 100, 104, 101)
@@ -194,8 +194,8 @@ end
 -- again; the owner's resume delay survives (sections 27.2 and 28.2).
 T["save between completion and continuation"] = function()
   local resource = script("test.handoff", {
-    S.waitTicks(1),
-    S.setVar("VAR_A", 1),
+    S.waitTicks({ ticks = 1 }),
+    S.setVar({ variable = "VAR_A", value = 1 }),
     S.stop(),
   })
   traceSuffixMatch(resource, 100, 103, 101)
@@ -205,19 +205,50 @@ end
 -- run merely because loading occurred).
 T["resume nested local calls"] = function()
   local resource = script("test.nested", {
-    S.waitTicks(2),
-    S.call("sub"),
-    S.setVar("VAR_AFTER", 1),
+    S.waitTicks({ ticks = 2 }),
+    S.call({ target = "sub" }),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
     S.stop(),
-    S.label("sub"),
-    S.call("inner"),
-    S.setVar("VAR_SUB", 1),
-    S.return_(),
-    S.label("inner"),
-    S.setVar("VAR_INNER", 1),
-    S.return_(),
+    S.label({ name = "sub" }),
+    S.call({ target = "inner" }),
+    S.setVar({ variable = "VAR_SUB", value = 1 }),
+    S.return_({}),
+    S.label({ name = "inner" }),
+    S.setVar({ variable = "VAR_INNER", value = 1 }),
+    S.return_({}),
   })
   traceSuffixMatch(resource, 100, 108, 103)
+end
+
+-- 5b. Save while a callee frame with arguments is blocked: the resumed
+-- callee reads and returns its own argument (frame args are serialized).
+T["resume blocked callee with arguments"] = function()
+  local h = harness()
+  local resource = S.script({
+    api = 1,
+    id = "test.argresume",
+    params = { value = "integer" },
+    steps = {
+      S.call({ target = "waiter", args = { value = 7 } }),
+      S.setVar({ variable = "VAR_AFTER", value = S.var("VAR_RESULT") }),
+      S.stop(),
+      S.label({ name = "waiter" }),
+      S.waitTicks({ ticks = 10 }),
+      S.setVar({ variable = "VAR_RESULT", value = S.arg("value") }),
+      S.return_({ value = S.arg("value") }),
+    },
+  })
+  startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  h.scheduler:step(101, nil)
+  -- The callee frame is live (blocked on wait_ticks) at save time.
+  local resumed, recorder = saveAndResume(h, 101)
+  for tick = 102, 115 do
+    resumed:step(tick, nil)
+  end
+  Assert.equal(h.services.world:getVar("VAR_RESULT"), 7)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 7, "the resumed callee returns its own serialized argument")
+  Assert.notNil(recorder)
 end
 
 -- 6. Save and resume a blocked common child context with its caller signal
@@ -226,15 +257,15 @@ end
 T["resume common child context"] = function()
   local h = harness()
   local common = script("common.greet", {
-    S.waitTicks(2),
-    S.setVar("VAR_CHILD", 1),
+    S.waitTicks({ ticks = 2 }),
+    S.setVar({ variable = "VAR_CHILD", value = 1 }),
     { op = "signal_caller" },
     S.stop(),
   })
   h.registry:installBase(common.id, common, "generated")
   local root = script("test.std", {
-    S.callCommon("common.greet"),
-    S.setVar("VAR_PARENT", 1),
+    S.callCommon({ target = "common.greet" }),
+    S.setVar({ variable = "VAR_PARENT", value = 1 }),
     S.stop(),
   })
   startForeground(h, root, 100)
@@ -272,8 +303,8 @@ end
 T["no double poll and no skipped delay"] = function()
   local h = harness()
   local resource = script("test.delay", {
-    S.waitTicks(1),
-    S.setVar("VAR_A", 1),
+    S.waitTicks({ ticks = 1 }),
+    S.setVar({ variable = "VAR_A", value = 1 }),
     S.stop(),
   })
   startForeground(h, resource, 100)
@@ -297,7 +328,7 @@ T["task version rejection"] = function()
   startForeground(
     h,
     script("test.version", {
-      S.waitTicks(5),
+      S.waitTicks({ ticks = 5 }),
       S.stop(),
     }),
     100
@@ -331,7 +362,7 @@ T["missing graph revision"] = function()
   startForeground(
     h,
     script("test.rev", {
-      S.waitTicks(5),
+      S.waitTicks({ ticks = 5 }),
       S.stop(),
     }),
     100
@@ -365,7 +396,7 @@ T["mod removed changes fingerprint"] = function()
   startForeground(
     h,
     script("test.mod", {
-      S.waitTicks(5),
+      S.waitTicks({ ticks = 5 }),
       S.stop(),
     }),
     100
@@ -391,6 +422,18 @@ T["mod removed changes fingerprint"] = function()
   Assert.equal(err.code, "SCRIPT_REGISTRY_FINGERPRINT_MISMATCH")
 end
 
+-- 10b. The task-registry fingerprint is order-independent: registering the
+-- same (type, version) pairs in a different order yields the same digest.
+T["task fingerprint ignores registration order"] = function()
+  local a = TaskRegistry.new()
+  local b = TaskRegistry.new()
+  a:register("wait_ticks", 1, WaitTicksTask)
+  a:register("child_script", 1, ChildScriptTask)
+  b:register("child_script", 1, ChildScriptTask)
+  b:register("wait_ticks", 1, WaitTicksTask)
+  Assert.equal(a:fingerprint(), b:fingerprint())
+end
+
 -- 11. Capture refuses a running context: saves occur only at fixed-tick
 -- phase boundaries .
 T["capture requires phase boundary"] = function()
@@ -398,7 +441,7 @@ T["capture requires phase boundary"] = function()
   startForeground(
     h,
     script("test.boundary", {
-      S.setVar("VAR_A", 1),
+      S.setVar({ variable = "VAR_A", value = 1 }),
       S.stop(),
     }),
     100
@@ -446,17 +489,16 @@ T["field save v2 round trip"] = function()
     player = { motion = "idle", fieldX = 4, fieldZ = 6, worldY = 4, surfaceId = 11, facing = "north" },
     transition = { phase = "idle" },
   }
-  local record = FieldSave.captureV2(session, {
+  local record = FieldSave.capture(session, {
     avatarId = "hero",
-    eventState = eventState,
     scenario = "scenario-a",
     world = { flags = { [5] = true }, variables = {}, objects = {}, rng = {} },
     scriptsBucket = { schema = ScriptSave.SCHEMA_NAME, placeholder = true },
   })
-  Assert.equal(record.schema, FieldSave.SCHEMA_V2)
+  Assert.equal(record.schema, FieldSave.SCHEMA)
   Assert.equal(record.world.flags[5], true)
   Assert.equal(record.scripts.schema, ScriptSave.SCHEMA_NAME)
-  local restored, err = FieldSave.restoreV2(
+  local restored, err = FieldSave.restore(
     record,
     {
       load = function()
@@ -478,50 +520,23 @@ T["field save v2 round trip"] = function()
   Assert.equal(restored.scripts.placeholder, true)
   Assert.equal(restored.world.flags[5], true)
 end
--- 13. v1 -> v2 migration: events become world flags/variables; scripts empty.
-T["v1 field save migration"] = function()
-  local v1 = {
-    schema = FieldSave.SCHEMA,
-    versionId = "heartgold",
-    mapId = 58,
-    fieldX = 4,
-    fieldZ = 6,
-    worldY = 4,
-    surfaceId = 11,
-    terrainDependencyHash = "terrain-a",
-    facing = "north",
-    avatar = "hero",
-    scenario = "pre-script-demo-v1",
-    events = { flags = { [0x800] = true }, vars = { [0x4000] = 3 } },
-  }
-  local v2 = FieldSave.migrateV1ToV2(v1)
-  Assert.equal(v2.schema, FieldSave.SCHEMA_V2)
-  Assert.equal(v2.world.flags[0x800], true)
-  Assert.equal(v2.world.variables[0x4000], 3)
-  Assert.isNil(v2.scripts)
-  Assert.equal(v2.avatar, "hero")
-  Assert.isNil(v2.events, "v1 events move into the world bucket")
-  -- The v1 record is never mutated.
-  Assert.equal(v1.schema, FieldSave.SCHEMA)
-  Assert.notNil(v1.events)
-end
 
 -- 14. The resumed trace suffix equals the uninterrupted suffix for a longer
 -- script combining waits, calls, and branches .
 T["trace suffix determinism"] = function()
   local resource = script("test.suffix", {
-    S.setVar("VAR_A", 1),
-    S.waitTicks(2),
-    S.call("sub"),
+    S.setVar({ variable = "VAR_A", value = 1 }),
+    S.waitTicks({ ticks = 2 }),
+    S.call({ target = "sub" }),
     S.if_({
       condition = S.eq(S.var("VAR_A"), 1),
-      yes = { S.setFlag("FLAG_YES"), S.stop() },
-      no = { S.setFlag("FLAG_NO"), S.stop() },
+      yes = { S.setFlag({ flag = "FLAG_YES" }), S.stop() },
+      no = { S.setFlag({ flag = "FLAG_NO" }), S.stop() },
     }),
-    S.label("sub"),
-    S.waitTicks(1),
-    S.setVar("VAR_SUB", 1),
-    S.return_(),
+    S.label({ name = "sub" }),
+    S.waitTicks({ ticks = 1 }),
+    S.setVar({ variable = "VAR_SUB", value = 1 }),
+    S.return_({}),
   })
   traceSuffixMatch(resource, 100, 110, 104)
 end
@@ -534,17 +549,17 @@ T["cross-script jump saves and resumes"] = function()
   h.registry:installBase(
     "test.tail",
     script("test.tail", {
-      S.label("_0050"),
-      S.setFlag("FLAG_TAIL"),
-      S.waitTicks(1),
-      S.setVar("VAR_TAIL_DONE", 1),
+      S.label({ name = "_0050" }),
+      S.setFlag({ flag = "FLAG_TAIL" }),
+      S.waitTicks({ ticks = 1 }),
+      S.setVar({ variable = "VAR_TAIL_DONE", value = 1 }),
       S.stop(),
     }),
     "generated"
   )
   local jumper = script("test.jumper", {
-    S.gotoScript("test.tail", { label = "_0050" }),
-    S.setVar("VAR_NEVER", 1),
+    S.gotoScript({ script = "test.tail", label = "_0050" }),
+    S.setVar({ variable = "VAR_NEVER", value = 1 }),
     S.stop(),
   })
   startForeground(h, jumper, 100)
@@ -567,15 +582,15 @@ T["cross-script jump pins the target revision"] = function()
   h.registry:installBase(
     "test.tail",
     script("test.tail", {
-      S.label("_0050"),
-      S.waitTicks(1),
-      S.setVar("VAR_TAIL_DONE", 1),
+      S.label({ name = "_0050" }),
+      S.waitTicks({ ticks = 1 }),
+      S.setVar({ variable = "VAR_TAIL_DONE", value = 1 }),
       S.stop(),
     }),
     "generated"
   )
   local jumper = script("test.jumper", {
-    S.gotoScript("test.tail", { label = "_0050" }),
+    S.gotoScript({ script = "test.tail", label = "_0050" }),
     S.stop(),
   })
   startForeground(h, jumper, 100)
@@ -586,8 +601,8 @@ T["cross-script jump pins the target revision"] = function()
   h.registry:override(
     "test.tail",
     script("test.tail", {
-      S.label("_0050"),
-      S.setVar("VAR_REPLACED", 2),
+      S.label({ name = "_0050" }),
+      S.setVar({ variable = "VAR_REPLACED", value = 2 }),
       S.stop(),
     }),
     { modId = "mod.a" },
@@ -613,7 +628,7 @@ T["countdown mirror saves and resumes"] = function()
   startForeground(
     h,
     script("test.mirror", {
-      S.waitTicks(3, { countdownVariable = "VAR_COUNTDOWN" }),
+      S.waitTicks({ ticks = 3, countdownVariable = "VAR_COUNTDOWN" }),
       S.stop(),
     }),
     100

@@ -1,12 +1,13 @@
 -- Raw-Lua handler invocation : resolves the module and
 -- function through the ownership-aware module registry, builds the v1
--- ScriptContext, invokes the handler through pcall, and validates the
--- result. Allowed returns are nil, a serializable scalar or table (only when
--- the blocking node declared a result reference), or a task descriptor
--- created by ctx.tasks; functions, threads, userdata, arbitrary tables, and
--- attempted yields are attributed errors. Every failure is attributed to
--- mod, script, node, module, and function. Pure domain module: no love
--- dependency.
+-- ScriptContext, invokes the handler through a fresh coroutine, and validates
+-- the result. Allowed returns are nil, a serializable scalar or table (only
+-- when the blocking node declared a result reference), or a task descriptor
+-- created by ctx.tasks; the descriptor becomes one authoritative scheduler
+-- task that the lua node blocks on. Functions, threads, userdata, arbitrary
+-- tables, and attempted yields are attributed errors. Every failure is
+-- attributed to mod, script, node, module, and function. Pure domain module:
+-- no love dependency.
 
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -16,18 +17,28 @@ local ScriptContext = require("libs.engine.src.script.ScriptContext")
 local RawInvocation = {}
 
 -- True when the value is a task descriptor produced by ctx.tasks: exactly
--- the stable {taskType, taskVersion, state} envelope.
+-- the stable {taskType, taskVersion, state} envelope (the classifier rejects
+-- descriptor-shaped tables carrying unrelated extra fields).
 ---@param value any
 ---@return boolean
 local function isTaskDescriptor(value)
-  return type(value) == "table"
-    and type(value.taskType) == "string"
-    and type(value.taskVersion) == "number"
-    and type(value.state) == "table"
+  if
+    type(value) ~= "table"
+    or type(value.taskType) ~= "string"
+    or type(value.taskVersion) ~= "number"
+    or type(value.state) ~= "table"
+  then
+    return false
+  end
+  local fields = 0
+  for key in pairs(value) do
+    fields = fields + 1
+  end
+  return fields == 3
 end
 
 -- Validate a handler result against the blocking node's declared result ref.
--- Returns "none" (nil), "value", or "task" for the LuaTask state machine;
+-- Returns "none" (nil), "value", or "task" for the lua node handler;
 -- anything else raises the attributed error.
 ---@param value any
 ---@param declaredResult any
@@ -64,7 +75,7 @@ end
 -- Invoke one raw handler. Returns the classification plus the value, or
 -- raises the attributed error.
 ---@param opts table { modules, scheduler, instance, environment, services,
----   node, module, fn, args }
+--- node, module, fn, args }
 ---@return string classification, any value
 function RawInvocation.invoke(opts)
   local modules = opts.modules
@@ -87,7 +98,7 @@ function RawInvocation.invoke(opts)
   local context = {
     modId = owner and owner.id or nil,
     scriptId = opts.instance.scriptId,
-    nodeId = opts.node and opts.node.nodeId,
+    nodeId = opts.node and opts.node.nodeId or nil,
     module = opts.module,
     fn = opts.fn,
   }
@@ -103,11 +114,7 @@ function RawInvocation.invoke(opts)
     if Errors.is(result) then
       error(result)
     end
-    local message = tostring(result)
-    if message:find("yield", 1, true) ~= nil then
-      Errors.raise(ScriptErrors.SCRIPT_RAW_HANDLER_YIELDED, "raw handlers must not yield", context)
-    end
-    Errors.raise(ScriptErrors.SCRIPT_RAW_HANDLER_ERROR, message, context)
+    Errors.raise(ScriptErrors.SCRIPT_RAW_HANDLER_ERROR, tostring(result), context)
   end
   if coroutine.status(co) == "suspended" then
     Errors.raise(ScriptErrors.SCRIPT_RAW_HANDLER_YIELDED, "raw handlers must not yield", context)

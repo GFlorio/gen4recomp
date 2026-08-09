@@ -38,8 +38,9 @@ local ScriptTask = require("libs.engine.src.script.ScriptTask")
 ---@field private _environments table<string, ScriptEnvironment>
 ---@field private _backgrounds ScriptEnvironment[]
 ---@field private _foregroundEnvironmentId string|nil
----@field private _instances table<string, ScriptInstance>
----@field private _tasks ScriptTask[]
+---@field private _instances table<string, ScriptInstance> live instances
+---@field private _endedInstances table<string, ScriptInstance> ended instance history
+---@field private _tasks ScriptTask[] active and completed-but-unconsumed tasks
 ---@field private _tasksById table<string, ScriptTask>
 ---@field private _nextEnvironmentId integer
 ---@field private _nextInstanceId integer
@@ -67,6 +68,7 @@ function Scheduler.new(opts)
     _backgrounds = {},
     _foregroundEnvironmentId = nil,
     _instances = {},
+    _endedInstances = {},
     _tasks = {},
     _tasksById = {},
     _nextEnvironmentId = 0,
@@ -512,6 +514,12 @@ function Scheduler:_promoteResumePending(tick, pendingSnapshot)
       if task then
         self._tasksById[task.taskId] = nil
         task:markConsumed()
+        for i = #self._tasks, 1, -1 do
+          if self._tasks[i] == task then
+            table.remove(self._tasks, i)
+            break
+          end
+        end
       end
       instance.waitingTaskId = nil
       if instance.pendingResultRef ~= nil and instance.taskResult ~= nil then
@@ -616,7 +624,7 @@ function Scheduler:_runToYield(instance, tick, input)
     end
     if outcome == Runtime.OUTCOME_CONTINUE then
       budget = budget - 1
-      if budget < 0 then
+      if budget < 1 then
         self:_faultInstance(
           instance,
           tick,
@@ -656,17 +664,21 @@ end
 
 -- --- Completion, faults, and cancellation -------------------------------------
 
--- Release every lock the instance owns  and cancel its
+-- Release every lock the instance owns and cancel its
 -- engine-owned movement tasks.
 function Scheduler:_releaseInstanceOwnership(instance)
   local environment = self._environments[instance.environmentId]
   if environment then
     environment:releaseLocksFor(instance.instanceId)
+    local movement = {}
     for _, task in ipairs(self._tasks) do
       if task.ownerInstanceId == instance.instanceId and task.taskType == "movement" and task.status == "active" then
-        environment:unregisterMovementTask(task.taskId)
-        self:_cancelTaskState(task, "owner ended")
+        movement[#movement + 1] = task
       end
+    end
+    for _, task in ipairs(movement) do
+      environment:unregisterMovementTask(task.taskId)
+      self:_cancelTaskState(task, "owner ended")
     end
   end
 end
@@ -688,6 +700,7 @@ function Scheduler:_completeInstance(instance, tick)
   })
   self:_trace("context_completed", { instanceId = instance.instanceId })
   self:_finishInstanceInEnvironment(instance, "completed")
+  self:_archiveInstance(instance)
 end
 
 -- Fault one context through attributed cleanup : record the error, release ownership, emit events, and tear
@@ -720,6 +733,15 @@ function Scheduler:_faultInstance(instance, tick, error)
     code = error.code,
   })
   self:_finishInstanceInEnvironment(instance, error.code)
+  self:_archiveInstance(instance)
+end
+
+-- Move an ended instance out of the live set; the accessors and child-task
+-- polling still reach it through the ended-instance history, but live
+-- iteration and save capture only see running state.
+function Scheduler:_archiveInstance(instance)
+  self._instances[instance.instanceId] = nil
+  self._endedInstances[instance.instanceId] = instance
 end
 
 -- Free the context slot of a finished child, or tear down the whole
@@ -736,12 +758,33 @@ function Scheduler:_finishInstanceInEnvironment(instance, reason)
   end
 end
 
--- Cancel a task's implementation state and mark the record cancelled.
+-- Cancel a task: invoke the implementation's own `cancel(state, reason, ctx)`
+-- cleanup (implementations own engine resources such as an open dialogue
+-- window), mark the record cancelled, and drop it from the live task sets
+-- (cancelled tasks are never referenced again).
 function Scheduler:_cancelTaskState(task, reason)
   if task.status == "cancelled" then
     return
   end
+  local impl = self._taskRegistry:resolve(task.taskType, task.taskVersion)
+  if impl ~= nil and impl.cancel ~= nil then
+    local owner = self._instances[task.ownerInstanceId]
+    local environment = self._environments[task.environmentId]
+    local ctx = nil
+    if owner ~= nil and environment ~= nil then
+      ctx = self:_ctxFor(owner, environment, self._currentTick or 0, self._currentInput)
+      ctx.taskId = task.taskId
+    end
+    impl.cancel(task.state, reason, ctx)
+  end
   task:cancel(reason)
+  for i = #self._tasks, 1, -1 do
+    if self._tasks[i] == task then
+      table.remove(self._tasks, i)
+      break
+    end
+  end
+  self._tasksById[task.taskId] = nil
 end
 
 -- Tear down an environment : cancel its remaining active
@@ -751,10 +794,14 @@ end
 ---@param environment ScriptEnvironment
 ---@param reason string
 function Scheduler:_teardownEnvironment(environment, reason)
+  local doomed = {}
   for _, task in ipairs(self._tasks) do
     if task.environmentId == environment.environmentId and (task.status == "active" or task.status == "completed") then
-      self:_cancelTaskState(task, reason)
+      doomed[#doomed + 1] = task
     end
+  end
+  for _, task in ipairs(doomed) do
+    self:_cancelTaskState(task, reason)
   end
   for slot = 0, ScriptEnvironment.SLOT_COUNT - 1 do
     local instanceId = environment:contextAt(slot)
@@ -797,10 +844,14 @@ function Scheduler:_cancelInstance(instance, reason)
   if instance.status == "completed" or instance.status == "cancelled" then
     return
   end
+  local doomed = {}
   for _, task in ipairs(self._tasks) do
     if task.ownerInstanceId == instance.instanceId and (task.status == "active" or task.status == "completed") then
-      self:_cancelTaskState(task, reason)
+      doomed[#doomed + 1] = task
     end
+  end
+  for _, task in ipairs(doomed) do
+    self:_cancelTaskState(task, reason)
   end
   instance.status = "cancelled"
   instance.endReason = reason
@@ -814,6 +865,7 @@ function Scheduler:_cancelInstance(instance, reason)
     reason = reason,
   })
   self:_trace("context_cancelled", { instanceId = instance.instanceId })
+  self:_archiveInstance(instance)
 end
 
 -- Cancel a whole environment and everything it owns.
@@ -871,23 +923,36 @@ function Scheduler:startInteraction(trigger, composed, tick)
   return instanceId
 end
 
--- True when player-controlled movement is suppressed: a foreground root owns
--- the field, or the foreground environment holds a player lock.
+-- True when player-controlled movement is suppressed: a live foreground
+-- root owns the field (the session's documented control model), which holds
+-- whether or not the foreground script has issued an explicit lock yet.
 ---@return boolean
 function Scheduler:playerMovementLocked()
-  if self._foregroundEnvironmentId == nil then
-    return false
-  end
-  local environment = self._environments[self._foregroundEnvironmentId]
-  return environment ~= nil and environment:playerLocked()
+  return self._foregroundEnvironmentId ~= nil
 end
 
 -- --- Accessors -----------------------------------------------------------------
 
+-- Live instances only: the scheduler's own tick work and save capture
+-- operate on running state; ended instances live in the history.
 ---@return ScriptInstance[]
-function Scheduler:instances()
+function Scheduler:liveInstances()
   local out = {}
   for instanceId, instance in pairs(self._instances) do
+    out[#out + 1] = instance
+  end
+  table.sort(out, function(a, b)
+    return a.instanceId < b.instanceId
+  end)
+  return out
+end
+
+-- Live and ended instances (the latter for diagnostics and child-task
+-- termination checks).
+---@return ScriptInstance[]
+function Scheduler:instances()
+  local out = self:liveInstances()
+  for instanceId, instance in pairs(self._endedInstances) do
     out[#out + 1] = instance
   end
   table.sort(out, function(a, b)
@@ -926,7 +991,7 @@ end
 ---@param instanceId string
 ---@return ScriptInstance|nil
 function Scheduler:instance(instanceId)
-  return self._instances[instanceId]
+  return self._instances[instanceId] or self._endedInstances[instanceId]
 end
 
 ---@param taskId string
@@ -1044,11 +1109,9 @@ function Scheduler:restoreScriptState(bucket, restoreTick)
     end
   end
 
-  local environments = {}
   for _, envRecord in ipairs(bucket.environments or {}) do
     local environment = ScriptEnvironment.restore(envRecord, restoreTick)
     self._environments[environment.environmentId] = environment
-    environments[#environments + 1] = environment
     if environment.mode == "foreground" then
       self._foregroundEnvironmentId = environment.environmentId
     else
@@ -1056,7 +1119,6 @@ function Scheduler:restoreScriptState(bucket, restoreTick)
     end
   end
 
-  local instances = {}
   for _, instanceRecord in ipairs(bucket.instances or {}) do
     local instance = ScriptInstance.restore(instanceRecord, restoreTick, graphs)
     for _, frame in ipairs(instance.frames) do
@@ -1066,7 +1128,6 @@ function Scheduler:restoreScriptState(bucket, restoreTick)
       frame.graph = graphs[frame.graphRevision]
     end
     self._instances[instance.instanceId] = instance
-    instances[#instances + 1] = instance
   end
 
   for _, taskRecord in ipairs(bucket.tasks or {}) do

@@ -1,16 +1,15 @@
 -- Movement instruction decoder : maps the HGSS movement
--- codes to DSL movement actions with the sprint-supported matrix of section
--- 35.1. Codes without a stable semantic name emit explicit unsupported
--- movement actions (section 35.2); an ApplyMovement containing one makes the
--- generated script incomplete. The direction base is the code modulo 4
--- (north/south/west/east) and the action family is the code range. Pure
--- domain module: no love dependency.
+-- codes to DSL movement actions. Codes without a stable semantic name emit
+-- explicit unsupported movement actions; an ApplyMovement containing one
+-- makes the generated script incomplete. The direction base is the code
+-- modulo 4 (north/south/west/east) and the action family is the code range.
+-- Pure domain module: no love dependency.
 
 local MovementDecoder = {}
 
 local DIRECTIONS = { [0] = "north", [1] = "south", [2] = "west", [3] = "east" }
 
--- The sprint-supported family table: range -> function(code, count) -> step.
+-- The supported family table: range -> function(code, count) -> step.
 local FAMILIES = {
   {
     first = 0,
@@ -112,7 +111,7 @@ function MovementDecoder.decode(action)
       code = code,
       count = count,
       originalName = action.name,
-      reason = "movement code outside the sprint-supported matrix",
+      reason = "movement code outside the supported matrix",
     }
 end
 

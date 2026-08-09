@@ -189,9 +189,9 @@ function FieldState:_load()
     self.mapLoader = FieldMapLoader.new(cacheFs, world)
     local restored
     if self.resumeSave then
-      local saved, saveErr = self.saveStore:loadV2()
+      local saved, saveErr = self.saveStore:load()
       if saved then
-        restored, saveErr = FieldSave.restoreV2(saved, self.mapLoader, self.versionId)
+        restored, saveErr = FieldSave.restore(saved, self.mapLoader, self.versionId)
       end
       if saveErr and saveErr.code ~= "CACHE_FILE_MISSING" then
         self.saveStatus = "Save ignored: " .. tostring(saveErr)
@@ -468,9 +468,8 @@ function FieldState:_save(successText)
         registryFingerprint = self.scripts.registry:fingerprint(),
       })
     end
-    self.saveStore:saveV2(FieldSave.captureV2(self.session, {
+    self.saveStore:save(FieldSave.capture(self.session, {
       avatarId = self.avatar.id,
-      eventState = self.eventState,
       scenario = FieldScenarioManifest.id,
       world = self.scripts and self.scripts.worldState:capture() or nil,
       scriptsBucket = scriptsBucket,

@@ -1,8 +1,8 @@
--- Compiler and graph tests (spec section 37, Workstream 2). They freeze the
+-- Compiler and graph tests. They freeze the
 -- internal graph contract of section 24: node IDs (key/src/path forms),
 -- resolved control edges, the semantic revision hash, load-time structural
--- validation (section 25.1), warnings (section 25.2), immutability, and
--- deterministic inspection. The exit criterion: every supported authoring
+-- validation, warnings, immutability, and
+-- deterministic inspection. every supported authoring
 -- construct compiles to a deterministic graph.
 
 local Assert = require("tests.support.Assert")
@@ -40,9 +40,9 @@ local function signScript()
     api = 1,
     id = "new_bark.lab_sign",
     steps = {
-      S.playSound("SEQ_SE_DP_SELECT"),
+      S.playSound({ sound = "SEQ_SE_DP_SELECT" }),
       S.lockAll(),
-      S.say("msg.hgss.0543.00097"),
+      S.say({ message = "msg.hgss.0543.00097" }),
       S.releaseAll(),
     },
   })
@@ -53,26 +53,26 @@ local function womanScript()
     api = 1,
     id = "new_bark.npc.woman_1",
     steps = {
-      S.playSound("SEQ_SE_DP_SELECT"),
+      S.playSound({ sound = "SEQ_SE_DP_SELECT" }),
       S.lockAll(),
-      S.facePlayer("self"),
+      S.facePlayer({ actor = "self" }),
       S.if_({
         condition = S.eq(S.var("VAR_SCENE_NEW_BARK_TOWN_OW"), 0),
-        yes = { S.say("msg.hgss.0542.00009") },
+        yes = { S.say({ message = "msg.hgss.0542.00009" }) },
         no = {
           S.if_({
             condition = S.any({
               S.eq(S.var("VAR_SCENE_NEW_BARK_TOWN_OW"), 1),
               S.eq(S.var("VAR_SCENE_NEW_BARK_TOWN_OW"), 2),
             }),
-            yes = { S.say("msg.hgss.0542.00005") },
+            yes = { S.say({ message = "msg.hgss.0542.00005" }) },
             no = {
               S.if_({
                 condition = S.eq(S.var("VAR_SCENE_NEW_BARK_WEST_EXIT"), 1),
-                yes = { S.say("msg.hgss.0542.00000") },
+                yes = { S.say({ message = "msg.hgss.0542.00000" }) },
                 no = {
-                  S.bufferText(0, S.playerName()),
-                  S.say(S.gendered("msg.hgss.0542.00006", "msg.hgss.0542.00007")),
+                  S.bufferText({ slot = 0, value = S.playerName() }),
+                  S.say({ message = S.gendered("msg.hgss.0542.00006", "msg.hgss.0542.00007") }),
                 },
               }),
             },
@@ -89,31 +89,31 @@ end
 local function allOpsScript()
   local steps = {
     S.noop(),
-    S.waitTicks(2),
+    S.waitTicks({ ticks = 2 }),
     S.if_({ condition = S.flag("FLAG_F"), yes = { S.next() }, no = { S.noop() } }),
     S.switch({ value = S.var("VAR_V"), cases = { [0] = { S.noop() } }, default = { S.noop(), S.stop() } }),
-    S.call("sub"),
-    S.callCommon("common.example"),
-    S.compare(1, 2),
-    S.setFlag("FLAG_A"),
-    S.clearFlag("FLAG_A"),
-    S.setVar("VAR_A", 1),
-    S.copyVar("VAR_B", "VAR_A"),
-    S.addVar("VAR_A", 1),
-    S.subVar("VAR_A", 1),
-    S.setLocal("route", "intro"),
-    S.copyLocal("r2", "route"),
-    S.addLocal("counter", 1),
-    S.subLocal("counter", 1),
-    S.say("msg.x"),
+    S.call({ target = "sub" }),
+    S.callCommon({ target = "common.example" }),
+    S.compare({ left = 1, right = 2 }),
+    S.setFlag({ flag = "FLAG_A" }),
+    S.clearFlag({ flag = "FLAG_A" }),
+    S.setVar({ variable = "VAR_A", value = 1 }),
+    S.copyVar({ destination = "VAR_B", source = "VAR_A" }),
+    S.addVar({ variable = "VAR_A", amount = 1 }),
+    S.subVar({ variable = "VAR_A", amount = 1 }),
+    S.setLocal({ name = "route", value = "intro" }),
+    S.copyLocal({ destination = "r2", source = "route" }),
+    S.addLocal({ name = "counter", amount = 1 }),
+    S.subLocal({ name = "counter", amount = 1 }),
+    S.say({ message = "msg.x" }),
     S.openMessage(),
-    S.message("msg.y", { waitForPrint = true }),
+    S.message({ message = "msg.y", waitForPrint = true }),
     S.waitInput(),
     S.waitInputOrTicks({ ticks = 3 }),
     S.closeMessage(),
     S.holdMessage(),
-    S.askYesNo(nil, { result = S.local_("yn") }),
-    S.bufferText(0, S.playerName()),
+    S.askYesNo({ result = S.local_("yn") }),
+    S.bufferText({ slot = 0, value = S.playerName() }),
     S.showWaitingIcon(),
     S.hideWaitingIcon(),
     S.resolveCommonMessageBank({ script = "msg.x", bankResult = S.local_("bank"), memberResult = S.local_("member") }),
@@ -121,38 +121,38 @@ local function allOpsScript()
     S.releasePlayer(),
     S.lockAll(),
     S.releaseAll(),
-    S.lockActor("elm"),
-    S.releaseActor("elm"),
-    S.facePlayer(),
-    S.face("elm", "south"),
-    S.showObject("elm"),
-    S.hideObject("elm"),
-    S.setObjectPosition("elm", { fieldX = 4, fieldZ = 5 }),
-    S.setObjectFacing("elm", "north"),
-    S.setObjectMovementType("elm", "stationary"),
+    S.lockActor({ actor = "elm" }),
+    S.releaseActor({ actor = "elm" }),
+    S.facePlayer({}),
+    S.face({ actor = "elm", direction = "south" }),
+    S.showObject({ actor = "elm" }),
+    S.hideObject({ actor = "elm" }),
+    S.setObjectPosition({ actor = "elm", fieldX = 4, fieldZ = 5 }),
+    S.setObjectFacing({ actor = "elm", direction = "north" }),
+    S.setObjectMovementType({ actor = "elm", movementType = "stationary" }),
     S.getPlayerCoords({ x = S.local_("px"), z = S.local_("pz") }),
-    S.getObjectCoords("elm", { x = S.local_("ex"), z = S.local_("ez") }),
+    S.getObjectCoords({ actor = "elm", x = S.local_("ex"), z = S.local_("ez") }),
     S.getPlayerFacing({ result = S.local_("pf") }),
-    S.applyMovement("elm", { S.m.walk("south", { speed = "normal", tiles = 2 }) }),
+    S.applyMovement({ actor = "elm", movement = { S.m.walk({ direction = "south", speed = "normal", tiles = 2 }) } }),
     S.waitMovement(),
-    S.move("elm", { S.m.face("north") }),
-    S.playSound("SEQ_SE_DP_SELECT"),
-    S.stopSound("SEQ_SE_DP_SELECT"),
-    S.waitSound("SEQ_SE_DP_SELECT"),
-    S.playCry(S.var("species"), { form = 0 }),
+    S.move({ actor = "elm", movement = { S.m.face({ direction = "north" }) } }),
+    S.playSound({ sound = "SEQ_SE_DP_SELECT" }),
+    S.stopSound({ sound = "SEQ_SE_DP_SELECT" }),
+    S.waitSound({ sound = "SEQ_SE_DP_SELECT" }),
+    S.playCry({ species = S.var("species"), form = 0 }),
     S.waitCry(),
-    S.playFanfare("SEQ_ME_POKEGET"),
+    S.playFanfare({ fanfare = "SEQ_ME_POKEGET" }),
     S.waitFanfare(),
-    S.playMusic("SEQ_GS_NEW_BARK"),
-    S.stopMusic("SEQ_GS_NEW_BARK"),
+    S.playMusic({ music = "SEQ_GS_NEW_BARK" }),
+    S.stopMusic({ music = "SEQ_GS_NEW_BARK" }),
     S.resetMusic(),
-    S.temporaryMusic("SEQ_GS_EVENT"),
+    S.temporaryMusic({ music = "SEQ_GS_EVENT" }),
     S.fadeMusicOut({ target = 0, durationTicks = 30 }),
     S.fadeMusicIn({ durationTicks = 30 }),
     S.fadeScreen({ kind = 6, speed = 1, direction = "out", color = "black" }),
     S.waitFade(),
     S.warp({ map = "MAP_NEW_BARK", warp = 0, fieldX = 684, fieldZ = 393, facing = "south" }),
-    S.setSpawn("SPAWN_NEW_BARK"),
+    S.setSpawn({ spawn = "SPAWN_NEW_BARK" }),
     S.shakeCamera({ amplitudeX = 2, amplitudeY = 0, intervalTicks = 2, count = 8 }),
     S.random({ maxExclusive = 10, result = S.local_("roll") }),
     S.lua({ module = "scripts.story.elm", fn = "chooseStarter", args = {}, result = S.local_("starter") }),
@@ -164,13 +164,13 @@ local function allOpsScript()
       reason = "no semantic adapter",
     }),
     S.yieldTick(),
-    S.gotoIf(S.flag("FLAG_F"), "sub"),
-    S.gotoCompared("eq", "sub"),
-    S.goto_("sub"),
-    S.label("sub"),
-    S.callCompared("ne", "sub2"),
-    S.label("sub2"),
-    S.return_(),
+    S.gotoIf({ condition = S.flag("FLAG_F"), target = "sub" }),
+    S.gotoCompared({ operator = "eq", target = "sub" }),
+    S.goto_({ target = "sub" }),
+    S.label({ name = "sub" }),
+    S.callCompared({ operator = "ne", target = "sub2" }),
+    S.label({ name = "sub2" }),
+    S.return_({}),
   }
   return S.script({
     api = 1,
@@ -281,7 +281,7 @@ function T.switch_compiles_cases_and_default()
         cases = { [0] = { S.noop() }, [2] = { S.noop() } },
         default = { S.noop() },
       }),
-      S.setVar("VAR_A", 9),
+      S.setVar({ variable = "VAR_A", value = 9 }),
     },
   }))
   local node = graph.nodes["path:steps/0"]
@@ -300,7 +300,7 @@ function T.if_without_else_falls_through()
     id = "x",
     steps = {
       { op = "if", condition = S.flag("FLAG_F"), yes = { S.noop() } },
-      S.setVar("VAR_A", 1),
+      S.setVar({ variable = "VAR_A", value = 1 }),
     },
   }))
   local node = graph.nodes["path:steps/0"]
@@ -315,11 +315,11 @@ function T.call_to_local_label_resolves_target_node()
     api = 1,
     id = "x",
     steps = {
-      S.call("sub"),
-      S.setVar("VAR_A", 1),
-      S.label("sub"),
-      S.setFlag("FLAG_X"),
-      S.return_(),
+      S.call({ target = "sub" }),
+      S.setVar({ variable = "VAR_A", value = 1 }),
+      S.label({ name = "sub" }),
+      S.setFlag({ flag = "FLAG_X" }),
+      S.return_({}),
     },
   }))
   Assert.deepEqual(graph.nodes["path:steps/0"], {
@@ -341,7 +341,7 @@ function T.call_to_external_target_stays_a_script_id()
   local graph = compile(S.script({
     api = 1,
     id = "x",
-    steps = { S.call("common.give_item_verbose", { args = { item = "ITEM_POTION", quantity = 1 } }) },
+    steps = { S.call({ target = "common.give_item_verbose", args = { item = "ITEM_POTION", quantity = 1 } }) },
   }))
   Assert.deepEqual(graph.nodes["path:steps/0"], {
     op = "call",
@@ -355,9 +355,9 @@ function T.goto_and_goto_if_resolve_label_targets()
     api = 1,
     id = "x",
     steps = {
-      S.goto_("end"),
-      S.gotoIf(S.flag("FLAG_F"), "end"),
-      S.label("end"),
+      S.goto_({ target = "end" }),
+      S.gotoIf({ condition = S.flag("FLAG_F"), target = "end" }),
+      S.label({ name = "end" }),
       S.stop(),
     },
   }))
@@ -381,7 +381,7 @@ function T.missing_goto_label_raises()
     S.script({
       api = 1,
       id = "x",
-      steps = { S.goto_("nowhere") },
+      steps = { S.goto_({ target = "nowhere" }) },
     })
   )
   compileError(
@@ -389,7 +389,7 @@ function T.missing_goto_label_raises()
     S.script({
       api = 1,
       id = "x",
-      steps = { S.gotoIf(S.flag("FLAG_F"), "nowhere") },
+      steps = { S.gotoIf({ condition = S.flag("FLAG_F"), target = "nowhere" }) },
     })
   )
 end
@@ -401,10 +401,10 @@ function T.duplicate_label_raises()
       api = 1,
       id = "x",
       steps = {
-        S.label("a"),
-        S.goto_("skip"),
-        S.label("a"),
-        S.label("skip"),
+        S.label({ name = "a" }),
+        S.goto_({ target = "skip" }),
+        S.label({ name = "a" }),
+        S.label({ name = "skip" }),
         S.stop(),
       },
     })
@@ -644,32 +644,48 @@ function T.provenance_only_edits_do_not_change_revision()
 end
 
 function T.semantic_edits_change_revision()
-  local base = S.script({ api = 1, id = "x", steps = { S.setVar("VAR_A", 1), S.setFlag("FLAG_X") } })
+  local base = S.script({
+    api = 1,
+    id = "x",
+    steps = { S.setVar({ variable = "VAR_A", value = 1 }), S.setFlag({ flag = "FLAG_X" }) },
+  })
   local g1 = compile(base)
 
-  local value = S.script({ api = 1, id = "x", steps = { S.setVar("VAR_A", 2), S.setFlag("FLAG_X") } })
+  local value = S.script({
+    api = 1,
+    id = "x",
+    steps = { S.setVar({ variable = "VAR_A", value = 2 }), S.setFlag({ flag = "FLAG_X" }) },
+  })
   Assert.isFalse(g1.revision == compile(value).revision, "operand change must change revision")
 
-  local op = S.script({ api = 1, id = "x", steps = { S.setVar("VAR_A", 1), S.clearFlag("FLAG_X") } })
+  local op = S.script({
+    api = 1,
+    id = "x",
+    steps = { S.setVar({ variable = "VAR_A", value = 1 }), S.clearFlag({ flag = "FLAG_X" }) },
+  })
   Assert.isFalse(g1.revision == compile(op).revision, "op change must change revision")
 
-  local added = S.script({ api = 1, id = "x", steps = { S.setVar("VAR_A", 1), S.setFlag("FLAG_X"), S.noop() } })
+  local added = S.script({
+    api = 1,
+    id = "x",
+    steps = { S.setVar({ variable = "VAR_A", value = 1 }), S.setFlag({ flag = "FLAG_X" }), S.noop() },
+  })
   Assert.isFalse(g1.revision == compile(added).revision, "added step must change revision")
 
   local condition = S.script({
     api = 1,
     id = "x",
     steps = {
-      S.if_({ condition = S.eq(S.var("VAR_A"), 1), yes = { S.setVar("VAR_A", 1) } }),
-      S.setFlag("FLAG_X"),
+      S.if_({ condition = S.eq(S.var("VAR_A"), 1), yes = { S.setVar({ variable = "VAR_A", value = 1 }) } }),
+      S.setFlag({ flag = "FLAG_X" }),
     },
   })
   local condition2 = S.script({
     api = 1,
     id = "x",
     steps = {
-      S.if_({ condition = S.eq(S.var("VAR_A"), 2), yes = { S.setVar("VAR_A", 1) } }),
-      S.setFlag("FLAG_X"),
+      S.if_({ condition = S.eq(S.var("VAR_A"), 2), yes = { S.setVar({ variable = "VAR_A", value = 1 }) } }),
+      S.setFlag({ flag = "FLAG_X" }),
     },
   })
   Assert.isFalse(compile(condition).revision == compile(condition2).revision, "condition change must change revision")
@@ -722,11 +738,11 @@ function T.recursive_call_cycle_without_blocking_edge_faults()
       api = 1,
       id = "x",
       steps = {
-        S.call("a"),
-        S.label("a"),
-        S.call("b"),
-        S.label("b"),
-        S.call("a"),
+        S.call({ target = "a" }),
+        S.label({ name = "a" }),
+        S.call({ target = "b" }),
+        S.label({ name = "b" }),
+        S.call({ target = "a" }),
       },
     })
   )
@@ -741,8 +757,8 @@ function T.self_recursive_call_without_blocking_edge_faults()
       api = 1,
       id = "x",
       steps = {
-        S.label("a"),
-        S.call("a"),
+        S.label({ name = "a" }),
+        S.call({ target = "a" }),
       },
     })
   )
@@ -753,22 +769,22 @@ function T.recursive_call_cycle_with_blocking_edge_compiles()
     api = 1,
     id = "x",
     steps = {
-      S.call("a"),
-      S.label("a"),
-      S.waitTicks(2),
-      S.call("b"),
-      S.label("b"),
-      S.waitTicks(2),
-      S.call("a"),
+      S.call({ target = "a" }),
+      S.label({ name = "a" }),
+      S.waitTicks({ ticks = 2 }),
+      S.call({ target = "b" }),
+      S.label({ name = "b" }),
+      S.waitTicks({ ticks = 2 }),
+      S.call({ target = "a" }),
     },
   }))
   compile(S.script({
     api = 1,
     id = "x",
     steps = {
-      S.label("a"),
+      S.label({ name = "a" }),
       S.stop(),
-      S.call("a"),
+      S.call({ target = "a" }),
     },
   }))
 end
@@ -780,9 +796,9 @@ function T.fallthrough_label_chain_cycle_is_detected()
       api = 1,
       id = "x",
       steps = {
-        S.label("a"),
-        S.label("b"),
-        S.call("a"),
+        S.label({ name = "a" }),
+        S.label({ name = "b" }),
+        S.call({ target = "a" }),
       },
     })
   )
@@ -793,11 +809,11 @@ function T.call_before_label_is_not_a_cycle()
     api = 1,
     id = "x",
     steps = {
-      S.call("sub"),
-      S.setVar("VAR_A", 1),
-      S.label("sub"),
-      S.setFlag("FLAG_X"),
-      S.return_(),
+      S.call({ target = "sub" }),
+      S.setVar({ variable = "VAR_A", value = 1 }),
+      S.label({ name = "sub" }),
+      S.setFlag({ flag = "FLAG_X" }),
+      S.return_({}),
     },
   }))
 end
@@ -830,7 +846,7 @@ function T.reachable_unsupported_flags_the_graph()
         sourceOffset = 0x92,
         reason = "no semantic adapter",
       }),
-      S.setVar("VAR_A", 1),
+      S.setVar({ variable = "VAR_A", value = 1 }),
     },
   }))
   Assert.isTrue(graph.hasUnsupported)
@@ -854,9 +870,9 @@ function T.unsupported_behind_unconditional_jump_is_ignored()
     api = 1,
     id = "x",
     steps = {
-      S.goto_("end"),
+      S.goto_({ target = "end" }),
       S.unsupported({ command = 1, originalName = "X", reason = "dead" }),
-      S.label("end"),
+      S.label({ name = "end" }),
       S.stop(),
     },
   }))
@@ -902,7 +918,7 @@ function T.unreachable_nodes_warn()
     id = "x",
     steps = {
       S.stop(),
-      S.setVar("VAR_A", 1),
+      S.setVar({ variable = "VAR_A", value = 1 }),
     },
   }))
   Assert.deepEqual(warningMessages(graph), { "path:steps/1: unreachable node" })
@@ -914,8 +930,8 @@ function T.handwritten_fallback_control_warns_but_generated_does_not()
       api = 1,
       id = "x",
       steps = {
-        S.goto_("end"),
-        S.label("end"),
+        S.goto_({ target = "end" }),
+        S.label({ name = "end" }),
         S.stop(),
       },
     })
@@ -931,8 +947,8 @@ function T.handwritten_fallback_control_warns_but_generated_does_not()
     id = "x",
     metadata = { generated = true },
     steps = {
-      S.goto_("end"),
-      S.label("end"),
+      S.goto_({ target = "end" }),
+      S.label({ name = "end" }),
       S.stop(),
     },
   }))
@@ -946,8 +962,8 @@ function T.warnings_are_deterministically_ordered()
       id = "x",
       steps = {
         S.stop(),
-        S.goto_("end"),
-        S.label("end"),
+        S.goto_({ target = "end" }),
+        S.label({ name = "end" }),
       },
     })
   end
@@ -981,8 +997,8 @@ function T.graph_does_not_share_author_tables()
     id = "x",
     params = { professor = "actor_ref" },
     steps = {
-      S.playSound("SEQ_SE_DP_SELECT"),
-      S.say("msg.x", { bindings = { [0] = S.playerName() } }),
+      S.playSound({ sound = "SEQ_SE_DP_SELECT" }),
+      S.say({ message = "msg.x", bindings = { [0] = S.playerName() } }),
     },
   })
   local graph = compile(author)

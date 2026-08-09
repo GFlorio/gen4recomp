@@ -21,8 +21,16 @@ return S.script({
     coverage = { complete = false, unsupportedCount = 2 },
   },
   steps = {
-    S.say({ message = "msg.project.placeholder", provenance = { offsets = { 5896 }, opcodes = { 56 } } }),
-    S.say({ message = "msg.project.placeholder", provenance = { offsets = { 5911 }, opcodes = { 20 } } }),
-    S.stop(),
+    {
+      message = "msg.project.placeholder",
+      op = "say",
+      provenance = { offsets = { [1] = 5896 }, opcodes = { [1] = 56 } },
+    },
+    {
+      message = "msg.project.placeholder",
+      op = "say",
+      provenance = { offsets = { [1] = 5911 }, opcodes = { [1] = 20 } },
+    },
+    { op = "stop", provenance = { offsets = { [1] = 5915 }, opcodes = { [1] = 2 } } },
   },
 })

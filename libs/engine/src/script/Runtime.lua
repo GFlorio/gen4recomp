@@ -9,6 +9,7 @@
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local ScriptEnvironment = require("libs.engine.src.script.ScriptEnvironment")
+local RawInvocation = require("libs.engine.src.script.RawInvocation")
 
 local Runtime = {}
 
@@ -218,11 +219,9 @@ function Runtime.resolveActor(ref, run)
   if ref.mapIndex ~= nil then
     -- A numeric local map-object index: resolve against the current map
     -- through the actor adapter (the pinned
-    -- MapObjectManager_GetFirstActiveObjectByID path).
-    local actorId
-    if run.services.actors.actorIdForMapIndex ~= nil then
-      actorId = run.services.actors:actorIdForMapIndex(ref.mapIndex)
-    end
+    -- MapObjectManager_GetFirstActiveObjectByID path). The actor world
+    -- contract requires actorIdForMapIndex.
+    local actorId = run.services.actors:actorIdForMapIndex(ref.mapIndex)
     if actorId == nil then
       Errors.raise(
         ScriptErrors.SCRIPT_ACTOR_NOT_FOUND,
@@ -244,9 +243,7 @@ function Runtime.resolveActor(ref, run)
     elseif ref.special == "partner" then
       actorId = run.services.actors:partnerId()
     elseif ref.special == "camera_target" then
-      if run.services.actors.cameraTargetId ~= nil then
-        actorId = run.services.actors:cameraTargetId()
-      end
+      actorId = run.services.actors:cameraTargetId()
     end
     if actorId == nil then
       Errors.raise(
@@ -621,10 +618,15 @@ HANDLERS.goto_script = function(node, run)
 end
 
 HANDLERS["return"] = function(node, run)
+  -- The value is evaluated against the callee frame (its own args), so it
+  -- must be resolved before the frame is popped.
+  local value
+  if node.value ~= nil then
+    value = Runtime.evaluateValue(node.value, run)
+  end
   local frame = run.instance:popFrame()
   assert(frame ~= nil, "return with an empty frame stack")
-  if node.value ~= nil then
-    local value = Runtime.evaluateValue(node.value, run)
+  if value ~= nil then
     if frame.resultRef ~= nil then
       Runtime.writeRef(frame.resultRef, value, run)
     end
@@ -769,7 +771,9 @@ end
 HANDLERS.lock_actor = function(node, run)
   local actorId = Runtime.requireActor(node.actor, run)
   run.environment:acquireLock(ScriptEnvironment.LOCK_ACTOR_PREFIX .. actorId, actorId, run.instance.instanceId)
-  if node.waitUntilPausable and run.services.actors:isBusy(actorId) then
+  if node.waitUntilPausable then
+    -- The pause task watches the actor's movement and completes when the
+    -- actor is at a pausable boundary (or is not moving at all).
     return blockOnTask(run, "actor_pause", { actor = actorId })
   end
   return Runtime.OUTCOME_CONTINUE
@@ -937,7 +941,35 @@ HANDLERS.warp = function(node, run)
   return blockOnTask(run, "warp", { node = node })
 end
 HANDLERS.lua = function(node, run)
-  return blockOnTask(run, "lua", { node = node })
+  local modules = assert(run.services.rawModules, "the lua node requires the raw module registry in services")
+  local classification, value = RawInvocation.invoke({
+    modules = modules,
+    scheduler = run.scheduler,
+    instance = run.instance,
+    environment = run.environment,
+    services = run.services,
+    node = node,
+    module = node.module,
+    fn = node.fn,
+    args = node.args,
+  })
+  if classification == "none" then
+    -- A synchronous nil result: nothing to write, continue same tick.
+    return Runtime.OUTCOME_CONTINUE
+  elseif classification == "value" then
+    -- A synchronous serializable value written to the declared result.
+    Runtime.writeRef(node.result, value, run)
+    return Runtime.OUTCOME_CONTINUE
+  end
+  -- A task descriptor becomes one authoritative scheduler task: the lua
+  -- node blocks on the real task, and the task's result flows through the
+  -- generic blocked-result path.
+  assert(classification == "task", "unexpected raw result classification")
+  assert(value.taskVersion == 1, "task descriptors must reference the registered version 1")
+  local taskId = run.scheduler:createTask(value.taskType, value.state, run.instance, run.tick, run.input)
+  run.blockTaskId = taskId
+  run.blockResultRef = node.result
+  return Runtime.OUTCOME_BLOCK
 end
 HANDLERS.unsupported = function(node, run)
   Errors.raise(ScriptErrors.SCRIPT_UNSUPPORTED_REACHABLE, "reachable unsupported node", {
@@ -949,124 +981,97 @@ HANDLERS.unsupported = function(node, run)
 end
 
 -- Same-tick audio, camera, dialogue-primitive, and open/close operations:
--- they apply their side effect and continue. The audio/camera/maps services
--- are injected by the game layer; task-backed waits are separate nodes.
+-- they apply their side effect and continue. A missing service is an
+-- attributed fault, never a silent skip: the platform must not count an
+-- unsupported operation as successfully executed.
+local function requireService(run, name)
+  local service = run.services[name]
+  if service == nil then
+    Errors.raise(
+      ScriptErrors.SCRIPT_SERVICE_MISSING,
+      name .. " service is unavailable",
+      { scriptId = run.instance.scriptId }
+    )
+  end
+  return service
+end
+
 local function passthroughOp()
   return function(node, run)
     return Runtime.OUTCOME_CONTINUE
   end
 end
 
--- Same-tick operations that still need services; each is wired when its
--- owning workstream lands. Until then they apply nothing but continue, which
--- is safe because the generated scripts that use them pair them with the
--- blocking wait nodes that are separately implemented.
 HANDLERS.play_sound = function(node, run)
-  if run.services.audio then
-    run.services.audio:play(node.sound)
-  end
+  requireService(run, "audio"):play(node.sound)
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.stop_sound = function(node, run)
-  if run.services.audio then
-    run.services.audio:stop(node.sound)
-  end
+  requireService(run, "audio"):stop(node.sound)
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.play_music = function(node, run)
-  if run.services.audio then
-    run.services.audio:playMusic(node.music)
-  end
+  requireService(run, "audio"):playMusic(node.music)
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.stop_music = function(node, run)
-  if run.services.audio then
-    run.services.audio:stopMusic(node.music)
-  end
+  requireService(run, "audio"):stopMusic(node.music)
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.reset_music = function(node, run)
-  if run.services.audio then
-    run.services.audio:resetMusic()
-  end
+  requireService(run, "audio"):resetMusic()
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.temporary_music = function(node, run)
-  if run.services.audio then
-    run.services.audio:temporaryMusic(node.music)
-  end
+  requireService(run, "audio"):temporaryMusic(node.music)
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.play_cry = function(node, run)
-  if run.services.audio then
-    run.services.audio:playCry(Runtime.evaluateValue(node.species, run), node.form)
-  end
+  requireService(run, "audio"):playCry(Runtime.evaluateValue(node.species, run), node.form)
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.play_fanfare = function(node, run)
-  if run.services.audio then
-    run.services.audio:playFanfare(node.fanfare)
-  end
+  requireService(run, "audio"):playFanfare(node.fanfare)
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.fade_screen = function(node, run)
-  if run.services.screen then
-    run.services.screen:startFade(node)
-  end
+  requireService(run, "screen"):startFade(node)
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.fade_music_out = function(node, run)
-  if run.services.audio then
-    run.services.audio:fadeMusicOut(node)
-  end
+  requireService(run, "audio"):fadeMusicOut(node)
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.fade_music_in = function(node, run)
-  if run.services.audio then
-    run.services.audio:fadeMusicIn(node)
-  end
+  requireService(run, "audio"):fadeMusicIn(node)
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.shake_camera = function(node, run)
-  if run.services.camera then
-    run.services.camera:startShake(node)
-  end
+  requireService(run, "camera"):startShake(node)
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.set_spawn = function(node, run)
-  if run.services.maps then
-    run.services.maps:setSpawn(node.spawn)
-  end
+  requireService(run, "maps"):setSpawn(node.spawn)
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.open_message = function(node, run)
-  if run.services.dialogue then
-    run.services.dialogue:openMessage(node)
-  end
+  requireService(run, "dialogue"):openMessage(node)
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.close_message = function(node, run)
-  if run.services.dialogue then
-    run.services.dialogue:close(node.erase ~= false)
-  end
+  requireService(run, "dialogue"):close(node.erase ~= false)
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.hold_message = function(node, run)
-  if run.services.dialogue then
-    run.services.dialogue:hold()
-  end
+  requireService(run, "dialogue"):hold()
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.show_waiting_icon = function(node, run)
-  if run.services.dialogue then
-    run.services.dialogue:showWaitingIcon()
-  end
+  requireService(run, "dialogue"):showWaitingIcon()
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.hide_waiting_icon = function(node, run)
-  if run.services.dialogue then
-    run.services.dialogue:hideWaitingIcon()
-  end
+  requireService(run, "dialogue"):hideWaitingIcon()
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.resolve_common_message_bank = passthroughOp()

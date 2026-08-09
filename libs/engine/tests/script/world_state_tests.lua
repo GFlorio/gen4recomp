@@ -2,7 +2,7 @@
 -- and variable stores, symbol catalog resolution, the serialized script RNG,
 -- and the global-vs-instance-local classification rules (persistent scene
 -- variables survive save; temporary locals do not persist after instance
--- completion). The exit criterion: New Bark branching can be driven by save
+-- completion). New Bark branching can be driven by save
 -- state.
 
 local Assert = require("tests.support.Assert")
@@ -124,15 +124,15 @@ T["flag condition and dynamic ids"] = function()
   local flagsResource = script("test.flags", {
     S.if_({
       condition = S.flag("FLAG_MET_ELM"),
-      yes = { S.setFlag("FLAG_GOT_STARTER"), S.stop() },
-      no = { S.setVar("VAR_SCENE_ELMS_LAB", 9), S.stop() },
+      yes = { S.setFlag({ flag = "FLAG_GOT_STARTER" }), S.stop() },
+      no = { S.setVar({ variable = "VAR_SCENE_ELMS_LAB", value = 9 }), S.stop() },
     }),
   })
   h.world:setFlag("FLAG_MET_ELM")
   h.registry:installBase(flagsResource.id, flagsResource, "generated")
   local dynamicResource = script("test.dynamic", {
-    S.setVar("VAR_SPECIAL_RESULT", 0x801),
-    S.setFlag(S.var("VAR_SPECIAL_RESULT")),
+    S.setVar({ variable = "VAR_SPECIAL_RESULT", value = 0x801 }),
+    S.setFlag({ flag = S.var("VAR_SPECIAL_RESULT") }),
     S.stop(),
   })
   h.registry:installBase(dynamicResource.id, dynamicResource, "generated")
@@ -152,8 +152,8 @@ end
 T["persistent variables survive save"] = function()
   local h = harness()
   local persistResource = script("test.persist", {
-    S.setVar("VAR_SCENE_NEW_BARK_TOWN_OW", 1),
-    S.waitTicks(3),
+    S.setVar({ variable = "VAR_SCENE_NEW_BARK_TOWN_OW", value = 1 }),
+    S.waitTicks({ ticks = 3 }),
     S.stop(),
   })
   h.registry:installBase(persistResource.id, persistResource, "generated")
@@ -175,8 +175,8 @@ T["temp locals cleared on completion"] = function()
   local resource = script("test.locals", {
     locals = { temp = "integer" },
     steps = {
-      S.setLocal("temp", 7),
-      S.waitTicks(1),
+      S.setLocal({ name = "temp", value = 7 }),
+      S.waitTicks({ ticks = 1 }),
       S.stop(),
     },
   })
@@ -227,8 +227,8 @@ T["new bark branching driven by save state"] = function()
   local resource = script("new_bark.npc.woman_1", {
     S.if_({
       condition = S.eq(S.var("VAR_SCENE_NEW_BARK_TOWN_OW"), 0),
-      yes = { S.setVar("VAR_SCENE_ELMS_LAB", 1), S.stop() },
-      no = { S.setVar("VAR_SCENE_ELMS_LAB", 2), S.stop() },
+      yes = { S.setVar({ variable = "VAR_SCENE_ELMS_LAB", value = 1 }), S.stop() },
+      no = { S.setVar({ variable = "VAR_SCENE_ELMS_LAB", value = 2 }), S.stop() },
     }),
   })
   h.registry:installBase(resource.id, resource, "generated")

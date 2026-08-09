@@ -32,7 +32,7 @@ local function bundle()
       scrSeqNarc = { path = "a/0/1/2", sha1 = "archive-sha" },
     },
     coverageRecord = {
-      source = { repository = "g4recomp", commit = "rom-sha" },
+      source = { repository = "g4recomp", romSha1 = "rom-sha" },
       totals = {
         members = 1,
         scripts = 2,

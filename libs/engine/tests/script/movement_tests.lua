@@ -2,7 +2,7 @@
 -- machine, environment-generation barriers, actor-scoped barriers, multiple
 -- actors started before one barrier, movement save/resume, facing locks,
 -- ownership conflicts, cancellation, and the background no-player-movement
--- rule. The exit criterion: Elm's source-facing movement and one multi-actor
+-- rule. Elm's source-facing movement and one multi-actor
 -- movement fixture work.
 
 local Assert = require("tests.support.Assert")
@@ -89,12 +89,15 @@ T["apply movement and barrier"] = function()
   local h = harness()
   h.services.actors:add("elm", { fieldX = 4, fieldZ = 6, facing = "north" })
   local resource = script("test.move", {
-    S.applyMovement("elm", {
-      S.m.face("south"),
-      S.m.walk("east", { speed = "normal", tiles = 2 }),
+    S.applyMovement({
+      actor = "elm",
+      movement = {
+        S.m.face({ direction = "south" }),
+        S.m.walk({ direction = "east", speed = "normal", tiles = 2 }),
+      },
     }),
     S.waitMovement(),
-    S.setVar("VAR_AFTER", 1),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
     S.stop(),
   })
   startForeground(h, resource, 100)
@@ -104,7 +107,11 @@ T["apply movement and barrier"] = function()
   local elm = h.services.actors.actors.elm
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
   h.scheduler:step(101, nil)
-  Assert.equal(elm.movementOwner, assert(h.scheduler:instances()[1]).instanceId)
+  local envId = assert(h.scheduler:foregroundEnvironmentId())
+  Assert.notNil(
+    h.scheduler:activeMovementForActor(envId, "elm"),
+    "the movement task owns the actor after its first poll"
+  )
   -- Each poll advances one plan tick: face (1) + 2 walk tiles x 8 ticks = 17
   -- plan ticks. The barrier completes on the poll after the generation
   -- empties, and continuation follows one tick later.
@@ -131,10 +138,10 @@ T["multiple actors before one barrier"] = function()
   h.services.actors:add("a", { fieldX = 0, fieldZ = 0, facing = "south" })
   h.services.actors:add("b", { fieldX = 0, fieldZ = 0, facing = "south" })
   local resource = script("test.multi", {
-    S.applyMovement("a", { S.m.walk("east", { speed = "fast", tiles = 1 }) }),
-    S.applyMovement("b", { S.m.walk("north", { speed = "fast", tiles = 1 }) }),
+    S.applyMovement({ actor = "a", movement = { S.m.walk({ direction = "east", speed = "fast", tiles = 1 }) } }),
+    S.applyMovement({ actor = "b", movement = { S.m.walk({ direction = "north", speed = "fast", tiles = 1 }) } }),
     S.waitMovement(),
-    S.setVar("VAR_AFTER", 1),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
     S.stop(),
   })
   startForeground(h, resource, 100)
@@ -158,7 +165,7 @@ T["empty barrier timing"] = function()
   local h = harness()
   local resource = script("test.empty", {
     S.waitMovement(),
-    S.setVar("VAR_AFTER", 1),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
     S.stop(),
   })
   startForeground(h, resource, 100)
@@ -175,10 +182,10 @@ T["actor scoped barrier"] = function()
   h.services.actors:add("a", { fieldX = 0, fieldZ = 0, facing = "south" })
   h.services.actors:add("b", { fieldX = 0, fieldZ = 0, facing = "south" })
   local resource = script("test.scoped", {
-    S.applyMovement("a", { S.m.walk("east", { speed = "fast", tiles = 1 }) }),
-    S.applyMovement("b", { S.m.walk("east", { speed = "normal", tiles = 1 }) }),
+    S.applyMovement({ actor = "a", movement = { S.m.walk({ direction = "east", speed = "fast", tiles = 1 }) } }),
+    S.applyMovement({ actor = "b", movement = { S.m.walk({ direction = "east", speed = "normal", tiles = 1 }) } }),
     S.waitMovement({ scope = "actors", actors = { "a" } }),
-    S.setVar("VAR_AFTER", 1),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
     S.stop(),
   })
   startForeground(h, resource, 100)
@@ -199,10 +206,13 @@ T["facing lock and immediate actions"] = function()
   local h = harness()
   h.services.actors:add("elm", { fieldX = 4, fieldZ = 6, facing = "north" })
   local resource = script("test.face", {
-    S.applyMovement("elm", {
-      S.m.lockFacing(),
-      S.m.face("south"),
-      S.m.walk("east", { speed = "normal", tiles = 1 }),
+    S.applyMovement({
+      actor = "elm",
+      movement = {
+        S.m.lockFacing(),
+        S.m.face({ direction = "south" }),
+        S.m.walk({ direction = "east", speed = "normal", tiles = 1 }),
+      },
     }),
     S.waitMovement(),
     S.stop(),
@@ -222,11 +232,14 @@ T["movement save resume"] = function()
   local h = harness()
   h.services.actors:add("elm", { fieldX = 4, fieldZ = 6, facing = "north" })
   local resource = script("test.savemove", {
-    S.applyMovement("elm", {
-      S.m.walk("east", { speed = "normal", tiles = 2 }),
+    S.applyMovement({
+      actor = "elm",
+      movement = {
+        S.m.walk({ direction = "east", speed = "normal", tiles = 2 }),
+      },
     }),
     S.waitMovement(),
-    S.setVar("VAR_AFTER", 1),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
     S.stop(),
   })
   startForeground(h, resource, 100)
@@ -259,8 +272,8 @@ T["conflicting movement ownership"] = function()
   local h = harness()
   h.services.actors:add("elm", { fieldX = 4, fieldZ = 6, facing = "north" })
   local resource = script("test.conflict", {
-    S.applyMovement("elm", { S.m.walk("east", { speed = "slow", tiles = 1 }) }),
-    S.applyMovement("elm", { S.m.walk("east", { speed = "slow", tiles = 1 }) }),
+    S.applyMovement({ actor = "elm", movement = { S.m.walk({ direction = "east", speed = "slow", tiles = 1 }) } }),
+    S.applyMovement({ actor = "elm", movement = { S.m.walk({ direction = "east", speed = "slow", tiles = 1 }) } }),
     S.stop(),
   })
   local instanceId = startForeground(h, resource, 100)
@@ -273,7 +286,7 @@ end
 T["missing movement actor"] = function()
   local h = harness()
   local resource = script("test.ghost", {
-    S.applyMovement("ghost", { S.m.walk("east") }),
+    S.applyMovement({ actor = "ghost", movement = { S.m.walk({ direction = "east" }) } }),
     S.stop(),
   })
   local instanceId = startForeground(h, resource, 100)
@@ -286,7 +299,7 @@ T["background cannot move player"] = function()
   local h = harness()
   h.services.actors:add("player", { fieldX = 4, fieldZ = 6, facing = "north" })
   local resource = script("test.bg", {
-    S.applyMovement("player", { S.m.walk("east") }),
+    S.applyMovement({ actor = "player", movement = { S.m.walk({ direction = "east" }) } }),
     S.stop(),
   })
   h.registry:installBase(resource.id, resource, "generated")
@@ -301,7 +314,7 @@ T["cancellation releases movement"] = function()
   local h = harness()
   h.services.actors:add("elm", { fieldX = 4, fieldZ = 6, facing = "north" })
   local resource = script("test.cancelmove", {
-    S.applyMovement("elm", { S.m.walk("east", { speed = "slow", tiles = 1 }) }),
+    S.applyMovement({ actor = "elm", movement = { S.m.walk({ direction = "east", speed = "slow", tiles = 1 }) } }),
     S.waitMovement(),
     S.stop(),
   })
@@ -309,26 +322,87 @@ T["cancellation releases movement"] = function()
   h.scheduler:step(100, nil)
   local envId = assert(h.scheduler:foregroundEnvironmentId())
   h.scheduler:cancelEnvironment(envId, "cancelled")
-  Assert.isNil(h.services.actors.actors.elm.movementOwner)
-  Assert.isNil(h.services.actors.actors.elm.movementState)
+  Assert.isNil(h.scheduler:activeMovementForActor(envId, "elm"))
+  local elm = h.services.actors.actors.elm
+  Assert.equal(elm.fieldX, 4, "cancellation freezes the actor's position")
 end
 
--- 11. lock_all with outstanding movement pauses instead of yielding.
+-- 11. lock_all with outstanding movement pauses until the movement reaches a
+-- pausable boundary (a slow walk runs 16 plan ticks) instead of yielding.
 T["lock all pauses when movement outstanding"] = function()
   local h = harness()
   h.services.actors:add("elm", { fieldX = 4, fieldZ = 6, facing = "north" })
   local resource = script("test.lockpause", {
-    S.applyMovement("elm", { S.m.walk("east", { speed = "slow", tiles = 1 }) }),
+    S.applyMovement({ actor = "elm", movement = { S.m.walk({ direction = "east", speed = "slow", tiles = 1 }) } }),
     S.lockAll(),
-    S.setVar("VAR_AFTER", 1),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
+    S.stop(),
+  })
+  startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  for tick = 101, 115 do
+    h.scheduler:step(tick, nil)
+  end
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "lock_all blocks while the walk is mid-step")
+  -- The 16th poll (tick 116) completes the walk; the pause task observes the
+  -- empty generation and resumes for 117; continuation follows at 117.
+  h.scheduler:step(116, nil)
+  h.scheduler:step(117, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+end
+
+-- 12. lock_actor(waitUntilPausable) blocks on the actor's own movement and
+-- completes once the actor is at a pausable boundary.
+T["lock actor waits for pausable boundary"] = function()
+  local h = harness()
+  h.taskRegistry:register("actor_pause", 1, MovementPauseTask)
+  h.services.actors:add("elm", { fieldX = 4, fieldZ = 6, facing = "north" })
+  local resource = script("test.lockactorpause", {
+    S.applyMovement({ actor = "elm", movement = { S.m.walk({ direction = "east", speed = "fast", tiles = 1 }) } }),
+    S.lockActor({ actor = "elm", waitUntilPausable = true }),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
     S.stop(),
   })
   startForeground(h, resource, 100)
   h.scheduler:step(100, nil)
   h.scheduler:step(101, nil)
-  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "lock_all blocks until movement pauses")
-  h.scheduler:step(102, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "mid-walk is not pausable")
+  -- fast walk runs 4 plan ticks: boundary at poll 104, continuation at 105.
+  for tick = 102, 103 do
+    h.scheduler:step(tick, nil)
+  end
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+  h.scheduler:step(104, nil)
+  h.scheduler:step(105, nil)
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+end
+
+-- 13. An actor-scoped barrier created through the compiler's canonical
+-- actor-ref tables (not raw strings) resolves the references and freezes the
+-- matching movement task ids.
+T["actor scoped barrier with canonical refs"] = function()
+  local h = harness()
+  h.services.actors:add("a", { fieldX = 0, fieldZ = 0, facing = "south" })
+  h.services.actors:add("b", { fieldX = 0, fieldZ = 0, facing = "south" })
+  local resource = script("test.scopedrefs", {
+    S.applyMovement({ actor = "a", movement = { S.m.walk({ direction = "east", speed = "fast", tiles = 1 }) } }),
+    S.applyMovement({ actor = "b", movement = { S.m.walk({ direction = "east", speed = "normal", tiles = 1 }) } }),
+    S.waitMovement({ scope = "actors", actors = { S.actor("a") } }),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
+    S.stop(),
+  })
+  startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  -- a finishes its fast walk at 104's poll; the scoped barrier resumes at
+  -- 105 and continues at 106 while b still walks.
+  for tick = 101, 103 do
+    h.scheduler:step(tick, nil)
+  end
+  h.scheduler:step(104, nil)
+  h.scheduler:step(105, nil)
+  h.scheduler:step(106, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+  Assert.equal(h.services.actors.actors.b.fieldX, 0, "b is not watched by the barrier")
 end
 
 return T

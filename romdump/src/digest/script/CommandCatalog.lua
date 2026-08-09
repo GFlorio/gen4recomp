@@ -27,7 +27,7 @@ for opcode, entry in pairs(ScriptCommands.byOpcode) do
   end
 end
 
--- The sprint-supported opcodes: every opcode with an explicit timing
+-- The supported opcodes: every opcode with an explicit timing
 -- descriptor; everything else decodes but stays an explicit unsupported node.
 CommandCatalog.SUPPORTED = {}
 for opcode in pairs(CommandCatalog.CLASSIFICATION) do

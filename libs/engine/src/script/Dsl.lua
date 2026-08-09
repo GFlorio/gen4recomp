@@ -2,8 +2,10 @@
 -- return ordinary serializable Lua tables whose shapes are frozen by the
 -- schema (libs/engine/src/script/Schema.lua) and the compatibility tests.
 -- Defaults come from the schema so the doc generator, validator, and
--- constructors can never drift. The compiler, not these constructors,
--- normalizes shorthand (for example the actor string form).
+-- constructors can never drift. Every step and movement-action constructor
+-- takes exactly one canonical spec table (the schema field names); there is
+-- no positional form and no shape guessing. Value, condition, actor, and
+-- text reference constructors take their unambiguous scalar arguments.
 
 local Schema = require("libs.engine.src.script.Schema")
 
@@ -39,44 +41,14 @@ local function mergeFields(kind, given)
   return out
 end
 
+-- One canonical step or movement-action constructor: `kind` names the
+-- schema operation/action, `given` the single spec table.
 local function op(kind, given)
   local spec = Schema.OPERATIONS[kind]
   assert(spec, "unknown operation: " .. tostring(kind))
   local out = mergeFields(spec, given)
   out.op = kind
   return out
-end
-
--- Generated files call constructors with a spec table (`S.setVar { ... }`),
--- while the documented section 45 signatures are positional. A constructor
--- accepts a spec table when its first argument is a table carrying at least
--- one of the op's own field names (keys never present on value/actor/
--- condition/message reference tables), or any table when the positional
--- first argument is always a scalar.
-local function asSpec(first, keys)
-  if type(first) == "table" then
-    if keys == nil then
-      return first
-    end
-    for _, key in ipairs(keys) do
-      if first[key] ~= nil then
-        return first
-      end
-    end
-  end
-  return nil
-end
-
--- Whether a table is a message/condition/value reference (never a step spec).
--- Used where the positional first argument may itself be a reference table.
-local function looksLikeRef(t)
-  return t.value ~= nil
-    or t.ref ~= nil
-    or t.condition ~= nil
-    or t.text ~= nil
-    or t.message == "external"
-    or t.bank ~= nil
-    or t.male ~= nil
 end
 
 local function value(kind, given)
@@ -111,55 +83,14 @@ local function action(kind, given)
   return out
 end
 
--- Argument assertion helpers. Constructors stay permissive about structure
--- (validation is separate), but catch clear caller mistakes early.
-local function requireString(v, what)
-  assert(type(v) == "string" and #v > 0, what .. " must be a non-empty string")
-  return v
-end
-
-local function requireInteger(v, what)
-  assert(type(v) == "number" and v % 1 == 0 and v == v, what .. " must be an integer")
-  return v
-end
-
-local function requireTable(v, what)
-  assert(type(v) == "table", what .. " must be a table")
-  return v
-end
-
--- Merge an optional options table over the given fields, dropping nil
--- values so unset optionals leave no keys behind.
-local function extend(given, opts)
-  if opts then
-    for k, v in pairs(opts) do
-      given[k] = v
-    end
-  end
-  return given
-end
-
-local DIRECTION_SET = {}
-for _, name in ipairs(Schema.ENUMS.direction) do
-  DIRECTION_SET[name] = true
-end
-
-local function requireDirection(v)
-  assert(
-    type(v) == "string" and DIRECTION_SET[v] ~= nil,
-    "direction must be one of: " .. table.concat(Schema.ENUMS.direction, ", ")
-  )
-  return v
-end
-
 -- 45.1 Resource and reference constructors
 
 function M.script(spec)
-  requireTable(spec, "script spec")
+  assert(type(spec) == "table", "script spec must be a table")
   assert(spec.api ~= nil, "script api is required")
-  requireInteger(spec.api, "script api")
+  assert(type(spec.api) == "number" and spec.api % 1 == 0 and spec.api == spec.api, "script api must be an integer")
   assert(type(spec.id) == "string" and #spec.id > 0, "script id must be a non-empty string")
-  requireTable(spec.steps, "script steps")
+  assert(type(spec.steps) == "table", "script steps must be a table")
   local out = {}
   for k, v in pairs(spec) do
     out[k] = v
@@ -169,19 +100,23 @@ function M.script(spec)
 end
 
 function M.var(id)
-  return value("var", { id = requireString(id, "variable id") })
+  assert(type(id) == "string" and #id > 0, "variable id must be a non-empty string")
+  return value("var", { id = id })
 end
 
 function M.local_(name)
-  return value("local", { name = requireString(name, "local name") })
+  assert(type(name) == "string" and #name > 0, "local name must be a non-empty string")
+  return value("local", { name = name })
 end
 
 function M.arg(name)
-  return value("arg", { name = requireString(name, "arg name") })
+  assert(type(name) == "string" and #name > 0, "arg name must be a non-empty string")
+  return value("arg", { name = name })
 end
 
 function M.actor(id)
-  return { ref = "actor", id = requireString(id, "actor id") }
+  assert(type(id) == "string" and #id > 0, "actor id must be a non-empty string")
+  return { ref = "actor", id = id }
 end
 
 function M.player()
@@ -206,10 +141,9 @@ end
 
 -- A numeric local map-object index, resolved against the current map at
 -- runtime (the pinned HGSS object-id path).
----@param index integer
----@return table
 function M.actorIndex(index)
-  return { ref = "actor", mapIndex = requireInteger(index, "actor map index") }
+  assert(type(index) == "number" and index % 1 == 0 and index == index, "actor map index must be an integer")
+  return { ref = "actor", mapIndex = index }
 end
 
 function M.externalMessage(bank, id)
@@ -228,10 +162,8 @@ function M.friendName()
   return text("friend_name")
 end
 
-function M.integerText(value, opts)
-  local given = { value = value }
-  extend(given, opts)
-  return text("integer", given)
+function M.integerText(v)
+  return text("integer", { value = v })
 end
 
 function M.itemName(v)
@@ -251,11 +183,13 @@ function M.speciesName(v)
 end
 
 function M.partySpeciesName(position)
-  return text("party_species_name", { position = requireInteger(position, "party position") })
+  assert(type(position) == "number" and position % 1 == 0, "party position must be an integer")
+  return text("party_species_name", { position = position })
 end
 
 function M.partyNickname(position)
-  return text("party_nickname", { position = requireInteger(position, "party position") })
+  assert(type(position) == "number" and position % 1 == 0, "party position must be an integer")
+  return text("party_nickname", { position = position })
 end
 
 function M.trainerClassName(v)
@@ -328,11 +262,13 @@ function M.not_(condition)
 end
 
 function M.all(conditions)
-  return cond("all", { conditions = requireTable(conditions, "conditions") })
+  assert(type(conditions) == "table", "conditions must be a table")
+  return cond("all", { conditions = conditions })
 end
 
 function M.any(conditions)
-  return cond("any", { conditions = requireTable(conditions, "conditions") })
+  assert(type(conditions) == "table", "conditions must be a table")
+  return cond("any", { conditions = conditions })
 end
 
 function M.exists(actorRef)
@@ -343,674 +279,316 @@ function M.truthy(v)
   return cond("truthy", { value = v })
 end
 
--- 45.5 Control-flow constructors
+-- 45.5 Control-flow constructors (all spec-table forms)
 
-function M.noop()
-  return op("noop")
+function M.noop(spec)
+  return op("noop", spec)
 end
-function M.stop()
-  return op("stop")
+function M.stop(spec)
+  return op("stop", spec)
 end
-function M.yieldTick()
-  return op("yield_tick")
+function M.yieldTick(spec)
+  return op("yield_tick", spec)
 end
 
-function M.waitTicks(ticks, opts)
-  local spec = asSpec(ticks, { "ticks" })
-  if spec then
-    return op("wait_ticks", spec)
-  end
-  local given = { ticks = requireInteger(ticks, "ticks") }
-  if opts ~= nil and opts.countdownVariable ~= nil then
-    given.countdownVariable = opts.countdownVariable
-  end
-  return op("wait_ticks", given)
+function M.waitTicks(spec)
+  return op("wait_ticks", spec)
 end
 
 function M.if_(spec)
-  requireTable(spec, "if spec")
+  assert(type(spec) == "table", "if spec must be a table")
   return op("if", spec)
 end
 
 function M.switch(spec)
-  requireTable(spec, "switch spec")
+  assert(type(spec) == "table", "switch spec must be a table")
   return op("switch", spec)
 end
 
-function M.call(scriptId, opts)
-  local spec = asSpec(scriptId)
-  if spec then
-    return op("call", spec)
-  end
-  local given = { target = requireString(scriptId, "call target") }
-  extend(given, opts)
-  return op("call", given)
+function M.call(spec)
+  return op("call", spec)
+end
+function M.callCommon(spec)
+  return op("call_common", spec)
 end
 
-function M.callCommon(scriptId, opts)
-  local spec = asSpec(scriptId)
-  if spec then
-    return op("call_common", spec)
-  end
-  local given = { target = requireString(scriptId, "call_common target") }
-  extend(given, opts)
-  return op("call_common", given)
+function M.return_(spec)
+  return op("return", spec)
 end
 
-function M.return_(v)
-  local spec = asSpec(v, { "provenance" })
-  if spec then
-    return op("return", spec)
-  end
-  local given = {}
-  if v ~= nil then
-    given.value = v
-  end
-  return op("return", given)
+function M.label(spec)
+  return op("label", spec)
+end
+function M.goto_(spec)
+  return op("goto", spec)
+end
+function M.gotoIf(spec)
+  return op("goto_if", spec)
+end
+function M.gotoScript(spec)
+  return op("goto_script", spec)
 end
 
-function M.label(name)
-  local spec = asSpec(name)
-  if spec then
-    return op("label", spec)
-  end
-  return op("label", { name = requireString(name, "label name") })
+function M.compare(spec)
+  return op("compare", spec)
+end
+function M.gotoCompared(spec)
+  return op("goto_compared", spec)
+end
+function M.callCompared(spec)
+  return op("call_compared", spec)
 end
 
-function M.goto_(name)
-  local spec = asSpec(name)
-  if spec then
-    return op("goto", spec)
-  end
-  return op("goto", { target = requireString(name, "goto target") })
-end
-
-function M.gotoIf(condition, name)
-  local spec = asSpec(condition, { "target" })
-  if spec then
-    return op("goto_if", spec)
-  end
-  return op("goto_if", { condition = condition, target = requireString(name, "goto_if target") })
-end
-
-function M.gotoScript(scriptId, opts)
-  local spec = asSpec(scriptId)
-  if spec then
-    return op("goto_script", spec)
-  end
-  local given = { script = requireString(scriptId, "goto_script target") }
-  if opts ~= nil then
-    requireTable(opts, "gotoScript opts")
-    if opts.label ~= nil then
-      given.label = requireString(opts.label, "goto_script label")
-    end
-  end
-  return op("goto_script", given)
-end
-
-function M.compare(a, b)
-  local spec = asSpec(a, { "left" })
-  if spec then
-    return op("compare", spec)
-  end
-  return op("compare", { left = a, right = b })
-end
-
-function M.gotoCompared(operator, name, opts)
-  local spec = asSpec(operator)
-  if spec then
-    return op("goto_compared", spec)
-  end
-  if name == nil and type(opts) == "table" then
-    -- Cross-script compare-state form: resolve the composed target at
-    -- runtime, consuming the compare state like the source engine.
-    local given = { operator = operator }
-    if opts.script ~= nil then
-      given.script = requireString(opts.script, "goto_compared script")
-    end
-    if opts.label ~= nil then
-      given.label = requireString(opts.label, "goto_compared label")
-    end
-    return op("goto_compared", given)
-  end
-  return op("goto_compared", { operator = operator, target = requireString(name, "goto_compared target") })
-end
-
-function M.callCompared(operator, target, opts)
-  local spec = asSpec(operator)
-  if spec then
-    return op("call_compared", spec)
-  end
-  if target == nil and type(opts) == "table" then
-    local given = { operator = operator }
-    if opts.script ~= nil then
-      given.script = requireString(opts.script, "call_compared script")
-    end
-    if opts.label ~= nil then
-      given.label = requireString(opts.label, "call_compared label")
-    end
-    return op("call_compared", given)
-  end
-  return op("call_compared", { operator = operator, target = requireString(target, "call_compared target") })
-end
-
-function M.next()
-  return op("next")
+function M.next(spec)
+  return op("next", spec)
 end
 
 -- 45.6 State constructors
 
-function M.setFlag(flag)
-  local spec = asSpec(flag, { "flag" })
-  if spec then
-    return op("set_flag", spec)
-  end
-  return op("set_flag", { flag = flag })
+function M.setFlag(spec)
+  return op("set_flag", spec)
 end
-function M.clearFlag(flag)
-  local spec = asSpec(flag, { "flag" })
-  if spec then
-    return op("clear_flag", spec)
-  end
-  return op("clear_flag", { flag = flag })
+function M.clearFlag(spec)
+  return op("clear_flag", spec)
 end
-function M.setVar(id, v)
-  local spec = asSpec(id, { "variable" })
-  if spec then
-    return op("set_var", spec)
-  end
-  return op("set_var", { variable = id, value = v })
+function M.setVar(spec)
+  return op("set_var", spec)
 end
-function M.copyVar(dst, src)
-  local spec = asSpec(dst, { "destination" })
-  if spec then
-    return op("copy_var", spec)
-  end
-  return op("copy_var", { destination = dst, source = src })
+function M.copyVar(spec)
+  return op("copy_var", spec)
 end
-function M.addVar(id, amount)
-  local spec = asSpec(id, { "variable" })
-  if spec then
-    return op("add_var", spec)
-  end
-  return op("add_var", { variable = id, amount = amount })
+function M.addVar(spec)
+  return op("add_var", spec)
 end
-function M.subVar(id, amount)
-  local spec = asSpec(id, { "variable" })
-  if spec then
-    return op("sub_var", spec)
-  end
-  return op("sub_var", { variable = id, amount = amount })
+function M.subVar(spec)
+  return op("sub_var", spec)
 end
-function M.setLocal(name, v)
-  local spec = asSpec(name)
-  if spec then
-    return op("set_local", spec)
-  end
-  return op("set_local", { name = name, value = v })
+function M.setLocal(spec)
+  return op("set_local", spec)
 end
-function M.copyLocal(dst, src)
-  local spec = asSpec(dst)
-  if spec then
-    return op("copy_local", spec)
-  end
-  return op("copy_local", { destination = dst, source = src })
+function M.copyLocal(spec)
+  return op("copy_local", spec)
 end
-function M.addLocal(name, amount)
-  local spec = asSpec(name)
-  if spec then
-    return op("add_local", spec)
-  end
-  return op("add_local", { name = name, amount = amount })
+function M.addLocal(spec)
+  return op("add_local", spec)
 end
-function M.subLocal(name, amount)
-  local spec = asSpec(name)
-  if spec then
-    return op("sub_local", spec)
-  end
-  return op("sub_local", { name = name, amount = amount })
+function M.subLocal(spec)
+  return op("sub_local", spec)
 end
 
 -- 45.7 Dialogue constructors
 
-function M.say(message, opts)
-  local spec = asSpec(message, { "style", "wait", "close", "timingProfile", "bindings", "provenance" })
-  if spec == nil and type(message) == "table" and not looksLikeRef(message) and message.message ~= nil then
-    spec = message
-  end
-  if spec then
-    return op("say", spec)
-  end
-  local given = { message = message }
-  extend(given, opts)
-  return op("say", given)
+function M.say(spec)
+  return op("say", spec)
 end
-
-function M.openMessage(opts)
-  return op("open_message", opts)
+function M.openMessage(spec)
+  return op("open_message", spec)
 end
-
-function M.message(message, opts)
-  local spec = asSpec(message, { "style", "waitForPrint", "bindings", "provenance" })
-  if spec == nil and type(message) == "table" and not looksLikeRef(message) and message.message ~= nil then
-    spec = message
-  end
-  if spec then
-    return op("message", spec)
-  end
-  local given = { message = message }
-  extend(given, opts)
-  return op("message", given)
+function M.message(spec)
+  return op("message", spec)
 end
-
-function M.waitInput(opts)
-  return op("wait_input", opts)
+function M.waitInput(spec)
+  return op("wait_input", spec)
 end
-
-function M.waitInputOrTicks(opts)
-  requireTable(opts, "waitInputOrTicks spec")
-  return op("wait_input_or_ticks", opts)
+function M.waitInputOrTicks(spec)
+  return op("wait_input_or_ticks", spec)
 end
-
-function M.closeMessage(opts)
-  return op("close_message", opts)
+function M.closeMessage(spec)
+  return op("close_message", spec)
 end
-
-function M.holdMessage()
-  return op("hold_message")
+function M.holdMessage(spec)
+  return op("hold_message", spec)
 end
-
-function M.askYesNo(message, opts)
-  local spec = asSpec(message, { "result", "bindings", "provenance" })
-  if spec == nil and type(message) == "table" and not looksLikeRef(message) and message.message ~= nil then
-    spec = message
-  end
-  if spec then
-    return op("ask_yes_no", spec)
-  end
-  local given = {}
-  if message ~= nil then
-    given.message = message
-  end
-  extend(given, opts)
-  return op("ask_yes_no", given)
+function M.askYesNo(spec)
+  return op("ask_yes_no", spec)
 end
-
-function M.bufferText(slot, v)
-  local spec = asSpec(slot, { "slot" })
-  if spec then
-    return op("buffer_text", spec)
-  end
-  return op("buffer_text", { slot = requireInteger(slot, "buffer slot"), value = v })
+function M.bufferText(spec)
+  return op("buffer_text", spec)
 end
-
-function M.showWaitingIcon()
-  return op("show_waiting_icon")
+function M.showWaitingIcon(spec)
+  return op("show_waiting_icon", spec)
 end
-function M.hideWaitingIcon()
-  return op("hide_waiting_icon")
+function M.hideWaitingIcon(spec)
+  return op("hide_waiting_icon", spec)
 end
-
 function M.resolveCommonMessageBank(spec)
-  requireTable(spec, "resolveCommonMessageBank spec")
   return op("resolve_common_message_bank", spec)
 end
 
 -- 45.8 Lock and actor constructors
 
-function M.lockPlayer()
-  return op("lock_player")
+function M.lockPlayer(spec)
+  return op("lock_player", spec)
 end
-function M.releasePlayer()
-  return op("release_player")
+function M.releasePlayer(spec)
+  return op("release_player", spec)
 end
-function M.lockAll()
-  return op("lock_all")
+function M.lockAll(spec)
+  return op("lock_all", spec)
 end
-function M.releaseAll()
-  return op("release_all")
+function M.releaseAll(spec)
+  return op("release_all", spec)
 end
-
-function M.lockActor(actor, opts)
-  local spec = asSpec(actor, { "actor", "waitUntilPausable", "provenance" })
-  if spec then
-    return op("lock_actor", spec)
-  end
-  local given = { actor = actor }
-  extend(given, opts)
-  return op("lock_actor", given)
+function M.lockActor(spec)
+  return op("lock_actor", spec)
 end
-
-function M.releaseActor(actor)
-  local spec = asSpec(actor, { "actor" })
-  if spec then
-    return op("release_actor", spec)
-  end
-  return op("release_actor", { actor = actor })
+function M.releaseActor(spec)
+  return op("release_actor", spec)
 end
-
-function M.facePlayer(actor)
-  local spec = asSpec(actor)
-  if spec then
-    return op("face_player", spec)
-  end
-  local given = {}
-  if actor ~= nil then
-    given.actor = actor
-  end
-  return op("face_player", given)
+function M.facePlayer(spec)
+  return op("face_player", spec)
 end
-
-function M.face(actor, direction)
-  local spec = asSpec(actor, { "actor", "direction" })
-  if spec then
-    return op("face", spec)
-  end
-  return op("face", { actor = actor, direction = requireDirection(direction) })
+function M.face(spec)
+  return op("face", spec)
 end
-
-function M.showObject(actor)
-  local spec = asSpec(actor, { "actor" })
-  if spec then
-    return op("show_object", spec)
-  end
-  return op("show_object", { actor = actor })
+function M.showObject(spec)
+  return op("show_object", spec)
 end
-function M.hideObject(actor)
-  local spec = asSpec(actor, { "actor" })
-  if spec then
-    return op("hide_object", spec)
-  end
-  return op("hide_object", { actor = actor })
+function M.hideObject(spec)
+  return op("hide_object", spec)
 end
-
-function M.setObjectPosition(actor, position)
-  local spec = asSpec(actor, { "fieldX", "fieldZ", "worldY" })
-  if spec then
-    return op("set_object_position", spec)
-  end
-  requireTable(position, "position")
-  return op("set_object_position", extend({ actor = actor }, position))
+function M.setObjectPosition(spec)
+  return op("set_object_position", spec)
 end
-
-function M.setObjectFacing(actor, direction)
-  local spec = asSpec(actor, { "actor", "direction" })
-  if spec then
-    return op("set_object_facing", spec)
-  end
-  return op("set_object_facing", { actor = actor, direction = requireDirection(direction) })
+function M.setObjectFacing(spec)
+  return op("set_object_facing", spec)
 end
-
-function M.setObjectMovementType(actor, movementType)
-  local spec = asSpec(actor, { "actor", "movementType" })
-  if spec then
-    return op("set_object_movement_type", spec)
-  end
-  return op("set_object_movement_type", { actor = actor, movementType = movementType })
+function M.setObjectMovementType(spec)
+  return op("set_object_movement_type", spec)
 end
-
 function M.getPlayerCoords(spec)
-  requireTable(spec, "getPlayerCoords spec")
   return op("get_player_coords", spec)
 end
-
-function M.getObjectCoords(actor, spec)
-  local asSpecTable = asSpec(actor, { "actor", "x", "z" })
-  if asSpecTable then
-    return op("get_object_coords", asSpecTable)
-  end
-  requireTable(spec, "getObjectCoords spec")
-  return op("get_object_coords", extend({ actor = actor }, spec))
+function M.getObjectCoords(spec)
+  return op("get_object_coords", spec)
 end
-
 function M.getPlayerFacing(spec)
-  requireTable(spec, "getPlayerFacing spec")
   return op("get_player_facing", spec)
 end
 
--- 45.9 Movement constructors
+-- 45.9 Movement constructors (spec-table forms)
 
-function M.applyMovement(actor, sequence, opts)
-  local spec = asSpec(actor, { "actor", "movement", "movementId" })
-  if spec then
-    return op("apply_movement", spec)
-  end
-  requireTable(sequence, "movement sequence")
-  local given = { actor = actor, movement = sequence }
-  extend(given, opts)
-  return op("apply_movement", given)
+function M.applyMovement(spec)
+  return op("apply_movement", spec)
 end
-
-function M.waitMovement(opts)
-  return op("wait_movement", opts)
+function M.waitMovement(spec)
+  return op("wait_movement", spec)
 end
-
-function M.move(actor, sequence, opts)
-  local spec = asSpec(actor, { "actor", "movement", "movementId" })
-  if spec then
-    return op("move", spec)
-  end
-  requireTable(sequence, "movement sequence")
-  local given = { actor = actor, movement = sequence }
-  extend(given, opts)
-  return op("move", given)
+function M.move(spec)
+  return op("move", spec)
 end
 
 M.m = {}
 
-function M.m.face(direction, count)
-  local given = { direction = requireDirection(direction) }
-  if count ~= nil then
-    given.count = count
-  end
-  return action("face", given)
+function M.m.face(spec)
+  return action("face", spec)
 end
-
-function M.m.walk(direction, opts)
-  local given = { direction = requireDirection(direction) }
-  extend(given, opts)
-  return action("walk", given)
+function M.m.walk(spec)
+  return action("walk", spec)
 end
-
-function M.m.walkInPlace(direction, opts)
-  local given = { direction = requireDirection(direction) }
-  extend(given, opts)
-  return action("walk_in_place", given)
+function M.m.walkInPlace(spec)
+  return action("walk_in_place", spec)
 end
-
-function M.m.jump(direction, opts)
-  local given = { direction = requireDirection(direction) }
-  extend(given, opts)
-  return action("jump", given)
+function M.m.jump(spec)
+  return action("jump", spec)
 end
-
-function M.m.delay(ticks, count)
-  local given = { ticks = requireInteger(ticks, "delay ticks") }
-  if count ~= nil then
-    given.count = count
-  end
-  return action("delay", given)
+function M.m.delay(spec)
+  return action("delay", spec)
 end
-
-function M.m.setVisible(visible)
-  return action("set_visible", { visible = visible })
+function M.m.setVisible(spec)
+  return action("set_visible", spec)
 end
-
-function M.m.lockFacing()
-  return action("lock_facing")
+function M.m.lockFacing(spec)
+  return action("lock_facing", spec)
 end
-function M.m.unlockFacing()
-  return action("unlock_facing")
+function M.m.unlockFacing(spec)
+  return action("unlock_facing", spec)
 end
-function M.m.pauseAnimation()
-  return action("pause_animation")
+function M.m.pauseAnimation(spec)
+  return action("pause_animation", spec)
 end
-function M.m.resumeAnimation()
-  return action("resume_animation")
+function M.m.resumeAnimation(spec)
+  return action("resume_animation", spec)
 end
-
-function M.m.emote(name, count)
-  local given = { name = name }
-  if count ~= nil then
-    given.count = count
-  end
-  return action("emote", given)
+function M.m.emote(spec)
+  return action("emote", spec)
 end
-
-function M.m.gesture(name, count)
-  local given = { name = name }
-  if count ~= nil then
-    given.count = count
-  end
-  return action("gesture", given)
+function M.m.gesture(spec)
+  return action("gesture", spec)
 end
-
 function M.m.unsupported(spec)
-  requireTable(spec, "unsupported movement spec")
   return action("unsupported", spec)
 end
 
 -- 45.10 Audio constructors
 
-function M.playSound(id)
-  local spec = asSpec(id)
-  if spec then
-    return op("play_sound", spec)
-  end
-  return op("play_sound", { sound = requireString(id, "sound id") })
+function M.playSound(spec)
+  return op("play_sound", spec)
 end
-
-function M.stopSound(id)
-  local spec = asSpec(id)
-  if spec then
-    return op("stop_sound", spec)
-  end
-  return op("stop_sound", { sound = requireString(id, "sound id") })
+function M.stopSound(spec)
+  return op("stop_sound", spec)
 end
-
-function M.waitSound(id)
-  local spec = asSpec(id)
-  if spec then
-    return op("wait_sound", spec)
-  end
-  local given = {}
-  if id ~= nil then
-    given.sound = requireString(id, "sound id")
-  end
-  return op("wait_sound", given)
+function M.waitSound(spec)
+  return op("wait_sound", spec)
 end
-
-function M.playCry(species, opts)
-  local spec = asSpec(species, { "species", "form" })
-  if spec then
-    return op("play_cry", spec)
-  end
-  local given = { species = species }
-  extend(given, opts)
-  return op("play_cry", given)
+function M.playCry(spec)
+  return op("play_cry", spec)
 end
-
-function M.waitCry()
-  return op("wait_cry")
+function M.waitCry(spec)
+  return op("wait_cry", spec)
 end
-
-function M.playFanfare(id)
-  local spec = asSpec(id)
-  if spec then
-    return op("play_fanfare", spec)
-  end
-  return op("play_fanfare", { fanfare = requireString(id, "fanfare id") })
+function M.playFanfare(spec)
+  return op("play_fanfare", spec)
 end
-
-function M.waitFanfare()
-  return op("wait_fanfare")
+function M.waitFanfare(spec)
+  return op("wait_fanfare", spec)
 end
-
-function M.playMusic(id)
-  local spec = asSpec(id)
-  if spec then
-    return op("play_music", spec)
-  end
-  return op("play_music", { music = requireString(id, "music id") })
+function M.playMusic(spec)
+  return op("play_music", spec)
 end
-
-function M.stopMusic(id)
-  local spec = asSpec(id)
-  if spec then
-    return op("stop_music", spec)
-  end
-  local given = {}
-  if id ~= nil then
-    given.music = requireString(id, "music id")
-  end
-  return op("stop_music", given)
+function M.stopMusic(spec)
+  return op("stop_music", spec)
 end
-
-function M.resetMusic()
-  return op("reset_music")
+function M.resetMusic(spec)
+  return op("reset_music", spec)
 end
-
-function M.temporaryMusic(id)
-  local spec = asSpec(id)
-  if spec then
-    return op("temporary_music", spec)
-  end
-  return op("temporary_music", { music = requireString(id, "music id") })
+function M.temporaryMusic(spec)
+  return op("temporary_music", spec)
 end
-
 function M.fadeMusicOut(spec)
-  requireTable(spec, "fadeMusicOut spec")
   return op("fade_music_out", spec)
 end
-
 function M.fadeMusicIn(spec)
-  requireTable(spec, "fadeMusicIn spec")
   return op("fade_music_in", spec)
 end
 
 -- 45.11 Screen, camera, and map constructors
 
 function M.fadeScreen(spec)
-  requireTable(spec, "fadeScreen spec")
   return op("fade_screen", spec)
 end
-
-function M.waitFade()
-  return op("wait_fade")
+function M.waitFade(spec)
+  return op("wait_fade", spec)
 end
-
 function M.warp(spec)
-  requireTable(spec, "warp spec")
   return op("warp", spec)
 end
-
-function M.setSpawn(spawn)
-  local spec = asSpec(spawn)
-  if spec then
-    return op("set_spawn", spec)
-  end
-  return op("set_spawn", { spawn = requireString(spawn, "spawn id") })
+function M.setSpawn(spec)
+  return op("set_spawn", spec)
 end
-
 function M.shakeCamera(spec)
-  requireTable(spec, "shakeCamera spec")
   return op("shake_camera", spec)
 end
 
 -- 45.12 Random, raw, and diagnostic constructors
 
 function M.random(spec)
-  requireTable(spec, "random spec")
   return op("random", spec)
 end
-
 function M.lua(spec)
-  requireTable(spec, "lua spec")
   return op("lua", spec)
 end
-
 function M.unsupported(spec)
-  requireTable(spec, "unsupported spec")
   return op("unsupported", spec)
 end
 

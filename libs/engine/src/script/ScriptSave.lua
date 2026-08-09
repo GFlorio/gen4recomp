@@ -23,7 +23,7 @@ ScriptSave.SCHEMA_NAME = "g4-script-save-v1"
 ---@return table bucket
 function ScriptSave.capture(scheduler, tick, opts)
   assert(opts and type(opts.registryFingerprint) == "string", "registry fingerprint required for capture")
-  for _, instance in ipairs(scheduler:instances()) do
+  for _, instance in ipairs(scheduler:liveInstances()) do
     assert(instance.status ~= "running", "capture requires a fixed-tick phase boundary (no running context)")
   end
   local environments = {}
@@ -31,7 +31,7 @@ function ScriptSave.capture(scheduler, tick, opts)
     environments[#environments + 1] = environment:capture()
   end
   local instances = {}
-  for _, instance in ipairs(scheduler:instances()) do
+  for _, instance in ipairs(scheduler:liveInstances()) do
     instances[#instances + 1] = instance:capture(tick)
   end
   local tasks = {}
@@ -47,7 +47,6 @@ function ScriptSave.capture(scheduler, tick, opts)
     nextEnvironmentId = counters.nextEnvironmentId,
     nextInstanceId = counters.nextInstanceId,
     nextTaskId = counters.nextTaskId,
-    foregroundEnvironment = scheduler:foregroundEnvironmentId(),
     environments = environments,
     instances = instances,
     tasks = tasks,

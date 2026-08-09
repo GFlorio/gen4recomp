@@ -169,6 +169,20 @@ function ScriptContext.build(opts)
     return actorId
   end
 
+  -- Object mutators require a live actor: a missing object is an attributed
+  -- fault, never a silent no-op.
+  local function requireObject(ref)
+    local actorId = objectFor(ref)
+    if actorId == nil then
+      Errors.raise(
+        ScriptErrors.SCRIPT_ACTOR_NOT_FOUND,
+        "no live actor for the object reference",
+        { scriptId = instance.scriptId, actor = tostring(ref) }
+      )
+    end
+    return actorId
+  end
+
   ctx.objects = {
     get = function(_, ref)
       local actorId = objectFor(ref)
@@ -198,28 +212,16 @@ function ScriptContext.build(opts)
       return objectFor(ref) ~= nil
     end,
     show = function(_, ref)
-      local actorId = objectFor(ref)
-      if actorId ~= nil then
-        services.actors:show(actorId)
-      end
+      services.actors:show(requireObject(ref))
     end,
     hide = function(_, ref)
-      local actorId = objectFor(ref)
-      if actorId ~= nil then
-        services.actors:hide(actorId)
-      end
+      services.actors:hide(requireObject(ref))
     end,
     setPosition = function(_, ref, position)
-      local actorId = objectFor(ref)
-      if actorId ~= nil then
-        services.actors:setPosition(actorId, position)
-      end
+      services.actors:setPosition(requireObject(ref), position)
     end,
     setFacing = function(_, ref, direction)
-      local actorId = objectFor(ref)
-      if actorId ~= nil then
-        services.actors:setFacing(actorId, direction)
-      end
+      services.actors:setFacing(requireObject(ref), direction)
     end,
   }
 

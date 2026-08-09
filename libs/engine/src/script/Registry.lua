@@ -70,9 +70,8 @@ local function normalizeOwner(owner)
   return { kind = owner.kind, id = owner.id, api = owner.api or 1 }
 end
 
----@param opts table|nil
 ---@return Registry
-function Registry.new(opts)
+function Registry.new()
   return setmetatable({
     _bases = {},
     _contributions = {},
@@ -96,7 +95,7 @@ end
 
 -- Install a vanilla base definition. `layer` is "generated", "override", or
 -- "handwritten"; handwritten wins, then override, then generated (spec
--- section 7.3 plus the override system). Installing the same layer twice is
+-- . Installing the same layer twice is
 -- a hard duplicate error.
 ---@param id string
 ---@param script table
@@ -312,7 +311,7 @@ function Registry:_definition(id)
 end
 
 -- The raw contributed resource for inspection, or the resolved base when no
--- contribution defines it (mirrors the registry-level `get` of section 30.1).
+-- contribution defines it (mirrors the registry-level `get` of .
 ---@param id string
 ---@return table|nil
 function Registry:get(id)
@@ -326,17 +325,22 @@ function Registry:get(id)
   return self:base(id)
 end
 
--- All ids with any definition (bases or contributions), sorted.
+-- All ids with any definition (bases or contributions), sorted and
+-- deduplicated: an id having both a base and a contribution appears once.
 ---@return string[]
 function Registry:ids()
-  local out = {}
+  local seen = {}
   for id in pairs(self._bases) do
-    out[#out + 1] = id
+    seen[id] = true
   end
   for id in pairs(self._contributions) do
     if #self._contributions[id] > 0 then
-      out[#out + 1] = id
+      seen[id] = true
     end
+  end
+  local out = {}
+  for id in pairs(seen) do
+    out[#out + 1] = id
   end
   table.sort(out)
   return out
@@ -349,8 +353,10 @@ function Registry:version()
 end
 
 -- Deterministic registry fingerprint over every base and contribution (spec
--- section 28.1): ordering, owners, priorities, operations, and resource ids.
--- Saves record it; load rejects a mismatch. The registry is immutable during
+-- : ordering, owners, priorities, operations, resource ids, and
+-- a content hash of each resource. The fingerprint therefore changes when a
+-- script's executable content changes even when its id does not. Saves
+-- record it; load rejects a mismatch. The registry is immutable during
 -- gameplay, so the digest is memoized on the mutation version; the game saves
 -- after every warp and on quit, and re-hashing the full corpus each time made
 -- the autosave stall.
@@ -364,7 +370,12 @@ function Registry:fingerprint()
   for _, id in ipairs(self:ids()) do
     local entry = { id = id, bases = {} }
     for layer in pairs(self._bases[id] or {}) do
-      entry.bases[#entry.bases + 1] = { layer = layer, scriptId = self._bases[id][layer].id }
+      local script = self._bases[id][layer]
+      entry.bases[#entry.bases + 1] = {
+        layer = layer,
+        scriptId = script.id,
+        scriptHash = Sha256.hex(LuaWriter.encode(script)),
+      }
     end
     table.sort(entry.bases, function(a, b)
       return a.layer < b.layer
@@ -378,6 +389,7 @@ function Registry:fingerprint()
         loadOrder = record.loadOrder,
         registrationIndex = record.registrationIndex,
         scriptId = record.resource and record.resource.id or nil,
+        scriptHash = record.resource and Sha256.hex(LuaWriter.encode(record.resource)) or nil,
       }
     end
     entry.contributions = contributions

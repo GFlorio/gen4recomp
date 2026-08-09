@@ -46,6 +46,9 @@ function ScriptMapsService:setSourceMap(sourceMap)
   self._sourceMap = sourceMap
 end
 
+-- Resolve a map symbol to its runtime map; nil only for the known
+-- not-found case (FIELD_MAP_UNKNOWN). Any other loader failure is an
+-- internal fault and re-raises with attribution.
 ---@param ref any
 ---@return table|nil
 function ScriptMapsService:resolve(ref)
@@ -53,19 +56,38 @@ function ScriptMapsService:resolve(ref)
     return nil
   end
   local ok, map = pcall(self._loader.load, self._loader, ref)
-  if ok and map and map.mapId ~= nil then
-    return map
+  if ok then
+    if map ~= nil and map.mapId ~= nil then
+      return map
+    end
+    return nil
   end
-  return nil
+  if Errors.is(map) then
+    local err = map --[[@as Errors.Error]]
+    if err.code == "FIELD_MAP_UNKNOWN" then
+      return nil
+    end
+    Errors.raise(err.code, err.message, err.context)
+  end
+  error(map, 0)
 end
 
 function ScriptMapsService:has(ref)
   return self:resolve(ref) ~= nil
 end
 
+-- Record the player's spawn point for field re-entry. The spawn id is
+-- observable through `spawn()`; the field layer consumes it when it rebuilds
+-- the player after leaving a scripted map.
 ---@param spawn string
 function ScriptMapsService:setSpawn(spawn)
   self._spawn = spawn
+end
+
+-- The recorded spawn point, or nil before any `set_spawn` ran.
+---@return string|nil
+function ScriptMapsService:spawn()
+  return self._spawn
 end
 
 -- Start a scripted warp. `target` is the graph node's warp descriptor:
@@ -74,7 +96,7 @@ end
 ---@param target table
 function ScriptMapsService:startWarp(target)
   assert(self._pending == nil, "a scripted warp is already in progress")
-  local destination, loadErr = self._loader.load(target.map)
+  local destination, loadErr = self._loader:load(target.map)
   if destination == nil or destination.mapId == nil then
     Errors.raise(
       ScriptErrors.SCRIPT_INVALID_REFERENCE,
@@ -94,14 +116,14 @@ function ScriptMapsService:startWarp(target)
     )
   end
   origin = origin --[[@as { x: integer, z: integer }]]
-  local originX, originZ = origin.x, origin.z
+  local warpId = target.warp or 0
   local warp = {
-    index = target.warp or 0,
-    x = originX + target.fieldX,
-    z = originZ + target.fieldZ,
+    index = warpId,
+    x = origin.x + target.fieldX,
+    z = origin.z + target.fieldZ,
     y = 0,
     destinationMapId = destination.mapId,
-    destinationWarpId = target.warp or 0,
+    destinationWarpId = warpId,
     direct = true,
   }
   self._pending = warp

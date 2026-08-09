@@ -1,15 +1,13 @@
 -- Map event bindings : the manifest maps map ids and event
 -- keys (object actor ids, background array indices, coordinate indices) to
 -- stable public script ids. Runtime bindings never contain the ROM's one-based
--- script-index convention (section 29.3); the importer resolves that during
+-- script-index convention ; the importer resolves that during
 -- binding generation. Interaction resolution order follows section 29.4: the
 -- facing cell prefers an interactable object, then a matching background
 -- event. The module builds the trigger descriptor of section 29.2. Pure
 -- domain module: no love dependency.
 
 local Bindings = {}
-
-Bindings.SCHEMA_NAME = "g4-script-bindings-v1"
 
 local TRIGGER_KINDS = {
   object = true,
@@ -24,6 +22,8 @@ local TRIGGER_KINDS = {
 ---@field private _maps table
 local Bindings = {}
 Bindings.__index = Bindings
+
+Bindings.SCHEMA_NAME = "g4-script-bindings-v1"
 
 ---@param manifest table
 ---@return table bindings
@@ -159,13 +159,14 @@ function Bindings:resolveIntent(intent, playerFacing)
   return nil
 end
 
--- All bound script ids (for diagnostics and coverage).
+-- All bound script ids (for diagnostics and coverage): every binding kind,
+-- including map-init/enter/resume events.
 ---@return string[]
 function Bindings:allScriptIds()
   local out, seen = {}, {}
   for _, map in pairs(self._maps) do
-    for _, kind in ipairs({ "objects", "backgrounds", "coordinates" }) do
-      for _, scriptId in pairs(map[kind] or {}) do
+    for _, kind in ipairs({ "object", "background", "coordinate", "map_init", "map_enter", "map_resume" }) do
+      for _, scriptId in pairs(map[kind .. "s"] or {}) do
         if type(scriptId) == "string" and not seen[scriptId] then
           seen[scriptId] = true
           out[#out + 1] = scriptId

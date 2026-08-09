@@ -1,5 +1,5 @@
 -- DSL constructor compatibility tests. These freeze the exact table output of
--- every API 1 constructor from the sprint , so accidental
+-- every API 1 constructor from the , so accidental
 -- changes to operation names, value kinds, field names, or defaults fail here.
 -- Direct-table equivalence and metatable-freedom are asserted separately.
 
@@ -90,12 +90,6 @@ local CASES = {
       return S.integerText(S.var("count"))
     end,
     { text = "integer", value = { value = "var", id = "count" }, pad = "none", sign = false },
-  },
-  integer_text_opts = {
-    function()
-      return S.integerText(S.var("coins"), { width = 5, pad = "zero" })
-    end,
-    { text = "integer", value = { value = "var", id = "coins" }, width = 5, pad = "zero", sign = false },
   },
   item_name = {
     function()
@@ -303,7 +297,7 @@ local CASES = {
   },
   wait_ticks = {
     function()
-      return S.waitTicks(3)
+      return S.waitTicks({ ticks = 3 })
     end,
     { op = "wait_ticks", ticks = 3 },
   },
@@ -331,13 +325,17 @@ local CASES = {
   },
   call = {
     function()
-      return S.call("common.give_item_verbose")
+      return S.call({ target = "common.give_item_verbose" })
     end,
     { op = "call", target = "common.give_item_verbose", args = {} },
   },
   call_with_opts = {
     function()
-      return S.call("common.give_item_verbose", { args = { item = "ITEM_POTION" }, result = S.local_("gaveItem") })
+      return S.call({
+        target = "common.give_item_verbose",
+        args = { item = "ITEM_POTION" },
+        result = S.local_("gaveItem"),
+      })
     end,
     {
       op = "call",
@@ -348,37 +346,37 @@ local CASES = {
   },
   call_common = {
     function()
-      return S.callCommon("common.elms_lab_intro")
+      return S.callCommon({ target = "common.elms_lab_intro" })
     end,
     { op = "call_common", target = "common.elms_lab_intro", args = {} },
   },
   return_empty = {
     function()
-      return S.return_()
+      return S.return_({})
     end,
     { op = "return" },
   },
   return_value = {
     function()
-      return S.return_(S.var("x"))
+      return S.return_({ value = S.var("x") })
     end,
     { op = "return", value = { value = "var", id = "x" } },
   },
   label = {
     function()
-      return S.label("offset_0042")
+      return S.label({ name = "offset_0042" })
     end,
     { op = "label", name = "offset_0042" },
   },
   ["goto"] = {
     function()
-      return S.goto_("offset_0042")
+      return S.goto_({ target = "offset_0042" })
     end,
     { op = "goto", target = "offset_0042" },
   },
   goto_if = {
     function()
-      return S.gotoIf(S.eq(S.var("x"), 1), "offset_0042")
+      return S.gotoIf({ condition = S.eq(S.var("x"), 1), target = "offset_0042" })
     end,
     {
       op = "goto_if",
@@ -388,19 +386,19 @@ local CASES = {
   },
   compare = {
     function()
-      return S.compare(S.var("a"), S.var("b"))
+      return S.compare({ left = S.var("a"), right = S.var("b") })
     end,
     { op = "compare", left = { value = "var", id = "a" }, right = { value = "var", id = "b" } },
   },
   goto_compared = {
     function()
-      return S.gotoCompared("eq", "offset_0042")
+      return S.gotoCompared({ operator = "eq", target = "offset_0042" })
     end,
     { op = "goto_compared", operator = "eq", target = "offset_0042" },
   },
   call_compared = {
     function()
-      return S.callCompared("ne", "subroutine")
+      return S.callCompared({ operator = "ne", target = "subroutine" })
     end,
     { op = "call_compared", operator = "ne", target = "subroutine" },
   },
@@ -414,67 +412,67 @@ local CASES = {
   -- 45.6 State constructors
   set_flag = {
     function()
-      return S.setFlag("FLAG_MET_ELM")
+      return S.setFlag({ flag = "FLAG_MET_ELM" })
     end,
     { op = "set_flag", flag = "FLAG_MET_ELM" },
   },
   set_flag_dynamic = {
     function()
-      return S.setFlag(S.var("flag_id"))
+      return S.setFlag({ flag = S.var("flag_id") })
     end,
     { op = "set_flag", flag = { value = "var", id = "flag_id" } },
   },
   clear_flag = {
     function()
-      return S.clearFlag("FLAG_MET_ELM")
+      return S.clearFlag({ flag = "FLAG_MET_ELM" })
     end,
     { op = "clear_flag", flag = "FLAG_MET_ELM" },
   },
   set_var = {
     function()
-      return S.setVar("VAR_SCENE_ELMS_LAB", 1)
+      return S.setVar({ variable = "VAR_SCENE_ELMS_LAB", value = 1 })
     end,
     { op = "set_var", variable = "VAR_SCENE_ELMS_LAB", value = 1 },
   },
   copy_var = {
     function()
-      return S.copyVar("VAR_A", "VAR_B")
+      return S.copyVar({ destination = "VAR_A", source = "VAR_B" })
     end,
     { op = "copy_var", destination = "VAR_A", source = "VAR_B" },
   },
   add_var = {
     function()
-      return S.addVar("VAR_A", 1)
+      return S.addVar({ variable = "VAR_A", amount = 1 })
     end,
     { op = "add_var", variable = "VAR_A", amount = 1 },
   },
   sub_var = {
     function()
-      return S.subVar("VAR_A", 1)
+      return S.subVar({ variable = "VAR_A", amount = 1 })
     end,
     { op = "sub_var", variable = "VAR_A", amount = 1 },
   },
   set_local = {
     function()
-      return S.setLocal("route", "intro")
+      return S.setLocal({ name = "route", value = "intro" })
     end,
     { op = "set_local", name = "route", value = "intro" },
   },
   copy_local = {
     function()
-      return S.copyLocal("a", "b")
+      return S.copyLocal({ destination = "a", source = "b" })
     end,
     { op = "copy_local", destination = "a", source = "b" },
   },
   add_local = {
     function()
-      return S.addLocal("counter", 1)
+      return S.addLocal({ name = "counter", amount = 1 })
     end,
     { op = "add_local", name = "counter", amount = 1 },
   },
   sub_local = {
     function()
-      return S.subLocal("counter", 1)
+      return S.subLocal({ name = "counter", amount = 1 })
     end,
     { op = "sub_local", name = "counter", amount = 1 },
   },
@@ -482,7 +480,7 @@ local CASES = {
   -- 45.7 Dialogue constructors
   say_defaults = {
     function()
-      return S.say("msg.elms_lab.elm_intro")
+      return S.say({ message = "msg.elms_lab.elm_intro" })
     end,
     {
       op = "say",
@@ -496,7 +494,8 @@ local CASES = {
   },
   say_opts = {
     function()
-      return S.say("msg.elms_lab.elm_intro", {
+      return S.say({
+        message = "msg.elms_lab.elm_intro",
         style = "system",
         wait = "button",
         close = false,
@@ -528,13 +527,13 @@ local CASES = {
   },
   message_defaults = {
     function()
-      return S.message("msg.elms_lab.elm_intro")
+      return S.message({ message = "msg.elms_lab.elm_intro" })
     end,
     { op = "message", message = "msg.elms_lab.elm_intro", style = "npc", waitForPrint = true, bindings = {} },
   },
   message_system = {
     function()
-      return S.message("msg.elms_lab.elm_intro", { style = "system", waitForPrint = false })
+      return S.message({ message = "msg.elms_lab.elm_intro", style = "system", waitForPrint = false })
     end,
     { op = "message", message = "msg.elms_lab.elm_intro", style = "system", waitForPrint = false, bindings = {} },
   },
@@ -576,7 +575,7 @@ local CASES = {
   },
   ask_yes_no = {
     function()
-      return S.askYesNo("msg.elms_lab.question", { result = S.local_("accepted") })
+      return S.askYesNo({ message = "msg.elms_lab.question", result = S.local_("accepted") })
     end,
     {
       op = "ask_yes_no",
@@ -587,13 +586,13 @@ local CASES = {
   },
   ask_yes_no_current_box = {
     function()
-      return S.askYesNo(nil, { result = S.var("VAR_SPECIAL_RESULT") })
+      return S.askYesNo({ result = S.var("VAR_SPECIAL_RESULT") })
     end,
     { op = "ask_yes_no", result = { value = "var", id = "VAR_SPECIAL_RESULT" }, bindings = {} },
   },
   buffer_text = {
     function()
-      return S.bufferText(0, S.playerName())
+      return S.bufferText({ slot = 0, value = S.playerName() })
     end,
     { op = "buffer_text", slot = 0, value = { text = "player_name" } },
   },
@@ -652,73 +651,73 @@ local CASES = {
   },
   lock_actor = {
     function()
-      return S.lockActor("elm")
+      return S.lockActor({ actor = "elm" })
     end,
     { op = "lock_actor", actor = "elm", waitUntilPausable = false },
   },
   lock_actor_wait = {
     function()
-      return S.lockActor(S.lastTalked(), { waitUntilPausable = true })
+      return S.lockActor({ actor = S.lastTalked(), waitUntilPausable = true })
     end,
     { op = "lock_actor", actor = { ref = "actor", special = "last_talked" }, waitUntilPausable = true },
   },
   release_actor = {
     function()
-      return S.releaseActor("elm")
+      return S.releaseActor({ actor = "elm" })
     end,
     { op = "release_actor", actor = "elm" },
   },
   face_player_default = {
     function()
-      return S.facePlayer()
+      return S.facePlayer({})
     end,
     { op = "face_player", actor = "self" },
   },
   face_player_explicit = {
     function()
-      return S.facePlayer("elm")
+      return S.facePlayer({ actor = "elm" })
     end,
     { op = "face_player", actor = "elm" },
   },
   face = {
     function()
-      return S.face("elm", "south")
+      return S.face({ actor = "elm", direction = "south" })
     end,
     { op = "face", actor = "elm", direction = "south" },
   },
   show_object = {
     function()
-      return S.showObject("elm")
+      return S.showObject({ actor = "elm" })
     end,
     { op = "show_object", actor = "elm" },
   },
   hide_object = {
     function()
-      return S.hideObject("elm")
+      return S.hideObject({ actor = "elm" })
     end,
     { op = "hide_object", actor = "elm" },
   },
   set_object_position = {
     function()
-      return S.setObjectPosition("elm", { fieldX = 4, fieldZ = 5 })
+      return S.setObjectPosition({ actor = "elm", fieldX = 4, fieldZ = 5 })
     end,
     { op = "set_object_position", actor = "elm", fieldX = 4, fieldZ = 5 },
   },
   set_object_position_world_y = {
     function()
-      return S.setObjectPosition("elm", { fieldX = 4, fieldZ = 5, worldY = 2.5 })
+      return S.setObjectPosition({ actor = "elm", fieldX = 4, fieldZ = 5, worldY = 2.5 })
     end,
     { op = "set_object_position", actor = "elm", fieldX = 4, fieldZ = 5, worldY = 2.5 },
   },
   set_object_facing = {
     function()
-      return S.setObjectFacing("elm", "east")
+      return S.setObjectFacing({ actor = "elm", direction = "east" })
     end,
     { op = "set_object_facing", actor = "elm", direction = "east" },
   },
   set_object_movement_type = {
     function()
-      return S.setObjectMovementType("elm", "stationary")
+      return S.setObjectMovementType({ actor = "elm", movementType = "stationary" })
     end,
     { op = "set_object_movement_type", actor = "elm", movementType = "stationary" },
   },
@@ -734,7 +733,7 @@ local CASES = {
   },
   get_object_coords = {
     function()
-      return S.getObjectCoords("elm", { x = S.local_("elm_x"), z = S.local_("elm_z") })
+      return S.getObjectCoords({ actor = "elm", x = S.local_("elm_x"), z = S.local_("elm_z") })
     end,
     {
       op = "get_object_coords",
@@ -753,7 +752,10 @@ local CASES = {
   -- 45.9 Movement constructors
   apply_movement = {
     function()
-      return S.applyMovement("elm", { S.m.face("south"), S.m.walk("south", { tiles = 2 }) })
+      return S.applyMovement({
+        actor = "elm",
+        movement = { S.m.face({ direction = "south" }), S.m.walk({ direction = "south", tiles = 2 }) },
+      })
     end,
     {
       op = "apply_movement",
@@ -766,7 +768,11 @@ local CASES = {
   },
   apply_movement_with_id = {
     function()
-      return S.applyMovement("elm", { S.m.face("south") }, { movementId = "elm_intro" })
+      return S.applyMovement({
+        actor = "elm",
+        movement = { S.m.face({ direction = "south" }) },
+        movementId = "elm_intro",
+      })
     end,
     {
       op = "apply_movement",
@@ -789,7 +795,7 @@ local CASES = {
   },
   move = {
     function()
-      return S.move("elm", { S.m.walk("south", { tiles = 2 }) })
+      return S.move({ actor = "elm", movement = { S.m.walk({ direction = "south", tiles = 2 }) } })
     end,
     {
       op = "move",
@@ -801,37 +807,37 @@ local CASES = {
   -- 45.10 Audio constructors
   play_sound = {
     function()
-      return S.playSound("SEQ_SE_DP_SELECT")
+      return S.playSound({ sound = "SEQ_SE_DP_SELECT" })
     end,
     { op = "play_sound", sound = "SEQ_SE_DP_SELECT" },
   },
   stop_sound = {
     function()
-      return S.stopSound("SEQ_SE_DP_SELECT")
+      return S.stopSound({ sound = "SEQ_SE_DP_SELECT" })
     end,
     { op = "stop_sound", sound = "SEQ_SE_DP_SELECT" },
   },
   wait_sound = {
     function()
-      return S.waitSound("SEQ_SE_DP_SELECT")
+      return S.waitSound({ sound = "SEQ_SE_DP_SELECT" })
     end,
     { op = "wait_sound", sound = "SEQ_SE_DP_SELECT" },
   },
   wait_sound_current = {
     function()
-      return S.waitSound()
+      return S.waitSound({})
     end,
     { op = "wait_sound" },
   },
   play_cry = {
     function()
-      return S.playCry(S.var("species"))
+      return S.playCry({ species = S.var("species") })
     end,
     { op = "play_cry", species = { value = "var", id = "species" }, form = 0 },
   },
   play_cry_form = {
     function()
-      return S.playCry("SPECIES_PICHU", { form = 1 })
+      return S.playCry({ species = "SPECIES_PICHU", form = 1 })
     end,
     { op = "play_cry", species = "SPECIES_PICHU", form = 1 },
   },
@@ -843,7 +849,7 @@ local CASES = {
   },
   play_fanfare = {
     function()
-      return S.playFanfare("SEQ_ME_POKEGET")
+      return S.playFanfare({ fanfare = "SEQ_ME_POKEGET" })
     end,
     { op = "play_fanfare", fanfare = "SEQ_ME_POKEGET" },
   },
@@ -855,19 +861,19 @@ local CASES = {
   },
   play_music = {
     function()
-      return S.playMusic("SEQ_GS_NEW_BARK")
+      return S.playMusic({ music = "SEQ_GS_NEW_BARK" })
     end,
     { op = "play_music", music = "SEQ_GS_NEW_BARK" },
   },
   stop_music = {
     function()
-      return S.stopMusic("SEQ_GS_NEW_BARK")
+      return S.stopMusic({ music = "SEQ_GS_NEW_BARK" })
     end,
     { op = "stop_music", music = "SEQ_GS_NEW_BARK" },
   },
   stop_music_active = {
     function()
-      return S.stopMusic()
+      return S.stopMusic({})
     end,
     { op = "stop_music" },
   },
@@ -879,7 +885,7 @@ local CASES = {
   },
   temporary_music = {
     function()
-      return S.temporaryMusic("SEQ_GS_EVENT")
+      return S.temporaryMusic({ music = "SEQ_GS_EVENT" })
     end,
     { op = "temporary_music", music = "SEQ_GS_EVENT" },
   },
@@ -917,7 +923,7 @@ local CASES = {
   },
   set_spawn = {
     function()
-      return S.setSpawn("SPAWN_NEW_BARK")
+      return S.setSpawn({ spawn = "SPAWN_NEW_BARK" })
     end,
     { op = "set_spawn", spawn = "SPAWN_NEW_BARK" },
   },
@@ -989,49 +995,49 @@ end
 local ACTION_CASES = {
   face = {
     function()
-      return S.m.face("south")
+      return S.m.face({ direction = "south" })
     end,
     { action = "face", direction = "south", count = 1 },
   },
   face_count = {
     function()
-      return S.m.face("south", 2)
+      return S.m.face({ direction = "south", count = 2 })
     end,
     { action = "face", direction = "south", count = 2 },
   },
   walk_defaults = {
     function()
-      return S.m.walk("north")
+      return S.m.walk({ direction = "north" })
     end,
     { action = "walk", direction = "north", speed = "normal", tiles = 1 },
   },
   walk_opts = {
     function()
-      return S.m.walk("south", { speed = "slow", tiles = 2 })
+      return S.m.walk({ direction = "south", speed = "slow", tiles = 2 })
     end,
     { action = "walk", direction = "south", speed = "slow", tiles = 2 },
   },
   walk_in_place = {
     function()
-      return S.m.walkInPlace("east", { speed = "fast", count = 3 })
+      return S.m.walkInPlace({ direction = "east", speed = "fast", count = 3 })
     end,
     { action = "walk_in_place", direction = "east", speed = "fast", count = 3 },
   },
   jump = {
     function()
-      return S.m.jump("south", { distance = "far", speed = "fast" })
+      return S.m.jump({ direction = "south", distance = "far", speed = "fast" })
     end,
     { action = "jump", direction = "south", distance = "far", speed = "fast", count = 1 },
   },
   delay = {
     function()
-      return S.m.delay(15, 2)
+      return S.m.delay({ ticks = 15, count = 2 })
     end,
     { action = "delay", ticks = 15, count = 2 },
   },
   set_visible = {
     function()
-      return S.m.setVisible(false)
+      return S.m.setVisible({ visible = false })
     end,
     { action = "set_visible", visible = false },
   },
@@ -1061,13 +1067,13 @@ local ACTION_CASES = {
   },
   emote = {
     function()
-      return S.m.emote("exclamation", 2)
+      return S.m.emote({ name = "exclamation", count = 2 })
     end,
     { action = "emote", name = "exclamation", count = 2 },
   },
   gesture = {
     function()
-      return S.m.gesture("give")
+      return S.m.gesture({ name = "give" })
     end,
     { action = "gesture", name = "give", count = 1 },
   },

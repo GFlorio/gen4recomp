@@ -331,6 +331,67 @@ local function playerOn(mgr, map, fieldX, fieldZ, surfaceId)
   return p
 end
 
+-- Script integration: the actor world resolves numeric map-object indexes
+-- through the manager's current map, and scripted show/hide reach the draw
+-- records.
+function T.script_actor_world_resolves_map_indexes_and_visibility()
+  local ScriptActorWorld = require("libs.engine.src.script.ScriptActorWorld")
+  local mgr = manager({
+    object({ objectEventId = 2, x = 4, z = 5 }),
+    object({ objectEventId = 241, x = 7, z = 8 }),
+    object({ objectEventId = 253, x = 9, z = 9 }),
+  })
+  local player = {
+    position = function()
+      return { fieldX = 0, fieldZ = 0, worldY = 0 }
+    end,
+    facing = function()
+      return "south"
+    end,
+    gender = function()
+      return 0
+    end,
+    name = function()
+      return "Gold"
+    end,
+  }
+  local world = ScriptActorWorld.new(mgr, player)
+  Assert.equal(world:actorIdForMapIndex(2), "map:61:object:2")
+  Assert.isNil(world:actorIdForMapIndex(99))
+  Assert.equal(world:cameraTargetId(), "map:61:object:241")
+  Assert.equal(world:partnerId(), "map:61:object:253")
+  world:hide("map:61:object:2")
+  local records = mgr:drawRecords(0)
+  for _, record in ipairs(records) do
+    if record.actorId == "map:61:object:2" then
+      Assert.isFalse(record.visible, "hide_object reaches the draw records")
+    else
+      Assert.isTrue(record.visible)
+    end
+  end
+  world:show("map:61:object:2")
+  for _, record in ipairs(mgr:drawRecords(0)) do
+    if record.actorId == "map:61:object:2" then
+      Assert.isTrue(record.visible, "show_object restores draw visibility")
+    end
+  end
+end
+
+-- Scripted set_position onto another solid actor's cell is a conflict, never
+-- a silent occupancy overwrite.
+function T.script_set_position_cannot_overwrite_occupancy()
+  local mgr = manager({
+    object({ objectEventId = 0, x = 2, z = 3 }),
+    object({ objectEventId = 1, x = 8, z = 3 }),
+  })
+  local victim = mgr:getById("map:61:object:1")
+  throwsCode("ACTOR_OCCUPANCY_CONFLICT", function()
+    mgr:setPosition("map:61:object:0", { fieldX = 8, fieldZ = 3 })
+  end)
+  Assert.equal(assert(mgr:getAt(61, 8, 3, 0), "the occupant entry survived the conflict").actorId, "map:61:object:1")
+  Assert.equal(assert(mgr:getAt(61, 2, 3, 0), "the mover kept its old cell").actorId, "map:61:object:0")
+end
+
 function T.player_cannot_step_into_a_visible_solid_actor_cell()
   local mgr, _, _, map = manager({ object({ objectEventId = 0, x = 9, z = 3 }) })
   local p = playerOn(mgr, map, 9, 2, 0)

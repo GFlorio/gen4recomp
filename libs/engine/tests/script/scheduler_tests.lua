@@ -5,7 +5,7 @@
 -- separately from continuation, distinct `yield_tick` vs `wait_ticks(1)`
 -- timelines, dynamic context-slot visitation, common child handoff, the
 -- per-run node budget, cancellation and fault cleanup, and lock ownership.
--- The exit criterion: pure state/control scripts reproduce the source
+-- pure state/control scripts reproduce the source
 -- run-to-yield and handoff timing without UI or actor dependencies.
 
 local Assert = require("tests.support.Assert")
@@ -115,8 +115,8 @@ T["same-tick chain"] = function()
   startForeground(
     h,
     script("test.chain", {
-      S.setVar("VAR_SCENE", 1),
-      S.setFlag("FLAG_SCENE"),
+      S.setVar({ variable = "VAR_SCENE", value = 1 }),
+      S.setFlag({ flag = "FLAG_SCENE" }),
       S.stop(),
     }),
     100
@@ -129,14 +129,14 @@ T["same-tick chain"] = function()
   Assert.isNil(h.scheduler:foregroundEnvironmentId())
 end
 
--- 2. yield_tick: successor executes exactly next tick (section 2 timing).
+-- 2. yield_tick: successor executes exactly next tick.
 T["yield_tick successor next tick"] = function()
   local h = harness()
   startForeground(
     h,
     script("test.yield", {
       S.yieldTick(),
-      S.setVar("VAR_A", 1),
+      S.setVar({ variable = "VAR_A", value = 1 }),
       S.stop(),
     }),
     100
@@ -154,8 +154,8 @@ T["wait_ticks one timeline"] = function()
   startForeground(
     h,
     script("test.wait1", {
-      S.waitTicks(1),
-      S.setVar("VAR_A", 1),
+      S.waitTicks({ ticks = 1 }),
+      S.setVar({ variable = "VAR_A", value = 1 }),
       S.stop(),
     }),
     100
@@ -174,8 +174,8 @@ T["wait_ticks three timeline"] = function()
   startForeground(
     h,
     script("test.wait3", {
-      S.waitTicks(3),
-      S.setVar("VAR_A", 1),
+      S.waitTicks({ ticks = 3 }),
+      S.setVar({ variable = "VAR_A", value = 1 }),
       S.stop(),
     }),
     100
@@ -190,14 +190,14 @@ T["wait_ticks three timeline"] = function()
   Assert.equal(h.services.world:getVar("VAR_A"), 1)
 end
 
--- 5. yield_tick and waitTicks(1) are intentionally different (section 12.6).
+-- 5. yield_tick and waitTicks(1) are intentionally different.
 T["yield_tick vs wait_ticks one"] = function()
   local h1 = harness()
   startForeground(
     h1,
     script("test.a", {
       S.yieldTick(),
-      S.setVar("VAR_A", 1),
+      S.setVar({ variable = "VAR_A", value = 1 }),
       S.stop(),
     }),
     100
@@ -209,8 +209,8 @@ T["yield_tick vs wait_ticks one"] = function()
   startForeground(
     h2,
     script("test.b", {
-      S.waitTicks(1),
-      S.setVar("VAR_A", 1),
+      S.waitTicks({ ticks = 1 }),
+      S.setVar({ variable = "VAR_A", value = 1 }),
       S.stop(),
     }),
     100
@@ -228,7 +228,7 @@ T["no creation tick poll"] = function()
   startForeground(
     h,
     script("test.poll", {
-      S.waitTicks(5),
+      S.waitTicks({ ticks = 5 }),
       S.stop(),
     }),
     100
@@ -247,18 +247,18 @@ T["no creation tick poll"] = function()
   Assert.equal(first.tick, 101)
 end
 
--- 7. A local call may return in the same tick (section 34.1).
+-- 7. A local call may return in the same tick.
 T["local call returns same tick"] = function()
   local h = harness()
   startForeground(
     h,
     script("test.call", {
-      S.call("sub"),
-      S.setVar("VAR_AFTER", 1),
+      S.call({ target = "sub" }),
+      S.setVar({ variable = "VAR_AFTER", value = 1 }),
       S.stop(),
-      S.label("sub"),
-      S.setVar("VAR_SUB", 1),
-      S.return_(),
+      S.label({ name = "sub" }),
+      S.setVar({ variable = "VAR_SUB", value = 1 }),
+      S.return_({}),
     }),
     100
   )
@@ -276,20 +276,17 @@ T["local call args and result"] = function()
       locals = { out = "integer" },
       params = { value = "integer" },
       steps = {
-        S.setLocal("out", 0),
-        S.call("double", {
-          args = { value = 21 },
-          result = S.local_("out"),
-        }),
+        S.setLocal({ name = "out", value = 0 }),
+        S.call({ target = "double", args = { value = 21 }, result = S.local_("out") }),
         S.if_({
           condition = S.eq(S.local_("out"), 42),
-          yes = { S.setFlag("FLAG_OK"), S.stop() },
-          no = { S.setVar("VAR_BAD", 1), S.stop() },
+          yes = { S.setFlag({ flag = "FLAG_OK" }), S.stop() },
+          no = { S.setVar({ variable = "VAR_BAD", value = 1 }), S.stop() },
         }),
-        S.label("double"),
-        S.setVar("VAR_TMP", S.arg("value")),
-        S.addVar("VAR_TMP", S.var("VAR_TMP")),
-        S.return_(S.var("VAR_TMP")),
+        S.label({ name = "double" }),
+        S.setVar({ variable = "VAR_TMP", value = S.arg("value") }),
+        S.addVar({ variable = "VAR_TMP", amount = S.var("VAR_TMP") }),
+        S.return_({ value = S.var("VAR_TMP") }),
       },
     }),
     100
@@ -305,26 +302,54 @@ T["fall off end returns"] = function()
   startForeground(
     h,
     script("test.falloff", {
-      S.call("sub"),
-      S.setFlag("FLAG_AFTER"),
+      S.call({ target = "sub" }),
+      S.setFlag({ flag = "FLAG_AFTER" }),
       S.stop(),
-      S.label("sub"),
-      S.setVar("VAR_SUB", 7),
+      S.label({ name = "sub" }),
+      S.setVar({ variable = "VAR_SUB", value = 7 }),
     }),
     100
   )
   h.scheduler:step(100, nil)
   Assert.equal(h.services.world:getVar("VAR_SUB"), 7)
   Assert.isTrue(h.services.world:isFlagSet("FLAG_AFTER"))
+  Assert.isNil(h.scheduler:foregroundEnvironmentId())
 end
 
--- 10. A new interaction resolves and runs in the trigger tick; its tasks
+-- 10. A callee that returns its own argument evaluates the value against
+-- its own frame, not the caller's.
+T["return evaluates the callee's own argument"] = function()
+  local h = harness()
+  startForeground(
+    h,
+    script("test.retarg", {
+      params = { value = "integer" },
+      steps = {
+        S.call({ target = "echo", args = { value = 42 } }),
+        S.setVar({ variable = "VAR_AFTER", value = S.var("VAR_RESULT") }),
+        S.stop(),
+        S.label({ name = "echo" }),
+        S.setVar({ variable = "VAR_RESULT", value = S.arg("value") }),
+        S.return_({ value = S.arg("value") }),
+      },
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  Assert.equal(
+    h.services.world:getVar("VAR_AFTER"),
+    42,
+    "return_ evaluates the callee's argument before popping its frame"
+  )
+end
+
+-- 11. A new interaction resolves and runs in the trigger tick; its tasks
 -- still first poll on the next tick (sections 2 and 26.6).
 T["interaction runs in trigger tick"] = function()
   local h = harness()
   local resource = script("new_bark.lab_sign", {
-    S.setVar("VAR_SCENE", 1),
-    S.waitTicks(2),
+    S.setVar({ variable = "VAR_SCENE", value = 1 }),
+    S.waitTicks({ ticks = 2 }),
     S.stop(),
   })
   h.registry:installBase(resource.id, resource, "generated")
@@ -356,7 +381,7 @@ end
 T["interaction blocked while foreground active"] = function()
   local h = harness()
   local resource = script("new_bark.lab_sign", {
-    S.waitTicks(5),
+    S.waitTicks({ ticks = 5 }),
     S.stop(),
   })
   h.registry:installBase(resource.id, resource, "generated")
@@ -379,7 +404,7 @@ T["interaction blocked while foreground active"] = function()
   Assert.equal(resolves, 1, "a foreground root owns the field")
 end
 
--- 12. Context runs at most once per tick (section 26.1): one run per tick,
+-- 12. Context runs at most once per tick: one run per tick,
 -- never two.
 T["at most one run per tick"] = function()
   local h = harness()
@@ -407,14 +432,14 @@ end
 T["common child handoff"] = function()
   local h = harness()
   local common = script("common.greeting", {
-    S.setVar("VAR_CHILD", 1),
+    S.setVar({ variable = "VAR_CHILD", value = 1 }),
     { op = "signal_caller" },
     S.stop(),
   })
   h.registry:installBase(common.id, common, "generated")
   local root = script("test.std", {
-    S.callCommon("common.greeting"),
-    S.setVar("VAR_PARENT", 1),
+    S.callCommon({ target = "common.greeting" }),
+    S.setVar({ variable = "VAR_PARENT", value = 1 }),
     S.stop(),
   })
   startForeground(h, root, 100)
@@ -449,12 +474,12 @@ end
 T["context slot exhaustion"] = function()
   local h = harness()
   local common = script("common.a", {
-    S.callCommon("common.b"),
+    S.callCommon({ target = "common.b" }),
     { op = "signal_caller" },
     S.stop(),
   })
   local commonB = script("common.b", {
-    S.callCommon("common.c"),
+    S.callCommon({ target = "common.c" }),
     { op = "signal_caller" },
     S.stop(),
   })
@@ -468,7 +493,7 @@ T["context slot exhaustion"] = function()
   startForeground(
     h,
     script("test.slots", {
-      S.callCommon("common.a"),
+      S.callCommon({ target = "common.a" }),
       S.stop(),
     }),
     100
@@ -485,14 +510,14 @@ T["context slot exhaustion"] = function()
 end
 
 -- 15. Infinite non-blocking loop faults with SCRIPT_STEP_BUDGET_EXCEEDED
--- rather than yielding (section 25.3).
+-- rather than yielding.
 T["step budget fault"] = function()
   local h = harness()
   startForeground(
     h,
     script("test.loop", {
-      S.label("loop"),
-      S.goto_("loop"),
+      S.label({ name = "loop" }),
+      S.goto_({ target = "loop" }),
     }),
     100
   )
@@ -511,20 +536,28 @@ T["step budget fault"] = function()
   Assert.equal(errorEvent.code, "SCRIPT_STEP_BUDGET_EXCEEDED")
 end
 
--- 16. The budget limit is configurable and precise.
+-- 16. The budget limit is precise: exactly N non-blocking nodes complete,
+-- the (N+1)th faults.
 T["budget boundary"] = function()
+  local function budgetScript(count)
+    local steps = {}
+    for i = 1, count do
+      steps[#steps + 1] = S.noop()
+    end
+    steps[#steps + 1] = S.setVar({ variable = "VAR_DONE", value = 1 })
+    steps[#steps + 1] = S.stop()
+    return script("test.budget" .. count, steps)
+  end
   local h = harness()
   h.scheduler:setMaxNodes(8)
-  startForeground(
-    h,
-    script("test.loop", {
-      S.label("loop"),
-      S.goto_("loop"),
-    }),
-    100
-  )
+  startForeground(h, budgetScript(7), 100)
   h.scheduler:step(100, nil)
-  local instance = assert(h.scheduler:instances()[1])
+  Assert.equal(h.services.world:getVar("VAR_DONE"), 1, "exactly N continues complete within the budget")
+  local h2 = harness()
+  h2.scheduler:setMaxNodes(8)
+  startForeground(h2, budgetScript(8), 200)
+  h2.scheduler:step(200, nil)
+  local instance = assert(h2.scheduler:instance("script-00000001"))
   Assert.equal(instance.status, "faulted")
   Assert.equal(instance.endReason, "SCRIPT_STEP_BUDGET_EXCEEDED")
 end
@@ -538,7 +571,7 @@ T["lock ownership and release"] = function()
       S.lockPlayer(),
       S.lockPlayer(),
       S.releasePlayer(),
-      S.setFlag("FLAG_MID"),
+      S.setFlag({ flag = "FLAG_MID" }),
       S.releasePlayer(),
       S.stop(),
     }),
@@ -568,14 +601,14 @@ T["release unowned lock errors"] = function()
   Assert.equal(instance.endReason, "SCRIPT_LOCK_NOT_OWNED")
 end
 
--- 18. Ending an instance releases its locks (section 15).
+-- 18. Ending an instance releases its locks.
 T["completion releases locks"] = function()
   local h = harness()
   startForeground(
     h,
     script("test.locks2", {
       S.lockAll(),
-      S.setFlag("FLAG_LOCKED"),
+      S.setFlag({ flag = "FLAG_LOCKED" }),
       S.releaseAll(),
       S.stop(),
     }),
@@ -588,14 +621,14 @@ T["completion releases locks"] = function()
 end
 
 -- 19. Cancellation: tasks, slots, signals, and locks all cleaned up, and
--- script.ended reports completed = false (section 26.10).
+-- script.ended reports completed = false.
 T["cancellation cleanup"] = function()
   local h = harness()
   startForeground(
     h,
     script("test.cancel", {
       S.lockPlayer(),
-      S.waitTicks(10),
+      S.waitTicks({ ticks = 10 }),
       S.stop(),
     }),
     100
@@ -628,7 +661,7 @@ T["fault cleanup"] = function()
     h,
     script("test.fault", {
       S.lockAll(),
-      S.setVar("VAR_A", 1),
+      S.setVar({ variable = "VAR_A", value = 1 }),
       S.releaseAll(),
       S.releasePlayer(),
       S.stop(),
@@ -643,11 +676,11 @@ T["fault cleanup"] = function()
 end
 
 -- 21. Dynamic slot visitation: a child created in a later unvisited slot runs
--- in the caller's tick (section 2 step 6).
+-- in the caller's tick.
 T["child runs in caller tick when slot unvisited"] = function()
   local h = harness()
   local common = script("common.quick", {
-    S.setVar("VAR_CHILD", 9),
+    S.setVar({ variable = "VAR_CHILD", value = 9 }),
     { op = "signal_caller" },
     S.stop(),
   })
@@ -655,7 +688,7 @@ T["child runs in caller tick when slot unvisited"] = function()
   startForeground(
     h,
     script("test.dyn", {
-      S.callCommon("common.quick"),
+      S.callCommon({ target = "common.quick" }),
       S.stop(),
     }),
     100
@@ -669,15 +702,15 @@ end
 T["external call same tick"] = function()
   local h = harness()
   local callee = script("scripts.helper", {
-    S.setFlag("FLAG_HELPER"),
-    S.return_(),
+    S.setFlag({ flag = "FLAG_HELPER" }),
+    S.return_({}),
   })
   h.registry:installBase(callee.id, callee, "generated")
   startForeground(
     h,
     script("test.extcall", {
-      S.call("scripts.helper"),
-      S.setFlag("FLAG_AFTER"),
+      S.call({ target = "scripts.helper" }),
+      S.setFlag({ flag = "FLAG_AFTER" }),
       S.stop(),
     }),
     100
@@ -693,7 +726,7 @@ T["missing call target"] = function()
   local instanceId = startForeground(
     h,
     script("test.missing", {
-      S.call("scripts.nowhere"),
+      S.call({ target = "scripts.nowhere" }),
       S.stop(),
     }),
     100
@@ -709,12 +742,12 @@ end
 T["wrapper chain fall through"] = function()
   local h = harness()
   local base = script("new_bark.lab_sign", {
-    S.setVar("VAR_BASE", 1),
+    S.setVar({ variable = "VAR_BASE", value = 1 }),
     S.stop(),
   })
   h.registry:installBase(base.id, base, "generated")
   local preface = script("example.preface", {
-    S.setVar("VAR_PRE", 1),
+    S.setVar({ variable = "VAR_PRE", value = 1 }),
   })
   h.registry:before(base.id, preface, { modId = "example.mod" }, { priority = 0 })
   startForeground(h, base, 100)
@@ -729,14 +762,14 @@ end
 T["wrapper explicit next"] = function()
   local h = harness()
   local base = script("new_bark.lab_sign", {
-    S.setVar("VAR_BASE", 1),
+    S.setVar({ variable = "VAR_BASE", value = 1 }),
     S.stop(),
   })
   h.registry:installBase(base.id, base, "generated")
   local preface = script("example.preface", {
-    S.setVar("VAR_PRE", 1),
+    S.setVar({ variable = "VAR_PRE", value = 1 }),
     S.next(),
-    S.setVar("VAR_SKIPPED", 1),
+    S.setVar({ variable = "VAR_SKIPPED", value = 1 }),
   })
   h.registry:before(base.id, preface, { modId = "example.mod" }, { priority = 0 })
   startForeground(h, base, 100)
@@ -750,12 +783,12 @@ end
 T["wrapper consumes with stop"] = function()
   local h = harness()
   local base = script("new_bark.lab_sign", {
-    S.setVar("VAR_BASE", 1),
+    S.setVar({ variable = "VAR_BASE", value = 1 }),
     S.stop(),
   })
   h.registry:installBase(base.id, base, "generated")
   local preface = script("example.preface", {
-    S.setVar("VAR_PRE", 1),
+    S.setVar({ variable = "VAR_PRE", value = 1 }),
     S.stop(),
   })
   h.registry:before(base.id, preface, { modId = "example.mod" }, { priority = 0 })
@@ -783,11 +816,11 @@ T["signal_caller in root faults"] = function()
 end
 
 -- 28. Background scripts cannot lock the player, warp, or open dialogue
--- (section 26.9); state/control ops are legal.
+--; state/control ops are legal.
 T["background restrictions"] = function()
   local h = harness()
   local bg = script("map.background", {
-    S.setVar("VAR_BG", 1),
+    S.setVar({ variable = "VAR_BG", value = 1 }),
     S.lockPlayer(),
     S.stop(),
   })
@@ -801,11 +834,11 @@ T["background restrictions"] = function()
   Assert.equal(instance.endReason, "SCRIPT_BACKGROUND_FORBIDDEN")
 end
 
--- 29. Actor locks are exclusive per actor (section 17.3).
+-- 29. Actor locks are exclusive per actor.
 T["actor lock exclusivity"] = function()
   local h = harness()
   local common = script("common.a", {
-    S.lockActor("elm"),
+    S.lockActor({ actor = "elm" }),
     { op = "signal_caller" },
     S.stop(),
   })
@@ -813,8 +846,8 @@ T["actor lock exclusivity"] = function()
   startForeground(
     h,
     script("test.actorlock", {
-      S.callCommon("common.a"),
-      S.lockActor("elm"),
+      S.callCommon({ target = "common.a" }),
+      S.lockActor({ actor = "elm" }),
       S.stop(),
     }),
     100
@@ -832,15 +865,15 @@ T["actor lock exclusivity"] = function()
 end
 
 -- 30. Deterministic traces: context runs, yields, blocks, task polls, and
--- completions are all recorded in order (section 38.2).
+-- completions are all recorded in order.
 T["deterministic traces"] = function()
   local h = harness()
   startForeground(
     h,
     script("test.trace", {
-      S.setVar("VAR_A", 1),
-      S.waitTicks(1),
-      S.setVar("VAR_B", 1),
+      S.setVar({ variable = "VAR_A", value = 1 }),
+      S.waitTicks({ ticks = 1 }),
+      S.setVar({ variable = "VAR_B", value = 1 }),
       S.stop(),
     }),
     100
@@ -881,15 +914,15 @@ T["actor operations"] = function()
     script("test.actors", {
       locals = { px = "integer", pz = "integer", ex = "integer", ez = "integer", pf = "string" },
       steps = {
-        S.facePlayer("self"),
-        S.setObjectFacing("obj_T20R0101_doctor", "east"),
-        S.setObjectPosition("obj_T20R0101_doctor", { fieldX = 9, fieldZ = 8 }),
-        S.hideObject("obj_T20R0101_doctor"),
-        S.showObject("obj_T20R0101_doctor"),
+        S.facePlayer({ actor = "self" }),
+        S.setObjectFacing({ actor = "obj_T20R0101_doctor", direction = "east" }),
+        S.setObjectPosition({ actor = "obj_T20R0101_doctor", fieldX = 9, fieldZ = 8 }),
+        S.hideObject({ actor = "obj_T20R0101_doctor" }),
+        S.showObject({ actor = "obj_T20R0101_doctor" }),
         S.getPlayerCoords({ x = S.local_("px"), z = S.local_("pz") }),
-        S.getObjectCoords("obj_T20R0101_doctor", { x = S.local_("ex"), z = S.local_("ez") }),
+        S.getObjectCoords({ actor = "obj_T20R0101_doctor", x = S.local_("ex"), z = S.local_("ez") }),
         S.getPlayerFacing({ result = S.local_("pf") }),
-        S.waitTicks(1),
+        S.waitTicks({ ticks = 1 }),
         S.stop(),
       },
     }),
@@ -915,7 +948,7 @@ T["missing actor fault"] = function()
   local instanceId = startForeground(
     h,
     script("test.missingactor", {
-      S.face("nowhere", "north"),
+      S.face({ actor = "nowhere", direction = "north" }),
       S.stop(),
     }),
     100
@@ -926,7 +959,7 @@ T["missing actor fault"] = function()
   Assert.equal(instance.endReason, "SCRIPT_ACTOR_NOT_FOUND")
 end
 
--- 33. Conditions: compare, flag, not/all/any, truthy (section 11).
+-- 33. Conditions: compare, flag, not/all/any, truthy.
 T["condition evaluation"] = function()
   local h = harness()
   startForeground(
@@ -937,8 +970,8 @@ T["condition evaluation"] = function()
           S.eq(S.var("VAR_A"), 0),
           S.not_(S.flag("FLAG_A")),
         }),
-        yes = { S.setFlag("FLAG_BRANCH"), S.stop() },
-        no = { S.setVar("VAR_BAD", 1), S.stop() },
+        yes = { S.setFlag({ flag = "FLAG_BRANCH" }), S.stop() },
+        no = { S.setVar({ variable = "VAR_BAD", value = 1 }), S.stop() },
       }),
     }),
     100
@@ -948,18 +981,18 @@ T["condition evaluation"] = function()
   Assert.equal(h.services.world:getVar("VAR_BAD"), 0)
 end
 
--- 34. Low-level compare state: compare then gotoCompared (section 12.4).
+-- 34. Low-level compare state: compare then gotoCompared.
 T["compare state fallback"] = function()
   local h = harness()
   startForeground(
     h,
     script("test.compare", {
-      S.compare(3, 3),
-      S.gotoCompared("eq", "match"),
-      S.setVar("VAR_BAD", 1),
+      S.compare({ left = 3, right = 3 }),
+      S.gotoCompared({ operator = "eq", target = "match" }),
+      S.setVar({ variable = "VAR_BAD", value = 1 }),
       S.stop(),
-      S.label("match"),
-      S.setFlag("FLAG_MATCH"),
+      S.label({ name = "match" }),
+      S.setFlag({ flag = "FLAG_MATCH" }),
       S.stop(),
     }),
     100
@@ -969,7 +1002,7 @@ T["compare state fallback"] = function()
   Assert.equal(h.services.world:getVar("VAR_BAD"), 0)
 end
 
--- 35. random writes through the deterministic RNG (section 20).
+-- 35. random writes through the deterministic RNG.
 T["random uses script rng"] = function()
   local h = harness()
   h.services:withRng(1)
@@ -979,7 +1012,7 @@ T["random uses script rng"] = function()
       locals = { roll = "integer" },
       steps = {
         S.random({ maxExclusive = 100, result = S.local_("roll") }),
-        S.waitTicks(1),
+        S.waitTicks({ ticks = 1 }),
         S.stop(),
       },
     }),
@@ -996,7 +1029,7 @@ T["random uses script rng"] = function()
       locals = { roll = "integer" },
       steps = {
         S.random({ maxExclusive = 100, result = S.local_("roll") }),
-        S.waitTicks(1),
+        S.waitTicks({ ticks = 1 }),
         S.stop(),
       },
     }),
@@ -1017,8 +1050,8 @@ T["goto_script enters another script's label"] = function()
   h.registry:installBase(
     "test.tail",
     script("test.tail", {
-      S.label("_0050"),
-      S.setFlag("FLAG_TAIL"),
+      S.label({ name = "_0050" }),
+      S.setFlag({ flag = "FLAG_TAIL" }),
       S.stop(),
     }),
     "generated"
@@ -1026,8 +1059,8 @@ T["goto_script enters another script's label"] = function()
   startForeground(
     h,
     script("test.jumper", {
-      S.gotoScript("test.tail", { label = "_0050" }),
-      S.setVar("VAR_NEVER", 1),
+      S.gotoScript({ script = "test.tail", label = "_0050" }),
+      S.setVar({ variable = "VAR_NEVER", value = 1 }),
       S.stop(),
     }),
     100
@@ -1045,7 +1078,7 @@ T["goto_script entry jump"] = function()
   h.registry:installBase(
     "test.tail",
     script("test.tail", {
-      S.setFlag("FLAG_TAIL"),
+      S.setFlag({ flag = "FLAG_TAIL" }),
       S.stop(),
     }),
     "generated"
@@ -1053,7 +1086,7 @@ T["goto_script entry jump"] = function()
   startForeground(
     h,
     script("test.jumper", {
-      S.gotoScript("test.tail"),
+      S.gotoScript({ script = "test.tail" }),
       S.stop(),
     }),
     100
@@ -1069,10 +1102,10 @@ T["cross-script call with label returns to the caller"] = function()
   h.registry:installBase(
     "test.tail",
     script("test.tail", {
-      S.label("_0050"),
-      S.setFlag("FLAG_TAIL"),
-      S.return_(),
-      S.setVar("VAR_NEVER", 1),
+      S.label({ name = "_0050" }),
+      S.setFlag({ flag = "FLAG_TAIL" }),
+      S.return_({}),
+      S.setVar({ variable = "VAR_NEVER", value = 1 }),
       S.stop(),
     }),
     "generated"
@@ -1080,8 +1113,8 @@ T["cross-script call with label returns to the caller"] = function()
   startForeground(
     h,
     script("test.caller", {
-      S.call("test.tail", { label = "_0050" }),
-      S.setVar("VAR_AFTER", 7),
+      S.call({ target = "test.tail", label = "_0050" }),
+      S.setVar({ variable = "VAR_AFTER", value = 7 }),
       S.stop(),
     }),
     100
@@ -1105,8 +1138,8 @@ T["conditional cross-script jump"] = function()
   h.registry:installBase(
     "test.tail",
     script("test.tail", {
-      S.label("_0050"),
-      S.setFlag("FLAG_TAIL"),
+      S.label({ name = "_0050" }),
+      S.setFlag({ flag = "FLAG_TAIL" }),
       S.stop(),
     }),
     "generated"
@@ -1114,11 +1147,11 @@ T["conditional cross-script jump"] = function()
   startForeground(
     h,
     script("test.cond", {
-      S.setVar("VAR_SCENE", 2),
+      S.setVar({ variable = "VAR_SCENE", value = 2 }),
       S.if_({
         condition = S.eq(S.var("VAR_SCENE"), 1),
-        yes = { S.gotoScript("test.tail", { label = "_0050" }) },
-        no = { S.setVar("VAR_NO", 1) },
+        yes = { S.gotoScript({ script = "test.tail", label = "_0050" }) },
+        no = { S.setVar({ variable = "VAR_NO", value = 1 }) },
       }),
       S.stop(),
     }),
@@ -1131,11 +1164,11 @@ T["conditional cross-script jump"] = function()
   startForeground(
     h,
     script("test.cond2", {
-      S.setVar("VAR_SCENE", 1),
+      S.setVar({ variable = "VAR_SCENE", value = 1 }),
       S.if_({
         condition = S.eq(S.var("VAR_SCENE"), 1),
-        yes = { S.gotoScript("test.tail", { label = "_0050" }) },
-        no = { S.setVar("VAR_NO2", 1) },
+        yes = { S.gotoScript({ script = "test.tail", label = "_0050" }) },
+        no = { S.setVar({ variable = "VAR_NO2", value = 1 }) },
       }),
       S.stop(),
     }),
@@ -1151,7 +1184,7 @@ T["cross-script reference errors are attributed"] = function()
   h.registry:installBase(
     "test.tail",
     script("test.tail", {
-      S.setFlag("FLAG_TAIL"),
+      S.setFlag({ flag = "FLAG_TAIL" }),
       S.stop(),
     }),
     "generated"
@@ -1159,7 +1192,7 @@ T["cross-script reference errors are attributed"] = function()
   local badTarget = startForeground(
     h,
     script("test.badtarget", {
-      S.gotoScript("test.missing"),
+      S.gotoScript({ script = "test.missing" }),
       S.stop(),
     }),
     100
@@ -1170,7 +1203,7 @@ T["cross-script reference errors are attributed"] = function()
   local badLabel = startForeground(
     h,
     script("test.badlabel", {
-      S.gotoScript("test.tail", { label = "_nope" }),
+      S.gotoScript({ script = "test.tail", label = "_nope" }),
       S.stop(),
     }),
     200
@@ -1186,20 +1219,20 @@ T["goto_script resolves the composed target"] = function()
   h.registry:installBase(
     "test.tail",
     script("test.tail", {
-      S.setFlag("FLAG_TAIL"),
+      S.setFlag({ flag = "FLAG_TAIL" }),
       S.stop(),
     }),
     "generated"
   )
   local replacement = script("test.tail", {
-    S.setVar("VAR_REPLACED", 9),
+    S.setVar({ variable = "VAR_REPLACED", value = 9 }),
     S.stop(),
   })
   h.registry:override("test.tail", replacement, { modId = "mod.a" }, {})
   startForeground(
     h,
     script("test.jumper", {
-      S.gotoScript("test.tail"),
+      S.gotoScript({ script = "test.tail" }),
       S.stop(),
     }),
     100
@@ -1217,8 +1250,8 @@ T["cross-script compare-state branch"] = function()
   h.registry:installBase(
     "test.tail",
     script("test.tail", {
-      S.label("_0050"),
-      S.setFlag("FLAG_TAIL"),
+      S.label({ name = "_0050" }),
+      S.setFlag({ flag = "FLAG_TAIL" }),
       S.stop(),
     }),
     "generated"
@@ -1226,10 +1259,10 @@ T["cross-script compare-state branch"] = function()
   startForeground(
     h,
     script("test.cmpfalse", {
-      S.setVar("VAR_A", 0),
-      S.compare(S.var("VAR_A"), 1),
-      S.gotoCompared("eq", nil, { script = "test.tail", label = "_0050" }),
-      S.setVar("VAR_NEVER", 1),
+      S.setVar({ variable = "VAR_A", value = 0 }),
+      S.compare({ left = S.var("VAR_A"), right = 1 }),
+      S.gotoCompared({ operator = "eq", script = "test.tail", label = "_0050" }),
+      S.setVar({ variable = "VAR_NEVER", value = 1 }),
       S.stop(),
     }),
     100
@@ -1241,10 +1274,10 @@ T["cross-script compare-state branch"] = function()
   startForeground(
     h,
     script("test.cmptrue", {
-      S.setVar("VAR_A", 1),
-      S.compare(S.var("VAR_A"), 1),
-      S.gotoCompared("eq", nil, { script = "test.tail", label = "_0050" }),
-      S.setVar("VAR_NEVER", 2),
+      S.setVar({ variable = "VAR_A", value = 1 }),
+      S.compare({ left = S.var("VAR_A"), right = 1 }),
+      S.gotoCompared({ operator = "eq", script = "test.tail", label = "_0050" }),
+      S.setVar({ variable = "VAR_NEVER", value = 2 }),
       S.stop(),
     }),
     200
@@ -1263,7 +1296,7 @@ T["countdown mirror writes and decrements the variable"] = function()
   startForeground(
     h,
     script("test.mirror", {
-      S.waitTicks(3, { countdownVariable = "VAR_COUNTDOWN" }),
+      S.waitTicks({ ticks = 3, countdownVariable = "VAR_COUNTDOWN" }),
       S.stop(),
     }),
     100
@@ -1290,11 +1323,8 @@ T["map index and camera target actors"] = function()
   startForeground(
     h,
     script("test.mapindex", {
-      S.getObjectCoords(S.actorIndex(2), {
-        x = S.var("VAR_X"),
-        z = S.var("VAR_Z"),
-      }),
-      S.lockActor(S.cameraTarget()),
+      S.getObjectCoords({ actor = S.actorIndex(2), x = S.var("VAR_X"), z = S.var("VAR_Z") }),
+      S.lockActor({ actor = S.cameraTarget() }),
       S.stop(),
     }),
     100
@@ -1308,10 +1338,7 @@ T["map index and camera target actors"] = function()
   local bad = startForeground(
     h,
     script("test.mapmissing", {
-      S.getObjectCoords(S.actorIndex(99), {
-        x = S.var("VAR_X"),
-        z = S.var("VAR_Z"),
-      }),
+      S.getObjectCoords({ actor = S.actorIndex(99), x = S.var("VAR_X"), z = S.var("VAR_Z") }),
       S.stop(),
     }),
     200
@@ -1328,8 +1355,8 @@ T["countdown variable write shortens the wait"] = function()
   startForeground(
     h,
     script("test.shorten", {
-      S.waitTicks(10, { countdownVariable = "VAR_COUNTDOWN" }),
-      S.setVar("VAR_DONE", 1),
+      S.waitTicks({ ticks = 10, countdownVariable = "VAR_COUNTDOWN" }),
+      S.setVar({ variable = "VAR_DONE", value = 1 }),
       S.stop(),
     }),
     100

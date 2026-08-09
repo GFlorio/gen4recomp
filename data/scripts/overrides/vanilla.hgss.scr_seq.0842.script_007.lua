@@ -21,9 +21,22 @@ return S.script({
     coverage = { complete = false, unsupportedCount = 2 },
   },
   steps = {
-    S.bufferText({ provenance = { offsets = { 3796 }, opcodes = { 190 } }, slot = 0, value = { text = "player_name" } }),
-    S.say({ message = "msg.project.placeholder", provenance = { offsets = { 3799 }, opcodes = { 56 } } }),
-    S.say({ message = "msg.project.placeholder", provenance = { offsets = { 3814 }, opcodes = { 20 } } }),
-    S.stop(),
+    {
+      op = "buffer_text",
+      provenance = { offsets = { [1] = 3796 }, opcodes = { [1] = 190 } },
+      slot = 0,
+      value = { text = "player_name" },
+    },
+    {
+      message = "msg.project.placeholder",
+      op = "say",
+      provenance = { offsets = { [1] = 3799 }, opcodes = { [1] = 56 } },
+    },
+    {
+      message = "msg.project.placeholder",
+      op = "say",
+      provenance = { offsets = { [1] = 3814 }, opcodes = { [1] = 20 } },
+    },
+    { op = "stop", provenance = { offsets = { [1] = 3818 }, opcodes = { [1] = 2 } } },
   },
 })

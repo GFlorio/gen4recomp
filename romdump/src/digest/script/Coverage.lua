@@ -12,7 +12,7 @@ local Coverage = {}
 -- Build the JSON-shaped coverage record for one member.
 ---@param memberIr table
 ---@param results table script index -> { script, lowered, report, resource }
----@param source table { repository, commit }
+---@param source table { repository, romSha1 }
 ---@return table record
 function Coverage.record(memberIr, results, source)
   local totals = {
@@ -167,7 +167,7 @@ function Coverage.aggregate(records)
   table.sort(scripts, function(a, b)
     return a.sourceId < b.sourceId
   end)
-  local source = records[1] and records[1].source or { repository = "", commit = "" }
+  local source = records[1] and records[1].source or { repository = "", romSha1 = "" }
   return { source = source, totals = totals, opcodes = opcodes, scripts = scripts }
 end
 
@@ -178,7 +178,7 @@ function Coverage.markdown(record)
   local lines = {}
   lines[#lines + 1] = "# HGSS script coverage"
   lines[#lines + 1] = ""
-  lines[#lines + 1] = "Source: " .. record.source.repository .. "@" .. record.source.commit
+  lines[#lines + 1] = "Source: " .. record.source.repository .. "@" .. record.source.romSha1
   lines[#lines + 1] = ""
   lines[#lines + 1] = "| Metric | Count |"
   lines[#lines + 1] = "|---|---:|"

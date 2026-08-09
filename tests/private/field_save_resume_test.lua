@@ -97,10 +97,11 @@ function T.field_state_avatar_and_events_resume_on_both_target_maps(romFs, versi
       },
       transition = { phase = "idle" },
     }
+    local serialized = state:serialize()
     local saved = FieldSave.capture(session, {
       avatarId = "heroine",
-      eventState = state,
       scenario = scenarioManifest.id,
+      world = { flags = serialized.flags, variables = serialized.vars, objects = {}, rng = {} },
     })
     local restored = assert(FieldSave.restore(saved, loader, versionId))
     Assert.equal(restored.runtimeMap.mapId, map.mapId)
@@ -111,7 +112,7 @@ function T.field_state_avatar_and_events_resume_on_both_target_maps(romFs, versi
     Assert.equal(restored.facing, "south")
     Assert.equal(restored.avatar, "heroine", "the persisted avatar choice survives")
     Assert.equal(restored.scenario, scenarioManifest.id)
-    Assert.deepEqual(restored.events, state:serialize())
+    Assert.deepEqual(restored.world, saved.world)
     if case.expectsWarp then
       Assert.notNil(restored.suppression)
     else
@@ -138,13 +139,21 @@ function T.a_resumed_event_store_keeps_scenario_actors_hidden(romFs)
     },
     transition = { phase = "idle" },
   }
-  local saved = FieldSave.capture(session, { avatarId = "hero", eventState = state, scenario = scenarioManifest.id })
+  local serialized = state:serialize()
+  local saved = FieldSave.capture(session, {
+    avatarId = "hero",
+    scenario = scenarioManifest.id,
+    world = { flags = serialized.flags, variables = serialized.vars, objects = {}, rng = {} },
+  })
   local restored = assert(FieldSave.restore(saved, {
     load = function(_, mapId)
       return assert(maps[mapId])
     end,
   }, "heartgold"))
-  local revived = FieldEventState.new(restored.events)
+  local revived = FieldEventState.new({
+    flags = restored.world.flags,
+    vars = restored.world.variables,
+  })
   local manager = FieldActorManager.new({ assets = fakeAssets(), policy = POLICY })
   manager:enterMap(maps[LAB], revived)
   Assert.notNil(manager:getById("map:61:object:0"), "Elm stays visible on resume")

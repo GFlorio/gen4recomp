@@ -22,16 +22,27 @@ function RawModules.new()
 end
 
 -- Register a handler module under its module name. The owner names the mod
--- that contributed it; a duplicate registration is a hard load error.
+-- that contributed it, matching the registry owner shapes `{modId, api}` or
+-- `{kind, id, api}`; a duplicate registration is a hard load error.
 ---@param moduleName string
 ---@param module table
 ---@param owner table
 function RawModules:register(moduleName, module, owner)
   assert(type(moduleName) == "string" and moduleName ~= "", "module name required")
   assert(type(module) == "table", "raw module must be a table")
+  if
+    type(owner) ~= "table"
+    or (owner.modId == nil and (type(owner.kind) ~= "string" or type(owner.id) ~= "string" or owner.id == ""))
+  then
+    Errors.raise(
+      ScriptErrors.SCRIPT_SCHEMA_INVALID,
+      "raw module owner must be {modId, api} or {kind, id, api}",
+      { module = moduleName, owner = owner }
+    )
+  end
   if self._modules[moduleName] ~= nil then
     Errors.raise(
-      ScriptErrors.SCRIPT_RAW_MODULE_NOT_FOUND,
+      ScriptErrors.SCRIPT_RAW_MODULE_DUPLICATE,
       "raw module is registered twice: " .. moduleName,
       { module = moduleName, owner = owner, existingOwner = self._owners[moduleName] }
     )
@@ -56,8 +67,7 @@ function RawModules:resolve(moduleName)
   return module, self._owners[moduleName]
 end
 
--- Deterministic fingerprint over the registered modules (diagnostics and
--- hot-reload validation).
+-- The registered module names, sorted (diagnostics and hot-reload checks).
 ---@return string[]
 function RawModules:moduleNames()
   local out = {}

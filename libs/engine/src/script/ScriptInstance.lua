@@ -4,7 +4,7 @@
 -- compare state, and the scheduler-visible scheduling fields (`readyAtTick`,
 -- `lastRunTick`, `waitingTaskId`, `taskResult`, status). Every frame is
 -- attributed to its composition entry . Frames and timing
--- capture as relative delays for the save schema (section 28.2). Pure domain
+-- capture as relative delays for the save schema . Pure domain
 -- module: no love dependency.
 
 ---@class ScriptFrame
@@ -121,7 +121,7 @@ end
 ---@param graph table
 ---@param nodeId string
 ---@param opts table|nil { returnNodeId, resultRef, args, chain, chainScriptId,
----   chainRevision, composition }
+--- chainRevision, composition }
 ---@return ScriptFrame
 function ScriptInstance:makeFrame(graph, nodeId, opts)
   opts = opts or {}
@@ -173,7 +173,7 @@ end
 
 -- Deterministic capture for the save schema. Absolute scheduling ticks become
 -- relative delays rebased at capture time `captureTick`; `lastRunTick` is
--- diagnostic data and is not restored (section 28.2).
+-- diagnostic data and is not restored .
 ---@param captureTick integer
 ---@return table
 function ScriptInstance:capture(captureTick)
@@ -185,6 +185,7 @@ function ScriptInstance:capture(captureTick)
       nodeId = frame.nodeId,
       returnNodeId = frame.returnNodeId,
       resultRef = frame.resultRef,
+      args = frame.args,
       composition = frame.composition,
       chainScriptId = frame.chainScriptId,
       chainRevision = frame.chainRevision,
@@ -216,7 +217,7 @@ function ScriptInstance:capture(captureTick)
 end
 
 -- Rebuild an instance from the save schema. `restoreTick` rebases the ready
--- deadline; the caller reattaches graphs by revision (section 28.7) and
+-- deadline; the caller reattaches graphs by revision and
 -- reconnects environment and task references.
 ---@param record table
 ---@param restoreTick integer
@@ -256,6 +257,7 @@ function ScriptInstance.restore(record, restoreTick, graphs)
       nodeId = frameRecord.nodeId,
       returnNodeId = frameRecord.returnNodeId,
       resultRef = frameRecord.resultRef,
+      args = frameRecord.args,
       composition = frameRecord.composition,
       chainScriptId = frameRecord.chainScriptId,
       chainRevision = frameRecord.chainRevision,
@@ -266,7 +268,7 @@ function ScriptInstance.restore(record, restoreTick, graphs)
 end
 
 -- Collect every graph revision referenced by the instance frames (for save
--- revision checks, section 28.7).
+-- revision checks, .
 ---@return string[]
 function ScriptInstance:graphRevisions()
   local out = {}

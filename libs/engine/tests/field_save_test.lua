@@ -55,7 +55,7 @@ local function record(overrides)
     facing = "north",
     avatar = "hero",
     scenario = "pre-script-demo-v1",
-    events = { flags = {}, vars = {} },
+    world = { flags = {}, variables = {}, objects = {}, rng = {} },
   }
   for key, item in pairs(overrides or {}) do
     value[key] = item
@@ -76,7 +76,7 @@ local function capture(map, opts)
   opts = opts or {}
   return FieldSave.capture(session(map), {
     avatarId = opts.avatarId or "hero",
-    eventState = opts.eventState,
+    world = opts.world,
     scenario = opts.scenario or "pre-script-demo-v1",
   })
 end
@@ -105,7 +105,7 @@ function T.stable_state_round_trips_exactly()
   Assert.equal(result.worldY, 4)
   Assert.equal(result.avatar, "hero")
   Assert.equal(result.scenario, "pre-script-demo-v1")
-  Assert.deepEqual(result.events, { flags = {}, vars = {} })
+  Assert.deepEqual(result.world, { flags = {}, variables = {}, objects = {}, rng = {} })
 end
 
 function T.event_flags_and_vars_round_trip()
@@ -114,12 +114,17 @@ function T.event_flags_and_vars_round_trip()
   state:setFlag(413)
   state:setFlag(744)
   state:setVar(0x4020, 97)
-  local saved = capture(map, { eventState = state, avatarId = "heroine" })
-  Assert.deepEqual(saved.events, { flags = { [413] = true, [744] = true }, vars = { [0x4020] = 97 } })
+  local serialized = state:serialize()
+  local world = { flags = serialized.flags, variables = serialized.vars, objects = {}, rng = {} }
+  local saved = capture(map, { world = world, avatarId = "heroine" })
+  Assert.deepEqual(saved.world, world)
   local result = assert(restore(saved, map))
   Assert.equal(result.avatar, "heroine")
-  Assert.deepEqual(result.events, saved.events)
-  local revived = FieldEventState.new(result.events)
+  Assert.deepEqual(result.world, saved.world)
+  local revived = FieldEventState.new({
+    flags = result.world.flags,
+    vars = result.world.variables,
+  })
   Assert.isTrue(revived:isFlagSet(413))
   Assert.isTrue(revived:isFlagSet(744))
   Assert.isFalse(revived:isFlagSet(401))
@@ -245,16 +250,28 @@ function T.invalid_scenario_ids_are_rejected()
   Assert.notNil(FieldSave.validate(record({ scenario = nil })))
 end
 
-function T.invalid_event_state_is_rejected_as_save_error()
-  for _, events in ipairs({
-    "not-a-table",
-    { flags = { [-1] = true }, vars = {} },
-    { flags = { [70000] = true }, vars = {} },
-    { flags = { [5] = true }, vars = { [0x4020] = -1 } },
-    { flags = { [5] = "yes" }, vars = {} },
+function T.invalid_world_is_rejected_as_save_error()
+  -- The world bucket is validated through the caller's worldValidate hook;
+  -- a non-table world is a schema error regardless.
+  throwsCode("FIELD_SAVE_WORLD_INVALID", function()
+    local _, err = FieldSave.validate(record({ world = "not-a-table" }))
+    error(err)
+  end)
+  for _, world in ipairs({
+    { flags = { [-1] = true }, variables = {} },
+    { flags = { [70000] = true }, variables = {} },
+    { flags = { [5] = true }, variables = { [0x4020] = -1 } },
+    { flags = { [5] = "yes" }, variables = {} },
   }) do
-    throwsCode("FIELD_SAVE_EVENT_STATE_INVALID", function()
-      local _, err = FieldSave.validate(record({ events = events }))
+    throwsCode("FIELD_SAVE_WORLD_INVALID", function()
+      local _, err = FieldSave.validate(record({ world = world }), {
+        worldValidate = function(value)
+          return pcall(FieldEventState.new, {
+            flags = value.flags,
+            vars = value.variables,
+          }) and nil or Errors.new("WORLD_EVENT_STATE_INVALID", "bad event state", {})
+        end,
+      })
       error(err)
     end)
   end
@@ -265,8 +282,20 @@ function T.event_state_over_the_safety_limit_is_rejected()
   for id = 1, FieldEventState.MAX_ENTRIES + 1 do
     flags[id] = true
   end
-  throwsCode("FIELD_SAVE_EVENT_STATE_INVALID", function()
-    local _, err = FieldSave.validate(record({ events = { flags = flags, vars = {} } }))
+  throwsCode("FIELD_SAVE_WORLD_INVALID", function()
+    local _, err = FieldSave.validate(
+      record({
+        world = { flags = flags, variables = {}, objects = {}, rng = {} },
+      }),
+      {
+        worldValidate = function(value)
+          return pcall(FieldEventState.new, {
+            flags = value.flags,
+            vars = value.variables,
+          }) and nil or Errors.new("WORLD_EVENT_STATE_INVALID", "bad event state", {})
+        end,
+      }
+    )
     error(err)
   end)
 end

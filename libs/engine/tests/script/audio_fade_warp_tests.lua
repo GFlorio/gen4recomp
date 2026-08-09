@@ -1,7 +1,7 @@
 -- Audio, fade, and warp adapter tests :
 -- sound waits with completing and fallback backends, the fade task, the
 -- warp task integrated with the maps service, and the same-tick music and
--- camera operations. The exit criterion: the target select sound works and
+-- camera operations. the target select sound works and
 -- imported fade/warp nodes have stable semantics.
 
 local Assert = require("tests.support.Assert")
@@ -74,6 +74,36 @@ function FakeAudioBackend:currentEffect()
   return nil
 end
 
+function FakeAudioBackend:playCry(species, form)
+  local token = "cry:" .. tostring(species)
+  self.playing[token] = true
+  self.calls[#self.calls + 1] = { op = "playCry", species = species, form = form }
+end
+
+function FakeAudioBackend:currentCry()
+  for id in pairs(self.playing) do
+    if id:sub(1, 4) == "cry:" then
+      return id
+    end
+  end
+  return nil
+end
+
+function FakeAudioBackend:playFanfare(fanfare)
+  local token = "fanfare:" .. tostring(fanfare)
+  self.playing[token] = true
+  self.calls[#self.calls + 1] = { op = "playFanfare", fanfare = fanfare }
+end
+
+function FakeAudioBackend:currentFanfare()
+  for id in pairs(self.playing) do
+    if id:sub(1, 8) == "fanfare:" then
+      return id
+    end
+  end
+  return nil
+end
+
 -- Engine-owned async: sounds stop after their catalog duration.
 function FakeAudioBackend:advance()
   for id in pairs(self.playing) do
@@ -102,6 +132,19 @@ end
 
 function FakeScreenBackend:fadeDone()
   return not self.fading
+end
+
+---@class FakeCameraBackend
+---@field calls table[]
+local FakeCameraBackend = {}
+FakeCameraBackend.__index = FakeCameraBackend
+
+function FakeCameraBackend.new()
+  return setmetatable({ calls = {} }, FakeCameraBackend)
+end
+
+function FakeCameraBackend:startShake(spec)
+  self.calls[#self.calls + 1] = { op = "startShake", spec = spec }
 end
 
 ---@class FakeMapsBackend
@@ -134,6 +177,7 @@ end
 ---@field taskRegistry TaskRegistry
 ---@field scheduler Scheduler
 ---@field audio FakeAudioBackend|nil
+---@field camera FakeCameraBackend|nil
 ---@field screen FakeScreenBackend|nil
 ---@field maps FakeMapsBackend|nil
 
@@ -143,9 +187,11 @@ local function harness(opts)
   opts = opts or {}
   local services = FakeServices.new(opts)
   local audio = opts.audio and FakeAudioBackend.new() or nil
+  local camera = opts.camera and FakeCameraBackend.new() or nil
   local screen = opts.screen and FakeScreenBackend.new() or nil
   local maps = opts.maps and FakeMapsBackend.new() or nil
   services.audio = audio
+  services.camera = camera
   services.screen = screen
   services.maps = maps
   services.advanceAsync = function()
@@ -180,6 +226,7 @@ local function harness(opts)
     taskRegistry = taskRegistry,
     scheduler = scheduler,
     audio = audio,
+    camera = camera,
     screen = screen,
     maps = maps,
   }
@@ -206,9 +253,9 @@ end
 T["sound wait backend completion"] = function()
   local h = harness({ audio = true })
   local resource = script("test.se", {
-    S.playSound("SEQ_SE_DP_SELECT"),
-    S.waitSound("SEQ_SE_DP_SELECT"),
-    S.setVar("VAR_AFTER", 1),
+    S.playSound({ sound = "SEQ_SE_DP_SELECT" }),
+    S.waitSound({ sound = "SEQ_SE_DP_SELECT" }),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
     S.stop(),
   })
   startForeground(h, resource, 100)
@@ -225,31 +272,37 @@ T["sound wait backend completion"] = function()
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
 end
 
--- 2. Sound wait without a completing backend falls back to the catalog
--- duration and emits the fallback diagnostic through the task result.
-T["sound wait fallback duration"] = function()
+-- 2. A wait whose backend cannot report completion faults instead of
+-- inventing a simulated duration; a cry wait carries its own token.
+T["sound wait without backend faults"] = function()
   local h = harness({ audio = false })
-  local resource = script("test.sefallback", {
-    S.waitSound("SEQ_SE_DP_SELECT"),
-    S.setVar("VAR_AFTER", 1),
+  local resource = script("test.sefault", {
+    S.waitSound({ sound = "SEQ_SE_DP_SELECT" }),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
+    S.stop(),
+  })
+  local instanceId = startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  Assert.equal(assert(h.scheduler:instance(instanceId)).endReason, "SCRIPT_SERVICE_MISSING")
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+end
+
+T["cry wait uses its named token"] = function()
+  local h = harness({ audio = true })
+  local resource = script("test.cry", {
+    S.playCry({ species = "SPECIES_CYNDAQUIL", form = 0 }),
+    S.waitCry(),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
     S.stop(),
   })
   startForeground(h, resource, 100)
   h.scheduler:step(100, nil)
-  local ticks = SoundWaitTask.FALLBACK_TICKS
-  for tick = 101, 100 + ticks do
-    h.scheduler:step(tick, nil)
-  end
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
-  h.scheduler:step(101 + ticks, nil)
+  Assert.notNil(h.audio:currentCry(), "the cry plays under its own token")
+  -- The engine-owned async phase ends the cry before the next tick's poll.
+  h.scheduler:step(101, nil)
+  h.scheduler:step(102, nil)
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
-  local ended = nil
-  for _, record in ipairs(h.services.events.records) do
-    if record.name == "script.task_ended" then
-      ended = record.payload
-    end
-  end
-  Assert.isTrue(ended ~= nil and ended.result ~= nil and ended.result.fallback)
 end
 
 -- 3. Fade: fade_screen starts the fade same-tick; wait_fade blocks until the
@@ -259,7 +312,7 @@ T["fade and wait fade"] = function()
   local resource = script("test.fade", {
     S.fadeScreen({ kind = 6, speed = 1, direction = "out", color = "black" }),
     S.waitFade(),
-    S.setVar("VAR_AFTER", 1),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
     S.stop(),
   })
   startForeground(h, resource, 100)
@@ -284,7 +337,7 @@ T["warp task"] = function()
       fieldZ = 393,
       facing = "south",
     }),
-    S.setVar("VAR_AFTER", 1),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
     S.stop(),
   })
   startForeground(h, resource, 100)
@@ -298,18 +351,63 @@ T["warp task"] = function()
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
 end
 
+-- 4b. The real maps service drives a scripted warp through a colon-method
+-- loader: the destination coordinates are rebased by the destination map's
+-- origin, and a loader that raises for an unknown map is a re-raised fault
+-- (never a silent "not found").
+T["real maps service warp"] = function()
+  local ScriptMapsService = require("libs.engine.src.script.ScriptMapsService")
+  local Errors = require("libs.rom.src.Errors")
+  local started = nil
+  local loader = {}
+  loader.load = function(self, symbol)
+    assert(self == loader, "load is a colon method")
+    if symbol == "MAP_NEW_BARK" then
+      return { mapId = 60, coordinateOrigin = { x = 680, z = 390 } }
+    end
+    Errors.raise("FIELD_MAP_UNKNOWN", "no runtime map for " .. tostring(symbol), {})
+  end
+  local transition = {
+    start = function(self, sourceMap, warp, facing)
+      started = { warp = warp, facing = facing }
+    end,
+  }
+  local maps = ScriptMapsService.new({
+    transition = transition,
+    loader = loader,
+    sourceMap = { mapId = 57 },
+  })
+  maps:startWarp({ map = "MAP_NEW_BARK", warp = 0, fieldX = 4, fieldZ = 3, facing = "north" })
+  Assert.equal(started.warp.destinationMapId, 60)
+  Assert.equal(started.warp.x, 684, "destination-local x rebased by the map origin")
+  Assert.equal(started.warp.z, 393)
+  Assert.equal(started.facing, "north")
+  Assert.isNil(maps:resolve("MAP_MISSING"))
+  local maps2 = ScriptMapsService.new({
+    transition = transition,
+    loader = loader,
+    sourceMap = { mapId = 57 },
+  })
+  local ok, err = pcall(maps2.startWarp, maps2, { map = "MAP_MISSING" })
+  Assert.isFalse(ok)
+  Assert.isTrue(
+    Errors.is(err) and err.code == "FIELD_MAP_UNKNOWN",
+    "a loader fault re-raises instead of becoming a missing map"
+  )
+end
+
 -- 5. Music and camera operations are same-tick passthroughs.
 T["music and camera same tick"] = function()
-  local h = harness({ audio = true, screen = true })
+  local h = harness({ audio = true, camera = true })
   local resource = script("test.music", {
-    S.playMusic("SEQ_GS_NEW_BARK"),
-    S.stopMusic("SEQ_GS_NEW_BARK"),
-    S.temporaryMusic("SEQ_GS_EVENT"),
+    S.playMusic({ music = "SEQ_GS_NEW_BARK" }),
+    S.stopMusic({ music = "SEQ_GS_NEW_BARK" }),
+    S.temporaryMusic({ music = "SEQ_GS_EVENT" }),
     S.resetMusic(),
     S.fadeMusicOut({ durationTicks = 30 }),
     S.fadeMusicIn({ durationTicks = 30 }),
     S.shakeCamera({ amplitudeX = 2, amplitudeY = 0, intervalTicks = 2, count = 8 }),
-    S.setVar("VAR_AFTER", 1),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
     S.stop(),
   })
   startForeground(h, resource, 100)
@@ -320,7 +418,8 @@ T["music and camera same tick"] = function()
     ops[#ops + 1] = call.op
   end
   Assert.deepEqual(ops, { "playMusic", "stopMusic", "temporaryMusic", "resetMusic", "fadeMusicOut", "fadeMusicIn" })
-  Assert.equal(h.services.screen.calls[1].op, "startShake")
+  Assert.equal(h.camera.calls[1].op, "startShake")
+  Assert.equal(h.camera.calls[1].spec.count, 8)
 end
 
 -- 6. A warp from a background script is forbidden .

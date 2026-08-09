@@ -1,12 +1,13 @@
 -- Script content loader for the game (the override system): installs the
 -- generated transcript bases from the compiled script cache, then every
--- checked-in override under `data/scripts/overrides/` (a file named
+-- checked-in override listed in the override manifest (a file named
 -- `<script-id>.lua` overrides the script with that id, or introduces the id
--- when no base exists, as with the curated Elm replacement). Override files
--- are ordinary `return S.script { ... }` modules executed in a restricted
--- environment; the returned resource must carry the exact id of its file and
--- must validate in strict mode. The filesystem is injected (`getDirectoryItems`
--- + `read`), so the loader is testable headless; the game passes
+-- when no base exists, as with the curated Elm replacement). The manifest is
+-- the single source of override filenames: no directory enumeration at
+-- runtime. Override files are ordinary `return S.script { ... }` modules
+-- executed in a restricted environment; the returned resource must carry the
+-- exact id of its file and must validate in strict mode. The filesystem is
+-- injected (`read`), so the loader is testable headless; the game passes
 -- love.filesystem after mounting the repo `data` directory. Pure domain
 -- module: no love dependency.
 
@@ -18,10 +19,21 @@ local Validator = require("libs.engine.src.script.Validator")
 local ScriptLoader = {}
 
 ScriptLoader.OVERRIDES_DIR = "data/scripts/overrides"
+ScriptLoader.OVERRIDE_MANIFEST = "data/scripts/manifests/overrides.lua"
+
+-- The default restricted require for resource chunks: generated and override
+-- modules may import gen4.script and nothing else. Callers that trust their
+-- content may inject their own requireFn, but the default is an allowlist,
+-- not the global require.
+---@param name string
+---@return any
+local function defaultRequire(name)
+  assert(name == "gen4.script", "script resource chunks may only require gen4.script")
+  return require(name)
+end
 
 -- Load one Lua resource chunk (`return S.script { ... }`) in a restricted
--- environment that only provides `require`, so generated and override
--- modules can import gen4.script and nothing else.
+-- environment that only provides `require`.
 ---@param content string
 ---@param chunkName string
 ---@param requireFn function
@@ -30,7 +42,7 @@ local function loadResourceChunk(content, chunkName, requireFn)
   local chunk, loadErr = loadstring(content, chunkName)
   if not chunk then
     Errors.raise(
-      ScriptErrors.SCRIPT_HOT_RELOAD_FAILED,
+      ScriptErrors.SCRIPT_LOAD_FAILED,
       "script module does not parse: " .. tostring(loadErr),
       { path = chunkName }
     )
@@ -40,17 +52,13 @@ local function loadResourceChunk(content, chunkName, requireFn)
   local ok, resource = pcall(chunk)
   if not ok then
     Errors.raise(
-      ScriptErrors.SCRIPT_HOT_RELOAD_FAILED,
+      ScriptErrors.SCRIPT_LOAD_FAILED,
       "script module failed to load: " .. tostring(resource),
       { path = chunkName }
     )
   end
   if type(resource) ~= "table" then
-    Errors.raise(
-      ScriptErrors.SCRIPT_HOT_RELOAD_FAILED,
-      "script module must return a resource table",
-      { path = chunkName }
-    )
+    Errors.raise(ScriptErrors.SCRIPT_LOAD_FAILED, "script module must return a resource table", { path = chunkName })
   end
   return resource
 end
@@ -63,9 +71,7 @@ end
 ---@param cacheFs table CacheFs-shaped
 ---@param requireFn fun(name: string): any
 function ScriptLoader.installGenerated(registry, cacheFs, requireFn)
-  requireFn = requireFn or function(name)
-    return require(name)
-  end
+  requireFn = requireFn or defaultRequire
   local index, indexErr = cacheFs:loadLua(ScriptCache.indexPath())
   if not index then
     Errors.raise(
@@ -121,7 +127,7 @@ function ScriptLoader.loadOverride(id, content, requireFn)
   local resource = loadResourceChunk(content, ScriptLoader.OVERRIDES_DIR .. "/" .. id .. ".lua", requireFn)
   if resource.id ~= id then
     Errors.raise(
-      ScriptErrors.SCRIPT_HOT_RELOAD_FAILED,
+      ScriptErrors.SCRIPT_LOAD_FAILED,
       "override file " .. id .. ".lua defines script " .. tostring(resource.id),
       { scriptId = id, resourceId = resource.id }
     )
@@ -137,34 +143,40 @@ function ScriptLoader.loadOverride(id, content, requireFn)
   return resource
 end
 
--- Install every override from a directory-shaped filesystem. Files are
--- `data/scripts/overrides/<id>.lua`; the id is the basename without the
--- `.lua` suffix. Returns the ids installed, sorted.
+-- Install every override named by the override manifest. Files are
+-- `data/scripts/overrides/<id>.lua`; the manifest lists the exact ids (it is
+-- regenerated with the overrides, so no directory enumeration happens at
+-- runtime). Returns the ids installed, sorted.
 ---@param registry table Registry
----@param fs table { getDirectoryItems(path): string[], read(path): string? }
+---@param fs table { read(path): string? }
 ---@param requireFn fun(name: string): any
 ---@return string[]
 function ScriptLoader.installOverrides(registry, fs, requireFn)
-  requireFn = requireFn or function(name)
-    return require(name)
+  requireFn = requireFn or defaultRequire
+  local manifest, manifestErr = fs:read(ScriptLoader.OVERRIDE_MANIFEST)
+  if manifest == nil then
+    Errors.raise(
+      ScriptErrors.SCRIPT_LOAD_FAILED,
+      "override manifest is unavailable: " .. tostring(manifestErr and manifestErr.message or "?"),
+      { path = ScriptLoader.OVERRIDE_MANIFEST }
+    )
   end
-  local items = fs:getDirectoryItems(ScriptLoader.OVERRIDES_DIR) or {}
-  table.sort(items)
-  local ids = {}
-  for _, name in ipairs(items) do
-    local id = name:match("^(.*)%.lua$")
-    if id ~= nil and id ~= "" then
-      local path = ScriptLoader.OVERRIDES_DIR .. "/" .. name
-      local content = fs:read(path)
-      if content == nil then
-        Errors.raise(ScriptErrors.SCRIPT_HOT_RELOAD_FAILED, "override file is unreadable: " .. path, { scriptId = id })
-      end
-      local resource = ScriptLoader.loadOverride(id, content --[[@as string]], requireFn)
-      registry:installBase(id, resource, "override")
-      ids[#ids + 1] = id
+  local ids = assert(loadstring(manifest --[[@as string]]))()
+  assert(type(ids) == "table", "override manifest must be a list of ids")
+  table.sort(ids)
+  local installed = {}
+  for _, id in ipairs(ids) do
+    assert(type(id) == "string" and id ~= "", "override manifest ids must be strings")
+    local path = ScriptLoader.OVERRIDES_DIR .. "/" .. id .. ".lua"
+    local content = fs:read(path)
+    if content == nil then
+      Errors.raise(ScriptErrors.SCRIPT_LOAD_FAILED, "override file is unreadable: " .. path, { scriptId = id })
     end
+    local resource = ScriptLoader.loadOverride(id, content --[[@as string]], requireFn)
+    registry:installBase(id, resource, "override")
+    installed[#installed + 1] = id
   end
-  return ids
+  return installed
 end
 
 -- Build a registry from the script cache plus the override directory. `fs`
@@ -177,7 +189,7 @@ end
 function ScriptLoader.buildRegistry(cacheFs, fs, requireFn)
   local Registry = require("libs.engine.src.script.Registry")
   local registry = Registry.new()
-  ScriptLoader.installGenerated(registry, cacheFs)
+  ScriptLoader.installGenerated(registry, cacheFs, requireFn)
   ScriptLoader.installOverrides(registry, fs, requireFn)
   return registry
 end

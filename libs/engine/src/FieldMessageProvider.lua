@@ -18,6 +18,12 @@ local FieldMessageText = require("libs.assets.src.FieldMessageText")
 local FieldMessageProvider = {}
 FieldMessageProvider.__index = FieldMessageProvider
 
+-- Named error codes: the provider's documented failure identity, exported so
+-- callers (the script dialogue host) never duplicate the literals.
+FieldMessageProvider.MESSAGE_BANK_MISSING = "MESSAGE_BANK_MISSING"
+FieldMessageProvider.MESSAGE_BANK_NOT_ACQUIRED = "MESSAGE_BANK_NOT_ACQUIRED"
+FieldMessageProvider.MESSAGE_ID_OUT_OF_RANGE = "MESSAGE_ID_OUT_OF_RANGE"
+
 ---@class MessageToken
 ---@field kind "glyph"|"substitution"|"eos"|"line_break"|"prompt_break"|"page_break"|"unsupported_control"
 ---@field raw integer[]
@@ -89,7 +95,7 @@ function FieldMessageProvider:acquireBank(bankId)
   if type(bank) ~= "table" or bank.schema ~= FieldMessageCache.SCHEMA or bank.bankId ~= bankId then
     return nil,
       Errors.new(
-        "MESSAGE_BANK_MISSING",
+        FieldMessageProvider.MESSAGE_BANK_MISSING,
         "message bank " .. tostring(bankId) .. " is unavailable in the generated cache",
         { bankId = bankId, loadError = err }
       )
@@ -105,7 +111,7 @@ function FieldMessageProvider:releaseBank(bankId)
   local entry = self._banks[bankId]
   if not entry then
     Errors.raise(
-      "MESSAGE_BANK_NOT_ACQUIRED",
+      FieldMessageProvider.MESSAGE_BANK_NOT_ACQUIRED,
       "release of unacquired message bank " .. tostring(bankId),
       { bankId = bankId }
     )
@@ -156,7 +162,7 @@ function FieldMessageProvider:get(bankId, messageId)
   if not entry then
     return nil,
       Errors.new(
-        "MESSAGE_BANK_NOT_ACQUIRED",
+        FieldMessageProvider.MESSAGE_BANK_NOT_ACQUIRED,
         "message bank " .. tostring(bankId) .. " is not acquired",
         { bankId = bankId }
       )
@@ -165,7 +171,7 @@ function FieldMessageProvider:get(bankId, messageId)
   if not message then
     return nil,
       Errors.new(
-        "MESSAGE_ID_OUT_OF_RANGE",
+        FieldMessageProvider.MESSAGE_ID_OUT_OF_RANGE,
         "message "
           .. tostring(messageId)
           .. " not in bank "

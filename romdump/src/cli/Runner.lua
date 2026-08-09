@@ -109,6 +109,22 @@ function Runner._runGenScriptOverrides()
       handle:write(file.text)
       handle:close()
     end
+    -- Rewrite the override manifest with the exact generated ids so the
+    -- loader never enumerates the directory.
+    local manifest = "return {\n"
+    for _, file in ipairs(files) do
+      manifest = manifest .. "  " .. string.format("%q", file.id) .. ",\n"
+    end
+    manifest = manifest .. "}\n"
+    local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
+    local manifestPath = root .. "/" .. ScriptLoader.OVERRIDE_MANIFEST
+    local mh, mErr = io.open(manifestPath, "wb")
+    if not mh then
+      print("gen-script-overrides: open failed for override manifest: " .. tostring(mErr))
+      return love.event.quit(1)
+    end
+    mh:write(manifest)
+    mh:close()
     print(string.format("gen-script-overrides: %s wrote %d override files", version, #files))
     return love.event.quit(0)
   end

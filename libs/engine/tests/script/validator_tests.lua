@@ -35,26 +35,26 @@ local function womanScript()
     api = 1,
     id = "new_bark.npc.woman_1",
     steps = {
-      S.playSound("SEQ_SE_DP_SELECT"),
+      S.playSound({ sound = "SEQ_SE_DP_SELECT" }),
       S.lockAll(),
-      S.facePlayer("self"),
+      S.facePlayer({ actor = "self" }),
       S.if_({
         condition = S.eq(S.var("VAR_SCENE_NEW_BARK_TOWN_OW"), 0),
-        yes = { S.say("msg.hgss.0542.00009") },
+        yes = { S.say({ message = "msg.hgss.0542.00009" }) },
         no = {
           S.if_({
             condition = S.any({
               S.eq(S.var("VAR_SCENE_NEW_BARK_TOWN_OW"), 1),
               S.eq(S.var("VAR_SCENE_NEW_BARK_TOWN_OW"), 2),
             }),
-            yes = { S.say("msg.hgss.0542.00005") },
+            yes = { S.say({ message = "msg.hgss.0542.00005" }) },
             no = {
               S.if_({
                 condition = S.eq(S.var("VAR_SCENE_NEW_BARK_WEST_EXIT"), 1),
-                yes = { S.say("msg.hgss.0542.00000") },
+                yes = { S.say({ message = "msg.hgss.0542.00000" }) },
                 no = {
-                  S.bufferText(0, S.playerName()),
-                  S.say(S.gendered("msg.hgss.0542.00006", "msg.hgss.0542.00007")),
+                  S.bufferText({ slot = 0, value = S.playerName() }),
+                  S.say({ message = S.gendered("msg.hgss.0542.00006", "msg.hgss.0542.00007") }),
                 },
               }),
             },
@@ -71,9 +71,9 @@ local function signScript()
     api = 1,
     id = "new_bark.lab_sign",
     steps = {
-      S.playSound("SEQ_SE_DP_SELECT"),
+      S.playSound({ sound = "SEQ_SE_DP_SELECT" }),
       S.lockAll(),
-      S.say("msg.hgss.0543.00097"),
+      S.say({ message = "msg.hgss.0543.00097" }),
       S.releaseAll(),
     },
   })
@@ -96,7 +96,7 @@ function T.direct_table_equivalents_validate_identically()
   local script = S.script({
     api = 1,
     id = "new_bark.lab_sign",
-    steps = { S.say("msg.hgss.0543.00097") },
+    steps = { S.say({ message = "msg.hgss.0543.00097" }) },
   })
   local direct = {
     kind = "field_script",
@@ -168,7 +168,10 @@ function T.rejects_bad_enum_value()
     "SCRIPT_SCHEMA_INVALID",
     { api = 1, id = "x", steps = { { op = "face", actor = "elm", direction = "northwest" } } }
   )
-  invalidCode("SCRIPT_SCHEMA_INVALID", { api = 1, id = "x", steps = { S.m.walk("south", { speed = "warp" }) } })
+  invalidCode(
+    "SCRIPT_SCHEMA_INVALID",
+    { api = 1, id = "x", steps = { S.m.walk({ direction = "south", speed = "warp" }) } }
+  )
 end
 
 function T.rejects_unknown_param_type()
@@ -205,12 +208,12 @@ function T.rejects_undeclared_local_and_arg_usage()
   invalidCode("SCRIPT_SCHEMA_INVALID", {
     api = 1,
     id = "x",
-    steps = { S.setLocal("route", "intro") },
+    steps = { S.setLocal({ name = "route", value = "intro" }) },
   })
   invalidCode("SCRIPT_SCHEMA_INVALID", {
     api = 1,
     id = "x",
-    steps = { S.say(S.arg("message")) },
+    steps = { S.say({ message = S.arg("message") }) },
   })
 end
 
@@ -274,12 +277,15 @@ end
 function T.rejects_unknown_value_kind()
   invalidCode(
     "SCRIPT_INVALID_REFERENCE",
-    { api = 1, id = "x", steps = { S.setVar("VAR_A", { value = "heap_pointer" }) } }
+    { api = 1, id = "x", steps = { S.setVar({ variable = "VAR_A", value = { value = "heap_pointer" } }) } }
   )
 end
 
 function T.rejects_malformed_value_reference()
-  invalidCode("SCRIPT_SCHEMA_INVALID", { api = 1, id = "x", steps = { S.setVar("VAR_A", { other = 1 }) } })
+  invalidCode(
+    "SCRIPT_SCHEMA_INVALID",
+    { api = 1, id = "x", steps = { S.setVar({ variable = "VAR_A", value = { other = 1 } }) } }
+  )
 end
 
 function T.rejects_unknown_condition_kind()
@@ -303,25 +309,26 @@ end
 function T.rejects_invalid_actor_reference()
   invalidCode(
     "SCRIPT_SCHEMA_INVALID",
-    { api = 1, id = "x", steps = { S.showObject({ ref = "actor", special = "the_void" }) } }
+    { api = 1, id = "x", steps = { S.showObject({ actor = { ref = "actor", special = "the_void" } }) } }
   )
   invalidCode(
     "SCRIPT_INVALID_REFERENCE",
-    { api = 1, id = "x", steps = { S.showObject({ ref = "prop", id = "sign" }) } }
+    { api = 1, id = "x", steps = { S.showObject({ actor = { ref = "prop", id = "sign" } }) } }
   )
 end
 
 function T.rejects_invalid_movement_action()
-  invalidCode(
-    "SCRIPT_UNKNOWN_OPERATION",
-    { api = 1, id = "x", steps = { S.applyMovement("elm", { { action = "moonwalk", count = 1 } }) } }
-  )
+  invalidCode("SCRIPT_UNKNOWN_OPERATION", {
+    api = 1,
+    id = "x",
+    steps = { S.applyMovement({ actor = "elm", movement = { { action = "moonwalk", count = 1 } } }) },
+  })
 end
 
 function T.rejects_invalid_message_reference()
   local err = invalidCode(
     "SCRIPT_INVALID_REFERENCE",
-    { api = 1, id = "x", steps = { S.say({ text = "species_name", value = "SPECIES_PIKACHU" }) } }
+    { api = 1, id = "x", steps = { S.say({ message = { text = "species_name", value = "SPECIES_PIKACHU" } }) } }
   )
   Assert.equal(err.context.path, "steps/0/message")
 end
@@ -339,7 +346,7 @@ function T.error_contexts_carry_path_and_script_id()
     api = 1,
     id = "new_bark.lab_sign",
     steps = {
-      S.say("msg.hgss.0543.00097"),
+      S.say({ message = "msg.hgss.0543.00097" }),
       S.if_({
         condition = S.flag("FLAG_MET_ELM"),
         yes = { { op = "face", actor = "elm", direction = "northwest" } },
@@ -368,7 +375,7 @@ function T.constructor_and_direct_table_forms_print_identically()
   local constructorForm = S.script({
     api = 1,
     id = "x",
-    steps = { S.say("msg.hgss.0543.00097") },
+    steps = { S.say({ message = "msg.hgss.0543.00097" }) },
   })
   local directForm = {
     kind = "field_script",

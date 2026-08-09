@@ -19,7 +19,7 @@ DialogueTask.version = 1
 
 -- Phases from section 28.4: typing, print_complete_delay, input_armed,
 -- waiting_input, close_delay, closing. v1 merges waiting_input into
--- input_armed (the host owns the text box; the task owns the wait) and
+-- input_armed (the host owns the text box; the task owns the wait)and
 -- resolves the close in close_delay.
 local PHASES = {
   typing = true,
@@ -50,7 +50,7 @@ function DialogueTask.create(spec, ctx)
   local host = assert(ctx.services.dialogue, "dialogue task requires the dialogue host")
   host:openMessage(node)
   -- The instance's buffered text arguments (buffer_text) ride alongside the
-  -- node's own bindings so the host can resolve STRVAR slots (section 14.4).
+  -- node's own bindings so the host can resolve STRVAR slots .
   host:startPrint(message, node.bindings or {}, ctx.instance.textArgs or {})
   return {
     message = message,
@@ -121,8 +121,14 @@ end
 
 ---@param state table
 ---@param reason string
-function DialogueTask.cancel(state, reason)
+---@param ctx table|nil
+function DialogueTask.cancel(state, reason, ctx)
   state.cancelled = reason
+  -- The host owns the engine window; leave no box open when the task is
+  -- cancelled before its close delay ran.
+  if ctx ~= nil and ctx.services ~= nil and ctx.services.dialogue ~= nil and ctx.services.dialogue:isOpen() then
+    ctx.services.dialogue:close(false)
+  end
 end
 
 ---@param state table

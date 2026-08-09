@@ -114,6 +114,7 @@ function FakeActors:add(id, opts)
     fieldZ = opts.fieldZ or 0,
     worldY = opts.worldY or 0,
     movementType = opts.movementType,
+    animationPaused = false,
     busy = opts.busy or false,
     numericId = opts.numericId,
     movementOwner = nil,
@@ -173,6 +174,11 @@ end
 function FakeActors:setMovementType(actorId, movementType)
   local actor = assert(self.actors[actorId], "fake actor missing: " .. actorId)
   actor.movementType = movementType
+end
+
+function FakeActors:setAnimationPaused(actorId, paused)
+  local actor = assert(self.actors[actorId], "fake actor missing: " .. actorId)
+  actor.animationPaused = paused == true
 end
 
 function FakeActors:getPosition(actorId)

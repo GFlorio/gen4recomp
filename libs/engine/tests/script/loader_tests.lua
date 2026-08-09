@@ -36,26 +36,33 @@ local function scriptCache()
   )
   cache:write(
     "data/generated/script/scripts/new_bark.lab_sign.lua",
-    'local S = require("gen4.script")\nreturn S.script { api = 1, id = "new_bark.lab_sign", steps = { S.say("msg.hgss.0543.00097"), S.stop() } }\n'
+    'local S = require("gen4.script")\nreturn S.script { api = 1, id = "new_bark.lab_sign", steps = { S.say { message = "msg.hgss.0543.00097" }, S.stop() } }\n'
   )
   return cache
 end
 
--- A directory-shaped filesystem for the override tree.
+-- A read-shaped filesystem for the override tree: the manifest and the
+-- override files.
 local function overrideFs(files)
   files = files or {}
+  local manifest = {}
+  for name in pairs(files) do
+    local id = name:match("^(.*)%.lua$")
+    if id ~= nil then
+      manifest[#manifest + 1] = id
+    end
+  end
+  table.sort(manifest)
+  local manifestText = "return {\n"
+  for _, id in ipairs(manifest) do
+    manifestText = manifestText .. "  " .. string.format("%q", id) .. ",\n"
+  end
+  manifestText = manifestText .. "}\n"
   return {
-    getDirectoryItems = function(self, path)
-      local names = {}
-      for name in pairs(files) do
-        if path == "data/scripts/overrides" then
-          names[#names + 1] = name
-        end
-      end
-      table.sort(names)
-      return names
-    end,
     read = function(self, path)
+      if path == ScriptLoader.OVERRIDE_MANIFEST then
+        return manifestText
+      end
       for name, content in pairs(files) do
         if path == "data/scripts/overrides/" .. name then
           return content
@@ -118,7 +125,7 @@ T["override id mismatch is a hard error"] = function()
   local fs = overrideFs({
     ["elms_lab.elm.lua"] = 'local S = require("gen4.script")\nreturn S.script { api = 1, id = "other.id", steps = { S.stop() } }\n',
   })
-  throwsCode("SCRIPT_HOT_RELOAD_FAILED", function()
+  throwsCode("SCRIPT_LOAD_FAILED", function()
     ScriptLoader.installOverrides(registry, fs, requireShim)
   end)
 end
@@ -128,7 +135,7 @@ T["invalid override fails loudly"] = function()
   local Registry = require("libs.engine.src.script.Registry")
   local registry = Registry.new()
   local fs = overrideFs({
-    ["elms_lab.elm.lua"] = 'local S = require("gen4.script")\nreturn S.script { api = 1, id = "elms_lab.elm", steps = { S.setVar() } }\n',
+    ["elms_lab.elm.lua"] = 'local S = require("gen4.script")\nreturn S.script { api = 1, id = "elms_lab.elm", steps = { S.setVar {  } } }\n',
   })
   throwsCode("SCRIPT_SCHEMA_INVALID", function()
     ScriptLoader.installOverrides(registry, fs, requireShim)
@@ -150,6 +157,20 @@ T["buildRegistry composes the override"] = function()
   local effective = assert(composition:effective("new_bark.lab_sign"))
   Assert.equal(effective.entries[1].operation, "base")
   Assert.equal(effective.entries[1].graph.nodes[effective.entries[1].graph.entry].op, "noop")
+end
+
+-- 7. buildRegistry passes the injected require through to the generated
+-- cache files too: a require the allowlist would reject is observable.
+T["buildRegistry injects require for generated files"] = function()
+  local Registry = require("libs.engine.src.script.Registry")
+  local calls = {}
+  local injected = function(name)
+    calls[#calls + 1] = name
+    return requireShim(name)
+  end
+  local registry = ScriptLoader.buildRegistry(scriptCache(), overrideFs({}), injected)
+  Assert.notNil(registry:base("new_bark.lab_sign"))
+  Assert.isTrue(#calls > 0, "the injected require ran for the generated files")
 end
 
 return T

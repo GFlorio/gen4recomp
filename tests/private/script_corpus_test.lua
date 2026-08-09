@@ -36,7 +36,6 @@ local function scrub(items)
     end
     item.movementComplete = nil
     item.movementUnsupported = nil
-    item.sourceFacing = nil
     item.yieldsNextTick = nil
     item.sourceNotes = nil
   end
@@ -63,7 +62,7 @@ T["corpus decodes and validates"] = function(romFs)
         end
         local lowered = SemanticLowering.lowerScript(script, ir, { stdCatalog = stdCatalog })
         local steps = Structurer.structure(lowered, index)
-        local report = Verifier.verifyScript(lowered, script, ir)
+        local report = Verifier.verifyScript(steps, script, ir, lowered.omissions)
         if not report.ok then
           problems[#problems + 1] = { member = member, scriptIndex = index, messages = report.problems }
         end
@@ -137,6 +136,27 @@ T["std member public ids"] = function(romFs)
   Assert.equal(located.member, 3)
   local common = require("romdump.src.digest.script.SourceCatalog").commonPublicId(stdCatalog, giveId)
   Assert.equal(common, "common.give_item_verbose")
+end
+
+-- 4. The corpus compile is deterministic: two independent compiles produce
+-- byte-identical resources and an index in id-sorted order, independent of
+-- the member-table iteration order.
+T["corpus compile is deterministic"] = function(romFs)
+  local Hashing = require("romdump.src.digest.Hashing")
+  local first = assert(ScriptCompiler.compile(romFs, Hashing.sha1hex, Hashing.hashLua))
+  local second = assert(ScriptCompiler.compile(romFs, Hashing.sha1hex, Hashing.hashLua))
+  Assert.equal(first.marker, second.marker)
+  Assert.equal(#first.resources, #second.resources)
+  for i = 1, #first.resources do
+    Assert.equal(first.resources[i].id, second.resources[i].id, "resource " .. i .. " has the same id")
+  end
+  local sorted = true
+  for i = 2, #first.index.resources do
+    if first.index.resources[i - 1].id > first.index.resources[i].id then
+      sorted = false
+    end
+  end
+  Assert.isTrue(sorted, "the compiled index is sorted by id")
 end
 
 return T

@@ -6,8 +6,8 @@
 -- applies the actor's field position and facing through the actor world, and
 -- on plan completion unregisters from the environment's movement generation
 -- (the barrier predicate) and completes the record. An unsupported movement
--- action is skipped (the translated script stays playable). Pure domain
--- module: no love dependency.
+-- action is an attributed fault: the plan must never skip source commands.
+-- Pure domain module: no love dependency.
 
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -26,9 +26,8 @@ local DIRECTION_DELTA = {
   east = { fieldX = 1, fieldZ = 0 },
 }
 
--- Actions applied without tick advancement; pause_animation/resume_animation
--- are recognized but have no visible effect in this milestone (no animation
--- state machine exists yet).
+-- Actions applied without tick advancement; each performs a real actor
+-- operation (visibility and animation state ride the actor record).
 local IMMEDIATE_ACTIONS = {
   set_visible = true,
   lock_facing = true,
@@ -76,14 +75,25 @@ end
 -- Advance one action by one tick. Returns the action's completion flag.
 ---@param state table
 ---@param action table
+---@param ctx table
 ---@return boolean completed
-local function advanceAction(state, action)
+local function advanceAction(state, action, ctx)
   local kind = action.action
   if IMMEDIATE_ACTIONS[kind] then
     if kind == "lock_facing" then
       state.facingLocked = true
     elseif kind == "unlock_facing" then
       state.facingLocked = false
+    elseif kind == "set_visible" then
+      if action.visible then
+        ctx.services.actors:show(state.actor)
+      else
+        ctx.services.actors:hide(state.actor)
+      end
+    elseif kind == "pause_animation" then
+      ctx.services.actors:setAnimationPaused(state.actor, true)
+    elseif kind == "resume_animation" then
+      ctx.services.actors:setAnimationPaused(state.actor, false)
     end
     return true
   end
@@ -134,21 +144,23 @@ function MovementTask._advancePlan(state, ctx)
     end
     local kind = action.action
     if kind == "unsupported" then
-      state.actionIndex = state.actionIndex + 1
-      state.actionRepeat = 0
+      Errors.raise(
+        ScriptErrors.SCRIPT_UNSUPPORTED_REACHABLE,
+        "reachable unsupported movement action",
+        { scriptId = ctx.instance.scriptId, action = action.originalName or tostring(action.code), code = action.code }
+      )
+    end
+    if state.actionRepeat == 0 and not IMMEDIATE_ACTIONS[kind] then
+      state.durationTicks = MovementCalibration.actionTicks(action)
+    end
+    if advanceAction(state, action, ctx) then
+      state.actionRepeat = state.actionRepeat + 1
+      if state.actionRepeat >= actionCount(action) then
+        state.actionIndex = state.actionIndex + 1
+        state.actionRepeat = 0
+      end
     else
-      if state.actionRepeat == 0 then
-        state.durationTicks = MovementCalibration.actionTicks(action)
-      end
-      if advanceAction(state, action) then
-        state.actionRepeat = state.actionRepeat + 1
-        if state.actionRepeat >= actionCount(action) then
-          state.actionIndex = state.actionIndex + 1
-          state.actionRepeat = 0
-        end
-      else
-        break
-      end
+      break
     end
   end
   return false

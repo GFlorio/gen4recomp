@@ -35,29 +35,22 @@ function ScriptCompiler.scrub(items)
     end
     item.movementComplete = nil
     item.movementUnsupported = nil
-    item.sourceFacing = nil
     item.yieldsNextTick = nil
     item.sourceNotes = nil
   end
 end
 
--- The structurer's label-ownership fix (a boundary label
--- with more than one referent stays a label/goto fallback) changes emitted
--- output, so the cache class version bumps.
-ScriptCompiler.COMPILER_VERSION = "script-compiler-v3"
+-- The cache class version: bumps whenever emitted output or the compiled
+-- graph shape changes, so stale caches are always regenerated. v4: canonical
+-- raw-table emission, retained region-terminal gotos, and the multi-step
+-- MovePersonFacing lowering.
+ScriptCompiler.COMPILER_VERSION = "script-compiler-v4"
 
 -- The public resource id for one script index : the
--- vertical-slice names are curated; standard-script members resolve through
--- the std catalog to `common.<name>`; everything else stays mechanical.
-local CURATED_IDS = {
-  [842] = {
-    [1] = "new_bark.npc.woman_1",
-  },
-  [843] = {
-    [0] = "elms_lab.generated.script_000",
-    [9] = "new_bark.lab_sign",
-  },
-}
+-- curated ids live in the data manifest; standard-script members resolve
+-- through the std catalog to `common.<name>`; everything else stays
+-- mechanical.
+local CURATED_IDS = require("data.reference.hgss.script_ids")
 
 ---@param member integer
 ---@param scriptIndex integer
@@ -84,7 +77,7 @@ end
 -- Translate one script into a DSL resource.
 ---@param memberIr table
 ---@param scriptIndex integer
----@param opts table { stdCatalog, publicId, commit, repository, game, sourceHash }
+---@param opts table { stdCatalog, publicId, romSha1, repository, game, sourceHash }
 ---@return table resource, table report
 local function translateScript(memberIr, scriptIndex, opts)
   local script = memberIr.scripts[scriptIndex]
@@ -95,8 +88,11 @@ local function translateScript(memberIr, scriptIndex, opts)
   end
   local lowered = SemanticLowering.lowerScript(script, memberIr, opts)
   local steps = Structurer.structure(lowered, scriptIndex)
-  local report = Verifier.verifyScript(lowered, script, memberIr)
+  -- The verifier runs on the final program (post-structuring and scrub):
+  -- the transformations between lowering and emission are exactly the
+  -- places semantic changes would hide, so they must be verified too.
   ScriptCompiler.scrub(steps)
+  local report = Verifier.verifyScript(steps, script, memberIr, lowered.omissions)
   local ok, validateErr = S.validate({ api = 1, id = "check", steps = steps })
   if not ok then
     error("generated script for " .. tostring(scriptIndex) .. " fails validation: " .. tostring(validateErr))
@@ -108,10 +104,10 @@ local function translateScript(memberIr, scriptIndex, opts)
     id = id,
     metadata = {
       generated = true,
-      generator = { name = "hgss-script-translator", version = 1 },
+      generator = { name = "hgss-script-translator", version = LuaEmitter.GENERATOR_VERSION },
       source = {
         repository = opts.repository,
-        commit = opts.commit,
+        romSha1 = opts.romSha1,
         path = memberIr.sourcePath,
         game = opts.game,
         archive = "scr_seq",
@@ -175,10 +171,18 @@ function ScriptCompiler.compile(romFs, sha1hex, hashLua)
       local memberBytes = assert(archive:readMember(member))
       local memberSha1 = sha1hex(memberBytes)
       local results = {}
-      for index, script in pairs(memberIr.scripts) do
+      -- Deterministic iteration: the script map is keyed by zero-based
+      -- script index; the sorted index list fixes the translation order.
+      local scriptIndices = {}
+      for index in pairs(memberIr.scripts) do
+        scriptIndices[#scriptIndices + 1] = index
+      end
+      table.sort(scriptIndices)
+      for _, index in ipairs(scriptIndices) do
+        local script = memberIr.scripts[index]
         local resource, report = translateScript(memberIr, index, {
           stdCatalog = stdCatalog,
-          commit = romSha1,
+          romSha1 = romSha1,
           repository = "g4recomp",
           game = version,
           sourceHash = memberSha1,
@@ -199,7 +203,7 @@ function ScriptCompiler.compile(romFs, sha1hex, hashLua)
       end
       local record = Coverage.record(memberIr, results, {
         repository = "g4recomp",
-        commit = romSha1,
+        romSha1 = romSha1,
       })
       records[#records + 1] = record
     end
@@ -207,7 +211,7 @@ function ScriptCompiler.compile(romFs, sha1hex, hashLua)
   local coverageRecord = Coverage.aggregate(records)
   coverageRecord.decodeNotes = decodeNotes
   coverageRecord.skippedMembers = skippedMembers
-  coverageRecord.source = { repository = "g4recomp", commit = romSha1 }
+  coverageRecord.source = { repository = "g4recomp", romSha1 = romSha1 }
 
   local index = {
     schema = ScriptCache.INDEX_SCHEMA,
@@ -218,14 +222,6 @@ function ScriptCompiler.compile(romFs, sha1hex, hashLua)
     scriptCount = scriptCount,
     resourceCount = #resources,
   }
-  index.resources = {}
-  for _, entry in ipairs(resources) do
-    index.resources[#index.resources + 1] = {
-      id = entry.id,
-      member = entry.member,
-      scriptIndex = entry.scriptIndex,
-    }
-  end
   local dependencies = {
     cacheFormat = ScriptCache.FORMAT,
     compilerVersion = ScriptCompiler.COMPILER_VERSION,
@@ -244,9 +240,19 @@ function ScriptCompiler.compile(romFs, sha1hex, hashLua)
     },
   }
   local marker = ScriptCache.marker(romSha1, hashLua(dependencies))
+  -- The index mirrors the sorted resources so discovery order never leaks
+  -- into the emitted output.
   table.sort(resources, function(a, b)
     return a.id < b.id
   end)
+  index.resources = {}
+  for _, entry in ipairs(resources) do
+    index.resources[#index.resources + 1] = {
+      id = entry.id,
+      member = entry.member,
+      scriptIndex = entry.scriptIndex,
+    }
+  end
   return {
     marker = marker,
     index = index,
@@ -278,14 +284,14 @@ end
 
 -- Emit the Lua text for one resource (the cache writer persists it).
 ---@param entry table { id, member, scriptIndex, resource, report }
----@param opts table { sourcePath, commit, game, sourceHash }
+---@param opts table { sourcePath, romSha1, game, sourceHash }
 ---@return string
 function ScriptCompiler.emit(entry, opts)
   return LuaEmitter.emit(entry.resource, {
     member = entry.member,
     scriptIndex = entry.scriptIndex,
     sourcePath = opts.sourcePath,
-    commit = opts.commit,
+    romSha1 = opts.romSha1,
     repository = "g4recomp",
     game = opts.game,
     sourceHash = entry.sourceHash or opts.sourceHash,

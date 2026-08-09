@@ -95,7 +95,7 @@ function ScriptCacheWriter.write(cacheFs, bundle)
     )
     local emitOpts = {
       sourcePath = "romfs/" .. bundle.dependencies.scrSeqNarc.path,
-      commit = bundle.dependencies.versionRomSha1,
+      romSha1 = bundle.dependencies.versionRomSha1,
       game = bundle.index.version,
     }
     for _, entry in ipairs(bundle.resources) do

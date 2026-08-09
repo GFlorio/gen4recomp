@@ -1,10 +1,8 @@
 -- Authoritative public schema for the gen4 field-script DSL, API 1. This is
 -- the single source of truth the constructors, validator, doc generator, and
 -- compatibility tests share: operation names, field names, types, defaults,
--- enums, and the normative constructor index. The schema is frozen by the
--- sprint spec (tmp/spec.md): field shapes come from sections 8-14 and 45.1-45.2,
--- enums from sections 17.2 and 35.1, and the constructor index from section 45.
-
+-- enums, and the normative constructor index. The schema is frozen: field
+-- shapes, enums, and the constructor index live here and nowhere else.
 local Schema = {}
 
 Schema.API_VERSION = 1
@@ -58,8 +56,6 @@ Schema.ENUMS = {
   button = { "a", "b" },
 }
 
--- Special actor references . `camera_target` covers the
--- pinned HGSS object id 0xF1 (the field camera target).
 Schema.ACTOR_SPECIALS = { "player", "self", "last_talked", "partner", "camera_target" }
 
 -- Script resource schema . `kind` is constructor-supplied;
@@ -256,10 +252,10 @@ Schema.OPERATIONS = {
       args = { type = "args", default = {} },
     },
   },
-  -- Translator-internal caller-signal operation :
-  -- lowered from HGSS `RestartCurrentScript` inside verified common-script
-  -- contexts. Not exposed as a public constructor; generated scripts may use
-  -- it and handwritten scripts are warned.
+  -- Translator-internal caller-signal operation : lowered from
+  -- HGSS `RestartCurrentScript` inside verified common-script contexts. Not
+  -- exposed as a public constructor; generated scripts may use it and
+  -- handwritten scripts are warned.
   signal_caller = { fields = {} },
   ["return"] = { fields = { value = { type = "scalar_or_value" } } },
   label = { fields = { name = { type = "string", required = true } } },
@@ -270,7 +266,7 @@ Schema.OPERATIONS = {
       target = { type = "string", required = true },
     },
   },
-  -- Cross-script jump (shared script tails,  rows 22/28):
+  -- Cross-script jump (shared script tails, rows 22/28):
   -- a same-context, same-tick jump into another script's graph, resolved
   -- through the composition registry at runtime like the raw-Lua escape
   -- hatch. `label` names an entry point inside the target; without it the
@@ -605,6 +601,12 @@ Schema.CONSTRUCTORS = {
       { signature = "S.self()", canonical = 'ref="actor", special="self"', notes = "Trigger-owning object." },
       { signature = "S.lastTalked()", canonical = 'ref="actor", special="last_talked"', notes = "" },
       { signature = "S.partner()", canonical = 'ref="actor", special="partner"', notes = "" },
+      { signature = "S.cameraTarget()", canonical = 'ref="actor", special="camera_target"', notes = "" },
+      {
+        signature = "S.actorIndex(index)",
+        canonical = 'ref="actor", mapIndex=index',
+        notes = "Numeric local map-object index resolved against the current map at runtime.",
+      },
       {
         signature = "S.externalMessage(bank, id)",
         canonical = 'message="external"',
@@ -618,11 +620,7 @@ Schema.CONSTRUCTORS = {
       { signature = "S.playerName()", canonical = "text=player_name", notes = "" },
       { signature = "S.rivalName()", canonical = "text=rival_name", notes = "" },
       { signature = "S.friendName()", canonical = "text=friend_name", notes = "" },
-      {
-        signature = "S.integerText(value, opts)",
-        canonical = "text=integer",
-        notes = 'opts={width=nil,pad="none",sign=false}; width omitted when nil.',
-      },
+      { signature = "S.integerText(value)", canonical = "text=integer", notes = "" },
       { signature = "S.itemName(value)", canonical = "text=item_name", notes = "" },
       { signature = "S.pocketName(value)", canonical = "text=pocket_name", notes = "" },
       { signature = "S.moveName(value)", canonical = "text=move_name", notes = "" },
@@ -697,103 +695,116 @@ Schema.CONSTRUCTORS = {
   },
   {
     section = "Control-flow constructors",
+    notes = "All step constructors take one canonical spec table (the schema field names); generated scripts emit raw canonical step tables and never call these.",
     rows = {
-      { signature = "S.noop()", canonical = "op=noop", notes = "" },
-      { signature = "S.stop()", canonical = "op=stop", notes = "Normal script completion." },
+      { signature = "S.noop(spec)", canonical = "op=noop", notes = "spec optional." },
+      { signature = "S.stop(spec)", canonical = "op=stop", notes = "Normal script completion; spec optional." },
       {
-        signature = "S.yieldTick()",
+        signature = "S.yieldTick(spec)",
         canonical = "op=yield_tick",
-        notes = "Generated/advanced explicit one-tick source yield.",
+        notes = "Generated/advanced explicit one-tick source yield; spec optional.",
       },
       {
-        signature = "S.waitTicks(ticks, opts)",
+        signature = "S.waitTicks(spec)",
         canonical = "op=wait_ticks",
-        notes = "ticks >= 1; first poll next tick, continuation one tick after completion; opts.countdownVariable mirrors the countdown into an observable variable like the source engine.",
+        notes = "spec={ticks>=1,countdownVariable=nil}; first poll next tick, continuation one tick after completion; countdownVariable mirrors the countdown into an observable variable like the source engine.",
       },
       { signature = "S.if_(spec)", canonical = "op=if", notes = "spec={condition,yes={},no={}}." },
       { signature = "S.switch(spec)", canonical = "op=switch", notes = "spec={value,cases,default={}}." },
       {
-        signature = "S.call(scriptId, opts)",
+        signature = "S.call(spec)",
         canonical = "op=call",
-        notes = "Same-context call; opts={args={},result=nil}; opts.label enters the composed target at a label instead of its entry.",
+        notes = "spec={target,args={},result=nil,label=nil}; label enters the composed target at a label instead of its entry.",
       },
       {
-        signature = "S.callCommon(scriptId, opts)",
+        signature = "S.callCommon(spec)",
         canonical = "op=call_common",
-        notes = "Generated/advanced common child context; opts={args={}}.",
+        notes = "Generated/advanced common child context; spec={target,args={}}.",
       },
-      { signature = "S.return_([value])", canonical = "op=return", notes = "Trailing underscore is part of API." },
-      { signature = "S.label(name)", canonical = "op=label", notes = "Generated fallback." },
-      { signature = "S.goto_(name)", canonical = "op=goto", notes = "Generated fallback." },
-      { signature = "S.gotoIf(condition, name)", canonical = "op=goto_if", notes = "Generated fallback." },
       {
-        signature = "S.gotoScript(scriptId, opts)",
+        signature = "S.return_(spec)",
+        canonical = "op=return",
+        notes = "Trailing underscore is part of API; spec={value=nil}.",
+      },
+      { signature = "S.label(spec)", canonical = "op=label", notes = "spec={name}; generated fallback." },
+      { signature = "S.goto_(spec)", canonical = "op=goto", notes = "spec={target}; generated fallback." },
+      {
+        signature = "S.gotoIf(spec)",
+        canonical = "op=goto_if",
+        notes = "spec={condition,target}; generated fallback.",
+      },
+      {
+        signature = "S.gotoScript(spec)",
         canonical = "op=goto_script",
-        notes = "Cross-script same-context jump (shared script tails); opts={label=nil}; resolved through the composition registry at runtime; handwritten scripts are warned.",
+        notes = "spec={script,label=nil}; cross-script same-context jump (shared script tails); resolved through the composition registry at runtime; handwritten scripts are warned.",
       },
-      { signature = "S.compare(a, b)", canonical = "op=compare", notes = "Generated low-level fallback." },
       {
-        signature = "S.gotoCompared(operator, name, opts)",
+        signature = "S.compare(spec)",
+        canonical = "op=compare",
+        notes = "spec={left,right}; generated low-level fallback.",
+      },
+      {
+        signature = "S.gotoCompared(spec)",
         canonical = "op=goto_compared",
-        notes = "Generated low-level fallback; opts={script,label} is the cross-script form resolved through the composition registry at runtime.",
+        notes = "spec={operator,target=nil,script=nil,label=nil}; the script/label form is cross-script, resolved through the composition registry at runtime.",
       },
       {
-        signature = "S.callCompared(operator, target, opts)",
+        signature = "S.callCompared(spec)",
         canonical = "op=call_compared",
-        notes = "Generated low-level fallback; opts={script,label} is the cross-script form.",
+        notes = "spec={operator,target=nil,script=nil,label=nil}; the script/label form is cross-script.",
       },
-      { signature = "S.next()", canonical = "op=next", notes = "Wrapper resources only." },
+      { signature = "S.next(spec)", canonical = "op=next", notes = "Wrapper resources only; spec optional." },
     },
   },
   {
     section = "State constructors",
     rows = {
-      { signature = "S.setFlag(flag)", canonical = "op=set_flag", notes = "" },
-      { signature = "S.clearFlag(flag)", canonical = "op=clear_flag", notes = "" },
-      { signature = "S.setVar(id, value)", canonical = "op=set_var", notes = "" },
-      { signature = "S.copyVar(dst, src)", canonical = "op=copy_var", notes = "src is a variable ID." },
-      { signature = "S.addVar(id, amount)", canonical = "op=add_var", notes = "" },
-      { signature = "S.subVar(id, amount)", canonical = "op=sub_var", notes = "" },
-      { signature = "S.setLocal(name, value)", canonical = "op=set_local", notes = "" },
-      { signature = "S.copyLocal(dst, src)", canonical = "op=copy_local", notes = "" },
-      { signature = "S.addLocal(name, amount)", canonical = "op=add_local", notes = "" },
-      { signature = "S.subLocal(name, amount)", canonical = "op=sub_local", notes = "" },
+      { signature = "S.setFlag(spec)", canonical = "op=set_flag", notes = "spec={flag}." },
+      { signature = "S.clearFlag(spec)", canonical = "op=clear_flag", notes = "spec={flag}." },
+      { signature = "S.setVar(spec)", canonical = "op=set_var", notes = "spec={variable,value}." },
+      {
+        signature = "S.copyVar(spec)",
+        canonical = "op=copy_var",
+        notes = "spec={destination,source}; source is a variable ID.",
+      },
+      { signature = "S.addVar(spec)", canonical = "op=add_var", notes = "spec={variable,amount}." },
+      { signature = "S.subVar(spec)", canonical = "op=sub_var", notes = "spec={variable,amount}." },
+      { signature = "S.setLocal(spec)", canonical = "op=set_local", notes = "spec={name,value}." },
+      { signature = "S.copyLocal(spec)", canonical = "op=copy_local", notes = "spec={destination,source}." },
+      { signature = "S.addLocal(spec)", canonical = "op=add_local", notes = "spec={name,amount}." },
+      { signature = "S.subLocal(spec)", canonical = "op=sub_local", notes = "spec={name,amount}." },
     },
   },
   {
     section = "Dialogue constructors",
     rows = {
       {
-        signature = "S.say(message, opts)",
+        signature = "S.say(spec)",
         canonical = "op=say",
-        notes = 'opts={style="npc",wait="button",close=true,timingProfile="hgss",bindings={}}.',
+        notes = 'spec={message,style="npc",wait="button",close=true,timingProfile="hgss",bindings={}}.',
       },
-      { signature = "S.openMessage(opts)", canonical = "op=open_message", notes = 'opts={style="npc"}.' },
+      { signature = "S.openMessage(spec)", canonical = "op=open_message", notes = 'spec={style="npc"}.' },
       {
-        signature = "S.message(message, opts)",
+        signature = "S.message(spec)",
         canonical = "op=message",
-        notes = 'opts={style="npc",waitForPrint=true,bindings={}}; generated scripts emit waitForPrint explicitly.',
+        notes = 'spec={message,style="npc",waitForPrint=true,bindings={}}; generated scripts emit waitForPrint explicitly.',
       },
+      { signature = "S.waitInput(spec)", canonical = "op=wait_input", notes = "spec={buttons={a,b},allowDpad=false}." },
       {
-        signature = "S.waitInput(opts)",
-        canonical = "op=wait_input",
-        notes = "Requires/accepts buttons; defaults {a,b}, no d-pad.",
-      },
-      {
-        signature = "S.waitInputOrTicks(opts)",
+        signature = "S.waitInputOrTicks(spec)",
         canonical = "op=wait_input_or_ticks",
-        notes = 'opts={ticks,buttons={"a","b"},allowDpad=true,turnPlayerOnDpad=false}.',
+        notes = 'spec={ticks,buttons={"a","b"},allowDpad=true,turnPlayerOnDpad=false}.',
       },
-      { signature = "S.closeMessage(opts)", canonical = "op=close_message", notes = "opts={erase=true}." },
-      { signature = "S.holdMessage()", canonical = "op=hold_message", notes = "" },
+      { signature = "S.closeMessage(spec)", canonical = "op=close_message", notes = "spec={erase=true}." },
+      { signature = "S.holdMessage(spec)", canonical = "op=hold_message", notes = "spec optional." },
       {
-        signature = "S.askYesNo(message, opts)",
+        signature = "S.askYesNo(spec)",
         canonical = "op=ask_yes_no",
-        notes = "message=nil uses current box; opts={result,bindings={}}.",
+        notes = "spec={message=nil,result,bindings={}}; message=nil uses current box.",
       },
-      { signature = "S.bufferText(slot, value)", canonical = "op=buffer_text", notes = "Slot is 0..7." },
-      { signature = "S.showWaitingIcon()", canonical = "op=show_waiting_icon", notes = "" },
-      { signature = "S.hideWaitingIcon()", canonical = "op=hide_waiting_icon", notes = "" },
+      { signature = "S.bufferText(spec)", canonical = "op=buffer_text", notes = "spec={slot 0..7,value}." },
+      { signature = "S.showWaitingIcon(spec)", canonical = "op=show_waiting_icon", notes = "spec optional." },
+      { signature = "S.hideWaitingIcon(spec)", canonical = "op=hide_waiting_icon", notes = "spec optional." },
       {
         signature = "S.resolveCommonMessageBank(spec)",
         canonical = "op=resolve_common_message_bank",
@@ -804,48 +815,56 @@ Schema.CONSTRUCTORS = {
   {
     section = "Lock and actor constructors",
     rows = {
-      { signature = "S.lockPlayer()", canonical = "op=lock_player", notes = "Player input and interaction only." },
-      { signature = "S.releasePlayer()", canonical = "op=release_player", notes = "" },
       {
-        signature = "S.lockAll()",
+        signature = "S.lockPlayer(spec)",
+        canonical = "op=lock_player",
+        notes = "Player input and interaction only; spec optional.",
+      },
+      { signature = "S.releasePlayer(spec)", canonical = "op=release_player", notes = "spec optional." },
+      {
+        signature = "S.lockAll(spec)",
         canonical = "op=lock_all",
-        notes = "Player plus autonomous behavior; returns yield_tick or blocks until pausable.",
+        notes = "Player plus autonomous behavior; returns yield_tick or blocks until pausable; spec optional.",
       },
       {
-        signature = "S.releaseAll()",
+        signature = "S.releaseAll(spec)",
         canonical = "op=release_all",
-        notes = "Handwritten semantic is immediate; imported HGSS emits a following yield_tick.",
+        notes = "Handwritten semantic is immediate; imported HGSS emits a following yield_tick; spec optional.",
       },
       {
-        signature = "S.lockActor(actor, opts)",
+        signature = "S.lockActor(spec)",
         canonical = "op=lock_actor",
-        notes = "opts={waitUntilPausable=false}; imported LockLastTalked sets true.",
+        notes = "spec={actor,waitUntilPausable=false}; imported LockLastTalked sets true.",
       },
-      { signature = "S.releaseActor(actor)", canonical = "op=release_actor", notes = "" },
+      { signature = "S.releaseActor(spec)", canonical = "op=release_actor", notes = "spec={actor}." },
       {
-        signature = "S.facePlayer(actor)",
+        signature = "S.facePlayer(spec)",
         canonical = "op=face_player",
-        notes = 'actor defaults to "self" when omitted.',
+        notes = 'spec={actor=nil}; actor defaults to "self" when omitted.',
       },
-      { signature = "S.face(actor, direction)", canonical = "op=face", notes = "Immediate facing operation." },
-      { signature = "S.showObject(actor)", canonical = "op=show_object", notes = "" },
-      { signature = "S.hideObject(actor)", canonical = "op=hide_object", notes = "" },
       {
-        signature = "S.setObjectPosition(actor, position)",
+        signature = "S.face(spec)",
+        canonical = "op=face",
+        notes = "spec={actor,direction}; immediate facing operation.",
+      },
+      { signature = "S.showObject(spec)", canonical = "op=show_object", notes = "spec={actor}." },
+      { signature = "S.hideObject(spec)", canonical = "op=hide_object", notes = "spec={actor}." },
+      {
+        signature = "S.setObjectPosition(spec)",
         canonical = "op=set_object_position",
-        notes = "Position requires fieldX and fieldZ; worldY optional.",
+        notes = "spec={actor,fieldX,fieldZ,worldY=nil}.",
       },
-      { signature = "S.setObjectFacing(actor, direction)", canonical = "op=set_object_facing", notes = "" },
+      { signature = "S.setObjectFacing(spec)", canonical = "op=set_object_facing", notes = "spec={actor,direction}." },
       {
-        signature = "S.setObjectMovementType(actor, movementType)",
+        signature = "S.setObjectMovementType(spec)",
         canonical = "op=set_object_movement_type",
-        notes = "",
+        notes = "spec={actor,movementType}.",
       },
       { signature = "S.getPlayerCoords(spec)", canonical = "op=get_player_coords", notes = "spec={x,z} result refs." },
       {
-        signature = "S.getObjectCoords(actor, spec)",
+        signature = "S.getObjectCoords(spec)",
         canonical = "op=get_object_coords",
-        notes = "spec={x,z} result refs.",
+        notes = "spec={actor,x,z} result refs.",
       },
       { signature = "S.getPlayerFacing(spec)", canonical = "op=get_player_facing", notes = "spec={result}." },
     },
@@ -854,41 +873,41 @@ Schema.CONSTRUCTORS = {
     section = "Movement constructors",
     rows = {
       {
-        signature = "S.applyMovement(actor, sequence, opts)",
+        signature = "S.applyMovement(spec)",
         canonical = "op=apply_movement",
-        notes = "opts={movementId=nil}; non-blocking.",
+        notes = "spec={actor,movement,{movementId=nil}}; non-blocking.",
       },
       {
-        signature = "S.waitMovement(opts)",
+        signature = "S.waitMovement(spec)",
         canonical = "op=wait_movement",
-        notes = 'opts=nil means current environment generation; actor scope uses {scope="actors",actors={...}}.',
+        notes = 'spec=nil means current environment generation; actor scope uses {scope="actors",actors={...}}.',
       },
-      { signature = "S.move(actor, sequence, opts)", canonical = "op=move", notes = "Blocking convenience; opts={}." },
+      { signature = "S.move(spec)", canonical = "op=move", notes = "spec={actor,movement}; blocking convenience." },
     },
   },
   {
     section = "Movement action namespace",
     rows = {
-      { signature = "S.m.face(direction, [count])", canonical = "action=face", notes = "count=1." },
-      { signature = "S.m.walk(direction, opts)", canonical = "action=walk", notes = 'opts={speed="normal",tiles=1}.' },
+      { signature = "S.m.face(spec)", canonical = "action=face", notes = "spec={direction,count=1}." },
+      { signature = "S.m.walk(spec)", canonical = "action=walk", notes = 'spec={direction,speed="normal",tiles=1}.' },
       {
-        signature = "S.m.walkInPlace(direction, opts)",
+        signature = "S.m.walkInPlace(spec)",
         canonical = "action=walk_in_place",
-        notes = 'opts={speed="normal",count=1}.',
+        notes = 'spec={direction,speed="normal",count=1}.',
       },
       {
-        signature = "S.m.jump(direction, opts)",
+        signature = "S.m.jump(spec)",
         canonical = "action=jump",
-        notes = 'opts={distance="zero",speed="fast",count=1}.',
+        notes = 'spec={direction,distance="zero",speed="fast",count=1}.',
       },
-      { signature = "S.m.delay(ticks, [count])", canonical = "action=delay", notes = "count=1." },
-      { signature = "S.m.setVisible(visible)", canonical = "action=set_visible", notes = "" },
-      { signature = "S.m.lockFacing()", canonical = "action=lock_facing", notes = "" },
-      { signature = "S.m.unlockFacing()", canonical = "action=unlock_facing", notes = "" },
-      { signature = "S.m.pauseAnimation()", canonical = "action=pause_animation", notes = "" },
-      { signature = "S.m.resumeAnimation()", canonical = "action=resume_animation", notes = "" },
-      { signature = "S.m.emote(name, [count])", canonical = "action=emote", notes = "count=1." },
-      { signature = "S.m.gesture(name, [count])", canonical = "action=gesture", notes = "count=1." },
+      { signature = "S.m.delay(spec)", canonical = "action=delay", notes = "spec={ticks,count=1}." },
+      { signature = "S.m.setVisible(spec)", canonical = "action=set_visible", notes = "spec={visible}." },
+      { signature = "S.m.lockFacing(spec)", canonical = "action=lock_facing", notes = "spec optional." },
+      { signature = "S.m.unlockFacing(spec)", canonical = "action=unlock_facing", notes = "spec optional." },
+      { signature = "S.m.pauseAnimation(spec)", canonical = "action=pause_animation", notes = "spec optional." },
+      { signature = "S.m.resumeAnimation(spec)", canonical = "action=resume_animation", notes = "spec optional." },
+      { signature = "S.m.emote(spec)", canonical = "action=emote", notes = "spec={name,count=1}." },
+      { signature = "S.m.gesture(spec)", canonical = "action=gesture", notes = "spec={name,count=1}." },
       {
         signature = "S.m.unsupported(spec)",
         canonical = "action=unsupported",
@@ -899,25 +918,25 @@ Schema.CONSTRUCTORS = {
   {
     section = "Audio constructors",
     rows = {
-      { signature = "S.playSound(id)", canonical = "op=play_sound", notes = "" },
-      { signature = "S.stopSound(id)", canonical = "op=stop_sound", notes = "" },
+      { signature = "S.playSound(spec)", canonical = "op=play_sound", notes = "spec={sound}." },
+      { signature = "S.stopSound(spec)", canonical = "op=stop_sound", notes = "spec={sound}." },
       {
-        signature = "S.waitSound([id])",
+        signature = "S.waitSound(spec)",
         canonical = "op=wait_sound",
-        notes = "Missing ID waits for the currently tracked effect.",
+        notes = "spec={sound=nil}; missing ID waits for the currently tracked effect.",
       },
-      { signature = "S.playCry(species, opts)", canonical = "op=play_cry", notes = "opts={form=0}." },
-      { signature = "S.waitCry()", canonical = "op=wait_cry", notes = "" },
-      { signature = "S.playFanfare(id)", canonical = "op=play_fanfare", notes = "" },
-      { signature = "S.waitFanfare()", canonical = "op=wait_fanfare", notes = "" },
-      { signature = "S.playMusic(id)", canonical = "op=play_music", notes = "" },
+      { signature = "S.playCry(spec)", canonical = "op=play_cry", notes = "spec={species,form=0}." },
+      { signature = "S.waitCry(spec)", canonical = "op=wait_cry", notes = "spec optional." },
+      { signature = "S.playFanfare(spec)", canonical = "op=play_fanfare", notes = "spec={fanfare}." },
+      { signature = "S.waitFanfare(spec)", canonical = "op=wait_fanfare", notes = "spec optional." },
+      { signature = "S.playMusic(spec)", canonical = "op=play_music", notes = "spec={music}." },
       {
-        signature = "S.stopMusic([id])",
+        signature = "S.stopMusic(spec)",
         canonical = "op=stop_music",
-        notes = "Missing ID stops the active field BGM.",
+        notes = "spec={music=nil}; missing ID stops the active field BGM.",
       },
-      { signature = "S.resetMusic()", canonical = "op=reset_music", notes = "" },
-      { signature = "S.temporaryMusic(id)", canonical = "op=temporary_music", notes = "" },
+      { signature = "S.resetMusic(spec)", canonical = "op=reset_music", notes = "spec optional." },
+      { signature = "S.temporaryMusic(spec)", canonical = "op=temporary_music", notes = "spec={music}." },
       { signature = "S.fadeMusicOut(spec)", canonical = "op=fade_music_out", notes = "spec={target=0,durationTicks}." },
       { signature = "S.fadeMusicIn(spec)", canonical = "op=fade_music_in", notes = "spec={durationTicks}." },
     },
@@ -930,9 +949,9 @@ Schema.CONSTRUCTORS = {
         canonical = "op=fade_screen",
         notes = "Requires source kind/speed/direction/color or normalized equivalents.",
       },
-      { signature = "S.waitFade()", canonical = "op=wait_fade", notes = "" },
+      { signature = "S.waitFade(spec)", canonical = "op=wait_fade", notes = "spec optional." },
       { signature = "S.warp(spec)", canonical = "op=warp", notes = "Requires map and target coordinates/warp." },
-      { signature = "S.setSpawn(spawn)", canonical = "op=set_spawn", notes = "" },
+      { signature = "S.setSpawn(spec)", canonical = "op=set_spawn", notes = "spec={spawn}." },
       {
         signature = "S.shakeCamera(spec)",
         canonical = "op=shake_camera",

@@ -16,6 +16,23 @@ local SemanticLowering = {}
 -- HGSS GoToIf condition codes .
 local CONDITION_OPERATORS = { [0] = "lt", [1] = "eq", [2] = "gt", [3] = "le", [4] = "ge", [5] = "ne" }
 
+-- Numeric direction codes (field movement direction table).
+local DIRECTION_BY_CODE = { [0] = "north", [1] = "south", [2] = "west", [3] = "east" }
+
+-- Normalize a numeric direction code to the DSL enum; non-numeric values
+-- (symbolic operands) pass through. An unknown numeric code is a lowering
+-- fault, never a silent default.
+---@param value any
+---@return any
+local function normalizeFacing(value)
+  if type(value) ~= "number" then
+    return value
+  end
+  local direction = DIRECTION_BY_CODE[value]
+  assert(direction ~= nil, "unknown direction code " .. tostring(value))
+  return direction
+end
+
 -- Message symbol -> public message ref: msg_0542_T20_00009 ->
 -- "msg.hgss.0542.00009" (bank from the symbol, index from the tail).
 ---@param symbol string
@@ -464,17 +481,13 @@ local HANDLERS = {
   [176] = function(ins)
     -- Warp map, warp, x, z, dir: coordinates and direction may be variable
     -- operands; numeric directions normalize to the string enum.
-    local facing = operandValue(ins.operands[5])
-    if type(facing) == "number" then
-      facing = ({ [0] = "north", [1] = "south", [2] = "west", [3] = "east" })[facing] or "south"
-    end
     return {
       op = "warp",
       map = varRef(ins.operands[1]),
       warp = varRef(ins.operands[2]),
       fieldX = varRef(ins.operands[3]),
       fieldZ = varRef(ins.operands[4]),
-      facing = facing,
+      facing = normalizeFacing(operandValue(ins.operands[5])),
     }
   end,
   [190] = function(ins)
@@ -575,14 +588,24 @@ local HANDLERS = {
   end,
   [339] = function(ins)
     -- MovePersonFacing person, x, z, y, facing: field X from x, field Z from
-    -- z, world Y from y (recorded decision for ).
+    -- z, world Y from y, then face the given direction (two canonical
+    -- operations; the facing side effect is never diagnostic data).
+    local actor = actorRef(ins.operands[1])
     return {
-      op = "set_object_position",
-      actor = actorRef(ins.operands[1]),
-      fieldX = varRef(ins.operands[2]),
-      fieldZ = varRef(ins.operands[3]),
-      worldY = varRef(ins.operands[4]),
-      sourceFacing = ({ [0] = "north", [1] = "south", [2] = "west", [3] = "east" })[operandValue(ins.operands[5])],
+      steps = {
+        {
+          op = "set_object_position",
+          actor = actor,
+          fieldX = varRef(ins.operands[2]),
+          fieldZ = varRef(ins.operands[3]),
+          worldY = varRef(ins.operands[4]),
+        },
+        {
+          op = "set_object_facing",
+          actor = actor,
+          direction = normalizeFacing(operandValue(ins.operands[5])),
+        },
+      },
     }
   end,
   [340] = function(ins)
@@ -596,8 +619,7 @@ local HANDLERS = {
     return {
       op = "set_object_facing",
       actor = actorRef(ins.operands[1]),
-      direction = ({ [0] = "north", [1] = "south", [2] = "west", [3] = "east" })[operandValue(ins.operands[2])]
-        or "south",
+      direction = normalizeFacing(operandValue(ins.operands[2])),
     }
   end,
   [345] = function()
@@ -881,12 +903,16 @@ function SemanticLowering.lowerScript(script, memberIr, opts)
     local handler = HANDLERS[ins.opcode]
     local foldedAhead = false
 
-    -- Compare/flag + GoToIf/CallIf fold (both remain same-tick).
+    -- Compare/flag + GoToIf/CallIf fold (both remain same-tick). The fold
+    -- never spans a labeled instruction: a branch target landing on the
+    -- second instruction must enter at the branch (with the caller's
+    -- compare state), not at the folded operation's start.
     if
       handler ~= nil
       and nextIns ~= nil
       and (nextIns.opcode == 28 or nextIns.opcode == 29)
       and (ins.opcode == 17 or ins.opcode == 18 or ins.opcode == 32)
+      and nextIns.label == nil
     then
       local folded = foldConditional(ins, nextIns)
       if folded ~= nil then
@@ -898,13 +924,17 @@ function SemanticLowering.lowerScript(script, memberIr, opts)
       end
     end
 
-    -- NPCMsg/GenderMsgBox + WaitButton + CloseMsg -> say.
+    -- NPCMsg/GenderMsgBox + WaitButton + CloseMsg -> say. Same labeled-entry
+    -- rule: an entry point on the wait or close instruction keeps the three
+    -- instructions separate.
     if
       not foldedAhead
       and handler ~= nil
       and nextIns ~= nil
       and instructions[index + 2] ~= nil
       and (ins.opcode == 45 or ins.opcode == 132 or ins.opcode == 47)
+      and nextIns.label == nil
+      and instructions[index + 2].label == nil
     then
       local step = handler(ins, memberIr, {}, ctx)
       if type(step) == "table" and (step.op == "npc_msg" or step.op == "npc_msg_var") then
@@ -924,7 +954,7 @@ function SemanticLowering.lowerScript(script, memberIr, opts)
     if foldedAhead then
       -- consumed by a fold
     elseif handler == nil then
-      local step = unsupportedStep(ins, "no semantic adapter in the sprint matrix")
+      local step = unsupportedStep(ins, "opcode has no semantic lowering")
       step = withProvenance(step, { ins.offset }, { ins.opcode })
       pushLabel(ins)
       items[#items + 1] = step
@@ -933,7 +963,7 @@ function SemanticLowering.lowerScript(script, memberIr, opts)
       local step = handler(ins, memberIr, { offsets = { ins.offset }, opcodes = { ins.opcode } }, ctx)
       if step == nil then
         -- An explicitly erased implementation-detail instruction (Nop and
-        -- Dummy,  rows 0-1): record the omission for the
+        -- Dummy, rows 0-1): record the omission for the
         -- verifier's no-disappearing-command check.
         omissions[#omissions + 1] = { offset = ins.offset, opcode = ins.opcode }
       elseif step == "unfolded" then
@@ -969,7 +999,16 @@ function SemanticLowering.lowerScript(script, memberIr, opts)
         end
       elseif step ~= nil then
         local handled = false
-        if step.op == "release_all" then
+        if type(step) == "table" and type(step.steps) == "table" then
+          -- One instruction lowering to several canonical operations (e.g.
+          -- MovePersonFacing: position then facing); all steps share the
+          -- instruction's provenance.
+          pushLabel(ins)
+          for _, subStep in ipairs(step.steps) do
+            items[#items + 1] = withProvenance(subStep, { ins.offset }, { ins.opcode })
+          end
+          handled = true
+        elseif step.op == "release_all" then
           -- The source command unconditionally yields one frame after
           -- unpausing . The synthesized yield has
           -- no source instruction of its own, so it carries no provenance

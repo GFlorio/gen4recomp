@@ -14,6 +14,12 @@ local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local FieldObjectActor = require("libs.engine.src.FieldObjectActor")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 
+-- Pinned HGSS special object ids: the field camera target and the walking
+-- partner (the object table pins these ids; see
+-- pret/pokeheartgold src/field_system.c FieldSystem_CameraTarget).
+local CAMERA_TARGET_OBJECT_ID = 241
+local PARTNER_OBJECT_ID = 253
+
 ---@class FieldActorManager
 ---@field assets FieldActorAssetProvider
 ---@field variableSpriteRange { first: integer, last: integer }
@@ -22,6 +28,7 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field eventState FieldEventState?
 ---@field unsubscribe fun()?
 ---@field pendingFlags table[]
+---@field currentMapId integer|nil
 local FieldActorManager = {}
 FieldActorManager.__index = FieldActorManager
 
@@ -58,6 +65,7 @@ function FieldActorManager.new(opts)
     eventState = nil,
     unsubscribe = nil,
     pendingFlags = {},
+    currentMapId = nil,
   }, FieldActorManager)
 end
 
@@ -164,6 +172,7 @@ function FieldActorManager:_instantiate(entry, event)
     entry.occupancy[key] = actor
   end
   entry.actors[actorId] = actor
+  entry.byIndex[actor.objectEventId] = actorId
   entry.order[#entry.order + 1] = actor
   return actor
 end
@@ -172,6 +181,7 @@ function FieldActorManager:_destroy(entry, actor)
   actor:clearFacingOverride()
   actor.visible = false
   entry.actors[actor.actorId] = nil
+  entry.byIndex[actor.objectEventId] = nil
   entry.occupancy[occupancyKey(actor.mapId, actor.fieldX, actor.fieldZ, actor.surfaceId)] = nil
   for index, candidate in ipairs(entry.order) do
     if candidate == actor then
@@ -206,8 +216,9 @@ function FieldActorManager:enterMap(runtimeMap, eventState)
     self:leaveMap(runtimeMap.mapId)
   end
 
-  local entry = { runtimeMap = runtimeMap, actors = {}, order = {}, occupancy = {}, byFlag = {} }
+  local entry = { runtimeMap = runtimeMap, actors = {}, order = {}, occupancy = {}, byFlag = {}, byIndex = {} }
   self.maps[runtimeMap.mapId] = entry
+  self.currentMapId = runtimeMap.mapId
   local ok, err = pcall(function()
     for _, event in ipairs(runtimeMap.fieldData.events.objects or {}) do
       local flagged = entry.byFlag[event.eventFlag] or {}
@@ -230,6 +241,9 @@ function FieldActorManager:leaveMap(mapId)
     return
   end
   self.maps[mapId] = nil
+  if self.currentMapId == mapId then
+    self.currentMapId = nil
+  end
   while #entry.order > 0 do
     self:_destroy(entry, entry.order[#entry.order])
   end
@@ -271,7 +285,11 @@ function FieldActorManager:step(tick)
   end
   for _, entry in pairs(self.maps) do
     for _, actor in ipairs(entry.order) do
-      actor.poseTick = actor.poseTick + 1
+      -- Scripted pause_animation freezes the actor's pose animation; the
+      -- pose clock only advances while the actor is not paused.
+      if not actor.animationPaused then
+        actor.poseTick = actor.poseTick + 1
+      end
     end
   end
 end
@@ -289,7 +307,7 @@ function FieldActorManager:drawRecords(alpha)
         pose = actor.pose,
         poseTick = actor.poseTick,
         alpha = 1,
-        visible = true,
+        visible = actor.visible,
         interpolation = alpha,
       }
     end
@@ -356,7 +374,9 @@ end
 -- Scripted position set: recomputes the world coordinates from the terrain
 -- and rekeys the occupancy index so collision and the draw list never
 -- disagree (the actor's surface is preserved; scripted movement stays on the
--- actor's current terrain surface).
+-- actor's current terrain surface). The destination occupancy slot is never
+-- overwritten: moving onto another solid actor's cell is a conflict, the
+-- same invariant _instantiate enforces.
 function FieldActorManager:setPosition(actorId, position)
   local actor = self:getById(actorId)
   if actor == nil then
@@ -369,6 +389,24 @@ function FieldActorManager:setPosition(actorId, position)
   end
   local worldY = position.worldY or actor.worldY
   local world = FieldCoordinates.fieldToWorld(entry.runtimeMap, position.fieldX, position.fieldZ, worldY)
+  if actor.solid then
+    local newKey = occupancyKey(actor.mapId, position.fieldX, position.fieldZ, actor.surfaceId)
+    local occupant = entry.occupancy[newKey]
+    if occupant ~= nil and occupant ~= actor then
+      -- Restore the mover's old cell before raising: the conflict must not
+      -- corrupt the occupancy index.
+      entry.occupancy[key] = actor
+      Errors.raise("ACTOR_OCCUPANCY_CONFLICT", actorId .. " cannot move onto " .. occupant.actorId .. "'s field cell", {
+        actorId = actorId,
+        otherActorId = occupant.actorId,
+        mapId = actor.mapId,
+        fieldX = position.fieldX,
+        fieldZ = position.fieldZ,
+        surfaceId = actor.surfaceId,
+      })
+    end
+    entry.occupancy[newKey] = actor
+  end
   actor:setPosition({
     fieldX = position.fieldX,
     fieldZ = position.fieldZ,
@@ -376,10 +414,6 @@ function FieldActorManager:setPosition(actorId, position)
     worldX = world.x,
     worldZ = world.z,
   })
-  if actor.solid then
-    local newKey = occupancyKey(actor.mapId, actor.fieldX, actor.fieldZ, actor.surfaceId)
-    entry.occupancy[newKey] = actor
-  end
 end
 
 function FieldActorManager:show(actorId)
@@ -406,15 +440,16 @@ function FieldActorManager:setMovementType(actorId, movementType)
   actor.scriptMovementType = movementType
 end
 
--- Actors in this milestone have no autonomous movement engine, so a scripted
--- pause never waits on one; `lock_all` blocks only on outstanding scripted
--- movement tasks (the environment's movement generation).
-function FieldActorManager:isBusy(actorId)
-  return false
-end
-
-function FieldActorManager:canMove(actorId, direction)
-  return self:getById(actorId) ~= nil
+-- Scripted pause_animation/resume_animation: the actor's pose clock stops
+-- advancing while paused (the manager's fixed-tick step honors the flag).
+---@param actorId string
+---@param paused boolean
+function FieldActorManager:setAnimationPaused(actorId, paused)
+  local actor = self:getById(actorId)
+  if actor == nil then
+    Errors.raise(ScriptErrors.SCRIPT_ACTOR_NOT_FOUND, "no live actor " .. tostring(actorId), { actor = actorId })
+  end
+  actor.animationPaused = paused == true
 end
 
 -- The numeric local map-object index of one actor (the pinned HGSS object
@@ -424,8 +459,28 @@ function FieldActorManager:numericId(actorId)
   return actor and actor.objectEventId or nil
 end
 
+-- Resolve a numeric local map-object index to the current map's actor id
+-- (the pinned HGSS object-id path used by `S.actorIndex(n)`); nil when the
+-- current map has no such object.
+---@param index integer
+---@return string|nil
+function FieldActorManager:actorIdForMapIndex(index)
+  local entry = self.currentMapId ~= nil and self.maps[self.currentMapId] or nil
+  return entry and entry.byIndex[index] or nil
+end
+
+-- The field camera target (pinned HGSS object id 241) of the current map;
+-- nil when the map declares no camera target.
+---@return string|nil
+function FieldActorManager:cameraTargetId()
+  return self:actorIdForMapIndex(CAMERA_TARGET_OBJECT_ID)
+end
+
+-- The walking partner (pinned HGSS object id 253) of the current map; nil
+-- while no Pokémon follows the player.
+---@return string|nil
 function FieldActorManager:partnerId()
-  return nil
+  return self:actorIdForMapIndex(PARTNER_OBJECT_ID)
 end
 
 function FieldActorManager:dispose()

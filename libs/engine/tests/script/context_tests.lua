@@ -2,7 +2,7 @@
 -- the exact v1 context facades, ownership-aware module resolution, handler
 -- invocation through pcall, result classification (nil / serializable value
 -- with a declared result / task descriptor), task delegation, deterministic
--- RNG, and ScriptObject snapshot invalidation. The exit criterion: the
+-- RNG, and ScriptObject snapshot invalidation. the
 -- example raw extension saves and resumes only through its named task.
 
 local Assert = require("tests.support.Assert")
@@ -16,7 +16,6 @@ local ScriptSave = require("libs.engine.src.script.ScriptSave")
 local RawModules = require("libs.engine.src.script.RawModules")
 local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
 local ChildScriptTask = require("libs.engine.src.script.tasks.ChildScriptTask")
-local LuaTask = require("libs.engine.src.script.tasks.LuaTask")
 local StarterChoiceTask = require("libs.engine.src.script.tasks.StarterChoiceTask")
 local FakeServices = require("tests.support.script.FakeServices")
 
@@ -86,7 +85,6 @@ local function harness(seed)
   local taskRegistry = TaskRegistry.new()
   taskRegistry:register("wait_ticks", 1, WaitTicksTask)
   taskRegistry:register("child_script", 1, ChildScriptTask)
-  taskRegistry:register("lua", 1, LuaTask)
   taskRegistry:register("starter_choice", 1, StarterChoiceTask)
   local modules = RawModules.new()
   modules:register("test.raw", TestRaw, { kind = "mod", id = "test.mod", api = 1 })
@@ -132,7 +130,7 @@ local function luaScript(id, module, fn, extra)
         args = extra.args or {},
         result = extra.result,
       }),
-      S.setVar("VAR_AFTER", 1),
+      S.setVar({ variable = "VAR_AFTER", value = 1 }),
       S.stop(),
     },
   }
@@ -169,8 +167,8 @@ T["value result"] = function()
       }),
       S.if_({
         condition = S.eq(S.local_("out"), 42),
-        yes = { S.setFlag("FLAG_OK"), S.stop() },
-        no = { S.setVar("VAR_BAD", 1), S.stop() },
+        yes = { S.setFlag({ flag = "FLAG_OK" }), S.stop() },
+        no = { S.setVar({ variable = "VAR_BAD", value = 1 }), S.stop() },
       }),
     },
   })
@@ -204,7 +202,7 @@ T["task result"] = function()
         fn = "returnsTask",
         result = S.local_("starter"),
       }),
-      S.setVar("VAR_AFTER", S.local_("starter")),
+      S.setVar({ variable = "VAR_AFTER", value = S.local_("starter") }),
       S.stop(),
     },
   })
@@ -346,7 +344,7 @@ T["ctx script call"] = function()
     id = "common.helper",
     params = { value = "integer" },
     steps = {
-      S.setVar("VAR_HELPER", S.arg("value")),
+      S.setVar({ variable = "VAR_HELPER", value = S.arg("value") }),
       { op = "signal_caller" },
       S.stop(),
     },
@@ -363,7 +361,7 @@ T["ctx script call"] = function()
 end
 
 -- 14. The example raw extension saves and resumes only through its named
--- task .
+-- task: the descriptor became the one authoritative starter_choice record.
 T["raw task save resume"] = function()
   local h = harness()
   local resource = S.script({
@@ -376,7 +374,7 @@ T["raw task save resume"] = function()
         fn = "returnsTask",
         result = S.local_("starter"),
       }),
-      S.setVar("VAR_AFTER", S.local_("starter")),
+      S.setVar({ variable = "VAR_AFTER", value = S.local_("starter") }),
       S.stop(),
     },
   })
@@ -385,9 +383,8 @@ T["raw task save resume"] = function()
   h.scheduler:step(101, {})
   local bucket = ScriptSave.capture(h.scheduler, 101, { registryFingerprint = h.registry:fingerprint() })
   local taskRecord = bucket.tasks[1]
-  Assert.equal(taskRecord.taskType, "lua")
-  Assert.equal(taskRecord.state.phase, "delegating")
-  Assert.equal(taskRecord.state.taskType, "starter_choice")
+  Assert.equal(taskRecord.taskType, "starter_choice")
+  Assert.equal(taskRecord.state.phase, "choosing")
   local scheduler2 = Scheduler.new({
     services = h.services,
     taskRegistry = h.taskRegistry,

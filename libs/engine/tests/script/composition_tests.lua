@@ -19,9 +19,9 @@ local function signScript()
     api = 1,
     id = "new_bark.lab_sign",
     steps = {
-      S.playSound("SEQ_SE_DP_SELECT"),
+      S.playSound({ sound = "SEQ_SE_DP_SELECT" }),
       S.lockAll(),
-      S.say("msg.hgss.0543.00097"),
+      S.say({ message = "msg.hgss.0543.00097" }),
       S.releaseAll(),
     },
   })
@@ -64,7 +64,7 @@ T["handwritten over generated"] = function()
   local handwritten = S.script({
     api = 1,
     id = "new_bark.lab_sign",
-    steps = { S.say("msg.elms_lab.lab_sign") },
+    steps = { S.say({ message = "msg.elms_lab.lab_sign" }) },
   })
   registry:installBase("new_bark.lab_sign", generated, "generated")
   registry:installBase("new_bark.lab_sign", handwritten, "handwritten")
@@ -84,12 +84,12 @@ T["handwritten over override over generated"] = function()
   local override = S.script({
     api = 1,
     id = "new_bark.lab_sign",
-    steps = { S.say("msg.hgss.0543.00097") },
+    steps = { S.say({ message = "msg.hgss.0543.00097" }) },
   })
   local handwritten = S.script({
     api = 1,
     id = "new_bark.lab_sign",
-    steps = { S.say("msg.elms_lab.lab_sign") },
+    steps = { S.say({ message = "msg.elms_lab.lab_sign" }) },
   })
   registry:installBase("new_bark.lab_sign", generated, "generated")
   registry:installBase("new_bark.lab_sign", override, "override")
@@ -129,7 +129,7 @@ T["override replaces base"] = function()
   local replacement = S.script({
     api = 1,
     id = "new_bark.lab_sign",
-    steps = { S.say("mod.example.lab_sign") },
+    steps = { S.say({ message = "mod.example.lab_sign" }) },
   })
   registry:override("new_bark.lab_sign", replacement, { modId = "mod.a" }, { priority = 1 })
   Assert.equal(registry:get("new_bark.lab_sign"), replacement)
@@ -149,7 +149,7 @@ T["priority replacement wins"] = function()
     S.script({
       api = 1,
       id = "new_bark.lab_sign",
-      steps = { S.say("mod.low") },
+      steps = { S.say({ message = "mod.low" }) },
     }),
     { modId = "mod.low" },
     { priority = 1, loadOrder = 1 }
@@ -157,7 +157,7 @@ T["priority replacement wins"] = function()
   local high = S.script({
     api = 1,
     id = "new_bark.lab_sign",
-    steps = { S.say("mod.high") },
+    steps = { S.say({ message = "mod.high" }) },
   })
   registry:override("new_bark.lab_sign", high, { modId = "mod.high" }, { priority = 5, loadOrder = 2 })
   local effective = assert(composition:effective("new_bark.lab_sign"))
@@ -214,7 +214,7 @@ T["same owner last replacement wins"] = function()
   local second = S.script({
     api = 1,
     id = "new_bark.lab_sign",
-    steps = { S.say("mod.a.second") },
+    steps = { S.say({ message = "mod.a.second" }) },
   })
   registry:override("new_bark.lab_sign", second, { modId = "mod.a" }, { priority = 2 })
   local effective = assert(composition:effective("new_bark.lab_sign"))
@@ -261,7 +261,8 @@ T["before wrap base after order"] = function()
       api = 1,
       id = name,
       steps = {
-        op == "before" and S.setVar("VAR_W", "before." .. name) or S.setVar("VAR_W", "wrap." .. name),
+        op == "before" and S.setVar({ variable = "VAR_W", value = "before." .. name })
+          or S.setVar({ variable = "VAR_W", value = "wrap." .. name }),
         S.next(),
       },
     })
@@ -291,7 +292,7 @@ T["example mod preface"] = function()
   local preface = S.script({
     api = 1,
     id = "example.script_override.lab_sign_preface",
-    steps = { S.say("mod.example.script_override.lab_sign_preface") },
+    steps = { S.say({ message = "mod.example.script_override.lab_sign_preface" }) },
   })
   registry:before("new_bark.lab_sign", preface, { modId = "example.script_override" }, { priority = 0 })
   local effective = assert(composition:effective("new_bark.lab_sign"))
@@ -426,7 +427,7 @@ T["register-only id"] = function()
   local script = S.script({
     api = 1,
     id = "new_bark.custom",
-    steps = { S.say("msg.custom") },
+    steps = { S.say({ message = "msg.custom" }) },
   })
   registry:register("new_bark.custom", script, { modId = "mod.a" })
   local effective = assert(composition:effective("new_bark.custom"))
@@ -494,6 +495,61 @@ T["invalid owner"] = function()
       nil
     )
   end)
+end
+
+-- 21. ids() is a set: an id with both a base and a contribution appears once.
+T["ids deduplicate base and contribution"] = function()
+  local registry = newRegistry()
+  registry:installBase("a", signScript(), "generated")
+  registry:override("a", signScript(), { modId = "mod.a" })
+  registry:installBase("b", signScript(), "generated")
+  local ids = registry:ids()
+  Assert.deepEqual(ids, { "a", "b" })
+end
+
+-- 22. The fingerprint changes when a script's content changes even though
+-- its id stays the same.
+T["fingerprint tracks script content"] = function()
+  local registry = newRegistry()
+  registry:installBase("new_bark.lab_sign", signScript(), "generated")
+  local first = registry:fingerprint()
+  local changed = signScript()
+  changed.steps[1].sound = "SEQ_SE_DP_HEAL"
+  registry:installBase("new_bark.lab_sign", changed, "handwritten")
+  Assert.isFalse(registry:fingerprint() == first, "a content change without an id change must change the fingerprint")
+end
+
+-- 23. A winning tombstone suppresses the base and every lower-priority
+-- before/wrap/after contribution; equal-or-higher priority contributions
+-- still apply.
+T["tombstone suppresses lower priority wrappers"] = function()
+  local registry, composition = newRegistry()
+  registry:installBase("new_bark.lab_sign", signScript(), "generated")
+  registry:before(
+    "new_bark.lab_sign",
+    S.script({
+      api = 1,
+      id = "low-before",
+      steps = { S.next() },
+    }),
+    { modId = "mod.low" },
+    { priority = 1 }
+  )
+  registry:wrap(
+    "new_bark.lab_sign",
+    S.script({
+      api = 1,
+      id = "high-wrap",
+      steps = { S.next() },
+    }),
+    { modId = "mod.high" },
+    { priority = 5 }
+  )
+  registry:remove("new_bark.lab_sign", { modId = "mod.tomb" }, { priority = 3 })
+  local effective = assert(composition:effective("new_bark.lab_sign"))
+  Assert.equal(#effective.entries, 1)
+  Assert.equal(effective.entries[1].operation, "wrap")
+  Assert.equal(effective.entries[1].owner.id, "mod.high", "the lower-priority before is suppressed by the tombstone")
 end
 
 return T

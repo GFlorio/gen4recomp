@@ -3,7 +3,7 @@
 -- words are computed arithmetically with exact double arithmetic when the
 -- runtime lacks `bit` (the LuaJIT/LÖVE fast path uses `bit` and produces
 -- identical digests). This is a fingerprint, not a security boundary. Header
--- data and the  revision rule are the authoritative uses.
+-- data and the revision rule are the authoritative uses.
 
 local Sha256 = {}
 

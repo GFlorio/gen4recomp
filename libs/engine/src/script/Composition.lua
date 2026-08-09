@@ -5,9 +5,10 @@
 -- then `after` low priority to high. Each contribution compiles to its own
 -- immutable graph; `before`/`after`/`wrap` compile as wrappers (`allowNext`),
 -- and the base compiles strictly. Same-priority replacements from different
--- owners are a hard load error (section 30.4); tombstones suppress the base
--- and lower-priority definitions (section 30.5). The effective result is
--- cached per id and invalidated on registry mutation. Pure domain module.
+-- owners are a hard load error ; a winning tombstone suppresses
+-- the base and every lower-priority contribution . The
+-- effective result is cached per id and keyed on the registry mutation
+-- version. Pure domain module.
 
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -23,14 +24,6 @@ local Composition = {}
 Composition.__index = Composition
 
 local VANILLA_OWNER = { kind = "vanilla", id = "base", api = 1 }
-
--- Operations that occupy the base slot: register (new id), override/replace
--- (replacement), remove (tombstone).
-local DEFINITION_OPS = {
-  register = true,
-  override = true,
-  remove = true,
-}
 
 -- Compile a contribution resource, attributing compile failures to the
 -- contribution's owner and the target id.
@@ -59,27 +52,9 @@ function Composition.new(registry, opts)
   opts = opts or {}
   return setmetatable({
     _registry = registry,
-    _compile = opts.compile or function(script, compileOpts)
-      local graph, err = Compiler.compile(script, compileOpts)
-      if not graph then
-        error(err)
-      end
-      return graph
-    end,
+    _compile = opts.compile or Compiler.compile,
     _cache = {},
   }, Composition)
-end
-
--- Drop the effective cache for one id (or all ids when omitted). Callers must
--- invoke this after registry mutation; the registry's monotonic version makes
--- staleness impossible to confuse with a fresh result.
----@param id string|nil
-function Composition:invalidate(id)
-  if id == nil then
-    self._cache = {}
-    return
-  end
-  self._cache[id] = nil
 end
 
 -- The winning base-definition record for one id, raising on the section 30.4
@@ -108,15 +83,24 @@ function Composition:_winningDefinition(id)
 end
 
 -- Build the executable chain for one id. Returns nil when the id has no
--- definition at all (no base, no contributions).
+-- definition at all (no base, no contributions). A winning remove tombstone
+-- suppresses the base and every lower-priority contribution: before/wrap/
+-- after records below the tombstone's priority are dropped.
 ---@param id string
 ---@return table|nil chain
 function Composition:_resolve(id)
   local contributions = self._registry:contributions(id)
+  local winner = self:_winningDefinition(id)
+  local tombstonePriority = nil
+  if winner ~= nil and winner.operation == "remove" then
+    tombstonePriority = winner.priority
+  end
   local befores, wraps, afters = {}, {}, {}
   for _, record in ipairs(contributions) do
     local op = record.operation
-    if op == "before" then
+    if tombstonePriority ~= nil and record.priority < tombstonePriority then
+      -- Suppressed by the winning tombstone.
+    elseif op == "before" then
       befores[#befores + 1] = record
     elseif op == "wrap" then
       wraps[#wraps + 1] = record
@@ -124,7 +108,6 @@ function Composition:_resolve(id)
       afters[#afters + 1] = record
     end
   end
-  local winner = self:_winningDefinition(id)
   local baseResource
   if winner ~= nil then
     baseResource = winner.operation == "remove" and nil or winner.resource
@@ -164,7 +147,7 @@ function Composition:_resolve(id)
     local owner = winner and winner.owner or VANILLA_OWNER
     push(baseResource, operation, owner)
   end
-  -- afters run lowest priority first (section 30.3): the contributions are
+  -- afters run lowest priority first : the contributions are
   -- sorted priority-descending, so walk them in reverse.
   for i = #afters, 1, -1 do
     push(afters[i].resource, "after", afters[i].owner)

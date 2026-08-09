@@ -3,7 +3,7 @@
 -- the transition through the maps service, polls its completion (the
 -- transition is engine-owned asynchronous work), and graph continuation
 -- follows the generic one-tick handoff. Warps are foreground-only (spec
--- section 26.9). Pure domain module: no love dependency.
+-- . Pure domain module: no love dependency.
 
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")

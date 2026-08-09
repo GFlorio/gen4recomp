@@ -1,4 +1,4 @@
--- Internal compiled-script graph (spec section 24): an immutable flat node
+-- Internal compiled-script graph : an immutable flat node
 -- map with resolved control edges that the runtime executes. Authoring tables
 -- are never executed directly; the compiler produces this graph, freezes it,
 -- and stamps a semantic revision. This module owns the schema name, deep

@@ -43,7 +43,9 @@ MovementCalibration.FACE_TICKS = 1
 MovementCalibration.EMOTE_TICKS = 4
 MovementCalibration.GESTURE_TICKS = 4
 
--- Resolve the tick duration of one movement action .
+-- Resolve the tick duration of one movement action . The
+-- speed/distance enums are schema-constrained, so an unknown value is a
+-- programming invariant violation, never a silent default.
 ---@param action table
 ---@return integer
 function MovementCalibration.actionTicks(action)
@@ -51,11 +53,17 @@ function MovementCalibration.actionTicks(action)
   if kind == "face" then
     return MovementCalibration.FACE_TICKS
   elseif kind == "walk" then
-    return MovementCalibration.SPEED_TICKS[action.speed] or 8
+    return assert(MovementCalibration.SPEED_TICKS[action.speed], "unknown walk speed " .. tostring(action.speed))
   elseif kind == "walk_in_place" then
-    return MovementCalibration.WALK_IN_PLACE_TICKS[action.speed] or 8
+    return assert(
+      MovementCalibration.WALK_IN_PLACE_TICKS[action.speed],
+      "unknown walk_in_place speed " .. tostring(action.speed)
+    )
   elseif kind == "jump" then
-    return MovementCalibration.JUMP_TICKS[action.distance] or 4
+    return assert(
+      MovementCalibration.JUMP_TICKS[action.distance],
+      "unknown jump distance " .. tostring(action.distance)
+    )
   elseif kind == "delay" then
     return action.ticks
   elseif kind == "emote" then
@@ -63,7 +71,7 @@ function MovementCalibration.actionTicks(action)
   elseif kind == "gesture" then
     return MovementCalibration.GESTURE_TICKS
   end
-  return 1
+  error("unknown movement action " .. tostring(kind))
 end
 
 return MovementCalibration

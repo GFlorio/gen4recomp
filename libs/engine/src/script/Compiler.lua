@@ -1,5 +1,5 @@
 -- Compiles a validated gen4 field-script resource into the immutable internal
--- graph  that the runtime executes. Node IDs follow section
+-- graph that the runtime executes. Node IDs follow section
 -- 24.1 (author `key`, generated `src:<member>:<index>:<offset>[/<op>]`, else
 -- structural `path:steps/3/no/2`); the revision hash follows section 24.2 and
 -- covers only normalized semantics. Load-time structural validation from
@@ -89,6 +89,7 @@ local C = {
   ownerSteps = {},
   warnings = {},
   usesNext = false,
+  usedNodeIds = {},
 }
 
 -- Deep copy of serializable data (the validator guarantees acyclicity).
@@ -286,6 +287,9 @@ end
 
 -- Node ID for a step : author `key`, else generated
 -- `src:<member>:<script-index>:<first-offset>[/<op>]`, else structural path.
+-- A multi-step lowering (one source instruction expanded into several
+-- canonical steps) shares provenance; the second and later steps append a
+-- `/n` counter so every node id stays unique.
 ---@param step table
 ---@param path string
 ---@return string
@@ -305,9 +309,18 @@ local function nodeIdFor(step, path)
         { scriptId = C.script.id, path = path, op = step.op }
       )
     end
-    local id = string.format("src:%04d:%03d:%04x", member, scriptIndex, provenance.offsets[1])
+    assert(#provenance.offsets > 0, "provenance must name a source offset")
+    local base = string.format("src:%04d:%03d:%04x", member, scriptIndex, provenance.offsets[1])
+    local id = base
     if #provenance.offsets > 1 then
-      id = id .. "/" .. step.op
+      id = base .. "/" .. step.op
+    end
+    local seen = C.usedNodeIds[id]
+    if seen ~= nil then
+      C.usedNodeIds[id] = seen + 1
+      id = base .. "/" .. step.op .. "/" .. tostring(seen + 1)
+    else
+      C.usedNodeIds[id] = 1
     end
     return id
   end
@@ -377,10 +390,10 @@ local compileSteps
 ---@param cont string|nil
 ---@param owner string
 ---@param depth integer
+---@param id string precomputed node id (compileSteps resolves ids in one pass)
 ---@return string
-local function compileStep(step, path, cont, owner, depth)
+local function compileStep(step, path, cont, owner, depth, id)
   local op = step.op
-  local id = nodeIdFor(step, path)
   if C.nodes[id] ~= nil then
     Errors.raise(
       ScriptErrors.SCRIPT_SCHEMA_INVALID,
@@ -390,7 +403,14 @@ local function compileStep(step, path, cont, owner, depth)
   end
 
   local ownerBucket = setFor(C.ownerSteps, owner)
-  ownerBucket[#ownerBucket + 1] = op
+  -- The cycle analysis must examine fields, not merely op names: `message`
+  -- blocks only with waitForPrint and `lock_actor` only with
+  -- waitUntilPausable, so an entry records whether it actually blocks.
+  local blocks = op ~= "message" or step.waitForPrint == true
+  if op == "lock_actor" then
+    blocks = step.waitUntilPausable == true
+  end
+  ownerBucket[#ownerBucket + 1] = { op = op, blocks = blocks }
 
   local node = { op = op }
   for k, v in pairs(step) do
@@ -462,14 +482,9 @@ local function compileStep(step, path, cont, owner, depth)
     end
   elseif op == "goto_script" then
     -- A cross-script jump resolved through the composition registry at
-    -- runtime; the graph carries the label reference as-is.
-    if step.label ~= nil and C.labelNodeIds[step.label] ~= nil then
-      Errors.raise(
-        ScriptErrors.SCRIPT_SCHEMA_INVALID,
-        "goto_script label must not name a local label",
-        { scriptId = C.script.id, path = path, label = step.label }
-      )
-    end
+    -- runtime; the graph carries the label reference as-is. The label lives
+    -- in the target script's namespace, so a same-named local label is not
+    -- a collision.
   elseif op == "call" or op == "call_compared" then
     node.returnNode = cont
     local labelId = C.labelNodeIds[step.target]
@@ -519,7 +534,7 @@ compileSteps = function(steps, path, cont, owner, depth)
   local currentOwner = owner
   for i = 1, #steps do
     local step = steps[i]
-    compileStep(step, path .. "/" .. tostring(i - 1), ids[i + 1] or cont, currentOwner, depth)
+    compileStep(step, path .. "/" .. tostring(i - 1), ids[i + 1] or cont, currentOwner, depth, ids[i])
     local node = C.nodes[ids[i]]
     if not NO_CHAIN_NEXT[node.op] then
       node.next = ids[i + 1] or cont
@@ -547,11 +562,11 @@ local function cycleCheck()
 
   local function sccBreaks(scc)
     for _, owner in ipairs(scc) do
-      for _, op in ipairs(C.ownerSteps[owner] or {}) do
-        if CYCLE_BREAKING_OPS[op] then
+      for _, entry in ipairs(C.ownerSteps[owner] or {}) do
+        if entry.blocks and CYCLE_BREAKING_OPS[entry.op] then
           return true
         end
-        if op == "call" or op == "call_compared" then
+        if entry.op == "call" or entry.op == "call_compared" then
           break
         end
       end
@@ -681,6 +696,7 @@ function Compiler._compile(script, opts)
   C.ownerSteps = {}
   C.warnings = {}
   C.usesNext = false
+  C.usedNodeIds = {}
 
   local ok, err = Validator.validate(script)
   if not ok then

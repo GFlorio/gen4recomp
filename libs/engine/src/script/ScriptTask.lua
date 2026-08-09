@@ -4,7 +4,8 @@
 -- createdAtTick + 1`), a task polls at most once per tick, and completed or
 -- cancelled tasks are never polled. A completed task is retained until its
 -- owner consumes the result on a later tick, so the completed-but-unconsumed
--- interval is serializable. The task implementation (registered in the task
+-- interval is serializable. The task implementation (section 26.4: a
+-- completed task is retained until its owner consumes the result)registered in the task
 -- registry) owns only the opaque `state`; the record owns all scheduling
 -- fields. Pure domain module: no love dependency.
 
@@ -85,12 +86,14 @@ function ScriptTask:complete(tick, result)
   self.result = result
 end
 
--- Cancel the task; cancelled tasks are never polled again (section 27.2).
+-- Cancel the task; cancelled tasks are never polled again .
+-- The implementation state is preserved: the scheduler invokes the
+-- implementation's own `cancel(state, reason)` before this record is marked.
 ---@param reason string
 function ScriptTask:cancel(reason)
   assert(self.status == "active" or self.status == "completed", "a cancelled task is not cancelled twice")
   self.status = "cancelled"
-  self.state = { cancelledReason = reason }
+  self.cancelledReason = reason
 end
 
 -- Mark the record consumed by its owner's continuation (section 26.4: a
@@ -100,9 +103,9 @@ function ScriptTask:markConsumed()
   self.consumed = true
 end
 
--- Deterministic serialization for the save schema (section 28): absolute
+-- Deterministic serialization for the save schema : absolute
 -- runtime ticks are diagnostics; the poll deadline becomes a relative delay
--- rebased at capture time `captureTick` (section 28.2).
+-- rebased at capture time `captureTick` .
 ---@param captureTick integer
 ---@return table
 function ScriptTask:capture(captureTick)
@@ -124,7 +127,7 @@ function ScriptTask:capture(captureTick)
 end
 
 -- Restore a record from the save schema. `restoreTick` is the load tick; the
--- poll deadline is rebased from the relative delay (section 28.2).
+-- poll deadline is rebased from the relative delay .
 ---@param record table
 ---@param restoreTick integer
 ---@return ScriptTask
