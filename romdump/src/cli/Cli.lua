@@ -21,6 +21,7 @@ function Cli.parse(argv)
     buildCache = false,
     forceDump = false,
     allowCompileExclusions = false,
+    genScriptOverrides = false,
   }
 
   local i = 1
@@ -45,6 +46,8 @@ function Cli.parse(argv)
       opts.inspectActors = true
     elseif a == "--analyze-maps" then
       opts.analyzeMaps = true
+    elseif a == "--gen-script-overrides" then
+      opts.genScriptOverrides = true
     elseif a == "--allow-compile-exclusions" then
       opts.allowCompileExclusions = true
     elseif a == "--build-cache" then

@@ -1,0 +1,117 @@
+-- Script cache writer tests: marker-last publishing, index/provenance
+-- layout, and rollback on readback failure (mirrors the field-message cache
+-- writer contract).
+
+local Assert = require("tests.support.Assert")
+local ScriptCache = require("libs.assets.src.ScriptCache")
+local ScriptCacheWriter = require("romdump.src.digest.ScriptCacheWriter")
+local CacheFs = require("libs.rom.src.CacheFs")
+local FakeCache = require("tests.support.FakeCache")
+
+local T = {}
+
+local function bundle()
+  return {
+    marker = "script-cache-v1:rom-sha:dep-sha",
+    index = {
+      schema = ScriptCache.INDEX_SCHEMA,
+      version = "heartgold",
+      memberCount = 1,
+      scriptMemberCount = 1,
+      scriptCount = 2,
+      resourceCount = 2,
+      resources = {
+        { id = "common.signpost", member = 3, scriptIndex = 0 },
+        { id = "new_bark.lab_sign", member = 843, scriptIndex = 9 },
+      },
+    },
+    dependencies = {
+      cacheFormat = ScriptCache.FORMAT,
+      compilerVersion = "script-compiler-v1",
+      versionRomSha1 = "rom-sha",
+      scrSeqNarc = { path = "a/0/1/2", sha1 = "archive-sha" },
+    },
+    coverageRecord = {
+      source = { repository = "g4recomp", commit = "rom-sha" },
+      totals = {
+        members = 1,
+        scripts = 2,
+        reachableInstructions = 2,
+        supportedInstructions = 2,
+        unsupportedInstructions = 0,
+        malformedInstructions = 0,
+      },
+      opcodes = {},
+      scripts = {},
+    },
+    resources = {
+      {
+        id = "common.signpost",
+        member = 3,
+        scriptIndex = 0,
+        resource = {
+          api = 1,
+          id = "common.signpost",
+          metadata = { coverage = { complete = true, unsupportedCount = 0 } },
+          steps = { { op = "stop" } },
+        },
+      },
+      {
+        id = "new_bark.lab_sign",
+        member = 843,
+        scriptIndex = 9,
+        resource = {
+          api = 1,
+          id = "new_bark.lab_sign",
+          metadata = { coverage = { complete = true, unsupportedCount = 0 } },
+          steps = { { op = "stop" } },
+        },
+      },
+    },
+  }
+end
+
+-- 1. The writer publishes provenance, index, coverage, per-id scripts, and
+-- only then the marker; isReady then reports the class complete.
+T["write publishes marker last"] = function()
+  local cache = CacheFs.forVersion("heartgold", FakeCache.new())
+  local ok, err = ScriptCacheWriter.write(cache, bundle())
+  Assert.isNil(err)
+  Assert.isTrue(ok)
+  Assert.notNil(cache:read(ScriptCache.provenancePath()))
+  Assert.notNil(cache:read(ScriptCache.coverageJsonPath()))
+  local index = cache:loadLua(ScriptCache.indexPath())
+  Assert.equal(index.schema, ScriptCache.INDEX_SCHEMA)
+  Assert.equal(index.resourceCount, 2)
+  local signpost = cache:loadModule(ScriptCache.scriptPath("common.signpost"))
+  Assert.equal(signpost.kind, "field_script")
+  Assert.equal(signpost.id, "common.signpost")
+  Assert.equal(cache:read(ScriptCache.markerPath()), "script-cache-v1:rom-sha:dep-sha")
+  Assert.isTrue(ScriptCache.isReady(cache, "script-cache-v1:rom-sha:dep-sha"))
+end
+
+-- 2. A missing script file fails readiness.
+T["readiness requires every indexed script"] = function()
+  local cache = CacheFs.forVersion("heartgold", FakeCache.new())
+  ScriptCacheWriter.write(cache, bundle())
+  cache:remove(ScriptCache.scriptPath("new_bark.lab_sign"))
+  Assert.isFalse(ScriptCache.isReady(cache, "script-cache-v1:rom-sha:dep-sha"))
+end
+
+-- 3. A readback failure rolls the whole class back (no partial cache).
+T["readback failure rolls back"] = function()
+  local real = require("romdump.src.digest.ScriptCacheWriter")
+  local cache = CacheFs.forVersion("heartgold", FakeCache.new())
+  local bad = bundle()
+  bad.resources[1].resource = { api = 1, id = "other", steps = {} }
+  local failed = false
+  local ok, err = pcall(real.write, cache, bad)
+  if not ok then
+    failed = true
+  end
+  Assert.isTrue(failed)
+  Assert.equal(cache:read(ScriptCache.markerPath()), nil)
+  Assert.isNil(cache:read(ScriptCache.indexPath()))
+end
+
+return T

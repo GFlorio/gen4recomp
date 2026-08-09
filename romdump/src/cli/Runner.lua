@@ -57,14 +57,61 @@ function Runner.load(opts)
   if Runner.opts.analyzeMaps then
     return Runner._runAnalyzeMaps()
   end
+  if Runner.opts.genScriptOverrides then
+    return Runner._runGenScriptOverrides()
+  end
   if Runner.opts.importRom then
     return Runner._startImport(Runner.opts.importRom)
   end
   print(
     "romdump: no command given (expected --import-rom, --check-dump, "
-      .. "--analyze-maps, --inspect, --inspect-sbc, --inspect-actors, or --build-cache)"
+      .. "--analyze-maps, --inspect, --inspect-sbc, "
+      .. "--inspect-actors, --build-cache, or --gen-script-overrides)"
   )
   love.event.quit(2)
+end
+
+-- Regenerate the checked-in script overrides for the New Bark slice
+-- (data/scripts/overrides/<id>.lua) from the first ready dump. Files are
+-- written into the repo tree (the override system's checked-in content), not
+-- the cache; identical dumps produce byte-identical files.
+function Runner._runGenScriptOverrides()
+  local OverrideGenerator = require("romdump.src.digest.script.OverrideGenerator")
+  local targets = readyVersions()
+  if #targets == 0 then
+    print("gen-script-overrides: no ready version")
+    return love.event.quit(1)
+  end
+  local root = love.filesystem.getSourceBaseDirectory()
+  for _, version in ipairs(targets) do
+    local romFs, err = RomFs.open(version)
+    if not romFs then
+      print("gen-script-overrides: open failed for " .. version .. ": " .. Errors.format(err))
+      return love.event.quit(1)
+    end
+    local ok, files = pcall(OverrideGenerator.generate, romFs)
+    romFs:close()
+    if not ok then
+      print("gen-script-overrides: " .. tostring(files))
+      return love.event.quit(1)
+    end
+    for _, file in ipairs(files) do
+      local full = root .. "/" .. file.path
+      local parent = full:match("^(.*)/[^/]+$")
+      if parent then
+        os.execute(("mkdir -p %q"):format(parent))
+      end
+      local handle, openErr = io.open(full, "wb")
+      if not handle then
+        print("gen-script-overrides: open failed for " .. file.path .. ": " .. tostring(openErr))
+        return love.event.quit(1)
+      end
+      handle:write(file.text)
+      handle:close()
+    end
+    print(string.format("gen-script-overrides: %s wrote %d override files", version, #files))
+    return love.event.quit(0)
+  end
 end
 
 -- Derive payload-free map resolution facts from every ready canonical dump.
@@ -271,6 +318,9 @@ function Runner._runBuild()
   local FieldFontCompiler = require("romdump.src.digest.FieldFontCompiler")
   local FieldFontCacheWriter = require("romdump.src.digest.FieldFontCacheWriter")
   local FieldFontCache = require("libs.assets.src.FieldFontCache")
+  local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
+  local ScriptCacheWriter = require("romdump.src.digest.ScriptCacheWriter")
+  local ScriptCache = require("libs.assets.src.ScriptCache")
   local targets = readyVersions()
   if #targets == 0 then
     print("build: no ready version to compile")
@@ -323,6 +373,20 @@ function Runner._runBuild()
           string.format("build-cache: %s field messages compiled (%d banks)", version, #messageBundle.index.bankIds)
         )
       end
+      local scriptBundle = assert(ScriptCompiler.compile(romFs))
+      if ScriptCacheWriter.isReady(cacheFs, scriptBundle.marker) then
+        print(string.format("build-cache: %s scripts current", version))
+      else
+        ScriptCacheWriter.write(cacheFs, scriptBundle)
+        print(
+          string.format(
+            "build-cache: %s scripts compiled (%d resources, %d members)",
+            version,
+            scriptBundle.index.resourceCount,
+            scriptBundle.index.scriptMemberCount
+          )
+        )
+      end
       local entries, excluded, compileExcluded = {}, {}, {}
       for _, result in ipairs(MapAnalysis.analyze(romFs)) do
         if result.status == "excluded" then
@@ -336,7 +400,7 @@ function Runner._runBuild()
           local bundle, compileErr = MapAssetCompiler.compile(romFs, result.id)
           if not bundle then
             assert(Errors.is(compileErr), "compiler failure must be a structured error")
-            compileErr = assert(compileErr)
+            compileErr = compileErr --[[@as Errors.Error]]
             compileExcluded[#compileExcluded + 1] = {
               id = result.id,
               symbol = result.symbol,

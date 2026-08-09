@@ -1,0 +1,296 @@
+-- Script translation orchestrator : decodes every scr_seq
+-- member of the ROM dump's script archive (the retail binary format, see
+-- ScriptBinaryDecoder), lowers and structures each script, emits the DSL
+-- resource, verifies the translation accounting, and aggregates one corpus
+-- coverage record. The opcode names, operand widths, movement widths, std
+-- catalog, and member message banks all come from pinned in-repo references,
+-- so translation has no dependency on any decomp checkout. Output is
+-- deterministic: identical dumps produce identical resources. Pure domain
+-- module: no love dependency.
+
+local Errors = require("libs.rom.src.Errors")
+local S = require("gen4.script")
+local ScriptBinaryDecoder = require("romdump.src.digest.script.ScriptBinaryDecoder")
+local SemanticLowering = require("romdump.src.digest.script.SemanticLowering")
+local Structurer = require("romdump.src.digest.script.Structurer")
+local LuaEmitter = require("romdump.src.digest.script.LuaEmitter")
+local Verifier = require("romdump.src.digest.script.Verifier")
+local Coverage = require("romdump.src.digest.script.Coverage")
+local SourceCatalog = require("romdump.src.digest.script.SourceCatalog")
+local Hashing = require("romdump.src.digest.Hashing")
+local ScriptCache = require("libs.assets.src.ScriptCache")
+local ScriptMembers = require("data.reference.hgss.script_members")
+
+local ScriptCompiler = {}
+
+-- Strip translator diagnostic fields from lowered steps (they ride on the
+-- steps but are not DSL fields); `if` bodies are walked recursively. Shared
+-- by the cache compiler and the override generator.
+---@param items table[]
+function ScriptCompiler.scrub(items)
+  for _, item in ipairs(items) do
+    if item.op == "if" then
+      ScriptCompiler.scrub(item.yes)
+      ScriptCompiler.scrub(item.no)
+    end
+    item.movementComplete = nil
+    item.movementUnsupported = nil
+    item.sourceFacing = nil
+    item.yieldsNextTick = nil
+    item.sourceNotes = nil
+  end
+end
+
+-- The structurer's label-ownership fix (a boundary label
+-- with more than one referent stays a label/goto fallback) changes emitted
+-- output, so the cache class version bumps.
+ScriptCompiler.COMPILER_VERSION = "script-compiler-v3"
+
+-- The public resource id for one script index : the
+-- vertical-slice names are curated; standard-script members resolve through
+-- the std catalog to `common.<name>`; everything else stays mechanical.
+local CURATED_IDS = {
+  [842] = {
+    [1] = "new_bark.npc.woman_1",
+  },
+  [843] = {
+    [0] = "elms_lab.generated.script_000",
+    [9] = "new_bark.lab_sign",
+  },
+}
+
+---@param member integer
+---@param scriptIndex integer
+---@param stdCatalog table|nil
+---@return string
+function ScriptCompiler.publicId(member, scriptIndex, stdCatalog)
+  local curated = CURATED_IDS[member] and CURATED_IDS[member][scriptIndex]
+  if curated ~= nil then
+    return curated
+  end
+  if stdCatalog ~= nil then
+    for _, group in ipairs(stdCatalog.groups) do
+      if group.member == member then
+        local name = stdCatalog.namesById[group.threshold + scriptIndex]
+        if name ~= nil then
+          return "common." .. name
+        end
+      end
+    end
+  end
+  return string.format("vanilla.hgss.scr_seq.%04d.script_%03d", member, scriptIndex)
+end
+
+-- Translate one script into a DSL resource.
+---@param memberIr table
+---@param scriptIndex integer
+---@param opts table { stdCatalog, publicId, commit, repository, game, sourceHash }
+---@return table resource, table report
+local function translateScript(memberIr, scriptIndex, opts)
+  local script = memberIr.scripts[scriptIndex]
+  if opts.publicIdFor == nil then
+    opts.publicIdFor = function(member, index)
+      return ScriptCompiler.publicId(member, index, opts.stdCatalog)
+    end
+  end
+  local lowered = SemanticLowering.lowerScript(script, memberIr, opts)
+  local steps = Structurer.structure(lowered, scriptIndex)
+  local report = Verifier.verifyScript(lowered, script, memberIr)
+  ScriptCompiler.scrub(steps)
+  local ok, validateErr = S.validate({ api = 1, id = "check", steps = steps })
+  if not ok then
+    error("generated script for " .. tostring(scriptIndex) .. " fails validation: " .. tostring(validateErr))
+  end
+
+  local id = opts.publicId or ScriptCompiler.publicId(memberIr.member, scriptIndex, opts.stdCatalog)
+  local resource = {
+    api = 1,
+    id = id,
+    metadata = {
+      generated = true,
+      generator = { name = "hgss-script-translator", version = 1 },
+      source = {
+        repository = opts.repository,
+        commit = opts.commit,
+        path = memberIr.sourcePath,
+        game = opts.game,
+        archive = "scr_seq",
+        member = memberIr.member,
+        scriptIndex = scriptIndex,
+        sourceHash = opts.sourceHash or "",
+      },
+      coverage = {
+        complete = report.complete,
+        unsupportedCount = report.unsupportedCount,
+      },
+    },
+    steps = steps,
+  }
+  return resource, report
+end
+
+-- Compile the complete script corpus for one version dump into a cache
+-- bundle: every script member decoded, translated, and verified, plus the
+-- aggregated coverage record and the dependency marker.
+---@param romFs RomFs
+---@param sha1hex? fun(bytes: string): string
+---@param hashLua? fun(value: any): string
+---@return table bundle
+function ScriptCompiler.compile(romFs, sha1hex, hashLua)
+  assert(romFs and romFs.read and romFs.openNarc and romFs.resolvedNarc, "compile requires a RomFs-shaped object")
+  sha1hex = sha1hex or Hashing.sha1hex
+  hashLua = hashLua or Hashing.hashLua
+  local version = romFs:version()
+  local romSha1 = romFs:metadata().sha1
+  local archiveInfo = assert(romFs:resolvedNarc("field_scripts"), "field_scripts NARC is unavailable")
+  local archiveBytes = assert(romFs:read(archiveInfo.fileId))
+  local source = {
+    archiveInfo = archiveInfo,
+    archiveSha1 = sha1hex(archiveBytes),
+  }
+  local archive = assert(romFs:openNarc("field_scripts"))
+  local stdCatalog = SourceCatalog.catalog()
+  local sourcePath = "romfs/" .. source.archiveInfo.path
+  local catalog = {
+    sounds = require("data.reference.hgss.sndseq").byId,
+    flags = require("data.reference.hgss.flags").byId,
+    vars = require("data.reference.hgss.vars").byId,
+    maps = require("data.reference.hgss.maps").byId,
+    spawns = require("data.reference.hgss.spawns").byId,
+  }
+  local memberIrs = ScriptBinaryDecoder.decodeArchive(archive, ScriptMembers.banks, sourcePath, catalog)
+
+  local records = {}
+  local resources = {}
+  local skippedMembers = {}
+  local scriptCount = 0
+  local decodeNotes = 0
+  local scriptMemberCount = 0
+  for member = 0, archive:memberCount() - 1 do
+    local memberIr = memberIrs[member]
+    if memberIr == nil then
+      skippedMembers[#skippedMembers + 1] = member
+    else
+      scriptMemberCount = scriptMemberCount + 1
+      local memberBytes = assert(archive:readMember(member))
+      local memberSha1 = sha1hex(memberBytes)
+      local results = {}
+      for index, script in pairs(memberIr.scripts) do
+        local resource, report = translateScript(memberIr, index, {
+          stdCatalog = stdCatalog,
+          commit = romSha1,
+          repository = "g4recomp",
+          game = version,
+          sourceHash = memberSha1,
+        })
+        results[index] = { script = script, resource = resource, report = report }
+        resources[#resources + 1] = {
+          id = resource.id,
+          member = member,
+          scriptIndex = index,
+          resource = resource,
+          report = report,
+          sourceHash = memberSha1,
+        }
+        scriptCount = scriptCount + 1
+        if script.decodeNote ~= nil then
+          decodeNotes = decodeNotes + 1
+        end
+      end
+      local record = Coverage.record(memberIr, results, {
+        repository = "g4recomp",
+        commit = romSha1,
+      })
+      records[#records + 1] = record
+    end
+  end
+  local coverageRecord = Coverage.aggregate(records)
+  coverageRecord.decodeNotes = decodeNotes
+  coverageRecord.skippedMembers = skippedMembers
+  coverageRecord.source = { repository = "g4recomp", commit = romSha1 }
+
+  local index = {
+    schema = ScriptCache.INDEX_SCHEMA,
+    version = version,
+    memberCount = archive:memberCount(),
+    scriptMemberCount = scriptMemberCount,
+    skippedMemberCount = #skippedMembers,
+    scriptCount = scriptCount,
+    resourceCount = #resources,
+  }
+  index.resources = {}
+  for _, entry in ipairs(resources) do
+    index.resources[#index.resources + 1] = {
+      id = entry.id,
+      member = entry.member,
+      scriptIndex = entry.scriptIndex,
+    }
+  end
+  local dependencies = {
+    cacheFormat = ScriptCache.FORMAT,
+    compilerVersion = ScriptCompiler.COMPILER_VERSION,
+    commandCatalog = ScriptCompiler.commandCatalogVersion(),
+    movementCatalog = ScriptCompiler.movementCatalogVersion(),
+    stdCatalog = ScriptCompiler.stdCatalogVersion(),
+    memberBanks = ScriptCompiler.memberBanksVersion(),
+    versionRomSha1 = romSha1,
+    scrSeqNarc = {
+      symbol = source.archiveInfo.symbol,
+      alias = source.archiveInfo.alias,
+      narcId = source.archiveInfo.narcId,
+      fileId = source.archiveInfo.fileId,
+      path = source.archiveInfo.path,
+      sha1 = source.archiveSha1,
+    },
+  }
+  local marker = ScriptCache.marker(romSha1, hashLua(dependencies))
+  table.sort(resources, function(a, b)
+    return a.id < b.id
+  end)
+  return {
+    marker = marker,
+    index = index,
+    resources = resources,
+    coverageRecord = coverageRecord,
+    dependencies = dependencies,
+  }
+end
+
+local function sourceOf(module)
+  return module.source and module.source.commit .. ":" .. (module.source.inputs and #module.source.inputs or 0)
+end
+
+function ScriptCompiler.commandCatalogVersion()
+  return sourceOf(require("data.reference.hgss.script_commands"))
+end
+
+function ScriptCompiler.movementCatalogVersion()
+  return sourceOf(require("data.reference.hgss.movement_commands"))
+end
+
+function ScriptCompiler.stdCatalogVersion()
+  return sourceOf(require("data.reference.hgss.std_script_catalog"))
+end
+
+function ScriptCompiler.memberBanksVersion()
+  return sourceOf(require("data.reference.hgss.script_members"))
+end
+
+-- Emit the Lua text for one resource (the cache writer persists it).
+---@param entry table { id, member, scriptIndex, resource, report }
+---@param opts table { sourcePath, commit, game, sourceHash }
+---@return string
+function ScriptCompiler.emit(entry, opts)
+  return LuaEmitter.emit(entry.resource, {
+    member = entry.member,
+    scriptIndex = entry.scriptIndex,
+    sourcePath = opts.sourcePath,
+    commit = opts.commit,
+    repository = "g4recomp",
+    game = opts.game,
+    sourceHash = entry.sourceHash or opts.sourceHash,
+    coverage = entry.resource.metadata.coverage,
+  })
+end
+
+return ScriptCompiler
