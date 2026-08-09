@@ -80,18 +80,19 @@ Constructors return ordinary serializable Lua tables. Direct table form is alway
 | `S.noop()` | `op=noop` |  |
 | `S.stop()` | `op=stop` | Normal script completion. |
 | `S.yieldTick()` | `op=yield_tick` | Generated/advanced explicit one-tick source yield. |
-| `S.waitTicks(ticks)` | `op=wait_ticks` | ticks >= 1; first poll next tick, continuation one tick after completion. |
+| `S.waitTicks(ticks, opts)` | `op=wait_ticks` | ticks >= 1; first poll next tick, continuation one tick after completion; opts.countdownVariable mirrors the countdown into an observable variable like the source engine. |
 | `S.if_(spec)` | `op=if` | spec={condition,yes={},no={}}. |
 | `S.switch(spec)` | `op=switch` | spec={value,cases,default={}}. |
-| `S.call(scriptId, opts)` | `op=call` | Same-context call; opts={args={},result=nil}. |
+| `S.call(scriptId, opts)` | `op=call` | Same-context call; opts={args={},result=nil}; opts.label enters the composed target at a label instead of its entry. |
 | `S.callCommon(scriptId, opts)` | `op=call_common` | Generated/advanced common child context; opts={args={}}. |
 | `S.return_([value])` | `op=return` | Trailing underscore is part of API. |
 | `S.label(name)` | `op=label` | Generated fallback. |
 | `S.goto_(name)` | `op=goto` | Generated fallback. |
 | `S.gotoIf(condition, name)` | `op=goto_if` | Generated fallback. |
+| `S.gotoScript(scriptId, opts)` | `op=goto_script` | Cross-script same-context jump (shared script tails); opts={label=nil}; resolved through the composition registry at runtime; handwritten scripts are warned. |
 | `S.compare(a, b)` | `op=compare` | Generated low-level fallback. |
-| `S.gotoCompared(operator, name)` | `op=goto_compared` | Generated low-level fallback. |
-| `S.callCompared(operator, target)` | `op=call_compared` | Generated low-level fallback. |
+| `S.gotoCompared(operator, name, opts)` | `op=goto_compared` | Generated low-level fallback; opts={script,label} is the cross-script form resolved through the composition registry at runtime. |
+| `S.callCompared(operator, target, opts)` | `op=call_compared` | Generated low-level fallback; opts={script,label} is the cross-script form. |
 | `S.next()` | `op=next` | Wrapper resources only. |
 
 ### State constructors
@@ -299,13 +300,13 @@ No fields.
 
 | Field | Type | Required | Default |
 |---|---|---|---|
-| `position` | integer | yes |  |
+| `position` | scalar_or_value | yes |  |
 
 ### `party_species_name`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
-| `position` | integer | yes |  |
+| `position` | scalar_or_value | yes |  |
 
 ### `player_name`
 
@@ -530,6 +531,7 @@ No fields.
 |---|---|---|---|
 | `args` | args |  | `{}` |
 | `key` | string |  |  |
+| `label` | string |  |  |
 | `provenance` | source_provenance |  |  |
 | `result` | value |  |  |
 | `target` | string | yes |  |
@@ -548,9 +550,11 @@ No fields.
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `key` | string |  |  |
+| `label` | string |  |  |
 | `operator` | enum:compare_operator | yes |  |
 | `provenance` | source_provenance |  |  |
-| `target` | string | yes |  |
+| `script` | string |  |  |
+| `target` | string |  |  |
 
 ### `clear_flag`
 
@@ -680,9 +684,11 @@ No fields.
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `key` | string |  |  |
+| `label` | string |  |  |
 | `operator` | enum:compare_operator | yes |  |
 | `provenance` | source_provenance |  |  |
-| `target` | string | yes |  |
+| `script` | string |  |  |
+| `target` | string |  |  |
 
 ### `goto_if`
 
@@ -692,6 +698,15 @@ No fields.
 | `key` | string |  |  |
 | `provenance` | source_provenance |  |  |
 | `target` | string | yes |  |
+
+### `goto_script`
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `label` | string |  |  |
+| `provenance` | source_provenance |  |  |
+| `script` | string | yes |  |
 
 ### `hide_object`
 
@@ -823,7 +838,7 @@ No fields.
 
 | Field | Type | Required | Default |
 |---|---|---|---|
-| `fanfare` | string | yes |  |
+| `fanfare` | scalar_or_value | yes |  |
 | `key` | string |  |  |
 | `provenance` | source_provenance |  |  |
 
@@ -952,11 +967,11 @@ No fields.
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `actor` | actor | yes |  |
-| `fieldX` | integer | yes |  |
-| `fieldZ` | integer | yes |  |
+| `fieldX` | scalar_or_value | yes |  |
+| `fieldZ` | scalar_or_value | yes |  |
 | `key` | string |  |  |
 | `provenance` | source_provenance |  |  |
-| `worldY` | number |  |  |
+| `worldY` | scalar_or_value |  |  |
 
 ### `set_spawn`
 
@@ -995,6 +1010,13 @@ No fields.
 | `provenance` | source_provenance |  |  |
 
 ### `show_waiting_icon`
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
+
+### `signal_caller`
 
 | Field | Type | Required | Default |
 |---|---|---|---|
@@ -1135,6 +1157,7 @@ No fields.
 
 | Field | Type | Required | Default |
 |---|---|---|---|
+| `countdownVariable` | id_or_var |  |  |
 | `key` | string |  |  |
 | `provenance` | source_provenance |  |  |
 | `ticks` | integer | yes |  |
@@ -1143,13 +1166,13 @@ No fields.
 
 | Field | Type | Required | Default |
 |---|---|---|---|
-| `facing` | enum:direction | yes |  |
-| `fieldX` | integer | yes |  |
-| `fieldZ` | integer | yes |  |
+| `facing` | scalar_or_value | yes |  |
+| `fieldX` | scalar_or_value | yes |  |
+| `fieldZ` | scalar_or_value | yes |  |
 | `key` | string |  |  |
-| `map` | string | yes |  |
+| `map` | scalar_or_value | yes |  |
 | `provenance` | source_provenance |  |  |
-| `warp` | integer | yes |  |
+| `warp` | scalar_or_value | yes |  |
 
 ### `yield_tick`
 
