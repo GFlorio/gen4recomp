@@ -4,7 +4,7 @@ USER root
 RUN apt-get update \
     && add-apt-repository --yes ppa:bartbes/love-stable \
     && apt-get update \
-    && apt-get install -y --no-install-recommends lua love \
+    && apt-get install -y --no-install-recommends luajit love \
     && rm -rf /var/lib/apt/lists/*
 RUN set -eux \
     && url=$(curl -fsSL https://api.github.com/repos/LuaLS/lua-language-server/releases/latest \
