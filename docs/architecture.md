@@ -3,7 +3,7 @@
 g4recomp turns a legally-owned Nintendo DS **HeartGold** or **SoulSilver** ROM
 into a private, on-disk filesystem dump, then reads game data from that dump at
 runtime. This document covers the boot/import/runtime flow, the split between the
-raw dump and future derived data, and the three ID namespaces the code keeps
+raw dump and the derived data, and the three ID namespaces the code keeps
 strictly apart.
 
 ## Repository layout
@@ -154,9 +154,9 @@ FieldEventState  (numeric flags/vars; the visibility authority)
 An object exists only while its event flag is clear, matching the original
 engine. Flag writes are queued and applied at one point in the fixed tick —
 before movement reads occupancy — so the draw list and collision never disagree
-within a tick. Actors in this milestone are static: raw movement codes are
-preserved on the actor, never executed. `data/manifests/field_scenario.lua`
-seeds which target objects start hidden; it names objects by map/object
+within a tick. An actor's raw ROM movement code is preserved on the actor and
+never executed; actors move only through script movement tasks.
+`data/manifests/field_scenario.lua` seeds which target objects start hidden; it names objects by map/object
 identity and `FieldScenario` resolves each to the ROM's numeric flag.
 
 The player's movement decision order is permissions, then terrain surface
@@ -167,15 +167,16 @@ Because the warp checks run before a move starts in `FieldSession`, a visible
 actor can never block a facing-warp trigger; a walkable warp cell with an actor
 standing on it blocks the step, matching the original engine's behavior.
 
-### Interaction discovery and the pre-script client
+### Interaction discovery
 
-`FieldSession` step 6 (spec section 11.3) resolves an idle player's Action edge
-through a small service pair that `FieldState` wires together:
+`FieldSession` resolves an idle player's Action edge before movement and warps,
+through services that `FieldState` wires together:
 
 ```text
 FieldInteractionResolver  (pure; object-first, background-second priority)
   -> InteractionIntent   (immutable; raw scriptId + script bank carried)
-  -> PreScriptInteractionAdapter  (fixture match -> dialogue request)
+  -> ScriptInteractionClient      (binding -> composed script on the scheduler)
+  -> PreScriptInteractionAdapter  (fallback: fixture match -> dialogue request)
   -> FieldDialogueController      (modal input ownership)
 ```
 
@@ -184,9 +185,12 @@ object actor from the occupancy index wins, then a source-order background
 event whose raw direction passes the pinned assembly's compatibility table
 (raw 4 wildcard; 0/1/2/3 accept {0,6}/{3,6}/{2,5}/{1,5}), then nothing.
 Type-2 background events (hidden items) are skipped because their collection
-flags are not tracked yet. The adapter is the one replacement point
-the scripting milestone removes (`InteractionIntent -> FieldScriptScheduler ->
-commands -> DialogueRequest`); it matches intents against
+flags are not tracked yet. A resolved intent goes first to
+`ScriptInteractionClient`, which looks the intent up in the bindings manifest,
+composes the bound script, and starts it as the foreground root on the scheduler
+so it runs during the trigger tick. An intent with no binding falls through to
+`PreScriptInteractionAdapter`, the fixture client that remains until every
+interaction is bound: it matches intents against
 `data/manifests/pre_script_interactions.lua`, formats the fixture message
 through `FieldMessageProvider`, pushes a temporary face-player override that
 every terminal dialogue path releases exactly once, and opens the modal
@@ -213,7 +217,9 @@ Every derived class publishes through the same staged publication primitive
 disposable `staging/<version>/<name>/` root, validate the staged result, and
 only then swap it over the live roots with the completion marker last. A failed
 rebuild therefore never destroys the previous ready artifact, and a failed
-publish rolls every moved root back. Map caches share content-addressed
+publish rolls every moved root back. The marker-last write is what proves a
+staged tree complete; the replacement guarantee comes from the stage/validate/
+publish sequence around it, not from the marker alone. Map caches share content-addressed
 geometry/textures across maps, so only the map's own subtree is swapped; the
 shared content is written in place and is idempotent by content addressing.
 

@@ -58,10 +58,16 @@ Nothing already committed is in scope. If the diff is empty, say so and stop.
 
 ## Rules
 
-- Less code is better code. A pass that only adds lines is a failed pass.
+- Less code is better code, but net line count is a diagnostic, not an acceptance
+  criterion. Necessary correctness or safety code may make the pass net-positive; a
+  net-positive pass should be able to name the invariant, duplication, or required behavior
+  that justifies the added lines. Never delete unrelated useful code to improve the delta.
 - Fix, don't propose. This runs on your own fresh work — you have the context.
-- Behavior-preserving only. If a finding needs a behavior change, list it in the summary
-  instead of doing it.
+- Preserve *intended* behavior, not accidental buggy behavior. Correctness, lifecycle,
+  data-loss, invariant, and determinism bugs get fixed when the intended behavior is
+  established by tests, the task requirements, a public contract, or authoritative source
+  material. Leave a finding unresolved only when picking the correct behavior genuinely
+  needs a human/product decision.
 - Report honestly: if tests or lint still fail at the end, say so with the output.
 
 ## Red flags
@@ -70,6 +76,7 @@ Nothing already committed is in scope. If the diff is empty, say so and stop.
 |---|---|
 | "The diff is small, skip the checklist" | Small diffs are where magic literals and debug prints survive. Read it. |
 | "That branch might be needed later" | No caller reaches it. Cut it; git remembers. |
+| "Fixing that bug would change behavior" | Buggy behavior is not intended behavior. Fix it unless the correct behavior needs a human decision. |
 | "I'll leave the print, it's useful" | Debug code is residue. Cut it. |
 | "lua-language-server is being pedantic" | Add the annotation. That's the finding. |
 | "I'll fix lint by disabling the check" | Name why the analyzer is wrong, or fix the code. |

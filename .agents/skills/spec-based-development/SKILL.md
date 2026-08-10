@@ -54,7 +54,8 @@ in order:
 4. `Append anything later deliverables need to the Messages section of the notes file.
    Do not edit the spec. Do not commit.`
 5. The return shape: `Return: files touched, what you built, deviations from the spec and
-   why, and the test status.`
+   why, the test status, and the ownership/failure cases you introduced or changed with the
+   tests covering them (say so explicitly if there are none).`
 
 Those five parts and nothing else — no restatement of the spec's contents, no design you
 have in mind, no summary of prior deliverables. The subagent reads both files itself.
@@ -87,8 +88,12 @@ are permanent.
   and dispatch instead.
 - One deliverable per subagent, one commit per deliverable. Never batch.
 - Never commit red. Never commit the spec or the notes file.
+- Never commit a deliverable while review leaves an unresolved correctness bug, data-loss
+  risk, resource-ownership/lifecycle bug, or deterministic-state bug. Dispatch a fix
+  subagent. Escalate to the human only when the correct behavior is genuinely ambiguous.
 - A deliverable that fails review twice is a signal the spec is wrong, not that the subagent
-  needs a third try. Stop and take it to the human.
+  needs a third try — unless the remaining issue is an objectively established
+  implementation bug, which is fixed, not escalated. Otherwise stop and take it to the human.
 - Report honestly. If a deliverable is incomplete or a test is failing at the end, say so
   with the output.
 

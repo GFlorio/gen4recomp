@@ -7,17 +7,18 @@ This file provides guidance to Coding Agents when working with code in this repo
 - Be brief.
 - Strongly bias towards simplicity.
 - Strongly bias towards asking for clarification.
-- Less code is better code.
-- Thoroughly add type annotations to all functions and tables you touch.
+- Less code is better code. Net line count is a diagnostic, not an acceptance criterion:
+  necessary correctness or safety code may make a change net-positive.
+- Annotate public APIs and non-obvious table/data shapes, and anywhere an annotation
+  materially improves LuaLS inference or states an invariant. Do not annotate trivial
+  private locals merely because their lines were touched. `scripts/lint.sh` stays clean.
 - Be concrete.
 - Look for opportunities for refactoring or trimming code at the end of each task.
 - Flat is better than nested.
 - Look for root causes.
 - Descriptive names.
 - Make liberal use of assertions to enforce assumptions and invariants.
-- Throw instead of returning error codes or nil.
 - Aggressively remove dead code, no "just in case" compatibility.
-- Use TDD: Tests first, but ask before testing boundaries.
 - Prefer pure functions.
 - Thoroughly remove debug/trace code after each task.
 - Assume unexpected changes are from the human.
@@ -28,9 +29,67 @@ This file provides guidance to Coding Agents when working with code in this repo
 - Cutting across that, work in three conceptual layers: interface, domain, and infrastructure.
 - Domain contains all the game logic and should be testable independently of LÖVE. `libs/rom` and `libs/assets` are overwhelmingly domain and must not `require` love.
 - Interface and infrastructure can depend on LÖVE, but should be kept as thin as possible.
-- Game modability is essential, so each layer should expose clear hook points for modders to extend the game.
+- Modability comes through explicit mod-facing asset contracts and deliberately designated public APIs — not through interfaces, callbacks, forwarding layers, compatibility shims, or extension hooks added for hypothetical future mods. Public/mod-facing does not mean stable or frozen: stability is an explicit project decision, and until it is declared the surface stays minimal and incompatible cleanup is allowed.
 - Derived data crosses three roles (see docs/architecture.md "Digestion, assets, and the game"): romdump digests raw ROM bytes, libs/assets owns the modder-facing asset contracts (text + metadata shapes), and the game operates only on the asset level — no raw-ROM decoding, no decomp-derived reference imports in libs/engine or game/src.
 
+
+## Ownership and failure safety
+
+- Every acquired resource has exactly one owner. Before acquiring, name how it is released
+  on every later failure path.
+- A multi-step constructor or loader must clean up what it already acquired when a later
+  step fails.
+- Replacing owned state disposes the previous state exactly once.
+- Reentrancy/busy protection lives inside the stateful subsystem, not only in its callers.
+- `push`, mount, subscribe, acquire, open, and creating an Image/Mesh/Canvas are ownership
+  changes and need matching cleanup. No generic RAII helper framework.
+
+## Persistence and publication
+
+- Persistent user state (saves) must not share a deletion root with rebuildable/generated
+  cache state.
+- Never destroy the last known-good artifact before its replacement is fully built and
+  validated.
+- Transactional replacement is: **stage, validate, publish.** Writing the completion marker
+  last proves completeness; it is not by itself transactional replacement.
+- Filesystem failures propagate. A wrapper must never report success after an underlying
+  write/remove/rename/create failed.
+- Do not build a generic transaction framework without several concrete users.
+
+## Schemas and errors
+
+- Project-owned current schemas are strict. A missing required array/table is an error, not
+  `{}`; an unknown enum/mode value is an error, not a plausible default.
+- Generated artifacts get no backward-compatibility handling unless explicitly requested.
+- Validate finite/integer/range constraints wherever a value becomes an ID, index, offset,
+  tick, size, or binary field.
+- Catch only errors the caller can intentionally recover from. Never recover from a whole
+  error family or code prefix when some members mean corruption or a programming fault.
+- Use `assert` for programming invariants; use structured `Errors` for malformed
+  external/generated data and expected diagnosable runtime failures. Raise internally, and
+  convert to `nil, err` only at an explicitly documented public error boundary.
+
+## Shared state and caching
+
+- A cache key includes every property that affects the cached object's immutable runtime
+  configuration.
+- Never cache by source path/bytes alone and then mutate the shared result differently per
+  consumer.
+- Builders, sorters, and queue builders must not attach temporary bookkeeping fields to
+  caller-owned objects; keep that state local.
+
+## Testing
+
+- TDD: tests first for behavior changes.
+- Stateful, cached, resource-owning, or asynchronous code needs at least one failure or
+  multi-step sequence test, not only a happy path.
+- Test behavioral ownership boundaries, not helper internals.
+- Adversarial prompts, to consider when applicable — not a mandatory list:
+  What if the Nth acquisition fails? What if an operation starts while one is already
+  active? What if a valid previous artifact exists and the rebuild fails? What if multiple
+  physical inputs map to one semantic action? What if a callback mutates the listener list
+  during dispatch? What if two consumers share cached data but need different mutable
+  configuration?
 
 ## Commands
 

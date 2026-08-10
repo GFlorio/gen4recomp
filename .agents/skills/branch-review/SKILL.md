@@ -84,9 +84,13 @@ from the human.
 
 ## Rules
 
-- Less code is better code. Report net lines removed.
-- Behavior-preserving only. A finding that requires changing behavior goes in the summary,
-  not into the code.
+- Less code is better code. Report net lines removed — but the delta is a diagnostic, not
+  an acceptance criterion, and necessary correctness or safety code may make it positive.
+- Preserve *intended* behavior, not accidental buggy behavior. Correctness, lifecycle,
+  data-loss, invariant, and determinism bugs get fixed when the intended behavior is
+  established by tests, the task requirements, a public contract, or authoritative source
+  material. A finding goes in the summary instead only when picking the correct behavior
+  genuinely needs a human/product decision.
 - Do not defend the existing code because it exists. It was written under weaker judgment.
 - Report honestly: if tests or lint fail at the end, say so with the output.
 
@@ -95,7 +99,8 @@ from the human.
 | Thought | Reality |
 |---|---|
 | "Let me just start reading files top to bottom" | Pass 1 first. Structural cuts delete whole files you'd otherwise review. |
-| "This abstraction might be useful later" | One caller = inline it. Later is not a caller. |
+| "This abstraction might be useful later" | Later is not a caller. One caller = inline it, unless the boundary owns a resource lifetime, a layer split, a real mod-facing API, or a source-grounded domain concept. |
+| "Fixing that bug would change behavior" | Buggy behavior is not intended behavior. Fix it unless the correct behavior needs a human decision. |
 | "This defensive branch is harmless" | It hides bugs and costs a test. Name what breaks if it's cut, or cut it. |
 | "The diff is huge, I'll sample it" | Sampling a branch review is not a branch review. Say so instead of pretending. |
 | "The previous agent probably had a reason" | Assume it didn't. Find the reason in the code or cut it. |
