@@ -147,7 +147,9 @@ function CachePipeline:runSource(source)
     assert(prepared, prepareErr)
     assert(prepared.current == true, "prepared cache must report current for " .. versionId)
     local runtime = self:bootPrepared(versionId)
-    return { versionId = versionId, audit = audit, prepared = prepared, runtime = runtime }
+    assert(type(runtime.dispose) == "function", "prepared runtime must be disposable")
+    runtime:dispose()
+    return { versionId = versionId, audit = audit, prepared = prepared }
   end, debug.traceback)
   local removed, removeResult, removeErr = pcall(self.removeIsolatedRoot, root)
   if not ok then

@@ -27,7 +27,7 @@ local function pipeline(overrides)
     end,
     bootRuntime = function(versionId)
       calls[#calls + 1] = "boot:" .. versionId
-      return { close = function() end }
+      return { dispose = function() end }
     end,
     importSource = function(source, root)
       calls[#calls + 1] = "import:" .. source .. ":" .. root
@@ -109,6 +109,28 @@ function T.rom_06_runs_the_optional_source_flow_in_an_isolated_root()
     "boot:heartgold",
     "remove-root:isolated-root",
   })
+end
+
+-- The verification runtime owns cache and save resources rooted in the isolated
+-- import directory. That directory cannot be removed while the runtime is live.
+function T.source_flow_disposes_the_runtime_before_releasing_its_isolated_root()
+  local disposed = false
+  local subject = pipeline({
+    bootRuntime = function()
+      return {
+        dispose = function()
+          disposed = true
+        end,
+      }
+    end,
+    removeIsolatedRoot = function()
+      Assert.isTrue(disposed, "source runtime must be disposed before its root is removed")
+      return true
+    end,
+  })
+
+  local report = subject:runSource("provided.nds")
+  Assert.equal(report.versionId, "heartgold")
 end
 
 -- ROM-07: source validation/import failure is transactional: it cannot

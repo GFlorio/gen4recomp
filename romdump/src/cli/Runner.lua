@@ -557,8 +557,7 @@ function Runner._maybeExit()
           return true
         end,
       })
-      local result = pipeline:runSource(Runner.opts.importRom)
-      result.runtime:dispose()
+      pipeline:runSource(Runner.opts.importRom)
       love.event.quit(0)
     else
       love.event.quit(0)
