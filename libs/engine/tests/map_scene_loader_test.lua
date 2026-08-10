@@ -1,11 +1,12 @@
--- LÖVE tests for MapSceneLoader's sampler-aware image ownership: materials
--- sharing one texture path but sampling it with different wrap modes must
--- receive independent, correctly configured images (regression for the
--- shared-sampler alias), same-sampler materials share one image, and unknown
--- wrap modes fail loudly instead of degrading to clamp. Image/mesh
--- construction needs a graphics context, so those tests skip headless; the
--- unknown-wrap rejection raises before any GPU object is built and runs
--- anywhere.
+-- LÖVE tests for MapSceneLoader's sampler-aware image ownership and
+-- transactional construction: materials sharing one texture path but sampling
+-- it with different wrap modes must receive independent, correctly configured
+-- images (regression for the shared-sampler alias), same-sampler materials
+-- share one image, and unknown wrap modes fail loudly instead of degrading to
+-- clamp. Image construction needs a graphics context, so those tests skip
+-- headless; the unknown-wrap rejection and every post-acquisition failure that
+-- releases already-acquired images run anywhere through an injected fake
+-- graphics.
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.rom.src.Errors")
@@ -84,7 +85,8 @@ local function scene(materials)
 end
 
 -- A cacheFs serving canned bytes for the shared geometry/texture paths plus
--- the permissions grid. luaFiles backs loadLua for model descriptors.
+-- the permissions grid. luaFiles backs loadLua for model descriptors. The
+-- blob table is returned so tests can corrupt or omit individual files.
 local function cacheFs()
   local geomPath = MapAssetCache.geometryPath("aaaa")
   local texPath = MapAssetCache.texturePath("bbbb")
@@ -104,8 +106,30 @@ local function cacheFs()
   },
     geomPath,
     texPath,
-    luaFiles
+    luaFiles,
+    blob
 end
+
+-- Injected graphics namespace tracking created images and their release calls,
+-- so the image side of a failed load can be observed without a GL context.
+local function fakeGraphics()
+  local images = {}
+  return {
+    images = images,
+    newImage = function()
+      local image = { released = false }
+      image.setFilter = function() end
+      image.setWrap = function() end
+      image.release = function()
+        image.released = true
+      end
+      images[#images + 1] = image
+      return image
+    end,
+  }
+end
+
+local IDENTITY = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 }
 
 function T.same_texture_with_different_wraps_gets_independent_images()
   if not hasGraphics() then
@@ -183,6 +207,104 @@ function T.unknown_wrap_modes_fail_loudly()
     not ok and Errors.is(err) and err.code == "GPU_ASSET_UNKNOWN_WRAP",
     "raises GPU_ASSET_UNKNOWN_WRAP: " .. tostring(err.code)
   )
+end
+
+-- A scene material image is acquired before the map batches; a missing
+-- geometry path fails that later mesh load, and the image must be released.
+function T.failed_mesh_load_releases_acquired_images()
+  local cache, _, texPath = cacheFs()
+  local s = scene({ material(0, texPath, { x = "clamp", y = "clamp" }) })
+  s.mapBatches = { { geometry = "missing-geometry.g4mesh", material = 0 } }
+  local graphics = fakeGraphics()
+  local err = Assert.throws(function()
+    MapSceneLoader.load(cache, s, { graphics = graphics })
+  end)
+  Assert.isTrue(tostring(err):find("missing mesh missing-geometry.g4mesh", 1, true) ~= nil, "mesh failure propagates")
+  Assert.equal(#graphics.images, 1, "the scene material image was acquired")
+  Assert.equal(graphics.images[1].released, true, "a failed mesh load releases the acquired image")
+end
+
+-- A missing model descriptor fails building creation after scene images
+-- exist; every acquired image must be released.
+function T.failed_descriptor_load_releases_acquired_images()
+  local cache, _, texPath = cacheFs()
+  local s = scene({ material(0, texPath, { x = "clamp", y = "clamp" }) })
+  s.buildingInstances = { { modelKey = "missing", transform = IDENTITY } }
+  local graphics = fakeGraphics()
+  local err = Assert.throws(function()
+    MapSceneLoader.load(cache, s, { graphics = graphics })
+  end)
+  Assert.isTrue(tostring(err):find("missing model missing", 1, true) ~= nil, "descriptor failure propagates")
+  Assert.equal(#graphics.images, 1)
+  Assert.equal(graphics.images[1].released, true, "a failed descriptor load releases the acquired image")
+end
+
+-- An unknown wrap inside a building descriptor fails material creation after
+-- the scene material image was acquired; the whole pool is released.
+function T.unknown_wrap_in_a_building_descriptor_releases_acquired_images()
+  local cache, _, texPath, luaFiles = cacheFs()
+  local s = scene({ material(0, texPath, { x = "clamp", y = "clamp" }) })
+  s.buildingInstances = { { modelKey = "building", transform = IDENTITY } }
+  luaFiles[MapAssetCache.modelPath("building")] = {
+    schema = "g4-model-descriptor-v1",
+    batches = {},
+    materials = { material(0, texPath, { x = "mirror", y = "clamp" }) },
+  }
+  local graphics = fakeGraphics()
+  local err = Assert.throws(function()
+    MapSceneLoader.load(cache, s, { graphics = graphics })
+  end)
+  Assert.isTrue(Errors.is(err) and err.code == "GPU_ASSET_UNKNOWN_WRAP", "raises GPU_ASSET_UNKNOWN_WRAP")
+  Assert.equal(#graphics.images, 1)
+  Assert.equal(graphics.images[1].released, true, "the scene image is released with the failed descriptor")
+end
+
+-- Missing permissions bytes fail the collision step after GPU objects exist.
+function T.failed_permissions_read_releases_acquired_images()
+  local cache, _, texPath = cacheFs()
+  local s = scene({ material(0, texPath, { x = "clamp", y = "clamp" }) })
+  s.collision.file = "missing-permissions.bin"
+  local graphics = fakeGraphics()
+  local err = Assert.throws(function()
+    MapSceneLoader.load(cache, s, { graphics = graphics })
+  end)
+  Assert.isTrue(tostring(err):find("missing permissions", 1, true) ~= nil, "permissions failure propagates")
+  Assert.equal(#graphics.images, 1)
+  Assert.equal(graphics.images[1].released, true, "a failed permissions read releases the acquired image")
+end
+
+-- Malformed permissions bytes fail the decode step after GPU objects exist.
+function T.failed_permissions_decode_releases_acquired_images()
+  local cache, _, texPath, _, blob = cacheFs()
+  local s = scene({ material(0, texPath, { x = "clamp", y = "clamp" }) })
+  blob["permissions.bin"] = string.rep("\0", 10)
+  local graphics = fakeGraphics()
+  local ok, err = pcall(MapSceneLoader.load, cache, s, { graphics = graphics })
+  Assert.isTrue(
+    not ok and Errors.is(err) and err.code == "PERMISSION_BAD_SIZE",
+    "malformed permissions fail the load: " .. tostring(err and err.code)
+  )
+  Assert.equal(#graphics.images, 1)
+  Assert.equal(graphics.images[1].released, true, "a failed permissions decode releases the acquired image")
+end
+
+-- An unsupported transform mode raises after its mesh was acquired; the load
+-- must release the mesh and every image. love-backed (a real mesh is built).
+function T.failed_transform_mode_releases_acquired_gpu_objects()
+  if not hasGraphics() then
+    return
+  end
+  local cache, geomPath, texPath = cacheFs()
+  local s = scene({ material(0, texPath, { x = "clamp", y = "clamp" }) })
+  s.mapBatches = { { geometry = geomPath, material = 0, transformMode = "spooky" } }
+  local graphics = fakeGraphics()
+  local ok, err = pcall(MapSceneLoader.load, cache, s, { graphics = graphics })
+  Assert.isTrue(
+    not ok and Errors.is(err) and err.code == "MAP_SCENE_UNSUPPORTED_TRANSFORM_MODE",
+    "raises the transform-mode error"
+  )
+  Assert.equal(#graphics.images, 1)
+  Assert.equal(graphics.images[1].released, true, "the acquired image is released with the mesh")
 end
 
 return T

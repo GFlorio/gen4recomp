@@ -2,6 +2,7 @@
 -- aggregate and LRU ownership contract without constructing LÖVE GPU objects.
 
 local Assert = require("tests.support.Assert")
+local Errors = require("libs.rom.src.Errors")
 local FieldMapLoader = require("libs.engine.src.FieldMapLoader")
 
 local T = {}
@@ -310,6 +311,108 @@ function T.finite_neighbor_region_reports_missing_visible_cells_without_crashing
   local plan = loader:updateCoverage(map, camera, { minY = 0, maxY = 0 })
   Assert.isTrue(#plan.missingVisibleCells > 0)
   loader:release()
+end
+
+-- A failed coverage load releases the acquired scene runtime exactly once
+-- (locks in the existing behavior before the post-scene transaction extends
+-- the same cleanup to later failures).
+function T.failed_coverage_load_releases_the_scene_runtime()
+  local cache, world, sceneLoader, releases, files = fixture(1)
+  files["data/generated/maps/0000/scene.lua"].neighbors = {
+    { offsetTilesX = 32, offsetTilesZ = 0, batches = {}, materials = {} },
+  }
+  local coverageLoader = {
+    load = function()
+      error("injected coverage failure")
+    end,
+  }
+  local loader = FieldMapLoader.new(cache, world, {
+    sceneLoader = sceneLoader,
+    coverageLoader = coverageLoader,
+  })
+  local err = Assert.throws(function()
+    loader:load(0)
+  end)
+  Assert.isTrue(tostring(err):find("injected coverage failure", 1, true) ~= nil, "the coverage failure propagates")
+  Assert.equal(releases[0], 1, "the scene runtime is released exactly once")
+  loader:release()
+  Assert.equal(releases[0], 1, "release stays exactly once")
+end
+
+-- A malformed terrain artifact fails construction after both the scene runtime
+-- and the coverage runtime were acquired; both must be released.
+function T.failed_terrain_construction_releases_scene_and_coverage()
+  local cache, world, sceneLoader, releases, files = fixture(1)
+  files["data/generated/maps/0000/scene.lua"].neighbors = {
+    { offsetTilesX = 32, offsetTilesZ = 0, batches = {}, materials = {} },
+  }
+  files["data/generated/maps/0000/terrain.lua"] = { schema = "g4-terrain-surfaces-v1" }
+  local coverageReleases = 0
+  local coverageLoader = {
+    load = function()
+      return {
+        draws = {},
+        release = function()
+          coverageReleases = coverageReleases + 1
+        end,
+      }
+    end,
+  }
+  local loader = FieldMapLoader.new(cache, world, {
+    sceneLoader = sceneLoader,
+    coverageLoader = coverageLoader,
+  })
+  local err = Assert.throws(function()
+    loader:load(0)
+  end)
+  Assert.isTrue(tostring(err):find("TerrainSurface.new requires a terrain artifact", 1, true) ~= nil)
+  Assert.equal(releases[0], 1, "the scene runtime is released")
+  Assert.equal(coverageReleases, 1, "the coverage runtime is released")
+  loader:release()
+  Assert.equal(releases[0], 1, "scene release stays exactly once")
+  Assert.equal(coverageReleases, 1, "coverage release stays exactly once")
+end
+
+-- Malformed neighbor permissions fail neighbor decoding after both runtimes
+-- were acquired; both must be released.
+function T.failed_neighbor_permission_decode_releases_scene_and_coverage()
+  local cache, world, sceneLoader, releases, files = fixture(1)
+  local permissionPath = "data/generated/maps/0000/neighbors/3/permissions.bin"
+  local terrainPath = "data/generated/maps/0000/neighbors/3/terrain.lua"
+  files["data/generated/maps/0000/scene.lua"].neighbors = {
+    {
+      offsetTilesX = 32,
+      offsetTilesZ = 0,
+      collision = { file = permissionPath },
+      terrain = { file = terrainPath },
+    },
+  }
+  files[permissionPath] = string.rep("\0", 10)
+  files[terrainPath] = { schema = "g4-terrain-surfaces-v1", plates = {} }
+  local coverageReleases = 0
+  local coverageLoader = {
+    load = function()
+      return {
+        draws = {},
+        release = function()
+          coverageReleases = coverageReleases + 1
+        end,
+      }
+    end,
+  }
+  local loader = FieldMapLoader.new(cache, world, {
+    sceneLoader = sceneLoader,
+    coverageLoader = coverageLoader,
+  })
+  local err = Assert.throws(function()
+    loader:load(0)
+  end)
+  Assert.isTrue(Errors.is(err) and err.code == "PERMISSION_BAD_SIZE", "the permission failure propagates")
+  Assert.equal(releases[0], 1, "the scene runtime is released")
+  Assert.equal(coverageReleases, 1, "the coverage runtime is released")
+  loader:release()
+  Assert.equal(releases[0], 1, "scene release stays exactly once")
+  Assert.equal(coverageReleases, 1, "coverage release stays exactly once")
 end
 
 return T

@@ -7,9 +7,13 @@
 -- loads permissions.bin into a CollisionGrid. A billboard batch keeps the
 -- base transform the renderer resolves against the camera each frame instead
 -- of a baked matrix. All GPU construction happens here, once, never in draw;
--- the pool releases every owned mesh/image. The only ROM knowledge that
--- reaches this layer is the normalized scene descriptor; raw Nitro formats
--- stopped at the compiler.
+-- the pool releases every owned mesh/image. Load is transactional: the pool
+-- guards its own acquires, and load() guards everything after pool creation,
+-- so any failure -- a missing descriptor, permissions read/decode failure,
+-- an unsupported transform mode -- releases every GPU object already
+-- acquired before the error propagates. The only ROM knowledge that reaches
+-- this layer is the normalized scene descriptor; raw Nitro formats stopped
+-- at the compiler.
 
 local PermissionGrid = require("libs.assets.src.PermissionGrid")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
@@ -44,18 +48,9 @@ local function materialsById(list, pool)
   return byId
 end
 
--- Load an assembled scene from the version's derived cache. `cacheFs` is a
--- CacheFs.forVersion; `scene` is the already-loaded scene.lua table.
-function MapSceneLoader.load(cacheFs, scene)
-  if not scene or scene.schema ~= "g4-map-scene-v3" then
-    Errors.raise(
-      "MAP_SCENE_UNSUPPORTED_SCHEMA",
-      "expected g4-map-scene-v3, got " .. tostring(scene and scene.schema or nil),
-      { schema = scene and scene.schema or nil }
-    )
-  end
-
-  local pool = GpuAssetPool.new(cacheFs)
+-- Build the runtime scene against an already-created pool. Raises on any
+-- failure; load() releases the pool in that case.
+local function buildScene(pool, cacheFs, scene)
   local bounds = { min = { math.huge, math.huge, math.huge }, max = { -math.huge, -math.huge, -math.huge } }
 
   -- Grow the scene bounds by a batch's vertices under a placement transform.
@@ -221,6 +216,31 @@ function MapSceneLoader.load(cacheFs, scene)
     pool:release()
   end
 
+  return runtime
+end
+
+-- Load an assembled scene from the version's derived cache. `cacheFs` is a
+-- CacheFs.forVersion; `scene` is the already-loaded scene.lua table; `opts`
+-- passes through to the asset pool (injectable graphics for headless tests).
+---@param cacheFs table
+---@param scene table
+---@param opts { graphics?: love.Graphics? }?
+---@return table
+function MapSceneLoader.load(cacheFs, scene, opts)
+  if not scene or scene.schema ~= "g4-map-scene-v3" then
+    Errors.raise(
+      "MAP_SCENE_UNSUPPORTED_SCHEMA",
+      "expected g4-map-scene-v3, got " .. tostring(scene and scene.schema or nil),
+      { schema = scene and scene.schema or nil }
+    )
+  end
+
+  local pool = GpuAssetPool.new(cacheFs, opts)
+  local ok, runtime = pcall(buildScene, pool, cacheFs, scene)
+  if not ok then
+    pool:release()
+    error(runtime)
+  end
   return runtime
 end
 

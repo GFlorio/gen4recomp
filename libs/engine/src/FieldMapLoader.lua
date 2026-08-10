@@ -238,42 +238,52 @@ function FieldMapLoader:load(idOrSymbol)
   end
 
   local sceneRuntime = self.sceneLoader.load(self.cacheFs, scene)
+  -- One transaction covers every step after the scene runtime is acquired:
+  -- coverage load, terrain construction, neighbor decoding, region assembly,
+  -- and aggregate construction. Any failure releases the coverage runtime (if
+  -- created) and the scene runtime exactly once before the error propagates;
+  -- a failure inside the scene loader itself is that loader's own transaction.
   local coverageRuntime
+  local runtimeMap
   local ok, loadErr = pcall(function()
     if #(scene.neighbors or {}) > 0 then
       coverageRuntime = self.coverageLoader.load(self.cacheFs, scene.neighbors)
     end
+
+    local centralTerrain = TerrainSurface.new(terrainArtifact)
+    local region = loadNeighborRegion(self.cacheFs, scene, sceneRuntime.collision, centralTerrain)
+    runtimeMap = {
+      mapId = record.id,
+      mapSymbol = record.symbol,
+      sceneRuntime = sceneRuntime,
+      scene = scene,
+      fieldData = fieldData,
+      permissions = region.permissions,
+      terrain = region.terrain,
+      terrainDependencyHash = terrainDependencyHash(region),
+      fieldRegion = region,
+      cameraType = scene.cameraType,
+      coordinateOrigin = { x = scene.matrix.worldOriginX, z = scene.matrix.worldOriginZ },
+      coverageRuntime = coverageRuntime,
+      availableCells = availableCells(scene),
+      released = false,
+    }
+    function runtimeMap:release()
+      releaseAggregate(self)
+    end
+
+    local entry = { runtimeMap = runtimeMap }
+    self.entries[record.id] = entry
+    self:_touch(entry)
   end)
   if not ok then
+    if coverageRuntime then
+      coverageRuntime:release()
+    end
     sceneRuntime:release()
     error(loadErr)
   end
 
-  local centralTerrain = TerrainSurface.new(terrainArtifact)
-  local region = loadNeighborRegion(self.cacheFs, scene, sceneRuntime.collision, centralTerrain)
-  local runtimeMap = {
-    mapId = record.id,
-    mapSymbol = record.symbol,
-    sceneRuntime = sceneRuntime,
-    scene = scene,
-    fieldData = fieldData,
-    permissions = region.permissions,
-    terrain = region.terrain,
-    terrainDependencyHash = terrainDependencyHash(region),
-    fieldRegion = region,
-    cameraType = scene.cameraType,
-    coordinateOrigin = { x = scene.matrix.worldOriginX, z = scene.matrix.worldOriginZ },
-    coverageRuntime = coverageRuntime,
-    availableCells = availableCells(scene),
-    released = false,
-  }
-  function runtimeMap:release()
-    releaseAggregate(self)
-  end
-
-  local entry = { runtimeMap = runtimeMap }
-  self.entries[record.id] = entry
-  self:_touch(entry)
   self:_evict(record.id)
   return runtimeMap
 end

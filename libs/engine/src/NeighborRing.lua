@@ -7,8 +7,11 @@
 -- Mesh per unique geometry path, one Image per unique texture/wrap sampler
 -- state, deduplicated across cells), and bakes each cell's world offset into
 -- the draw transform and sort center. All GPU construction happens here, once;
--- the pool releases every owned mesh/image. Neighbours are additive: an empty
--- descriptor list yields no draws and the central scene is untouched.
+-- the pool releases every owned mesh/image. Load is transactional: the pool
+-- guards its own acquires, and load() guards everything after pool creation,
+-- so a failure -- including a malformed cell descriptor -- releases every GPU
+-- object already acquired. Neighbours are additive: an empty descriptor list
+-- yields no draws and the central scene is untouched.
 
 local Matrix4 = require("libs.math.src.Matrix4")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
@@ -47,12 +50,9 @@ local function modelCenter(verts)
   return { (minx + maxx) / 2, (miny + maxy) / 2, (minz + maxz) / 2 }
 end
 
--- Load the compiled neighbour ring into GPU draw items. `cacheFs` is a
--- CacheFs.forVersion; `descriptors` is scene.neighbors. Returns
--- { draws, stats, release }.
-function NeighborRing.load(cacheFs, descriptors)
-  local pool = GpuAssetPool.new(cacheFs)
-
+-- Build the ring against an already-created pool. Raises on any failure;
+-- load() releases the pool in that case.
+local function buildRing(pool, descriptors)
   -- One draw per (cell, batch), with the cell's 32-tile world offset baked into
   -- the transform and the sort center.
   local draws = {}
@@ -94,6 +94,24 @@ function NeighborRing.load(cacheFs, descriptors)
   }
   function ring:release()
     pool:release()
+  end
+  return ring
+end
+
+-- Load the compiled neighbour ring into GPU draw items. `cacheFs` is a
+-- CacheFs.forVersion; `descriptors` is scene.neighbors; `opts` passes through
+-- to the asset pool (injectable graphics for headless tests). Returns
+-- { draws, stats, release }.
+---@param cacheFs table
+---@param descriptors table[]
+---@param opts { graphics?: love.Graphics? }?
+---@return table
+function NeighborRing.load(cacheFs, descriptors, opts)
+  local pool = GpuAssetPool.new(cacheFs, opts)
+  local ok, ring = pcall(buildRing, pool, descriptors)
+  if not ok then
+    pool:release()
+    error(ring)
   end
   return ring
 end
