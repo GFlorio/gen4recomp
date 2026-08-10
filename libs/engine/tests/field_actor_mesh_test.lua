@@ -9,9 +9,15 @@ local FieldActorMesh = require("libs.engine.src.FieldActorMesh")
 
 local T = {}
 
-local function graphics(built)
+local function graphics(built, opts)
+  opts = opts or {}
+  local calls = 0
   return {
     newMesh = function(layout, vertices, mode, usage)
+      calls = calls + 1
+      if opts.failOnNewMesh == calls then
+        error("injected newMesh failure")
+      end
       local mesh = { layout = layout, vertices = vertices, mode = mode, usage = usage }
       function mesh:setVertexMap(map)
         self.map = map
@@ -69,8 +75,11 @@ function T.builds_one_mesh_per_static_model_part()
   Assert.equal(#built, 2)
 end
 
-function T.builds_nothing_without_a_graphics_namespace()
-  Assert.isNil(FieldActorMesh.build(nil, FieldActorFixture.visual(29)))
+function T.rejects_a_missing_graphics_namespace()
+  local err = Assert.throws(function()
+    FieldActorMesh.build(nil, FieldActorFixture.visual(29))
+  end)
+  Assert.isTrue(tostring(err):find("FieldActorMesh requires love.graphics", 1, true) ~= nil)
 end
 
 function T.a_visual_without_geometry_is_fatal()
@@ -90,6 +99,16 @@ function T.releases_every_mesh()
   local meshes = FieldActorMesh.build(graphics(built), FieldActorFixture.visual(29, { frameCount = 2 }))
   FieldActorMesh.release(meshes)
   Assert.isTrue(built[1].released and built[2].released)
+end
+
+function T.failed_mesh_construction_releases_already_acquired_meshes()
+  local built = {}
+  local err = Assert.throws(function()
+    FieldActorMesh.build(graphics(built, { failOnNewMesh = 2 }), FieldActorFixture.visual(29, { frameCount = 2 }))
+  end)
+  Assert.isTrue(tostring(err):find("injected newMesh failure", 1, true) ~= nil)
+  Assert.equal(#built, 1)
+  Assert.isTrue(built[1].released, "the mesh acquired before the failure must be released")
 end
 
 return T

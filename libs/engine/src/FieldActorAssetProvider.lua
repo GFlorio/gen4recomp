@@ -16,7 +16,7 @@ local FieldActorMesh = require("libs.engine.src.FieldActorMesh")
 ---@field private _cacheFs CacheFs
 ---@field private _index table
 ---@field private _known table<integer, boolean>
----@field private _graphics love.Graphics?
+---@field private _graphics love.Graphics
 ---@field private _idleLimit integer
 ---@field private _entries table<integer, table>
 ---@field private _idle integer[]
@@ -53,8 +53,14 @@ function FieldActorAssetProvider.new(cacheFs, opts)
     known[spriteId] = true
   end
 
-  local graphics = opts.graphics or (love and love.graphics)
-  assert(graphics and graphics.newImage and graphics.newMesh, "FieldActorAssetProvider requires love.graphics")
+  local graphics = opts.graphics
+  if graphics == nil then
+    graphics = love and love.graphics
+  end
+  assert(
+    graphics and graphics.newImage and graphics.newMesh and graphics.newQuad,
+    "FieldActorAssetProvider requires love.graphics"
+  )
   return setmetatable({
     _cacheFs = cacheFs,
     _index = index,
@@ -103,10 +109,7 @@ end
 -- Build one quad per atlas frame. Quads are pure geometry over the strip, so a
 -- pose lookup is an index, never a rectangle computation at draw time.
 local function buildQuads(self, visual, imageWidth, imageHeight)
-  local newQuad = self._graphics and self._graphics.newQuad
-  if not newQuad then
-    return nil
-  end
+  local newQuad = self._graphics.newQuad
   local quads = {}
   for i = 1, visual.render.frameCount do
     quads[i] = newQuad(
@@ -132,23 +135,28 @@ local function load(self, spriteId)
   end
 
   local entry = { spriteId = spriteId, visual = visual, references = 0 }
-  if self._graphics then
-    local data = self._cacheFs:read(visual.render.image)
-    if not data then
-      Errors.raise(
-        "FIELD_ACTOR_ATLAS_MISSING",
-        "atlas missing for spriteId " .. spriteId .. ": " .. visual.render.image,
-        { spriteId = spriteId, path = visual.render.image }
-      )
-    end
+  local data = self._cacheFs:read(visual.render.image)
+  if not data then
+    Errors.raise(
+      "FIELD_ACTOR_ATLAS_MISSING",
+      "atlas missing for spriteId " .. spriteId .. ": " .. visual.render.image,
+      { spriteId = spriteId, path = visual.render.image }
+    )
+  end
+  local ok, err = pcall(function()
     entry.image = self._graphics.newImage(love.filesystem.newFileData(data, visual.render.image))
     -- DS textures are point-sampled; anything else fringes the cutout edges.
     entry.image:setFilter("nearest", "nearest")
     entry.quads = buildQuads(self, visual, entry.image:getWidth(), entry.image:getHeight())
+    entry.meshes = FieldActorMesh.build(self._graphics, visual)
+  end)
+  if not ok then
+    if entry.image and entry.image.release then
+      entry.image:release()
+    end
+    FieldActorMesh.release(entry.meshes)
+    error(err, 0)
   end
-  -- The world billboard meshes are independent of the atlas Image, so headless
-  -- callers with a mesh-capable graphics stub still get them.
-  entry.meshes = FieldActorMesh.build(self._graphics, visual)
   self._stats.loads = self._stats.loads + 1
   return entry
 end

@@ -4,7 +4,7 @@
 -- continue cursor. It owns the font definition and atlas Image, builds the
 -- slice source image once, draws after the 3D world pass, and restores every
 -- graphics state it touches (canvas, shader, scissor, blend, depth, color).
--- Pure-free by design: nothing else may own the atlas.
+-- Presentation-only by design: FieldFontLoader owns runtime font definitions.
 -- Construction is failure-safe: a quad/slice failure after the atlas or slice
 -- image was created releases the acquired images before rethrowing, and draw()
 -- balances its transform push even when drawing raises.
@@ -18,7 +18,7 @@ local FieldMessageText = require("libs.assets.src.FieldMessageText")
 ---@class FieldDialogueRenderer
 ---@field _cacheFs CacheFs
 ---@field _theme FieldDialogueTheme
----@field _graphics love.Graphics?
+---@field _graphics love.Graphics
 ---@field fontId integer
 ---@field fontDef FieldFontDef
 ---@field atlas love.Image?
@@ -33,8 +33,8 @@ FieldDialogueRenderer.__index = FieldDialogueRenderer
 local SLICE_BORDER = 2
 
 -- opts.cacheFs: version-scoped private cache holding the compiled font def
--- and atlas PNG; opts.graphics: injectable LÖVE graphics namespace (nil keeps
--- the module headless with the definition only); opts.theme: geometry record.
+-- and atlas PNG; opts.graphics: injectable LÖVE graphics namespace; opts.theme:
+-- geometry record.
 
 ---@param opts { cacheFs: CacheFs, fontId?: integer, theme?: FieldDialogueTheme, graphics?: love.Graphics? }
 ---@return FieldDialogueRenderer
@@ -49,6 +49,7 @@ function FieldDialogueRenderer.new(opts)
   if graphics == nil then
     graphics = love and love.graphics
   end
+  assert(graphics and graphics.newImage and graphics.newQuad, "FieldDialogueRenderer requires love.graphics")
   local cacheFs = opts.cacheFs
 
   local def = FieldFontLoader.load(cacheFs, fontId)
@@ -65,25 +66,23 @@ function FieldDialogueRenderer.new(opts)
     _sliceQuads = nil,
   }, FieldDialogueRenderer)
 
-  if graphics and graphics.newImage then
-    local data = cacheFs:read(FieldFontCache.atlasPath(fontId))
-    if not data then
-      Errors.raise(
-        "FONT_ATLAS_MISSING",
-        "font atlas missing at " .. FieldFontCache.atlasPath(fontId),
-        { fontId = fontId, path = FieldFontCache.atlasPath(fontId) }
-      )
-    end
-    self.atlas = graphics.newImage(love.filesystem.newFileData(data, FieldFontCache.atlasPath(fontId)))
-    local ok, err = pcall(function()
-      self.atlas:setFilter("nearest", "nearest")
-      self:_buildQuads()
-      self:_buildSlice()
-    end)
-    if not ok then
-      self:release()
-      error(err)
-    end
+  local data = cacheFs:read(FieldFontCache.atlasPath(fontId))
+  if not data then
+    Errors.raise(
+      "FONT_ATLAS_MISSING",
+      "font atlas missing at " .. FieldFontCache.atlasPath(fontId),
+      { fontId = fontId, path = FieldFontCache.atlasPath(fontId) }
+    )
+  end
+  self.atlas = graphics.newImage(love.filesystem.newFileData(data, FieldFontCache.atlasPath(fontId)))
+  local ok, err = pcall(function()
+    self.atlas:setFilter("nearest", "nearest")
+    self:_buildQuads()
+    self:_buildSlice()
+  end)
+  if not ok then
+    self:release()
+    error(err)
   end
   return self
 end

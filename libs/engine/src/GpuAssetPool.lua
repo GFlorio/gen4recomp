@@ -36,16 +36,21 @@ local function guarded(pool, fn)
 end
 
 -- cacheFs: a CacheFs-shaped reader (read(path) returns raw bytes or nil);
--- opts.graphics: injectable LÖVE graphics namespace (nil keeps love.graphics).
+-- opts.graphics: injectable LÖVE graphics namespace for resource-failure tests.
 ---@param cacheFs table
 ---@param opts { graphics?: love.Graphics? }?
 ---@return GpuAssetPool
 function GpuAssetPool.new(cacheFs, opts)
   assert(cacheFs and cacheFs.read, "GpuAssetPool requires a CacheFs-shaped object")
   opts = opts or {}
+  local graphics = opts.graphics
+  if graphics == nil then
+    graphics = love and love.graphics
+  end
+  assert(graphics and graphics.newImage, "GpuAssetPool requires love.graphics")
   return setmetatable({
     cacheFs = cacheFs,
-    graphics = opts.graphics or (love and love.graphics),
+    graphics = graphics,
     meshes = {},
     images = {},
     triangles = 0,

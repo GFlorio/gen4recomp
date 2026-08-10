@@ -140,6 +140,13 @@ function T.missing_def_is_a_typed_error()
   Assert.isTrue(Errors.is(err) and err.code == "FONT_DEF_MISSING", "raises FONT_DEF_MISSING")
 end
 
+function T.rejects_a_missing_graphics_namespace()
+  local err = Assert.throws(function()
+    FieldDialogueRenderer.new({ cacheFs = FieldDialogueFixture.cacheWithFont(), graphics = false })
+  end)
+  Assert.isTrue(tostring(err):find("FieldDialogueRenderer requires love.graphics", 1, true) ~= nil)
+end
+
 -- A quad/slice failure after the atlas was created must release the acquired
 -- images before the constructor rethrows.
 function T.constructor_failure_releases_the_acquired_atlas()

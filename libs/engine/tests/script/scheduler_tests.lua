@@ -416,13 +416,13 @@ T["at most one run per tick"] = function()
     }),
     100
   )
-  local original = h.scheduler._runToYield
-  h.scheduler._runToYield = function(self, instance, tick, input)
-    runTicks[#runTicks + 1] = tick
-    return original(self, instance, tick, input)
-  end
   h.scheduler:step(100, nil)
   h.scheduler:step(101, nil)
+  for _, record in ipairs(h.trace:records()) do
+    if record.kind == "context_run" then
+      runTicks[#runTicks + 1] = record.tick
+    end
+  end
   Assert.deepEqual(runTicks, { 100, 101 })
 end
 
