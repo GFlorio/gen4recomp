@@ -158,15 +158,28 @@ local function fx12ToFloat3(vec)
   return { vec[1] / 4096.0, vec[2] / 4096.0, vec[3] / 4096.0 }
 end
 
--- Select the active profile record and bind all lighting uniforms.
+-- Select the active profile record and bind all lighting uniforms. A runtime
+-- with no lighting profile still gets the disabled/default state sent
+-- explicitly: an unlit scene must not inherit lights or material colors from
+-- a lit scene drawn earlier with the same renderer. (u_lightMask needs no
+-- reset: every draw path sends it before drawing.)
 function MapRenderer:_sendLighting(runtime)
+  local shader = self.shader
   local profile = runtime.lighting
   if not profile or not profile.records then
+    for i = 0, 3 do
+      shader:send("u_lightEnabled" .. i, false)
+      shader:send("u_lightVector" .. i, { 0, 0, 0 })
+      shader:send("u_lightColor" .. i, { 0, 0, 0 })
+    end
+    shader:send("u_diffuseColor", { 0, 0, 0 })
+    shader:send("u_ambientColor", { 0, 0, 0 })
+    shader:send("u_specularColor", { 0, 0, 0 })
+    shader:send("u_emissionColor", { 0, 0, 0 })
     return
   end
 
   local record = FieldLightProfile.select(profile, runtime.fieldTimeSeconds or FieldLightProfile.DEFAULT_TIME_SECONDS)
-  local shader = self.shader
 
   for i = 1, 4 do
     local light = record.lights[i]

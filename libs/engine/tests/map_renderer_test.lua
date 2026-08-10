@@ -289,6 +289,125 @@ function T.polygon_light_mask_changes_the_rendered_result()
   renderer:release()
 end
 
+-- A runtime with no lighting profile must not inherit the previous lit
+-- scene's light/material uniforms: the profile-less draw explicitly sends
+-- disabled lights and zero material colors, so a NORMAL-lit vertex and a
+-- field-diffuse vertex both render dark after a bright lit frame instead of
+-- the lit frame's values. Canvas readbacks come back Y-inverted on some GL
+-- drivers, so each triangle is sampled at both its canonical position and its
+-- mirrored position; exactly one of the two is interior in any environment.
+-- The readback scale is likewise driver-dependent (0..255 or 0..1), so the
+-- brightness threshold is derived from an actual sample.
+function T.lit_then_unlit_scene_does_not_inherit_lighting()
+  if not hasGraphics() then
+    return
+  end
+  local identity = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 }
+  local renderer = MapRenderer.new()
+  local camera = {
+    distance = 26,
+    view = function()
+      return identity
+    end,
+    projection = function()
+      return identity
+    end,
+    billboardProjection = function()
+      return identity
+    end,
+  }
+  local white = 31 + 31 * 32 + 31 * 1024
+  local litRuntime = {
+    mapDraws = {},
+    buildingDraws = {},
+    stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
+    lighting = {
+      records = {
+        {
+          startHalfSeconds = 0,
+          lights = {
+            { enabled = true, colorRgb555 = white, vectorFx12 = { 0, 0, -4096 } },
+            { enabled = false, colorRgb555 = 0, vectorFx12 = { 0, 0, 0 } },
+            { enabled = false, colorRgb555 = 0, vectorFx12 = { 0, 0, 0 } },
+            { enabled = false, colorRgb555 = 0, vectorFx12 = { 0, 0, 0 } },
+          },
+          diffuseRgb555 = white,
+          ambientRgb555 = white,
+          specularRgb555 = 0,
+          emissionRgb555 = white,
+        },
+      },
+    },
+  }
+  local unlitRuntime = {
+    mapDraws = {},
+    buildingDraws = {},
+    stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
+  }
+  -- Triangle 1 (right half) uses a NORMAL color source, so it is shaded by
+  -- the light and material uniforms; triangle 2 (left half) uses the
+  -- field-diffuse source and reads u_diffuseColor directly.
+  local mesh = syntheticMesh({
+    { 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 3 },
+    { 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 3 },
+    { 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 3 },
+    { 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 2 },
+    { -1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 2 },
+    { 0, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 2 },
+  })
+  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
+  local item = {
+    mesh = mesh,
+    material = { alphaClass = "opaque" },
+    transform = identity,
+    alphaClass = "opaque",
+    cullMode = "back",
+    polygonAlpha = 1.0,
+    polygonMode = "modulation",
+    polygonId = 0,
+    lightMask = 15,
+    center = { 0.5, 0.5, 0 },
+    submissionIndex = 1,
+  }
+  -- Interior points of the two triangles plus their Y-mirrored counterparts
+  -- (the 640x480 canvas mirrors to a 480 pixel row 95/383).
+  local normalSamples = { { 416, 384 }, { 416, 95 } }
+  local diffuseSamples = { { 224, 96 }, { 224, 383 } }
+
+  local function isBright(img, x, y, threshold)
+    local r, g, b = img:getPixel(x, y)
+    return r >= threshold and g >= threshold and b >= threshold
+  end
+
+  local function anyBright(img, samples, threshold)
+    for _, p in ipairs(samples) do
+      if isBright(img, p[1], p[2], threshold) then
+        return true
+      end
+    end
+    return false
+  end
+
+  -- The lit frame is bright at both triangles: the NORMAL triangle under a
+  -- head-on light, the field-diffuse triangle from the white diffuse color.
+  renderer:draw(litRuntime, camera, { item }, viewport)
+  local litImg = renderer.sceneColor:newImageData()
+  local sr, sg, sb = litImg:getPixel(0, 0)
+  local threshold = (sr > 1 or sg > 1 or sb > 1) and 127 or 0.5
+  Assert.isTrue(anyBright(litImg, normalSamples, threshold), "lit frame shades the NORMAL triangle")
+  Assert.isTrue(anyBright(litImg, diffuseSamples, threshold), "lit frame shades the field-diffuse triangle")
+
+  -- The profile-less frame must reset every lighting/material uniform: neither
+  -- triangle may stay bright from the lit frame's light or diffuse values.
+  renderer:draw(unlitRuntime, camera, { item }, viewport)
+  local unlitImg = renderer.sceneColor:newImageData()
+  Assert.isFalse(anyBright(unlitImg, normalSamples, threshold), "unlit frame inherits the previous light state")
+  Assert.isFalse(anyBright(unlitImg, diffuseSamples, threshold), "unlit frame inherits the previous material color")
+
+  mesh:release()
+  renderer:release()
+end
+
 function T.rejects_stale_scene_schema()
   local ok, err = pcall(MapSceneLoader.load, nil, { schema = "g4-map-scene-v1" })
   Assert.isTrue(
