@@ -198,12 +198,29 @@ local function localCoords(runtimeMap, fieldX, fieldZ)
   return localX, localZ
 end
 
-local function behaviorAt(runtimeMap, fieldX, fieldZ)
+-- The metatile behavior byte at a field tile, or nil outside permission
+-- coverage (out-of-coverage tiles can never trigger). Shared by the trigger
+-- paths and the door/model lookup.
+---@param runtimeMap table
+---@param fieldX integer
+---@param fieldZ integer
+---@return integer?
+function TransitionTrigger.behaviorAt(runtimeMap, fieldX, fieldZ)
   local localX, localZ = localCoords(runtimeMap, fieldX, fieldZ)
   if not localX then
     return nil
   end
   return runtimeMap.collision:getLocal(localX, localZ).behavior
+end
+
+-- Classification of the metatile behavior at a field tile; nil when the tile
+-- is outside permission coverage (out-of-coverage tiles can never trigger).
+local function classifyAt(runtimeMap, fieldX, fieldZ)
+  local behavior = TransitionTrigger.behaviorAt(runtimeMap, fieldX, fieldZ)
+  if behavior == nil then
+    return nil
+  end
+  return TransitionTrigger.classify(behavior)
 end
 
 local function blockedAt(runtimeMap, fieldX, fieldZ)
@@ -220,18 +237,8 @@ local function attachWarp(classification, runtimeMap, fieldX, fieldZ)
     return nil
   end
   classification.warp = warp
-  classification.behavior = behaviorAt(runtimeMap, fieldX, fieldZ)
+  classification.behavior = TransitionTrigger.behaviorAt(runtimeMap, fieldX, fieldZ)
   return classification
-end
-
--- Classification of the metatile behavior at a field tile; nil when the tile
--- is outside permission coverage (out-of-coverage tiles can never trigger).
-local function classifyAt(runtimeMap, fieldX, fieldZ)
-  local behavior = behaviorAt(runtimeMap, fieldX, fieldZ)
-  if behavior == nil then
-    return nil
-  end
-  return TransitionTrigger.classify(behavior)
 end
 
 -- HGSS FieldSystem_CheckMapTransition: evaluated while the player is idle and

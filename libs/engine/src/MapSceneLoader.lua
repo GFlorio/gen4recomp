@@ -12,9 +12,10 @@
 -- transactional: the pool guards its own acquires, and load() guards
 -- everything after pool creation, so any failure -- a missing descriptor, an
 -- unsupported transform mode -- releases every GPU object already acquired
--- before the error propagates. The only ROM knowledge that reaches this
--- layer is the normalized scene descriptor; raw Nitro formats stopped at the
--- compiler.
+-- before the error propagates. The runtime also exposes the scene's MapProps
+-- facade so field coordinates resolve to placed doors and their semantic
+-- animations. The only ROM knowledge that reaches this layer is the
+-- normalized scene descriptor; raw Nitro formats stopped at the compiler.
 
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local Matrix4 = require("libs.math.src.Matrix4")
@@ -27,6 +28,7 @@ local PoseContract = require("libs.engine.src.PoseContract")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local ModelInstance = require("libs.engine.src.ModelInstance")
 local MapPropAnimationController = require("libs.engine.src.MapPropAnimationController")
+local MapProps = require("libs.engine.src.MapProps")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
@@ -201,6 +203,7 @@ local function buildScene(pool, cacheFs, scene)
   -- from load (the ambient props -- wind, machine, spring); multi-clip
   -- models (doors) are scripted through the controller.
   local animatedInstances = {}
+  local instanceByPlacement = {}
   for _, inst in ipairs(scene.buildingInstances or {}) do
     local desc = descriptorFor(inst.modelKey).descriptor
     if desc.dynamic then
@@ -221,6 +224,7 @@ local function buildScene(pool, cacheFs, scene)
       })
       instance.renders = renders
       animatedInstances[#animatedInstances + 1] = instance
+      instanceByPlacement[inst.placementIndex] = instance
       if #definition.animations == 1 then
         instance:play(definition.animations[1].name, { loopMode = "loop" })
       end
@@ -286,6 +290,14 @@ local function buildScene(pool, cacheFs, scene)
   runtime.animationController = MapPropAnimationController.new()
   runtime.syncAnimatedDraws = syncAnimatedDraws
   runtime.updateAnimated = updateAnimated
+  -- The door lookup: a MapProps facade over this scene's placements and
+  -- instances resolves a field coordinate to the door of the building placed
+  -- there -- nothing Nitro leaks into gameplay.
+  runtime.mapProps = MapProps.new({
+    placements = scene.buildingInstances or {},
+    instances = instanceByPlacement,
+    controller = runtime.animationController,
+  })
   runtime.stats = {
     meshCount = #pool.meshes,
     textureCount = #pool.images,

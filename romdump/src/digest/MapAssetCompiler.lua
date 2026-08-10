@@ -314,6 +314,22 @@ local function compileAnimatedModel(bmodel, bnsbmd, texPack, animResult, context
     end
   end
 
+  -- Wrap the raw MaterialCompiler-shaped entries with the model context, the
+  -- same record shape the static path (compileModel) reports.
+  local wrapped = {}
+  for _, entry in ipairs(unresolved) do
+    wrapped[#wrapped + 1] = {
+      role = context.role,
+      modelArchive = context.modelArchive,
+      modelMemberId = context.modelMemberId,
+      modelName = context.modelName,
+      material = entry.material,
+      kind = entry.kind,
+      name = entry.name,
+      source = entry.source,
+    }
+  end
+
   return {
     key = modelKey,
     memberId = memberId,
@@ -327,7 +343,7 @@ local function compileAnimatedModel(bmodel, bnsbmd, texPack, animResult, context
     animations = animResult.clips,
     roles = roles,
   },
-    unresolved
+    wrapped
 end
 
 local function _compile(romFs, idOrSymbol)

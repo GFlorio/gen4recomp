@@ -94,7 +94,10 @@ function NsbmdDynamicModel.compile(model)
   end
   for _, mesh in ipairs(meshes) do
     local size = texSize[mesh.materialIndex]
-    if size and size.width then
+    -- A material with no bound texture authors zero dimensions; leave its UVs
+    -- as authored rather than dividing into NaN (the static path guards the
+    -- same way).
+    if size and size.width and size.height and size.width > 0 and size.height > 0 then
       for _, v in ipairs(mesh.batch.vertices) do
         v.u = v.u / size.width
         v.v = v.v / size.height

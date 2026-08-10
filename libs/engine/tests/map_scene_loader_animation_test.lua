@@ -238,7 +238,9 @@ function T.animated_building_loads_advances_and_renders()
       {
         placementIndex = 0,
         modelKey = "outdoor:26:door",
-        transform = identityMatrix(),
+        -- The door model is placed at the door tile (4,14)'s centre, which
+        -- the door lookup measures against.
+        transform = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -11.5, 0, -1.5, 1 },
       },
     },
     neighbors = {},
@@ -248,7 +250,12 @@ function T.animated_building_loads_advances_and_renders()
   local LuaWriter = require("libs.rom.src.LuaWriter")
   backend:write(dir .. "/scene.lua", LuaWriter.encode(scene))
   backend:write(modelPath, LuaWriter.encode(doorDescriptor()))
-  backend:write(dir .. "/permissions.bin", string.rep("\0", 2048))
+  -- The door tile (4,14) carries DOOR behavior (105); everything else is
+  -- plain floor, so the door lookup resolves the placed door model.
+  local permissions = string.rep("\0", 2048)
+  local doorOffset = (14 * 32 + 4) * 2 + 1
+  permissions = permissions:sub(1, doorOffset) .. string.char(105) .. permissions:sub(doorOffset + 2)
+  backend:write(dir .. "/permissions.bin", permissions)
 
   local cache = {
     read = function(_, path)
@@ -305,6 +312,29 @@ function T.animated_building_loads_advances_and_renders()
     instance:updateFixed()
   end
   Assert.isTrue(controller:isFinished(instance, "door.open"))
+
+  -- The scene's door lookup resolves the loader-built instance from the door
+  -- tile and drives the semantic door animation.
+  local doorMap = {
+    mapId = 61,
+    coordinateOrigin = { x = 0, z = 0 },
+    fieldData = {
+      events = {
+        warps = {
+          { index = 0, x = 4, z = 14, destinationMapId = 60, destinationWarpId = 0, y = 0 },
+        },
+      },
+    },
+    permissions = runtime.collision,
+  }
+  local door = assert(runtime.mapProps:doorAt(doorMap, 4, 14))
+  Assert.equal(door.instance, instance)
+  Assert.equal(door.modelKey, "outdoor:26:door")
+  door:open()
+  for _ = 1, 7 do
+    instance:updateFixed()
+  end
+  Assert.isTrue(door:isFinished(), "the loader-resolved door opens to completion")
 
   renderer:release()
   runtime:release()
