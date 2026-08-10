@@ -654,10 +654,10 @@ function FieldState:keypressed(key, scancode, isrepeat)
     return
   end
   if self.actionKeys and self.actionKeys[key] and self.input then
-    self.input:pressAction()
+    self.input:pressAction("key:" .. key)
   end
   if self.cancelKeys and self.cancelKeys[key] and self.input then
-    self.input:pressCancel()
+    self.input:pressCancel("key:" .. key)
   end
   if key == "-" or key == "kp-" then
     self.zoom:zoomOut()
@@ -685,11 +685,11 @@ end
 ---@param scancode string
 function FieldState:keyreleased(key, scancode)
   if self.actionKeys and self.actionKeys[key] and self.input then
-    self.input:releaseAction()
+    self.input:releaseAction("key:" .. key)
     return
   end
   if self.cancelKeys and self.cancelKeys[key] and self.input then
-    self.input:releaseCancel()
+    self.input:releaseCancel("key:" .. key)
     return
   end
   local direction = self.heldDirectionKeys and self.heldDirectionKeys[key]
@@ -715,32 +715,35 @@ function FieldState:focus(focused)
 end
 
 -- Gamepad Action is the south face button ("a") and Cancel the east face
--- button ("b"), mapped alongside the keyboard bindings.
----@param _ love.Joystick
+-- button ("b"), mapped alongside the keyboard bindings. The physical source
+-- identity includes the joystick id so two pads cannot alias one button.
+---@param joystick love.Joystick
 ---@param button string
-function FieldState:gamepadpressed(_, button)
+function FieldState:gamepadpressed(joystick, button)
   if not self.input then
     return
   end
+  local source = "gamepad:" .. joystick:getID() .. ":" .. button
   if button == "a" then
-    self.input:pressAction()
+    self.input:pressAction(source)
   end
   if button == "b" then
-    self.input:pressCancel()
+    self.input:pressCancel(source)
   end
 end
 
----@param _ love.Joystick
+---@param joystick love.Joystick
 ---@param button string
-function FieldState:gamepadreleased(_, button)
+function FieldState:gamepadreleased(joystick, button)
   if not self.input then
     return
   end
+  local source = "gamepad:" .. joystick:getID() .. ":" .. button
   if button == "a" then
-    self.input:releaseAction()
+    self.input:releaseAction(source)
   end
   if button == "b" then
-    self.input:releaseCancel()
+    self.input:releaseCancel(source)
   end
 end
 

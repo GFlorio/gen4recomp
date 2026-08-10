@@ -1,16 +1,22 @@
 -- Converts directional and semantic button edges into deterministic fixed-tick
 -- snapshots. The most recently pressed held direction wins; each press edge is
 -- consumed once so FieldPlayer can buffer it without depending on render
--- cadence. Action and Cancel are semantic buttons (spec section 11.1): any
--- number of physical bindings collapse into one edge per tick, held state is
--- separate from the edge, and focus loss or a transition commit clears them.
+-- cadence. Action and Cancel are semantic buttons: any number of physical
+-- bindings collapse into one edge per tick, held state is separate from the
+-- edge, and focus loss or a transition commit clears them.
+-- Each semantic button tracks the physical sources that hold it down (opaque
+-- identities such as "key:enter", "key:space", "gamepad:1:a" supplied by the
+-- caller): a button stays down until the last source is released, and a
+-- repeat press from an already-held source produces no new edge.
 
 ---@class FieldInput
 ---@field held table<string, boolean>
 ---@field order table<string, integer>
 ---@field nextOrder integer
+---@field actionSources table<string, boolean>
 ---@field actionDown boolean
 ---@field actionPressed boolean
+---@field cancelSources table<string, boolean>
 ---@field cancelDown boolean
 ---@field cancelPressed boolean
 ---@field pressedDirection string?
@@ -24,14 +30,21 @@ local function requireDirection(direction)
   assert(VALID[direction], "unknown field direction " .. tostring(direction))
 end
 
+---@param source string
+local function requireSource(source)
+  assert(type(source) == "string" and source ~= "", "physical button source identity required")
+end
+
 ---@return FieldInput
 function FieldInput.new()
   return setmetatable({
     held = {},
     order = {},
     nextOrder = 0,
+    actionSources = {},
     actionDown = false,
     actionPressed = false,
+    cancelSources = {},
     cancelDown = false,
     cancelPressed = false,
   }, FieldInput)
@@ -73,22 +86,48 @@ function FieldInput:heldDirection()
   return selected
 end
 
-function FieldInput:pressAction()
+-- Semantic Action: the first physical source down raises the button and emits
+-- one press edge; further sources (and repeat presses of a held source) stay
+-- silent until the button rises again.
+
+---@param source string
+function FieldInput:pressAction(source)
+  requireSource(source)
+  if self.actionSources[source] then
+    return
+  end
+  self.actionSources[source] = true
   self.actionDown = true
   self.actionPressed = true
 end
 
-function FieldInput:releaseAction()
-  self.actionDown = false
+---@param source string
+function FieldInput:releaseAction(source)
+  requireSource(source)
+  self.actionSources[source] = nil
+  if not next(self.actionSources) then
+    self.actionDown = false
+  end
 end
 
-function FieldInput:pressCancel()
+---@param source string
+function FieldInput:pressCancel(source)
+  requireSource(source)
+  if self.cancelSources[source] then
+    return
+  end
+  self.cancelSources[source] = true
   self.cancelDown = true
   self.cancelPressed = true
 end
 
-function FieldInput:releaseCancel()
-  self.cancelDown = false
+---@param source string
+function FieldInput:releaseCancel(source)
+  requireSource(source)
+  self.cancelSources[source] = nil
+  if not next(self.cancelSources) then
+    self.cancelDown = false
+  end
 end
 
 -- Snapshot consumes every edge exactly once per fixed tick; held state is
@@ -117,24 +156,27 @@ function FieldInput:snapshot()
 end
 
 -- Transition commits and dialogue closes must not leave a stale edge that a
--- later tick could act on; held state survives (spec section 11.2).
+-- later tick could act on; held state survives.
 function FieldInput:clearEdges()
   self.pressedDirection = nil
   self.actionPressed = nil
   self.cancelPressed = nil
 end
 
--- Focus loss clears held and edge state entirely (spec section 11.2).
+-- Focus loss clears held and edge state entirely, including every physical
+-- button source so a stray release after refocus cannot mutate a cleared
+-- button.
 function FieldInput:clearAll()
   self:clearEdges()
   self.held = {}
   self.order = {}
+  self.actionSources = {}
   self.actionDown = false
+  self.cancelSources = {}
   self.cancelDown = false
 end
 
--- One fixed-tick snapshot: held directions/buttons plus the consumed edges
--- (spec section 11.1-11.2).
+-- One fixed-tick snapshot: held directions/buttons plus the consumed edges.
 
 ---@class FieldInput.Snapshot
 ---@field heldDirection string?

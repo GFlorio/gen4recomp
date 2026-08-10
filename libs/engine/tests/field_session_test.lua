@@ -467,7 +467,7 @@ end
 
 function T.transition_commit_clears_stale_action_edges()
   local input = FieldInput.new()
-  input:pressAction()
+  input:pressAction("key:space")
   local actor = {
     fieldX = 4,
     fieldZ = 14,

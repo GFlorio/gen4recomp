@@ -7,6 +7,7 @@
 -- (love.Image:setFilter, love.Quad) are called colon-style and declare self.
 
 ---@class love.Joystick
+---@field getID fun(self: love.Joystick): integer
 
 ---@class love.Quad
 
