@@ -201,7 +201,12 @@ PoseState.drawMatrices = { [meshId] = {
   transformMode,    -- "static" | "billboard"
   baseTransform,    -- billboard only: the pose-dependent captured matrix
 } }
+PoseState.matrixSlots = { [slot] = tile-space matrix }
 ```
+
+`matrixSlots` is the matrix-stack slot state as of the end of the replay —
+the "matrix slots" the animation debugging overlay visualizes alongside the
+node transforms.
 
 `ModelInstance.drawItems` prefers `drawMatrices` over the node-matrix path,
 so a Nitro draw (which is not one node matrix) renders correctly. Geometry

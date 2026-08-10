@@ -402,4 +402,28 @@ function T.two_instances_animate_independently()
   Assert.equal(b.poseState.drawMatrices["draw0.seg0"].position[13], 0)
 end
 
+-- The pose exposes the matrix-stack slots as of the end of the replay, in
+-- engine units like the draw matrices (the matrix-slot visualization reads
+-- them).
+function T.pose_reports_the_matrix_slot_stack_in_tiles()
+  local commands = {
+    { opcode = 0x06, nodeIndex = 0, parentIndex = 0, flags = 0 },
+    { opcode = 0x06, nodeIndex = 1, parentIndex = 1, flags = 0 },
+    { opcode = 0x04, materialIndex = 0 },
+    { opcode = 0x05, shapeIndex = 0 },
+    { opcode = 0x01 },
+  }
+  local p = program({
+    bindNode(0, { matrixStackIndex = 0, translation = { x = 16, y = 0, z = 0 }, transZero = false }),
+    bindNode(1, { matrixStackIndex = 1, translation = { x = 0, y = 32, z = 0 }, transZero = false }),
+  }, commands)
+  local def = singleMeshDefinition({ program = p, animations = {} })
+  local instance = newInstance(def)
+  instance:evaluatePose()
+  -- Slot 1 holds node 1's matrix (0,32,0) model units -> (0,2,0) tiles.
+  Assert.equal(instance.poseState.matrixSlots[1][14], 2)
+  Assert.equal(instance.poseState.matrixSlots[1][13], 0)
+  Assert.equal(instance.poseState.matrixSlots[0][13], 1, "slot 0 holds node 0 at (1,0,0) tiles")
+end
+
 return T

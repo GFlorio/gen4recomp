@@ -157,6 +157,8 @@ local SUPPORTED_SCALING_RULES = {
 ---@field draws SbcDraw[]
 ---@field nodeMatrices { [integer]: number[] } -- NODEDESC results
 ---@field nodeVisibility { [integer]: boolean } -- effective NODE visibility
+---@field matrixSlots { [integer]: number[] } -- the matrix-stack slots as of the
+--  end of the replay, [slot] = column-major matrix (program units)
 
 -- Replay the SBC stream of `program` with `poseProvider` and return the
 -- ordered draw submissions plus the effective node state.
@@ -294,7 +296,12 @@ function NsbmdSbcEvaluator.evaluate(program, poseProvider)
     end
   end
 
-  return { draws = draws, nodeMatrices = nodeMatrices, nodeVisibility = nodeVisibility }
+  return {
+    draws = draws,
+    nodeMatrices = nodeMatrices,
+    nodeVisibility = nodeVisibility,
+    matrixSlots = copyRestoreStack(matrixSlots),
+  }
 end
 
 return NsbmdSbcEvaluator

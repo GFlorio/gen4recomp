@@ -42,6 +42,8 @@ local BACKENDS = {
 ---@field nodeVisible { [integer]: boolean } -- absent means visible
 ---@field jointPalettes { [string]: { [integer]: number[] } }
 ---@field drawMatrices { [string]: PoseDrawMatrix }|nil
+---@field matrixSlots { [integer]: number[] }|nil -- Nitro backend only: the
+--  matrix-stack slots as of the end of the SBC replay, in engine units
 
 -- Evaluate the current pose of `instance`. Returns a PoseState. Raises a
 -- structured error when the definition's backend cannot evaluate its current

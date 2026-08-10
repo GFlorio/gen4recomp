@@ -261,6 +261,54 @@ function T.stack_snapshot_is_independent()
   assertMatrixAtPoint(draws[2].restoreStack[0], 0, 0, 0, 0, 7, 0, "second snapshot has node1 in slot 0")
 end
 
+-- The evaluation exposes the matrix-stack slots as of the end of the replay:
+-- every NODEDESC stores its joint matrix into its node's stack slot, and the
+-- stack is what the matrix-slot visualization reads.
+function T.evaluation_reports_the_matrix_slot_stack()
+  local p = program({
+    nodes = {
+      srt(0, { matrixStackIndex = 0, translation = { x = 10, y = 0, z = 0 } }),
+      srt(1, { matrixStackIndex = 3, translation = { x = 0, y = 20, z = 0 } }),
+    },
+    commands = {
+      cmdNodedesc(0, 0),
+      cmdNodedesc(1, 1),
+      { opcode = 0x01 },
+    },
+  })
+  local result = NsbmdSbcEvaluator.evaluate(
+    p,
+    provider({
+      nodeSRT = function(i)
+        return p.nodes[i + 1]
+      end,
+    })
+  )
+  assertMatrixAtPoint(result.matrixSlots[0], 0, 0, 0, 10, 0, 0, "node 0 stored in slot 0")
+  assertMatrixAtPoint(result.matrixSlots[3], 0, 0, 0, 0, 20, 0, "node 1 stored in slot 3")
+  -- A later NODEDESC into the same slot overwrites it.
+  local p2 = program({
+    nodes = {
+      srt(0, { matrixStackIndex = 0, translation = { x = 5, y = 0, z = 0 } }),
+      srt(1, { matrixStackIndex = 0, translation = { x = 0, y = 7, z = 0 } }),
+    },
+    commands = {
+      cmdNodedesc(0, 0),
+      cmdNodedesc(1, 1),
+      { opcode = 0x01 },
+    },
+  })
+  local result2 = NsbmdSbcEvaluator.evaluate(
+    p2,
+    provider({
+      nodeSRT = function(i)
+        return p2.nodes[i + 1]
+      end,
+    })
+  )
+  assertMatrixAtPoint(result2.matrixSlots[0], 0, 0, 0, 0, 7, 0, "slot 0 holds the last writer")
+end
+
 function T.nodedesc_store_and_restore_option_slots()
   -- NODEDESC node0 with the store option into slot 3; a later NODEDESC
   -- restores slot 3 as its base.

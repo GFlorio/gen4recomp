@@ -27,6 +27,8 @@
 --       transformMode,     -- "static" | "billboard"
 --       baseTransform,     -- billboard only: the captured matrix, tile space
 --     } },
+--     matrixSlots,         -- [slot] = the matrix-stack slot as of the end of
+--                          -- the replay, tile space (engine units)
 --     jointPalettes,       -- empty for nitro models (no generic skins)
 --   }
 --
@@ -187,10 +189,16 @@ function NitroPoseBackend.evaluate(instance)
     drawMatrices[meshId] = record
   end
 
+  local matrixSlots = {}
+  for slot, m in pairs(result.matrixSlots or {}) do
+    matrixSlots[slot] = toTiles(m, program.tileScale)
+  end
+
   return {
     nodeMatrices = result.nodeMatrices,
     nodeVisible = nodeVisible,
     drawMatrices = drawMatrices,
+    matrixSlots = matrixSlots,
     jointPalettes = {},
   }
 end
