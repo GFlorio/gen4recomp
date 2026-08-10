@@ -6,6 +6,14 @@
 -- is dispatched by format and compiled by the matching clip compiler, so the
 -- runtime never touches Nitro animation bytes.
 --
+-- A referenced resource that cannot decode, or a format with no clip
+-- compiler (NSBVA: the decoder exists, the field corpus never uses it), is
+-- an EXPLICIT FATAL diagnostic -- MAP_PROP_ANIM_UNRESOLVED /
+-- MAP_PROP_ANIM_UNSUPPORTED_FORMAT, identifying the model member and
+-- resource (spec sections 29 + 39). Nothing returns an unresolved entry and
+-- falls back to compiling the model static: the animation either compiles or
+-- the map compile fails loudly.
+--
 -- Semantic roles: clip names are the source-format identifiers; gameplay
 -- must not depend on them (spec section 27). The door open/close pairs the
 -- field corpus uses are mapped onto the door.open/door.close roles by name
@@ -94,7 +102,9 @@ end
 --                       clip record (identity-shared; never mutated).
 --   listBytes           the model's anim-list record bytes
 --   resNarc             the shared animation archive (a/1/0/6)
--- Returns { clips = {...}, unresolved = { { resourceId, error } } }.
+-- Returns { clips = {...} }. A referenced resource that cannot decode or
+-- compile raises MAP_PROP_ANIM_UNRESOLVED; an animation format with no clip
+-- compiler raises MAP_PROP_ANIM_UNSUPPORTED_FORMAT (no silent fallback).
 function MapPropAnimCompiler.compile(listBytes, resNarc, opts)
   assert(
     type(listBytes) == "string" and #listBytes == 0x18,
@@ -105,12 +115,22 @@ function MapPropAnimCompiler.compile(listBytes, resNarc, opts)
   local BuildModelAnimList = require("romdump.src.digest.BuildModelAnimList")
   local record = BuildModelAnimList.decode(listBytes)
 
-  local clips, unresolved = {}, {}
+  local clips = {}
   local function compileResource(resourceId, bytes, sha1)
     local decoded, err = NitroAnimation.decode(bytes, { alias = "build_anim", memberId = resourceId })
     if not decoded then
-      return nil, err
+      Errors.raise(
+        "MAP_PROP_ANIM_UNRESOLVED",
+        "animation resource "
+          .. tostring(resourceId)
+          .. " referenced by model member "
+          .. tostring(opts.memberId)
+          .. " failed to compile: "
+          .. tostring(err),
+        { resourceId = resourceId, memberId = opts.memberId, archiveAlias = opts.archiveAlias or "-" }
+      )
     end
+    assert(decoded, "the raise above must not fall through")
     local source = {
       type = "nitro",
       format = decoded.format,
@@ -127,28 +147,22 @@ function MapPropAnimCompiler.compile(listBytes, resNarc, opts)
   end
 
   for _, resourceId in ipairs(record.ids) do
-    local clip, err
+    local clip
     if opts.resourceCache then
       local bytes = resNarc:readMember(resourceId)
       local sha1 = Hashing.sha1hex(bytes)
       local cacheKey = string.format("%s:%d:%s", opts.archiveAlias or "-", resourceId, sha1)
       clip = opts.resourceCache:get(cacheKey)
       if not clip then
-        clip, err = compileResource(resourceId, bytes, sha1)
-        if clip then
-          opts.resourceCache:set(cacheKey, clip)
-        end
+        clip = compileResource(resourceId, bytes, sha1)
+        opts.resourceCache:set(cacheKey, clip)
       end
     else
-      clip, err = compileResource(resourceId, resNarc:readMember(resourceId))
+      clip = compileResource(resourceId, resNarc:readMember(resourceId))
     end
-    if not clip then
-      unresolved[#unresolved + 1] = { resourceId = resourceId, error = err }
-    else
-      clips[#clips + 1] = clip
-    end
+    clips[#clips + 1] = clip
   end
-  return { clips = clips, unresolved = unresolved }
+  return { clips = clips }
 end
 
 return MapPropAnimCompiler

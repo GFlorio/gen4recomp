@@ -507,18 +507,6 @@ local function _compile(romFs, idOrSymbol, opts)
         memberId = memberId,
         resourceCache = opts.resourceCache,
       })
-      for _, entry in ipairs(animResult.unresolved) do
-        unresolvedMaterials[#unresolvedMaterials + 1] = {
-          role = "building",
-          modelArchive = archiveAlias,
-          modelMemberId = memberId,
-          modelName = bmodel.name,
-          material = "<animation>",
-          kind = "animation",
-          name = tostring(entry.resourceId),
-          source = tostring(entry.error),
-        }
-      end
       for _, clip in ipairs(animResult.clips) do
         animDeps[#animDeps + 1] = { resourceId = clip.source.memberId, sha1 = clip.source.sha1 }
       end

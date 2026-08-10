@@ -567,6 +567,111 @@ function T.banded_model_plays_its_time_band_and_swaps()
   runtime:release()
 end
 
+function T.scene_exposes_pose_performance_and_allocation_counters()
+  local desc = doorPairDescriptor()
+  local cache = sceneWith({
+    {
+      placementIndex = 0,
+      modelKey = "outdoor:26:door",
+      transform = identityMatrix(),
+    },
+    {
+      placementIndex = 1,
+      modelKey = "outdoor:26:door",
+      transform = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 0, 0, 1 },
+    },
+  }, { [desc.key] = desc })
+  local runtime = MapSceneLoader.load(
+    cache,
+    assert(cache:loadLua(MapAssetCache.mapDir(61) .. "/scene.lua")),
+    { meshBuilder = fakeMeshBuilder }
+  )
+  local perf, alloc = runtime.perf, runtime.alloc
+  assert(perf, "the scene exposes pose-performance counters")
+  assert(alloc, "the scene exposes the allocation profiler")
+  local a, b = runtime.animatedInstances[1], runtime.animatedInstances[2]
+  Assert.equal(a.placementIndex, 0, "the loader tags instances with their placement")
+  Assert.equal(b.placementIndex, 1)
+
+  -- One draw tick: each placement poses and draws once; per-instance rows
+  -- accumulate into the per-scene totals.
+  runtime:syncAnimatedDraws()
+  Assert.equal(perf:count(a, "pose"), 1)
+  Assert.equal(perf:count(b, "pose"), 1)
+  Assert.equal(perf:count(a, "material"), 1, "drawItems evaluates materials")
+  Assert.equal(perf:count(nil, "sync"), 1)
+  Assert.isTrue(perf:seconds(nil, "sync") >= 0)
+  Assert.equal(alloc:lastTick("pose"), 2, "one pose state per placement")
+  Assert.equal(alloc:lastTick("items"), 2, "one draw item per placement mesh")
+  Assert.equal(alloc:count("pose"), 2)
+
+  -- A second tick accumulates totals and rolls the last-tick view.
+  runtime:syncAnimatedDraws()
+  Assert.equal(perf:count(a, "pose"), 2)
+  Assert.equal(perf:count(nil, "sync"), 2)
+  Assert.equal(alloc:lastTick("pose"), 2)
+  Assert.equal(alloc:count("pose"), 4)
+
+  -- The update pass counts advances in the same tick as the draw refresh.
+  runtime:updateAnimated()
+  Assert.equal(perf:count(a, "update"), 1)
+  Assert.equal(alloc:lastTick("update"), 2)
+  Assert.equal(alloc:lastTick("pose"), 2)
+  Assert.equal(perf:count(nil, "sync"), 3)
+
+  -- The summary renders the per-instance rows through a name mapping: both
+  -- placements report pose, material, and update (sync stays scene-level).
+  local rows = perf:summary(function(key)
+    if type(key) == "table" then
+      return key.definition.key .. "#" .. tostring(key.placementIndex)
+    end
+    return tostring(key)
+  end)
+  local names = {}
+  for _, row in ipairs(rows) do
+    names[#names + 1] = row.key .. "/" .. row.phase
+  end
+  table.sort(names)
+  Assert.equal(#names, 6)
+  Assert.equal(names[1], "outdoor:26:door#0/material")
+  Assert.equal(names[2], "outdoor:26:door#0/pose")
+  Assert.equal(names[3], "outdoor:26:door#0/update")
+  Assert.equal(names[4], "outdoor:26:door#1/material")
+
+  runtime:release()
+end
+
+function T.band_swaps_are_counted_per_swapped_instance()
+  local desc = skyDescriptor()
+  local cache = sceneWith({
+    {
+      placementIndex = 0,
+      modelKey = "indoor:113:sky",
+      transform = identityMatrix(),
+    },
+    {
+      placementIndex = 1,
+      modelKey = "indoor:113:sky",
+      transform = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 0, 0, 1 },
+    },
+  }, { [desc.key] = desc })
+  local runtime = MapSceneLoader.load(
+    cache,
+    assert(cache:loadLua(MapAssetCache.mapDir(61) .. "/scene.lua")),
+    { meshBuilder = fakeMeshBuilder }
+  )
+  local perf = runtime.perf
+  local a, b = runtime.animatedInstances[1], runtime.animatedInstances[2]
+  runtime:setTimeBand("nite")
+  Assert.equal(perf:count(a, "bandSwap"), 1)
+  Assert.equal(perf:count(b, "bandSwap"), 1)
+  runtime:setTimeBand("eve")
+  Assert.equal(perf:count(a, "bandSwap"), 2)
+  Assert.equal(perf:count(b, "bandSwap"), 2)
+  Assert.equal(perf:count(nil, "sync"), 2, "each swap refreshes the draws")
+  runtime:release()
+end
+
 function T.load_rejects_an_unknown_initial_band()
   local desc = skyDescriptor()
   local cache = sceneWith({

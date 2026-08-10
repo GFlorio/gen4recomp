@@ -30,6 +30,8 @@ local ModelInstance = require("libs.engine.src.ModelInstance")
 local MapPropAnimationController = require("libs.engine.src.MapPropAnimationController")
 local MapProps = require("libs.engine.src.MapProps")
 local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
+local PosePerformanceCounter = require("libs.engine.src.PosePerformanceCounter")
+local RuntimeAllocationProfiler = require("libs.engine.src.RuntimeAllocationProfiler")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
@@ -229,6 +231,12 @@ local function buildScene(pool, cacheFs, scene, opts)
   local instanceByPlacement = {}
   local animatedModelCount = 0
   local animatedResourceCache = {}
+  -- Pose-performance counters and per-tick allocation counters for the
+  -- animated scene (spec section 39): ModelInstance records its pose and
+  -- material evaluations into `perf` keyed by the instance; the scene passes
+  -- below record the update/band-swap phases and the sync totals.
+  local perf = PosePerformanceCounter.new()
+  local alloc = RuntimeAllocationProfiler.new()
   for _, inst in ipairs(scene.buildingInstances or {}) do
     local desc = descriptorFor(inst.modelKey)
     if desc.descriptor.dynamic then
@@ -247,11 +255,13 @@ local function buildScene(pool, cacheFs, scene, opts)
       end
       local instance = ModelInstance.new(entry.definition, {
         transform = inst.transform,
+        performance = perf,
         resolveImage = function(key, width, height)
           return pool:imageFor(key, "clamp", "clamp")
         end,
       })
       instance.renders = entry.renders
+      instance.placementIndex = inst.placementIndex
       animatedInstances[#animatedInstances + 1] = instance
       instanceByPlacement[inst.placementIndex] = instance
       local plan = TimeOfDayProps.plan(entry.definition)
@@ -271,14 +281,19 @@ local function buildScene(pool, cacheFs, scene, opts)
   -- material state; appends after the static building draws.
   local staticBuildingDraws = buildingDraws
   local runtime = {}
-  local function syncAnimatedDraws()
+
+  -- The per-instance refresh pass shared by the sync and update entries:
+  -- pose + items are the allocation sites of the per-frame hot path.
+  local function refreshAnimatedItems()
     local items = {}
     for _, item in ipairs(staticBuildingDraws) do
       items[#items + 1] = item
     end
     for _, instance in ipairs(animatedInstances) do
       instance:evaluatePose()
+      alloc:add("pose")
       local drawn = instance:drawItems(instance.renders)
+      alloc:add("items", #drawn)
       for _, item in ipairs(drawn) do
         items[#items + 1] = item
       end
@@ -286,12 +301,30 @@ local function buildScene(pool, cacheFs, scene, opts)
     runtime.buildingDraws = items
   end
 
-  -- Advance every animated instance by one fixed step, then refresh.
+  -- The per-frame draw entry (the renderer calls it every frame): one
+  -- allocation tick covering the refresh, timed as the scene's sync phase.
+  local function syncAnimatedDraws()
+    alloc:beginTick()
+    local t0 = perf.clock()
+    refreshAnimatedItems()
+    perf:record(nil, PosePerformanceCounter.SYNC, perf.clock() - t0)
+    alloc:endTick()
+  end
+
+  -- Advance every animated instance by one fixed step, then refresh; the
+  -- update counts share the tick with the draw pass.
   local function updateAnimated()
+    alloc:beginTick()
+    local t0 = perf.clock()
     for _, instance in ipairs(animatedInstances) do
+      local u0 = perf.clock()
       instance:updateFixed()
+      perf:record(instance, PosePerformanceCounter.UPDATE, perf.clock() - u0)
+      alloc:add("update")
     end
-    syncAnimatedDraws()
+    refreshAnimatedItems()
+    perf:record(nil, PosePerformanceCounter.SYNC, perf.clock() - t0)
+    alloc:endTick()
   end
 
   -- Switch the time-of-day band of every banded prop (HGSS ov01_022047DC):
@@ -307,6 +340,7 @@ local function buildScene(pool, cacheFs, scene, opts)
     for _, instance in ipairs(animatedInstances) do
       if instance.timeOfDayPlan then
         TimeOfDayProps.swap(instance, instance.timeOfDayPlan, previous, band)
+        perf:record(instance, PosePerformanceCounter.BAND_SWAP, 0)
       end
     end
     syncAnimatedDraws()
@@ -346,6 +380,10 @@ local function buildScene(pool, cacheFs, scene, opts)
   runtime.syncAnimatedDraws = syncAnimatedDraws
   runtime.updateAnimated = updateAnimated
   runtime.setTimeBand = setTimeBand
+  -- Observability (spec section 39): the scene's pose-performance counters
+  -- and the per-tick allocation counters of the animation path.
+  runtime.perf = perf
+  runtime.alloc = alloc
   -- The door lookup: a MapProps facade over this scene's placements and
   -- instances resolves a field coordinate to the door of the building placed
   -- there -- nothing Nitro leaks into gameplay.

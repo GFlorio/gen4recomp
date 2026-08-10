@@ -33,6 +33,7 @@ local AnimationBinding = require("libs.engine.src.AnimationBinding")
 local AnimationPlayer = require("libs.engine.src.AnimationPlayer")
 local PoseBackend = require("libs.engine.src.PoseBackend")
 local PoseContract = require("libs.engine.src.PoseContract")
+local PosePerformanceCounter = require("libs.engine.src.PosePerformanceCounter")
 local MaterialEvaluator = require("libs.engine.src.MaterialEvaluator")
 local AlphaClassifier = require("libs.engine.src.AlphaClassifier")
 
@@ -65,6 +66,10 @@ local AlphaClassifier = require("libs.engine.src.AlphaClassifier")
 ---@field renders table|nil -- caller-built render meshes per mesh id
 ---@field resolveImage fun(key: string, width: integer, height: integer): any|nil
 ---@field timeOfDayPlan table|nil -- band plan the scene loader attaches (TimeOfDayProps.plan)
+---@field placementIndex integer|nil -- the scene loader's placement index, for
+--  per-instance observability (pose-performance counter rows)
+---@field performance PosePerformanceCounter|nil -- optional instrumentation the
+--  scene loader passes; pose and material evaluations record into it
 local ModelInstance = {}
 ModelInstance.__index = ModelInstance
 
@@ -126,7 +131,18 @@ function ModelInstance.new(definition, opts)
     materialState = materialState,
     poseState = nil,
     resolveImage = opts.resolveImage,
+    performance = opts.performance,
   }, ModelInstance)
+end
+
+-- Run `fn` under the instance's performance counter (when one is attached),
+-- recording one (instance, phase) measurement; otherwise just run it.
+local function measured(instance, phase, fn)
+  local performance = instance.performance
+  if not performance then
+    return fn()
+  end
+  return performance:measure(instance, phase, fn)
 end
 
 -- Advance every attachment player by one fixed step.
@@ -139,7 +155,9 @@ end
 -- error when the backend cannot evaluate (no silent fallback).
 ---@return PoseState
 function ModelInstance:evaluatePose()
-  self.poseState = PoseBackend.evaluate(self)
+  self.poseState = measured(self, PosePerformanceCounter.POSE, function()
+    return PoseBackend.evaluate(self)
+  end)
   return self.poseState
 end
 
@@ -224,7 +242,9 @@ end
 -- static SRT matrix and the base texture's alpha classification are part of
 -- the effective state.
 function ModelInstance:evaluateMaterials()
-  MaterialEvaluator.evaluate(self.definition, self.animationState:attachments("material"), self.materialState)
+  measured(self, PosePerformanceCounter.MATERIAL, function()
+    MaterialEvaluator.evaluate(self.definition, self.animationState:attachments("material"), self.materialState)
+  end)
 end
 
 -- The effective render material record for a material index: definition
