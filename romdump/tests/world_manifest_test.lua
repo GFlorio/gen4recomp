@@ -36,7 +36,7 @@ local function compileExcluded()
     {
       id = 0,
       symbol = "MAP_EVERYWHERE",
-      errorCode = "NSBMD_STATIC_UNSUPPORTED_SBC_COMMAND",
+      errorCode = "NSBMD_SBC_UNSUPPORTED_COMMAND",
       message = "BBY is unsupported",
       context = { model = "snap_came_in", opcode = 8 },
     },
@@ -64,7 +64,7 @@ function T.selection_and_compile_exclusions_are_separate_and_sorted()
   Assert.equal(m.analysis.excluded[2].id, 3)
   Assert.equal(#m.analysis.compileExcluded, 1)
   Assert.equal(m.analysis.compileExcluded[1].symbol, "MAP_EVERYWHERE")
-  Assert.equal(m.analysis.compileExcluded[1].errorCode, "NSBMD_STATIC_UNSUPPORTED_SBC_COMMAND")
+  Assert.equal(m.analysis.compileExcluded[1].errorCode, "NSBMD_SBC_UNSUPPORTED_COMMAND")
   Assert.equal(m.analysis.compileExcluded[1].context.model, "snap_came_in")
 end
 

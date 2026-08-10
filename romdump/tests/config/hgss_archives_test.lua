@@ -63,7 +63,7 @@ function T.resolves_map_asset_aliases()
     { alias = "interior_build_models", narcId = 148, path = "a/1/4/8" },
     { alias = "exterior_build_models", narcId = 40, path = "a/0/4/0" },
     { alias = "exterior_build_anim_list", narcId = 107, path = "a/1/0/7" },
-    { alias = "exterior_build_anim", narcId = 106, path = "a/1/0/6" },
+    { alias = "build_anim", narcId = 106, path = "a/1/0/6" },
     { alias = "interior_build_anim_list", narcId = 108, path = "a/1/0/8" },
     { alias = "field_static_models", narcId = 103, path = "a/1/0/3" },
     { alias = "area_build_config", narcId = 43, path = "a/0/4/3" },

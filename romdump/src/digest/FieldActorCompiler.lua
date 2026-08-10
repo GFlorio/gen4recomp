@@ -17,6 +17,7 @@ local ZoneEvents = require("romdump.src.digest.ZoneEvents")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
 local Hashing = require("romdump.src.digest.Hashing")
+local AlphaClassifier = require("libs.engine.src.AlphaClassifier")
 local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
 local TextureDecoder = require("romdump.src.digest.nitro.TextureDecoder")
 local FieldActorGraphics = require("romdump.src.digest.FieldActorGraphics")
@@ -24,6 +25,7 @@ local FieldActorFrames = require("romdump.src.digest.FieldActorFrames")
 local FieldActorModel = require("romdump.src.digest.FieldActorModel")
 local FieldActorStaticModel = require("romdump.src.digest.FieldActorStaticModel")
 local FieldActorTimeline = require("romdump.src.digest.FieldActorTimeline")
+local PoseContract = require("libs.engine.src.PoseContract")
 local manifest = require("romdump.src.config.FieldActors")
 
 local FieldActorCompiler = {}
@@ -300,11 +302,11 @@ local function compileSprite(romFs, spriteId, graphics, archive, staticArchive)
   local timeline = must(FieldActorTimeline.decode(timelineBytes, context))
   local pack = must(Nsbtx.decode(textureBytes, context))
   local drawMode = FieldActorModel.drawMode(modelBytes, context)
-  if drawMode == "static" then
+  if drawMode == PoseContract.STATIC then
     local compiled = FieldActorStaticModel.compile(modelBytes, context, pack, manifest.archive.path)
     return finishStaticModel(spriteId, compiled)
   end
-  if drawMode ~= "billboard" then
+  if drawMode ~= PoseContract.BILLBOARD then
     Errors.raise(
       "FIELD_ACTOR_MODEL_DRAW_MODE_UNSUPPORTED",
       "actor model draw mode is " .. drawMode,

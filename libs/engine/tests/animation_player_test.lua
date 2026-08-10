@@ -30,13 +30,17 @@ function T.advances_one_frame_per_tick()
   local p = new(8)
   p:updateFixed()
   Assert.equal(p.frameFx, 0x1000)
-  for _ = 1, 5 do p:updateFixed() end
+  for _ = 1, 5 do
+    p:updateFixed()
+  end
   Assert.equal(p.frameFx, 6 * 0x1000)
 end
 
 function T.loop_wraps_forward_at_end()
   local p = new(3)
-  for _ = 1, 3 do p:updateFixed() end
+  for _ = 1, 3 do
+    p:updateFixed()
+  end
   Assert.equal(p.frameFx, 0, "frame 3 wraps to frame 0")
   Assert.isFalse(p:isComplete())
   p:updateFixed()
@@ -55,7 +59,9 @@ end
 function T.once_completes_at_end()
   local p = new(3)
   p.loopMode = "once"
-  for _ = 1, 3 do p:updateFixed() end
+  for _ = 1, 3 do
+    p:updateFixed()
+  end
   Assert.equal(p.frameFx, p:maxFx(), "clamps at the inclusive last frame")
   Assert.isTrue(p:isComplete())
   p:updateFixed()
@@ -111,7 +117,9 @@ end
 function T.arbitrary_delta_wraps()
   local p = new(8)
   p:setDeltaFx(0x3000) -- three frames per tick
-  for _ = 1, 3 do p:updateFixed() end
+  for _ = 1, 3 do
+    p:updateFixed()
+  end
   Assert.equal(p.frameFx, 1 * 0x1000, "9 frames mod 8 wraps to frame 1")
   p:setDeltaFx(-0x2000)
   p:updateFixed()
@@ -121,7 +129,9 @@ end
 function T.seek_clamps_and_clears_completion()
   local p = new(8)
   p.loopMode = "once"
-  for _ = 1, 10 do p:updateFixed() end
+  for _ = 1, 10 do
+    p:updateFixed()
+  end
   Assert.isTrue(p:isComplete())
   p:seekFx(3 * 0x1000)
   Assert.equal(p.frameFx, 3 * 0x1000)
@@ -143,7 +153,9 @@ end
 function T.restart_resets_state()
   local p = new(8)
   p.loopMode = "once"
-  for _ = 1, 10 do p:updateFixed() end
+  for _ = 1, 10 do
+    p:updateFixed()
+  end
   Assert.isTrue(p:isComplete())
   p:pause()
   p:restart()
@@ -155,7 +167,9 @@ end
 function T.play_after_completion_restarts()
   local p = new(3)
   p.loopMode = "once"
-  for _ = 1, 3 do p:updateFixed() end
+  for _ = 1, 3 do
+    p:updateFixed()
+  end
   p:play()
   Assert.equal(p.frameFx, 0)
   p:updateFixed()

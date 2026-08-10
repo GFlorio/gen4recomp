@@ -53,8 +53,7 @@ local ALIAS_TO_SYMBOL = {
   interior_build_anim_list = "NARC_a_1_0_8",
   exterior_build_models = "NARC_a_0_4_0",
   exterior_build_anim_list = "NARC_a_1_0_7",
-  exterior_build_anim = "NARC_a_1_0_6",
-  interior_build_anim_list = "NARC_a_1_0_8",
+  build_anim = "NARC_a_1_0_6",
   encounters_soulsilver = "NARC_fielddata_encountdata_s_enc_data",
   follower_params = "NARC_fielddata_tsurepoke_tp_param",
 }

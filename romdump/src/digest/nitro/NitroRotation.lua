@@ -33,7 +33,9 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 local NitroRotation = {}
 
 local function s16(value)
-  if value >= 32768 then value = value - 65536 end
+  if value >= 32768 then
+    value = value - 65536
+  end
   return value
 end
 
@@ -71,9 +73,11 @@ function NitroRotation.reconstruct(r, rotBase, compBase, value, context)
     local b = s16(r:u16le(at + 4))
     local pivot = control % 16
     if pivot > 8 then
-      Errors.raise("NSBCA_ROT_PIVOT_INDEX_INVALID",
+      Errors.raise(
+        "NSBCA_ROT_PIVOT_INDEX_INVALID",
         string.format("pivot index %d exceeds the 0..8 pivotUtil table", pivot),
-        { pivot = pivot, value = value, source = context })
+        { pivot = pivot, value = value, source = context }
+      )
     end
     cells[pivot + 1] = bitSet(control, 0x10) and -0x1000 or 0x1000
     local u = PIVOT_UTIL[pivot + 1]
@@ -87,12 +91,13 @@ function NitroRotation.reconstruct(r, rotBase, compBase, value, context)
   local at = compBase + index * 10
   r:assertRange(at, 10, "anm-rot-compressed")
   local e = {}
-  for i = 0, 4 do e[i + 1] = s16(r:u16le(at + i * 2)) end
-  for i = 1, 5 do cells[i] = math.floor(e[i] / 8) end
-  local packed = (e[4] % 8)
-    + (e[2] % 8) * 8
-    + (e[1] % 8) * 64
-    + (e[5] % 8) * 512
+  for i = 0, 4 do
+    e[i + 1] = s16(r:u16le(at + i * 2))
+  end
+  for i = 1, 5 do
+    cells[i] = math.floor(e[i] / 8)
+  end
+  local packed = (e[4] % 8) + (e[2] % 8) * 8 + (e[1] % 8) * 64 + (e[5] % 8) * 512
   cells[6] = packed * 524288
   return { cells = cells, compressed = true }
 end

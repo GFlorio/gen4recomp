@@ -9,6 +9,10 @@
 -- stay in texel units for the caller to normalize. The material's resolved
 -- polygon-attr word rides on each batch. Pure domain module; the compiler
 -- boundary at which DS geometry stops.
+--
+-- compileDynamic is the animation-capable counterpart: the SBC draw matrix is
+-- left unbaked and each shape decodes into transform segments whose sources
+-- the runtime pose resolves per frame (see GxDisplayList options.dynamic).
 
 local Errors = require("libs.errors.src.Errors")
 local MapUnits = require("romdump.src.digest.MapUnits")
@@ -16,7 +20,12 @@ local GxDisplayList = require("romdump.src.digest.nitro.GxDisplayList")
 local DsMaterial = require("romdump.src.digest.nitro.DsMaterial")
 local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
 local FixedPoint = require("libs.math.src.FixedPoint")
+local Matrix4 = require("libs.math.src.Matrix4")
+local PoseContract = require("libs.engine.src.PoseContract")
 local NsbmdStaticTransforms = require("romdump.src.digest.NsbmdStaticTransforms")
+local NsbmdTransformProgram = require("romdump.src.digest.NsbmdTransformProgram")
+local NsbmdSbcEvaluator = require("libs.engine.src.NsbmdSbcEvaluator")
+local NsbmdPoseProvider = require("romdump.src.digest.NsbmdPoseProvider")
 
 local MeshCompiler = {}
 
@@ -96,6 +105,36 @@ end
 -- from that position, so no batch carries an index of its own. Billboard
 -- batches carry `baseTransform` (tile-space translation, see
 -- MapUnits.matrixToTiles); static ones do not.
+---@class CompiledVertex
+---@field x number
+---@field y number
+---@field z number
+---@field u number
+---@field v number
+---@field nx number
+---@field ny number
+---@field nz number
+---@field r number
+---@field g number
+---@field b number
+---@field a number
+---@field colorSource integer
+
+-- A compiled static batch (one per SBC draw): the display-list geometry in
+-- tile space, as documented on compile().
+---@class CompiledBatch
+---@field nodeIndex integer
+---@field materialIndex integer
+---@field shapeIndex integer
+---@field polygonAttrRaw integer
+---@field transformMode TransformMode
+---@field baseTransform number[]|nil
+---@field vertices CompiledVertex[]
+---@field indices integer[]
+
+-- Compile the static batches of a decoded model (shapes, display lists,
+-- materials, sbc.commands, nodes).
+---@return CompiledBatch[]
 function MeshCompiler.compile(model)
   local shapeByIndex = {}
   for _, shp in ipairs(model.shapes) do
@@ -125,7 +164,10 @@ function MeshCompiler.compile(model)
 
     -- Seed from the material when it was reapplied at this draw, else carry the
     -- previous shape's final color/normal state.
-    local initialState = draw.materialReapplied and matState.seed or carriedState or matState.seed
+    local initialState = carriedState or matState.seed
+    if draw.materialReapplied then
+      initialState = matState.seed
+    end
 
     local context = { model = model.name, shape = shp.name, material = draw.materialIndex }
     local geom, err = GxDisplayList.decode(shp.displayListBytes, {
@@ -139,7 +181,7 @@ function MeshCompiler.compile(model)
       error(err)
     end
     assertSupportedShape(geom, context)
-    if draw.transformMode == "billboard" then
+    if draw.transformMode == PoseContract.BILLBOARD then
       assertWholeShapeBillboard(geom, context)
     end
     carriedState = geom.finalState
@@ -192,6 +234,148 @@ function MeshCompiler.compile(model)
     }
   end
   return batches
+end
+
+-- A dynamic mesh record (one per draw segment): geometry in pre-draw space
+-- plus the transform source the runtime resolves at draw time.
+---@class DynamicMeshRecord
+---@field id string
+---@field drawIndex integer
+---@field segmentIndex integer
+---@field nodeIndex integer
+---@field materialIndex integer
+---@field transformMode TransformMode
+---@field positionSource DrawSource|nil -- nil: fully baked (billboard segments)
+---@field batch { vertices: CompiledVertex[], indices: integer[] }
+
+-- Transform-preserving compile: the same draw replay as
+-- compile(), but the SBC draw matrix is NOT baked into the vertices.
+-- Each shape's display list decodes in dynamic mode (GxDisplayList
+-- options.dynamic) into segments whose vertices carry only the
+-- display-list-local matrix ops, and each segment records the source that
+-- resolves its transform at draw time:
+--
+--   positionSource = "draw" | { slot = k }
+--
+-- The runtime evaluates the model's transform program per frame
+-- (NitroPoseBackend) and resolves every mesh's sources against the draw
+-- record, so the geometry is compiled once and only the matrices move.
+-- Billboard draws record no baseTransform: the matrix BB captured is
+-- pose-dependent and comes from the runtime pose state each frame.
+-- UVs stay in texel units for the caller to normalize.
+---@return DynamicMeshRecord[]
+function MeshCompiler.compileDynamic(model)
+  local shapeByIndex = {}
+  for _, shp in ipairs(model.shapes) do
+    shapeByIndex[shp.index] = shp
+  end
+
+  local stateByMaterial = {}
+  for _, mat in ipairs(model.materials) do
+    stateByMaterial[mat.index] = materialState(mat)
+  end
+
+  -- The draw set (order, visibility, material carries) is pose-independent:
+  -- the bind-pose evaluation yields the same draws the static path compiles.
+  local program = NsbmdTransformProgram.compile(model)
+  local draws = NsbmdSbcEvaluator.evaluate(program, NsbmdPoseProvider.bindPose(model)).draws
+
+  local meshes = {}
+  local carriedState -- geometry-engine color state carried across shapes
+  for drawIndex, draw in ipairs(draws) do
+    local shp = shapeByIndex[draw.shapeIndex]
+    if not shp then
+      Errors.raise(
+        "MAP_COMPILE_MISSING_SHAPE",
+        "SBC draw references shape index " .. tostring(draw.shapeIndex) .. " not in the model",
+        { shapeIndex = draw.shapeIndex, materialIndex = draw.materialIndex }
+      )
+    end
+    local matState = stateByMaterial[draw.materialIndex]
+    assert(matState, "SBC draw references material " .. tostring(draw.materialIndex) .. " not in the model")
+
+    local initialState = carriedState or matState.seed
+    if draw.materialReapplied then
+      initialState = matState.seed
+    end
+    local context = { model = model.name, shape = shp.name, material = draw.materialIndex }
+    local geom, err = GxDisplayList.decode(
+      shp.displayListBytes,
+      { dynamic = true, initialState = initialState, requireColorSource = true, context = context }
+    )
+    if not geom then
+      error(err)
+    end
+    assertSupportedShape(geom, context)
+    if draw.transformMode == PoseContract.BILLBOARD then
+      assertWholeShapeBillboard(geom, context)
+    end
+    carriedState = geom.finalState
+
+    for segmentIndex, segment in ipairs(geom.segments) do
+      -- A billboard draw's post-BB matrix (POSSCALE folds, nothing else can
+      -- touch the matrix without ending the billboard) is pose-independent,
+      -- so it bakes into the vertices exactly like the static path; only the
+      -- captured baseTransform remains runtime-resolved.
+      local bake = draw.transformMode == PoseContract.BILLBOARD and draw.matrix or nil
+      local vertices = {}
+      for _, v in ipairs(segment.vertices) do
+        local x, y, z = v.x, v.y, v.z
+        local nx, ny, nz = v.nx, v.ny, v.nz
+        if bake then
+          local bakeLinear = Matrix4.linear(bake)
+          local ox, oy, oz = x, y, z
+          x = bake[1] * ox + bake[5] * oy + bake[9] * oz + bake[13]
+          y = bake[2] * ox + bake[6] * oy + bake[10] * oz + bake[14]
+          z = bake[3] * ox + bake[7] * oy + bake[11] * oz + bake[15]
+          local onx, ony, onz = nx, ny, nz
+          nx = bakeLinear[1] * onx + bakeLinear[5] * ony + bakeLinear[9] * onz
+          ny = bakeLinear[2] * onx + bakeLinear[6] * ony + bakeLinear[10] * onz
+          nz = bakeLinear[3] * onx + bakeLinear[7] * ony + bakeLinear[11] * onz
+        end
+        x, y, z = MapUnits.toTiles(x, y, z)
+        vertices[#vertices + 1] = {
+          x = x,
+          y = y,
+          z = z,
+          u = v.u,
+          v = v.v,
+          nx = nx,
+          ny = ny,
+          nz = nz,
+          r = v.r,
+          g = v.g,
+          b = v.b,
+          a = v.a,
+          colorSource = v.colorSource,
+        }
+      end
+      local indices = {}
+      for i = 1, #segment.indices do
+        indices[i] = segment.indices[i]
+      end
+
+      -- Billboard segments are fully baked; other segments defer their
+      -- transform to their position source.
+      local positionSource
+      if draw.transformMode == PoseContract.BILLBOARD then
+        positionSource = nil
+      else
+        positionSource = segment.positionSource
+      end
+      meshes[#meshes + 1] = {
+        id = string.format("draw%d.seg%d", drawIndex - 1, segmentIndex - 1),
+        drawIndex = drawIndex - 1,
+        segmentIndex = segmentIndex - 1,
+        nodeIndex = draw.nodeIndex,
+        materialIndex = draw.materialIndex,
+        transformMode = draw.transformMode,
+        positionSource = positionSource,
+        batch = { vertices = vertices, indices = indices },
+      }
+    end
+  end
+  return meshes
 end
 
 return MeshCompiler

@@ -56,42 +56,62 @@ end
 local function validateTracks(tracks, context)
   for i, track in ipairs(tracks) do
     if track.target == nil then
-      Errors.raise("ANIM_CLIP_TRACK_NO_TARGET",
-        "track " .. i .. " of clip " .. context .. " has no target", { track = i })
+      Errors.raise(
+        "ANIM_CLIP_TRACK_NO_TARGET",
+        "track " .. i .. " of clip " .. context .. " has no target",
+        { track = i }
+      )
     end
     if type(track.channels) ~= "table" or next(track.channels) == nil then
-      Errors.raise("ANIM_CLIP_TRACK_NO_CHANNELS",
-        "track " .. i .. " of clip " .. context .. " has no channels", { track = i })
+      Errors.raise(
+        "ANIM_CLIP_TRACK_NO_CHANNELS",
+        "track " .. i .. " of clip " .. context .. " has no channels",
+        { track = i }
+      )
     end
     for channelName, channel in pairs(track.channels) do
       if not AnimationClip.INTERPOLATIONS[channel.interpolation] then
-        Errors.raise("ANIM_CLIP_BAD_INTERPOLATION",
-          "channel " .. channelName .. " of clip " .. context
-            .. " has unsupported interpolation " .. tostring(channel.interpolation),
-          { track = i, channel = channelName })
+        Errors.raise(
+          "ANIM_CLIP_BAD_INTERPOLATION",
+          "channel "
+            .. channelName
+            .. " of clip "
+            .. context
+            .. " has unsupported interpolation "
+            .. tostring(channel.interpolation),
+          { track = i, channel = channelName }
+        )
       end
       if type(channel.keys) ~= "table" or #channel.keys == 0 then
-        Errors.raise("ANIM_CLIP_CHANNEL_NO_KEYS",
-          "channel " .. channelName .. " of clip " .. context
-            .. " has no keys", { track = i, channel = channelName })
+        Errors.raise(
+          "ANIM_CLIP_CHANNEL_NO_KEYS",
+          "channel " .. channelName .. " of clip " .. context .. " has no keys",
+          { track = i, channel = channelName }
+        )
       end
       local previousFrame = -1
       for keyIndex, key in ipairs(channel.keys) do
         if not isNonNegativeNumber(key.frame) then
-          Errors.raise("ANIM_CLIP_BAD_KEY_FRAME",
+          Errors.raise(
+            "ANIM_CLIP_BAD_KEY_FRAME",
             "channel " .. channelName .. " of clip " .. context .. " has a bad key frame",
-            { track = i, channel = channelName, key = keyIndex })
+            { track = i, channel = channelName, key = keyIndex }
+          )
         end
         if key.frame <= previousFrame then
-          Errors.raise("ANIM_CLIP_UNSORTED_KEYS",
-            "channel " .. channelName .. " of clip " .. context
-              .. " has unsorted key frames", { track = i, channel = channelName, key = keyIndex })
+          Errors.raise(
+            "ANIM_CLIP_UNSORTED_KEYS",
+            "channel " .. channelName .. " of clip " .. context .. " has unsorted key frames",
+            { track = i, channel = channelName, key = keyIndex }
+          )
         end
         previousFrame = key.frame
         if key.value == nil then
-          Errors.raise("ANIM_CLIP_KEY_NO_VALUE",
-            "channel " .. channelName .. " of clip " .. context
-              .. " has a key without a value", { track = i, channel = channelName, key = keyIndex })
+          Errors.raise(
+            "ANIM_CLIP_KEY_NO_VALUE",
+            "channel " .. channelName .. " of clip " .. context .. " has a key without a value",
+            { track = i, channel = channelName, key = keyIndex }
+          )
         end
       end
     end
@@ -105,9 +125,11 @@ end
 function AnimationClip.new(spec)
   assert(type(spec) == "table", "AnimationClip.new requires a table")
   if not AnimationClip.CATEGORIES[spec.category] then
-    Errors.raise("ANIM_CLIP_BAD_CATEGORY",
-      "clip category must be joint, material, or visibility, got "
-        .. tostring(spec.category), {})
+    Errors.raise(
+      "ANIM_CLIP_BAD_CATEGORY",
+      "clip category must be joint, material, or visibility, got " .. tostring(spec.category),
+      {}
+    )
   end
   if type(spec.id) ~= "string" or #spec.id == 0 then
     Errors.raise("ANIM_CLIP_NO_ID", "clip requires a non-empty id", {})
@@ -115,10 +137,14 @@ function AnimationClip.new(spec)
   if type(spec.name) ~= "string" or #spec.name == 0 then
     Errors.raise("ANIM_CLIP_NO_NAME", "clip requires a non-empty name", {})
   end
-  if not (type(spec.frameCount) == "number" and spec.frameCount >= 1
-    and math.floor(spec.frameCount) == spec.frameCount) then
-    Errors.raise("ANIM_CLIP_BAD_FRAME_COUNT",
-      "clip frame count must be a positive integer, got " .. tostring(spec.frameCount), {})
+  if
+    not (type(spec.frameCount) == "number" and spec.frameCount >= 1 and math.floor(spec.frameCount) == spec.frameCount)
+  then
+    Errors.raise(
+      "ANIM_CLIP_BAD_FRAME_COUNT",
+      "clip frame count must be a positive integer, got " .. tostring(spec.frameCount),
+      {}
+    )
   end
   if type(spec.tracks) ~= "table" or #spec.tracks == 0 then
     Errors.raise("ANIM_CLIP_NO_TRACKS", "clip " .. spec.id .. " has no tracks", {})
@@ -134,7 +160,9 @@ function AnimationClip.new(spec)
   end
 
   validateTracks(spec.tracks, spec.id)
-  for i, track in ipairs(spec.tracks) do track.index = i - 1 end
+  for i, track in ipairs(spec.tracks) do
+    track.index = i - 1
+  end
 
   return {
     id = spec.id,
@@ -153,11 +181,15 @@ end
 -- rotations) or field-shaped ({x,y,z} vectors). `t` is a plain fraction in
 -- 0..1.
 local function lerpValue(a, b, t)
-  if type(a) ~= "table" then return a + (b - a) * t end
+  if type(a) ~= "table" then
+    return a + (b - a) * t
+  end
   local out = {}
   if #a > 0 then
     assert(#a == #b, "interpolated key values must have equal shapes")
-    for i = 1, #a do out[i] = a[i] + (b[i] - a[i]) * t end
+    for i = 1, #a do
+      out[i] = a[i] + (b[i] - a[i]) * t
+    end
   else
     for k, v in pairs(a) do
       assert(b[k] ~= nil, "interpolated key values must have equal shapes")
@@ -173,23 +205,34 @@ end
 -- `step` holds the last key at or before the frame, `linear` interpolates
 -- between the surrounding keys. Returns the key value.
 function AnimationClip.sample(clip, trackIndex, channelName, frameFx)
-  local track = assert(clip.tracks[trackIndex + 1],
-    "track index " .. tostring(trackIndex) .. " out of range for clip " .. clip.id)
-  local channel = assert(track.channels[channelName],
-    "clip " .. clip.id .. " track " .. trackIndex .. " has no channel " .. tostring(channelName))
+  local track =
+    assert(clip.tracks[trackIndex + 1], "track index " .. tostring(trackIndex) .. " out of range for clip " .. clip.id)
+  local channel = assert(
+    track.channels[channelName],
+    "clip " .. clip.id .. " track " .. trackIndex .. " has no channel " .. tostring(channelName)
+  )
   local keys = channel.keys
   local frame = frameFx / AnimationClip.FRAME_UNIT
 
-  if frame <= keys[1].frame then return keys[1].value end
+  if frame <= keys[1].frame then
+    return keys[1].value
+  end
   local last = keys[#keys]
-  if frame >= last.frame then return last.value end
+  if frame >= last.frame then
+    return last.value
+  end
 
   local lower, upper
   for i = 1, #keys - 1 do
-    if frame < keys[i + 1].frame then lower, upper = i, i + 1 break end
+    if frame < keys[i + 1].frame then
+      lower, upper = i, i + 1
+      break
+    end
   end
 
-  if channel.interpolation == "step" then return keys[lower].value end
+  if channel.interpolation == "step" then
+    return keys[lower].value
+  end
 
   local a, b = keys[lower], keys[upper]
   local t = (frame - a.frame) / (b.frame - a.frame)

@@ -29,31 +29,42 @@ function AnimationBinding.new(clip, modelKey, map)
   assert(type(map) == "table", "binding map must be a table")
 
   local trackTargets = {}
-  for _, track in ipairs(clip.tracks) do trackTargets[track.target] = true end
+  for _, track in ipairs(clip.tracks) do
+    trackTargets[track.target] = true
+  end
   for target, index in pairs(map) do
     if not trackTargets[target] then
-      Errors.raise("ANIM_BINDING_UNKNOWN_TARGET",
-        "clip " .. clip.id .. " has no track targeting " .. tostring(target)
-          .. " (binding for " .. modelKey .. ")",
-        { target = target, clip = clip.id, modelKey = modelKey })
+      Errors.raise(
+        "ANIM_BINDING_UNKNOWN_TARGET",
+        "clip " .. clip.id .. " has no track targeting " .. tostring(target) .. " (binding for " .. modelKey .. ")",
+        { target = target, clip = clip.id, modelKey = modelKey }
+      )
     end
     if not (type(index) == "number" and math.floor(index) == index and index >= 0) then
-      Errors.raise("ANIM_BINDING_BAD_INDEX",
-        "binding for clip " .. clip.id .. " maps target " .. tostring(target)
-          .. " to a non-integer model index",
-        { target = target, clip = clip.id, modelKey = modelKey })
+      Errors.raise(
+        "ANIM_BINDING_BAD_INDEX",
+        "binding for clip " .. clip.id .. " maps target " .. tostring(target) .. " to a non-integer model index",
+        { target = target, clip = clip.id, modelKey = modelKey }
+      )
     end
   end
 
   local mapped = 0
   for _, track in ipairs(clip.tracks) do
-    if map[track.target] ~= nil then mapped = mapped + 1 end
+    if map[track.target] ~= nil then
+      mapped = mapped + 1
+    end
   end
   if mapped == 0 then
-    Errors.raise("ANIM_BINDING_NO_MAPPED_TARGETS",
-      "clip " .. clip.id .. " binds zero targets onto model " .. modelKey
+    Errors.raise(
+      "ANIM_BINDING_NO_MAPPED_TARGETS",
+      "clip "
+        .. clip.id
+        .. " binds zero targets onto model "
+        .. modelKey
         .. "; the animation/model association is likely wrong",
-      { clip = clip.id, modelKey = modelKey })
+      { clip = clip.id, modelKey = modelKey }
+    )
   end
 
   return setmetatable({

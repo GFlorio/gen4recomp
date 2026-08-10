@@ -1,5 +1,8 @@
 -- Nitro joint-SRT dispatch: turns one NODEDESC's decoded node record into the
--- local matrix the geometry engine would have accumulated for it.
+-- local matrix the geometry engine would have accumulated for it. This is the
+-- composition both pose evaluators share: NsbmdStaticTransforms (digest-side,
+-- bind pose) and NsbmdSbcEvaluator (pose-driven, animated) route every joint
+-- through the same scaling-rule logic so the two paths cannot drift.
 --
 -- NitroSystem selects a scaling rule per model (NNSG3dResMdlInfo.scalingRule)
 -- and routes every joint through a matching GetJointScale/SendJointSRT pair.

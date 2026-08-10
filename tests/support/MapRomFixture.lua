@@ -131,6 +131,13 @@ function MapRomFixture.build(opts)
         }),
     },
     interior_build_models = { [MapRomFixture.BUILDING_MODEL_MEMBER_ID] = buildingModel },
+    -- Animation-list archives: one 0x18-byte record per model member; the
+    -- default record carries no animations (first u16 0xFFFF). The shared
+    -- animation archive is never read when no record references it.
+    interior_build_anim_list = {
+      [MapRomFixture.BUILDING_MODEL_MEMBER_ID] = NB.u16(0xFFFF) .. string.rep("\0", 0x16),
+    },
+    build_anim = { [0] = "\0" },
   }
 
   local romFs = {

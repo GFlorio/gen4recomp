@@ -34,27 +34,31 @@ AnimationAttachment.DEFAULT_RATIO_FX = 0x1000
 -- (any integer; combination evaluates the sign).
 function AnimationAttachment.new(clip, binding, opts)
   assert(type(clip) == "table" and clip.id ~= nil, "AnimationAttachment.new requires a clip")
-  assert(type(binding) == "table" and binding.clip ~= nil,
-    "AnimationAttachment.new requires a binding")
+  assert(type(binding) == "table" and binding.clip ~= nil, "AnimationAttachment.new requires a binding")
   if binding.clip ~= clip then
-    Errors.raise("ANIM_ATTACHMENT_BINDING_CLIP_MISMATCH",
-      "attachment binding is for clip " .. binding.clip.id
-        .. ", not clip " .. clip.id, { clip = clip.id })
+    Errors.raise(
+      "ANIM_ATTACHMENT_BINDING_CLIP_MISMATCH",
+      "attachment binding is for clip " .. binding.clip.id .. ", not clip " .. clip.id,
+      { clip = clip.id }
+    )
   end
 
   opts = opts or {}
   local priority = opts.priority or AnimationAttachment.DEFAULT_PRIORITY
   local ratioFx = opts.ratioFx or AnimationAttachment.DEFAULT_RATIO_FX
-  if not (type(priority) == "number" and math.floor(priority) == priority
-    and priority >= 0 and priority <= 0xFF) then
-    Errors.raise("ANIM_ATTACHMENT_BAD_PRIORITY",
-      "attachment priority must be an integer in 0..0xFF, got "
-        .. tostring(priority), { clip = clip.id })
+  if not (type(priority) == "number" and math.floor(priority) == priority and priority >= 0 and priority <= 0xFF) then
+    Errors.raise(
+      "ANIM_ATTACHMENT_BAD_PRIORITY",
+      "attachment priority must be an integer in 0..0xFF, got " .. tostring(priority),
+      { clip = clip.id }
+    )
   end
   if not (type(ratioFx) == "number" and math.floor(ratioFx) == ratioFx) then
-    Errors.raise("ANIM_ATTACHMENT_BAD_RATIO",
+    Errors.raise(
+      "ANIM_ATTACHMENT_BAD_RATIO",
       "attachment ratioFx must be an integer, got " .. tostring(ratioFx),
-      { clip = clip.id })
+      { clip = clip.id }
+    )
   end
 
   return setmetatable({

@@ -139,6 +139,30 @@ function Matrix4.lookAt(eye, center, up)
   }
 end
 
+-- The linear part of a 4x4 as a 4x4 (translation zeroed): the matrix a
+-- direction vector transforms by, since the DS vector matrix is 3x3 and
+-- never picks up a translation.
+function Matrix4.linear(m)
+  return {
+    m[1],
+    m[2],
+    m[3],
+    0,
+    m[5],
+    m[6],
+    m[7],
+    0,
+    m[9],
+    m[10],
+    m[11],
+    0,
+    0,
+    0,
+    0,
+    1,
+  }
+end
+
 -- Serializable copy of the 16 components (column-major order).
 function Matrix4.toArray(m)
   local a = {}

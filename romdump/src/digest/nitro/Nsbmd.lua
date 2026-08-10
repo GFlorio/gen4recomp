@@ -464,7 +464,7 @@ local function decodeMaterialData(r, matBase, blockOfs, context)
     -- The static texture-SRT extension (Epic 2): decoded from the flags and
     -- the extra bytes; nil when the material carries no texture transform.
     textureSrt = size > MATERIAL_PREFIX
-      and NsbmdMaterialSrt.decode(flagsRaw, r:bytes(base + MATERIAL_PREFIX, size - MATERIAL_PREFIX))
+        and NsbmdMaterialSrt.decode(flagsRaw, r:bytes(base + MATERIAL_PREFIX, size - MATERIAL_PREFIX))
       or nil,
 
     -- Transitional: raw wrap/flip bits (bits 16-19 of texImageParam), consumed by

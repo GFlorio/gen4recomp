@@ -54,11 +54,23 @@ end
 -- A vertex with G4M3 skin attributes; without them it is a rigid vertex.
 local function vertex(x, y, z, joints, weights)
   local v = {
-    x = x, y = y, z = z, u = x, v = y,
-    nx = 0, ny = 0, nz = -1, r = 255, g = 255, b = 255, a = 255,
+    x = x,
+    y = y,
+    z = z,
+    u = x,
+    v = y,
+    nx = 0,
+    ny = 0,
+    nz = -1,
+    r = 255,
+    g = 255,
+    b = 255,
+    a = 255,
     colorSource = 0,
   }
-  if joints then v.joints, v.weights = joints, weights end
+  if joints then
+    v.joints, v.weights = joints, weights
+  end
   return v
 end
 
@@ -85,26 +97,34 @@ end
 
 function GenericModelFixture.doorDefinition()
   local batches = doorBatches()
-  local open = jointClip("fixture:door.open", "DoorOpen", { "door.open" },
+  local open = jointClip("fixture:door.open", "DoorOpen", { "door.open" }, {
     {
-      { target = 1, channels = {
+      target = 1,
+      channels = {
         rotation = {
           interpolation = "linear",
-          keys = { { frame = 0, value = rotY(0) },
-            { frame = FRAME_COUNT - 1, value = rotY(DOOR_SWING_RAD) } },
+          keys = {
+            { frame = 0, value = rotY(0) },
+            { frame = FRAME_COUNT - 1, value = rotY(DOOR_SWING_RAD) },
+          },
         },
-      } },
-    })
-  local close = jointClip("fixture:door.close", "DoorClose", { "door.close" },
+      },
+    },
+  })
+  local close = jointClip("fixture:door.close", "DoorClose", { "door.close" }, {
     {
-      { target = 1, channels = {
+      target = 1,
+      channels = {
         rotation = {
           interpolation = "linear",
-          keys = { { frame = 0, value = rotY(DOOR_SWING_RAD) },
-            { frame = FRAME_COUNT - 1, value = rotY(0) } },
+          keys = {
+            { frame = 0, value = rotY(DOOR_SWING_RAD) },
+            { frame = FRAME_COUNT - 1, value = rotY(0) },
+          },
         },
-      } },
-    })
+      },
+    },
+  })
   local blink = AnimationClip.new({
     id = "fixture:blink",
     name = "blink",
@@ -112,13 +132,19 @@ function GenericModelFixture.doorDefinition()
     kind = "visibility",
     frameCount = FRAME_COUNT,
     tracks = {
-      { target = 1, channels = {
-        visible = {
-          interpolation = "step",
-          keys = { { frame = 0, value = true }, { frame = 2, value = false },
-            { frame = 4, value = true } },
+      {
+        target = 1,
+        channels = {
+          visible = {
+            interpolation = "step",
+            keys = {
+              { frame = 0, value = true },
+              { frame = 2, value = false },
+              { frame = 4, value = true },
+            },
+          },
         },
-      } },
+      },
     },
     source = { type = "gltf", file = "fixture.glb", animation = "blink" },
   })
@@ -127,35 +153,67 @@ function GenericModelFixture.doorDefinition()
     key = "fixture:door",
     sourceBackend = "generic",
     nodes = {
-      { index = 0, name = "frame", translation = { x = 0, y = 0, z = 0 },
-        rotation = identity9(), scale = { x = 1, y = 1, z = 1 } },
-      { index = 1, name = "leaf", parentIndex = 0, translation = { x = 0, y = 0, z = 0 },
-        rotation = identity9(), scale = { x = 1, y = 1, z = 1 } },
-      { index = 2, name = "skinRoot", translation = { x = 4, y = 0, z = 0 },
-        rotation = identity9(), scale = { x = 1, y = 1, z = 1 } },
-      { index = 3, name = "skinLeaf", parentIndex = 2, translation = { x = 0, y = 0, z = 0 },
-        rotation = identity9(), scale = { x = 1, y = 1, z = 1 } },
+      {
+        index = 0,
+        name = "frame",
+        translation = { x = 0, y = 0, z = 0 },
+        rotation = identity9(),
+        scale = { x = 1, y = 1, z = 1 },
+      },
+      {
+        index = 1,
+        name = "leaf",
+        parentIndex = 0,
+        translation = { x = 0, y = 0, z = 0 },
+        rotation = identity9(),
+        scale = { x = 1, y = 1, z = 1 },
+      },
+      {
+        index = 2,
+        name = "skinRoot",
+        translation = { x = 4, y = 0, z = 0 },
+        rotation = identity9(),
+        scale = { x = 1, y = 1, z = 1 },
+      },
+      {
+        index = 3,
+        name = "skinLeaf",
+        parentIndex = 2,
+        translation = { x = 0, y = 0, z = 0 },
+        rotation = identity9(),
+        scale = { x = 1, y = 1, z = 1 },
+      },
     },
     meshes = {
-      { id = "frame", name = "frame", nodeIndex = 0, materialIndex = 0,
-        batch = batches.frame },
-      { id = "leaf", name = "leaf", nodeIndex = 1, materialIndex = 0,
-        batch = batches.leaf },
-      { id = "skin", name = "skin", nodeIndex = 3, materialIndex = 1,
-        batch = batches.skin },
+      { id = "frame", name = "frame", nodeIndex = 0, materialIndex = 0, batch = batches.frame },
+      { id = "leaf", name = "leaf", nodeIndex = 1, materialIndex = 0, batch = batches.leaf },
+      { id = "skin", name = "skin", nodeIndex = 3, materialIndex = 1, batch = batches.skin },
     },
     materials = {
-      { id = 0, name = "wall", baseColor = { r = 255, g = 255, b = 255, a = 255 },
-        alphaMode = "opaque", doubleSided = false },
-      { id = 1, name = "glass", baseColor = { r = 255, g = 255, b = 255, a = 255 },
-        alphaMode = "mask", doubleSided = true },
+      {
+        id = 0,
+        name = "wall",
+        baseColor = { r = 255, g = 255, b = 255, a = 255 },
+        alphaMode = "opaque",
+        doubleSided = false,
+      },
+      {
+        id = 1,
+        name = "glass",
+        baseColor = { r = 255, g = 255, b = 255, a = 255 },
+        alphaMode = "mask",
+        doubleSided = true,
+      },
     },
     skins = {
-      { id = "skin", joints = { 2, 3 },
+      {
+        id = "skin",
+        joints = { 2, 3 },
         inverseBindMatrices = {
           [2] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -4, 0, 0, 1 },
           [3] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -4, 0, 0, 1 },
-        } },
+        },
+      },
     },
     animations = { open, close, blink },
     instanceMetadata = { fixture = "generic-door" },

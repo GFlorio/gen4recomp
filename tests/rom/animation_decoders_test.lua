@@ -18,31 +18,37 @@ local T = {}
 -- Every animation resource decodes; every sampled curve limit equals the
 -- animation's numFrame (verified pattern across all 85 NSBCA members).
 function T.all_animation_members_decode(romFs)
-  local narc = assert(romFs:openNarc("exterior_build_anim"))
+  local narc = assert(romFs:openNarc("build_anim"))
   local count = narc:memberCount()
   Assert.equal(count, 273, "field animation archive member count")
   local formats = { NSBCA = 0, NSBTA = 0, NSBTP = 0, NSBMA = 0, NSBVA = 0 }
   for memberId = 0, count - 1 do
     local bytes = assert(narc:readMember(memberId))
-    local decoded, err = NitroAnimation.decode(bytes, { alias = "exterior_build_anim", memberId = memberId })
-    Assert.notNil(decoded, "member " .. memberId .. ": " .. tostring(err and err.message))
+    local decoded, err = NitroAnimation.decode(bytes, { alias = "build_anim", memberId = memberId })
+    assert(decoded, "member " .. memberId .. ": " .. tostring(err and err.message))
     formats[decoded.format] = formats[decoded.format] + 1
     Assert.equal(#decoded.animations, 1, "one animation per member")
     local r = BinaryReader.new(decoded.bytes, "sec")
     for _, anim in ipairs(decoded.animations) do
       local res = anim.resource
       Assert.equal(res.numFrame >= 2, true, "sane frame count")
-        if decoded.format == "NSBCA" then
+      if decoded.format == "NSBCA" then
         -- Curve limits match numFrame; sampling any frame stays in bounds.
         for _, t in ipairs(res.targets) do
           for _, axis in ipairs({ "x", "y", "z" }) do
             local c = t.channels.trans[axis]
-            if c.source == "curve" then Assert.equal(c.curve.limit, res.numFrame, "trans limit") end
+            if c.source == "curve" then
+              Assert.equal(c.curve.limit, res.numFrame, "trans limit")
+            end
             c = t.channels.scale[axis]
-            if c.source == "curve" then Assert.equal(c.curve.limit, res.numFrame, "scale limit") end
+            if c.source == "curve" then
+              Assert.equal(c.curve.limit, res.numFrame, "scale limit")
+            end
           end
           local rot = t.channels.rot
-          if rot.source == "curve" then Assert.equal(rot.curve.limit, res.numFrame, "rot limit") end
+          if rot.source == "curve" then
+            Assert.equal(rot.curve.limit, res.numFrame, "rot limit")
+          end
         end
         -- Sample the middle frame of every target (all field members use the
         -- integer sampler; this exercises every channel type in the corpus).
@@ -64,7 +70,9 @@ function T.all_animation_members_decode(romFs)
           local s = Nsbta.sample(r, res, i, mid)
           for _, name in ipairs({ "transS", "transT", "scaleS", "scaleT" }) do
             local v = s[name]
-            if v ~= nil and v >= 0x80000000 then v = v - 4294967296 end
+            if v ~= nil and v >= 0x80000000 then
+              v = v - 4294967296
+            end
             Assert.isTrue(v == nil or math.abs(v) < 0x10000000, "texture SRT cell bounded")
           end
           if s.rot then
@@ -95,7 +103,7 @@ end
 -- The real door_op member: node 0, rotation animated through 8 pivot keys,
 -- translation and scale from the model.
 function T.door_op_rotation_sweeps(romFs)
-  local narc = assert(romFs:openNarc("exterior_build_anim"))
+  local narc = assert(romFs:openNarc("build_anim"))
   local bytes = assert(narc:readMember(1)) -- door_op
   local decoded = assert(NitroAnimation.decode(bytes))
   local res = decoded.animations[1].resource
@@ -121,7 +129,7 @@ end
 -- The real gym doors are NSBTA (texture-SRT): member 121/122 pair, and the
 -- census's most-referenced BTP pair (pc_mb) must select variants by frame.
 function T.material_animation_members(romFs)
-  local narc = assert(romFs:openNarc("exterior_build_anim"))
+  local narc = assert(romFs:openNarc("build_anim"))
 
   -- Member 7 = pc_mb (BTP): keys every 4 frames, 4 textures.
   local btp = assert(NitroAnimation.decode(assert(narc:readMember(7))))

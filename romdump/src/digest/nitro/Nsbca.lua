@@ -4,7 +4,7 @@
 -- 038cccaed, 2025-12-24), layout cross-verified against every NSBCA member
 -- of the real HGSS field animation archive. Record layout (record-relative):
 --
---   +0x00 u32 size      +0x04 u16 numFrame     +0x06 u16 numAnm
+--   +0x00 u32 magic "J\0AC"   +0x04 u16 numFrame     +0x06 u16 numAnm
 --   +0x08 u32 anmFlags  (bit 0: fractional-frame interpolation enabled;
 --                         bit 1: final frame wraps toward key[0])
 --   +0x0C u32 ofsRotData   pivot-rotation table (3 x u16 entries)
@@ -68,7 +68,9 @@ local function computeCross(cells)
   local m = NitroCurve.mul32
   local function wrap32(v)
     local p = v % 4294967296
-    if p >= 2147483648 then p = p - 4294967296 end
+    if p >= 2147483648 then
+      p = p - 4294967296
+    end
     return p
   end
   cells[7] = math.floor(wrap32(m(cells[2], cells[6]) - m(cells[3], cells[5])) / 4096)
@@ -82,7 +84,9 @@ end
 local function normalizeRow(cells, offset)
   local x, y, z = cells[offset + 1], cells[offset + 2], cells[offset + 3]
   local length = math.sqrt(x * x + y * y + z * z)
-  if length == 0 then return end
+  if length == 0 then
+    return
+  end
   cells[offset + 1] = math.floor(x * 4096 / length)
   cells[offset + 2] = math.floor(y * 4096 / length)
   cells[offset + 3] = math.floor(z * 4096 / length)
@@ -132,7 +136,9 @@ local function decodeChannels(r, flag, at, context)
   end
 
   if math.floor(flag / 512) % 4 ~= 0 then -- F_SCALE_MODE bits 9-10 set
-    for _, axis in ipairs(AXES) do channels.scale[axis] = { source = MODEL } end
+    for _, axis in ipairs(AXES) do
+      channels.scale[axis] = { source = MODEL }
+    end
   else
     for i = 1, 3 do
       local axis = AXES[i]
@@ -155,11 +161,17 @@ end
 -- reader). Returns the animation resource. Use Nsbca.decode for files.
 local function patchCurveBases(record, channels)
   local function fix(chan)
-    if chan and chan.source == CURVE then chan.curve.keyBase = record + chan.curve.keyBase end
+    if chan and chan.source == CURVE then
+      chan.curve.keyBase = record + chan.curve.keyBase
+    end
   end
-  for _, axis in ipairs(AXES) do fix(channels.trans[axis]) end
+  for _, axis in ipairs(AXES) do
+    fix(channels.trans[axis])
+  end
   fix(channels.rot)
-  for _, axis in ipairs(AXES) do fix(channels.scale[axis]) end
+  for _, axis in ipairs(AXES) do
+    fix(channels.scale[axis])
+  end
 end
 
 function Nsbca.decodeRecord(r, record, context)
@@ -209,8 +221,12 @@ end
 local function reconstructFinal(r, rotBase, compBase, key, context)
   local ra = NitroRotation.reconstruct(r, rotBase, compBase, key, context)
   local cells = {}
-  for i = 1, 9 do cells[i] = ra.cells[i] end
-  if ra.compressed then computeCross(cells) end
+  for i = 1, 9 do
+    cells[i] = ra.cells[i]
+  end
+  if ra.compressed then
+    computeCross(cells)
+  end
   return cells
 end
 
@@ -222,7 +238,9 @@ local function mergeKeys(r, rotBase, compBase, keyA, keyB, weight, context)
   local ra = NitroRotation.reconstruct(r, rotBase, compBase, keyA, context)
   local rb = NitroRotation.reconstruct(r, rotBase, compBase, keyB, context)
   local cells = {}
-  for i = 1, 9 do cells[i] = ra.cells[i] * weight + rb.cells[i] end
+  for i = 1, 9 do
+    cells[i] = ra.cells[i] * weight + rb.cells[i]
+  end
   if ra.compressed or rb.compressed then
     computeCross(cells)
   else
@@ -273,8 +291,11 @@ local function sampleRot(r, res, rotChan, frameFx, context)
   if res.anmFlags % 2 == 1 and frac ~= 0 then
     if frame == res.numFrame - 1 then
       local index = frame
-      if curve.rate == NitroCurve.HALF then index = frame % 2 + math.floor(frame / 2)
-      elseif curve.rate == NitroCurve.QUARTER then index = frame % 4 + math.floor(frame / 4) end
+      if curve.rate == NitroCurve.HALF then
+        index = frame % 2 + math.floor(frame / 2)
+      elseif curve.rate == NitroCurve.QUARTER then
+        index = frame % 4 + math.floor(frame / 4)
+      end
       if math.floor(res.anmFlags / 2) % 2 == 1 then
         -- Wrap: interpolate key[last] toward key[0] with the 12-bit fraction.
         return lerpKeys(r, rotBase, compBase, keyAt(index), keyAt(0), frac, 1, context)
@@ -307,15 +328,18 @@ local function sampleRot(r, res, rotChan, frameFx, context)
   elseif rate == NitroCurve.QUARTER then
     if frame % 4 ~= 0 then
       if frame > curve.limit then
-        return reconstructFinal(r, rotBase, compBase,
-          keyAt(frame % 4 + math.floor(curve.limit / 4)), context)
+        return reconstructFinal(r, rotBase, compBase, keyAt(frame % 4 + math.floor(curve.limit / 4)), context)
       end
       if frame % 4 == 2 then
         return mergeKeys(r, rotBase, compBase, keyAt(index), keyAt(index + 1), 1, context)
       end
       -- frame % 4 == 1 or 3: 3:1 weighting toward the nearer key.
       local a, b
-      if frame % 4 == 1 then a, b = index, index + 1 else a, b = index + 1, index end
+      if frame % 4 == 1 then
+        a, b = index, index + 1
+      else
+        a, b = index + 1, index
+      end
       return mergeKeys(r, rotBase, compBase, keyAt(a), keyAt(b), 3, context)
     end
     return reconstructFinal(r, rotBase, compBase, keyAt(index), context)
@@ -329,12 +353,15 @@ end
 -- leaves to the model bind pose (the pose evaluator resolves those against
 -- the model's node records).
 function Nsbca.sample(r, res, targetIndex, frameFx)
-  local target = assert(res.targets[targetIndex + 1],
-    "target index " .. tostring(targetIndex) .. " out of range")
+  local target = assert(res.targets[targetIndex + 1], "target index " .. tostring(targetIndex) .. " out of range")
   -- NNSi_G3dAnmCalcNsBca clamps the frame into [0, numFrame << 12 - 1].
   local maxFx = res.numFrame * 4096 - 1
-  if frameFx > maxFx then frameFx = maxFx end
-  if frameFx < 0 then frameFx = 0 end
+  if frameFx > maxFx then
+    frameFx = maxFx
+  end
+  if frameFx < 0 then
+    frameFx = 0
+  end
 
   local ch = target.channels
   local interpolate = res.anmFlags % 2 == 1
@@ -360,14 +387,17 @@ function Nsbca.sample(r, res, targetIndex, frameFx)
       trans[axis] = NitroCurve.sample(c.curve, r, frameFx, res.numFrame, interpolate, wrapFinal)
     end
   end
-  if transModel then result.transFromModel = true else result.trans = trans end
+  if transModel then
+    result.transFromModel = true
+  else
+    result.trans = trans
+  end
 
   local rot = ch.rot
   if rot.source == MODEL then
     result.rotFromModel = true
   elseif rot.source == CONSTANT then
-    result.rot = reconstructFinal(r, res.record + res.ofsRotData,
-      res.record + res.ofsPivotData, rot.value, res.source)
+    result.rot = reconstructFinal(r, res.record + res.ofsRotData, res.record + res.ofsPivotData, rot.value, res.source)
   else
     result.rot = sampleRot(r, res, rot, frameFx, res.source)
   end
@@ -388,7 +418,11 @@ function Nsbca.sample(r, res, targetIndex, frameFx)
       inverseScale[axis] = pair.inverseScale
     end
   end
-  if scaleModel then result.scaleFromModel = true else result.scale = scale end
+  if scaleModel then
+    result.scaleFromModel = true
+  else
+    result.scale = scale
+  end
   result.inverseScale = inverseScale
 
   return result
@@ -396,7 +430,9 @@ end
 
 local function _decode(bytes, context)
   local file, err = NitroFile.decode(bytes, "BCA0", context)
-  if not file then error(err) end
+  if not file then
+    error(err)
+  end
   local section = NitroFile.section(file, "JNT0")
   if not section then
     error(Errors.new("NSBCA_NO_JNT0", "BCA0 file has no JNT0 section", { source = context }))
@@ -412,14 +448,23 @@ local function _decode(bytes, context)
       resource = Nsbca.decodeRecord(r, record, context),
     }
   end
-  return { format = "NSBCA", section = section.magic, bytes = section.bytes,
-    animations = animations, source = context }
+  return {
+    format = "NSBCA",
+    section = section.magic,
+    bytes = section.bytes,
+    animations = animations,
+    source = context,
+  }
 end
 
 function Nsbca.decode(bytes, context)
   local ok, result = pcall(_decode, bytes, context)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 

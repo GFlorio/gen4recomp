@@ -1,5 +1,5 @@
 -- Read-only census of HGSS build-model animation resources: every member of the
--- shared animation archive (exterior_build_anim, a/1/0/6), both animation-list
+-- shared animation archive (build_anim, a/1/0/6), both animation-list
 -- archives (a/1/0/7 exterior, a/1/0/8 interior), and the transform features of
 -- the associated build NSBMDs (scaling rule, texture-matrix mode, SBC commands,
 -- NODEMIX, billboards, display-list matrix ops).
@@ -51,16 +51,24 @@ local SECTION_MAGICS = {
 
 -- The 16-byte NUL-padded name at `at` inside `bytes`.
 local function readName(bytes, at)
-  if at < 0 or at + NAME_SIZE > #bytes then return nil end
+  if at < 0 or at + NAME_SIZE > #bytes then
+    return nil
+  end
   return (bytes:sub(at + 1, at + NAME_SIZE):gsub("%z.*$", ""))
 end
 
 local function hex4(bytes, at)
   local b = string.byte(bytes, at + 1)
-  if not b then return nil end
-  return string.format("%02X%02X%02X%02X",
-    b, string.byte(bytes, at + 2) or 0,
-    string.byte(bytes, at + 3) or 0, string.byte(bytes, at + 4) or 0)
+  if not b then
+    return nil
+  end
+  return string.format(
+    "%02X%02X%02X%02X",
+    b,
+    string.byte(bytes, at + 2) or 0,
+    string.byte(bytes, at + 3) or 0,
+    string.byte(bytes, at + 4) or 0
+  )
 end
 
 -- Decode the JNT0 (NSBCA) record. Record-level fields are verified against the
@@ -72,7 +80,9 @@ local function inspectJnt(r, base, context)
   for i = 0, numAnm - 1 do
     local at = base + 0x1C + i * 4
     local ok, bytes = pcall(r.bytes, r, at, 4)
-    if not ok then break end
+    if not ok then
+      break
+    end
     targets[#targets + 1] = {
       index = i,
       raw = hex4(bytes, 0),
@@ -105,7 +115,9 @@ end
 -- block, and the bound material name at +0x30.
 local function inspectMat(r, base, context)
   local numTargets = r:u16le(base + 0x16)
-  if numTargets > 64 then numTargets = 0 end
+  if numTargets > 64 then
+    numTargets = 0
+  end
   local rawAt = base + 0x1C
   local rawLen = math.min(numTargets * 20, r:length() - rawAt)
   return {
@@ -185,17 +197,20 @@ end
 function AnimationInventory.inspectResource(bytes, context)
   assert(type(bytes) == "string", "AnimationInventory.inspectResource requires a string")
   local file, err = NitroFile.decode(bytes, nil, context)
-  if not file then error(err) end
+  if not file then
+    error(err)
+  end
   local section = file.sections[1]
   if not section then
-    Errors.raise("ANIM_NO_SECTION",
-      string.format("%s file has no sections", file.magic), { source = context })
+    Errors.raise("ANIM_NO_SECTION", string.format("%s file has no sections", file.magic), { source = context })
   end
   local format = SECTION_MAGICS[section.magic]
   if not format then
-    Errors.raise("ANIM_UNKNOWN_SECTION",
+    Errors.raise(
+      "ANIM_UNKNOWN_SECTION",
       string.format("%s file has unknown animation section %q", file.magic, section.magic),
-      { magic = file.magic, section = section.magic, source = context })
+      { magic = file.magic, section = section.magic, source = context }
+    )
   end
 
   local r = BinaryReader.new(section.bytes, "anm-section")
@@ -244,12 +259,18 @@ function AnimationInventory.inspectListRecord(bytes)
   local r = BinaryReader.new(bytes, "anim-list-record")
   local headerRaw = {}
   local flagsRaw = {}
-  for i = 0, 3 do headerRaw[#headerRaw + 1] = r:u8(i) end
-  for i = 4, 7 do flagsRaw[#flagsRaw + 1] = r:u8(i) end
+  for i = 0, 3 do
+    headerRaw[#headerRaw + 1] = r:u8(i)
+  end
+  for i = 4, 7 do
+    flagsRaw[#flagsRaw + 1] = r:u8(i)
+  end
   local ids = BuildModelAnimList.decode(bytes).ids
   local function hex(bytes)
     local out = {}
-    for _, b in ipairs(bytes) do out[#out + 1] = string.format("%02X", b) end
+    for _, b in ipairs(bytes) do
+      out[#out + 1] = string.format("%02X", b)
+    end
     return table.concat(out, "")
   end
   return {
@@ -266,19 +287,22 @@ local function readMember(narc, memberId)
 end
 
 local function walkResources(romFs)
-  local narc = assert(romFs:openNarc("exterior_build_anim"))
+  local narc = assert(romFs:openNarc("build_anim"))
   local resources, skipped = {}, {}
   for memberId = 0, narc:memberCount() - 1 do
     local ok, result = pcall(function()
-      return AnimationInventory.inspectResource(readMember(narc, memberId),
-        { alias = "exterior_build_anim", memberId = memberId })
+      return AnimationInventory.inspectResource(
+        readMember(narc, memberId),
+        { alias = "build_anim", memberId = memberId }
+      )
     end)
     if ok then
       result.memberId = memberId
       resources[#resources + 1] = result
     else
       skipped[#skipped + 1] = {
-        archive = "exterior_build_anim", memberId = memberId,
+        archive = "build_anim",
+        memberId = memberId,
         code = Errors.is(result) and result.code or "LUA_ERROR",
         message = Errors.is(result) and result.message or tostring(result),
       }
@@ -290,8 +314,7 @@ end
 local function walkLists(romFs, alias)
   local narc, err = romFs:openNarc(alias)
   if not narc then
-    Errors.raise("ANIM_LIST_OPEN_FAILED", "could not open " .. alias .. ": " .. Errors.format(err),
-      { alias = alias })
+    Errors.raise("ANIM_LIST_OPEN_FAILED", "could not open " .. alias .. ": " .. Errors.format(err), { alias = alias })
   end
   local records, skipped = {}, {}
   for memberId = 0, narc:memberCount() - 1 do
@@ -304,7 +327,8 @@ local function walkLists(romFs, alias)
       records[#records + 1] = result
     else
       skipped[#skipped + 1] = {
-        archive = alias, memberId = memberId,
+        archive = alias,
+        memberId = memberId,
         code = Errors.is(result) and result.code or "LUA_ERROR",
         message = Errors.is(result) and result.message or tostring(result),
       }
@@ -337,8 +361,12 @@ function AnimationInventory.scan(romFs)
   local resources, skipped = walkResources(romFs)
   local exteriorList, extSkipped = walkLists(romFs, "exterior_build_anim_list")
   local interiorList, intSkipped = walkLists(romFs, "interior_build_anim_list")
-  for _, s in ipairs(extSkipped) do skipped[#skipped + 1] = s end
-  for _, s in ipairs(intSkipped) do skipped[#skipped + 1] = s end
+  for _, s in ipairs(extSkipped) do
+    skipped[#skipped + 1] = s
+  end
+  for _, s in ipairs(intSkipped) do
+    skipped[#skipped + 1] = s
+  end
 
   local models, modelSkipped = {}, {}
   local sources = {
@@ -349,8 +377,7 @@ function AnimationInventory.scan(romFs)
     local narc = assert(romFs:openNarc(source.alias))
     for memberId = 0, narc:memberCount() - 1 do
       local ok, result = pcall(function()
-        local file = assert(Nsbmd.decode(readMember(narc, memberId),
-          { alias = source.alias, memberId = memberId }))
+        local file = assert(Nsbmd.decode(readMember(narc, memberId), { alias = source.alias, memberId = memberId }))
         return AnimationInventory.inspectModel(file.models[1])
       end)
       if ok then
@@ -358,14 +385,17 @@ function AnimationInventory.scan(romFs)
         models[#models + 1] = result
       else
         modelSkipped[#modelSkipped + 1] = {
-          archive = source.alias, memberId = memberId,
+          archive = source.alias,
+          memberId = memberId,
           code = Errors.is(result) and result.code or "LUA_ERROR",
           message = Errors.is(result) and result.message or tostring(result),
         }
       end
     end
   end
-  for _, s in ipairs(modelSkipped) do skipped[#skipped + 1] = s end
+  for _, s in ipairs(modelSkipped) do
+    skipped[#skipped + 1] = s
+  end
 
   return {
     resources = resources,
@@ -380,7 +410,9 @@ end
 
 local function sortedKeys(map)
   local out = {}
-  for k in pairs(map) do out[#out + 1] = k end
+  for k in pairs(map) do
+    out[#out + 1] = k
+  end
   table.sort(out)
   return out
 end
@@ -392,7 +424,9 @@ end
 -- Deterministic, payload-free summary lines.
 function AnimationInventory.lines(report)
   local L = {}
-  local function add(fmt, ...) L[#L + 1] = string.format(fmt, ...) end
+  local function add(fmt, ...)
+    L[#L + 1] = string.format(fmt, ...)
+  end
 
   local formatCounts, sectionCounts, frameCounts = {}, {}, {}
   local numAnmCounts = {}
@@ -404,49 +438,88 @@ function AnimationInventory.lines(report)
     sectionCounts[res.section] = (sectionCounts[res.section] or 0) + 1
     for _, anm in ipairs(res.animations) do
       local d = anm.detail
-      add("anim-resource\t%d\t%s\t%s\t%s\t%s\t%s\tframe=%d",
-        res.memberId, res.fileMagic, res.format, res.section, anm.name,
-        anm.kindRaw, d and d.numFrame or -1)
+      add(
+        "anim-resource\t%d\t%s\t%s\t%s\t%s\t%s\tframe=%d",
+        res.memberId,
+        res.fileMagic,
+        res.format,
+        res.section,
+        anm.name,
+        anm.kindRaw,
+        d and d.numFrame or -1
+      )
       if res.format == "NSBCA" then
-        add("anim-jnt\t%d\t%s\ttargets=%d\tinvScale=%d\tofsAnm=0x%X\tofsInvScale=0x%X",
-          res.memberId, anm.name, d.numAnm, d.numInvScale, d.ofsAnmData, d.ofsInvScale)
+        add(
+          "anim-jnt\t%d\t%s\ttargets=%d\tinvScale=%d\tofsAnm=0x%X\tofsInvScale=0x%X",
+          res.memberId,
+          anm.name,
+          d.numAnm,
+          d.numInvScale,
+          d.ofsAnmData,
+          d.ofsInvScale
+        )
         for _, t in ipairs(d.targets) do
-          add("anim-jnt-target\t%d\t%s\t%d\traw=%s\tnodeRaw=%d",
-            res.memberId, anm.name, t.index, t.raw, t.nodeIndexRaw)
+          add("anim-jnt-target\t%d\t%s\t%d\traw=%s\tnodeRaw=%d", res.memberId, anm.name, t.index, t.raw, t.nodeIndexRaw)
         end
       elseif res.format == "NSBTA" then
-        add("anim-srt\t%d\t%s\ttargets=%d\tdataRaw=%s",
-          res.memberId, anm.name, d.numTargets,
-          (d.targetsDataRaw:gsub(".", function(c)
-            return string.format("%02X", string.byte(c))
-          end)))
+        add(
+          "anim-srt\t%d\t%s\ttargets=%d\tdataRaw=%s",
+          res.memberId,
+          anm.name,
+          d.numTargets,
+          (
+            d.targetsDataRaw:gsub(".", function(c)
+              return string.format("%02X", string.byte(c))
+            end)
+          )
+        )
       elseif res.format == "NSBMA" then
-        add("anim-mat\t%d\t%s\ttargets=%d\tmaterial=%s\tdataRaw=%s",
-          res.memberId, anm.name, d.numTargets, tostring(d.targetName),
-          (d.targetsDataRaw:gsub(".", function(c)
-            return string.format("%02X", string.byte(c))
-          end)))
+        add(
+          "anim-mat\t%d\t%s\ttargets=%d\tmaterial=%s\tdataRaw=%s",
+          res.memberId,
+          anm.name,
+          d.numTargets,
+          tostring(d.targetName),
+          (
+            d.targetsDataRaw:gsub(".", function(c)
+              return string.format("%02X", string.byte(c))
+            end)
+          )
+        )
       elseif res.format == "NSBTP" then
-        add("anim-btp\t%d\t%s\ttex=%d\tpltt=%d\tkeys=%d\tmaxTex=%d\tmaxPltt=%d",
-          res.memberId, anm.name, d.numTextures, d.numPalettes, d.keyCount,
-          d.maxTexIdx, d.maxPlttIdx)
-        add("anim-btp-textures\t%d\t%s\t%s", res.memberId, anm.name,
-          table.concat(d.textureNames, ","))
-        add("anim-btp-palettes\t%d\t%s\t%s", res.memberId, anm.name,
-          table.concat(d.paletteNames, ","))
+        add(
+          "anim-btp\t%d\t%s\ttex=%d\tpltt=%d\tkeys=%d\tmaxTex=%d\tmaxPltt=%d",
+          res.memberId,
+          anm.name,
+          d.numTextures,
+          d.numPalettes,
+          d.keyCount,
+          d.maxTexIdx,
+          d.maxPlttIdx
+        )
+        add("anim-btp-textures\t%d\t%s\t%s", res.memberId, anm.name, table.concat(d.textureNames, ","))
+        add("anim-btp-palettes\t%d\t%s\t%s", res.memberId, anm.name, table.concat(d.paletteNames, ","))
       end
     end
   end
 
   for _, record in ipairs(report.exteriorList) do
-    add("anim-list\texterior\t%d\theader=%s\tflags=%s\tids=%s",
-      record.memberId, record.headerRaw, record.flagsRaw,
-      table.concat(record.ids, ","))
+    add(
+      "anim-list\texterior\t%d\theader=%s\tflags=%s\tids=%s",
+      record.memberId,
+      record.headerRaw,
+      record.flagsRaw,
+      table.concat(record.ids, ",")
+    )
   end
   for _, record in ipairs(report.interiorList) do
-    add("anim-list\tinterior\t%d\theader=%s\tflags=%s\tids=%s",
-      record.memberId, record.headerRaw, record.flagsRaw,
-      table.concat(record.ids, ","))
+    add(
+      "anim-list\tinterior\t%d\theader=%s\tflags=%s\tids=%s",
+      record.memberId,
+      record.headerRaw,
+      record.flagsRaw,
+      table.concat(record.ids, ",")
+    )
   end
 
   local resourceById = {}
@@ -460,7 +533,9 @@ function AnimationInventory.lines(report)
     }
   end
   local exteriorModel = {}
-  for _, record in ipairs(report.exteriorList) do exteriorModel[record.memberId] = record end
+  for _, record in ipairs(report.exteriorList) do
+    exteriorModel[record.memberId] = record
+  end
   for _, m in ipairs(report.models) do
     if m.archive == "exterior_build_models" then
       local record = exteriorModel[m.memberId]
@@ -468,36 +543,49 @@ function AnimationInventory.lines(report)
       if record then
         for _, resourceId in ipairs(record.ids) do
           local res = resourceById[resourceId]
-          assoc[#assoc + 1] = string.format("%d(%s)", resourceId,
-            res and (res.magic .. " " .. tostring(res.name)) or "missing")
+          assoc[#assoc + 1] =
+            string.format("%d(%s)", resourceId, res and (res.magic .. " " .. tostring(res.name)) or "missing")
         end
       end
       local sbc = {}
       for key in pairs(m.commands) do
-        if key:sub(1, 8) ~= "NODEDESC" then sbc[#sbc + 1] = key end
+        if key:sub(1, 8) ~= "NODEDESC" then
+          sbc[#sbc + 1] = key
+        end
       end
       table.sort(sbc)
       local gx = {}
-      for key in pairs(m.gxMtx) do gx[#gx + 1] = key end
+      for key in pairs(m.gxMtx) do
+        gx[#gx + 1] = key
+      end
       table.sort(gx)
-      add("anim-model\t%d\t%s\tscaleRule=%s\ttexMtxMode=%d\tsbc=%s\tgxMtx=%s\tanims=%s",
-        m.memberId, m.modelName, m.scalingRuleName, m.texMtxMode,
+      add(
+        "anim-model\t%d\t%s\tscaleRule=%s\ttexMtxMode=%d\tsbc=%s\tgxMtx=%s\tanims=%s",
+        m.memberId,
+        m.modelName,
+        m.scalingRuleName,
+        m.texMtxMode,
         #sbc > 0 and table.concat(sbc, ",") or "-",
         #gx > 0 and table.concat(gx, ",") or "-",
-        #assoc > 0 and table.concat(assoc, ",") or "none")
+        #assoc > 0 and table.concat(assoc, ",") or "none"
+      )
     end
   end
 
-  add("anim-inventory\tresources\t%s", table.concat(
-    (function()
-      local parts = {}
-      for _, fmt in ipairs({ "NSBCA", "NSBTA", "NSBTP", "NSBMA", "NSBVA" }) do
-        parts[#parts + 1] = fmt .. "=" .. tostring(formatCounts[fmt] or 0)
-      end
-      return parts
-    end)(), ","))
-  add("anim-inventory\texterior-list\t%d\tinterior-list\t%d",
-    #report.exteriorList, #report.interiorList)
+  add(
+    "anim-inventory\tresources\t%s",
+    table.concat(
+      (function()
+        local parts = {}
+        for _, fmt in ipairs({ "NSBCA", "NSBTA", "NSBTP", "NSBMA", "NSBVA" }) do
+          parts[#parts + 1] = fmt .. "=" .. tostring(formatCounts[fmt] or 0)
+        end
+        return parts
+      end)(),
+      ","
+    )
+  )
+  add("anim-inventory\texterior-list\t%d\tinterior-list\t%d", #report.exteriorList, #report.interiorList)
   add("anim-inventory\tmodels\t%d", #report.models)
   for _, s in ipairs(report.skipped) do
     add("anim-inventory\tskipped\t%s:%d\t%s\t%s", s.archive, s.memberId, s.code, s.message)

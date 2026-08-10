@@ -10,10 +10,33 @@
 -- identity here; the model compiler supplies them through the SBC stream. DS
 -- primitives are converted to indexed triangles. Unknown opcodes are fatal
 -- with a byte offset. Pure domain module; arithmetic only.
+--
+-- `options.dynamic` selects the transform-preserving mode: the SBC
+-- draw matrix is not applied -- vertices come out in pre-draw space with only
+-- display-list-local matrix ops baked in -- and each vertex run is split into
+-- segments at the matrix operations whose result depends on runtime pose
+-- state (MTX_RESTORE slot contents, MTX_PUSH/POP source changes). A segment
+-- carries the source that resolves its transform at draw time:
+--
+--   positionSource = "draw" | { slot = k }
+--
+--   "draw"        the SBC draw's position matrix
+--   { slot = k }  matrix-stack slot k as of that draw (the evaluator's
+--                 per-draw restoreStack snapshot)
+--
+-- Under the supported op set the direction matrix always mirrors the
+-- position matrix (POSITION_VECTOR mode throughout), so the runtime derives
+-- the direction as the linear part of the resolved position matrix.
+-- Display-list-local MTX_STORE, matrix ops under MTX_MODE POSITION, and
+-- matrix changes inside an open BEGIN..END run are rejected loudly: no field
+-- asset exercises them and the segment contract cannot express their
+-- per-vertex state. Static decode (the default) is unchanged.
 
 local Errors = require("libs.errors.src.Errors")
 local BinaryReader = require("libs.codec.src.BinaryReader")
 local FixedPoint = require("libs.math.src.FixedPoint")
+local Matrix4 = require("libs.math.src.Matrix4")
+local PoseContract = require("libs.engine.src.PoseContract")
 
 local GxDisplayList = {}
 
@@ -127,26 +150,7 @@ local function transformDirection(m, x, y, z)
 end
 
 -- The linear part of a 4x4, as the 4x4 a direction matrix accumulates.
-local function linear(m)
-  return {
-    m[1],
-    m[2],
-    m[3],
-    0,
-    m[5],
-    m[6],
-    m[7],
-    0,
-    m[9],
-    m[10],
-    m[11],
-    0,
-    0,
-    0,
-    0,
-    1,
-  }
-end
+local linear = Matrix4.linear
 
 -- 12 fx32 params (column-major 4x3) -> 4x4 with implicit (0,0,0,1) last row.
 local function mat4x3(p)
@@ -212,7 +216,70 @@ local function newDecoder()
     indices = {},
     opcodeCounts = {},
     polygonAttrs = {}, -- set of distinct POLYGON_ATTR words issued in-list
+    -- Dynamic (transform-preserving) mode state: the display-list-local
+    -- matrix baked into vertices, the transform source of the current
+    -- segment, and the segments themselves. Unused in static mode.
+    dynamic = false,
+    baked = identity(),
+    bakedDirection = identity(),
+    positionSource = PoseContract.DRAW,
+    segments = {},
+    currentSegment = nil,
   }, Decoder)
+end
+
+-- A fresh segment record; `positionSource` describes how the runtime
+-- resolves the segment's draw matrix.
+---@param positionSource DrawSource
+local function newSegment(positionSource)
+  return {
+    vertices = {},
+    indices = {},
+    positionSource = positionSource,
+  }
+end
+
+-- End the current dynamic segment and start the next one under `positionSource`.
+-- A matrix change inside an open primitive cannot be expressed per-vertex,
+-- so it is rejected rather than silently mis-segmented.
+---@param positionSource DrawSource
+function Decoder:dynamicBoundary(positionSource, offset)
+  assert(self.dynamic, "dynamicBoundary outside dynamic mode")
+  if self.run then
+    error(
+      Errors.new(
+        "GX_DYNAMIC_MATRIX_CHANGE_INSIDE_PRIMITIVE",
+        "a matrix command changes the transform inside an open BEGIN..END run, "
+          .. "which the transform-preserving contract cannot represent per-vertex",
+        { offset = offset }
+      )
+    )
+  end
+  if #self.currentSegment.vertices > 0 then
+    self.segments[#self.segments + 1] = self.currentSegment
+  end
+  self.baked = identity()
+  self.bakedDirection = identity()
+  self.positionSource = positionSource
+  self.currentSegment = newSegment(positionSource)
+end
+
+-- Reject matrix ops under MTX_MODE POSITION in dynamic mode: the position
+-- matrix would change while the direction matrix keeps its old value, a
+-- divergence the segment sources (always mirroring position) cannot carry.
+-- No field asset exercises it.
+function Decoder:dynamicMatrixGuard(offset)
+  if self.dynamic and self.mtxMode == MTXMODE.POSITION then
+    error(
+      Errors.new(
+        "GX_DYNAMIC_POSITION_ONLY_MATRIX_OP_UNSUPPORTED",
+        "a matrix command under MTX_MODE POSITION would separate the position "
+          .. "from the direction transform, which the transform-preserving "
+          .. "contract does not support",
+        { offset = offset }
+      )
+    )
+  end
 end
 
 function Decoder:restoreSlot(idx)
@@ -233,8 +300,17 @@ function Decoder:touchesDirection()
 end
 
 function Decoder:emitVertex()
-  local wx, wy, wz = transformPoint(self.matrix, self.pos[1], self.pos[2], self.pos[3])
-  local nx, ny, nz = transformDirection(self.directionMatrix, self.normal[1], self.normal[2], self.normal[3])
+  local wx, wy, wz, nx, ny, nz
+  if self.dynamic then
+    -- Transform-preserving mode: only the display-list-local matrix is
+    -- baked; the SBC draw matrix (and its linear part for normals) applies
+    -- at draw time through the segment's sources.
+    wx, wy, wz = transformPoint(self.baked, self.pos[1], self.pos[2], self.pos[3])
+    nx, ny, nz = transformDirection(self.bakedDirection, self.normal[1], self.normal[2], self.normal[3])
+  else
+    wx, wy, wz = transformPoint(self.matrix, self.pos[1], self.pos[2], self.pos[3])
+    nx, ny, nz = transformDirection(self.directionMatrix, self.normal[1], self.normal[2], self.normal[3])
+  end
   -- The DS feeds the raw transformed normal to its lighting unit, where a joint
   -- or posScale magnification just saturates the result. This pipeline instead
   -- bakes a normal for the engine's own shader to light, so the direction is
@@ -243,7 +319,8 @@ function Decoder:emitVertex()
   if length > 0 then
     nx, ny, nz = nx / length, ny / length, nz / length
   end
-  self.vertices[#self.vertices + 1] = {
+  local vertices = self.dynamic and self.currentSegment.vertices or self.vertices
+  vertices[#vertices + 1] = {
     x = wx,
     y = wy,
     z = wz,
@@ -258,7 +335,7 @@ function Decoder:emitVertex()
     a = 255,
     colorSource = self.colorSource,
   }
-  self.run[#self.run + 1] = #self.vertices - 1 -- zero-based index
+  self.run[#self.run + 1] = #vertices - 1 -- zero-based index
 end
 
 local function s16(word)
@@ -310,22 +387,49 @@ EXEC[0x10] = function(d, p, offset, context)
   d.mtxMode = mode
 end
 EXEC[0x11] = function(d)
-  d.pushStack[#d.pushStack + 1] = { d.matrix, d.directionMatrix }
+  if d.dynamic then
+    d:dynamicMatrixGuard(d.currentOffset)
+    d.pushStack[#d.pushStack + 1] = { d.baked, d.bakedDirection, d.positionSource }
+  else
+    d.pushStack[#d.pushStack + 1] = { d.matrix, d.directionMatrix }
+  end
 end
 EXEC[0x12] = function(d)
   local top = d.pushStack[#d.pushStack]
   if top then
-    if d:touchesPosition() then
-      d.matrix = top[1]
-    end
-    if d:touchesDirection() then
-      d.directionMatrix = top[2]
+    if d.dynamic then
+      d:dynamicMatrixGuard(d.currentOffset)
+      -- A popped source change is a transform change: split the segment.
+      if top[3] ~= d.positionSource then
+        d:dynamicBoundary(top[3], d.currentOffset)
+      end
+      d.baked, d.bakedDirection = top[1], top[2]
+    else
+      if d:touchesPosition() then
+        d.matrix = top[1]
+      end
+      if d:touchesDirection() then
+        d.directionMatrix = top[2]
+      end
     end
     d.pushStack[#d.pushStack] = nil
   end
 end
-EXEC[0x13] = function(d, p)
+EXEC[0x13] = function(d, p, offset)
   local slot = p[1] % 32
+  if d.dynamic then
+    -- A slot write captures the *unresolved* draw matrix (baked x draw), so
+    -- a later restore of it would need a runtime composition the segment
+    -- contract cannot express. No field asset stores inside a display list.
+    error(
+      Errors.new(
+        "GX_DYNAMIC_MATRIX_STORE_UNSUPPORTED",
+        "MTX_STORE inside a display list captures the unresolved draw matrix, "
+          .. "which the transform-preserving contract does not support",
+        { offset = offset }
+      )
+    )
+  end
   if d:touchesPosition() then
     d.restoreStack[slot] = d.matrix
   end
@@ -333,8 +437,15 @@ EXEC[0x13] = function(d, p)
     d.directionRestoreStack[slot] = d.directionMatrix
   end
 end
-EXEC[0x14] = function(d, p)
+EXEC[0x14] = function(d, p, offset)
   local slot = p[1] % 32
+  if d.dynamic and d:touchesPosition() then
+    -- The slot's contents are pose-dependent: the segment defers the matrix
+    -- to the draw-time restoreStack snapshot.
+    d:dynamicMatrixGuard(offset)
+    d:dynamicBoundary({ slot = slot }, offset)
+    return
+  end
   -- Read the direction slot before the position one: an SBC-supplied slot has
   -- no stored direction, so it is derived from the position matrix it replaces.
   local direction = d:directionRestoreSlot(slot)
@@ -345,24 +456,75 @@ EXEC[0x14] = function(d, p)
     d.directionMatrix = direction
   end
 end
-EXEC[0x15] = function(d)
+EXEC[0x15] = function(d, p, offset)
+  d:dynamicMatrixGuard(offset)
+  if d.dynamic then
+    if d:touchesPosition() then
+      d.baked = identity()
+    end
+    if d:touchesDirection() then
+      d.bakedDirection = identity()
+    end
+    return
+  end
   d:loadMatrix(identity())
 end
-EXEC[0x16] = function(d, p)
+EXEC[0x16] = function(d, p, offset)
+  d:dynamicMatrixGuard(offset)
+  if d.dynamic then
+    if d:touchesPosition() then
+      d.baked = mat4x4(p)
+    end
+    if d:touchesDirection() then
+      d.bakedDirection = linear(mat4x4(p))
+    end
+    return
+  end
   d:loadMatrix(mat4x4(p))
 end
-EXEC[0x17] = function(d, p)
+EXEC[0x17] = function(d, p, offset)
+  d:dynamicMatrixGuard(offset)
+  if d.dynamic then
+    if d:touchesPosition() then
+      d.baked = mat4x3(p)
+    end
+    if d:touchesDirection() then
+      d.bakedDirection = linear(mat4x3(p))
+    end
+    return
+  end
   d:loadMatrix(mat4x3(p))
 end
-EXEC[0x18] = function(d, p)
+EXEC[0x18] = function(d, p, offset)
+  d:dynamicMatrixGuard(offset)
+  if d.dynamic then
+    if d:touchesPosition() then
+      d.baked = multiply(d.baked, mat4x4(p))
+    end
+    if d:touchesDirection() then
+      d.bakedDirection = multiply(d.bakedDirection, linear(mat4x4(p)))
+    end
+    return
+  end
   d:applyMatrix(mat4x4(p))
 end
-EXEC[0x19] = function(d, p)
+EXEC[0x19] = function(d, p, offset)
+  d:dynamicMatrixGuard(offset)
+  if d.dynamic then
+    if d:touchesPosition() then
+      d.baked = multiply(d.baked, mat4x3(p))
+    end
+    if d:touchesDirection() then
+      d.bakedDirection = multiply(d.bakedDirection, linear(mat4x3(p)))
+    end
+    return
+  end
   d:applyMatrix(mat4x3(p))
 end
-EXEC[0x1A] = function(d, p)
+EXEC[0x1A] = function(d, p, offset)
+  d:dynamicMatrixGuard(offset)
   local f = FixedPoint.fx32
-  d:applyMatrix({
+  local m = {
     f(p[1]),
     f(p[2]),
     f(p[3]),
@@ -379,15 +541,47 @@ EXEC[0x1A] = function(d, p)
     0,
     0,
     1,
-  })
+  }
+  if d.dynamic then
+    if d:touchesPosition() then
+      d.baked = multiply(d.baked, m)
+    end
+    if d:touchesDirection() then
+      d.bakedDirection = multiply(d.bakedDirection, linear(m))
+    end
+    return
+  end
+  d:applyMatrix(m)
 end
-EXEC[0x1B] = function(d, p)
+EXEC[0x1B] = function(d, p, offset)
+  d:dynamicMatrixGuard(offset)
   local f = FixedPoint.fx32
-  d:applyMatrix({ f(p[1]), 0, 0, 0, 0, f(p[2]), 0, 0, 0, 0, f(p[3]), 0, 0, 0, 0, 1 })
+  local m = { f(p[1]), 0, 0, 0, 0, f(p[2]), 0, 0, 0, 0, f(p[3]), 0, 0, 0, 0, 1 }
+  if d.dynamic then
+    if d:touchesPosition() then
+      d.baked = multiply(d.baked, m)
+    end
+    if d:touchesDirection() then
+      d.bakedDirection = multiply(d.bakedDirection, linear(m))
+    end
+    return
+  end
+  d:applyMatrix(m)
 end
-EXEC[0x1C] = function(d, p)
+EXEC[0x1C] = function(d, p, offset)
+  d:dynamicMatrixGuard(offset)
   local f = FixedPoint.fx32
-  d:applyMatrix({ 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, f(p[1]), f(p[2]), f(p[3]), 1 })
+  local m = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, f(p[1]), f(p[2]), f(p[3]), 1 }
+  if d.dynamic then
+    if d:touchesPosition() then
+      d.baked = multiply(d.baked, m)
+    end
+    if d:touchesDirection() then
+      d.bakedDirection = multiply(d.bakedDirection, linear(m))
+    end
+    return
+  end
+  d:applyMatrix(m)
 end
 
 EXEC[0x20] = function(d, p) -- COLOR (BGR555) -> literal vertex color
@@ -460,10 +654,11 @@ end
 local function convertRun(d, offset)
   local run, t = d.run, d.primType
   local n = #run
+  local indices = d.dynamic and d.currentSegment.indices or d.indices
   local function tri(a, b, c)
-    d.indices[#d.indices + 1] = run[a + 1]
-    d.indices[#d.indices + 1] = run[b + 1]
-    d.indices[#d.indices + 1] = run[c + 1]
+    indices[#indices + 1] = run[a + 1]
+    indices[#indices + 1] = run[b + 1]
+    indices[#indices + 1] = run[c + 1]
   end
   if t == 0 then -- separate triangles
     if n % 3 ~= 0 then
@@ -533,6 +728,13 @@ local function _decode(bytes, options)
     d.matrix = options.matrix
     d.directionMatrix = linear(options.matrix)
   end
+  -- Transform-preserving mode: the draw matrix is deferred to the segment
+  -- sources; vertices decode in pre-draw space with only local ops baked.
+  if options.dynamic then
+    d.dynamic = true
+    d.segments = {}
+    d.currentSegment = newSegment(PoseContract.DRAW)
+  end
   -- Seed the persistent color/normal/source state from the SBC draw's material
   -- (the geometry engine keeps this across a display-list call). Positions and
   -- matrices are not seeded: each shape decodes in model space as before.
@@ -584,6 +786,7 @@ local function _decode(bytes, options)
         if op == 0x41 then
           convertRun(d, cmdOffset)
         else
+          d.currentOffset = cmdOffset + i - 1
           EXEC[op](d, params, cmdOffset + i - 1, options.context)
         end
       end
@@ -603,15 +806,30 @@ local function _decode(bytes, options)
   -- In the compile path every emitted vertex must carry a resolved color source;
   -- a nil source would otherwise render as an unintended default color.
   if options.requireColorSource then
-    for i, v in ipairs(d.vertices) do
+    local function check(v)
       if v.colorSource == nil then
         error(
           Errors.new(
             "GX_UNRESOLVED_VERTEX_COLOR_SOURCE",
-            string.format("vertex %d has no resolved color source (no COLOR/NORMAL and no material seed)", i - 1),
+            string.format("vertex has no resolved color source (no COLOR/NORMAL and no material seed)"),
             { source = options.context }
           )
         )
+      end
+    end
+    if d.dynamic then
+      local segments = d.segments
+      if #d.currentSegment.vertices > 0 then
+        segments = { unpack(d.segments), d.currentSegment }
+      end
+      for _, segment in ipairs(segments) do
+        for _, v in ipairs(segment.vertices) do
+          check(v)
+        end
+      end
+    else
+      for _, v in ipairs(d.vertices) do
+        check(v)
       end
     end
   end
@@ -635,6 +853,21 @@ local function _decode(bytes, options)
     polygonAttrs[#polygonAttrs + 1] = word
   end
   table.sort(polygonAttrs)
+
+  if d.dynamic then
+    -- Finalize the last segment (an empty tail is dropped).
+    if #d.currentSegment.vertices > 0 then
+      d.segments[#d.segments + 1] = d.currentSegment
+    end
+    return {
+      segments = d.segments,
+      bounds = nil, -- pre-draw-space bounds carry no scene meaning
+      commands = commands,
+      opcodeCounts = d.opcodeCounts,
+      polygonAttrs = polygonAttrs,
+      finalState = { color = d.color, normal = d.normal, colorSource = d.colorSource },
+    }
+  end
 
   return {
     vertices = d.vertices,

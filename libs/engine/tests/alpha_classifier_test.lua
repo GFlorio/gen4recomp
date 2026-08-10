@@ -2,7 +2,7 @@
 -- contract (polygon alpha plus texture alpha usage).
 
 local Assert = require("tests.support.Assert")
-local AlphaClassifier = require("romdump.src.digest.AlphaClassifier")
+local AlphaClassifier = require("libs.engine.src.AlphaClassifier")
 
 local T = {}
 

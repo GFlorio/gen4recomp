@@ -11,6 +11,13 @@
 -- their texmtxCalc_* variants (their SendTexSRT shells are structurally
 -- identical to Maya's).
 --
+-- Correction over the earlier transcription: the anm result's scale and
+-- translation slots enter the cells in the asm order -- scaleS/scaleT at
+-- +0x18/+0x1c feed the diagonal and rotation cells, transS/transT at
+-- +0x24/+0x28 feed the translation folds -- and the "one" flags select the
+-- dispatch variant (bit 0 = scaleOne, bit 1 = rotOne, bit 2 = transOne).
+-- Every variant was re-verified against its asm body.
+--
 -- Input: { transS, transT, sin, cos, scaleS, scaleT, width, height } with
 -- the "one" flags { transOne, rotOne, scaleOne } selecting the variant and
 -- optional { ratioS, ratioT } texture-size ratios.
@@ -29,14 +36,18 @@ end
 -- The 32-bit wrapped multiply (asm `mul`).
 local function mul32(a, b)
   local p = (a * b) % 4294967296
-  if p >= 2147483648 then p = p - 4294967296 end
+  if p >= 2147483648 then
+    p = p - 4294967296
+  end
   return p
 end
 
 -- The 32-bit wrapped add/subtract (asm `add`/`sub`).
 local function wrap32(v)
   local p = v % 4294967296
-  if p >= 2147483648 then p = p - 4294967296 end
+  if p >= 2147483648 then
+    p = p - 4294967296
+  end
   return p
 end
 
@@ -54,10 +65,11 @@ local function fxDiv(n, d)
   return math.floor(n * 4096 / d)
 end
 
--- The variant index: the "one" flags (transOne = 1, rotOne = 2,
--- scaleOne = 4), matching `and r1, r1, #0x7` in the SendTexSRT shells.
+-- The variant index: the "one" flags (scaleOne = 1, rotOne = 2,
+-- transOne = 4, the GetTexSRTAnm_ bit order), matching `and r1, r1, #0x7`
+-- in the SendTexSRT shells.
 local function variantIndex(srt)
-  return (srt.transOne and 1 or 0) + (srt.rotOne and 2 or 0) + (srt.scaleOne and 4 or 0)
+  return (srt.scaleOne and 1 or 0) + (srt.rotOne and 2 or 0) + (srt.transOne and 4 or 0)
 end
 
 -- The SendTexSRT ratio pass shared by the Maya-family shells: multiply the
@@ -78,89 +90,107 @@ local function applyRatios(cells, srt)
 end
 
 -- ---- Maya (mode 0) ----
--- Variants are selected by (flags & 7): 0 = all components, then the absent
--- ones in the flag order, 7 = identity.
+-- Variants are selected by (flags & 7), where the anm result's flag bits are
+-- bit 0 = scaleOne, bit 1 = rotOne, bit 2 = transOne (GetTexSRTAnm_,
+-- NNS_G3D_nsbta.s). The dispatch table is flag_ (0), flagS_ (1), flagR_ (2),
+-- flagRS_ (3), flagT_ (4), flagTS_ (5), flagTR_ (6), flagTRS_ (7); each
+-- name lists the components flagged "one", so e.g. flagS_ (scaleOne) builds
+-- rotation + translation, and flagTRS_ is the identity.
+--
+-- The anm result carries scaleS/scaleT at +0x18/+0x1c, sin/cos at
+-- +0x20/+0x22, transS/transT at +0x24/+0x28, and the current texture
+-- width/height at +0x2c/+0x2e. The 64-bit smull products shift right 8 for
+-- the scale/translation folds and right 12 for the rotation products.
 
--- texmtxCalc_flag_ (all): NNS_G3D_maya.s 0x020BEBD8.
-local function mayaTrs(srt)
+-- The 64-bit smull product shifted right 8 (the asm's `smull; mov lsr #8;
+-- orr hi lsl #24`): the scale/translation fold factor.
+local function mulShr8(a, b)
+  return math.floor(a * b / 256)
+end
+
+-- texmtxCalc_flag_ (all components): NNS_G3D_maya.s 0x020BEBD8.
+local function mayaAll(srt)
   local w, h = srt.width, srt.height
   local sin, cos = srt.sin, srt.cos
   local ts, tt = srt.transS, srt.transT
-  local tsc = mulFx(ts, cos)
-  local tss = mulFx(ts, sin)
-  local tts = mulFx(tt, sin)
-  local ttc = mulFx(tt, cos)
+  local ss, st = srt.scaleS, srt.scaleT
+  local ssc = mulFx(ss, cos)
+  local sss = mulFx(ss, sin)
+  local sts = mulFx(st, sin)
+  local stc = mulFx(st, cos)
   return {
-    tsc,
-    asr(mul32(-tts, fxDiv(h, w)), 12),
-    asr(mul32(tss, fxDiv(w, h)), 12),
-    ttc,
-    wrap32(shl(mul32(w, ts - (tss + tsc)), 3) - mul32(w, math.floor(ts * srt.scaleS / 256))),
-    wrap32(mul32(h, math.floor(tt * srt.scaleT / 256)) + shl(mul32(h, (tts - ttc) - tt + 0x2000), 3)),
+    ssc,
+    asr(mul32(-sts, fxDiv(h, w)), 12),
+    asr(mul32(sss, fxDiv(w, h)), 12),
+    stc,
+    wrap32(shl(mul32(w, ss - (sss + ssc)), 3) - mul32(w, mulShr8(ss, ts))),
+    wrap32(mul32(h, mulShr8(st, tt)) + shl(mul32(h, (sts - stc) - st + 0x2000), 3)),
   }
 end
 
--- texmtxCalc_flagS_ (rotation + scale): 0x020BEB00.
-local function mayaRs(srt)
+-- texmtxCalc_flagS_ (scaleOne: rotation + translation): 0x020BEB00.
+local function mayaRotTrans(srt)
   local w, h = srt.width, srt.height
   local sin, cos = srt.sin, srt.cos
+  local ts, tt = srt.transS, srt.transT
   return {
     cos,
     asr(mul32(-sin, fxDiv(h, w)), 12),
     asr(mul32(sin, fxDiv(w, h)), 12),
     cos,
-    wrap32(shl(mul32(w, 0x1000 - sin - cos), 3) - shl(mul32(srt.scaleS, w), 4)),
-    wrap32(shl(mul32(h, 0x1000 + sin - cos), 3) + shl(mul32(srt.scaleT, h), 4)),
+    wrap32(shl(mul32(w, 0x1000 - sin - cos), 3) - shl(mul32(ts, w), 4)),
+    wrap32(shl(mul32(h, 0x1000 + sin - cos), 3) + shl(mul32(tt, h), 4)),
   }
 end
 
--- texmtxCalc_flagR_ (translation + scale): 0x020BEA84.
-local function mayaTs(srt)
+-- texmtxCalc_flagR_ (rotOne: scale + translation): 0x020BEA84.
+local function mayaScaleTrans(srt)
   local w, h = srt.width, srt.height
+  local ss, st = srt.scaleS, srt.scaleT
   local ts, tt = srt.transS, srt.transT
   return {
-    ts,
+    ss,
     0,
     0,
-    tt,
-    wrap32(-mul32(w, math.floor(ts * srt.scaleS / 256))),
-    wrap32(mul32(h, math.floor(tt * srt.scaleT / 256)) + shl(mul32(h, 0x2000 - 2 * tt), 3)),
+    st,
+    wrap32(-mul32(w, mulShr8(ss, ts))),
+    wrap32(mul32(h, mulShr8(st, tt)) + shl(mul32(h, 0x2000 - 2 * st), 3)),
   }
 end
 
--- texmtxCalc_flagRS_ (scale only): 0x020BEA3C.
-local function mayaS(srt)
+-- texmtxCalc_flagRS_ (scaleOne + rotOne: translation only): 0x020BEA3C.
+local function mayaTrans(srt)
   return {
     0x1000,
     0,
     0,
     0x1000,
-    shl(-mul32(srt.scaleS, srt.width), 4),
-    shl(mul32(srt.scaleT, srt.height), 4),
+    shl(-mul32(srt.transS, srt.width), 4),
+    shl(mul32(srt.transT, srt.height), 4),
   }
 end
 
--- texmtxCalc_flagT_ (translation + rotation): 0x020BE954.
-local function mayaTr(srt)
+-- texmtxCalc_flagT_ (transOne: scale + rotation): 0x020BE954.
+local function mayaScaleRot(srt)
   local w, h = srt.width, srt.height
   local sin, cos = srt.sin, srt.cos
-  local ts, tt = srt.transS, srt.transT
-  local tsc = mulFx(ts, cos)
-  local tss = mulFx(ts, sin)
-  local tts = mulFx(tt, sin)
-  local ttc = mulFx(tt, cos)
+  local ss, st = srt.scaleS, srt.scaleT
+  local ssc = mulFx(ss, cos)
+  local sss = mulFx(ss, sin)
+  local sts = mulFx(st, sin)
+  local stc = mulFx(st, cos)
   return {
-    tsc,
-    asr(mul32(-tts, fxDiv(h, w)), 12),
-    asr(mul32(tss, fxDiv(w, h)), 12),
-    ttc,
-    shl(mul32(w, ts - (tss + tsc)), 3),
-    shl(mul32(h, (tts - ttc) - tt + 0x2000), 3),
+    ssc,
+    asr(mul32(-sts, fxDiv(h, w)), 12),
+    asr(mul32(sss, fxDiv(w, h)), 12),
+    stc,
+    shl(mul32(w, ss - (sss + ssc)), 3),
+    shl(mul32(h, (sts - stc) - st + 0x2000), 3),
   }
 end
 
--- texmtxCalc_flagTS_ (rotation only): 0x020BE894.
-local function mayaR(srt)
+-- texmtxCalc_flagTS_ (transOne + scaleOne: rotation only): 0x020BE894.
+local function mayaRot(srt)
   local w, h = srt.width, srt.height
   local sin, cos = srt.sin, srt.cos
   return {
@@ -173,21 +203,29 @@ local function mayaR(srt)
   }
 end
 
--- texmtxCalc_flagTR_ (translation only): 0x020BE850.
-local function mayaT(srt)
+-- texmtxCalc_flagTR_ (transOne + rotOne: scale only): 0x020BE850.
+local function mayaScale(srt)
   return {
-    srt.transS,
+    srt.scaleS,
     0,
     0,
-    srt.transT,
+    srt.scaleT,
     0,
-    shl(mul32(srt.height, 0x2000 - 2 * srt.transT), 3),
+    shl(mul32(srt.height, 0x2000 - 2 * srt.scaleT), 3),
   }
 end
 
 local MAYA_VARIANTS = {
-  mayaTrs, mayaRs, mayaTs, mayaS, mayaTr, mayaR, mayaT,
-  function() return { 0x1000, 0, 0, 0x1000, 0, 0 } end,
+  mayaAll,
+  mayaRotTrans,
+  mayaScaleTrans,
+  mayaTrans,
+  mayaScaleRot,
+  mayaRot,
+  mayaScale,
+  function()
+    return { 0x1000, 0, 0, 0x1000, 0, 0 }
+  end,
 }
 
 function NitroTexMatrix.maya(srt)
@@ -198,8 +236,9 @@ end
 
 -- NNSi_G3dSendTexSRTSi3d (0x020BEF10): one inline build, no variant
 -- dispatch. The convention maps the result fields differently from Maya:
--- the matrix's scale cells come from the trans slots, and the translation
--- cells combine the scale slots with the texture width/height.
+-- the matrix's scale cells come from the scale slots (the "one" flags are
+-- the same GetTexSRTAnm_ bits), and the translation cells fold the
+-- trans/scale products the same way as Maya's flag_/flagR_ variants.
 --   cells: { m00, 0, 0, m11, m20, m21 } at 0x08/0x18/0x2c/0x30.
 function NitroTexMatrix.si3d(srt)
   local scaleOne = srt.scaleOne
@@ -210,16 +249,16 @@ function NitroTexMatrix.si3d(srt)
     if transOne then
       m00, m11 = 0x1000, 0x1000
     else
-      m00, m11 = srt.transS, srt.transT
+      m00, m11 = srt.scaleS, srt.scaleT
     end
   elseif transOne then
     m00, m11 = 0x1000, 0x1000
-    m20 = mul32(srt.width, wrap32(-shl(srt.scaleS, 4)))
-    m21 = mul32(srt.height, wrap32(-shl(srt.scaleT, 4)))
+    m20 = wrap32(-shl(srt.transS, 4) * srt.width)
+    m21 = wrap32(-shl(srt.transT, 4) * srt.height)
   else
-    m00, m11 = srt.transS, srt.transT
-    m20 = mul32(srt.width, wrap32(-math.floor(srt.transS * srt.scaleS / 256)))
-    m21 = mul32(srt.height, wrap32(-math.floor(srt.transT * srt.scaleT / 256)))
+    m00, m11 = srt.scaleS, srt.scaleT
+    m20 = wrap32(-mul32(srt.width, mulShr8(srt.scaleS, srt.transS)))
+    m21 = wrap32(-mul32(srt.height, mulShr8(srt.scaleT, srt.transT)))
   end
   local cells = { m00, 0, 0, m11, m20, m21 }
   if srt.ratioS and srt.ratioS ~= 0x1000 then

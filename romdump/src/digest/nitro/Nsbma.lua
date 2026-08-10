@@ -48,8 +48,12 @@ end
 
 -- 15-bit RGB555 channel masks, as the asm's 0x7C1F (B+R) and 0x3E0 (G)
 -- constants: B = bits 0-4, G = bits 5-9, R = bits 10-14 (bit 15 excluded).
-local function brOf(v) return v % 32 + (v % 32768 - v % 1024) end
-local function gOf(v) return v % 1024 - v % 32 end
+local function brOf(v)
+  return v % 32 + (v % 32768 - v % 1024)
+end
+local function gOf(v)
+  return v % 1024 - v % 32
+end
 
 -- Average two RGB555 colors per channel, as the asm does (no carry between
 -- channels, top bit not preserved).
@@ -79,7 +83,9 @@ local function sampleKeys(r, res, chan, frame)
   local function single(index)
     local at = res.record + chan.ofs + index * (isAlpha and 1 or 2)
     r:assertRange(at, isAlpha and 1 or 2, "nsbma-key")
-    if isAlpha then return r:u8(at) end
+    if isAlpha then
+      return r:u8(at)
+    end
     return r:u16le(at)
   end
   local function pair(index)
@@ -94,15 +100,23 @@ local function sampleKeys(r, res, chan, frame)
   end
   if chan.rate == 2 then
     if frame % 2 == 1 then
-      if frame > chan.limit then return single(math.floor(chan.limit / 2) + 1) end
+      if frame > chan.limit then
+        return single(math.floor(chan.limit / 2) + 1)
+      end
       return pair(math.floor(frame / 2))
     end
     return single(math.floor(frame / 2))
   elseif chan.rate == 4 then
     if frame % 4 ~= 0 then
-      if frame > chan.limit then return single(frame % 4 + math.floor(chan.limit / 4)) end
-      if frame % 4 == 2 then return pair(math.floor(frame / 4)) end
-      if frame % 4 == 1 then return weighted(math.floor(frame / 4), math.floor(frame / 4) + 1) end
+      if frame > chan.limit then
+        return single(frame % 4 + math.floor(chan.limit / 4))
+      end
+      if frame % 4 == 2 then
+        return pair(math.floor(frame / 4))
+      end
+      if frame % 4 == 1 then
+        return weighted(math.floor(frame / 4), math.floor(frame / 4) + 1)
+      end
       return weighted(math.floor(frame / 4) + 1, math.floor(frame / 4))
     end
     return single(math.floor(frame / 4))
@@ -152,11 +166,14 @@ end
 -- colors, 0-31 alpha) -- constants as stored, sampled channels from their
 -- keys. The runtime packs these into the DS material registers.
 function Nsbma.sample(r, res, targetIndex, frameFx)
-  local target = assert(res.targets[targetIndex + 1],
-    "target index " .. tostring(targetIndex) .. " out of range")
+  local target = assert(res.targets[targetIndex + 1], "target index " .. tostring(targetIndex) .. " out of range")
   local frame = math.floor(frameFx / 4096)
-  if frame >= res.numFrame then frame = res.numFrame - 1 end
-  if frame < 0 then frame = 0 end
+  if frame >= res.numFrame then
+    frame = res.numFrame - 1
+  end
+  if frame < 0 then
+    frame = 0
+  end
 
   local out = {}
   for name, chan in pairs(target.channels) do
@@ -171,7 +188,9 @@ end
 
 local function _decode(bytes, context)
   local file, err = NitroFile.decode(bytes, "BMA0", context)
-  if not file then error(err) end
+  if not file then
+    error(err)
+  end
   local section = NitroFile.section(file, "MAT0")
   if not section then
     error(Errors.new("NSBMA_NO_MAT0", "BMA0 file has no MAT0 section", { source = context }))
@@ -192,8 +211,12 @@ end
 
 function Nsbma.decode(bytes, context)
   local ok, result = pcall(_decode, bytes, context)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 

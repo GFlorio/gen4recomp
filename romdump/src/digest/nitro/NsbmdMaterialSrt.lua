@@ -50,7 +50,9 @@ function NsbmdMaterialSrt.decode(flagsRaw, extraBytes)
   if bitSet(flagsRaw, FLAG_MATRIX_FORM) then
     r:assertRange(0, 64, "material-srt-matrix")
     local matrix = {}
-    for i = 0, 15 do matrix[i + 1] = r:u32le(i * 4) end
+    for i = 0, 15 do
+      matrix[i + 1] = r:u32le(i * 4)
+    end
     return { flagRaw = flagsRaw, matrix = matrix }
   end
 

@@ -273,10 +273,16 @@ function T.exterior_models_share_lighting_and_material_path(romFs)
       outdoorCount = outdoorCount + 1
       -- Each exterior model descriptor carries the same lighting profile as the
       -- map: the runtime binds one set of field-light uniforms for the scene.
-      Assert.isTrue(#desc.batches > 0, "exterior model has batches: " .. key)
-      for _, b in ipairs(desc.batches) do
-        Assert.notNil(b.alphaClass, "exterior batch has alpha class: " .. key)
-        Assert.notNil(b.cullMode, "exterior batch has cull mode: " .. key)
+      -- Animated models compile through the dynamic path (segments live in
+      -- desc.dynamic and classify per frame in the material evaluator);
+      -- static ones keep the baked desc.batches with their alpha class.
+      local batches = desc.dynamic and desc.dynamic.batches or desc.batches
+      Assert.isTrue(#batches > 0, "exterior model has batches: " .. key)
+      if not desc.dynamic then
+        for _, b in ipairs(batches) do
+          Assert.notNil(b.alphaClass, "exterior batch has alpha class: " .. key)
+          Assert.notNil(b.cullMode, "exterior batch has cull mode: " .. key)
+        end
       end
     end
   end
@@ -409,6 +415,28 @@ function T.neighbors_are_digested_into_the_scene(romFs)
       Assert.notNil(bundle.meshes[sha1], "neighbor geometry present in shared mesh pool: " .. sha1)
     end
   end
+end
+
+-- The no-save boot target (FieldState) is the player's house 2F: the map
+-- must compile into the cache and offer a passable tile near the cell
+-- center, so a fresh boot never lands somewhere unreachable.
+function T.no_save_spawn_map_compiles_with_free_tiles(romFs)
+  local bundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK_PLAYER_HOUSE_2F"))
+  Assert.equal(bundle.scene.mapSymbol, "MAP_NEW_BARK_PLAYER_HOUSE_2F")
+  local grid = CollisionGrid.new(assert(PermissionGrid.decode(bundle.permissions)), {
+    worldOriginX = bundle.scene.matrix.worldOriginX,
+    worldOriginZ = bundle.scene.matrix.worldOriginZ,
+  })
+  local free = 0
+  for z = 0, 31 do
+    for x = 0, 31 do
+      if not grid:isBlockedLocal(x, z) then
+        free = free + 1
+      end
+    end
+  end
+  Assert.isTrue(free > 0, "house 2F has passable tiles")
+  Assert.isFalse(grid:isBlockedLocal(15, 15) and grid:isBlockedLocal(16, 16), "the cell center area is reachable")
 end
 
 return require("tests.rom.support.RomSuite").fromFacts(T)

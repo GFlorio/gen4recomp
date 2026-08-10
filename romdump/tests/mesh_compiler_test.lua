@@ -264,8 +264,10 @@ function T.missing_shape_raises()
       cmd.shapeIndex = 9
     end
   end
-  local ok, err = pcall(MeshCompiler.compile, m)
-  Assert.isTrue(not ok and Errors.is(err) and err.code == "MAP_COMPILE_MISSING_SHAPE", "raises")
+  local err = Assert.throws(function()
+    MeshCompiler.compile(m)
+  end)
+  Assert.equal(err.code, "MAP_COMPILE_MISSING_SHAPE")
 end
 
 function T.unsupported_dl_command_raises()
@@ -280,11 +282,10 @@ function T.unsupported_dl_command_raises()
     .. string.rep(NB.u32(0), 32)
   local m = model("color")
   m.shapes[1].displayListBytes = dl
-  local ok, err = pcall(MeshCompiler.compile, m)
-  Assert.isTrue(
-    not ok and Errors.is(err) and err.code == "MAP_COMPILE_SHININESS_UNSUPPORTED",
-    "rejects in-DL shininess"
-  )
+  local err = Assert.throws(function()
+    MeshCompiler.compile(m)
+  end)
+  Assert.equal(err.code, "MAP_COMPILE_SHININESS_UNSUPPORTED")
 end
 
 function T.unsupported_polygon_mode_raises()
@@ -297,11 +298,10 @@ function T.unsupported_polygon_mode_raises()
     .. string.char(0x05, 0)
     .. string.char(0x01)
   local m = decodeModel(1, nodeDict, nodeData, sbc, 0x4000, 0x0400, triangleDL("color"), 0x001F00E1)
-  local ok, err = pcall(MeshCompiler.compile, m)
-  Assert.isTrue(
-    not ok and Errors.is(err) and err.code == "MAP_COMPILE_UNSUPPORTED_POLYGON_MODE",
-    "rejects toon polygon mode"
-  )
+  local err = Assert.throws(function()
+    MeshCompiler.compile(m)
+  end)
+  Assert.equal(err.code, "MAP_COMPILE_UNSUPPORTED_POLYGON_MODE")
 end
 
 function T.full_path_vertex_through_node_posscale_and_tiles()
@@ -406,11 +406,10 @@ function T.billboard_shape_using_matrix_restore_raises()
     .. string.char(0x23, 0x23, 0x41, 0)
     .. vtx16(0, 0, 1)
     .. vtx16(0, 0, 0)
-  local ok, err = pcall(MeshCompiler.compile, billboardModel(dl))
-  Assert.isTrue(
-    not ok and Errors.is(err) and err.code == "MAP_COMPILE_BILLBOARD_MATRIX_RESTORE_UNSUPPORTED",
-    "rejects per-primitive matrices"
-  )
+  local err = Assert.throws(function()
+    MeshCompiler.compile(billboardModel(dl))
+  end)
+  Assert.equal(err.code, "MAP_COMPILE_BILLBOARD_MATRIX_RESTORE_UNSUPPORTED")
 end
 
 return { tests = T }

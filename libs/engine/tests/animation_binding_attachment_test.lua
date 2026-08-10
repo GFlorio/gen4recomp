@@ -18,24 +18,43 @@ end
 
 local function jointClip()
   return AnimationClip.new({
-    id = "clip:jnt", name = "joint", category = "joint", kind = "trs",
+    id = "clip:jnt",
+    name = "joint",
+    category = "joint",
+    kind = "trs",
     frameCount = 8,
     tracks = {
-      { target = 3, channels = { translation = { interpolation = "step",
-        keys = { { frame = 0, value = { x = 1, y = 0, z = 0 } } } } } },
-      { target = 5, channels = { rotation = { interpolation = "linear",
-        keys = { { frame = 0, value = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } } } } } },
+      {
+        target = 3,
+        channels = {
+          translation = { interpolation = "step", keys = { { frame = 0, value = { x = 1, y = 0, z = 0 } } } },
+        },
+      },
+      {
+        target = 5,
+        channels = {
+          rotation = {
+            interpolation = "linear",
+            keys = { { frame = 0, value = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } } },
+          },
+        },
+      },
     },
   })
 end
 
 local function materialClip()
   return AnimationClip.new({
-    id = "clip:mat", name = "material", category = "material", kind = "color",
+    id = "clip:mat",
+    name = "material",
+    category = "material",
+    kind = "color",
     frameCount = 4,
     tracks = {
-      { target = "door", channels = { diffuse = { interpolation = "step",
-        keys = { { frame = 0, value = 0x203C } } } } },
+      {
+        target = "door",
+        channels = { diffuse = { interpolation = "step", keys = { { frame = 0, value = 0x203C } } } },
+      },
     },
   })
 end
@@ -85,8 +104,7 @@ function T.attachment_defaults_and_overrides()
   Assert.isFalse(a.player.paused)
   Assert.equal(a.player.frameCount, 8)
 
-  local opts = { priority = 0x10, ratioFx = 0x800,
-    player = AnimationPlayer.new(clip) }
+  local opts = { priority = 0x10, ratioFx = 0x800, player = AnimationPlayer.new(clip) }
   local b = AnimationAttachment.new(clip, binding, opts)
   Assert.equal(b.priority, 0x10)
   Assert.equal(b.ratioFx, 0x800)

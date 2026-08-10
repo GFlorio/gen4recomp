@@ -40,7 +40,9 @@ JointAnimBlend.FROM_MODEL = { scale = 0x01, rot = 0x02, trans = 0x04, inverseSca
 -- 32-bit signed wrap (two's complement).
 local function wrap32(v)
   local p = v % 4294967296
-  if p >= 2147483648 then p = p - 4294967296 end
+  if p >= 2147483648 then
+    p = p - 4294967296
+  end
   return p
 end
 
@@ -91,8 +93,7 @@ local function copyResult(r)
     flags = r.flags,
     scale = { r.scale[1], r.scale[2], r.scale[3] },
     scaleEx = { r.scaleEx[1], r.scaleEx[2], r.scaleEx[3] },
-    rot = { r.rot[1], r.rot[2], r.rot[3], r.rot[4], r.rot[5], r.rot[6],
-      r.rot[7], r.rot[8], r.rot[9] },
+    rot = { r.rot[1], r.rot[2], r.rot[3], r.rot[4], r.rot[5], r.rot[6], r.rot[7], r.rot[8], r.rot[9] },
     trans = { r.trans[1], r.trans[2], r.trans[3] },
   }
 end
@@ -114,7 +115,9 @@ end
 local function normalizeRow(cells, offset)
   local x, y, z = cells[offset + 1], cells[offset + 2], cells[offset + 3]
   local length = math.sqrt(x * x + y * y + z * z)
-  if length == 0 then return end
+  if length == 0 then
+    return
+  end
   cells[offset + 1] = math.floor(x * 4096 / length)
   cells[offset + 2] = math.floor(y * 4096 / length)
   cells[offset + 3] = math.floor(z * 4096 / length)
@@ -141,24 +144,45 @@ local function orthonormalize(rot)
   rot[4], rot[5], rot[6] = row1[1], row1[2], row1[3]
 end
 
+-- A blended joint result (the NNSG3dAnmResult shape): every value an fx32
+-- integer, with the "from model" flag bits (scale 0x1, rot 0x2, trans 0x4,
+-- inverse scale 0x8).
+---@class JointAnimResult
+---@field flags integer
+---@field scale integer[]
+---@field scaleEx integer[]
+---@field rot integer[]
+---@field trans integer[]
+
 -- Blend `entries` = { { ratio = fx32, result = result }, ... } into one
 -- result. Returns nil when no attachment contributes (every ratio
 -- non-positive), a copy when exactly one contributes, and the blended result
 -- otherwise. Input results are never mutated.
+---@return JointAnimResult|nil
 function JointAnimBlend.blend(entries)
   assert(type(entries) == "table", "JointAnimBlend.blend requires a table")
 
   local contributing = {}
   for _, entry in ipairs(entries) do
-    assert(type(entry) == "table" and entry.ratio ~= nil and entry.result ~= nil,
-      "blend entries must carry a ratio and a result")
-    if entry.ratio > 0 then contributing[#contributing + 1] = entry end
+    assert(
+      type(entry) == "table" and entry.ratio ~= nil and entry.result ~= nil,
+      "blend entries must carry a ratio and a result"
+    )
+    if entry.ratio > 0 then
+      contributing[#contributing + 1] = entry
+    end
   end
-  if #contributing == 0 then return nil end
-  if #contributing == 1 then return copyResult(contributing[1].result) end
+  if #contributing == 0 then
+    return nil
+  end
+  if #contributing == 1 then
+    return copyResult(contributing[1].result)
+  end
 
   local total = 0
-  for _, entry in ipairs(contributing) do total = total + entry.ratio end
+  for _, entry in ipairs(contributing) do
+    total = total + entry.ratio
+  end
   assert(total ~= 0, "contributing ratios sum to zero")
 
   local out = newResult()
@@ -172,10 +196,8 @@ function JointAnimBlend.blend(entries)
     end
     local r = entry.result
 
-    blendScaleVec(out.scale, r.scale, weight,
-      math.floor(r.flags / JointAnimBlend.FROM_MODEL.scale) % 2 == 1)
-    blendScaleVec(out.scaleEx, r.scaleEx, weight,
-      math.floor(r.flags / JointAnimBlend.FROM_MODEL.inverseScale) % 2 == 1)
+    blendScaleVec(out.scale, r.scale, weight, math.floor(r.flags / JointAnimBlend.FROM_MODEL.scale) % 2 == 1)
+    blendScaleVec(out.scaleEx, r.scaleEx, weight, math.floor(r.flags / JointAnimBlend.FROM_MODEL.inverseScale) % 2 == 1)
 
     if math.floor(r.flags / JointAnimBlend.FROM_MODEL.trans) % 2 == 0 then
       for i = 1, 3 do

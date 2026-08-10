@@ -9,7 +9,10 @@
 --   +0x0E u16 ofsTargets
 --   stride table at record + 8 + ofsTargets: u16 stride, u16 ofsNameTable
 --   per-target records at record + 0x0C + ofsTargets + stride * i, five
---   (u32 flag, u32 ofs) channels: transS, transT, rot, scaleS, scaleT
+--   (u32 flag, u32 ofs) channels in the GetTexSRTAnm_ read order:
+--   scaleS, scaleT, rot, transS, transT (pokediamond NNS_G3D_nsbta.s
+--   0x020BE030 reads +0x18/+0x20 as the translation pair, +0x00/+0x08 as
+--   the scale pair)
 --   target names at stride table + ofsNameTable, 16 bytes each
 --
 -- Channel flag: bits 0-15 limit (last key index in rate units), bit 28 fx16
@@ -45,7 +48,9 @@ local function asr(value, bits)
 end
 
 local function s16(value)
-  if value >= 32768 then value = value - 65536 end
+  if value >= 32768 then
+    value = value - 65536
+  end
   return value
 end
 
@@ -80,7 +85,9 @@ local function readKey(r, chan, index)
   if chan.storage == "fx16" then
     r:assertRange(chan.ofs + index * 2, 2, "nsbta-key")
     local v = r:u16le(chan.ofs + index * 2)
-    if v >= 32768 then v = v - 65536 end
+    if v >= 32768 then
+      v = v - 65536
+    end
     return { value = v }
   end
   r:assertRange(chan.ofs + index * 4, 4, "nsbta-key")
@@ -100,17 +107,26 @@ local function sampleVector(r, chan, frame)
   end
   if chan.rate == 2 then
     if frame % 2 == 1 then
-      if frame > chan.limit then return single(math.floor(chan.limit / 2) + 1) end
+      if frame > chan.limit then
+        return single(math.floor(chan.limit / 2) + 1)
+      end
       return pair(math.floor(frame / 2))
     end
     return single(math.floor(frame / 2))
   elseif chan.rate == 4 then
     if frame % 4 ~= 0 then
-      if frame > chan.limit then return single(frame % 4 + math.floor(chan.limit / 4)) end
-      if frame % 4 == 2 then return pair(math.floor(frame / 4)) end
+      if frame > chan.limit then
+        return single(frame % 4 + math.floor(chan.limit / 4))
+      end
+      if frame % 4 == 2 then
+        return pair(math.floor(frame / 4))
+      end
       local a, b
-      if frame % 4 == 1 then a, b = math.floor(frame / 4), math.floor(frame / 4) + 1
-      else a, b = math.floor(frame / 4) + 1, math.floor(frame / 4) end
+      if frame % 4 == 1 then
+        a, b = math.floor(frame / 4), math.floor(frame / 4) + 1
+      else
+        a, b = math.floor(frame / 4) + 1, math.floor(frame / 4)
+      end
       return asr(3 * readKey(r, chan, a).value + readKey(r, chan, b).value, 2)
     end
     return single(math.floor(frame / 4))
@@ -125,11 +141,17 @@ local function sampleRot(r, chan, frame)
     return r:u32le(chan.ofs + index * 4)
   end
   local function unpack(word)
-    if word == ROT_IDENTITY then return nil end
+    if word == ROT_IDENTITY then
+      return nil
+    end
     return { sin = s16(word % 65536), cos = s16(math.floor(word / 65536) % 65536) }
   end
-  local function half(word) return s16(word % 65536) end
-  local function highHalf(word) return s16(math.floor(word / 65536) % 65536) end
+  local function half(word)
+    return s16(word % 65536)
+  end
+  local function highHalf(word)
+    return s16(math.floor(word / 65536) % 65536)
+  end
   local function avgPair(index)
     local a = singleWord(index)
     local b = singleWord(index + 1)
@@ -149,15 +171,23 @@ local function sampleRot(r, chan, frame)
   end
   if chan.rate == 2 then
     if frame % 2 == 1 then
-      if frame > chan.limit then return unpack(singleWord(math.floor(chan.limit / 2) + 1)) end
+      if frame > chan.limit then
+        return unpack(singleWord(math.floor(chan.limit / 2) + 1))
+      end
       return avgPair(math.floor(frame / 2))
     end
     return unpack(singleWord(math.floor(frame / 2)))
   elseif chan.rate == 4 then
     if frame % 4 ~= 0 then
-      if frame > chan.limit then return unpack(singleWord(frame % 4 + math.floor(chan.limit / 4))) end
-      if frame % 4 == 2 then return avgPair(math.floor(frame / 4)) end
-      if frame % 4 == 1 then return weightedPair(math.floor(frame / 4), math.floor(frame / 4) + 1) end
+      if frame > chan.limit then
+        return unpack(singleWord(frame % 4 + math.floor(chan.limit / 4)))
+      end
+      if frame % 4 == 2 then
+        return avgPair(math.floor(frame / 4))
+      end
+      if frame % 4 == 1 then
+        return weightedPair(math.floor(frame / 4), math.floor(frame / 4) + 1)
+      end
       return weightedPair(math.floor(frame / 4) + 1, math.floor(frame / 4))
     end
     return unpack(singleWord(math.floor(frame / 4)))
@@ -184,12 +214,14 @@ function Nsbta.decodeRecord(r, record, context)
   for i = 0, numTargets - 1 do
     local at = record + 0x0C + ofsTargets + stride * i
     r:assertRange(at, 40, "nsbta-target-record")
+    -- Channel order per GetTexSRTAnm_: scale pair first, then rot, then the
+    -- translation pair (the asm reads +0x18/+0x20 as the translations).
     local chans = {
-      transS = decodeChannel(r, record, at, false, context),
-      transT = decodeChannel(r, record, at + 8, false, context),
+      scaleS = decodeChannel(r, record, at, false, context),
+      scaleT = decodeChannel(r, record, at + 8, false, context),
       rot = decodeChannel(r, record, at + 0x10, true, context),
-      scaleS = decodeChannel(r, record, at + 0x18, false, context),
-      scaleT = decodeChannel(r, record, at + 0x20, false, context),
+      transS = decodeChannel(r, record, at + 0x18, false, context),
+      transT = decodeChannel(r, record, at + 0x20, false, context),
     }
     local nameAt = tableAt + ofsNameTable + i * NAME_SIZE
     local name = r:ascii(nameAt, NAME_SIZE, true)
@@ -209,23 +241,39 @@ end
 
 -- Sample one target at `frameFx` (fixed-point; the calc uses the integer
 -- frame, so the fractional part is ignored). Returns the texture-SRT state:
---   transS/transT/scaleS/scaleT  fx32 integers (nil when the channel is a
---                                 zero constant that the calc maps to "one")
+--   transS/transT/scaleS/scaleT  the sampled fx values (meaningful only when
+--                                 the matching "one" flag is clear)
 --   rot                        { sin, cos } or nil when identity
---   rotOne/scaleOne            the calc's "one" flag bits
+--   transOne/rotOne/scaleOne   the GetTexSRTAnm_ "one" flag bits: transOne
+--                              = both translations zero, rotOne = identity
+--                              rotation, scaleOne = both scales 0x1000
+---@return { transS: number|nil, transT: number|nil, scaleS: number|nil, scaleT: number|nil, rot: { sin: number, cos: number }|nil, transOne: boolean, rotOne: boolean, scaleOne: boolean }
 function Nsbta.sample(r, res, targetIndex, frameFx)
-  local target = assert(res.targets[targetIndex + 1],
-    "target index " .. tostring(targetIndex) .. " out of range")
+  local target = assert(res.targets[targetIndex + 1], "target index " .. tostring(targetIndex) .. " out of range")
   local frame = math.floor(frameFx / 4096)
-  if frame >= res.numFrame then frame = res.numFrame - 1 end
-  if frame < 0 then frame = 0 end
+  if frame >= res.numFrame then
+    frame = res.numFrame - 1
+  end
+  if frame < 0 then
+    frame = 0
+  end
 
   local ch = target.channels
-  local result = { transS = nil, transT = nil, rot = nil, scaleS = nil, scaleT = nil,
-    rotOne = false, scaleOne = false }
+  local result = {
+    transS = nil,
+    transT = nil,
+    rot = nil,
+    scaleS = nil,
+    scaleT = nil,
+    transOne = false,
+    rotOne = false,
+    scaleOne = false,
+  }
 
   local function value(chan, sampler)
-    if chan.source == "constant" then return chan.value end
+    if chan.source == "constant" then
+      return chan.value
+    end
     return sampler(r, chan, frame)
   end
 
@@ -235,26 +283,38 @@ function Nsbta.sample(r, res, targetIndex, frameFx)
   local rot = ch.rot
   if rot.source == "constant" then
     if rot.value ~= ROT_IDENTITY then
-      result.rot = { sin = s16(rot.value % 65536),
-        cos = s16(math.floor(rot.value / 65536) % 65536) }
+      result.rot = { sin = s16(rot.value % 65536), cos = s16(math.floor(rot.value / 65536) % 65536) }
     else
       result.rotOne = true
     end
   else
     result.rot = sampleRot(r, rot, frame)
-    if result.rot == nil then result.rotOne = true end
+    if result.rot == nil then
+      result.rotOne = true
+    end
   end
 
   result.scaleS = value(ch.scaleS, sampleVector)
   result.scaleT = value(ch.scaleT, sampleVector)
-  if result.scaleS == 0 and result.scaleT == 0 then result.scaleOne = true end
+  -- GetTexSRTAnm_ compares the pair against 0x1000 (the identity scale), not
+  -- zero: a zero scale contributes nothing to the matrix cells, so both
+  -- encodings render identically, but 0x1000 must select the no-scale
+  -- variant to avoid a phantom shift (one real member authors exactly that).
+  if result.scaleS == 0x1000 and result.scaleT == 0x1000 then
+    result.scaleOne = true
+  end
+  if result.transS == 0 and result.transT == 0 then
+    result.transOne = true
+  end
 
   return result
 end
 
 local function _decode(bytes, context)
   local file, err = NitroFile.decode(bytes, "BTA0", context)
-  if not file then error(err) end
+  if not file then
+    error(err)
+  end
   local section = NitroFile.section(file, "SRT0")
   if not section then
     error(Errors.new("NSBTA_NO_SRT0", "BTA0 file has no SRT0 section", { source = context }))
@@ -275,8 +335,12 @@ end
 
 function Nsbta.decode(bytes, context)
   local ok, result = pcall(_decode, bytes, context)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 

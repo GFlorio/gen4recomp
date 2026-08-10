@@ -15,11 +15,12 @@
 -- Pure domain module; no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
-local AlphaClassifier = require("romdump.src.digest.AlphaClassifier")
+local AlphaClassifier = require("libs.engine.src.AlphaClassifier")
 local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
 local MapUnits = require("romdump.src.digest.MapUnits")
 local MeshCompiler = require("romdump.src.digest.MeshCompiler")
 local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
+local PoseContract = require("libs.engine.src.PoseContract")
 
 local FieldActorModel = {}
 
@@ -142,11 +143,11 @@ function FieldActorModel.compile(modelBytes, opts)
   end
   local batch = batches[1]
 
-  if batch.transformMode ~= "billboard" or not batch.baseTransform then
+  if batch.transformMode ~= PoseContract.BILLBOARD or not batch.baseTransform then
     fail(
       "FIELD_ACTOR_MODEL_NOT_BILLBOARD",
       "shared actor model draw is "
-        .. tostring(batch.transformMode or "static")
+        .. tostring(batch.transformMode or PoseContract.STATIC)
         .. ", expected the Nitro full camera-facing billboard command",
       { context = context, modelName = model.name }
     )
@@ -210,6 +211,9 @@ function FieldActorModel.compile(modelBytes, opts)
   }
 end
 
+-- The single draw mode shared by every batch of the actor model
+-- (TransformMode), or "mixed"/"unsupported" when it cannot be one.
+---@return TransformMode | "mixed" | "unsupported"
 function FieldActorModel.drawMode(modelBytes, context)
   local file = assert(Nsbmd.decode(modelBytes, context))
   if #file.models ~= 1 then
@@ -225,5 +229,4 @@ function FieldActorModel.drawMode(modelBytes, context)
   end
   return mode or "unsupported"
 end
-
 return FieldActorModel

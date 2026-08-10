@@ -339,7 +339,7 @@ end
 
 -- Resolve the external animations a build model references. `listNarc` holds one
 -- 0x18-byte record per member (exterior_build_anim_list); each referenced id
--- indexes `resNarc` (exterior_build_anim), a mixed archive of NitroSystem
+-- indexes `resNarc` (build_anim), a mixed archive of NitroSystem
 -- animation resources. Returns a list of { resourceId, magic, kind, name }.
 local function resolveAnimations(listNarc, resNarc, memberId)
   if memberId >= listNarc:memberCount() then
@@ -393,7 +393,7 @@ local function inspectBuildings(romFs, area, buildings, warnings, inv)
   local narc = assert(romFs:openNarc(alias))
   -- Outdoor build models carry external animations; indoor ones do not.
   local animListNarc = alias == "exterior_build_models" and romFs:openNarc("exterior_build_anim_list")
-  local animResNarc = alias == "exterior_build_models" and romFs:openNarc("exterior_build_anim")
+  local animResNarc = alias == "exterior_build_models" and romFs:openNarc("build_anim")
   local summaries = {}
   for _, memberId in ipairs(ids) do
     local ok, bytes = pcall(readMember, narc, alias, memberId)

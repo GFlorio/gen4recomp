@@ -122,6 +122,20 @@ function GpuAssetPool:imageFor(path, wrapX, wrapY)
   return image
 end
 
+-- Register an already-built Mesh as pool-owned: the dynamic model render
+-- meshes are built from in-memory geometry (not a content-addressed path),
+-- so the pool cannot construct them itself, but it still releases them with
+-- everything else and counts their triangles in its stats. Pass the decoded
+-- triangle count exactly once per mesh.
+---@param mesh love.Mesh
+---@param triangleCount number
+---@return love.Mesh
+function GpuAssetPool:adoptMesh(mesh, triangleCount)
+  self.meshes[#self.meshes + 1] = mesh
+  self.triangles = self.triangles + triangleCount
+  return mesh
+end
+
 -- Release every owned GPU object exactly once. Idempotent: the owned lists,
 -- the dedup caches, and the triangle count are cleared, so a repeat release
 -- (or a cleanup after a failed acquire) never touches the same object twice.

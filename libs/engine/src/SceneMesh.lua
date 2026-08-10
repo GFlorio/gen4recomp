@@ -46,8 +46,7 @@ function SceneMesh.decode(bytes, context)
 
   local layout = LAYOUTS[magic == "G4M3" and "g4m3" or (magic == "G4M2" and "g4m2" or nil)]
   if not layout then
-    Errors.raise("MESH_BAD_MAGIC",
-      "expected G4M2 or G4M3 magic, got " .. magic, { source = context })
+    Errors.raise("MESH_BAD_MAGIC", "expected G4M2 or G4M3 magic, got " .. magic, { source = context })
   end
   local version = r:u16le(4)
   if version ~= layout.version then
@@ -58,8 +57,7 @@ function SceneMesh.decode(bytes, context)
   local stride = r:u16le(16)
   local indexWidth = r:u16le(18)
   if stride ~= layout.stride then
-    Errors.raise("MESH_BAD_STRIDE",
-      "expected stride " .. layout.stride .. ", got " .. stride, { source = context })
+    Errors.raise("MESH_BAD_STRIDE", "expected stride " .. layout.stride .. ", got " .. stride, { source = context })
   end
   if indexWidth ~= 2 and indexWidth ~= 4 then
     Errors.raise("MESH_BAD_INDEX_WIDTH", "index width must be 2 or 4, got " .. indexWidth, { source = context })
@@ -75,7 +73,9 @@ function SceneMesh.decode(bytes, context)
 
   local vertices = {}
   local joints, weights
-  if layout.stride == LAYOUTS.g4m3.stride then joints, weights = {}, {} end
+  if layout.stride == LAYOUTS.g4m3.stride then
+    joints, weights = {}, {}
+  end
   local off = HEADER
   for i = 1, vertexCount do
     local x, y, z = r:f32le(off), r:f32le(off + 4), r:f32le(off + 8)
@@ -124,7 +124,9 @@ function SceneMesh.decode(bytes, context)
     vertices = vertices,
     indices = indices,
   }
-  if joints then decoded.joints, decoded.weights = joints, weights end
+  if joints then
+    decoded.joints, decoded.weights = joints, weights
+  end
   return decoded
 end
 

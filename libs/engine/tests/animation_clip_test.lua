@@ -14,14 +14,29 @@ end
 
 local function clipSpec(overrides)
   local s = {
-    id = "c1", name = "open", category = "joint", kind = "trs", frameCount = 8,
+    id = "c1",
+    name = "open",
+    category = "joint",
+    kind = "trs",
+    frameCount = 8,
     tracks = {
-      { target = 1, channels = { translation = { interpolation = "linear",
-        keys = { { frame = 0, value = { x = 0, y = 0, z = 0 } },
-          { frame = 7, value = { x = 4, y = 0, z = 0 } } } } } },
+      {
+        target = 1,
+        channels = {
+          translation = {
+            interpolation = "linear",
+            keys = {
+              { frame = 0, value = { x = 0, y = 0, z = 0 } },
+              { frame = 7, value = { x = 4, y = 0, z = 0 } },
+            },
+          },
+        },
+      },
     },
   }
-  for k, v in pairs(overrides or {}) do s[k] = v end
+  for k, v in pairs(overrides or {}) do
+    s[k] = v
+  end
   return s
 end
 
@@ -59,21 +74,50 @@ function T.rejects_bad_tracks()
     return AnimationClip.new(clipSpec({ tracks = { { target = 1 } } }))
   end)
   throwsCode("ANIM_CLIP_CHANNEL_NO_KEYS", function()
-    return AnimationClip.new(clipSpec({ tracks = { { target = 1, channels = {
-      translation = { interpolation = "linear", keys = {} } } } } }))
+    return AnimationClip.new(clipSpec({
+      tracks = { { target = 1, channels = {
+        translation = { interpolation = "linear", keys = {} },
+      } } },
+    }))
   end)
   throwsCode("ANIM_CLIP_BAD_INTERPOLATION", function()
-    return AnimationClip.new(clipSpec({ tracks = { { target = 1, channels = {
-      translation = { interpolation = "slerp", keys = { { frame = 0, value = 1 } } } } } } }))
+    return AnimationClip.new(clipSpec({
+      tracks = {
+        {
+          target = 1,
+          channels = {
+            translation = { interpolation = "slerp", keys = { { frame = 0, value = 1 } } },
+          },
+        },
+      },
+    }))
   end)
   throwsCode("ANIM_CLIP_UNSORTED_KEYS", function()
-    return AnimationClip.new(clipSpec({ tracks = { { target = 1, channels = {
-      translation = { interpolation = "step",
-        keys = { { frame = 2, value = 1 }, { frame = 1, value = 0 } } } } } } }))
+    return AnimationClip.new(clipSpec({
+      tracks = {
+        {
+          target = 1,
+          channels = {
+            translation = {
+              interpolation = "step",
+              keys = { { frame = 2, value = 1 }, { frame = 1, value = 0 } },
+            },
+          },
+        },
+      },
+    }))
   end)
   throwsCode("ANIM_CLIP_KEY_NO_VALUE", function()
-    return AnimationClip.new(clipSpec({ tracks = { { target = 1, channels = {
-      translation = { interpolation = "step", keys = { { frame = 0 } } } } } } }))
+    return AnimationClip.new(clipSpec({
+      tracks = {
+        {
+          target = 1,
+          channels = {
+            translation = { interpolation = "step", keys = { { frame = 0 } } },
+          },
+        },
+      },
+    }))
   end)
 end
 
@@ -93,9 +137,20 @@ end
 
 function T.step_holds_the_last_key()
   local clip = AnimationClip.new(clipSpec({
-    tracks = { { target = 1, channels = { translation = { interpolation = "step",
-      keys = { { frame = 0, value = { x = 0, y = 0, z = 0 } },
-        { frame = 4, value = { x = 9, y = 0, z = 0 } } } } } } },
+    tracks = {
+      {
+        target = 1,
+        channels = {
+          translation = {
+            interpolation = "step",
+            keys = {
+              { frame = 0, value = { x = 0, y = 0, z = 0 } },
+              { frame = 4, value = { x = 9, y = 0, z = 0 } },
+            },
+          },
+        },
+      },
+    },
   }))
   Assert.equal(sample(clip, 0, "translation", 0).x, 0)
   Assert.equal(sample(clip, 0, "translation", 2 * 4096).x, 0, "holds until the next key")
@@ -105,9 +160,20 @@ end
 
 function T.linear_interpolates_between_keys()
   local clip = AnimationClip.new(clipSpec({
-    tracks = { { target = 1, channels = { translation = { interpolation = "linear",
-      keys = { { frame = 0, value = { x = 0, y = 0, z = 0 } },
-        { frame = 8, value = { x = 8, y = 0, z = 0 } } } } } } },
+    tracks = {
+      {
+        target = 1,
+        channels = {
+          translation = {
+            interpolation = "linear",
+            keys = {
+              { frame = 0, value = { x = 0, y = 0, z = 0 } },
+              { frame = 8, value = { x = 8, y = 0, z = 0 } },
+            },
+          },
+        },
+      },
+    },
   }))
   Assert.equal(sample(clip, 0, "translation", 4 * 4096).x, 4)
   -- Fractional fixed-point frames participate in linear interpolation.
@@ -118,8 +184,14 @@ end
 
 function T.linear_interpolates_scalar_values()
   local clip = AnimationClip.new(clipSpec({
-    tracks = { { target = "mat", channels = { diffuse = { interpolation = "linear",
-      keys = { { frame = 0, value = 0 }, { frame = 4, value = 100 } } } } } },
+    tracks = {
+      {
+        target = "mat",
+        channels = {
+          diffuse = { interpolation = "linear", keys = { { frame = 0, value = 0 }, { frame = 4, value = 100 } } },
+        },
+      },
+    },
   }))
   Assert.equal(sample(clip, 0, "diffuse", 2 * 4096), 50)
 end

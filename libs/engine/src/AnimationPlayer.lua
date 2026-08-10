@@ -31,11 +31,12 @@ AnimationPlayer.FRAME_UNIT = AnimationClip.FRAME_UNIT
 -- frameCount). The returned player is owned by the caller (or an attachment)
 -- and is mutable -- two players over one clip never share state.
 function AnimationPlayer.new(clip)
-  assert(type(clip) == "table" and clip.frameCount ~= nil,
-    "AnimationPlayer.new requires a clip with a frameCount")
+  assert(type(clip) == "table" and clip.frameCount ~= nil, "AnimationPlayer.new requires a clip with a frameCount")
   local frameCount = clip.frameCount
-  assert(type(frameCount) == "number" and frameCount >= 1
-    and math.floor(frameCount) == frameCount, "clip frameCount must be a positive integer")
+  assert(
+    type(frameCount) == "number" and frameCount >= 1 and math.floor(frameCount) == frameCount,
+    "clip frameCount must be a positive integer"
+  )
   return setmetatable({
     frameCount = frameCount,
     frameFx = 0,
@@ -55,8 +56,12 @@ end
 -- Clamp an arbitrary fixed-point frame into the playable window.
 function AnimationPlayer:clampFx(frameFx)
   local maxFx = self:maxFx()
-  if frameFx < 0 then return 0 end
-  if frameFx > maxFx then return maxFx end
+  if frameFx < 0 then
+    return 0
+  end
+  if frameFx > maxFx then
+    return maxFx
+  end
   return frameFx
 end
 
@@ -64,7 +69,11 @@ end
 -- completed, restart from the first frame. Playing is the caller's
 -- acknowledgement that a fresh run began.
 function AnimationPlayer:play()
-  if self.completed then self:restart() else self.paused = false end
+  if self.completed then
+    self:restart()
+  else
+    self.paused = false
+  end
 end
 
 function AnimationPlayer:pause()
@@ -80,8 +89,7 @@ end
 -- Arbitrary signed fixed-point delta; zero pauses advancement for the
 -- duration of the zero delta.
 function AnimationPlayer:setDeltaFx(deltaFx)
-  assert(type(deltaFx) == "number" and math.floor(deltaFx) == deltaFx,
-    "deltaFx must be an integer")
+  assert(type(deltaFx) == "number" and math.floor(deltaFx) == deltaFx, "deltaFx must be an integer")
   self.deltaFx = deltaFx
 end
 
@@ -109,7 +117,9 @@ end
 -- Advance one fixed step. Wraps or completes per the loop mode; reverse
 -- playback wraps/completes at the first frame symmetrically.
 function AnimationPlayer:updateFixed()
-  if self.paused or self.completed then return end
+  if self.paused or self.completed then
+    return
+  end
   local stepFx = self.frameCount * AnimationPlayer.FRAME_UNIT
   local maxFx = self:maxFx()
   local frameFx = self.frameFx + self.deltaFx

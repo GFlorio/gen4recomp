@@ -49,28 +49,37 @@ local WEIGHT_ONE = 255
 local function validateG4m3Vertex(v, vertexIndex)
   local joints, weights = v.joints, v.weights
   if type(joints) ~= "table" or #joints ~= 4 or type(weights) ~= "table" or #weights ~= 4 then
-    Errors.raise("MESH_MISSING_SKIN_ATTRIBUTES",
-      "G4M3 vertex " .. vertexIndex .. " must carry 4 joints and 4 weights", { vertex = vertexIndex })
+    Errors.raise(
+      "MESH_MISSING_SKIN_ATTRIBUTES",
+      "G4M3 vertex " .. vertexIndex .. " must carry 4 joints and 4 weights",
+      { vertex = vertexIndex }
+    )
   end
   local sum = 0
   for i = 1, 4 do
     local j, w = joints[i], weights[i]
     if not (type(j) == "number" and math.floor(j) == j and j >= 0 and j <= 255) then
-      Errors.raise("MESH_BAD_JOINT_INDEX",
+      Errors.raise(
+        "MESH_BAD_JOINT_INDEX",
         "G4M3 vertex " .. vertexIndex .. " joint " .. i .. " is out of range",
-        { vertex = vertexIndex, joint = i })
+        { vertex = vertexIndex, joint = i }
+      )
     end
     if not (type(w) == "number" and w >= 0 and w <= WEIGHT_ONE and math.floor(w) == w) then
-      Errors.raise("MESH_BAD_JOINT_WEIGHT",
-        "G4M3 vertex " .. vertexIndex .. " weight " .. i
-          .. " must be an integer in 0..255", { vertex = vertexIndex, joint = i })
+      Errors.raise(
+        "MESH_BAD_JOINT_WEIGHT",
+        "G4M3 vertex " .. vertexIndex .. " weight " .. i .. " must be an integer in 0..255",
+        { vertex = vertexIndex, joint = i }
+      )
     end
     sum = sum + w
   end
   if sum ~= 0 and sum ~= WEIGHT_ONE then
-    Errors.raise("MESH_BAD_WEIGHT_SUM",
-      "G4M3 vertex " .. vertexIndex .. " weights sum to " .. sum
-        .. ", expected 255 (skinned) or 0 (rigid)", { vertex = vertexIndex, sum = sum })
+    Errors.raise(
+      "MESH_BAD_WEIGHT_SUM",
+      "G4M3 vertex " .. vertexIndex .. " weights sum to " .. sum .. ", expected 255 (skinned) or 0 (rigid)",
+      { vertex = vertexIndex, sum = sum }
+    )
   end
 end
 
@@ -84,8 +93,11 @@ function MeshWriter.encode(batch, opts)
   end
   local format = (opts and opts.format) or "g4m2"
   if not MeshWriter.FORMATS[format] then
-    Errors.raise("MESH_UNKNOWN_FORMAT",
-      "mesh format must be g4m2 or g4m3, got " .. tostring(format), { format = format })
+    Errors.raise(
+      "MESH_UNKNOWN_FORMAT",
+      "mesh format must be g4m2 or g4m3, got " .. tostring(format),
+      { format = format }
+    )
   end
 
   local isG4m3 = format == "g4m3"
@@ -110,8 +122,12 @@ function MeshWriter.encode(batch, opts)
     w:u8(v.r):u8(v.g):u8(v.b):u8(v.a):u8(source):u8(0):u8(0):u8(0)
     if isG4m3 then
       validateG4m3Vertex(v, i)
-      for j = 1, 4 do w:u8(v.joints[j]) end
-      for j = 1, 4 do w:u8(v.weights[j]) end
+      for j = 1, 4 do
+        w:u8(v.joints[j])
+      end
+      for j = 1, 4 do
+        w:u8(v.weights[j])
+      end
     end
   end
 

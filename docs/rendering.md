@@ -257,7 +257,7 @@ actors draw with the world projection, exactly as on the DS.
 * `NODEMIX` position blending through the joints' inverse bind poses. Its normal
   blend is not computed separately: it follows from the position blend while each
   bind pose is rigid, which the compiler checks per joint and raises
-  `NSBMD_STATIC_NODEMIX_NONRIGID_BIND_POSE` if violated.
+  `NSBMD_SBC_NODEMIX_NONRIGID_BIND_POSE` if violated.
 * Scene v3 / G4M2 / cache v5 explicit versioning and invalidation.
 
 ### Deferred / approximate

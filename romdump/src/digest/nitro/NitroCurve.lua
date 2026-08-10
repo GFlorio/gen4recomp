@@ -26,7 +26,9 @@ local BinaryReader = require("libs.rom.src.BinaryReader")
 local NitroCurve = {}
 
 local function s16(value)
-  if value >= 32768 then value = value - 65536 end
+  if value >= 32768 then
+    value = value - 65536
+  end
   return value
 end
 
@@ -40,7 +42,9 @@ local BIT_FX16 = 0x20000000
 -- The low 32 bits of a signed product, as the asm `mul` leaves it.
 local function mul32(a, b)
   local p = (a * b) % 4294967296
-  if p >= 2147483648 then p = p - 4294967296 end
+  if p >= 2147483648 then
+    p = p - 4294967296
+  end
   return p
 end
 
@@ -63,8 +67,11 @@ function NitroCurve.decode(r, at, keysPerValue, context)
   local ofs = r:u32le(at + 4)
 
   local rate = NitroCurve.FULL
-  if bitSet(flag, BIT_HALF) then rate = NitroCurve.HALF
-  elseif bitSet(flag, 0x80000000) then rate = NitroCurve.QUARTER end
+  if bitSet(flag, BIT_HALF) then
+    rate = NitroCurve.HALF
+  elseif bitSet(flag, 0x80000000) then
+    rate = NitroCurve.QUARTER
+  end
 
   local curve = {
     flagRaw = flag,
@@ -82,7 +89,9 @@ end
 
 -- Byte offset of key `keyIndex` within the section.
 function NitroCurve:keyOffset(keyIndex)
-  if self.storage == "fx16" then return self.keyBase + keyIndex * 2 * self.keysPerValue end
+  if self.storage == "fx16" then
+    return self.keyBase + keyIndex * 2 * self.keysPerValue
+  end
   return self.keyBase + keyIndex * 4 * self.keysPerValue
 end
 
@@ -108,8 +117,7 @@ end
 -- Ex-path interpolation: (a*step + mul32(b - a, frac) >> 12) >> log2(step).
 local function lerpEx(a, b, step, frac)
   local delta = mul32(b - a, frac)
-  return asr(a * step + asr(delta, 12), step == NitroCurve.HALF and 1
-    or step == NitroCurve.QUARTER and 2 or 0)
+  return asr(a * step + asr(delta, 12), step == NitroCurve.HALF and 1 or step == NitroCurve.QUARTER and 2 or 0)
 end
 
 -- Sample both key values at `frameFx` (a fixed-point frame that must already
@@ -132,7 +140,9 @@ function NitroCurve:sampleValues(r, frameFx, numFrame, interpolate, wrapFinal)
     local a = at(i)
     local b = at(j)
     local out = { fn(a[1], b[1]) }
-    if a[2] ~= nil then out[2] = fn(a[2], b[2]) end
+    if a[2] ~= nil then
+      out[2] = fn(a[2], b[2])
+    end
     return out
   end
 
@@ -152,29 +162,45 @@ function NitroCurve:sampleValues(r, frameFx, numFrame, interpolate, wrapFinal)
       fracWide = frac
       step = NitroCurve.FULL
     end
-    return between(index, index + 1, function(a, b) return lerpEx(a, b, step, fracWide) end)
+    return between(index, index + 1, function(a, b)
+      return lerpEx(a, b, step, fracWide)
+    end)
   end
 
   -- Integer path.
   if step == NitroCurve.HALF then
     if frame % 2 == 1 then
-      if frame > self.limit then return at(math.floor(self.limit / 2) + 1) end
-      if self.storage == "fx32" then
-        return between(index, index + 1, function(a, b) return asr(a, 1) + asr(b, 1) end)
+      if frame > self.limit then
+        return at(math.floor(self.limit / 2) + 1)
       end
-      return between(index, index + 1, function(a, b) return asr(a + b, 1) end)
+      if self.storage == "fx32" then
+        return between(index, index + 1, function(a, b)
+          return asr(a, 1) + asr(b, 1)
+        end)
+      end
+      return between(index, index + 1, function(a, b)
+        return asr(a + b, 1)
+      end)
     end
     return at(index)
   elseif step == NitroCurve.QUARTER then
     if frame % 4 ~= 0 then
-      if frame > self.limit then return at(frame % 4 + math.floor(self.limit / 4)) end
+      if frame > self.limit then
+        return at(frame % 4 + math.floor(self.limit / 4))
+      end
       if frame % 4 == 2 then
-        return between(index, index + 1, function(a, b) return asr(a + b, 1) end)
+        return between(index, index + 1, function(a, b)
+          return asr(a + b, 1)
+        end)
       end
       -- 3:1 toward the nearer key: the later key for frame % 4 == 3.
       local a, b = index, index + 1
-      if frame % 4 == 3 then a, b = b, a end
-      return between(a, b, function(x, y) return asr(3 * x + y, 2) end)
+      if frame % 4 == 3 then
+        a, b = b, a
+      end
+      return between(a, b, function(x, y)
+        return asr(3 * x + y, 2)
+      end)
     end
     return at(index)
   end

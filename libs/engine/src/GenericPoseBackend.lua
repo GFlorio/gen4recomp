@@ -41,10 +41,22 @@ end
 
 local function rotationMatrix(rot)
   return {
-    rot[1], rot[2], rot[3], 0,
-    rot[4], rot[5], rot[6], 0,
-    rot[7], rot[8], rot[9], 0,
-    0, 0, 0, 1,
+    rot[1],
+    rot[2],
+    rot[3],
+    0,
+    rot[4],
+    rot[5],
+    rot[6],
+    0,
+    rot[7],
+    rot[8],
+    rot[9],
+    0,
+    0,
+    0,
+    0,
+    1,
   }
 end
 
@@ -58,8 +70,7 @@ end
 
 -- local = T * R * S (glTF convention, column-major).
 local function localMatrix(trans, rot, scale)
-  return Matrix4.multiply(Matrix4.multiply(translationMatrix(trans), rotationMatrix(rot)),
-    scaleMatrix(scale))
+  return Matrix4.multiply(Matrix4.multiply(translationMatrix(trans), rotationMatrix(rot)), scaleMatrix(scale))
 end
 
 -- The rotation blend used for multiple contributors on one node: cells 0-5
@@ -75,22 +86,27 @@ local function orthonormalize(rot)
   end
   local function normalize(v)
     local length = math.sqrt(v[1] * v[1] + v[2] * v[2] + v[3] * v[3])
-    if length == 0 then return { 0, 0, 0 } end
+    if length == 0 then
+      return { 0, 0, 0 }
+    end
     return { v[1] / length, v[2] / length, v[3] / length }
   end
   local row0 = normalize({ rot[1], rot[2], rot[3] })
   local row1 = { rot[4], rot[5], rot[6] }
   local row2 = normalize(cross(row0, row1))
   row1 = cross(row2, row0)
-  return { row0[1], row0[2], row0[3], row1[1], row1[2], row1[3],
-    row2[1], row2[2], row2[3] }
+  return { row0[1], row0[2], row0[3], row1[1], row1[2], row1[3], row2[1], row2[2], row2[3] }
 end
 
 local function blendRotations(contributions)
-  if #contributions == 1 then return contributions[1].rot end
+  if #contributions == 1 then
+    return contributions[1].rot
+  end
   local rot = { 0, 0, 0, 0, 0, 0, 0, 0, 0 }
   for i = 1, 6 do
-    for _, c in ipairs(contributions) do rot[i] = rot[i] + c.weight * c.rot[i] end
+    for _, c in ipairs(contributions) do
+      rot[i] = rot[i] + c.weight * c.rot[i]
+    end
   end
   return orthonormalize(rot)
 end
@@ -98,7 +114,9 @@ end
 -- True when `attachment` carries any track whose binding maps to `nodeIndex`.
 local function bindsNode(attachment, nodeIndex)
   for _, track in ipairs(attachment.clip.tracks) do
-    if attachment.binding:modelIndex(track.target) == nodeIndex then return true end
+    if attachment.binding:modelIndex(track.target) == nodeIndex then
+      return true
+    end
   end
   return false
 end
@@ -108,10 +126,8 @@ end
 -- channel to the static node.
 local function sampleForNode(attachment, nodeIndex, channelName)
   for _, track in ipairs(attachment.clip.tracks) do
-    if attachment.binding:modelIndex(track.target) == nodeIndex
-      and track.channels[channelName] then
-      return AnimationClip.sample(attachment.clip, track.index, channelName,
-        attachment.player.frameFx)
+    if attachment.binding:modelIndex(track.target) == nodeIndex and track.channels[channelName] then
+      return AnimationClip.sample(attachment.clip, track.index, channelName, attachment.player.frameFx)
     end
   end
   return nil
@@ -125,9 +141,10 @@ local function sampleRotation(attachment, nodeIndex)
   for _, track in ipairs(attachment.clip.tracks) do
     local channel = track.channels and track.channels[CHANNEL.ROTATION]
     if channel and attachment.binding:modelIndex(track.target) == nodeIndex then
-      local value = AnimationClip.sample(attachment.clip, track.index,
-        CHANNEL.ROTATION, attachment.player.frameFx)
-      if channel.interpolation == "linear" then value = orthonormalize(value) end
+      local value = AnimationClip.sample(attachment.clip, track.index, CHANNEL.ROTATION, attachment.player.frameFx)
+      if channel.interpolation == "linear" then
+        value = orthonormalize(value)
+      end
       return value
     end
   end
@@ -152,8 +169,7 @@ local function animatedLocal(node, attachments, nodeIndex)
 
   if #contributed == 1 then
     local attachment = contributed[1]
-    local trans = sampleForNode(attachment, nodeIndex, CHANNEL.TRANSLATION)
-      or node.translation
+    local trans = sampleForNode(attachment, nodeIndex, CHANNEL.TRANSLATION) or node.translation
     local rot = sampleRotation(attachment, nodeIndex) or node.rotation
     local scale = sampleForNode(attachment, nodeIndex, CHANNEL.SCALE) or node.scale
     return localMatrix(trans, rot, scale)
@@ -201,13 +217,16 @@ local function evaluateVisibility(definition, attachments, nodeVisible)
       for _, track in ipairs(attachment.clip.tracks) do
         if attachment.binding:modelIndex(track.target) == nodeIndex then
           any = true
-          local value = AnimationClip.sample(attachment.clip, track.index,
-            CHANNEL.VISIBLE, attachment.player.frameFx)
-          if value then visible = true end
+          local value = AnimationClip.sample(attachment.clip, track.index, CHANNEL.VISIBLE, attachment.player.frameFx)
+          if value then
+            visible = true
+          end
         end
       end
     end
-    if any and not visible then nodeVisible[nodeIndex] = false end
+    if any and not visible then
+      nodeVisible[nodeIndex] = false
+    end
   end
 end
 
@@ -217,10 +236,11 @@ end
 function GenericPoseBackend.evaluate(instance)
   local def = instance.definition
   if def.sourceBackend ~= "generic" then
-    Errors.raise("POSE_BACKEND_SOURCE_MISMATCH",
-      "GenericPoseBackend cannot evaluate a " .. def.sourceBackend
-        .. " model (" .. def.key .. ")",
-      { sourceBackend = def.sourceBackend, modelKey = def.key })
+    Errors.raise(
+      "POSE_BACKEND_SOURCE_MISMATCH",
+      "GenericPoseBackend cannot evaluate a " .. def.sourceBackend .. " model (" .. def.key .. ")",
+      { sourceBackend = def.sourceBackend, modelKey = def.key }
+    )
   end
   local jointAttachments = instance.animationState:attachments("joint")
   local visibilityAttachments = instance.animationState:attachments("visibility")
@@ -252,8 +272,7 @@ function GenericPoseBackend.evaluate(instance)
     jointPalettes[skin.id] = palette
   end
 
-  return { nodeMatrices = nodeMatrices, nodeVisible = nodeVisible,
-    jointPalettes = jointPalettes }
+  return { nodeMatrices = nodeMatrices, nodeVisible = nodeVisible, jointPalettes = jointPalettes }
 end
 
 return GenericPoseBackend

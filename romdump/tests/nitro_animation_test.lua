@@ -100,9 +100,9 @@ function T.jnt_constants_and_model_channels()
   -- Target 0: constant translation, model rotation and scale.
   local s0 = jnt(res, r, 0, 0)
   Assert.isFalse(s0.transFromModel)
-  Assert.equal(s0.trans.x, 10 * 0x10000)
-  Assert.equal(s0.trans.y, 20 * 0x10000)
-  Assert.equal(s0.trans.z, 30 * 0x10000)
+  Assert.equal(s0.trans.x, 10 * 0x1000)
+  Assert.equal(s0.trans.y, 20 * 0x1000)
+  Assert.equal(s0.trans.z, 30 * 0x1000)
   Assert.isTrue(s0.rotFromModel)
   Assert.isTrue(s0.scaleFromModel)
 
@@ -115,10 +115,10 @@ function T.jnt_constants_and_model_channels()
   -- Target 2: constant scale pairs with inverse scales.
   local s2 = jnt(res, r, 2, 0)
   Assert.isFalse(s2.scaleFromModel)
-  Assert.equal(s2.scale.x, 2 * 0x10000)
-  Assert.equal(s2.inverseScale.x, math.floor(0.5 * 0x10000))
-  Assert.equal(s2.scale.z, 4 * 0x10000)
-  Assert.equal(s2.inverseScale.z, math.floor(0.25 * 0x10000))
+  Assert.equal(s2.scale.x, 2 * 0x1000)
+  Assert.equal(s2.inverseScale.x, math.floor(0.5 * 0x1000))
+  Assert.equal(s2.scale.z, 4 * 0x1000)
+  Assert.equal(s2.inverseScale.z, math.floor(0.25 * 0x1000))
 
   -- Target 3: whole joint from the model.
   local s3 = jnt(res, r, 3, 0)
@@ -131,8 +131,8 @@ function T.jnt_full_rate_sampling_fx16_fx32()
   local s = jnt(res, r, 0, 3 * 4096)
   Assert.equal(s.trans.x, 6 * 0x1000) -- fx16 key 3
   Assert.equal(s.trans.y, 7 * 0x1000)
-  Assert.equal(s.scale.x, math.floor(1.75 * 0x10000)) -- fx32 pair key 3
-  Assert.equal(s.inverseScale.x, math.floor((1 / 1.75) * 0x10000))
+  Assert.equal(s.scale.x, math.floor(1.75 * 0x1000)) -- fx32 pair key 3
+  Assert.equal(s.inverseScale.x, math.floor((1 / 1.75) * 0x1000))
   -- Entry 1 (A=0, B=1): single-key path, cells as reconstructed.
   Assert.equal(s.rot[1], 0)
   Assert.equal(s.rot[3], 0x1000)
@@ -144,7 +144,7 @@ function T.jnt_half_rate_odd_frame_averages()
   -- fx16 trans: (key[0] + key[1]) >> 1 = (0 + 2) >> 1.
   Assert.equal(s.trans.x, 1 * 0x1000)
   -- fx32 scale: (a >> 1) + (b >> 1) = 1/2 + 1.25/2.
-  Assert.equal(s.scale.x, math.floor(1 * 0x10000 / 2) + math.floor(1.25 * 0x10000 / 2))
+  Assert.equal(s.scale.x, math.floor(1 * 0x1000 / 2) + math.floor(1.25 * 0x1000 / 2))
   -- Rotation: merge keys[0] + keys[1], then the rows are normalized.
   -- Row 0 = (0x1000, 0, 0x1000) -> normalized.
   local length = math.sqrt(0x1000 * 0x1000 + 0x1000 * 0x1000)
@@ -228,7 +228,9 @@ function T.jnt_malformed_target_offset_raises()
   local sectionAt, record = jntRecordOffset(fixture)
   local tableAt = sectionAt + record + 0x14
   local patched = fixture:sub(1, tableAt) .. NitroBuilder.u16(0xFFFF) .. fixture:sub(tableAt + 3)
-  throwsCode("READ_OUT_OF_BOUNDS", function() return NitroAnimation.decode(patched) end)
+  throwsCode("READ_OUT_OF_BOUNDS", function()
+    return NitroAnimation.decode(patched)
+  end)
 end
 
 function T.animation_malformed_dictionary_raises()
@@ -238,7 +240,9 @@ function T.animation_malformed_dictionary_raises()
   local sectionAt = BinaryReader.new(fixture, "patch"):u32le(0x10)
   local countAt = sectionAt + 8 + 1
   local patched = fixture:sub(1, countAt) .. string.char(0xFF) .. fixture:sub(countAt + 2)
-  throwsCode("READ_OUT_OF_BOUNDS", function() return NitroAnimation.decode(patched) end)
+  throwsCode("READ_OUT_OF_BOUNDS", function()
+    return NitroAnimation.decode(patched)
+  end)
 end
 
 function T.animation_unknown_file_magic_raises()
@@ -254,16 +258,21 @@ function T.srt_constant_and_sampled_channels()
   Assert.equal(res.numTargets, 1)
   Assert.equal(res.targets[1].name, "en_sp1_3")
   local s = srt(res, r, 0, 0)
-  Assert.equal(s.transS, 0x1000)
-  Assert.equal(s.transT, 0x1000)
+  -- The channel order follows GetTexSRTAnm_: the scale pair first, then
+  -- the translation pair (the record reads transS at +0x18, not +0x00).
+  Assert.equal(s.scaleS, 0x1000)
+  Assert.equal(s.scaleT, 0x1000)
+  Assert.equal(s.transS, 0)
+  Assert.equal(s.transT, 1 * 0x1000)
+  -- Identity scales make the pair "one"; the sampled translation-T curve
+  -- scrolls the material.
+  Assert.isTrue(s.scaleOne)
+  Assert.isFalse(s.transOne)
   Assert.isTrue(s.rotOne) -- identity rotation constant
-  Assert.isFalse(s.scaleOne) -- scaleT is animated, so the pair is not "one"
-  Assert.equal(s.scaleS, 0)
-  Assert.equal(s.scaleT, 1 * 0x1000)
-  -- fx16 sampled scaleT at frame 3.
+  -- fx16 sampled transT at frame 3.
   local s3 = srt(res, r, 0, 3 * 4096)
-  Assert.equal(s3.scaleT, 4 * 0x1000)
-  Assert.equal(s3.scaleS, 0)
+  Assert.equal(s3.transT, 4 * 0x1000)
+  Assert.equal(s3.transS, 0)
 end
 
 function T.srt_constant_rotation()
@@ -272,7 +281,13 @@ function T.srt_constant_rotation()
   Assert.isFalse(s.rotOne)
   Assert.equal(s.rot.sin, math.floor(0.5 * 0x1000))
   Assert.equal(s.rot.cos, math.floor(0.8660 * 0x1000))
+  -- The authored identity translation is zero; identity scales are 0x1000.
   Assert.isTrue(s.scaleOne)
+  Assert.equal(s.scaleS, 0x1000)
+  Assert.equal(s.scaleT, 0x1000)
+  Assert.equal(s.transS, 0)
+  Assert.equal(s.transT, 0)
+  Assert.isTrue(s.transOne)
 end
 
 function T.srt_rotation_pairs()

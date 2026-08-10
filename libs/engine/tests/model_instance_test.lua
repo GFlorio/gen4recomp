@@ -60,8 +60,7 @@ end
 
 function T.bind_pose_is_the_static_hierarchy()
   local instance = newInstance()
-  instance:evaluatePose()
-  local pose = instance.poseState
+  local pose = instance:evaluatePose()
   -- Node 2 sits at (4, 0, 0) under the identity root.
   Assert.near(pose.nodeMatrices[2][13], 4, 1e-9)
   Assert.near(pose.nodeMatrices[3][13], 4, 1e-9)
@@ -124,8 +123,7 @@ function T.play_validates_loop_options()
   Assert.isFalse(ok, "zero repeats is a programming error")
   ok = pcall(instance.play, instance, "door.open", { direction = 2 })
   Assert.isFalse(ok, "direction must be +-1")
-  Assert.equal(#instance.animationState:attachments("joint"), 0,
-    "failed plays attach nothing")
+  Assert.equal(#instance.animationState:attachments("joint"), 0, "failed plays attach nothing")
 end
 
 -- Concurrent clips on one node blend by attachment ratio. At frame 0 the
@@ -166,7 +164,9 @@ function T.visibility_clip_hides_the_leaf()
 
   local items = instance:drawItems(renders)
   local ids = {}
-  for _, item in ipairs(items) do ids[#ids + 1] = item.mesh.id end
+  for _, item in ipairs(items) do
+    ids[#ids + 1] = item.mesh.id
+  end
   Assert.equal(#ids, 2, "leaf mesh omitted while hidden")
   Assert.isTrue(ids[1] == "frame" and ids[2] == "skin")
 end
@@ -182,7 +182,9 @@ function T.draw_items_carry_pose_transforms()
   Assert.equal(#items, 3)
 
   local byId = {}
-  for _, item in ipairs(items) do byId[item.mesh.id] = item end
+  for _, item in ipairs(items) do
+    byId[item.mesh.id] = item
+  end
   -- The leaf's transform is the animated rotation; the frame's is identity.
   Assert.near(byId.leaf.transform[1], expectedOpenX(1, 8), 1e-9)
   Assert.near(byId.frame.transform[1], 1, 1e-9)
@@ -196,8 +198,11 @@ function T.draw_items_compose_the_instance_transform()
   local items = instance:drawItems(rendersFor(instance.definition))
   local frame = nil
   for _, item in ipairs(items) do
-    if item.mesh.id == "frame" then frame = item end
+    if item.mesh.id == "frame" then
+      frame = item
+    end
   end
+  assert(frame, "the frame mesh is drawn")
   Assert.equal(frame.transform[13], 10)
   Assert.equal(frame.transform[15], 20)
   Assert.deepEqual(frame.center, { 10, 0, 20 })
@@ -214,10 +219,9 @@ function T.material_contract_maps_to_render_state()
   Assert.equal(glass.cullMode, "none", "doubleSided disables culling")
   Assert.notNil(glass.alphaCutoff)
   -- Instance state overrides never touch the definition.
-  instance.materialState[0].alpha = 128
-  Assert.equal(instance:effectiveMaterial(1).polygonAlpha, 1.0,
-    "other materials keep their state")
-  Assert.near(instance:effectiveMaterial(0).polygonAlpha, 128 / 255, 1e-9)
+  instance.materialState[0].polygonAlpha = 16
+  Assert.equal(instance:effectiveMaterial(1).polygonAlpha, 1.0, "other materials keep their state")
+  Assert.near(instance:effectiveMaterial(0).polygonAlpha, 16 / 31, 1e-9)
   Assert.equal(instance.definition.materials[1].baseColor.a, 255)
 end
 
@@ -229,9 +233,13 @@ function T.skin_palette_is_world_times_inverse_bind()
   local palette = instance.poseState.jointPalettes["skin"]
   -- Joint 2's world is T(4,0,0) and its inverse bind is T(-4,0,0):
   -- the palette matrix is identity.
-  for i = 1, 16 do Assert.near(palette[2][i], Matrix4.identity()[i], 1e-9) end
+  for i = 1, 16 do
+    Assert.near(palette[2][i], Matrix4.identity()[i], 1e-9)
+  end
   -- Joint 3 inherits node 2's placement; the same cancellation applies.
-  for i = 1, 16 do Assert.near(palette[3][i], Matrix4.identity()[i], 1e-9) end
+  for i = 1, 16 do
+    Assert.near(palette[3][i], Matrix4.identity()[i], 1e-9)
+  end
 end
 
 -- ---- nitro backend contract ----
@@ -250,13 +258,12 @@ local function nitroDefinition()
   })
 end
 
-function T.nitro_backend_is_pending_until_epic5()
+function T.nitro_backend_without_a_program_raises()
+  -- A nitro-backed definition without the compiled transform program cannot
+  -- be posed: the backend says so rather than rendering a wrong pose.
   local def = nitroDefinition()
   local instance = ModelInstance.new(def)
-  Assert.isNil(instance:evaluatePose(), "no attachments: nothing to evaluate")
-
-  instance:play("door.open")
-  throwsCode("POSE_NITRO_BACKEND_PENDING", function()
+  throwsCode("POSE_NITRO_NO_TRANSFORM_PROGRAM", function()
     return instance:evaluatePose()
   end)
   -- Without a pose the draw path falls back to bind placement rather than

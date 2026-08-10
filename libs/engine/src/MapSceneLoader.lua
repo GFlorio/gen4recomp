@@ -3,18 +3,18 @@
 -- `.g4mesh` path and one Image per unique (texture, wrap) sampler state (both
 -- deduplicated through the shared GpuAssetPool, so repeated building models
 -- and shared textures cost a single GPU object per sampler), wraps each
--- material's render state, and resolves every placed building instance
--- through its model descriptor. Simulation facts (collision, terrain) are
--- owned by FieldMapLoader through the shared asset paths; this loader returns
--- no collision object. A billboard batch keeps the base transform the renderer
--- resolves against the camera each frame instead of a baked matrix. All GPU
--- construction happens here, once, never in draw; the pool releases every
--- owned mesh/image. Load is transactional: the pool guards its own acquires,
--- and load() guards everything after pool creation, so any failure -- a
--- missing descriptor, an unsupported transform mode -- releases every GPU
--- object already acquired before the error propagates. The only ROM knowledge
--- that reaches this layer is the normalized scene descriptor; raw Nitro
--- formats stopped at the compiler.
+-- material's render state, resolves every placed building instance through
+-- its model descriptor, and loads the scene's collision asset into a
+-- CollisionGrid (the door-ownership pass resolves against it). A billboard
+-- batch keeps the base transform the renderer resolves against the camera
+-- each frame instead of a baked matrix. All GPU construction happens here,
+-- once, never in draw; the pool releases every owned mesh/image. Load is
+-- transactional: the pool guards its own acquires, and load() guards
+-- everything after pool creation, so any failure -- a missing descriptor, an
+-- unsupported transform mode -- releases every GPU object already acquired
+-- before the error propagates. The only ROM knowledge that reaches this
+-- layer is the normalized scene descriptor; raw Nitro formats stopped at the
+-- compiler.
 
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local Matrix4 = require("libs.math.src.Matrix4")
@@ -22,6 +22,14 @@ local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
 local Errors = require("libs.errors.src.Errors")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
 local DsLighting = require("libs.engine.src.DsLighting")
+local SceneMesh = require("libs.engine.src.SceneMesh")
+local PoseContract = require("libs.engine.src.PoseContract")
+local ModelDefinition = require("libs.engine.src.ModelDefinition")
+local ModelInstance = require("libs.engine.src.ModelInstance")
+local MapPropAnimationController = require("libs.engine.src.MapPropAnimationController")
+local MeshWriter = require("libs.assets.src.MeshWriter")
+local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
+local CollisionGrid = require("libs.engine.src.CollisionGrid")
 
 local MapSceneLoader = {}
 
@@ -115,7 +123,7 @@ local function buildScene(pool, cacheFs, scene)
   local function drawItem(batch, materials, instanceTransform)
     local entry = pool:meshFor(batch.geometry)
     local billboardBase
-    if batch.transformMode == "billboard" then
+    if batch.transformMode == PoseContract.BILLBOARD then
       billboardBase =
         Matrix4.multiply(instanceTransform, assert(batch.baseTransform, "billboard batch is missing baseTransform"))
     elseif batch.transformMode ~= nil then
@@ -155,13 +163,21 @@ local function buildScene(pool, cacheFs, scene)
   end
 
   -- Placed building instances: resolve each modelKey's descriptor (batches +
-  -- its own materials) and instance it at the placement transform.
+  -- its own materials) and instance it at the placement transform. The raw
+  -- descriptor stays on the cached entry: the animated path builds a
+  -- ModelDefinition from it (the `dynamic` half, clips, and raw material
+  -- records), while the static path consumes the pre-built batches and the
+  -- pool's material records.
   local descriptorCache = {}
   local function descriptorFor(modelKey)
     local cached = descriptorCache[modelKey]
     if not cached then
       local desc = assert(cacheFs:loadLua(MapAssetCache.modelPath(modelKey)), "missing model " .. modelKey)
-      cached = { batches = desc.batches, materials = materialsById(desc.materials, pool) }
+      cached = {
+        descriptor = desc,
+        batches = desc.batches,
+        materials = materialsById(desc.materials, pool),
+      }
       descriptorCache[modelKey] = cached
     end
     return cached
@@ -175,29 +191,107 @@ local function buildScene(pool, cacheFs, scene)
     end
   end
 
-  -- Simulation facts (collision, terrain) are loaded by FieldMapLoader through
-  -- the pure project-owned asset paths, never here.
+  -- ---- animated building instances ----
+
+  -- An animated model descriptor (backend "nitro" with a `dynamic` half)
+  -- becomes a ModelInstance per placement: the definition is assembled from
+  -- the serialized descriptor, the dynamic batches become render meshes
+  -- once, and the instance's per-frame pose/material evaluation produces the
+  -- draw items. A model with exactly one animation clip plays it looping
+  -- from load (the ambient props -- wind, machine, spring); multi-clip
+  -- models (doors) are scripted through the controller.
+  local animatedInstances = {}
+  for _, inst in ipairs(scene.buildingInstances or {}) do
+    local desc = descriptorFor(inst.modelKey).descriptor
+    if desc.dynamic then
+      local definition = ModelDefinition.fromNitroDescriptor(desc, { key = inst.modelKey })
+      local renders = {}
+      for _, mesh in ipairs(definition.meshes) do
+        -- The render meshes are built from in-memory geometry, not a
+        -- content-addressed path, so they are adopted into the pool rather
+        -- than fetched through it; the batch carries no skin attributes.
+        local decoded = SceneMesh.decode(MeshWriter.encode(mesh.batch))
+        renders[mesh.id] = pool:adoptMesh(SceneMesh.build(decoded), decoded.indexCount / 3)
+      end
+      local instance = ModelInstance.new(definition, {
+        transform = inst.transform,
+        resolveImage = function(key, width, height)
+          return pool:imageFor(key, "clamp", "clamp")
+        end,
+      })
+      instance.renders = renders
+      animatedInstances[#animatedInstances + 1] = instance
+      if #definition.animations == 1 then
+        instance:play(definition.animations[1].name, { loopMode = "loop" })
+      end
+    end
+  end
+
+  -- Refresh the animated instances' draw items from their current pose and
+  -- material state; appends after the static building draws.
+  local staticBuildingDraws = buildingDraws
+  local runtime = {}
+  local function syncAnimatedDraws()
+    local items = {}
+    for _, item in ipairs(staticBuildingDraws) do
+      items[#items + 1] = item
+    end
+    for _, instance in ipairs(animatedInstances) do
+      instance:evaluatePose()
+      local drawn = instance:drawItems(instance.renders)
+      for _, item in ipairs(drawn) do
+        items[#items + 1] = item
+      end
+    end
+    runtime.buildingDraws = items
+  end
+
+  -- Advance every animated instance by one fixed step, then refresh.
+  local function updateAnimated()
+    for _, instance in ipairs(animatedInstances) do
+      instance:updateFixed()
+    end
+    syncAnimatedDraws()
+  end
+
+  -- Collision from the G4CL asset (CollisionGridAsset bytes), around the
+  -- cell origin. Decoded through the same pure project-owned asset path the
+  -- simulation-only loaders use, so the visual scene carries the grid the
+  -- door-ownership pass resolves against.
+  local collisionBytes = assert(cacheFs:read(scene.collision.file), "missing collision asset")
+  local grid, decodeErr =
+    CollisionGridAsset.decode(collisionBytes, { mapId = scene.mapId, path = scene.collision.file })
+  assert(grid, decodeErr and decodeErr.message or "malformed collision asset")
+  local collision = CollisionGrid.new(grid, {
+    worldOriginX = scene.matrix.worldOriginX,
+    worldOriginZ = scene.matrix.worldOriginZ,
+  })
+
   bounds.center = {
     (bounds.min[1] + bounds.max[1]) / 2,
     (bounds.min[2] + bounds.max[2]) / 2,
     (bounds.min[3] + bounds.max[3]) / 2,
   }
 
-  local runtime = {
-    scene = scene,
-    mapId = scene.mapId,
-    cameraType = scene.cameraType,
-    bounds = bounds,
-    mapDraws = mapDraws,
-    buildingDraws = buildingDraws,
-    lighting = scene.lighting,
-    fieldTimeSeconds = FieldLightProfile.DEFAULT_TIME_SECONDS,
-    stats = {
-      meshCount = #pool.meshes,
-      textureCount = #pool.images,
-      triangleCount = pool.triangles,
-      buildingInstances = #(scene.buildingInstances or {}),
-    },
+  runtime.scene = scene
+  runtime.mapId = scene.mapId
+  runtime.cameraType = scene.cameraType
+  runtime.collision = collision
+  runtime.bounds = bounds
+  runtime.mapDraws = mapDraws
+  runtime.buildingDraws = buildingDraws
+  runtime.lighting = scene.lighting
+  runtime.fieldTimeSeconds = FieldLightProfile.DEFAULT_TIME_SECONDS
+  runtime.animatedInstances = animatedInstances
+  runtime.animationController = MapPropAnimationController.new()
+  runtime.syncAnimatedDraws = syncAnimatedDraws
+  runtime.updateAnimated = updateAnimated
+  runtime.stats = {
+    meshCount = #pool.meshes,
+    textureCount = #pool.images,
+    triangleCount = pool.triangles,
+    buildingInstances = #(scene.buildingInstances or {}),
+    animatedInstances = #animatedInstances,
   }
 
   function runtime:release()

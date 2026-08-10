@@ -86,9 +86,23 @@ end
 
 local function skinnedTriangle()
   local function v(x, joints, weights)
-    return { x = x, y = 0, z = 0, u = 0, v = 0, nx = 0, ny = 1, nz = 0,
-      r = 255, g = 255, b = 255, a = 255, colorSource = 0,
-      joints = joints, weights = weights }
+    return {
+      x = x,
+      y = 0,
+      z = 0,
+      u = 0,
+      v = 0,
+      nx = 0,
+      ny = 1,
+      nz = 0,
+      r = 255,
+      g = 255,
+      b = 255,
+      a = 255,
+      colorSource = 0,
+      joints = joints,
+      weights = weights,
+    }
   end
   return {
     vertices = {
@@ -104,7 +118,7 @@ function T.g4m3_header_and_stride()
   local s = MeshWriter.encode(skinnedTriangle(), { format = "g4m3" })
   local r = BinaryReader.new(s, "mesh")
   Assert.equal(r:bytes(0, 4), "G4M3")
-  Assert.equal(r:u16le(4), 3)   -- version
+  Assert.equal(r:u16le(4), 3) -- version
   Assert.equal(r:u16le(16), 48) -- stride
   Assert.equal(#s, 24 + 3 * 48 + 3 * 2)
 end
@@ -127,20 +141,28 @@ end
 function T.g4m3_rejects_bad_skin_attributes()
   local b = skinnedTriangle()
   b.vertices[1].weights = { 64, 64, 64 }
-  raisesCode("MESH_MISSING_SKIN_ATTRIBUTES", function() return MeshWriter.encode(b, { format = "g4m3" }) end)
+  raisesCode("MESH_MISSING_SKIN_ATTRIBUTES", function()
+    return MeshWriter.encode(b, { format = "g4m3" })
+  end)
 
   b = skinnedTriangle()
   b.vertices[1].joints[1] = 300
-  raisesCode("MESH_BAD_JOINT_INDEX", function() return MeshWriter.encode(b, { format = "g4m3" }) end)
+  raisesCode("MESH_BAD_JOINT_INDEX", function()
+    return MeshWriter.encode(b, { format = "g4m3" })
+  end)
 
   b = skinnedTriangle()
   b.vertices[1].weights[1] = 300
-  raisesCode("MESH_BAD_JOINT_WEIGHT", function() return MeshWriter.encode(b, { format = "g4m3" }) end)
+  raisesCode("MESH_BAD_JOINT_WEIGHT", function()
+    return MeshWriter.encode(b, { format = "g4m3" })
+  end)
 
   b = skinnedTriangle()
   b.vertices[1].weights = { 64, 64, 64, 63 } -- sum 255, fine
   b.vertices[2].weights = { 10, 10, 10, 10 } -- sum 40
-  raisesCode("MESH_BAD_WEIGHT_SUM", function() return MeshWriter.encode(b, { format = "g4m3" }) end)
+  raisesCode("MESH_BAD_WEIGHT_SUM", function()
+    return MeshWriter.encode(b, { format = "g4m3" })
+  end)
 end
 
 function T.g4m3_rejects_unknown_format()

@@ -37,14 +37,23 @@ end
 -- token usable with detach. `opts` passes through to AnimationAttachment.new.
 function ModelAnimationState:attach(clip, binding, opts)
   if not AnimationClip.CATEGORIES[clip.category] then
-    Errors.raise("ANIM_STATE_BAD_CATEGORY",
-      "clip " .. clip.id .. " has unknown category " .. tostring(clip.category), {})
+    Errors.raise(
+      "ANIM_STATE_BAD_CATEGORY",
+      "clip " .. clip.id .. " has unknown category " .. tostring(clip.category),
+      {}
+    )
   end
   if binding.modelKey ~= self.modelKey then
-    Errors.raise("ANIM_STATE_MODEL_MISMATCH",
-      "clip " .. clip.id .. " is bound to model " .. binding.modelKey
-        .. " but the state belongs to " .. tostring(self.modelKey),
-      { clip = clip.id, bindingModel = binding.modelKey, stateModel = self.modelKey })
+    Errors.raise(
+      "ANIM_STATE_MODEL_MISMATCH",
+      "clip "
+        .. clip.id
+        .. " is bound to model "
+        .. binding.modelKey
+        .. " but the state belongs to "
+        .. tostring(self.modelKey),
+      { clip = clip.id, bindingModel = binding.modelKey, stateModel = self.modelKey }
+    )
   end
   local attachment = AnimationAttachment.new(clip, binding, opts)
   local token = self.nextToken
@@ -55,7 +64,9 @@ function ModelAnimationState:attach(clip, binding, opts)
 end
 
 function ModelAnimationState:detach(token)
-  for _, group in pairs(self.groups) do group[token] = nil end
+  for _, group in pairs(self.groups) do
+    group[token] = nil
+  end
 end
 
 -- A snapshot list of the attachments in one group, in attach order (tokens
@@ -65,7 +76,9 @@ function ModelAnimationState:attachments(category)
   local group = self.groups[category]
   for token = 1, self.nextToken - 1 do
     local attachment = group[token]
-    if attachment then out[#out + 1] = attachment end
+    if attachment then
+      out[#out + 1] = attachment
+    end
   end
   return out
 end
@@ -73,16 +86,22 @@ end
 -- Advance every player of every group by one fixed step.
 function ModelAnimationState:updateFixed()
   for _, group in pairs(self.groups) do
-    for _, attachment in pairs(group) do attachment.player:updateFixed() end
+    for _, attachment in pairs(group) do
+      attachment.player:updateFixed()
+    end
   end
 end
 
 -- True when any attachment is playing in a group (or any group when `category`
 -- is omitted).
 function ModelAnimationState:hasAttachments(category)
-  if category then return next(self.groups[category]) ~= nil end
+  if category then
+    return next(self.groups[category]) ~= nil
+  end
   for _, group in pairs(self.groups) do
-    if next(group) ~= nil then return true end
+    if next(group) ~= nil then
+      return true
+    end
   end
   return false
 end

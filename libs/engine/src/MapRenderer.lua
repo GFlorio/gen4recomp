@@ -296,6 +296,14 @@ function MapRenderer:_drawItem(item, viewMatrix, polygonIdOverride, projection)
   shader:send("u_model", "column", item.transform)
   shader:send("u_normalMatrix", "column", normalMatrix)
 
+  -- Per-material animated colors (defaults are the identity multipliers,
+  -- so static items are unchanged) and the animated UV transform.
+  shader:send("u_matDiffuse", mat and mat.matDiffuse or { 1, 1, 1 })
+  shader:send("u_matAmbient", mat and mat.matAmbient or { 1, 1, 1 })
+  shader:send("u_matSpecular", mat and mat.matSpecular or { 1, 1, 1 })
+  shader:send("u_matEmission", mat and mat.matEmission or { 0, 0, 0 })
+  shader:send("u_texMatrix", "column", mat and mat.texMatrix or { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
+
   if mat and mat.image then
     shader:send("u_useTexture", true)
     item.mesh:setTexture(mat.image)
@@ -329,6 +337,11 @@ function MapRenderer:_drawWireframe(item, viewMatrix, projection)
   shader:send("u_proj", "column", projection)
   shader:send("u_model", "column", item.transform)
   shader:send("u_normalMatrix", "column", normalMatrix)
+  shader:send("u_matDiffuse", { 1, 1, 1 })
+  shader:send("u_matAmbient", { 1, 1, 1 })
+  shader:send("u_matSpecular", { 1, 1, 1 })
+  shader:send("u_matEmission", { 0, 0, 0 })
+  shader:send("u_texMatrix", "column", { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
   shader:send("u_useTexture", false)
   shader:send("u_alphaMode", 0)
   shader:send("u_alphaCutoff", CUTOUT_EPSILON)

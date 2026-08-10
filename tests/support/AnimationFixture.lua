@@ -10,12 +10,23 @@ local AnimationFixture = {}
 local u8, u16, u32 = NitroBuilder.u8, NitroBuilder.u16, NitroBuilder.u32
 
 local function s16(v)
-  if v < 0 then v = v + 65536 end
+  if v < 0 then
+    v = v + 65536
+  end
   return math.floor(v) % 65536
 end
 
-local function fx16(v) return s16(v * 4096) end
-local function fx32(v) return math.floor(v * 65536) % 4294967296 end
+local function fx16(v)
+  return s16(v * 4096)
+end
+-- DS fixed point is 1.M.12 (4096 per unit), the same scale as the model
+-- node SRT records -- the geometry engine consumes these values directly as
+-- MTX_TRANS/MTX_SCALE params (NNSi_G3dSendJointSRTBasic), so NSBCA
+-- constants and fx32-storage keys are authored at 12-bit fraction, exactly
+-- like the verified real ROM members.
+local function fx32(v)
+  return math.floor(v * 4096) % 4294967296
+end
 
 -- Wrap a section body (dict + record) in a Nitro file with the given magic.
 local function file(magic, section, body)
@@ -38,7 +49,9 @@ end
 local function dictWithRecord(entries, record)
   local probe = NitroBuilder.dict(entries)
   local sized = {}
-  for i, e in ipairs(entries) do sized[i] = { name = e.name, data = u32(8 + #probe) } end
+  for i, e in ipairs(entries) do
+    sized[i] = { name = e.name, data = u32(8 + #probe) }
+  end
   return NitroBuilder.dict(sized) .. record
 end
 
@@ -48,10 +61,17 @@ end
 -- is "model" | { const = u32 } | { curve = { flag = u32, key = name } }.
 local function jntChannels(channels, keyOffsets)
   local out = {}
-  local function push(bytes) out[#out + 1] = bytes end
+  local function push(bytes)
+    out[#out + 1] = bytes
+  end
   local function axis(chan)
-    if chan == nil or chan == "model" then return end
-    if chan.const then push(u32(chan.const)) return end
+    if chan == nil or chan == "model" then
+      return
+    end
+    if chan.const then
+      push(u32(chan.const))
+      return
+    end
     push(u32(chan.curve.flag))
     push(u32(keyOffsets[chan.curve.key]))
   end
@@ -60,7 +80,9 @@ local function jntChannels(channels, keyOffsets)
   end
   local rot = channels.rot
   if rot ~= nil and rot ~= "model" then
-    if rot.const then push(u32(rot.const)) else
+    if rot.const then
+      push(u32(rot.const))
+    else
       push(u32(rot.curve.flag))
       push(u32(keyOffsets[rot.curve.key]))
     end
@@ -88,8 +110,12 @@ local function buildJntRecord(opts)
   local tableLen = 2 * numAnm
 
   local function channelSize(chan, constSize)
-    if chan == nil or chan == "model" then return 0 end
-    if chan.const then return constSize end
+    if chan == nil or chan == "model" then
+      return 0
+    end
+    if chan.const then
+      return constSize
+    end
     return 8
   end
   local function targetSize(t)
@@ -130,14 +156,20 @@ local function buildJntRecord(opts)
   bw:u32(opts.anmFlags or 0)
   bw:u32(ofsRotData)
   bw:u32(ofsPivotData)
-  for _, ofs in ipairs(ofsTarget) do bw:u16(ofs) end
+  for _, ofs in ipairs(ofsTarget) do
+    bw:u16(ofs)
+  end
   for _, t in ipairs(opts.targets) do
-    bw:u32(t.flag)
+    -- The target's node index lives in flag bits 24-31 (NNSG3dResAnmJnt
+    -- flag >> 24); the fixture table's nodeIndex field is that byte.
+    bw:u32(t.flag + (t.nodeIndex or 0) * 0x1000000)
     bw:bytes(jntChannels(t.channels, keyOffsets))
   end
   bw:bytes(opts.rotData or "")
   bw:bytes(opts.pivotData or "")
-  for _, bytes in pairs(opts.keyData or {}) do bw:bytes(bytes) end
+  for _, bytes in pairs(opts.keyData or {}) do
+    bw:bytes(bytes)
+  end
   return bw:tostring()
 end
 
@@ -153,17 +185,26 @@ end
 -- `door_op`): translation and scale from the model.
 function AnimationFixture.jntDoor(anmFlags)
   local entries = {}
-  for i = 0, 7 do entries[#entries + 1] = { control = 0x0024, a = 1 - i / 16, b = i / 16 } end
+  for i = 0, 7 do
+    entries[#entries + 1] = { control = 0x0024, a = 1 - i / 16, b = i / 16 }
+  end
   local keys = {}
-  for i = 0, 7 do keys[#keys + 1] = u16(0x8000 + i) end
+  for i = 0, 7 do
+    keys[#keys + 1] = u16(0x8000 + i)
+  end
   local record = buildJntRecord({
     numFrame = 8,
     anmFlags = anmFlags or 0,
     targets = {
-      { nodeIndex = 0, flag = 0x00003A3A,
-        channels = { trans = { x = "model", y = "model", z = "model" },
+      {
+        nodeIndex = 0,
+        flag = 0x00003A3A,
+        channels = {
+          trans = { x = "model", y = "model", z = "model" },
           rot = { curve = { flag = 0x00080000, key = "rot" } },
-          scale = { x = "model", y = "model", z = "model" } } },
+          scale = { x = "model", y = "model", z = "model" },
+        },
+      },
     },
     rotData = pivotTable(entries),
     keyData = { rot = table.concat(keys) },
@@ -182,7 +223,9 @@ function AnimationFixture.jntFull(rateFlag, keyCount, numFrame)
   -- (values stay within the fx16 range; the caller's expectations match)
   local function transKeys(base)
     local out = {}
-    for i = 0, keyCount - 1 do out[#out + 1] = u16(fx16(base + i * 2)) end
+    for i = 0, keyCount - 1 do
+      out[#out + 1] = u16(fx16(base + i * 2))
+    end
     return table.concat(out)
   end
   local function scaleKeys()
@@ -194,11 +237,15 @@ function AnimationFixture.jntFull(rateFlag, keyCount, numFrame)
     return table.concat(out)
   end
   local rotKeys = {}
-  for i = 0, keyCount - 1 do rotKeys[#rotKeys + 1] = u16(0x8000 + i % 2) end
+  for i = 0, keyCount - 1 do
+    rotKeys[#rotKeys + 1] = u16(0x8000 + i % 2)
+  end
   local record = buildJntRecord({
     numFrame = numFrame,
     targets = {
-      { nodeIndex = 3, flag = 0,
+      {
+        nodeIndex = 3,
+        flag = 0,
         channels = {
           trans = {
             x = { curve = { flag = flagFx16, key = "tx" } },
@@ -211,7 +258,8 @@ function AnimationFixture.jntFull(rateFlag, keyCount, numFrame)
             y = { curve = { flag = flag, key = "sy" } },
             z = { curve = { flag = flag, key = "sz" } },
           },
-        } },
+        },
+      },
     },
     rotData = pivotTable({ { a = 1, b = 0 }, { a = 0, b = 1 } }),
     keyData = {
@@ -233,18 +281,37 @@ function AnimationFixture.jntConstants()
   local record = buildJntRecord({
     numFrame = 2,
     targets = {
-      { nodeIndex = 1, flag = 0x000006F8, -- trans consts, rot+scale from model
-        channels = { trans = { x = { const = fx32(10) }, y = { const = fx32(20) },
-          z = { const = fx32(30) } }, rot = "model",
-          scale = { x = "model", y = "model", z = "model" } } },
-      { nodeIndex = 2, flag = 0x00000706, -- rot const, trans+scale from model
-        channels = { trans = { x = "model", y = "model", z = "model" },
-          rot = { const = 0x8001 }, scale = { x = "model", y = "model", z = "model" } } },
-      { nodeIndex = 4, flag = 0x000038C6, -- scale consts, trans+rot from model
-        channels = { trans = { x = "model", y = "model", z = "model" }, rot = "model",
-          scale = { x = { const = fx32(2), constInv = fx32(0.5) },
+      {
+        nodeIndex = 1,
+        flag = 0x000006F8, -- trans consts, rot+scale from model
+        channels = {
+          trans = { x = { const = fx32(10) }, y = { const = fx32(20) }, z = { const = fx32(30) } },
+          rot = "model",
+          scale = { x = "model", y = "model", z = "model" },
+        },
+      },
+      {
+        nodeIndex = 2,
+        flag = 0x00000706, -- rot const, trans+scale from model
+        channels = {
+          trans = { x = "model", y = "model", z = "model" },
+          rot = { const = 0x8001 },
+          scale = { x = "model", y = "model", z = "model" },
+        },
+      },
+      {
+        nodeIndex = 4,
+        flag = 0x000038C6, -- scale consts, trans+rot from model
+        channels = {
+          trans = { x = "model", y = "model", z = "model" },
+          rot = "model",
+          scale = {
+            x = { const = fx32(2), constInv = fx32(0.5) },
             y = { const = fx32(3), constInv = fx32(1 / 3) },
-            z = { const = fx32(4), constInv = fx32(0.25) } } } },
+            z = { const = fx32(4), constInv = fx32(0.25) },
+          },
+        },
+      },
       { nodeIndex = 5, flag = 0x00000001, channels = {} },
     },
     rotData = pivotTable({ { a = 1, b = 0 }, { a = 0, b = 1 } }),
@@ -255,22 +322,31 @@ end
 -- A JNT whose rotation keys use the compressed form (bit 15 clear).
 function AnimationFixture.jntCompressed()
   local keys = {}
-  for i = 0, 3 do keys[#keys + 1] = u16(i) end -- compressed indices 0..3
+  for i = 0, 3 do
+    keys[#keys + 1] = u16(i)
+  end -- compressed indices 0..3
   local compEntries = {}
   for i = 0, 3 do
     -- Entry with nonzero low-3-bit remainders to exercise the packing.
     local e = { 0x2000 + i, 0x2000, 0, 0x1003, 0x1005 }
     local out = {}
-    for _, v in ipairs(e) do out[#out + 1] = u16(v) end
+    for _, v in ipairs(e) do
+      out[#out + 1] = u16(v)
+    end
     compEntries[#compEntries + 1] = table.concat(out)
   end
   local record = buildJntRecord({
     numFrame = 4,
     targets = {
-      { nodeIndex = 0, flag = 0x00003A3A,
-        channels = { trans = { x = "model", y = "model", z = "model" },
+      {
+        nodeIndex = 0,
+        flag = 0x00003A3A,
+        channels = {
+          trans = { x = "model", y = "model", z = "model" },
           rot = { curve = { flag = 0x00040000, key = "rot" } },
-          scale = { x = "model", y = "model", z = "model" } } },
+          scale = { x = "model", y = "model", z = "model" },
+        },
+      },
     },
     pivotData = table.concat(compEntries),
     keyData = { rot = table.concat(keys) },
@@ -281,9 +357,10 @@ end
 -- ---- NSBTA / SRT0 ----
 
 -- Assemble one SRT0 record with 1 target. opts: numFrame, channels =
--- { transS, transT, rot, scaleS, scaleT }, each { const = u32 } or
+-- { scaleS, scaleT, rot, transS, transT }, each { const = u32 } or
 -- { fx16 = bool, keys = { u32-or-u16 values } } (rot keys are packed u32
--- sin/cos pairs when `packed`).
+-- sin/cos pairs when `packed`). The channel order follows GetTexSRTAnm_
+-- (scale pair first, then rot, then the translation pair).
 local function buildSrtRecord(opts)
   local numFrame = opts.numFrame or 60
   local headerLen = 0x1C
@@ -295,7 +372,7 @@ local function buildSrtRecord(opts)
   local keyAt = recordLen
   local cursor = keyAt
   local offsets = {}
-  local order = { "transS", "transT", "rot", "scaleS", "scaleT" }
+  local order = { "scaleS", "scaleT", "rot", "transS", "transT" }
   for _, name in ipairs(order) do
     local c = opts.channels[name]
     if c.const == nil then
@@ -326,7 +403,9 @@ local function buildSrtRecord(opts)
       bw:u32(c.const)
     else
       local flag = numFrame
-      if c.fx16 then flag = flag + 0x10000000 end
+      if c.fx16 then
+        flag = flag + 0x10000000
+      end
       bw:u32(flag)
       bw:u32(offsets[name])
     end
@@ -336,38 +415,52 @@ local function buildSrtRecord(opts)
     local c = opts.channels[name]
     if c.const == nil then
       for _, v in ipairs(c.keys) do
-        if c.fx16 and not c.packed then bw:bytes(u16(v)) else bw:bytes(u32(v)) end
+        if c.fx16 and not c.packed then
+          bw:bytes(u16(v))
+        else
+          bw:bytes(u32(v))
+        end
       end
     end
   end
   return bw:tostring()
 end
 
--- Water-like SRT: constant trans/rot/scaleS, sampled fx16 scaleT.
+-- Water-like SRT (the real en_sp1 shape): identity scales and rotation,
+-- zero translation S, and a sampled fx16 translation-T curve (the scroll).
 function AnimationFixture.srtWater()
   local record = buildSrtRecord({
     numFrame = 8,
     channels = {
-      transS = { const = 0x1000 },
-      transT = { const = 0x1000 },
+      scaleS = { const = 0x1000 },
+      scaleT = { const = 0x1000 },
       rot = { const = 0x10000000 },
-      scaleS = { const = 0 },
-      scaleT = { fx16 = true, keys = { fx16(1), fx16(2), fx16(3), fx16(4), fx16(5), fx16(6), fx16(7), fx16(8) } },
+      transS = { const = 0 },
+      transT = { fx16 = true, keys = { fx16(1), fx16(2), fx16(3), fx16(4), fx16(5), fx16(6), fx16(7), fx16(8) } },
     },
   })
   return file("BTA0", "SRT0", dictWithRecord({ { name = "en_sp1", data = u32(0) } }, record))
 end
 
--- SRT with an animated rotation (packed sin/cos keys) and trans curves.
+-- SRT with an animated rotation (packed sin/cos keys) and a translation-S
+-- curve.
 function AnimationFixture.srtSpin()
   local record = buildSrtRecord({
     numFrame = 4,
     channels = {
+      scaleS = { const = 0x1000 },
+      scaleT = { const = 0x1000 },
+      rot = {
+        packed = true,
+        keys = {
+          packedSinCos(0.5, 0.8660),
+          packedSinCos(0.7071, 0.7071),
+          packedSinCos(1, 0),
+          packedSinCos(0.7071, -0.7071),
+        },
+      },
       transS = { keys = { 0, 0x1000, 0x2000, 0x3000 } },
       transT = { const = 0 },
-      rot = { packed = true, keys = { packedSinCos(0.5, 0.8660), packedSinCos(0.7071, 0.7071), packedSinCos(1, 0), packedSinCos(0.7071, -0.7071) } },
-      scaleS = { const = 0 },
-      scaleT = { const = 0 },
     },
   })
   return file("BTA0", "SRT0", dictWithRecord({ { name = "spin", data = u32(0) } }, record))
@@ -378,11 +471,11 @@ function AnimationFixture.srtConstRot()
   local record = buildSrtRecord({
     numFrame = 4,
     channels = {
+      scaleS = { const = 0x1000 },
+      scaleT = { const = 0x1000 },
+      rot = { const = packedSinCos(0.5, 0.8660) },
       transS = { const = 0 },
       transT = { const = 0 },
-      rot = { const = packedSinCos(0.5, 0.8660) },
-      scaleS = { const = 0 },
-      scaleT = { const = 0 },
     },
   })
   return file("BTA0", "SRT0", dictWithRecord({ { name = "constrot", data = u32(0) } }, record))
@@ -398,9 +491,13 @@ function AnimationFixture.patPcMb()
     keys[#keys + 1] = u16(i * 4) .. u8(i % 4) .. u8(i % 4)
   end
   local texNames = {}
-  for i = 1, 4 do texNames[#texNames + 1] = name16("pc_mb." .. i) end
+  for i = 1, 4 do
+    texNames[#texNames + 1] = name16("pc_mb." .. i)
+  end
   local plttNames = {}
-  for i = 1, 4 do plttNames[#plttNames + 1] = name16("pc_mb." .. i .. "_pl") end
+  for i = 1, 4 do
+    plttNames[#plttNames + 1] = name16("pc_mb." .. i .. "_pl")
+  end
 
   local headerLen = 0x1C
   local targetBlock = 12 -- pre-record (stride, nameOfs) + key record
@@ -429,7 +526,9 @@ function AnimationFixture.patPcMb()
   bw:u16(0x0400) -- rate: one key every 4 frames
   bw:u16(ofsKeys)
   bw:bytes(name16("pc_mb"))
-  for _, k in ipairs(keys) do bw:bytes(k) end
+  for _, k in ipairs(keys) do
+    bw:bytes(k)
+  end
   bw:bytes(table.concat(texNames))
   bw:bytes(table.concat(plttNames))
   return file("BTP0", "PAT0", dictWithRecord({ { name = "pc_mb", data = u32(0) } }, bw:tostring()))
@@ -441,7 +540,9 @@ end
 function AnimationFixture.matFade()
   local numFrame = 60
   local alphaKeys = {}
-  for i = 0, 59 do alphaKeys[#alphaKeys + 1] = u8(math.max(0, 31 - i / 2)) end
+  for i = 0, 59 do
+    alphaKeys[#alphaKeys + 1] = u8(math.max(0, 31 - i / 2))
+  end
 
   local stride = 20
   local ofsTargets = 0x10
@@ -466,7 +567,9 @@ function AnimationFixture.matFade()
   bw:u32(0x203C * 0x10000) -- constant emission
   bw:u32(numFrame * 0x10000 + ofsAlpha) -- alpha curve
   bw:bytes(name16("yuka2_lm3"))
-  for _, b in ipairs(alphaKeys) do bw:bytes(b) end
+  for _, b in ipairs(alphaKeys) do
+    bw:bytes(b)
+  end
   return file("BMA0", "MAT0", dictWithRecord({ { name = "psentry_rode", data = u32(0) } }, bw:tostring()))
 end
 
@@ -483,7 +586,9 @@ function AnimationFixture.visSimple()
   bw:u16(numFrame)
   bw:u16(numAnm)
   bw:u32(0)
-  for _, w in ipairs(words) do bw:u32(w) end
+  for _, w in ipairs(words) do
+    bw:u32(w)
+  end
   return file("BVA0", "VIS0", dictWithRecord({ { name = "vis", data = u32(0) } }, bw:tostring()))
 end
 

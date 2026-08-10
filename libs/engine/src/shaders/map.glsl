@@ -46,6 +46,13 @@ uniform vec3 u_ambientColor;
 uniform vec3 u_specularColor;
 uniform vec3 u_emissionColor;
 
+// Per-material animated colors (NSBMA): they multiply the lighting-set
+// colors in the vertex stage and select the COLOR_DIFFUSE vertex color.
+uniform vec3 u_matDiffuse;
+uniform vec3 u_matAmbient;
+uniform vec3 u_matSpecular;
+uniform vec3 u_matEmission;
+
 const vec3 VIEW_DIRECTION = vec3(0.0, 0.0, 1.0);
 
 vec3 dsLightContribution(vec3 normal, vec3 L, vec3 lightColor)
@@ -56,13 +63,17 @@ vec3 dsLightContribution(vec3 normal, vec3 L, vec3 lightColor)
   vec3 H = normalize(-L + VIEW_DIRECTION);
   float ndh = max(0.0, dot(normal, H));
 
-  vec3 contrib = u_ambientColor + u_diffuseColor * ld + u_specularColor * ndh;
+  // The material's own colors multiply the lighting-set colors, as the DS
+  // material registers do (NSBMA animates them per material).
+  vec3 contrib = u_matAmbient * u_ambientColor
+    + u_matDiffuse * u_diffuseColor * ld
+    + u_matSpecular * u_specularColor * ndh;
   return lightColor * contrib;
 }
 
 vec3 computeDsLighting(vec3 normal)
 {
-  vec3 acc = u_emissionColor;
+  vec3 acc = u_matEmission * u_emissionColor;
 
   if (u_lightEnabled0 && u_lightMask.x > 0.5)
     acc += dsLightContribution(normal, normalize(u_lightVector0), u_lightColor0);
@@ -89,7 +100,8 @@ vec4 position(mat4 transform_projection, vec4 vertex_position)
   if (src == 0) {
     v_dsColor = quantizeRgb5(VertexColor.rgb);
   } else if (src == 2) {
-    v_dsColor = quantizeRgb5(u_diffuseColor);
+    // COLOR_DIFFUSE: the vertex color IS the material's diffuse register.
+    v_dsColor = quantizeRgb5(u_matDiffuse);
   } else {
     v_dsColor = quantizeRgb5(computeDsLighting(normal));
   }
@@ -110,11 +122,12 @@ uniform float u_alphaCutoff;
 uniform float u_polygonAlpha;  // normalized 5-bit polygon alpha
 uniform int u_polygonMode;     // 0 modulation/toon, 1 decal
 uniform float u_polygonId;     // normalized 6-bit polygon ID (id / 255), sentinel 1.0
+uniform mat3 u_texMatrix;      // normalized-UV transform (NSBTA texture SRT)
 uniform sampler2D MainTex;
 
 void effect()
 {
-  vec2 uv = VaryingTexCoord.xy;
+  vec2 uv = (u_texMatrix * vec3(VaryingTexCoord.xy, 1.0)).xy;
   vec4 base = u_useTexture ? Texel(MainTex, uv) : vec4(1.0);
 
   vec3 outRgb;

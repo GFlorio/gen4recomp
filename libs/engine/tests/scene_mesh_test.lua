@@ -91,10 +91,21 @@ return {
     ["round-trips a G4M3 batch with skin attributes"] = function()
       local function v(i)
         return {
-          x = i, y = i * 2, z = -i, u = 0.5, v = 0.25,
-          nx = 0, ny = 1, nz = 0, r = 255, g = 0, b = 128, a = 255,
+          x = i,
+          y = i * 2,
+          z = -i,
+          u = 0.5,
+          v = 0.25,
+          nx = 0,
+          ny = 1,
+          nz = 0,
+          r = 255,
+          g = 0,
+          b = 128,
+          a = 255,
           colorSource = i % 3,
-          joints = { 0, 1, 2, 3 }, weights = { 64, 64, 64, 63 },
+          joints = { 0, 1, 2, 3 },
+          weights = { 64, 64, 64, 63 },
         }
       end
       local batch = {
@@ -113,9 +124,25 @@ return {
 
     ["rejects a G4M3 with a stale version"] = function()
       local bytes = MeshWriter.encode({
-        vertices = { { x = 0, y = 0, z = 0, u = 0, v = 0, nx = 0, ny = 1, nz = 0,
-          r = 255, g = 255, b = 255, a = 255, colorSource = 0,
-          joints = { 0, 0, 0, 0 }, weights = { 0, 0, 0, 0 } } },
+        vertices = {
+          {
+            x = 0,
+            y = 0,
+            z = 0,
+            u = 0,
+            v = 0,
+            nx = 0,
+            ny = 1,
+            nz = 0,
+            r = 255,
+            g = 255,
+            b = 255,
+            a = 255,
+            colorSource = 0,
+            joints = { 0, 0, 0, 0 },
+            weights = { 0, 0, 0, 0 },
+          },
+        },
         indices = { 0, 0, 0 },
       }, { format = "g4m3" })
       local patched = bytes:sub(1, 4) .. "\2" .. bytes:sub(6)

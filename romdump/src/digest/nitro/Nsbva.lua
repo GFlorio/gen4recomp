@@ -26,7 +26,9 @@ function Nsbva.decodeRecord(r, record, context)
   local wordCount = math.ceil(numFrame * numAnm / 32)
   r:assertRange(record + 0x0C, wordCount * 4, "nsbva-visibility")
   local words = {}
-  for i = 0, wordCount - 1 do words[i] = r:u32le(record + 0x0C + i * 4) end
+  for i = 0, wordCount - 1 do
+    words[i] = r:u32le(record + 0x0C + i * 4)
+  end
   return {
     numFrame = numFrame,
     numAnm = numAnm,
@@ -39,8 +41,12 @@ end
 -- Visibility of `nodeIndex` at integer `frame` (0 = visible? 1 = visible;
 -- the raw bit is returned). The frame is clamped to [0, numFrame - 1].
 function Nsbva.sample(res, nodeIndex, frame)
-  if frame < 0 then frame = 0 end
-  if frame >= res.numFrame then frame = res.numFrame - 1 end
+  if frame < 0 then
+    frame = 0
+  end
+  if frame >= res.numFrame then
+    frame = res.numFrame - 1
+  end
   local bit = frame * res.numAnm + nodeIndex
   local word = res.words[math.floor(bit / 32)]
   return math.floor(word / 2 ^ (bit % 32)) % 2 == 1
@@ -48,7 +54,9 @@ end
 
 local function _decode(bytes, context)
   local file, err = NitroFile.decode(bytes, "BVA0", context)
-  if not file then error(err) end
+  if not file then
+    error(err)
+  end
   local section = NitroFile.section(file, "VIS0")
   if not section then
     error(Errors.new("NSBVA_NO_VIS0", "BVA0 file has no VIS0 section", { source = context }))
@@ -69,8 +77,12 @@ end
 
 function Nsbva.decode(bytes, context)
   local ok, result = pcall(_decode, bytes, context)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 

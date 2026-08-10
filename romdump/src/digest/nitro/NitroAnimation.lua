@@ -37,26 +37,41 @@ local function _decode(bytes, context)
   local magic = bytes:sub(1, 4)
   local spec = FORMATS[magic]
   if not spec then
-    error(Errors.new("ANM_UNKNOWN_FILE_MAGIC",
-      string.format("file magic %q is not a supported animation format", magic),
-      { magic = magic, source = context }))
+    error(
+      Errors.new(
+        "ANM_UNKNOWN_FILE_MAGIC",
+        string.format("file magic %q is not a supported animation format", magic),
+        { magic = magic, source = context }
+      )
+    )
   end
   local decoded, err = spec.decoder.decode(bytes, context)
-  if not decoded then error(err) end
+  if not decoded then
+    error(err)
+  end
   if decoded.section ~= spec.section then
-    error(Errors.new("ANM_SECTION_MISMATCH",
-      string.format("%s file has section %q, expected %q", magic, decoded.section, spec.section),
-      { magic = magic, section = decoded.section, expected = spec.section, source = context }))
+    error(
+      Errors.new(
+        "ANM_SECTION_MISMATCH",
+        string.format("%s file has section %q, expected %q", magic, decoded.section, spec.section),
+        { magic = magic, section = decoded.section, expected = spec.section, source = context }
+      )
+    )
   end
   return decoded
 end
 
 -- Decode one animation resource. Returns the normalized shape above, or
 -- nil, err at the public boundary.
+---@return table|nil, table|nil
 function NitroAnimation.decode(bytes, context)
   local ok, result = pcall(_decode, bytes, context)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 

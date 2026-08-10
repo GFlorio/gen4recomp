@@ -32,27 +32,33 @@ local function identityCamera()
   local identity = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 }
   return {
     distance = 26,
-    view = function() return identity end,
-    projection = function() return identity end,
+    view = function()
+      return identity
+    end,
+    projection = function()
+      return identity
+    end,
   }
 end
 
 local function drawInstance(renderer, runtime, instance, alpha)
   local items = instance:drawItems(instance.renders)
   runtime.mapDraws = items
-  renderer:draw(runtime, identityCamera(), nil,
-    FieldViewport.new(320, 240, { mode = "strict" }), alpha)
+  renderer:draw(runtime, identityCamera(), nil, FieldViewport.new(320, 240, { mode = "strict" }), alpha)
 end
 
 function T.generic_animated_fixture_renders_through_map_renderer()
-  if not hasGraphics() then return end
+  if not hasGraphics() then
+    return
+  end
   local lg = love.graphics
   local renderer = MapRenderer.new()
   local def = GenericModelFixture.doorDefinition()
   local instance = ModelInstance.new(def)
   instance.renders = buildRenders(def)
   local runtime = {
-    mapDraws = {}, buildingDraws = {},
+    mapDraws = {},
+    buildingDraws = {},
     stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
     lighting = nil,
   }
@@ -80,18 +86,23 @@ function T.generic_animated_fixture_renders_through_map_renderer()
   Assert.equal(lg.getMeshCullMode(), "none")
   Assert.isFalse(lg.isWireframe())
 
-  for _, mesh in pairs(instance.renders) do mesh:release() end
+  for _, mesh in pairs(instance.renders) do
+    mesh:release()
+  end
   renderer:release()
 end
 
 function T.hidden_node_geometry_is_not_drawn()
-  if not hasGraphics() then return end
+  if not hasGraphics() then
+    return
+  end
   local renderer = MapRenderer.new()
   local def = GenericModelFixture.doorDefinition()
   local instance = ModelInstance.new(def)
   instance.renders = buildRenders(def)
   local runtime = {
-    mapDraws = {}, buildingDraws = {},
+    mapDraws = {},
+    buildingDraws = {},
     stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
     lighting = nil,
   }
@@ -103,7 +114,9 @@ function T.hidden_node_geometry_is_not_drawn()
   drawInstance(renderer, runtime, instance, 1)
   Assert.equal(renderer.stats.drawCalls, 2, "the hidden leaf mesh is not drawn")
 
-  for _, mesh in pairs(instance.renders) do mesh:release() end
+  for _, mesh in pairs(instance.renders) do
+    mesh:release()
+  end
   renderer:release()
 end
 

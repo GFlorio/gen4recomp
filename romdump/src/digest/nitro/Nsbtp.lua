@@ -37,7 +37,9 @@ local Nsbtp = {}
 local NAME_SIZE = 16
 
 local function s16(value)
-  if value >= 32768 then value = value - 65536 end
+  if value >= 32768 then
+    value = value - 65536
+  end
   return value
 end
 
@@ -116,11 +118,14 @@ end
 -- the last key; then the walk-back and walk-forward adjust it so the result
 -- is the last key whose frame does not exceed the requested frame.
 function Nsbtp.keyAt(res, targetIndex, frame)
-  local target = assert(res.targets[targetIndex + 1],
-    "target index " .. tostring(targetIndex) .. " out of range")
+  local target = assert(res.targets[targetIndex + 1], "target index " .. tostring(targetIndex) .. " out of range")
   local i = math.floor(target.rate * frame / 4096)
-  if i >= target.keyCount then i = target.keyCount - 1 end
-  while i > 0 and target.keys[i].frame >= frame do i = i - 1 end
+  if i >= target.keyCount then
+    i = target.keyCount - 1
+  end
+  while i > 0 and target.keys[i].frame >= frame do
+    i = i - 1
+  end
   while i + 1 < target.keyCount and target.keys[i + 2].frame <= frame do
     i = i + 1
   end
@@ -129,7 +134,9 @@ end
 
 local function _decode(bytes, context)
   local file, err = NitroFile.decode(bytes, "BTP0", context)
-  if not file then error(err) end
+  if not file then
+    error(err)
+  end
   local section = NitroFile.section(file, "PAT0")
   if not section then
     error(Errors.new("NSBTP_NO_PAT0", "BTP0 file has no PAT0 section", { source = context }))
@@ -150,8 +157,12 @@ end
 
 function Nsbtp.decode(bytes, context)
   local ok, result = pcall(_decode, bytes, context)
-  if ok then return result end
-  if Errors.is(result) then return nil, result end
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
   error(result)
 end
 
