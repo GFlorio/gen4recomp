@@ -18,6 +18,9 @@ local ASSET_DIR = "assets/generated/field/actors"
 function FieldActorCache.dir()
   return DATA_DIR
 end
+function FieldActorCache.assetDir()
+  return ASSET_DIR
+end
 function FieldActorCache.indexPath()
   return DATA_DIR .. "/index.lua"
 end

@@ -1,7 +1,11 @@
--- Persists normalized field-camera profiles and provenance, committing the
--- completion marker only after both deterministic Lua artifacts read back.
+-- Persists normalized field-camera profiles through the shared staged
+-- publication primitive: both deterministic Lua artifacts are written into a
+-- disposable staging root, read back there, and only then is the completed
+-- stage published with the completion marker last. On any failure the stage is
+-- discarded and any previous live camera artifact is left untouched.
 
 local Errors = require("libs.rom.src.Errors")
+local ArtifactPublisher = require("libs.rom.src.ArtifactPublisher")
 
 local FieldCameraCacheWriter = {}
 local DIR = "data/generated/field/camera"
@@ -24,12 +28,12 @@ function FieldCameraCacheWriter.isReady(cacheFs, marker)
     and cacheFs:exists(FieldCameraCacheWriter.provenancePath(), "file")
 end
 
-local function persist(cacheFs, bundle)
-  cacheFs:remove(FieldCameraCacheWriter.markerPath())
-  cacheFs:writeLua(FieldCameraCacheWriter.profilesPath(), bundle.profiles)
-  cacheFs:writeLua(FieldCameraCacheWriter.provenancePath(), bundle.provenance)
-  local profiles, profileErr = cacheFs:loadLua(FieldCameraCacheWriter.profilesPath())
-  local provenance, provenanceErr = cacheFs:loadLua(FieldCameraCacheWriter.provenancePath())
+local function persist(tx, bundle)
+  local stage = tx.stage
+  stage:writeLua(FieldCameraCacheWriter.profilesPath(), bundle.profiles)
+  stage:writeLua(FieldCameraCacheWriter.provenancePath(), bundle.provenance)
+  local profiles, profileErr = stage:loadLua(FieldCameraCacheWriter.profilesPath())
+  local provenance, provenanceErr = stage:loadLua(FieldCameraCacheWriter.provenancePath())
   if not profiles or not provenance then
     Errors.raise(
       "FIELD_CAMERA_CACHE_STALE",
@@ -39,19 +43,19 @@ local function persist(cacheFs, bundle)
   end
   assert(profiles.schema == "g4-field-camera-profiles-v1")
   assert(profiles.recordCount == bundle.profiles.recordCount)
-  cacheFs:write(FieldCameraCacheWriter.markerPath(), bundle.marker)
+  stage:write(FieldCameraCacheWriter.markerPath(), bundle.marker)
+  tx:publish()
   return bundle.marker
 end
 
 function FieldCameraCacheWriter.write(cacheFs, bundle)
   assert(cacheFs and type(bundle) == "table" and bundle.marker, "invalid camera bundle")
-  local ok, result = pcall(persist, cacheFs, bundle)
+  local tx = ArtifactPublisher.begin(cacheFs, "field-cameras", { DIR })
+  local ok, result = pcall(persist, tx, bundle)
   if ok then
     return result
   end
-  pcall(function()
-    cacheFs:removeTree(DIR)
-  end)
+  tx:abort()
   error(result)
 end
 

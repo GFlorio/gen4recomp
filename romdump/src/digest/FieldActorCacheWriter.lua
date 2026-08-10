@@ -1,12 +1,15 @@
--- Persists a compiled field-actor bundle in a marker-last transaction: atlases
--- first, then visual definitions, provenance, and the index; only after the
--- index reads back and every artifact it names is present is the completion
--- marker written. Any failure removes the actor subtrees and re-raises, never
--- touching the raw ROM dump or any compiled map.
+-- Persists a compiled field-actor bundle through the shared staged
+-- publication primitive: atlases, visual definitions, provenance, and the
+-- index are written into a disposable staging root, read back and validated
+-- there, and only then is the completed stage published over the live actor
+-- roots with the marker last. A failure at any point leaves the previous live
+-- actor artifact untouched; the stage is discarded. The raw ROM dump and any
+-- compiled map are never touched.
 
 local Errors = require("libs.rom.src.Errors")
 local PngWriter = require("libs.assets.src.PngWriter")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
+local ArtifactPublisher = require("libs.rom.src.ArtifactPublisher")
 
 local FieldActorCacheWriter = {}
 
@@ -14,8 +17,8 @@ function FieldActorCacheWriter.isReady(cacheFs, marker)
   return FieldActorCache.isReady(cacheFs, marker)
 end
 
-local function persist(cacheFs, bundle)
-  cacheFs:remove(FieldActorCache.markerPath())
+local function persist(tx, bundle)
+  local stage = tx.stage
 
   for _, spriteId in ipairs(bundle.index.spriteIds) do
     local atlas = bundle.atlases[spriteId]
@@ -27,13 +30,13 @@ local function persist(cacheFs, bundle)
         { spriteId = spriteId }
       )
     end
-    cacheFs:write(FieldActorCache.atlasPath(spriteId), PngWriter.encode(atlas.width, atlas.height, atlas.pixels))
-    cacheFs:writeLua(FieldActorCache.visualPath(spriteId), visual)
+    stage:write(FieldActorCache.atlasPath(spriteId), PngWriter.encode(atlas.width, atlas.height, atlas.pixels))
+    stage:writeLua(FieldActorCache.visualPath(spriteId), visual)
   end
-  cacheFs:writeLua(FieldActorCache.provenancePath(), bundle.provenance)
-  cacheFs:writeLua(FieldActorCache.indexPath(), bundle.index)
+  stage:writeLua(FieldActorCache.provenancePath(), bundle.provenance)
+  stage:writeLua(FieldActorCache.indexPath(), bundle.index)
 
-  local index = cacheFs:loadLua(FieldActorCache.indexPath())
+  local index = stage:loadLua(FieldActorCache.indexPath())
   if type(index) ~= "table" or index.schema ~= FieldActorCache.INDEX_SCHEMA then
     Errors.raise(
       "FIELD_ACTOR_CACHE_READBACK_FAILED",
@@ -42,7 +45,7 @@ local function persist(cacheFs, bundle)
     )
   end
   for _, spriteId in ipairs(index.spriteIds) do
-    local visual = cacheFs:loadLua(FieldActorCache.visualPath(spriteId))
+    local visual = stage:loadLua(FieldActorCache.visualPath(spriteId))
     if type(visual) ~= "table" or visual.schema ~= FieldActorCache.SCHEMA then
       Errors.raise(
         "FIELD_ACTOR_CACHE_READBACK_FAILED",
@@ -50,7 +53,7 @@ local function persist(cacheFs, bundle)
         { spriteId = spriteId }
       )
     end
-    if not cacheFs:exists(FieldActorCache.atlasPath(spriteId), "file") then
+    if not stage:exists(FieldActorCache.atlasPath(spriteId), "file") then
       Errors.raise(
         "FIELD_ACTOR_CACHE_MISSING_ATLAS",
         "atlas missing after write for spriteId " .. spriteId,
@@ -59,19 +62,22 @@ local function persist(cacheFs, bundle)
     end
   end
 
-  cacheFs:write(FieldActorCache.markerPath(), bundle.marker)
+  stage:write(FieldActorCache.markerPath(), bundle.marker)
+  tx:publish()
   return bundle.marker
 end
 
 function FieldActorCacheWriter.write(cacheFs, bundle)
   assert(cacheFs and type(bundle) == "table" and bundle.marker, "invalid actor bundle")
-  local ok, result = pcall(persist, cacheFs, bundle)
+  local tx = ArtifactPublisher.begin(cacheFs, "field-actors", {
+    FieldActorCache.assetDir(),
+    FieldActorCache.dir(),
+  })
+  local ok, result = pcall(persist, tx, bundle)
   if ok then
     return result
   end
-  pcall(function()
-    FieldActorCache.invalidate(cacheFs)
-  end)
+  tx:abort()
   error(result)
 end
 

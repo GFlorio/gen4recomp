@@ -153,6 +153,33 @@ function T.writer_failure_invalidates_the_class()
   Assert.isFalse(cache:exists(FieldMessageCache.dir()))
 end
 
+function T.failed_rebuild_preserves_the_previous_messages()
+  local romFs, sha1, hashLua = fixture()
+  local first = assert(FieldMessageCompiler.compile(romFs, sha1, hashLua))
+  local backend = FakeCache.new()
+  local cache = CacheFs.forVersion("heartgold", backend)
+  FieldMessageCacheWriter.write(cache, first)
+  local originalWrite = backend.write
+  ---@diagnostic disable: duplicate-set-field
+  backend.write = function(self, path, data)
+    if path:find("banks/0543.lua", 1, true) then
+      error("injected")
+    end
+    return originalWrite(self, path, data)
+  end
+  local second = assert(FieldMessageCompiler.compile(romFs, sha1, hashLua))
+  second.marker = FieldMessageCache.marker(sha1, "new-dep-hash")
+  Assert.throws(function()
+    FieldMessageCacheWriter.write(cache, second)
+  end)
+  Assert.isTrue(FieldMessageCache.isReady(cache, first.marker), "the previous messages remain ready")
+  Assert.equal(cache:read(FieldMessageCache.markerPath()), first.marker, "no new marker leaked")
+  Assert.isNil(backend:getInfo("staging/heartgold/field-messages"), "the stage is cleaned on failure")
+  backend.write = originalWrite
+  FieldMessageCacheWriter.write(cache, second)
+  Assert.isTrue(FieldMessageCache.isReady(cache, second.marker), "a retry publishes the new messages")
+end
+
 function T.unmapped_glyph_fails_compilation_with_context()
   local messages = { { 0x0001, 0xFFFF } } -- kana code outside the selected set
   local member = FieldMessageBank.encodeForTests(messages, 0x1234)

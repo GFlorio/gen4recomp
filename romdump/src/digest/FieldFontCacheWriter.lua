@@ -1,11 +1,14 @@
--- Atomic marker-last writer for the field-font derived class. Writes the
--- provenance record, the font definition Lua, and the atlas PNG, readback-
--- validates both, and only then publishes the completion marker. On any
--- failure the whole class is invalidated so a partial build never reads as
--- complete.
+-- Persists a compiled field-font bundle through the shared staged
+-- publication primitive: the provenance record, the font definition Lua, and
+-- the atlas PNG are written into a disposable staging root, readback-validated
+-- there, and only then is the completed stage published with the marker last.
+-- On any failure the stage is discarded and the previous live font artifact is
+-- left untouched, so a partial build never reads as complete and never destroys
+-- a valid one.
 
 local Errors = require("libs.rom.src.Errors")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
+local ArtifactPublisher = require("libs.rom.src.ArtifactPublisher")
 
 local FieldFontCacheWriter = {}
 
@@ -16,29 +19,32 @@ end
 function FieldFontCacheWriter.write(cacheFs, bundle)
   assert(bundle and bundle.marker and bundle.font and bundle.atlas, "write requires a font bundle")
   assert(bundle.font.schema == FieldFontCache.SCHEMA, "font def schema mismatch")
+  local tx = ArtifactPublisher.begin(cacheFs, "field-font", {
+    FieldFontCache.assetDir(),
+    FieldFontCache.dir(),
+  })
   local ok, err = pcall(function()
-    cacheFs:remove(FieldFontCache.markerPath())
-    cacheFs:writeLua(FieldFontCache.provenancePath(), {
+    local stage = tx.stage
+    stage:writeLua(FieldFontCache.provenancePath(), {
       schema = "g4-field-font-provenance-v1",
       dependencies = bundle.dependencies,
     })
-    cacheFs:write(FieldFontCache.atlasPath(bundle.fontId), bundle.atlas)
-    cacheFs:writeLua(FieldFontCache.defPath(bundle.fontId), bundle.font)
-    local def = cacheFs:loadLua(FieldFontCache.defPath(bundle.fontId))
+    stage:write(FieldFontCache.atlasPath(bundle.fontId), bundle.atlas)
+    stage:writeLua(FieldFontCache.defPath(bundle.fontId), bundle.font)
+    local def = stage:loadLua(FieldFontCache.defPath(bundle.fontId))
     if type(def) ~= "table" or def.schema ~= FieldFontCache.SCHEMA or def.fontId ~= bundle.fontId then
       Errors.raise("FIELD_FONT_CACHE_READBACK_FAILED", "font def readback failed", { fontId = bundle.fontId })
     end
-    if not cacheFs:exists(FieldFontCache.atlasPath(bundle.fontId), "file") then
+    if not stage:exists(FieldFontCache.atlasPath(bundle.fontId), "file") then
       Errors.raise("FIELD_FONT_CACHE_READBACK_FAILED", "font atlas readback failed", { fontId = bundle.fontId })
     end
-    cacheFs:write(FieldFontCache.markerPath(), bundle.marker)
+    stage:write(FieldFontCache.markerPath(), bundle.marker)
+    tx:publish()
   end)
   if ok then
     return true
   end
-  pcall(function()
-    FieldFontCache.invalidate(cacheFs)
-  end)
+  tx:abort()
   error(err)
 end
 

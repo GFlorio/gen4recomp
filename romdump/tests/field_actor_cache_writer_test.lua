@@ -108,4 +108,32 @@ function T.rolls_back_the_actor_subtree_on_a_failed_write()
   Assert.isFalse(cache:exists(FieldActorCache.visualPath(0), "file"), "a partial build leaves no visual behind")
 end
 
+function T.failed_rebuild_preserves_the_previous_artifact()
+  local backend = FakeCache.new()
+  local cache = CacheFs.forVersion("heartgold", backend)
+  local first = bundle({ 0, 29 })
+  FieldActorCacheWriter.write(cache, first)
+  local original = backend.write
+  ---@diagnostic disable: duplicate-set-field
+  backend.write = function(self, path, data)
+    if path:find("visuals/0029.lua", 1, true) then
+      error("injected write failure")
+    end
+    return original(self, path, data)
+  end
+  local second = bundle({ 0, 29 })
+  second.marker = FieldActorCache.marker("abc", "new-dep")
+  Assert.throws(function()
+    FieldActorCacheWriter.write(cache, second)
+  end)
+  Assert.isTrue(FieldActorCache.isReady(cache, first.marker), "the previous artifact remains ready")
+  Assert.equal(cache:loadLua(FieldActorCache.visualPath(29)).spriteId, 29)
+  Assert.equal(cache:read(FieldActorCache.markerPath()), first.marker, "the new marker never reached the live tree")
+  Assert.isNil(backend:getInfo("staging/heartgold/field-actors"), "the stage is cleaned on failure")
+  backend.write = original
+  FieldActorCacheWriter.write(cache, second)
+  Assert.isTrue(FieldActorCache.isReady(cache, second.marker), "a successful retry publishes the new artifact")
+  Assert.isNil(backend:getInfo("staging/heartgold/field-actors"), "the stage is cleaned on success")
+end
+
 return T

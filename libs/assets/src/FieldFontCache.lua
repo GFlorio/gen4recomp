@@ -17,6 +17,9 @@ local ASSET_DIR = "assets/generated/field/font"
 function FieldFontCache.dir()
   return DATA_DIR
 end
+function FieldFontCache.assetDir()
+  return ASSET_DIR
+end
 function FieldFontCache.defPath(fontId)
   return string.format("%s/font-%d.lua", DATA_DIR, fontId)
 end

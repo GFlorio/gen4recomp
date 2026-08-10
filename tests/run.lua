@@ -11,6 +11,7 @@ local MODULES = {
   "libs.rom.tests.lua_writer_test",
   "libs.rom.tests.game_version_test",
   "libs.rom.tests.cache_fs_test",
+  "libs.rom.tests.artifact_publisher_test",
   "libs.rom.tests.save_fs_test",
   "libs.rom.tests.rom_source_test",
   "libs.rom.tests.nitro_fs_test",

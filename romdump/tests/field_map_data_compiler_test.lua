@@ -158,6 +158,33 @@ function T.writer_failure_rolls_back_only_its_map()
   Assert.isTrue(cache:exists("rom-dump.complete"))
 end
 
+function T.failed_rebuild_preserves_the_previous_record()
+  local romFs, sha1, hashLua = fixture()
+  local first = assert(FieldMapDataCompiler.compile(romFs, 60, sha1, hashLua))
+  local backend = FakeCache.new()
+  local cache = CacheFs.forVersion("heartgold", backend)
+  FieldMapDataCacheWriter.write(cache, first)
+  local originalWrite = backend.write
+  ---@diagnostic disable: duplicate-set-field
+  backend.write = function(self, path, data)
+    if path:find("field.lua", 1, true) then
+      error("injected")
+    end
+    return originalWrite(self, path, data)
+  end
+  local second = assert(FieldMapDataCompiler.compile(romFs, 60, sha1, hashLua))
+  second.marker = FieldMapDataCache.marker(sha1, 60, "new-dep-hash")
+  Assert.throws(function()
+    FieldMapDataCacheWriter.write(cache, second)
+  end)
+  Assert.isTrue(FieldMapDataCache.isReady(cache, 60, first.marker), "the previous record remains ready")
+  Assert.equal(cache:read(FieldMapDataCache.markerPath(60)), first.marker, "no new marker leaked")
+  Assert.isNil(backend:getInfo("staging/heartgold/field-map-data-60"), "the stage is cleaned on failure")
+  backend.write = originalWrite
+  FieldMapDataCacheWriter.write(cache, second)
+  Assert.isTrue(FieldMapDataCache.isReady(cache, 60, second.marker), "a retry publishes the new record")
+end
+
 function T.compile_all_covers_the_catalog_in_numeric_order()
   local romFs, sha1, hashLua = allMapsFixture()
   local bundles = assert(FieldMapDataCompiler.compileAll(romFs, sha1, hashLua))

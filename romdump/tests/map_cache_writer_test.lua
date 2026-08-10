@@ -83,4 +83,31 @@ function T.failure_preserves_raw_dump_marker()
   Assert.isTrue(c:exists("rom-dump.complete"), "raw marker untouched")
 end
 
+function T.failed_rebuild_preserves_the_previous_map()
+  local backend = FakeCache.new()
+  local c = CacheFs.forVersion("heartgold", backend)
+  local first = Bundle.minimal()
+  MapCacheWriter.write(c, first)
+  local orig = backend.write
+  ---@diagnostic disable: duplicate-set-field
+  backend.write = function(self, path, data)
+    if path:find("scene.lua", 1, true) then
+      error("injected write failure")
+    end
+    return orig(self, path, data)
+  end
+  local second = Bundle.minimal()
+  second.marker = MapAssetCache.marker("romsha1", second.mapId, "new-dephash")
+  Assert.throws(function()
+    MapCacheWriter.write(c, second)
+  end)
+  Assert.isTrue(MapAssetCache.isReady(c, first.mapId, first.marker), "the previous map remains ready")
+  Assert.equal(c:read(MapAssetCache.mapDir(first.mapId) .. "/complete"), first.marker, "no new marker leaked")
+  Assert.isNil(backend:getInfo("staging/heartgold/map-" .. first.mapId), "the stage is cleaned on failure")
+  backend.write = orig
+  MapCacheWriter.write(c, second)
+  Assert.isTrue(MapAssetCache.isReady(c, first.mapId, second.marker), "a successful retry publishes the new map")
+  Assert.isNil(backend:getInfo("staging/heartgold/map-" .. first.mapId), "the stage is cleaned on success")
+end
+
 return T

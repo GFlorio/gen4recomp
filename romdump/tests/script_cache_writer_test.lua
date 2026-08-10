@@ -116,4 +116,32 @@ T["readback failure rolls back"] = function()
   Assert.isNil(cache:read(ScriptCache.indexPath()))
 end
 
+-- 4. A failed rebuild leaves the previous ready artifact untouched, the stage
+-- clean, and a retry publishes the new artifact.
+T["failed rebuild preserves the previous script artifact"] = function()
+  local backend = FakeCache.new()
+  local cache = CacheFs.forVersion("heartgold", backend)
+  ScriptCacheWriter.write(cache, bundle())
+  local original = backend.write
+  ---@diagnostic disable: duplicate-set-field
+  backend.write = function(self, path, data)
+    if path:find("coverage.json", 1, true) then
+      error("injected write failure")
+    end
+    return original(self, path, data)
+  end
+  local second = bundle()
+  second.marker = "script-cache-v1:rom-sha:new-dep-sha"
+  Assert.throws(function()
+    ScriptCacheWriter.write(cache, second)
+  end)
+  Assert.isTrue(ScriptCache.isReady(cache, "script-cache-v1:rom-sha:dep-sha"), "the previous artifact remains ready")
+  Assert.equal(cache:read(ScriptCache.markerPath()), "script-cache-v1:rom-sha:dep-sha", "no new marker leaked")
+  Assert.isNil(backend:getInfo("staging/heartgold/scripts"), "the stage is cleaned on failure")
+  backend.write = original
+  ScriptCacheWriter.write(cache, second)
+  Assert.isTrue(ScriptCache.isReady(cache, "script-cache-v1:rom-sha:new-dep-sha"), "a retry publishes the new artifact")
+  Assert.isNil(backend:getInfo("staging/heartgold/scripts"), "the stage is cleaned on success")
+end
+
 return T

@@ -39,7 +39,7 @@ overwhelmingly domain; `libs/engine` and the app `src/` trees are interface.
 | Layer | Modules | LÖVE? |
 | --- | --- | --- |
 | **Domain — pure parsers/decoders** | `BinaryReader`, `NdsRom`, `NitroFs`, `OverlayTable`, `Narc`, `MapMatrix`, `AreaData`, `LandData`, `Nsbmd`, `Nsbtx`, `GxDisplayList`, `DsMaterial`, `DsPolygonAttr`, `FieldLightProfile`, `DsLighting`, `RenderQueue`, `LuaWriter`, `Errors`, `GameVersion` | no |
-| **Infrastructure** | `RomSource` (owns the ROM bytes, SHA-1), `CacheFs` (private per-version storage), `RomExtractor` (dump orchestration), `RomFs` (runtime read API), `DumpAudit`, `MapAssetCompiler`, `MapCacheWriter`, `MapAssetCache` | `RomSource`/`CacheFs` only |
+| **Infrastructure** | `RomSource` (owns the ROM bytes, SHA-1), `CacheFs` (private per-version storage), `ArtifactPublisher` (staged generated-cache publication), `RomExtractor` (dump orchestration), `RomFs` (runtime read API), `DumpAudit`, `MapAssetCompiler`, `MapCacheWriter`, `MapAssetCache` | `RomSource`/`CacheFs` only |
 | **Interface** | `game` `App` (dispatch/boot), `romdump` `Cli` (flag parsing, pure) + `Runner` (headless commands), `RomImporter` (state machine + coroutine), `MapSceneLoader`, `MapRenderer`, `FieldCamera`, `FieldViewport`, the `game/src` UI states | yes |
 
 The pure parsers never touch LÖVE, never read a file, and never mutate global
@@ -122,9 +122,10 @@ the sibling `saves/` namespace.
 different work: `analysis.excluded` holds map headers whose matrix cell could not
 be selected, and `analysis.compileExcluded` holds resolved maps whose asset
 compilation raised a structured error, each with its `errorCode`, `message`, and
-`context`. A compile failure writes no partial map — `MapCacheWriter` commits the
-completion marker only after the whole bundle succeeds — and makes
-`scripts/buildcache.sh` exit nonzero so the gap stays visible to CI;
+`context`. A compile failure writes no partial map — `MapCacheWriter` stages the
+map's subtree and commits the completion marker only after the whole bundle
+succeeds, and a failed rebuild leaves the previous ready map in place — and
+makes `scripts/buildcache.sh` exit nonzero so the gap stays visible to CI;
 `--allow-compile-exclusions` accepts it for an exploratory run. A programming
 error still aborts the build outright.
 
@@ -206,6 +207,15 @@ The cache separates two concerns so future format work never forces a re-import:
   (`data/generated/field/actors` plus `assets/generated/field/actors`). Changing
   one decoder rebuilds only its class and must never invalidate
   `rom-dump.complete`. Text and Pokémon data follow the same pattern.
+
+Every derived class publishes through the same staged publication primitive
+(`ArtifactPublisher`): the class's writers stage all new files under a
+disposable `staging/<version>/<name>/` root, validate the staged result, and
+only then swap it over the live roots with the completion marker last. A failed
+rebuild therefore never destroys the previous ready artifact, and a failed
+publish rolls every moved root back. Map caches share content-addressed
+geometry/textures across maps, so only the map's own subtree is swapped; the
+shared content is written in place and is idempotent by content addressing.
 
 This is why the dump is kept lossless and unnormalized: the ROM is presented
 once, and every later format iteration works from the private dump.

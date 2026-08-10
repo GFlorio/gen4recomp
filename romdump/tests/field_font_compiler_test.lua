@@ -288,6 +288,33 @@ function T.writer_failure_invalidates_the_class()
   Assert.isFalse(cache:exists(FieldFontCache.dir()))
 end
 
+function T.failed_rebuild_preserves_the_previous_font()
+  local romFs, sha1, hashLua = fixture()
+  local first = assert(FieldFontCompiler.compile(romFs, sha1, hashLua))
+  local backend = FakeCache.new()
+  local cache = CacheFs.forVersion("heartgold", backend)
+  FieldFontCacheWriter.write(cache, first)
+  local originalWrite = backend.write
+  ---@diagnostic disable: duplicate-set-field
+  backend.write = function(self, path, data)
+    if path:find("font-0.png", 1, true) then
+      error("injected")
+    end
+    return originalWrite(self, path, data)
+  end
+  local second = assert(FieldFontCompiler.compile(romFs, sha1, hashLua))
+  second.marker = FieldFontCache.marker(sha1, "new-dep-hash")
+  Assert.throws(function()
+    FieldFontCacheWriter.write(cache, second)
+  end)
+  Assert.isTrue(FieldFontCache.isReady(cache, 0, first.marker), "the previous font remains ready")
+  Assert.equal(cache:read(FieldFontCache.markerPath()), first.marker, "no new marker leaked")
+  Assert.isNil(backend:getInfo("staging/heartgold/field-font"), "the stage is cleaned on failure")
+  backend.write = originalWrite
+  FieldFontCacheWriter.write(cache, second)
+  Assert.isTrue(FieldFontCache.isReady(cache, 0, second.marker), "a retry publishes the new font")
+end
+
 function T.corrupt_palette_member_is_typed()
   local glyphMember = buildFontMember(1, glyph64(), { 6 })
   local romFs, sha1, hashLua = fixture()

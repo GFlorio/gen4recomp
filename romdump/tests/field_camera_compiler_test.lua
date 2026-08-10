@@ -140,4 +140,35 @@ function T.writer_commits_marker_last_and_is_deterministic()
   Assert.equal(cache:read("data/generated/field/camera/profiles.lua"), first)
 end
 
+function T.failed_rebuild_preserves_the_previous_camera_artifact()
+  local romFs, discovery = fixture()
+  local first = assert(FieldCameraCompiler.compile(romFs, discovery, function()
+    return "overlay-sha"
+  end))
+  local backend = FakeCache.new()
+  local cache = CacheFs.forVersion("heartgold", backend)
+  FieldCameraCacheWriter.write(cache, first)
+  local originalWrite = backend.write
+  ---@diagnostic disable: duplicate-set-field
+  backend.write = function(self, path, data)
+    if path:find("profiles.lua", 1, true) then
+      error("injected")
+    end
+    return originalWrite(self, path, data)
+  end
+  local second = assert(FieldCameraCompiler.compile(romFs, discovery, function()
+    return "overlay-sha"
+  end))
+  second.marker = second.marker .. "-new"
+  Assert.throws(function()
+    FieldCameraCacheWriter.write(cache, second)
+  end)
+  Assert.isTrue(FieldCameraCacheWriter.isReady(cache, first.marker), "the previous camera artifact remains ready")
+  Assert.equal(cache:read("data/generated/field/camera/complete"), first.marker, "no new marker leaked")
+  Assert.isNil(backend:getInfo("staging/heartgold/field-cameras"), "the stage is cleaned on failure")
+  backend.write = originalWrite
+  FieldCameraCacheWriter.write(cache, second)
+  Assert.isTrue(FieldCameraCacheWriter.isReady(cache, second.marker), "a retry publishes the new camera artifact")
+end
+
 return T

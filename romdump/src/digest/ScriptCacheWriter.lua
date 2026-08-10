@@ -1,13 +1,16 @@
--- Atomic marker-last writer for the derived script class. Writes the
--- provenance record, the index, the coverage report, and one file per
--- translated script, readback-validates the index and every script file, and
--- only then publishes the completion marker. On any failure the whole class
--- is invalidated so a partial build never reads as complete.
+-- Persists the derived script class through the shared staged publication
+-- primitive: the provenance record, the index, the coverage report, and one
+-- file per translated script are written into a disposable staging root,
+-- readback-validated there, and only then is the completed stage published
+-- with the marker last. On any failure the stage is discarded and the previous
+-- live script artifact is left untouched, so a partial build never reads as
+-- complete and never destroys a valid one.
 
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local ScriptCache = require("libs.assets.src.ScriptCache")
 local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
+local ArtifactPublisher = require("libs.rom.src.ArtifactPublisher")
 
 local ScriptCacheWriter = {}
 
@@ -81,15 +84,16 @@ end
 function ScriptCacheWriter.write(cacheFs, bundle)
   assert(bundle and bundle.marker and bundle.index and bundle.resources, "write requires a script bundle")
   assert(bundle.index.schema == ScriptCache.INDEX_SCHEMA, "bundle index schema mismatch")
+  local tx = ArtifactPublisher.begin(cacheFs, "scripts", { ScriptCache.dir() })
   local ok, err = pcall(function()
-    cacheFs:remove(ScriptCache.markerPath())
-    cacheFs:writeLua(ScriptCache.provenancePath(), {
+    local stage = tx.stage
+    stage:writeLua(ScriptCache.provenancePath(), {
       schema = ScriptCache.PROVENANCE_SCHEMA,
       dependencies = bundle.dependencies,
     })
-    cacheFs:writeLua(ScriptCache.indexPath(), bundle.index)
-    cacheFs:write(ScriptCache.coverageJsonPath(), jsonValue(bundle.coverageRecord) .. "\n")
-    cacheFs:write(
+    stage:writeLua(ScriptCache.indexPath(), bundle.index)
+    stage:write(ScriptCache.coverageJsonPath(), jsonValue(bundle.coverageRecord) .. "\n")
+    stage:write(
       ScriptCache.coverageMdPath(),
       require("romdump.src.digest.script.Coverage").markdown(bundle.coverageRecord)
     )
@@ -100,14 +104,14 @@ function ScriptCacheWriter.write(cacheFs, bundle)
     }
     for _, entry in ipairs(bundle.resources) do
       local text = ScriptCompiler.emit(entry, emitOpts)
-      cacheFs:write(ScriptCache.scriptPath(entry.id), text)
+      stage:write(ScriptCache.scriptPath(entry.id), text)
     end
-    local readIndex = cacheFs:loadLua(ScriptCache.indexPath())
+    local readIndex = stage:loadLua(ScriptCache.indexPath())
     if type(readIndex) ~= "table" or readIndex.schema ~= ScriptCache.INDEX_SCHEMA then
       Errors.raise(ScriptErrors.SCRIPT_CACHE_READBACK_FAILED, "index readback failed", {})
     end
     for _, entry in ipairs(bundle.index.resources) do
-      local script = cacheFs:loadModule(ScriptCache.scriptPath(entry.id))
+      local script = stage:loadModule(ScriptCache.scriptPath(entry.id))
       if type(script) ~= "table" or script.kind ~= "field_script" or script.id ~= entry.id then
         Errors.raise(
           ScriptErrors.SCRIPT_CACHE_READBACK_FAILED,
@@ -116,12 +120,13 @@ function ScriptCacheWriter.write(cacheFs, bundle)
         )
       end
     end
-    cacheFs:write(ScriptCache.markerPath(), bundle.marker)
+    stage:write(ScriptCache.markerPath(), bundle.marker)
+    tx:publish()
   end)
   if ok then
     return true
   end
-  ScriptCache.invalidate(cacheFs)
+  tx:abort()
   error(err)
 end
 

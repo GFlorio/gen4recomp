@@ -1,19 +1,23 @@
--- Persists one normalized field-map record and its dependencies, validating
--- readback before writing the completion marker last.
+-- Persists one normalized field-map record through the shared staged
+-- publication primitive: the record and its dependencies are written into a
+-- disposable staging root, readback-validated there, and only then is the
+-- completed stage published with the marker last. On any failure the stage is
+-- discarded and any previous live record for that map is left untouched.
 
 local Errors = require("libs.rom.src.Errors")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
+local ArtifactPublisher = require("libs.rom.src.ArtifactPublisher")
 
 local FieldMapDataCacheWriter = {}
 
-local function persist(cacheFs, bundle)
+local function persist(tx, bundle)
   local mapId = bundle.mapId
-  cacheFs:remove(FieldMapDataCache.markerPath(mapId))
-  cacheFs:writeLua(FieldMapDataCache.fieldPath(mapId), bundle.field)
-  cacheFs:writeLua(FieldMapDataCache.dependenciesPath(mapId), bundle.dependencies)
+  local stage = tx.stage
+  stage:writeLua(FieldMapDataCache.fieldPath(mapId), bundle.field)
+  stage:writeLua(FieldMapDataCache.dependenciesPath(mapId), bundle.dependencies)
 
-  local field, fieldErr = cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId))
-  local dependencies, dependenciesErr = cacheFs:loadLua(FieldMapDataCache.dependenciesPath(mapId))
+  local field, fieldErr = stage:loadLua(FieldMapDataCache.fieldPath(mapId))
+  local dependencies, dependenciesErr = stage:loadLua(FieldMapDataCache.dependenciesPath(mapId))
   if not field or not dependencies then
     Errors.raise(
       "FIELD_MAP_DATA_CACHE_STALE",
@@ -28,19 +32,20 @@ local function persist(cacheFs, bundle)
       { mapId = mapId, schema = field.schema, actualMapId = field.mapId }
     )
   end
-  cacheFs:write(FieldMapDataCache.markerPath(mapId), bundle.marker)
+  stage:write(FieldMapDataCache.markerPath(mapId), bundle.marker)
+  tx:publish()
   return bundle.marker
 end
 
 function FieldMapDataCacheWriter.write(cacheFs, bundle)
   assert(cacheFs and type(bundle) == "table" and bundle.mapId and bundle.marker, "invalid field-map bundle")
-  local ok, result = pcall(persist, cacheFs, bundle)
+  local tx =
+    ArtifactPublisher.begin(cacheFs, "field-map-data-" .. bundle.mapId, { FieldMapDataCache.mapDir(bundle.mapId) })
+  local ok, result = pcall(persist, tx, bundle)
   if ok then
     return result
   end
-  pcall(function()
-    FieldMapDataCache.invalidateMap(cacheFs, bundle.mapId)
-  end)
+  tx:abort()
   error(result)
 end
 

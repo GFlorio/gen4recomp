@@ -110,9 +110,10 @@ Each version gets its own subtree so the two games never interfere:
 │       └── unmapped/file_<id>.bin   # FAT entries with no FNT name or overlay
 ├── soulsilver/
 │   └── … same layout
-├── staging/                          # disposable import staging, published over
-│   ├── heartgold/                    #   the live root on success; stale staging
-│   └── soulsilver/                   #   is removed at the next import
+├── staging/                          # disposable staging for imports and for
+│   ├── heartgold/                    #   generated-cache rebuilds, published
+│   └── soulsilver/                   #   over the live roots on success; stale
+│                                      #   staging is removed at the next import
 └── saves/                            # persistent user data, NOT part of any
     └── heartgold/                    #   version cache: re-imports and cache
         └── field-session-v1.lua      #   clears can never delete it
@@ -122,7 +123,11 @@ Persistent saves live in the sibling `saves/<version>/` namespace so every
 operation that deletes or rebuilds a version cache is structurally incapable of
 touching them. Imports rebuild into `staging/<version>/` first and publish only
 a complete tree, so they are likewise incapable of destroying a ready dump or a
-save.
+save. Derived-cache rebuilds follow the same pattern: each generated class
+stages under `staging/<version>/<class>/` (`scripts/buildcache.sh` writes) and
+publishes over the live roots only after its staged result validates, so a
+failed rebuild leaves the previous ready artifact in place and stale derived
+staging is swept with the next import.
 
 ## Clearing one version's cache
 
