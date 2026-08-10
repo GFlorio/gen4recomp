@@ -132,7 +132,10 @@ function ActorPreviewState:keypressed(key, scancode, isrepeat)
   end
 end
 
-function ActorPreviewState:quit()
+-- The general disposal hook: releases every acquired visual and the provider.
+-- Called by App on state replacement and application shutdown; clearing the
+-- owned fields after release makes a repeat call a no-op.
+function ActorPreviewState:dispose()
   if not self.provider then
     return
   end
@@ -140,6 +143,7 @@ function ActorPreviewState:quit()
     self.provider:release(entry.spriteId)
   end
   self.provider:dispose()
+  self.provider, self.entries = nil, nil
 end
 
 return ActorPreviewState

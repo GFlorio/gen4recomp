@@ -99,6 +99,8 @@ local MODULES = {
   "libs.engine.tests.script.world_state_tests",
   -- game
   "game.tests.app_boot_test",
+  "game.tests.app_state_test",
+  "game.tests.field_state_dispose_test",
   "game.tests.spawns_manifest_test",
   -- romdump
   "romdump.tests.cli_test",

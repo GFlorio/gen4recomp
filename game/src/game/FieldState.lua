@@ -251,9 +251,9 @@ function FieldState:_load()
     self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
 
     -- Event state: a persisted save owns the flags/vars and wins over the
-    -- demo scenario. Only a fresh boot (no save) seeds the scenario (spec
-    -- section 10.2). The v2 save's world bucket carries the numeric
-    -- flag/var maps in the event-state shape.
+    -- demo scenario. Only a fresh boot (no save) seeds the scenario. The v2
+    -- save's world bucket carries the numeric flag/var maps in the
+    -- event-state shape.
     local restoredWorld = restored and restored.world or nil
     self.eventState = FieldEventState.new(restoredWorld and {
       flags = restoredWorld.flags,
@@ -347,9 +347,9 @@ function FieldState:_load()
     self.actionKeys = actionBindings()
     self.cancelKeys = cancelBindings()
 
-    -- Interaction discovery and the temporary pre-script client. The resolver
-    -- is pure and consults the manager's occupancy index; the adapter is the
-    -- one construction point the scripting milestone replaces.
+    -- Interaction discovery and the pre-script fallback client. The resolver
+    -- is pure and consults the manager's occupancy index; the adapter remains
+    -- the fallback for interactions without script bindings.
     self.messageProvider = FieldMessageProvider.new(cacheFs)
     self.interactionResolver = FieldInteractionResolver.new({
       actorAt = function(mapId, fieldX, fieldZ, surfaceId)
@@ -706,7 +706,7 @@ function FieldState:keyreleased(key, scancode)
 end
 
 -- Focus loss clears held and edge state so a blurred window cannot feed a
--- stale Action into the next frame's dialogue or movement .
+-- stale Action into the next frame's dialogue or movement.
 ---@param focused boolean
 function FieldState:focus(focused)
   if not focused and self.input then
@@ -715,7 +715,7 @@ function FieldState:focus(focused)
 end
 
 -- Gamepad Action is the south face button ("a") and Cancel the east face
--- button ("b"), mapped alongside the keyboard bindings .
+-- button ("b"), mapped alongside the keyboard bindings.
 ---@param _ love.Joystick
 ---@param button string
 function FieldState:gamepadpressed(_, button)
@@ -775,14 +775,21 @@ function FieldState:_release()
   self.actors, self.actorAssets, self.renderer, self.mapLoader = nil, nil, nil, nil
 end
 
-function FieldState:quit()
+-- End the state's lifetime: persist the field session if one is live, then
+-- release every owned resource exactly once. This is the single general
+-- disposal hook invoked by App on both state replacement and application
+-- shutdown; clearing the capture-bearing fields after release makes a repeat
+-- call a no-op rather than a second save.
+function FieldState:dispose()
   -- A half-open dialogue must never be persisted; disposal cancels it cleanly
-  -- before the capture .
+  -- before the capture (and releases it once, before _release runs).
   if self.dialogue then
     self.dialogue:dispose()
+    self.dialogue = nil
   end
-  self:_save("Field session saved on quit")
+  self:_save("Field session saved")
   self:_release()
+  self.session, self.saveStore, self.scripts = nil, nil, nil
 end
 
 return FieldState
