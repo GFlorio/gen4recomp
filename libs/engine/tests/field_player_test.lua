@@ -2,49 +2,58 @@
 -- continuous height sampling without depending on LÖVE or imported data.
 
 local Assert = require("tests.support.Assert")
+local Errors = require("libs.rom.src.Errors")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = {}
 local ROOT_HALF = math.sqrt(0.5)
 
+local function throwsCode(code, fn)
+  local err = Assert.throws(fn)
+  Assert.isTrue(Errors.is(err), "expected a structured error, got " .. tostring(err))
+  Assert.equal(err.code, code, "expected " .. code .. ", got " .. Errors.format(err))
+  return err
+end
+
 local function near(actual, expected)
   Assert.isTrue(math.abs(actual - expected) <= 1e-9, string.format("expected %.9f, got %.9f", expected, actual))
 end
 
-local function runtimeMap(blocked)
-  local plates = {
-    {
-      id = 0,
-      minX = 0,
-      minZ = 0,
-      maxX = 1,
-      maxZ = 32,
-      normal = { x = 0, y = 1, z = 0 },
-      distance = 0,
-      slopeClass = "flat",
-    },
-    {
-      id = 1,
-      minX = 1,
-      minZ = 0,
-      maxX = 3,
-      maxZ = 32,
-      normal = { x = -ROOT_HALF, y = ROOT_HALF, z = 0 },
-      distance = -ROOT_HALF,
-      slopeClass = "ramp-east",
-    },
-    {
-      id = 2,
-      minX = 3,
-      minZ = 0,
-      maxX = 32,
-      maxZ = 32,
-      normal = { x = 0, y = 1, z = 0 },
-      distance = 2,
-      slopeClass = "flat",
-    },
-  }
+local function runtimeMap(blocked, plates)
+  plates = plates
+    or {
+      {
+        id = 0,
+        minX = 0,
+        minZ = 0,
+        maxX = 1,
+        maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 },
+        distance = 0,
+        slopeClass = "flat",
+      },
+      {
+        id = 1,
+        minX = 1,
+        minZ = 0,
+        maxX = 3,
+        maxZ = 32,
+        normal = { x = -ROOT_HALF, y = ROOT_HALF, z = 0 },
+        distance = -ROOT_HALF,
+        slopeClass = "ramp-east",
+      },
+      {
+        id = 2,
+        minX = 3,
+        minZ = 0,
+        maxX = 32,
+        maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 },
+        distance = 2,
+        slopeClass = "flat",
+      },
+    }
   return {
     mapId = 60,
     coordinateOrigin = { x = 0, z = 0 },
@@ -191,6 +200,72 @@ function T.terrain_rejection_takes_precedence_over_occupancy()
   local p = occupyingPlayer(map, 0, 4, 0, { ["1:4:1"] = "map:61:object:0" })
   tick(p, "east", "east")
   Assert.equal(p.fieldX, 0)
+  Assert.equal(p.motion, "idle")
+end
+
+-- Flat plate at the given height over the given x range; the fixture map
+-- covers z 0..32 and keeps permissions over 0..31.
+local function flatPlate(id, minX, maxX, distance)
+  return {
+    id = id,
+    minX = minX,
+    minZ = 0,
+    maxX = maxX,
+    maxZ = 32,
+    normal = { x = 0, y = 1, z = 0 },
+    distance = distance,
+    slopeClass = "flat",
+  }
+end
+
+function T.malformed_terrain_failure_is_not_a_blocked_step()
+  -- The destination cell is inside permission coverage but no walkable
+  -- surface covers it: malformed terrain must propagate, not silently read
+  -- as a blocked step.
+  local map = runtimeMap(nil, {
+    flatPlate(0, 0, 1, 0),
+    flatPlate(1, 2, 32, 0),
+  })
+  local p = player(map, 0, 4, 0)
+  throwsCode("TERRAIN_SURFACE_NOT_FOUND", function()
+    p:tryStep("east")
+  end)
+end
+
+function T.ambiguous_terrain_failure_is_not_a_blocked_step()
+  -- Two equally-near surfaces cover the destination: ambiguous terrain must
+  -- propagate instead of being swallowed as an ordinary collision.
+  local map = runtimeMap(nil, {
+    flatPlate(0, 0, 1, 0),
+    flatPlate(1, 1, 32, 0),
+    flatPlate(2, 1, 32, 0),
+  })
+  local p = player(map, 0, 4, 0)
+  throwsCode("TERRAIN_SURFACE_AMBIGUOUS", function()
+    p:tryStep("east")
+  end)
+end
+
+function T.current_disconnected_terrain_failure_is_not_a_blocked_step()
+  -- The player's claimed surface does not cover the player's own position:
+  -- an inconsistent current terrain state must propagate.
+  local map = runtimeMap(nil, {
+    flatPlate(0, 2, 32, 0),
+    flatPlate(1, 0, 32, 0),
+  })
+  local p = player(map, 0, 4, 0)
+  local err = throwsCode("TERRAIN_SURFACE_DISCONNECTED", function()
+    p:tryStep("east")
+  end)
+  Assert.equal(err.context.kind, "current-inconsistent")
+end
+
+function T.out_of_coverage_step_remains_blocked()
+  -- Stepping past the coverage edge is the intended edge-of-map contract: a
+  -- blocked move, not an error.
+  local p = player(runtimeMap(), 31, 4, 2)
+  tick(p, "east", "east")
+  Assert.equal(p.fieldX, 31)
   Assert.equal(p.motion, "idle")
 end
 

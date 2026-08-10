@@ -61,9 +61,13 @@ local function isInteger(value)
   return type(value) == "number" and value == math.floor(value)
 end
 
+-- Only failures that genuinely mean the step was legally rejected are
+-- ordinary blocked moves: the destination outside permission coverage, or
+-- its terrain beyond the reachable step height. Malformed or ambiguous
+-- terrain, and a current surface inconsistent with the player's own position,
+-- are corrupted state and propagate instead.
 local function recoverableMovementError(err)
-  return Errors.is(err)
-    and (err.code == "FIELD_COORDINATES_OUT_OF_COVERAGE" or err.code:match("^TERRAIN_SURFACE_") ~= nil)
+  return Errors.is(err) and (err.code == "FIELD_COORDINATES_OUT_OF_COVERAGE" or SurfaceResolver.isStepRejection(err))
 end
 
 ---@param options FieldPlayerOptions

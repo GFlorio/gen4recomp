@@ -8,8 +8,10 @@
 -- The session owns interaction eligibility timing (spec section 11.3 step 6):
 -- calling resolve means the player is idle, the Action edge is present, and
 -- no transition or modal is active. This module answers only what is in front
--- of the player, and requires the facing tile to resolve inside the map's
--- coordinate profile.
+-- of the player. A facing cell outside coverage or beyond the reachable step
+-- height is an expected boundary and resolves to nothing; malformed,
+-- ambiguous, or current-inconsistent terrain propagates instead of reading
+-- as a miss.
 --
 -- The resolver never turns an actor, locks the player, selects a message, or
 -- touches presentation: it returns an immutable InteractionIntent (fresh
@@ -131,17 +133,28 @@ function FieldInteractionResolver.new(opts)
   }, FieldInteractionResolver)
 end
 
+-- Expected boundary failures mean "nothing interactable there": the facing
+-- cell outside permission coverage, or its terrain beyond the reachable step
+-- height. Malformed or ambiguous terrain, and a current surface inconsistent
+-- with the player's position, are corrupted state and propagate instead of
+-- reading as a miss.
+local function isBoundaryFailure(err)
+  return Errors.is(err) and (err.code == "FIELD_COORDINATES_OUT_OF_COVERAGE" or SurfaceResolver.isStepRejection(err))
+end
+
 -- The facing tile is one cardinal field cell from the player's logical
--- settled cell, resolved through the map coordinate profile (a cell outside
--- permission coverage raises FIELD_COORDINATES_OUT_OF_COVERAGE and yields
--- nil). Returns the resolved surface sample of the cell, or nil when the
--- cell is not reachable from the player's surface. The sample is the lookup
+-- settled cell, resolved through the map coordinate profile. Returns the
+-- resolved surface sample of the cell, or nil when the cell is not reachable
+-- from the player's surface (an expected boundary). The sample is the lookup
 -- key for object interactions, so a cross-surface boundary resolves actors
 -- on the facing cell's actual surface rather than the player's.
 function FieldInteractionResolver:_resolveFacingCell(snapshot, targetX, targetZ)
   local map = snapshot.runtimeMap
   local ok, localX, localZ = pcall(FieldCoordinates.fieldToLocal, map, targetX, targetZ)
   if not ok then
+    if not isBoundaryFailure(localX) then
+      error(localX)
+    end
     return nil
   end
   local okSample, sample = pcall(function()
@@ -159,6 +172,9 @@ function FieldInteractionResolver:_resolveFacingCell(snapshot, targetX, targetZ)
     })
   end)
   if not okSample then
+    if not isBoundaryFailure(sample) then
+      error(sample)
+    end
     return nil
   end
   return sample

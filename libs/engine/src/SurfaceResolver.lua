@@ -8,6 +8,12 @@
 -- changing height by 1.25 tiles or more are rejected. No plane-join epsilon
 -- is applied -- real ROM floors (e.g. MAP_NEW_BARK_PLAYER_HOUSE_1F) have
 -- quantized-height seams between adjacent plates. Pure domain module.
+--
+-- TERRAIN_SURFACE_DISCONNECTED raises carry a `kind` discriminator:
+-- "step-beyond" is an ordinary step-height rejection (a legal move the world
+-- refuses), while "current-inconsistent" means the current surface disagrees
+-- with the player's own position or the crossing edge -- corrupted terrain
+-- that callers must propagate rather than treat as a blocked step.
 
 local Errors = require("libs.rom.src.Errors")
 
@@ -23,6 +29,16 @@ SurfaceResolver.__index = SurfaceResolver
 -- from the current height by 5 << 14 in 16.16 fixed-point tile units.
 local STEP_HEIGHT_LIMIT = 5 * 2 ^ 14 / 2 ^ 16
 local HEIGHT_TIE_EPSILON = 1e-9
+
+-- True when the error is an ordinary step rejection (the destination surface
+-- is beyond the reachable step height) rather than corrupted or ambiguous
+-- terrain. The movement and interaction whitelists accept exactly this
+-- TERRAIN_SURFACE_DISCONNECTED variant as a normal rejection.
+---@param err any
+---@return boolean
+function SurfaceResolver.isStepRejection(err)
+  return Errors.is(err) and err.code == "TERRAIN_SURFACE_DISCONNECTED" and err.context.kind == "step-beyond"
+end
 
 function SurfaceResolver.new(terrain, opts)
   assert(terrain and terrain.candidatesAt and terrain.sampleHeight, "SurfaceResolver.new requires a TerrainSurface")
@@ -100,7 +116,7 @@ function SurfaceResolver:resolve(opts)
         "TERRAIN_SURFACE_DISCONNECTED",
         "current surface does not cover the crossing source",
         opts,
-        { fromX = crossing.fromX, fromZ = crossing.fromZ }
+        { kind = "current-inconsistent", fromX = crossing.fromX, fromZ = crossing.fromZ }
       )
     end
   end
@@ -119,7 +135,7 @@ function SurfaceResolver:resolve(opts)
         "TERRAIN_SURFACE_DISCONNECTED",
         "current surface does not reach the shared edge",
         opts,
-        { edgeX = edgeX, edgeZ = edgeZ }
+        { kind = "current-inconsistent", edgeX = edgeX, edgeZ = edgeZ }
       )
     end
     local sourceY = self.terrain:sampleHeight(current.id, edgeX, edgeZ)
@@ -137,7 +153,7 @@ function SurfaceResolver:resolve(opts)
         "TERRAIN_SURFACE_DISCONNECTED",
         "destination surfaces are a step beyond the current surface",
         opts,
-        { edgeX = edgeX, edgeZ = edgeZ, stepHeightLimit = self.stepHeightLimit }
+        { kind = "step-beyond", edgeX = edgeX, edgeZ = edgeZ, stepHeightLimit = self.stepHeightLimit }
       )
     end
   end

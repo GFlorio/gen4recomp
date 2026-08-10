@@ -127,6 +127,7 @@ function T.resolver_connects_joined_edges_and_rejects_height_jumps()
     })
   end)
   Assert.equal(err.code, "TERRAIN_SURFACE_DISCONNECTED")
+  Assert.equal(err.context.kind, "step-beyond")
 end
 
 function T.resolver_crosses_seams_within_the_step_height_limit()
@@ -193,6 +194,37 @@ function T.resolver_rejects_a_step_at_the_height_limit()
     })
   end)
   Assert.equal(err.code, "TERRAIN_SURFACE_DISCONNECTED")
+  Assert.equal(err.context.kind, "step-beyond")
+end
+
+function T.current_surface_disconnected_from_the_crossing_is_a_distinct_kind()
+  -- The player's own surface does not cover the crossing source: an
+  -- inconsistent current terrain state, discriminated from an ordinary
+  -- step-height rejection so movement/interaction can propagate it.
+  local t = terrain({
+    points = {
+      { x = -16, z = -16 },
+      { x = 0, z = 16 },
+      { x = 0, z = -16 },
+      { x = 16, z = 16 },
+    },
+    heights = { Builder.heightRaw(0) },
+    plates = {
+      { minPointIndex = 0, maxPointIndex = 1, slopeIndex = 0, heightIndex = 0 },
+      { minPointIndex = 2, maxPointIndex = 3, slopeIndex = 0, heightIndex = 0 },
+    },
+  })
+  local err = Assert.throws(function()
+    SurfaceResolver.new(t):resolve({
+      localX = 16.5,
+      localZ = 8.5,
+      currentSurfaceId = 0,
+      currentY = 0,
+      crossing = { fromX = -16.5, fromZ = 8.5, toX = 16.5, toZ = 8.5 },
+    })
+  end)
+  Assert.equal(err.code, "TERRAIN_SURFACE_DISCONNECTED")
+  Assert.equal(err.context.kind, "current-inconsistent")
 end
 
 return T

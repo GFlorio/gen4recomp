@@ -4,10 +4,18 @@
 -- LÖVE or ROM data is involved.
 
 local Assert = require("tests.support.Assert")
+local Errors = require("libs.rom.src.Errors")
 local FieldInteractionResolver = require("libs.engine.src.FieldInteractionResolver")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = {}
+
+local function throwsCode(code, fn)
+  local err = Assert.throws(fn)
+  Assert.isTrue(Errors.is(err), "expected a structured error, got " .. tostring(err))
+  Assert.equal(err.code, code, "expected " .. code .. ", got " .. Errors.format(err))
+  return err
+end
 
 -- A flat synthetic map centered at field origin (0,0) covering local
 -- (0..31, 0..31). Optional background events with raw direction codes.
@@ -101,6 +109,28 @@ local function crossSurfaceMap(backgrounds)
       },
     },
   })
+  return m
+end
+
+-- Flat plate at the given height over the given z range.
+local function flatPlate(id, minZ, maxZ, distance)
+  return {
+    id = id,
+    minX = 0,
+    minZ = minZ,
+    maxX = 32,
+    maxZ = maxZ,
+    normal = { x = 0, y = 1, z = 0 },
+    distance = distance,
+    slopeClass = "flat",
+  }
+end
+
+-- A map whose terrain is exactly the given plates. The base snapshot puts the
+-- player at field (4, 14) on surface 0 facing north onto cell (4, 13).
+local function terrainMap(plates, backgrounds)
+  local m = map(backgrounds)
+  m.terrain = TerrainSurface.new({ plates = plates })
   return m
 end
 
@@ -355,6 +385,57 @@ function T.facing_outside_coverage_returns_nil()
   -- Player at the coverage edge facing north would step outside the map.
   local r = resolver()
   Assert.isNil(r:resolve(baseSnapshot({ runtimeMap = m, fieldZ = 0, facing = "north" })))
+end
+
+function T.malformed_terrain_failure_propagates_instead_of_nothing_there()
+  -- The facing cell has permission coverage but no walkable surface: that is
+  -- malformed terrain, not "nothing interactable there".
+  local m = terrainMap({
+    flatPlate(0, 14, 32, 0),
+  })
+  local r = resolver()
+  throwsCode("TERRAIN_SURFACE_NOT_FOUND", function()
+    r:resolve(baseSnapshot({ runtimeMap = m }))
+  end)
+end
+
+function T.ambiguous_terrain_failure_propagates_instead_of_nothing_there()
+  -- Two equally-near surfaces cover the facing cell: ambiguous terrain must
+  -- propagate rather than silently reading as a miss.
+  local m = terrainMap({
+    flatPlate(0, 14, 32, 0),
+    flatPlate(1, 0, 14, 0),
+    flatPlate(2, 0, 14, 0),
+  })
+  local r = resolver()
+  throwsCode("TERRAIN_SURFACE_AMBIGUOUS", function()
+    r:resolve(baseSnapshot({ runtimeMap = m }))
+  end)
+end
+
+function T.disconnected_current_terrain_failure_propagates_instead_of_nothing_there()
+  -- The player's claimed surface does not cover the player's own position:
+  -- an inconsistent current terrain state must propagate.
+  local m = terrainMap({
+    flatPlate(0, 15, 32, 0),
+    flatPlate(1, 0, 14, 0),
+  })
+  local r = resolver()
+  local err = throwsCode("TERRAIN_SURFACE_DISCONNECTED", function()
+    r:resolve(baseSnapshot({ runtimeMap = m }))
+  end)
+  Assert.equal(err.context.kind, "current-inconsistent")
+end
+
+function T.unreachable_height_facing_cell_means_nothing_there()
+  -- The facing cell is beyond the reachable step height: an expected
+  -- boundary, so "nothing interactable there" instead of a raised error.
+  local m = terrainMap({
+    flatPlate(0, 14, 32, 0),
+    flatPlate(1, 0, 14, 2),
+  })
+  local r = resolver()
+  Assert.isNil(r:resolve(baseSnapshot({ runtimeMap = m })))
 end
 
 function T.intent_values_survive_source_mutation()
