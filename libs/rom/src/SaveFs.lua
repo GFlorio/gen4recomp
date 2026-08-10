@@ -54,6 +54,9 @@ local function loveBackend()
     read = function(_, path)
       return (fs.read(path))
     end,
+    getInfo = function(_, path)
+      return fs.getInfo(path)
+    end,
     createDirectory = function(_, path)
       return fs.createDirectory(path)
     end,
@@ -67,10 +70,17 @@ local function loveBackend()
   }
 end
 
-function SaveFs.forVersion(versionId, backend)
+---@param versionId string
+---@param backend table|nil
+---@param prefix string|nil save root, without a leading slash
+---@return SaveFs
+function SaveFs.forVersion(versionId, backend, prefix)
   local info = GameVersion.info(versionId)
   assert(info, "unknown version id: " .. tostring(versionId))
-  local prefix = "saves/" .. versionId .. "/"
+  prefix = prefix or "saves/" .. versionId
+  assert(type(prefix) == "string" and prefix ~= "", "save prefix required")
+  assert(prefix:sub(1, 1) ~= "/" and not prefix:find("..", 1, true), "save prefix must be confined")
+  prefix = prefix:gsub("/+$", "") .. "/"
   return setmetatable({
     versionId = versionId,
     _prefix = prefix,

@@ -50,7 +50,12 @@ FieldState.__index = function(self, key)
 end
 
 function FieldState.new(versionId, idOrSymbol, options)
-  local runtime = FieldRuntime.new(versionId, idOrSymbol, options)
+  local runtimeOptions = {}
+  for key, value in pairs(options or {}) do
+    runtimeOptions[key] = value
+  end
+  runtimeOptions.presentation = true
+  local runtime = FieldRuntime.new(versionId, idOrSymbol, runtimeOptions)
   local self = setmetatable({ runtime = runtime }, FieldState)
   if runtime.session then
     local ok, err = pcall(function()

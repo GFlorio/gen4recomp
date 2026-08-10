@@ -17,6 +17,7 @@ local FieldInput = require("libs.engine.src.FieldInput")
 local FieldInteractionResolver = require("libs.engine.src.FieldInteractionResolver")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldMapLoader = require("libs.engine.src.FieldMapLoader")
+local MapCollisionLoader = require("libs.engine.src.MapCollisionLoader")
 local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldPlayerVisual = require("libs.engine.src.FieldPlayerVisual")
@@ -45,6 +46,8 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field zoomConfig table?
 ---@field viewportWidth integer?
 ---@field viewportHeight integer?
+---@field saveFs SaveFs?
+---@field presentation boolean?
 
 ---@class FieldRuntime
 ---@field versionId string
@@ -60,6 +63,8 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field dialogue FieldDialogueController?
 ---@field actionKeys table<string, boolean>?
 ---@field cancelKeys table<string, boolean>?
+---@field saveFs SaveFs?
+---@field presentation boolean
 local FieldRuntime = {}
 FieldRuntime.__index = FieldRuntime
 
@@ -156,6 +161,8 @@ function FieldRuntime.new(versionId, idOrSymbol, options)
     resetSave = options.resetSave == true,
     viewportWidth = options.viewportWidth or 640,
     viewportHeight = options.viewportHeight or 480,
+    saveFs = options.saveFs,
+    presentation = options.presentation == true,
     errorText = nil,
     zoom = FieldZoom.new(options.zoomConfig or FieldPresentation.zoom),
   }, FieldRuntime)
@@ -167,7 +174,7 @@ function FieldRuntime:_load()
   local ok, err = pcall(function()
     local cacheFs = CacheFs.forVersion(self.versionId)
     self.cacheFs = cacheFs
-    self.saveStore = FieldSaveStore.new(SaveFs.forVersion(self.versionId), { avatars = avatarIdSet() })
+    self.saveStore = FieldSaveStore.new(self.saveFs or SaveFs.forVersion(self.versionId), { avatars = avatarIdSet() })
     if self.resetSave then
       self.saveStore:reset()
       self.resetSave = false
@@ -180,7 +187,14 @@ function FieldRuntime:_load()
     assert(profiles.schema == "g4-field-camera-profiles-v1", "unsupported field camera cache")
     self.cameraProfiles = profiles.profiles
 
-    self.mapLoader = FieldMapLoader.new(cacheFs, world)
+    self.mapLoader = FieldMapLoader.new(cacheFs, world, {
+      sceneLoader = self.presentation and nil or MapCollisionLoader,
+      coverageLoader = self.presentation and nil or {
+        load = function()
+          return nil
+        end,
+      },
+    })
     local restored
     if self.resumeSave then
       local saved, saveErr = self.saveStore:load()

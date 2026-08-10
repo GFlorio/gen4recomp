@@ -31,6 +31,11 @@ function T.prefix_roots_at_the_user_data_namespace()
   Assert.equal(save("soulsilver"):prefix(), "saves/soulsilver/")
 end
 
+function T.scoped_save_root_is_confined_to_the_requested_namespace()
+  local scoped = SaveFs.forVersion("heartgold", FakeCache.new(), "acceptance/heartgold/1")
+  Assert.equal(scoped:prefix(), "acceptance/heartgold/1/")
+end
+
 function T.write_lands_below_the_save_root()
   local backend = FakeCache.new()
   save("heartgold", backend):write(SAVE_PATH, "SAVE-DATA")
