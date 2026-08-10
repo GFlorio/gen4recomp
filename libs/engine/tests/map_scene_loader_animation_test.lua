@@ -691,4 +691,44 @@ function T.load_rejects_an_unknown_initial_band()
   assert(tostring(err):find("unknown time-of-day band", 1, true) ~= nil, tostring(err))
 end
 
+-- Digest-side dynamic batches carry no skin attributes (rigid Nitro
+-- geometry); strip them here to exercise the loader's stamp-and-encode.
+local function stripSkinAttributes(desc)
+  for _, mesh in ipairs(desc.dynamic.batches) do
+    for _, v in ipairs(mesh.batch.vertices) do
+      v.joints = nil
+      v.weights = nil
+    end
+  end
+  return desc
+end
+
+function T.rigid_nitro_batches_without_skin_attributes_load()
+  local desc = stripSkinAttributes(doorDescriptor())
+  local cache = sceneWith({
+    {
+      placementIndex = 0,
+      modelKey = "outdoor:26:door",
+      transform = identityMatrix(),
+    },
+  }, { [desc.key] = desc })
+  local decodedMeshes = {}
+  local runtime = MapSceneLoader.load(cache, assert(cache:loadLua(MapAssetCache.mapDir(61) .. "/scene.lua")), {
+    meshBuilder = function(decoded)
+      decodedMeshes[#decodedMeshes + 1] = decoded
+      return fakeMeshBuilder(decoded)
+    end,
+  })
+  Assert.equal(runtime.stats.animatedInstances, 1)
+  Assert.isTrue(#decodedMeshes >= 1, "the dynamic batches encoded as G4M3")
+  for _, decoded in ipairs(decodedMeshes) do
+    assert(decoded.joints and decoded.weights, "the G4M3 decode carries skin arrays")
+    for i = 1, #decoded.vertices do
+      Assert.deepEqual(decoded.joints[i], { 0, 0, 0, 0 }, "rigid vertex carries zero joint indices")
+      Assert.deepEqual(decoded.weights[i], { 0, 0, 0, 0 }, "rigid vertex carries zero weights")
+    end
+  end
+  runtime:release()
+end
+
 return T

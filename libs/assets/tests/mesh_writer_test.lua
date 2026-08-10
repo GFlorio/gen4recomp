@@ -169,4 +169,26 @@ function T.g4m3_rejects_unknown_format()
   raisesCode("MESH_UNKNOWN_FORMAT", MeshWriter.encode, triangle(), { format = "g4m9" })
 end
 
+function T.ensure_skin_attributes_stamps_missing_rigid_form()
+  local b = triangle()
+  MeshWriter.ensureSkinAttributes(b.vertices)
+  for _, vertex in ipairs(b.vertices) do
+    Assert.deepEqual(vertex.joints, { 0, 0, 0, 0 })
+    Assert.deepEqual(vertex.weights, { 0, 0, 0, 0 })
+  end
+  local s = MeshWriter.encode(b, { format = "g4m3" })
+  local r = BinaryReader.new(s, "mesh")
+  local base = 24
+  Assert.equal(r:u8(base + 40), 0, "stamped joints encode")
+  Assert.equal(r:u8(base + 44), 0, "stamped weights encode")
+end
+
+function T.ensure_skin_attributes_preserves_authored_data()
+  local b = skinnedTriangle()
+  MeshWriter.ensureSkinAttributes(b.vertices)
+  Assert.deepEqual(b.vertices[1].joints, { 0, 1, 2, 3 })
+  Assert.deepEqual(b.vertices[1].weights, { 64, 64, 64, 63 })
+  Assert.deepEqual(b.vertices[3].joints, { 0, 0, 0, 0 })
+end
+
 return { tests = T }

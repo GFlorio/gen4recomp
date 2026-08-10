@@ -83,6 +83,22 @@ local function validateG4m3Vertex(v, vertexIndex)
   end
 end
 
+-- Producer-side G4M3 contract helper: rigid geometry (Nitro field batches
+-- resolve every transform from the pose program and never carry skin data)
+-- still must present the four joint/weight pairs the G4M3 layout requires.
+-- Vertices that already carry attributes are preserved; `encode` stays the
+-- strict gate for anything that reaches it without them.
+function MeshWriter.ensureSkinAttributes(vertices)
+  for _, vertex in ipairs(vertices) do
+    if not vertex.joints then
+      vertex.joints = { 0, 0, 0, 0 }
+    end
+    if not vertex.weights then
+      vertex.weights = { 0, 0, 0, 0 }
+    end
+  end
+end
+
 function MeshWriter.encode(batch, opts)
   local vertices, indices = batch.vertices, batch.indices
   if not vertices or #vertices == 0 or not indices or #indices == 0 then

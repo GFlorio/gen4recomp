@@ -245,6 +245,9 @@ local function buildScene(pool, cacheFs, scene, opts)
         local definition = ModelDefinition.fromNitroDescriptor(desc.descriptor, { key = inst.modelKey })
         local renders = {}
         for _, mesh in ipairs(definition.meshes) do
+          -- Rigid Nitro batches carry no skin attributes (see
+          -- MeshWriter.ensureSkinAttributes); stamp them before the strict encode.
+          MeshWriter.ensureSkinAttributes(mesh.batch.vertices)
           local bytes = MeshWriter.encode(mesh.batch, { format = "g4m3" })
           local decoded = SceneMesh.decode(bytes)
           renders[mesh.id] = pool:adoptMesh(buildMesh(decoded), decoded.indexCount / 3)
