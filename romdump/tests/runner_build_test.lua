@@ -6,6 +6,7 @@
 
 local Assert = require("tests.support.Assert")
 local Runner = require("romdump.src.cli.Runner")
+local CachePipeline = require("romdump.src.CachePipeline")
 local CacheFs = require("libs.rom.src.CacheFs")
 local RomImporter = require("libs.rom.src.RomImporter")
 local RomFs = require("libs.rom.src.RomFs")
@@ -199,6 +200,54 @@ function T.unchanged_second_build_rewrites_nothing()
     Assert.isTrue(FieldActorCacheWriter.isReady(cache, bundle.marker), "the published artifact is still current")
     Assert.equal(cache:read(FieldActorCache.markerPath()), bundle.marker, "the live marker is untouched")
   end)
+end
+
+-- A supplied source reaches the same production pipeline boundary as the
+-- cache/audit/runtime flow once the coroutine importer has completed. The
+-- Runner remains the owner of coroutine pumping and CLI exit status.
+function T.completed_source_import_runs_the_production_cache_pipeline()
+  local realProduction, realRunBuild, realQuit, realOpts, realImporter =
+    CachePipeline.production, Runner._runBuild, love.event.quit, Runner.opts, Runner.importer
+  local calls = {}
+  CachePipeline.production = function(options)
+    Assert.equal(type(options.prepareVersion), "function")
+    Assert.equal(type(options.importSource), "function")
+    return {
+      runSource = function(_, source)
+        calls[#calls + 1] = "pipeline:" .. source
+        local imported = assert(options.importSource(source, "ignored-root"))
+        Assert.equal(imported.versionId, "heartgold")
+        return {
+          runtime = {
+            dispose = function()
+              calls[#calls + 1] = "dispose"
+            end,
+          },
+        }
+      end,
+    }
+  end
+  Runner._runBuild = function()
+    error("source flow must use CachePipeline, not Runner._runBuild directly")
+  end
+  love.event.quit = function(code)
+    calls[#calls + 1] = "quit:" .. code
+  end
+  Runner.opts = { buildCache = true, importRom = "provided.nds" }
+  Runner.importer = {
+    state = "complete",
+    status = function()
+      return { versionId = "heartgold", report = { sha1 = "test", fatEntryCount = 0, totalBytesWritten = 0 } }
+    end,
+  }
+
+  local ok, err = xpcall(Runner._maybeExit, debug.traceback)
+  CachePipeline.production, Runner._runBuild, love.event.quit = realProduction, realRunBuild, realQuit
+  Runner.opts, Runner.importer = realOpts, realImporter
+  if not ok then
+    error(err, 0)
+  end
+  Assert.deepEqual(calls, { "pipeline:provided.nds", "dispose", "quit:0" })
 end
 
 return T

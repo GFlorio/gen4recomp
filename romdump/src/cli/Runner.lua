@@ -10,6 +10,7 @@ local RomImporter = require("libs.rom.src.RomImporter")
 local RomFs = require("libs.rom.src.RomFs")
 local DumpAudit = require("libs.rom.src.DumpAudit")
 local Errors = require("libs.rom.src.Errors")
+local CachePipeline = require("romdump.src.CachePipeline")
 
 local Runner = {}
 
@@ -164,14 +165,16 @@ end
 -- Audit every ready version and exit 0 only if all pass. Proves the runtime
 -- boots from the private cache without the ROM.
 function Runner._runCheckDump()
-  local targets = readyVersions()
+  local pipeline = CachePipeline.production()
+  local targets = pipeline:readyVersions()
   if #targets == 0 then
     print("check-dump: no ready version to audit")
     return love.event.quit(1)
   end
   local allOk = true
+  local reports = pipeline:auditReady()
   for _, version in ipairs(targets) do
-    local report = DumpAudit.run(version)
+    local report = reports[version]
     for _, line in ipairs(DumpAudit.lines(report)) do
       print(line)
     end
@@ -313,7 +316,10 @@ end
 -- still abort the build. A map whose completion marker already matches the
 -- current build is left in place, so an unchanged cache rebuilds only what is
 -- stale.
-function Runner._runBuild()
+---@param options { versionIds: string[]?, noQuit: boolean? }|nil
+---@return table|nil, string|nil
+function Runner._runBuild(options)
+  options = options or {}
   local MapAnalysis = require("romdump.src.digest.MapAnalysis")
   local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
   local MapCacheWriter = require("romdump.src.digest.MapCacheWriter")
@@ -336,10 +342,13 @@ function Runner._runBuild()
   local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
   local ScriptCacheWriter = require("romdump.src.digest.ScriptCacheWriter")
   local ScriptCache = require("libs.assets.src.ScriptCache")
-  local targets = readyVersions()
+  local targets = options.versionIds or readyVersions()
   if #targets == 0 then
     print("build: no ready version to compile")
-    return love.event.quit(1)
+    if not options.noQuit then
+      love.event.quit(1)
+    end
+    return nil, "no ready version to compile"
   end
   local allOk, compileExclusions = true, false
   for _, version in ipairs(targets) do
@@ -496,7 +505,13 @@ function Runner._runBuild()
     print("build-cache: compile exclusions remain; " .. "rerun with --allow-compile-exclusions to accept them")
     allOk = false
   end
-  love.event.quit(allOk and 0 or 1)
+  if not options.noQuit then
+    love.event.quit(allOk and 0 or 1)
+  end
+  if allOk then
+    return { current = true }
+  end
+  return nil, "cache preparation failed"
 end
 
 function Runner._startImport(path)
@@ -522,9 +537,29 @@ function Runner._maybeExit()
   end
   if imp.state == "complete" then
     printImportResult(imp:status())
+    local imported = imp:status()
     Runner.importer = nil
     if Runner.opts.buildCache then
-      Runner._runBuild()
+      local pipeline = CachePipeline.production({
+        prepareVersion = function(versionId)
+          return Runner._runBuild({ versionIds = { versionId }, noQuit = true })
+        end,
+        importSource = function(source)
+          assert(source == Runner.opts.importRom, "source import path changed while importing")
+          return { versionId = imported.versionId }
+        end,
+        -- scripts/test.sh owns the isolated root and removes it in its EXIT
+        -- trap. The LÖVE process only consumes that already-isolated root.
+        createIsolatedRoot = function()
+          return "script-owned-isolated-root"
+        end,
+        removeIsolatedRoot = function()
+          return true
+        end,
+      })
+      local result = pipeline:runSource(Runner.opts.importRom)
+      result.runtime:dispose()
+      love.event.quit(0)
     else
       love.event.quit(0)
     end
