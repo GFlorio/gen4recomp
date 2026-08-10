@@ -1,12 +1,12 @@
 ---@diagnostic disable: duplicate-set-field
--- LÖVE configuration for the game app. The test runners (--test,
--- --test-private) run windowless and without GPU/audio so they are fast and
--- headless; an ordinary boot gets a normal resizable window. Headless detection
--- is a plain scan of `arg` because modules are not up yet.
+-- LÖVE configuration for the game app. The test command (--test) runs
+-- windowless and without GPU/audio so it is fast and headless; an ordinary boot
+-- gets a normal resizable window. Headless detection is a plain scan of `arg`
+-- because modules are not up yet.
 
 local function isHeadless()
   for _, a in ipairs(arg or {}) do
-    if a == "--test" or a == "--test-private" then
+    if a == "--test" then
       return true
     end
   end

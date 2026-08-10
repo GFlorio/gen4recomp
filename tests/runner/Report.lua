@@ -85,6 +85,9 @@ function Report.lines(run)
 
   local capabilities = sortedKeys(run.capabilities or {})
   add("  capabilities: " .. (#capabilities > 0 and table.concat(capabilities, ", ") or "none"))
+  if run.versions ~= nil then
+    add("  versions: " .. (#run.versions > 0 and table.concat(run.versions, ", ") or "none"))
+  end
 
   if #failures > 0 then
     local slowestFailure = byDurationDescending(failures)[1]
@@ -110,6 +113,32 @@ function Report.lines(run)
     end
   end
 
+  return lines
+end
+
+-- Report lines for `--list`: one line per discovered suite with the metadata a
+-- reader needs to pick a layer or filter, plus the load error of any suite that
+-- could not be read.
+---@param listing { module: string, layer: string, capabilities: string[], tags: string[], tests: string[], error: string|nil }[]
+---@return string[]
+function Report.listingLines(listing)
+  local lines = {}
+  local tests = 0
+  for _, suite in ipairs(listing) do
+    tests = tests + #suite.tests
+    local parts = { suite.layer, #suite.tests .. " tests" }
+    if #suite.capabilities > 0 then
+      parts[#parts + 1] = "needs " .. table.concat(suite.capabilities, "+")
+    end
+    if #suite.tags > 0 then
+      parts[#parts + 1] = "tags " .. table.concat(suite.tags, ",")
+    end
+    lines[#lines + 1] = string.format("%-56s %s", suite.module, table.concat(parts, "  "))
+    if suite.error ~= nil then
+      lines[#lines + 1] = "    LOAD ERROR " .. tostring(suite.error)
+    end
+  end
+  lines[#lines + 1] = string.format("%d suites, %d tests", #listing, tests)
   return lines
 end
 

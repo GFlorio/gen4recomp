@@ -1,29 +1,11 @@
 #!/usr/bin/env bash
-# Real-ROM integration test. NOT run in public CI — it needs a
-# legally-obtained cartridge dump. Usage:
-#   scripts/integration.sh [path-to.nds]
-#
-# Step 1 imports the ROM headlessly; the version is detected from its SHA-1.
-# Step 2 audits every ready dump in a SEPARATE process that never opens the ROM,
-# proving the runtime boots from the private cache alone. Both steps run
-# windowless. Any failure exits nonzero.
+# Convenience wrapper for a full source-ROM run: imports the given cartridge
+# dump and builds its derived cache in an isolated save root, then runs the
+# whole suite against it. It owns no test suite of its own — `scripts/test.sh`
+# is the single test command.
+#   scripts/integration.sh [path-to.nds-or.zip]
 set -euo pipefail
 cd "$(dirname "$0")/.."
-source scripts/lib.sh
 
-ROM="${1:-tmp/rom.zip}"
-
-if [ ! -f "$ROM" ]; then
-  echo "integration: ROM not found at '$ROM'" >&2
-  exit 2
-fi
-
-echo "== import (version detected from ROM) =="
-love romdump/ --import-rom "$ROM" --import-only
-
-echo
-echo "== audit ready dumps without the ROM =="
-love romdump/ --check-dump
-
-echo
-echo "integration: OK"
+# An unreadable path is rejected by the test command itself, with exit 2.
+exec scripts/test.sh --rom-source "${1:-tmp/rom.zip}"

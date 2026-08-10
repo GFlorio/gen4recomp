@@ -1,7 +1,7 @@
 -- Private target test: the field-actor graphics table, resource bundles, and
 -- compiled visuals against a real HGSS dump. It asserts only structural facts --
 -- counts, offsets, member IDs, frame timings, hashes -- and never checks in a
--- decoded texel. Runs only via --test-private.
+-- decoded texel. Runs only in the ROM-gated layer.
 
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.rom.src.CacheFs")

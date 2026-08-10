@@ -206,7 +206,7 @@ polygon-state part and draw without a billboard transform. Pose selection
 (`FieldActorPose`) is independent of both paths.
 
 The state the ordinary shared model declares (asserted per original target class
-by the private suite):
+by the ROM-gated layer):
 
 | Fact | Value | Consequence |
 | --- | --- | --- |

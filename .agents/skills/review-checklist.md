@@ -65,9 +65,10 @@ item is a *cut* lens: the default answer is "remove it", and keeping code needs 
   field matters, hardcoded offsets that duplicate the implementation, ordering assumptions
   on unordered data, real-ROM dependence in unit tests.
 - **Tests that restate the implementation** instead of pinning behavior.
-- **Discovery.** Public test modules are discovered recursively under the roots declared in
-  `tests/run.lua`; a suite outside those roots never runs. ROM-dependent tests still list in
-  `tests/private/run.lua`.
+- **Discovery.** Test modules are discovered recursively under the roots declared in
+  `tests/run.lua`; a suite outside those roots never runs. There is no registry, and
+  ROM-dependent suites declare the capability they need instead of living behind a second
+  command.
 
 ## Residue
 

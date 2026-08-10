@@ -2,8 +2,8 @@
 -- Game entry point. This app is its own LÖVE root (`love game/`); the repo root
 -- (the source base directory) is added to package.path first so `require`
 -- resolves libs and sibling apps by their full repo-relative path (libs.*,
--- game.src.*, data.*) independent of the working directory. Flags: --test and
--- --test-private run the suites and exit; --field boots a fixed field target;
+-- game.src.*, data.*) independent of the working directory. Flags: --test runs
+-- the test suite and exits; --field boots a fixed field target;
 -- --actors opens the compiled field-actor preview grid; --new-field-session
 -- clears the selected version's project save; otherwise App drives the normal
 -- boot/import flow.
@@ -11,14 +11,12 @@ local ROOT = love.filesystem.getSourceBaseDirectory()
 package.path = ROOT .. "/?.lua;" .. ROOT .. "/?/init.lua;" .. package.path
 
 local function parse(argv)
-  local opts = { test = false, testPrivate = false, field = nil, actors = false, newFieldSession = false }
+  local opts = { test = false, field = nil, actors = false, newFieldSession = false }
   local i = 1
   while i <= #(argv or {}) do
     local option = argv[i]
     if option == "--test" then
       opts.test = true
-    elseif option == "--test-private" then
-      opts.testPrivate = true
     elseif option == "--field" then
       opts.field = true
       if argv[i + 1] and argv[i + 1]:sub(1, 2) ~= "--" then
@@ -41,14 +39,8 @@ function love.load(argv)
   local opts = parse(argv)
 
   if opts.test then
-    local failures = require("tests.run").run()
-    love.event.quit(failures == 0 and 0 or 1)
-    return
-  end
-
-  if opts.testPrivate then
-    local failures = require("tests.private.run").run()
-    love.event.quit(failures == 0 and 0 or 1)
+    -- The test command owns its own argument parsing and exit status.
+    love.event.quit(require("tests.run").main(argv))
     return
   end
 

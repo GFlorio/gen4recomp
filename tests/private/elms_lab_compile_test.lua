@@ -3,7 +3,7 @@
 -- dump must produce byte-identical scene, mesh, and texture output; the result
 -- must be complete (every placed indoor model, a 2048-byte permission grid) and
 -- report ready; and an injected write failure must leave no completion marker
--- and spare the raw-dump marker. Runs only via --test-private.
+-- and spare the raw-dump marker. Runs only in the ROM-gated layer.
 
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.rom.src.CacheFs")

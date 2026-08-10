@@ -10,7 +10,6 @@ function Cli.parse(argv)
 
   local opts = {
     test = false,
-    testPrivate = false,
     importRom = nil,
     importOnly = false,
     checkDump = false,
@@ -29,8 +28,6 @@ function Cli.parse(argv)
     local a = argv[i]
     if a == "--test" then
       opts.test = true
-    elseif a == "--test-private" then
-      opts.testPrivate = true
     elseif a == "--import-rom" then
       i = i + 1
       opts.importRom = argv[i] or error("--import-rom requires a path")

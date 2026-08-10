@@ -70,25 +70,36 @@ local function collect(config)
   return items
 end
 
--- Discovery without execution: one entry per suite, sorted by module name.
----@return { module: string, layer: string, capabilities: string[], tags: string[], tests: string[] }[]
+-- Discovery without execution: one entry per suite, sorted by module name. A
+-- module that cannot be loaded is listed with its `error` and no tests, the same
+-- way a run reports it as one failed result — one broken suite must not replace
+-- the whole listing with a traceback.
+---@return { module: string, layer: string, capabilities: string[], tags: string[], tests: string[], error: string|nil }[]
 function TestRunner.list(options)
   local config = resolve(options)
   local listing = {}
   for _, item in ipairs(collect(config)) do
     if item.failure ~= nil then
-      error(item.failure.message, 0)
-    end
-    local suite = assert(item.suite, "collected item carries neither a suite nor a failure")
-    local tests = Selection.tests(suite, config.filter)
-    if #tests > 0 or config.filter == nil then
       listing[#listing + 1] = {
-        module = suite.module,
-        layer = suite.layer,
-        capabilities = suite.capabilities,
-        tags = suite.tags,
-        tests = tests,
+        module = item.failure.module,
+        layer = item.failure.layer,
+        capabilities = {},
+        tags = {},
+        tests = {},
+        error = item.failure.message,
       }
+    else
+      local suite = assert(item.suite, "collected item carries neither a suite nor a failure")
+      local tests = Selection.tests(suite, config.filter)
+      if #tests > 0 or config.filter == nil then
+        listing[#listing + 1] = {
+          module = suite.module,
+          layer = suite.layer,
+          capabilities = suite.capabilities,
+          tags = suite.tags,
+          tests = tests,
+        }
+      end
     end
   end
   return listing
@@ -122,6 +133,7 @@ end
 ---@field duration number seconds
 ---@field byLayer table<string, { passed: integer, failed: integer, skipped: integer, duration: number }>
 ---@field capabilities table<string, boolean>
+---@field versions string[]|nil ready game versions the run exercised, when known
 
 ---@return RunnerRun
 function TestRunner.run(options)

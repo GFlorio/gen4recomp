@@ -1,6 +1,6 @@
 -- Private target test: New Bark Town (map 60) against a real HGSS dump. Proves
 -- the shared resolution/container pipeline handles the shared EVERYWHERE matrix
--- and an outdoor area. Runs only via `--test-private`. Asserts semantic
+-- and an outdoor area. Runs only in the ROM-gated layer. Asserts semantic
 -- resolution and field-container decoding for the outdoor target.
 
 local Assert = require("tests.support.Assert")

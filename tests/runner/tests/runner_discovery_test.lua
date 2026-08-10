@@ -1,8 +1,7 @@
 -- Contract tests for the capability-aware runner's discovery, listing, and
--- selection (spec deliverable 4; scenario IDs RUNNER-01..RUNNER-07). Discovery
--- is recursive over approved roots and is the only source of truth: no
--- hand-maintained module registry may exist. Listing reports layer/capability
--- metadata without executing any test body.
+-- selection. Discovery is recursive over approved roots and is the only source
+-- of truth: no hand-maintained module registry may exist. Listing reports
+-- layer/capability metadata without executing any test body.
 --
 -- Suffix rule under test: a file is a suite when its name ends in `_test.lua`
 -- or its plural `_tests.lua` (the existing `libs/engine/tests/script/*_tests.lua`
@@ -42,7 +41,7 @@ local function find(listing, moduleName)
   error("listing has no suite " .. moduleName, 2)
 end
 
--- RUNNER-01: nested suites are discovered; non-suite files are not.
+-- nested suites are discovered; non-suite files are not.
 function T.discovery_finds_nested_suites_and_ignores_other_files()
   local corpus = FakeCorpus.new({
     ["fake/unit/alpha_test.lua"] = legacy({ "a" }),
@@ -56,7 +55,7 @@ function T.discovery_finds_nested_suites_and_ignores_other_files()
   Assert.deepEqual(moduleNames(listing), { "fake.unit.alpha_test", "fake.unit.nested.deep.beta_tests" })
 end
 
--- RUNNER-02: order is deterministic and independent of filesystem order.
+-- order is deterministic and independent of filesystem order.
 function T.discovery_order_is_sorted_not_filesystem_order()
   local corpus = FakeCorpus.new({
     ["fake/unit/zulu_test.lua"] = legacy({ "z second", "a first" }),
@@ -72,7 +71,7 @@ function T.discovery_order_is_sorted_not_filesystem_order()
   Assert.deepEqual(moduleNames(TestRunner.list(options)), moduleNames(listing))
 end
 
--- RUNNER-03: a module name reachable from two roots is a hard error, not a
+-- a module name reachable from two roots is a hard error, not a
 -- silently doubled or dropped suite.
 function T.duplicate_module_name_is_rejected()
   local corpus = FakeCorpus.new({ ["fake/unit/alpha_test.lua"] = legacy({ "a" }) })
@@ -88,7 +87,7 @@ function T.duplicate_module_name_is_rejected()
   )
 end
 
--- RUNNER-04: listing the corpus never runs a test body.
+-- listing the corpus never runs a test body.
 function T.listing_does_not_execute_test_bodies()
   local executed = false
   local corpus = FakeCorpus.new({
@@ -107,7 +106,7 @@ function T.listing_does_not_execute_test_bodies()
   Assert.isFalse(executed, "listing executed a test body")
 end
 
--- RUNNER-05: explicit metadata is surfaced; legacy modules default their layer
+-- explicit metadata is surfaced; legacy modules default their layer
 -- from the root they were discovered under, and declare no capabilities.
 function T.listing_reports_layer_capabilities_and_tags()
   local corpus = FakeCorpus.new({
@@ -137,7 +136,7 @@ function T.listing_reports_layer_capabilities_and_tags()
   Assert.deepEqual(acceptance.tests, { "lab exit round trip" })
 end
 
--- RUNNER-06: layer selection runs only the selected layer.
+-- layer selection runs only the selected layer.
 function T.layer_selection_runs_only_that_layer()
   local ran = {}
   local function record(label)
@@ -167,7 +166,7 @@ function T.layer_selection_runs_only_that_layer()
   Assert.equal(result.skipped, 0)
 end
 
--- RUNNER-07: filter matches against the fully qualified module :: test name.
+-- filter matches against the fully qualified module :: test name.
 function T.filter_matches_qualified_module_and_test_name()
   local corpus = FakeCorpus.new({
     ["fake/unit/warp_test.lua"] = { ["resolves door"] = function() end, ["resolves stairs"] = function() end },

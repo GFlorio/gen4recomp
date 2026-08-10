@@ -106,4 +106,27 @@ function T.green_run_lists_the_slowest_passing_tests_and_capabilities()
   Assert.isTrue(contains(lines, "capabilities: graphics, rom_dump"), "names detected capabilities")
 end
 
+-- `--list` shows what would run without executing it, including the metadata a
+-- reader needs to select a layer, and does not hide a module that failed to load.
+function T.listing_shows_layer_capabilities_tags_and_broken_modules()
+  local lines = Report.listingLines({
+    {
+      module = "tests.rom.new_bark_test",
+      layer = "rom",
+      capabilities = { "rom_dump" },
+      tags = { "field" },
+      tests = { "warps home", "reads terrain" },
+    },
+    { module = "tests.rom.broken_test", layer = "rom", capabilities = {}, tags = {}, tests = {}, error = "boom" },
+  })
+
+  Assert.isTrue(contains(lines, "tests.rom.new_bark_test"), "names the module")
+  Assert.isTrue(contains(lines, "rom"), "names the layer")
+  Assert.isTrue(contains(lines, "rom_dump"), "names the capabilities")
+  Assert.isTrue(contains(lines, "field"), "names the tags")
+  Assert.isTrue(contains(lines, "2 tests"), "counts the tests")
+  Assert.isTrue(contains(lines, "boom"), "a broken module is listed with its load error")
+  Assert.isTrue(contains(lines, "2 suites"), "totals the listing")
+end
+
 return T

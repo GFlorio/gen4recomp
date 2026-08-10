@@ -1,11 +1,22 @@
--- Aggregate entry point of the public test suite, invoked via `love game/
--- --test`. It owns only the approved discovery roots and their default layers;
--- discovery, selection, execution, and reporting live in `tests/runner/`. There
--- is no module registry: a suite runs because the file exists.
+-- Aggregate entry point of the test suite, invoked via `love game/ --test`
+-- (`scripts/test.sh`). It owns only the approved discovery roots and their
+-- default layers plus the wiring of argument parsing, capability detection,
+-- execution, and reporting; those live in `tests/runner/`. There is no module
+-- registry: a suite runs because the file exists.
 
+local Capabilities = require("tests.runner.Capabilities")
+local Cli = require("tests.runner.Cli")
 local RepoFiles = require("tests.runner.RepoFiles")
 local Report = require("tests.runner.Report")
 local TestRunner = require("tests.runner.TestRunner")
+
+-- The process environment, read lazily. Passed explicitly into the pure command
+-- modules so their behavior never depends on an ambient lookup.
+local ENV = setmetatable({}, {
+  __index = function(_, name)
+    return os.getenv(name)
+  end,
+})
 
 ---@type RunnerRoot[]
 local ROOTS = {
@@ -16,10 +27,11 @@ local ROOTS = {
   { path = "game/tests", prefix = "game.tests", layer = "component" },
   { path = "romdump/tests", prefix = "romdump.tests", layer = "component" },
   { path = "tests/runner/tests", prefix = "tests.runner.tests", layer = "unit" },
+  { path = "tests/rom", prefix = "tests.rom", layer = "rom" },
 }
 
--- `options` accepts `layer`, `filter`, and `capabilities`; the shell entrypoint
--- owns their parsing.
+-- `options` accepts `layer`, `filter`, and `capabilities`; `main` parses them
+-- out of the argv.
 ---@param options table|nil
 local function runnerOptions(options)
   options = options or {}
@@ -36,14 +48,6 @@ local function runnerOptions(options)
   }
 end
 
----@param options table|nil
----@return integer failed test count
-local function run(options)
-  local result = TestRunner.run(runnerOptions(options))
-  print(table.concat(Report.lines(result), "\n"))
-  return result.failed
-end
-
 -- Discovery without execution, for `--list`.
 ---@param options table|nil
 ---@return table[] listing
@@ -51,4 +55,48 @@ local function list(options)
   return TestRunner.list(runnerOptions(options))
 end
 
-return { run = run, list = list, ROOTS = ROOTS }
+-- The whole command: parse, detect capabilities, run or list, report, and
+-- return the process exit status.
+---@param argv string[]
+---@return integer exitCode
+local function main(argv)
+  local plan, message = Cli.parse(argv, { env = ENV })
+  if plan == nil then
+    io.stderr:write("test: " .. tostring(message) .. "\n")
+    return Cli.EXIT_USAGE
+  end
+
+  local capabilities, versions = Capabilities.detect({ env = ENV })
+  if plan.romSource ~= nil then
+    -- The shell entrypoint imported and built that source into an isolated save
+    -- root before this run; parsing already proved the path readable.
+    capabilities.rom_source = true
+  end
+
+  if plan.list then
+    print(table.concat(Report.listingLines(list(plan)), "\n"))
+    return 0
+  end
+
+  local result = TestRunner.run(runnerOptions({
+    capabilities = capabilities,
+    layer = plan.layer,
+    filter = plan.filter,
+  }))
+  result.versions = versions
+  print(table.concat(Report.lines(result), "\n"))
+
+  -- Flush first so the warning banner cannot land inside the buffered report.
+  io.stdout:flush()
+
+  local outcome = Cli.outcome(plan, capabilities, result)
+  if outcome.warning ~= nil then
+    io.stderr:write(outcome.warning .. "\n")
+  end
+  if outcome.failure ~= nil then
+    io.stderr:write("test: " .. outcome.failure .. "\n")
+  end
+  return outcome.exitCode
+end
+
+return { main = main, list = list, ROOTS = ROOTS }

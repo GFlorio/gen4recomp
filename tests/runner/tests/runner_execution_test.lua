@@ -1,7 +1,6 @@
--- Contract tests for the capability-aware runner's execution and result model
--- (spec deliverable 4; scenario IDs RUNNER-08..RUNNER-15). Results are pass,
--- fail, or skip: a skip is always explicit and is never counted as a pass, a
--- module-load error is a failed result carrying the module name rather than a
+-- Contract tests for the capability-aware runner's execution and result model.
+-- Results are pass, fail, or skip: a skip is always explicit and is never
+-- counted as a pass, a module-load error is a failed result carrying the module name rather than a
 -- runner crash, and cleanup hooks run on every terminal path.
 
 local Assert = require("tests.support.Assert")
@@ -22,7 +21,7 @@ local function resultFor(run, moduleName, testName)
   error("no result for " .. moduleName .. " :: " .. tostring(testName), 2)
 end
 
--- RUNNER-08: legacy `name -> function` modules still run, with the layer taken
+-- legacy `name -> function` modules still run, with the layer taken
 -- from the root they were discovered under.
 function T.legacy_module_shape_runs_with_root_layer()
   local corpus = FakeCorpus.new({
@@ -38,7 +37,7 @@ function T.legacy_module_shape_runs_with_root_layer()
   Assert.equal(resultFor(run, "fake.unit.alpha_test", "adds").layer, "unit")
 end
 
--- RUNNER-09: a module that fails to load is one failed result naming the
+-- a module that fails to load is one failed result naming the
 -- module; the rest of the corpus still runs.
 function T.module_load_failure_is_a_failed_result()
   local corpus = FakeCorpus.new({
@@ -58,7 +57,7 @@ function T.module_load_failure_is_a_failed_result()
   )
 end
 
--- RUNNER-10: an explicit skip is recorded as a skip with its reason, never as
+-- an explicit skip is recorded as a skip with its reason, never as
 -- a pass.
 function T.explicit_skip_is_counted_as_skip()
   local corpus = FakeCorpus.new({
@@ -83,7 +82,7 @@ function T.explicit_skip_is_counted_as_skip()
   )
 end
 
--- RUNNER-11: a suite whose declared capability is unavailable skips with the
+-- a suite whose declared capability is unavailable skips with the
 -- capability named, and its bodies never run.
 function T.missing_capability_skips_the_suite()
   local executed = false
@@ -117,7 +116,7 @@ function T.missing_capability_skips_the_suite()
   )
 end
 
--- RUNNER-12: setup failure is reported and still runs the cleanup hook.
+-- setup failure is reported and still runs the cleanup hook.
 function T.setup_failure_reports_and_still_runs_cleanup()
   local cleanups = 0
   local executed = false
@@ -153,7 +152,7 @@ function T.setup_failure_reports_and_still_runs_cleanup()
   )
 end
 
--- RUNNER-13: one failing test stops neither its siblings nor later modules, and
+-- one failing test stops neither its siblings nor later modules, and
 -- cleanup still runs.
 function T.test_failure_does_not_stop_the_run()
   local cleanups = 0
@@ -187,7 +186,7 @@ function T.test_failure_does_not_stop_the_run()
   )
 end
 
--- RUNNER-14: the context threads suite state and capability queries from setup
+-- the context threads suite state and capability queries from setup
 -- into every test of that suite.
 function T.context_is_shared_between_hooks_and_tests()
   local seen = {}
@@ -220,7 +219,7 @@ function T.context_is_shared_between_hooks_and_tests()
   Assert.isFalse(seen.romDump, "undeclared capability reads as unavailable")
 end
 
--- RUNNER-15: the report carries durations and per-layer pass/fail/skip counts.
+-- the report carries durations and per-layer pass/fail/skip counts.
 function T.report_summarises_counts_and_durations_by_layer()
   local corpus = FakeCorpus.new({
     ["fake/unit/alpha_test.lua"] = {

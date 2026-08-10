@@ -133,7 +133,7 @@ Validated against the canonical US HeartGold dump:
 | Timelines | 280 (ordinary), 281 (player), 292 (static Marill) |
 | Actor textures | one `BTX0` member per sprite, 32x32 `palette16`, color 0 transparent |
 
-The private suite (`scripts/test-private.sh`) asserts the table invariants,
+The ROM-gated suite (`scripts/test.sh --layer rom`) asserts the table invariants,
 complete catalog compilation, the
 per-sprite source bundle for all eleven target classes, the absence of
 `SPRITE_VAR_1`, the range counts that distinguish player from ordinary

@@ -1,19 +1,21 @@
 # ROM import & local integration test
 
-The synthetic test suite (`scripts/test.sh`) never touches a real ROM and is the
-only thing CI runs. This document covers the **manual, local** integration test
-against a real cartridge dump — the check that a genuine HeartGold/SoulSilver ROM
-imports, verifies, and boots from cache alone. It is never run in public CI
-because it needs a legally-obtained ROM you supply yourself.
+`scripts/test.sh` is the single test command: its ROM-independent layers are the
+only thing CI runs, and its ROM-gated layers run whenever a dump is ready. This
+document covers the **manual, local** path against a real cartridge dump — the
+check that a genuine HeartGold/SoulSilver ROM imports, verifies, and boots from
+cache alone. It is never run in public CI because it needs a legally-obtained ROM
+you supply yourself.
 
-## One-shot integration script
+## One-shot source-ROM script
 
 ```sh
 scripts/integration.sh /path/to/your.nds
 ```
 
-This imports the ROM headlessly, then, in a **separate process that never opens
-the ROM**, audits every ready dump. Any failure exits nonzero. The version
+This imports the ROM headlessly and builds its derived cache in an isolated save
+root that never touches your ordinary cache, then runs the whole suite against
+it (`scripts/test.sh --rom-source`). Any failure exits nonzero. The version
 (HeartGold or SoulSilver) is detected from the ROM's SHA-1 — you never name it.
 A `.zip` containing the `.nds` works too; it is mounted in memory and walked for
 a compatible ROM.

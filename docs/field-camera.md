@@ -70,8 +70,8 @@ planning uses effective zoom, so zooming out requests the newly visible cells.
 ## Validation and known gaps
 
 Run `scripts/test.sh` for projection, history, viewport, resize, coverage, and
-cache ownership contracts. A private imported cache enables
-`scripts/test-private.sh`.
+cache ownership contracts. An imported cache additionally enables the ROM-gated
+layer of that same command.
 
 Deferred parity includes dynamic/script cameras, exact overlapping-surface
 tie-breaking outside the target staircase, aspects narrower than 4:3 as a

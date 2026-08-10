@@ -1,6 +1,6 @@
 -- Private target test: Professor Elm's Lab 1F (map 61) against a real HGSS dump.
 -- Each function receives the open RomFs. This module is NOT in the public
--- tests/run.lua suite; it runs only via `--test-private` where a dump exists,
+-- ordinary unit suite; it runs only in the ROM-gated layer where a dump exists,
 -- and asserts the externally observable resolution and container conditions.
 
 local Assert = require("tests.support.Assert")

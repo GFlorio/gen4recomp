@@ -56,7 +56,7 @@ The interactive `game/main.lua` parses its flags inline, then hands off to
 ```
 love game/
   └─ love.load(argv)
-       ├─ --test / --test-private → run a suite, exit 0/1
+       ├─ --test [options]        → run the test suite, exit 0/1/2
        ├─ --field [map]           → boot the field runtime on a target map
        ├─ --actors                → boot the compiled field-actor preview grid
        └─ (no flags)              → App inspects both version caches:
