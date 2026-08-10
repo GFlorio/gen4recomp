@@ -159,6 +159,8 @@ function FieldDialogueController:status()
     state = self._state,
     modal = self:isModal(),
     requestId = self._request and self._request.id or nil,
+    bankId = self._request and self._request.message and self._request.message.bankId or nil,
+    messageId = self._request and self._request.message and self._request.message.messageId or nil,
     pageIndex = self._pageIndex,
     pageCount = self._pages and #self._pages or 0,
     revealedGlyphs = self._revealed,
@@ -501,6 +503,8 @@ end
 ---@field state "CLOSED"|"OPENING"|"REVEALING"|"WAITING_BOUNDARY"|"WAITING_CLOSE"|"CLOSING"
 ---@field modal boolean
 ---@field requestId string?
+---@field bankId integer?
+---@field messageId integer?
 ---@field pageIndex integer
 ---@field pageCount integer
 ---@field revealedGlyphs integer

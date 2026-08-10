@@ -158,6 +158,15 @@ function T.open_consumes_the_initiating_edge()
   Assert.equal(c:status().state, "WAITING_BOUNDARY")
 end
 
+function T.status_exposes_the_open_message_identity()
+  local c = controller({ page({ line({ glyph("A", 1) }) }, "eos") })
+  c:open(request("semantic-message", message()))
+  local status = c:status()
+  Assert.equal(status.requestId, "semantic-message")
+  Assert.equal(status.bankId, 543)
+  Assert.equal(status.messageId, 5)
+end
+
 function T.auto_scroll_pages_advance_without_action()
   local c = controller({
     page({ line({ glyph("A", 1), glyph("B", 2) }) }, "line"),

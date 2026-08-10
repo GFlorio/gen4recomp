@@ -43,7 +43,6 @@ return {
     [61] = {
       objects = {
         ["map:61:object:0"] = "elms_lab.elm",
-        ["map:61:object:2"] = "vanilla.hgss.scr_seq.0843.script_001",
       },
       backgrounds = {
         [0] = "vanilla.hgss.scr_seq.0843.script_005",

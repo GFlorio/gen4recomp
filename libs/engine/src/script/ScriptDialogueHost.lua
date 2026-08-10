@@ -236,8 +236,13 @@ function ScriptDialogueHost:advance(input)
     return
   end
   input = input or {}
+  local status = self._controller:status()
+  -- DialogueTask owns the final confirm edge and performs the delayed close.
+  -- Passing that edge to the controller would close it early, leaving the
+  -- task blocked forever waiting for an edge that has already been consumed.
+  local actionPressed = input.pressedAction == true and status.state ~= "WAITING_CLOSE"
   self._controller:step({
-    actionPressed = input.pressedAction == true,
+    actionPressed = actionPressed,
     actionDown = input.actionDown == true,
     cancelPressed = input.pressedCancel == true,
     cancelDown = input.cancelDown == true,

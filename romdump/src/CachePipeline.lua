@@ -2,9 +2,21 @@
 -- preparation, audit, source import, and non-rendering runtime boot without
 -- making the CLI or its host event loop part of those operations.
 
+---@class CachePipeline
+---@field versionOrder string[]
+---@field isReady fun(versionId: string): boolean
+---@field prepareVersion fun(versionId: string): table|nil, unknown?
+---@field auditVersion fun(versionId: string): table
+---@field bootRuntime fun(versionId: string): table
+---@field importSource fun(source: string, root: string): table|nil, unknown?
+---@field createIsolatedRoot fun(): string
+---@field removeIsolatedRoot fun(root: string): boolean, string|nil
 local CachePipeline = {}
 CachePipeline.__index = CachePipeline
 
+---@param options table<string, unknown>
+---@param name string
+---@return function
 local function requireFunction(options, name)
   assert(type(options[name]) == "function", "CachePipeline requires " .. name)
   return options[name]
@@ -19,6 +31,16 @@ end
 ---@field importSource fun(source: string, root: string): table|nil, unknown?
 ---@field createIsolatedRoot fun(): string
 ---@field removeIsolatedRoot fun(root: string): boolean, string|nil
+
+---@class CachePipelineProductionOptions
+---@field versionOrder? string[]
+---@field isReady? fun(versionId: string): boolean
+---@field prepareVersion? fun(versionId: string): table|nil, unknown?
+---@field auditVersion? fun(versionId: string): table
+---@field bootRuntime? fun(versionId: string): table
+---@field importSource? fun(source: string, root: string): table|nil, unknown?
+---@field createIsolatedRoot? fun(): string
+---@field removeIsolatedRoot? fun(root: string): boolean, string|nil
 
 ---@param options CachePipelineOptions
 ---@return CachePipeline
@@ -40,7 +62,7 @@ end
 -- Production defaults keep the orchestration independent from the CLI event
 -- loop. Building and importing remain explicit host operations because the
 -- former reports compile exclusions and the latter is coroutine-driven.
----@param options table|nil
+---@param options CachePipelineProductionOptions?
 ---@return CachePipeline
 function CachePipeline.production(options)
   options = options or {}

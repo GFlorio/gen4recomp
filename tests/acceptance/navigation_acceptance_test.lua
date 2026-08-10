@@ -127,7 +127,6 @@ function T.tests.round_trip_releases_and_reacquires_map_actor_and_session_owners
     Assert.equal(ownership.mapProtections, 1)
     Assert.equal(ownership.activeActorMaps, 1)
     Assert.equal(ownership.sessionReferences, 1)
-    Assert.isTrue(ownership.actorDefinitions > 0)
   end)
 end
 

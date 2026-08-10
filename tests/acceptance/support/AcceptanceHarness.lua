@@ -8,6 +8,7 @@ local GameVersion = require("libs.rom.src.GameVersion")
 local RomImporter = require("libs.rom.src.RomImporter")
 local FieldRuntime = require("game.src.game.FieldRuntime")
 local FieldBoot = require("game.src.game.FieldBoot")
+local RecordingScriptHosts = require("tests.acceptance.support.RecordingScriptHosts")
 
 ---@class AcceptanceHarness
 ---@field versions string[]
@@ -83,6 +84,16 @@ local function abortBoot(runtime, trap, removeSaveNamespace, namespace)
   end
 end
 
+---@class AcceptanceGame
+---@field runtime FieldRuntime
+---@field saveNamespace string
+---@field removeSaveNamespace fun(path: string)
+---@field trap table
+---@field timeline table[]
+---@field hosts table
+---@field closed boolean?
+---@field runtimeDisposed boolean?
+---@field disposeErr any
 local Game = {}
 Game.__index = Game
 
@@ -104,10 +115,103 @@ function Game:snapshot()
       facing = player.facing,
       motion = player.motion,
     },
-    dialogue = { modal = dialogue and dialogue:isModal() or false },
+    dialogue = dialogue and dialogue:status() or { modal = false },
     fieldLocked = scheduler and scheduler:playerMovementLocked() or false,
     transition = { phase = runtime.transition and runtime.transition.phase },
   }
+end
+
+local function interactionFor(runtime)
+  local player = runtime.player
+  if not player or not runtime.interactionResolver then
+    return nil
+  end
+  return runtime.interactionResolver:resolve({
+    runtimeMap = runtime.runtimeMap,
+    fieldX = player.fieldX,
+    fieldZ = player.fieldZ,
+    surfaceId = player.surfaceId,
+    worldY = player.worldY,
+    facing = player.facing,
+    tick = runtime.session and runtime.session.tick + 1 or 0,
+  })
+end
+
+function Game:interaction()
+  local interaction = self.lastInteraction or {}
+  local actor = interaction.actorId and self.runtime.actors:getById(interaction.actorId) or nil
+  return {
+    kind = interaction.kind,
+    actorId = interaction.actorId,
+    scriptId = interaction.scriptId,
+    scriptSource = interaction.scriptSource,
+    owner = interaction.owner,
+    actorFacing = actor and actor.facing or nil,
+    actorFacingOverride = actor and actor.interactionFacingOverride or nil,
+  }
+end
+
+function Game:pressAction()
+  local runtime = self.runtime
+  local intent = interactionFor(runtime)
+  local interaction = { kind = intent and intent.kind }
+  if intent and intent.object then
+    interaction.actorId = intent.object.actorId
+  end
+  local hit = intent and runtime.scripts.client:resolve(intent) or nil
+  if hit then
+    interaction.scriptId = hit.trigger.scriptId
+    interaction.scriptSource = "vanilla"
+    for _, entry in ipairs(hit.composed.entries) do
+      if entry.operation == "override" or (entry.script.metadata and entry.script.metadata.override) then
+        interaction.scriptSource = "override"
+      end
+    end
+    interaction.owner = "script"
+  elseif intent then
+    interaction.owner = "pre-script-dialogue"
+  end
+  self.lastInteraction = interaction
+  runtime:pressAction()
+  self:step()
+  runtime:releaseAction()
+  return self:snapshot()
+end
+
+function Game:advanceDialogue()
+  local confirmed = false
+  for _ = 1, 480 do
+    local snapshot = self:snapshot()
+    if not snapshot.dialogue.modal and not snapshot.fieldLocked then
+      break
+    end
+    self.runtime:pressAction()
+    self:step()
+    self.runtime:releaseAction()
+    confirmed = true
+  end
+  local final = self:snapshot()
+  assert(not final.dialogue.modal and not final.fieldLocked, "dialogue did not close after semantic confirm edges")
+  return { confirmed = confirmed, snapshot = self:snapshot() }
+end
+
+function Game:hostEffects()
+  return self.hosts.effects
+end
+
+function Game:failForegroundScript(scriptId)
+  assert(type(scriptId) == "string", "foreground script id required")
+  local runtime = self.runtime
+  if scriptId == "elms_lab.elm" then
+    self:moveTo({ fieldX = 6, fieldZ = 6 })
+    self:face("north")
+  end
+  self:pressAction()
+  assert(self.lastInteraction.scriptId == scriptId, "foreground script does not match interaction")
+  local scheduler = runtime.scripts.scheduler
+  local environmentId = assert(scheduler:foregroundEnvironmentId(), "foreground script did not start")
+  scheduler:cancelEnvironment(environmentId, "acceptance injected failure for " .. scriptId)
+  return { error = "acceptance injected failure for " .. scriptId }
 end
 
 function Game:_record()
@@ -251,12 +355,6 @@ end
 
 function Game:ownership()
   local runtime = self.runtime
-  local actorDefinitions = 0
-  if runtime.actorAssets and runtime.actorAssets._entries then
-    for _ in pairs(runtime.actorAssets._entries) do
-      actorDefinitions = actorDefinitions + 1
-    end
-  end
   local mapProtections = 0
   for _ in pairs(runtime.mapLoader.protectedMaps) do
     mapProtections = mapProtections + 1
@@ -267,7 +365,6 @@ function Game:ownership()
   end
   return {
     mapProtections = mapProtections,
-    actorDefinitions = actorDefinitions,
     activeActorMaps = activeActorMaps,
     sessionReferences = runtime.session and 1 or 0,
   }
@@ -345,6 +442,7 @@ function AcceptanceHarness:forEachVersion(fn)
   end
 end
 
+---@return AcceptanceGame
 function AcceptanceHarness:boot(options)
   assert(options and type(options.versionId) == "string", "acceptance boot version required")
   serial = serial + 1
@@ -354,6 +452,7 @@ function AcceptanceHarness:boot(options)
     saveFs = SaveFs.forVersion(options.versionId, nil, namespace),
     resumeSave = options.save == "resume",
     resetSave = options.save == "fresh",
+    scriptHosts = RecordingScriptHosts.new(),
   })
   if not ok then
     abortBoot(nil, trap, self.removeSaveNamespace, namespace)
@@ -370,6 +469,7 @@ function AcceptanceHarness:boot(options)
     removeSaveNamespace = self.removeSaveNamespace,
     trap = trap,
     timeline = {},
+    hosts = runtime.scriptHosts or {},
   }, Game)
 end
 

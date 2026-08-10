@@ -34,9 +34,14 @@ end
 
 function T.tests.synthetic_boot_is_closed_once_and_uses_a_unique_save_namespace()
   local deleted = {}
+  local runtimes = {}
   local harness = AcceptanceHarness.new({
     versions = { "heartgold" },
-    runtimeFactory = fakeRuntime,
+    runtimeFactory = function(versionId)
+      local runtime = fakeRuntime(versionId)
+      runtimes[#runtimes + 1] = runtime
+      return runtime
+    end,
     saveNamespace = function(versionId, serial)
       return "acceptance-test/" .. versionId .. "/" .. serial
     end,
@@ -51,8 +56,8 @@ function T.tests.synthetic_boot_is_closed_once_and_uses_a_unique_save_namespace(
   first:close()
   first:close()
   second:close()
-  Assert.equal(first.runtime.disposeCalls, 1)
-  Assert.equal(second.runtime.disposeCalls, 1)
+  Assert.equal(runtimes[1].disposeCalls, 1)
+  Assert.equal(runtimes[2].disposeCalls, 1)
   Assert.deepEqual(deleted, { first.saveNamespace, second.saveNamespace })
 end
 
