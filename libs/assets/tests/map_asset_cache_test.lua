@@ -90,11 +90,75 @@ function T.not_ready_when_model_descriptor_references_missing_asset()
       modelKey
     )
   )
-  c:write(dir .. "/dependencies.lua", "return {}\n")
   c:write(dir .. "/collision.g4collision", CollisionFixture.asset(32, 32))
-  c:write(modelPath, string.format("return { batches = { { geometry = %q } }, materials = {} }\n", meshPath))
+  c:write(
+    modelPath,
+    string.format(
+      "return { schema = 'g4-model-v2', key = %q, memberId = 1, kind = 'static', batches = { { geometry = %q } }, materials = {} }\n",
+      modelKey,
+      meshPath
+    )
+  )
   c:write(dir .. "/complete", marker)
   Assert.isTrue(not MapAssetCache.isReady(c, 61, marker), "missing model-internal geometry -> not ready")
+end
+
+function T.not_ready_when_model_descriptor_has_the_wrong_kind()
+  local c = cache()
+  local marker = MapAssetCache.marker("romsha", 61, "dep")
+  local dir = MapAssetCache.mapDir(61)
+  local modelKey = "indoor:1:abc"
+  local modelPath = MapAssetCache.modelPath(modelKey)
+  c:write(
+    dir .. "/scene.lua",
+    string.format(
+      "return { schema = %q, mapId = 61, mapBatches = {}, materials = {}, buildingInstances = { { modelKey = %q } }, neighbors = {} }\n",
+      MapAssetCache.SCENE_SCHEMA,
+      modelKey
+    )
+  )
+  c:write(dir .. "/dependencies.lua", "return {}\n")
+  c:write(dir .. "/collision.g4collision", CollisionFixture.asset(32, 32))
+  -- A descriptor without the explicit schema/kind must not read as ready.
+  c:write(modelPath, "return { batches = {}, materials = {} }\n")
+  c:write(dir .. "/complete", marker)
+  Assert.isTrue(not MapAssetCache.isReady(c, 61, marker), "schema-less descriptor -> not ready")
+end
+
+function T.not_ready_when_a_variant_texture_is_missing()
+  local c = cache()
+  local marker = MapAssetCache.marker("romsha", 61, "dep")
+  local dir = MapAssetCache.mapDir(61)
+  local modelKey = "indoor:1:abc"
+  local modelPath = MapAssetCache.modelPath(modelKey)
+  local baseTexture = "assets/generated/maps/textures/base.png"
+  local variantTexture = "assets/generated/maps/textures/variant.png"
+  c:write(
+    dir .. "/scene.lua",
+    string.format(
+      "return { schema = %q, mapId = 61, terrain = { file = %q }, mapBatches = {}, materials = {}, buildingInstances = { { modelKey = %q } }, neighbors = {} }\n",
+      MapAssetCache.SCENE_SCHEMA,
+      MapAssetCache.terrainPath(61),
+      modelKey
+    )
+  )
+  c:write(dir .. "/dependencies.lua", "return {}\n")
+  c:write(dir .. "/collision.g4collision", CollisionFixture.asset(32, 32))
+  c:write(MapAssetCache.terrainPath(61), "return { schema = 'g4-terrain-surfaces-v1' }\n")
+  c:write(
+    modelPath,
+    string.format(
+      "return { schema = 'g4-model-v2', key = %q, memberId = 1, kind = 'static', batches = {}, materials = { { id = 0, name = 'wall', texture = %q, variants = { { name = 'sign.a', texture = %q } } } } }\n",
+      modelKey,
+      baseTexture,
+      variantTexture
+    )
+  )
+  c:write(baseTexture, "png")
+  c:write(dir .. "/complete", marker)
+  Assert.isTrue(not MapAssetCache.isReady(c, 61, marker), "missing variant texture -> not ready")
+  c:write(variantTexture, "png")
+  Assert.isTrue(MapAssetCache.isReady(c, 61, marker), "with the variant present the map is ready")
 end
 
 local function contains(list, value)

@@ -1,4 +1,4 @@
--- Synthetic tests for the Epic 2 material state: the static texture-SRT
+-- Synthetic tests for the static texture-SRT
 -- extension decode and the texture-matrix conventions (Maya + Si3D,
 -- transcribed from the pinned pokediamond asm).
 

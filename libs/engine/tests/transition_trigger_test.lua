@@ -37,20 +37,20 @@ function T.door_behavior_classifies_facing()
   Assert.equal(trigger.kind, "door")
   Assert.equal(trigger.triggerMode, "facing")
   Assert.equal(trigger.evaluatesOn, "input")
-  Assert.isTrue(trigger:matchesDirection("north"))
-  Assert.isTrue(trigger:matchesDirection("east"))
+  Assert.isTrue(TransitionTrigger.matchesDirection(trigger, "north"))
+  Assert.isTrue(TransitionTrigger.matchesDirection(trigger, "east"))
 end
 
 function T.stairs_behaviors_classify_standing_with_direction()
   local east = assert(TransitionTrigger.classify(BEHAVIOR.WARP_STAIRS_EAST))
   Assert.equal(east.kind, "stairs")
   Assert.equal(east.triggerMode, "standing")
-  Assert.isTrue(east:matchesDirection("east"))
-  Assert.isFalse(east:matchesDirection("west"))
+  Assert.isTrue(TransitionTrigger.matchesDirection(east, "east"))
+  Assert.isFalse(TransitionTrigger.matchesDirection(east, "west"))
   local west = assert(TransitionTrigger.classify(BEHAVIOR.WARP_STAIRS_WEST))
   Assert.equal(west.kind, "stairs")
-  Assert.isTrue(west:matchesDirection("west"))
-  Assert.isFalse(west:matchesDirection("east"))
+  Assert.isTrue(TransitionTrigger.matchesDirection(west, "west"))
+  Assert.isFalse(TransitionTrigger.matchesDirection(west, "east"))
 end
 
 function T.warp_and_entrance_directionals_classify_with_gates()
@@ -67,8 +67,11 @@ function T.warp_and_entrance_directionals_classify_with_gates()
     Assert.equal(trigger.kind, "directional", "kind for behavior " .. behavior)
     Assert.equal(trigger.triggerMode, "standing")
     Assert.equal(trigger.evaluatesOn, "input")
-    Assert.isTrue(trigger:matchesDirection(direction))
-    Assert.isFalse(trigger:matchesDirection("north"), "wrong-direction gate for behavior " .. behavior)
+    Assert.isTrue(TransitionTrigger.matchesDirection(trigger, direction))
+    Assert.isFalse(
+      TransitionTrigger.matchesDirection(trigger, "north"),
+      "wrong-direction gate for behavior " .. behavior
+    )
   end
 end
 
@@ -83,8 +86,8 @@ function T.north_warps_panel_and_ladder_down_classify_generic_step()
     Assert.equal(trigger.kind, "generic", "kind for behavior " .. behavior)
     Assert.equal(trigger.triggerMode, "standing")
     Assert.equal(trigger.evaluatesOn, "step")
-    Assert.isTrue(trigger:matchesDirection("north"), "generic warps gate no direction")
-    Assert.isTrue(trigger:matchesDirection("west"))
+    Assert.isTrue(TransitionTrigger.matchesDirection(trigger, "north"), "generic warps gate no direction")
+    Assert.isTrue(TransitionTrigger.matchesDirection(trigger, "west"))
   end
 end
 
@@ -93,11 +96,11 @@ function T.ladder_north_south_classify_directional_input()
   Assert.equal(north.kind, "directional")
   Assert.equal(north.triggerMode, "standing")
   Assert.equal(north.evaluatesOn, "input")
-  Assert.isTrue(north:matchesDirection("north"))
-  Assert.isFalse(north:matchesDirection("south"))
+  Assert.isTrue(TransitionTrigger.matchesDirection(north, "north"))
+  Assert.isFalse(TransitionTrigger.matchesDirection(north, "south"))
   local south = assert(TransitionTrigger.classify(BEHAVIOR.LADDER_SOUTH))
-  Assert.isTrue(south:matchesDirection("south"))
-  Assert.isFalse(south:matchesDirection("north"))
+  Assert.isTrue(TransitionTrigger.matchesDirection(south, "south"))
+  Assert.isFalse(TransitionTrigger.matchesDirection(south, "north"))
 end
 
 function T.escalators_classify_directional_step_with_east_west_gate()
@@ -105,9 +108,9 @@ function T.escalators_classify_directional_step_with_east_west_gate()
     local trigger = assert(TransitionTrigger.classify(behavior))
     Assert.equal(trigger.kind, "directional")
     Assert.equal(trigger.evaluatesOn, "step")
-    Assert.isTrue(trigger:matchesDirection("east"))
-    Assert.isTrue(trigger:matchesDirection("west"))
-    Assert.isFalse(trigger:matchesDirection("north"))
+    Assert.isTrue(TransitionTrigger.matchesDirection(trigger, "east"))
+    Assert.isTrue(TransitionTrigger.matchesDirection(trigger, "west"))
+    Assert.isFalse(TransitionTrigger.matchesDirection(trigger, "north"))
   end
 end
 

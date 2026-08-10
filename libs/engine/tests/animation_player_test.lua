@@ -1,6 +1,8 @@
--- AnimationPlayer: fixed-point playback semantics. Frames advance by
--- FRAME_UNIT per updateFixed, wrap at both ends, support arbitrary signed
--- deltas, and track finite completion per loop mode.
+-- AnimationPlayer: fixed-point playback semantics. Frames advance by one
+-- FRAME_UNIT per updateFixed (direction flips the sign), wrap at both ends,
+-- and track finite completion per loop mode ("loop" or "once"). The
+-- terminal state (atTerminal) is the HGSS checked-advance condition shared
+-- with the controllers.
 
 local Assert = require("tests.support.Assert")
 local AnimationPlayer = require("libs.engine.src.AnimationPlayer")
@@ -21,7 +23,6 @@ function T.default_state()
   Assert.equal(p.deltaFx, 0x1000)
   Assert.isFalse(p.paused)
   Assert.equal(p.loopMode, "loop")
-  Assert.isNil(p.repeatsRemaining)
   Assert.isFalse(p.completed)
   Assert.isFalse(p:isComplete())
 end
@@ -77,20 +78,32 @@ function T.once_completes_reverse_at_start()
   Assert.isTrue(p:isComplete())
 end
 
-function T.finite_repeat_counts_wraps()
-  local p = new(3)
-  p.loopMode = "repeat"
-  p.repeatsRemaining = 2
-  p:updateFixed() -- frame 1
-  p:updateFixed() -- frame 2
-  p:updateFixed() -- wrap, repeatsRemaining 1
-  Assert.equal(p.frameFx, 0)
-  Assert.isFalse(p:isComplete())
-  p:updateFixed() -- frame 1
-  p:updateFixed() -- frame 2
-  p:updateFixed() -- wrap, repeatsRemaining 0 -> completed
-  Assert.equal(p.frameFx, p:maxFx(), "finishes clamped at the end")
+-- The HGSS checked-advance condition: reaching the direction's terminal
+-- frame is the finish condition even before the clamp that marks `completed`
+-- fires (a delta that lands exactly on the last key frame).
+function T.at_terminal_reports_the_checked_advance_state()
+  local p = new(8)
+  p.loopMode = "once"
+  Assert.isFalse(p:atTerminal(), "frame 0 forward is not terminal")
+  for _ = 1, 7 do
+    p:updateFixed()
+  end
+  Assert.equal(p.frameFx, 7 * 0x1000)
+  Assert.isTrue(p:atTerminal(), "the last key frame is terminal")
+  Assert.isFalse(p:isComplete(), "completion is marked only by the clamp")
+  p:updateFixed() -- the clamp fires at the window top
   Assert.isTrue(p:isComplete())
+
+  local q = new(8)
+  q:setDirection(-1)
+  for _ = 1, 7 do
+    q:updateFixed()
+  end
+  Assert.equal(q.frameFx, 1 * 0x1000)
+  Assert.isFalse(q:atTerminal())
+  q:updateFixed() -- wraps to the window start
+  Assert.equal(q.frameFx, 0)
+  Assert.isTrue(q:atTerminal(), "reverse playback is terminal at the window start")
 end
 
 function T.pause_and_play()
@@ -105,25 +118,25 @@ function T.pause_and_play()
   Assert.equal(p.frameFx, 0x1000)
 end
 
-function T.set_direction_preserves_speed()
+function T.set_direction_flips_the_one_frame_step()
   local p = new(8)
-  p:setDeltaFx(0x3000)
   p:setDirection(-1)
-  Assert.equal(p.deltaFx, -0x3000)
+  Assert.equal(p.deltaFx, -0x1000)
   p:setDirection(1)
-  Assert.equal(p.deltaFx, 0x3000)
+  Assert.equal(p.deltaFx, 0x1000)
 end
 
-function T.arbitrary_delta_wraps()
+function T.reverse_restart_completes_at_the_window_start()
+  -- A reverse "once" restart always begins at frame 0 -- already the
+  -- reverse terminal frame -- so the next update completes in place.
   local p = new(8)
-  p:setDeltaFx(0x3000) -- three frames per tick
-  for _ = 1, 3 do
-    p:updateFixed()
-  end
-  Assert.equal(p.frameFx, 1 * 0x1000, "9 frames mod 8 wraps to frame 1")
-  p:setDeltaFx(-0x2000)
+  p.loopMode = "once"
+  p:setDirection(-1)
+  p:restart()
+  Assert.equal(p.frameFx, 0)
   p:updateFixed()
-  Assert.equal(p.frameFx, 7 * 0x1000, "negative delta wraps backward")
+  Assert.equal(p.frameFx, 0)
+  Assert.isTrue(p:isComplete())
 end
 
 function T.seek_clamps_and_clears_completion()

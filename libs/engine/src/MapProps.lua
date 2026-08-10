@@ -9,21 +9,28 @@
 --     door:isFinished()
 --
 -- Nothing here knows NARC ids, animation resource numbers, NSBCA, or
--- animation-list slots: the resolution is spatial (the placement nearest the
--- door tile centre), the animation is the placement instance's semantic
--- door.open/door.close roles through the MapPropAnimationController, and a
--- door whose building is static (no animated instance) resolves but animates
--- nothing -- HGSS's interior doors without animation records behave the same.
--- Only DOOR-kind warp tiles (behavior 105) resolve; stairs, directional
--- warps, and generic warps return nil (their choreography is separate policy).
--- Pure domain module.
+-- animation-list slots: the resolution is spatial (the building whose model
+-- footprint -- its model-space AABB under the placement transform -- contains
+-- the door tile's world position), the animation is the placement instance's
+-- semantic door.open/door.close roles through the MapPropAnimationController,
+-- and a door whose building is static (no animated instance) resolves but
+-- animates nothing -- HGSS's interior doors without animation records behave
+-- the same. The lookup is strict: a door tile contained by no placement
+-- resolves nothing, and a tile contained by two placements raises -- a
+-- generated map with ambiguous or missing door coverage is a data failure,
+-- not an invitation to animate an unrelated building. Only DOOR-kind warp
+-- tiles (behavior 105) resolve; stairs, directional warps, and generic warps
+-- return nil (their choreography is separate policy). Pure domain module.
 
 local WarpSystem = require("libs.engine.src.WarpSystem")
 local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
 local FieldGrid = require("libs.engine.src.FieldGrid")
+local Errors = require("libs.rom.src.Errors")
+local Matrix4 = require("libs.math.src.Matrix4")
+local MapPropAnimationController = require("libs.engine.src.MapPropAnimationController")
 
 ---@class MapProps
----@field placements table -- scene.buildingInstances records
+---@field placements table -- scene placement records with model-space bounds
 ---@field instances { [integer]: ModelInstance|nil }
 ---@field controller table -- MapPropAnimationController
 local MapProps = {}
@@ -61,13 +68,13 @@ MapDoor.__index = MapDoor
 -- animation records. Raises MAP_PROP_ANIM_UNKNOWN when the model's clips
 -- lack the role (a data problem worth a diagnostic, not a silent fallback).
 function MapDoor:open()
-  self:_play("door.open")
+  self:_play(MapPropAnimationController.ROLES.DOOR_OPEN)
 end
 
 -- Play the door's closing animation: the semantic door.close role, once,
 -- from frame 0, stopping any door.open in progress. Static doors no-op.
 function MapDoor:close()
-  self:_play("door.close")
+  self:_play(MapPropAnimationController.ROLES.DOOR_CLOSE)
 end
 
 function MapDoor:_play(role)
@@ -75,7 +82,8 @@ function MapDoor:_play(role)
     return
   end
   local definition = self.instance.definition
-  local other = role == "door.open" and "door.close" or "door.open"
+  local other = role == MapPropAnimationController.ROLES.DOOR_OPEN and MapPropAnimationController.ROLES.DOOR_CLOSE
+    or MapPropAnimationController.ROLES.DOOR_OPEN
   if definition:animation(other) then
     self.controller:stop(self.instance, other)
   end
@@ -96,8 +104,11 @@ end
 
 -- Resolve the door at a field tile: the tile must carry a warp whose
 -- metatile behavior classifies as a DOOR (behavior 105). Returns a MapDoor
--- for the building placement nearest the tile's centre, or nil when the tile
--- is out of permission coverage, has no warp, or is not a door-kind warp.
+-- for the placement whose model footprint contains the tile's world centre,
+-- or nil when the tile is out of permission coverage, has no warp, is not a
+-- door-kind warp, or is contained by no placement. Two placements containing
+-- the same tile raise MAP_PROP_AMBIGUOUS_DOOR: on generated data a door tile
+-- belongs to exactly one building.
 ---@param runtimeMap table
 ---@param fieldX integer
 ---@param fieldZ integer
@@ -105,7 +116,7 @@ end
 function MapProps:doorAt(runtimeMap, fieldX, fieldZ)
   local origin = runtimeMap.coordinateOrigin
   local localX, localZ = fieldX - origin.x, fieldZ - origin.z
-  if not runtimeMap.permissions:containsLocal(localX, localZ) then
+  if not runtimeMap.collision:containsLocal(localX, localZ) then
     return nil
   end
   local warp = WarpSystem.findAt(runtimeMap, fieldX, fieldZ)
@@ -121,19 +132,45 @@ function MapProps:doorAt(runtimeMap, fieldX, fieldZ)
   end
 
   local tileWorldX, tileWorldZ = FieldGrid.tileCenterToWorld(localX, localZ)
-  local nearest, nearestDistance
+  local contained = {}
   for _, placement in ipairs(self.placements) do
-    local transform = placement.transform
-    local dx = transform[13] - tileWorldX
-    local dz = transform[15] - tileWorldZ
-    local distance = dx * dx + dz * dz
-    if not nearest or distance < nearestDistance then
-      nearest, nearestDistance = placement, distance
+    local bounds = placement.bounds
+    if bounds then
+      -- Footprint test in model space: the placement transform maps model
+      -- space to world, so the tile's world centre maps back into the model
+      -- AABB exactly when it lies on the building's footprint.
+      local inverse = Matrix4.invert(placement.transform)
+      local mx, _, mz = Matrix4.transformPoint(inverse, tileWorldX, 0, tileWorldZ)
+      local epsilon = 1e-3
+      if
+        mx >= bounds.minX - epsilon
+        and mx <= bounds.maxX + epsilon
+        and mz >= bounds.minZ - epsilon
+        and mz <= bounds.maxZ + epsilon
+      then
+        contained[#contained + 1] = placement
+      end
     end
   end
-  if not nearest then
+  if #contained == 0 then
     return nil
   end
+  if #contained > 1 then
+    Errors.raise(
+      "MAP_PROP_AMBIGUOUS_DOOR",
+      "door tile ("
+        .. fieldX
+        .. ","
+        .. fieldZ
+        .. ") on map "
+        .. tostring(runtimeMap.mapId)
+        .. " is contained by "
+        .. #contained
+        .. " building placements",
+      { mapId = runtimeMap.mapId, x = fieldX, z = fieldZ, placements = #contained }
+    )
+  end
+  local nearest = contained[1]
   return setmetatable({
     x = fieldX,
     z = fieldZ,
@@ -160,9 +197,9 @@ local SceneProp = {}
 SceneProp.__index = SceneProp
 
 -- Play an animation by role or clip name; `opts` passes through to the
--- controller (priority, ratioFx, loopMode, repeatsRemaining, deltaFx,
--- direction). Returns the attachment token. Raises MAP_PROP_ANIM_UNKNOWN for
--- a name the model does not define.
+-- controller (priority, ratioFx, loopMode, direction). Returns the
+-- attachment token. Raises MAP_PROP_ANIM_UNKNOWN for a name the model does
+-- not define.
 function SceneProp:play(animation, opts)
   if not self.instance then
     return nil

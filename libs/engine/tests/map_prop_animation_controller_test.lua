@@ -1,12 +1,11 @@
--- MapPropAnimationController + AnimationDebugger tests: the field-facing
--- playback facade (semantic roles, HGSS completion semantics) and the
--- inspector snapshot/controls over a nitro-backed instance.
+-- MapPropAnimationController tests: the field-facing playback facade
+-- (semantic roles, one controller identity per resolved clip, HGSS
+-- completion semantics) over a nitro-backed instance.
 
 local Assert = require("tests.support.Assert")
-local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local ModelInstance = require("libs.engine.src.ModelInstance")
 local MapPropAnimationController = require("libs.engine.src.MapPropAnimationController")
-local AnimationDebugger = require("libs.engine.src.AnimationDebugger")
+local NitroModelFixture = require("tests.support.NitroModelFixture")
 
 local T = {}
 
@@ -18,67 +17,20 @@ local function throwsCode(code, fn)
   Assert.equal(result.code, code)
 end
 
--- A nitro door definition: joint clips door_op/door_cl with semantic roles
--- (the compiled shape NsbcaClipCompiler emits) and a material clip.
-local function doorDefinition()
-  local function doorClip(name, role)
-    return {
-      id = "fixture:" .. name,
-      name = name,
-      category = "joint",
-      kind = "trs",
-      frameCount = 8,
-      tracks = { { target = 0, targetIndex = 0 } },
-      semanticNames = { role },
-      source = { type = "nitro", format = "NSBCA", archive = "build_anim", memberId = 1 },
-      compiled = { anmFlags = 0, rotData = {}, pivotData = {}, targets = { { nodeIndex = 0, channels = {} } } },
-    }
-  end
-  local identity = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
-  return ModelDefinition.new({
-    key = "fixture:door",
-    sourceBackend = "nitro",
-    nodes = {
-      {
-        index = 0,
-        name = "root",
-        translation = { x = 0, y = 0, z = 0 },
-        rotation = identity,
-        scale = { x = 1, y = 1, z = 1 },
-      },
-    },
-    meshes = { { id = "door", nodeIndex = 0, materialIndex = 0, batch = { vertices = {}, indices = {} } } },
-    materials = {
-      {
-        id = 0,
-        name = "wall",
-        baseColor = { r = 255, g = 255, b = 255, a = 255 },
-        alphaMode = "opaque",
-        doubleSided = false,
-      },
-    },
-    skins = {},
-    animations = { doorClip("door_op", "door.open"), doorClip("door_cl", "door.close") },
-    backend = { program = { name = "door", nodes = { { index = 0 } } }, meshes = {} },
-  })
-end
-
--- ---- controller ----
-
 function T.play_resolves_semantic_roles()
   local controller = MapPropAnimationController.new()
-  local instance = ModelInstance.new(doorDefinition())
+  local instance = ModelInstance.new(NitroModelFixture.doorDefinition())
   local token = controller:play(instance, "door.open")
   Assert.notNil(token)
   local list = controller:animationsFor(instance)
   Assert.equal(#list, 1)
-  Assert.equal(list[1].name, "door_op")
+  Assert.equal(list[1].name, "DoorOpen")
   Assert.deepEqual(list[1].roles, { "door.open" })
 end
 
 function T.completion_follows_hgss_frame_advance_and_check()
   local controller = MapPropAnimationController.new()
-  local instance = ModelInstance.new(doorDefinition())
+  local instance = ModelInstance.new(NitroModelFixture.doorDefinition())
   controller:play(instance, "door.open")
   -- Forward: finished only when the frame reaches the last frame.
   for _ = 1, 7 do
@@ -98,7 +50,7 @@ end
 
 function T.stop_pause_resume_and_direction()
   local controller = MapPropAnimationController.new()
-  local instance = ModelInstance.new(doorDefinition())
+  local instance = ModelInstance.new(NitroModelFixture.doorDefinition())
   controller:play(instance, "door.open")
   controller:pause(instance, "door.open")
   instance:updateFixed()
@@ -113,62 +65,65 @@ function T.stop_pause_resume_and_direction()
   Assert.equal(#controller:animationsFor(instance), 0)
 end
 
+-- Playing the same clip by role and by clip name is ONE controller identity:
+-- the token map is keyed by the resolved clip name, so an alias play never
+-- leaves an older unreachable attachment behind.
+function T.aliases_resolve_to_one_controller_identity()
+  local controller = MapPropAnimationController.new()
+  local instance = ModelInstance.new(NitroModelFixture.doorDefinition())
+  local token = controller:play(instance, "door.open")
+  controller:play(instance, "DoorOpen")
+  local attachmentCount = 0
+  for _, category in ipairs({ "joint", "material", "visibility" }) do
+    for _ in pairs(instance.animationState.groups[category]) do
+      attachmentCount = attachmentCount + 1
+    end
+  end
+  Assert.equal(attachmentCount, 1, "replaying the same clip by alias attaches once")
+  local list = controller:animationsFor(instance)
+  Assert.equal(#list, 1)
+  Assert.equal(list[1].name, "DoorOpen")
+  controller:stop(instance, "door.open")
+  Assert.equal(#controller:animationsFor(instance), 0, "the alias identity stops with the role")
+  -- The first token is no longer valid: its attachment was replaced.
+  Assert.isNil(instance.animationState.groups.joint[token])
+end
+
+-- Replaying a clip stops the previous attachment first, so the controller's
+-- view stays one play per clip.
+function T.replay_replaces_the_previous_attachment()
+  local controller = MapPropAnimationController.new()
+  local instance = ModelInstance.new(NitroModelFixture.doorDefinition())
+  controller:play(instance, "door.open")
+  instance:updateFixed()
+  instance:updateFixed()
+  controller:play(instance, "door.open")
+  local attachments = instance.animationState:attachments("joint")
+  Assert.equal(#attachments, 1)
+  Assert.equal(attachments[1].player.frameFx, 0, "the replay restarts the clip")
+end
+
 function T.unknown_animation_raises()
   local controller = MapPropAnimationController.new()
-  local instance = ModelInstance.new(doorDefinition())
+  local instance = ModelInstance.new(NitroModelFixture.doorDefinition())
   throwsCode("MAP_PROP_ANIM_UNKNOWN", function()
     controller:play(instance, "door.slide")
   end)
 end
 
--- ---- debugger ----
-
-function T.snapshot_reports_attachment_fields()
-  local instance = ModelInstance.new(doorDefinition())
-  instance:play("door.close", { priority = 0x40, ratioFx = 0x800 })
-  instance:updateFixed()
-  local entries = AnimationDebugger.snapshot(instance)
-  Assert.equal(#entries, 1)
-  local e = entries[1]
-  Assert.equal(e.model, "fixture:door")
-  Assert.equal(e.clipName, "door_cl")
-  Assert.equal(e.role, nil)
-  Assert.equal(e.slot, 1)
-  Assert.equal(e.category, "joint")
-  Assert.equal(e.format, "NSBCA")
-  Assert.equal(e.memberId, 1)
-  Assert.equal(e.frame, 1)
-  Assert.equal(e.frameCount, 8)
-  Assert.equal(e.priority, 0x40)
-  Assert.equal(e.ratioFx, 0x800)
-  Assert.equal(e.boundTargets, 1)
-end
-
-function T.snapshot_controls_scrub_and_loop()
-  local instance = ModelInstance.new(doorDefinition())
-  instance:play("door.open")
-  local entries = AnimationDebugger.snapshot(instance)
-  local e = entries[1]
-  Assert.isTrue(AnimationDebugger.pause(instance, e))
-  instance:updateFixed()
-  entries = AnimationDebugger.snapshot(instance)
-  Assert.equal(entries[1].frame, 0)
-  Assert.isTrue(AnimationDebugger.play(instance, entries[1]))
-  instance:updateFixed()
-  entries = AnimationDebugger.snapshot(instance)
-  Assert.equal(entries[1].frame, 1)
-  Assert.isTrue(AnimationDebugger.seekFx(instance, entries[1], 5 * 4096))
-  entries = AnimationDebugger.snapshot(instance)
-  Assert.equal(entries[1].frame, 5)
-  Assert.isTrue(AnimationDebugger.setDirection(instance, entries[1], -1))
-  entries = AnimationDebugger.snapshot(instance)
-  Assert.equal(entries[1].direction, "reverse")
-  Assert.isTrue(AnimationDebugger.setDeltaFx(instance, entries[1], 0x800))
-  entries = AnimationDebugger.snapshot(instance)
-  Assert.equal(entries[1].deltaFx, 0x800)
-  Assert.isTrue(AnimationDebugger.setLoopMode(instance, entries[1], "once"))
-  entries = AnimationDebugger.snapshot(instance)
-  Assert.equal(entries[1].loopMode, "once")
+function T.on_mutation_fires_on_control_ops()
+  local controller = MapPropAnimationController.new()
+  local instance = ModelInstance.new(NitroModelFixture.doorDefinition())
+  local mutations = 0
+  controller.onMutation = function()
+    mutations = mutations + 1
+  end
+  controller:play(instance, "door.open")
+  controller:pause(instance, "door.open")
+  controller:resume(instance, "door.open")
+  controller:setDirection(instance, "door.open", -1)
+  controller:stop(instance, "door.open")
+  Assert.equal(mutations, 5, "every control op marks the scene's draw list dirty")
 end
 
 return T

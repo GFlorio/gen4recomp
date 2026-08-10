@@ -1,6 +1,6 @@
 -- MapPropAnimCompiler fatal diagnostics: a referenced animation resource
 -- that cannot decode or compile is an explicit fatal diagnostic identifying
--- the model member and resource (spec sections 29 + 39) -- never a silent
+-- the model member and resource -- never a silent
 -- fallback that drops the clip and compiles the model static. NSBVA is the
 -- honest unsupported case: it has a decoder but no clip compiler, so a VIS0
 -- resource in an anim-list record raises MAP_PROP_ANIM_UNSUPPORTED_FORMAT.

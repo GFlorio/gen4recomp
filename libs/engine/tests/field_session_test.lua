@@ -1141,12 +1141,16 @@ function T.a_two_tile_walk_keeps_one_phase_across_the_session_ticks()
   Assert.equal(visual.poseTick, 16, "the session never lets the gait phase restart mid-walk")
 end
 
+-- A locked door transition reports whether the choreography moved the player
+-- this tick; the session then advances the pose clock (only on moved ticks),
+-- the camera (every locked tick, so interpolation pairs never replay), and
+-- the scene's animated props -- the door opening/closing -- while everything
+-- else stays frozen.
 function T.door_transition_ticks_advance_the_world_while_locked()
   local visualSteps, cameraSteps, animatedSteps = 0, 0, 0
   local transition = {
     phase = "fade_out",
     locked = true,
-    doorActive = true,
     moved = false,
     updateFixed = function(self)
       return self.moved
@@ -1203,13 +1207,13 @@ function T.door_transition_ticks_advance_the_world_while_locked()
   transition.moved = false
   session:updateFixed({ heldDirection = "south" })
   Assert.equal(visualSteps, 1, "a standing door tick does not advance the pose clock")
-  Assert.equal(cameraSteps, 1)
+  Assert.equal(cameraSteps, 2, "the camera still samples the standing player (no replayed interpolation)")
   Assert.equal(animatedSteps, 2, "the door open/close keeps advancing while the player stands")
 end
 
--- A locked stair transition advances the scene's animated props each tick
--- but never reports locomotion: the climb is in place, so the pose clock and
--- the camera stay frozen while the props keep animating.
+-- A locked stair transition advances the scene's animated props and samples
+-- the camera each tick but never reports locomotion: the climb is in place,
+-- so the pose clock stays frozen while the props keep animating.
 function T.stair_transition_ticks_advance_props_but_not_the_pose_clock()
   local visualSteps, cameraSteps, animatedSteps = 0, 0, 0
   local transition = {
@@ -1264,14 +1268,15 @@ function T.stair_transition_ticks_advance_props_but_not_the_pose_clock()
   session:updateFixed({ heldDirection = "west" })
   Assert.equal(animatedSteps, 1, "the scene props advance under the stair climb")
   Assert.equal(visualSteps, 0, "the in-place climb does not advance the pose clock")
-  Assert.equal(cameraSteps, 0, "the camera stays on the standing player")
+  Assert.equal(cameraSteps, 1, "the camera samples the standing player (zero delta)")
   session:updateFixed({ heldDirection = "west" })
   Assert.equal(animatedSteps, 2, "the props keep advancing while the player stands")
+  Assert.equal(cameraSteps, 2)
 end
 
--- A plain locked transition advances nothing extra: the doorActive/stairActive
--- flags are the single switch between the frozen and choreographed locked
--- ticks.
+-- A plain locked transition advances the scene's animated props and samples
+-- the camera, but never the pose clock: the scene clock runs on every locked
+-- tick, while locomotion-driven state stays frozen.
 function T.plain_locked_transition_stays_frozen()
   local visualSteps, cameraSteps, animatedSteps = 0, 0, 0
   local transition = {
@@ -1322,9 +1327,131 @@ function T.plain_locked_transition_stays_frozen()
     playerVisual = playerVisual,
   }))
   session:updateFixed({})
-  Assert.equal(visualSteps, 0)
-  Assert.equal(cameraSteps, 0)
-  Assert.equal(animatedSteps, 0)
+  Assert.equal(visualSteps, 0, "no locomotion: the pose clock stays frozen")
+  Assert.equal(cameraSteps, 1, "the camera still samples every locked tick")
+  Assert.equal(animatedSteps, 1, "the scene clock advances on every locked tick")
+end
+
+-- The camera shake regression: during door_close there is no player step, so
+-- the camera must still sample every locked tick -- with a stale
+-- previous/current pair, view(alpha) replays one small movement on every
+-- tick. After one stable tick the pair collapses and view(0) == view(1),
+-- whether or not a playerVisual exists, and the completion tick samples too.
+function T.door_close_ticks_never_replay_camera_interpolation()
+  local FieldCamera = require("libs.engine.src.FieldCamera")
+  local profile = {
+    projectionType = "orthographic",
+    distanceTiles = 10,
+    angleXRaw = 0,
+    angleYRaw = 0,
+    halfFovRadians = math.rad(45),
+    fullVerticalFovRadians = math.rad(45),
+    nearTiles = 1,
+    farTiles = 100,
+    targetOffsetTiles = { x = 0, y = 0, z = 0 },
+  }
+  local function matrixEquals(a, b)
+    for i = 1, 16 do
+      if math.abs(a[i] - b[i]) > 1e-9 then
+        return false
+      end
+    end
+    return true
+  end
+
+  local function runDoorClose(withVisual)
+    local camera = FieldCamera.new(profile, { initialTarget = { x = 0, y = 0, z = 0 } })
+    local player = {
+      fieldX = 4,
+      fieldZ = 14,
+      worldX = 1,
+      worldY = 0,
+      worldZ = 1,
+      surfaceId = 0,
+      facing = "south",
+      motion = "idle",
+      updateFixed = function()
+        return false
+      end,
+    }
+    local playerVisual = withVisual and {
+      updateFixed = function() end,
+    } or nil
+    local transition = {
+      phase = "door_close",
+      locked = true,
+      updateFixed = function()
+        return false
+      end,
+      start = function() end,
+    }
+    local map = { mapId = 61, cameraType = 4 }
+    local session = FieldSession.new(baseOptions({
+      currentMap = map,
+      player = player,
+      camera = camera,
+      transition = transition,
+      playerVisual = playerVisual,
+    }))
+    -- Prime the interpolation pair with a real movement.
+    camera:updateFixed({ x = 2, y = 0, z = 2 })
+    Assert.isFalse(matrixEquals(camera:view(0), camera:view(1)), "the primed pair differs")
+    -- Two door_close ticks with no movement; the camera samples both.
+    session:updateFixed({})
+    session:updateFixed({})
+    Assert.isTrue(matrixEquals(camera:view(0), camera:view(1)), "no replayed interpolation while the door closes")
+    -- The completion tick also samples before the session consumes it.
+    transition.completed = { destinationMapId = 60 }
+    session:updateFixed({})
+    Assert.isTrue(matrixEquals(camera:view(0), camera:view(1)), "the completion tick samples the camera too")
+  end
+
+  runDoorClose(true)
+  runDoorClose(false)
+end
+
+-- The scene animation clock also runs on script-locked ticks: a script that
+-- takes movement ownership freezes the player but not the world's props.
+function T.script_locked_ticks_still_advance_the_scene_clock()
+  local animatedSteps = 0
+  local player = {
+    fieldX = 4,
+    fieldZ = 14,
+    worldX = 0,
+    worldY = 0,
+    worldZ = 0,
+    surfaceId = 0,
+    facing = "south",
+    motion = "idle",
+    updateFixed = function()
+      return false
+    end,
+  }
+  local camera = { updateFixed = function() end }
+  local map = {
+    mapId = 61,
+    cameraType = 4,
+    sceneRuntime = {
+      updateAnimated = function()
+        animatedSteps = animatedSteps + 1
+      end,
+    },
+  }
+  local scheduler = {
+    step = function() end,
+    playerMovementLocked = function()
+      return true
+    end,
+  }
+  local session = FieldSession.new(baseOptions({
+    currentMap = map,
+    player = player,
+    camera = camera,
+    scriptScheduler = scheduler,
+  }))
+  session:updateFixed({})
+  Assert.equal(animatedSteps, 1, "a script-locked tick advances the scene clock once")
+  Assert.equal(session.tick, 1)
 end
 
 return { tests = T }

@@ -31,19 +31,52 @@ local HOUSE_2F = "MAP_NEW_BARK_PLAYER_HOUSE_2F"
 -- One compiled scene: the runtime map and the MapProps facade, the shape
 -- MapSceneLoader produces (the player house carries no building placements,
 -- so there are no animated instances to advance).
+-- The model-space AABB of a descriptor's geometry (the loader stamps this
+-- from the decoded .g4mesh assets; the private suite computes it from the
+-- compiled bundle's mesh table).
+local function footprintOf(desc, assets)
+  local batches = desc.kind == "static" and desc.batches or desc.dynamic.batches
+  local minX, maxX, minZ, maxZ
+  for _, batch in ipairs(batches) do
+    local sha = assert(batch.geometry:match("geometry/([%w]+)%.g4mesh"), "batch references .g4mesh geometry")
+    local mesh = assert(assets.meshes[sha], "batch geometry present in the bundle")
+    for _, v in ipairs(mesh.vertices) do
+      minX = minX == nil and v.x or math.min(minX, v.x)
+      maxX = maxX == nil and v.x or math.max(maxX, v.x)
+      minZ = minZ == nil and v.z or math.min(minZ, v.z)
+      maxZ = maxZ == nil and v.z or math.max(maxZ, v.z)
+    end
+  end
+  return {
+    minX = minX or 0,
+    maxX = maxX or 0,
+    minY = 0,
+    maxY = 0,
+    minZ = minZ or 0,
+    maxZ = maxZ or 0,
+  }
+end
+
 local function compileScene(romFs, symbol)
   local assets = assert(MapAssetCompiler.compile(romFs, symbol))
   local instances = {}
+  local placements = {}
   for _, inst in ipairs(assets.scene.buildingInstances or {}) do
     local desc = assert(assets.models[inst.modelKey], "placement model descriptor")
-    if desc.dynamic then
+    if desc.kind == "nitro-dynamic" then
       instances[inst.placementIndex] =
         ModelInstance.new(ModelDefinition.fromNitroDescriptor(desc, { key = inst.modelKey }))
     end
+    placements[#placements + 1] = {
+      placementIndex = inst.placementIndex,
+      modelKey = inst.modelKey,
+      transform = inst.transform,
+      bounds = footprintOf(desc, assets),
+    }
   end
   local map = RomRuntimeMap.compile(romFs, symbol)
   local props = MapProps.new({
-    placements = assets.scene.buildingInstances,
+    placements = placements,
     instances = instances,
     controller = MapPropAnimationController.new(),
   })
@@ -123,7 +156,7 @@ local function runChoreography(romFs, sourceScene, destinationScene, warp, facin
   while transition.phase ~= "idle" and transition.phase ~= "error" and ticks < 500 do
     ticks = ticks + 1
     transition:updateFixed()
-    if transition.doorActive or transition.stairActive then
+    if transition.locked or transition.completed then
       for _, instance in ipairs(currentInstances) do
         instance:updateFixed()
       end

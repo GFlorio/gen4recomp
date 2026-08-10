@@ -1,4 +1,4 @@
--- Synthetic tests for the five NitroSystem 3D animation formats (Epic 1).
+-- Synthetic tests for the five NitroSystem 3D animation formats.
 -- Fixtures mirror the verified real HGSS byte layouts (see the decoder
 -- headers); sampling tests assert the exact NitroSystem arithmetic from the
 -- pinned pokediamond asm.

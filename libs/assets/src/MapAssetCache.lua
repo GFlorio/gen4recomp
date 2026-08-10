@@ -14,6 +14,7 @@ local AssetErrors = require("libs.assets.src.errors")
 local Validate = require("libs.assets.src.Validate")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local Contract = require("libs.assets.src.DerivedAssetContract")
+local ModelAsset = require("libs.assets.src.ModelAsset")
 
 MapAssetCache.FORMAT = Contract.map.cacheFormat
 MapAssetCache.SCENE_SCHEMA = Contract.map.sceneSchema
@@ -66,10 +67,10 @@ function MapAssetCache.marker(romSha1, mapId, depHash)
 end
 
 -- Collect every cache-relative path the scene references, recursing into model
--- descriptors so a stale or missing model geometry/texture is caught. The
--- scene shape is validated strictly: the current compiler always writes these
--- fields, so malformed structure raises MAP_CACHE_SCENE_INVALID instead of
--- being defaulted to empty collections.
+-- descriptors (validated through ModelAsset) so a stale or missing model
+-- geometry/texture is caught. The scene shape is validated strictly: the
+-- current compiler always writes these fields, so malformed structure raises
+-- MAP_CACHE_SCENE_INVALID instead of being defaulted to empty collections.
 function MapAssetCache.referencedPaths(scene, cacheFs)
   local paths = {}
 
@@ -142,14 +143,15 @@ function MapAssetCache.referencedPaths(scene, cacheFs)
     if type(desc) ~= "table" then
       invalid("model descriptor does not load: " .. inst.modelKey)
     end
-    if not Validate.isArray(desc.batches) or not Validate.isArray(desc.materials) then
-      invalid("model descriptor batches/materials are not arrays: " .. inst.modelKey)
+    local ok, referenced = pcall(ModelAsset.referencedPaths, desc)
+    if not ok then
+      if Errors.is(referenced) and referenced.code == "MODEL_DESC_INVALID" then
+        invalid("model descriptor is malformed: " .. inst.modelKey)
+      end
+      error(referenced)
     end
-    for _, b in ipairs(desc.batches) do
-      addBatch(b)
-    end
-    for _, m in ipairs(desc.materials) do
-      addMaterial(m)
+    for _, path in ipairs(referenced) do
+      paths[#paths + 1] = path
     end
   end
   return paths
@@ -200,7 +202,10 @@ function MapAssetCache.isReady(cacheFs, mapId, expectedMarker)
 
   local ok, paths = pcall(MapAssetCache.referencedPaths, scene, cacheFs)
   if not ok then
-    if Errors.is(paths) and paths.code == AssetErrors.MAP_CACHE_SCENE_INVALID then
+    if
+      Errors.is(paths)
+      and (paths.code == AssetErrors.MAP_CACHE_SCENE_INVALID or paths.code == "MODEL_DESC_INVALID")
+    then
       return false
     end
     error(paths)

@@ -49,6 +49,32 @@ local LAB_ENTRANCE_TILE = { x = 4, z = 14 }
 -- tile step (FieldPlayer.WALK_STEP_TICKS) and then idle on the arrival tile.
 local WALK_TICKS = FieldPlayer.WALK_STEP_TICKS + 2
 
+-- The model-space AABB of a descriptor's geometry (the loader stamps this
+-- from the decoded .g4mesh assets; the private suite computes it from the
+-- compiled bundle's mesh table).
+local function footprintOf(desc, assets)
+  local batches = desc.kind == "static" and desc.batches or desc.dynamic.batches
+  local minX, maxX, minZ, maxZ
+  for _, batch in ipairs(batches) do
+    local sha = assert(batch.geometry:match("geometry/([%w]+)%.g4mesh"), "batch references .g4mesh geometry")
+    local mesh = assert(assets.meshes[sha], "batch geometry present in the bundle")
+    for _, v in ipairs(mesh.vertices) do
+      minX = minX == nil and v.x or math.min(minX, v.x)
+      maxX = maxX == nil and v.x or math.max(maxX, v.x)
+      minZ = minZ == nil and v.z or math.min(minZ, v.z)
+      maxZ = maxZ == nil and v.z or math.max(maxZ, v.z)
+    end
+  end
+  return {
+    minX = minX or 0,
+    maxX = maxX or 0,
+    minY = 0,
+    maxY = 0,
+    minZ = minZ or 0,
+    maxZ = maxZ or 0,
+  }
+end
+
 -- One compiled scene: the runtime map, the animated ModelInstances, the
 -- MapProps facade, and the sceneRuntime shim the session's locked-tick path
 -- advances (updateAnimated) and the transition's doorAt reads (mapProps) --
@@ -57,20 +83,29 @@ local function compileScene(romFs, symbol)
   local assets = assert(MapAssetCompiler.compile(romFs, symbol))
   local instances = {}
   local instanceList = {}
+  local placements = {}
   for _, inst in ipairs(assets.scene.buildingInstances or {}) do
     local desc = assert(assets.models[inst.modelKey], "placement model descriptor")
-    if desc.dynamic then
+    if desc.kind == "nitro-dynamic" then
       local instance = ModelInstance.new(ModelDefinition.fromNitroDescriptor(desc, { key = inst.modelKey }))
       instances[inst.placementIndex] = instance
       instanceList[#instanceList + 1] = instance
-      if #desc.animations == 1 then
-        instance:play(desc.animations[1].name, { loopMode = "loop" })
+      for _, clip in ipairs(desc.animations) do
+        if clip.ambientLoop then
+          instance:play(clip.name, { loopMode = "loop" })
+        end
       end
     end
+    placements[#placements + 1] = {
+      placementIndex = inst.placementIndex,
+      modelKey = inst.modelKey,
+      transform = inst.transform,
+      bounds = footprintOf(desc, assets),
+    }
   end
   local map = RomRuntimeMap.compile(romFs, symbol)
   local props = MapProps.new({
-    placements = assets.scene.buildingInstances or {},
+    placements = placements,
     instances = instances,
     controller = MapPropAnimationController.new(),
   })
@@ -287,7 +322,7 @@ function T.town_to_lab_door_acceptance(romFs, versionId)
   Assert.isNil(harness.transition.suppression, "door warps never carry coordinate suppression")
 
   local localX, localZ = FieldCoordinates.fieldToLocal(lab.map, 4, 13)
-  Assert.isFalse(lab.map.permissions:isBlockedLocal(localX, localZ), "the player is not trapped inside the model")
+  Assert.isFalse(lab.map.collision:isBlockedLocal(localX, localZ), "the player is not trapped inside the model")
 
   local record, restored = autosaveRoundTrip(harness)
   Assert.equal(record.mapId, LAB_MAP_ID)
@@ -354,7 +389,7 @@ function T.lab_to_town_door_acceptance(romFs, versionId)
   Assert.isNil(harness.transition.suppression, "the exit door re-arms immediately")
 
   local localX, localZ = FieldCoordinates.fieldToLocal(town.map, 684, 394)
-  Assert.isFalse(town.map.permissions:isBlockedLocal(localX, localZ), "the player is not trapped on the door tile")
+  Assert.isFalse(town.map.collision:isBlockedLocal(localX, localZ), "the player is not trapped on the door tile")
 
   local record, restored = autosaveRoundTrip(harness)
   Assert.equal(record.mapId, TOWN_MAP_ID)

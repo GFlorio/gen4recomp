@@ -1,4 +1,4 @@
--- Private target test: Epic 8 acceptance -- naturally animated vanilla HGSS
+-- Private target test: naturally animated vanilla HGSS
 -- field props compile through MapAssetCompiler into dynamic model
 -- descriptors and animate through the production runtime. New Bark's
 -- exterior places a door pair (wk_door3, member 26, NSBCA door_op/door_cl);
@@ -17,7 +17,6 @@ local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local ModelInstance = require("libs.engine.src.ModelInstance")
 local MaterialEvaluator = require("libs.engine.src.MaterialEvaluator")
 local MapPropAnimationController = require("libs.engine.src.MapPropAnimationController")
-local AnimationDebugger = require("libs.engine.src.AnimationDebugger")
 
 local T = {}
 
@@ -44,7 +43,8 @@ function T.new_bark_door_compiles_as_animated(romFs, version)
   local c, bundle = compileInto(romFs, "MAP_NEW_BARK")
   local desc = descriptorOf(bundle, 26)
   assert(desc, "wk_door3 descriptor present")
-  Assert.equal(desc.backend, "nitro")
+  Assert.equal(desc.schema, "g4-model-v2")
+  Assert.equal(desc.kind, "nitro-dynamic")
   assert(desc.dynamic, "door compiles through the dynamic path")
   assert(desc.dynamic.transformProgram)
   Assert.isTrue(#desc.dynamic.batches > 0, "door has dynamic segment meshes")
@@ -59,8 +59,6 @@ function T.new_bark_door_compiles_as_animated(romFs, version)
   assert(byName.door_cl)
   Assert.deepEqual(byName.door_op.semanticNames, { "door.open" })
   Assert.deepEqual(byName.door_cl.semanticNames, { "door.close" })
-  Assert.equal(desc.roles["door.open"], "door_op")
-  Assert.equal(desc.roles["door.close"], "door_cl")
   Assert.equal(byName.door_op.frameCount, 8)
   Assert.equal(byName.door_op.source.format, "NSBCA")
   Assert.equal(byName.door_op.source.archive, "build_anim")
@@ -116,17 +114,16 @@ function T.new_bark_door_animates_through_the_runtime(romFs, version)
   end
   Assert.isTrue(controller:isFinished(instance, "door.open"), "door finished open")
 
-  -- The debugger sees the playing clip with its provenance.
-  local entries = AnimationDebugger.snapshot(instance)
-  Assert.equal(#entries, 2)
+  -- The controller's instance view sees the playing clip with its role.
+  local entries = controller:animationsFor(instance)
   local openEntry
   for _, e in ipairs(entries) do
-    if e.clipName == "door_op" then
+    if e.name == "door_op" then
       openEntry = e
     end
   end
   assert(openEntry)
-  Assert.equal(openEntry.format, "NSBCA")
+  Assert.deepEqual(openEntry.roles, { "door.open" })
   Assert.equal(openEntry.frameCount, 8)
 end
 
@@ -137,7 +134,8 @@ function T_elms_lab_material_prop_compiles_and_evaluates(romFs, version)
   local _, bundle = compileInto(romFs, "MAP_NEW_BARK_ELMS_LAB_1F")
   local desc = descriptorOf(bundle, 29)
   assert(desc, "machine_l03 descriptor present")
-  Assert.equal(desc.backend, "nitro")
+  Assert.equal(desc.schema, "g4-model-v2")
+  Assert.equal(desc.kind, "nitro-dynamic")
   assert(desc.dynamic)
   Assert.equal(#desc.animations, 1)
   local clip = desc.animations[1]

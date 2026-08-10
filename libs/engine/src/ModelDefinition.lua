@@ -1,33 +1,29 @@
--- ModelDefinition: the engine-native, source-format-neutral model IR.
--- Everything the runtime and gameplay touch -- meshes, materials, nodes,
--- skins, animations -- lives here in one shape regardless of whether the
--- asset came from an NSBMD/NSBCA pair or a future Blender/GLB export. The
--- glTF mapping contract is documented in docs/model-ir.md; this module is
--- its Lua face.
+-- ModelDefinition: the engine-native model IR assembled from the derived
+-- model descriptors. Everything the runtime and gameplay touch -- nodes,
+-- meshes, materials, animations -- lives here in one shape regardless of the
+-- digest-side source format; the nitro backend (the only current producer)
+-- poses through the compiled transform program carried in `backend`.
 --
 --   definition = ModelDefinition.new({
---     key = "fixture:door",
---     sourceBackend = "nitro",        -- "nitro" | "generic"
---     nodes = { { index, name?, parentIndex?, translation, rotation, scale } },
---     meshes = { { id, name?, nodeIndex, materialIndex, batch } },
+--     key = "outdoor:12:abcd...",
+--     sourceBackend = "nitro",
+--     nodes = { { index, name?, translation, rotation, scale } },
+--     meshes = { { id, nodeIndex, materialIndex, geometry? } },
 --     materials = { { id, name?, baseColor, alphaMode, doubleSided, texture?,
 --                     polygonAlpha?, texMtxMode?, texWidth?, texHeight?,
 --                     srt?, variants? } },
---     skins = { { id, joints, inverseBindMatrices } },
 --     animations = { <AnimationClip>, ... },
 --     backend = nil,                    -- opaque backend payload, never
 --                                       -- interpreted by engine APIs
---     instanceMetadata = {},            -- passthrough instance metadata
 --   })
 --
 -- Node convention: indices are zero-based and contiguous; parents precede
--- their children so pose evaluation is a single top-down pass. Local
--- transforms are TRS (translation {x,y,z}, 9-cell rotation, scale {x,y,z});
--- the generic backend composes local = T * R * S, the glTF convention.
--- Mesh batches use the MeshWriter vertex shape (see libs/assets/src/MeshWriter),
--- with joints/weights on vertices that skin. Animations are validated
--- AnimationClips whose semanticNames (e.g. "door.open") let gameplay address
--- them without source-format numbers.
+-- their children so pose evaluation is a single top-down pass. Mesh batches
+-- are not part of the definition: geometry lives in content-addressed .g4mesh
+-- assets referenced by `geometry` (the loader builds the render meshes and
+-- per-mesh model-space centers). Animations are validated AnimationClips
+-- whose semanticNames (e.g. "door.open") let gameplay address them without
+-- source-format numbers.
 --
 -- Pure domain module: no love.
 
@@ -37,7 +33,6 @@ local AnimationClip = require("libs.engine.src.AnimationClip")
 local ModelDefinition = {}
 ModelDefinition.__index = ModelDefinition
 
-ModelDefinition.SOURCE_BACKENDS = { nitro = true, generic = true }
 ModelDefinition.ALPHA_MODES = { opaque = true, mask = true, blend = true }
 
 local function isFiniteNumber(value)
@@ -100,10 +95,15 @@ local function validateNodes(nodes)
 end
 
 local function validateMeshes(meshes, nodeCount, materialCount)
+  local byId = {}
   for i, mesh in ipairs(meshes) do
     if type(mesh.id) ~= "string" or #mesh.id == 0 then
       Errors.raise("MODEL_DEF_MESH_NO_ID", "mesh " .. i .. " requires a non-empty id", {})
     end
+    if byId[mesh.id] then
+      Errors.raise("MODEL_DEF_DUPLICATE_MESH", "model has two meshes named " .. mesh.id, { meshId = mesh.id })
+    end
+    byId[mesh.id] = true
     if not (isInteger(mesh.nodeIndex) and mesh.nodeIndex >= 0 and mesh.nodeIndex < nodeCount) then
       Errors.raise(
         "MODEL_DEF_MESH_BAD_NODE",
@@ -118,10 +118,15 @@ local function validateMeshes(meshes, nodeCount, materialCount)
         { meshId = mesh.id, materialIndex = mesh.materialIndex }
       )
     end
-    if type(mesh.batch) ~= "table" or type(mesh.batch.vertices) ~= "table" then
+    -- Geometry either references a .g4mesh path or embeds a batch with
+    -- vertices (fixtures); a mesh with neither cannot be drawn.
+    if
+      not (type(mesh.geometry) == "string" and #mesh.geometry > 0)
+      and not (type(mesh.batch) == "table" and type(mesh.batch.vertices) == "table")
+    then
       Errors.raise(
-        "MODEL_DEF_MESH_NO_BATCH",
-        "mesh " .. mesh.id .. " requires a batch with vertices",
+        "MODEL_DEF_MESH_NO_GEOMETRY",
+        "mesh " .. mesh.id .. " requires a geometry path or a batch with vertices",
         { meshId = mesh.id }
       )
     end
@@ -225,46 +230,20 @@ local function validateMaterials(materials)
   end
 end
 
-local function validateSkins(skins, nodeCount)
-  for i, skin in ipairs(skins) do
-    if type(skin.id) ~= "string" or #skin.id == 0 then
-      Errors.raise("MODEL_DEF_SKIN_NO_ID", "skin " .. i .. " requires a non-empty id", {})
-    end
-    if type(skin.joints) ~= "table" or #skin.joints == 0 then
-      Errors.raise(
-        "MODEL_DEF_SKIN_NO_JOINTS",
-        "skin " .. skin.id .. " requires at least one joint",
-        { skinId = skin.id }
-      )
-    end
-    for _, joint in ipairs(skin.joints) do
-      if not (isInteger(joint) and joint >= 0 and joint < nodeCount) then
-        Errors.raise(
-          "MODEL_DEF_SKIN_BAD_JOINT",
-          "skin " .. skin.id .. " references an unknown joint",
-          { skinId = skin.id, joint = joint }
-        )
-      end
-    end
-    if type(skin.inverseBindMatrices) ~= "table" then
-      Errors.raise("MODEL_DEF_SKIN_NO_IBM", "skin " .. skin.id .. " requires inverseBindMatrices", { skinId = skin.id })
-    end
-    for _, joint in ipairs(skin.joints) do
-      local m = skin.inverseBindMatrices[joint]
-      if type(m) ~= "table" or #m ~= 16 then
-        Errors.raise(
-          "MODEL_DEF_SKIN_BAD_IBM",
-          "skin " .. skin.id .. " joint " .. joint .. " needs a 16-element inverse bind matrix",
-          { skinId = skin.id, joint = joint }
-        )
-      end
-    end
-  end
-end
-
+-- Every clip must be a real AnimationClip record: an animation addressed by
+-- name or semantic must satisfy the whole playback contract, not merely
+-- carry an id.
 local function validateAnimations(animations)
   for _, clip in ipairs(animations) do
-    if type(clip) ~= "table" or clip.id == nil then
+    if
+      type(clip) ~= "table"
+      or type(clip.id) ~= "string"
+      or type(clip.name) ~= "string"
+      or not AnimationClip.CATEGORIES[clip.category]
+      or not (isInteger(clip.frameCount) and clip.frameCount >= 1)
+      or type(clip.tracks) ~= "table"
+      or #clip.tracks == 0
+    then
       Errors.raise("MODEL_DEF_BAD_ANIMATION", "animations must be AnimationClip values", {})
     end
   end
@@ -275,24 +254,21 @@ function ModelDefinition.new(spec)
   if type(spec.key) ~= "string" or #spec.key == 0 then
     Errors.raise("MODEL_DEF_NO_KEY", "model definition requires a non-empty key", {})
   end
-  if not ModelDefinition.SOURCE_BACKENDS[spec.sourceBackend] then
+  if spec.sourceBackend ~= "nitro" then
     Errors.raise(
       "MODEL_DEF_BAD_SOURCE_BACKEND",
-      "sourceBackend must be nitro or generic, got " .. tostring(spec.sourceBackend),
-      {}
+      "sourceBackend must be nitro, got " .. tostring(spec.sourceBackend),
+      { sourceBackend = spec.sourceBackend }
     )
   end
   if type(spec.nodes) ~= "table" or #spec.nodes == 0 then
     Errors.raise("MODEL_DEF_NO_NODES", "model definition requires at least one node", {})
   end
-  if type(spec.meshes) ~= "table" then
+  if type(spec.meshes) ~= "table" or #spec.meshes == 0 then
     Errors.raise("MODEL_DEF_NO_MESHES", "model definition requires a meshes list", {})
   end
-  if type(spec.materials) ~= "table" then
+  if type(spec.materials) ~= "table" or #spec.materials == 0 then
     Errors.raise("MODEL_DEF_NO_MATERIALS", "model definition requires a materials list", {})
-  end
-  if spec.skins ~= nil and type(spec.skins) ~= "table" then
-    Errors.raise("MODEL_DEF_BAD_SKINS", "skins must be a table or nil", {})
   end
   if spec.animations ~= nil and type(spec.animations) ~= "table" then
     Errors.raise("MODEL_DEF_BAD_ANIMATIONS", "animations must be a table or nil", {})
@@ -300,22 +276,18 @@ function ModelDefinition.new(spec)
   if spec.backend ~= nil and type(spec.backend) ~= "table" then
     Errors.raise("MODEL_DEF_BAD_BACKEND", "backend payload must be a table or nil", {})
   end
-  if spec.instanceMetadata ~= nil and type(spec.instanceMetadata) ~= "table" then
-    Errors.raise("MODEL_DEF_BAD_INSTANCE_METADATA", "instanceMetadata must be a table or nil", {})
-  end
 
   validateNodes(spec.nodes)
   validateMeshes(spec.meshes, #spec.nodes, #spec.materials)
   validateMaterials(spec.materials)
-  if spec.skins then
-    validateSkins(spec.skins, #spec.nodes)
-  end
   if spec.animations then
     validateAnimations(spec.animations)
   end
 
   -- Semantic animation lookup: by clip name first, then by any semantic role
-  -- (e.g. "door.open"). A role mapped twice is an authoring error.
+  -- (e.g. "door.open"). A role mapped twice is an authoring error, and a
+  -- clip name colliding with another clip's semantic role is ambiguous --
+  -- both raise rather than making lookup precedence significant.
   local byName, bySemantic = {}, {}
   for _, clip in ipairs(spec.animations or {}) do
     if byName[clip.name] then
@@ -326,11 +298,20 @@ function ModelDefinition.new(spec)
       )
     end
     byName[clip.name] = clip
+  end
+  for _, clip in ipairs(spec.animations or {}) do
     for _, semantic in ipairs(clip.semanticNames or {}) do
       if bySemantic[semantic] then
         Errors.raise(
           "MODEL_DEF_DUPLICATE_SEMANTIC",
           "model " .. spec.key .. " maps role " .. semantic .. " twice",
+          { semantic = semantic, name = clip.name }
+        )
+      end
+      if byName[semantic] then
+        Errors.raise(
+          "MODEL_DEF_NAME_SEMANTIC_COLLISION",
+          "model " .. spec.key .. " clip name " .. semantic .. " collides with a semantic role",
           { semantic = semantic, name = clip.name }
         )
       end
@@ -344,10 +325,8 @@ function ModelDefinition.new(spec)
     nodes = spec.nodes,
     meshes = spec.meshes,
     materials = spec.materials,
-    skins = spec.skins or {},
     animations = spec.animations or {},
     backend = spec.backend,
-    instanceMetadata = spec.instanceMetadata or {},
     animationByName = byName,
     animationBySemantic = bySemantic,
   }, ModelDefinition)
@@ -373,16 +352,15 @@ function ModelDefinition:node(index)
 end
 
 -- Assemble a ModelDefinition from a serialized nitro model descriptor (the
--- cache form MapAssetCompiler writes; the dynamic half of the spec section
--- 40 shape):
+-- cache form MapAssetCompiler writes):
 --
 --   desc = {
---     key, memberId,
---     backend = "nitro",
+--     schema, key, memberId,
+--     kind = "nitro-dynamic",
 --     dynamic = {
 --       nodes = <transform-program node records>,
 --       transformProgram = <the compiled SBC program>,
---       batches = <MeshCompiler.compileDynamic output>,
+--       batches = <dynamic batch records referencing .g4mesh paths>,
 --     },
 --     materials = { ... },   -- base material records (texture paths etc.)
 --     animations = { ... },  -- compiled nitro clips
@@ -391,9 +369,9 @@ end
 -- The definition's nodes are the program's bind SRTs (contiguous,
 -- zero-based); the nitro backend poses through the program, never through
 -- the IR nodes, which exist for the shared validation, visibility, and
--- diagnostics. The digest-side NsbmdDynamicModel.compile produces this
--- descriptor shape; MapSceneLoader assembles it here so the runtime and
--- the tests share one assembly.
+-- diagnostics. MapSceneLoader assembles this so the runtime and the tests
+-- share one assembly; it also stamps each mesh's model-space `center` from
+-- the decoded geometry.
 function ModelDefinition.fromNitroDescriptor(desc, opts)
   assert(type(desc) == "table" and desc.dynamic ~= nil, "fromNitroDescriptor requires a dynamic model descriptor")
   opts = opts or {}
@@ -411,16 +389,30 @@ function ModelDefinition.fromNitroDescriptor(desc, opts)
   local meshes = {}
   local backendMeshes = {}
   for _, mesh in ipairs(desc.dynamic.batches) do
-    meshes[#meshes + 1] = {
+    local record = {
       id = mesh.id,
       nodeIndex = mesh.nodeIndex,
       materialIndex = mesh.materialIndex,
-      batch = mesh.batch,
     }
+    -- The loader contract references .g4mesh geometry paths; digest-side
+    -- fixtures may still carry the embedded batch.
+    if mesh.geometry then
+      record.geometry = mesh.geometry
+    end
+    if mesh.batch then
+      record.batch = mesh.batch
+    end
+    meshes[#meshes + 1] = record
     backendMeshes[mesh.id] = {
       drawIndex = mesh.drawIndex,
       positionSource = mesh.positionSource,
       transformMode = mesh.transformMode,
+      cullMode = mesh.cullMode,
+      polygonMode = mesh.polygonMode,
+      polygonId = mesh.polygonId,
+      translucentDepthWrite = mesh.translucentDepthWrite,
+      depthEqual = mesh.depthEqual,
+      polygonAlpha = mesh.polygonAlpha,
     }
   end
   return ModelDefinition.new({
@@ -429,7 +421,6 @@ function ModelDefinition.fromNitroDescriptor(desc, opts)
     nodes = nodes,
     meshes = meshes,
     materials = desc.materials or {},
-    skins = {},
     animations = desc.animations or {},
     backend = {
       program = program,

@@ -1,7 +1,8 @@
 -- Minimal self-consistent compiled-map bundle for exercising MapCacheWriter and
 -- MapAssetCache without the real ROM pipeline: one mesh batch, one 1x1 texture,
--- one model descriptor, and a scene that references all three by their cache
--- paths, plus a normalized collision grid and a marker.
+-- one model descriptor (the explicit static schema/kind), and a scene that
+-- references all three by their cache paths, plus a normalized collision grid
+-- and a marker.
 
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 
@@ -66,7 +67,16 @@ function BundleFixture.minimal(mapId)
     },
     meshes = { [meshSha] = { vertices = { v(0, 0), v(1, 0), v(0, 1) }, indices = { 0, 1, 2 } } },
     textures = { [texSha] = { pixels = string.char(10, 20, 30, 255), width = 1, height = 1 } },
-    models = { [modelKey] = { materials = {}, batches = {} } },
+    models = {
+      [modelKey] = {
+        schema = "g4-model-v2",
+        key = modelKey,
+        memberId = 1,
+        kind = "static",
+        materials = {},
+        batches = {},
+      },
+    },
   }
 end
 

@@ -1,7 +1,7 @@
--- LÖVE smoke tests for the non-Nitro proof fixture: a ModelInstance built
--- from generic IR geometry renders through the production MapRenderer. These
--- run under love and skip themselves when no graphics context is available,
--- like the other renderer smoke tests.
+-- LÖVE smoke tests for the nitro-backed ModelInstance: the door fixture
+-- renders through the production MapRenderer. These run under love and skip
+-- themselves when no graphics context is available, like the other renderer
+-- smoke tests.
 
 local Assert = require("tests.support.Assert")
 local MapRenderer = require("libs.engine.src.MapRenderer")
@@ -9,7 +9,7 @@ local MeshWriter = require("libs.assets.src.MeshWriter")
 local SceneMesh = require("libs.engine.src.SceneMesh")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local ModelInstance = require("libs.engine.src.ModelInstance")
-local GenericModelFixture = require("tests.support.GenericModelFixture")
+local NitroModelFixture = require("tests.support.NitroModelFixture")
 
 local T = {}
 
@@ -18,14 +18,14 @@ local function hasGraphics()
 end
 
 -- Build love meshes for every definition batch through the production mesh
--- path (G4M3 encode -> decode -> build).
+-- path (G4M2 encode -> decode -> build).
 local function buildRenders(def)
-  local renders = {}
+  local renderMeshesById = {}
   for _, mesh in ipairs(def.meshes) do
-    local bytes = MeshWriter.encode(mesh.batch, { format = "g4m3" })
-    renders[mesh.id] = SceneMesh.build(SceneMesh.decode(bytes))
+    local bytes = MeshWriter.encode(mesh.batch)
+    renderMeshesById[mesh.id] = SceneMesh.build(SceneMesh.decode(bytes))
   end
-  return renders
+  return renderMeshesById
 end
 
 local function identityCamera()
@@ -42,20 +42,20 @@ local function identityCamera()
 end
 
 local function drawInstance(renderer, runtime, instance, alpha)
-  local items = instance:drawItems(instance.renders)
+  local items = instance:drawItems(instance.renderMeshesById)
   runtime.mapDraws = items
   renderer:draw(runtime, identityCamera(), nil, FieldViewport.new(320, 240, { mode = "strict" }), alpha)
 end
 
-function T.generic_animated_fixture_renders_through_map_renderer()
+function T.nitro_animated_fixture_renders_through_map_renderer()
   if not hasGraphics() then
     return
   end
   local lg = love.graphics
   local renderer = MapRenderer.new()
-  local def = GenericModelFixture.doorDefinition()
+  local def = NitroModelFixture.doorDefinition()
   local instance = ModelInstance.new(def)
-  instance.renders = buildRenders(def)
+  instance.renderMeshesById = buildRenders(def)
   local runtime = {
     mapDraws = {},
     buildingDraws = {},
@@ -68,17 +68,17 @@ function T.generic_animated_fixture_renders_through_map_renderer()
   instance:evaluatePose()
   drawInstance(renderer, runtime, instance, 1)
   local firstDrawCalls = renderer.stats.drawCalls
-  Assert.isTrue(firstDrawCalls >= 3, "all three fixture meshes draw")
+  Assert.isTrue(firstDrawCalls >= 1, "the door mesh draws")
 
   -- Scrubbing to another frame reuses the same built meshes (no geometry
   -- recompilation per frame) and still draws.
   instance:updateFixed()
   instance:updateFixed()
   instance:evaluatePose()
-  local rendersBefore = instance.renders
+  local rendersBefore = instance.renderMeshesById
   drawInstance(renderer, runtime, instance, 1)
-  Assert.isTrue(renderer.stats.drawCalls >= 3)
-  Assert.equal(instance.renders, rendersBefore, "meshes are built once, not per frame")
+  Assert.isTrue(renderer.stats.drawCalls >= 1)
+  Assert.equal(instance.renderMeshesById, rendersBefore, "meshes are built once, not per frame")
 
   -- No render state leaks into the next frame.
   Assert.isNil(lg.getCanvas(), "the scene canvas is unbound")
@@ -86,35 +86,7 @@ function T.generic_animated_fixture_renders_through_map_renderer()
   Assert.equal(lg.getMeshCullMode(), "none")
   Assert.isFalse(lg.isWireframe())
 
-  for _, mesh in pairs(instance.renders) do
-    mesh:release()
-  end
-  renderer:release()
-end
-
-function T.hidden_node_geometry_is_not_drawn()
-  if not hasGraphics() then
-    return
-  end
-  local renderer = MapRenderer.new()
-  local def = GenericModelFixture.doorDefinition()
-  local instance = ModelInstance.new(def)
-  instance.renders = buildRenders(def)
-  local runtime = {
-    mapDraws = {},
-    buildingDraws = {},
-    stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
-    lighting = nil,
-  }
-
-  instance:play("blink")
-  instance:updateFixed()
-  instance:updateFixed() -- frame 2: leaf hidden
-  instance:evaluatePose()
-  drawInstance(renderer, runtime, instance, 1)
-  Assert.equal(renderer.stats.drawCalls, 2, "the hidden leaf mesh is not drawn")
-
-  for _, mesh in pairs(instance.renders) do
+  for _, mesh in pairs(instance.renderMeshesById) do
     mesh:release()
   end
   renderer:release()

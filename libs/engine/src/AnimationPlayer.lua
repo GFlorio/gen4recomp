@@ -1,30 +1,30 @@
 -- AnimationPlayer: format-neutral playback of one clip.
 --
 -- Frames are fixed-point: frameFx = frame * FRAME_UNIT, and the player
--- advances by deltaFx each updateFixed(). HGSS's field animation manager
--- steps 0x1000 per tick, wraps at either end, and tracks finite completion;
--- this player keeps that behavior for the default delta while permitting
--- arbitrary signed deltas. The frame is always clamped to
--- [0, frameCount * FRAME_UNIT - 1] -- the same window
--- NNSi_G3dAnmCalcNsBca clamps into -- so a decoder fed an out-of-range
--- frame from another source reproduces the SDK's last-key behavior, not a
--- hard error.
+-- advances by one frame unit per updateFixed() (direction can be flipped
+-- with setDirection). HGSS's field animation manager steps 0x1000 per tick,
+-- wraps at either end, and tracks finite completion; this player keeps that
+-- behavior. The frame is always clamped to [0, frameCount * FRAME_UNIT - 1]
+-- -- the same window NNSi_G3dAnmCalcNsBca clamps into -- so a decoder fed an
+-- out-of-range frame from another source reproduces the SDK's last-key
+-- behavior, not a hard error.
 --
 -- Loop modes:
 --   "loop"   wrap at both ends forever
 --   "once"   clamp at the end (forward or reverse) and mark completed
---   "repeat" wrap like "loop" while repeatsRemaining > 0, then clamp and mark
---            completed; repeatsRemaining counts completed wraps
 --
--- The player knows nothing about clips' source formats: it consumes only the
--- frame count. Pure domain module.
+-- Terminal-state policy lives here: the player clamps and marks completed
+-- when a once-clip reaches its end, and atTerminal() reports whether the
+-- frame has reached the direction's end of the playable window (the HGSS
+-- checked-advance condition). The player knows nothing about clips' source
+-- formats: it consumes only the frame count. Pure domain module.
 
 local AnimationClip = require("libs.engine.src.AnimationClip")
 
 local AnimationPlayer = {}
 AnimationPlayer.__index = AnimationPlayer
 
-AnimationPlayer.LOOP_MODES = { loop = true, once = true, ["repeat"] = true }
+AnimationPlayer.LOOP_MODES = { loop = true, once = true }
 AnimationPlayer.FRAME_UNIT = AnimationClip.FRAME_UNIT
 
 -- Build a player for a clip (or any object with a positive integer
@@ -43,7 +43,6 @@ function AnimationPlayer.new(clip)
     deltaFx = AnimationPlayer.FRAME_UNIT,
     paused = false,
     loopMode = "loop",
-    repeatsRemaining = nil,
     completed = false,
   }, AnimationPlayer)
 end
@@ -86,13 +85,6 @@ function AnimationPlayer:setDirection(direction)
   self.deltaFx = math.abs(self.deltaFx) * direction
 end
 
--- Arbitrary signed fixed-point delta; zero pauses advancement for the
--- duration of the zero delta.
-function AnimationPlayer:setDeltaFx(deltaFx)
-  assert(type(deltaFx) == "number" and math.floor(deltaFx) == deltaFx, "deltaFx must be an integer")
-  self.deltaFx = deltaFx
-end
-
 -- Seek to a fixed-point frame (clamped). A seek is an explicit user action:
 -- it clears completion so a previously finished clip can be watched again.
 function AnimationPlayer:seekFx(frameFx)
@@ -130,16 +122,8 @@ function AnimationPlayer:updateFixed()
       self.completed = true
       return
     end
-    if self.loopMode == "repeat" and self.repeatsRemaining then
-      self.repeatsRemaining = self.repeatsRemaining - 1
-      if self.repeatsRemaining <= 0 then
-        self.frameFx = maxFx
-        self.completed = true
-        return
-      end
-    end
-    -- "loop" (and "repeat" with repeats left) wrap past the end; the Lua
-    -- modulo yields a frame in [0, stepFx - 1] for any signed overshoot.
+    -- "loop" wraps past the end; the Lua modulo yields a frame in
+    -- [0, stepFx - 1] for any signed overshoot.
     self.frameFx = frameFx % stepFx
     return
   end
@@ -150,14 +134,6 @@ function AnimationPlayer:updateFixed()
       self.completed = true
       return
     end
-    if self.loopMode == "repeat" and self.repeatsRemaining then
-      self.repeatsRemaining = self.repeatsRemaining - 1
-      if self.repeatsRemaining <= 0 then
-        self.frameFx = 0
-        self.completed = true
-        return
-      end
-    end
     self.frameFx = frameFx % stepFx
     return
   end
@@ -167,6 +143,20 @@ end
 
 function AnimationPlayer:isComplete()
   return self.completed
+end
+
+-- The HGSS checked-advance terminal state: a forward clip is finished when
+-- its frame reaches the last key frame, a reverse clip when it reaches the
+-- first (ov01_021FBEE4 Field3dModelAnimation_FrameAdvanceAndCheck,
+-- pokeheartgold overlay_01_021FB878.s). Reaching the terminal frame is the
+-- finish condition even when the clamp that marks `completed` has not fired
+-- yet (a delta that lands exactly on the end frame).
+function AnimationPlayer:atTerminal()
+  local lastFrameFx = (self.frameCount - 1) * AnimationPlayer.FRAME_UNIT
+  if self.deltaFx >= 0 then
+    return self.frameFx >= lastFrameFx
+  end
+  return self.frameFx <= 0
 end
 
 return AnimationPlayer

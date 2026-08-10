@@ -16,6 +16,8 @@ local Errors = require("libs.errors.src.Errors")
 ---@class GpuAssetPool
 ---@field cacheFs table
 ---@field graphics love.Graphics
+---@field meshBuilder fun(decoded: table): any
+---@field imageBuilder fun(path: string): any|nil
 ---@field meshes love.Mesh[]
 ---@field images love.Image[]
 ---@field triangles integer
@@ -35,10 +37,16 @@ local function guarded(pool, fn)
   end
 end
 
--- cacheFs: a CacheFs-shaped reader (read(path) returns raw bytes or nil);
--- opts.graphics: injectable LÖVE graphics namespace for resource-failure tests.
+---@class GpuAssetPoolOptions
+---@field graphics? love.Graphics -- injectable LÖVE graphics namespace (nil keeps love.graphics)
+---@field meshBuilder? fun(decoded: table): any -- replaces SceneMesh.build (headless tests)
+---@field imageBuilder? fun(path: string): any -- replaces love-graphics texture construction (headless tests)
+
+-- cacheFs: a CacheFs-shaped reader (read(path) returns raw bytes or nil); see
+-- GpuAssetPoolOptions for the injectable GPU seams. A builder image is
+-- configured (filter/wrap) and owned exactly like a love-built one.
 ---@param cacheFs table
----@param opts { graphics?: love.Graphics? }?
+---@param opts GpuAssetPoolOptions?
 ---@return GpuAssetPool
 function GpuAssetPool.new(cacheFs, opts)
   assert(cacheFs and cacheFs.read, "GpuAssetPool requires a CacheFs-shaped object")
@@ -50,7 +58,9 @@ function GpuAssetPool.new(cacheFs, opts)
   assert(graphics and graphics.newImage, "GpuAssetPool requires love.graphics")
   return setmetatable({
     cacheFs = cacheFs,
-    graphics = graphics,
+    graphics = opts.graphics or (love and love.graphics),
+    meshBuilder = opts.meshBuilder or SceneMesh.build,
+    imageBuilder = opts.imageBuilder,
     meshes = {},
     images = {},
     triangles = 0,
@@ -69,7 +79,7 @@ function GpuAssetPool:meshFor(path)
   if not entry then
     guarded(self, function()
       local decoded = SceneMesh.decode(assert(self.cacheFs:read(path), "missing mesh " .. path), path)
-      local mesh = SceneMesh.build(decoded)
+      local mesh = self.meshBuilder(decoded)
       entry = { mesh = mesh, verts = decoded.vertices, triangles = decoded.indexCount / 3 }
       self._meshCache[path] = entry
       self.meshes[#self.meshes + 1] = mesh
@@ -110,9 +120,13 @@ function GpuAssetPool:imageFor(path, wrapX, wrapY)
           { path = path, wrapX = wrapX, wrapY = wrapY }
         )
       end
-      local bytes = assert(self.cacheFs:read(path), "missing texture " .. path)
-      local data = love.filesystem.newFileData(bytes, "tex.png")
-      image = self.graphics.newImage(data)
+      if self.imageBuilder then
+        image = self.imageBuilder(path)
+      else
+        local bytes = assert(self.cacheFs:read(path), "missing texture " .. path)
+        local data = love.filesystem.newFileData(bytes, "tex.png")
+        image = self.graphics.newImage(data)
+      end
       image:setFilter("nearest", "nearest")
       image:setWrap(wrapX, wrapY)
       byWrap[key] = image
@@ -120,20 +134,6 @@ function GpuAssetPool:imageFor(path, wrapX, wrapY)
     end)
   end
   return image
-end
-
--- Register an already-built Mesh as pool-owned: the dynamic model render
--- meshes are built from in-memory geometry (not a content-addressed path),
--- so the pool cannot construct them itself, but it still releases them with
--- everything else and counts their triangles in its stats. Pass the decoded
--- triangle count exactly once per mesh.
----@param mesh love.Mesh
----@param triangleCount number
----@return love.Mesh
-function GpuAssetPool:adoptMesh(mesh, triangleCount)
-  self.meshes[#self.meshes + 1] = mesh
-  self.triangles = self.triangles + triangleCount
-  return mesh
 end
 
 -- Release every owned GPU object exactly once. Idempotent: the owned lists,

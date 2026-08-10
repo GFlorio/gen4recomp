@@ -461,7 +461,7 @@ local function decodeMaterialData(r, matBase, blockOfs, context)
 
     extraBytes = size > MATERIAL_PREFIX and r:bytes(base + MATERIAL_PREFIX, size - MATERIAL_PREFIX) or "",
 
-    -- The static texture-SRT extension (Epic 2): decoded from the flags and
+    -- The static texture-SRT extension: decoded from the flags and
     -- the extra bytes; nil when the material carries no texture transform.
     textureSrt = size > MATERIAL_PREFIX
         and NsbmdMaterialSrt.decode(flagsRaw, r:bytes(base + MATERIAL_PREFIX, size - MATERIAL_PREFIX))

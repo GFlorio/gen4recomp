@@ -285,4 +285,44 @@ function T.to_definition_builds_a_valid_nitro_model()
   Assert.equal(def:animation("door.open"), nil)
 end
 
+-- ---- static/dynamic render-state parity ----
+
+-- Every model the dynamic path compiles carries the same polygon draw state
+-- per draw as the static path: the polygon-attr word comes from the same
+-- resolved material state, and both decode to identical cull/mode/id/depth/
+-- alpha fields. A static and an animated placement of one NSBMD therefore
+-- render with the same polygon state.
+function T.polygon_draw_state_matches_the_static_path()
+  local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
+  local fixtures = {
+    NsbmdFixture.buildTransformed(),
+    NsbmdFixture.buildStaticQuad(),
+    NsbmdFixture.buildBillboardQuad(),
+  }
+  for _, bytes in ipairs(fixtures) do
+    local model = assert(Nsbmd.decode(bytes)).models[1]
+    local staticBatches = MeshCompiler.compile(model)
+    local descriptor = NsbmdDynamicModel.compile(model)
+    Assert.equal(#descriptor.meshes, #staticBatches, model.name .. ": one dynamic mesh per static batch")
+    for meshIndex, mesh in ipairs(descriptor.meshes) do
+      local batch = staticBatches[meshIndex]
+      local label = string.format("%s mesh %s", model.name, mesh.id)
+      Assert.equal(mesh.polygonAttrRaw, batch.polygonAttrRaw, label .. " polygon-attr word")
+      local dynamicState = DsPolygonAttr.decode(mesh.polygonAttrRaw)
+      local staticState = DsPolygonAttr.decode(batch.polygonAttrRaw)
+      for _, field in ipairs({
+        "cullMode",
+        "polygonMode",
+        "polygonId",
+        "translucentDepthWrite",
+        "depthEqual",
+        "polygonAlpha",
+        "lightMask",
+      }) do
+        Assert.equal(dynamicState[field], staticState[field], label .. " " .. field)
+      end
+    end
+  end
+end
+
 return T

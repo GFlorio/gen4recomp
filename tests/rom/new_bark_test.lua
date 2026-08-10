@@ -423,7 +423,7 @@ end
 function T.no_save_spawn_map_compiles_with_free_tiles(romFs)
   local bundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK_PLAYER_HOUSE_2F"))
   Assert.equal(bundle.scene.mapSymbol, "MAP_NEW_BARK_PLAYER_HOUSE_2F")
-  local grid = CollisionGrid.new(assert(PermissionGrid.decode(bundle.permissions)), {
+  local grid = CollisionGrid.new(assert(bundle.collision), {
     worldOriginX = bundle.scene.matrix.worldOriginX,
     worldOriginZ = bundle.scene.matrix.worldOriginZ,
   })

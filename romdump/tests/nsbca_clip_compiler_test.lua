@@ -202,4 +202,37 @@ function T.rotation_key_beyond_the_compiled_array_raises()
   end)
 end
 
+-- The final curve's key array extends to the end of the JNT0 section (the
+-- key area is the record tail and no following offset bounds it): unrelated
+-- bytes after the authored keys read as extra keys beyond the frame window
+-- (the frame window still samples bit-identically through both paths).
+function T.final_curve_key_array_extends_to_the_section_end()
+  local AF = require("tests.support.AnimationFixture")
+  -- Six trailing bytes after the eight authored rotation keys (three extra
+  -- u16 keys referencing pivot entry 0, so the rotation table scan stays in
+  -- range).
+  local bytes = AF.jntDoor(nil, string.char(0x00, 0x80, 0x00, 0x80, 0x00, 0x80))
+  local _, _, clip = compileClip(bytes, "jntDoorTrailing")
+  local rot = clip.compiled.targets[1].channels.rot
+  Assert.equal(#rot.keys, 11, "the trailing bytes read as keys past the frame window")
+  assertIdenticalSampling(bytes, "jntDoorTrailing", { fractional = true })
+end
+
+-- The key-array bounds chain across the record tail: with seven curve
+-- channels (jntFull) each compiled array carries exactly the authored keys,
+-- because every channel's limit is the next channel's key base.
+function T.key_bounds_chain_across_multiple_channels()
+  local AF = require("tests.support.AnimationFixture")
+  local bytes = AF.jntFull()
+  local _, _, clip = compileClip(bytes, "jntFull")
+  local channels = clip.compiled.targets[1].channels
+  Assert.equal(#channels.trans.x.keys, 8, "fx16 trans x")
+  Assert.equal(#channels.trans.y.keys, 8, "fx16 trans y")
+  Assert.equal(#channels.trans.z.keys, 9, "fx16 trans z (the fixture authors nine keys)")
+  Assert.equal(#channels.rot.keys, 8, "rotation")
+  Assert.equal(#channels.scale.x.keys, 8, "fx32 scale pair x")
+  Assert.equal(#channels.scale.y.keys, 8, "fx32 scale pair y")
+  Assert.equal(#channels.scale.z.keys, 8, "fx32 scale pair z")
+end
+
 return T

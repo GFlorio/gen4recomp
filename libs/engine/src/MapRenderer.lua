@@ -71,8 +71,10 @@ local function defaultReadSource(path)
 end
 
 -- Epsilon for the DS fragment alpha contract: a 5-bit alpha of zero becomes a
--- normalized value just below half of one 8-bit step.
+-- normalized value just below half of one 8-bit step. Exported: the scene
+-- loader's batch draw state carries the same value.
 local CUTOUT_EPSILON = 0.5 / 255
+MapRenderer.CUTOUT_EPSILON = CUTOUT_EPSILON
 
 -- App background color; the scene canvas is cleared to it so the final blit
 -- matches the previous direct-to-screen output exactly.

@@ -141,4 +141,52 @@ function T.failed_rebuild_preserves_the_previous_map()
   Assert.isNil(backend:getInfo("staging/heartgold/map-" .. first.mapId), "the stage is cleaned on success")
 end
 
+-- A failed rebuild never replaces a model descriptor an older ready map
+-- references: the model key is content-addressed over the descriptor, so a
+-- changed descriptor gets a new path and the old path keeps its bytes even
+-- when the shared model write succeeds and a later staged write fails.
+function T.failed_rebuild_preserves_the_previous_model_descriptor()
+  local backend = FakeCache.new()
+  local c = CacheFs.forVersion("heartgold", backend)
+  local first = Bundle.minimal()
+  MapCacheWriter.write(c, first)
+  local firstModelKey = first.scene.buildingInstances[1].modelKey
+  local firstModelPath = MapAssetCache.modelPath(firstModelKey)
+  local firstModelBytes = c:read(firstModelPath)
+
+  -- A rebuilt bundle whose model descriptor changed content (the compiler
+  -- would key it differently): the changed descriptor lands at its own new
+  -- path in the shared root, then the map write fails.
+  local second = Bundle.minimal()
+  second.marker = MapAssetCache.marker("romsha1", second.mapId, "new-dephash")
+  local secondModelKey = "indoor:1:deadbeefdead"
+  second.scene.buildingInstances = { { placementIndex = 0, modelKey = secondModelKey } }
+  second.models = {
+    [secondModelKey] = {
+      schema = "g4-model-v2",
+      key = secondModelKey,
+      memberId = 1,
+      kind = "static",
+      materials = {},
+      batches = { { geometry = MapAssetCache.geometryPath("mesh0000000000000000000000000000000000aa") } },
+    },
+  }
+  local orig = backend.write
+  ---@diagnostic disable: duplicate-set-field
+  backend.write = function(self, path, data)
+    if path:find("scene.lua", 1, true) then
+      error("injected write failure")
+    end
+    return orig(self, path, data)
+  end
+  Assert.throws(function()
+    MapCacheWriter.write(c, second)
+  end)
+  backend.write = orig
+
+  Assert.isTrue(MapAssetCache.isReady(c, first.mapId, first.marker), "the previous map remains ready")
+  Assert.equal(c:read(firstModelPath), firstModelBytes, "the old descriptor keeps its bytes")
+  Assert.isTrue(c:exists(MapAssetCache.modelPath(secondModelKey)), "the new descriptor sits at its own path")
+end
+
 return { tests = T }

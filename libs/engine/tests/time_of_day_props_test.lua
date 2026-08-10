@@ -1,60 +1,50 @@
--- TimeOfDayProps: the time-of-day field-prop policy (spec section 39). HGSS
--- registers up to four banded animations per field object -- morning, day,
--- evening, night -- and swaps the active band when the RTC time-of-day
--- changes (pokeheartgold overlay_01_02204004.c ov01_022047DC, with the
--- band map ov01_022095EC: MORN=0, DAY=1, EVE=2, NITE=3, LATE=3, and the hour
--- table sTimeOfDayByHour in gf_rtc.c GF_RTC_GetTimeOfDayByHour). A model
--- whose clips declare distinct bands by name suffix (_m/_d/_e/_n) is banded;
--- every other model keeps the ordinary ambient policy. The swap mirrors the
--- decomp's remove-and-add: stop the previous band's clip, play the current
--- band's clip looping. Pure domain module tests.
+-- TimeOfDayProps: the time-of-day field-prop policy. HGSS registers up to
+-- four banded animations per field object -- morning, day, evening, night --
+-- and swaps the active band when the RTC time-of-day changes (pokeheartgold
+-- overlay_01_02204004.c ov01_022047DC, with the band map ov01_022095EC:
+-- MORN=0, DAY=1, EVE=2, NITE=3, LATE=3, and the hour table sTimeOfDayByHour
+-- in gf_rtc.c GF_RTC_GetTimeOfDayByHour). Band membership is compiled
+-- metadata (clip.timeBand); the plan never infers policy from names or clip
+-- counts. The swap mirrors the decomp's remove-and-add: stop the previous
+-- band's clip, play the current band's clip looping. Pure domain module
+-- tests.
 
 local Assert = require("tests.support.Assert")
-local AnimationClip = require("libs.engine.src.AnimationClip")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
-local GenericModelFixture = require("tests.support.GenericModelFixture")
+local NitroModelFixture = require("tests.support.NitroModelFixture")
 local ModelInstance = require("libs.engine.src.ModelInstance")
 local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
 
 local T = {}
 
-local function bandedClip(name)
-  return AnimationClip.new({
-    id = name,
+local function bandedClip(name, band)
+  return {
+    id = "fixture:" .. name,
     name = name,
     category = "joint",
     kind = "trs",
     frameCount = 8,
-    tracks = {
-      {
-        target = 1,
-        channels = {
-          rotation = {
-            interpolation = "linear",
-            keys = {
-              { frame = 0, value = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
-              { frame = 7, value = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
-            },
-          },
-        },
-      },
+    tracks = { { target = 0, targetIndex = 0 } },
+    semanticNames = {},
+    source = { type = "nitro", format = "NSBCA", archive = "build_anim", memberId = 1 },
+    timeBand = band,
+    compiled = {
+      anmFlags = 0,
+      rotData = {},
+      pivotData = {},
+      targets = { { nodeIndex = 0, channels = {} } },
     },
-  })
+  }
 end
 
-local function bandedDefinition(clipNames)
-  local def = GenericModelFixture.doorDefinition()
-  local clips = {}
-  for _, name in ipairs(clipNames) do
-    clips[#clips + 1] = bandedClip(name)
-  end
+local function bandedDefinition(clips)
+  local def = NitroModelFixture.doorDefinition(clips)
   return ModelDefinition.new({
     key = "fixture:sky",
     sourceBackend = def.sourceBackend,
     nodes = def.nodes,
     meshes = def.meshes,
     materials = def.materials,
-    skins = def.skins,
     animations = clips,
     backend = def.backend,
   })
@@ -88,8 +78,13 @@ end
 
 -- ---- band classification ------------------------------------------------
 
-function T.plan_maps_clips_to_bands_by_name_suffix()
-  local def = bandedDefinition({ "kk_sky_m", "kk_sky_d", "kk_sky_e", "kk_sky_n" })
+function T.plan_maps_compiled_band_metadata()
+  local def = bandedDefinition({
+    bandedClip("kk_sky_m", "morn"),
+    bandedClip("kk_sky_d", "day"),
+    bandedClip("kk_sky_e", "eve"),
+    bandedClip("kk_sky_n", "nite"),
+  })
   local plan = assert(TimeOfDayProps.plan(def))
   Assert.equal(plan.morn.name, "kk_sky_m")
   Assert.equal(plan.day.name, "kk_sky_d")
@@ -97,26 +92,33 @@ function T.plan_maps_clips_to_bands_by_name_suffix()
   Assert.equal(plan.nite.name, "kk_sky_n")
 end
 
-function T.plan_is_nil_without_distinct_bands()
-  -- No band suffixes at all (a door pair, or an ordinary effect).
-  local def = GenericModelFixture.doorDefinition()
+function T.plan_is_nil_without_band_metadata()
+  -- No compiled band metadata at all (a door pair, or an ordinary effect).
+  local def = NitroModelFixture.doorDefinition()
   Assert.isNil(TimeOfDayProps.plan(def))
-  -- Two clips claiming one band (the m1/m2/n1/n2 light sets): ambiguous, so
-  -- the model is not banded -- never guess the band order from slot order.
-  local light = bandedDefinition({ "si_light_m1", "si_light_m2", "si_light_n1", "si_light_n2" })
-  Assert.isNil(TimeOfDayProps.plan(light))
-  -- A single banded clip is not a banded model.
-  local single = bandedDefinition({ "kk_sky_m" })
-  Assert.isNil(TimeOfDayProps.plan(single))
 end
 
 function T.plan_accepts_partial_band_sets()
-  local def = bandedDefinition({ "o_moon_m1", "o_moon_n2" })
+  local def = bandedDefinition({
+    bandedClip("o_moon_m1", "morn"),
+    bandedClip("o_moon_n2", "nite"),
+  })
   local plan = assert(TimeOfDayProps.plan(def))
   Assert.equal(plan.morn.name, "o_moon_m1")
   Assert.equal(plan.nite.name, "o_moon_n2")
   Assert.isNil(plan.day)
   Assert.isNil(plan.eve)
+end
+
+function T.plan_rejects_duplicate_band_claims()
+  -- The compiler raises on ambiguous band claims at digest time; a plan that
+  -- sees one is a programming error.
+  local def = bandedDefinition({
+    bandedClip("si_light_m1", "morn"),
+    bandedClip("si_light_m2", "morn"),
+  })
+  local ok = pcall(TimeOfDayProps.plan, def)
+  Assert.isFalse(ok, "a duplicated band claim is a contract violation")
 end
 
 -- ---- the swap -----------------------------------------------------------
@@ -133,7 +135,12 @@ local function playingNames(instance)
 end
 
 function T.swap_stops_the_old_band_and_plays_the_new()
-  local def = bandedDefinition({ "kk_sky_m", "kk_sky_d", "kk_sky_e", "kk_sky_n" })
+  local def = bandedDefinition({
+    bandedClip("kk_sky_m", "morn"),
+    bandedClip("kk_sky_d", "day"),
+    bandedClip("kk_sky_e", "eve"),
+    bandedClip("kk_sky_n", "nite"),
+  })
   local plan = assert(TimeOfDayProps.plan(def))
   local instance = ModelInstance.new(def)
   TimeOfDayProps.swap(instance, plan, nil, "morn")
@@ -149,7 +156,10 @@ function T.swap_stops_the_old_band_and_plays_the_new()
 end
 
 function T.swap_to_a_band_without_a_clip_stops_playback()
-  local def = bandedDefinition({ "o_moon_m1", "o_moon_n2" })
+  local def = bandedDefinition({
+    bandedClip("o_moon_m1", "morn"),
+    bandedClip("o_moon_n2", "nite"),
+  })
   local plan = assert(TimeOfDayProps.plan(def))
   local instance = ModelInstance.new(def)
   TimeOfDayProps.swap(instance, plan, nil, "nite")
@@ -159,7 +169,12 @@ function T.swap_to_a_band_without_a_clip_stops_playback()
 end
 
 function T.swap_restarts_the_clip_from_frame_zero()
-  local def = bandedDefinition({ "kk_sky_m", "kk_sky_d", "kk_sky_e", "kk_sky_n" })
+  local def = bandedDefinition({
+    bandedClip("kk_sky_m", "morn"),
+    bandedClip("kk_sky_d", "day"),
+    bandedClip("kk_sky_e", "eve"),
+    bandedClip("kk_sky_n", "nite"),
+  })
   local plan = assert(TimeOfDayProps.plan(def))
   local instance = ModelInstance.new(def)
   TimeOfDayProps.swap(instance, plan, nil, "morn")

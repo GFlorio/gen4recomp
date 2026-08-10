@@ -2,18 +2,21 @@
 -- scene's building placements resolves a field coordinate to the door of the
 -- building placed there -- field coordinate -> building placement ->
 -- ModelInstance -> semantic door animation -- without ever leaking NARC ids,
--- animation resource numbers, NSBCA, or animation-list slots. Only DOOR-kind
--- (behavior 105) warp tiles resolve; stairs, directional warps, and generic
--- warps return nil (their choreography is separate policy). Doors over static
--- buildings (no animated instance) resolve but animate nothing.
+-- animation resource numbers, NSBCA, or animation-list slots. The lookup is
+-- strict: the door resolves to the placement whose model footprint (its
+-- model-space AABB under the placement transform) contains the door tile's
+-- world centre; a tile contained by no placement resolves nothing, and a
+-- tile contained by two placements raises. Only DOOR-kind (behavior 105)
+-- warp tiles resolve; stairs, directional warps, and generic warps return
+-- nil (their choreography is separate policy). Doors over static buildings
+-- (no animated instance) resolve but animate nothing.
 
 local Assert = require("tests.support.Assert")
 local TilePermissions = require("tests.support.TilePermissions")
 local Matrix4 = require("libs.math.src.Matrix4")
 local FieldGrid = require("libs.engine.src.FieldGrid")
 local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
-local ModelDefinition = require("libs.engine.src.ModelDefinition")
-local GenericModelFixture = require("tests.support.GenericModelFixture")
+local NitroModelFixture = require("tests.support.NitroModelFixture")
 local ModelInstance = require("libs.engine.src.ModelInstance")
 local MapPropAnimationController = require("libs.engine.src.MapPropAnimationController")
 local MapProps = require("libs.engine.src.MapProps")
@@ -51,27 +54,37 @@ local function tileCenterWorld(x, z)
   return wx, wz
 end
 
--- A placement record in the scene shape (transform = 16-element array).
-local function placement(index, modelKey, wx, wz)
+-- A placement record in the scene shape: transform + the model-space AABB
+-- (footprint) the loader stamps from the model's geometry.
+local function placement(index, modelKey, wx, wz, halfExtent)
   return {
     placementIndex = index,
     modelKey = modelKey,
     transform = Matrix4.translate(wx, 0, wz),
+    bounds = halfExtent and {
+      minX = -halfExtent,
+      maxX = halfExtent,
+      minY = -halfExtent,
+      maxY = halfExtent,
+      minZ = -halfExtent,
+      maxZ = halfExtent,
+    } or nil,
   }
 end
 
--- The default door fixture scene: the door model is placed exactly at the
--- door tile (4,14), and a larger building sits a few tiles away. The door
--- instance is animated (GenericModelFixture carries door.open/door.close);
--- the building has no animated instance (static).
+-- The default door fixture scene: the door model (a 2x2-tile footprint) is
+-- placed exactly at the door tile (4,14)'s centre; a larger building sits at
+-- the origin, far from the door tile. The door instance is animated
+-- (NitroModelFixture carries door.open/door.close); the building has no
+-- animated instance (static).
 local function doorScene()
   local wx, wz = tileCenterWorld(4, 14)
   local placements = {
-    placement(0, "fixture:building", 0, 0),
-    placement(1, "fixture:door", wx, wz),
+    placement(0, "fixture:building", 0, 0, 4),
+    placement(1, "fixture:door", wx, wz, 1),
   }
   local instances = {
-    [1] = ModelInstance.new(GenericModelFixture.doorDefinition()),
+    [1] = ModelInstance.new(NitroModelFixture.doorDefinition()),
   }
   local controller = MapPropAnimationController.new()
   local props = MapProps.new({
@@ -134,15 +147,16 @@ function T.door_at_returns_nil_outside_coverage()
   Assert.isNil(props:doorAt(map, 40, 40))
 end
 
-function T.door_at_picks_the_nearest_placement()
+function T.door_at_uses_the_footprint_not_the_distance()
   local wx, wz = tileCenterWorld(4, 14)
-  -- The door model sits 0.65 tiles from the tile centre, the building 2.5.
+  -- The nearest placement (0.65 tiles away) has a tiny footprint that does
+  -- not reach the tile; the farther building's footprint contains it.
   local placements = {
-    placement(0, "fixture:building", wx - 2.5, wz + 2.5),
-    placement(1, "fixture:door", wx + 0.65, wz - 0.26),
+    placement(0, "fixture:door", wx + 0.65, wz - 0.26, 0.5),
+    placement(1, "fixture:building", wx - 2.5, wz + 2.5, 4),
   }
   local instances = {
-    [1] = ModelInstance.new(GenericModelFixture.doorDefinition()),
+    [1] = ModelInstance.new(NitroModelFixture.doorDefinition()),
   }
   local props = MapProps.new({
     placements = placements,
@@ -150,20 +164,41 @@ function T.door_at_picks_the_nearest_placement()
     controller = MapPropAnimationController.new(),
   })
   local door = assert(props:doorAt(doorMap(), 4, 14))
-  Assert.equal(door.placementIndex, 1)
-  Assert.equal(door.instance, instances[1])
+  Assert.equal(door.placementIndex, 1, "containment decides, not proximity")
 end
 
 function T.door_at_resolves_a_static_door_when_no_animated_model_is_placed()
-  local props, _, instances = doorScene()
-  -- Drop the door model's placement and instance: the nearest placement is
-  -- the static building, and the door resolves without an animation.
-  props.placements = { placement(0, "fixture:building", 0, 0) }
+  local props = doorScene()
+  -- Drop the door model's instance: the door resolves but animates nothing.
   props.instances = {}
   local door = assert(props:doorAt(doorMap(), 4, 14))
-  Assert.equal(door.modelKey, "fixture:building")
+  Assert.equal(door.modelKey, "fixture:door")
   Assert.isNil(door.instance)
   Assert.isNil(door:isFinished())
+end
+
+function T.door_at_returns_nil_without_a_containing_placement()
+  local props = doorScene()
+  -- Remove the door placement entirely: the distant static building is NOT
+  -- the door, and the lookup must not silently animate it.
+  props.placements = { placement(0, "fixture:building", 0, 0, 4) }
+  props.instances = {}
+  Assert.isNil(props:doorAt(doorMap(), 4, 14), "no footprint contains the door tile")
+end
+
+function T.door_at_raises_when_two_placements_contain_the_tile()
+  local wx, wz = tileCenterWorld(4, 14)
+  local props = MapProps.new({
+    placements = {
+      placement(0, "fixture:door", wx, wz, 1),
+      placement(1, "fixture:door2", wx, wz, 1),
+    },
+    instances = {},
+    controller = MapPropAnimationController.new(),
+  })
+  throwsCode("MAP_PROP_AMBIGUOUS_DOOR", function()
+    return props:doorAt(doorMap(), 4, 14)
+  end)
 end
 
 -- ---- playback -----------------------------------------------------------
@@ -207,16 +242,8 @@ end
 function T.open_raises_when_the_door_model_lacks_the_role()
   local props, _, instances = doorScene()
   -- Replace the door instance with a model that only animates door.close.
-  local def = GenericModelFixture.doorDefinition()
-  local closeOnly = ModelDefinition.new({
-    key = def.key,
-    sourceBackend = def.sourceBackend,
-    nodes = def.nodes,
-    meshes = def.meshes,
-    materials = def.materials,
-    skins = def.skins,
-    animations = { assert(def:animation("door.close")) },
-    backend = def.backend,
+  local closeOnly = NitroModelFixture.doorDefinition({
+    NitroModelFixture.doorCloseClip(),
   })
   instances[1] = ModelInstance.new(closeOnly)
   props.instances = { [1] = instances[1] }
@@ -228,7 +255,6 @@ end
 
 function T.static_door_playback_is_a_noop()
   local props = doorScene()
-  props.placements = { placement(0, "fixture:building", 0, 0) }
   props.instances = {}
   local door = assert(props:doorAt(doorMap(), 4, 14))
   door:open()

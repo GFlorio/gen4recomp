@@ -123,7 +123,7 @@ local function texturedDefinition(opts)
   opts = opts or {}
   return ModelDefinition.new({
     key = "fixture:sign",
-    sourceBackend = "generic",
+    sourceBackend = "nitro",
     nodes = {
       {
         index = 0,
@@ -448,7 +448,7 @@ end
 function T.untextured_material_has_no_matrix()
   local def = ModelDefinition.new({
     key = "fixture:plain",
-    sourceBackend = "generic",
+    sourceBackend = "nitro",
     nodes = {
       {
         index = 0,

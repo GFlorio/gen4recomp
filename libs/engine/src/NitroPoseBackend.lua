@@ -13,27 +13,19 @@
 -- JointAnimBlend and compose into SRT records via NitroJointState, the
 -- same steps the digest-side NsbcaPoseProvider follows over raw decodes.
 --
--- The output is the PoseBackend PoseState extended with per-mesh draw
--- transforms: a Nitro draw is not one node matrix, so every dynamic mesh
--- carries the matrix its transform source resolves to:
---
---   PoseState = {
---     nodeMatrices,        -- [nodeIndex] = world matrix (model space)
---     nodeVisible,         -- [nodeIndex] = false when hidden
---     drawMatrices = { [meshId] = {
---       position,          -- tile-space column-major matrix (engine units)
---       direction,         -- the linear part (the supported op set keeps
---                          -- direction == linear(position))
---       transformMode,     -- "static" | "billboard"
---       baseTransform,     -- billboard only: the captured matrix, tile space
---     } },
---     matrixSlots,         -- [slot] = the matrix-stack slot as of the end of
---                          -- the replay, tile space (engine units)
---     jointPalettes,       -- empty for nitro models (no generic skins)
---   }
+-- The output is the PoseState: per-node matrices and visibility plus
+-- per-mesh draw transforms -- a Nitro draw is not one node matrix, so every
+-- dynamic mesh carries the matrix its transform source resolves to.
 --
 -- Geometry is compiled once; only these matrices change per frame. Pure
 -- domain module.
+
+---@class PoseState
+---@field nodeMatrices { [integer]: number[] } -- [nodeIndex] = world matrix (model space)
+---@field nodeVisible { [integer]: boolean } -- absent means visible
+---@field drawMatrices { [string]: PoseDrawMatrix } -- per mesh id
+---@field matrixSlots { [integer]: number[] } -- the matrix-stack slots as of
+--  the end of the replay, tile space (engine units)
 
 local Errors = require("libs.rom.src.Errors")
 local JointAnimBlend = require("libs.engine.src.JointAnimBlend")
@@ -199,7 +191,6 @@ function NitroPoseBackend.evaluate(instance)
     nodeVisible = nodeVisible,
     drawMatrices = drawMatrices,
     matrixSlots = matrixSlots,
-    jointPalettes = {},
   }
 end
 

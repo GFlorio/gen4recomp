@@ -1,27 +1,27 @@
 -- NsbmdDynamicModel: the digest-side compile of a decoded NSBMD model into
--- the animation-capable (dynamic) model descriptor. The runtime assembles
--- the engine's source-neutral ModelDefinition from the descriptor through
--- ModelDefinition.fromNitroDescriptor (see MapSceneLoader).
+-- the animation-capable (dynamic) model descriptor pieces.
 --
---   descriptor = {
+--   result = {
 --     program = <NsbmdTransformProgram>,        -- the pose evaluator's input
 --     meshes = <MeshCompiler.compileDynamic>,   -- per-draw-segment geometry
 --     materials = { { id, name, baseColor, alphaMode, doubleSided,
 --       polygonAlpha, texMtxMode, srt, texWidth, texHeight } },
 --   }
 --
--- The descriptor's meshes carry their transform sources ("draw" or a
--- matrix-stack slot); the runtime NitroPoseBackend resolves them against the
--- program each frame, so the geometry is compiled once and only the matrices
--- move. Static compilation (MeshCompiler.compile + MapAssetCompiler) stays
--- the default optimization; a model uses the dynamic path only when it
--- actually animates.
+-- The meshes carry their transform sources ("draw" or a matrix-stack slot)
+-- and the per-segment polygon-attr word; the runtime NitroPoseBackend
+-- resolves the sources against the program each frame, so the geometry is
+-- compiled once and only the matrices move. MapAssetCompiler turns the
+-- segments into content-addressed .g4mesh assets and stamps the descriptor
+-- batches with the decoded polygon draw state. Static compilation
+-- (MeshCompiler.compile + MapAssetCompiler) stays the default optimization;
+-- a model uses the dynamic path only when it actually animates.
 --
 -- The materials here are the base contract the renderer needs (diffuse
 -- tint, alpha class from polygon state, culling, the static texture-SRT
 -- state and the texture-matrix convention); the MapAssetCompiler enriches
--- them with the bound textures, pattern variants, and animated colors.
--- Pure domain module.
+-- them with the bound textures, wrap/flip sampler state, pattern variants,
+-- and animated colors. Pure domain module.
 
 local Errors = require("libs.rom.src.Errors")
 local FixedPoint = require("libs.math.src.FixedPoint")

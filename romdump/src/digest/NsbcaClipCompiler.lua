@@ -76,7 +76,12 @@ end
 
 -- Collect the key-array bounds: each curve channel's keys end where the
 -- next curve channel's keys begin (channels share the record tail in
--- fixture and real layouts alike).
+-- fixture and real layouts alike). Source-format invariant: the JNT0 key
+-- area is laid out as contiguous, non-overlapping key arrays appended after
+-- the target/rotation tables, and the FINAL curve's key array extends to
+-- the end of the JNT0 section (there is no following offset to bound it),
+-- so its limit is the section length. The compile order is by key base, so
+-- the chaining holds regardless of the authoring order of the arrays.
 local function keyBounds(res)
   local bases = {}
   for _, target in ipairs(res.targets) do

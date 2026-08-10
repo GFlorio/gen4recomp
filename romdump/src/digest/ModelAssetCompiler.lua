@@ -6,7 +6,7 @@
 
 local MeshCompiler = require("romdump.src.digest.MeshCompiler")
 local MaterialCompiler = require("romdump.src.digest.MaterialCompiler")
-local AlphaClassifier = require("romdump.src.digest.AlphaClassifier")
+local AlphaClassifier = require("libs.engine.src.AlphaClassifier")
 local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local Hashing = require("romdump.src.digest.Hashing")

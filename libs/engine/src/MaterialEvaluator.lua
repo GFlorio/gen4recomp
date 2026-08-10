@@ -1,10 +1,10 @@
 -- MaterialEvaluator: the per-frame composition of a model's effective
 -- material state from its base material records and its playing material
--- attachments (spec section 19). Never mutates the definition; the result
+-- attachments. Never mutates the definition; the result
 -- lands in the instance's own materialState so two instances of one model
 -- can animate at different frames.
 --
--- Evaluation order per material (spec section 19):
+-- Evaluation order per material:
 --
 --   base material
 --     -> NSBMA modifications   (animated colors + polygon alpha)
@@ -33,10 +33,13 @@
 -- from the selected texture's format/alpha usage and the effective polygon
 -- alpha before the render queue is built.
 --
--- When several attachments of one kind play, the one with the highest
--- priority wins; ties resolve to the last attached (Nitro carries at most
--- one animation per kind per object, so real assets never stack these).
--- Attachments with a non-positive ratio are ignored. Pure domain module.
+-- When several attachments of one kind play, each target material is driven
+-- by the highest-priority attachment whose clip binds to it; ties resolve to
+-- the last attached. An attachment that targets disjoint materials never
+-- suppresses another attachment's materials (Nitro carries at most one
+-- animation per kind per object, so real assets never stack these, but the
+-- selection is per target material, not per kind). Attachments with a
+-- non-positive ratio are ignored. Pure domain module.
 
 local Errors = require("libs.rom.src.Errors")
 local AlphaClassifier = require("libs.engine.src.AlphaClassifier")
@@ -66,21 +69,6 @@ local function rgb555To8(value)
   return { r = bit5To8(r), g = bit5To8(g), b = bit5To8(b) }
 end
 
--- Pick the winning attachment of one kind: highest priority, ties to the
--- last attached (the attachment list is in attach order). Non-positive
--- ratios are ignored. Returns nil when none plays.
-local function winner(attachments, kind)
-  local best
-  for _, attachment in ipairs(attachments) do
-    if attachment.ratioFx > 0 and attachment.clip.kind == kind then
-      if not best or attachment.priority >= best.priority then
-        best = attachment
-      end
-    end
-  end
-  return best
-end
-
 -- The track of `clip` whose binding maps onto `materialIndex`, or nil.
 local function trackForMaterial(clip, binding, materialIndex)
   for _, track in ipairs(clip.tracks) do
@@ -91,10 +79,28 @@ local function trackForMaterial(clip, binding, materialIndex)
   return nil
 end
 
+-- Pick the winning attachment of one kind for a single target material: the
+-- highest priority whose clip actually binds to the material, ties to the
+-- last attached (the attachment list is in attach order). Non-positive
+-- ratios are ignored. Returns nil when none plays for the material.
+local function winnerForMaterial(attachments, kind, materialIndex)
+  local best
+  for _, attachment in ipairs(attachments) do
+    if attachment.ratioFx > 0 and attachment.clip.kind == kind then
+      if trackForMaterial(attachment.clip, attachment.binding, materialIndex) then
+        if not best or attachment.priority >= best.priority then
+          best = attachment
+        end
+      end
+    end
+  end
+  return best
+end
+
 -- The material record of `definition` with a default for the polygon state.
 -- The base colors are kept per component (diffuse/ambient/specular/
 -- emission), matching the DS material registers NSBMA packs into.
-local function base(definition, materialIndex)
+local function baseMaterialState(definition, materialIndex)
   local material =
     assert(definition.materials[materialIndex + 1], "material index " .. tostring(materialIndex) .. " out of range")
   local baseColor = material.baseColor or { r = 255, g = 255, b = 255, a = 255 }
@@ -169,9 +175,33 @@ end
 -- The texture variant a pattern key selects, or nil when the material has
 -- no variants (no pattern animation compiled).
 local function variantFor(compiled, key, material)
-  local name = compiled.textureNames[key.texIdx + 1]
+  local texName = compiled.textureNames[key.texIdx + 1]
+  if texName == nil then
+    Errors.raise(
+      "ANIM_MATERIAL_VARIANT_MISSING",
+      "material "
+        .. tostring(material.name)
+        .. " pattern key references texture index "
+        .. tostring(key.texIdx)
+        .. " outside the compiled texture list",
+      { material = material.name, texIdx = key.texIdx }
+    )
+  end
+  local name = texName
   if key.plttIdx ~= 0xFF then
-    name = name .. "+" .. compiled.paletteNames[key.plttIdx + 1]
+    local plttName = compiled.paletteNames[key.plttIdx + 1]
+    if plttName == nil then
+      Errors.raise(
+        "ANIM_MATERIAL_VARIANT_MISSING",
+        "material "
+          .. tostring(material.name)
+          .. " pattern key references palette index "
+          .. tostring(key.plttIdx)
+          .. " outside the compiled palette list",
+        { material = material.name, plttIdx = key.plttIdx }
+      )
+    end
+    name = texName .. "+" .. plttName
   end
   for _, variant in ipairs(material.variants or {}) do
     if variant.name == name then
@@ -220,12 +250,12 @@ function MaterialEvaluator.evaluate(definition, attachments, materialState)
     "MaterialEvaluator requires the attachment list and the material state"
   )
 
-  local pattern = winner(attachments, "pattern")
-  local texsrt = winner(attachments, "texsrt")
-  local color = winner(attachments, "color")
-
   for materialIndex = 0, #definition.materials - 1 do
-    local baseState = base(definition, materialIndex)
+    local pattern = winnerForMaterial(attachments, "pattern", materialIndex)
+    local texsrt = winnerForMaterial(attachments, "texsrt", materialIndex)
+    local color = winnerForMaterial(attachments, "color", materialIndex)
+
+    local baseState = baseMaterialState(definition, materialIndex)
     local material = baseState.record
 
     local patternTrack = pattern and trackForMaterial(pattern.clip, pattern.binding, materialIndex)
@@ -282,14 +312,15 @@ function MaterialEvaluator.evaluate(definition, attachments, materialState)
     local baseH = material.texHeight or 0
     local curW = tex.width or 0
     local curH = tex.height or 0
-    if baseW == 0 or curW == 0 then
+    if baseW == 0 or baseH == 0 or curW == 0 or curH == 0 then
       -- Untextured materials carry no texture matrix; their class follows
       -- the model contract's alphaMode unless the record carries texture
-      -- metadata (then the classifier rules apply).
+      -- metadata (then the classifier rules apply with the material's own
+      -- format, not a fabricated zero).
       local identity = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
       local alphaClass
       if material.textureFormat ~= nil then
-        alphaClass = AlphaClassifier.classify(baseState.polygonAlpha, 0, nil)
+        alphaClass = AlphaClassifier.classify(baseState.polygonAlpha, material.textureFormat, material.alphaUsage)
       end
       materialState[materialIndex] = {
         texture = nil,

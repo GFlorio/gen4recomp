@@ -156,4 +156,69 @@ function T.compile_is_deterministic()
   Assert.equal(onlyModel(first).key, onlyModel(second).key)
 end
 
+-- The animated cache round trip: compile one animated building model, write
+-- the bundle through MapCacheWriter, assert readiness, and load the scene
+-- through MapSceneLoader -- the exact boundary the buildcache failure
+-- regressed at.
+function T.animated_bundle_round_trips_through_writer_readiness_and_loader()
+  local CacheFs = require("libs.rom.src.CacheFs")
+  local FakeCache = require("tests.support.FakeCache")
+  local MapCacheWriter = require("romdump.src.digest.MapCacheWriter")
+  local MapAssetCache = require("libs.assets.src.MapAssetCache")
+  local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
+  local AnimationFixture = require("tests.support.AnimationFixture")
+
+  local bw = require("libs.rom.src.BinaryWriter").new()
+  bw:u16(0)
+  bw:u16(0)
+  bw:u32(0)
+  bw:u32(0) -- resource id 0
+  for _ = 1, 3 do
+    bw:u32(0xFFFFFFFF)
+  end
+  assert(#bw:tostring() == 0x18)
+  local romFs = MapRomFixture.build({
+    interiorBuildAnimList = { [MapRomFixture.BUILDING_MODEL_MEMBER_ID] = bw:tostring() },
+    buildAnim = { [0] = AnimationFixture.jntDoor() },
+  })
+  local bundle = assert(MapAssetCompiler.compile(romFs, MapRomFixture.MAP_SYMBOL))
+  local model = onlyModel(bundle)
+  Assert.equal(model.schema, "g4-model-v2")
+  Assert.equal(model.kind, "nitro-dynamic")
+  Assert.equal(#model.animations, 1)
+  Assert.equal(model.animations[1].name, "door_op")
+  Assert.equal(model.animations[1].semanticNames[1], "door.open")
+
+  local c = CacheFs.forVersion("heartgold", FakeCache.new())
+  local marker = MapCacheWriter.write(c, bundle)
+  Assert.isTrue(MapAssetCache.isReady(c, bundle.mapId, marker), "the written map reads ready")
+  Assert.isTrue(c:exists(MapAssetCache.modelPath(model.key)), "the model descriptor is on disk")
+  -- The model key is content-addressed over the descriptor: a static
+  -- compile of the same member would get a different key.
+  Assert.isTrue(model.key:match("^indoor:%d+:[0-9a-f]+$") ~= nil, "key embeds the descriptor hash")
+
+  -- The loader builds one animated instance from the written descriptor.
+  local scene = assert(c:loadLua(MapAssetCache.mapDir(bundle.mapId) .. "/scene.lua"))
+  local meshBuilder = function()
+    return { release = function() end }
+  end
+  local imageBuilder = function()
+    return {
+      setFilter = function() end,
+      setWrap = function() end,
+      release = function() end,
+    }
+  end
+  local runtime = MapSceneLoader.load(c, scene, { meshBuilder = meshBuilder, imageBuilder = imageBuilder })
+  Assert.equal(runtime.stats.animatedInstances, 1)
+  local instance = runtime.animatedInstances[1]
+  -- The door clip is scripted (door role, not ambient): the controller
+  -- plays it and the compiled clip advances.
+  runtime.animationController:play(instance, "door.open")
+  local attachment = instance.animationState:attachments("joint")[1]
+  Assert.equal(attachment.clip.name, "door_op")
+  runtime:updateAnimated()
+  Assert.equal(attachment.player.frameFx, 4096, "the compiled clip advances")
+end
+
 return { tests = T }

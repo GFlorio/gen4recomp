@@ -28,7 +28,6 @@ local DIRECTION_DELTAS = {
 ---@field ladder boolean
 ---@field warp table?
 local TransitionTrigger = {}
-TransitionTrigger.__index = TransitionTrigger
 
 -- TILE_BEHAVIOR_* warp-relevant values (pokeheartgold metatile_behavior.h).
 local BEHAVIOR = {
@@ -169,24 +168,29 @@ function TransitionTrigger.classify(behavior)
   if not record then
     return nil
   end
-  return setmetatable({
+  -- A fresh plain record per call: callers may attach a warp without ever
+  -- mutating the shared classification table or another caller's record.
+  return {
     kind = record.kind,
     triggerMode = record.triggerMode,
     requiredDirections = record.requiredDirections,
     evaluatesOn = record.evaluatesOn,
     ladder = record.ladder or false,
-  }, TransitionTrigger)
+  }
 end
 
+-- Whether a classification's direction gate admits `facing` (empty gate =
+-- any facing).
+---@param classification TransitionTrigger
 ---@param facing string
 ---@return boolean
-function TransitionTrigger:matchesDirection(facing)
-  for _, required in ipairs(self.requiredDirections) do
+function TransitionTrigger.matchesDirection(classification, facing)
+  for _, required in ipairs(classification.requiredDirections) do
     if required == facing then
       return true
     end
   end
-  return #self.requiredDirections == 0
+  return #classification.requiredDirections == 0
 end
 
 local function localCoords(runtimeMap, fieldX, fieldZ)
@@ -240,9 +244,13 @@ local function attachWarp(classification, runtimeMap, fieldX, fieldZ)
   if not warp then
     return nil
   end
-  classification.warp = warp
-  classification.behavior = TransitionTrigger.behaviorAt(runtimeMap, fieldX, fieldZ)
-  return classification
+  local attached = {}
+  for k, v in pairs(classification) do
+    attached[k] = v
+  end
+  attached.warp = warp
+  attached.behavior = TransitionTrigger.behaviorAt(runtimeMap, fieldX, fieldZ)
+  return attached
 end
 
 -- HGSS FieldSystem_CheckMapTransition: evaluated while the player is idle and
@@ -265,7 +273,7 @@ function TransitionTrigger.inputPath(runtimeMap, fieldX, fieldZ, direction)
   --    HGSS branches never fall through to the door checks.
   local standing = classifyAt(runtimeMap, fieldX, fieldZ)
   if standing and standing.ladder then
-    if not standing:matchesDirection(direction) then
+    if not TransitionTrigger.matchesDirection(standing, direction) then
       return nil
     end
     return attachWarp(standing, runtimeMap, fieldX, fieldZ)
@@ -289,7 +297,7 @@ function TransitionTrigger.inputPath(runtimeMap, fieldX, fieldZ, direction)
   -- 4. Standing direction-gated warps (door, stairs, and east/west/south
   --    warp + entrance behaviors; ladders handled above, escalator and
   --    north/panel/ladder-down are step-path only).
-  if standing and standing.evaluatesOn == "input" and standing:matchesDirection(direction) then
+  if standing and standing.evaluatesOn == "input" and TransitionTrigger.matchesDirection(standing, direction) then
     return attachWarp(standing, runtimeMap, fieldX, fieldZ)
   end
   return nil
@@ -307,7 +315,7 @@ function TransitionTrigger.stepPath(runtimeMap, fieldX, fieldZ, facing)
   if not classification or classification.evaluatesOn ~= "step" then
     return nil
   end
-  if not classification:matchesDirection(facing) then
+  if not TransitionTrigger.matchesDirection(classification, facing) then
     return nil
   end
   return attachWarp(classification, runtimeMap, fieldX, fieldZ)

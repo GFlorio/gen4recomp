@@ -1,18 +1,17 @@
--- TimeOfDayProps: the time-of-day field-prop policy (spec section 39). HGSS
--- registers up to four banded animations per field object -- morning, day,
--- evening, night -- and swaps the active band when the RTC time-of-day
--- changes (pokeheartgold src/field/overlay_01_02204004.c ov01_022047DC, with
--- the band map ov01_022095EC: MORN=0, DAY=1, EVE=2, NITE=3, LATE=3, and the
--- hour table sTimeOfDayByHour in src/gf_rtc.c GF_RTC_GetTimeOfDayByHour).
+-- TimeOfDayProps: the time-of-day field-prop policy. HGSS registers up to
+-- four banded animations per field object -- morning, day, evening, night --
+-- and swaps the active band when the RTC time-of-day changes (pokeheartgold
+-- src/field/overlay_01_02204004.c ov01_022047DC, with the band map
+-- ov01_022095EC: MORN=0, DAY=1, EVE=2, NITE=3, LATE=3, and the hour table
+-- sTimeOfDayByHour in src/gf_rtc.c GF_RTC_GetTimeOfDayByHour).
 --
--- A model is banded when its clips declare distinct bands by name suffix
--- (_m/_d/_e/_n, the corpus convention: kk_sky_m/d/e/n, si_light_m1/m2/...);
--- clips that share a band make the model ambiguous and it stays unbanded --
--- the caller decides the band order in HGSS (AreaDataManager_Load, asm
--- only), so the engine never guesses it from slot order. The swap mirrors
--- the decomp's remove-and-add: stop the previous band's clip, play the
--- current band's clip looping. Every other model keeps the ordinary ambient
--- policy. Pure domain module.
+-- A model is banded when its compiled clips carry time-band metadata
+-- (clip.timeBand, stamped by MapPropAnimCompiler from the corpus name
+-- convention); the compiler raises on ambiguous band claims, so a plan never
+-- silently disables. The swap mirrors the decomp's remove-and-add: stop the
+-- previous band's clip, play the current band's clip looping. Every other
+-- model follows the ordinary ambient policy (a single non-door clip carries
+-- the compiled ambientLoop role). Pure domain module.
 
 local TimeOfDayProps = {}
 
@@ -50,15 +49,6 @@ local BAND_BY_HOUR = {
   "nite", -- 20-23
 }
 
--- The band suffix of a clip name: a trailing _m/_d/_e/_n (optionally with a
--- variant number, e.g. si_light_m1), or nil.
-local BAND_SUFFIX = { m = "morn", d = "day", e = "eve", n = "nite" }
-
-local function bandOf(name)
-  local suffix = name:match("_(%a)%d*$")
-  return suffix and BAND_SUFFIX[suffix] or nil
-end
-
 -- The band for an RTC hour (0-23), following GF_RTC_GetTimeOfDayByHour.
 ---@param hour integer
 ---@return string
@@ -88,29 +78,23 @@ function TimeOfDayProps.bands()
   return out
 end
 
--- The band plan of a model definition: band -> clip when the model's clips
--- declare at least two distinct bands by name suffix, else nil (not banded).
--- Clips claiming the same band make the model ambiguous and therefore
--- unbanded.
----@param definition { animations: table }
+-- The band plan of a model definition: band -> clip for every clip carrying
+-- compiled time-band metadata, or nil when the model has no banded clips.
+-- Duplicate band claims are a compiler contract violation (the compiler
+-- raises at digest time), so a plan that sees one is a programming error.
+---@param definition { key: string, animations: table }
 ---@return { [string]: table }?
 function TimeOfDayProps.plan(definition)
   assert(type(definition) == "table" and definition.animations ~= nil, "plan requires a model definition")
   local byBand = {}
   for _, clip in ipairs(definition.animations) do
-    local band = bandOf(clip.name)
+    local band = clip.timeBand
     if band then
-      if byBand[band] then
-        return nil
-      end
+      assert(byBand[band] == nil, "model " .. definition.key .. " claims time band " .. band .. " twice")
       byBand[band] = clip
     end
   end
-  local count = 0
-  for _ in pairs(byBand) do
-    count = count + 1
-  end
-  if count < 2 then
+  if next(byBand) == nil then
     return nil
   end
   return byBand

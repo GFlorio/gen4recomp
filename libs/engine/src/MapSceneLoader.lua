@@ -16,22 +16,24 @@
 -- facade so field coordinates resolve to placed doors and their semantic
 -- animations. The only ROM knowledge that reaches this layer is the
 -- normalized scene descriptor; raw Nitro formats stopped at the compiler.
+--
+-- The animated draw list is owned by one refresh pass: fixed ticks advance
+-- every attachment player and rebuild the items once; control operations
+-- (play/stop/band swap) mark the list dirty and the pre-render refresh
+-- consumes it. The renderer never re-evaluates poses itself.
 
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local Matrix4 = require("libs.math.src.Matrix4")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
 local Errors = require("libs.errors.src.Errors")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
-local DsLighting = require("libs.engine.src.DsLighting")
-local SceneMesh = require("libs.engine.src.SceneMesh")
 local PoseContract = require("libs.engine.src.PoseContract")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local ModelInstance = require("libs.engine.src.ModelInstance")
 local MapPropAnimationController = require("libs.engine.src.MapPropAnimationController")
 local MapProps = require("libs.engine.src.MapProps")
+local MapRenderer = require("libs.engine.src.MapRenderer")
 local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
-local PosePerformanceCounter = require("libs.engine.src.PosePerformanceCounter")
-local RuntimeAllocationProfiler = require("libs.engine.src.RuntimeAllocationProfiler")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
@@ -64,12 +66,11 @@ local function materialsById(list, pool)
 end
 
 -- Build the runtime scene against an already-created pool. Raises on any
--- failure; load() releases the pool in that case. `opts.meshBuilder`
--- replaces SceneMesh.build (the GPU seam, injectable in headless tests) and
--- `opts.timeBand` seeds the time-of-day band (default: the band of the
--- default field time, noon = day).
+-- failure; load() releases the pool in that case. `opts.timeBand` seeds the
+-- time-of-day band (default: the band of the default field time, noon =
+-- day); `opts.meshBuilder` / `opts.imageBuilder` pass through to the pool
+-- (the GPU seams, injectable in headless tests).
 local function buildScene(pool, cacheFs, scene, opts)
-  local buildMesh = opts.meshBuilder or SceneMesh.build
   local timeBand = opts.timeBand or TimeOfDayProps.bandForSeconds(FieldLightProfile.DEFAULT_TIME_SECONDS)
   assert(VALID_BANDS[timeBand], "unknown time-of-day band " .. tostring(timeBand))
   local bounds = { min = { math.huge, math.huge, math.huge }, max = { -math.huge, -math.huge, -math.huge } }
@@ -99,6 +100,41 @@ local function buildScene(pool, cacheFs, scene, opts)
     end
   end
 
+  -- Grow the scene bounds by a model-space AABB under a placement transform
+  -- (the image of the box is its eight transformed corners).
+  local function growBoundsAabb(aabb, transform)
+    for i = 0, 1 do
+      for j = 0, 1 do
+        for k = 0, 1 do
+          local x, y, z = Matrix4.transformPoint(
+            transform,
+            i == 1 and aabb.maxX or aabb.minX,
+            j == 1 and aabb.maxY or aabb.minY,
+            k == 1 and aabb.maxZ or aabb.minZ
+          )
+          if x < bounds.min[1] then
+            bounds.min[1] = x
+          end
+          if y < bounds.min[2] then
+            bounds.min[2] = y
+          end
+          if z < bounds.min[3] then
+            bounds.min[3] = z
+          end
+          if x > bounds.max[1] then
+            bounds.max[1] = x
+          end
+          if y > bounds.max[2] then
+            bounds.max[2] = y
+          end
+          if z > bounds.max[3] then
+            bounds.max[3] = z
+          end
+        end
+      end
+    end
+  end
+
   -- Bounding-box center of a mesh's vertices in model space.
   local function modelCenter(verts)
     local minx, miny, minz = math.huge, math.huge, math.huge
@@ -119,8 +155,8 @@ local function buildScene(pool, cacheFs, scene, opts)
     return {
       alphaClass = batch.alphaClass or "opaque",
       cullMode = batch.cullMode or "back",
-      alphaCutoff = 0.5 / 255,
-      polygonAlpha = batch.polygonAlpha ~= nil and (batch.polygonAlpha / DsLighting.RGB5_MAX) or 1.0,
+      alphaCutoff = MapRenderer.CUTOUT_EPSILON,
+      polygonAlpha = batch.polygonAlpha ~= nil and (batch.polygonAlpha / 31) or 1.0,
       polygonMode = batch.polygonMode or "modulation",
       lightMask = batch.lightMask or 0,
       polygonId = batch.polygonId or 0,
@@ -179,22 +215,64 @@ local function buildScene(pool, cacheFs, scene, opts)
   end
 
   -- Placed building instances: resolve each modelKey's descriptor (batches +
-  -- its own materials) and instance it at the placement transform. The raw
-  -- descriptor stays on the cached entry: the animated path builds a
-  -- ModelDefinition from it (the `dynamic` half, clips, and raw material
-  -- records), while the static path consumes the pre-built batches and the
-  -- pool's material records.
+  -- its own materials) and instance it at the placement transform. The
+  -- descriptor cache entry also carries the model-space AABB of the model's
+  -- geometry: the footprint MapProps uses to resolve a door tile to the
+  -- building whose footprint contains it.
   local descriptorCache = {}
   local function descriptorFor(modelKey)
     local cached = descriptorCache[modelKey]
     if not cached then
       local desc = assert(cacheFs:loadLua(MapAssetCache.modelPath(modelKey)), "missing model " .. modelKey)
-      -- The full descriptor stays attached: the animated half (`dynamic`)
-      -- and the compiled clips live on it, not in the static batch cache.
+      local mats = materialsById(desc.materials, pool)
+      -- Pattern-variant textures are resolved lazily at evaluation time; map
+      -- every texture key (base and variants) to its material's wrap so a
+      -- variant never samples with the wrong wrap.
+      local wrapByTexture = {}
+      for _, record in ipairs(desc.materials or {}) do
+        local wrap = record.wrap or { x = "clamp", y = "clamp" }
+        if record.texture then
+          wrapByTexture[record.texture] = wrap
+        end
+        for _, variant in ipairs(record.variants or {}) do
+          if variant.texture then
+            wrapByTexture[variant.texture] = wrap
+          end
+        end
+      end
+      local batches
+      if desc.kind == "static" then
+        batches = desc.batches
+      elseif desc.kind == "nitro-dynamic" then
+        batches = desc.dynamic.batches
+      else
+        Errors.raise(
+          "MAP_SCENE_UNKNOWN_MODEL_KIND",
+          "model descriptor " .. modelKey .. " has unknown kind " .. tostring(desc.kind),
+          { modelKey = modelKey, kind = desc.kind }
+        )
+      end
+      local aabb
+      for _, batch in ipairs(batches) do
+        local entry = pool:meshFor(batch.geometry)
+        for _, v in ipairs(entry.verts) do
+          if not aabb then
+            aabb = { minX = v[1], maxX = v[1], minY = v[2], maxY = v[2], minZ = v[3], maxZ = v[3] }
+          else
+            aabb.minX = math.min(aabb.minX, v[1])
+            aabb.maxX = math.max(aabb.maxX, v[1])
+            aabb.minY = math.min(aabb.minY, v[2])
+            aabb.maxY = math.max(aabb.maxY, v[2])
+            aabb.minZ = math.min(aabb.minZ, v[3])
+            aabb.maxZ = math.max(aabb.maxZ, v[3])
+          end
+        end
+      end
       cached = {
         descriptor = desc,
-        batches = desc.batches,
-        materials = materialsById(desc.materials, pool),
+        materials = mats,
+        wrapByTexture = wrapByTexture,
+        bounds = aabb or { minX = 0, maxX = 0, minY = 0, maxY = 0, minZ = 0, maxZ = 0 },
       }
       descriptorCache[modelKey] = cached
     end
@@ -205,88 +283,93 @@ local function buildScene(pool, cacheFs, scene, opts)
   for _, inst in ipairs(scene.buildingInstances or {}) do
     local desc = descriptorFor(inst.modelKey)
     -- Dynamic (animated) descriptors carry their geometry in the `dynamic`
-    -- half; the static batches loop applies to baked descriptors only.
-    for _, batch in ipairs(desc.batches or {}) do
-      buildingDraws[#buildingDraws + 1] = drawItem(batch, desc.materials, inst.transform)
+    -- half; the static batches loop applies to baked descriptors only. The
+    -- kind dispatch is explicit: a descriptor of an unknown kind is a
+    -- generated-data failure, not a silent empty model.
+    if desc.descriptor.kind == "static" then
+      for _, batch in ipairs(desc.descriptor.batches) do
+        buildingDraws[#buildingDraws + 1] = drawItem(batch, desc.materials, inst.transform)
+      end
+    elseif desc.descriptor.kind ~= "nitro-dynamic" then
+      Errors.raise(
+        "MAP_SCENE_UNKNOWN_MODEL_KIND",
+        "model descriptor " .. inst.modelKey .. " has unknown kind " .. tostring(desc.descriptor.kind),
+        { modelKey = inst.modelKey, kind = desc.descriptor.kind }
+      )
     end
   end
 
   -- ---- animated building instances ----
 
-  -- An animated model descriptor (backend "nitro" with a `dynamic` half)
-  -- becomes a ModelInstance per placement: the definition is assembled from
-  -- the serialized descriptor and the dynamic G4M3 batches become render
-  -- meshes ONCE per model key, then every placement of that model shares
-  -- them (model resource sharing, spec section 39). Each instance owns its
-  -- animation state, material state, and pose -- two placements of one model
-  -- can animate at different frames -- while the definition and clips are
-  -- immutable and shared.
+  -- An animated model descriptor (kind "nitro-dynamic") becomes a ModelInstance
+  -- per placement: the definition is assembled from the serialized descriptor
+  -- and the referenced .g4mesh batches become render meshes ONCE per model
+  -- key, then every placement of that model shares them (model resource
+  -- sharing). Each instance owns its animation state, material state, and
+  -- pose -- two placements of one model can animate at different frames --
+  -- while the definition and clips are immutable and shared.
   --
-  -- Ambient playback at load: a model with exactly one animation clip plays
-  -- it looping (the field effects -- wind, machine, spring); a time-of-day
-  -- banded model (clips named *_m/_d/_e/_n) plays the current band's clip
-  -- looping and swaps on runtime:setTimeBand (HGSS ov01_022047DC); other
+  -- Ambient playback at load: the compiled playback policy decides -- a
+  -- time-of-day banded model plays the current band's clip looping and swaps
+  -- on runtime:setTimeBand (HGSS ov01_022047DC); a model whose whole clip
+  -- set is one non-door clip carries the compiled ambientLoop role and plays
+  -- it looping (the field effects -- wind, machine, spring); other
   -- multi-clip models (doors) stay scripted through the controller.
   local animatedInstances = {}
   local instanceByPlacement = {}
   local animatedModelCount = 0
   local animatedResourceCache = {}
-  -- Pose-performance counters and per-tick allocation counters for the
-  -- animated scene (spec section 39): ModelInstance records its pose and
-  -- material evaluations into `perf` keyed by the instance; the scene passes
-  -- below record the update/band-swap phases and the sync totals.
-  local perf = PosePerformanceCounter.new()
-  local alloc = RuntimeAllocationProfiler.new()
   for _, inst in ipairs(scene.buildingInstances or {}) do
     local desc = descriptorFor(inst.modelKey)
-    if desc.descriptor.dynamic then
+    if desc.descriptor.kind == "nitro-dynamic" then
       local entry = animatedResourceCache[inst.modelKey]
       if not entry then
         local definition = ModelDefinition.fromNitroDescriptor(desc.descriptor, { key = inst.modelKey })
-        local renders = {}
+        local renderMeshesById = {}
         for _, mesh in ipairs(definition.meshes) do
-          -- Rigid Nitro batches carry no skin attributes (see
-          -- MeshWriter.ensureSkinAttributes); stamp them before the strict encode.
-          MeshWriter.ensureSkinAttributes(mesh.batch.vertices)
-          local bytes = MeshWriter.encode(mesh.batch, { format = "g4m3" })
-          local decoded = SceneMesh.decode(bytes)
-          renders[mesh.id] = pool:adoptMesh(buildMesh(decoded), decoded.indexCount / 3)
+          local entry = pool:meshFor(mesh.geometry)
+          renderMeshesById[mesh.id] = entry.mesh
+          mesh.center = modelCenter(entry.verts)
         end
-        entry = { definition = definition, renders = renders }
+        entry = { definition = definition, renderMeshesById = renderMeshesById }
         animatedResourceCache[inst.modelKey] = entry
         animatedModelCount = animatedModelCount + 1
       end
       local instance = ModelInstance.new(entry.definition, {
         transform = inst.transform,
-        performance = perf,
         resolveImage = function(key, width, height)
           return pool:imageFor(key, "clamp", "clamp")
         end,
       })
-      instance.renders = entry.renders
-      instance.placementIndex = inst.placementIndex
+      instance.renderMeshesById = entry.renderMeshesById
+      growBoundsAabb(desc.bounds, inst.transform)
       animatedInstances[#animatedInstances + 1] = instance
       instanceByPlacement[inst.placementIndex] = instance
-      local plan = TimeOfDayProps.plan(entry.definition)
-      instance.timeOfDayPlan = plan
-      if plan then
-        local clip = plan[timeBand]
+      local timeBandClips = TimeOfDayProps.plan(entry.definition)
+      instance.timeOfDayPlan = timeBandClips
+      if timeBandClips then
+        local clip = timeBandClips[timeBand]
         if clip then
           instance:play(clip.name, { loopMode = "loop" })
         end
-      elseif #entry.definition.animations == 1 then
-        instance:play(entry.definition.animations[1].name, { loopMode = "loop" })
+      else
+        for _, clip in ipairs(entry.definition.animations) do
+          if clip.ambientLoop then
+            instance:play(clip.name, { loopMode = "loop" })
+          end
+        end
       end
     end
   end
 
-  -- Refresh the animated instances' draw items from their current pose and
-  -- material state; appends after the static building draws.
-  local staticBuildingDraws = buildingDraws
   local runtime = {}
+  local staticBuildingDraws = buildingDraws
+  local animatedItemsDirty = true
 
-  -- The per-instance refresh pass shared by the sync and update entries:
-  -- pose + items are the allocation sites of the per-frame hot path.
+  -- The per-instance refresh pass shared by the update and dirty entries: it
+  -- re-evaluates each pose from the current attachment frames, appends after
+  -- the static building draws, and assigns each animated item a
+  -- scene-global submission index continuing the load-time sequence.
   local function refreshAnimatedItems()
     local items = {}
     for _, item in ipairs(staticBuildingDraws) do
@@ -294,40 +377,34 @@ local function buildScene(pool, cacheFs, scene, opts)
     end
     for _, instance in ipairs(animatedInstances) do
       instance:evaluatePose()
-      alloc:add("pose")
-      local drawn = instance:drawItems(instance.renders)
-      alloc:add("items", #drawn)
+      local drawn = instance:drawItems(instance.renderMeshesById)
       for _, item in ipairs(drawn) do
+        item.submissionIndex = #items
         items[#items + 1] = item
       end
     end
     runtime.buildingDraws = items
   end
 
-  -- The per-frame draw entry (the renderer calls it every frame): one
-  -- allocation tick covering the refresh, timed as the scene's sync phase.
-  local function syncAnimatedDraws()
-    alloc:beginTick()
-    local t0 = perf.clock()
-    refreshAnimatedItems()
-    perf:record(nil, PosePerformanceCounter.SYNC, perf.clock() - t0)
-    alloc:endTick()
-  end
-
-  -- Advance every animated instance by one fixed step, then refresh; the
-  -- update counts share the tick with the draw pass.
+  -- Advance every animated instance by one fixed step, then refresh: the one
+  -- authoritative animation-clock entry point of the scene.
   local function updateAnimated()
-    alloc:beginTick()
-    local t0 = perf.clock()
     for _, instance in ipairs(animatedInstances) do
-      local u0 = perf.clock()
       instance:updateFixed()
-      perf:record(instance, PosePerformanceCounter.UPDATE, perf.clock() - u0)
-      alloc:add("update")
     end
     refreshAnimatedItems()
-    perf:record(nil, PosePerformanceCounter.SYNC, perf.clock() - t0)
-    alloc:endTick()
+    animatedItemsDirty = false
+  end
+
+  -- The pre-render refresh: consumes the dirty mark left by control
+  -- operations (play/stop/band swap) that happened outside a fixed tick; the
+  -- draw list is otherwise read-only, so the renderer never re-evaluates
+  -- poses per frame.
+  local function rebuildAnimatedDrawItems()
+    if animatedItemsDirty then
+      refreshAnimatedItems()
+      animatedItemsDirty = false
+    end
   end
 
   -- Switch the time-of-day band of every banded prop (HGSS ov01_022047DC):
@@ -343,10 +420,9 @@ local function buildScene(pool, cacheFs, scene, opts)
     for _, instance in ipairs(animatedInstances) do
       if instance.timeOfDayPlan then
         TimeOfDayProps.swap(instance, instance.timeOfDayPlan, previous, band)
-        perf:record(instance, PosePerformanceCounter.BAND_SWAP, 0)
       end
     end
-    syncAnimatedDraws()
+    animatedItemsDirty = true
   end
 
   -- Collision from the G4CL asset (CollisionGridAsset bytes), around the
@@ -380,18 +456,26 @@ local function buildScene(pool, cacheFs, scene, opts)
   runtime.timeBand = timeBand
   runtime.animatedInstances = animatedInstances
   runtime.animationController = MapPropAnimationController.new()
-  runtime.syncAnimatedDraws = syncAnimatedDraws
+  runtime.animationController.onMutation = function()
+    animatedItemsDirty = true
+  end
+  runtime.rebuildAnimatedDrawItems = rebuildAnimatedDrawItems
   runtime.updateAnimated = updateAnimated
   runtime.setTimeBand = setTimeBand
-  -- Observability (spec section 39): the scene's pose-performance counters
-  -- and the per-tick allocation counters of the animation path.
-  runtime.perf = perf
-  runtime.alloc = alloc
   -- The door lookup: a MapProps facade over this scene's placements and
   -- instances resolves a field coordinate to the door of the building placed
   -- there -- nothing Nitro leaks into gameplay.
+  local placements = {}
+  for _, inst in ipairs(scene.buildingInstances or {}) do
+    placements[#placements + 1] = {
+      placementIndex = inst.placementIndex,
+      modelKey = inst.modelKey,
+      transform = inst.transform,
+      bounds = descriptorFor(inst.modelKey).bounds,
+    }
+  end
   runtime.mapProps = MapProps.new({
-    placements = scene.buildingInstances or {},
+    placements = placements,
     instances = instanceByPlacement,
     controller = runtime.animationController,
   })

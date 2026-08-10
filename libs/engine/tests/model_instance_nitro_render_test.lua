@@ -188,12 +188,12 @@ local function doorDefinition()
 end
 
 local function buildRenders(def)
-  local renders = {}
+  local renderMeshesById = {}
   for _, mesh in ipairs(def.meshes) do
-    local bytes = MeshWriter.encode(mesh.batch, { format = "g4m3" })
-    renders[mesh.id] = SceneMesh.build(SceneMesh.decode(bytes))
+    local bytes = MeshWriter.encode(mesh.batch)
+    renderMeshesById[mesh.id] = SceneMesh.build(SceneMesh.decode(bytes))
   end
-  return renders
+  return renderMeshesById
 end
 
 local function identityCamera()
@@ -219,7 +219,7 @@ local function runtime()
 end
 
 local function drawInstance(renderer, rt, instance, alpha)
-  local items = instance:drawItems(instance.renders)
+  local items = instance:drawItems(instance.renderMeshesById)
   rt.mapDraws = items
   renderer:draw(rt, identityCamera(), nil, FieldViewport.new(320, 240, { mode = "strict" }), alpha)
   return items
@@ -232,7 +232,7 @@ function T.nitro_animated_model_renders_and_scrubs_without_recompiling()
   local renderer = MapRenderer.new()
   local def = doorDefinition()
   local instance = ModelInstance.new(def)
-  instance.renders = buildRenders(def)
+  instance.renderMeshesById = buildRenders(def)
   local rt = runtime()
 
   -- Bind pose first: the draw matrix is identity, so the quad renders at
@@ -242,7 +242,7 @@ function T.nitro_animated_model_renders_and_scrubs_without_recompiling()
   Assert.isTrue(renderer.stats.drawCalls >= 1, "the nitro mesh draws")
 
   -- Scrub through several frames; the same built meshes serve every frame.
-  local rendersBefore = instance.renders
+  local rendersBefore = instance.renderMeshesById
   instance:play("door.open")
   for _ = 1, 7 do
     instance:updateFixed()
@@ -250,7 +250,7 @@ function T.nitro_animated_model_renders_and_scrubs_without_recompiling()
     local items = drawInstance(renderer, rt, instance, 1)
     Assert.equal(#items, 1, "one mesh per frame")
   end
-  Assert.equal(instance.renders, rendersBefore, "meshes are built once, not per frame")
+  Assert.equal(instance.renderMeshesById, rendersBefore, "meshes are built once, not per frame")
   -- The final frame's rotation cells differ from the bind pose.
   Assert.isTrue(
     math.abs(instance.poseState.drawMatrices["draw0.seg0"].position[1] - 1) > 0.01,
@@ -259,7 +259,7 @@ function T.nitro_animated_model_renders_and_scrubs_without_recompiling()
 
   Assert.isNil(love.graphics.getCanvas(), "the scene canvas is unbound")
   Assert.isNil(love.graphics.getShader(), "the map and edge shaders are unbound")
-  for _, mesh in pairs(instance.renders) do
+  for _, mesh in pairs(instance.renderMeshesById) do
     mesh:release()
   end
   renderer:release()

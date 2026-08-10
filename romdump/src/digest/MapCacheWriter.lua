@@ -1,5 +1,5 @@
 -- Persists a compiled map bundle to the derived cache through the shared
--- staged publication primitive: the map's own subtree (permission grid, terrain
+-- staged publication primitive: the map's own subtree (collision grid, terrain
 -- surfaces, neighbor artifacts, scene, dependencies, marker) is written into a
 -- disposable staging root, read back and validated there, and only then
 -- published over the map's live dir with the marker last. A failure at any
@@ -11,7 +11,12 @@
 -- they are shared across maps, so a wholesale swap would clobber other maps'
 -- artifacts, while content addressing makes a re-write idempotent (same hash,
 -- same bytes) and any unreferenced partial garbage from a failed build is
--- inert. The map's readiness never depends on them being absent.
+-- inert. Model keys are content-addressed over the descriptor itself, so a
+-- failed rebuild can never replace a descriptor an older ready map references
+-- (a changed descriptor gets a new path). Cheap structural invariants
+-- (collision grid shape, terrain schema, descriptor schema, mesh
+-- encodeability) are validated before anything is written, so a bad bundle
+-- leaves no new shared artifacts behind at all.
 
 local Errors = require("libs.errors.src.Errors")
 local MeshWriter = require("libs.assets.src.MeshWriter")
@@ -19,17 +24,67 @@ local PngWriter = require("libs.assets.src.PngWriter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local AssetErrors = require("libs.assets.src.errors")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
+local ModelAsset = require("libs.assets.src.ModelAsset")
 local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
 
 local MapCacheWriter = {}
+
+-- Cheap structural invariants are validated up front, before anything is
+-- written to any shared root: a bad collision grid, terrain, or descriptor
+-- must not replace a model descriptor or leave new shared meshes behind on
+-- the way to failing.
+local function validateBundle(bundle)
+  local mapId = bundle.mapId
+  local ok, err = pcall(CollisionGridAsset.encode, bundle.collision)
+  if not ok then
+    Errors.raise("MAP_CACHE_BAD_COLLISION", "collision grid is invalid: " .. tostring(err), { mapId = mapId })
+  end
+  if type(bundle.terrain) ~= "table" or bundle.terrain.schema ~= MapAssetCache.TERRAIN_SCHEMA then
+    Errors.raise("MAP_CACHE_BAD_TERRAIN", "terrain artifact is missing or has the wrong schema", { mapId = mapId })
+  end
+  for landDataMemberId, chunk in pairs(bundle.neighborChunks or {}) do
+    local okChunk, chunkErr = pcall(CollisionGridAsset.encode, chunk.collision)
+    if not okChunk then
+      Errors.raise(
+        "MAP_CACHE_BAD_NEIGHBOR_COLLISION",
+        "neighbor collision grid is invalid: " .. tostring(chunkErr),
+        { mapId = mapId, landDataMemberId = landDataMemberId }
+      )
+    end
+    if type(chunk.terrain) ~= "table" or chunk.terrain.schema ~= MapAssetCache.TERRAIN_SCHEMA then
+      Errors.raise(
+        "MAP_CACHE_BAD_NEIGHBOR_TERRAIN",
+        "neighbor terrain artifact is invalid",
+        { mapId = mapId, landDataMemberId = landDataMemberId }
+      )
+    end
+  end
+  for _, descriptor in pairs(bundle.models) do
+    local okModel, modelErr = pcall(ModelAsset.validate, descriptor)
+    if not okModel then
+      error(modelErr)
+    end
+  end
+  -- The meshes are encoded twice (validate, then write); the encode is pure
+  -- and deterministic, so this is a cheap guard against publishing a batch
+  -- that cannot round-trip.
+  for _, batch in pairs(bundle.meshes) do
+    MeshWriter.encode(batch)
+  end
+end
 
 local function persist(cacheFs, tx, bundle)
   local mapId = bundle.mapId
   local dir = MapAssetCache.mapDir(mapId)
   local stage = tx.stage
 
+  validateBundle(bundle)
+
   -- 1. Shared content-addressed geometry. 2. Shared content-addressed textures.
-  -- 3. Shared model descriptors.
+  -- 3. Shared model descriptors. The model key is content-addressed over the
+  -- descriptor, so a re-write is idempotent and a failure can never clobber
+  -- a descriptor an older ready map references (a different descriptor gets a
+  -- different path).
   for sha1, batch in pairs(bundle.meshes) do
     cacheFs:write(MapAssetCache.geometryPath(sha1), MeshWriter.encode(batch))
   end

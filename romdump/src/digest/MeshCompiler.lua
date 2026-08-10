@@ -246,6 +246,9 @@ end
 ---@field materialIndex integer
 ---@field transformMode TransformMode
 ---@field positionSource DrawSource|nil -- nil: fully baked (billboard segments)
+---@field polygonAttrRaw integer -- the material's polygon-attr word, the same
+--  state the static path rides on each batch: cull mode, polygon mode, id,
+--  depth flags, polygon alpha
 ---@field batch { vertices: CompiledVertex[], indices: integer[] }
 
 -- Transform-preserving compile: the same draw replay as
@@ -371,6 +374,7 @@ function MeshCompiler.compileDynamic(model)
         materialIndex = draw.materialIndex,
         transformMode = draw.transformMode,
         positionSource = positionSource,
+        polygonAttrRaw = matState.polygonAttrRaw,
         batch = { vertices = vertices, indices = indices },
       }
     end

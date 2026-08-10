@@ -133,24 +133,24 @@ function FieldSession:updateFixed(inputSnapshot)
   inputSnapshot = inputSnapshot or self.input:snapshot()
   -- The door/stair choreography drives the player during the locked
   -- transition: the pose clock hears the walking state at tick start, the
-  -- camera tracks the continuous XYZ, and the scene's animated props (the
-  -- door open/close) advance under the choreographed locked tick.
+  -- camera tracks the continuous XYZ, and the scene's animated props
+  -- advance under the choreographed locked tick. The camera samples on
+  -- every locked tick and on the completion tick -- never coupled to
+  -- player motion -- so interpolation pairs collapse instead of replaying.
   local walkingAtTickStart = self.player.motion == "walking"
-  local moved = self.transition:updateFixed()
-  -- Keep the just-arrived tile stable until the application consumes the
-  -- completion event and autosaves it, even when movement remains held.
-  if self.transition.completed then
-    self.input:clearEdges()
-    self:_advanceTick()
-    return
-  end
-  if self.transition.locked then
-    if (self.transition.doorActive or self.transition.stairActive) and self.currentMap.sceneRuntime then
+  local playerAdvanced = self.transition:updateFixed()
+  if self.transition.locked or self.transition.completed then
+    if self.currentMap.sceneRuntime and self.currentMap.sceneRuntime.updateAnimated then
       self.currentMap.sceneRuntime:updateAnimated()
     end
-    if moved and self.playerVisual then
+    if playerAdvanced and self.playerVisual then
       self.playerVisual:updateFixed(walkingAtTickStart)
-      self.camera:updateFixed(self:actorTarget())
+    end
+    self.camera:updateFixed(self:actorTarget())
+    -- Keep the just-arrived tile stable until the application consumes the
+    -- completion event and autosaves it, even when movement remains held.
+    if self.transition.completed and self.input.clearEdges then
+      self.input:clearEdges()
     end
     self:_advanceTick()
     return
@@ -158,13 +158,23 @@ function FieldSession:updateFixed(inputSnapshot)
 
   -- Modal ownership: while a dialogue is open the world freezes -- no queued
   -- visibility changes, no facing-warp check, no movement, no warp commit, no
-  -- pose clocks, no camera motion. Only the dialogue reads this tick's input.
+  -- pose clocks, no scene animation, no camera motion. Only the dialogue
+  -- reads this tick's input.
   -- Script-owned boxes are exempt: the script scheduler steps them from its
   -- own async phase and the script phase owns the tick instead.
   if self.dialogue:isModal() and not (self.dialogue.isScriptOwned and self.dialogue:isScriptOwned()) then
     self.dialogue:step(inputSnapshot)
     self:_advanceTick()
     return
+  end
+
+  -- Scene animation clock: the world's animated props advance once per
+  -- non-modal tick -- ordinary movement, script-locked ticks, interaction
+  -- ticks, and the transition-start tick alike (transition ticks advance it
+  -- in the branch above). FieldSession owns this clock; no other module
+  -- steps it.
+  if self.currentMap.sceneRuntime and self.currentMap.sceneRuntime.updateAnimated then
+    self.currentMap.sceneRuntime:updateAnimated()
   end
 
   -- Script phase : the field-script scheduler

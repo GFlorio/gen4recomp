@@ -34,6 +34,7 @@ local PoseContract = require("libs.engine.src.PoseContract")
 local AlphaClassifier = require("libs.engine.src.AlphaClassifier")
 local NsbmdDynamicModel = require("romdump.src.digest.NsbmdDynamicModel")
 local MapPropAnimCompiler = require("romdump.src.digest.MapPropAnimCompiler")
+local ModelAsset = require("libs.assets.src.ModelAsset")
 
 local MapAssetCompiler = {}
 
@@ -246,19 +247,25 @@ local function resolvePatternVariants(model, embeddedTex, variantSets, textures,
 end
 
 -- Merge the dynamic model's base material records with the compiled texture
--- records (base texture metadata) and the pattern variants.
-local function dynamicMaterials(dyn, matCompiled, textures, variantsByName)
+-- records (base texture metadata, wrap/flip sampler state) and the pattern
+-- variants.
+local function dynamicMaterials(dynamicModel, matCompiled, textures, variantsByName)
   local out = {}
-  for _, base in ipairs(dyn.materials) do
+  for _, base in ipairs(dynamicModel.materials) do
     local merged = {}
     for k, v in pairs(base) do
       merged[k] = v
     end
     local m = matCompiled.materials[base.id + 1]
-    if m and m.texture then
-      merged.texture = MapAssetCache.texturePath(m.texture)
-      merged.textureFormat = m.textureFormat
-      merged.alphaUsage = textures[m.texture].alphaUsage
+    if m then
+      if m.texture then
+        merged.texture = MapAssetCache.texturePath(m.texture)
+        merged.textureFormat = m.textureFormat
+        merged.alphaUsage = textures[m.texture].alphaUsage
+      end
+      merged.wrap = m.wrap
+      merged.flip = m.flip
+      merged.diffuse = m.diffuse
     end
     local variants = variantsByName[base.name]
     if variants then
@@ -276,42 +283,93 @@ local function dynamicMaterials(dyn, matCompiled, textures, variantsByName)
   return out
 end
 
+-- Convert compiled dynamic segments into serializable descriptor records: the
+-- geometry is encoded into the shared content-addressed mesh table and the
+-- record references the path (never raw vertex arrays), and the polygon draw
+-- state (cull mode, polygon mode/id, depth flags, polygon alpha) is decoded
+-- per segment -- the same state the static path rides on each batch. Segments
+-- that render neither surface ("all" cull) are skipped, exactly like the
+-- static path.
+local function dynamicBatches(dynamicModel, meshes)
+  local out = {}
+  for _, mesh in ipairs(dynamicModel.meshes) do
+    local poly = DsPolygonAttr.decode(mesh.polygonAttrRaw)
+    if poly.polygonMode ~= "modulation" and poly.polygonMode ~= "decal" then
+      Errors.raise("MAP_COMPILE_UNSUPPORTED_POLYGON_MODE", "polygon mode " .. poly.polygonMode .. " is not supported", {
+        polygonMode = poly.polygonMode,
+        meshId = mesh.id,
+      })
+    end
+    if poly.cullMode ~= "all" then
+      local sha1 = Hashing.sha1hex(MeshWriter.encode(mesh.batch))
+      meshes[sha1] = mesh.batch
+      out[#out + 1] = {
+        id = mesh.id,
+        drawIndex = mesh.drawIndex,
+        segmentIndex = mesh.segmentIndex,
+        nodeIndex = mesh.nodeIndex,
+        materialIndex = mesh.materialIndex,
+        transformMode = mesh.transformMode,
+        positionSource = mesh.positionSource,
+        geometry = MapAssetCache.geometryPath(sha1),
+        cullMode = poly.cullMode,
+        polygonMode = poly.polygonMode,
+        polygonId = poly.polygonId,
+        translucentDepthWrite = poly.translucentDepthWrite,
+        depthEqual = poly.depthEqual,
+        polygonAlpha = poly.polygonAlpha,
+      }
+    end
+  end
+  return out
+end
+
 -- Compile one animated model into its dynamic descriptor:
---   { key, memberId, backend = "nitro",
+--   { schema, memberId, kind = "nitro-dynamic",
 --     dynamic = { nodes, transformProgram, batches },
---     materials, animations, roles }
--- The geometry (dynamic segments), the transform program, and the compiled
--- clips are all plain serializable data; the runtime assembles the
--- ModelDefinition from this descriptor.
-local function compileAnimatedModel(bmodel, bnsbmd, texPack, animResult, context, modelKey, memberId, textures)
-  local dyn = NsbmdDynamicModel.compile(bmodel)
-  local base = MaterialCompiler.compile(bmodel.materials, texPack, { context = context })
+--     materials, animations }
+-- The dynamic segments are encoded into content-addressed .g4mesh assets and
+-- the descriptor references them by path; the transform program and the
+-- compiled clips are plain serializable data. The runtime assembles the
+-- ModelDefinition from this descriptor. The caller stamps `key` after hashing
+-- the descriptor's content into the model key.
+local function compileAnimatedModel(
+  buildingModel,
+  buildingNsbmd,
+  texPack,
+  animResult,
+  context,
+  memberId,
+  textures,
+  meshes
+)
+  local dynamicModel = NsbmdDynamicModel.compile(buildingModel)
+  local base = MaterialCompiler.compile(buildingModel.materials, texPack, { context = context })
   for sha1, tex in pairs(base.textures) do
     textures[sha1] = tex
   end
 
   local unresolved = {}
-  local embeddedTex = bnsbmd.embeddedTextures
+  local embeddedTex = buildingNsbmd.embeddedTextures
   local variantsByName = {}
   if embeddedTex then
-    variantsByName =
-      resolvePatternVariants(bmodel, embeddedTex, patternVariants(animResult.clips), textures, unresolved, context)
+    variantsByName = resolvePatternVariants(
+      buildingModel,
+      embeddedTex,
+      patternVariants(animResult.clips),
+      textures,
+      unresolved,
+      context
+    )
   elseif next(patternVariants(animResult.clips)) then
     -- A pattern animation on a model without an embedded texture block is
     -- an authoring anomaly; every variant stays untextured and reported.
     unresolved[#unresolved + 1] = {
-      material = bmodel.name,
+      material = buildingModel.name,
       kind = "texture",
       name = "<pattern variants>",
       source = "model has no embedded TEX0",
     }
-  end
-
-  local roles = {}
-  for _, clip in ipairs(animResult.clips) do
-    for _, semantic in ipairs(clip.semanticNames) do
-      roles[semantic] = clip.name
-    end
   end
 
   -- Wrap the raw MaterialCompiler-shaped entries with the model context, the
@@ -331,17 +389,16 @@ local function compileAnimatedModel(bmodel, bnsbmd, texPack, animResult, context
   end
 
   return {
-    key = modelKey,
+    schema = ModelAsset.SCHEMA,
     memberId = memberId,
-    backend = "nitro",
+    kind = "nitro-dynamic",
     dynamic = {
-      nodes = dyn.program.nodes,
-      transformProgram = dyn.program,
-      batches = dyn.meshes,
+      nodes = dynamicModel.program.nodes,
+      transformProgram = dynamicModel.program,
+      batches = dynamicBatches(dynamicModel, meshes),
     },
-    materials = dynamicMaterials(dyn, base, textures, variantsByName),
+    materials = dynamicMaterials(dynamicModel, base, textures, variantsByName),
     animations = animResult.clips,
-    roles = roles,
   },
     wrapped
 end
@@ -475,10 +532,10 @@ local function _compile(romFs, idOrSymbol, opts)
   local models, modelKeyOf, memberShaOf = {}, {}, {}
   local animDeps = {}
   for _, memberId in ipairs(memberIds) do
-    local mbytes = readMember(bldNarc, archiveAlias, memberId)
-    local msha = Hashing.sha1hex(mbytes)
-    local bnsbmd = assert(Nsbmd.decode(mbytes, { alias = archiveAlias, memberId = memberId }))
-    local bmodel = bnsbmd.models[1]
+    local modelBytes = readMember(bldNarc, archiveAlias, memberId)
+    local modelSha1 = Hashing.sha1hex(modelBytes)
+    local buildingNsbmd = assert(Nsbmd.decode(modelBytes, { alias = archiveAlias, memberId = memberId }))
+    local buildingModel = buildingNsbmd.models[1]
     local context = {
       mapId = mapId,
       mapSymbol = resolved.map.symbol,
@@ -489,15 +546,15 @@ local function _compile(romFs, idOrSymbol, opts)
       textureMemberId = area.buildingTexturePackId,
       modelArchive = archiveAlias,
       modelMemberId = memberId,
-      modelName = bmodel.name,
-      embeddedTex0Present = bnsbmd.embeddedTextures ~= nil,
+      modelName = buildingModel.name,
+      embeddedTex0Present = buildingNsbmd.embeddedTextures ~= nil,
       placementIndices = placementIndicesByMember[memberId],
     }
-    local modelKey =
-      string.format("%s:%d:%s", area.areaType == "indoor" and "indoor" or "outdoor", memberId, msha:sub(1, 12))
+    local areaKind = area.areaType == "indoor" and "indoor" or "outdoor"
 
     -- Animated models compile through the dynamic path; static ones keep the
     -- optimized baked geometry.
+    local modelDescriptor
     local animated = false
     if memberId < animListNarc:memberCount() then
       local listBytes = animListNarc:readMember(memberId)
@@ -511,22 +568,47 @@ local function _compile(romFs, idOrSymbol, opts)
         animDeps[#animDeps + 1] = { resourceId = clip.source.memberId, sha1 = clip.source.sha1 }
       end
       if #animResult.clips > 0 then
-        local descriptor, unresolved =
-          compileAnimatedModel(bmodel, bnsbmd, bldTexPack, animResult, context, modelKey, memberId, textures)
+        local descriptor, unresolved = compileAnimatedModel(
+          buildingModel,
+          buildingNsbmd,
+          bldTexPack,
+          animResult,
+          context,
+          memberId,
+          textures,
+          meshes
+        )
         collectUnresolved({ unresolved = unresolved })
-        models[modelKey] = descriptor
+        modelDescriptor = descriptor
         animated = true
       end
     end
 
     if not animated then
-      local compiled = compileModel(bmodel, bldTexPack, meshes, textures, context)
+      local compiled = compileModel(buildingModel, bldTexPack, meshes, textures, context)
       collectUnresolved(compiled)
-      models[modelKey] =
-        { key = modelKey, memberId = memberId, batches = compiled.batches, materials = compiled.materials }
+      modelDescriptor = {
+        schema = ModelAsset.SCHEMA,
+        memberId = memberId,
+        kind = "static",
+        batches = compiled.batches,
+        materials = compiled.materials,
+      }
     end
+
+    -- The model key is content-addressed over the descriptor itself: the
+    -- descriptor's runtime configuration depends on the model bytes, the
+    -- animation list/resource bytes, the clip compiler semantics, the bound
+    -- texture pack, and the pattern variants -- every immutable input --
+    -- so the key hashes the final serialized descriptor rather than a subset
+    -- of its inputs. Same member + same compiled content => same key across
+    -- maps; any input change => a new path, never a stale descriptor.
+    local descriptorSha = Hashing.hashLua(modelDescriptor)
+    local modelKey = string.format("%s:%d:%s", areaKind, memberId, descriptorSha:sub(1, 12))
+    modelDescriptor.key = modelKey
+    models[modelKey] = modelDescriptor
     modelKeyOf[memberId] = modelKey
-    memberShaOf[memberId] = msha
+    memberShaOf[memberId] = modelSha1
   end
 
   -- Building instances.

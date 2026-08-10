@@ -183,4 +183,35 @@ function T.queue_entries_are_the_original_items()
   Assert.isTrue(q.wireframe[1] == items[4], "wireframe pass returns the original item")
 end
 
+-- A rotated+translated item: the model-space center is transformed exactly
+-- once by the item transform, so the sort reflects the true world position
+-- (the dynamic-instance contract -- never a world-space center that the
+-- queue would transform a second time).
+function T.transforms_rotated_translated_centers_once()
+  local view = Matrix4.lookAt({ 0, 0, 5 }, { 0, 0, 0 }, { 0, 1, 0 })
+  local rotate = Matrix4.rotateY(math.pi / 2)
+  local move = Matrix4.translate(0, 0, -10)
+  local transform = Matrix4.multiply(move, rotate)
+  -- A model-local center at +X maps, under the 90-degree Y rotation, to -Z:
+  -- the world center is (0, 0, -10). An item at the origin stays nearer.
+  local rotated = item(1, "translucent", { 5, 0, 0 }, transform)
+  local origin = item(2, "translucent", { 0, 0, 0 }, Matrix4.identity())
+  local q = RenderQueue.build({ origin, rotated }, view)
+  Assert.deepEqual(ids(q, "translucent"), { 1, 2 }, "far (rotated) first, near origin last")
+end
+
+-- Globally unique deterministic tie-breaking: submission indices assigned
+-- once across the flattened static+dynamic list break equal-depth ties in
+-- list order.
+function T.globally_unique_submission_indices_tie_break_in_order()
+  local view = Matrix4.lookAt({ 0, 0, 5 }, { 0, 0, 0 }, { 0, 1, 0 })
+  local items = {
+    item(7, "translucent", { 0, 0, -5 }),
+    item(2, "translucent", { 0, 0, -5 }),
+    item(4, "translucent", { 0, 0, -5 }),
+  }
+  local q = RenderQueue.build(items, view)
+  Assert.deepEqual(ids(q, "translucent"), { 2, 4, 7 })
+end
+
 return { tests = T }

@@ -1,25 +1,25 @@
--- ModelInstance: the per-model runtime object above the source backends. An
+-- ModelInstance: the per-model runtime object above the pose backend. An
 -- instance owns the placement transform, the animation state
 -- (ModelAnimationState), the per-instance material state, and the last
 -- evaluated pose; it is the only animation-facing API gameplay touches.
 -- Nothing here knows NSBCA, NARC, SBC, matrix slots, or Nitro animation
--- resource indices -- a vanilla model and a future glTF model differ only in
--- ModelDefinition.sourceBackend, which selects the pose backend behind
--- PoseBackend.evaluate.
+-- resource indices -- those live in the compiled transform program behind
+-- NitroPoseBackend.
 --
 -- Usage per frame: instance:updateFixed() advances every attachment player,
--- instance:evaluatePose() recomputes the pose state through the backend,
--- then drawItems(renders) produces draw items in the production renderer's
--- shape (the same item contract MapRenderer consumes for map/building
--- draws). drawItems also re-evaluates the effective material state from the
--- material attachments (spec section 19) -- UV transforms, pattern
--- variants, animated colors, and the recomputed render classification -- so
--- the item contract always reflects the current frame. `renders` supplies
+-- instance:evaluatePose() recomputes the pose state through the nitro
+-- backend, then drawItems(renderMeshesById) produces draw items in the
+-- production renderer's shape (the same item contract MapRenderer consumes
+-- for map/building draws). drawItems also re-evaluates the effective material
+-- state from the material attachments -- UV transforms, pattern variants,
+-- animated colors, and the recomputed render classification -- so the item
+-- contract always reflects the current frame. `renderMeshesById` supplies
 -- the built mesh per mesh id (the caller builds love meshes from the
--- definition's mesh batches); drawItems itself stays pure so pose and item
--- math are testable without graphics. An optional `resolveImage` callback
--- (opts.resolveImage) maps a texture key plus its dimensions to the caller's
--- image object; without one items draw untextured.
+-- definition's referenced .g4mesh geometry); drawItems itself stays pure so
+-- pose and item math are testable without graphics. An optional
+-- `resolveImage` callback (opts.resolveImage) maps a texture key plus its
+-- dimensions to the caller's image object; without one items draw
+-- untextured.
 --
 -- The definition and its clips are immutable and shared; materialState is
 -- the instance's own map, so two instances of one model can animate at
@@ -31,9 +31,8 @@ local ModelAnimationState = require("libs.engine.src.ModelAnimationState")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local AnimationBinding = require("libs.engine.src.AnimationBinding")
 local AnimationPlayer = require("libs.engine.src.AnimationPlayer")
-local PoseBackend = require("libs.engine.src.PoseBackend")
+local NitroPoseBackend = require("libs.engine.src.NitroPoseBackend")
 local PoseContract = require("libs.engine.src.PoseContract")
-local PosePerformanceCounter = require("libs.engine.src.PosePerformanceCounter")
 local MaterialEvaluator = require("libs.engine.src.MaterialEvaluator")
 local AlphaClassifier = require("libs.engine.src.AlphaClassifier")
 
@@ -63,27 +62,22 @@ local AlphaClassifier = require("libs.engine.src.AlphaClassifier")
 ---@field animationState table
 ---@field materialState { [integer]: MaterialInstanceState }
 ---@field poseState PoseState|nil
----@field renders table|nil -- caller-built render meshes per mesh id
+---@field renderMeshesById table|nil -- caller-built render meshes per mesh id
 ---@field resolveImage fun(key: string, width: integer, height: integer): any|nil
 ---@field timeOfDayPlan table|nil -- band plan the scene loader attaches (TimeOfDayProps.plan)
----@field placementIndex integer|nil -- the scene loader's placement index, for
---  per-instance observability (pose-performance counter rows)
----@field performance PosePerformanceCounter|nil -- optional instrumentation the
---  scene loader passes; pose and material evaluations record into it
 local ModelInstance = {}
 ModelInstance.__index = ModelInstance
 
--- alphaMode -> the renderer's render-pass class (the material contract in
--- docs/model-ir.md).
+-- Fragment alpha cutoff for cutout materials; the same value the renderer
+-- uses when an item carries no explicit cutoff (MapRenderer.CUTOUT_EPSILON).
+local CUTOUT_EPSILON = 0.5 / 255
+
+-- alphaMode -> the renderer's render-pass class (the material contract).
 local ALPHA_CLASS = {
   opaque = "opaque",
   mask = "cutout",
   blend = "translucent",
 }
-
--- Fragment alpha cutoff for cutout materials; the same value the renderer
--- uses when an item carries no explicit cutoff (MapRenderer.CUTOUT_EPSILON).
-local CUTOUT_EPSILON = 0.5 / 255
 
 local function identityMatrix()
   return Matrix4.identity()
@@ -131,18 +125,7 @@ function ModelInstance.new(definition, opts)
     materialState = materialState,
     poseState = nil,
     resolveImage = opts.resolveImage,
-    performance = opts.performance,
   }, ModelInstance)
-end
-
--- Run `fn` under the instance's performance counter (when one is attached),
--- recording one (instance, phase) measurement; otherwise just run it.
-local function measured(instance, phase, fn)
-  local performance = instance.performance
-  if not performance then
-    return fn()
-  end
-  return performance:measure(instance, phase, fn)
 end
 
 -- Advance every attachment player by one fixed step.
@@ -151,22 +134,19 @@ function ModelInstance:updateFixed()
 end
 
 -- Recompute the pose state from the current animation state through the
--- definition's pose backend. Returns the PoseState. Raises a structured
--- error when the backend cannot evaluate (no silent fallback).
+-- definition's nitro pose backend. Returns the PoseState. Raises a
+-- structured error when the backend cannot evaluate (no silent fallback).
 ---@return PoseState
 function ModelInstance:evaluatePose()
-  self.poseState = measured(self, PosePerformanceCounter.POSE, function()
-    return PoseBackend.evaluate(self)
-  end)
+  self.poseState = NitroPoseBackend.evaluate(self)
   return self.poseState
 end
 
 -- Start playing a clip, resolved by name or semantic role (e.g.
 -- "door.open"). Binding and player setup happen here, once per play, never
 -- per frame. `opts` passes through to the attachment: priority, ratioFx,
--- loopMode, repeatsRemaining, deltaFx, direction. Returns the attachment
--- token for stop(). Every play attaches an independent player, so several
--- clips -- and several plays of one clip -- can run simultaneously.
+-- loopMode, direction. Returns the attachment token for stop(). Every play
+-- attaches an independent player, so several clips can run simultaneously.
 function ModelInstance:play(nameOrSemantic, opts)
   local clip = self.definition:animation(nameOrSemantic)
   if not clip then
@@ -179,24 +159,12 @@ function ModelInstance:play(nameOrSemantic, opts)
   local binding = AnimationBinding.new(clip, self.definition.key, self.definition:bindingMap(clip))
   opts = opts or {}
   if opts.loopMode then
-    assert(AnimationPlayer.LOOP_MODES[opts.loopMode], "loopMode must be loop, once, or repeat")
-  end
-  if opts.repeatsRemaining ~= nil then
-    assert(
-      opts.repeatsRemaining >= 1 and math.floor(opts.repeatsRemaining) == opts.repeatsRemaining,
-      "repeatsRemaining must be a positive integer"
-    )
+    assert(AnimationPlayer.LOOP_MODES[opts.loopMode], "loopMode must be loop or once")
   end
 
   local player = opts.player or AnimationPlayer.new(clip)
   if opts.loopMode then
     player.loopMode = opts.loopMode
-  end
-  if opts.repeatsRemaining ~= nil then
-    player.repeatsRemaining = opts.repeatsRemaining
-  end
-  if opts.deltaFx ~= nil then
-    player:setDeltaFx(opts.deltaFx)
   end
   if opts.direction then
     player:setDirection(opts.direction)
@@ -236,22 +204,22 @@ function ModelInstance:stop(nameOrToken)
   return removed
 end
 
--- Recompute the effective material state from the material attachments
--- (spec section 19). Runs inside drawItems; call it directly to inspect the
--- state without drawing. With no attachments the evaluator still runs: the
--- static SRT matrix and the base texture's alpha classification are part of
--- the effective state.
+-- Recompute the effective material state from the material attachments.
+-- Runs inside drawItems; call it directly to inspect the state without
+-- drawing. With no attachments the evaluator still runs: the static SRT
+-- matrix and the base texture's alpha classification are part of the
+-- effective state.
 function ModelInstance:evaluateMaterials()
-  measured(self, PosePerformanceCounter.MATERIAL, function()
-    MaterialEvaluator.evaluate(self.definition, self.animationState:attachments("material"), self.materialState)
-  end)
+  MaterialEvaluator.evaluate(self.definition, self.animationState:attachments("material"), self.materialState)
 end
 
 -- The effective render material record for a material index: definition
 -- properties plus this instance's evaluated state. Never mutates the
 -- definition. The texture image is resolved through the instance's
 -- resolveImage callback (nil without one); the UV transform matrix is the
--- evaluator's normalized 3x3.
+-- evaluator's normalized 3x3. The polygon draw state (cull mode, polygon
+-- mode/id, depth flags) is per draw segment and lives on the mesh records,
+-- not here.
 function ModelInstance:effectiveMaterial(materialIndex)
   local material = assert(
     self.definition.materials[materialIndex + 1],
@@ -274,7 +242,7 @@ function ModelInstance:effectiveMaterial(materialIndex)
   if state and state.texture and self.resolveImage then
     image = self.resolveImage(state.texture, state.texWidth, state.texHeight)
   end
-  local alphaClass = state and state.alphaClass or ALPHA_CLASS[material.alphaMode]
+  local alphaClass = state and state.alphaClass or ALPHA_CLASS[material.alphaMode] or "opaque"
   return {
     image = image,
     texMatrix = state and state.texMatrix or IDENTITY_TEX_MATRIX,
@@ -285,9 +253,6 @@ function ModelInstance:effectiveMaterial(materialIndex)
     alphaClass = alphaClass,
     alphaCutoff = alphaClass == "cutout" and CUTOUT_EPSILON or nil,
     polygonAlpha = (state and state.polygonAlpha or 31) / 31,
-    polygonMode = "modulation",
-    polygonId = 255,
-    cullMode = material.doubleSided and "none" or "back",
   }
 end
 
@@ -303,28 +268,34 @@ end
 ---@field polygonMode string
 ---@field polygonId integer
 ---@field cullMode string
----@field center number[]
----@field submissionIndex integer
+---@field translucentDepthWrite boolean
+---@field depthEqual boolean
+---@field center number[] -- model-space center, transformed by the render queue
+---@field submissionIndex integer|nil -- assigned by the scene flattening pass
 ---@field billboardBase number[]|nil
 
 -- Draw items in the MapRenderer item shape, one per definition mesh, with
--- the current pose. `renders` maps mesh id -> built render mesh (love Mesh
--- in production; any object in pure tests). A mesh whose node is hidden by
--- the current pose is omitted. Before the first pose evaluation meshes
--- render at their bind placement under the instance transform.
+-- the current pose. `renderMeshesById` maps mesh id -> built render mesh
+-- (love Mesh in production; any object in pure tests). A mesh whose node is
+-- hidden by the current pose is omitted. Before the first pose evaluation
+-- meshes render at their bind placement under the instance transform.
 --
 -- Nitro-backed definitions carry per-mesh draw records in the pose
 -- (PoseState.drawMatrices): a Nitro draw is not one node matrix, so those
 -- records -- resolved from the transform program -- replace the node-matrix
--- path. A billboard draw's baked geometry takes the camera-facing matrix
--- rebuilt from its captured base (MapRenderer), exactly like the static
--- building path.
+-- path, and the polygon draw state compiled per segment (cull mode, polygon
+-- mode/id, depth flags) rides on the item. A billboard draw's baked geometry
+-- takes the camera-facing matrix rebuilt from its captured base
+-- (MapRenderer), exactly like the static building path. The center is the
+-- mesh's model-space bounding-box center (stamped by the loader); the
+-- render queue transforms it once by the item transform.
 ---@return ModelDrawItem[]
-function ModelInstance:drawItems(renders)
-  assert(type(renders) == "table", "drawItems requires a mesh render table")
+function ModelInstance:drawItems(renderMeshesById)
+  assert(type(renderMeshesById) == "table", "drawItems requires a mesh render table")
   self:evaluateMaterials()
   local items = {}
   local pose = self.poseState
+  local backendMeshes = self.definition.backend and self.definition.backend.meshes or {}
   for _, mesh in ipairs(self.definition.meshes) do
     if not (pose and pose.nodeVisible[mesh.nodeIndex] == false) then
       ---@type PoseDrawMatrix|nil
@@ -344,20 +315,22 @@ function ModelInstance:drawItems(renders)
         end
         transform = Matrix4.multiply(self.transform, nodeMatrix)
       end
+      local meshState = backendMeshes[mesh.id]
       local material = self:effectiveMaterial(mesh.materialIndex)
       items[#items + 1] = {
-        mesh = renders[mesh.id],
+        mesh = renderMeshesById[mesh.id],
         material = material,
         transform = transform,
+        billboardBase = billboardBase,
         alphaClass = material.alphaClass,
         alphaCutoff = material.alphaCutoff,
         polygonAlpha = material.polygonAlpha,
-        polygonMode = material.polygonMode,
-        polygonId = material.polygonId,
-        cullMode = material.cullMode,
-        center = { transform[13], transform[14], transform[15] },
-        submissionIndex = #items,
-        billboardBase = billboardBase,
+        polygonMode = meshState and meshState.polygonMode or "modulation",
+        polygonId = meshState and meshState.polygonId or 0,
+        cullMode = meshState and meshState.cullMode or "back",
+        translucentDepthWrite = meshState and meshState.translucentDepthWrite or false,
+        depthEqual = meshState and meshState.depthEqual or false,
+        center = mesh.center or { 0, 0, 0 },
       }
     end
   end

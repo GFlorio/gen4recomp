@@ -182,8 +182,11 @@ local function pivotTable(entries)
 end
 
 -- One door-like target with an 8-key pivot rotation (like the real
--- `door_op`): translation and scale from the model.
-function AnimationFixture.jntDoor(anmFlags)
+-- `door_op`): translation and scale from the model. `trailingBytes` appends
+-- unrelated data after the rotation key array inside the JNT0 section, to
+-- exercise the final-curve bound (the key area is the record tail, so the
+-- final curve extends to the section end).
+function AnimationFixture.jntDoor(anmFlags, trailingBytes)
   local entries = {}
   for i = 0, 7 do
     entries[#entries + 1] = { control = 0x0024, a = 1 - i / 16, b = i / 16 }
@@ -207,7 +210,7 @@ function AnimationFixture.jntDoor(anmFlags)
       },
     },
     rotData = pivotTable(entries),
-    keyData = { rot = table.concat(keys) },
+    keyData = { rot = table.concat(keys) .. (trailingBytes or "") },
   })
   return file("BCA0", "JNT0", dictWithRecord({ { name = "door_op", data = u32(0) } }, record))
 end
