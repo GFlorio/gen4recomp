@@ -49,7 +49,7 @@ end
 -- (src/text.c); palette.colors is 1-based (colors[i] = slot i-1), so the
 -- index is slot + 1. The DS drew the background slot in the window fill color
 -- so it *looked* transparent; in a composited atlas it must be actually
--- transparent (spec section 7.7 "transparent glyph background"), otherwise
+-- transparent ("transparent glyph background"), otherwise
 -- every 16x16 glyph cell becomes an opaque rectangle that chops the narrower
 -- glyphs placed before it.
 

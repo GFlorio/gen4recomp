@@ -1,5 +1,5 @@
 -- Message provider tests over a FakeCache: bank lifetime, immutable templates,
--- substitution formatting, and eviction (spec sections 14.1-14.3).
+-- substitution formatting, and eviction.
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.rom.src.Errors")

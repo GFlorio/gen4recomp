@@ -1,4 +1,4 @@
--- Private save-resume target facts for Epic 11: a captured save restores
+-- Private save-resume target facts: a captured save restores
 -- field location, avatar, and the full event store on both target maps, and a
 -- resumed event store still hides the scenario-seeded story actors. There is
 -- only one save schema, so no version handling exists. Everything runs

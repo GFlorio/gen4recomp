@@ -1,8 +1,8 @@
 -- Decodes a Nitro texture to RGBA8 pixels. Takes a decoupled descriptor
 -- (format, dimensions, and the raw texel/palette/index byte slices) so it can
 -- be unit tested with exact fixtures and reused for both standalone BTX0 and
--- embedded TEX0 textures. Decode rules follow GBATEK "DS Video Texture Data"
--- and spec section 16. Output is row-major, top-left origin, straight (not
+-- embedded TEX0 textures. Decode rules follow GBATEK "DS Video Texture Data".
+-- Output is row-major, top-left origin, straight (not
 -- premultiplied) alpha. Also reports alphaUsage (hasZero, hasPartial,
 -- hasOpaque) derived from the decoded alpha bytes so the compiler can classify
 -- the material without re-scanning the texture. Pure domain module, arithmetic

@@ -118,7 +118,7 @@ T["unknown symbol errors"] = function()
 end
 
 -- 3. Flag conditions and dynamic flag ids execute through the catalog-backed
--- world .
+-- world.
 T["flag condition and dynamic ids"] = function()
   local h = harness()
   local flagsResource = script("test.flags", {
@@ -147,8 +147,7 @@ T["flag condition and dynamic ids"] = function()
   Assert.isTrue(h.world:events():isFlagSet(0x801))
 end
 
--- 4. Persistent variables survive a save/load cycle through the world bucket
--- .
+-- 4. Persistent variables survive a save/load cycle through the world bucket.
 T["persistent variables survive save"] = function()
   local h = harness()
   local persistResource = script("test.persist", {
@@ -168,8 +167,7 @@ T["persistent variables survive save"] = function()
   Assert.equal(restoredWorld:getVar("VAR_SCENE_NEW_BARK_TOWN_OW"), 1)
 end
 
--- 5. Temporary locals are not persisted after instance completion
--- .
+-- 5. Temporary locals are not persisted after instance completion.
 T["temp locals cleared on completion"] = function()
   local h = harness()
   local resource = script("test.locals", {
@@ -221,7 +219,7 @@ T["world state round trip"] = function()
 end
 
 -- 8. The new-bark branching scenario: scene variable drives the branch and
--- save state selects every branch .
+-- save state selects every branch.
 T["new bark branching driven by save state"] = function()
   local h = harness()
   local resource = script("new_bark.npc.woman_1", {

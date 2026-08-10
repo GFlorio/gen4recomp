@@ -26,7 +26,7 @@ function RawIr.instruction(offset, opcode, name, operands, size, label)
   }
 end
 
--- Build one movement action record .
+-- Build one movement action record.
 ---@param offset integer
 ---@param movementCode integer|nil
 ---@param name string

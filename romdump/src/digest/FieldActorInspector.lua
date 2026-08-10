@@ -1,5 +1,5 @@
 -- Payload-free report over a compiled field-actor bundle. Prints the structural
--- facts Gate 1 asks for -- table span, descriptor resolution, per-sprite resource
+-- facts: table span, descriptor resolution, per-sprite resource
 -- tuple, frame inventory, and pose timing -- without emitting any ROM-derived
 -- image or texel byte. Pure: it formats an already-compiled bundle.
 

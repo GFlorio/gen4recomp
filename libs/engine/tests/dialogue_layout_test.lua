@@ -1,5 +1,5 @@
 -- Pure dialogue pagination tests: width wrapping, explicit breaks, page
--- boundaries, and over-wide glyph handling (spec section 15.4 and 21.4).
+-- boundaries, and over-wide glyph handling.
 -- All fixtures are authored token streams with a synthetic font metric table.
 
 local Assert = require("tests.support.Assert")
@@ -194,8 +194,7 @@ function T.layout_is_immutable_across_reuse()
 end
 
 -- A metrics object with nonGlyphWidth gives marker tokens a measured width so
--- the rendered marker never overflows a line the layout did not budget for
--- (spec section 15.4).
+-- the rendered marker never overflows a line the layout did not budget for.
 local function markerMetrics(nonGlyphWidth)
   return {
     glyphWidth = function(code)

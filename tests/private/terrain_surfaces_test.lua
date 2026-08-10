@@ -1,4 +1,4 @@
--- Private Gate 6 facts for the canonical target BDHC payloads and New Bark's
+-- Private target facts for the canonical target BDHC payloads and New Bark's
 -- east laboratory staircase. These assertions intentionally freeze normalized
 -- metadata and the geometric traversal path before FieldPlayer consumes it.
 

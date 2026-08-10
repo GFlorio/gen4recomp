@@ -212,8 +212,8 @@ function FakeActors:partnerId()
   return self.partner
 end
 
--- Resolve a numeric local map-object index through the fixture map (spec
--- section 40.1): index -> actor id, or nil when no fixture mapping exists.
+-- Resolve a numeric local map-object index through the fixture map:
+-- index -> actor id, or nil when no fixture mapping exists.
 ---@param index integer
 ---@return string|nil
 function FakeActors:actorIdForMapIndex(index)

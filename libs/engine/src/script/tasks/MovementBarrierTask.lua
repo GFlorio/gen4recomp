@@ -87,7 +87,7 @@ end
 
 -- The environment advances to the next movement generation when the barrier
 -- completes during task polling, so movements launched later in the same
--- tick belong to the new generation .
+-- tick belong to the new generation.
 ---@param state table
 ---@param ctx table
 function MovementBarrierTask.onComplete(state, ctx)

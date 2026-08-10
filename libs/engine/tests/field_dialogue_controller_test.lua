@@ -1,4 +1,4 @@
--- Headless dialogue controller tests (spec sections 15.5-15.7 and 21.5):
+-- Headless dialogue controller tests:
 -- fixed-tick typewriter reveal, Action reveal/advance/close semantics, cancel
 -- policy, auto-scroll pages, exactly-once completion, error unwind, and the
 -- deterministic cursor blink. Layout and input are injected, so the whole

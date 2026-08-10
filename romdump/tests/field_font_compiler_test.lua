@@ -1,5 +1,5 @@
 -- Deterministic field-font compilation and cache readiness/rollback using a
--- synthetic font member and RLCN palette (spec section 21.1).
+-- synthetic font member and RLCN palette.
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.rom.src.Errors")

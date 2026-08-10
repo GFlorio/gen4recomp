@@ -64,7 +64,7 @@ end
 ---@return Errors.Error|nil
 function WaitTicksTask.validate(state)
   -- The internal form holds remainingTicks >= 0 (zero is the completed
-  -- countdown of a completed-but-unconsumed task, ; the
+  -- countdown of a completed-but-unconsumed task; the
   -- var-driven form names the countdown variable whose value lives in the
   -- world store.
   if type(state) ~= "table" then

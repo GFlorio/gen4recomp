@@ -13,7 +13,7 @@ local SourceCatalog = require("romdump.src.digest.script.SourceCatalog")
 
 local SemanticLowering = {}
 
--- HGSS GoToIf condition codes .
+-- HGSS GoToIf condition codes.
 local CONDITION_OPERATORS = { [0] = "lt", [1] = "eq", [2] = "gt", [3] = "le", [4] = "ge", [5] = "ne" }
 
 -- Numeric direction codes (field movement direction table).
@@ -136,7 +136,7 @@ local function withProvenance(step, offsets, opcodes)
   return step
 end
 
--- Movement actions for an ApplyMovement operand .
+-- Movement actions for an ApplyMovement operand.
 ---@param movementLabel string
 ---@param memberIr table
 ---@param provenance table
@@ -211,7 +211,7 @@ local HANDLERS = {
   [20] = function(ins, memberIr, provenance, ctx)
     -- CallStd id: resolve the std catalog to the public `common.<name>` id
     -- (decomp symbols and binary numeric ids both resolve); unknown ids stay
-    -- mechanical `common.std_<id>` .
+    -- mechanical `common.std_<id>`.
     local id = operandValue(ins.operands[1])
     local target
     if ctx.stdCatalog ~= nil then
@@ -712,7 +712,7 @@ local function foldConditional(ins, branch)
 end
 
 -- The NPCMsg + WaitButton + CloseMsg triplet folds into `say` with the hgss
--- timing profile . Returns the say item plus the
+-- timing profile. Returns the say item plus the
 -- number of instructions consumed (3), or nil.
 ---@param messageStep table
 ---@param waitIns table
@@ -856,7 +856,7 @@ function SemanticLowering.lowerScript(script, memberIr, opts)
           else
             -- The compare-state fallback forms preserve the source compare
             -- state; a cross-script target rides the same runtime state via
-            -- the additive script/label fields .
+            -- the additive script/label fields.
             local step = {
               op = item.op,
               operator = item.operator,
@@ -1010,7 +1010,7 @@ function SemanticLowering.lowerScript(script, memberIr, opts)
           handled = true
         elseif step.op == "release_all" then
           -- The source command unconditionally yields one frame after
-          -- unpausing . The synthesized yield has
+          -- unpausing. The synthesized yield has
           -- no source instruction of its own, so it carries no provenance
           -- (its node id is structural, avoiding a duplicate with the
           -- release node's src: id).

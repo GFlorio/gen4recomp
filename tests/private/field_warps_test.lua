@@ -1,4 +1,4 @@
--- Private Epic 8 target facts resolve the compiled Elm/New Bark warp pair all
+-- Private target facts resolve the compiled Elm/New Bark warp pair all
 -- the way through destination terrain selection without hardcoded endpoints.
 
 local Assert = require("tests.support.Assert")

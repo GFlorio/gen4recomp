@@ -1,9 +1,8 @@
--- Compiler and graph tests. They freeze the
--- internal graph contract of section 24: node IDs (key/src/path forms),
--- resolved control edges, the semantic revision hash, load-time structural
--- validation, warnings, immutability, and
--- deterministic inspection. every supported authoring
--- construct compiles to a deterministic graph.
+-- Compiler and graph tests. They pin the internal graph contract: node IDs
+-- (key/src/path forms), resolved control edges, the semantic revision hash,
+-- load-time structural validation, warnings, immutability, and deterministic
+-- inspection. Every supported authoring construct compiles to a deterministic
+-- graph.
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.rom.src.Errors")
@@ -84,7 +83,7 @@ local function womanScript()
   })
 end
 
--- 45.x every-op sweep: one step per canonical operation plus a label pair for
+-- Every-op sweep: one step per canonical operation plus a label pair for
 -- local control targets. Compiles with wrapper permission for `next`.
 local function allOpsScript()
   local steps = {
@@ -709,7 +708,7 @@ function T.declared_params_and_locals_are_in_the_revision()
   Assert.isFalse(compile(base).revision == compile(renamed).revision, "declared local change must change revision")
 end
 
--- --- Structural validation (spec 25.1) ---
+-- --- Structural validation ---
 
 function T.compile_propagates_validator_errors()
   compileError(
@@ -832,7 +831,7 @@ function T.maximum_static_nesting_is_enforced()
   compile(S.script({ api = 1, id = "x", steps = shallow }))
 end
 
--- --- Unsupported reachability (spec 22, 25.1) ---
+-- --- Unsupported reachability ---
 
 function T.reachable_unsupported_flags_the_graph()
   local graph = compile(S.script({
@@ -879,7 +878,7 @@ function T.unsupported_behind_unconditional_jump_is_ignored()
   Assert.isFalse(graph.hasUnsupported)
 end
 
--- --- Warnings (spec 25.2) ---
+-- --- Warnings ---
 
 local function warningMessages(graph)
   local out = {}

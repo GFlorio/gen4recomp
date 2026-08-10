@@ -95,7 +95,7 @@ function ScriptActorWorld:partnerId()
   return self._manager:partnerId()
 end
 
--- Serializable read-only snapshot of one actor ; nil when
+-- Serializable read-only snapshot of one actor; nil when
 -- the actor is not live.
 ---@param actorId string
 ---@return table|nil

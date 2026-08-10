@@ -79,7 +79,7 @@ function FakeDialogueHost:hideWaitingIcon()
   self:_record("hideWaitingIcon")
 end
 
--- Render a text-value descriptor to its display string .
+-- Render a text-value descriptor to its display string.
 function FakeDialogueHost:resolveText(textValue)
   if type(textValue) ~= "table" or textValue.text == nil then
     return tostring(textValue)

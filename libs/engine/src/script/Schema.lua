@@ -10,7 +10,7 @@ Schema.API_VERSION = 1
 Schema.SCRIPT_KIND = "field_script"
 Schema.SCHEMA_NAME = "gen4-script-schema-v1"
 
--- Declared param/local value types .
+-- Declared param/local value types.
 Schema.PARAM_TYPES = {
   "bool",
   "integer",
@@ -74,7 +74,7 @@ Schema.SCRIPT = {
   },
 }
 
--- General value references . Each kind's fields
+-- General value references. Each kind's fields
 -- are validated against its own spec; unknown kinds are invalid references.
 Schema.VALUES = {
   var = { fields = { id = { type = "string", required = true } } },
@@ -87,7 +87,7 @@ Schema.VALUES = {
   trigger_direction = { fields = {} },
 }
 
--- Text-value descriptors . Descriptors are never
+-- Text-value descriptors. Descriptors are never
 -- eagerly rendered strings.
 Schema.TEXT_VALUES = {
   player_name = { fields = {} },
@@ -119,7 +119,7 @@ Schema.TEXT_VALUES = {
   },
 }
 
--- Condition references .
+-- Condition references.
 Schema.CONDITIONS = {
   compare = {
     fields = {
@@ -141,7 +141,7 @@ Schema.CONDITIONS = {
   truthy = { fields = { value = { type = "scalar_or_value", required = true } } },
 }
 
--- Movement actions . A movement sequence is an
+-- Movement actions. A movement sequence is an
 -- array of these.
 Schema.MOVEMENT_ACTIONS = {
   face = {
@@ -579,7 +579,7 @@ for _, op in pairs(Schema.OPERATIONS) do
   end
 end
 
--- Normative constructor index . Grouped exactly like the
+-- Normative constructor index. Grouped exactly like the
 -- spec tables; the doc generator renders this into docs/script-api-v1.md.
 Schema.CONSTRUCTORS = {
   {

@@ -43,7 +43,7 @@ local ALIAS_TO_SYMBOL = {
   land_data = "NARC_fielddata_landdata_land_data",
   field_actor_models = "NARC_data_mmodel_mmodel",
   field_static_models = "NARC_a_1_0_3",
-  -- Map-asset archives . Symbolic decomp names are not exposed
+  -- Map-asset archives. Symbolic decomp names are not exposed
   -- for these in the pinned catalog, so they resolve through the a/G/D/F path.
   area_data = "NARC_a_0_4_2",
   area_build_config = "NARC_a_0_4_3",

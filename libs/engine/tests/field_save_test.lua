@@ -137,7 +137,7 @@ function T.refuses_mid_step_and_mid_transition_capture()
   Assert.isFalse(FieldSave.canCapture(walking))
   local fading = { player = { motion = "idle" }, transition = { phase = "fade_out" } }
   Assert.isFalse(FieldSave.canCapture(fading))
-  -- A half-open dialogue must never be captured (spec section 16.3).
+  -- A half-open dialogue must never be captured.
   local halfOpen = {
     player = { motion = "idle" },
     transition = { phase = "idle" },

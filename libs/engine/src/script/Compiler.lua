@@ -1,12 +1,11 @@
 -- Compiles a validated gen4 field-script resource into the immutable internal
--- graph that the runtime executes. Node IDs follow section
--- 24.1 (author `key`, generated `src:<member>:<index>:<offset>[/<op>]`, else
--- structural `path:steps/3/no/2`); the revision hash follows section 24.2 and
--- covers only normalized semantics. Load-time structural validation from
--- section 25.1 also lives here: label uniqueness/targets, wrapper-only `next`,
--- local call-target resolution, recursive call cycles without a blocking edge,
--- and static nesting. The compiler deep-copies and freezes; authoring tables
--- are never shared and never mutated.
+-- graph that the runtime executes. Node IDs are either the author `key`, a
+-- generated `src:<member>:<index>:<offset>[/<op>]`, or a structural
+-- `path:steps/3/no/2`; the revision hash covers normalized semantics only.
+-- Load-time structural validation also lives here: label uniqueness/targets,
+-- wrapper-only `next`, local call-target resolution, recursive call cycles
+-- without a blocking edge, and static nesting. The compiler deep-copies and
+-- freezes; authoring tables are never shared and never mutated.
 
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -18,13 +17,13 @@ local Graph = require("libs.engine.src.script.Graph")
 
 local Compiler = {}
 
--- Maximum static if/switch nesting depth .
+-- Maximum static if/switch nesting depth.
 Compiler.MAX_STATIC_NESTING = 64
 
 -- Ops that end a run phase (yield or block) or terminate the script. A local
 -- call cycle whose subroutines contain none of these before their first call
 -- can never suspend and would burn the step budget, so the compiler rejects it
--- at load time .
+-- at load time.
 local CYCLE_BREAKING_OPS = {
   yield_tick = true,
   wait_ticks = true,
@@ -120,7 +119,7 @@ end
 
 -- Normalization helpers. Each returns a fresh deep-copied table with schema
 -- defaults applied and nested references canonicalized (value/text/condition/
--- actor/message forms per sections 10-11 and 45).
+-- actor/message forms).
 
 local normalizeByType
 local normalizeStep
@@ -153,7 +152,7 @@ local function normalizeText(v)
   return normalizeKind(v, Schema.TEXT_VALUES, "text")
 end
 
--- String actor shorthand becomes an actor reference .
+-- String actor shorthand becomes an actor reference.
 ---@param v any
 ---@return table
 local function normalizeActor(v)
@@ -546,8 +545,8 @@ compileSteps = function(steps, path, cont, owner, depth)
   return ids[1]
 end
 
--- Reject local call cycles whose subroutines can never suspend or terminate
--- . Subroutine-flow edges run from a span owner to a label:
+-- Reject local call cycles whose subroutines can never suspend or terminate.
+-- Subroutine-flow edges run from a span owner to a label:
 -- a call step, or a linear fallthrough that lands on a later label's marker.
 -- An SCC in this graph is recursive control flow; it is allowed only when some
 -- span in the cycle contains a cycle-breaking op before its first call step,
@@ -620,7 +619,7 @@ local function cycleCheck()
 end
 
 -- Reachability, unsupported-node analysis, and load-time warnings on the
--- completed graph .
+-- completed graph.
 ---@param graph table
 local function analyze(graph)
   local visited = {}

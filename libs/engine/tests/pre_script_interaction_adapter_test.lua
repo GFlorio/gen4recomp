@@ -1,7 +1,7 @@
 -- Headless adapter tests: the pre-script interaction client matches intents
 -- to fixtures, formats real provider messages, pushes and releases the
 -- temporary facing override exactly once on every terminal path, and opens
--- the modal dialogue (spec sections 13 and 21.5). The real dialogue
+-- the modal dialogue. The real dialogue
 -- controller, provider, and layout are driven with synthetic fonts/banks, so
 -- no LÖVE or ROM data is involved.
 
@@ -260,8 +260,8 @@ function T.player_name_substitution_flows_into_the_formatted_message()
     },
   })
   h.adapter:consume(objectIntent({ object = { actorId = "map:61:object:0", objectEventId = 0, spriteId = 99 } }))
-  -- The formatted message text must contain the substituted value (spec
-  -- section 14.3: substitution happens before pagination).
+  -- The formatted message text must contain the substituted value:
+  -- substitution happens before pagination.
   Assert.equal(h.dialogue._request.message.text, "GOLD")
   Assert.equal(h.dialogue:status().requestId, "pre-script-map:61:object:0")
   Assert.isTrue(closeDialogue(h.dialogue))

@@ -1,13 +1,13 @@
--- Project-owned preview fixtures for the temporary pre-script interaction
--- adapter (spec section 13). Keys are stable identities:
+-- Project-owned fixture manifest for the pre-script interaction fallback
+-- adapter. Keys are stable identities:
 --   object:     map:<mapId>:object:<objectEventId>
 --   background: map:<mapId>:background:<eventIndex>
 -- Each record maps one source interaction to one static, non-branching
--- dialogue preview. These are deliberately selected previews -- NOT a
+-- dialogue. These are deliberately selected fixtures -- NOT a
 -- hand-implemented version of the retail scripts -- so every entry cites the
 -- pinned decomp source that justifies the message choice. The runtime never
 -- derives a message ID from a script ID; production code only matches these
--- exact keys (spec Appendix C).
+-- exact keys.
 --
 -- The scriptId values below are the RAW u16 script IDs from the zone-event
 -- records. HGSS stores scr_seq index N + 1 (0 means "no script"); the pinned
@@ -75,7 +75,7 @@ return {
   ["map:61:background:10"] = {
     -- Healing PC: raw scriptId 14 -> scr_seq_T20R0101_013, which shows
     -- msg_0543_T20R0101_00014 before the heal/choice logic (FLAG_GOT_STARTER
-    -- unset). Readable preview without executing heal/menu logic.
+    -- unset). Readable fixture message without executing heal/menu logic.
     messageBankId = 543,
     messageId = 14,
     facePlayer = false,

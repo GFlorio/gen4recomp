@@ -29,7 +29,7 @@ function ScriptInteractionClient.new(opts)
 end
 
 -- Resolve one intent into a trigger + composed descriptor, or nil when the
--- map event is not bound .
+-- map event is not bound.
 ---@param intent table InteractionIntent
 ---@return table|nil { trigger, composed }
 function ScriptInteractionClient:resolve(intent)

@@ -1,10 +1,10 @@
 -- Renders the modal dialogue box into the viewport's centered 4:3 reference
--- frame (spec section 15.3): a provisional nine-slice window, the extracted
+-- frame: a provisional nine-slice window, the extracted
 -- glyph atlas text (ink and shadow baked at import time), and a blinking
 -- continue cursor. It owns the font definition and atlas Image, builds the
 -- slice source image once, draws after the 3D world pass, and restores every
--- graphics state it touches (canvas, shader, scissor, blend, depth, color;
--- spec section 15.6). Pure-free by design: nothing else may own the atlas.
+-- graphics state it touches (canvas, shader, scissor, blend, depth, color).
+-- Pure-free by design: nothing else may own the atlas.
 -- Construction is failure-safe: a quad/slice failure after the atlas or slice
 -- image was created releases the acquired images before rethrowing, and draw()
 -- balances its transform push even when drawing raises.

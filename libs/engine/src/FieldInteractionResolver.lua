@@ -5,7 +5,7 @@
 -- compatibility table is the pinned assembly's `BgEventDirectionIsCompatibleWithPlayerFacing`
 -- (raw 4 is a wildcard; facing 0/1/2/3 accept {0,6}/{3,6}/{2,5}/{1,5}).
 --
--- The session owns interaction eligibility timing (spec section 11.3 step 6):
+-- The session owns interaction eligibility timing:
 -- calling resolve means the player is idle, the Action edge is present, and
 -- no transition or modal is active. This module answers only what is in front
 -- of the player. A facing cell outside coverage or beyond the reachable step
@@ -19,7 +19,7 @@
 -- raw scriptId -- the original always starts the scene script with the raw
 -- u16, so 0 or 0xFFFF is the script engine's business, not ours. Type-2
 -- background events are the hidden-item path and depend on collection flags
--- that this milestone does not track: they are skipped. Pure domain module:
+-- that do not exist yet: they are skipped. Pure domain module:
 -- no love dependency.
 
 local Errors = require("libs.rom.src.Errors")
@@ -76,8 +76,8 @@ FieldInteractionResolver.RAW_FACING = { north = 0, south = 1, west = 2, east = 3
 -- (`BgEventDirectionIsCompatibleWithPlayerFacing`, asm/unk_0203DB6C.s).
 FieldInteractionResolver.BACKGROUND_DIRECTION_WILDCARD = 4
 
--- Background event type of the hidden-item path, which this milestone does not
--- track (collection flags); the resolver skips it.
+-- Background event type of the hidden-item path (collection-flag
+-- dependent); the resolver skips it.
 FieldInteractionResolver.HIDDEN_ITEM_EVENT_TYPE = 2
 
 -- Player facing raw code -> background event raw direction codes that
@@ -97,8 +97,8 @@ local DIRECTION_DELTAS = {
   east = { x = 1, z = 0 },
 }
 
--- Named pure function for the raw direction compatibility table (spec
--- section 12.5). BACKGROUND_DIRECTION_WILDCARD matches every facing.
+-- Named pure function for the raw direction compatibility table.
+-- BACKGROUND_DIRECTION_WILDCARD matches every facing.
 ---@param playerFacingRaw integer
 ---@param backgroundDirectionRaw integer
 ---@return boolean
@@ -119,7 +119,7 @@ function FieldInteractionResolver.backgroundDirectionCompatible(playerFacingRaw,
 end
 
 -- opts.actorAt: function(mapId, fieldX, fieldZ, surfaceId) -> actor | nil.
--- The actor manager's occupancy index is the lookup (spec section 12.4);
+-- The actor manager's occupancy index is the lookup;
 -- hidden actors never appear there.
 ---@param opts FieldInteractionResolverOptions
 ---@return FieldInteractionResolver

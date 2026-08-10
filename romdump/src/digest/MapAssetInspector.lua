@@ -53,8 +53,8 @@ local function sortedKeys(set)
   return out
 end
 
--- Read a NARC member, validating the id against the archive size (spec 10.3 /
--- 13.5). Returns bytes, member sha1.
+-- Read a NARC member, validating the member id against the archive size.
+-- Returns bytes, member sha1.
 local function readMember(narc, alias, memberId)
   local count = narc:memberCount()
   assert(
@@ -474,7 +474,7 @@ function MapAssetInspector.inspect(romFs, idOrSymbol)
   local bldTexPack =
     assert(Nsbtx.decode(bldTexBytes, { alias = "building_textures", memberId = area.buildingTexturePackId }))
 
-  -- Target material/polygon-state inventory (Slice 0 merge gate): fold the map
+  -- Target material/polygon-state inventory: fold the map
   -- model and every placed building model, plus the area texture-pack formats.
   local inv = newInventory()
   accumulate(inv, mapModel.models[1])

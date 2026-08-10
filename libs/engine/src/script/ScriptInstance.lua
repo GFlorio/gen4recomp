@@ -3,8 +3,8 @@
 -- composition frames), instance locals, text argument slots, the low-level
 -- compare state, and the scheduler-visible scheduling fields (`readyAtTick`,
 -- `lastRunTick`, `waitingTaskId`, `taskResult`, status). Every frame is
--- attributed to its composition entry . Frames and timing
--- capture as relative delays for the save schema . Pure domain
+-- attributed to its composition entry. Frames and timing
+-- capture as relative delays for the save schema. Pure domain
 -- module: no love dependency.
 
 local ScriptEnvironment = require("libs.engine.src.script.ScriptEnvironment")
@@ -164,7 +164,7 @@ function ScriptInstance:resumeCaller(poppedFrame)
 end
 
 -- Release instance-scoped state: text argument slots are cleared when the
--- script instance ends , and temporary locals are not
+-- script instance ends, and temporary locals are not
 -- persisted after completion.
 function ScriptInstance:clearInstanceState()
   self.textArgs = {}
@@ -173,7 +173,7 @@ end
 
 -- Deterministic capture for the save schema. Absolute scheduling ticks become
 -- relative delays rebased at capture time `captureTick`; `lastRunTick` is
--- diagnostic data and is not restored .
+-- diagnostic data and is not restored.
 ---@param captureTick integer
 ---@return table
 function ScriptInstance:capture(captureTick)
@@ -268,7 +268,7 @@ function ScriptInstance.restore(record, restoreTick, graphs)
 end
 
 -- Collect every graph revision referenced by the instance frames (for save
--- revision checks, .
+-- revision checks).
 ---@return string[]
 function ScriptInstance:graphRevisions()
   local out = {}

@@ -2,8 +2,8 @@
 -- registered by a stable name and major version; implementations supply
 -- `create`, `poll`, and `validate`. The scheduler routes task
 -- creation and polling through this registry so save records can verify both
--- the type and the version on load , and so raw-Lua handlers can
--- only ever return a task type that is registered here . The
+-- the type and the version on load, and so raw-Lua handlers can
+-- only ever return a task type that is registered here. The
 -- deterministic fingerprint covers every registered type and version; saves
 -- store it and reject a mismatch. Pure domain module: no love dependency.
 
@@ -53,7 +53,7 @@ function TaskRegistry:register(taskType, version, impl)
 end
 
 -- Resolve a task implementation; unknown types and versions are attributed
--- save errors , never silently skipped.
+-- save errors, never silently skipped.
 ---@param taskType string
 ---@param version integer
 ---@return TaskImplementation|nil, Errors.Error|nil
@@ -80,7 +80,7 @@ function TaskRegistry:resolve(taskType, version)
 end
 
 -- Deterministic fingerprint over every registered (type, version) pair; the
--- save schema stores it and load rejects a mismatch . Lookup
+-- save schema stores it and load rejects a mismatch. Lookup
 -- is order-independent, so the fingerprint is too: types are sorted by name.
 ---@return string
 function TaskRegistry:fingerprint()

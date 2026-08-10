@@ -1,7 +1,7 @@
 -- Private target dialogue facts: the real cached font definition and bank
 -- messages lay out and advance deterministically through the pure dialogue
 -- layers (provider -> format -> layout -> controller) without any LÖVE
--- graphics (spec gates 7 and 21.5). Structural facts only; no retail text is
+-- graphics. Structural facts only; no retail text is
 -- asserted or printed.
 
 local Assert = require("tests.support.Assert")
@@ -122,7 +122,7 @@ function T.target_lines_stay_inside_the_reference_text_width(romFs, version)
       for _, line in ipairs(page.lines) do
         widths[#widths + 1] = line.width
         -- Only unwrappable marker tokens may exceed the budget, and each
-        -- such line is traced as an overwide warning (spec section 15.4).
+        -- such line is traced as an overwide warning.
         Assert.isTrue(
           line.width <= FieldDialogueTheme.textWidth or warnedWidths[line.width] == true,
           string.format("bank 543 message %d line %d exceeds the text width untraced", messageId, line.width)

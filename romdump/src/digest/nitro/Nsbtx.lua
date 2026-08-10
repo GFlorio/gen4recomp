@@ -2,13 +2,13 @@
 -- embedded in a BMD0 through one path (decodeTex0 takes the raw TEX0 block).
 --
 -- TEX0 block layout (NNSG3dResTex, res_struct.h), offsets from the block start:
---   +0x0C u16 sizeTex        ; texel data size, in 8-byte units
+--   +0x0C u16 sizeTex       ; texel data size, in 8-byte units
 --   +0x0E u16 ofsTexDict
 --   +0x14 u32 ofsTexData
---   +0x1C u16 sizeTex4x4     ; compressed texel size, 8-byte units
+--   +0x1C u16 sizeTex4x4    ; compressed texel size, 8-byte units
 --   +0x24 u32 ofsTex4x4Data
 --   +0x28 u32 ofsTex4x4PlttIdx
---   +0x30 u16 sizePltt       ; palette data size, 8-byte units
+--   +0x30 u16 sizePltt      ; palette data size, 8-byte units
 --   +0x34 u16 ofsPlttDict
 --   +0x38 u32 ofsPlttData
 --

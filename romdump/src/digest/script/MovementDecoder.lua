@@ -52,7 +52,7 @@ local SINGLES = {
 }
 
 -- Decode one movement action. Returns the DSL action table, or nil plus the
--- unsupported descriptor .
+-- unsupported descriptor.
 ---@param action table
 ---@return table|nil step, table|nil unsupported
 function MovementDecoder.decode(action)

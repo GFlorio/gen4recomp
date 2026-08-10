@@ -42,7 +42,7 @@ function AskYesNoTask.poll(state, ctx)
     return { complete = false, state = state }
   end
   -- waiting_selection: the menu opened; a selection edge cannot be consumed
-  -- in the tick the menu becomes eligible .
+  -- in the tick the menu becomes eligible.
   state.phaseReadyInTicks = state.phaseReadyInTicks - 1
   if state.phaseReadyInTicks > 0 then
     return { complete = false, state = state }

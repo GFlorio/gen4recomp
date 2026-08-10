@@ -1,10 +1,10 @@
--- Save and resume tests : the serializable
--- scripts bucket of g4-field-save-v2. They freeze relative-timing capture and
+-- Save and resume tests: the serializable
+-- scripts bucket of g4-field-save-v2. They pin relative-timing capture and
 -- rebasing: no tick is duplicated or skipped across a
 -- capture/restore boundary, completed-but-unconsumed tasks restore as
 -- completed and are never polled again, resume_pending owners preserve their
 -- delay, common child contexts and caller signals survive, and fingerprint or
--- revision mismatches are attributed load errors. a
+-- revision mismatches are attributed load errors. A
 -- non-UI script saves and resumes with an identical per-tick node/task trace.
 
 local Assert = require("tests.support.Assert")
@@ -97,7 +97,7 @@ local function saveAndResume(h, tick)
 end
 
 -- Run a scenario uninterruptedly and compare the resumed trace suffix with
--- the uninterrupted one .
+-- the uninterrupted one.
 ---@param resource table
 ---@param from integer
 ---@param to integer
@@ -168,7 +168,7 @@ T["deterministic capture"] = function()
 end
 
 -- 2. Save and resume during an active wait: the countdown continues with no
--- tick duplicated or skipped .
+-- tick duplicated or skipped.
 T["resume active wait"] = function()
   local resource = script("test.wait", {
     S.waitTicks({ ticks = 3 }),
@@ -179,7 +179,7 @@ T["resume active wait"] = function()
 end
 
 -- 3. Save immediately before a task poll: the restored task polls exactly
--- when the uninterrupted one would (first eligible poll, section 26.6).
+-- when the uninterrupted one would (first eligible poll).
 T["save before poll"] = function()
   local resource = script("test.poll", {
     S.waitTicks({ ticks = 2 }),
@@ -191,7 +191,7 @@ end
 
 -- 4. Save after task completion but before owner continuation: the
 -- completed-but-unconsumed task restores as completed and is never polled
--- again; the owner's resume delay survives (sections 27.2 and 28.2).
+-- again; the owner's resume delay survives.
 T["save between completion and continuation"] = function()
   local resource = script("test.handoff", {
     S.waitTicks({ ticks = 1 }),
@@ -201,8 +201,8 @@ T["save between completion and continuation"] = function()
   traceSuffixMatch(resource, 100, 103, 101)
 end
 
--- 5. Save and resume a script with nested local calls (spec 28.2: no extra
--- run merely because loading occurred).
+-- 5. Save and resume a script with nested local calls: no extra
+-- run merely because loading occurred.
 T["resume nested local calls"] = function()
   local resource = script("test.nested", {
     S.waitTicks({ ticks = 2 }),
@@ -251,8 +251,8 @@ T["resume blocked callee with arguments"] = function()
   Assert.notNil(recorder)
 end
 
--- 6. Save and resume a blocked common child context with its caller signal
--- : the child continues, signals, and the parent resumes
+-- 6. Save and resume a blocked common child context with its caller signal:
+-- the child continues, signals, and the parent resumes
 -- one tick after the successful poll.
 T["resume common child context"] = function()
   local h = harness()
@@ -322,7 +322,7 @@ T["no double poll and no skipped delay"] = function()
   Assert.deepEqual(kinds, { "resume_promoted", "context_run", "context_completed", "environment_torn_down" })
 end
 
--- 8. Task version rejection on load .
+-- 8. Task version rejection on load.
 T["task version rejection"] = function()
   local h = harness()
   startForeground(
@@ -389,8 +389,7 @@ T["missing graph revision"] = function()
   Assert.equal(err.code, "SCRIPT_SAVE_REVISION_MISMATCH")
 end
 
--- 10. A removed mod changes the registry fingerprint, which rejects the load
--- .
+-- 10. A removed mod changes the registry fingerprint, which rejects the load.
 T["mod removed changes fingerprint"] = function()
   local h = harness()
   startForeground(
@@ -435,7 +434,7 @@ T["task fingerprint ignores registration order"] = function()
 end
 
 -- 11. Capture refuses a running context: saves occur only at fixed-tick
--- phase boundaries .
+-- phase boundaries.
 T["capture requires phase boundary"] = function()
   local h = harness()
   startForeground(
@@ -522,7 +521,7 @@ T["field save v2 round trip"] = function()
 end
 
 -- 14. The resumed trace suffix equals the uninterrupted suffix for a longer
--- script combining waits, calls, and branches .
+-- script combining waits, calls, and branches.
 T["trace suffix determinism"] = function()
   local resource = script("test.suffix", {
     S.setVar({ variable = "VAR_A", value = 1 }),
@@ -543,7 +542,7 @@ end
 
 -- 3q. A save taken after a cross-script jump pins the target script's frame
 -- identity: the resumed scheduler continues on the target graph and the
--- trace suffix matches the uninterrupted run .
+-- trace suffix matches the uninterrupted run.
 T["cross-script jump saves and resumes"] = function()
   local h = harness()
   h.registry:installBase(
@@ -576,7 +575,7 @@ T["cross-script jump saves and resumes"] = function()
 end
 
 -- 3r. A save pinned to a superseded cross-script target revision is
--- rejected .
+-- rejected.
 T["cross-script jump pins the target revision"] = function()
   local h = harness()
   h.registry:installBase(
@@ -623,7 +622,7 @@ end
 
 -- 3s. A mirrored countdown variable resumes through a save: the task state
 -- keeps the variable identity and the world store keeps the value, so the
--- restored task keeps decrementing in lockstep .
+-- restored task keeps decrementing in lockstep.
 T["countdown mirror saves and resumes"] = function()
   local h = harness()
   startForeground(

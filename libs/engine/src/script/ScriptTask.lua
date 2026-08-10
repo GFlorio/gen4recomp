@@ -1,11 +1,10 @@
 -- Script task record : the scheduler-owned lifecycle of a
--- serializable native-style wait. Creation invariants from section 27.2 are
+-- serializable native-style wait. Creation invariants are
 -- enforced here: a task never polls in its creation tick (`pollAtTick >=
 -- createdAtTick + 1`), a task polls at most once per tick, and completed or
 -- cancelled tasks are never polled. A completed task is retained until its
 -- owner consumes the result on a later tick, so the completed-but-unconsumed
--- interval is serializable. The task implementation (section 26.4: a
--- completed task is retained until its owner consumes the result)registered in the task
+-- interval is serializable. The task implementation (registered in the task
 -- registry) owns only the opaque `state`; the record owns all scheduling
 -- fields. Pure domain module: no love dependency.
 
@@ -42,7 +41,9 @@ local STATUSES = { active = true, completed = true, cancelled = true }
 ---@field pollAtTick integer
 ---@field state any
 
--- Build a task record, enforcing the creation invariants of section 27.2.
+-- Build a task record, enforcing the creation invariants of ScriptTask:
+-- a task never polls in its creation tick, polls at most once per tick, and
+-- is never polled after completion or cancellation.
 ---@param spec ScriptTask.CreateSpec
 ---@return ScriptTask
 function ScriptTask.new(spec)
@@ -86,7 +87,7 @@ function ScriptTask:complete(tick, result)
   self.result = result
 end
 
--- Cancel the task; cancelled tasks are never polled again .
+-- Cancel the task; cancelled tasks are never polled again.
 -- The implementation state is preserved: the scheduler invokes the
 -- implementation's own `cancel(state, reason)` before this record is marked.
 ---@param reason string
@@ -96,8 +97,8 @@ function ScriptTask:cancel(reason)
   self.cancelledReason = reason
 end
 
--- Mark the record consumed by its owner's continuation (section 26.4: a
--- completed task is retained until its owner consumes the result). Consumed
+-- Mark the record consumed by its owner's continuation: a completed task is
+-- retained until its owner consumes the result. Consumed
 -- records leave the serializable task set.
 function ScriptTask:markConsumed()
   self.consumed = true
@@ -105,7 +106,7 @@ end
 
 -- Deterministic serialization for the save schema : absolute
 -- runtime ticks are diagnostics; the poll deadline becomes a relative delay
--- rebased at capture time `captureTick` .
+-- rebased at capture time `captureTick`.
 ---@param captureTick integer
 ---@return table
 function ScriptTask:capture(captureTick)
@@ -127,7 +128,7 @@ function ScriptTask:capture(captureTick)
 end
 
 -- Restore a record from the save schema. `restoreTick` is the load tick; the
--- poll deadline is rebased from the relative delay .
+-- poll deadline is rebased from the relative delay.
 ---@param record table
 ---@param restoreTick integer
 ---@return ScriptTask

@@ -21,7 +21,7 @@ local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
 
 local FieldScripts = {}
 
--- Every task implementation the runtime can create .
+-- Every task implementation the runtime can create.
 local TASK_MODULES = {
   "libs.engine.src.script.tasks.WaitTicksTask",
   "libs.engine.src.script.tasks.WaitInputTask",

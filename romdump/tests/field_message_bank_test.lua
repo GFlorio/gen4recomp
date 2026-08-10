@@ -1,5 +1,5 @@
 -- Synthetic encrypted-bank round trips and typed validation errors for the
--- MAT message decoder (spec sections 7.5 and 21.1).
+-- MAT message decoder.
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.rom.src.Errors")

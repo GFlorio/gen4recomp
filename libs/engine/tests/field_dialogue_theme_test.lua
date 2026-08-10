@@ -1,4 +1,4 @@
--- Headless theme geometry tests (spec section 15.3 and 21.7): the dialogue
+-- Headless theme geometry tests: the dialogue
 -- box lives inside the centered 4:3 reference canvas at 4:3, 16:9, and
 -- ultrawide aspects, with constant reference-space dimensions and two full
 -- text lines of extracted font height. Layout returns reference-canvas

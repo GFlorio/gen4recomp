@@ -6,15 +6,15 @@
 --   +0x01 u8  numEntry (N)
 --   +0x02 u16 sizeDictBlk
 --   +0x04 u16 dummy
---   +0x06 u16 ofsEntry          ; from dict start to the entry-data section
---   +0x08 (N+1) Patricia nodes  ; 4 bytes each, not used for lookup here
+--   +0x06 u16 ofsEntry         ; from dict start to the entry-data section
+--   +0x08 (N+1) Patricia nodes ; 4 bytes each, not used for lookup here
 --   entry section (dict + ofsEntry):
---     +0x00 u16 sizeUnit        ; bytes per entry data unit (self-describing)
---     +0x02 u16 ofsName         ; from entry section to the 16-byte name list
+--     +0x00 u16 sizeUnit       ; bytes per entry data unit (self-describing)
+--     +0x02 u16 ofsName        ; from entry section to the 16-byte name list
 --     +0x04 data[N * sizeUnit]
 --     names[N * 16] at (entry section + ofsName)
 --
--- Per spec the Patricia tree is preserved but not walked; names come from the
+-- The Patricia tree is preserved but not walked; names come from the
 -- entry list and duplicate decoded names are rejected. Offsets in returned
 -- entries are absolute within the supplied buffer. Pure domain module.
 

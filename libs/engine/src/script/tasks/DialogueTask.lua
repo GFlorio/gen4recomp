@@ -17,9 +17,9 @@ local DialogueTask = {}
 DialogueTask.type = "dialogue"
 DialogueTask.version = 1
 
--- Phases from section 28.4: typing, print_complete_delay, input_armed,
--- waiting_input, close_delay, closing. v1 merges waiting_input into
--- input_armed (the host owns the text box; the task owns the wait)and
+-- Phases: typing, print_complete_delay, input_armed, waiting_input,
+-- close_delay, closing. v1 merges waiting_input into
+-- input_armed (the host owns the text box; the task owns the wait) and
 -- resolves the close in close_delay.
 local PHASES = {
   typing = true,
@@ -28,8 +28,8 @@ local PHASES = {
   close_delay = true,
 }
 
--- Resolve a gendered message descriptor against the player's gender
--- : male for gender 0, female otherwise.
+-- Resolve a gendered message descriptor against the player's gender:
+-- male for gender 0, female otherwise.
 ---@param message any
 ---@param ctx table
 ---@return any
@@ -50,7 +50,7 @@ function DialogueTask.create(spec, ctx)
   local host = assert(ctx.services.dialogue, "dialogue task requires the dialogue host")
   host:openMessage(node)
   -- The instance's buffered text arguments (buffer_text) ride alongside the
-  -- node's own bindings so the host can resolve STRVAR slots .
+  -- node's own bindings so the host can resolve STRVAR slots.
   host:startPrint(message, node.bindings or {}, ctx.instance.textArgs or {})
   return {
     message = message,

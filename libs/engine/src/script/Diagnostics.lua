@@ -1,5 +1,5 @@
--- Diagnostics and deterministic tracing for the script platform (spec
--- sections 30.7 and 38.2). The trace recorder is a pure-domain sink: the
+-- Diagnostics and deterministic tracing for the script platform.
+-- The trace recorder is a pure-domain sink: the
 -- scheduler and tasks emit immutable records (context grants, node
 -- executions, task polls and completions, readyAtTick changes), and the
 -- recorder preserves insertion order so tests and golden traces can assert

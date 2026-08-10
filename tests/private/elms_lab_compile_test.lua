@@ -74,7 +74,7 @@ function T.gate5_completeness_and_ready(romFs, version)
   Assert.equal(#sortedKeys(bundle.models), 9) -- unique indoor building models
   Assert.equal(#bundle.scene.buildingInstances, 15) -- placed instances
 
-  -- Polygon state moved from material records to batch records in slice 4.
+  -- Polygon state lives on batch records, not material records.
   for _, m in ipairs(bundle.scene.materials) do
     Assert.isNil(m.alphaMode)
     Assert.isNil(m.alphaCutoff)
@@ -99,7 +99,7 @@ function T.gate5_completeness_and_ready(romFs, version)
   end
 end
 
--- Slice 6: the selected field-light profile is source-hashed and its records
+-- The selected field-light profile is source-hashed and its records
 -- serialize deterministically; compiling twice yields identical lighting data.
 function T.gate6_lighting_profile_deterministic(romFs, version)
   local _, b1 = compileInto(romFs, version)

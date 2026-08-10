@@ -1,4 +1,4 @@
--- Fixed-tick modal dialogue controller . Owns the
+-- Fixed-tick modal dialogue controller. Owns the
 -- typewriter reveal state machine, Action reveal/advance/close semantics,
 -- cancel policy, and the exactly-once completion handle. Layout and input are
 -- injected, so headless tests drive the full lifecycle without LÖVE; the
@@ -453,9 +453,9 @@ function FieldDialogueController:dispose()
   return self:_dispatch()
 end
 
--- A DialogueRequest is the immutable open() argument .
--- The message is a formatted, pre-layout message; the adapter (Epic 10) will
--- build it from the message provider.
+-- A DialogueRequest is the immutable open() argument.
+-- The message is a formatted, pre-layout message; the pre-script adapter
+-- builds it from the message provider.
 
 ---@class FieldDialogueController.Request
 ---@field id string

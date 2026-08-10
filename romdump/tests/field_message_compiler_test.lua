@@ -1,5 +1,5 @@
 -- Deterministic message-bank compilation and cache readiness/rollback using a
--- synthetic encrypted bank member .
+-- synthetic encrypted bank member.
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.rom.src.Errors")

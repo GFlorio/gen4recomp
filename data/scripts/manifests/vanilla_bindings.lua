@@ -9,7 +9,7 @@
 -- omitted because the resolver skips that family. Script ids were resolved
 -- during binding generation from the pinned zone-event JSON members (event
 -- members 57-63 and 341) against the scr_seq script banks (members 842-849),
--- following the ROM's `script_index + 1` convention .
+-- following the ROM's `script_index + 1` convention.
 
 return {
   maps = {

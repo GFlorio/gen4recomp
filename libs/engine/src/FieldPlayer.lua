@@ -2,7 +2,7 @@
 -- Integer field coordinates commit only after a fixed-duration tile step;
 -- continuous XYZ is the shared camera and renderer position throughout it.
 --
--- Collision follows the spec decision order: permissions, then terrain surface
+-- Collision order: permissions, then terrain surface
 -- transition, then dynamic occupancy. The occupancy check is injected as a
 -- pure predicate -- `occupancy(fieldX, fieldZ, surfaceId) -> blockingActorId or
 -- nil` -- so the player never knows which object blocks it, and the actor

@@ -1,4 +1,4 @@
--- Pure interaction-resolution tests (spec section 21.3): object-first
+-- Pure interaction-resolution tests: object-first
 -- priority, background direction compatibility, surface reachability, and
 -- immutable intent values. Uses synthetic maps and a fake actor lookup, so no
 -- LÖVE or ROM data is involved.
@@ -365,7 +365,7 @@ end
 function T.actor_on_another_surface_is_ineligible()
   -- The actor occupies surface 1 while the player stands on surface 0, so the
   -- occupancy lookup misses and the compatible background on the facing cell
-  -- wins (spec section 12.6: different surfaces do not interact).
+  -- wins: different surfaces do not interact.
   local elm = actor("map:61:object:0", 0, 99, 4, 13, 1)
   local actorAt = function(_, _, _, surfaceId)
     if surfaceId == 0 then

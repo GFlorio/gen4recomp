@@ -1,12 +1,12 @@
 -- Effective script composition : folds the
 -- registry's contributions for one public script id into a deterministic
--- executable chain. Execution order follows section 30.3: `before` high
+-- executable chain. Execution order: `before` high
 -- priority to low, `wrap` high outermost, the resolved base or replacement,
 -- then `after` low priority to high. Each contribution compiles to its own
 -- immutable graph; `before`/`after`/`wrap` compile as wrappers (`allowNext`),
 -- and the base compiles strictly. Same-priority replacements from different
--- owners are a hard load error ; a winning tombstone suppresses
--- the base and every lower-priority contribution . The
+-- owners are a hard load error; a winning tombstone suppresses
+-- the base and every lower-priority contribution. The
 -- effective result is cached per id and keyed on the registry mutation
 -- version. Pure domain module.
 
@@ -57,7 +57,7 @@ function Composition.new(registry, opts)
   }, Composition)
 end
 
--- The winning base-definition record for one id, raising on the section 30.4
+-- The winning base-definition record for one id, raising on the replacement
 -- conflict: two replacements from different owners at the same winning
 -- priority. The winner is the first definition contender at the highest
 -- priority; a later same-priority, same-owner contender replaces it.

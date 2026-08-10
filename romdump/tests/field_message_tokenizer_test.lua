@@ -1,6 +1,6 @@
 -- Lossless tokenization of decrypted message code units: glyphs, breaks,
--- extended controls, substitutions, and unsupported controls (spec section
--- 7.6). Fixture text is authored; retail message bytes never appear.
+-- extended controls, substitutions, and unsupported controls.
+-- Fixture text is authored; retail message bytes never appear.
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.rom.src.Errors")

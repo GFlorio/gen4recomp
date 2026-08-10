@@ -4,8 +4,7 @@
 -- continuous XYZ. A modal dialogue owns the tick: once the fade/transition
 -- phase (which cannot be active while a dialogue is open) has advanced, the
 -- session steps only the dialogue and returns, so movement, warps,
--- interactions, and actor pose clocks freeze until the dialogue closes
--- .
+-- interactions, and actor pose clocks freeze until the dialogue closes.
 -- Variable-delta `update(dt)` obtains a fresh input snapshot for every fixed
 -- step it executes, so an edge can never be replayed across catch-up ticks;
 -- `updateFixed(snapshot)` is the explicit deterministic unit-test API.
@@ -148,7 +147,7 @@ function FieldSession:updateFixed(inputSnapshot)
       pressedCancel = inputSnapshot.cancelPressed or inputSnapshot.pressedCancel,
     })
     -- A foreground root owns the field or a player lock suppresses movement
-    -- and new triggers ; the tick is consumed.
+    -- and new triggers; the tick is consumed.
     if self.scriptScheduler:playerMovementLocked() then
       self:_advanceTick()
       return
@@ -170,7 +169,7 @@ function FieldSession:updateFixed(inputSnapshot)
     self.actors:step(self.tick + 1)
   end
 
-  -- Spec 11.3 step 6: an idle player's Action edge resolves an interaction
+  -- An idle player's Action edge resolves an interaction
   -- before movement or warps are evaluated. A consumed interaction owns the
   -- tick (the dialogue becomes modal on it), so the same edge cannot also
   -- start a move or warp. The edge itself was already consumed by the input

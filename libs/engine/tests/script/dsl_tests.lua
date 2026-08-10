@@ -12,7 +12,7 @@ local T = {}
 
 -- name -> constructor invocation. Asserted to produce `expected` exactly.
 local CASES = {
-  -- 45.1 Resource and reference constructors
+  -- Resource and reference constructors
   var = {
     function()
       return S.var("VAR_SCENE_ELMS_LAB")
@@ -68,7 +68,7 @@ local CASES = {
     { message = "external", bank = "msgbank", id = 12 },
   },
 
-  -- 45.2 Text-value constructors
+  -- Text-value constructors
   player_name = {
     function()
       return S.playerName()
@@ -160,7 +160,7 @@ local CASES = {
     { text = "gendered_message", male = "msg.hgss.0542.00006", female = "msg.hgss.0542.00007" },
   },
 
-  -- 45.3 General value constructors
+  -- General value constructors
   flag_value = {
     function()
       return S.flagValue(S.var("flag_id"))
@@ -192,7 +192,7 @@ local CASES = {
     { value = "trigger_direction" },
   },
 
-  -- 45.4 Condition constructors
+  -- Condition constructors
   eq = {
     function()
       return S.eq(S.var("VAR_SCENE_ELMS_LAB"), 0)
@@ -278,7 +278,7 @@ local CASES = {
     { condition = "truthy", value = { value = "var", id = "x" } },
   },
 
-  -- 45.5 Control-flow constructors
+  -- Control-flow constructors
   noop = {
     function()
       return S.noop()
@@ -411,7 +411,7 @@ local CASES = {
     { op = "next" },
   },
 
-  -- 45.6 State constructors
+  -- State constructors
   set_flag = {
     function()
       return S.setFlag({ flag = "FLAG_MET_ELM" })
@@ -479,7 +479,7 @@ local CASES = {
     { op = "sub_local", name = "counter", amount = 1 },
   },
 
-  -- 45.7 Dialogue constructors
+  -- Dialogue constructors
   say_defaults = {
     function()
       return S.say({ message = "msg.elms_lab.elm_intro" })
@@ -626,7 +626,7 @@ local CASES = {
     },
   },
 
-  -- 45.8 Lock and actor constructors
+  -- Lock and actor constructors
   lock_player = {
     function()
       return S.lockPlayer()
@@ -751,7 +751,7 @@ local CASES = {
     { op = "get_player_facing", result = { value = "local", name = "player_facing" } },
   },
 
-  -- 45.9 Movement constructors
+  -- Movement constructors
   apply_movement = {
     function()
       return S.applyMovement({
@@ -806,7 +806,7 @@ local CASES = {
     },
   },
 
-  -- 45.10 Audio constructors
+  -- Audio constructors
   play_sound = {
     function()
       return S.playSound({ sound = "SEQ_SE_DP_SELECT" })
@@ -904,7 +904,7 @@ local CASES = {
     { op = "fade_music_in", durationTicks = 30 },
   },
 
-  -- 45.11 Screen, camera, and map constructors
+  -- Screen, camera, and map constructors
   fade_screen = {
     function()
       return S.fadeScreen({ kind = 6, speed = 1, direction = "out", color = "black" })
@@ -936,7 +936,7 @@ local CASES = {
     { op = "shake_camera", amplitudeX = 2, amplitudeY = 0, intervalTicks = 2, count = 8 },
   },
 
-  -- 45.12 Random, raw, and diagnostic constructors
+  -- Random, raw, and diagnostic constructors
   random = {
     function()
       return S.random({ maxExclusive = 10, result = S.local_("roll") })
@@ -993,7 +993,7 @@ for name, case in pairs(CASES) do
   end
 end
 
--- 45.9 Movement action namespace
+-- Movement action namespace
 local ACTION_CASES = {
   face = {
     function()
@@ -1117,12 +1117,12 @@ function T.script_does_not_mutate_given_spec()
   Assert.equal(script.kind, "field_script")
 end
 
--- Section 5.1: every raw handler sees ctx.apiVersion == 1.
+-- Every raw handler sees ctx.apiVersion == 1.
 function T.api_version_is_one()
   Assert.equal(S.apiVersion, 1)
 end
 
--- Section 8.1: constructors return ordinary tables with no metatables.
+-- Constructors return ordinary tables with no metatables.
 local function assertNoMetatables(value, path)
   path = path or "value"
   if type(value) ~= "table" then

@@ -1,10 +1,10 @@
 -- Map event bindings : the manifest maps map ids and event
 -- keys (object actor ids, background array indices, coordinate indices) to
 -- stable public script ids. Runtime bindings never contain the ROM's one-based
--- script-index convention ; the importer resolves that during
--- binding generation. Interaction resolution order follows section 29.4: the
+-- script-index convention; the importer resolves that during
+-- binding generation. Interaction resolution order: the
 -- facing cell prefers an interactable object, then a matching background
--- event. The module builds the trigger descriptor of section 29.2. Pure
+-- event. The module builds the trigger descriptor. Pure
 -- domain module: no love dependency.
 
 local Bindings = {}
@@ -54,7 +54,7 @@ function Bindings:scriptFor(mapId, kind, key)
   return scriptId
 end
 
--- Build the trigger descriptor for an object intent .
+-- Build the trigger descriptor for an object intent.
 ---@param intent table InteractionIntent
 ---@param scriptId string
 ---@param playerFacing string
@@ -103,8 +103,8 @@ function Bindings.backgroundTrigger(intent, scriptId, playerFacing)
 end
 
 -- Resolve one interaction intent against the manifest into a trigger
--- descriptor plus the bound script id, or nil when nothing is bound (spec
--- section 29.4: object preferred, then background; coordinate and map-level
+-- descriptor plus the bound script id, or nil when nothing is bound (object
+-- preferred, then background; coordinate and map-level
 -- kinds resolve by their own keys).
 ---@param intent table InteractionIntent
 ---@param playerFacing string

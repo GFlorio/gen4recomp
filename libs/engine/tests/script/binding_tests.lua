@@ -82,7 +82,7 @@ local function script(id, steps)
 end
 
 -- 1. Object binding resolves to the stable public script id and builds the
--- section 29.2 trigger descriptor.
+-- trigger descriptor.
 T["object binding and trigger"] = function()
   local bindings = Bindings.new(MANIFEST)
   Assert.equal(bindings:scriptFor(57, "object", "obj_T20_gswoman1"), "new_bark.npc.woman_1")
@@ -127,8 +127,7 @@ T["bound script ids"] = function()
   })
 end
 
--- 5. The interaction client starts a bound script in the trigger tick
--- .
+-- 5. The interaction client starts a bound script in the trigger tick.
 T["client starts script in trigger tick"] = function()
   local p = platform()
   local resource = script("new_bark.npc.woman_1", {
@@ -336,8 +335,8 @@ T["missing actor fault through binding path"] = function()
   Assert.equal(instance.endReason, "SCRIPT_ACTOR_NOT_FOUND")
 end
 
--- 11. Map transition cancellation: a warp cancels the foreground environment
--- , releasing locks and tasks.
+-- 11. Map transition cancellation: a warp cancels the foreground environment,
+-- releasing locks and tasks.
 T["map transition cancels scripts"] = function()
   local p = platform()
   local resource = script("new_bark.npc.woman_1", {

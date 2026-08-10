@@ -1,11 +1,11 @@
--- Scheduler and core instance runtime tests .
--- They freeze the source-derived execution model of sections 2 and 26: run
+-- Scheduler and core instance runtime tests.
+-- They pin the source-derived execution model: run
 -- to yield (not one node per tick), at most one run per context per tick,
 -- tasks that never poll in their creation tick, completion recorded
 -- separately from continuation, distinct `yield_tick` vs `wait_ticks(1)`
 -- timelines, dynamic context-slot visitation, common child handoff, the
 -- per-run node budget, cancellation and fault cleanup, and lock ownership.
--- pure state/control scripts reproduce the source
+-- Pure state/control scripts reproduce the source
 -- run-to-yield and handoff timing without UI or actor dependencies.
 
 local Assert = require("tests.support.Assert")
@@ -108,8 +108,7 @@ local function throwsCode(code, fn)
   return err
 end
 
--- 1. Several non-blocking nodes execute in one tick: SetVar; SetFlag; End
--- .
+-- 1. Several non-blocking nodes execute in one tick: SetVar; SetFlag; End.
 T["same-tick chain"] = function()
   local h = harness()
   startForeground(
@@ -148,7 +147,7 @@ T["yield_tick successor next tick"] = function()
 end
 
 -- 3. waitTicks(1) timeline: create at T, first poll at T+1 completes, graph
--- continuation at T+2 (sections 26.6 and 27.3).
+-- continuation at T+2.
 T["wait_ticks one timeline"] = function()
   local h = harness()
   startForeground(
@@ -267,7 +266,7 @@ T["local call returns same tick"] = function()
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
 end
 
--- 8. Local call with args and a result value .
+-- 8. Local call with args and a result value.
 T["local call args and result"] = function()
   local h = harness()
   startForeground(
@@ -344,7 +343,7 @@ T["return evaluates the callee's own argument"] = function()
 end
 
 -- 11. A new interaction resolves and runs in the trigger tick; its tasks
--- still first poll on the next tick (sections 2 and 26.6).
+-- still first poll on the next tick.
 T["interaction runs in trigger tick"] = function()
   local h = harness()
   local resource = script("new_bark.lab_sign", {
@@ -428,7 +427,7 @@ T["at most one run per tick"] = function()
 end
 
 -- 13. Common child: stable slot ordering, caller blocked, signal handoff,
--- parent resumes one tick after the successful poll (sections 26.7 and 12.3).
+-- parent resumes one tick after the successful poll.
 T["common child handoff"] = function()
   local h = harness()
   local common = script("common.greeting", {
@@ -698,7 +697,7 @@ T["child runs in caller tick when slot unvisited"] = function()
 end
 
 -- 22. External call through composition: a script calling another registered
--- script id .
+-- script id.
 T["external call same tick"] = function()
   local h = harness()
   local callee = script("scripts.helper", {
@@ -737,8 +736,8 @@ T["missing call target"] = function()
 end
 
 -- 24. Wrapper composition: a before script that ends its linear tail falls
--- through to the base (the example-mod preface behavior, sections 12.5 and
--- 36.6); ownership flows through frames.
+-- through to the base (the example-mod preface behavior);
+-- ownership flows through frames.
 T["wrapper chain fall through"] = function()
   local h = harness()
   local base = script("new_bark.lab_sign", {
@@ -1244,7 +1243,7 @@ end
 
 -- 3t. Cross-script compare-state branches: the low-level goto_compared/
 -- call_compared forms consume the compare state at runtime and resolve the
--- composed target like the source engine .
+-- composed target like the source engine.
 T["cross-script compare-state branch"] = function()
   local h = harness()
   h.registry:installBase(
@@ -1290,7 +1289,7 @@ end
 
 -- 3s. An observable countdown variable is mirrored into the world store
 -- exactly like the source engine: the frame count at creation, one
--- decrement per poll, zero on completion .
+-- decrement per poll, zero on completion.
 T["countdown mirror writes and decrements the variable"] = function()
   local h = harness()
   startForeground(

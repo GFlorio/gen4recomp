@@ -148,7 +148,7 @@ end
 
 -- Returns an immutable MessageTemplate for an acquired bank: the modder-
 -- facing text plus the lossless token stream and raw code units. Never loads
--- on its own: bank lifetime is explicit (spec section 14.2).
+-- on its own: bank lifetime is explicit.
 function FieldMessageProvider:get(bankId, messageId)
   local entry = self._banks[bankId]
   if not entry then

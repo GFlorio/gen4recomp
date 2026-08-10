@@ -880,7 +880,7 @@ HANDLERS.apply_movement = function(node, run)
 end
 
 -- Generic blocking ops: dispatch through the task registry. The task types
--- and their implementations land with their owning workstreams (dialogue,
+-- and their implementations land with their owning task modules (dialogue,
 -- movement, audio, fade, warp); an unregistered type is an attributed fault.
 local function blockingHandler(taskType)
   return function(node, run)

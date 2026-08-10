@@ -7,7 +7,7 @@
 
 local MovementCalibration = {}
 
--- Ticks per walked tile, keyed by the DSL speed enum .
+-- Ticks per walked tile, keyed by the DSL speed enum.
 MovementCalibration.SPEED_TICKS = {
   slower = 24,
   slow = 16,
@@ -43,7 +43,7 @@ MovementCalibration.FACE_TICKS = 1
 MovementCalibration.EMOTE_TICKS = 4
 MovementCalibration.GESTURE_TICKS = 4
 
--- Resolve the tick duration of one movement action . The
+-- Resolve the tick duration of one movement action. The
 -- speed/distance enums are schema-constrained, so an unknown value is a
 -- programming invariant violation, never a silent default.
 ---@param action table

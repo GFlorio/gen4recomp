@@ -455,7 +455,7 @@ function Verifier.verifyScript(steps, script, memberIr, omissions)
   -- mirrors its countdown into the destination variable exactly like the
   -- source engine (ScrCmd_Wait writes the frame count; RunPauseTimer
   -- decrements the variable per poll), so observable and cross-context
-  -- reads always see the live countdown .
+  -- reads always see the live countdown.
 
   -- Cross-script target warning: a jump or call into a same-member label
   -- whose region lowers with explicit unsupported nodes faults at runtime

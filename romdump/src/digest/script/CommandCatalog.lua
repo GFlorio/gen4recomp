@@ -11,7 +11,7 @@ local CommandCatalog = {}
 
 CommandCatalog.SOURCE = ScriptCommands.source
 
--- Execution classifications .
+-- Execution classifications.
 CommandCatalog.CONTINUE = "continue_same_tick"
 CommandCatalog.YIELD = "yield_next_tick"
 CommandCatalog.NATIVE_WAIT = "native_wait"

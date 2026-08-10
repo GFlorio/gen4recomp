@@ -424,7 +424,7 @@ T["music and camera same tick"] = function()
   Assert.equal(h.camera.calls[1].spec.count, 8)
 end
 
--- 6. A warp from a background script is forbidden .
+-- 6. A warp from a background script is forbidden.
 T["background cannot warp"] = function()
   local h = harness({ maps = true })
   local resource = script("test.bgwarp", {

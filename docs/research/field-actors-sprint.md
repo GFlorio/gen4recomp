@@ -1,12 +1,13 @@
 # Field Actors, Interaction, and Dialogue Foundation — Sprint Notes
 
-Specification: `tmp/spec.md` (revision 1). Implementation targets the working
-tree on top of integration commit `27c826d` ("game: first pass on message
-engine"), the state after Epics 1–7 landed. Epics 9–10 land on top of that
-tree (working tree includes the dialogue/UI work of Epic 8).
+Historical sprint notes for the field-actors/interaction/dialogue foundation
+(actor visuals through the pre-script adapter and save/resume). Implementation
+targeted the working tree on top of integration commit `27c826d` ("game: first
+pass on message engine"), the state after Epics 1–7 landed. Epics 9–10 landed
+on top of that tree (working tree includes the dialogue/UI work of Epic 8).
 
 - Integration commit: `27c826d`
-- Entry gate (§3.1): predecessor milestone checks pass (normal `FieldState`
+- Entry gate: the predecessor integration checks pass (normal `FieldState`
   boot, 60 Hz `FieldSession`, maps 60/61 through `FieldMapLoader`, camera
   paths, terrain/collision, warp round trip).
 - Predecessor save/resume at the integration point: schema `g4-field-save-v1`
@@ -36,5 +37,6 @@ tree (working tree includes the dialogue/UI work of Epic 8).
 | 11 Save and resume | done |
 | 12 Hardening + handoff | pending |
 
-Per-epic facts, contract decisions, and verification live in `tmp/notes.md`
-(top of file = newest work).
+Per-epic facts, contract decisions, and verification were tracked in the
+sprint's working notes (top of file = newest work), since superseded by the
+permanent docs under `docs/`.

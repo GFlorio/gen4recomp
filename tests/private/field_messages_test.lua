@@ -1,6 +1,6 @@
 -- Private target facts for the message/font derived classes, verified against
--- the imported ROM. Asserts only non-copyright structural facts (spec section
--- 21.6): bank counts, control signature sets, glyph coverage, map-header
+-- the imported ROM. Asserts only non-copyright structural facts:
+-- bank counts, control signature sets, glyph coverage, map-header
 -- associations, and font geometry.
 
 local Assert = require("tests.support.Assert")

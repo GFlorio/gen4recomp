@@ -5,7 +5,7 @@
 -- this module) folds them into the effective chain. A `remove` contribution is
 -- an explicit tombstone that suppresses the base and lower-priority
 -- definitions. The registry also stamps the deterministic fingerprint used by
--- save validation . Pure domain module: no love dependency.
+-- save validation. Pure domain module: no love dependency.
 
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -82,7 +82,7 @@ function Registry.new()
 end
 
 -- A script is already defined when any base layer or contribution exists for
--- the id, so `register` cannot silently collide .
+-- the id, so `register` cannot silently collide.
 ---@param id string
 ---@return boolean
 function Registry:has(id)
@@ -94,8 +94,8 @@ function Registry:_hasBase(id)
 end
 
 -- Install a vanilla base definition. `layer` is "generated", "override", or
--- "handwritten"; handwritten wins, then override, then generated (spec
--- . Installing the same layer twice is
+-- "handwritten"; handwritten wins, then override, then generated.
+-- Installing the same layer twice is
 -- a hard duplicate error.
 ---@param id string
 ---@param script table
@@ -239,7 +239,7 @@ function Registry:wrap(id, script, owner, opts)
 end
 
 -- Explicit tombstone: suppresses the vanilla base and lower-priority
--- definitions .
+-- definitions.
 ---@param id string
 ---@param owner any
 ---@param opts table|nil
@@ -311,7 +311,7 @@ function Registry:_definition(id)
 end
 
 -- The raw contributed resource for inspection, or the resolved base when no
--- contribution defines it (mirrors the registry-level `get` of .
+-- contribution defines it (mirrors the registry-level `get`).
 ---@param id string
 ---@return table|nil
 function Registry:get(id)
@@ -352,8 +352,8 @@ function Registry:version()
   return self._version
 end
 
--- Deterministic registry fingerprint over every base and contribution (spec
--- : ordering, owners, priorities, operations, resource ids, and
+-- Deterministic registry fingerprint over every base and contribution:
+-- ordering, owners, priorities, operations, resource ids, and
 -- a content hash of each resource. The fingerprint therefore changes when a
 -- script's executable content changes even when its id does not. Saves
 -- record it; load rejects a mismatch. The registry is immutable during

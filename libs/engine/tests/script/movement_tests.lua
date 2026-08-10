@@ -84,7 +84,7 @@ end
 
 -- 1. apply_movement starts asynchronous movement and continues the same
 -- tick; the actor's position advances per poll; the environment barrier
--- completes when the generation empties .
+-- completes when the generation empties.
 T["apply movement and barrier"] = function()
   local h = harness()
   h.services.actors:add("elm", { fieldX = 4, fieldZ = 6, facing = "north" })
@@ -132,7 +132,7 @@ T["apply movement and barrier"] = function()
   )
 end
 
--- 2. Multiple actors started before one barrier .
+-- 2. Multiple actors started before one barrier.
 T["multiple actors before one barrier"] = function()
   local h = harness()
   h.services.actors:add("a", { fieldX = 0, fieldZ = 0, facing = "south" })
@@ -159,8 +159,8 @@ T["multiple actors before one barrier"] = function()
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
 end
 
--- 3. Empty WaitMovement still has the native-style minimum timing
--- : create at T, poll at T+1, continuation at T+2.
+-- 3. Empty WaitMovement still has the native-style minimum timing:
+-- create at T, poll at T+1, continuation at T+2.
 T["empty barrier timing"] = function()
   local h = harness()
   local resource = script("test.empty", {
@@ -227,7 +227,7 @@ T["facing lock and immediate actions"] = function()
 end
 
 -- 6. Save/resume mid-movement: the plan, destination, and generation state
--- restore exactly .
+-- restore exactly.
 T["movement save resume"] = function()
   local h = harness()
   h.services.actors:add("elm", { fieldX = 4, fieldZ = 6, facing = "north" })
@@ -294,7 +294,7 @@ T["missing movement actor"] = function()
   Assert.equal(assert(h.scheduler:instance(instanceId)).endReason, "SCRIPT_ACTOR_NOT_FOUND")
 end
 
--- 9. Background scripts may not move the player .
+-- 9. Background scripts may not move the player.
 T["background cannot move player"] = function()
   local h = harness()
   h.services.actors:add("player", { fieldX = 4, fieldZ = 6, facing = "north" })
@@ -309,7 +309,7 @@ T["background cannot move player"] = function()
   Assert.equal(assert(h.scheduler:instance(instanceId)).endReason, "SCRIPT_BACKGROUND_FORBIDDEN")
 end
 
--- 10. Cancellation releases movement ownership .
+-- 10. Cancellation releases movement ownership.
 T["cancellation releases movement"] = function()
   local h = harness()
   h.services.actors:add("elm", { fieldX = 4, fieldZ = 6, facing = "north" })

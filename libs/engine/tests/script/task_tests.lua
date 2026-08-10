@@ -98,8 +98,8 @@ local function script(id, stepsOrSpec)
 end
 
 -- 1. The hgss say timeline with a 2-tick print: the input edge that could
--- have triggered the interaction can never advance the message (section
--- 14.1); the input wait reads only later edges.
+-- have triggered the interaction can never advance the message;
+-- the input wait reads only later edges.
 T["say hgss timeline"] = function()
   local h = harness({ printTicks = 2 })
   startForeground(
@@ -162,7 +162,7 @@ T["input waits read edges only"] = function()
 end
 
 -- 3. The interaction-triggering edge cannot satisfy a wait created by the
--- same trigger .
+-- same trigger.
 T["trigger edge cannot satisfy its own wait"] = function()
   local h = harness({ printTicks = 1 })
   local resource = script("new_bark.npc.woman_1", {
@@ -196,7 +196,7 @@ T["trigger edge cannot satisfy its own wait"] = function()
 end
 
 -- 4. waitInput primitive: buttons and d-pad options, plus the d-pad turn
--- behavior .
+-- behavior.
 T["waitInput buttons and dpad"] = function()
   local h = harness()
   startForeground(
@@ -344,7 +344,7 @@ T["message bindings"] = function()
 end
 
 -- 10. Save/load during dialogue: the phase machine resumes with its delay
--- intact .
+-- intact.
 T["save during dialogue"] = function()
   local h = harness({ printTicks = 3 })
   local resource = script("test.savedial", {
@@ -384,7 +384,7 @@ T["save during dialogue"] = function()
 end
 
 -- 11. NonNPCMsg-style: message with waitForPrint=false starts the printer and
--- continues the same tick .
+-- continues the same tick.
 T["nonblocking message continues same tick"] = function()
   local h = harness({ printTicks = 2 })
   startForeground(

@@ -21,7 +21,7 @@ local function triangleDL(verts)
   local function vtx16(v)
     return NB.u32(fx16(v[1]) + fx16(v[2]) * 0x10000) .. NB.u32(fx16(v[3]))
   end
-  -- command group 1: 0x40 BEGIN, 0x23,0x23,0x23 ; group 2: 0x41 END, NOP,NOP,NOP
+  -- command group 1: 0x40 BEGIN, 0x23,0x23,0x23; group 2: 0x41 END, NOP,NOP,NOP
   return string.char(0x40, 0x23, 0x23, 0x23)
     .. NB.u32(0)
     .. vtx16(verts[1])

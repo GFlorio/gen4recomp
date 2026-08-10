@@ -6,8 +6,8 @@ per-user cache, and reads game data from that dump at runtime.
 
 > **This is not an emulator and does not recompile DS machine code.** It is a
 > pure-Lua reader for the Nintendo DS cartridge container (header, FAT, FNT,
-> overlay tables) and the HGSS NARC archive format. The current milestone ends
-> at an interactive field runtime over the compiled assets — walkable maps,
+> overlay tables) and the HGSS NARC archive format. The project currently
+> delivers an interactive field runtime over the compiled assets — walkable maps,
 > deterministic movement and collision, warps, object interactions, and modal
 > dialogue — not a playable game.
 

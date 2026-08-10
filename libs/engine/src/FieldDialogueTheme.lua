@@ -1,5 +1,5 @@
 -- The single theme record for field dialogue presentation: the 256 x 192
--- reference canvas (matching the DS top-screen aspect, spec section 15.3),
+-- reference canvas (matching the DS top-screen aspect),
 -- the provisional bottom box geometry, text metrics, colors, cursor blink,
 -- and the reference-to-screen mapping into FieldViewport.referenceFrame.
 -- All geometry is pure so the box layout is testable headlessly at every
@@ -32,7 +32,7 @@ FieldDialogueTheme.schema = "g4-field-dialogue-theme-v1"
 FieldDialogueTheme.referenceWidth = 256
 FieldDialogueTheme.referenceHeight = 192
 
--- Provisional bottom box inside the reference canvas (spec section 15.3):
+-- Provisional bottom box inside the reference canvas:
 -- horizontal inset 8, bottom inset 8, width 240, height 56.
 FieldDialogueTheme.box = {
   x = 8,
@@ -50,7 +50,7 @@ FieldDialogueTheme.textWidth = 240 - 2 * 10
 FieldDialogueTheme.textHeight = 56 - 2 * 10
 
 -- Cursor: a down-pointing triangle at the text area's bottom-right, blinking
--- on a fixed tick period (spec section 15.6).
+-- on a fixed tick period.
 FieldDialogueTheme.cursor = {
   width = 10,
   height = 8,
@@ -74,7 +74,7 @@ FieldDialogueTheme.slice = { size = 6, corner = 2 }
 
 -- Reference-to-screen mapping for one viewport. The reference canvas scales
 -- uniformly into the centered 4:3 referenceFrame, so wide hosts keep the box
--- inside the canonical frame (spec section 15.3). All geometry is returned in
+-- inside the canonical frame. All geometry is returned in
 -- reference-canvas coordinates; the renderer applies origin + scale once, and
 -- screenRect() maps any returned rect to screen pixels. Never return
 -- screen-mapped rects here: draw() applies the transform, and double mapping
@@ -133,7 +133,7 @@ end
 
 -- The layout metrics object the paginator consumes: glyph advances from the
 -- generated font definition, falling back to the compiled fallback glyph, and
--- the typeset width of marker tokens (spec section 15.4) measured through the
+-- the typeset width of marker tokens measured through the
 -- same charmap the renderer draws them with. Returns a table with
 -- glyphWidth(code) and nonGlyphWidth(token).
 
@@ -185,7 +185,8 @@ end
 ---@field cursor FieldDialogueTheme.Rect
 ---@field lineHeight number
 
--- Metrics consumed by DialogueLayout (spec section 15.4).
+-- Metrics consumed by DialogueLayout: glyph advances and measured
+-- non-glyph token widths.
 
 ---@class FieldDialogueTheme.Metrics
 ---@field glyphWidth fun(code: integer): integer?

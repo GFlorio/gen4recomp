@@ -4,7 +4,7 @@
 -- operation field shapes, enum values, reference forms, and declared
 -- locals/args. It never executes gameplay and never mutates its input.
 -- Graph-level checks (labels, call targets, reachability, lock balance) belong
--- to the compiler and later workstreams. Unknown fields are rejected in strict
+-- to the compiler. Unknown fields are rejected in strict
 -- mode (the default and the mode generated content always uses).
 
 local Errors = require("libs.rom.src.Errors")
@@ -315,7 +315,7 @@ local function checkStep(step, path)
   end
   checkFields(name, spec.fields, step, path, { op = true })
   -- The low-level compare-state branches need either a local label target
-  -- or a cross-script reference .
+  -- or a cross-script reference.
   if name == "goto_compared" or name == "call_compared" then
     if step.target == nil and step.script == nil then
       fail(

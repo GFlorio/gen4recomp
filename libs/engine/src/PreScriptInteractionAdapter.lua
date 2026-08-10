@@ -1,15 +1,15 @@
--- The temporary pre-script interaction client (spec section 13). It matches
--- an immutable InteractionIntent against the project-owned preview fixture
+-- The pre-script interaction fallback. It matches an immutable
+-- InteractionIntent against the project-owned fixture manifest
 -- (data/manifests/pre_script_interactions.lua), formats the fixture message
 -- through FieldMessageProvider, optionally pushes a temporary face-player
 -- facing override on the target actor, and opens a modal dialogue. Every
 -- terminal path (complete/cancel/error/dispose) releases the override and
 -- the bank reference exactly once.
 --
--- This module is the one construction point the next milestone replaces with
--- the field script scheduler (spec section 6.3): it never reads script
--- bytes, never mutates flags or variables, and never moves actors. Pure
--- domain module: no love dependency.
+-- Scripted interactions are primary; this adapter is the fallback while any
+-- required interactions remain unmapped. It never reads script bytes, never
+-- mutates flags or variables, and never moves actors. Pure domain module:
+-- no love dependency.
 
 local Errors = require("libs.rom.src.Errors")
 local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
@@ -28,12 +28,12 @@ PreScriptInteractionAdapter.__index = PreScriptInteractionAdapter
 
 local OVERRIDE_OWNER = "pre-script-dialogue"
 
--- Opposite of a named facing, for the temporary face-player behavior.
+-- Opposite of a named facing, for the face-player override behavior.
 local OPPOSITE_FACING = { north = "south", south = "north", west = "east", east = "west" }
 
 -- Fixture substitution kinds -> extended control. Only the player-name
--- STRVAR (0x0103, `{STRVAR_1 3, 0, 0}`) is used by the selected messages
--- (spec section 14.3); the fixture names the value, never the control.
+-- STRVAR (0x0103, `{STRVAR_1 3, 0, 0}`) is used by the fixture messages; the
+-- fixture names the value, never the control.
 local PLAYER_NAME_CONTROL = FieldMessageText.STRVAR_1 + 3
 local SUBSTITUTION_CONTROLS = {
   playerName = PLAYER_NAME_CONTROL,
@@ -57,7 +57,7 @@ local UNMAPPED_RELEASE_TEXT = "Nothing is wired here yet."
 --   fontDef   generated font definition (charmap for text substitution)
 --   getActor  fun(actorId) -> FieldObjectActor | nil
 --   mapMessageBank fun(mapId) -> messageBankId | nil
---   fixtures  project-owned preview manifest (spec section 13.2)
+--   fixtures  project-owned fixture manifest (data/manifests/pre_script_interactions.lua)
 ---@param opts PreScriptInteractionAdapterOptions
 ---@return PreScriptInteractionAdapter
 function PreScriptInteractionAdapter.new(opts)
@@ -91,9 +91,9 @@ local function fixtureKey(intent)
 end
 
 -- The intent is immutable by contract, but dialogue metadata must stay safe
--- even if a caller mutates its own copy (spec section 15.2: metadata is
--- immutable or copied). The intent is shallow data (one nested identity
--- table), so a two-level copy is exact.
+-- even if a caller mutates its own copy: metadata is immutable or copied.
+-- The intent is shallow data (one nested identity table), so a two-level
+-- copy is exact.
 local function copyIntent(intent)
   local copy = {}
   for key, value in pairs(intent) do
@@ -116,8 +116,7 @@ end
 
 -- Formats the fixture message with the fixture's substitution values. The
 -- bank is acquired and released around the format: FormattedMessage owns a
--- fresh token array, so no bank reference needs to outlive the request
--- (spec section 14.2).
+-- fresh token array, so no bank reference needs to outlive the request.
 function PreScriptInteractionAdapter:_formatMessage(fixture, bankId, messageId)
   local bank, bankErr = self.provider:acquireBank(bankId)
   if not bank then
@@ -156,9 +155,8 @@ function PreScriptInteractionAdapter:_formatMessage(fixture, bankId, messageId)
 end
 
 -- Opens one request through the controller. Every request this adapter makes
--- is a modal field dialogue with cancel disabled (spec section 15.2), so the
--- shape lives here. Raises on open failure; the caller unwinds any pre-open
--- override.
+-- is a modal field dialogue with cancel disabled, so the shape lives here.
+-- Raises on open failure; the caller unwinds any pre-open override.
 function PreScriptInteractionAdapter:_openRequest(id, message, metadata)
   return self.dialogue:open({
     id = id,
@@ -170,7 +168,7 @@ function PreScriptInteractionAdapter:_openRequest(id, message, metadata)
   })
 end
 
--- Unmapped behavior: a compact project-owned message (spec section 13.4)
+-- Unmapped behavior: a compact project-owned message (UNMAPPED_RELEASE_TEXT)
 -- shown through the same dialogue path so input ownership stays uniform.
 function PreScriptInteractionAdapter:_openUnmapped(intent)
   local key = fixtureKey(intent)
@@ -198,8 +196,8 @@ function PreScriptInteractionAdapter:consume(intent)
     return true
   end
 
-  -- The fixture must agree with the map's generated message-bank association
-  -- (spec section 13.2); a cross-bank fixture is not allowed.
+  -- The fixture must agree with the map's generated message-bank association;
+  -- a cross-bank fixture is not allowed.
   local mapBankId = self.mapMessageBank(intent.mapId)
   if fixture.messageBankId ~= mapBankId then
     Errors.raise(
@@ -218,8 +216,8 @@ function PreScriptInteractionAdapter:consume(intent)
 
   local formatted = self:_formatMessage(fixture, fixture.messageBankId, fixture.messageId)
 
-  -- Temporary face-player override: the actor turns toward the player for the
-  -- dummy interaction and is restored on every exit path (spec section 8.8).
+  -- Face-player override: the actor turns toward the player for the fixture
+  -- interaction and is restored on every exit path.
   local actor, token
   if fixture.facePlayer then
     local actorId = assert(intent.object and intent.object.actorId, "a facePlayer fixture requires an object intent")

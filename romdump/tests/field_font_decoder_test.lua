@@ -1,5 +1,5 @@
--- Synthetic font-member and RLCN-palette decode tests (spec sections 7.7 and
--- 21.1). The fixtures are hand-authored byte strings, not ROM data.
+-- Synthetic font-member and RLCN-palette decode tests.
+-- The fixtures are hand-authored byte strings, not ROM data.
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.rom.src.Errors")

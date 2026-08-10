@@ -85,7 +85,7 @@ local function action(kind, given)
   return out
 end
 
--- 45.1 Resource and reference constructors
+-- Resource and reference constructors
 
 function M.script(spec)
   assert(type(spec) == "table", "script spec must be a table")
@@ -152,7 +152,7 @@ function M.externalMessage(bank, id)
   return { message = "external", bank = bank, id = id }
 end
 
--- 45.2 Text-value constructors
+-- Text-value constructors
 
 function M.playerName()
   return text("player_name")
@@ -208,7 +208,7 @@ function M.gendered(maleMessage, femaleMessage)
   return text("gendered_message", { male = maleMessage, female = femaleMessage })
 end
 
--- 45.3 General value constructors
+-- General value constructors
 
 function M.flagValue(flag)
   return value("flag_value", { flag = flag })
@@ -230,7 +230,7 @@ function M.triggerDirectionValue()
   return value("trigger_direction")
 end
 
--- 45.4 Condition constructors
+-- Condition constructors
 
 local function compareOp(operator, a, b)
   return cond("compare", { operator = operator, left = a, right = b })
@@ -281,7 +281,7 @@ function M.truthy(v)
   return cond("truthy", { value = v })
 end
 
--- 45.5 Control-flow constructors (all spec-table forms)
+-- Control-flow constructors (all spec-table forms)
 
 function M.noop(spec)
   return op("noop", spec)
@@ -345,7 +345,7 @@ function M.next(spec)
   return op("next", spec)
 end
 
--- 45.6 State constructors
+-- State constructors
 
 function M.setFlag(spec)
   return op("set_flag", spec)
@@ -378,7 +378,7 @@ function M.subLocal(spec)
   return op("sub_local", spec)
 end
 
--- 45.7 Dialogue constructors
+-- Dialogue constructors
 
 function M.say(spec)
   return op("say", spec)
@@ -417,7 +417,7 @@ function M.resolveCommonMessageBank(spec)
   return op("resolve_common_message_bank", spec)
 end
 
--- 45.8 Lock and actor constructors
+-- Lock and actor constructors
 
 function M.lockPlayer(spec)
   return op("lock_player", spec)
@@ -468,7 +468,7 @@ function M.getPlayerFacing(spec)
   return op("get_player_facing", spec)
 end
 
--- 45.9 Movement constructors (spec-table forms)
+-- Movement constructors (spec-table forms)
 
 function M.applyMovement(spec)
   return op("apply_movement", spec)
@@ -522,7 +522,7 @@ function M.m.unsupported(spec)
   return action("unsupported", spec)
 end
 
--- 45.10 Audio constructors
+-- Audio constructors
 
 function M.playSound(spec)
   return op("play_sound", spec)
@@ -564,7 +564,7 @@ function M.fadeMusicIn(spec)
   return op("fade_music_in", spec)
 end
 
--- 45.11 Screen, camera, and map constructors
+-- Screen, camera, and map constructors
 
 function M.fadeScreen(spec)
   return op("fade_screen", spec)
@@ -582,7 +582,7 @@ function M.shakeCamera(spec)
   return op("shake_camera", spec)
 end
 
--- 45.12 Random, raw, and diagnostic constructors
+-- Random, raw, and diagnostic constructors
 
 function M.random(spec)
   return op("random", spec)

@@ -1,5 +1,5 @@
 -- Private target facts for the canonical demo path: every cell the exit
--- demonstration walks (spec section 2) is walkable under real ROM terrain
+-- demonstration walks is walkable under real ROM terrain
 -- and occupancy, and the warp round trip cells behave as the runtime expects.
 -- The walk replicates the player's step logic (one held direction per
 -- 8-tick step), so a terrain or occupancy surprise here fails loudly.
@@ -157,8 +157,7 @@ function T.the_demo_walk_to_the_door_warps_to_town_and_back(romFs)
   Assert.isTrue(moved, "at least one cell around the town door is walkable")
   Assert.isFalse(townPlayer.fieldX == 684 and townPlayer.fieldZ == 393, "the step-off actually moved")
   -- The only walkable neighbor is south (684,394): facing north from there
-  -- triggers the blocked-door warp without any step (spec section 8.6 note
-  -- on warp semantics).
+  -- triggers the blocked-door warp without any step.
   Assert.equal(townPlayer.fieldX, 684)
   Assert.equal(townPlayer.fieldZ, 394)
   local facingWarp = WarpSystem.findBlockedFacing(town, 684, 394, "north")

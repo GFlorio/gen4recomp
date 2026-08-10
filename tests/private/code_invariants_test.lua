@@ -1,5 +1,5 @@
 -- Project-wide invariants that hold regardless of target map. These are
--- lightweight automated checks for the slice-6 "no target-specific branches"
+-- lightweight automated checks for the "no target-specific branches"
 -- and "no ROM payload checked in" assertions. They read source files through
 -- ordinary Lua IO and (for the payload check) ask git what is tracked.
 

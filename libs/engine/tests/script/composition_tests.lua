@@ -1,5 +1,5 @@
--- Registry and composition tests . They freeze
--- the deterministic contribution model of section 30: base layers (generated
+-- Registry and composition tests. They pin
+-- the deterministic contribution model: base layers (generated
 -- vs handwritten), register/override/before/after/wrap/remove, priority and
 -- load-order ordering, tombstones, same-priority replacement conflicts,
 -- owner attribution, the effective chain, and cache invalidation. The exit
@@ -56,7 +56,7 @@ T["base only"] = function()
   Assert.isFalse(entry.graph.usesNext)
 end
 
--- 2. Handwritten wins over generated ; both remain
+-- 2. Handwritten wins over generated; both remain
 -- inspectable through the registry.
 T["handwritten over generated"] = function()
   local registry, composition = newRegistry()
@@ -166,7 +166,7 @@ T["priority replacement wins"] = function()
 end
 
 -- 7. Same-priority replacements from different owners are a hard load error
--- naming both owners .
+-- naming both owners.
 T["replacement conflict"] = function()
   local registry, composition = newRegistry()
   registry:installBase("new_bark.lab_sign", signScript(), "generated")
@@ -221,7 +221,7 @@ T["same owner last replacement wins"] = function()
   Assert.equal(effective.entries[1].script, second)
 end
 
--- 9. Tombstone suppresses the base ; a higher-priority
+-- 9. Tombstone suppresses the base; a higher-priority
 -- replacement still stands.
 T["remove tombstones base"] = function()
   local registry, composition = newRegistry()
@@ -251,7 +251,7 @@ T["remove below replacement keeps replacement"] = function()
 end
 
 -- 10. before/after/wrap ordering: before high->low, wrap high outermost, base,
--- after low->high . Wrapper resources compile with the
+-- after low->high. Wrapper resources compile with the
 -- wrapper permission (their `next` is legal).
 T["before wrap base after order"] = function()
   local registry, composition = newRegistry()
@@ -323,7 +323,7 @@ T["next requires wrapper registration"] = function()
   Assert.equal(err.context.scriptId, "new_bark.lab_sign")
 end
 
--- 13. Owner attribution flows into every entry .
+-- 13. Owner attribution flows into every entry.
 T["owner attribution"] = function()
   local registry, composition = newRegistry()
   registry:installBase("new_bark.lab_sign", signScript(), "generated")

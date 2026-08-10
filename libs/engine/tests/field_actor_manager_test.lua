@@ -372,8 +372,8 @@ function T.two_maps_stay_independent_during_a_transition()
   Assert.isTrue(mgr:isOccupied(60, 2, 3, 0))
 end
 
--- A real FieldPlayer whose occupancy predicate reads this manager's index:
--- the integration point Epic 5 adds between the terrain resolver and the move.
+-- A real FieldPlayer whose occupancy predicate reads this manager's index,
+-- integrating the terrain resolver and the move.
 local function playerOn(mgr, map, fieldX, fieldZ, surfaceId)
   map.permissions.isBlockedLocal = function()
     return false

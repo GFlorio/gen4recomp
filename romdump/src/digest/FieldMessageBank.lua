@@ -11,7 +11,8 @@ local Errors = require("libs.rom.src.Errors")
 
 local FieldMessageBank = {}
 
--- Spec section 7.5: decrypted table entry offset/length keyed by entry index.
+-- Decrypted table entry offset/length keyed by entry index (the MAT
+-- message-bank layout).
 FieldMessageBank.DECRYPT1_SEED = 765
 FieldMessageBank.DECRYPT2_SEED = 596947
 FieldMessageBank.DECRYPT2_STEP = 18749

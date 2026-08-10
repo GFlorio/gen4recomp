@@ -391,8 +391,8 @@ local MATERIAL_PREFIX = 0x2C
 -- flags, and packed lighting colors -- so DsMaterial can resolve effective state
 -- later; the parser makes no field-global assumption. The transitional
 -- repeat/flip booleans read the raw texImageParam wrap bits directly (every
--- target material fully masks that register, so raw equals effective); Slice 4
--- moves wrap sourcing onto DsMaterial.resolve and drops them.
+-- target material fully masks that register, so raw equals effective); wrap
+-- sourcing later moves onto DsMaterial.resolve and drops them.
 local function decodeMaterialData(r, matBase, blockOfs, context)
   local base = matBase + blockOfs
   if base + MATERIAL_PREFIX > r:length() then
@@ -461,7 +461,7 @@ local function decodeMaterialData(r, matBase, blockOfs, context)
     extraBytes = size > MATERIAL_PREFIX and r:bytes(base + MATERIAL_PREFIX, size - MATERIAL_PREFIX) or "",
 
     -- Transitional: raw wrap/flip bits (bits 16-19 of texImageParam), consumed by
-    -- MaterialCompiler until Slice 4 routes wrap through DsMaterial.resolve.
+    -- MaterialCompiler until wrap sourcing routes through DsMaterial.resolve.
     repeatX = bit(texImageParamRaw, 16),
     repeatY = bit(texImageParamRaw, 17),
     flipX = bit(texImageParamRaw, 18),

@@ -1,5 +1,5 @@
 -- Turns the derived map cache into a runtime scene the renderer can draw: it
--- reads scene.lua, builds one persistent love Mesh per unique .g4mesh and one
+-- reads scene.lua, builds one persistent love Mesh per unique `.g4mesh` path and one
 -- Image per unique (texture, wrap) sampler state (both deduplicated through
 -- the shared GpuAssetPool, so repeated building models and shared textures
 -- cost a single GPU object per sampler), wraps each material's render state,

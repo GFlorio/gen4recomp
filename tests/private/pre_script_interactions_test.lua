@@ -1,9 +1,9 @@
--- Private target facts for Epics 9/10 against a real HGSS dump: every
+-- Private target facts against a real HGSS dump: every
 -- pre-script fixture key resolves to a real object/background event, the
 -- fixture banks agree with the map-header associations, the background
 -- fixture script families match the pinned zone-event JSON, and the
 -- interaction resolver + pre-script adapter drive the Elm preview headless
--- with the real compiled font and banks (spec gates 8 and 9). Structural
+-- with the real compiled font and banks. Structural
 -- facts only; no retail message text is printed.
 
 local Assert = require("tests.support.Assert")
@@ -321,8 +321,8 @@ end
 
 function T.no_target_map_has_ambiguous_eligible_background_duplicates(romFs)
   -- The resolver picks the first eligible candidate in source order; the
-  -- target maps must not contain two eligible duplicates on one facing cell
-  -- (spec section 12.3), or the choice would be ambiguous.
+  -- target maps must not contain two eligible duplicates on one facing cell,
+  -- or the choice would be ambiguous.
   local all = maps(romFs)
   for _, map in pairs(all) do
     local cells = {}

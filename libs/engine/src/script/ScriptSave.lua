@@ -88,7 +88,7 @@ end
 
 -- Restore a scripts bucket into an idle scheduler. `restoreTick` is the load
 -- boundary: the caller resumes with the first step at restoreTick + 1, so
--- relative delays rebase exactly . Raises on fingerprint
+-- relative delays rebase exactly. Raises on fingerprint
 -- mismatch, unknown task types or versions, invalid task state, or unknown
 -- graph revisions.
 ---@param bucket table
@@ -106,7 +106,7 @@ function ScriptSave.restore(bucket, scheduler, restoreTick, opts)
   end
 
   -- Task types and versions must resolve, and the task implementation must
-  -- accept the serialized state .
+  -- accept the serialized state.
   for _, taskRecord in ipairs(bucket.tasks or {}) do
     local recordErr = ScriptTask.validateRecord(taskRecord)
     if recordErr ~= nil then

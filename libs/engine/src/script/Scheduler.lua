@@ -1,13 +1,15 @@
--- The authoritative fixed-tick field-script scheduler . One step per field tick implements the source-derived order: advance
+-- The authoritative fixed-tick field-script scheduler. One step per field tick implements the source-derived order: advance
 -- engine-owned asynchronous work, poll eligible tasks once in deterministic
 -- creation order (a task never polls in its creation tick; a completing task
 -- marks its owner `resume_pending` for the next tick), promote older
 -- `resume_pending` contexts, run every ready context to yield (at most once
 -- per tick, visiting environment context slots 0..2 dynamically so a later
 -- common child can start in the caller's tick), then resolve at most one new
--- foreground interaction trigger. Node outcomes are the internal contract of
--- section 2; the per-run node budget faults instead of injecting delays.
--- Cancellation follows section 26.10. Pure domain module: no love dependency.
+-- foreground interaction trigger. Node outcomes are the internal contract
+-- between scheduler and runtime; the per-run node budget faults instead of
+-- injecting delays.
+-- Cancellation is explicit and terminal: a cancelled context never runs or
+-- polls again. Pure domain module: no love dependency.
 
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -182,7 +184,7 @@ function Scheduler:_createInstance(env, composed, trigger, args, tick)
 end
 
 -- Create an execution environment whose root is a fresh instance of a
--- composed script . Foreground environments
+-- composed script. Foreground environments
 -- register as the field owner; background environments join the creation
 -- order. The new context may run in this tick; the caller decides whether
 -- the slot loop visits it now.
@@ -214,7 +216,7 @@ function Scheduler:_createEnvironment(mode, composed, trigger, tick)
 end
 
 -- Start a foreground interaction: a fresh environment whose root owns the
--- field . The new context may run in this tick; the
+-- field. The new context may run in this tick; the
 -- caller decides whether the slot loop visits it now.
 ---@param composed table
 ---@param trigger table|nil
@@ -225,7 +227,7 @@ function Scheduler:createForeground(composed, trigger, tick)
   return self:_createEnvironment("foreground", composed, trigger, tick)
 end
 
--- Start a project-native background environment .
+-- Start a project-native background environment.
 -- Background environments run after the foreground environment in creation
 -- order and may not use foreground-only operations.
 ---@param composed table
@@ -237,7 +239,7 @@ function Scheduler:createBackground(composed, trigger, tick)
 end
 
 -- Create a verified common-script child context in a later slot of the
--- caller's environment . The child is ready for the
+-- caller's environment. The child is ready for the
 -- current tick; the dynamic slot loop decides whether it runs now. `args`
 -- are already evaluated call arguments.
 ---@param composed table
@@ -279,7 +281,7 @@ function Scheduler:createChildInstance(composed, args, run, slot)
 end
 
 -- Allocate the lowest free later slot, create the common child, and arm the
--- caller signal . Shared by the call_common node and the
+-- caller signal. Shared by the call_common node and the
 -- raw `ctx.script:call` descriptor.
 ---@param composed table
 ---@param args table
@@ -325,7 +327,7 @@ function Scheduler:_ctxFor(instance, environment, tick, input)
   }
 end
 
--- Create a blocking or owner task through the registry .
+-- Create a blocking or owner task through the registry.
 -- The record's first poll is always the next tick: a task created during
 -- this tick is never eligible in it.
 ---@param taskType string
@@ -428,7 +430,7 @@ function Scheduler:_resumePendingSnapshot()
 end
 
 -- Poll every active task at most once per tick, in deterministic creation
--- order . A completing task marks its owner
+-- order. A completing task marks its owner
 -- `resume_pending` with `readyAtTick = tick + 1`; graph continuation never
 -- happens in the completion tick.
 function Scheduler:_pollTasks(tick)
@@ -488,7 +490,7 @@ function Scheduler:_pollTasks(tick)
 end
 
 -- Write a completed task result into the blocking node's result reference
--- (ask_yes_no, lua; ). The ref is evaluated
+-- (ask_yes_no, lua). The ref is evaluated
 -- against the instance on the promotion tick.
 function Scheduler:_writeTaskResult(instance)
   local run = {
@@ -501,7 +503,7 @@ end
 
 -- Promote contexts that were already `resume_pending` before this tick and
 -- whose ready deadline has arrived: consume the completed task result exactly
--- once and drop the consumed task record .
+-- once and drop the consumed task record.
 ---@param tick integer
 ---@param pendingSnapshot string[]
 function Scheduler:_promoteResumePending(tick, pendingSnapshot)
@@ -533,7 +535,7 @@ end
 
 -- Visit every execution environment in deterministic order (the foreground
 -- environment first, then background environments in creation order) and run
--- each eligible context in its slot once . The slot loop
+-- each eligible context in its slot once. The slot loop
 -- is dynamic: a common child created by an earlier slot runs in this tick.
 function Scheduler:_runEnvironments(tick, input)
   for _, env in ipairs(self:_orderedEnvironments()) do
@@ -554,7 +556,7 @@ function Scheduler:_runEnvironmentSlots(env, tick, input)
 end
 
 -- Resolve at most one new foreground interaction trigger when no foreground
--- root owns the field . A newly created interaction
+-- root owns the field. A newly created interaction
 -- may execute during this tick, matching the source field-control ordering.
 function Scheduler:_resolveInteraction(tick, input)
   if self._foregroundEnvironmentId ~= nil then
@@ -579,8 +581,8 @@ end
 
 -- --- Run-to-yield -------------------------------------------------------------
 
--- Run one ready context to an explicit yield, block, stop, or fault (spec
--- sections 2 and 26.5). The context is granted at most one run per tick; the
+-- Run one ready context to an explicit yield, block, stop, or fault.
+-- The context is granted at most one run per tick; the
 -- node budget counts every continue outcome and faults pathological
 -- non-yielding execution instead of yielding implicitly.
 function Scheduler:_runToYield(instance, tick, input)
@@ -1054,14 +1056,14 @@ function Scheduler:counters()
   }
 end
 
--- Rebuild the scheduler's script state from a ScriptSave scripts bucket
--- . The restore tick is the load boundary: the caller
+-- Rebuild the scheduler's script state from a ScriptSave scripts bucket.
+-- The restore tick is the load boundary: the caller
 -- resumes with the first step at restoreTick + 1, so relative delays rebase
 -- exactly and no tick is duplicated or skipped. The caller is responsible
 -- for the registry and task-registry fingerprint checks (ScriptSave.restore
 -- performs them); this method reattaches environments, instances, tasks, and
 -- composition chains, verifying every frame's graph revision against the
--- current compositions .
+-- current compositions.
 ---@param bucket table
 ---@param restoreTick integer
 function Scheduler:restoreScriptState(bucket, restoreTick)

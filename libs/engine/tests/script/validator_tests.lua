@@ -1,5 +1,5 @@
 -- Validator tests for the gen4 field-script API 1 data contract. They prove
--- the exit criterion of Workstream 1: a script can be loaded (constructor or
+-- the platform contract: a script can be loaded (constructor or
 -- direct table), validated, and deterministically printed without any game
 -- session. Rejection cases cover non-serializable data, unknown fields, API
 -- version mismatches, and malformed references.

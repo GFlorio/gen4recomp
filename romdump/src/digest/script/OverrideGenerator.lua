@@ -22,7 +22,7 @@ local OverrideGenerator = {}
 
 -- The visible placeholder message every dummy dialogue node shows. It is a
 -- project-owned reference the game's dialogue host resolves to a short
--- ellipsis; scripts never embed bulk text .
+-- ellipsis; scripts never embed bulk text.
 OverrideGenerator.PLACEHOLDER_MESSAGE = "msg.project.placeholder"
 
 -- The generated transcripts overridden by the New Bark slice: member and
