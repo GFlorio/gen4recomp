@@ -20,7 +20,7 @@ libs/assets/  Asset contracts for generated data (schemas, cache paths/readiness
              map/mesh/material compilation
 libs/engine/  Rendering, cameras, scenes, collision/world primitives
 data/         Frozen references and runtime manifests
-tests/        Test runner (tests/runner), private-target runner, shared fixtures (tests/support)
+tests/        Test runner (tests/runner), ROM and acceptance suites, shared fixtures (tests/support)
 ```
 
 Unit tests live beside their library under `libs/<lib>/tests`; `tests/run.lua`
@@ -140,6 +140,17 @@ field-data, and terrain artifacts through `FieldMapLoader`, which joins them
 into the `RuntimeFieldMap` the player, camera, and renderer consume. A loaded
 map stays resident under the loader's LRU policy while warps, actor
 occupancy, and coverage keep working from the derived data alone.
+
+### Runtime/presentation boundary and acceptance
+
+`FieldRuntime` owns non-rendering field behavior: real derived-cache loading,
+maps, player and actors, scripts, dialogue control, input, transitions, saves,
+and deterministic camera state. `FieldPresentation` owns the LÖVE-only renderer,
+GPU assets, viewport, and dialogue rendering. Interactive `FieldState` composes
+both; the acceptance layer boots `FieldRuntime` through its production harness
+with recording host adapters and an isolated save root, then stops before any
+GPU draw call. This keeps user-flow coverage on the real composition path while
+graphics smoke tests separately own actual shader, canvas, mesh, and image work.
 
 ### Field actors
 

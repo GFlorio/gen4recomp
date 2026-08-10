@@ -82,18 +82,23 @@ The private cache lives in LÖVE's per-user save directory by default. Set
 gitignored `./.cache` for development, and `scripts/lib.sh` applies it. This is
 the single knob a future portable mode will build on.
 
-### Real-ROM run
+### Testing
 
-Not run in CI (needs a legally-obtained dump). Imports the ROM and builds its
-derived cache in an isolated save root, then runs the whole suite against it:
+`scripts/test.sh` is the single test command. It runs unit, component, and
+offscreen graphics smoke tests everywhere; ROM-conformance and acceptance tests
+run when a ready user-owned dump is available. Without one, it exits successfully
+only after reporting a loud, explicit ROM-gated skip. See
+[`docs/testing.md`](docs/testing.md) for layers, strict mode, filtering, and
+troubleshooting.
+
+For a one-shot isolated source-ROM run:
 
 ```sh
 scripts/integration.sh /path/to/pokeheartgold.us.nds   # = scripts/test.sh --rom-source ...
 ```
 
-With an already-imported dump, plain `scripts/test.sh` prepares the derived
-cache and runs the ROM-gated layer too; without one it runs the ROM-independent
-layers and reports the ROM-gated tests as skipped.
+`scripts/integration.sh` is only this documented convenience delegate; it owns
+no separate test suite.
 
 ## Status
 

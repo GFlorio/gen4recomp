@@ -84,6 +84,14 @@ This file provides guidance to Coding Agents when working with code in this repo
 - Stateful, cached, resource-owning, or asynchronous code needs at least one failure or
   multi-step sequence test, not only a happy path.
 - Test behavioral ownership boundaries, not helper internals.
+- Test modules are discovered recursively from the roots in `tests/run.lua`; do
+  not add manual module registration.
+- New cross-layer suites declare layer metadata (`metadata.layer`) and required
+  `capabilities`. An explicit skip uses `context:skip(reason)`, never a normal
+  return.
+- Use the `tdd` skill for behavior changes. Use `acceptance-testing` before
+  work that changes a user-visible flow, production composition, persistence,
+  transitions, scripts, or ROM-derived behavior.
 - Adversarial prompts, to consider when applicable — not a mandatory list:
   What if the Nth acquisition fails? What if an operation starts while one is already
   active? What if a valid previous artifact exists and the rebuild fails? What if multiple
@@ -115,4 +123,3 @@ to avoid shell injection or permission issues.
 - **Binary access:** go through `BinaryReader` (bounds-checked, zero-based, little-endian by arithmetic). No `bit`/Lua 5.3 ops needed for 8/16/32-bit values.
 - **Errors vs assert:** malformed input / user faults raise `Errors.raise(CODE, message, context)` with a `SCREAMING_SNAKE_CASE` module-prefixed code (`NDS_*`, `OVERLAY_*`, `READ_*`). Programming invariants use plain `assert`. Public `open`/`parse` entry points wrap a private `_parse` in `pcall` and return `nil, err` when `Errors.is(result)`, else re-raise.
 - **Tests:** unit tests live beside their library in `libs/<lib>/tests/*_test.lua` (app tests under `<app>/tests/`); each returns a table of `name -> function`, or the explicit suite shape (`metadata`/`beforeAll`/`afterAll`/`tests`). Discovery is recursive over the roots declared in `tests/run.lua` — there is no module registry, so a new `*_test.lua`/`*_tests.lua` file runs as soon as it exists. Use `tests/support/Assert`; reuse the local `throwsCode(code, fn)` helper pattern to assert a raised `Errors` object with a given code. Put binary fixture generators in `tests/support/`. Run with `scripts/test.sh`.
-
