@@ -6,6 +6,9 @@
 -- session steps only the dialogue and returns, so movement, warps,
 -- interactions, and actor pose clocks freeze until the dialogue closes
 -- .
+-- Variable-delta `update(dt)` obtains a fresh input snapshot for every fixed
+-- step it executes, so an edge can never be replayed across catch-up ticks;
+-- `updateFixed(snapshot)` is the explicit deterministic unit-test API.
 --
 -- Step 6 is wired through the optional `interactions`
 -- service: `resolve(snapshot)` returns an immutable InteractionIntent for an
@@ -249,7 +252,7 @@ function FieldSession:updateFixed(inputSnapshot)
   self:_advanceTick()
 end
 
-function FieldSession:update(dt, inputSnapshot)
+function FieldSession:update(dt)
   assert(type(dt) == "number" and dt >= 0, "non-negative update dt required")
   self.accumulator = self.accumulator + dt
   local executed = 0
@@ -257,7 +260,7 @@ function FieldSession:update(dt, inputSnapshot)
     self.accumulator + ACCUMULATOR_EPSILON >= FieldSession.FIXED_DT and executed < FieldSession.MAX_CATCH_UP_TICKS
   do
     self.accumulator = self.accumulator - FieldSession.FIXED_DT
-    self:updateFixed(inputSnapshot)
+    self:updateFixed()
     executed = executed + 1
   end
   if self.accumulator + ACCUMULATOR_EPSILON >= FieldSession.FIXED_DT then

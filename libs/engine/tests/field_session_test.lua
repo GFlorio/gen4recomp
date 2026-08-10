@@ -639,6 +639,59 @@ function T.interaction_never_resolves_under_a_locked_transition_or_modal()
   Assert.isNil(interactions.resolveSnapshot, "modal ownership blocks new interactions")
 end
 
+function T.catch_up_ticks_do_not_replay_one_action_edge()
+  local input = FieldInput.new()
+  input:pressAction("key:space")
+  local resolved = 0
+  local interactions = {
+    resolve = function()
+      resolved = resolved + 1
+      return { kind = "object", object = { actorId = "map:61:object:0" } }
+    end,
+    consume = function()
+      return true
+    end,
+  }
+  local actor = {
+    fieldX = 4,
+    fieldZ = 14,
+    worldX = 0,
+    worldY = 0,
+    worldZ = 0,
+    surfaceId = 0,
+    facing = "north",
+    motion = "idle",
+    updateFixed = function()
+      return false
+    end,
+  }
+  local camera = { updateFixed = function() end }
+  local actors = { step = function() end }
+  local transition = { phase = "idle", locked = false, updateFixed = function() end }
+  local map = { mapId = 61, cameraType = 4 }
+  local session = FieldSession.new({
+    versionId = "heartgold",
+    currentMap = map,
+    actor = actor,
+    player = actor,
+    camera = camera,
+    transition = transition,
+    actors = actors,
+    input = input,
+    interactions = interactions,
+  })
+  -- A render delta spanning several fixed ticks: the one Action edge must be
+  -- consumed by the first tick's snapshot and never replayed by catch-up.
+  -- update() takes no snapshot of its own -- each fixed step samples the input,
+  -- so even a stale snapshot passed along must be ignored.
+  ---@diagnostic disable-next-line: redundant-parameter -- intentional: a stale snapshot must never be replayed
+  session:update(5 * FieldSession.FIXED_DT, { actionPressed = true })
+  Assert.equal(session.tick, 5, "the full catch-up ran")
+  Assert.equal(resolved, 1, "one Action edge must not be replayed over catch-up ticks")
+  Assert.isFalse(input.actionPressed, "the first tick consumed the edge")
+  Assert.equal(input.actionDown, true, "held state survives the edge")
+end
+
 -- The session captures the player's walking state before the movement update
 -- and hands it to the pose clock, so a two-tile walk (16 ticks, the ROM's full
 -- gait range) keeps one continuous phase instead of restarting at each commit.
