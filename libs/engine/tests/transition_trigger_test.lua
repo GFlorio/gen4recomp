@@ -317,4 +317,4 @@ function T.unknown_direction_is_rejected()
   Assert.equal(err.code, "ACTOR_FACING_INVALID")
 end
 
-return T
+return { tests = T }

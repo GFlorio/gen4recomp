@@ -7,19 +7,29 @@
 -- Map protection is owned by the runtime, never by this transition. The
 -- commit step is the irreversible ownership transfer: a fault inside it is a
 -- fatal programming error and propagates instead of rolling back.
+--
+-- Door warps run their animation and scripted player steps through the same
+-- lifecycle. Source ingress overlaps the fade-out; destination opening and
+-- egress overlap the fade-in; input unlocks only after the destination door
+-- closes. Door choreography depends only on the map-prop and player contracts.
 
 local WarpSystem = require("libs.engine.src.WarpSystem")
+local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
 
 ---@class FieldTransition
 ---@field loader FieldMapLoader
 ---@field prepare fun(resolution: table, facing: FieldDirection): table
 ---@field commit fun(resolution: table, facing: FieldDirection, prepared: table)
 ---@field resolveDestination function
+---@field doorAt fun(runtimeMap: table, fieldX: integer, fieldZ: integer): table|nil
+---@field player table|nil
 ---@field fadeOutTicks integer
 ---@field fadeInTicks integer
 ---@field phase "idle"|"fade_out"|"fade_in"|string
 ---@field fadeAlpha number
 ---@field locked boolean
+---@field doorActive boolean
+---@field door table?
 ---@field completed table?
 ---@field error any?
 ---@field warpContext table?
@@ -41,6 +51,7 @@ FieldTransition.PHASES = {
   fade_in = "fade_in",
   load_destination = "load_destination",
   swap_map = "swap_map",
+  door_close = "door_close",
 }
 
 function FieldTransition.new(options)
@@ -56,12 +67,83 @@ function FieldTransition.new(options)
     resolveDestination = options.resolveDestination or WarpSystem.resolveDestination,
     prepare = options.prepare,
     commit = options.commit,
+    doorAt = options.doorAt,
+    player = options.player,
     fadeOutTicks = fadeOutTicks,
     fadeInTicks = fadeInTicks,
     phase = FieldTransition.PHASES.idle,
     locked = false,
+    doorActive = false,
     fadeAlpha = 0,
   }, FieldTransition)
+end
+
+local function doorWarp(sourceMap, warp)
+  if not sourceMap or not sourceMap.collision or not sourceMap.coordinateOrigin then
+    return false
+  end
+  local behavior = TransitionTrigger.behaviorAt(sourceMap, warp.x, warp.z)
+  local classification = behavior and TransitionTrigger.classify(behavior)
+  return classification ~= nil and classification.kind == "door"
+end
+
+local function beginSourceChoreography(self)
+  if not doorWarp(self.sourceMap, self.sourceWarp) then
+    return
+  end
+  local door = self.doorAt and self.doorAt(self.sourceMap, self.sourceWarp.x, self.sourceWarp.z)
+  if door then
+    door:open()
+  end
+  self.doorActive = true
+  if self.player then
+    self.player:scriptedStep(self.facing)
+  end
+end
+
+local function detectDestinationDoor(self)
+  if not self.doorAt or not self.resolution.destinationWarp then
+    return
+  end
+  local warp = self.resolution.destinationWarp
+  local door = self.doorAt(self.resolution.destinationMap, warp.x, warp.z)
+  if door then
+    self.door = door
+    self.doorActive = true
+  end
+end
+
+local function beginDestinationChoreography(self)
+  if self.door then
+    self.door:open()
+  end
+  if self.player then
+    self.player:scriptedStep(self.facing)
+  end
+end
+
+local function advanceDoorStep(self)
+  if not self.doorActive or not self.player then
+    return false
+  end
+  local walking = self.player.motion == "walking"
+  if walking then
+    self.player:updateFixed({})
+  end
+  return walking
+end
+
+local function finish(self)
+  self.fadeAlpha = 0
+  self.phase = FieldTransition.PHASES.idle
+  self.locked = false
+  self.doorActive = false
+  self.completed = {
+    sourceMapId = self.sourceMap.mapId,
+    destinationMapId = self.resolution.destinationMap.mapId,
+    sourceWarpId = self.sourceWarp.index,
+  }
+  self.sourceMap, self.sourceWarp, self.resolution, self.prepared, self.door = nil, nil, nil, nil, nil
 end
 
 function FieldTransition:start(sourceMap, warp, facing)
@@ -77,9 +159,12 @@ function FieldTransition:start(sourceMap, warp, facing)
   self.error = nil
   self.warpContext = nil
   self.completed = nil
+  self.door = nil
+  self.doorActive = false
   self.phase = FieldTransition.PHASES.fade_out
   self.locked = true
   self.fadeAlpha = 0
+  beginSourceChoreography(self)
 end
 
 -- Restore a coherent idle state after a failed preparation: unlock movement,
@@ -99,27 +184,29 @@ function FieldTransition:_abort(err)
   end
   self.phase = FieldTransition.PHASES.idle
   self.locked = false
+  self.doorActive = false
   self.fadeAlpha = 0
   self.progressTicks = 0
   self.completed = nil
   self.suppression = nil
-  self.sourceMap, self.sourceWarp, self.resolution, self.prepared = nil, nil, nil, nil
+  self.sourceMap, self.sourceWarp, self.resolution, self.prepared, self.door = nil, nil, nil, nil, nil
   self.error = err
   self.warpContext = context
 end
 
 function FieldTransition:updateFixed()
   if self.phase == FieldTransition.PHASES.idle then
-    return
+    return false
   end
   if self.phase == FieldTransition.PHASES.fade_out then
+    local moved = advanceDoorStep(self)
     self.progressTicks = self.progressTicks + 1
     self.fadeAlpha = self.progressTicks / self.fadeOutTicks
     if self.progressTicks >= self.fadeOutTicks then
       self.fadeAlpha = 1
       self.phase = FieldTransition.PHASES.load_destination
     end
-    return
+    return moved
   end
   if self.phase == FieldTransition.PHASES.load_destination then
     -- Resolution and destination preparation are the fallible warp steps:
@@ -128,14 +215,19 @@ function FieldTransition:updateFixed()
     local ok, err = pcall(function()
       local result = self.resolveDestination(self.loader, self.sourceMap, self.sourceWarp)
       self.resolution = result
-      self.suppression = result.suppression
+      detectDestinationDoor(self)
+      if self.doorActive then
+        self.suppression = nil
+      else
+        self.suppression = result.suppression
+      end
       self.prepared = self.prepare(result, self.facing)
     end)
     if not ok then
       return self:_abort(err)
     end
     self.phase = FieldTransition.PHASES.swap_map
-    return
+    return false
   end
   if self.phase == FieldTransition.PHASES.swap_map then
     assert(self.fadeAlpha == 1, "map swap must occur while fully black")
@@ -144,25 +236,35 @@ function FieldTransition:updateFixed()
     -- a fatal programming error: propagate instead of pretending to roll
     -- back partially mutated game state.
     self.commit(self.resolution, self.facing, self.prepared)
+    if self.doorActive then
+      beginDestinationChoreography(self)
+    end
     self.progressTicks = 0
     self.phase = FieldTransition.PHASES.fade_in
-    return
+    return false
   end
-  assert(self.phase == FieldTransition.PHASES.fade_in, "unknown field transition phase")
-  self.progressTicks = self.progressTicks + 1
-  self.fadeAlpha = 1 - self.progressTicks / self.fadeInTicks
-  if self.progressTicks < self.fadeInTicks then
-    return
+  if self.phase == FieldTransition.PHASES.fade_in then
+    local moved = advanceDoorStep(self)
+    self.progressTicks = self.progressTicks + 1
+    self.fadeAlpha = 1 - self.progressTicks / self.fadeInTicks
+    if self.progressTicks < self.fadeInTicks then
+      return moved
+    end
+    self.fadeAlpha = 0
+    if self.door then
+      self.door:close()
+      self.progressTicks = 0
+      self.phase = FieldTransition.PHASES.door_close
+      return moved
+    end
+    finish(self)
+    return moved
   end
-  self.fadeAlpha = 0
-  self.phase = FieldTransition.PHASES.idle
-  self.locked = false
-  self.completed = {
-    sourceMapId = self.sourceMap.mapId,
-    destinationMapId = self.resolution.destinationMap.mapId,
-    sourceWarpId = self.sourceWarp.index,
-  }
-  self.sourceMap, self.sourceWarp, self.resolution, self.prepared = nil, nil, nil, nil
+  assert(self.phase == FieldTransition.PHASES.door_close, "unknown field transition phase")
+  if self.door:isFinished() ~= false then
+    finish(self)
+  end
+  return false
 end
 
 function FieldTransition:consumeCompleted()

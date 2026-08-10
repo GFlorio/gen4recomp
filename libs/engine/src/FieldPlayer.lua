@@ -111,13 +111,17 @@ function FieldPlayer.new(options)
   }, FieldPlayer)
 end
 
-function FieldPlayer:_resolveStep(direction)
+-- Resolve the adjacent tile for a step: permission blocking and dynamic
+-- occupancy gate ordinary steps; `bypassBlocking` skips both for the door
+-- choreography's scripted steps (the player must walk into the door tile
+-- normal movement cannot enter). Terrain surface resolution always governs.
+function FieldPlayer:_resolveStep(direction, bypassBlocking)
   local delta = assert(DELTAS[direction], "unknown field direction " .. tostring(direction))
   local destinationX, destinationZ = self.fieldX + delta.x, self.fieldZ + delta.z
   local ok, result = pcall(function()
     local destinationLocalX, destinationLocalZ =
       FieldCoordinates.fieldToLocal(self.currentMap, destinationX, destinationZ)
-    if self.currentMap.collision:isBlockedLocal(destinationLocalX, destinationLocalZ) then
+    if not bypassBlocking and self.currentMap.collision:isBlockedLocal(destinationLocalX, destinationLocalZ) then
       return nil
     end
     local sourceX, sourceZ =
@@ -140,7 +144,7 @@ function FieldPlayer:_resolveStep(direction)
     -- Occupancy is checked against the resolved destination surface, so an
     -- actor on a different surface never blocks a same-cell approach, and it
     -- runs only after terrain accepts the step.
-    if self.occupancy then
+    if not bypassBlocking and self.occupancy then
       if self.occupancy(destinationX, destinationZ, sample.surfaceId) then
         return nil
       end
@@ -165,14 +169,10 @@ function FieldPlayer:_resolveStep(direction)
   return result
 end
 
-function FieldPlayer:tryStep(direction)
-  assert(DELTAS[direction], "unknown field direction " .. tostring(direction))
-  assert(self.motion == "idle", "cannot begin a field step while walking")
+-- Shared step start for ordinary and scripted steps: capture the from state,
+-- adopt the resolved destination, and enter the walking motion.
+function FieldPlayer:_beginStep(direction, destination)
   self.facing = direction
-  local destination = self:_resolveStep(direction)
-  if not destination then
-    return false
-  end
   self.from = {
     fieldX = self.fieldX,
     fieldZ = self.fieldZ,
@@ -186,6 +186,34 @@ function FieldPlayer:tryStep(direction)
   self.to = destination
   self.motion = "walking"
   self.progressTicks = 0
+end
+
+function FieldPlayer:tryStep(direction)
+  assert(DELTAS[direction], "unknown field direction " .. tostring(direction))
+  assert(self.motion == "idle", "cannot begin a field step while walking")
+  self.facing = direction
+  local destination = self:_resolveStep(direction)
+  if not destination then
+    return false
+  end
+  self:_beginStep(direction, destination)
+  return true
+end
+
+-- A scripted step for the door choreography: like tryStep, but the blocked
+-- permission check and dynamic occupancy are bypassed, so the player can walk
+-- into the door tile normal movement cannot enter and out of a door tile onto
+-- the floor beyond it. Terrain surface resolution still governs (a door tile
+-- without a walkable surface simply fails, and the choreography continues by
+-- fading). Returns true when the step began.
+function FieldPlayer:scriptedStep(direction)
+  assert(DELTAS[direction], "unknown field direction " .. tostring(direction))
+  assert(self.motion == "idle", "cannot begin a scripted step while walking")
+  local destination = self:_resolveStep(direction, true)
+  if not destination then
+    return false
+  end
+  self:_beginStep(direction, destination)
   return true
 end
 

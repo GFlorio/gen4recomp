@@ -279,4 +279,54 @@ function T.occupancy_blocks_only_the_cell_it_names()
   Assert.equal(p.fieldX, 2)
 end
 
+function T.scripted_step_walks_into_a_blocked_permission_cell()
+  local p = player(runtimeMap({ ["0:3"] = true }), 0, 4, 0)
+  Assert.isTrue(p:scriptedStep("north"))
+  Assert.equal(p.facing, "north")
+  Assert.equal(p.motion, "walking")
+  for _ = 1, 7 do
+    tick(p)
+    Assert.equal(p.motion, "walking")
+  end
+  tick(p)
+  Assert.equal(p.fieldX, 0)
+  Assert.equal(p.fieldZ, 3)
+  Assert.equal(p.motion, "idle")
+end
+
+function T.scripted_step_ignores_dynamic_occupancy()
+  local p = occupyingPlayer(runtimeMap(), 0, 4, 0, { ["1:4:1"] = "map:61:object:0" })
+  Assert.isTrue(p:scriptedStep("east"))
+  for _ = 1, 8 do
+    tick(p)
+  end
+  Assert.equal(p.fieldX, 1)
+  Assert.equal(p.surfaceId, 1)
+end
+
+function T.scripted_step_fails_without_a_destination_surface()
+  local p = player(runtimeMap(), 0, 4, 0)
+  Assert.isFalse(p:scriptedStep("west"))
+  Assert.equal(p.motion, "idle")
+  Assert.equal(p.fieldX, 0)
+end
+
+function T.scripted_step_rejects_an_elevation_jump()
+  local map = runtimeMap()
+  map.terrain.plates[2].distance = 5 * ROOT_HALF
+  local p = player(map, 0, 4, 0)
+  Assert.isFalse(p:scriptedStep("east"))
+  Assert.equal(p.motion, "idle")
+end
+
+function T.scripted_step_requires_an_idle_player()
+  local p = player(runtimeMap(), 0, 4, 0)
+  tick(p, "east", "east")
+  local ok, err = pcall(function()
+    p:scriptedStep("east")
+  end)
+  Assert.isFalse(ok, "a scripted step cannot begin mid-walk")
+  Assert.notNil(err)
+end
+
 return { tests = T }

@@ -131,7 +131,12 @@ end
 
 function FieldSession:updateFixed(inputSnapshot)
   inputSnapshot = inputSnapshot or self.input:snapshot()
-  self.transition:updateFixed()
+  -- The door choreography moves the player during the locked transition:
+  -- the pose clock hears the walking state at tick start, the camera tracks
+  -- the continuous XYZ, and the scene's animated props (the door open/close)
+  -- advance under the choreographed locked tick.
+  local walkingAtTickStart = self.player.motion == "walking"
+  local moved = self.transition:updateFixed()
   -- Keep the just-arrived tile stable until the application consumes the
   -- completion event and autosaves it, even when movement remains held.
   if self.transition.completed then
@@ -140,6 +145,13 @@ function FieldSession:updateFixed(inputSnapshot)
     return
   end
   if self.transition.locked then
+    if self.transition.doorActive and self.currentMap.sceneRuntime then
+      self.currentMap.sceneRuntime:updateAnimated()
+    end
+    if moved and self.playerVisual then
+      self.playerVisual:updateFixed(walkingAtTickStart)
+      self.camera:updateFixed(self:actorTarget())
+    end
     self:_advanceTick()
     return
   end

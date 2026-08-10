@@ -191,8 +191,12 @@ end
 
 local function localCoords(runtimeMap, fieldX, fieldZ)
   local origin = runtimeMap.coordinateOrigin
+  local collision = runtimeMap.collision
+  if not origin or not collision or not collision.containsLocal or not collision.getLocal then
+    return nil
+  end
   local localX, localZ = fieldX - origin.x, fieldZ - origin.z
-  if not runtimeMap.collision:containsLocal(localX, localZ) then
+  if not collision:containsLocal(localX, localZ) then
     return nil
   end
   return localX, localZ

@@ -340,7 +340,18 @@ function FieldRuntime:_load()
       commit = function(resolution, facing, prepared)
         self:_commitSwap(resolution, facing, prepared)
       end,
+      -- The door choreography resolves doors through each scene's MapProps
+      -- facade: field coordinate -> building placement -> ModelInstance ->
+      -- semantic door animation. Nothing Nitro leaks into the transition.
+      doorAt = function(runtimeMap, fieldX, fieldZ)
+        local props = runtimeMap.sceneRuntime and runtimeMap.sceneRuntime.mapProps
+        if not props then
+          return nil
+        end
+        return props:doorAt(runtimeMap, fieldX, fieldZ)
+      end,
     })
+    self.transition.player = self.player
     self.transition.suppression = restored and restored.suppression or nil
 
     -- Modal dialogue is pure and fixed-tick. Runtime layout needs only the
@@ -626,6 +637,7 @@ function FieldRuntime:_commitSwap(resolution, facing, prepared)
 
   self.runtimeMap = runtimeMap
   self.player = prepared.player
+  self.transition.player = prepared.player
   self.playerVisual = prepared.playerVisual
   self.session.playerVisual = prepared.playerVisual
   self.camera = prepared.camera

@@ -508,7 +508,7 @@ function T.actor_on_a_blocked_door_cell_does_not_block_the_facing_warp()
     cameraType = 4,
     coordinateOrigin = { x = 0, z = 0 },
     fieldData = { events = { warps = { warp } } },
-    collision = TilePermissions.new(options.tiles),
+    collision = TilePermissions.new({ ["4:14"] = { behavior = DOOR, blocked = true } }),
     terrain = TerrainSurface.new({
       plates = {
         {
@@ -571,7 +571,7 @@ function T.actor_on_an_open_warp_cell_blocks_the_walk_but_not_the_route()
     cameraType = 4,
     coordinateOrigin = { x = 0, z = 0 },
     fieldData = { events = { warps = { warp } } },
-    collision = TilePermissions.new({ ["4:14"] = { behavior = DOOR, blocked = true } }),
+    collision = TilePermissions.new(),
     terrain = TerrainSurface.new({
       plates = {
         {
@@ -1139,6 +1139,127 @@ function T.a_two_tile_walk_keeps_one_phase_across_the_session_ticks()
   Assert.equal(player.motion, "idle")
   Assert.equal(visual.pose, "walk")
   Assert.equal(visual.poseTick, 16, "the session never lets the gait phase restart mid-walk")
+end
+
+function T.door_transition_ticks_advance_the_world_while_locked()
+  local visualSteps, cameraSteps, animatedSteps = 0, 0, 0
+  local transition = {
+    phase = "fade_out",
+    locked = true,
+    doorActive = true,
+    moved = false,
+    updateFixed = function(self)
+      return self.moved
+    end,
+    start = function() end,
+  }
+  local player = {
+    fieldX = 4,
+    fieldZ = 14,
+    worldX = 0,
+    worldY = 0,
+    worldZ = 0,
+    surfaceId = 0,
+    facing = "south",
+    motion = "walking",
+    updateFixed = function()
+      return false
+    end,
+  }
+  local camera = {
+    updateFixed = function()
+      cameraSteps = cameraSteps + 1
+    end,
+  }
+  local playerVisual = {
+    updateFixed = function(_, walking)
+      Assert.isTrue(walking, "the pose clock hears the mid-step tick")
+      visualSteps = visualSteps + 1
+    end,
+  }
+  local map = {
+    mapId = 61,
+    cameraType = 4,
+    sceneRuntime = {
+      updateAnimated = function()
+        animatedSteps = animatedSteps + 1
+      end,
+    },
+  }
+  local session = FieldSession.new(baseOptions({
+    currentMap = map,
+    player = player,
+    camera = camera,
+    transition = transition,
+    playerVisual = playerVisual,
+  }))
+
+  transition.moved = true
+  session:updateFixed({ heldDirection = "south" })
+  Assert.equal(visualSteps, 1, "the walk pose advances during the choreography")
+  Assert.equal(cameraSteps, 1, "the camera follows the ingress/egress")
+  Assert.equal(animatedSteps, 1, "the door animation advances under the locked transition")
+
+  transition.moved = false
+  session:updateFixed({ heldDirection = "south" })
+  Assert.equal(visualSteps, 1, "a standing door tick does not advance the pose clock")
+  Assert.equal(cameraSteps, 1)
+  Assert.equal(animatedSteps, 2, "the door open/close keeps advancing while the player stands")
+end
+
+function T.plain_locked_transition_stays_frozen()
+  local visualSteps, cameraSteps, animatedSteps = 0, 0, 0
+  local transition = {
+    phase = "fade_out",
+    locked = true,
+    updateFixed = function()
+      return false
+    end,
+    start = function() end,
+  }
+  local player = {
+    fieldX = 4,
+    fieldZ = 14,
+    worldX = 0,
+    worldY = 0,
+    worldZ = 0,
+    surfaceId = 0,
+    facing = "south",
+    motion = "walking",
+    updateFixed = function()
+      return false
+    end,
+  }
+  local camera = {
+    updateFixed = function()
+      cameraSteps = cameraSteps + 1
+    end,
+  }
+  local playerVisual = {
+    updateFixed = function()
+      visualSteps = visualSteps + 1
+    end,
+  }
+  local map = {
+    mapId = 61,
+    cameraType = 4,
+    sceneRuntime = {
+      updateAnimated = function()
+        animatedSteps = animatedSteps + 1
+      end,
+    },
+  }
+  local session = FieldSession.new(baseOptions({
+    currentMap = map,
+    player = player,
+    camera = camera,
+    transition = transition,
+    playerVisual = playerVisual,
+  }))
+  session:updateFixed({})
+  Assert.equal(visualSteps, 0)
+  Assert.equal(cameraSteps, 0)
+  Assert.equal(animatedSteps, 0)
 end
 
 return { tests = T }
