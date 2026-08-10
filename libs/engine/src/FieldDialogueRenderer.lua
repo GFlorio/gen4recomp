@@ -11,6 +11,7 @@
 
 local Errors = require("libs.rom.src.Errors")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
+local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local FieldMessageText = require("libs.assets.src.FieldMessageText")
 
@@ -50,14 +51,7 @@ function FieldDialogueRenderer.new(opts)
   end
   local cacheFs = opts.cacheFs
 
-  local def = cacheFs:loadLua(FieldFontCache.defPath(fontId))
-  if type(def) ~= "table" or def.schema ~= FieldFontCache.SCHEMA then
-    Errors.raise(
-      "FONT_DEF_MISSING",
-      "no " .. FieldFontCache.SCHEMA .. " definition at " .. FieldFontCache.defPath(fontId),
-      { fontId = fontId, path = FieldFontCache.defPath(fontId) }
-    )
-  end
+  local def = FieldFontLoader.load(cacheFs, fontId)
 
   local self = setmetatable({
     _cacheFs = cacheFs,

@@ -1,46 +1,14 @@
--- Normal field-runtime coordinator. It joins generated maps through
--- FieldMapLoader, drives the deterministic elevation-aware player, and
--- exposes the field warp transition lifecycle.
+-- Interactive presentation over the non-rendering field runtime.
 
-local CacheFs = require("libs.rom.src.CacheFs")
-local SaveFs = require("libs.rom.src.SaveFs")
-local DialogueLayout = require("libs.engine.src.DialogueLayout")
+local FieldRuntime = require("game.src.game.FieldRuntime")
 local FieldActorAssetProvider = require("libs.engine.src.FieldActorAssetProvider")
 local FieldActorDraw = require("libs.engine.src.FieldActorDraw")
-local FieldActorManager = require("libs.engine.src.FieldActorManager")
-local FieldCamera = require("libs.engine.src.FieldCamera")
-local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
-local FieldDialogueController = require("libs.engine.src.FieldDialogueController")
 local FieldDialogueRenderer = require("libs.engine.src.FieldDialogueRenderer")
-local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
-local FieldEventState = require("libs.engine.src.FieldEventState")
-local FieldInput = require("libs.engine.src.FieldInput")
-local FieldInteractionResolver = require("libs.engine.src.FieldInteractionResolver")
-local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
-local FieldMapLoader = require("libs.engine.src.FieldMapLoader")
-local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
-local FieldPlayer = require("libs.engine.src.FieldPlayer")
-local FieldPlayerVisual = require("libs.engine.src.FieldPlayerVisual")
-local PreScriptInteractionAdapter = require("libs.engine.src.PreScriptInteractionAdapter")
-local FieldSave = require("libs.engine.src.FieldSave")
-local FieldScenario = require("libs.engine.src.FieldScenario")
-local FieldSaveStore = require("libs.engine.src.FieldSaveStore")
-local FieldScripts = require("game.src.game.FieldScripts")
-local FieldSession = require("libs.engine.src.FieldSession")
-local FieldTransition = require("libs.engine.src.FieldTransition")
-local FieldViewport = require("libs.engine.src.FieldViewport")
-local FieldZoom = require("libs.engine.src.FieldZoom")
-local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapRenderer = require("libs.engine.src.MapRenderer")
-local ScriptSave = require("libs.engine.src.script.ScriptSave")
-local TargetSpawns = require("data.manifests.field_spawns")
-local FieldActorManifest = require("data.manifests.field_actors")
-local FieldPresentation = require("data.manifests.field_presentation")
-local FieldScenarioManifest = require("data.manifests.field_scenario")
-local PreScriptInteractions = require("data.manifests.pre_script_interactions")
-local RepoFs = require("game.src.game.RepoFs")
-local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 local SceneAssembly = require("libs.engine.src.SceneAssembly")
+
+local KEY_DIRECTIONS =
+  { w = "north", up = "north", s = "south", down = "south", a = "west", left = "west", d = "east", right = "east" }
 
 ---@class FieldStateOptions
 ---@field resumeSave boolean?
@@ -48,516 +16,75 @@ local SceneAssembly = require("libs.engine.src.SceneAssembly")
 ---@field zoomConfig table?
 
 ---@class FieldState
----@field versionId string
----@field idOrSymbol string|integer?
----@field resumeSave boolean
----@field resetSave boolean
+---@field runtime FieldRuntime?
+---@field renderer any
+---@field dialogueRenderer any
+---@field runtimeMap any
+---@field playerVisual any
+---@field actors any
+---@field actorAssets any
+---@field presentationActorAssets FieldActorAssetProvider?
 ---@field errorText string?
----@field zoom FieldZoom
+---@field viewport any
+---@field mapLoader any
+---@field camera any
+---@field envelope any
+---@field session any
+---@field transition any
+---@field dialogue any
 ---@field saveStatus string?
----@field session FieldSession?
----@field dialogue FieldDialogueController?
----@field dialogueRenderer FieldDialogueRenderer?
 ---@field actionKeys table<string, boolean>?
 ---@field cancelKeys table<string, boolean>?
+---@field input any
+---@field zoom any
+---@field heldDirectionKeys table<string, string>?
+---@field actor any
 local FieldState = {}
-FieldState.__index = FieldState
-
-local CAMERA_PROFILES_PATH = "data/generated/field/camera/profiles.lua"
-local DEFAULT_MAP = "MAP_NEW_BARK_ELMS_LAB_1F"
-local KEY_DIRECTIONS = {
-  w = "north",
-  up = "north",
-  s = "south",
-  down = "south",
-  a = "west",
-  left = "west",
-  d = "east",
-  right = "east",
-}
-
----@return table<string, boolean>
-local function actionBindings()
-  local keys = {}
-  for _, key in ipairs(FieldPresentation.input and FieldPresentation.input.action or {}) do
-    keys[key] = true
+FieldState.__index = function(self, key)
+  local method = FieldState[key]
+  if method then
+    return method
   end
-  return keys
+  local runtime = rawget(self, "runtime")
+  return runtime and runtime[key]
 end
 
----@return table<string, boolean>
-local function cancelBindings()
-  local keys = {}
-  for _, key in ipairs(FieldPresentation.input and FieldPresentation.input.cancel or {}) do
-    keys[key] = true
-  end
-  return keys
-end
-
--- The save validation set of compiled avatar ids, so a corrupt save naming an
--- unbuilt player graphic is rejected before it reaches the runtime.
----@return table<string, boolean>
-local function avatarIdSet()
-  local set = {}
-  for _, avatar in ipairs(FieldActorManifest.avatars or {}) do
-    set[avatar.id] = true
-  end
-  return set
-end
-
--- The player consults the manager's occupancy index through this predicate,
--- keyed by the map the player is on, so FieldPlayer never imports the manager.
-local function playerOccupancy(self)
-  return function(fieldX, fieldZ, surfaceId)
-    if not self.actors then
-      return nil
-    end
-    local occupant = self.actors:getAt(self.runtimeMap.mapId, fieldX, fieldZ, surfaceId)
-    return occupant and occupant.actorId or nil
-  end
-end
-
-local function initialSurface(runtimeMap, localX, localZ)
-  local x, z = localX + FieldCoordinates.TILE_CENTER_OFFSET, localZ + FieldCoordinates.TILE_CENTER_OFFSET
-  local best
-  for _, plate in ipairs(runtimeMap.terrain:candidatesAt(x, z)) do
-    local sample = runtimeMap.terrain:sample(plate.id, x, z)
-    if
-      not best
-      or math.abs(sample.worldY) < math.abs(best.worldY)
-      or (math.abs(sample.worldY) == math.abs(best.worldY) and sample.surfaceId < best.surfaceId)
-    then
-      best = sample
-    end
-  end
-  assert(best, string.format("spawn tile (%d,%d) has no terrain surface", localX, localZ))
-  return best
-end
-
-local function terrainEnvelope(terrain)
-  local minY, maxY = math.huge, -math.huge
-  for _, plate in ipairs(terrain.plates) do
-    if plate.walkable ~= false then
-      local corners = {
-        { plate.minX, plate.minZ },
-        { plate.maxX, plate.minZ },
-        { plate.maxX, plate.maxZ },
-        { plate.minX, plate.maxZ },
-      }
-      for _, point in ipairs(corners) do
-        local y = terrain:sampleHeight(plate.id, point[1], point[2])
-        minY, maxY = math.min(minY, y), math.max(maxY, y)
-      end
-    end
-  end
-  assert(minY <= maxY, "field terrain has no walkable height envelope")
-  return { minY = minY, maxY = maxY }
-end
-
----@param versionId string
----@param idOrSymbol string|integer|nil
----@param options FieldStateOptions|nil
----@return FieldState
 function FieldState.new(versionId, idOrSymbol, options)
-  options = options or {}
-  local self = setmetatable({
-    versionId = versionId,
-    idOrSymbol = idOrSymbol or DEFAULT_MAP,
-    resumeSave = options.resumeSave == true,
-    resetSave = options.resetSave == true,
-    errorText = nil,
-    zoom = FieldZoom.new(options.zoomConfig or FieldPresentation.zoom),
-  }, FieldState)
-  self:_load()
+  local runtime = FieldRuntime.new(versionId, idOrSymbol, options)
+  local self = setmetatable({ runtime = runtime }, FieldState)
+  if runtime.session then
+    local ok, err = pcall(function()
+      self.renderer = MapRenderer.new()
+      self.dialogueRenderer = FieldDialogueRenderer.new({ cacheFs = runtime.cacheFs })
+      self.presentationActorAssets = FieldActorAssetProvider.new(runtime.cacheFs)
+    end)
+    if not ok then
+      self:dispose()
+      error(err)
+    end
+  end
   return self
 end
 
-function FieldState:_load()
-  local ok, err = pcall(function()
-    local cacheFs = CacheFs.forVersion(self.versionId)
-    self.saveStore = FieldSaveStore.new(SaveFs.forVersion(self.versionId), { avatars = avatarIdSet() })
-    if self.resetSave then
-      self.saveStore:reset()
-      self.resetSave = false
-      self.saveStatus = "Started a new field session"
-    end
-    local world =
-      assert(cacheFs:loadLua(MapAssetCache.worldPath()), "world.lua missing -- run `scripts/buildcache.sh` first")
-    local profiles =
-      assert(cacheFs:loadLua(CAMERA_PROFILES_PATH), "field camera cache is cold -- run `scripts/buildcache.sh` first")
-    assert(profiles.schema == "g4-field-camera-profiles-v1", "unsupported field camera cache")
-    self.cameraProfiles = profiles.profiles
-
-    self.mapLoader = FieldMapLoader.new(cacheFs, world)
-    local restored
-    if self.resumeSave then
-      local saved, saveErr = self.saveStore:load()
-      if saved then
-        restored, saveErr = FieldSave.restore(saved, self.mapLoader, self.versionId)
-      end
-      if saveErr and saveErr.code ~= "SAVE_FILE_MISSING" then
-        self.saveStatus = "Save ignored: " .. tostring(saveErr)
-      elseif restored then
-        self.saveStatus = "Resumed saved field session"
-      end
-    end
-    self.runtimeMap = restored and restored.runtimeMap or self.mapLoader:load(self.idOrSymbol)
-    self.mapLoader:protectMap(self.runtimeMap.mapId, true)
-    self.runtime = self.runtimeMap.sceneRuntime
-    self.renderer = MapRenderer.new()
-
-    -- The provisional spawn manifest is flat: each entry is itself the spawn
-    -- record (x, z, facing). Unmapped maps keep the historic default so any
-    -- map can be booted by id; a malformed entry is a manifest bug and must
-    -- fail loudly instead of dumping the player onto a blocked tile.
-    local spawn = TargetSpawns[self.runtimeMap.mapSymbol]
-    if not spawn then
-      spawn = { x = 0, z = 0, facing = "south" }
-    else
-      assert(
-        type(spawn.x) == "number" and type(spawn.z) == "number",
-        "spawn manifest must define x and z for " .. self.runtimeMap.mapSymbol
-      )
-    end
-    local fieldX, fieldZ, surfaceId, facing
-    if restored then
-      fieldX, fieldZ = restored.fieldX, restored.fieldZ
-      surfaceId, facing = restored.surfaceId, restored.facing
-    else
-      fieldX, fieldZ = FieldCoordinates.localToField(self.runtimeMap, spawn.x, spawn.z)
-      surfaceId, facing = initialSurface(self.runtimeMap, spawn.x, spawn.z).surfaceId, spawn.facing
-    end
-    self.player = FieldPlayer.new({
-      currentMap = self.runtimeMap,
-      fieldX = fieldX,
-      fieldZ = fieldZ,
-      surfaceId = surfaceId,
-      facing = facing,
-      occupancy = playerOccupancy(self),
-    })
-    self.actor = self.player
-    self.input = FieldInput.new()
-    self.heldDirectionKeys = {}
-    local worldPoint = self.player:renderPosition()
-
-    local profile = assert(
-      self.cameraProfiles[self.runtimeMap.cameraType],
-      "field camera cache has no camera type " .. self.runtimeMap.cameraType
-    )
-    self.camera = FieldCamera.new(profile, { initialTarget = worldPoint })
-    local width, height = love.graphics.getDimensions()
-    self.viewport = FieldViewport.new(width, height, { mode = "expanded" })
-    self:_updateCameraProjection()
-    self.envelope = terrainEnvelope(self.runtimeMap.terrain)
-    self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
-
-    -- Event state: a persisted save owns the flags/vars and wins over the
-    -- demo scenario. Only a fresh boot (no save) seeds the scenario. The v2
-    -- save's world bucket carries the numeric flag/var maps in the
-    -- event-state shape.
-    local restoredWorld = restored and restored.world or nil
-    self.eventState = FieldEventState.new(restoredWorld and {
-      flags = restoredWorld.flags,
-      vars = restoredWorld.variables,
-    } or nil)
-    if not restored then
-      FieldScenario.apply(FieldScenarioManifest, self.eventState, function(mapId)
-        return cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId))
-      end)
-    end
-    self.actorAssets = FieldActorAssetProvider.new(cacheFs)
-    self.actors = FieldActorManager.new({
-      assets = self.actorAssets,
-      policy = {
-        variableSpriteRange = FieldActorManifest.variableSpriteRange,
-        variableVarBase = FieldActorManifest.variableVarBase,
-      },
-    })
-    self.actors:enterMap(self.runtimeMap, self.eventState)
-
-    -- The player's graphic is one more compiled actor visual: it is acquired from
-    -- the same reference-counted provider, and FieldPlayer keeps every bit of
-    -- movement authority. A resumed save names the avatar; a fresh boot uses the
-    -- scenario's configured pick .
-    self.avatar = FieldScenario.avatarById(
-      FieldActorManifest.avatars,
-      (restored and restored.avatar) or FieldScenarioManifest.avatar
-    )
-    self.avatarAsset = self.actorAssets:acquire(self.avatar.spriteId)
-    self.playerVisual = FieldPlayerVisual.new({
-      player = self.player,
-      spriteId = self.avatar.spriteId,
-      visualDef = self.avatarAsset.visual,
-    })
-
-    -- Warp resolution: ordinary warp records follow WarpSystem; scripted
-    -- warps carry pre-resolved direct coordinates (the script maps service
-    -- synthesizes `direct` records with global destination coordinates and
-    -- the destination map id).
-    local WarpSystem = require("libs.engine.src.WarpSystem")
-    local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
-    local resolveDestination = function(loader, sourceMap, warp)
-      if warp.direct then
-        local destinationMap = loader:load(warp.destinationMapId)
-        local localX, localZ = FieldCoordinates.fieldToLocal(destinationMap, warp.x, warp.z)
-        local sample = SurfaceResolver.new(destinationMap.terrain):resolve({
-          localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
-          localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
-          currentY = 0,
-        })
-        return {
-          sourceMap = sourceMap,
-          sourceWarp = warp,
-          destinationMap = destinationMap,
-          destinationWarp = warp,
-          fieldX = warp.x,
-          fieldZ = warp.z,
-          warpYHint = 0,
-          surfaceId = sample.surfaceId,
-          worldY = sample.worldY,
-          suppression = {
-            mapId = destinationMap.mapId,
-            fieldX = warp.x,
-            fieldZ = warp.z,
-          },
-        }
-      end
-      return WarpSystem.resolveDestination(loader, sourceMap, warp)
-    end
-    self.transition = FieldTransition.new({
-      loader = self.mapLoader,
-      resolveDestination = resolveDestination,
-      swap = function(resolution, facing)
-        self:_swapMap(resolution, facing)
-      end,
-    })
-    self.transition.suppression = restored and restored.suppression or nil
-
-    -- Modal dialogue: the controller is pure and fixed-tick; the renderer owns
-    -- the compiled font def/atlas and draws inside the centered 4:3 frame.
-    self.dialogueRenderer = FieldDialogueRenderer.new({ cacheFs = cacheFs })
-    local fontMetrics = FieldDialogueTheme.fontMetrics(self.dialogueRenderer.fontDef)
-    local layoutMessage = function(formatted)
-      return DialogueLayout.layout(
-        formatted.tokens,
-        fontMetrics,
-        { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines }
-      )
-    end
-    self.dialogue = FieldDialogueController.new({ layout = layoutMessage })
-    self.actionKeys = actionBindings()
-    self.cancelKeys = cancelBindings()
-
-    -- Interaction discovery and the pre-script fallback client. The resolver
-    -- is pure and consults the manager's occupancy index; the adapter remains
-    -- the fallback for interactions without script bindings.
-    self.messageProvider = FieldMessageProvider.new(cacheFs)
-    self.interactionResolver = FieldInteractionResolver.new({
-      actorAt = function(mapId, fieldX, fieldZ, surfaceId)
-        return self.actors and self.actors:getAt(mapId, fieldX, fieldZ, surfaceId) or nil
-      end,
-    })
-    self.preScript = PreScriptInteractionAdapter.new({
-      dialogue = self.dialogue,
-      provider = self.messageProvider,
-      layout = layoutMessage,
-      fontDef = self.dialogueRenderer.fontDef,
-      getActor = function(actorId)
-        return self.actors and self.actors:getById(actorId) or nil
-      end,
-      mapMessageBank = function(mapId)
-        if mapId ~= self.runtimeMap.mapId then
-          return nil
-        end
-        return self.runtimeMap.fieldData.messageBankId
-      end,
-      fixtures = PreScriptInteractions,
-    })
-
-    -- The field-script platform (the script override system): registry over
-    -- the compiled cache + data/scripts/overrides, composition, bindings,
-    -- scheduler, and interaction client. Bound interactions now run through
-    -- the scheduler; the pre-script fixture client stays as the fallback for
-    -- unmapped events. A resumed v2 save reattaches its script bucket.
-    -- The override files live in the repo tree outside the LÖVE source dir,
-    -- so the loader reads them through the io-backed repo filesystem.
-    self.scripts = FieldScripts.new({
-      cacheFs = cacheFs,
-      overrideFs = RepoFs.new(love.filesystem.getSourceBaseDirectory()),
-      bindingsManifest = BindingsManifest,
-      eventState = self.eventState,
-      actors = self.actors,
-      player = self.player,
-      dialogue = self.dialogue,
-      messageProvider = self.messageProvider,
-      layout = layoutMessage,
-      fontDef = self.dialogueRenderer.fontDef,
-      transition = self.transition,
-      mapLoader = self.mapLoader,
-      sourceMap = self.runtimeMap,
-      seedText = self.versionId .. ":" .. self.runtimeMap.mapId,
-    })
-    if restored and restored.scripts then
-      ScriptSave.restore(restored.scripts, self.scripts.scheduler, 0, {
-        expectedRegistryFingerprint = self.scripts.registry:fingerprint(),
-      })
-    end
-    if restored and restored.world then
-      self.scripts.worldState:restoreRng(restored.world)
-    end
-
-    self.session = FieldSession.new({
-      versionId = self.versionId,
-      currentMap = self.runtimeMap,
-      actor = self.actor,
-      player = self.player,
-      camera = self.camera,
-      transition = self.transition,
-      actors = self.actors,
-      playerVisual = self.playerVisual,
-      dialogue = self.dialogue,
-      input = self.input,
-      scriptScheduler = self.scripts.scheduler,
-      scriptClient = self.scripts.client,
-      interactions = {
-        resolve = function(_, snapshot)
-          return self.interactionResolver:resolve(snapshot)
-        end,
-        consume = function(_, intent)
-          return self.preScript:consume(intent)
-        end,
-      },
-      coverage = function()
-        self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
-      end,
-    })
-  end)
-  if not ok then
-    self.errorText = tostring(err)
-    self:_release()
-  end
-end
-
 function FieldState:update(dt)
-  if self.session then
-    self.session:update(dt)
-    if self.transition.error then
-      local warp = assert(self.transition.sourceWarp)
-      self.errorText = string.format(
-        "%s\nsource map %s warp %s -> map %s warp %s",
-        tostring(self.transition.error),
-        tostring(self.transition.sourceMap.mapId),
-        tostring(warp.index),
-        tostring(warp.destinationMapId),
-        tostring(warp.destinationWarpId)
-      )
-    end
-    if self.transition:consumeCompleted() then
-      self:_save("Autosaved after warp")
-    end
+  if self.runtime then
+    self.runtime:update(dt)
   end
-end
-
-function FieldState:_save(successText)
-  if not self.session or not FieldSave.canCapture(self.session) then
-    self.saveStatus = "Save deferred: movement or transition is active"
-    return false
-  end
-  local ok, err = pcall(function()
-    local scriptsBucket
-    if self.scripts then
-      scriptsBucket = ScriptSave.capture(self.scripts.scheduler, self.session.tick, {
-        registryFingerprint = self.scripts.registry:fingerprint(),
-      })
-    end
-    self.saveStore:save(FieldSave.capture(self.session, {
-      avatarId = self.avatar.id,
-      scenario = FieldScenarioManifest.id,
-      world = self.scripts and self.scripts.worldState:capture() or nil,
-      scriptsBucket = scriptsBucket,
-    }))
-  end)
-  if not ok then
-    self.saveStatus = "Save failed: " .. tostring(err)
-    return false
-  end
-  self.saveStatus = successText or "Field session saved"
-  return true
-end
-
-function FieldState:_reset()
-  local ok, err = pcall(function()
-    self.saveStore:reset()
-  end)
-  if not ok then
-    self.saveStatus = "Reset failed: " .. tostring(err)
-    return
-  end
-  self:_release()
-  self.session, self.transition, self.camera, self.player, self.actor = nil, nil, nil, nil, nil
-  self.runtimeMap, self.runtime, self.viewport, self.saveStore = nil, nil, nil, nil
-  self.resumeSave = false
-  self.errorText = nil
-  self.saveStatus = "Field session reset"
-  self:_load()
-end
-
-function FieldState:_swapMap(resolution, facing)
-  assert(self.transition.fadeAlpha == 1, "field map swap must be hidden by fade")
-  local runtimeMap = resolution.destinationMap
-  local player = FieldPlayer.new({
-    currentMap = runtimeMap,
-    fieldX = resolution.fieldX,
-    fieldZ = resolution.fieldZ,
-    surfaceId = resolution.surfaceId,
-    facing = facing,
-    occupancy = playerOccupancy(self),
-  })
-  local profile = assert(
-    self.cameraProfiles[runtimeMap.cameraType],
-    "field camera cache has no camera type " .. runtimeMap.cameraType
-  )
-  local camera = FieldCamera.new(profile, { initialTarget = player:renderPosition() })
-  camera:setProjectionAspect(self.viewport:worldAspect())
-  camera:setZoom(self.zoom:effectiveZoom())
-
-  local previousMapId = self.runtimeMap.mapId
-  self.actors:enterMap(runtimeMap, self.eventState)
-  if runtimeMap.mapId ~= previousMapId then
-    self.actors:leaveMap(previousMapId)
-  end
-
-  self.runtimeMap = runtimeMap
-  self.runtime = runtimeMap.sceneRuntime
-  self.player = player
-  self.actor = player
-  self.playerVisual = FieldPlayerVisual.new({
-    player = player,
-    spriteId = self.avatar.spriteId,
-    visualDef = self.avatarAsset.visual,
-  })
-  self.session.playerVisual = self.playerVisual
-  self.camera = camera
-  self.envelope = terrainEnvelope(runtimeMap.terrain)
-  self.session.currentMap = runtimeMap
-  self.session.player = player
-  self.session.actor = player
-  self.session.camera = camera
-  if self.scripts then
-    self.scripts:onMapSwap(player, runtimeMap)
-  end
-  self.mapLoader:updateCoverage(runtimeMap, camera, self.envelope)
 end
 
 function FieldState:_updateCameraProjection()
-  self.zoom:resize(self.viewport.worldViewport.height)
-  self.camera:setProjectionAspect(self.viewport:worldAspect())
-  self.camera:setZoom(self.zoom:effectiveZoom())
+  self.runtime:_updateCameraProjection()
+end
+function FieldState:_applyZoomChange()
+  self.runtime:_applyZoomChange()
 end
 
-function FieldState:_applyZoomChange()
-  self:_updateCameraProjection()
-  self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
+function FieldState:_save()
+  return self.runtime:_save()
+end
+
+function FieldState:_reset()
+  return self.runtime:_reset()
 end
 
 -- Every actor the frame draws: the ROM-derived player billboard first, then the
@@ -569,7 +96,9 @@ function FieldState:_actorDraws(alpha)
     records[#records + 1] = record
   end
   return FieldActorDraw.items(records, function(spriteId)
-    return self.actorAssets:resident(spriteId)
+    local assets = assert(self.presentationActorAssets, "field presentation assets are unavailable")
+    local entry = assets:resident(spriteId)
+    return entry or assets:acquire(spriteId)
   end)
 end
 
@@ -601,7 +130,7 @@ function FieldState:draw()
     self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
   end
   local alpha = self.session:renderAlpha()
-  self.renderer:draw(self.runtime, self.camera, self:_worldDraws(alpha), self.viewport, alpha)
+  self.renderer:draw(self.runtime.runtime, self.camera, self:_worldDraws(alpha), self.viewport, alpha)
   if self.transition and self.transition.fadeAlpha > 0 then
     local rectangle = self.viewport.worldViewport
     lg.setColor(0, 0, 0, self.transition.fadeAlpha)
@@ -751,52 +280,23 @@ function FieldState:gamepadreleased(joystick, button)
   end
 end
 
-function FieldState:_release()
-  if self.dialogue then
-    self.dialogue:dispose()
-  end
+function FieldState:dispose()
   if self.dialogueRenderer then
     self.dialogueRenderer:release()
+    self.dialogueRenderer = nil
   end
-  self.dialogue, self.dialogueRenderer = nil, nil
-  if self.messageProvider then
-    self.messageProvider:dispose()
-  end
-  self.messageProvider = nil
-  if self.actors then
-    self.actors:dispose()
-  end
-  if self.avatarAsset and self.actorAssets then
-    self.actorAssets:release(self.avatarAsset.spriteId)
-  end
-  self.avatarAsset, self.playerVisual = nil, nil
-  if self.actorAssets then
-    self.actorAssets:dispose()
+  if self.presentationActorAssets then
+    self.presentationActorAssets:dispose()
+    self.presentationActorAssets = nil
   end
   if self.renderer then
     self.renderer:release()
+    self.renderer = nil
   end
-  if self.mapLoader then
-    self.mapLoader:release()
+  if self.runtime then
+    self.runtime:dispose()
+    self.runtime = nil
   end
-  self.actors, self.actorAssets, self.renderer, self.mapLoader = nil, nil, nil, nil
-end
-
--- End the state's lifetime: persist the field session if one is live, then
--- release every owned resource exactly once. This is the single general
--- disposal hook invoked by App on both state replacement and application
--- shutdown; clearing the capture-bearing fields after release makes a repeat
--- call a no-op rather than a second save.
-function FieldState:dispose()
-  -- A half-open dialogue must never be persisted; disposal cancels it cleanly
-  -- before the capture (and releases it once, before _release runs).
-  if self.dialogue then
-    self.dialogue:dispose()
-    self.dialogue = nil
-  end
-  self:_save("Field session saved")
-  self:_release()
-  self.session, self.saveStore, self.scripts = nil, nil, nil
 end
 
 return FieldState

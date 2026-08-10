@@ -4,6 +4,7 @@
 -- can never double-save or double-release.
 
 local Assert = require("tests.support.Assert")
+local FieldRuntime = require("game.src.game.FieldRuntime")
 local FieldState = require("game.src.game.FieldState")
 
 local T = {}
@@ -60,18 +61,21 @@ local function disposableState()
     mapLoader = fakeResource("release"),
     saveStore = fakeResource("save"),
   }
-  local state = setmetatable({
+  local runtime = setmetatable({
     dialogue = resources.dialogue,
-    dialogueRenderer = resources.dialogueRenderer,
     messageProvider = resources.messageProvider,
     actors = resources.actors,
     avatarAsset = {},
     actorAssets = resources.actorAssets,
-    renderer = resources.renderer,
     mapLoader = resources.mapLoader,
     saveStore = resources.saveStore,
     session = captureReadySession(),
     avatar = { id = "hero" },
+  }, FieldRuntime)
+  local state = setmetatable({
+    runtime = runtime,
+    dialogueRenderer = resources.dialogueRenderer,
+    renderer = resources.renderer,
   }, FieldState)
   return state, resources
 end
@@ -102,7 +106,7 @@ end
 
 function T.dispose_without_a_live_session_skips_the_save()
   local state, resources = disposableState()
-  state.session = nil
+  state.runtime.session = nil
   state:dispose()
   Assert.equal(resources.saveStore.calls, 0)
   Assert.equal(resources.renderer.calls, 1)
@@ -111,6 +115,15 @@ end
 function T.dispose_on_a_failed_boot_state_is_a_no_op()
   local state = setmetatable({ errorText = "boom" }, FieldState)
   state:dispose()
+end
+
+function T.dispose_releases_runtime_and_presentation_resources_once()
+  local state, resources = disposableState()
+  local runtime = fakeResource("dispose")
+  state.runtime = runtime
+  state:dispose()
+  Assert.equal(runtime.calls, 1)
+  Assert.equal(resources.renderer.calls, 1)
 end
 
 return T

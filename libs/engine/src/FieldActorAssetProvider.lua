@@ -23,6 +23,7 @@ local FieldActorMesh = require("libs.engine.src.FieldActorMesh")
 ---@field private _stats table
 ---@field new fun(cacheFs: CacheFs, opts?: table): FieldActorAssetProvider
 ---@field knows fun(self: FieldActorAssetProvider, spriteId: integer): boolean
+---@field resident fun(self: FieldActorAssetProvider, spriteId: integer): table?
 ---@field acquire fun(self: FieldActorAssetProvider, spriteId: integer): table
 ---@field release fun(self: FieldActorAssetProvider, spriteId: integer)
 ---@field stats fun(self: FieldActorAssetProvider): table
@@ -35,7 +36,7 @@ local DEFAULT_IDLE_LIMIT = 8
 
 -- opts.idleLimit: how many unreferenced entries stay resident before the least
 -- recently released one is disposed. opts.graphics: injectable LÖVE graphics
--- namespace, so headless tests can drive the whole lifecycle.
+-- namespace for deterministic presentation-resource tests.
 function FieldActorAssetProvider.new(cacheFs, opts)
   assert(cacheFs, "FieldActorAssetProvider requires a CacheFs")
   opts = opts or {}
@@ -52,11 +53,13 @@ function FieldActorAssetProvider.new(cacheFs, opts)
     known[spriteId] = true
   end
 
+  local graphics = opts.graphics or (love and love.graphics)
+  assert(graphics and graphics.newImage and graphics.newMesh, "FieldActorAssetProvider requires love.graphics")
   return setmetatable({
     _cacheFs = cacheFs,
     _index = index,
     _known = known,
-    _graphics = opts.graphics or (love and love.graphics),
+    _graphics = graphics,
     _idleLimit = opts.idleLimit or DEFAULT_IDLE_LIMIT,
     _entries = {},
     _idle = {}, -- least-recently-released first
