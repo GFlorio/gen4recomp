@@ -5,10 +5,14 @@
 
 local LuaWriter = {}
 
+---@param s string
+---@return boolean
 local function isIdentifier(s)
   return type(s) == "string" and s:match("^[%a_][%w_]*$") ~= nil
 end
 
+---@param s string
+---@return string
 local function encodeString(s)
   local out = { '"' }
   for i = 1, #s do
@@ -25,7 +29,7 @@ local function encodeString(s)
     elseif c == "\t" then
       out[#out + 1] = "\\t"
     elseif b < 32 or b == 127 then
-      out[#out + 1] = string.format("\\%d", b)
+      out[#out + 1] = string.format("\\%03d", b)
     else
       out[#out + 1] = c
     end
@@ -34,6 +38,8 @@ local function encodeString(s)
   return table.concat(out)
 end
 
+---@param n number
+---@return string
 local function encodeNumber(n)
   if n ~= n or n == math.huge or n == -math.huge then
     error("cannot serialize non-finite number: " .. tostring(n))
@@ -45,6 +51,8 @@ local function encodeNumber(n)
 end
 
 -- Sort keys deterministically: numbers ascending, then strings alphabetically.
+---@param t table
+---@return table
 local function sortedKeys(t)
   local numeric, strings = {}, {}
   for k in pairs(t) do
@@ -68,8 +76,13 @@ local function sortedKeys(t)
   return keys
 end
 
+---@type fun(value: any, indent: string, seen: table): string
 local encodeValue
 
+---@param t table
+---@param indent string
+---@param seen table
+---@return string
 local function encodeTable(t, indent, seen)
   if seen[t] then
     error("cannot serialize cyclic table")
@@ -98,23 +111,29 @@ local function encodeTable(t, indent, seen)
   return table.concat(parts)
 end
 
-encodeValue = function(v, indent, seen)
-  local ty = type(v)
+---@param value any
+---@param indent string
+---@param seen table
+---@return string
+encodeValue = function(value, indent, seen)
+  local ty = type(value)
   if ty == "nil" then
     return "nil"
   elseif ty == "boolean" then
-    return tostring(v)
+    return tostring(value)
   elseif ty == "number" then
-    return encodeNumber(v)
+    return encodeNumber(value)
   elseif ty == "string" then
-    return encodeString(v)
+    return encodeString(value)
   elseif ty == "table" then
-    return encodeTable(v, indent, seen)
+    return encodeTable(value, indent, seen)
   else
     error("cannot serialize value of type: " .. ty)
   end
 end
 
+---@param value any
+---@return string
 function LuaWriter.encode(value)
   return "return " .. encodeValue(value, "", {}) .. "\n"
 end

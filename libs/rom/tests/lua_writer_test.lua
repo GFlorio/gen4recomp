@@ -32,9 +32,35 @@ function T.round_trips_zero_based_numeric_keys()
 end
 
 function T.round_trips_strings_with_special_characters()
-  local value = { path = "a/0/4/1", weird = "tab\tnul\0end", quote = 'he said "hi"' }
+  local value = {
+    path = "a/0/4/1",
+    weird = "tab\tnul\0end",
+    quote = 'he said "hi"',
+    backslash = "a\\b\\c",
+    newline = "line1\nline2",
+    cr = "cr\rreturn",
+    tab = "col1\tcol2",
+  }
   local out = roundTrip(value)
   Assert.deepEqual(out, value)
+end
+
+-- A variable-width decimal escape (e.g. `\1` followed by the characters "23")
+-- would parse as one `\123` byte, so every escaped control byte must be
+-- exactly three digits wide.
+function T.decimal_escapes_never_absorb_following_digits()
+  for b = 0, 31 do
+    for d = 0, 9 do
+      local value = string.char(b) .. tostring(d)
+      local out = roundTrip(value)
+      Assert.equal(out, value, string.format("byte %d followed by digit %d", b, d))
+    end
+  end
+  for d = 0, 9 do
+    local value = string.char(127) .. tostring(d)
+    local out = roundTrip(value)
+    Assert.equal(out, value, string.format("byte 127 followed by digit %d", d))
+  end
 end
 
 function T.output_is_deterministic_and_key_sorted()
