@@ -566,6 +566,8 @@ function FieldRuntime:_swapMap(resolution, facing)
   self.actors:enterMap(runtimeMap, self.eventState)
   if runtimeMap.mapId ~= previousMapId then
     self.actors:leaveMap(previousMapId)
+    self.mapLoader:protectMap(runtimeMap.mapId, true)
+    self.mapLoader:protectMap(previousMapId, false)
   end
 
   self.runtimeMap = runtimeMap

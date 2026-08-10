@@ -7,6 +7,7 @@ local SaveFs = require("libs.rom.src.SaveFs")
 local GameVersion = require("libs.rom.src.GameVersion")
 local RomImporter = require("libs.rom.src.RomImporter")
 local FieldRuntime = require("game.src.game.FieldRuntime")
+local FieldBoot = require("game.src.game.FieldBoot")
 
 ---@class AcceptanceHarness
 ---@field versions string[]
@@ -110,7 +111,12 @@ function Game:snapshot()
 end
 
 function Game:_record()
-  self.timeline[#self.timeline + 1] = self:snapshot()
+  local snapshot = self:snapshot()
+  if self.lastSnapshot and self.lastSnapshot.mapId ~= snapshot.mapId then
+    self.lastTransition = { source = self.lastSnapshot, destination = snapshot }
+  end
+  self.lastSnapshot = snapshot
+  self.timeline[#self.timeline + 1] = snapshot
   if #self.timeline > TRACE_LIMIT then
     table.remove(self.timeline, 1)
   end
@@ -136,6 +142,135 @@ function Game:move(direction)
   self.runtime:press(direction)
   self:step()
   self.runtime:release(direction)
+end
+
+function Game:_moveOne(direction)
+  local before = self:snapshot()
+  self:move(direction)
+  return self:advanceUntil("movement resolves", function(snapshot)
+    return snapshot.player.motion == "idle"
+      and (
+        snapshot.player.fieldX ~= before.player.fieldX
+        or snapshot.player.fieldZ ~= before.player.fieldZ
+        or snapshot.player.facing == direction
+      )
+  end, 120)
+end
+
+function Game:moveTo(target)
+  assert(type(target) == "table", "movement target required")
+  assert(type(target.fieldX) == "number" and type(target.fieldZ) == "number", "integer field target required")
+  local player = assert(self.runtime.player, "acceptance runtime player required")
+  local targetKey = target.fieldX .. ":" .. target.fieldZ
+  local function copyPlayer(source)
+    local copy = {}
+    for key, value in pairs(source) do
+      copy[key] = value
+    end
+    return setmetatable(copy, getmetatable(source))
+  end
+  local queue = { { player = copyPlayer(player), route = {} } }
+  local seen = { [player.fieldX .. ":" .. player.fieldZ] = true }
+  local route
+  local head = 1
+  local directions = { "north", "south", "west", "east" }
+  while queue[head] do
+    local node = queue[head]
+    head = head + 1
+    if node.player.fieldX .. ":" .. node.player.fieldZ == targetKey then
+      route = node.route
+      break
+    end
+    for _, direction in ipairs(directions) do
+      local destination = node.player:_resolveStep(direction)
+      if destination then
+        local key = destination.fieldX .. ":" .. destination.fieldZ
+        local isWarp = false
+        for _, warp in ipairs(node.player.currentMap.fieldData.events.warps) do
+          if warp.x == destination.fieldX and warp.z == destination.fieldZ then
+            isWarp = true
+            break
+          end
+        end
+        if not seen[key] and (not isWarp or key == targetKey) then
+          seen[key] = true
+          local nextRoute = {}
+          for index, step in ipairs(node.route) do
+            nextRoute[index] = step
+          end
+          nextRoute[#nextRoute + 1] = direction
+          local nextPlayer = copyPlayer(node.player)
+          for key, value in pairs(destination) do
+            nextPlayer[key] = value
+          end
+          queue[#queue + 1] = { player = nextPlayer, route = nextRoute }
+        end
+      end
+    end
+  end
+  assert(route, "no production movement route to " .. targetKey)
+  for _, direction in ipairs(route) do
+    self:_moveOne(direction)
+  end
+  return self:snapshot()
+end
+
+function Game:moveUntilBlocked(direction)
+  local before = self:snapshot()
+  self:_moveOne(direction)
+  local after = self:snapshot()
+  assert(
+    after.player.fieldX == before.player.fieldX and after.player.fieldZ == before.player.fieldZ,
+    "expected production movement to be blocked"
+  )
+  return after
+end
+
+function Game:face(direction)
+  self:advanceUntil("prior movement resolves", function(snapshot)
+    return snapshot.player.motion == "idle"
+  end, 120)
+  self:_moveOne(direction)
+  return self:snapshot()
+end
+
+function Game:waitForTransition()
+  if self.lastTransition then
+    local completed = self.lastTransition
+    self.lastTransition = nil
+    return completed
+  end
+  local source = self:snapshot()
+  self:advanceUntil("transition completes", function(snapshot)
+    return snapshot.mapId ~= source.mapId and snapshot.transition.phase == "idle"
+  end, 120)
+  local destination = self:snapshot()
+  self.lastTransition = nil
+  return { source = source, destination = destination }
+end
+
+function Game:ownership()
+  local runtime = self.runtime
+  local actorDefinitions = 0
+  if runtime.actorAssets and runtime.actorAssets._entries then
+    for _ in pairs(runtime.actorAssets._entries) do
+      actorDefinitions = actorDefinitions + 1
+    end
+  end
+  local mapProtections = 0
+  for _ in pairs(runtime.mapLoader.protectedMaps) do
+    mapProtections = mapProtections + 1
+  end
+  local activeActorMaps = 0
+  for _ in pairs(runtime.actors.maps) do
+    activeActorMaps = activeActorMaps + 1
+  end
+  return {
+    mapProtections = mapProtections,
+    actorDefinitions = actorDefinitions,
+    activeActorMaps = activeActorMaps,
+    sessionReferences = runtime.session and 1 or 0,
+  }
 end
 
 function Game:advanceUntil(label, predicate, maxTicks)
@@ -236,6 +371,47 @@ function AcceptanceHarness:boot(options)
     trap = trap,
     timeline = {},
   }, Game)
+end
+
+function AcceptanceHarness:bootSelected(options)
+  assert(type(options) == "table" and type(options.versions) == "table", "ready versions required")
+  local selected = FieldBoot.select(options.versions)
+  assert(type(selected) == "string", "multiple ready versions require explicit selection")
+  return self:boot({ versionId = selected, save = options.save, map = options.map })
+end
+
+function AcceptanceHarness:selectVersion(versions)
+  local selection = FieldBoot.select(versions)
+  assert(type(selection) == "table", "multiple ready versions required for selection")
+  local harness = self
+  return {
+    versions = function()
+      return selection:versions()
+    end,
+    choose = function(_, versionId)
+      return harness:boot({ versionId = selection:choose(versionId), save = "fresh" })
+    end,
+  }
+end
+
+function AcceptanceHarness:bootWithCorruptArtifact(versionId, artifact)
+  assert(type(versionId) == "string" and type(artifact) == "string", "version and artifact required")
+  local originalFactory = self.runtimeFactory
+  local disposeCount = 0
+  self.runtimeFactory = function()
+    return {
+      errorText = "required " .. artifact .. " artifact is corrupt",
+      dispose = function()
+        disposeCount = disposeCount + 1
+      end,
+    }
+  end
+  local ok, err = pcall(function()
+    self:boot({ versionId = versionId, save = "fresh" })
+  end)
+  self.runtimeFactory = originalFactory
+  assert(not ok, "corrupt artifact boot must fail")
+  return { error = tostring(err), disposeCount = disposeCount }
 end
 
 return AcceptanceHarness
