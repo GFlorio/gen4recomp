@@ -715,40 +715,59 @@ function T.compile_propagates_validator_errors()
   )
 end
 
-function T.recursive_call_cycle_without_blocking_edge_faults()
-  local err = compileError(
-    "SCRIPT_SCHEMA_INVALID",
-    S.script({
-      api = 1,
-      id = "x",
-      steps = {
-        S.call({ target = "a" }),
-        S.label({ name = "a" }),
-        S.call({ target = "b" }),
-        S.label({ name = "b" }),
-        S.call({ target = "a" }),
-      },
-    })
-  )
-  table.sort(err.context.cycle)
-  Assert.deepEqual(err.context.cycle, { "a", "b" })
+-- Recursive local call cycles are no longer rejected at load time: the
+-- static "contains a blocking op" heuristic was path-insensitive, and the
+-- scheduler's deterministic per-run node budget faults non-yielding
+-- recursion at runtime. Call targets still resolve structurally.
+function T.recursive_call_cycle_compiles()
+  local graph = compile(S.script({
+    api = 1,
+    id = "x",
+    steps = {
+      S.call({ target = "a" }),
+      S.label({ name = "a" }),
+      S.call({ target = "b" }),
+      S.label({ name = "b" }),
+      S.call({ target = "a" }),
+    },
+  }))
+  Assert.equal(graph.nodes["path:steps/0"].targetNode, "path:steps/1")
+  Assert.equal(graph.nodes["path:steps/2"].targetNode, "path:steps/3")
+  Assert.equal(graph.nodes["path:steps/4"].targetNode, "path:steps/1")
 end
 
-function T.self_recursive_call_without_blocking_edge_faults()
-  compileError(
-    "SCRIPT_SCHEMA_INVALID",
-    S.script({
-      api = 1,
-      id = "x",
-      steps = {
-        S.label({ name = "a" }),
-        S.call({ target = "a" }),
-      },
-    })
-  )
+function T.self_recursive_call_compiles()
+  local graph = compile(S.script({
+    api = 1,
+    id = "x",
+    steps = {
+      S.label({ name = "a" }),
+      S.call({ target = "a" }),
+    },
+  }))
+  Assert.equal(graph.entry, "path:steps/0")
+  Assert.equal(graph.nodes["path:steps/1"].targetNode, "path:steps/0")
 end
 
-function T.recursive_call_cycle_with_blocking_edge_compiles()
+-- A fallthrough label chain whose tail calls back into its own head is a
+-- recursive cycle too; it compiles and the budget decides at runtime.
+function T.fallthrough_label_chain_cycle_compiles()
+  local graph = compile(S.script({
+    api = 1,
+    id = "x",
+    steps = {
+      S.label({ name = "a" }),
+      S.label({ name = "b" }),
+      S.call({ target = "a" }),
+    },
+  }))
+  Assert.equal(graph.nodes["path:steps/2"].targetNode, "path:steps/0")
+end
+
+-- Call cycles compile with or without blocking ops in the cycle: a
+-- two-label cycle through waitTicks subroutines, and a self-call that sits
+-- after a stop. The scheduler budget decides at runtime.
+function T.recursive_call_cycles_compile_regardless_of_blocking_ops()
   compile(S.script({
     api = 1,
     id = "x",
@@ -773,22 +792,7 @@ function T.recursive_call_cycle_with_blocking_edge_compiles()
   }))
 end
 
-function T.fallthrough_label_chain_cycle_is_detected()
-  compileError(
-    "SCRIPT_SCHEMA_INVALID",
-    S.script({
-      api = 1,
-      id = "x",
-      steps = {
-        S.label({ name = "a" }),
-        S.label({ name = "b" }),
-        S.call({ target = "a" }),
-      },
-    })
-  )
-end
-
-function T.call_before_label_is_not_a_cycle()
+function T.call_to_later_label_compiles()
   compile(S.script({
     api = 1,
     id = "x",

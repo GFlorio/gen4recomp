@@ -1372,4 +1372,62 @@ T["countdown variable write shortens the wait"] = function()
   Assert.equal(h.services.world:getVar("VAR_DONE"), 1, "the wait completed after the overwritten countdown ran out")
 end
 
+-- 36. Non-yielding recursion is not rejected at compile time: the per-run
+-- node budget faults the runaway recursion deterministically with
+-- SCRIPT_STEP_BUDGET_EXCEEDED rather than yielding.
+T["non-yielding recursion faults through the node budget"] = function()
+  local h = harness()
+  startForeground(
+    h,
+    script("test.recur", {
+      S.call({ target = "a" }),
+      S.label({ name = "a" }),
+      S.call({ target = "a" }),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  local instance = assert(h.scheduler:instances()[1])
+  Assert.equal(instance.status, "faulted")
+  Assert.equal(instance.endReason, "SCRIPT_STEP_BUDGET_EXCEEDED")
+  local errorEvent = nil
+  for _, record in ipairs(h.services.events.records) do
+    if record.name == "script.error" then
+      errorEvent = record.payload
+    end
+  end
+  ---@cast errorEvent table
+  Assert.notNil(errorEvent)
+  Assert.equal(errorEvent.code, "SCRIPT_STEP_BUDGET_EXCEEDED")
+end
+
+-- 37. Recursion that terminates within the budget still completes in one
+-- tick: the budget only ever faults recursion that never yields.
+T["recursive call that terminates completes"] = function()
+  local h = harness()
+  startForeground(
+    h,
+    script("test.recur", {
+      locals = { n = "integer" },
+      steps = {
+        S.setLocal({ name = "n", value = 3 }),
+        S.call({ target = "loop" }),
+        S.setFlag({ flag = "FLAG_RECURSED" }),
+        S.stop(),
+        S.label({ name = "loop" }),
+        S.if_({
+          condition = S.gt(S.local_("n"), 0),
+          yes = { S.subLocal({ name = "n", amount = 1 }), S.call({ target = "loop" }) },
+          no = { S.return_({}) },
+        }),
+      },
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  Assert.isTrue(h.services.world:isFlagSet("FLAG_RECURSED"))
+  local instance = assert(h.scheduler:instances()[1])
+  Assert.equal(instance.status, "completed")
+end
+
 return T

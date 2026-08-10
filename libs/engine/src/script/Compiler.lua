@@ -3,13 +3,14 @@
 -- generated `src:<member>:<index>:<offset>[/<op>]`, or a structural
 -- `path:steps/3/no/2`; the revision hash covers normalized semantics only.
 -- Load-time structural validation also lives here: label uniqueness/targets,
--- wrapper-only `next`, local call-target resolution, recursive call cycles
--- without a blocking edge, and static nesting. The compiler deep-copies
--- authoring tables; compiled graphs share no nested tables with the authoring
--- input. All mutable compilation state (nodes, labels, used ids, owner data,
--- warnings, opts) is a context local to each invocation, passed explicitly to
--- the stateful helpers, so calls are reentrant and cannot contaminate one
--- another.
+-- wrapper-only `next`, local call-target resolution, and static nesting.
+-- Non-yielding recursion is not rejected at load time; the scheduler's
+-- deterministic per-run node budget faults it at runtime instead. The
+-- compiler deep-copies authoring tables; compiled graphs share no nested
+-- tables with the authoring input. All mutable compilation state (nodes,
+-- labels, used ids, warnings, opts) is a context local to each invocation,
+-- passed explicitly to the stateful helpers, so calls are reentrant and
+-- cannot contaminate one another.
 
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -23,32 +24,6 @@ local Compiler = {}
 
 -- Maximum static if/switch nesting depth.
 Compiler.MAX_STATIC_NESTING = 64
-
--- Ops that end a run phase (yield or block) or terminate the script. A local
--- call cycle whose subroutines contain none of these before their first call
--- can never suspend and would burn the step budget, so the compiler rejects it
--- at load time.
-local CYCLE_BREAKING_OPS = {
-  yield_tick = true,
-  wait_ticks = true,
-  wait_input = true,
-  wait_input_or_ticks = true,
-  say = true,
-  message = true,
-  ask_yes_no = true,
-  wait_movement = true,
-  move = true,
-  wait_sound = true,
-  wait_cry = true,
-  wait_fanfare = true,
-  wait_fade = true,
-  warp = true,
-  lock_all = true,
-  lock_actor = true,
-  call_common = true,
-  lua = true,
-  stop = true,
-}
 
 -- Ops whose linear continuation is not a `next` edge: branch nodes carry
 -- explicit edges, calls carry return frames, and stop/return/next terminate.
@@ -74,8 +49,6 @@ local FALLBACK_OPS = {
   call_compared = true,
   goto_script = true,
 }
-
-local ROOT_OWNER = "<root>"
 
 local ACTOR_SPECIALS_SET = {}
 for _, special in ipairs(Schema.ACTOR_SPECIALS) do
@@ -352,28 +325,6 @@ local function prewalk(context, steps, path)
   end
 end
 
--- Get-or-create a per-key set inside a map.
----@param map table
----@param key string
----@return table
-local function setFor(map, key)
-  local set = map[key]
-  if set == nil then
-    set = {}
-    map[key] = set
-  end
-  return set
-end
-
--- Record a subroutine-flow edge from `owner` into the span of `label`: either
--- a call step or a linear fallthrough that lands on a later label's marker.
----@param context table per-call compiler state
----@param owner string
----@param label string
-local function addSubroutineEdge(context, owner, label)
-  setFor(context.subroutineEdges, owner)[label] = true
-end
-
 -- Compile one step into a node. `cont` is the node ID the step's control flow
 -- continues at (nil at the script end). Returns the node ID.
 local compileSteps
@@ -382,11 +333,10 @@ local compileSteps
 ---@param step table
 ---@param path string
 ---@param cont string|nil
----@param owner string
 ---@param depth integer
 ---@param id string precomputed node id (compileSteps resolves ids in one pass)
 ---@return string
-local function compileStep(context, step, path, cont, owner, depth, id)
+local function compileStep(context, step, path, cont, depth, id)
   local op = step.op
   if context.nodes[id] ~= nil then
     Errors.raise(
@@ -395,16 +345,6 @@ local function compileStep(context, step, path, cont, owner, depth, id)
       { scriptId = context.script.id, path = path, nodeId = id }
     )
   end
-
-  local ownerBucket = setFor(context.ownerSteps, owner)
-  -- The cycle analysis must examine fields, not merely op names: `message`
-  -- blocks only with waitForPrint and `lock_actor` only with
-  -- waitUntilPausable, so an entry records whether it actually blocks.
-  local blocks = op ~= "message" or step.waitForPrint == true
-  if op == "lock_actor" then
-    blocks = step.waitUntilPausable == true
-  end
-  ownerBucket[#ownerBucket + 1] = { op = op, blocks = blocks }
 
   local node = { op = op }
   for k, v in pairs(step) do
@@ -426,8 +366,8 @@ local function compileStep(context, step, path, cont, owner, depth, id)
     end
   end
   if op == "if" then
-    node.yes = compileSteps(context, step.yes, path .. "/yes", cont, owner, depth + 1) or cont
-    node.no = compileSteps(context, step.no, path .. "/no", cont, owner, depth + 1) or cont
+    node.yes = compileSteps(context, step.yes, path .. "/yes", cont, depth + 1) or cont
+    node.no = compileSteps(context, step.no, path .. "/no", cont, depth + 1) or cont
     if #step.yes == 0 then
       addWarning(context, "empty yes branch", id)
     end
@@ -442,12 +382,12 @@ local function compileStep(context, step, path, cont, owner, depth, id)
     end
     table.sort(keys)
     for _, k in ipairs(keys) do
-      node.cases[k] = compileSteps(context, step.cases[k], path .. "/" .. tostring(k), cont, owner, depth + 1) or cont
+      node.cases[k] = compileSteps(context, step.cases[k], path .. "/" .. tostring(k), cont, depth + 1) or cont
       if #step.cases[k] == 0 then
         addWarning(context, "empty switch case", id)
       end
     end
-    node.default = compileSteps(context, step.default, path .. "/default", cont, owner, depth + 1) or cont
+    node.default = compileSteps(context, step.default, path .. "/default", cont, depth + 1) or cont
   elseif op == "goto" or op == "goto_if" or op == "goto_compared" then
     if op == "goto_compared" and step.script ~= nil then
       -- Cross-script compare-state form: resolved through the composition
@@ -491,10 +431,7 @@ local function compileStep(context, step, path, cont, owner, depth, id)
         )
       end
       node.targetNode = labelId
-      addSubroutineEdge(context, owner, step.target)
     end
-  elseif op == "label" then
-    addSubroutineEdge(context, owner, step.name)
   elseif op == "next" then
     context.usesNext = true
     if not context.opts.allowNext then
@@ -518,100 +455,22 @@ end
 ---@param steps table
 ---@param path string
 ---@param cont string|nil
----@param owner string
 ---@param depth integer
 ---@return string|nil
-compileSteps = function(context, steps, path, cont, owner, depth)
+compileSteps = function(context, steps, path, cont, depth)
   local ids = {}
   for i = 1, #steps do
     ids[i] = nodeIdFor(context, steps[i], path .. "/" .. tostring(i - 1))
   end
-  local currentOwner = owner
   for i = 1, #steps do
     local step = steps[i]
-    compileStep(context, step, path .. "/" .. tostring(i - 1), ids[i + 1] or cont, currentOwner, depth, ids[i])
+    compileStep(context, step, path .. "/" .. tostring(i - 1), ids[i + 1] or cont, depth, ids[i])
     local node = context.nodes[ids[i]]
     if not NO_CHAIN_NEXT[node.op] then
       node.next = ids[i + 1] or cont
     end
-    if step.op == "label" then
-      currentOwner = step.name
-    end
   end
   return ids[1]
-end
-
--- Reject local call cycles whose subroutines can never suspend or terminate.
--- Subroutine-flow edges run from a span owner to a label:
--- a call step, or a linear fallthrough that lands on a later label's marker.
--- An SCC in this graph is recursive control flow; it is allowed only when some
--- span in the cycle contains a cycle-breaking op before its first call step,
--- because the recursion path re-enters that span at its label and executes the
--- prefix each time.
-local function cycleCheck(context)
-  local index = 0
-  local stack = {}
-  local onStack = {}
-  local indices = {}
-  local lowlink = {}
-
-  local function sccBreaks(scc)
-    for _, owner in ipairs(scc) do
-      for _, entry in ipairs(context.ownerSteps[owner] or {}) do
-        if entry.blocks and CYCLE_BREAKING_OPS[entry.op] then
-          return true
-        end
-        if entry.op == "call" or entry.op == "call_compared" then
-          break
-        end
-      end
-    end
-    return false
-  end
-
-  local function strongConnect(v)
-    index = index + 1
-    indices[v] = index
-    lowlink[v] = index
-    stack[#stack + 1] = v
-    onStack[v] = true
-    local targets = {}
-    for t in pairs(context.subroutineEdges[v] or {}) do
-      targets[#targets + 1] = t
-    end
-    table.sort(targets)
-    for _, t in ipairs(targets) do
-      if indices[t] == nil then
-        strongConnect(t)
-        lowlink[v] = math.min(lowlink[v], lowlink[t])
-      elseif onStack[t] then
-        lowlink[v] = math.min(lowlink[v], indices[t])
-      end
-    end
-    if lowlink[v] == indices[v] then
-      local scc = {}
-      while true do
-        local w = table.remove(stack)
-        onStack[w] = nil
-        scc[#scc + 1] = w
-        if w == v then
-          break
-        end
-      end
-      local edges = context.subroutineEdges[v] or {}
-      local hasCycle = #scc > 1 or edges[v] ~= nil
-      if hasCycle and not sccBreaks(scc) then
-        table.sort(scc)
-        Errors.raise(
-          ScriptErrors.SCRIPT_SCHEMA_INVALID,
-          "direct recursive call cycle without a blocking edge",
-          { scriptId = context.script.id, cycle = scc }
-        )
-      end
-    end
-  end
-
-  strongConnect(ROOT_OWNER)
 end
 
 -- Reachability, unsupported-node analysis, and load-time warnings on the
@@ -684,16 +543,14 @@ end
 
 function Compiler._compile(script, opts)
   opts = opts or {}
-  -- Per-call compiler state: nodes, labels, warnings, used node ids, owner
-  -- data, and opts live in this context so calls are reentrant and cannot
-  -- contaminate one another.
+  -- Per-call compiler state: nodes, labels, warnings, used node ids, and
+  -- opts live in this context so calls are reentrant and cannot contaminate
+  -- one another.
   local context = {
     script = script,
     opts = opts,
     nodes = {},
     labelNodeIds = {},
-    subroutineEdges = {},
-    ownerSteps = {},
     warnings = {},
     usesNext = false,
     usedNodeIds = {},
@@ -704,12 +561,9 @@ function Compiler._compile(script, opts)
     error(err)
   end
 
-  context.ownerSteps[ROOT_OWNER] = {}
-
   local steps = normalizeSteps(script.steps)
   prewalk(context, steps, "steps")
-  local entry = compileSteps(context, steps, "steps", nil, ROOT_OWNER, 0)
-  cycleCheck(context)
+  local entry = compileSteps(context, steps, "steps", nil, 0)
 
   local graph = {
     graphSchema = Graph.SCHEMA_NAME,
