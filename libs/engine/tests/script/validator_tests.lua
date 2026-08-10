@@ -7,6 +7,7 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.rom.src.Errors")
 local LuaWriter = require("libs.rom.src.LuaWriter")
+local Validator = require("libs.engine.src.script.Validator")
 local S = require("gen4.script")
 
 local T = {}
@@ -396,6 +397,102 @@ function T.constructor_and_direct_table_forms_print_identically()
   valid(constructorForm)
   valid(directForm)
   Assert.equal(LuaWriter.encode(constructorForm), LuaWriter.encode(directForm))
+end
+
+-- Validation state (script id, strictness, collected locals/args) must be
+-- per call. The only way one call can observe another is a nested call
+-- running while the outer call is mid-flight, so these tests interleave a
+-- second validation through a debug count hook fired inside the outer call's
+-- `collectRefs` (the point where the outer has already collected its local
+-- and arg usages). The nested call is plain and must pass; the outer script
+-- uses an undeclared local/arg and must still fail on its own merits. With
+-- module-global state the nested call's reset wipes the outer's collections,
+-- so the outer call wrongly succeeds and its error context reports the
+-- nested script's id.
+---@param outerScript table
+---@param nestedScript table
+---@return boolean|nil ok
+---@return Errors.Error|nil err
+local function validateWithNestedCall(outerScript, nestedScript)
+  local nestedRan = false
+  local nestedOk ---@type boolean|nil
+  local nestedErr = nil
+  local function hook()
+    if nestedRan then
+      return
+    end
+    local info = debug.getinfo(2, "n")
+    if info and info.name == "collectRefs" then
+      nestedRan = true
+      nestedOk, nestedErr = Validator.validate(nestedScript)
+    end
+  end
+  debug.sethook(hook, "", 1)
+  local ok, err = Validator.validate(outerScript)
+  debug.sethook()
+  Assert.isTrue(nestedRan, "interleaving hook never fired; the contract is not being exercised")
+  Assert.isTrue(nestedOk, "nested validation must pass: " .. tostring(nestedErr))
+  return ok, err
+end
+
+function T.nested_validation_cannot_wipe_outer_collected_locals()
+  local ok, err = validateWithNestedCall({
+    api = 1,
+    id = "outer.script",
+    steps = { { op = "set_local", name = "route", value = "intro" } },
+  }, { api = 1, id = "nested.script", steps = { { op = "stop" } } })
+  Assert.isNil(ok, "outer call must fail: the nested call must not erase its collected locals")
+  ---@cast err Errors.Error
+  Assert.equal(err.code, "SCRIPT_SCHEMA_INVALID")
+  Assert.equal(err.context.scriptId, "outer.script")
+  Assert.equal(err.context.path, "steps/0")
+  Assert.equal(err.context.name, "route")
+end
+
+function T.nested_validation_cannot_wipe_outer_collected_args()
+  local ok, err = validateWithNestedCall({
+    api = 1,
+    id = "outer.script",
+    steps = { { op = "say", message = { value = "arg", name = "text" } } },
+  }, { api = 1, id = "nested.script", steps = { { op = "stop" } } })
+  Assert.isNil(ok, "outer call must fail: the nested call must not erase its collected args")
+  ---@cast err Errors.Error
+  Assert.equal(err.code, "SCRIPT_SCHEMA_INVALID")
+  Assert.equal(err.context.scriptId, "outer.script")
+  Assert.equal(err.context.name, "text")
+end
+
+-- Ordinary consecutive calls never share script id, collected locals/args,
+-- or strictness: a failed call's dirty state must not leak into the next
+-- call's error context, and a non-strict call must not weaken the next one.
+function T.sequential_validation_calls_stay_isolated()
+  local err1 = invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "first.script",
+    steps = { S.setLocal({ name = "route", value = "intro" }) },
+  })
+  Assert.equal(err1.context.scriptId, "first.script")
+  Assert.equal(err1.context.name, "route")
+
+  local err2 = invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "second.script",
+    steps = { { op = "stop", surprise = true } },
+  })
+  Assert.equal(err2.context.scriptId, "second.script")
+  Assert.equal(err2.context.field, "surprise")
+
+  valid({
+    api = 1,
+    id = "third.script",
+    steps = { { op = "stop", surprise = true } },
+  }, { strict = false })
+  local err3 = invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "fourth.script",
+    steps = { { op = "stop", surprise = true } },
+  })
+  Assert.equal(err3.context.scriptId, "fourth.script")
 end
 
 return T
