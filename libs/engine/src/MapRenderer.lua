@@ -130,6 +130,23 @@ local function alphaModeId(alphaClass)
   return 0 -- opaque / wireframe (wireframe is drawn separately)
 end
 
+-- Decode a polygon's 4-bit light mask (GBATEK POLYGON_ATTR bits 0-3) into the
+-- compact per-draw u_lightMask uniform: one 0/1 float per light. The shader
+-- gates each profile light with its component, so a polygon only receives the
+-- lights its mask admits -- the global profile enabled state alone is not
+-- enough. LÖVE's GLSL version has no integer bitwise operators, so the decode
+-- happens here once per draw instead.
+function MapRenderer.lightMaskUniforms(mask)
+  local m = mask or 0
+  assert(m >= 0 and m <= 15 and m % 1 == 0, "light mask must be a 4-bit integer, got " .. tostring(mask))
+  return {
+    m % 2 >= 1 and 1.0 or 0.0,
+    m % 4 >= 2 and 1.0 or 0.0,
+    m % 8 >= 4 and 1.0 or 0.0,
+    m % 16 >= 8 and 1.0 or 0.0,
+  }
+end
+
 local function rgb555ToFloat3(packed)
   local r = (packed % 32) / 31.0
   local g = (math.floor(packed / 32) % 32) / 31.0
@@ -196,6 +213,7 @@ function MapRenderer:_drawItem(item, viewMatrix, polygonIdOverride, projection)
   shader:send("u_polygonAlpha", item.polygonAlpha or 1.0)
   shader:send("u_polygonMode", item.polygonMode == "decal" and 1 or 0)
   shader:send("u_polygonId", polygonIdOverride or (item.polygonId or 255) / 255)
+  shader:send("u_lightMask", MapRenderer.lightMaskUniforms(item.lightMask))
   love.graphics.setMeshCullMode(item.cullMode or "back")
   love.graphics.draw(item.mesh)
   self.stats.drawCalls = self.stats.drawCalls + 1
@@ -221,6 +239,7 @@ function MapRenderer:_drawWireframe(item, viewMatrix, projection)
   shader:send("u_polygonAlpha", 1.0)
   shader:send("u_polygonMode", 0)
   shader:send("u_polygonId", 1.0)
+  shader:send("u_lightMask", MapRenderer.lightMaskUniforms(item.lightMask))
   item.mesh:setTexture()
   love.graphics.setMeshCullMode(item.cullMode or "back")
   lg.setWireframe(true)

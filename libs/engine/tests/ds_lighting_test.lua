@@ -100,9 +100,14 @@ end
 -- Pure mirror of the GLSL algebra in shaders/map.glsl (computeDsLighting,
 -- dsLightContribution, quantizeRgb5), written from the shader line by line:
 -- normalized 0..1 colors, per-light lightColor * (ambient + diffuse*ld +
--- specular*ndh), clamp to [0,1], round-half-up 5-bit quantization. Returns
--- packed RGB555 so it can be compared directly with DsLighting.vertexColorRgb5.
-local function shaderEquivalent(normal, u)
+-- specular*ndh), clamp to [0,1], round-half-up 5-bit quantization. `mask` is
+-- the polygon's 4-bit light mask: the shader gates each light with its
+-- u_lightMask component (`u_lightEnabledN && u_lightMask[N] > 0.5`), which the
+-- renderer decodes as exactly `mask % (bit*2) >= bit`, so the mirror applies
+-- the same bit test. Returns packed RGB555 so it can be compared directly with
+-- DsLighting.vertexColorRgb5.
+local function shaderEquivalent(normal, u, mask)
+  mask = mask or 0
   local function dsLightContribution(L, lightColor)
     local ndl = dot3(L, normal)
     local ld = math.max(0, -ndl)
@@ -116,10 +121,12 @@ local function shaderEquivalent(normal, u)
   end
 
   local acc = { u.emission[1], u.emission[2], u.emission[3] }
+  local bit = 1
   for i = 1, 4 do
-    if u.lightEnabled[i] then
+    if u.lightEnabled[i] and mask % (bit * 2) >= bit then
       addInPlace(acc, dsLightContribution(normalize3(u.lightVector[i]), u.lightColor[i]))
     end
+    bit = bit * 2
   end
 
   local function quantize5(c)
@@ -237,6 +244,38 @@ function T.saturates_per_channel()
   Assert.equal(b, 25)
 end
 
+-- The polygon light mask gates contribution beyond the profile's global enabled
+-- state: a record may enable two lights while the polygon's mask admits only
+-- one. The CPU reference honors the mask; the shader-equivalent must mirror it
+-- or the two disagree.
+function T.light_mask_gates_enabled_lights_in_reference_and_shader()
+  local cases = {
+    -- Both lights enabled; the mask keeps only light 0 (red head-on).
+    case({
+      diffuse = rgb555(31, 31, 31),
+      lights = {
+        { enabled = true, colorRgb555 = rgb555(31, 0, 0), vectorFx12 = { 0, 0, -4096 } },
+        { enabled = true, colorRgb555 = rgb555(0, 0, 31), vectorFx12 = { 0, 0, -4096 } },
+      },
+      lightMask = 1,
+    }),
+    -- Same profile; the mask keeps only light 1 (blue head-on).
+    case({
+      diffuse = rgb555(31, 31, 31),
+      lights = {
+        { enabled = true, colorRgb555 = rgb555(31, 0, 0), vectorFx12 = { 0, 0, -4096 } },
+        { enabled = true, colorRgb555 = rgb555(0, 0, 31), vectorFx12 = { 0, 0, -4096 } },
+      },
+      lightMask = 2,
+    }),
+  }
+  for i, c in ipairs(cases) do
+    local reference = DsLighting.vertexColorRgb5(params(c))
+    local shader = shaderEquivalent(normalize3(c.normal), shaderUniforms(c), c.lightMask)
+    Assert.equal(reference, shader, "case " .. i)
+  end
+end
+
 function T.material_owned_channel_used_when_passed()
   -- The reference itself is agnostic to ownership; callers pass the effective
   -- colors. A full-intensity light with non-field colors keeps the sum below
@@ -311,9 +350,29 @@ function T.cpu_and_shader_equivalent_lighting_agree_at_midrange()
   }
   for i, c in ipairs(cases) do
     local reference = DsLighting.vertexColorRgb5(params(c))
-    local shader = shaderEquivalent(normalize3(c.normal), shaderUniforms(c))
+    local shader = shaderEquivalent(normalize3(c.normal), shaderUniforms(c), c.lightMask)
     Assert.equal(reference, shader, "case " .. i)
   end
+end
+
+-- The polygon light mask changes the lit result: same normal, material, and
+-- profile record, only the mask differs, and each mask yields a distinct
+-- packed color (mask 0 means emission-only, as on the DS).
+function T.light_mask_changes_the_lit_result_for_the_same_profile()
+  local function lit(mask)
+    return DsLighting.vertexColorRgb5(params({
+      diffuse = rgb555(31, 31, 31),
+      lights = {
+        { enabled = true, colorRgb555 = rgb555(31, 0, 0), vectorFx12 = { 0, 0, -4096 } },
+        { enabled = true, colorRgb555 = rgb555(0, 0, 31), vectorFx12 = { 0, 0, -4096 } },
+      },
+      lightMask = mask,
+    }))
+  end
+  Assert.equal(lit(0), rgb555(0, 0, 0))
+  Assert.equal(lit(1), rgb555(31, 0, 0))
+  Assert.equal(lit(2), rgb555(0, 0, 31))
+  Assert.equal(lit(3), rgb555(31, 0, 31))
 end
 
 -- Hand-verified midrange anchor: colors multiplied as fractions of full scale,

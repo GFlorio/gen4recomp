@@ -41,6 +41,36 @@ function T.shader_has_required_lighting_uniforms()
   r:release()
 end
 
+function T.shader_has_polygon_light_mask_uniform()
+  if not hasGraphics() then
+    return
+  end
+  local r = MapRenderer.new()
+  -- Presence is checked by sending a value; LÖVE errors for unknown names.
+  r.shader:send("u_lightMask", { 1, 0, 0, 0 })
+  r.shader:send("u_lightMask", { 0, 1, 0, 1 })
+  r:release()
+end
+
+-- The compact per-draw uniform: one vec4 of 0/1 floats, bit i = light i of the
+-- polygon's 4-bit mask. Different masks must decode to different uniforms and
+-- mask 0 to all-off.
+function T.light_mask_uniforms_decode_polygon_bits()
+  Assert.deepEqual(MapRenderer.lightMaskUniforms(0), { 0, 0, 0, 0 })
+  Assert.deepEqual(MapRenderer.lightMaskUniforms(1), { 1, 0, 0, 0 })
+  Assert.deepEqual(MapRenderer.lightMaskUniforms(2), { 0, 1, 0, 0 })
+  Assert.deepEqual(MapRenderer.lightMaskUniforms(5), { 1, 0, 1, 0 })
+  Assert.deepEqual(MapRenderer.lightMaskUniforms(15), { 1, 1, 1, 1 })
+  Assert.deepEqual(MapRenderer.lightMaskUniforms(), { 0, 0, 0, 0 })
+  -- Masks outside the 4-bit polygon field are malformed data.
+  Assert.throws(function()
+    MapRenderer.lightMaskUniforms(16)
+  end)
+  Assert.throws(function()
+    MapRenderer.lightMaskUniforms(-1)
+  end)
+end
+
 function T.shader_has_normal_matrix_uniform()
   if not hasGraphics() then
     return
@@ -170,6 +200,91 @@ function T.an_actor_billboard_draw_leaks_no_render_state()
   local compare, depthWrite = lg.getDepthMode()
   Assert.equal(compare, "always", "depth testing is left disabled")
   Assert.isFalse(depthWrite)
+  mesh:release()
+  renderer:release()
+end
+
+-- End-to-end mask behavior: the same triangle, material, and profile render
+-- different colors under different polygon light masks. Reads the scene canvas
+-- back after each masked draw; the lit mask draws the head-on white light,
+-- the zero mask renders emission-only (black).
+function T.polygon_light_mask_changes_the_rendered_result()
+  if not hasGraphics() then
+    return
+  end
+  local identity = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 }
+  local renderer = MapRenderer.new()
+  local camera = {
+    distance = 26,
+    view = function()
+      return identity
+    end,
+    projection = function()
+      return identity
+    end,
+    billboardProjection = function()
+      return identity
+    end,
+  }
+  local white = 31 + 31 * 32 + 31 * 1024
+  local runtime = {
+    mapDraws = {},
+    buildingDraws = {},
+    stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
+    lighting = {
+      records = {
+        {
+          startHalfSeconds = 0,
+          lights = {
+            { enabled = true, colorRgb555 = white, vectorFx12 = { 0, 0, -4096 } },
+            { enabled = false, colorRgb555 = 0, vectorFx12 = { 0, 0, 0 } },
+            { enabled = false, colorRgb555 = 0, vectorFx12 = { 0, 0, 0 } },
+            { enabled = false, colorRgb555 = 0, vectorFx12 = { 0, 0, 0 } },
+          },
+          diffuseRgb555 = white,
+          ambientRgb555 = 0,
+          specularRgb555 = 0,
+          emissionRgb555 = 0,
+        },
+      },
+    },
+  }
+  -- A lit vertex (color source 3) with a +Z normal, so the head-on light
+  -- contributes full diffuse. With the identity camera the triangle covers the
+  -- lower-right half of the viewport (the shader flips clip Y).
+  local mesh = syntheticMesh({
+    { 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 3 },
+    { 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 3 },
+    { 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 3 },
+  })
+  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
+  local function sample(mask)
+    renderer:draw(runtime, camera, {
+      {
+        mesh = mesh,
+        material = { alphaClass = "opaque" },
+        transform = identity,
+        alphaClass = "opaque",
+        cullMode = "back",
+        polygonAlpha = 1.0,
+        polygonMode = "modulation",
+        polygonId = 0,
+        lightMask = mask,
+        center = { 0.5, 0.5, 0 },
+        submissionIndex = 1,
+      },
+    }, viewport)
+    local img = renderer.sceneColor:newImageData()
+    return img:getPixel(416, 384) -- NDC (0.3, -0.6): well inside the triangle
+  end
+  local lit = { sample(1) }
+  local unlit = { sample(0) }
+  Assert.near(lit[1], 255, 2)
+  Assert.near(lit[2], 255, 2)
+  Assert.near(lit[3], 255, 2)
+  Assert.near(unlit[1], 0, 2)
+  Assert.near(unlit[2], 0, 2)
+  Assert.near(unlit[3], 0, 2)
   mesh:release()
   renderer:release()
 end

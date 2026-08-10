@@ -9,8 +9,12 @@
 // quantizeRgb5) is the shared DS-lighting contract: colors enter normalized as
 // c/31, contributions sum as lightColor * (ambient + diffuse*ld + specular*ndh),
 // and the result clamps to [0,1] and quantizes to 5 bits with round-half-up.
-// The pure-Lua reference libs/engine/src/DsLighting.lua mirrors this algebra,
-// and ds_lighting_test locks the agreement at midrange values.
+// Each light additionally requires the polygon's light-mask bit: the renderer
+// sends the draw item's 4-bit mask decoded into u_lightMask (one 0/1 float per
+// light), so a light contributes only when the profile enables it AND the
+// polygon's mask admits it (GBATEK POLYGON_ATTR light mask). The pure-Lua
+// reference libs/engine/src/DsLighting.lua mirrors this algebra, and
+// ds_lighting_test locks the agreement at midrange values.
 
 varying vec3 v_dsColor;
 
@@ -28,6 +32,7 @@ uniform bool u_lightEnabled0;
 uniform bool u_lightEnabled1;
 uniform bool u_lightEnabled2;
 uniform bool u_lightEnabled3;
+uniform vec4 u_lightMask; // polygon light-mask bits as 0/1 floats, bit i = light i
 uniform vec3 u_lightVector0;
 uniform vec3 u_lightVector1;
 uniform vec3 u_lightVector2;
@@ -59,13 +64,13 @@ vec3 computeDsLighting(vec3 normal)
 {
   vec3 acc = u_emissionColor;
 
-  if (u_lightEnabled0)
+  if (u_lightEnabled0 && u_lightMask.x > 0.5)
     acc += dsLightContribution(normal, normalize(u_lightVector0), u_lightColor0);
-  if (u_lightEnabled1)
+  if (u_lightEnabled1 && u_lightMask.y > 0.5)
     acc += dsLightContribution(normal, normalize(u_lightVector1), u_lightColor1);
-  if (u_lightEnabled2)
+  if (u_lightEnabled2 && u_lightMask.z > 0.5)
     acc += dsLightContribution(normal, normalize(u_lightVector2), u_lightColor2);
-  if (u_lightEnabled3)
+  if (u_lightEnabled3 && u_lightMask.w > 0.5)
     acc += dsLightContribution(normal, normalize(u_lightVector3), u_lightColor3);
 
   return clamp(acc, 0.0, 1.0);

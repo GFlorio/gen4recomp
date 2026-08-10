@@ -20,6 +20,7 @@
 ---@field getHeight fun(self: love.Image): integer
 
 ---@class love.Canvas
+---@field newImageData fun(self: love.Canvas): love.ImageData
 ---@field release fun(self: love.Canvas)
 
 ---@class love.Shader
@@ -28,6 +29,7 @@
 ---@field release fun(self: love.Mesh)
 
 ---@class love.ImageData
+---@field getPixel fun(self: love.ImageData, x: integer, y: integer): number, number, number, number
 ---@field setPixel fun(self: love.ImageData, x: integer, y: integer, r: number, g: number, b: number, a: number)
 
 ---@class love.Graphics
