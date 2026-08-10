@@ -16,6 +16,13 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/lib.sh
 
+# Match the development container's supported graphics host. Callers may still
+# override either variable for driver diagnosis, but the default test command
+# must create the same offscreen software context on a machine without a
+# desktop session.
+export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-offscreen}"
+export LIBGL_ALWAYS_SOFTWARE="${LIBGL_ALWAYS_SOFTWARE:-1}"
+
 # `love romdump/ --build-cache` exits 2 with "no ready dump" when there is
 # nothing to prepare; any other nonzero status is a real preparation failure.
 NO_DUMP_STATUS=2

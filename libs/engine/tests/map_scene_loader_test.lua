@@ -4,9 +4,8 @@
 -- images (regression for the shared-sampler alias), same-sampler materials
 -- share one image, and unknown wrap modes fail loudly instead of degrading to
 -- clamp. Image construction needs a graphics context, so those tests skip
--- headless; the unknown-wrap rejection and every post-acquisition failure that
--- releases already-acquired images run anywhere through an injected fake
--- graphics.
+-- graphics; the unknown-wrap rejection and every post-acquisition failure that
+-- releases already-acquired images use an injected fake graphics namespace.
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.rom.src.Errors")
@@ -16,10 +15,6 @@ local MeshWriter = require("libs.assets.src.MeshWriter")
 local PngWriter = require("libs.assets.src.PngWriter")
 
 local T = {}
-
-local function hasGraphics()
-  return love and love.graphics and love.graphics.newMesh
-end
 
 -- One-triangle batch in the MeshWriter vertex layout.
 local function triangleBatch()
@@ -132,9 +127,6 @@ end
 local IDENTITY = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 }
 
 function T.same_texture_with_different_wraps_gets_independent_images()
-  if not hasGraphics() then
-    return
-  end
   local cache, geomPath, texPath = cacheFs()
   local s =
     scene({ material(0, texPath, { x = "clamp", y = "clamp" }), material(1, texPath, { x = "repeat", y = "repeat" }) })
@@ -155,9 +147,6 @@ function T.same_texture_with_different_wraps_gets_independent_images()
 end
 
 function T.same_texture_and_wrap_share_one_image()
-  if not hasGraphics() then
-    return
-  end
   local cache, geomPath, texPath = cacheFs()
   local s = scene({
     material(0, texPath, { x = "repeat", y = "clamp" }),
@@ -171,9 +160,6 @@ function T.same_texture_and_wrap_share_one_image()
 end
 
 function T.scene_and_building_descriptor_samplers_stay_independent()
-  if not hasGraphics() then
-    return
-  end
   local cache, geomPath, texPath, luaFiles = cacheFs()
   local s = scene({ material(0, texPath, { x = "clamp", y = "clamp" }) })
   s.mapBatches = { batch(geomPath, 0) }
@@ -291,9 +277,6 @@ end
 -- An unsupported transform mode raises after its mesh was acquired; the load
 -- must release the mesh and every image. love-backed (a real mesh is built).
 function T.failed_transform_mode_releases_acquired_gpu_objects()
-  if not hasGraphics() then
-    return
-  end
   local cache, geomPath, texPath = cacheFs()
   local s = scene({ material(0, texPath, { x = "clamp", y = "clamp" }) })
   s.mapBatches = { { geometry = geomPath, material = 0, transformMode = "spooky" } }
@@ -307,4 +290,7 @@ function T.failed_transform_mode_releases_acquired_gpu_objects()
   Assert.equal(graphics.images[1].released, true, "the acquired image is released with the mesh")
 end
 
-return T
+return {
+  metadata = { layer = "graphics", capabilities = { "graphics" } },
+  tests = T,
+}

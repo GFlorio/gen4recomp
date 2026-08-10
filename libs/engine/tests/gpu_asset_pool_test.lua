@@ -4,8 +4,7 @@
 -- differently never alias one mutable sampler), unknown wrap rejection, and
 -- exactly-once ownership release including cleanup on a failed acquire. The
 -- image side runs headless through an injected fake graphics namespace; mesh
--- construction needs a real graphics context, so those tests skip headless
--- like neighbor_ring_test.
+-- construction needs a real graphics context, so this is a graphics suite.
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.rom.src.Errors")
@@ -15,10 +14,6 @@ local PngWriter = require("libs.assets.src.PngWriter")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
 
 local T = {}
-
-local function hasGraphics()
-  return love and love.graphics and love.graphics.newMesh
-end
 
 local GEOM_PATH = MapAssetCache.geometryPath("aaaa")
 local TEX_PATH = MapAssetCache.texturePath("bbbb")
@@ -163,9 +158,6 @@ function T.release_is_exactly_once_and_repeat_safe()
 end
 
 function T.mesh_entries_dedup_and_accumulate_triangles_once()
-  if not hasGraphics() then
-    return
-  end
   local pool = GpuAssetPool.new(fakeCacheFs())
   local first = pool:meshFor(GEOM_PATH)
   local second = pool:meshFor(GEOM_PATH)
@@ -177,4 +169,7 @@ function T.mesh_entries_dedup_and_accumulate_triangles_once()
   pool:release()
 end
 
-return T
+return {
+  metadata = { layer = "graphics", capabilities = { "graphics" } },
+  tests = T,
+}

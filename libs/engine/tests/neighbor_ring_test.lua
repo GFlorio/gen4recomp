@@ -3,9 +3,8 @@
 -- world offset into the draw transform and sort center, and deduplicating a
 -- shared geometry path across cells into a single owned mesh. love-backed (it
 -- builds real meshes/images) but ROM-free: cacheFs bytes are canned in-process.
--- load() needs a graphics context, so these skip in the headless suite, matching
--- map_renderer_test. The failure-path tests inject a fake graphics namespace
--- and run anywhere: a failed cell acquire or a malformed cell descriptor must
+-- load() needs a graphics context. The failure-path tests inject a fake graphics
+-- namespace: a failed cell acquire or a malformed cell descriptor must
 -- release every image the earlier cells already acquired.
 
 local Assert = require("tests.support.Assert")
@@ -16,10 +15,6 @@ local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local NeighborRing = require("libs.engine.src.NeighborRing")
 
 local T = {}
-
-local function hasGraphics()
-  return love and love.graphics and love.graphics.newMesh
-end
 
 -- One-triangle batch in the MeshWriter vertex layout.
 local function triangleBatch()
@@ -113,22 +108,19 @@ local function descriptors(geomPath, texPath, wraps)
 end
 
 function T.builds_one_draw_per_cell_batch_with_offset_baked()
-  if not hasGraphics() then
-    return
-  end
   local cacheFs, geomPath, texPath = fakeCacheFs()
   local ring = NeighborRing.load(cacheFs, descriptors(geomPath, texPath))
 
   Assert.equal(#ring.draws, 2) -- one batch per cell
   Assert.equal(ring.stats.cellCount, 2)
 
-  -- The triangle's model-space center is (2/3, 0, 2/3); each draw bakes its
-  -- cell offset into both the transform translation and the sort center.
+  -- The loader sorts from the triangle bounding-box center (1, 0, 1); each draw
+  -- bakes its cell offset into both the transform translation and sort center.
   local d1 = ring.draws[1]
   Assert.equal(d1.transform[13], 32) -- translate X column of Matrix4
   Assert.equal(d1.transform[15], 0) -- translate Z
-  Assert.isTrue(math.abs(d1.center[1] - (2 / 3 + 32)) < 1e-4, "center X offset baked")
-  Assert.isTrue(math.abs(d1.center[3] - (2 / 3 + 0)) < 1e-4, "center Z offset baked")
+  Assert.isTrue(math.abs(d1.center[1] - 33) < 1e-4, "center X offset baked")
+  Assert.isTrue(math.abs(d1.center[3] - 1) < 1e-4, "center Z offset baked")
 
   local d2 = ring.draws[2]
   Assert.equal(d2.transform[13], -32)
@@ -140,9 +132,6 @@ function T.builds_one_draw_per_cell_batch_with_offset_baked()
 end
 
 function T.dedups_shared_geometry_into_one_owned_mesh()
-  if not hasGraphics() then
-    return
-  end
   local cacheFs, geomPath, texPath = fakeCacheFs()
   local ring = NeighborRing.load(cacheFs, descriptors(geomPath, texPath))
   -- Both cells reference the same geometry/texture path, so only one mesh and
@@ -156,9 +145,6 @@ end
 -- sampling it with different wrap modes must each keep their own configured
 -- image, never one mutated sampler whose state depends on load order.
 function T.same_texture_with_different_wraps_gets_independent_images()
-  if not hasGraphics() then
-    return
-  end
   local cacheFs, geomPath, texPath = fakeCacheFs()
   local ring = NeighborRing.load(
     cacheFs,
@@ -241,4 +227,7 @@ function T.malformed_cell_descriptor_releases_earlier_cells_images()
   Assert.equal(graphics.images[1].released, true, "a malformed descriptor releases the earlier cells' images")
 end
 
-return T
+return {
+  metadata = { layer = "graphics", capabilities = { "graphics" } },
+  tests = T,
+}

@@ -52,18 +52,20 @@ end
 local function collect(config)
   local items = {}
   for _, entry in ipairs(Discovery.suites(config.fs, config.roots)) do
-    if Selection.matchesLayer(entry.layer, config.layer) then
-      local ok, loaded = pcall(config.load, entry.module)
-      if not ok then
+    local ok, loaded = pcall(config.load, entry.module)
+    if not ok then
+      if Selection.matchesLayer(entry.layer, config.layer) then
         items[#items + 1] = { failure = loadFailure(entry, "module load failed: " .. tostring(loaded)) }
-      else
-        local normalized
-        ok, normalized = pcall(Suite.normalize, loaded, entry.module, entry.layer)
-        if not ok then
+      end
+    else
+      local normalized
+      ok, normalized = pcall(Suite.normalize, loaded, entry.module, entry.layer)
+      if not ok then
+        if Selection.matchesLayer(entry.layer, config.layer) then
           items[#items + 1] = { failure = loadFailure(entry, tostring(normalized)) }
-        elseif Selection.matchesLayer(normalized.layer, config.layer) then
-          items[#items + 1] = { suite = normalized }
         end
+      elseif Selection.matchesLayer(normalized.layer, config.layer) then
+        items[#items + 1] = { suite = normalized }
       end
     end
   end

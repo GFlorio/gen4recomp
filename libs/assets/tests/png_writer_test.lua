@@ -1,5 +1,5 @@
--- PngWriter: signature/chunk framing, determinism, length validation, and (when
--- love.image is available) a decode round-trip proving the pixels survive.
+-- PngWriter: signature/chunk framing, determinism, length validation, and a
+-- LÖVE image decode round-trip proving the pixels survive.
 
 local Assert = require("tests.support.Assert")
 local PngWriter = require("libs.assets.src.PngWriter")
@@ -30,9 +30,6 @@ function T.rejects_wrong_length()
 end
 
 function T.decodes_back_to_the_same_pixels()
-  if not (love and love.image) then
-    return
-  end -- decode check only under love
   local rgba = px(10, 20, 30, 255) .. px(200, 150, 100, 128)
   local png = PngWriter.encode(2, 1, rgba)
   local data = love.image.newImageData(love.filesystem.newFileData(png, "t.png"))
