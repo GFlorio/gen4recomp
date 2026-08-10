@@ -12,6 +12,11 @@ local T = {}
 
 local HG = "heartgold/"
 
+local function throwsCode(code, fn)
+  local err = Assert.throws(fn)
+  Assert.equal(err.code, code, "expected " .. code .. ", got " .. tostring(err))
+end
+
 -- Build a synthetic HGSS ROM plus a version catalog that accepts exactly it under
 -- the real "heartgold" identity, so the importer's marker/readiness logic aligns.
 -- `now` is static, which disables yielding: a single update() runs to completion.
@@ -268,6 +273,119 @@ function T.import_leaves_no_staging_residue()
   Assert.isNil(h.backend.files["staging/heartgold/rom-dump.complete"], "staging marker must not survive")
   Assert.isNil(h.backend.dirs["staging/heartgold"], "staging root must be gone")
   Assert.isNil(h.backend.files["staging/heartgold.old/romfs/a/0/0/2"], "no orphaned old root")
+end
+
+-- An import that has started but is still running. The active source and
+-- coroutine identity are the state the busy rejection must leave untouched.
+local function busyImporter()
+  local h = harness()
+  h.importer:startSource(RomSource.fromString(h.data, "first.nds"))
+  Assert.equal(h.importer.state, "reading")
+  return h
+end
+
+-- While busy, every start API rejects the new request with a structured
+-- IMPORT_BUSY error and leaves the active import untouched.
+function T.busy_rejects_all_start_apis_unchanged()
+  local h = busyImporter()
+  local source, co = h.importer._source, h.importer._co
+  throwsCode("IMPORT_BUSY", function()
+    h.importer:startSource(RomSource.fromString(h.data, "second.nds"))
+  end)
+  throwsCode("IMPORT_BUSY", function()
+    h.importer:startPath("second.nds")
+  end)
+  throwsCode("IMPORT_BUSY", function()
+    h.importer:startDroppedFile({
+      getFilename = function()
+        return "second.nds"
+      end,
+    })
+  end)
+  Assert.equal(h.importer._source, source, "active source must be unchanged")
+  Assert.equal(h.importer._co, co, "active coroutine must be unchanged")
+  Assert.equal(h.importer.state, "reading")
+  runToTerminal(h.importer)
+  Assert.equal(h.importer.state, "complete")
+  Assert.equal(h.events[1], "heartgold")
+end
+
+-- An invalid drop while busy is rejected with IMPORT_BUSY and must NOT route
+-- the active importer through _fail (which would release the active source).
+function T.busy_invalid_drop_leaves_active_import_unchanged()
+  local h = busyImporter()
+  throwsCode("IMPORT_BUSY", function()
+    h.importer:filedropped({
+      getFilename = function()
+        return "photo.png"
+      end,
+    })
+  end)
+  Assert.equal(h.importer.state, "reading", "busy rejection must not fail the active import")
+  Assert.isNil(h.importer._errorCode)
+  Assert.notNil(h.importer._source, "active source must remain held")
+  runToTerminal(h.importer)
+  Assert.equal(h.importer.state, "complete")
+  Assert.equal(h.importer:status().versionId, "heartgold")
+end
+
+-- Busy rejection never releases the active source; the terminal transition
+-- releases it exactly once.
+function T.busy_rejection_never_releases_and_terminal_release_is_exactly_once()
+  local h = harness()
+  local first = RomSource.fromString(h.data, "first.nds")
+  local releases = 0
+  local baseRelease = first.release
+  first.release = function(self)
+    releases = releases + 1
+    return baseRelease(self)
+  end
+  h.importer:startSource(first)
+  throwsCode("IMPORT_BUSY", function()
+    h.importer:startSource(RomSource.fromString(h.data, "second.nds"))
+  end)
+  throwsCode("IMPORT_BUSY", function()
+    h.importer:filedropped({
+      getFilename = function()
+        return "photo.png"
+      end,
+    })
+  end)
+  Assert.equal(releases, 0, "busy rejection must not release the active source")
+  runToTerminal(h.importer)
+  Assert.equal(h.importer.state, "complete")
+  Assert.equal(releases, 1, "the terminal transition must release the source exactly once")
+  local bytes, err = first:read(0, 4)
+  Assert.isNil(bytes)
+  Assert.equal(assert(err).code, "ROM_RELEASED")
+end
+
+-- The busy guard must not lock the importer after a terminal state: App
+-- re-imports on the same importer once a completed import is done, and a
+-- failed import must be retryable.
+function T.terminal_importer_accepts_a_fresh_start()
+  local h = harness()
+  h.importer:startSource(RomSource.fromString(h.data))
+  runToTerminal(h.importer)
+  Assert.equal(h.importer.state, "complete")
+  h.importer:startSource(RomSource.fromString(h.data, "again.nds"))
+  Assert.equal(h.importer.state, "reading")
+  runToTerminal(h.importer)
+  Assert.equal(h.importer.state, "complete")
+  Assert.equal(h.events[1], "heartgold")
+  Assert.equal(h.events[2], "heartgold")
+
+  h.importer:filedropped({
+    getFilename = function()
+      return "photo.png"
+    end,
+  })
+  Assert.equal(h.importer.state, "error")
+  h.importer:startSource(RomSource.fromString(h.data, "third.nds"))
+  Assert.equal(h.importer.state, "reading")
+  runToTerminal(h.importer)
+  Assert.equal(h.importer.state, "complete")
+  Assert.equal(h.events[3], "heartgold")
 end
 
 return T

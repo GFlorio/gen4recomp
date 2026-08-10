@@ -100,6 +100,14 @@ function RomImporter:isBusy()
   return self.state == "reading" or self.state == "verifying" or self.state == "extracting"
 end
 
+-- The importer owns its state-machine invariant: while busy, the start APIs
+-- reject new requests without touching the active import.
+function RomImporter:_requireIdle()
+  if self:isBusy() then
+    Errors.raise("IMPORT_BUSY", "an import is already in progress", { state = self.state })
+  end
+end
+
 function RomImporter:_setState(state)
   self.state = state
 end
@@ -169,6 +177,7 @@ end
 
 -- Start from an already-opened RomSource (used by tests and the start* helpers).
 function RomImporter:startSource(source)
+  self:_requireIdle()
   assert(source, "startSource requires a RomSource")
   self._source = source
   self._sourceName = source:displayName()
@@ -182,26 +191,27 @@ function RomImporter:startSource(source)
 end
 
 function RomImporter:startPath(path)
-  self.state = "reading"
+  self:_requireIdle()
   local source, err = RomSource.fromPath(path)
   if not source then
     return self:_fail(err)
   end
-  self:startSource(source)
+  return self:startSource(source)
 end
 
 function RomImporter:startDroppedFile(droppedFile)
-  self.state = "reading"
+  self:_requireIdle()
   local source, err = RomSource.fromDroppedFile(droppedFile)
   if not source then
     return self:_fail(err)
   end
-  self:startSource(source)
+  return self:startSource(source)
 end
 
 -- Drop handler with a friendly extension guard. Accepts a
 -- raw .nds or a .zip containing one.
 function RomImporter:filedropped(droppedFile)
+  self:_requireIdle()
   local name = droppedFile:getFilename() or ""
   if not name:lower():match("%.nds$") and not name:lower():match("%.zip$") then
     return self:_fail(Errors.new("IMPORT_NOT_NDS", "dropped file is not a .nds or .zip ROM: " .. name, { name = name }))
