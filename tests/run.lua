@@ -54,6 +54,8 @@ local MODULES = {
   "libs.engine.tests.collision_grid_test",
   "libs.engine.tests.field_grid_test",
   "libs.engine.tests.neighbor_ring_test",
+  "libs.engine.tests.gpu_asset_pool_test",
+  "libs.engine.tests.map_scene_loader_test",
   "libs.engine.tests.field_coverage_planner_test",
   "libs.engine.tests.terrain_surface_test",
   "libs.engine.tests.field_coordinates_test",

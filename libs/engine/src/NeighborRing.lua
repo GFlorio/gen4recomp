@@ -3,68 +3,30 @@
 -- MapAssetCompiler), which digests the eight surrounding matrix cells into
 -- scene.neighbors -- one descriptor per drawn cell carrying its 32-tile offset,
 -- terrain batches (content-addressed .g4mesh paths), and scene-form materials.
--- load() reads those assets from the cache, builds one persistent Mesh per
--- unique geometry path and one Image per unique texture path (deduplicated
--- across cells), and bakes each cell's world offset into the draw transform and
--- sort center. All GPU construction happens here, once; release() frees every
--- owned mesh/image. Neighbours are additive: an empty descriptor list yields no
--- draws and the central scene is untouched.
+-- load() reads those assets through the shared GpuAssetPool (one persistent
+-- Mesh per unique geometry path, one Image per unique texture/wrap sampler
+-- state, deduplicated across cells), and bakes each cell's world offset into
+-- the draw transform and sort center. All GPU construction happens here, once;
+-- the pool releases every owned mesh/image. Neighbours are additive: an empty
+-- descriptor list yields no draws and the central scene is untouched.
 
 local Matrix4 = require("libs.math.src.Matrix4")
-local SceneMesh = require("libs.engine.src.SceneMesh")
+local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
 
 local NeighborRing = {}
 
--- Build (or fetch) a persistent love Mesh for a batch's content-addressed
--- geometry path, deduplicated across cells. Keeps the decoded vertices too, for
--- the sort-center computation. Returns { mesh, verts }.
-local function meshEntry(path, cacheFs, meshCache, owned)
-  local entry = meshCache[path]
-  if not entry then
-    local decoded = SceneMesh.decode(assert(cacheFs:read(path), "missing mesh " .. path), path)
-    entry = { mesh = SceneMesh.build(decoded), verts = decoded.vertices }
-    meshCache[path] = entry
-    owned.meshes[#owned.meshes + 1] = entry.mesh
-  end
-  return entry
-end
-
--- Build (or fetch) a persistent love Image for a texture's content-addressed
--- path, deduplicated across cells.
-local function imageFor(path, cacheFs, imageCache, owned)
-  if not path then
-    return nil
-  end
-  local image = imageCache[path]
-  if not image then
-    local bytes = assert(cacheFs:read(path), "missing texture " .. path)
-    local data = love.filesystem.newFileData(bytes, "tex.png")
-    image = love.graphics.newImage(data)
-    image:setFilter("nearest", "nearest")
-    imageCache[path] = image
-    owned.images[#owned.images + 1] = image
-  end
-  return image
-end
-
--- Index a descriptor's scene-form material list by id, resolving each image and
--- applying the material's wrap (mirrors MapSceneLoader's material handling).
-local function materialsById(list, cacheFs, imageCache, owned)
+-- Index a descriptor's scene-form material list by id. The wrap pair is part
+-- of the image identity, so cells sharing a texture but sampling it
+-- differently get independent configured images.
+local function materialsById(list, pool)
   local byId = {}
   for _, m in ipairs(list or {}) do
-    local image = imageFor(m.texture, cacheFs, imageCache, owned)
-    if image then
-      local function mode(w)
-        return w == "repeat" and "repeat" or "clamp"
-      end
-      local wrap = m.wrap or { x = "clamp", y = "clamp" }
-      image:setWrap(mode(wrap.x), mode(wrap.y))
-    end
+    local wrap = m.wrap or { x = "clamp", y = "clamp" }
     local d = m.diffuse or { r = 255, g = 255, b = 255, a = 255 }
     byId[m.id] = {
       id = m.id,
       name = m.name,
-      image = image,
+      image = pool:imageFor(m.texture, wrap.x, wrap.y),
       diffuse = { d.r / 255, d.g / 255, d.b / 255, d.a / 255 },
     }
   end
@@ -89,8 +51,7 @@ end
 -- CacheFs.forVersion; `descriptors` is scene.neighbors. Returns
 -- { draws, stats, release }.
 function NeighborRing.load(cacheFs, descriptors)
-  local meshCache, imageCache = {}, {}
-  local owned = { meshes = {}, images = {} }
+  local pool = GpuAssetPool.new(cacheFs)
 
   -- One draw per (cell, batch), with the cell's 32-tile world offset baked into
   -- the transform and the sort center.
@@ -99,9 +60,9 @@ function NeighborRing.load(cacheFs, descriptors)
   for _, cell in ipairs(descriptors or {}) do
     local ox, oz = cell.offsetTilesX, cell.offsetTilesZ
     local transform = Matrix4.translate(ox, 0, oz)
-    local materials = materialsById(cell.materials, cacheFs, imageCache, owned)
+    local materials = materialsById(cell.materials, pool)
     for _, batch in ipairs(cell.batches) do
-      local entry = meshEntry(batch.geometry, cacheFs, meshCache, owned)
+      local entry = pool:meshFor(batch.geometry)
       local c = modelCenter(entry.verts)
       submission = submission + 1
       draws[#draws + 1] = {
@@ -127,18 +88,12 @@ function NeighborRing.load(cacheFs, descriptors)
     draws = draws,
     stats = {
       cellCount = #(descriptors or {}),
-      meshCount = #owned.meshes,
-      textureCount = #owned.images,
+      meshCount = #pool.meshes,
+      textureCount = #pool.images,
     },
   }
   function ring:release()
-    for _, mesh in ipairs(owned.meshes) do
-      mesh:release()
-    end
-    for _, image in ipairs(owned.images) do
-      image:release()
-    end
-    owned.meshes, owned.images = {}, {}
+    pool:release()
   end
   return ring
 end

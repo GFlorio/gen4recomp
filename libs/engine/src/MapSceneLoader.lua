@@ -1,43 +1,45 @@
 -- Turns the derived map cache into a runtime scene the renderer can draw: it
 -- reads scene.lua, builds one persistent love Mesh per unique .g4mesh and one
--- Image per unique texture (both deduplicated by content-addressed path so
--- repeated building models and shared textures cost a single GPU object), wraps
--- each material's render state, resolves every placed building instance through
--- its model descriptor, and loads permissions.bin into a CollisionGrid. A
--- billboard batch keeps the base transform the renderer resolves against the
--- camera each frame instead of a baked matrix. All GPU
--- construction happens here, once, never in draw. release() frees every owned
--- mesh/image. The only ROM knowledge that reaches this layer is the normalized
--- scene descriptor; raw Nitro formats stopped at the compiler.
+-- Image per unique (texture, wrap) sampler state (both deduplicated through
+-- the shared GpuAssetPool, so repeated building models and shared textures
+-- cost a single GPU object per sampler), wraps each material's render state,
+-- resolves every placed building instance through its model descriptor, and
+-- loads permissions.bin into a CollisionGrid. A billboard batch keeps the
+-- base transform the renderer resolves against the camera each frame instead
+-- of a baked matrix. All GPU construction happens here, once, never in draw;
+-- the pool releases every owned mesh/image. The only ROM knowledge that
+-- reaches this layer is the normalized scene descriptor; raw Nitro formats
+-- stopped at the compiler.
 
-local SceneMesh = require("libs.engine.src.SceneMesh")
-local VertexFormat = require("libs.assets.src.VertexFormat")
 local PermissionGrid = require("libs.assets.src.PermissionGrid")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local Matrix4 = require("libs.math.src.Matrix4")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
 local Errors = require("libs.rom.src.Errors")
+local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
 
 local MapSceneLoader = {}
 
-local function materialRuntime(record, imageFor)
+local function materialRuntime(record, pool)
   local d = record.diffuse or { r = 255, g = 255, b = 255, a = 255 }
+  local wrap = record.wrap or { x = "clamp", y = "clamp" }
   return {
     id = record.id,
     name = record.name,
-    image = record.texture and imageFor(record.texture) or nil,
+    image = pool:imageFor(record.texture, wrap.x, wrap.y),
     diffuse = { d.r / 255, d.g / 255, d.b / 255, d.a / 255 },
-    wrap = record.wrap or { x = "clamp", y = "clamp" },
     flip = record.flip or { x = false, y = false },
   }
 end
 
 -- Index a material list (map scene or model descriptor) by its zero-based id.
-local function materialsById(list, imageFor)
+-- The sampler state (wrap pair) is part of the image identity, so materials
+-- with the same pixels but different wraps resolve to independent images.
+local function materialsById(list, pool)
   local byId = {}
   for _, record in ipairs(list or {}) do
-    byId[record.id] = materialRuntime(record, imageFor)
+    byId[record.id] = materialRuntime(record, pool)
   end
   return byId
 end
@@ -53,8 +55,7 @@ function MapSceneLoader.load(cacheFs, scene)
     )
   end
 
-  local meshCache, imageCache = {}, {}
-  local owned = { meshes = {}, images = {} }
+  local pool = GpuAssetPool.new(cacheFs)
   local bounds = { min = { math.huge, math.huge, math.huge }, max = { -math.huge, -math.huge, -math.huge } }
 
   -- Grow the scene bounds by a batch's vertices under a placement transform.
@@ -97,42 +98,7 @@ function MapSceneLoader.load(cacheFs, scene)
     return { (minx + maxx) / 2, (miny + maxy) / 2, (minz + maxz) / 2 }
   end
 
-  -- Returns (mesh, decodedVertices); dedups by content-addressed path.
-  local function meshFor(path)
-    local entry = meshCache[path]
-    if not entry then
-      local decoded = SceneMesh.decode(assert(cacheFs:read(path), "missing mesh " .. path), path)
-      entry = { mesh = SceneMesh.build(decoded), verts = decoded.vertices }
-      meshCache[path] = entry
-      owned.meshes[#owned.meshes + 1] = entry.mesh
-      owned.triangles = (owned.triangles or 0) + decoded.indexCount / 3
-    end
-    return entry.mesh, entry.verts
-  end
-
-  local function imageFor(path)
-    local image = imageCache[path]
-    if not image then
-      local bytes = assert(cacheFs:read(path), "missing texture " .. path)
-      local data = love.filesystem.newFileData(bytes, "tex.png")
-      image = love.graphics.newImage(data)
-      image:setFilter("nearest", "nearest")
-      imageCache[path] = image
-      owned.images[#owned.images + 1] = image
-    end
-    return image
-  end
-
-  local function applyWrap(material)
-    if material.image then
-      local function mode(w)
-        return w == "repeat" and "repeat" or "clamp"
-      end
-      material.image:setWrap(mode(material.wrap.x), mode(material.wrap.y))
-    end
-  end
-
-  -- Per-batch draw state moved out of the material in slice 4.
+  -- Per-batch draw state that lives on the draw item, not the material record.
   local function batchDrawState(batch)
     return {
       alphaClass = batch.alphaClass or "opaque",
@@ -155,7 +121,7 @@ function MapSceneLoader.load(cacheFs, scene)
   -- transform becomes `billboardBase` for the renderer to resolve each frame; its
   -- static equivalent seeds `transform` and the scene bounds.
   local function drawItem(batch, materials, instanceTransform)
-    local mesh, verts = meshFor(batch.geometry)
+    local entry = pool:meshFor(batch.geometry)
     local billboardBase
     if batch.transformMode == "billboard" then
       billboardBase =
@@ -168,11 +134,11 @@ function MapSceneLoader.load(cacheFs, scene)
       )
     end
     local transform = billboardBase or instanceTransform
-    growBounds(verts, transform)
+    growBounds(entry.verts, transform)
     local state = batchDrawState(batch)
     submissionCounter = submissionCounter + 1
     return {
-      mesh = mesh,
+      mesh = entry.mesh,
       material = materials[batch.material],
       transform = transform,
       billboardBase = billboardBase,
@@ -185,16 +151,13 @@ function MapSceneLoader.load(cacheFs, scene)
       polygonId = state.polygonId,
       translucentDepthWrite = state.translucentDepthWrite,
       depthEqual = state.depthEqual,
-      center = modelCenter(verts),
+      center = modelCenter(entry.verts),
       submissionIndex = batch.submissionIndex or submissionCounter,
     }
   end
 
   -- Map terrain draws: identity transform, materials from the scene list.
-  local mapMaterials = materialsById(scene.materials, imageFor)
-  for _, m in pairs(mapMaterials) do
-    applyWrap(m)
-  end
+  local mapMaterials = materialsById(scene.materials, pool)
   local identity = Matrix4.identity()
   local mapDraws = {}
   for _, batch in ipairs(scene.mapBatches or {}) do
@@ -208,11 +171,7 @@ function MapSceneLoader.load(cacheFs, scene)
     local cached = descriptorCache[modelKey]
     if not cached then
       local desc = assert(cacheFs:loadLua(MapAssetCache.modelPath(modelKey)), "missing model " .. modelKey)
-      local mats = materialsById(desc.materials, imageFor)
-      for _, m in pairs(mats) do
-        applyWrap(m)
-      end
-      cached = { batches = desc.batches, materials = mats }
+      cached = { batches = desc.batches, materials = materialsById(desc.materials, pool) }
       descriptorCache[modelKey] = cached
     end
     return cached
@@ -251,21 +210,15 @@ function MapSceneLoader.load(cacheFs, scene)
     lighting = scene.lighting,
     fieldTimeSeconds = FieldLightProfile.DEFAULT_TIME_SECONDS,
     stats = {
-      meshCount = #owned.meshes,
-      textureCount = #owned.images,
-      triangleCount = owned.triangles or 0,
+      meshCount = #pool.meshes,
+      textureCount = #pool.images,
+      triangleCount = pool.triangles,
       buildingInstances = #(scene.buildingInstances or {}),
     },
   }
 
   function runtime:release()
-    for _, mesh in ipairs(owned.meshes) do
-      mesh:release()
-    end
-    for _, image in ipairs(owned.images) do
-      image:release()
-    end
-    owned.meshes, owned.images = {}, {}
+    pool:release()
   end
 
   return runtime

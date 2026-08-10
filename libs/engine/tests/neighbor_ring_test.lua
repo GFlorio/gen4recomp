@@ -55,9 +55,10 @@ local function fakeCacheFs()
   }, geomPath, texPath
 end
 
--- Two cells sharing one geometry path (dedup) and one material each.
-local function descriptors(geomPath, texPath)
-  local function cell(ox, oz)
+-- Two cells sharing one geometry path (dedup) and one material each. `wraps`
+-- optionally supplies a per-cell wrap table (indexed 1, 2) for sampler tests.
+local function descriptors(geomPath, texPath, wraps)
+  local function cell(ox, oz, index)
     return {
       offsetTilesX = ox,
       offsetTilesZ = oz,
@@ -80,13 +81,13 @@ local function descriptors(geomPath, texPath)
           id = 0,
           name = "terrain",
           texture = texPath,
-          wrap = { x = "repeat", y = "clamp" },
+          wrap = wraps and wraps[index] or { x = "repeat", y = "clamp" },
           diffuse = { r = 255, g = 255, b = 255, a = 255 },
         },
       },
     }
   end
-  return { cell(32, 0), cell(-32, -32) }
+  return { cell(32, 0, 1), cell(-32, -32, 2) }
 end
 
 function T.builds_one_draw_per_cell_batch_with_offset_baked()
@@ -126,6 +127,31 @@ function T.dedups_shared_geometry_into_one_owned_mesh()
   -- one image are built and owned.
   Assert.equal(ring.stats.meshCount, 1)
   Assert.equal(ring.stats.textureCount, 1)
+  ring:release()
+end
+
+-- Regression for the sampler alias: two cells sharing one texture path but
+-- sampling it with different wrap modes must each keep their own configured
+-- image, never one mutated sampler whose state depends on load order.
+function T.same_texture_with_different_wraps_gets_independent_images()
+  if not hasGraphics() then
+    return
+  end
+  local cacheFs, geomPath, texPath = fakeCacheFs()
+  local ring = NeighborRing.load(
+    cacheFs,
+    descriptors(geomPath, texPath, { { x = "clamp", y = "clamp" }, { x = "repeat", y = "repeat" } })
+  )
+  Assert.equal(ring.stats.textureCount, 2, "one image per sampler state")
+  local drawA = ring.draws[1]
+  local drawB = ring.draws[2]
+  Assert.isTrue(drawA.material.image ~= drawB.material.image, "wrap variants must not alias")
+  local ax, ay = drawA.material.image:getWrap()
+  Assert.equal(ax, "clamp")
+  Assert.equal(ay, "clamp")
+  local bx, by = drawB.material.image:getWrap()
+  Assert.equal(bx, "repeat")
+  Assert.equal(by, "repeat")
   ring:release()
 end
 

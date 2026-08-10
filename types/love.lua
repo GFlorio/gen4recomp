@@ -13,6 +13,8 @@
 
 ---@class love.Image
 ---@field setFilter fun(self: love.Image, minFilter: string, magFilter: string)
+---@field setWrap fun(self: love.Image, wrapS: string, wrapT: string)
+---@field getWrap fun(self: love.Image): string, string
 ---@field release fun(self: love.Image)
 ---@field getWidth fun(self: love.Image): integer
 ---@field getHeight fun(self: love.Image): integer
@@ -23,6 +25,7 @@
 ---@class love.Shader
 
 ---@class love.Mesh
+---@field release fun(self: love.Mesh)
 
 ---@class love.ImageData
 ---@field setPixel fun(self: love.ImageData, x: integer, y: integer, r: number, g: number, b: number, a: number)
