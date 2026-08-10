@@ -1064,4 +1064,110 @@ function T.reachable_nodes_follows_deterministic_order()
   Assert.equal(#order, countNodes(graph))
 end
 
+-- --- Per-call state isolation ---
+
+-- Compiling script B between two compiles of script A must not leak A's
+-- labels, warnings, nodes, used node ids, or wrapper flag into B, nor leave
+-- any residue that changes a later A.
+function T.compiler_calls_do_not_contaminate_one_another()
+  local a = S.script({
+    api = 1,
+    id = "a",
+    steps = {
+      S.goto_({ target = "end" }),
+      S.label({ name = "end" }),
+      S.stop(),
+      S.setVar({ variable = "VAR_A", value = 1 }),
+    },
+  })
+  local function b()
+    return S.script({
+      api = 1,
+      id = "b",
+      metadata = { generated = true, source = { member = 843, scriptIndex = 9 } },
+      steps = {
+        { op = "noop", provenance = { offsets = { 0x00 }, opcodes = { 0 } } },
+      },
+    })
+  end
+  local g1 = compile(a)
+  local gb1 = compile(b())
+  local g2 = compile(a)
+  local gb2 = compile(b())
+  Assert.deepEqual(g1.nodes, g2.nodes)
+  Assert.deepEqual(g1.warnings, g2.warnings)
+  Assert.deepEqual(g1.labels, g2.labels)
+  Assert.equal(g1.revision, g2.revision)
+  -- B keeps its own node ids and carries none of A's labels or warnings.
+  Assert.equal(gb1.entry, "src:0843:009:0000")
+  Assert.equal(gb2.entry, "src:0843:009:0000")
+  Assert.equal(next(gb1.labels), nil, "B must not inherit A's labels")
+  Assert.equal(next(gb2.labels), nil, "B must not inherit A's labels")
+  Assert.equal(#gb1.warnings, 0)
+  Assert.equal(#gb2.warnings, 0)
+  -- A must not inherit B's provenance-derived nodes.
+  Assert.equal(g2.nodes["src:0843:009:0000"], nil, "A must not inherit B's nodes")
+  Assert.deepEqual(gb1.nodes, gb2.nodes)
+end
+
+-- A failed call must not leave its opts or partial state for the next call:
+-- wrapper registration is per invocation.
+function T.failed_compile_does_not_contaminate_later_calls()
+  local script = S.script({ api = 1, id = "x", steps = { S.next() } })
+  compileError("SCRIPT_WRAPPER_INVALID", script)
+  local graph = compile(script, { allowNext = true })
+  Assert.isTrue(graph.usesNext)
+  compileError("SCRIPT_WRAPPER_INVALID", script)
+end
+
+-- The provenance node-id dedup counter starts fresh per call, so identical
+-- generated scripts compile to identical ids every time.
+function T.used_node_ids_reset_per_call()
+  local function generated()
+    return S.script({
+      api = 1,
+      id = "x",
+      metadata = { generated = true, source = { member = 843, scriptIndex = 9 } },
+      steps = {
+        { op = "noop", provenance = { offsets = { 0x00 }, opcodes = { 0 } } },
+      },
+    })
+  end
+  local g1 = compile(generated())
+  local g2 = compile(generated())
+  Assert.equal(g1.entry, "src:0843:009:0000")
+  Assert.equal(g2.entry, "src:0843:009:0000")
+  Assert.deepEqual(g1.nodes, g2.nodes)
+  Assert.equal(g1.revision, g2.revision)
+end
+
+-- opts is the one unvalidated compiler input: a metatable on opts can trigger
+-- a nested compile while the outer compile is mid-flight. Compiler state must
+-- be per call, so neither graph can absorb the other's nodes.
+function T.reentrant_compile_does_not_contaminate_either_graph()
+  local outer = S.script({
+    api = 1,
+    id = "outer",
+    steps = { S.next(), S.setFlag({ flag = "FLAG_F" }) },
+  })
+  local inner = S.script({
+    api = 1,
+    id = "inner",
+    steps = { S.setVar({ variable = "VAR_A", value = 1 }) },
+  })
+  local captured = {}
+  local opts = setmetatable({}, {
+    __index = function()
+      captured.graph = compile(inner)
+      return true
+    end,
+  })
+  local graph = compile(outer, opts)
+  Assert.isTrue(captured.graph ~= nil, "nested compile must have run")
+  Assert.isTrue(graph.usesNext)
+  Assert.deepEqual(graph.nodes["path:steps/0"], { op = "next" })
+  Assert.deepEqual(graph.nodes["path:steps/1"], { op = "set_flag", flag = "FLAG_F" })
+  Assert.deepEqual(captured.graph.nodes["path:steps/0"], { op = "set_var", variable = "VAR_A", value = 1 })
+end
+
 return T

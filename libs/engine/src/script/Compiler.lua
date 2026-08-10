@@ -5,7 +5,10 @@
 -- Load-time structural validation also lives here: label uniqueness/targets,
 -- wrapper-only `next`, local call-target resolution, recursive call cycles
 -- without a blocking edge, and static nesting. The compiler deep-copies and
--- freezes; authoring tables are never shared and never mutated.
+-- freezes; authoring tables are never shared and never mutated. All mutable
+-- compilation state (nodes, labels, used ids, owner data, warnings, opts) is
+-- a context local to each invocation, passed explicitly to the stateful
+-- helpers, so calls are reentrant and cannot contaminate one another.
 
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -77,19 +80,6 @@ local ACTOR_SPECIALS_SET = {}
 for _, special in ipairs(Schema.ACTOR_SPECIALS) do
   ACTOR_SPECIALS_SET[special] = true
 end
-
--- Per-call compiler state, reset by _compile.
-local C = {
-  script = nil,
-  opts = nil,
-  nodes = {},
-  labelNodeIds = {},
-  subroutineEdges = {},
-  ownerSteps = {},
-  warnings = {},
-  usesNext = false,
-  usedNodeIds = {},
-}
 
 -- Deep copy of serializable data (the validator guarantees acyclicity).
 ---@param value any
@@ -289,23 +279,24 @@ end
 -- A multi-step lowering (one source instruction expanded into several
 -- canonical steps) shares provenance; the second and later steps append a
 -- `/n` counter so every node id stays unique.
+---@param context table per-call compiler state
 ---@param step table
 ---@param path string
 ---@return string
-local function nodeIdFor(step, path)
+local function nodeIdFor(context, step, path)
   if step.key ~= nil then
     return "key:" .. step.key
   end
   local provenance = step.provenance
   if provenance ~= nil then
-    local metaSource = C.script.metadata and C.script.metadata.source
+    local metaSource = context.script.metadata and context.script.metadata.source
     local member = metaSource and metaSource.member
     local scriptIndex = metaSource and metaSource.scriptIndex
     if member == nil or scriptIndex == nil then
       Errors.raise(
         ScriptErrors.SCRIPT_SCHEMA_INVALID,
         "step provenance requires script metadata.source member and scriptIndex",
-        { scriptId = C.script.id, path = path, op = step.op }
+        { scriptId = context.script.id, path = path, op = step.op }
       )
     end
     assert(#provenance.offsets > 0, "provenance must name a source offset")
@@ -314,46 +305,47 @@ local function nodeIdFor(step, path)
     if #provenance.offsets > 1 then
       id = base .. "/" .. step.op
     end
-    local seen = C.usedNodeIds[id]
+    local seen = context.usedNodeIds[id]
     if seen ~= nil then
-      C.usedNodeIds[id] = seen + 1
+      context.usedNodeIds[id] = seen + 1
       id = base .. "/" .. step.op .. "/" .. tostring(seen + 1)
     else
-      C.usedNodeIds[id] = 1
+      context.usedNodeIds[id] = 1
     end
     return id
   end
   return "path:" .. path
 end
 
-local function addWarning(message, nodeId)
-  C.warnings[#C.warnings + 1] = { message = message, nodeId = nodeId }
+local function addWarning(context, message, nodeId)
+  context.warnings[#context.warnings + 1] = { message = message, nodeId = nodeId }
 end
 
 -- Pre-pass: register every label name with its node ID.
+---@param context table per-call compiler state
 ---@param steps table
 ---@param path string
-local function prewalk(steps, path)
+local function prewalk(context, steps, path)
   for i = 1, #steps do
     local step = steps[i]
     local p = path .. "/" .. tostring(i - 1)
     if step.op == "label" then
       local name = step.name
-      if C.labelNodeIds[name] ~= nil then
+      if context.labelNodeIds[name] ~= nil then
         Errors.raise(
           ScriptErrors.SCRIPT_SCHEMA_INVALID,
           "duplicate label name",
-          { scriptId = C.script.id, path = p, label = name }
+          { scriptId = context.script.id, path = p, label = name }
         )
       end
-      C.labelNodeIds[name] = nodeIdFor(step, p)
+      context.labelNodeIds[name] = nodeIdFor(context, step, p)
     end
     if step.op == "if" then
-      prewalk(step.yes, p .. "/yes")
-      prewalk(step.no, p .. "/no")
+      prewalk(context, step.yes, p .. "/yes")
+      prewalk(context, step.no, p .. "/no")
     elseif step.op == "switch" then
       for k, caseSteps in pairs(step.cases) do
-        prewalk(caseSteps, p .. "/" .. tostring(k))
+        prewalk(context, caseSteps, p .. "/" .. tostring(k))
       end
     end
   end
@@ -374,16 +366,18 @@ end
 
 -- Record a subroutine-flow edge from `owner` into the span of `label`: either
 -- a call step or a linear fallthrough that lands on a later label's marker.
+---@param context table per-call compiler state
 ---@param owner string
 ---@param label string
-local function addSubroutineEdge(owner, label)
-  setFor(C.subroutineEdges, owner)[label] = true
+local function addSubroutineEdge(context, owner, label)
+  setFor(context.subroutineEdges, owner)[label] = true
 end
 
 -- Compile one step into a node. `cont` is the node ID the step's control flow
 -- continues at (nil at the script end). Returns the node ID.
 local compileSteps
 
+---@param context table per-call compiler state
 ---@param step table
 ---@param path string
 ---@param cont string|nil
@@ -391,17 +385,17 @@ local compileSteps
 ---@param depth integer
 ---@param id string precomputed node id (compileSteps resolves ids in one pass)
 ---@return string
-local function compileStep(step, path, cont, owner, depth, id)
+local function compileStep(context, step, path, cont, owner, depth, id)
   local op = step.op
-  if C.nodes[id] ~= nil then
+  if context.nodes[id] ~= nil then
     Errors.raise(
       ScriptErrors.SCRIPT_SCHEMA_INVALID,
       "duplicate node id",
-      { scriptId = C.script.id, path = path, nodeId = id }
+      { scriptId = context.script.id, path = path, nodeId = id }
     )
   end
 
-  local ownerBucket = setFor(C.ownerSteps, owner)
+  local ownerBucket = setFor(context.ownerSteps, owner)
   -- The cycle analysis must examine fields, not merely op names: `message`
   -- blocks only with waitForPrint and `lock_actor` only with
   -- waitUntilPausable, so an entry records whether it actually blocks.
@@ -426,18 +420,18 @@ local function compileStep(step, path, cont, owner, depth, id)
       Errors.raise(
         ScriptErrors.SCRIPT_SCHEMA_INVALID,
         "maximum static nesting exceeded",
-        { scriptId = C.script.id, path = path, depth = depth + 1 }
+        { scriptId = context.script.id, path = path, depth = depth + 1 }
       )
     end
   end
   if op == "if" then
-    node.yes = compileSteps(step.yes, path .. "/yes", cont, owner, depth + 1) or cont
-    node.no = compileSteps(step.no, path .. "/no", cont, owner, depth + 1) or cont
+    node.yes = compileSteps(context, step.yes, path .. "/yes", cont, owner, depth + 1) or cont
+    node.no = compileSteps(context, step.no, path .. "/no", cont, owner, depth + 1) or cont
     if #step.yes == 0 then
-      addWarning("empty yes branch", id)
+      addWarning(context, "empty yes branch", id)
     end
     if #step.no == 0 then
-      addWarning("empty no branch", id)
+      addWarning(context, "empty no branch", id)
     end
   elseif op == "switch" then
     node.cases = {}
@@ -447,12 +441,12 @@ local function compileStep(step, path, cont, owner, depth, id)
     end
     table.sort(keys)
     for _, k in ipairs(keys) do
-      node.cases[k] = compileSteps(step.cases[k], path .. "/" .. tostring(k), cont, owner, depth + 1) or cont
+      node.cases[k] = compileSteps(context, step.cases[k], path .. "/" .. tostring(k), cont, owner, depth + 1) or cont
       if #step.cases[k] == 0 then
-        addWarning("empty switch case", id)
+        addWarning(context, "empty switch case", id)
       end
     end
-    node.default = compileSteps(step.default, path .. "/default", cont, owner, depth + 1) or cont
+    node.default = compileSteps(context, step.default, path .. "/default", cont, owner, depth + 1) or cont
   elseif op == "goto" or op == "goto_if" or op == "goto_compared" then
     if op == "goto_compared" and step.script ~= nil then
       -- Cross-script compare-state form: resolved through the composition
@@ -461,17 +455,17 @@ local function compileStep(step, path, cont, owner, depth, id)
         Errors.raise(
           ScriptErrors.SCRIPT_SCHEMA_INVALID,
           "goto_compared must not combine a local target with a script",
-          { scriptId = C.script.id, path = path, target = step.target, script = step.script }
+          { scriptId = context.script.id, path = path, target = step.target, script = step.script }
         )
       end
       node.next = cont
     else
-      local labelId = C.labelNodeIds[step.target]
+      local labelId = context.labelNodeIds[step.target]
       if labelId == nil then
         Errors.raise(
           ScriptErrors.SCRIPT_LABEL_MISSING,
           "control target is not a local label",
-          { scriptId = C.script.id, path = path, target = step.target }
+          { scriptId = context.script.id, path = path, target = step.target }
         )
       end
       node.targetNode = labelId
@@ -486,32 +480,32 @@ local function compileStep(step, path, cont, owner, depth, id)
     -- a collision.
   elseif op == "call" or op == "call_compared" then
     node.returnNode = cont
-    local labelId = C.labelNodeIds[step.target]
+    local labelId = context.labelNodeIds[step.target]
     if labelId ~= nil then
       if step.label ~= nil then
         Errors.raise(
           ScriptErrors.SCRIPT_SCHEMA_INVALID,
           "call label must not be combined with a local label target",
-          { scriptId = C.script.id, path = path, target = step.target, label = step.label }
+          { scriptId = context.script.id, path = path, target = step.target, label = step.label }
         )
       end
       node.targetNode = labelId
-      addSubroutineEdge(owner, step.target)
+      addSubroutineEdge(context, owner, step.target)
     end
   elseif op == "label" then
-    addSubroutineEdge(owner, step.name)
+    addSubroutineEdge(context, owner, step.name)
   elseif op == "next" then
-    C.usesNext = true
-    if not C.opts.allowNext then
+    context.usesNext = true
+    if not context.opts.allowNext then
       Errors.raise(
         ScriptErrors.SCRIPT_WRAPPER_INVALID,
         "next requires wrapper registration",
-        { scriptId = C.script.id, path = path }
+        { scriptId = context.script.id, path = path }
       )
     end
   end
 
-  C.nodes[id] = node
+  context.nodes[id] = node
   return id
 end
 
@@ -519,22 +513,23 @@ end
 -- node ID, or nil for an empty sequence. Node IDs are computed upfront so each
 -- step's continuation (the following step, or `cont` at the tail) is known
 -- before its branches compile.
+---@param context table per-call compiler state
 ---@param steps table
 ---@param path string
 ---@param cont string|nil
 ---@param owner string
 ---@param depth integer
 ---@return string|nil
-compileSteps = function(steps, path, cont, owner, depth)
+compileSteps = function(context, steps, path, cont, owner, depth)
   local ids = {}
   for i = 1, #steps do
-    ids[i] = nodeIdFor(steps[i], path .. "/" .. tostring(i - 1))
+    ids[i] = nodeIdFor(context, steps[i], path .. "/" .. tostring(i - 1))
   end
   local currentOwner = owner
   for i = 1, #steps do
     local step = steps[i]
-    compileStep(step, path .. "/" .. tostring(i - 1), ids[i + 1] or cont, currentOwner, depth, ids[i])
-    local node = C.nodes[ids[i]]
+    compileStep(context, step, path .. "/" .. tostring(i - 1), ids[i + 1] or cont, currentOwner, depth, ids[i])
+    local node = context.nodes[ids[i]]
     if not NO_CHAIN_NEXT[node.op] then
       node.next = ids[i + 1] or cont
     end
@@ -552,7 +547,7 @@ end
 -- span in the cycle contains a cycle-breaking op before its first call step,
 -- because the recursion path re-enters that span at its label and executes the
 -- prefix each time.
-local function cycleCheck()
+local function cycleCheck(context)
   local index = 0
   local stack = {}
   local onStack = {}
@@ -561,7 +556,7 @@ local function cycleCheck()
 
   local function sccBreaks(scc)
     for _, owner in ipairs(scc) do
-      for _, entry in ipairs(C.ownerSteps[owner] or {}) do
+      for _, entry in ipairs(context.ownerSteps[owner] or {}) do
         if entry.blocks and CYCLE_BREAKING_OPS[entry.op] then
           return true
         end
@@ -580,7 +575,7 @@ local function cycleCheck()
     stack[#stack + 1] = v
     onStack[v] = true
     local targets = {}
-    for t in pairs(C.subroutineEdges[v] or {}) do
+    for t in pairs(context.subroutineEdges[v] or {}) do
       targets[#targets + 1] = t
     end
     table.sort(targets)
@@ -602,14 +597,14 @@ local function cycleCheck()
           break
         end
       end
-      local edges = C.subroutineEdges[v] or {}
+      local edges = context.subroutineEdges[v] or {}
       local hasCycle = #scc > 1 or edges[v] ~= nil
       if hasCycle and not sccBreaks(scc) then
         table.sort(scc)
         Errors.raise(
           ScriptErrors.SCRIPT_SCHEMA_INVALID,
           "direct recursive call cycle without a blocking edge",
-          { scriptId = C.script.id, cycle = scc }
+          { scriptId = context.script.id, cycle = scc }
         )
       end
     end
@@ -620,8 +615,9 @@ end
 
 -- Reachability, unsupported-node analysis, and load-time warnings on the
 -- completed graph.
+---@param context table per-call compiler state
 ---@param graph table
-local function analyze(graph)
+local function analyze(context, graph)
   local visited = {}
   local reachable = {}
   for _, id in ipairs(Graph.reachableNodes(graph)) do
@@ -642,14 +638,14 @@ local function analyze(graph)
   end
   table.sort(unreachable)
   for _, id in ipairs(unreachable) do
-    addWarning("unreachable node", id)
+    addWarning(context, "unreachable node", id)
   end
 
-  local generated = C.script.metadata ~= nil and C.script.metadata.generated == true
+  local generated = context.script.metadata ~= nil and context.script.metadata.generated == true
   if not generated then
     for id, node in pairs(graph.nodes) do
       if FALLBACK_OPS[node.op] then
-        addWarning("handwritten script uses label/goto fallback", id)
+        addWarning(context, "handwritten script uses label/goto fallback", id)
       end
     end
   end
@@ -687,36 +683,41 @@ end
 
 function Compiler._compile(script, opts)
   opts = opts or {}
-  C.script = script
-  C.opts = opts
-  C.nodes = {}
-  C.labelNodeIds = {}
-  C.subroutineEdges = {}
-  C.ownerSteps = {}
-  C.warnings = {}
-  C.usesNext = false
-  C.usedNodeIds = {}
+  -- Per-call compiler state: nodes, labels, warnings, used node ids, owner
+  -- data, and opts live in this context so calls are reentrant and cannot
+  -- contaminate one another.
+  local context = {
+    script = script,
+    opts = opts,
+    nodes = {},
+    labelNodeIds = {},
+    subroutineEdges = {},
+    ownerSteps = {},
+    warnings = {},
+    usesNext = false,
+    usedNodeIds = {},
+  }
 
   local ok, err = Validator.validate(script)
   if not ok then
     error(err)
   end
 
-  C.ownerSteps[ROOT_OWNER] = {}
+  context.ownerSteps[ROOT_OWNER] = {}
 
   local steps = normalizeSteps(script.steps)
-  prewalk(steps, "steps")
-  local entry = compileSteps(steps, "steps", nil, ROOT_OWNER, 0)
-  cycleCheck()
+  prewalk(context, steps, "steps")
+  local entry = compileSteps(context, steps, "steps", nil, ROOT_OWNER, 0)
+  cycleCheck(context)
 
   local graph = {
     graphSchema = Graph.SCHEMA_NAME,
     api = script.api,
     scriptId = script.id,
     entry = entry,
-    nodes = C.nodes,
-    labels = C.labelNodeIds,
-    usesNext = C.usesNext,
+    nodes = context.nodes,
+    labels = context.labelNodeIds,
+    usesNext = context.usesNext,
     warnings = {},
   }
   if script.params ~= nil and next(script.params) ~= nil then
@@ -726,14 +727,14 @@ function Compiler._compile(script, opts)
     graph.locals = deepCopy(script.locals)
   end
 
-  analyze(graph)
-  table.sort(C.warnings, function(a, b)
+  analyze(context, graph)
+  table.sort(context.warnings, function(a, b)
     if a.nodeId ~= b.nodeId then
       return a.nodeId < b.nodeId
     end
     return a.message < b.message
   end)
-  graph.warnings = C.warnings
+  graph.warnings = context.warnings
 
   graph.revision = Sha256.hex(LuaWriter.encode(buildProjection(graph)))
   return Graph.freeze(graph)
