@@ -10,7 +10,10 @@
 -- buffer itself (love's frame clear only touches color) and restores the exact
 -- caller state it changed (canvas, shader, depth, cull, blend, wireframe,
 -- color) even when drawing raises, so the diagnostic UI drawn afterwards is
--- unaffected. It builds no meshes or textures and reads no ROM/NARC data --
+-- unaffected. Resource construction is transactional: a failed shader or
+-- canvas allocation releases everything already created, and a canvas
+-- recreation keeps the previous target set usable until the replacement is
+-- complete. It builds no meshes or textures and reads no ROM/NARC data --
 -- those belong to the loader and compiler; here everything is already
 -- resident.
 
@@ -95,14 +98,24 @@ function MapRenderer.new(opts)
     graphics = love and love.graphics
   end
   assert(graphics, "MapRenderer requires a graphics context")
-  return setmetatable({
+  local renderer = setmetatable({
     _graphics = graphics,
-    shader = graphics.newShader(loadShaderSource(SHADER_PATH)),
-    edgeShader = graphics.newShader(loadShaderSource(EDGE_SHADER_PATH)),
     edgeColors = colors,
     edgeAlpha = em.alpha or 0.5,
     stats = { drawCalls = 0, triangles = 0, meshCount = 0, textureCount = 0 },
   }, MapRenderer)
+  -- Shader construction is transactional: a failure while creating the second
+  -- shader releases the first (and any other already-created resource) before
+  -- the error propagates, so a failed renderer never leaks GPU resources.
+  local ok, err = pcall(function()
+    renderer.shader = graphics.newShader(loadShaderSource(SHADER_PATH))
+    renderer.edgeShader = graphics.newShader(loadShaderSource(EDGE_SHADER_PATH))
+  end)
+  if not ok then
+    renderer:release()
+    error(err)
+  end
+  return renderer
 end
 
 function MapRenderer:_releaseCanvases()
@@ -119,20 +132,40 @@ function MapRenderer:_releaseCanvases()
   self.canvasW, self.canvasH = nil, nil
 end
 
+-- Recreate the render targets at a new size. The replacement set is built
+-- fully before the live one is released: a failed allocation releases only
+-- the partial new canvases and leaves the previous targets and their recorded
+-- size in place, so the renderer keeps working at the old size.
 function MapRenderer:_ensureCanvases(w, h)
   if self.sceneColor and self.canvasW == w and self.canvasH == h then
     return
   end
   local lg = assert(self._graphics)
+  local sceneColor, idDepth, depth
+  local ok, err = pcall(function()
+    sceneColor = lg.newCanvas(w, h)
+    -- Red holds the normalized polygon ID, green the linear eye-space depth in
+    -- world units. The format must be 32-bit float: the depth spans the full near
+    -- to far range (hundreds of units) and edge marking tests sub-unit steps
+    -- against it, which 16-bit floats cannot resolve across that range.
+    idDepth = lg.newCanvas(w, h, { format = "rg32f" })
+    idDepth:setFilter("nearest", "nearest")
+    depth = lg.newCanvas(w, h, { format = "depth24stencil8", readable = false })
+  end)
+  if not ok then
+    if sceneColor then
+      sceneColor:release()
+    end
+    if idDepth then
+      idDepth:release()
+    end
+    if depth then
+      depth:release()
+    end
+    error(err)
+  end
   self:_releaseCanvases()
-  self.sceneColor = lg.newCanvas(w, h)
-  -- Red holds the normalized polygon ID, green the linear eye-space depth in
-  -- world units. The format must be 32-bit float: the depth spans the full near
-  -- to far range (hundreds of units) and edge marking tests sub-unit steps
-  -- against it, which 16-bit floats cannot resolve across that range.
-  self.idDepth = lg.newCanvas(w, h, { format = "rg32f" })
-  self.idDepth:setFilter("nearest", "nearest")
-  self.depth = lg.newCanvas(w, h, { format = "depth24stencil8", readable = false })
+  self.sceneColor, self.idDepth, self.depth = sceneColor, idDepth, depth
   self.canvasW, self.canvasH = w, h
 end
 

@@ -168,12 +168,13 @@ end
 -- Injected graphics for the headless restoration-contract tests: a full
 -- settable state surface (canvas, shader, blend, depth, wireframe, cull,
 -- color) that the renderer must restore exactly, stub shaders/canvases for
--- construction, and a draw call that can fail on the Nth invocation so the
--- error path runs without a GL context.
+-- construction, and failOnNewShader/failOnNewCanvas/failOnDrawCall injection
+-- on the Nth call so the construction and draw error paths run without a GL
+-- context.
 local function fakeGraphics(opts)
   opts = opts or {}
   local shaders, canvases = {}, {}
-  local drawCalls = 0
+  local shaderCount, canvasCount, drawCalls = 0, 0, 0
   local state = {
     canvas = opts.canvas,
     shader = opts.shader,
@@ -189,6 +190,10 @@ local function fakeGraphics(opts)
     shaders = shaders,
     canvases = canvases,
     newShader = function()
+      shaderCount = shaderCount + 1
+      if opts.failOnNewShader == shaderCount then
+        error("injected shader failure")
+      end
       local shader = {}
       shader.released = false
       shader.send = function() end
@@ -199,6 +204,10 @@ local function fakeGraphics(opts)
       return shader
     end,
     newCanvas = function()
+      canvasCount = canvasCount + 1
+      if opts.failOnNewCanvas == canvasCount then
+        error("injected canvas failure")
+      end
       local canvas = {}
       canvas.released = false
       canvas.setFilter = function() end
@@ -341,6 +350,104 @@ function T.draw_failure_restores_exact_state_and_rethrows()
   assertRestoredState(lg, canvas, shader)
   renderer:release()
   assertResourcesReleased(lg)
+end
+
+-- Construction is transactional: when the second shader fails, the first must
+-- be released and the failure must reach the caller.
+function T.new_releases_first_shader_when_second_shader_fails()
+  local lg = fakeGraphics({ failOnNewShader = 2 })
+  local err = Assert.throws(function()
+    MapRenderer.new({ graphics = lg })
+  end)
+  Assert.isTrue(tostring(err):find("injected shader failure", 1, true) ~= nil, "rethrows the shader failure")
+  Assert.equal(#lg.shaders, 1, "only the first shader was created")
+  Assert.isTrue(lg.shaders[1].released, "the first shader is released when the second fails")
+end
+
+-- A failure while creating the very first shader creates nothing to leak and
+-- still reaches the caller.
+function T.new_first_shader_failure_leaks_nothing()
+  local lg = fakeGraphics({ failOnNewShader = 1 })
+  local err = Assert.throws(function()
+    MapRenderer.new({ graphics = lg })
+  end)
+  Assert.isTrue(tostring(err):find("injected shader failure", 1, true) ~= nil, "rethrows the shader failure")
+  Assert.equal(#lg.shaders, 0, "no shader was created")
+end
+
+-- Target reallocation builds the full replacement set before releasing the
+-- live one: when any new-canvas allocation fails, every partial new canvas is
+-- released, the previous targets and their recorded size survive, and the
+-- failure reaches the caller. Each failOnNewCanvas value places the failure at
+-- a different point in the new set (4 = first, 5 = second, 6 = third).
+function T.canvas_recreation_failure_releases_partial_new_canvases()
+  for _, failOnNewCanvas in ipairs({ 4, 5, 6 }) do
+    local lg = fakeGraphics({ failOnNewCanvas = failOnNewCanvas })
+    local renderer = MapRenderer.new({ graphics = lg })
+    local scene = emptySceneCamera()
+    renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+    local oldW, oldH = renderer.canvasW, renderer.canvasH
+    Assert.equal(#lg.canvases, 3, "the first target set was created")
+
+    local err = Assert.throws(function()
+      renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(1280, 720, { mode = "expanded" }))
+    end)
+    Assert.isTrue(tostring(err):find("injected canvas failure", 1, true) ~= nil, "rethrows the canvas failure")
+
+    for i = 4, #lg.canvases do
+      Assert.isTrue(lg.canvases[i].released, "partial canvas " .. i .. " was released")
+    end
+    -- The previous target set survives untouched, at its recorded size.
+    Assert.equal(renderer.sceneColor, lg.canvases[1], "the previous scene canvas survives")
+    Assert.equal(renderer.idDepth, lg.canvases[2], "the previous id-depth canvas survives")
+    Assert.equal(renderer.depth, lg.canvases[3], "the previous depth canvas survives")
+    Assert.equal(renderer.canvasW, oldW, "the recorded size survives")
+    Assert.equal(renderer.canvasH, oldH, "the recorded size survives")
+    Assert.isFalse(lg.canvases[1].released, "the previous scene canvas is still owned")
+    Assert.isFalse(lg.canvases[2].released, "the previous id-depth canvas is still owned")
+    Assert.isFalse(lg.canvases[3].released, "the previous depth canvas is still owned")
+
+    renderer:release()
+    for _, canvas in ipairs(lg.canvases) do
+      Assert.isTrue(canvas.released, "release cleans up every canvas")
+    end
+  end
+end
+
+-- After a failed recreation the renderer stays usable at the previous size,
+-- and a later successful recreation swaps in a full new set while releasing
+-- the previous set exactly once.
+function T.canvas_recreation_failure_keeps_renderer_usable()
+  local lg = fakeGraphics({ failOnNewCanvas = 5 })
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+  local oldW, oldH = renderer.canvasW, renderer.canvasH
+
+  Assert.throws(function()
+    renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(1280, 720, { mode = "expanded" }))
+  end)
+
+  -- Drawing at the retained size allocates nothing and still renders.
+  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+  Assert.equal(#lg.canvases, 4, "the old-size draw reuses the retained canvases")
+  Assert.equal(renderer.canvasW, oldW)
+  Assert.equal(renderer.canvasH, oldH)
+
+  -- The next successful recreation replaces the previous set, releasing it
+  -- exactly once, and the renderer owns the new set.
+  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(1280, 720, { mode = "expanded" }))
+  Assert.equal(#lg.canvases, 7, "a full new set was created")
+  Assert.isTrue(lg.canvases[1].released, "the old scene canvas is released on successful recreation")
+  Assert.isTrue(lg.canvases[2].released, "the old id-depth canvas is released on successful recreation")
+  Assert.isTrue(lg.canvases[3].released, "the old depth canvas is released on successful recreation")
+  Assert.isFalse(lg.canvases[5].released, "the new scene canvas is owned by the renderer")
+  Assert.isFalse(lg.canvases[7].released, "the new depth canvas is owned by the renderer")
+
+  renderer:release()
+  for _, canvas in ipairs(lg.canvases) do
+    Assert.isTrue(canvas.released, "release cleans up every canvas")
+  end
 end
 
 -- An actor draw is a cutout billboard submitted as an overlay item, and it
