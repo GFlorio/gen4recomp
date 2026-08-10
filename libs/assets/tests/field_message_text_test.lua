@@ -207,6 +207,19 @@ function T.parse_errors_are_typed()
   end)
 end
 
+function T.tokens_after_eos_are_ignored()
+  local text = FieldMessageText.tokensToText({
+    { kind = "glyph", code = 0x013A, text = "P" },
+    { kind = "eos", raw = { 0xFFFF } },
+    { kind = "glyph", code = 0x013A, text = "P" },
+    { kind = "line_break", raw = { 0xE000 } },
+    { kind = "substitution", control = 0x0103, name = "STRVAR_1", args = { 0, 0 } },
+    { kind = "prompt_break", raw = { 0x25BC } },
+    { kind = "style", control = 0xFF00, name = "COLOR", args = { 1 } },
+  })
+  Assert.equal(text, "P")
+end
+
 function T.nothing_is_dropped_from_the_text_form()
   local tokens = {
     { kind = "glyph", code = 0x013A, text = "P" },

@@ -109,7 +109,6 @@ function T.prompt_and_page_breaks_boundary_pages()
       end
       tokens[#tokens + 1] = breakToken
     end
-    tokens[#tokens + 1] = { kind = "eos", raw = { 0xFFFF } }
   end
   wordsAnd({
     { kind = "prompt_break", raw = { 0x25BC } },
@@ -119,6 +118,7 @@ function T.prompt_and_page_breaks_boundary_pages()
   for _, glyphToken in ipairs(glyphs("AAAA")) do
     tokens[#tokens + 1] = glyphToken
   end
+  tokens[#tokens + 1] = { kind = "eos", raw = { 0xFFFF } }
   local layout = DialogueLayout.layout(tokens, metrics(FONT), { width = 24, maxLines = 2 })
   Assert.equal(#layout.pages, 3)
   Assert.equal(layout.pages[1].breakKind, "prompt")
@@ -204,6 +204,64 @@ local function markerMetrics(nonGlyphWidth)
     end,
     nonGlyphWidth = nonGlyphWidth,
   }
+end
+
+function T.eos_is_terminal_ignoring_later_glyphs_and_markers()
+  local tokens = {}
+  for _, t in ipairs(glyphs("AAAA")) do
+    tokens[#tokens + 1] = t
+  end
+  tokens[#tokens + 1] = { kind = "eos", raw = { 0xFFFF } }
+  for _, t in ipairs(glyphs("BBBB")) do
+    tokens[#tokens + 1] = t
+  end
+  tokens[#tokens + 1] = { kind = "style", control = 0xFF00, args = { 1 }, raw = { 0xFFFE, 0xFF00, 1, 1 } }
+  tokens[#tokens + 1] = { kind = "page_break", raw = { 0x25BD } }
+  tokens[#tokens + 1] = { kind = "prompt_break", raw = { 0x25BC } }
+  local layout = DialogueLayout.layout(tokens, metrics(FONT), { width = 24, maxLines = 2 })
+  Assert.equal(#layout.pages, 1)
+  Assert.equal(layout.pages[1].breakKind, "eos")
+  Assert.equal(#layout.pages[1].lines, 1)
+  Assert.equal(textOf(layout.pages[1].lines[1]), "AAAA")
+  Assert.equal(layout.pages[1].lines[1].width, 24)
+  Assert.equal(#layout.warnings, 0)
+end
+
+function T.carried_word_glyphs_keep_exact_line_width()
+  -- "AA B CCCC" at width 24: the first space is dropped on the full line,
+  -- then the wrap at the next glyph carries "B" onto the new line. The
+  -- carried glyph must count toward the new line's width, or "CCCC" wrongly
+  -- fits next to the carried word and the final wrap never happens.
+  local layout = DialogueLayout.layout(glyphs("AA B CCCC"), metrics(FONT), { width = 24, maxLines = 2 })
+  Assert.equal(#layout.pages, 2)
+  Assert.equal(layout.pages[1].breakKind, "overflow")
+  Assert.equal(textOf(layout.pages[1].lines[1]), "AA")
+  Assert.equal(layout.pages[1].lines[1].width, 12)
+  Assert.equal(textOf(layout.pages[1].lines[2]), "BCCC")
+  Assert.equal(layout.pages[1].lines[2].width, 24)
+  Assert.equal(layout.pages[2].breakKind, "eos")
+  Assert.equal(textOf(layout.pages[2].lines[1]), "C")
+  Assert.equal(layout.pages[2].lines[1].width, 6)
+end
+
+function T.carried_markers_keep_their_measured_width()
+  local tokens = {
+    { kind = "glyph", code = 0x0121, text = "A", raw = { 0x0121 } },
+    { kind = "glyph", code = 0x01DE, text = " ", raw = { 0x01DE } },
+    { kind = "unsupported_control", control = 0x0707, name = nil, args = {}, raw = { 1 } },
+    { kind = "glyph", code = 0x0121, text = "B", raw = { 0x0121 } },
+    { kind = "glyph", code = 0x0121, text = "B", raw = { 0x0121 } },
+    { kind = "eos", raw = { 0xFFFF } },
+  }
+  local m = markerMetrics(function()
+    return 6
+  end)
+  local layout = DialogueLayout.layout(tokens, m, { width = 24, maxLines = 2 })
+  Assert.equal(#layout.pages, 1)
+  Assert.equal(textOf(layout.pages[1].lines[1]), "A")
+  Assert.equal(layout.pages[1].lines[1].width, 6)
+  Assert.equal(textOf(layout.pages[1].lines[2]), "BB")
+  Assert.equal(layout.pages[1].lines[2].width, 18)
 end
 
 function T.marker_width_counts_toward_the_line_budget()

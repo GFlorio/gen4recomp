@@ -131,14 +131,17 @@ function FieldMessageText.marker(control, ...)
   return "{" .. label .. "}"
 end
 
--- Renders a token stream to its display text. EOS is terminal and renders
--- nothing; substitution/style/wait/unsupported tokens render their markers so
--- no control is ever silently dropped from the text form.
+-- Renders a token stream to its display text. EOS is terminal: rendering
+-- stops at the first EOS and later tokens are ignored. Substitution/style/
+-- wait/unsupported tokens before EOS render their markers so no control is
+-- silently dropped from the text form.
 function FieldMessageText.tokensToText(tokens)
   assert(type(tokens) == "table", "tokensToText requires a token stream")
   local out = {}
   for _, token in ipairs(tokens) do
-    if token.kind == "glyph" then
+    if token.kind == "eos" then
+      break
+    elseif token.kind == "glyph" then
       out[#out + 1] = token.text
     elseif token.kind == "line_break" then
       out[#out + 1] = "\n"
@@ -146,8 +149,6 @@ function FieldMessageText.tokensToText(tokens)
       out[#out + 1] = "\r"
     elseif token.kind == "page_break" then
       out[#out + 1] = "\f"
-    elseif token.kind == "eos" then
-      -- terminal; nothing to render
     elseif token.kind == "substitution" and token.control == FieldMessageText.TRNAME then
       out[#out + 1] = "{TRNAME}"
     else

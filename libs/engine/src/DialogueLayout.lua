@@ -2,7 +2,8 @@
 -- pages of wrapped lines inside a fixed reference width. Layout never depends
 -- on window size, rendering, or love; glyph advances come from a metrics
 -- object (the generated font definition) so substitution happens upstream and
--- resizing never repaginates (spec sections 14.3 and 15.4).
+-- resizing never repaginates. EOS is terminal: the first EOS ends pagination
+-- and every later token is ignored.
 
 local Errors = require("libs.rom.src.Errors")
 
@@ -13,8 +14,8 @@ local DEFAULT_MAX_LINES = 2
 
 -- metrics: { glyphWidth(code) -> integer, nonGlyphWidth(token) -> integer|nil }
 -- resolving glyph advances and, optionally, the typeset width of marker
--- tokens (spec section 15.4: control tokens have explicit width behavior).
--- Without nonGlyphWidth, non-glyph tokens stay widthless.
+-- tokens (control tokens have explicit width behavior). Without
+-- nonGlyphWidth, non-glyph tokens stay widthless.
 -- opts: { width = integer, maxLines = integer }
 -- Returns { pages = { { lines = { { tokens, width } }, breakKind } }, warnings }.
 -- breakKind is "prompt", "page", "line", "overflow", or "eos".
@@ -71,9 +72,15 @@ function DialogueLayout.layout(tokens, metrics, opts)
     end
   end
 
-  -- Width contribution of a non-glyph token: measured marker width when the
-  -- metrics object provides it, otherwise zero.
-  local function extraWidth(token)
+  -- One token-width rule for every layout calculation: a glyph contributes
+  -- its advance; a non-glyph token contributes its measured marker width
+  -- (zero when the metrics object provides none), so a rendered marker never
+  -- overlaps the following glyphs. Carried tokens keep the same rule, so a
+  -- word wrapped to a new line keeps its exact width.
+  local function tokenWidth(token)
+    if token.kind == "glyph" then
+      return metrics.glyphWidth(token.code)
+    end
     if not metrics.nonGlyphWidth then
       return 0
     end
@@ -82,21 +89,18 @@ function DialogueLayout.layout(tokens, metrics, opts)
   end
 
   -- Finds the trailing breakable space on the current line; returns its token
-  -- index and the width of the tokens before it (space excluded). Marker
-  -- widths count toward the running width so wrap points stay exact.
+  -- index and the width of the tokens before it (space excluded). Every token
+  -- width uses the same tokenWidth rule, so wrap points stay exact.
   local function lastBreakableSpace()
     local line = currentLine()
     local running = 0
     local breakIndex, keptWidth
     for i, token in ipairs(line.tokens) do
-      if token.kind == "glyph" then
-        running = running + metrics.glyphWidth(token.code)
-        if token.text == " " then
-          breakIndex = i
-          keptWidth = running - metrics.glyphWidth(token.code)
-        end
-      else
-        running = running + extraWidth(token)
+      local w = tokenWidth(token)
+      running = running + w
+      if token.kind == "glyph" and token.text == " " then
+        breakIndex = i
+        keptWidth = running - w
       end
     end
     return breakIndex, keptWidth
@@ -105,8 +109,12 @@ function DialogueLayout.layout(tokens, metrics, opts)
   beginLine()
 
   for _, token in ipairs(tokens) do
-    if token.kind == "glyph" then
-      local advance = metrics.glyphWidth(token.code)
+    if token.kind == "eos" then
+      -- Terminal: flush the page and ignore everything after the first EOS.
+      endPage("eos")
+      break
+    elseif token.kind == "glyph" then
+      local advance = tokenWidth(token)
       if advance == nil then
         Errors.raise(
           "FONT_GLYPH_MISSING",
@@ -134,8 +142,9 @@ function DialogueLayout.layout(tokens, metrics, opts)
             endPage("overflow")
             line = currentLine()
           elseif breakIndex then
-            -- Wrap at the last breakable space; non-glyph tokens placed after
-            -- the space (markers) carry to the new line instead of vanishing.
+            -- Wrap at the last breakable space; the tokens placed after the
+            -- space (glyphs and markers) carry to the new line with their
+            -- exact width instead of vanishing.
             local kept = {}
             local carried = {}
             for i = 1, breakIndex - 1 do
@@ -148,9 +157,9 @@ function DialogueLayout.layout(tokens, metrics, opts)
             line.width = keptWidth
             beginLine()
             line = currentLine()
-            for _, token in ipairs(carried) do
-              line.tokens[#line.tokens + 1] = token
-              line.width = line.width + extraWidth(token)
+            for _, carriedToken in ipairs(carried) do
+              line.tokens[#line.tokens + 1] = carriedToken
+              line.width = line.width + tokenWidth(carriedToken)
             end
           else
             beginLine()
@@ -170,26 +179,24 @@ function DialogueLayout.layout(tokens, metrics, opts)
       endPage("prompt")
     elseif token.kind == "page_break" then
       endPage("page")
-    elseif token.kind == "eos" then
-      endPage("eos")
     else
       -- style/wait/substitution/unsupported tokens keep their measured marker
       -- width (zero when the metrics object does not provide one), so a
       -- rendered marker never overlaps the following glyphs. A marker that
       -- pushes the line past the budget is placed anyway and traced, exactly
-      -- like an over-wide glyph (spec section 15.4): markers cannot be split.
-      local extra = extraWidth(token)
+      -- like an over-wide glyph: markers cannot be split.
+      local w = tokenWidth(token)
       local line = currentLine()
-      if line.width + extra > width then
+      if line.width + w > width then
         warnings[#warnings + 1] = {
           kind = "overwide",
           control = token.control,
-          width = line.width + extra,
+          width = line.width + w,
           boxWidth = width,
         }
       end
       line.tokens[#line.tokens + 1] = token
-      line.width = line.width + extra
+      line.width = line.width + w
     end
   end
 
