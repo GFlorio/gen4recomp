@@ -1207,6 +1207,71 @@ function T.door_transition_ticks_advance_the_world_while_locked()
   Assert.equal(animatedSteps, 2, "the door open/close keeps advancing while the player stands")
 end
 
+-- A locked stair transition advances the scene's animated props each tick
+-- but never reports locomotion: the climb is in place, so the pose clock and
+-- the camera stay frozen while the props keep animating.
+function T.stair_transition_ticks_advance_props_but_not_the_pose_clock()
+  local visualSteps, cameraSteps, animatedSteps = 0, 0, 0
+  local transition = {
+    phase = "fade_out",
+    locked = true,
+    stairActive = true,
+    updateFixed = function()
+      return false
+    end,
+    start = function() end,
+  }
+  local player = {
+    fieldX = 3,
+    fieldZ = 3,
+    worldX = 0,
+    worldY = 0,
+    worldZ = 0,
+    surfaceId = 0,
+    facing = "west",
+    motion = "idle",
+    updateFixed = function()
+      return false
+    end,
+  }
+  local camera = {
+    updateFixed = function()
+      cameraSteps = cameraSteps + 1
+    end,
+  }
+  local playerVisual = {
+    updateFixed = function()
+      visualSteps = visualSteps + 1
+    end,
+  }
+  local map = {
+    mapId = 63,
+    cameraType = 4,
+    sceneRuntime = {
+      updateAnimated = function()
+        animatedSteps = animatedSteps + 1
+      end,
+    },
+  }
+  local session = FieldSession.new(baseOptions({
+    currentMap = map,
+    player = player,
+    camera = camera,
+    transition = transition,
+    playerVisual = playerVisual,
+  }))
+
+  session:updateFixed({ heldDirection = "west" })
+  Assert.equal(animatedSteps, 1, "the scene props advance under the stair climb")
+  Assert.equal(visualSteps, 0, "the in-place climb does not advance the pose clock")
+  Assert.equal(cameraSteps, 0, "the camera stays on the standing player")
+  session:updateFixed({ heldDirection = "west" })
+  Assert.equal(animatedSteps, 2, "the props keep advancing while the player stands")
+end
+
+-- A plain locked transition advances nothing extra: the doorActive/stairActive
+-- flags are the single switch between the frozen and choreographed locked
+-- ticks.
 function T.plain_locked_transition_stays_frozen()
   local visualSteps, cameraSteps, animatedSteps = 0, 0, 0
   local transition = {

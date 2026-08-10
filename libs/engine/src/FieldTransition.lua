@@ -12,6 +12,9 @@
 -- lifecycle. Source ingress overlaps the fade-out; destination opening and
 -- egress overlap the fade-in; input unlocks only after the destination door
 -- closes. Door choreography depends only on the map-prop and player contracts.
+-- Stair warps instead hold an in-place climb on each side of the swap, play
+-- the HGSS stair sound when each climb completes, and never use coordinate
+-- suppression.
 
 local WarpSystem = require("libs.engine.src.WarpSystem")
 local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
@@ -22,13 +25,17 @@ local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
 ---@field commit fun(resolution: table, facing: FieldDirection, prepared: table)
 ---@field resolveDestination function
 ---@field doorAt fun(runtimeMap: table, fieldX: integer, fieldZ: integer): table|nil
+---@field playSound fun(soundId: string)?
 ---@field player table|nil
 ---@field fadeOutTicks integer
 ---@field fadeInTicks integer
+---@field stairClimbTicks integer
 ---@field phase "idle"|"fade_out"|"fade_in"|string
 ---@field fadeAlpha number
 ---@field locked boolean
 ---@field doorActive boolean
+---@field stairActive boolean
+---@field stairClimbRemaining integer
 ---@field door table?
 ---@field completed table?
 ---@field error any?
@@ -42,6 +49,8 @@ FieldTransition.__index = FieldTransition
 
 FieldTransition.FADE_OUT_TICKS = 12
 FieldTransition.FADE_IN_TICKS = 12
+FieldTransition.STAIR_CLIMB_TICKS = 8
+FieldTransition.STAIR_SOUND = "SEQ_SE_DP_KAIDAN2"
 
 -- The shared phase protocol of the fade/load/swap lifecycle, referenced by
 -- consumers (FieldSave, ScriptMapsService) so a rename stays in one place.
@@ -60,35 +69,47 @@ function FieldTransition.new(options)
   assert(type(options.commit) == "function", "field transition commit callback required")
   local fadeOutTicks = options.fadeOutTicks or FieldTransition.FADE_OUT_TICKS
   local fadeInTicks = options.fadeInTicks or FieldTransition.FADE_IN_TICKS
+  local stairClimbTicks = options.stairClimbTicks or FieldTransition.STAIR_CLIMB_TICKS
   assert(fadeOutTicks > 0 and fadeOutTicks == math.floor(fadeOutTicks), "positive fade-out ticks required")
   assert(fadeInTicks > 0 and fadeInTicks == math.floor(fadeInTicks), "positive fade-in ticks required")
+  assert(stairClimbTicks > 0 and stairClimbTicks == math.floor(stairClimbTicks), "positive stair climb ticks required")
   return setmetatable({
     loader = options.loader,
     resolveDestination = options.resolveDestination or WarpSystem.resolveDestination,
     prepare = options.prepare,
     commit = options.commit,
     doorAt = options.doorAt,
+    playSound = options.playSound,
     player = options.player,
     fadeOutTicks = fadeOutTicks,
     fadeInTicks = fadeInTicks,
+    stairClimbTicks = stairClimbTicks,
     phase = FieldTransition.PHASES.idle,
     locked = false,
     doorActive = false,
+    stairActive = false,
+    stairClimbRemaining = 0,
     fadeAlpha = 0,
   }, FieldTransition)
 end
 
-local function doorWarp(sourceMap, warp)
+local function warpKind(sourceMap, warp)
   if not sourceMap or not sourceMap.collision or not sourceMap.coordinateOrigin then
-    return false
+    return nil
   end
   local behavior = TransitionTrigger.behaviorAt(sourceMap, warp.x, warp.z)
   local classification = behavior and TransitionTrigger.classify(behavior)
-  return classification ~= nil and classification.kind == "door"
+  return classification and classification.kind
 end
 
 local function beginSourceChoreography(self)
-  if not doorWarp(self.sourceMap, self.sourceWarp) then
+  local kind = warpKind(self.sourceMap, self.sourceWarp)
+  if kind == "stairs" then
+    self.stairActive = true
+    self.stairClimbRemaining = self.stairClimbTicks
+    return
+  end
+  if kind ~= "door" then
     return
   end
   local door = self.doorAt and self.doorAt(self.sourceMap, self.sourceWarp.x, self.sourceWarp.z)
@@ -133,11 +154,23 @@ local function advanceDoorStep(self)
   return walking
 end
 
+local function advanceStairClimb(self)
+  if not self.stairActive or self.stairClimbRemaining <= 0 then
+    return
+  end
+  self.stairClimbRemaining = self.stairClimbRemaining - 1
+  if self.stairClimbRemaining == 0 and self.playSound then
+    self.playSound(FieldTransition.STAIR_SOUND)
+  end
+end
+
 local function finish(self)
   self.fadeAlpha = 0
   self.phase = FieldTransition.PHASES.idle
   self.locked = false
   self.doorActive = false
+  self.stairActive = false
+  self.stairClimbRemaining = 0
   self.completed = {
     sourceMapId = self.sourceMap.mapId,
     destinationMapId = self.resolution.destinationMap.mapId,
@@ -161,6 +194,8 @@ function FieldTransition:start(sourceMap, warp, facing)
   self.completed = nil
   self.door = nil
   self.doorActive = false
+  self.stairActive = false
+  self.stairClimbRemaining = 0
   self.phase = FieldTransition.PHASES.fade_out
   self.locked = true
   self.fadeAlpha = 0
@@ -185,6 +220,8 @@ function FieldTransition:_abort(err)
   self.phase = FieldTransition.PHASES.idle
   self.locked = false
   self.doorActive = false
+  self.stairActive = false
+  self.stairClimbRemaining = 0
   self.fadeAlpha = 0
   self.progressTicks = 0
   self.completed = nil
@@ -200,6 +237,7 @@ function FieldTransition:updateFixed()
   end
   if self.phase == FieldTransition.PHASES.fade_out then
     local moved = advanceDoorStep(self)
+    advanceStairClimb(self)
     self.progressTicks = self.progressTicks + 1
     self.fadeAlpha = self.progressTicks / self.fadeOutTicks
     if self.progressTicks >= self.fadeOutTicks then
@@ -216,7 +254,7 @@ function FieldTransition:updateFixed()
       local result = self.resolveDestination(self.loader, self.sourceMap, self.sourceWarp)
       self.resolution = result
       detectDestinationDoor(self)
-      if self.doorActive then
+      if self.doorActive or self.stairActive then
         self.suppression = nil
       else
         self.suppression = result.suppression
@@ -239,12 +277,16 @@ function FieldTransition:updateFixed()
     if self.doorActive then
       beginDestinationChoreography(self)
     end
+    if self.stairActive then
+      self.stairClimbRemaining = self.stairClimbTicks
+    end
     self.progressTicks = 0
     self.phase = FieldTransition.PHASES.fade_in
     return false
   end
   if self.phase == FieldTransition.PHASES.fade_in then
     local moved = advanceDoorStep(self)
+    advanceStairClimb(self)
     self.progressTicks = self.progressTicks + 1
     self.fadeAlpha = 1 - self.progressTicks / self.fadeInTicks
     if self.progressTicks < self.fadeInTicks then

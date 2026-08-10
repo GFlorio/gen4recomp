@@ -1,0 +1,199 @@
+-- Private target test: the stair choreography against the real
+-- HGSS dump, run through the production FieldTransition over the real
+-- player-house stair pair: 1F (3,3) <-> 2F (3,4), both WARP_STAIRS_WEST (95)
+-- standing tiles gated on facing west. Both directions must: lock input,
+-- never step the player off the warp tile (the climb is in place -- the tile
+-- in the gate direction is the blocked stair wall), play the HGSS stair sound
+-- once per side (SEQ_SE_DP_KAIDAN2, the id sub_0205613C plays after the held
+-- stair movement completes), swap only at full black, skip coordinate
+-- suppression (pressing the gate direction on the destination stair tile
+-- re-arms immediately), and unlock at the end of the destination fade-in --
+-- no door animation anywhere. Runs only via --test-private.
+
+local Assert = require("tests.support.Assert")
+local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
+local FieldPlayer = require("libs.engine.src.FieldPlayer")
+local FieldTransition = require("libs.engine.src.FieldTransition")
+local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
+local MapPropAnimationController = require("libs.engine.src.MapPropAnimationController")
+local MapProps = require("libs.engine.src.MapProps")
+local ModelDefinition = require("libs.engine.src.ModelDefinition")
+local ModelInstance = require("libs.engine.src.ModelInstance")
+local RomRuntimeMap = require("tests.support.RomRuntimeMap")
+local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
+local WarpSystem = require("libs.engine.src.WarpSystem")
+
+local T = {}
+
+local HOUSE_1F = "MAP_NEW_BARK_PLAYER_HOUSE_1F"
+local HOUSE_2F = "MAP_NEW_BARK_PLAYER_HOUSE_2F"
+
+-- One compiled scene: the runtime map and the MapProps facade, the shape
+-- MapSceneLoader produces (the player house carries no building placements,
+-- so there are no animated instances to advance).
+local function compileScene(romFs, symbol)
+  local assets = assert(MapAssetCompiler.compile(romFs, symbol))
+  local instances = {}
+  for _, inst in ipairs(assets.scene.buildingInstances or {}) do
+    local desc = assert(assets.models[inst.modelKey], "placement model descriptor")
+    if desc.dynamic then
+      instances[inst.placementIndex] =
+        ModelInstance.new(ModelDefinition.fromNitroDescriptor(desc, { key = inst.modelKey }))
+    end
+  end
+  local map = RomRuntimeMap.compile(romFs, symbol)
+  local props = MapProps.new({
+    placements = assets.scene.buildingInstances,
+    instances = instances,
+    controller = MapPropAnimationController.new(),
+  })
+  return { map = map, props = props, instances = instances }
+end
+
+local function surfaceAt(map, fieldX, fieldZ)
+  local localX, localZ = FieldCoordinates.fieldToLocal(map, fieldX, fieldZ)
+  local candidates = map.terrain:candidatesAt(localX + 0.5, localZ + 0.5)
+  Assert.isTrue(#candidates > 0, "spawn tile has terrain")
+  return candidates[1].id
+end
+
+-- Drive one full stair choreography over the real pair. `spawn` places the
+-- source player on the standing stair warp tile; the swap rebuilds the player
+-- like FieldState:_swapMap. Returns the final player, the transition, the
+-- first-tick phase timeline, and the recorded sound ids.
+local function runChoreography(romFs, sourceScene, destinationScene, warp, facing, spawn)
+  local sourceMap, destinationMap = sourceScene.map, destinationScene.map
+  local maps = { [sourceMap.mapId] = sourceMap, [destinationMap.mapId] = destinationMap }
+  local propsByMapId = { [sourceMap.mapId] = sourceScene.props, [destinationMap.mapId] = destinationScene.props }
+  local instancesByMapId = {
+    [sourceMap.mapId] = sourceScene.instances,
+    [destinationMap.mapId] = destinationScene.instances,
+  }
+  local loader = {
+    load = function(_, mapId)
+      return assert(maps[mapId], "map " .. tostring(mapId))
+    end,
+    protectMap = function() end,
+    protectCells = function() end,
+  }
+
+  local player = FieldPlayer.new({
+    currentMap = sourceMap,
+    fieldX = spawn.x,
+    fieldZ = spawn.z,
+    surfaceId = surfaceAt(sourceMap, spawn.x, spawn.z),
+    facing = facing,
+  })
+
+  local sounds = {}
+  local transition
+  local currentInstances = sourceScene.instances
+  transition = FieldTransition.new({
+    loader = loader,
+    doorAt = function(runtimeMap, x, z)
+      local props = propsByMapId[runtimeMap.mapId]
+      if not props then
+        return nil
+      end
+      return props:doorAt(runtimeMap, x, z)
+    end,
+    playSound = function(soundId)
+      sounds[#sounds + 1] = soundId
+    end,
+    swap = function(resolution, swapFacing)
+      Assert.equal(transition.fadeAlpha, 1, "the swap happens only at full black")
+      player = FieldPlayer.new({
+        currentMap = resolution.destinationMap,
+        fieldX = resolution.fieldX,
+        fieldZ = resolution.fieldZ,
+        surfaceId = resolution.surfaceId,
+        facing = swapFacing,
+      })
+      transition.player = player
+      currentInstances = instancesByMapId[resolution.destinationMap.mapId]
+    end,
+  })
+  transition.player = player
+  transition:start(sourceMap, warp, facing)
+
+  -- The fixed-tick loop mirrors the session: the transition ticks, and while
+  -- the stair choreography is active the scene's animated instances advance.
+  local timeline = {}
+  local ticks = 0
+  while transition.phase ~= "idle" and transition.phase ~= "error" and ticks < 500 do
+    ticks = ticks + 1
+    transition:updateFixed()
+    if transition.doorActive or transition.stairActive then
+      for _, instance in ipairs(currentInstances) do
+        instance:updateFixed()
+      end
+    end
+    if timeline[transition.phase] == nil then
+      timeline[transition.phase] = ticks
+    end
+    if transition.phase == "fade_out" then
+      Assert.equal(player.fieldX, spawn.x, "the source climb never steps the player")
+      Assert.equal(player.fieldZ, spawn.z, "the source climb never steps the player")
+    end
+  end
+  Assert.equal(transition.phase, "idle", "the stair choreography completes within the tick budget")
+  return transition, player, timeline, sounds
+end
+
+-- 1F (3,3) -> 2F: the standing WARP_STAIRS_WEST tile climbs in place while
+-- the fade runs; the swap lands the player on the 2F stair tile (3,4), which
+-- is itself a standing stair warp -- pressing west there re-arms immediately.
+function T.house_1f_to_2f_stairs_choreograph(romFs, version)
+  local h1 = compileScene(romFs, HOUSE_1F)
+  local h2 = compileScene(romFs, HOUSE_2F)
+  local warp = assert(WarpSystem.findAt(h1.map, 3, 3))
+  local transition, player, timeline, sounds = runChoreography(romFs, h1, h2, warp, "west", {
+    x = 3,
+    z = 3,
+  })
+
+  Assert.equal(player.fieldX, 3)
+  Assert.equal(player.fieldZ, 4, "the ascent lands on the 2F stair tile")
+  Assert.equal(player.motion, "idle")
+  Assert.isFalse(transition.locked, "input unlocks once the destination fade-in completes")
+  Assert.isNil(transition.suppression, "stair warps never carry coordinate suppression")
+  Assert.isNil(timeline.door_close, "stairs never enter the door-close wait")
+  Assert.equal(#sounds, 2, "one stair sound per side")
+  for _, id in ipairs(sounds) do
+    Assert.equal(id, FieldTransition.STAIR_SOUND, "the HGSS stair-climb sound id")
+  end
+  Assert.isTrue(timeline.fade_out < timeline.swap_map, "the fade ran before the swap")
+  Assert.equal(transition:consumeCompleted().sourceWarpId, warp.index)
+
+  -- Immediate reversal: the destination tile is a standing stair warp, so
+  -- pressing the gate direction re-arms the transition immediately.
+  local back = assert(TransitionTrigger.inputPath(h2.map, 3, 4, "west"), "the 2F stair tile re-triggers")
+  Assert.equal(back.kind, "stairs")
+  Assert.equal(assert(back.warp).destinationMapId, h1.map.mapId)
+end
+
+-- 2F (3,4) -> 1F: the descent mirrors the ascent and lands back on the 1F
+-- stair tile (3,3), unlocked and immediately re-armed.
+function T.house_2f_to_1f_stairs_choreograph(romFs, version)
+  local h2 = compileScene(romFs, HOUSE_2F)
+  local h1 = compileScene(romFs, HOUSE_1F)
+  local warp = assert(WarpSystem.findAt(h2.map, 3, 4))
+  local transition, player, timeline, sounds = runChoreography(romFs, h2, h1, warp, "west", {
+    x = 3,
+    z = 4,
+  })
+
+  Assert.equal(player.fieldX, 3)
+  Assert.equal(player.fieldZ, 3, "the descent lands back on the 1F stair tile")
+  Assert.equal(player.motion, "idle")
+  Assert.isFalse(transition.locked)
+  Assert.isNil(transition.suppression)
+  Assert.isNil(timeline.door_close)
+  Assert.equal(#sounds, 2)
+  Assert.isTrue(timeline.fade_out < timeline.swap_map)
+
+  local back = assert(TransitionTrigger.inputPath(h1.map, 3, 3, "west"), "the 1F stair tile re-triggers")
+  Assert.equal(back.kind, "stairs")
+end
+
+return T
