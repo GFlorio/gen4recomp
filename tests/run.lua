@@ -102,6 +102,7 @@ local MODULES = {
   "game.tests.spawns_manifest_test",
   -- romdump
   "romdump.tests.cli_test",
+  "romdump.tests.runner_build_test",
   -- romdump/src/digest
   "romdump.tests.neighbor_plan_test",
   "romdump.tests.neighbor_chunk_compiler_test",

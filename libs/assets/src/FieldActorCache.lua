@@ -1,10 +1,12 @@
--- Readiness, paths, and invalidation for the derived field-actor cache. Actor
--- visuals are one of the three independently rebuildable derived classes (map
--- geometry, actor visuals, messages/font): changing the actor compiler must not
--- disturb the raw ROM dump or any compiled map. A sprite is ready only when the
--- completion marker matches exactly and every visual definition and atlas it
--- indexes is present, so a partial build never reads as complete. Paths are
--- cache-relative; all IO goes through a CacheFs.
+-- Readiness and paths for the derived field-actor cache. Actor visuals are one
+-- of the three independently rebuildable derived classes (map geometry, actor
+-- visuals, messages/font): changing the actor compiler must not disturb the
+-- raw ROM dump or any compiled map. A sprite is ready only when the completion
+-- marker matches exactly and every visual definition and atlas it indexes is
+-- present, so a partial build never reads as complete. The build pipeline
+-- never invalidates the live actor roots: any change to the ROM, compiler, or
+-- manifest changes the marker and the staged writer rebuilds the class. Paths
+-- are cache-relative; all IO goes through a CacheFs.
 
 local FieldActorCache = {}
 
@@ -77,14 +79,6 @@ end
 
 function FieldActorCache.loadIndex(cacheFs)
   return cacheFs:loadLua(FieldActorCache.indexPath())
-end
-
-function FieldActorCache.invalidate(cacheFs)
-  for _, root in ipairs({ DATA_DIR, ASSET_DIR }) do
-    assert(root:find("generated", 1, true), "derived root must live under a generated subtree")
-    cacheFs:removeTree(root)
-  end
-  return true
 end
 
 return FieldActorCache
