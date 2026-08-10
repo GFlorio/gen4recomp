@@ -346,7 +346,8 @@ local function compileAnimatedModel(bmodel, bnsbmd, texPack, animResult, context
     wrapped
 end
 
-local function _compile(romFs, idOrSymbol)
+local function _compile(romFs, idOrSymbol, opts)
+  opts = opts or {}
   local resolved = assert(MapResolver.resolve(romFs, idOrSymbol))
   local mapId = resolved.map.id
   local romSha1 = romFs:metadata().sha1
@@ -504,6 +505,7 @@ local function _compile(romFs, idOrSymbol)
       local animResult = MapPropAnimCompiler.compile(listBytes, animResNarc, {
         archiveAlias = animListAliasForArea(area),
         memberId = memberId,
+        resourceCache = opts.resourceCache,
       })
       for _, entry in ipairs(animResult.unresolved) do
         unresolvedMaterials[#unresolvedMaterials + 1] = {
@@ -705,9 +707,9 @@ local function _compile(romFs, idOrSymbol)
   }
 end
 
-function MapAssetCompiler.compile(romFs, idOrSymbol)
+function MapAssetCompiler.compile(romFs, idOrSymbol, opts)
   assert(romFs and romFs.openNarc, "compile requires a RomFs-shaped object")
-  local ok, result = pcall(_compile, romFs, idOrSymbol)
+  local ok, result = pcall(_compile, romFs, idOrSymbol, opts)
   if ok then
     return result
   end

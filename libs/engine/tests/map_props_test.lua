@@ -236,4 +236,92 @@ function T.static_door_playback_is_a_noop()
   Assert.isNil(door:isFinished())
 end
 
+-- ---- scripted props -----------------------------------------------------
+
+function T.prop_resolves_an_animated_placement_by_index()
+  local props, controller, instances = doorScene()
+  local prop = assert(props:prop(1))
+  Assert.equal(prop.instance, instances[1])
+  Assert.equal(prop.modelKey, "fixture:door")
+  Assert.equal(prop.placementIndex, 1)
+
+  -- The generic scripted surface: play by role or clip name, stop, pause,
+  -- resume, direction, and the HGSS completion check.
+  prop:play("door.open", { loopMode = "once" })
+  local list = controller:animationsFor(instances[1])
+  Assert.equal(#list, 1)
+  Assert.equal(list[1].name, "DoorOpen")
+  Assert.isFalse(prop:isFinished("door.open"))
+  for _ = 1, 7 do
+    instances[1]:updateFixed()
+  end
+  Assert.isTrue(prop:isFinished("door.open"))
+  prop:stop("door.open")
+  Assert.equal(#controller:animationsFor(instances[1]), 0)
+end
+
+function T.prop_play_accepts_clip_names_and_options()
+  local props, controller, instances = doorScene()
+  local prop = assert(props:prop(1))
+  prop:play("DoorOpen", { ratioFx = 0x2000, direction = -1 })
+  local attachment = instances[1].animationState:attachments("joint")[1]
+  Assert.equal(attachment.ratioFx, 0x2000)
+  Assert.equal(attachment.player.deltaFx, -4096)
+end
+
+function T.prop_pause_resume_and_direction()
+  local props, controller, instances = doorScene()
+  local prop = assert(props:prop(1))
+  prop:play("door.open")
+  prop:pause("door.open")
+  local attachment = instances[1].animationState:attachments("joint")[1]
+  Assert.isTrue(attachment.player.paused)
+  prop:resume("door.open")
+  Assert.isFalse(attachment.player.paused)
+  prop:setDirection("door.open", -1)
+  Assert.equal(attachment.player.deltaFx, -4096)
+end
+
+function T.prop_is_finished_is_nil_before_any_play()
+  local props = doorScene()
+  local prop = assert(props:prop(1))
+  Assert.isNil(prop:isFinished("door.open"))
+end
+
+function T.prop_for_a_static_placement_is_a_noop_handle()
+  local props = doorScene()
+  local prop = assert(props:prop(0))
+  Assert.isNil(prop.instance)
+  prop:play("idle")
+  prop:stop("idle")
+  prop:pause("idle")
+  Assert.isNil(prop:isFinished("idle"))
+  Assert.deepEqual(prop:animationsFor(), {})
+end
+
+function T.prop_returns_nil_for_unknown_placement()
+  local props = doorScene()
+  Assert.isNil(props:prop(5))
+end
+
+function T.prop_animations_for_lists_the_playing_clips()
+  local props, controller, instances = doorScene()
+  local prop = assert(props:prop(1))
+  Assert.deepEqual(prop:animationsFor(), {})
+  prop:play("door.open")
+  prop:play("door.close")
+  local list = prop:animationsFor()
+  Assert.equal(#list, 2)
+  Assert.equal(list[1].name, "DoorClose")
+  Assert.equal(list[2].name, "DoorOpen")
+end
+
+function T.prop_raises_for_an_unknown_animation()
+  local props = doorScene()
+  local prop = assert(props:prop(1))
+  throwsCode("MAP_PROP_ANIM_UNKNOWN", function()
+    prop:play("no.such.animation")
+  end)
+end
+
 return T

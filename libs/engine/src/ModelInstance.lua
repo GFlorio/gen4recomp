@@ -64,6 +64,7 @@ local AlphaClassifier = require("libs.engine.src.AlphaClassifier")
 ---@field poseState PoseState|nil
 ---@field renders table|nil -- caller-built render meshes per mesh id
 ---@field resolveImage fun(key: string, width: integer, height: integer): any|nil
+---@field timeOfDayPlan table|nil -- band plan the scene loader attaches (TimeOfDayProps.plan)
 local ModelInstance = {}
 ModelInstance.__index = ModelInstance
 

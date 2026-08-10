@@ -146,4 +146,93 @@ function MapProps:doorAt(runtimeMap, fieldX, fieldZ)
   }, MapDoor)
 end
 
+-- The generic scripted-prop handle: an animated placement addressed by its
+-- map-data index, with the semantic playback surface scripts use. Unlike the
+-- door lookup it needs no tile or behavior classification -- scripts know
+-- the object they animate (HGSS addresses field objects by index). A static
+-- placement (no animated instance) resolves to a handle whose ops no-op.
+---@class SceneProp
+---@field placementIndex integer
+---@field modelKey string
+---@field instance table|nil
+---@field controller table -- the MapPropAnimationController
+local SceneProp = {}
+SceneProp.__index = SceneProp
+
+-- Play an animation by role or clip name; `opts` passes through to the
+-- controller (priority, ratioFx, loopMode, repeatsRemaining, deltaFx,
+-- direction). Returns the attachment token. Raises MAP_PROP_ANIM_UNKNOWN for
+-- a name the model does not define.
+function SceneProp:play(animation, opts)
+  if not self.instance then
+    return nil
+  end
+  return self.controller:play(self.instance, animation, opts)
+end
+
+-- Stop an animation by role or clip name.
+function SceneProp:stop(animation)
+  if not self.instance then
+    return nil
+  end
+  return self.controller:stop(self.instance, animation)
+end
+
+function SceneProp:pause(animation)
+  if not self.instance then
+    return
+  end
+  self.controller:pause(self.instance, animation)
+end
+
+function SceneProp:resume(animation)
+  if not self.instance then
+    return
+  end
+  self.controller:resume(self.instance, animation)
+end
+
+function SceneProp:setDirection(animation, direction)
+  if not self.instance then
+    return
+  end
+  self.controller:setDirection(self.instance, animation, direction)
+end
+
+-- The HGSS checked-advance completion for the controller's play of
+-- `animation`, or nil when nothing is playing (a static prop, or no play
+-- yet) -- a waiter treats nil as "nothing to wait for".
+function SceneProp:isFinished(animation)
+  if not self.instance then
+    return nil
+  end
+  return self.controller:isFinished(self.instance, animation)
+end
+
+-- The playing clips of the prop (the controller's instance view).
+function SceneProp:animationsFor()
+  if not self.instance then
+    return {}
+  end
+  return self.controller:animationsFor(self.instance)
+end
+
+-- Resolve the scripted-prop handle for a placement index, or nil when no
+-- placement has that index.
+---@param placementIndex integer
+---@return SceneProp?
+function MapProps:prop(placementIndex)
+  for _, placement in ipairs(self.placements) do
+    if placement.placementIndex == placementIndex then
+      return setmetatable({
+        placementIndex = placementIndex,
+        modelKey = placement.modelKey,
+        instance = self.instances[placementIndex],
+        controller = self.controller,
+      }, SceneProp)
+    end
+  end
+  return nil
+end
+
 return MapProps

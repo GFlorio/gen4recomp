@@ -29,6 +29,12 @@ local NsbmaClipCompiler = require("romdump.src.digest.NsbmaClipCompiler")
 
 local MapPropAnimCompiler = {}
 
+-- Version of the animation decode + clip-compile semantics. Cache keys of
+-- compiled assets must account for it (spec section 41): a decoder or
+-- sampler change without it would leave stale compiled clips in the derived
+-- cache. Bump whenever the decoders or the clip compilers change behavior.
+MapPropAnimCompiler.VERSION = "map-prop-anim-clip-v1"
+
 -- clip name -> semantic role. Patterns match the tail of the Nitro dict
 -- name; the whole name matches when the pattern is exact.
 local ROLE_PATTERNS = {
@@ -81,6 +87,11 @@ end
 -- Resolve and compile the animation records of one model member.
 --   opts.archiveAlias   "interior_build_anim_list" | "exterior_build_anim_list"
 --   opts.memberId       the model's member id (the anim-list record index)
+--   opts.resourceCache  optional AnimationResourceCache shared across a build
+--                       run: each (archive, resource member, sha1) tuple is
+--                       decoded and compiled once, and every model that
+--                       references the resource embeds the same immutable
+--                       clip record (identity-shared; never mutated).
 --   listBytes           the model's anim-list record bytes
 --   resNarc             the shared animation archive (a/1/0/6)
 -- Returns { clips = {...}, unresolved = { { resourceId, error } } }.
@@ -95,25 +106,46 @@ function MapPropAnimCompiler.compile(listBytes, resNarc, opts)
   local record = BuildModelAnimList.decode(listBytes)
 
   local clips, unresolved = {}, {}
-  for _, resourceId in ipairs(record.ids) do
-    local bytes = resNarc:readMember(resourceId)
+  local function compileResource(resourceId, bytes, sha1)
     local decoded, err = NitroAnimation.decode(bytes, { alias = "build_anim", memberId = resourceId })
     if not decoded then
+      return nil, err
+    end
+    local source = {
+      type = "nitro",
+      format = decoded.format,
+      archive = "build_anim",
+      memberId = resourceId,
+      sha1 = sha1 or Hashing.sha1hex(bytes),
+    }
+    local name = assert(decoded.animations[1]).name
+    return compileOne(decoded, BinaryReader.new(decoded.bytes, "sec"), #decoded.bytes, {
+      name = name,
+      id = opts.archiveAlias and string.format("%s-%d", opts.archiveAlias, resourceId) or tostring(resourceId),
+      source = source,
+    })
+  end
+
+  for _, resourceId in ipairs(record.ids) do
+    local clip, err
+    if opts.resourceCache then
+      local bytes = resNarc:readMember(resourceId)
+      local sha1 = Hashing.sha1hex(bytes)
+      local cacheKey = string.format("%s:%d:%s", opts.archiveAlias or "-", resourceId, sha1)
+      clip = opts.resourceCache:get(cacheKey)
+      if not clip then
+        clip, err = compileResource(resourceId, bytes, sha1)
+        if clip then
+          opts.resourceCache:set(cacheKey, clip)
+        end
+      end
+    else
+      clip, err = compileResource(resourceId, resNarc:readMember(resourceId))
+    end
+    if not clip then
       unresolved[#unresolved + 1] = { resourceId = resourceId, error = err }
     else
-      local source = {
-        type = "nitro",
-        format = decoded.format,
-        archive = "build_anim",
-        memberId = resourceId,
-        sha1 = Hashing.sha1hex(bytes),
-      }
-      local name = assert(decoded.animations[1]).name
-      clips[#clips + 1] = compileOne(decoded, BinaryReader.new(decoded.bytes, "sec"), #decoded.bytes, {
-        name = name,
-        id = opts.archiveAlias and string.format("%s-%d", opts.archiveAlias, resourceId) or tostring(resourceId),
-        source = source,
-      })
+      clips[#clips + 1] = clip
     end
   end
   return { clips = clips, unresolved = unresolved }

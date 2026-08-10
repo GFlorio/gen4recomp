@@ -10,6 +10,7 @@ local MapRenderer = require("libs.engine.src.MapRenderer")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local FakeCache = require("tests.support.FakeCache")
+local LuaWriter = require("libs.rom.src.LuaWriter")
 
 local T = {}
 
@@ -101,6 +102,8 @@ local function doorDescriptor()
                 b = 255,
                 a = 255,
                 colorSource = 0,
+                joints = { 0, 0, 0, 0 },
+                weights = { 0, 0, 0, 0 },
               },
               {
                 x = 2,
@@ -116,6 +119,8 @@ local function doorDescriptor()
                 b = 255,
                 a = 255,
                 colorSource = 0,
+                joints = { 0, 0, 0, 0 },
+                weights = { 0, 0, 0, 0 },
               },
               {
                 x = 2,
@@ -131,6 +136,8 @@ local function doorDescriptor()
                 b = 255,
                 a = 255,
                 colorSource = 0,
+                joints = { 0, 0, 0, 0 },
+                weights = { 0, 0, 0, 0 },
               },
               {
                 x = 0,
@@ -146,6 +153,8 @@ local function doorDescriptor()
                 b = 255,
                 a = 255,
                 colorSource = 0,
+                joints = { 0, 0, 0, 0 },
+                weights = { 0, 0, 0, 0 },
               },
             },
             indices = { 0, 1, 2, 0, 2, 3 },
@@ -247,7 +256,7 @@ function T.animated_building_loads_advances_and_renders()
     lighting = nil,
   }
   local modelPath = MapAssetCache.modelPath("outdoor:26:door")
-  local LuaWriter = require("libs.rom.src.LuaWriter")
+
   backend:write(dir .. "/scene.lua", LuaWriter.encode(scene))
   backend:write(modelPath, LuaWriter.encode(doorDescriptor()))
   -- The door tile (4,14) carries DOOR behavior (105); everything else is
@@ -338,6 +347,243 @@ function T.animated_building_loads_advances_and_renders()
 
   renderer:release()
   runtime:release()
+end
+-- The door descriptor's single clip re-parameterized: a banded-sky clip
+-- (name/id swapped; the compiled record stays a valid NSBCA pivot).
+local function skyClipRecord(name)
+  local base = assert(doorDescriptor()).animations[1]
+  local clip = {}
+  for k, v in pairs(base) do
+    clip[k] = v
+  end
+  clip.id = "sky:" .. name
+  clip.name = name
+  clip.semanticNames = nil
+  return clip
+end
+
+-- The door descriptor with the full open/close pair (the multi-clip shape:
+-- nothing auto-plays; the controller scripts the roles).
+local function doorPairDescriptor()
+  local desc = doorDescriptor()
+  local close = skyClipRecord("door_cl")
+  close.id = "exterior_build_anim_list-2"
+  close.semanticNames = { "door.close" }
+  desc.animations[2] = close
+  desc.roles = { ["door.open"] = "door_op", ["door.close"] = "door_cl" }
+  return desc
+end
+
+-- A banded model descriptor: the door's program with four time-of-day clips
+-- (kk_sky_m/d/e/n, the corpus naming convention).
+local function skyDescriptor()
+  local desc = doorDescriptor()
+  desc.key = "indoor:113:sky"
+  desc.animations = {
+    skyClipRecord("kk_sky_m"),
+    skyClipRecord("kk_sky_d"),
+    skyClipRecord("kk_sky_e"),
+    skyClipRecord("kk_sky_n"),
+  }
+  desc.roles = {}
+  return desc
+end
+
+-- A minimal scene with the given building instances over the given model
+-- descriptors, in the loader test fixture shape.
+local function sceneWith(instances, descriptors)
+  local mapId = 61
+  local backend = FakeCache.new()
+  local dir = MapAssetCache.mapDir(mapId)
+  local scene = {
+    schema = "g4-map-scene-v3",
+    versionId = "heartgold",
+    mapId = mapId,
+    mapSymbol = "MAP_NEW_BARK",
+    matrix = {
+      memberId = 0,
+      name = "map",
+      width = 1,
+      height = 1,
+      x = 0,
+      z = 0,
+      index = 0,
+      altitude = 0,
+      worldOriginX = 0,
+      worldOriginZ = 0,
+    },
+    area = {
+      memberId = 2,
+      type = "outdoor",
+      mapTexturePackId = 0,
+      buildingTexturePackId = 0,
+      dynamicTextureType = 0,
+      lightType = 0,
+    },
+    collision = { width = 32, height = 32, file = dir .. "/permissions.bin" },
+    mapBatches = {},
+    materials = {},
+    buildingInstances = instances,
+    neighbors = {},
+    lighting = nil,
+  }
+  backend:write(dir .. "/scene.lua", LuaWriter.encode(scene))
+  for _, desc in pairs(descriptors) do
+    backend:write(MapAssetCache.modelPath(desc.key), LuaWriter.encode(desc))
+  end
+  backend:write(dir .. "/permissions.bin", string.rep("\0", 2048))
+  -- loadLua over the in-memory backend: read + eval in an empty environment,
+  -- like CacheFs.loadLua.
+  local function loadLua(path)
+    local data = assert(backend:read(path), "missing cache file " .. path)
+    local chunk = assert(loadstring(data, path))
+    setfenv(chunk, {})
+    local ok, result = pcall(chunk)
+    assert(ok, result)
+    return result
+  end
+  return {
+    read = function(_, path)
+      return backend:read(path)
+    end,
+    loadLua = function(_, path)
+      return loadLua(path)
+    end,
+  }
+end
+
+-- A fake mesh builder for the loader's GPU seam: SceneMesh.decode output
+-- becomes a plain object, so the loader's assembly, sharing, and playback
+-- policy run headless.
+local function fakeMeshBuilder(decoded)
+  return {
+    id = decoded and decoded.name or "mesh",
+    release = function() end,
+  }
+end
+
+function T.shared_definitions_share_resources_and_isolate_state()
+  local desc = doorPairDescriptor()
+  local cache = sceneWith({
+    {
+      placementIndex = 0,
+      modelKey = "outdoor:26:door",
+      transform = identityMatrix(),
+    },
+    {
+      placementIndex = 1,
+      modelKey = "outdoor:26:door",
+      transform = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 0, 0, 1 },
+    },
+  }, { [desc.key] = desc })
+  local runtime = MapSceneLoader.load(
+    cache,
+    assert(cache:loadLua(MapAssetCache.mapDir(61) .. "/scene.lua")),
+    { meshBuilder = fakeMeshBuilder }
+  )
+  Assert.equal(runtime.stats.animatedInstances, 2)
+  Assert.equal(runtime.stats.animatedModelCount, 1, "one definition serves both placements")
+
+  local a, b = runtime.animatedInstances[1], runtime.animatedInstances[2]
+  Assert.isTrue(a.definition == b.definition, "placements share the model definition")
+  Assert.isTrue(a.renders == b.renders, "placements share the render meshes")
+  Assert.isFalse(a.materialState == b.materialState, "material state is per instance")
+
+  -- No ambient policy fires on a multi-clip model: the controller scripts
+  -- the two instances in opposite directions. Independent control: b pauses
+  -- mid-sequence while a runs to the end, so the shared definition cannot
+  -- couple their playback.
+  runtime.animationController:play(a, "door.open", { direction = 1 })
+  runtime.animationController:play(b, "door.close", { direction = 1 })
+  for _ = 1, 2 do
+    a:updateFixed()
+    b:updateFixed()
+  end
+  runtime.animationController:pause(b, "door.close")
+  for _ = 1, 5 do
+    a:updateFixed()
+  end
+  Assert.isTrue(runtime.animationController:isFinished(a, "door.open"))
+  Assert.isFalse(runtime.animationController:isFinished(b, "door.close"))
+  local aAttachment = a.animationState:attachments("joint")[1]
+  local bAttachment = b.animationState:attachments("joint")[1]
+  Assert.equal(aAttachment.clip.name, "door_op")
+  Assert.equal(bAttachment.clip.name, "door_cl")
+  Assert.isTrue(aAttachment.player.frameFx > bAttachment.player.frameFx)
+  Assert.equal(bAttachment.player.frameFx, 2 * 4096, "the paused instance keeps its own frame")
+
+  runtime:release()
+end
+
+function T.banded_model_plays_its_time_band_and_swaps()
+  local desc = skyDescriptor()
+  local cache = sceneWith({
+    {
+      placementIndex = 0,
+      modelKey = "indoor:113:sky",
+      transform = identityMatrix(),
+    },
+  }, { [desc.key] = desc })
+  local runtime = MapSceneLoader.load(
+    cache,
+    assert(cache:loadLua(MapAssetCache.mapDir(61) .. "/scene.lua")),
+    { meshBuilder = fakeMeshBuilder }
+  )
+
+  -- Noon is the default field time: the day band plays at load.
+  local instance = runtime.animatedInstances[1]
+  Assert.equal(runtime.timeBand, "day")
+  Assert.isTrue(instance.timeOfDayPlan ~= nil, "the banded model carries its band plan")
+  local names = {}
+  for _, category in ipairs({ "joint", "material", "visibility" }) do
+    for _, attachment in ipairs(instance.animationState:attachments(category)) do
+      names[#names + 1] = attachment.clip.name
+    end
+  end
+  Assert.deepEqual(names, { "kk_sky_d" })
+
+  -- A time-of-day change swaps the band (stop the old, play the new).
+  runtime:setTimeBand("nite")
+  Assert.equal(runtime.timeBand, "nite")
+  names = {}
+  for _, category in ipairs({ "joint", "material", "visibility" }) do
+    for _, attachment in ipairs(instance.animationState:attachments(category)) do
+      names[#names + 1] = attachment.clip.name
+    end
+  end
+  Assert.deepEqual(names, { "kk_sky_n" })
+
+  -- The swapped band advances with the scene.
+  runtime:updateAnimated()
+  local attachment = instance.animationState:attachments("joint")[1]
+  Assert.equal(attachment.clip.name, "kk_sky_n")
+  Assert.equal(attachment.player.frameFx, 4096)
+
+  -- Re-setting the same band is a no-op (the clip keeps its frame).
+  runtime:setTimeBand("nite")
+  runtime:updateAnimated()
+  Assert.equal(attachment.player.frameFx, 2 * 4096)
+
+  runtime:release()
+end
+
+function T.load_rejects_an_unknown_initial_band()
+  local desc = skyDescriptor()
+  local cache = sceneWith({
+    {
+      placementIndex = 0,
+      modelKey = "indoor:113:sky",
+      transform = identityMatrix(),
+    },
+  }, { [desc.key] = desc })
+  local ok, err = pcall(
+    MapSceneLoader.load,
+    cache,
+    assert(cache:loadLua(MapAssetCache.mapDir(61) .. "/scene.lua")),
+    { meshBuilder = fakeMeshBuilder, timeBand = "bogus" }
+  )
+  Assert.isFalse(ok)
+  assert(tostring(err):find("unknown time-of-day band", 1, true) ~= nil, tostring(err))
 end
 
 return T

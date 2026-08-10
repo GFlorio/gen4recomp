@@ -29,11 +29,17 @@ local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local ModelInstance = require("libs.engine.src.ModelInstance")
 local MapPropAnimationController = require("libs.engine.src.MapPropAnimationController")
 local MapProps = require("libs.engine.src.MapProps")
+local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
 
 local MapSceneLoader = {}
+
+local VALID_BANDS = {}
+for _, band in ipairs(TimeOfDayProps.bands()) do
+  VALID_BANDS[band] = true
+end
 
 local function materialRuntime(record, pool)
   local wrap = record.wrap or { x = "clamp", y = "clamp" }
@@ -56,8 +62,14 @@ local function materialsById(list, pool)
 end
 
 -- Build the runtime scene against an already-created pool. Raises on any
--- failure; load() releases the pool in that case.
-local function buildScene(pool, cacheFs, scene)
+-- failure; load() releases the pool in that case. `opts.meshBuilder`
+-- replaces SceneMesh.build (the GPU seam, injectable in headless tests) and
+-- `opts.timeBand` seeds the time-of-day band (default: the band of the
+-- default field time, noon = day).
+local function buildScene(pool, cacheFs, scene, opts)
+  local buildMesh = opts.meshBuilder or SceneMesh.build
+  local timeBand = opts.timeBand or TimeOfDayProps.bandForSeconds(FieldLightProfile.DEFAULT_TIME_SECONDS)
+  assert(VALID_BANDS[timeBand], "unknown time-of-day band " .. tostring(timeBand))
   local bounds = { min = { math.huge, math.huge, math.huge }, max = { -math.huge, -math.huge, -math.huge } }
 
   -- Grow the scene bounds by a batch's vertices under a placement transform.
@@ -175,6 +187,8 @@ local function buildScene(pool, cacheFs, scene)
     local cached = descriptorCache[modelKey]
     if not cached then
       local desc = assert(cacheFs:loadLua(MapAssetCache.modelPath(modelKey)), "missing model " .. modelKey)
+      -- The full descriptor stays attached: the animated half (`dynamic`)
+      -- and the compiled clips live on it, not in the static batch cache.
       cached = {
         descriptor = desc,
         batches = desc.batches,
@@ -188,7 +202,9 @@ local function buildScene(pool, cacheFs, scene)
   local buildingDraws = {}
   for _, inst in ipairs(scene.buildingInstances or {}) do
     local desc = descriptorFor(inst.modelKey)
-    for _, batch in ipairs(desc.batches) do
+    -- Dynamic (animated) descriptors carry their geometry in the `dynamic`
+    -- half; the static batches loop applies to baked descriptors only.
+    for _, batch in ipairs(desc.batches or {}) do
       buildingDraws[#buildingDraws + 1] = drawItem(batch, desc.materials, inst.transform)
     end
   end
@@ -197,36 +213,56 @@ local function buildScene(pool, cacheFs, scene)
 
   -- An animated model descriptor (backend "nitro" with a `dynamic` half)
   -- becomes a ModelInstance per placement: the definition is assembled from
-  -- the serialized descriptor, the dynamic batches become render meshes
-  -- once, and the instance's per-frame pose/material evaluation produces the
-  -- draw items. A model with exactly one animation clip plays it looping
-  -- from load (the ambient props -- wind, machine, spring); multi-clip
-  -- models (doors) are scripted through the controller.
+  -- the serialized descriptor and the dynamic G4M3 batches become render
+  -- meshes ONCE per model key, then every placement of that model shares
+  -- them (model resource sharing, spec section 39). Each instance owns its
+  -- animation state, material state, and pose -- two placements of one model
+  -- can animate at different frames -- while the definition and clips are
+  -- immutable and shared.
+  --
+  -- Ambient playback at load: a model with exactly one animation clip plays
+  -- it looping (the field effects -- wind, machine, spring); a time-of-day
+  -- banded model (clips named *_m/_d/_e/_n) plays the current band's clip
+  -- looping and swaps on runtime:setTimeBand (HGSS ov01_022047DC); other
+  -- multi-clip models (doors) stay scripted through the controller.
   local animatedInstances = {}
   local instanceByPlacement = {}
+  local animatedModelCount = 0
+  local animatedResourceCache = {}
   for _, inst in ipairs(scene.buildingInstances or {}) do
-    local desc = descriptorFor(inst.modelKey).descriptor
-    if desc.dynamic then
-      local definition = ModelDefinition.fromNitroDescriptor(desc, { key = inst.modelKey })
-      local renders = {}
-      for _, mesh in ipairs(definition.meshes) do
-        -- The render meshes are built from in-memory geometry, not a
-        -- content-addressed path, so they are adopted into the pool rather
-        -- than fetched through it; the batch carries no skin attributes.
-        local decoded = SceneMesh.decode(MeshWriter.encode(mesh.batch))
-        renders[mesh.id] = pool:adoptMesh(SceneMesh.build(decoded), decoded.indexCount / 3)
+    local desc = descriptorFor(inst.modelKey)
+    if desc.descriptor.dynamic then
+      local entry = animatedResourceCache[inst.modelKey]
+      if not entry then
+        local definition = ModelDefinition.fromNitroDescriptor(desc.descriptor, { key = inst.modelKey })
+        local renders = {}
+        for _, mesh in ipairs(definition.meshes) do
+          local bytes = MeshWriter.encode(mesh.batch, { format = "g4m3" })
+          local decoded = SceneMesh.decode(bytes)
+          renders[mesh.id] = pool:adoptMesh(buildMesh(decoded), decoded.indexCount / 3)
+        end
+        entry = { definition = definition, renders = renders }
+        animatedResourceCache[inst.modelKey] = entry
+        animatedModelCount = animatedModelCount + 1
       end
-      local instance = ModelInstance.new(definition, {
+      local instance = ModelInstance.new(entry.definition, {
         transform = inst.transform,
         resolveImage = function(key, width, height)
           return pool:imageFor(key, "clamp", "clamp")
         end,
       })
-      instance.renders = renders
+      instance.renders = entry.renders
       animatedInstances[#animatedInstances + 1] = instance
       instanceByPlacement[inst.placementIndex] = instance
-      if #definition.animations == 1 then
-        instance:play(definition.animations[1].name, { loopMode = "loop" })
+      local plan = TimeOfDayProps.plan(entry.definition)
+      instance.timeOfDayPlan = plan
+      if plan then
+        local clip = plan[timeBand]
+        if clip then
+          instance:play(clip.name, { loopMode = "loop" })
+        end
+      elseif #entry.definition.animations == 1 then
+        instance:play(entry.definition.animations[1].name, { loopMode = "loop" })
       end
     end
   end
@@ -254,6 +290,24 @@ local function buildScene(pool, cacheFs, scene)
   local function updateAnimated()
     for _, instance in ipairs(animatedInstances) do
       instance:updateFixed()
+    end
+    syncAnimatedDraws()
+  end
+
+  -- Switch the time-of-day band of every banded prop (HGSS ov01_022047DC):
+  -- stop the previous band's clip, play the current band's clip looping.
+  -- Re-setting the current band is a no-op. Unbanded instances are untouched.
+  local function setTimeBand(self, band)
+    assert(VALID_BANDS[band], "unknown time-of-day band " .. tostring(band))
+    if runtime.timeBand == band then
+      return
+    end
+    local previous = runtime.timeBand
+    runtime.timeBand = band
+    for _, instance in ipairs(animatedInstances) do
+      if instance.timeOfDayPlan then
+        TimeOfDayProps.swap(instance, instance.timeOfDayPlan, previous, band)
+      end
     end
     syncAnimatedDraws()
   end
@@ -286,10 +340,12 @@ local function buildScene(pool, cacheFs, scene)
   runtime.buildingDraws = buildingDraws
   runtime.lighting = scene.lighting
   runtime.fieldTimeSeconds = FieldLightProfile.DEFAULT_TIME_SECONDS
+  runtime.timeBand = timeBand
   runtime.animatedInstances = animatedInstances
   runtime.animationController = MapPropAnimationController.new()
   runtime.syncAnimatedDraws = syncAnimatedDraws
   runtime.updateAnimated = updateAnimated
+  runtime.setTimeBand = setTimeBand
   -- The door lookup: a MapProps facade over this scene's placements and
   -- instances resolves a field coordinate to the door of the building placed
   -- there -- nothing Nitro leaks into gameplay.
@@ -304,6 +360,7 @@ local function buildScene(pool, cacheFs, scene)
     triangleCount = pool.triangles,
     buildingInstances = #(scene.buildingInstances or {}),
     animatedInstances = #animatedInstances,
+    animatedModelCount = animatedModelCount,
   }
 
   function runtime:release()
@@ -314,13 +371,16 @@ local function buildScene(pool, cacheFs, scene)
 end
 
 -- Load an assembled scene from the version's derived cache. `cacheFs` is a
--- CacheFs.forVersion; `scene` is the already-loaded scene.lua table; `opts`
--- passes through to the asset pool (injectable graphics for headless tests).
+-- CacheFs.forVersion; `scene` is the already-loaded scene.lua table. `opts`
+-- passes through to the asset pool (opts.graphics: injectable graphics for
+-- headless tests), and `opts.timeBand` / `opts.meshBuilder` seed the build
+-- (see buildScene).
 ---@param cacheFs table
 ---@param scene table
----@param opts { graphics?: love.Graphics? }?
+---@param opts { graphics?: love.Graphics?, timeBand?: string, meshBuilder?: fun(decoded: table): any }?
 ---@return table
 function MapSceneLoader.load(cacheFs, scene, opts)
+  opts = opts or {}
   if not scene or scene.schema ~= MapAssetCache.SCENE_SCHEMA then
     Errors.raise(
       "MAP_SCENE_UNSUPPORTED_SCHEMA",
@@ -330,7 +390,7 @@ function MapSceneLoader.load(cacheFs, scene, opts)
   end
 
   local pool = GpuAssetPool.new(cacheFs, opts)
-  local ok, runtime = pcall(buildScene, pool, cacheFs, scene)
+  local ok, runtime = pcall(buildScene, pool, cacheFs, scene, opts)
   if not ok then
     pool:release()
     error(runtime)

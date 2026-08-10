@@ -184,4 +184,45 @@ end
 
 T.elms_lab_material_prop_compiles_and_evaluates = T_elms_lab_material_prop_compiles_and_evaluates
 
+-- The animation resource cache (spec section 39): New Bark and Route 12 both
+-- place exterior door models (New Bark members 24/25/26, Route 12 member
+-- 24) whose anim-list records reference the shared door_op/door_cl
+-- resources. Compiled with one cache across a build run, both maps must
+-- embed the IDENTICAL clip records -- each (archive, member, sha1) tuple
+-- decodes and compiles exactly once.
+function T.shared_resource_cache_reuses_clip_records_across_maps(romFs, version)
+  local AnimationResourceCache = require("romdump.src.digest.AnimationResourceCache")
+  local cache = AnimationResourceCache.new()
+  local bundleA = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK", { resourceCache = cache }))
+  local bundleB = assert(MapAssetCompiler.compile(romFs, "MAP_ROUTE_12", { resourceCache = cache }))
+  local descA = descriptorOf(bundleA, 26)
+  local descB = descriptorOf(bundleB, 24)
+  assert(descA and descA.dynamic, "New Bark door descriptor")
+  assert(descB and descB.dynamic, "Route 12 door descriptor")
+  Assert.equal(#descA.animations, 2)
+  Assert.equal(#descB.animations, 2)
+  local byNameA, byNameB = {}, {}
+  for _, clip in ipairs(descA.animations) do
+    byNameA[clip.name] = clip
+  end
+  for _, clip in ipairs(descB.animations) do
+    byNameB[clip.name] = clip
+  end
+  Assert.isTrue(byNameA.door_op == byNameB.door_op, "door_op compiled once, shared by identity")
+  Assert.isTrue(byNameA.door_cl == byNameB.door_cl, "door_cl compiled once, shared by identity")
+
+  -- Without a shared cache the compiles are independent records.
+  local fresh = assert(MapAssetCompiler.compile(romFs, "MAP_ROUTE_12"))
+  local freshDesc = assert(descriptorOf(fresh, 24), "Route 12 door descriptor")
+  local freshClip
+  for _, clip in ipairs(freshDesc.animations) do
+    if clip.name == "door_op" then
+      freshClip = clip
+    end
+  end
+  Assert.isFalse(freshClip == byNameA.door_op, "a cacheless compile makes fresh records")
+  Assert.equal(freshClip.name, byNameA.door_op.name)
+  Assert.equal(freshClip.source.sha1, byNameA.door_op.source.sha1)
+end
+
 return T
