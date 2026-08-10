@@ -24,7 +24,7 @@ function Scope:own(resource)
   return resource
 end
 
----@param lg love.graphics
+---@param lg love.Graphics
 local function capture(lg)
   local red, green, blue, alpha = lg.getColor()
   local blendMode, alphaMode = lg.getBlendMode()
@@ -42,7 +42,7 @@ local function capture(lg)
   }
 end
 
----@param lg love.graphics
+---@param lg love.Graphics
 local function restore(lg, state)
   lg.setCanvas(state.canvas)
   lg.setShader(state.shader)

@@ -8,6 +8,11 @@ local GameVersion = require("libs.rom.src.GameVersion")
 local RomImporter = require("libs.rom.src.RomImporter")
 local FieldRuntime = require("game.src.game.FieldRuntime")
 
+---@class AcceptanceHarness
+---@field versions string[]
+---@field runtimeFactory fun(versionId: string, map: string|integer|nil, runtimeOptions: table|nil): table
+---@field saveNamespace fun(versionId: string, serial: integer): string
+---@field removeSaveNamespace fun(namespace: string)
 local AcceptanceHarness = {}
 AcceptanceHarness.__index = AcceptanceHarness
 

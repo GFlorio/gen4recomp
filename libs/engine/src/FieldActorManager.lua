@@ -21,7 +21,7 @@ local CAMERA_TARGET_OBJECT_ID = 241
 local PARTNER_OBJECT_ID = 253
 
 ---@class FieldActorManager
----@field assets { knows: fun(self: table, spriteId: integer): boolean, acquire: fun(self: table, spriteId: integer): table, release: fun(self: table, spriteId: integer) }
+---@field assets { knows: fun(self: table, spriteId: integer), acquire: fun(self: table, spriteId: integer), release: fun(self: table, spriteId: integer) }
 ---@field variableSpriteRange { first: integer, last: integer }
 ---@field variableVarBase integer
 ---@field maps table<integer, table>
@@ -42,7 +42,7 @@ local SURFACE_ERROR_CODES = {
 }
 
 ---@class FieldActorManagerOptions
----@field assets { knows: fun(self: table, spriteId: integer): boolean, acquire: fun(self: table, spriteId: integer): table, release: fun(self: table, spriteId: integer) }
+---@field assets { knows: fun(self: table, spriteId: integer), acquire: fun(self: table, spriteId: integer), release: fun(self: table, spriteId: integer) }
 ---@field policy { variableSpriteRange: { first: integer, last: integer }, variableVarBase: integer }
 
 -- opts.assets: a FieldActorAssetProvider-shaped acquire/release/knows owner.

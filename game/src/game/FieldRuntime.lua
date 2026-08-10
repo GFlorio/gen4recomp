@@ -65,6 +65,8 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field cancelKeys table<string, boolean>?
 ---@field saveFs SaveFs?
 ---@field presentation boolean
+---@field mapDraws table[]
+---@field buildingDraws table[]
 local FieldRuntime = {}
 FieldRuntime.__index = FieldRuntime
 
@@ -283,7 +285,7 @@ function FieldRuntime:_load()
     -- The player's graphic is one more compiled actor visual: it is acquired from
     -- the same reference-counted provider, and FieldPlayer keeps every bit of
     -- movement authority. A resumed save names the avatar; a fresh boot uses the
-    -- scenario's configured pick .
+    -- scenario's configured pick.
     self.avatar = FieldScenario.avatarById(
       FieldActorManifest.avatars,
       (restored and restored.avatar) or FieldScenarioManifest.avatar

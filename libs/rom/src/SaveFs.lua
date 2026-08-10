@@ -77,7 +77,7 @@ end
 function SaveFs.forVersion(versionId, backend, prefix)
   local info = GameVersion.info(versionId)
   assert(info, "unknown version id: " .. tostring(versionId))
-  prefix = prefix or "saves/" .. versionId
+  prefix = prefix or ("saves/" .. versionId)
   assert(type(prefix) == "string" and prefix ~= "", "save prefix required")
   assert(prefix:sub(1, 1) ~= "/" and not prefix:find("..", 1, true), "save prefix must be confined")
   prefix = prefix:gsub("/+$", "") .. "/"
