@@ -49,7 +49,7 @@ end
 
 local function validFlag(value, id)
   if value ~= true then
-    Errors.raise("EVENT_FLAG_ID_INVALID", "flag " .. id .. " must be stored as true", { id = id, value = value })
+    Errors.raise("EVENT_FLAG_VALUE_INVALID", "flag " .. id .. " must be stored as true", { id = id, value = value })
   end
   return true
 end
@@ -78,16 +78,35 @@ function FieldEventState.new(serialized)
   }, FieldEventState)
 end
 
+-- True for the simulation tick domain: a finite integer >= 0. NaN, infinities,
+-- fractions, and negative values are programming errors, not runtime data.
+local function isTick(tick)
+  return type(tick) == "number"
+    and tick == tick
+    and tick ~= math.huge
+    and tick ~= -math.huge
+    and tick == math.floor(tick)
+    and tick >= 0
+end
+
 -- The owning simulation stamps the current fixed tick so every notification
 -- carries the boundary it must be applied on.
 function FieldEventState:setTick(tick)
-  assert(type(tick) == "number", "tick must be a number")
+  assert(isTick(tick), "tick must be a finite nonnegative integer, got " .. tostring(tick))
   self._tick = tick
 end
 
+-- Notify against a snapshot: listeners may subscribe or unsubscribe while a
+-- notification runs, and that mutation must not change which listeners see
+-- this notification. Listeners subscribed at start receive it once; changes
+-- apply to subsequent notifications.
 function FieldEventState:_notify(change)
   change.tick = self._tick
-  for _, listener in ipairs(self._listeners) do
+  local snapshot = {}
+  for i = 1, #self._listeners do
+    snapshot[i] = self._listeners[i]
+  end
+  for _, listener in ipairs(snapshot) do
     listener(change)
   end
 end
