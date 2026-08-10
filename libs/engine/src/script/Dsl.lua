@@ -1,6 +1,8 @@
 -- DSL constructors for the gen4 field-script platform, API 1. Constructors
--- return ordinary serializable Lua tables whose shapes are frozen by the
--- schema (libs/engine/src/script/Schema.lua) and the compatibility tests.
+-- return ordinary serializable Lua tables whose shapes follow the schema
+-- (libs/engine/src/script/Schema.lua) and are pinned by the DSL tests for
+-- this version. API 1 is the current surface, still under development: the
+-- shapes are the reference for this version, not a permanent guarantee.
 -- Defaults come from the schema so the doc generator, validator, and
 -- constructors can never drift. Every step and movement-action constructor
 -- takes exactly one canonical spec table (the schema field names); there is

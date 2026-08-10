@@ -1,8 +1,9 @@
 -- Authoritative public schema for the gen4 field-script DSL, API 1. This is
--- the single source of truth the constructors, validator, doc generator, and
--- compatibility tests share: operation names, field names, types, defaults,
--- enums, and the normative constructor index. The schema is frozen: field
--- shapes, enums, and the constructor index live here and nowhere else.
+-- the single source of truth the constructors, validator, and doc generator
+-- share: operation names, field names, types, defaults, enums, and the
+-- normative constructor index. API 1 is the current version, still under
+-- development, so shapes may change with the version; field shapes, enums,
+-- and the constructor index live here and nowhere else.
 local Schema = {}
 
 Schema.API_VERSION = 1

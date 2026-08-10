@@ -1,5 +1,6 @@
--- Public ScriptContext v1: the stable service facade a named raw-Lua handler
--- receives. It never exposes the app object, the renderer, global LÖVE state,
+-- Public ScriptContext v1: the current service facade a named raw-Lua handler
+-- receives. v1 is still under development and not declared stable. It never
+-- exposes the app object, the renderer, global LÖVE state,
 -- physical save tables, or mutable engine subsystem tables; every service is a
 -- thin read-only or validated facade over the injected services. `ctx.tasks`
 -- is the only way to start blocking work: every factory returns a serializable

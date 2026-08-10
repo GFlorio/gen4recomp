@@ -1,7 +1,9 @@
--- DSL constructor compatibility tests. These freeze the exact table output of
--- every API 1 constructor from the , so accidental
--- changes to operation names, value kinds, field names, or defaults fail here.
--- Direct-table equivalence and metatable-freedom are asserted separately.
+-- DSL constructor tests. These assert the exact table output of every API 1
+-- constructor, so accidental changes to operation names, value kinds, field
+-- names, or defaults fail here. API 1 is the current, still-under-development
+-- surface: the shapes below are the reference for this version, not a
+-- permanent compatibility guarantee. Direct-table equivalence and
+-- metatable-freedom are asserted separately.
 
 local Assert = require("tests.support.Assert")
 local S = require("gen4.script")
