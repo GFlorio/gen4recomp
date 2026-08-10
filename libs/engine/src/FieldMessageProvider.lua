@@ -13,7 +13,6 @@ local FieldMessageText = require("libs.assets.src.FieldMessageText")
 ---@field private _maxCachedBanks integer
 ---@field private _banks table<integer, table>
 ---@field private _order integer[]
----@field private _tick integer
 ---@field private _stats table
 local FieldMessageProvider = {}
 FieldMessageProvider.__index = FieldMessageProvider
@@ -42,31 +41,19 @@ FieldMessageProvider.MESSAGE_ID_OUT_OF_RANGE = "MESSAGE_ID_OUT_OF_RANGE"
 
 local DEFAULT_MAX_CACHED_BANKS = 4
 
-local FieldMessageProvider_new = function(cacheFs, opts)
+---@param cacheFs table CacheFs-shaped
+---@param opts table|nil
+---@return FieldMessageProvider
+function FieldMessageProvider.new(cacheFs, opts)
   opts = opts or {}
   assert(cacheFs and cacheFs.loadLua, "provider requires a CacheFs-shaped object")
   return setmetatable({
     _cacheFs = cacheFs,
     _maxCachedBanks = opts.maxCachedBanks or DEFAULT_MAX_CACHED_BANKS,
-    _banks = {}, -- bankId -> { bank = artifact, references = n, lastUsed = tick }
+    _banks = {}, -- bankId -> { bank = artifact, references = n }
     _order = {}, -- bankIds most-recently-used first (eviction order)
-    _tick = 0,
     _stats = { loads = 0, hits = 0, disposals = 0 },
   }, FieldMessageProvider)
-end
-
----@param cacheFs table CacheFs-shaped
----@param opts table|nil
----@return FieldMessageProvider|nil, Errors.Error|nil
-function FieldMessageProvider.new(cacheFs, opts)
-  local ok, result = pcall(FieldMessageProvider_new, cacheFs, opts)
-  if ok then
-    return result --[[@as FieldMessageProvider]]
-  end
-  if Errors.is(result) then
-    return nil, result --[[@as Errors.Error]]
-  end
-  error(result)
 end
 
 function FieldMessageProvider:stats()
@@ -103,7 +90,7 @@ function FieldMessageProvider:acquireBank(bankId)
         { bankId = bankId, loadError = err }
       )
   end
-  self._banks[bankId] = { bank = bank, references = 1, lastUsed = self._tick }
+  self._banks[bankId] = { bank = bank, references = 1 }
   table.insert(self._order, 1, bankId) -- most-recently-used first
   self._stats.loads = self._stats.loads + 1
   self:_evict()
@@ -126,18 +113,21 @@ function FieldMessageProvider:releaseBank(bankId)
   end
 end
 
--- Evicts the least-recently-used bank that has zero references while the
--- cache exceeds its bound. Never reloads a valid bank for every access.
+-- Evicts unreferenced banks while the cache exceeds its bound, scanning from
+-- least- to most-recently-used so a pinned least-recent bank cannot protect a
+-- more-recent unreferenced one. Stops once within the bound or when every
+-- resident is pinned: the capacity is necessarily soft then. Never reloads a
+-- valid bank for every access.
 function FieldMessageProvider:_evict()
-  while #self._order > self._maxCachedBanks do
-    local last = self._order[#self._order]
-    local entry = self._banks[last]
-    if entry.references == 0 then
-      self._order[#self._order] = nil
-      self._banks[last] = nil
-      self._stats.disposals = self._stats.disposals + 1
-    else
+  for i = #self._order, 1, -1 do
+    if #self._order <= self._maxCachedBanks then
       break
+    end
+    local bankId = self._order[i]
+    if self._banks[bankId].references == 0 then
+      table.remove(self._order, i)
+      self._banks[bankId] = nil
+      self._stats.disposals = self._stats.disposals + 1
     end
   end
 end
@@ -154,7 +144,6 @@ function FieldMessageProvider:_touch(bankId)
     table.remove(self._order, position)
     table.insert(self._order, 1, bankId)
   end
-  self._tick = self._tick + 1
 end
 
 -- Returns an immutable MessageTemplate for an acquired bank: the modder-

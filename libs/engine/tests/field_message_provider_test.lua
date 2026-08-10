@@ -181,6 +181,48 @@ function T.bounded_lru_evicts_only_unreferenced_banks()
   Assert.equal(provider:stats().live, 2)
 end
 
+function T.pinned_tail_does_not_block_evicting_a_newer_unpinned_bank()
+  -- Over capacity with the least-recent bank pinned, eviction must skip past
+  -- it and evict the first unreferenced bank instead of stopping (the old
+  -- implementation checked only the oldest entry and gave up on a pin).
+  local cache = cacheWith({
+    [542] = bankArtifact(542, 1),
+    [543] = bankArtifact(543, 1),
+    [544] = bankArtifact(544, 1),
+  })
+  local provider = assert(FieldMessageProvider.new(cache, { maxCachedBanks = 2 }))
+  provider:acquireBank(542)
+  provider:acquireBank(543)
+  provider:releaseBank(543) -- 543 unreferenced, more recent than pinned 542
+  provider:acquireBank(544) -- over capacity: evicts 543, keeps pinned 542
+  Assert.equal(provider:stats().live, 2)
+  Assert.equal(provider:stats().disposals, 1)
+  local missing, err = provider:get(543, 0)
+  Assert.isNil(missing)
+  Assert.equal(assert(err).code, "MESSAGE_BANK_NOT_ACQUIRED")
+  Assert.equal(assert(provider:get(542, 0)).messageId, 0)
+  Assert.equal(assert(provider:get(544, 0)).messageId, 0)
+end
+
+function T.all_pinned_residents_make_capacity_soft()
+  local cache = cacheWith({
+    [542] = bankArtifact(542, 1),
+    [543] = bankArtifact(543, 1),
+    [544] = bankArtifact(544, 1),
+  })
+  local provider = assert(FieldMessageProvider.new(cache, { maxCachedBanks = 1 }))
+  provider:acquireBank(542)
+  provider:acquireBank(543)
+  provider:acquireBank(544)
+  Assert.equal(provider:stats().live, 3) -- every resident pinned: capacity is soft
+  Assert.equal(provider:stats().disposals, 0)
+  provider:releaseBank(542) -- now the one unreferenced bank is evictable
+  Assert.equal(provider:stats().live, 2)
+  Assert.equal(provider:stats().disposals, 1)
+  Assert.equal(assert(provider:get(543, 0)).messageId, 0)
+  Assert.equal(assert(provider:get(544, 0)).messageId, 0)
+end
+
 function T.dispose_releases_everything()
   local provider = assert(FieldMessageProvider.new(cacheWith({ [542] = bankArtifact(542, 1) })))
   provider:acquireBank(542)
