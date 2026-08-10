@@ -3,10 +3,27 @@
 -- are rejected so no operation can escape its version subtree. The backend is
 -- injectable: the default wraps love.filesystem; tests inject an in-memory fake.
 -- Path/security logic is love-free and testable under bare LuaJIT.
+--
+-- Failure convention: every mutating operation reports success only if the
+-- backend did; a falsy backend result is translated into a structured CACHE_*
+-- error that reaches the caller, and a backend that raises propagates. No
+-- mutating method may silently return true after a backend failure, so
+-- publication logic can rely on a raise meaning "nothing happened" (or, for
+-- cleanup, "the failure surfaced").
 
 local Errors = require("libs.rom.src.Errors")
 local LuaWriter = require("libs.rom.src.LuaWriter")
 local GameVersion = require("libs.rom.src.GameVersion")
+
+-- Raise a structured error when a backend mutation reported failure (falsy
+-- result, optionally with an error string). The one place the wrapper layer
+-- converts backend-reported failures into structured cache errors.
+local function ensureBackend(ok, err, code, message, context)
+  if not ok then
+    Errors.raise(code, err or message, context)
+  end
+  return true
+end
 
 ---@class CacheFs
 ---@field versionId string
@@ -22,6 +39,7 @@ local GameVersion = require("libs.rom.src.GameVersion")
 ---@field createDirectory fun(self: CacheFs, relativePath: string): boolean
 ---@field remove fun(self: CacheFs, relativePath: string): boolean
 ---@field replace fun(self: CacheFs, sourceRelativePath: string, destinationRelativePath: string): boolean
+---@field replaceAt fun(self: CacheFs, sourcePath: string, destinationPath: string): boolean
 ---@field removeTree fun(self: CacheFs, relativePath: string): boolean
 ---@field removeStagedTree fun(self: CacheFs, stagingCache: CacheFs): boolean
 ---@field publishFromStage fun(self: CacheFs, stagingCache: CacheFs): boolean
@@ -37,16 +55,14 @@ CacheFs.__index = CacheFs
 CacheFs.STAGING_OLD_SUFFIX = ".old"
 
 -- love.filesystem-backed backend, constructed lazily so requiring this module
--- never touches love (keeps the domain testable off-runtime).
+-- never touches love (keeps the domain testable off-runtime). Mutating backend
+-- operations report failure by returning falsy (optionally with an error
+-- string); the CacheFs wrappers translate that into structured CACHE_* errors.
 local function loveBackend()
   local fs = love.filesystem
   return {
     write = function(_, path, data)
-      local ok, err = fs.write(path, data)
-      if not ok then
-        error(Errors.new("CACHE_WRITE_FAILED", err or "write failed", { path = path }))
-      end
-      return true
+      return fs.write(path, data)
     end,
     read = function(_, path)
       return (fs.read(path))
@@ -62,14 +78,7 @@ local function loveBackend()
     end,
     replace = function(_, sourcePath, destinationPath)
       local root = fs.getSaveDirectory()
-      local ok, err = os.rename(root .. "/" .. sourcePath, root .. "/" .. destinationPath)
-      if not ok then
-        error(Errors.new("CACHE_REPLACE_FAILED", err or "replace failed", {
-          sourcePath = sourcePath,
-          destinationPath = destinationPath,
-        }))
-      end
-      return true
+      return os.rename(root .. "/" .. sourcePath, root .. "/" .. destinationPath)
     end,
     getDirectoryItems = function(_, path)
       return fs.getDirectoryItems(path)
@@ -158,10 +167,11 @@ function CacheFs:write(relativePath, data)
   -- mkdir -p, so one call materializes every intermediate directory.
   local parent = full:match("^(.*)/[^/]+$")
   if parent then
-    self.backend:createDirectory(parent)
+    local ok, err = self.backend:createDirectory(parent)
+    ensureBackend(ok, err, "CACHE_MKDIR_FAILED", "could not create directory", { path = parent })
   end
-  self.backend:write(full, data)
-  return true
+  local ok, err = self.backend:write(full, data)
+  return ensureBackend(ok, err, "CACHE_WRITE_FAILED", "write failed", { path = full })
 end
 
 function CacheFs:read(relativePath)
@@ -184,13 +194,20 @@ function CacheFs:exists(relativePath, expectedType)
 end
 
 function CacheFs:createDirectory(relativePath)
-  self.backend:createDirectory(self:resolve(relativePath))
-  return true
+  local full = self:resolve(relativePath)
+  local ok, err = self.backend:createDirectory(full)
+  return ensureBackend(ok, err, "CACHE_MKDIR_FAILED", "could not create directory", { path = full })
 end
 
+-- Removing an absent path is a no-op; removing an existing path that the
+-- backend cannot remove raises CACHE_REMOVE_FAILED.
 function CacheFs:remove(relativePath)
-  self.backend:remove(self:resolve(relativePath))
-  return true
+  local full = self:resolve(relativePath)
+  if not self.backend:getInfo(full) then
+    return true
+  end
+  local ok, err = self.backend:remove(full)
+  return ensureBackend(ok, err, "CACHE_REMOVE_FAILED", "could not remove", { path = full })
 end
 
 -- Atomically replaces destination with an already-written sibling file. The
@@ -199,8 +216,20 @@ function CacheFs:replace(sourceRelativePath, destinationRelativePath)
   local source = self:resolve(sourceRelativePath)
   local destination = self:resolve(destinationRelativePath)
   assert(self.backend.replace, "CacheFs backend does not support atomic replacement")
-  self.backend:replace(source, destination)
-  return true
+  return self:replaceAt(source, destination)
+end
+
+-- Backend rename at save-directory-absolute paths with the standard failure
+-- convention (CACHE_REPLACE_FAILED on a falsy backend result). Used by
+-- replace() and by the publish/rollback logic in this module and
+-- ArtifactPublisher, so a backend that reports failure can never make
+-- publication report success.
+function CacheFs:replaceAt(sourcePath, destinationPath)
+  local ok, err = self.backend:replace(sourcePath, destinationPath)
+  return ensureBackend(ok, err, "CACHE_REPLACE_FAILED", "replace failed", {
+    sourcePath = sourcePath,
+    destinationPath = destinationPath,
+  })
 end
 
 function CacheFs:removeTree(relativePath)
@@ -209,6 +238,8 @@ function CacheFs:removeTree(relativePath)
 end
 
 -- Recursively remove a save-directory-absolute path; a no-op when absent.
+-- Any backend-reported removal or enumeration failure raises
+-- CACHE_REMOVE_FAILED instead of silently reporting success.
 function CacheFs:_removeTreeAt(fullPath)
   local function rec(path)
     local info = self.backend:getInfo(path)
@@ -216,11 +247,14 @@ function CacheFs:_removeTreeAt(fullPath)
       return
     end
     if info.type == "directory" then
-      for _, name in ipairs(self.backend:getDirectoryItems(path)) do
+      local items = self.backend:getDirectoryItems(path)
+      ensureBackend(items, nil, "CACHE_REMOVE_FAILED", "could not list directory", { path = path })
+      for _, name in ipairs(items) do
         rec(path .. "/" .. name)
       end
     end
-    self.backend:remove(path)
+    local ok, err = self.backend:remove(path)
+    ensureBackend(ok, err, "CACHE_REMOVE_FAILED", "could not remove", { path = path })
   end
   rec(fullPath)
 end
@@ -250,13 +284,13 @@ function CacheFs:publishFromStage(stagingCache)
   self:_removeTreeAt(oldRoot)
   local movedLiveAside = false
   if self:exists("", "directory") then
-    self.backend:replace(liveRoot, oldRoot)
+    self:replaceAt(liveRoot, oldRoot)
     movedLiveAside = true
   end
-  local ok, err = pcall(self.backend.replace, self.backend, stageRoot, liveRoot)
+  local ok, err = pcall(self.replaceAt, self, stageRoot, liveRoot)
   if not ok then
     if movedLiveAside then
-      self.backend:replace(oldRoot, liveRoot)
+      self:replaceAt(oldRoot, liveRoot)
     end
     error(err, 0)
   end

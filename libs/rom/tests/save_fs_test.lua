@@ -155,4 +155,65 @@ function T.extracting_heartgold_preserves_soulsilver_saves()
   Assert.equal(backend.files["saves/soulsilver/" .. SAVE_PATH], "SS-SAVE")
 end
 
+-- Mutating save operations must translate a backend-reported failure into
+-- a structured save error instead of silently returning true.
+function T.write_reports_backend_failure()
+  local backend = FakeCache.new()
+  ---@diagnostic disable: duplicate-set-field
+  backend.write = function()
+    return false, "injected write failure"
+  end
+  throwsCode("SAVE_WRITE_FAILED", function()
+    save("heartgold", backend):write(SAVE_PATH, "x")
+  end)
+end
+
+function T.write_reports_parent_directory_failure()
+  local backend = FakeCache.new()
+  ---@diagnostic disable: duplicate-set-field
+  backend.createDirectory = function()
+    return false, "injected mkdir failure"
+  end
+  throwsCode("SAVE_MKDIR_FAILED", function()
+    save("heartgold", backend):write("dir/" .. SAVE_PATH, "x")
+  end)
+end
+
+function T.remove_reports_backend_failure()
+  local backend = FakeCache.new()
+  local s = save("heartgold", backend)
+  s:write(SAVE_PATH, "x")
+  ---@diagnostic disable: duplicate-set-field
+  backend.remove = function()
+    return false, "injected remove failure"
+  end
+  throwsCode("SAVE_REMOVE_FAILED", function()
+    s:remove(SAVE_PATH)
+  end)
+end
+
+-- A missing save file is not a failure: reset must be able to run before the
+-- first save exists, so absent paths are an explicit no-op.
+function T.remove_absent_path_is_a_noop()
+  local backend = FakeCache.new()
+  ---@diagnostic disable: duplicate-set-field
+  backend.remove = function()
+    error("backend must not be asked to remove an absent path")
+  end
+  Assert.isTrue(save("heartgold", backend):remove("absent.lua"))
+end
+
+function T.replace_reports_backend_failure()
+  local backend = FakeCache.new()
+  local s = save("heartgold", backend)
+  s:write(SAVE_PATH .. ".tmp", "new")
+  ---@diagnostic disable: duplicate-set-field
+  backend.replace = function()
+    return false, "injected replace failure"
+  end
+  throwsCode("SAVE_REPLACE_FAILED", function()
+    s:replace(SAVE_PATH .. ".tmp", SAVE_PATH)
+  end)
+end
+
 return T

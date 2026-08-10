@@ -206,4 +206,178 @@ function T.publish_from_stage_restores_previous_root_on_failure()
   Assert.isNil(backend.files["staging/heartgold.old/romfs/a/0/0/2"], "no orphaned old root after rollback")
 end
 
+-- Every mutating operation must translate a backend-reported failure into
+-- a structured cache error. Backends may report failure by returning falsy;
+-- no wrapper may silently return true, and publication must never report
+-- success while a mutation it depends on has failed.
+
+local function throwsCode(code, fn)
+  local err = Assert.throws(fn)
+  Assert.equal(err.code, code, "expected " .. code .. ", got " .. tostring(err))
+end
+
+function T.write_reports_backend_failure()
+  local backend = FakeCache.new()
+  ---@diagnostic disable: duplicate-set-field
+  backend.write = function()
+    return false, "injected write failure"
+  end
+  throwsCode("CACHE_WRITE_FAILED", function()
+    cache("heartgold", backend):write("romfs/a/0/0/2", "data")
+  end)
+end
+
+function T.write_reports_parent_directory_failure()
+  local backend = FakeCache.new()
+  ---@diagnostic disable: duplicate-set-field
+  backend.createDirectory = function()
+    return false, "injected mkdir failure"
+  end
+  throwsCode("CACHE_MKDIR_FAILED", function()
+    cache("heartgold", backend):write("romfs/a/0/0/2", "data")
+  end)
+end
+
+function T.create_directory_reports_backend_failure()
+  local backend = FakeCache.new()
+  ---@diagnostic disable: duplicate-set-field
+  backend.createDirectory = function()
+    return false, "injected mkdir failure"
+  end
+  throwsCode("CACHE_MKDIR_FAILED", function()
+    cache("heartgold", backend):createDirectory("romfs/a")
+  end)
+end
+
+function T.remove_reports_backend_failure()
+  local backend = FakeCache.new()
+  cache("heartgold", backend):write("romfs/a/0/0/2", "data")
+  ---@diagnostic disable: duplicate-set-field
+  backend.remove = function()
+    return false, "injected remove failure"
+  end
+  throwsCode("CACHE_REMOVE_FAILED", function()
+    cache("heartgold", backend):remove("romfs/a/0/0/2")
+  end)
+end
+
+-- Removing an absent path is a no-op, matching _removeTreeAt: the backend is
+-- never asked to remove something that does not exist.
+function T.remove_absent_path_is_a_noop()
+  local backend = FakeCache.new()
+  ---@diagnostic disable: duplicate-set-field
+  backend.remove = function()
+    error("backend must not be asked to remove an absent path")
+  end
+  Assert.isTrue(cache("heartgold", backend):remove("absent"))
+end
+
+function T.remove_tree_reports_backend_failure()
+  local backend = FakeCache.new()
+  cache("heartgold", backend):write("romfs/a/0/0/2", "data")
+  ---@diagnostic disable: duplicate-set-field
+  backend.remove = function()
+    return false, "injected remove failure"
+  end
+  throwsCode("CACHE_REMOVE_FAILED", function()
+    cache("heartgold", backend):removeTree("romfs/a")
+  end)
+end
+
+function T.replace_reports_backend_failure()
+  local backend = FakeCache.new()
+  local c = cache("heartgold", backend)
+  c:write("save/session.lua", "old")
+  c:write("save/session.lua.tmp", "new")
+  ---@diagnostic disable: duplicate-set-field
+  backend.replace = function()
+    return false, "injected replace failure"
+  end
+  throwsCode("CACHE_REPLACE_FAILED", function()
+    c:replace("save/session.lua.tmp", "save/session.lua")
+  end)
+end
+
+-- A backend-reported failure (falsy return, not a raise) must abort the
+-- publish; publication can never report success when a rename failed.
+function T.publish_from_stage_reports_aside_failure()
+  local backend = FakeCache.new()
+  local c = cache("heartgold", backend)
+  local s = staging("heartgold", backend)
+  c:write("romfs/a/0/0/2", "OLD")
+  s:write("romfs/a/0/0/2", "NEW")
+  ---@diagnostic disable: duplicate-set-field
+  backend.replace = function(self, sourcePath, destinationPath)
+    if sourcePath == "heartgold" then
+      return false, "injected replace failure"
+    end
+    return FakeCache.replace(self, sourcePath, destinationPath)
+  end
+  throwsCode("CACHE_REPLACE_FAILED", function()
+    c:publishFromStage(s)
+  end)
+  Assert.equal(backend.files["heartgold/romfs/a/0/0/2"], "OLD", "failed aside must leave the live dump in place")
+  Assert.isNil(backend.files["staging/heartgold.old/romfs/a/0/0/2"], "nothing may land in the old root")
+end
+
+function T.publish_from_stage_restores_previous_root_when_replace_reports_failure()
+  local backend = FakeCache.new()
+  local c = cache("heartgold", backend)
+  local s = staging("heartgold", backend)
+  c:write("romfs/a/0/0/2", "OLD")
+  c:write("rom-dump.complete", "OLD-MARKER")
+  s:write("romfs/a/0/0/2", "NEW")
+  s:write("rom-dump.complete", "NEW-MARKER")
+  ---@diagnostic disable: duplicate-set-field
+  backend.replace = function(self, sourcePath, destinationPath)
+    if sourcePath == "staging/heartgold" then
+      return false, "injected publish failure"
+    end
+    return FakeCache.replace(self, sourcePath, destinationPath)
+  end
+  throwsCode("CACHE_REPLACE_FAILED", function()
+    c:publishFromStage(s)
+  end)
+  Assert.equal(backend.files["heartgold/romfs/a/0/0/2"], "OLD", "previous dump must be restored")
+  Assert.equal(backend.files["heartgold/rom-dump.complete"], "OLD-MARKER")
+  Assert.isNil(backend.files["staging/heartgold.old/romfs/a/0/0/2"], "no orphaned old root after rollback")
+end
+
+-- A backend-reported failure removing the previous root after the swap must
+-- still surface: publication cannot report success when a mutation it
+-- performed failed, even though the new dump has already landed.
+function T.publish_from_stage_reports_cleanup_failure()
+  local backend = FakeCache.new()
+  local c = cache("heartgold", backend)
+  local s = staging("heartgold", backend)
+  c:write("romfs/a/0/0/2", "OLD")
+  s:write("romfs/a/0/0/2", "NEW")
+  local originalRemove = backend.remove
+  ---@diagnostic disable: duplicate-set-field
+  backend.remove = function(self, path)
+    if path:find("staging/heartgold.old", 1, true) then
+      return false, "injected cleanup failure"
+    end
+    return originalRemove(self, path)
+  end
+  throwsCode("CACHE_REMOVE_FAILED", function()
+    c:publishFromStage(s)
+  end)
+  Assert.equal(backend.files["heartgold/romfs/a/0/0/2"], "NEW", "the new dump has landed before cleanup")
+end
+
+function T.remove_staged_tree_reports_backend_failure()
+  local backend = FakeCache.new()
+  local c = cache("heartgold", backend)
+  local s = staging("heartgold", backend)
+  s:write("romfs/a/0/0/2", "STAGE")
+  ---@diagnostic disable: duplicate-set-field
+  backend.remove = function()
+    return false, "injected remove failure"
+  end
+  throwsCode("CACHE_REMOVE_FAILED", function()
+    c:removeStagedTree(s)
+  end)
+end
+
 return T

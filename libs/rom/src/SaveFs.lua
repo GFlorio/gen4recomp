@@ -5,10 +5,25 @@
 -- structurally able to reach a save. Path/security rules match CacheFs; the
 -- backend is injectable: the default wraps love.filesystem; tests inject an
 -- in-memory fake. Love-free under bare LuaJIT.
+--
+-- Failure convention: every mutating operation reports success only if the
+-- backend did; a falsy backend result is translated into a structured SAVE_*
+-- error that reaches the caller, and a backend that raises propagates. No
+-- mutating method may silently return true after a backend failure.
 
 local Errors = require("libs.rom.src.Errors")
 local LuaWriter = require("libs.rom.src.LuaWriter")
 local GameVersion = require("libs.rom.src.GameVersion")
+
+-- Raise a structured error when a backend mutation reported failure (falsy
+-- result, optionally with an error string). The one place the wrapper layer
+-- converts backend-reported failures into structured save errors.
+local function ensureBackend(ok, err, code, message, context)
+  if not ok then
+    Errors.raise(code, err or message, context)
+  end
+  return true
+end
 
 ---@class SaveFs
 ---@field versionId string
@@ -27,16 +42,14 @@ local SaveFs = {}
 SaveFs.__index = SaveFs
 
 -- love.filesystem-backed backend, constructed lazily so requiring this module
--- never touches love (keeps the domain testable off-runtime).
+-- never touches love (keeps the domain testable off-runtime). Mutating backend
+-- operations report failure by returning falsy (optionally with an error
+-- string); the SaveFs wrappers translate that into structured SAVE_* errors.
 local function loveBackend()
   local fs = love.filesystem
   return {
     write = function(_, path, data)
-      local ok, err = fs.write(path, data)
-      if not ok then
-        error(Errors.new("SAVE_WRITE_FAILED", err or "write failed", { path = path }))
-      end
-      return true
+      return fs.write(path, data)
     end,
     read = function(_, path)
       return (fs.read(path))
@@ -49,14 +62,7 @@ local function loveBackend()
     end,
     replace = function(_, sourcePath, destinationPath)
       local root = fs.getSaveDirectory()
-      local ok, err = os.rename(root .. "/" .. sourcePath, root .. "/" .. destinationPath)
-      if not ok then
-        error(Errors.new("SAVE_REPLACE_FAILED", err or "replace failed", {
-          sourcePath = sourcePath,
-          destinationPath = destinationPath,
-        }))
-      end
-      return true
+      return os.rename(root .. "/" .. sourcePath, root .. "/" .. destinationPath)
     end,
   }
 end
@@ -109,19 +115,27 @@ function SaveFs:write(relativePath, data)
   -- mkdir -p, so one call materializes every intermediate directory.
   local parent = full:match("^(.*)/[^/]+$")
   if parent then
-    self.backend:createDirectory(parent)
+    local ok, err = self.backend:createDirectory(parent)
+    ensureBackend(ok, err, "SAVE_MKDIR_FAILED", "could not create directory", { path = parent })
   end
-  self.backend:write(full, data)
-  return true
+  local ok, err = self.backend:write(full, data)
+  return ensureBackend(ok, err, "SAVE_WRITE_FAILED", "write failed", { path = full })
 end
 
 function SaveFs:read(relativePath)
   return self.backend:read(self:resolve(relativePath))
 end
 
+-- Removing an absent path is a no-op (reset runs before the first save
+-- exists); removing an existing path that the backend cannot remove raises
+-- SAVE_REMOVE_FAILED.
 function SaveFs:remove(relativePath)
-  self.backend:remove(self:resolve(relativePath))
-  return true
+  local full = self:resolve(relativePath)
+  if not self.backend:getInfo(full) then
+    return true
+  end
+  local ok, err = self.backend:remove(full)
+  return ensureBackend(ok, err, "SAVE_REMOVE_FAILED", "could not remove", { path = full })
 end
 
 -- Atomically replaces destination with an already-written sibling file. The
@@ -130,8 +144,11 @@ function SaveFs:replace(sourceRelativePath, destinationRelativePath)
   local source = self:resolve(sourceRelativePath)
   local destination = self:resolve(destinationRelativePath)
   assert(self.backend.replace, "SaveFs backend does not support atomic replacement")
-  self.backend:replace(source, destination)
-  return true
+  local ok, err = self.backend:replace(source, destination)
+  return ensureBackend(ok, err, "SAVE_REPLACE_FAILED", "replace failed", {
+    sourcePath = source,
+    destinationPath = destination,
+  })
 end
 
 function SaveFs:writeLua(relativePath, value)

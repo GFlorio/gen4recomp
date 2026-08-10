@@ -65,12 +65,14 @@ function ArtifactPublisher:publish()
     end
   end
   -- Phase 1: move every existing live root aside, inside the stage root. A
-  -- failure rolls back every aside already made and re-raises.
+  -- failure (backend raise or backend-reported failure, which replaceAt
+  -- translates into CACHE_REPLACE_FAILED) rolls back every aside already made
+  -- and re-raises.
   local aside = {}
   local ok, err = pcall(function()
     for _, root in ipairs(self._liveRoots) do
       if cacheFs:exists(root, "directory") then
-        cacheFs.backend:replace(cacheFs:resolve(root), stage:resolve(root) .. CacheFs.STAGING_OLD_SUFFIX)
+        cacheFs:replaceAt(cacheFs:resolve(root), stage:resolve(root) .. CacheFs.STAGING_OLD_SUFFIX)
         aside[root] = true
       end
     end
@@ -93,7 +95,7 @@ function ArtifactPublisher:publish()
   local movedIn = {}
   local ok, err = pcall(function()
     for _, root in ipairs(self._liveRoots) do
-      cacheFs.backend:replace(stage:resolve(root), cacheFs:resolve(root))
+      cacheFs:replaceAt(stage:resolve(root), cacheFs:resolve(root))
       movedIn[#movedIn + 1] = root
     end
   end)

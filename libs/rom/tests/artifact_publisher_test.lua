@@ -6,6 +6,7 @@
 
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.rom.src.CacheFs")
+local Errors = require("libs.rom.src.Errors")
 local FakeCache = require("tests.support.FakeCache")
 local ArtifactPublisher = require("libs.rom.src.ArtifactPublisher")
 
@@ -187,6 +188,60 @@ function T.rejects_an_empty_or_duplicate_root_list()
   Assert.throws(function()
     ArtifactPublisher.begin(cache, "field-actors", { DATA, DATA })
   end)
+end
+
+-- A backend-reported failure (falsy return, not a raise) during any
+-- publication rename must abort the publish; publication can never report
+-- success when a rename failed.
+function T.publish_cannot_report_success_when_a_rename_reports_failure()
+  local backend = FakeCache.new()
+  ---@diagnostic disable: duplicate-set-field
+  backend.replace = function(self, sourcePath, destinationPath)
+    -- Report failure only for the stage -> live rename of the second root;
+    -- the rollback renames (which carry the ".old" suffix) must still succeed.
+    if sourcePath == STAGE_ROOT .. "/" .. ASSET then
+      return false, "injected replace failure"
+    end
+    return FakeCache.replace(self, sourcePath, destinationPath)
+  end
+  local cache = CacheFs.forVersion("heartgold", backend)
+  seedOldArtifact(cache)
+  local tx = beginActors(cache)
+  stageNewArtifact(tx)
+  local err = Assert.throws(function()
+    tx:publish()
+  end)
+  Assert.isTrue(Errors.is(err), "a backend-reported failure must surface as a structured error")
+  Assert.equal(err.code, "CACHE_REPLACE_FAILED")
+  Assert.equal(cache:read(DATA .. "/complete"), "old-marker", "previous artifact restored")
+  Assert.equal(cache:read(DATA .. "/index.lua"), "old-index")
+  Assert.equal(cache:read(ASSET .. "/0000.png"), "old-png")
+  tx:abort()
+end
+
+function T.publish_reports_an_aside_failure_instead_of_success()
+  local backend = FakeCache.new()
+  ---@diagnostic disable: duplicate-set-field
+  backend.replace = function(self, sourcePath, destinationPath)
+    -- Fail the aside of the second root, after the first root was already
+    -- moved aside; publish must roll the first aside back.
+    if sourcePath == "heartgold/" .. ASSET then
+      return false, "injected aside failure"
+    end
+    return FakeCache.replace(self, sourcePath, destinationPath)
+  end
+  local cache = CacheFs.forVersion("heartgold", backend)
+  seedOldArtifact(cache)
+  local tx = beginActors(cache)
+  stageNewArtifact(tx)
+  local err = Assert.throws(function()
+    tx:publish()
+  end)
+  Assert.isTrue(Errors.is(err), "a backend-reported aside failure must surface as a structured error")
+  Assert.equal(err.code, "CACHE_REPLACE_FAILED")
+  Assert.equal(cache:read(DATA .. "/complete"), "old-marker", "aside of the first root rolled back")
+  Assert.equal(cache:read(ASSET .. "/0000.png"), "old-png")
+  tx:abort()
 end
 
 return T
