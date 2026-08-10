@@ -26,7 +26,8 @@ function FadeTask.create(spec, ctx)
       { scriptId = ctx.instance.scriptId }
     )
   end
-  if type(screen.fadeDone) ~= "function" then
+  local screenService = screen --[[@as { fadeDone: fun(self: table): boolean|nil }]]
+  if type(screenService.fadeDone) ~= "function" then
     Errors.raise(
       ScriptErrors.SCRIPT_SERVICE_MISSING,
       "the screen service must report fade progress",
@@ -44,7 +45,8 @@ function FadeTask.poll(state, ctx)
   if screen == nil then
     Errors.raise(ScriptErrors.SCRIPT_SERVICE_MISSING, "the fade task requires the screen service")
   end
-  local done = screen:fadeDone()
+  local screenService = screen --[[@as { fadeDone: fun(self: table): boolean|nil }]]
+  local done = screenService:fadeDone()
   if done == nil then
     Errors.raise(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "the screen service cannot report fade progress")
   end

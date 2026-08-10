@@ -617,6 +617,7 @@ T["cross-script jump pins the target revision"] = function()
   })
   local ok, err = pcall(ScriptSave.restore, bucket, scheduler, 100, {})
   Assert.isFalse(ok)
+  ---@cast err Errors.Error
   Assert.equal(err.code, "SCRIPT_SAVE_REVISION_MISMATCH")
 end
 

@@ -7,6 +7,8 @@
 -- capture as relative delays for the save schema . Pure domain
 -- module: no love dependency.
 
+local ScriptEnvironment = require("libs.engine.src.script.ScriptEnvironment")
+
 ---@class ScriptFrame
 ---@field graph table
 ---@field graphRevision string
@@ -42,8 +44,6 @@
 ---@field yieldReason string|nil
 ---@field status string
 ---@field endReason string|nil
-local ScriptEnvironment = require("libs.engine.src.script.ScriptEnvironment")
-
 local ScriptInstance = {}
 ScriptInstance.__index = ScriptInstance
 

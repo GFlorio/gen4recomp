@@ -304,8 +304,9 @@ function ScriptBinaryDecoder.parseMember(bytes, member, sourcePath, opts)
             if not skipped then
               local candidate, shapeBlock = movementShapeAt(cursor)
               if candidate ~= nil then
-                movements[candidate] = shapeBlock
-                cursor = candidate + shapeBlock.size
+                local shape = shapeBlock --[[@as { offset: integer, actions: table, terminated: boolean, size: integer }]]
+                movements[candidate] = shape
+                cursor = candidate + shape.size
               else
                 break
               end
@@ -322,8 +323,9 @@ function ScriptBinaryDecoder.parseMember(bytes, member, sourcePath, opts)
               -- decodes cleanly, otherwise the walk stops with a note.
               local candidate, shapeBlock = movementShapeAt(cursor)
               if candidate ~= nil then
-                movements[candidate] = shapeBlock
-                cursor = candidate + shapeBlock.size
+                local shape = shapeBlock --[[@as { offset: integer, actions: table, terminated: boolean, size: integer }]]
+                movements[candidate] = shape
+                cursor = candidate + shape.size
                 tailRun = false
               else
                 script.decodeNote = { offset = cursor, opcode = opcode }
@@ -503,8 +505,11 @@ function ScriptBinaryDecoder.parseMember(bytes, member, sourcePath, opts)
         if indices ~= nil then
           for _, operandIndex in ipairs(indices) do
             local operand = ins.operands[operandIndex]
-            if operand ~= nil and type(operand.raw) == "number" then
-              operand.raw = messageSymbol(operand.raw, opts.msgBank)
+            if operand ~= nil then
+              local raw = operand.raw
+              if type(raw) == "number" then
+                operand.raw = messageSymbol(raw, opts.msgBank)
+              end
             end
           end
         end

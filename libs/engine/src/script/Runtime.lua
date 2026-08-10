@@ -229,7 +229,7 @@ function Runtime.resolveActor(ref, run)
         { scriptId = run.instance.scriptId, mapIndex = ref.mapIndex }
       )
     end
-    return actorId
+    return actorId --[[@as string]]
   end
   if ref.special ~= nil then
     local trigger = run.instance.trigger
@@ -417,13 +417,14 @@ local function composedEntryAt(run, composed, label)
       { scriptId = composed.scriptId, label = label }
     )
   end
-  return entry.graph, nodeId
+  return entry.graph, nodeId --[[@as string]]
 end
 
 -- Resolve a call target through the scheduler's composition resolver; a
 -- missing target is an attributed call error.
 ---@param run table
 ---@param target string
+---@return table composed
 local function resolveCallTarget(run, target)
   local composed = run.scheduler:resolveComposition(target)
   if composed == nil then
@@ -433,7 +434,7 @@ local function resolveCallTarget(run, target)
       { scriptId = run.instance.scriptId, target = target }
     )
   end
-  return composed
+  return composed --[[@as table]]
 end
 
 -- --- Node handlers ------------------------------------------------------------

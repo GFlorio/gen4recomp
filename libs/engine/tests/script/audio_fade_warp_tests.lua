@@ -378,6 +378,7 @@ T["real maps service warp"] = function()
     sourceMap = { mapId = 57 },
   })
   maps:startWarp({ map = "MAP_NEW_BARK", warp = 0, fieldX = 4, fieldZ = 3, facing = "north" })
+  started = started --[[@as { warp: { destinationMapId: integer, x: integer, z: integer }, facing: string }]]
   Assert.equal(started.warp.destinationMapId, 60)
   Assert.equal(started.warp.x, 684, "destination-local x rebased by the map origin")
   Assert.equal(started.warp.z, 393)
@@ -390,6 +391,7 @@ T["real maps service warp"] = function()
   })
   local ok, err = pcall(maps2.startWarp, maps2, { map = "MAP_MISSING" })
   Assert.isFalse(ok)
+  ---@cast err Errors.Error
   Assert.isTrue(
     Errors.is(err) and err.code == "FIELD_MAP_UNKNOWN",
     "a loader fault re-raises instead of becoming a missing map"

@@ -47,6 +47,7 @@ local function loadResourceChunk(content, chunkName, requireFn)
       { path = chunkName }
     )
   end
+  chunk = chunk --[[@as function]]
   local env = { require = requireFn } --[[@as table]]
   setfenv(chunk, env)
   local ok, resource = pcall(chunk)
@@ -184,11 +185,12 @@ end
 -- passes love.filesystem after mounting the repo data tree.
 ---@param cacheFs table CacheFs-shaped
 ---@param fs table directory-shaped filesystem for data/scripts/overrides
----@param requireFn function
+---@param requireFn function|nil defaults to the restricted gen4.script-only require
 ---@return table registry
 function ScriptLoader.buildRegistry(cacheFs, fs, requireFn)
   local Registry = require("libs.engine.src.script.Registry")
   local registry = Registry.new()
+  requireFn = requireFn or defaultRequire
   ScriptLoader.installGenerated(registry, cacheFs, requireFn)
   ScriptLoader.installOverrides(registry, fs, requireFn)
   return registry

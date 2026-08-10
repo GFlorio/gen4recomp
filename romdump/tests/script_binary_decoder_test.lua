@@ -235,7 +235,8 @@ T["truncated instructions record a note"] = function()
   local truncated = bytes:sub(1, 0x23)
   local ir = ScriptBinaryDecoder.parseMember(truncated, 5, "synthetic", {})
   Assert.notNil(ir)
-  local note = ir.scripts[0].decodeNote
+  local scripts = ir --[[@as { scripts: { decodeNote: table|nil }[] }]].scripts
+  local note = scripts[0].decodeNote
   Assert.notNil(note)
   Assert.equal(note.offset, 0x20)
   Assert.equal(note.opcode, 73)

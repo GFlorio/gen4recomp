@@ -40,14 +40,15 @@ function SoundWaitTask.create(spec, ctx)
   if sound == nil then
     -- The wait names no token of its own: it waits for whatever effect,
     -- cry, or fanfare is currently playing, resolved through the backend.
-    if type(audio[tokenReader]) ~= "function" then
+    local audioService = audio --[[@as { currentEffect: fun(self: table): string|nil, currentCry: fun(self: table): string|nil, currentFanfare: fun(self: table): string|nil, isPlaying: fun(self: table, sound: string): boolean|nil }]]
+    if type(audioService[tokenReader]) ~= "function" then
       Errors.raise(
         ScriptErrors.SCRIPT_SERVICE_MISSING,
         "the audio service must identify the current " .. kind .. " for wait_" .. (kind == "sound" and "sound" or kind),
         { scriptId = ctx.instance.scriptId }
       )
     end
-    sound = audio[tokenReader](audio)
+    sound = audioService[tokenReader](audioService)
   end
   if sound == nil then
     Errors.raise(
@@ -56,7 +57,8 @@ function SoundWaitTask.create(spec, ctx)
       { scriptId = ctx.instance.scriptId }
     )
   end
-  if type(audio.isPlaying) ~= "function" then
+  local audioService = audio --[[@as { isPlaying: fun(self: table, sound: string): boolean|nil }]]
+  if type(audioService.isPlaying) ~= "function" then
     Errors.raise(
       ScriptErrors.SCRIPT_SERVICE_MISSING,
       "the audio service must report play state for sound waits",
@@ -77,7 +79,8 @@ function SoundWaitTask.poll(state, ctx)
   if audio == nil then
     Errors.raise(ScriptErrors.SCRIPT_SERVICE_MISSING, "the sound wait task requires the audio service")
   end
-  local playing = audio:isPlaying(state.sound)
+  local audioService = audio --[[@as { isPlaying: fun(self: table, sound: string): boolean|nil }]]
+  local playing = audioService:isPlaying(state.sound)
   if playing == nil then
     Errors.raise(
       ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,

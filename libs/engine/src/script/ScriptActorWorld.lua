@@ -14,6 +14,7 @@
 ---@field setPosition fun(self: ScriptActorManager, actorId: string, position: table)
 ---@field setFacing fun(self: ScriptActorManager, actorId: string, direction: string)
 ---@field setMovementType fun(self: ScriptActorManager, actorId: string, movementType: string)
+---@field setAnimationPaused fun(self: ScriptActorManager, actorId: string, paused: boolean)
 ---@field getPosition fun(self: ScriptActorManager, actorId: string): table
 ---@field getFacing fun(self: ScriptActorManager, actorId: string): string
 ---@field numericId fun(self: ScriptActorManager, actorId: string): integer|nil

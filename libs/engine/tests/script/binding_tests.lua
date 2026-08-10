@@ -314,7 +314,7 @@ T["missing actor fault through binding path"] = function()
       return nil
     end,
   }
-  p.services.actors = ScriptActorWorld.new(manager, p.services.player)
+  p.services.actors = ScriptActorWorld.new(manager, p.services.player) --[[@as FakeActors]]
   local resource = script("elms_lab.elm", {
     S.facePlayer({ actor = "self" }),
     S.stop(),

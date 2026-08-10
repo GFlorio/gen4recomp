@@ -185,13 +185,13 @@ structure = function(items, entry, exit, positions, refCounts)
       -- conditional; a second referent means the label is a region entry
       -- from outside, and the peel would consume a label the retained
       -- fallback gotos still need.
-      local owned = region ~= nil and (refCounts[item.target] or 0) <= 1
-      if owned then
-        local peeled = peelConditional(items, cursor, region.join, region.terminal, positions, refCounts)
+      if region ~= nil and (refCounts[item.target] or 0) <= 1 then
+        local regionShape = region --[[@as { join: integer, terminal: integer }]]
+        local peeled = peelConditional(items, cursor, regionShape.join, regionShape.terminal, positions, refCounts)
         for _, step in ipairs(peeled) do
           steps[#steps + 1] = step
         end
-        cursor = region.join
+        cursor = regionShape.join
       else
         -- Irreducible or ambiguous: retain the label/goto fallback.
         steps[#steps + 1] = {

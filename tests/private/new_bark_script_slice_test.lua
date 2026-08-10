@@ -177,6 +177,17 @@ local function repoFs()
   return RepoFs.new(love.filesystem.getSourceBaseDirectory())
 end
 
+-- The script maps service only needs a load function; the slice harness
+-- compiles runtime maps on demand through the same path the game uses.
+---@return { load: fun(self: table, idOrSymbol: string|integer): table }
+local function mapLoaderStub(romFs)
+  return {
+    load = function(_, idOrSymbol)
+      return RomRuntimeMap.compile(romFs, idOrSymbol)
+    end,
+  }
+end
+
 ---@class SliceHarness
 ---@field session FieldSession
 ---@field scripts FieldScripts
@@ -237,7 +248,7 @@ local function harness(romFs, versionId, mapId, opts)
     player = player,
     profile = opts.profile or { gender = 0, name = "Gold" },
     dialogue = dialogue,
-    messageProvider = provider,
+    messageProvider = provider --[[@as FieldMessageProvider]],
     audio = backends.audio,
     camera = backends.camera,
     screen = backends.screen,
@@ -251,11 +262,7 @@ local function harness(romFs, versionId, mapId, opts)
     end,
     fontDef = fontDef,
     transition = transition,
-    mapLoader = {
-      load = function(_, idOrSymbol)
-        return RomRuntimeMap.compile(romFs, idOrSymbol)
-      end,
-    } --[[@as FieldMapLoader]],
+    mapLoader = mapLoaderStub(romFs) --[[@as FieldMapLoader]],
     sourceMap = runtimeMap,
   })
 
@@ -265,12 +272,13 @@ local function harness(romFs, versionId, mapId, opts)
     end,
   })
 
+  local camera = { updateFixed = function() end }
   local session = FieldSession.new({
     versionId = versionId,
     currentMap = runtimeMap,
     actor = player,
     player = player,
-    camera = { updateFixed = function() end } --[[@as FieldCamera]],
+    camera = camera --[[@as FieldCamera]],
     actors = actors,
     dialogue = dialogue,
     input = nil,

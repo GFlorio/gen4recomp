@@ -104,7 +104,8 @@ function T.integer_text_value_renders_the_variable_value()
   local h = host({ world = world })
   h:openMessage({})
   h:startPrint("msg.hgss.0542.00000", { [0] = { text = "integer", value = { value = "var", id = "VAR_COINS" } } })
-  local text = h._controller.request.message.text
+  local hostObject = h --[[@as { _controller: { request: { message: { text: string } }|nil } }]]
+  local text = hostObject._controller.request.message.text
   Assert.equal(text, "42")
 end
 

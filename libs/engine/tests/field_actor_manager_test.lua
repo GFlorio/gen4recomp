@@ -355,7 +355,7 @@ function T.script_actor_world_resolves_map_indexes_and_visibility()
       return "Gold"
     end,
   }
-  local world = ScriptActorWorld.new(mgr, player)
+  local world = ScriptActorWorld.new(mgr --[[@as ScriptActorManager]], player)
   Assert.equal(world:actorIdForMapIndex(2), "map:61:object:2")
   Assert.isNil(world:actorIdForMapIndex(99))
   Assert.equal(world:cameraTargetId(), "map:61:object:241")

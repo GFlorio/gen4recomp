@@ -13,7 +13,7 @@ local TerrainSurface = require("libs.engine.src.TerrainSurface")
 local RomRuntimeMap = {}
 
 ---@param romFs table
----@param symbol string
+---@param symbol string|integer
 ---@return table
 function RomRuntimeMap.compile(romFs, symbol)
   local assets = assert(MapAssetCompiler.compile(romFs, symbol))

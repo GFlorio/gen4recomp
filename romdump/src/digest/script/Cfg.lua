@@ -170,8 +170,9 @@ function Cfg.build(script, memberIr)
       blockCounter = blockCounter + 1
       current = { id = blockCounter, entryIndex = i, indices = {} }
     end
-    current.indices[#current.indices + 1] = i
-    blockOfIndex[i] = current.id
+    local block = current --[[@as { id: integer, entryIndex: integer, indices: integer[], terminator: string|nil, successors: table[] }]]
+    block.indices[#block.indices + 1] = i
+    blockOfIndex[i] = block.id
   end
   closeBlock(blockCounter)
 

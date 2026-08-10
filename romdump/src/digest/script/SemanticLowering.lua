@@ -152,7 +152,7 @@ local function movementFor(movementLabel, memberIr, provenance)
   local actions = {}
   local unsupported = nil
   for _, action in ipairs(block.actions) do
-    local decoded, err = MovementDecoder.decode(action, provenance)
+    local decoded, err = MovementDecoder.decode(action)
     if err ~= nil then
       if unsupported == nil then
         unsupported = err

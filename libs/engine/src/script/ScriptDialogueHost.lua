@@ -19,6 +19,7 @@ local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
 ---@field private _layout fun(formatted: table): table
 ---@field private _fontDef table
 ---@field private _player table|nil
+---@field private _world table|nil world state { getVar(id) -> any }
 ---@field private _pendingNode table|nil
 local ScriptDialogueHost = {}
 ScriptDialogueHost.__index = ScriptDialogueHost
@@ -55,7 +56,8 @@ local function resolveTextValue(descriptor, player, fontDef, world)
         { kind = kind, value = value }
       )
     end
-    return FieldMessageProvider.asciiGlyphTokens(tostring(world:getVar(value.id)), fontDef)
+    local worldState = world --[[@as { getVar: fun(self: table, id: any): any }]]
+    return FieldMessageProvider.asciiGlyphTokens(tostring(worldState:getVar(value.id)), fontDef)
   end
   Errors.raise(
     ScriptErrors.SCRIPT_UNSUPPORTED_REACHABLE,
@@ -127,7 +129,8 @@ function ScriptDialogueHost:resolveMessage(message, bindings, textArgs)
   -- One resolver per substitution control; the buffer slot is the marker's
   -- first argument. The node's own bindings win over instance textArgs.
   local resolvers = {}
-  for _, token in ipairs(template.tokens) do
+  local templateTokens = template --[[@as table]].tokens
+  for _, token in ipairs(templateTokens) do
     if token.kind == "substitution" and token.args ~= nil then
       local slot = token.args[1]
       if slot ~= nil and resolvers[token.control] == nil then
@@ -156,8 +159,8 @@ end
 
 -- Open the controller as a script-owned request and start revealing.
 ---@param message any
----@param bindings table
----@param textArgs table
+---@param bindings table|nil
+---@param textArgs table|nil
 function ScriptDialogueHost:startPrint(message, bindings, textArgs)
   local node = self._pendingNode or {}
   self._pendingNode = nil

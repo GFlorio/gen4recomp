@@ -18,6 +18,7 @@ local Sha256 = require("libs.engine.src.script.Sha256")
 ---@field create fun(spec: table, ctx: table): any
 ---@field poll fun(state: any, ctx: table): table
 ---@field validate fun(state: any): Errors.Error|nil
+---@field cancel fun(state: any, reason: string, ctx: table|nil)|nil
 ---@field onComplete fun(state: any, ctx: table)|nil
 
 ---@class TaskRegistry

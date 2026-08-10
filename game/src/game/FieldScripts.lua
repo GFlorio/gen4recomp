@@ -114,7 +114,7 @@ function ScriptPlayerFacade:gender()
       {}
     )
   end
-  return profile.gender
+  return profile --[[@as { gender: integer, name: string }]].gender
 end
 
 function ScriptPlayerFacade:name()
@@ -122,7 +122,7 @@ function ScriptPlayerFacade:name()
   if profile == nil or profile.name == nil then
     Errors.raise(ScriptErrors.SCRIPT_SERVICE_MISSING, "no player profile is wired; player-name text cannot resolve", {})
   end
-  return profile.name
+  return profile --[[@as { gender: integer, name: string }]].name
 end
 
 function ScriptPlayerFacade:turn(direction)

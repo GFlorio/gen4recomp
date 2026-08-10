@@ -55,13 +55,16 @@ local FieldMessageProvider_new = function(cacheFs, opts)
   }, FieldMessageProvider)
 end
 
+---@param cacheFs table CacheFs-shaped
+---@param opts table|nil
+---@return FieldMessageProvider|nil, Errors.Error|nil
 function FieldMessageProvider.new(cacheFs, opts)
   local ok, result = pcall(FieldMessageProvider_new, cacheFs, opts)
   if ok then
-    return result
+    return result --[[@as FieldMessageProvider]]
   end
   if Errors.is(result) then
-    return nil, result
+    return nil, result --[[@as Errors.Error]]
   end
   error(result)
 end

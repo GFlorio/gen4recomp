@@ -81,9 +81,11 @@ T["write publishes marker last"] = function()
   Assert.notNil(cache:read(ScriptCache.provenancePath()))
   Assert.notNil(cache:read(ScriptCache.coverageJsonPath()))
   local index = cache:loadLua(ScriptCache.indexPath())
+  index = index --[[@as { schema: string, resourceCount: integer, resources: table[] }]]
   Assert.equal(index.schema, ScriptCache.INDEX_SCHEMA)
   Assert.equal(index.resourceCount, 2)
   local signpost = cache:loadModule(ScriptCache.scriptPath("common.signpost"))
+  signpost = signpost --[[@as { kind: string, id: string }]]
   Assert.equal(signpost.kind, "field_script")
   Assert.equal(signpost.id, "common.signpost")
   Assert.equal(cache:read(ScriptCache.markerPath()), "script-cache-v1:rom-sha:dep-sha")

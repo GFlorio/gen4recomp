@@ -14,6 +14,7 @@
 ---@field fieldZ integer
 ---@field worldY number
 ---@field movementType string|nil
+---@field animationPaused boolean
 ---@field busy boolean
 ---@field numericId integer|nil
 ---@field movementOwner string|nil
@@ -92,6 +93,8 @@ end
 ---@class FakeActors
 ---@field actors table<string, FakeActor>
 ---@field partner string|nil
+---@field mapIndexes table<integer, string>|nil
+---@field cameraTarget string|nil
 local FakeActors = {}
 FakeActors.__index = FakeActors
 
