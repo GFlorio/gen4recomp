@@ -15,10 +15,9 @@ local T = {}
 -- Public validation returns nil, err instead of raising.
 ---@param code string
 ---@param script any
----@param opts table|nil
 ---@return Errors.Error
-local function invalidCode(code, script, opts)
-  local ok, err = S.validate(script, opts)
+local function invalidCode(code, script)
+  local ok, err = S.validate(script)
   Assert.isNil(ok)
   Assert.isTrue(Errors.is(err), "expected Errors object, got: " .. tostring(err))
   ---@cast err Errors.Error
@@ -26,8 +25,8 @@ local function invalidCode(code, script, opts)
   return err
 end
 
-local function valid(script, opts)
-  local ok, err = S.validate(script, opts)
+local function valid(script)
+  local ok, err = S.validate(script)
   Assert.isTrue(ok, "expected valid script, got: " .. tostring(err))
 end
 
@@ -256,7 +255,7 @@ function T.rejects_non_finite_numbers()
   invalidCode("SCRIPT_SCHEMA_INVALID", { api = 1, id = "x", steps = { S.stop() }, metadata = { nan = 0 / 0 } })
 end
 
-function T.rejects_unknown_fields_in_strict_mode()
+function T.rejects_unknown_fields()
   local script = {
     api = 1,
     id = "x",
@@ -264,15 +263,8 @@ function T.rejects_unknown_fields_in_strict_mode()
   }
   local err = invalidCode("SCRIPT_SCHEMA_INVALID", script)
   Assert.equal(err.context.field, "surprise")
+  Assert.equal(err.context.path, "steps/0/surprise")
   invalidCode("SCRIPT_SCHEMA_INVALID", { api = 1, id = "x", steps = { S.stop() }, extra = 1 })
-end
-
-function T.non_strict_mode_ignores_unknown_fields()
-  valid({
-    api = 1,
-    id = "x",
-    steps = { { op = "stop", surprise = true } },
-  }, { strict = false })
 end
 
 function T.rejects_unknown_value_kind()
@@ -399,12 +391,12 @@ function T.constructor_and_direct_table_forms_print_identically()
   Assert.equal(LuaWriter.encode(constructorForm), LuaWriter.encode(directForm))
 end
 
--- Validation state (script id, strictness, collected locals/args) must be
--- per call. The only way one call can observe another is a nested call
--- running while the outer call is mid-flight, so these tests interleave a
--- second validation through a debug count hook fired inside the outer call's
--- `collectRefs` (the point where the outer has already collected its local
--- and arg usages). The nested call is plain and must pass; the outer script
+-- Validation state (script id, collected locals/args) must be per call. The
+-- only way one call can observe another is a nested call running while the
+-- outer call is mid-flight, so these tests interleave a second validation
+-- through a debug count hook fired inside the outer call's `collectRefs`
+-- (the point where the outer has already collected its local and arg usages).
+-- The nested call is plain and must pass; the outer script
 -- uses an undeclared local/arg and must still fail on its own merits. With
 -- module-global state the nested call's reset wipes the outer's collections,
 -- so the outer call wrongly succeeds and its error context reports the
@@ -462,9 +454,9 @@ function T.nested_validation_cannot_wipe_outer_collected_args()
   Assert.equal(err.context.name, "text")
 end
 
--- Ordinary consecutive calls never share script id, collected locals/args,
--- or strictness: a failed call's dirty state must not leak into the next
--- call's error context, and a non-strict call must not weaken the next one.
+-- Ordinary consecutive calls never share script id or collected locals/args:
+-- a failed call's dirty state must not leak into the next call's error
+-- context. Validation is strict-only, so no call can weaken a later one.
 function T.sequential_validation_calls_stay_isolated()
   local err1 = invalidCode("SCRIPT_SCHEMA_INVALID", {
     api = 1,
@@ -485,8 +477,8 @@ function T.sequential_validation_calls_stay_isolated()
   valid({
     api = 1,
     id = "third.script",
-    steps = { { op = "stop", surprise = true } },
-  }, { strict = false })
+    steps = { { op = "stop" } },
+  })
   local err3 = invalidCode("SCRIPT_SCHEMA_INVALID", {
     api = 1,
     id = "fourth.script",

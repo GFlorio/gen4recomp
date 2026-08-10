@@ -7,7 +7,7 @@ local S = require("gen4.script")
 S.apiVersion == 1
 ```
 
-Constructors return ordinary serializable Lua tables. Direct table form is always legal and must match the same shapes. The validator (`S.validate`) rejects functions, userdata, threads, metatables, cycles, and unknown fields in strict mode.
+Constructors return ordinary serializable Lua tables. Direct table form is always legal and must match the same shapes. The validator (`S.validate`) rejects functions, userdata, threads, metatables, cycles, and unknown fields; validation is strict-only.
 
 ## Constructor index
 

@@ -205,8 +205,7 @@ Schema.MOVEMENT_ACTIONS = {
 }
 
 -- Canonical operations . Every step is a table with `op` set
--- to one of these names and the declared fields; unknown fields are rejected
--- in strict mode.
+-- to one of these names and the declared fields; unknown fields are rejected.
 Schema.OPERATIONS = {
   noop = { fields = {} },
   stop = { fields = {} },

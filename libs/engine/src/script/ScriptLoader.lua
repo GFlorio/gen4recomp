@@ -6,10 +6,10 @@
 -- the single source of override filenames: no directory enumeration at
 -- runtime. Override files are ordinary `return S.script { ... }` modules
 -- executed in a restricted environment; the returned resource must carry the
--- exact id of its file and must validate in strict mode. The filesystem is
--- injected (`read`), so the loader is testable headless; the game passes
--- love.filesystem after mounting the repo `data` directory. Pure domain
--- module: no love dependency.
+-- exact id of its file and must validate strictly. The filesystem is
+-- injected (`read`), so the loader is testable headless; the game passes an
+-- io-backed repo filesystem for the override tree outside the LÖVE source
+-- mount. Pure domain module: no love dependency.
 
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")

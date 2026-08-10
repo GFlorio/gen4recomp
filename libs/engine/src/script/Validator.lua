@@ -4,8 +4,8 @@
 -- operation field shapes, enum values, reference forms, and declared
 -- locals/args. It never executes gameplay and never mutates its input.
 -- Graph-level checks (labels, call targets, reachability, lock balance) belong
--- to the compiler. Unknown fields are rejected in strict
--- mode (the default and the mode generated content always uses).
+-- to the compiler. Validation is strict-only: unknown fields are rejected
+-- unconditionally.
 
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -13,10 +13,10 @@ local Schema = require("libs.engine.src.script.Schema")
 
 local Validator = {}
 
--- Validation state (script id, strictness, collected locals/args) is local
--- to each `_validate` call: the call builds a context table and threads it
--- through every helper, so a nested validation cannot contaminate the outer
--- call. The lookup sets below are immutable and built once at load.
+-- Validation state (script id, collected locals/args) is local to each
+-- `_validate` call: the call builds a context table and threads it through
+-- every helper, so a nested validation cannot contaminate the outer call.
+-- The lookup sets below are immutable and built once at load.
 
 local ENUM_SETS = {}
 for name, values in pairs(Schema.ENUMS) do
@@ -112,7 +112,7 @@ end
 
 -- Check a table's fields against a schema spec. `skipKeys` names keys that
 -- are legal on the table but are not schema fields (discriminator keys such
--- as `op` or `value`). Unknown fields are rejected in strict mode. Field-level
+-- as `op` or `value`). Unknown fields are always rejected. Field-level
 -- failures and nested checkers report the exact field path; the root `steps`
 -- field reads as `steps/N` to match the node-path style used by graph node IDs.
 local function fieldPath(path, name)
@@ -156,17 +156,15 @@ local function checkFields(context, owner, fieldSpecs, given, path, skipKeys)
       end
     end
   end
-  if context.strict then
-    for name in pairs(given) do
-      if fieldSpecs[name] == nil and not (skipKeys and skipKeys[name]) then
-        fail(
-          context,
-          ScriptErrors.SCRIPT_SCHEMA_INVALID,
-          fieldPath(path, name),
-          "unknown field",
-          { field = name, op = owner }
-        )
-      end
+  for name in pairs(given) do
+    if fieldSpecs[name] == nil and not (skipKeys and skipKeys[name]) then
+      fail(
+        context,
+        ScriptErrors.SCRIPT_SCHEMA_INVALID,
+        fieldPath(path, name),
+        "unknown field",
+        { field = name, op = owner }
+      )
     end
   end
 end
@@ -622,11 +620,9 @@ CHECKERS.params = checkDeclarationMap
 CHECKERS.locals = checkDeclarationMap
 CHECKERS.serializable = function() end
 
-function Validator._validate(script, opts)
-  opts = opts or {}
+function Validator._validate(script)
   local context = {
     scriptId = nil,
-    strict = opts.strict ~= false,
     usedLocals = {},
     usedArgs = {},
   }
@@ -660,10 +656,9 @@ function Validator._validate(script, opts)
 end
 
 ---@param script any
----@param opts table|nil
 ---@return boolean|nil, Errors.Error|nil
-function Validator.validate(script, opts)
-  local ok, err = pcall(Validator._validate, script, opts)
+function Validator.validate(script)
+  local ok, err = pcall(Validator._validate, script)
   if ok then
     return true
   end

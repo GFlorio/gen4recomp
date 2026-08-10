@@ -4,7 +4,7 @@
 -- owning content root through the game's mod loader; this registry only maps
 -- names to module tables and owners, and rejects unknown modules with
 -- attributed errors. Engine-internal module imports are rejected by the mod
--- loader's restricted environment (lint/strict mode). Pure domain module:
+-- loader's restricted environment. Pure domain module:
 -- no love dependency.
 
 local Errors = require("libs.rom.src.Errors")

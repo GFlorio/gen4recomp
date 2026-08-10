@@ -23,13 +23,12 @@ S.apiVersion = Schema.API_VERSION
 
 -- Development helper: validates a script resource without a game session.
 -- Returns true, or nil plus an Errors object with code SCRIPT_* and a
--- `path`-attributed context. Strict mode (the default) rejects unknown fields;
--- generated content always validates in strict mode.
+-- `path`-attributed context. Validation is strict-only: unknown fields are
+-- always rejected.
 ---@param script any
----@param opts table|nil
 ---@return boolean|nil, Errors.Error|nil
-function S.validate(script, opts)
-  return Validator.validate(script, opts)
+function S.validate(script)
+  return Validator.validate(script)
 end
 
 return S
