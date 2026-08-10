@@ -72,6 +72,38 @@ local function actor(id, objectEventId, spriteId, x, z, scriptId)
   }
 end
 
+-- A map whose surface-0 plate covers z >= 14 and surface 1 covers z <= 14,
+-- so a cell at z 13 is on the far side of a cross-surface boundary from a
+-- player at z 14.
+local function crossSurfaceMap(backgrounds)
+  local m = map(backgrounds)
+  m.terrain = TerrainSurface.new({
+    plates = {
+      {
+        id = 0,
+        minX = 0,
+        minZ = 14.0,
+        maxX = 32,
+        maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 },
+        distance = 0,
+        slopeClass = "flat",
+      },
+      {
+        id = 1,
+        minX = 0,
+        minZ = 0,
+        maxX = 32,
+        maxZ = 14.0,
+        normal = { x = 0, y = 1, z = 0 },
+        distance = 0,
+        slopeClass = "flat",
+      },
+    },
+  })
+  return m
+end
+
 -- resolver with an actor lookup table keyed by "x:z"
 local function resolver(actorsByCell)
   local actorAt = function(_, fieldX, fieldZ, surfaceId)
@@ -275,6 +307,29 @@ function T.hidden_actor_leaves_the_background_to_win()
   local intent = r:resolve(baseSnapshot({ runtimeMap = m }))
   assert(intent, "no visible actor means the background may win")
   Assert.equal(intent.kind, "background")
+end
+
+function T.cross_surface_facing_cell_looks_up_the_actor_on_the_target_surface()
+  -- The facing cell lies outside the player's surface-0 plate but inside
+  -- surface 1's, so the reachable crossing resolves the target to surface 1.
+  -- The actor lookup must use the RESOLVED target surface, not the player's
+  -- source surface.
+  local elm = actor("map:61:object:0", 0, 99, 4, 13, 1)
+  local r = resolver({ ["4:13"] = { surfaceId = 1, actor = elm } })
+  local intent = r:resolve(baseSnapshot({ runtimeMap = crossSurfaceMap() }))
+  assert(intent, "actor on the resolved target surface must be found")
+  Assert.equal(intent.kind, "object")
+  Assert.equal(intent.object.actorId, "map:61:object:0")
+end
+
+function T.cross_surface_miss_leaves_a_compatible_background_to_win()
+  -- Same boundary as above, but no actor sits on the resolved target surface:
+  -- the compatible background on the facing cell still resolves.
+  local r = resolver()
+  local intent = r:resolve(baseSnapshot({ runtimeMap = crossSurfaceMap({ bgEvent(0, 6, 4, 13, 0) }) }))
+  assert(intent, "background on the cross-surface facing cell must resolve")
+  Assert.equal(intent.kind, "background")
+  Assert.equal(intent.background.eventIndex, 0)
 end
 
 function T.actor_on_another_surface_is_ineligible()

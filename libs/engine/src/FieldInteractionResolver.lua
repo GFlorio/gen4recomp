@@ -134,16 +134,17 @@ end
 -- The facing tile is one cardinal field cell from the player's logical
 -- settled cell, resolved through the map coordinate profile (a cell outside
 -- permission coverage raises FIELD_COORDINATES_OUT_OF_COVERAGE and yields
--- false). Returns whether the cell is reachable from the player's surface.
--- Background events have no actor surface of their own, so this is the
--- eligibility rule of spec section 12.6.
-function FieldInteractionResolver:_facingCellReachable(snapshot, targetX, targetZ)
+-- nil). Returns the resolved surface sample of the cell, or nil when the
+-- cell is not reachable from the player's surface. The sample is the lookup
+-- key for object interactions, so a cross-surface boundary resolves actors
+-- on the facing cell's actual surface rather than the player's.
+function FieldInteractionResolver:_resolveFacingCell(snapshot, targetX, targetZ)
   local map = snapshot.runtimeMap
   local ok, localX, localZ = pcall(FieldCoordinates.fieldToLocal, map, targetX, targetZ)
   if not ok then
-    return false
+    return nil
   end
-  local okSample = pcall(function()
+  local okSample, sample = pcall(function()
     return SurfaceResolver.new(map.terrain):resolve({
       localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
       localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
@@ -157,7 +158,10 @@ function FieldInteractionResolver:_facingCellReachable(snapshot, targetX, target
       },
     })
   end)
-  return okSample
+  if not okSample then
+    return nil
+  end
+  return sample
 end
 
 -- Scans background events in source order and returns the first eligible
@@ -220,13 +224,16 @@ function FieldInteractionResolver:resolve(snapshot)
   end
   local targetX, targetZ = snapshot.fieldX + delta.x, snapshot.fieldZ + delta.z
 
-  if not self:_facingCellReachable(snapshot, targetX, targetZ) then
+  local targetSample = self:_resolveFacingCell(snapshot, targetX, targetZ)
+  if not targetSample then
     return nil
   end
 
   -- Object actors first: the occupancy index is keyed by the exact surface,
-  -- so a same-x/z actor on another surface is ineligible (spec 12.6).
-  local actor = self.actorAt(map.mapId, targetX, targetZ, snapshot.surfaceId)
+  -- and the key is the facing cell's RESOLVED surface, so a cross-surface
+  -- boundary looks up the actor where it actually stands, and a same-x/z
+  -- actor on another surface stays ineligible.
+  local actor = self.actorAt(map.mapId, targetX, targetZ, targetSample.surfaceId)
   if actor then
     local intent = baseIntent("object", snapshot, targetX, targetZ, actor.sourceEvent.scriptId)
     intent.object = {
