@@ -1,5 +1,6 @@
 -- Tests for Matrix3: extraction, multiplication, inverse-transpose normal
--- matrix under rotation and nonuniform scale, and vector transformation.
+-- matrix under rotation and nonuniform scale, vector transformation, and
+-- rejection of singular transforms.
 
 local Assert = require("tests.support.Assert")
 local Matrix3 = require("libs.math.src.Matrix3")
@@ -51,6 +52,23 @@ function T.nonuniform_scale_cancels_with_inverse_transpose()
   -- The normal matrix for this diagonal scale is diag(1/2, 1/3, 1/4) transposed,
   -- which is the same diagonal matrix.
   Assert.isTrue(approx(tx, 0.5) and approx(ty, 1 / 3) and approx(tz, 0.25))
+end
+
+function T.singular_normal_matrix_fails()
+  -- A singular model-view transform has no inverse, so no normal matrix
+  -- exists. It must fail loudly rather than silently degrade to identity.
+  local zeroScale = Matrix4.scale(0, 1, 1)
+  Assert.throws(function()
+    Matrix3.normalMatrix(zeroScale, Matrix4.identity())
+  end)
+end
+
+function T.singular_view_matrix_fails()
+  -- Singularity in the view (camera) side must fail the same way.
+  local singularView = Matrix4.scale(1, 0, 1)
+  Assert.throws(function()
+    Matrix3.normalMatrix(Matrix4.identity(), singularView)
+  end)
 end
 
 function T.composes_view_and_model()

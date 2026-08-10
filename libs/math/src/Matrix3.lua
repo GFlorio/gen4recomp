@@ -85,12 +85,12 @@ end
 -- Normal matrix: inverse-transpose of the upper 3x3 of (view * model).
 -- `model` and `view` are 4x4 column-major matrices. Returns a 3x3 column-major
 -- matrix suitable for sending to the vertex shader as a mat3 uniform.
+-- A singular model-view transform has no normal matrix; that is invalid input
+-- and fails loudly instead of degrading to identity.
 function Matrix3.normalMatrix(model, view)
   local mv = Matrix3.multiply(Matrix3.from4x4(view), Matrix3.from4x4(model))
   local inv = Matrix3.inverse(mv)
-  if not inv then
-    return Matrix3.identity()
-  end
+  assert(inv, "singular model-view transform has no normal matrix")
   return Matrix3.transpose(inv)
 end
 
