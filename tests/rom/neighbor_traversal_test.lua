@@ -1,4 +1,4 @@
--- Private connected-cell traversal proves New Bark's compiled west/east
+-- ROM-conformance connected-cell traversal proves New Bark's compiled west/east
 -- neighbors provide permission and BDHC data for real cross-boundary steps.
 
 local Assert = require("tests.support.Assert")
@@ -108,4 +108,4 @@ function T.generated_cache_loads_as_traversable_region(_, versionId)
   loader:release()
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

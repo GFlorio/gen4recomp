@@ -1,4 +1,4 @@
--- Private integration gate for canonical New Bark and Elm's Lab event members.
+-- ROM-conformance test for canonical New Bark and Elm's Lab event members.
 
 local Assert = require("tests.support.Assert")
 local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
@@ -43,4 +43,4 @@ function T.every_catalog_map_event_member_decodes(romFs)
   end
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

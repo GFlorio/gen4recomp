@@ -20,8 +20,13 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 local CAMERA_TARGET_OBJECT_ID = 241
 local PARTNER_OBJECT_ID = 253
 
+---@class FieldActorAssets
+---@field knows fun(self: FieldActorAssets, spriteId: integer): boolean
+---@field acquire fun(self: FieldActorAssets, spriteId: integer): table
+---@field release fun(self: FieldActorAssets, spriteId: integer)
+
 ---@class FieldActorManager
----@field assets { knows: fun(self: table, spriteId: integer), acquire: fun(self: table, spriteId: integer), release: fun(self: table, spriteId: integer) }
+---@field assets FieldActorAssets
 ---@field variableSpriteRange { first: integer, last: integer }
 ---@field variableVarBase integer
 ---@field maps table<integer, table>
@@ -42,7 +47,7 @@ local SURFACE_ERROR_CODES = {
 }
 
 ---@class FieldActorManagerOptions
----@field assets { knows: fun(self: table, spriteId: integer), acquire: fun(self: table, spriteId: integer), release: fun(self: table, spriteId: integer) }
+---@field assets FieldActorAssets
 ---@field policy { variableSpriteRange: { first: integer, last: integer }, variableVarBase: integer }
 
 -- opts.assets: a FieldActorAssetProvider-shaped acquire/release/knows owner.

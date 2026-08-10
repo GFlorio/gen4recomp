@@ -1,10 +1,10 @@
--- Private target gate for the object-actor lifecycle against real ROM data: the
+-- ROM-conformance test for the object-actor lifecycle against real ROM data: the
 -- deterministic scenario hides exactly the intended laboratory actors, every
 -- visible target actor resolves one BDHC surface with no override, and repeated
 -- map entry neither duplicates an identity nor leaks a visual reference.
 --
 -- Visual loading is stubbed here on purpose: the compiled bundle is the subject
--- of tests.private.field_actors_test. This test is about lifecycle over real
+-- of field_actors_test. This test is about lifecycle over real
 -- event, flag, and terrain data.
 
 local Assert = require("tests.support.Assert")
@@ -198,4 +198,4 @@ function T.repeated_lab_entry_keeps_identities_stable_and_visuals_balanced(romFs
   Assert.equal(assets:total(), 0)
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

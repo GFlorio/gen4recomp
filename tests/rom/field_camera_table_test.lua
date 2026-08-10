@@ -1,5 +1,5 @@
--- Private integration gate for exact field-camera discovery in canonical US
--- HeartGold and SoulSilver dumps. The private runner invokes this per version.
+-- ROM-conformance test for exact field-camera discovery in canonical US
+-- HeartGold and SoulSilver dumps. The ROM suite invokes this per version.
 
 local Assert = require("tests.support.Assert")
 local FieldCameraCompiler = require("romdump.src.digest.FieldCameraCompiler")
@@ -44,4 +44,4 @@ function T.overlay_one_contains_exact_camera_table(romFs)
   near(type4.farTiles, 108.4375, 0.000001)
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

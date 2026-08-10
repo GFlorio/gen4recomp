@@ -1,4 +1,4 @@
--- Private save-resume target facts: a captured save restores
+-- ROM-conformance save-resume facts: a captured save restores
 -- field location, avatar, and the full event store on both target maps, and a
 -- resumed event store still hides the scenario-seeded story actors. There is
 -- only one save schema, so no version handling exists. Everything runs
@@ -163,4 +163,4 @@ function T.a_resumed_event_store_keeps_scenario_actors_hidden(romFs)
   manager:dispose()
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

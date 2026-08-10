@@ -1,5 +1,5 @@
 -- The private test mode is retired. `scripts/test.sh` is the single test
--- entrypoint, so the second plumbing -- the private-suite flag parsed by the app
+-- entrypoint, so the second plumbing -- the ROM-conformance flag parsed by the app
 -- entry point and its LÖVE configuration, and the shell wrapper that passed it
 -- -- must be gone rather than kept as a compatibility alias.
 --

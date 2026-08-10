@@ -5,7 +5,7 @@
 local Errors = require("libs.rom.src.Errors")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 
----@class FieldActorDefinitionProvider
+---@class FieldActorDefinitionProvider: FieldActorAssets
 ---@field private _cacheFs CacheFs
 ---@field private _known table<integer, boolean>
 ---@field private _entries table<integer, { spriteId: integer, visual: table, references: integer }>

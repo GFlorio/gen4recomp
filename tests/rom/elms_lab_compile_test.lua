@@ -1,4 +1,4 @@
--- Private target test: deterministic derived compilation of Professor Elm's Lab
+-- ROM-conformance test: deterministic derived compilation of Professor Elm's Lab
 -- 1F (map 61) against a real HGSS dump. Compiling twice from the unchanged raw
 -- dump must produce byte-identical scene, mesh, and texture output; the result
 -- must be complete (every placed indoor model, a 2048-byte permission grid) and
@@ -35,7 +35,7 @@ local function sortedKeys(t)
   return k
 end
 
-function T.gate5_deterministic_bytes(romFs, version)
+function T.deterministic_bytes(romFs, version)
   local c1, b1 = compileInto(romFs, version)
   local c2, b2 = compileInto(romFs, version)
   local dir = MapAssetCache.mapDir(MAP_ID)
@@ -53,17 +53,9 @@ function T.gate5_deterministic_bytes(romFs, version)
   for sha in pairs(b1.textures) do
     Assert.equal(c1:read(MapAssetCache.texturePath(sha)), c2:read(MapAssetCache.texturePath(sha)))
   end
-  print(
-    string.format(
-      "  [elms_lab] compiled %d meshes, %d textures, %d building models deterministically",
-      #sortedKeys(b1.meshes),
-      #sortedKeys(b1.textures),
-      #sortedKeys(b1.models)
-    )
-  )
 end
 
-function T.gate5_completeness_and_ready(romFs, version)
+function T.completeness_and_ready(romFs, version)
   local c, bundle, marker = compileInto(romFs, version)
   Assert.isTrue(MapAssetCache.isReady(c, MAP_ID, marker), "cache reports ready")
   Assert.equal(#c:read(MapAssetCache.mapDir(MAP_ID) .. "/permissions.bin"), 2048)
@@ -101,7 +93,7 @@ end
 
 -- The selected field-light profile is source-hashed and its records
 -- serialize deterministically; compiling twice yields identical lighting data.
-function T.gate6_lighting_profile_deterministic(romFs, version)
+function T.lighting_profile_is_deterministic(romFs, version)
   local _, b1 = compileInto(romFs, version)
   local _, b2 = compileInto(romFs, version)
   local l1, l2 = b1.scene.lighting, b2.scene.lighting
@@ -123,7 +115,7 @@ end
 -- texture) carried UVs up to 63 and clamped to a black edge texel. Elm's models
 -- are all clamp/single-texture, so no legitimate UV should approach the raw
 -- texel magnitudes; bound them well under any texel range.
-function T.gate6_uvs_are_normalized(romFs, version)
+function T.uvs_are_normalized(romFs, version)
   local _, bundle = compileInto(romFs, version)
   local maxUV = 0
   for _, batch in pairs(bundle.meshes) do
@@ -139,7 +131,7 @@ end
 -- baked G4M2 batches rather than a re-parsed NSBMD. Modelled by building into an
 -- in-memory backend, then reopening a fresh CacheFs over the same backend and
 -- using nothing but cache reads below the "restart" line.
-function T.gate8_cache_only_restart(romFs, version)
+function T.cache_only_restart(romFs, version)
   local backend = FakeCache.new()
   local marker
   do
@@ -179,7 +171,7 @@ function T.gate8_cache_only_restart(romFs, version)
   Assert.isFalse(collision:isBlockedLocal(4, 14), "exit warp tile is passable from cache-only data")
 end
 
-function T.gate5_injected_failure_leaves_no_marker(romFs, version)
+function T.injected_failure_leaves_no_marker(romFs, version)
   local backend = FakeCache.new()
   local orig = backend.write
   ---@diagnostic disable: duplicate-set-field
@@ -198,4 +190,4 @@ function T.gate5_injected_failure_leaves_no_marker(romFs, version)
   Assert.isTrue(c:exists("rom-dump.complete"), "raw-dump marker preserved")
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

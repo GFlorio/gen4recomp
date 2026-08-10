@@ -1,6 +1,6 @@
 -- Compiles one runtime field map (terrain, permissions, field data, and
 -- coordinate origin) straight from a ROM dump through the project compilers.
--- Shared by the private suite's warp, interaction, and demo-path tests so
+-- Shared by the ROM conformance suite's warp, interaction, and demo-path tests so
 -- the runtime-map shape lives in one place.
 
 local CollisionGrid = require("libs.engine.src.CollisionGrid")

@@ -113,8 +113,8 @@ end
 -- map before building before neighbour before actor, deterministically.
 function FieldState:_worldDraws(alpha)
   return SceneAssembly.flatten({
-    self.runtime.mapDraws,
-    self.runtime.buildingDraws,
+    self.runtime.runtime.mapDraws,
+    self.runtime.runtime.buildingDraws,
     self.runtimeMap.coverageRuntime and self.runtimeMap.coverageRuntime.draws or {},
     self:_actorDraws(alpha),
   })

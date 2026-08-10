@@ -1,5 +1,6 @@
--- Private target facts for the message/font derived classes, verified against
+-- ROM-conformance facts for the message/font derived classes, verified against
 -- the imported ROM. Asserts only non-copyright structural facts:
+-- 21.6): bank counts, control signature sets, glyph coverage, map-header
 -- bank counts, control signature sets, glyph coverage, map-header
 -- associations, and font geometry.
 
@@ -205,4 +206,4 @@ function T.compiled_cache_artifacts_are_ready_and_stable(romFs, version)
   Assert.equal(messageBundle.dependencies.messageNarc.sha1, archiveSha("messages"))
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

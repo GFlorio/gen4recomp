@@ -1,4 +1,4 @@
--- Private target facts for the canonical target BDHC payloads and New Bark's
+-- ROM-conformance facts for the canonical target BDHC payloads and New Bark's
 -- east laboratory staircase. These assertions intentionally freeze normalized
 -- metadata and the geometric traversal path before FieldPlayer consumes it.
 
@@ -12,7 +12,6 @@ local FieldCamera = require("libs.engine.src.FieldCamera")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldSession = require("libs.engine.src.FieldSession")
 local FieldSave = require("libs.engine.src.FieldSave")
-local TerrainInspector = require("romdump.src.digest.TerrainInspector")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local Hashing = require("romdump.src.digest.Hashing")
 
@@ -134,19 +133,6 @@ function T.new_bark_east_staircase_facts_and_path_are_frozen(romFs)
     Assert.equal(sample.surfaceId, destination.surfaceId, "path surface at step " .. index)
     current, currentY = destination, sample.worldY
   end
-
-  local report = TerrainInspector.inspect(artifact, { minX = 16, minZ = 6, maxX = 18, maxZ = 10 })
-  print(
-    string.format(
-      "  [terrain] map %d origin (%d,%d) staircase metadata:",
-      resolved.map.id,
-      resolved.worldOriginX,
-      resolved.worldOriginZ
-    )
-  )
-  for _, line in ipairs(TerrainInspector.lines(report)) do
-    print("  " .. line)
-  end
 end
 
 function T.field_player_traverses_new_bark_east_staircase(romFs)
@@ -190,7 +176,7 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
   local camera = FieldCamera.new(profile, { initialTarget = player:renderPosition() })
   local cameraSamples = {}
   local session = FieldSession.new({
-    versionId = "private",
+    versionId = "rom-conformance",
     currentMap = runtimeMap,
     actor = player,
     player = player,
@@ -289,4 +275,4 @@ function T.upper_new_bark_staircase_state_reloads_on_the_same_surface(romFs, ver
   Assert.isTrue(restored.worldY > 4, "upper staircase save must remain elevated")
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)
