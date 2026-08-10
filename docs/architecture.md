@@ -20,14 +20,15 @@ libs/assets/  Asset contracts for generated data (schemas, cache paths/readiness
              map/mesh/material compilation
 libs/engine/  Rendering, cameras, scenes, collision/world primitives
 data/         Frozen references and runtime manifests
-tests/        Aggregate + private-target runners and shared fixtures (tests/support)
+tests/        Test runner (tests/runner), private-target runner, shared fixtures (tests/support)
 ```
 
 Unit tests live beside their library under `libs/<lib>/tests`; `tests/run.lua`
-is the aggregate list the runner iterates. An app's `main.lua` adds the repo
-root (its LÖVE source base directory) to `package.path`, so every module is
-required by its full repo-relative path — `libs.rom.src.NdsRom`,
-`game.src.game.App`, `data.manifests.hgss`.
+declares the discovery roots and their default layers, and `tests/runner/`
+implements discovery, suite normalization, selection, execution, and reporting.
+An app's `main.lua` adds the repo root (its LÖVE source base directory) to
+`package.path`, so every module is required by its full repo-relative path —
+`libs.rom.src.NdsRom`, `game.src.game.App`, `data.manifests.hgss`.
 
 ## Layers
 
