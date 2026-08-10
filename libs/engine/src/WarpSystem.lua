@@ -2,7 +2,9 @@
 -- terrain surfaces. Warp indexes are zero-based; event coordinates remain in
 -- the authoritative global field domain. Scripted warps arrive as `direct`
 -- records carrying pre-resolved global destination coordinates and resolve
--- through their own branch before any indexed-record dispatch.
+-- through their own branch before any indexed-record dispatch. Warp *trigger*
+-- semantics live in TransitionTrigger; this module only locates records and
+-- resolves destinations.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
@@ -18,12 +20,6 @@ local WarpSystem = {}
 WarpSystem.DYNAMIC_WARP_SENTINEL = 0x100
 
 local WARP_Y_SCALE = 16
-local DIRECTION_DELTAS = {
-  north = { x = 0, z = -1 },
-  south = { x = 0, z = 1 },
-  west = { x = -1, z = 0 },
-  east = { x = 1, z = 0 },
-}
 
 local function warps(runtimeMap)
   return assert(
@@ -55,27 +51,6 @@ function WarpSystem.findAt(runtimeMap, fieldX, fieldZ)
     if warp.x == fieldX and warp.z == fieldZ then
       return warp
     end
-  end
-  return nil
-end
-
-function WarpSystem.findBlockedFacing(runtimeMap, fieldX, fieldZ, direction)
-  local delta = DIRECTION_DELTAS[direction]
-  if not delta then
-    -- Callers pass only known direction names; anything else is a
-    -- programming fault at this resolver boundary, not an empty result.
-    Errors.raise(FieldErrors.ACTOR_FACING_INVALID, "unsupported player facing " .. tostring(direction), {
-      mapId = runtimeMap.mapId,
-    })
-  end
-  local destinationX, destinationZ = fieldX + delta.x, fieldZ + delta.z
-  local warp = WarpSystem.findAt(runtimeMap, destinationX, destinationZ)
-  if not warp then
-    return nil
-  end
-  local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, destinationX, destinationZ)
-  if runtimeMap.collision:isBlockedLocal(localX, localZ) then
-    return warp
   end
   return nil
 end

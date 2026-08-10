@@ -383,16 +383,6 @@ function T.direct_warp_destination_loader_failure_wraps_like_the_indexed_path()
   Assert.equal(assert(err).context.destinationMapId, 62)
 end
 
--- An invalid facing is a programming fault at the resolver boundary, not an
--- empty "no warp" result: callers pass only known direction names.
-function T.find_blocked_facing_rejects_invalid_directions()
-  local map = runtimeMap(61, 0, 0, {})
-  throwsCode("ACTOR_FACING_INVALID", function()
-    WarpSystem.findBlockedFacing(map, 4, 14, "up")
-  end)
-  Assert.isNil(WarpSystem.findBlockedFacing(map, 4, 14, "north"), "a known facing stays a plain miss")
-end
-
 function T.suppression_lasts_until_the_player_leaves_its_coordinate()
   local token = { mapId = 60, fieldX = 684, fieldZ = 393 }
   Assert.isTrue(WarpSystem.isSuppressed(token, 60, 684, 393))

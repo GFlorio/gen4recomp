@@ -8,6 +8,8 @@ local FieldPlayerVisual = require("libs.engine.src.FieldPlayerVisual")
 local FieldSession = require("libs.engine.src.FieldSession")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
+local TilePermissions = require("tests.support.TilePermissions")
+local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
 
 local T = {}
 
@@ -435,14 +437,7 @@ local function warpSession(options)
     cameraType = 4,
     coordinateOrigin = { x = 0, z = 0 },
     fieldData = { events = { warps = { warp } } },
-    collision = {
-      containsLocal = function(_, x, z)
-        return x >= 0 and x < 32 and z >= 0 and z < 32
-      end,
-      isBlockedLocal = function(_, x, z)
-        return options.blocked == x .. ":" .. z
-      end,
-    },
+    collision = TilePermissions.new(options.tiles),
   }
   local player = {
     fieldX = options.fieldX,
@@ -472,13 +467,20 @@ local function warpSession(options)
   return session, transition, starts, warp
 end
 
-function T.blocked_facing_warp_starts_before_player_collision()
+-- The facing-tile door: warp tile (4,14) is a blocked DOOR ahead of the idle
+-- player at (4,13) facing south. Behavior bytes come from TransitionTrigger's
+-- TILE_BEHAVIOR_* table (pokeheartgold metatile_behavior.h).
+local DOOR = TransitionTrigger.BEHAVIOR.DOOR
+local ENTRANCE_SOUTH = TransitionTrigger.BEHAVIOR.WARP_ENTRANCE_SOUTH
+local ENTRANCE_NORTH = TransitionTrigger.BEHAVIOR.WARP_ENTRANCE_NORTH
+
+function T.door_warp_starts_before_player_collision()
   local session, _, starts, warp = warpSession({
     fieldX = 4,
     fieldZ = 13,
     warpX = 4,
     warpZ = 14,
-    blocked = "4:14",
+    tiles = { ["4:14"] = { behavior = DOOR, blocked = true } },
   })
   session:updateFixed({ heldDirection = "south", pressedDirection = "south" })
   Assert.equal(#starts, 1)
@@ -487,10 +489,10 @@ function T.blocked_facing_warp_starts_before_player_collision()
   Assert.equal(session.player.fieldZ, 13)
 end
 
-function T.actor_on_a_blocked_warp_cell_does_not_block_the_facing_warp()
-  -- A permission-blocked cell with a warp (the lab exit pattern) triggers the
-  -- warp before a movement start is ever attempted, so occupancy must not
-  -- interfere with it.
+function T.actor_on_a_blocked_door_cell_does_not_block_the_facing_warp()
+  -- A permission-blocked cell with a door warp (the town door pattern)
+  -- triggers the warp before a movement start is ever attempted, so occupancy
+  -- must not interfere with it.
   local starts = {}
   local transition = {
     phase = "idle",
@@ -506,14 +508,7 @@ function T.actor_on_a_blocked_warp_cell_does_not_block_the_facing_warp()
     cameraType = 4,
     coordinateOrigin = { x = 0, z = 0 },
     fieldData = { events = { warps = { warp } } },
-    collision = {
-      containsLocal = function(_, x, z)
-        return x >= 0 and x < 32 and z >= 0 and z < 32
-      end,
-      isBlockedLocal = function(_, x, z)
-        return x == 4 and z == 14
-      end,
-    },
+    collision = TilePermissions.new(options.tiles),
     terrain = TerrainSurface.new({
       plates = {
         {
@@ -558,8 +553,9 @@ end
 
 function T.actor_on_an_open_warp_cell_blocks_the_walk_but_not_the_route()
   -- A walkable warp cell is entered by stepping in. An actor standing on it
-  -- blocks that step -- the original engine's NPC-on-warp-tile behavior -- and
-  -- the standing-warp check never fires because the move never commits.
+  -- blocks that step -- the original engine's NPC-on-warp-tile behavior --
+  -- and the facing path never fires because the tile ahead is walkable
+  -- (no door), so no trigger precedes the blocked move.
   local starts = {}
   local transition = {
     phase = "idle",
@@ -575,14 +571,7 @@ function T.actor_on_an_open_warp_cell_blocks_the_walk_but_not_the_route()
     cameraType = 4,
     coordinateOrigin = { x = 0, z = 0 },
     fieldData = { events = { warps = { warp } } },
-    collision = {
-      containsLocal = function(_, x, z)
-        return x >= 0 and x < 32 and z >= 0 and z < 32
-      end,
-      isBlockedLocal = function()
-        return false
-      end,
-    },
+    collision = TilePermissions.new({ ["4:14"] = { behavior = DOOR, blocked = true } }),
     terrain = TerrainSurface.new({
       plates = {
         {
@@ -624,18 +613,60 @@ function T.actor_on_an_open_warp_cell_blocks_the_walk_but_not_the_route()
   Assert.equal(player.motion, "idle")
 end
 
-function T.standing_warp_starts_only_when_a_step_commits()
+function T.standing_generic_warp_starts_when_a_step_commits()
+  -- A step onto a north-entrance tile (the step-path generic kind) starts
+  -- immediately on the committing tick, matching FieldSystem_CheckTransition.
   local session, _, starts, warp = warpSession({
     fieldX = 4,
     fieldZ = 13,
     warpX = 4,
     warpZ = 14,
     commit = true,
+    tiles = { ["4:14"] = { behavior = ENTRANCE_NORTH } },
   })
   session:updateFixed({ heldDirection = "south" })
   Assert.equal(#starts, 1)
   Assert.equal(starts[1].warp, warp)
   Assert.equal(session.player.fieldZ, 14)
+end
+
+function T.entrance_south_warp_starts_on_the_facing_path_after_the_step()
+  -- The Elm Lab door pattern: stepping onto the walkable WARP_ENTRANCE_SOUTH
+  -- tile starts nothing (step path is generic-only); the trigger fires the
+  -- next tick through the facing path, while the idle player holds south
+  -- toward the blocked wall tile ahead.
+  local session, _, starts, warp = warpSession({
+    fieldX = 4,
+    fieldZ = 13,
+    warpX = 4,
+    warpZ = 14,
+    commit = true,
+    tiles = {
+      ["4:14"] = { behavior = ENTRANCE_SOUTH },
+      ["4:15"] = { blocked = true },
+    },
+  })
+  session:updateFixed({ heldDirection = "south" })
+  Assert.equal(#starts, 0, "the step path must not fire a direction-gated warp")
+  session:updateFixed({ heldDirection = "south" })
+  Assert.equal(#starts, 1)
+  Assert.equal(starts[1].warp, warp)
+  Assert.equal(starts[1].facing, "south")
+end
+
+function T.entrance_south_warp_does_not_start_without_its_facing_direction()
+  local session, _, starts = warpSession({
+    fieldX = 4,
+    fieldZ = 14,
+    warpX = 4,
+    warpZ = 14,
+    tiles = {
+      ["4:14"] = { behavior = ENTRANCE_SOUTH },
+      ["4:15"] = { blocked = true },
+    },
+  })
+  session:updateFixed({ heldDirection = "north" })
+  Assert.equal(#starts, 0)
 end
 
 function T.arrival_suppression_prevents_immediate_standing_bounce()
@@ -645,6 +676,7 @@ function T.arrival_suppression_prevents_immediate_standing_bounce()
     warpX = 4,
     warpZ = 14,
     commit = true,
+    tiles = { ["4:14"] = { behavior = ENTRANCE_NORTH } },
   })
   transition.suppression = { mapId = 61, fieldX = 4, fieldZ = 14 }
   session:updateFixed({ heldDirection = "south" })

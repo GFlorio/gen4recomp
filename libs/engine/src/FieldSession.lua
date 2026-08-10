@@ -19,6 +19,7 @@
 -- The resolve service is invoked with the interactions table as self (colon
 -- style), so implementations must declare a leading self parameter.
 
+local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
 local WarpSystem = require("libs.engine.src.WarpSystem")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
 
@@ -238,15 +239,23 @@ function FieldSession:updateFixed(inputSnapshot)
     end
   end
 
+  -- Facing-trigger path: an idle player pressing a direction
+  -- evaluates the HGSS input path -- a blocked DOOR tile ahead, or a
+  -- direction-gated standing door/stairs/warp on the player's own tile.
   local direction = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
   if self.player.motion == "idle" and direction then
-    local facingWarp = WarpSystem.findBlockedFacing(self.currentMap, self.player.fieldX, self.player.fieldZ, direction)
+    local trigger = TransitionTrigger.inputPath(self.currentMap, self.player.fieldX, self.player.fieldZ, direction)
     if
-      facingWarp
-      and not WarpSystem.isSuppressed(self.transition.suppression, self.currentMap.mapId, facingWarp.x, facingWarp.z)
+      trigger
+      and not WarpSystem.isSuppressed(
+        self.transition.suppression,
+        self.currentMap.mapId,
+        trigger.warp.x,
+        trigger.warp.z
+      )
     then
       self.player.facing = direction
-      self.transition:start(self.currentMap, facingWarp, direction)
+      self.transition:start(self.currentMap, trigger.warp, direction)
       self:_advanceTick()
       return
     end
@@ -259,17 +268,21 @@ function FieldSession:updateFixed(inputSnapshot)
 
   local stepCompleted = self.player:updateFixed(inputSnapshot) == true
   if stepCompleted then
-    local standingWarp = WarpSystem.findAt(self.currentMap, self.player.fieldX, self.player.fieldZ)
+  -- Standing-trigger path: a completed step onto a warp tile
+  -- evaluates the HGSS step path -- north/panel/ladder-down/escalator
+  -- behaviors only; direction-gated warps wait for the facing path above.
+    local trigger =
+      TransitionTrigger.stepPath(self.currentMap, self.player.fieldX, self.player.fieldZ, self.player.facing)
     if
-      standingWarp
+      trigger
       and not WarpSystem.isSuppressed(
         self.transition.suppression,
         self.currentMap.mapId,
-        self.player.fieldX,
-        self.player.fieldZ
+        trigger.warp.x,
+        trigger.warp.z
       )
     then
-      self.transition:start(self.currentMap, standingWarp, self.player.facing)
+      self.transition:start(self.currentMap, trigger.warp, self.player.facing)
     end
   end
   -- Pose clocks advance only on a tick that could change the world, so a fade or
