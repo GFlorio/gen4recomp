@@ -8,6 +8,17 @@
 local CameraHistory = require("libs.engine.src.CameraHistory")
 local Matrix4 = require("libs.math.src.Matrix4")
 
+-- HGSS renders billboards and field effects through a depth-biased copy of the
+-- projection: pokeheartgold src/field/fieldmap.c ov01_021E6220 copies the
+-- active projection after drawing maps and props, bumps `_32` (the Z-row
+-- translation) by `_22` (the Z-row scale) times `fieldSystem->unk11C = 8`
+-- model units times cos(-camera.angle.x), draws FieldEffectManager_Render and
+-- BillboardLists_Draw through it, then restores the original projection. The
+-- pull lives entirely in the depth row, so billboards keep their screen
+-- position and size but win depth ties against same-depth map geometry. With
+-- 16 model units per tile, the 8 model units become 0.5 tiles.
+local FIELD_BILLBOARD_DEPTH_OFFSET_TILES = 0.5
+
 ---@class FieldCamera
 ---@field cameraSourceY number
 ---@field cameraAppliedY number
@@ -173,8 +184,22 @@ function FieldCamera:projection()
   return self:_projection(self.projectionAspect, self.zoom)
 end
 
+-- The projection field billboards draw through: the normal projection with the
+-- DS's fixed depth pull added to the Z-row translation. Cos is even, so
+-- cos(-angleX) and cos(angleX) agree and the profile's raw pitch is enough.
+-- Returns a fresh matrix; `projection()` is unaffected.
+function FieldCamera:billboardProjection()
+  local projection = self:projection()
+  local angleX = angleIndexToRadians(self.profile.angleXRaw)
+  local depthOffset = FIELD_BILLBOARD_DEPTH_OFFSET_TILES * math.cos(angleX)
+  projection[15] = projection[15] + projection[11] * depthOffset
+  return projection
+end
+
 function FieldCamera:canonicalProjection()
   return self:_projection(self.canonicalAspect, 1)
 end
+
+FieldCamera.FIELD_BILLBOARD_DEPTH_OFFSET_TILES = FIELD_BILLBOARD_DEPTH_OFFSET_TILES
 
 return FieldCamera

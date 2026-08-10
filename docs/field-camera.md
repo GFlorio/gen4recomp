@@ -23,6 +23,12 @@ Player X/Z deltas apply immediately. Y deltas pass through the original
 seven-entry, six-frame `CameraHistory` delay. Zoom never changes the eye,
 target, authored distance, angles, or history.
 
+`FieldCamera:billboardProjection()` is the projection field billboards draw
+through (HGSS `ov01_021E6220`; see rendering.md for the source mechanics):
+the normal projection with the DS's fixed 0.5-tile depth pull scaled by
+`cos(angleX)` added into the Z-row translation. Only actor billboards use it;
+everything else keeps `projection()`.
+
 ## Aspect and safe area
 
 The canonical composition is 4:3. Expanded mode preserves the centered 4:3

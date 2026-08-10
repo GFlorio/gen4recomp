@@ -157,11 +157,14 @@ function MapRenderer:_sendLighting(runtime)
 end
 
 -- Bind a material's uniforms/texture/cull state, then draw the mesh.
-function MapRenderer:_drawItem(item, viewMatrix, polygonIdOverride)
+-- `projection` is per item: billboard actors draw through the camera's
+-- field-billboard projection, everything else through the world projection.
+function MapRenderer:_drawItem(item, viewMatrix, polygonIdOverride, projection)
   local mat = item.material
   local shader = self.shader
   local normalMatrix = Matrix3.normalMatrix(item.transform, viewMatrix)
 
+  shader:send("u_proj", "column", projection)
   shader:send("u_model", "column", item.transform)
   shader:send("u_normalMatrix", "column", normalMatrix)
 
@@ -186,7 +189,7 @@ end
 -- Draw the edges of a wireframe batch through the same projection path as
 -- filled geometry. The DS draws polygon alpha zero as wireframe edges rather
 -- than an invisible filled polygon.
-function MapRenderer:_drawWireframe(item, viewMatrix)
+function MapRenderer:_drawWireframe(item, viewMatrix, projection)
   local lg = love.graphics
   local shader = self.shader
   local normalMatrix = Matrix3.normalMatrix(item.transform, viewMatrix)
@@ -194,6 +197,7 @@ function MapRenderer:_drawWireframe(item, viewMatrix)
   lg.setShader(shader)
   lg.setDepthMode("less", true)
   lg.setBlendMode("alpha")
+  shader:send("u_proj", "column", projection)
   shader:send("u_model", "column", item.transform)
   shader:send("u_normalMatrix", "column", normalMatrix)
   shader:send("u_useTexture", false)
@@ -247,43 +251,56 @@ function MapRenderer:draw(runtime, camera, overlays, viewport, alpha)
     end
   end
 
+  -- Two projections, computed once per frame: the world projection and the
+  -- depth-biased billboard copy (see FieldCamera:billboardProjection). Only
+  -- actor billboards opt into the biased matrix; map/building billboards and
+  -- static-model actors keep the world projection, as on the DS.
+  local worldProjection = camera:projection()
+  local billboardProjection = camera:billboardProjection()
+
+  local function projectionFor(item)
+    return item.billboardProjection and billboardProjection or worldProjection
+  end
+
   local sceneTargets = { self.sceneColor, self.idDepth, depthstencil = self.depth }
 
   local function doDraw()
     lg.setCanvas(sceneTargets)
     lg.clear(BG_COLOR, ID_CLEAR, false, true)
     lg.setShader(self.shader)
-    self.shader:send("u_proj", "column", camera:projection())
+    lg.setDepthMode("less", true)
+    lg.setBlendMode("alpha")
     self.shader:send("u_view", "column", viewMatrix)
 
     local activeRecord = self:_sendLighting(runtime)
     local queue = RenderQueue.build(all, viewMatrix)
 
     -- Pass 1: opaque, depth test + write.
-    lg.setDepthMode("less", true)
-    lg.setBlendMode("alpha")
-    for _, d in ipairs(queue.opaque) do self:_drawItem(d, viewMatrix) end
+    for _, d in ipairs(queue.opaque) do
+      self:_drawItem(d, viewMatrix, nil, projectionFor(d))
+    end
 
     -- Pass 2: cutout, depth test + write, shader discards alpha-zero fragments.
-    for _, d in ipairs(queue.cutout) do self:_drawItem(d, viewMatrix) end
+    for _, d in ipairs(queue.cutout) do
+      self:_drawItem(d, viewMatrix, nil, projectionFor(d))
+    end
 
     -- Pass 3: blended, depth test on, write governed by polygon state. The
     -- ID/depth target stays bound so translucent fragments occlude the opaque
-    -- geometry behind them for edge marking; they stamp a sentinel ID so the edge
-    -- pass never outlines them. The ID/depth attachment carries alpha 1, so it is
-    -- replaced -- not alpha-blended -- even while the colour attachment blends.
+    -- geometry behind them for edge marking; they stamp a sentinel ID so the
+    -- edge pass never outlines them. The ID/depth attachment carries alpha 1,
+    -- so it is replaced -- not alpha-blended -- even while the colour
+    -- attachment blends.
     for _, d in ipairs(queue.translucent) do
       lg.setDepthMode(d.depthEqual and "lequal" or "less", d.translucentDepthWrite or false)
       lg.setBlendMode("alpha", "alphamultiply")
-      self:_drawItem(d, viewMatrix, TRANSLUCENT_SENTINEL_ID / 255)
+      self:_drawItem(d, viewMatrix, TRANSLUCENT_SENTINEL_ID / 255, projectionFor(d))
     end
 
     -- Pass 4: wireframe edges (polygon alpha zero). These count as opaque for
     -- edge marking and write their real polygon ID into the ID target.
     lg.setCanvas(sceneTargets)
-    lg.setDepthMode("less", true)
-    lg.setBlendMode("alpha")
-    for _, d in ipairs(queue.wireframe) do self:_drawWireframe(d, viewMatrix) end
+    for _, d in ipairs(queue.wireframe) do self:_drawWireframe(d, viewMatrix, projectionFor(d)) end
 
     -- Composite the scene canvas back to the screen through the edge shader,
     -- which outlines polygon-ID boundaries that carry a depth step.

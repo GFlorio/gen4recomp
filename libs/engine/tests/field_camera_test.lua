@@ -6,6 +6,7 @@ local Matrix4 = require("libs.math.src.Matrix4")
 
 local T = {}
 local function approx(a, b, tolerance) return math.abs(a - b) < (tolerance or 1e-6) end
+local function angleIndexToRadians(raw) return raw * 2 * math.pi / 65536 end
 
 local function profile(overrides)
   local value = {
@@ -21,6 +22,18 @@ local function profile(overrides)
   }
   for key, replacement in pairs(overrides or {}) do value[key] = replacement end
   return value
+end
+
+local function newBarkProfile()
+  return profile({
+    distanceTiles = 0x0029AEC1 / 65536,
+    angleXRaw = 0xDD62 - 0x10000,
+    halfFovRadians = angleIndexToRadians(0x05C1),
+    fullVerticalFovRadians = angleIndexToRadians(0x05C1) * 2,
+    nearTiles = 0x00096000 / 65536,
+    farTiles = 0x004B0000 / 65536,
+    targetOffsetTiles = { x = 0, y = 0, z = 0 },
+  })
 end
 
 function T.eye_uses_raw_angles_distance_and_effective_target()
@@ -87,6 +100,48 @@ function T.canonical_projection_ignores_runtime_aspect_and_zoom()
   Assert.deepEqual(camera:canonicalProjection(), canonical)
 end
 
+-- The billboard projection is the world projection with the Z-row translation
+-- pulled toward the camera (see FieldCamera:billboardProjection).
+function T.billboard_projection_bumps_only_the_z_translation()
+  local prof = profile()
+  local camera = FieldCamera.new(prof, { initialTarget = { x = 0, y = 0, z = 0 } })
+  local normal = camera:projection()
+  local billboard = camera:billboardProjection()
+  local angleX = angleIndexToRadians(prof.angleXRaw)
+  local expectedDelta = normal[11] * FieldCamera.FIELD_BILLBOARD_DEPTH_OFFSET_TILES * math.cos(angleX)
+  Assert.near(billboard[15], normal[15] + expectedDelta, 1e-9,
+    "the Z-row translation gains the depth pull")
+  for i = 1, 16 do
+    if i ~= 15 then
+      Assert.near(billboard[i], normal[i], 1e-9, "element " .. i .. " is unchanged")
+    end
+  end
+  Assert.deepEqual(camera:projection(), normal, "the camera's own projection is untouched")
+end
+
+function T.billboard_projection_pulls_toward_the_camera_for_field_pitches()
+  local camera = FieldCamera.new(newBarkProfile(), { initialTarget = { x = 0, y = 0, z = 0 } })
+  local normal = camera:projection()
+  local billboard = camera:billboardProjection()
+  Assert.isTrue(billboard[15] < normal[15],
+    "the negative z-scale times a positive offset pulls the depth row down")
+end
+
+function T.billboard_projection_applies_to_orthographic_profiles_too()
+  local prof = profile({
+    projectionType = "orthographic",
+    distanceTiles = 20,
+    halfFovRadians = math.rad(30),
+  })
+  local camera = FieldCamera.new(prof, { initialTarget = { x = 0, y = 0, z = 0 }, canonicalAspect = 4 / 3 })
+  local normal = camera:projection()
+  local billboard = camera:billboardProjection()
+  local angleX = angleIndexToRadians(prof.angleXRaw)
+  Assert.near(billboard[15],
+    normal[15] + normal[11] * FieldCamera.FIELD_BILLBOARD_DEPTH_OFFSET_TILES * math.cos(angleX), 1e-9)
+  Assert.near(billboard[12], normal[12], 1e-9, "the orthographic w row is untouched")
+end
+
 function T.history_can_be_disabled()
   local camera = FieldCamera.new(profile(), {
     initialTarget = { x = 0, y = 0, z = 0 }, historyEnabled = false,
@@ -128,16 +183,8 @@ function T.view_interpolates_between_the_previous_and_current_states()
 end
 
 function T.new_bark_profile_uses_full_vertical_fov_and_exact_eye_orbit()
-  local halfFov = 0x05C1 * 2 * math.pi / 65536
-  local camera = FieldCamera.new(profile({
-    distanceTiles = 0x0029AEC1 / 65536,
-    angleXRaw = 0xDD62 - 0x10000,
-    halfFovRadians = halfFov,
-    fullVerticalFovRadians = halfFov * 2,
-    nearTiles = 0x00096000 / 65536,
-    farTiles = 0x004B0000 / 65536,
-    targetOffsetTiles = { x = 0, y = 0, z = 0 },
-  }), { initialTarget = { x = 0, y = 0, z = 0 } })
+  local halfFov = angleIndexToRadians(0x05C1)
+  local camera = FieldCamera.new(newBarkProfile(), { initialTarget = { x = 0, y = 0, z = 0 } })
   Assert.isTrue(approx(camera.eye.x, 0))
   Assert.isTrue(approx(camera.eye.y, 31.305264, 1e-5))
   Assert.isTrue(approx(camera.eye.z, 27.521307, 1e-5))
@@ -145,7 +192,7 @@ function T.new_bark_profile_uses_full_vertical_fov_and_exact_eye_orbit()
 end
 
 function T.elms_lab_profile_has_exact_canonical_orthographic_extents()
-  local halfFov = 0x0281 * 2 * math.pi / 65536
+  local halfFov = angleIndexToRadians(0x0281)
   local camera = FieldCamera.new(profile({
     projectionType = "orthographic",
     distanceTiles = 0x0061B89B / 65536,

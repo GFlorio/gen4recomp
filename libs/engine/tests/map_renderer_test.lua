@@ -60,6 +60,7 @@ function T.field_viewport_sizes_and_rebuilds_render_targets()
     distance = 26,
     view = function() return identity end,
     projection = function() return identity end,
+    billboardProjection = function() return identity end,
   }
   local runtime = {
     mapDraws = {}, buildingDraws = {},
@@ -104,6 +105,7 @@ function T.an_actor_billboard_draw_leaks_no_render_state()
     distance = 26,
     view = function() return identity end,
     projection = function() return identity end,
+    billboardProjection = function() return identity end,
   }
   local runtime = {
     mapDraws = {}, buildingDraws = {},

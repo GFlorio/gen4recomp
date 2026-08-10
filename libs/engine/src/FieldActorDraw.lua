@@ -45,8 +45,9 @@ function FieldActorDraw.item(record, entry, submissionIndex, partIndex)
   local anchor = geometry.anchorTiles
   local placement = Matrix4.translate(record.world.x + anchor.x,
     record.world.y + anchor.y, record.world.z + anchor.z)
+  local isBillboard = render.kind ~= "staticModel"
   local billboardBase
-  if render.kind ~= "staticModel" then
+  if isBillboard then
     billboardBase = Matrix4.multiply(placement, geometry.baseTransform)
   end
   local transform = billboardBase or placement
@@ -59,6 +60,10 @@ function FieldActorDraw.item(record, entry, submissionIndex, partIndex)
     material = { image = image, alphaClass = part.alphaClass },
     transform = transform,
     billboardBase = billboardBase,
+    -- Actor quads draw through the depth-biased billboard projection (see
+    -- FieldCamera:billboardProjection); static-model actors keep the world
+    -- projection like the DS's 3D-object task manager.
+    billboardProjection = isBillboard,
     alphaClass = part.alphaClass,
     cullMode = polygon.cullMode,
     polygonAlpha = polygon.polygonAlpha / 31,

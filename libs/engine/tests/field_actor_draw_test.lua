@@ -33,6 +33,24 @@ local function record(overrides)
   return base
 end
 
+-- Convert an entry's visual to a static model: the surgery every static-model
+-- test needs. `makeParts(render)` optionally supplies the part list before the
+-- shared render fields are cleared.
+local function staticModelEntry(spriteId, makeParts)
+  local asset = entry(spriteId, { frameCount = 1 })
+  local render = asset.visual.render
+  render.kind = "staticModel"
+  render.geometry.baseTransform = nil
+  render.geometry.anchorTiles = { x = 0, y = 0, z = 0 }
+  render.parts = makeParts and makeParts(render) or { {
+    geometry = render.geometry,
+    polygon = render.polygon,
+    alphaClass = render.alphaClass,
+  } }
+  render.geometry, render.polygon, render.alphaClass = nil, nil, nil
+  return asset
+end
+
 function T.places_the_billboard_at_the_world_position_plus_the_source_anchor()
   local item = FieldActorDraw.item(record(), entry(99), 1)
   Assert.equal(item.billboardBase[13], 3)
@@ -43,19 +61,22 @@ function T.places_the_billboard_at_the_world_position_plus_the_source_anchor()
     "the renderer resolves the same matrix it was handed")
 end
 
+-- Actor billboards draw through the depth-biased billboard projection while
+-- static models keep the world projection (see FieldCamera:billboardProjection).
+function T.billboard_actors_select_the_field_billboard_projection()
+  local item = FieldActorDraw.item(record(), entry(99), 1)
+  Assert.isTrue(item.billboardProjection)
+end
+
+function T.static_model_actors_keep_the_world_projection()
+  local item = FieldActorDraw.item(record({ spriteId = 183, facing = "north" }),
+    staticModelEntry(183), 1)
+  Assert.isFalse(item.billboardProjection)
+end
+
 function T.places_a_static_model_without_a_billboard_transform()
-  local asset = entry(183, { frameCount = 1 })
-  local render = asset.visual.render
-  render.kind = "staticModel"
-  render.geometry.baseTransform = nil
-  render.geometry.anchorTiles = { x = 0, y = 0, z = 0 }
-  render.parts = { {
-    geometry = render.geometry,
-    polygon = render.polygon,
-    alphaClass = render.alphaClass,
-  } }
-  render.geometry, render.polygon, render.alphaClass = nil, nil, nil
-  local item = FieldActorDraw.item(record({ spriteId = 183, facing = "north" }), asset, 1)
+  local item = FieldActorDraw.item(record({ spriteId = 183, facing = "north" }),
+    staticModelEntry(183), 1)
   Assert.isNil(item.billboardBase)
   Assert.equal(item.transform[13], 3)
   Assert.equal(item.transform[14], 1.5)
@@ -63,15 +84,12 @@ function T.places_a_static_model_without_a_billboard_transform()
 end
 
 function T.emits_every_static_model_part_with_its_own_material()
-  local asset = entry(183, { frameCount = 1 })
-  local render = asset.visual.render
-  local geometry, polygon = render.geometry, render.polygon
-  render.kind = "staticModel"
-  render.parts = {
-    { geometry = geometry, polygon = polygon, alphaClass = "opaque", textured = true },
-    { geometry = geometry, polygon = polygon, alphaClass = "translucent", textured = false },
-  }
-  render.geometry, render.polygon, render.alphaClass = nil, nil, nil
+  local asset = staticModelEntry(183, function(render)
+    return {
+      { geometry = render.geometry, polygon = render.polygon, alphaClass = "opaque", textured = true },
+      { geometry = render.geometry, polygon = render.polygon, alphaClass = "translucent", textured = false },
+    }
+  end)
   asset.meshes[2] = { frameIndex = 2 }
 
   local items = FieldActorDraw.items({ record({ spriteId = 183 }) },

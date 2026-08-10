@@ -189,6 +189,19 @@ depth: it depth-tests against map geometry as a flat card at the actor's own
 distance, which is what makes walls and foreground geometry occlude it correctly.
 A world-upright quad would instead be squashed by the camera pitch.
 
+HGSS does not draw those billboards through the same projection as the map.
+After maps and props, `ov01_021E6220` (pokeheartgold `src/field/fieldmap.c`)
+copies the active projection, bumps `_32` (the Z-row translation) by `_22` (the
+Z-row scale) times `fieldSystem->unk11C = 8` model units times
+`cos(-camera.angle.x)`, renders field effects and `BillboardLists_Draw`, then
+restores the projection before the remaining 3D objects. The pull stays inside
+the depth row, so billboards keep their screen position and size but win depth
+ties against same-depth props (signs, mailboxes); 8 model units is 0.5 tiles
+here. `FieldCamera:billboardProjection()` reproduces the matrix, and
+`FieldActorDraw` flags ordinary actor quads with it so `MapRenderer` binds it
+per draw; map/building billboards render in the map pass and static-model
+actors draw with the world projection, exactly as on the DS.
+
 ## Exact versus approximate behavior
 
 ### Implemented exactly (or close enough for the target maps)
@@ -204,6 +217,9 @@ A world-upright quad would instead be squashed by the camera pitch.
 * Culling from polygon bits 6-7.
 * Translucent bit-11 depth writes.
 * `BB` billboards, resolved per frame from the captured base transform.
+* The field-billboard depth bias (`unk11C = 8` model units in `ov01_021E6220`):
+  actor billboards render through a projection whose Z row is pulled
+  0.5 · cos(pitch) tiles toward the camera, so they win same-depth ties.
 * `NODEMIX` position blending through the joints' inverse bind poses. Its normal
   blend is not computed separately: it follows from the position blend while each
   bind pose is rigid, which the compiler checks per joint and raises
