@@ -4,8 +4,26 @@ USER root
 RUN apt-get update \
     && add-apt-repository --yes ppa:bartbes/love-stable \
     && apt-get update \
-    && apt-get install -y --no-install-recommends luajit love \
+    && apt-get install -y --no-install-recommends \
+        luajit \
+        love \
+        libgl1 \
+        libegl1 \
+        libgl1-mesa-dri \
+        libegl-mesa0 \
+        libglx-mesa0 \
     && rm -rf /var/lib/apt/lists/*
+# The sandbox has no display and no GPU device, so LÖVE renders through SDL's
+# offscreen video driver against Mesa's llvmpipe software rasterizer. libgl1 and
+# libegl1 are the libglvnd dispatch libraries SDL dlopens; the mesa packages are
+# the vendor implementations behind them. Drop any of the five and SDL fails with
+# "Could not initialize OpenGL / GLES library".
+ENV SDL_VIDEODRIVER=offscreen
+ENV LIBGL_ALWAYS_SOFTWARE=1
+# There is no audio device either. OpenAL Soft (LÖVE's audio backend) otherwise
+# spends the startup enumerating ALSA devices that cannot open.
+ENV SDL_AUDIODRIVER=dummy
+ENV ALSOFT_DRIVERS=null
 # Versions are pinned to the ones CI installs (.github/workflows/ci.yml). A
 # formatter or analyzer that differs from CI's makes the pre-commit hook
 # disagree with the binding gate.
