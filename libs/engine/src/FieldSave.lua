@@ -15,7 +15,8 @@ local WarpSystem = require("libs.engine.src.WarpSystem")
 local FieldSave = {}
 
 FieldSave.SCHEMA = "g4-field-save-v1"
-FieldSave.PATH = "save/field-session-v1.lua"
+-- Relative to the SaveFs root (saves/<versionId>/), never the version cache.
+FieldSave.PATH = "field-session-v1.lua"
 
 local FACING = { north = true, south = true, west = true, east = true }
 local HEIGHT_EPSILON = 1e-9

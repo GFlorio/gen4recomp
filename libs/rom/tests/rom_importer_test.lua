@@ -5,6 +5,7 @@ local RomSource = require("libs.rom.src.RomSource")
 local NdsBuilder = require("tests.support.NdsBuilder")
 local DumpFixture = require("tests.support.DumpFixture")
 local CacheFs = require("libs.rom.src.CacheFs")
+local SaveFs = require("libs.rom.src.SaveFs")
 local FakeCache = require("tests.support.FakeCache")
 
 local T = {}
@@ -104,12 +105,15 @@ function T.imports_synthetic_rom_to_completion()
   Assert.equal(h.events[1], "heartgold")
 end
 
--- Validation (SHA-1/header) must fully precede any cache write (E8-S1).
+-- Validation (SHA-1/header) must fully precede any cache write (E8-S1), and
+-- nothing in the import lifecycle may touch the persistent save namespace.
 function T.validation_precedes_cache_cleanup()
   local h = harness()
-  -- Pre-seed a marker and a stray file; an unknown ROM must leave them intact.
+  -- Pre-seed a marker, a stray file, and a save; an unknown ROM must leave all
+  -- of them intact.
   h.backend.files[HG .. "rom-dump.complete"] = "STALE"
   h.backend.files[HG .. "stray"] = "KEEP"
+  h.backend.files["saves/heartgold/field-session-v1.lua"] = "SAVE-DATA"
   -- A version catalog that recognizes nothing => NdsRom.open rejects by SHA-1.
   local blind = { info = function() end, forSha1 = function() end, forGameCode = function() end }
   local importer = RomImporter.new({
@@ -127,6 +131,7 @@ function T.validation_precedes_cache_cleanup()
   Assert.equal(importer:status().errorCode, "NDS_UNKNOWN_ROM")
   Assert.equal(h.backend.files[HG .. "rom-dump.complete"], "STALE")
   Assert.equal(h.backend.files[HG .. "stray"], "KEEP")
+  Assert.equal(h.backend.files["saves/heartgold/field-session-v1.lua"], "SAVE-DATA")
 end
 
 -- A dropped non-.nds file is rejected with a friendly error before any read,
@@ -197,6 +202,18 @@ function T.reimport_always_extracts()
   runToTerminal(again)
   Assert.equal(again.state, "complete")
   Assert.notNil(again:status().report, "a fresh extraction is always performed")
+end
+
+-- The extraction rebuild wipes the version cache root; a persisted save in the
+-- sibling user-data namespace must survive the full production re-import.
+function T.reimport_preserves_saves()
+  local h = harness()
+  SaveFs.forVersion("heartgold", h.backend):write("field-session-v1.lua", "SAVE-DATA")
+  h.importer:startSource(RomSource.fromString(h.data))
+  runToTerminal(h.importer)
+  Assert.equal(h.importer.state, "complete")
+  Assert.equal(h.backend.files["saves/heartgold/field-session-v1.lua"], "SAVE-DATA")
+  Assert.isTrue(RomImporter.isReady("heartgold", CacheFs.forVersion("heartgold", h.backend), h.versions))
 end
 
 return T

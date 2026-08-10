@@ -87,9 +87,16 @@ Each version gets its own subtree so the two games never interfere:
 │       ├── overlay9/overlay_<id>.bin#   overlay tables, and per-overlay files
 │       ├── overlay7/overlay_<id>.bin
 │       └── unmapped/file_<id>.bin   # FAT entries with no FNT name or overlay
-└── soulsilver/
-    └── … same layout
+├── soulsilver/
+│   └── … same layout
+└── saves/                            # persistent user data, NOT part of any
+    └── heartgold/                    #   version cache: re-imports and cache
+        └── field-session-v1.lua      #   clears can never delete it
 ```
+
+Persistent saves live in the sibling `saves/<version>/` namespace so every
+operation that deletes or rebuilds a version cache is structurally incapable of
+touching them.
 
 ## Clearing one version's cache
 
@@ -99,6 +106,8 @@ that version's subtree under the save directory:
 ```sh
 rm -rf "<save-dir>/heartgold"     # or soulsilver
 ```
+
+Clearing a version cache never touches its saves under `<save-dir>/saves/`.
 
 LÖVE appends `love/<identity>` to its base directory, so the save directory is:
 

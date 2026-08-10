@@ -3,6 +3,7 @@
 -- exposes the field warp transition lifecycle.
 
 local CacheFs = require("libs.rom.src.CacheFs")
+local SaveFs = require("libs.rom.src.SaveFs")
 local DialogueLayout = require("libs.engine.src.DialogueLayout")
 local FieldActorAssetProvider = require("libs.engine.src.FieldActorAssetProvider")
 local FieldActorDraw = require("libs.engine.src.FieldActorDraw")
@@ -173,7 +174,7 @@ end
 function FieldState:_load()
   local ok, err = pcall(function()
     local cacheFs = CacheFs.forVersion(self.versionId)
-    self.saveStore = FieldSaveStore.new(cacheFs, { avatars = avatarIdSet() })
+    self.saveStore = FieldSaveStore.new(SaveFs.forVersion(self.versionId), { avatars = avatarIdSet() })
     if self.resetSave then
       self.saveStore:reset()
       self.resetSave = false
@@ -193,7 +194,7 @@ function FieldState:_load()
       if saved then
         restored, saveErr = FieldSave.restore(saved, self.mapLoader, self.versionId)
       end
-      if saveErr and saveErr.code ~= "CACHE_FILE_MISSING" then
+      if saveErr and saveErr.code ~= "SAVE_FILE_MISSING" then
         self.saveStatus = "Save ignored: " .. tostring(saveErr)
       elseif restored then
         self.saveStatus = "Resumed saved field session"
