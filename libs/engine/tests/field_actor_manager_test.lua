@@ -6,6 +6,7 @@ local Assert = require("tests.support.Assert")
 local Errors = require("libs.rom.src.Errors")
 local FieldActorManager = require("libs.engine.src.FieldActorManager")
 local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldObjectActor = require("libs.engine.src.FieldObjectActor")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
@@ -178,6 +179,14 @@ function T.equally_near_surfaces_are_ambiguous_rather_than_guessed()
   end)
 end
 
+function T.unexpected_surface_resolution_errors_propagate_unchanged()
+  -- Out-of-coverage is not an actor-surface condition: the coordinate failure
+  -- must reach the caller as itself, not as ACTOR_SURFACE_MISSING.
+  throwsCode("FIELD_COORDINATES_OUT_OF_COVERAGE", function()
+    manager({ object({ x = 50, z = 3 }) })
+  end)
+end
+
 function T.duplicate_object_event_ids_are_rejected()
   throwsCode("ACTOR_DUPLICATE_ID", function()
     manager({ object({ objectEventId = 0 }), object({ objectEventId = 0, x = 4 }) })
@@ -190,10 +199,62 @@ function T.two_solid_actors_on_one_cell_conflict()
   end)
 end
 
+function T.destroying_a_non_solid_actor_keeps_the_solid_occupant()
+  local mgr, eventState, assets = manager({
+    object({ objectEventId = 0, eventFlag = 401 }),
+    object({ objectEventId = 1, eventFlag = 402, solid = false }),
+  })
+  -- The non-solid actor shares the cell but never occupies it.
+  Assert.notNil(mgr:getById("map:61:object:1"))
+  Assert.equal(assert(mgr:getAt(61, 2, 3, 0)).actorId, "map:61:object:0")
+  eventState:setFlag(402)
+  mgr:step(1)
+  Assert.isNil(mgr:getById("map:61:object:1"))
+  Assert.equal(assert(mgr:getAt(61, 2, 3, 0), "the solid occupant survived").actorId, "map:61:object:0")
+  Assert.isTrue(mgr:isOccupied(61, 2, 3, 0))
+  Assert.equal(assets:total(), 1)
+end
+
+function T.stale_occupancy_cannot_be_removed_by_the_wrong_actor()
+  local mgr, _, assets = manager({ object({ objectEventId = 0 }) })
+  local entry = assert(mgr.maps[61])
+  -- A second solid actor whose cell coordinates match the occupant's, but
+  -- which never occupied the cell itself: destroying it must not clear the
+  -- occupant's entry.
+  local imposter = FieldObjectActor.new({
+    mapId = 61,
+    sourceEvent = object({ objectEventId = 5 }),
+    spriteId = 99,
+    visualDef = { spriteId = 99, mapModelId = 99 },
+    fieldX = 2,
+    fieldZ = 3,
+    surfaceId = 0,
+    worldX = 0,
+    worldY = 0,
+    worldZ = 0,
+  })
+  assets:acquire(99)
+  entry.actors[imposter.actorId] = imposter
+  entry.order[#entry.order + 1] = imposter
+  mgr:_destroy(entry, imposter)
+  Assert.equal(assert(mgr:getAt(61, 2, 3, 0), "the occupant entry survived").actorId, "map:61:object:0")
+end
+
 function T.uncompiled_sprite_is_fatal()
   throwsCode("ACTOR_VISUAL_MISSING", function()
     manager({ object({ spriteId = 148 }) })
   end)
+end
+
+function T.failed_actor_construction_releases_the_acquired_visual()
+  -- The facing is validated inside FieldObjectActor.new, after the visual was
+  -- acquired: the failed construction must return the visual to the provider.
+  local assets = fakeAssets({ [99] = true })
+  local mgr = FieldActorManager.new({ assets = assets, policy = POLICY })
+  throwsCode("ACTOR_FACING_INVALID", function()
+    mgr:enterMap(runtimeMap({ object({ facingDirection = "northwest" }) }), FieldEventState.new())
+  end)
+  Assert.equal(assets:total(), 0)
 end
 
 function T.variable_sprite_resolves_to_the_hero_graphic_by_default()

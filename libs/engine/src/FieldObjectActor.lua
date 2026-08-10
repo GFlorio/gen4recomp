@@ -13,7 +13,6 @@ local Errors = require("libs.rom.src.Errors")
 ---@field sourceEvent table
 ---@field spriteId integer
 ---@field visualDef table?
----@field visualAsset table?
 ---@field fieldX integer
 ---@field fieldZ integer
 ---@field surfaceId integer

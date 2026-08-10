@@ -89,7 +89,13 @@ local function resolveSurface(runtimeMap, event, actorId)
   if not Errors.is(result) then
     error(result)
   end
-  local code = SURFACE_ERROR_CODES[result.code] or "ACTOR_SURFACE_MISSING"
+  -- Only expected surface-resolution conditions are actor-surface failures; a
+  -- structured error of any other kind (e.g. out-of-coverage coordinates)
+  -- propagates unchanged rather than being re-labelled as a missing surface.
+  local code = SURFACE_ERROR_CODES[result.code]
+  if not code then
+    error(result)
+  end
   Errors.raise(
     code,
     "actor " .. actorId .. " has no single terrain surface: " .. result.message,
@@ -137,43 +143,53 @@ function FieldActorManager:_instantiate(entry, event)
   local spriteId = self:_resolveSpriteId(event)
   local asset = self:_acquireVisual(spriteId, actorId)
 
-  local actor = FieldObjectActor.new({
-    mapId = runtimeMap.mapId,
-    sourceEvent = event,
-    spriteId = spriteId,
-    visualDef = asset.visual,
-    fieldX = event.x,
-    fieldZ = event.z,
-    surfaceId = surface.surfaceId,
-    worldX = world.x,
-    worldY = world.y,
-    worldZ = world.z,
-  })
-  actor.visualAsset = asset
+  -- Local ownership: the visual is acquired for this construction only, so any
+  -- failure between acquisition and completed insertion releases it before the
+  -- error propagates. Solid actors (the default; an event may opt out) take the
+  -- occupancy cell, and two solid actors on one cell are a conflict.
+  local actor
+  local ok, err = pcall(function()
+    actor = FieldObjectActor.new({
+      mapId = runtimeMap.mapId,
+      sourceEvent = event,
+      spriteId = spriteId,
+      visualDef = asset.visual,
+      solid = event.solid,
+      fieldX = event.x,
+      fieldZ = event.z,
+      surfaceId = surface.surfaceId,
+      worldX = world.x,
+      worldY = world.y,
+      worldZ = world.z,
+    })
 
-  local key = occupancyKey(runtimeMap.mapId, actor.fieldX, actor.fieldZ, actor.surfaceId)
-  local occupant = entry.occupancy[key]
-  if actor.solid and occupant then
-    self.assets:release(actor.spriteId)
-    Errors.raise(
-      "ACTOR_OCCUPANCY_CONFLICT",
-      actorId .. " and " .. occupant.actorId .. " occupy the same field cell and surface",
-      {
-        actorId = actorId,
-        otherActorId = occupant.actorId,
-        mapId = runtimeMap.mapId,
-        fieldX = actor.fieldX,
-        fieldZ = actor.fieldZ,
-        surfaceId = actor.surfaceId,
-      }
-    )
+    local key = occupancyKey(runtimeMap.mapId, actor.fieldX, actor.fieldZ, actor.surfaceId)
+    local occupant = entry.occupancy[key]
+    if actor.solid and occupant then
+      Errors.raise(
+        "ACTOR_OCCUPANCY_CONFLICT",
+        actorId .. " and " .. occupant.actorId .. " occupy the same field cell and surface",
+        {
+          actorId = actorId,
+          otherActorId = occupant.actorId,
+          mapId = runtimeMap.mapId,
+          fieldX = actor.fieldX,
+          fieldZ = actor.fieldZ,
+          surfaceId = actor.surfaceId,
+        }
+      )
+    end
+    if actor.solid then
+      entry.occupancy[key] = actor
+    end
+    entry.actors[actorId] = actor
+    entry.byIndex[actor.objectEventId] = actorId
+    entry.order[#entry.order + 1] = actor
+  end)
+  if not ok then
+    self.assets:release(spriteId)
+    error(err)
   end
-  if actor.solid then
-    entry.occupancy[key] = actor
-  end
-  entry.actors[actorId] = actor
-  entry.byIndex[actor.objectEventId] = actorId
-  entry.order[#entry.order + 1] = actor
   return actor
 end
 
@@ -182,7 +198,13 @@ function FieldActorManager:_destroy(entry, actor)
   actor.visible = false
   entry.actors[actor.actorId] = nil
   entry.byIndex[actor.objectEventId] = nil
-  entry.occupancy[occupancyKey(actor.mapId, actor.fieldX, actor.fieldZ, actor.surfaceId)] = nil
+  -- Only solid actors ever occupy a cell, and only the exact occupant may
+  -- vacate it: a non-solid or stale actor must never erase another actor's
+  -- occupancy entry by coordinate.
+  local key = occupancyKey(actor.mapId, actor.fieldX, actor.fieldZ, actor.surfaceId)
+  if actor.solid and entry.occupancy[key] == actor then
+    entry.occupancy[key] = nil
+  end
   for index, candidate in ipairs(entry.order) do
     if candidate == actor then
       table.remove(entry.order, index)
@@ -190,7 +212,7 @@ function FieldActorManager:_destroy(entry, actor)
     end
   end
   self.assets:release(actor.spriteId)
-  actor.visualAsset, actor.visualDef = nil, nil
+  actor.visualDef = nil
 end
 
 -- Idempotent for an already-active runtime map, so a transition's overlapping
