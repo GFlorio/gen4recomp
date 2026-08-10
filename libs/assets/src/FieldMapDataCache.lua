@@ -3,7 +3,12 @@
 
 local FieldMapDataCache = {}
 
+local Validate = require("libs.assets.src.Validate")
+
 FieldMapDataCache.FORMAT = "g4-field-map-cache-v1"
+
+-- The event collections the current field-map schema always carries.
+local EVENT_COLLECTIONS = { "background", "objects", "warps", "coordinates" }
 
 function FieldMapDataCache.mapDir(mapId)
   assert(type(mapId) == "number" and mapId >= 0, "mapId must be non-negative")
@@ -26,16 +31,33 @@ function FieldMapDataCache.marker(romSha1, mapId, dependencyHash)
   return string.format("%s:%s:%d:%s", FieldMapDataCache.FORMAT, romSha1, mapId, dependencyHash)
 end
 
+-- True only if the marker is exact, the record carries the current identity
+-- (schema and mapId), dependencies load, and every required event collection
+-- is present as an array.
 function FieldMapDataCache.isReady(cacheFs, mapId, expectedMarker)
   if cacheFs:read(FieldMapDataCache.markerPath(mapId)) ~= expectedMarker then
     return false
   end
   local field = cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId))
   local dependencies = cacheFs:loadLua(FieldMapDataCache.dependenciesPath(mapId))
-  return type(field) == "table"
-    and field.schema == "g4-field-map-v1"
-    and field.mapId == mapId
-    and type(dependencies) == "table"
+  if
+    type(field) ~= "table"
+    or field.schema ~= "g4-field-map-v1"
+    or field.mapId ~= mapId
+    or type(dependencies) ~= "table"
+  then
+    return false
+  end
+  local events = field.events
+  if type(events) ~= "table" then
+    return false
+  end
+  for _, key in ipairs(EVENT_COLLECTIONS) do
+    if not Validate.isArray(events[key]) then
+      return false
+    end
+  end
+  return true
 end
 
 function FieldMapDataCache.invalidateMap(cacheFs, mapId)

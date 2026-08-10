@@ -8,6 +8,8 @@
 
 local ScriptCache = {}
 
+local Validate = require("libs.assets.src.Validate")
+
 ScriptCache.FORMAT = "script-cache-v1"
 ScriptCache.INDEX_SCHEMA = "g4-script-index-v1"
 ScriptCache.PROVENANCE_SCHEMA = "g4-script-provenance-v1"
@@ -42,7 +44,8 @@ function ScriptCache.marker(romSha1, depHash)
 end
 
 -- True only if the marker is exact, the index loads with the expected schema,
--- and every indexed script's file is present.
+-- resources is the required array of entries, and every indexed script's file
+-- loads as a field_script resource whose id matches its index entry.
 function ScriptCache.isReady(cacheFs, expectedMarker)
   if cacheFs:read(ScriptCache.markerPath()) ~= expectedMarker then
     return false
@@ -51,8 +54,15 @@ function ScriptCache.isReady(cacheFs, expectedMarker)
   if type(index) ~= "table" or index.schema ~= ScriptCache.INDEX_SCHEMA then
     return false
   end
-  for _, entry in ipairs(index.resources or {}) do
-    if not cacheFs:exists(ScriptCache.scriptPath(entry.id), "file") then
+  if not Validate.isArray(index.resources) then
+    return false
+  end
+  for _, entry in ipairs(index.resources) do
+    if type(entry) ~= "table" or type(entry.id) ~= "string" or entry.id == "" then
+      return false
+    end
+    local script = cacheFs:loadModule(ScriptCache.scriptPath(entry.id))
+    if type(script) ~= "table" or script.kind ~= "field_script" or script.id ~= entry.id then
       return false
     end
   end

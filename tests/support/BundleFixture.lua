@@ -37,6 +37,7 @@ function BundleFixture.minimal(mapId)
     mapBatches = { { geometry = MapAssetCache.geometryPath(meshSha), material = 0, node = 0 } },
     materials = { { id = 0, name = "m0", texture = MapAssetCache.texturePath(texSha) } },
     buildingInstances = { { placementIndex = 0, modelKey = modelKey } },
+    neighbors = {},
   }
 
   return {

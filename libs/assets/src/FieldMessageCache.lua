@@ -8,6 +8,8 @@
 
 local FieldMessageCache = {}
 
+local Validate = require("libs.assets.src.Validate")
+
 FieldMessageCache.FORMAT = "field-message-cache-v1"
 FieldMessageCache.SCHEMA = "g4-field-message-bank-v1"
 FieldMessageCache.INDEX_SCHEMA = "g4-field-message-index-v1"
@@ -37,7 +39,8 @@ function FieldMessageCache.marker(romSha1, depHash)
 end
 
 -- True only if the marker is exact, the index loads with the expected schema,
--- and every indexed bank's file is present.
+-- bankIds is the required array of bank ids, and every indexed bank's file
+-- loads with the expected schema and matching identity.
 function FieldMessageCache.isReady(cacheFs, expectedMarker)
   if cacheFs:read(FieldMessageCache.markerPath()) ~= expectedMarker then
     return false
@@ -46,8 +49,15 @@ function FieldMessageCache.isReady(cacheFs, expectedMarker)
   if type(index) ~= "table" or index.schema ~= FieldMessageCache.INDEX_SCHEMA then
     return false
   end
-  for _, bankId in ipairs(index.bankIds or {}) do
-    if not cacheFs:exists(FieldMessageCache.bankPath(bankId), "file") then
+  if not Validate.isArray(index.bankIds) then
+    return false
+  end
+  for _, bankId in ipairs(index.bankIds) do
+    if not Validate.isNonNegativeInteger(bankId) then
+      return false
+    end
+    local bank = cacheFs:loadLua(FieldMessageCache.bankPath(bankId))
+    if type(bank) ~= "table" or bank.schema ~= FieldMessageCache.SCHEMA or bank.bankId ~= bankId then
       return false
     end
   end

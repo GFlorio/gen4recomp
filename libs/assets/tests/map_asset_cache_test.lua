@@ -17,7 +17,8 @@ local function writeReadyMap(c, marker)
   c:write(
     dir .. "/scene.lua",
     string.format(
-      "return { terrain = { file = %q }, mapBatches = {}, materials = {}, buildingInstances = {} }\n",
+      "return { schema = %q, mapId = 61, terrain = { file = %q }, mapBatches = {}, materials = {}, buildingInstances = {}, neighbors = {} }\n",
+      MapAssetCache.SCENE_SCHEMA,
       MapAssetCache.terrainPath(61)
     )
   )
@@ -54,7 +55,10 @@ function T.not_ready_when_referenced_asset_missing()
   local dir = MapAssetCache.mapDir(61)
   c:write(
     dir .. "/scene.lua",
-    "return { mapBatches = { { geometry = 'assets/generated/maps/geometry/abc.g4mesh' } }, materials = {}, buildingInstances = {} }\n"
+    string.format(
+      "return { schema = %q, mapId = 61, mapBatches = { { geometry = 'assets/generated/maps/geometry/abc.g4mesh' } }, materials = {}, buildingInstances = {}, neighbors = {} }\n",
+      MapAssetCache.SCENE_SCHEMA
+    )
   )
   c:write(dir .. "/dependencies.lua", "return {}\n")
   c:write(dir .. "/permissions.bin", string.rep("\0", 2048))
@@ -107,7 +111,11 @@ function T.not_ready_when_model_descriptor_references_missing_asset()
   local meshPath = "assets/generated/maps/geometry/missing.g4mesh"
   c:write(
     dir .. "/scene.lua",
-    string.format("return { mapBatches = {}, materials = {}, buildingInstances = { { modelKey = %q } } }\n", modelKey)
+    string.format(
+      "return { schema = %q, mapId = 61, mapBatches = {}, materials = {}, buildingInstances = { { modelKey = %q } }, neighbors = {} }\n",
+      MapAssetCache.SCENE_SCHEMA,
+      modelKey
+    )
   )
   c:write(dir .. "/dependencies.lua", "return {}\n")
   c:write(dir .. "/permissions.bin", string.rep("\0", 2048))
@@ -131,6 +139,11 @@ function T.referenced_paths_includes_neighbor_batches_and_materials()
   local neighborPermissions = "data/generated/maps/0060/neighbors/3/permissions.bin"
   local neighborTerrain = "data/generated/maps/0060/neighbors/3/terrain.lua"
   local scene = {
+    schema = "g4-map-scene-v3",
+    mapId = 61,
+    mapBatches = {},
+    materials = {},
+    buildingInstances = {},
     neighbors = {
       {
         offsetTilesX = 1,

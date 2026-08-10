@@ -8,6 +8,8 @@
 
 local FieldActorCache = {}
 
+local Validate = require("libs.assets.src.Validate")
+
 FieldActorCache.FORMAT = "field-actor-cache-v1"
 FieldActorCache.SCHEMA = "g4-field-actor-v1"
 FieldActorCache.INDEX_SCHEMA = "g4-field-actor-index-v1"
@@ -44,7 +46,9 @@ function FieldActorCache.marker(romSha1, depHash)
 end
 
 -- True only if the marker is exact, the index loads with the expected schema,
--- and every indexed sprite's visual definition and atlas is present.
+-- spriteIds is the required array of sprite ids, and every indexed sprite's
+-- visual definition (with the expected schema and matching identity) and atlas
+-- is present.
 function FieldActorCache.isReady(cacheFs, expectedMarker)
   if cacheFs:read(FieldActorCache.markerPath()) ~= expectedMarker then
     return false
@@ -53,8 +57,15 @@ function FieldActorCache.isReady(cacheFs, expectedMarker)
   if type(index) ~= "table" or index.schema ~= FieldActorCache.INDEX_SCHEMA then
     return false
   end
-  for _, spriteId in ipairs(index.spriteIds or {}) do
-    if not cacheFs:exists(FieldActorCache.visualPath(spriteId), "file") then
+  if not Validate.isArray(index.spriteIds) then
+    return false
+  end
+  for _, spriteId in ipairs(index.spriteIds) do
+    if not Validate.isNonNegativeInteger(spriteId) then
+      return false
+    end
+    local visual = cacheFs:loadLua(FieldActorCache.visualPath(spriteId))
+    if type(visual) ~= "table" or visual.schema ~= FieldActorCache.SCHEMA or visual.spriteId ~= spriteId then
       return false
     end
     if not cacheFs:exists(FieldActorCache.atlasPath(spriteId), "file") then

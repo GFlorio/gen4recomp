@@ -36,6 +36,8 @@ local MODULES = {
   "libs.assets.tests.zone_events_test",
   "libs.assets.tests.permission_grid_test",
   "libs.assets.tests.map_asset_cache_test",
+  "libs.assets.tests.cache_readiness_test",
+  "libs.assets.tests.validate_test",
   "libs.assets.tests.mesh_writer_test",
   "libs.assets.tests.png_writer_test",
   "libs.assets.tests.map_matrix_test",
