@@ -21,9 +21,12 @@
 
 ---@class love.Canvas
 ---@field newImageData fun(self: love.Canvas): love.ImageData
+---@field setFilter fun(self: love.Canvas, minFilter: string, magFilter: string)
 ---@field release fun(self: love.Canvas)
 
 ---@class love.Shader
+---@field send fun(self: love.Shader, name: string, ...: any)
+---@field release fun(self: love.Shader)
 
 ---@class love.Mesh
 ---@field release fun(self: love.Mesh)
@@ -36,7 +39,7 @@
 ---@field newImage fun(data: unknown): love.Image
 ---@field newQuad fun(x: number, y: number, w: number, h: number, imageWidth: number, imageHeight: number): love.Quad
 ---@field newMesh fun(layout: table, vertices: table, mode: string, usage: string): love.Mesh
----@field newCanvas fun(): love.Canvas
+---@field newCanvas fun(...: any): love.Canvas
 ---@field newShader fun(...: any): love.Shader
 ---@field newImageData fun(...: any): love.ImageData
 ---@field setColor fun(...: number)
@@ -57,6 +60,7 @@
 ---@field getMeshCullMode fun(): string?
 ---@field getScissor fun(): number?, number?, number?, number?
 ---@field getColor fun(): number, number, number, number
+---@field clear fun(...: any)
 ---@field isWireframe fun(): boolean
 ---@field draw fun(object: unknown, ...: any)
 ---@field print fun(text: string, x: number, y: number)

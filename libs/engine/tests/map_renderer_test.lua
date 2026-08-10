@@ -140,10 +140,216 @@ local function syntheticMesh(vertices)
   return love.graphics.newMesh(VertexFormat.LAYOUT, vertices, "triangles", "static")
 end
 
--- An actor draw is a cutout billboard submitted as an overlay item, and it sets
--- per-item cull, depth, and alpha state. Nothing it touches may survive the
--- frame, or the 2D dialogue UI and the next map's draws inherit it.
-function T.an_actor_billboard_draw_leaks_no_render_state()
+-- An empty scene and camera for the state-restoration contract tests: the
+-- renderer draws nothing but still binds/unbinds canvases, shaders, and state.
+local function emptySceneCamera()
+  local identity = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 }
+  return {
+    camera = {
+      distance = 26,
+      view = function()
+        return identity
+      end,
+      projection = function()
+        return identity
+      end,
+      billboardProjection = function()
+        return identity
+      end,
+    },
+    runtime = {
+      mapDraws = {},
+      buildingDraws = {},
+      stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
+    },
+  }
+end
+
+-- Injected graphics for the headless restoration-contract tests: a full
+-- settable state surface (canvas, shader, blend, depth, wireframe, cull,
+-- color) that the renderer must restore exactly, stub shaders/canvases for
+-- construction, and a draw call that can fail on the Nth invocation so the
+-- error path runs without a GL context.
+local function fakeGraphics(opts)
+  opts = opts or {}
+  local shaders, canvases = {}, {}
+  local drawCalls = 0
+  local state = {
+    canvas = opts.canvas,
+    shader = opts.shader,
+    blendMode = opts.blendMode,
+    blendAlpha = opts.blendAlpha,
+    depthMode = opts.depthMode,
+    depthWrite = opts.depthWrite,
+    wireframe = opts.wireframe,
+    cullMode = opts.cullMode,
+    color = opts.color or { 1, 1, 1, 1 },
+  }
+  return {
+    shaders = shaders,
+    canvases = canvases,
+    newShader = function()
+      local shader = {}
+      shader.released = false
+      shader.send = function() end
+      shader.release = function()
+        shader.released = true
+      end
+      shaders[#shaders + 1] = shader
+      return shader
+    end,
+    newCanvas = function()
+      local canvas = {}
+      canvas.released = false
+      canvas.setFilter = function() end
+      canvas.release = function()
+        canvas.released = true
+      end
+      canvases[#canvases + 1] = canvas
+      return canvas
+    end,
+    getCanvas = function()
+      return state.canvas
+    end,
+    setCanvas = function(canvas)
+      state.canvas = canvas
+    end,
+    getShader = function()
+      return state.shader
+    end,
+    setShader = function(shader)
+      state.shader = shader
+    end,
+    getBlendMode = function()
+      return state.blendMode, state.blendAlpha
+    end,
+    setBlendMode = function(mode, alpha)
+      state.blendMode, state.blendAlpha = mode, alpha
+    end,
+    getDepthMode = function()
+      return state.depthMode, state.depthWrite
+    end,
+    setDepthMode = function(mode, write)
+      state.depthMode, state.depthWrite = mode, write
+    end,
+    isWireframe = function()
+      return state.wireframe
+    end,
+    setWireframe = function(wireframe)
+      state.wireframe = wireframe
+    end,
+    getMeshCullMode = function()
+      return state.cullMode
+    end,
+    setMeshCullMode = function(mode)
+      state.cullMode = mode
+    end,
+    getColor = function()
+      return state.color[1], state.color[2], state.color[3], state.color[4]
+    end,
+    setColor = function(r, g, b, a)
+      state.color = { r, g, b, a }
+    end,
+    draw = function()
+      drawCalls = drawCalls + 1
+      if opts.failOnDrawCall == drawCalls then
+        error("injected draw failure")
+      end
+    end,
+    clear = function() end,
+  }
+end
+
+-- The exact restoration contract: every captured state (canvas, shader,
+-- blend, depth, wireframe, cull, color) equals the pre-draw value, never a
+-- hard-coded default. Colors round-trip through float32 on some GL drivers,
+-- so they are compared within a small tolerance.
+local function assertRestoredState(lg, canvas, shader)
+  Assert.equal(lg.getCanvas(), canvas)
+  Assert.equal(lg.getShader(), shader)
+  local blend, alpha = lg.getBlendMode()
+  Assert.equal(blend, "add")
+  Assert.equal(alpha, "alphamultiply")
+  local depthMode, depthWrite = lg.getDepthMode()
+  Assert.equal(depthMode, "lequal")
+  Assert.equal(depthWrite, true)
+  Assert.equal(lg.isWireframe(), true)
+  Assert.equal(lg.getMeshCullMode(), "back")
+  local r, g, b, a = lg.getColor()
+  Assert.near(r, 0.2, 1e-6)
+  Assert.near(g, 0.4, 1e-6)
+  Assert.near(b, 0.6, 1e-6)
+  Assert.near(a, 0.8, 1e-6)
+end
+
+-- The renderer owns everything it created through the injected graphics: every
+-- shader and canvas it built must be released when the renderer is released.
+local function assertResourcesReleased(lg)
+  for _, shader in ipairs(lg.shaders) do
+    Assert.isTrue(shader.released, "renderer released every created shader")
+  end
+  for _, canvas in ipairs(lg.canvases) do
+    Assert.isTrue(canvas.released, "renderer released every created canvas")
+  end
+  Assert.equal(#lg.shaders, 2, "the two engine shaders were created")
+  Assert.equal(#lg.canvases, 3, "the scene, id-depth, and depth canvases were created")
+end
+
+function T.draw_restores_exact_caller_state()
+  local canvas, shader = {}, {}
+  local lg = fakeGraphics({
+    canvas = canvas,
+    shader = shader,
+    blendMode = "add",
+    blendAlpha = "alphamultiply",
+    depthMode = "lequal",
+    depthWrite = true,
+    wireframe = true,
+    cullMode = "back",
+    color = { 0.2, 0.4, 0.6, 0.8 },
+  })
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+  assertRestoredState(lg, canvas, shader)
+  renderer:release()
+  assertResourcesReleased(lg)
+end
+
+-- A draw failure must not leak the scene's state either: the captured caller
+-- state is restored exactly and the original draw error is rethrown.
+function T.draw_failure_restores_exact_state_and_rethrows()
+  local canvas, shader = {}, {}
+  local lg = fakeGraphics({
+    canvas = canvas,
+    shader = shader,
+    blendMode = "add",
+    blendAlpha = "alphamultiply",
+    depthMode = "lequal",
+    depthWrite = true,
+    wireframe = true,
+    cullMode = "back",
+    color = { 0.2, 0.4, 0.6, 0.8 },
+    failOnDrawCall = 1,
+  })
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  local err = Assert.throws(function()
+    renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+  end)
+  Assert.isTrue(tostring(err):find("injected draw failure", 1, true) ~= nil, "rethrows the draw failure")
+  assertRestoredState(lg, canvas, shader)
+  renderer:release()
+  assertResourcesReleased(lg)
+end
+
+-- An actor draw is a cutout billboard submitted as an overlay item, and it
+-- sets per-item cull, depth, and alpha state. With non-default caller state
+-- (a bound canvas, an active shader, add blending, depth testing, wireframe,
+-- back-face culling, a tinted color) every modified state must come back to
+-- the exact captured value, and the scissor the renderer never touches must be
+-- left alone -- or the 2D dialogue UI and the next map's draws inherit it.
+function T.draw_restores_exact_caller_state_on_real_graphics()
   if not hasGraphics() then
     return
   end
@@ -187,19 +393,37 @@ function T.an_actor_billboard_draw_leaks_no_render_state()
     submissionIndex = 1,
   }
 
-  lg.setMeshCullMode("none")
-  lg.setBlendMode("alpha")
-  lg.setColor(1, 1, 1, 1)
+  local canvas = lg.newCanvas(64, 64)
+  local shader = renderer.edgeShader
+  lg.setCanvas(canvas)
+  lg.setShader(shader)
+  lg.setBlendMode("add")
+  lg.setDepthMode("lequal", true)
+  lg.setWireframe(true)
+  lg.setMeshCullMode("back")
+  lg.setColor(0.2, 0.4, 0.6, 0.8)
+  lg.setScissor(4, 8, 32, 16)
+
   renderer:draw(runtime, camera, { actor }, FieldViewport.new(640, 480, { mode = "strict" }))
 
-  Assert.isNil(lg.getCanvas(), "the scene canvas is unbound")
-  Assert.isNil(lg.getShader(), "the map and edge shaders are unbound")
-  Assert.equal(lg.getMeshCullMode(), "none")
-  Assert.equal(lg.getBlendMode(), "alpha")
-  Assert.isFalse(lg.isWireframe())
-  local compare, depthWrite = lg.getDepthMode()
-  Assert.equal(compare, "always", "depth testing is left disabled")
-  Assert.isFalse(depthWrite)
+  assertRestoredState(lg, canvas, shader)
+  local sx, sy, sw, sh = lg.getScissor()
+  Assert.equal(sx, 4, "scissor x is untouched")
+  Assert.equal(sy, 8, "scissor y is untouched")
+  Assert.equal(sw, 32, "scissor width is untouched")
+  Assert.equal(sh, 16, "scissor height is untouched")
+
+  -- Restoration re-bound the exact pre-draw state (including this test's
+  -- deliberately non-default blend/depth/wireframe/cull/color); reset it to
+  -- the LÖVE defaults so the tests that follow start from a clean baseline.
+  lg.setCanvas()
+  lg.setShader()
+  lg.setScissor()
+  lg.setBlendMode("alpha")
+  lg.setDepthMode()
+  lg.setWireframe(false)
+  lg.setMeshCullMode("none")
+  lg.setColor(1, 1, 1, 1)
   mesh:release()
   renderer:release()
 end

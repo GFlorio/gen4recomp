@@ -7,16 +7,30 @@
 -- their polygon ID and depth into a second render target that the DS
 -- edge-marking post-process reads when compositing to the screen; the
 -- translucent pass deliberately leaves that target alone. It clears the depth
--- buffer itself (love's frame clear only touches color) and restores every GPU
--- state it changed so the diagnostic UI drawn afterwards is unaffected. It
--- builds no meshes or textures and reads no ROM/NARC data -- those belong to
--- the loader and compiler; here everything is already resident.
+-- buffer itself (love's frame clear only touches color) and restores the exact
+-- caller state it changed (canvas, shader, depth, cull, blend, wireframe,
+-- color) even when drawing raises, so the diagnostic UI drawn afterwards is
+-- unaffected. It builds no meshes or textures and reads no ROM/NARC data --
+-- those belong to the loader and compiler; here everything is already
+-- resident.
 
 local RenderQueue = require("libs.engine.src.RenderQueue")
 local BillboardTransform = require("libs.engine.src.BillboardTransform")
 local Matrix3 = require("libs.math.src.Matrix3")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
 
+---@class MapRenderer
+---@field _graphics love.Graphics
+---@field shader love.Shader
+---@field edgeShader love.Shader
+---@field edgeColors table<integer, number[]>
+---@field edgeAlpha number
+---@field stats { drawCalls: integer, triangles: integer, meshCount: integer, textureCount: integer }
+---@field sceneColor love.Canvas?
+---@field idDepth love.Canvas?
+---@field depth love.Canvas?
+---@field canvasW integer?
+---@field canvasH integer?
 local MapRenderer = {}
 MapRenderer.__index = MapRenderer
 
@@ -64,6 +78,7 @@ local MAX_EDGE_RADIUS = 8
 -- stays clear of the real 6-bit IDs (0-63) and the 255 rear-plane/wireframe id.
 local TRANSLUCENT_SENTINEL_ID = 254
 
+---@param opts { edgeMarking?: { colors?: number[][], alpha?: number }, graphics?: love.Graphics }?
 function MapRenderer.new(opts)
   opts = opts or {}
   local em = opts.edgeMarking or {}
@@ -75,9 +90,15 @@ function MapRenderer.new(opts)
     end
   end
   assert(#colors == 8, "edgeMarking.colors must have 8 entries")
+  local graphics = opts.graphics
+  if graphics == nil then
+    graphics = love and love.graphics
+  end
+  assert(graphics, "MapRenderer requires a graphics context")
   return setmetatable({
-    shader = love.graphics.newShader(loadShaderSource(SHADER_PATH)),
-    edgeShader = love.graphics.newShader(loadShaderSource(EDGE_SHADER_PATH)),
+    _graphics = graphics,
+    shader = graphics.newShader(loadShaderSource(SHADER_PATH)),
+    edgeShader = graphics.newShader(loadShaderSource(EDGE_SHADER_PATH)),
     edgeColors = colors,
     edgeAlpha = em.alpha or 0.5,
     stats = { drawCalls = 0, triangles = 0, meshCount = 0, textureCount = 0 },
@@ -102,15 +123,16 @@ function MapRenderer:_ensureCanvases(w, h)
   if self.sceneColor and self.canvasW == w and self.canvasH == h then
     return
   end
+  local lg = assert(self._graphics)
   self:_releaseCanvases()
-  self.sceneColor = love.graphics.newCanvas(w, h)
+  self.sceneColor = lg.newCanvas(w, h)
   -- Red holds the normalized polygon ID, green the linear eye-space depth in
   -- world units. The format must be 32-bit float: the depth spans the full near
   -- to far range (hundreds of units) and edge marking tests sub-unit steps
   -- against it, which 16-bit floats cannot resolve across that range.
-  self.idDepth = love.graphics.newCanvas(w, h, { format = "rg32f" })
+  self.idDepth = lg.newCanvas(w, h, { format = "rg32f" })
   self.idDepth:setFilter("nearest", "nearest")
-  self.depth = love.graphics.newCanvas(w, h, { format = "depth24stencil8", readable = false })
+  self.depth = lg.newCanvas(w, h, { format = "depth24stencil8", readable = false })
   self.canvasW, self.canvasH = w, h
 end
 
@@ -205,6 +227,7 @@ end
 -- `projection` is per item: billboard actors draw through the camera's
 -- field-billboard projection, everything else through the world projection.
 function MapRenderer:_drawItem(item, viewMatrix, polygonIdOverride, projection)
+  local lg = assert(self._graphics)
   local mat = item.material
   local shader = self.shader
   local normalMatrix = Matrix3.normalMatrix(item.transform, viewMatrix)
@@ -227,8 +250,8 @@ function MapRenderer:_drawItem(item, viewMatrix, polygonIdOverride, projection)
   shader:send("u_polygonMode", item.polygonMode == "decal" and 1 or 0)
   shader:send("u_polygonId", polygonIdOverride or (item.polygonId or 255) / 255)
   shader:send("u_lightMask", MapRenderer.lightMaskUniforms(item.lightMask))
-  love.graphics.setMeshCullMode(item.cullMode or "back")
-  love.graphics.draw(item.mesh)
+  lg.setMeshCullMode(item.cullMode or "back")
+  lg.draw(item.mesh)
   self.stats.drawCalls = self.stats.drawCalls + 1
 end
 
@@ -236,7 +259,7 @@ end
 -- filled geometry. The DS draws polygon alpha zero as wireframe edges rather
 -- than an invisible filled polygon.
 function MapRenderer:_drawWireframe(item, viewMatrix, projection)
-  local lg = love.graphics
+  local lg = assert(self._graphics)
   local shader = self.shader
   local normalMatrix = Matrix3.normalMatrix(item.transform, viewMatrix)
 
@@ -254,7 +277,7 @@ function MapRenderer:_drawWireframe(item, viewMatrix, projection)
   shader:send("u_polygonId", 1.0)
   shader:send("u_lightMask", MapRenderer.lightMaskUniforms(item.lightMask))
   item.mesh:setTexture()
-  love.graphics.setMeshCullMode(item.cullMode or "back")
+  lg.setMeshCullMode(item.cullMode or "back")
   lg.setWireframe(true)
   lg.draw(item.mesh)
   lg.setWireframe(false)
@@ -269,7 +292,7 @@ end
 -- host drawable.
 function MapRenderer:draw(runtime, camera, overlays, viewport, alpha)
   assert(viewport and viewport.worldViewport, "MapRenderer requires a FieldViewport")
-  local lg = love.graphics
+  local lg = assert(self._graphics)
   local all = {}
   for _, d in ipairs(runtime.mapDraws) do
     all[#all + 1] = d
@@ -375,16 +398,27 @@ function MapRenderer:draw(runtime, camera, overlays, viewport, alpha)
     return activeRecord
   end
 
+  -- Capture every caller state the draw modifies, restore the captured values
+  -- afterwards -- on success and error alike -- and rethrow the original draw
+  -- error. The 2D diagnostic UI after the scene must never inherit the
+  -- scene's canvas, shader, depth, cull, blend, wireframe, or color state.
+  local canvas = lg.getCanvas()
+  local shader = lg.getShader()
+  local blendMode, blendAlpha = lg.getBlendMode()
+  local depthMode, depthWrite = lg.getDepthMode()
+  local cullMode = lg.getMeshCullMode()
+  local wireframe = lg.isWireframe()
+  local color = { lg.getColor() }
+
   local ok, result = pcall(doDraw)
 
-  -- Restore state so the 2D diagnostic UI draws normally even after an error.
-  lg.setCanvas()
-  lg.setShader()
-  lg.setDepthMode()
-  lg.setMeshCullMode("none")
-  lg.setBlendMode("alpha")
-  lg.setWireframe(false)
-  lg.setColor(1, 1, 1, 1)
+  lg.setCanvas(canvas)
+  lg.setShader(shader)
+  lg.setBlendMode(blendMode, blendAlpha)
+  lg.setDepthMode(depthMode, depthWrite)
+  lg.setWireframe(wireframe)
+  lg.setMeshCullMode(cullMode)
+  lg.setColor(color[1], color[2], color[3], color[4])
 
   if not ok then
     error(result)
