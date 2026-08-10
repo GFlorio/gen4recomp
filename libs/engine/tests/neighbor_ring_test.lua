@@ -133,8 +133,8 @@ function T.builds_one_draw_per_cell_batch_with_offset_baked()
   local d2 = ring.draws[2]
   Assert.equal(d2.transform[13], -32)
   Assert.equal(d2.transform[15], -32)
-  Assert.isTrue(d2.submissionIndex > d1.submissionIndex, "submission indices are stable/ascending")
-  Assert.isTrue(d1.submissionIndex > 200000, "submission base is 200000")
+  Assert.isNil(d1.submissionIndex, "the ring carries no submission numbers; SceneAssembly assigns them")
+  Assert.isNil(d2.submissionIndex)
 
   ring:release()
 end

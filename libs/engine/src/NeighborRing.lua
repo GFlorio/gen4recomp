@@ -51,12 +51,12 @@ local function modelCenter(verts)
 end
 
 -- Build the ring against an already-created pool. Raises on any failure;
--- load() releases the pool in that case.
+-- load() releases the pool in that case. Draws carry no submission numbers:
+-- the final scene assembly (SceneAssembly) numbers every draw in source order.
 local function buildRing(pool, descriptors)
   -- One draw per (cell, batch), with the cell's 32-tile world offset baked into
   -- the transform and the sort center.
   local draws = {}
-  local submission = 200000 -- behind the diagnostic overlays' index space
   for _, cell in ipairs(descriptors or {}) do
     local ox, oz = cell.offsetTilesX, cell.offsetTilesZ
     local transform = Matrix4.translate(ox, 0, oz)
@@ -64,7 +64,6 @@ local function buildRing(pool, descriptors)
     for _, batch in ipairs(cell.batches) do
       local entry = pool:meshFor(batch.geometry)
       local c = modelCenter(entry.verts)
-      submission = submission + 1
       draws[#draws + 1] = {
         mesh = entry.mesh,
         material = materials[batch.material],
@@ -79,7 +78,6 @@ local function buildRing(pool, descriptors)
         translucentDepthWrite = batch.translucentDepthWrite or false,
         depthEqual = batch.depthEqual or false,
         center = { c[1] + ox, c[2], c[3] + oz },
-        submissionIndex = submission,
       }
     end
   end

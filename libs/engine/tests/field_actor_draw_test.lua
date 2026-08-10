@@ -63,7 +63,7 @@ local function staticModelEntry(spriteId, makeParts)
 end
 
 function T.places_the_billboard_at_the_world_position_plus_the_source_anchor()
-  local item = FieldActorDraw.item(record(), entry(99), 1)
+  local item = FieldActorDraw.item(record(), entry(99))
   Assert.equal(item.billboardBase[13], 3)
   Assert.near(
     item.billboardBase[14],
@@ -78,17 +78,17 @@ end
 -- Actor billboards draw through the depth-biased billboard projection while
 -- static models keep the world projection (see FieldCamera:billboardProjection).
 function T.billboard_actors_select_the_field_billboard_projection()
-  local item = FieldActorDraw.item(record(), entry(99), 1)
+  local item = FieldActorDraw.item(record(), entry(99))
   Assert.isTrue(item.billboardProjection)
 end
 
 function T.static_model_actors_keep_the_world_projection()
-  local item = FieldActorDraw.item(record({ spriteId = 183, facing = "north" }), staticModelEntry(183), 1)
+  local item = FieldActorDraw.item(record({ spriteId = 183, facing = "north" }), staticModelEntry(183))
   Assert.isFalse(item.billboardProjection)
 end
 
 function T.places_a_static_model_without_a_billboard_transform()
-  local item = FieldActorDraw.item(record({ spriteId = 183, facing = "north" }), staticModelEntry(183), 1)
+  local item = FieldActorDraw.item(record({ spriteId = 183, facing = "north" }), staticModelEntry(183))
   Assert.isNil(item.billboardBase)
   Assert.equal(item.transform[13], 3)
   Assert.equal(item.transform[14], 1.5)
@@ -111,11 +111,12 @@ function T.emits_every_static_model_part_with_its_own_material()
   Assert.equal(items[1].material.image, asset.image)
   Assert.isNil(items[2].material.image)
   Assert.equal(items[2].alphaClass, "translucent")
-  Assert.isTrue(items[1].submissionIndex ~= items[2].submissionIndex)
+  Assert.isNil(items[1].submissionIndex, "actor items carry no submission numbers; SceneAssembly assigns them")
+  Assert.isNil(items[2].submissionIndex)
 end
 
 function T.carries_the_source_polygon_state()
-  local item = FieldActorDraw.item(record(), entry(99), 1)
+  local item = FieldActorDraw.item(record(), entry(99))
   Assert.equal(item.alphaClass, "cutout")
   Assert.equal(item.cullMode, "back")
   Assert.equal(item.polygonMode, "modulation")
@@ -126,15 +127,15 @@ function T.carries_the_source_polygon_state()
 end
 
 function T.selects_the_mesh_of_the_posed_frame()
-  local idle = FieldActorDraw.item(record({ facing = "west" }), entry(99), 1)
+  local idle = FieldActorDraw.item(record({ facing = "west" }), entry(99))
   Assert.equal(idle.frameIndex, 3)
   Assert.equal(idle.mesh.frameIndex, 3)
 
-  local walking = FieldActorDraw.item(record({ facing = "west", pose = "walk", poseTick = 3 }), entry(99), 1)
+  local walking = FieldActorDraw.item(record({ facing = "west", pose = "walk", poseTick = 3 }), entry(99))
   Assert.equal(walking.frameIndex, 5, "the walk clock advances into the shared frame")
 end
 
-function T.items_skip_hidden_records_and_number_submissions_after_the_scene()
+function T.items_skip_hidden_records_and_leave_submissions_to_assembly()
   local assets = { [99] = entry(99), [29] = entry(29) }
   local items = FieldActorDraw.items({
     record(),
@@ -143,10 +144,8 @@ function T.items_skip_hidden_records_and_number_submissions_after_the_scene()
     return assets[spriteId]
   end)
   Assert.equal(#items, 1)
-  Assert.isTrue(
-    items[1].submissionIndex > FieldActorDraw.SUBMISSION_BASE,
-    "actor draws submit after map and building batches"
-  )
+  Assert.equal(items[1].actorId, "map:61:object:0")
+  Assert.isNil(items[1].submissionIndex, "the flattened scene assembly owns actor submission order")
 end
 
 function T.a_record_without_a_resident_visual_is_fatal()
@@ -161,7 +160,7 @@ function T.a_frame_the_visual_cannot_provide_is_fatal()
   local incomplete = entry(99)
   incomplete.meshes = { incomplete.meshes[1] }
   throwsCode("ACTOR_DRAW_FRAME_MISSING", function()
-    FieldActorDraw.item(record({ facing = "east" }), incomplete, 1)
+    FieldActorDraw.item(record({ facing = "east" }), incomplete)
   end)
 end
 

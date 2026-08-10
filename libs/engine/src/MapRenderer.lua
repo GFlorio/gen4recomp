@@ -337,25 +337,17 @@ function MapRenderer:_drawWireframe(item, viewMatrix, projection)
   self.stats.drawCalls = self.stats.drawCalls + 1
 end
 
--- `overlays` is an optional list of opaque diagnostic draw items (player prism,
--- anchor pins) rendered in the opaque pass so they depth-sort against the scene.
--- `alpha` is the render interpolation factor forwarded to the camera so the
--- scene is viewed from the same smoothed state the actors render at.
--- FieldViewport limits the render-target size and places the result inside the
--- host drawable.
-function MapRenderer:draw(runtime, camera, overlays, viewport, alpha)
+-- `worldDraws` is the flattened scene draw list -- map geometry, building
+-- batches, the neighbour ring, and actors -- already numbered with submission
+-- indices in desired source order by SceneAssembly; the renderer draws exactly
+-- this list and no other scene state. `alpha` is the render interpolation
+-- factor forwarded to the camera so the scene is viewed from the same smoothed
+-- state the actors render at. FieldViewport limits the render-target size and
+-- places the result inside the host drawable.
+function MapRenderer:draw(runtime, camera, worldDraws, viewport, alpha)
   assert(viewport and viewport.worldViewport, "MapRenderer requires a FieldViewport")
   local lg = assert(self._graphics)
-  local all = {}
-  for _, d in ipairs(runtime.mapDraws) do
-    all[#all + 1] = d
-  end
-  for _, d in ipairs(runtime.buildingDraws) do
-    all[#all + 1] = d
-  end
-  for _, d in ipairs(overlays or {}) do
-    all[#all + 1] = d
-  end
+  local draws = worldDraws or {}
 
   self.stats = {
     drawCalls = 0,
@@ -374,7 +366,7 @@ function MapRenderer:draw(runtime, camera, overlays, viewport, alpha)
   -- Billboard draws own no baked matrix: resolve each one against this frame's
   -- camera before anything reads `transform`, so u_model, the normal matrix,
   -- translucent sorting, and every pass all use the same orientation.
-  for _, d in ipairs(all) do
+  for _, d in ipairs(draws) do
     if d.billboardBase then
       d.transform = BillboardTransform.resolve(d.billboardBase, viewMatrix)
     end
@@ -402,7 +394,7 @@ function MapRenderer:draw(runtime, camera, overlays, viewport, alpha)
     self.shader:send("u_view", "column", viewMatrix)
 
     local activeRecord = self:_sendLighting(runtime)
-    local queue = RenderQueue.build(all, viewMatrix)
+    local queue = RenderQueue.build(draws, viewMatrix)
 
     -- Pass 1: opaque, depth test + write.
     for _, d in ipairs(queue.opaque) do

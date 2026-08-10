@@ -130,7 +130,6 @@ local function compileModel(model, texturePack, meshes, textures, context)
         geometry = MapAssetCache.geometryPath(sha1),
         material = batch.materialIndex,
         node = batch.nodeIndex,
-        submissionIndex = batch.submissionIndex,
         -- A billboard batch's geometry is in billboard-local space and its
         -- matrix is only resolvable against a live camera; the runtime rebuilds
         -- it from baseTransform every frame. "static" is the default and is left

@@ -8,6 +8,7 @@ local MapRenderer = require("libs.engine.src.MapRenderer")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local VertexFormat = require("libs.assets.src.VertexFormat")
 local FieldViewport = require("libs.engine.src.FieldViewport")
+local Matrix4 = require("libs.math.src.Matrix4")
 
 local T = {}
 
@@ -189,6 +190,9 @@ local function fakeGraphics(opts)
   return {
     shaders = shaders,
     canvases = canvases,
+    getDrawCalls = function()
+      return drawCalls
+    end,
     newShader = function(source)
       shaderCount = shaderCount + 1
       if opts.failOnNewShader == shaderCount then
@@ -525,7 +529,47 @@ function T.canvas_recreation_failure_keeps_renderer_usable()
   end
 end
 
--- An actor draw is a cutout billboard submitted as an overlay item, and it
+-- The renderer draws exactly the flattened world list it is given; it never
+-- reads scene draws out of the runtime itself. Scene geometry only reaches
+-- the screen through the caller's assembly (SceneAssembly), so an empty list
+-- draws nothing even when the runtime still carries map/building draws.
+function T.draw_renders_only_the_given_world_draws()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  local identity = Matrix4.identity()
+  local function drawItem(id)
+    return {
+      id = id,
+      mesh = { setTexture = function() end },
+      material = { alphaClass = "opaque" },
+      transform = identity,
+      alphaClass = "opaque",
+      cullMode = "back",
+      polygonAlpha = 1.0,
+      polygonMode = "modulation",
+      polygonId = 0,
+      lightMask = 0,
+      center = { 0, 0, 0 },
+      submissionIndex = 1,
+    }
+  end
+  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
+  scene.runtime.mapDraws = { drawItem("map") }
+  scene.runtime.buildingDraws = { drawItem("building") }
+
+  -- Every draw() also issues the final composite blit, so the running counts
+  -- are 1 (composite only) and 4 (two world items + two composites).
+  renderer:draw(scene.runtime, scene.camera, nil, viewport)
+  Assert.equal(lg.getDrawCalls(), 1, "runtime scene draws are not drawn unless flattened into the list")
+
+  renderer:draw(scene.runtime, scene.camera, { drawItem("a"), drawItem("b") }, viewport)
+  Assert.equal(lg.getDrawCalls(), 4, "every item in the given world list is drawn, got " .. lg.getDrawCalls())
+
+  renderer:release()
+end
+
+-- An actor draw is a cutout billboard submitted as a world-list item, and it
 -- sets per-item cull, depth, and alpha state. With non-default caller state
 -- (a bound canvas, an active shader, add blending, depth testing, wireframe,
 -- back-face culling, a tinted color) every modified state must come back to

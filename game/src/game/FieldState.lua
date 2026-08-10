@@ -40,6 +40,7 @@ local FieldScenarioManifest = require("data.manifests.field_scenario")
 local PreScriptInteractions = require("data.manifests.pre_script_interactions")
 local RepoFs = require("game.src.game.RepoFs")
 local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
+local SceneAssembly = require("libs.engine.src.SceneAssembly")
 
 ---@class FieldStateOptions
 ---@field resumeSave boolean?
@@ -572,14 +573,17 @@ function FieldState:_actorDraws(alpha)
   end)
 end
 
+-- The flattened scene draw list: map geometry, buildings, the neighbour ring,
+-- then actors. SceneAssembly owns submission ordering -- it numbers every draw
+-- monotonically in this source order, so equal-depth translucent ties break
+-- map before building before neighbour before actor, deterministically.
 function FieldState:_worldDraws(alpha)
-  local list = self:_actorDraws(alpha)
-  if self.runtimeMap.coverageRuntime then
-    for _, draw in ipairs(self.runtimeMap.coverageRuntime.draws) do
-      list[#list + 1] = draw
-    end
-  end
-  return list
+  return SceneAssembly.flatten({
+    self.runtime.mapDraws,
+    self.runtime.buildingDraws,
+    self.runtimeMap.coverageRuntime and self.runtimeMap.coverageRuntime.draws or {},
+    self:_actorDraws(alpha),
+  })
 end
 
 function FieldState:draw()

@@ -108,13 +108,13 @@ local function buildScene(pool, cacheFs, scene)
     }
   end
 
-  local submissionCounter = 0
-
   -- One draw item for one batch under `instanceTransform` (identity for terrain,
   -- the placement matrix for a building). A billboard batch's geometry is in
   -- billboard-local space and its matrix depends on the camera, so the composed
   -- transform becomes `billboardBase` for the renderer to resolve each frame; its
-  -- static equivalent seeds `transform` and the scene bounds.
+  -- static equivalent seeds `transform` and the scene bounds. Draw items carry no
+  -- submission numbers: the final scene assembly (SceneAssembly) numbers every
+  -- draw in source order at draw time.
   local function drawItem(batch, materials, instanceTransform)
     local entry = pool:meshFor(batch.geometry)
     local billboardBase
@@ -131,7 +131,6 @@ local function buildScene(pool, cacheFs, scene)
     local transform = billboardBase or instanceTransform
     growBounds(entry.verts, transform)
     local state = batchDrawState(batch)
-    submissionCounter = submissionCounter + 1
     return {
       mesh = entry.mesh,
       material = materials[batch.material],
@@ -147,7 +146,6 @@ local function buildScene(pool, cacheFs, scene)
       translucentDepthWrite = state.translucentDepthWrite,
       depthEqual = state.depthEqual,
       center = modelCenter(entry.verts),
-      submissionIndex = batch.submissionIndex or submissionCounter,
     }
   end
 

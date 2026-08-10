@@ -328,7 +328,6 @@ local function compileDiagnostics(model)
       nodeIndex = batch.nodeIndex,
       materialIndex = batch.materialIndex,
       shapeIndex = batch.shapeIndex,
-      submissionIndex = batch.submissionIndex,
       bounds = b,
     }
     aggregate = unionBounds(aggregate, b)
@@ -729,15 +728,11 @@ function MapAssetInspector.lines(report)
       add("    compiled: ERROR %s", cd.error)
     else
       add("    compiled draws: %d", #cd.drawBounds)
-      for _, d in ipairs(cd.drawBounds) do
+      -- n is the draw's position in SBC submission order: the compiled batch
+      -- list IS the submission sequence (see MeshCompiler).
+      for n, d in ipairs(cd.drawBounds) do
         boundsLine(
-          string.format(
-            "      draw n=%d node=%d mat=%d shp=%d",
-            d.submissionIndex,
-            d.nodeIndex,
-            d.materialIndex,
-            d.shapeIndex
-          ),
+          string.format("      draw n=%d node=%d mat=%d shp=%d", n, d.nodeIndex, d.materialIndex, d.shapeIndex),
           d.bounds
         )
       end

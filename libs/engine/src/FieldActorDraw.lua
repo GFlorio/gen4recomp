@@ -17,9 +17,8 @@ local Matrix4 = require("libs.math.src.Matrix4")
 
 local FieldActorDraw = {}
 
--- Actor draws are submitted after map geometry; the base keeps their submission
--- order stable and distinct from the scene's own indices.
-FieldActorDraw.SUBMISSION_BASE = 200000
+-- Draw items carry no submission numbers: the final scene assembly
+-- (SceneAssembly) numbers every draw in source order at draw time.
 
 local function requireMesh(entry, meshIndex, record)
   local mesh = entry.meshes and entry.meshes[meshIndex]
@@ -39,7 +38,8 @@ end
 
 -- record: an ActorDrawRecord (actorId, spriteId, world, facing, pose, poseTick).
 -- entry: the resident FieldActorAssetProvider entry for that sprite.
-function FieldActorDraw.item(record, entry, submissionIndex, partIndex)
+-- partIndex: for a static model, the part to draw (1-based).
+function FieldActorDraw.item(record, entry, partIndex)
   assert(type(record) == "table" and type(record.world) == "table", "a draw record needs a world position")
   assert(type(entry) == "table" and type(entry.visual) == "table", "a draw record needs its visual asset")
   local visual = entry.visual
@@ -81,7 +81,6 @@ function FieldActorDraw.item(record, entry, submissionIndex, partIndex)
     translucentDepthWrite = polygon.translucentDepthWrite,
     depthEqual = polygon.depthEqual,
     center = geometry.center or { 0, geometry.bounds.height / 2, 0 },
-    submissionIndex = FieldActorDraw.SUBMISSION_BASE + (submissionIndex or 0),
     actorId = record.actorId,
     spriteId = record.spriteId,
     frameIndex = frameIndex,
@@ -91,11 +90,12 @@ end
 
 -- Draw items for a whole record list. `assetFor(spriteId)` returns the resident
 -- provider entry; a record whose visual is absent is a programming fault, not a
--- reason to skip a frame.
+-- reason to skip a frame. Static-model parts are emitted one item per part, in
+-- order, so the scene assembly numbers them sequentially.
 function FieldActorDraw.items(records, assetFor)
   assert(type(assetFor) == "function", "FieldActorDraw.items needs an asset lookup")
   local items = {}
-  for index, record in ipairs(records) do
+  for _, record in ipairs(records) do
     if record.visible ~= false then
       local entry = assetFor(record.spriteId)
       if not entry then
@@ -107,10 +107,10 @@ function FieldActorDraw.items(records, assetFor)
       end
       if entry.visual.render.kind == "staticModel" then
         for partIndex = 1, #entry.visual.render.parts do
-          items[#items + 1] = FieldActorDraw.item(record, entry, index * 100 + partIndex, partIndex)
+          items[#items + 1] = FieldActorDraw.item(record, entry, partIndex)
         end
       else
-        items[#items + 1] = FieldActorDraw.item(record, entry, index)
+        items[#items + 1] = FieldActorDraw.item(record, entry)
       end
     end
   end

@@ -223,7 +223,6 @@ function T.folds_posscale_and_carries_attributes()
   Assert.equal(#b, 1)
   Assert.equal(b[1].materialIndex, 0)
   Assert.equal(b[1].nodeIndex, 0)
-  Assert.equal(b[1].submissionIndex, 1)
   Assert.isTrue(math.abs(b[1].vertices[1].x - (1 * 64 / 16)) < 1e-9, "x scaled by posScale then divided by tile size")
   Assert.deepEqual(b[1].indices, { 0, 1, 2 })
 end

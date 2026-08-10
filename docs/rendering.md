@@ -161,7 +161,11 @@ when the final 5-bit alpha is zero, implemented as `alpha < 0.5 / 255`.
 Opaque and cutout keep submission order with depth test/write. Translucent draws
 are sorted back-to-front in view space (submission index breaks ties) and honor
 the polygon bit-11 translucent depth-write flag. Wireframe edges are drawn with
-opaque alpha after the filled passes.
+opaque alpha after the filled passes. Submission indices are assigned by one
+owner, `SceneAssembly`, at the final scene assembly: it numbers the flattened
+draw list monotonically in desired source order (map geometry, buildings,
+neighbour ring, actors), so cross-group tie ordering is established there and
+nowhere else.
 
 ## Billboards
 

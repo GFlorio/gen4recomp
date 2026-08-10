@@ -89,10 +89,13 @@ end
 
 -- model: a Nsbmd model (info.posScale/invPosScale, shapes[i].{index,displayListBytes},
 -- materials, sbc.commands, nodes). Returns a list of batches, each:
--- { nodeIndex, materialIndex, shapeIndex, submissionIndex, polygonAttrRaw,
+-- { nodeIndex, materialIndex, shapeIndex, polygonAttrRaw,
 --   transformMode, baseTransform, vertices = { {x,y,z,u,v,nx,ny,nz,r,g,b,a,
---   colorSource}, ... }, indices }. Billboard batches carry `baseTransform`
--- (tile-space translation, see MapUnits.matrixToTiles); static ones do not.
+--   colorSource}, ... }, indices }. The list order is the SBC submission
+-- order; the runtime assembler (SceneAssembly) derives submission numbers
+-- from that position, so no batch carries an index of its own. Billboard
+-- batches carry `baseTransform` (tile-space translation, see
+-- MapUnits.matrixToTiles); static ones do not.
 function MeshCompiler.compile(model)
   local shapeByIndex = {}
   for _, shp in ipairs(model.shapes) do
@@ -108,7 +111,7 @@ function MeshCompiler.compile(model)
 
   local batches = {}
   local carriedState -- geometry-engine color state carried across shapes
-  for submissionIndex, draw in ipairs(draws) do
+  for _, draw in ipairs(draws) do
     local shp = shapeByIndex[draw.shapeIndex]
     if not shp then
       Errors.raise(
@@ -181,7 +184,6 @@ function MeshCompiler.compile(model)
       nodeIndex = draw.nodeIndex,
       materialIndex = draw.materialIndex,
       shapeIndex = draw.shapeIndex,
-      submissionIndex = submissionIndex,
       polygonAttrRaw = matState.polygonAttrRaw,
       transformMode = draw.transformMode,
       baseTransform = draw.baseTransform and MapUnits.matrixToTiles(draw.baseTransform) or nil,

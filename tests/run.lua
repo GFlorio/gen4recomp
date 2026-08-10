@@ -49,6 +49,7 @@ local MODULES = {
   "libs.engine.tests.scene_mesh_test",
   "libs.engine.tests.ds_lighting_test",
   "libs.engine.tests.render_queue_test",
+  "libs.engine.tests.scene_assembly_test",
   "libs.engine.tests.billboard_transform_test",
   "libs.engine.tests.map_renderer_test",
   "libs.engine.tests.collision_grid_test",

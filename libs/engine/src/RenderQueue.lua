@@ -1,10 +1,13 @@
--- Pure render-queue builder. Combines map, building, and overlay draw items,
--- partitions them into opaque / cutout / translucent / wireframe passes,
--- preserves submission order for opaque/cutout/wireframe, and sorts translucent
--- draws approximately back-to-front in camera space using the item center and
--- the view matrix. The submission index is used as a deterministic tie-breaker.
--- This is an explicit approximation of DS auto sorting, not a claim of exact
--- hardware ordering. Pure domain module: no love, arithmetic only.
+-- Pure render-queue builder. Combines the flattened scene's draw items (map,
+-- building, neighbour, and actor), partitions them into opaque / cutout /
+-- translucent / wireframe passes, preserves submission order for
+-- opaque/cutout/wireframe, and sorts translucent draws approximately
+-- back-to-front in camera space using the item center and the view matrix.
+-- The submission index is used as a deterministic tie-breaker -- assembly
+-- (SceneAssembly) assigns it monotonically in desired source order, so the
+-- queue never invents cross-group ordering. This is an explicit approximation
+-- of DS auto sorting, not a claim of exact hardware ordering. Pure domain
+-- module: no love, arithmetic only.
 --
 -- Queue construction validates its input contract and never mutates the
 -- caller's draw records: only the four known alpha classes are accepted
