@@ -60,8 +60,14 @@ function ModelAsset.validate(desc)
         invalid(where .. " material variants is not an array", desc.key)
       end
       for _, variant in ipairs(m.variants) do
-        if type(variant) ~= "table" or type(variant.texture) ~= "string" then
-          invalid(where .. " material variant does not reference a texture path", desc.key)
+        if type(variant) ~= "table" then
+          invalid(where .. " material variant is not a record", desc.key)
+        end
+        -- A variant may be untextured: a pattern key whose texture the model's
+        -- embedded TEX0 does not define still selects a variant, and it draws
+        -- untextured exactly as the DS does.
+        if variant.texture ~= nil and type(variant.texture) ~= "string" then
+          invalid(where .. " material variant has a non-string texture path", desc.key)
         end
       end
     end
@@ -126,7 +132,9 @@ function ModelAsset.referencedPaths(desc)
       paths[#paths + 1] = m.texture
     end
     for _, variant in ipairs(m.variants or {}) do
-      paths[#paths + 1] = variant.texture
+      if variant.texture then
+        paths[#paths + 1] = variant.texture
+      end
     end
   end
   if desc.kind == "static" then
