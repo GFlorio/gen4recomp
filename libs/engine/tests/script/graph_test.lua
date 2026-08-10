@@ -1,7 +1,10 @@
 -- Graph tests for the compiled-script graph contract: deterministic edge
--- collection and reachability. Every node shape with at least one successor
--- must return a dense edge array (no leading holes), so traversal always
--- reaches later successors even when an earlier edge is absent.
+-- collection and reachability, plus deep-copy isolation from the authoring
+-- input. Every node shape with at least one successor must return a dense
+-- edge array (no leading holes), so traversal always reaches later successors
+-- even when an earlier edge is absent. Compiled graphs are ordinary mutable
+-- tables; the isolation guarantee comes from the compiler's deep copies, not
+-- from any runtime freezing.
 
 local Assert = require("tests.support.Assert")
 local S = require("gen4.script")
@@ -115,6 +118,79 @@ function T.compiled_cross_script_goto_compared_keeps_fallthrough_reachable()
   Assert.equal(#order, 2)
   Assert.equal(order[1], graph.entry)
   Assert.equal(order[2], "path:steps/1")
+end
+
+-- --- Deep-copy isolation from the authoring input ---
+
+-- A script whose steps carry nested tables (condition, branch steps,
+-- bindings, reference values) plus graph-level declarations, so sharing
+-- anywhere would be observable.
+local function isolatedScript()
+  return S.script({
+    api = 1,
+    id = "x",
+    params = { professor = "actor_ref" },
+    locals = { route = "string" },
+    steps = {
+      S.playSound({ sound = "SEQ_SE_DP_SELECT" }),
+      S.if_({ condition = S.flag("FLAG_F"), yes = { S.noop() } }),
+      S.say({ message = "msg.x", bindings = { [0] = S.playerName() } }),
+      S.stop(),
+    },
+  })
+end
+
+function T.compiled_graph_does_not_share_nested_tables_with_input()
+  local author = isolatedScript()
+  local graph = compile(author)
+  local ifNode = graph.nodes["path:steps/1"]
+  local sayNode = graph.nodes["path:steps/2"]
+  Assert.isFalse(rawequal(ifNode, author.steps[2]), "step node must be a copy")
+  Assert.isFalse(rawequal(ifNode.condition, author.steps[2].condition), "condition table must be a copy")
+  Assert.isFalse(rawequal(graph.nodes[ifNode.yes], author.steps[2].yes[1]), "nested branch step must be a copy")
+  Assert.isFalse(rawequal(sayNode.bindings, author.steps[3].bindings), "bindings must be a copy")
+  Assert.isFalse(rawequal(sayNode.bindings[0], author.steps[3].bindings[0]), "binding value must be a copy")
+  Assert.isFalse(rawequal(graph.params, author.params), "params must be a copy")
+  Assert.isFalse(rawequal(graph.locals, author.locals), "locals must be a copy")
+end
+
+function T.mutating_authoring_resource_after_compile_does_not_mutate_the_compiled_graph()
+  local author = isolatedScript()
+  local graph = compile(author)
+  author.steps[1].sound = "SEQ_SE_DP_MUTATED"
+  author.steps[2].condition.id = "FLAG_MUTATED"
+  author.steps[2].yes[1].op = "wait_ticks"
+  author.steps[3].message = "msg.mutated"
+  author.steps[3].bindings[0] = S.rivalName()
+  author.params.professor = "string"
+  author.locals.route = "number"
+  Assert.equal(graph.nodes["path:steps/0"].sound, "SEQ_SE_DP_SELECT")
+  Assert.deepEqual(graph.nodes["path:steps/1"].condition, {
+    condition = "flag",
+    id = "FLAG_F",
+    expected = true,
+  })
+  Assert.equal(graph.nodes[graph.nodes["path:steps/1"].yes].op, "noop")
+  Assert.equal(graph.nodes["path:steps/2"].message, "msg.x")
+  Assert.deepEqual(graph.nodes["path:steps/2"].bindings[0], { text = "player_name" })
+  Assert.equal(graph.params.professor, "actor_ref")
+  Assert.equal(graph.locals.route, "string")
+end
+
+-- Writes into a compiled graph succeed everywhere, including keys that were
+-- never present; they are writes into the graph's own copies and must never
+-- leak back into the authoring resource.
+function T.writes_into_the_compiled_graph_do_not_touch_authoring_input()
+  local author = isolatedScript()
+  local graph = compile(author)
+  graph.injected = true
+  graph.nodes["injected"] = {}
+  graph.nodes["path:steps/0"].injected = true
+  graph.nodes["path:steps/1"].condition.injected = true
+  graph.nodes["path:steps/2"].bindings.injected = true
+  Assert.isNil(author.steps[1].injected)
+  Assert.isNil(author.steps[2].condition.injected)
+  Assert.isNil(author.steps[3].bindings.injected)
 end
 
 return T

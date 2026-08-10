@@ -1,36 +1,16 @@
--- Internal compiled-script graph : an immutable flat node
--- map with resolved control edges that the runtime executes. Authoring tables
--- are never executed directly; the compiler produces this graph, freezes it,
--- and stamps a semantic revision. This module owns the schema name, deep
--- freezing, deterministic inspection output, and deterministic edge/reach
--- traversal shared by the compiler, scheduler, and diagnostics.
+-- Internal compiled-script graph : an ordinary flat node map with resolved
+-- control edges that the runtime executes. Authoring tables are never
+-- executed directly; the compiler deep-copies them, so compiled graphs share
+-- no nested tables with the authoring input, and stamps a semantic revision.
+-- The graph itself is not frozen and makes no immutability guarantee. This
+-- module owns the schema name, deterministic inspection output, and the
+-- deterministic edge/reach traversal used by the compiler.
 
 local LuaWriter = require("libs.rom.src.LuaWriter")
 
 local Graph = {}
 
 Graph.SCHEMA_NAME = "g4-script-graph-v1"
-
-local FROZEN_MT = {
-  __newindex = function()
-    error("script graph is immutable")
-  end,
-  __metatable = "g4-script-graph-frozen",
-}
-
--- Recursively freeze a table (and its nested tables) so any later write
--- raises. Frozen tables remain readable and iterable.
----@param value any
----@return any
-function Graph.freeze(value)
-  if type(value) == "table" then
-    for _, v in pairs(value) do
-      Graph.freeze(v)
-    end
-    setmetatable(value, FROZEN_MT)
-  end
-  return value
-end
 
 -- Deterministic full-graph print for diagnostics and golden tests: the graph
 -- serializes with sorted keys, so identical graphs produce identical output.

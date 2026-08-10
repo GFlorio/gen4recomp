@@ -3,8 +3,8 @@
 -- executable chain. Execution order: `before` high
 -- priority to low, `wrap` high outermost, the resolved base or replacement,
 -- then `after` low priority to high. Each contribution compiles to its own
--- immutable graph; `before`/`after`/`wrap` compile as wrappers (`allowNext`),
--- and the base compiles strictly. Same-priority replacements from different
+-- graph; `before`/`after`/`wrap` compile as wrappers (`allowNext`).
+-- Same-priority replacements from different
 -- owners are a hard load error; a winning tombstone suppresses
 -- the base and every lower-priority contribution. The
 -- effective result is cached per id and keyed on the registry mutation

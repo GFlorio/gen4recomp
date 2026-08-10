@@ -1,14 +1,15 @@
--- Compiles a validated gen4 field-script resource into the immutable internal
--- graph that the runtime executes. Node IDs are either the author `key`, a
+-- Compiles a validated gen4 field-script resource into the internal graph
+-- that the runtime executes. Node IDs are either the author `key`, a
 -- generated `src:<member>:<index>:<offset>[/<op>]`, or a structural
 -- `path:steps/3/no/2`; the revision hash covers normalized semantics only.
 -- Load-time structural validation also lives here: label uniqueness/targets,
 -- wrapper-only `next`, local call-target resolution, recursive call cycles
--- without a blocking edge, and static nesting. The compiler deep-copies and
--- freezes; authoring tables are never shared and never mutated. All mutable
--- compilation state (nodes, labels, used ids, owner data, warnings, opts) is
--- a context local to each invocation, passed explicitly to the stateful
--- helpers, so calls are reentrant and cannot contaminate one another.
+-- without a blocking edge, and static nesting. The compiler deep-copies
+-- authoring tables; compiled graphs share no nested tables with the authoring
+-- input. All mutable compilation state (nodes, labels, used ids, owner data,
+-- warnings, opts) is a context local to each invocation, passed explicitly to
+-- the stateful helpers, so calls are reentrant and cannot contaminate one
+-- another.
 
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -737,10 +738,10 @@ function Compiler._compile(script, opts)
   graph.warnings = context.warnings
 
   graph.revision = Sha256.hex(LuaWriter.encode(buildProjection(graph)))
-  return Graph.freeze(graph)
+  return graph
 end
 
--- Compiles a validated script resource into an immutable graph. Returns the
+-- Compiles a validated script resource into the internal graph. Returns the
 -- graph, or nil plus an Errors object on validation or structural failure.
 ---@param script any
 ---@param opts table|nil

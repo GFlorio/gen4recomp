@@ -1,8 +1,8 @@
 -- Compiler and graph tests. They pin the internal graph contract: node IDs
 -- (key/src/path forms), resolved control edges, the semantic revision hash,
--- load-time structural validation, warnings, immutability, and deterministic
--- inspection. Every supported authoring construct compiles to a deterministic
--- graph.
+-- load-time structural validation, warnings, and deterministic inspection.
+-- Deep-copy isolation from the authoring input is pinned in graph_test.
+-- Every supported authoring construct compiles to a deterministic graph.
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.rom.src.Errors")
@@ -568,21 +568,6 @@ function T.condition_defaults_normalize()
   Assert.deepEqual(graph.nodes["path:steps/0"].condition, { condition = "flag", id = "FLAG_F", expected = true })
 end
 
-function T.condition_and_value_defaults_are_frozen_copies()
-  local graph = compile(S.script({
-    api = 1,
-    id = "x",
-    steps = {
-      { op = "if", condition = S.flag("FLAG_F"), yes = { S.noop() } },
-    },
-  }))
-  local node = graph.nodes["path:steps/0"]
-  local ok = pcall(function()
-    node.condition.injected = true
-  end)
-  Assert.isFalse(ok, "nested condition must be frozen")
-end
-
 -- --- Revision hash ---
 
 function T.compile_is_deterministic()
@@ -970,43 +955,6 @@ function T.warnings_are_deterministically_ordered()
   local g2 = compile(script())
   Assert.deepEqual(g1.warnings, g2.warnings)
   Assert.equal(Graph.inspect(g1), Graph.inspect(g2))
-end
-
--- --- Immutability and independence ---
-
-function T.graph_is_immutable()
-  local graph = compile(signScript())
-  Assert.isFalse(pcall(function()
-    graph.injected = true
-  end))
-  Assert.isFalse(pcall(function()
-    graph.nodes["injected"] = {}
-  end))
-  Assert.isFalse(pcall(function()
-    graph.nodes["path:steps/0"].injected = true
-  end))
-  Assert.isFalse(pcall(function()
-    graph.nodes["path:steps/2"].bindings.injected = true
-  end))
-end
-
-function T.graph_does_not_share_author_tables()
-  local author = S.script({
-    api = 1,
-    id = "x",
-    params = { professor = "actor_ref" },
-    steps = {
-      S.playSound({ sound = "SEQ_SE_DP_SELECT" }),
-      S.say({ message = "msg.x", bindings = { [0] = S.playerName() } }),
-    },
-  })
-  local graph = compile(author)
-  author.steps[1].sound = "SEQ_SE_DP_MUTATED"
-  author.steps[2].bindings[0] = S.rivalName()
-  author.params.professor = "string"
-  Assert.equal(graph.nodes["path:steps/0"].sound, "SEQ_SE_DP_SELECT")
-  Assert.deepEqual(graph.nodes["path:steps/1"].bindings[0], { text = "player_name" })
-  Assert.equal(graph.params.professor, "actor_ref")
 end
 
 -- --- Graph inspection and the every-op sweep ---
