@@ -6,9 +6,9 @@
 -- sTimeOfDayByHour in src/gf_rtc.c GF_RTC_GetTimeOfDayByHour).
 --
 -- A model is banded when its compiled clips carry time-band metadata
--- (clip.timeBand, stamped by MapPropAnimCompiler from the corpus name
--- convention); the compiler raises on ambiguous band claims, so a plan never
--- silently disables. The swap mirrors the decomp's remove-and-add: stop the
+-- (clip.timeBand, stamped by MapPropAnimCompiler from the banded anim-list
+-- record's slot order, the decomp's band map); a plan never infers policy
+-- from names or clip counts. The swap mirrors the decomp's remove-and-add: stop the
 -- previous band's clip, play the current band's clip looping. Every other
 -- model follows the ordinary ambient policy (a single non-door clip carries
 -- the compiled ambientLoop role). Pure domain module.
@@ -80,8 +80,8 @@ end
 
 -- The band plan of a model definition: band -> clip for every clip carrying
 -- compiled time-band metadata, or nil when the model has no banded clips.
--- Duplicate band claims are a compiler contract violation (the compiler
--- raises at digest time), so a plan that sees one is a programming error.
+-- Bands are compiled from the banded anim-list record's unique slots, so a
+-- duplicate band claim here is a programming error.
 ---@param definition { key: string, animations: table }
 ---@return { [string]: table }?
 function TimeOfDayProps.plan(definition)

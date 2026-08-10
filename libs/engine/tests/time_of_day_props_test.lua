@@ -111,8 +111,8 @@ function T.plan_accepts_partial_band_sets()
 end
 
 function T.plan_rejects_duplicate_band_claims()
-  -- The compiler raises on ambiguous band claims at digest time; a plan that
-  -- sees one is a programming error.
+  -- Bands come from the banded record's unique slots, so a plan that sees a
+  -- duplicate has a corrupted descriptor; that is a programming error.
   local def = bandedDefinition({
     bandedClip("si_light_m1", "morn"),
     bandedClip("si_light_m2", "morn"),

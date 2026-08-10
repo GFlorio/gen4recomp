@@ -39,6 +39,28 @@ function T.no_animation_record_yields_no_ids()
   Assert.equal(#r.ids, 0)
 end
 
+function T.banded_records_carry_the_game_s_band_slot_type()
+  -- HGSS marks time-of-day props with the 0x0801 record type: the game
+  -- registers the ids as the four band slots (MORN/DAY/EVE/NITE, band map
+  -- ov01_022095EC) and swaps them on RTC changes (ov01_022047DC).
+  local r = BuildModelAnimList.decode(record("\1\8\0\0\0\0\0\0", { 6, 7, 8, 9 }))
+  Assert.equal(r.type, 0x0801)
+  Assert.isTrue(r.banded, "type byte 0x08 selects the banded-prop policy")
+  Assert.equal(#r.ids, 4)
+end
+
+function T.ordinary_records_are_not_banded()
+  -- Door pairs (0x0301) and ambient effects (0x0001) follow ordinary playback.
+  local door = BuildModelAnimList.decode(record("\1\3\0\1\1\0\1\2", { 1, 2 }))
+  Assert.equal(door.type, 0x0301)
+  Assert.isTrue(not door.banded)
+  local ambient = BuildModelAnimList.decode(record("\1\0\0\0\0\0\1\1", { 6 }))
+  Assert.equal(ambient.type, 0x0001)
+  Assert.isTrue(not ambient.banded)
+  local none = BuildModelAnimList.decode(record("\255\255\0\0\0\0\0\0", {}))
+  Assert.isTrue(not none.banded)
+end
+
 function T.rejects_wrong_record_size()
   Assert.throws(function()
     BuildModelAnimList.decode("\0\0\0\0")

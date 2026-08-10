@@ -21,13 +21,17 @@
 --   *door_mop -> door.open    *door_mcl -> door.close
 --
 -- Every other clip keeps its name as the addressable id (prop.play("wind")).
--- Playback policy is compiled, never inferred at runtime: a time-band clip
--- (name suffix _m/_d/_e/_n, the corpus convention) carries its band as
--- clip.timeBand -- two clips claiming the same band raise
--- MAP_PROP_ANIM_AMBIGUOUS_BAND -- and a model whose whole clip set is one
--- non-door clip carries clip.ambientLoop, the explicit ambient-loop role.
--- The mapping is a compile-time policy decision, not a runtime assumption.
--- Pure domain module.
+-- Playback policy is compiled, never inferred at runtime: the anim-list
+-- record's type selects the policy. A banded record (header high byte 0x08)
+-- carries up to four clips in the game's band-slot order -- MORN=0, DAY=1,
+-- EVE=2, NITE=3 (band map ov01_022095EC) -- and each clip is stamped with
+-- the time band of its slot, exactly the array the game swaps on RTC
+-- time-of-day changes (ov01_022047DC). Clip names are authoring labels, not
+-- band claims: banded props name their states freely (kk_sky_m/d/e/n,
+-- si_light_m1/m2, time_anime1..4), so no name convention is consulted. A
+-- model whose whole clip set is one non-door clip carries clip.ambientLoop,
+-- the explicit ambient-loop role. The mapping is a compile-time policy
+-- decision, not a runtime assumption. Pure domain module.
 
 local BinaryReader = require("libs.rom.src.BinaryReader")
 local Errors = require("libs.rom.src.Errors")
@@ -47,7 +51,7 @@ local ANIM_ARCHIVE = "build_anim"
 -- compiled assets must account for it: a decoder or sampler change without
 -- it would leave stale compiled clips in the derived cache. Bump whenever
 -- the decoders or the clip compilers change behavior.
-MapPropAnimCompiler.VERSION = "map-prop-anim-clip-v2"
+MapPropAnimCompiler.VERSION = "map-prop-anim-clip-v3"
 
 -- clip name -> semantic role. Patterns match the tail of the Nitro dict
 -- name; the whole name matches when the pattern is exact.
@@ -70,15 +74,10 @@ function MapPropAnimCompiler.roleFor(name)
   return nil
 end
 
--- The time band a clip name claims by suffix (_m/_d/_e/_n, optionally with a
--- variant number, e.g. si_light_m1), or nil. The corpus convention; the
--- engine maps bands to RTC time via TimeOfDayProps.
-local BAND_SUFFIX = { m = "morn", d = "day", e = "eve", n = "nite" }
-
-function MapPropAnimCompiler.bandOf(name)
-  local suffix = name:match("_(%a)%d*$")
-  return suffix and BAND_SUFFIX[suffix] or nil
-end
+-- The four band slots in the game's band-map order (ov01_022095EC: MORN=0,
+-- DAY=1, EVE=2, NITE=3, LATE=3). A banded anim-list record's ids are these
+-- slots in order; the slot, not the clip name, is the band.
+local BAND_BY_SLOT = { "morn", "day", "eve", "nite" }
 
 -- Compile one decoded animation resource into a clip record.
 --   opts.name            the Nitro dictionary entry name
@@ -117,46 +116,20 @@ local function compileOne(decoded, sectionReader, sectionLimit, opts)
   return clip
 end
 
--- Stamp the playback policy the runtime consumes: time-band metadata and the
--- ambient-loop role. Compiled policy, so the runtime never counts clips or
--- guesses from names. A model is banded when its clips claim at least two
--- distinct bands; ambiguous band claims raise.
-local function annotatePolicy(clips, memberId)
-  local byBand = {}
+-- Stamp the playback policy the runtime consumes: time-band metadata for a
+-- banded record (each clip takes the band of its slot) and the ambient-loop
+-- role for a single non-door clip. Compiled policy, so the runtime never
+-- counts clips or guesses from names.
+local function annotatePolicy(clips, record)
+  if record.banded then
+    for slot, clip in ipairs(clips) do
+      clip.timeBand = BAND_BY_SLOT[slot]
+    end
+  end
   local doorRoles = 0
   for _, clip in ipairs(clips) do
-    local band = MapPropAnimCompiler.bandOf(clip.name)
-    if band then
-      if byBand[band] then
-        Errors.raise(
-          "MAP_PROP_ANIM_AMBIGUOUS_BAND",
-          "model member "
-            .. tostring(memberId)
-            .. " claims band "
-            .. band
-            .. " twice ("
-            .. byBand[band].name
-            .. " and "
-            .. clip.name
-            .. ")",
-          { memberId = memberId, band = band, first = byBand[band].name, second = clip.name }
-        )
-      end
-      byBand[band] = clip
-    end
     if #clip.semanticNames > 0 then
       doorRoles = doorRoles + 1
-    end
-  end
-  local bandCount = 0
-  for _ in pairs(byBand) do
-    bandCount = bandCount + 1
-  end
-  if bandCount >= 2 then
-    for _, clip in ipairs(clips) do
-      if byBand[MapPropAnimCompiler.bandOf(clip.name)] then
-        clip.timeBand = MapPropAnimCompiler.bandOf(clip.name)
-      end
     end
   end
   if #clips == 1 and doorRoles == 0 then
@@ -262,7 +235,7 @@ function MapPropAnimCompiler.compile(listBytes, resNarc, opts)
   for _, resourceId in ipairs(record.ids) do
     clips[#clips + 1] = modelClip(resourceId, resNarc:readMember(resourceId))
   end
-  annotatePolicy(clips, opts.memberId)
+  annotatePolicy(clips, record)
   return { clips = clips }
 end
 
