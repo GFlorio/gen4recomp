@@ -1,5 +1,6 @@
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.rom.src.CacheFs")
+local Errors = require("libs.rom.src.Errors")
 local FakeCache = require("tests.support.FakeCache")
 
 local function cache(versionId, backend)
@@ -122,6 +123,87 @@ function T.load_lua_missing_returns_nil_err()
   local data, err = cache("heartgold"):loadLua("data/generated/absent.lua")
   Assert.isNil(data)
   Assert.notNil(err)
+end
+
+local function staging(versionId, backend)
+  return CacheFs.forStaging(versionId, backend)
+end
+
+function T.staging_prefix_is_a_sibling_namespace()
+  Assert.equal(staging("heartgold"):prefix(), "staging/heartgold/")
+  Assert.equal(staging("soulsilver"):prefix(), "staging/soulsilver/")
+  local backend = FakeCache.new()
+  staging("heartgold", backend):write("romfs/a/0/0/2", "STAGE-DATA")
+  Assert.equal(backend.files["staging/heartgold/romfs/a/0/0/2"], "STAGE-DATA")
+  Assert.isNil(backend.files["heartgold/romfs/a/0/0/2"], "live root must stay untouched")
+end
+
+function T.remove_staged_tree_clears_staging_and_orphaned_old()
+  local backend = FakeCache.new()
+  local c = cache("heartgold", backend)
+  local s = staging("heartgold", backend)
+  c:write("romfs/a/0/0/2", "LIVE")
+  s:write("romfs/a/0/0/2", "STAGE")
+  backend.files["staging/heartgold.old/romfs/x"] = "ORPHAN"
+  c:removeStagedTree(s)
+  Assert.isNil(backend.files["staging/heartgold/romfs/a/0/0/2"], "staging must be cleared")
+  Assert.isNil(backend.files["staging/heartgold.old/romfs/x"], "orphaned old root must be cleared")
+  Assert.equal(backend.files["heartgold/romfs/a/0/0/2"], "LIVE", "live root must stay untouched")
+end
+
+function T.publish_from_stage_replaces_live_root()
+  local backend = FakeCache.new()
+  local c = cache("heartgold", backend)
+  local s = staging("heartgold", backend)
+  c:write("romfs/a/0/0/2", "OLD")
+  c:write("rom-dump.complete", "OLD-MARKER")
+  s:write("romfs/a/0/0/2", "NEW")
+  s:write("data/generated/rom_metadata.lua", "NEW-META")
+  s:write("rom-dump.complete", "NEW-MARKER")
+  c:publishFromStage(s)
+  Assert.equal(backend.files["heartgold/romfs/a/0/0/2"], "NEW")
+  Assert.equal(backend.files["heartgold/rom-dump.complete"], "NEW-MARKER")
+  Assert.equal(backend.files["heartgold/data/generated/rom_metadata.lua"], "NEW-META")
+  Assert.isNil(backend.files["staging/heartgold/romfs/a/0/0/2"], "staging root must be gone")
+  Assert.isNil(backend.dirs["staging/heartgold"], "staging root must be gone")
+  Assert.isNil(backend.files["staging/heartgold.old/romfs/a/0/0/2"], "previous root must be gone")
+end
+
+function T.publish_from_stage_handles_fresh_import()
+  local backend = FakeCache.new()
+  local c = cache("heartgold", backend)
+  local s = staging("heartgold", backend)
+  s:write("romfs/a/0/0/2", "FIRST")
+  s:write("rom-dump.complete", "MARKER")
+  c:publishFromStage(s)
+  Assert.equal(backend.files["heartgold/romfs/a/0/0/2"], "FIRST")
+  Assert.isNil(backend.files["staging/heartgold/romfs/a/0/0/2"])
+end
+
+function T.publish_from_stage_restores_previous_root_on_failure()
+  local backend = FakeCache.new()
+  local c = cache("heartgold", backend)
+  local s = staging("heartgold", backend)
+  c:write("romfs/a/0/0/2", "OLD")
+  c:write("rom-dump.complete", "OLD-MARKER")
+  s:write("romfs/a/0/0/2", "NEW")
+  s:write("rom-dump.complete", "NEW-MARKER")
+  local originalReplace = backend.replace
+  ---@diagnostic disable: duplicate-set-field
+  backend.replace = function(self, sourcePath, destinationPath)
+    if sourcePath == "staging/heartgold" then
+      error(Errors.new("CACHE_REPLACE_FAILED", "injected publish failure", { sourcePath = sourcePath }))
+    end
+    return originalReplace(self, sourcePath, destinationPath)
+  end
+  local err = Assert.throws(function()
+    c:publishFromStage(s)
+  end)
+  Assert.isTrue(Errors.is(err))
+  Assert.equal(err.code, "CACHE_REPLACE_FAILED")
+  Assert.equal(backend.files["heartgold/romfs/a/0/0/2"], "OLD", "previous dump must be restored")
+  Assert.equal(backend.files["heartgold/rom-dump.complete"], "OLD-MARKER")
+  Assert.isNil(backend.files["staging/heartgold.old/romfs/a/0/0/2"], "no orphaned old root after rollback")
 end
 
 return T

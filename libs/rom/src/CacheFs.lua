@@ -23,10 +23,17 @@ local GameVersion = require("libs.rom.src.GameVersion")
 ---@field remove fun(self: CacheFs, relativePath: string): boolean
 ---@field replace fun(self: CacheFs, sourceRelativePath: string, destinationRelativePath: string): boolean
 ---@field removeTree fun(self: CacheFs, relativePath: string): boolean
+---@field removeStagedTree fun(self: CacheFs, stagingCache: CacheFs): boolean
+---@field publishFromStage fun(self: CacheFs, stagingCache: CacheFs): boolean
 ---@field writeLua fun(self: CacheFs, relativePath: string, value: table): boolean
 ---@field loadLua fun(self: CacheFs, relativePath: string): table?, Errors.Error?
 local CacheFs = {}
 CacheFs.__index = CacheFs
+
+-- The sibling path a completed live root is moved to before a staged tree is
+-- renamed into place; a crash between the two renames leaves the previous dump
+-- here for removeStagedTree to discard at the next import.
+local STAGING_OLD_SUFFIX = ".old"
 
 -- love.filesystem-backed backend, constructed lazily so requiring this module
 -- never touches love (keeps the domain testable off-runtime).
@@ -76,6 +83,22 @@ function CacheFs.forVersion(versionId, backend)
     versionId = versionId,
     _prefix = info.cachePrefix,
     _root = info.cachePrefix:gsub("/$", ""),
+    backend = backend or loveBackend(),
+  }, CacheFs)
+end
+
+-- A CacheFs rooted at the disposable `staging/<versionId>/` namespace, a
+-- sibling of the live version root. A completed staging tree is published over
+-- the live root with publishFromStage; stale staging is discarded at the next
+-- import. Derives its prefix like SaveFs rather than owning one in GameVersion.
+function CacheFs.forStaging(versionId, backend)
+  local info = GameVersion.info(versionId)
+  assert(info, "unknown version id: " .. tostring(versionId))
+  local prefix = "staging/" .. versionId .. "/"
+  return setmetatable({
+    versionId = versionId,
+    _prefix = prefix,
+    _root = prefix:gsub("/$", ""),
     backend = backend or loveBackend(),
   }, CacheFs)
 end
@@ -162,20 +185,63 @@ function CacheFs:replace(sourceRelativePath, destinationRelativePath)
 end
 
 function CacheFs:removeTree(relativePath)
-  local root = self:resolve(relativePath)
-  local function rec(fullPath)
-    local info = self.backend:getInfo(fullPath)
+  self:_removeTreeAt(self:resolve(relativePath))
+  return true
+end
+
+-- Recursively remove a save-directory-absolute path; a no-op when absent.
+function CacheFs:_removeTreeAt(fullPath)
+  local function rec(path)
+    local info = self.backend:getInfo(path)
     if not info then
       return
     end
     if info.type == "directory" then
-      for _, name in ipairs(self.backend:getDirectoryItems(fullPath)) do
-        rec(fullPath .. "/" .. name)
+      for _, name in ipairs(self.backend:getDirectoryItems(path)) do
+        rec(path .. "/" .. name)
       end
     end
-    self.backend:remove(fullPath)
+    self.backend:remove(path)
   end
-  rec(root)
+  rec(fullPath)
+end
+
+-- Discard every staged output for this version: the staging root and any
+-- orphaned previous root (`staging/<versionId>.old`) a crash mid-publish left
+-- behind. Staging is disposable generated data; a fresh extraction rebuilds it
+-- from the validated ROM. The live root is never touched.
+function CacheFs:removeStagedTree(stagingCache)
+  self:_removeTreeAt(stagingCache:resolve(""))
+  self:_removeTreeAt(stagingCache:resolve("") .. STAGING_OLD_SUFFIX)
+  return true
+end
+
+-- Publish a completed staging tree as the new live version root. The live root
+-- is first moved aside to the staging sibling `<stagingRoot>.old`, the staging
+-- root is then renamed into place, and only after it lands is the previous root
+-- removed. If the staging root cannot land, the previous root is renamed back
+-- and the failure re-raised, so a failed publish leaves the prior dump intact.
+-- Both moves are single backend renames; a process crash between them leaves
+-- the previous dump at `<stagingRoot>.old`, which removeStagedTree discards at
+-- the next import.
+function CacheFs:publishFromStage(stagingCache)
+  local liveRoot = self:resolve("")
+  local stageRoot = stagingCache:resolve("")
+  local oldRoot = stageRoot .. STAGING_OLD_SUFFIX
+  self:_removeTreeAt(oldRoot)
+  local movedLiveAside = false
+  if self:exists("", "directory") then
+    self.backend:replace(liveRoot, oldRoot)
+    movedLiveAside = true
+  end
+  local ok, err = pcall(self.backend.replace, self.backend, stageRoot, liveRoot)
+  if not ok then
+    if movedLiveAside then
+      self.backend:replace(oldRoot, liveRoot)
+    end
+    error(err, 0)
+  end
+  self:_removeTreeAt(oldRoot)
   return true
 end
 

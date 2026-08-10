@@ -103,13 +103,20 @@ idle → reading → verifying → extracting → complete
    (header/FNT/FAT/ARM/overlay tables), dump every FAT file to its resolved
    path, write the metadata indexes, resolve and open the required NARCs,
    smoke-decode map matrix member 0, then write the completion marker **last**.
+   All of this lands in the disposable `staging/<version>/` namespace; the
+   completed staged tree is then published over the live version root in two
+   renames (with rollback if the second rename fails), and only after it lands
+   is the previous dump removed. A failed extraction or publish leaves the
+   previous ready dump untouched and usable.
 4. **complete/error** — the ROM bytes are released (`RomSource:release`) and a
    single garbage collection runs on every terminal state.
 
 The completion marker (`rom-dump.complete`, content
-`g4-rom-dump-v1:<version>:<sha1>`) is the definition of a ready cache. A partial
-dump without the exact marker is never treated as ready, and a retry removes only
-the selected version's subtree — importing one game never touches the other.
+`g4-rom-dump-v1:<version>:<sha1>`) is the definition of a ready cache. It is
+written only inside a fully validated staged tree, and `RomImporter.isReady`
+reads only the live version root — a partial dump, staged or stale, is never
+treated as ready. Importing one game never touches another version's subtree or
+the sibling `saves/` namespace.
 
 `world.lua` records the two kinds of omission separately, because they call for
 different work: `analysis.excluded` holds map headers whose matrix cell could not

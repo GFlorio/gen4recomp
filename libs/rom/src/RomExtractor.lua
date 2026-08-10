@@ -1,9 +1,12 @@
--- Materializes a parsed NdsRom into the private per-version cache: a lossless
--- raw NitroFS dump plus deterministic generated metadata, finished by a
--- marker-last transaction. Orchestration only; all binary parsing
--- lives in the pure modules it drives. run() wraps a private pipeline in pcall
--- and returns (report | nil, err); the completion marker is written only after
--- every other output and the final recheck succeed.
+-- Materializes a parsed NdsRom as a staged raw dump and publishes it over the
+-- live per-version cache: a lossless raw NitroFS dump plus deterministic
+-- generated metadata, finished by a marker-last transaction. The live dump is
+-- not touched until the staged tree is complete and validated; a failed
+-- extraction or failed publish leaves the previous ready dump usable. Only
+-- after the staged tree lands is the previous version root removed. Orchestration
+-- only; all binary parsing lives in the pure modules it drives. run() wraps a
+-- private pipeline in pcall and returns (report | nil, err); the completion
+-- marker is written last inside staging, and the staged tree is then published.
 --
 -- This module is allowed to hold the full ROM (via NdsRom); releasing it is the
 -- caller's responsibility. Responsiveness/yielding belongs to the
@@ -11,6 +14,7 @@
 
 local Errors = require("libs.rom.src.Errors")
 local Narc = require("libs.rom.src.Narc")
+local CacheFs = require("libs.rom.src.CacheFs")
 local MapMatrix = require("libs.assets.src.MapMatrix")
 
 local RomExtractor = {}
@@ -28,13 +32,14 @@ end
 -- Ordered stages with the [start, finish) fraction each occupies of the overall
 -- progress bar. Monotonic by construction.
 local STAGES = {
-  { key = "prepare", label = "Preparing cache", from = 0.00, to = 0.02 },
+  { key = "prepare", label = "Preparing staging", from = 0.00, to = 0.02 },
   { key = "write_system_metadata", label = "Writing system data", from = 0.02, to = 0.10 },
   { key = "dump_files", label = "Dumping NitroFS", from = 0.10, to = 0.80 },
   { key = "write_indexes", label = "Writing indexes", from = 0.80, to = 0.88 },
   { key = "validate_narcs", label = "Validating NARCs", from = 0.88, to = 0.94 },
   { key = "smoke_decode", label = "Decoding map matrix", from = 0.94, to = 0.97 },
-  { key = "finalize", label = "Finalizing", from = 0.97, to = 1.00 },
+  { key = "finalize", label = "Finalizing", from = 0.97, to = 0.99 },
+  { key = "publish", label = "Publishing dump", from = 0.99, to = 1.00 },
 }
 local STAGE_BY_KEY = {}
 for _, s in ipairs(STAGES) do
@@ -50,6 +55,9 @@ function RomExtractor.new(ndsRom, versionInfo, cache, manifest, progressCallback
     _rom = ndsRom,
     _version = versionInfo,
     _cache = cache,
+    -- Staging shares the live cache's backend: both roots live in the same
+    -- save directory, so the publish renames stay on one filesystem.
+    _stage = CacheFs.forStaging(versionInfo.id, cache.backend),
     _manifest = manifest,
     _progress = progressCallback,
   }, RomExtractor)
@@ -79,11 +87,11 @@ local function readRom(rom, offset, length, name)
   return bytes
 end
 
--- Stage 1: remove the marker first, then wipe this version's stale partial
--- output, then recreate the output directories.
+-- Stage 1: drop any stale staging output (including an orphaned previous root
+-- from a crash mid-publish), then recreate the staging directories. The live
+-- version root is untouched until the completed stage is published.
 function RomExtractor:_prepare()
-  self._cache:remove(MARKER_PATH)
-  self._cache:removeTree("")
+  self._cache:removeStagedTree(self._stage)
   for _, dir in ipairs({
     "data/generated",
     "romfs",
@@ -92,7 +100,7 @@ function RomExtractor:_prepare()
     "system/overlay7",
     "system/unmapped",
   }) do
-    self._cache:createDirectory(dir)
+    self._stage:createDirectory(dir)
   end
   self:_emit("prepare", 1, 1)
 end
@@ -100,19 +108,19 @@ end
 -- Stage 2: raw header, FNT, FAT, overlay tables, and ARM binaries.
 function RomExtractor:_writeSystemMetadata()
   local rom, h = self._rom, self._rom:header()
-  self._cache:write("system/header.bin", readRom(rom, 0, 0x200, "header"))
-  self._cache:write("system/fnt.bin", readRom(rom, h.fnt.offset, h.fnt.size, "fnt"))
-  self._cache:write("system/fat.bin", readRom(rom, h.fat.offset, h.fat.size, "fat"))
-  self._cache:write(
+  self._stage:write("system/header.bin", readRom(rom, 0, 0x200, "header"))
+  self._stage:write("system/fnt.bin", readRom(rom, h.fnt.offset, h.fnt.size, "fnt"))
+  self._stage:write("system/fat.bin", readRom(rom, h.fat.offset, h.fat.size, "fat"))
+  self._stage:write(
     "system/arm9_overlay_table.bin",
     readRom(rom, h.arm9Overlays.offset, h.arm9Overlays.size, "arm9_overlay_table")
   )
-  self._cache:write(
+  self._stage:write(
     "system/arm7_overlay_table.bin",
     readRom(rom, h.arm7Overlays.offset, h.arm7Overlays.size, "arm7_overlay_table")
   )
-  self._cache:write("system/arm9.bin", readRom(rom, h.arm9.offset, h.arm9.size, "arm9"))
-  self._cache:write("system/arm7.bin", readRom(rom, h.arm7.offset, h.arm7.size, "arm7"))
+  self._stage:write("system/arm9.bin", readRom(rom, h.arm9.offset, h.arm9.size, "arm9"))
+  self._stage:write("system/arm7.bin", readRom(rom, h.arm7.offset, h.arm7.size, "arm7"))
   self:_emit("write_system_metadata", 1, 1)
 end
 
@@ -126,8 +134,8 @@ function RomExtractor:_dumpFiles()
   for fileId = 0, total - 1 do
     local dest = map[fileId]
     local data = rom:readFatFile(fileId)
-    self._cache:write(dest.path, data)
-    local info = self._cache:getInfo(dest.path)
+    self._stage:write(dest.path, data)
+    local info = self._stage:getInfo(dest.path)
     if not info or info.size ~= dest.size then
       Errors.raise(
         "EXTRACT_WRITE_SIZE_MISMATCH",
@@ -152,7 +160,7 @@ function RomExtractor:_writeIndexes(map, fileCount, totalBytes, unmappedCount)
   local arm9Ov, arm7Ov = rom:arm9Overlays(), rom:arm7Overlays()
   local namedCount = rom:nitroFs().namedFileCount
 
-  self._cache:writeLua("data/generated/rom_metadata.lua", {
+  self._stage:writeLua("data/generated/rom_metadata.lua", {
     schema = 1,
     version = v.id,
     displayName = v.displayName,
@@ -196,7 +204,7 @@ function RomExtractor:_writeIndexes(map, fileCount, totalBytes, unmappedCount)
       overlayId = dest.overlayId,
     }
   end
-  self._cache:writeLua("data/generated/romfs_index.lua", {
+  self._stage:writeLua("data/generated/romfs_index.lua", {
     schema = 1,
     version = v.id,
     romSha1 = v.sha1,
@@ -224,7 +232,7 @@ function RomExtractor:_writeIndexes(map, fileCount, totalBytes, unmappedCount)
     end
     return out
   end
-  self._cache:writeLua("data/generated/overlay_index.lua", {
+  self._stage:writeLua("data/generated/overlay_index.lua", {
     schema = 1,
     arm9 = overlayTable(arm9Ov),
     arm7 = overlayTable(arm7Ov),
@@ -308,23 +316,31 @@ function RomExtractor:_smokeDecode(openedNarcs)
   }
 end
 
--- Stage 7: write import_report, recheck the required outputs, then write the
--- marker last.
+-- Stage 7: write import_report, recheck the required outputs against staging,
+-- then write the staging marker last.
 function RomExtractor:_finalize(report)
-  self._cache:writeLua("data/generated/import_report.lua", report)
+  self._stage:writeLua("data/generated/import_report.lua", report)
 
   for _, path in ipairs({
     "data/generated/rom_metadata.lua",
     "data/generated/romfs_index.lua",
     "data/generated/overlay_index.lua",
   }) do
-    if not self._cache:exists(path, "file") then
+    if not self._stage:exists(path, "file") then
       Errors.raise("EXTRACT_OUTPUT_MISSING", "required output missing at finalize: " .. path, { path = path })
     end
   end
 
-  self._cache:write(MARKER_PATH, RomExtractor.markerContent(self._version.id, self._version.sha1))
+  self._stage:write(MARKER_PATH, RomExtractor.markerContent(self._version.id, self._version.sha1))
   self:_emit("finalize", 1, 1)
+end
+
+-- Stage 8: move the completed staging tree over the live version root. Only
+-- after the staged tree lands is the previous dump removed, so a failed
+-- extraction or publish leaves the previous ready dump usable.
+function RomExtractor:_publish()
+  self._cache:publishFromStage(self._stage)
+  self:_emit("publish", 1, 1)
 end
 
 function RomExtractor:_run()
@@ -351,6 +367,7 @@ function RomExtractor:_run()
     matrix = matrix,
   }
   self:_finalize(report)
+  self:_publish()
   return report
 end
 

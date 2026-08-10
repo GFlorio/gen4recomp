@@ -64,6 +64,27 @@ scripts/run.sh
   and model-cell count.
 - Importing both games leaves two independent caches that never collide.
 
+## Import safety
+
+An import extracts into a disposable staging namespace and only then publishes
+the completed tree over the live version root, so re-importing a version never
+destroys a previously working dump mid-way:
+
+1. The ROM identity is validated (SHA-1, header, game code) before anything is
+   written.
+2. Any stale staging output from a previous attempt is removed.
+3. The dump is extracted completely into `staging/<version>/`, with every
+   readback/smoke check performed against the staged tree.
+4. The completion marker is written last, inside staging.
+5. The staged tree is published over the live root in two renames, with a
+   rollback if the second rename cannot land; only after it lands is the
+   previous dump removed.
+
+A failed extraction or failed publish therefore leaves the previous ready dump
+usable, and a partial staged dump never exposes its marker. `RomImporter.isReady`
+only ever looks at the live version root, so leftover staging can never make a
+version look ready.
+
 ## Cache location & layout
 
 The private cache lives in LÖVE's per-user save directory under identity
@@ -89,6 +110,9 @@ Each version gets its own subtree so the two games never interfere:
 │       └── unmapped/file_<id>.bin   # FAT entries with no FNT name or overlay
 ├── soulsilver/
 │   └── … same layout
+├── staging/                          # disposable import staging, published over
+│   ├── heartgold/                    #   the live root on success; stale staging
+│   └── soulsilver/                   #   is removed at the next import
 └── saves/                            # persistent user data, NOT part of any
     └── heartgold/                    #   version cache: re-imports and cache
         └── field-session-v1.lua      #   clears can never delete it
@@ -96,7 +120,9 @@ Each version gets its own subtree so the two games never interfere:
 
 Persistent saves live in the sibling `saves/<version>/` namespace so every
 operation that deletes or rebuilds a version cache is structurally incapable of
-touching them.
+touching them. Imports rebuild into `staging/<version>/` first and publish only
+a complete tree, so they are likewise incapable of destroying a ready dump or a
+save.
 
 ## Clearing one version's cache
 
@@ -120,7 +146,7 @@ In the default dev setup that is simply:
 rm -rf .cache/love/g4recomp/heartgold
 ```
 
-A fresh import also clears its own version's partial output first (marker
-removed before anything is written), so re-importing is always safe; you only
-need to delete a subtree if you want to force a version back to the import
-screen.
+A fresh import also clears its own version's stale staging first, so re-importing
+is always safe and a previously interrupted import cannot leave partial output
+in the live tree; you only need to delete a subtree if you want to force a
+version back to the import screen.

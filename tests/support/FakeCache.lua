@@ -54,10 +54,45 @@ function FakeCache:remove(path)
   return true
 end
 
+-- Moves a single file or a whole directory subtree to a sibling path (the
+-- in-memory analogue of the host `os.rename` the real backend uses for atomic
+-- replacement and staged-tree publication). Two-phase: all matching entries are
+-- collected first, then applied, so the tables are never written while being
+-- traversed.
 function FakeCache:replace(sourcePath, destinationPath)
-  assert(self.files[sourcePath] ~= nil, "replacement source is missing")
-  self.files[destinationPath] = self.files[sourcePath]
-  self.files[sourcePath] = nil
+  if self.files[sourcePath] ~= nil then
+    self.files[destinationPath] = self.files[sourcePath]
+    self.files[sourcePath] = nil
+    return true
+  end
+  local info = self:getInfo(sourcePath)
+  assert(info and info.type == "directory", "replacement source is missing")
+  local prefix = sourcePath .. "/"
+  local movedFiles = {}
+  for k, v in pairs(self.files) do
+    if k:sub(1, #prefix) == prefix then
+      movedFiles[#movedFiles + 1] = { k, destinationPath .. "/" .. k:sub(#prefix + 1), v }
+    end
+  end
+  for _, entry in ipairs(movedFiles) do
+    self.files[entry[2]] = entry[3]
+  end
+  for _, entry in ipairs(movedFiles) do
+    self.files[entry[1]] = nil
+  end
+  local movedDirs = {}
+  for k in pairs(self.dirs) do
+    if k == sourcePath or k:sub(1, #prefix) == prefix then
+      movedDirs[#movedDirs + 1] = k
+    end
+  end
+  for _, k in ipairs(movedDirs) do
+    local rest = k == sourcePath and "" or k:sub(#prefix + 1)
+    local dest = destinationPath .. (rest ~= "" and ("/" .. rest) or "")
+    self.dirs[dest] = true
+    self.dirs[k] = nil
+  end
+  self.dirs[destinationPath] = true
   return true
 end
 

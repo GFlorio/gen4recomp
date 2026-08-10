@@ -216,4 +216,58 @@ function T.reimport_preserves_saves()
   Assert.isTrue(RomImporter.isReady("heartgold", CacheFs.forVersion("heartgold", h.backend), h.versions))
 end
 
+-- A re-import that fails mid-extraction must leave the previous ready dump
+-- byte-for-byte intact and ready, with the save untouched.
+function T.failed_reimport_preserves_previous_dump_and_saves()
+  local h = harness()
+  SaveFs.forVersion("heartgold", h.backend):write("field-session-v1.lua", "SAVE-DATA")
+  h.importer:startSource(RomSource.fromString(h.data))
+  runToTerminal(h.importer)
+  Assert.equal(h.importer.state, "complete")
+  local snapshot = {}
+  for k, v in pairs(h.backend.files) do
+    snapshot[k] = v
+  end
+
+  local originalWrite = h.backend.write
+  ---@diagnostic disable: duplicate-set-field
+  h.backend.write = function(self, path, data)
+    if path:find("romfs/data/sound", 1, true) then
+      error("injected write failure")
+    end
+    return originalWrite(self, path, data)
+  end
+  local again = RomImporter.new({
+    versions = h.versions,
+    now = function()
+      return 0
+    end,
+    cacheFactory = function(id)
+      return CacheFs.forVersion(id, h.backend)
+    end,
+  })
+  again:startSource(RomSource.fromString(h.data))
+  runToTerminal(again)
+  h.backend.write = originalWrite
+
+  Assert.equal(again.state, "error", "injected failure must fail the import")
+  for k, v in pairs(snapshot) do
+    Assert.equal(h.backend.files[k], v, "live state changed: " .. k)
+  end
+  Assert.equal(h.backend.files["saves/heartgold/field-session-v1.lua"], "SAVE-DATA")
+  Assert.isTrue(RomImporter.isReady("heartgold", CacheFs.forVersion("heartgold", h.backend), h.versions))
+end
+
+-- A successful import leaves no staging residue: the staged tree is moved into
+-- the live root and the staging namespace is gone.
+function T.import_leaves_no_staging_residue()
+  local h = harness()
+  h.importer:startSource(RomSource.fromString(h.data))
+  runToTerminal(h.importer)
+  Assert.equal(h.importer.state, "complete")
+  Assert.isNil(h.backend.files["staging/heartgold/rom-dump.complete"], "staging marker must not survive")
+  Assert.isNil(h.backend.dirs["staging/heartgold"], "staging root must be gone")
+  Assert.isNil(h.backend.files["staging/heartgold.old/romfs/a/0/0/2"], "no orphaned old root")
+end
+
 return T

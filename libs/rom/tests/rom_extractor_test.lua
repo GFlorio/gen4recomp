@@ -1,6 +1,9 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.rom.src.Errors")
 local RomExtractor = require("libs.rom.src.RomExtractor")
+local RomImporter = require("libs.rom.src.RomImporter")
+local CacheFs = require("libs.rom.src.CacheFs")
+local FakeCache = require("tests.support.FakeCache")
 local DumpFixture = require("tests.support.DumpFixture")
 
 local T = {}
@@ -95,18 +98,134 @@ function T.does_not_touch_another_version_prefix()
 end
 
 function T.progress_is_monotonic_and_reaches_one()
-  local last, sawFinal = -1, false
+  local last, sawPublish = -1, false
   extractOk({
     progress = function(p)
       Assert.isTrue(p.overall >= last, "overall regressed at stage " .. p.stage)
       last = p.overall
-      if p.stage == "finalize" then
-        sawFinal = true
+      if p.stage == "publish" then
+        sawPublish = true
       end
     end,
   })
-  Assert.isTrue(sawFinal, "finalize stage must report")
+  Assert.isTrue(sawPublish, "publish stage must report")
   Assert.equal(last, 1)
+end
+
+-- Deep-copy the live-version portion of a FakeCache backend so byte-for-byte
+-- preservation can be asserted across a failed extraction.
+local function snapshotLive(backend)
+  local files, dirs = {}, {}
+  for k, v in pairs(backend.files) do
+    if k:sub(1, #HG) == HG then
+      files[k] = v
+    end
+  end
+  for k in pairs(backend.dirs) do
+    if k:sub(1, #HG) == HG then
+      dirs[k] = true
+    end
+  end
+  return files, dirs
+end
+
+local function assertLiveUnchanged(backend, files, dirs)
+  for k, v in pairs(files) do
+    Assert.equal(backend.files[k], v, "live file changed: " .. k)
+  end
+  for k in pairs(dirs) do
+    Assert.isTrue(backend.dirs[k], "live dir removed: " .. k)
+  end
+  for k, v in pairs(backend.files) do
+    if k:sub(1, #HG) == HG then
+      Assert.equal(files[k], v, "live file changed: " .. k)
+    end
+  end
+  for k in pairs(backend.dirs) do
+    if k:sub(1, #HG) == HG then
+      Assert.isTrue(dirs[k], "unexpected live dir: " .. k)
+    end
+  end
+end
+
+-- A failed extraction must leave a previously ready dump untouched and ready:
+-- nothing is written to the live root until the staged dump is published.
+function T.failed_extraction_preserves_ready_dump()
+  local backend = FakeCache.new()
+  extractOk({ backend = backend })
+  local files, dirs = snapshotLive(backend)
+
+  local spec = DumpFixture.spec()
+  local aZero = spec.tree.dirs[1].dirs[1].dirs -- a/0/{0,1,2,4}
+  table.remove(aZero, 4) -- drop a/0/4 (map_matrices)
+  local r = DumpFixture.extract({ spec = spec, backend = backend })
+
+  Assert.isNil(r.report, "expected extraction to fail")
+  Assert.equal(r.err.code, "EXTRACT_REQUIRED_NARC_MISSING")
+  assertLiveUnchanged(backend, files, dirs)
+  local cache = CacheFs.forVersion("heartgold", backend)
+  Assert.isTrue(RomImporter.isReady("heartgold", cache), "previous dump must remain ready after a failed extraction")
+  Assert.isNil(
+    backend.files["staging/heartgold/rom-dump.complete"],
+    "a partial staged dump must never expose its marker"
+  )
+end
+
+-- A successful extraction replaces the previous dump: the old tree is dropped
+-- only after the staged tree lands, and no staging residue survives.
+function T.successful_extraction_replaces_dump_and_cleans_staging()
+  local backend = FakeCache.new()
+  extractOk({ backend = backend })
+  backend.files[HG .. "stray.txt"] = "OLD-STRAY"
+
+  local spec = DumpFixture.spec()
+  spec.tree.dirs[2].dirs[1].files[1].content = "SDAT-STUB-2"
+  local r = extractOk({ spec = spec, backend = backend })
+
+  Assert.equal(backend.files[HG .. "romfs/data/sound/gs_sound_data.sdat"], "SDAT-STUB-2")
+  Assert.isNil(backend.files[HG .. "stray.txt"], "previous dump contents must be gone")
+  Assert.isTrue(RomImporter.isReady("heartgold", CacheFs.forVersion("heartgold", backend)))
+  Assert.isNil(backend.files["staging/heartgold/rom-dump.complete"], "no staging residue")
+  Assert.isNil(backend.dirs["staging/heartgold"], "no staging residue")
+  Assert.isNil(backend.files["staging/heartgold.old/romfs/a/0/0/2"], "no orphaned old root")
+end
+
+-- Stale staging output (including a plausible-looking staging marker) must
+-- never make the live version ready, and the next import discards it.
+function T.stale_staging_does_not_make_ready_and_is_cleaned()
+  local backend = FakeCache.new()
+  backend.files["staging/heartgold/rom-dump.complete"] = "STALE-MARKER"
+  backend.files["staging/heartgold/romfs/a/0/0/2"] = "STALE-DATA"
+  local cache = CacheFs.forVersion("heartgold", backend)
+  Assert.isFalse(RomImporter.isReady("heartgold", cache), "staging must never imply readiness")
+
+  extractOk({ backend = backend })
+  Assert.isNil(backend.files["staging/heartgold/romfs/a/0/0/2"], "stale staging must be cleaned")
+end
+
+-- A failure while the staged tree is being moved into place restores the
+-- previous live root and re-raises, so even a failed publish keeps the old
+-- dump ready.
+function T.failed_publish_restores_previous_dump()
+  local backend = FakeCache.new()
+  extractOk({ backend = backend })
+  local files, dirs = snapshotLive(backend)
+
+  local originalReplace = backend.replace
+  ---@diagnostic disable: duplicate-set-field
+  backend.replace = function(self, sourcePath, destinationPath)
+    if sourcePath == "staging/heartgold" then
+      error(Errors.new("CACHE_REPLACE_FAILED", "injected publish failure", { sourcePath = sourcePath }))
+    end
+    return originalReplace(self, sourcePath, destinationPath)
+  end
+  local r = DumpFixture.extract({ backend = backend })
+
+  Assert.isNil(r.report, "expected extraction to fail")
+  Assert.equal(r.err.code, "CACHE_REPLACE_FAILED")
+  assertLiveUnchanged(backend, files, dirs)
+  Assert.isTrue(RomImporter.isReady("heartgold", CacheFs.forVersion("heartgold", backend)))
+  Assert.isNil(backend.files["staging/heartgold.old/romfs/a/0/0/2"], "no orphaned old root after rollback")
 end
 
 return T
