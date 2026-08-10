@@ -189,12 +189,12 @@ local function fakeGraphics(opts)
   return {
     shaders = shaders,
     canvases = canvases,
-    newShader = function()
+    newShader = function(source)
       shaderCount = shaderCount + 1
       if opts.failOnNewShader == shaderCount then
         error("injected shader failure")
       end
-      local shader = {}
+      local shader = { source = source }
       shader.released = false
       shader.send = function() end
       shader.release = function()
@@ -372,6 +372,81 @@ function T.new_first_shader_failure_leaks_nothing()
     MapRenderer.new({ graphics = lg })
   end)
   Assert.isTrue(tostring(err):find("injected shader failure", 1, true) ~= nil, "rethrows the shader failure")
+  Assert.equal(#lg.shaders, 0, "no shader was created")
+end
+
+-- The renderer builds its shaders from the injected source reader -- the
+-- engine-resource boundary -- never from host paths: the reader is called
+-- with exactly the engine-owned shader paths, in construction order, and each
+-- newShader receives that path's source.
+function T.new_reads_shader_sources_through_the_injected_reader()
+  local lg = fakeGraphics()
+  local calls = {}
+  local renderer = MapRenderer.new({
+    graphics = lg,
+    readSource = function(path)
+      calls[#calls + 1] = path
+      return "source:" .. path
+    end,
+  })
+  Assert.deepEqual(calls, {
+    "libs/engine/src/shaders/map.glsl",
+    "libs/engine/src/shaders/edge.glsl",
+  })
+  Assert.equal(lg.shaders[1].source, "source:libs/engine/src/shaders/map.glsl")
+  Assert.equal(lg.shaders[2].source, "source:libs/engine/src/shaders/edge.glsl")
+  renderer:release()
+end
+
+-- Without an injected reader, the default resolves the engine shader paths in
+-- the actual runtime environments: through love.filesystem from the packaged
+-- archive, or -- in the repo checkout where the app runs as `love game/` and
+-- the engine tree sits outside the source mount -- from the host file under
+-- the LÖVE source base directory. Both real sources must reach newShader.
+function T.new_reads_real_shader_sources_by_default()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  Assert.isTrue(lg.shaders[1].source:find("uniform", 1, true) ~= nil, "map shader source is real GLSL")
+  Assert.isTrue(lg.shaders[2].source:find("uniform", 1, true) ~= nil, "edge shader source is real GLSL")
+  renderer:release()
+end
+
+-- A source-read failure is a construction failure like any other: when the
+-- reader fails for the second shader, the first is released and the error
+-- propagates (the transactional construction holds through the new boundary).
+function T.new_second_shader_source_failure_releases_first_shader()
+  local lg = fakeGraphics()
+  local reads = 0
+  local err = Assert.throws(function()
+    MapRenderer.new({
+      graphics = lg,
+      readSource = function()
+        reads = reads + 1
+        if reads == 2 then
+          error("injected read failure")
+        end
+        return "source"
+      end,
+    })
+  end)
+  Assert.isTrue(tostring(err):find("injected read failure", 1, true) ~= nil, "rethrows the read failure")
+  Assert.equal(#lg.shaders, 1, "only the first shader was created")
+  Assert.isTrue(lg.shaders[1].released, "the first shader is released when the second source read fails")
+end
+
+-- The very first source read failing creates nothing and still reaches the
+-- caller.
+function T.new_first_shader_source_failure_leaks_nothing()
+  local lg = fakeGraphics()
+  local err = Assert.throws(function()
+    MapRenderer.new({
+      graphics = lg,
+      readSource = function()
+        error("injected read failure")
+      end,
+    })
+  end)
+  Assert.isTrue(tostring(err):find("injected read failure", 1, true) ~= nil, "rethrows the read failure")
   Assert.equal(#lg.shaders, 0, "no shader was created")
 end
 

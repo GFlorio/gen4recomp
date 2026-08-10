@@ -37,18 +37,36 @@ local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
 local MapRenderer = {}
 MapRenderer.__index = MapRenderer
 
--- Shaders are engine assets colocated with this module. Resolve them relative
--- to this file (not the LÖVE source root or cwd) so the renderer loads its own
--- bundled GLSL regardless of which app mounts the engine.
-local MODULE_DIR = (debug.getinfo(1, "S").source:match("^@(.*[/\\])")) or "./"
-local SHADER_PATH = MODULE_DIR .. "shaders/map.glsl"
-local EDGE_SHADER_PATH = MODULE_DIR .. "shaders/edge.glsl"
+-- Shader sources are engine assets colocated with this module, addressed by
+-- repo-relative path -- the same namespace as every `require`. They are read
+-- through the LÖVE resource boundary: love.filesystem resolves the paths from
+-- the archive root when the game ships as a .love or fused executable, and
+-- in the repo checkout, where the app runs as `love game/` and the engine
+-- tree sits outside that source mount, from the host file under the source
+-- base directory. `opts.readSource` injects the reader so construction is
+-- testable headless without any filesystem.
+local SHADER_SOURCE_PATHS = {
+  map = "libs/engine/src/shaders/map.glsl",
+  edge = "libs/engine/src/shaders/edge.glsl",
+}
 
-local function loadShaderSource(path)
-  local f = assert(io.open(path, "r"), "cannot open shader: " .. path)
-  local src = f:read("*a")
-  f:close()
-  return src
+---@param path string
+---@return string
+local function defaultReadSource(path)
+  if love and love.filesystem then
+    local source = love.filesystem.read(path)
+    if source then
+      return source
+    end
+    local base = love.filesystem.getSourceBaseDirectory()
+    local f = io.open(base .. "/" .. path, "rb")
+    if f then
+      local src = f:read("*a")
+      f:close()
+      return src
+    end
+  end
+  error("cannot read shader source: " .. path)
 end
 
 -- Epsilon for the DS fragment alpha contract: a 5-bit alpha of zero becomes a
@@ -81,7 +99,7 @@ local MAX_EDGE_RADIUS = 8
 -- stays clear of the real 6-bit IDs (0-63) and the 255 rear-plane/wireframe id.
 local TRANSLUCENT_SENTINEL_ID = 254
 
----@param opts { edgeMarking?: { colors?: number[][], alpha?: number }, graphics?: love.Graphics }?
+---@param opts { edgeMarking?: { colors?: number[][], alpha?: number }, graphics?: love.Graphics, readSource?: fun(path: string): string }?
 function MapRenderer.new(opts)
   opts = opts or {}
   local em = opts.edgeMarking or {}
@@ -98,6 +116,7 @@ function MapRenderer.new(opts)
     graphics = love and love.graphics
   end
   assert(graphics, "MapRenderer requires a graphics context")
+  local readSource = opts.readSource or defaultReadSource
   local renderer = setmetatable({
     _graphics = graphics,
     edgeColors = colors,
@@ -105,11 +124,12 @@ function MapRenderer.new(opts)
     stats = { drawCalls = 0, triangles = 0, meshCount = 0, textureCount = 0 },
   }, MapRenderer)
   -- Shader construction is transactional: a failure while creating the second
-  -- shader releases the first (and any other already-created resource) before
-  -- the error propagates, so a failed renderer never leaks GPU resources.
+  -- shader (or reading its source) releases the first (and any other
+  -- already-created resource) before the error propagates, so a failed
+  -- renderer never leaks GPU resources.
   local ok, err = pcall(function()
-    renderer.shader = graphics.newShader(loadShaderSource(SHADER_PATH))
-    renderer.edgeShader = graphics.newShader(loadShaderSource(EDGE_SHADER_PATH))
+    renderer.shader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.map))
+    renderer.edgeShader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.edge))
   end)
   if not ok then
     renderer:release()
