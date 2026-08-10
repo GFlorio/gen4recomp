@@ -4,6 +4,13 @@
 // stage samples the texture, applies modulation or decal combination, composes
 // the 5-bit polygon alpha, and discards alpha-zero fragments for cutout draws.
 // No fake directional light or second diffuse multiplication remains.
+//
+// The vertex-lighting algebra below (computeDsLighting, dsLightContribution,
+// quantizeRgb5) is the shared DS-lighting contract: colors enter normalized as
+// c/31, contributions sum as lightColor * (ambient + diffuse*ld + specular*ndh),
+// and the result clamps to [0,1] and quantizes to 5 bits with round-half-up.
+// The pure-Lua reference libs/engine/src/DsLighting.lua mirrors this algebra,
+// and ds_lighting_test locks the agreement at midrange values.
 
 varying vec3 v_dsColor;
 

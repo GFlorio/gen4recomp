@@ -63,6 +63,36 @@ The profile source bytes are SHA-1 hashed and recorded in both the scene
 (`dependencies.fieldLightSourceSha1`). Changing a profile text file invalidates
 the derived cache.
 
+## Vertex lighting contract
+
+The per-vertex color is the DS geometry-engine formula (GBATEK "Internal
+Operation on Normal Command"; the fixed-point domain from melonDS
+`GPU3D::CalculateLighting`):
+
+```text
+VertexColor = Emission + Sum_i( LightColor_i * (Ambient + Diffuse*ld_i + Specular*ls_i) )
+```
+
+summed per RGB channel over the lights enabled by the polygon's `lightMask`,
+where `ld = max(0, -dot(L, N))` (the profile light vectors point in the
+direction the light travels, from source toward surface) and `ls` is the
+half-vector term `max(0, dot(N, H))` with `H = normalize(-L + (0,0,1))` in
+camera/vector space (exact DS shininess-table lookup remains deferred).
+
+The numeric domain is the important part: the DS hardware multiplies its RGB555
+colors as fractions of full scale (fixed point), not as saturating integers, so
+a dim light dims a bright material proportionally. Both implementations
+therefore work in normalized 0..1 (RGB555 color / 31, fx12 vector / 4096), and
+both quantize the clamped result to 5 bits with round-half-up
+(`floor(c*31 + 0.5)`). One documented deviation: the hardware truncates its
+fixed-point accumulator, capping a single full-intensity light at 30/31 per
+channel; round-half-up is this project's chosen quantization and is what the
+shader renders.
+
+The vertex shader (`libs/engine/src/shaders/map.glsl`) is the rendered form of
+this contract, and `libs/engine/src/DsLighting.lua` is its pure-Lua reference;
+`ds_lighting_test` asserts they agree at midrange colors and angles.
+
 ## Normalized material state
 
 `Nsbmd` exposes the exact file bytes. `DsMaterial.resolve` merges a raw material

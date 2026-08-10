@@ -1,7 +1,21 @@
 -- Pure Lua reference for the DS geometry-engine vertex-lighting calculation.
--- Mirrors the formula the vertex shader will run with floats: ambient, diffuse,
--- and specular contributions are summed per enabled light, emission is added
--- once, and the result is saturated at 31 per channel and packed as RGB555.
+-- This is the same math the map vertex shader runs (shaders/map.glsl); the
+-- two must agree exactly, and ds_lighting_test cross-checks them at midrange
+-- values.
+--
+-- Authoritative formula: GBATEK "Internal Operation on Normal Command" --
+--   VertexColor = Emission + Sum_i( LightColor_i * (Ambient +
+--   Diffuse*ld + Specular*ls) )
+-- summed per enabled light (polygon light mask) and per RGB channel. The
+-- numeric domain follows the DS hardware (melonDS GPU3D::CalculateLighting):
+-- colors are multiplied as fractions of full scale, not as saturating
+-- integers, so a dim light dims a bright material proportionally. This
+-- reference works in normalized 0..1 (RGB555 color / 31, fx12 vector / 4096)
+-- and quantizes the clamped result to RGB555 with round-half-up, mirroring
+-- the shader's quantizeRgb5. (The hardware truncates its fixed-point
+-- accumulator instead, capping a single full-intensity light at 30/31;
+-- round-half-up is the repo's chosen quantization and is what the shader
+-- renders.)
 --
 -- The light vectors stored in HGSS profiles point in the direction the light
 -- travels (from light source toward the surface). The diffuse factor is
@@ -12,6 +26,7 @@
 
 local DsLighting = {}
 
+local RGB5_MAX = 31
 local FX12_SCALE = 4096
 local VIEW_DIRECTION = { 0, 0, 1 }
 
@@ -23,16 +38,14 @@ function DsLighting.unpackRgb555(packed)
   return packed % 32, math.floor(packed / 32) % 32, math.floor(packed / 1024) % 32
 end
 
+-- Unpack an RGB555 color to normalized 0..1 channel values.
 local function unpackColor(packed)
   local r, g, b = DsLighting.unpackRgb555(packed)
-  return { r, g, b }
+  return { r / RGB5_MAX, g / RGB5_MAX, b / RGB5_MAX }
 end
 
 local function dot3(a, b)
   return a[1] * b[1] + a[2] * b[2] + a[3] * b[3]
-end
-local function scale3(v, s)
-  return { v[1] * s, v[2] * s, v[3] * s }
 end
 
 local function length3(v)
@@ -53,8 +66,11 @@ local function addInPlace(dst, src)
   dst[3] = dst[3] + src[3]
 end
 
-local function mulColor(color, factor)
-  return { color[1] * factor, color[2] * factor, color[3] * factor }
+-- Clamp a normalized channel to [0, 1] and quantize to 5 bits, rounding
+-- half-up exactly like the shader's quantizeRgb5.
+local function quantize5(c)
+  local clamped = c < 0 and 0 or (c > 1 and 1 or c)
+  return math.floor(clamped * RGB5_MAX + 0.5)
 end
 
 -- Compute the lit RGB555 for one vertex. Colors are packed RGB555; lights use
@@ -94,19 +110,16 @@ function DsLighting.vertexColorRgb5(params)
         end
       end
 
-      local contrib = { ambient[1], ambient[2], ambient[3] }
-      addInPlace(contrib, mulColor(diffuse, ld))
-      addInPlace(contrib, mulColor(specular, ls))
-
       local lcolor = unpackColor(light.colorRgb555)
-      addInPlace(acc, { lcolor[1] * contrib[1], lcolor[2] * contrib[2], lcolor[3] * contrib[3] })
+      addInPlace(acc, {
+        lcolor[1] * (ambient[1] + diffuse[1] * ld + specular[1] * ls),
+        lcolor[2] * (ambient[2] + diffuse[2] * ld + specular[2] * ls),
+        lcolor[3] * (ambient[3] + diffuse[3] * ld + specular[3] * ls),
+      })
     end
   end
 
-  local r = math.min(31, math.floor(acc[1] + 0.5))
-  local g = math.min(31, math.floor(acc[2] + 0.5))
-  local b = math.min(31, math.floor(acc[3] + 0.5))
-  return rgb555(r, g, b)
+  return rgb555(quantize5(acc[1]), quantize5(acc[2]), quantize5(acc[3]))
 end
 
 -- DS 5-bit alpha composition. `At5` is the rounded texture alpha (0..31),
