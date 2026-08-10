@@ -8,6 +8,7 @@ local GameVersion = require("libs.rom.src.GameVersion")
 local RomImporter = require("libs.rom.src.RomImporter")
 local FieldRuntime = require("game.src.game.FieldRuntime")
 local FieldBoot = require("game.src.game.FieldBoot")
+local App = require("game.src.game.App")
 local RecordingScriptHosts = require("tests.acceptance.support.RecordingScriptHosts")
 
 ---@class AcceptanceHarness
@@ -40,6 +41,37 @@ local function removeNamespace(path)
   fs.remove(path .. "/" .. FieldSave.PATH .. ".tmp")
   fs.remove(path .. "/" .. FieldSave.PATH)
   fs.remove(path)
+end
+
+-- Acceptance owns the save-root host boundary, so it can inject one scoped
+-- write failure without changing the runtime's real save composition.
+local function saveBackend(faults, lifecycle)
+  local fs = love.filesystem
+  return {
+    write = function(_, path, data)
+      lifecycle.saveWrites = lifecycle.saveWrites + 1
+      if faults.failWrite then
+        faults.failWrite = false
+        return false, "acceptance injected save write failure"
+      end
+      return fs.write(path, data)
+    end,
+    read = function(_, path)
+      return fs.read(path)
+    end,
+    getInfo = function(_, path)
+      return fs.getInfo(path)
+    end,
+    createDirectory = function(_, path)
+      return fs.createDirectory(path)
+    end,
+    remove = function(_, path)
+      return fs.remove(path)
+    end,
+    replace = function(_, sourcePath, destinationPath)
+      return os.rename(fs.getSaveDirectory() .. "/" .. sourcePath, fs.getSaveDirectory() .. "/" .. destinationPath)
+    end,
+  }
 end
 
 local function installRenderTrap()
@@ -94,14 +126,119 @@ end
 ---@field closed boolean?
 ---@field runtimeDisposed boolean?
 ---@field disposeErr any
+---@field lifecycle { saveWrites: integer, runtimeDisposals: integer }
+---@field worldProbe { flags: table<integer, boolean>, variables: table<integer, integer> }
+---@field faults { failWrite: boolean? }
+---@field harness AcceptanceHarness
+---@field versionId string
+---@field map string|integer|nil
+---@field saveStatus string?
+---@field ownsNamespace boolean
 local Game = {}
 Game.__index = Game
+
+function AcceptanceHarness:_newRuntime(versionId, map, namespace, save, faults, lifecycle)
+  return self.runtimeFactory(versionId, map, {
+    saveFs = SaveFs.forVersion(versionId, saveBackend(faults, lifecycle), namespace),
+    resumeSave = save == "resume",
+    resetSave = save == "fresh",
+    scriptHosts = RecordingScriptHosts.new(),
+  })
+end
+
+local function gameFor(harness, runtime, namespace, trap, versionId, map, faults, lifecycle, ownsNamespace)
+  return setmetatable({
+    runtime = runtime,
+    saveNamespace = namespace,
+    removeSaveNamespace = harness.removeSaveNamespace,
+    trap = trap,
+    timeline = {},
+    hosts = runtime.scriptHosts or {},
+    lifecycle = lifecycle,
+    worldProbe = { flags = {}, variables = {} },
+    faults = faults,
+    harness = harness,
+    map = map,
+    versionId = versionId,
+    saveStatus = runtime.saveStatus,
+    ownsNamespace = ownsNamespace,
+  }, Game)
+end
+
+function Game:_disposeRuntime()
+  if self.runtimeDisposed then
+    return
+  end
+  self.runtimeDisposed = true
+  local runtime = self.runtime
+  if not runtime then
+    return
+  end
+  self.lifecycle.runtimeDisposals = self.lifecycle.runtimeDisposals + 1
+  local ok, err = pcall(function()
+    runtime:dispose()
+  end)
+  self.saveStatus = runtime.saveStatus or self.saveStatus
+  if not ok then
+    self.disposeErr = err
+  end
+end
+
+function Game:restart(options)
+  options = options or {}
+  local save = options.save or "resume"
+  assert(save == "fresh" or save == "resume", "acceptance restart save must be fresh or resume")
+  self:_disposeRuntime()
+  if self.disposeErr then
+    error(self.disposeErr, 0)
+  end
+  local previousSaveStatus = self.saveStatus
+  local ok, runtime = pcall(
+    self.harness._newRuntime,
+    self.harness,
+    self.versionId,
+    options.map or self.map,
+    self.saveNamespace,
+    save,
+    self.faults,
+    self.lifecycle
+  )
+  if not ok then
+    error(runtime, 0)
+  end
+  assert(
+    runtime and runtime.session,
+    "acceptance restart runtime boot failed: " .. tostring(runtime and runtime.errorText)
+  )
+  self.runtime = runtime
+  self.map = options.map or self.map
+  self.hosts = runtime.scriptHosts or {}
+  self.runtimeDisposed = false
+  self.disposeErr = nil
+  self.saveStatus = previousSaveStatus and previousSaveStatus:find("Save failed:", 1, true) and previousSaveStatus
+    or runtime.saveStatus
+  return self
+end
 
 function Game:snapshot()
   local runtime = self.runtime
   local player = runtime.player or {}
   local dialogue = runtime.dialogue
   local scheduler = runtime.scripts and runtime.scripts.scheduler
+  local actors, occupancy = {}, {}
+  if runtime.actors and runtime.runtimeMap then
+    for _, actor in ipairs(runtime.actors:actorsOf(runtime.runtimeMap.mapId)) do
+      actors[actor.actorId] = {
+        fieldX = actor.fieldX,
+        fieldZ = actor.fieldZ,
+        surfaceId = actor.surfaceId,
+        facing = actor.facing,
+      }
+      if actor.solid then
+        occupancy[actor.fieldX .. ":" .. actor.fieldZ] = actor.actorId
+      end
+    end
+  end
   return {
     versionId = runtime.versionId,
     mapId = runtime.runtimeMap and runtime.runtimeMap.mapId,
@@ -118,7 +255,42 @@ function Game:snapshot()
     dialogue = dialogue and dialogue:status() or { modal = false },
     fieldLocked = scheduler and scheduler:playerMovementLocked() or false,
     transition = { phase = runtime.transition and runtime.transition.phase },
+    avatarId = runtime.avatar and runtime.avatar.id,
+    world = self.worldProbe,
+    actors = actors,
+    occupancy = occupancy,
   }
+end
+
+function Game:actor(actorId)
+  assert(type(actorId) == "string", "acceptance actor id required")
+  return self:snapshot().actors[actorId]
+end
+
+function Game:setWorldState(change)
+  assert(type(change) == "table", "acceptance world-state change required")
+  local world = assert(self.runtime.scripts and self.runtime.scripts.worldState, "field world state unavailable")
+  if change.flag ~= nil then
+    world:setFlag(change.flag)
+    self.worldProbe.flags[change.flag] = true
+  end
+  if change.value ~= nil then
+    assert(change.variable ~= nil, "acceptance world-state value requires a variable id")
+    world:setVar(change.variable, change.value)
+    self.worldProbe.variables[change.variable] = change.value
+  end
+end
+
+function Game:setActorRemovalFlag(actorId)
+  assert(type(actorId) == "string", "acceptance actor id required")
+  local actor = assert(self.runtime.actors:getById(actorId), "actor is not visible: " .. actorId)
+  local eventFlag = assert(actor.sourceEvent.eventFlag, "actor has no removal flag")
+  assert(eventFlag ~= 0, "actor has no removal flag")
+  self.runtime.eventState:setFlag(eventFlag)
+end
+
+function Game:failNextSave()
+  self.faults.failWrite = true
 end
 
 local function interactionFor(runtime)
@@ -401,21 +573,97 @@ function Game:renderAttempts()
   return self.trap.attempts
 end
 
+function Game:replay(inputs, options)
+  assert(type(inputs) == "table", "acceptance replay inputs required")
+  options = options or {}
+  local replay = self.harness:boot({
+    versionId = self.versionId,
+    map = options.map or self.map,
+    save = options.save or "fresh",
+  })
+  local ok, result = xpcall(function()
+    for _, input in ipairs(inputs) do
+      if input == "action" then
+        replay:pressAction()
+      else
+        replay:move(input)
+      end
+    end
+    return { trace = replay:trace() }
+  end, debug.traceback)
+  replay:close()
+  if not ok then
+    error(result, 0)
+  end
+  return result
+end
+
+function Game:replaceApplicationState()
+  local replaced = self
+  local previousState = {
+    dispose = function()
+      replaced:_disposeRuntime()
+    end,
+  }
+  local activeState = {}
+  App.setState(previousState)
+  App.setState(activeState)
+  if replaced.disposeErr then
+    error(replaced.disposeErr, 0)
+  end
+
+  local activeLifecycle = { saveWrites = 0, runtimeDisposals = 0 }
+  local ok, runtime = pcall(
+    self.harness._newRuntime,
+    self.harness,
+    self.versionId,
+    self.map,
+    self.saveNamespace,
+    "resume",
+    self.faults,
+    activeLifecycle
+  )
+  if not ok then
+    App.setState(nil)
+    error(runtime, 0)
+  end
+  assert(
+    runtime and runtime.session,
+    "acceptance replacement runtime boot failed: " .. tostring(runtime and runtime.errorText)
+  )
+  local active = gameFor(
+    self.harness,
+    runtime,
+    self.saveNamespace,
+    self.trap,
+    self.versionId,
+    self.map,
+    self.faults,
+    activeLifecycle,
+    false
+  )
+  activeState.dispose = function()
+    active:_disposeRuntime()
+  end
+  App.quit()
+  if active.disposeErr then
+    error(active.disposeErr, 0)
+  end
+  return {
+    replaced = { lifecycle = replaced.lifecycle, saveStatus = replaced.saveStatus },
+    active = { lifecycle = active.lifecycle, saveStatus = active.saveStatus },
+  }
+end
+
 function Game:close()
   if self.closed then
     return
   end
-  if not self.runtimeDisposed then
-    self.runtimeDisposed = true
-    local ok, err = pcall(function()
-      self.runtime:dispose()
-    end)
-    self.trap:restore()
-    if not ok then
-      self.disposeErr = err
-    end
+  self:_disposeRuntime()
+  self.trap:restore()
+  if self.ownsNamespace then
+    self.removeSaveNamespace(self.saveNamespace)
   end
-  self.removeSaveNamespace(self.saveNamespace)
   self.closed = true
   if self.disposeErr then
     error(self.disposeErr, 0)
@@ -448,12 +696,10 @@ function AcceptanceHarness:boot(options)
   serial = serial + 1
   local namespace = self.saveNamespace(options.versionId, serial)
   local trap = installRenderTrap()
-  local ok, runtime = pcall(self.runtimeFactory, options.versionId, options.map, {
-    saveFs = SaveFs.forVersion(options.versionId, nil, namespace),
-    resumeSave = options.save == "resume",
-    resetSave = options.save == "fresh",
-    scriptHosts = RecordingScriptHosts.new(),
-  })
+  local faults = {}
+  local lifecycle = { saveWrites = 0, runtimeDisposals = 0 }
+  local ok, runtime =
+    pcall(self._newRuntime, self, options.versionId, options.map, namespace, options.save, faults, lifecycle)
   if not ok then
     abortBoot(nil, trap, self.removeSaveNamespace, namespace)
     error(runtime, 0)
@@ -463,14 +709,7 @@ function AcceptanceHarness:boot(options)
     abortBoot(runtime, trap, self.removeSaveNamespace, namespace)
     error("acceptance runtime boot failed: " .. tostring(errorText), 0)
   end
-  return setmetatable({
-    runtime = runtime,
-    saveNamespace = namespace,
-    removeSaveNamespace = self.removeSaveNamespace,
-    trap = trap,
-    timeline = {},
-    hosts = runtime.scriptHosts or {},
-  }, Game)
+  return gameFor(self, runtime, namespace, trap, options.versionId, options.map, faults, lifecycle, true)
 end
 
 function AcceptanceHarness:bootSelected(options)
