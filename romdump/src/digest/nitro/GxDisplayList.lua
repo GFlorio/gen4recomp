@@ -27,10 +27,16 @@
 -- Under the supported op set the direction matrix always mirrors the
 -- position matrix (POSITION_VECTOR mode throughout), so the runtime derives
 -- the direction as the linear part of the resolved position matrix.
--- Display-list-local MTX_STORE, matrix ops under MTX_MODE POSITION, and
--- matrix changes inside an open BEGIN..END run are rejected loudly: no field
--- asset exercises them and the segment contract cannot express their
--- per-vertex state. Static decode (the default) is unchanged.
+-- Display-list-local MTX_STORE and matrix ops under MTX_MODE POSITION are
+-- rejected loudly: no field asset exercises them and the segment contract
+-- cannot express their per-vertex state. A matrix change inside an open
+-- BEGIN..END run is split at the boundary exactly where the hardware re-homes
+-- the transform at vertex submission: the complete primitives before it keep
+-- their segment, and the primitive that would straddle the two transforms has
+-- its leading vertices carried into the next segment, rendering rigidly under
+-- the new source (the DS bends it per-vertex; the segment contract renders it
+-- in one frame -- counted for the caller to report). Static decode (the
+-- default) is unchanged.
 
 local Errors = require("libs.errors.src.Errors")
 local BinaryReader = require("libs.codec.src.BinaryReader")
@@ -225,6 +231,10 @@ local function newDecoder()
     positionSource = PoseContract.DRAW,
     segments = {},
     currentSegment = nil,
+    runParity = 0, -- triangle-strip winding parity of the open run's first vertex
+    runSplit = false, -- the open run was split at a mid-run matrix boundary
+    boundaryCarry = nil, -- straddling-primitive vertices carried into the next segment
+    straddlingPrimitives = 0, -- straddling primitives rendered rigidly in the new frame
   }, Decoder)
 end
 
@@ -239,21 +249,139 @@ local function newSegment(positionSource)
   }
 end
 
+-- Convert the open vertex run into triangles. Strict mode (END_VTXS) rejects
+-- incomplete primitives as malformed. Lenient mode (a mid-run matrix
+-- boundary) emits the complete primitives and returns the number of trailing
+-- vertices that belong to the primitive straddling the boundary; the caller
+-- carries them into the next segment, where the primitive renders rigidly
+-- under the boundary's new source (the geometry engine bends it per-vertex;
+-- the segment contract renders it in one frame). Triangle-strip winding
+-- alternates on the running vertex index, so the conversion honors the run's
+-- parity offset: a mid-run split carries the offset into the next segment's
+-- run.
+local function convertRun(d, offset, lenient)
+  local run, t = d.run, d.primType
+  local n = #run
+  local tail = 0
+  local indices = d.dynamic and d.currentSegment.indices or d.indices
+  local function tri(a, b, c)
+    indices[#indices + 1] = run[a + 1]
+    indices[#indices + 1] = run[b + 1]
+    indices[#indices + 1] = run[c + 1]
+  end
+  if t == 0 then -- separate triangles
+    local complete = n - n % 3
+    if n % 3 ~= 0 then
+      if not lenient then
+        error(
+          Errors.new(
+            "GX_INCOMPLETE_PRIMITIVE",
+            string.format("triangle list has %d vertices (not a multiple of 3)", n),
+            { offset = offset }
+          )
+        )
+      end
+      tail = n % 3
+    end
+    for i = 0, complete - 1, 3 do
+      tri(i, i + 1, i + 2)
+    end
+  elseif t == 1 then -- separate quads
+    local complete = n - n % 4
+    if n % 4 ~= 0 then
+      if not lenient then
+        error(
+          Errors.new(
+            "GX_INCOMPLETE_PRIMITIVE",
+            string.format("quad list has %d vertices (not a multiple of 4)", n),
+            { offset = offset }
+          )
+        )
+      end
+      tail = n % 4
+    end
+    for i = 0, complete - 1, 4 do
+      tri(i, i + 1, i + 2)
+      tri(i, i + 2, i + 3)
+    end
+  elseif t == 2 then -- triangle strip
+    if n < 3 then
+      if not lenient then
+        error(Errors.new("GX_INCOMPLETE_PRIMITIVE", "triangle strip has fewer than 3 vertices", { offset = offset }))
+      end
+      tail = n
+    else
+      local parity = d.runParity
+      for i = 2, n - 1 do
+        if (i + parity) % 2 == 0 then
+          tri(i - 2, i - 1, i)
+        else
+          tri(i - 1, i - 2, i)
+        end
+      end
+      -- The next triangle would cross the boundary into the new segment.
+      if lenient then
+        tail = 2
+      end
+    end
+  elseif t == 3 then -- quad strip
+    if n < 4 then
+      if not lenient then
+        error(
+          Errors.new("GX_INCOMPLETE_PRIMITIVE", string.format("quad strip has %d vertices", n), { offset = offset })
+        )
+      end
+      tail = n
+    else
+      for i = 0, n - 4, 2 do
+        tri(i, i + 1, i + 3)
+        tri(i, i + 3, i + 2)
+      end
+      if n % 2 ~= 0 and not lenient then
+        error(
+          Errors.new("GX_INCOMPLETE_PRIMITIVE", string.format("quad strip has %d vertices", n), { offset = offset })
+        )
+      end
+      -- The next quad would cross the boundary into the new segment; its
+      -- leading vertices are the last (n % 2 == 0 and 2 or 3) of this run.
+      if lenient then
+        tail = math.min(n, n % 2 == 0 and 2 or 3)
+      end
+    end
+  end
+  return tail
+end
+
 -- End the current dynamic segment and start the next one under `positionSource`.
--- A matrix change inside an open primitive cannot be expressed per-vertex,
--- so it is rejected rather than silently mis-segmented.
+-- A matrix change inside an open BEGIN..END run re-homes the transform for
+-- the vertices after it, exactly as the geometry engine applies it at vertex
+-- submission. The run is split at the boundary: complete primitives before it
+-- stay in the current segment, the primitive that would straddle the two
+-- transforms has its leading vertices carried into the next segment so it
+-- renders rigidly under the boundary's new source (counted for the caller to
+-- report), and the trailing vertices continue the run in the new segment.
+-- Triangle strips carry the winding parity across the split so the sequence
+-- stays continuous.
 ---@param positionSource DrawSource
 function Decoder:dynamicBoundary(positionSource, offset)
   assert(self.dynamic, "dynamicBoundary outside dynamic mode")
   if self.run then
-    error(
-      Errors.new(
-        "GX_DYNAMIC_MATRIX_CHANGE_INSIDE_PRIMITIVE",
-        "a matrix command changes the transform inside an open BEGIN..END run, "
-          .. "which the transform-preserving contract cannot represent per-vertex",
-        { offset = offset }
-      )
-    )
+    local count = #self.run
+    local tail = convertRun(self, offset, true)
+    self.straddlingPrimitives = self.straddlingPrimitives + (tail > 0 and 1 or 0)
+    self.boundaryCarry = {}
+    if tail > 0 then
+      local vertices = self.currentSegment.vertices
+      for i = #vertices - tail + 1, #vertices do
+        self.boundaryCarry[#self.boundaryCarry + 1] = vertices[i]
+      end
+    end
+    self.run = {}
+    for i = 1, tail do
+      self.run[i] = i - 1
+    end
+    self.runParity = self.runParity + count - tail
+    self.runSplit = true
   end
   if #self.currentSegment.vertices > 0 then
     self.segments[#self.segments + 1] = self.currentSegment
@@ -262,6 +390,10 @@ function Decoder:dynamicBoundary(positionSource, offset)
   self.bakedDirection = identity()
   self.positionSource = positionSource
   self.currentSegment = newSegment(positionSource)
+  for _, v in ipairs(self.boundaryCarry or {}) do
+    self.currentSegment.vertices[#self.currentSegment.vertices + 1] = v
+  end
+  self.boundaryCarry = nil
 end
 
 -- Reject matrix ops under MTX_MODE POSITION in dynamic mode: the position
@@ -649,65 +781,8 @@ EXEC[0x34] = function() end
 EXEC[0x40] = function(d, p) -- BEGIN_VTXS
   d.primType = p[1] % 4
   d.run = {}
-end
-
-local function convertRun(d, offset)
-  local run, t = d.run, d.primType
-  local n = #run
-  local indices = d.dynamic and d.currentSegment.indices or d.indices
-  local function tri(a, b, c)
-    indices[#indices + 1] = run[a + 1]
-    indices[#indices + 1] = run[b + 1]
-    indices[#indices + 1] = run[c + 1]
-  end
-  if t == 0 then -- separate triangles
-    if n % 3 ~= 0 then
-      error(
-        Errors.new(
-          "GX_INCOMPLETE_PRIMITIVE",
-          string.format("triangle list has %d vertices (not a multiple of 3)", n),
-          { offset = offset }
-        )
-      )
-    end
-    for i = 0, n - 1, 3 do
-      tri(i, i + 1, i + 2)
-    end
-  elseif t == 1 then -- separate quads
-    if n % 4 ~= 0 then
-      error(
-        Errors.new(
-          "GX_INCOMPLETE_PRIMITIVE",
-          string.format("quad list has %d vertices (not a multiple of 4)", n),
-          { offset = offset }
-        )
-      )
-    end
-    for i = 0, n - 1, 4 do
-      tri(i, i + 1, i + 2)
-      tri(i, i + 2, i + 3)
-    end
-  elseif t == 2 then -- triangle strip
-    if n < 3 then
-      error(Errors.new("GX_INCOMPLETE_PRIMITIVE", "triangle strip has fewer than 3 vertices", { offset = offset }))
-    end
-    for i = 2, n - 1 do
-      if i % 2 == 0 then
-        tri(i - 2, i - 1, i)
-      else
-        tri(i - 1, i - 2, i)
-      end
-    end
-  elseif t == 3 then -- quad strip
-    if n < 4 or n % 2 ~= 0 then
-      error(Errors.new("GX_INCOMPLETE_PRIMITIVE", string.format("quad strip has %d vertices", n), { offset = offset }))
-    end
-    for i = 0, n - 4, 2 do
-      tri(i, i + 1, i + 3)
-      tri(i, i + 3, i + 2)
-    end
-  end
-  d.run, d.primType = nil, nil
+  d.runParity = 0
+  d.runSplit = false
 end
 
 function GxDisplayList.opcodeName(op)
@@ -784,7 +859,12 @@ local function _decode(bytes, options)
         commands[#commands + 1] = { opcode = op, offset = cmdOffset + i - 1 }
         d.opcodeCounts[op] = (d.opcodeCounts[op] or 0) + 1
         if op == 0x41 then
-          convertRun(d, cmdOffset)
+          -- A split run's trailing group is the other half of the straddling
+          -- primitive already dropped and counted at the boundary, so it is
+          -- dropped too rather than reported as malformed; an unsplit run
+          -- keeps rejecting incomplete primitives.
+          convertRun(d, cmdOffset, d.runSplit)
+          d.run, d.primType, d.runSplit = nil, nil, false
         else
           d.currentOffset = cmdOffset + i - 1
           EXEC[op](d, params, cmdOffset + i - 1, options.context)
@@ -865,6 +945,7 @@ local function _decode(bytes, options)
       commands = commands,
       opcodeCounts = d.opcodeCounts,
       polygonAttrs = polygonAttrs,
+      straddlingPrimitives = d.straddlingPrimitives,
       finalState = { color = d.color, normal = d.normal, colorSource = d.colorSource },
     }
   end

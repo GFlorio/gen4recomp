@@ -266,7 +266,11 @@ end
 -- Billboard draws record no baseTransform: the matrix BB captured is
 -- pose-dependent and comes from the runtime pose state each frame.
 -- UVs stay in texel units for the caller to normalize.
+-- Returns the dynamic mesh records plus, when any shape's display list
+-- carried straddling primitives across a mid-run matrix boundary, an array of
+-- { shape = <name>, straddling = <count> } for the caller to report.
 ---@return DynamicMeshRecord[]
+---@return { shape: string, straddling: integer }[]? straddlingPrimitives
 function MeshCompiler.compileDynamic(model)
   local shapeByIndex = {}
   for _, shp in ipairs(model.shapes) do
@@ -284,6 +288,7 @@ function MeshCompiler.compileDynamic(model)
   local draws = NsbmdSbcEvaluator.evaluate(program, NsbmdPoseProvider.bindPose(model)).draws
 
   local meshes = {}
+  local straddlingByShape = {}
   local carriedState -- geometry-engine color state carried across shapes
   for drawIndex, draw in ipairs(draws) do
     local shp = shapeByIndex[draw.shapeIndex]
@@ -310,12 +315,25 @@ function MeshCompiler.compileDynamic(model)
       error(err)
     end
     assertSupportedShape(geom, context)
+    if geom.straddlingPrimitives and geom.straddlingPrimitives > 0 then
+      local rec = straddlingByShape[shp.name]
+      if not rec then
+        rec = { shape = shp.name, straddling = 0 }
+        straddlingByShape[shp.name] = rec
+      end
+      rec.straddling = rec.straddling + geom.straddlingPrimitives
+    end
     if draw.transformMode == PoseContract.BILLBOARD then
       assertWholeShapeBillboard(geom, context)
     end
     carriedState = geom.finalState
 
     for segmentIndex, segment in ipairs(geom.segments) do
+      -- A segment whose run was split at a matrix boundary can hold a lone
+      -- straddling vertex with no indices: nothing to draw.
+      if #segment.indices == 0 then
+        goto continue
+      end
       -- A billboard draw's post-BB matrix (POSSCALE folds, nothing else can
       -- touch the matrix without ending the billboard) is pose-independent,
       -- so it bakes into the vertices exactly like the static path; only the
@@ -377,9 +395,20 @@ function MeshCompiler.compileDynamic(model)
         polygonAttrRaw = matState.polygonAttrRaw,
         batch = { vertices = vertices, indices = indices },
       }
+      ::continue::
     end
   end
-  return meshes
+  if next(straddlingByShape) == nil then
+    return meshes
+  end
+  local straddling = {}
+  for _, rec in pairs(straddlingByShape) do
+    straddling[#straddling + 1] = rec
+  end
+  table.sort(straddling, function(a, b)
+    return a.shape < b.shape
+  end)
+  return meshes, straddling
 end
 
 return MeshCompiler

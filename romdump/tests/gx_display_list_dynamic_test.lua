@@ -187,17 +187,101 @@ function T.rejects_matrix_ops_under_position_only_mode()
   Assert.equal(err.code, "GX_DYNAMIC_POSITION_ONLY_MATRIX_OP_UNSUPPORTED")
 end
 
-function T.rejects_matrix_changes_inside_an_open_primitive()
-  -- BEGIN, VTX, RESTORE, VTX, END: the primitive would span two transforms.
+function T.splits_a_run_at_a_matrix_boundary()
+  -- BEGIN, VTX, RESTORE, VTX x2, END: the hardware re-homes the transform at
+  -- submission, so the run is split at the boundary; the straddling
+  -- triangle's leading vertex is carried into the next segment, where the
+  -- triangle renders rigidly under the slot source.
   local dl = pack({
     { { 0x40, 0x23 }, { 0, vtx16xy(0, 0), 0 } },
     MTX_RESTORE,
-    { { 0x23 }, { vtx16xy(1, 0), 0 } },
+    { { 0x23, 0x23 }, { vtx16xy(1, 0), 0, vtx16xy(0, 1), 0 } },
+    { { 0x41 } },
   })
-  local err = Assert.throws(function()
-    decode(dl, { dynamic = true })
-  end)
-  Assert.equal(err.code, "GX_DYNAMIC_MATRIX_CHANGE_INSIDE_PRIMITIVE")
+  local geom = decode(dl, { dynamic = true })
+  Assert.equal(#geom.segments, 2)
+  Assert.equal(geom.segments[1].positionSource, "draw")
+  Assert.equal(geom.segments[2].positionSource.slot, 3)
+  -- The old segment keeps the lone leading vertex (no indices); the new
+  -- segment carries it and renders the triangle rigidly in the slot frame.
+  Assert.equal(#geom.segments[1].vertices, 1)
+  Assert.equal(#geom.segments[1].indices, 0)
+  Assert.equal(#geom.segments[2].vertices, 3)
+  Assert.equal(#geom.segments[2].indices, 3)
+  assertVertex(geom.segments[2], 0, 0, 0, 0)
+  Assert.equal(geom.straddlingPrimitives, 1)
+end
+
+function T.boundary_before_any_vertex_keeps_the_run_whole()
+  -- BEGIN, RESTORE, then vertices: the run has no vertices at the boundary,
+  -- so nothing straddles; the whole run lands in the new segment.
+  local dl = pack({
+    { { 0x40 }, { 0 } },
+    MTX_RESTORE,
+    { { 0x23, 0x23, 0x23 }, { vtx16xy(0, 0), 0, vtx16xy(1, 0), 0, vtx16xy(0, 1), 0 } },
+    { { 0x41 } },
+  })
+  local geom = decode(dl, { dynamic = true })
+  Assert.equal(#geom.segments, 1)
+  local segment = geom.segments[1]
+  Assert.equal(segment.positionSource.slot, 3)
+  Assert.equal(#segment.vertices, 3)
+  Assert.equal(#segment.indices, 3)
+  Assert.equal(geom.straddlingPrimitives, 0)
+end
+
+function T.straddling_quads_are_carried_into_the_new_segment()
+  -- BEGIN(separate quads), two quads, RESTORE, one quad, END: the first
+  -- segment keeps its complete quad; the quad spanning the boundary has its
+  -- leading vertices carried so it renders rigidly in the new segment under
+  -- the slot source.
+  local dl = pack({
+    { { 0x40, 0x23, 0x23 }, { 1, vtx16xy(0, 0), 0, vtx16xy(1, 0), 0 } },
+    { { 0x23, 0x23 }, { vtx16xy(1, 1), 0, vtx16xy(0, 1), 0 } },
+    { { 0x23, 0x23 }, { vtx16xy(2, 0), 0, vtx16xy(3, 0), 0 } },
+    MTX_RESTORE,
+    { { 0x23, 0x23 }, { vtx16xy(4, 1), 0, vtx16xy(3, 1), 0 } },
+    { { 0x41 } },
+  })
+  local geom = decode(dl, { dynamic = true })
+  Assert.equal(#geom.segments, 2)
+  local first, second = geom.segments[1], geom.segments[2]
+  Assert.equal(#first.vertices, 6)
+  Assert.equal(#first.indices, 6)
+  Assert.equal(second.positionSource.slot, 3)
+  -- The carried leading vertices (copies of the old segment's v4/v5) plus
+  -- the two trailing vertices form the straddling quad, rigid in the slot
+  -- frame.
+  Assert.equal(#second.vertices, 4)
+  Assert.equal(#second.indices, 6)
+  assertVertex(second, 0, 2, 0, 0)
+  assertVertex(second, 1, 3, 0, 0)
+  Assert.equal(geom.straddlingPrimitives, 1)
+end
+
+function T.triangle_strip_winding_continues_across_a_boundary()
+  -- A triangle strip split after its first triangle: the carried vertices
+  -- keep the strip's alternating winding (the DS computes it from the
+  -- running vertex index, which the split must carry).
+  local dl = pack({
+    { { 0x40, 0x23, 0x23 }, { 2, vtx16xy(0, 0), 0, vtx16xy(1, 0), 0 } },
+    { { 0x23 }, { vtx16xy(0, 1), 0 } },
+    MTX_RESTORE,
+    { { 0x23, 0x23, 0x23 }, { vtx16xy(1, 1), 0, vtx16xy(2, 1), 0, vtx16xy(2, 0), 0 } },
+    { { 0x41 } },
+  })
+  local geom = decode(dl, { dynamic = true })
+  Assert.equal(#geom.segments, 2)
+  local first, second = geom.segments[1], geom.segments[2]
+  Assert.equal(#first.vertices, 3)
+  -- First strip triangle: (0,1,2) with the even winding.
+  Assert.deepEqual(first.indices, { 0, 1, 2 })
+  -- The second segment carries copies of the last two vertices and
+  -- continues the strip: local (1,0,2) for the triangle ending at global
+  -- vertex 3, matching the DS's alternating winding.
+  Assert.equal(#second.vertices, 5)
+  Assert.deepEqual(second.indices, { 1, 0, 2, 1, 2, 3, 3, 2, 4 })
+  Assert.equal(geom.straddlingPrimitives, 1)
 end
 
 -- ---- static mode is unchanged ----

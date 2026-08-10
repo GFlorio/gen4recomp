@@ -350,6 +350,22 @@ local function compileAnimatedModel(
   end
 
   local unresolved = {}
+  -- Primitives a mid-run matrix boundary left straddling two transforms:
+  -- reported like every other unresolved draw, never silent. They render
+  -- rigidly in the boundary's new frame instead of the DS's per-vertex bend.
+  if dynamicModel.straddlingPrimitives then
+    for _, rec in ipairs(dynamicModel.straddlingPrimitives) do
+      unresolved[#unresolved + 1] = {
+        material = buildingModel.name,
+        kind = "primitive",
+        name = rec.shape,
+        source = string.format(
+          "a matrix change inside an open primitive left %d primitive(s) spanning two transforms",
+          rec.straddling
+        ),
+      }
+    end
+  end
   local embeddedTex = buildingNsbmd.embeddedTextures
   local variantsByName = {}
   if embeddedTex then
