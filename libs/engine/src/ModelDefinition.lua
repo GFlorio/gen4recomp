@@ -391,8 +391,9 @@ end
 -- The definition's nodes are the program's bind SRTs (contiguous,
 -- zero-based); the nitro backend poses through the program, never through
 -- the IR nodes, which exist for the shared validation, visibility, and
--- diagnostics. The digest-side NsbmdDynamicModel.toDefinition delegates
--- here so the runtime and the tests share one assembly.
+-- diagnostics. The digest-side NsbmdDynamicModel.compile produces this
+-- descriptor shape; MapSceneLoader assembles it here so the runtime and
+-- the tests share one assembly.
 function ModelDefinition.fromNitroDescriptor(desc, opts)
   assert(type(desc) == "table" and desc.dynamic ~= nil, "fromNitroDescriptor requires a dynamic model descriptor")
   opts = opts or {}

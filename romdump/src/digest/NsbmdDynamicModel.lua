@@ -1,6 +1,7 @@
 -- NsbmdDynamicModel: the digest-side compile of a decoded NSBMD model into
--- the animation-capable (dynamic) model descriptor, and the assembly of
--- that descriptor into the engine's source-neutral ModelDefinition.
+-- the animation-capable (dynamic) model descriptor. The runtime assembles
+-- the engine's source-neutral ModelDefinition from the descriptor through
+-- ModelDefinition.fromNitroDescriptor (see MapSceneLoader).
 --
 --   descriptor = {
 --     program = <NsbmdTransformProgram>,        -- the pose evaluator's input
@@ -24,7 +25,6 @@
 
 local Errors = require("libs.rom.src.Errors")
 local FixedPoint = require("libs.math.src.FixedPoint")
-local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local MeshCompiler = require("romdump.src.digest.MeshCompiler")
 local NsbmdTransformProgram = require("romdump.src.digest.NsbmdTransformProgram")
 local DsMaterial = require("romdump.src.digest.nitro.DsMaterial")
@@ -109,27 +109,6 @@ function NsbmdDynamicModel.compile(model)
     meshes = meshes,
     materials = materialList,
   }
-end
-
--- Assemble the descriptor into a ModelDefinition with `opts.animations`
--- (compiled nitro clips) and `opts.key` (defaults to the model name). The
--- definition's nodes are the program's bind SRTs (contiguous, zero-based);
--- the nitro backend poses through the program, never through the IR nodes,
--- which exist for the shared validation, visibility, and diagnostics.
--- Delegates to the engine's ModelDefinition.fromNitroDescriptor so the
--- runtime (MapSceneLoader) and the digest share one assembly.
-function NsbmdDynamicModel.toDefinition(descriptor, opts)
-  opts = opts or {}
-  return ModelDefinition.fromNitroDescriptor({
-    key = opts.key or descriptor.program.name or "nitro-model",
-    dynamic = {
-      nodes = descriptor.program.nodes,
-      transformProgram = descriptor.program,
-      batches = descriptor.meshes,
-    },
-    materials = descriptor.materials,
-    animations = opts.animations or {},
-  }, opts)
 end
 
 return NsbmdDynamicModel

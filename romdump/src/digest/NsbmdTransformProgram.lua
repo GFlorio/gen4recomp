@@ -20,8 +20,9 @@
 --   }
 --
 -- The compile is a projection of the decoded model (pure data selection, no
--- ROM bytes) so the program contract lives next to the evaluator that
--- consumes it. Pure domain module.
+-- ROM bytes): the program is the digest-side face of the contract the
+-- engine's NsbmdSbcEvaluator and NitroPoseBackend execute at runtime, so it
+-- is compiled here next to the decoders that produce it. Pure domain module.
 
 local MapUnits = require("romdump.src.digest.MapUnits")
 

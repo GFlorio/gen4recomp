@@ -12,6 +12,7 @@ local MeshCompiler = require("romdump.src.digest.MeshCompiler")
 local NsbmdDynamicModel = require("romdump.src.digest.NsbmdDynamicModel")
 local NsbmdSbcEvaluator = require("libs.engine.src.NsbmdSbcEvaluator")
 local NsbmdPoseProvider = require("romdump.src.digest.NsbmdPoseProvider")
+local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local ModelFixture = require("tests.support.NsbmdModelFixture")
 local NsbmdFixture = require("tests.support.NsbmdFixture")
 local Matrix4 = require("libs.math.src.Matrix4")
@@ -260,7 +261,16 @@ end
 function T.to_definition_builds_a_valid_nitro_model()
   local m = assert(Nsbmd.decode(NsbmdFixture.buildTransformed())).models[1]
   local descriptor = NsbmdDynamicModel.compile(m)
-  local def = NsbmdDynamicModel.toDefinition(descriptor, { key = "fixture:door" })
+  local def = ModelDefinition.fromNitroDescriptor({
+    key = "fixture:door",
+    dynamic = {
+      nodes = descriptor.program.nodes,
+      transformProgram = descriptor.program,
+      batches = descriptor.meshes,
+    },
+    materials = descriptor.materials,
+    animations = {},
+  }, { key = "fixture:door" })
   Assert.equal(def.key, "fixture:door")
   Assert.equal(def.sourceBackend, "nitro")
   Assert.equal(#def.nodes, 1)
