@@ -65,6 +65,23 @@ function T.contains_rejects_out_of_range_without_wrapping()
   end)
 end
 
+-- Grid cells are finite integer indices: a fractional in-range coordinate
+-- would otherwise read the shifted neighbouring record.
+function T.contains_and_get_reject_fractional_and_nonfinite_coordinates()
+  local g = assert(PermissionGrid.decode(build({ [0] = { 1, 0 } })))
+  Assert.isFalse(g:contains(0.5, 0))
+  Assert.isFalse(g:contains(0, 0.5))
+  Assert.isFalse(g:contains(0 / 0, 0))
+  Assert.isFalse(g:contains(math.huge, 0))
+  Assert.isFalse(g:contains(0, -math.huge))
+  Assert.throws(function()
+    g:get(0.5, 0)
+  end)
+  Assert.throws(function()
+    g:isBlocked(0, 1.5)
+  end)
+end
+
 function T.used_value_sets_are_sorted_and_distinct()
   local g = assert(PermissionGrid.decode(build({
     [0] = { 3, 0x86 },

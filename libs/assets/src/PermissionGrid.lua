@@ -20,6 +20,14 @@ local WIDTH, HEIGHT = 32, 32
 local SIZE = 0x800
 local HARD_BLOCK_FLAG = 0x80
 
+local function finiteInteger(value)
+  return type(value) == "number"
+    and value == value
+    and value ~= math.huge
+    and value ~= -math.huge
+    and value == math.floor(value)
+end
+
 function PermissionGrid.decode(bytes, context)
   assert(type(bytes) == "string", "PermissionGrid.decode requires a string")
   if #bytes ~= SIZE then
@@ -38,8 +46,10 @@ function PermissionGrid.decode(bytes, context)
   }, PermissionGrid)
 end
 
+-- Cell coordinates are finite integers: a fractional coordinate would
+-- otherwise read the shifted neighbouring record.
 function PermissionGrid:contains(x, z)
-  return type(x) == "number" and type(z) == "number" and x >= 0 and z >= 0 and x < WIDTH and z < HEIGHT
+  return finiteInteger(x) and finiteInteger(z) and x >= 0 and z >= 0 and x < WIDTH and z < HEIGHT
 end
 
 function PermissionGrid:get(x, z)

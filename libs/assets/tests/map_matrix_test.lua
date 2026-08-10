@@ -126,6 +126,34 @@ function T.coordinate_accessors_reject_out_of_range()
   end)
 end
 
+-- Cell indices are finite integers: a fractional in-range index would
+-- otherwise key the value tables with a fraction and silently return nil from
+-- every accessor.
+function T.coordinate_accessors_reject_fractional_and_nonfinite_indices()
+  local m = assert(decodeOk(sample(true, true)))
+  Assert.throws(function()
+    m:index(0.5, 0)
+  end)
+  Assert.throws(function()
+    m:index(0, 0.5)
+  end)
+  Assert.throws(function()
+    m:index(0 / 0, 0)
+  end)
+  Assert.throws(function()
+    m:index(math.huge, 1)
+  end)
+  Assert.throws(function()
+    m:mapHeaderIdAt(0.5, 0)
+  end)
+  Assert.throws(function()
+    m:cell(1, 0.5)
+  end)
+  Assert.throws(function()
+    m:worldOrigin(0.5, 0)
+  end)
+end
+
 function T.cell_bundles_header_altitude_and_land_member()
   local m = assert(decodeOk(sample(true, true)))
   Assert.deepEqual(m:cell(0, 0), { mapHeaderId = 10, altitude = 1, landDataMemberId = 20 })

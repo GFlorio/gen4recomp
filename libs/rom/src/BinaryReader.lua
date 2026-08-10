@@ -1,8 +1,17 @@
 -- Bounds-checked, zero-based reader over a binary string. Pure domain module:
 -- no love dependency. Little-endian integers are assembled arithmetically,
--- which is exact for 8/16/32-bit values under LuaJIT doubles.
+-- which is exact for 8/16/32-bit values under LuaJIT doubles. Binary
+-- positions (offsets/lengths) must be finite integers.
 
 local Errors = require("libs.rom.src.Errors")
+
+local function finiteInteger(value)
+  return type(value) == "number"
+    and value == value
+    and value ~= math.huge
+    and value ~= -math.huge
+    and value == math.floor(value)
+end
 
 ---@class BinaryReader
 ---@field private _data string
@@ -31,18 +40,25 @@ function BinaryReader:length()
 end
 
 function BinaryReader:assertRange(offset, length, fieldName)
-  if
-    type(offset) ~= "number"
-    or offset < 0
-    or type(length) ~= "number"
-    or length < 0
-    or offset + length > #self.data
-  then
+  local field = fieldName or "read"
+  if not finiteInteger(offset) or not finiteInteger(length) then
+    Errors.raise(
+      "READ_OUT_OF_BOUNDS",
+      string.format(
+        "%s: offset and length must be finite integers, got %s and %s",
+        field,
+        tostring(offset),
+        tostring(length)
+      ),
+      { offset = offset, length = length, available = #self.data, field = fieldName }
+    )
+  end
+  if offset < 0 or length < 0 or offset + length > #self.data then
     Errors.raise(
       "READ_OUT_OF_BOUNDS",
       string.format(
         "%s: read of %s bytes at offset %s exceeds %d-byte %s",
-        fieldName or "read",
+        field,
         tostring(length),
         tostring(offset),
         #self.data,

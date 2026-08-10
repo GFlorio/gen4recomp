@@ -2,10 +2,25 @@
 -- The mirror of BinaryReader: integers are assembled arithmetically and 32-bit
 -- floats are encoded to IEEE-754 single precision by hand, since LuaJIT/5.1 has
 -- no string.pack. Keeping the encoder pure (no love, no bit ops) makes generated
--- output deterministic across platforms. Pure domain module.
+-- output deterministic across platforms. Integer encoders reject values outside
+-- their representable unsigned width instead of wrapping. Pure domain module.
+
+local Errors = require("libs.rom.src.Errors")
 
 local BinaryWriter = {}
 BinaryWriter.__index = BinaryWriter
+
+local function requireUnsigned(value, bits, name)
+  local max = 2 ^ bits - 1
+  if type(value) ~= "number" or value ~= math.floor(value) or value < 0 or value > max then
+    Errors.raise(
+      "WRITE_OUT_OF_RANGE",
+      string.format("%s value must be an integer in 0..%d, got %s", name, max, tostring(value)),
+      { value = value }
+    )
+  end
+  return value
+end
 
 function BinaryWriter.new()
   return setmetatable({ _chunks = {}, _len = 0 }, BinaryWriter)
@@ -18,17 +33,19 @@ local function push(self, s)
 end
 
 function BinaryWriter:u8(v)
-  return push(self, string.char(v % 256))
+  return push(self, string.char(requireUnsigned(v, 8, "u8")))
 end
 
 function BinaryWriter:u16(v)
-  return push(self, string.char(v % 256, math.floor(v / 256) % 256))
+  requireUnsigned(v, 16, "u16")
+  return push(self, string.char(v % 256, math.floor(v / 256)))
 end
 
 function BinaryWriter:u32(v)
+  requireUnsigned(v, 32, "u32")
   return push(
     self,
-    string.char(v % 256, math.floor(v / 256) % 256, math.floor(v / 65536) % 256, math.floor(v / 16777216) % 256)
+    string.char(v % 256, math.floor(v / 256) % 256, math.floor(v / 65536) % 256, math.floor(v / 16777216))
   )
 end
 

@@ -14,6 +14,14 @@ MapMatrix.__index = MapMatrix
 local MAX_CELLS = 799
 local MAX_NAME = 16
 
+local function finiteInteger(value)
+  return type(value) == "number"
+    and value == value
+    and value ~= math.huge
+    and value ~= -math.huge
+    and value == math.floor(value)
+end
+
 local function readFlag(reader, offset, field)
   local v = reader:u8(offset)
   if v ~= 0 and v ~= 1 then
@@ -116,8 +124,17 @@ function MapMatrix.decode(data, defaultMapHeaderId)
 end
 
 -- Zero-based cell index for (x, y), validating both against the dimensions.
+-- Cell indices are finite integers: a fractional index would otherwise key
+-- the value tables with a fraction and silently return nil.
 function MapMatrix:index(x, y)
-  if type(x) ~= "number" or type(y) ~= "number" or x < 0 or y < 0 or x >= self.width or y >= self.height then
+  if not finiteInteger(x) or not finiteInteger(y) then
+    Errors.raise(
+      "MAP_MATRIX_COORD_OUT_OF_RANGE",
+      "coordinate (" .. tostring(x) .. ", " .. tostring(y) .. ") is not a finite integer cell index",
+      { x = x, y = y, width = self.width, height = self.height }
+    )
+  end
+  if x < 0 or y < 0 or x >= self.width or y >= self.height then
     Errors.raise(
       "MAP_MATRIX_COORD_OUT_OF_RANGE",
       "coordinate (" .. tostring(x) .. ", " .. tostring(y) .. ") outside " .. self.width .. "x" .. self.height,

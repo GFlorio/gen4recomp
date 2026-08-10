@@ -6,12 +6,20 @@ local BinaryWriter = require("libs.rom.src.BinaryWriter")
 
 local BdhcBuilder = {}
 
+-- The BDHC layout stores point coordinates, strip maxZ, slope normals, and
+-- heights as signed values (HgssBdhc re-signs them on decode), while the
+-- writer fields are unsigned. Encode negatives explicitly as two's-complement
+-- instead of relying on the writer to wrap out-of-range values.
+local function signedToUnsigned(value, bits)
+  return value % 2 ^ bits
+end
+
 local function writePoint(w, point)
-  w:u16(point.raw0 or 0):u16(point.x):u16(point.raw4 or 0):u16(point.z)
+  w:u16(point.raw0 or 0):u16(signedToUnsigned(point.x, 16)):u16(point.raw4 or 0):u16(signedToUnsigned(point.z, 16))
 end
 
 local function writeSlope(w, slope)
-  w:u32(slope.nx):u32(slope.ny):u32(slope.nz)
+  w:u32(signedToUnsigned(slope.nx, 32)):u32(signedToUnsigned(slope.ny, 32)):u32(signedToUnsigned(slope.nz, 32))
 end
 
 local function writePlate(w, plate)
@@ -19,7 +27,7 @@ local function writePlate(w, plate)
 end
 
 local function writeStrip(w, strip)
-  w:u16(strip.reserved or 0):u16(strip.maxZ):u16(strip.accessCount):u16(strip.accessStart)
+  w:u16(strip.reserved or 0):u16(signedToUnsigned(strip.maxZ, 16)):u16(strip.accessCount):u16(strip.accessStart)
 end
 
 function BdhcBuilder.heightRaw(distance)
@@ -58,7 +66,7 @@ function BdhcBuilder.build(opts)
     writeSlope(w, slope)
   end
   for _, height in ipairs(heights) do
-    w:u32(height)
+    w:u32(signedToUnsigned(height, 32))
   end
   for _, plate in ipairs(plates) do
     writePlate(w, plate)

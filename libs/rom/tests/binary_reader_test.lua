@@ -90,4 +90,46 @@ function T.assertRange_passes_within_bounds()
   Assert.isTrue(reader():assertRange(0, 5, "probe"))
 end
 
+-- Binary positions must be finite integers: NaN offsets slip past every
+-- comparison and in-range fractions reach the string primitives, so the
+-- rejection must happen at this public boundary.
+function T.rejects_nan_and_infinite_offsets()
+  assertRangeError(function()
+    reader():u8(0 / 0)
+  end)
+  assertRangeError(function()
+    reader():u8(math.huge)
+  end)
+  assertRangeError(function()
+    reader():u8(-math.huge)
+  end)
+end
+
+function T.rejects_fractional_offsets()
+  assertRangeError(function()
+    reader():u8(1.5)
+  end)
+  assertRangeError(function()
+    reader():u32le(0.5)
+  end)
+  assertRangeError(function()
+    reader():remaining(2.5)
+  end)
+end
+
+function T.rejects_nan_and_fractional_lengths()
+  assertRangeError(function()
+    reader():bytes(0, 0 / 0)
+  end)
+  assertRangeError(function()
+    reader():bytes(0, 2.5)
+  end)
+  assertRangeError(function()
+    reader():ascii(1, math.huge)
+  end)
+  assertRangeError(function()
+    reader():slice(0, -0.5)
+  end)
+end
+
 return T

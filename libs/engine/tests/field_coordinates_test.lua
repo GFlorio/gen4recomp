@@ -40,4 +40,32 @@ function T.rejects_coordinates_outside_loaded_permission_coverage()
   Assert.equal(err.context.fieldX, 704)
 end
 
+-- Field and local tile coordinates are finite integers: a NaN or fractional
+-- index would otherwise either masquerade as a coverage miss or reach the
+-- permission grid's shifted record read.
+function T.rejects_nonfinite_or_fractional_coordinates()
+  local map = runtimeMap()
+  local invalid = { 0 / 0, math.huge, -math.huge, 684.5 }
+  for _, bad in ipairs(invalid) do
+    local err = Assert.throws(function()
+      FieldCoordinates.fieldToLocal(map, bad, 393)
+    end)
+    Assert.isTrue(Errors.is(err))
+    Assert.equal(err.code, "FIELD_COORDINATES_INVALID")
+  end
+  local localInvalid = { 0 / 0, 12.5 }
+  for _, bad in ipairs(localInvalid) do
+    local err = Assert.throws(function()
+      FieldCoordinates.localToField(map, bad, 9)
+    end)
+    Assert.isTrue(Errors.is(err))
+    Assert.equal(err.code, "FIELD_COORDINATES_INVALID")
+  end
+  local err = Assert.throws(function()
+    FieldCoordinates.fieldToWorld(map, 684, 393, 0 / 0)
+  end)
+  Assert.isTrue(Errors.is(err))
+  Assert.equal(err.code, "FIELD_COORDINATES_INVALID")
+end
+
 return T
