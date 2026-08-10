@@ -42,7 +42,9 @@ function Graph.inspect(graph)
 end
 
 -- Deterministic successor order for one node. Branch nodes follow their
--- explicit edges; linear nodes follow `next`. The compiler guarantees every
+-- explicit edges; linear nodes follow `next`. Edges are always appended as
+-- non-nil values, so an absent first successor can never leave a hole that
+-- stops traversal of later successors. The compiler guarantees every
 -- returned target exists in the graph's node map.
 ---@param node table
 ---@return string[]
@@ -50,7 +52,12 @@ function Graph.collectEdges(node)
   local out = {}
   local op = node.op
   if op == "if" then
-    out[1], out[2] = node.yes, node.no
+    if node.yes then
+      out[#out + 1] = node.yes
+    end
+    if node.no then
+      out[#out + 1] = node.no
+    end
   elseif op == "switch" then
     local keys = {}
     for k in pairs(node.cases) do
@@ -64,9 +71,16 @@ function Graph.collectEdges(node)
       out[#out + 1] = node.default
     end
   elseif op == "goto" then
-    out[1] = node.targetNode
+    if node.targetNode then
+      out[#out + 1] = node.targetNode
+    end
   elseif op == "goto_if" or op == "goto_compared" then
-    out[1], out[2] = node.targetNode, node.next
+    if node.targetNode then
+      out[#out + 1] = node.targetNode
+    end
+    if node.next then
+      out[#out + 1] = node.next
+    end
   elseif op == "call" or op == "call_compared" then
     if node.targetNode then
       out[#out + 1] = node.targetNode
@@ -76,7 +90,7 @@ function Graph.collectEdges(node)
     end
   else
     if node.next then
-      out[1] = node.next
+      out[#out + 1] = node.next
     end
   end
   return out
