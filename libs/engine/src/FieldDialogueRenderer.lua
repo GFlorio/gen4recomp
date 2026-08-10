@@ -5,6 +5,9 @@
 -- slice source image once, draws after the 3D world pass, and restores every
 -- graphics state it touches (canvas, shader, scissor, blend, depth, color;
 -- spec section 15.6). Pure-free by design: nothing else may own the atlas.
+-- Construction is failure-safe: a quad/slice failure after the atlas or slice
+-- image was created releases the acquired images before rethrowing, and draw()
+-- balances its transform push even when drawing raises.
 
 local Errors = require("libs.rom.src.Errors")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
@@ -78,9 +81,15 @@ function FieldDialogueRenderer.new(opts)
       )
     end
     self.atlas = graphics.newImage(love.filesystem.newFileData(data, FieldFontCache.atlasPath(fontId)))
-    self.atlas:setFilter("nearest", "nearest")
-    self:_buildQuads()
-    self:_buildSlice()
+    local ok, err = pcall(function()
+      self.atlas:setFilter("nearest", "nearest")
+      self:_buildQuads()
+      self:_buildSlice()
+    end)
+    if not ok then
+      self:release()
+      error(err)
+    end
   end
   return self
 end
@@ -297,12 +306,14 @@ function FieldDialogueRenderer:draw(controller, viewport)
   local color = { lg.getColor() }
   local scissorX, scissorY, scissorW, scissorH = lg.getScissor()
 
+  local pushed = false
   local ok, err = pcall(function()
     -- Everything draws in reference-canvas coordinates under one
     -- translate(origin) + scale transform; the theme never returns
     -- screen-mapped rects, so nothing is scaled twice.
     local layout = self._theme.layout(viewport.referenceFrame)
     lg.push()
+    pushed = true
     lg.translate(layout.origin.x, layout.origin.y)
     lg.scale(layout.scale, layout.scale)
     lg.setColor(1, 1, 1, 1)
@@ -314,7 +325,14 @@ function FieldDialogueRenderer:draw(controller, viewport)
     end
     self:_drawCursor(status, layout)
     lg.pop()
+    pushed = false
   end)
+
+  -- Finally-style cleanup: a draw error must not leave the transform stack
+  -- unbalanced for the caller's next frame.
+  if pushed then
+    lg.pop()
+  end
 
   lg.setCanvas(canvas)
   lg.setShader(shader)

@@ -1,7 +1,8 @@
--- LÖVE smoke tests for the dialogue renderer (spec sections 15.3-15.6 and
--- 21.7): synthetic font def + atlas load, box geometry at every host aspect,
--- and graphics-state restoration after a draw. These run only under love with
--- a graphics context (the aggregate suite skips them headless).
+-- LÖVE smoke tests for the dialogue renderer: synthetic font def + atlas
+-- load, box geometry at every host aspect, and graphics-state restoration
+-- after a draw. Real-graphics tests run only under love with a graphics
+-- context (the aggregate suite skips them headless); the failure-injection
+-- tests drive an injected fake graphics so they also run headless.
 
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.rom.src.CacheFs")
@@ -57,6 +58,157 @@ local function cacheWithFont()
   cache:write("data/generated/field/font/font-0.lua", require("libs.rom.src.LuaWriter").encode(fontDef()))
   cache:write("assets/generated/field/font/font-0.png", atlasBytes())
   return cache
+end
+
+-- Injected graphics for failure-injection tests: tracks created images and
+-- their release calls, the transform-stack depth, and a full settable state
+-- (canvas, shader, blend, depth, wireframe, cull, color, scissor) that the
+-- renderer must restore exactly. failOnQuadCall/failOnDrawCall make the Nth
+-- construction/draw call raise, so construction and draw failures can be
+-- exercised headless.
+local function fakeGraphics(opts)
+  opts = opts or {}
+  local images = {}
+  local quadCalls, drawCalls = 0, 0
+  local pushDepth = 0
+  local state = {
+    canvas = opts.canvas,
+    shader = opts.shader,
+    blendMode = opts.blendMode,
+    blendAlpha = opts.blendAlpha,
+    depthMode = opts.depthMode,
+    depthWrite = opts.depthWrite,
+    wireframe = opts.wireframe,
+    cullMode = opts.cullMode,
+    color = opts.color or { 1, 1, 1, 1 },
+    scissor = opts.scissor,
+  }
+  return {
+    images = images,
+    pushDepth = function()
+      return pushDepth
+    end,
+    newImage = function()
+      local image = {
+        released = false,
+        setFilter = function() end,
+        getWidth = function()
+          return 16
+        end,
+        getHeight = function()
+          return 16
+        end,
+      }
+      image.release = function()
+        image.released = true
+      end
+      images[#images + 1] = image
+      return image
+    end,
+    newQuad = function()
+      quadCalls = quadCalls + 1
+      if opts.failOnQuadCall == quadCalls then
+        error("injected newQuad failure")
+      end
+      return { quad = quadCalls }
+    end,
+    push = function()
+      pushDepth = pushDepth + 1
+    end,
+    pop = function()
+      pushDepth = pushDepth - 1
+    end,
+    translate = function() end,
+    scale = function() end,
+    setColor = function(r, g, b, a)
+      state.color = { r, g, b, a }
+    end,
+    getColor = function()
+      return state.color[1], state.color[2], state.color[3], state.color[4]
+    end,
+    draw = function()
+      drawCalls = drawCalls + 1
+      if opts.failOnDrawCall == drawCalls then
+        error("injected draw failure")
+      end
+    end,
+    polygon = function() end,
+    getCanvas = function()
+      return state.canvas
+    end,
+    setCanvas = function(canvas)
+      state.canvas = canvas
+    end,
+    getShader = function()
+      return state.shader
+    end,
+    setShader = function(shader)
+      state.shader = shader
+    end,
+    getBlendMode = function()
+      return state.blendMode, state.blendAlpha
+    end,
+    setBlendMode = function(mode, alpha)
+      state.blendMode, state.blendAlpha = mode, alpha
+    end,
+    getDepthMode = function()
+      return state.depthMode, state.depthWrite
+    end,
+    setDepthMode = function(mode, write)
+      state.depthMode, state.depthWrite = mode, write
+    end,
+    isWireframe = function()
+      return state.wireframe
+    end,
+    setWireframe = function(wireframe)
+      state.wireframe = wireframe
+    end,
+    getMeshCullMode = function()
+      return state.cullMode
+    end,
+    setMeshCullMode = function(mode)
+      state.cullMode = mode
+    end,
+    getScissor = function()
+      if not state.scissor then
+        return nil
+      end
+      return state.scissor[1], state.scissor[2], state.scissor[3], state.scissor[4]
+    end,
+    setScissor = function(x, y, w, h)
+      state.scissor = { x, y, w, h }
+    end,
+  }
+end
+
+local function hasImageTooling()
+  return love and love.image and love.filesystem
+end
+
+-- The exact restoration contract: every captured state (canvas, shader,
+-- blend, depth, wireframe, cull, color, scissor) equals the pre-draw value,
+-- never a hard-coded default.
+local function assertRestoredState(lg, canvas, shader)
+  Assert.equal(lg.getCanvas(), canvas)
+  Assert.equal(lg.getShader(), shader)
+  local blend, alpha = lg.getBlendMode()
+  Assert.equal(blend, "add")
+  Assert.equal(alpha, "alphamultiply")
+  local depthMode, depthWrite = lg.getDepthMode()
+  Assert.equal(depthMode, "lequal")
+  Assert.equal(depthWrite, true)
+  Assert.equal(lg.isWireframe(), true)
+  Assert.equal(lg.getMeshCullMode(), "back")
+  local r, g, b, a = lg.getColor()
+  Assert.equal(r, 0.2)
+  Assert.equal(g, 0.4)
+  Assert.equal(b, 0.6)
+  Assert.equal(a, 0.8)
+  local sx, sy, sw, sh = lg.getScissor()
+  Assert.equal(sx, 4)
+  Assert.equal(sy, 8)
+  Assert.equal(sw, 32)
+  Assert.equal(sh, 16)
 end
 
 local function openDialogue(renderer, text)
@@ -122,6 +274,7 @@ function T.restores_graphics_state_after_draw()
   local viewport = FieldViewport.new(1280, 720, { mode = "expanded" })
 
   local canvas = lg.newCanvas(64, 64)
+  local shader = lg.getShader()
   lg.setCanvas(canvas)
   lg.setBlendMode("add")
   lg.setDepthMode("lequal", true)
@@ -132,25 +285,7 @@ function T.restores_graphics_state_after_draw()
 
   renderer:draw(controller, viewport)
 
-  Assert.equal(lg.getCanvas(), canvas)
-  local blend, alpha = lg.getBlendMode()
-  Assert.equal(blend, "add")
-  Assert.equal(alpha, "alphamultiply")
-  local depthMode, depthWrite = lg.getDepthMode()
-  Assert.equal(depthMode, "lequal")
-  Assert.equal(depthWrite, true)
-  Assert.equal(lg.isWireframe(), true)
-  Assert.equal(lg.getMeshCullMode(), "back")
-  local r, g, b, a = lg.getColor()
-  Assert.equal(r, 0.2)
-  Assert.equal(g, 0.4)
-  Assert.equal(b, 0.6)
-  Assert.equal(a, 0.8)
-  local sx, sy, sw, sh = lg.getScissor()
-  Assert.equal(sx, 4)
-  Assert.equal(sy, 8)
-  Assert.equal(sw, 32)
-  Assert.equal(sh, 16)
+  assertRestoredState(lg, canvas, shader)
 
   lg.setCanvas()
   renderer:release()
@@ -241,6 +376,71 @@ function T.release_frees_owned_images()
   renderer:release()
   Assert.isNil(renderer.atlas)
   Assert.isNil(renderer._sliceImage)
+end
+
+-- A quad/slice failure after the atlas was created must release the acquired
+-- images before the constructor rethrows.
+function T.constructor_failure_releases_the_acquired_atlas()
+  if not hasImageTooling() then
+    return
+  end
+  local lg = fakeGraphics({ failOnQuadCall = 1 })
+  local err = Assert.throws(function()
+    FieldDialogueRenderer.new({ cacheFs = cacheWithFont(), graphics = lg })
+  end)
+  Assert.isTrue(tostring(err):find("injected newQuad failure", 1, true) ~= nil, "rethrows the quad failure")
+  Assert.equal(#lg.images, 1, "the atlas was created before the failure")
+  Assert.equal(lg.images[1].released, true, "the acquired atlas was released")
+end
+
+-- A failure during slice quads happens after the slice image was created;
+-- both acquired images must be released.
+function T.constructor_failure_releases_atlas_and_slice_image()
+  if not hasImageTooling() then
+    return
+  end
+  local lg = fakeGraphics({ failOnQuadCall = 4 })
+  local err = Assert.throws(function()
+    FieldDialogueRenderer.new({ cacheFs = cacheWithFont(), graphics = lg })
+  end)
+  Assert.isTrue(tostring(err):find("injected newQuad failure", 1, true) ~= nil, "rethrows the quad failure")
+  Assert.equal(#lg.images, 2, "atlas and slice image were created before the failure")
+  Assert.equal(lg.images[1].released, true, "the atlas was released")
+  Assert.equal(lg.images[2].released, true, "the slice image was released")
+end
+
+-- A failure between graphics.push() and graphics.pop() must still pop the
+-- transform stack and restore every captured graphics state exactly.
+function T.draw_failure_balances_transform_stack_and_restores_state()
+  if not hasImageTooling() then
+    return
+  end
+  local canvas, shader = {}, {}
+  local lg = fakeGraphics({
+    canvas = canvas,
+    shader = shader,
+    blendMode = "add",
+    blendAlpha = "alphamultiply",
+    depthMode = "lequal",
+    depthWrite = true,
+    wireframe = true,
+    cullMode = "back",
+    color = { 0.2, 0.4, 0.6, 0.8 },
+    scissor = { 4, 8, 32, 16 },
+    failOnDrawCall = 1,
+  })
+  local renderer = FieldDialogueRenderer.new({ cacheFs = cacheWithFont(), graphics = lg })
+  local controller = openDialogue(renderer, "AB")
+  local viewport = FieldViewport.new(1280, 720, { mode = "expanded" })
+
+  local err = Assert.throws(function()
+    renderer:draw(controller, viewport)
+  end)
+  Assert.isTrue(tostring(err):find("injected draw failure", 1, true) ~= nil, "rethrows the draw failure")
+  Assert.equal(lg.pushDepth(), 0, "the transform stack is balanced after a failed draw")
+  assertRestoredState(lg, canvas, shader)
+
+  renderer:release()
 end
 
 return T
