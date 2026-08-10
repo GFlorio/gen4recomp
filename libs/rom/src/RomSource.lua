@@ -33,32 +33,66 @@ local function isZip(name)
   return name:lower():match("%.zip$") ~= nil
 end
 
--- Walk a zip mounted in memory and return every .nds entry as { name, data }.
+-- Mount a zip in memory and locate one usable .nds entry. Candidates are
+-- inspected one at a time: the first entry whose SHA-1 matches a supported
+-- version wins; otherwise the first .nds is returned as a fallback so NdsRom
+-- can report a precise unknown-ROM error. At most the current candidate and
+-- one fallback candidate are retained at once, and the mount is always
+-- unmounted, including when traversal raises.
+--
 -- love.filesystem.mount accepts FileData (11.0+), so arbitrary-path archives
--- never touch disk. The mount is transient and unmounted before returning.
+-- never touch disk.
 local MOUNT_POINT = "g4-romzip"
 
-local function collectNdsEntries(zipBytes, zipName)
+local function findNdsCandidate(zipBytes, zipName, versions)
   local fd = love.filesystem.newFileData(zipBytes, "romzip.zip")
   love.filesystem.unmount(fd) -- clear any stale mount from a prior import
   if not love.filesystem.mount(fd, MOUNT_POINT) then
     return nil, Errors.new("ZIP_MOUNT_FAILED", "could not read zip: " .. zipName, { name = zipName })
   end
-  local entries = {}
-  local function walk(dir)
-    for _, item in ipairs(love.filesystem.getDirectoryItems(dir)) do
-      local full = dir .. "/" .. item
-      local info = love.filesystem.getInfo(full)
-      if info and info.type == "directory" then
-        walk(full)
-      elseif item:lower():match("%.nds$") then
-        entries[#entries + 1] = { name = full:sub(#MOUNT_POINT + 2), data = love.filesystem.read(full) }
+
+  local found
+  local ok, walkErr = pcall(function()
+    local fallback
+    local function walk(dir)
+      for _, item in ipairs(love.filesystem.getDirectoryItems(dir)) do
+        if found then
+          return
+        end
+        local full = dir .. "/" .. item
+        local info = love.filesystem.getInfo(full)
+        if info and info.type == "directory" then
+          walk(full)
+        elseif item:lower():match("%.nds$") then
+          local bytes = love.filesystem.read(full)
+          if not bytes then
+            Errors.raise("ZIP_READ_FAILED", "could not read .nds entry: " .. full, { name = zipName, entry = full })
+          end
+          local candidate = RomSource.fromString(bytes, zipName .. ":" .. full:sub(#MOUNT_POINT + 2))
+          if versions.forSha1(candidate:sha1()) then
+            if fallback then
+              fallback:release()
+            end
+            found = candidate
+          elseif fallback then
+            candidate:release()
+          else
+            fallback = candidate
+          end
+        end
       end
     end
-  end
-  walk(MOUNT_POINT)
+    walk(MOUNT_POINT)
+    found = found or fallback
+  end)
   love.filesystem.unmount(fd)
-  return entries
+  if not ok then
+    if Errors.is(walkErr) then
+      return nil, walkErr
+    end
+    error(walkErr, 0)
+  end
+  return found
 end
 
 -- Pick a usable .nds from a zip: prefer one whose SHA-1 matches a supported
@@ -66,22 +100,14 @@ end
 -- precise unknown-ROM error (with the computed hash) for diagnosis.
 function RomSource.fromZipData(zipBytes, displayName, versions)
   versions = versions or GameVersion
-  local entries, err = collectNdsEntries(zipBytes, displayName)
-  if not entries then
-    return nil, err
-  end
-  if #entries == 0 then
+  local source, err = findNdsCandidate(zipBytes, displayName, versions)
+  if not source then
+    if err then
+      return nil, err
+    end
     return nil, Errors.new("ZIP_NO_NDS", "no .nds ROM found in " .. displayName, { name = displayName })
   end
-  local first
-  for _, e in ipairs(entries) do
-    local source = RomSource.fromString(e.data, displayName .. ":" .. e.name)
-    first = first or source
-    if versions.forSha1(source:sha1()) then
-      return source
-    end
-  end
-  return first
+  return source
 end
 
 function RomSource.fromPath(path)
@@ -108,11 +134,18 @@ function RomSource.fromDroppedFile(droppedFile)
   end
   local data = droppedFile:read()
   droppedFile:close()
+  if not data then
+    return nil, Errors.new("ROM_READ_FAILED", "could not read dropped file", { name = droppedFile:getFilename() })
+  end
   local name = droppedFile:getFilename()
   if isZip(name) then
     return RomSource.fromZipData(data, basename(name))
   end
   return RomSource.fromString(data, basename(name))
+end
+
+local function isNonNegativeInteger(value)
+  return type(value) == "number" and value >= 0 and value == math.floor(value) and value < math.huge
 end
 
 function RomSource:size()
@@ -123,13 +156,7 @@ function RomSource:read(offset, length)
   if not self.data then
     return nil, Errors.new("ROM_RELEASED", "ROM source has been released", {})
   end
-  if
-    type(offset) ~= "number"
-    or offset < 0
-    or type(length) ~= "number"
-    or length < 0
-    or offset + length > #self.data
-  then
+  if not isNonNegativeInteger(offset) or not isNonNegativeInteger(length) or offset + length > #self.data then
     return nil,
       Errors.new(
         "ROM_READ_OUT_OF_BOUNDS",
