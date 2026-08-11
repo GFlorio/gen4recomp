@@ -125,8 +125,8 @@ local function definition()
     key = "model:1",
     nodes = { node(0), node(1), node(2), node(3), node(4), node(5) },
     meshes = {
-      { id = "m0", nodeIndex = 0, materialIndex = 0, batch = { vertices = {}, indices = {} } },
-      { id = "m1", nodeIndex = 0, materialIndex = 1, batch = { vertices = {}, indices = {} } },
+      { id = "m0", nodeIndex = 0, materialIndex = 0, geometry = "fixtures/m0.g4mesh" },
+      { id = "m1", nodeIndex = 0, materialIndex = 1, geometry = "fixtures/m1.g4mesh" },
     },
     materials = {
       {

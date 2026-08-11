@@ -168,6 +168,45 @@ function T.draw_items_carry_pose_transforms()
   Assert.equal(items[1].translucentDepthWrite, false)
 end
 
+-- ---- strict dynamic draw state ----
+
+-- The dynamic draw state is compiled by the project's own compiler, so a
+-- backend mesh record missing one of the polygon fields the draw path
+-- consumes must fail loudly at drawItems instead of silently defaulting
+-- ("mostly right" visual output is the exact failure mode strict loading
+-- rejects).
+function T.draw_items_reject_an_incomplete_backend_draw_record()
+  for _, field in ipairs({ "polygonMode", "polygonId", "cullMode", "translucentDepthWrite", "depthEqual" }) do
+    local def = NitroModelFixture.doorDefinition()
+    def.backend.meshes["draw0.seg0"][field] = nil
+    local instance = ModelInstance.new(def)
+    throwsCode("MODEL_DEF_BAD_DRAW_STATE", function()
+      instance:evaluatePose()
+      return instance:drawItems(rendersFor(def))
+    end)
+  end
+end
+
+-- A complete backend record is consulted, not defaulted: distinctive values
+-- land on the item unchanged.
+function T.draw_items_honor_the_backend_records_draw_values()
+  local def = NitroModelFixture.doorDefinition()
+  local draw = def.backend.meshes["draw0.seg0"]
+  draw.polygonMode = "decal"
+  draw.polygonId = 3
+  draw.cullMode = "front"
+  draw.translucentDepthWrite = true
+  draw.depthEqual = true
+  local instance = ModelInstance.new(def)
+  instance:evaluatePose()
+  local items = instance:drawItems(rendersFor(def))
+  Assert.equal(items[1].polygonMode, "decal")
+  Assert.equal(items[1].polygonId, 3)
+  Assert.equal(items[1].cullMode, "front")
+  Assert.equal(items[1].translucentDepthWrite, true)
+  Assert.equal(items[1].depthEqual, true)
+end
+
 function T.draw_items_compose_the_instance_transform()
   local def = NitroModelFixture.doorDefinition()
   def.meshes[1].center = { 1, 1, 0 }
@@ -243,7 +282,7 @@ function T.the_source_backend_key_is_rejected_at_construction()
           scale = { x = 1, y = 1, z = 1 },
         },
       },
-      meshes = { { id = "m", nodeIndex = 0, materialIndex = 0, batch = { vertices = {}, indices = {} } } },
+      meshes = { { id = "m", nodeIndex = 0, materialIndex = 0, geometry = "fixtures/m.g4mesh" } },
       materials = {
         {
           id = 0,

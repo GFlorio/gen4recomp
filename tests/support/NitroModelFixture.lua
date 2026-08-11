@@ -185,7 +185,10 @@ end
 
 -- The door model definition: one node, one segment mesh, one opaque
 -- material, and the door open/close clips. `clips` overrides the default
--- clip list (e.g. for close-only or banded fixtures).
+-- clip list (e.g. for close-only or banded fixtures). The mesh references
+-- the .g4mesh path shape of the serialized descriptors -- geometry never
+-- embeds a batch in a definition (the render tests build their meshes from
+-- doorQuad() by mesh id).
 function NitroModelFixture.doorDefinition(clips)
   clips = clips or { NitroModelFixture.doorOpenClip(), NitroModelFixture.doorCloseClip() }
   return ModelDefinition.new({
@@ -199,7 +202,7 @@ function NitroModelFixture.doorDefinition(clips)
         scale = { x = 1, y = 1, z = 1 },
       },
     },
-    meshes = { { id = "draw0.seg0", nodeIndex = 0, materialIndex = 0, batch = NitroModelFixture.doorQuad() } },
+    meshes = { { id = "draw0.seg0", nodeIndex = 0, materialIndex = 0, geometry = "fixtures/draw0.seg0.g4mesh" } },
     materials = {
       {
         id = 0,

@@ -59,35 +59,8 @@ end
 
 -- A one-door nitro model: a single node, one SBC draw, one segment mesh
 -- (a 2x2-tile quad at the origin in tile space).
-local function doorDefinition()
-  local program = {
-    name = "door",
-    scalingRule = 0,
-    posScale = 1,
-    invPosScale = 1,
-    tileScale = 1 / 16,
-    nodes = {
-      {
-        index = 0,
-        matrixStackIndex = 0,
-        translation = { x = 0, y = 0, z = 0 },
-        rotation = identity9(),
-        scale = { x = 1, y = 1, z = 1 },
-        transZero = true,
-        rotZero = true,
-        scaleOne = true,
-      },
-    },
-    commands = {
-      { opcode = 0x06, nodeIndex = 0, parentIndex = 0, flags = 0 },
-      { opcode = 0x02, nodeIndex = 0, visible = true },
-      { opcode = 0x04, materialIndex = 0 },
-      { opcode = 0x05, shapeIndex = 0 },
-      { opcode = 0x01 },
-    },
-    evpMatrices = nil,
-  }
-  local quad = {
+local function doorQuad()
+  return {
     vertices = {
       {
         x = 0,
@@ -152,6 +125,36 @@ local function doorDefinition()
     },
     indices = { 0, 1, 2, 0, 2, 3 },
   }
+end
+
+local function doorDefinition()
+  local program = {
+    name = "door",
+    scalingRule = 0,
+    posScale = 1,
+    invPosScale = 1,
+    tileScale = 1 / 16,
+    nodes = {
+      {
+        index = 0,
+        matrixStackIndex = 0,
+        translation = { x = 0, y = 0, z = 0 },
+        rotation = identity9(),
+        scale = { x = 1, y = 1, z = 1 },
+        transZero = true,
+        rotZero = true,
+        scaleOne = true,
+      },
+    },
+    commands = {
+      { opcode = 0x06, nodeIndex = 0, parentIndex = 0, flags = 0 },
+      { opcode = 0x02, nodeIndex = 0, visible = true },
+      { opcode = 0x04, materialIndex = 0 },
+      { opcode = 0x05, shapeIndex = 0 },
+      { opcode = 0x01 },
+    },
+    evpMatrices = nil,
+  }
   return ModelDefinition.new({
     key = "fixture:nitro-door",
     nodes = {
@@ -163,7 +166,7 @@ local function doorDefinition()
         scale = { x = 1, y = 1, z = 1 },
       },
     },
-    meshes = { { id = "draw0.seg0", nodeIndex = 0, materialIndex = 0, batch = quad } },
+    meshes = { { id = "draw0.seg0", nodeIndex = 0, materialIndex = 0, geometry = "fixtures/draw0.seg0.g4mesh" } },
     materials = {
       {
         id = 0,
@@ -177,7 +180,19 @@ local function doorDefinition()
     animations = { doorClip() },
     backend = {
       program = program,
-      meshes = { ["draw0.seg0"] = { drawIndex = 0, positionSource = "draw", transformMode = "static" } },
+      meshes = {
+        ["draw0.seg0"] = {
+          drawIndex = 0,
+          positionSource = "draw",
+          transformMode = "static",
+          cullMode = "back",
+          polygonMode = "modulation",
+          polygonId = 0,
+          translucentDepthWrite = false,
+          depthEqual = false,
+          polygonAlpha = 31,
+        },
+      },
     },
   })
 end
@@ -185,7 +200,7 @@ end
 local function buildRenders(def)
   local renderMeshesById = {}
   for _, mesh in ipairs(def.meshes) do
-    local bytes = MeshWriter.encode(mesh.batch)
+    local bytes = MeshWriter.encode(doorQuad())
     renderMeshesById[mesh.id] = SceneMesh.build(SceneMesh.decode(bytes))
   end
   return renderMeshesById

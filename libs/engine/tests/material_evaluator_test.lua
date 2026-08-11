@@ -132,7 +132,7 @@ local function texturedDefinition(opts)
         scale = { x = 1, y = 1, z = 1 },
       },
     },
-    meshes = { { id = "sign", nodeIndex = 0, materialIndex = 0, batch = { vertices = {}, indices = {} } } },
+    meshes = { { id = "sign", nodeIndex = 0, materialIndex = 0, geometry = "fixtures/sign.g4mesh" } },
     materials = {
       {
         id = 0,
@@ -608,7 +608,7 @@ function T.untextured_material_has_no_matrix()
         scale = { x = 1, y = 1, z = 1 },
       },
     },
-    meshes = { { id = "m", nodeIndex = 0, materialIndex = 0, batch = { vertices = {}, indices = {} } } },
+    meshes = { { id = "m", nodeIndex = 0, materialIndex = 0, geometry = "fixtures/m.g4mesh" } },
     materials = {
       {
         id = 0,

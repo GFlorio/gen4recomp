@@ -60,7 +60,7 @@ local function definitionSpec()
         name = "m0",
         nodeIndex = 1,
         materialIndex = 0,
-        batch = { vertices = { { x = 0, y = 0, z = 0 } }, indices = { 0, 0, 0 } },
+        geometry = "fixtures/m0.g4mesh",
       },
     },
     materials = {
@@ -168,9 +168,9 @@ function T.validation_rejects_bad_shapes()
   throwsCode("MODEL_DEF_NAME_SEMANTIC_COLLISION", function()
     return ModelDefinition.new(s)
   end)
-  -- A mesh without geometry (no path, no batch) cannot be drawn.
+  -- A mesh with neither a geometry path nor a batch cannot be drawn.
   s = definitionSpec()
-  s.meshes[1].batch = nil
+  s.meshes[1].geometry = nil
   throwsCode("MODEL_DEF_MESH_NO_GEOMETRY", function()
     return ModelDefinition.new(s)
   end)
@@ -224,11 +224,12 @@ function T.binding_is_precomputed_for_node_and_material_clips()
   Assert.deepEqual(materialBinding.trackByMaterial, { [0] = 0 })
 end
 
-function T.from_nitro_descriptor_assembles_the_runtime_definition()
-  -- The descriptor's dynamic batches reference .g4mesh paths; the definition
-  -- meshes carry the path, and the per-mesh polygon draw state lands on the
-  -- backend records.
-  local desc = {
+-- The complete serialized nitro descriptor shape MapAssetCompiler writes:
+-- schema/kind, the stamped key, dynamic batches referencing .g4mesh geometry
+-- with the full per-segment polygon draw state, materials, and compiled
+-- clips. Built fresh per call so a test can corrupt one field in isolation.
+local function nitroDescriptor()
+  return {
     schema = "g4-model-v2",
     key = "outdoor:26:door",
     memberId = 26,
@@ -258,6 +259,10 @@ function T.from_nitro_descriptor_assembles_the_runtime_definition()
     materials = NitroModelFixture.doorDefinition().materials,
     animations = { NitroModelFixture.doorOpenClip() },
   }
+end
+
+function T.from_nitro_descriptor_assembles_the_runtime_definition()
+  local desc = nitroDescriptor()
   local def = ModelDefinition.fromNitroDescriptor(desc, { key = desc.key })
   Assert.equal(def.key, "outdoor:26:door")
   Assert.equal(#def.meshes, 1)
@@ -272,6 +277,101 @@ function T.from_nitro_descriptor_assembles_the_runtime_definition()
   -- Descriptor assembly precomputes the clip bindings: the compiled door
   -- clip binds onto the assembled definition without any later rescan.
   Assert.notNil(def:binding(assert(def:animation("door.open"))))
+end
+
+-- ---- strict descriptor loading ----
+
+-- A generated descriptor that omits a mandatory field must fail at the load
+-- boundary with the descriptor's own diagnostic, never with a plausible
+-- default key.
+function T.from_nitro_descriptor_requires_the_key()
+  local desc = nitroDescriptor()
+  desc.key = nil
+  throwsCode("NITRO_DESC_NO_KEY", function()
+    return ModelDefinition.fromNitroDescriptor(desc)
+  end)
+  -- The loader supplies the key through opts when it knows the model key;
+  -- that path still assembles.
+  local def = ModelDefinition.fromNitroDescriptor(desc, { key = "outdoor:26:door" })
+  Assert.equal(def.key, "outdoor:26:door")
+end
+
+function T.from_nitro_descriptor_requires_materials()
+  local desc = nitroDescriptor()
+  desc.materials = nil
+  throwsCode("NITRO_DESC_NO_MATERIALS", function()
+    return ModelDefinition.fromNitroDescriptor(desc)
+  end)
+  desc = nitroDescriptor()
+  desc.materials = {}
+  throwsCode("NITRO_DESC_NO_MATERIALS", function()
+    return ModelDefinition.fromNitroDescriptor(desc)
+  end)
+end
+
+function T.from_nitro_descriptor_requires_animations()
+  local desc = nitroDescriptor()
+  desc.animations = nil
+  throwsCode("NITRO_DESC_NO_ANIMATIONS", function()
+    return ModelDefinition.fromNitroDescriptor(desc)
+  end)
+  desc = nitroDescriptor()
+  desc.animations = {}
+  throwsCode("NITRO_DESC_NO_ANIMATIONS", function()
+    return ModelDefinition.fromNitroDescriptor(desc)
+  end)
+end
+
+-- A descriptor batch record carrying an embedded batch instead of (or
+-- alongside) the .g4mesh geometry path is a stale fixture artifact, not a
+-- loadable model.
+function T.from_nitro_descriptor_rejects_an_embedded_batch()
+  local desc = nitroDescriptor()
+  desc.dynamic.batches[1].geometry = nil
+  desc.dynamic.batches[1].batch = { vertices = {}, indices = {} }
+  throwsCode("MODEL_DEF_MESH_EMBEDDED_BATCH", function()
+    return ModelDefinition.fromNitroDescriptor(desc)
+  end)
+  desc = nitroDescriptor()
+  desc.dynamic.batches[1].batch = { vertices = {}, indices = {} }
+  throwsCode("MODEL_DEF_MESH_EMBEDDED_BATCH", function()
+    return ModelDefinition.fromNitroDescriptor(desc)
+  end)
+end
+
+-- The per-segment polygon draw state is mandatory: the compiler always
+-- emits all six fields, so a record missing one is malformed generated data.
+function T.from_nitro_descriptor_requires_the_draw_state_on_every_batch()
+  for _, field in ipairs({
+    "cullMode",
+    "polygonMode",
+    "polygonId",
+    "translucentDepthWrite",
+    "depthEqual",
+    "polygonAlpha",
+  }) do
+    local desc = nitroDescriptor()
+    desc.dynamic.batches[1][field] = nil
+    throwsCode("NITRO_DESC_BAD_DRAW_STATE", function()
+      return ModelDefinition.fromNitroDescriptor(desc)
+    end)
+  end
+end
+
+-- The definition spec itself carries no embedded batch: the batch key is the
+-- stale fixture compatibility the fixtures now avoid.
+function T.new_rejects_an_embedded_batch_mesh()
+  local s = definitionSpec()
+  s.meshes[1].batch = { vertices = {}, indices = {} }
+  throwsCode("MODEL_DEF_MESH_EMBEDDED_BATCH", function()
+    return ModelDefinition.new(s)
+  end)
+  s = definitionSpec()
+  s.meshes[1].geometry = nil
+  s.meshes[1].batch = { vertices = {}, indices = {} }
+  throwsCode("MODEL_DEF_MESH_EMBEDDED_BATCH", function()
+    return ModelDefinition.new(s)
+  end)
 end
 
 return T

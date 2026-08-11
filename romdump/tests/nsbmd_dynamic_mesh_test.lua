@@ -17,6 +17,7 @@ local ModelFixture = require("tests.support.NsbmdModelFixture")
 local NsbmdFixture = require("tests.support.NsbmdFixture")
 local Matrix4 = require("libs.math.src.Matrix4")
 local NB = require("tests.support.NitroBuilder")
+local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
 
 local T = {}
 
@@ -258,6 +259,33 @@ end
 
 -- ---- ModelDefinition assembly ----
 
+-- Convert the digest intermediate records (raw batches + polygonAttrRaw) into
+-- the serialized descriptor shape MapAssetCompiler.dynamicBatches writes:
+-- .g4mesh geometry paths and the decoded per-segment polygon draw state.
+local function serializeBatches(meshes)
+  local out = {}
+  for _, mesh in ipairs(meshes) do
+    local poly = DsPolygonAttr.decode(mesh.polygonAttrRaw)
+    out[#out + 1] = {
+      id = mesh.id,
+      drawIndex = mesh.drawIndex,
+      segmentIndex = mesh.segmentIndex,
+      nodeIndex = mesh.nodeIndex,
+      materialIndex = mesh.materialIndex,
+      transformMode = mesh.transformMode,
+      positionSource = mesh.positionSource,
+      geometry = "fixtures/" .. mesh.id .. ".g4mesh",
+      cullMode = poly.cullMode,
+      polygonMode = poly.polygonMode,
+      polygonId = poly.polygonId,
+      translucentDepthWrite = poly.translucentDepthWrite,
+      depthEqual = poly.depthEqual,
+      polygonAlpha = poly.polygonAlpha,
+    }
+  end
+  return out
+end
+
 function T.to_definition_builds_a_valid_nitro_model()
   local m = assert(Nsbmd.decode(NsbmdFixture.buildTransformed())).models[1]
   local descriptor = NsbmdDynamicModel.compile(m)
@@ -266,20 +294,32 @@ function T.to_definition_builds_a_valid_nitro_model()
     dynamic = {
       nodes = descriptor.program.nodes,
       transformProgram = descriptor.program,
-      batches = descriptor.meshes,
+      batches = serializeBatches(descriptor.meshes),
     },
     materials = descriptor.materials,
-    animations = {},
+    animations = {
+      {
+        id = "fixture:anim",
+        name = "anim",
+        category = "joint",
+        kind = "trs",
+        frameCount = 2,
+        tracks = { { target = 0, targetIndex = 0 } },
+        source = { type = "nitro", format = "NSBCA", archive = "build_anim", memberId = 1 },
+      },
+    },
   }, { key = "fixture:door" })
   Assert.equal(def.key, "fixture:door")
   Assert.equal(#def.nodes, 1)
   Assert.equal(def.nodes[1].translation.x, 2)
   Assert.equal(#def.meshes, 1)
-  Assert.equal(def.meshes[1].batch.vertices[1].x, 0)
+  Assert.equal(def.meshes[1].geometry, "fixtures/draw0.seg0.g4mesh")
   Assert.equal(def.materials[1].alphaMode, "opaque")
   Assert.equal(def.backend.program, descriptor.program)
   Assert.equal(def.backend.meshes[def.meshes[1].id].drawIndex, 0)
   Assert.equal(def.backend.meshes[def.meshes[1].id].positionSource, "draw")
+  Assert.equal(def.backend.meshes[def.meshes[1].id].cullMode, "none")
+  Assert.equal(def.backend.meshes[def.meshes[1].id].polygonMode, "modulation")
   -- The definition is a valid engine IR object (validation ran in new).
   Assert.equal(def:animation("door.open"), nil)
 end

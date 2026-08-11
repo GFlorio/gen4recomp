@@ -70,6 +70,20 @@ ModelInstance.__index = ModelInstance
 -- uses when an item carries no explicit cutoff (MapRenderer.CUTOUT_EPSILON).
 local CUTOUT_EPSILON = 0.5 / 255
 
+-- The polygon draw fields the draw path consumes from a nitro backend mesh
+-- record. A record present but missing any of them is malformed generated
+-- data and raises at drawItems (the record can be patched after
+-- construction, so the check lives at the consumption point). polygonAlpha
+-- is not consumed here -- it rides on the effective material -- so its
+-- strictness lives at the descriptor boundary, not here.
+local DRAW_STATE_FIELDS = {
+  "polygonMode",
+  "polygonId",
+  "cullMode",
+  "translucentDepthWrite",
+  "depthEqual",
+}
+
 -- alphaMode -> the renderer's render-pass class (the material contract).
 local ALPHA_CLASS = {
   opaque = "opaque",
@@ -316,6 +330,21 @@ function ModelInstance:drawItems(renderMeshesById)
         transform = Matrix4.multiply(self.transform, nodeMatrix)
       end
       local meshState = backendMeshes[mesh.id]
+      if meshState then
+        -- Strict dynamic draw state: a backend record missing a consumed
+        -- draw field fails loudly instead of silently defaulting.
+        -- Records absent entirely (non-backend definitions) keep the
+        -- defaults below.
+        for _, field in ipairs(DRAW_STATE_FIELDS) do
+          if meshState[field] == nil then
+            Errors.raise(
+              "MODEL_DEF_BAD_DRAW_STATE",
+              "backend mesh " .. mesh.id .. " is missing the " .. field .. " draw state",
+              { meshId = mesh.id, field = field }
+            )
+          end
+        end
+      end
       local material = self:effectiveMaterial(mesh.materialIndex)
       items[#items + 1] = {
         mesh = renderMeshesById[mesh.id],

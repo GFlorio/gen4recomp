@@ -36,6 +36,19 @@ ModelDefinition.__index = ModelDefinition
 
 ModelDefinition.ALPHA_MODES = { opaque = true, mask = true, blend = true }
 
+-- The polygon draw fields MapAssetCompiler emits on every dynamic batch
+-- record. A nitro-dynamic descriptor missing any of them is malformed
+-- generated data; positionSource/transformMode are not mandatory (the
+-- billboard batch in the corpus legitimately omits positionSource).
+local DESCRIPTOR_DRAW_STATE_FIELDS = {
+  "cullMode",
+  "polygonMode",
+  "polygonId",
+  "translucentDepthWrite",
+  "depthEqual",
+  "polygonAlpha",
+}
+
 local function isFiniteNumber(value)
   return type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge
 end
@@ -119,15 +132,19 @@ local function validateMeshes(meshes, nodeCount, materialCount)
         { meshId = mesh.id, materialIndex = mesh.materialIndex }
       )
     end
-    -- Geometry either references a .g4mesh path or embeds a batch with
-    -- vertices (fixtures); a mesh with neither cannot be drawn.
-    if
-      not (type(mesh.geometry) == "string" and #mesh.geometry > 0)
-      and not (type(mesh.batch) == "table" and type(mesh.batch.vertices) == "table")
-    then
+    -- Geometry references a .g4mesh path; a mesh carrying an embedded
+    -- batch fails loudly, with or without a geometry path.
+    if mesh.batch ~= nil then
+      Errors.raise(
+        "MODEL_DEF_MESH_EMBEDDED_BATCH",
+        "mesh " .. mesh.id .. " carries an embedded batch; geometry must be a .g4mesh path",
+        { meshId = mesh.id }
+      )
+    end
+    if not (type(mesh.geometry) == "string" and #mesh.geometry > 0) then
       Errors.raise(
         "MODEL_DEF_MESH_NO_GEOMETRY",
-        "mesh " .. mesh.id .. " requires a geometry path or a batch with vertices",
+        "mesh " .. mesh.id .. " requires a geometry path",
         { meshId = mesh.id }
       )
     end
@@ -391,6 +408,19 @@ end
 function ModelDefinition.fromNitroDescriptor(desc, opts)
   assert(type(desc) == "table" and desc.dynamic ~= nil, "fromNitroDescriptor requires a dynamic model descriptor")
   opts = opts or {}
+  -- The descriptor is the load boundary for generated nitro models: the
+  -- mandatory fields are required, never defaulted. The loader supplies the
+  -- key through opts when it knows the model key.
+  local key = opts.key or desc.key
+  if not key then
+    Errors.raise("NITRO_DESC_NO_KEY", "model descriptor requires a key (desc.key or opts.key)", {})
+  end
+  if type(desc.materials) ~= "table" or #desc.materials == 0 then
+    Errors.raise("NITRO_DESC_NO_MATERIALS", "model descriptor requires a non-empty materials list", {})
+  end
+  if type(desc.animations) ~= "table" or #desc.animations == 0 then
+    Errors.raise("NITRO_DESC_NO_ANIMATIONS", "model descriptor requires a non-empty animations list", {})
+  end
   local program = desc.dynamic.transformProgram
   local nodes = {}
   for i, node in ipairs(desc.dynamic.nodes) do
@@ -405,18 +435,33 @@ function ModelDefinition.fromNitroDescriptor(desc, opts)
   local meshes = {}
   local backendMeshes = {}
   for _, mesh in ipairs(desc.dynamic.batches) do
+    -- Geometry is a .g4mesh path in the serialized shape; an embedded batch
+    -- is a stale fixture artifact, not a loadable model.
+    if mesh.batch ~= nil then
+      Errors.raise(
+        "MODEL_DEF_MESH_EMBEDDED_BATCH",
+        "descriptor batch " .. tostring(mesh.id) .. " carries an embedded batch; geometry must be a .g4mesh path",
+        { meshId = mesh.id }
+      )
+    end
+    -- The per-segment polygon draw state is compiled by our own compiler, so
+    -- a record missing any field is malformed generated data, not a default.
+    for _, field in ipairs(DESCRIPTOR_DRAW_STATE_FIELDS) do
+      if mesh[field] == nil then
+        Errors.raise(
+          "NITRO_DESC_BAD_DRAW_STATE",
+          "descriptor batch " .. tostring(mesh.id) .. " is missing the " .. field .. " draw state",
+          { meshId = mesh.id, field = field }
+        )
+      end
+    end
     local record = {
       id = mesh.id,
       nodeIndex = mesh.nodeIndex,
       materialIndex = mesh.materialIndex,
     }
-    -- The loader contract references .g4mesh geometry paths; digest-side
-    -- fixtures may still carry the embedded batch.
     if mesh.geometry then
       record.geometry = mesh.geometry
-    end
-    if mesh.batch then
-      record.batch = mesh.batch
     end
     meshes[#meshes + 1] = record
     backendMeshes[mesh.id] = {
@@ -432,11 +477,11 @@ function ModelDefinition.fromNitroDescriptor(desc, opts)
     }
   end
   return ModelDefinition.new({
-    key = opts.key or desc.key or program.name or "nitro-model",
+    key = key,
     nodes = nodes,
     meshes = meshes,
-    materials = desc.materials or {},
-    animations = desc.animations or {},
+    materials = desc.materials,
+    animations = desc.animations,
     backend = {
       program = program,
       meshes = backendMeshes,

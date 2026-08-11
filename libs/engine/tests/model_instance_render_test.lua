@@ -13,12 +13,14 @@ local NitroModelFixture = require("tests.support.NitroModelFixture")
 
 local T = {}
 
--- Build love meshes for every definition batch through the production mesh
--- path (G4M2 encode -> decode -> build).
+-- Build love meshes for every definition mesh through the production mesh
+-- path (G4M2 encode -> decode -> build), keyed by mesh id like the loader's
+-- renderMeshesById. The fixture mesh references the .g4mesh path shape; the
+-- bytes come from the shared door quad.
 local function buildRenders(def)
   local renderMeshesById = {}
   for _, mesh in ipairs(def.meshes) do
-    local bytes = MeshWriter.encode(mesh.batch)
+    local bytes = MeshWriter.encode(NitroModelFixture.doorQuad())
     renderMeshesById[mesh.id] = SceneMesh.build(SceneMesh.decode(bytes))
   end
   return renderMeshesById

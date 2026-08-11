@@ -114,7 +114,7 @@ local function singleMeshDefinition(overrides)
         id = "draw0.seg0",
         nodeIndex = 0,
         materialIndex = 0,
-        batch = { vertices = { { x = 0, y = 0, z = 0 } }, indices = { 0, 0, 0 } },
+        geometry = "fixtures/draw0.seg0.g4mesh",
       },
     },
     materials = {
@@ -131,7 +131,17 @@ local function singleMeshDefinition(overrides)
     backend = {
       program = overrides.program or program({ bindNode(0) }, drawCommands()),
       meshes = overrides.meshes or {
-        ["draw0.seg0"] = { drawIndex = 0, positionSource = "draw", transformMode = "static" },
+        ["draw0.seg0"] = {
+          drawIndex = 0,
+          positionSource = "draw",
+          transformMode = "static",
+          cullMode = "back",
+          polygonMode = "modulation",
+          polygonId = 0,
+          translucentDepthWrite = false,
+          depthEqual = false,
+          polygonAlpha = 31,
+        },
       },
     },
   })
@@ -265,7 +275,17 @@ function T.billboard_draws_report_the_captured_base()
   local instance = newInstance(singleMeshDefinition({
     program = program({ bind }, commands),
     meshes = {
-      ["draw0.seg0"] = { drawIndex = 0, positionSource = nil, transformMode = "billboard" },
+      ["draw0.seg0"] = {
+        drawIndex = 0,
+        positionSource = nil,
+        transformMode = "billboard",
+        cullMode = "back",
+        polygonMode = "modulation",
+        polygonId = 0,
+        translucentDepthWrite = false,
+        depthEqual = false,
+        polygonAlpha = 31,
+      },
     },
   }))
   instance:evaluatePose()
@@ -315,7 +335,7 @@ function T.restore_slot_sources_resolve_from_the_draw_snapshot()
         id = "m",
         nodeIndex = 1,
         materialIndex = 0,
-        batch = { vertices = { { x = 0, y = 0, z = 0 } }, indices = { 0, 0, 0 } },
+        geometry = "fixtures/draw0.seg0.g4mesh",
       },
     },
     materials = {
@@ -331,7 +351,19 @@ function T.restore_slot_sources_resolve_from_the_draw_snapshot()
     animations = {},
     backend = {
       program = p,
-      meshes = { m = { drawIndex = 0, positionSource = { slot = 1 }, transformMode = "static" } },
+      meshes = {
+        m = {
+          drawIndex = 0,
+          positionSource = { slot = 1 },
+          transformMode = "static",
+          cullMode = "back",
+          polygonMode = "modulation",
+          polygonId = 0,
+          translucentDepthWrite = false,
+          depthEqual = false,
+          polygonAlpha = 31,
+        },
+      },
     },
   })
   local instance = newInstance(def)
@@ -366,7 +398,19 @@ end
 
 function T.mesh_referencing_an_absent_draw_raises()
   local def = singleMeshDefinition({
-    meshes = { ["draw0.seg0"] = { drawIndex = 7, positionSource = "draw", transformMode = "static" } },
+    meshes = {
+      ["draw0.seg0"] = {
+        drawIndex = 7,
+        positionSource = "draw",
+        transformMode = "static",
+        cullMode = "back",
+        polygonMode = "modulation",
+        polygonId = 0,
+        translucentDepthWrite = false,
+        depthEqual = false,
+        polygonAlpha = 31,
+      },
+    },
   })
   local instance = newInstance(def)
   local err = Assert.throws(function()
