@@ -1,7 +1,9 @@
 -- Compiles one runtime field map (terrain, collision, field data, and
 -- coordinate origin) straight from a ROM dump through the project compilers.
 -- Shared by the ROM conformance suite's warp, interaction, and demo-path tests so
--- the runtime-map shape lives in one place.
+-- the runtime-map shape lives in one place. `assets` may be a bundle already
+-- produced by MapAssetCompiler.compile (the scene-loader fixture reuses one
+-- compile for both the loader cache and the runtime map).
 
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
 local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
@@ -13,9 +15,10 @@ local RomRuntimeMap = {}
 
 ---@param romFs table
 ---@param symbol string|integer
+---@param assets table|nil -- a pre-compiled MapAssetCompiler bundle to reuse
 ---@return table
-function RomRuntimeMap.compile(romFs, symbol)
-  local assets = assert(MapAssetCompiler.compile(romFs, symbol))
+function RomRuntimeMap.compile(romFs, symbol, assets)
+  assets = assets or assert(MapAssetCompiler.compile(romFs, symbol))
   local field = assert(FieldMapDataCompiler.compile(romFs, symbol)).field
   local matrix = assets.scene.matrix
   return {

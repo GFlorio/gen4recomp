@@ -1,233 +1,243 @@
 -- Private target test: the door source/destination choreography against the
--- real HGSS dump, run through the
--- production FieldTransition with the real doorAt resolution (compile ->
--- MapProps -> ModelInstance -> semantic roles) and the real locomotion. Both
--- Elm Lab <-> New Bark directions must: lock input, open the animated town
--- door, script the player through the doorway, swap only at full black,
--- egress from the transition anchor onto a normal floor tile, close the
--- destination door, wait for the close, and unlock -- without coordinate
--- suppression, so pressing back toward the door re-arms immediately. The
--- door lookup runs against the precomputed ownership index (door tiles ->
--- nearest-pivot placement) on the real dump. Runs against every ready dump
--- through the ROM layer.
+-- real HGSS dump, driven through the production composition (FieldSession +
+-- FieldTransition wired like FieldState) over a scene loaded through the REAL
+-- MapSceneLoader -- only the filesystem and rendering boundaries are
+-- substituted (in-memory cache, fake mesh/image builders). Both Elm Lab <->
+-- New Bark directions must run the HGSS event order -- open-start,
+-- open-finished, player-step-start, player-step-finished, close-start,
+-- close-finished -- observed through the REAL door handles' retained entry
+-- state and the REAL player's motion, not reconstructed through hand-built
+-- MapProps/ModelInstance plumbing. Door warps skip coordinate suppression, so
+-- pressing back toward the door re-arms immediately. Runs against every ready
+-- dump through the ROM layer.
 
 local Assert = require("tests.support.Assert")
-local DoorTiles = require("libs.engine.src.DoorTiles")
+local SceneLoaderFixture = require("tests.private.support.SceneLoaderFixture")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
-local FieldPlayer = require("libs.engine.src.FieldPlayer")
-local FieldTransition = require("libs.engine.src.FieldTransition")
-local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local MapPropAnimationController = require("libs.engine.src.MapPropAnimationController")
-local MapProps = require("libs.engine.src.MapProps")
-local ModelDefinition = require("libs.engine.src.ModelDefinition")
-local ModelInstance = require("libs.engine.src.ModelInstance")
-local RomRuntimeMap = require("tests.support.RomRuntimeMap")
 local WarpSystem = require("libs.engine.src.WarpSystem")
 
 local T = {}
 
-local TOWN_SYMBOL = "MAP_NEW_BARK"
-local LAB_SYMBOL = "MAP_NEW_BARK_ELMS_LAB_1F"
 local TOWN_MAP_ID = 60
 local LAB_MAP_ID = 61
-local TOWN_DOOR_MEMBER = 26
+local TOWN_DOOR_TILE = { x = 684, z = 393 }
+local LAB_ENTRANCE_TILE = { x = 4, z = 14 }
+local OPEN_ROLE = MapPropAnimationController.ROLES.DOOR_OPEN
+local CLOSE_ROLE = MapPropAnimationController.ROLES.DOOR_CLOSE
 
--- The model-space AABB of a descriptor's geometry (the loader stamps this
--- from the decoded .g4mesh assets; the private suite computes it from the
--- compiled bundle's mesh table).
-local function footprintOf(desc, assets)
-  local batches = desc.kind == "static" and desc.batches or desc.dynamic.batches
-  local minX, maxX, minZ, maxZ
-  for _, batch in ipairs(batches) do
-    local sha = assert(batch.geometry:match("geometry/([%w]+)%.g4mesh"), "batch references .g4mesh geometry")
-    local mesh = assert(assets.meshes[sha], "batch geometry present in the bundle")
-    for _, v in ipairs(mesh.vertices) do
-      minX = minX == nil and v.x or math.min(minX, v.x)
-      maxX = maxX == nil and v.x or math.max(maxX, v.x)
-      minZ = minZ == nil and v.z or math.min(minZ, v.z)
-      maxZ = maxZ == nil and v.z or math.max(maxZ, v.z)
-    end
-  end
-  return {
-    minX = minX or 0,
-    maxX = maxX or 0,
-    minY = 0,
-    maxY = 0,
-    minZ = minZ or 0,
-    maxZ = maxZ or 0,
-  }
+-- The two real scenes through the loader fixture.
+local function townAndLab(romFs)
+  local town = SceneLoaderFixture.loadScene(romFs, "MAP_NEW_BARK")
+  local lab = SceneLoaderFixture.loadScene(romFs, "MAP_NEW_BARK_ELMS_LAB_1F")
+  return town, lab
 end
 
--- One compiled scene: the runtime map, the MapProps facade, and the animated
--- ModelInstances -- the shape MapSceneLoader produces.
-local function compileScene(romFs, symbol)
-  local assets = assert(MapAssetCompiler.compile(romFs, symbol))
-  local instances = {}
-  local placements = {}
-  for _, inst in ipairs(assets.scene.buildingInstances or {}) do
-    local desc = assert(assets.models[inst.modelKey], "placement model descriptor")
-    if desc.kind == "nitro-dynamic" then
-      instances[inst.placementIndex] =
-        ModelInstance.new(ModelDefinition.fromNitroDescriptor(desc, { key = inst.modelKey }))
-    end
-    placements[#placements + 1] = {
-      placementIndex = inst.placementIndex,
-      modelKey = inst.modelKey,
-      transform = inst.transform,
-      bounds = footprintOf(desc, assets),
-    }
-  end
-  local map = RomRuntimeMap.compile(romFs, symbol)
-  local props = MapProps.new({
-    placements = placements,
-    instances = instances,
-    controller = MapPropAnimationController.new(),
-    doorTiles = DoorTiles.fromGrid(map.permissions),
-  })
-  return { map = map, props = props, instances = instances }
+-- The full HGSS event trace over one door warp, from the real handles.
+local function driveDoorTrace(harness, maxTicks)
+  SceneLoaderFixture.drive(harness, maxTicks)
+  return table.concat(harness.events, ",")
 end
 
-local function surfaceAt(map, fieldX, fieldZ)
-  local localX, localZ = FieldCoordinates.fieldToLocal(map, fieldX, fieldZ)
-  local candidates = map.terrain:candidatesAt(localX + 0.5, localZ + 0.5)
-  Assert.isTrue(#candidates > 0, "spawn tile has terrain")
-  return candidates[1].id
+-- Press the facing direction, confirm the transition starts, release, and
+-- drive to completion.
+local function pressAndDrive(harness, facing, maxTicks)
+  harness.input:press(facing)
+  SceneLoaderFixture.tick(harness)
+  Assert.equal(harness.transition.phase, "fade_out", "facing the door starts the transition")
+  harness.input:release(facing)
+  return driveDoorTrace(harness, maxTicks)
 end
 
--- Drive one full choreography over the real pair. `spawn` places the source
--- player; the transition resolves the real source/destination doors and the
--- swap rebuilds the player like FieldState:_swapMap. Returns the final
--- player, the transition, and the first-tick phase timeline.
-local function runChoreography(romFs, sourceScene, destinationScene, warp, facing, spawn)
-  local sourceMap, destinationMap = sourceScene.map, destinationScene.map
-  local maps = { [sourceMap.mapId] = sourceMap, [destinationMap.mapId] = destinationMap }
-  local propsByMapId = { [sourceMap.mapId] = sourceScene.props, [destinationMap.mapId] = destinationScene.props }
-  local instancesByMapId = {
-    [sourceMap.mapId] = sourceScene.instances,
-    [destinationMap.mapId] = destinationScene.instances,
-  }
-  local loader = {
-    load = function(_, mapId)
-      return assert(maps[mapId], "map " .. tostring(mapId))
-    end,
-    protectMap = function() end,
-    protectCells = function() end,
-  }
-
-  local player = FieldPlayer.new({
-    currentMap = sourceMap,
-    fieldX = spawn.x,
-    fieldZ = spawn.z,
-    surfaceId = surfaceAt(sourceMap, spawn.x, spawn.z),
-    facing = facing,
+-- Town -> Lab: the source town door (member 26) opens, the ingress step waits
+-- for the opening to finish, the player commits onto the door tile, and the
+-- swap happens only at full black. The destination interior entrance is
+-- static on the real ROM (Elm Lab's interior door carries no animation-list
+-- records), so the egress begins at the swap and nothing closes -- the trace
+-- is two open->step pairs with no close.
+function T.town_to_lab_door_transition_choreographs(romFs, versionId)
+  local town, lab = townAndLab(romFs)
+  local harness = SceneLoaderFixture.newHarness(versionId, {
+    scenes = { [TOWN_MAP_ID] = town, [LAB_MAP_ID] = lab },
+    spawn = { map = town.map, x = 684, z = 394, facing = "north" },
+    doorTiles = { [TOWN_MAP_ID] = TOWN_DOOR_TILE, [LAB_MAP_ID] = LAB_ENTRANCE_TILE },
   })
 
-  local transition
-  local currentInstances = sourceScene.instances
-  transition = FieldTransition.new({
-    loader = loader,
-    doorAt = function(runtimeMap, x, z)
-      local props = propsByMapId[runtimeMap.mapId]
-      if not props then
-        return nil
-      end
-      return props:doorAt(runtimeMap, x, z)
-    end,
-    swap = function(resolution, swapFacing)
-      Assert.equal(transition.fadeAlpha, 1, "the swap happens only at full black")
-      player = FieldPlayer.new({
-        currentMap = resolution.destinationMap,
-        fieldX = resolution.fieldX,
-        fieldZ = resolution.fieldZ,
-        surfaceId = resolution.surfaceId,
-        facing = swapFacing,
-      })
-      transition.player = player
-      currentInstances = instancesByMapId[resolution.destinationMap.mapId]
-    end,
-  })
-  transition.player = player
-  transition:start(sourceMap, warp, facing)
-
-  -- The fixed-tick loop mirrors the session: the transition ticks, and while
-  -- the door choreography is active the scene's animated instances advance.
-  local timeline = {}
-  local ticks = 0
-  while transition.phase ~= "idle" and transition.phase ~= "error" and ticks < 500 do
-    ticks = ticks + 1
-    transition:updateFixed()
-    if transition.locked or transition.completed then
-      for _, instance in ipairs(currentInstances) do
-        instance:updateFixed()
-      end
-    end
-    if timeline[transition.phase] == nil then
-      timeline[transition.phase] = ticks
-    end
-  end
-  Assert.equal(transition.phase, "idle", "the choreography completes within the tick budget")
-  return transition, player, timeline
-end
-
--- Town -> Lab: the source town door (member 26) opens and the player walks
--- north through the doorway; after the black swap the player egresses from
--- the interior anchor (4,14) onto the lab floor; the destination has no
--- animated door (Elm Lab's interior door is static), so nothing closes and
--- input unlocks right after the fade-in.
-function T.town_to_lab_door_transition_choreographs(romFs, version)
-  local town = compileScene(romFs, TOWN_SYMBOL)
-  local lab = compileScene(romFs, LAB_SYMBOL)
-  local warp = assert(WarpSystem.findAt(town.map, 684, 393))
-  local transition, player, timeline = runChoreography(romFs, town, lab, warp, "north", {
-    x = 684,
-    z = 394,
-  })
-
-  -- The source door opened and the player committed onto the door tile
-  -- before the swap (the scripted ingress), then egressed north off the
-  -- interior anchor onto the lab floor.
-  Assert.equal(player.fieldX, 4)
-  Assert.equal(player.fieldZ, 13, "the egress walks north off the interior anchor")
-  Assert.equal(player.motion, "idle")
-  Assert.isFalse(transition.locked, "input unlocks once the choreography completes")
-  Assert.isNil(transition.suppression, "door warps never carry coordinate suppression")
-  Assert.isNil(timeline.door_close, "a static destination door has no close wait")
-  Assert.isTrue(timeline.fade_out < timeline.swap_map, "the fade ran before the swap")
-  Assert.equal(transition:consumeCompleted().sourceWarpId, warp.index)
-end
-
--- Lab -> Town: the source side has no animated door (the interior entrance
--- is an entrance-south warp, not a door); the choreography activates on the
--- destination door (the New Bark town door, member 26), which opens as the
--- player exits, closes behind them, and only then unlocks input. The player
--- must finish on the walkable tile south of the door -- not trapped on the
--- blocked door tile.
-function T.lab_to_town_door_transition_choreographs(romFs, version)
-  local lab = compileScene(romFs, LAB_SYMBOL)
-  local town = compileScene(romFs, TOWN_SYMBOL)
-  local warp = assert(WarpSystem.findAt(lab.map, 4, 14))
-  local transition, player, timeline = runChoreography(romFs, lab, town, warp, "south", {
-    x = 4,
-    z = 14,
-  })
-
-  Assert.equal(player.fieldX, 684)
-  Assert.equal(player.fieldZ, 394, "the egress lands on the walkable approach tile")
-  Assert.equal(player.motion, "idle")
-  Assert.isFalse(transition.locked)
-  Assert.isNil(transition.suppression, "the exit door re-arms immediately")
-
-  -- The destination door (member 26) opened and closed to completion.
-  local door = assert(town.props:doorAt(town.map, 684, 393))
-  Assert.isTrue(door.modelKey:find("outdoor:" .. TOWN_DOOR_MEMBER .. ":", 1, true) == 1, "the town door model")
-  Assert.isTrue(
-    town.props.controller:isFinished(assert(door.instance), "door.close"),
-    "the destination door finished closing"
+  local trace = pressAndDrive(harness, "north", 500)
+  Assert.equal(
+    trace,
+    "open-start,open-finished,step-start,step-finished,step-start,step-finished",
+    "the town door opens, the ingress waits for it, and the static interior egresses without a close (got: "
+      .. trace
+      .. ")"
   )
 
-  -- The final tile is a normal floor tile: walkable, off the blocked door.
+  -- The source door opened to completion during the source fade.
+  local door = assert(town.runtime.mapProps:doorAt(town.map, TOWN_DOOR_TILE.x, TOWN_DOOR_TILE.z))
+  Assert.isTrue(door:isFinished(), "the source door opens to completion")
+  Assert.isTrue(door.entry.currentRole == OPEN_ROLE, "the retained entry state records the played role")
+
+  Assert.equal(harness.player.fieldX, 4)
+  Assert.equal(harness.player.fieldZ, 13, "the egress walks north off the interior anchor")
+  Assert.equal(harness.player.motion, "idle")
+  Assert.isFalse(harness.transition.locked, "input unlocks once the choreography completes")
+  Assert.isNil(harness.transition.suppression, "door warps never carry coordinate suppression")
+  Assert.isNil(harness.timeline.door_close, "a static destination door has no close wait")
+  Assert.isTrue(harness.timeline.fade_out < harness.timeline.swap_map, "the fade ran before the swap")
+  local warp = assert(WarpSystem.findAt(town.map, 684, 393))
+  Assert.equal(warp.destinationMapId, LAB_MAP_ID, "the town door tile is the lab warp")
+
+  town.runtime:release()
+  lab.runtime:release()
+end
+
+-- Lab -> Town: the source side has no animated door (the interior entrance is
+-- an entrance-south warp, not a door), so the choreography activates on the
+-- destination door (the New Bark town door, member 26): it opens at the swap,
+-- the egress waits for the opening, the close begins only after the egress
+-- movement finished, and the close completion gates the unlock -- the full
+-- ordered trace, ending with the player on the walkable tile south of the
+-- door, not trapped on the blocked door tile.
+function T.lab_to_town_door_transition_choreographs(romFs, versionId)
+  local town, lab = townAndLab(romFs)
+  local harness = SceneLoaderFixture.newHarness(versionId, {
+    scenes = { [TOWN_MAP_ID] = town, [LAB_MAP_ID] = lab },
+    spawn = { map = lab.map, x = LAB_ENTRANCE_TILE.x, z = LAB_ENTRANCE_TILE.z, facing = "south" },
+    doorTiles = { [TOWN_MAP_ID] = TOWN_DOOR_TILE, [LAB_MAP_ID] = LAB_ENTRANCE_TILE },
+  })
+
+  local trace = pressAndDrive(harness, "south", 500)
+  Assert.equal(
+    trace,
+    "open-start,open-finished,step-start,step-finished,close-start,close-finished",
+    "the destination door opens, the egress waits for it, and the close waits for the egress (got: " .. trace .. ")"
+  )
+
+  Assert.notNil(harness.timeline.door_close, "the destination door close is waited")
+
+  local door = assert(town.runtime.mapProps:doorAt(town.map, TOWN_DOOR_TILE.x, TOWN_DOOR_TILE.z))
+  Assert.isTrue(door.entry.currentRole == CLOSE_ROLE, "the retained entry state records the closing role")
+  Assert.isTrue(door:isFinished(), "the destination door finished closing")
+
+  Assert.equal(harness.player.fieldX, 684)
+  Assert.equal(harness.player.fieldZ, 394, "the egress lands on the walkable approach tile")
+  Assert.equal(harness.player.motion, "idle")
+  Assert.isFalse(harness.transition.locked)
+  Assert.isNil(harness.transition.suppression, "the exit door re-arms immediately")
+
   local localX, localZ = FieldCoordinates.fieldToLocal(town.map, 684, 394)
   Assert.isFalse(town.map.collision:isBlockedLocal(localX, localZ), "the player is not trapped on the door")
+  local warp = assert(WarpSystem.findAt(lab.map, 4, 14))
+  Assert.equal(warp.destinationMapId, TOWN_MAP_ID, "the lab entrance is the town warp")
+
+  town.runtime:release()
+  lab.runtime:release()
+end
+
+-- The destination egress is gated on the door's opening clip, not on the
+-- swap: while the destination door opens inside the fade-in, the player stays
+-- at the anchor, and the trace's step-start lands after open-finished.
+function T.destination_egress_waits_for_the_door_to_finish_opening(romFs, versionId)
+  local town, lab = townAndLab(romFs)
+  local harness = SceneLoaderFixture.newHarness(versionId, {
+    scenes = { [TOWN_MAP_ID] = town, [LAB_MAP_ID] = lab },
+    spawn = { map = lab.map, x = LAB_ENTRANCE_TILE.x, z = LAB_ENTRANCE_TILE.z, facing = "south" },
+    doorTiles = { [TOWN_MAP_ID] = TOWN_DOOR_TILE, [LAB_MAP_ID] = LAB_ENTRANCE_TILE },
+  })
+
+  -- While the destination fade-in runs after the swap, the town door's open
+  -- role is playing and the player has not begun the egress step.
+  local egressWaited = false
+  harness.onTick = function(h)
+    if h.transition.phase == "fade_in" and h.player.motion == "idle" then
+      local door = town.runtime.mapProps:doorAt(town.map, TOWN_DOOR_TILE.x, TOWN_DOOR_TILE.z)
+      if door and door.entry.currentRole == OPEN_ROLE and door:isFinished() == false then
+        egressWaited = true
+      end
+    end
+  end
+
+  harness.input:press("south")
+  SceneLoaderFixture.tick(harness)
+  Assert.equal(harness.transition.phase, "fade_out", "facing the lab entrance starts the transition")
+  harness.input:release("south")
+  SceneLoaderFixture.drive(harness, 500)
+  harness.onTick = nil
+
+  Assert.isTrue(egressWaited, "the open role plays inside the fade-in while the player waits at the anchor")
+  local trace = table.concat(harness.events, ",")
+  local openIndex = trace:find("open-finished", 1, true)
+  local stepIndex = trace:find("step-start", 1, true)
+  Assert.isTrue(
+    stepIndex ~= nil and openIndex ~= nil and openIndex < stepIndex,
+    "the egress begins after the opening finished (got: " .. trace .. ")"
+  )
+
+  town.runtime:release()
+  lab.runtime:release()
+end
+
+-- A deliberately broken door: the compiled door.open clip's terminal is
+-- stretched far beyond the tick budget (the keys/tables are extended to stay
+-- consistent, so the pose evaluation survives -- the opening simply never
+-- finishes). The fixture must OBSERVE the stall through the event trace --
+-- open-start recorded, open-finished never, the choreography parked locked
+-- in the close wait. The old reconstruction-based suites only asserted final
+-- states and could not see the missing open-finished event in the middle of
+-- the sequence. (In its verification form this probe asserted the trace
+-- completes and ran red for exactly this reason: the trace stalled at
+-- open-start, phase door_close, input locked.)
+function T.door_open_that_never_finishes_stalls_the_ordered_trace(romFs, versionId)
+  local lab = SceneLoaderFixture.loadScene(romFs, "MAP_NEW_BARK_ELMS_LAB_1F")
+  local town = SceneLoaderFixture.loadScene(romFs, "MAP_NEW_BARK", {
+    editDescriptor = function(desc)
+      if desc.kind == "nitro-dynamic" then
+        for _, clip in ipairs(desc.animations) do
+          if clip.semanticNames and clip.semanticNames[1] == OPEN_ROLE then
+            clip.frameCount = 10000
+            local compiled = clip.compiled
+            local period = #compiled.rotData
+            for i = period + 1, clip.frameCount do
+              compiled.rotData[i] = compiled.rotData[((i - 1) % period) + 1]
+            end
+            local rot = compiled.targets[1].channels.rot
+            for i = period + 1, clip.frameCount do
+              rot.keys[i] = rot.keys[((i - 1) % period) + 1]
+            end
+            rot.limit = clip.frameCount
+          end
+        end
+      end
+    end,
+  })
+  local harness = SceneLoaderFixture.newHarness(versionId, {
+    scenes = { [TOWN_MAP_ID] = town, [LAB_MAP_ID] = lab },
+    spawn = { map = lab.map, x = LAB_ENTRANCE_TILE.x, z = LAB_ENTRANCE_TILE.z, facing = "south" },
+    doorTiles = { [TOWN_MAP_ID] = TOWN_DOOR_TILE, [LAB_MAP_ID] = LAB_ENTRANCE_TILE },
+  })
+
+  harness.input:press("south")
+  SceneLoaderFixture.tick(harness)
+  Assert.equal(harness.transition.phase, "fade_out", "facing the lab entrance starts the transition")
+  local ticks = 1
+  while harness.transition.phase ~= "idle" and harness.transition.phase ~= "error" and ticks < 500 do
+    SceneLoaderFixture.tick(harness)
+    ticks = ticks + 1
+  end
+  harness.input:release("south")
+
+  -- The stall is observed through the events, not through any final state:
+  -- the opening started, never finished, and the choreography parked locked
+  -- in the close wait instead of unlocking. Nothing else can appear in the
+  -- trace: no egress step (the open gates it) and no close (the egress does).
+  local trace = table.concat(harness.events, ",")
+  Assert.equal(trace, "open-start", "the only observed event is the opening (trace: " .. trace .. ")")
+  Assert.equal(harness.transition.phase, "door_close", "the choreography parks in the close wait")
+  Assert.isTrue(harness.transition.locked, "input stays locked while the opening never finishes")
+
+  town.runtime:release()
+  lab.runtime:release()
+>>>>>>> 9685302 (tests: drive door choreography through a real scene fixture)
 end
 
 return T
