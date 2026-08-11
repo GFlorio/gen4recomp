@@ -10,8 +10,9 @@
 -- record's slot order, the decomp's band map); a plan never infers policy
 -- from names or clip counts. The swap mirrors the decomp's remove-and-add: stop the
 -- previous band's clip, play the current band's clip looping. Every other
--- model follows the ordinary ambient policy (a single non-door clip carries
--- the compiled ambientLoop role). Pure domain module.
+-- model follows the ordinary ambient policy (every clip of an
+-- ordinary-policy anim-list record carries the compiled ambientLoop role).
+-- Pure domain module.
 
 local TimeOfDayProps = {}
 

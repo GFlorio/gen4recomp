@@ -21,17 +21,20 @@
 --   *door_mop -> door.open    *door_mcl -> door.close
 --
 -- Every other clip keeps its name as the addressable id (prop.play("wind")).
--- Playback policy is compiled, never inferred at runtime: the anim-list
--- record's type selects the policy. A banded record (header high byte 0x08)
--- carries up to four clips in the game's band-slot order -- MORN=0, DAY=1,
--- EVE=2, NITE=3 (band map ov01_022095EC) -- and each clip is stamped with
--- the time band of its slot, exactly the array the game swaps on RTC
--- time-of-day changes (ov01_022047DC). Clip names are authoring labels, not
--- band claims: banded props name their states freely (kk_sky_m/d/e/n,
--- si_light_m1/m2, time_anime1..4), so no name convention is consulted. A
--- model whose whole clip set is one non-door clip carries clip.ambientLoop,
--- the explicit ambient-loop role. The mapping is a compile-time policy
--- decision, not a runtime assumption. Pure domain module.
+-- Playback policy is compiled from the decoded anim-list header
+-- (BuildModelAnimList), never inferred at runtime. The ordinary registrar
+-- (ov01_021E8F3C) registers and plays EVERY id slot of a record whose header
+-- is registration=1, policy=0 (both bits clear), control=0 (the
+-- never-finishing forward loop state, ov01_022044C8(-1, 0, 0)), areaGate=0
+-- -- so every clip of such a record is stamped clip.ambientLoop, and no clip
+-- of any other record is. A banded record (policy 0x08) carries up to four
+-- clips in the game's band-slot order -- MORN=0, DAY=1, EVE=2, NITE=3 (band
+-- map ov01_022095EC) -- and each clip is stamped with the time band of its
+-- slot, exactly the array the game swaps on RTC time-of-day changes
+-- (ov01_022047DC). Clip names are authoring labels, not band claims: banded
+-- props name their states freely (kk_sky_m/d/e/n, si_light_m1/m2,
+-- time_anime1..4), so no name convention is consulted. The mapping is a
+-- compile-time policy decision, not a runtime assumption. Pure domain module.
 
 local BinaryReader = require("libs.rom.src.BinaryReader")
 local Errors = require("libs.rom.src.Errors")
@@ -51,7 +54,7 @@ local ANIM_ARCHIVE = "build_anim"
 -- compiled assets must account for it: a decoder or sampler change without
 -- it would leave stale compiled clips in the derived cache. Bump whenever
 -- the decoders or the clip compilers change behavior.
-MapPropAnimCompiler.VERSION = "map-prop-anim-clip-v3"
+MapPropAnimCompiler.VERSION = "map-prop-anim-clip-v4"
 
 -- clip name -> semantic role. Patterns match the tail of the Nitro dict
 -- name; the whole name matches when the pattern is exact.
@@ -118,22 +121,27 @@ end
 
 -- Stamp the playback policy the runtime consumes: time-band metadata for a
 -- banded record (each clip takes the band of its slot) and the ambient-loop
--- role for a single non-door clip. Compiled policy, so the runtime never
--- counts clips or guesses from names.
+-- role for every clip of an ordinary-policy record. Compiled policy, so the
+-- runtime never counts clips or guesses from names.
 local function annotatePolicy(clips, record)
   if record.banded then
     for slot, clip in ipairs(clips) do
       clip.timeBand = BAND_BY_SLOT[slot]
     end
   end
-  local doorRoles = 0
-  for _, clip in ipairs(clips) do
-    if #clip.semanticNames > 0 then
-      doorRoles = doorRoles + 1
+  -- The ordinary registrar plays every id slot of an ordinary-policy record
+  -- (ov01_021E8F3C), so the ambient role covers the whole record -- not a
+  -- single-clip guess. Every other policy (door/interaction bit 0, load-only
+  -- bit 1, the time-band special case) and a nonzero area gate keep the
+  -- record off the ordinary registrar; those clips stay unmarked.
+  local ordinaryPolicy = record.registration == 1
+    and record.policy == 0
+    and record.control == 0
+    and record.areaGate == 0
+  if ordinaryPolicy then
+    for _, clip in ipairs(clips) do
+      clip.ambientLoop = true
     end
-  end
-  if #clips == 1 and doorRoles == 0 then
-    clips[1].ambientLoop = true
   end
 end
 

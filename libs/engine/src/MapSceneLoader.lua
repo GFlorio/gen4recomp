@@ -312,10 +312,11 @@ local function buildScene(pool, cacheFs, scene, opts)
   --
   -- Ambient playback at load: the compiled playback policy decides -- a
   -- time-of-day banded model plays the current band's clip looping and swaps
-  -- on runtime:setTimeBand (HGSS ov01_022047DC); a model whose whole clip
-  -- set is one non-door clip carries the compiled ambientLoop role and plays
-  -- it looping (the field effects -- wind, machine, spring); other
-  -- multi-clip models (doors) stay scripted through the controller.
+  -- on runtime:setTimeBand (HGSS ov01_022047DC); every clip of an
+  -- ordinary-policy anim-list record carries the compiled ambientLoop role
+  -- and plays looping (the field effects -- wind, machine, spring); other
+  -- policy records (door pairs, interaction props) stay scripted through
+  -- the controller.
   local animatedInstances = {}
   local instanceByPlacement = {}
   local animatedModelCount = 0
