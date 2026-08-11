@@ -314,6 +314,33 @@ function T.menu_task_restores_its_logical_selection_without_serializing_presenta
   Assert.equal(h2.host.closes, 1)
 end
 
+function T.menu_task_drops_an_in_progress_pointer_gesture_on_restore()
+  local h = harness()
+  start(h, 100)
+  h.scheduler:step(100, {})
+  h.scheduler:step(101, { menuEvents = { { type = "pointer_down", itemIndex = 0 } } })
+  local bucket = ScriptSave.capture(h.scheduler, 101, { registryFingerprint = h.registry:fingerprint() })
+
+  Assert.isNil(bucket.tasks[1].state.pressedPointerItem)
+
+  local h2 = harness()
+  h2.registry:installBase("test.menu_task", resource(), "generated")
+  ScriptSave.restore(bucket, h2.scheduler, 101, {})
+  h2.scheduler:step(102, { menuEvents = { { type = "pointer_up", itemIndex = 0 } } })
+  Assert.equal(h2.host.closes, 0)
+end
+
+function T.menu_task_keeps_pointer_capture_between_live_scheduler_ticks()
+  local h = harness()
+  start(h, 100)
+  h.scheduler:step(100, {})
+  h.scheduler:step(101, { menuEvents = { { type = "pointer_down", itemIndex = 0 } } })
+  h.scheduler:step(102, { menuEvents = { { type = "pointer_up", itemIndex = 0 } } })
+  h.scheduler:step(103, {})
+
+  Assert.equal(h.services.world:getVar("VAR_RESULT"), 41)
+end
+
 function T.cancelling_the_blocked_script_releases_the_menu_once()
   local h = harness()
   local instanceId = start(h, 100)
@@ -330,11 +357,6 @@ function T.menu_task_rejects_out_of_range_saved_logical_state()
   )
   local err
   state.selectedIndex = 2
-  err = MenuTask.validate(state)
-  Assert.equal(err.code, "SCRIPT_TASK_UNSERIALIZABLE")
-
-  state.selectedIndex = 0
-  state.pressedPointerItem = -1
   err = MenuTask.validate(state)
   Assert.equal(err.code, "SCRIPT_TASK_UNSERIALIZABLE")
 end

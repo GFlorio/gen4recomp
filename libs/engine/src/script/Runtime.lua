@@ -510,6 +510,7 @@ HANDLERS.set_auxiliary_ui_visible = function(node, run)
       { scriptId = run.instance.scriptId }
     )
   end
+  assert(auxiliary, "auxiliaryUi service is unavailable")
   if not node.visible and auxiliary:status().state == "hidden" then
     return Runtime.OUTCOME_CONTINUE
   end

@@ -243,7 +243,7 @@ function T.directional_adjacency_follows_item_geometry_and_has_no_wraparound()
   Assert.equal(MenuLayout.adjacentItem(layout, 3, "down"), nil)
 end
 
-function T.directional_adjacency_prioritizes_primary_axis_then_cross_axis()
+function T.directional_adjacency_prefers_the_same_logical_row_or_column()
   local primaryAxisLayout = {
     itemCount = 3,
     itemRects = {
@@ -252,7 +252,7 @@ function T.directional_adjacency_prioritizes_primary_axis_then_cross_axis()
       [2] = rect(20, 0, 8, 8),
     },
   }
-  Assert.equal(MenuLayout.adjacentItem(primaryAxisLayout, 0, "right"), 1)
+  Assert.equal(MenuLayout.adjacentItem(primaryAxisLayout, 0, "right"), 2)
 
   local crossAxisLayout = {
     itemCount = 3,
@@ -274,6 +274,13 @@ function T.rejects_malformed_menu_and_placement_input()
   end)
   Assert.throws(function()
     resolve({ topology = topology(80, 10), menu = menu(1) })
+  end)
+  Assert.throws(function()
+    resolve({
+      topology = topology(256, 192),
+      menu = menu(1),
+      sourcePlacement = { system = "hgss_bottom_screen_tiles", x = 31, y = 0 },
+    })
   end)
 end
 

@@ -7,6 +7,7 @@ local FieldDialogueRenderer = require("libs.engine.src.FieldDialogueRenderer")
 local FieldMenuRenderer = require("libs.engine.src.FieldMenuRenderer")
 local MapRenderer = require("libs.engine.src.MapRenderer")
 local SceneAssembly = require("libs.engine.src.SceneAssembly")
+local ScreenTopology = require("libs.engine.src.ScreenTopology")
 
 local KEY_DIRECTIONS =
   { w = "north", up = "north", s = "south", down = "south", a = "west", left = "west", d = "east", right = "east" }
@@ -17,6 +18,7 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@field resetSave boolean?
 ---@field zoomConfig table?
 ---@field development boolean? product mode (the default) hides the playtest HUD and ignores the F1/F2 developer binds
+---@field topologyProvider fun(width: number, height: number): ScreenTopology
 
 ---@class FieldState
 ---@field runtime FieldRuntime?
@@ -43,6 +45,7 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@field zoom any
 ---@field player FieldPlayer? forwarded from the runtime
 ---@field development boolean product mode (default) hides the playtest HUD and ignores the F1/F2 developer binds
+---@field topologyProvider fun(width: number, height: number): ScreenTopology
 local FieldState = {}
 FieldState.__index = function(self, key)
   local method = FieldState[key]
@@ -51,6 +54,16 @@ FieldState.__index = function(self, key)
   end
   local runtime = rawget(self, "runtime")
   return runtime and runtime[key]
+end
+
+local function defaultScreenTopology(width, height)
+  local os = love.system and love.system.getOS and love.system.getOS() or ""
+  return ScreenTopology.oneDisplay({
+    id = "main",
+    rect = { x = 0, y = 0, width = width, height = height },
+    touch = os == "Android" or os == "iOS",
+    role = "world",
+  })
 end
 
 function FieldState.new(versionId, idOrSymbol, options)
@@ -63,12 +76,18 @@ function FieldState.new(versionId, idOrSymbol, options)
   end
   runtimeOptions.presentation = true
   local runtime = FieldRuntime.new(versionId, idOrSymbol, runtimeOptions)
-  local self = setmetatable({ runtime = runtime, development = options.development == true }, FieldState)
+  local self = setmetatable({
+    runtime = runtime,
+    development = options.development == true,
+    topologyProvider = options.topologyProvider or defaultScreenTopology,
+  }, FieldState)
   if runtime.session then
     local ok, err = pcall(function()
       self.renderer = MapRenderer.new()
       self.dialogueRenderer = FieldDialogueRenderer.new({ cacheFs = runtime.cacheFs })
       self.menuRenderer = FieldMenuRenderer.new()
+      local width, height = love.graphics.getDimensions()
+      runtime.menuHost:setScreenTopology(self.topologyProvider(width, height))
       runtime.menuHost:setPresentationMetrics(function(text)
         return love.graphics.getFont():getWidth(text)
       end)
@@ -144,6 +163,7 @@ function FieldState:draw()
     self.viewport:resize(width, height)
     if self.runtime.menuHost then
       self.runtime.menuHost:resize(width, height)
+      self.runtime.menuHost:setScreenTopology(self.topologyProvider(width, height))
     end
     self:_updateCameraProjection()
     self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)

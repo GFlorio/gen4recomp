@@ -10,6 +10,9 @@ local ScreenTopology = require("libs.engine.src.ScreenTopology")
 ---@field selectedIndex integer
 ---@field layout table?
 ---@field closingAtTick integer?
+---@field pointerId string?
+---@field pointerDrag { y: number, remainder: number }?
+---@field pointerCancels boolean?
 
 ---@class FieldMenuHost
 ---@field private _input FieldInput
@@ -20,6 +23,14 @@ local ScreenTopology = require("libs.engine.src.ScreenTopology")
 ---@field private _active FieldMenuHost.Active?
 local FieldMenuHost = {}
 FieldMenuHost.__index = FieldMenuHost
+
+---@class FieldMenuHost.Options
+---@field width number
+---@field height number
+---@field input FieldInput
+---@field screenTopology ScreenTopology?
+---@field measureText fun(text: string): number
+---@field uiScale number?
 
 local function contains(rect, x, y)
   return x >= rect.x and y >= rect.y and x < rect.x + rect.width and y < rect.y + rect.height
@@ -50,7 +61,7 @@ local function topology(width, height)
   })
 end
 
----@param opts { width: number, height: number, input: FieldInput, screenTopology?: ScreenTopology, measureText: fun(text: string): number, uiScale?: number }
+---@param opts FieldMenuHost.Options
 ---@return FieldMenuHost
 function FieldMenuHost.new(opts)
   assert(type(opts) == "table" and opts.input, "field menu host requires input")
@@ -86,13 +97,23 @@ function FieldMenuHost:resize(width, height)
   end
 end
 
+---@param screenTopology ScreenTopology
+function FieldMenuHost:setScreenTopology(screenTopology)
+  assert(type(screenTopology) == "table" and type(screenTopology.surfaces) == "table", "field menu topology is invalid")
+  self._topology = screenTopology
+  self._topologyFollowsViewport = false
+  if self._active then
+    self:_resolve(self._active.definition, self._active.selectedIndex)
+  end
+end
+
 -- Replaces reconstructable presentation metrics and immediately rebuilds the
 -- active geometry. Logical menu state remains owned by MenuTask.
 ---@param measureText fun(text: string): number
 ---@param uiScale number?
 function FieldMenuHost:setPresentationMetrics(measureText, uiScale)
   assert(type(measureText) == "function", "field menu presentation requires text measurement")
-  uiScale = uiScale or 1
+  uiScale = uiScale or self._uiScale
   assert(type(uiScale) == "number" and uiScale > 0, "field menu ui scale must be positive")
   self._measureText = measureText
   self._uiScale = uiScale
@@ -122,7 +143,13 @@ end
 function FieldMenuHost:sync(state, tick)
   assert(type(state) == "table" and type(state.menuDefinition) == "table", "menu state is required")
   if self._active == nil then
-    self._active = { definition = state.menuDefinition, selectedIndex = state.selectedIndex }
+    self._active = {
+      definition = state.menuDefinition,
+      selectedIndex = state.selectedIndex,
+      pointerId = nil,
+      pointerDrag = nil,
+      pointerCancels = false,
+    }
     self._input:beginUi(tick)
   end
   self._active.selectedIndex = state.selectedIndex
@@ -179,21 +206,64 @@ function FieldMenuHost:inputEvents(events)
   local selectedIndex = active.selectedIndex
   for _, event in ipairs(events) do
     if event.type == "pointer_move" then
-      local itemIndex = itemAt(layout, event.x, event.y)
-      translated[#translated + 1] = { type = "pointer_move", itemIndex = itemIndex }
-      selectedIndex = itemIndex or selectedIndex
-    elseif event.type == "pointer_down" then
-      if layout.cancelRect and contains(layout.cancelRect, event.x, event.y) then
-        translated[#translated + 1] = { type = "cancel" }
+      local pointerId = event.pointerId or "default"
+      if active.pointerId ~= nil and active.pointerId ~= pointerId then
+        goto continue
+      end
+      local drag = active.pointerDrag
+      if drag then
+        local rowHeight = assert(layout.itemRects[0], "menu layout needs an item row").height
+        drag.remainder = drag.remainder + drag.y - event.y
+        drag.y = event.y
+        while math.abs(drag.remainder) >= rowHeight / 2 do
+          local direction = drag.remainder > 0 and "down" or "up"
+          local itemIndex = MenuLayout.adjacentItem(layout, selectedIndex, direction)
+          if itemIndex == nil then
+            drag.remainder = 0
+            break
+          end
+          translated[#translated + 1] = { type = "focus", itemIndex = itemIndex }
+          selectedIndex = itemIndex
+          drag.remainder = drag.remainder - (drag.remainder > 0 and rowHeight / 2 or -rowHeight / 2)
+        end
       else
+        local itemIndex = itemAt(layout, event.x, event.y)
+        translated[#translated + 1] = { type = "pointer_move", itemIndex = itemIndex }
+        selectedIndex = itemIndex or selectedIndex
+      end
+    elseif event.type == "pointer_down" then
+      if active.pointerId ~= nil then
+        goto continue
+      end
+      active.pointerId = event.pointerId or "default"
+      if layout.cancelRect and contains(layout.cancelRect, event.x, event.y) then
+        active.pointerCancels = true
+        translated[#translated + 1] = { type = "pointer_down", itemIndex = nil }
+      else
+        active.pointerDrag = { y = event.y, remainder = 0 }
         translated[#translated + 1] = { type = "pointer_down", itemIndex = itemAt(layout, event.x, event.y) }
       end
     elseif event.type == "pointer_up" then
-      translated[#translated + 1] = {
-        type = "pointer_up",
-        itemIndex = itemAt(layout, event.x, event.y),
-        dragged = event.dragged == true,
-      }
+      local pointerId = event.pointerId or "default"
+      if active.pointerId ~= pointerId then
+        goto continue
+      end
+      active.pointerId = nil
+      active.pointerDrag = nil
+      if active.pointerCancels then
+        active.pointerCancels = false
+        if not event.dragged and layout.cancelRect and contains(layout.cancelRect, event.x, event.y) then
+          translated[#translated + 1] = { type = "cancel" }
+        else
+          translated[#translated + 1] = { type = "pointer_up", itemIndex = nil, dragged = true }
+        end
+      else
+        translated[#translated + 1] = {
+          type = "pointer_up",
+          itemIndex = itemAt(layout, event.x, event.y),
+          dragged = event.dragged == true,
+        }
+      end
     elseif event.type == "pointer_scroll" then
       local direction = event.dy > 0 and "up" or event.dy < 0 and "down" or nil
       local itemIndex = direction and MenuLayout.adjacentItem(layout, selectedIndex, direction)
@@ -210,6 +280,7 @@ function FieldMenuHost:inputEvents(events)
     else
       translated[#translated + 1] = event
     end
+    ::continue::
   end
   return translated
 end

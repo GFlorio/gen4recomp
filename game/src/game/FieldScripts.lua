@@ -202,8 +202,8 @@ function FieldScripts.new(opts)
     "field scripts require the dialogue stack"
   )
   assert(
-    opts.transition and opts.mapLoader and opts.sourceMap and opts.auxiliaryUi and opts.menu,
-    "field scripts require transition, auxiliary UI, and menu host"
+    opts.transition and opts.mapLoader and opts.sourceMap and opts.auxiliaryUi and opts.menu and opts.contextChoice,
+    "field scripts require transition, auxiliary UI, context choice, and menu host"
   )
 
   local registry = ScriptLoader.buildRegistry(opts.cacheFs, opts.overrideFs)

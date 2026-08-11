@@ -82,13 +82,14 @@ function FieldMenuController.new(spec)
     initialCursor = 0
   end
   assertInteger(initialCursor, "field menu initial cursor")
+  assert(initialCursor >= 0 and initialCursor < itemCount, "field menu initial cursor is out of range")
   assert(spec.cancellable == nil or type(spec.cancellable) == "boolean", "field menu cancellable must be a boolean")
   assert(spec.cancellable ~= true or spec.cancelValue ~= nil, "cancellable field menu requires a cancellation result")
 
   return setmetatable({
     _items = items,
     _itemCount = itemCount,
-    _selectedIndex = math.max(0, math.min(initialCursor, itemCount - 1)),
+    _selectedIndex = initialCursor,
     _cancellable = spec.cancellable == true,
     _cancelValue = spec.cancelValue,
     _state = "active",

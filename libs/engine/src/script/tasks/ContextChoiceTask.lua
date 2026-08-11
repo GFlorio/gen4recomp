@@ -58,7 +58,12 @@ function ContextChoiceTask.poll(state, ctx)
       choice:close()
       state.active = false
       return { complete = true, state = state, result = result }
-    else
+    elseif
+      event.type ~= "pointer_down"
+      and event.type ~= "pointer_move"
+      and event.type ~= "pointer_up"
+      and event.type ~= "pointer_scroll"
+    then
       assert(false, "unknown context_choice UI event " .. event.type)
     end
   end

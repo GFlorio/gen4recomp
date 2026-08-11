@@ -164,6 +164,9 @@ function FieldSession:updateFixed(inputSnapshot)
       else
         schedulerInput.uiEvents = uiEvents
       end
+      schedulerInput.pressedDirection = nil
+      schedulerInput.pressedAction = nil
+      schedulerInput.pressedCancel = nil
     end
     self.scriptScheduler:step(self.tick + 1, {
       heldDirection = schedulerInput.heldDirection,
@@ -171,6 +174,7 @@ function FieldSession:updateFixed(inputSnapshot)
       pressedAction = schedulerInput.pressedAction,
       pressedCancel = schedulerInput.pressedCancel,
       menuEvents = schedulerInput.menuEvents,
+      uiEvents = schedulerInput.uiEvents,
     })
     if self.menuHost then
       self.menuHost:advance(self.tick + 1)

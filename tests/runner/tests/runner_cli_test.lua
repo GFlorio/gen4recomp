@@ -28,21 +28,13 @@ local function contains(text, needle, label)
   )
 end
 
-function T.test_entrypoint_reuses_an_available_derived_cache_before_rebuilding()
+function T.test_entrypoint_runs_the_incremental_builder_for_real_dependency_freshness()
   local handle = assert(io.open("scripts/test.sh", "rb"))
   local script = handle:read("*a")
   handle:close()
 
-  contains(script, "romdump/ --check-derived-cache", "test entrypoint")
-end
-
-function T.test_entrypoint_requires_an_explicit_passing_cache_audit_report()
-  local handle = assert(io.open("scripts/test.sh", "rb"))
-  local script = handle:read("*a")
-  handle:close()
-
-  contains(script, "grep -Eq '^derived cache: [^[:space:]]+ -> PASS$'", "test entrypoint")
-  contains(script, "grep -Eq '^derived cache: .* -> FAIL$'", "test entrypoint")
+  contains(script, "love romdump/ --build-cache", "test entrypoint")
+  Assert.isNil(script:find("--check-derived-cache", 1, true))
 end
 
 -- Raises when parsing unexpectedly failed so a contract test fails on the

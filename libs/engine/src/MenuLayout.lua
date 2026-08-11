@@ -3,6 +3,7 @@
 -- remain outside this module.
 
 ---@class MenuLayout
+---@type { BOTTOM_SCREEN_TILE_PLACEMENT: string }
 local MenuProtocol = require("data.reference.hgss.menu_protocol")
 local MenuLayout = {}
 
@@ -192,8 +193,10 @@ local function sourceAnchor(sourcePlacement, bounds, frame)
     isFiniteNumber(sourcePlacement.x) and isFiniteNumber(sourcePlacement.y),
     "source placement coordinates must be finite"
   )
-  local x = bounds.x + clamp(sourcePlacement.x / TILE_COLUMNS, 0, 1) * (bounds.width - frame.width)
-  local y = bounds.y + clamp(sourcePlacement.y / TILE_ROWS, 0, 1) * (bounds.height - frame.height)
+  assert(sourcePlacement.x >= 0 and sourcePlacement.x < TILE_COLUMNS, "source placement x is out of range")
+  assert(sourcePlacement.y >= 0 and sourcePlacement.y < TILE_ROWS, "source placement y is out of range")
+  local x = bounds.x + sourcePlacement.x / TILE_COLUMNS * (bounds.width - frame.width)
+  local y = bounds.y + sourcePlacement.y / TILE_ROWS * (bounds.height - frame.height)
   return x, y
 end
 
@@ -287,9 +290,9 @@ end
 
 local DIRECTIONS = { up = true, down = true, left = true, right = true }
 
--- Finds the nearest item in a cardinal direction using the resolved item
--- rectangles. Layout owns this policy because only it knows the effective
--- arrangement; callers retain their stable zero-based selection identity.
+-- Finds the item most aligned with the current row or column in a cardinal
+-- direction. Cross-axis alignment wins over distance, preserving grid-like
+-- navigation when physical dimensions change.
 ---@param layout { itemCount: integer, itemRects: ScreenTopology.Rectangle[] }
 ---@param itemIndex integer
 ---@param direction "up"|"down"|"left"|"right"
@@ -312,8 +315,8 @@ function MenuLayout.adjacentItem(layout, itemIndex, direction)
   local currentX = current.x + current.width / 2
   local currentY = current.y + current.height / 2
   local adjacentIndex
-  local nearestDistance
   local nearestOffset
+  local nearestDistance
   for candidateIndex = 0, layout.itemCount - 1 do
     if candidateIndex ~= itemIndex then
       local candidate = assert(layout.itemRects[candidateIndex], "menu layout item rectangle is missing")
@@ -334,13 +337,13 @@ function MenuLayout.adjacentItem(layout, itemIndex, direction)
         distance
         and (
           nearestDistance == nil
-          or distance < nearestDistance
-          or (distance == nearestDistance and offset < nearestOffset)
+          or offset < nearestOffset
+          or (offset == nearestOffset and distance < nearestDistance)
         )
       then
         adjacentIndex = candidateIndex
-        nearestDistance = distance
         nearestOffset = offset
+        nearestDistance = distance
       end
     end
   end
@@ -357,8 +360,8 @@ end
 ---@field measureText fun(text: string): number
 
 -- Resolves immutable menu geometry in physical surface coordinates. itemRects
--- use zero-based menu indexes and contain every item; rows outside scrollViewport are intentionally clipped by
--- the future renderer, while the selected row is always brought into view.
+-- use zero-based menu indexes and contain every item; rows outside scrollViewport are clipped by
+-- the renderer, while the selected row is always brought into view.
 
 ---@param spec MenuLayout.Spec
 ---@return { surface: ScreenTopology.Surface, presentation: "floating"|"docked", frame: ScreenTopology.Rectangle, contentRect: ScreenTopology.Rectangle, itemCount: integer, itemRects: ScreenTopology.Rectangle[], itemTexts: table<integer, string>, scrollViewport: ScreenTopology.Rectangle, cancelRect: ScreenTopology.Rectangle?, selectedIndex: integer, scrollOffset: number, maxScrollOffset: number }

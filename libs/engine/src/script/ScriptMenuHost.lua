@@ -27,7 +27,7 @@ end
 
 ---@param source any
 ---@return integer
-local function messageBank(_, source)
+local function messageBank(source)
   if source == "standard" then
     return MenuProtocol.STANDARD_MESSAGE_BANK
   end
@@ -41,7 +41,7 @@ end
 ---@param messageId integer
 ---@return table
 local function resolveMessage(self, source, messageId)
-  local bankId = messageBank(self, source)
+  local bankId = messageBank(source)
   local acquired, bankErr = self._provider:acquireBank(bankId)
   if not acquired then
     Errors.raise(
@@ -138,7 +138,7 @@ end
 ---@return table builder
 function ScriptMenuHost:beginMenu(spec)
   assert(type(spec) == "table", "script menu specification must be a table")
-  messageBank(self, spec.messageSource)
+  messageBank(spec.messageSource)
   assert(type(spec.sourcePlacement) == "table", "script menu source placement is required")
   assert(
     spec.sourcePlacement.system == MenuProtocol.BOTTOM_SCREEN_TILE_PLACEMENT,

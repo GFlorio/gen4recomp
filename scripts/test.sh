@@ -33,10 +33,9 @@ export G4RECOMP_REQUIRE_GRAPHICS_TESTS="${G4RECOMP_REQUIRE_GRAPHICS_TESTS:-1}"
 # nothing to prepare; any other nonzero status is a real preparation failure.
 NO_DUMP_STATUS=2
 BUILD_LOG=.agents/tmp/buildcache.log
-CACHE_AUDIT_LOG=.agents/tmp/cache-audit.log
 
 # Preparation exists for the ROM-gated layers: listing executes nothing, and the
-# three ROM-independent layers never read the derived cache. A supplied source is
+# three ROM-independent layers never need the derived cache. A supplied source is
 # always imported, whatever layer it is paired with.
 rom_source=""
 listing=0
@@ -78,23 +77,17 @@ if [ "$prepare" -eq 1 ]; then
     love romdump/ --build-cache "$rom_source"
   else
     mkdir -p "$(dirname "$BUILD_LOG")"
-    # LÖVE's CLI host may return zero after `love.event.quit(1)`, so its process
-    # status cannot be the audit contract. Reuse only an explicit all-pass report.
-    : >"$CACHE_AUDIT_LOG"
-    love romdump/ --check-derived-cache >"$CACHE_AUDIT_LOG" 2>&1 || true
-    if grep -Eq '^derived cache: [^[:space:]]+ -> PASS$' "$CACHE_AUDIT_LOG" \
-      && ! grep -Eq '^derived cache: .* -> FAIL$' "$CACHE_AUDIT_LOG"; then
-      echo "== reuse audited derived cache =="
-    else
-      echo "== prepare derived cache (log: $BUILD_LOG) =="
-      love romdump/ --build-cache >"$BUILD_LOG" 2>&1 || status=$?
-      if [ "$status" -ne 0 ] && [ "$status" -ne "$NO_DUMP_STATUS" ]; then
-        tail -n 20 "$BUILD_LOG" >&2
-        echo "test: derived-cache preparation failed (exit $status); see $BUILD_LOG" >&2
-        exit "$status"
-      fi
-      { grep -v ' current$' "$BUILD_LOG" | tail -n 5; } || true
+    # CacheBuilder owns the complete dependency identity for every derived
+    # artifact. Running it is cheap when current and prevents tests from
+    # accepting a merely complete but stale cache.
+    echo "== prepare derived cache (log: $BUILD_LOG) =="
+    love romdump/ --build-cache >"$BUILD_LOG" 2>&1 || status=$?
+    if [ "$status" -ne 0 ] && [ "$status" -ne "$NO_DUMP_STATUS" ]; then
+      tail -n 20 "$BUILD_LOG" >&2
+      echo "test: derived-cache preparation failed (exit $status); see $BUILD_LOG" >&2
+      exit "$status"
     fi
+    { grep -v ' current$' "$BUILD_LOG" | tail -n 5; } || true
   fi
 
   if [ "$status" -eq 0 ]; then

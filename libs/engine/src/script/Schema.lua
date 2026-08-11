@@ -420,7 +420,7 @@ Schema.OPERATIONS = {
     },
   },
   -- Generated/advanced HGSS menu-builder operations. Handwritten scripts
-  -- should use `choose` once the public semantic API lands.
+  -- use `choose`; these preserve the source protocol's message-bank details.
   menu_begin = {
     fields = {
       messageSource = { type = "serializable", required = true },

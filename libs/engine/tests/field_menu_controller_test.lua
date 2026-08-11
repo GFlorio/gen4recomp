@@ -20,11 +20,15 @@ local function menu(opts)
   })
 end
 
-function T.initial_cursor_is_zero_based_and_clamped()
+function T.initial_cursor_is_zero_based_and_validated()
   Assert.equal(menu():status().selectedIndex, 0)
   Assert.equal(menu({ initialCursor = 2 }):status().selectedIndex, 2)
-  Assert.equal(menu({ initialCursor = 99 }):status().selectedIndex, 2)
-  Assert.equal(menu({ initialCursor = -4 }):status().selectedIndex, 0)
+  Assert.throws(function()
+    menu({ initialCursor = 99 })
+  end)
+  Assert.throws(function()
+    menu({ initialCursor = -4 })
+  end)
 end
 
 function T.layout_targeted_focus_stays_in_bounds()

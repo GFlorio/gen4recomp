@@ -73,7 +73,34 @@ function T.keeps_the_supplied_topology_when_the_host_resizes()
   Assert.equal(host:presentation().layout.surface.id, "auxiliary")
 end
 
-function T.routes_the_touch_cancel_affordance_to_the_menu()
+function T.replaces_a_supplied_topology_and_rebuilds_active_geometry()
+  local host = host({
+    width = 256,
+    height = 192,
+    input = FieldInput.new(),
+    screenTopology = ScreenTopology.oneDisplay({
+      id = "main",
+      rect = { x = 0, y = 0, width = 256, height = 192 },
+      touch = false,
+      role = "world",
+    }),
+  })
+  host:sync({
+    menuDefinition = { items = { { text = "Take", value = 10 } }, cancellable = true },
+    selectedIndex = 0,
+  }, 100)
+  host:setScreenTopology(ScreenTopology.oneDisplay({
+    id = "main",
+    rect = { x = 0, y = 0, width = 390, height = 844 },
+    touch = true,
+    role = "world",
+  }))
+
+  Assert.isTrue(host:presentation().layout.surface.touch)
+  Assert.notNil(host:presentation().layout.cancelRect)
+end
+
+function T.routes_the_touch_cancel_affordance_on_matching_release()
   local host = host({
     width = 256,
     height = 192,
@@ -102,6 +129,16 @@ function T.routes_the_touch_cancel_affordance_to_the_menu()
     },
   })
 
+  Assert.equal(events[1].type, "pointer_down")
+  Assert.isNil(events[1].itemIndex)
+  events = host:inputEvents({
+    {
+      type = "pointer_up",
+      x = cancel.x + cancel.width / 2,
+      y = cancel.y + cancel.height / 2,
+      dragged = false,
+    },
+  })
   Assert.equal(events[1].type, "cancel")
 end
 
@@ -146,7 +183,7 @@ function T.uses_presentation_text_metrics_and_ui_scale()
     return 120
   end)
 
-  Assert.equal(host:presentation().layout.frame.width, 148)
+  Assert.equal(host:presentation().layout.frame.width, 296)
 end
 
 function T.horizontal_navigation_does_not_change_focus_in_a_relaid_out_single_column_menu()
@@ -187,6 +224,60 @@ function T.batched_navigation_uses_each_layout_resolved_focus_target_in_order()
       { type = "focus", itemIndex = 2 },
     }
   )
+end
+
+function T.touch_drag_moves_focus_through_a_clipped_menu()
+  local host = host({
+    width = 256,
+    height = 192,
+    input = FieldInput.new(),
+    screenTopology = ScreenTopology.oneDisplay({
+      id = "main",
+      rect = { x = 0, y = 0, width = 256, height = 192 },
+      touch = true,
+      role = "world",
+    }),
+  })
+  local items = {}
+  for index = 1, 12 do
+    items[index] = { text = "Item " .. index, value = index }
+  end
+  host:sync({ menuDefinition = { items = items, cancellable = false }, selectedIndex = 0 }, 100)
+  local layout = host:presentation().layout
+  local x = layout.contentRect.x + 4
+  local y = layout.contentRect.y + layout.contentRect.height - 4
+
+  host:inputEvents({ { type = "pointer_down", pointerId = "touch:1", x = x, y = y } })
+  local events = host:inputEvents({ { type = "pointer_move", pointerId = "touch:1", x = x, y = y - 80 } })
+
+  Assert.equal(events[1].type, "focus")
+  Assert.isTrue(events[1].itemIndex > 0)
+end
+
+function T.only_the_first_pointer_can_control_a_menu_gesture()
+  local host = host({ width = 256, height = 192, input = FieldInput.new() })
+  host:sync({
+    menuDefinition = {
+      items = { { text = "First", value = 1 }, { text = "Second", value = 2 } },
+      cancellable = false,
+    },
+    selectedIndex = 0,
+  }, 100)
+  local layout = host:presentation().layout
+  local first = layout.itemRects[0]
+  local second = layout.itemRects[1]
+
+  local events = host:inputEvents({
+    { type = "pointer_down", pointerId = "touch:1", x = first.x + 1, y = first.y + 1 },
+    { type = "pointer_down", pointerId = "touch:2", x = second.x + 1, y = second.y + 1 },
+    { type = "pointer_up", pointerId = "touch:2", x = second.x + 1, y = second.y + 1, dragged = false },
+    { type = "pointer_up", pointerId = "touch:1", x = first.x + 1, y = first.y + 1, dragged = false },
+  })
+
+  Assert.deepEqual(events, {
+    { type = "pointer_down", itemIndex = 0 },
+    { type = "pointer_up", itemIndex = 0, dragged = false },
+  })
 end
 
 return T

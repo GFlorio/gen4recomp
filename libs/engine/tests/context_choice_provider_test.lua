@@ -47,6 +47,26 @@ T["context choice task consumes normalized UI navigation and confirmation"] = fu
   Assert.equal(provider:status(), nil)
 end
 
+T["context choice task ignores pointer UI events"] = function()
+  local provider = ContextChoiceProvider.new()
+  local ctx = { services = { contextChoice = provider }, input = {} }
+  local state = ContextChoiceTask.create({}, ctx)
+  ContextChoiceTask.poll(state, ctx)
+
+  ctx.input = {
+    uiEvents = {
+      { type = "pointer_down", x = 2, y = 3 },
+      { type = "pointer_move", x = 4, y = 5 },
+      { type = "pointer_scroll", dy = 1 },
+      { type = "pointer_up", x = 4, y = 5 },
+    },
+  }
+  local waiting = ContextChoiceTask.poll(state, ctx)
+
+  Assert.isFalse(waiting.complete)
+  Assert.equal(provider:status().selected, 0)
+end
+
 T["context choice task restores its selected value into a fresh provider"] = function()
   local provider = ContextChoiceProvider.new()
   local ctx = { services = { contextChoice = provider }, input = {} }

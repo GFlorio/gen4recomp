@@ -7,6 +7,7 @@ local ScriptErrors = require("libs.engine.src.script.errors")
 local FieldMenuController = require("libs.engine.src.FieldMenuController")
 
 local MenuTask = {}
+local pointerCaptures = setmetatable({}, { __mode = "k" })
 
 MenuTask.type = "menu"
 MenuTask.version = 1
@@ -19,8 +20,9 @@ local function menuController(state)
     cancellable = definition.cancellable,
     cancelValue = definition.cancelValue,
   })
-  if state.pressedPointerItem ~= nil then
-    controller:press(state.pressedPointerItem)
+  local pressedPointerItem = pointerCaptures[state]
+  if pressedPointerItem ~= nil then
+    controller:press(pressedPointerItem)
   end
   return controller
 end
@@ -29,7 +31,7 @@ local function copyStatus(state, controller)
   local status = controller:status()
   state.selectedIndex = status.selectedIndex
   if status.state == "complete" then
-    state.pressedPointerItem = nil
+    pointerCaptures[state] = nil
   end
   return status
 end
@@ -62,7 +64,6 @@ function MenuTask.create(spec, ctx)
   return {
     menuDefinition = spec.menu,
     selectedIndex = status.selectedIndex,
-    pressedPointerItem = nil,
     closed = false,
   }
 end
@@ -79,10 +80,10 @@ local function applyEvent(controller, state, event)
     controller:hover(event.itemIndex)
   elseif event.type == "pointer_down" then
     controller:press(event.itemIndex)
-    state.pressedPointerItem = event.itemIndex
+    pointerCaptures[state] = event.itemIndex
   elseif event.type == "pointer_up" then
     controller:release(event.dragged and nil or event.itemIndex)
-    state.pressedPointerItem = nil
+    pointerCaptures[state] = nil
   else
     assert(false, "unknown menu input event " .. event.type)
   end
@@ -116,6 +117,7 @@ end
 ---@param ctx table|nil
 function MenuTask.cancel(state, reason, ctx)
   state.cancelled = reason
+  pointerCaptures[state] = nil
   if ctx ~= nil then
     close(state, ctx)
   end
@@ -124,17 +126,14 @@ end
 ---@param state any
 ---@return Errors.Error|nil
 function MenuTask.validate(state)
+  -- Restore validates the serialized state before reattaching it. Pointer
+  -- capture is runtime-only, so that boundary always cancels a held gesture.
+  pointerCaptures[state] = nil
   if type(state) ~= "table" or type(state.menuDefinition) ~= "table" then
     return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "menu task state must hold its menu definition", {})
   end
   if type(state.selectedIndex) ~= "number" or state.selectedIndex % 1 ~= 0 or state.selectedIndex < 0 then
     return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "menu task selected index is invalid", {})
-  end
-  if
-    state.pressedPointerItem ~= nil
-    and (type(state.pressedPointerItem) ~= "number" or state.pressedPointerItem % 1 ~= 0)
-  then
-    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "menu task pointer item is invalid", {})
   end
   if type(state.closed) ~= "boolean" then
     return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "menu task close state is invalid", {})

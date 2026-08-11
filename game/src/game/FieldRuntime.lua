@@ -258,7 +258,6 @@ function FieldRuntime:_load()
       occupancy = playerOccupancy(self),
     })
     self.input = FieldInput.new()
-    self.heldDirectionKeys = {}
     local worldPoint = self.player:renderPosition()
 
     local profile = assert(
