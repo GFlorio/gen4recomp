@@ -76,14 +76,14 @@ function ScriptLoader.installGenerated(registry, cacheFs, requireFn)
   local index, indexErr = cacheFs:loadLua(ScriptCache.indexPath())
   if not index then
     Errors.raise(
-      ScriptErrors.SCRIPT_CACHE_INDEX_MISSING,
+      ScriptErrors.SCRIPT_LOAD_FAILED,
       "script cache index is unavailable: " .. tostring(indexErr and indexErr.message or "?"),
       { path = ScriptCache.indexPath(), cause = indexErr and indexErr.context or nil }
     )
   end
   if type(index) ~= "table" or index.schema ~= ScriptCache.INDEX_SCHEMA then
     Errors.raise(
-      ScriptErrors.SCRIPT_CACHE_INDEX_MISSING,
+      ScriptErrors.SCRIPT_LOAD_FAILED,
       "script cache index has an unknown schema",
       { path = ScriptCache.indexPath(), schema = index and index.schema or nil }
     )
@@ -93,7 +93,7 @@ function ScriptLoader.installGenerated(registry, cacheFs, requireFn)
     local content = cacheFs:read(ScriptCache.scriptPath(entry.id))
     if content == nil then
       Errors.raise(
-        ScriptErrors.SCRIPT_CACHE_SCRIPT_MISSING,
+        ScriptErrors.SCRIPT_LOAD_FAILED,
         "script cache resource is unavailable",
         { scriptId = entry.id, path = ScriptCache.scriptPath(entry.id) }
       )
@@ -101,7 +101,7 @@ function ScriptLoader.installGenerated(registry, cacheFs, requireFn)
     local resource = loadResourceChunk(content --[[@as string]], ScriptCache.scriptPath(entry.id), requireFn)
     if resource.id ~= entry.id then
       Errors.raise(
-        ScriptErrors.SCRIPT_CACHE_SCRIPT_INVALID,
+        ScriptErrors.SCRIPT_LOAD_FAILED,
         "script cache resource does not match its index entry",
         { scriptId = entry.id, resourceId = resource.id }
       )

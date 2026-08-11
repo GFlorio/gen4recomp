@@ -8,8 +8,6 @@
 -- through the pinned member-bank map). Header members (scriptHeaderBank) carry
 -- no script table and return nil. Pure domain module: no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
-local ScriptErrors = require("libs.engine.src.script.errors")
 local RawIr = require("romdump.src.digest.script.RawIr")
 local CommandCatalog = require("romdump.src.digest.script.CommandCatalog")
 local MovementCommands = require("data.reference.hgss.movement_commands")
@@ -625,11 +623,7 @@ function ScriptBinaryDecoder.decodeArchive(archive, banks, sourcePath, catalog)
     local ok, memberIr =
       pcall(ScriptBinaryDecoder.parseMember, bytes, member, sourcePath, { msgBank = banks[member], catalog = catalog })
     if not ok then
-      Errors.raise(
-        ScriptErrors.SCRIPT_TRANSLATION_MALFORMED,
-        "script member could not be decoded: " .. tostring(memberIr),
-        { member = member }
-      )
+      error(memberIr, 0)
     end
     memberIrs[member] = memberIr
   end

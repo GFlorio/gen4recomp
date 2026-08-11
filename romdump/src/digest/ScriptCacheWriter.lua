@@ -6,8 +6,6 @@
 -- live script artifact is left untouched, so a partial build never reads as
 -- complete and never destroys a valid one.
 
-local Errors = require("libs.rom.src.Errors")
-local ScriptErrors = require("libs.engine.src.script.errors")
 local ScriptCache = require("libs.assets.src.ScriptCache")
 local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
 local ArtifactPublisher = require("libs.rom.src.ArtifactPublisher")
@@ -108,16 +106,12 @@ function ScriptCacheWriter.write(cacheFs, bundle)
     end
     local readIndex = stage:loadLua(ScriptCache.indexPath())
     if type(readIndex) ~= "table" or readIndex.schema ~= ScriptCache.INDEX_SCHEMA then
-      Errors.raise(ScriptErrors.SCRIPT_CACHE_READBACK_FAILED, "index readback failed", {})
+      error("script cache index readback failed", 0)
     end
     for _, entry in ipairs(bundle.index.resources) do
       local script = stage:loadModule(ScriptCache.scriptPath(entry.id))
       if type(script) ~= "table" or script.kind ~= "field_script" or script.id ~= entry.id then
-        Errors.raise(
-          ScriptErrors.SCRIPT_CACHE_READBACK_FAILED,
-          "script " .. entry.id .. " readback failed",
-          { id = entry.id }
-        )
+        error("script " .. entry.id .. " readback failed", 0)
       end
     end
     stage:write(ScriptCache.markerPath(), bundle.marker)

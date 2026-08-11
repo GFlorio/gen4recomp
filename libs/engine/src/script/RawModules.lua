@@ -42,7 +42,7 @@ function RawModules:register(moduleName, module, owner)
   end
   if self._modules[moduleName] ~= nil then
     Errors.raise(
-      ScriptErrors.SCRIPT_RAW_MODULE_DUPLICATE,
+      ScriptErrors.SCRIPT_SCHEMA_INVALID,
       "raw module is registered twice: " .. moduleName,
       { module = moduleName, owner = owner, existingOwner = self._owners[moduleName] }
     )

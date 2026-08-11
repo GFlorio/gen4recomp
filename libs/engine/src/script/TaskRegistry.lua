@@ -62,7 +62,7 @@ function TaskRegistry:resolve(taskType, version)
   if versions == nil then
     return nil,
       Errors.new(
-        ScriptErrors.SCRIPT_TASK_UNKNOWN,
+        ScriptErrors.SCRIPT_TASK_VERSION_UNSUPPORTED,
         "no registered task type " .. tostring(taskType),
         { taskType = taskType }
       )
