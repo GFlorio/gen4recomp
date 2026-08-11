@@ -35,6 +35,7 @@ local WarpSystem = require("libs.engine.src.WarpSystem")
 ---@field scriptScheduler Scheduler?
 ---@field scriptClient ScriptInteractionClient?
 ---@field menuHost FieldMenuHost?
+---@field contextChoice ContextChoiceProvider?
 ---@field coverage fun(session: FieldSession)?
 
 ---@class FieldSession.Interactions
@@ -55,6 +56,7 @@ local WarpSystem = require("libs.engine.src.WarpSystem")
 ---@field scriptScheduler Scheduler?
 ---@field scriptClient ScriptInteractionClient?
 ---@field menuHost FieldMenuHost?
+---@field contextChoice ContextChoiceProvider?
 ---@field coverage fun(session: FieldSession)?
 ---@field tick integer
 ---@field accumulator number
@@ -95,6 +97,7 @@ function FieldSession.new(options)
     scriptScheduler = options.scriptScheduler,
     scriptClient = options.scriptClient --[[@as any]],
     menuHost = options.menuHost,
+    contextChoice = options.contextChoice,
     coverage = options.coverage,
     tick = 0,
     accumulator = 0,
@@ -151,9 +154,16 @@ function FieldSession:updateFixed(inputSnapshot)
       pressedAction = inputSnapshot.actionPressed or inputSnapshot.pressedAction,
       pressedCancel = inputSnapshot.cancelPressed or inputSnapshot.pressedCancel,
     }
-    if self.menuHost and self.menuHost:isModal() then
+    local menuModal = self.menuHost and self.menuHost:isModal()
+    local contextChoiceModal = self.contextChoice and self.contextChoice:isActive()
+    if menuModal or contextChoiceModal then
       assert(self.input, "modal field menu requires FieldInput")
-      schedulerInput.menuEvents = self.menuHost:inputEvents(self.input:uiSnapshot(self.tick + 1))
+      local uiEvents = self.input:uiSnapshot(self.tick + 1)
+      if menuModal then
+        schedulerInput.menuEvents = self.menuHost:inputEvents(uiEvents)
+      else
+        schedulerInput.uiEvents = uiEvents
+      end
     end
     self.scriptScheduler:step(self.tick + 1, {
       heldDirection = schedulerInput.heldDirection,
@@ -164,6 +174,12 @@ function FieldSession:updateFixed(inputSnapshot)
     })
     if self.menuHost then
       self.menuHost:advance(self.tick + 1)
+    end
+    local contextChoiceNowModal = self.contextChoice and self.contextChoice:isActive()
+    if not contextChoiceModal and contextChoiceNowModal then
+      self.input:beginUi(self.tick + 1)
+    elseif contextChoiceModal and not contextChoiceNowModal then
+      self.input:clearUi()
     end
     -- A foreground root owns the field or a player lock suppresses movement
     -- and new triggers; the tick is consumed.

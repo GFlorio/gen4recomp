@@ -27,6 +27,11 @@ function ContextChoiceProvider:status()
   return { state = "active", selected = self._choice.selected }
 end
 
+---@return boolean
+function ContextChoiceProvider:isActive()
+  return self._choice ~= nil
+end
+
 ---@param selected integer
 ---@return integer selected vanilla result (0 confirm, 1 cancel)
 function ContextChoiceProvider:select(selected)

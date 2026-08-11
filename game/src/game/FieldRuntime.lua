@@ -424,6 +424,7 @@ function FieldRuntime:_load()
       scriptScheduler = self.scripts.scheduler,
       scriptClient = self.scripts.client,
       menuHost = self.menuHost,
+      contextChoice = self.contextChoiceProvider,
       interactions = {
         resolve = function(_, snapshot)
           return self.interactionResolver:resolve(snapshot)

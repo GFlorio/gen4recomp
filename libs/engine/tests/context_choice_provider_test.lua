@@ -29,18 +29,18 @@ T["context choice task releases an opened provider when cancelled"] = function()
   Assert.equal(provider:status(), nil)
 end
 
-T["context choice task writes the selected alternate result"] = function()
+T["context choice task consumes normalized UI navigation and confirmation"] = function()
   local provider = ContextChoiceProvider.new()
   local ctx = { services = { contextChoice = provider }, input = {} }
   local state = ContextChoiceTask.create({}, ctx)
   ContextChoiceTask.poll(state, ctx)
 
-  ctx.input = { pressedDirection = "east" }
+  ctx.input = { uiEvents = { { type = "navigate", direction = "right" } } }
   local waiting = ContextChoiceTask.poll(state, ctx)
   Assert.isFalse(waiting.complete)
   Assert.equal(provider:status().selected, 1)
 
-  ctx.input = { pressedAction = true }
+  ctx.input = { uiEvents = { { type = "confirm" } } }
   local completed = ContextChoiceTask.poll(state, ctx)
   Assert.isTrue(completed.complete)
   Assert.equal(completed.result, 1)
@@ -52,7 +52,7 @@ T["context choice task restores its selected value into a fresh provider"] = fun
   local ctx = { services = { contextChoice = provider }, input = {} }
   local state = ContextChoiceTask.create({}, ctx)
   ContextChoiceTask.poll(state, ctx)
-  ctx.input = { pressedDirection = "east" }
+  ctx.input = { uiEvents = { { type = "navigate", direction = "right" } } }
   ContextChoiceTask.poll(state, ctx)
 
   Assert.equal(state.selected, 1)
@@ -61,6 +61,16 @@ T["context choice task restores its selected value into a fresh provider"] = fun
   local restored = ContextChoiceTask.poll(state, { services = { contextChoice = restoredProvider }, input = {} })
   Assert.isFalse(restored.complete)
   Assert.deepEqual(restoredProvider:status(), { state = "active", selected = 1 })
+end
+
+T["context choice task cancellation tolerates an unmaterialized restored provider"] = function()
+  local state = { active = true, phase = "waiting", selected = 1 }
+  local provider = ContextChoiceProvider.new()
+
+  ContextChoiceTask.cancel(state, "script cancelled", { services = { contextChoice = provider } })
+
+  Assert.isFalse(state.active)
+  Assert.equal(provider:status(), nil)
 end
 
 return T

@@ -6,7 +6,7 @@ local ScriptErrors = require("libs.engine.src.script.errors")
 
 local ContextChoiceTask = {}
 
-local SELECTION_BY_DIRECTION = { north = 0, west = 0, south = 1, east = 1 }
+local SELECTION_BY_DIRECTION = { up = 0, left = 0, down = 1, right = 1 }
 
 ContextChoiceTask.type = "context_choice"
 ContextChoiceTask.version = 1
@@ -40,30 +40,37 @@ function ContextChoiceTask.poll(state, ctx)
   if choice:status() == nil then
     choice:open(state.selected)
   end
-  local input = ctx.input or {}
-  if input.pressedDirection ~= nil then
-    local selected = SELECTION_BY_DIRECTION[input.pressedDirection]
-    if selected ~= nil then
-      state.selected = choice:select(selected)
+  local events = (ctx.input or {}).uiEvents or {}
+  assert(type(events) == "table", "context_choice UI events must be a table")
+  for _, event in ipairs(events) do
+    assert(type(event) == "table" and type(event.type) == "string", "context_choice UI event is invalid")
+    if event.type == "navigate" then
+      local selected = SELECTION_BY_DIRECTION[event.direction]
+      if selected ~= nil then
+        state.selected = choice:select(selected)
+      end
+    elseif event.type == "cancel" then
+      choice:close()
+      state.active = false
+      return { complete = true, state = state, result = 1 }
+    elseif event.type == "confirm" then
+      local result = choice:confirm()
+      choice:close()
+      state.active = false
+      return { complete = true, state = state, result = result }
+    else
+      assert(false, "unknown context_choice UI event " .. event.type)
     end
-  end
-  if input.pressedCancel then
-    choice:close()
-    state.active = false
-    return { complete = true, state = state, result = 1 }
-  end
-  if input.pressedAction then
-    local result = choice:confirm()
-    choice:close()
-    state.active = false
-    return { complete = true, state = state, result = result }
   end
   return { complete = false, state = state }
 end
 
 function ContextChoiceTask.cancel(state, _, ctx)
   if state.active and ctx ~= nil then
-    provider(ctx):close()
+    local choice = provider(ctx)
+    if choice:status() ~= nil then
+      choice:close()
+    end
   end
   state.active = false
 end
