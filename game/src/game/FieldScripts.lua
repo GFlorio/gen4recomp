@@ -250,6 +250,9 @@ function FieldScripts.new(opts)
     standardFallback = function(messageId)
       return { text = "[" .. messageId .. "]" }
     end,
+    resolveText = function(message)
+      return dialogueHost:resolveMessage(message, {}, {})
+    end,
     createMenu = function(request)
       return request
     end,

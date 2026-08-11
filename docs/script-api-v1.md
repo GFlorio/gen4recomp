@@ -83,6 +83,7 @@ Constructors return ordinary serializable Lua tables. Direct table form is alway
 | `S.stop(spec)` | `op=stop` | Normal script completion; spec optional. |
 | `S.yieldTick(spec)` | `op=yield_tick` | Generated/advanced explicit one-tick source yield; spec optional. |
 | `S.setAuxiliaryUiVisible(spec)` | `op=set_auxiliary_ui_visible` | spec={visible=boolean}; imported HGSS visibility synchronization blocks as needed. |
+| `S.choose(spec)` | `op=choose` | Semantic field menu; spec={items,result,cancellable=false,cancelValue=nil,placement={mode=auto,anchor=auto,surface=auto}}. No callbacks. |
 | `S.waitTicks(spec)` | `op=wait_ticks` | spec={ticks>=1,countdownVariable=nil}; first poll next tick, continuation one tick after completion; countdownVariable mirrors the countdown into an observable variable like the source engine. |
 | `S.if_(spec)` | `op=if` | spec={condition,yes={},no={}}. |
 | `S.switch(spec)` | `op=switch` | spec={value,cases,default={}}. |
@@ -97,6 +98,15 @@ Constructors return ordinary serializable Lua tables. Direct table form is alway
 | `S.gotoCompared(spec)` | `op=goto_compared` | spec={operator,target=nil,script=nil,label=nil}; the script/label form is cross-script, resolved through the composition registry at runtime. |
 | `S.callCompared(spec)` | `op=call_compared` | spec={operator,target=nil,script=nil,label=nil}; the script/label form is cross-script. |
 | `S.next(spec)` | `op=next` | Wrapper resources only; spec optional. |
+
+### Field-menu constructors
+
+| Signature | Canonical | Notes |
+|---|---|---|
+| `S.choice(messageRef, value, opts=nil)` | `{text=messageRef,value=value}` | opts={metadata=nil}; metadata is serializable opaque item data. Placement modes: auto, floating, docked; anchors: auto, top_left, top_right, bottom_left, bottom_right, bottom, side; surfaces: auto, main, auxiliary. |
+| `S.menuBegin(spec)` | `op=menu_begin` | Generated/advanced imported-HGSS builder form. |
+| `S.menuAdd(spec)` | `op=menu_add` | Generated/advanced imported-HGSS builder form. |
+| `S.menuExec(spec)` | `op=menu_exec` | Generated/advanced imported-HGSS builder form. |
 
 ### State constructors
 
@@ -558,6 +568,18 @@ No fields.
 | `provenance` | source_provenance |  |  |
 | `script` | string |  |  |
 | `target` | string |  |  |
+
+### `choose`
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `cancelValue` | scalar_or_value |  |  |
+| `cancellable` | boolean |  | `false` |
+| `items` | menu_items | yes |  |
+| `key` | string |  |  |
+| `placement` | menu_placement |  | `{}` |
+| `provenance` | source_provenance |  |  |
+| `result` | value | yes |  |
 
 ### `clear_flag`
 
@@ -1243,6 +1265,12 @@ No fields.
 `gesture`: warp_out, warp_in, nurse_bow, give, receive
 
 `jump_distance`: zero, near, far
+
+`menu_anchor`: auto, top_left, top_right, bottom_left, bottom_right, bottom, side
+
+`menu_placement_mode`: auto, floating, docked
+
+`menu_surface`: auto, main, auxiliary
 
 `movement_scope`: environment, actors
 

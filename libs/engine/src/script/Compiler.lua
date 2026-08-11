@@ -249,6 +249,14 @@ normalizeByType = function(v, ty)
       out[k] = normalizeText(textValue)
     end
     return out
+  elseif ty == "menu_items" then
+    local out = {}
+    for i = 1, #v do
+      out[i] = deepCopy(v[i])
+      out[i].text = normalizeMessage(out[i].text)
+      out[i].value = normalizeByType(out[i].value, "scalar_or_value")
+    end
+    return out
   end
   return deepCopy(v)
 end

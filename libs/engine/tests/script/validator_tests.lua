@@ -266,6 +266,49 @@ function T.rejects_unknown_fields()
   invalidCode("SCRIPT_SCHEMA_INVALID", { api = 1, id = "x", steps = { S.stop() }, extra = 1 })
 end
 
+function T.validates_semantic_choose_and_rejects_malformed_choices()
+  valid({
+    api = 1,
+    id = "mod.example.choose",
+    steps = {
+      S.choose({
+        items = { S.choice("msg.project.take", 10), S.choice("msg.project.leave", 20) },
+        result = S.var("choice"),
+        cancellable = true,
+        cancelValue = 20,
+        placement = { mode = "auto", anchor = "auto", surface = "auto" },
+      }),
+    },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "choose", items = {}, result = S.var("choice"), callback = function() end } },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = {
+      {
+        op = "choose",
+        items = { S.choice("msg.project.take", 1) },
+        result = S.var("choice"),
+        placement = { mode = "popup" },
+      },
+    },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "choose", items = { { text = "msg.project.take" } }, result = S.var("choice") } },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "choose", items = { S.choice("msg.project.take", 1) } } },
+  })
+end
+
 function T.rejects_unknown_value_kind()
   invalidCode(
     "SCRIPT_INVALID_REFERENCE",

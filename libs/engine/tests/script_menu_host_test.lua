@@ -99,6 +99,44 @@ function T.retains_var_derived_item_operands_as_concrete_values()
   Assert.equal(menu.request.items[1].value, 401)
 end
 
+function T.publishes_semantic_choices_without_entering_the_imported_builder()
+  local h, requests = host()
+  local menu = h:choose({
+    items = {
+      { text = "Take", value = 10, metadata = { hgss = 255 } },
+      { text = "Leave", value = 20 },
+    },
+    result = { value = "var", id = "choice" },
+    cancellable = true,
+    cancelValue = 20,
+    placement = { mode = "docked", anchor = "bottom", surface = "main" },
+  })
+  Assert.equal(menu.request.items[1].text.text, "Take")
+  Assert.equal(menu.request.items[1].value, 10)
+  Assert.equal(menu.request.items[1].metadata.hgss, 255)
+  Assert.equal(requests[1].placementPreference.mode, "docked")
+  h:beginMenu({
+    messageSource = "standard",
+    sourcePlacement = { system = "hgss_bottom_screen_tiles", x = 0, y = 0 },
+    initialCursor = 0,
+    cancellable = false,
+    result = "VAR_RESULT",
+  })
+end
+
+function T.semantic_choices_keep_local_text_out_of_the_vanilla_message_resolver()
+  local h, requests = host()
+  h._resolveText = function()
+    error("local text must not use the vanilla message resolver")
+  end
+  h:choose({
+    items = { { text = "Take", value = 10 } },
+    cancellable = false,
+    placement = { mode = "auto", anchor = "auto", surface = "auto" },
+  })
+  Assert.equal(requests[1].items[1].text.text, "Take")
+end
+
 function T.rejects_builder_misuse()
   local h = host()
   throwsCode("SCRIPT_MENU_NOT_INITIALIZED", function()

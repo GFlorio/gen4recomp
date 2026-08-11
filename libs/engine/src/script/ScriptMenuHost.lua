@@ -10,6 +10,7 @@ local ScriptErrors = require("libs.engine.src.script.errors")
 ---@field private _standardMessageBank integer
 ---@field private _createMenu fun(request: table): any
 ---@field private _standardFallback fun(messageId: integer): table|nil
+---@field private _resolveText fun(message: any): table|nil
 ---@field private _builder table|nil
 local ScriptMenuHost = {}
 ScriptMenuHost.__index = ScriptMenuHost
@@ -77,19 +78,58 @@ local function resolveMessage(self, source, messageId)
   return formatted
 end
 
+local function resolveSemanticText(self, message)
+  if type(message) == "string" and message:match("^msg%.hgss%.%d+%.%d+$") then
+    return assert(self._resolveText, "semantic menu requires a vanilla message resolver")(message)
+  end
+  return { text = message }
+end
+
 ---@param opts table { provider, standardMessageBank, createMenu, standardFallback?: fun(messageId: integer): table }
 ---@return ScriptMenuHost
 function ScriptMenuHost.new(opts)
   assert(type(opts) == "table" and opts.provider, "script menu host requires a message provider")
   assertInteger(opts.standardMessageBank, "script menu host standard message bank")
   assert(type(opts.createMenu) == "function", "script menu host requires a menu factory")
+  assert(
+    opts.resolveText == nil or type(opts.resolveText) == "function",
+    "script menu text resolver must be a function"
+  )
   return setmetatable({
     _provider = opts.provider,
     _standardMessageBank = opts.standardMessageBank,
     _createMenu = opts.createMenu,
     _standardFallback = opts.standardFallback,
+    _resolveText = opts.resolveText,
     _builder = nil,
   }, ScriptMenuHost)
+end
+
+-- Publishes one semantic mod menu without entering the imported-HGSS builder
+-- state. A project may supply its dialogue resolver; bare strings remain
+-- useful as local text in isolated tools and tests.
+---@param spec table
+---@return any menuController
+function ScriptMenuHost:choose(spec)
+  assert(type(spec) == "table" and type(spec.items) == "table", "semantic menu specification is invalid")
+  local items = {}
+  for luaIndex, item in ipairs(spec.items) do
+    local text = resolveSemanticText(self, item.text)
+    assert(type(text) == "table", "semantic menu text resolver returned an invalid message")
+    items[luaIndex] = {
+      text = text,
+      message = item.text,
+      value = item.value,
+      metadata = item.metadata,
+    }
+  end
+  return self._createMenu({
+    items = items,
+    cancellable = spec.cancellable,
+    cancelValue = spec.cancelValue,
+    placementPreference = spec.placement,
+    result = spec.result,
+  })
 end
 
 -- Starts one source-faithful builder. `messageSource` deliberately retains

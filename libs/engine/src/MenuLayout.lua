@@ -135,6 +135,9 @@ local function itemText(item)
   if type(item.text) == "string" then
     return item.text
   end
+  if type(item.text) == "table" and type(item.text.text) == "string" then
+    return item.text.text
+  end
   return ""
 end
 

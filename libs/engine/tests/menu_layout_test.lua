@@ -82,13 +82,14 @@ function T.layout_carries_display_text_without_exposing_menu_item_metadata()
       items = {
         { text = "Take", value = 10, vanillaMetadata = 0xFF },
         { label = "Leave", value = 20, metadata = { hidden = true } },
+        { text = { text = "Continue" }, value = 30 },
       },
       selectedIndex = 0,
     },
   })
 
-  Assert.equal(layout.itemCount, 2)
-  Assert.deepEqual(layout.itemTexts, { [0] = "Take", [1] = "Leave" })
+  Assert.equal(layout.itemCount, 3)
+  Assert.deepEqual(layout.itemTexts, { [0] = "Take", [1] = "Leave", [2] = "Continue" })
 end
 
 function T.occupied_regions_are_avoided_before_floating_geometry_is_clamped()

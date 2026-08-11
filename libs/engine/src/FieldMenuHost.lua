@@ -8,7 +8,7 @@ local ScreenTopology = require("libs.engine.src.ScreenTopology")
 ---@class FieldMenuHost.Active
 ---@field definition FieldMenuController.Spec
 ---@field selectedIndex integer
----@field layout table
+---@field layout table?
 ---@field closingAtTick integer?
 
 ---@class FieldMenuHost
@@ -78,6 +78,7 @@ function FieldMenuHost:_resolve(definition, selectedIndex)
       cancellable = definition.cancellable,
     },
     sourcePlacement = definition.sourcePlacement,
+    placementPreference = definition.placementPreference,
     inputCapabilities = { touch = true },
     uiScale = 1,
     ---@param item string|FieldMenuController.Item
@@ -134,7 +135,7 @@ function FieldMenuHost:presentation()
   return {
     definition = active.definition,
     selectedIndex = active.selectedIndex,
-    layout = active.layout,
+    layout = assert(active.layout, "active menu layout is missing"),
   }
 end
 
@@ -177,8 +178,8 @@ function FieldMenuHost:snapshot()
   end
   return {
     modal = true,
-    itemRects = self._active.layout.itemRects,
-    layout = self._active.layout,
+    itemRects = assert(self._active.layout, "active menu layout is missing").itemRects,
+    layout = assert(self._active.layout, "active menu layout is missing"),
   }
 end
 

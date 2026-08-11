@@ -77,6 +77,11 @@ function RecordingScriptMenuHost:addItem(item)
   self.builder.items[#self.builder.items + 1] = item
 end
 
+function RecordingScriptMenuHost:choose(spec)
+  self.requests[#self.requests + 1] = spec
+  return spec
+end
+
 function RecordingScriptMenuHost:execute()
   local request = self.builder
   self.builder = nil
@@ -161,6 +166,31 @@ function T.menu_builder_operations_yield_add_same_tick_and_block_for_the_script_
   h.scheduler:step(103, {})
   Assert.equal(h.services.world:getVar("VAR_RESULT"), 99)
   Assert.equal(h.services.world:getVar("VAR_AFTER_MENU"), 1)
+end
+
+function T.semantic_choose_blocks_and_writes_its_stable_item_result()
+  local h = harness()
+  local script = S.script({
+    api = 1,
+    id = "test.semantic_choose",
+    steps = {
+      S.choose({
+        items = { S.choice("Take", 10), S.choice("Leave", 20) },
+        result = S.var("VAR_RESULT"),
+        placement = { mode = "docked", anchor = "bottom", surface = "main" },
+      }),
+      S.stop(),
+    },
+  })
+  h.registry:installBase(script.id, script, "handwritten")
+  h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+
+  h.scheduler:step(100, {})
+  Assert.equal(h.scriptMenu.requests[1].placement.mode, "docked")
+  h.scheduler:step(101, { menuEvents = { { type = "navigate", direction = "down" } } })
+  h.scheduler:step(102, { menuEvents = { { type = "confirm" } } })
+  h.scheduler:step(103, {})
+  Assert.equal(h.services.world:getVar("VAR_RESULT"), 20)
 end
 
 local function resource()

@@ -67,6 +67,12 @@ local CASES = {
     end,
     { message = "external", bank = "msgbank", id = 12 },
   },
+  choice = {
+    function()
+      return S.choice("msg.project.take", 10, { metadata = { hgss = 255 } })
+    end,
+    { text = "msg.project.take", value = 10, metadata = { hgss = 255 } },
+  },
 
   -- Text-value constructors
   player_name = {

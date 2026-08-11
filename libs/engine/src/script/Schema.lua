@@ -54,6 +54,9 @@ Schema.ENUMS = {
   fade_direction = { "in", "out" },
   fade_color = { "black", "white" },
   button = { "a", "b" },
+  menu_placement_mode = { "auto", "floating", "docked" },
+  menu_anchor = { "auto", "top_left", "top_right", "bottom_left", "bottom_right", "bottom", "side" },
+  menu_surface = { "auto", "main", "auxiliary" },
 }
 
 Schema.ACTOR_SPECIALS = { "player", "self", "last_talked", "partner", "camera_target" }
@@ -404,6 +407,17 @@ Schema.OPERATIONS = {
       bindings = { type = "bindings", default = {} },
     },
   },
+  -- Public semantic menu. Its result values belong to items, never visual
+  -- positions; presentation consumes placement only as a hint.
+  choose = {
+    fields = {
+      items = { type = "menu_items", required = true },
+      result = { type = "value", required = true },
+      cancellable = { type = "boolean", default = false },
+      cancelValue = { type = "scalar_or_value" },
+      placement = { type = "menu_placement", default = { mode = "auto", anchor = "auto", surface = "auto" } },
+    },
+  },
   -- Generated/advanced HGSS menu-builder operations. Handwritten scripts
   -- should use `choose` once the public semantic API lands.
   menu_begin = {
@@ -740,6 +754,11 @@ Schema.CONSTRUCTORS = {
         notes = "spec={visible=boolean}; imported HGSS visibility synchronization blocks as needed.",
       },
       {
+        signature = "S.choose(spec)",
+        canonical = "op=choose",
+        notes = "Semantic field menu; spec={items,result,cancellable=false,cancelValue=nil,placement={mode=auto,anchor=auto,surface=auto}}. No callbacks.",
+      },
+      {
         signature = "S.waitTicks(spec)",
         canonical = "op=wait_ticks",
         notes = "spec={ticks>=1,countdownVariable=nil}; first poll next tick, continuation one tick after completion; countdownVariable mirrors the countdown into an observable variable like the source engine.",
@@ -789,6 +808,31 @@ Schema.CONSTRUCTORS = {
         notes = "spec={operator,target=nil,script=nil,label=nil}; the script/label form is cross-script.",
       },
       { signature = "S.next(spec)", canonical = "op=next", notes = "Wrapper resources only; spec optional." },
+    },
+  },
+  {
+    section = "Field-menu constructors",
+    rows = {
+      {
+        signature = "S.choice(messageRef, value, opts=nil)",
+        canonical = "{text=messageRef,value=value}",
+        notes = "opts={metadata=nil}; metadata is serializable opaque item data. Placement modes: auto, floating, docked; anchors: auto, top_left, top_right, bottom_left, bottom_right, bottom, side; surfaces: auto, main, auxiliary.",
+      },
+      {
+        signature = "S.menuBegin(spec)",
+        canonical = "op=menu_begin",
+        notes = "Generated/advanced imported-HGSS builder form.",
+      },
+      {
+        signature = "S.menuAdd(spec)",
+        canonical = "op=menu_add",
+        notes = "Generated/advanced imported-HGSS builder form.",
+      },
+      {
+        signature = "S.menuExec(spec)",
+        canonical = "op=menu_exec",
+        notes = "Generated/advanced imported-HGSS builder form.",
+      },
     },
   },
   {

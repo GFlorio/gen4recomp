@@ -570,6 +570,36 @@ CHECKERS.scalar_list = function(context, v, path, field)
     end
   end
 end
+CHECKERS.menu_placement = function(context, v, path, field)
+  if type(v) ~= "table" then
+    fail(context, ScriptErrors.SCRIPT_SCHEMA_INVALID, path, "expected a menu placement table", { field = field })
+  end
+  local fields = {
+    mode = { type = "enum:menu_placement_mode", required = true },
+    anchor = { type = "enum:menu_anchor", required = true },
+    surface = { type = "enum:menu_surface", required = true },
+  }
+  checkFields(context, "placement", fields, v, path)
+end
+CHECKERS.menu_items = function(context, v, path, field)
+  local count = checkArray(context, v, path, field)
+  if count == 0 then
+    fail(context, ScriptErrors.SCRIPT_SCHEMA_INVALID, path, "menu requires at least one item", { field = field })
+  end
+  local fields = {
+    text = { type = "message", required = true },
+    value = { type = "scalar_or_value", required = true },
+    metadata = { type = "serializable" },
+  }
+  for i = 1, count do
+    local item = v[i]
+    local itemPath = path .. "/" .. tostring(i - 1)
+    if type(item) ~= "table" then
+      fail(context, ScriptErrors.SCRIPT_SCHEMA_INVALID, itemPath, "menu item must be a table", { field = field })
+    end
+    checkFields(context, "choice", fields, item, itemPath)
+  end
+end
 CHECKERS.source_provenance = function(context, v, path, field)
   if type(v) ~= "table" then
     fail(context, ScriptErrors.SCRIPT_SCHEMA_INVALID, path, "expected a source provenance table", { field = field })

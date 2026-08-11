@@ -13,6 +13,29 @@ local Sha256 = require("libs.engine.src.script.Sha256")
 
 local T = {}
 
+function T.compiles_semantic_choose_as_one_runtime_node()
+  local graph = assert(Compiler.compile(S.script({
+    api = 1,
+    id = "mod.example.choose",
+    steps = {
+      S.choose({
+        items = { S.choice("msg.project.take", 10), S.choice("msg.project.leave", 20) },
+        result = S.var("choice"),
+      }),
+    },
+  })))
+  local node = graph.nodes[graph.entry]
+  Assert.equal(node.op, "choose")
+  Assert.equal(node.items[2].value, 20)
+  Assert.equal(node.placement.mode, "auto")
+end
+
+function T.compiles_the_public_semantic_menu_example()
+  local script = require("data.scripts.examples.semantic_menu")
+  local graph = assert(Compiler.compile(script))
+  Assert.equal(graph.nodes[graph.entry].op, "choose")
+end
+
 local function compile(script, opts)
   local graph, err = Compiler.compile(script, opts)
   if not graph then

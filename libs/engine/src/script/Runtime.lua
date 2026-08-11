@@ -966,6 +966,26 @@ HANDLERS.ask_yes_no = function(node, run)
   requireForeground(run, "ask_yes_no")
   return blockOnTask(run, "ask_yes_no", { node = node })
 end
+HANDLERS.choose = function(node, run)
+  requireForeground(run, "choose")
+  local items = {}
+  for luaIndex, item in ipairs(node.items) do
+    items[luaIndex] = {
+      text = Runtime.evaluateValue(item.text, run),
+      value = Runtime.evaluateValue(item.value, run),
+      metadata = item.metadata,
+    }
+  end
+  local request = requireScriptMenu(run):choose({
+    items = items,
+    cancellable = node.cancellable,
+    cancelValue = node.cancelValue and Runtime.evaluateValue(node.cancelValue, run),
+    placement = node.placement,
+    result = node.result,
+  })
+  assert(type(request) == "table" and type(request.items) == "table", "script menu host returned an invalid request")
+  return blockOnTask(run, "menu", { menu = request }, request.result)
+end
 HANDLERS.menu_begin = function(node, run)
   requireForeground(run, "menu_begin")
   requireScriptMenu(run):beginMenu({
