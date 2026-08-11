@@ -14,7 +14,9 @@ local FieldActorFixture = require("tests.support.FieldActorFixture")
 local T = {}
 
 -- Records every image it creates so a test can assert on releases.
-local function stubGraphics(created)
+local function stubGraphics(created, opts)
+  opts = opts or {}
+  local meshCalls = 0
   return {
     newImage = function()
       local image = { released = false, quads = 0 }
@@ -35,6 +37,10 @@ local function stubGraphics(created)
       return { x = x, y = y, w = w, h = h }
     end,
     newMesh = function(_, vertices)
+      meshCalls = meshCalls + 1
+      if opts.failOnNewMesh == meshCalls then
+        error("injected newMesh failure")
+      end
       local mesh = { vertices = vertices, released = false }
       function mesh:setVertexMap(map)
         self.map = map
@@ -124,6 +130,20 @@ function T.dispose_releases_every_image()
   p:dispose()
   Assert.equal(#created, 2)
   Assert.isTrue(created[1].released and created[2].released, "all images released")
+  Assert.equal(p:stats().live, 0)
+end
+
+function T.mesh_construction_failure_releases_the_acquired_atlas()
+  local created = {}
+  local p = FieldActorAssetProvider.new(seed({ 0 }), {
+    graphics = stubGraphics(created, { failOnNewMesh = 1 }),
+  })
+  local err = Assert.throws(function()
+    p:acquire(0)
+  end)
+  Assert.isTrue(tostring(err):find("injected newMesh failure", 1, true) ~= nil)
+  Assert.equal(#created, 1)
+  Assert.isTrue(created[1].released, "the atlas acquired before mesh construction must be released")
   Assert.equal(p:stats().live, 0)
 end
 

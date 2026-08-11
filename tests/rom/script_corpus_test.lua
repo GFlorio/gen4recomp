@@ -159,4 +159,4 @@ T["corpus compile is deterministic"] = function(romFs)
   Assert.isTrue(sorted, "the compiled index is sorted by id")
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

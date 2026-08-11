@@ -44,11 +44,12 @@ function FieldActorMesh.frameVertices(geometry, frameIndex, frameCount)
   return rows
 end
 
--- One mesh per atlas frame. `graphics` is a love.graphics-shaped namespace;
--- returns nil when none is available, so headless callers can load a visual
--- without building GPU resources.
+-- One mesh per atlas frame. `graphics` is a love.graphics-shaped namespace.
+-- Runtime-only callers use FieldActorDefinitionProvider; this presentation
+-- builder always owns real mesh resources.
 function FieldActorMesh.build(graphics, visual)
   assert(type(visual) == "table" and type(visual.render) == "table", "FieldActorMesh requires a compiled actor visual")
+  assert(graphics and graphics.newMesh, "FieldActorMesh requires love.graphics")
   local render = visual.render
   local geometries = {}
   if render.kind == "staticModel" then
@@ -74,27 +75,29 @@ function FieldActorMesh.build(graphics, visual)
       { spriteId = visual.spriteId }
     )
   end
-  if not (graphics and graphics.newMesh) then
-    return nil
-  end
-
   local meshes = {}
   local count = render.kind == "staticModel" and #geometries or render.frameCount
-  for meshIndex = 1, count do
-    local geometry = render.kind == "staticModel" and geometries[meshIndex] or geometries[1]
-    local frameIndex = render.kind == "staticModel" and 1 or meshIndex
-    local map = {}
-    for i, index in ipairs(geometry.indices) do
-      map[i] = index + 1
+  local ok, err = pcall(function()
+    for meshIndex = 1, count do
+      local geometry = render.kind == "staticModel" and geometries[meshIndex] or geometries[1]
+      local frameIndex = render.kind == "staticModel" and 1 or meshIndex
+      local map = {}
+      for i, index in ipairs(geometry.indices) do
+        map[i] = index + 1
+      end
+      local mesh = graphics.newMesh(
+        VertexFormat.LAYOUT,
+        FieldActorMesh.frameVertices(geometry, frameIndex, render.kind == "staticModel" and 1 or render.frameCount),
+        "triangles",
+        "static"
+      )
+      mesh:setVertexMap(map)
+      meshes[meshIndex] = mesh
     end
-    local mesh = graphics.newMesh(
-      VertexFormat.LAYOUT,
-      FieldActorMesh.frameVertices(geometry, frameIndex, render.kind == "staticModel" and 1 or render.frameCount),
-      "triangles",
-      "static"
-    )
-    mesh:setVertexMap(map)
-    meshes[meshIndex] = mesh
+  end)
+  if not ok then
+    FieldActorMesh.release(meshes)
+    error(err, 0)
   end
   return meshes
 end

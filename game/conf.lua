@@ -1,7 +1,7 @@
 ---@diagnostic disable: duplicate-set-field
 -- LÖVE configuration for the game app. The test command (--test) gets a real
--- but offscreen graphics context: the graphics smoke tests compile shaders and
--- allocate canvases, meshes, and images for real, so a windowless run would
+-- but offscreen graphics context: the explicit graphics layer compiles shaders
+-- and allocates canvases, meshes, and images for real, so a windowless run would
 -- report work it never did. The window is hidden, unfocused, and vsync-free so
 -- the suite neither steals the desktop nor paces itself against a monitor; the
 -- host modules no test needs (audio, sound, joystick, touch) stay off. An

@@ -7,6 +7,9 @@ local SaveFs = require("libs.rom.src.SaveFs")
 local GameVersion = require("libs.rom.src.GameVersion")
 local RomImporter = require("libs.rom.src.RomImporter")
 local FieldRuntime = require("game.src.game.FieldRuntime")
+local FieldBoot = require("game.src.game.FieldBoot")
+local App = require("game.src.game.App")
+local RecordingScriptHosts = require("tests.acceptance.support.RecordingScriptHosts")
 
 ---@class AcceptanceHarness
 ---@field versions string[]
@@ -38,6 +41,37 @@ local function removeNamespace(path)
   fs.remove(path .. "/" .. FieldSave.PATH .. ".tmp")
   fs.remove(path .. "/" .. FieldSave.PATH)
   fs.remove(path)
+end
+
+-- Acceptance owns the save-root host boundary, so it can inject one scoped
+-- write failure without changing the runtime's real save composition.
+local function saveBackend(faults, lifecycle)
+  local fs = love.filesystem
+  return {
+    write = function(_, path, data)
+      lifecycle.saveWrites = lifecycle.saveWrites + 1
+      if faults.failWrite then
+        faults.failWrite = false
+        return false, "acceptance injected save write failure"
+      end
+      return fs.write(path, data)
+    end,
+    read = function(_, path)
+      return fs.read(path)
+    end,
+    getInfo = function(_, path)
+      return fs.getInfo(path)
+    end,
+    createDirectory = function(_, path)
+      return fs.createDirectory(path)
+    end,
+    remove = function(_, path)
+      return fs.remove(path)
+    end,
+    replace = function(_, sourcePath, destinationPath)
+      return os.rename(fs.getSaveDirectory() .. "/" .. sourcePath, fs.getSaveDirectory() .. "/" .. destinationPath)
+    end,
+  }
 end
 
 local function installRenderTrap()
@@ -82,14 +116,129 @@ local function abortBoot(runtime, trap, removeSaveNamespace, namespace)
   end
 end
 
+---@class AcceptanceGame
+---@field runtime FieldRuntime
+---@field saveNamespace string
+---@field removeSaveNamespace fun(path: string)
+---@field trap table
+---@field timeline table[]
+---@field hosts table
+---@field closed boolean?
+---@field runtimeDisposed boolean?
+---@field disposeErr any
+---@field lifecycle { saveWrites: integer, runtimeDisposals: integer }
+---@field worldProbe { flags: table<integer, boolean>, variables: table<integer, integer> }
+---@field faults { failWrite: boolean? }
+---@field harness AcceptanceHarness
+---@field versionId string
+---@field map string|integer|nil
+---@field saveStatus string?
+---@field ownsNamespace boolean
 local Game = {}
 Game.__index = Game
+
+function AcceptanceHarness:_newRuntime(versionId, map, namespace, save, faults, lifecycle)
+  return self.runtimeFactory(versionId, map, {
+    saveFs = SaveFs.forVersion(versionId, saveBackend(faults, lifecycle), namespace),
+    resumeSave = save == "resume",
+    resetSave = save == "fresh",
+    scriptHosts = RecordingScriptHosts.new(),
+  })
+end
+
+local function gameFor(harness, runtime, namespace, trap, versionId, map, faults, lifecycle, ownsNamespace)
+  return setmetatable({
+    runtime = runtime,
+    saveNamespace = namespace,
+    removeSaveNamespace = harness.removeSaveNamespace,
+    trap = trap,
+    timeline = {},
+    hosts = runtime.scriptHosts or {},
+    lifecycle = lifecycle,
+    worldProbe = { flags = {}, variables = {} },
+    faults = faults,
+    harness = harness,
+    map = map,
+    versionId = versionId,
+    saveStatus = runtime.saveStatus,
+    ownsNamespace = ownsNamespace,
+  }, Game)
+end
+
+function Game:_disposeRuntime()
+  if self.runtimeDisposed then
+    return
+  end
+  self.runtimeDisposed = true
+  local runtime = self.runtime
+  if not runtime then
+    return
+  end
+  self.lifecycle.runtimeDisposals = self.lifecycle.runtimeDisposals + 1
+  local ok, err = pcall(function()
+    runtime:dispose()
+  end)
+  self.saveStatus = runtime.saveStatus or self.saveStatus
+  if not ok then
+    self.disposeErr = err
+  end
+end
+
+function Game:restart(options)
+  options = options or {}
+  local save = options.save or "resume"
+  assert(save == "fresh" or save == "resume", "acceptance restart save must be fresh or resume")
+  self:_disposeRuntime()
+  if self.disposeErr then
+    error(self.disposeErr, 0)
+  end
+  local previousSaveStatus = self.saveStatus
+  local ok, runtime = pcall(
+    self.harness._newRuntime,
+    self.harness,
+    self.versionId,
+    options.map or self.map,
+    self.saveNamespace,
+    save,
+    self.faults,
+    self.lifecycle
+  )
+  if not ok then
+    error(runtime, 0)
+  end
+  assert(
+    runtime and runtime.session,
+    "acceptance restart runtime boot failed: " .. tostring(runtime and runtime.errorText)
+  )
+  self.runtime = runtime
+  self.map = options.map or self.map
+  self.hosts = runtime.scriptHosts or {}
+  self.runtimeDisposed = false
+  self.disposeErr = nil
+  self.saveStatus = previousSaveStatus and previousSaveStatus:find("Save failed:", 1, true) and previousSaveStatus
+    or runtime.saveStatus
+  return self
+end
 
 function Game:snapshot()
   local runtime = self.runtime
   local player = runtime.player or {}
   local dialogue = runtime.dialogue
   local scheduler = runtime.scripts and runtime.scripts.scheduler
+  local actors, occupancy = {}, {}
+  if runtime.actors and runtime.runtimeMap then
+    for _, actor in ipairs(runtime.actors:actorsOf(runtime.runtimeMap.mapId)) do
+      actors[actor.actorId] = {
+        fieldX = actor.fieldX,
+        fieldZ = actor.fieldZ,
+        surfaceId = actor.surfaceId,
+        facing = actor.facing,
+      }
+      if actor.solid then
+        occupancy[actor.fieldX .. ":" .. actor.fieldZ] = actor.actorId
+      end
+    end
+  end
   return {
     versionId = runtime.versionId,
     mapId = runtime.runtimeMap and runtime.runtimeMap.mapId,
@@ -103,14 +252,147 @@ function Game:snapshot()
       facing = player.facing,
       motion = player.motion,
     },
-    dialogue = { modal = dialogue and dialogue:isModal() or false },
+    dialogue = dialogue and dialogue:status() or { modal = false },
     fieldLocked = scheduler and scheduler:playerMovementLocked() or false,
     transition = { phase = runtime.transition and runtime.transition.phase },
+    avatarId = runtime.avatar and runtime.avatar.id,
+    world = self.worldProbe,
+    actors = actors,
+    occupancy = occupancy,
   }
 end
 
+function Game:actor(actorId)
+  assert(type(actorId) == "string", "acceptance actor id required")
+  return self:snapshot().actors[actorId]
+end
+
+function Game:setWorldState(change)
+  assert(type(change) == "table", "acceptance world-state change required")
+  local world = assert(self.runtime.scripts and self.runtime.scripts.worldState, "field world state unavailable")
+  if change.flag ~= nil then
+    world:setFlag(change.flag)
+    self.worldProbe.flags[change.flag] = true
+  end
+  if change.value ~= nil then
+    assert(change.variable ~= nil, "acceptance world-state value requires a variable id")
+    world:setVar(change.variable, change.value)
+    self.worldProbe.variables[change.variable] = change.value
+  end
+end
+
+function Game:setActorRemovalFlag(actorId)
+  assert(type(actorId) == "string", "acceptance actor id required")
+  local actor = assert(self.runtime.actors:getById(actorId), "actor is not visible: " .. actorId)
+  local eventFlag = assert(actor.sourceEvent.eventFlag, "actor has no removal flag")
+  assert(eventFlag ~= 0, "actor has no removal flag")
+  self.runtime.eventState:setFlag(eventFlag)
+end
+
+function Game:failNextSave()
+  self.faults.failWrite = true
+end
+
+local function interactionFor(runtime)
+  local player = runtime.player
+  if not player or not runtime.interactionResolver then
+    return nil
+  end
+  return runtime.interactionResolver:resolve({
+    runtimeMap = runtime.runtimeMap,
+    fieldX = player.fieldX,
+    fieldZ = player.fieldZ,
+    surfaceId = player.surfaceId,
+    worldY = player.worldY,
+    facing = player.facing,
+    tick = runtime.session and runtime.session.tick + 1 or 0,
+  })
+end
+
+function Game:interaction()
+  local interaction = self.lastInteraction or {}
+  local actor = interaction.actorId and self.runtime.actors:getById(interaction.actorId) or nil
+  return {
+    kind = interaction.kind,
+    actorId = interaction.actorId,
+    scriptId = interaction.scriptId,
+    scriptSource = interaction.scriptSource,
+    owner = interaction.owner,
+    actorFacing = actor and actor.facing or nil,
+    actorFacingOverride = actor and actor.interactionFacingOverride or nil,
+  }
+end
+
+function Game:pressAction()
+  local runtime = self.runtime
+  local intent = interactionFor(runtime)
+  local interaction = { kind = intent and intent.kind }
+  if intent and intent.object then
+    interaction.actorId = intent.object.actorId
+  end
+  local hit = intent and runtime.scripts.client:resolve(intent) or nil
+  if hit then
+    interaction.scriptId = hit.trigger.scriptId
+    interaction.scriptSource = "vanilla"
+    for _, entry in ipairs(hit.composed.entries) do
+      if entry.operation == "override" or (entry.script.metadata and entry.script.metadata.override) then
+        interaction.scriptSource = "override"
+      end
+    end
+    interaction.owner = "script"
+  elseif intent then
+    interaction.owner = "pre-script-dialogue"
+  end
+  self.lastInteraction = interaction
+  runtime:pressAction()
+  self:step()
+  runtime:releaseAction()
+  return self:snapshot()
+end
+
+function Game:advanceDialogue()
+  local confirmed = false
+  for _ = 1, 480 do
+    local snapshot = self:snapshot()
+    if not snapshot.dialogue.modal and not snapshot.fieldLocked then
+      break
+    end
+    self.runtime:pressAction()
+    self:step()
+    self.runtime:releaseAction()
+    confirmed = true
+  end
+  local final = self:snapshot()
+  assert(not final.dialogue.modal and not final.fieldLocked, "dialogue did not close after semantic confirm edges")
+  return { confirmed = confirmed, snapshot = self:snapshot() }
+end
+
+function Game:hostEffects()
+  return self.hosts.effects
+end
+
+function Game:failForegroundScript(scriptId)
+  assert(type(scriptId) == "string", "foreground script id required")
+  local runtime = self.runtime
+  if scriptId == "elms_lab.elm" then
+    self:moveTo({ fieldX = 6, fieldZ = 6 })
+    self:face("north")
+  end
+  self:pressAction()
+  assert(self.lastInteraction.scriptId == scriptId, "foreground script does not match interaction")
+  local scheduler = runtime.scripts.scheduler
+  local environmentId = assert(scheduler:foregroundEnvironmentId(), "foreground script did not start")
+  scheduler:cancelEnvironment(environmentId, "acceptance injected failure for " .. scriptId)
+  return { error = "acceptance injected failure for " .. scriptId }
+end
+
 function Game:_record()
-  self.timeline[#self.timeline + 1] = self:snapshot()
+  local snapshot = self:snapshot()
+  if self.lastSnapshot and self.lastSnapshot.mapId ~= snapshot.mapId then
+    self.lastTransition = { source = self.lastSnapshot, destination = snapshot }
+  end
+  self.lastSnapshot = snapshot
+  self.timeline[#self.timeline + 1] = snapshot
   if #self.timeline > TRACE_LIMIT then
     table.remove(self.timeline, 1)
   end
@@ -136,6 +418,128 @@ function Game:move(direction)
   self.runtime:press(direction)
   self:step()
   self.runtime:release(direction)
+end
+
+function Game:_moveOne(direction)
+  local before = self:snapshot()
+  self:move(direction)
+  return self:advanceUntil("movement resolves", function(snapshot)
+    return snapshot.player.motion == "idle"
+      and (
+        snapshot.player.fieldX ~= before.player.fieldX
+        or snapshot.player.fieldZ ~= before.player.fieldZ
+        or snapshot.player.facing == direction
+      )
+  end, 120)
+end
+
+function Game:moveTo(target)
+  assert(type(target) == "table", "movement target required")
+  assert(type(target.fieldX) == "number" and type(target.fieldZ) == "number", "integer field target required")
+  local player = assert(self.runtime.player, "acceptance runtime player required")
+  local targetKey = target.fieldX .. ":" .. target.fieldZ
+  local function copyPlayer(source)
+    local copy = {}
+    for key, value in pairs(source) do
+      copy[key] = value
+    end
+    return setmetatable(copy, getmetatable(source))
+  end
+  local queue = { { player = copyPlayer(player), route = {} } }
+  local seen = { [player.fieldX .. ":" .. player.fieldZ] = true }
+  local route
+  local head = 1
+  local directions = { "north", "south", "west", "east" }
+  while queue[head] do
+    local node = queue[head]
+    head = head + 1
+    if node.player.fieldX .. ":" .. node.player.fieldZ == targetKey then
+      route = node.route
+      break
+    end
+    for _, direction in ipairs(directions) do
+      local destination = node.player:_resolveStep(direction)
+      if destination then
+        local key = destination.fieldX .. ":" .. destination.fieldZ
+        local isWarp = false
+        for _, warp in ipairs(node.player.currentMap.fieldData.events.warps) do
+          if warp.x == destination.fieldX and warp.z == destination.fieldZ then
+            isWarp = true
+            break
+          end
+        end
+        if not seen[key] and (not isWarp or key == targetKey) then
+          seen[key] = true
+          local nextRoute = {}
+          for index, step in ipairs(node.route) do
+            nextRoute[index] = step
+          end
+          nextRoute[#nextRoute + 1] = direction
+          local nextPlayer = copyPlayer(node.player)
+          for key, value in pairs(destination) do
+            nextPlayer[key] = value
+          end
+          queue[#queue + 1] = { player = nextPlayer, route = nextRoute }
+        end
+      end
+    end
+  end
+  assert(route, "no production movement route to " .. targetKey)
+  for _, direction in ipairs(route) do
+    self:_moveOne(direction)
+  end
+  return self:snapshot()
+end
+
+function Game:moveUntilBlocked(direction)
+  local before = self:snapshot()
+  self:_moveOne(direction)
+  local after = self:snapshot()
+  assert(
+    after.player.fieldX == before.player.fieldX and after.player.fieldZ == before.player.fieldZ,
+    "expected production movement to be blocked"
+  )
+  return after
+end
+
+function Game:face(direction)
+  self:advanceUntil("prior movement resolves", function(snapshot)
+    return snapshot.player.motion == "idle"
+  end, 120)
+  self:_moveOne(direction)
+  return self:snapshot()
+end
+
+function Game:waitForTransition()
+  if self.lastTransition then
+    local completed = self.lastTransition
+    self.lastTransition = nil
+    return completed
+  end
+  local source = self:snapshot()
+  self:advanceUntil("transition completes", function(snapshot)
+    return snapshot.mapId ~= source.mapId and snapshot.transition.phase == "idle"
+  end, 120)
+  local destination = self:snapshot()
+  self.lastTransition = nil
+  return { source = source, destination = destination }
+end
+
+function Game:ownership()
+  local runtime = self.runtime
+  local mapProtections = 0
+  for _ in pairs(runtime.mapLoader.protectedMaps) do
+    mapProtections = mapProtections + 1
+  end
+  local activeActorMaps = 0
+  for _ in pairs(runtime.actors.maps) do
+    activeActorMaps = activeActorMaps + 1
+  end
+  return {
+    mapProtections = mapProtections,
+    activeActorMaps = activeActorMaps,
+    sessionReferences = runtime.session and 1 or 0,
+  }
 end
 
 function Game:advanceUntil(label, predicate, maxTicks)
@@ -169,21 +573,97 @@ function Game:renderAttempts()
   return self.trap.attempts
 end
 
+function Game:replay(inputs, options)
+  assert(type(inputs) == "table", "acceptance replay inputs required")
+  options = options or {}
+  local replay = self.harness:boot({
+    versionId = self.versionId,
+    map = options.map or self.map,
+    save = options.save or "fresh",
+  })
+  local ok, result = xpcall(function()
+    for _, input in ipairs(inputs) do
+      if input == "action" then
+        replay:pressAction()
+      else
+        replay:move(input)
+      end
+    end
+    return { trace = replay:trace() }
+  end, debug.traceback)
+  replay:close()
+  if not ok then
+    error(result, 0)
+  end
+  return result
+end
+
+function Game:replaceApplicationState()
+  local replaced = self
+  local previousState = {
+    dispose = function()
+      replaced:_disposeRuntime()
+    end,
+  }
+  local activeState = {}
+  App.setState(previousState)
+  App.setState(activeState)
+  if replaced.disposeErr then
+    error(replaced.disposeErr, 0)
+  end
+
+  local activeLifecycle = { saveWrites = 0, runtimeDisposals = 0 }
+  local ok, runtime = pcall(
+    self.harness._newRuntime,
+    self.harness,
+    self.versionId,
+    self.map,
+    self.saveNamespace,
+    "resume",
+    self.faults,
+    activeLifecycle
+  )
+  if not ok then
+    App.setState(nil)
+    error(runtime, 0)
+  end
+  assert(
+    runtime and runtime.session,
+    "acceptance replacement runtime boot failed: " .. tostring(runtime and runtime.errorText)
+  )
+  local active = gameFor(
+    self.harness,
+    runtime,
+    self.saveNamespace,
+    self.trap,
+    self.versionId,
+    self.map,
+    self.faults,
+    activeLifecycle,
+    false
+  )
+  activeState.dispose = function()
+    active:_disposeRuntime()
+  end
+  App.quit()
+  if active.disposeErr then
+    error(active.disposeErr, 0)
+  end
+  return {
+    replaced = { lifecycle = replaced.lifecycle, saveStatus = replaced.saveStatus },
+    active = { lifecycle = active.lifecycle, saveStatus = active.saveStatus },
+  }
+end
+
 function Game:close()
   if self.closed then
     return
   end
-  if not self.runtimeDisposed then
-    self.runtimeDisposed = true
-    local ok, err = pcall(function()
-      self.runtime:dispose()
-    end)
-    self.trap:restore()
-    if not ok then
-      self.disposeErr = err
-    end
+  self:_disposeRuntime()
+  self.trap:restore()
+  if self.ownsNamespace then
+    self.removeSaveNamespace(self.saveNamespace)
   end
-  self.removeSaveNamespace(self.saveNamespace)
   self.closed = true
   if self.disposeErr then
     error(self.disposeErr, 0)
@@ -210,16 +690,16 @@ function AcceptanceHarness:forEachVersion(fn)
   end
 end
 
+---@return AcceptanceGame
 function AcceptanceHarness:boot(options)
   assert(options and type(options.versionId) == "string", "acceptance boot version required")
   serial = serial + 1
   local namespace = self.saveNamespace(options.versionId, serial)
   local trap = installRenderTrap()
-  local ok, runtime = pcall(self.runtimeFactory, options.versionId, options.map, {
-    saveFs = SaveFs.forVersion(options.versionId, nil, namespace),
-    resumeSave = options.save == "resume",
-    resetSave = options.save == "fresh",
-  })
+  local faults = {}
+  local lifecycle = { saveWrites = 0, runtimeDisposals = 0 }
+  local ok, runtime =
+    pcall(self._newRuntime, self, options.versionId, options.map, namespace, options.save, faults, lifecycle)
   if not ok then
     abortBoot(nil, trap, self.removeSaveNamespace, namespace)
     error(runtime, 0)
@@ -229,13 +709,48 @@ function AcceptanceHarness:boot(options)
     abortBoot(runtime, trap, self.removeSaveNamespace, namespace)
     error("acceptance runtime boot failed: " .. tostring(errorText), 0)
   end
-  return setmetatable({
-    runtime = runtime,
-    saveNamespace = namespace,
-    removeSaveNamespace = self.removeSaveNamespace,
-    trap = trap,
-    timeline = {},
-  }, Game)
+  return gameFor(self, runtime, namespace, trap, options.versionId, options.map, faults, lifecycle, true)
+end
+
+function AcceptanceHarness:bootSelected(options)
+  assert(type(options) == "table" and type(options.versions) == "table", "ready versions required")
+  local selected = FieldBoot.select(options.versions)
+  assert(type(selected) == "string", "multiple ready versions require explicit selection")
+  return self:boot({ versionId = selected, save = options.save, map = options.map })
+end
+
+function AcceptanceHarness:selectVersion(versions)
+  local selection = FieldBoot.select(versions)
+  assert(type(selection) == "table", "multiple ready versions required for selection")
+  local harness = self
+  return {
+    versions = function()
+      return selection:versions()
+    end,
+    choose = function(_, versionId)
+      return harness:boot({ versionId = selection:choose(versionId), save = "fresh" })
+    end,
+  }
+end
+
+function AcceptanceHarness:bootWithCorruptArtifact(versionId, artifact)
+  assert(type(versionId) == "string" and type(artifact) == "string", "version and artifact required")
+  local originalFactory = self.runtimeFactory
+  local disposeCount = 0
+  self.runtimeFactory = function()
+    return {
+      errorText = "required " .. artifact .. " artifact is corrupt",
+      dispose = function()
+        disposeCount = disposeCount + 1
+      end,
+    }
+  end
+  local ok, err = pcall(function()
+    self:boot({ versionId = versionId, save = "fresh" })
+  end)
+  self.runtimeFactory = originalFactory
+  assert(not ok, "corrupt artifact boot must fail")
+  return { error = tostring(err), disposeCount = disposeCount }
 end
 
 return AcceptanceHarness

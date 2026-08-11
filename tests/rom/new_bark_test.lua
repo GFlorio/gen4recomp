@@ -1,4 +1,4 @@
--- Private target test: New Bark Town (map 60) against a real HGSS dump. Proves
+-- ROM-conformance test: New Bark Town (map 60) against a real HGSS dump. Proves
 -- the shared resolution/container pipeline handles the shared EVERYWHERE matrix
 -- and an outdoor area. Runs only in the ROM-gated layer. Asserts semantic
 -- resolution and field-container decoding for the outdoor target.
@@ -47,7 +47,7 @@ local function assertTextureInventory(label, pack, packSize)
 end
 
 -- Locate cell (21,12) by map-header id in the 47x17 shared matrix.
-function T.gate1_semantic_resolution(romFs)
+function T.semantic_resolution(romFs)
   local r = resolve(romFs)
   Assert.equal(r.map.id, 60)
   Assert.equal(r.matrixMemberId, 0)
@@ -63,7 +63,7 @@ function T.gate1_semantic_resolution(romFs)
 end
 
 -- Outdoor area-data member.
-function T.gate2_area_data(romFs)
+function T.area_data(romFs)
   local r = resolve(romFs)
   local narc = assert(romFs:openNarc("area_data"))
   local area = assert(AreaData.decode(assert(narc:readMember(r.areaDataMemberId))))
@@ -75,7 +75,7 @@ function T.gate2_area_data(romFs)
 end
 
 -- Land-data container for the outdoor chunk.
-function T.gate2_land_containers(romFs)
+function T.land_containers(romFs)
   local r = resolve(romFs)
   local narc = assert(romFs:openNarc("land_data"))
   local bytes = assert(narc:readMember(r.landDataMemberId))
@@ -92,29 +92,11 @@ function T.gate2_land_containers(romFs)
   -- Observed permission bytes: only 0x80 hard-blocks; 0, 4, 6 are passable
   -- surface responses.
   Assert.deepEqual(land.permissions:usedPermissionValues(), { 0, 4, 6, 128 })
-  local modelIds = {}
-  for _, b in ipairs(land.buildings) do
-    modelIds[#modelIds + 1] = b.modelMemberId
-  end
-  print(
-    string.format(
-      "  [new_bark] land member %d: bgsPayload=%d permissions=0x%X buildings=%d(%d recs) model=%d bdhc=%d",
-      r.landDataMemberId,
-      #land.bgs.payload,
-      land.sizes.permissions,
-      land.sizes.buildings,
-      #land.buildings,
-      land.sizes.model,
-      land.sizes.bdhc
-    )
-  )
-  print("  [new_bark] placed building model ids: " .. table.concat(modelIds, " "))
-  print("  [new_bark] permission values: " .. table.concat(land.permissions:usedPermissionValues(), " "))
 end
 
 -- The outdoor map/building texture packs inventory cleanly, including
 -- the extra formats (A5I3/A3I5) not present in Elm's Lab.
-function T.gate3_texture_inventory(romFs)
+function T.texture_inventory(romFs)
   local r = resolve(romFs)
   local area = assert(AreaData.decode(assert(romFs:openNarc("area_data")):readMember(r.areaDataMemberId)))
 
@@ -128,7 +110,7 @@ end
 -- The outdoor map model and exterior building models inventory with no
 -- unsupported command, and the New Bark laboratory (BUILD_MODEL_WK_LABO,
 -- member 21) resolves through the exterior archive.
-function T.gate4_geometry_inventory(romFs)
+function T.geometry_inventory(romFs)
   local r = resolve(romFs)
   local land =
     assert(LandData.decode(assert(romFs:openNarc("land_data")):readMember(r.landDataMemberId), { mapId = r.map.id }))
@@ -169,15 +151,6 @@ function T.gate4_geometry_inventory(romFs)
   end
   Assert.notNil(labo, "New Bark should place exterior building model 21")
   Assert.equal(labo.modelName, "wk_labo")
-  print(
-    string.format(
-      "  [new_bark] map model %q: %d shapes, %d verts; lab exterior model 21 = %q",
-      report.mapModel.modelName,
-      report.mapModel.shapeCount,
-      report.mapModel.vertexCount,
-      labo.modelName
-    )
-  )
 end
 
 -- New Bark's outdoor texture pack includes A3I5/A5I3 partial-alpha textures;
@@ -307,7 +280,7 @@ end
 -- 2, origin (672,384)), an outdoor map model with its map texture pack, the lab
 -- exterior model 21 resolved through the outdoor archive, and a consistent lab-
 -- entry anchor. The debug player spawns inside the local 32x32 cell.
-function T.gate9_central_cell_scene(romFs, version)
+function T.central_cell_scene(romFs, version)
   local c = CacheFs.forVersion(version, FakeCache.new())
   local bundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK"))
   MapCacheWriter.write(c, bundle)
@@ -399,7 +372,6 @@ function T.neighbor_ring_plans_and_compiles(romFs)
     Assert.isTrue(#chunk.batches > 0, "neighbor land " .. member .. " has batches")
     Assert.isTrue(next(chunk.meshes) ~= nil, "neighbor land " .. member .. " has meshes")
   end
-  print(string.format("  [new_bark] neighbor ring: %d cells, %d unique chunks", #plan.cells, #plan.uniqueLandMembers))
 end
 
 -- The compiled New Bark bundle carries the digested neighbour ring in
@@ -421,7 +393,6 @@ function T.neighbors_are_digested_into_the_scene(romFs)
       Assert.notNil(bundle.meshes[sha1], "neighbor geometry present in shared mesh pool: " .. sha1)
     end
   end
-  print(string.format("  [new_bark] scene.neighbors: %d cells", #neighbors))
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

@@ -87,6 +87,41 @@ function T.completed_transition_holds_the_arrival_tile_for_autosave()
   Assert.notNil(transition.completed)
 end
 
+function T.script_completion_consumes_its_final_action_edge()
+  local resolved = 0
+  local locked = true
+  local scheduler = {
+    step = function()
+      locked = false
+    end,
+    playerMovementLocked = function()
+      return locked
+    end,
+  }
+  local player = { fieldX = 0, fieldZ = 0, worldX = 0, worldY = 0, worldZ = 0, surfaceId = 0, motion = "idle" }
+  local map = { mapId = 61 } --[[@as any]]
+  local camera = { updateFixed = function() end } --[[@as any]]
+  local interactions = {
+    resolve = function()
+      resolved = resolved + 1
+    end,
+    consume = function()
+      return false
+    end,
+  } --[[@as FieldSession.Interactions]]
+  local s = FieldSession.new({
+    versionId = "heartgold",
+    currentMap = map,
+    actor = player,
+    player = player,
+    camera = camera,
+    scriptScheduler = scheduler,
+    interactions = interactions,
+  })
+  s:updateFixed({ actionPressed = true })
+  Assert.equal(resolved, 0)
+end
+
 function T.the_player_pose_clock_advances_once_per_tick_and_freezes_under_a_transition()
   local steps = 0
   local playerVisual = {

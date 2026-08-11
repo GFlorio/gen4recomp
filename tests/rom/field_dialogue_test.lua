@@ -1,4 +1,4 @@
--- Private target dialogue facts: the real cached font definition and bank
+-- ROM-conformance dialogue facts: the real cached font definition and bank
 -- messages lay out and advance deterministically through the pure dialogue
 -- layers (provider -> format -> layout -> controller) without any LÖVE
 -- graphics. Structural facts only; no retail text is
@@ -134,4 +134,4 @@ function T.target_lines_stay_inside_the_reference_text_width(romFs, version)
   provider:releaseBank(543)
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

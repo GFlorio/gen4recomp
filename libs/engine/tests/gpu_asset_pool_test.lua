@@ -84,6 +84,14 @@ local function fakeGraphics(opts)
   }
 end
 
+function T.rejects_a_missing_graphics_namespace()
+  local err = Assert.throws(function()
+    ---@diagnostic disable: assign-type-mismatch
+    GpuAssetPool.new(fakeCacheFs(), { graphics = false })
+  end)
+  Assert.isTrue(tostring(err):find("GpuAssetPool requires love.graphics", 1, true) ~= nil)
+end
+
 function T.unknown_wrap_modes_are_rejected()
   local pool = GpuAssetPool.new(fakeCacheFs(), { graphics = fakeGraphics() })
   local err = Assert.throws(function()

@@ -11,6 +11,7 @@ local FieldState = require("game.src.game.FieldState")
 local ActorPreviewState = require("game.src.game.ActorPreviewState")
 local ImportState = require("game.src.launcher.ImportState")
 local VersionSelectState = require("game.src.launcher.VersionSelectState")
+local FieldBoot = require("game.src.game.FieldBoot")
 
 local App = {}
 
@@ -123,17 +124,18 @@ end
 -- session, both ready shows a selector, and none ready offers import.
 function App._bootExisting()
   local ready = readyVersions()
-  if #ready == 1 then
-    App.setState(newFieldState(ready[1], nil, true))
+  if #ready == 0 then
+    App._startImport()
     return
   end
-  if #ready >= 2 then
-    App.setState(VersionSelectState.new(ready, function(versionId)
+  local decision = FieldBoot.select(ready)
+  if type(decision) == "string" then
+    App.setState(newFieldState(decision, nil, true))
+  else
+    App.setState(VersionSelectState.new(decision:versions(), function(versionId)
       App.setState(newFieldState(versionId, nil, true))
     end))
-    return
   end
-  App._startImport()
 end
 
 function App.update(dt)

@@ -2,7 +2,7 @@
 -- material/polygon state must be finite and contain no feature the renderer does
 -- not support. Target-agnostic on purpose -- both Elm and New Bark run it, so a
 -- future map that introduces toon/shadow, a local light, or a shininess table
--- fails the private suite here instead of silently mis-rendering.
+-- fails the ROM conformance suite here instead of silently mis-rendering.
 
 local Assert = require("tests.support.Assert")
 

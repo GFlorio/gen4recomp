@@ -6,6 +6,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+scripts/check-repository.sh
+
 for tool in stylua lua-language-server; do
   command -v "$tool" >/dev/null || {
     echo "lint: $tool not found in PATH (see README 'Requirements')" >&2

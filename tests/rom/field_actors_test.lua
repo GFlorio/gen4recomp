@@ -1,4 +1,4 @@
--- Private target test: the field-actor graphics table, resource bundles, and
+-- ROM-conformance test: the field-actor graphics table, resource bundles, and
 -- compiled visuals against a real HGSS dump. It asserts only structural facts --
 -- counts, offsets, member IDs, frame timings, hashes -- and never checks in a
 -- decoded texel. Runs only in the ROM-gated layer.
@@ -188,4 +188,4 @@ function T.compilation_is_deterministic_and_writes_a_ready_cache(romFs, version)
   end
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

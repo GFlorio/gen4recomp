@@ -48,6 +48,13 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field viewportHeight integer?
 ---@field saveFs SaveFs?
 ---@field presentation boolean?
+---@field scriptHosts table? deterministic host boundaries for script effects
+
+---@class FieldRuntimeScriptHosts
+---@field audio table?
+---@field camera table?
+---@field screen table?
+---@field events table?
 
 ---@class FieldRuntime
 ---@field versionId string
@@ -67,6 +74,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field presentation boolean
 ---@field mapDraws table[]
 ---@field buildingDraws table[]
+---@field scriptHosts FieldRuntimeScriptHosts?
 local FieldRuntime = {}
 FieldRuntime.__index = FieldRuntime
 
@@ -165,6 +173,7 @@ function FieldRuntime.new(versionId, idOrSymbol, options)
     viewportHeight = options.viewportHeight or 480,
     saveFs = options.saveFs,
     presentation = options.presentation == true,
+    scriptHosts = options.scriptHosts,
     errorText = nil,
     zoom = FieldZoom.new(options.zoomConfig or FieldPresentation.zoom),
   }, FieldRuntime)
@@ -403,6 +412,10 @@ function FieldRuntime:_load()
       mapLoader = self.mapLoader,
       sourceMap = self.runtimeMap,
       seedText = self.versionId .. ":" .. self.runtimeMap.mapId,
+      audio = self.scriptHosts and self.scriptHosts.audio,
+      camera = self.scriptHosts and self.scriptHosts.camera,
+      screen = self.scriptHosts and self.scriptHosts.screen,
+      events = self.scriptHosts and self.scriptHosts.events,
     })
     if restored and restored.scripts then
       ScriptSave.restore(restored.scripts, self.scripts.scheduler, 0, {
@@ -566,6 +579,8 @@ function FieldRuntime:_swapMap(resolution, facing)
   self.actors:enterMap(runtimeMap, self.eventState)
   if runtimeMap.mapId ~= previousMapId then
     self.actors:leaveMap(previousMapId)
+    self.mapLoader:protectMap(runtimeMap.mapId, true)
+    self.mapLoader:protectMap(previousMapId, false)
   end
 
   self.runtimeMap = runtimeMap

@@ -1,4 +1,4 @@
--- Private target test: Professor Elm's Lab 1F (map 61) against a real HGSS dump.
+-- ROM-conformance test: Professor Elm's Lab 1F (map 61) against a real HGSS dump.
 -- Each function receives the open RomFs. This module is NOT in the public
 -- ordinary unit suite; it runs only in the ROM-gated layer where a dump exists,
 -- and asserts the externally observable resolution and container conditions.
@@ -46,7 +46,7 @@ local function assertTextureInventory(label, pack, packSize)
 end
 
 -- Semantic resolution through the catalog, matrix, and model grid.
-function T.gate1_semantic_resolution(romFs)
+function T.semantic_resolution(romFs)
   local r = resolve(romFs)
   Assert.equal(r.map.id, 61)
   Assert.equal(r.matrixMemberId, 100)
@@ -61,7 +61,7 @@ function T.gate1_semantic_resolution(romFs)
 end
 
 -- Area-data member is exactly 8 bytes and decodes to the indoor pack.
-function T.gate2_area_data(romFs)
+function T.area_data(romFs)
   local r = resolve(romFs)
   local narc = assert(romFs:openNarc("area_data"))
   local area = assert(AreaData.decode(assert(narc:readMember(r.areaDataMemberId))))
@@ -74,7 +74,7 @@ end
 
 -- Land-data container boundaries, BGS, permissions, buildings, model,
 -- BDHC.
-function T.gate2_land_containers(romFs)
+function T.land_containers(romFs)
   local r = resolve(romFs)
   local narc = assert(romFs:openNarc("land_data"))
   local bytes = assert(narc:readMember(r.landDataMemberId))
@@ -90,24 +90,11 @@ function T.gate2_land_containers(romFs)
   -- Observed permission bytes: only 0x80 hard-blocks; 0 and 6 are passable
   -- surface responses, not obstacles.
   Assert.deepEqual(land.permissions:usedPermissionValues(), { 0, 6, 128 })
-  print(
-    string.format(
-      "  [elms_lab] land member %d: bgsPayload=%d permissions=0x%X buildings=%d(%d recs) model=%d bdhc=%d",
-      r.landDataMemberId,
-      #land.bgs.payload,
-      land.sizes.permissions,
-      land.sizes.buildings,
-      #land.buildings,
-      land.sizes.model,
-      land.sizes.bdhc
-    )
-  )
-  print("  [elms_lab] permission values: " .. table.concat(land.permissions:usedPermissionValues(), " "))
 end
 
 -- The map and building texture packs inventory cleanly, and every
 -- material name the map model references resolves to a real texture.
-function T.gate3_texture_inventory(romFs)
+function T.texture_inventory(romFs)
   local r = resolve(romFs)
   local area = assert(AreaData.decode(assert(romFs:openNarc("area_data")):readMember(r.areaDataMemberId)))
 
@@ -131,7 +118,7 @@ end
 -- The map model inventories fully -- counts, SBC/GX opcode coverage,
 -- material associations, and finite bounds for every shape batch -- with no
 -- unsupported command in the Elm target set.
-function T.gate4_geometry_inventory(romFs)
+function T.geometry_inventory(romFs)
   local r = resolve(romFs)
   local land =
     assert(LandData.decode(assert(romFs:openNarc("land_data")):readMember(r.landDataMemberId), { mapId = r.map.id }))
@@ -188,20 +175,11 @@ function T.gate4_geometry_inventory(romFs)
   for _, s in ipairs(report.buildings.modelSummaries) do
     Assert.notNil(s.bounds, "building model " .. s.memberId .. " produced no bounds")
   end
-  print(
-    string.format(
-      "  [elms_lab] map model %q: %d shapes, %d verts, %d placed building models",
-      report.mapModel.modelName,
-      report.mapModel.shapeCount,
-      report.mapModel.vertexCount,
-      #report.buildings.modelIds
-    )
-  )
 end
 
 -- Every parsed material record is structurally valid and
 -- every compiled vertex carries a resolved color source.
-function T.gate6_material_and_vertex_validity(romFs)
+function T.material_and_vertex_validity(romFs)
   local r = resolve(romFs)
   local land =
     assert(LandData.decode(assert(romFs:openNarc("land_data")):readMember(r.landDataMemberId), { mapId = r.map.id }))
@@ -230,7 +208,7 @@ end
 -- The provisional spawn and the exit warp are passable tiles on the real
 -- permission grid: spawn (4,13), one step south onto the warp tile (4,14).
 -- Only the 0x80 hard-block bit blocks; the 32x32 cell is a hard boundary.
-function T.gate7_traversal(romFs)
+function T.traversal(romFs)
   local r = resolve(romFs)
   local land =
     assert(LandData.decode(assert(romFs:openNarc("land_data")):readMember(r.landDataMemberId), { mapId = r.map.id }))
@@ -265,4 +243,4 @@ function T.gate7_traversal(romFs)
   Assert.isFalse(collision:containsLocal(16, -1))
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

@@ -1,4 +1,4 @@
--- Private target facts resolve the compiled Elm/New Bark warp pair all
+-- ROM-conformance facts resolve the compiled Elm/New Bark warp pair all
 -- the way through destination terrain selection without hardcoded endpoints.
 
 local Assert = require("tests.support.Assert")
@@ -35,4 +35,4 @@ function T.elms_lab_and_new_bark_warps_resolve_both_directions(romFs)
   Assert.notNil(maps[61].terrain:plate(inside.surfaceId))
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

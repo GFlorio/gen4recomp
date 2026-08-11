@@ -1,4 +1,4 @@
--- Private target facts against a real HGSS dump: every
+-- ROM-conformance target facts against a real HGSS dump: every
 -- pre-script fixture key resolves to a real object/background event, the
 -- fixture banks agree with the map-header associations, the background
 -- fixture script families match the pinned zone-event JSON, and the
@@ -342,4 +342,4 @@ function T.no_target_map_has_ambiguous_eligible_background_duplicates(romFs)
   end
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

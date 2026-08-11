@@ -1,7 +1,8 @@
-# ROM import & local integration test
+# ROM import and source-ROM test
 
-`scripts/test.sh` is the single test command: its ROM-independent layers are the
-only thing CI runs, and its ROM-gated layers run whenever a dump is ready. This
+`scripts/test.sh` is the single test command: CI runs its required unit,
+component, and graphics layers, while its ROM-gated layers run whenever a dump
+is ready. This
 document covers the **manual, local** path against a real cartridge dump — the
 check that a genuine HeartGold/SoulSilver ROM imports, verifies, and boots from
 cache alone. It is never run in public CI because it needs a legally-obtained ROM
