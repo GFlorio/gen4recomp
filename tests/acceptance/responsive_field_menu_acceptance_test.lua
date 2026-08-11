@@ -83,9 +83,9 @@ local function openMenu(game)
 end
 
 local function selectSecondItem(game)
-  game.runtime.input:pressUi("down", "key:s")
+  game.runtime.input:pressDirection("south", "key:s")
   game:step()
-  game.runtime.input:releaseUi("down", "key:s")
+  game.runtime.input:releaseDirection("key:s")
   game.runtime.input:pressAction("key:return")
   game:step()
   game.runtime.input:releaseAction("key:return")

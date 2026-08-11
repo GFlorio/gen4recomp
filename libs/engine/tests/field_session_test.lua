@@ -252,7 +252,7 @@ function T.modal_menu_routes_ui_events_to_the_script_scheduler()
     scriptScheduler = scheduler,
   })
 
-  input:pressUi("down", "key:s")
+  input:pressDirection("south", "key:s")
   session:updateFixed()
   Assert.equal(received[1].type, "navigate")
 end

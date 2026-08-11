@@ -10,8 +10,8 @@
 -- repeat press from an already-held source produces no new edge.
 
 ---@class FieldInput
----@field held table<string, boolean>
----@field order table<string, integer>
+---@field directions table<string, { sources: table<string, boolean>, order: integer }>
+---@field directionSources table<string, string>
 ---@field nextOrder integer
 ---@field actionSources table<string, boolean>
 ---@field actionDown boolean
@@ -31,7 +31,9 @@
 ---@field uiCancelPressed boolean
 ---@field uiPointerEvents table[]
 ---@field uiPointers table<string, { x: number, y: number, startX: number, startY: number, dragged: boolean }>
----@field uiStickDirections table<string, string?>
+---@field stickDirections table<string, string?>
+---@field stickAxes table<string, { x: number, y: number }>
+---@field uiActive boolean
 ---@field uiStickPressThreshold number
 ---@field uiStickReleaseThreshold number
 ---@field uiTouchDragThreshold number
@@ -40,6 +42,7 @@ FieldInput.__index = FieldInput
 
 local VALID = { north = true, south = true, west = true, east = true }
 local UI_DIRECTIONS = { up = true, down = true, left = true, right = true }
+local TO_UI_DIRECTION = { north = "up", south = "down", west = "left", east = "right" }
 
 ---@param direction string
 local function requireDirection(direction)
@@ -96,8 +99,8 @@ function FieldInput.new(options)
   requireFiniteNumber(uiTouchDragThreshold, "UI touch drag threshold")
   assert(uiTouchDragThreshold >= 0, "UI touch drag threshold must not be negative")
   return setmetatable({
-    held = {},
-    order = {},
+    directions = {},
+    directionSources = {},
     nextOrder = 0,
     actionSources = {},
     actionDown = false,
@@ -111,7 +114,8 @@ function FieldInput.new(options)
     uiRepeatInterval = uiRepeatInterval,
     uiPointerEvents = {},
     uiPointers = {},
-    uiStickDirections = {},
+    stickDirections = {},
+    stickAxes = {},
     uiStickPressThreshold = uiStickPressThreshold,
     uiStickReleaseThreshold = uiStickReleaseThreshold,
     uiTouchDragThreshold = uiTouchDragThreshold,
@@ -119,36 +123,76 @@ function FieldInput.new(options)
 end
 
 ---@param direction string
-function FieldInput:press(direction)
+---@param source string
+function FieldInput:pressDirection(direction, source)
   requireDirection(direction)
-  if self.held[direction] then
+  requireSource(source)
+  local previous = self.directionSources[source]
+  if previous == direction then
     return
   end
+  if previous then
+    self:releaseDirection(source)
+  end
+  self.directionSources[source] = direction
+  local state = self.directions[direction]
+  local wasHeld = state ~= nil
+  if not state then
+    state = { sources = {}, order = 0 }
+    self.directions[direction] = state
+  end
   self.nextOrder = self.nextOrder + 1
-  self.held[direction] = true
-  self.order[direction] = self.nextOrder
-  self.pressedDirection = direction
+  state.sources[source] = true
+  state.order = self.nextOrder
+  if not wasHeld then
+    self.pressedDirection = direction
+  end
+  self:_pressUi(TO_UI_DIRECTION[direction], source)
 end
 
+---@param source string
+function FieldInput:releaseDirection(source)
+  requireSource(source)
+  local direction = self.directionSources[source]
+  if not direction then
+    return
+  end
+  self.directionSources[source] = nil
+  local state = assert(self.directions[direction], "held direction state is missing")
+  state.sources[source] = nil
+  if not next(state.sources) then
+    self.directions[direction] = nil
+  end
+  self:_releaseUi(TO_UI_DIRECTION[direction], source)
+end
+
+-- Non-host runtime helpers retain their simple cardinal API with local source
+-- identities. Hardware callbacks use pressDirection/releaseDirection.
+---@param direction string
+function FieldInput:press(direction)
+  requireDirection(direction)
+  self:pressDirection(direction, "runtime:" .. direction)
+end
+
+---@param direction string
 function FieldInput:release(direction)
   requireDirection(direction)
-  self.held[direction] = nil
-  self.order[direction] = nil
+  self:releaseDirection("runtime:" .. direction)
 end
 
 ---@param direction string
 ---@return boolean
 function FieldInput:isHeld(direction)
   requireDirection(direction)
-  return self.held[direction] == true
+  return self.directions[direction] ~= nil
 end
 
 ---@return string?
 function FieldInput:heldDirection()
   local selected, selectedOrder
-  for direction, order in pairs(self.order) do
-    if not selectedOrder or order > selectedOrder then
-      selected, selectedOrder = direction, order
+  for direction, state in pairs(self.directions) do
+    if not selectedOrder or state.order > selectedOrder then
+      selected, selectedOrder = direction, state.order
     end
   end
   return selected
@@ -207,19 +251,19 @@ function FieldInput:releaseCancel(source)
   end
 end
 
--- Menu navigation has independent physical sources and repeat timing. It is
--- deliberately separate from field movement: a later modal owner decides
--- which snapshot to consume without making UI repeat a script concern.
+-- Menu navigation has independent source tracking and repeat timing. Field
+-- directions are its only production input; a modal owner decides which
+-- snapshot to consume without making UI repeat a script concern.
 
 ---@param direction "up"|"down"|"left"|"right"
 ---@param source string
-function FieldInput:pressUi(direction, source)
+function FieldInput:_pressUi(direction, source)
   requireUiDirection(direction)
   requireSource(source)
   local state = self.uiDirections[direction]
+  local wasHeld = state ~= nil
   if not state then
-    self.uiNextOrder = self.uiNextOrder + 1
-    state = { sources = {}, order = self.uiNextOrder }
+    state = { sources = {}, order = 0 }
     self.uiDirections[direction] = state
   end
   if state.sources[source] then
@@ -228,12 +272,14 @@ function FieldInput:pressUi(direction, source)
   state.sources[source] = true
   self.uiNextOrder = self.uiNextOrder + 1
   state.order = self.uiNextOrder
-  self.uiPressedDirection = direction
+  if not wasHeld then
+    self.uiPressedDirection = direction
+  end
 end
 
 ---@param direction "up"|"down"|"left"|"right"
 ---@param source string
-function FieldInput:releaseUi(direction, source)
+function FieldInput:_releaseUi(direction, source)
   requireUiDirection(direction)
   requireSource(source)
   local state = self.uiDirections[direction]
@@ -260,13 +306,13 @@ end
 ---@param source string
 ---@param x number
 ---@param y number
-function FieldInput:setUiStick(source, x, y)
+function FieldInput:setStick(source, x, y)
   requireSource(source)
   requireFiniteNumber(x, "UI stick x")
   requireFiniteNumber(y, "UI stick y")
   assert(math.abs(x) <= 1 and math.abs(y) <= 1, "UI stick axes must be in [-1, 1]")
 
-  local previous = self.uiStickDirections[source]
+  local previous = self.stickDirections[source]
   local magnitude = previous and self.uiStickReleaseThreshold or self.uiStickPressThreshold
   local direction
   if math.max(math.abs(x), math.abs(y)) >= magnitude then
@@ -280,12 +326,26 @@ function FieldInput:setUiStick(source, x, y)
     return
   end
   if previous then
-    self:releaseUi(previous, "stick:" .. source)
+    self:releaseDirection(source)
   end
-  self.uiStickDirections[source] = direction
+  self.stickDirections[source] = direction
   if direction then
-    self:pressUi(direction, "stick:" .. source)
+    self:pressDirection(({ left = "west", right = "east", up = "north", down = "south" })[direction], source)
   end
+end
+
+---@param source string
+---@param axis "x"|"y"
+---@param value number
+function FieldInput:setStickAxis(source, axis, value)
+  requireSource(source)
+  assert(axis == "x" or axis == "y", "unknown stick axis " .. tostring(axis))
+  requireFiniteNumber(value, "stick axis")
+  assert(math.abs(value) <= 1, "stick axis must be in [-1, 1]")
+  local axes = self.stickAxes[source] or { x = 0, y = 0 }
+  self.stickAxes[source] = axes
+  axes[axis] = value
+  self:setStick(source, axes.x, axes.y)
 end
 
 ---@param pointerId string
@@ -295,6 +355,9 @@ function FieldInput:pointerDown(pointerId, x, y)
   requireSource(pointerId)
   requireFiniteNumber(x, "pointer x")
   requireFiniteNumber(y, "pointer y")
+  if not self.uiActive then
+    return
+  end
   self.uiPointers[pointerId] = { x = x, y = y, startX = x, startY = y, dragged = false }
   self.uiPointerEvents[#self.uiPointerEvents + 1] = { type = "pointer_down", pointerId = pointerId, x = x, y = y }
 end
@@ -306,6 +369,9 @@ function FieldInput:pointerMove(pointerId, x, y)
   requireSource(pointerId)
   requireFiniteNumber(x, "pointer x")
   requireFiniteNumber(y, "pointer y")
+  if not self.uiActive then
+    return
+  end
   local pointer = self.uiPointers[pointerId]
   if pointer then
     pointer.x, pointer.y = x, y
@@ -324,6 +390,9 @@ function FieldInput:pointerUp(pointerId, x, y)
   requireSource(pointerId)
   requireFiniteNumber(x, "pointer x")
   requireFiniteNumber(y, "pointer y")
+  if not self.uiActive then
+    return
+  end
   local pointer = self.uiPointers[pointerId]
   if not pointer then
     return
@@ -349,7 +418,10 @@ function FieldInput:pointerScroll(pointerId, dx, dy)
   requireSource(pointerId)
   requireFiniteNumber(dx, "pointer scroll x")
   requireFiniteNumber(dy, "pointer scroll y")
-  self.uiPointerEvents[#self.uiPointerEvents + 1] = { type = "pointer_scroll", pointerId = pointerId, dx = dx, dy = dy }
+  if self.uiActive then
+    self.uiPointerEvents[#self.uiPointerEvents + 1] =
+      { type = "pointer_scroll", pointerId = pointerId, dx = dx, dy = dy }
+  end
 end
 
 -- Begins a modal UI lifetime without treating an already-held control as an
@@ -364,6 +436,7 @@ function FieldInput:beginUi(tick)
   self.uiCancelPressed = nil
   self.uiPointerEvents = {}
   self.uiPointers = {}
+  self.uiActive = true
   self.uiRepeatStartedAt = tick
   self.uiRepeatLastAt = nil
 end
@@ -419,6 +492,7 @@ function FieldInput:clearUi()
   self.uiCancelPressed = nil
   self.uiPointerEvents = {}
   self.uiPointers = {}
+  self.uiActive = false
 end
 
 -- Snapshot consumes every edge exactly once per fixed tick; held state is
@@ -459,15 +533,16 @@ end
 -- button.
 function FieldInput:clearAll()
   self:clearEdges()
-  self.held = {}
-  self.order = {}
+  self.directions = {}
+  self.directionSources = {}
   self.actionSources = {}
   self.actionDown = false
   self.cancelSources = {}
   self.cancelDown = false
   self.uiDirections = {}
   self:clearUi()
-  self.uiStickDirections = {}
+  self.stickDirections = {}
+  self.stickAxes = {}
 end
 
 -- One fixed-tick snapshot: held directions/buttons plus the consumed edges.

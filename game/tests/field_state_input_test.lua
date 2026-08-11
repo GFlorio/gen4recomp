@@ -1,5 +1,5 @@
--- FieldState translates physical LÖVE events into FieldInput's menu-neutral
--- UI events while retaining the legacy field controls.
+-- FieldState translates every physical direction into FieldInput's single
+-- source-aware cardinal input path.
 
 local Assert = require("tests.support.Assert")
 local FieldState = require("game.src.game.FieldState")
@@ -9,11 +9,9 @@ local T = {}
 local function stateWithInput(calls)
   local input = {}
   for _, name in ipairs({
-    "press",
-    "release",
-    "pressUi",
-    "releaseUi",
-    "setUiStick",
+    "pressDirection",
+    "releaseDirection",
+    "setStickAxis",
     "pointerDown",
     "pointerMove",
     "pointerUp",
@@ -23,7 +21,7 @@ local function stateWithInput(calls)
       calls[#calls + 1] = { name, ... }
     end
   end
-  return setmetatable({ input = input, heldDirectionKeys = {} }, FieldState)
+  return setmetatable({ input = input }, FieldState)
 end
 
 local joystick = {
@@ -51,14 +49,12 @@ function T.keyboard_dpad_stick_and_pointer_events_reach_the_unified_input()
   state:touchreleased(9, 5, 6)
 
   Assert.deepEqual(calls, {
-    { "press", "south" },
-    { "pressUi", "down", "key:down" },
-    { "release", "south" },
-    { "releaseUi", "down", "key:down" },
-    { "pressUi", "up", "gamepad:7:dpup" },
-    { "releaseUi", "up", "gamepad:7:dpup" },
-    { "setUiStick", "gamepad:7:left", -0.75, 0 },
-    { "setUiStick", "gamepad:7:left", -0.75, 0.25 },
+    { "pressDirection", "south", "key:down" },
+    { "releaseDirection", "key:down" },
+    { "pressDirection", "north", "gamepad:7:dpup" },
+    { "releaseDirection", "gamepad:7:dpup" },
+    { "setStickAxis", "gamepad:7:left", "x", -0.75 },
+    { "setStickAxis", "gamepad:7:left", "y", 0.25 },
     { "pointerDown", "mouse:1", 12, 34 },
     { "pointerMove", "mouse:1", 15, 36 },
     { "pointerUp", "mouse:1", 15, 36 },
@@ -80,7 +76,7 @@ function T.only_the_primary_mouse_button_drives_menu_pointer_activation()
   Assert.deepEqual(calls, {})
 end
 
-function T.releasing_one_of_two_keys_for_the_same_ui_direction_releases_its_own_source()
+function T.releasing_one_of_two_keys_for_the_same_direction_releases_its_own_source()
   local calls = {}
   local state = stateWithInput(calls)
 
@@ -89,11 +85,9 @@ function T.releasing_one_of_two_keys_for_the_same_ui_direction_releases_its_own_
   state:keyreleased("w")
 
   Assert.deepEqual(calls, {
-    { "press", "north" },
-    { "pressUi", "up", "key:w" },
-    { "press", "north" },
-    { "pressUi", "up", "key:up" },
-    { "releaseUi", "up", "key:w" },
+    { "pressDirection", "north", "key:w" },
+    { "pressDirection", "north", "key:up" },
+    { "releaseDirection", "key:w" },
   })
 end
 

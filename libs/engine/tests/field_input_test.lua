@@ -10,6 +10,57 @@ local FieldInput = require("libs.engine.src.FieldInput")
 
 local T = {}
 
+function T.physical_direction_sources_drive_field_and_ui_from_one_state_machine()
+  local input = FieldInput.new()
+  input:beginUi(0)
+
+  input:pressDirection("north", "key:w")
+  input:pressDirection("north", "gamepad:7:dpup")
+  input:setStick("gamepad:7:left", 0, -0.75)
+
+  Assert.deepEqual(
+    input:snapshot(),
+    { heldDirection = "north", pressedDirection = "north", actionDown = false, cancelDown = false }
+  )
+  Assert.deepEqual(input:uiSnapshot(0), { { type = "navigate", direction = "up" } })
+
+  input:releaseDirection("key:w")
+  input:releaseDirection("gamepad:7:dpup")
+  Assert.deepEqual(input:snapshot(), { heldDirection = "north", actionDown = false, cancelDown = false })
+  input:setStick("gamepad:7:left", 0, -0.3)
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false })
+end
+
+function T.additional_sources_for_a_held_direction_do_not_repeat_ui_navigation()
+  local input = FieldInput.new()
+  input:beginUi(0)
+
+  input:pressDirection("north", "key:w")
+  Assert.deepEqual(input:uiSnapshot(0), { { type = "navigate", direction = "up" } })
+
+  input:pressDirection("north", "gamepad:7:dpup")
+  Assert.deepEqual(input:uiSnapshot(1), {})
+end
+
+function T.pointer_events_exist_only_during_an_active_ui_lifetime()
+  local input = FieldInput.new()
+  input:pointerMove("mouse:1", 1, 1)
+  input:pointerScroll("mouse", 0, -1)
+  Assert.deepEqual(input:uiSnapshot(0), {})
+
+  input:beginUi(1)
+  input:pointerMove("mouse:1", 2, 2)
+  input:pointerScroll("mouse", 0, -1)
+  Assert.deepEqual(input:uiSnapshot(1), {
+    { type = "pointer_move", pointerId = "mouse:1", x = 2, y = 2 },
+    { type = "pointer_scroll", pointerId = "mouse", dx = 0, dy = -1 },
+  })
+
+  input:clearUi()
+  input:pointerMove("mouse:1", 3, 3)
+  Assert.deepEqual(input:uiSnapshot(2), {})
+end
+
 function T.latest_press_wins_until_released()
   local input = FieldInput.new()
   input:press("north")
@@ -275,7 +326,7 @@ end
 
 function T.ui_snapshot_normalizes_navigation_buttons_and_key_repeat()
   local input = FieldInput.new({ uiRepeatDelay = 3, uiRepeatInterval = 2 })
-  input:pressUi("down", "key:down")
+  input:pressDirection("south", "key:down")
   input:pressAction("key:z")
   input:pressCancel("key:x")
 
@@ -293,42 +344,34 @@ end
 
 function T.ui_stick_uses_hysteresis_and_modal_open_flushes_held_input()
   local input = FieldInput.new({ uiRepeatDelay = 3, uiRepeatInterval = 1 })
-  input:setUiStick("gamepad:4:left", -0.7, 0)
+  input:setStick("gamepad:4:left", -0.7, 0)
   Assert.deepEqual(input:uiSnapshot(0), { { type = "navigate", direction = "left" } })
-  input:setUiStick("gamepad:4:left", -0.5, 0)
+  input:setStick("gamepad:4:left", -0.5, 0)
   Assert.deepEqual(input:uiSnapshot(1), {})
-  input:setUiStick("gamepad:4:left", -0.3, 0)
+  input:setStick("gamepad:4:left", -0.3, 0)
   Assert.deepEqual(input:uiSnapshot(2), {})
 
-  input:setUiStick("gamepad:4:left", 0.7, 0)
+  input:setStick("gamepad:4:left", 0.7, 0)
   input:beginUi(10)
   Assert.deepEqual(input:uiSnapshot(10), {})
   Assert.deepEqual(input:uiSnapshot(12), {})
   Assert.deepEqual(input:uiSnapshot(13), { { type = "navigate", direction = "right" } })
 end
 
-function T.modal_open_discards_in_progress_pointer_presses()
-  local input = FieldInput.new()
-  input:pointerDown("touch:1", 10, 10)
-  input:beginUi(4)
-  input:pointerUp("touch:1", 10, 10)
-
-  Assert.deepEqual(input:uiSnapshot(4), {})
-end
-
 function T.releasing_an_inactive_direction_does_not_reset_active_direction_repeat()
   local input = FieldInput.new({ uiRepeatDelay = 3, uiRepeatInterval = 1 })
-  input:pressUi("up", "key:up")
+  input:pressDirection("north", "key:up")
   input:uiSnapshot(0)
-  input:pressUi("right", "key:right")
+  input:pressDirection("east", "key:right")
   input:uiSnapshot(1)
-  input:releaseUi("up", "key:up")
+  input:releaseDirection("key:up")
 
   Assert.deepEqual(input:uiSnapshot(4), { { type = "navigate", direction = "right" } })
 end
 
 function T.ui_pointer_events_preserve_touch_drag_discrimination()
   local input = FieldInput.new({ touchDragThreshold = 5 })
+  input:beginUi(0)
   input:pointerDown("touch:1", 10, 10)
   input:pointerMove("touch:1", 13, 14)
   input:pointerUp("touch:1", 13, 14)
@@ -354,6 +397,7 @@ end
 
 function T.ui_pointer_state_and_queued_events_clear_on_focus_loss()
   local input = FieldInput.new()
+  input:beginUi(0)
   input:pointerDown("touch:1", 1, 1)
   input:clearAll()
   input:pointerUp("touch:1", 1, 1)
@@ -363,7 +407,8 @@ end
 function T.clear_ui_flushes_modal_events_without_releasing_field_controls()
   local input = FieldInput.new()
   input:press("north")
-  input:pressUi("up", "key:up")
+  input:pressDirection("north", "key:up")
+  input:beginUi(0)
   input:pointerDown("touch:1", 1, 1)
   input:clearUi()
   input:pointerUp("touch:1", 1, 1)

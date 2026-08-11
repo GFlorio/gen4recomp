@@ -11,8 +11,7 @@ local SceneAssembly = require("libs.engine.src.SceneAssembly")
 
 local KEY_DIRECTIONS =
   { w = "north", up = "north", s = "south", down = "south", a = "west", left = "west", d = "east", right = "east" }
-local UI_DIRECTIONS = { north = "up", south = "down", west = "left", east = "right" }
-local GAMEPAD_UI_DIRECTIONS = { dpup = "up", dpdown = "down", dpleft = "left", dpright = "right" }
+local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", dpright = "east" }
 
 ---@class FieldStateOptions
 ---@field resumeSave boolean?
@@ -43,8 +42,6 @@ local GAMEPAD_UI_DIRECTIONS = { dpup = "up", dpdown = "down", dpleft = "left", d
 ---@field cancelKeys table<string, boolean>?
 ---@field input any
 ---@field zoom any
----@field heldDirectionKeys table<string, string>?
----@field uiStickAxes table<string, { x: number, y: number }>?
 ---@field player FieldPlayer? forwarded from the runtime
 ---@field development boolean product mode (default) hides the playtest HUD and ignores the F1/F2 developer binds
 local FieldState = {}
@@ -244,9 +241,7 @@ function FieldState:keypressed(key, scancode, isrepeat)
   end
   local direction = KEY_DIRECTIONS[key]
   if direction and self.input then
-    self.heldDirectionKeys[key] = direction
-    self.input:press(direction)
-    self.input:pressUi(UI_DIRECTIONS[direction], "key:" .. key)
+    self.input:pressDirection(direction, "key:" .. key)
   end
 end
 
@@ -261,19 +256,10 @@ function FieldState:keyreleased(key, scancode)
     self.input:releaseCancel("key:" .. key)
     return
   end
-  local direction = self.heldDirectionKeys and self.heldDirectionKeys[key]
-  if not direction or not self.input then
+  if not KEY_DIRECTIONS[key] or not self.input then
     return
   end
-  self.heldDirectionKeys[key] = nil
-  for _, heldDirection in pairs(self.heldDirectionKeys) do
-    if heldDirection == direction then
-      self.input:releaseUi(UI_DIRECTIONS[direction], "key:" .. key)
-      return
-    end
-  end
-  self.input:release(direction)
-  self.input:releaseUi(UI_DIRECTIONS[direction], "key:" .. key)
+  self.input:releaseDirection("key:" .. key)
 end
 
 -- Focus loss clears held and edge state so a blurred window cannot feed a
@@ -301,9 +287,9 @@ function FieldState:gamepadpressed(joystick, button)
   if button == "b" then
     self.input:pressCancel(source)
   end
-  local direction = GAMEPAD_UI_DIRECTIONS[button]
+  local direction = GAMEPAD_DIRECTIONS[button]
   if direction then
-    self.input:pressUi(direction, source)
+    self.input:pressDirection(direction, source)
   end
 end
 
@@ -320,14 +306,14 @@ function FieldState:gamepadreleased(joystick, button)
   if button == "b" then
     self.input:releaseCancel(source)
   end
-  local direction = GAMEPAD_UI_DIRECTIONS[button]
+  local direction = GAMEPAD_DIRECTIONS[button]
   if direction then
-    self.input:releaseUi(direction, source)
+    self.input:releaseDirection(source)
   end
 end
 
--- The left stick is kept as a paired axis so FieldInput can apply its own
--- hysteresis consistently across horizontal and vertical event ordering.
+-- FieldInput owns the paired-axis cache and hysteresis so all physical
+-- directions enter the same source-aware state machine.
 ---@param joystick love.Joystick
 ---@param axis string
 ---@param value number
@@ -336,11 +322,7 @@ function FieldState:gamepadaxis(joystick, axis, value)
     return
   end
   local source = "gamepad:" .. joystick:getID() .. ":left"
-  self.uiStickAxes = self.uiStickAxes or {}
-  local axes = self.uiStickAxes[source] or { x = 0, y = 0 }
-  self.uiStickAxes[source] = axes
-  axes[axis == "leftx" and "x" or "y"] = value
-  self.input:setUiStick(source, axes.x, axes.y)
+  self.input:setStickAxis(source, axis == "leftx" and "x" or "y", value)
 end
 
 ---@param x number

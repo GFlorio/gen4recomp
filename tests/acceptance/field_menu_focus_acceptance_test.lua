@@ -4,6 +4,7 @@
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
+local FieldState = require("game.src.game.FieldState")
 
 local T = {
   metadata = {
@@ -19,6 +20,19 @@ local T = {
 -- initial row and the source-message id.
 local VANILLA_MENU = "vanilla.hgss.scr_seq.0003.script_056"
 local SPECIAL_RESULT = 32780
+
+local joystick = {
+  getID = function()
+    return 1
+  end,
+}
+
+-- Acceptance owns the non-rendering runtime, while this thin host adapter
+-- invokes the same FieldState callbacks that LÖVE dispatches in production.
+-- It deliberately has no synthetic input behavior of its own.
+local function hostCallbacks(game)
+  return setmetatable({ input = game.runtime.input }, FieldState)
+end
 
 local function withGame(fn)
   local game = AcceptanceHarness.new():boot({ versionId = "heartgold", save = "fresh" })
@@ -47,10 +61,10 @@ local function pressConfirm(game, source)
   game.runtime.input:releaseAction(source)
 end
 
-local function pressUi(game, direction, source)
-  game.runtime.input:pressUi(direction, source)
+local function pressKey(game, state, key)
+  state:keypressed(key)
   game:step()
-  game.runtime.input:releaseUi(direction, source)
+  state:keyreleased(key)
 end
 
 local function itemCenter(snapshot, itemIndex)
@@ -61,13 +75,14 @@ end
 
 local function selectSecondItem(game, modality)
   local opened = openVanillaMenu(game)
+  local state = hostCallbacks(game)
   if modality == "keyboard" then
-    pressUi(game, "down", "key:s")
+    pressKey(game, state, "s")
     pressConfirm(game, "key:return")
   elseif modality == "gamepad" then
-    game.runtime.input:setUiStick("gamepad:1:left", 0, 1)
+    state:gamepadpressed(joystick, "dpdown")
     game:step()
-    game.runtime.input:setUiStick("gamepad:1:left", 0, 0)
+    state:gamepadreleased(joystick, "dpdown")
     pressConfirm(game, "gamepad:1:a")
   elseif modality == "mouse" then
     local x, y = itemCenter(opened, 1)
@@ -88,6 +103,34 @@ local function selectSecondItem(game, modality)
     return snapshot.menu ~= nil and not snapshot.menu.modal
   end, 120)
   return game.runtime.scripts.worldState:getVar(SPECIAL_RESULT)
+end
+
+-- D5-FIELD-01: D-pad input enters through the LÖVE host callback but must
+-- move the same real player as keyboard input when no modal owner consumes it.
+function T.tests.dpad_callback_moves_the_production_field_player()
+  withGame(function(game)
+    game:face("east")
+    local state = hostCallbacks(game)
+    state:gamepadpressed(joystick, "dpup")
+    game:step()
+    state:gamepadreleased(joystick, "dpup")
+
+    Assert.equal(game:snapshot().player.facing, "north", "D-pad Up must reach field movement")
+  end)
+end
+
+-- D5-FIELD-02: the left stick has the identical field contract through its
+-- paired-axis host callback, including when only its vertical axis changes.
+function T.tests.left_stick_callback_moves_the_production_field_player()
+  withGame(function(game)
+    game:face("east")
+    local state = hostCallbacks(game)
+    state:gamepadaxis(joystick, "lefty", -0.75)
+    game:step()
+    state:gamepadaxis(joystick, "lefty", 0)
+
+    Assert.equal(game:snapshot().player.facing, "north", "left stick Up must reach field movement")
+  end)
 end
 
 -- FM-12-01: every physical modality must reach the same controller and write
