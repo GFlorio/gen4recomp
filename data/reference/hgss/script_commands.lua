@@ -4819,6 +4819,7 @@ return {
       },
     },
     [749] = {
+      classification = "yield_next_tick",
       name = "ScrCmd_MenuInitStdGmm",
       widths = {
         [1] = 1,
@@ -4829,6 +4830,7 @@ return {
       },
     },
     [750] = {
+      classification = "yield_next_tick",
       name = "ScrCmd_MenuInit",
       widths = {
         [1] = 1,
@@ -4839,6 +4841,7 @@ return {
       },
     },
     [751] = {
+      classification = "continue_same_tick",
       name = "ScrCmd_MenuItemAdd",
       widths = {
         [1] = 2,
@@ -4847,6 +4850,7 @@ return {
       },
     },
     [752] = {
+      classification = "native_wait",
       name = "ScrCmd_MenuExec",
       widths = {},
     },

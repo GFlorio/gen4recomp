@@ -399,6 +399,25 @@ Schema.OPERATIONS = {
       bindings = { type = "bindings", default = {} },
     },
   },
+  -- Generated/advanced HGSS menu-builder operations. Handwritten scripts
+  -- should use `choose` once the public semantic API lands.
+  menu_begin = {
+    fields = {
+      messageSource = { type = "serializable", required = true },
+      sourcePlacement = { type = "serializable", required = true },
+      initialCursor = { type = "integer", required = true },
+      cancellable = { type = "boolean", required = true },
+      result = { type = "value", required = true },
+    },
+  },
+  menu_add = {
+    fields = {
+      messageId = { type = "scalar_or_value", required = true },
+      vanillaMetadata = { type = "scalar_or_value", required = true },
+      value = { type = "scalar_or_value", required = true },
+    },
+  },
+  menu_exec = { fields = {} },
   buffer_text = {
     fields = {
       slot = { type = "buffer_slot", required = true },

@@ -46,13 +46,15 @@ end
 ---@param member integer
 ---@param sourcePath string
 ---@param sourceHash string|nil
+---@param messageBank integer|nil
 ---@return table
-function RawIr.member(member, sourcePath, sourceHash)
+function RawIr.member(member, sourcePath, sourceHash, messageBank)
   return {
     schema = RawIr.SCHEMA_NAME,
     member = member,
     sourcePath = sourcePath,
     sourceHash = sourceHash,
+    messageBank = messageBank,
     scripts = {},
     movements = {},
   }

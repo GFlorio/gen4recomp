@@ -317,10 +317,10 @@ T["emitted steps keep provenance"] = function()
   end
 end
 
--- 11. Touchscreen visibility commands lower to their own semantic operations.
--- The later menu-builder commands remain explicit unsupported nodes and retain
--- every raw operand for their later deliverables.
-T["field menu visibility commands lower while later commands retain operands"] = function()
+-- 11. The touchscreen visibility and list-menu builder commands lower to
+-- their own semantic operations. ScriptGetVar operands and both menu-message
+-- source forms remain exact; only the sibling unsupported command retains raw operands.
+T["field menu visibility and builder operations lower with exact semantics"] = function()
   local bytes = ScriptFixture.member({
     scripts = {
       {
@@ -369,19 +369,44 @@ T["field menu visibility commands lower while later commands retain operands"] =
   Assert.isFalse(lowered.items[1].visible)
   Assert.equal(lowered.items[2].op, "set_auxiliary_ui_visible")
   Assert.isTrue(lowered.items[2].visible)
-  Assert.equal(#lowered.unsupported, 5)
+  Assert.equal(#lowered.unsupported, 1)
   local expectedArguments = {
     { "VAR_0x4001" },
-    { 17, 5, 2, 1, "VAR_0x4002" },
-    { 9, 8, 7, 0, "VAR_0x4003" },
-    { "VAR_0x4004", 0x00FF, "VAR_0x8005" },
-    {},
   }
   for index, arguments in ipairs(expectedArguments) do
     local step = lowered.unsupported[index]
     Assert.equal(step.command, 747 + index)
     Assert.deepEqual(step.arguments, arguments)
   end
+  Assert.deepEqual(lowered.items[4], {
+    op = "menu_begin",
+    messageSource = "standard",
+    sourcePlacement = { system = "hgss_bottom_screen_tiles", x = 17, y = 5 },
+    initialCursor = 2,
+    cancellable = true,
+    result = { value = "var", id = "VAR_0x4002" },
+    provenance = { offsets = { 40 }, opcodes = { 749 } },
+  })
+  Assert.deepEqual(lowered.items[5], {
+    op = "menu_begin",
+    messageSource = { kind = "script", bank = 543 },
+    sourcePlacement = { system = "hgss_bottom_screen_tiles", x = 9, y = 8 },
+    initialCursor = 7,
+    cancellable = false,
+    result = { value = "var", id = "VAR_0x4003" },
+    provenance = { offsets = { 48 }, opcodes = { 750 } },
+  })
+  Assert.deepEqual(lowered.items[6], {
+    op = "menu_add",
+    messageId = { value = "var", id = "VAR_0x4004" },
+    vanillaMetadata = 0x00FF,
+    value = { value = "var", id = "VAR_0x8005" },
+    provenance = { offsets = { 56 }, opcodes = { 751 } },
+  })
+  Assert.deepEqual(lowered.items[7], {
+    op = "menu_exec",
+    provenance = { offsets = { 64 }, opcodes = { 752 } },
+  })
 end
 
 return T

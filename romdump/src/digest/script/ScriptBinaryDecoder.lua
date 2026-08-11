@@ -210,7 +210,7 @@ function ScriptBinaryDecoder.parseMember(bytes, member, sourcePath, opts)
   if #entries == 0 then
     return nil
   end
-  local out = RawIr.member(member, sourcePath, nil)
+  local out = RawIr.member(member, sourcePath, nil, opts.msgBank)
   local scriptStarts = {}
   for index, entry in ipairs(entries) do
     scriptStarts[entry.label] = index - 1

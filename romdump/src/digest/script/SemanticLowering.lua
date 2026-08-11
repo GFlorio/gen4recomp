@@ -661,6 +661,46 @@ local HANDLERS = {
       waitForPrint = true,
     }
   end,
+  [749] = function(ins)
+    return {
+      op = "menu_begin",
+      messageSource = "standard",
+      sourcePlacement = {
+        system = "hgss_bottom_screen_tiles",
+        x = operandValue(ins.operands[1]),
+        y = operandValue(ins.operands[2]),
+      },
+      initialCursor = operandValue(ins.operands[3]),
+      cancellable = operandValue(ins.operands[4]) ~= 0,
+      result = varRef(ins.operands[5]),
+    }
+  end,
+  [750] = function(ins, memberIr)
+    assert(memberIr.messageBank ~= nil, "script menu requires a current script message bank")
+    return {
+      op = "menu_begin",
+      messageSource = { kind = "script", bank = memberIr.messageBank },
+      sourcePlacement = {
+        system = "hgss_bottom_screen_tiles",
+        x = operandValue(ins.operands[1]),
+        y = operandValue(ins.operands[2]),
+      },
+      initialCursor = operandValue(ins.operands[3]),
+      cancellable = operandValue(ins.operands[4]) ~= 0,
+      result = varRef(ins.operands[5]),
+    }
+  end,
+  [751] = function(ins)
+    return {
+      op = "menu_add",
+      messageId = varRef(ins.operands[1]),
+      vanillaMetadata = varRef(ins.operands[2]),
+      value = varRef(ins.operands[3]),
+    }
+  end,
+  [752] = function()
+    return { op = "menu_exec" }
+  end,
   [581] = function(ins)
     return { op = "lock_actor", actor = { ref = "actor", special = "last_talked" }, waitUntilPausable = true }
   end,

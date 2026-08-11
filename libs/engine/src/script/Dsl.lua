@@ -472,6 +472,20 @@ function M.getPlayerFacing(spec)
   return op("get_player_facing", spec)
 end
 
+-- Generated/advanced source-faithful menu builder forms. These deliberately
+-- mirror the imported HGSS operations; semantic `choose` is added separately.
+function M.menuBegin(spec)
+  return op("menu_begin", spec)
+end
+
+function M.menuAdd(spec)
+  return op("menu_add", spec)
+end
+
+function M.menuExec(spec)
+  return op("menu_exec", spec)
+end
+
 -- Movement constructors (spec-table forms)
 
 function M.applyMovement(spec)

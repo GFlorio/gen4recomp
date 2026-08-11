@@ -785,6 +785,35 @@ No fields.
 | `provenance` | source_provenance |  |  |
 | `result` | value |  |  |
 
+### `menu_add`
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `messageId` | scalar_or_value | yes |  |
+| `provenance` | source_provenance |  |  |
+| `value` | scalar_or_value | yes |  |
+| `vanillaMetadata` | scalar_or_value | yes |  |
+
+### `menu_begin`
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `cancellable` | boolean | yes |  |
+| `initialCursor` | integer | yes |  |
+| `key` | string |  |  |
+| `messageSource` | serializable | yes |  |
+| `provenance` | source_provenance |  |  |
+| `result` | value | yes |  |
+| `sourcePlacement` | serializable | yes |  |
+
+### `menu_exec`
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
+
 ### `message`
 
 | Field | Type | Required | Default |

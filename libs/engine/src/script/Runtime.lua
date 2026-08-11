@@ -307,16 +307,29 @@ local function requireForegroundPlayer(run, actorId)
   end
 end
 
+local function requireScriptMenu(run)
+  local host = run.services.scriptMenu
+  if host == nil then
+    Errors.raise(
+      ScriptErrors.SCRIPT_SERVICE_MISSING,
+      "scriptMenu service is unavailable",
+      { scriptId = run.instance.scriptId }
+    )
+  end
+  return host
+end
+
 -- Create a blocking task through the scheduler and return the block outcome.
 -- The blocking node's `result` ref (ask_yes_no, lua) rides along so the
 -- scheduler can write the completed task result on continuation.
 ---@param run table
 ---@param taskType string
 ---@param spec table
-local function blockOnTask(run, taskType, spec)
+---@param resultRef table|nil
+local function blockOnTask(run, taskType, spec, resultRef)
   local taskId = run.scheduler:createTask(taskType, spec, run.instance, run.tick, run.input)
   run.blockTaskId = taskId
-  run.blockResultRef = run.node and run.node.result or nil
+  run.blockResultRef = resultRef or (run.node and run.node.result or nil)
   return Runtime.OUTCOME_BLOCK
 end
 
@@ -940,6 +953,32 @@ end
 HANDLERS.ask_yes_no = function(node, run)
   requireForeground(run, "ask_yes_no")
   return blockOnTask(run, "ask_yes_no", { node = node })
+end
+HANDLERS.menu_begin = function(node, run)
+  requireForeground(run, "menu_begin")
+  requireScriptMenu(run):beginMenu({
+    messageSource = node.messageSource,
+    sourcePlacement = node.sourcePlacement,
+    initialCursor = node.initialCursor,
+    cancellable = node.cancellable,
+    result = node.result,
+  })
+  return Runtime.OUTCOME_YIELD_TICK
+end
+HANDLERS.menu_add = function(node, run)
+  requireForeground(run, "menu_add")
+  requireScriptMenu(run):addItem({
+    messageId = Runtime.evaluateValue(node.messageId, run),
+    vanillaMetadata = Runtime.evaluateValue(node.vanillaMetadata, run),
+    value = Runtime.evaluateValue(node.value, run),
+  })
+  return Runtime.OUTCOME_CONTINUE
+end
+HANDLERS.menu_exec = function(_, run)
+  requireForeground(run, "menu_exec")
+  local request = requireScriptMenu(run):execute()
+  assert(type(request) == "table" and type(request.items) == "table", "script menu host returned an invalid request")
+  return blockOnTask(run, "menu", { menu = request }, request.result)
 end
 HANDLERS.wait_movement = function(node, run)
   return blockOnTask(run, "movement_barrier", { node = node })

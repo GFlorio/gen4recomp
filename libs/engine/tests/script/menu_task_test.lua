@@ -54,10 +54,42 @@ local TestRaw = {
   end,
 }
 
+local RecordingScriptMenuHost = {}
+RecordingScriptMenuHost.__index = RecordingScriptMenuHost
+
+function RecordingScriptMenuHost.new()
+  return setmetatable({ builder = nil, requests = {} }, RecordingScriptMenuHost)
+end
+
+function RecordingScriptMenuHost:beginMenu(spec)
+  assert(self.builder == nil, "test menu builder is already active")
+  self.builder = {
+    messageSource = spec.messageSource,
+    sourcePlacement = spec.sourcePlacement,
+    initialCursor = spec.initialCursor,
+    cancellable = spec.cancellable,
+    result = spec.result,
+    items = {},
+  }
+end
+
+function RecordingScriptMenuHost:addItem(item)
+  self.builder.items[#self.builder.items + 1] = item
+end
+
+function RecordingScriptMenuHost:execute()
+  local request = self.builder
+  self.builder = nil
+  self.requests[#self.requests + 1] = request
+  return request
+end
+
 local function harness()
   local services = FakeServices.new()
   local host = RecordingMenuHost.new()
+  local scriptMenu = RecordingScriptMenuHost.new()
   services.menu = host
+  services.scriptMenu = scriptMenu
   local registry = Registry.new()
   local composition = Composition.new(registry)
   local taskRegistry = TaskRegistry.new()
@@ -75,11 +107,60 @@ local function harness()
   return {
     services = services,
     host = host,
+    scriptMenu = scriptMenu,
     registry = registry,
     composition = composition,
     taskRegistry = taskRegistry,
     scheduler = scheduler,
   }
+end
+
+function T.menu_builder_operations_yield_add_same_tick_and_block_for_the_script_result()
+  local h = harness()
+  local script = S.script({
+    api = 1,
+    id = "test.menu_builder",
+    steps = {
+      S.setVar({ variable = "VAR_MESSAGE", value = 0 }),
+      S.setVar({ variable = "VAR_METADATA", value = 73 }),
+      S.setVar({ variable = "VAR_VALUE", value = 99 }),
+      S.menuBegin({
+        messageSource = "standard",
+        sourcePlacement = { system = "hgss_bottom_screen_tiles", x = 17, y = 5 },
+        initialCursor = 0,
+        cancellable = false,
+        result = S.var("VAR_RESULT"),
+      }),
+      S.menuAdd({
+        messageId = S.var("VAR_MESSAGE"),
+        vanillaMetadata = S.var("VAR_METADATA"),
+        value = S.var("VAR_VALUE"),
+      }),
+      S.menuExec(),
+      S.setVar({ variable = "VAR_AFTER_MENU", value = 1 }),
+      S.stop(),
+    },
+  })
+  h.registry:installBase(script.id, script, "generated")
+  h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+
+  h.scheduler:step(100, {})
+  Assert.equal(#h.scriptMenu.requests, 0, "menu initialization yields before the add and exec operations")
+  h.scheduler:step(101, {})
+  Assert.equal(#h.scriptMenu.requests, 1)
+  local request = h.scriptMenu.requests[1]
+  Assert.equal(request.messageSource, "standard")
+  Assert.equal(request.sourcePlacement.x, 17)
+  Assert.equal(request.items[1].messageId, 0)
+  Assert.equal(request.items[1].vanillaMetadata, 73)
+  Assert.equal(request.items[1].value, 99)
+  Assert.equal(h.services.world:getVar("VAR_AFTER_MENU"), 0)
+
+  h.scheduler:step(102, { menuEvents = { { type = "confirm" } } })
+  Assert.equal(h.services.world:getVar("VAR_RESULT"), 0)
+  h.scheduler:step(103, {})
+  Assert.equal(h.services.world:getVar("VAR_RESULT"), 99)
+  Assert.equal(h.services.world:getVar("VAR_AFTER_MENU"), 1)
 end
 
 local function resource()
