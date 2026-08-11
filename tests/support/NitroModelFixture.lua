@@ -190,7 +190,6 @@ function NitroModelFixture.doorDefinition(clips)
   clips = clips or { NitroModelFixture.doorOpenClip(), NitroModelFixture.doorCloseClip() }
   return ModelDefinition.new({
     key = "fixture:nitro-door",
-    sourceBackend = "nitro",
     nodes = {
       {
         index = 0,

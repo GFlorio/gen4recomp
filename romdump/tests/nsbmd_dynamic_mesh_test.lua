@@ -272,7 +272,6 @@ function T.to_definition_builds_a_valid_nitro_model()
     animations = {},
   }, { key = "fixture:door" })
   Assert.equal(def.key, "fixture:door")
-  Assert.equal(def.sourceBackend, "nitro")
   Assert.equal(#def.nodes, 1)
   Assert.equal(def.nodes[1].translation.x, 2)
   Assert.equal(#def.meshes, 1)

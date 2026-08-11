@@ -107,13 +107,16 @@ function T.new_bark_door_animates_through_the_runtime(romFs, version)
   Assert.isTrue(differs, "scrubbed door pose differs from the closed pose")
 
   -- The play handle drives the pair by semantic role: play returns the live
-  -- attachment, whose player reaches the terminal frame after the clip.
-  local handle = instance:play("door.open")
+  -- attachment, whose player reaches the checked-advance terminal
+  -- (numFrame * FRAME_UNIT) exactly.
+  local handle = instance:play("door.open", { loopMode = "once" })
   Assert.equal(type(handle), "table", "play returns the attachment handle")
   for _ = 1, 7 do
     instance:updateFixed()
   end
-  Assert.isTrue(handle.player:atTerminal(), "door finished open")
+  Assert.isFalse(handle.player:isComplete(), "the checked advance is not done before the terminal")
+  instance:updateFixed()
+  Assert.isTrue(handle.player:isComplete(), "door finished open")
 
   -- The handle carries the playing clip with its role.
   Assert.equal(handle.clip.name, "door_op")

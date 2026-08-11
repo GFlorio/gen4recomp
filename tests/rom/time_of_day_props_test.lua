@@ -36,7 +36,7 @@ end
 
 local function playingNames(instance)
   local out = {}
-  for _, category in ipairs({ "joint", "material", "visibility" }) do
+  for _, category in ipairs({ "joint", "material" }) do
     for _, attachment in ipairs(instance.animationState:attachments(category)) do
       out[#out + 1] = attachment.clip.name
     end

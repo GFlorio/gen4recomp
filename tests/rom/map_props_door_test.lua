@@ -156,14 +156,20 @@ function T.new_bark_lab_door_plays_to_completion(romFs)
   door:open()
   Assert.isFalse(door:isFinished(), "freshly opened door is not finished")
   local frameCount = assert(instance.definition:animation("door.open")).frameCount
+  -- The checked advance completes exactly at numFrame * FRAME_UNIT: the
+  -- last key frame (frameCount - 1 ticks) is NOT finished yet.
   for _ = 1, frameCount - 1 do
     instance:updateFixed()
   end
-  Assert.isTrue(door:isFinished(), "the door reaches its last frame")
+  Assert.isFalse(door:isFinished(), "the checked advance is not done before the terminal")
+  instance:updateFixed()
+  Assert.isTrue(door:isFinished(), "the door reaches the checked-advance terminal")
   door:close()
   for _ = 1, frameCount - 1 do
     instance:updateFixed()
   end
+  Assert.isFalse(door:isFinished(), "the checked advance is not done before the terminal")
+  instance:updateFixed()
   Assert.isTrue(door:isFinished(), "the door closes")
 end
 
