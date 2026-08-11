@@ -230,28 +230,57 @@ local function instanceWith(def, clips)
 end
 
 -- ---- NSBTA: scrolling UV ----
+--
+-- The matrix translation lives in the DS TEXCOORD domain: TEXCOORD
+-- coordinates are 1.11.4 fixed point, the display-list decoder divides
+-- them by 16 to get texels, and the Maya translation formula carries the
+-- matching <<4 factors (NitroTexMatrix). The translation cells therefore
+-- divide by an extra 16 over the linear cells:
+--
+--   m02 = cells[5] / (4096 * 16 * curW)   m12 = cells[6] / (4096 * 16 * curH)
+--
+-- so a transS of one fx32 unit (0x1000) moves the UV by exactly one
+-- normalized texture width, and on a 64x64 texture one texel is transS =
+-- 0x40 (m02 = -1/64).
 
--- A 4-frame scroll animating the translation S (the Maya convention's
--- scroll channel -- the real `wind` clip animates transS): the matrix
--- translation must advance by exactly one texel per frame.
-function T.scrolling_uv_advances_one_texel_per_frame()
+-- A transS of 0x1000 (one whole texture width in fx32) is exactly one
+-- texture repeat of translation, not sixteen.
+function T.scrolling_uv_advances_one_texture_width_per_0x1000()
   local def = texturedDefinition()
-  local clip = scrollClip(4, { 0x0, 0x100, 0x200, 0x300 })
+  local clip = scrollClip(4, { 0x0, 0x1000, 0x2000, 0x3000 })
   local instance = instanceWith(def, { clip })
-  local s0 = instance.materialState[0]
-  Assert.near(s0.texMatrix[7], 0, 1e-9)
-  -- c20 = -transS * w * 16 (the translation-only cells); m02 =
-  -- c20 / (4096 * w) = -transS / 256, so a translation of 0x100 moves one
-  -- texel.
+  Assert.near(instance.materialState[0].texMatrix[7], 0, 1e-9)
   instance:updateFixed()
   instance:evaluateMaterials()
-  Assert.near(instance.materialState[0].texMatrix[7], -0x100 / 256, 1e-9)
+  Assert.near(instance.materialState[0].texMatrix[7], -1, 1e-9)
   instance:updateFixed()
   instance:evaluateMaterials()
-  Assert.near(instance.materialState[0].texMatrix[7], -0x200 / 256, 1e-9)
+  Assert.near(instance.materialState[0].texMatrix[7], -2, 1e-9)
   -- The texture does not change: same texture key and dimensions.
   Assert.equal(instance.materialState[0].texture, "base.png")
   Assert.equal(instance.materialState[0].texWidth, 64)
+end
+
+-- On a 64x64 texture one texel is 1/64 of the normalized width: transS =
+-- 0x40 translates exactly one texel (m02 == -1/64).
+function T.scrolling_0x40_translates_exactly_one_texel_on_a_64px_texture()
+  local def = texturedDefinition()
+  local clip = scrollClip(2, { 0x0, 0x40 })
+  local instance = instanceWith(def, { clip })
+  instance:updateFixed()
+  instance:evaluateMaterials()
+  Assert.near(instance.materialState[0].texMatrix[7], -1 / 64, 1e-9)
+end
+
+-- transS = 0x100 is a sixteenth of the texture width: four texels on a
+-- 64px texture (m02 == -1/16).
+function T.scrolling_0x100_translates_a_sixteenth_of_the_texture_width()
+  local def = texturedDefinition()
+  local clip = scrollClip(2, { 0x0, 0x100 })
+  local instance = instanceWith(def, { clip })
+  instance:updateFixed()
+  instance:evaluateMaterials()
+  Assert.near(instance.materialState[0].texMatrix[7], -1 / 16, 1e-9)
 end
 
 -- ---- NSBTA: rotating UV ----
@@ -305,6 +334,94 @@ function T.rotating_uv_swaps_the_axis_cells()
   -- c01 = asr(-sin * fxDiv(h, w), 12) = -0x1000; m10 = c01/(4096) = -1.
   Assert.near(m[2], -1, 1e-9)
   Assert.near(m[4], 1, 1e-9)
+end
+
+-- The Maya rotation variant (transOne + scaleOne, flagTS_) folds a
+-- center-compensation translation into c20/c21. That translation is in the
+-- same 1.11.4 TEXCOORD domain, so it divides by the same extra 16:
+-- m02 = c20 / (4096 * 16 * w), m12 = c21 / (4096 * 16 * h). With
+-- sin = 0x800 and cos = 0xDD7 on a 64x64 texture:
+--   c20 = (w * (0x1000 - sin - cos)) << 3 = -765440
+--   c21 = (h * (0x1000 + sin - cos)) << 3 = 1331712
+-- giving m02 = -1495/8192 and m12 = 2601/8192.
+function T.rotating_uv_center_compensation_translates_in_texcoord_fixed_point()
+  local def = texturedDefinition()
+  local clip = {
+    id = "fixture:spin45",
+    name = "spin45",
+    category = "material",
+    kind = "texsrt",
+    frameCount = 4,
+    tracks = { { target = "wall", targetIndex = 0 } },
+    source = { type = "nitro", format = "NSBTA" },
+    compiled = {
+      targets = {
+        {
+          index = 0,
+          name = "wall",
+          channels = {
+            transS = { source = "absent" },
+            transT = { source = "absent" },
+            rot = {
+              source = "curve",
+              rate = 1,
+              limit = 3,
+              storage = "fx32",
+              keys = { 0x0DD70800, 0x0DD70800, 0x0DD70800, 0x0DD70800 },
+            },
+            scaleS = { source = "absent" },
+            scaleT = { source = "absent" },
+          },
+        },
+      },
+    },
+  }
+  local instance = instanceWith(def, { clip })
+  instance:updateFixed()
+  instance:evaluateMaterials()
+  local m = instance.materialState[0].texMatrix
+  Assert.near(m[7], -1495 / 8192, 1e-9)
+  Assert.near(m[8], 2601 / 8192, 1e-9)
+end
+
+-- The Maya scale variant (transOne + rotOne, flagTR_) carries the
+-- (0x2000 - 2 * scaleT) anchor in c21 -- also a TEXCOORD translation, so
+-- m12 = c21 / (4096 * 16 * h). At scaleT = 0x1800 on a 64px texture:
+-- c21 = (h * (0x2000 - 2 * scaleT)) << 3 = -2097152 -> m12 = -1/2. The
+-- linear cells keep their 1.3.12 scale: m00 = 0x2000/4096 = 2,
+-- m11 = 0x1800/4096 = 3/2.
+function T.scaling_uv_anchor_translates_in_texcoord_fixed_point()
+  local def = texturedDefinition()
+  local clip = {
+    id = "fixture:stretch",
+    name = "stretch",
+    category = "material",
+    kind = "texsrt",
+    frameCount = 4,
+    tracks = { { target = "wall", targetIndex = 0 } },
+    source = { type = "nitro", format = "NSBTA" },
+    compiled = {
+      targets = {
+        {
+          index = 0,
+          name = "wall",
+          channels = {
+            transS = { source = "absent" },
+            transT = { source = "absent" },
+            rot = { source = "absent" },
+            scaleS = { source = "constant", value = 0x2000 },
+            scaleT = { source = "constant", value = 0x1800 },
+          },
+        },
+      },
+    },
+  }
+  local instance = instanceWith(def, { clip })
+  local m = instance.materialState[0].texMatrix
+  Assert.near(m[1], 2, 1e-9)
+  Assert.near(m[5], 1.5, 1e-9)
+  Assert.near(m[7], 0, 1e-9)
+  Assert.near(m[8], -0.5, 1e-9)
 end
 
 -- ---- NSBTP: texture and palette switching ----
@@ -381,7 +498,7 @@ function T.no_attachments_restores_the_base_state()
   local instance = instanceWith(def, { scrollClip(4, { 0, 0x100, 0x200, 0x300 }) })
   instance:updateFixed()
   instance:evaluateMaterials()
-  Assert.near(instance.materialState[0].texMatrix[7], -0x100 / 256, 1e-9)
+  Assert.near(instance.materialState[0].texMatrix[7], -0x100 / 4096, 1e-9)
   instance:stop("scroll")
   instance:evaluateMaterials()
   local state = instance.materialState[0]
@@ -418,7 +535,7 @@ function T.highest_priority_attachment_wins()
   instance:evaluateMaterials()
   Assert.near(
     instance.materialState[0].texMatrix[7],
-    -0x200 / 256,
+    -0x200 / 4096,
     1e-9,
     "the higher priority clip drives the material"
   )

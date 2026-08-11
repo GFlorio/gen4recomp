@@ -167,22 +167,80 @@ function T_elms_lab_material_prop_compiles_and_evaluates(romFs, version)
   assert(target, "the animated material is present")
   local state = instance.materialState[target]
   assert(state.texMatrix, "effective texture matrix")
-  -- machine_l03 animates translation S from 0 to 2.0: the matrix
-  -- translation advances with the frames.
-  local m0 = state.texMatrix[7]
-  for _ = 1, 30 do
-    instance:updateFixed()
+  -- machine_l03 animates translation S from 0 to 2.0: the compiled keys
+  -- ramp fx32 0 -> 0x2000 over the 61 frames. The normalized translation is
+  -- the DS TEXCOORD value, so m02 = -transS / 4096 -- one fx32 unit is one
+  -- texture width -- and the clip must reach -2.0 at its last frame, not
+  -- -32.0 (the 1.11.4 TEXCOORD /16 the Maya <<4 factors compensate).
+  local expected = { [15] = -0.5, [30] = -1.0, [60] = -2.0 }
+  for frame, m02 in pairs(expected) do
+    local runner = ModelInstance.new(def)
+    runner:play("machine_l03")
+    for _ = 1, frame do
+      runner:updateFixed()
+    end
+    runner:evaluateMaterials()
+    Assert.near(runner.materialState[target].texMatrix[7], m02, 1e-9, "machine_l03 m02 at frame " .. frame)
+    Assert.near(runner.materialState[target].texMatrix[8], 0, 1e-9, "machine_l03 m12 at frame " .. frame)
   end
-  instance:evaluateMaterials()
-  Assert.isTrue(
-    math.abs(instance.materialState[target].texMatrix[7] - m0) > 1e-4,
-    "scrubbed material matrix differs from frame 0"
-  )
 end
 
 T.elms_lab_material_prop_compiles_and_evaluates = T_elms_lab_material_prop_compiles_and_evaluates
 
--- The animation resource cache (spec section 39): New Bark and Route 12 both
+-- New Bark's exterior wind prop (member 28, wind_lm3/wind_lm4/wind_lm5,
+-- 64x64, Maya) is a 120-frame NSBTA ambient loop. Its normalized matrix
+-- translation is the DS TEXCOORD value -- one fx32 unit per texture width:
+-- at frame 0 the compiled keys are transS = -2560 (0.625 texture widths)
+-- and transT = 4096 (one texture width) on every wind material; the
+-- wind_lm4 target's transS holds 0 at frame 45; the wind_lm3 target's
+-- transT ramps to -4096 by frame 119 (m12 = -1.0). The pre-fix conversion
+-- read 16x these values (m02 = 10, m12 = 16 at frame 0).
+function T.new_bark_wind_clip_reaches_the_expected_uv_offsets(romFs, version)
+  local _, bundle = compileInto(romFs, "MAP_NEW_BARK")
+  local desc = descriptorOf(bundle, 28)
+  assert(desc, "wind prop descriptor present")
+  local wind
+  for _, clip in ipairs(desc.animations) do
+    if clip.name == "wind" then
+      wind = clip
+    end
+  end
+  assert(wind, "the wind clip is present")
+  Assert.equal(wind.source.format, "NSBTA")
+  Assert.equal(wind.frameCount, 120)
+
+  local def = ModelDefinition.fromNitroDescriptor(desc, { key = desc.key })
+  local byName = {}
+  for i = 0, #def.materials - 1 do
+    byName[def.materials[i + 1].name] = i
+  end
+  assert(byName.wind_lm3 and byName.wind_lm4 and byName.wind_lm5, "the three wind materials are present")
+  local function atFrame(frame, materialName)
+    local instance = ModelInstance.new(def)
+    instance:play("wind")
+    for _ = 1, frame do
+      instance:updateFixed()
+    end
+    instance:evaluateMaterials()
+    return instance.materialState[byName[materialName]].texMatrix
+  end
+
+  -- Frame 0: all three materials share transS = -2560, transT = 4096.
+  for _, name in ipairs({ "wind_lm3", "wind_lm4", "wind_lm5" }) do
+    local m = atFrame(0, name)
+    Assert.near(m[7], 0.625, 1e-9, name .. " wind m02 at frame 0")
+    Assert.near(m[8], 1.0, 1e-9, name .. " wind m12 at frame 0")
+  end
+  -- Frame 45: the wind_lm4 target's transS holds 0; wind_lm3 keeps -2560.
+  Assert.near(atFrame(45, "wind_lm4")[7], 0, 1e-9, "wind_lm4 wind m02 at frame 45")
+  Assert.near(atFrame(45, "wind_lm3")[7], 0.625, 1e-9, "wind_lm3 wind m02 at frame 45")
+  -- Frame 119: wind_lm3's transT has ramped to -4096 -> m12 = -1.0.
+  local m119 = atFrame(119, "wind_lm3")
+  Assert.near(m119[7], 0.625, 1e-9, "wind_lm3 wind m02 at frame 119")
+  Assert.near(m119[8], -1.0, 1e-9, "wind_lm3 wind m12 at frame 119")
+end
+
+-- The animation resource cache: New Bark and Route 12 both
 -- place exterior door models (New Bark members 24/25/26, Route 12 member
 -- 24) whose anim-list records reference the shared door_op/door_cl
 -- resources. Compiled with one cache across a build run, both maps must

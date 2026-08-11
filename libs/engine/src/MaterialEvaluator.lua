@@ -25,7 +25,9 @@
 --
 -- where D(x) reconstructs texel coordinates from the compile-time UV
 -- normalization against the base texture size, and C is the convention's
--- six cells interpreted as 1.3.12 fixed point.
+-- six cells: the linear terms are 1.3.12 fixed point, the translation
+-- terms are 1.11.4 TEXCOORD fixed point (an extra /16 over the linear
+-- cells, matching the decoder and the conventions' <<4 factors).
 --
 -- Pattern selection: a "pattern" attachment's active key selects the
 -- texture/palette variant by name (the variant list the compiler resolved
@@ -123,7 +125,15 @@ end
 -- Compose the six convention cells into the shader's normalized-UV 3x3
 -- (column-major). `baseW/baseH` are the texture dimensions the mesh UVs
 -- were normalized against at compile time; `curW/curH` the current
--- texture's dimensions. Cells are 1.3.12 fixed point.
+-- texture's dimensions.
+--
+-- The linear cells are 1.3.12 fixed point (scale 4096). The translation
+-- cells live in the DS TEXCOORD domain instead: TEXCOORD coordinates are
+-- 1.11.4 fixed point, the display-list decoder divides them by 16 to get
+-- texels, and the convention translation folds carry the matching <<4
+-- factors (NitroTexMatrix). They therefore divide by an extra 16 over the
+-- linear cells: one fx32 translation unit (0x1000) is exactly one texture
+-- width of normalized translation.
 local function texMatrix(cells, baseW, baseH, curW, curH)
   local scale = 4096
   return {
@@ -133,8 +143,8 @@ local function texMatrix(cells, baseW, baseH, curW, curH)
     cells[3] * baseH / (scale * curW), -- m01: u * t
     cells[4] * baseH / (scale * curH), -- m11: v * t
     0,
-    cells[5] / (scale * curW), -- m02: u translation
-    cells[6] / (scale * curH), -- m12: v translation
+    cells[5] / (scale * 16 * curW), -- m02: u translation (TEXCOORD)
+    cells[6] / (scale * 16 * curH), -- m12: v translation (TEXCOORD)
     1,
   }
 end
