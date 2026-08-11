@@ -300,7 +300,37 @@ local function addWarning(context, message, nodeId)
   context.warnings[#context.warnings + 1] = { message = message, nodeId = nodeId }
 end
 
--- Pre-pass: register every label name with its node ID.
+-- Pre-pass: assign every node ID exactly once, in deterministic tree order
+-- (the same order the compile pass emits nodes), so label registration and
+-- compilation share one immutable id map. The provenance suffix counter is
+-- consumed here and never again: a label is registered and emitted under the
+-- very same id. The switch default branch is part of the tree.
+---@param context table per-call compiler state
+---@param steps table
+---@param path string
+local function assignNodeIds(context, steps, path)
+  for i = 1, #steps do
+    local step = steps[i]
+    local p = path .. "/" .. tostring(i - 1)
+    context.nodeIds[p] = nodeIdFor(context, step, p)
+    if step.op == "if" then
+      assignNodeIds(context, step.yes, p .. "/yes")
+      assignNodeIds(context, step.no, p .. "/no")
+    elseif step.op == "switch" then
+      local keys = {}
+      for k in pairs(step.cases) do
+        keys[#keys + 1] = k
+      end
+      table.sort(keys)
+      for _, k in ipairs(keys) do
+        assignNodeIds(context, step.cases[k], p .. "/" .. tostring(k))
+      end
+      assignNodeIds(context, step.default, p .. "/default")
+    end
+  end
+end
+
+-- Pre-pass: register every label name with its precomputed node ID.
 ---@param context table per-call compiler state
 ---@param steps table
 ---@param path string
@@ -317,15 +347,21 @@ local function prewalk(context, steps, path)
           { scriptId = context.script.id, path = p, label = name }
         )
       end
-      context.labelNodeIds[name] = nodeIdFor(context, step, p)
+      context.labelNodeIds[name] = assert(context.nodeIds[p], "label node id was not precomputed")
     end
     if step.op == "if" then
       prewalk(context, step.yes, p .. "/yes")
       prewalk(context, step.no, p .. "/no")
     elseif step.op == "switch" then
-      for k, caseSteps in pairs(step.cases) do
-        prewalk(context, caseSteps, p .. "/" .. tostring(k))
+      local keys = {}
+      for k in pairs(step.cases) do
+        keys[#keys + 1] = k
       end
+      table.sort(keys)
+      for _, k in ipairs(keys) do
+        prewalk(context, step.cases[k], p .. "/" .. tostring(k))
+      end
+      prewalk(context, step.default, p .. "/default")
     end
   end
 end
@@ -453,9 +489,9 @@ local function compileStep(context, step, path, cont, depth, id)
 end
 
 -- Compile a linear sequence whose tail continues at `cont`. Returns the first
--- node ID, or nil for an empty sequence. Node IDs are computed upfront so each
--- step's continuation (the following step, or `cont` at the tail) is known
--- before its branches compile.
+-- node ID, or nil for an empty sequence. Node IDs come from the precomputed
+-- immutable map, so each step's continuation (the following step, or `cont`
+-- at the tail) is known before its branches compile.
 ---@param context table per-call compiler state
 ---@param steps table
 ---@param path string
@@ -465,7 +501,7 @@ end
 compileSteps = function(context, steps, path, cont, depth)
   local ids = {}
   for i = 1, #steps do
-    ids[i] = nodeIdFor(context, steps[i], path .. "/" .. tostring(i - 1))
+    ids[i] = assert(context.nodeIds[path .. "/" .. tostring(i - 1)], "node id was not precomputed")
   end
   for i = 1, #steps do
     local step = steps[i]
@@ -564,6 +600,7 @@ function Compiler._compile(script, opts)
     warnings = {},
     usesNext = false,
     usedNodeIds = {},
+    nodeIds = {},
   }
 
   local ok, err = Validator.validate(script)
@@ -572,6 +609,7 @@ function Compiler._compile(script, opts)
   end
 
   local steps = normalizeSteps(script.steps)
+  assignNodeIds(context, steps, "steps")
   prewalk(context, steps, "steps")
   local entry = compileSteps(context, steps, "steps", nil, 0)
 

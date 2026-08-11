@@ -407,6 +407,64 @@ function T.duplicate_label_raises()
   Assert.equal(err.context.label, "a")
 end
 
+-- A label inside `switch.default` must be registrable: the prewalk used to
+-- descend into switch cases but not the default branch, so a goto targeting
+-- it raised SCRIPT_LABEL_MISSING even though the branch compiles.
+function T.switch_default_label_is_targetable()
+  local graph = compile(S.script({
+    api = 1,
+    id = "test.switch_default_label",
+    steps = {
+      S.switch({
+        value = S.var("VAR_SCENE"),
+        cases = { [0] = { S.noop() } },
+        default = {
+          S.label({ name = "default_tail" }),
+          S.stop(),
+        },
+      }),
+      S.goto_({ target = "default_tail" }),
+      S.stop(),
+    },
+  }))
+  local labelId = assert(graph.labels.default_tail)
+  local node = assert(graph.nodes[labelId], "the label node must exist in the graph")
+  Assert.equal(node.op, "label")
+end
+
+-- A provenance-derived label must be registered and emitted under the very
+-- same node ID: the old prewalk consumed the provenance suffix counter, so
+-- compilation emitted the label under a suffixed second id while labels and
+-- goto edges referenced the base id (a dangling edge).
+function T.provenance_label_node_id_matches_its_emitted_node()
+  local graph = compile(S.script({
+    api = 1,
+    id = "elms_lab.generated.script_001",
+    metadata = {
+      generated = true,
+      source = {
+        repository = "pret/pokeheartgold",
+        commit = "c",
+        path = "p",
+        game = "heartgold",
+        archive = "scr_seq",
+        member = 843,
+        scriptIndex = 9,
+        sourceHash = "h",
+      },
+    },
+    steps = {
+      { op = "goto", target = "loop", provenance = { offsets = { 0x00 }, opcodes = { 18 } } },
+      { op = "label", name = "loop", provenance = { offsets = { 0x04 }, opcodes = { 19 } } },
+      { op = "stop", provenance = { offsets = { 0x08 }, opcodes = { 20 } } },
+    },
+  }))
+  local labelId = assert(graph.labels.loop)
+  local labelNode = assert(graph.nodes[labelId], "the registered label id must reference an emitted node")
+  Assert.equal(labelNode.op, "label")
+  Assert.equal(graph.nodes[graph.entry].targetNode, labelId, "the goto edge and the label node share one id")
+end
+
 function T.wrapper_next_requires_registration()
   compileError(
     "SCRIPT_WRAPPER_INVALID",
