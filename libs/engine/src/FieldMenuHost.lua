@@ -1,0 +1,185 @@
+-- FieldMenuHost owns the live field-menu presentation snapshot. It translates
+-- physical UI events through the current layout without giving layout or draw
+-- code any authority over script results.
+
+local MenuLayout = require("libs.engine.src.MenuLayout")
+local ScreenTopology = require("libs.engine.src.ScreenTopology")
+
+---@class FieldMenuHost.Active
+---@field definition FieldMenuController.Spec
+---@field selectedIndex integer
+---@field layout table
+---@field closingAtTick integer?
+
+---@class FieldMenuHost
+---@field private _input FieldInput
+---@field private _topology ScreenTopology
+---@field private _active FieldMenuHost.Active?
+local FieldMenuHost = {}
+FieldMenuHost.__index = FieldMenuHost
+
+local function contains(rect, x, y)
+  return x >= rect.x and y >= rect.y and x < rect.x + rect.width and y < rect.y + rect.height
+end
+
+local function itemAt(layout, x, y)
+  if not contains(layout.scrollViewport, x, y) then
+    return nil
+  end
+  for itemIndex = 0, layout.itemCount - 1 do
+    local rect = layout.itemRects[itemIndex]
+    if contains(rect, x, y) then
+      return itemIndex
+    end
+  end
+  return nil
+end
+
+---@param width number
+---@param height number
+---@return ScreenTopology
+local function topology(width, height)
+  return ScreenTopology.oneDisplay({
+    id = "main",
+    rect = { x = 0, y = 0, width = width, height = height },
+    touch = true,
+    role = "world",
+  })
+end
+
+---@param opts { width: number, height: number, input: FieldInput }
+---@return FieldMenuHost
+function FieldMenuHost.new(opts)
+  assert(type(opts) == "table" and opts.input, "field menu host requires input")
+  assert(type(opts.width) == "number" and opts.width > 0, "field menu host requires positive width")
+  assert(type(opts.height) == "number" and opts.height > 0, "field menu host requires positive height")
+  return setmetatable({
+    _input = opts.input,
+    _topology = topology(opts.width, opts.height),
+    _active = nil,
+  }, FieldMenuHost)
+end
+
+function FieldMenuHost:resize(width, height)
+  assert(type(width) == "number" and width > 0, "field menu width must be positive")
+  assert(type(height) == "number" and height > 0, "field menu height must be positive")
+  self._topology = topology(width, height)
+  if self._active then
+    self:_resolve(self._active.definition, self._active.selectedIndex)
+  end
+end
+
+function FieldMenuHost:_resolve(definition, selectedIndex)
+  local layout = MenuLayout.resolve({
+    topology = self._topology,
+    menu = {
+      items = definition.items,
+      selectedIndex = selectedIndex,
+      cancellable = definition.cancellable,
+    },
+    sourcePlacement = definition.sourcePlacement,
+    inputCapabilities = { touch = true },
+    uiScale = 1,
+    ---@param item string|FieldMenuController.Item
+    measureText = function(item)
+      return #(type(item) == "string" and item or item.text or "") * 8
+    end,
+  })
+  self._active.layout = layout
+end
+
+-- MenuTask calls sync after each controller step. The host acquires logical
+-- UI focus exactly once and drops any edge that existed before that focus.
+function FieldMenuHost:sync(state, tick)
+  assert(type(state) == "table" and type(state.menuDefinition) == "table", "menu state is required")
+  if self._active == nil then
+    self._active = { definition = state.menuDefinition, selectedIndex = state.selectedIndex }
+    self._input:beginUi(tick)
+  end
+  self._active.selectedIndex = state.selectedIndex
+  self:_resolve(self._active.definition, state.selectedIndex)
+end
+
+function FieldMenuHost:close(tick)
+  if self._active == nil then
+    return
+  end
+  assert(type(tick) == "number" and tick == math.floor(tick), "menu close tick is required")
+  self._active.closingAtTick = tick
+  self._input:clearUi()
+end
+
+-- The scheduler publishes a completed task result on the following tick.
+-- Keep the closing snapshot through that boundary so observing a closed menu
+-- always also observes its result, without changing scheduler task timing.
+function FieldMenuHost:advance(tick)
+  if self._active and self._active.closingAtTick and tick > self._active.closingAtTick then
+    self._active = nil
+  end
+end
+
+---@return boolean
+function FieldMenuHost:isModal()
+  return self._active ~= nil and self._active.closingAtTick == nil
+end
+
+-- The renderer receives a value snapshot instead of reaching into the host's
+-- private live state. The task remains the only owner of menu interaction.
+---@return { definition: FieldMenuController.Spec, selectedIndex: integer, layout: table }|nil
+function FieldMenuHost:presentation()
+  if not self:isModal() then
+    return nil
+  end
+  local active = assert(self._active, "modal menu requires active state")
+  return {
+    definition = active.definition,
+    selectedIndex = active.selectedIndex,
+    layout = active.layout,
+  }
+end
+
+---@param events table[]
+---@return table[]
+function FieldMenuHost:inputEvents(events)
+  assert(type(events) == "table", "menu UI events are required")
+  local active = self._active
+  if active == nil then
+    return {}
+  end
+  local layout = active.layout
+  local translated = {}
+  for _, event in ipairs(events) do
+    if event.type == "pointer_move" then
+      translated[#translated + 1] = { type = "pointer_move", itemIndex = itemAt(layout, event.x, event.y) }
+    elseif event.type == "pointer_down" then
+      translated[#translated + 1] = { type = "pointer_down", itemIndex = itemAt(layout, event.x, event.y) }
+    elseif event.type == "pointer_up" then
+      translated[#translated + 1] = {
+        type = "pointer_up",
+        itemIndex = itemAt(layout, event.x, event.y),
+        dragged = event.dragged == true,
+      }
+    elseif event.type == "pointer_scroll" then
+      translated[#translated + 1] = { type = "scroll", deltaY = event.dy }
+    else
+      translated[#translated + 1] = event
+    end
+  end
+  return translated
+end
+
+-- This is semantic presentation state for non-rendering hosts. Closed menus
+-- deliberately expose no geometry, so no stale surface state survives.
+---@return table
+function FieldMenuHost:snapshot()
+  if self._active == nil then
+    return { modal = false }
+  end
+  return {
+    modal = true,
+    itemRects = self._active.layout.itemRects,
+    layout = self._active.layout,
+  }
+end
+
+return FieldMenuHost

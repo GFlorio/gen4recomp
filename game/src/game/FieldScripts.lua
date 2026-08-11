@@ -12,6 +12,7 @@ local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local ScriptActorWorld = require("libs.engine.src.script.ScriptActorWorld")
 local ScriptDialogueHost = require("libs.engine.src.script.ScriptDialogueHost")
+local ScriptMenuHost = require("libs.engine.src.script.ScriptMenuHost")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
 local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
 local ScriptMapsService = require("libs.engine.src.script.ScriptMapsService")
@@ -38,6 +39,7 @@ local TASK_MODULES = {
   "libs.engine.src.script.tasks.StarterChoiceTask",
   "libs.engine.src.script.tasks.AuxiliaryUiTask",
   "libs.engine.src.script.tasks.ContextChoiceTask",
+  "libs.engine.src.script.tasks.MenuTask",
 }
 
 -- Build the task registry with every registered task type. `actor_pause`
@@ -163,6 +165,7 @@ end
 ---@field events table|nil optional event sink
 ---@field auxiliaryUi AuxiliaryFieldUi logical auxiliary field UI state
 ---@field contextChoice ContextChoiceProvider contextual two-choice provider
+---@field menu FieldMenuHost modal field menu host
 
 ---@class FieldScripts
 ---@field registry table
@@ -173,6 +176,7 @@ end
 ---@field worldState WorldState
 ---@field dialogueHost ScriptDialogueHost
 ---@field mapsService ScriptMapsService
+---@field menuHost ScriptMenuHost
 ---@field player ScriptPlayerFacade
 local FieldScripts = {}
 FieldScripts.__index = FieldScripts
@@ -198,8 +202,8 @@ function FieldScripts.new(opts)
     "field scripts require the dialogue stack"
   )
   assert(
-    opts.transition and opts.mapLoader and opts.sourceMap and opts.auxiliaryUi,
-    "field scripts require transition and auxiliary UI"
+    opts.transition and opts.mapLoader and opts.sourceMap and opts.auxiliaryUi and opts.menu,
+    "field scripts require transition, auxiliary UI, and menu host"
   )
 
   local registry = ScriptLoader.buildRegistry(opts.cacheFs, opts.overrideFs)
@@ -235,6 +239,21 @@ function FieldScripts.new(opts)
     loader = opts.mapLoader,
     sourceMap = opts.sourceMap,
   })
+  local menuHost = ScriptMenuHost.new({
+    provider = opts.messageProvider,
+    -- Standard GMM remains a distinct source. Its cache integration is
+    -- supplied by the field message asset contract.
+    standardMessageBank = 542,
+    -- The field slice deliberately compiles only its map-local banks. Keep
+    -- standard GMM entries semantic and presentable until their shared bank
+    -- joins that derived asset selection; no raw ROM text enters runtime.
+    standardFallback = function(messageId)
+      return { text = "[" .. messageId .. "]" }
+    end,
+    createMenu = function(request)
+      return request
+    end,
+  })
 
   local platform = setmetatable({
     registry = registry,
@@ -243,6 +262,7 @@ function FieldScripts.new(opts)
     worldState = worldState,
     dialogueHost = dialogueHost,
     mapsService = mapsService,
+    menuHost = menuHost,
     player = player,
   }, FieldScripts)
 
@@ -268,6 +288,8 @@ function FieldScripts.new(opts)
       events = opts.events,
       auxiliaryUi = opts.auxiliaryUi,
       contextChoice = opts.contextChoice,
+      menu = opts.menu,
+      scriptMenu = menuHost,
       advanceAsync = advanceAsync,
     },
     taskRegistry = taskRegistry(),

@@ -4,6 +4,8 @@ local FieldRuntime = require("game.src.game.FieldRuntime")
 local FieldActorAssetProvider = require("libs.engine.src.FieldActorAssetProvider")
 local FieldActorDraw = require("libs.engine.src.FieldActorDraw")
 local FieldDialogueRenderer = require("libs.engine.src.FieldDialogueRenderer")
+local FieldMenuController = require("libs.engine.src.FieldMenuController")
+local FieldMenuRenderer = require("libs.engine.src.FieldMenuRenderer")
 local MapRenderer = require("libs.engine.src.MapRenderer")
 local SceneAssembly = require("libs.engine.src.SceneAssembly")
 
@@ -22,6 +24,7 @@ local GAMEPAD_UI_DIRECTIONS = { dpup = "up", dpdown = "down", dpleft = "left", d
 ---@field runtime FieldRuntime?
 ---@field renderer any
 ---@field dialogueRenderer any
+---@field menuRenderer FieldMenuRenderer?
 ---@field runtimeMap any
 ---@field playerVisual any
 ---@field actors any
@@ -69,6 +72,7 @@ function FieldState.new(versionId, idOrSymbol, options)
     local ok, err = pcall(function()
       self.renderer = MapRenderer.new()
       self.dialogueRenderer = FieldDialogueRenderer.new({ cacheFs = runtime.cacheFs })
+      self.menuRenderer = FieldMenuRenderer.new()
       self.presentationActorAssets = FieldActorAssetProvider.new(runtime.cacheFs)
     end)
     if not ok then
@@ -139,6 +143,9 @@ function FieldState:draw()
   local width, height = lg.getDimensions()
   if self.viewport.width ~= width or self.viewport.height ~= height then
     self.viewport:resize(width, height)
+    if self.runtime.menuHost then
+      self.runtime.menuHost:resize(width, height)
+    end
     self:_updateCameraProjection()
     self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
   end
@@ -153,6 +160,17 @@ function FieldState:draw()
   -- centered 4:3 reference frame, and before the developer HUD.
   if self.dialogue and self.dialogue:isModal() then
     self.dialogueRenderer:draw(self.dialogue, self.viewport)
+  end
+  local menu = self.runtime.menuHost
+  local presentation = menu and menu:presentation()
+  if presentation then
+    local controller = FieldMenuController.new({
+      items = presentation.definition.items,
+      initialCursor = presentation.selectedIndex,
+      cancellable = presentation.definition.cancellable,
+      cancelValue = presentation.definition.cancelValue,
+    })
+    assert(self.menuRenderer, "field menu renderer is unavailable"):draw(controller, presentation.layout)
   end
   if self.development then
     self:_drawHud()

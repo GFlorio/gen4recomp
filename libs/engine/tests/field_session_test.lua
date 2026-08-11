@@ -217,6 +217,46 @@ function T.script_completion_consumes_its_final_action_edge()
   Assert.equal(resolved, 0)
 end
 
+-- A modal menu receives normalized UI events through the scheduler input,
+-- while its physical edge remains unavailable to field interaction handling.
+function T.modal_menu_routes_ui_events_to_the_script_scheduler()
+  local input = FieldInput.new()
+  local received
+  local menuHost = {
+    isModal = function()
+      return true
+    end,
+    inputEvents = function(_, events)
+      received = events
+      return events
+    end,
+    advance = function() end,
+  }
+  local scheduler = {
+    step = function(_, _, snapshot)
+      Assert.equal(snapshot.menuEvents[1].type, "navigate")
+      Assert.equal(snapshot.menuEvents[1].direction, "down")
+    end,
+    playerMovementLocked = function()
+      return true
+    end,
+  }
+  local player = { worldX = 0, worldY = 0, worldZ = 0 }
+  local session = FieldSession.new({
+    versionId = "heartgold",
+    currentMap = { mapId = 61 },
+    player = player,
+    camera = { updateFixed = function() end },
+    input = input,
+    menuHost = menuHost,
+    scriptScheduler = scheduler,
+  })
+
+  input:pressUi("down", "key:s")
+  session:updateFixed()
+  Assert.equal(received[1].type, "navigate")
+end
+
 function T.the_player_pose_clock_advances_once_per_tick_and_freezes_under_a_transition()
   local steps = 0
   local playerVisual = {

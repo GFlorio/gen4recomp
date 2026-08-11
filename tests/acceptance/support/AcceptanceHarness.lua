@@ -253,6 +253,7 @@ function Game:snapshot()
       motion = player.motion,
     },
     dialogue = dialogue and dialogue:status() or { modal = false },
+    menu = runtime.menuHost and runtime.menuHost:snapshot() or nil,
     fieldLocked = scheduler and scheduler:playerMovementLocked() or false,
     transition = { phase = runtime.transition and runtime.transition.phase },
     avatarId = runtime.avatar and runtime.avatar.id,

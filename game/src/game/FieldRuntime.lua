@@ -16,6 +16,7 @@ local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local FieldEventState = require("libs.engine.src.FieldEventState")
 local FieldInput = require("libs.engine.src.FieldInput")
+local FieldMenuHost = require("libs.engine.src.FieldMenuHost")
 local FieldInteractionResolver = require("libs.engine.src.FieldInteractionResolver")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldMapLoader = require("libs.engine.src.FieldMapLoader")
@@ -72,6 +73,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field dialogue FieldDialogueController?
 ---@field auxiliaryFieldUi AuxiliaryFieldUi?
 ---@field contextChoiceProvider ContextChoiceProvider?
+---@field menuHost FieldMenuHost?
 ---@field actionKeys table<string, boolean>?
 ---@field cancelKeys table<string, boolean>?
 ---@field saveFs SaveFs?
@@ -253,6 +255,7 @@ function FieldRuntime:_load()
       occupancy = playerOccupancy(self),
     })
     self.input = FieldInput.new()
+    self.menuHost = FieldMenuHost.new({ width = self.viewportWidth, height = self.viewportHeight, input = self.input })
     self.heldDirectionKeys = {}
     local worldPoint = self.player:renderPosition()
 
@@ -388,6 +391,7 @@ function FieldRuntime:_load()
       events = self.scriptHosts and self.scriptHosts.events,
       auxiliaryUi = self.auxiliaryFieldUi,
       contextChoice = self.contextChoiceProvider,
+      menu = self.menuHost,
     })
     if restored and restored.scripts then
       ScriptSave.restore(restored.scripts, self.scripts.scheduler, 0, {
@@ -410,6 +414,7 @@ function FieldRuntime:_load()
       input = self.input,
       scriptScheduler = self.scripts.scheduler,
       scriptClient = self.scripts.client,
+      menuHost = self.menuHost,
       interactions = {
         resolve = function(_, snapshot)
           return self.interactionResolver:resolve(snapshot)

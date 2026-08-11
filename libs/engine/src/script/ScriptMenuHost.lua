@@ -9,6 +9,7 @@ local ScriptErrors = require("libs.engine.src.script.errors")
 ---@field private _provider FieldMessageProvider
 ---@field private _standardMessageBank integer
 ---@field private _createMenu fun(request: table): any
+---@field private _standardFallback fun(messageId: integer): table|nil
 ---@field private _builder table|nil
 local ScriptMenuHost = {}
 ScriptMenuHost.__index = ScriptMenuHost
@@ -45,6 +46,10 @@ local function resolveMessage(self, source, messageId)
   local bankId = messageBank(self, source)
   local acquired, bankErr = self._provider:acquireBank(bankId)
   if not acquired then
+    local fallback = source == "standard" and self._standardFallback
+    if fallback then
+      return assert(fallback(messageId), "standard menu fallback returned no message")
+    end
     Errors.raise(
       ScriptErrors.SCRIPT_MENU_MESSAGE_UNRESOLVED,
       "menu message bank is unavailable",
@@ -54,6 +59,10 @@ local function resolveMessage(self, source, messageId)
   local template, templateErr = self._provider:get(bankId, messageId)
   if not template then
     self._provider:releaseBank(bankId)
+    local fallback = source == "standard" and self._standardFallback
+    if fallback then
+      return assert(fallback(messageId), "standard menu fallback returned no message")
+    end
     Errors.raise(
       ScriptErrors.SCRIPT_MENU_MESSAGE_UNRESOLVED,
       "menu message is unavailable",
@@ -68,7 +77,7 @@ local function resolveMessage(self, source, messageId)
   return formatted
 end
 
----@param opts table { provider, standardMessageBank, createMenu }
+---@param opts table { provider, standardMessageBank, createMenu, standardFallback?: fun(messageId: integer): table }
 ---@return ScriptMenuHost
 function ScriptMenuHost.new(opts)
   assert(type(opts) == "table" and opts.provider, "script menu host requires a message provider")
@@ -78,6 +87,7 @@ function ScriptMenuHost.new(opts)
     _provider = opts.provider,
     _standardMessageBank = opts.standardMessageBank,
     _createMenu = opts.createMenu,
+    _standardFallback = opts.standardFallback,
     _builder = nil,
   }, ScriptMenuHost)
 end
@@ -111,7 +121,10 @@ function ScriptMenuHost:beginMenu(spec)
     },
     initialCursor = spec.initialCursor,
     cancellable = spec.cancellable,
-    cancelValue = spec.cancelValue,
+    -- 0xFFFE is HGSS's list-menu cancellation result. This compatibility
+    -- detail stays at the imported-script boundary; public menu APIs supply
+    -- their cancellation value explicitly.
+    cancelValue = spec.cancelValue or (spec.cancellable and 0xFFFE or nil),
     result = spec.result,
     items = {},
   }

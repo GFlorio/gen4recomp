@@ -47,7 +47,7 @@ local function close(state, ctx)
   if state.closed then
     return
   end
-  menuHost(ctx):close()
+  menuHost(ctx):close(ctx.tick)
   state.closed = true
 end
 
@@ -111,7 +111,7 @@ function MenuTask.poll(state, ctx)
     end
   end
   local status = copyStatus(state, controller)
-  menuHost(ctx):sync(state)
+  menuHost(ctx):sync(state, ctx.tick)
   if status.state ~= "complete" then
     return { complete = false, state = state }
   end

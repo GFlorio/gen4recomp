@@ -34,6 +34,7 @@ local WarpSystem = require("libs.engine.src.WarpSystem")
 ---@field interactions FieldSession.Interactions?
 ---@field scriptScheduler Scheduler?
 ---@field scriptClient ScriptInteractionClient?
+---@field menuHost FieldMenuHost?
 ---@field coverage fun(session: FieldSession)?
 
 ---@class FieldSession.Interactions
@@ -53,6 +54,7 @@ local WarpSystem = require("libs.engine.src.WarpSystem")
 ---@field interactions FieldSession.Interactions?
 ---@field scriptScheduler Scheduler?
 ---@field scriptClient ScriptInteractionClient?
+---@field menuHost FieldMenuHost?
 ---@field coverage fun(session: FieldSession)?
 ---@field tick integer
 ---@field accumulator number
@@ -92,6 +94,7 @@ function FieldSession.new(options)
     interactions = options.interactions,
     scriptScheduler = options.scriptScheduler,
     scriptClient = options.scriptClient --[[@as any]],
+    menuHost = options.menuHost,
     coverage = options.coverage,
     tick = 0,
     accumulator = 0,
@@ -142,12 +145,26 @@ function FieldSession:updateFixed(inputSnapshot)
   -- interaction. The session never steps the scheduler twice per tick.
   if self.scriptScheduler then
     local scriptOwnedInput = self.scriptScheduler:playerMovementLocked()
-    self.scriptScheduler:step(self.tick + 1, {
+    local schedulerInput = {
       heldDirection = inputSnapshot.heldDirection,
       pressedDirection = inputSnapshot.pressedDirection,
       pressedAction = inputSnapshot.actionPressed or inputSnapshot.pressedAction,
       pressedCancel = inputSnapshot.cancelPressed or inputSnapshot.pressedCancel,
+    }
+    if self.menuHost and self.menuHost:isModal() then
+      assert(self.input, "modal field menu requires FieldInput")
+      schedulerInput.menuEvents = self.menuHost:inputEvents(self.input:uiSnapshot(self.tick + 1))
+    end
+    self.scriptScheduler:step(self.tick + 1, {
+      heldDirection = schedulerInput.heldDirection,
+      pressedDirection = schedulerInput.pressedDirection,
+      pressedAction = schedulerInput.pressedAction,
+      pressedCancel = schedulerInput.pressedCancel,
+      menuEvents = schedulerInput.menuEvents,
     })
+    if self.menuHost then
+      self.menuHost:advance(self.tick + 1)
+    end
     -- A foreground root owns the field or a player lock suppresses movement
     -- and new triggers; the tick is consumed.
     if scriptOwnedInput or self.scriptScheduler:playerMovementLocked() then
