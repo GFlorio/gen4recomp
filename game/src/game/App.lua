@@ -201,6 +201,54 @@ function App.gamepadreleased(joystick, button)
   end
 end
 
+function App.gamepadaxis(joystick, axis, value)
+  if App.state and App.state.gamepadaxis then
+    App.state:gamepadaxis(joystick, axis, value)
+  end
+end
+
+function App.mousepressed(x, y, button)
+  if App.state and App.state.mousepressed then
+    App.state:mousepressed(x, y, button)
+  end
+end
+
+function App.mousemoved(x, y, dx, dy, istouch)
+  if App.state and App.state.mousemoved then
+    App.state:mousemoved(x, y, dx, dy, istouch)
+  end
+end
+
+function App.mousereleased(x, y, button)
+  if App.state and App.state.mousereleased then
+    App.state:mousereleased(x, y, button)
+  end
+end
+
+function App.wheelmoved(x, y)
+  if App.state and App.state.wheelmoved then
+    App.state:wheelmoved(x, y)
+  end
+end
+
+function App.touchpressed(id, x, y, dx, dy, pressure)
+  if App.state and App.state.touchpressed then
+    App.state:touchpressed(id, x, y, dx, dy, pressure)
+  end
+end
+
+function App.touchmoved(id, x, y, dx, dy, pressure)
+  if App.state and App.state.touchmoved then
+    App.state:touchmoved(id, x, y, dx, dy, pressure)
+  end
+end
+
+function App.touchreleased(id, x, y, dx, dy, pressure)
+  if App.state and App.state.touchreleased then
+    App.state:touchreleased(id, x, y, dx, dy, pressure)
+  end
+end
+
 -- Focus loss reaches the active state so held and edge input state clears.
 function App.focus(focused)
   if App.state and App.state.focus then

@@ -20,10 +20,26 @@
 ---@field cancelDown boolean
 ---@field cancelPressed boolean
 ---@field pressedDirection string?
+---@field uiDirections table<string, { sources: table<string, boolean>, order: integer }>
+---@field uiNextOrder integer
+---@field uiPressedDirection string?
+---@field uiRepeatStartedAt integer?
+---@field uiRepeatLastAt integer?
+---@field uiRepeatDelay integer
+---@field uiRepeatInterval integer
+---@field uiConfirmPressed boolean
+---@field uiCancelPressed boolean
+---@field uiPointerEvents table[]
+---@field uiPointers table<string, { x: number, y: number, startX: number, startY: number, dragged: boolean }>
+---@field uiStickDirections table<string, string?>
+---@field uiStickPressThreshold number
+---@field uiStickReleaseThreshold number
+---@field uiTouchDragThreshold number
 local FieldInput = {}
 FieldInput.__index = FieldInput
 
 local VALID = { north = true, south = true, west = true, east = true }
+local UI_DIRECTIONS = { up = true, down = true, left = true, right = true }
 
 ---@param direction string
 local function requireDirection(direction)
@@ -35,8 +51,50 @@ local function requireSource(source)
   assert(type(source) == "string" and source ~= "", "physical button source identity required")
 end
 
+---@param value any
+---@param name string
+local function requireFiniteNumber(value, name)
+  assert(
+    type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge,
+    name .. " must be finite"
+  )
+end
+
+---@param direction string
+local function requireUiDirection(direction)
+  assert(UI_DIRECTIONS[direction], "unknown UI direction " .. tostring(direction))
+end
+
+---@param value any
+---@param name string
+local function requirePositiveInteger(value, name)
+  assert(type(value) == "number" and value == math.floor(value) and value > 0, name .. " must be a positive integer")
+end
+
+---@param value any
+---@param name string
+local function requireUnitInterval(value, name)
+  requireFiniteNumber(value, name)
+  assert(value > 0 and value <= 1, name .. " must be in (0, 1]")
+end
+
+---@param options table?
 ---@return FieldInput
-function FieldInput.new()
+function FieldInput.new(options)
+  options = options or {}
+  assert(type(options) == "table", "field input options must be a table")
+  local uiRepeatDelay = options.uiRepeatDelay or 18
+  local uiRepeatInterval = options.uiRepeatInterval or 4
+  local uiStickPressThreshold = options.uiStickPressThreshold or 0.6
+  local uiStickReleaseThreshold = options.uiStickReleaseThreshold or 0.4
+  local uiTouchDragThreshold = options.touchDragThreshold or 8
+  requirePositiveInteger(uiRepeatDelay, "UI repeat delay")
+  requirePositiveInteger(uiRepeatInterval, "UI repeat interval")
+  requireUnitInterval(uiStickPressThreshold, "UI stick press threshold")
+  requireUnitInterval(uiStickReleaseThreshold, "UI stick release threshold")
+  assert(uiStickReleaseThreshold < uiStickPressThreshold, "UI stick release threshold must be below press threshold")
+  requireFiniteNumber(uiTouchDragThreshold, "UI touch drag threshold")
+  assert(uiTouchDragThreshold >= 0, "UI touch drag threshold must not be negative")
   return setmetatable({
     held = {},
     order = {},
@@ -47,6 +105,16 @@ function FieldInput.new()
     cancelSources = {},
     cancelDown = false,
     cancelPressed = false,
+    uiDirections = {},
+    uiNextOrder = 0,
+    uiRepeatDelay = uiRepeatDelay,
+    uiRepeatInterval = uiRepeatInterval,
+    uiPointerEvents = {},
+    uiPointers = {},
+    uiStickDirections = {},
+    uiStickPressThreshold = uiStickPressThreshold,
+    uiStickReleaseThreshold = uiStickReleaseThreshold,
+    uiTouchDragThreshold = uiTouchDragThreshold,
   }, FieldInput)
 end
 
@@ -102,6 +170,7 @@ function FieldInput:pressAction(source)
   self.actionDown = true
   if not wasDown then
     self.actionPressed = true
+    self.uiConfirmPressed = true
   end
 end
 
@@ -125,6 +194,7 @@ function FieldInput:pressCancel(source)
   self.cancelDown = true
   if not wasDown then
     self.cancelPressed = true
+    self.uiCancelPressed = true
   end
 end
 
@@ -135,6 +205,220 @@ function FieldInput:releaseCancel(source)
   if not next(self.cancelSources) then
     self.cancelDown = false
   end
+end
+
+-- Menu navigation has independent physical sources and repeat timing. It is
+-- deliberately separate from field movement: a later modal owner decides
+-- which snapshot to consume without making UI repeat a script concern.
+
+---@param direction "up"|"down"|"left"|"right"
+---@param source string
+function FieldInput:pressUi(direction, source)
+  requireUiDirection(direction)
+  requireSource(source)
+  local state = self.uiDirections[direction]
+  if not state then
+    self.uiNextOrder = self.uiNextOrder + 1
+    state = { sources = {}, order = self.uiNextOrder }
+    self.uiDirections[direction] = state
+  end
+  if state.sources[source] then
+    return
+  end
+  state.sources[source] = true
+  self.uiNextOrder = self.uiNextOrder + 1
+  state.order = self.uiNextOrder
+  self.uiPressedDirection = direction
+end
+
+---@param direction "up"|"down"|"left"|"right"
+---@param source string
+function FieldInput:releaseUi(direction, source)
+  requireUiDirection(direction)
+  requireSource(source)
+  local state = self.uiDirections[direction]
+  if not state then
+    return
+  end
+  state.sources[source] = nil
+  if not next(state.sources) then
+    self.uiDirections[direction] = nil
+  end
+end
+
+---@return string?
+function FieldInput:heldUiDirection()
+  local selected, selectedOrder
+  for direction, state in pairs(self.uiDirections) do
+    if not selectedOrder or state.order > selectedOrder then
+      selected, selectedOrder = direction, state.order
+    end
+  end
+  return selected
+end
+
+---@param source string
+---@param x number
+---@param y number
+function FieldInput:setUiStick(source, x, y)
+  requireSource(source)
+  requireFiniteNumber(x, "UI stick x")
+  requireFiniteNumber(y, "UI stick y")
+  assert(math.abs(x) <= 1 and math.abs(y) <= 1, "UI stick axes must be in [-1, 1]")
+
+  local previous = self.uiStickDirections[source]
+  local magnitude = previous and self.uiStickReleaseThreshold or self.uiStickPressThreshold
+  local direction
+  if math.max(math.abs(x), math.abs(y)) >= magnitude then
+    if math.abs(x) >= math.abs(y) then
+      direction = x < 0 and "left" or "right"
+    else
+      direction = y < 0 and "up" or "down"
+    end
+  end
+  if direction == previous then
+    return
+  end
+  if previous then
+    self:releaseUi(previous, "stick:" .. source)
+  end
+  self.uiStickDirections[source] = direction
+  if direction then
+    self:pressUi(direction, "stick:" .. source)
+  end
+end
+
+---@param pointerId string
+---@param x number
+---@param y number
+function FieldInput:pointerDown(pointerId, x, y)
+  requireSource(pointerId)
+  requireFiniteNumber(x, "pointer x")
+  requireFiniteNumber(y, "pointer y")
+  self.uiPointers[pointerId] = { x = x, y = y, startX = x, startY = y, dragged = false }
+  self.uiPointerEvents[#self.uiPointerEvents + 1] = { type = "pointer_down", pointerId = pointerId, x = x, y = y }
+end
+
+---@param pointerId string
+---@param x number
+---@param y number
+function FieldInput:pointerMove(pointerId, x, y)
+  requireSource(pointerId)
+  requireFiniteNumber(x, "pointer x")
+  requireFiniteNumber(y, "pointer y")
+  local pointer = self.uiPointers[pointerId]
+  if pointer then
+    pointer.x, pointer.y = x, y
+    local dx, dy = x - pointer.startX, y - pointer.startY
+    if dx * dx + dy * dy > self.uiTouchDragThreshold * self.uiTouchDragThreshold then
+      pointer.dragged = true
+    end
+  end
+  self.uiPointerEvents[#self.uiPointerEvents + 1] = { type = "pointer_move", pointerId = pointerId, x = x, y = y }
+end
+
+---@param pointerId string
+---@param x number
+---@param y number
+function FieldInput:pointerUp(pointerId, x, y)
+  requireSource(pointerId)
+  requireFiniteNumber(x, "pointer x")
+  requireFiniteNumber(y, "pointer y")
+  local pointer = self.uiPointers[pointerId]
+  if not pointer then
+    return
+  end
+  local dx, dy = x - pointer.startX, y - pointer.startY
+  if dx * dx + dy * dy > self.uiTouchDragThreshold * self.uiTouchDragThreshold then
+    pointer.dragged = true
+  end
+  self.uiPointers[pointerId] = nil
+  self.uiPointerEvents[#self.uiPointerEvents + 1] = {
+    type = "pointer_up",
+    pointerId = pointerId,
+    x = x,
+    y = y,
+    dragged = pointer.dragged,
+  }
+end
+
+---@param pointerId string
+---@param dx number
+---@param dy number
+function FieldInput:pointerScroll(pointerId, dx, dy)
+  requireSource(pointerId)
+  requireFiniteNumber(dx, "pointer scroll x")
+  requireFiniteNumber(dy, "pointer scroll y")
+  self.uiPointerEvents[#self.uiPointerEvents + 1] = { type = "pointer_scroll", pointerId = pointerId, dx = dx, dy = dy }
+end
+
+-- Begins a modal UI lifetime without treating an already-held control as an
+-- activation edge. The held direction is eligible to repeat after its normal
+-- delay, so an opening menu neither jumps nor leaves a stuck control inert.
+
+---@param tick integer
+function FieldInput:beginUi(tick)
+  requirePositiveInteger(tick + 1, "UI tick")
+  self.uiPressedDirection = nil
+  self.uiConfirmPressed = nil
+  self.uiCancelPressed = nil
+  self.uiPointerEvents = {}
+  self.uiPointers = {}
+  self.uiRepeatStartedAt = tick
+  self.uiRepeatLastAt = nil
+end
+
+---@param tick integer
+---@return table[]
+function FieldInput:uiSnapshot(tick)
+  requirePositiveInteger(tick + 1, "UI tick")
+  local events = {}
+  local direction = self.uiPressedDirection
+  if direction then
+    events[#events + 1] = { type = "navigate", direction = direction }
+    self.uiRepeatStartedAt = tick
+    self.uiRepeatLastAt = nil
+  else
+    direction = self:heldUiDirection()
+    if not direction then
+      self.uiRepeatStartedAt = nil
+      self.uiRepeatLastAt = nil
+    elseif self.uiRepeatStartedAt == nil then
+      self.uiRepeatStartedAt = tick
+    elseif
+      tick - self.uiRepeatStartedAt >= self.uiRepeatDelay
+      and (self.uiRepeatLastAt == nil or tick - self.uiRepeatLastAt >= self.uiRepeatInterval)
+    then
+      events[#events + 1] = { type = "navigate", direction = direction }
+      self.uiRepeatLastAt = tick
+    end
+  end
+  if self.uiConfirmPressed then
+    events[#events + 1] = { type = "confirm" }
+  end
+  if self.uiCancelPressed then
+    events[#events + 1] = { type = "cancel" }
+  end
+  for index = 1, #self.uiPointerEvents do
+    events[#events + 1] = self.uiPointerEvents[index]
+  end
+  self.uiPressedDirection = nil
+  self.uiConfirmPressed = nil
+  self.uiCancelPressed = nil
+  self.uiPointerEvents = {}
+  return events
+end
+
+-- Closing a modal UI drops its queued physical events and pointer capture
+-- without releasing the field's held movement controls.
+function FieldInput:clearUi()
+  self.uiPressedDirection = nil
+  self.uiRepeatStartedAt = nil
+  self.uiRepeatLastAt = nil
+  self.uiConfirmPressed = nil
+  self.uiCancelPressed = nil
+  self.uiPointerEvents = {}
+  self.uiPointers = {}
 end
 
 -- Snapshot consumes every edge exactly once per fixed tick; held state is
@@ -181,6 +465,9 @@ function FieldInput:clearAll()
   self.actionDown = false
   self.cancelSources = {}
   self.cancelDown = false
+  self.uiDirections = {}
+  self:clearUi()
+  self.uiStickDirections = {}
 end
 
 -- One fixed-tick snapshot: held directions/buttons plus the consumed edges.

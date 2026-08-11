@@ -9,6 +9,8 @@ local SceneAssembly = require("libs.engine.src.SceneAssembly")
 
 local KEY_DIRECTIONS =
   { w = "north", up = "north", s = "south", down = "south", a = "west", left = "west", d = "east", right = "east" }
+local UI_DIRECTIONS = { north = "up", south = "down", west = "left", east = "right" }
+local GAMEPAD_UI_DIRECTIONS = { dpup = "up", dpdown = "down", dpleft = "left", dpright = "right" }
 
 ---@class FieldStateOptions
 ---@field resumeSave boolean?
@@ -39,6 +41,7 @@ local KEY_DIRECTIONS =
 ---@field input any
 ---@field zoom any
 ---@field heldDirectionKeys table<string, string>?
+---@field uiStickAxes table<string, { x: number, y: number }>?
 ---@field player FieldPlayer? forwarded from the runtime
 ---@field development boolean product mode (default) hides the playtest HUD and ignores the F1/F2 developer binds
 local FieldState = {}
@@ -225,6 +228,7 @@ function FieldState:keypressed(key, scancode, isrepeat)
   if direction and self.input then
     self.heldDirectionKeys[key] = direction
     self.input:press(direction)
+    self.input:pressUi(UI_DIRECTIONS[direction], "key:" .. key)
   end
 end
 
@@ -246,10 +250,12 @@ function FieldState:keyreleased(key, scancode)
   self.heldDirectionKeys[key] = nil
   for _, heldDirection in pairs(self.heldDirectionKeys) do
     if heldDirection == direction then
+      self.input:releaseUi(UI_DIRECTIONS[direction], "key:" .. key)
       return
     end
   end
   self.input:release(direction)
+  self.input:releaseUi(UI_DIRECTIONS[direction], "key:" .. key)
 end
 
 -- Focus loss clears held and edge state so a blurred window cannot feed a
@@ -277,6 +283,10 @@ function FieldState:gamepadpressed(joystick, button)
   if button == "b" then
     self.input:pressCancel(source)
   end
+  local direction = GAMEPAD_UI_DIRECTIONS[button]
+  if direction then
+    self.input:pressUi(direction, source)
+  end
 end
 
 ---@param joystick love.Joystick
@@ -291,6 +301,91 @@ function FieldState:gamepadreleased(joystick, button)
   end
   if button == "b" then
     self.input:releaseCancel(source)
+  end
+  local direction = GAMEPAD_UI_DIRECTIONS[button]
+  if direction then
+    self.input:releaseUi(direction, source)
+  end
+end
+
+-- The left stick is kept as a paired axis so FieldInput can apply its own
+-- hysteresis consistently across horizontal and vertical event ordering.
+---@param joystick love.Joystick
+---@param axis string
+---@param value number
+function FieldState:gamepadaxis(joystick, axis, value)
+  if not self.input or (axis ~= "leftx" and axis ~= "lefty") then
+    return
+  end
+  local source = "gamepad:" .. joystick:getID() .. ":left"
+  self.uiStickAxes = self.uiStickAxes or {}
+  local axes = self.uiStickAxes[source] or { x = 0, y = 0 }
+  self.uiStickAxes[source] = axes
+  axes[axis == "leftx" and "x" or "y"] = value
+  self.input:setUiStick(source, axes.x, axes.y)
+end
+
+---@param x number
+---@param y number
+---@param button integer
+function FieldState:mousepressed(x, y, button)
+  if self.input and button == 1 then
+    self.input:pointerDown("mouse:1", x, y)
+  end
+end
+
+---@param x number
+---@param y number
+---@param dx number
+---@param dy number
+---@param istouch boolean
+function FieldState:mousemoved(x, y, dx, dy, istouch)
+  if self.input and not istouch then
+    self.input:pointerMove("mouse:1", x, y)
+  end
+end
+
+---@param x number
+---@param y number
+---@param button integer
+function FieldState:mousereleased(x, y, button)
+  if self.input and button == 1 then
+    self.input:pointerUp("mouse:1", x, y)
+  end
+end
+
+---@param x number
+---@param y number
+function FieldState:wheelmoved(x, y)
+  if self.input then
+    self.input:pointerScroll("mouse", x, y)
+  end
+end
+
+---@param id any
+---@param x number
+---@param y number
+function FieldState:touchpressed(id, x, y)
+  if self.input then
+    self.input:pointerDown("touch:" .. tostring(id), x, y)
+  end
+end
+
+---@param id any
+---@param x number
+---@param y number
+function FieldState:touchmoved(id, x, y)
+  if self.input then
+    self.input:pointerMove("touch:" .. tostring(id), x, y)
+  end
+end
+
+---@param id any
+---@param x number
+---@param y number
+function FieldState:touchreleased(id, x, y)
+  if self.input then
+    self.input:pointerUp("touch:" .. tostring(id), x, y)
   end
 end
 
