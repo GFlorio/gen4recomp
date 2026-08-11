@@ -52,4 +52,10 @@ function T.capture_and_restore_preserve_an_in_flight_transition()
   Assert.deepEqual(restored:status(), { requested = "hidden", state = "hiding" })
 end
 
+function T.auxiliary_ui_task_validation_returns_a_structured_error_for_invalid_saved_state()
+  local err = AuxiliaryUiTask.validate({ visible = "hidden" })
+
+  Assert.equal(err.code, "SCRIPT_TASK_UNSERIALIZABLE")
+end
+
 return T

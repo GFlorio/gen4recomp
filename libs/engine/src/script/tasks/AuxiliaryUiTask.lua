@@ -1,6 +1,9 @@
 -- Waits for the logical auxiliary field UI to reach a requested visibility.
 -- The state owner lives in the field runtime, so this task owns no resource.
 
+local Errors = require("libs.rom.src.Errors")
+local ScriptErrors = require("libs.engine.src.script.errors")
+
 local AuxiliaryUiTask = {}
 
 AuxiliaryUiTask.type = "auxiliary_ui"
@@ -35,9 +38,11 @@ function AuxiliaryUiTask.poll(state, ctx)
 end
 
 ---@param state table
----@return nil
+---@return Errors.Error|nil
 function AuxiliaryUiTask.validate(state)
-  assert(type(state) == "table" and type(state.visible) == "boolean", "auxiliary_ui task state is invalid")
+  if type(state) ~= "table" or type(state.visible) ~= "boolean" then
+    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "auxiliary_ui task state is invalid", { state = state })
+  end
   return nil
 end
 

@@ -74,17 +74,22 @@ function T.tests.restart_preserves_completed_hidden_auxiliary_ui_state()
   end)
 end
 
--- The visibility transition itself is part of deterministic script
--- continuation. Restarting immediately after opcode 746 must retain
--- the hiding state rather than reinitializing its newly-created service to
--- shown before the restored task can observe it.
-function T.tests.restart_preserves_an_in_flight_auxiliary_ui_hide_transition()
+-- D4-AUX-01: The visibility transition itself is part of deterministic script
+-- continuation. Restarting immediately after opcode 746 must retain the
+-- hiding state rather than reinitializing its newly-created service to shown.
+-- The resumed task must then complete on the same two semantic fixed-update
+-- boundaries as the original flow: one update finishes the transition, and a
+-- second observes completion and releases the foreground script.
+function T.tests.restart_resumes_an_in_flight_auxiliary_ui_hide_transition()
   withGame(function(game)
     game:startScript(HIDE_SCRIPT)
     Assert.deepEqual(game:auxiliaryUiStatus(), { requested = "hidden", state = "hiding" })
 
     local resumed = game:restart({ save = "resume" })
     Assert.deepEqual(resumed:auxiliaryUiStatus(), { requested = "hidden", state = "hiding" })
+    Assert.isTrue(resumed:step().fieldLocked)
+    Assert.deepEqual(resumed:auxiliaryUiStatus(), { requested = "hidden", state = "hidden" })
+    Assert.isFalse(resumed:step().fieldLocked)
   end)
 end
 
