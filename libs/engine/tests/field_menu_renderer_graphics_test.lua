@@ -26,7 +26,9 @@ local function fixture(width, height, count, touch)
   local layout = MenuLayout.resolve({
     topology = topology,
     menu = { items = items, cancellable = touch },
-    inputCapabilities = { touch = touch },
+    measureText = function(text)
+      return #text * 8
+    end,
   })
   return layout, FieldMenuController.new({ items = items, cancellable = touch, cancelValue = touch and -1 or nil })
 end

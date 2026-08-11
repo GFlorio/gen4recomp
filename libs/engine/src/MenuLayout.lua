@@ -14,6 +14,10 @@ local BASE_PADDING = 8
 local BASE_GUTTER = 12
 local BASE_MARGIN = 4
 local BASE_CANCEL_GAP = 4
+local PORTRAIT_SAFE_ASPECT_MAX = 0.8
+local WIDE_SAFE_ASPECT_MIN = 1.6
+local LARGE_MENU_ITEM_COUNT = 8
+local MAX_FLOATING_SAFE_HEIGHT = 0.65
 
 local MODES = { auto = true, floating = true, docked = true }
 local ANCHORS = {
@@ -148,7 +152,7 @@ local function intrinsicWidth(menu, measureText, scale, maximum)
     assert(isFiniteNumber(measured) and measured >= 0, "menu text measurement must return a finite non-negative number")
     longest = math.max(longest, measured)
   end
-  local target = longest + (BASE_PADDING * 2 + BASE_GUTTER) * scale
+  local target = (longest + BASE_PADDING * 2 + BASE_GUTTER) * scale
   return math.min(maximum, math.max(96 * scale, target))
 end
 
@@ -248,10 +252,10 @@ local function autoPresentation(surface, menu, mode)
     return "docked"
   end
   local ratio = surface.safeRect.width / surface.safeRect.height
-  if ratio < 0.8 then
+  if ratio < PORTRAIT_SAFE_ASPECT_MAX then
     return "docked"
   end
-  if ratio >= 1.6 and #menu.items >= 8 then
+  if ratio >= WIDE_SAFE_ASPECT_MIN and #menu.items >= LARGE_MENU_ITEM_COUNT then
     return "docked"
   end
   return "floating"
@@ -348,9 +352,8 @@ end
 ---@field sourcePlacement? { system: "hgss_bottom_screen_tiles", x: number, y: number }
 ---@field placementPreference? { mode?: "auto"|"floating"|"docked", anchor?: string, surface?: string }
 ---@field occupiedRegions? ScreenTopology.Rectangle[]
----@field inputCapabilities? { touch?: boolean }
----@field uiScale number
----@field measureText? fun(text: string): number
+---@field uiScale? number
+---@field measureText fun(text: string): number
 
 -- Resolves immutable menu geometry in physical surface coordinates. itemRects
 -- use zero-based menu indexes and contain every item; rows outside scrollViewport are intentionally clipped by
@@ -366,16 +369,9 @@ function MenuLayout.resolve(spec)
   local mode, anchor, requestedSurface = placement(spec.placementPreference)
   local surface = selectSurface(spec.topology, requestedSurface)
   local bounds = inset(surface.safeRect, BASE_MARGIN * scale)
-  local input = spec.inputCapabilities or {}
-  assert(
-    type(input) == "table" and (input.touch == nil or type(input.touch) == "boolean"),
-    "input capabilities are invalid"
-  )
-  local touch = surface.touch or input.touch == true
+  local touch = surface.touch
   local rowHeight = math.max(BASE_ROW_HEIGHT * scale, touch and MenuLayout.minimumTouchTarget * scale or 0)
-  local measureText = spec.measureText or function(text)
-    return #text * 8 * scale
-  end
+  local measureText = spec.measureText
   assert(type(measureText) == "function", "menu text measurement must be a function")
   local width = intrinsicWidth(spec.menu, measureText, scale, bounds.width)
   local padding = BASE_PADDING * scale
@@ -385,7 +381,7 @@ function MenuLayout.resolve(spec)
     or 0
   assert(bounds.width > padding * 2, "safe region is too narrow for menu content")
   assert(bounds.height >= rowHeight + padding * 2 + cancelHeight, "safe region is too short for one menu row")
-  local maximumHeight = math.max(rowHeight + padding * 2 + cancelHeight, bounds.height * 0.65)
+  local maximumHeight = math.max(rowHeight + padding * 2 + cancelHeight, bounds.height * MAX_FLOATING_SAFE_HEIGHT)
   local naturalHeight = #spec.menu.items * rowHeight + padding * 2 + cancelHeight
   local height = math.min(naturalHeight, maximumHeight, bounds.height)
   local presentation = autoPresentation(surface, spec.menu, mode)
@@ -393,18 +389,8 @@ function MenuLayout.resolve(spec)
   local frame
   if presentation == "floating" then
     frame = floatingFrame(bounds, width, height, spec.sourcePlacement, anchor, regions)
-    if not frame and mode == "auto" then
+    if not frame then
       presentation = "docked"
-    elseif not frame then
-      -- An explicit floating request remains floating, but is safely clamped
-      -- when all alternatives are occupied.
-      local x, y
-      if anchor == "auto" then
-        x, y = sourceAnchor(spec.sourcePlacement, bounds, { width = width, height = height })
-      else
-        x, y = anchoredPosition(anchor, bounds, { width = width, height = height })
-      end
-      frame = { x = x, y = y, width = width, height = height }
     end
   end
   if presentation == "docked" then

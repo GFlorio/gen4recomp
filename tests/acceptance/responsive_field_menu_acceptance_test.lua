@@ -117,4 +117,20 @@ function T.tests.vanilla_menu_is_responsive_without_changing_its_script_result()
   end
 end
 
+-- The ordinary desktop boot path is a non-touch surface. A cancellable
+-- ROM-derived menu may still complete through semantic input, but does not
+-- expose a touch-only Cancel target without a touch surface.
+function T.tests.default_desktop_topology_does_not_publish_touch_cancel_affordance()
+  withGame({ fieldOptions = {} }, function(game)
+    local opened = openMenu(game)
+    local layout = assert(opened.menu.layout, "modal menu must expose production layout")
+
+    Assert.isFalse(layout.surface.touch, "default desktop surface must not claim touch capability")
+    Assert.isNil(layout.cancelRect, "non-touch desktop menu must not expose touch Cancel affordance")
+
+    selectSecondItem(game)
+    Assert.equal(game.runtime.scripts.worldState:getVar(RESULT_VARIABLE), 1)
+  end)
+end
+
 return T

@@ -258,12 +258,6 @@ function FieldRuntime:_load()
       occupancy = playerOccupancy(self),
     })
     self.input = FieldInput.new()
-    self.menuHost = FieldMenuHost.new({
-      width = self.viewportWidth,
-      height = self.viewportHeight,
-      input = self.input,
-      screenTopology = self.screenTopology,
-    })
     self.heldDirectionKeys = {}
     local worldPoint = self.player:renderPosition()
 
@@ -332,6 +326,13 @@ function FieldRuntime:_load()
     -- compiled font definition; presentation later owns the atlas and drawing.
     local fontDef = FieldFontLoader.load(cacheFs)
     local fontMetrics = FieldDialogueTheme.fontMetrics(fontDef)
+    self.menuHost = FieldMenuHost.new({
+      width = self.viewportWidth,
+      height = self.viewportHeight,
+      input = self.input,
+      screenTopology = self.screenTopology,
+      measureText = FieldDialogueTheme.measureText(fontDef),
+    })
     local layoutMessage = function(formatted)
       return DialogueLayout.layout(
         formatted.tokens,

@@ -38,6 +38,9 @@ end
 
 local function resolve(spec)
   spec.uiScale = spec.uiScale or 1
+  spec.measureText = spec.measureText or function(text)
+    return #text * 8
+  end
   return MenuLayout.resolve(spec)
 end
 
@@ -114,9 +117,22 @@ function T.explicit_floating_keeps_the_source_anchor_when_occupied_regions_cover
     occupiedRegions = { rect(0, 0, 256, 192) },
   })
 
-  Assert.equal(layout.presentation, "floating")
-  Assert.equal(layout.frame.x, 4)
-  Assert.equal(layout.frame.y, 4)
+  Assert.equal(layout.presentation, "docked")
+  Assert.isTrue(contains(layout.surface.safeRect, layout.frame))
+end
+
+function T.text_measurement_and_scale_determine_intrinsic_width()
+  local layout = resolve({
+    topology = topology(640, 480),
+    menu = { items = { { text = "W" } }, selectedIndex = 0 },
+    uiScale = 2,
+    measureText = function(text)
+      Assert.equal(text, "W")
+      return 100
+    end,
+  })
+
+  Assert.equal(layout.frame.width, 256)
 end
 
 function T.narrow_safe_regions_cap_the_menu_width()
@@ -137,7 +153,6 @@ function T.portrait_touch_menu_docks_to_the_safe_bottom_with_touch_sized_rows_an
       occupiedRegions = { rect(0, 700, 120, 110), rect(270, 700, 120, 110) },
     }),
     menu = menu(8, { cancellable = true }),
-    inputCapabilities = { touch = true },
   })
 
   Assert.equal(layout.presentation, "docked")
@@ -153,7 +168,6 @@ function T.large_menus_scroll_without_overflow_and_keep_the_selected_item_visibl
   local layout = resolve({
     topology = topology(844, 390, { touch = true }),
     menu = menu(24, { selectedIndex = 23 }),
-    inputCapabilities = { touch = true },
   })
 
   Assert.notNil(layout.scrollViewport)

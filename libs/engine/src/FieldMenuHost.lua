@@ -15,6 +15,8 @@ local ScreenTopology = require("libs.engine.src.ScreenTopology")
 ---@field private _input FieldInput
 ---@field private _topology ScreenTopology
 ---@field private _topologyFollowsViewport boolean
+---@field private _measureText fun(text: string): number
+---@field private _uiScale number
 ---@field private _active FieldMenuHost.Active?
 local FieldMenuHost = {}
 FieldMenuHost.__index = FieldMenuHost
@@ -43,17 +45,20 @@ local function topology(width, height)
   return ScreenTopology.oneDisplay({
     id = "main",
     rect = { x = 0, y = 0, width = width, height = height },
-    touch = true,
+    touch = false,
     role = "world",
   })
 end
 
----@param opts { width: number, height: number, input: FieldInput, screenTopology?: ScreenTopology }
+---@param opts { width: number, height: number, input: FieldInput, screenTopology?: ScreenTopology, measureText: fun(text: string): number, uiScale?: number }
 ---@return FieldMenuHost
 function FieldMenuHost.new(opts)
   assert(type(opts) == "table" and opts.input, "field menu host requires input")
   assert(type(opts.width) == "number" and opts.width > 0, "field menu host requires positive width")
   assert(type(opts.height) == "number" and opts.height > 0, "field menu host requires positive height")
+  assert(type(opts.measureText) == "function", "field menu host requires presentation text measurement")
+  local uiScale = opts.uiScale or 1
+  assert(type(uiScale) == "number" and uiScale > 0, "field menu host ui scale must be positive")
   if opts.screenTopology ~= nil then
     assert(
       type(opts.screenTopology) == "table" and type(opts.screenTopology.surfaces) == "table",
@@ -64,6 +69,8 @@ function FieldMenuHost.new(opts)
     _input = opts.input,
     _topology = opts.screenTopology or topology(opts.width, opts.height),
     _topologyFollowsViewport = opts.screenTopology == nil,
+    _measureText = opts.measureText,
+    _uiScale = uiScale,
     _active = nil,
   }, FieldMenuHost)
 end
@@ -79,6 +86,21 @@ function FieldMenuHost:resize(width, height)
   end
 end
 
+-- Replaces reconstructable presentation metrics and immediately rebuilds the
+-- active geometry. Logical menu state remains owned by MenuTask.
+---@param measureText fun(text: string): number
+---@param uiScale number?
+function FieldMenuHost:setPresentationMetrics(measureText, uiScale)
+  assert(type(measureText) == "function", "field menu presentation requires text measurement")
+  uiScale = uiScale or 1
+  assert(type(uiScale) == "number" and uiScale > 0, "field menu ui scale must be positive")
+  self._measureText = measureText
+  self._uiScale = uiScale
+  if self._active then
+    self:_resolve(self._active.definition, self._active.selectedIndex)
+  end
+end
+
 function FieldMenuHost:_resolve(definition, selectedIndex)
   local layout = MenuLayout.resolve({
     topology = self._topology,
@@ -89,12 +111,8 @@ function FieldMenuHost:_resolve(definition, selectedIndex)
     },
     sourcePlacement = definition.sourcePlacement,
     placementPreference = definition.placementPreference,
-    inputCapabilities = { touch = true },
-    uiScale = 1,
-    ---@param item string|FieldMenuController.Item
-    measureText = function(item)
-      return #(type(item) == "string" and item or item.text or "") * 8
-    end,
+    uiScale = self._uiScale,
+    measureText = self._measureText,
   })
   self._active.layout = layout
 end

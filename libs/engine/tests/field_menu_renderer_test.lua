@@ -56,7 +56,9 @@ local function layout(count, cancellable, selectedIndex)
       touch = cancellable,
     }),
     menu = { items = items, cancellable = cancellable, selectedIndex = selectedIndex or 0 },
-    inputCapabilities = { touch = cancellable },
+    measureText = function(text)
+      return #text * 8
+    end,
   }),
     items
 end

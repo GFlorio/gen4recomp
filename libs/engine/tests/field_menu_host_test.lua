@@ -7,8 +7,15 @@ local ScreenTopology = require("libs.engine.src.ScreenTopology")
 
 local T = {}
 
+local function host(opts)
+  opts.measureText = opts.measureText or function(text)
+    return #text * 8
+  end
+  return FieldMenuHost.new(opts)
+end
+
 function T.applies_the_semantic_menu_placement_preference()
-  local host = FieldMenuHost.new({ width = 256, height = 192, input = FieldInput.new() })
+  local host = host({ width = 256, height = 192, input = FieldInput.new() })
   host:sync({
     menuDefinition = {
       items = { { text = { text = "Take" }, value = 10 } },
@@ -22,7 +29,7 @@ function T.applies_the_semantic_menu_placement_preference()
 end
 
 function T.uses_the_supplied_auxiliary_surface_for_automatic_menus()
-  local host = FieldMenuHost.new({
+  local host = host({
     width = 1280,
     height = 720,
     input = FieldInput.new(),
@@ -45,7 +52,7 @@ function T.uses_the_supplied_auxiliary_surface_for_automatic_menus()
 end
 
 function T.keeps_the_supplied_topology_when_the_host_resizes()
-  local host = FieldMenuHost.new({
+  local host = host({
     width = 1280,
     height = 720,
     input = FieldInput.new(),
@@ -67,7 +74,17 @@ function T.keeps_the_supplied_topology_when_the_host_resizes()
 end
 
 function T.routes_the_touch_cancel_affordance_to_the_menu()
-  local host = FieldMenuHost.new({ width = 256, height = 192, input = FieldInput.new() })
+  local host = host({
+    width = 256,
+    height = 192,
+    input = FieldInput.new(),
+    screenTopology = ScreenTopology.oneDisplay({
+      id = "main",
+      rect = { x = 0, y = 0, width = 256, height = 192 },
+      touch = true,
+      role = "world",
+    }),
+  })
   host:sync({
     menuDefinition = {
       items = { { text = { text = "Take" }, value = 10 } },
@@ -88,8 +105,52 @@ function T.routes_the_touch_cancel_affordance_to_the_menu()
   Assert.equal(events[1].type, "cancel")
 end
 
+function T.default_desktop_host_does_not_create_touch_affordances()
+  local host = host({ width = 256, height = 192, input = FieldInput.new() })
+  host:sync({
+    menuDefinition = {
+      items = { { text = "Take", value = 10 } },
+      cancellable = true,
+    },
+    selectedIndex = 0,
+  }, 100)
+
+  local layout = host:presentation().layout
+  Assert.isFalse(layout.surface.touch)
+  Assert.isNil(layout.cancelRect)
+end
+
+function T.uses_presentation_text_metrics_and_ui_scale()
+  local host = host({
+    width = 640,
+    height = 480,
+    input = FieldInput.new(),
+    measureText = function(text)
+      Assert.equal(text, "W")
+      return 100
+    end,
+    uiScale = 2,
+  })
+  host:sync({
+    menuDefinition = {
+      items = { { text = "W", value = 10 } },
+      cancellable = false,
+    },
+    selectedIndex = 0,
+  }, 100)
+
+  Assert.equal(host:presentation().layout.frame.width, 256)
+
+  host:setPresentationMetrics(function(text)
+    Assert.equal(text, "W")
+    return 120
+  end)
+
+  Assert.equal(host:presentation().layout.frame.width, 148)
+end
+
 function T.horizontal_navigation_does_not_change_focus_in_a_relaid_out_single_column_menu()
-  local host = FieldMenuHost.new({ width = 256, height = 192, input = FieldInput.new() })
+  local host = host({ width = 256, height = 192, input = FieldInput.new() })
   local state = {
     menuDefinition = {
       items = { { text = "First", value = 1 }, { text = "Second", value = 2 } },
@@ -107,7 +168,7 @@ function T.horizontal_navigation_does_not_change_focus_in_a_relaid_out_single_co
 end
 
 function T.batched_navigation_uses_each_layout_resolved_focus_target_in_order()
-  local host = FieldMenuHost.new({ width = 256, height = 192, input = FieldInput.new() })
+  local host = host({ width = 256, height = 192, input = FieldInput.new() })
   host:sync({
     menuDefinition = {
       items = { { text = "First", value = 1 }, { text = "Second", value = 2 }, { text = "Third", value = 3 } },

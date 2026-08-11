@@ -24,6 +24,7 @@ local FieldMessageText = require("libs.assets.src.FieldMessageText")
 ---@field layout fun(referenceFrame: FieldDialogueTheme.Rect): FieldDialogueTheme.Layout
 ---@field screenRect fun(layout: FieldDialogueTheme.Layout, rect: FieldDialogueTheme.Rect): FieldDialogueTheme.Rect
 ---@field fontMetrics fun(fontDef: FieldFontDef): FieldDialogueTheme.Metrics
+---@field measureText fun(fontDef: FieldFontDef): fun(text: string): number
 local FieldDialogueTheme = {}
 
 FieldDialogueTheme.schema = "g4-field-dialogue-theme-v1"
@@ -164,6 +165,27 @@ function FieldDialogueTheme.fontMetrics(fontDef)
       return measured
     end,
   }
+end
+
+-- Returns the field font's actual glyph-advance measurement for one text
+-- string. Menu layout consumes this separately from dialogue token layout.
+---@param fontDef FieldFontDef
+---@return fun(text: string): number
+function FieldDialogueTheme.measureText(fontDef)
+  assert(
+    type(fontDef) == "table" and type(fontDef.glyphs) == "table" and type(fontDef.charmap) == "table",
+    "font text measurement requires a g4-field-font-v1 definition"
+  )
+  return function(text)
+    assert(type(text) == "string", "text measurement requires a string")
+    local measured = 0
+    for i = 1, #text do
+      local code = fontDef.charmap[text:sub(i, i)] or 0
+      local glyph = fontDef.glyphs[code] or fontDef.glyphs[0]
+      measured = measured + (glyph and glyph.advance or 0) + (fontDef.letterSpacing or 0)
+    end
+    return measured
+  end
 end
 
 -- Reference-canvas rectangle.
