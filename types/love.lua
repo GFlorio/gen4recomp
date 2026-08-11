@@ -96,12 +96,16 @@
 ---@class love.Timer
 ---@field getTime fun(): number
 
+---@class love.DataModule
+---@field hash fun(algorithm: string, data: string): string
+
 ---@class love
 ---@field graphics love.Graphics
 ---@field filesystem love.Filesystem
 ---@field event love.Event
 ---@field image love.ImageModule
 ---@field timer love.Timer
+---@field data love.DataModule
 ---@field conf fun(t: table)?
 ---@field load fun(argv: string[])?
 ---@field update fun(dt: number)?
