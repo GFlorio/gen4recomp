@@ -1,9 +1,9 @@
--- LÖVE smoke tests for the Nitro dynamic path: a nitro-backed ModelInstance
--- (compiled transform program + compiled clip) renders through the
--- production MapRenderer, scrubs frames without recompiling geometry, and
--- follows the same item contract as the generic fixture. These run under
--- love and skip themselves when no graphics context is available, like the
--- other renderer smoke tests.
+-- Renderer smoke tests for the Nitro dynamic path: a nitro-backed
+-- ModelInstance (compiled transform program + compiled clip) renders through
+-- the production MapRenderer, scrubs frames without recompiling geometry, and
+-- follows the same item contract as the generic fixture. The suite builds
+-- real GPU resources, so it declares the graphics layer and the runner skips
+-- it explicitly on hosts without one.
 
 local Assert = require("tests.support.Assert")
 local MapRenderer = require("libs.engine.src.MapRenderer")
@@ -14,10 +14,6 @@ local ModelInstance = require("libs.engine.src.ModelInstance")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
 
 local T = {}
-
-local function hasGraphics()
-  return love and love.graphics and love.graphics.newShader
-end
 
 local function identity9()
   return { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
@@ -206,6 +202,9 @@ local function identityCamera()
     projection = function()
       return identity
     end,
+    billboardProjection = function()
+      return identity
+    end,
   }
 end
 
@@ -221,14 +220,14 @@ end
 local function drawInstance(renderer, rt, instance, alpha)
   local items = instance:drawItems(instance.renderMeshesById)
   rt.mapDraws = items
-  renderer:draw(rt, identityCamera(), nil, FieldViewport.new(320, 240, { mode = "strict" }), alpha)
+  for index, item in ipairs(items) do
+    item.submissionIndex = index
+  end
+  renderer:draw(rt, identityCamera(), items, FieldViewport.new(320, 240, { mode = "strict" }), alpha)
   return items
 end
 
 function T.nitro_animated_model_renders_and_scrubs_without_recompiling()
-  if not hasGraphics() then
-    return
-  end
   local renderer = MapRenderer.new()
   local def = doorDefinition()
   local instance = ModelInstance.new(def)
@@ -265,4 +264,7 @@ function T.nitro_animated_model_renders_and_scrubs_without_recompiling()
   renderer:release()
 end
 
-return T
+return {
+  metadata = { layer = "graphics", capabilities = { "graphics" } },
+  tests = T,
+}

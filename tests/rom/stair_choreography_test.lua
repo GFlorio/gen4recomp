@@ -8,7 +8,8 @@
 -- stair movement completes), swap only at full black, skip coordinate
 -- suppression (pressing the gate direction on the destination stair tile
 -- re-arms immediately), and unlock at the end of the destination fade-in --
--- no door animation anywhere. Runs only via --test-private.
+-- no door animation anywhere. Runs against every ready dump through the ROM
+-- layer.
 
 local Assert = require("tests.support.Assert")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")

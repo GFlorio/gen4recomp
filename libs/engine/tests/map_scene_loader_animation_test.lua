@@ -1,11 +1,11 @@
--- LÖVE smoke tests for the production scene-loader animation path: a scene
--- whose building instance references an animated (dynamic) model descriptor
--- loads through MapSceneLoader into a ModelInstance, advances with the
--- scene runtime, and renders through MapRenderer. The descriptor shape is
--- the compiler's: explicit schema/kind, dynamic batches referencing
--- content-addressed .g4mesh geometry, compiled clips with playback policy
--- (timeBand / ambientLoop). Skips itself without a graphics context like
--- the other renderer smoke tests.
+-- Scene-loader animation path tests: a scene whose building instance
+-- references an animated (dynamic) model descriptor loads through
+-- MapSceneLoader into a ModelInstance, advances with the scene runtime, and
+-- renders through MapRenderer. The descriptor shape is the compiler's:
+-- explicit schema/kind, dynamic batches referencing content-addressed .g4mesh
+-- geometry, compiled clips with playback policy (timeBand / ambientLoop).
+-- The rendering tests build real GPU resources, so the whole suite declares
+-- the graphics layer and the runner skips it explicitly on hosts without one.
 
 local Assert = require("tests.support.Assert")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
@@ -34,16 +34,33 @@ local function collisionGrid(doorTile)
   return CollisionGridAsset.encode({ width = 32, height = 32, cells = cells })
 end
 
-local function hasGraphics()
-  return love and love.graphics and love.graphics.newShader
-end
-
 local function identity9()
   return { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
 end
 
 local function identityMatrix()
   return { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 }
+end
+
+-- The in-memory cache facade over a FakeCache backend: loadLua reads and
+-- evals in an empty environment, like CacheFs.loadLua.
+local function luaCache(backend)
+  local function loadLua(path)
+    local data = assert(backend:read(path), "missing cache file " .. path)
+    local chunk = assert(loadstring(data, path))
+    setfenv(chunk, {})
+    local ok, result = pcall(chunk)
+    assert(ok, result)
+    return result
+  end
+  return {
+    read = function(_, path)
+      return backend:read(path)
+    end,
+    loadLua = function(_, path)
+      return loadLua(path)
+    end,
+  }
 end
 
 -- The 2x2-tile quad in tile space (MeshWriter vertex shape).
@@ -265,7 +282,7 @@ local function sceneWith(instances, descriptors)
   local backend = FakeCache.new()
   local dir = MapAssetCache.mapDir(mapId)
   local scene = {
-    schema = "g4-map-scene-v3",
+    schema = MapAssetCache.SCENE_SCHEMA,
     versionId = "heartgold",
     mapId = mapId,
     mapSymbol = "MAP_NEW_BARK",
@@ -306,24 +323,7 @@ local function sceneWith(instances, descriptors)
     end
   end
   backend:write(dir .. "/collision.g4collision", collisionGrid())
-  -- loadLua over the in-memory backend: read + eval in an empty environment,
-  -- like CacheFs.loadLua.
-  local function loadLua(path)
-    local data = assert(backend:read(path), "missing cache file " .. path)
-    local chunk = assert(loadstring(data, path))
-    setfenv(chunk, {})
-    local ok, result = pcall(chunk)
-    assert(ok, result)
-    return result
-  end
-  return {
-    read = function(_, path)
-      return backend:read(path)
-    end,
-    loadLua = function(_, path)
-      return loadLua(path)
-    end,
-  }
+  return luaCache(backend)
 end
 
 -- A fake mesh builder for the loader's GPU seam: SceneMesh.decode output
@@ -337,14 +337,11 @@ local function fakeMeshBuilder(decoded)
 end
 
 function T.animated_building_loads_advances_and_renders()
-  if not hasGraphics() then
-    return
-  end
   local mapId = 61
   local backend = FakeCache.new()
   local dir = MapAssetCache.mapDir(mapId)
   local scene = {
-    schema = "g4-map-scene-v3",
+    schema = MapAssetCache.SCENE_SCHEMA,
     versionId = "heartgold",
     mapId = mapId,
     mapSymbol = "MAP_NEW_BARK",
@@ -395,37 +392,27 @@ function T.animated_building_loads_advances_and_renders()
   -- plain floor, so the door lookup resolves the placed door model.
   backend:write(dir .. "/collision.g4collision", collisionGrid({ x = 4, z = 14 }))
 
-  local cache = {
-    read = function(_, path)
-      return backend:read(path)
-    end,
-    loadLua = function(_, path)
-      return backend:loadLua(path)
-    end,
-  }
+  local cache = luaCache(backend)
   local runtime = MapSceneLoader.load(cache, scene)
   Assert.equal(runtime.stats.animatedInstances, 1)
   Assert.equal(#runtime.animatedInstances, 1)
 
   -- The door is scripted (its clip carries a door role, not ambientLoop);
-  -- the scene starts with the bind-pose draw list.
+  -- the scene starts with the bind-pose draw list and holds it until the
+  -- controller scripts a role.
   local instance = runtime.animatedInstances[1]
   runtime:rebuildAnimatedDrawItems()
   Assert.equal(#runtime.buildingDraws, 1)
   local m0 = runtime.buildingDraws[1].transform
 
-  -- Advance and sync: the door swings.
+  -- Advance and sync: a scripted door holds its bind pose.
   for _ = 1, 7 do
     runtime:updateAnimated()
   end
   local m7 = runtime.buildingDraws[1].transform
-  local differs = false
   for i = 1, 16 do
-    if math.abs(m0[i] - m7[i]) > 1e-3 then
-      differs = true
-    end
+    Assert.near(m0[i], m7[i], 1e-3, "a scripted door holds its bind pose until played")
   end
-  Assert.isTrue(differs, "the scrubbed door draw differs from frame 0")
 
   -- The production renderer draws the animated door. The renderer takes the
   -- flattened scene list; the loader's sync refreshed runtime.buildingDraws.
@@ -437,6 +424,9 @@ function T.animated_building_loads_advances_and_renders()
       return identity
     end,
     projection = function()
+      return identity
+    end,
+    billboardProjection = function()
       return identity
     end,
   }
@@ -466,7 +456,8 @@ function T.animated_building_loads_advances_and_renders()
     },
     collision = runtime.collision,
   }
-  local door = assert(runtime.mapProps:doorAt(doorMap, 4, 14))
+  local door = runtime.mapProps:doorAt(doorMap, 4, 14)
+  assert(door)
   Assert.equal(door.instance, instance)
   Assert.equal(door.modelKey, "outdoor:26:door")
   door:open()
@@ -737,4 +728,7 @@ function T.load_rejects_an_unknown_initial_band()
   assert(tostring(err):find("unknown time-of-day band", 1, true) ~= nil, tostring(err))
 end
 
-return T
+return {
+  metadata = { layer = "graphics", capabilities = { "graphics" } },
+  tests = T,
+}

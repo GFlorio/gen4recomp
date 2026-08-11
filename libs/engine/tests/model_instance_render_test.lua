@@ -1,7 +1,7 @@
--- LÖVE smoke tests for the nitro-backed ModelInstance: the door fixture
--- renders through the production MapRenderer. These run under love and skip
--- themselves when no graphics context is available, like the other renderer
--- smoke tests.
+-- Renderer smoke tests for the nitro-backed ModelInstance: the door fixture
+-- renders through the production MapRenderer and scrubbing frames reuses the
+-- built meshes. The suite builds real GPU resources, so it declares the
+-- graphics layer and the runner skips it explicitly on hosts without one.
 
 local Assert = require("tests.support.Assert")
 local MapRenderer = require("libs.engine.src.MapRenderer")
@@ -12,10 +12,6 @@ local ModelInstance = require("libs.engine.src.ModelInstance")
 local NitroModelFixture = require("tests.support.NitroModelFixture")
 
 local T = {}
-
-local function hasGraphics()
-  return love and love.graphics and love.graphics.newShader
-end
 
 -- Build love meshes for every definition batch through the production mesh
 -- path (G4M2 encode -> decode -> build).
@@ -38,19 +34,22 @@ local function identityCamera()
     projection = function()
       return identity
     end,
+    billboardProjection = function()
+      return identity
+    end,
   }
 end
 
 local function drawInstance(renderer, runtime, instance, alpha)
   local items = instance:drawItems(instance.renderMeshesById)
   runtime.mapDraws = items
-  renderer:draw(runtime, identityCamera(), nil, FieldViewport.new(320, 240, { mode = "strict" }), alpha)
+  for index, item in ipairs(items) do
+    item.submissionIndex = index
+  end
+  renderer:draw(runtime, identityCamera(), items, FieldViewport.new(320, 240, { mode = "strict" }), alpha)
 end
 
 function T.nitro_animated_fixture_renders_through_map_renderer()
-  if not hasGraphics() then
-    return
-  end
   local lg = love.graphics
   local renderer = MapRenderer.new()
   local def = NitroModelFixture.doorDefinition()
@@ -92,4 +91,7 @@ function T.nitro_animated_fixture_renders_through_map_renderer()
   renderer:release()
 end
 
-return T
+return {
+  metadata = { layer = "graphics", capabilities = { "graphics" } },
+  tests = T,
+}

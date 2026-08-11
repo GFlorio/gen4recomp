@@ -7,7 +7,7 @@
 -- egress from the transition anchor onto a normal floor tile, close the
 -- destination door, wait for the close, and unlock -- without coordinate
 -- suppression, so pressing back toward the door re-arms immediately. Runs
--- only via --test-private.
+-- against every ready dump through the ROM layer.
 
 local Assert = require("tests.support.Assert")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")

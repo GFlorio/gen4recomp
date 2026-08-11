@@ -171,6 +171,7 @@ function T.scene_and_building_descriptor_samplers_stay_independent()
   }
   luaFiles[MapAssetCache.modelPath("building")] = {
     schema = "g4-model-descriptor-v1",
+    kind = "static",
     batches = { batch(geomPath, 0) },
     materials = { material(0, texPath, { x = "repeat", y = "repeat" }) },
   }

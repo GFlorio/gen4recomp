@@ -1,4 +1,4 @@
--- Private acceptance test for spec section 38.8: the real-ROM checklist for
+-- Private acceptance test: the real-ROM checklist for
 -- the Elm Lab <-> New Bark door pair and the player-house stair pair, driven
 -- through the production runtime (FieldSession + FieldInput + FieldTransition
 -- wired exactly like FieldState wires it, real compiled scenes, real animated
@@ -17,7 +17,7 @@
 --   no arrival bounce loop
 --   final saved/autosaved player position is correct
 --
--- Runs only via --test-private.
+-- Runs against every ready dump through the ROM layer.
 
 local Assert = require("tests.support.Assert")
 local FakeCache = require("tests.support.FakeCache")

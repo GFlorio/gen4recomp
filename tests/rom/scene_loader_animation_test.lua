@@ -2,7 +2,7 @@
 -- animated buildings reference content-addressed .g4mesh geometry that
 -- round-trips through the production mesh contract (MeshWriter -> SceneMesh),
 -- and the descriptor batches carry the per-segment polygon draw state.
--- Runs only via --test-private.
+-- Runs against every ready dump through the ROM layer.
 
 local Assert = require("tests.support.Assert")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")

@@ -1,5 +1,5 @@
--- Private regression inventory (spec section 39): every animated ROM asset
--- is inventoried and none may compile with a silent fallback. The two
+-- Private regression inventory: every animated ROM asset is inventoried and
+-- none may compile with a silent fallback. The two
 -- anim-list archives (a/1/0/7 exterior, a/1/0/8 interior) are the complete
 -- inventory of animated model members -- each record's resource ids index
 -- the shared animation archive (a/1/0/6) -- so walking every record and

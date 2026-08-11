@@ -3,7 +3,7 @@
 -- model at its tile (members 24/25/26, compiled animated with the
 -- door.open/door.close roles) and drives its animation to completion; Elm's
 -- Lab interior entrance (WARP_ENTRANCE_SOUTH, 101) and non-door warp tiles
--- resolve nil. Runs only via --test-private.
+-- resolve nil. Runs against every ready dump through the ROM layer.
 
 local Assert = require("tests.support.Assert")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
