@@ -50,8 +50,12 @@ state — they take a byte string and return a validated structure or a structur
 
 ## Boot flow
 
-The interactive `game/main.lua` parses its flags inline, then hands off to
-`App`:
+The interactive `game/main.lua` parses its flags with the pure `Options`
+parser, then hands off to `App`. The parser accepts only the documented
+options: unknown options, stray arguments, and the `--actors`/`--field`
+conflict are rejected with a message and exit status 2. Once the exact `--test`
+token appears, the whole argv defers to the test command, which owns its own
+validation:
 
 ```
 love game/
@@ -59,6 +63,8 @@ love game/
        ├─ --test [options]        → run the test suite, exit 0/1/2
        ├─ --field [map]           → boot the field runtime on a target map
        ├─ --actors                → boot the compiled field-actor preview grid
+       ├─ --dev                   → enable the playtest HUD and F1/F2 binds
+       ├─ --new-field-session     → clear the selected version's save, then boot
        └─ (no flags)              → App inspects both version caches:
                                       0 ready → import screen
                                       1 ready → that version's field runtime

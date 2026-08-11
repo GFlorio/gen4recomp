@@ -8,39 +8,27 @@
 -- grid; --dev enables the playtest HUD and the F1/F2 developer binds; without
 -- it the app runs in product mode; --new-field-session
 -- clears the selected version's project save; otherwise App drives the normal
--- boot/import flow.
+-- boot/import flow. Options.parse owns strictness: unknown options, stray
+-- arguments, and the --actors/--field conflict are rejected with a message on
+-- stderr and exit status 2, and everything after the exact --test token is
+-- left to the test command.
 local ROOT = love.filesystem.getSourceBaseDirectory()
 package.path = ROOT .. "/?.lua;" .. ROOT .. "/?/init.lua;" .. package.path
 
-local function parse(argv)
-  local opts = { test = false, field = nil, actors = false, newFieldSession = false, dev = false }
-  local i = 1
-  while i <= #(argv or {}) do
-    local option = argv[i]
-    if option == "--test" then
-      opts.test = true
-    elseif option == "--field" then
-      opts.field = true
-      if argv[i + 1] and argv[i + 1]:sub(1, 2) ~= "--" then
-        i = i + 1
-        opts.field = argv[i]
-      end
-    elseif option == "--actors" then
-      opts.actors = true
-    elseif option == "--dev" then
-      opts.dev = true
-    elseif option == "--new-field-session" then
-      opts.newFieldSession = true
-    end
-    i = i + 1
-  end
-  return opts
-end
+local Options = require("game.src.Options")
 
 local App
 
 function love.load(argv)
-  local opts = parse(argv)
+  local opts, message = Options.parse(argv)
+  if opts == nil then
+    -- A raise from love.load would hang headless on the error screen; reject
+    -- with the usage status instead. "game: " mirrors the test command's
+    -- "test: " prefix.
+    io.stderr:write("game: " .. message .. "\n")
+    love.event.quit(Options.EXIT_USAGE)
+    return
+  end
 
   if opts.test then
     -- The test command owns its own argument parsing and exit status.
