@@ -143,11 +143,12 @@ function FieldObjectActor:setVisible(visible)
 end
 
 -- Scripted position set: the caller (the actor manager) has already resolved
--- the world coordinates and the occupancy index key for the new cell.
----@param position { fieldX: integer, fieldZ: integer, worldY: number, worldX: number, worldZ: number }
+-- the destination surface and the occupancy index key for the new cell.
+---@param position { fieldX: integer, fieldZ: integer, worldY: number, worldX: number, worldZ: number, surfaceId: integer }
 function FieldObjectActor:setPosition(position)
   self.fieldX = position.fieldX
   self.fieldZ = position.fieldZ
+  self.surfaceId = position.surfaceId
   self.worldY = position.worldY
   self.worldX = position.worldX
   self.worldZ = position.worldZ

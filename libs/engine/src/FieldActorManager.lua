@@ -392,48 +392,59 @@ function FieldActorManager:setFacing(actorId, direction)
   actor:setFacing(direction)
 end
 
--- Scripted position set: recomputes the world coordinates from the terrain
--- and rekeys the occupancy index so collision and the draw list never
--- disagree (the actor's surface is preserved; scripted movement stays on the
--- actor's current terrain surface). The destination occupancy slot is never
--- overwritten: moving onto another solid actor's cell is a conflict, the
--- same invariant _instantiate enforces.
+-- Scripted position set: resolves the destination surface from the terrain
+-- (an explicit worldY selects the plate at that height; otherwise the actor's
+-- current surface is preserved whenever it covers the destination), then
+-- rekeys the occupancy index so collision and the draw list never disagree.
+-- The whole destination is calculated and validated -- coordinates, surface,
+-- and occupancy conflict -- before the actor or the occupancy index is
+-- mutated, so a conversion or surface failure leaves the actor exactly where
+-- it was. The destination occupancy slot is never overwritten: moving onto
+-- another solid actor's cell is a conflict, the same invariant _instantiate
+-- enforces.
 function FieldActorManager:setPosition(actorId, position)
   local actor = self:getById(actorId)
   if actor == nil then
     Errors.raise(ScriptErrors.SCRIPT_ACTOR_NOT_FOUND, "no live actor " .. tostring(actorId), { actor = actorId })
   end
   local entry = assert(self.maps[actor.mapId], "actor map entry missing")
-  local key = occupancyKey(actor.mapId, actor.fieldX, actor.fieldZ, actor.surfaceId)
-  if entry.occupancy[key] == actor then
-    entry.occupancy[key] = nil
+  local localX, localZ = FieldCoordinates.fieldToLocal(entry.runtimeMap, position.fieldX, position.fieldZ)
+  local surfaceOpts = {
+    localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
+    localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
+    currentY = position.worldY or actor.worldY,
+  }
+  if position.worldY == nil then
+    surfaceOpts.currentSurfaceId = actor.surfaceId
   end
-  local worldY = position.worldY or actor.worldY
-  local world = FieldCoordinates.fieldToWorld(entry.runtimeMap, position.fieldX, position.fieldZ, worldY)
+  local sample = SurfaceResolver.new(entry.runtimeMap.terrain):resolve(surfaceOpts)
+  local world = FieldCoordinates.fieldToWorld(entry.runtimeMap, position.fieldX, position.fieldZ, sample.worldY)
+  local newKey = occupancyKey(actor.mapId, position.fieldX, position.fieldZ, sample.surfaceId)
   if actor.solid then
-    local newKey = occupancyKey(actor.mapId, position.fieldX, position.fieldZ, actor.surfaceId)
     local occupant = entry.occupancy[newKey]
     if occupant ~= nil and occupant ~= actor then
-      -- Restore the mover's old cell before raising: the conflict must not
-      -- corrupt the occupancy index.
-      entry.occupancy[key] = actor
       Errors.raise("ACTOR_OCCUPANCY_CONFLICT", actorId .. " cannot move onto " .. occupant.actorId .. "'s field cell", {
         actorId = actorId,
         otherActorId = occupant.actorId,
         mapId = actor.mapId,
         fieldX = position.fieldX,
         fieldZ = position.fieldZ,
-        surfaceId = actor.surfaceId,
+        surfaceId = sample.surfaceId,
       })
+    end
+    local oldKey = occupancyKey(actor.mapId, actor.fieldX, actor.fieldZ, actor.surfaceId)
+    if entry.occupancy[oldKey] == actor then
+      entry.occupancy[oldKey] = nil
     end
     entry.occupancy[newKey] = actor
   end
   actor:setPosition({
     fieldX = position.fieldX,
     fieldZ = position.fieldZ,
-    worldY = world.y,
+    worldY = sample.worldY,
     worldX = world.x,
     worldZ = world.z,
+    surfaceId = sample.surfaceId,
   })
 end
 

@@ -123,7 +123,10 @@ function ScriptActorWorld:snapshot(actorId)
     actorId = actorId,
     position = position,
     facing = facing,
-    visible = true,
+    -- Scripted hide_object is transient visibility on the live actor: the
+    -- snapshot reports the same state collision sees (hidden actors remain
+    -- solid), so the two views never contradict.
+    visible = actor.visible ~= false,
   }
 end
 

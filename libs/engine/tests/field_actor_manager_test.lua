@@ -452,6 +452,85 @@ function T.script_set_position_cannot_overwrite_occupancy()
   Assert.equal(assert(mgr:getAt(61, 2, 3, 0), "the mover kept its old cell").actorId, "map:61:object:0")
 end
 
+-- A coordinate-conversion failure must leave the actor in its old cell with
+-- its old position: the whole destination (coordinates, surface, occupancy)
+-- is validated before any mutation.
+function T.script_set_position_conversion_failure_keeps_occupancy()
+  local mgr = manager({ object({ objectEventId = 0, x = 2, z = 3 }) })
+  local actor = assert(mgr:getById("map:61:object:0"))
+  throwsCode("FIELD_COORDINATES_OUT_OF_COVERAGE", function()
+    mgr:setPosition("map:61:object:0", { fieldX = 100, fieldZ = 3 })
+  end)
+  Assert.equal(actor.fieldX, 2, "the actor keeps its old position")
+  Assert.equal(assert(mgr:getAt(61, 2, 3, 0), "the mover kept its old cell").actorId, "map:61:object:0")
+end
+
+-- A destination inside the permission coverage but without terrain (or with
+-- an unresolvable surface) is equally transactional.
+function T.script_set_position_surface_failure_keeps_occupancy()
+  local mgr = manager({ object({ objectEventId = 0, x = 2, z = 3 }) })
+  local actor = assert(mgr:getById("map:61:object:0"))
+  throwsCode("TERRAIN_SURFACE_NOT_FOUND", function()
+    mgr:setPosition("map:61:object:0", { fieldX = 35, fieldZ = 3 })
+  end)
+  Assert.equal(actor.fieldX, 2, "the actor keeps its old position")
+  Assert.equal(assert(mgr:getAt(61, 2, 3, 0), "the mover kept its old cell").actorId, "map:61:object:0")
+end
+
+-- A move onto a different terrain plate updates the surface used by occupancy
+-- and interaction: an explicit worldY selects the stacked plate, and the
+-- occupancy index rekeys on that surface.
+function T.script_set_position_across_surfaces_rekeys_occupancy()
+  local mgr = manager({ object({ objectEventId = 0, x = 2, z = 3 }) })
+  local actor = assert(mgr:getById("map:61:object:0"))
+  Assert.equal(actor.surfaceId, 0)
+  mgr:setPosition("map:61:object:0", { fieldX = 9, fieldZ = 3, worldY = 4 })
+  Assert.equal(actor.surfaceId, 1, "the destination surface follows the resolved plate")
+  Assert.equal(actor.worldY, 4)
+  Assert.equal(assert(mgr:getAt(61, 9, 3, 1), "occupancy rekeys on the new surface").actorId, "map:61:object:0")
+  Assert.isNil(mgr:getAt(61, 9, 3, 0), "no occupancy on the old surface at the destination")
+  Assert.isNil(mgr:getAt(61, 2, 3, 0), "the old cell is vacated")
+end
+
+-- Without an explicit worldY the actor stays on its current surface when it
+-- covers the destination: scripted movement keeps the actor on its plate.
+function T.script_set_position_without_world_y_stays_on_the_current_surface()
+  local mgr = manager({ object({ objectEventId = 0, x = 2, z = 3 }) })
+  local actor = assert(mgr:getById("map:61:object:0"))
+  mgr:setPosition("map:61:object:0", { fieldX = 9, fieldZ = 3 })
+  Assert.equal(actor.surfaceId, 0, "the current surface covers the destination and is preserved")
+  Assert.equal(actor.worldY, 0)
+  Assert.equal(assert(mgr:getAt(61, 9, 3, 0)).actorId, "map:61:object:0")
+end
+
+-- Hidden actors stay solid for collision and report hidden snapshots: the
+-- two views never contradict.
+function T.hidden_actors_report_hidden_snapshots_and_stay_solid()
+  local ScriptActorWorld = require("libs.engine.src.script.ScriptActorWorld")
+  local mgr = manager({ object({ objectEventId = 0, x = 2, z = 3 }) })
+  local player = {
+    position = function()
+      return { fieldX = 0, fieldZ = 0, worldY = 0 }
+    end,
+    facing = function()
+      return "south"
+    end,
+    gender = function()
+      return 0
+    end,
+    name = function()
+      return "Gold"
+    end,
+  }
+  local world = ScriptActorWorld.new(mgr --[[@as ScriptActorManager]], player)
+  mgr:hide("map:61:object:0")
+  Assert.isFalse(mgr:getById("map:61:object:0").visible)
+  Assert.isTrue(mgr:isOccupied(61, 2, 3, 0), "hidden actors remain solid for collision")
+  Assert.equal(world:snapshot("map:61:object:0").visible, false, "hide_object reflects in snapshots")
+  world:show("map:61:object:0")
+  Assert.equal(world:snapshot("map:61:object:0").visible, true, "show_object restores snapshot visibility")
+end
+
 function T.player_cannot_step_into_a_visible_solid_actor_cell()
   local mgr, _, _, map = manager({ object({ objectEventId = 0, x = 9, z = 3 }) })
   local p = playerOn(mgr, map, 9, 2, 0)
