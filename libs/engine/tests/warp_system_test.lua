@@ -1,5 +1,6 @@
--- WarpSystem tests cover coordinate lookup, indexed destination resolution,
--- terrain-height selection, typed failures, and one-coordinate suppression.
+-- WarpSystem tests cover coordinate lookup, indexed and direct-record
+-- destination resolution, terrain-height selection, typed failures, and
+-- one-coordinate suppression.
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.rom.src.Errors")
@@ -138,6 +139,111 @@ function T.loader_failure_is_wrapped_with_warp_context()
     WarpSystem.resolveDestination(other, source, { index = 0, destinationMapId = 60, destinationWarpId = 0 })
   end)
   Assert.isTrue(tostring(rawErr):match("boom"), "unexpected loader errors propagate unchanged")
+end
+
+-- A scripted direct warp record carries pre-resolved global destination
+-- coordinates; resolveDestination must honor them instead of falling into the
+-- indexed-record path. WarpSystem is the single destination-semantics owner,
+-- so the branch resolves here.
+function T.direct_warp_record_resolves_its_own_global_coordinates()
+  local destination = runtimeMap(62, 672, 384, {
+    { index = 0, x = 600, z = 300, destinationMapId = 61, destinationWarpId = 0, y = 0 },
+  })
+  local loader = {
+    load = function(_, mapId)
+      Assert.equal(mapId, 62)
+      return destination
+    end,
+  }
+  local directWarp = {
+    index = 0,
+    x = 688,
+    z = 392,
+    y = 0,
+    destinationMapId = 62,
+    destinationWarpId = 0,
+    direct = true,
+  }
+  local result = WarpSystem.resolveDestination(loader, runtimeMap(60, 672, 384, {}), directWarp)
+  Assert.equal(result.destinationMap, destination)
+  Assert.equal(result.destinationWarp, directWarp)
+  Assert.equal(result.fieldX, 688)
+  Assert.equal(result.fieldZ, 392)
+  Assert.equal(result.surfaceId, 0)
+  Assert.equal(result.worldY, 0)
+  Assert.deepEqual(result.suppression, { mapId = 62, fieldX = 688, fieldZ = 392 })
+end
+
+-- The direct path must not depend on the destination map carrying any indexed
+-- warp: the coordinates are pre-resolved, so an empty warp list is fine.
+function T.direct_warp_record_resolves_without_destination_warps()
+  local destination = runtimeMap(62, 672, 384, {})
+  local loader = {
+    load = function()
+      return destination
+    end,
+  }
+  local directWarp = {
+    index = 0,
+    x = 688,
+    z = 392,
+    y = 0,
+    destinationMapId = 62,
+    destinationWarpId = 0,
+    direct = true,
+  }
+  local result = WarpSystem.resolveDestination(loader, runtimeMap(60, 672, 384, {}), directWarp)
+  Assert.equal(result.fieldX, 688)
+  Assert.equal(result.fieldZ, 392)
+end
+
+-- Record-variant dispatch order: a direct record is resolved by its own
+-- coordinates even when its destinationWarpId is the dynamic-warp sentinel.
+function T.direct_warp_record_bypasses_the_dynamic_sentinel()
+  local destination = runtimeMap(62, 672, 384, {})
+  local loader = {
+    load = function()
+      return destination
+    end,
+  }
+  local directWarp = {
+    index = 0,
+    x = 688,
+    z = 392,
+    y = 0,
+    destinationMapId = 62,
+    destinationWarpId = WarpSystem.DYNAMIC_WARP_SENTINEL,
+    direct = true,
+  }
+  local result = WarpSystem.resolveDestination(loader, runtimeMap(60, 672, 384, {}), directWarp)
+  Assert.equal(result.fieldX, 688)
+  Assert.equal(result.fieldZ, 392)
+end
+
+-- The direct branch loads its destination map plainly and propagates the
+-- loader error unwrapped (the FIELD_DESTINATION_MAP_UNKNOWN wrap belongs to
+-- the indexed-record path only). This pins the exact FieldRuntime behavior
+-- the move preserves.
+function T.direct_warp_destination_loader_failure_propagates_raw()
+  local failing = {
+    load = function()
+      Errors.raise("FIELD_MAP_UNKNOWN", "map 62 is missing", { mapId = 62 })
+    end,
+  }
+  local directWarp = {
+    index = 0,
+    x = 688,
+    z = 392,
+    y = 0,
+    destinationMapId = 62,
+    destinationWarpId = 0,
+    direct = true,
+  }
+  local err = Assert.throws(function()
+    WarpSystem.resolveDestination(failing, runtimeMap(60, 672, 384, {}), directWarp)
+  end)
+  Assert.isTrue(Errors.is(err), "expected structured error")
+  Assert.equal(assert(err).code, "FIELD_MAP_UNKNOWN")
 end
 
 function T.suppression_lasts_until_the_player_leaves_its_coordinate()

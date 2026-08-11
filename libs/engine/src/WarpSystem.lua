@@ -1,6 +1,8 @@
 -- Resolves normalized field warp records into destination map coordinates and
 -- terrain surfaces. Warp indexes are zero-based; event coordinates remain in
--- the authoritative global field domain.
+-- the authoritative global field domain. Scripted warps arrive as `direct`
+-- records carrying pre-resolved global destination coordinates and resolve
+-- through their own branch before any indexed-record dispatch.
 
 local Errors = require("libs.rom.src.Errors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
@@ -27,6 +29,24 @@ local function warps(runtimeMap)
     runtimeMap and runtimeMap.fieldData and runtimeMap.fieldData.events and runtimeMap.fieldData.events.warps,
     "runtime map warp data required"
   )
+end
+
+local function resolutionRecord(sourceMap, sourceWarp, destinationMap, destinationWarp, fieldX, fieldZ, sample)
+  return {
+    sourceMap = sourceMap,
+    sourceWarp = sourceWarp,
+    destinationMap = destinationMap,
+    destinationWarp = destinationWarp,
+    fieldX = fieldX,
+    fieldZ = fieldZ,
+    surfaceId = sample.surfaceId,
+    worldY = sample.worldY,
+    suppression = {
+      mapId = destinationMap.mapId,
+      fieldX = fieldX,
+      fieldZ = fieldZ,
+    },
+  }
 end
 
 function WarpSystem.findAt(runtimeMap, fieldX, fieldZ)
@@ -74,6 +94,21 @@ end
 function WarpSystem.resolveDestination(loader, sourceMap, warp)
   assert(loader and loader.load, "warp destination loader required")
   assert(sourceMap and sourceMap.mapId and warp, "source map and warp required")
+
+  -- A scripted `direct` record carries pre-resolved global coordinates and
+  -- resolves its own warp instead of an indexed destination record. It loads
+  -- plainly (failures propagate raw) and must precede every indexed-path
+  -- dispatch, including the dynamic-warp refusal.
+  if warp.direct then
+    local destinationMap = loader.load(loader, warp.destinationMapId)
+    local localX, localZ = FieldCoordinates.fieldToLocal(destinationMap, warp.x, warp.z)
+    local sample = SurfaceResolver.new(destinationMap.terrain):resolve({
+      localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
+      localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
+      currentY = 0,
+    })
+    return resolutionRecord(sourceMap, warp, destinationMap, warp, warp.x, warp.z, sample)
+  end
   if warp.destinationWarpId == WarpSystem.DYNAMIC_WARP_SENTINEL then
     Errors.raise("FIELD_DYNAMIC_WARP_UNSUPPORTED", "dynamic warp anchors are not supported", {
       sourceMapId = sourceMap.mapId,
@@ -101,21 +136,15 @@ function WarpSystem.resolveDestination(loader, sourceMap, warp)
     localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
     currentY = hintY,
   })
-  return {
-    sourceMap = sourceMap,
-    sourceWarp = warp,
-    destinationMap = destinationMap,
-    destinationWarp = destinationWarp,
-    fieldX = destinationWarp.x,
-    fieldZ = destinationWarp.z,
-    surfaceId = sample.surfaceId,
-    worldY = sample.worldY,
-    suppression = {
-      mapId = destinationMap.mapId,
-      fieldX = destinationWarp.x,
-      fieldZ = destinationWarp.z,
-    },
-  }
+  return resolutionRecord(
+    sourceMap,
+    warp,
+    destinationMap,
+    destinationWarp,
+    destinationWarp.x,
+    destinationWarp.z,
+    sample
+  )
 end
 
 function WarpSystem.isSuppressed(token, mapId, fieldX, fieldZ)

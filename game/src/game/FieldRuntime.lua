@@ -301,42 +301,12 @@ function FieldRuntime:_load()
       spriteId = self.avatar.spriteId,
     })
 
-    -- Warp resolution: ordinary warp records follow WarpSystem; scripted
-    -- warps carry pre-resolved direct coordinates (the script maps service
-    -- synthesizes `direct` records with global destination coordinates and
-    -- the destination map id).
-    local WarpSystem = require("libs.engine.src.WarpSystem")
-    local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
-    local resolveDestination = function(loader, sourceMap, warp)
-      if warp.direct then
-        local destinationMap = loader:load(warp.destinationMapId)
-        local localX, localZ = FieldCoordinates.fieldToLocal(destinationMap, warp.x, warp.z)
-        local sample = SurfaceResolver.new(destinationMap.terrain):resolve({
-          localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
-          localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
-          currentY = 0,
-        })
-        return {
-          sourceMap = sourceMap,
-          sourceWarp = warp,
-          destinationMap = destinationMap,
-          destinationWarp = warp,
-          fieldX = warp.x,
-          fieldZ = warp.z,
-          surfaceId = sample.surfaceId,
-          worldY = sample.worldY,
-          suppression = {
-            mapId = destinationMap.mapId,
-            fieldX = warp.x,
-            fieldZ = warp.z,
-          },
-        }
-      end
-      return WarpSystem.resolveDestination(loader, sourceMap, warp)
-    end
+    -- Warp resolution is owned by WarpSystem through FieldTransition's
+    -- default resolver: ordinary records follow the indexed path; scripted
+    -- `direct` records carry global destination coordinates and resolve
+    -- through their own branch.
     self.transition = FieldTransition.new({
       loader = self.mapLoader,
-      resolveDestination = resolveDestination,
       swap = function(resolution, facing)
         self:_swapMap(resolution, facing)
       end,
