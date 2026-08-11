@@ -20,6 +20,23 @@ local function newInstance(opts)
   return ModelInstance.new(NitroModelFixture.doorDefinition(), opts)
 end
 
+-- A door definition whose material carries a texture, so effectiveMaterial
+-- exercises the resolveImage callback (untextured materials never call it).
+local function texturedDoorDefinition()
+  local def = NitroModelFixture.doorDefinition()
+  def.materials[1] = {
+    id = 0,
+    name = "wall",
+    baseColor = { r = 255, g = 255, b = 255, a = 255 },
+    alphaMode = "opaque",
+    doubleSided = false,
+    texture = "wall.png",
+    texWidth = 64,
+    texHeight = 64,
+  }
+  return def
+end
+
 local function rendersFor(def)
   local renders = {}
   for _, mesh in ipairs(def.meshes) do
@@ -169,6 +186,22 @@ function T.material_contract_maps_to_render_state()
   instance.materialState[0].polygonAlpha = 16
   Assert.near(instance:effectiveMaterial(0).polygonAlpha, 16 / 31, 1e-9)
   Assert.equal(instance.definition.materials[1].baseColor.a, 255)
+end
+
+-- The resolveImage callback contract: effectiveMaterial invokes it with the
+-- texture key only -- the stale width/height arguments are gone.
+function T.resolve_image_receives_only_the_texture_key()
+  local calls = {}
+  local instance = ModelInstance.new(texturedDoorDefinition(), {
+    resolveImage = function(...)
+      calls[#calls + 1] = { ... }
+    end,
+  })
+  local material = instance:effectiveMaterial(0)
+  Assert.equal(#calls, 1, "the textured material resolves an image")
+  Assert.equal(#calls[1], 1, "the resolveImage callback receives exactly the texture key")
+  Assert.equal(calls[1][1], "wall.png")
+  Assert.isNil(material.image, "the callback return value passes through")
 end
 
 -- ---- nitro backend contract ----

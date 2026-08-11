@@ -336,6 +336,73 @@ local function fakeMeshBuilder(decoded)
   }
 end
 
+-- A fake image builder that RECORDS the sampler configuration: the pool
+-- configures every image it builds with image:setWrap(wrapX, wrapY), so the
+-- recorded wrap pair is the observable imageFor request. `images` collects
+-- the built objects in build order, each tagged with its texture path.
+local function recordingImageBuilder(images)
+  return function(path)
+    local image = { path = path, wraps = {} }
+    image.setFilter = function() end
+    image.setWrap = function(_, wrapX, wrapY)
+      image.wraps[#image.wraps + 1] = { wrapX, wrapY }
+    end
+    image.release = function() end
+    images[#images + 1] = image
+    return image
+  end
+end
+
+-- The door descriptor with a textured material: base texture (64x64) plus
+-- optional pattern variants, sampled under the material's wrap pair. The
+-- loader maps every texture key (base and variants) to the material's wrap
+-- for the animated resolveImage path; the fixture pins that the resolve
+-- requests carry the precomputed wrap, never an unconditional clamp.
+local function texturedDescriptor(opts)
+  opts = opts or {}
+  local desc = doorDescriptor()
+  desc.key = "outdoor:26:texdoor"
+  desc.memberId = 26
+  local material = desc.materials[1]
+  material.texture = opts.baseTexture or MapAssetCache.texturePath("texbase")
+  material.texWidth = 64
+  material.texHeight = 64
+  material.textureFormat = 3
+  material.alphaUsage = { hasZero = true }
+  material.wrap = opts.wrap or { x = "repeat", y = "repeat" }
+  material.variants = opts.variants
+  desc.animations = opts.animations or desc.animations
+  return desc
+end
+
+-- A compiled NSBTP-style pattern clip selecting the first variant at frame 0.
+local function patternClip()
+  return {
+    id = "build_anim-3",
+    name = "pattern",
+    category = "material",
+    kind = "pattern",
+    frameCount = 8,
+    tracks = { { target = "wall", targetIndex = 0 } },
+    source = { type = "nitro", format = "NSBTP", archive = "build_anim", memberId = 3 },
+    compiled = {
+      numTextures = 1,
+      numPalettes = 0,
+      textureNames = { "v1" },
+      paletteNames = {},
+      targets = {
+        {
+          index = 0,
+          name = "wall",
+          rate = 0x1000,
+          keyCount = 1,
+          keys = { { frame = 0, texIdx = 0, plttIdx = 0xFF } },
+        },
+      },
+    },
+  }
+end
+
 function T.animated_building_loads_advances_and_renders()
   local mapId = 61
   local backend = FakeCache.new()
@@ -726,6 +793,111 @@ function T.load_rejects_an_unknown_initial_band()
   )
   Assert.isFalse(ok)
   assert(tostring(err):find("unknown time-of-day band", 1, true) ~= nil, tostring(err))
+end
+
+-- The animated (dynamic) image path must honor the material's sampler wrap:
+-- an animated material with a repeat wrap resolves through the pool with
+-- repeat/repeat, never the unconditional clamp/clamp of the old callback.
+function T.animated_material_resolves_its_image_with_the_material_wrap()
+  local desc = texturedDescriptor()
+  local cache = sceneWith({
+    {
+      placementIndex = 0,
+      modelKey = "outdoor:26:texdoor",
+      transform = identityMatrix(),
+    },
+  }, { [desc.key] = desc })
+  local images = {}
+  local runtime = MapSceneLoader.load(
+    cache,
+    assert(cache:loadLua(MapAssetCache.mapDir(61) .. "/scene.lua")),
+    { meshBuilder = fakeMeshBuilder, imageBuilder = recordingImageBuilder(images) }
+  )
+  runtime:rebuildAnimatedDrawItems()
+  local image = runtime.buildingDraws[1].material.image
+  Assert.notNil(image, "the animated material resolves an image")
+  Assert.equal(image.path, desc.materials[1].texture)
+  Assert.deepEqual(image.wraps, { { "repeat", "repeat" } }, "the image is requested with the material's wrap")
+  Assert.equal(runtime.stats.textureCount, 1)
+  runtime:release()
+end
+
+-- A pattern variant texture is resolved with the SAME wrap as its material:
+-- wrapByTexture maps every variant texture key to the owning material's
+-- wrap, so a variant never samples with the wrong sampler.
+function T.animated_variant_texture_uses_the_material_wrap()
+  local variantTexture = MapAssetCache.texturePath("texvariant")
+  local desc = texturedDescriptor({
+    variants = {
+      {
+        name = "v1",
+        texture = variantTexture,
+        width = 32,
+        height = 32,
+        textureFormat = 7,
+      },
+    },
+    animations = { patternClip() },
+  })
+  local cache = sceneWith({
+    {
+      placementIndex = 0,
+      modelKey = "outdoor:26:texdoor",
+      transform = identityMatrix(),
+    },
+  }, { [desc.key] = desc })
+  local images = {}
+  local runtime = MapSceneLoader.load(
+    cache,
+    assert(cache:loadLua(MapAssetCache.mapDir(61) .. "/scene.lua")),
+    { meshBuilder = fakeMeshBuilder, imageBuilder = recordingImageBuilder(images) }
+  )
+  local instance = runtime.animatedInstances[1]
+
+  -- The base texture first: the material's wrap applies to the base too.
+  runtime:rebuildAnimatedDrawItems()
+  local baseImage = runtime.buildingDraws[1].material.image
+  Assert.deepEqual(baseImage.wraps, { { "repeat", "repeat" } }, "the base texture uses the material's wrap")
+
+  -- The pattern selects the variant; the variant resolves with the same wrap.
+  -- The controller play marks the scene's draw list dirty; the next refresh
+  -- (the pre-render rebuild after one update) consumes it.
+  runtime.animationController:play(instance, "pattern")
+  instance:updateFixed()
+  runtime:rebuildAnimatedDrawItems()
+  local variantImage = runtime.buildingDraws[1].material.image
+  Assert.equal(variantImage.path, variantTexture, "the pattern switches to the variant texture")
+  Assert.deepEqual(variantImage.wraps, { { "repeat", "repeat" } }, "the variant texture uses its material's wrap")
+  runtime:release()
+end
+
+-- Untextured animated materials never touch the image pool: the resolveImage
+-- callback only fires for a material with a current texture.
+function T.untextured_animated_materials_never_request_an_image()
+  local desc = doorDescriptor()
+  local cache = sceneWith({
+    {
+      placementIndex = 0,
+      modelKey = "outdoor:26:door",
+      transform = identityMatrix(),
+    },
+  }, { [desc.key] = desc })
+  local images = {}
+  local runtime = MapSceneLoader.load(
+    cache,
+    assert(cache:loadLua(MapAssetCache.mapDir(61) .. "/scene.lua")),
+    { meshBuilder = fakeMeshBuilder, imageBuilder = recordingImageBuilder(images) }
+  )
+  Assert.equal(#images, 0, "no image is requested for an untextured material")
+  Assert.equal(runtime.stats.textureCount, 0)
+  runtime:rebuildAnimatedDrawItems()
+  Assert.isNil(runtime.buildingDraws[1].material.image)
+  -- Even while a clip plays, an untextured material never resolves an image.
+  runtime.animationController:play(runtime.animatedInstances[1], "door.open")
+  runtime.animatedInstances[1]:updateFixed()
+  runtime:rebuildAnimatedDrawItems()
+  Assert.equal(#images, 0, "playing an untextured clip never touches the image pool")
+  runtime:release()
 end
 
 return {

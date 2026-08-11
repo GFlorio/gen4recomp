@@ -339,8 +339,9 @@ local function buildScene(pool, cacheFs, scene, opts)
       end
       local instance = ModelInstance.new(entry.definition, {
         transform = inst.transform,
-        resolveImage = function(key, width, height)
-          return pool:imageFor(key, "clamp", "clamp")
+        resolveImage = function(key)
+          local wrap = assert(desc.wrapByTexture[key], "missing wrap for animated texture " .. key)
+          return pool:imageFor(key, wrap.x, wrap.y)
         end,
       })
       instance.renderMeshesById = entry.renderMeshesById

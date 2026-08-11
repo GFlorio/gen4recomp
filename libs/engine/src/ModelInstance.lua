@@ -17,9 +17,8 @@
 -- the built mesh per mesh id (the caller builds love meshes from the
 -- definition's referenced .g4mesh geometry); drawItems itself stays pure so
 -- pose and item math are testable without graphics. An optional
--- `resolveImage` callback (opts.resolveImage) maps a texture key plus its
--- dimensions to the caller's image object; without one items draw
--- untextured.
+-- `resolveImage` callback (opts.resolveImage) maps a texture key to the
+-- caller's image object; without one items draw untextured.
 --
 -- The definition and its clips are immutable and shared; materialState is
 -- the instance's own map, so two instances of one model can animate at
@@ -63,7 +62,7 @@ local AlphaClassifier = require("libs.engine.src.AlphaClassifier")
 ---@field materialState { [integer]: MaterialInstanceState }
 ---@field poseState PoseState|nil
 ---@field renderMeshesById table|nil -- caller-built render meshes per mesh id
----@field resolveImage fun(key: string, width: integer, height: integer): any|nil
+---@field resolveImage fun(key: string): any|nil
 ---@field timeOfDayPlan table|nil -- band plan the scene loader attaches (TimeOfDayProps.plan)
 local ModelInstance = {}
 ModelInstance.__index = ModelInstance
@@ -240,7 +239,7 @@ function ModelInstance:effectiveMaterial(materialIndex)
   end
   local image
   if state and state.texture and self.resolveImage then
-    image = self.resolveImage(state.texture, state.texWidth, state.texHeight)
+    image = self.resolveImage(state.texture)
   end
   local alphaClass = state and state.alphaClass or ALPHA_CLASS[material.alphaMode] or "opaque"
   return {
