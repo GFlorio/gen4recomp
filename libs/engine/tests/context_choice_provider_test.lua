@@ -12,7 +12,7 @@ T["context choice keeps its active selection until the task closes it"] = functi
 
   provider:open()
   Assert.deepEqual(provider:status(), { state = "active", selected = 0 })
-  provider:select("right")
+  provider:select(1)
   Assert.equal(provider:confirm(), 1)
   provider:close()
   Assert.equal(provider:status(), nil)
@@ -35,7 +35,7 @@ T["context choice task writes the selected alternate result"] = function()
   local state = ContextChoiceTask.create({}, ctx)
   ContextChoiceTask.poll(state, ctx)
 
-  ctx.input = { pressedDirection = "right" }
+  ctx.input = { pressedDirection = "east" }
   local waiting = ContextChoiceTask.poll(state, ctx)
   Assert.isFalse(waiting.complete)
   Assert.equal(provider:status().selected, 1)
@@ -52,7 +52,7 @@ T["context choice task restores its selected value into a fresh provider"] = fun
   local ctx = { services = { contextChoice = provider }, input = {} }
   local state = ContextChoiceTask.create({}, ctx)
   ContextChoiceTask.poll(state, ctx)
-  ctx.input = { pressedDirection = "right" }
+  ctx.input = { pressedDirection = "east" }
   ContextChoiceTask.poll(state, ctx)
 
   Assert.equal(state.selected, 1)

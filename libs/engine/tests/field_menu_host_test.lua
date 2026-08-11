@@ -162,9 +162,9 @@ function T.horizontal_navigation_does_not_change_focus_in_a_relaid_out_single_co
   host:resize(390, 844)
 
   Assert.deepEqual(host:inputEvents({ { type = "navigate", direction = "left" } }), {})
-  Assert.equal(host:presentation().selectedIndex, 1)
+  Assert.equal(host:presentation().status.selectedIndex, 1)
   Assert.deepEqual(host:inputEvents({ { type = "navigate", direction = "right" } }), {})
-  Assert.equal(host:presentation().selectedIndex, 1)
+  Assert.equal(host:presentation().status.selectedIndex, 1)
 end
 
 function T.batched_navigation_uses_each_layout_resolved_focus_target_in_order()

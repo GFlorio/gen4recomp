@@ -94,7 +94,7 @@ end
 function MenuTask.poll(state, ctx)
   local controller = menuController(state)
   local input = ctx.input or {}
-  local events = input.menuEvents or input.uiEvents or {}
+  local events = input.menuEvents or {}
   assert(type(events) == "table", "menu input events must be a table")
   for _, event in ipairs(events) do
     applyEvent(controller, state, event)

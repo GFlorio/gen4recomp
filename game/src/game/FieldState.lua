@@ -4,7 +4,6 @@ local FieldRuntime = require("game.src.game.FieldRuntime")
 local FieldActorAssetProvider = require("libs.engine.src.FieldActorAssetProvider")
 local FieldActorDraw = require("libs.engine.src.FieldActorDraw")
 local FieldDialogueRenderer = require("libs.engine.src.FieldDialogueRenderer")
-local FieldMenuController = require("libs.engine.src.FieldMenuController")
 local FieldMenuRenderer = require("libs.engine.src.FieldMenuRenderer")
 local MapRenderer = require("libs.engine.src.MapRenderer")
 local SceneAssembly = require("libs.engine.src.SceneAssembly")
@@ -164,13 +163,7 @@ function FieldState:draw()
   local menu = self.runtime.menuHost
   local presentation = menu and menu:presentation()
   if presentation then
-    local controller = FieldMenuController.new({
-      items = presentation.definition.items,
-      initialCursor = presentation.selectedIndex,
-      cancellable = presentation.definition.cancellable,
-      cancelValue = presentation.definition.cancelValue,
-    })
-    assert(self.menuRenderer, "field menu renderer is unavailable"):draw(controller, presentation.layout)
+    assert(self.menuRenderer, "field menu renderer is unavailable"):draw(presentation)
   end
   if self.development then
     self:_drawHud()

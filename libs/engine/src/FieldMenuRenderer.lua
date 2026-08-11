@@ -1,6 +1,6 @@
--- Draws a resolved field-menu layout using controller state only for visual
--- focus. It neither reads item result values nor decides cancellation policy;
--- those stay in FieldMenuController and the script host respectively.
+-- Draws a resolved field-menu presentation snapshot. It neither reads item
+-- result values nor decides cancellation policy; those stay in the controller
+-- and script task respectively.
 
 local FieldMenuTheme = require("libs.engine.src.FieldMenuTheme")
 
@@ -18,7 +18,11 @@ local function intersects(a, b)
   return a.x < b.x + b.width and b.x < a.x + a.width and a.y < b.y + b.height and b.y < a.y + a.height
 end
 
-local function assertLayout(layout)
+local function assertPresentation(presentation)
+  assert(type(presentation) == "table" and type(presentation.status) == "table", "field menu renderer requires status")
+  local status = presentation.status
+  assert(type(status.selectedIndex) == "number", "field menu status requires a selected index")
+  local layout = presentation.layout
   assert(
     type(layout) == "table" and layout.frame and layout.scrollViewport,
     "field menu renderer requires a resolved layout"
@@ -31,7 +35,11 @@ local function assertLayout(layout)
       and type(layout.itemTexts) == "table",
     "resolved layout requires item geometry and text"
   )
-  assert(type(layout.selectedIndex) == "number", "resolved layout requires a selected index")
+  assert(
+    status.selectedIndex % 1 == 0 and status.selectedIndex >= 0 and status.selectedIndex < layout.itemCount,
+    "field menu selected index is outside the resolved layout"
+  )
+  return status, layout
 end
 
 ---@param opts { graphics?: love.Graphics, theme?: FieldMenuTheme }?
@@ -138,17 +146,12 @@ function FieldMenuRenderer:_drawCancel(layout)
   graphics.print("Cancel", rect.x + self._theme.textInsetX, rect.y + self._theme.textInsetY)
 end
 
--- Draws one active menu. The caller supplies controller and immutable resolved
--- layout; the renderer does not resolve text or mutate either object.
+-- Draws one active menu from an immutable presentation snapshot. The renderer
+-- does not resolve text, reconstruct interaction state, or mutate the snapshot.
 
----@param controller FieldMenuController
----@param layout table
-function FieldMenuRenderer:draw(controller, layout)
-  if not controller or not controller.isActive or not controller:isActive() then
-    return
-  end
-  assertLayout(layout)
-  local status = controller:status()
+---@param presentation { status: { selectedIndex: integer }, layout: table }
+function FieldMenuRenderer:draw(presentation)
+  local status, layout = assertPresentation(presentation)
   local graphics = self._graphics
   local color = { graphics.getColor() }
   local scissor = { graphics.getScissor() }

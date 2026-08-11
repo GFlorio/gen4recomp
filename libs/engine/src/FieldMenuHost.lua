@@ -154,15 +154,14 @@ end
 
 -- The renderer receives a value snapshot instead of reaching into the host's
 -- private live state. The task remains the only owner of menu interaction.
----@return { definition: FieldMenuController.Spec, selectedIndex: integer, layout: table }|nil
+---@return { status: { selectedIndex: integer }, layout: table }|nil
 function FieldMenuHost:presentation()
   if not self:isModal() then
     return nil
   end
   local active = assert(self._active, "modal menu requires active state")
   return {
-    definition = active.definition,
-    selectedIndex = active.selectedIndex,
+    status = { selectedIndex = active.selectedIndex },
     layout = assert(active.layout, "active menu layout is missing"),
   }
 end

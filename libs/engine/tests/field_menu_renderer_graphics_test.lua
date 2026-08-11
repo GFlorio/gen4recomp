@@ -34,7 +34,6 @@ local function fixture(width, height, count, touch)
 end
 
 function T.default_theme_is_hgss_compact_and_opaque()
-  Assert.equal(FieldMenuTheme.schema, "g4-field-menu-theme-v1")
   Assert.equal(FieldMenuTheme.colors.fill[4], 1)
   Assert.isTrue(FieldMenuTheme.textInsetX > 0)
 end
@@ -51,7 +50,7 @@ function T.presentation_fixtures_draw_a_framed_menu_in_4_3_wide_and_portrait(sco
     local canvas = scope:own(love.graphics.newCanvas(case.width, case.height))
     love.graphics.setCanvas(canvas)
     love.graphics.clear(0, 0, 0, 0)
-    renderer:draw(menu, layout)
+    renderer:draw({ status = menu:status(), layout = layout })
     love.graphics.setCanvas()
     local image = scope:own(canvas:newImageData())
     local x = math.floor(layout.frame.x + layout.frame.width / 2)

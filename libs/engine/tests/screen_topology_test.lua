@@ -156,8 +156,8 @@ function T.copies_surface_geometry_and_occupied_regions()
   Assert.deepEqual(topology.surfaces[1].occupiedRegions, { rectangle(0, 136, 256, 48) })
 end
 
-function T.single_display_is_an_alias_for_one_display()
-  local topology = ScreenTopology.singleDisplay({
+function T.one_display_creates_one_surface()
+  local topology = ScreenTopology.oneDisplay({
     id = "main",
     rect = rectangle(0, 0, 256, 192),
     role = "world",

@@ -3,13 +3,11 @@
 -- a project without changing menu semantics or layout geometry.
 
 ---@class FieldMenuTheme
----@field schema string
 ---@field colors { fill: number[], border: number[], text: number[], selected: number[], cursor: number[], cancel: number[] }
 ---@field textInsetX number
 ---@field textInsetY number
 local FieldMenuTheme = {}
 
-FieldMenuTheme.schema = "g4-field-menu-theme-v1"
 FieldMenuTheme.colors = {
   fill = { 0.93, 0.93, 0.97, 1 },
   border = { 0.16, 0.20, 0.42, 1 },

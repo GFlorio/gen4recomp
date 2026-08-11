@@ -253,9 +253,6 @@ function FieldScripts.new(opts)
     resolveText = function(message)
       return dialogueHost:resolveMessage(message, {}, {})
     end,
-    createMenu = function(request)
-      return request
-    end,
   })
 
   local platform = setmetatable({

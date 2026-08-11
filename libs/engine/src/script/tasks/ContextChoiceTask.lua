@@ -6,6 +6,8 @@ local ScriptErrors = require("libs.engine.src.script.errors")
 
 local ContextChoiceTask = {}
 
+local SELECTION_BY_DIRECTION = { north = 0, west = 0, south = 1, east = 1 }
+
 ContextChoiceTask.type = "context_choice"
 ContextChoiceTask.version = 1
 
@@ -40,7 +42,10 @@ function ContextChoiceTask.poll(state, ctx)
   end
   local input = ctx.input or {}
   if input.pressedDirection ~= nil then
-    state.selected = choice:select(input.pressedDirection)
+    local selected = SELECTION_BY_DIRECTION[input.pressedDirection]
+    if selected ~= nil then
+      state.selected = choice:select(selected)
+    end
   end
   if input.pressedCancel then
     choice:close()

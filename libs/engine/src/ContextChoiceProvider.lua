@@ -27,15 +27,12 @@ function ContextChoiceProvider:status()
   return { state = "active", selected = self._choice.selected }
 end
 
----@param direction string
+---@param selected integer
 ---@return integer selected vanilla result (0 confirm, 1 cancel)
-function ContextChoiceProvider:select(direction)
+function ContextChoiceProvider:select(selected)
   assert(self._choice ~= nil, "no contextual choice is active")
-  if direction == "left" or direction == "up" or direction == "west" or direction == "north" then
-    self._choice.selected = 0
-  elseif direction == "right" or direction == "down" or direction == "east" or direction == "south" then
-    self._choice.selected = 1
-  end
+  assert(selected == 0 or selected == 1, "contextual choice selection is invalid")
+  self._choice.selected = selected
   return self._choice.selected
 end
 

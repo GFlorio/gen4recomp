@@ -123,8 +123,6 @@ function ScreenTopology.dualDisplay(main, auxiliary)
   return ScreenTopology.new({ surfaces = { main, auxiliary } })
 end
 
-ScreenTopology.singleDisplay = ScreenTopology.oneDisplay
-
 ---@class ScreenTopology.Rectangle
 ---@field x number
 ---@field y number

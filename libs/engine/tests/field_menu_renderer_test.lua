@@ -77,7 +77,7 @@ function T.draws_only_the_resolved_visible_rows_with_selection_scroll_and_cancel
   local menu = controller(items, true, 19)
   local graphics = fakeGraphics()
 
-  FieldMenuRenderer.new({ graphics = graphics }):draw(menu, resolved)
+  FieldMenuRenderer.new({ graphics = graphics }):draw({ status = menu:status(), layout = resolved })
 
   local texts, selected, cancel, indicators = 0, 0, 0, 0
   for _, call in ipairs(graphics.calls) do
@@ -102,11 +102,38 @@ function T.draws_only_the_resolved_visible_rows_with_selection_scroll_and_cancel
   Assert.equal(indicators, 2, "a scrolled list shows both scroll indicators")
 end
 
+function T.draws_a_presentation_status_snapshot_without_a_controller()
+  local resolved = layout(2, false)
+  local graphics = fakeGraphics()
+
+  FieldMenuRenderer.new({ graphics = graphics }):draw({ status = { selectedIndex = 1 }, layout = resolved })
+
+  local highlighted = 0
+  for _, call in ipairs(graphics.calls) do
+    if call.kind == "rectangle" and call.mode == "fill" and call.y == resolved.itemRects[1].y then
+      highlighted = highlighted + 1
+    end
+  end
+  Assert.equal(highlighted, 1)
+end
+
+function T.rejects_a_presentation_selection_outside_the_resolved_layout()
+  local resolved = layout(2, false)
+  local graphics = fakeGraphics()
+
+  local err = Assert.throws(function()
+    FieldMenuRenderer.new({ graphics = graphics }):draw({ status = { selectedIndex = 2 }, layout = resolved })
+  end)
+
+  Assert.isTrue(tostring(err):find("field menu selected index is outside the resolved layout", 1, true) ~= nil)
+end
+
 function T.draw_failure_restores_color_and_scissor()
   local resolved, items = layout(2, false)
   local graphics = fakeGraphics({ failRectangle = true })
   local err = Assert.throws(function()
-    FieldMenuRenderer.new({ graphics = graphics }):draw(controller(items, false), resolved)
+    local menu = controller(items, false)
+    FieldMenuRenderer.new({ graphics = graphics }):draw({ status = menu:status(), layout = resolved })
   end)
   Assert.isTrue(tostring(err):find("injected rectangle failure", 1, true) ~= nil)
   local r, g, b, a = graphics.getColor()
@@ -118,7 +145,8 @@ function T.draws_zero_based_layout_rows_in_visual_order()
   local resolved, items = layout(3, false)
   local graphics = fakeGraphics()
 
-  FieldMenuRenderer.new({ graphics = graphics }):draw(controller(items, false), resolved)
+  local menu = controller(items, false)
+  FieldMenuRenderer.new({ graphics = graphics }):draw({ status = menu:status(), layout = resolved })
 
   local texts = {}
   for _, call in ipairs(graphics.calls) do

@@ -8,7 +8,6 @@ local ScriptErrors = require("libs.engine.src.script.errors")
 ---@class ScriptMenuHost
 ---@field private _provider FieldMessageProvider
 ---@field private _standardMessageBank integer
----@field private _createMenu fun(request: table): any
 ---@field private _standardFallback fun(messageId: integer): table|nil
 ---@field private _resolveText fun(message: any): table|nil
 local ScriptMenuHost = {}
@@ -100,12 +99,11 @@ local function resolveSemanticText(self, message)
   return { text = message }
 end
 
----@param opts table { provider, standardMessageBank, createMenu, standardFallback?: fun(messageId: integer): table }
+---@param opts table { provider, standardMessageBank, standardFallback?: fun(messageId: integer): table }
 ---@return ScriptMenuHost
 function ScriptMenuHost.new(opts)
   assert(type(opts) == "table" and opts.provider, "script menu host requires a message provider")
   assertInteger(opts.standardMessageBank, "script menu host standard message bank")
-  assert(type(opts.createMenu) == "function", "script menu host requires a menu factory")
   assert(
     opts.resolveText == nil or type(opts.resolveText) == "function",
     "script menu text resolver must be a function"
@@ -113,7 +111,6 @@ function ScriptMenuHost.new(opts)
   return setmetatable({
     _provider = opts.provider,
     _standardMessageBank = opts.standardMessageBank,
-    _createMenu = opts.createMenu,
     _standardFallback = opts.standardFallback,
     _resolveText = opts.resolveText,
   }, ScriptMenuHost)
@@ -137,14 +134,14 @@ function ScriptMenuHost:choose(spec)
       metadata = item.metadata,
     }
   end
-  return self._createMenu({
+  return {
     items = items,
     cancellable = spec.cancellable,
     cancelValue = spec.cancelValue,
     initialCursor = spec.initialCursor,
     placementPreference = spec.placement,
     result = spec.result,
-  })
+  }
 end
 
 -- Starts one source-faithful builder. `messageSource` deliberately retains
@@ -229,8 +226,7 @@ function ScriptMenuHost:execute(builder)
     cancelValue = builder.cancelValue,
     result = builder.result,
   }
-  local menu = self._createMenu(request)
-  return menu
+  return request
 end
 
 return ScriptMenuHost
