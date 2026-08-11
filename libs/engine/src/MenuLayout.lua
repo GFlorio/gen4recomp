@@ -292,7 +292,7 @@ end
 -- the future renderer, while the selected row is always brought into view.
 
 ---@param spec MenuLayout.Spec
----@return { surface: ScreenTopology.Surface, presentation: "floating"|"docked", frame: ScreenTopology.Rectangle, contentRect: ScreenTopology.Rectangle, itemRects: ScreenTopology.Rectangle[], scrollViewport: ScreenTopology.Rectangle, cancelRect: ScreenTopology.Rectangle?, selectedIndex: integer, scrollOffset: number, maxScrollOffset: number }
+---@return { surface: ScreenTopology.Surface, presentation: "floating"|"docked", frame: ScreenTopology.Rectangle, contentRect: ScreenTopology.Rectangle, itemCount: integer, itemRects: ScreenTopology.Rectangle[], itemTexts: table<integer, string>, scrollViewport: ScreenTopology.Rectangle, cancelRect: ScreenTopology.Rectangle?, selectedIndex: integer, scrollOffset: number, maxScrollOffset: number }
 function MenuLayout.resolve(spec)
   assert(type(spec) == "table", "menu layout requires a specification")
   local selectedIndex = assertItems(spec.menu)
@@ -354,6 +354,10 @@ function MenuLayout.resolve(spec)
   end
   local contentRect, itemRects, scrollOffset, maxScrollOffset =
     layoutItems(frame, spec.menu, rowHeight, padding, cancelHeight)
+  local itemTexts = {}
+  for luaIndex = 1, #spec.menu.items do
+    itemTexts[luaIndex - 1] = itemText(spec.menu.items[luaIndex])
+  end
   local cancelRect
   if cancelHeight > 0 then
     cancelRect = {
@@ -368,7 +372,9 @@ function MenuLayout.resolve(spec)
     presentation = presentation,
     frame = frame,
     contentRect = contentRect,
+    itemCount = #spec.menu.items,
     itemRects = itemRects,
+    itemTexts = itemTexts,
     scrollViewport = copyRectangle(contentRect),
     cancelRect = cancelRect,
     selectedIndex = selectedIndex,

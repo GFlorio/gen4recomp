@@ -183,7 +183,7 @@ function FieldMenuController:release(itemIndex)
   if pressed == nil or pressed ~= itemIndex then
     return nil
   end
-  self._selectedIndex = itemIndex
+  self._selectedIndex = pressed
   return self:confirm()
 end
 

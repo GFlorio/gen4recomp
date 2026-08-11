@@ -75,6 +75,22 @@ function T.four_by_three_uses_a_source_anchored_floating_frame_inside_the_safe_r
   Assert.isTrue(right.frame.x > layout.frame.x, "source x must influence floating placement")
 end
 
+function T.layout_carries_display_text_without_exposing_menu_item_metadata()
+  local layout = resolve({
+    topology = topology(256, 192),
+    menu = {
+      items = {
+        { text = "Take", value = 10, vanillaMetadata = 0xFF },
+        { label = "Leave", value = 20, metadata = { hidden = true } },
+      },
+      selectedIndex = 0,
+    },
+  })
+
+  Assert.equal(layout.itemCount, 2)
+  Assert.deepEqual(layout.itemTexts, { [0] = "Take", [1] = "Leave" })
+end
+
 function T.occupied_regions_are_avoided_before_floating_geometry_is_clamped()
   local dialogue = rect(0, 116, 256, 76)
   local layout = resolve({
