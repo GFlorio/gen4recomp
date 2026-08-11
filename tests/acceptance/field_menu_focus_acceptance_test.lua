@@ -111,7 +111,7 @@ local function selectSecondItem(game, modality)
   return game.runtime.scripts.worldState:getVar(SPECIAL_RESULT)
 end
 
--- D5-FIELD-01: D-pad input enters through the LÖVE host callback but must
+-- D-pad input enters through the LÖVE host callback but must
 -- move the same real player as keyboard input when no modal owner consumes it.
 function T.tests.dpad_callback_moves_the_production_field_player()
   withGame(function(game)
@@ -125,7 +125,7 @@ function T.tests.dpad_callback_moves_the_production_field_player()
   end)
 end
 
--- D5-FIELD-02: the left stick has the identical field contract through its
+-- The left stick has the identical field contract through its
 -- paired-axis host callback, including when only its vertical axis changes.
 function T.tests.left_stick_callback_moves_the_production_field_player()
   withGame(function(game)
@@ -139,7 +139,7 @@ function T.tests.left_stick_callback_moves_the_production_field_player()
   end)
 end
 
--- FM-12-01: every physical modality must reach the same controller and write
+-- Every physical modality must reach the same controller and write
 -- the script-owned value, never its visual row number or source message id.
 function T.tests.vanilla_menu_selection_has_one_result_across_input_modalities()
   for _, modality in ipairs({ "keyboard", "gamepad", "mouse", "touch" }) do
@@ -149,7 +149,7 @@ function T.tests.vanilla_menu_selection_has_one_result_across_input_modalities()
   end
 end
 
--- D6-NAV-01: a production single-column menu receives normalized keyboard and
+-- A production single-column menu receives normalized keyboard and
 -- D-pad directions through FieldState. Horizontal directions must leave its
 -- script-owned focus unchanged; only the resolved layout may define a target.
 function T.tests.single_column_menu_ignores_horizontal_keyboard_and_gamepad_navigation()
@@ -182,7 +182,7 @@ function T.tests.single_column_menu_ignores_horizontal_keyboard_and_gamepad_navi
   end
 end
 
--- D3-HGSS-01: opcode 749 deliberately yields after creating its builder.
+-- Opcode 749 deliberately yields after creating its builder.
 -- A process restart at that source-faithful boundary must retain the builder
 -- in the foreground script instance, so the later 751/752 operations can
 -- publish the same real menu and write its selected HGSS value.
@@ -205,7 +205,7 @@ function T.tests.restart_after_hgss_menu_begin_resumes_the_real_menu_builder()
   end)
 end
 
--- FM-12-02: the Action edge that completes a menu is consumed by the modal
+-- The Action edge that completes a menu is consumed by the modal
 -- owner. Once the menu branch releases, that old edge cannot start a field
 -- interaction on the following fixed tick.
 function T.tests.menu_closing_confirm_does_not_leak_to_field_interaction()

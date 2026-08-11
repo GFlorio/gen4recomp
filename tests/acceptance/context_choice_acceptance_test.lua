@@ -40,12 +40,11 @@ local function advanceToContextChoice(game)
   end, 240)
 end
 
--- D11-748-01: after the real starter confirmation message, opcode 748 must
+-- After the real starter confirmation message, opcode 748 must
 -- block the foreground script on its own contextual provider. It is not a
 -- MenuExec reconstruction and it must not be replaced by a placeholder
--- dialogue. The provider's concrete result-domain fixture is owned by the
--- Deliverable 11 corpus audit; this scenario establishes the production
--- boundary that every classified provider must cross.
+-- dialogue. This scenario establishes the production boundary that every
+-- classified provider must cross.
 function T.tests.real_get_menu_choice_opens_a_contextual_provider()
   withGame(function(game)
     local started = game:startScript(STARTER_SCRIPT)
@@ -60,7 +59,7 @@ function T.tests.real_get_menu_choice_opens_a_contextual_provider()
   end)
 end
 
--- D4-CONTEXT-01: Selection is script-visible state, not a disposable provider
+-- Selection is script-visible state, not a disposable provider
 -- detail. Restarting the real foreground GetMenuChoice flow must reconstruct
 -- the waiting provider with the selected vanilla result intact, and the
 -- restored provider must accept confirmation without a replacement direction

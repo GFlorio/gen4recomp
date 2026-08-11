@@ -42,7 +42,7 @@ local function advanceToStarterChoice(game)
   end, 240)
 end
 
--- D10-AUX-01: a real Pokémart entry begins with opcode 746. The script must
+-- A real Pokémart entry begins with opcode 746. The script must
 -- retain field ownership while an actual hide request is incomplete, even in
 -- the harness's no-HUD presentation mode.
 function T.tests.hide_from_a_real_script_waits_for_the_logical_hidden_state()
@@ -57,7 +57,7 @@ function T.tests.hide_from_a_real_script_waits_for_the_logical_hidden_state()
   end)
 end
 
--- D10-AUX-02: the matching real cancellation branch begins with opcode 747.
+-- The matching real cancellation branch begins with opcode 747.
 -- It must create an asynchronous boundary even when the logical UI begins
 -- shown and no renderer/HUD has been installed.
 function T.tests.show_from_a_real_script_synchronizes_asynchronously_without_a_hud()
@@ -72,7 +72,7 @@ function T.tests.show_from_a_real_script_synchronizes_asynchronously_without_a_h
   end)
 end
 
--- D10-OVERRIDE-01: the checked-in starter override contains source opcode
+-- The checked-in starter override contains source opcode
 -- 746 before its first contextual choice. Its production-composed execution
 -- must issue the supported auxiliary-UI hide operation, not consume a stale
 -- placeholder dialogue node.
@@ -91,7 +91,7 @@ function T.tests.starter_override_executes_opcode_746_as_auxiliary_ui_hide()
   end)
 end
 
--- D10-OVERRIDE-02: selecting the non-cancel starter branch reaches source
+-- Selecting the non-cancel starter branch reaches source
 -- opcode 747. It must begin the real asynchronous show operation rather than
 -- opening a generated placeholder dialogue.
 function T.tests.starter_override_executes_opcode_747_as_auxiliary_ui_show()
@@ -119,7 +119,7 @@ function T.tests.restart_preserves_completed_hidden_auxiliary_ui_state()
   end)
 end
 
--- D4-AUX-01: The visibility transition itself is part of deterministic script
+-- The visibility transition itself is part of deterministic script
 -- continuation. Restarting immediately after opcode 746 must retain the
 -- hiding state rather than reinitializing its newly-created service to shown.
 -- The resumed task must then complete on the same two semantic fixed-update

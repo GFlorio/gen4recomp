@@ -757,7 +757,7 @@ Schema.CONSTRUCTORS = {
       {
         signature = "S.choose(spec)",
         canonical = "op=choose",
-        notes = "Semantic field menu; spec={items,result,cancellable=false,cancelValue=nil,placement={mode=auto,anchor=auto,surface=auto}}. No callbacks.",
+        notes = "Semantic field menu; spec={items,result,cancellable=false,cancelValue=nil,initialCursor=0,placement={mode=auto,anchor=auto,surface=auto}}. Cancellable menus require cancelValue (false is valid); initialCursor must identify an item. Directional navigation follows the resolved layout: single-column left/right is a no-op and multi-column movement uses neighboring rows and columns. No callbacks.",
       },
       {
         signature = "S.waitTicks(spec)",

@@ -94,7 +94,7 @@ local function selectSecondItem(game)
   end, 120)
 end
 
--- FM-14-01: a real 749--752 menu crosses FieldRuntime's topology composition
+-- A real 749--752 menu crosses FieldRuntime's topology composition
 -- before its script result is committed. The same second choice must remain
 -- value 1 on every form factor; its surface and presentation are observable
 -- production state, not a unit-level layout reconstruction.
@@ -117,7 +117,7 @@ function T.tests.vanilla_menu_is_responsive_without_changing_its_script_result()
   end
 end
 
--- ACC-D11-TOPOLOGY-RESTART-01: an active menu survives a process-like
+-- An active menu survives a process-like
 -- replacement with the same host geometry and display topology. The harness
 -- must retain those runtime options when it builds the resumed production
 -- runtime; otherwise the menu moves from the auxiliary touch display to the

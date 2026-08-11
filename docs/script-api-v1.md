@@ -83,7 +83,7 @@ Constructors return ordinary serializable Lua tables. Direct table form is alway
 | `S.stop(spec)` | `op=stop` | Normal script completion; spec optional. |
 | `S.yieldTick(spec)` | `op=yield_tick` | Generated/advanced explicit one-tick source yield; spec optional. |
 | `S.setAuxiliaryUiVisible(spec)` | `op=set_auxiliary_ui_visible` | spec={visible=boolean}; imported HGSS visibility synchronization blocks as needed. |
-| `S.choose(spec)` | `op=choose` | Semantic field menu; spec={items,result,cancellable=false,cancelValue=nil,placement={mode=auto,anchor=auto,surface=auto}}. No callbacks. |
+| `S.choose(spec)` | `op=choose` | Semantic field menu; spec={items,result,cancellable=false,cancelValue=nil,initialCursor=0,placement={mode=auto,anchor=auto,surface=auto}}. Cancellable menus require cancelValue (false is valid); initialCursor must identify an item. Directional navigation follows the resolved layout: single-column left/right is a no-op and multi-column movement uses neighboring rows and columns. No callbacks. |
 | `S.waitTicks(spec)` | `op=wait_ticks` | spec={ticks>=1,countdownVariable=nil}; first poll next tick, continuation one tick after completion; countdownVariable mirrors the countdown into an observable variable like the source engine. |
 | `S.if_(spec)` | `op=if` | spec={condition,yes={},no={}}. |
 | `S.switch(spec)` | `op=switch` | spec={value,cases,default={}}. |
