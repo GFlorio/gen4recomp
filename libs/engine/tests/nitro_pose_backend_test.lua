@@ -373,6 +373,104 @@ function T.restore_slot_sources_resolve_from_the_draw_snapshot()
   Assert.equal(draw.position[14], 2)
 end
 
+-- A straddling mesh (a primitive whose vertices were submitted under two
+-- different sources) must resolve BOTH matrices into the pose, exactly as the
+-- DS transforms each vertex at submission: the leading vertices under the
+-- straddle source, the trailing under the mesh's own source. The runtime
+-- needs both matrices and the split to reproduce the per-vertex bend.
+function T.straddling_meshes_resolve_both_sources()
+  -- Draw 0 carries node 0's matrix (16,0,0 model units -> 1,0,0 tiles) via
+  -- the MTX slot reselect, and the restoreStack snapshot keeps node 1's
+  -- matrix in slot 1 (0,32,0 -> 0,2,0 tiles).
+  local commands = {
+    { opcode = 0x06, nodeIndex = 0, parentIndex = 0, flags = 0 },
+    { opcode = 0x06, nodeIndex = 1, parentIndex = 1, flags = 0 },
+    { opcode = 0x03, matrixSlot = 0 },
+    { opcode = 0x04, materialIndex = 0 },
+    { opcode = 0x05, shapeIndex = 0 },
+    { opcode = 0x01 },
+  }
+  local p = program({
+    bindNode(0, { matrixStackIndex = 0, translation = { x = 16, y = 0, z = 0 }, transZero = false }),
+    bindNode(1, { matrixStackIndex = 1, translation = { x = 0, y = 32, z = 0 }, transZero = false }),
+  }, commands)
+  local def = ModelDefinition.new({
+    key = "fixture:nitro-straddle",
+    nodes = {
+      {
+        index = 0,
+        name = "a",
+        translation = { x = 0, y = 0, z = 0 },
+        rotation = identity9(),
+        scale = { x = 1, y = 1, z = 1 },
+      },
+      {
+        index = 1,
+        name = "b",
+        translation = { x = 0, y = 0, z = 0 },
+        rotation = identity9(),
+        scale = { x = 1, y = 1, z = 1 },
+      },
+    },
+    meshes = {
+      {
+        id = "m",
+        nodeIndex = 0,
+        materialIndex = 0,
+        geometry = "fixtures/draw0.seg0.g4mesh",
+      },
+    },
+    materials = {
+      {
+        id = 0,
+        name = "mat0",
+        baseColor = { r = 255, g = 255, b = 255, a = 255 },
+        alphaMode = "opaque",
+        doubleSided = false,
+      },
+    },
+    skins = {},
+    animations = {},
+    backend = {
+      program = p,
+      meshes = {
+        m = {
+          drawIndex = 0,
+          positionSource = "draw",
+          straddle = { leading = 2, source = { slot = 1 } },
+          transformMode = "static",
+          cullMode = "back",
+          polygonMode = "modulation",
+          polygonId = 0,
+          translucentDepthWrite = false,
+          depthEqual = false,
+          polygonAlpha = 31,
+        },
+      },
+    },
+  })
+  local instance = newInstance(def)
+  instance:evaluatePose()
+  ---@type { position: number[], transformMode: string, baseTransform: any, straddle?: { leading: integer, position: number[], direction: number[] } }
+  local draw = instance.poseState.drawMatrices["m"]
+  -- The mesh's own source resolves the draw matrix (node 0: 16,0,0 -> 1,0,0
+  -- tiles).
+  Assert.equal(draw.position[13], 1)
+  -- The straddle source resolves the slot snapshot (node 1: 0,32,0 -> 0,2,0
+  -- tiles) with the leading count, so the draw path can bend per-vertex.
+  Assert.equal(draw.straddle.leading, 2)
+  Assert.equal(draw.straddle.position[14], 2)
+  Assert.equal(draw.straddle.direction[1], 1)
+  -- The draw item carries both transforms and the split, so the renderer
+  -- can reproduce the DS per-vertex bend (leading vertices under the old
+  -- matrix, trailing under the new).
+  ---@type { transform: number[], straddle?: { leading: integer, transform: number[] } }[]
+  local items = instance:drawItems({ m = {} })
+  Assert.equal(items[1].straddle.leading, 2)
+  Assert.equal(items[1].straddle.transform[14], 2)
+  Assert.equal(items[1].transform[13], 1)
+end
+
 function T.uncompiled_joint_clips_raise()
   local def = singleMeshDefinition({
     animations = {

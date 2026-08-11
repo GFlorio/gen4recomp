@@ -464,7 +464,7 @@ function ModelDefinition.fromNitroDescriptor(desc, opts)
       record.geometry = mesh.geometry
     end
     meshes[#meshes + 1] = record
-    backendMeshes[mesh.id] = {
+    local backendRecord = {
       drawIndex = mesh.drawIndex,
       positionSource = mesh.positionSource,
       transformMode = mesh.transformMode,
@@ -475,6 +475,14 @@ function ModelDefinition.fromNitroDescriptor(desc, opts)
       depthEqual = mesh.depthEqual,
       polygonAlpha = mesh.polygonAlpha,
     }
+    -- A batch whose run straddled a mid-run matrix boundary carries the
+    -- per-vertex provenance (the leading vertices resolve under the
+    -- pre-boundary source at draw time); without it the batch is fully
+    -- owned by its own positionSource.
+    if mesh.straddle then
+      backendRecord.straddle = mesh.straddle
+    end
+    backendMeshes[mesh.id] = backendRecord
   end
   return ModelDefinition.new({
     key = key,

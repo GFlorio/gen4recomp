@@ -33,10 +33,12 @@
 -- BEGIN..END run is split at the boundary exactly where the hardware re-homes
 -- the transform at vertex submission: the complete primitives before it keep
 -- their segment, and the primitive that would straddle the two transforms has
--- its leading vertices carried into the next segment, rendering rigidly under
--- the new source (the DS bends it per-vertex; the segment contract renders it
--- in one frame -- counted for the caller to report). Static decode (the
--- default) is unchanged.
+-- its leading vertices carried into the next segment. The receiving segment
+-- records the per-vertex provenance -- `straddle = { leading, source }` with
+-- the pre-boundary source -- so the runtime resolves the leading vertices
+-- under the old matrix and the trailing ones under the segment's own source,
+-- reproducing the DS's per-vertex bend (the count is reported for the
+-- caller). Static decode (the default) is unchanged.
 
 local Errors = require("libs.errors.src.Errors")
 local BinaryReader = require("libs.codec.src.BinaryReader")
@@ -234,7 +236,7 @@ local function newDecoder()
     runParity = 0, -- triangle-strip winding parity of the open run's first vertex
     runSplit = false, -- the open run was split at a mid-run matrix boundary
     boundaryCarry = nil, -- straddling-primitive vertices carried into the next segment
-    straddlingPrimitives = 0, -- straddling primitives rendered rigidly in the new frame
+    straddlingPrimitives = 0, -- straddling primitives, reported to the caller
   }, Decoder)
 end
 
@@ -253,12 +255,11 @@ end
 -- incomplete primitives as malformed. Lenient mode (a mid-run matrix
 -- boundary) emits the complete primitives and returns the number of trailing
 -- vertices that belong to the primitive straddling the boundary; the caller
--- carries them into the next segment, where the primitive renders rigidly
--- under the boundary's new source (the geometry engine bends it per-vertex;
--- the segment contract renders it in one frame). Triangle-strip winding
--- alternates on the running vertex index, so the conversion honors the run's
--- parity offset: a mid-run split carries the offset into the next segment's
--- run.
+-- carries them into the next segment and records their pre-boundary source,
+-- so the runtime can reproduce the geometry engine's per-vertex bend.
+-- Triangle-strip winding alternates on the running vertex index, so the
+-- conversion honors the run's parity offset: a mid-run split carries the
+-- offset into the next segment's run.
 local function convertRun(d, offset, lenient)
   local run, t = d.run, d.primType
   local n = #run
@@ -357,17 +358,23 @@ end
 -- the vertices after it, exactly as the geometry engine applies it at vertex
 -- submission. The run is split at the boundary: complete primitives before it
 -- stay in the current segment, the primitive that would straddle the two
--- transforms has its leading vertices carried into the next segment so it
--- renders rigidly under the boundary's new source (counted for the caller to
--- report), and the trailing vertices continue the run in the new segment.
+-- transforms has its leading vertices carried into the next segment, and the
+-- trailing vertices continue the run in the new segment. The receiving
+-- segment records `straddle = { leading, source = <the pre-boundary source> }`
+-- so the runtime resolves the leading vertices under the matrix active at
+-- their submission and the rest under the segment's own source -- the DS's
+-- per-vertex bend, not a rigid re-home (counted for the caller to report).
 -- Triangle strips carry the winding parity across the split so the sequence
 -- stays continuous.
 ---@param positionSource DrawSource
 function Decoder:dynamicBoundary(positionSource, offset)
   assert(self.dynamic, "dynamicBoundary outside dynamic mode")
+  local previousSource = self.positionSource
+  local carried = 0
   if self.run then
     local count = #self.run
     local tail = convertRun(self, offset, true)
+    carried = tail
     self.straddlingPrimitives = self.straddlingPrimitives + (tail > 0 and 1 or 0)
     self.boundaryCarry = {}
     if tail > 0 then
@@ -394,6 +401,9 @@ function Decoder:dynamicBoundary(positionSource, offset)
     self.currentSegment.vertices[#self.currentSegment.vertices + 1] = v
   end
   self.boundaryCarry = nil
+  if carried > 0 then
+    self.currentSegment.straddle = { leading = carried, source = previousSource }
+  end
 end
 
 -- Reject matrix ops under MTX_MODE POSITION in dynamic mode: the position

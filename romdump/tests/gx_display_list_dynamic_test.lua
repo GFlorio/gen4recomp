@@ -9,30 +9,11 @@ local NB = require("tests.support.NitroBuilder")
 
 local T = {}
 
-local function u32(v)
-  return NB.u32(v)
-end
-
 -- Pack a display list: an array of command groups, each { {opcodes...}, {paramWords...} }.
-local function pack(groups)
-  local parts = {}
-  for _, group in ipairs(groups) do
-    local ops = { 0, 0, 0, 0 }
-    for i, op in ipairs(group[1]) do
-      ops[i] = op
-    end
-    parts[#parts + 1] = string.char(ops[1], ops[2], ops[3], ops[4])
-    for _, w in ipairs(group[2] or {}) do
-      parts[#parts + 1] = u32(w)
-    end
-  end
-  return table.concat(parts)
-end
+local pack = NB.gxPack
 
 -- A VTX_16 parameter word: x in low 16 bits (1.3.12), y in high 16.
-local function vtx16xy(x, y)
-  return math.floor(x * 4096) % 0x10000 + math.floor(y * 4096) % 0x10000 * 0x10000
-end
+local vtx16xy = NB.vtx16xy
 
 -- One triangle: BEGIN + three VTX_16 in one command group, then END.
 local function triangle(vertices)
@@ -190,8 +171,10 @@ end
 function T.splits_a_run_at_a_matrix_boundary()
   -- BEGIN, VTX, RESTORE, VTX x2, END: the hardware re-homes the transform at
   -- submission, so the run is split at the boundary; the straddling
-  -- triangle's leading vertex is carried into the next segment, where the
-  -- triangle renders rigidly under the slot source.
+  -- triangle's leading vertex is carried into the next segment, where it
+  -- keeps the PRE-boundary source. The DS transforms each vertex at
+  -- submission under the then-current matrix, so the carried leading vertex
+  -- resolves under "draw" and only the trailing two under the slot.
   local dl = pack({
     { { 0x40, 0x23 }, { 0, vtx16xy(0, 0), 0 } },
     MTX_RESTORE,
@@ -203,12 +186,13 @@ function T.splits_a_run_at_a_matrix_boundary()
   Assert.equal(geom.segments[1].positionSource, "draw")
   Assert.equal(geom.segments[2].positionSource.slot, 3)
   -- The old segment keeps the lone leading vertex (no indices); the new
-  -- segment carries it and renders the triangle rigidly in the slot frame.
+  -- segment carries a copy and attributes it to the pre-boundary source.
   Assert.equal(#geom.segments[1].vertices, 1)
   Assert.equal(#geom.segments[1].indices, 0)
   Assert.equal(#geom.segments[2].vertices, 3)
   Assert.equal(#geom.segments[2].indices, 3)
   assertVertex(geom.segments[2], 0, 0, 0, 0)
+  Assert.deepEqual(geom.segments[2].straddle, { leading = 1, source = "draw" })
   Assert.equal(geom.straddlingPrimitives, 1)
 end
 
@@ -228,13 +212,70 @@ function T.boundary_before_any_vertex_keeps_the_run_whole()
   Assert.equal(#segment.vertices, 3)
   Assert.equal(#segment.indices, 3)
   Assert.equal(geom.straddlingPrimitives, 0)
+  Assert.isNil(segment.straddle, "an empty-run boundary carries no straddle record")
+end
+
+function T.straddle_source_is_the_prior_source_under_a_pop_boundary()
+  -- BEGIN(tris), VTX, PUSH, RESTORE slot 3, VTX x3, POP (back to the pushed
+  -- draw source), VTX x2, END: the pop boundary's straddling triangle keeps
+  -- the SLOT source (the source active at its leading vertex's submission),
+  -- and the segment after the pop resolves under the popped "draw" source.
+  local dl = pack({
+    { { 0x40, 0x23 }, { 0, vtx16xy(0, 0), 0 } },
+    { { 0x11 } },
+    MTX_RESTORE,
+    { { 0x23, 0x23, 0x23 }, { vtx16xy(1, 0), 0, vtx16xy(0, 1), 0, vtx16xy(1, 1), 0 } },
+    { { 0x12 }, { 0 } },
+    { { 0x23, 0x23 }, { vtx16xy(2, 0), 0, vtx16xy(2, 1), 0 } },
+    { { 0x41 } },
+  })
+  local geom = decode(dl, { dynamic = true })
+  Assert.equal(#geom.segments, 3)
+  Assert.equal(geom.segments[1].positionSource, "draw")
+  Assert.equal(geom.segments[2].positionSource.slot, 3)
+  -- Segment 2 emitted its complete triangle before the pop; the pop's
+  -- straddling triangle keeps the slot as the leading source, and the
+  -- segment after the pop resolves under the popped "draw" source.
+  Assert.equal(#geom.segments[2].indices, 3)
+  Assert.deepEqual(geom.segments[2].straddle, { leading = 1, source = "draw" })
+  Assert.equal(geom.segments[3].positionSource, "draw")
+  Assert.deepEqual(geom.segments[3].straddle, { leading = 1, source = { slot = 3 } })
+  Assert.equal(geom.straddlingPrimitives, 2)
+end
+
+function T.each_boundary_of_a_multi_split_run_carries_its_own_straddle()
+  -- BEGIN(quads), VTX x2, RESTORE slot 3, VTX x4, RESTORE slot 4, VTX x2,
+  -- END: a run with two mid-run boundaries. The first boundary splits after
+  -- two leading vertices (straddle source "draw"); the second splits after
+  -- six (one complete quad emitted in the slot-3 segment, then two more
+  -- leading vertices carried with the slot-3 source).
+  local dl = pack({
+    { { 0x40, 0x23, 0x23 }, { 1, vtx16xy(0, 0), 0, vtx16xy(1, 0), 0 } },
+    MTX_RESTORE,
+    { { 0x23, 0x23 }, { vtx16xy(0, 1), 0, vtx16xy(1, 1), 0 } },
+    { { 0x23, 0x23 }, { vtx16xy(2, 0), 0, vtx16xy(2, 1), 0 } },
+    { { 0x14 }, { 4 } },
+    { { 0x23, 0x23 }, { vtx16xy(3, 0), 0, vtx16xy(3, 1), 0 } },
+    { { 0x41 } },
+  })
+  local geom = decode(dl, { dynamic = true })
+  Assert.equal(#geom.segments, 3)
+  Assert.equal(geom.segments[1].positionSource, "draw")
+  Assert.equal(geom.segments[2].positionSource.slot, 3)
+  Assert.equal(geom.segments[3].positionSource.slot, 4)
+  -- Segment 2 emitted its complete quad (6 indices) before the second
+  -- boundary and carries the first straddle's leading pair.
+  Assert.equal(#geom.segments[2].indices, 6)
+  Assert.deepEqual(geom.segments[2].straddle, { leading = 2, source = "draw" })
+  Assert.deepEqual(geom.segments[3].straddle, { leading = 2, source = { slot = 3 } })
+  Assert.equal(geom.straddlingPrimitives, 2)
 end
 
 function T.straddling_quads_are_carried_into_the_new_segment()
   -- BEGIN(separate quads), two quads, RESTORE, one quad, END: the first
   -- segment keeps its complete quad; the quad spanning the boundary has its
-  -- leading vertices carried so it renders rigidly in the new segment under
-  -- the slot source.
+  -- leading vertices carried so they keep the pre-boundary source ("draw")
+  -- while the trailing two resolve under the slot.
   local dl = pack({
     { { 0x40, 0x23, 0x23 }, { 1, vtx16xy(0, 0), 0, vtx16xy(1, 0), 0 } },
     { { 0x23, 0x23 }, { vtx16xy(1, 1), 0, vtx16xy(0, 1), 0 } },
@@ -250,12 +291,13 @@ function T.straddling_quads_are_carried_into_the_new_segment()
   Assert.equal(#first.indices, 6)
   Assert.equal(second.positionSource.slot, 3)
   -- The carried leading vertices (copies of the old segment's v4/v5) plus
-  -- the two trailing vertices form the straddling quad, rigid in the slot
-  -- frame.
+  -- the two trailing vertices form the straddling quad, with the leading
+  -- half attributed to the pre-boundary source.
   Assert.equal(#second.vertices, 4)
   Assert.equal(#second.indices, 6)
   assertVertex(second, 0, 2, 0, 0)
   assertVertex(second, 1, 3, 0, 0)
+  Assert.deepEqual(second.straddle, { leading = 2, source = "draw" })
   Assert.equal(geom.straddlingPrimitives, 1)
 end
 
@@ -278,9 +320,11 @@ function T.triangle_strip_winding_continues_across_a_boundary()
   Assert.deepEqual(first.indices, { 0, 1, 2 })
   -- The second segment carries copies of the last two vertices and
   -- continues the strip: local (1,0,2) for the triangle ending at global
-  -- vertex 3, matching the DS's alternating winding.
+  -- vertex 3, matching the DS's alternating winding. The carried pair keeps
+  -- the pre-boundary source; the trailing vertices resolve under the slot.
   Assert.equal(#second.vertices, 5)
   Assert.deepEqual(second.indices, { 1, 0, 2, 1, 2, 3, 3, 2, 4 })
+  Assert.deepEqual(second.straddle, { leading = 2, source = "draw" })
   Assert.equal(geom.straddlingPrimitives, 1)
 end
 

@@ -17,6 +17,29 @@ function NitroBuilder.u32(v)
   return string.char(v % 256, math.floor(v / 256) % 256, math.floor(v / 65536) % 256, math.floor(v / 16777216) % 256)
 end
 
+-- A VTX_16 parameter word: x in the low 16 bits (1.3.12), y in the high 16.
+function NitroBuilder.vtx16xy(x, y)
+  return math.floor(x * 4096) % 0x10000 + math.floor(y * 4096) % 0x10000 * 0x10000
+end
+
+-- Pack a GX command stream: an array of groups, each { {opcodes...}, {paramWords...} }.
+-- Each group writes its opcodes into one command word and its parameter words
+-- after it, in order (0x00 = NOP, no parameters).
+function NitroBuilder.gxPack(groups)
+  local parts = {}
+  for _, group in ipairs(groups) do
+    local ops = { 0, 0, 0, 0 }
+    for i, op in ipairs(group[1]) do
+      ops[i] = op
+    end
+    parts[#parts + 1] = string.char(ops[1], ops[2], ops[3], ops[4])
+    for _, w in ipairs(group[2] or {}) do
+      parts[#parts + 1] = NitroBuilder.u32(w)
+    end
+  end
+  return table.concat(parts)
+end
+
 -- Pad/truncate a name to a fixed 16-byte NUL-padded field.
 local function name16(name)
   assert(#name <= 16, "dictionary name exceeds 16 bytes: " .. name)

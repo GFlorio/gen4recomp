@@ -279,6 +279,16 @@ function T.from_nitro_descriptor_assembles_the_runtime_definition()
   Assert.notNil(def:binding(assert(def:animation("door.open"))))
 end
 
+-- The straddle provenance of a descriptor batch survives assembly onto the
+-- backend mesh record, so the pose backend can resolve both sources and the
+-- draw path can reproduce the DS per-vertex bend.
+function T.from_nitro_descriptor_carries_the_straddle_provenance()
+  local desc = nitroDescriptor()
+  desc.dynamic.batches[1].straddle = { leading = 2, source = "draw" }
+  local def = ModelDefinition.fromNitroDescriptor(desc, { key = desc.key })
+  Assert.deepEqual(def.backend.meshes["draw0.seg0"].straddle, { leading = 2, source = "draw" })
+end
+
 -- ---- strict descriptor loading ----
 
 -- A generated descriptor that omits a mandatory field must fail at the load

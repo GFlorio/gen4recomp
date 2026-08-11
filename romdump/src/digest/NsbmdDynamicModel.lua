@@ -76,13 +76,13 @@ local function baseMaterial(mat, texMtxMode)
 end
 
 -- Compile a decoded Nsbmd model into the dynamic model descriptor.
--- Returns { program, meshes, materials, straddlingPrimitives? }, the last an
--- array of { shape, straddling } reporting primitives the display lists
--- rendered rigidly across a mid-run matrix boundary (see GxDisplayList
--- dynamic mode).
+-- Returns { program, meshes, materials }. The meshes carry their per-vertex
+-- straddle provenance when a run was split at a mid-run matrix boundary (see
+-- GxDisplayList dynamic mode); the straddle census over the corpus reads
+-- MeshCompiler.compileDynamic directly.
 function NsbmdDynamicModel.compile(model)
   assert(type(model) == "table" and model.sbc ~= nil, "NsbmdDynamicModel.compile requires a decoded Nsbmd model")
-  local meshes, straddlingPrimitives = MeshCompiler.compileDynamic(model)
+  local meshes = MeshCompiler.compileDynamic(model)
   -- UVs are texel units; normalize against the material's authored texture
   -- size, the base dimensions texture pattern variants are authored against
   -- (the animated layers keep the per-variant normalization).
@@ -112,7 +112,6 @@ function NsbmdDynamicModel.compile(model)
     program = NsbmdTransformProgram.compile(model),
     meshes = meshes,
     materials = materialList,
-    straddlingPrimitives = straddlingPrimitives,
   }
 end
 

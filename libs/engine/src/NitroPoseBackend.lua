@@ -169,6 +169,18 @@ function NitroPoseBackend.evaluate(instance)
       transformMode = mesh.transformMode,
       baseTransform = nil,
     }
+    -- A straddling mesh's leading vertices were submitted under the
+    -- PRE-boundary source: resolve that matrix too, so the draw path can
+    -- bend the first `leading` vertices per-vertex exactly like the DS
+    -- geometry engine (the batch carries the split and the source).
+    if mesh.straddle then
+      local oldPosition = resolvePosition(draw, mesh.straddle.source, program.tileScale)
+      record.straddle = {
+        leading = mesh.straddle.leading,
+        position = oldPosition,
+        direction = linear(oldPosition),
+      }
+    end
     if record.transformMode == PoseContract.BILLBOARD then
       record.baseTransform =
         toTiles(assert(draw.baseTransform, "billboard draw carries no captured base transform"), program.tileScale)

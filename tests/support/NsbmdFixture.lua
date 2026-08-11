@@ -194,6 +194,11 @@ local function buildModel(opts, nodeDict, nodeData, sbc)
     verts = opts.triangle or { { 0, 0, 0 }, { 2, 0, 0 }, { 0, 3, 0 } }
     dl = triangleDL(verts)
   end
+  if opts.displayList then
+    -- A caller-supplied display list replaces the default (used for
+    -- mid-run matrix boundaries); the vertex table still feeds the bounds.
+    dl = opts.displayList
+  end
   local shpBlock = buildShapeBlock(dl)
   local info = buildInfo(verts, opts)
 

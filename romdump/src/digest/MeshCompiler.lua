@@ -250,6 +250,10 @@ end
 --  state the static path rides on each batch: cull mode, polygon mode, id,
 --  depth flags, polygon alpha
 ---@field batch { vertices: CompiledVertex[], indices: integer[] }
+---@field straddle { leading: integer, source: DrawSource }|nil -- the segment
+--  received `leading` vertices submitted under `source` (the pre-boundary
+--  matrix) before its own; absent: the whole segment resolves under
+--  positionSource
 
 -- Transform-preserving compile: the same draw replay as
 -- compile(), but the SBC draw matrix is NOT baked into the vertices.
@@ -266,9 +270,12 @@ end
 -- Billboard draws record no baseTransform: the matrix BB captured is
 -- pose-dependent and comes from the runtime pose state each frame.
 -- UVs stay in texel units for the caller to normalize.
--- Returns the dynamic mesh records plus, when any shape's display list
--- carried straddling primitives across a mid-run matrix boundary, an array of
--- { shape = <name>, straddling = <count> } for the caller to report.
+-- Returns the dynamic mesh records plus, when any compiled mesh carries a
+-- straddling-primitive provenance record (a run split at a mid-run matrix
+-- boundary, see GxDisplayList options.dynamic), an array of
+-- { shape = <name>, straddling = <count> } for the caller to report --
+-- one count per provenance record, so every reported straddle is
+-- represented by exactly one record on its mesh.
 ---@return DynamicMeshRecord[]
 ---@return { shape: string, straddling: integer }[]? straddlingPrimitives
 function MeshCompiler.compileDynamic(model)
@@ -315,14 +322,6 @@ function MeshCompiler.compileDynamic(model)
       error(err)
     end
     assertSupportedShape(geom, context)
-    if geom.straddlingPrimitives and geom.straddlingPrimitives > 0 then
-      local rec = straddlingByShape[shp.name]
-      if not rec then
-        rec = { shape = shp.name, straddling = 0 }
-        straddlingByShape[shp.name] = rec
-      end
-      rec.straddling = rec.straddling + geom.straddlingPrimitives
-    end
     if draw.transformMode == PoseContract.BILLBOARD then
       assertWholeShapeBillboard(geom, context)
     end
@@ -384,7 +383,7 @@ function MeshCompiler.compileDynamic(model)
       else
         positionSource = segment.positionSource
       end
-      meshes[#meshes + 1] = {
+      local mesh = {
         id = string.format("draw%d.seg%d", drawIndex - 1, segmentIndex - 1),
         drawIndex = drawIndex - 1,
         segmentIndex = segmentIndex - 1,
@@ -395,6 +394,23 @@ function MeshCompiler.compileDynamic(model)
         polygonAttrRaw = matState.polygonAttrRaw,
         batch = { vertices = vertices, indices = indices },
       }
+      -- A run split at a mid-run matrix boundary: the first `leading`
+      -- vertices of this segment were submitted under the PRE-boundary
+      -- source, so the record carries the split for the runtime to bend
+      -- per-vertex exactly like the geometry engine (the DS transforms each
+      -- vertex under the then-current matrix). The straddle report counts
+      -- these compiled records, so every reported straddle is represented
+      -- by exactly one provenance record on its mesh.
+      if segment.straddle then
+        mesh.straddle = segment.straddle
+        local rec = straddlingByShape[shp.name]
+        if not rec then
+          rec = { shape = shp.name, straddling = 0 }
+          straddlingByShape[shp.name] = rec
+        end
+        rec.straddling = rec.straddling + 1
+      end
+      meshes[#meshes + 1] = mesh
       ::continue::
     end
   end

@@ -287,6 +287,9 @@ end
 ---@field center number[] -- model-space center, transformed by the render queue
 ---@field submissionIndex integer|nil -- assigned by the scene flattening pass
 ---@field billboardBase number[]|nil
+---@field straddle { leading: integer, transform: number[] }|nil -- the DS
+--  bend: the first `leading` vertices were submitted under this transform
+--  (the pre-boundary matrix), the rest under `transform`
 
 -- Draw items in the MapRenderer item shape, one per definition mesh, with
 -- the current pose. `renderMeshesById` maps mesh id -> built render mesh
@@ -346,7 +349,7 @@ function ModelInstance:drawItems(renderMeshesById)
         end
       end
       local material = self:effectiveMaterial(mesh.materialIndex)
-      items[#items + 1] = {
+      local item = {
         mesh = renderMeshesById[mesh.id],
         material = material,
         transform = transform,
@@ -361,6 +364,16 @@ function ModelInstance:drawItems(renderMeshesById)
         depthEqual = meshState and meshState.depthEqual or false,
         center = mesh.center or { 0, 0, 0 },
       }
+      -- A straddling draw carries the bend: the first `leading` vertices
+      -- were submitted under the pre-boundary matrix, so the renderer needs
+      -- both transforms and the split to reproduce the DS per-vertex bend.
+      if draw and draw.straddle then
+        item.straddle = {
+          leading = draw.straddle.leading,
+          transform = Matrix4.multiply(self.transform, draw.straddle.position),
+        }
+      end
+      items[#items + 1] = item
     end
   end
   return items

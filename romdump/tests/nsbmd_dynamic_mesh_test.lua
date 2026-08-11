@@ -257,6 +257,89 @@ function T.display_list_matrix_restore_segments()
   Assert.isTrue(math.abs(y) < TOL, "restored slot places the vertex")
 end
 
+-- A display list whose run straddles a mid-run matrix restore: the DS
+-- transforms each vertex at submission under the then-current matrix, so the
+-- straddling quad's leading vertices resolve under the PRE-restore source
+-- ("draw") and its trailing vertices under the restored slot. The dynamic
+-- mesh record must carry that per-vertex provenance (straddle), and
+-- resolving it per-vertex at the bind pose must reproduce the static compile
+-- (which bakes each vertex under the matrix current at its submission). The
+-- transformed node makes the two sources differ, so a one-source resolution
+-- cannot match the static bake.
+function T.straddling_quad_carries_per_vertex_sources_and_matches_the_static_bake()
+  local m = assert(Nsbmd.decode(NsbmdFixture.buildTransformed())).models[1]
+  -- Overwrite the shape's display list with a straddling quad: BEGIN(quads),
+  -- two vertices, MTX_RESTORE slot 3, two more vertices, END. The draw
+  -- matrix (node (2,0,0), scale 2) differs from the empty slot 3 (identity),
+  -- so the leading and trailing halves resolve differently.
+  local vtx16xy = NB.vtx16xy
+  local pack = NB.gxPack
+  local straddlingQuad = pack({
+    { { 0x40, 0x23, 0x23 }, { 1, vtx16xy(0, 0), 0, vtx16xy(1, 0), 0 } }, -- BEGIN(quads), 2 verts
+    { { 0x14 }, { 3 } }, -- MTX_RESTORE slot 3
+    { { 0x23, 0x23, 0x41 }, { vtx16xy(1, 1), 0, vtx16xy(0, 1), 0 } }, -- 2 verts, END
+  })
+  m.shapes[1].displayListBytes = straddlingQuad
+
+  local staticBatches = MeshCompiler.compile(m)
+  local descriptor = NsbmdDynamicModel.compile(m)
+  local draws = NsbmdSbcEvaluator.evaluate(descriptor.program, NsbmdPoseProvider.bindPose(m)).draws
+  -- One SBC draw, one straddle mesh (the leading-only segment is dropped: no
+  -- indices to draw).
+  Assert.equal(#descriptor.meshes, 1)
+  ---@type { positionSource: table|string, drawIndex: integer, straddle?: { leading: integer, source: table|string }, batch: { vertices: { x: number, y: number, z: number }[] } }
+  local mesh = descriptor.meshes[1]
+  Assert.equal(mesh.positionSource.slot, 3)
+  -- The per-vertex provenance: the first two vertices resolve under the
+  -- pre-restore "draw" source, the trailing two under the slot.
+  Assert.deepEqual(mesh.straddle, { leading = 2, source = "draw" })
+  Assert.equal(#mesh.batch.vertices, 4)
+
+  -- Bind-pose oracle: resolve each vertex under the source active at its
+  -- submission (leading under "draw", trailing under slot 3) and compare
+  -- against the static compile, which baked the same per-vertex transforms.
+  local staticBatch = staticBatches[mesh.drawIndex + 1]
+  Assert.equal(#staticBatch.vertices, 4)
+  local function toTiles(mat)
+    local out = {}
+    for i = 1, 12 do
+      out[i] = mat[i]
+    end
+    out[13], out[14], out[15] = mat[13] / 16, mat[14] / 16, mat[15] / 16
+    out[16] = mat[16]
+    return out
+  end
+  local function resolveSource(src, draw)
+    if src == "draw" then
+      return toTiles(draw.matrix)
+    end
+    return toTiles(draw.restoreStack[src.slot] or Matrix4.identity())
+  end
+  local draw = draws[mesh.drawIndex + 1]
+  for i, v in ipairs(mesh.batch.vertices) do
+    local src = i <= mesh.straddle.leading and mesh.straddle.source or mesh.positionSource
+    local position = resolveSource(src, draw)
+    local x = position[1] * v.x + position[5] * v.y + position[9] * v.z + position[13]
+    local y = position[2] * v.x + position[6] * v.y + position[10] * v.z + position[14]
+    local z = position[3] * v.x + position[7] * v.y + position[11] * v.z + position[15]
+    local s = staticBatch.vertices[i]
+    if math.abs(x - s.x) > TOL or math.abs(y - s.y) > TOL or math.abs(z - s.z) > TOL then
+      error(
+        string.format(
+          "straddle vertex %d: static (%.6f, %.6f, %.6f) vs resolved (%.6f, %.6f, %.6f)",
+          i - 1,
+          s.x,
+          s.y,
+          s.z,
+          x,
+          y,
+          z
+        )
+      )
+    end
+  end
+end
+
 -- ---- ModelDefinition assembly ----
 
 -- Convert the digest intermediate records (raw batches + polygonAttrRaw) into

@@ -303,7 +303,7 @@ local function dynamicBatches(dynamicModel, meshes)
     if poly.cullMode ~= "all" then
       local sha1 = Hashing.sha1hex(MeshWriter.encode(mesh.batch))
       meshes[sha1] = mesh.batch
-      out[#out + 1] = {
+      local record = {
         id = mesh.id,
         drawIndex = mesh.drawIndex,
         segmentIndex = mesh.segmentIndex,
@@ -319,6 +319,13 @@ local function dynamicBatches(dynamicModel, meshes)
         depthEqual = poly.depthEqual,
         polygonAlpha = poly.polygonAlpha,
       }
+      -- A run split at a mid-run matrix boundary: the batch's first
+      -- `leading` vertices resolve under the pre-boundary source at draw
+      -- time (the DS bends each vertex under the then-current matrix).
+      if mesh.straddle then
+        record.straddle = mesh.straddle
+      end
+      out[#out + 1] = record
     end
   end
   return out
@@ -350,22 +357,6 @@ local function compileAnimatedModel(
   end
 
   local unresolved = {}
-  -- Primitives a mid-run matrix boundary left straddling two transforms:
-  -- reported like every other unresolved draw, never silent. They render
-  -- rigidly in the boundary's new frame instead of the DS's per-vertex bend.
-  if dynamicModel.straddlingPrimitives then
-    for _, rec in ipairs(dynamicModel.straddlingPrimitives) do
-      unresolved[#unresolved + 1] = {
-        material = buildingModel.name,
-        kind = "primitive",
-        name = rec.shape,
-        source = string.format(
-          "a matrix change inside an open primitive left %d primitive(s) spanning two transforms",
-          rec.straddling
-        ),
-      }
-    end
-  end
   local embeddedTex = buildingNsbmd.embeddedTextures
   local variantsByName = {}
   if embeddedTex then

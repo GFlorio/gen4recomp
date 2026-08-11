@@ -457,4 +457,69 @@ function T.lit_then_unlit_scene_does_not_inherit_lighting(scope)
   Assert.isFalse(anyBright(unlitImg, diffuseSamples, threshold), "unlit frame inherits the previous material color")
 end
 
+function T.a_straddling_item_bends_its_leading_vertices(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local lg = love.graphics
+
+  -- Leading triangle (green) at y in [0.2, 0.5]; trailing triangle (red) at
+  -- y in [-0.5, -0.2]. The straddle transform translates the leading half
+  -- DOWN one world unit, so the baked green triangle lands at y in [-0.8,
+  -- -0.5] -- clearly apart from the red one.
+  local mesh = scope:own(syntheticMesh({
+    { -0.8, 0.2, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0 },
+    { 0, 0.5, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0 },
+    { 0.8, 0.2, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0 },
+    { -0.8, -0.5, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0 },
+    { 0, -0.2, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0 },
+    { 0.8, -0.5, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0 },
+  }))
+  mesh:setVertexMap({ 4, 5, 6, 1, 2, 3 })
+  local item = {
+    mesh = mesh,
+    material = { alphaClass = "opaque" },
+    transform = IDENTITY,
+    alphaClass = "opaque",
+    cullMode = "none",
+    polygonAlpha = 1.0,
+    polygonMode = "modulation",
+    polygonId = 0,
+    lightMask = 0,
+    center = { 0, 0, 0 },
+    submissionIndex = 1,
+    straddle = {
+      leading = 3,
+      transform = Matrix4.translate(0, -1, 0),
+    },
+  }
+
+  renderer:draw(emptyRuntime(), fixedCamera(), { item }, FieldViewport.new(640, 480, { mode = "strict" }))
+  local data = scope:own(renderer.sceneColor:newImageData())
+  local w, h = renderer.canvasW, renderer.canvasH
+  -- Identity view/projection and the shader's clip-y negation map a world
+  -- point (x, y) to canvas pixel ((1+x)/2 * w, (1-y)/2 * h) with row 0 at
+  -- the top.
+  local function pixelAt(worldX, worldY)
+    local cx = math.floor((worldX + 1) / 2 * w + 0.5)
+    local cy = math.floor((1 - worldY) / 2 * h + 0.5)
+    return data:getPixel(cx, cy)
+  end
+
+  -- The baked leading triangle (world y in [-0.8, -0.5]): centroid green.
+  local gr, gg, gb = pixelAt(0, -0.65)
+  Assert.near(gr, 0, 0.05, "baked leading red")
+  Assert.near(gg, 1, 0.05, "baked leading green")
+  Assert.near(gb, 0, 0.05, "baked leading blue")
+  -- The trailing triangle (world y in [-0.5, -0.2]): centroid red.
+  local rr, rg, rb = pixelAt(0, -0.35)
+  Assert.near(rr, 1, 0.05, "trailing red")
+  Assert.near(rg, 0, 0.05, "trailing green")
+  Assert.near(rb, 0, 0.05, "trailing blue")
+  -- Where the unbaked leading triangle would have drawn (world y in
+  -- [0.2, 0.5]): nothing but the background color.
+  local br, bg, bb = pixelAt(0, 0.35)
+  Assert.near(br, 0.08, 0.05, "unbaked position red")
+  Assert.near(bg, 0.09, 0.05, "unbaked position green")
+  Assert.near(bb, 0.12, 0.05, "unbaked position blue")
+end
+
 return GraphicsSmoke.suite(T)

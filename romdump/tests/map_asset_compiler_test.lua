@@ -156,6 +156,69 @@ function T.compile_is_deterministic()
   Assert.equal(onlyModel(first).key, onlyModel(second).key)
 end
 
+-- An animated building model whose display list straddles a mid-run matrix
+-- boundary compiles into a descriptor batch carrying the per-vertex source
+-- provenance (the DS transforms each vertex at submission under the
+-- then-current matrix, so the runtime needs both sources and the split to
+-- reproduce the bend).
+function T.animated_straddling_primitives_serialize_per_vertex_sources()
+  local AnimationFixture = require("tests.support.AnimationFixture")
+
+  local bw = require("libs.rom.src.BinaryWriter").new()
+  bw:u16(0)
+  bw:u16(0)
+  bw:u32(0)
+  bw:u32(0) -- resource id 0
+  for _ = 1, 3 do
+    bw:u32(0xFFFFFFFF)
+  end
+  assert(#bw:tostring() == 0x18)
+
+  -- A quad display list with MTX_RESTORE slot 3 after the first two
+  -- vertices: the quad straddles the boundary, so the descriptor batch must
+  -- carry { leading = 2, source = "draw" } -- the pre-restore source.
+  local NB = require("tests.support.NitroBuilder")
+  local vtx16xy = NB.vtx16xy
+  local pack = NB.gxPack
+  local straddlingQuad = pack({
+    { { 0x40, 0x23, 0x23 }, { 1, vtx16xy(0, 0), 0, vtx16xy(1, 0), 0 } },
+    { { 0x14 }, { 3 } },
+    { { 0x23, 0x23, 0x41 }, { vtx16xy(1, 1), 0, vtx16xy(0, 1), 0 } },
+  })
+
+  local romFs = MapRomFixture.build({
+    interiorBuildAnimList = { [MapRomFixture.BUILDING_MODEL_MEMBER_ID] = bw:tostring() },
+    buildAnim = { [0] = AnimationFixture.jntDoor() },
+    -- NsbmdFixture.build's default SBC draws the shape twice; a single
+    -- MAT/SHP draw keeps the straddle count at exactly one per shape.
+    buildingModel = NsbmdFixture.buildWithSbc(
+      string.char(0x06, 0, 0, 0) -- NODEDESC root
+        .. string.char(0x02, 0, 1) -- NODE node0 vis
+        .. string.char(0x0B) -- POSSCALE
+        .. string.char(0x04, 0) -- MAT 0
+        .. string.char(0x05, 0) -- SHP 0
+        .. string.char(0x01), -- RET
+      {
+        untextured = true,
+        triangle = { { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 1 } },
+        displayList = straddlingQuad,
+      }
+    ),
+  })
+  local bundle = assert(MapAssetCompiler.compile(romFs, MapRomFixture.MAP_SYMBOL))
+  local model = onlyModel(bundle)
+  Assert.equal(model.kind, "nitro-dynamic")
+  -- The straddling quad's batch carries the per-vertex source split.
+  local straddles = {}
+  for _, batch in ipairs(model.dynamic.batches) do
+    if batch.straddle then
+      straddles[#straddles + 1] = batch
+    end
+  end
+  Assert.equal(#straddles, 1)
+  Assert.deepEqual(straddles[1].straddle, { leading = 2, source = "draw" })
+end
+
 -- The animated cache round trip: compile one animated building model, write
 -- the bundle through MapCacheWriter, assert readiness, and load the scene
 -- through MapSceneLoader -- the exact boundary the buildcache failure

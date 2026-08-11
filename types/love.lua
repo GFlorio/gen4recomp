@@ -29,6 +29,13 @@
 ---@field release fun(self: love.Shader)
 
 ---@class love.Mesh
+---@field getVertex fun(self: love.Mesh, index: integer): ...number
+--  getVertex returns the attribute components as multiple values on this
+--  build (no Mesh:getVertices bulk read in love 11.5).
+---@field getVertexCount fun(self: love.Mesh): integer
+---@field getVertexMap fun(self: love.Mesh): table|nil
+---@field setVertexMap fun(self: love.Mesh, map: table)
+---@field setTexture fun(self: love.Mesh, image: love.Image?)
 ---@field release fun(self: love.Mesh)
 
 ---@class love.ImageData

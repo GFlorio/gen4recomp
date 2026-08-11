@@ -1,9 +1,8 @@
--- Headless MapRenderer contracts: the field-edge radius derivation, the
--- scene-schema gate, the exact graphics-state restoration contract, the
--- transactional shader/canvas construction, the injected shader-source
--- reader boundary, and the flattened-world-list draw contract. Everything
--- that compiles a shader, allocates a real render target, or reads back
--- driver state lives in map_renderer_graphics_test.lua.
+-- Pure MapRenderer contracts that need no graphics context: the field-edge
+-- radius derivation, the per-draw light-mask encoding, the straddle bend
+-- bake, and the scene-schema gate. Everything that compiles a shader,
+-- allocates a render target, or reads back driver state lives in
+-- map_renderer_graphics_test.lua.
 
 local Assert = require("tests.support.Assert")
 local MapRenderer = require("libs.engine.src.MapRenderer")
@@ -179,6 +178,20 @@ local function assertResourcesReleased(lg)
   end
   Assert.equal(#lg.shaders, 2, "the two engine shaders were created")
   Assert.equal(#lg.canvases, 3, "the scene, id-depth, and depth canvases were created")
+end
+
+-- Six vertices in the project render layout
+-- ({x,y,z, u,v, nx,ny,nz, r,g,b,a, colorSource}): a quad strip of two
+-- triangles, all normals +z, literal colors.
+local function stripVertices()
+  return {
+    { -1, 0, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 1, 0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 1, 2, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { -1, 2, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { -1, 4, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 1, 4, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+  }
 end
 
 function T.field_edge_radius_uses_only_viewport_height()
@@ -490,6 +503,194 @@ function T.light_mask_uniforms_decode_polygon_bits()
   Assert.throws(function()
     MapRenderer.lightMaskUniforms(-1)
   end)
+end
+
+-- The DS geometry engine submits each vertex under the then-current matrix;
+-- the bend bake must move only the first `leading` vertices under the
+-- straddle transform and leave the rest under the item transform, with every
+-- non-position attribute untouched.
+function T.straddle_bake_translates_only_the_leading_vertices()
+  local source = stripVertices()
+  local baked = MapRenderer.bakeStraddle(source, 2, Matrix4.translate(10, 0, 0), Matrix4.identity())
+
+  Assert.equal(#baked, 6)
+  -- Leading vertices move +10 in x; trailing vertices stay put.
+  Assert.near(baked[1][1], 9, 1e-9)
+  Assert.near(baked[2][1], 11, 1e-9)
+  Assert.near(baked[3][1], 1, 1e-9)
+  Assert.near(baked[4][1], -1, 1e-9)
+  Assert.near(baked[5][1], -1, 1e-9)
+  Assert.near(baked[6][1], 1, 1e-9)
+  -- y/z, uv, normal, color, and color source ride unchanged on both halves.
+  for i, v in ipairs(baked) do
+    local s = source[i]
+    Assert.near(v[2], s[2], 1e-9, "y untouched")
+    Assert.near(v[3], s[3], 1e-9, "z untouched")
+    Assert.near(v[6], s[6], 1e-9, "normal x untouched")
+    Assert.near(v[7], s[7], 1e-9, "normal y untouched")
+    Assert.near(v[8], s[8], 1e-9, "normal z untouched")
+    Assert.equal(v[13], 0, "color source untouched")
+  end
+  Assert.equal(baked[1][4], 0, "u untouched")
+  Assert.equal(baked[1][5], 1, "v untouched")
+  Assert.equal(baked[1][9], 1, "color untouched")
+end
+
+-- Normals bend with their half's matrix (the linear part only), so the
+-- shader lights the straddled half under the matrix it was submitted under.
+function T.straddle_bake_rotates_the_leading_normals_with_the_straddle_matrix()
+  local baked = MapRenderer.bakeStraddle(stripVertices(), 1, Matrix4.rotateY(math.pi / 2), Matrix4.identity())
+
+  -- rotateY(pi/2) maps +z to +x: the leading normal follows the matrix.
+  Assert.near(baked[1][6], 1, 1e-9)
+  Assert.near(baked[1][7], 0, 1e-9)
+  Assert.near(baked[1][8], 0, 1e-9)
+  -- Trailing vertices keep their own normal (identity linear part).
+  Assert.near(baked[2][6], 0, 1e-9)
+  Assert.near(baked[2][7], 0, 1e-9)
+  Assert.near(baked[2][8], 1, 1e-9)
+end
+
+-- A straddle record always splits a segment strictly between 0 and its full
+-- vertex count; anything else is a corrupted provenance record and fails
+-- loudly instead of baking a degenerate bend.
+function T.straddle_bake_rejects_a_leading_count_out_of_range()
+  Assert.throws(function()
+    MapRenderer.bakeStraddle(stripVertices(), 0, Matrix4.identity(), Matrix4.identity())
+  end)
+  Assert.throws(function()
+    MapRenderer.bakeStraddle(stripVertices(), 7, Matrix4.identity(), Matrix4.identity())
+  end)
+end
+
+-- ---- straddle scratch-mesh ownership (injected graphics, no love needed) ----
+
+-- A fake graphics namespace with enough surface for the straddle draw path:
+-- newShader returns silent shaders, newMesh records every scratch mesh and
+-- its vertex map, and draw can be made to raise on demand. This is the
+-- ownership boundary of the per-frame bake: the scratch is created and
+-- released within one draw call -- on the failure path as well as the
+-- success path -- and never touches the pool-shared source mesh.
+local function straddleGraphics(opts)
+  opts = opts or {}
+  local meshes = {}
+  return {
+    meshes = meshes,
+    newShader = function()
+      return { send = function() end }
+    end,
+    newMesh = function(_, vertices, _, _)
+      local scratch
+      scratch = {
+        vertices = vertices,
+        vertexMap = nil,
+        released = false,
+        release = function()
+          scratch.released = true
+        end,
+        setVertexMap = function(_, map)
+          scratch.vertexMap = map
+        end,
+        setTexture = function() end,
+      }
+      meshes[#meshes + 1] = scratch
+      return scratch
+    end,
+    setMeshCullMode = function() end,
+    draw = function()
+      if opts.failOnDraw then
+        error("injected straddle draw failure")
+      end
+    end,
+  }
+end
+
+-- A fake source mesh matching the love API shape the straddle path reads
+-- (getVertex returns the 13 attribute components as multiple values).
+local function sourceMesh()
+  local vertices = {
+    { -1, 0, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 1, 0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 1, 2, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { -1, 2, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+  }
+  return {
+    getVertexCount = function()
+      return #vertices
+    end,
+    getVertex = function(_, i)
+      return vertices[i][1],
+        vertices[i][2],
+        vertices[i][3],
+        vertices[i][4],
+        vertices[i][5],
+        vertices[i][6],
+        vertices[i][7],
+        vertices[i][8],
+        vertices[i][9],
+        vertices[i][10],
+        vertices[i][11],
+        vertices[i][12],
+        vertices[i][13]
+    end,
+    getVertexMap = function()
+      return { 4, 3, 2, 1 }
+    end,
+    setTexture = function() end,
+  }
+end
+
+local function straddleDrawItem(mesh)
+  return {
+    mesh = mesh,
+    material = { alphaClass = "opaque" },
+    transform = Matrix4.identity(),
+    alphaClass = "opaque",
+    cullMode = "back",
+    polygonAlpha = 1.0,
+    polygonMode = "modulation",
+    polygonId = 0,
+    lightMask = 0,
+    center = { 0, 0, 0 },
+    straddle = { leading = 2, transform = Matrix4.translate(10, 0, 0) },
+  }
+end
+
+-- The straddle draw bakes the shared mesh's vertices into a scratch mesh
+-- that carries the source's vertex map, draws it, and releases it within
+-- the call -- the shared pool mesh is never mutated.
+function T.straddle_draw_bakes_into_a_released_scratch_with_the_source_map()
+  local fake = straddleGraphics()
+  local renderer = MapRenderer.new({ graphics = fake })
+  local source = sourceMesh()
+  local item = straddleDrawItem(source)
+
+  renderer:_drawStraddle(item, Matrix4.identity(), nil, Matrix4.identity())
+
+  Assert.equal(#fake.meshes, 1)
+  local scratch = fake.meshes[1]
+  Assert.isTrue(scratch.released, "the scratch mesh is released after the draw")
+  Assert.deepEqual(scratch.vertexMap, { 4, 3, 2, 1 }, "the scratch carries the source's vertex map")
+  -- The bake moved the first `leading` vertices under the straddle
+  -- transform and left the rest under the item transform.
+  Assert.near(scratch.vertices[1][1], 9, 1e-9)
+  Assert.near(scratch.vertices[2][1], 11, 1e-9)
+  Assert.near(scratch.vertices[3][1], 1, 1e-9)
+  Assert.near(scratch.vertices[4][1], -1, 1e-9)
+end
+
+-- A draw failure inside the straddle path must still release the scratch
+-- mesh it already acquired, so a failed frame leaks no GPU object.
+function T.a_failed_straddle_draw_still_releases_the_scratch()
+  local fake = straddleGraphics({ failOnDraw = true })
+  local renderer = MapRenderer.new({ graphics = fake })
+
+  Assert.throws(function()
+    renderer:_drawStraddle(straddleDrawItem(sourceMesh()), Matrix4.identity(), nil, Matrix4.identity())
+  end)
+
+  Assert.equal(#fake.meshes, 1)
+  Assert.isTrue(fake.meshes[1].released, "a failed straddle draw releases its scratch")
 end
 
 return { tests = T }

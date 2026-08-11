@@ -10,16 +10,22 @@
 -- buffer itself (love's frame clear only touches color) and restores the exact
 -- caller state it changed (canvas, shader, depth, cull, blend, wireframe,
 -- color) even when drawing raises, so the diagnostic UI drawn afterwards is
--- unaffected. Resource construction is transactional: a failed shader or
--- canvas allocation releases everything already created, and a canvas
--- recreation keeps the previous target set usable until the replacement is
--- complete. It builds no meshes or textures and reads no ROM/NARC data --
--- those belong to the loader and compiler; here everything is already
--- resident.
+-- unaffected. A straddling draw item (the first `leading` vertices submitted
+-- under a pre-boundary matrix, per the DS geometry engine) is bent per frame:
+-- the shared mesh's vertex data is CPU-baked under the two transforms into a
+-- scratch mesh drawn with an identity model and released within the frame --
+-- the pool-shared mesh is never mutated. Resource construction is
+-- transactional: a failed shader or canvas allocation releases everything
+-- already created, and a canvas recreation keeps the previous target set
+-- usable until the replacement is complete. It builds no persistent meshes or
+-- textures and reads no ROM/NARC data -- those belong to the loader and
+-- compiler; here everything is already resident.
 
 local RenderQueue = require("libs.engine.src.RenderQueue")
 local BillboardTransform = require("libs.engine.src.BillboardTransform")
 local Matrix3 = require("libs.math.src.Matrix3")
+local Matrix4 = require("libs.math.src.Matrix4")
+local VertexFormat = require("libs.assets.src.VertexFormat")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
 local DsLighting = require("libs.engine.src.DsLighting")
 
@@ -285,17 +291,133 @@ function MapRenderer:_sendLighting(runtime)
   shader:send("u_emissionColor", rgb555ToFloat3(record.emissionRgb555))
 end
 
+-- The world normal matrix of a model transform: the inverse-transpose of its
+-- upper-left 3x3 (the "view" is identity -- baked vertices and normals live
+-- in world space, and the shader's own u_normalMatrix applies the view's
+-- part afterwards).
+local function modelNormalMatrix(m)
+  return Matrix3.normalMatrix(m, Matrix4.identity())
+end
+
+-- Bake a straddling item's vertex data into world space, exactly as the DS
+-- geometry engine transformed each vertex at submission under the
+-- then-current matrix: the first `leading` vertices under the straddle
+-- transform, the rest under the item transform. Positions transform through
+-- the full matrix; normals through the matrix's linear part only (a
+-- direction never picks up a translation). UVs, colors, and the color source
+-- ride unchanged. `vertices` is a plain table of project-layout vertex
+-- records; the returned table is fresh and owned by the caller. Pure
+-- arithmetic, no graphics state.
+-- A straddle record always splits a segment strictly between zero and its
+-- full vertex count; anything else is a corrupted provenance record and
+-- fails loudly instead of baking a degenerate bend.
+---@param vertices number[][] -- project render layout records: {x,y,z, u,v, nx,ny,nz, r,g,b,a, colorSource}
+---@param leading integer
+---@param straddleTransform number[]
+---@param transform number[]
+---@return number[][]
+function MapRenderer.bakeStraddle(vertices, leading, straddleTransform, transform)
+  assert(type(vertices) == "table" and #vertices > 0, "bakeStraddle requires a non-empty vertex table")
+  assert(
+    type(leading) == "number" and leading >= 1 and leading < #vertices,
+    "bakeStraddle leading count " .. tostring(leading) .. " is out of range for " .. #vertices .. " vertices"
+  )
+  local leadingNormal = modelNormalMatrix(straddleTransform)
+  local trailingNormal = modelNormalMatrix(transform)
+  local baked = {}
+  for i, v in ipairs(vertices) do
+    local m, nm
+    if i <= leading then
+      m, nm = straddleTransform, leadingNormal
+    else
+      m, nm = transform, trailingNormal
+    end
+    local x, y, z = Matrix4.transformPoint(m, v[1], v[2], v[3])
+    local nx, ny, nz = Matrix3.transform(nm, v[6], v[7], v[8])
+    baked[i] = { x, y, z, v[4], v[5], nx, ny, nz, v[9], v[10], v[11], v[12], v[13] }
+  end
+  return baked
+end
+
 -- Bind a material's uniforms/texture/cull state, then draw the mesh.
 -- `projection` is per item: billboard actors draw through the camera's
 -- field-billboard projection, everything else through the world projection.
+-- `modelMatrix`/`normalMatrix` are the item's unless the item straddles (a
+-- straddling item draws its baked world-space scratch mesh with an identity
+-- model).
 function MapRenderer:_drawItem(item, viewMatrix, polygonIdOverride, projection)
+  if item.straddle then
+    self:_drawStraddle(item, viewMatrix, polygonIdOverride, projection)
+    return
+  end
+  self:_drawMesh(
+    item,
+    viewMatrix,
+    polygonIdOverride,
+    projection,
+    item.transform,
+    Matrix3.normalMatrix(item.transform, viewMatrix),
+    item.mesh
+  )
+end
+
+-- Draw a straddling item: the DS submitted its first `leading` vertices
+-- under the pre-boundary matrix, so the renderer CPU-bakes them under
+-- item.straddle.transform and the rest under item.transform (per frame --
+-- the transforms animate), and draws the result with an identity model. The
+-- bake never mutates the pool-shared mesh (the pool dedups geometry by
+-- path): a scratch mesh is created, drawn, and released within this call, on
+-- the failure path as well as the success path. The scratch carries the
+-- source mesh's vertex map, so index order is preserved exactly.
+function MapRenderer:_drawStraddle(item, viewMatrix, polygonIdOverride, projection)
+  local lg = assert(self._graphics)
+  local scratch
+  local ok, err = pcall(function()
+    -- love 11.5 has no Mesh:getVertices bulk read; the CPU-side vertex data
+    -- is still reachable per vertex (getVertex returns the attribute
+    -- components as multiple values on this build).
+    local vertices = {}
+    for i = 1, item.mesh:getVertexCount() do
+      vertices[i] = { item.mesh:getVertex(i) }
+    end
+    scratch = lg.newMesh(
+      VertexFormat.LAYOUT,
+      MapRenderer.bakeStraddle(vertices, item.straddle.leading, item.straddle.transform, item.transform),
+      "triangles",
+      "static"
+    )
+    local map = item.mesh:getVertexMap()
+    if map and #map > 0 then
+      scratch:setVertexMap(map)
+    end
+    local identity = Matrix4.identity()
+    self:_drawMesh(
+      item,
+      viewMatrix,
+      polygonIdOverride,
+      projection,
+      identity,
+      Matrix3.normalMatrix(identity, viewMatrix),
+      scratch
+    )
+  end)
+  if scratch then
+    scratch:release()
+  end
+  if not ok then
+    error(err)
+  end
+end
+
+-- The common draw body: bind the model/normal matrices, the material's
+-- uniforms/texture/cull state, draw the mesh, and count the call.
+function MapRenderer:_drawMesh(item, viewMatrix, polygonIdOverride, projection, modelMatrix, normalMatrix, mesh)
   local lg = assert(self._graphics)
   local mat = item.material
   local shader = self.shader
-  local normalMatrix = Matrix3.normalMatrix(item.transform, viewMatrix)
 
   shader:send("u_proj", "column", projection)
-  shader:send("u_model", "column", item.transform)
+  shader:send("u_model", "column", modelMatrix)
   shader:send("u_normalMatrix", "column", normalMatrix)
 
   -- Per-material animated colors (defaults are the identity multipliers,
@@ -308,10 +430,10 @@ function MapRenderer:_drawItem(item, viewMatrix, polygonIdOverride, projection)
 
   if mat and mat.image then
     shader:send("u_useTexture", true)
-    item.mesh:setTexture(mat.image)
+    mesh:setTexture(mat.image)
   else
     shader:send("u_useTexture", false)
-    item.mesh:setTexture()
+    mesh:setTexture()
   end
 
   shader:send("u_alphaMode", alphaModeId(RenderQueue.effectiveAlphaClass(item)))
@@ -321,7 +443,7 @@ function MapRenderer:_drawItem(item, viewMatrix, polygonIdOverride, projection)
   shader:send("u_polygonId", polygonIdOverride or (item.polygonId or 0) / MapRenderer.REAR_PLANE_ID)
   shader:send("u_lightMask", MapRenderer.lightMaskUniforms(item.lightMask))
   lg.setMeshCullMode(item.cullMode or "back")
-  lg.draw(item.mesh)
+  lg.draw(mesh)
   self.stats.drawCalls = self.stats.drawCalls + 1
 end
 
