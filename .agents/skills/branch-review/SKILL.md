@@ -31,9 +31,9 @@ The prompt contains those parts and nothing else — no branch summary, no archi
 no defense or critique of the existing design, no list of files you think matter. Everything
 else the subagent needs is in the branch diff and in this skill.
 
-When it returns: read the summary, verify `scripts/test.sh` and `scripts/lint.sh` pass
-yourself, and relay the findings to the human — including the ones left for a behavior
-decision.
+When it returns: read the summary, verify a full run of `scripts/test.sh` and
+`scripts/lint.sh` pass yourself, and relay the findings to the human — including
+the ones left for a behavior decision.
 
 ---
 

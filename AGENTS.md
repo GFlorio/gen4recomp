@@ -92,6 +92,7 @@ This file provides guidance to Coding Agents when working with code in this repo
 - Use the `tdd` skill for behavior changes. Use `acceptance-testing` before
   work that changes a user-visible flow, production composition, persistence,
   transitions, scripts, or ROM-derived behavior.
+- Running the entire test suite takes a while; Run unit tests frequently, be deliberate about the other layers.
 - Adversarial prompts, to consider when applicable — not a mandatory list:
   What if the Nth acquisition fails? What if an operation starts while one is already
   active? What if a valid previous artifact exists and the rebuild fails? What if multiple
