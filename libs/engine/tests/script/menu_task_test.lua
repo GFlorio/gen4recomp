@@ -223,6 +223,35 @@ function T.semantic_choose_blocks_and_writes_its_stable_item_result()
   Assert.equal(h.services.world:getVar("VAR_RESULT"), 20)
 end
 
+function T.semantic_choose_resolves_gendered_text_and_preserves_false_cancel_result()
+  local h = harness()
+  h.services.player._gender = 1
+  local script = S.script({
+    api = 1,
+    id = "test.semantic_choose_gendered_cancel",
+    steps = {
+      S.choose({
+        items = { S.choice("First", 5), S.choice(S.gendered("Male", "Female"), 10) },
+        result = S.var("VAR_RESULT"),
+        cancellable = true,
+        cancelValue = false,
+        initialCursor = 1,
+      }),
+      S.stop(),
+    },
+  })
+  h.registry:installBase(script.id, script, "handwritten")
+  h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+
+  h.scheduler:step(100, {})
+  Assert.equal(h.scriptMenu.requests[1].items[2].text, "Female")
+  Assert.equal(h.scriptMenu.requests[1].initialCursor, 1)
+  Assert.equal(h.scriptMenu.requests[1].cancelValue, false)
+  h.scheduler:step(101, { menuEvents = { { type = "cancel" } } })
+  h.scheduler:step(102, {})
+  Assert.equal(h.services.world.variables.VAR_RESULT, false)
+end
+
 local function resource()
   return S.script({
     api = 1,

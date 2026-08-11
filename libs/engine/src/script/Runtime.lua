@@ -124,6 +124,33 @@ function Runtime.evaluateValue(v, run)
   )
 end
 
+-- Resolve a semantic message descriptor before it crosses into a host. This
+-- keeps dynamic operands and gender selection in the runtime, while the
+-- dialogue/menu hosts retain one concrete-message resolution contract.
+---@param message any
+---@param run table
+---@return any
+function Runtime.evaluateMessage(message, run)
+  if type(message) ~= "table" then
+    return message
+  end
+  if message.value ~= nil then
+    return Runtime.evaluateValue(message, run)
+  end
+  if message.message == "external" then
+    return {
+      message = "external",
+      bank = Runtime.evaluateValue(message.bank, run),
+      id = Runtime.evaluateValue(message.id, run),
+    }
+  end
+  if message.text == "gendered_message" then
+    local gender = run.services.player:gender()
+    return Runtime.evaluateMessage(gender == 0 and message.male or message.female, run)
+  end
+  Errors.raise(ScriptErrors.SCRIPT_INVALID_REFERENCE, "unknown message reference form", { message = message })
+end
+
 -- Evaluate a condition to a boolean.
 ---@param condition any
 ---@param run table
@@ -971,15 +998,20 @@ HANDLERS.choose = function(node, run)
   local items = {}
   for luaIndex, item in ipairs(node.items) do
     items[luaIndex] = {
-      text = Runtime.evaluateValue(item.text, run),
+      text = Runtime.evaluateMessage(item.text, run),
       value = Runtime.evaluateValue(item.value, run),
       metadata = item.metadata,
     }
   end
+  local cancelValue = nil
+  if node.cancelValue ~= nil then
+    cancelValue = Runtime.evaluateValue(node.cancelValue, run)
+  end
   local request = requireScriptMenu(run):choose({
     items = items,
     cancellable = node.cancellable,
-    cancelValue = node.cancelValue and Runtime.evaluateValue(node.cancelValue, run),
+    cancelValue = cancelValue,
+    initialCursor = node.initialCursor,
     placement = node.placement,
     result = node.result,
   })

@@ -338,6 +338,26 @@ local function checkStep(context, step, path)
     fail(context, ScriptErrors.SCRIPT_UNKNOWN_OPERATION, path, "unknown operation", { op = name })
   end
   checkFields(context, name, spec.fields, step, path, { op = true })
+  if name == "choose" then
+    if step.cancellable == true and step.cancelValue == nil then
+      fail(
+        context,
+        ScriptErrors.SCRIPT_SCHEMA_INVALID,
+        fieldPath(path, "cancelValue"),
+        "cancellable semantic menus require a cancellation result",
+        { field = "cancelValue", op = name }
+      )
+    end
+    if step.initialCursor ~= nil and (step.initialCursor < 0 or step.initialCursor >= #step.items) then
+      fail(
+        context,
+        ScriptErrors.SCRIPT_SCHEMA_INVALID,
+        fieldPath(path, "initialCursor"),
+        "semantic menu initial cursor is out of range",
+        { field = "initialCursor", op = name }
+      )
+    end
+  end
   -- The low-level compare-state branches need either a local label target
   -- or a cross-script reference.
   if name == "goto_compared" or name == "call_compared" then

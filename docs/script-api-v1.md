@@ -575,6 +575,7 @@ No fields.
 |---|---|---|---|
 | `cancelValue` | scalar_or_value |  |  |
 | `cancellable` | boolean |  | `false` |
+| `initialCursor` | integer |  | `0` |
 | `items` | menu_items | yes |  |
 | `key` | string |  |  |
 | `placement` | menu_placement |  | `{}` |

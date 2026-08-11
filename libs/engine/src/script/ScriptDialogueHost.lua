@@ -103,18 +103,25 @@ function ScriptDialogueHost:resolveMessage(message, bindings, textArgs)
     local tokens = FieldMessageText.parse(ScriptDialogueHost.PLACEHOLDER_TEXT, self._fontDef, { eos = false })
     return { tokens = tokens, text = ScriptDialogueHost.PLACEHOLDER_TEXT, hadUnresolvedSubstitutions = false }
   end
-  if type(message) ~= "string" then
+  local bankId, messageId
+  if type(message) == "string" then
+    bankId, messageId = message:match("^msg%.hgss%.(%d+)%.(%d+)$")
+    if bankId == nil then
+      Errors.raise(
+        ScriptErrors.SCRIPT_INVALID_REFERENCE,
+        "unknown message reference " .. tostring(message),
+        { message = message }
+      )
+    end
+    bankId, messageId = tonumber(bankId), tonumber(messageId)
+  elseif type(message) == "table" and message.message == "external" then
+    bankId, messageId = message.bank, message.id
+    if type(bankId) ~= "number" or bankId % 1 ~= 0 or type(messageId) ~= "number" or messageId % 1 ~= 0 then
+      Errors.raise(ScriptErrors.SCRIPT_INVALID_REFERENCE, "external message location is invalid", { message = message })
+    end
+  else
     Errors.raise(ScriptErrors.SCRIPT_INVALID_REFERENCE, "unsupported message reference form", { message = message })
   end
-  local bankId, messageId = message:match("^msg%.hgss%.(%d+)%.(%d+)$")
-  if bankId == nil then
-    Errors.raise(
-      ScriptErrors.SCRIPT_INVALID_REFERENCE,
-      "unknown message reference " .. tostring(message),
-      { message = message }
-    )
-  end
-  bankId, messageId = tonumber(bankId), tonumber(messageId)
   local bank, bankErr = self._provider:acquireBank(bankId)
   if not bank then
     local err = bankErr --[[@as Errors.Error]]

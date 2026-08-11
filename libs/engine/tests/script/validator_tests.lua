@@ -309,6 +309,35 @@ function T.validates_semantic_choose_and_rejects_malformed_choices()
   })
 end
 
+function T.semantic_choose_requires_a_cancel_value_and_a_valid_initial_cursor()
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = {
+      S.choose({ items = { S.choice("Take", 1) }, result = S.var("choice"), cancellable = true }),
+    },
+  })
+  valid({
+    api = 1,
+    id = "x",
+    steps = {
+      S.choose({
+        items = { S.choice("Take", 1) },
+        result = S.var("choice"),
+        cancellable = true,
+        cancelValue = false,
+      }),
+    },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = {
+      S.choose({ items = { S.choice("Take", 1) }, result = S.var("choice"), initialCursor = 1 }),
+    },
+  })
+end
+
 function T.rejects_unknown_value_kind()
   invalidCode(
     "SCRIPT_INVALID_REFERENCE",

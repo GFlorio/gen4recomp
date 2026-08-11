@@ -78,8 +78,24 @@ local function resolveMessage(self, source, messageId)
 end
 
 local function resolveSemanticText(self, message)
-  if type(message) == "string" and message:match("^msg%.hgss%.%d+%.%d+$") then
-    return assert(self._resolveText, "semantic menu requires a vanilla message resolver")(message)
+  if type(message) == "table" or (type(message) == "string" and message:match("^msg%.hgss%.%d+%.%d+$")) then
+    local resolveText = self._resolveText
+    if resolveText == nil then
+      Errors.raise(
+        ScriptErrors.SCRIPT_MENU_MESSAGE_UNRESOLVED,
+        "semantic menu message resolution is unavailable",
+        { message = message }
+      )
+    end
+    local text = resolveText(message)
+    if type(text) ~= "table" or type(text.text) ~= "string" then
+      Errors.raise(
+        ScriptErrors.SCRIPT_MENU_MESSAGE_UNRESOLVED,
+        "semantic menu message did not resolve to text",
+        { message = message }
+      )
+    end
+    return text
   end
   return { text = message }
 end
@@ -125,6 +141,7 @@ function ScriptMenuHost:choose(spec)
     items = items,
     cancellable = spec.cancellable,
     cancelValue = spec.cancelValue,
+    initialCursor = spec.initialCursor,
     placementPreference = spec.placement,
     result = spec.result,
   })

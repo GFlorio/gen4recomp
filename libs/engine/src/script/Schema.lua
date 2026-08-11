@@ -415,6 +415,7 @@ Schema.OPERATIONS = {
       result = { type = "value", required = true },
       cancellable = { type = "boolean", default = false },
       cancelValue = { type = "scalar_or_value" },
+      initialCursor = { type = "integer", default = 0 },
       placement = { type = "menu_placement", default = { mode = "auto", anchor = "auto", surface = "auto" } },
     },
   },
