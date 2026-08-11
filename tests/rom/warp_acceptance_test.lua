@@ -20,6 +20,7 @@
 -- Runs against every ready dump through the ROM layer.
 
 local Assert = require("tests.support.Assert")
+local DoorTiles = require("libs.engine.src.DoorTiles")
 local FakeCache = require("tests.support.FakeCache")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local FieldInput = require("libs.engine.src.FieldInput")
@@ -108,6 +109,7 @@ local function compileScene(romFs, symbol)
     placements = placements,
     instances = instances,
     controller = MapPropAnimationController.new(),
+    doorTiles = DoorTiles.fromGrid(map.permissions),
   })
   map.sceneRuntime = {
     mapProps = props,

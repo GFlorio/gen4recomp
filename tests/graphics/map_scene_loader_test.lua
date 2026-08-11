@@ -165,6 +165,7 @@ function T.scene_and_building_descriptor_samplers_stay_independent()
   -- repeat wrap; the scene image and the descriptor image must stay separate.
   s.buildingInstances = {
     {
+      placementIndex = 0,
       modelKey = "building",
       transform = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 },
     },

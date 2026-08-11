@@ -8,48 +8,116 @@
 --     door:close()
 --     door:isFinished()
 --
--- Nothing here knows NARC ids, animation resource numbers, NSBCA, or
--- animation-list slots: the resolution is spatial (the building whose model
--- footprint -- its model-space AABB under the placement transform -- contains
--- the door tile's world position), the animation is the placement instance's
--- semantic door.open/door.close roles through the MapPropAnimationController,
--- and a door whose building is static (no animated instance) resolves but
--- animates nothing -- HGSS's interior doors without animation records behave
--- the same. The lookup is strict: a door tile contained by no placement
--- resolves nothing, and a tile contained by two placements raises -- a
--- generated map with ambiguous or missing door coverage is a data failure,
--- not an invitation to animate an unrelated building. Only DOOR-kind warp
--- tiles (behavior 105) resolve; stairs, directional warps, and generic warps
--- return nil (their choreography is separate policy). Pure domain module.
+-- Door ownership is precomputed once when the scene is assembled: the
+-- assembly enumerates the DOOR-kind (behavior 105) tiles of the permission
+-- cell (DoorTiles.fromGrid, local indices 0..31) and resolves each to the
+-- placement whose pivot (the transform translation, [13]/[15]) is NEAREST
+-- the tile centre -- the predicate verified against the real ROM, where
+-- door models are planar slabs whose model-space AABB does not contain the
+-- tile centre (New Bark member 26: x[-0.3,0.0] z[0.0,0.0]) and a containment
+-- test resolves the wrong static building. doorAt is then an O(1) index
+-- lookup: no placement scan, no matrix inversion, no epsilon on the hot
+-- path. The index is authoritative: a tile it does not cover resolves nil,
+-- and mutating the placement list after assembly changes nothing. Ambiguity
+-- (two placements tied for one door tile) and missing coverage (a door tile
+-- with no placement at all) are data failures diagnosed once at assembly,
+-- not per lookup. The door finish state is retained per tile on the index,
+-- so a fresh resolution of the same tile observes the role a previous
+-- handle played -- the finish state never depends on handle identity. Only
+-- DOOR-kind warp tiles resolve; stairs, directional warps, and generic
+-- warps return nil (their choreography is separate policy). A door whose
+-- building is static (no animated instance) resolves but animates nothing
+-- -- HGSS's interior doors without animation records behave the same. Pure
+-- domain module.
 
 local WarpSystem = require("libs.engine.src.WarpSystem")
 local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
 local FieldGrid = require("libs.engine.src.FieldGrid")
 local Errors = require("libs.rom.src.Errors")
-local Matrix4 = require("libs.math.src.Matrix4")
 local MapPropAnimationController = require("libs.engine.src.MapPropAnimationController")
 
 ---@class MapProps
----@field placements table -- scene placement records with model-space bounds
+---@field placements table -- scene placement records (read only after assembly)
+---@field placementIndex table -- [placementIndex] = { modelKey }
+---@field doorIndex table -- ["localX:localZ"] = { placementIndex, modelKey, currentRole }
 ---@field instances { [integer]: ModelInstance|nil }
 ---@field controller table -- MapPropAnimationController
 local MapProps = {}
 MapProps.__index = MapProps
 
----@param opts { placements: table, instances: { [integer]: table|nil }, controller: table }
+-- `doorTiles` are the DOOR-kind tiles of the scene's permission cell as
+-- local indices -- exactly the list the assembly enumerates and the space
+-- doorAt keys its index with. Ambiguity (two placements tied for one tile)
+-- and missing coverage (a door tile with no placement at all) raise here,
+-- once, as generated-data failures rather than per-lookup surprises.
+---@param opts { placements: table, instances: { [integer]: table|nil }, controller: table, doorTiles: { x: integer, z: integer }[] }
 ---@return MapProps
 function MapProps.new(opts)
-  assert(opts and opts.placements and opts.instances and opts.controller, "map props options required")
-  return setmetatable({
+  assert(
+    opts and opts.placements and opts.instances and opts.controller and opts.doorTiles,
+    "map props options required"
+  )
+  local self = setmetatable({
     placements = opts.placements,
     instances = opts.instances,
     controller = opts.controller,
+    placementIndex = {},
+    doorIndex = {},
   }, MapProps)
+  for _, placement in ipairs(opts.placements) do
+    assert(placement.placementIndex ~= nil, "placement missing placementIndex: " .. tostring(placement.modelKey))
+    self.placementIndex[placement.placementIndex] = { modelKey = placement.modelKey }
+  end
+  for _, tile in ipairs(opts.doorTiles) do
+    local wx, wz = FieldGrid.tileCenterToWorld(tile.x, tile.z)
+    local best
+    for _, placement in ipairs(opts.placements) do
+      local dx, dz = placement.transform[13] - wx, placement.transform[15] - wz
+      local distance = dx * dx + dz * dz
+      if not best then
+        best = { placement = placement, distance = distance }
+      elseif distance < best.distance then
+        best = { placement = placement, distance = distance }
+      elseif distance == best.distance then
+        Errors.raise(
+          "MAP_PROP_AMBIGUOUS_DOOR",
+          "door tile ("
+            .. tile.x
+            .. ","
+            .. tile.z
+            .. ") is tied between placements "
+            .. best.placement.placementIndex
+            .. " and "
+            .. placement.placementIndex,
+          {
+            x = tile.x,
+            z = tile.z,
+            placements = { best.placement.placementIndex, placement.placementIndex },
+          }
+        )
+      end
+    end
+    if not best then
+      Errors.raise(
+        "MAP_PROP_UNCOVERED_DOOR",
+        "door tile (" .. tile.x .. "," .. tile.z .. ") has no building placement",
+        { x = tile.x, z = tile.z }
+      )
+    end
+    self.doorIndex[tile.x .. ":" .. tile.z] = {
+      placementIndex = best.placement.placementIndex,
+      modelKey = best.placement.modelKey,
+      currentRole = nil,
+    }
+  end
+  return self
 end
 
 -- The MapDoor handle: the resolved door at a tile. `instance` is the door's
 -- building ModelInstance (nil for static buildings), `controller` drives its
--- semantic playback.
+-- semantic playback, and `entry` is the tile's retained index record -- the
+-- finish state lives there, not on the disposable handle, so a fresh
+-- resolution of the tile observes the role the previous handle played.
 ---@class MapDoor
 ---@field x integer
 ---@field z integer
@@ -57,7 +125,7 @@ end
 ---@field placementIndex integer
 ---@field modelKey string
 ---@field instance table|nil
----@field currentRole "door.open"|"door.close"|nil
+---@field entry table -- the retained index record ({ currentRole = "door.open"|"door.close"|nil })
 ---@field controller table -- the MapPropAnimationController
 local MapDoor = {}
 MapDoor.__index = MapDoor
@@ -88,27 +156,31 @@ function MapDoor:_play(role)
     self.controller:stop(self.instance, other)
   end
   self.controller:play(self.instance, role, { loopMode = "once" })
-  self.currentRole = role
+  self.entry.currentRole = role
 end
 
 -- Whether the door's current animation has reached its end (the controller's
 -- HGSS checked-advance completion). Nil when nothing is playing -- a static
 -- door, or a door that has not been opened or closed yet -- so a waiter
--- treats nil as "nothing to wait for".
+-- treats nil as "nothing to wait for". The role is read from the tile's
+-- retained index record, so any handle resolving this tile reports the same
+-- finish state.
 function MapDoor:isFinished()
-  if not self.instance or not self.currentRole then
+  if not self.instance or not self.entry.currentRole then
     return nil
   end
-  return self.controller:isFinished(self.instance, self.currentRole)
+  return self.controller:isFinished(self.instance, self.entry.currentRole)
 end
 
 -- Resolve the door at a field tile: the tile must carry a warp whose
 -- metatile behavior classifies as a DOOR (behavior 105). Returns a MapDoor
--- for the placement whose model footprint contains the tile's world centre,
--- or nil when the tile is out of permission coverage, has no warp, is not a
--- door-kind warp, or is contained by no placement. Two placements containing
--- the same tile raise MAP_PROP_AMBIGUOUS_DOOR: on generated data a door tile
--- belongs to exactly one building.
+-- for the tile's precomputed placement -- the O(1) index read over the
+-- scene's local door tiles; the nearest pivot, ambiguity, and missing
+-- coverage were decided once at assembly -- or nil when the tile is out of
+-- permission coverage, has no warp, is not a door-kind warp, or the index
+-- does not cover it. `instance` is read live from the current instance
+-- table, so a door whose model loses its animated instance after assembly
+-- resolves statically.
 ---@param runtimeMap table
 ---@param fieldX integer
 ---@param fieldZ integer
@@ -130,56 +202,19 @@ function MapProps:doorAt(runtimeMap, fieldX, fieldZ)
   if not classification or classification.kind ~= "door" then
     return nil
   end
-
-  local tileWorldX, tileWorldZ = FieldGrid.tileCenterToWorld(localX, localZ)
-  local contained = {}
-  for _, placement in ipairs(self.placements) do
-    local bounds = placement.bounds
-    if bounds then
-      -- Footprint test in model space: the placement transform maps model
-      -- space to world, so the tile's world centre maps back into the model
-      -- AABB exactly when it lies on the building's footprint.
-      local inverse = Matrix4.invert(placement.transform)
-      local mx, _, mz = Matrix4.transformPoint(inverse, tileWorldX, 0, tileWorldZ)
-      local epsilon = 1e-3
-      if
-        mx >= bounds.minX - epsilon
-        and mx <= bounds.maxX + epsilon
-        and mz >= bounds.minZ - epsilon
-        and mz <= bounds.maxZ + epsilon
-      then
-        contained[#contained + 1] = placement
-      end
-    end
-  end
-  if #contained == 0 then
+  local entry = self.doorIndex[localX .. ":" .. localZ]
+  if not entry then
     return nil
   end
-  if #contained > 1 then
-    Errors.raise(
-      "MAP_PROP_AMBIGUOUS_DOOR",
-      "door tile ("
-        .. fieldX
-        .. ","
-        .. fieldZ
-        .. ") on map "
-        .. tostring(runtimeMap.mapId)
-        .. " is contained by "
-        .. #contained
-        .. " building placements",
-      { mapId = runtimeMap.mapId, x = fieldX, z = fieldZ, placements = #contained }
-    )
-  end
-  local nearest = contained[1]
   return setmetatable({
     x = fieldX,
     z = fieldZ,
     warp = warp,
-    placementIndex = nearest.placementIndex,
-    modelKey = nearest.modelKey,
-    instance = self.instances[nearest.placementIndex],
+    placementIndex = entry.placementIndex,
+    modelKey = entry.modelKey,
+    instance = self.instances[entry.placementIndex],
+    entry = entry,
     controller = self.controller,
-    currentRole = nil,
   }, MapDoor)
 end
 
@@ -255,21 +290,21 @@ function SceneProp:animationsFor()
 end
 
 -- Resolve the scripted-prop handle for a placement index, or nil when no
--- placement has that index.
+-- placement has that index. The placement index is precomputed at assembly
+-- like the door index: prop() never rescans the placement list per call.
 ---@param placementIndex integer
 ---@return SceneProp?
 function MapProps:prop(placementIndex)
-  for _, placement in ipairs(self.placements) do
-    if placement.placementIndex == placementIndex then
-      return setmetatable({
-        placementIndex = placementIndex,
-        modelKey = placement.modelKey,
-        instance = self.instances[placementIndex],
-        controller = self.controller,
-      }, SceneProp)
-    end
+  local entry = self.placementIndex[placementIndex]
+  if not entry then
+    return nil
   end
-  return nil
+  return setmetatable({
+    placementIndex = placementIndex,
+    modelKey = entry.modelKey,
+    instance = self.instances[placementIndex],
+    controller = self.controller,
+  }, SceneProp)
 end
 
 return MapProps

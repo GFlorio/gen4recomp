@@ -37,6 +37,7 @@ local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
+local DoorTiles = require("libs.engine.src.DoorTiles")
 
 local MapSceneLoader = {}
 
@@ -438,6 +439,13 @@ local function buildScene(pool, cacheFs, scene, opts)
     worldOriginZ = scene.matrix.worldOriginZ,
   })
 
+  -- The door tiles of this scene: every DOOR-kind (behavior 105) tile of
+  -- the permission cell, as local indices. Door ownership is precomputed
+  -- over exactly this list when the scene's MapProps is constructed --
+  -- ambiguity and missing coverage are diagnosed once at load, never per
+  -- lookup.
+  local doorTiles = DoorTiles.fromGrid(collision)
+
   bounds.center = {
     (bounds.min[1] + bounds.max[1]) / 2,
     (bounds.min[2] + bounds.max[2]) / 2,
@@ -464,7 +472,8 @@ local function buildScene(pool, cacheFs, scene, opts)
   runtime.setTimeBand = setTimeBand
   -- The door lookup: a MapProps facade over this scene's placements and
   -- instances resolves a field coordinate to the door of the building placed
-  -- there -- nothing Nitro leaks into gameplay.
+  -- there -- nothing Nitro leaks into gameplay. Ownership over the scene's
+  -- door tiles is precomputed here, once, from the nearest placement pivot.
   local placements = {}
   for _, inst in ipairs(scene.buildingInstances or {}) do
     placements[#placements + 1] = {
@@ -478,6 +487,7 @@ local function buildScene(pool, cacheFs, scene, opts)
     placements = placements,
     instances = instanceByPlacement,
     controller = runtime.animationController,
+    doorTiles = doorTiles,
   })
   runtime.stats = {
     meshCount = #pool.meshes,

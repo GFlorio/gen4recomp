@@ -12,6 +12,7 @@
 -- layer.
 
 local Assert = require("tests.support.Assert")
+local DoorTiles = require("libs.engine.src.DoorTiles")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldTransition = require("libs.engine.src.FieldTransition")
@@ -80,6 +81,7 @@ local function compileScene(romFs, symbol)
     placements = placements,
     instances = instances,
     controller = MapPropAnimationController.new(),
+    doorTiles = DoorTiles.fromGrid(map.permissions),
   })
   return { map = map, props = props, instances = instances }
 end

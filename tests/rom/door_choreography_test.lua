@@ -6,10 +6,13 @@
 -- door, script the player through the doorway, swap only at full black,
 -- egress from the transition anchor onto a normal floor tile, close the
 -- destination door, wait for the close, and unlock -- without coordinate
--- suppression, so pressing back toward the door re-arms immediately. Runs
--- against every ready dump through the ROM layer.
+-- suppression, so pressing back toward the door re-arms immediately. The
+-- door lookup runs against the precomputed ownership index (door tiles ->
+-- nearest-pivot placement) on the real dump. Runs against every ready dump
+-- through the ROM layer.
 
 local Assert = require("tests.support.Assert")
+local DoorTiles = require("libs.engine.src.DoorTiles")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldTransition = require("libs.engine.src.FieldTransition")
@@ -79,6 +82,7 @@ local function compileScene(romFs, symbol)
     placements = placements,
     instances = instances,
     controller = MapPropAnimationController.new(),
+    doorTiles = DoorTiles.fromGrid(map.permissions),
   })
   return { map = map, props = props, instances = instances }
 end

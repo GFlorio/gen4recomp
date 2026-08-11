@@ -3,9 +3,18 @@
 -- model at its tile (members 24/25/26, compiled animated with the
 -- door.open/door.close roles) and drives its animation to completion; Elm's
 -- Lab interior entrance (WARP_ENTRANCE_SOUTH, 101) and non-door warp tiles
--- resolve nil. Runs against every ready dump through the ROM layer.
+-- resolve nil. Ownership is precomputed at assembly: the scene's door tiles
+-- (the permission grid's DOOR-behavior tiles) resolve to the placement whose
+-- pivot is nearest the tile centre -- the predicate the real dump verifies
+-- (the door models are planar slabs whose AABB does not contain the tile
+-- centre), and resolution is an O(1) index lookup that never rescans
+-- placements. Runs against every ready dump through the ROM layer.
 
 local Assert = require("tests.support.Assert")
+local DoorTiles = require("libs.engine.src.DoorTiles")
+local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
+local FieldGrid = require("libs.engine.src.FieldGrid")
+local Matrix4 = require("libs.math.src.Matrix4")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local ModelInstance = require("libs.engine.src.ModelInstance")
@@ -14,6 +23,12 @@ local MapProps = require("libs.engine.src.MapProps")
 local RomRuntimeMap = require("tests.support.RomRuntimeMap")
 
 local T = {}
+
+-- World position of a field tile's centre on a runtime map.
+local function tileCenterWorld(map, x, z)
+  local lx, lz = FieldCoordinates.fieldToLocal(map, x, z)
+  return FieldGrid.tileCenterToWorld(lx, lz)
+end
 
 local TOWN_DOORS = {
   { x = 684, z = 393, destinationMapId = 61, modelMemberId = 26 },
@@ -50,8 +65,9 @@ end
 
 -- The scene's MapProps over the compiled bundle, mirroring MapSceneLoader:
 -- every placement whose model descriptor is animated becomes a ModelInstance,
--- and every placement carries the model-space AABB the strict door lookup
--- tests containment against.
+-- every placement carries the model-space AABB the loader stamps from the
+-- geometry, and the door tiles (the permission grid's DOOR-behavior tiles)
+-- are precomputed into the ownership index the loader builds at assembly.
 local function propsFor(romFs, symbol)
   local assets = assert(MapAssetCompiler.compile(romFs, symbol))
   local scene = assets.scene
@@ -75,6 +91,7 @@ local function propsFor(romFs, symbol)
     placements = placements,
     instances = instances,
     controller = MapPropAnimationController.new(),
+    doorTiles = DoorTiles.fromGrid(map.permissions),
   })
   return props, map, instances
 end
@@ -94,9 +111,43 @@ end
 
 function T.new_bark_town_doors_resolve_to_their_placed_models(romFs)
   local props, map = propsFor(romFs, "MAP_NEW_BARK")
+  -- The assembly enumerates exactly the four town door tiles (and no other
+  -- DOOR-behavior tile) from the real permission grid, as local cell
+  -- indices.
+  local enumerated = DoorTiles.fromGrid(map.permissions)
+  Assert.equal(#enumerated, #TOWN_DOORS)
   for _, expected in ipairs(TOWN_DOORS) do
+    local lx, lz = FieldCoordinates.fieldToLocal(map, expected.x, expected.z)
+    local found = false
+    for _, tile in ipairs(enumerated) do
+      if tile.x == lx and tile.z == lz then
+        found = true
+      end
+    end
+    Assert.isTrue(found, "town door tile (" .. expected.x .. "," .. expected.z .. ") is enumerated")
     doorAtMember(props, map, expected.x, expected.z, expected.modelMemberId, expected.destinationMapId)
   end
+end
+
+-- The ownership index is precomputed at assembly: appending a decoy
+-- placement whose pivot sits ON the door tile after construction must not
+-- change what the tile resolves to (doorAt is an O(1) index lookup, not a
+-- per-call scan that could re-resolve the tile to the decoy).
+function T.new_bark_town_door_resolution_is_precomputed_not_rescanned(romFs)
+  local props, map = propsFor(romFs, "MAP_NEW_BARK")
+  local x, z = 684, 393
+  local door = assert(props:doorAt(map, x, z))
+  Assert.isTrue(door.modelKey:find("outdoor:26:", 1, true) == 1, "the town door model")
+  local wx, wz = tileCenterWorld(map, x, z)
+  props.placements[#props.placements + 1] = {
+    placementIndex = 999,
+    modelKey = "fixture:decoy",
+    transform = Matrix4.translate(wx, 0, wz),
+    bounds = { minX = -1, maxX = 1, minY = -1, maxY = 1, minZ = -1, maxZ = 1 },
+  }
+  local again = assert(props:doorAt(map, x, z))
+  Assert.isTrue(again.modelKey:find("outdoor:26:", 1, true) == 1, "the index snapshot still resolves the town door")
+  Assert.equal(again.placementIndex, door.placementIndex)
 end
 
 function T.new_bark_lab_door_plays_to_completion(romFs)

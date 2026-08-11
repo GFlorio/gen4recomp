@@ -2,14 +2,22 @@
 -- scene's building placements resolves a field coordinate to the door of the
 -- building placed there -- field coordinate -> building placement ->
 -- ModelInstance -> semantic door animation -- without ever leaking NARC ids,
--- animation resource numbers, NSBCA, or animation-list slots. The lookup is
--- strict: the door resolves to the placement whose model footprint (its
--- model-space AABB under the placement transform) contains the door tile's
--- world centre; a tile contained by no placement resolves nothing, and a
--- tile contained by two placements raises. Only DOOR-kind (behavior 105)
--- warp tiles resolve; stairs, directional warps, and generic warps return
--- nil (their choreography is separate policy). Doors over static buildings
--- (no animated instance) resolve but animate nothing.
+-- animation resource numbers, NSBCA, or animation-list slots. Ownership is
+-- precomputed once when the scene is assembled: the assembly enumerates the
+-- door tiles (the DOOR-kind behavior-105 tiles of the permission grid) and
+-- resolves each to the placement whose pivot (transform translation) is
+-- NEAREST the tile centre -- the predicate verified against the real ROM,
+-- where door models are planar slabs whose AABB does not contain the tile
+-- centre (New Bark member 26: x[-0.3,0.0] z[0.0,0.0]) and an AABB test
+-- resolves the wrong static building. doorAt is then an O(1) index lookup:
+-- no placement scan, no matrix inversion, no epsilon on the hot path.
+-- Ambiguity (two placements tied for one door tile) and missing coverage (a
+-- door tile with no placement) are data failures diagnosed once at assembly,
+-- not per lookup. The index is authoritative: a tile it does not cover
+-- resolves nothing, and mutating the placement list after assembly changes
+-- nothing. Only DOOR-kind warp tiles resolve; stairs, directional warps, and
+-- generic warps return nil. Doors over static buildings (no animated
+-- instance) resolve but animate nothing. Pure domain module under test.
 
 local Assert = require("tests.support.Assert")
 local TilePermissions = require("tests.support.TilePermissions")
@@ -55,7 +63,9 @@ local function tileCenterWorld(x, z)
 end
 
 -- A placement record in the scene shape: transform + the model-space AABB
--- (footprint) the loader stamps from the model's geometry.
+-- (footprint) the loader stamps from the model's geometry. The precomputed
+-- ownership index resolves by pivot (transform translation), so bounds no
+-- longer participate in the door lookup.
 local function placement(index, modelKey, wx, wz, halfExtent)
   return {
     placementIndex = index,
@@ -76,7 +86,9 @@ end
 -- placed exactly at the door tile (4,14)'s centre; a larger building sits at
 -- the origin, far from the door tile. The door instance is animated
 -- (NitroModelFixture carries door.open/door.close); the building has no
--- animated instance (static).
+-- animated instance (static). `doorTiles` is what the scene assembly
+-- precomputes ownership over: the permission cell's DOOR-behavior tiles as
+-- local indices (0..31).
 local function doorScene()
   local wx, wz = tileCenterWorld(4, 14)
   local placements = {
@@ -91,6 +103,7 @@ local function doorScene()
     placements = placements,
     instances = instances,
     controller = controller,
+    doorTiles = { { x = 4, z = 14 } },
   })
   return props, controller, instances
 end
@@ -147,24 +160,77 @@ function T.door_at_returns_nil_outside_coverage()
   Assert.isNil(props:doorAt(map, 40, 40))
 end
 
-function T.door_at_uses_the_footprint_not_the_distance()
+-- The regression shape from the real ROM: the door model is a planar slab
+-- whose pivot sits near the door tile but whose footprint does NOT contain
+-- the tile centre, while a larger building's footprint contains it. The
+-- door tile belongs to the placement whose pivot is nearest; the AABB
+-- containment test resolves the wrong (static) building on New Bark.
+function T.door_at_resolves_the_placement_whose_pivot_is_nearest()
   local wx, wz = tileCenterWorld(4, 14)
-  -- The nearest placement (0.65 tiles away) has a tiny footprint that does
-  -- not reach the tile; the farther building's footprint contains it.
   local placements = {
     placement(0, "fixture:door", wx + 0.65, wz - 0.26, 0.5),
     placement(1, "fixture:building", wx - 2.5, wz + 2.5, 4),
   }
   local instances = {
-    [1] = ModelInstance.new(NitroModelFixture.doorDefinition()),
+    [0] = ModelInstance.new(NitroModelFixture.doorDefinition()),
   }
   local props = MapProps.new({
     placements = placements,
     instances = instances,
     controller = MapPropAnimationController.new(),
+    doorTiles = { { x = 4, z = 14 } },
   })
   local door = assert(props:doorAt(doorMap(), 4, 14))
-  Assert.equal(door.placementIndex, 1, "containment decides, not proximity")
+  Assert.equal(door.placementIndex, 0, "the nearest pivot decides, not containment")
+  Assert.equal(door.modelKey, "fixture:door")
+  Assert.equal(door.instance, instances[0])
+end
+
+function T.door_at_consults_only_the_precomputed_index()
+  local props = doorScene()
+  local first = assert(props:doorAt(doorMap(), 4, 14))
+  Assert.equal(first.placementIndex, 1)
+  -- Ownership is precomputed once at assembly: mutating the placement list
+  -- afterwards cannot change what the tile resolves to -- doorAt must not
+  -- rescan placements per lookup.
+  props.placements = { placement(0, "fixture:building", 0, 0, 4) }
+  local second = assert(props:doorAt(doorMap(), 4, 14), "the door still resolves from the precomputed index")
+  Assert.equal(second.placementIndex, 1, "the precomputed index decides, not a per-call scan")
+end
+
+function T.door_at_returns_nil_for_a_tile_the_index_does_not_cover()
+  -- The index is authoritative: a door warp whose tile the assembly did not
+  -- enumerate resolves nothing, even when a placement's footprint contains
+  -- it. The production assembly enumerates every door-behavior tile, so
+  -- this only fires on an assembly bug -- loudly nil, never a scanned
+  -- guess.
+  local wx, wz = tileCenterWorld(4, 14)
+  local props = MapProps.new({
+    placements = { placement(0, "fixture:door", wx, wz, 1) },
+    instances = {},
+    controller = MapPropAnimationController.new(),
+    doorTiles = { { x = 5, z = 5 } },
+  })
+  Assert.isNil(props:doorAt(doorMap(), 4, 14))
+end
+
+function T.door_at_resolves_a_static_placement_when_no_door_model_is_placed()
+  -- With the door model absent, the tile still resolves to its nearest
+  -- placement -- here the static building (nil instance, no-op playback).
+  -- The pivot predicate is total; the assembly diagnoses only a door tile
+  -- with no placement at all. HGSS's static interior doors resolve and
+  -- animate nothing the same way.
+  local props = MapProps.new({
+    placements = { placement(0, "fixture:building", 0, 0, 4) },
+    instances = {},
+    controller = MapPropAnimationController.new(),
+    doorTiles = { { x = 4, z = 14 } },
+  })
+  local door = assert(props:doorAt(doorMap(), 4, 14), "the nearest placement resolves")
+  Assert.equal(door.placementIndex, 0)
+  Assert.equal(door.modelKey, "fixture:building")
+  Assert.isNil(door.instance)
+  Assert.isNil(door:isFinished())
 end
 
 function T.door_at_resolves_a_static_door_when_no_animated_model_is_placed()
@@ -177,27 +243,79 @@ function T.door_at_resolves_a_static_door_when_no_animated_model_is_placed()
   Assert.isNil(door:isFinished())
 end
 
-function T.door_at_returns_nil_without_a_containing_placement()
-  local props = doorScene()
-  -- Remove the door placement entirely: the distant static building is NOT
-  -- the door, and the lookup must not silently animate it.
-  props.placements = { placement(0, "fixture:building", 0, 0, 4) }
-  props.instances = {}
-  Assert.isNil(props:doorAt(doorMap(), 4, 14), "no footprint contains the door tile")
+function T.door_at_finish_state_does_not_depend_on_handle_identity()
+  local props, _, instances = doorScene()
+  local door = assert(props:doorAt(doorMap(), 4, 14))
+  door:open()
+  for _ = 1, 7 do
+    instances[1]:updateFixed()
+  end
+  -- The tile's door state is not private to the handle that played it: a
+  -- fresh resolution of the same tile observes the finished open. The
+  -- currentRole-on-a-disposable-handle design reports nil here.
+  local fresh = assert(props:doorAt(doorMap(), 4, 14))
+  Assert.isTrue(fresh:isFinished(), "a freshly resolved handle sees the finished role")
 end
 
-function T.door_at_raises_when_two_placements_contain_the_tile()
+function T.assembly_raises_when_two_placements_own_the_same_door_tile()
   local wx, wz = tileCenterWorld(4, 14)
-  local props = MapProps.new({
-    placements = {
-      placement(0, "fixture:door", wx, wz, 1),
-      placement(1, "fixture:door2", wx, wz, 1),
-    },
-    instances = {},
-    controller = MapPropAnimationController.new(),
-  })
   throwsCode("MAP_PROP_AMBIGUOUS_DOOR", function()
-    return props:doorAt(doorMap(), 4, 14)
+    return MapProps.new({
+      placements = {
+        placement(0, "fixture:door", wx, wz, 1),
+        placement(1, "fixture:door2", wx, wz, 1),
+      },
+      instances = {},
+      controller = MapPropAnimationController.new(),
+      doorTiles = { { x = 4, z = 14 } },
+    })
+  end)
+end
+
+function T.assembly_raises_when_two_placements_tie_for_a_door_tile()
+  local wx, wz = tileCenterWorld(4, 14)
+  -- Two placements equidistant from the door tile (here: the same pivot)
+  -- are ambiguous regardless of their footprints: a pivot tie is diagnosed
+  -- once at assembly, not at the first lookup.
+  local slab = {
+    minX = -0.3,
+    maxX = 0,
+    minY = -0.3,
+    maxY = 0.3,
+    minZ = 0,
+    maxZ = 0,
+  }
+  local function door(index, key)
+    return {
+      placementIndex = index,
+      modelKey = key,
+      transform = Matrix4.translate(wx, 0, wz),
+      bounds = slab,
+    }
+  end
+  throwsCode("MAP_PROP_AMBIGUOUS_DOOR", function()
+    return MapProps.new({
+      placements = { door(0, "fixture:door"), door(1, "fixture:door2") },
+      instances = {},
+      controller = MapPropAnimationController.new(),
+      doorTiles = { { x = 4, z = 14 } },
+    })
+  end)
+end
+
+function T.assembly_raises_when_a_door_tile_has_no_placement()
+  -- Missing coverage is a data failure diagnosed once at assembly: a door
+  -- tile the scene assembles with no building placement must not silently
+  -- resolve nothing at transition time. (Corpus check: every real map with
+  -- door tiles places at least one building, so the raise never fires on
+  -- real data.)
+  throwsCode("MAP_PROP_UNCOVERED_DOOR", function()
+    return MapProps.new({
+      placements = {},
+      instances = {},
+      controller = MapPropAnimationController.new(),
+      doorTiles = { { x = 4, z = 14 } },
+    })
   end)
 end
 
@@ -348,6 +466,18 @@ function T.prop_raises_for_an_unknown_animation()
   throwsCode("MAP_PROP_ANIM_UNKNOWN", function()
     prop:play("no.such.animation")
   end)
+end
+
+function T.prop_resolves_from_the_precomputed_index()
+  local props = doorScene()
+  local prop = assert(props:prop(1))
+  Assert.equal(prop.placementIndex, 1)
+  -- The placement index is precomputed at assembly like the door index:
+  -- prop() must not rescan the placement list per call.
+  props.placements = { placement(0, "fixture:building", 0, 0, 4) }
+  local again = assert(props:prop(1), "the placement index decides, not a per-call scan")
+  Assert.equal(again.placementIndex, 1)
+  Assert.equal(again.modelKey, "fixture:door")
 end
 
 return T
