@@ -116,11 +116,15 @@ end
 ---@param reason string
 ---@return table
 local function unsupportedStep(ins, reason)
+  local arguments = {}
+  for index, operand in ipairs(ins.operands) do
+    arguments[index] = operandValue(operand)
+  end
   return {
     op = "unsupported",
     command = ins.opcode,
     originalName = CommandCatalog.name(ins.opcode),
-    arguments = {},
+    arguments = arguments,
     sourceOffset = ins.offset,
     reason = reason,
   }

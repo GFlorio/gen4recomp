@@ -317,4 +317,68 @@ T["emitted steps keep provenance"] = function()
   end
 end
 
+-- 11. Catalogued-but-unimplemented field-menu commands must remain explicit
+-- unsupported nodes and retain every raw operand for later semantic work.
+T["field menu unsupported nodes retain operands"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          { op = 746, args = {} },
+          { op = 747, args = {} },
+          { op = 748, args = { { value = 0x4001, width = 2 } } },
+          {
+            op = 749,
+            args = {
+              { value = 17, width = 1 },
+              { value = 5, width = 1 },
+              { value = 2, width = 1 },
+              { value = 1, width = 1 },
+              { value = 0x4002, width = 2 },
+            },
+          },
+          {
+            op = 750,
+            args = {
+              { value = 9, width = 1 },
+              { value = 8, width = 1 },
+              { value = 7, width = 1 },
+              { value = 0, width = 1 },
+              { value = 0x4003, width = 2 },
+            },
+          },
+          {
+            op = 751,
+            args = {
+              { value = 0x4004, width = 2 },
+              { value = 0x00FF, width = 2 },
+              { value = 0x8005, width = 2 },
+            },
+          },
+          { op = 752, args = {} },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 5, "synthetic", { msgBank = 543, catalog = CATALOG }))
+  local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+  Assert.equal(#lowered.unsupported, 7)
+  local expectedArguments = {
+    {},
+    {},
+    { "VAR_0x4001" },
+    { 17, 5, 2, 1, "VAR_0x4002" },
+    { 9, 8, 7, 0, "VAR_0x4003" },
+    { "VAR_0x4004", 0x00FF, "VAR_0x8005" },
+    {},
+  }
+  for index, arguments in ipairs(expectedArguments) do
+    local step = lowered.unsupported[index]
+    Assert.equal(step.command, 745 + index)
+    Assert.deepEqual(step.arguments, arguments)
+  end
+end
+
 return T

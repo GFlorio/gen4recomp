@@ -242,4 +242,75 @@ T["truncated instructions record a note"] = function()
   Assert.equal(note.opcode, 73)
 end
 
+-- 8. The field-menu command family has fixed, source-faithful operand
+-- layouts. These widths are the binary compatibility contract; semantic
+-- interpretation is deliberately deferred to the menu runtime work.
+T["field menu commands decode every operand"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          { op = 746, args = {} },
+          { op = 747, args = {} },
+          { op = 748, args = { { value = 0x4001, width = 2 } } },
+          {
+            op = 749,
+            args = {
+              { value = 17, width = 1 },
+              { value = 5, width = 1 },
+              { value = 2, width = 1 },
+              { value = 1, width = 1 },
+              { value = 0x4002, width = 2 },
+            },
+          },
+          {
+            op = 750,
+            args = {
+              { value = 9, width = 1 },
+              { value = 8, width = 1 },
+              { value = 7, width = 1 },
+              { value = 0, width = 1 },
+              { value = 0x4003, width = 2 },
+            },
+          },
+          {
+            op = 751,
+            args = {
+              { value = 0x4004, width = 2 },
+              { value = 0x00FF, width = 2 },
+              { value = 0x8005, width = 2 },
+            },
+          },
+          { op = 752, args = {} },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local member = decode(bytes, 5)
+  local instructions = member.scripts[0].instructions
+  local expected = {
+    { opcode = 746, name = "ScrCmd_TouchscreenMenuHide", widths = {} },
+    { opcode = 747, name = "ScrCmd_TouchscreenMenuShow", widths = {} },
+    { opcode = 748, name = "ScrCmd_GetMenuChoice", widths = { 2 } },
+    { opcode = 749, name = "ScrCmd_MenuInitStdGmm", widths = { 1, 1, 1, 1, 2 } },
+    { opcode = 750, name = "ScrCmd_MenuInit", widths = { 1, 1, 1, 1, 2 } },
+    { opcode = 751, name = "ScrCmd_MenuItemAdd", widths = { 2, 2, 2 } },
+    { opcode = 752, name = "ScrCmd_MenuExec", widths = {} },
+  }
+  for index, contract in ipairs(expected) do
+    local instruction = instructions[index]
+    Assert.equal(instruction.opcode, contract.opcode)
+    Assert.equal(instruction.name, contract.name)
+    Assert.equal(#instruction.operands, #contract.widths)
+    for operandIndex, width in ipairs(contract.widths) do
+      Assert.equal(instruction.operands[operandIndex].width, width)
+    end
+  end
+  Assert.equal(instructions[3].operands[1].raw, "VAR_0x4001")
+  Assert.equal(instructions[4].operands[5].raw, "VAR_0x4002")
+  Assert.equal(instructions[6].operands[3].raw, "VAR_0x8005")
+end
+
 return T
