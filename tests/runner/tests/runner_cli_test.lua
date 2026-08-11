@@ -9,6 +9,9 @@
 --   * a run that *requires* a dump (--layer rom, --layer acceptance, strict
 --     mode, --rom-source) is an infrastructure failure when it is absent, never
 --     a skip-success;
+--   * strict graphics mode (G4RECOMP_REQUIRE_GRAPHICS_TESTS) requires the
+--     graphics capability when the selection includes the graphics layer, and
+--     fails a whole-run selection that executed no graphics test;
 --   * a failure in any layer, and a run that executed nothing at all, are
 --     nonzero.
 
@@ -247,6 +250,101 @@ function T.selected_rom_gated_layer_without_a_dump_fails()
     Assert.notNil(outcome.failure, "--layer " .. layer .. " without a dump needs an actionable message")
     Assert.isNil(outcome.warning, "a required capability reports a failure, not an optional-skip warning")
   end
+end
+
+-- Strict graphics mode is environment-driven, mirrors the ROM strictness, and
+-- makes the graphics capability mandatory for a selection that includes the
+-- graphics layer.
+function T.graphics_strict_mode_comes_from_the_environment()
+  local strict = parse({}, { env = { G4RECOMP_REQUIRE_GRAPHICS_TESTS = "1" } })
+  Assert.isTrue(strict.graphicsStrict, "strict graphics mode must be recorded in the plan")
+  Assert.isTrue(hasCapability(strict, "graphics"), "strict graphics mode must require the graphics capability")
+
+  local relaxed = parse({}, { env = { G4RECOMP_REQUIRE_GRAPHICS_TESTS = "0" } })
+  Assert.isFalse(relaxed.graphicsStrict)
+  Assert.isFalse(parse({}, { env = {} }).graphicsStrict)
+end
+
+-- Strict graphics mode turns an absent graphics capability into an actionable
+-- failure instead of a green run of skips.
+function T.graphics_strict_mode_without_the_capability_fails()
+  local plan = parse({}, { env = { G4RECOMP_REQUIRE_GRAPHICS_TESTS = "1" } })
+  local run = runOf({ unit = { passed = 1194 }, graphics = { skipped = 45 } })
+
+  local outcome = Cli.outcome(plan, NO_DUMP, run)
+
+  Assert.isTrue(outcome.exitCode ~= 0, "strict graphics mode must not exit zero when the graphics layer was skipped")
+  Assert.notNil(outcome.failure, "strict graphics mode needs an actionable message")
+  contains(outcome.failure, "graphics", "strict graphics failure names the missing capability")
+end
+
+-- The execution counter: with the capability available, a whole-run selection
+-- that produced no executed graphics test (every graphics test skipped) is a
+-- failure under strict mode -- a regression that silently drops the renderer
+-- suites must not keep CI green.
+function T.graphics_strict_mode_fails_when_every_graphics_test_skipped()
+  local plan = parse({}, { env = { G4RECOMP_REQUIRE_GRAPHICS_TESTS = "1" } })
+  local run = runOf({ unit = { passed = 1194 }, graphics = { skipped = 45 } })
+
+  local outcome = Cli.outcome(plan, { graphics = true }, run)
+
+  Assert.isTrue(outcome.exitCode ~= 0, "strict graphics mode must not exit zero when every graphics test skipped")
+  Assert.notNil(outcome.failure, "strict graphics mode needs an actionable message")
+  contains(outcome.failure, "no graphics test was executed", "strict failure names the missing execution")
+end
+
+-- The same counter when the graphics layer produced no results at all -- the
+-- layer exists in the selection but discovered or selected nothing.
+function T.graphics_strict_mode_fails_when_the_graphics_layer_executed_nothing()
+  local plan = parse({}, { env = { G4RECOMP_REQUIRE_GRAPHICS_TESTS = "1" } })
+  local run = runOf({ unit = { passed = 1194 } })
+
+  local outcome = Cli.outcome(plan, { graphics = true }, run)
+
+  Assert.isTrue(
+    outcome.exitCode ~= 0,
+    "a selection with no graphics results at all must fail under strict graphics mode"
+  )
+  Assert.notNil(outcome.failure)
+  contains(outcome.failure, "no graphics test was executed", "strict failure names the missing execution")
+end
+
+-- Executed graphics tests satisfy the strict requirement whatever else runs.
+function T.graphics_strict_run_with_executed_graphics_tests_stays_green()
+  local plan = parse({}, { env = { G4RECOMP_REQUIRE_GRAPHICS_TESTS = "1" } })
+  local run = runOf({ unit = { passed = 1194 }, graphics = { passed = 45 } })
+
+  local outcome = Cli.outcome(plan, { graphics = true }, run)
+
+  Assert.equal(outcome.exitCode, 0, "executed graphics tests satisfy the strict requirement")
+  Assert.isNil(outcome.failure)
+end
+
+-- Strict graphics mode is scoped to selections that include the graphics layer:
+-- a `--layer unit` partial run and `--list` never trip it.
+function T.graphics_strictness_does_not_trip_partial_runs_or_listing()
+  local unitPlan = parse({ "--layer", "unit" }, { env = { G4RECOMP_REQUIRE_GRAPHICS_TESTS = "1" } })
+  Assert.isFalse(hasCapability(unitPlan, "graphics"), "a unit-only selection must not require the graphics capability")
+
+  local unitOutcome = Cli.outcome(unitPlan, NO_DUMP, runOf({ unit = { passed = 1194 } }))
+  Assert.equal(unitOutcome.exitCode, 0, "a unit-only partial run must stay green under strict graphics mode")
+  Assert.isNil(unitOutcome.failure)
+
+  local listing = parse({ "--list" }, { env = { G4RECOMP_REQUIRE_GRAPHICS_TESTS = "1" } })
+  Assert.isTrue(listing.list, "--list still parses under strict graphics mode")
+end
+
+-- An explicit filter is a narrowing the user asked for: it never triggers the
+-- execution counter (the generic empty-run failure still guards a filter that
+-- matches nothing at all).
+function T.graphics_strict_mode_respects_an_explicit_filter()
+  local plan = parse({ "--filter", "warp" }, { env = { G4RECOMP_REQUIRE_GRAPHICS_TESTS = "1" } })
+  local run = runOf({ unit = { passed = 1194 } })
+
+  local outcome = Cli.outcome(plan, { graphics = true }, run)
+
+  Assert.equal(outcome.exitCode, 0, "a filter that narrows away from the graphics layer is an explicit selection")
+  Assert.isNil(outcome.failure)
 end
 
 -- The exit status is combined across layers -- a failure anywhere is a

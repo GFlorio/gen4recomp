@@ -23,6 +23,11 @@ source scripts/lib.sh
 export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-offscreen}"
 export LIBGL_ALWAYS_SOFTWARE="${LIBGL_ALWAYS_SOFTWARE:-1}"
 
+# The graphics layer is part of the required surface, so a whole-run selection
+# that executes no graphics test fails instead of passing silently. Callers
+# may still override it for diagnosis, like the SDL variables above.
+export G4RECOMP_REQUIRE_GRAPHICS_TESTS="${G4RECOMP_REQUIRE_GRAPHICS_TESTS:-1}"
+
 # `love romdump/ --build-cache` exits 2 with "no ready dump" when there is
 # nothing to prepare; any other nonzero status is a real preparation failure.
 NO_DUMP_STATUS=2

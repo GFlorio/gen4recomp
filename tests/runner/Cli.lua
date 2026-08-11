@@ -1,12 +1,13 @@
 -- Pure command surface of the single test entrypoint: argument parsing, the
--- capabilities a selection makes mandatory, the combined exit status, and the
--- loud missing-ROM warning. It holds no state and touches
--- neither love nor the filesystem beyond the injected readability probe, so the
--- whole policy is unit testable.
+-- capabilities a selection makes mandatory, the combined exit status, the
+-- loud missing-ROM warning, and the strict graphics execution guarantee. It
+-- holds no state and touches neither love nor the filesystem beyond the
+-- injected readability probe, so the whole policy is unit testable.
 --
--- Exit codes: 2 usage, 1 failures or an unavailable required capability, 0
--- green. A missing *optional* capability warns and stays green; a run that
--- executed nothing at all never does.
+-- Exit codes: 2 usage, 1 failures, an unavailable required capability, or a
+-- strict selection that executed no graphics test, 0 green. A missing
+-- *optional* capability warns and stays green; a run that executed nothing at
+-- all never does.
 
 local Cli = {}
 
@@ -21,6 +22,7 @@ local ROM_GATED = { rom = true, acceptance = true }
 local ROM_CAPABILITIES = { "rom_dump", "derived_cache" }
 
 local STRICT_ENV = "G4RECOMP_REQUIRE_ROM_TESTS"
+local GRAPHICS_STRICT_ENV = "G4RECOMP_REQUIRE_GRAPHICS_TESTS"
 
 local BUILD_COMMAND = "scripts/buildcache.sh /path/to/rom.nds"
 local STRICT_COMMAND = STRICT_ENV .. "=1 scripts/test.sh"
@@ -63,6 +65,7 @@ end
 ---@field filter string|nil
 ---@field romSource string|nil
 ---@field strict boolean
+---@field graphicsStrict boolean
 ---@field requiredCapabilities string[]
 
 -- Parses the LÖVE argv. `--test` is accepted and ignored so the raw argv can be
@@ -77,7 +80,12 @@ function Cli.parse(argv, context)
   local env = context.env or {}
   local fileExists = context.fileExists or realFileExists
 
-  local plan = { list = false, strict = env[STRICT_ENV] == "1", requiredCapabilities = {} }
+  local plan = {
+    list = false,
+    strict = env[STRICT_ENV] == "1",
+    graphicsStrict = env[GRAPHICS_STRICT_ENV] == "1",
+    requiredCapabilities = {},
+  }
 
   local index = 1
   while index <= #(argv or {}) do
@@ -126,6 +134,9 @@ function Cli.parse(argv, context)
       plan.requiredCapabilities[#plan.requiredCapabilities + 1] = capability
     end
   end
+  if plan.graphicsStrict and (plan.layer == nil or plan.layer == "graphics") then
+    plan.requiredCapabilities[#plan.requiredCapabilities + 1] = "graphics"
+  end
   if plan.romSource ~= nil then
     plan.requiredCapabilities[#plan.requiredCapabilities + 1] = "rom_source"
   end
@@ -149,6 +160,18 @@ local function skippedIn(run, layer)
 end
 
 local RULE = string.rep("=", 80)
+
+-- A human-readable name for the selection a run was asked to execute, used by
+-- the empty-run and empty-graphics-run failures.
+local function selectionLabel(plan)
+  if plan.filter ~= nil then
+    return "filter '" .. plan.filter .. "'"
+  end
+  if plan.layer ~= nil then
+    return "layer '" .. plan.layer .. "'"
+  end
+  return "the current selection"
+end
 
 local function warningBanner(run)
   return table.concat({
@@ -190,6 +213,22 @@ function Cli.outcome(plan, capabilities, run)
     }
   end
 
+  -- Strict graphics mode requires the graphics layer to actually have run, not
+  -- merely be available: a selection that reaches no graphics suite (suites
+  -- dropped, discovery broken) or runs only skips is a regression that must
+  -- fail. A filter is an explicit narrowing and disables the counter; the
+  -- generic empty-run failure below still guards a filter that matched
+  -- nothing at all. Partial-layer selections never reach the counter.
+  if plan.graphicsStrict and (plan.layer == nil or plan.layer == "graphics") and plan.filter == nil then
+    local graphics = run.byLayer.graphics
+    if graphics == nil or graphics.passed + graphics.failed == 0 then
+      return {
+        exitCode = 1,
+        failure = "no graphics test was executed: " .. selectionLabel(plan) .. " matched nothing",
+      }
+    end
+  end
+
   -- Only when a ROM-gated layer actually skipped for the absent dump: a
   -- selection that never reached those layers has nothing to warn about, and a
   -- skip under a ready dump has some other cause than the one named here.
@@ -203,9 +242,11 @@ function Cli.outcome(plan, capabilities, run)
   end
 
   if run.passed == 0 then
-    local selection = plan.filter ~= nil and ("filter '" .. plan.filter .. "'")
-      or (plan.layer ~= nil and ("layer '" .. plan.layer .. "'") or "the current selection")
-    return { exitCode = 1, failure = "no test was executed: " .. selection .. " matched nothing", warning = warning }
+    return {
+      exitCode = 1,
+      failure = "no test was executed: " .. selectionLabel(plan) .. " matched nothing",
+      warning = warning,
+    }
   end
 
   return { exitCode = 0, warning = warning }
