@@ -66,4 +66,26 @@ function T.keeps_the_supplied_topology_when_the_host_resizes()
   Assert.equal(host:presentation().layout.surface.id, "auxiliary")
 end
 
+function T.routes_the_touch_cancel_affordance_to_the_menu()
+  local host = FieldMenuHost.new({ width = 256, height = 192, input = FieldInput.new() })
+  host:sync({
+    menuDefinition = {
+      items = { { text = { text = "Take" }, value = 10 } },
+      cancellable = true,
+    },
+    selectedIndex = 0,
+  }, 100)
+
+  local cancel = assert(host:presentation().layout.cancelRect)
+  local events = host:inputEvents({
+    {
+      type = "pointer_down",
+      x = cancel.x + cancel.width / 2,
+      y = cancel.y + cancel.height / 2,
+    },
+  })
+
+  Assert.equal(events[1].type, "cancel")
+end
+
 return T

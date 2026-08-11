@@ -62,7 +62,6 @@ function MenuTask.create(spec, ctx)
   return {
     menuDefinition = spec.menu,
     selectedIndex = status.selectedIndex,
-    scrollPosition = 0,
     pressedPointerItem = nil,
     closed = false,
   }
@@ -90,7 +89,11 @@ local function applyEvent(controller, state, event)
       type(delta) == "number" and delta == delta and delta ~= math.huge and delta ~= -math.huge,
       "menu scroll delta is invalid"
     )
-    state.scrollPosition = math.max(0, state.scrollPosition + delta)
+    if delta > 0 then
+      controller:move("up")
+    elseif delta < 0 then
+      controller:move("down")
+    end
   else
     assert(false, "unknown menu input event " .. event.type)
   end
@@ -137,15 +140,6 @@ function MenuTask.validate(state)
   end
   if type(state.selectedIndex) ~= "number" or state.selectedIndex % 1 ~= 0 or state.selectedIndex < 0 then
     return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "menu task selected index is invalid", {})
-  end
-  if
-    type(state.scrollPosition) ~= "number"
-    or state.scrollPosition ~= state.scrollPosition
-    or state.scrollPosition == math.huge
-    or state.scrollPosition == -math.huge
-    or state.scrollPosition < 0
-  then
-    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "menu task scroll position is invalid", {})
   end
   if
     state.pressedPointerItem ~= nil

@@ -163,7 +163,11 @@ function FieldMenuHost:inputEvents(events)
     if event.type == "pointer_move" then
       translated[#translated + 1] = { type = "pointer_move", itemIndex = itemAt(layout, event.x, event.y) }
     elseif event.type == "pointer_down" then
-      translated[#translated + 1] = { type = "pointer_down", itemIndex = itemAt(layout, event.x, event.y) }
+      if layout.cancelRect and contains(layout.cancelRect, event.x, event.y) then
+        translated[#translated + 1] = { type = "cancel" }
+      else
+        translated[#translated + 1] = { type = "pointer_down", itemIndex = itemAt(layout, event.x, event.y) }
+      end
     elseif event.type == "pointer_up" then
       translated[#translated + 1] = {
         type = "pointer_up",

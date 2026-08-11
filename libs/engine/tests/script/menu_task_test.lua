@@ -25,7 +25,6 @@ end
 function RecordingMenuHost:sync(state)
   self.syncs[#self.syncs + 1] = {
     selectedIndex = state.selectedIndex,
-    scrollPosition = state.scrollPosition,
     pressedPointerItem = state.pressedPointerItem,
   }
 end
@@ -226,6 +225,15 @@ function T.menu_task_blocks_until_normalized_confirmation_then_resumes_the_scrip
   Assert.equal(h.services.world:getVar("VAR_RESULT"), 99)
 end
 
+function T.menu_scroll_moves_the_selected_row_through_the_existing_layout_path()
+  local h = harness()
+  start(h, 100)
+  h.scheduler:step(100, {})
+  h.scheduler:step(101, { menuEvents = { { type = "scroll", deltaY = -1 } } })
+
+  Assert.equal(h.host.syncs[#h.host.syncs].selectedIndex, 1)
+end
+
 function T.menu_task_restores_its_logical_selection_without_serializing_presentation_state()
   local h = harness()
   start(h, 100)
@@ -234,7 +242,6 @@ function T.menu_task_restores_its_logical_selection_without_serializing_presenta
   local bucket = ScriptSave.capture(h.scheduler, 101, { registryFingerprint = h.registry:fingerprint() })
   local state = bucket.tasks[1].state
   Assert.equal(state.selectedIndex, 1)
-  Assert.equal(state.scrollPosition, 0)
   Assert.equal(state.pressedPointerItem, nil)
 
   local h2 = harness()
@@ -256,16 +263,12 @@ function T.cancelling_the_blocked_script_releases_the_menu_once()
   Assert.equal(#h.scheduler:tasks(), 0)
 end
 
-function T.menu_task_rejects_non_finite_or_out_of_range_saved_logical_state()
+function T.menu_task_rejects_out_of_range_saved_logical_state()
   local state = MenuTask.create(
     { menu = TestRaw.startMenu().state.menu },
     { services = { menu = RecordingMenuHost.new() } }
   )
-  state.scrollPosition = math.huge
-  local err = MenuTask.validate(state)
-  Assert.equal(err.code, "SCRIPT_TASK_UNSERIALIZABLE")
-
-  state.scrollPosition = 0
+  local err
   state.selectedIndex = 2
   err = MenuTask.validate(state)
   Assert.equal(err.code, "SCRIPT_TASK_UNSERIALIZABLE")
