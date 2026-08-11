@@ -73,6 +73,7 @@ function Scheduler.new(opts)
     _endedInstances = {},
     _tasks = {},
     _tasksById = {},
+    _deferredFaults = {},
     _nextEnvironmentId = 0,
     _nextInstanceId = 0,
     _nextTaskId = 0,
@@ -432,7 +433,10 @@ end
 -- Poll every active task at most once per tick, in deterministic creation
 -- order. A completing task marks its owner
 -- `resume_pending` with `readyAtTick = tick + 1`; graph continuation never
--- happens in the completion tick.
+-- happens in the completion tick. A raising poll or onComplete callback is
+-- contained by the task-callback boundary: the failure is recorded and the
+-- owner fault is applied after the loop, so cancelling the broken task never
+-- mutates the task array mid-iteration.
 function Scheduler:_pollTasks(tick)
   for _, task in ipairs(self._tasks) do
     if task:isPollEligible(tick) then
@@ -444,47 +448,118 @@ function Scheduler:_pollTasks(tick)
       task.lastPolledTick = tick
       local ctx = self:_ctxFor(owner, environment, tick, self._currentInput)
       ctx.taskId = task.taskId
-      local result = impl.poll(task.state, ctx)
-
-      task.state = result.state
-      self:_trace("task_polled", {
-        taskId = task.taskId,
-        taskType = task.taskType,
-        instanceId = owner.instanceId,
-        complete = result.complete == true,
-      })
-      if result.complete then
-        task:complete(tick, result.result)
-        if impl.onComplete then
-          impl.onComplete(task.state, ctx)
-        end
-        self:_emit("script.task_ended", {
-          taskId = task.taskId,
-          taskType = task.taskType,
-          instanceId = owner.instanceId,
-          completedAtTick = tick,
-          result = result.result,
-        })
-        local termination = type(result.result) == "table" and result.result.termination or nil
-        if termination == "faulted" then
-          -- A common child fault propagates to its blocked parent through the
-          -- child_script task : the parent faults with the
-          -- child's attributed error.
-          self:_faultInstance(
-            owner,
-            tick,
-            result.result.error
-              or Errors.new(ScriptErrors.SCRIPT_CALLER_SIGNAL_INVALID, "common child faulted", {
-                scriptId = owner.scriptId,
-                instanceId = owner.instanceId,
-              })
-          )
-        else
-          owner.status = "resume_pending"
-          owner.readyAtTick = tick + 1
-          owner.taskResult = result.result
-        end
+      local ok, result = pcall(impl.poll, task.state, ctx)
+      if not ok then
+        self:_deferTaskFault("poll", task, ctx, result)
+      else
+        self:_handlePollResult(task, impl, owner, ctx, result, tick)
       end
+    end
+  end
+  self:_applyDeferredFaults()
+end
+
+-- Apply one successful poll outcome: record the state, trace, and on
+-- completion mark the task, run its onComplete callback inside the boundary,
+-- and hand the result to the owner.
+function Scheduler:_handlePollResult(task, impl, owner, ctx, result, tick)
+  task.state = result.state
+  self:_trace("task_polled", {
+    taskId = task.taskId,
+    taskType = task.taskType,
+    instanceId = owner.instanceId,
+    complete = result.complete == true,
+  })
+  if result.complete then
+    task:complete(tick, result.result)
+    if impl.onComplete then
+      local ok, completeErr = pcall(impl.onComplete, task.state, ctx)
+      if not ok then
+        self:_deferTaskFault("onComplete", task, ctx, completeErr)
+        return
+      end
+    end
+    self:_emit("script.task_ended", {
+      taskId = task.taskId,
+      taskType = task.taskType,
+      instanceId = owner.instanceId,
+      completedAtTick = tick,
+      result = result.result,
+    })
+    local termination = type(result.result) == "table" and result.result.termination or nil
+    if termination == "faulted" then
+      -- A common child fault propagates to its blocked parent through the
+      -- child_script task : the parent faults with the
+      -- child's attributed error.
+      self:_faultInstance(
+        owner,
+        tick,
+        result.result.error
+          or Errors.new(ScriptErrors.SCRIPT_CALLER_SIGNAL_INVALID, "common child faulted", {
+            scriptId = owner.scriptId,
+            instanceId = owner.instanceId,
+          })
+      )
+    else
+      owner.status = "resume_pending"
+      owner.readyAtTick = tick + 1
+      owner.taskResult = result.result
+    end
+  end
+end
+
+-- One task-callback fault boundary: turn a callback raise into an owner
+-- fault. A structured error is attributed as-is; anything else is wrapped
+-- with the task type, task id, script id, and instance id. The fault is
+-- deferred until the caller's iteration of the task array finishes.
+---@param kind string
+---@param task ScriptTask
+---@param ctx table
+---@param err any
+function Scheduler:_deferTaskFault(kind, task, ctx, err)
+  local fault
+  if Errors.is(err) then
+    fault = err
+  else
+    fault = Errors.new(
+      ScriptErrors.SCRIPT_TASK_CALLBACK_FAULT,
+      string.format("task %s callback raised: %s", kind, tostring(err)),
+      {
+        taskType = task.taskType,
+        taskId = task.taskId,
+        scriptId = ctx.instance.scriptId,
+        instanceId = ctx.instance.instanceId,
+      }
+    )
+  end
+  self._deferredFaults[#self._deferredFaults + 1] = {
+    kind = kind,
+    task = task,
+    instance = ctx.instance,
+    fault = fault,
+  }
+  self:_trace("task_faulted", {
+    taskId = task.taskId,
+    taskType = task.taskType,
+    instanceId = ctx.instance.instanceId,
+    kind = kind,
+    code = fault.code,
+  })
+end
+
+-- Apply deferred task-callback faults after the poll loop finished: cancel
+-- each broken task record deterministically (its own cancel callback is
+-- contained), then fault the owner if it has not already ended.
+function Scheduler:_applyDeferredFaults()
+  local pending = self._deferredFaults
+  self._deferredFaults = {}
+  for _, record in ipairs(pending) do
+    if record.task ~= nil then
+      self:_cancelTaskState(record.task, record.kind .. " callback faulted")
+    end
+    local instance = record.instance
+    if instance.status ~= "completed" and instance.status ~= "faulted" and instance.status ~= "cancelled" then
+      self:_faultInstance(instance, self._currentTick or 0, record.fault)
     end
   end
 end
@@ -711,6 +786,9 @@ end
 ---@param tick integer
 ---@param error Errors.Error
 function Scheduler:_faultInstance(instance, tick, error)
+  if instance.status == "completed" or instance.status == "faulted" or instance.status == "cancelled" then
+    return
+  end
   instance.status = "faulted"
   instance.endReason = error.code
   instance:clearInstanceState()
@@ -762,12 +840,18 @@ end
 
 -- Cancel a task: invoke the implementation's own `cancel(state, reason, ctx)`
 -- cleanup (implementations own engine resources such as an open dialogue
--- window), mark the record cancelled, and drop it from the live task sets
--- (cancelled tasks are never referenced again).
+-- window) inside the task-callback boundary, mark the record cancelled, and
+-- drop it from the live task sets (cancelled tasks are never referenced
+-- again). A cancel raise is contained -- the record is still cancelled and
+-- removed -- and returned so the caller can fault the owning instance.
+---@param task ScriptTask
+---@param reason string
+---@return any|nil
 function Scheduler:_cancelTaskState(task, reason)
   if task.status == "cancelled" then
-    return
+    return nil
   end
+  local containedErr
   local impl = self._taskRegistry:resolve(task.taskType, task.taskVersion)
   if impl ~= nil and impl.cancel ~= nil then
     local owner = self._instances[task.ownerInstanceId]
@@ -777,7 +861,10 @@ function Scheduler:_cancelTaskState(task, reason)
       ctx = self:_ctxFor(owner, environment, self._currentTick or 0, self._currentInput)
       ctx.taskId = task.taskId
     end
-    impl.cancel(task.state, reason, ctx)
+    local ok, err = pcall(impl.cancel, task.state, reason, ctx)
+    if not ok then
+      containedErr = err
+    end
   end
   task:cancel(reason)
   for i = #self._tasks, 1, -1 do
@@ -787,6 +874,25 @@ function Scheduler:_cancelTaskState(task, reason)
     end
   end
   self._tasksById[task.taskId] = nil
+  return containedErr
+end
+
+-- Fault the owner of a task whose cancel callback raised, with the same
+-- task/script/instance attribution as the poll boundary.
+---@param task ScriptTask
+---@param err any
+---@return Errors.Error
+function Scheduler:_cancelFault(task, err)
+  if Errors.is(err) then
+    return err
+  end
+  local owner = self._instances[task.ownerInstanceId]
+  return Errors.new(ScriptErrors.SCRIPT_TASK_CALLBACK_FAULT, "task cancel callback raised: " .. tostring(err), {
+    taskType = task.taskType,
+    taskId = task.taskId,
+    scriptId = owner and owner.scriptId or nil,
+    instanceId = task.ownerInstanceId,
+  })
 end
 
 -- Tear down an environment : cancel its remaining active
@@ -803,7 +909,17 @@ function Scheduler:_teardownEnvironment(environment, reason)
     end
   end
   for _, task in ipairs(doomed) do
-    self:_cancelTaskState(task, reason)
+    local err = self:_cancelTaskState(task, reason)
+    if err ~= nil then
+      local owner = self._instances[task.ownerInstanceId]
+      if owner ~= nil then
+        -- A raising cancel is contained; the live owner faults with the
+        -- attributed error instead of the raise escaping the teardown. The
+        -- doomed list is a local copy, so the fault's own cleanup (which
+        -- mutates the task arrays) is safe here.
+        self:_faultInstance(owner, self._currentTick or 0, self:_cancelFault(task, err))
+      end
+    end
   end
   for slot = 0, ScriptEnvironment.SLOT_COUNT - 1 do
     local instanceId = environment:contextAt(slot)
@@ -839,11 +955,12 @@ function Scheduler:_teardownEnvironment(environment, reason)
 end
 
 -- Cancel one instance : cancel its tasks, release its
--- ownership, and emit `script.ended` with `completed = false`.
+-- ownership, and emit `script.ended` with `completed = false`. A raising
+-- task-cancel callback faults the instance instead of escaping.
 ---@param instance ScriptInstance
 ---@param reason string
 function Scheduler:_cancelInstance(instance, reason)
-  if instance.status == "completed" or instance.status == "cancelled" then
+  if instance.status == "completed" or instance.status == "cancelled" or instance.status == "faulted" then
     return
   end
   local doomed = {}
@@ -853,7 +970,11 @@ function Scheduler:_cancelInstance(instance, reason)
     end
   end
   for _, task in ipairs(doomed) do
-    self:_cancelTaskState(task, reason)
+    local err = self:_cancelTaskState(task, reason)
+    if err ~= nil then
+      self:_faultInstance(instance, self._currentTick or 0, self:_cancelFault(task, err))
+      return
+    end
   end
   instance.status = "cancelled"
   instance.endReason = reason

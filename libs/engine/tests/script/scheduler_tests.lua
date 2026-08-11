@@ -1430,4 +1430,180 @@ T["recursive call that terminates completes"] = function()
   Assert.equal(instance.status, "completed")
 end
 
+-- --- Task-callback fault boundary ---------------------------------------------
+-- One invocation boundary contains raises from task poll / onComplete /
+-- cancel: the owning instance faults (releasing its locks and resources)
+-- instead of the error escaping the scheduler, and the broken task record is
+-- cancelled deterministically.
+
+local RawModules = require("libs.engine.src.script.RawModules")
+
+local FAULTY_MODULE = {
+  start = function(ctx, args)
+    return { taskType = "faulty", taskVersion = 1, state = args.state or {} }
+  end,
+}
+
+-- Task implementations whose callbacks raise, pinning the task-callback fault
+-- boundary. Each carries the required version field.
+local function faultyTaskImpl(callbacks)
+  callbacks.version = 1
+  callbacks.create = callbacks.create or function(spec, ctx)
+    return {}
+  end
+  return callbacks
+end
+
+local function faultyHarness(taskImpl)
+  local h = harness()
+  h.taskRegistry:register("faulty", 1, taskImpl)
+  local modules = RawModules.new()
+  modules:register("test.faulty", FAULTY_MODULE, { kind = "mod", id = "test.mod", api = 1 })
+  h.services.rawModules = modules
+  return h
+end
+
+local function startFaultyScript(h, name, tick)
+  return startForeground(
+    h,
+    script("test.faulty." .. name, {
+      locals = { out = "serializable" },
+      steps = {
+        S.lua({
+          module = "test.faulty",
+          fn = "start",
+          args = {},
+          result = S.local_("out"),
+        }),
+        S.setVar({ variable = "VAR_AFTER", value = 1 }),
+        S.stop(),
+      },
+    }),
+    tick
+  )
+end
+
+local function lastEventNamed(h, name)
+  local found = nil
+  for _, record in ipairs(h.services.events.records) do
+    if record.name == name then
+      found = record.payload
+    end
+  end
+  return found
+end
+
+-- 38. A task whose poll raises faults the owning instance with the wrapped
+-- error (task type, task id, script id, instance id in context), the broken
+-- task leaves the task sets, and the root fault tears the environment down.
+T["poll raise faults the owner with attribution"] = function()
+  local h = faultyHarness(faultyTaskImpl({
+    poll = function(state, ctx)
+      error("poll exploded", 0)
+    end,
+  }))
+  local instanceId = startFaultyScript(h, "poll", 100)
+  h.scheduler:step(100, nil)
+  h.scheduler:step(101, nil)
+  local instance = assert(h.scheduler:instance(instanceId))
+  Assert.equal(instance.status, "faulted")
+  Assert.equal(instance.endReason, "SCRIPT_TASK_CALLBACK_FAULT")
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+  Assert.equal(#h.scheduler:tasks(), 0, "the broken task leaves the task sets")
+  Assert.isNil(h.scheduler:foregroundEnvironmentId(), "a root fault tears the environment down")
+  local errorEvent = lastEventNamed(h, "script.error")
+  Assert.notNil(errorEvent)
+  ---@cast errorEvent table
+  Assert.equal(errorEvent.code, "SCRIPT_TASK_CALLBACK_FAULT")
+  Assert.equal(errorEvent.context.taskType, "faulty")
+  Assert.equal(errorEvent.context.taskId, "task-00000001")
+  Assert.equal(errorEvent.context.scriptId, "test.faulty.poll")
+  Assert.equal(errorEvent.context.instanceId, instanceId)
+end
+
+-- 39. A structured error raised by a task poll faults the owner with that
+-- exact code instead of being re-wrapped.
+T["poll raise with structured error keeps its code"] = function()
+  local h = faultyHarness(faultyTaskImpl({
+    poll = function(state, ctx)
+      Errors.raise("SCRIPT_SERVICE_MISSING", "the backend vanished", { service = "audio" })
+    end,
+  }))
+  local instanceId = startFaultyScript(h, "structured", 100)
+  h.scheduler:step(100, nil)
+  h.scheduler:step(101, nil)
+  local instance = assert(h.scheduler:instance(instanceId))
+  Assert.equal(instance.status, "faulted")
+  Assert.equal(instance.endReason, "SCRIPT_SERVICE_MISSING")
+  Assert.equal(#h.scheduler:tasks(), 0)
+end
+
+-- 40. A task whose onComplete callback raises faults the owner; the
+-- completed task record is still removed.
+T["onComplete raise faults the owner"] = function()
+  local h = faultyHarness(faultyTaskImpl({
+    poll = function(state, ctx)
+      return { complete = true, state = state, result = {} }
+    end,
+    onComplete = function(state, ctx)
+      error("onComplete exploded", 0)
+    end,
+  }))
+  local instanceId = startFaultyScript(h, "oncomplete", 100)
+  h.scheduler:step(100, nil)
+  h.scheduler:step(101, nil)
+  local instance = assert(h.scheduler:instance(instanceId))
+  Assert.equal(instance.status, "faulted")
+  Assert.equal(instance.endReason, "SCRIPT_TASK_CALLBACK_FAULT")
+  Assert.equal(#h.scheduler:tasks(), 0, "the faulted task record leaves the task sets")
+end
+
+-- 41. A task whose cancel callback raises while a live instance is cancelled
+-- faults that instance instead of letting the error escape; the task is
+-- still cancelled and removed.
+T["cancel raise faults the owner instead of escaping"] = function()
+  local h = faultyHarness(faultyTaskImpl({
+    poll = function(state, ctx)
+      return { complete = false, state = state }
+    end,
+    cancel = function(state, reason)
+      error("cancel exploded", 0)
+    end,
+  }))
+  local instanceId = startFaultyScript(h, "cancel", 100)
+  h.scheduler:step(100, nil)
+  local env = assert(h.scheduler:environments()[1])
+  h.scheduler:cancelEnvironment(env.environmentId, "test")
+  local instance = assert(h.scheduler:instance(instanceId))
+  Assert.equal(instance.status, "faulted")
+  Assert.equal(instance.endReason, "SCRIPT_TASK_CALLBACK_FAULT")
+  Assert.isNil(h.scheduler:foregroundEnvironmentId())
+  Assert.equal(#h.scheduler:tasks(), 0, "the task is still cancelled and removed")
+end
+
+-- 42. Failure sequence: a task that completes normally in an earlier tick is
+-- not corrupted by a later tick's poll raise in another instance.
+T["later poll raise leaves earlier completions intact"] = function()
+  local h = faultyHarness(faultyTaskImpl({
+    poll = function(state, ctx)
+      error("poll exploded", 0)
+    end,
+  }))
+  local early = script("test.early", {
+    S.waitTicks({ ticks = 1 }),
+    S.setVar({ variable = "VAR_EARLY", value = 1 }),
+    S.stop(),
+  })
+  h.registry:installBase(early.id, early, "generated")
+  h.scheduler:createBackground(assert(h.composition:effective(early.id)), nil, 100)
+  local instanceId = startFaultyScript(h, "later", 100)
+  h.scheduler:step(100, nil)
+  h.scheduler:step(101, nil)
+  local instance = assert(h.scheduler:instance(instanceId))
+  Assert.equal(instance.status, "faulted")
+  Assert.equal(instance.endReason, "SCRIPT_TASK_CALLBACK_FAULT")
+  h.scheduler:step(102, nil)
+  Assert.equal(h.services.world:getVar("VAR_EARLY"), 1, "the earlier task completed on time")
+end
+
 return T
