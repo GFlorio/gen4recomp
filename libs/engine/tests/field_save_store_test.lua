@@ -28,6 +28,7 @@ local function record(versionId, overrides)
     avatar = "hero",
     scenario = "pre-script-demo-v1",
     events = { flags = {}, vars = {} },
+    auxiliaryUi = { requested = "shown", state = "shown" },
   }
   for key, item in pairs(overrides or {}) do
     value[key] = item

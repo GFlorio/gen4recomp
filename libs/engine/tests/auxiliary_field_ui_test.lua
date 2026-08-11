@@ -43,4 +43,13 @@ function T.restored_wait_reissues_its_visibility_request()
   Assert.deepEqual(ui:status(), { requested = "hidden", state = "hiding" })
 end
 
+function T.capture_and_restore_preserve_an_in_flight_transition()
+  local ui = AuxiliaryFieldUi.new()
+  ui:requestVisible(false)
+
+  local restored = AuxiliaryFieldUi.restore(ui:capture())
+
+  Assert.deepEqual(restored:status(), { requested = "hidden", state = "hiding" })
+end
+
 return T

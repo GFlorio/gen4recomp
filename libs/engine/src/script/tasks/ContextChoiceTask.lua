@@ -11,26 +11,36 @@ ContextChoiceTask.version = 1
 
 local function provider(ctx)
   local choice = assert(ctx.services.contextChoice, "context_choice requires a context choice provider")
-  assert(type(choice.open) == "function" and type(choice.close) == "function", "context choice provider is invalid")
+  assert(
+    type(choice.open) == "function"
+      and type(choice.close) == "function"
+      and type(choice.status) == "function"
+      and type(choice.select) == "function"
+      and type(choice.confirm) == "function",
+    "context choice provider is invalid"
+  )
   return choice
 end
 
 function ContextChoiceTask.create(_, ctx)
   provider(ctx)
-  return { active = false, phase = "opening" }
+  return { active = false, phase = "opening", selected = 0 }
 end
 
 function ContextChoiceTask.poll(state, ctx)
   local choice = provider(ctx)
   if state.phase == "opening" then
-    choice:open()
+    choice:open(state.selected)
     state.active = true
     state.phase = "waiting"
     return { complete = false, state = state }
   end
+  if choice:status() == nil then
+    choice:open(state.selected)
+  end
   local input = ctx.input or {}
   if input.pressedDirection ~= nil then
-    choice:select(input.pressedDirection)
+    state.selected = choice:select(input.pressedDirection)
   end
   if input.pressedCancel then
     choice:close()
@@ -54,7 +64,7 @@ function ContextChoiceTask.cancel(state, _, ctx)
 end
 
 function ContextChoiceTask.validate(state)
-  if type(state) ~= "table" or type(state.active) ~= "boolean" then
+  if type(state) ~= "table" or type(state.active) ~= "boolean" or (state.selected ~= 0 and state.selected ~= 1) then
     return Errors.new(
       ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
       "context_choice task state is invalid",
@@ -65,6 +75,13 @@ function ContextChoiceTask.validate(state)
     return Errors.new(
       ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
       "context_choice task phase is invalid",
+      { state = state }
+    )
+  end
+  if (state.phase == "opening") ~= not state.active then
+    return Errors.new(
+      ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
+      "context_choice task active state does not match its phase",
       { state = state }
     )
   end

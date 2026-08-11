@@ -1,5 +1,5 @@
 -- Defines and restores the project-owned field session save. The one schema
--- `g4-field-save-v1` carries the player field location, the persisted avatar
+-- `g4-field-save-v2` carries the player field location, the persisted avatar
 -- id, the scenario id that explains initialization, the `world` bucket
 -- (project-owned serializable state: flags, variables, objects, rng), and
 -- the serializable `scripts` bucket owned by ScriptSave. There is no older
@@ -14,7 +14,7 @@ local WarpSystem = require("libs.engine.src.WarpSystem")
 
 local FieldSave = {}
 
-FieldSave.SCHEMA = "g4-field-save-v1"
+FieldSave.SCHEMA = "g4-field-save-v2"
 -- Relative to the SaveFs root (saves/<versionId>/), never the version cache.
 FieldSave.PATH = "field-session-v1.lua"
 
@@ -127,6 +127,27 @@ local function validateScripts(record, opts)
   end
 end
 
+local function validateAuxiliaryUi(record)
+  local auxiliaryUi = record.auxiliaryUi
+  if type(auxiliaryUi) ~= "table" then
+    Errors.raise("FIELD_SAVE_AUXILIARY_UI_INVALID", "field save auxiliary UI state must be a table", {})
+  end
+  if auxiliaryUi.requested ~= "shown" and auxiliaryUi.requested ~= "hidden" then
+    Errors.raise("FIELD_SAVE_AUXILIARY_UI_INVALID", "field save auxiliary UI request is invalid", {})
+  end
+  if
+    auxiliaryUi.state ~= "shown"
+    and auxiliaryUi.state ~= "showing"
+    and auxiliaryUi.state ~= "hidden"
+    and auxiliaryUi.state ~= "hiding"
+  then
+    Errors.raise("FIELD_SAVE_AUXILIARY_UI_INVALID", "field save auxiliary UI state is invalid", {})
+  end
+  if (auxiliaryUi.requested == "shown") ~= (auxiliaryUi.state == "shown" or auxiliaryUi.state == "showing") then
+    Errors.raise("FIELD_SAVE_AUXILIARY_UI_INVALID", "field save auxiliary UI request and state disagree", {})
+  end
+end
+
 -- Strict schema validation (raising). Used by save and restore paths.
 local function validate(record, opts)
   if type(record) ~= "table" then
@@ -144,6 +165,7 @@ local function validate(record, opts)
   validateScenario(record)
   validateWorld(record, opts)
   validateScripts(record, opts)
+  validateAuxiliaryUi(record)
   return record
 end
 
@@ -176,8 +198,8 @@ local function defaultWorld()
 end
 
 -- Capture the record: the identity/location fields plus the world and
--- scripts buckets. `opts.scriptsBucket` is the ScriptSave capture output;
--- `opts.world` defaults to empty project state.
+-- scripts buckets, and auxiliary UI state. `opts.scriptsBucket` is the
+-- ScriptSave capture output; `opts.world` defaults to empty project state.
 
 ---@param session FieldSession
 ---@param opts table
@@ -202,6 +224,7 @@ function FieldSave.capture(session, opts)
     scenario = opts.scenario or nil,
     world = opts.world or defaultWorld(),
     scripts = opts.scriptsBucket,
+    auxiliaryUi = opts.auxiliaryUi or { requested = "shown", state = "shown" },
   }
 end
 
@@ -298,6 +321,7 @@ local function restore(record, loader, expectedVersionId, opts)
     scenario = record.scenario,
     world = record.world or defaultWorld(),
     scripts = record.scripts,
+    auxiliaryUi = record.auxiliaryUi,
   }
 end
 

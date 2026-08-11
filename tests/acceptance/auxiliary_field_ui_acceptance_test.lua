@@ -59,4 +59,33 @@ function T.tests.show_from_a_real_script_synchronizes_asynchronously_without_a_h
   end)
 end
 
+-- Once opcode 746 has completed, its hidden result remains a logical field
+-- fact. A fresh AuxiliaryFieldUi service on resumed boot must
+-- not briefly restore the default shown state after the task has gone away.
+function T.tests.restart_preserves_completed_hidden_auxiliary_ui_state()
+  withGame(function(game)
+    game:startScript(HIDE_SCRIPT)
+    game:advanceUntil("auxiliary UI becomes hidden", function()
+      return game:auxiliaryUiStatus().state == "hidden"
+    end, 120)
+
+    local resumed = game:restart({ save = "resume" })
+    Assert.deepEqual(resumed:auxiliaryUiStatus(), { requested = "hidden", state = "hidden" })
+  end)
+end
+
+-- The visibility transition itself is part of deterministic script
+-- continuation. Restarting immediately after opcode 746 must retain
+-- the hiding state rather than reinitializing its newly-created service to
+-- shown before the restored task can observe it.
+function T.tests.restart_preserves_an_in_flight_auxiliary_ui_hide_transition()
+  withGame(function(game)
+    game:startScript(HIDE_SCRIPT)
+    Assert.deepEqual(game:auxiliaryUiStatus(), { requested = "hidden", state = "hiding" })
+
+    local resumed = game:restart({ save = "resume" })
+    Assert.deepEqual(resumed:auxiliaryUiStatus(), { requested = "hidden", state = "hiding" })
+  end)
+end
+
 return T

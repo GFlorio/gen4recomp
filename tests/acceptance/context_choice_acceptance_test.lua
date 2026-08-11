@@ -60,4 +60,18 @@ function T.tests.real_get_menu_choice_opens_a_contextual_provider()
   end)
 end
 
+-- Selection is script-visible state, not a disposable provider detail.
+-- Restarting the real foreground GetMenuChoice flow must reconstruct
+-- the waiting provider with the selected vanilla result intact.
+function T.tests.restart_preserves_the_selected_contextual_choice()
+  withGame(function(game)
+    advanceToContextChoice(game)
+    game:move("east")
+    Assert.equal(game:contextChoiceStatus().selected, 1)
+
+    local resumed = game:restart({ save = "resume" })
+    Assert.deepEqual(resumed:contextChoiceStatus(), { state = "active", selected = 1 })
+  end)
+end
+
 return T

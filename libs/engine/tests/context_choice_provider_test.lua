@@ -47,4 +47,20 @@ T["context choice task writes the selected alternate result"] = function()
   Assert.equal(provider:status(), nil)
 end
 
+T["context choice task restores its selected value into a fresh provider"] = function()
+  local provider = ContextChoiceProvider.new()
+  local ctx = { services = { contextChoice = provider }, input = {} }
+  local state = ContextChoiceTask.create({}, ctx)
+  ContextChoiceTask.poll(state, ctx)
+  ctx.input = { pressedDirection = "right" }
+  ContextChoiceTask.poll(state, ctx)
+
+  Assert.equal(state.selected, 1)
+
+  local restoredProvider = ContextChoiceProvider.new()
+  local restored = ContextChoiceTask.poll(state, { services = { contextChoice = restoredProvider }, input = {} })
+  Assert.isFalse(restored.complete)
+  Assert.deepEqual(restoredProvider:status(), { state = "active", selected = 1 })
+end
+
 return T

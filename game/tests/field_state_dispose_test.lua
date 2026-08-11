@@ -71,6 +71,11 @@ local function disposableState()
     saveStore = resources.saveStore,
     session = captureReadySession(),
     avatar = { id = "hero" },
+    auxiliaryFieldUi = {
+      capture = function()
+        return { requested = "shown", state = "shown" }
+      end,
+    },
   }, FieldRuntime)
   local state = setmetatable({
     runtime = runtime,

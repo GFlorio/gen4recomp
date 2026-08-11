@@ -56,6 +56,7 @@ local function record(overrides)
     avatar = "hero",
     scenario = "pre-script-demo-v1",
     world = { flags = {}, variables = {}, objects = {}, rng = {} },
+    auxiliaryUi = { requested = "shown", state = "shown" },
   }
   for key, item in pairs(overrides or {}) do
     value[key] = item
@@ -78,6 +79,7 @@ local function capture(map, opts)
     avatarId = opts.avatarId or "hero",
     world = opts.world,
     scenario = opts.scenario or "pre-script-demo-v1",
+    auxiliaryUi = opts.auxiliaryUi,
   })
 end
 
@@ -106,6 +108,36 @@ function T.stable_state_round_trips_exactly()
   Assert.equal(result.avatar, "hero")
   Assert.equal(result.scenario, "pre-script-demo-v1")
   Assert.deepEqual(result.world, { flags = {}, variables = {}, objects = {}, rng = {} })
+end
+
+function T.auxiliary_ui_state_round_trips_with_the_field_save()
+  local map = runtimeMap("terrain-a", { flat(11, 4) })
+  local auxiliaryUi = { requested = "hidden", state = "hiding" }
+
+  local saved = capture(map, { auxiliaryUi = auxiliaryUi })
+  local restored = assert(restore(saved, map))
+
+  Assert.deepEqual(saved.auxiliaryUi, auxiliaryUi)
+  Assert.deepEqual(restored.auxiliaryUi, auxiliaryUi)
+end
+
+function T.invalid_auxiliary_ui_state_is_rejected()
+  throwsCode("FIELD_SAVE_AUXILIARY_UI_INVALID", function()
+    local missing = record()
+    missing.auxiliaryUi = nil
+    local _, err = FieldSave.validate(missing)
+    error(err)
+  end)
+  for _, auxiliaryUi in ipairs({
+    { requested = "visible", state = "shown" },
+    { requested = "shown", state = "unknown" },
+    { requested = "shown", state = "hidden" },
+  }) do
+    throwsCode("FIELD_SAVE_AUXILIARY_UI_INVALID", function()
+      local _, err = FieldSave.validate(record({ auxiliaryUi = auxiliaryUi }))
+      error(err)
+    end)
+  end
 end
 
 function T.event_flags_and_vars_round_trip()

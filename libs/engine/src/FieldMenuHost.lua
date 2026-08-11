@@ -157,7 +157,7 @@ function FieldMenuHost:inputEvents(events)
   if active == nil then
     return {}
   end
-  local layout = active.layout
+  local layout = assert(active.layout, "active menu layout is missing")
   local translated = {}
   for _, event in ipairs(events) do
     if event.type == "pointer_move" then

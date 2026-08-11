@@ -16,6 +16,27 @@ function AuxiliaryFieldUi.new()
 end
 
 ---@return { requested: "shown"|"hidden", state: "shown"|"showing"|"hidden"|"hiding" }
+function AuxiliaryFieldUi:capture()
+  return self:status()
+end
+
+---@param record table
+---@return AuxiliaryFieldUi
+function AuxiliaryFieldUi.restore(record)
+  assert(type(record) == "table", "auxiliary UI state must be a table")
+  assert(record.requested == "shown" or record.requested == "hidden", "auxiliary UI request is invalid")
+  assert(
+    record.state == "shown" or record.state == "showing" or record.state == "hidden" or record.state == "hiding",
+    "auxiliary UI state is invalid"
+  )
+  assert(
+    (record.requested == "shown") == (record.state == "shown" or record.state == "showing"),
+    "auxiliary UI request and state disagree"
+  )
+  return setmetatable({ _requested = record.requested, _state = record.state }, AuxiliaryFieldUi)
+end
+
+---@return { requested: "shown"|"hidden", state: "shown"|"showing"|"hidden"|"hiding" }
 function AuxiliaryFieldUi:status()
   return { requested = self._requested, state = self._state }
 end

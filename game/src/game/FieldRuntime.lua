@@ -340,7 +340,7 @@ function FieldRuntime:_load()
       )
     end
     self.dialogue = FieldDialogueController.new({ layout = layoutMessage })
-    self.auxiliaryFieldUi = AuxiliaryFieldUi.new()
+    self.auxiliaryFieldUi = restored and AuxiliaryFieldUi.restore(restored.auxiliaryUi) or AuxiliaryFieldUi.new()
     self.contextChoiceProvider = ContextChoiceProvider.new()
     self.actionKeys = actionBindings()
     self.cancelKeys = cancelBindings()
@@ -517,6 +517,7 @@ function FieldRuntime:_save(successText)
       scenario = FieldScenarioManifest.id,
       world = self.scripts and self.scripts.worldState:capture() or nil,
       scriptsBucket = scriptsBucket,
+      auxiliaryUi = self.auxiliaryFieldUi:capture(),
     }))
   end)
   if not ok then

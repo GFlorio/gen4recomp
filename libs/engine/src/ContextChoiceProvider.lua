@@ -11,9 +11,12 @@ function ContextChoiceProvider.new()
   return setmetatable({ _choice = nil }, ContextChoiceProvider)
 end
 
-function ContextChoiceProvider:open()
+---@param selected integer?
+function ContextChoiceProvider:open(selected)
   assert(self._choice == nil, "a contextual choice is already active")
-  self._choice = { selected = 0 }
+  selected = selected or 0
+  assert(selected == 0 or selected == 1, "contextual choice selection is invalid")
+  self._choice = { selected = selected }
 end
 
 ---@return { state: "active", selected: integer }|nil
@@ -25,6 +28,7 @@ function ContextChoiceProvider:status()
 end
 
 ---@param direction string
+---@return integer selected vanilla result (0 confirm, 1 cancel)
 function ContextChoiceProvider:select(direction)
   assert(self._choice ~= nil, "no contextual choice is active")
   if direction == "left" or direction == "up" or direction == "west" or direction == "north" then
@@ -32,6 +36,7 @@ function ContextChoiceProvider:select(direction)
   elseif direction == "right" or direction == "down" or direction == "east" or direction == "south" then
     self._choice.selected = 1
   end
+  return self._choice.selected
 end
 
 ---@return integer selected vanilla result (0 confirm, 1 cancel)
