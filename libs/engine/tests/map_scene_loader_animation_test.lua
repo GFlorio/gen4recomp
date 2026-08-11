@@ -712,8 +712,13 @@ function T.draw_items_refresh_only_when_marked_dirty()
 end
 
 -- The scene animation clock: FieldSession advances the loaded ambient props
--- exactly once per ordinary tick, and freezes them under a modal dialogue.
-function T.ambient_clip_advances_once_per_session_tick_and_freezes_on_dialogue()
+-- exactly once per tick -- ordinary ticks and modal-dialogue ticks alike. The
+-- HGSS field update path does not couple map-prop animation progression to
+-- dialogue ownership, so wind/machines keep running while a message box is
+-- up. Only the world steps freeze under the modal gate: movement, warps, pose
+-- clocks, and the camera; the dialogue still owns the tick for its own
+-- stepping.
+function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
   local desc = ambientDescriptor()
   local cache = sceneWith({
     {
@@ -730,6 +735,7 @@ function T.ambient_clip_advances_once_per_session_tick_and_freezes_on_dialogue()
   local instance = runtime.animatedInstances[1]
   Assert.isTrue(instance.animationState:hasAttachments("joint"), "the ambient clip autoplays at load")
 
+  local playerSteps, cameraSteps = 0, 0
   local player = {
     fieldX = 4,
     fieldZ = 14,
@@ -740,17 +746,61 @@ function T.ambient_clip_advances_once_per_session_tick_and_freezes_on_dialogue()
     facing = "south",
     motion = "idle",
     updateFixed = function()
+      playerSteps = playerSteps + 1
       return false
     end,
   }
   local map = { mapId = 61, cameraType = 4, sceneRuntime = runtime }
-  local camera = { updateFixed = function() end }
+  local camera = {
+    updateFixed = function()
+      cameraSteps = cameraSteps + 1
+    end,
+  }
+  local inactiveDialogue = {
+    isModal = function()
+      return false
+    end,
+  }
   local session = FieldSession.new({
     versionId = "heartgold",
     currentMap = map,
-    actor = player,
     player = player,
     camera = camera,
+    transition = {
+      locked = false,
+      updateFixed = function() end,
+      start = function() end,
+    },
+    actors = { step = function() end },
+    input = {
+      snapshot = function()
+        return {}
+      end,
+    },
+    dialogue = inactiveDialogue,
+    scriptScheduler = {
+      step = function() end,
+      playerMovementLocked = function()
+        return false
+      end,
+    },
+    scriptClient = { consume = function() end },
+    menuHost = {
+      isModal = function()
+        return false
+      end,
+      advance = function() end,
+    },
+    contextChoice = {
+      isActive = function()
+        return false
+      end,
+    },
+    interactions = {
+      resolve = function()
+        return nil
+      end,
+    },
   })
 
   session:updateFixed({})
@@ -759,19 +809,52 @@ function T.ambient_clip_advances_once_per_session_tick_and_freezes_on_dialogue()
   session:updateFixed({})
   Assert.equal(attachment.player.frameFx, 2 * 4096)
 
-  -- A modal dialogue freezes the scene clock; the world's props stop.
+  -- Count only the modal phase below: the two ordinary ticks already stepped
+  -- the player and camera; the modal gate's freeze covers the ticks it owns.
+  playerSteps, cameraSteps = 0, 0
+
+  -- A modal dialogue freezes the world steps but not the scene clock: the
+  -- ambient props advance once per modal tick, exactly as on locked
+  -- transition ticks, while the dialogue alone reads the input.
+  local dialogueSteps = 0
   local dialogue = {
     isModal = function()
       return true
     end,
-    step = function() end,
+    step = function()
+      dialogueSteps = dialogueSteps + 1
+    end,
   }
   session.dialogue = dialogue
   session:updateFixed({})
-  Assert.equal(attachment.player.frameFx, 2 * 4096, "the modal tick does not advance the scene clock")
-  session.dialogue = nil
+  Assert.equal(attachment.player.frameFx, 3 * 4096, "the modal tick advances the scene clock once")
+  Assert.equal(dialogueSteps, 1, "the dialogue still owns the modal tick's stepping")
+  Assert.equal(playerSteps, 0, "the modal tick does not move the player")
+  Assert.equal(cameraSteps, 0, "the modal tick does not move the camera")
   session:updateFixed({})
-  Assert.equal(attachment.player.frameFx, 3 * 4096, "the clock resumes when the dialogue closes")
+  Assert.equal(attachment.player.frameFx, 4 * 4096, "the scene clock keeps advancing while the box is up")
+  Assert.equal(dialogueSteps, 2)
+  Assert.equal(playerSteps, 0)
+  Assert.equal(cameraSteps, 0)
+  session.dialogue = inactiveDialogue
+  session:updateFixed({})
+  Assert.equal(attachment.player.frameFx, 5 * 4096, "the ordinary tick cadence resumes when the dialogue closes")
+
+  -- Script-owned boxes keep their exemption: the script scheduler steps them
+  -- from its own async phase, so the modal gate does not apply and the world
+  -- -- scene clock included -- runs normally.
+  local scriptOwned = {
+    isModal = function()
+      return true
+    end,
+    isScriptOwned = function()
+      return true
+    end,
+    step = function() end,
+  }
+  session.dialogue = scriptOwned
+  session:updateFixed({})
+  Assert.equal(attachment.player.frameFx, 6 * 4096, "a script-owned box keeps the world running")
 
   runtime:release()
 end

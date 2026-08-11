@@ -3,8 +3,9 @@
 -- Player movement advances before the camera so both consume the same
 -- continuous XYZ. A modal dialogue owns the tick: once the fade/transition
 -- phase (which cannot be active while a dialogue is open) has advanced, the
--- session steps only the dialogue and returns, so movement, warps,
--- interactions, and actor pose clocks freeze until the dialogue closes.
+-- session steps the dialogue, advances the scene animation clock, and
+-- returns, so movement, warps, interactions, actor pose clocks, and the
+-- camera freeze until the dialogue closes.
 -- Variable-delta `update(dt)` obtains a fresh input snapshot for every fixed
 -- step it executes, so an edge can never be replayed across catch-up ticks;
 -- `updateFixed(snapshot)` is the explicit deterministic unit-test API.
@@ -156,23 +157,29 @@ function FieldSession:updateFixed(inputSnapshot)
     return
   end
 
-  -- Modal ownership: while a dialogue is open the world freezes -- no queued
-  -- visibility changes, no facing-warp check, no movement, no warp commit, no
-  -- pose clocks, no scene animation, no camera motion. Only the dialogue
-  -- reads this tick's input.
+  -- Modal ownership: while a dialogue is open the world steps freeze -- no
+  -- queued visibility changes, no facing-warp check, no movement, no warp
+  -- commit, no pose clocks, no camera motion. Only the dialogue reads this
+  -- tick's input, and the scene animation clock keeps advancing: HGSS's
+  -- field update path does not couple map-prop animation progression to
+  -- dialogue ownership, so wind/machines keep running while a message box
+  -- is up.
   -- Script-owned boxes are exempt: the script scheduler steps them from its
   -- own async phase and the script phase owns the tick instead.
   if self.dialogue:isModal() and not (self.dialogue.isScriptOwned and self.dialogue:isScriptOwned()) then
+    if self.currentMap.sceneRuntime and self.currentMap.sceneRuntime.updateAnimated then
+      self.currentMap.sceneRuntime:updateAnimated()
+    end
     self.dialogue:step(inputSnapshot)
     self:_advanceTick()
     return
   end
 
-  -- Scene animation clock: the world's animated props advance once per
-  -- non-modal tick -- ordinary movement, script-locked ticks, interaction
-  -- ticks, and the transition-start tick alike (transition ticks advance it
-  -- in the branch above). FieldSession owns this clock; no other module
-  -- steps it.
+  -- Scene animation clock: the world's animated props advance once per tick
+  -- -- ordinary movement, script-locked ticks, interaction ticks, the
+  -- transition-start tick, and modal-dialogue ticks alike (transition ticks
+  -- advance it in the branch above). FieldSession owns this clock; no other
+  -- module steps it.
   if self.currentMap.sceneRuntime and self.currentMap.sceneRuntime.updateAnimated then
     self.currentMap.sceneRuntime:updateAnimated()
   end
@@ -290,9 +297,9 @@ function FieldSession:updateFixed(inputSnapshot)
 
   local stepCompleted = self.player:updateFixed(inputSnapshot) == true
   if stepCompleted then
-  -- Standing-trigger path: a completed step onto a warp tile
-  -- evaluates the HGSS step path -- north/panel/ladder-down/escalator
-  -- behaviors only; direction-gated warps wait for the facing path above.
+    -- Standing-trigger path: a completed step onto a warp tile
+    -- evaluates the HGSS step path -- north/panel/ladder-down/escalator
+    -- behaviors only; direction-gated warps wait for the facing path above.
     local trigger =
       TransitionTrigger.stepPath(self.currentMap, self.player.fieldX, self.player.fieldZ, self.player.facing)
     if
