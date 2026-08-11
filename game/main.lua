@@ -4,15 +4,16 @@
 -- resolves libs and sibling apps by their full repo-relative path (libs.*,
 -- game.src.*, data.*) independent of the working directory. Flags: --test runs
 -- the recursively discovered, layer-selectable test suite and exits; --field
--- boots a fixed field target; --actors opens the compiled field-actor preview grid;
--- --new-field-session
+-- boots a fixed field target; --actors opens the compiled field-actor preview
+-- grid; --dev enables the playtest HUD and the F1/F2 developer binds; without
+-- it the app runs in product mode; --new-field-session
 -- clears the selected version's project save; otherwise App drives the normal
 -- boot/import flow.
 local ROOT = love.filesystem.getSourceBaseDirectory()
 package.path = ROOT .. "/?.lua;" .. ROOT .. "/?/init.lua;" .. package.path
 
 local function parse(argv)
-  local opts = { test = false, field = nil, actors = false, newFieldSession = false }
+  local opts = { test = false, field = nil, actors = false, newFieldSession = false, dev = false }
   local i = 1
   while i <= #(argv or {}) do
     local option = argv[i]
@@ -26,6 +27,8 @@ local function parse(argv)
       end
     elseif option == "--actors" then
       opts.actors = true
+    elseif option == "--dev" then
+      opts.dev = true
     elseif option == "--new-field-session" then
       opts.newFieldSession = true
     end

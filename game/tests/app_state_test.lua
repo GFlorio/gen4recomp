@@ -109,4 +109,41 @@ function T.starting_an_import_disposes_the_active_field_state()
   Assert.notNil(App.importer)
 end
 
+-- DEV-06: the bare "g4recomp" draw is developer branding on an empty frame;
+-- product mode draws nothing.
+function T.app_draw_skips_the_emergency_brand_text_in_product_mode()
+  fresh()
+  App.opts = { dev = false }
+  local prints = 0
+  local graphics = love.graphics
+  local originalPrint = graphics.print
+  graphics.print = function()
+    prints = prints + 1
+  end
+  local ok, err = pcall(App.draw)
+  graphics.print = originalPrint
+  if not ok then
+    error(err, 0)
+  end
+  Assert.equal(prints, 0, "product mode must not draw the bare g4recomp emergency text")
+end
+
+-- DEV-07: dev mode keeps the emergency brand text on an empty frame.
+function T.app_draw_keeps_the_emergency_brand_text_in_dev_mode()
+  fresh()
+  App.opts = { dev = true }
+  local prints = 0
+  local graphics = love.graphics
+  local originalPrint = graphics.print
+  graphics.print = function()
+    prints = prints + 1
+  end
+  local ok, err = pcall(App.draw)
+  graphics.print = originalPrint
+  if not ok then
+    error(err, 0)
+  end
+  Assert.equal(prints, 1, "dev mode keeps the emergency brand text")
+end
+
 return T

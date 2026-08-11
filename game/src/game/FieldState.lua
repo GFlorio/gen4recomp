@@ -14,6 +14,7 @@ local KEY_DIRECTIONS =
 ---@field resumeSave boolean?
 ---@field resetSave boolean?
 ---@field zoomConfig table?
+---@field development boolean? product mode (the default) hides the playtest HUD and ignores the F1/F2 developer binds
 
 ---@class FieldState
 ---@field runtime FieldRuntime?
@@ -39,6 +40,7 @@ local KEY_DIRECTIONS =
 ---@field zoom any
 ---@field heldDirectionKeys table<string, string>?
 ---@field player FieldPlayer? forwarded from the runtime
+---@field development boolean product mode (default) hides the playtest HUD and ignores the F1/F2 developer binds
 local FieldState = {}
 FieldState.__index = function(self, key)
   local method = FieldState[key]
@@ -50,13 +52,16 @@ FieldState.__index = function(self, key)
 end
 
 function FieldState.new(versionId, idOrSymbol, options)
+  options = options or {}
   local runtimeOptions = {}
-  for key, value in pairs(options or {}) do
-    runtimeOptions[key] = value
+  for key, value in pairs(options) do
+    if key ~= "development" then
+      runtimeOptions[key] = value
+    end
   end
   runtimeOptions.presentation = true
   local runtime = FieldRuntime.new(versionId, idOrSymbol, runtimeOptions)
-  local self = setmetatable({ runtime = runtime }, FieldState)
+  local self = setmetatable({ runtime = runtime, development = options.development == true }, FieldState)
   if runtime.session then
     local ok, err = pcall(function()
       self.renderer = MapRenderer.new()
@@ -146,7 +151,9 @@ function FieldState:draw()
   if self.dialogue and self.dialogue:isModal() then
     self.dialogueRenderer:draw(self.dialogue, self.viewport)
   end
-  self:_drawHud()
+  if self.development then
+    self:_drawHud()
+  end
 end
 
 -- The playtest HUD: map identity, the player's field state, the save status,
@@ -184,12 +191,14 @@ function FieldState:keypressed(key, scancode, isrepeat)
   if key == "escape" then
     love.event.quit(0)
   end
-  if key == "f1" then
-    self:_save()
-  end
-  if key == "f2" then
-    self:_reset()
-    return
+  if self.development then
+    if key == "f1" then
+      self:_save()
+    end
+    if key == "f2" then
+      self:_reset()
+      return
+    end
   end
   if self.actionKeys and self.actionKeys[key] and self.input then
     self.input:pressAction("key:" .. key)

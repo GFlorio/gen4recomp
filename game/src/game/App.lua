@@ -46,6 +46,7 @@ local function newFieldState(versionId, target, resumeSave)
   return FieldState.new(versionId, target, {
     resumeSave = resumeSave and not App.opts.newFieldSession,
     resetSave = App.opts.newFieldSession,
+    development = App.opts.dev == true,
   })
 end
 
@@ -152,8 +153,12 @@ function App.draw()
     App.state:draw()
     return
   end
-  love.graphics.setColor(1, 1, 1)
-  love.graphics.print("g4recomp", 24, 24)
+  -- The bare brand is developer-only emergency feedback on an empty frame;
+  -- product mode draws nothing until a state exists.
+  if App.opts.dev then
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.print("g4recomp", 24, 24)
+  end
 end
 
 function App.filedropped(file)
