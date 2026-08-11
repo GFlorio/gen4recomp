@@ -1,7 +1,7 @@
--- Readiness, paths, and invalidation for the derived script cache. The
--- translated script corpus is one of the independently rebuildable derived
--- classes (map geometry, actor visuals, messages/font, scripts): changing the
--- script translator must not disturb the raw ROM dump or any compiled map.
+-- Readiness and paths for the derived script cache. The translated script
+-- corpus is one of the independently rebuildable derived classes (map
+-- geometry, actor visuals, messages/font, scripts): changing the script
+-- translator must not disturb the raw ROM dump or any compiled map.
 -- The class is ready only when the completion marker matches exactly and
 -- every indexed script file is present, so a partial build never reads as
 -- complete. Paths are cache-relative; all IO goes through a CacheFs.
@@ -66,12 +66,6 @@ function ScriptCache.isReady(cacheFs, expectedMarker)
       return false
     end
   end
-  return true
-end
-
-function ScriptCache.invalidate(cacheFs)
-  assert(DATA_DIR:find("generated", 1, true), "derived root must live under a generated subtree")
-  cacheFs:removeTree(DATA_DIR)
   return true
 end
 

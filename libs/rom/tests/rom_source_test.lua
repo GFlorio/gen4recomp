@@ -18,9 +18,9 @@ local function versionsFor(sha1)
   }
 end
 
--- The mount point RomSource mounts zip archives at (module-local in RomSource,
--- mirrored here so a leaked mount is directly observable).
-local MOUNT_POINT = "g4-romzip"
+-- The mount point RomSource mounts zip archives at (exported by RomSource so
+-- a leaked mount is directly observable).
+local MOUNT_POINT = RomSource.MOUNT_POINT
 
 -- Run fn with target[field] temporarily replaced by makePatched(original),
 -- restoring the original in all cases so a failed assertion cannot leak the

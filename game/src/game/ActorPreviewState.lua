@@ -1,6 +1,6 @@
 -- Developer preview grid for compiled field-actor visuals. It draws every
 -- compiled sprite in all four directions, animating the walk pose off the same
--- fixed 60 Hz tick the field runtime uses, so a frame-order, palette,
+-- fixed 30 Hz tick the field runtime uses, so a frame-order, palette,
 -- transparency, or east/west-mirroring defect is visible without booting a map.
 -- It is a diagnostic surface only: it owns no field simulation and no actor
 -- model, and it acquires and releases through FieldActorAssetProvider exactly
@@ -9,11 +9,13 @@
 local CacheFs = require("libs.rom.src.CacheFs")
 local Errors = require("libs.rom.src.Errors")
 local FieldActorAssetProvider = require("libs.engine.src.FieldActorAssetProvider")
+local FieldSession = require("libs.engine.src.FieldSession")
 
 local ActorPreviewState = {}
 ActorPreviewState.__index = ActorPreviewState
 
-local FIXED_DT = 1 / 30
+-- One cadence owner: the field session's fixed rate.
+local FIXED_DT = FieldSession.FIXED_DT
 local DIRECTIONS = { "north", "south", "west", "east" }
 local SCALE = 2
 local CELL = 32 * SCALE + 8

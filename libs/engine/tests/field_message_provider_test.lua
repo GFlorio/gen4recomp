@@ -230,4 +230,22 @@ function T.dispose_releases_everything()
   Assert.equal(provider:stats().live, 0)
 end
 
+function T.dispose_resets_the_instrument_counters()
+  local provider = assert(
+    FieldMessageProvider.new(
+      cacheWith({ [542] = bankArtifact(542, 1), [543] = bankArtifact(543, 1) }),
+      { maxCachedBanks = 1 }
+    )
+  )
+  provider:acquireBank(542)
+  provider:releaseBank(542)
+  provider:acquireBank(543) -- evicts the unreferenced 542
+  Assert.isTrue(provider:stats().loads > 0)
+  Assert.isTrue(provider:stats().disposals > 0)
+  provider:dispose()
+  Assert.equal(provider:stats().loads, 0, "a disposed provider reports no stale loads")
+  Assert.equal(provider:stats().hits, 0, "a disposed provider reports no stale hits")
+  Assert.equal(provider:stats().disposals, 0, "a disposed provider reports no stale disposals")
+end
+
 return T

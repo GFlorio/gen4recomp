@@ -174,8 +174,6 @@ function ScriptDialogueHost:startPrint(message, bindings, textArgs)
   self._controller:open({
     id = id,
     message = formatted,
-    style = "field",
-    modal = true,
     allowCancel = false,
     metadata = {
       scriptOwned = true,

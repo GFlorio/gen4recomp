@@ -26,8 +26,12 @@
 
 local DsLighting = {}
 
-local RGB5_MAX = 31
-local FX12_SCALE = 4096
+-- The DS 5-bit numeric domain, owned here: RGB5/alpha5 channels span 0..31 and
+-- fx12 vectors span 0..4096. Runtime consumers (MapRenderer, FieldActorDraw,
+-- the loaders) reference these instead of repeating the literals; the GLSL
+-- shader cannot share them and documents the same values in map.glsl.
+DsLighting.RGB5_MAX = 31
+DsLighting.FX12_SCALE = 4096
 local VIEW_DIRECTION = { 0, 0, 1 }
 
 local function rgb555(r, g, b)
@@ -41,7 +45,7 @@ end
 -- Unpack an RGB555 color to normalized 0..1 channel values.
 local function unpackColor(packed)
   local r, g, b = DsLighting.unpackRgb555(packed)
-  return { r / RGB5_MAX, g / RGB5_MAX, b / RGB5_MAX }
+  return { r / DsLighting.RGB5_MAX, g / DsLighting.RGB5_MAX, b / DsLighting.RGB5_MAX }
 end
 
 local function dot3(a, b)
@@ -70,7 +74,7 @@ end
 -- half-up exactly like the shader's quantizeRgb5.
 local function quantize5(c)
   local clamped = c < 0 and 0 or (c > 1 and 1 or c)
-  return math.floor(clamped * RGB5_MAX + 0.5)
+  return math.floor(clamped * DsLighting.RGB5_MAX + 0.5)
 end
 
 -- Compute the lit RGB555 for one vertex. Colors are packed RGB555; lights use
@@ -92,9 +96,9 @@ function DsLighting.vertexColorRgb5(params)
     local light = lights[i]
     if light and light.enabled and (lightMask % (bit * 2) >= bit) then
       local L = normalize3({
-        light.vectorFx12[1] / FX12_SCALE,
-        light.vectorFx12[2] / FX12_SCALE,
-        light.vectorFx12[3] / FX12_SCALE,
+        light.vectorFx12[1] / DsLighting.FX12_SCALE,
+        light.vectorFx12[2] / DsLighting.FX12_SCALE,
+        light.vectorFx12[3] / DsLighting.FX12_SCALE,
       })
       local ndl = dot3(L, normal)
       local ld = math.max(0, -ndl)

@@ -318,7 +318,6 @@ return S.script({
       message = { female = "msg.hgss.0543.00072", male = "msg.hgss.0543.00071", text = "gendered_message" },
       op = "message",
       provenance = { offsets = { [1] = 1321 }, opcodes = { [1] = 132 } },
-      style = "npc",
       waitForPrint = true,
     },
     {
@@ -428,7 +427,6 @@ return S.script({
       message = "msg.hgss.0543.00046",
       op = "message",
       provenance = { offsets = { [1] = 1443 }, opcodes = { [1] = 45 } },
-      style = "npc",
       waitForPrint = true,
     },
     {
@@ -460,7 +458,6 @@ return S.script({
           message = { female = "msg.hgss.0543.00048", male = "msg.hgss.0543.00047", text = "gendered_message" },
           op = "message",
           provenance = { offsets = { [1] = 1487 }, opcodes = { [1] = 132 } },
-          style = "npc",
           waitForPrint = true,
         },
       },
@@ -471,7 +468,6 @@ return S.script({
           message = { female = "msg.hgss.0543.00105", male = "msg.hgss.0543.00104", text = "gendered_message" },
           op = "message",
           provenance = { offsets = { [1] = 1477 }, opcodes = { [1] = 132 } },
-          style = "npc",
           waitForPrint = true,
         },
         [2] = { op = "goto", provenance = { offsets = { [1] = 1481 }, opcodes = { [1] = 22 } }, target = "_05D3" },
@@ -487,7 +483,6 @@ return S.script({
           message = { female = "msg.hgss.0543.00048", male = "msg.hgss.0543.00047", text = "gendered_message" },
           op = "message",
           provenance = { offsets = { [1] = 1518 }, opcodes = { [1] = 132 } },
-          style = "npc",
           waitForPrint = true,
         },
       },
@@ -498,7 +493,6 @@ return S.script({
           message = { female = "msg.hgss.0543.00105", male = "msg.hgss.0543.00104", text = "gendered_message" },
           op = "message",
           provenance = { offsets = { [1] = 1508 }, opcodes = { [1] = 132 } },
-          style = "npc",
           waitForPrint = true,
         },
         [2] = { op = "goto", provenance = { offsets = { [1] = 1512 }, opcodes = { [1] = 22 } }, target = "_05F2" },
@@ -554,7 +548,6 @@ return S.script({
       message = "msg.hgss.0543.00049",
       op = "message",
       provenance = { offsets = { [1] = 1573 }, opcodes = { [1] = 45 } },
-      style = "npc",
       waitForPrint = true,
     },
     {
@@ -582,7 +575,6 @@ return S.script({
       message = { female = "msg.hgss.0543.00054", male = "msg.hgss.0543.00053", text = "gendered_message" },
       op = "message",
       provenance = { offsets = { [1] = 1594 }, opcodes = { [1] = 132 } },
-      style = "npc",
       waitForPrint = true,
     },
     {

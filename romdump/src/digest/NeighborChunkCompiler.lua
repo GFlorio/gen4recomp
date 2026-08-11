@@ -25,6 +25,7 @@ local HgssBdhc = require("libs.assets.src.HgssBdhc")
 local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
 local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
+local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local Hashing = require("romdump.src.digest.Hashing")
 local Errors = require("libs.rom.src.Errors")
 
@@ -98,7 +99,7 @@ function NeighborChunkCompiler.compile(romFs, landMemberId, areaMemberId, contex
     textures = textures,
     permissions = land.permissionBytes,
     terrain = {
-      schema = "g4-terrain-surfaces-v1",
+      schema = MapAssetCache.TERRAIN_SCHEMA,
       sourceFormat = decodedTerrain.schema,
       source = {
         landDataMemberId = landMemberId,

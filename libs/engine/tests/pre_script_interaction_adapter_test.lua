@@ -105,7 +105,6 @@ local function actor(objectEventId, initialFacing)
       z = 5,
       y = 0,
     },
-    visualDef = { mapModelId = 1 },
     fieldX = 6,
     fieldZ = 5,
     surfaceId = 0,

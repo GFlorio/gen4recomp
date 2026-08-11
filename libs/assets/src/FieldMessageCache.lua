@@ -1,10 +1,10 @@
--- Readiness, paths, and invalidation for the derived field-message cache.
--- Message banks are one of the independently rebuildable derived classes (map
--- geometry, actor visuals, messages/font): changing the message compiler must
--- not disturb the raw ROM dump or any compiled map. A bank is ready only when
--- the completion marker matches exactly and every bank file it indexes is
--- present, so a partial build never reads as complete. Paths are
--- cache-relative; all IO goes through a CacheFs.
+-- Readiness and paths for the derived field-message cache. Message banks are
+-- one of the independently rebuildable derived classes (map geometry, actor
+-- visuals, messages/font): changing the message compiler must not disturb the
+-- raw ROM dump or any compiled map. A bank is ready only when the completion
+-- marker matches exactly and every bank file it indexes is present, so a
+-- partial build never reads as complete. Paths are cache-relative; all IO
+-- goes through a CacheFs.
 
 local FieldMessageCache = {}
 
@@ -61,12 +61,6 @@ function FieldMessageCache.isReady(cacheFs, expectedMarker)
       return false
     end
   end
-  return true
-end
-
-function FieldMessageCache.invalidate(cacheFs)
-  assert(DATA_DIR:find("generated", 1, true), "derived root must live under a generated subtree")
-  cacheFs:removeTree(DATA_DIR)
   return true
 end
 

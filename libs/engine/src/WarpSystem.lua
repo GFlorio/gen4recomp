@@ -8,6 +8,12 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 
 local WarpSystem = {}
 
+-- Dynamic-warp anchors: destinationWarpId 0x100 means the warp points at a
+-- runtime-chosen destination (unsupported; kept as a loud rejection per the
+-- field transition contract). The raw HGSS meaning is the dynamic-warp anchor;
+-- real warps carry plain warp indexes, so this branch is a refusal, not a path.
+WarpSystem.DYNAMIC_WARP_SENTINEL = 0x100
+
 local WARP_Y_SCALE = 16
 local DIRECTION_DELTAS = {
   north = { x = 0, z = -1 },
@@ -54,7 +60,7 @@ local function loadDestination(loader, sourceMap, warp)
   if ok then
     return result
   end
-  if Errors.is(result) and (result.code == "FIELD_MAP_UNKNOWN" or result.code == "FIELD_DESTINATION_MAP_UNKNOWN") then
+  if Errors.is(result) and result.code == "FIELD_MAP_UNKNOWN" then
     Errors.raise("FIELD_DESTINATION_MAP_UNKNOWN", "warp destination map is unavailable", {
       sourceMapId = sourceMap.mapId,
       sourceWarpId = warp.index,
@@ -68,7 +74,7 @@ end
 function WarpSystem.resolveDestination(loader, sourceMap, warp)
   assert(loader and loader.load, "warp destination loader required")
   assert(sourceMap and sourceMap.mapId and warp, "source map and warp required")
-  if warp.destinationWarpId == 0x100 then
+  if warp.destinationWarpId == WarpSystem.DYNAMIC_WARP_SENTINEL then
     Errors.raise("FIELD_DYNAMIC_WARP_UNSUPPORTED", "dynamic warp anchors are not supported", {
       sourceMapId = sourceMap.mapId,
       sourceWarpId = warp.index,
@@ -102,7 +108,6 @@ function WarpSystem.resolveDestination(loader, sourceMap, warp)
     destinationWarp = destinationWarp,
     fieldX = destinationWarp.x,
     fieldZ = destinationWarp.z,
-    warpYHint = hintY,
     surfaceId = sample.surfaceId,
     worldY = sample.worldY,
     suppression = {

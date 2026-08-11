@@ -45,7 +45,6 @@ Schema.ENUMS = {
   },
   jump_distance = { "zero", "near", "far" },
   text_pad = { "none", "zero", "space" },
-  dialogue_style = { "npc", "system" },
   say_wait = { "button" },
   timing_profile = { "hgss" },
   movement_scope = { "environment", "actors" },
@@ -357,18 +356,16 @@ Schema.OPERATIONS = {
   say = {
     fields = {
       message = { type = "message", required = true },
-      style = { type = "enum:dialogue_style", default = "npc" },
       wait = { type = "enum:say_wait", default = "button" },
       close = { type = "boolean", default = true },
       timingProfile = { type = "enum:timing_profile", default = "hgss" },
       bindings = { type = "bindings", default = {} },
     },
   },
-  open_message = { fields = { style = { type = "enum:dialogue_style", default = "npc" } } },
+  open_message = { fields = {} },
   message = {
     fields = {
       message = { type = "message", required = true },
-      style = { type = "enum:dialogue_style", default = "npc" },
       waitForPrint = { type = "boolean", default = true },
       bindings = { type = "bindings", default = {} },
     },
@@ -785,13 +782,13 @@ Schema.CONSTRUCTORS = {
       {
         signature = "S.say(spec)",
         canonical = "op=say",
-        notes = 'spec={message,style="npc",wait="button",close=true,timingProfile="hgss",bindings={}}.',
+        notes = 'spec={message,wait="button",close=true,timingProfile="hgss",bindings={}}.',
       },
-      { signature = "S.openMessage(spec)", canonical = "op=open_message", notes = 'spec={style="npc"}.' },
+      { signature = "S.openMessage(spec)", canonical = "op=open_message", notes = "spec optional." },
       {
         signature = "S.message(spec)",
         canonical = "op=message",
-        notes = 'spec={message,style="npc",waitForPrint=true,bindings={}}; generated scripts emit waitForPrint explicitly.',
+        notes = "spec={message,waitForPrint=true,bindings={}}; generated scripts emit waitForPrint explicitly.",
       },
       { signature = "S.waitInput(spec)", canonical = "op=wait_input", notes = "spec={buttons={a,b},allowDpad=false}." },
       {

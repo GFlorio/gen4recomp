@@ -43,8 +43,9 @@ end
 -- The cache class version: bumps whenever emitted output or the compiled
 -- graph shape changes, so stale caches are always regenerated. v4: canonical
 -- raw-table emission, retained region-terminal gotos, and the multi-step
--- MovePersonFacing lowering.
-ScriptCompiler.COMPILER_VERSION = "script-compiler-v4"
+-- MovePersonFacing lowering. v5: message ops no longer emit the ignored
+-- `style` field.
+ScriptCompiler.COMPILER_VERSION = "script-compiler-v5"
 
 -- The public resource id for one script index : the
 -- curated ids live in the data manifest; standard-script members resolve

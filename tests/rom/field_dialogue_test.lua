@@ -51,8 +51,6 @@ local function runMessage(version, bankId, messageId)
   local handle = controller:open({
     id = string.format("target-%d-%d", bankId, messageId),
     message = formatted,
-    style = "field",
-    modal = true,
     allowCancel = false,
     metadata = { bankId = bankId, messageId = messageId },
   })

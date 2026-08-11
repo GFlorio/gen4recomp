@@ -38,7 +38,6 @@ return S.script({
       message = "msg.hgss.0546.00000",
       op = "message",
       provenance = { offsets = { [1] = 21 }, opcodes = { [1] = 45 } },
-      style = "npc",
       waitForPrint = true,
     },
     { erase = true, op = "close_message", provenance = { offsets = { [1] = 24 }, opcodes = { [1] = 53 } } },

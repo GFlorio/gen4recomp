@@ -16,8 +16,15 @@ local BinaryReader = require("libs.rom.src.BinaryReader")
 local PermissionGrid = {}
 PermissionGrid.__index = PermissionGrid
 
+-- Byte size of one permission grid (32x32 two-byte records). Exported at this
+-- owner boundary: the digest writers (romdump MapCacheWriter) and the
+-- cache-class readiness checks reference it instead of repeating 2048.
+-- romdump's raw-side LandData keeps its own PERMISSIONS_SIZE for the ROM
+-- format boundary; the two are the same value by contract, not one shared
+-- constant (a ROM and a cache format must not be collapsed).
+PermissionGrid.SIZE = 0x800
+
 local WIDTH, HEIGHT = 32, 32
-local SIZE = 0x800
 local HARD_BLOCK_FLAG = 0x80
 
 local function finiteInteger(value)
@@ -30,12 +37,12 @@ end
 
 function PermissionGrid.decode(bytes, context)
   assert(type(bytes) == "string", "PermissionGrid.decode requires a string")
-  if #bytes ~= SIZE then
+  if #bytes ~= PermissionGrid.SIZE then
     return nil,
       Errors.new(
         "PERMISSION_BAD_SIZE",
-        "permission section must be " .. SIZE .. " bytes, got " .. #bytes,
-        { size = #bytes, expected = SIZE, source = context }
+        "permission section must be " .. PermissionGrid.SIZE .. " bytes, got " .. #bytes,
+        { size = #bytes, expected = PermissionGrid.SIZE, source = context }
       )
   end
   return setmetatable({

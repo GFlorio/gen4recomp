@@ -42,12 +42,14 @@ end
 --
 -- love.filesystem.mount accepts FileData (11.0+), so arbitrary-path archives
 -- never touch disk.
-local MOUNT_POINT = "g4-romzip"
+-- The mount point is exported at this owner boundary (the module that mounts);
+-- the test suite references it to observe leaked mounts.
+RomSource.MOUNT_POINT = "g4-romzip"
 
 local function findNdsCandidate(zipBytes, zipName, versions)
   local fd = love.filesystem.newFileData(zipBytes, "romzip.zip")
   love.filesystem.unmount(fd) -- clear any stale mount from a prior import
-  if not love.filesystem.mount(fd, MOUNT_POINT) then
+  if not love.filesystem.mount(fd, RomSource.MOUNT_POINT) then
     return nil, Errors.new("ZIP_MOUNT_FAILED", "could not read zip: " .. zipName, { name = zipName })
   end
 
@@ -68,7 +70,7 @@ local function findNdsCandidate(zipBytes, zipName, versions)
           if not bytes then
             Errors.raise("ZIP_READ_FAILED", "could not read .nds entry: " .. full, { name = zipName, entry = full })
           end
-          local candidate = RomSource.fromString(bytes, zipName .. ":" .. full:sub(#MOUNT_POINT + 2))
+          local candidate = RomSource.fromString(bytes, zipName .. ":" .. full:sub(#RomSource.MOUNT_POINT + 2))
           if versions.forSha1(candidate:sha1()) then
             if fallback then
               fallback:release()
@@ -82,7 +84,7 @@ local function findNdsCandidate(zipBytes, zipName, versions)
         end
       end
     end
-    walk(MOUNT_POINT)
+    walk(RomSource.MOUNT_POINT)
     found = found or fallback
   end)
   love.filesystem.unmount(fd)

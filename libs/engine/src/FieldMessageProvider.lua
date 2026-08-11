@@ -220,6 +220,7 @@ end
 function FieldMessageProvider:dispose()
   self._banks = {}
   self._order = {}
+  self._stats = { loads = 0, hits = 0, disposals = 0 }
 end
 
 -- Converts display text into glyph-kind tokens for substitution contexts such

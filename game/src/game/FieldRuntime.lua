@@ -72,8 +72,6 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field cancelKeys table<string, boolean>?
 ---@field saveFs SaveFs?
 ---@field presentation boolean
----@field mapDraws table[]
----@field buildingDraws table[]
 ---@field scriptHosts FieldRuntimeScriptHosts?
 local FieldRuntime = {}
 FieldRuntime.__index = FieldRuntime
@@ -301,7 +299,6 @@ function FieldRuntime:_load()
     self.playerVisual = FieldPlayerVisual.new({
       player = self.player,
       spriteId = self.avatar.spriteId,
-      visualDef = self.avatarAsset.visual,
     })
 
     -- Warp resolution: ordinary warp records follow WarpSystem; scripted
@@ -326,7 +323,6 @@ function FieldRuntime:_load()
           destinationWarp = warp,
           fieldX = warp.x,
           fieldZ = warp.z,
-          warpYHint = 0,
           surfaceId = sample.surfaceId,
           worldY = sample.worldY,
           suppression = {
@@ -585,7 +581,6 @@ function FieldRuntime:_swapMap(resolution, facing)
   self.playerVisual = FieldPlayerVisual.new({
     player = player,
     spriteId = self.avatar.spriteId,
-    visualDef = self.avatarAsset.visual,
   })
   self.session.playerVisual = self.playerVisual
   self.camera = camera

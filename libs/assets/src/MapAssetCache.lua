@@ -1,7 +1,7 @@
--- Readiness and invalidation for the derived map-asset cache. This cache has its
--- own format version, fully independent of the raw ROM dump: changing it may
--- rebuild derived maps but must never disturb rom-dump.complete, romfs/, or the
--- raw dump indexes. A map is ready only when its completion marker matches
+-- Readiness for the derived map-asset cache. This cache has its own format
+-- version, fully independent of the raw ROM dump: changing it may rebuild
+-- derived maps but must never disturb rom-dump.complete, romfs/, or the raw
+-- dump indexes. A map is ready only when its completion marker matches
 -- exactly and every artifact it references is present and loadable, so a
 -- partial or stale build never reads as complete. Paths are cache-relative; all
 -- IO goes through a CacheFs (which confines every write to the version subtree).
@@ -10,9 +10,11 @@ local MapAssetCache = {}
 
 local Errors = require("libs.rom.src.Errors")
 local Validate = require("libs.assets.src.Validate")
+local PermissionGrid = require("libs.assets.src.PermissionGrid")
 
 MapAssetCache.FORMAT = "map-cache-v5"
 MapAssetCache.SCENE_SCHEMA = "g4-map-scene-v3"
+MapAssetCache.TERRAIN_SCHEMA = "g4-terrain-surfaces-v1"
 
 local DERIVED_DATA = "data/generated"
 local DERIVED_ASSETS = "assets/generated"
@@ -148,8 +150,9 @@ end
 
 -- True only if the marker is exact, the scene carries the current identity
 -- (schema and mapId), scene/dependencies/terrain load, permissions.bin is
--- exactly 2048 bytes, every model descriptor opens, and every referenced asset
--- exists. A malformed scene shape reports not ready rather than raising.
+-- exactly PermissionGrid.SIZE bytes, every model descriptor opens, and every
+-- referenced asset exists. A malformed scene shape reports not ready rather
+-- than raising.
 function MapAssetCache.isReady(cacheFs, mapId, expectedMarker)
   local dir = MapAssetCache.mapDir(mapId)
   local marker = cacheFs:read(dir .. "/complete")
@@ -168,12 +171,12 @@ function MapAssetCache.isReady(cacheFs, mapId, expectedMarker)
     return false
   end
   local terrain = cacheFs:loadLua(MapAssetCache.terrainPath(mapId))
-  if type(terrain) ~= "table" or terrain.schema ~= "g4-terrain-surfaces-v1" then
+  if type(terrain) ~= "table" or terrain.schema ~= MapAssetCache.TERRAIN_SCHEMA then
     return false
   end
 
   local perms = cacheFs:getInfo(dir .. "/permissions.bin")
-  if not perms or perms.type ~= "file" or perms.size ~= 2048 then
+  if not perms or perms.type ~= "file" or perms.size ~= PermissionGrid.SIZE then
     return false
   end
 
@@ -192,13 +195,13 @@ function MapAssetCache.isReady(cacheFs, mapId, expectedMarker)
   for _, cell in ipairs(scene.neighbors) do
     if type(cell.collision) == "table" and cell.collision.file then
       local info = cacheFs:getInfo(cell.collision.file)
-      if not info or info.type ~= "file" or info.size ~= 2048 then
+      if not info or info.type ~= "file" or info.size ~= PermissionGrid.SIZE then
         return false
       end
     end
     if type(cell.terrain) == "table" and cell.terrain.file then
       local neighborTerrain = cacheFs:loadLua(cell.terrain.file)
-      if type(neighborTerrain) ~= "table" or neighborTerrain.schema ~= "g4-terrain-surfaces-v1" then
+      if type(neighborTerrain) ~= "table" or neighborTerrain.schema ~= MapAssetCache.TERRAIN_SCHEMA then
         return false
       end
     end
@@ -208,27 +211,6 @@ end
 
 function MapAssetCache.dependencies(cacheFs, mapId)
   return cacheFs:loadLua(MapAssetCache.mapDir(mapId) .. "/dependencies.lua")
-end
-
-function MapAssetCache.invalidateMap(cacheFs, mapId)
-  cacheFs:removeTree(MapAssetCache.mapDir(mapId))
-  return true
-end
-
--- Remove all derived subtrees, never the raw dump. Asserts it targets only the
--- generated roots so a refactor can't point it at rom-dump.complete or romfs/.
-function MapAssetCache.invalidateAllDerived(cacheFs)
-  local derivedPaths = {
-    DERIVED_DATA .. "/maps",
-    DERIVED_DATA .. "/models",
-    MapAssetCache.worldPath(),
-    DERIVED_ASSETS,
-  }
-  for _, root in ipairs(derivedPaths) do
-    assert(root:find("generated", 1, true), "derived root must live under a generated subtree")
-    cacheFs:removeTree(root)
-  end
-  return true
 end
 
 return MapAssetCache

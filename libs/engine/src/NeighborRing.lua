@@ -15,6 +15,7 @@
 
 local Matrix4 = require("libs.math.src.Matrix4")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
+local DsLighting = require("libs.engine.src.DsLighting")
 
 local NeighborRing = {}
 
@@ -25,12 +26,10 @@ local function materialsById(list, pool)
   local byId = {}
   for _, m in ipairs(list or {}) do
     local wrap = m.wrap or { x = "clamp", y = "clamp" }
-    local d = m.diffuse or { r = 255, g = 255, b = 255, a = 255 }
     byId[m.id] = {
       id = m.id,
       name = m.name,
       image = pool:imageFor(m.texture, wrap.x, wrap.y),
-      diffuse = { d.r / 255, d.g / 255, d.b / 255, d.a / 255 },
     }
   end
   return byId
@@ -71,7 +70,7 @@ local function buildRing(pool, descriptors)
         alphaClass = batch.alphaClass or "opaque",
         cullMode = batch.cullMode or "back",
         alphaCutoff = 0.5 / 255,
-        polygonAlpha = batch.polygonAlpha ~= nil and (batch.polygonAlpha / 31) or 1.0,
+        polygonAlpha = batch.polygonAlpha ~= nil and (batch.polygonAlpha / DsLighting.RGB5_MAX) or 1.0,
         polygonMode = batch.polygonMode or "modulation",
         lightMask = batch.lightMask or 0,
         polygonId = batch.polygonId or 0,

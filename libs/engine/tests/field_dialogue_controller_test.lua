@@ -47,8 +47,6 @@ local function request(id, message, allowCancel)
   return {
     id = id,
     message = message,
-    style = "default",
-    modal = true,
     allowCancel = allowCancel == true,
   }
 end

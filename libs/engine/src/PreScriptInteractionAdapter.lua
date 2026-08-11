@@ -39,7 +39,7 @@ local SUBSTITUTION_CONTROLS = {
   playerName = PLAYER_NAME_CONTROL,
 }
 
-local UNMAPPED_RELEASE_TEXT = "Nothing is wired here yet."
+local UNMAPPED_INTERACTION_TEXT = "Nothing is wired here yet."
 
 ---@class PreScriptInteractionAdapterOptions
 ---@field dialogue FieldDialogueController
@@ -121,7 +121,7 @@ function PreScriptInteractionAdapter:_formatMessage(fixture, bankId, messageId)
   local bank, bankErr = self.provider:acquireBank(bankId)
   if not bank then
     Errors.raise(
-      bankErr and bankErr.code or "MESSAGE_BANK_MISSING",
+      bankErr and bankErr.code or FieldMessageProvider.MESSAGE_BANK_MISSING,
       bankErr and bankErr.message or "message bank " .. tostring(bankId) .. " is unavailable",
       { bankId = bankId, cause = bankErr and bankErr.context or nil }
     )
@@ -130,7 +130,7 @@ function PreScriptInteractionAdapter:_formatMessage(fixture, bankId, messageId)
   if not template then
     self.provider:releaseBank(bankId)
     Errors.raise(
-      templateErr and templateErr.code or "MESSAGE_ID_OUT_OF_RANGE",
+      templateErr and templateErr.code or FieldMessageProvider.MESSAGE_ID_OUT_OF_RANGE,
       templateErr and templateErr.message or "message " .. tostring(messageId) .. " not in bank " .. tostring(bankId),
       { bankId = bankId, messageId = messageId, cause = templateErr and templateErr.context or nil }
     )
@@ -161,22 +161,20 @@ function PreScriptInteractionAdapter:_openRequest(id, message, metadata)
   return self.dialogue:open({
     id = id,
     message = message,
-    style = "field",
-    modal = true,
     allowCancel = false,
     metadata = metadata,
   })
 end
 
--- Unmapped behavior: a compact project-owned message (UNMAPPED_RELEASE_TEXT)
+-- Unmapped behavior: a compact project-owned message (UNMAPPED_INTERACTION_TEXT)
 -- shown through the same dialogue path so input ownership stays uniform.
 function PreScriptInteractionAdapter:_openUnmapped(intent)
   local key = fixtureKey(intent)
-  local tokens = FieldMessageText.parse(UNMAPPED_RELEASE_TEXT, self.fontDef, { eos = false })
+  local tokens = FieldMessageText.parse(UNMAPPED_INTERACTION_TEXT, self.fontDef, { eos = false })
   self:_openRequest(requestIdFor(key), {
     bankId = nil,
     messageId = nil,
-    text = UNMAPPED_RELEASE_TEXT,
+    text = UNMAPPED_INTERACTION_TEXT,
     tokens = tokens,
     hadUnresolvedSubstitutions = false,
   }, { interactionIntent = copyIntent(intent) })

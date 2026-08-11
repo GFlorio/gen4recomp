@@ -117,7 +117,6 @@ return S.script({
       message = { female = "msg.hgss.0543.00020", male = "msg.hgss.0543.00019", text = "gendered_message" },
       op = "message",
       provenance = { offsets = { [1] = 1753 }, opcodes = { [1] = 132 } },
-      style = "npc",
       waitForPrint = true,
     },
     {
@@ -177,7 +176,6 @@ return S.script({
       message = "msg.hgss.0543.00021",
       op = "message",
       provenance = { offsets = { [1] = 1814 }, opcodes = { [1] = 45 } },
-      style = "npc",
       waitForPrint = true,
     },
     { erase = true, op = "close_message", provenance = { offsets = { [1] = 1817 }, opcodes = { [1] = 53 } } },

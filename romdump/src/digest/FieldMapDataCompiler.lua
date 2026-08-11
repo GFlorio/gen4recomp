@@ -62,7 +62,7 @@ local function compileMap(romFs, map, source, sha1hex, hashLua)
     eventMemberSha1 = memberSha1,
   }
   local field = {
-    schema = "g4-field-map-v1",
+    schema = FieldMapDataCache.FIELD_SCHEMA,
     mapId = map.id,
     mapSymbol = map.symbol,
     cameraType = map.cameraType,

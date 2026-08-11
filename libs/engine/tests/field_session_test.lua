@@ -2,7 +2,6 @@
 -- and that the camera consumes the player's continuous 3D target.
 
 local Assert = require("tests.support.Assert")
-local FieldActorFixture = require("tests.support.FieldActorFixture")
 local FieldInput = require("libs.engine.src.FieldInput")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldPlayerVisual = require("libs.engine.src.FieldPlayerVisual")
@@ -786,7 +785,6 @@ function T.a_two_tile_walk_keeps_one_phase_across_the_session_ticks()
   local visual = FieldPlayerVisual.new({
     player = player,
     spriteId = 0,
-    visualDef = FieldActorFixture.visual(0),
   })
   local camera = { updateFixed = function() end }
   local session = FieldSession.new({

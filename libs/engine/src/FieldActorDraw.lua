@@ -14,6 +14,7 @@
 local Errors = require("libs.rom.src.Errors")
 local FieldActorPose = require("libs.engine.src.FieldActorPose")
 local Matrix4 = require("libs.math.src.Matrix4")
+local DsLighting = require("libs.engine.src.DsLighting")
 
 local FieldActorDraw = {}
 
@@ -74,7 +75,7 @@ function FieldActorDraw.item(record, entry, partIndex)
     billboardProjection = isBillboard,
     alphaClass = part.alphaClass,
     cullMode = polygon.cullMode,
-    polygonAlpha = polygon.polygonAlpha / 31,
+    polygonAlpha = polygon.polygonAlpha / DsLighting.RGB5_MAX,
     polygonMode = polygon.polygonMode,
     lightMask = polygon.lightMask,
     polygonId = polygon.polygonId,

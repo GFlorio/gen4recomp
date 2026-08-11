@@ -116,9 +116,9 @@ Constructors return ordinary serializable Lua tables. Direct table form is alway
 
 | Signature | Canonical | Notes |
 |---|---|---|
-| `S.say(spec)` | `op=say` | spec={message,style="npc",wait="button",close=true,timingProfile="hgss",bindings={}}. |
-| `S.openMessage(spec)` | `op=open_message` | spec={style="npc"}. |
-| `S.message(spec)` | `op=message` | spec={message,style="npc",waitForPrint=true,bindings={}}; generated scripts emit waitForPrint explicitly. |
+| `S.say(spec)` | `op=say` | spec={message,wait="button",close=true,timingProfile="hgss",bindings={}}. |
+| `S.openMessage(spec)` | `op=open_message` | spec optional. |
+| `S.message(spec)` | `op=message` | spec={message,waitForPrint=true,bindings={}}; generated scripts emit waitForPrint explicitly. |
 | `S.waitInput(spec)` | `op=wait_input` | spec={buttons={a,b},allowDpad=false}. |
 | `S.waitInputOrTicks(spec)` | `op=wait_input_or_ticks` | spec={ticks,buttons={"a","b"},allowDpad=true,turnPlayerOnDpad=false}. |
 | `S.closeMessage(spec)` | `op=close_message` | spec={erase=true}. |
@@ -792,7 +792,6 @@ No fields.
 | `key` | string |  |  |
 | `message` | message | yes |  |
 | `provenance` | source_provenance |  |  |
-| `style` | enum:dialogue_style |  | `npc` |
 | `waitForPrint` | boolean |  | `true` |
 
 ### `move`
@@ -825,7 +824,6 @@ No fields.
 |---|---|---|---|
 | `key` | string |  |  |
 | `provenance` | source_provenance |  |  |
-| `style` | enum:dialogue_style |  | `npc` |
 
 ### `play_cry`
 
@@ -925,7 +923,6 @@ No fields.
 | `key` | string |  |  |
 | `message` | message | yes |  |
 | `provenance` | source_provenance |  |  |
-| `style` | enum:dialogue_style |  | `npc` |
 | `timingProfile` | enum:timing_profile |  | `hgss` |
 | `wait` | enum:say_wait |  | `button` |
 
@@ -1188,8 +1185,6 @@ No fields.
 `button`: a, b
 
 `compare_operator`: lt, eq, gt, le, ge, ne
-
-`dialogue_style`: npc, system
 
 `direction`: north, south, west, east
 

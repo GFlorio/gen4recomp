@@ -22,18 +22,16 @@ local Matrix4 = require("libs.math.src.Matrix4")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
 local Errors = require("libs.rom.src.Errors")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
+local DsLighting = require("libs.engine.src.DsLighting")
 
 local MapSceneLoader = {}
 
 local function materialRuntime(record, pool)
-  local d = record.diffuse or { r = 255, g = 255, b = 255, a = 255 }
   local wrap = record.wrap or { x = "clamp", y = "clamp" }
   return {
     id = record.id,
     name = record.name,
     image = pool:imageFor(record.texture, wrap.x, wrap.y),
-    diffuse = { d.r / 255, d.g / 255, d.b / 255, d.a / 255 },
-    flip = record.flip or { x = false, y = false },
   }
 end
 
@@ -99,7 +97,7 @@ local function buildScene(pool, cacheFs, scene)
       alphaClass = batch.alphaClass or "opaque",
       cullMode = batch.cullMode or "back",
       alphaCutoff = 0.5 / 255,
-      polygonAlpha = batch.polygonAlpha ~= nil and (batch.polygonAlpha / 31) or 1.0,
+      polygonAlpha = batch.polygonAlpha ~= nil and (batch.polygonAlpha / DsLighting.RGB5_MAX) or 1.0,
       polygonMode = batch.polygonMode or "modulation",
       lightMask = batch.lightMask or 0,
       polygonId = batch.polygonId or 0,
@@ -178,7 +176,8 @@ local function buildScene(pool, cacheFs, scene)
     end
   end
 
-  -- Collision from permissions.bin (2048 bytes), around the cell origin.
+  -- Collision from permissions.bin (PermissionGrid.SIZE bytes), around the
+  -- cell origin.
   local permBytes = assert(cacheFs:read(scene.collision.file), "missing permissions")
   local grid = assert(PermissionGrid.decode(permBytes, scene.mapSymbol))
   local collision = CollisionGrid.new(grid, {
@@ -225,10 +224,10 @@ end
 ---@param opts { graphics?: love.Graphics? }?
 ---@return table
 function MapSceneLoader.load(cacheFs, scene, opts)
-  if not scene or scene.schema ~= "g4-map-scene-v3" then
+  if not scene or scene.schema ~= MapAssetCache.SCENE_SCHEMA then
     Errors.raise(
       "MAP_SCENE_UNSUPPORTED_SCHEMA",
-      "expected g4-map-scene-v3, got " .. tostring(scene and scene.schema or nil),
+      "expected " .. MapAssetCache.SCENE_SCHEMA .. ", got " .. tostring(scene and scene.schema or nil),
       { schema = scene and scene.schema or nil }
     )
   end

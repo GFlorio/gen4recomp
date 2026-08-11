@@ -59,7 +59,9 @@ local WarpSystem = require("libs.engine.src.WarpSystem")
 local FieldSession = {}
 FieldSession.__index = FieldSession
 
-FieldSession.FIXED_DT = 1 / 30
+-- The DS field cadence: 30 fixed ticks per second, owned here.
+FieldSession.FIXED_HZ = 30
+FieldSession.FIXED_DT = 1 / FieldSession.FIXED_HZ
 FieldSession.MAX_CATCH_UP_TICKS = 5
 
 -- Float slack so a render delta that lands exactly on a tick boundary does

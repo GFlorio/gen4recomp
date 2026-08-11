@@ -20,11 +20,9 @@ local Errors = require("libs.rom.src.Errors")
 ---@field _pageIndex integer
 ---@field _revealed integer
 ---@field _revealTicks integer
----@field _tick integer
 ---@field _waitTicks integer
 ---@field _terminal { kind: string, result: FieldDialogueController.Result }?
 ---@field _pendingClose { kind: string, error: any }?
----@field _dispatching boolean
 local FieldDialogueController = {}
 FieldDialogueController.__index = FieldDialogueController
 
@@ -121,11 +119,9 @@ function FieldDialogueController.new(opts)
     _pageIndex = 0,
     _revealed = 0,
     _revealTicks = 0,
-    _tick = 0,
     _waitTicks = 0,
     _terminal = nil,
     _pendingClose = nil,
-    _dispatching = false,
   }, FieldDialogueController)
 end
 
@@ -221,13 +217,11 @@ function FieldDialogueController:_dispatch()
   local callback = terminal.kind == "complete" and self._handle._onComplete
     or terminal.kind == "cancel" and self._handle._onCancel
     or self._handle._onError
-  self._dispatching = true
   local ok, err = pcall(function()
     if callback then
       callback(terminal.result)
     end
   end)
-  self._dispatching = false
   if not ok then
     error(err)
   end
@@ -274,7 +268,6 @@ function FieldDialogueController:open(request)
   self._revealed = 0
   self._revealTicks = 0
   self._waitTicks = 0
-  self._tick = 0
   self._terminal = nil
   self._pendingClose = nil
   if not ok then
@@ -383,7 +376,6 @@ function FieldDialogueController:step(snapshot)
     return nil
   end
   snapshot = snapshot or {}
-  self._tick = self._tick + 1
 
   if self._request.allowCancel and snapshot.cancelPressed and self._state ~= "CLOSING" then
     self._state = "CLOSED"
@@ -462,8 +454,6 @@ end
 ---@class FieldDialogueController.Request
 ---@field id string
 ---@field message FieldMessageProvider.FormattedMessage
----@field style string
----@field modal boolean
 ---@field allowCancel boolean
 ---@field metadata table?
 

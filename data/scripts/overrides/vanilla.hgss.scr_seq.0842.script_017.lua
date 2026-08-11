@@ -37,7 +37,6 @@ return S.script({
       message = { bank = { id = "VAR_SPECIAL_RESULT", value = "var" }, id = 0, message = "external" },
       op = "message",
       provenance = { offsets = { [1] = 4322 }, opcodes = { [1] = 440 } },
-      style = "npc",
       waitForPrint = true,
     },
     {
@@ -65,7 +64,6 @@ return S.script({
       message = { bank = { id = "VAR_SPECIAL_RESULT", value = "var" }, id = 1, message = "external" },
       op = "message",
       provenance = { offsets = { [1] = 4372 }, opcodes = { [1] = 440 } },
-      style = "npc",
       waitForPrint = true,
     },
     { erase = true, op = "close_message", provenance = { offsets = { [1] = 4378 }, opcodes = { [1] = 53 } } },
@@ -255,7 +253,6 @@ return S.script({
       message = { bank = { id = "VAR_SPECIAL_RESULT", value = "var" }, id = 2, message = "external" },
       op = "message",
       provenance = { offsets = { [1] = 4590 }, opcodes = { [1] = 440 } },
-      style = "npc",
       waitForPrint = true,
     },
     {
@@ -279,7 +276,6 @@ return S.script({
       message = { bank = { id = "VAR_SPECIAL_RESULT", value = "var" }, id = 5, message = "external" },
       op = "message",
       provenance = { offsets = { [1] = 4610 }, opcodes = { [1] = 440 } },
-      style = "npc",
       waitForPrint = true,
     },
     {

@@ -67,7 +67,6 @@ return S.script({
       message = "msg.hgss.0543.00007",
       op = "message",
       provenance = { offsets = { [1] = 611 }, opcodes = { [1] = 45 } },
-      style = "npc",
       waitForPrint = true,
     },
     {
@@ -91,7 +90,6 @@ return S.script({
       message = "msg.hgss.0543.00008",
       op = "message",
       provenance = { offsets = { [1] = 627 }, opcodes = { [1] = 45 } },
-      style = "npc",
       waitForPrint = true,
     },
     {
@@ -143,7 +141,6 @@ return S.script({
       message = "msg.hgss.0543.00010",
       op = "message",
       provenance = { offsets = { [1] = 689 }, opcodes = { [1] = 45 } },
-      style = "npc",
       waitForPrint = true,
     },
     { erase = true, op = "close_message", provenance = { offsets = { [1] = 692 }, opcodes = { [1] = 53 } } },
@@ -158,7 +155,6 @@ return S.script({
       message = "msg.hgss.0543.00011",
       op = "message",
       provenance = { offsets = { [1] = 704 }, opcodes = { [1] = 45 } },
-      style = "npc",
       waitForPrint = true,
     },
     { erase = true, op = "close_message", provenance = { offsets = { [1] = 707 }, opcodes = { [1] = 53 } } },
@@ -248,7 +244,6 @@ return S.script({
       message = "msg.hgss.0543.00009",
       op = "message",
       provenance = { offsets = { [1] = 793 }, opcodes = { [1] = 45 } },
-      style = "npc",
       waitForPrint = true,
     },
     {

@@ -106,7 +106,6 @@ function T.direct_table_equivalents_validate_identically()
       {
         op = "say",
         message = "msg.hgss.0543.00097",
-        style = "npc",
         wait = "button",
         close = true,
         timingProfile = "hgss",
@@ -150,7 +149,7 @@ function T.rejects_unknown_operation()
 end
 
 function T.rejects_step_without_op()
-  invalidCode("SCRIPT_SCHEMA_INVALID", { api = 1, id = "x", steps = { { style = "npc" } } })
+  invalidCode("SCRIPT_SCHEMA_INVALID", { api = 1, id = "x", steps = { { message = "msg.hgss.0543.00097" } } })
 end
 
 function T.rejects_non_table_step()
@@ -378,7 +377,6 @@ function T.constructor_and_direct_table_forms_print_identically()
       {
         op = "say",
         message = "msg.hgss.0543.00097",
-        style = "npc",
         wait = "button",
         close = true,
         timingProfile = "hgss",

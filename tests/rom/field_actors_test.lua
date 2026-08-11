@@ -108,7 +108,6 @@ function T.compiled_visuals_cover_the_target_maps(romFs)
   Assert.equal(aide.render.frameHeight, 32)
   Assert.equal(aide.render.billboardMode, "cameraFacingFull")
   Assert.isFalse(aide.render.mirrorEastWest)
-  Assert.equal(aide.anchor.y, manifest.placement.modelYOffset)
   -- Four directions, each a four-frame loop of four ticks.
   for _, direction in ipairs(manifest.directionOrder) do
     local walk = aide.directions[direction].walk

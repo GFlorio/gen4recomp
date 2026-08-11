@@ -25,7 +25,7 @@ local function persist(tx, bundle)
       { mapId = mapId }
     )
   end
-  if field.schema ~= "g4-field-map-v1" or field.mapId ~= mapId then
+  if field.schema ~= FieldMapDataCache.FIELD_SCHEMA or field.mapId ~= mapId then
     Errors.raise(
       "FIELD_MAP_DATA_CACHE_STALE",
       "field-map readback has the wrong identity",

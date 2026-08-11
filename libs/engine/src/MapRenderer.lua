@@ -21,6 +21,7 @@ local RenderQueue = require("libs.engine.src.RenderQueue")
 local BillboardTransform = require("libs.engine.src.BillboardTransform")
 local Matrix3 = require("libs.math.src.Matrix3")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
+local DsLighting = require("libs.engine.src.DsLighting")
 
 ---@class MapRenderer
 ---@field _graphics love.Graphics
@@ -77,12 +78,12 @@ local CUTOUT_EPSILON = 0.5 / 255
 -- matches the previous direct-to-screen output exactly.
 local BG_COLOR = { 0.08, 0.09, 0.12, 1 }
 
--- Rear-plane entry for the polygon-ID/depth target: the sentinel ID 255 at a
--- depth beyond the far plane. The green channel holds linear eye-space depth, so
--- the rear plane must clear to a large value for background neighbours to read as
--- farther than any geometry -- that is what outlines silhouettes against the
--- background (GBATEK: at the screen borders edges are resolved against the rear
--- plane's polygon_id).
+-- Rear-plane entry for the polygon-ID/depth target: the rear-plane sentinel
+-- (MapRenderer.REAR_PLANE_ID) at a depth beyond the far plane. The green
+-- channel holds linear eye-space depth, so the rear plane must clear to a
+-- large value for background neighbours to read as farther than any geometry --
+-- that is what outlines silhouettes against the background (GBATEK: at the
+-- screen borders edges are resolved against the rear plane's polygon_id).
 local ID_CLEAR = { 1, 1e9, 0, 1 }
 
 -- DS framebuffer height. Edge marking is one hardware pixel wide, so the
@@ -90,6 +91,14 @@ local ID_CLEAR = { 1, 1e9, 0, 1 }
 -- its DS-relative weight instead of thinning as the window grows.
 local DS_NATIVE_HEIGHT = 192
 local MAX_EDGE_RADIUS = 8
+
+-- Polygon-ID domain (GBATEK POLYGON_ATTR polygon ID, 6-bit 0..63) and the
+-- sentinels stamped into the ID/depth target: 254 marks translucent fragments
+-- (clear of the real IDs and of the rear plane), 255 is the rear plane and the
+-- wireframe pass. The shader normalizes by the rear-plane value (id/255;
+-- map.glsl documents it).
+MapRenderer.MAX_POLYGON_ID = 63
+MapRenderer.REAR_PLANE_ID = 255
 
 -- Polygon ID stamped into the ID/depth target by translucent fragments. It makes
 -- translucent geometry OCCLUDE the opaque geometry behind it for edge marking --
@@ -102,8 +111,8 @@ local TRANSLUCENT_SENTINEL_ID = 254
 ---@param opts { edgeMarking?: { colors?: number[][], alpha?: number }, graphics?: love.Graphics, readSource?: fun(path: string): string }?
 function MapRenderer.new(opts)
   opts = opts or {}
-  local em = opts.edgeMarking or {}
-  local colors = em.colors
+  local edgeMarking = opts.edgeMarking or {}
+  local colors = edgeMarking.colors
   if not colors then
     colors = {}
     for i = 1, 8 do
@@ -120,7 +129,7 @@ function MapRenderer.new(opts)
   local renderer = setmetatable({
     _graphics = graphics,
     edgeColors = colors,
-    edgeAlpha = em.alpha or 0.5,
+    edgeAlpha = edgeMarking.alpha or 0.5,
     stats = { drawCalls = 0, triangles = 0, meshCount = 0, textureCount = 0 },
   }, MapRenderer)
   -- Shader construction is transactional: a failure while creating the second
@@ -223,14 +232,14 @@ function MapRenderer.lightMaskUniforms(mask)
 end
 
 local function rgb555ToFloat3(packed)
-  local r = (packed % 32) / 31.0
-  local g = (math.floor(packed / 32) % 32) / 31.0
-  local b = (math.floor(packed / 1024) % 32) / 31.0
+  local r = (packed % 32) / DsLighting.RGB5_MAX
+  local g = (math.floor(packed / 32) % 32) / DsLighting.RGB5_MAX
+  local b = (math.floor(packed / 1024) % 32) / DsLighting.RGB5_MAX
   return { r, g, b }
 end
 
 local function fx12ToFloat3(vec)
-  return { vec[1] / 4096.0, vec[2] / 4096.0, vec[3] / 4096.0 }
+  return { vec[1] / DsLighting.FX12_SCALE, vec[2] / DsLighting.FX12_SCALE, vec[3] / DsLighting.FX12_SCALE }
 end
 
 -- Select the active profile record and bind all lighting uniforms. A runtime
@@ -272,8 +281,6 @@ function MapRenderer:_sendLighting(runtime)
   shader:send("u_ambientColor", rgb555ToFloat3(record.ambientRgb555))
   shader:send("u_specularColor", rgb555ToFloat3(record.specularRgb555))
   shader:send("u_emissionColor", rgb555ToFloat3(record.emissionRgb555))
-
-  return record
 end
 
 -- Bind a material's uniforms/texture/cull state, then draw the mesh.
@@ -301,7 +308,7 @@ function MapRenderer:_drawItem(item, viewMatrix, polygonIdOverride, projection)
   shader:send("u_alphaCutoff", item.alphaCutoff or CUTOUT_EPSILON)
   shader:send("u_polygonAlpha", item.polygonAlpha or 1.0)
   shader:send("u_polygonMode", item.polygonMode == "decal" and 1 or 0)
-  shader:send("u_polygonId", polygonIdOverride or (item.polygonId or 255) / 255)
+  shader:send("u_polygonId", polygonIdOverride or (item.polygonId or 0) / MapRenderer.REAR_PLANE_ID)
   shader:send("u_lightMask", MapRenderer.lightMaskUniforms(item.lightMask))
   lg.setMeshCullMode(item.cullMode or "back")
   lg.draw(item.mesh)
@@ -327,7 +334,9 @@ function MapRenderer:_drawWireframe(item, viewMatrix, projection)
   shader:send("u_alphaCutoff", CUTOUT_EPSILON)
   shader:send("u_polygonAlpha", 1.0)
   shader:send("u_polygonMode", 0)
-  shader:send("u_polygonId", 1.0)
+  -- Wireframe polygons stamp the rear-plane sentinel, normalized by the id
+  -- domain exactly like every other id (255/255 == 1.0).
+  shader:send("u_polygonId", MapRenderer.REAR_PLANE_ID / MapRenderer.REAR_PLANE_ID)
   shader:send("u_lightMask", MapRenderer.lightMaskUniforms(item.lightMask))
   item.mesh:setTexture()
   lg.setMeshCullMode(item.cullMode or "back")
@@ -393,7 +402,7 @@ function MapRenderer:draw(runtime, camera, worldDraws, viewport, alpha)
     lg.setBlendMode("alpha")
     self.shader:send("u_view", "column", viewMatrix)
 
-    local activeRecord = self:_sendLighting(runtime)
+    self:_sendLighting(runtime)
     local queue = RenderQueue.build(draws, viewMatrix)
 
     -- Pass 1: opaque, depth test + write.
@@ -415,7 +424,7 @@ function MapRenderer:draw(runtime, camera, worldDraws, viewport, alpha)
     for _, d in ipairs(queue.translucent) do
       lg.setDepthMode(d.depthEqual and "lequal" or "less", d.translucentDepthWrite or false)
       lg.setBlendMode("alpha", "alphamultiply")
-      self:_drawItem(d, viewMatrix, TRANSLUCENT_SENTINEL_ID / 255, projectionFor(d))
+      self:_drawItem(d, viewMatrix, TRANSLUCENT_SENTINEL_ID / MapRenderer.REAR_PLANE_ID, projectionFor(d))
     end
 
     -- Pass 4: wireframe edges (polygon alpha zero). These count as opaque for
@@ -439,8 +448,6 @@ function MapRenderer:draw(runtime, camera, worldDraws, viewport, alpha)
     self.edgeShader:send("u_edgeRadius", MapRenderer.fieldEdgeRadiusPixels(h))
     lg.draw(self.sceneColor, rectangle.x, rectangle.y, 0, rectangle.width / w, rectangle.height / h)
     lg.setShader()
-
-    return activeRecord
   end
 
   -- Capture every caller state the draw modifies, restore the captured values
@@ -455,7 +462,7 @@ function MapRenderer:draw(runtime, camera, worldDraws, viewport, alpha)
   local wireframe = lg.isWireframe()
   local color = { lg.getColor() }
 
-  local ok, result = pcall(doDraw)
+  local ok, err = pcall(doDraw)
 
   lg.setCanvas(canvas)
   lg.setShader(shader)
@@ -466,9 +473,8 @@ function MapRenderer:draw(runtime, camera, worldDraws, viewport, alpha)
   lg.setColor(color[1], color[2], color[3], color[4])
 
   if not ok then
-    error(result)
+    error(err)
   end
-  return result
 end
 
 function MapRenderer:release()

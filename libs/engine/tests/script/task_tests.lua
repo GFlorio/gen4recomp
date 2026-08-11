@@ -390,7 +390,7 @@ T["nonblocking message continues same tick"] = function()
   startForeground(
     h,
     script("test.nonblock", {
-      S.message({ message = "msg.system", style = "system", waitForPrint = false }),
+      S.message({ message = "msg.system", waitForPrint = false }),
       S.setVar({ variable = "VAR_AFTER", value = 1 }),
       S.stop(),
     }),
@@ -407,9 +407,9 @@ T["open close primitives"] = function()
   startForeground(
     h,
     script("test.primitives", {
-      S.openMessage({ style = "npc" }),
+      S.openMessage(),
       S.closeMessage({ erase = true }),
-      S.openMessage({ style = "npc" }),
+      S.openMessage(),
       S.holdMessage(),
       S.stop(),
     }),

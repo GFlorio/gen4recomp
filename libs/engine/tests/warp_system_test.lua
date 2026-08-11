@@ -101,11 +101,43 @@ function T.rejects_dynamic_and_missing_destination_warps()
   }
   local source = runtimeMap(61, 0, 0, {})
   throwsCode("FIELD_DYNAMIC_WARP_UNSUPPORTED", function()
-    WarpSystem.resolveDestination(loader, source, { index = 0, destinationMapId = 60, destinationWarpId = 0x100 })
+    WarpSystem.resolveDestination(loader, source, {
+      index = 0,
+      destinationMapId = 60,
+      destinationWarpId = WarpSystem.DYNAMIC_WARP_SENTINEL,
+    })
   end)
   throwsCode("FIELD_DESTINATION_WARP_UNKNOWN", function()
     WarpSystem.resolveDestination(loader, source, { index = 0, destinationMapId = 60, destinationWarpId = 4 })
   end)
+end
+
+-- A loader failure for the destination map is wrapped into the warp-boundary
+-- code with the warp identity in context; any other loader error propagates
+-- unchanged.
+function T.loader_failure_is_wrapped_with_warp_context()
+  local source = runtimeMap(61, 0, 0, {})
+  local failing = {
+    load = function()
+      Errors.raise("FIELD_MAP_UNKNOWN", "map 60 is missing", { mapId = 60 })
+    end,
+  }
+  local err = Assert.throws(function()
+    WarpSystem.resolveDestination(failing, source, { index = 0, destinationMapId = 60, destinationWarpId = 0 })
+  end)
+  Assert.isTrue(Errors.is(err), "expected structured error")
+  Assert.equal(assert(err).code, "FIELD_DESTINATION_MAP_UNKNOWN")
+  Assert.equal(assert(err).context.destinationMapId, 60)
+
+  local other = {
+    load = function()
+      error("boom")
+    end,
+  }
+  local rawErr = Assert.throws(function()
+    WarpSystem.resolveDestination(other, source, { index = 0, destinationMapId = 60, destinationWarpId = 0 })
+  end)
+  Assert.isTrue(tostring(rawErr):match("boom"), "unexpected loader errors propagate unchanged")
 end
 
 function T.suppression_lasts_until_the_player_leaves_its_coordinate()

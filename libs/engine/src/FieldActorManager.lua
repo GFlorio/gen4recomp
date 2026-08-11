@@ -158,7 +158,6 @@ function FieldActorManager:_instantiate(entry, event)
       mapId = runtimeMap.mapId,
       sourceEvent = event,
       spriteId = spriteId,
-      visualDef = asset.visual,
       solid = event.solid,
       fieldX = event.x,
       fieldZ = event.z,
@@ -200,7 +199,6 @@ end
 
 function FieldActorManager:_destroy(entry, actor)
   actor:clearFacingOverride()
-  actor.visible = false
   entry.actors[actor.actorId] = nil
   entry.byIndex[actor.objectEventId] = nil
   -- Only solid actors ever occupy a cell, and only the exact occupant may
@@ -217,7 +215,6 @@ function FieldActorManager:_destroy(entry, actor)
     end
   end
   self.assets:release(actor.spriteId)
-  actor.visualDef = nil
 end
 
 -- Idempotent for an already-active runtime map, so a transition's overlapping
@@ -321,21 +318,18 @@ function FieldActorManager:step(tick)
   end
 end
 
-function FieldActorManager:drawRecords(alpha)
+function FieldActorManager:drawRecords()
   local records = {}
   for _, entry in pairs(self.maps) do
     for _, actor in ipairs(entry.order) do
       records[#records + 1] = {
         actorId = actor.actorId,
         spriteId = actor.spriteId,
-        visualDef = actor.visualDef,
         world = { x = actor.worldX, y = actor.worldY, z = actor.worldZ },
         facing = actor.facing,
         pose = actor.pose,
         poseTick = actor.poseTick,
-        alpha = 1,
         visible = actor.visible,
-        interpolation = alpha,
       }
     end
   end

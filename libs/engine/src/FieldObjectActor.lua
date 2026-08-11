@@ -12,7 +12,6 @@ local Errors = require("libs.rom.src.Errors")
 ---@field objectEventId integer
 ---@field sourceEvent table
 ---@field spriteId integer
----@field visualDef table?
 ---@field fieldX integer
 ---@field fieldZ integer
 ---@field surfaceId integer
@@ -64,7 +63,6 @@ function FieldObjectActor.new(opts)
     -- The runtime sprite: the zone-event value unless the creator resolved a
     -- variable sprite through the field vars (the source record stays raw).
     spriteId = opts.spriteId or event.spriteId,
-    visualDef = opts.visualDef,
     fieldX = opts.fieldX,
     fieldZ = opts.fieldZ,
     surfaceId = opts.surfaceId,

@@ -1,11 +1,12 @@
--- Defines paths, readiness, and invalidation for lightweight generated field
--- map records. Event changes stay independent from heavy map geometry caches.
+-- Defines paths and readiness for lightweight generated field map records.
+-- Event changes stay independent from heavy map geometry caches.
 
 local FieldMapDataCache = {}
 
 local Validate = require("libs.assets.src.Validate")
 
 FieldMapDataCache.FORMAT = "g4-field-map-cache-v1"
+FieldMapDataCache.FIELD_SCHEMA = "g4-field-map-v1"
 
 -- The event collections the current field-map schema always carries.
 local EVENT_COLLECTIONS = { "background", "objects", "warps", "coordinates" }
@@ -42,7 +43,7 @@ function FieldMapDataCache.isReady(cacheFs, mapId, expectedMarker)
   local dependencies = cacheFs:loadLua(FieldMapDataCache.dependenciesPath(mapId))
   if
     type(field) ~= "table"
-    or field.schema ~= "g4-field-map-v1"
+    or field.schema ~= FieldMapDataCache.FIELD_SCHEMA
     or field.mapId ~= mapId
     or type(dependencies) ~= "table"
   then
@@ -58,10 +59,6 @@ function FieldMapDataCache.isReady(cacheFs, mapId, expectedMarker)
     end
   end
   return true
-end
-
-function FieldMapDataCache.invalidateMap(cacheFs, mapId)
-  cacheFs:removeTree(FieldMapDataCache.mapDir(mapId))
 end
 
 return FieldMapDataCache

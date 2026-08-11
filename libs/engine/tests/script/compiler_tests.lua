@@ -226,7 +226,6 @@ function T.flat_sequence_compiles_to_linear_graph()
   Assert.deepEqual(graph.nodes["path:steps/2"], {
     op = "say",
     message = "msg.hgss.0543.00097",
-    style = "npc",
     wait = "button",
     close = true,
     timingProfile = "hgss",

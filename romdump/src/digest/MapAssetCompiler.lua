@@ -34,7 +34,6 @@ local MapAssetCompiler = {}
 
 local COMPILER_VERSION = "map-compiler-v14"
 local COORDINATE_CONVENTION = "nsbmd-sbc-matrix-16-tile-v3"
-local SCENE_SCHEMA = "g4-map-scene-v3"
 
 local function readMember(narc, alias, memberId)
   local count = narc:memberCount()
@@ -193,7 +192,7 @@ local function _compile(romFs, idOrSymbol)
   }))
   local bdhcSha1 = Hashing.sha1hex(land.bdhcBytes)
   local terrain = {
-    schema = "g4-terrain-surfaces-v1",
+    schema = MapAssetCache.TERRAIN_SCHEMA,
     sourceFormat = decodedTerrain.schema,
     source = {
       landDataMemberId = resolved.landDataMemberId,
@@ -386,7 +385,7 @@ local function _compile(romFs, idOrSymbol)
   local dependencies = {
     cacheFormat = MapAssetCache.FORMAT,
     compilerVersion = COMPILER_VERSION,
-    sceneSchemaVersion = SCENE_SCHEMA,
+    sceneSchemaVersion = MapAssetCache.SCENE_SCHEMA,
     coordinateConventionVersion = COORDINATE_CONVENTION,
     textureDecoderVersion = MaterialCompiler.DECODER_VERSION,
     materialNormalizerVersion = AlphaClassifier.VERSION,
@@ -410,7 +409,7 @@ local function _compile(romFs, idOrSymbol)
   local marker = MapAssetCache.marker(romSha1, mapId, Hashing.hashLua(dependencies))
 
   local scene = {
-    schema = SCENE_SCHEMA,
+    schema = MapAssetCache.SCENE_SCHEMA,
     versionId = romFs:version(),
     mapId = mapId,
     mapSymbol = resolved.map.symbol,

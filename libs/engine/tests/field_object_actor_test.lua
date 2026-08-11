@@ -44,7 +44,6 @@ local function actor(overrides)
   return FieldObjectActor.new({
     mapId = 61,
     sourceEvent = sourceEvent(overrides),
-    visualDef = { spriteId = 99, mapModelId = 266 },
     fieldX = 6,
     fieldZ = 5,
     surfaceId = 0,

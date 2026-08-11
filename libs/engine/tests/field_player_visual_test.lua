@@ -80,7 +80,6 @@ local function visual(subject)
   return FieldPlayerVisual.new({
     player = subject,
     spriteId = 0,
-    visualDef = FieldActorFixture.visual(0),
   })
 end
 
@@ -127,15 +126,15 @@ function T.switching_avatar_restarts_the_pose_clock()
   local presentation = visual(subject)
   subject.motion = "walking"
   presentation:updateFixed()
-  presentation:setAvatar(97, FieldActorFixture.visual(97, { frameCount = 2 }))
+  presentation:setAvatar(97)
   Assert.equal(presentation.spriteId, 97)
   Assert.equal(presentation.poseTick, 0, "a shorter atlas must not be indexed by the old clock")
 end
 
-function T.rejects_an_avatar_without_a_compiled_visual()
+function T.rejects_an_avatar_without_a_compiled_sprite_id()
   local subject = player()
   local err = Assert.throws(function()
-    FieldPlayerVisual.new({ player = subject, spriteId = 0 })
+    FieldPlayerVisual.new({ player = subject })
   end)
   Assert.isTrue(
     Errors.is(err) and err.code == "PLAYER_AVATAR_INVALID",
@@ -187,7 +186,6 @@ function T.sixteen_continuous_ticks_traverse_the_entire_rom_range()
   local presentation = FieldPlayerVisual.new({
     player = subject,
     spriteId = 0,
-    visualDef = def,
   })
   local framesAtTick = {}
   for tick = 1, 16 do

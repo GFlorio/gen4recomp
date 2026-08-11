@@ -20,7 +20,6 @@ local Errors = require("libs.rom.src.Errors")
 ---@field actorId string
 ---@field player FieldPlayer
 ---@field spriteId integer?
----@field visualDef table?
 ---@field pose string
 ---@field poseTick integer
 local FieldPlayerVisual = {}
@@ -34,26 +33,21 @@ function FieldPlayerVisual.new(opts)
     actorId = FieldPlayerVisual.ACTOR_ID,
     player = opts.player,
     spriteId = nil,
-    visualDef = nil,
     pose = "idle",
     poseTick = 0,
     lastFacing = opts.player.facing,
   }, FieldPlayerVisual)
-  self:setAvatar(opts.spriteId, opts.visualDef)
+  self:setAvatar(opts.spriteId)
   return self
 end
 
 -- Switch which compiled graphic presents the player. The pose clock restarts so
 -- a swap cannot display a frame index the new atlas does not have.
-function FieldPlayerVisual:setAvatar(spriteId, visualDef)
-  if type(spriteId) ~= "number" or type(visualDef) ~= "table" then
-    Errors.raise(
-      "PLAYER_AVATAR_INVALID",
-      "the player avatar requires a compiled spriteId and visual definition",
-      { spriteId = spriteId }
-    )
+function FieldPlayerVisual:setAvatar(spriteId)
+  if type(spriteId) ~= "number" then
+    Errors.raise("PLAYER_AVATAR_INVALID", "the player avatar requires a compiled spriteId", { spriteId = spriteId })
   end
-  self.spriteId, self.visualDef = spriteId, visualDef
+  self.spriteId = spriteId
   self.poseTick = 0
 end
 
@@ -89,14 +83,11 @@ function FieldPlayerVisual:drawRecord(alpha)
   return {
     actorId = self.actorId,
     spriteId = self.spriteId,
-    visualDef = self.visualDef,
     world = { x = point.x, y = point.y, z = point.z },
     facing = self.player.facing,
     pose = self.pose,
     poseTick = self.poseTick,
-    alpha = 1,
     visible = true,
-    interpolation = alpha,
   }
 end
 

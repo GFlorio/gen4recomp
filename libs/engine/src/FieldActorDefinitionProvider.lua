@@ -53,7 +53,10 @@ function FieldActorDefinitionProvider:acquire(spriteId)
         { spriteId = spriteId, path = FieldActorCache.visualPath(spriteId) }
       )
     end
-    entry = { spriteId = spriteId, visual = visual, references = 0 }
+    -- The guard above raised for a non-table, so the loaded artifact is a
+    -- valid visual here; the assert narrows the loadLua `table?` for LuaLS.
+    local resident = assert(visual)
+    entry = { spriteId = spriteId, visual = resident, references = 0 }
     self._entries[spriteId] = entry
   end
   entry.references = entry.references + 1

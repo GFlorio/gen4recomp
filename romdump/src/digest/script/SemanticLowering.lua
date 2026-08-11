@@ -322,7 +322,6 @@ local HANDLERS = {
     return {
       op = "message",
       message = messageRef(operandValue(ins.operands[1])),
-      style = "system",
       waitForPrint = false,
     }
   end,
@@ -333,7 +332,6 @@ local HANDLERS = {
     return {
       op = "message",
       message = varRef(ins.operands[1]),
-      style = "system",
       waitForPrint = false,
     }
   end,
@@ -649,7 +647,6 @@ local HANDLERS = {
     return {
       op = "message",
       message = { message = "external", bank = varRef(ins.operands[1]), id = varRef(ins.operands[2]) },
-      style = "system",
       waitForPrint = false,
     }
   end,
@@ -657,7 +654,6 @@ local HANDLERS = {
     return {
       op = "message",
       message = { message = "external", bank = varRef(ins.operands[1]), id = varRef(ins.operands[2]) },
-      style = "npc",
       waitForPrint = true,
     }
   end,
@@ -744,7 +740,6 @@ local function toMessageStep(step)
   return {
     op = "message",
     message = message,
-    style = "npc",
     waitForPrint = true,
   }
 end

@@ -181,8 +181,8 @@ function ScriptLoader.installOverrides(registry, fs, requireFn)
 end
 
 -- Build a registry from the script cache plus the override directory. `fs`
--- must expose the mounted repo `data/scripts/overrides` directory; the game
--- passes love.filesystem after mounting the repo data tree.
+-- must expose the repo `data/scripts/overrides` directory; the game passes an
+-- io-backed repo filesystem (RepoFs) reading the checkout tree.
 ---@param cacheFs table CacheFs-shaped
 ---@param fs table directory-shaped filesystem for data/scripts/overrides
 ---@param requireFn function|nil defaults to the restricted gen4.script-only require

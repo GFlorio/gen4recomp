@@ -208,21 +208,21 @@ function FieldMapLoader:load(idOrSymbol)
   local fieldData = loadRequired(self.cacheFs, FieldMapDataCache.fieldPath(record.id), "FIELD_MAP_DATA_CACHE_MISSING")
   local terrainArtifact =
     loadRequired(self.cacheFs, MapAssetCache.terrainPath(record.id), "FIELD_MAP_TERRAIN_CACHE_MISSING")
-  if scene.schema ~= "g4-map-scene-v3" or scene.mapId ~= record.id then
+  if scene.schema ~= MapAssetCache.SCENE_SCHEMA or scene.mapId ~= record.id then
     Errors.raise(
       "FIELD_MAP_VISUAL_CACHE_INVALID",
       "visual cache identity or schema mismatch",
       { mapId = record.id, schema = scene.schema }
     )
   end
-  if fieldData.schema ~= "g4-field-map-v1" or fieldData.mapId ~= record.id then
+  if fieldData.schema ~= FieldMapDataCache.FIELD_SCHEMA or fieldData.mapId ~= record.id then
     Errors.raise(
       "FIELD_MAP_DATA_CACHE_INVALID",
       "field cache identity or schema mismatch",
       { mapId = record.id, schema = fieldData.schema }
     )
   end
-  if terrainArtifact.schema ~= "g4-terrain-surfaces-v1" then
+  if terrainArtifact.schema ~= MapAssetCache.TERRAIN_SCHEMA then
     Errors.raise(
       "FIELD_MAP_TERRAIN_CACHE_INVALID",
       "terrain cache schema mismatch",

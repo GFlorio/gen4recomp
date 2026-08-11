@@ -149,7 +149,7 @@ function T.visible_objects_become_actors_and_flagged_ones_do_not()
   }, { eventState = eventState })
   Assert.notNil(mgr:getById("map:61:object:0"))
   Assert.isNil(mgr:getById("map:61:object:1"))
-  Assert.equal(#mgr:drawRecords(0), 1)
+  Assert.equal(#mgr:drawRecords(), 1)
 end
 
 function T.actor_resolves_position_surface_and_world_anchor()
@@ -225,7 +225,6 @@ function T.stale_occupancy_cannot_be_removed_by_the_wrong_actor()
     mapId = 61,
     sourceEvent = object({ objectEventId = 5 }),
     spriteId = 99,
-    visualDef = { spriteId = 99, mapModelId = 99 },
     fieldX = 2,
     fieldZ = 3,
     surfaceId = 0,
@@ -304,7 +303,7 @@ function T.setting_a_flag_removes_draw_and_occupancy_on_one_tick()
   Assert.notNil(mgr:getById("map:61:object:0"))
   mgr:step(1)
   Assert.isNil(mgr:getById("map:61:object:0"))
-  Assert.equal(#mgr:drawRecords(0), 0)
+  Assert.equal(#mgr:drawRecords(), 0)
   Assert.isFalse(mgr:isOccupied(61, 2, 3, 0))
   Assert.equal(assets:total(), 0)
 end
@@ -335,7 +334,7 @@ end
 function T.entering_the_same_map_twice_is_idempotent()
   local mgr, eventState, assets, map = manager({ object({}) })
   mgr:enterMap(map, eventState)
-  Assert.equal(#mgr:drawRecords(0), 1)
+  Assert.equal(#mgr:drawRecords(), 1)
   Assert.equal(assets:total(), 1)
 end
 
@@ -353,7 +352,7 @@ function T.repeated_map_round_trips_do_not_leak_actors_or_visuals()
     mgr:leaveMap(61)
     mgr:enterMap(map, eventState)
   end
-  Assert.equal(#mgr:drawRecords(0), 1)
+  Assert.equal(#mgr:drawRecords(), 1)
   Assert.equal(assets:total(), 1)
   mgr:dispose()
   Assert.equal(assets:total(), 0)
@@ -422,7 +421,7 @@ function T.script_actor_world_resolves_map_indexes_and_visibility()
   Assert.equal(world:cameraTargetId(), "map:61:object:241")
   Assert.equal(world:partnerId(), "map:61:object:253")
   world:hide("map:61:object:2")
-  local records = mgr:drawRecords(0)
+  local records = mgr:drawRecords()
   for _, record in ipairs(records) do
     if record.actorId == "map:61:object:2" then
       Assert.isFalse(record.visible, "hide_object reaches the draw records")
@@ -431,7 +430,7 @@ function T.script_actor_world_resolves_map_indexes_and_visibility()
     end
   end
   world:show("map:61:object:2")
-  for _, record in ipairs(mgr:drawRecords(0)) do
+  for _, record in ipairs(mgr:drawRecords()) do
     if record.actorId == "map:61:object:2" then
       Assert.isTrue(record.visible, "show_object restores draw visibility")
     end
@@ -507,12 +506,11 @@ end
 
 function T.draw_records_are_presentation_neutral()
   local mgr = manager({ object({}) })
-  local record = mgr:drawRecords(0.5)[1]
+  local record = mgr:drawRecords()[1]
   Assert.equal(record.actorId, "map:61:object:0")
   Assert.equal(record.spriteId, 99)
   Assert.equal(record.facing, "south")
   Assert.equal(record.pose, "idle")
-  Assert.equal(record.alpha, 1)
   Assert.isTrue(record.visible)
   Assert.equal(record.world.y, 0)
 end
@@ -522,7 +520,7 @@ function T.dispose_unsubscribes_from_the_event_state()
   mgr:dispose()
   eventState:setFlag(401)
   mgr:step(1)
-  Assert.equal(#mgr:drawRecords(0), 0)
+  Assert.equal(#mgr:drawRecords(), 0)
 end
 
 return T

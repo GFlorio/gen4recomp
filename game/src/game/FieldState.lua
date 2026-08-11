@@ -97,7 +97,7 @@ end
 -- FieldActorDraw turns them into world draw items against the resident visuals.
 function FieldState:_actorDraws(alpha)
   local records = { self.playerVisual:drawRecord(alpha) }
-  for _, record in ipairs(self.actors:drawRecords(alpha)) do
+  for _, record in ipairs(self.actors:drawRecords()) do
     records[#records + 1] = record
   end
   return FieldActorDraw.items(records, function(spriteId)

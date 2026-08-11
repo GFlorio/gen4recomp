@@ -82,8 +82,6 @@ function FieldDialogueFixture.openDialogue(text)
   controller:open({
     id = "smoke",
     message = { bankId = 543, messageId = 5, text = text, tokens = tokens, hadUnresolvedSubstitutions = false },
-    style = "default",
-    modal = true,
     allowCancel = false,
   })
   return controller

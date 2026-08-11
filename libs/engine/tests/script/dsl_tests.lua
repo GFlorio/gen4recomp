@@ -487,7 +487,6 @@ local CASES = {
     {
       op = "say",
       message = "msg.elms_lab.elm_intro",
-      style = "npc",
       wait = "button",
       close = true,
       timingProfile = "hgss",
@@ -498,7 +497,6 @@ local CASES = {
     function()
       return S.say({
         message = "msg.elms_lab.elm_intro",
-        style = "system",
         wait = "button",
         close = false,
         timingProfile = "hgss",
@@ -508,7 +506,6 @@ local CASES = {
     {
       op = "say",
       message = "msg.elms_lab.elm_intro",
-      style = "system",
       wait = "button",
       close = false,
       timingProfile = "hgss",
@@ -519,25 +516,19 @@ local CASES = {
     function()
       return S.openMessage()
     end,
-    { op = "open_message", style = "npc" },
-  },
-  open_message_system = {
-    function()
-      return S.openMessage({ style = "system" })
-    end,
-    { op = "open_message", style = "system" },
+    { op = "open_message" },
   },
   message_defaults = {
     function()
       return S.message({ message = "msg.elms_lab.elm_intro" })
     end,
-    { op = "message", message = "msg.elms_lab.elm_intro", style = "npc", waitForPrint = true, bindings = {} },
+    { op = "message", message = "msg.elms_lab.elm_intro", waitForPrint = true, bindings = {} },
   },
-  message_system = {
+  message_nowait = {
     function()
-      return S.message({ message = "msg.elms_lab.elm_intro", style = "system", waitForPrint = false })
+      return S.message({ message = "msg.elms_lab.elm_intro", waitForPrint = false })
     end,
-    { op = "message", message = "msg.elms_lab.elm_intro", style = "system", waitForPrint = false, bindings = {} },
+    { op = "message", message = "msg.elms_lab.elm_intro", waitForPrint = false, bindings = {} },
   },
   wait_input_defaults = {
     function()

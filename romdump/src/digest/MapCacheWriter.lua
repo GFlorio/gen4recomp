@@ -17,6 +17,7 @@ local Errors = require("libs.rom.src.Errors")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local PngWriter = require("libs.assets.src.PngWriter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
+local PermissionGrid = require("libs.assets.src.PermissionGrid")
 local ArtifactPublisher = require("libs.rom.src.ArtifactPublisher")
 
 local MapCacheWriter = {}
@@ -38,29 +39,29 @@ local function persist(cacheFs, tx, bundle)
     cacheFs:writeLua(MapAssetCache.modelPath(modelKey), descriptor)
   end
   -- 4. Permission grid.
-  if #bundle.permissions ~= 2048 then
+  if #bundle.permissions ~= PermissionGrid.SIZE then
     Errors.raise(
       "MAP_CACHE_BAD_PERMISSIONS",
-      "permission grid is " .. #bundle.permissions .. " bytes, expected 2048",
+      "permission grid is " .. #bundle.permissions .. " bytes, expected " .. PermissionGrid.SIZE,
       { mapId = mapId }
     )
   end
   stage:write(dir .. "/permissions.bin", bundle.permissions)
   -- 5. Terrain surfaces.
-  if type(bundle.terrain) ~= "table" or bundle.terrain.schema ~= "g4-terrain-surfaces-v1" then
+  if type(bundle.terrain) ~= "table" or bundle.terrain.schema ~= MapAssetCache.TERRAIN_SCHEMA then
     Errors.raise("MAP_CACHE_BAD_TERRAIN", "terrain artifact is missing or has the wrong schema", { mapId = mapId })
   end
   stage:writeLua(MapAssetCache.terrainPath(mapId), bundle.terrain)
   -- 6. Neighbor permission and terrain artifacts.
   for landDataMemberId, chunk in pairs(bundle.neighborChunks or {}) do
-    if #chunk.permissions ~= 2048 then
+    if #chunk.permissions ~= PermissionGrid.SIZE then
       Errors.raise(
         "MAP_CACHE_BAD_NEIGHBOR_PERMISSIONS",
-        "neighbor permission grid must be 2048 bytes",
+        "neighbor permission grid must be " .. PermissionGrid.SIZE .. " bytes",
         { mapId = mapId, landDataMemberId = landDataMemberId, size = #chunk.permissions }
       )
     end
-    if type(chunk.terrain) ~= "table" or chunk.terrain.schema ~= "g4-terrain-surfaces-v1" then
+    if type(chunk.terrain) ~= "table" or chunk.terrain.schema ~= MapAssetCache.TERRAIN_SCHEMA then
       Errors.raise(
         "MAP_CACHE_BAD_NEIGHBOR_TERRAIN",
         "neighbor terrain artifact is invalid",

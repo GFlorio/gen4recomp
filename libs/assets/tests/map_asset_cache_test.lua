@@ -1,5 +1,5 @@
--- MapAssetCache: path shapes, readiness gated on an exact marker plus present
--- artifacts, and derived-only invalidation that spares the raw dump.
+-- MapAssetCache: path shapes, and readiness gated on an exact marker plus
+-- present artifacts.
 
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.rom.src.CacheFs")
@@ -72,34 +72,6 @@ function T.not_ready_with_wrong_permission_size()
   writeReadyMap(c, marker)
   c:write(MapAssetCache.mapDir(61) .. "/permissions.bin", string.rep("\0", 100))
   Assert.isTrue(not MapAssetCache.isReady(c, 61, marker), "wrong perm size -> not ready")
-end
-
-function T.invalidate_all_derived_spares_raw_dump()
-  local c = cache()
-  c:write("rom-dump.complete", "x")
-  c:write("data/generated/rom_metadata.lua", "return {}")
-  c:write("data/generated/romfs_index.lua", "return {}")
-  c:write(MapAssetCache.mapDir(61) .. "/complete", "y")
-  c:write(MapAssetCache.modelPath("indoor:1:abc"), "return {}")
-  c:write(MapAssetCache.worldPath(), "return {}")
-  c:write("assets/generated/maps/geometry/abc.g4mesh", "mesh")
-  MapAssetCache.invalidateAllDerived(c)
-  Assert.isTrue(c:exists("rom-dump.complete"), "raw marker preserved")
-  Assert.isTrue(c:exists("data/generated/rom_metadata.lua"), "raw metadata preserved")
-  Assert.isTrue(c:exists("data/generated/romfs_index.lua"), "raw index preserved")
-  Assert.isTrue(not c:exists(MapAssetCache.mapDir(61) .. "/complete"), "derived data removed")
-  Assert.isTrue(not c:exists(MapAssetCache.modelPath("indoor:1:abc")), "derived model removed")
-  Assert.isTrue(not c:exists(MapAssetCache.worldPath()), "world removed")
-  Assert.isTrue(not c:exists("assets/generated/maps/geometry/abc.g4mesh"), "derived assets removed")
-end
-
-function T.invalidate_map_removes_only_that_map()
-  local c = cache()
-  c:write(MapAssetCache.mapDir(61) .. "/complete", "a")
-  c:write(MapAssetCache.mapDir(60) .. "/complete", "b")
-  MapAssetCache.invalidateMap(c, 61)
-  Assert.isTrue(not c:exists(MapAssetCache.mapDir(61) .. "/complete"), "map 61 gone")
-  Assert.isTrue(c:exists(MapAssetCache.mapDir(60) .. "/complete"), "map 60 kept")
 end
 
 function T.not_ready_when_model_descriptor_references_missing_asset()
