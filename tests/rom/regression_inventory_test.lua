@@ -8,9 +8,10 @@
 -- MAP_PROP_ANIM_UNRESOLVED / MAP_PROP_ANIM_UNSUPPORTED_FORMAT diagnostic
 -- (nothing returns an unresolved list and compiles the model static), so a
 -- raise here IS the "either compiles or explicit diagnostic" outcome; the
--- corpus must raise nothing. Counts below are pinned against the real ROM
--- (probed 2026-08-10): any drift in the archive layout or the resource set
--- fails the test and requires an audit before re-pinning.
+-- corpus must raise nothing. Counts below are pinned against the heartgold
+-- dump, identified by its checksum (asserted by the census test): any
+-- drift in the archive layout or the resource set fails the test and
+-- requires an audit before re-pinning.
 
 local Assert = require("tests.support.Assert")
 local MapPropAnimCompiler = require("romdump.src.digest.MapPropAnimCompiler")
@@ -40,12 +41,12 @@ local function inventoryArchive(romFs, alias)
       inventory.clips = inventory.clips + 1
       inventory.formats[clip.source.format] = (inventory.formats[clip.source.format] or 0) + 1
       -- Every clip carries the full provenance and a sane frame count; the
-      -- id embeds the record it came from.
+      -- id embeds the shared build_anim resource it was compiled from.
       Assert.equal(clip.source.type, "nitro")
       Assert.equal(clip.source.archive, "build_anim")
       Assert.isTrue(clip.source.memberId >= 0)
       Assert.isTrue(type(clip.source.sha1) == "string" and #clip.source.sha1 == 40, "clip sha1 provenance")
-      Assert.equal(clip.id, alias .. "-" .. tostring(clip.source.memberId))
+      Assert.equal(clip.id, "build_anim-" .. tostring(clip.source.memberId))
       Assert.isTrue(clip.frameCount >= 2, "sane clip frame count")
       Assert.isTrue(#clip.name > 0, "clip carries its Nitro dictionary name")
     end
@@ -57,6 +58,15 @@ end
 -- anywhere (any broken resource would raise MAP_PROP_ANIM_UNRESOLVED and
 -- fail this test), and the counts are pinned.
 function T.every_animated_asset_compiles_with_an_explicit_outcome(romFs)
+  -- Durable provenance: the pinned census belongs to exactly one ROM
+  -- revision, identified by its dump checksum (the game version alone
+  -- would not distinguish revisions). Any other dump fails here, and the
+  -- counts below must be re-audited before re-pinning.
+  Assert.equal(
+    romFs:metadata().sha1,
+    "4fcded0e2713dc03929845de631d0932ea2b5a37",
+    "the census pins the heartgold dump (IPKE) checksum"
+  )
   local animResNarc = assert(romFs:openNarc("build_anim"))
   Assert.equal(animResNarc:memberCount(), 273, "shared animation archive member count")
 

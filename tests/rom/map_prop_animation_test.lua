@@ -10,6 +10,7 @@
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.rom.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
+local Hashing = require("romdump.src.digest.Hashing")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local MapCacheWriter = require("romdump.src.digest.MapCacheWriter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
@@ -240,19 +241,84 @@ function T.new_bark_wind_clip_reaches_the_expected_uv_offsets(romFs, version)
   Assert.near(m119[8], -1.0, 1e-9, "wind_lm3 wind m12 at frame 119")
 end
 
--- The animation resource cache: New Bark and Route 12 both
--- place exterior door models (New Bark members 24/25/26, Route 12 member
--- 24) whose anim-list records reference the shared door_op/door_cl
--- resources. Compiled with one cache across a build run, both maps must
--- embed the IDENTICAL clip records -- each (archive, member, sha1) tuple
--- decodes and compiles exactly once.
+-- Snapshot the memo's records (key -> record) to prove later compiles
+-- reuse them by identity.
+local function memoSnapshot(memo)
+  local snap = {}
+  for key, record in pairs(memo) do
+    snap[key] = record
+  end
+  return snap
+end
+
+local function memoCount(memo)
+  local n = 0
+  for _ in pairs(memo) do
+    n = n + 1
+  end
+  return n
+end
+
+-- After more compiles, every memo record must still be the SAME object a
+-- previous compile stored: a recompile would overwrite its key with a
+-- fresh record, breaking identity. The key set must be unchanged too.
+local function assertMemoReused(memo, snap, label)
+  Assert.equal(memoCount(memo), memoCount(snap), label .. ": no new records")
+  for key, record in pairs(memo) do
+    Assert.isTrue(snap[key] == record, label .. ": " .. key .. " reused by identity")
+  end
+end
+
+-- The observable compiled content of a clip: per-model records must agree
+-- on everything except the per-model policy annotations (timeBand/
+-- ambientLoop) the compiler stamps on each copy.
+local function assertClipContentEqual(a, b, label)
+  Assert.equal(a.id, b.id, label .. " id")
+  Assert.equal(a.name, b.name, label .. " name")
+  Assert.equal(a.category, b.category, label .. " category")
+  Assert.equal(a.kind, b.kind, label .. " kind")
+  Assert.equal(a.frameCount, b.frameCount, label .. " frame count")
+  Assert.deepEqual(a.tracks, b.tracks, label .. " tracks")
+  Assert.deepEqual(a.semanticNames, b.semanticNames, label .. " roles")
+  Assert.deepEqual(a.source, b.source, label .. " source")
+end
+
+-- The animation resource cache: New Bark and Route 12 both place exterior
+-- door models (New Bark member 26, Route 12 member 24) whose anim-list
+-- records reference the shared door_op/door_cl resources (build_anim
+-- members 1/2). Production shares ONE PLAIN memo table across a build run
+-- (the CLI Runner passes {}; there is no AnimationResourceCache class):
+-- each (archive, resource member, sha1) tuple decodes and compiles exactly
+-- once per cache, and every model that references it embeds a per-model
+-- SHALLOW COPY of the compiled record -- equal content, never
+-- identity-shared -- so the per-model policy annotation
+-- (timeBand/ambientLoop) can never mutate the record other models share.
 function T.shared_resource_cache_reuses_clip_records_across_maps(romFs, version)
-  local AnimationResourceCache = require("romdump.src.digest.AnimationResourceCache")
-  local cache = AnimationResourceCache.new()
+  local cache = {}
   local bundleA = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK", { resourceCache = cache }))
+  local afterA = memoSnapshot(cache)
+  Assert.equal(memoCount(afterA), 4, "New Bark references four unique animation resources")
+
+  -- Route 12's resources are a subset of New Bark's (the door pair), so
+  -- the shared cache compiles nothing new: four records, each still the
+  -- same object New Bark's compile stored.
   local bundleB = assert(MapAssetCompiler.compile(romFs, "MAP_ROUTE_12", { resourceCache = cache }))
+  assertMemoReused(cache, afterA, "Route 12 reuses the New Bark records")
+
+  -- A warm second compile of the same map adds nothing: every record is
+  -- still the same object, so nothing decoded or compiled twice.
+  assert(MapAssetCompiler.compile(romFs, "MAP_ROUTE_12", { resourceCache = cache }))
+  assertMemoReused(cache, afterA, "a warm second compile reuses every record")
+
+  -- A fresh memo (a separate build run) compiles the door pair again: the
+  -- dedup is per build run, and its records are independent objects.
+  local freshCache = {}
+  local fresh = assert(MapAssetCompiler.compile(romFs, "MAP_ROUTE_12", { resourceCache = freshCache }))
+  Assert.equal(memoCount(freshCache), 2, "Route 12's own resources are the door pair")
+
   local descA = descriptorOf(bundleA, 26)
   local descB = descriptorOf(bundleB, 24)
+  local freshDesc = assert(descriptorOf(fresh, 24), "Route 12 door descriptor")
   assert(descA and descA.dynamic, "New Bark door descriptor")
   assert(descB and descB.dynamic, "Route 12 door descriptor")
   Assert.equal(#descA.animations, 2)
@@ -264,21 +330,33 @@ function T.shared_resource_cache_reuses_clip_records_across_maps(romFs, version)
   for _, clip in ipairs(descB.animations) do
     byNameB[clip.name] = clip
   end
-  Assert.isTrue(byNameA.door_op == byNameB.door_op, "door_op compiled once, shared by identity")
-  Assert.isTrue(byNameA.door_cl == byNameB.door_cl, "door_cl compiled once, shared by identity")
 
-  -- Without a shared cache the compiles are independent records.
-  local fresh = assert(MapAssetCompiler.compile(romFs, "MAP_ROUTE_12"))
-  local freshDesc = assert(descriptorOf(fresh, 24), "Route 12 door descriptor")
+  -- Per-model clip records: equal compiled content, never identity-shared
+  -- (each model embeds its own copy, so its policy annotation cannot
+  -- mutate the record other models share).
+  Assert.isFalse(byNameA.door_op == byNameB.door_op, "door_op is a per-model copy, not a shared record")
+  Assert.isFalse(byNameA.door_cl == byNameB.door_cl, "door_cl is a per-model copy, not a shared record")
+  assertClipContentEqual(byNameA.door_op, byNameB.door_op, "door_op")
+  assertClipContentEqual(byNameA.door_cl, byNameB.door_cl, "door_cl")
+
+  -- Provenance: the clip's sha1 is the real build_anim member bytes,
+  -- preserved through the memo and every per-model copy.
+  local animResNarc = assert(romFs:openNarc("build_anim"))
+  Assert.equal(
+    byNameA.door_op.source.sha1,
+    Hashing.sha1hex(assert(animResNarc:readMember(byNameA.door_op.source.memberId))),
+    "door_op provenance sha1 is the real resource bytes"
+  )
+
+  -- A separate build run compiles independent records with equal content.
   local freshClip
   for _, clip in ipairs(freshDesc.animations) do
     if clip.name == "door_op" then
       freshClip = clip
     end
   end
-  Assert.isFalse(freshClip == byNameA.door_op, "a cacheless compile makes fresh records")
-  Assert.equal(freshClip.name, byNameA.door_op.name)
-  Assert.equal(freshClip.source.sha1, byNameA.door_op.source.sha1)
+  Assert.isFalse(freshClip == byNameA.door_op, "a fresh memo compiles fresh records")
+  assertClipContentEqual(freshClip, byNameA.door_op, "door_op")
 end
 
 return T
