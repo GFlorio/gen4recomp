@@ -27,17 +27,15 @@ function T.initial_cursor_is_zero_based_and_clamped()
   Assert.equal(menu({ initialCursor = -4 }):status().selectedIndex, 0)
 end
 
-function T.vertical_navigation_stays_in_bounds()
+function T.layout_targeted_focus_stays_in_bounds()
   local controller = menu({ initialCursor = 1 })
-  controller:move("up")
+  controller:focus(0)
   Assert.equal(controller:status().selectedIndex, 0)
-  controller:move("up")
-  Assert.equal(controller:status().selectedIndex, 0)
-  controller:move("down")
-  controller:move("down")
+  controller:focus(2)
   Assert.equal(controller:status().selectedIndex, 2)
-  controller:move("down")
-  Assert.equal(controller:status().selectedIndex, 2)
+  Assert.throws(function()
+    controller:focus(3)
+  end)
 end
 
 function T.confirm_retains_the_selected_item_value_not_its_visual_index()
@@ -122,7 +120,7 @@ end
 function T.directional_navigation_restores_focus_after_pointer_hover()
   local controller = menu()
   controller:hover(2)
-  controller:move("up")
+  controller:focus(1)
   Assert.equal(controller:status().selectedIndex, 1)
 end
 

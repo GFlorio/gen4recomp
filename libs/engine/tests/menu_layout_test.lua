@@ -208,6 +208,49 @@ function T.geometry_matrix_keeps_frames_safe_and_selected_rows_visible()
   end
 end
 
+function T.directional_adjacency_follows_item_geometry_and_has_no_wraparound()
+  local layout = {
+    itemCount = 4,
+    itemRects = {
+      [0] = rect(0, 0, 8, 8),
+      [1] = rect(12, 0, 8, 8),
+      [2] = rect(0, 12, 8, 8),
+      [3] = rect(12, 12, 8, 8),
+    },
+  }
+
+  Assert.equal(MenuLayout.adjacentItem(layout, 0, "right"), 1)
+  Assert.equal(MenuLayout.adjacentItem(layout, 0, "down"), 2)
+  Assert.equal(MenuLayout.adjacentItem(layout, 3, "left"), 2)
+  Assert.equal(MenuLayout.adjacentItem(layout, 3, "up"), 1)
+  Assert.equal(MenuLayout.adjacentItem(layout, 0, "left"), nil)
+  Assert.equal(MenuLayout.adjacentItem(layout, 0, "up"), nil)
+  Assert.equal(MenuLayout.adjacentItem(layout, 3, "right"), nil)
+  Assert.equal(MenuLayout.adjacentItem(layout, 3, "down"), nil)
+end
+
+function T.directional_adjacency_prioritizes_primary_axis_then_cross_axis()
+  local primaryAxisLayout = {
+    itemCount = 3,
+    itemRects = {
+      [0] = rect(0, 0, 8, 8),
+      [1] = rect(12, 24, 8, 8),
+      [2] = rect(20, 0, 8, 8),
+    },
+  }
+  Assert.equal(MenuLayout.adjacentItem(primaryAxisLayout, 0, "right"), 1)
+
+  local crossAxisLayout = {
+    itemCount = 3,
+    itemRects = {
+      [0] = rect(0, 0, 8, 8),
+      [1] = rect(12, 24, 8, 8),
+      [2] = rect(12, 12, 8, 8),
+    },
+  }
+  Assert.equal(MenuLayout.adjacentItem(crossAxisLayout, 0, "right"), 2)
+end
+
 function T.rejects_malformed_menu_and_placement_input()
   Assert.throws(function()
     resolve({ topology = topology(256, 192), menu = menu(0) })

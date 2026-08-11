@@ -67,6 +67,12 @@ local function pressKey(game, state, key)
   state:keyreleased(key)
 end
 
+local function pressDpad(game, state, button)
+  state:gamepadpressed(joystick, button)
+  game:step()
+  state:gamepadreleased(joystick, button)
+end
+
 local function itemCenter(snapshot, itemIndex)
   local menu = assert(snapshot.menu, "field menu snapshot is required")
   local rect = assert(menu.itemRects[itemIndex], "field menu item rectangle is required")
@@ -139,6 +145,39 @@ function T.tests.vanilla_menu_selection_has_one_result_across_input_modalities()
   for _, modality in ipairs({ "keyboard", "gamepad", "mouse", "touch" }) do
     withGame(function(game)
       Assert.equal(selectSecondItem(game, modality), 1, modality .. " must select the vanilla value")
+    end)
+  end
+end
+
+-- D6-NAV-01: a production single-column menu receives normalized keyboard and
+-- D-pad directions through FieldState. Horizontal directions must leave its
+-- script-owned focus unchanged; only the resolved layout may define a target.
+function T.tests.single_column_menu_ignores_horizontal_keyboard_and_gamepad_navigation()
+  for _, modality in ipairs({ "keyboard", "gamepad" }) do
+    withGame(function(game)
+      local state = hostCallbacks(game)
+      openVanillaMenu(game)
+
+      if modality == "keyboard" then
+        pressKey(game, state, "s")
+      else
+        pressDpad(game, state, "dpdown")
+      end
+      Assert.equal(game:snapshot().menu.layout.selectedIndex, 1, modality .. " reaches the second row")
+
+      if modality == "keyboard" then
+        pressKey(game, state, "a")
+      else
+        pressDpad(game, state, "dpleft")
+      end
+      Assert.equal(game:snapshot().menu.layout.selectedIndex, 1, modality .. " Left is a no-op in one column")
+
+      if modality == "keyboard" then
+        pressKey(game, state, "d")
+      else
+        pressDpad(game, state, "dpright")
+      end
+      Assert.equal(game:snapshot().menu.layout.selectedIndex, 1, modality .. " Right is a no-op in one column")
     end)
   end
 end

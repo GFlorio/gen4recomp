@@ -280,6 +280,68 @@ local function layoutItems(frame, menu, rowHeight, padding, cancelHeight)
   return content, itemRects, offset, maxOffset
 end
 
+local DIRECTIONS = { up = true, down = true, left = true, right = true }
+
+-- Finds the nearest item in a cardinal direction using the resolved item
+-- rectangles. Layout owns this policy because only it knows the effective
+-- arrangement; callers retain their stable zero-based selection identity.
+---@param layout { itemCount: integer, itemRects: ScreenTopology.Rectangle[] }
+---@param itemIndex integer
+---@param direction "up"|"down"|"left"|"right"
+---@return integer?
+function MenuLayout.adjacentItem(layout, itemIndex, direction)
+  assert(type(layout) == "table", "menu layout is required")
+  assert(
+    type(layout.itemCount) == "number" and layout.itemCount % 1 == 0 and layout.itemCount > 0,
+    "menu layout item count is invalid"
+  )
+  assert(type(layout.itemRects) == "table", "menu layout item rectangles are required")
+  assert(
+    type(itemIndex) == "number" and itemIndex % 1 == 0 and itemIndex >= 0 and itemIndex < layout.itemCount,
+    "menu item index is out of range"
+  )
+  assert(DIRECTIONS[direction], "menu navigation direction is invalid")
+
+  local current = assert(layout.itemRects[itemIndex], "menu layout item rectangle is missing")
+  assertRectangle(current, "menu layout item rectangle")
+  local currentX = current.x + current.width / 2
+  local currentY = current.y + current.height / 2
+  local adjacentIndex
+  local nearestDistance
+  local nearestOffset
+  for candidateIndex = 0, layout.itemCount - 1 do
+    if candidateIndex ~= itemIndex then
+      local candidate = assert(layout.itemRects[candidateIndex], "menu layout item rectangle is missing")
+      assertRectangle(candidate, "menu layout item rectangle")
+      local dx = candidate.x + candidate.width / 2 - currentX
+      local dy = candidate.y + candidate.height / 2 - currentY
+      local distance, offset
+      if direction == "up" and dy < 0 then
+        distance, offset = -dy, math.abs(dx)
+      elseif direction == "down" and dy > 0 then
+        distance, offset = dy, math.abs(dx)
+      elseif direction == "left" and dx < 0 then
+        distance, offset = -dx, math.abs(dy)
+      elseif direction == "right" and dx > 0 then
+        distance, offset = dx, math.abs(dy)
+      end
+      if
+        distance
+        and (
+          nearestDistance == nil
+          or distance < nearestDistance
+          or (distance == nearestDistance and offset < nearestOffset)
+        )
+      then
+        adjacentIndex = candidateIndex
+        nearestDistance = distance
+        nearestOffset = offset
+      end
+    end
+  end
+  return adjacentIndex
+end
+
 ---@class MenuLayout.Spec
 ---@field topology ScreenTopology
 ---@field menu { items: table[], selectedIndex?: integer, cancellable?: boolean }

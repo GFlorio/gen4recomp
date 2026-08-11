@@ -115,22 +115,15 @@ function FieldMenuController:_complete(result, cancelled)
   return result
 end
 
--- Moves focus through this vertical list. Left/right intentionally use the
--- same logical predecessor/successor policy until a later layout introduces
--- multiple columns without changing selection/result semantics.
+-- Layout resolves directional adjacency, then supplies the stable target item
+-- index here. The controller deliberately has no knowledge of rows or columns.
 
----@param direction "up"|"down"|"left"|"right"
-function FieldMenuController:move(direction)
-  assert(
-    direction == "up" or direction == "down" or direction == "left" or direction == "right",
-    "field menu direction is invalid"
-  )
-  if not self:isActive() then
-    return
+---@param itemIndex integer
+function FieldMenuController:focus(itemIndex)
+  assertItemIndex(self, itemIndex)
+  if self:isActive() then
+    self._selectedIndex = assert(itemIndex)
   end
-
-  local delta = (direction == "up" or direction == "left") and -1 or 1
-  self._selectedIndex = math.max(0, math.min(self._selectedIndex + delta, self._itemCount - 1))
 end
 
 ---@return any
@@ -153,9 +146,8 @@ end
 
 ---@param itemIndex integer?
 function FieldMenuController:hover(itemIndex)
-  assertItemIndex(self, itemIndex)
-  if self:isActive() and itemIndex ~= nil then
-    self._selectedIndex = assert(itemIndex)
+  if itemIndex ~= nil then
+    self:focus(itemIndex)
   end
 end
 

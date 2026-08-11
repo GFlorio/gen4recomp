@@ -159,9 +159,12 @@ function FieldMenuHost:inputEvents(events)
   end
   local layout = assert(active.layout, "active menu layout is missing")
   local translated = {}
+  local selectedIndex = active.selectedIndex
   for _, event in ipairs(events) do
     if event.type == "pointer_move" then
-      translated[#translated + 1] = { type = "pointer_move", itemIndex = itemAt(layout, event.x, event.y) }
+      local itemIndex = itemAt(layout, event.x, event.y)
+      translated[#translated + 1] = { type = "pointer_move", itemIndex = itemIndex }
+      selectedIndex = itemIndex or selectedIndex
     elseif event.type == "pointer_down" then
       if layout.cancelRect and contains(layout.cancelRect, event.x, event.y) then
         translated[#translated + 1] = { type = "cancel" }
@@ -175,7 +178,18 @@ function FieldMenuHost:inputEvents(events)
         dragged = event.dragged == true,
       }
     elseif event.type == "pointer_scroll" then
-      translated[#translated + 1] = { type = "scroll", deltaY = event.dy }
+      local direction = event.dy > 0 and "up" or event.dy < 0 and "down" or nil
+      local itemIndex = direction and MenuLayout.adjacentItem(layout, selectedIndex, direction)
+      if itemIndex ~= nil then
+        translated[#translated + 1] = { type = "focus", itemIndex = itemIndex }
+        selectedIndex = itemIndex
+      end
+    elseif event.type == "navigate" then
+      local itemIndex = MenuLayout.adjacentItem(layout, selectedIndex, event.direction)
+      if itemIndex ~= nil then
+        translated[#translated + 1] = { type = "focus", itemIndex = itemIndex }
+        selectedIndex = itemIndex
+      end
     else
       translated[#translated + 1] = event
     end

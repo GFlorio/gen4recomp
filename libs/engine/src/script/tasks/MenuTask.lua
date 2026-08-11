@@ -69,8 +69,8 @@ end
 
 local function applyEvent(controller, state, event)
   assert(type(event) == "table" and type(event.type) == "string", "menu input event is invalid")
-  if event.type == "navigate" then
-    controller:move(event.direction)
+  if event.type == "focus" then
+    controller:focus(event.itemIndex)
   elseif event.type == "confirm" then
     controller:confirm()
   elseif event.type == "cancel" then
@@ -83,17 +83,6 @@ local function applyEvent(controller, state, event)
   elseif event.type == "pointer_up" then
     controller:release(event.dragged and nil or event.itemIndex)
     state.pressedPointerItem = nil
-  elseif event.type == "scroll" then
-    local delta = event.deltaY
-    assert(
-      type(delta) == "number" and delta == delta and delta ~= math.huge and delta ~= -math.huge,
-      "menu scroll delta is invalid"
-    )
-    if delta > 0 then
-      controller:move("up")
-    elseif delta < 0 then
-      controller:move("down")
-    end
   else
     assert(false, "unknown menu input event " .. event.type)
   end

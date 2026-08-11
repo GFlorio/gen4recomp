@@ -88,4 +88,44 @@ function T.routes_the_touch_cancel_affordance_to_the_menu()
   Assert.equal(events[1].type, "cancel")
 end
 
+function T.horizontal_navigation_does_not_change_focus_in_a_relaid_out_single_column_menu()
+  local host = FieldMenuHost.new({ width = 256, height = 192, input = FieldInput.new() })
+  local state = {
+    menuDefinition = {
+      items = { { text = "First", value = 1 }, { text = "Second", value = 2 } },
+      cancellable = false,
+    },
+    selectedIndex = 1,
+  }
+  host:sync(state, 100)
+  host:resize(390, 844)
+
+  Assert.deepEqual(host:inputEvents({ { type = "navigate", direction = "left" } }), {})
+  Assert.equal(host:presentation().selectedIndex, 1)
+  Assert.deepEqual(host:inputEvents({ { type = "navigate", direction = "right" } }), {})
+  Assert.equal(host:presentation().selectedIndex, 1)
+end
+
+function T.batched_navigation_uses_each_layout_resolved_focus_target_in_order()
+  local host = FieldMenuHost.new({ width = 256, height = 192, input = FieldInput.new() })
+  host:sync({
+    menuDefinition = {
+      items = { { text = "First", value = 1 }, { text = "Second", value = 2 }, { text = "Third", value = 3 } },
+      cancellable = false,
+    },
+    selectedIndex = 0,
+  }, 100)
+
+  Assert.deepEqual(
+    host:inputEvents({
+      { type = "navigate", direction = "down" },
+      { type = "navigate", direction = "down" },
+    }),
+    {
+      { type = "focus", itemIndex = 1 },
+      { type = "focus", itemIndex = 2 },
+    }
+  )
+end
+
 return T

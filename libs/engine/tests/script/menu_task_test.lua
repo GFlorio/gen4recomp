@@ -217,7 +217,7 @@ function T.semantic_choose_blocks_and_writes_its_stable_item_result()
 
   h.scheduler:step(100, {})
   Assert.equal(h.scriptMenu.requests[1].placement.mode, "docked")
-  h.scheduler:step(101, { menuEvents = { { type = "navigate", direction = "down" } } })
+  h.scheduler:step(101, { menuEvents = { { type = "focus", itemIndex = 1 } } })
   h.scheduler:step(102, { menuEvents = { { type = "confirm" } } })
   h.scheduler:step(103, {})
   Assert.equal(h.services.world:getVar("VAR_RESULT"), 20)
@@ -247,7 +247,7 @@ function T.menu_task_blocks_until_normalized_confirmation_then_resumes_the_scrip
   start(h, 100)
   h.scheduler:step(100, {})
   Assert.equal(h.services.world:getVar("VAR_RESULT"), 0)
-  h.scheduler:step(101, { menuEvents = { { type = "navigate", direction = "down" } } })
+  h.scheduler:step(101, { menuEvents = { { type = "focus", itemIndex = 1 } } })
   Assert.equal(h.host.syncs[#h.host.syncs].selectedIndex, 1)
   h.scheduler:step(102, { menuEvents = { { type = "confirm" } } })
   Assert.equal(h.services.world:getVar("VAR_RESULT"), 0, "completion cannot continue the script in its poll tick")
@@ -256,11 +256,11 @@ function T.menu_task_blocks_until_normalized_confirmation_then_resumes_the_scrip
   Assert.equal(h.services.world:getVar("VAR_RESULT"), 99)
 end
 
-function T.menu_scroll_moves_the_selected_row_through_the_existing_layout_path()
+function T.menu_task_applies_the_layout_resolved_focus_target()
   local h = harness()
   start(h, 100)
   h.scheduler:step(100, {})
-  h.scheduler:step(101, { menuEvents = { { type = "scroll", deltaY = -1 } } })
+  h.scheduler:step(101, { menuEvents = { { type = "focus", itemIndex = 1 } } })
 
   Assert.equal(h.host.syncs[#h.host.syncs].selectedIndex, 1)
 end
@@ -269,7 +269,7 @@ function T.menu_task_restores_its_logical_selection_without_serializing_presenta
   local h = harness()
   start(h, 100)
   h.scheduler:step(100, {})
-  h.scheduler:step(101, { menuEvents = { { type = "navigate", direction = "down" } } })
+  h.scheduler:step(101, { menuEvents = { { type = "focus", itemIndex = 1 } } })
   local bucket = ScriptSave.capture(h.scheduler, 101, { registryFingerprint = h.registry:fingerprint() })
   local state = bucket.tasks[1].state
   Assert.equal(state.selectedIndex, 1)
