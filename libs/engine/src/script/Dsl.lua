@@ -297,6 +297,10 @@ function M.setAuxiliaryUiVisible(spec)
   return op("set_auxiliary_ui_visible", spec)
 end
 
+function M.contextChoice(spec)
+  return op("context_choice", spec)
+end
+
 function M.waitTicks(spec)
   return op("wait_ticks", spec)
 end

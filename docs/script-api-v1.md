@@ -584,6 +584,14 @@ No fields.
 | `provenance` | source_provenance |  |  |
 | `right` | scalar_or_value | yes |  |
 
+### `context_choice`
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
+| `result` | value | yes |  |
+
 ### `copy_local`
 
 | Field | Type | Required | Default |

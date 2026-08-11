@@ -214,6 +214,11 @@ Schema.OPERATIONS = {
       visible = { type = "boolean", required = true },
     },
   },
+  context_choice = {
+    fields = {
+      result = { type = "value", required = true },
+    },
+  },
   wait_ticks = {
     fields = {
       ticks = { type = "integer", required = true },

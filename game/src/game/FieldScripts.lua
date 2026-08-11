@@ -37,6 +37,7 @@ local TASK_MODULES = {
   "libs.engine.src.script.tasks.AskYesNoTask",
   "libs.engine.src.script.tasks.StarterChoiceTask",
   "libs.engine.src.script.tasks.AuxiliaryUiTask",
+  "libs.engine.src.script.tasks.ContextChoiceTask",
 }
 
 -- Build the task registry with every registered task type. `actor_pause`
@@ -161,6 +162,7 @@ end
 ---@field screen table|nil optional screen backend
 ---@field events table|nil optional event sink
 ---@field auxiliaryUi AuxiliaryFieldUi logical auxiliary field UI state
+---@field contextChoice ContextChoiceProvider contextual two-choice provider
 
 ---@class FieldScripts
 ---@field registry table
@@ -265,6 +267,7 @@ function FieldScripts.new(opts)
       screen = opts.screen,
       events = opts.events,
       auxiliaryUi = opts.auxiliaryUi,
+      contextChoice = opts.contextChoice,
       advanceAsync = advanceAsync,
     },
     taskRegistry = taskRegistry(),

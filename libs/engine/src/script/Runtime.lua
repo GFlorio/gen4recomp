@@ -489,6 +489,18 @@ HANDLERS.set_auxiliary_ui_visible = function(node, run)
   return blockOnTask(run, "auxiliary_ui", { node = node })
 end
 
+HANDLERS.context_choice = function(node, run)
+  requireForeground(run, "context_choice")
+  if run.services.contextChoice == nil then
+    Errors.raise(
+      ScriptErrors.SCRIPT_SERVICE_MISSING,
+      "contextChoice service is unavailable",
+      { scriptId = run.instance.scriptId }
+    )
+  end
+  return blockOnTask(run, "context_choice", { node = node })
+end
+
 HANDLERS["if"] = function(node, run)
   local frame = run.instance:topFrame()
   if Runtime.evaluateCondition(node.condition, run) then

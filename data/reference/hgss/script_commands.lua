@@ -4813,6 +4813,7 @@ return {
       widths = {},
     },
     [748] = {
+      classification = "native_wait",
       name = "ScrCmd_GetMenuChoice",
       widths = {
         [1] = 2,

@@ -1,0 +1,50 @@
+-- ContextChoiceProvider tests cover the distinct two-result HGSS provider.
+
+local Assert = require("tests.support.Assert")
+local ContextChoiceProvider = require("libs.engine.src.ContextChoiceProvider")
+local ContextChoiceTask = require("libs.engine.src.script.tasks.ContextChoiceTask")
+
+local T = {}
+
+T["context choice keeps its active selection until the task closes it"] = function()
+  local provider = ContextChoiceProvider.new()
+  Assert.equal(provider:status(), nil)
+
+  provider:open()
+  Assert.deepEqual(provider:status(), { state = "active", selected = 0 })
+  provider:select("right")
+  Assert.equal(provider:confirm(), 1)
+  provider:close()
+  Assert.equal(provider:status(), nil)
+end
+
+T["context choice task releases an opened provider when cancelled"] = function()
+  local provider = ContextChoiceProvider.new()
+  local ctx = { services = { contextChoice = provider } }
+  local state = ContextChoiceTask.create({}, ctx)
+  ContextChoiceTask.poll(state, ctx)
+  Assert.notNil(provider:status())
+
+  ContextChoiceTask.cancel(state, "script cancelled", ctx)
+  Assert.equal(provider:status(), nil)
+end
+
+T["context choice task writes the selected alternate result"] = function()
+  local provider = ContextChoiceProvider.new()
+  local ctx = { services = { contextChoice = provider }, input = {} }
+  local state = ContextChoiceTask.create({}, ctx)
+  ContextChoiceTask.poll(state, ctx)
+
+  ctx.input = { pressedDirection = "right" }
+  local waiting = ContextChoiceTask.poll(state, ctx)
+  Assert.isFalse(waiting.complete)
+  Assert.equal(provider:status().selected, 1)
+
+  ctx.input = { pressedAction = true }
+  local completed = ContextChoiceTask.poll(state, ctx)
+  Assert.isTrue(completed.complete)
+  Assert.equal(completed.result, 1)
+  Assert.equal(provider:status(), nil)
+end
+
+return T

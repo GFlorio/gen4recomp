@@ -395,6 +395,13 @@ function Game:auxiliaryUiStatus()
   return auxiliary:status()
 end
 
+-- Context choices are a distinct script-owned flow. This narrow test adapter
+-- observes the production provider without constructing a menu or script host.
+function Game:contextChoiceStatus()
+  local provider = self.runtime.contextChoiceProvider
+  return provider and provider:status() or nil
+end
+
 function Game:failForegroundScript(scriptId)
   assert(type(scriptId) == "string", "foreground script id required")
   local runtime = self.runtime

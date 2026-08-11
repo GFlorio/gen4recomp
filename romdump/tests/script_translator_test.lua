@@ -318,9 +318,9 @@ T["emitted steps keep provenance"] = function()
 end
 
 -- 11. The touchscreen visibility and list-menu builder commands lower to
--- their own semantic operations. ScriptGetVar operands and both menu-message
--- source forms remain exact; only the sibling unsupported command retains raw operands.
-T["field menu visibility and builder operations lower with exact semantics"] = function()
+-- their own semantic operations. GetMenuChoice is an independent asynchronous
+-- contextual-provider request.
+T["field menu commands lower with exact semantics"] = function()
   local bytes = ScriptFixture.member({
     scripts = {
       {
@@ -369,15 +369,9 @@ T["field menu visibility and builder operations lower with exact semantics"] = f
   Assert.isFalse(lowered.items[1].visible)
   Assert.equal(lowered.items[2].op, "set_auxiliary_ui_visible")
   Assert.isTrue(lowered.items[2].visible)
-  Assert.equal(#lowered.unsupported, 1)
-  local expectedArguments = {
-    { "VAR_0x4001" },
-  }
-  for index, arguments in ipairs(expectedArguments) do
-    local step = lowered.unsupported[index]
-    Assert.equal(step.command, 747 + index)
-    Assert.deepEqual(step.arguments, arguments)
-  end
+  Assert.equal(lowered.items[3].op, "context_choice")
+  Assert.deepEqual(lowered.items[3].result, { value = "var", id = "VAR_0x4001" })
+  Assert.equal(#lowered.unsupported, 0)
   Assert.deepEqual(lowered.items[4], {
     op = "menu_begin",
     messageSource = "standard",

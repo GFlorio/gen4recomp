@@ -710,6 +710,9 @@ local HANDLERS = {
   [747] = function()
     return { op = "set_auxiliary_ui_visible", visible = true }
   end,
+  [748] = function(ins)
+    return { op = "context_choice", result = varRef(ins.operands[1]) }
+  end,
 }
 
 -- Fold a compare/flag instruction with a following GoToIf/CallIf into one

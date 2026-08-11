@@ -7,6 +7,7 @@ local SaveFs = require("libs.rom.src.SaveFs")
 local DialogueLayout = require("libs.engine.src.DialogueLayout")
 local FieldActorDefinitionProvider = require("libs.engine.src.FieldActorDefinitionProvider")
 local AuxiliaryFieldUi = require("libs.engine.src.AuxiliaryFieldUi")
+local ContextChoiceProvider = require("libs.engine.src.ContextChoiceProvider")
 local FieldActorManager = require("libs.engine.src.FieldActorManager")
 local FieldCamera = require("libs.engine.src.FieldCamera")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
@@ -70,6 +71,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field session FieldSession?
 ---@field dialogue FieldDialogueController?
 ---@field auxiliaryFieldUi AuxiliaryFieldUi?
+---@field contextChoiceProvider ContextChoiceProvider?
 ---@field actionKeys table<string, boolean>?
 ---@field cancelKeys table<string, boolean>?
 ---@field saveFs SaveFs?
@@ -328,6 +330,7 @@ function FieldRuntime:_load()
     end
     self.dialogue = FieldDialogueController.new({ layout = layoutMessage })
     self.auxiliaryFieldUi = AuxiliaryFieldUi.new()
+    self.contextChoiceProvider = ContextChoiceProvider.new()
     self.actionKeys = actionBindings()
     self.cancelKeys = cancelBindings()
 
@@ -384,6 +387,7 @@ function FieldRuntime:_load()
       screen = self.scriptHosts and self.scriptHosts.screen,
       events = self.scriptHosts and self.scriptHosts.events,
       auxiliaryUi = self.auxiliaryFieldUi,
+      contextChoice = self.contextChoiceProvider,
     })
     if restored and restored.scripts then
       ScriptSave.restore(restored.scripts, self.scripts.scheduler, 0, {

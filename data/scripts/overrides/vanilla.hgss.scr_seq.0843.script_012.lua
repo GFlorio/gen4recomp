@@ -93,8 +93,8 @@ return S.script({
       waitForPrint = true,
     },
     {
-      message = "msg.project.placeholder",
-      op = "say",
+      op = "context_choice",
+      result = { id = "VAR_SPECIAL_RESULT", value = "var" },
       provenance = { offsets = { [1] = 630 }, opcodes = { [1] = 748 } },
     },
     { erase = true, op = "close_message", provenance = { offsets = { [1] = 634 }, opcodes = { [1] = 53 } } },
@@ -247,8 +247,8 @@ return S.script({
       waitForPrint = true,
     },
     {
-      message = "msg.project.placeholder",
-      op = "say",
+      op = "context_choice",
+      result = { id = "VAR_SPECIAL_RESULT", value = "var" },
       provenance = { offsets = { [1] = 796 }, opcodes = { [1] = 748 } },
     },
     { erase = true, op = "close_message", provenance = { offsets = { [1] = 800 }, opcodes = { [1] = 53 } } },
