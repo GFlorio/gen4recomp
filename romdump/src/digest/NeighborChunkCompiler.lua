@@ -2,7 +2,7 @@
 -- terrain. Unlike MapAssetCompiler it does not resolve a semantic map, emit a
 -- scene descriptor, or touch the derived cache: it takes an explicit land-data
 -- member plus the area-data member of that cell's own map header, decodes the
--- area/land/map-model/map-texture pack, and reuses MapAssetCompiler.compileModel
+-- area/land/map-model/map-texture pack, and reuses ModelAssetCompiler.compileModel
 -- to produce the same content-addressed batches/meshes/textures.
 --
 -- Using the cell's own area is a deliberate divergence. The engine binds every
@@ -24,7 +24,7 @@ local LandData = require("romdump.src.digest.LandData")
 local HgssBdhc = require("libs.assets.src.HgssBdhc")
 local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
 local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
-local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
+local ModelAssetCompiler = require("romdump.src.digest.ModelAssetCompiler")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local Hashing = require("romdump.src.digest.Hashing")
 local Errors = require("libs.rom.src.Errors")
@@ -64,7 +64,7 @@ function NeighborChunkCompiler.compile(romFs, landMemberId, areaMemberId, contex
   local texPack = assert(Nsbtx.decode(texBytes, { alias = "map_textures", memberId = area.mapTexturePackId }))
 
   local meshes, textures = {}, {}
-  local compiled = MapAssetCompiler.compileModel(mapModel, texPack, meshes, textures, {
+  local compiled = ModelAssetCompiler.compileModel(mapModel, texPack, meshes, textures, {
     mapId = context and context.mapId or nil,
     mapSymbol = context and context.mapSymbol or nil,
     role = "neighbor",
