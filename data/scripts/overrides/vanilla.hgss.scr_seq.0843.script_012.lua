@@ -76,9 +76,9 @@ return S.script({
     },
     { op = "wait_fanfare", provenance = { offsets = { [1] = 618 }, opcodes = { [1] = 79 } } },
     {
-      message = "msg.project.placeholder",
-      op = "say",
+      op = "set_auxiliary_ui_visible",
       provenance = { offsets = { [1] = 620 }, opcodes = { [1] = 746 } },
+      visible = false,
     },
     {
       op = "buffer_text",
@@ -111,9 +111,9 @@ return S.script({
       yes = { [1] = { op = "call", target = "_02EE" } },
     },
     {
-      message = "msg.project.placeholder",
-      op = "say",
+      op = "set_auxiliary_ui_visible",
       provenance = { offsets = { [1] = 649 }, opcodes = { [1] = 747 } },
+      visible = true,
     },
     {
       actor = { ref = "actor", special = "player" },
@@ -230,9 +230,9 @@ return S.script({
     },
     { op = "wait_fade", provenance = { offsets = { [1] = 784 }, opcodes = { [1] = 175 } } },
     {
-      message = "msg.project.placeholder",
-      op = "say",
+      op = "set_auxiliary_ui_visible",
       provenance = { offsets = { [1] = 786 }, opcodes = { [1] = 746 } },
+      visible = false,
     },
     {
       op = "buffer_text",

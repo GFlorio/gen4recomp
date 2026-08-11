@@ -40,6 +40,12 @@
 local FieldInput = {}
 FieldInput.__index = FieldInput
 
+FieldInput.UI_REPEAT_DELAY_TICKS = 18
+FieldInput.UI_REPEAT_INTERVAL_TICKS = 4
+FieldInput.STICK_PRESS_THRESHOLD = 0.6
+FieldInput.STICK_RELEASE_THRESHOLD = 0.4
+FieldInput.TOUCH_DRAG_THRESHOLD_PIXELS = 8
+
 local VALID = { north = true, south = true, west = true, east = true }
 local UI_DIRECTIONS = { up = true, down = true, left = true, right = true }
 local TO_UI_DIRECTION = { north = "up", south = "down", west = "left", east = "right" }
@@ -86,11 +92,11 @@ end
 function FieldInput.new(options)
   options = options or {}
   assert(type(options) == "table", "field input options must be a table")
-  local uiRepeatDelay = options.uiRepeatDelay or 18
-  local uiRepeatInterval = options.uiRepeatInterval or 4
-  local uiStickPressThreshold = options.uiStickPressThreshold or 0.6
-  local uiStickReleaseThreshold = options.uiStickReleaseThreshold or 0.4
-  local uiTouchDragThreshold = options.touchDragThreshold or 8
+  local uiRepeatDelay = options.uiRepeatDelay or FieldInput.UI_REPEAT_DELAY_TICKS
+  local uiRepeatInterval = options.uiRepeatInterval or FieldInput.UI_REPEAT_INTERVAL_TICKS
+  local uiStickPressThreshold = options.uiStickPressThreshold or FieldInput.STICK_PRESS_THRESHOLD
+  local uiStickReleaseThreshold = options.uiStickReleaseThreshold or FieldInput.STICK_RELEASE_THRESHOLD
+  local uiTouchDragThreshold = options.touchDragThreshold or FieldInput.TOUCH_DRAG_THRESHOLD_PIXELS
   requirePositiveInteger(uiRepeatDelay, "UI repeat delay")
   requirePositiveInteger(uiRepeatInterval, "UI repeat interval")
   requireUnitInterval(uiStickPressThreshold, "UI stick press threshold")

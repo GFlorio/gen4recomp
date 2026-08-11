@@ -40,9 +40,9 @@ return S.script({
       waitForPrint = true,
     },
     {
-      message = "msg.project.placeholder",
-      op = "say",
+      op = "set_auxiliary_ui_visible",
       provenance = { offsets = { [1] = 4296 }, opcodes = { [1] = 746 } },
+      visible = false,
     },
     { erase = true, op = "close_message", provenance = { offsets = { [1] = 4304 }, opcodes = { [1] = 53 } } },
     {

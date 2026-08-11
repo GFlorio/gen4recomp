@@ -10,6 +10,7 @@
 local CommandCatalog = require("romdump.src.digest.script.CommandCatalog")
 local MovementDecoder = require("romdump.src.digest.script.MovementDecoder")
 local SourceCatalog = require("romdump.src.digest.script.SourceCatalog")
+local MenuProtocol = require("data.reference.hgss.menu_protocol")
 
 local SemanticLowering = {}
 
@@ -666,7 +667,7 @@ local HANDLERS = {
       op = "menu_begin",
       messageSource = "standard",
       sourcePlacement = {
-        system = "hgss_bottom_screen_tiles",
+        system = MenuProtocol.BOTTOM_SCREEN_TILE_PLACEMENT,
         x = operandValue(ins.operands[1]),
         y = operandValue(ins.operands[2]),
       },
@@ -681,7 +682,7 @@ local HANDLERS = {
       op = "menu_begin",
       messageSource = { kind = "script", bank = memberIr.messageBank },
       sourcePlacement = {
-        system = "hgss_bottom_screen_tiles",
+        system = MenuProtocol.BOTTOM_SCREEN_TILE_PLACEMENT,
         x = operandValue(ins.operands[1]),
         y = operandValue(ins.operands[2]),
       },

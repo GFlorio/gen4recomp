@@ -3,6 +3,7 @@
 -- remain outside this module.
 
 ---@class MenuLayout
+local MenuProtocol = require("data.reference.hgss.menu_protocol")
 local MenuLayout = {}
 
 MenuLayout.minimumTouchTarget = 44
@@ -186,7 +187,7 @@ local function sourceAnchor(sourcePlacement, bounds, frame)
     return bounds.x + (bounds.width - frame.width) / 2, bounds.y + (bounds.height - frame.height) / 2
   end
   assert(type(sourcePlacement) == "table", "source placement must be a table")
-  assert(sourcePlacement.system == "hgss_bottom_screen_tiles", "source placement system is invalid")
+  assert(sourcePlacement.system == MenuProtocol.BOTTOM_SCREEN_TILE_PLACEMENT, "source placement system is invalid")
   assert(
     isFiniteNumber(sourcePlacement.x) and isFiniteNumber(sourcePlacement.y),
     "source placement coordinates must be finite"

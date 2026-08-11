@@ -241,15 +241,6 @@ function FieldScripts.new(opts)
   })
   local menuHost = ScriptMenuHost.new({
     provider = opts.messageProvider,
-    -- Standard GMM remains a distinct source. Its cache integration is
-    -- supplied by the field message asset contract.
-    standardMessageBank = 542,
-    -- The field slice deliberately compiles only its map-local banks. Keep
-    -- standard GMM entries semantic and presentable until their shared bank
-    -- joins that derived asset selection; no raw ROM text enters runtime.
-    standardFallback = function(messageId)
-      return { text = "[" .. messageId .. "]" }
-    end,
     resolveText = function(message)
       return dialogueHost:resolveMessage(message, {}, {})
     end,

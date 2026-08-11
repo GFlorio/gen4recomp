@@ -6,6 +6,7 @@ local Errors = require("libs.rom.src.Errors")
 local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
 local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
 local ScriptMenuHost = require("libs.engine.src.script.ScriptMenuHost")
+local MenuProtocol = require("data.reference.hgss.menu_protocol")
 local CacheFs = require("libs.rom.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 
@@ -30,12 +31,14 @@ end
 
 local function host()
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
-  cache:writeLua(FieldMessageCache.bankPath(1), bankArtifact(1, "Standard"))
+  cache:writeLua(
+    FieldMessageCache.bankPath(MenuProtocol.STANDARD_MESSAGE_BANK),
+    bankArtifact(MenuProtocol.STANDARD_MESSAGE_BANK, "Standard")
+  )
   cache:writeLua(FieldMessageCache.bankPath(2), bankArtifact(2, "Script"))
   local provider = assert(FieldMessageProvider.new(cache))
   local h = ScriptMenuHost.new({
     provider = provider,
-    standardMessageBank = 1,
   })
   return h, provider
 end
@@ -46,13 +49,17 @@ local function throwsCode(code, fn)
   Assert.equal(err.code, code)
 end
 
+local function sourcePlacement(x, y)
+  return { system = MenuProtocol.BOTTOM_SCREEN_TILE_PLACEMENT, x = x, y = y }
+end
+
 -- Matching message IDs must still use different banks based on the original
 -- builder operation, and entry result values must not become visual indexes.
 function T.resolves_standard_and_script_messages_without_changing_item_values()
   local h = host()
   local standardBuilder = h:beginMenu({
     messageSource = "standard",
-    sourcePlacement = { system = "hgss_bottom_screen_tiles", x = 4, y = 5 },
+    sourcePlacement = sourcePlacement(4, 5),
     initialCursor = 0,
     cancellable = false,
     result = "VAR_RESULT",
@@ -66,7 +73,7 @@ function T.resolves_standard_and_script_messages_without_changing_item_values()
 
   local scriptBuilder = h:beginMenu({
     messageSource = { kind = "script", bank = 2 },
-    sourcePlacement = { system = "hgss_bottom_screen_tiles", x = 6, y = 7 },
+    sourcePlacement = sourcePlacement(6, 7),
     initialCursor = 0,
     cancellable = false,
     result = "VAR_RESULT",
@@ -83,7 +90,7 @@ function T.retains_var_derived_item_operands_as_concrete_values()
   local h = host()
   local builder = h:beginMenu({
     messageSource = "standard",
-    sourcePlacement = { system = "hgss_bottom_screen_tiles", x = 0, y = 0 },
+    sourcePlacement = sourcePlacement(0, 0),
     initialCursor = 0,
     cancellable = false,
     result = "VAR_RESULT",
@@ -114,7 +121,7 @@ function T.publishes_semantic_choices_without_entering_the_imported_builder()
   Assert.equal(menu.initialCursor, 1)
   h:beginMenu({
     messageSource = "standard",
-    sourcePlacement = { system = "hgss_bottom_screen_tiles", x = 0, y = 0 },
+    sourcePlacement = sourcePlacement(0, 0),
     initialCursor = 0,
     cancellable = false,
     result = "VAR_RESULT",
@@ -189,7 +196,7 @@ function T.unresolved_messages_release_the_provider_without_publishing_a_menu()
   local h, provider = host()
   local builder = h:beginMenu({
     messageSource = "standard",
-    sourcePlacement = { system = "hgss_bottom_screen_tiles", x = 0, y = 0 },
+    sourcePlacement = sourcePlacement(0, 0),
     initialCursor = 0,
     cancellable = false,
     result = "VAR_RESULT",
@@ -201,12 +208,26 @@ function T.unresolved_messages_release_the_provider_without_publishing_a_menu()
   Assert.equal(provider:stats().references, 0)
   local nextBuilder = h:beginMenu({
     messageSource = "standard",
-    sourcePlacement = { system = "hgss_bottom_screen_tiles", x = 0, y = 0 },
+    sourcePlacement = sourcePlacement(0, 0),
     initialCursor = 0,
     cancellable = false,
     result = "VAR_RESULT",
   })
   Assert.isTrue(nextBuilder ~= builder)
+end
+
+function T.retains_an_explicit_zero_cancellation_value()
+  local h = host()
+  local builder = h:beginMenu({
+    messageSource = "standard",
+    sourcePlacement = sourcePlacement(0, 0),
+    initialCursor = 0,
+    cancellable = true,
+    cancelValue = 0,
+    result = "VAR_RESULT",
+  })
+  h:addItem(builder, { messageId = 0, vanillaMetadata = 0, value = 1 })
+  Assert.equal(h:execute(builder).cancelValue, 0)
 end
 
 return T

@@ -4,11 +4,10 @@
 
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
+local MenuProtocol = require("data.reference.hgss.menu_protocol")
 
 ---@class ScriptMenuHost
 ---@field private _provider FieldMessageProvider
----@field private _standardMessageBank integer
----@field private _standardFallback fun(messageId: integer): table|nil
 ---@field private _resolveText fun(message: any): table|nil
 local ScriptMenuHost = {}
 ScriptMenuHost.__index = ScriptMenuHost
@@ -28,9 +27,9 @@ end
 
 ---@param source any
 ---@return integer
-local function messageBank(self, source)
+local function messageBank(_, source)
   if source == "standard" then
-    return self._standardMessageBank
+    return MenuProtocol.STANDARD_MESSAGE_BANK
   end
   assert(type(source) == "table" and source.kind == "script", "menu message source is invalid")
   assertInteger(source.bank, "script menu message bank")
@@ -45,10 +44,6 @@ local function resolveMessage(self, source, messageId)
   local bankId = messageBank(self, source)
   local acquired, bankErr = self._provider:acquireBank(bankId)
   if not acquired then
-    local fallback = source == "standard" and self._standardFallback
-    if fallback then
-      return assert(fallback(messageId), "standard menu fallback returned no message")
-    end
     Errors.raise(
       ScriptErrors.SCRIPT_MENU_MESSAGE_UNRESOLVED,
       "menu message bank is unavailable",
@@ -58,10 +53,6 @@ local function resolveMessage(self, source, messageId)
   local template, templateErr = self._provider:get(bankId, messageId)
   if not template then
     self._provider:releaseBank(bankId)
-    local fallback = source == "standard" and self._standardFallback
-    if fallback then
-      return assert(fallback(messageId), "standard menu fallback returned no message")
-    end
     Errors.raise(
       ScriptErrors.SCRIPT_MENU_MESSAGE_UNRESOLVED,
       "menu message is unavailable",
@@ -99,19 +90,16 @@ local function resolveSemanticText(self, message)
   return { text = message }
 end
 
----@param opts table { provider, standardMessageBank, standardFallback?: fun(messageId: integer): table }
+---@param opts table { provider, resolveText?: fun(message: any): table }
 ---@return ScriptMenuHost
 function ScriptMenuHost.new(opts)
   assert(type(opts) == "table" and opts.provider, "script menu host requires a message provider")
-  assertInteger(opts.standardMessageBank, "script menu host standard message bank")
   assert(
     opts.resolveText == nil or type(opts.resolveText) == "function",
     "script menu text resolver must be a function"
   )
   return setmetatable({
     _provider = opts.provider,
-    _standardMessageBank = opts.standardMessageBank,
-    _standardFallback = opts.standardFallback,
     _resolveText = opts.resolveText,
   }, ScriptMenuHost)
 end
@@ -152,7 +140,10 @@ function ScriptMenuHost:beginMenu(spec)
   assert(type(spec) == "table", "script menu specification must be a table")
   messageBank(self, spec.messageSource)
   assert(type(spec.sourcePlacement) == "table", "script menu source placement is required")
-  assert(spec.sourcePlacement.system == "hgss_bottom_screen_tiles", "script menu placement system is invalid")
+  assert(
+    spec.sourcePlacement.system == MenuProtocol.BOTTOM_SCREEN_TILE_PLACEMENT,
+    "script menu placement system is invalid"
+  )
   assertInteger(spec.sourcePlacement.x, "script menu source x")
   assertInteger(spec.sourcePlacement.y, "script menu source y")
   assertInteger(spec.initialCursor, "script menu initial cursor")
@@ -161,6 +152,10 @@ function ScriptMenuHost:beginMenu(spec)
   local messageSource = spec.messageSource
   if type(messageSource) == "table" then
     messageSource = { kind = "script", bank = messageSource.bank }
+  end
+  local cancelValue = spec.cancelValue
+  if cancelValue == nil and spec.cancellable then
+    cancelValue = MenuProtocol.CANCEL_RESULT
   end
   return {
     messageSource = messageSource,
@@ -171,10 +166,10 @@ function ScriptMenuHost:beginMenu(spec)
     },
     initialCursor = spec.initialCursor,
     cancellable = spec.cancellable,
-    -- 0xFFFE is HGSS's list-menu cancellation result. This compatibility
+    -- HGSS's list-menu cancellation result. This compatibility
     -- detail stays at the imported-script boundary; public menu APIs supply
     -- their cancellation value explicitly.
-    cancelValue = spec.cancelValue or (spec.cancellable and 0xFFFE or nil),
+    cancelValue = cancelValue,
     result = spec.result,
     items = {},
   }

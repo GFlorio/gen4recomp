@@ -16,6 +16,7 @@ local T = {
 
 local HIDE_SCRIPT = "common.pokemart"
 local SHOW_SCRIPT = "common.pokemart_cancel"
+local STARTER_SCRIPT = "vanilla.hgss.scr_seq.0843.script_012"
 
 local function withGame(fn)
   local game = AcceptanceHarness.new():boot({ versionId = "heartgold", save = "fresh" })
@@ -27,6 +28,18 @@ local function withGame(fn)
   if not ok then
     error(err, 0)
   end
+end
+
+local function advanceToStarterChoice(game)
+  return game:advanceUntil("starter script opens its contextual choice", function(snapshot)
+    if game:contextChoiceStatus() ~= nil then
+      return true
+    end
+    if snapshot.dialogue.modal then
+      game:pressAction()
+    end
+    return false
+  end, 240)
 end
 
 -- D10-AUX-01: a real Pokémart entry begins with opcode 746. The script must
@@ -56,6 +69,38 @@ function T.tests.show_from_a_real_script_synchronizes_asynchronously_without_a_h
       return game:auxiliaryUiStatus().state == "shown" and not snapshot.fieldLocked
     end, 120)
     Assert.isFalse(shown.fieldLocked)
+  end)
+end
+
+-- D10-OVERRIDE-01: the checked-in starter override contains source opcode
+-- 746 before its first contextual choice. Its production-composed execution
+-- must issue the supported auxiliary-UI hide operation, not consume a stale
+-- placeholder dialogue node.
+function T.tests.starter_override_executes_opcode_746_as_auxiliary_ui_hide()
+  withGame(function(game)
+    game:startScript(STARTER_SCRIPT)
+    game:advanceUntil("starter opcode 746 requests auxiliary UI hide", function(snapshot)
+      if game:auxiliaryUiStatus().requested == "hidden" then
+        return true
+      end
+      if snapshot.dialogue.modal then
+        game:pressAction()
+      end
+      return false
+    end, 240)
+  end)
+end
+
+-- D10-OVERRIDE-02: selecting the non-cancel starter branch reaches source
+-- opcode 747. It must begin the real asynchronous show operation rather than
+-- opening a generated placeholder dialogue.
+function T.tests.starter_override_executes_opcode_747_as_auxiliary_ui_show()
+  withGame(function(game)
+    game:startScript(STARTER_SCRIPT)
+    advanceToStarterChoice(game)
+    game:move("east")
+    game:pressAction()
+    Assert.deepEqual(game:auxiliaryUiStatus(), { requested = "shown", state = "showing" })
   end)
 end
 

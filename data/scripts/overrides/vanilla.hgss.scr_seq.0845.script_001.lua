@@ -106,9 +106,9 @@ return S.script({
       waitForPrint = true,
     },
     {
-      message = "msg.project.placeholder",
-      op = "say",
+      op = "set_auxiliary_ui_visible",
       provenance = { offsets = { [1] = 424 }, opcodes = { [1] = 746 } },
+      visible = false,
     },
     {
       condition = {
