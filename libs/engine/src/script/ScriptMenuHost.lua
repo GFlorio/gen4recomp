@@ -1,6 +1,6 @@
--- Script menu host bridges source-faithful script menu construction to a
--- controller-ready request. It owns only the short-lived builder, resolves
--- message references through FieldMessageProvider, and has no love dependency.
+-- Script menu host resolves source-faithful script menu builders into
+-- controller-ready requests. Builders belong to their ScriptInstance; this
+-- service has no script-persistent state or love dependency.
 
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -11,7 +11,6 @@ local ScriptErrors = require("libs.engine.src.script.errors")
 ---@field private _createMenu fun(request: table): any
 ---@field private _standardFallback fun(messageId: integer): table|nil
 ---@field private _resolveText fun(message: any): table|nil
----@field private _builder table|nil
 local ScriptMenuHost = {}
 ScriptMenuHost.__index = ScriptMenuHost
 
@@ -101,7 +100,6 @@ function ScriptMenuHost.new(opts)
     _createMenu = opts.createMenu,
     _standardFallback = opts.standardFallback,
     _resolveText = opts.resolveText,
-    _builder = nil,
   }, ScriptMenuHost)
 end
 
@@ -135,10 +133,8 @@ end
 -- Starts one source-faithful builder. `messageSource` deliberately retains
 -- the distinction between standard/global and current-script message banks.
 ---@param spec table
+---@return table builder
 function ScriptMenuHost:beginMenu(spec)
-  if self._builder ~= nil then
-    Errors.raise(ScriptErrors.SCRIPT_MENU_ALREADY_BUILDING, "a script menu is already being built")
-  end
   assert(type(spec) == "table", "script menu specification must be a table")
   messageBank(self, spec.messageSource)
   assert(type(spec.sourcePlacement) == "table", "script menu source placement is required")
@@ -152,7 +148,7 @@ function ScriptMenuHost:beginMenu(spec)
   if type(messageSource) == "table" then
     messageSource = { kind = "script", bank = messageSource.bank }
   end
-  self._builder = {
+  return {
     messageSource = messageSource,
     sourcePlacement = {
       system = spec.sourcePlacement.system,
@@ -170,9 +166,9 @@ function ScriptMenuHost:beginMenu(spec)
   }
 end
 
+---@param builder table imported HGSS menu builder owned by a ScriptInstance
 ---@param item table { messageId, vanillaMetadata, value }
-function ScriptMenuHost:addItem(item)
-  local builder = self._builder
+function ScriptMenuHost:addItem(builder, item)
   if builder == nil then
     Errors.raise(ScriptErrors.SCRIPT_MENU_NOT_INITIALIZED, "script menu item added without a menu builder")
   end
@@ -190,9 +186,9 @@ end
 -- Resolves every builder entry before publication. Bank acquisitions are
 -- released after each lookup; on any failure no controller request is made
 -- and the builder remains available for diagnostic inspection by its caller.
+---@param builder table imported HGSS menu builder owned by a ScriptInstance
 ---@return any menuController
-function ScriptMenuHost:execute()
-  local builder = self._builder
+function ScriptMenuHost:execute(builder)
   if builder == nil then
     Errors.raise(ScriptErrors.SCRIPT_MENU_NOT_INITIALIZED, "script menu executed without a menu builder")
   end
@@ -217,7 +213,6 @@ function ScriptMenuHost:execute()
     result = builder.result,
   }
   local menu = self._createMenu(request)
-  self._builder = nil
   return menu
 end
 

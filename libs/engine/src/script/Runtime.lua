@@ -988,7 +988,10 @@ HANDLERS.choose = function(node, run)
 end
 HANDLERS.menu_begin = function(node, run)
   requireForeground(run, "menu_begin")
-  requireScriptMenu(run):beginMenu({
+  if run.instance.menuBuilder ~= nil then
+    Errors.raise(ScriptErrors.SCRIPT_MENU_ALREADY_BUILDING, "a script menu is already being built")
+  end
+  run.instance.menuBuilder = requireScriptMenu(run):beginMenu({
     messageSource = node.messageSource,
     sourcePlacement = node.sourcePlacement,
     initialCursor = node.initialCursor,
@@ -999,7 +1002,7 @@ HANDLERS.menu_begin = function(node, run)
 end
 HANDLERS.menu_add = function(node, run)
   requireForeground(run, "menu_add")
-  requireScriptMenu(run):addItem({
+  requireScriptMenu(run):addItem(run.instance.menuBuilder, {
     messageId = Runtime.evaluateValue(node.messageId, run),
     vanillaMetadata = Runtime.evaluateValue(node.vanillaMetadata, run),
     value = Runtime.evaluateValue(node.value, run),
@@ -1008,8 +1011,9 @@ HANDLERS.menu_add = function(node, run)
 end
 HANDLERS.menu_exec = function(_, run)
   requireForeground(run, "menu_exec")
-  local request = requireScriptMenu(run):execute()
+  local request = requireScriptMenu(run):execute(run.instance.menuBuilder)
   assert(type(request) == "table" and type(request.items) == "table", "script menu host returned an invalid request")
+  run.instance.menuBuilder = nil
   return blockOnTask(run, "menu", { menu = request }, request.result)
 end
 HANDLERS.wait_movement = function(node, run)

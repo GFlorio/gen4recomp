@@ -57,12 +57,11 @@ local RecordingScriptMenuHost = {}
 RecordingScriptMenuHost.__index = RecordingScriptMenuHost
 
 function RecordingScriptMenuHost.new()
-  return setmetatable({ builder = nil, requests = {} }, RecordingScriptMenuHost)
+  return setmetatable({ requests = {} }, RecordingScriptMenuHost)
 end
 
 function RecordingScriptMenuHost:beginMenu(spec)
-  assert(self.builder == nil, "test menu builder is already active")
-  self.builder = {
+  return {
     messageSource = spec.messageSource,
     sourcePlacement = spec.sourcePlacement,
     initialCursor = spec.initialCursor,
@@ -72,8 +71,8 @@ function RecordingScriptMenuHost:beginMenu(spec)
   }
 end
 
-function RecordingScriptMenuHost:addItem(item)
-  self.builder.items[#self.builder.items + 1] = item
+function RecordingScriptMenuHost:addItem(builder, item)
+  builder.items[#builder.items + 1] = item
 end
 
 function RecordingScriptMenuHost:choose(spec)
@@ -81,9 +80,7 @@ function RecordingScriptMenuHost:choose(spec)
   return spec
 end
 
-function RecordingScriptMenuHost:execute()
-  local request = self.builder
-  self.builder = nil
+function RecordingScriptMenuHost:execute(request)
   self.requests[#self.requests + 1] = request
   return request
 end
@@ -165,6 +162,40 @@ function T.menu_builder_operations_yield_add_same_tick_and_block_for_the_script_
   h.scheduler:step(103, {})
   Assert.equal(h.services.world:getVar("VAR_RESULT"), 99)
   Assert.equal(h.services.world:getVar("VAR_AFTER_MENU"), 1)
+end
+
+function T.menu_builder_survives_save_after_begin_with_a_fresh_stateless_host()
+  local h = harness()
+  local script = S.script({
+    api = 1,
+    id = "test.resumable_menu_builder",
+    steps = {
+      S.menuBegin({
+        messageSource = "standard",
+        sourcePlacement = { system = "hgss_bottom_screen_tiles", x = 17, y = 5 },
+        initialCursor = 0,
+        cancellable = false,
+        result = S.var("VAR_RESULT"),
+      }),
+      S.menuAdd({ messageId = 0, vanillaMetadata = 73, value = 99 }),
+      S.menuExec(),
+      S.stop(),
+    },
+  })
+  h.registry:installBase(script.id, script, "generated")
+  h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+  h.scheduler:step(100, {})
+
+  local bucket = ScriptSave.capture(h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
+  Assert.equal(bucket.instances[1].menuBuilder.messageSource, "standard")
+  Assert.equal(#bucket.instances[1].menuBuilder.items, 0)
+
+  local h2 = harness()
+  h2.registry:installBase(script.id, script, "generated")
+  ScriptSave.restore(bucket, h2.scheduler, 100, {})
+  h2.scheduler:step(101, {})
+  Assert.equal(#h2.services.scriptMenu.requests, 1)
+  Assert.equal(h2.services.scriptMenu.requests[1].items[1].value, 99)
 end
 
 function T.semantic_choose_blocks_and_writes_its_stable_item_result()

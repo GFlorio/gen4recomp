@@ -100,6 +100,29 @@ function T.tests.vanilla_menu_selection_has_one_result_across_input_modalities()
   end
 end
 
+-- D3-HGSS-01: opcode 749 deliberately yields after creating its builder.
+-- A process restart at that source-faithful boundary must retain the builder
+-- in the foreground script instance, so the later 751/752 operations can
+-- publish the same real menu and write its selected HGSS value.
+function T.tests.restart_after_hgss_menu_begin_resumes_the_real_menu_builder()
+  withGame(function(game)
+    game:startScript(VANILLA_MENU)
+    game:step()
+
+    local resumed = game:restart({ save = "resume" })
+    local opened = resumed:advanceUntil("resumed HGSS menu becomes modal", menuIsModal, 120)
+
+    local x, y = itemCenter(opened, 1)
+    resumed.runtime.input:pointerDown("mouse:1", x, y)
+    resumed:step()
+    resumed.runtime.input:pointerUp("mouse:1", x, y)
+    resumed:advanceUntil("resumed HGSS menu closes after selection", function(snapshot)
+      return snapshot.menu ~= nil and not snapshot.menu.modal
+    end, 120)
+    Assert.equal(resumed.runtime.scripts.worldState:getVar(SPECIAL_RESULT), 1)
+  end)
+end
+
 -- FM-12-02: the Action edge that completes a menu is consumed by the modal
 -- owner. Once the menu branch releases, that old edge cannot start a field
 -- interaction on the following fixed tick.

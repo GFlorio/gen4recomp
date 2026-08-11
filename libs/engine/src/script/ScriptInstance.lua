@@ -34,6 +34,7 @@ local ScriptEnvironment = require("libs.engine.src.script.ScriptEnvironment")
 ---@field locals table
 ---@field textArgs table
 ---@field compare any|nil
+---@field menuBuilder table|nil imported HGSS menu construction owned by this instance
 ---@field frames ScriptFrame[]
 ---@field waitingTaskId string|nil
 ---@field taskResult any
@@ -96,6 +97,7 @@ function ScriptInstance.new(spec)
     locals = {},
     textArgs = {},
     compare = nil,
+    menuBuilder = nil,
     frames = {},
     waitingTaskId = nil,
     taskResult = nil,
@@ -169,6 +171,7 @@ end
 function ScriptInstance:clearInstanceState()
   self.textArgs = {}
   self.locals = {}
+  self.menuBuilder = nil
 end
 
 -- Deterministic capture for the save schema. Absolute scheduling ticks become
@@ -204,6 +207,7 @@ function ScriptInstance:capture(captureTick)
     locals = self.locals,
     textArgs = self.textArgs,
     compare = self.compare,
+    menuBuilder = self.menuBuilder,
     frames = frames,
     waitingTaskId = self.waitingTaskId,
     taskResult = self.taskResult,
@@ -243,6 +247,7 @@ function ScriptInstance.restore(record, restoreTick, graphs)
   instance.locals = record.locals or {}
   instance.textArgs = record.textArgs or {}
   instance.compare = record.compare
+  instance.menuBuilder = record.menuBuilder
   instance.waitingTaskId = record.waitingTaskId
   instance.taskResult = record.taskResult
   instance.pendingResultRef = record.pendingResultRef
