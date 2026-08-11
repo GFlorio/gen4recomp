@@ -244,4 +244,63 @@ function T.publish_reports_an_aside_failure_instead_of_success()
   tx:abort()
 end
 
+-- A rollback rename that reports failure must surface as an incomplete
+-- rollback: publish may never claim the previous artifact was restored when a
+-- checked rollback rename failed.
+function T.publish_reports_an_incomplete_rollback_when_a_rollback_rename_fails()
+  local backend = FakeCache.new()
+  ---@diagnostic disable: duplicate-set-field
+  backend.replace = function(self, sourcePath, destinationPath)
+    -- Fail the stage -> live rename of the second root AND the rollback of
+    -- the first root (live -> stage), so the rollback cannot restore it.
+    if sourcePath == STAGE_ROOT .. "/" .. ASSET then
+      return false, "injected replace failure"
+    end
+    if sourcePath == "heartgold/" .. DATA and destinationPath == STAGE_ROOT .. "/" .. DATA then
+      return false, "injected rollback failure"
+    end
+    return FakeCache.replace(self, sourcePath, destinationPath)
+  end
+  local cache = CacheFs.forVersion("heartgold", backend)
+  seedOldArtifact(cache)
+  local tx = beginActors(cache)
+  stageNewArtifact(tx)
+  local err = Assert.throws(function()
+    tx:publish()
+  end)
+  Assert.isTrue(Errors.is(err), "an incomplete rollback must surface as a structured error")
+  Assert.equal(err.code, "CACHE_PUBLISH_ROLLBACK_INCOMPLETE")
+  Assert.isTrue(tostring(err.context.cause):match("CACHE_REPLACE_FAILED"), "the original publish error is the cause")
+  Assert.isTrue(tostring(err.context.rollback):match("injected rollback failure"), "the rollback error is recorded")
+  tx:abort()
+end
+
+-- A failing stage cleanup after every root was published is reported as
+-- publish-succeeded-cleanup-failed: the new artifact is already live, so a
+-- caller must not mistake this for a failed publication (retrying would be
+-- unsafe).
+function T.publish_reports_cleanup_failure_after_success()
+  local backend = FakeCache.new()
+  ---@diagnostic disable: duplicate-set-field
+  backend.remove = function(self, path)
+    if path == STAGE_ROOT then
+      return false, "injected cleanup failure"
+    end
+    return FakeCache.remove(self, path)
+  end
+  local cache = CacheFs.forVersion("heartgold", backend)
+  seedOldArtifact(cache)
+  local tx = beginActors(cache)
+  stageNewArtifact(tx)
+  local err = Assert.throws(function()
+    tx:publish()
+  end)
+  Assert.isTrue(Errors.is(err), "a cleanup failure must surface as a structured error")
+  Assert.equal(err.code, "CACHE_PUBLISH_CLEANUP_FAILED")
+  Assert.equal(cache:read(DATA .. "/complete"), "new-marker", "the new artifact is live despite the cleanup failure")
+  Assert.equal(cache:read(DATA .. "/index.lua"), "new-index")
+  Assert.equal(cache:read(ASSET .. "/0000.png"), "new-png")
+  tx:abort()
+end
+
 return T

@@ -10,6 +10,7 @@
 -- lifecycle. Love-free; all IO goes through the CacheFs backend.
 
 local CacheFs = require("libs.rom.src.CacheFs")
+local Errors = require("libs.rom.src.Errors")
 
 ---@class ArtifactPublisher
 ---@field stage CacheFs
@@ -46,12 +47,64 @@ function ArtifactPublisher.begin(cacheFs, name, liveRoots)
   }, ArtifactPublisher)
 end
 
+-- Restore every aside root a failed publish left behind, using the checked
+-- rename path (a falsy backend result becomes CACHE_REPLACE_FAILED). Returns
+-- the first rollback error, or nil when every aside was restored.
+---@param aside table<string, boolean>
+---@return any|nil
+function ArtifactPublisher:_rollbackAsides(aside)
+  local firstError
+  for _, root in ipairs(self._liveRoots) do
+    if aside[root] then
+      local ok, err = pcall(
+        self._cacheFs.replaceAt,
+        self._cacheFs,
+        self.stage:resolve(root) .. CacheFs.STAGING_OLD_SUFFIX,
+        self._cacheFs:resolve(root)
+      )
+      if not ok and firstError == nil then
+        firstError = err
+      end
+    end
+  end
+  return firstError
+end
+
+-- Restore the already-published roots back to the stage, then every aside
+-- root, with the checked rename path. Returns the first rollback error, or
+-- nil when the previous artifact was fully restored.
+---@param movedIn string[]
+---@param aside table<string, boolean>
+---@return any|nil
+function ArtifactPublisher:_rollbackPublished(movedIn, aside)
+  local firstError
+  for index = #movedIn, 1, -1 do
+    local root = movedIn[index]
+    local ok, err = pcall(self._cacheFs.replaceAt, self._cacheFs, self._cacheFs:resolve(root), self.stage:resolve(root))
+    if not ok and firstError == nil then
+      firstError = err
+    end
+  end
+  local asideErr = self:_rollbackAsides(aside)
+  if firstError == nil then
+    firstError = asideErr
+  end
+  return firstError
+end
+
 -- Publish the staged artifact over the live roots. The live roots are moved
 -- aside first, the staged roots are renamed into place, and only after every
 -- rename lands are the aside roots and the stage removed. If any rename fails,
 -- every root already moved into place is moved back to the stage and every
 -- aside root is restored, so a failed publish leaves the previous artifact
--- byte-for-byte intact; the original error is then re-raised.
+-- byte-for-byte intact. Three outcomes are distinguished:
+--  * success: returns true;
+--  * publication failed and rollback succeeded: the original error re-raises;
+--  * publication failed and rollback was incomplete:
+--    CACHE_PUBLISH_ROLLBACK_INCOMPLETE raises with both errors in context;
+--  * publication succeeded but the stage cleanup failed:
+--    CACHE_PUBLISH_CLEANUP_FAILED raises (the new artifact is live, so
+--    retrying would be unsafe).
 function ArtifactPublisher:publish()
   local cacheFs = self._cacheFs
   local stage = self.stage
@@ -78,15 +131,12 @@ function ArtifactPublisher:publish()
     end
   end)
   if not ok then
-    for _, root in ipairs(self._liveRoots) do
-      if aside[root] then
-        pcall(
-          cacheFs.backend.replace,
-          cacheFs.backend,
-          stage:resolve(root) .. CacheFs.STAGING_OLD_SUFFIX,
-          cacheFs:resolve(root)
-        )
-      end
+    local rollbackErr = self:_rollbackAsides(aside)
+    if rollbackErr ~= nil then
+      Errors.raise("CACHE_PUBLISH_ROLLBACK_INCOMPLETE", "publish failed and the rollback was incomplete", {
+        cause = tostring(err),
+        rollback = tostring(rollbackErr),
+      })
     end
     error(err, 0)
   end
@@ -100,24 +150,24 @@ function ArtifactPublisher:publish()
     end
   end)
   if not ok then
-    for index = #movedIn, 1, -1 do
-      local root = movedIn[index]
-      pcall(cacheFs.backend.replace, cacheFs.backend, cacheFs:resolve(root), stage:resolve(root))
-    end
-    for _, root in ipairs(self._liveRoots) do
-      if aside[root] then
-        pcall(
-          cacheFs.backend.replace,
-          cacheFs.backend,
-          stage:resolve(root) .. CacheFs.STAGING_OLD_SUFFIX,
-          cacheFs:resolve(root)
-        )
-      end
+    local rollbackErr = self:_rollbackPublished(movedIn, aside)
+    if rollbackErr ~= nil then
+      Errors.raise("CACHE_PUBLISH_ROLLBACK_INCOMPLETE", "publish failed and the rollback was incomplete", {
+        cause = tostring(err),
+        rollback = tostring(rollbackErr),
+      })
     end
     error(err, 0)
   end
-  -- Phase 3: remove the stage, which now holds only the aside roots.
-  stage:removeTree("")
+  -- Phase 3: remove the stage, which now holds only the aside roots. The new
+  -- artifact is already live; a failing cleanup is a distinct outcome, never
+  -- a failed publication.
+  local ok, cleanupErr = pcall(stage.removeTree, stage, "")
+  if not ok then
+    Errors.raise("CACHE_PUBLISH_CLEANUP_FAILED", "the new artifact is live but its stage could not be removed", {
+      cause = tostring(cleanupErr),
+    })
+  end
   return true
 end
 
