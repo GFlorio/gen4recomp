@@ -190,6 +190,59 @@ function T.action_edge_occurs_only_on_semantic_rise()
   )
 end
 
+-- A second physical source pressed while the semantic button is already down
+-- must not emit another edge: the edge fires only on the zero-to-one source
+-- transition. The button rises only after the last source is released.
+function T.second_action_source_while_held_produces_no_new_edge()
+  local input = FieldInput.new()
+  input:pressAction("key:enter")
+  Assert.deepEqual(
+    input:snapshot(),
+    { heldDirection = nil, actionDown = true, actionPressed = true, cancelDown = false }
+  )
+  input:pressAction("key:space")
+  Assert.deepEqual(
+    input:snapshot(),
+    { heldDirection = nil, actionDown = true, cancelDown = false },
+    "a second source while the button is down produces no new edge"
+  )
+  input:releaseAction("key:space")
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = true, cancelDown = false })
+  input:releaseAction("key:enter")
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false })
+  input:pressAction("key:enter")
+  Assert.deepEqual(
+    input:snapshot(),
+    { heldDirection = nil, actionDown = true, actionPressed = true, cancelDown = false },
+    "the edge fires again on the next rise"
+  )
+end
+
+function T.second_cancel_source_while_held_produces_no_new_edge()
+  local input = FieldInput.new()
+  input:pressCancel("key:x")
+  Assert.deepEqual(
+    input:snapshot(),
+    { heldDirection = nil, actionDown = false, cancelDown = true, cancelPressed = true }
+  )
+  input:pressCancel("key:backspace")
+  Assert.deepEqual(
+    input:snapshot(),
+    { heldDirection = nil, actionDown = false, cancelDown = true },
+    "a second source while the button is down produces no new edge"
+  )
+  input:releaseCancel("key:backspace")
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = true })
+  input:releaseCancel("key:x")
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false })
+  input:pressCancel("key:x")
+  Assert.deepEqual(
+    input:snapshot(),
+    { heldDirection = nil, actionDown = false, cancelDown = true, cancelPressed = true },
+    "the edge fires again on the next rise"
+  )
+end
+
 function T.cancel_edge_occurs_only_on_semantic_rise()
   local input = FieldInput.new()
   input:pressCancel("key:x")

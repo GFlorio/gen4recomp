@@ -87,8 +87,9 @@ function FieldInput:heldDirection()
 end
 
 -- Semantic Action: the first physical source down raises the button and emits
--- one press edge; further sources (and repeat presses of a held source) stay
--- silent until the button rises again.
+-- one press edge; a further source (or a repeat press of a held source) stays
+-- silent until the button rises again -- the edge fires only on the zero-to-one
+-- source transition.
 
 ---@param source string
 function FieldInput:pressAction(source)
@@ -96,9 +97,12 @@ function FieldInput:pressAction(source)
   if self.actionSources[source] then
     return
   end
+  local wasDown = next(self.actionSources) ~= nil
   self.actionSources[source] = true
   self.actionDown = true
-  self.actionPressed = true
+  if not wasDown then
+    self.actionPressed = true
+  end
 end
 
 ---@param source string
@@ -116,9 +120,12 @@ function FieldInput:pressCancel(source)
   if self.cancelSources[source] then
     return
   end
+  local wasDown = next(self.cancelSources) ~= nil
   self.cancelSources[source] = true
   self.cancelDown = true
-  self.cancelPressed = true
+  if not wasDown then
+    self.cancelPressed = true
+  end
 end
 
 ---@param source string
