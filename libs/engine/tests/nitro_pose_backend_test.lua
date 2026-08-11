@@ -379,15 +379,15 @@ end
 
 function T.clip_targets_without_definition_nodes_are_ignored()
   -- A clip that binds no definition node is rejected at play() time
-  -- (ANIM_BINDING_NO_MAPPED_TARGETS), so the backend's permissive binding
-  -- never sees an unmapped target: the play guard is the contract.
+  -- (ANIM_STATE_ZERO_BINDING), so the backend's permissive binding never
+  -- sees an unmapped target: the play guard is the contract.
   local clip = transConstClip()
   clip.tracks = { { target = 1, targetIndex = 0 } }
   local instance = newInstance(singleMeshDefinition({ animations = { clip } }))
   local err = Assert.throws(function()
     instance:play("trans")
   end)
-  Assert.equal(err.code, "ANIM_BINDING_NO_MAPPED_TARGETS")
+  Assert.equal(err.code, "ANIM_STATE_ZERO_BINDING")
 end
 
 function T.two_instances_animate_independently()

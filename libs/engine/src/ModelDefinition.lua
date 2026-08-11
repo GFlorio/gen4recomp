@@ -319,7 +319,7 @@ function ModelDefinition.new(spec)
     end
   end
 
-  return setmetatable({
+  local self = setmetatable({
     key = spec.key,
     sourceBackend = spec.sourceBackend,
     nodes = spec.nodes,
@@ -329,7 +329,19 @@ function ModelDefinition.new(spec)
     backend = spec.backend,
     animationByName = byName,
     animationBySemantic = bySemantic,
+    bindings = {},
   }, ModelDefinition)
+
+  -- The per-clip binding is resolved once, at assembly: the material-index
+  -- -> track-index mapping the evaluators consume is precomputed here, never
+  -- per frame. A clip played later outside the animations list (a test
+  -- fixture) computes its binding on first access and caches it, so the
+  -- record identity is stable either way.
+  for _, clip in ipairs(self.animations) do
+    self:binding(clip)
+  end
+
+  return self
 end
 
 -- Resolve a clip by name or semantic role (e.g. "door.open"), or nil.
@@ -429,32 +441,47 @@ function ModelDefinition.fromNitroDescriptor(desc, opts)
   })
 end
 
--- The loading-time binding map for `clip` over this definition: joint/
--- visibility clip targets are node indices and map to themselves (nodes are
--- contiguous by contract); material clip targets are material names and map
--- to the material's id. Targets with no model element are omitted, matching
--- Nitro's permissive binding; a map that resolves nothing makes
--- AnimationBinding.new raise its zero-targets diagnostic.
-function ModelDefinition:bindingMap(clip)
-  local map = {}
-  if clip.category == "joint" or clip.category == "visibility" then
-    for _, track in ipairs(clip.tracks) do
-      local target = track.target
-      if type(target) == "number" and self:node(target) then
-        map[target] = target
+-- The precomputed binding record of `clip` over this definition: the record
+-- is built once at assembly (or on first access) and reused by every play of
+-- the clip. Joint/visibility clip targets are node indices and map to
+-- themselves (nodes are contiguous by contract); material clip targets are
+-- material names and map to the material's id. A material clip additionally
+-- carries `trackByMaterial`: material index -> track index, so the material
+-- evaluator reads the track in O(1) instead of rescanning tracks by name.
+-- Targets with no model element are omitted, matching Nitro's
+-- permissive binding; a binding whose map resolves nothing makes
+-- attach/play raise its zero-targets diagnostic.
+function ModelDefinition:binding(clip)
+  local record = self.bindings[clip]
+  if not record then
+    local map = {}
+    local trackByMaterial
+    if clip.category == "joint" or clip.category == "visibility" then
+      for _, track in ipairs(clip.tracks) do
+        local target = track.target
+        if type(target) == "number" and self:node(target) then
+          map[target] = target
+        end
       end
-    end
-  elseif clip.category == "material" then
-    for _, track in ipairs(clip.tracks) do
-      for i, material in ipairs(self.materials) do
-        if material.name == track.target then
-          map[track.target] = material.id
-          break
+    elseif clip.category == "material" then
+      trackByMaterial = {}
+      for i, track in ipairs(clip.tracks) do
+        for j, material in ipairs(self.materials) do
+          if material.name == track.target then
+            map[track.target] = material.id
+            trackByMaterial[material.id] = i - 1
+            break
+          end
         end
       end
     end
+    record = {
+      map = map,
+      trackByMaterial = trackByMaterial,
+    }
+    self.bindings[clip] = record
   end
-  return map
+  return record
 end
 
 return ModelDefinition

@@ -11,12 +11,13 @@
 -- the locked-tick loop is reconstructed here -- review #16's complaint.
 --
 -- The harness samples EXTERNALLY VISIBLE events after every tick: the door
--- handle's retained entry state (currentRole) and the controller's finish
--- state on real MapDoor handles, plus the real player's motion. The player
--- event is sampled before the door event because on the egress commit tick
--- the step finishes and the close starts in one transition advance -- the
--- chronological order is step-finished then close-start, and the unit
--- contract's shared trace requires the same.
+-- handle's retained play handle (the tile's index entry holds the LIVE
+-- attachment instance:play returned -- the collapsed animation surface) and
+-- the finish state read off that handle on real MapDoor handles, plus the
+-- real player's motion. The player event is sampled before the door event
+-- because on the egress commit tick the step finishes and the close starts
+-- in one transition advance -- the chronological order is step-finished then
+-- close-start, and the unit contract's shared trace requires the same.
 
 local Assert = require("tests.support.Assert")
 local FakeCache = require("tests.support.FakeCache")
@@ -28,7 +29,6 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 local LuaWriter = require("libs.rom.src.LuaWriter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
-local MapPropAnimationController = require("libs.engine.src.MapPropAnimationController")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local RomRuntimeMap = require("tests.support.RomRuntimeMap")
@@ -245,6 +245,20 @@ function SceneLoaderFixture.newHarness(versionId, opts)
   return harness
 end
 
+-- The semantic role of the door's retained play handle, or nil when nothing
+-- plays: the tile's index entry holds the LIVE attachment handle from
+-- instance:play (the collapsed animation surface), and the role is the
+-- handle's clip semantic name.
+---@param door table
+---@return string?
+function SceneLoaderFixture.entryRole(door)
+  local animation = door.entry.animation
+  if not animation then
+    return nil
+  end
+  return animation.clip.semanticNames and animation.clip.semanticNames[1]
+end
+
 -- One fixed session tick: run the session, then sample the externally
 -- visible events (player motion edges, then the real door handles on the
 -- current map), record the phase timeline, and run the test's per-tick hook.
@@ -274,11 +288,9 @@ function SceneLoaderFixture.tick(harness)
     door = props:doorAt(map, tile.x, tile.z)
   end
   if door then
-    local role = door.entry.currentRole
+    local role = SceneLoaderFixture.entryRole(door)
     local finished = door:isFinished()
-    local openRole = MapPropAnimationController.ROLES.DOOR_OPEN
-    local closeRole = MapPropAnimationController.ROLES.DOOR_CLOSE
-    if role == openRole then
+    if role == "door.open" then
       if not harness.sawOpenStart then
         harness.events[#harness.events + 1] = "open-start"
         harness.sawOpenStart = true
@@ -287,7 +299,7 @@ function SceneLoaderFixture.tick(harness)
         harness.events[#harness.events + 1] = "open-finished"
         harness.sawOpenFinished = true
       end
-    elseif role == closeRole then
+    elseif role == "door.close" then
       if not harness.sawCloseStart then
         harness.events[#harness.events + 1] = "close-start"
         harness.sawCloseStart = true

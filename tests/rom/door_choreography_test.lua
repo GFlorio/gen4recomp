@@ -14,7 +14,6 @@
 local Assert = require("tests.support.Assert")
 local SceneLoaderFixture = require("tests.private.support.SceneLoaderFixture")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
-local MapPropAnimationController = require("libs.engine.src.MapPropAnimationController")
 local WarpSystem = require("libs.engine.src.WarpSystem")
 
 local T = {}
@@ -23,8 +22,8 @@ local TOWN_MAP_ID = 60
 local LAB_MAP_ID = 61
 local TOWN_DOOR_TILE = { x = 684, z = 393 }
 local LAB_ENTRANCE_TILE = { x = 4, z = 14 }
-local OPEN_ROLE = MapPropAnimationController.ROLES.DOOR_OPEN
-local CLOSE_ROLE = MapPropAnimationController.ROLES.DOOR_CLOSE
+local OPEN_ROLE = "door.open"
+local CLOSE_ROLE = "door.close"
 
 -- The two real scenes through the loader fixture.
 local function townAndLab(romFs)
@@ -75,7 +74,7 @@ function T.town_to_lab_door_transition_choreographs(romFs, versionId)
   -- The source door opened to completion during the source fade.
   local door = assert(town.runtime.mapProps:doorAt(town.map, TOWN_DOOR_TILE.x, TOWN_DOOR_TILE.z))
   Assert.isTrue(door:isFinished(), "the source door opens to completion")
-  Assert.isTrue(door.entry.currentRole == OPEN_ROLE, "the retained entry state records the played role")
+  Assert.isTrue(SceneLoaderFixture.entryRole(door) == OPEN_ROLE, "the retained entry state records the played role")
 
   Assert.equal(harness.player.fieldX, 4)
   Assert.equal(harness.player.fieldZ, 13, "the egress walks north off the interior anchor")
@@ -116,7 +115,7 @@ function T.lab_to_town_door_transition_choreographs(romFs, versionId)
   Assert.notNil(harness.timeline.door_close, "the destination door close is waited")
 
   local door = assert(town.runtime.mapProps:doorAt(town.map, TOWN_DOOR_TILE.x, TOWN_DOOR_TILE.z))
-  Assert.isTrue(door.entry.currentRole == CLOSE_ROLE, "the retained entry state records the closing role")
+  Assert.isTrue(SceneLoaderFixture.entryRole(door) == CLOSE_ROLE, "the retained entry state records the closing role")
   Assert.isTrue(door:isFinished(), "the destination door finished closing")
 
   Assert.equal(harness.player.fieldX, 684)
@@ -151,7 +150,7 @@ function T.destination_egress_waits_for_the_door_to_finish_opening(romFs, versio
   harness.onTick = function(h)
     if h.transition.phase == "fade_in" and h.player.motion == "idle" then
       local door = town.runtime.mapProps:doorAt(town.map, TOWN_DOOR_TILE.x, TOWN_DOOR_TILE.z)
-      if door and door.entry.currentRole == OPEN_ROLE and door:isFinished() == false then
+      if door and SceneLoaderFixture.entryRole(door) == OPEN_ROLE and door:isFinished() == false then
         egressWaited = true
       end
     end

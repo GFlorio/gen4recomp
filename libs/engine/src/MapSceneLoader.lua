@@ -17,10 +17,12 @@
 -- animations. The only ROM knowledge that reaches this layer is the
 -- normalized scene descriptor; raw Nitro formats stopped at the compiler.
 --
--- The animated draw list is owned by one refresh pass: fixed ticks advance
--- every attachment player and rebuild the items once; control operations
--- (play/stop/band swap) mark the list dirty and the pre-render refresh
--- consumes it. The renderer never re-evaluates poses itself.
+-- The animated draw list is owned by the scene tick: every fixed tick
+-- advances each attachment player and rebuilds the items once,
+-- unconditionally -- there is no dirty-forwarding layer and no between-tick
+-- refresh (control ops like the door choreography run inside session ticks,
+-- so the same or next tick's updateAnimated renders them). The renderer
+-- never re-evaluates poses itself.
 
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local Matrix4 = require("libs.math.src.Matrix4")
@@ -30,7 +32,6 @@ local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
 local PoseContract = require("libs.engine.src.PoseContract")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local ModelInstance = require("libs.engine.src.ModelInstance")
-local MapPropAnimationController = require("libs.engine.src.MapPropAnimationController")
 local MapProps = require("libs.engine.src.MapProps")
 local MapRenderer = require("libs.engine.src.MapRenderer")
 local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
@@ -316,7 +317,7 @@ local function buildScene(pool, cacheFs, scene, opts)
   -- ordinary-policy anim-list record carries the compiled ambientLoop role
   -- and plays looping (the field effects -- wind, machine, spring); other
   -- policy records (door pairs, interaction props) stay scripted through
-  -- the controller.
+  -- the instance handles (MapDoor/SceneProp).
   local animatedInstances = {}
   local instanceByPlacement = {}
   local animatedModelCount = 0
@@ -369,10 +370,10 @@ local function buildScene(pool, cacheFs, scene, opts)
   local staticBuildingDraws = buildingDraws
   local animatedItemsDirty = true
 
-  -- The per-instance refresh pass shared by the update and dirty entries: it
-  -- re-evaluates each pose from the current attachment frames, appends after
-  -- the static building draws, and assigns each animated item a
-  -- scene-global submission index continuing the load-time sequence.
+  -- The per-instance refresh pass shared by the tick update and the initial
+  -- build: it re-evaluates each pose from the current attachment frames,
+  -- appends after the static building draws, and assigns each animated item
+  -- a scene-global submission index continuing the load-time sequence.
   local function refreshAnimatedItems()
     local items = {}
     for _, item in ipairs(staticBuildingDraws) do
@@ -390,7 +391,9 @@ local function buildScene(pool, cacheFs, scene, opts)
   end
 
   -- Advance every animated instance by one fixed step, then refresh: the one
-  -- authoritative animation-clock entry point of the scene.
+  -- authoritative animation-clock entry point of the scene. The refresh is
+  -- unconditional -- every tick rebuilds all animated items, so control ops
+  -- never need to mark anything dirty.
   local function updateAnimated()
     for _, instance in ipairs(animatedInstances) do
       instance:updateFixed()
@@ -399,10 +402,10 @@ local function buildScene(pool, cacheFs, scene, opts)
     animatedItemsDirty = false
   end
 
-  -- The pre-render refresh: consumes the dirty mark left by control
-  -- operations (play/stop/band swap) that happened outside a fixed tick; the
-  -- draw list is otherwise read-only, so the renderer never re-evaluates
-  -- poses per frame.
+  -- The pre-render refresh: builds the initial draw list after load (the
+  -- list starts as the static building draws only) and is a no-op afterwards
+  -- -- nothing between ticks marks it dirty, so it never refreshes again
+  -- (pinned by draw_items_refresh_only_on_the_scene_tick).
   local function rebuildAnimatedDrawItems()
     if animatedItemsDirty then
       refreshAnimatedItems()
@@ -413,6 +416,8 @@ local function buildScene(pool, cacheFs, scene, opts)
   -- Switch the time-of-day band of every banded prop (HGSS ov01_022047DC):
   -- stop the previous band's clip, play the current band's clip looping.
   -- Re-setting the current band is a no-op. Unbanded instances are untouched.
+  -- The swap does not mark the draw list dirty: the next scene tick rebuilds
+  -- it unconditionally.
   local function setTimeBand(self, band)
     assert(VALID_BANDS[band], "unknown time-of-day band " .. tostring(band))
     if runtime.timeBand == band then
@@ -425,7 +430,6 @@ local function buildScene(pool, cacheFs, scene, opts)
         TimeOfDayProps.swap(instance, instance.timeOfDayPlan, previous, band)
       end
     end
-    animatedItemsDirty = true
   end
 
   -- Collision from the G4CL asset (CollisionGridAsset bytes), around the
@@ -465,10 +469,6 @@ local function buildScene(pool, cacheFs, scene, opts)
   runtime.fieldTimeSeconds = FieldLightProfile.DEFAULT_TIME_SECONDS
   runtime.timeBand = timeBand
   runtime.animatedInstances = animatedInstances
-  runtime.animationController = MapPropAnimationController.new()
-  runtime.animationController.onMutation = function()
-    animatedItemsDirty = true
-  end
   runtime.rebuildAnimatedDrawItems = rebuildAnimatedDrawItems
   runtime.updateAnimated = updateAnimated
   runtime.setTimeBand = setTimeBand
@@ -488,7 +488,6 @@ local function buildScene(pool, cacheFs, scene, opts)
   runtime.mapProps = MapProps.new({
     placements = placements,
     instances = instanceByPlacement,
-    controller = runtime.animationController,
     doorTiles = doorTiles,
   })
   runtime.stats = {

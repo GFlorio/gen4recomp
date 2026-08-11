@@ -21,46 +21,55 @@
 -- and mutating the placement list after assembly changes nothing. Ambiguity
 -- (two placements tied for one door tile) and missing coverage (a door tile
 -- with no placement at all) are data failures diagnosed once at assembly,
--- not per lookup. The door finish state is retained per tile on the index,
--- so a fresh resolution of the same tile observes the role a previous
--- handle played -- the finish state never depends on handle identity. Only
--- DOOR-kind warp tiles resolve; stairs, directional warps, and generic
--- warps return nil (their choreography is separate policy). A door whose
--- building is static (no animated instance) resolves but animates nothing
--- -- HGSS's interior doors without animation records behave the same. Pure
--- domain module.
+-- not per lookup. Only DOOR-kind warp tiles resolve; stairs, directional
+-- warps, and generic warps return nil (their choreography is separate
+-- policy). A door whose building is static (no animated instance) resolves
+-- but animates nothing -- HGSS's interior doors without animation records
+-- behave the same. Pure domain module.
+--
+-- The playback surface is the collapsed animation object graph:
+-- MapProps carries no controller. MapDoor plays through the instance and
+-- retains the returned play handle on the tile's index entry
+-- (entry.animation); isFinished reads that handle, so the finish state never
+-- depends on the disposable MapDoor identity. SceneProp keeps exactly
+-- play/stop/isFinished -- pause/resume/setDirection/animationsFor have no
+-- production caller and do not exist.
 
 local WarpSystem = require("libs.engine.src.WarpSystem")
 local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
 local FieldGrid = require("libs.engine.src.FieldGrid")
 local Errors = require("libs.rom.src.Errors")
-local MapPropAnimationController = require("libs.engine.src.MapPropAnimationController")
+local AnimationClip = require("libs.engine.src.AnimationClip")
+local ModelAnimationState = require("libs.engine.src.ModelAnimationState")
 
 ---@class MapProps
 ---@field placements table -- scene placement records (read only after assembly)
 ---@field placementIndex table -- [placementIndex] = { modelKey }
----@field doorIndex table -- ["localX:localZ"] = { placementIndex, modelKey, currentRole }
+---@field doorIndex table -- ["localX:localZ"] = { placementIndex, modelKey, animation }
 ---@field instances { [integer]: ModelInstance|nil }
----@field controller table -- MapPropAnimationController
 local MapProps = {}
 MapProps.__index = MapProps
+
+local function raiseUnknown(definition, animation)
+  Errors.raise(
+    "MAP_PROP_ANIM_UNKNOWN",
+    "map prop has no animation named " .. tostring(animation) .. " (model " .. definition.key .. ")",
+    { animation = animation, modelKey = definition.key }
+  )
+end
 
 -- `doorTiles` are the DOOR-kind tiles of the scene's permission cell as
 -- local indices -- exactly the list the assembly enumerates and the space
 -- doorAt keys its index with. Ambiguity (two placements tied for one tile)
 -- and missing coverage (a door tile with no placement at all) raise here,
 -- once, as generated-data failures rather than per-lookup surprises.
----@param opts { placements: table, instances: { [integer]: table|nil }, controller: table, doorTiles: { x: integer, z: integer }[] }
+---@param opts { placements: table, instances: { [integer]: table|nil }, doorTiles: { x: integer, z: integer }[] }
 ---@return MapProps
 function MapProps.new(opts)
-  assert(
-    opts and opts.placements and opts.instances and opts.controller and opts.doorTiles,
-    "map props options required"
-  )
+  assert(opts and opts.placements and opts.instances and opts.doorTiles, "map props options required")
   local self = setmetatable({
     placements = opts.placements,
     instances = opts.instances,
-    controller = opts.controller,
     placementIndex = {},
     doorIndex = {},
   }, MapProps)
@@ -107,17 +116,17 @@ function MapProps.new(opts)
     self.doorIndex[tile.x .. ":" .. tile.z] = {
       placementIndex = best.placement.placementIndex,
       modelKey = best.placement.modelKey,
-      currentRole = nil,
+      animation = nil,
     }
   end
   return self
 end
 
 -- The MapDoor handle: the resolved door at a tile. `instance` is the door's
--- building ModelInstance (nil for static buildings), `controller` drives its
--- semantic playback, and `entry` is the tile's retained index record -- the
--- finish state lives there, not on the disposable handle, so a fresh
--- resolution of the tile observes the role the previous handle played.
+-- building ModelInstance (nil for static buildings) and `entry` is the
+-- tile's retained index record -- the play handle lives there, not on the
+-- disposable handle, so a fresh resolution of the tile observes the
+-- animation the previous handle played.
 ---@class MapDoor
 ---@field x integer
 ---@field z integer
@@ -125,51 +134,54 @@ end
 ---@field placementIndex integer
 ---@field modelKey string
 ---@field instance table|nil
----@field entry table -- the retained index record ({ currentRole = "door.open"|"door.close"|nil })
----@field controller table -- the MapPropAnimationController
+---@field entry table -- the retained index record ({ animation = handle|nil })
 local MapDoor = {}
 MapDoor.__index = MapDoor
 
 -- Play the door's opening animation: the semantic door.open role, once, from
--- frame 0, stopping any door.close in progress. A static door (no animated
+-- frame 0, stopping the door's previous play. A static door (no animated
 -- instance) has nothing to play and does nothing, like HGSS doors without
 -- animation records. Raises MAP_PROP_ANIM_UNKNOWN when the model's clips
 -- lack the role (a data problem worth a diagnostic, not a silent fallback).
 function MapDoor:open()
-  self:_play(MapPropAnimationController.ROLES.DOOR_OPEN)
+  self:_play(AnimationClip.ROLES.DOOR_OPEN)
 end
 
 -- Play the door's closing animation: the semantic door.close role, once,
--- from frame 0, stopping any door.open in progress. Static doors no-op.
+-- from frame 0, stopping the door's previous play. Static doors no-op.
 function MapDoor:close()
-  self:_play(MapPropAnimationController.ROLES.DOOR_CLOSE)
+  self:_play(AnimationClip.ROLES.DOOR_CLOSE)
 end
 
+-- One door has one playing attachment: playing a role stops the tile's
+-- retained play handle first, then plays fresh from frame 0. The retained
+-- handle is the LIVE attachment instance:play returned, so isFinished reads
+-- it directly and replays always restart.
 function MapDoor:_play(role)
   if not self.instance then
     return
   end
   local definition = self.instance.definition
-  local other = role == MapPropAnimationController.ROLES.DOOR_OPEN and MapPropAnimationController.ROLES.DOOR_CLOSE
-    or MapPropAnimationController.ROLES.DOOR_OPEN
-  if definition:animation(other) then
-    self.controller:stop(self.instance, other)
+  if not definition:animation(role) then
+    raiseUnknown(definition, role)
   end
-  self.controller:play(self.instance, role, { loopMode = "once" })
-  self.entry.currentRole = role
+  if self.entry.animation then
+    self.instance:stop(self.entry.animation)
+  end
+  self.entry.animation = self.instance:play(role, { loopMode = "once" })
 end
 
--- Whether the door's current animation has reached its end (the controller's
+-- Whether the door's current animation has reached its end (the player's
 -- HGSS checked-advance completion). Nil when nothing is playing -- a static
 -- door, or a door that has not been opened or closed yet -- so a waiter
--- treats nil as "nothing to wait for". The role is read from the tile's
+-- treats nil as "nothing to wait for". The handle is read from the tile's
 -- retained index record, so any handle resolving this tile reports the same
 -- finish state.
 function MapDoor:isFinished()
-  if not self.instance or not self.entry.currentRole then
+  if not self.instance or not self.entry.animation then
     return nil
   end
-  return self.controller:isFinished(self.instance, self.entry.currentRole)
+  return self.entry.animation.player:atTerminal()
 end
 
 -- Resolve the door at a field tile: the tile must carry a warp whose
@@ -214,7 +226,6 @@ function MapProps:doorAt(runtimeMap, fieldX, fieldZ)
     modelKey = entry.modelKey,
     instance = self.instances[entry.placementIndex],
     entry = entry,
-    controller = self.controller,
   }, MapDoor)
 end
 
@@ -223,23 +234,43 @@ end
 -- door lookup it needs no tile or behavior classification -- scripts know
 -- the object they animate (HGSS addresses field objects by index). A static
 -- placement (no animated instance) resolves to a handle whose ops no-op.
+-- The surface is exactly play/stop/isFinished; pause/resume/setDirection/
+-- animationsFor have no production caller and do not exist.
 ---@class SceneProp
 ---@field placementIndex integer
 ---@field modelKey string
 ---@field instance table|nil
----@field controller table -- the MapPropAnimationController
+---@field pause nil -- deliberately absent: no production caller
+---@field resume nil
+---@field setDirection nil
+---@field animationsFor nil
 local SceneProp = {}
 SceneProp.__index = SceneProp
 
+-- The playing attachment of a prop's clip, or nil when nothing plays.
+local function attachmentByClip(instance, clip)
+  for _, category in ipairs(ModelAnimationState.GROUPS) do
+    for _, attachment in ipairs(instance.animationState:attachments(category)) do
+      if attachment.clip == clip then
+        return attachment
+      end
+    end
+  end
+  return nil
+end
+
 -- Play an animation by role or clip name; `opts` passes through to the
--- controller (priority, ratioFx, loopMode, direction). Returns the
--- attachment token. Raises MAP_PROP_ANIM_UNKNOWN for a name the model does
+-- instance (priority, ratioFx, loopMode, direction). Returns the live
+-- attachment handle. Raises MAP_PROP_ANIM_UNKNOWN for a name the model does
 -- not define.
 function SceneProp:play(animation, opts)
   if not self.instance then
     return nil
   end
-  return self.controller:play(self.instance, animation, opts)
+  if not self.instance.definition:animation(animation) then
+    raiseUnknown(self.instance.definition, animation)
+  end
+  return self.instance:play(animation, opts)
 end
 
 -- Stop an animation by role or clip name.
@@ -247,46 +278,28 @@ function SceneProp:stop(animation)
   if not self.instance then
     return nil
   end
-  return self.controller:stop(self.instance, animation)
-end
-
-function SceneProp:pause(animation)
-  if not self.instance then
-    return
+  if not self.instance.definition:animation(animation) then
+    raiseUnknown(self.instance.definition, animation)
   end
-  self.controller:pause(self.instance, animation)
+  return self.instance:stop(animation)
 end
 
-function SceneProp:resume(animation)
-  if not self.instance then
-    return
-  end
-  self.controller:resume(self.instance, animation)
-end
-
-function SceneProp:setDirection(animation, direction)
-  if not self.instance then
-    return
-  end
-  self.controller:setDirection(self.instance, animation, direction)
-end
-
--- The HGSS checked-advance completion for the controller's play of
--- `animation`, or nil when nothing is playing (a static prop, or no play
--- yet) -- a waiter treats nil as "nothing to wait for".
+-- The HGSS checked-advance completion for the prop's play of `animation`,
+-- or nil when nothing is playing (a static prop, or no play yet) -- a waiter
+-- treats nil as "nothing to wait for".
 function SceneProp:isFinished(animation)
   if not self.instance then
     return nil
   end
-  return self.controller:isFinished(self.instance, animation)
-end
-
--- The playing clips of the prop (the controller's instance view).
-function SceneProp:animationsFor()
-  if not self.instance then
-    return {}
+  local clip = self.instance.definition:animation(animation)
+  if not clip then
+    raiseUnknown(self.instance.definition, animation)
   end
-  return self.controller:animationsFor(self.instance)
+  local attachment = attachmentByClip(self.instance, clip)
+  if not attachment then
+    return nil
+  end
+  return attachment.player:atTerminal()
 end
 
 -- Resolve the scripted-prop handle for a placement index, or nil when no
@@ -303,7 +316,6 @@ function MapProps:prop(placementIndex)
     placementIndex = placementIndex,
     modelKey = entry.modelKey,
     instance = self.instances[placementIndex],
-    controller = self.controller,
   }, SceneProp)
 end
 

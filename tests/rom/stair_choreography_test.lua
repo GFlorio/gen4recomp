@@ -17,7 +17,6 @@ local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldTransition = require("libs.engine.src.FieldTransition")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
-local MapPropAnimationController = require("libs.engine.src.MapPropAnimationController")
 local MapProps = require("libs.engine.src.MapProps")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local ModelInstance = require("libs.engine.src.ModelInstance")
@@ -80,7 +79,6 @@ local function compileScene(romFs, symbol)
   local props = MapProps.new({
     placements = placements,
     instances = instances,
-    controller = MapPropAnimationController.new(),
     doorTiles = DoorTiles.fromGrid(map.permissions),
   })
   return { map = map, props = props, instances = instances }

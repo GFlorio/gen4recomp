@@ -1,12 +1,20 @@
--- AnimationBinding / AnimationAttachment / ModelAnimationState: the
--- loading-time mapping and the per-instance attachment groups.
+-- ModelAnimationState + precomputed ModelDefinition bindings: the collapsed
+-- animation object graph. Clip bindings are precomputed
+-- ONCE at definition assembly (ModelDefinition:binding(clip)) -- a material
+-- clip's binding carries the material-index -> track-index mapping the
+-- MaterialEvaluator consumes -- and the state attaches clips WITHOUT a
+-- caller-supplied binding: attach(clip, opts) builds the attachment from the
+-- definition's precomputed binding and returns the LIVE attachment as the
+-- handle. The attachment is a plain table (clip/binding/player/priority/
+-- ratioFx); detach takes that handle and removes exactly one attachment;
+-- attachments(category) snapshots only the active attachments. There are no
+-- tokens: play/stop cycles leave no monotonically growing range behind.
 
 local Assert = require("tests.support.Assert")
 local AnimationClip = require("libs.engine.src.AnimationClip")
-local AnimationBinding = require("libs.engine.src.AnimationBinding")
-local AnimationAttachment = require("libs.engine.src.AnimationAttachment")
 local AnimationPlayer = require("libs.engine.src.AnimationPlayer")
 local ModelAnimationState = require("libs.engine.src.ModelAnimationState")
+local ModelDefinition = require("libs.engine.src.ModelDefinition")
 
 local T = {}
 
@@ -59,127 +67,250 @@ local function materialClip()
   })
 end
 
--- ---- AnimationBinding ----
-
-function T.binding_maps_and_resolves()
-  local clip = jointClip()
-  local binding = AnimationBinding.new(clip, "model:1", { [3] = 3, [5] = 5 })
-  Assert.equal(binding.modelKey, "model:1")
-  Assert.equal(binding:modelIndex(3), 3)
-  Assert.equal(binding:modelIndex(5), 5)
-  Assert.isNil(binding:modelIndex(99), "unmapped targets resolve to nil")
-  Assert.equal(binding:mappedTargetCount(), 2)
-  Assert.equal(binding.clip, clip)
+-- A two-track material clip whose track ORDER differs from the material
+-- order: track 0 targets "sign" (material 1), track 1 targets "door"
+-- (material 0). The precomputed binding must map material indices to the
+-- correct track indices, not assume declaration order.
+local function crossedMaterialClip()
+  return AnimationClip.new({
+    id = "clip:cross",
+    name = "crossed",
+    category = "material",
+    kind = "color",
+    frameCount = 4,
+    tracks = {
+      {
+        target = "sign",
+        channels = { diffuse = { interpolation = "step", keys = { { frame = 0, value = 0x0000 } } } },
+      },
+      {
+        target = "door",
+        channels = { diffuse = { interpolation = "step", keys = { { frame = 0, value = 0x203C } } } },
+      },
+    },
+  })
 end
 
-function T.binding_permits_partial_mapping()
-  local clip = jointClip()
-  local binding = AnimationBinding.new(clip, "model:1", { [3] = 3 })
-  Assert.equal(binding:mappedTargetCount(), 1)
-  Assert.isNil(binding:modelIndex(5))
+-- A material clip whose target name exists on no material: it binds zero
+-- model elements and must fail loudly when played, never silently no-op.
+local function ghostClip()
+  return AnimationClip.new({
+    id = "clip:ghost",
+    name = "ghost",
+    category = "material",
+    kind = "color",
+    frameCount = 4,
+    tracks = {
+      {
+        target = "absent",
+        channels = { diffuse = { interpolation = "step", keys = { { frame = 0, value = 0x0000 } } } },
+      },
+    },
+  })
 end
 
-function T.binding_zero_mapped_targets_raises()
-  local clip = jointClip()
-  throwsCode("ANIM_BINDING_NO_MAPPED_TARGETS", function()
-    return AnimationBinding.new(clip, "model:1", {})
-  end)
+local function node(i)
+  return {
+    index = i,
+    name = "node" .. i,
+    parentIndex = i > 0 and i - 1 or nil,
+    translation = { x = 0, y = 0, z = 0 },
+    rotation = { 1, 0, 0, 0, 1, 0, 0, 0, 1 },
+    scale = { x = 1, y = 1, z = 1 },
+  }
 end
 
-function T.binding_unknown_map_target_raises()
-  local clip = jointClip()
-  throwsCode("ANIM_BINDING_UNKNOWN_TARGET", function()
-    return AnimationBinding.new(clip, "model:1", { [99] = 3 })
-  end)
+local function definition()
+  return ModelDefinition.new({
+    key = "model:1",
+    sourceBackend = "nitro",
+    nodes = { node(0), node(1), node(2), node(3), node(4), node(5) },
+    meshes = {
+      { id = "m0", nodeIndex = 0, materialIndex = 0, batch = { vertices = {}, indices = {} } },
+      { id = "m1", nodeIndex = 0, materialIndex = 1, batch = { vertices = {}, indices = {} } },
+    },
+    materials = {
+      {
+        id = 0,
+        name = "door",
+        baseColor = { r = 255, g = 255, b = 255, a = 255 },
+        alphaMode = "opaque",
+        doubleSided = false,
+      },
+      {
+        id = 1,
+        name = "sign",
+        baseColor = { r = 255, g = 255, b = 255, a = 255 },
+        alphaMode = "opaque",
+        doubleSided = false,
+      },
+    },
+    animations = { jointClip(), materialClip(), crossedMaterialClip(), ghostClip() },
+  })
 end
 
--- ---- AnimationAttachment ----
+-- ---- precomputed bindings ----
 
-function T.attachment_defaults_and_overrides()
-  local clip = jointClip()
-  local binding = AnimationBinding.new(clip, "model:1", { [3] = 3 })
-  local a = AnimationAttachment.new(clip, binding)
-  Assert.equal(a.priority, 0x7F)
-  Assert.equal(a.ratioFx, 0x1000)
-  Assert.isFalse(a.player.paused)
-  Assert.equal(a.player.frameCount, 8)
-
-  local opts = { priority = 0x10, ratioFx = 0x800, player = AnimationPlayer.new(clip) }
-  local b = AnimationAttachment.new(clip, binding, opts)
-  Assert.equal(b.priority, 0x10)
-  Assert.equal(b.ratioFx, 0x800)
-  Assert.equal(b.player, opts.player, "the supplied player is kept")
+function T.binding_is_precomputed_in_the_definition()
+  local def = definition()
+  local joint = def:animation("joint")
+  local material = def:animation("material")
+  local jointBinding = def:binding(joint)
+  Assert.notNil(jointBinding)
+  Assert.deepEqual(jointBinding.map, { [3] = 3, [5] = 5 })
+  Assert.equal(jointBinding.map[3], 3, "joint targets map to themselves")
+  local materialBinding = def:binding(material)
+  Assert.notNil(materialBinding)
+  Assert.deepEqual(materialBinding.map, { door = 0 })
+  -- One binding record per clip, resolved once at assembly: repeated reads
+  -- return the SAME record.
+  Assert.isTrue(def:binding(joint) == jointBinding, "the binding is a precomputed definition record")
+  Assert.isTrue(def:binding(material) == materialBinding, "the binding is a precomputed definition record")
 end
 
-function T.attachment_clip_mismatch_raises()
-  local clipA = jointClip()
-  local clipB = materialClip()
-  local binding = AnimationBinding.new(clipA, "model:1", { [3] = 3 })
-  throwsCode("ANIM_ATTACHMENT_BINDING_CLIP_MISMATCH", function()
-    return AnimationAttachment.new(clipB, binding)
-  end)
-end
-
-function T.attachment_bad_priority_or_ratio_raises()
-  local clip = jointClip()
-  local binding = AnimationBinding.new(clip, "model:1", { [3] = 3 })
-  throwsCode("ANIM_ATTACHMENT_BAD_PRIORITY", function()
-    return AnimationAttachment.new(clip, binding, { priority = 0x100 })
-  end)
-  throwsCode("ANIM_ATTACHMENT_BAD_RATIO", function()
-    return AnimationAttachment.new(clip, binding, { ratioFx = 0.5 })
-  end)
+-- The MaterialEvaluator's per-evaluation track lookup must consume a
+-- precomputed material-index -> track-index mapping: a clip
+-- whose track order differs from the material order binds material 0 to
+-- track 1 and material 1 to track 0.
+function T.binding_track_by_material_maps_material_indices_to_tracks()
+  local def = definition()
+  local clip = def:animation("crossed")
+  local binding = def:binding(clip)
+  Assert.notNil(binding)
+  Assert.deepEqual(binding.map, { door = 0, sign = 1 })
+  Assert.deepEqual(binding.trackByMaterial, { [0] = 1, [1] = 0 })
 end
 
 -- ---- ModelAnimationState ----
 
-function T.state_attaches_into_category_groups()
-  local state = ModelAnimationState.new("model:1")
-  local jclip, mclip = jointClip(), materialClip()
-  local jtoken = state:attach(jclip, AnimationBinding.new(jclip, "model:1", { [3] = 3 }))
-  local mtoken = state:attach(mclip, AnimationBinding.new(mclip, "model:1", { ["door"] = 0 }))
-  Assert.equal(#state:attachments("joint"), 1)
-  Assert.equal(#state:attachments("material"), 1)
-  Assert.equal(#state:attachments("visibility"), 0)
-  Assert.equal(state:attachments("joint")[1].clip, jclip)
-  state:detach(jtoken)
-  Assert.equal(#state:attachments("joint"), 0)
-  Assert.equal(#state:attachments("material"), 1, "detach only removes its group")
-  state:detach(mtoken)
+-- The collapsed attach surface: the binding comes from the definition, so
+-- attach takes the clip and opts (priority/ratioFx/player), never a caller
+-- binding. It returns the LIVE attachment as the handle.
+function T.state_attach_builds_the_attachment_from_the_definitions_binding()
+  local def = definition()
+  local state = ModelAnimationState.new(def)
+  local clip = def:animation("joint")
+  local handle = state:attach(clip, { priority = 0x20, ratioFx = 0x800 })
+  Assert.equal(handle.clip, clip)
+  Assert.equal(handle.binding, def:binding(clip), "the attachment carries the precomputed binding")
+  Assert.equal(handle.priority, 0x20)
+  Assert.equal(handle.ratioFx, 0x800)
+  Assert.notNil(handle.player)
+  Assert.equal(handle.player.frameCount, 8)
+end
+
+function T.state_detach_removes_the_exact_attachment()
+  local def = definition()
+  local state = ModelAnimationState.new(def)
+  local clip = def:animation("joint")
+  local first = state:attach(clip)
+  local second = state:attach(clip)
+  state:detach(first)
+  local joint = state:attachments("joint")
+  Assert.equal(#joint, 1)
+  Assert.isTrue(joint[1] == second, "detaching one handle leaves the other attachment")
+  state:detach(second)
   Assert.isFalse(state:hasAttachments())
 end
 
-function T.state_rejects_foreign_binding()
-  local state = ModelAnimationState.new("model:1")
-  local clip = jointClip()
-  local binding = AnimationBinding.new(clip, "model:2", { [3] = 3 })
-  throwsCode("ANIM_STATE_MODEL_MISMATCH", function()
-    return state:attach(clip, binding)
-  end)
+-- The O(active) enumeration contract: play/stop cycles must
+-- leave no stale range to scan -- attachments(category) returns exactly the
+-- active attachments, nothing more.
+function T.state_attachments_return_only_the_active_attachments()
+  local def = definition()
+  local state = ModelAnimationState.new(def)
+  local clip = def:animation("joint")
+  for _ = 1, 100 do
+    local handle = state:attach(clip)
+    state:detach(handle)
+  end
+  Assert.equal(#state:attachments("joint"), 0, "100 play/stop cycles leave no stale attachments")
+  Assert.isFalse(state:hasAttachments())
+  local survivor = state:attach(clip)
+  Assert.equal(#state:attachments("joint"), 1)
+  Assert.isTrue(state:attachments("joint")[1] == survivor)
+end
+
+-- Detaching the same handle twice is a no-op: the second detach removes
+-- nothing and never disturbs the other attachments (a double stop is a
+-- programming mistake the state must tolerate silently).
+function T.state_double_detach_is_a_noop()
+  local def = definition()
+  local state = ModelAnimationState.new(def)
+  local clip = def:animation("joint")
+  local first = state:attach(clip)
+  local second = state:attach(clip)
+  state:detach(first)
+  state:detach(first)
+  Assert.equal(#state:attachments("joint"), 1)
+  Assert.isTrue(state:attachments("joint")[1] == second, "the second detach leaves the other attachment")
+end
+
+function T.state_attachments_are_in_attach_order()
+  local def = definition()
+  local state = ModelAnimationState.new(def)
+  local clip = def:animation("joint")
+  local first = state:attach(clip)
+  local second = state:attach(clip)
+  local joint = state:attachments("joint")
+  Assert.isTrue(joint[1] == first)
+  Assert.isTrue(joint[2] == second)
 end
 
 function T.state_updates_all_players()
-  local state = ModelAnimationState.new("model:1")
-  local clip = jointClip()
-  local a = state:attach(clip, AnimationBinding.new(clip, "model:1", { [3] = 3 }))
-  local b = state:attach(clip, AnimationBinding.new(clip, "model:1", { [3] = 3 }))
-  local playerB = state:attachments("joint")[2].player
-  playerB:setDirection(-1)
+  local def = definition()
+  local state = ModelAnimationState.new(def)
+  local clip = def:animation("joint")
+  local a = state:attach(clip)
+  local b = state:attach(clip)
   state:updateFixed()
-  local joint = state:attachments("joint")
-  Assert.equal(joint[1].player.frameFx, 0x1000)
-  Assert.equal(joint[2].player.frameFx, 7 * 0x1000, "reverse wraps to the last frame")
-  state:detach(a)
-  state:detach(b)
+  Assert.equal(a.player.frameFx, 0x1000)
+  Assert.equal(b.player.frameFx, 0x1000)
 end
 
 function T.state_supports_multiple_simultaneous_clips()
-  local state = ModelAnimationState.new("model:1")
-  local clip = jointClip()
-  -- Two plays of the same clip: two independent attachments.
-  state:attach(clip, AnimationBinding.new(clip, "model:1", { [3] = 3 }))
-  state:attach(clip, AnimationBinding.new(clip, "model:1", { [3] = 3 }))
+  local def = definition()
+  local state = ModelAnimationState.new(def)
+  local clip = def:animation("joint")
+  state:attach(clip)
+  state:attach(clip)
   Assert.equal(#state:attachments("joint"), 2)
+end
+
+-- ---- validation stays ----
+
+-- A clip that binds no model element is a data failure: the attachment
+-- cannot be built and playback fails loudly (the precomputed binding is
+-- zero-mapped).
+function T.zero_binding_clip_cannot_be_attached()
+  local def = definition()
+  local state = ModelAnimationState.new(def)
+  throwsCode("ANIM_STATE_ZERO_BINDING", function()
+    return state:attach(def:animation("ghost"))
+  end)
+end
+
+-- Bad policy values are rejected at attach time, not deferred to evaluation.
+function T.bad_priority_or_ratio_raises()
+  local def = definition()
+  local state = ModelAnimationState.new(def)
+  local clip = def:animation("joint")
+  throwsCode("ANIM_ATTACHMENT_BAD_PRIORITY", function()
+    return state:attach(clip, { priority = 0x100 })
+  end)
+  throwsCode("ANIM_ATTACHMENT_BAD_RATIO", function()
+    return state:attach(clip, { ratioFx = 0.5 })
+  end)
+end
+
+-- The attach opts may supply a player, exactly like the instance surface.
+function T.attach_accepts_a_custom_player()
+  local def = definition()
+  local state = ModelAnimationState.new(def)
+  local clip = def:animation("joint")
+  local player = AnimationPlayer.new(clip)
+  local handle = state:attach(clip, { player = player })
+  Assert.equal(handle.player, player)
 end
 
 return T

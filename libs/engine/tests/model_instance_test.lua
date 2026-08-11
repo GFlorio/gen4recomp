@@ -55,8 +55,9 @@ end
 
 function T.play_resolves_semantic_names()
   local instance = newInstance()
-  local token = instance:play("door.open")
-  Assert.notNil(token)
+  local handle = instance:play("door.open")
+  Assert.equal(type(handle), "table", "play returns the attachment handle")
+  Assert.equal(handle.clip.name, "DoorOpen")
   Assert.equal(#instance.animationState:attachments("joint"), 1)
   throwsCode("ANIM_INSTANCE_UNKNOWN_ANIMATION", function()
     return instance:play("no.such.clip")
@@ -117,10 +118,10 @@ function T.multiple_simultaneous_clips()
   Assert.equal(#instance.animationState:attachments("joint"), 1)
 end
 
-function T.stop_by_token()
+function T.stop_by_handle()
   local instance = newInstance()
-  local token = instance:play("door.open")
-  Assert.equal(instance:stop(token), 1)
+  local handle = instance:play("door.open")
+  Assert.equal(instance:stop(handle), 1)
   Assert.equal(#instance.animationState:attachments("joint"), 0)
 end
 

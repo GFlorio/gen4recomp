@@ -180,10 +180,12 @@ function T.animations_resolve_by_name_and_semantic()
   Assert.equal(#def:animationNames(), 1)
 end
 
-function T.binding_map_maps_node_and_material_targets()
+function T.binding_is_precomputed_for_node_and_material_clips()
   local def = ModelDefinition.new(definitionSpec())
   local joint = def:animation("open")
-  Assert.deepEqual(def:bindingMap(joint), { [0] = 0 })
+  local jointBinding = def:binding(joint)
+  Assert.notNil(jointBinding)
+  Assert.deepEqual(jointBinding.map, { [0] = 0 })
 
   local material = AnimationClip.new({
     id = "c2",
@@ -198,22 +200,12 @@ function T.binding_map_maps_node_and_material_targets()
       },
     },
   })
-  Assert.deepEqual(def:bindingMap(material), { wall = 0 })
-
-  local unmapped = AnimationClip.new({
-    id = "c3",
-    name = "ghost",
-    category = "material",
-    kind = "color",
-    frameCount = 4,
-    tracks = {
-      {
-        target = "absent",
-        channels = { diffuse = { interpolation = "step", keys = { { frame = 0, value = 0 } } } },
-      },
-    },
-  })
-  Assert.deepEqual(def:bindingMap(unmapped), {}, "unmatched names stay unmapped")
+  local materialBinding = def:binding(material)
+  Assert.notNil(materialBinding)
+  Assert.deepEqual(materialBinding.map, { wall = 0 })
+  -- The MaterialEvaluator's per-material track lookup consumes the
+  -- precomputed material-index -> track-index mapping.
+  Assert.deepEqual(materialBinding.trackByMaterial, { [0] = 0 })
 end
 
 function T.from_nitro_descriptor_assembles_the_runtime_definition()
@@ -262,6 +254,9 @@ function T.from_nitro_descriptor_assembles_the_runtime_definition()
   Assert.equal(draw.polygonId, 3)
   Assert.equal(draw.depthEqual, true)
   Assert.notNil(def:animation("door.open"))
+  -- Descriptor assembly precomputes the clip bindings: the compiled door
+  -- clip binds onto the assembled definition without any later rescan.
+  Assert.notNil(def:binding(assert(def:animation("door.open"))))
 end
 
 return T

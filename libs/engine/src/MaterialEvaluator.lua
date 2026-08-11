@@ -71,14 +71,16 @@ local function rgb555To8(value)
   return { r = bit5To8(r), g = bit5To8(g), b = bit5To8(b) }
 end
 
--- The track of `clip` whose binding maps onto `materialIndex`, or nil.
-local function trackForMaterial(clip, binding, materialIndex)
-  for _, track in ipairs(clip.tracks) do
-    if binding:modelIndex(track.target) == materialIndex then
-      return track
-    end
+-- The track of `attachment` whose precomputed binding maps onto
+-- `materialIndex`, or nil: the binding carries the material-index ->
+-- track-index mapping resolved at definition assembly, so evaluation never
+-- loops every track looking names up.
+local function trackForMaterial(attachment, materialIndex)
+  local trackIndex = attachment.binding.trackByMaterial[materialIndex]
+  if trackIndex == nil then
+    return nil
   end
-  return nil
+  return attachment.clip.tracks[trackIndex + 1]
 end
 
 -- Pick the winning attachment of one kind for a single target material: the
@@ -89,7 +91,7 @@ local function winnerForMaterial(attachments, kind, materialIndex)
   local best
   for _, attachment in ipairs(attachments) do
     if attachment.ratioFx > 0 and attachment.clip.kind == kind then
-      if trackForMaterial(attachment.clip, attachment.binding, materialIndex) then
+      if attachment.binding.trackByMaterial[materialIndex] ~= nil then
         if not best or attachment.priority >= best.priority then
           best = attachment
         end
@@ -268,14 +270,14 @@ function MaterialEvaluator.evaluate(definition, attachments, materialState)
     local baseState = baseMaterialState(definition, materialIndex)
     local material = baseState.record
 
-    local patternTrack = pattern and trackForMaterial(pattern.clip, pattern.binding, materialIndex)
+    local patternTrack = pattern and trackForMaterial(pattern, materialIndex)
     local tex = currentTexture(material, pattern, patternTrack)
 
     -- NSBMA: the winning color attachment overrides the sampled channels;
     -- channels it does not animate keep the base material colors.
     local colors = baseState.colors
     if color then
-      local track = trackForMaterial(color.clip, color.binding, materialIndex)
+      local track = trackForMaterial(color, materialIndex)
       if track then
         local sampled = CompiledNsbmaSampler.sample(color.clip, track.targetIndex, color.player.frameFx)
         for _, name in ipairs({ "diffuse", "ambient", "specular", "emission" }) do
@@ -297,7 +299,7 @@ function MaterialEvaluator.evaluate(definition, attachments, materialState)
     -- against the current texture dimensions.
     local srt = staticSrt(material)
     if texsrt then
-      local track = trackForMaterial(texsrt.clip, texsrt.binding, materialIndex)
+      local track = trackForMaterial(texsrt, materialIndex)
       if track then
         srt = CompiledNsbtaSampler.sample(texsrt.clip, track.targetIndex, texsrt.player.frameFx)
       end

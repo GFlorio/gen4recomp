@@ -28,7 +28,6 @@ local Errors = require("libs.rom.src.Errors")
 local Matrix4 = require("libs.math.src.Matrix4")
 local ModelAnimationState = require("libs.engine.src.ModelAnimationState")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
-local AnimationBinding = require("libs.engine.src.AnimationBinding")
 local AnimationPlayer = require("libs.engine.src.AnimationPlayer")
 local NitroPoseBackend = require("libs.engine.src.NitroPoseBackend")
 local PoseContract = require("libs.engine.src.PoseContract")
@@ -120,7 +119,7 @@ function ModelInstance.new(definition, opts)
   return setmetatable({
     definition = definition,
     transform = transform,
-    animationState = ModelAnimationState.new(definition.key),
+    animationState = ModelAnimationState.new(definition),
     materialState = materialState,
     poseState = nil,
     resolveImage = opts.resolveImage,
@@ -142,10 +141,14 @@ function ModelInstance:evaluatePose()
 end
 
 -- Start playing a clip, resolved by name or semantic role (e.g.
--- "door.open"). Binding and player setup happen here, once per play, never
--- per frame. `opts` passes through to the attachment: priority, ratioFx,
--- loopMode, direction. Returns the attachment token for stop(). Every play
--- attaches an independent player, so several clips can run simultaneously.
+-- "door.open"). The binding comes from the definition's precomputed record;
+-- player setup happens here, once per play, never per frame. `opts` passes
+-- through to the attachment: priority, ratioFx, loopMode, direction. Returns
+-- the LIVE attachment as the handle (a plain table carrying
+-- clip/binding/player/priority/ratioFx) for stop() -- there is no token
+-- layer. Every play attaches an independent player, so several clips can run
+-- simultaneously. A clip that binds no model element raises
+-- ANIM_STATE_ZERO_BINDING and attaches nothing.
 function ModelInstance:play(nameOrSemantic, opts)
   local clip = self.definition:animation(nameOrSemantic)
   if not clip then
@@ -155,7 +158,6 @@ function ModelInstance:play(nameOrSemantic, opts)
       { modelKey = self.definition.key, name = nameOrSemantic }
     )
   end
-  local binding = AnimationBinding.new(clip, self.definition.key, self.definition:bindingMap(clip))
   opts = opts or {}
   if opts.loopMode then
     assert(AnimationPlayer.LOOP_MODES[opts.loopMode], "loopMode must be loop or once")
@@ -169,33 +171,33 @@ function ModelInstance:play(nameOrSemantic, opts)
     player:setDirection(opts.direction)
   end
 
-  return self.animationState:attach(clip, binding, {
+  return self.animationState:attach(clip, {
     player = player,
     priority = opts.priority,
     ratioFx = opts.ratioFx,
   })
 end
 
--- Stop a playing clip: by attachment token, or by name/semantic role (all
--- attachments of that clip). Returns the number of attachments removed.
-function ModelInstance:stop(nameOrToken)
+-- Stop playing clips: by attachment handle (exactly that attachment), or by
+-- name/semantic role (every play of the matching clip). Returns the number
+-- of attachments removed.
+function ModelInstance:stop(nameOrHandle)
+  if type(nameOrHandle) == "table" then
+    return self.animationState:detach(nameOrHandle)
+  end
   local removed = 0
+  local state = self.animationState
   for _, category in ipairs(ModelAnimationState.GROUPS) do
-    for token, attachment in pairs(self.animationState.groups[category]) do
+    for _, attachment in ipairs(state:attachments(category)) do
       local clip = attachment.clip
-      local matchesName = false
-      if type(nameOrToken) == "string" then
-        if clip.name == nameOrToken or clip.id == nameOrToken then
+      local matchesName = clip.name == nameOrHandle or clip.id == nameOrHandle
+      for _, semantic in ipairs(clip.semanticNames or {}) do
+        if semantic == nameOrHandle then
           matchesName = true
         end
-        for _, semantic in ipairs(clip.semanticNames or {}) do
-          if semantic == nameOrToken then
-            matchesName = true
-          end
-        end
       end
-      if (type(nameOrToken) == "number" and token == nameOrToken) or matchesName then
-        self.animationState:detach(token)
+      if matchesName then
+        state:detach(attachment)
         removed = removed + 1
       end
     end

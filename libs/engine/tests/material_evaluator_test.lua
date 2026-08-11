@@ -541,6 +541,42 @@ function T.highest_priority_attachment_wins()
   )
 end
 
+-- The evaluator consumes the attachment's PRECOMPUTED material binding:
+-- the attachment carries the material-index -> track-index
+-- mapping resolved at definition assembly, so evaluation never loops every
+-- track looking up names.
+function T.attachments_carry_the_precomputed_material_binding()
+  local def = texturedDefinition()
+  local instance = instanceWith(def, { scrollClip(4, { 0, 0x100, 0x200, 0x300 }) })
+  local attachment = instance.animationState:attachments("material")[1]
+  Assert.equal(type(attachment), "table")
+  Assert.notNil(attachment.binding)
+  Assert.deepEqual(attachment.binding.map, { wall = 0 })
+  Assert.deepEqual(attachment.binding.trackByMaterial, { [0] = 0 })
+end
+
+-- Equal-priority ties resolve to the LAST attached attachment: attachment
+-- order IS significant to the selection (the comment claiming otherwise is
+-- wrong), so the contract pins the tie behavior.
+function T.equal_priority_ties_resolve_to_the_last_attached()
+  local def = texturedDefinition()
+  local first = scrollClip(4, { 0x0, 0x100, 0x200, 0x300 })
+  first.name, first.id = "scrollFirst", "fixture:scrollFirst"
+  local last = scrollClip(4, { 0x0, 0x200, 0x400, 0x600 })
+  last.name, last.id = "scrollLast", "fixture:scrollLast"
+  local instance = ModelInstance.new(definitionWith(def, { first, last }))
+  instance:play("scrollFirst", { priority = 0x10 })
+  instance:play("scrollLast", { priority = 0x10 })
+  instance:updateFixed()
+  instance:evaluateMaterials()
+  Assert.near(
+    instance.materialState[0].texMatrix[7],
+    -0x200 / 4096,
+    1e-9,
+    "the last-attached clip wins an equal-priority tie"
+  )
+end
+
 function T.missing_variant_raises()
   local def = texturedDefinition()
   local clip = patternClip()

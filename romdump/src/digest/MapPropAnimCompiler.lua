@@ -57,14 +57,17 @@ local ANIM_ARCHIVE = "build_anim"
 MapPropAnimCompiler.VERSION = "map-prop-anim-clip-v4"
 
 -- clip name -> semantic role. Patterns match the tail of the Nitro dict
--- name; the whole name matches when the pattern is exact.
-local MapPropAnimationController = require("libs.engine.src.MapPropAnimationController")
+-- name; the whole name matches when the pattern is exact. The role
+-- vocabulary lives on the animation contract (AnimationClip.ROLES), the one
+-- owner compiler and runtime share -- the digest never depends
+-- on a runtime controller.
+local AnimationClip = require("libs.engine.src.AnimationClip")
 
 local ROLE_PATTERNS = {
-  door_op = MapPropAnimationController.ROLES.DOOR_OPEN,
-  door_cl = MapPropAnimationController.ROLES.DOOR_CLOSE,
-  door_mop = MapPropAnimationController.ROLES.DOOR_OPEN,
-  door_mcl = MapPropAnimationController.ROLES.DOOR_CLOSE,
+  door_op = AnimationClip.ROLES.DOOR_OPEN,
+  door_cl = AnimationClip.ROLES.DOOR_CLOSE,
+  door_mop = AnimationClip.ROLES.DOOR_OPEN,
+  door_mcl = AnimationClip.ROLES.DOOR_CLOSE,
 }
 
 -- The semantic role for a clip name, or nil (the clip keeps its name).

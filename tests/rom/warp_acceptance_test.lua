@@ -27,7 +27,6 @@ local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldSave = require("libs.engine.src.FieldSave")
 local FieldSaveStore = require("libs.engine.src.FieldSaveStore")
 local FieldTransition = require("libs.engine.src.FieldTransition")
-local MapPropAnimationController = require("libs.engine.src.MapPropAnimationController")
 local SceneLoaderFixture = require("tests.private.support.SceneLoaderFixture")
 local SaveFs = require("libs.rom.src.SaveFs")
 
@@ -39,8 +38,8 @@ local HOUSE_1F_MAP_ID = 63
 local HOUSE_2F_MAP_ID = 64
 local TOWN_DOOR_TILE = { x = 684, z = 393 }
 local LAB_ENTRANCE_TILE = { x = 4, z = 14 }
-local OPEN_ROLE = MapPropAnimationController.ROLES.DOOR_OPEN
-local CLOSE_ROLE = MapPropAnimationController.ROLES.DOOR_CLOSE
+local OPEN_ROLE = "door.open"
+local CLOSE_ROLE = "door.close"
 
 -- The walk phases below hold a direction for enough ticks to complete one
 -- tile step (FieldPlayer.WALK_STEP_TICKS) and then idle on the arrival tile.
@@ -140,7 +139,7 @@ function T.lab_to_town_door_acceptance(romFs, versionId)
   harness.onTick = function(h)
     if h.transition.phase == "fade_in" then
       local door = town.runtime.mapProps:doorAt(town.map, TOWN_DOOR_TILE.x, TOWN_DOOR_TILE.z)
-      if door and door.entry.currentRole == OPEN_ROLE and door:isFinished() == false then
+      if door and SceneLoaderFixture.entryRole(door) == OPEN_ROLE and door:isFinished() == false then
         doorOpenPlaying = true
       end
     end
@@ -160,7 +159,7 @@ function T.lab_to_town_door_acceptance(romFs, versionId)
 
   local door = assert(town.runtime.mapProps:doorAt(town.map, TOWN_DOOR_TILE.x, TOWN_DOOR_TILE.z))
   Assert.notNil(harness.timeline.door_close, "the destination door close is waited")
-  Assert.isTrue(door.entry.currentRole == CLOSE_ROLE, "the retained entry state records the closing role")
+  Assert.isTrue(SceneLoaderFixture.entryRole(door) == CLOSE_ROLE, "the retained entry state records the closing role")
   Assert.isTrue(door:isFinished(), "the destination door closes to completion")
 
   Assert.equal(harness.player.fieldX, 684)

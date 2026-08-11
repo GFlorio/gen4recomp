@@ -17,11 +17,11 @@
 --     source = { type = "nitro"|"gltf", ... },  opaque provenance
 --   }
 --
--- Track target refs are the source-neutral key used by AnimationBinding:
--- joint/visibility tracks target a node index, material tracks a material
--- name. Joint tracks carry the channels "translation", "rotation", and
--- "scale"; visibility tracks carry "visible"; material channel shapes are
--- defined by their consumers. The runtime never decodes `source`; it is
+-- Track target refs are the source-neutral keys a binding maps onto model
+-- elements: joint/visibility tracks target a node index, material tracks a
+-- material name. Joint tracks carry the channels "translation", "rotation",
+-- and "scale"; visibility tracks carry "visible"; material channel shapes
+-- are defined by their consumers. The runtime never decodes `source`; it is
 -- carried for diagnostics, content-addressing, and modding tooling only.
 --
 -- `sample` is the format-neutral channel sampler: keys are { frame, value }
@@ -44,6 +44,15 @@ AnimationClip.FRAME_UNIT = 4096
 
 AnimationClip.CATEGORIES = { joint = true, material = true, visibility = true }
 AnimationClip.INTERPOLATIONS = { step = true, linear = true }
+
+-- The semantic animation roles gameplay and the digest share: the one owner
+-- for the door open/close vocabulary -- MapPropAnimCompiler stamps the roles
+-- onto compiled clips and MapDoor addresses them by role, so the strings have
+-- exactly one home on the animation contract.
+AnimationClip.ROLES = {
+  DOOR_OPEN = "door.open",
+  DOOR_CLOSE = "door.close",
+}
 
 local function isNonNegativeNumber(value)
   return type(value) == "number" and value >= 0 and value == value

@@ -73,7 +73,7 @@ local function nodeSrt(program, attachments)
         )
       end
       for _, track in ipairs(clip.tracks) do
-        local nodeIndex = attachment.binding:modelIndex(track.target)
+        local nodeIndex = attachment.binding.map[track.target]
         -- Targets that name nodes the program does not carry are ignored,
         -- like the digest-side provider's permissive binding.
         if nodeIndex ~= nil and program.nodes[nodeIndex + 1] then

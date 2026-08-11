@@ -18,6 +18,14 @@
 -- nothing. Only DOOR-kind warp tiles resolve; stairs, directional warps, and
 -- generic warps return nil. Doors over static buildings (no animated
 -- instance) resolve but animate nothing. Pure domain module under test.
+--
+-- The playback surface is the COLLAPSED animation object graph:
+-- MapProps carries no controller. MapDoor plays through the instance and
+-- retains the returned play handle on the tile's index entry (entry.animation
+-- replaces the old currentRole string); isFinished reads that handle, so the
+-- finish state never depends on the disposable MapDoor identity. SceneProp
+-- keeps play/stop/isFinished; pause/resume/setDirection/animationsFor do not
+-- exist -- no production caller uses them.
 
 local Assert = require("tests.support.Assert")
 local TilePermissions = require("tests.support.TilePermissions")
@@ -26,7 +34,6 @@ local FieldGrid = require("libs.engine.src.FieldGrid")
 local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
 local NitroModelFixture = require("tests.support.NitroModelFixture")
 local ModelInstance = require("libs.engine.src.ModelInstance")
-local MapPropAnimationController = require("libs.engine.src.MapPropAnimationController")
 local MapProps = require("libs.engine.src.MapProps")
 
 local T = {}
@@ -98,14 +105,12 @@ local function doorScene()
   local instances = {
     [1] = ModelInstance.new(NitroModelFixture.doorDefinition()),
   }
-  local controller = MapPropAnimationController.new()
   local props = MapProps.new({
     placements = placements,
     instances = instances,
-    controller = controller,
     doorTiles = { { x = 4, z = 14 } },
   })
-  return props, controller, instances
+  return props, instances
 end
 
 local function doorMap()
@@ -117,7 +122,7 @@ end
 -- ---- resolution ---------------------------------------------------------
 
 function T.door_at_resolves_the_door_tile_to_its_animated_door()
-  local props, _, instances = doorScene()
+  local props, instances = doorScene()
   local door = assert(props:doorAt(doorMap(), 4, 14))
   Assert.equal(door.instance, instances[1])
   Assert.equal(door.placementIndex, 1)
@@ -177,7 +182,6 @@ function T.door_at_resolves_the_placement_whose_pivot_is_nearest()
   local props = MapProps.new({
     placements = placements,
     instances = instances,
-    controller = MapPropAnimationController.new(),
     doorTiles = { { x = 4, z = 14 } },
   })
   local door = assert(props:doorAt(doorMap(), 4, 14))
@@ -208,7 +212,6 @@ function T.door_at_returns_nil_for_a_tile_the_index_does_not_cover()
   local props = MapProps.new({
     placements = { placement(0, "fixture:door", wx, wz, 1) },
     instances = {},
-    controller = MapPropAnimationController.new(),
     doorTiles = { { x = 5, z = 5 } },
   })
   Assert.isNil(props:doorAt(doorMap(), 4, 14))
@@ -223,7 +226,6 @@ function T.door_at_resolves_a_static_placement_when_no_door_model_is_placed()
   local props = MapProps.new({
     placements = { placement(0, "fixture:building", 0, 0, 4) },
     instances = {},
-    controller = MapPropAnimationController.new(),
     doorTiles = { { x = 4, z = 14 } },
   })
   local door = assert(props:doorAt(doorMap(), 4, 14), "the nearest placement resolves")
@@ -244,7 +246,7 @@ function T.door_at_resolves_a_static_door_when_no_animated_model_is_placed()
 end
 
 function T.door_at_finish_state_does_not_depend_on_handle_identity()
-  local props, _, instances = doorScene()
+  local props, instances = doorScene()
   local door = assert(props:doorAt(doorMap(), 4, 14))
   door:open()
   for _ = 1, 7 do
@@ -252,7 +254,8 @@ function T.door_at_finish_state_does_not_depend_on_handle_identity()
   end
   -- The tile's door state is not private to the handle that played it: a
   -- fresh resolution of the same tile observes the finished open. The
-  -- currentRole-on-a-disposable-handle design reports nil here.
+  -- retained play handle lives on the tile's index entry, so no handle
+  -- identity carries the finish state.
   local fresh = assert(props:doorAt(doorMap(), 4, 14))
   Assert.isTrue(fresh:isFinished(), "a freshly resolved handle sees the finished role")
 end
@@ -266,7 +269,6 @@ function T.assembly_raises_when_two_placements_own_the_same_door_tile()
         placement(1, "fixture:door2", wx, wz, 1),
       },
       instances = {},
-      controller = MapPropAnimationController.new(),
       doorTiles = { { x = 4, z = 14 } },
     })
   end)
@@ -297,7 +299,6 @@ function T.assembly_raises_when_two_placements_tie_for_a_door_tile()
     return MapProps.new({
       placements = { door(0, "fixture:door"), door(1, "fixture:door2") },
       instances = {},
-      controller = MapPropAnimationController.new(),
       doorTiles = { { x = 4, z = 14 } },
     })
   end)
@@ -313,7 +314,6 @@ function T.assembly_raises_when_a_door_tile_has_no_placement()
     return MapProps.new({
       placements = {},
       instances = {},
-      controller = MapPropAnimationController.new(),
       doorTiles = { { x = 4, z = 14 } },
     })
   end)
@@ -322,13 +322,13 @@ end
 -- ---- playback -----------------------------------------------------------
 
 function T.open_plays_the_door_open_role_once_and_finishes()
-  local props, controller, instances = doorScene()
+  local props, instances = doorScene()
   local door = assert(props:doorAt(doorMap(), 4, 14))
   door:open()
-  local list = controller:animationsFor(instances[1])
-  Assert.equal(#list, 1)
-  Assert.equal(list[1].name, "DoorOpen")
-  Assert.deepEqual(list[1].roles, { "door.open" })
+  local joint = instances[1].animationState:attachments("joint")
+  Assert.equal(#joint, 1)
+  Assert.equal(joint[1].clip.name, "DoorOpen")
+  Assert.deepEqual(joint[1].clip.semanticNames, { "door.open" })
   Assert.isFalse(door:isFinished())
   for _ = 1, 7 do
     instances[1]:updateFixed()
@@ -337,18 +337,18 @@ function T.open_plays_the_door_open_role_once_and_finishes()
 end
 
 function T.close_stops_the_open_and_plays_close()
-  local props, controller, instances = doorScene()
+  local props, instances = doorScene()
   local door = assert(props:doorAt(doorMap(), 4, 14))
   door:open()
   instances[1]:updateFixed()
   door:close()
-  local list = controller:animationsFor(instances[1])
-  Assert.equal(#list, 1)
-  Assert.equal(list[1].name, "DoorClose")
+  local joint = instances[1].animationState:attachments("joint")
+  Assert.equal(#joint, 1)
+  Assert.equal(joint[1].clip.name, "DoorClose")
   door:open()
-  list = controller:animationsFor(instances[1])
-  Assert.equal(#list, 1)
-  Assert.equal(list[1].name, "DoorOpen")
+  joint = instances[1].animationState:attachments("joint")
+  Assert.equal(#joint, 1)
+  Assert.equal(joint[1].clip.name, "DoorOpen")
 end
 
 function T.is_finished_is_nil_before_any_play()
@@ -358,7 +358,7 @@ function T.is_finished_is_nil_before_any_play()
 end
 
 function T.open_raises_when_the_door_model_lacks_the_role()
-  local props, _, instances = doorScene()
+  local props, instances = doorScene()
   -- Replace the door instance with a model that only animates door.close.
   local closeOnly = NitroModelFixture.doorDefinition({
     NitroModelFixture.doorCloseClip(),
@@ -380,49 +380,76 @@ function T.static_door_playback_is_a_noop()
   Assert.isNil(door:isFinished())
 end
 
+-- The collapsed door surface: the tile's index entry retains
+-- the PLAY HANDLE from instance:play -- not a role string -- so the finish
+-- state is read off the live attachment and survives every fresh resolution.
+function T.door_open_retains_the_play_handle_on_the_tile()
+  local props, instances = doorScene()
+  local door = assert(props:doorAt(doorMap(), 4, 14))
+  Assert.isNil(door.entry.currentRole, "the retained entry no longer stores a role string")
+  Assert.isNil(door.entry.animation, "nothing plays before the first open")
+  door:open()
+  local handle = door.entry.animation
+  Assert.notNil(handle, "the tile's entry retains the play handle")
+  Assert.equal(handle.clip.name, "DoorOpen")
+  Assert.isTrue(
+    instances[1].animationState:attachments("joint")[1] == handle,
+    "the retained handle is the live attachment"
+  )
+  door:close()
+  Assert.equal(door.entry.animation.clip.name, "DoorClose", "the retained handle follows the played role")
+end
+
+-- Replaying a role replaces the previous play of that door: the retained
+-- handle is stopped and a fresh one attached, so one door has one playing
+-- attachment (the controller-identity behavior survives without a
+-- controller).
+function T.replaying_the_role_replaces_the_previous_play()
+  local props, instances = doorScene()
+  local door = assert(props:doorAt(doorMap(), 4, 14))
+  door:open()
+  local first = door.entry.animation
+  Assert.notNil(first, "the tile retains the first play handle")
+  instances[1]:updateFixed()
+  door:open()
+  local second = door.entry.animation
+  Assert.notNil(second, "the tile retains the replayed play handle")
+  Assert.isFalse(first == second, "the replay attaches a fresh handle")
+  Assert.equal(#instances[1].animationState:attachments("joint"), 1, "one door has one playing attachment")
+  Assert.equal(second.player.frameFx, 0, "the replay restarts the clip")
+end
+
 -- ---- scripted props -----------------------------------------------------
 
 function T.prop_resolves_an_animated_placement_by_index()
-  local props, controller, instances = doorScene()
+  local props, instances = doorScene()
   local prop = assert(props:prop(1))
   Assert.equal(prop.instance, instances[1])
   Assert.equal(prop.modelKey, "fixture:door")
   Assert.equal(prop.placementIndex, 1)
 
-  -- The generic scripted surface: play by role or clip name, stop, pause,
-  -- resume, direction, and the HGSS completion check.
-  prop:play("door.open", { loopMode = "once" })
-  local list = controller:animationsFor(instances[1])
-  Assert.equal(#list, 1)
-  Assert.equal(list[1].name, "DoorOpen")
+  -- The generic scripted surface: play by role or clip name, stop, and the
+  -- HGSS completion check.
+  local handle = prop:play("door.open", { loopMode = "once" })
+  Assert.equal(type(handle), "table", "prop:play returns the instance's attachment handle")
+  local joint = instances[1].animationState:attachments("joint")
+  Assert.equal(#joint, 1)
+  Assert.equal(joint[1].clip.name, "DoorOpen")
   Assert.isFalse(prop:isFinished("door.open"))
   for _ = 1, 7 do
     instances[1]:updateFixed()
   end
   Assert.isTrue(prop:isFinished("door.open"))
   prop:stop("door.open")
-  Assert.equal(#controller:animationsFor(instances[1]), 0)
+  Assert.equal(#instances[1].animationState:attachments("joint"), 0)
 end
 
 function T.prop_play_accepts_clip_names_and_options()
-  local props, controller, instances = doorScene()
+  local props, instances = doorScene()
   local prop = assert(props:prop(1))
   prop:play("DoorOpen", { ratioFx = 0x2000, direction = -1 })
   local attachment = instances[1].animationState:attachments("joint")[1]
   Assert.equal(attachment.ratioFx, 0x2000)
-  Assert.equal(attachment.player.deltaFx, -4096)
-end
-
-function T.prop_pause_resume_and_direction()
-  local props, controller, instances = doorScene()
-  local prop = assert(props:prop(1))
-  prop:play("door.open")
-  prop:pause("door.open")
-  local attachment = instances[1].animationState:attachments("joint")[1]
-  Assert.isTrue(attachment.player.paused)
-  prop:resume("door.open")
-  Assert.isFalse(attachment.player.paused)
-  prop:setDirection("door.open", -1)
   Assert.equal(attachment.player.deltaFx, -4096)
 end
 
@@ -432,32 +459,31 @@ function T.prop_is_finished_is_nil_before_any_play()
   Assert.isNil(prop:isFinished("door.open"))
 end
 
+-- The generic prop surface is exactly play/stop/isFinished: pause, resume,
+-- setDirection, and animationsFor have no production caller anywhere (the
+-- debugger overlay and inventory tooling do not exist on this branch), so
+-- the collapsed surface does not carry them.
+function T.prop_surface_is_play_stop_and_is_finished_only()
+  local props = doorScene()
+  local prop = assert(props:prop(1))
+  Assert.isNil(prop.pause, "pause has no caller and must not exist")
+  Assert.isNil(prop.resume, "resume has no caller and must not exist")
+  Assert.isNil(prop.setDirection, "setDirection has no caller and must not exist")
+  Assert.isNil(prop.animationsFor, "animationsFor has no caller and must not exist")
+end
+
 function T.prop_for_a_static_placement_is_a_noop_handle()
   local props = doorScene()
   local prop = assert(props:prop(0))
   Assert.isNil(prop.instance)
-  prop:play("idle")
-  prop:stop("idle")
-  prop:pause("idle")
+  Assert.isNil(prop:play("idle"))
+  Assert.isNil(prop:stop("idle"))
   Assert.isNil(prop:isFinished("idle"))
-  Assert.deepEqual(prop:animationsFor(), {})
 end
 
 function T.prop_returns_nil_for_unknown_placement()
   local props = doorScene()
   Assert.isNil(props:prop(5))
-end
-
-function T.prop_animations_for_lists_the_playing_clips()
-  local props, controller, instances = doorScene()
-  local prop = assert(props:prop(1))
-  Assert.deepEqual(prop:animationsFor(), {})
-  prop:play("door.open")
-  prop:play("door.close")
-  local list = prop:animationsFor()
-  Assert.equal(#list, 2)
-  Assert.equal(list[1].name, "DoorClose")
-  Assert.equal(list[2].name, "DoorOpen")
 end
 
 function T.prop_raises_for_an_unknown_animation()

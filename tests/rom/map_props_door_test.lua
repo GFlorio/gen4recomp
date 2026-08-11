@@ -18,7 +18,6 @@ local Matrix4 = require("libs.math.src.Matrix4")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local ModelInstance = require("libs.engine.src.ModelInstance")
-local MapPropAnimationController = require("libs.engine.src.MapPropAnimationController")
 local MapProps = require("libs.engine.src.MapProps")
 local RomRuntimeMap = require("tests.support.RomRuntimeMap")
 
@@ -90,7 +89,6 @@ local function propsFor(romFs, symbol)
   local props = MapProps.new({
     placements = placements,
     instances = instances,
-    controller = MapPropAnimationController.new(),
     doorTiles = DoorTiles.fromGrid(map.permissions),
   })
   return props, map, instances

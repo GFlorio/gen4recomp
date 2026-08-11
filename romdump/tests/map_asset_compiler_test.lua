@@ -212,13 +212,12 @@ function T.animated_bundle_round_trips_through_writer_readiness_and_loader()
   local runtime = MapSceneLoader.load(c, scene, { meshBuilder = meshBuilder, imageBuilder = imageBuilder })
   Assert.equal(runtime.stats.animatedInstances, 1)
   local instance = runtime.animatedInstances[1]
-  -- The door clip is scripted (door role, not ambient): the controller
-  -- plays it and the compiled clip advances.
-  runtime.animationController:play(instance, "door.open")
-  local attachment = instance.animationState:attachments("joint")[1]
-  Assert.equal(attachment.clip.name, "door_op")
+  -- The door clip is scripted (door role, not ambient): the play handle
+  -- drives it and the compiled clip advances.
+  local handle = instance:play("door.open")
+  Assert.equal(handle.clip.name, "door_op")
   runtime:updateAnimated()
-  Assert.equal(attachment.player.frameFx, 4096, "the compiled clip advances")
+  Assert.equal(handle.player.frameFx, 4096, "the compiled clip advances")
 end
 
 return { tests = T }

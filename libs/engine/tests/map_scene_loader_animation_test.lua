@@ -21,15 +21,25 @@ local Hashing = require("romdump.src.digest.Hashing")
 
 local T = {}
 
--- A 32x32 all-plain collision grid (the scene cell), optionally with one
--- DOOR-behavior (105) tile.
-local function collisionGrid(doorTile)
+-- A 32x32 all-plain collision grid (the scene cell), optionally with
+-- DOOR-behavior (105) tiles. `doorTiles` is either one { x, z } tile or a
+-- list of them.
+local function collisionGrid(doorTiles)
   local cells = {}
   for index = 1, 32 * 32 do
     cells[index] = { behavior = 0, terrainResponseId = 0, blocked = false }
   end
-  if doorTile then
-    cells[doorTile.z * 32 + doorTile.x + 1] = { behavior = 105, terrainResponseId = 0, blocked = false }
+  local function mark(tile)
+    cells[tile.z * 32 + tile.x + 1] = { behavior = 105, terrainResponseId = 0, blocked = false }
+  end
+  if doorTiles then
+    if doorTiles.z ~= nil then
+      mark(doorTiles)
+    else
+      for _, tile in ipairs(doorTiles) do
+        mark(tile)
+      end
+    end
   end
   return CollisionGridAsset.encode({ width = 32, height = 32, cells = cells })
 end
@@ -236,7 +246,7 @@ local function skyClipRecord(name)
 end
 
 -- The door descriptor with the full open/close pair (the multi-clip shape:
--- nothing auto-plays; the controller scripts the roles).
+-- nothing auto-plays; the door choreography scripts the roles).
 local function doorPairDescriptor()
   local desc = doorDescriptor()
   local close = skyClipRecord("door_cl")
@@ -276,8 +286,11 @@ end
 
 -- A minimal scene with the given building instances over the given model
 -- descriptors, in the loader test fixture shape. Writes each descriptor's
--- referenced .g4mesh geometry into the cache.
-local function sceneWith(instances, descriptors)
+-- referenced .g4mesh geometry into the cache. `doorTiles` (optional local
+-- indices) marks the listed tiles with the DOOR behavior (105) in the
+-- permission cell, so the loader's MapProps precomputes door ownership over
+-- them.
+local function sceneWith(instances, descriptors, doorTiles)
   local mapId = 61
   local backend = FakeCache.new()
   local dir = MapAssetCache.mapDir(mapId)
@@ -322,8 +335,30 @@ local function sceneWith(instances, descriptors)
       end
     end
   end
-  backend:write(dir .. "/collision.g4collision", collisionGrid())
+  local doorList = {}
+  for _, tile in ipairs(doorTiles or {}) do
+    doorList[tile.z * 32 + tile.x + 1] = { behavior = 105, terrainResponseId = 0, blocked = false }
+  end
+  backend:write(dir .. "/collision.g4collision", collisionGrid(doorList))
   return luaCache(backend)
+end
+
+-- The runtime-map shape doorAt consumes for a loader-built runtime: the
+-- loader's collision is the permission grid, the cell origin is (0,0) (the
+-- fixture matrix), and the door tile carries a warp record.
+local function doorMapFor(runtime, x, z)
+  return {
+    mapId = 61,
+    coordinateOrigin = { x = 0, z = 0 },
+    fieldData = {
+      events = {
+        warps = {
+          { index = 0, x = x, z = z, destinationMapId = 60, destinationWarpId = 0, y = 0 },
+        },
+      },
+    },
+    permissions = runtime.collision,
+  }
 end
 
 -- A fake mesh builder for the loader's GPU seam: SceneMesh.decode output
@@ -465,8 +500,8 @@ function T.animated_building_loads_advances_and_renders()
   Assert.equal(#runtime.animatedInstances, 1)
 
   -- The door is scripted (its clip carries a door role, not ambientLoop);
-  -- the scene starts with the bind-pose draw list and holds it until the
-  -- controller scripts a role.
+  -- the scene starts with the bind-pose draw list and holds it until a
+  -- scripted role plays.
   local instance = runtime.animatedInstances[1]
   runtime:rebuildAnimatedDrawItems()
   Assert.equal(#runtime.buildingDraws, 1)
@@ -500,14 +535,16 @@ function T.animated_building_loads_advances_and_renders()
   renderer:draw(runtime, camera, runtime.buildingDraws, FieldViewport.new(320, 240, { mode = "strict" }), 1)
   Assert.isTrue(renderer.stats.drawCalls >= 1, "the animated door draws")
 
-  -- The controller drives the semantic role on the loader-built instance.
-  local controller = runtime.animationController
-  controller:stop(instance, "door.open")
-  controller:play(instance, "door.open")
+  -- The handle surface drives the semantic role on the loader-built
+  -- instance: play returns the live attachment, whose player reaches the
+  -- terminal frame.
+  local handle = instance:play("door.open")
+  Assert.equal(type(handle), "table", "play returns the attachment handle")
+  Assert.equal(handle.clip.name, "door_op")
   for _ = 1, 7 do
     instance:updateFixed()
   end
-  Assert.isTrue(controller:isFinished(instance, "door.open"))
+  Assert.isTrue(handle.player:atTerminal())
 
   -- The scene's door lookup resolves the loader-built instance from the door
   -- tile and drives the semantic door animation.
@@ -564,28 +601,25 @@ function T.shared_definitions_share_resources_and_isolate_state()
   Assert.isTrue(a.renderMeshesById == b.renderMeshesById, "placements share the render meshes")
   Assert.isFalse(a.materialState == b.materialState, "material state is per instance")
 
-  -- No ambient policy fires on a multi-clip model: the controller scripts
-  -- the two instances in opposite directions. Independent control: b pauses
-  -- mid-sequence while a runs to the end, so the shared definition cannot
-  -- couple their playback.
-  runtime.animationController:play(a, "door.open", { direction = 1 })
-  runtime.animationController:play(b, "door.close", { direction = 1 })
+  -- No ambient policy fires on a multi-clip model: the handles drive the
+  -- two instances in opposite directions. Independent control: b is
+  -- advanced two ticks while a runs to the end, so the shared definition
+  -- cannot couple their playback.
+  local aHandle = a:play("door.open", { direction = 1 })
+  local bHandle = b:play("door.close", { direction = 1 })
   for _ = 1, 2 do
     a:updateFixed()
     b:updateFixed()
   end
-  runtime.animationController:pause(b, "door.close")
   for _ = 1, 5 do
     a:updateFixed()
   end
-  Assert.isTrue(runtime.animationController:isFinished(a, "door.open"))
-  Assert.isFalse(runtime.animationController:isFinished(b, "door.close"))
-  local aAttachment = a.animationState:attachments("joint")[1]
-  local bAttachment = b.animationState:attachments("joint")[1]
-  Assert.equal(aAttachment.clip.name, "door_op")
-  Assert.equal(bAttachment.clip.name, "door_cl")
-  Assert.isTrue(aAttachment.player.frameFx > bAttachment.player.frameFx)
-  Assert.equal(bAttachment.player.frameFx, 2 * 4096, "the paused instance keeps its own frame")
+  Assert.isTrue(aHandle.player:atTerminal())
+  Assert.isFalse(bHandle.player:atTerminal())
+  Assert.equal(aHandle.clip.name, "door_op")
+  Assert.equal(bHandle.clip.name, "door_cl")
+  Assert.isTrue(aHandle.player.frameFx > bHandle.player.frameFx)
+  Assert.equal(bHandle.player.frameFx, 2 * 4096, "the independent handle keeps its own frame")
 
   runtime:release()
 end
@@ -653,14 +687,15 @@ function T.update_advances_the_pose_driven_draw_items()
       modelKey = "outdoor:26:door",
       transform = identityMatrix(),
     },
-  }, { [desc.key] = desc })
+  }, { [desc.key] = desc }, { { x = 4, z = 14 } })
   local runtime = MapSceneLoader.load(
     cache,
     assert(cache:loadLua(MapAssetCache.mapDir(61) .. "/scene.lua")),
     { meshBuilder = fakeMeshBuilder }
   )
   local instance = runtime.animatedInstances[1]
-  runtime.animationController:play(instance, "door.open")
+  local door = assert(runtime.mapProps:doorAt(doorMapFor(runtime, 4, 14), 4, 14))
+  door:open()
   runtime:rebuildAnimatedDrawItems()
   local m0 = runtime.buildingDraws[1].transform
   for _ = 1, 7 do
@@ -677,7 +712,13 @@ function T.update_advances_the_pose_driven_draw_items()
   runtime:release()
 end
 
-function T.draw_items_refresh_only_when_marked_dirty()
+-- The scene's draw list refreshes on the scene TICK, not on control ops:
+-- every animation tick (FieldSession -> updateAnimated) rebuilds all
+-- animated items unconditionally, and nothing between ticks consumes a
+-- refresh -- so there is no dirty-forwarding layer. A play
+-- between ticks leaves the cached list untouched; the next tick rebuilds
+-- it.
+function T.draw_items_refresh_only_on_the_scene_tick()
   local desc = doorPairDescriptor()
   local cache = sceneWith({
     {
@@ -685,24 +726,25 @@ function T.draw_items_refresh_only_when_marked_dirty()
       modelKey = "outdoor:26:door",
       transform = identityMatrix(),
     },
-  }, { [desc.key] = desc })
+  }, { [desc.key] = desc }, { { x = 4, z = 14 } })
   local runtime = MapSceneLoader.load(
     cache,
     assert(cache:loadLua(MapAssetCache.mapDir(61) .. "/scene.lua")),
     { meshBuilder = fakeMeshBuilder }
   )
   local instance = runtime.animatedInstances[1]
-  -- The first refresh consumes the initial dirty mark and builds the list;
-  -- a second refresh is a no-op and keeps the item identity.
+  -- The first refresh builds the initial list; a second refresh is a no-op
+  -- and keeps the item identity.
   runtime:rebuildAnimatedDrawItems()
   local draws = runtime.buildingDraws
   runtime:rebuildAnimatedDrawItems()
   Assert.isTrue(runtime.buildingDraws == draws, "a clean refresh keeps the cached list")
-  -- A control op marks dirty; the next refresh rebuilds.
-  runtime.animationController:play(instance, "door.open")
+  -- A control op between ticks marks nothing: the cached list stays until
+  -- the scene tick rebuilds it.
+  instance:play("door.open")
   runtime:rebuildAnimatedDrawItems()
-  Assert.isFalse(runtime.buildingDraws == draws, "a control op marks the list dirty")
-  -- A fixed tick advances the players and refreshes once.
+  Assert.isTrue(runtime.buildingDraws == draws, "a between-tick play does not refresh the list")
+  -- The scene tick advances the players and rebuilds once.
   local drawsAfterUpdate = runtime.buildingDraws
   runtime:updateAnimated()
   Assert.isFalse(runtime.buildingDraws == drawsAfterUpdate, "updateAnimated rebuilds the items")
@@ -943,11 +985,10 @@ function T.animated_variant_texture_uses_the_material_wrap()
   Assert.deepEqual(baseImage.wraps, { { "repeat", "repeat" } }, "the base texture uses the material's wrap")
 
   -- The pattern selects the variant; the variant resolves with the same wrap.
-  -- The controller play marks the scene's draw list dirty; the next refresh
-  -- (the pre-render rebuild after one update) consumes it.
-  runtime.animationController:play(instance, "pattern")
-  instance:updateFixed()
-  runtime:rebuildAnimatedDrawItems()
+  -- The pattern play attaches the clip; the next scene tick advances it and
+  -- refreshes the draw items, so the rebuild sees the switched texture.
+  instance:play("pattern")
+  runtime:updateAnimated()
   local variantImage = runtime.buildingDraws[1].material.image
   Assert.equal(variantImage.path, variantTexture, "the pattern switches to the variant texture")
   Assert.deepEqual(variantImage.wraps, { { "repeat", "repeat" } }, "the variant texture uses its material's wrap")
@@ -976,9 +1017,9 @@ function T.untextured_animated_materials_never_request_an_image()
   runtime:rebuildAnimatedDrawItems()
   Assert.isNil(runtime.buildingDraws[1].material.image)
   -- Even while a clip plays, an untextured material never resolves an image.
-  runtime.animationController:play(runtime.animatedInstances[1], "door.open")
-  runtime.animatedInstances[1]:updateFixed()
-  runtime:rebuildAnimatedDrawItems()
+  local instance = runtime.animatedInstances[1]
+  instance:play("door.open")
+  runtime:updateAnimated()
   Assert.equal(#images, 0, "playing an untextured clip never touches the image pool")
   runtime:release()
 end

@@ -17,7 +17,6 @@ local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local ModelInstance = require("libs.engine.src.ModelInstance")
 local MaterialEvaluator = require("libs.engine.src.MaterialEvaluator")
-local MapPropAnimationController = require("libs.engine.src.MapPropAnimationController")
 
 local T = {}
 
@@ -107,25 +106,19 @@ function T.new_bark_door_animates_through_the_runtime(romFs, version)
   end
   Assert.isTrue(differs, "scrubbed door pose differs from the closed pose")
 
-  -- The controller drives the pair by semantic role.
-  local controller = MapPropAnimationController.new()
-  controller:play(instance, "door.open")
+  -- The play handle drives the pair by semantic role: play returns the live
+  -- attachment, whose player reaches the terminal frame after the clip.
+  local handle = instance:play("door.open")
+  Assert.equal(type(handle), "table", "play returns the attachment handle")
   for _ = 1, 7 do
     instance:updateFixed()
   end
-  Assert.isTrue(controller:isFinished(instance, "door.open"), "door finished open")
+  Assert.isTrue(handle.player:atTerminal(), "door finished open")
 
-  -- The controller's instance view sees the playing clip with its role.
-  local entries = controller:animationsFor(instance)
-  local openEntry
-  for _, e in ipairs(entries) do
-    if e.name == "door_op" then
-      openEntry = e
-    end
-  end
-  assert(openEntry)
-  Assert.deepEqual(openEntry.roles, { "door.open" })
-  Assert.equal(openEntry.frameCount, 8)
+  -- The handle carries the playing clip with its role.
+  Assert.equal(handle.clip.name, "door_op")
+  Assert.deepEqual(handle.clip.semanticNames, { "door.open" })
+  Assert.equal(handle.clip.frameCount, 8)
 end
 
 -- Elm's Lab 1F places an interior prop with an NSBTA material animation
