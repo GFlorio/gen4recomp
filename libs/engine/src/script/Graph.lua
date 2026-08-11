@@ -1,10 +1,13 @@
 -- Internal compiled-script graph : an ordinary flat node map with resolved
 -- control edges that the runtime executes. Authoring tables are never
 -- executed directly; the compiler deep-copies them, so compiled graphs share
--- no nested tables with the authoring input, and stamps a semantic revision.
--- The graph itself is not frozen and makes no immutability guarantee. This
--- module owns the schema name, deterministic inspection output, and the
--- deterministic edge/reach traversal used by the compiler.
+-- no nested tables with the authoring input. The revision stamps the
+-- serialized graph projection, keyed by node ID: generated `src:` and author
+-- `key:` node IDs are revision input, while the node `source` payload,
+-- warnings, and non-identity metadata are excluded. The graph itself is not
+-- frozen and makes no immutability guarantee. This module owns the schema
+-- name, deterministic inspection output, and the deterministic edge/reach
+-- traversal used by the compiler.
 
 local LuaWriter = require("libs.rom.src.LuaWriter")
 

@@ -1,7 +1,12 @@
 -- Compiles a validated gen4 field-script resource into the internal graph
 -- that the runtime executes. Node IDs are either the author `key`, a
 -- generated `src:<member>:<index>:<offset>[/<op>]`, or a structural
--- `path:steps/3/no/2`; the revision hash covers normalized semantics only.
+-- `path:steps/3/no/2`. The revision hash covers the serialized graph
+-- projection, whose node map is keyed by node ID. Node IDs embed identity:
+-- generated `src:` IDs carry metadata.source member/scriptIndex and
+-- provenance offsets, `key:` IDs carry the author key. Edits to those
+-- fields change the revision for nodes of that kind; only the node `source`
+-- payload, warnings, and non-identity metadata are excluded.
 -- Load-time structural validation also lives here: label uniqueness/targets,
 -- wrapper-only `next`, local call-target resolution, and static nesting.
 -- Non-yielding recursion is not rejected at load time; the scheduler's
@@ -511,10 +516,15 @@ local function analyze(context, graph)
   end
 end
 
--- Semantic projection for the revision hash : API version,
--- operation names, operands, resolved control edges, declared params/locals.
--- Provenance (`source`), node `key`s, warnings, and script metadata are
--- excluded, so provenance-only edits never change the revision.
+-- Projection for the revision hash : API version, operation names,
+-- operands, resolved control edges, declared params/locals. The projection's
+-- node map is keyed by node ID, and node IDs embed identity: generated
+-- `src:` IDs carry metadata.source member/scriptIndex and
+-- provenance.offsets[1], `key:` IDs carry the author key. Edits to
+-- provenance offsets or metadata source identity therefore change the
+-- revision of a script with generated nodes; author key edits change it for
+-- keyed nodes. Only the node `source` payload (provenance opcodes etc.),
+-- warnings, and the non-identity metadata/coverage fields are excluded.
 ---@param graph table
 ---@return table
 local function buildProjection(graph)

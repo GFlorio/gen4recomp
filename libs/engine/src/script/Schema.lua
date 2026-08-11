@@ -562,12 +562,16 @@ Schema.OPERATIONS = {
 }
 
 -- Step-level fields shared by every operation . `key`
--- stabilizes a node's identity across non-semantic edits; `provenance` carries
--- source offsets/opcodes and drives generated `src:` node IDs (the compiler
--- maps it onto the node's `source` field). The step field is named
--- `provenance` because `copy_var` owns the `source` operand name. Both are
--- additive API 1 fields: identity and provenance, never runtime semantics,
--- and both are excluded from the graph revision hash.
+-- stabilizes a node's identity in the node map across non-semantic edits;
+-- `provenance` carries source offsets/opcodes and drives generated `src:`
+-- node IDs (the compiler maps it onto the node's `source` field). The step
+-- field is named `provenance` because `copy_var` owns the `source` operand
+-- name. Both are additive API 1 fields: identity and provenance, never
+-- runtime semantics. Both drive node IDs, and node IDs are revision inputs:
+-- the graph revision hashes a projection keyed by node ID, so author `key`
+-- edits change the revision, and provenance identity edits do too for
+-- generated `src:` nodes. Only the node `source` payload (opcodes, ...) is
+-- excluded from that hash.
 Schema.STEP_FIELDS = {
   key = { type = "string" },
   provenance = { type = "source_provenance" },

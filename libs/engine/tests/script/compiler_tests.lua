@@ -570,6 +570,60 @@ end
 
 -- --- Revision hash ---
 
+-- The revision covers the serialized projection, whose node map is keyed
+-- by node ID. Generated `src:` node IDs embed provenance-derived identity
+-- (metadata.source member/scriptIndex and provenance.offsets[1]) and `key:`
+-- node IDs embed the author key, so edits to those fields change the
+-- revision for nodes of that kind. Only the node `source` payload (opcodes
+-- etc.) and the non-identity metadata fields are excluded. The tests below
+-- pin that actual contract.
+
+-- One generated two-step script whose provenance/metadata dimensions can be
+-- varied one at a time, so each revision change is attributable to exactly
+-- the varied dimension.
+---@param overrides { source: table|nil, step1: table|nil, coverage: table|nil }|nil
+local function generatedScript(overrides)
+  overrides = overrides or {}
+  local source = {
+    repository = "pret/pokeheartgold",
+    commit = "dfdb",
+    path = "files/fielddata/script/scr_seq/scr_seq_0843_T20R0101.s",
+    game = "heartgold",
+    archive = "scr_seq",
+    member = 843,
+    scriptIndex = 9,
+    sourceHash = "h1",
+  }
+  local coverage = { complete = true, unsupportedCount = 0 }
+  local steps = {
+    { op = "play_sound", sound = "SEQ_SE_DP_SELECT", provenance = { offsets = { 0x00 }, opcodes = { 73 } } },
+    {
+      op = "say",
+      message = "msg.hgss.0543.00097",
+      provenance = { offsets = { 0x04, 0x08, 0x0C }, opcodes = { 45, 50, 53 } },
+    },
+  }
+  if overrides.source then
+    for k, v in pairs(overrides.source) do
+      source[k] = v
+    end
+  end
+  if overrides.coverage then
+    coverage = overrides.coverage
+  end
+  if overrides.step1 then
+    for k, v in pairs(overrides.step1) do
+      steps[1][k] = v
+    end
+  end
+  return S.script({
+    api = 1,
+    id = "new_bark.lab_sign",
+    metadata = { generated = true, source = source, coverage = coverage },
+    steps = steps,
+  })
+end
+
 function T.compile_is_deterministic()
   local g1 = compile(signScript())
   local g2 = compile(signScript())
@@ -578,53 +632,58 @@ function T.compile_is_deterministic()
   Assert.equal(#g1.revision, 64)
 end
 
-function T.provenance_only_edits_do_not_change_revision()
-  local function generated(meta)
+function T.metadata_source_and_coverage_edits_do_not_change_the_revision()
+  local base = compile(generatedScript())
+  local edited = compile(generatedScript({
+    source = { commit = "OTHER-COMMIT", path = "some/other/path.s", sourceHash = "h2" },
+    coverage = { complete = false, unsupportedCount = 1 },
+  }))
+  Assert.equal(base.revision, edited.revision)
+end
+
+-- Provenance offsets drive the `src:` node IDs, and the projection is keyed
+-- by node ID: moving a step's source offset changes the revision even though
+-- every semantic field is unchanged.
+function T.provenance_offset_edits_change_the_revision()
+  local base = compile(generatedScript())
+  local shifted = compile(generatedScript({ step1 = { provenance = { offsets = { 0x10 }, opcodes = { 73 } } } }))
+  Assert.isFalse(base.revision == shifted.revision, "offset edit must change the revision")
+end
+
+-- metadata.source member/scriptIndex are embedded in `src:` node IDs, so they
+-- are revision inputs like offsets, not excluded metadata.
+function T.metadata_source_identity_edits_change_the_revision()
+  local base = compile(generatedScript())
+  local member = compile(generatedScript({ source = { member = 844 } }))
+  local scriptIndex = compile(generatedScript({ source = { scriptIndex = 10 } }))
+  Assert.isFalse(base.revision == member.revision, "member edit must change the revision")
+  Assert.isFalse(base.revision == scriptIndex.revision, "scriptIndex edit must change the revision")
+end
+
+-- An author `key` becomes the node ID (`key:<key>`), so it is revision input.
+function T.author_key_edits_change_the_revision()
+  local function keyed(key)
     return S.script({
       api = 1,
-      id = "new_bark.lab_sign",
-      metadata = meta,
+      id = "x",
       steps = {
-        { op = "play_sound", sound = "SEQ_SE_DP_SELECT", provenance = { offsets = { 0x00 }, opcodes = { 73 } } },
-        {
-          op = "say",
-          message = "msg.hgss.0543.00097",
-          provenance = { offsets = { 0x04, 0x08, 0x0C }, opcodes = { 45, 50, 53 } },
-        },
+        { op = "noop", key = key },
       },
     })
   end
-  local base = generated({
-    generated = true,
-    source = {
-      repository = "pret/pokeheartgold",
-      commit = "dfdb",
-      path = "files/fielddata/script/scr_seq/scr_seq_0843_T20R0101.s",
-      game = "heartgold",
-      archive = "scr_seq",
-      member = 843,
-      scriptIndex = 9,
-      sourceHash = "h1",
-    },
-    coverage = { complete = true, unsupportedCount = 0 },
-  })
-  local edited = generated({
-    generated = true,
-    source = {
-      repository = "pret/pokeheartgold",
-      commit = "OTHER-COMMIT",
-      path = "some/other/path.s",
-      game = "heartgold",
-      archive = "scr_seq",
-      member = 843,
-      scriptIndex = 9,
-      sourceHash = "h2",
-    },
-    coverage = { complete = false, unsupportedCount = 1 },
-  })
-  local g1 = compile(base)
-  local g2 = compile(edited)
-  Assert.equal(g1.revision, g2.revision)
+  Assert.isFalse(
+    compile(keyed("first")).revision == compile(keyed("second")).revision,
+    "author key edit must change the revision"
+  )
+end
+
+-- The node `source` payload (provenance opcodes etc.) is the one provenance
+-- channel the projection excludes: edits that keep the same node IDs leave
+-- the revision untouched.
+function T.provenance_payload_edits_keep_the_revision()
+  local base = compile(generatedScript())
+  local opcodes = compile(generatedScript({ step1 = { provenance = { offsets = { 0x00 }, opcodes = { 99 } } } }))
+  Assert.equal(base.revision, opcodes.revision, "opcode-only edit must not change the revision")
 end
 
 function T.semantic_edits_change_revision()
