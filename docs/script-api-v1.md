@@ -82,6 +82,7 @@ Constructors return ordinary serializable Lua tables. Direct table form is alway
 | `S.noop(spec)` | `op=noop` | spec optional. |
 | `S.stop(spec)` | `op=stop` | Normal script completion; spec optional. |
 | `S.yieldTick(spec)` | `op=yield_tick` | Generated/advanced explicit one-tick source yield; spec optional. |
+| `S.setAuxiliaryUiVisible(spec)` | `op=set_auxiliary_ui_visible` | spec={visible=boolean}; imported HGSS visibility synchronization blocks as needed. |
 | `S.waitTicks(spec)` | `op=wait_ticks` | spec={ticks>=1,countdownVariable=nil}; first poll next tick, continuation one tick after completion; countdownVariable mirrors the countdown into an observable variable like the source engine. |
 | `S.if_(spec)` | `op=if` | spec={condition,yes={},no={}}. |
 | `S.switch(spec)` | `op=switch` | spec={value,cases,default={}}. |
@@ -925,6 +926,14 @@ No fields.
 | `provenance` | source_provenance |  |  |
 | `timingProfile` | enum:timing_profile |  | `hgss` |
 | `wait` | enum:say_wait |  | `button` |
+
+### `set_auxiliary_ui_visible`
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
+| `visible` | boolean | yes |  |
 
 ### `set_flag`
 

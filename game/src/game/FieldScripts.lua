@@ -36,6 +36,7 @@ local TASK_MODULES = {
   "libs.engine.src.script.tasks.ChildScriptTask",
   "libs.engine.src.script.tasks.AskYesNoTask",
   "libs.engine.src.script.tasks.StarterChoiceTask",
+  "libs.engine.src.script.tasks.AuxiliaryUiTask",
 }
 
 -- Build the task registry with every registered task type. `actor_pause`
@@ -159,6 +160,7 @@ end
 ---@field camera table|nil optional camera backend
 ---@field screen table|nil optional screen backend
 ---@field events table|nil optional event sink
+---@field auxiliaryUi AuxiliaryFieldUi logical auxiliary field UI state
 
 ---@class FieldScripts
 ---@field registry table
@@ -193,7 +195,10 @@ function FieldScripts.new(opts)
     opts.dialogue and opts.messageProvider and opts.layout and opts.fontDef,
     "field scripts require the dialogue stack"
   )
-  assert(opts.transition and opts.mapLoader and opts.sourceMap, "field scripts require the transition stack")
+  assert(
+    opts.transition and opts.mapLoader and opts.sourceMap and opts.auxiliaryUi,
+    "field scripts require transition and auxiliary UI"
+  )
 
   local registry = ScriptLoader.buildRegistry(opts.cacheFs, opts.overrideFs)
   local composition = Composition.new(registry)
@@ -241,6 +246,7 @@ function FieldScripts.new(opts)
 
   local scheduler
   local advanceAsync = function()
+    opts.auxiliaryUi:advance()
     dialogueHost:advance(scheduler:currentInput())
   end
   scheduler = Scheduler.new({
@@ -258,6 +264,7 @@ function FieldScripts.new(opts)
       camera = opts.camera,
       screen = opts.screen,
       events = opts.events,
+      auxiliaryUi = opts.auxiliaryUi,
       advanceAsync = advanceAsync,
     },
     taskRegistry = taskRegistry(),

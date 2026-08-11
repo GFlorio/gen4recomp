@@ -371,6 +371,30 @@ function Game:hostEffects()
   return self.hosts.effects
 end
 
+-- Start a real ROM-derived script through the production FieldScripts
+-- composition and scheduler. Acceptance uses this only for scripts without a
+-- map binding; it never supplies a synthetic graph or substitutes services.
+function Game:startScript(scriptId)
+  assert(type(scriptId) == "string", "acceptance script id required")
+  local scripts = assert(self.runtime.scripts, "field scripts unavailable")
+  local composed = assert(scripts.composition:effective(scriptId), "generated script is unavailable: " .. scriptId)
+  local instanceId = scripts.scheduler:startInteraction(
+    { kind = "acceptance", scriptId = scriptId },
+    composed,
+    assert(self.runtime.session, "field session unavailable").tick
+  )
+  assert(instanceId, "foreground script already owns the field")
+  self:_record()
+  return self:snapshot()
+end
+
+-- The runtime owns this logical status even when its presentation option is
+-- false, which is the non-rendering acceptance composition.
+function Game:auxiliaryUiStatus()
+  local auxiliary = assert(self.runtime.auxiliaryFieldUi, "field runtime does not expose auxiliary field UI")
+  return auxiliary:status()
+end
+
 function Game:failForegroundScript(scriptId)
   assert(type(scriptId) == "string", "foreground script id required")
   local runtime = self.runtime

@@ -293,6 +293,10 @@ function M.yieldTick(spec)
   return op("yield_tick", spec)
 end
 
+function M.setAuxiliaryUiVisible(spec)
+  return op("set_auxiliary_ui_visible", spec)
+end
+
 function M.waitTicks(spec)
   return op("wait_ticks", spec)
 end

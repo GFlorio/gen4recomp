@@ -17,10 +17,14 @@ local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
 local Scheduler = require("libs.engine.src.script.Scheduler")
 local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
 local ChildScriptTask = require("libs.engine.src.script.tasks.ChildScriptTask")
+local AuxiliaryUiTask = require("libs.engine.src.script.tasks.AuxiliaryUiTask")
+local AuxiliaryFieldUi = require("libs.engine.src.AuxiliaryFieldUi")
 local FakeServices = require("tests.support.script.FakeServices")
 local Diagnostics = require("libs.engine.src.script.Diagnostics")
 
 local T = {}
+local script
+local startForeground
 
 ---@class SchedulerHarness
 ---@field services FakeServices
@@ -40,6 +44,7 @@ local function harness(opts)
   local taskRegistry = TaskRegistry.new()
   taskRegistry:register("wait_ticks", 1, WaitTicksTask)
   taskRegistry:register("child_script", 1, ChildScriptTask)
+  taskRegistry:register("auxiliary_ui", 1, AuxiliaryUiTask)
   local recorder = Diagnostics.newTraceRecorder()
   local scheduler = Scheduler.new({
     services = services,
@@ -61,10 +66,76 @@ local function harness(opts)
   }
 end
 
+-- TouchscreenMenuHide blocks only while the logical UI transitions. The
+-- completed poll remains an asynchronous script boundary until the next tick.
+T["auxiliary UI hide waits only for a required transition"] = function()
+  local h = harness()
+  h.services.auxiliaryUi = AuxiliaryFieldUi.new()
+  h.services.advanceAsync = function()
+    h.services.auxiliaryUi:advance()
+  end
+  startForeground(
+    h,
+    script("test.auxiliary_hide", {
+      S.setAuxiliaryUiVisible({ visible = false }),
+      S.setVar({ variable = "VAR_AFTER", value = 1 }),
+      S.stop(),
+    }),
+    100
+  )
+
+  h.scheduler:step(100, nil)
+  Assert.deepEqual(h.services.auxiliaryUi:status(), { requested = "hidden", state = "hiding" })
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+  h.scheduler:step(101, nil)
+  Assert.deepEqual(h.services.auxiliaryUi:status(), { requested = "hidden", state = "hidden" })
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+  h.scheduler:step(102, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+
+  startForeground(
+    h,
+    script("test.auxiliary_hide_again", {
+      S.setAuxiliaryUiVisible({ visible = false }),
+      S.setVar({ variable = "VAR_IMMEDIATE", value = 1 }),
+      S.stop(),
+    }),
+    103
+  )
+  h.scheduler:step(103, nil)
+  Assert.equal(h.services.world:getVar("VAR_IMMEDIATE"), 1)
+end
+
+-- TouchscreenMenuShow keeps its waiter even when the logical UI begins shown.
+T["auxiliary UI show always creates an asynchronous boundary"] = function()
+  local h = harness()
+  h.services.auxiliaryUi = AuxiliaryFieldUi.new()
+  h.services.advanceAsync = function()
+    h.services.auxiliaryUi:advance()
+  end
+  startForeground(
+    h,
+    script("test.auxiliary_show", {
+      S.setAuxiliaryUiVisible({ visible = true }),
+      S.setVar({ variable = "VAR_AFTER", value = 1 }),
+      S.stop(),
+    }),
+    100
+  )
+
+  h.scheduler:step(100, nil)
+  Assert.deepEqual(h.services.auxiliaryUi:status(), { requested = "shown", state = "showing" })
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+  h.scheduler:step(101, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+  h.scheduler:step(102, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+end
+
 ---@param id string
 ---@param stepsOrSpec table[]|table steps array, or a full script spec (api added)
 ---@return table
-local function script(id, stepsOrSpec)
+script = function(id, stepsOrSpec)
   if type(stepsOrSpec) == "table" and stepsOrSpec.steps ~= nil then
     stepsOrSpec = stepsOrSpec
     stepsOrSpec.api = 1
@@ -81,7 +152,7 @@ end
 ---@param tick integer
 ---@param trigger table|nil
 ---@return string
-local function startForeground(h, resource, tick, trigger)
+startForeground = function(h, resource, tick, trigger)
   if h.registry:base(resource.id) == nil then
     h.registry:installBase(resource.id, resource, "generated")
   end

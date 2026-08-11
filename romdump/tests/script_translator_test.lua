@@ -317,9 +317,10 @@ T["emitted steps keep provenance"] = function()
   end
 end
 
--- 11. Catalogued-but-unimplemented field-menu commands must remain explicit
--- unsupported nodes and retain every raw operand for later semantic work.
-T["field menu unsupported nodes retain operands"] = function()
+-- 11. Touchscreen visibility commands lower to their own semantic operations.
+-- The later menu-builder commands remain explicit unsupported nodes and retain
+-- every raw operand for their later deliverables.
+T["field menu visibility commands lower while later commands retain operands"] = function()
   local bytes = ScriptFixture.member({
     scripts = {
       {
@@ -364,10 +365,12 @@ T["field menu unsupported nodes retain operands"] = function()
   })
   local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 5, "synthetic", { msgBank = 543, catalog = CATALOG }))
   local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
-  Assert.equal(#lowered.unsupported, 7)
+  Assert.equal(lowered.items[1].op, "set_auxiliary_ui_visible")
+  Assert.isFalse(lowered.items[1].visible)
+  Assert.equal(lowered.items[2].op, "set_auxiliary_ui_visible")
+  Assert.isTrue(lowered.items[2].visible)
+  Assert.equal(#lowered.unsupported, 5)
   local expectedArguments = {
-    {},
-    {},
     { "VAR_0x4001" },
     { 17, 5, 2, 1, "VAR_0x4002" },
     { 9, 8, 7, 0, "VAR_0x4003" },
@@ -376,7 +379,7 @@ T["field menu unsupported nodes retain operands"] = function()
   }
   for index, arguments in ipairs(expectedArguments) do
     local step = lowered.unsupported[index]
-    Assert.equal(step.command, 745 + index)
+    Assert.equal(step.command, 747 + index)
     Assert.deepEqual(step.arguments, arguments)
   end
 end

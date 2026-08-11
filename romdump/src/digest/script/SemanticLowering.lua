@@ -664,6 +664,12 @@ local HANDLERS = {
   [581] = function(ins)
     return { op = "lock_actor", actor = { ref = "actor", special = "last_talked" }, waitUntilPausable = true }
   end,
+  [746] = function()
+    return { op = "set_auxiliary_ui_visible", visible = false }
+  end,
+  [747] = function()
+    return { op = "set_auxiliary_ui_visible", visible = true }
+  end,
 }
 
 -- Fold a compare/flag instruction with a following GoToIf/CallIf into one

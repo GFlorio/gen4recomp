@@ -209,6 +209,11 @@ Schema.OPERATIONS = {
   noop = { fields = {} },
   stop = { fields = {} },
   yield_tick = { fields = {} },
+  set_auxiliary_ui_visible = {
+    fields = {
+      visible = { type = "boolean", required = true },
+    },
+  },
   wait_ticks = {
     fields = {
       ticks = { type = "integer", required = true },
@@ -704,6 +709,11 @@ Schema.CONSTRUCTORS = {
         signature = "S.yieldTick(spec)",
         canonical = "op=yield_tick",
         notes = "Generated/advanced explicit one-tick source yield; spec optional.",
+      },
+      {
+        signature = "S.setAuxiliaryUiVisible(spec)",
+        canonical = "op=set_auxiliary_ui_visible",
+        notes = "spec={visible=boolean}; imported HGSS visibility synchronization blocks as needed.",
       },
       {
         signature = "S.waitTicks(spec)",

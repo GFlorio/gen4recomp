@@ -460,6 +460,22 @@ HANDLERS.yield_tick = function(node, run)
   return Runtime.OUTCOME_YIELD_TICK
 end
 
+HANDLERS.set_auxiliary_ui_visible = function(node, run)
+  requireForeground(run, "set_auxiliary_ui_visible")
+  local auxiliary = run.services.auxiliaryUi
+  if auxiliary == nil then
+    Errors.raise(
+      ScriptErrors.SCRIPT_SERVICE_MISSING,
+      "auxiliaryUi service is unavailable",
+      { scriptId = run.instance.scriptId }
+    )
+  end
+  if not node.visible and auxiliary:status().state == "hidden" then
+    return Runtime.OUTCOME_CONTINUE
+  end
+  return blockOnTask(run, "auxiliary_ui", { node = node })
+end
+
 HANDLERS["if"] = function(node, run)
   local frame = run.instance:topFrame()
   if Runtime.evaluateCondition(node.condition, run) then
