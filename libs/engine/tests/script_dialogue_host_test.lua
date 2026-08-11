@@ -33,6 +33,29 @@ local function bankArtifact(bankId)
   }
 end
 
+-- A message fixture carrying the same substitution control at two distinct
+-- slots: each occurrence must resolve from its own slot.
+local function twoSlotBankArtifact(bankId)
+  return {
+    schema = FieldMessageCache.SCHEMA,
+    bankId = bankId,
+    messageCount = 1,
+    source = { narc = "NARC_msgdata_msg", memberId = bankId, memberSha1 = "synthetic" },
+    messages = {
+      [0] = {
+        id = 0,
+        raw = {},
+        text = "a {STRVAR_1 0, 0, 0} b {STRVAR_1 1, 0, 0}",
+        tokens = {
+          { kind = "substitution", control = 0x0100, args = { 0, 0 }, raw = {} },
+          { kind = "substitution", control = 0x0100, args = { 1, 0 }, raw = {} },
+          { kind = "eos", raw = {} },
+        },
+      },
+    },
+  }
+end
+
 local function cacheWith(banks)
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   for bankId, artifact in pairs(banks) do
@@ -43,7 +66,7 @@ end
 
 local function host(opts)
   opts = opts or {}
-  local provider = assert(FieldMessageProvider.new(cacheWith({ [542] = bankArtifact(542) })))
+  local provider = opts.provider or assert(FieldMessageProvider.new(cacheWith({ [542] = bankArtifact(542) })))
   local controller = {
     open = function(self, request)
       self.request = request
@@ -140,6 +163,39 @@ function T.close_and_bank_errors_are_attributed()
   end)
   Assert.isTrue(Errors.is(bankErr))
   Assert.equal(bankErr.code, "MESSAGE_BANK_MISSING")
+end
+
+-- The same substitution control at two distinct slots resolves each
+-- occurrence from its own slot: the resolver must read the slot from the
+-- token's own args, never from the first occurrence.
+function T.same_control_at_two_slots_resolves_each_from_its_own_slot()
+  local world = {
+    getVar = function(_, id)
+      assert(id == "VAR_A" or id == "VAR_B")
+      return id == "VAR_A" and 1 or 2
+    end,
+  }
+  local provider = assert(FieldMessageProvider.new(cacheWith({ [543] = twoSlotBankArtifact(543) })))
+  local h = host({ world = world, provider = provider })
+  local formatted = h:resolveMessage("msg.hgss.0543.00000", {
+    [0] = { text = "integer", value = { value = "var", id = "VAR_A" } },
+    [1] = { text = "integer", value = { value = "var", id = "VAR_B" } },
+  }, {})
+  Assert.equal(formatted.text, "12", "each occurrence resolves from its own slot")
+  Assert.isFalse(formatted.hadUnresolvedSubstitutions)
+end
+
+-- A message with an unresolvable substitution fails explicitly instead of
+-- reaching the UI partially formatted.
+function T.unresolved_substitution_fails_explicitly()
+  local h = host({})
+  local err = Assert.throws(function()
+    h:resolveMessage("msg.hgss.0542.00000", {}, {})
+  end)
+  Assert.isTrue(Errors.is(err))
+  Assert.equal(err.code, "SCRIPT_INVALID_REFERENCE")
+  Assert.equal(err.context.bankId, 542)
+  Assert.equal(err.context.messageId, 0)
 end
 
 return T

@@ -126,18 +126,18 @@ function ScriptDialogueHost:resolveMessage(message, bindings, textArgs)
     local err = templateErr --[[@as Errors.Error]]
     Errors.raise(err.code, err.message, { bankId = bankId, messageId = messageId, cause = err.context })
   end
-  -- One resolver per substitution control; the buffer slot is the marker's
-  -- first argument. The node's own bindings win over instance textArgs.
+  -- One resolver per substitution control; the buffer slot is each marker's
+  -- own first argument, so a control occurring at several slots resolves
+  -- every occurrence from its own slot. The node's own bindings win over
+  -- instance textArgs.
   local resolvers = {}
   local templateTokens = template --[[@as table]].tokens
   for _, token in ipairs(templateTokens) do
-    if token.kind == "substitution" and token.args ~= nil then
-      local slot = token.args[1]
-      if slot ~= nil and resolvers[token.control] == nil then
-        resolvers[token.control] = function(control, args, context)
-          local descriptor = bindings[slot] or textArgs[slot]
-          return resolveTextValue(descriptor, self._player, self._fontDef, self._world)
-        end
+    if token.kind == "substitution" and token.args ~= nil and resolvers[token.control] == nil then
+      resolvers[token.control] = function(control, args, context)
+        local slot = args and args[1]
+        local descriptor = bindings[slot] or textArgs[slot]
+        return resolveTextValue(descriptor, self._player, self._fontDef, self._world)
       end
     end
   end
@@ -145,6 +145,13 @@ function ScriptDialogueHost:resolveMessage(message, bindings, textArgs)
   self._provider:releaseBank(bankId)
   if not okFormat then
     error(formatted)
+  end
+  if formatted.hadUnresolvedSubstitutions then
+    Errors.raise(
+      ScriptErrors.SCRIPT_INVALID_REFERENCE,
+      "message " .. message .. " has unresolvable substitutions",
+      { bankId = bankId, messageId = messageId }
+    )
   end
   return formatted
 end
