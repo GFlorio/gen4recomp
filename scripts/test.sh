@@ -8,8 +8,9 @@
 #
 # Arguments are parsed by tests/runner/Cli.lua; this script only decides where
 # the save root lives and whether to prepare the derived cache first. With a
-# ready dump the incremental cache builder runs before the ROM-gated layers and
-# a build failure fails the run; with no dump those layers skip loudly.
+# ready dump the published derived cache is checked before the ROM-gated layers. The
+# incremental builder runs only when that audit finds no usable cache; with no
+# dump those layers skip loudly.
 # G4RECOMP_REQUIRE_ROM_TESTS=1 makes a missing dump fatal.
 # Exit status: 0 green, 1 failures or a missing required capability, 2 usage.
 set -euo pipefail
@@ -32,6 +33,7 @@ export G4RECOMP_REQUIRE_GRAPHICS_TESTS="${G4RECOMP_REQUIRE_GRAPHICS_TESTS:-1}"
 # nothing to prepare; any other nonzero status is a real preparation failure.
 NO_DUMP_STATUS=2
 BUILD_LOG=.agents/tmp/buildcache.log
+CACHE_AUDIT_LOG=.agents/tmp/cache-audit.log
 
 # Preparation exists for the ROM-gated layers: listing executes nothing, and the
 # three ROM-independent layers never read the derived cache. A supplied source is
@@ -76,14 +78,23 @@ if [ "$prepare" -eq 1 ]; then
     love romdump/ --build-cache "$rom_source"
   else
     mkdir -p "$(dirname "$BUILD_LOG")"
-    echo "== prepare derived cache (log: $BUILD_LOG) =="
-    love romdump/ --build-cache >"$BUILD_LOG" 2>&1 || status=$?
-    if [ "$status" -ne 0 ] && [ "$status" -ne "$NO_DUMP_STATUS" ]; then
-      tail -n 20 "$BUILD_LOG" >&2
-      echo "test: derived-cache preparation failed (exit $status); see $BUILD_LOG" >&2
-      exit "$status"
+    # LÖVE's CLI host may return zero after `love.event.quit(1)`, so its process
+    # status cannot be the audit contract. Reuse only an explicit all-pass report.
+    : >"$CACHE_AUDIT_LOG"
+    love romdump/ --check-derived-cache >"$CACHE_AUDIT_LOG" 2>&1 || true
+    if grep -Eq '^derived cache: [^[:space:]]+ -> PASS$' "$CACHE_AUDIT_LOG" \
+      && ! grep -Eq '^derived cache: .* -> FAIL$' "$CACHE_AUDIT_LOG"; then
+      echo "== reuse audited derived cache =="
+    else
+      echo "== prepare derived cache (log: $BUILD_LOG) =="
+      love romdump/ --build-cache >"$BUILD_LOG" 2>&1 || status=$?
+      if [ "$status" -ne 0 ] && [ "$status" -ne "$NO_DUMP_STATUS" ]; then
+        tail -n 20 "$BUILD_LOG" >&2
+        echo "test: derived-cache preparation failed (exit $status); see $BUILD_LOG" >&2
+        exit "$status"
+      fi
+      { grep -v ' current$' "$BUILD_LOG" | tail -n 5; } || true
     fi
-    { grep -v ' current$' "$BUILD_LOG" | tail -n 5; } || true
   fi
 
   if [ "$status" -eq 0 ]; then

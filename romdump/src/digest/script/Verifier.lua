@@ -53,6 +53,8 @@ local BLOCKING_OPS = {
   wait_fanfare = true,
   wait_fade = true,
   ask_yes_no = true,
+  context_choice = true,
+  menu_exec = true,
   warp = true,
   call_common = true,
 }
@@ -62,6 +64,7 @@ local YIELD_OPS = {
   yield_tick = true,
   lock_all = true,
   release_all = true,
+  menu_begin = true,
   stop = true,
 }
 

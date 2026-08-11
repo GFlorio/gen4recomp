@@ -44,8 +44,8 @@ end
 -- graph shape changes, so stale caches are always regenerated. v4: canonical
 -- raw-table emission, retained region-terminal gotos, and the multi-step
 -- MovePersonFacing lowering. v5: message ops no longer emit the ignored
--- `style` field.
-ScriptCompiler.COMPILER_VERSION = "script-compiler-v5"
+-- `style` field. v6: field menu opcodes lower to executable semantic nodes.
+ScriptCompiler.COMPILER_VERSION = "script-compiler-v6"
 
 -- The public resource id for one script index : the
 -- curated ids live in the data manifest; standard-script members resolve

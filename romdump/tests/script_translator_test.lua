@@ -12,9 +12,17 @@ local LuaEmitter = require("romdump.src.digest.script.LuaEmitter")
 local Verifier = require("romdump.src.digest.script.Verifier")
 local Coverage = require("romdump.src.digest.script.Coverage")
 local SourceCatalog = require("romdump.src.digest.script.SourceCatalog")
+local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
 local S = require("gen4.script")
 
 local T = {}
+
+-- Semantic lowering is part of the generated script artifact. Its menu
+-- lowering must invalidate an earlier cache rather than reusing its stale
+-- coverage and resources.
+T["menu lowering invalidates prior script cache"] = function()
+  Assert.equal(ScriptCompiler.COMPILER_VERSION, "script-compiler-v6")
+end
 
 local CATALOG = {
   sounds = { [1500] = "SEQ_SE_DP_SELECT" },
@@ -401,6 +409,57 @@ T["field menu commands lower with exact semantics"] = function()
     op = "menu_exec",
     provenance = { offsets = { 64 }, opcodes = { 752 } },
   })
+end
+
+-- The corpus verifier must recognize every supported field-menu lowering as
+-- an intentional semantic operation rather than treating it as an uncovered
+-- source instruction.
+T["field menu operations verify as supported"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          { op = 746, args = {} },
+          { op = 747, args = {} },
+          { op = 748, args = { { value = 0x4001, width = 2 } } },
+          {
+            op = 749,
+            args = {
+              { value = 17, width = 1 },
+              { value = 5, width = 1 },
+              { value = 2, width = 1 },
+              { value = 1, width = 1 },
+              { value = 0x4002, width = 2 },
+            },
+          },
+          {
+            op = 750,
+            args = {
+              { value = 9, width = 1 },
+              { value = 8, width = 1 },
+              { value = 7, width = 1 },
+              { value = 0, width = 1 },
+              { value = 0x4003, width = 2 },
+            },
+          },
+          {
+            op = 751,
+            args = { { value = 0x4004, width = 2 }, { value = 0x00FF, width = 2 }, { value = 0x8005, width = 2 } },
+          },
+          { op = 752, args = {} },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local _, _, report = translate(bytes, 5, 0)
+
+  Assert.isTrue(
+    report.ok,
+    report.problems[1] and report.problems[1].message or "field-menu operations are verifier-supported"
+  )
+  Assert.equal(report.unsupportedCount, 0)
 end
 
 return T

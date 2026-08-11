@@ -9,10 +9,15 @@ function T.defaults_are_all_off()
   Assert.isNil(o.importRom)
   Assert.isFalse(o.importOnly)
   Assert.isFalse(o.checkDump)
+  Assert.isFalse(o.checkDerivedCache)
   Assert.isFalse(o.buildCache)
   Assert.isFalse(o.forceDump)
   Assert.isFalse(o.allowCompileExclusions)
   Assert.isFalse(o.inspectActors)
+end
+
+function T.parses_check_derived_cache()
+  Assert.isTrue(Cli.parse({ "--check-derived-cache" }).checkDerivedCache)
 end
 
 function T.parses_inspect_actors()

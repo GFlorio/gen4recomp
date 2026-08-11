@@ -13,6 +13,7 @@ function Cli.parse(argv)
     importRom = nil,
     importOnly = false,
     checkDump = false,
+    checkDerivedCache = false,
     inspect = false,
     inspectSbc = false,
     inspectActors = false,
@@ -35,6 +36,8 @@ function Cli.parse(argv)
       opts.importOnly = true
     elseif a == "--check-dump" then
       opts.checkDump = true
+    elseif a == "--check-derived-cache" then
+      opts.checkDerivedCache = true
     elseif a == "--inspect" then
       opts.inspect = true
     elseif a == "--inspect-sbc" then

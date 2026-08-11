@@ -76,6 +76,9 @@ function Runner.load(opts)
   if Runner.opts.checkDump then
     return Runner._runCheckDump()
   end
+  if Runner.opts.checkDerivedCache then
+    return Runner._runCheckDerivedCache()
+  end
   if Runner.opts.inspect then
     return Runner._runInspect()
   end
@@ -95,11 +98,34 @@ function Runner.load(opts)
     return Runner._startImport(Runner.opts.importRom)
   end
   print(
-    "romdump: no command given (expected --import-rom, --check-dump, "
+    "romdump: no command given (expected --import-rom, --check-dump, --check-derived-cache, "
       .. "--analyze-maps, --inspect, --inspect-sbc, "
       .. "--inspect-actors, --build-cache, or --gen-script-overrides)"
   )
   love.event.quit(2)
+end
+
+-- Check that the current published derived artifacts can be used by the test
+-- runner without recompiling. This intentionally does not recalculate source
+-- dependency hashes; an explicit cache build owns freshness.
+function Runner._runCheckDerivedCache()
+  local DerivedCacheAudit = require("romdump.src.DerivedCacheAudit")
+  local CacheFs = require("libs.rom.src.CacheFs")
+  local targets = readyVersions()
+  if #targets == 0 then
+    print("check-derived-cache: no ready dump")
+    return love.event.quit(1)
+  end
+  local allOk = true
+  for _, version in ipairs(targets) do
+    local ok, reason = DerivedCacheAudit.isAvailable(CacheFs.forVersion(version))
+    print("derived cache: " .. version .. " -> " .. (ok and "PASS" or "FAIL"))
+    if not ok then
+      allOk = false
+      print("  " .. reason)
+    end
+  end
+  love.event.quit(allOk and 0 or 1)
 end
 
 -- Regenerate the checked-in script overrides for the New Bark slice
