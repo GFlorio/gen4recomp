@@ -220,7 +220,6 @@ function FieldRuntime:_load()
     end
     self.runtimeMap = restored and restored.runtimeMap or self.mapLoader:load(self.idOrSymbol)
     self.mapLoader:protectMap(self.runtimeMap.mapId, true)
-    self.runtime = self.runtimeMap.sceneRuntime
 
     -- The provisional spawn manifest is flat: each entry is itself the spawn
     -- record (x, z, facing). Unmapped maps keep the historic default so any
@@ -251,7 +250,6 @@ function FieldRuntime:_load()
       facing = facing,
       occupancy = playerOccupancy(self),
     })
-    self.actor = self.player
     self.input = FieldInput.new()
     self.heldDirectionKeys = {}
     local worldPoint = self.player:renderPosition()
@@ -429,7 +427,6 @@ function FieldRuntime:_load()
     self.session = FieldSession.new({
       versionId = self.versionId,
       currentMap = self.runtimeMap,
-      actor = self.actor,
       player = self.player,
       camera = self.camera,
       transition = self.transition,
@@ -548,8 +545,8 @@ function FieldRuntime:_reset()
     return
   end
   self:_release()
-  self.session, self.transition, self.camera, self.player, self.actor = nil, nil, nil, nil, nil
-  self.runtimeMap, self.runtime, self.viewport, self.saveStore = nil, nil, nil, nil
+  self.session, self.transition, self.camera, self.player = nil, nil, nil, nil
+  self.runtimeMap, self.viewport, self.saveStore = nil, nil, nil
   self.resumeSave = false
   self.errorText = nil
   self.saveStatus = "Field session reset"
@@ -584,9 +581,7 @@ function FieldRuntime:_swapMap(resolution, facing)
   end
 
   self.runtimeMap = runtimeMap
-  self.runtime = runtimeMap.sceneRuntime
   self.player = player
-  self.actor = player
   self.playerVisual = FieldPlayerVisual.new({
     player = player,
     spriteId = self.avatar.spriteId,
@@ -597,7 +592,6 @@ function FieldRuntime:_swapMap(resolution, facing)
   self.envelope = terrainEnvelope(runtimeMap.terrain)
   self.session.currentMap = runtimeMap
   self.session.player = player
-  self.session.actor = player
   self.session.camera = camera
   if self.scripts then
     self.scripts:onMapSwap(player, runtimeMap)

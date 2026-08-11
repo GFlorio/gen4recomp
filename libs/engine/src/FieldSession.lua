@@ -24,8 +24,7 @@ local WarpSystem = require("libs.engine.src.WarpSystem")
 ---@class FieldSessionOptions
 ---@field versionId string
 ---@field currentMap RuntimeFieldMap
----@field actor FieldPlayer
----@field player FieldPlayer?
+---@field player FieldPlayer
 ---@field camera FieldCamera
 ---@field transition FieldTransition?
 ---@field actors FieldActorManager?
@@ -44,7 +43,6 @@ local WarpSystem = require("libs.engine.src.WarpSystem")
 ---@class FieldSession
 ---@field versionId string
 ---@field currentMap RuntimeFieldMap
----@field actor FieldPlayer
 ---@field player FieldPlayer
 ---@field camera FieldCamera
 ---@field transition FieldTransition?
@@ -72,12 +70,11 @@ local ACCUMULATOR_EPSILON = 1e-12
 ---@return FieldSession
 function FieldSession.new(options)
   assert(options and options.versionId and options.currentMap, "field session identity required")
-  assert(options.actor and options.camera, "field session actor and camera required")
+  assert(options.player and options.camera, "field session player and camera required")
   return setmetatable({
     versionId = options.versionId,
     currentMap = options.currentMap,
-    actor = options.actor,
-    player = options.player or options.actor,
+    player = options.player,
     camera = options.camera,
     transition = options.transition,
     actors = options.actors,
@@ -94,7 +91,7 @@ function FieldSession.new(options)
 end
 
 function FieldSession:actorTarget()
-  return { x = self.actor.worldX, y = self.actor.worldY, z = self.actor.worldZ }
+  return { x = self.player.worldX, y = self.player.worldY, z = self.player.worldZ }
 end
 
 function FieldSession:_advanceTick()

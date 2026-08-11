@@ -1,5 +1,5 @@
 -- Fixed-step session tests prove deterministic tick counts, catch-up capping,
--- and that the camera consumes the placeholder actor's continuous 3D target.
+-- and that the camera consumes the player's continuous 3D target.
 
 local Assert = require("tests.support.Assert")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
@@ -18,9 +18,33 @@ local function session()
       targets[#targets + 1] = { x = target.x, y = target.y, z = target.z }
     end,
   }
-  local actor = { worldX = 1.25, worldY = 2.5, worldZ = 3.75 }
+  local player = { worldX = 1.25, worldY = 2.5, worldZ = 3.75 }
   local map = { mapId = 61 }
-  return FieldSession.new({ versionId = "heartgold", currentMap = map, actor = actor, camera = camera }), targets
+  return FieldSession.new({ versionId = "heartgold", currentMap = map, player = player, camera = camera }), targets
+end
+
+function T.actor_only_construction_is_rejected()
+  local actor = { worldX = 1.25, worldY = 2.5, worldZ = 3.75 }
+  local camera = { updateFixed = function() end }
+  -- Intentional: the obsolete actor-only options shape must be rejected by the
+  -- constructor's required-player contract.
+  local options = {
+    versionId = "heartgold",
+    currentMap = { mapId = 61 },
+    actor = actor,
+    camera = camera,
+  } --[[@as any]]
+  local ok, err = pcall(FieldSession.new, options)
+  Assert.isFalse(ok, "a session must require the player, not fall back to an actor option: " .. tostring(err))
+end
+
+function T.player_is_used_as_the_session_player()
+  local player = { worldX = 1.25, worldY = 2.5, worldZ = 3.75 }
+  local camera = { updateFixed = function() end }
+  local map = { mapId = 61 }
+  local s = FieldSession.new({ versionId = "heartgold", currentMap = map, player = player, camera = camera })
+  Assert.equal(s.player, player)
+  Assert.deepEqual(s:actorTarget(), { x = 1.25, y = 2.5, z = 3.75 })
 end
 
 function T.fixed_ticks_are_render_cadence_independent()
@@ -42,7 +66,7 @@ function T.excess_backlog_is_discarded_after_max_catch_up()
   Assert.equal(s.tick, 6)
 end
 
-function T.camera_follows_the_actor_xyz_each_fixed_tick()
+function T.camera_follows_the_player_xyz_each_fixed_tick()
   local s, targets = session()
   s:update(1 / 30)
   Assert.deepEqual(targets[1], { x = 1.25, y = 2.5, z = 3.75 })
@@ -50,7 +74,7 @@ end
 
 function T.completed_transition_holds_the_arrival_tile_for_autosave()
   local updates = 0
-  local actor = {
+  local player = {
     fieldX = 4,
     fieldZ = 14,
     worldX = 0,
@@ -76,14 +100,13 @@ function T.completed_transition_holds_the_arrival_tile_for_autosave()
   local s = FieldSession.new({
     versionId = "heartgold",
     currentMap = map,
-    actor = actor,
-    player = actor,
+    player = player,
     camera = camera,
     transition = transition,
   })
   s:updateFixed({ heldDirection = "south" })
   Assert.equal(updates, 0)
-  Assert.equal(actor.fieldZ, 14)
+  Assert.equal(player.fieldZ, 14)
   Assert.notNil(transition.completed)
 end
 
@@ -112,7 +135,6 @@ function T.script_completion_consumes_its_final_action_edge()
   local s = FieldSession.new({
     versionId = "heartgold",
     currentMap = map,
-    actor = player,
     player = player,
     camera = camera,
     scriptScheduler = scheduler,
@@ -129,7 +151,7 @@ function T.the_player_pose_clock_advances_once_per_tick_and_freezes_under_a_tran
       steps = steps + 1
     end,
   }
-  local actor = {
+  local player = {
     fieldX = 0,
     fieldZ = 0,
     worldX = 0,
@@ -148,8 +170,7 @@ function T.the_player_pose_clock_advances_once_per_tick_and_freezes_under_a_tran
   local s = FieldSession.new({
     versionId = "heartgold",
     currentMap = map,
-    actor = actor,
-    player = actor,
+    player = player,
     camera = camera,
     transition = transition,
     playerVisual = playerVisual,
@@ -188,7 +209,7 @@ local function warpSession(options)
       end,
     },
   }
-  local actor = {
+  local player = {
     fieldX = options.fieldX,
     fieldZ = options.fieldZ,
     worldX = 0,
@@ -198,7 +219,7 @@ local function warpSession(options)
     facing = "south",
     motion = "idle",
   }
-  function actor:updateFixed()
+  function player:updateFixed()
     if options.commit then
       self.fieldX, self.fieldZ = options.warpX, options.warpZ
       options.commit = false
@@ -210,8 +231,7 @@ local function warpSession(options)
   local session = FieldSession.new({
     versionId = "heartgold",
     currentMap = map,
-    actor = actor,
-    player = actor,
+    player = player,
     camera = camera,
     transition = transition,
   })
@@ -292,7 +312,6 @@ function T.actor_on_a_blocked_warp_cell_does_not_block_the_facing_warp()
   local session = FieldSession.new({
     versionId = "heartgold",
     currentMap = map,
-    actor = player,
     player = player,
     camera = camera,
     transition = transition,
@@ -363,7 +382,6 @@ function T.actor_on_an_open_warp_cell_blocks_the_walk_but_not_the_route()
   local session = FieldSession.new({
     versionId = "heartgold",
     currentMap = map,
-    actor = player,
     player = player,
     camera = camera,
     transition = transition,
@@ -420,7 +438,7 @@ local function dialogueSession(opts)
       received = snapshot
     end,
   }
-  local actor = {
+  local player = {
     fieldX = 4,
     fieldZ = 13,
     worldX = 0,
@@ -454,8 +472,7 @@ local function dialogueSession(opts)
   local session = FieldSession.new({
     versionId = "heartgold",
     currentMap = map,
-    actor = actor,
-    player = actor,
+    player = player,
     camera = camera,
     transition = transition,
     actors = actors,
@@ -503,7 +520,7 @@ end
 function T.transition_commit_clears_stale_action_edges()
   local input = FieldInput.new()
   input:pressAction("key:space")
-  local actor = {
+  local player = {
     fieldX = 4,
     fieldZ = 14,
     worldX = 0,
@@ -529,8 +546,7 @@ function T.transition_commit_clears_stale_action_edges()
   local session = FieldSession.new({
     versionId = "heartgold",
     currentMap = map,
-    actor = actor,
-    player = actor,
+    player = player,
     camera = camera,
     transition = transition,
     input = input,
@@ -560,7 +576,7 @@ local function interactionSession(opts)
     end,
   }
   local steps = 0
-  local actor = {
+  local player = {
     fieldX = 4,
     fieldZ = 14,
     worldX = 0,
@@ -581,49 +597,48 @@ local function interactionSession(opts)
   local session = FieldSession.new({
     versionId = "heartgold",
     currentMap = map,
-    actor = actor,
-    player = actor,
+    player = player,
     camera = camera,
     transition = transition,
     actors = actors,
     interactions = interactions,
   })
-  return session, actor, interactions, function()
+  return session, player, interactions, function()
     return steps
   end
 end
 
 function T.consumed_interaction_owns_the_tick()
-  local session, actor, interactions, steps = interactionSession({
+  local session, player, interactions, steps = interactionSession({
     intent = { kind = "object", object = { actorId = "map:61:object:0" } },
   })
   session:updateFixed({ actionPressed = true, heldDirection = "north" })
   assert(interactions.resolveSnapshot, "the resolver must have been consulted")
   assert(interactions.consumedIntent, "the resolved intent must be dispatched")
   Assert.equal(steps(), 0, "a consumed interaction blocks movement on the same tick")
-  Assert.equal(actor.facing, "north", "the held direction did not start a step")
+  Assert.equal(player.facing, "north", "the held direction did not start a step")
   Assert.equal(session.tick, 1)
 end
 
 function T.unresolved_interaction_falls_through_to_movement()
-  local session, actor, interactions, steps = interactionSession()
+  local session, player, interactions, steps = interactionSession()
   session:updateFixed({ actionPressed = true, heldDirection = "north" })
   Assert.equal(steps(), 1, "a nil intent leaves the tick to movement")
-  Assert.equal(actor.facing, "north")
+  Assert.equal(player.facing, "north")
 end
 
 function T.unconsumed_interaction_does_not_own_the_tick()
-  local session, actor, interactions, steps = interactionSession({
+  local session, player, interactions, steps = interactionSession({
     intent = { kind = "background" },
     consumed = false,
   })
   session:updateFixed({ actionPressed = true, heldDirection = "north" })
   Assert.equal(steps(), 1, "a rejected intent does not block movement")
-  Assert.equal(actor.facing, "north")
+  Assert.equal(player.facing, "north")
 end
 
 function T.interaction_resolve_snapshot_carries_the_player_state()
-  local session, actor, interactions = interactionSession({
+  local session, player, interactions = interactionSession({
     intent = { kind = "object", object = { actorId = "map:61:object:0" } },
   })
   session:updateFixed({ actionPressed = true })
@@ -637,16 +652,16 @@ function T.interaction_resolve_snapshot_carries_the_player_state()
 end
 
 function T.interaction_never_resolves_while_walking()
-  local session, actor, interactions = interactionSession({
+  local session, player, interactions = interactionSession({
     intent = { kind = "object", object = { actorId = "map:61:object:0" } },
   })
-  actor.motion = "walking"
+  player.motion = "walking"
   session:updateFixed({ actionPressed = true })
   Assert.isNil(interactions.resolveSnapshot, "a moving player is never asked to interact")
 end
 
 function T.interaction_never_resolves_without_the_action_edge()
-  local session, actor, interactions = interactionSession({
+  local session, player, interactions = interactionSession({
     intent = { kind = "object", object = { actorId = "map:61:object:0" } },
   })
   session:updateFixed({ actionDown = true, heldDirection = "north" })
@@ -654,7 +669,7 @@ function T.interaction_never_resolves_without_the_action_edge()
 end
 
 function T.interaction_never_resolves_under_a_locked_transition_or_modal()
-  local session, actor, interactions, steps = interactionSession({
+  local session, player, interactions, steps = interactionSession({
     intent = { kind = "object", object = { actorId = "map:61:object:0" } },
   })
   session.transition.locked = true
@@ -687,7 +702,7 @@ function T.catch_up_ticks_do_not_replay_one_action_edge()
       return true
     end,
   }
-  local actor = {
+  local player = {
     fieldX = 4,
     fieldZ = 14,
     worldX = 0,
@@ -707,8 +722,7 @@ function T.catch_up_ticks_do_not_replay_one_action_edge()
   local session = FieldSession.new({
     versionId = "heartgold",
     currentMap = map,
-    actor = actor,
-    player = actor,
+    player = player,
     camera = camera,
     transition = transition,
     actors = actors,
@@ -778,7 +792,6 @@ function T.a_two_tile_walk_keeps_one_phase_across_the_session_ticks()
   local session = FieldSession.new({
     versionId = "heartgold",
     currentMap = map,
-    actor = player,
     player = player,
     camera = camera,
     playerVisual = visual,

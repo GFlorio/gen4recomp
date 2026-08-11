@@ -38,7 +38,7 @@ local KEY_DIRECTIONS =
 ---@field input any
 ---@field zoom any
 ---@field heldDirectionKeys table<string, string>?
----@field actor any
+---@field player FieldPlayer? forwarded from the runtime
 local FieldState = {}
 FieldState.__index = function(self, key)
   local method = FieldState[key]
@@ -113,8 +113,8 @@ end
 -- map before building before neighbour before actor, deterministically.
 function FieldState:_worldDraws(alpha)
   return SceneAssembly.flatten({
-    self.runtime.runtime.mapDraws,
-    self.runtime.runtime.buildingDraws,
+    self.runtime.runtimeMap.sceneRuntime.mapDraws,
+    self.runtime.runtimeMap.sceneRuntime.buildingDraws,
     self.runtimeMap.coverageRuntime and self.runtimeMap.coverageRuntime.draws or {},
     self:_actorDraws(alpha),
   })
@@ -135,7 +135,7 @@ function FieldState:draw()
     self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
   end
   local alpha = self.session:renderAlpha()
-  self.renderer:draw(self.runtime.runtime, self.camera, self:_worldDraws(alpha), self.viewport, alpha)
+  self.renderer:draw(self.runtime.runtimeMap.sceneRuntime, self.camera, self:_worldDraws(alpha), self.viewport, alpha)
   if self.transition and self.transition.fadeAlpha > 0 then
     local rectangle = self.viewport.worldViewport
     lg.setColor(0, 0, 0, self.transition.fadeAlpha)
@@ -158,12 +158,12 @@ function FieldState:_drawHud()
     string.format("map %d  %s", self.runtimeMap.mapId, self.runtimeMap.mapSymbol),
     string.format(
       "player (%d,%d) y %.3f surface %d %s %s",
-      self.actor.fieldX,
-      self.actor.fieldZ,
-      self.actor.worldY,
-      self.actor.surfaceId,
-      self.actor.facing,
-      self.actor.motion
+      self.player.fieldX,
+      self.player.fieldZ,
+      self.player.worldY,
+      self.player.surfaceId,
+      self.player.facing,
+      self.player.motion
     ),
     self.saveStatus or "save not written this run",
     "WASD/arrows move   Z/Space/Enter action   X/Backspace cancel   -/= zoom"

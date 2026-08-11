@@ -178,7 +178,6 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
   local session = FieldSession.new({
     versionId = "rom-conformance",
     currentMap = runtimeMap,
-    actor = player,
     player = player,
     camera = camera,
   })
