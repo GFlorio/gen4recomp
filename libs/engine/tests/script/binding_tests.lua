@@ -396,11 +396,22 @@ T["session script phase"] = function()
   }
   local runtimeMap = { mapId = 57 }
   local camera = { updateFixed = function() end }
+  local transition = { phase = "idle", locked = false, updateFixed = function() end }
+  local input = {
+    snapshot = function()
+      return {}
+    end,
+    clearEdges = function() end,
+  }
+  local actors = { step = function() end }
   local session = FieldSession.new({
     versionId = "heartgold",
     currentMap = runtimeMap,
     player = player,
     camera = camera,
+    transition = transition,
+    input = input,
+    actors = actors,
     scriptScheduler = p.scheduler,
     scriptClient = client,
     interactions = {

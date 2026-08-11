@@ -10,6 +10,27 @@ local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = {}
 
+-- Complete fakes for the collaborators FieldSession now requires at
+-- construction: an idle transition (never completes, never locks, no warp
+-- capability), an input that snapshots nothing, and a manager that steps no
+-- actors.
+local function idleTransition()
+  return { phase = "idle", locked = false, updateFixed = function() end }
+end
+
+local function idleInput()
+  return {
+    snapshot = function()
+      return {}
+    end,
+    clearEdges = function() end,
+  }
+end
+
+local function idleActors()
+  return { step = function() end }
+end
+
 local function session()
   local targets = {}
   local camera = {
@@ -17,9 +38,25 @@ local function session()
       targets[#targets + 1] = { x = target.x, y = target.y, z = target.z }
     end,
   }
-  local player = { worldX = 1.25, worldY = 2.5, worldZ = 3.75 }
+  local player = {
+    worldX = 1.25,
+    worldY = 2.5,
+    worldZ = 3.75,
+    updateFixed = function()
+      return false
+    end,
+  }
   local map = { mapId = 61 }
-  return FieldSession.new({ versionId = "heartgold", currentMap = map, player = player, camera = camera }), targets
+  return FieldSession.new({
+    versionId = "heartgold",
+    currentMap = map,
+    player = player,
+    camera = camera,
+    transition = idleTransition(),
+    input = idleInput(),
+    actors = idleActors(),
+  }),
+    targets
 end
 
 function T.actor_only_construction_is_rejected()
@@ -41,9 +78,41 @@ function T.player_is_used_as_the_session_player()
   local player = { worldX = 1.25, worldY = 2.5, worldZ = 3.75 }
   local camera = { updateFixed = function() end }
   local map = { mapId = 61 }
-  local s = FieldSession.new({ versionId = "heartgold", currentMap = map, player = player, camera = camera })
+  local s = FieldSession.new({
+    versionId = "heartgold",
+    currentMap = map,
+    player = player,
+    camera = camera,
+    transition = idleTransition(),
+    input = idleInput(),
+    actors = idleActors(),
+  })
   Assert.equal(s.player, player)
   Assert.deepEqual(s:actorTarget(), { x = 1.25, y = 2.5, z = 3.75 })
+end
+
+-- The transition, input, and actor manager are tick-path collaborators every
+-- production session supplies; construction must require them instead of
+-- letting a session run with half its tick machinery missing.
+function T.required_collaborators_are_validated_at_construction()
+  local options = {
+    versionId = "heartgold",
+    currentMap = { mapId = 61 },
+    player = { worldX = 0, worldY = 0, worldZ = 0 },
+    camera = { updateFixed = function() end },
+    transition = idleTransition(),
+    input = idleInput(),
+    actors = idleActors(),
+  }
+  for _, missing in ipairs({ "transition", "input", "actors" }) do
+    local partial = {}
+    for key, value in pairs(options) do
+      partial[key] = value
+    end
+    partial[missing] = nil
+    local ok, err = pcall(FieldSession.new, partial)
+    Assert.isFalse(ok, "a session must require " .. missing .. ": " .. tostring(err))
+  end
 end
 
 function T.fixed_ticks_are_render_cadence_independent()
@@ -102,6 +171,8 @@ function T.completed_transition_holds_the_arrival_tile_for_autosave()
     player = player,
     camera = camera,
     transition = transition,
+    input = idleInput(),
+    actors = idleActors(),
   })
   s:updateFixed({ heldDirection = "south" })
   Assert.equal(updates, 0)
@@ -136,6 +207,9 @@ function T.script_completion_consumes_its_final_action_edge()
     currentMap = map,
     player = player,
     camera = camera,
+    transition = idleTransition(),
+    input = idleInput(),
+    actors = idleActors(),
     scriptScheduler = scheduler,
     interactions = interactions,
   })
@@ -172,6 +246,8 @@ function T.the_player_pose_clock_advances_once_per_tick_and_freezes_under_a_tran
     player = player,
     camera = camera,
     transition = transition,
+    input = idleInput(),
+    actors = idleActors(),
     playerVisual = playerVisual,
   })
   s:updateFixed({})
@@ -233,6 +309,8 @@ local function warpSession(options)
     player = player,
     camera = camera,
     transition = transition,
+    input = idleInput(),
+    actors = idleActors(),
   })
   return session, transition, starts, warp
 end
@@ -314,6 +392,8 @@ function T.actor_on_a_blocked_warp_cell_does_not_block_the_facing_warp()
     player = player,
     camera = camera,
     transition = transition,
+    input = idleInput(),
+    actors = idleActors(),
   })
   session:updateFixed({ heldDirection = "south", pressedDirection = "south" })
   Assert.equal(#starts, 1)
@@ -384,6 +464,8 @@ function T.actor_on_an_open_warp_cell_blocks_the_walk_but_not_the_route()
     player = player,
     camera = camera,
     transition = transition,
+    input = idleInput(),
+    actors = idleActors(),
   })
   session:updateFixed({ heldDirection = "south", pressedDirection = "south" })
   Assert.equal(#starts, 0)
@@ -474,6 +556,7 @@ local function dialogueSession(opts)
     player = player,
     camera = camera,
     transition = transition,
+    input = idleInput(),
     actors = actors,
     playerVisual = playerVisual,
     dialogue = dialogue,
@@ -549,6 +632,7 @@ function T.transition_commit_clears_stale_action_edges()
     camera = camera,
     transition = transition,
     input = input,
+    actors = idleActors(),
   })
   session:updateFixed({ actionPressed = true })
   -- The commit tick consumed the snapshot edge and cleared the input object's
@@ -599,6 +683,7 @@ local function interactionSession(opts)
     player = player,
     camera = camera,
     transition = transition,
+    input = idleInput(),
     actors = actors,
     interactions = interactions,
   })
@@ -792,6 +877,9 @@ function T.a_two_tile_walk_keeps_one_phase_across_the_session_ticks()
     currentMap = map,
     player = player,
     camera = camera,
+    transition = idleTransition(),
+    input = idleInput(),
+    actors = idleActors(),
     playerVisual = visual,
   })
 

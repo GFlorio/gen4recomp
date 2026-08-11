@@ -26,11 +26,11 @@ local WarpSystem = require("libs.engine.src.WarpSystem")
 ---@field currentMap RuntimeFieldMap
 ---@field player FieldPlayer
 ---@field camera FieldCamera
----@field transition FieldTransition?
----@field actors FieldActorManager?
+---@field transition FieldTransition
+---@field actors FieldActorManager
 ---@field playerVisual FieldPlayerVisual?
 ---@field dialogue FieldDialogueController?
----@field input FieldInput?
+---@field input FieldInput
 ---@field interactions FieldSession.Interactions?
 ---@field scriptScheduler Scheduler?
 ---@field scriptClient ScriptInteractionClient?
@@ -45,11 +45,11 @@ local WarpSystem = require("libs.engine.src.WarpSystem")
 ---@field currentMap RuntimeFieldMap
 ---@field player FieldPlayer
 ---@field camera FieldCamera
----@field transition FieldTransition?
----@field actors FieldActorManager?
+---@field transition FieldTransition
+---@field actors FieldActorManager
 ---@field playerVisual FieldPlayerVisual?
 ---@field dialogue FieldDialogueController?
----@field input FieldInput?
+---@field input FieldInput
 ---@field interactions FieldSession.Interactions?
 ---@field scriptScheduler Scheduler?
 ---@field scriptClient ScriptInteractionClient?
@@ -70,9 +70,15 @@ local ACCUMULATOR_EPSILON = 1e-12
 
 ---@param options FieldSessionOptions
 ---@return FieldSession
+-- Every collaborator the session steps on a tick is required here: the
+-- production runtime supplies them unconditionally, so a session missing any
+-- of them is a composition fault rather than a partial-tick configuration.
 function FieldSession.new(options)
   assert(options and options.versionId and options.currentMap, "field session identity required")
   assert(options.player and options.camera, "field session player and camera required")
+  assert(options.transition, "field session transition required")
+  assert(options.input, "field session input required")
+  assert(options.actors, "field session actors required")
   return setmetatable({
     versionId = options.versionId,
     currentMap = options.currentMap,
@@ -101,22 +107,18 @@ function FieldSession:_advanceTick()
 end
 
 function FieldSession:updateFixed(inputSnapshot)
-  inputSnapshot = inputSnapshot or (self.input and self.input:snapshot()) or {}
-  if self.transition and self.transition.updateFixed then
-    self.transition:updateFixed()
-    -- Keep the just-arrived tile stable until the application consumes the
-    -- completion event and autosaves it, even when movement remains held.
-    if self.transition.completed then
-      if self.input and self.input.clearEdges then
-        self.input:clearEdges()
-      end
-      self:_advanceTick()
-      return
-    end
-    if self.transition.locked then
-      self:_advanceTick()
-      return
-    end
+  inputSnapshot = inputSnapshot or self.input:snapshot()
+  self.transition:updateFixed()
+  -- Keep the just-arrived tile stable until the application consumes the
+  -- completion event and autosaves it, even when movement remains held.
+  if self.transition.completed then
+    self.input:clearEdges()
+    self:_advanceTick()
+    return
+  end
+  if self.transition.locked then
+    self:_advanceTick()
+    return
   end
 
   -- Modal ownership: while a dialogue is open the world freezes -- no queued
@@ -154,7 +156,7 @@ function FieldSession:updateFixed(inputSnapshot)
     end
   end
 
-  if self.transition and self.transition.suppression then
+  if self.transition.suppression then
     self.transition.suppression = WarpSystem.updateSuppression(
       self.transition.suppression,
       self.currentMap.mapId,
@@ -165,9 +167,7 @@ function FieldSession:updateFixed(inputSnapshot)
 
   -- Queued visibility changes land before anything reads occupancy or starts a
   -- move, so collision and the draw list never disagree within a tick.
-  if self.actors then
-    self.actors:step(self.tick + 1)
-  end
+  self.actors:step(self.tick + 1)
 
   -- An idle player's Action edge resolves an interaction
   -- before movement or warps are evaluated. A consumed interaction owns the
@@ -203,7 +203,7 @@ function FieldSession:updateFixed(inputSnapshot)
   end
 
   local direction = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
-  if self.transition and self.transition.start and self.player.motion == "idle" and direction then
+  if self.transition.start and self.player.motion == "idle" and direction then
     local facingWarp = WarpSystem.findBlockedFacing(self.currentMap, self.player.fieldX, self.player.fieldZ, direction)
     if
       facingWarp
@@ -221,11 +221,8 @@ function FieldSession:updateFixed(inputSnapshot)
   -- restarting on every arrival (the ROM's walk range spans two tiles).
   local walkingAtTickStart = self.player.motion == "walking"
 
-  local stepCompleted = false
-  if self.player.updateFixed then
-    stepCompleted = self.player:updateFixed(inputSnapshot) == true
-  end
-  if stepCompleted and self.transition and self.transition.start then
+  local stepCompleted = self.player:updateFixed(inputSnapshot) == true
+  if stepCompleted and self.transition.start then
     local standingWarp = WarpSystem.findAt(self.currentMap, self.player.fieldX, self.player.fieldZ)
     if
       standingWarp

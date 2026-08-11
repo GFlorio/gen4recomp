@@ -175,11 +175,22 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
   }
   local camera = FieldCamera.new(profile, { initialTarget = player:renderPosition() })
   local cameraSamples = {}
+  local transition = { phase = "idle", locked = false, updateFixed = function() end }
+  local input = {
+    snapshot = function()
+      return {}
+    end,
+    clearEdges = function() end,
+  }
+  local actors = { step = function() end }
   local session = FieldSession.new({
     versionId = "rom-conformance",
     currentMap = runtimeMap,
     player = player,
     camera = camera,
+    transition = transition,
+    input = input,
+    actors = actors,
   })
 
   local directions = {
