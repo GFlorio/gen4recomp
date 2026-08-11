@@ -1,15 +1,15 @@
 ---
 name: spec-based-development
-description: Use when the human points at a spec file containing a list of deliverables and wants it implemented — drives acceptance contract, implement/review/commit per deliverable through subagents.
+description: Use when the human points at a spec file containing a list of deliverables and wants it implemented — drives acceptance, implementation, review, and dependency-safe integration through subagents, using isolated worktrees for independent deliverables.
 ---
 
 # Spec-Based Development
 
 You are the **orchestrator**. You do not write implementation code. You read the spec,
-maintain the implementation notes, dispatch one subagent per step, and commit.
+maintain the implementation notes, dispatch subagents, and integrate their commits.
 
-Every subagent starts with empty context and gets everything it needs from two files: the
-spec and the notes.
+Every subagent starts with empty context and gets everything it needs from the spec, the
+notes, and its explicitly named worktree.
 
 ## Setup
 
@@ -19,6 +19,17 @@ spec and the notes.
    It is temporary and uncommitted, like the spec.
 3. **Confirm the deliverable list with the human** before dispatching anything. A wrong
    decomposition wastes the whole run.
+4. **Build a dependency graph.** Treat the spec's listed order as the default dependency
+   order, not an implementation queue. Mark each deliverable blocked by named prerequisites
+   or safe to run independently. Explain any reordering to the human.
+5. **Create isolated worktrees for independent deliverables.** Give each concurrently active
+   deliverable its own branch and worktree from the same verified base commit. Keep its
+   acceptance, implementation, review, verification, and commit in that worktree. Never let
+   concurrent agents edit the primary worktree or a shared branch.
+
+Parallelism is an optimization, not a reason to weaken contracts. Do not parallelize work
+that shares an unfinished public interface, production file, generated artifact, or
+acceptance fixture. When uncertain, serialize.
 
 ### Notes file format
 
@@ -44,14 +55,34 @@ Track acceptance state per deliverable: scenario IDs, the red signal observed be
 implementation, and the green status after. A deliverable box ticks only when its
 acceptance scenarios and implementation are committed together.
 
+For parallel worktrees, keep a private notes copy per deliverable. After integrating its
+commit, append the completed handoff facts to the primary notes file. The primary notes are
+the cross-deliverable channel; do not concurrently append to them from worktrees.
+
+## Parallel execution and integration
+
+Dispatch each currently unblocked deliverable as an independent worktree pipeline. Within a
+pipeline, preserve acceptance → implementation → review → verify → commit. Pipelines may run
+concurrently only when the dependency graph shows they are independent.
+
+After a pipeline commits, inspect its diff and verification result, then integrate it into
+the primary branch using a commit-preserving operation. Integrate only ready dependencies.
+Dispatch a fresh integration-fix subagent for conflicts; do not edit source yourself. Re-run
+full verification after every integration batch.
+
+The primary branch's commit order may differ from the order printed in the spec. Preserve one
+cohesive commit per deliverable, but choose a dependency-safe integration order. Record the
+actual order and each reordering reason in the notes and final report.
+
 ## Per-deliverable loop
 
-For each deliverable, in spec order:
+For each currently unblocked deliverable, in its dedicated worktree:
 
 **0. Acceptance contract.** Dispatch a `general-purpose` subagent. Its prompt has these
 five parts, in order:
 
-1. `Read <absolute-spec-path> and <absolute-notes-path> in full.`
+1. `Read <absolute-spec-path> and <absolute-notes-path> in full. Work only in
+   <absolute-worktree-path>.`
 2. `Read .agents/skills/acceptance-testing/SKILL.md and follow it.`
 3. `Work only on deliverable <N>: <exact deliverable text>. Create/update acceptance
    tests before implementation. Do not modify production code. Verify red for the
@@ -67,8 +98,8 @@ It may edit `tests/support` and test-only fixtures, but no production code.
 **1. Implement.** Dispatch a `general-purpose` subagent. Its prompt has these parts, in
 order:
 
-1. The absolute paths to the spec file and the notes file, and:
-   `Read both in full before starting.`
+1. The absolute paths to the spec file and the notes file, plus the worktree path:
+   `Read both in full before starting. Work only in <absolute-worktree-path>.`
 2. `Implement deliverable N: <name>, and only that deliverable.`
 3. `Read .agents/skills/tdd/SKILL.md and follow it.`
 4. `The acceptance tests from the prior subagent are contract tests. Make them pass
@@ -91,20 +122,21 @@ in mind, no summary of prior deliverables. The subagent reads both files itself.
 (`.agents/skills/change-review/SKILL.md`) per its Dispatch section, passing the spec and
 notes paths as the optional fifth part. It reviews and fixes the uncommitted diff.
 
-**3. Verify.** Run `scripts/test.sh` and `scripts/lint.sh` yourself. Green before commit,
+**3. Verify.** Run `scripts/test.sh` and `scripts/lint.sh` yourself in the worktree. Green before commit,
 always. Red means dispatch a fresh subagent to fix it — you still don't write the code.
 Record pass/fail/skip counts by layer. A skipped layer is not a pass: if the deliverable's
 contract lives in a layer that skipped for a missing capability, the deliverable is
 unverified. Make the capability available and rerun, or record it unverified in the notes
 and leave its box unticked.
 
-**4. Commit.** One commit per deliverable, scoped subject line, single line, no body, no AI
+**4. Commit.** One commit per deliverable in its worktree, scoped subject line, single line, no body, no AI
 attribution: `<scope>: <description>`. Each commit contains its acceptance test and its
 implementation together. The message describes the change on its own terms — no spec
 references, no deliverable numbers, no "per the plan". Specs are discarded; commits are
 permanent.
 
-**5. Tick the box** in the notes file and move on.
+**5. Tick the box** in the worktree notes file and move on. After integration, transfer its
+handoff facts and completion state to the primary notes file.
 
 ## Finish
 
@@ -118,7 +150,7 @@ permanent.
 
 - You orchestrate; subagents implement. If you catch yourself editing a source file, stop
   and dispatch instead.
-- One deliverable per subagent, one commit per deliverable. Never batch.
+- One deliverable per worktree pipeline, one cohesive commit per deliverable. Never batch.
 - Never commit red. Never commit the spec or the notes file.
 - Never commit a deliverable while review leaves an unresolved correctness bug, data-loss
   risk, resource-ownership/lifecycle bug, or deterministic-state bug. Dispatch a fix
