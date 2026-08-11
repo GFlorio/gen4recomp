@@ -79,6 +79,11 @@ function T.cancellable_menu_requires_a_cancellation_result()
   end)
 end
 
+function T.cancellable_menu_can_return_false()
+  local controller = menu({ cancellable = true, cancelValue = false })
+  Assert.equal(controller:cancel(), false)
+end
+
 function T.cancellable_must_be_a_boolean()
   Assert.throws(function()
     FieldMenuController.new({

@@ -3,6 +3,7 @@
 
 local Assert = require("tests.support.Assert")
 local FieldState = require("game.src.game.FieldState")
+local FieldInput = require("libs.engine.src.FieldInput")
 
 local T = {}
 
@@ -89,6 +90,50 @@ function T.releasing_one_of_two_keys_for_the_same_direction_releases_its_own_sou
     { "pressDirection", "north", "key:up" },
     { "releaseDirection", "key:w" },
   })
+end
+
+function T.focus_loss_discards_stale_stick_axes_before_refocus()
+  local input = FieldInput.new()
+  local state = setmetatable({ input = input, heldDirectionKeys = {} }, FieldState)
+
+  state:gamepadaxis(joystick, "leftx", -0.75)
+  state:focus(false)
+  state:gamepadaxis(joystick, "lefty", 0.25)
+
+  Assert.deepEqual(input:uiSnapshot(1), {})
+end
+
+function T.focus_loss_does_not_leave_a_keyboard_direction_stuck_after_refocus()
+  local input = FieldInput.new()
+  local state = setmetatable({ input = input, heldDirectionKeys = {} }, FieldState)
+
+  state:keypressed("down")
+  state:focus(false)
+  state:keypressed("right")
+  state:keyreleased("right")
+
+  Assert.deepEqual(
+    input:snapshot(),
+    { heldDirection = nil, pressedDirection = "east", actionDown = false, cancelDown = false }
+  )
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false })
+end
+
+function T.gamepad_dpad_and_left_stick_drive_normal_field_movement()
+  local input = FieldInput.new()
+  local state = setmetatable({ input = input, heldDirectionKeys = {} }, FieldState)
+
+  state:gamepadpressed(joystick, "dpdown")
+  Assert.deepEqual(
+    input:snapshot(),
+    { heldDirection = "south", pressedDirection = "south", actionDown = false, cancelDown = false }
+  )
+  state:gamepadreleased(joystick, "dpdown")
+  state:gamepadaxis(joystick, "leftx", -0.75)
+  Assert.deepEqual(
+    input:snapshot(),
+    { heldDirection = "west", pressedDirection = "west", actionDown = false, cancelDown = false }
+  )
 end
 
 return T
