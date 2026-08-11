@@ -117,16 +117,11 @@ local function resolvePosition(draw, source, tileScale)
 end
 
 -- Evaluate `instance` into a PoseState (see PoseBackend). Joint attachments
--- drive the program; material attachments do not affect the pose.
+-- drive the program; material attachments do not affect the pose. The
+-- definition is nitro by construction (there is no sourceBackend abstraction;
+-- this backend IS the direct pose path).
 function NitroPoseBackend.evaluate(instance)
   local def = instance.definition
-  if def.sourceBackend ~= "nitro" then
-    Errors.raise(
-      "POSE_BACKEND_SOURCE_MISMATCH",
-      "NitroPoseBackend cannot evaluate a " .. def.sourceBackend .. " model (" .. def.key .. ")",
-      { sourceBackend = def.sourceBackend, modelKey = def.key }
-    )
-  end
   local backend = def.backend
   if not backend or not backend.program then
     Errors.raise(

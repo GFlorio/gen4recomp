@@ -537,14 +537,16 @@ function T.animated_building_loads_advances_and_renders()
 
   -- The handle surface drives the semantic role on the loader-built
   -- instance: play returns the live attachment, whose player reaches the
-  -- terminal frame.
-  local handle = instance:play("door.open")
+  -- checked-advance terminal (numFrame * FRAME_UNIT) exactly.
+  local handle = instance:play("door.open", { loopMode = "once" })
   Assert.equal(type(handle), "table", "play returns the attachment handle")
   Assert.equal(handle.clip.name, "door_op")
   for _ = 1, 7 do
     instance:updateFixed()
   end
-  Assert.isTrue(handle.player:atTerminal())
+  Assert.isFalse(handle.player:isComplete(), "the checked advance is not done before the terminal")
+  instance:updateFixed()
+  Assert.isTrue(handle.player:isComplete())
 
   -- The scene's door lookup resolves the loader-built instance from the door
   -- tile and drives the semantic door animation.
@@ -568,6 +570,8 @@ function T.animated_building_loads_advances_and_renders()
   for _ = 1, 7 do
     instance:updateFixed()
   end
+  Assert.isFalse(door:isFinished(), "the checked advance is not done before the terminal")
+  instance:updateFixed()
   Assert.isTrue(door:isFinished(), "the loader-resolved door opens to completion")
 
   renderer:release()
@@ -602,22 +606,23 @@ function T.shared_definitions_share_resources_and_isolate_state()
   Assert.isFalse(a.materialState == b.materialState, "material state is per instance")
 
   -- No ambient policy fires on a multi-clip model: the handles drive the
-  -- two instances in opposite directions. Independent control: b is
-  -- advanced two ticks while a runs to the end, so the shared definition
-  -- cannot couple their playback.
-  local aHandle = a:play("door.open", { direction = 1 })
-  local bHandle = b:play("door.close", { direction = 1 })
+  -- two instances forward independently. Independent control: b is
+  -- advanced two ticks while a runs to the checked-advance terminal, so
+  -- the shared definition cannot couple their playback.
+  local aHandle = a:play("door.open", { loopMode = "once" })
+  local bHandle = b:play("door.close", { loopMode = "once" })
   for _ = 1, 2 do
     a:updateFixed()
     b:updateFixed()
   end
-  for _ = 1, 5 do
+  for _ = 1, 6 do
     a:updateFixed()
   end
-  Assert.isTrue(aHandle.player:atTerminal())
-  Assert.isFalse(bHandle.player:atTerminal())
+  Assert.isTrue(aHandle.player:isComplete())
+  Assert.isFalse(bHandle.player:isComplete())
   Assert.equal(aHandle.clip.name, "door_op")
   Assert.equal(bHandle.clip.name, "door_cl")
+  Assert.equal(aHandle.player.frameFx, 8 * 4096, "the terminal is exactly numFrame * FRAME_UNIT")
   Assert.isTrue(aHandle.player.frameFx > bHandle.player.frameFx)
   Assert.equal(bHandle.player.frameFx, 2 * 4096, "the independent handle keeps its own frame")
 
@@ -644,7 +649,7 @@ function T.banded_model_plays_its_time_band_and_swaps()
   Assert.equal(runtime.timeBand, "day")
   Assert.isTrue(instance.timeOfDayPlan ~= nil, "the banded model carries its band plan")
   local names = {}
-  for _, category in ipairs({ "joint", "material", "visibility" }) do
+  for _, category in ipairs({ "joint", "material" }) do
     for _, attachment in ipairs(instance.animationState:attachments(category)) do
       names[#names + 1] = attachment.clip.name
     end
@@ -655,7 +660,7 @@ function T.banded_model_plays_its_time_band_and_swaps()
   runtime:setTimeBand("nite")
   Assert.equal(runtime.timeBand, "nite")
   names = {}
-  for _, category in ipairs({ "joint", "material", "visibility" }) do
+  for _, category in ipairs({ "joint", "material" }) do
     for _, attachment in ipairs(instance.animationState:attachments(category)) do
       names[#names + 1] = attachment.clip.name
     end

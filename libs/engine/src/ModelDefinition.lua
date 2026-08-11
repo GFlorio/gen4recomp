@@ -1,12 +1,13 @@
 -- ModelDefinition: the engine-native model IR assembled from the derived
 -- model descriptors. Everything the runtime and gameplay touch -- nodes,
--- meshes, materials, animations -- lives here in one shape regardless of the
--- digest-side source format; the nitro backend (the only current producer)
--- poses through the compiled transform program carried in `backend`.
+-- meshes, materials, animations -- lives here in one shape; the nitro backend
+-- (the only producer) poses through the compiled transform program carried in
+-- `backend`. The definition is nitro by construction: there is no
+-- sourceBackend abstraction, and a spec that still carries the removed key is
+-- a stale-schema artifact rejected at the load boundary.
 --
 --   definition = ModelDefinition.new({
 --     key = "outdoor:12:abcd...",
---     sourceBackend = "nitro",
 --     nodes = { { index, name?, translation, rotation, scale } },
 --     meshes = { { id, nodeIndex, materialIndex, geometry? } },
 --     materials = { { id, name?, baseColor, alphaMode, doubleSided, texture?,
@@ -254,10 +255,14 @@ function ModelDefinition.new(spec)
   if type(spec.key) ~= "string" or #spec.key == 0 then
     Errors.raise("MODEL_DEF_NO_KEY", "model definition requires a non-empty key", {})
   end
-  if spec.sourceBackend ~= "nitro" then
+  -- The sourceBackend abstraction is cut: the definition is nitro by
+  -- construction, so the key is not part of the spec. A spec that still
+  -- carries it is a stale-schema artifact and fails loudly at the load
+  -- boundary.
+  if spec.sourceBackend ~= nil then
     Errors.raise(
       "MODEL_DEF_BAD_SOURCE_BACKEND",
-      "sourceBackend must be nitro, got " .. tostring(spec.sourceBackend),
+      "sourceBackend is not part of the model definition spec; a definition is nitro by construction",
       { sourceBackend = spec.sourceBackend }
     )
   end
@@ -321,7 +326,6 @@ function ModelDefinition.new(spec)
 
   local self = setmetatable({
     key = spec.key,
-    sourceBackend = spec.sourceBackend,
     nodes = spec.nodes,
     meshes = spec.meshes,
     materials = spec.materials,
@@ -429,7 +433,6 @@ function ModelDefinition.fromNitroDescriptor(desc, opts)
   end
   return ModelDefinition.new({
     key = opts.key or desc.key or program.name or "nitro-model",
-    sourceBackend = "nitro",
     nodes = nodes,
     meshes = meshes,
     materials = desc.materials or {},
@@ -443,20 +446,20 @@ end
 
 -- The precomputed binding record of `clip` over this definition: the record
 -- is built once at assembly (or on first access) and reused by every play of
--- the clip. Joint/visibility clip targets are node indices and map to
--- themselves (nodes are contiguous by contract); material clip targets are
--- material names and map to the material's id. A material clip additionally
--- carries `trackByMaterial`: material index -> track index, so the material
+-- the clip. Joint clip targets are node indices and map to themselves (nodes
+-- are contiguous by contract); material clip targets are material names and
+-- map to the material's id. A material clip additionally carries
+-- `trackByMaterial`: material index -> track index, so the material
 -- evaluator reads the track in O(1) instead of rescanning tracks by name.
--- Targets with no model element are omitted, matching Nitro's
--- permissive binding; a binding whose map resolves nothing makes
--- attach/play raise its zero-targets diagnostic.
+-- Targets with no model element are omitted, matching Nitro's permissive
+-- binding; a binding whose map resolves nothing makes attach/play raise its
+-- zero-targets diagnostic.
 function ModelDefinition:binding(clip)
   local record = self.bindings[clip]
   if not record then
     local map = {}
     local trackByMaterial
-    if clip.category == "joint" or clip.category == "visibility" then
+    if clip.category == "joint" then
       for _, track in ipairs(clip.tracks) do
         local target = track.target
         if type(target) == "number" and self:node(target) then

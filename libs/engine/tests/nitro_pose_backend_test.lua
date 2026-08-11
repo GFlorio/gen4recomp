@@ -100,7 +100,6 @@ local function singleMeshDefinition(overrides)
   overrides = overrides or {}
   local def = ModelDefinition.new({
     key = "fixture:nitro",
-    sourceBackend = "nitro",
     nodes = {
       {
         index = 0,
@@ -295,7 +294,6 @@ function T.restore_slot_sources_resolve_from_the_draw_snapshot()
   }, commands)
   local def = ModelDefinition.new({
     key = "fixture:nitro-slot",
-    sourceBackend = "nitro",
     nodes = {
       {
         index = 0,
@@ -354,7 +352,7 @@ function T.uncompiled_joint_clips_raise()
         frameCount = 2,
         tracks = { { target = 0 } },
         semanticNames = {},
-        source = { type = "gltf", file = "x.glb" },
+        source = { type = "nitro", format = "NSBCA" },
       },
     },
   })

@@ -1,8 +1,15 @@
--- AnimationPlayer: fixed-point playback semantics. Frames advance by one
--- FRAME_UNIT per updateFixed (direction flips the sign), wrap at both ends,
--- and track finite completion per loop mode ("loop" or "once"). The
--- terminal state (atTerminal) is the HGSS checked-advance condition shared
--- with the controllers.
+-- AnimationPlayer: the field-prop checked-advance state machine -- forward
+-- only, one completion notion. Frames are fixed-point (frameFx = frame *
+-- FRAME_UNIT) and advance by one FRAME_UNIT per updateFixed. HGSS's field
+-- animation manager steps 0x1000 per tick and reports done through the
+-- checked advance (Field3dModelAnimation_FrameAdvanceAndCheck clamps the
+-- positive terminal at numFrame << 12 and sets done there; pokeheartgold
+-- overlay_01_021FB878.s), so a "once" clip finishes exactly when frameFx
+-- reaches frameCount * FRAME_UNIT -- the single completion notion. Reverse
+-- playback (setDirection) and the atTerminal/completed split are cut:
+-- playback always runs forward from 0, and one finish notion remains.
+-- Seeking stays: seekFx/seekFirst/seekLast clamp into the checked-advance
+-- window. Pure domain module.
 
 local Assert = require("tests.support.Assert")
 local AnimationPlayer = require("libs.engine.src.AnimationPlayer")
@@ -37,7 +44,7 @@ function T.advances_one_frame_per_tick()
   Assert.equal(p.frameFx, 6 * 0x1000)
 end
 
-function T.loop_wraps_forward_at_end()
+function T.loop_wraps_forward_at_the_terminal()
   local p = new(3)
   for _ = 1, 3 do
     p:updateFixed()
@@ -48,62 +55,36 @@ function T.loop_wraps_forward_at_end()
   Assert.equal(p.frameFx, 0x1000)
 end
 
-function T.loop_wraps_reverse_at_start()
-  local p = new(3)
-  p:setDirection(-1)
-  p:updateFixed()
-  Assert.equal(p.frameFx, 2 * 0x1000, "frame 0 reverse wraps to the last frame")
-  p:updateFixed()
-  Assert.equal(p.frameFx, 1 * 0x1000)
-end
-
-function T.once_completes_at_end()
-  local p = new(3)
-  p.loopMode = "once"
-  for _ = 1, 3 do
-    p:updateFixed()
-  end
-  Assert.equal(p.frameFx, p:maxFx(), "clamps at the inclusive last frame")
-  Assert.isTrue(p:isComplete())
-  p:updateFixed()
-  Assert.equal(p.frameFx, p:maxFx(), "completed players do not advance")
-end
-
-function T.once_completes_reverse_at_start()
-  local p = new(3)
-  p.loopMode = "once"
-  p:setDirection(-1)
-  p:updateFixed()
-  Assert.equal(p.frameFx, 0)
-  Assert.isTrue(p:isComplete())
-end
-
--- The HGSS checked-advance condition: reaching the direction's terminal
--- frame is the finish condition even before the clamp that marks `completed`
--- fires (a delta that lands exactly on the last key frame).
-function T.at_terminal_reports_the_checked_advance_state()
+-- The single completion notion: a once-clip finishes exactly when frameFx
+-- reaches numFrame * FRAME_UNIT -- the positive terminal the checked advance
+-- clamps to (numFrame << 12) and reports done at. Not one tick earlier (the
+-- old atTerminal last-key-frame notion) and not clamped one unit short (the
+-- old completed clamp).
+function T.once_completes_exactly_at_numFrame_times_frame_unit()
   local p = new(8)
   p.loopMode = "once"
-  Assert.isFalse(p:atTerminal(), "frame 0 forward is not terminal")
   for _ = 1, 7 do
     p:updateFixed()
   end
   Assert.equal(p.frameFx, 7 * 0x1000)
-  Assert.isTrue(p:atTerminal(), "the last key frame is terminal")
-  Assert.isFalse(p:isComplete(), "completion is marked only by the clamp")
-  p:updateFixed() -- the clamp fires at the window top
+  Assert.isFalse(p:isComplete(), "the checked advance is not done before the terminal")
+  p:updateFixed()
+  Assert.equal(p.frameFx, 8 * 0x1000, "the once clip lands exactly on numFrame * FRAME_UNIT")
   Assert.isTrue(p:isComplete())
+  p:updateFixed()
+  Assert.equal(p.frameFx, 8 * 0x1000, "completed players stay at the terminal")
+  Assert.isTrue(p:isComplete(), "completed players do not advance")
+end
 
-  local q = new(8)
-  q:setDirection(-1)
-  for _ = 1, 7 do
-    q:updateFixed()
-  end
-  Assert.equal(q.frameFx, 1 * 0x1000)
-  Assert.isFalse(q:atTerminal())
-  q:updateFixed() -- wraps to the window start
-  Assert.equal(q.frameFx, 0)
-  Assert.isTrue(q:atTerminal(), "reverse playback is terminal at the window start")
+function T.the_direction_api_is_cut()
+  local p = new(8)
+  Assert.isNil(p.setDirection, "setDirection has no caller and must not exist")
+  Assert.equal(p.deltaFx, 0x1000, "the step is always forward")
+end
+
+function T.the_terminal_split_is_cut()
+  local p = new(8)
+  Assert.isNil(p.atTerminal, "one completion notion replaces the atTerminal/completed split")
 end
 
 function T.pause_and_play()
@@ -118,28 +99,7 @@ function T.pause_and_play()
   Assert.equal(p.frameFx, 0x1000)
 end
 
-function T.set_direction_flips_the_one_frame_step()
-  local p = new(8)
-  p:setDirection(-1)
-  Assert.equal(p.deltaFx, -0x1000)
-  p:setDirection(1)
-  Assert.equal(p.deltaFx, 0x1000)
-end
-
-function T.reverse_restart_completes_at_the_window_start()
-  -- A reverse "once" restart always begins at frame 0 -- already the
-  -- reverse terminal frame -- so the next update completes in place.
-  local p = new(8)
-  p.loopMode = "once"
-  p:setDirection(-1)
-  p:restart()
-  Assert.equal(p.frameFx, 0)
-  p:updateFixed()
-  Assert.equal(p.frameFx, 0)
-  Assert.isTrue(p:isComplete())
-end
-
-function T.seek_clamps_and_clears_completion()
+function T.seek_clamps_into_the_checked_advance_window()
   local p = new(8)
   p.loopMode = "once"
   for _ = 1, 10 do
@@ -152,13 +112,13 @@ function T.seek_clamps_and_clears_completion()
   p:seekFx(-4096)
   Assert.equal(p.frameFx, 0)
   p:seekFx(1e9)
-  Assert.equal(p.frameFx, 8 * 0x1000 - 1, "seeks clamp to the inclusive max")
+  Assert.equal(p.frameFx, 8 * 0x1000, "seeks clamp to the checked-advance terminal")
 end
 
 function T.seek_first_and_last()
   local p = new(8)
   p:seekLast()
-  Assert.equal(p.frameFx, 8 * 0x1000 - 1)
+  Assert.equal(p.frameFx, 8 * 0x1000, "the last frame is numFrame * FRAME_UNIT")
   p:seekFirst()
   Assert.equal(p.frameFx, 0)
 end
@@ -177,7 +137,7 @@ function T.restart_resets_state()
   Assert.isFalse(p:isComplete())
 end
 
-function T.play_after_completion_restarts()
+function T.play_after_completion_restarts_forward()
   local p = new(3)
   p.loopMode = "once"
   for _ = 1, 3 do
@@ -192,13 +152,13 @@ end
 function T.players_are_independent()
   local a, b = new(8), new(8)
   a.loopMode = "once"
-  b:setDirection(-1)
   for _ = 1, 10 do
     a:updateFixed()
     b:updateFixed()
   end
   Assert.isTrue(a:isComplete())
   Assert.isFalse(b:isComplete())
+  Assert.equal(a.frameFx, 8 * 0x1000, "the once clip holds at the terminal")
 end
 
 return T

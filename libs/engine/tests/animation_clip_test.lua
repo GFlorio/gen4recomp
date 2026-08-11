@@ -1,5 +1,14 @@
--- AnimationClip: contract validation and the format-neutral channel sampler
--- (step/linear keys at fractional fixed-point frames).
+-- AnimationClip: the nitro clip record contract. A clip is the record the
+-- field runtime and the digest share -- id, name, category (joint or
+-- material), a free-form kind, frameCount, tracks (one target per track),
+-- semanticNames, and opaque provenance -- plus the shared door-role
+-- vocabulary. The generic channel-sampler surface is cut: Nitro clips bring
+-- their own compiled curve semantics (the compiled.* payload), no caller
+-- uses AnimationClip.sample, so there is no sample(), no INTERPOLATIONS, and
+-- no channel-key validation. Track tables are retained by reference and
+-- NEVER mutated. Field visibility animation does not exist (the corpus
+-- references no NSBVA), so the category vocabulary is joint and material.
+-- Pure domain module.
 
 local Assert = require("tests.support.Assert")
 local AnimationClip = require("libs.engine.src.AnimationClip")
@@ -46,6 +55,9 @@ function T.rejects_bad_envelope()
   throwsCode("ANIM_CLIP_BAD_CATEGORY", function()
     return AnimationClip.new(clipSpec({ category = "light" }))
   end)
+  throwsCode("ANIM_CLIP_BAD_CATEGORY", function()
+    return AnimationClip.new(clipSpec({ category = "visibility" }))
+  end)
   throwsCode("ANIM_CLIP_NO_ID", function()
     return AnimationClip.new(clipSpec({ id = "" }))
   end)
@@ -62,146 +74,78 @@ function T.rejects_bad_envelope()
     return AnimationClip.new(clipSpec({ tracks = {} }))
   end)
   throwsCode("ANIM_CLIP_BAD_SOURCE", function()
-    return AnimationClip.new(clipSpec({ source = "gltf" }))
+    return AnimationClip.new(clipSpec({ source = 42 }))
   end)
 end
 
-function T.rejects_bad_tracks()
+function T.categories_are_joint_and_material_only()
+  Assert.equal(AnimationClip.CATEGORIES.joint, true)
+  Assert.equal(AnimationClip.CATEGORIES.material, true)
+  Assert.isNil(AnimationClip.CATEGORIES.visibility, "no field visibility animation exists")
+end
+
+function T.rejects_tracks_without_a_target()
   throwsCode("ANIM_CLIP_TRACK_NO_TARGET", function()
     return AnimationClip.new(clipSpec({ tracks = { { channels = {} } } }))
   end)
-  throwsCode("ANIM_CLIP_TRACK_NO_CHANNELS", function()
-    return AnimationClip.new(clipSpec({ tracks = { { target = 1 } } }))
-  end)
-  throwsCode("ANIM_CLIP_CHANNEL_NO_KEYS", function()
-    return AnimationClip.new(clipSpec({
-      tracks = { { target = 1, channels = {
-        translation = { interpolation = "linear", keys = {} },
-      } } },
-    }))
-  end)
-  throwsCode("ANIM_CLIP_BAD_INTERPOLATION", function()
-    return AnimationClip.new(clipSpec({
-      tracks = {
-        {
-          target = 1,
-          channels = {
-            translation = { interpolation = "slerp", keys = { { frame = 0, value = 1 } } },
-          },
-        },
-      },
-    }))
-  end)
-  throwsCode("ANIM_CLIP_UNSORTED_KEYS", function()
-    return AnimationClip.new(clipSpec({
-      tracks = {
-        {
-          target = 1,
-          channels = {
-            translation = {
-              interpolation = "step",
-              keys = { { frame = 2, value = 1 }, { frame = 1, value = 0 } },
-            },
-          },
-        },
-      },
-    }))
-  end)
-  throwsCode("ANIM_CLIP_KEY_NO_VALUE", function()
-    return AnimationClip.new(clipSpec({
-      tracks = {
-        {
-          target = 1,
-          channels = {
-            translation = { interpolation = "step", keys = { { frame = 0 } } },
-          },
-        },
-      },
-    }))
-  end)
 end
 
-function T.new_sets_zero_based_track_indices()
-  local clip = AnimationClip.new(clipSpec({
-    tracks = { clipSpec().tracks[1], clipSpec().tracks[1] },
-  }))
-  Assert.equal(clip.tracks[1].index, 0)
-  Assert.equal(clip.tracks[2].index, 1)
+-- The generic sampler surface is cut: AnimationClip.sample has no caller
+-- (Nitro clips sample through their compiled payload), so the interpolation
+-- machinery it existed for is gone too.
+function T.the_generic_sampler_is_cut()
+  Assert.isNil(AnimationClip.sample, "no caller uses the generic sampler")
 end
 
--- ---- sampling ----
-
-local function sample(clip, trackIndex, channel, frameFx)
-  return AnimationClip.sample(clip, trackIndex, channel, frameFx)
+function T.the_interpolation_vocabulary_is_cut()
+  Assert.isNil(AnimationClip.INTERPOLATIONS)
 end
 
-function T.step_holds_the_last_key()
+-- Channels are opaque to the clip contract: the step/linear key envelope was
+-- the generic sampler's machinery, and Nitro clips carry their own compiled
+-- curve semantics. A track needs only its target.
+function T.a_track_needs_only_its_target()
+  local clip = AnimationClip.new(clipSpec({ tracks = { { target = 1 } } }))
+  Assert.equal(clip.tracks[1].target, 1)
+end
+
+function T.channels_are_opaque_to_the_clip_contract()
   local clip = AnimationClip.new(clipSpec({
     tracks = {
       {
         target = 1,
         channels = {
-          translation = {
-            interpolation = "step",
-            keys = {
-              { frame = 0, value = { x = 0, y = 0, z = 0 } },
-              { frame = 4, value = { x = 9, y = 0, z = 0 } },
-            },
-          },
+          diffuse = { interpolation = "slerp", keys = { { frame = 0, value = 0x203C } } },
         },
       },
     },
   }))
-  Assert.equal(sample(clip, 0, "translation", 0).x, 0)
-  Assert.equal(sample(clip, 0, "translation", 2 * 4096).x, 0, "holds until the next key")
-  Assert.equal(sample(clip, 0, "translation", 4 * 4096).x, 9)
-  Assert.equal(sample(clip, 0, "translation", 100 * 4096).x, 9, "clamps past the last key")
+  Assert.equal(clip.tracks[1].target, 1)
 end
 
-function T.linear_interpolates_between_keys()
-  local clip = AnimationClip.new(clipSpec({
-    tracks = {
-      {
-        target = 1,
-        channels = {
-          translation = {
-            interpolation = "linear",
-            keys = {
-              { frame = 0, value = { x = 0, y = 0, z = 0 } },
-              { frame = 8, value = { x = 8, y = 0, z = 0 } },
-            },
-          },
-        },
-      },
+-- Track tables are kept by reference and never written: the old sampler's
+-- zero-based `index` bookkeeping mutated caller-owned data.
+function T.new_never_mutates_the_callers_tracks()
+  local track = {
+    target = 1,
+    channels = {
+      translation = { interpolation = "step", keys = { { frame = 0, value = { x = 0, y = 0, z = 0 } } } },
     },
-  }))
-  Assert.equal(sample(clip, 0, "translation", 4 * 4096).x, 4)
-  -- Fractional fixed-point frames participate in linear interpolation.
-  Assert.near(sample(clip, 0, "translation", 2.5 * 4096).x, 2.5, 1e-9)
-  -- Frames before the first key take the first key.
-  Assert.equal(sample(clip, 0, "translation", -4096).x, 0)
+  }
+  local spec = clipSpec({ tracks = { track } })
+  local clip = AnimationClip.new(spec)
+  Assert.isTrue(clip.tracks[1] == track, "the track table is retained by reference")
+  Assert.isNil(track.index, "the caller's track table is never written")
+  Assert.isNil(spec.tracks[1].index)
 end
 
-function T.linear_interpolates_scalar_values()
-  local clip = AnimationClip.new(clipSpec({
-    tracks = {
-      {
-        target = "mat",
-        channels = {
-          diffuse = { interpolation = "linear", keys = { { frame = 0, value = 0 }, { frame = 4, value = 100 } } },
-        },
-      },
-    },
-  }))
-  Assert.equal(sample(clip, 0, "diffuse", 2 * 4096), 50)
-end
-
-function T.sample_asserts_bad_access()
-  local clip = AnimationClip.new(clipSpec())
-  local ok = pcall(sample, clip, 5, "translation", 0)
-  Assert.isFalse(ok, "out-of-range track index is a programming error")
-  ok = pcall(sample, clip, 0, "rotation", 0)
-  Assert.isFalse(ok, "missing channel is a programming error")
+-- The semantic animation roles gameplay and the digest share: the one owner
+-- for the door open/close vocabulary, and the fixed-point frame unit every
+-- player and sampler in the animation runtime uses.
+function T.roles_and_frame_unit_are_the_shared_vocabulary()
+  Assert.equal(AnimationClip.ROLES.DOOR_OPEN, "door.open")
+  Assert.equal(AnimationClip.ROLES.DOOR_CLOSE, "door.close")
+  Assert.equal(AnimationClip.FRAME_UNIT, 4096)
 end
 
 return T

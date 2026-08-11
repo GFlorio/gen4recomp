@@ -94,15 +94,18 @@ function T.two_instances_animate_independently()
   local a, b = newInstance(), newInstance()
   a:play("door.open")
   b:play("door.open")
-  b.animationState:attachments("joint")[1].player:setDirection(-1)
   for _ = 1, 3 do
     a:updateFixed()
     b:updateFixed()
   end
+  for _ = 1, 4 do
+    a:updateFixed()
+  end
   a:evaluatePose()
   b:evaluatePose()
-  -- a at frame 3 (opening), b at frame 5 going backward (also opening);
-  -- their rotation cells must differ from each other and from the bind pose.
+  -- a at frame 7, b at frame 3: the shared clip cannot couple their
+  -- playback; their rotation cells must differ from each other and from the
+  -- bind pose.
   local ma, mb = swingCell(a), swingCell(b)
   Assert.isTrue(ma < 1 and mb < 1, "both instances rotated off the bind pose")
   Assert.isFalse(ma == mb, "per-instance playback state")
@@ -126,11 +129,13 @@ function T.stop_by_handle()
 end
 
 function T.play_validates_loop_options()
-  local instance = newInstance()
+  local instance = ModelInstance.new(NitroModelFixture.doorDefinition())
   local ok = pcall(instance.play, instance, "door.open", { loopMode = "bounce" })
   Assert.isFalse(ok, "unknown loop mode is a programming error")
-  ok = pcall(instance.play, instance, "door.open", { direction = 2 })
-  Assert.isFalse(ok, "direction must be +-1")
+  ok = pcall(instance.play, instance, "door.open", { direction = 1 })
+  Assert.isFalse(ok, "any direction option is rejected: reverse playback is cut")
+  ok = pcall(instance.play, instance, "door.open", { direction = -1 })
+  Assert.isFalse(ok, "any direction option is rejected: reverse playback is cut")
   Assert.equal(#instance.animationState:attachments("joint"), 0, "failed plays attach nothing")
 end
 
@@ -221,35 +226,36 @@ function T.nitro_backend_without_a_program_raises()
   Assert.equal(items[1].transform[1], 1)
 end
 
-function T.unknown_backend_source_raises()
-  local def = ModelDefinition.new({
-    key = "fixture:bad",
-    sourceBackend = "nitro",
-    nodes = {
-      {
-        index = 0,
-        name = "root",
-        translation = { x = 0, y = 0, z = 0 },
-        rotation = { 1, 0, 0, 0, 1, 0, 0, 0, 1 },
-        scale = { x = 1, y = 1, z = 1 },
+function T.the_source_backend_key_is_rejected_at_construction()
+  -- The sourceBackend abstraction is cut: a definition spec that still
+  -- carries the removed key is a stale-schema artifact (a definition is
+  -- nitro by construction).
+  throwsCode("MODEL_DEF_BAD_SOURCE_BACKEND", function()
+    return ModelDefinition.new({
+      key = "fixture:bad",
+      sourceBackend = "nitro",
+      nodes = {
+        {
+          index = 0,
+          name = "root",
+          translation = { x = 0, y = 0, z = 0 },
+          rotation = { 1, 0, 0, 0, 1, 0, 0, 0, 1 },
+          scale = { x = 1, y = 1, z = 1 },
+        },
       },
-    },
-    meshes = { { id = "m", nodeIndex = 0, materialIndex = 0, batch = { vertices = {}, indices = {} } } },
-    materials = {
-      {
-        id = 0,
-        name = "wall",
-        baseColor = { r = 255, g = 255, b = 255, a = 255 },
-        alphaMode = "opaque",
-        doubleSided = false,
+      meshes = { { id = "m", nodeIndex = 0, materialIndex = 0, batch = { vertices = {}, indices = {} } } },
+      materials = {
+        {
+          id = 0,
+          name = "wall",
+          baseColor = { r = 255, g = 255, b = 255, a = 255 },
+          alphaMode = "opaque",
+          doubleSided = false,
+        },
       },
-    },
-    animations = {},
-    backend = { program = nil, meshes = {} },
-  })
-  local instance = ModelInstance.new(def)
-  throwsCode("POSE_NITRO_NO_TRANSFORM_PROGRAM", function()
-    return instance:evaluatePose()
+      animations = {},
+      backend = { program = nil, meshes = {} },
+    })
   end)
 end
 

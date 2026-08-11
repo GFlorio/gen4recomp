@@ -172,16 +172,17 @@ function MapDoor:_play(role)
 end
 
 -- Whether the door's current animation has reached its end (the player's
--- HGSS checked-advance completion). Nil when nothing is playing -- a static
--- door, or a door that has not been opened or closed yet -- so a waiter
--- treats nil as "nothing to wait for". The handle is read from the tile's
--- retained index record, so any handle resolving this tile reports the same
--- finish state.
+-- single checked-advance completion: a once-clip finishes exactly when its
+-- frame reaches numFrame * FRAME_UNIT). Nil when nothing is playing -- a
+-- static door, or a door that has not been opened or closed yet -- so a
+-- waiter treats nil as "nothing to wait for". The handle is read from the
+-- tile's retained index record, so any handle resolving this tile reports
+-- the same finish state.
 function MapDoor:isFinished()
   if not self.instance or not self.entry.animation then
     return nil
   end
-  return self.entry.animation.player:atTerminal()
+  return self.entry.animation.player:isComplete()
 end
 
 -- Resolve the door at a field tile: the tile must carry a warp whose
@@ -284,9 +285,10 @@ function SceneProp:stop(animation)
   return self.instance:stop(animation)
 end
 
--- The HGSS checked-advance completion for the prop's play of `animation`,
--- or nil when nothing is playing (a static prop, or no play yet) -- a waiter
--- treats nil as "nothing to wait for".
+-- The player's single checked-advance completion for the prop's play of
+-- `animation` (a once-clip finishes exactly when its frame reaches numFrame *
+-- FRAME_UNIT), or nil when nothing is playing (a static prop, or no play
+-- yet) -- a waiter treats nil as "nothing to wait for".
 function SceneProp:isFinished(animation)
   if not self.instance then
     return nil
@@ -299,7 +301,7 @@ function SceneProp:isFinished(animation)
   if not attachment then
     return nil
   end
-  return attachment.player:atTerminal()
+  return attachment.player:isComplete()
 end
 
 -- Resolve the scripted-prop handle for a placement index, or nil when no

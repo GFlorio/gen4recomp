@@ -154,7 +154,6 @@ local function doorDefinition()
   }
   return ModelDefinition.new({
     key = "fixture:nitro-door",
-    sourceBackend = "nitro",
     nodes = {
       {
         index = 0,

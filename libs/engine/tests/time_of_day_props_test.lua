@@ -41,7 +41,6 @@ local function bandedDefinition(clips)
   local def = NitroModelFixture.doorDefinition(clips)
   return ModelDefinition.new({
     key = "fixture:sky",
-    sourceBackend = def.sourceBackend,
     nodes = def.nodes,
     meshes = def.meshes,
     materials = def.materials,
@@ -125,7 +124,7 @@ end
 
 local function playingNames(instance)
   local out = {}
-  for _, category in ipairs({ "joint", "material", "visibility" }) do
+  for _, category in ipairs({ "joint", "material" }) do
     for _, attachment in ipairs(instance.animationState:attachments(category)) do
       out[#out + 1] = attachment.clip.name
     end

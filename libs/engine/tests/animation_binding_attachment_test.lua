@@ -123,7 +123,6 @@ end
 local function definition()
   return ModelDefinition.new({
     key = "model:1",
-    sourceBackend = "nitro",
     nodes = { node(0), node(1), node(2), node(3), node(4), node(5) },
     meshes = {
       { id = "m0", nodeIndex = 0, materialIndex = 0, batch = { vertices = {}, indices = {} } },
@@ -300,6 +299,25 @@ function T.bad_priority_or_ratio_raises()
   end)
   throwsCode("ANIM_ATTACHMENT_BAD_RATIO", function()
     return state:attach(clip, { ratioFx = 0.5 })
+  end)
+end
+
+-- Field visibility animation does not exist: the category vocabulary is
+-- joint and material (the corpus references no NSBVA), so a clip carrying
+-- the visibility category is rejected at attach like any unknown category.
+-- (A plain-table clip, since AnimationClip.new itself rejects the category.)
+function T.state_attach_rejects_the_visibility_category()
+  local def = definition()
+  local state = ModelAnimationState.new(def)
+  throwsCode("ANIM_STATE_BAD_CATEGORY", function()
+    return state:attach({
+      id = "clip:vis",
+      name = "visibility",
+      category = "visibility",
+      kind = "trs",
+      frameCount = 4,
+      tracks = { { target = 0 } },
+    })
   end)
 end
 

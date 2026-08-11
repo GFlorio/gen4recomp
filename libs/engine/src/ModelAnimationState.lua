@@ -1,10 +1,13 @@
 -- ModelAnimationState: the per-instance collection of playing attachments,
--- kept in the same three attachment groups NitroSystem uses because the
+-- kept in the same two attachment groups NitroSystem uses because the
 -- groups do not combine state identically:
 --
 --   joint        -- NSBCA-style node transforms (blended)
 --   material     -- NSBTA/NSBTP/NSBMA material state (composed)
---   visibility   -- NSBVA node visibility (selection)
+--
+-- Field visibility animation does not exist (the corpus references no
+-- NSBVA), so there is no visibility group and the clip category vocabulary
+-- is joint and material.
 --
 -- Attachments are attached by clip category into the matching group and are
 -- independent of each other: any number of clips of any group can play
@@ -31,7 +34,7 @@ local AnimationPlayer = require("libs.engine.src.AnimationPlayer")
 local ModelAnimationState = {}
 ModelAnimationState.__index = ModelAnimationState
 
-ModelAnimationState.GROUPS = { "joint", "material", "visibility" }
+ModelAnimationState.GROUPS = { "joint", "material" }
 
 ModelAnimationState.DEFAULT_PRIORITY = 0x7F
 ModelAnimationState.DEFAULT_RATIO_FX = 0x1000
@@ -40,7 +43,7 @@ function ModelAnimationState.new(definition)
   assert(type(definition) == "table" and definition.key ~= nil, "ModelAnimationState.new requires a ModelDefinition")
   return setmetatable({
     definition = definition,
-    groups = { joint = {}, material = {}, visibility = {} },
+    groups = { joint = {}, material = {} },
   }, ModelAnimationState)
 end
 

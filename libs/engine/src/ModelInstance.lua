@@ -143,8 +143,9 @@ end
 -- Start playing a clip, resolved by name or semantic role (e.g.
 -- "door.open"). The binding comes from the definition's precomputed record;
 -- player setup happens here, once per play, never per frame. `opts` passes
--- through to the attachment: priority, ratioFx, loopMode, direction. Returns
--- the LIVE attachment as the handle (a plain table carrying
+-- through to the attachment: priority, ratioFx, loopMode. Reverse playback
+-- is cut: there is no direction option and a one-shot always plays forward
+-- from 0. Returns the LIVE attachment as the handle (a plain table carrying
 -- clip/binding/player/priority/ratioFx) for stop() -- there is no token
 -- layer. Every play attaches an independent player, so several clips can run
 -- simultaneously. A clip that binds no model element raises
@@ -162,13 +163,11 @@ function ModelInstance:play(nameOrSemantic, opts)
   if opts.loopMode then
     assert(AnimationPlayer.LOOP_MODES[opts.loopMode], "loopMode must be loop or once")
   end
+  assert(opts.direction == nil, "direction is not a play option: reverse playback is cut")
 
   local player = opts.player or AnimationPlayer.new(clip)
   if opts.loopMode then
     player.loopMode = opts.loopMode
-  end
-  if opts.direction then
-    player:setDirection(opts.direction)
   end
 
   return self.animationState:attach(clip, {

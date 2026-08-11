@@ -42,15 +42,21 @@ function T.the_play_handle_is_the_attachment_the_state_enumerates()
   Assert.isTrue(instance.animationState:attachments("joint")[1] == handle)
 end
 
-function T.completion_follows_hgss_frame_advance_and_check()
+-- The single completion notion: a once-clip finishes exactly when the
+-- retained handle's player reaches numFrame * FRAME_UNIT -- the checked
+-- advance's positive terminal (numFrame << 12) -- never at the last key
+-- frame one tick earlier.
+function T.completion_follows_the_checked_advance_terminal()
   local instance = ModelInstance.new(NitroModelFixture.doorDefinition())
-  local handle = instance:play("door.open")
-  -- Forward: finished only when the frame reaches the last frame.
+  local handle = instance:play("door.open", { loopMode = "once" })
   for _ = 1, 7 do
-    Assert.equal(handle.player:atTerminal(), false)
+    Assert.equal(handle.player:isComplete(), false)
     instance:updateFixed()
   end
-  Assert.equal(handle.player:atTerminal(), true, "the retained handle reaches the terminal frame")
+  Assert.equal(handle.player:isComplete(), false, "the checked advance is not done at the last key frame")
+  instance:updateFixed()
+  Assert.equal(handle.player.frameFx, 8 * 0x1000, "the terminal is exactly numFrame * FRAME_UNIT")
+  Assert.equal(handle.player:isComplete(), true, "the once clip reports done at the checked-advance terminal")
 end
 
 function T.stop_by_handle_detaches_the_attachment()
@@ -103,8 +109,11 @@ function T.play_rejects_bad_options()
   local instance = ModelInstance.new(NitroModelFixture.doorDefinition())
   local ok = pcall(instance.play, instance, "door.open", { loopMode = "bounce" })
   Assert.isFalse(ok, "unknown loop mode is a programming error")
-  ok = pcall(instance.play, instance, "door.open", { direction = 2 })
-  Assert.isFalse(ok, "direction must be +-1")
+  -- Reverse playback is cut: no direction option exists on the player.
+  ok = pcall(instance.play, instance, "door.open", { direction = 1 })
+  Assert.isFalse(ok, "any direction option is rejected: reverse playback is cut")
+  ok = pcall(instance.play, instance, "door.open", { direction = -1 })
+  Assert.isFalse(ok, "any direction option is rejected: reverse playback is cut")
   throwsCode("ANIM_ATTACHMENT_BAD_PRIORITY", function()
     return instance:play("door.open", { priority = 0x100 })
   end)

@@ -252,6 +252,9 @@ function T.door_at_finish_state_does_not_depend_on_handle_identity()
   for _ = 1, 7 do
     instances[1]:updateFixed()
   end
+  Assert.isFalse(door:isFinished(), "the checked advance is not done before the terminal")
+  instances[1]:updateFixed()
+  Assert.isTrue(door:isFinished(), "the door finishes exactly at numFrame * FRAME_UNIT")
   -- The tile's door state is not private to the handle that played it: a
   -- fresh resolution of the same tile observes the finished open. The
   -- retained play handle lives on the tile's index entry, so no handle
@@ -333,7 +336,9 @@ function T.open_plays_the_door_open_role_once_and_finishes()
   for _ = 1, 7 do
     instances[1]:updateFixed()
   end
-  Assert.isTrue(door:isFinished(), "the opened door reaches the last frame")
+  Assert.isFalse(door:isFinished(), "the checked advance is not done before the terminal")
+  instances[1]:updateFixed()
+  Assert.isTrue(door:isFinished(), "the opened door reaches the checked-advance terminal")
 end
 
 function T.close_stops_the_open_and_plays_close()
@@ -429,7 +434,7 @@ function T.prop_resolves_an_animated_placement_by_index()
   Assert.equal(prop.placementIndex, 1)
 
   -- The generic scripted surface: play by role or clip name, stop, and the
-  -- HGSS completion check.
+  -- HGSS completion check (finished exactly at numFrame * FRAME_UNIT).
   local handle = prop:play("door.open", { loopMode = "once" })
   Assert.equal(type(handle), "table", "prop:play returns the instance's attachment handle")
   local joint = instances[1].animationState:attachments("joint")
@@ -439,6 +444,8 @@ function T.prop_resolves_an_animated_placement_by_index()
   for _ = 1, 7 do
     instances[1]:updateFixed()
   end
+  Assert.isFalse(prop:isFinished("door.open"), "the checked advance is not done before the terminal")
+  instances[1]:updateFixed()
   Assert.isTrue(prop:isFinished("door.open"))
   prop:stop("door.open")
   Assert.equal(#instances[1].animationState:attachments("joint"), 0)
@@ -447,10 +454,12 @@ end
 function T.prop_play_accepts_clip_names_and_options()
   local props, instances = doorScene()
   local prop = assert(props:prop(1))
-  prop:play("DoorOpen", { ratioFx = 0x2000, direction = -1 })
+  prop:play("DoorOpen", { ratioFx = 0x2000 })
   local attachment = instances[1].animationState:attachments("joint")[1]
   Assert.equal(attachment.ratioFx, 0x2000)
-  Assert.equal(attachment.player.deltaFx, -4096)
+  Assert.equal(attachment.player.frameFx, 0, "play starts at frame 0, forward")
+  instances[1]:updateFixed()
+  Assert.equal(attachment.player.frameFx, 4096, "the clip always plays forward")
 end
 
 function T.prop_is_finished_is_nil_before_any_play()

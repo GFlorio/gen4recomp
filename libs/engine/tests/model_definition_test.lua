@@ -37,7 +37,6 @@ end
 local function definitionSpec()
   return {
     key = "model:test",
-    sourceBackend = "nitro",
     nodes = {
       {
         index = 0,
@@ -80,10 +79,27 @@ end
 function T.fixture_definition_is_valid()
   local def = NitroModelFixture.doorDefinition()
   Assert.equal(def.key, "fixture:nitro-door")
-  Assert.equal(def.sourceBackend, "nitro")
   Assert.equal(#def.nodes, 1)
   Assert.equal(#def.meshes, 1)
   Assert.equal(#def.animations, 2)
+end
+
+-- The sourceBackend abstraction is cut: the definition is nitro by
+-- construction, so a spec needs no backend key and the field does not exist.
+function T.new_requires_no_source_backend()
+  local def = ModelDefinition.new(definitionSpec())
+  Assert.equal(def.key, "model:test")
+  Assert.isNil(def.sourceBackend, "the sourceBackend abstraction is cut")
+end
+
+-- A spec that still carries the removed key is a stale-schema artifact and
+-- fails loudly at the load boundary.
+function T.new_rejects_a_source_backend_key()
+  local s = definitionSpec()
+  s.sourceBackend = "nitro"
+  throwsCode("MODEL_DEF_BAD_SOURCE_BACKEND", function()
+    return ModelDefinition.new(s)
+  end)
 end
 
 function T.validation_rejects_bad_shapes()
@@ -244,7 +260,6 @@ function T.from_nitro_descriptor_assembles_the_runtime_definition()
   }
   local def = ModelDefinition.fromNitroDescriptor(desc, { key = desc.key })
   Assert.equal(def.key, "outdoor:26:door")
-  Assert.equal(def.sourceBackend, "nitro")
   Assert.equal(#def.meshes, 1)
   Assert.equal(def.meshes[1].geometry, "assets/generated/maps/geometry/abc.g4mesh")
   local draw = def.backend.meshes["draw0.seg0"]
