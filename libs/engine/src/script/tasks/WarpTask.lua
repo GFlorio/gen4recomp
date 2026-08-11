@@ -2,11 +2,15 @@
 -- transition integrated with the field transition subsystem. The task starts
 -- the transition through the maps service, polls its completion (the
 -- transition is engine-owned asynchronous work), and graph continuation
--- follows the generic one-tick handoff. Warps are foreground-only.
+-- follows the generic one-tick handoff. Every scalar_or_value operand is
+-- evaluated against the world before the target is forwarded, and a failed
+-- transition yields a faulted result so the script never continues as though
+-- the warp succeeded. Warps are foreground-only.
 -- Pure domain module: no love dependency.
 
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
+local Runtime = require("libs.engine.src.script.Runtime")
 
 local WarpTask = {}
 
@@ -19,12 +23,13 @@ WarpTask.version = 1
 function WarpTask.create(spec, ctx)
   local node = assert(spec.node, "warp task requires its graph node")
   local maps = assert(ctx.services.maps, "warp task requires the maps service")
+  local run = { services = ctx.services, instance = ctx.instance }
   local target = {
-    map = node.map,
-    warp = node.warp,
-    fieldX = node.fieldX,
-    fieldZ = node.fieldZ,
-    facing = node.facing,
+    map = Runtime.evaluateValue(node.map, run),
+    warp = Runtime.evaluateValue(node.warp, run),
+    fieldX = Runtime.evaluateValue(node.fieldX, run),
+    fieldZ = Runtime.evaluateValue(node.fieldZ, run),
+    facing = Runtime.evaluateValue(node.facing, run),
   }
   maps:startWarp(target)
   return { target = target }
@@ -36,6 +41,25 @@ end
 function WarpTask.poll(state, ctx)
   local maps = assert(ctx.services.maps, "warp task requires the maps service")
   if maps:warpDone() then
+    local transitionError = maps:pendingError()
+    if transitionError ~= nil then
+      -- The transition failed while the screen was black: fault the script
+      -- instead of continuing as though the warp succeeded.
+      local fault
+      if Errors.is(transitionError) then
+        fault = transitionError
+      else
+        fault = Errors.new(ScriptErrors.SCRIPT_WARP_FAILED, tostring(transitionError), {
+          scriptId = ctx.instance.scriptId,
+          taskId = ctx.taskId,
+        })
+      end
+      return {
+        complete = true,
+        state = state,
+        result = { termination = "faulted", error = fault },
+      }
+    end
     return { complete = true, state = state, result = { warped = true } }
   end
   return { complete = false, state = state }

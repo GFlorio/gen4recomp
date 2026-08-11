@@ -197,6 +197,143 @@ function T.direct_warp_record_resolves_without_destination_warps()
   Assert.equal(result.fieldZ, 392)
 end
 
+-- A direct warp with no indexed destination warp derives its arrival surface
+-- from the terrain: the topmost walkable plate, never an unconditional
+-- zero-height hint (which would select the wrong floor on vertically stacked
+-- maps).
+function T.direct_warp_without_a_destination_warp_uses_the_topmost_surface()
+  local destination = runtimeMap(62, 672, 384, {}, {
+    {
+      id = 0,
+      minX = 0,
+      minZ = 0,
+      maxX = 32,
+      maxZ = 32,
+      normal = { x = 0, y = 1, z = 0 },
+      distance = 0,
+      slopeClass = "flat",
+    },
+    {
+      id = 1,
+      minX = 0,
+      minZ = 0,
+      maxX = 32,
+      maxZ = 32,
+      normal = { x = 0, y = 1, z = 0 },
+      distance = 3,
+      slopeClass = "flat",
+    },
+  })
+  local loader = {
+    load = function()
+      return destination
+    end,
+  }
+  local directWarp = {
+    index = 0,
+    x = 688,
+    z = 392,
+    destinationMapId = 62,
+    destinationWarpId = 9,
+    direct = true,
+  }
+  local result = WarpSystem.resolveDestination(loader, runtimeMap(60, 672, 384, {}), directWarp)
+  Assert.equal(result.surfaceId, 1, "the topmost walkable surface is the arrival floor")
+  Assert.equal(result.worldY, 3)
+end
+
+-- When the direct record names an indexed warp in the destination map, that
+-- warp's height is the authoritative hint -- exactly as in the indexed path --
+-- instead of the zero-height default.
+function T.direct_warp_surface_comes_from_the_named_destination_warp()
+  local destination = runtimeMap(62, 672, 384, {
+    { index = 2, x = 688, z = 392, destinationMapId = 61, destinationWarpId = 0, y = 48 },
+  }, {
+    {
+      id = 0,
+      minX = 0,
+      minZ = 0,
+      maxX = 32,
+      maxZ = 32,
+      normal = { x = 0, y = 1, z = 0 },
+      distance = 0,
+      slopeClass = "flat",
+    },
+    {
+      id = 1,
+      minX = 0,
+      minZ = 0,
+      maxX = 32,
+      maxZ = 32,
+      normal = { x = 0, y = 1, z = 0 },
+      distance = 3,
+      slopeClass = "flat",
+    },
+  })
+  local loader = {
+    load = function()
+      return destination
+    end,
+  }
+  local directWarp = {
+    index = 0,
+    x = 688,
+    z = 392,
+    destinationMapId = 62,
+    destinationWarpId = 2,
+    direct = true,
+  }
+  local result = WarpSystem.resolveDestination(loader, runtimeMap(60, 672, 384, {}), directWarp)
+  Assert.equal(result.surfaceId, 1, "the destination warp height (48/16) selects the upper floor")
+  Assert.equal(result.worldY, 3)
+end
+
+-- An explicit record y remains the caller's intent and beats the destination
+-- warp record.
+function T.direct_warp_record_y_is_honored_as_an_explicit_hint()
+  local destination = runtimeMap(62, 672, 384, {
+    { index = 2, x = 688, z = 392, destinationMapId = 61, destinationWarpId = 0, y = 48 },
+  }, {
+    {
+      id = 0,
+      minX = 0,
+      minZ = 0,
+      maxX = 32,
+      maxZ = 32,
+      normal = { x = 0, y = 1, z = 0 },
+      distance = 0,
+      slopeClass = "flat",
+    },
+    {
+      id = 1,
+      minX = 0,
+      minZ = 0,
+      maxX = 32,
+      maxZ = 32,
+      normal = { x = 0, y = 1, z = 0 },
+      distance = 3,
+      slopeClass = "flat",
+    },
+  })
+  local loader = {
+    load = function()
+      return destination
+    end,
+  }
+  local directWarp = {
+    index = 0,
+    x = 688,
+    z = 392,
+    y = 0,
+    destinationMapId = 62,
+    destinationWarpId = 2,
+    direct = true,
+  }
+  local result = WarpSystem.resolveDestination(loader, runtimeMap(60, 672, 384, {}), directWarp)
+  Assert.equal(result.surfaceId, 0, "an explicit record y pins the arrival surface")
+  Assert.equal(result.worldY, 0)
+end
+
 -- Record-variant dispatch order: a direct record is resolved by its own
 -- coordinates even when its destinationWarpId is the dynamic-warp sentinel.
 function T.direct_warp_record_bypasses_the_dynamic_sentinel()

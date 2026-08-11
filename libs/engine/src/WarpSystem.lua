@@ -91,6 +91,44 @@ local function loadDestination(loader, sourceMap, warp)
   error(result)
 end
 
+-- The arrival surface of a scripted direct warp. An explicit record `y` wins
+-- (the caller's intent), then the destination map's indexed warp named by the
+-- record (its height is authoritative, exactly as in the indexed path), then
+-- the topmost walkable terrain surface at the point. Never an unconditional
+-- zero-height hint: that selects the wrong floor on vertically stacked maps.
+---@param destinationMap table
+---@param warp table
+---@param localX number
+---@param localZ number
+---@return table sample
+local function directSurface(destinationMap, warp, localX, localZ)
+  local x = localX + FieldCoordinates.TILE_CENTER_OFFSET
+  local z = localZ + FieldCoordinates.TILE_CENTER_OFFSET
+  local hintY
+  if type(warp.y) == "number" then
+    hintY = warp.y
+  else
+    local destinationWarp = warps(destinationMap)[(warp.destinationWarpId or 0) + 1]
+    if destinationWarp ~= nil and destinationWarp.index == (warp.destinationWarpId or 0) then
+      hintY = destinationWarp.y / WARP_Y_SCALE
+    end
+  end
+  if hintY ~= nil then
+    return SurfaceResolver.new(destinationMap.terrain):resolve({ localX = x, localZ = z, currentY = hintY })
+  end
+  local best
+  for _, plate in ipairs(destinationMap.terrain:candidatesAt(x, z)) do
+    if plate.walkable ~= false then
+      local sample = destinationMap.terrain:sample(plate.id, x, z)
+      if best == nil or sample.worldY > best.worldY then
+        best = sample
+      end
+    end
+  end
+  assert(best, "warp destination has no walkable terrain surface at its coordinates")
+  return best
+end
+
 function WarpSystem.resolveDestination(loader, sourceMap, warp)
   assert(loader and loader.load, "warp destination loader required")
   assert(sourceMap and sourceMap.mapId and warp, "source map and warp required")
@@ -102,11 +140,7 @@ function WarpSystem.resolveDestination(loader, sourceMap, warp)
   if warp.direct then
     local destinationMap = loader.load(loader, warp.destinationMapId)
     local localX, localZ = FieldCoordinates.fieldToLocal(destinationMap, warp.x, warp.z)
-    local sample = SurfaceResolver.new(destinationMap.terrain):resolve({
-      localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
-      localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
-      currentY = 0,
-    })
+    local sample = directSurface(destinationMap, warp, localX, localZ)
     return resolutionRecord(sourceMap, warp, destinationMap, warp, warp.x, warp.z, sample)
   end
   if warp.destinationWarpId == WarpSystem.DYNAMIC_WARP_SENTINEL then

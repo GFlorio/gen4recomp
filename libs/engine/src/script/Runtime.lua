@@ -814,9 +814,9 @@ end
 HANDLERS.set_object_position = function(node, run)
   local actorId = Runtime.requireActor(node.actor, run)
   run.services.actors:setPosition(actorId, {
-    fieldX = node.fieldX,
-    fieldZ = node.fieldZ,
-    worldY = node.worldY,
+    fieldX = Runtime.evaluateValue(node.fieldX, run),
+    fieldZ = Runtime.evaluateValue(node.fieldZ, run),
+    worldY = Runtime.evaluateValue(node.worldY, run),
   })
   return Runtime.OUTCOME_CONTINUE
 end

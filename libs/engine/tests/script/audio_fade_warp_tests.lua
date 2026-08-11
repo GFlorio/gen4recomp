@@ -170,6 +170,10 @@ function FakeMapsBackend:warpDone()
   return not self.warping
 end
 
+function FakeMapsBackend:pendingError()
+  return nil
+end
+
 ---@class AwsHarness
 ---@field services FakeServices
 ---@field registry Registry
@@ -398,6 +402,127 @@ T["real maps service warp"] = function()
   )
 end
 
+-- 4c. Variable-backed warp operands: map, warp id, coordinates, and facing
+-- are scalar_or_value fields and must be evaluated against the world before
+-- the task forwards its target to the maps service.
+T["warp task evaluates variable-backed operands"] = function()
+  local h = harness({ maps = true })
+  local resource = script("test.warpvars", {
+    S.setVar({ variable = "VAR_WARP_MAP", value = 41 }),
+    S.setVar({ variable = "VAR_WARP_ID", value = 3 }),
+    S.setVar({ variable = "VAR_WARP_X", value = 700 }),
+    S.setVar({ variable = "VAR_WARP_Z", value = 420 }),
+    S.setVar({ variable = "VAR_WARP_FACING", value = "east" }),
+    S.warp({
+      map = S.var("VAR_WARP_MAP"),
+      warp = S.var("VAR_WARP_ID"),
+      fieldX = S.var("VAR_WARP_X"),
+      fieldZ = S.var("VAR_WARP_Z"),
+      facing = S.var("VAR_WARP_FACING"),
+    }),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
+    S.stop(),
+  })
+  startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  local target = h.maps.calls[1].target
+  Assert.equal(target.map, 41, "variable-backed map resolves to its world value")
+  Assert.equal(target.warp, 3)
+  Assert.equal(target.fieldX, 700)
+  Assert.equal(target.fieldZ, 420)
+  Assert.equal(target.facing, "east")
+  h.scheduler:step(101, nil)
+  h.scheduler:step(102, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+end
+
+-- 4d. A malformed warp operand (an unset local) faults the owning script with
+-- attribution instead of reaching the maps service arithmetic.
+T["warp task faults a malformed operand"] = function()
+  local h = harness({ maps = true })
+  local resource = S.script({
+    api = 1,
+    id = "test.warpbad",
+    locals = { never_set = "integer" },
+    steps = {
+      S.warp({
+        map = "MAP_NEW_BARK",
+        warp = 0,
+        fieldX = S.local_("never_set"),
+        fieldZ = 3,
+        facing = "north",
+      }),
+      S.setVar({ variable = "VAR_AFTER", value = 1 }),
+      S.stop(),
+    },
+  })
+  local instanceId = startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  local instance = assert(h.scheduler:instance(instanceId))
+  Assert.equal(instance.status, "faulted")
+  Assert.equal(instance.endReason, "SCRIPT_INVALID_REFERENCE")
+  Assert.equal(#h.maps.calls, 0, "the maps service must never see a malformed target")
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+end
+
+-- 4e. A failed scripted warp faults the script: the transition error is
+-- reported as a faulted task result, so the graph never continues as though
+-- the warp succeeded.
+T["failed scripted warp faults the script"] = function()
+  local ScriptMapsService = require("libs.engine.src.script.ScriptMapsService")
+  local transition = {
+    phase = "idle",
+    error = nil,
+    sourceMap = nil,
+  }
+  transition.start = function(self, sourceMap, warp, facing)
+    self.phase = "fade_out"
+    self.sourceMap = sourceMap
+    self.startedWarp = warp
+  end
+  local loader = {
+    load = function(_, symbol)
+      if symbol == "MAP_NEW_BARK" then
+        return { mapId = 60, coordinateOrigin = { x = 680, z = 390 } }
+      end
+      Errors.raise("FIELD_MAP_UNKNOWN", "no runtime map for " .. tostring(symbol), {})
+    end,
+  }
+  local maps = ScriptMapsService.new({
+    transition = transition,
+    loader = loader,
+    sourceMap = { mapId = 57 },
+  })
+  local h = harness({ maps = false })
+  h.services.maps = maps
+  local resource = script("test.warpfail", {
+    S.warp({
+      map = "MAP_NEW_BARK",
+      warp = 0,
+      fieldX = 4,
+      fieldZ = 3,
+      facing = "north",
+    }),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
+    S.stop(),
+  })
+  local instanceId = startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  Assert.notNil(transition.startedWarp)
+  -- The destination resolution fails while the screen is black.
+  transition.error = Errors.new("FIELD_DESTINATION_MAP_UNKNOWN", "destination map is unavailable", {
+    sourceMapId = 57,
+    destinationMapId = 60,
+  })
+  transition.phase = "idle"
+  transition.sourceMap = nil
+  h.scheduler:step(101, nil)
+  local instance = assert(h.scheduler:instance(instanceId))
+  Assert.equal(instance.status, "faulted")
+  Assert.equal(instance.endReason, "FIELD_DESTINATION_MAP_UNKNOWN")
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "the script must not continue as though the warp succeeded")
+end
+
 -- 5. Music and camera operations are same-tick passthroughs.
 T["music and camera same tick"] = function()
   local h = harness({ audio = true, camera = true })
@@ -436,6 +561,36 @@ T["background cannot warp"] = function()
   local instanceId = h.scheduler:createBackground(composed, nil, 100)
   h.scheduler:step(100, nil)
   Assert.equal(assert(h.scheduler:instance(instanceId)).endReason, "SCRIPT_BACKGROUND_FORBIDDEN")
+end
+
+-- 7. set_object_position accepts variable-backed coordinates: the scalar_or_
+-- value fields are evaluated against the world before reaching the actors.
+T["set object position evaluates variable-backed coordinates"] = function()
+  local h = harness()
+  h.services.actors:add("elm", { fieldX = 4, fieldZ = 5, worldY = 0, facing = "north" })
+  local resource = S.script({
+    api = 1,
+    id = "test.objpos",
+    locals = { z = "integer" },
+    steps = {
+      S.setVar({ variable = "VAR_X", value = 12 }),
+      S.setVar({ variable = "VAR_Y", value = 2.5 }),
+      S.setLocal({ name = "z", value = 7 }),
+      S.setObjectPosition({
+        actor = "elm",
+        fieldX = S.var("VAR_X"),
+        fieldZ = S.local_("z"),
+        worldY = S.var("VAR_Y"),
+      }),
+      S.stop(),
+    },
+  })
+  startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  local position = h.services.actors:getPosition("elm")
+  Assert.equal(position.fieldX, 12)
+  Assert.equal(position.fieldZ, 7)
+  Assert.equal(position.worldY, 2.5)
 end
 
 return T

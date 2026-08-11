@@ -18,6 +18,7 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field private _loader table FieldMapLoader-shaped
 ---@field private _sourceMap table RuntimeFieldMap
 ---@field private _pending table|nil
+---@field private _error any|nil
 local ScriptMapsService = {}
 ScriptMapsService.__index = ScriptMapsService
 
@@ -33,6 +34,7 @@ function ScriptMapsService.new(opts)
     _loader = opts.loader,
     _sourceMap = opts.sourceMap,
     _pending = nil,
+    _error = nil,
   }, ScriptMapsService)
 end
 
@@ -121,17 +123,18 @@ function ScriptMapsService:startWarp(target)
     index = warpId,
     x = origin.x + target.fieldX,
     z = origin.z + target.fieldZ,
-    y = 0,
     destinationMapId = destination.mapId,
     destinationWarpId = warpId,
     direct = true,
   }
   self._pending = warp
+  self._error = nil
   self._transition:start(self._sourceMap, warp, target.facing)
 end
 
 -- True when the started warp has run its course: the application consumed
--- the finished swap and the transition returned to idle (or faulted).
+-- the finished swap and the transition returned to idle (or faulted). A
+-- transition failure is captured so the warp task can fault its script.
 ---@return boolean
 function ScriptMapsService:warpDone()
   if self._pending == nil then
@@ -139,6 +142,7 @@ function ScriptMapsService:warpDone()
   end
   local transition = self._transition
   if transition.error ~= nil then
+    self._error = transition.error
     self._pending = nil
     return true
   end
@@ -147,6 +151,13 @@ function ScriptMapsService:warpDone()
     return true
   end
   return false
+end
+
+-- The captured failure of the pending warp, or nil on success. The warp task
+-- converts it into a faulted task result.
+---@return any|nil
+function ScriptMapsService:pendingError()
+  return self._error
 end
 
 return ScriptMapsService
