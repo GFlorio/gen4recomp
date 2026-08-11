@@ -17,6 +17,7 @@ local Scheduler = require("libs.engine.src.script.Scheduler")
 local ScriptSave = require("libs.engine.src.script.ScriptSave")
 local ScriptTask = require("libs.engine.src.script.ScriptTask")
 local ScriptInstance = require("libs.engine.src.script.ScriptInstance")
+local ScriptEnvironment = require("libs.engine.src.script.ScriptEnvironment")
 local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
 local ChildScriptTask = require("libs.engine.src.script.tasks.ChildScriptTask")
 local FakeServices = require("tests.support.script.FakeServices")
@@ -777,6 +778,46 @@ T["instance records rebase the creation tick with the ready deadline"] = functio
   local restored = ScriptInstance.restore(record, 0, { r1 = graph })
   Assert.equal(restored.createdAtTick, -1)
   Assert.equal(restored.readyAtTick, 0)
+end
+
+-- The environment record carries the same relative creation offset, so a
+-- restored environment's creation tick is rebased from the load tick instead
+-- of reading as a pre-restart absolute tick. An environment captured at its
+-- creation tick carries offset 0, restoring exactly at the load boundary;
+-- restoring at the capture tick is the identity.
+T["environment records rebase the creation tick"] = function()
+  local createdThisTick = ScriptEnvironment.new({
+    environmentId = "e1",
+    mode = "foreground",
+    createdAtTick = 100,
+  }):capture(100)
+  Assert.equal(createdThisTick.createdAtInTicks, 0)
+  Assert.equal(createdThisTick.createdAtTick, 100, "the absolute tick stays as a diagnostic")
+  local restoredAtLoad = ScriptEnvironment.restore(createdThisTick, 0)
+  Assert.equal(restoredAtLoad.createdAtTick, 0)
+  local restoredIdentity = ScriptEnvironment.restore(createdThisTick, 100)
+  Assert.equal(restoredIdentity.createdAtTick, 100)
+
+  local midSim = ScriptEnvironment.new({
+    environmentId = "e2",
+    mode = "background",
+    createdAtTick = 100,
+  }):capture(102)
+  Assert.equal(midSim.createdAtInTicks, -2)
+  local restoredMidSim = ScriptEnvironment.restore(midSim, 0)
+  Assert.equal(restoredMidSim.createdAtTick, -2)
+end
+
+-- An environment record without the creation offset (an older save shape)
+-- still restores: the load tick is the creation-tick fallback.
+T["environment records without a creation offset restore at the load boundary"] = function()
+  local record = {
+    environmentId = "e1",
+    mode = "foreground",
+    createdAtTick = 100,
+  }
+  local restored = ScriptEnvironment.restore(record, 0)
+  Assert.equal(restored.createdAtTick, 0)
 end
 
 return T

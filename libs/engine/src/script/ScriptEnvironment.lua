@@ -275,8 +275,12 @@ function ScriptEnvironment:releaseLocksFor(ownerId)
 end
 
 -- Deterministic serialization: only the owner-counted lock map survives.
+-- Absolute runtime ticks are diagnostics; the creation tick becomes a
+-- relative delay rebased at capture time `captureTick`.
+---@param captureTick integer
 ---@return table
-function ScriptEnvironment:capture()
+function ScriptEnvironment:capture(captureTick)
+  assert(captureTick ~= nil, "capture tick required")
   local locks = {}
   for key, entry in pairs(self.locks) do
     locks[key] = { count = entry.count, owners = {} }
@@ -294,11 +298,13 @@ function ScriptEnvironment:capture()
     callerSignals = self.callerSignals,
     locks = locks,
     createdAtTick = self.createdAtTick,
+    createdAtInTicks = self.createdAtTick - captureTick,
   }
 end
 
 -- Rebuild an environment from the save schema. Task references are reattached
--- by the scheduler after task records restore.
+-- by the scheduler after task records restore. `restoreTick` is the load tick;
+-- the creation tick is rebased from the relative delay.
 ---@param record table
 ---@param restoreTick integer
 ---@return ScriptEnvironment
@@ -306,7 +312,7 @@ function ScriptEnvironment.restore(record, restoreTick)
   local environment = ScriptEnvironment.new({
     environmentId = record.environmentId,
     mode = record.mode,
-    createdAtTick = record.createdAtTick,
+    createdAtTick = restoreTick + (record.createdAtInTicks or 0),
   })
   environment.rootInstanceId = record.rootInstanceId
   environment.contextSlots = record.contextSlots or {}

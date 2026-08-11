@@ -28,7 +28,7 @@ function ScriptSave.capture(scheduler, tick, opts)
   end
   local environments = {}
   for _, environment in ipairs(scheduler:environments()) do
-    environments[#environments + 1] = environment:capture()
+    environments[#environments + 1] = environment:capture(tick)
   end
   local instances = {}
   for _, instance in ipairs(scheduler:liveInstances()) do
