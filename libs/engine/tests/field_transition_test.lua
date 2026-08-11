@@ -6,7 +6,16 @@
 -- rollback). The explicit door choreography facts (sourceKind, sourceDoor,
 -- destinationDoor, needsDestinationEgress). Door-kind warps with an
 -- unresolvable door or ingress step, and egress steps without a terrain
--- destination are data-contract failures and raise.
+-- destination are data-contract failures and raise. The door choreography
+-- pins the
+-- HGSS event order -- open-start, open-finished, player-step-start,
+-- player-step-finished, close-start, close-finished -- with the fade
+-- orthogonal where HGSS overlaps it: the ingress begins only after the
+-- source door finished opening, the destination egress begins only after
+-- the destination door finished opening, and the close begins only after
+-- the egress movement finished. Door-kind warps with an unresolvable door
+-- or ingress step, and egress steps without a terrain destination, are
+-- data-contract failures and raise.
 
 local Assert = require("tests.support.Assert")
 local FieldTransition = require("libs.engine.src.FieldTransition")
@@ -321,49 +330,111 @@ end
 -- ---- door source/destination choreography ----
 
 -- A door handle stub with the MapDoor contract: `instance` present for
--- animated doors (the transition waits on their close), absent for static
--- ones (close has nothing to wait for).
-local function doorStub(animated)
+-- animated doors (the transition waits on their clips), absent for static
+-- ones (nothing to wait for). `advance(ticks)` simulates the session
+-- advancing the scene's animated instances: an open or close clip lasts
+-- `frames` ticks, and isFinished() reports false while it runs, true once
+-- it reaches its end, and nil for a static door. Every clip event lands in
+-- `events`, and in `trace` when one is shared across stubs.
+local function doorStub(opts)
+  opts = opts or {}
   local door = {
-    instance = animated ~= false and {} or nil,
+    instance = opts.animated ~= false and {} or nil,
+    frames = opts.frames or 8,
     opened = 0,
     closed = 0,
-    open = function(self)
-      self.opened = self.opened + 1
-      self.finished = false
-    end,
-    close = function(self)
-      self.closed = self.closed + 1
-      self.finished = false
-    end,
-    isFinished = function(self)
-      if not self.instance then
-        return nil
-      end
-      return self.finished
-    end,
+    events = {},
+    trace = opts.trace,
+    role = nil,
+    remaining = 0,
   }
+  local function record(self, event)
+    self.events[#self.events + 1] = event
+    if self.trace then
+      self.trace[#self.trace + 1] = event
+    end
+  end
+  function door:open()
+    self.opened = self.opened + 1
+    if not self.instance then
+      return
+    end
+    record(self, "open-start")
+    self.role = "door.open"
+    self.remaining = self.frames
+  end
+  function door:close()
+    self.closed = self.closed + 1
+    if not self.instance then
+      return
+    end
+    record(self, "close-start")
+    self.role = "door.close"
+    self.remaining = self.frames
+  end
+  function door:advance(ticks)
+    for _ = 1, ticks do
+      if self.remaining > 0 then
+        self.remaining = self.remaining - 1
+        if self.remaining == 0 then
+          record(self, self.role == "door.open" and "open-finished" or "close-finished")
+        end
+      end
+    end
+  end
+  function door:isFinished()
+    if not self.instance or not self.role then
+      return nil
+    end
+    return self.remaining == 0
+  end
   return door
 end
 
 -- A player stub with the locomotion contract the choreography drives:
--- scriptedStep begins a scripted walk, updateFixed advances it.
-local function stubPlayer()
+-- scriptedStep begins a scripted walk lasting `stepTicks` ticks, updateFixed
+-- advances it and reports the commit like FieldPlayer (true only on the
+-- final tick), and the step start/finish land in `trace` when shared.
+-- `stepTicks` may be a number or a per-step list (e.g. a short ingress and
+-- a long egress), so a test can stretch only the step it is probing.
+local function stubPlayer(opts)
+  opts = opts or {}
   local p = {
     motion = "idle",
     facing = "south",
     steps = {},
     updates = 0,
+    stepTicks = opts.stepTicks or 8,
+    remaining = 0,
+    trace = opts.trace,
     scriptedStep = function(self, direction)
+      assert(self.motion == "idle", "cannot begin a scripted step while walking")
       self.steps[#self.steps + 1] = direction
+      local duration = self.stepTicks
+      if type(duration) == "table" then
+        duration = duration[#self.steps] or duration[#duration]
+      end
+      self.remaining = duration
       self.motion = "walking"
       self.facing = direction
+      if self.trace then
+        self.trace[#self.trace + 1] = "step-start"
+      end
       return true
     end,
     updateFixed = function(self)
+      assert(self.motion == "walking", "the choreography advances a walking step")
       self.updates = self.updates + 1
-      self.motion = "idle"
-      return true
+      self.remaining = self.remaining - 1
+      if self.remaining <= 0 then
+        self.motion = "idle"
+        self.remaining = 0
+        if self.trace then
+          self.trace[#self.trace + 1] = "step-finished"
+        end
+        return true
+      end
+      return false
     end,
   }
   return p
@@ -450,9 +521,66 @@ local function runTicks(transition, n)
   end
 end
 
+-- One choreography tick: the transition advances first, then the door
+-- stubs' clips advance -- mirroring the session, which advances the
+-- transition and then the scene's animated instances.
+local function tick(transition, doors)
+  transition:updateFixed()
+  for _, door in ipairs(doors or {}) do
+    door:advance(1)
+  end
+end
+
+-- Advance the choreography until `predicate` holds or the tick budget runs
+-- out; asserts the budget did not.
+local function runUntil(transition, doors, predicate, maxTicks)
+  local ticks = 0
+  while not predicate() and ticks < maxTicks do
+    tick(transition, doors)
+    ticks = ticks + 1
+  end
+  Assert.isTrue(predicate(), "the choreography reaches the awaited state within the tick budget")
+end
+
 local DOOR_WARP = { index = 0, x = 4, z = 14, destinationMapId = 60, destinationWarpId = 0, y = 0 }
 
-function T.door_source_opens_and_ingresses_before_the_black_swap()
+-- The full door warp as the review's ordered event trace: open-start,
+-- open-finished, player-step-start, player-step-finished, close-start,
+-- close-finished -- in that order on each side, with the swap between the
+-- two sides and the fade orthogonal.
+function T.door_choreography_runs_the_hgss_event_order()
+  local trace = {}
+  local sourceDoor = doorStub({ trace = trace })
+  local destinationDoor = doorStub({ trace = trace })
+  local player = stubPlayer({ trace = trace })
+  local transition
+  local source
+  transition, source = transitionFixture({
+    doorAt = function(runtimeMap)
+      if runtimeMap == source then
+        return sourceDoor
+      end
+      return destinationDoor
+    end,
+    player = player,
+  })
+  transition:start(source, DOOR_WARP, "south")
+  runUntil(transition, { sourceDoor, destinationDoor }, function()
+    return transition.phase == "idle"
+  end, 300)
+  Assert.equal(transition.phase, "idle")
+  Assert.isFalse(transition.locked)
+  local observedTrace = table.concat(trace, ",")
+  Assert.equal(
+    observedTrace,
+    "open-start,open-finished,step-start,step-finished,"
+      .. "open-start,open-finished,step-start,step-finished,"
+      .. "close-start,close-finished",
+    "the door choreography follows the HGSS event order (got: " .. observedTrace .. ")"
+  )
+end
+
+function T.source_door_waits_for_the_open_before_the_ingress()
   local sourceDoor = doorStub()
   local player = stubPlayer()
   local transition
@@ -474,32 +602,52 @@ function T.door_source_opens_and_ingresses_before_the_black_swap()
   Assert.equal(transition.sourceDoor, sourceDoor)
   Assert.isNil(transition.destinationDoor, "the destination door is not resolved before load")
   Assert.equal(sourceDoor.opened, 1, "the source door opens at transition start")
-  Assert.deepEqual(player.steps, { "south" }, "the ingress step begins immediately")
-  Assert.equal(player.motion, "walking")
+  Assert.equal(sourceDoor.closed, 0, "the source door never closes on the source side")
+  Assert.equal(#player.steps, 0, "the ingress waits for the door to finish opening")
+  Assert.equal(player.motion, "idle")
   Assert.isFalse(transition.needsDestinationEgress, "egress need is decided at load")
 
-  local playerAdvanced = transition:updateFixed()
-  Assert.isTrue(playerAdvanced, "a mid-step tick reports locomotion")
-  Assert.equal(player.updates, 1)
-  Assert.isTrue(transition.fadeAlpha > 0)
-  -- The step lasts eight ticks, well inside the fade; the remaining fade
-  -- ticks idle the player.
-  for _ = 1, FADE - 1 do
-    transition:updateFixed()
+  -- The opening clip runs inside the fade; the player stays at the anchor
+  -- and the transition reports no locomotion while it runs.
+  for _ = 1, sourceDoor.frames do
+    Assert.isFalse(transition:updateFixed(), "the open wait reports no locomotion")
+    sourceDoor:advance(1)
+    Assert.equal(transition.phase, "fade_out")
+    Assert.equal(#player.steps, 0, "the player does not step while the door opens")
+    Assert.equal(player.updates, 0)
   end
-  Assert.equal(transition.phase, "load_destination")
-  Assert.equal(transition.fadeAlpha, 1)
-  Assert.equal(#swaps, 0, "no swap before full black")
+  Assert.equal(sourceDoor.events[#sourceDoor.events], "open-finished", "the opening clip reached its end")
+
+  transition:updateFixed()
+  Assert.deepEqual(player.steps, { "south" }, "the ingress begins only after the door finished opening")
+  Assert.equal(player.motion, "walking")
+  Assert.isTrue(transition.fadeAlpha > 0, "the fade runs concurrently with the choreography")
+
+  local walkingTicks = 0
+  while player.motion == "walking" and walkingTicks < 64 do
+    Assert.isTrue(transition:updateFixed(), "a walking tick reports locomotion")
+    sourceDoor:advance(1)
+    walkingTicks = walkingTicks + 1
+  end
+  Assert.equal(walkingTicks, player.stepTicks, "the ingress walks a full step")
+
+  -- The swap waits for the completed ingress at full black.
+  runUntil(transition, { sourceDoor }, function()
+    return transition.phase == "swap_map"
+  end, 200)
+  Assert.equal(transition.fadeAlpha, 1, "the map swaps only at full black")
+  Assert.equal(player.motion, "idle", "the ingress finished before the swap")
+  Assert.equal(#swaps, 0, "no swap before the choreography completes")
   transition:updateFixed()
   Assert.isTrue(transition.needsDestinationEgress, "a door source always egresses")
   transition:updateFixed()
   Assert.equal(transition.phase, "fade_in")
   Assert.equal(#swaps, 1)
   Assert.equal(swaps[1].facing, "south")
-  for _ = 1, FADE do
-    transition:updateFixed()
-  end
-  Assert.equal(transition.phase, "idle")
+
+  runUntil(transition, {}, function()
+    return transition.phase == "idle"
+  end, 200)
   Assert.isFalse(transition.locked)
   Assert.isNil(transition.sourceDoor)
   Assert.equal(sourceDoor.closed, 0, "the source door never closes; the map is discarded")
@@ -508,13 +656,23 @@ function T.door_source_opens_and_ingresses_before_the_black_swap()
     { "south", "south" },
     "the destination egress walks off the anchor even without a door"
   )
-  Assert.equal(player.updates, 2)
+  Assert.equal(player.updates, 2 * player.stepTicks, "both scripted steps walk to completion")
+  Assert.notNil(transition:consumeCompleted())
 end
 
-function T.destination_door_opens_egresses_closes_and_waits_for_completion()
+function T.destination_door_waits_for_the_open_then_the_egress_then_closes()
+  -- The destination sequence is fully ordered: the door opens at the swap,
+  -- the egress begins only after the opening finished, the close begins
+  -- only after the egress movement finished (not at the end of the
+  -- fade-in), and the close completion gates the unlock. The egress step
+  -- is made longer than the fade-in so the close-vs-movement ordering is
+  -- observable even when the movement outlasts the fade.
   local sourceDoor = doorStub()
   local destinationDoor = doorStub()
-  local player = stubPlayer()
+  -- A short ingress (so the current implementation reaches the swap at
+  -- rest) and an egress longer than the fade-in, so the close-vs-movement
+  -- ordering is observable even when the movement outlasts the fade.
+  local player = stubPlayer({ stepTicks = { 8, 30 } })
   local transition
   local source
   transition, source = transitionFixture({
@@ -527,25 +685,51 @@ function T.destination_door_opens_egresses_closes_and_waits_for_completion()
     player = player,
   })
   transition:start(source, DOOR_WARP, "south")
-  runTicks(transition, FADE)
-  Assert.equal(transition.phase, "load_destination")
-  transition:updateFixed()
-  Assert.equal(transition.destinationDoor, destinationDoor)
-  Assert.equal(transition.phase, "swap_map")
+  runUntil(transition, { sourceDoor, destinationDoor }, function()
+    return transition.phase == "swap_map"
+  end, 200)
+  Assert.equal(transition.destinationDoor, destinationDoor, "the destination door is resolved at load")
   transition:updateFixed()
   Assert.equal(transition.phase, "fade_in")
-  Assert.equal(destinationDoor.opened, 1, "the destination door opens after the swap")
-  Assert.deepEqual(player.steps, { "south", "south" }, "the egress step follows the transition direction")
-  Assert.equal(player.motion, "walking")
-  runTicks(transition, FADE)
-  Assert.equal(transition.phase, "door_close")
-  Assert.isTrue(transition.locked, "input stays locked while the door closes")
-  Assert.equal(destinationDoor.closed, 1, "the destination door closes after the fade-in")
+  Assert.equal(destinationDoor.opened, 1, "the destination door opens at the swap")
+  Assert.equal(#player.steps, 1, "the egress waits for the destination door to finish opening")
+  Assert.equal(player.motion, "idle")
 
-  transition:updateFixed()
+  for _ = 1, destinationDoor.frames do
+    tick(transition, { sourceDoor, destinationDoor })
+    Assert.equal(#player.steps, 1, "the egress still waits while the door opens")
+  end
+  Assert.equal(
+    destinationDoor.events[#destinationDoor.events],
+    "open-finished",
+    "the destination opening reached its end"
+  )
+
+  tick(transition, { sourceDoor, destinationDoor })
+  Assert.deepEqual(player.steps, { "south", "south" }, "the egress begins after the destination door finished opening")
+  Assert.equal(player.motion, "walking")
+
+  -- The movement outlasts the fade-in: the close must still wait for it.
+  runUntil(transition, { sourceDoor, destinationDoor }, function()
+    return transition.fadeAlpha == 0
+  end, 100)
+  Assert.equal(player.motion, "walking", "the egress movement outlasts the fade-in")
+  Assert.equal(destinationDoor.closed, 0, "the close waits for the egress movement, not the fade")
+
+  runUntil(transition, { sourceDoor, destinationDoor }, function()
+    return destinationDoor.closed == 1
+  end, 100)
+  Assert.equal(player.motion, "idle", "the close begins only after the egress movement finished")
   Assert.equal(transition.phase, "door_close", "the close completion gates the unlock")
-  destinationDoor.finished = true
-  transition:updateFixed()
+  Assert.isTrue(transition.locked, "input stays locked while the door closes")
+
+  for _ = 1, destinationDoor.frames - 1 do
+    tick(transition, { sourceDoor, destinationDoor })
+    Assert.equal(transition.phase, "door_close", "the unlock waits for the close animation")
+  end
+  tick(transition, { sourceDoor, destinationDoor })
+  Assert.equal(destinationDoor.events[#destinationDoor.events], "close-finished", "the closing clip reached its end")
+  tick(transition, { sourceDoor, destinationDoor })
   Assert.equal(transition.phase, "idle")
   Assert.isFalse(transition.locked)
   Assert.notNil(transition:consumeCompleted())
@@ -554,7 +738,7 @@ end
 function T.destination_door_alone_activates_the_choreography()
   -- The Elm Lab exit pattern: the source warp tile is an entrance (101), not
   -- a door, but the destination tile resolves a door -- the choreography
-  -- activates at load and the destination sequence still runs.
+  -- activates at load and the destination sequence still runs in order.
   local destinationDoor = doorStub()
   local player = stubPlayer()
   local transition
@@ -572,40 +756,73 @@ function T.destination_door_alone_activates_the_choreography()
   transition:start(source, DOOR_WARP, "south")
   Assert.equal(transition.sourceKind, "directional", "an entrance source is not a door")
   Assert.equal(#player.steps, 0, "no ingress step without a source door")
-  runTicks(transition, FADE)
-  Assert.equal(transition.phase, "load_destination")
-  transition:updateFixed()
-  Assert.isTrue(transition.needsDestinationEgress, "the destination door alone activates the egress")
+  runUntil(transition, { destinationDoor }, function()
+    return transition.phase == "swap_map"
+  end, 100)
+  Assert.equal(transition.fadeAlpha, 1)
   transition:updateFixed()
   Assert.equal(transition.phase, "fade_in")
-  Assert.equal(destinationDoor.opened, 1)
-  Assert.deepEqual(player.steps, { "south" }, "the egress step resolves the blocked anchor")
-  runTicks(transition, FADE)
-  Assert.equal(transition.phase, "door_close")
-  Assert.equal(destinationDoor.closed, 1)
-  destinationDoor.finished = true
-  transition:updateFixed()
+  Assert.equal(destinationDoor.opened, 1, "the destination door opens at the swap")
+  Assert.equal(#player.steps, 0, "the egress waits for the destination door to finish opening")
+  Assert.equal(player.motion, "idle")
+
+  for _ = 1, destinationDoor.frames do
+    tick(transition, { destinationDoor })
+    Assert.equal(#player.steps, 0, "the egress still waits while the door opens")
+  end
+  tick(transition, { destinationDoor })
+  Assert.deepEqual(player.steps, { "south" }, "the egress begins after the door finished opening")
+
+  runUntil(transition, { destinationDoor }, function()
+    return transition.phase == "idle"
+  end, 100)
+  Assert.equal(destinationDoor.closed, 1, "the door closes after the egress")
   Assert.equal(transition.phase, "idle")
   Assert.isFalse(transition.locked)
+  Assert.notNil(transition:consumeCompleted())
 end
 
 function T.static_destination_door_does_not_block_the_unlock()
-  local staticDoor = doorStub(false)
+  local sourceDoor = doorStub()
+  local staticDoor = doorStub({ animated = false })
+  -- A short ingress and an egress longer than the fade-in, so the
+  -- close-vs-movement ordering is observable for the static door too.
+  local player = stubPlayer({ stepTicks = { 8, 30 } })
   local transition
   local source
   transition, source = transitionFixture({
     doorAt = function(runtimeMap)
       if runtimeMap == source then
-        return doorStub()
+        return sourceDoor
       end
       return staticDoor
     end,
-    player = stubPlayer(),
+    player = player,
   })
   transition:start(source, DOOR_WARP, "south")
-  runTicks(transition, FADE + 1 + 1 + FADE)
-  Assert.equal(transition.phase, "idle")
-  Assert.equal(staticDoor.closed, 1)
+  runUntil(transition, { sourceDoor }, function()
+    return transition.phase == "swap_map"
+  end, 200)
+  transition:updateFixed()
+  Assert.equal(transition.phase, "fade_in")
+  -- A static door (no animation) has nothing to wait for: the egress begins
+  -- at the swap.
+  Assert.deepEqual(player.steps, { "south", "south" }, "the egress begins at the swap for a static door")
+
+  runUntil(transition, {}, function()
+    return transition.fadeAlpha == 0
+  end, 100)
+  Assert.equal(player.motion, "walking", "the egress movement outlasts the fade-in")
+  Assert.equal(staticDoor.closed, 0, "the close waits for the egress movement, not the fade")
+
+  runUntil(transition, {}, function()
+    return staticDoor.closed == 1
+  end, 100)
+  Assert.equal(player.motion, "idle", "the close begins only after the egress movement finished")
+  runUntil(transition, {}, function()
+    return transition.phase == "idle"
+  end, 100)
+  Assert.equal(staticDoor.closed, 1, "the static door close is attempted once")
   Assert.isFalse(transition.locked, "a static door (no animation) has nothing to wait for")
 end
 
@@ -624,12 +841,16 @@ function T.missing_source_door_is_a_data_contract_failure()
 end
 
 function T.failed_ingress_step_is_a_data_contract_failure()
+  -- The ingress step is attempted only after the source door finished
+  -- opening, so the failure surfaces when the choreography reaches the
+  -- ingress -- not at transition start.
+  local sourceDoor = doorStub()
   local transition
   local source
   transition, source = transitionFixture({
     doorAt = function(runtimeMap)
       if runtimeMap == source then
-        return doorStub()
+        return sourceDoor
       end
       return nil
     end,
@@ -641,9 +862,59 @@ function T.failed_ingress_step_is_a_data_contract_failure()
       end,
     },
   })
-  local ok, err = pcall(transition.start, transition, source, DOOR_WARP, "south")
+  local okStart, errStart = pcall(transition.start, transition, source, DOOR_WARP, "south")
+  Assert.isTrue(okStart, "the door opens before the ingress is attempted")
+  Assert.isNil(errStart)
+  for _ = 1, sourceDoor.frames do
+    tick(transition, { sourceDoor })
+  end
+  local ok, err = pcall(transition.updateFixed, transition)
   Assert.isFalse(ok, "an ingress step with no terrain destination raises")
   Assert.equal(type(err) == "table" and err.code or err, "MAP_TRANSITION_INGRESS_FAILED")
+  Assert.equal(transition.phase, "idle", "a pre-commit ingress failure aborts safely")
+  Assert.equal(transition.error, err)
+end
+
+function T.failed_egress_step_is_a_data_contract_failure()
+  -- The egress step is attempted only after the destination door finished
+  -- opening, so the failure surfaces when the choreography reaches it on the
+  -- destination side -- not at the swap. Because this is after the ownership
+  -- commit, it propagates as a fatal fault instead of pretending to roll back.
+  local sourceDoor = doorStub()
+  local destinationDoor = doorStub()
+  local player = stubPlayer()
+  local innerStep = player.scriptedStep
+  player.scriptedStep = function(self, direction)
+    if #self.steps == 1 then
+      return false
+    end
+    return innerStep(self, direction)
+  end
+  local transition
+  local source
+  transition, source = transitionFixture({
+    doorAt = function(runtimeMap)
+      if runtimeMap == source then
+        return sourceDoor
+      end
+      return destinationDoor
+    end,
+    player = player,
+  })
+  transition:start(source, DOOR_WARP, "south")
+  runUntil(transition, { sourceDoor, destinationDoor }, function()
+    return transition.phase == "swap_map"
+  end, 200)
+  transition:updateFixed()
+  Assert.equal(transition.phase, "fade_in")
+  for _ = 1, destinationDoor.frames do
+    tick(transition, { sourceDoor, destinationDoor })
+  end
+  local ok, err = pcall(transition.updateFixed, transition)
+  Assert.isFalse(ok, "an egress step with no terrain destination raises")
+  Assert.equal(type(err) == "table" and err.code or err, "MAP_TRANSITION_EGRESS_FAILED")
+  Assert.equal(transition.phase, "fade_in")
+  Assert.isNil(transition.error)
 end
 
 function T.door_warps_skip_coordinate_suppression()
@@ -660,7 +931,9 @@ function T.door_warps_skip_coordinate_suppression()
     end,
   })
   transition:start(source, DOOR_WARP, "south")
-  runTicks(transition, FADE + 1)
+  runUntil(transition, { sourceDoor }, function()
+    return transition.phase == "load_destination"
+  end, 200)
   Assert.isNil(transition.suppression, "door warps re-arm immediately after egress")
 end
 
