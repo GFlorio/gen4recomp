@@ -40,6 +40,24 @@ local function restart(game, options)
   return game:restart(options)
 end
 
+-- DET-02 helper: confirm edges like the harness's advanceDialogue, but stop
+-- at the first mid-script boundary — no modal box open while the foreground
+-- script still holds field control. The save at that boundary must restore a
+-- live script task record.
+local function confirmToMidScriptBoundary(game)
+  for _ = 1, 480 do
+    local snapshot = game:snapshot()
+    if not snapshot.dialogue.modal then
+      if snapshot.fieldLocked then
+        return snapshot
+      end
+      error("foreground script released field control before a mid-script boundary", 2)
+    end
+    game:pressAction()
+  end
+  error("no mid-script boundary within 480 confirm edges", 2)
+end
+
 -- SAVE-01: disposal is the production save boundary. The replacement runtime
 -- must observe exactly one valid record, rather than this test calling save.
 function T.tests.disposing_the_field_runtime_saves_once_for_restart()
@@ -152,6 +170,46 @@ function T.tests.semantic_input_replay_has_a_stable_runtime_trace()
     local second = game:replay(inputs, { save = "fresh" })
     Assert.deepEqual(first.trace, second.trace)
     Assert.isTrue(#first.trace > 0)
+  end)
+end
+
+-- DET-02: a save captured mid-script (the bound elms script holding field
+-- control between its dialogue boxes) must restore through the recomputed
+-- revision path: the resumed script reopens its real message rather than the
+-- fresh-session placeholder, and completes releasing field control.
+function T.tests.mid_script_restart_resumes_through_recomputed_revisions()
+  withGame(function(game)
+    requireCapability(game, "moveTo")
+    requireCapability(game, "face")
+    requireCapability(game, "pressAction")
+    requireCapability(game, "interaction")
+    requireCapability(game, "advanceUntil")
+    game:moveTo({ fieldX = 6, fieldZ = 6 })
+    game:face("north")
+    game:pressAction()
+    Assert.equal(game:interaction().scriptId, "elms_lab.elm")
+    local placeholder = game:advanceUntil("elms script opens its first dialogue", function(snapshot)
+      return snapshot.dialogue.modal
+    end, 120)
+    Assert.isTrue(placeholder.fieldLocked)
+    -- The fresh-session placeholder box (msg.project.placeholder) resolves to
+    -- no real bank message and therefore carries no message id; the resumed
+    -- session must never reopen it.
+    Assert.isNil(placeholder.dialogue.messageId)
+    local boundary = confirmToMidScriptBoundary(game)
+    Assert.isTrue(boundary.fieldLocked)
+    local resumed = restart(game, { save = "resume" })
+    Assert.equal(resumed.saveStatus, "Resumed saved field session")
+    -- Foreground environment restored: field control survives the restart.
+    Assert.isTrue(resumed:snapshot().fieldLocked)
+    -- The resumed script reopens its real message (msg.hgss.0543.00005, bank
+    -- 543 message 5 — Elm's first greeting in the fresh-save conversation),
+    -- not the fresh-session placeholder.
+    local reopened = resumed:advanceUntil("resumed script reopens its real message", function(snapshot)
+      return snapshot.dialogue.modal
+    end, 480)
+    Assert.equal(reopened.dialogue.messageId, 5)
+    resumed:advanceDialogue()
   end)
 end
 
