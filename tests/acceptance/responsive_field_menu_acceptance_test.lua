@@ -117,6 +117,30 @@ function T.tests.vanilla_menu_is_responsive_without_changing_its_script_result()
   end
 end
 
+-- ACC-D11-TOPOLOGY-RESTART-01: an active menu survives a process-like
+-- replacement with the same host geometry and display topology. The harness
+-- must retain those runtime options when it builds the resumed production
+-- runtime; otherwise the menu moves from the auxiliary touch display to the
+-- default main display before its script-owned result can be chosen.
+function T.tests.restart_preserves_custom_topology_for_an_active_menu()
+  local configuration = CONFIGURATIONS[4]
+  withGame(configuration, function(game)
+    openMenu(game)
+
+    local resumed = game:restart({ save = "resume" })
+    local restored = resumed:advanceUntil("resumed vanilla menu becomes modal", function(snapshot)
+      return snapshot.menu ~= nil and snapshot.menu.modal == true
+    end, 120)
+    local layout = assert(restored.menu.layout, "resumed modal menu must expose production layout")
+    Assert.equal(layout.surface.id, configuration.surface, "restart preserves the configured auxiliary surface")
+    Assert.equal(layout.presentation, configuration.presentation, "restart preserves the configured presentation")
+    Assert.isTrue(contains(layout.surface.safeRect, layout.frame), "restart preserves the configured safe region")
+
+    selectSecondItem(resumed)
+    Assert.equal(resumed.runtime.scripts.worldState:getVar(RESULT_VARIABLE), 1)
+  end)
+end
+
 -- The ordinary desktop boot path is a non-touch surface. A cancellable
 -- ROM-derived menu may still complete through semantic input, but does not
 -- expose a touch-only Cancel target without a touch surface.

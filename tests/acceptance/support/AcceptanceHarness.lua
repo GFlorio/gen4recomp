@@ -132,6 +132,7 @@ end
 ---@field harness AcceptanceHarness
 ---@field versionId string
 ---@field map string|integer|nil
+---@field fieldOptions table|nil
 ---@field saveStatus string?
 ---@field ownsNamespace boolean
 local Game = {}
@@ -149,7 +150,18 @@ function AcceptanceHarness:_newRuntime(versionId, map, namespace, save, faults, 
   return self.runtimeFactory(versionId, map, runtimeOptions)
 end
 
-local function gameFor(harness, runtime, namespace, trap, versionId, map, faults, lifecycle, ownsNamespace)
+local function gameFor(
+  harness,
+  runtime,
+  namespace,
+  trap,
+  versionId,
+  map,
+  fieldOptions,
+  faults,
+  lifecycle,
+  ownsNamespace
+)
   return setmetatable({
     runtime = runtime,
     saveNamespace = namespace,
@@ -162,6 +174,7 @@ local function gameFor(harness, runtime, namespace, trap, versionId, map, faults
     faults = faults,
     harness = harness,
     map = map,
+    fieldOptions = fieldOptions,
     versionId = versionId,
     saveStatus = runtime.saveStatus,
     ownsNamespace = ownsNamespace,
@@ -204,7 +217,8 @@ function Game:restart(options)
     self.saveNamespace,
     save,
     self.faults,
-    self.lifecycle
+    self.lifecycle,
+    self.fieldOptions
   )
   if not ok then
     error(runtime, 0)
@@ -753,7 +767,18 @@ function AcceptanceHarness:boot(options)
     abortBoot(runtime, trap, self.removeSaveNamespace, namespace)
     error("acceptance runtime boot failed: " .. tostring(errorText), 0)
   end
-  return gameFor(self, runtime, namespace, trap, options.versionId, options.map, faults, lifecycle, true)
+  return gameFor(
+    self,
+    runtime,
+    namespace,
+    trap,
+    options.versionId,
+    options.map,
+    options.fieldOptions,
+    faults,
+    lifecycle,
+    true
+  )
 end
 
 function AcceptanceHarness:bootSelected(options)

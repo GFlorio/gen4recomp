@@ -164,4 +164,32 @@ function T.tests.restart_reuses_the_save_namespace_and_disposes_the_replaced_run
   Assert.equal(runtimes[2].disposeCalls, 1)
 end
 
+function T.tests.restart_reuses_the_original_field_options()
+  local optionsSeen = {}
+  local fieldOptions = {
+    viewportWidth = 1280,
+    viewportHeight = 720,
+    screenTopology = { id = "dual-display" },
+  }
+  local harness = AcceptanceHarness.new({
+    versions = { "heartgold" },
+    runtimeFactory = function(versionId, _, options)
+      optionsSeen[#optionsSeen + 1] = options
+      return fakeRuntime(versionId)
+    end,
+  })
+  local game = harness:boot({
+    versionId = "heartgold",
+    save = "fresh",
+    fieldOptions = fieldOptions,
+  })
+
+  game:restart({ save = "resume" })
+
+  Assert.equal(optionsSeen[2].viewportWidth, 1280)
+  Assert.equal(optionsSeen[2].viewportHeight, 720)
+  Assert.equal(optionsSeen[2].screenTopology, fieldOptions.screenTopology)
+  game:close()
+end
+
 return T
