@@ -93,6 +93,45 @@ function T.field_viewport_sizes_and_rebuilds_render_targets(scope)
   Assert.equal(renderer.canvasH, 720)
 end
 
+-- A material-only cutout item (no item-level alphaClass) must render with the
+-- cutout shader mode: queue classification and shader setup use the same
+-- effective alpha class. A polygonAlpha-zero triangle is discarded by the
+-- cutout mode, so the ID/depth target keeps its clear value; an opaque render
+-- would stamp the polygon ID.
+function T.material_only_cutout_item_renders_with_the_cutout_shader_mode(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local mesh = scope:own(syntheticMesh({
+    { 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1 },
+    { 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1 },
+    { 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1 },
+  }))
+  local item = {
+    mesh = mesh,
+    material = { alphaClass = "cutout" },
+    transform = IDENTITY,
+    cullMode = "back",
+    polygonAlpha = 0,
+    polygonMode = "modulation",
+    polygonId = 0,
+    lightMask = 0,
+    center = { 0.5, 0.5, 0 },
+    submissionIndex = 1,
+  }
+  renderer:draw(emptyRuntime(), fixedCamera(), { item }, FieldViewport.new(640, 480, { mode = "strict" }))
+  local img = renderer.idDepth:newImageData()
+  -- The clear ID value is red = 1 (the rear-plane sentinel); a stamped
+  -- polygon reads 0 for polygonId 0. Canvas readbacks are Y-inverted on some
+  -- drivers, so exactly one of the two samples is interior; a cutout render
+  -- leaves both clear, while an opaque render would stamp the interior one.
+  local interior = { img:getPixel(416, 384) }
+  local mirrored = { img:getPixel(416, 95) }
+  local function isClear(pixel)
+    return pixel[1] > 0.5
+  end
+  Assert.isTrue(isClear(interior), "the material-only cutout item must be discarded, not stamped as opaque")
+  Assert.isTrue(isClear(mirrored), "the material-only cutout item must be discarded, not stamped as opaque")
+end
+
 -- An actor draw is a cutout billboard submitted as an overlay item, and it sets
 -- per-item cull, depth, and alpha state. Nothing it touches may survive the
 -- frame, or the 2D dialogue UI and the next map's draws inherit it.

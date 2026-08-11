@@ -37,9 +37,14 @@ local function isInteger(value)
     and value == math.floor(value)
 end
 
--- Resolve the item's alpha class (item first, then its material's) and reject
--- anything outside the four known classes instead of defaulting to opaque.
-local function classify(item)
+-- Resolve the item's effective alpha class (item first, then its material's)
+-- and reject anything outside the four known classes instead of defaulting to
+-- opaque. Queue classification and the renderer's shader setup share this one
+-- function so the pass an item lands in and the shader mode it draws with can
+-- never disagree.
+---@param item table
+---@return string
+function RenderQueue.effectiveAlphaClass(item)
   local mode = item.alphaClass or (item.material and item.material.alphaClass)
   if not ALPHA_CLASSES[mode] then
     Errors.raise(
@@ -49,6 +54,10 @@ local function classify(item)
     )
   end
   return mode
+end
+
+local function classify(item)
+  return RenderQueue.effectiveAlphaClass(item)
 end
 
 -- The submission index is the deterministic tie-breaker for equal-Z

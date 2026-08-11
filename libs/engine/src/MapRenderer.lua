@@ -304,7 +304,7 @@ function MapRenderer:_drawItem(item, viewMatrix, polygonIdOverride, projection)
     item.mesh:setTexture()
   end
 
-  shader:send("u_alphaMode", alphaModeId(item.alphaClass or "opaque"))
+  shader:send("u_alphaMode", alphaModeId(RenderQueue.effectiveAlphaClass(item)))
   shader:send("u_alphaCutoff", item.alphaCutoff or CUTOUT_EPSILON)
   shader:send("u_polygonAlpha", item.polygonAlpha or 1.0)
   shader:send("u_polygonMode", item.polygonMode == "decal" and 1 or 0)
