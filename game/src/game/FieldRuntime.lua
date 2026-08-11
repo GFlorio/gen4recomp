@@ -49,6 +49,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field zoomConfig table?
 ---@field viewportWidth integer?
 ---@field viewportHeight integer?
+---@field screenTopology ScreenTopology?
 ---@field saveFs SaveFs?
 ---@field presentation boolean?
 ---@field scriptHosts table? deterministic host boundaries for script effects
@@ -66,6 +67,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field resetSave boolean
 ---@field viewportWidth integer
 ---@field viewportHeight integer
+---@field screenTopology ScreenTopology?
 ---@field errorText string?
 ---@field zoom FieldZoom
 ---@field saveStatus string?
@@ -175,6 +177,7 @@ function FieldRuntime.new(versionId, idOrSymbol, options)
     resetSave = options.resetSave == true,
     viewportWidth = options.viewportWidth or 640,
     viewportHeight = options.viewportHeight or 480,
+    screenTopology = options.screenTopology,
     saveFs = options.saveFs,
     presentation = options.presentation == true,
     scriptHosts = options.scriptHosts,
@@ -255,7 +258,12 @@ function FieldRuntime:_load()
       occupancy = playerOccupancy(self),
     })
     self.input = FieldInput.new()
-    self.menuHost = FieldMenuHost.new({ width = self.viewportWidth, height = self.viewportHeight, input = self.input })
+    self.menuHost = FieldMenuHost.new({
+      width = self.viewportWidth,
+      height = self.viewportHeight,
+      input = self.input,
+      screenTopology = self.screenTopology,
+    })
     self.heldDirectionKeys = {}
     local worldPoint = self.player:renderPosition()
 

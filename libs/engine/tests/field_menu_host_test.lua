@@ -3,6 +3,7 @@
 local Assert = require("tests.support.Assert")
 local FieldInput = require("libs.engine.src.FieldInput")
 local FieldMenuHost = require("libs.engine.src.FieldMenuHost")
+local ScreenTopology = require("libs.engine.src.ScreenTopology")
 
 local T = {}
 
@@ -18,6 +19,51 @@ function T.applies_the_semantic_menu_placement_preference()
   }, 100)
 
   Assert.equal(host:presentation().layout.presentation, "docked")
+end
+
+function T.uses_the_supplied_auxiliary_surface_for_automatic_menus()
+  local host = FieldMenuHost.new({
+    width = 1280,
+    height = 720,
+    input = FieldInput.new(),
+    screenTopology = ScreenTopology.dualDisplay(
+      { id = "main", rect = { x = 0, y = 0, width = 960, height = 720 }, touch = false, role = "world" },
+      { id = "auxiliary", rect = { x = 960, y = 0, width = 320, height = 720 }, touch = true, role = "auxiliary" }
+    ),
+  })
+  host:sync({
+    menuDefinition = {
+      items = { { text = { text = "Take" }, value = 10 } },
+      cancellable = false,
+    },
+    selectedIndex = 0,
+  }, 100)
+
+  local layout = host:presentation().layout
+  Assert.equal(layout.surface.id, "auxiliary")
+  Assert.equal(layout.presentation, "docked")
+end
+
+function T.keeps_the_supplied_topology_when_the_host_resizes()
+  local host = FieldMenuHost.new({
+    width = 1280,
+    height = 720,
+    input = FieldInput.new(),
+    screenTopology = ScreenTopology.dualDisplay(
+      { id = "main", rect = { x = 0, y = 0, width = 960, height = 720 }, touch = false, role = "world" },
+      { id = "auxiliary", rect = { x = 960, y = 0, width = 320, height = 720 }, touch = true, role = "auxiliary" }
+    ),
+  })
+  host:resize(1920, 1080)
+  host:sync({
+    menuDefinition = {
+      items = { { text = { text = "Take" }, value = 10 } },
+      cancellable = false,
+    },
+    selectedIndex = 0,
+  }, 100)
+
+  Assert.equal(host:presentation().layout.surface.id, "auxiliary")
 end
 
 return T

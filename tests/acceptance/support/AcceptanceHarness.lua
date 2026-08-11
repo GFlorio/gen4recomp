@@ -137,13 +137,16 @@ end
 local Game = {}
 Game.__index = Game
 
-function AcceptanceHarness:_newRuntime(versionId, map, namespace, save, faults, lifecycle)
-  return self.runtimeFactory(versionId, map, {
-    saveFs = SaveFs.forVersion(versionId, saveBackend(faults, lifecycle), namespace),
-    resumeSave = save == "resume",
-    resetSave = save == "fresh",
-    scriptHosts = RecordingScriptHosts.new(),
-  })
+function AcceptanceHarness:_newRuntime(versionId, map, namespace, save, faults, lifecycle, fieldOptions)
+  local runtimeOptions = {}
+  for key, value in pairs(fieldOptions or {}) do
+    runtimeOptions[key] = value
+  end
+  runtimeOptions.saveFs = SaveFs.forVersion(versionId, saveBackend(faults, lifecycle), namespace)
+  runtimeOptions.resumeSave = save == "resume"
+  runtimeOptions.resetSave = save == "fresh"
+  runtimeOptions.scriptHosts = RecordingScriptHosts.new()
+  return self.runtimeFactory(versionId, map, runtimeOptions)
 end
 
 local function gameFor(harness, runtime, namespace, trap, versionId, map, faults, lifecycle, ownsNamespace)
@@ -730,8 +733,17 @@ function AcceptanceHarness:boot(options)
   local trap = installRenderTrap()
   local faults = {}
   local lifecycle = { saveWrites = 0, runtimeDisposals = 0 }
-  local ok, runtime =
-    pcall(self._newRuntime, self, options.versionId, options.map, namespace, options.save, faults, lifecycle)
+  local ok, runtime = pcall(
+    self._newRuntime,
+    self,
+    options.versionId,
+    options.map,
+    namespace,
+    options.save,
+    faults,
+    lifecycle,
+    options.fieldOptions
+  )
   if not ok then
     abortBoot(nil, trap, self.removeSaveNamespace, namespace)
     error(runtime, 0)

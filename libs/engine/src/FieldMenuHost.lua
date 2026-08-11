@@ -14,6 +14,7 @@ local ScreenTopology = require("libs.engine.src.ScreenTopology")
 ---@class FieldMenuHost
 ---@field private _input FieldInput
 ---@field private _topology ScreenTopology
+---@field private _topologyFollowsViewport boolean
 ---@field private _active FieldMenuHost.Active?
 local FieldMenuHost = {}
 FieldMenuHost.__index = FieldMenuHost
@@ -47,15 +48,22 @@ local function topology(width, height)
   })
 end
 
----@param opts { width: number, height: number, input: FieldInput }
+---@param opts { width: number, height: number, input: FieldInput, screenTopology?: ScreenTopology }
 ---@return FieldMenuHost
 function FieldMenuHost.new(opts)
   assert(type(opts) == "table" and opts.input, "field menu host requires input")
   assert(type(opts.width) == "number" and opts.width > 0, "field menu host requires positive width")
   assert(type(opts.height) == "number" and opts.height > 0, "field menu host requires positive height")
+  if opts.screenTopology ~= nil then
+    assert(
+      type(opts.screenTopology) == "table" and type(opts.screenTopology.surfaces) == "table",
+      "field menu topology is invalid"
+    )
+  end
   return setmetatable({
     _input = opts.input,
-    _topology = topology(opts.width, opts.height),
+    _topology = opts.screenTopology or topology(opts.width, opts.height),
+    _topologyFollowsViewport = opts.screenTopology == nil,
     _active = nil,
   }, FieldMenuHost)
 end
@@ -63,7 +71,9 @@ end
 function FieldMenuHost:resize(width, height)
   assert(type(width) == "number" and width > 0, "field menu width must be positive")
   assert(type(height) == "number" and height > 0, "field menu height must be positive")
-  self._topology = topology(width, height)
+  if self._topologyFollowsViewport then
+    self._topology = topology(width, height)
+  end
   if self._active then
     self:_resolve(self._active.definition, self._active.selectedIndex)
   end
