@@ -105,8 +105,8 @@ function ScriptTask:markConsumed()
 end
 
 -- Deterministic serialization for the save schema : absolute
--- runtime ticks are diagnostics; the poll deadline becomes a relative delay
--- rebased at capture time `captureTick`.
+-- runtime ticks are diagnostics; the poll deadline and creation tick become
+-- relative delays rebased at capture time `captureTick`.
 ---@param captureTick integer
 ---@return table
 function ScriptTask:capture(captureTick)
@@ -118,6 +118,7 @@ function ScriptTask:capture(captureTick)
     ownerInstanceId = self.ownerInstanceId,
     environmentId = self.environmentId,
     createdAtTick = self.createdAtTick,
+    createdAtInTicks = self.createdAtTick - captureTick,
     pollInTicks = math.max(0, self.pollAtTick - captureTick),
     lastPolledTick = self.lastPolledTick,
     completedAtTick = self.completedAtTick,
@@ -128,7 +129,7 @@ function ScriptTask:capture(captureTick)
 end
 
 -- Restore a record from the save schema. `restoreTick` is the load tick; the
--- poll deadline is rebased from the relative delay.
+-- poll deadline and creation tick are rebased from the relative delays.
 ---@param record table
 ---@param restoreTick integer
 ---@return ScriptTask
@@ -141,7 +142,7 @@ function ScriptTask.restore(record, restoreTick)
     taskVersion = record.taskVersion,
     ownerInstanceId = record.ownerInstanceId,
     environmentId = record.environmentId,
-    createdAtTick = record.createdAtTick,
+    createdAtTick = restoreTick + (record.createdAtInTicks or 0),
     pollAtTick = restoreTick + (record.pollInTicks or 0),
     state = record.state,
   })
@@ -174,6 +175,13 @@ function ScriptTask.validateRecord(record)
       ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
       "task poll delay invalid",
       { taskId = record.taskId, pollInTicks = record.pollInTicks }
+    )
+  end
+  if record.createdAtInTicks ~= nil and type(record.createdAtInTicks) ~= "number" then
+    return Errors.new(
+      ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
+      "task creation offset invalid",
+      { taskId = record.taskId, createdAtInTicks = record.createdAtInTicks }
     )
   end
   return nil

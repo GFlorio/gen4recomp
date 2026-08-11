@@ -209,6 +209,7 @@ function ScriptInstance:capture(captureTick)
     taskResult = self.taskResult,
     pendingResultRef = self.pendingResultRef,
     createdAtTick = self.createdAtTick,
+    createdAtInTicks = self.createdAtTick - captureTick,
     readyInTicks = math.max(0, self.readyAtTick - captureTick),
     yieldReason = self.yieldReason,
     status = self.status,
@@ -217,8 +218,8 @@ function ScriptInstance:capture(captureTick)
 end
 
 -- Rebuild an instance from the save schema. `restoreTick` rebases the ready
--- deadline; the caller reattaches graphs by revision and
--- reconnects environment and task references.
+-- deadline and the creation tick; the caller reattaches graphs by revision
+-- and reconnects environment and task references.
 ---@param record table
 ---@param restoreTick integer
 ---@param graphs table<string, table> graphRevision -> graph
@@ -236,7 +237,7 @@ function ScriptInstance.restore(record, restoreTick, graphs)
     mode = record.mode,
     trigger = record.trigger,
     args = record.args or {},
-    createdAtTick = record.createdAtTick,
+    createdAtTick = restoreTick + (record.createdAtInTicks or 0),
     readyAtTick = restoreTick + (record.readyInTicks or 0),
   })
   instance.locals = record.locals or {}

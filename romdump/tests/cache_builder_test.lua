@@ -119,12 +119,14 @@ local function makeFakes()
   for _, path in ipairs(FAKE_PATHS) do
     local name = path:match("([^%.]+)$")
     local m = {}
-    -- isReady is the stale gate shared by every cache class; write records.
+    -- isReady is the stale gate shared by every cache class; write records and
+    -- publishes the artifact, so a later identical build sees it as current.
     m.isReady = function()
       return not env.stale[name]
     end
     m.write = function()
       env.calls[#env.calls + 1] = name .. ".write"
+      env.stale[name] = nil
     end
     fakes[name] = m
   end
@@ -252,6 +254,36 @@ function T.current_build_logs_every_class_and_writes_the_world_manifest()
       matrix = { memberId = 6, x = 2, z = 3, index = 4, landDataMemberId = 5, selection = "matrix", matchCount = 2 },
     },
   })
+end
+
+-- Running the cache build twice with identical dependencies must take the
+-- actor "current" path on the second run and perform no actor rewrite: the
+-- build never invalidates live artifacts before its readiness check.
+function T.unchanged_second_build_rewrites_nothing()
+  env = newEnv()
+  env.stale.FieldActorCacheWriter = true
+  local first = collectLog()
+  local report, err = CacheBuilder.buildVersions({ "heartgold" }, { log = first.log })
+  Assert.isNil(err)
+  Assert.deepEqual(report, { current = true })
+  Assert.isTrue(first.lines[2]:find("field actors compiled", 1, true) ~= nil, first.lines[2])
+  local function actorWrites()
+    local count = 0
+    for _, call in ipairs(env.calls) do
+      if call == "FieldActorCacheWriter.write" then
+        count = count + 1
+      end
+    end
+    return count
+  end
+  Assert.equal(actorWrites(), 1, "the first build publishes the actor artifact")
+
+  local second = collectLog()
+  local report2, err2 = CacheBuilder.buildVersions({ "heartgold" }, { log = second.log })
+  Assert.isNil(err2)
+  Assert.deepEqual(report2, { current = true })
+  Assert.isTrue(second.lines[2]:find("field actors current", 1, true) ~= nil, second.lines[2])
+  Assert.equal(actorWrites(), 1, "an unchanged second build must not rewrite actor assets")
 end
 
 -- A stale class is compiled through its writer and logged with its counts;

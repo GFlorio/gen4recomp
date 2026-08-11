@@ -15,6 +15,8 @@ local Composition = require("libs.engine.src.script.Composition")
 local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
 local Scheduler = require("libs.engine.src.script.Scheduler")
 local ScriptSave = require("libs.engine.src.script.ScriptSave")
+local ScriptTask = require("libs.engine.src.script.ScriptTask")
+local ScriptInstance = require("libs.engine.src.script.ScriptInstance")
 local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
 local ChildScriptTask = require("libs.engine.src.script.tasks.ChildScriptTask")
 local FakeServices = require("tests.support.script.FakeServices")
@@ -641,6 +643,140 @@ T["countdown mirror saves and resumes"] = function()
   Assert.equal(h.services.world:getVar("VAR_COUNTDOWN"), 1)
   resumed:step(103, nil)
   Assert.equal(h.services.world:getVar("VAR_COUNTDOWN"), 0)
+end
+
+-- The production load boundary is a fresh boot: FieldRuntime restores a save
+-- at simulation tick 0, while capture happens at a nonzero session tick. A
+-- mid-wait save therefore holds a task created at a nonzero tick whose poll
+-- deadline is a relative delay; restoring it must rebase the creation tick
+-- together with the deadline, or the creation invariant ("a task never polls
+-- in its creation tick") fails and the save cannot load.
+T["mid-script save restores at the production load tick"] = function()
+  local h = harness()
+  startForeground(
+    h,
+    script("test.restore0", {
+      S.waitTicks({ ticks = 3 }),
+      S.setVar({ variable = "VAR_A", value = 1 }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  local bucket = ScriptSave.capture(h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
+  Assert.isTrue(#bucket.tasks >= 1, "a mid-wait save holds a live task record")
+
+  local resumed = Scheduler.new({
+    services = h.services,
+    taskRegistry = h.taskRegistry,
+    resolveComposition = function(id)
+      return h.composition:effective(id)
+    end,
+  })
+  local ok, err = pcall(ScriptSave.restore, bucket, resumed, 0, {})
+  Assert.isTrue(ok, "a mid-script save must restore into a fresh boot: " .. tostring(err))
+  for tick = 1, 4 do
+    resumed:step(tick, nil)
+  end
+  Assert.equal(h.services.world:getVar("VAR_A"), 1, "the resumed wait completes at the rebased tick")
+end
+
+-- The record-level counterpart of the production-load-tick test: capture
+-- stores the creation tick as a relative offset (mirroring the poll
+-- deadline), and restore rebases both from the load tick. A task captured at
+-- its creation tick carries offset 0; a task captured mid-wait carries a
+-- negative offset, and the restored poll/creation ordering still satisfies
+-- the creation invariant.
+T["task records rebase the creation tick with the poll deadline"] = function()
+  local function makeTask(createdAtTick, pollAtTick)
+    return ScriptTask.new({
+      taskId = "t1",
+      taskType = "wait_ticks",
+      taskVersion = 1,
+      ownerInstanceId = "i1",
+      environmentId = "e1",
+      createdAtTick = createdAtTick,
+      pollAtTick = pollAtTick,
+      state = {},
+    })
+  end
+
+  local createdThisTick = makeTask(100, 101):capture(100)
+  Assert.equal(createdThisTick.createdAtInTicks, 0)
+  Assert.equal(createdThisTick.pollInTicks, 1)
+  local restoredAtLoad = ScriptTask.restore(createdThisTick, 0)
+  Assert.equal(restoredAtLoad.createdAtTick, 0)
+  Assert.equal(restoredAtLoad.pollAtTick, 1)
+
+  local midWait = makeTask(100, 101):capture(102)
+  Assert.equal(midWait.createdAtInTicks, -2)
+  Assert.equal(midWait.pollInTicks, 0)
+  local restoredMidWait = ScriptTask.restore(midWait, 0)
+  Assert.equal(restoredMidWait.createdAtTick, -2)
+  Assert.equal(restoredMidWait.pollAtTick, 0)
+  Assert.equal(restoredMidWait.pollAtTick >= restoredMidWait.createdAtTick + 1, true)
+end
+
+-- A task record without the creation offset (an older save shape) still
+-- restores: the load tick is the creation-tick fallback, and the poll
+-- deadline rebases exactly as before.
+T["task records without a creation offset restore at the load boundary"] = function()
+  local record = {
+    taskId = "t1",
+    taskType = "wait_ticks",
+    taskVersion = 1,
+    ownerInstanceId = "i1",
+    environmentId = "e1",
+    createdAtTick = 100,
+    pollInTicks = 1,
+    status = "active",
+    state = {},
+  }
+  local restored = ScriptTask.restore(record, 0)
+  Assert.equal(restored.createdAtTick, 0)
+  Assert.equal(restored.pollAtTick, 1)
+end
+
+-- A corrupted creation offset is malformed data, not a plausible default:
+-- the record-level validation rejects it before any restore arithmetic runs.
+T["task records with a non-number creation offset are rejected"] = function()
+  local record = {
+    taskId = "t1",
+    taskType = "wait_ticks",
+    taskVersion = 1,
+    ownerInstanceId = "i1",
+    environmentId = "e1",
+    createdAtInTicks = "3",
+    pollInTicks = 1,
+    status = "active",
+    state = {},
+  }
+  local err = ScriptTask.validateRecord(record)
+  Assert.isTrue(err ~= nil and err.code == "SCRIPT_TASK_UNSERIALIZABLE", "rejects a non-number creation offset")
+end
+
+-- The instance record carries the same relative creation offset, so a
+-- restored instance's creation tick is rebased together with its ready
+-- deadline instead of reading as a pre-restart absolute tick.
+T["instance records rebase the creation tick with the ready deadline"] = function()
+  local graph = { scriptId = "test.inst", revision = "r1" }
+  local instance = ScriptInstance.new({
+    instanceId = "i1",
+    environmentId = "e1",
+    contextSlot = 0,
+    scriptId = "test.inst",
+    revision = "r1",
+    owner = {},
+    mode = "foreground",
+    createdAtTick = 100,
+    readyAtTick = 100,
+  })
+  instance:pushFrame(instance:makeFrame(graph, "node1"))
+  local record = instance:capture(101)
+  Assert.equal(record.createdAtInTicks, -1)
+  local restored = ScriptInstance.restore(record, 0, { r1 = graph })
+  Assert.equal(restored.createdAtTick, -1)
+  Assert.equal(restored.readyAtTick, 0)
 end
 
 return T
