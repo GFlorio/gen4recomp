@@ -1,6 +1,9 @@
 -- Owns the deterministic fade/load/swap/fade lifecycle for field warps. Map
 -- projection and actor state swap atomically through an injected callback only
--- while the viewport is fully black.
+-- while the viewport is fully black. Every failure inside the load/protect/
+-- swap transaction aborts to a coherent idle state: transition-owned pins are
+-- released, movement unlocks, and the error is recorded separately from live
+-- state so a later start always works.
 
 local WarpSystem = require("libs.engine.src.WarpSystem")
 
@@ -14,7 +17,8 @@ local WarpSystem = require("libs.engine.src.WarpSystem")
 ---@field fadeAlpha number
 ---@field locked boolean
 ---@field completed table?
----@field error Errors.Error?
+---@field error any?
+---@field warpContext table?
 ---@field suppression table?
 ---@field sourceMap RuntimeFieldMap?
 ---@field sourceWarp table?
@@ -51,24 +55,54 @@ function FieldTransition:start(sourceMap, warp, facing)
   self.facing = facing
   self.progressTicks = 0
   self.resolution = nil
+  self.suppression = nil
   self.error = nil
+  self.warpContext = nil
   self.completed = nil
+  local ok, err = pcall(self.loader.protectMap, self.loader, sourceMap.mapId, true)
+  if not ok then
+    self:_abort(err)
+    return
+  end
   self.phase = "fade_out"
   self.locked = true
   self.fadeAlpha = 0
-  self.loader:protectMap(sourceMap.mapId, true)
 end
 
-function FieldTransition:_fail(err)
-  self.error = err
-  self.phase = "error"
+-- Restore a coherent idle state after a failed transaction: release every
+-- transition-owned pin, unlock movement, clear all source/destination state,
+-- and record the failure (with its warp context) separately from live state.
+function FieldTransition:_abort(err)
+  local context
+  if self.sourceMap and self.sourceWarp then
+    context = {
+      sourceMapId = self.sourceMap.mapId,
+      sourceWarpId = self.sourceWarp.index,
+      destinationMapId = self.sourceWarp.destinationMapId,
+      destinationWarpId = self.sourceWarp.destinationWarpId,
+    }
+  end
+  local sourceMapId = self.sourceMap and self.sourceMap.mapId or nil
+  local destinationMapId = self.resolution and self.resolution.destinationMap.mapId or nil
+  self.phase = "idle"
   self.locked = false
   self.fadeAlpha = 0
-  self.loader:protectMap(self.sourceMap.mapId, true)
+  self.progressTicks = 0
+  self.completed = nil
+  self.suppression = nil
+  self.sourceMap, self.sourceWarp, self.resolution = nil, nil, nil
+  self.error = err
+  self.warpContext = context
+  if sourceMapId then
+    pcall(self.loader.protectMap, self.loader, sourceMapId, false)
+  end
+  if destinationMapId then
+    pcall(self.loader.protectMap, self.loader, destinationMapId, false)
+  end
 end
 
 function FieldTransition:updateFixed()
-  if self.phase == "idle" or self.phase == "error" then
+  if self.phase == "idle" then
     return
   end
   if self.phase == "fade_out" then
@@ -81,19 +115,24 @@ function FieldTransition:updateFixed()
     return
   end
   if self.phase == "load_destination" then
-    local ok, result = pcall(self.resolveDestination, self.loader, self.sourceMap, self.sourceWarp)
+    local ok, err = pcall(function()
+      local result = self.resolveDestination(self.loader, self.sourceMap, self.sourceWarp)
+      self.resolution = result
+      self.suppression = result.suppression
+      self.loader:protectMap(result.destinationMap.mapId, true)
+    end)
     if not ok then
-      return self:_fail(result)
+      return self:_abort(err)
     end
-    self.resolution = result
-    self.suppression = result.suppression
-    self.loader:protectMap(result.destinationMap.mapId, true)
     self.phase = "swap_map"
     return
   end
   if self.phase == "swap_map" then
     assert(self.fadeAlpha == 1, "map swap must occur while fully black")
-    self.swap(self.resolution, self.facing)
+    local ok, err = pcall(self.swap, self.resolution, self.facing)
+    if not ok then
+      return self:_abort(err)
+    end
     self.progressTicks = 0
     self.phase = "fade_in"
     return
@@ -112,11 +151,19 @@ function FieldTransition:updateFixed()
     destinationMapId = self.resolution.destinationMap.mapId,
     sourceWarpId = self.sourceWarp.index,
   }
+  -- The swap has already committed, so post-swap pin release is best-effort
+  -- cleanup: a failure there is recorded but must not abort (aborting would
+  -- unpin the now-live destination map).
   if self.sourceMap.mapId ~= self.resolution.destinationMap.mapId then
-    if self.loader.protectCells then
-      self.loader:protectCells(self.sourceMap.mapId, {})
+    local ok, err = pcall(function()
+      if self.loader.protectCells then
+        self.loader:protectCells(self.sourceMap.mapId, {})
+      end
+      self.loader:protectMap(self.sourceMap.mapId, false)
+    end)
+    if not ok then
+      self.error = err
     end
-    self.loader:protectMap(self.sourceMap.mapId, false)
   end
   self.sourceMap, self.sourceWarp, self.resolution = nil, nil, nil
 end

@@ -425,15 +425,19 @@ function FieldRuntime:update(dt)
   if self.session then
     self.session:update(dt)
     if self.transition.error then
-      local warp = assert(self.transition.sourceWarp)
-      self.errorText = string.format(
-        "%s\nsource map %s warp %s -> map %s warp %s",
-        tostring(self.transition.error),
-        tostring(self.transition.sourceMap.mapId),
-        tostring(warp.index),
-        tostring(warp.destinationMapId),
-        tostring(warp.destinationWarpId)
-      )
+      local context = self.transition.warpContext
+      if context then
+        self.errorText = string.format(
+          "%s\nsource map %s warp %s -> map %s warp %s",
+          tostring(self.transition.error),
+          tostring(context.sourceMapId),
+          tostring(context.sourceWarpId),
+          tostring(context.destinationMapId),
+          tostring(context.destinationWarpId)
+        )
+      else
+        self.errorText = tostring(self.transition.error)
+      end
     end
     if self.transition:consumeCompleted() then
       self:_save("Autosaved after warp")
