@@ -528,4 +528,103 @@ function T.a_straddling_item_bends_its_leading_vertices(scope)
   Assert.near(bb, 0.12, 0.05, "unbaked position blue")
 end
 
+-- A lighting profile with one white light and a specular-only material
+-- (diffuse/ambient/emission zero), so any brightness in the frame is pure
+-- specular. The two cos(2a) scenarios below share it.
+local function specularOnlyRuntime(vectorFx12)
+  local white = 31 + 31 * 32 + 31 * 1024
+  local runtime = emptyRuntime()
+  runtime.lighting = {
+    records = {
+      {
+        startHalfSeconds = 0,
+        lights = {
+          { enabled = true, colorRgb555 = white, vectorFx12 = vectorFx12 },
+          { enabled = false, colorRgb555 = 0, vectorFx12 = { 0, 0, 0 } },
+          { enabled = false, colorRgb555 = 0, vectorFx12 = { 0, 0, 0 } },
+          { enabled = false, colorRgb555 = 0, vectorFx12 = { 0, 0, 0 } },
+        },
+        diffuseRgb555 = 0,
+        ambientRgb555 = 0,
+        specularRgb555 = 14 + 14 * 32 + 16 * 1024,
+        emissionRgb555 = 0,
+      },
+    },
+  }
+  return runtime
+end
+
+-- A NORMAL-lit triangle (color source 3) with the given normal, covering the
+-- lower-right half of the viewport under the identity camera (the shader
+-- flips clip Y, exactly like polygon_light_mask_changes_the_rendered_result).
+local function litMesh(scope, normal)
+  local function vertex(x, y)
+    return { x, y, 0, 0, 1, normal[1], normal[2], normal[3], 1, 1, 1, 1, 3 }
+  end
+  return scope:own(syntheticMesh({ vertex(0, 0), vertex(1, 0), vertex(0, 1) }))
+end
+
+-- Brightest channel over the two candidate interior samples of the scene
+-- color canvas (readbacks come back Y-inverted on some drivers, so exactly
+-- one of the two is interior; the scale is likewise driver-dependent, so
+-- comparisons stay relative to a sample of the same frame).
+local function brightestSample(renderer)
+  local img = renderer.sceneColor:newImageData()
+  local function maxOf(p)
+    return math.max(p[1], p[2], p[3])
+  end
+  return math.max(maxOf({ img:getPixel(416, 384) }), maxOf({ img:getPixel(416, 95) }))
+end
+
+-- Draw one specular-only frame and return its brightest interior sample.
+local function specularFrame(renderer, scope, normal, vectorFx12)
+  renderer:draw(specularOnlyRuntime(vectorFx12), fixedCamera(), {
+    {
+      mesh = litMesh(scope, normal),
+      material = { alphaClass = "opaque" },
+      transform = IDENTITY,
+      alphaClass = "opaque",
+      cullMode = "back",
+      polygonAlpha = 1.0,
+      polygonMode = "modulation",
+      polygonId = 0,
+      lightMask = 1,
+      center = { 0.5, 0.5, 0 },
+      submissionIndex = 1,
+    },
+  }, FieldViewport.new(640, 480, { mode = "strict" }))
+  return brightestSample(renderer)
+end
+
+-- The melonDS cos(2a) term narrows the specular highlight: at N(d=0.75)
+-- with L = (0,0,-1), dot(N,H) = 0.75 and ls = 2*0.75^2-1 = 0.125, so the
+-- frame renders 2/31 after round-half-up quantization, well below half of
+-- the head-on 14/31 frame (a raw half-vector term would render 11/31 and
+-- stay above that threshold). The off-axis frame must come out well below
+-- half the head-on one either way.
+function T.specular_cos2a_narrows_the_highlight_off_axis(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local headOn = specularFrame(renderer, scope, { 0, 0, 1 }, { 0, 0, -4096 })
+  local offAxis = specularFrame(renderer, scope, { 0.661438, 0, 0.75 }, { 0, 0, -4096 })
+
+  Assert.isTrue(headOn > 0, "the head-on specular frame must have a sample to derive a threshold from")
+  Assert.isTrue(
+    offAxis < headOn / 2,
+    "the off-axis specular must be far dimmer than head-on (cos(2a): 2/31 vs 14/31; raw ndh: 11/31)"
+  )
+end
+
+-- The melonDS front-light gate: a light whose travel direction is behind
+-- the surface, dot(-L,N) < 0, must contribute no specular even though its
+-- half vector still faces the surface (dot(N,H) = 0.839, so the ungated
+-- cos(2a) scalar would be 0.407); the gated shader must render black.
+function T.behind_light_specular_stays_dark(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local headOn = specularFrame(renderer, scope, { 0, 0, 1 }, { 0, 0, -4096 })
+  local behind = specularFrame(renderer, scope, { 0.5, 0, 0.8660254037844386 }, { -3313, 0, 2407 })
+
+  Assert.isTrue(headOn > 0, "the head-on specular frame must have a sample to derive a threshold from")
+  Assert.isTrue(behind < headOn / 2, "a behind-the-surface light contributes no specular under the melonDS gate")
+end
+
 return GraphicsSmoke.suite(T)

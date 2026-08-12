@@ -19,10 +19,16 @@
 --
 -- The light vectors stored in HGSS profiles point in the direction the light
 -- travels (from light source toward the surface). The diffuse factor is
--- max(0, -dot(L, N)). Specular uses the half-vector between the direction to
--- the light (-L) and the view direction V = (0, 0, 1) in camera/vector space.
--- When no shininess table is supplied the raw half-vector dot is used (exact
--- table lookup is deferred). Pure domain module: no love, arithmetic only.
+-- max(0, -dot(L, N)). Specular follows the melonDS hardware model
+-- (GPU3D.cpp CalculateLighting): gated on the front-light test dot(-L,N) > 0
+-- (ld > 0), it is ls = clamp(2*ndh^2 - 1, 0, 1) with
+-- ndh = max(0, dot(N, H)), H = normalize(-L + V), V = (0, 0, 1) -- the
+-- cos(2a) term, not a raw half-vector dot (DeSmuME gfx3d.cpp computes the
+-- same 2*dot^2-4096). The shininess table (SPE_EMI bit 15, global GX state)
+-- would consume that post-transform scalar, but no HGSS field material sets
+-- the bit (ROM census), so there is no table path. Ambient is added for
+-- every enabled light regardless of the light/normal dot, like melonDS.
+-- Pure domain module: no love, arithmetic only.
 
 local DsLighting = {}
 
@@ -87,7 +93,6 @@ function DsLighting.vertexColorRgb5(params)
   local emission = unpackColor(params.emissionRgb555)
   local lights = params.lights
   local lightMask = params.lightMask or 0
-  local shininessTable = params.shininessTable
 
   local acc = { emission[1], emission[2], emission[3] }
 
@@ -103,15 +108,15 @@ function DsLighting.vertexColorRgb5(params)
       local ndl = dot3(L, normal)
       local ld = math.max(0, -ndl)
 
+      -- The melonDS front-light gate (dot(-L,N) > 0) covers diffuse and
+      -- specular only; ambient is added for every enabled light regardless
+      -- of the light/normal dot (GPU3D.cpp CalculateLighting). Specular is
+      -- the cos(2a) term 2*ndh^2 - 1 clamped to [0,1].
       local ls = 0
-      if specular[1] > 0 or specular[2] > 0 or specular[3] > 0 then
+      if ld > 0 and (specular[1] > 0 or specular[2] > 0 or specular[3] > 0) then
         local H = normalize3({ -L[1] + VIEW_DIRECTION[1], -L[2] + VIEW_DIRECTION[2], -L[3] + VIEW_DIRECTION[3] })
         local ndh = math.max(0, dot3(normal, H))
-        if shininessTable then
-          ls = shininessTable.lookup and shininessTable.lookup(ndh) or ndh
-        else
-          ls = ndh
-        end
+        ls = math.max(0, 2 * ndh * ndh - 1)
       end
 
       local lcolor = unpackColor(light.colorRgb555)

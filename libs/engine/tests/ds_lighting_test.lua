@@ -26,7 +26,6 @@ local function params(opts)
     emissionRgb555 = opts.emission or rgb555(0, 0, 0),
     lights = opts.lights or {},
     lightMask = opts.lightMask or 0,
-    shininessTable = opts.shininessTable,
   }
 end
 
@@ -100,8 +99,13 @@ end
 -- Pure mirror of the GLSL algebra in shaders/map.glsl (computeDsLighting,
 -- dsLightContribution, quantizeRgb5), written from the shader line by line:
 -- normalized 0..1 colors, per-light lightColor * (ambient + diffuse*ld +
--- specular*ndh), clamp to [0,1], round-half-up 5-bit quantization. `mask` is
--- the polygon's 4-bit light mask: the shader gates each light with its
+-- specular*ls), clamp to [0,1], round-half-up 5-bit quantization. Specular is
+-- the melonDS cos(2a) term behind its front-light gate: ls = 0 unless ld > 0,
+-- then ls = clamp(2*ndh^2 - 1, 0, 1) with H = normalize(-L + z) and
+-- ndh = max(0, dot(N,H)). Ambient is NOT gated: melonDS adds it for every
+-- enabled light regardless of the light/normal dot (GPU3D.cpp
+-- CalculateLighting adds MatAmbient outside the dot > 0 branch). `mask` is the
+-- polygon's 4-bit light mask: the shader gates each light with its
 -- u_lightMask component (`u_lightEnabledN && u_lightMask[N] > 0.5`), which the
 -- renderer decodes as exactly `mask % (bit*2) >= bit`, so the mirror applies
 -- the same bit test. Returns packed RGB555 so it can be compared directly with
@@ -111,12 +115,19 @@ local function shaderEquivalent(normal, u, mask)
   local function dsLightContribution(L, lightColor)
     local ndl = dot3(L, normal)
     local ld = math.max(0, -ndl)
-    local H = normalize3({ -L[1], -L[2], -L[3] + 1 })
-    local ndh = math.max(0, dot3(normal, H))
+    local ls = 0
+    if ld > 0 then
+      local H = normalize3({ -L[1], -L[2], -L[3] + 1 })
+      local ndh = math.max(0, dot3(normal, H))
+      ls = 2 * ndh * ndh - 1
+      if ls < 0 then
+        ls = 0
+      end
+    end
     return {
-      lightColor[1] * (u.ambient[1] + u.diffuse[1] * ld + u.specular[1] * ndh),
-      lightColor[2] * (u.ambient[2] + u.diffuse[2] * ld + u.specular[2] * ndh),
-      lightColor[3] * (u.ambient[3] + u.diffuse[3] * ld + u.specular[3] * ndh),
+      lightColor[1] * (u.ambient[1] + u.diffuse[1] * ld + u.specular[1] * ls),
+      lightColor[2] * (u.ambient[2] + u.diffuse[2] * ld + u.specular[2] * ls),
+      lightColor[3] * (u.ambient[3] + u.diffuse[3] * ld + u.specular[3] * ls),
     }
   end
 
@@ -434,6 +445,68 @@ end
 function T.decal_alpha_ignores_texture_alpha()
   Assert.equal(DsLighting.composeAlpha5(0, 20, "decal"), 20)
   Assert.equal(DsLighting.composeAlpha5(31, 20, "decal"), 20)
+end
+
+-- The melonDS cos(2a) midrange pins: isolate specular with one white
+-- (31,31,31) light, material specular (14,14,16), zero
+-- diffuse/ambient/emission, L = (0,0,-1) and N(d) = (sqrt(1-d^2), 0, d), so
+-- dot(N,H) = d exactly and the melonDS cos(2a) term is
+-- ls = clamp(2*d^2 - 1, 0, 1):
+--   d=0.25 -> ls=0     -> (0,0,0)
+--   d=0.50 -> ls=0     -> (0,0,0)
+--   d=0.75 -> ls=0.125 -> (2,2,2)  (14*0.125=1.75->2, 16*0.125=2->2)
+--   d=1.00 -> ls=1     -> (14,14,16), the unchanged head-on case
+-- Each pin is asserted against the CPU reference AND the shader-equivalent
+-- oracle: the pins are what keep the production algebra and the GLSL mirror
+-- consistent after both change.
+function T.cos2a_specular_pins_at_midrange()
+  local function lit(d)
+    return case({
+      normal = { math.sqrt(1 - d * d), 0, d },
+      diffuse = rgb555(0, 0, 0),
+      specular = rgb555(14, 14, 16),
+      lights = { { enabled = true, colorRgb555 = rgb555(31, 31, 31), vectorFx12 = { 0, 0, -4096 } } },
+      lightMask = 1,
+    })
+  end
+  for _, d in ipairs({ 0.25, 0.5, 0.75, 1.0 }) do
+    local c = lit(d)
+    local reference = DsLighting.vertexColorRgb5(params(c))
+    local shader = shaderEquivalent(normalize3(c.normal), shaderUniforms(c), c.lightMask)
+    Assert.equal(reference, shader, "cpu and shader agree at ndh=" .. d)
+    local r, g, b = DsLighting.unpackRgb555(reference)
+    if d < 1 / math.sqrt(2) then
+      Assert.equal(r, 0, "ndh=" .. d .. " red")
+      Assert.equal(g, 0, "ndh=" .. d .. " green")
+      Assert.equal(b, 0, "ndh=" .. d .. " blue")
+    end
+  end
+  Assert.equal(DsLighting.vertexColorRgb5(params(lit(0.75))), rgb555(2, 2, 2))
+  Assert.equal(DsLighting.vertexColorRgb5(params(lit(1.0))), rgb555(14, 14, 16))
+end
+
+-- The gate that separates melonDS from DeSmuME: a light whose travel
+-- direction is behind the surface, dot(-L,N) < 0, yet whose half vector
+-- still lies in front of it, dot(N,H) > 1/sqrt(2), so the cos(2a) scalar
+-- would be positive. N at 30deg from +z; L travels at 60deg from +z on the
+-- far side (fx12 {-3313, 0, 2407}): -L = (0.809, 0, -0.588),
+-- dot(-L,N) = -0.105, H = normalize(-L+z) = (0.891, 0, 0.454),
+-- dot(N,H) = 0.839. The melonDS front-light gate zeroes specular (-> ls 0 ->
+-- (0,0,0) for white light over (14,14,16)); a DeSmuME h > 0 gate would
+-- compute ls = 2*0.839^2 - 1 = 0.407 -> (6,6,7). The reference must not
+-- contribute here.
+function T.melonds_front_gate_zeroes_specular_behind_the_surface()
+  local c = case({
+    normal = { 0.5, 0, 0.8660254037844386 },
+    diffuse = rgb555(0, 0, 0),
+    specular = rgb555(14, 14, 16),
+    lights = { { enabled = true, colorRgb555 = rgb555(31, 31, 31), vectorFx12 = { -3313, 0, 2407 } } },
+    lightMask = 1,
+  })
+  local reference = DsLighting.vertexColorRgb5(params(c))
+  local shader = shaderEquivalent(normalize3(c.normal), shaderUniforms(c), c.lightMask)
+  Assert.equal(reference, shader, "cpu and shader agree on the behind-light gate")
+  Assert.equal(reference, rgb555(0, 0, 0))
 end
 
 return { tests = T }

@@ -76,8 +76,14 @@ VertexColor = Emission + Sum_i( LightColor_i * (Ambient + Diffuse*ld_i + Specula
 summed per RGB channel over the lights enabled by the polygon's `lightMask`,
 where `ld = max(0, -dot(L, N))` (the profile light vectors point in the
 direction the light travels, from source toward surface) and `ls` is the
-half-vector term `max(0, dot(N, H))` with `H = normalize(-L + (0,0,1))` in
-camera/vector space (exact DS shininess-table lookup remains deferred).
+melonDS `cos(2a)` term `clamp(2*ndh^2 - 1, 0, 1)` with
+`ndh = max(0, dot(N, H))`, `H = normalize(-L + (0,0,1))` in camera/vector
+space, gated on the front-light test `ld > 0` (`dot(-L,N) > 0`) exactly like
+the hardware (GPU3D.cpp `CalculateLighting`; DeSmuME computes the same
+`2*dot^2-4096`). Ambient is not gated: melonDS adds it for every enabled
+light regardless of the light/normal dot. There is no shininess-table path:
+the table is global GX state (SPE_EMI bit 15) and the ROM census found no
+HGSS field material setting the bit.
 
 The numeric domain is the important part: the DS hardware multiplies its RGB555
 colors as fractions of full scale (fixed point), not as saturating integers, so

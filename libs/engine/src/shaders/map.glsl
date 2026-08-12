@@ -7,8 +7,10 @@
 //
 // The vertex-lighting algebra below (computeDsLighting, dsLightContribution,
 // quantizeRgb5) is the shared DS-lighting contract: colors enter normalized as
-// c/31, contributions sum as lightColor * (ambient + diffuse*ld + specular*ndh),
-// and the result clamps to [0,1] and quantizes to 5 bits with round-half-up.
+// c/31, contributions sum as lightColor * (ambient + diffuse*ld + specular*ls),
+// where ls is the melonDS cos(2a) term clamp(2*ndh^2 - 1, 0, 1) gated on the
+// front-light test ld > 0 (dot(-L,N) > 0), and the result clamps to [0,1] and
+// quantizes to 5 bits with round-half-up.
 // Each light additionally requires the polygon's light-mask bit: the renderer
 // sends the draw item's 4-bit mask decoded into u_lightMask (one 0/1 float per
 // light), so a light contributes only when the profile enables it AND the
@@ -60,14 +62,22 @@ vec3 dsLightContribution(vec3 normal, vec3 L, vec3 lightColor)
   float ndl = dot(L, normal);
   float ld = max(0.0, -ndl);
 
-  vec3 H = normalize(-L + VIEW_DIRECTION);
-  float ndh = max(0.0, dot(normal, H));
+  // Specular is the melonDS cos(2a) term behind its front-light gate
+  // (dot(-L,N) > 0, GPU3D.cpp CalculateLighting): ls = clamp(2*ndh^2 - 1,
+  // 0, 1) with H = normalize(-L + z). Ambient is not gated: melonDS adds it
+  // for every enabled light regardless of the light/normal dot.
+  float ls = 0.0;
+  if (ld > 0.0) {
+    vec3 H = normalize(-L + VIEW_DIRECTION);
+    float ndh = max(0.0, dot(normal, H));
+    ls = clamp(2.0 * ndh * ndh - 1.0, 0.0, 1.0);
+  }
 
   // The material's own colors multiply the lighting-set colors, as the DS
   // material registers do (NSBMA animates them per material).
   vec3 contrib = u_matAmbient * u_ambientColor
     + u_matDiffuse * u_diffuseColor * ld
-    + u_matSpecular * u_specularColor * ndh;
+    + u_matSpecular * u_specularColor * ls;
   return lightColor * contrib;
 }
 
