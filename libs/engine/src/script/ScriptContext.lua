@@ -364,9 +364,6 @@ function ScriptContext.build(opts)
     warp = function(_, spec)
       return taskDescriptor("warp", 1, spec)
     end,
-    starterChoice = function(_, spec)
-      return taskDescriptor("starter_choice", 1, spec)
-    end,
   }
 
   ctx.random = {

@@ -41,7 +41,6 @@ local TASK_MODULES = {
   "libs.engine.src.script.tasks.WarpTask",
   "libs.engine.src.script.tasks.ChildScriptTask",
   "libs.engine.src.script.tasks.AskYesNoTask",
-  "libs.engine.src.script.tasks.StarterChoiceTask",
   "libs.engine.src.script.tasks.AuxiliaryUiTask",
   "libs.engine.src.script.tasks.ContextChoiceTask",
   "libs.engine.src.script.tasks.MenuTask",
