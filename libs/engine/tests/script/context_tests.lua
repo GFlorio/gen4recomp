@@ -16,7 +16,7 @@ local ScriptSave = require("libs.engine.src.script.ScriptSave")
 local RawModules = require("libs.engine.src.script.RawModules")
 local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
 local ChildScriptTask = require("libs.engine.src.script.tasks.ChildScriptTask")
-local StarterChoiceTask = require("libs.engine.src.script.tasks.StarterChoiceTask")
+local StarterChoiceTask = require("tests.examples.StarterChoiceTask")
 local FakeServices = require("tests.support.script.FakeServices")
 
 local T = {}
@@ -28,8 +28,10 @@ local TestRaw = {
   returnsValue = function(ctx, args)
     return args.value * 2
   end,
-  returnsTask = function(ctx)
-    return ctx.tasks:starterChoice({})
+  returnsTask = function()
+    -- The example task's descriptor envelope, produced directly: the
+    -- production ctx no longer exposes a starter_choice factory.
+    return { taskType = "starter_choice", taskVersion = 1, state = {} }
   end,
   returnsNakedTable = function()
     return { ["not"] = "a task" }

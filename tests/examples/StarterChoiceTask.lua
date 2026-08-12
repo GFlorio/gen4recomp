@@ -1,10 +1,12 @@
--- starter_choice task implementation : the
--- example raw extension task owned by the starter-machine UI state. It is
--- serializable and proves the raw task save model: the selection index is
--- part of the task state, d-pad edges cycle the choices, the action edge
--- confirms (never in the same tick the task becomes eligible), and the
--- completed selection returns through the generic task result. The
--- surrounding script remains data. Pure domain module: no love dependency.
+-- starter_choice example task : a working example of the raw task
+-- extension model, kept out of the production task registry until a real
+-- starter-selection subsystem owns it. It is serializable and proves the
+-- raw task save model: the selection index is part of the task state,
+-- d-pad edges cycle the choices, the action edge confirms (never in the
+-- same tick the task becomes eligible), and the completed selection
+-- returns through the generic task result. The surrounding script remains
+-- data. An invalid initial selection is a schema fault, never a silent
+-- reset to the first choice. Pure domain module: no love dependency.
 
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -31,8 +33,12 @@ function StarterChoiceTask.create(spec, ctx)
     )
   end
   local selection = spec.selection or 1
-  if selection < 1 or selection > #choices then
-    selection = 1
+  if type(selection) ~= "number" or selection ~= math.floor(selection) or selection < 1 or selection > #choices then
+    Errors.raise(
+      ScriptErrors.SCRIPT_SCHEMA_INVALID,
+      "starter_choice selection must be within the choice list",
+      { scriptId = ctx.instance.scriptId, selection = selection }
+    )
   end
   return {
     choices = choices,
