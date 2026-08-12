@@ -45,8 +45,6 @@ Schema.ENUMS = {
   },
   jump_distance = { "zero", "near", "far" },
   text_pad = { "none", "zero", "space" },
-  say_wait = { "button" },
-  timing_profile = { "hgss" },
   movement_scope = { "environment", "actors" },
   compare_operator = { "lt", "eq", "gt", "le", "ge", "ne" },
   emote = { "exclamation", "exclamation_alt", "question" },
@@ -369,9 +367,6 @@ Schema.OPERATIONS = {
   say = {
     fields = {
       message = { type = "message", required = true },
-      wait = { type = "enum:say_wait", default = "button" },
-      close = { type = "boolean", default = true },
-      timingProfile = { type = "enum:timing_profile", default = "hgss" },
       bindings = { type = "bindings", default = {} },
     },
   },
@@ -446,13 +441,6 @@ Schema.OPERATIONS = {
   },
   show_waiting_icon = { fields = {} },
   hide_waiting_icon = { fields = {} },
-  resolve_common_message_bank = {
-    fields = {
-      script = { type = "string", required = true },
-      bankResult = { type = "value", required = true },
-      memberResult = { type = "value", required = true },
-    },
-  },
   lock_player = { fields = {} },
   release_player = { fields = {} },
   lock_all = { fields = {} },
@@ -861,7 +849,7 @@ Schema.CONSTRUCTORS = {
       {
         signature = "S.say(spec)",
         canonical = "op=say",
-        notes = 'spec={message,wait="button",close=true,timingProfile="hgss",bindings={}}.',
+        notes = "spec={message,bindings={}}.",
       },
       { signature = "S.openMessage(spec)", canonical = "op=open_message", notes = "spec optional." },
       {
@@ -885,11 +873,6 @@ Schema.CONSTRUCTORS = {
       { signature = "S.bufferText(spec)", canonical = "op=buffer_text", notes = "spec={slot 0..7,value}." },
       { signature = "S.showWaitingIcon(spec)", canonical = "op=show_waiting_icon", notes = "spec optional." },
       { signature = "S.hideWaitingIcon(spec)", canonical = "op=hide_waiting_icon", notes = "spec optional." },
-      {
-        signature = "S.resolveCommonMessageBank(spec)",
-        canonical = "op=resolve_common_message_bank",
-        notes = "spec={script,bankResult,memberResult}.",
-      },
     },
   },
   {

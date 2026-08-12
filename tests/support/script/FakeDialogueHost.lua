@@ -39,9 +39,9 @@ function FakeDialogueHost:openMessage(spec)
   self:_record("openMessage", spec)
 end
 
-function FakeDialogueHost:startPrint(message, bindings)
+function FakeDialogueHost:startPrint(message, bindings, textArgs)
   self.printRemaining = self.printTicks
-  self:_record("startPrint", message, bindings)
+  self:_record("startPrint", message, bindings, textArgs)
 end
 
 -- Engine-owned async advance: the scheduler calls this before task polling,

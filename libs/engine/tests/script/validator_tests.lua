@@ -106,9 +106,6 @@ function T.direct_table_equivalents_validate_identically()
       {
         op = "say",
         message = "msg.hgss.0543.00097",
-        wait = "button",
-        close = true,
-        timingProfile = "hgss",
         bindings = {},
       },
     },
@@ -146,6 +143,39 @@ end
 function T.rejects_unknown_operation()
   local err = invalidCode("SCRIPT_UNKNOWN_OPERATION", { api = 1, id = "x", steps = { { op = "teleport_to_kanto" } } })
   Assert.equal(err.context.path, "steps/0")
+end
+
+function T.rejects_inert_say_options()
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "say", message = "msg.greeting", close = false } },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "say", message = "msg.greeting", wait = "button" } },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "say", message = "msg.greeting", timingProfile = "hgss" } },
+  })
+end
+
+function T.rejects_resolve_common_message_bank_operation()
+  invalidCode("SCRIPT_UNKNOWN_OPERATION", {
+    api = 1,
+    id = "x",
+    steps = {
+      {
+        op = "resolve_common_message_bank",
+        script = "common.any",
+        bankResult = { id = "VAR_TEMP_x4000", value = "var" },
+        memberResult = { id = "VAR_TEMP_x4001", value = "var" },
+      },
+    },
+  })
 end
 
 function T.rejects_step_without_op()
@@ -449,9 +479,6 @@ function T.constructor_and_direct_table_forms_print_identically()
       {
         op = "say",
         message = "msg.hgss.0543.00097",
-        wait = "button",
-        close = true,
-        timingProfile = "hgss",
         bindings = {},
       },
     },

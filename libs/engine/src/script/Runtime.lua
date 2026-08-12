@@ -479,6 +479,22 @@ end
 
 -- --- Node handlers ------------------------------------------------------------
 
+-- Same-tick audio, camera, dialogue-primitive, and open/close operations:
+-- they apply their side effect and continue. A missing service is an
+-- attributed fault, never a silent skip: the platform must not count an
+-- unsupported operation as successfully executed.
+local function requireService(run, name)
+  local service = run.services[name]
+  if service == nil then
+    Errors.raise(
+      ScriptErrors.SCRIPT_SERVICE_MISSING,
+      name .. " service is unavailable",
+      { scriptId = run.instance.scriptId }
+    )
+  end
+  return service
+end
+
 local HANDLERS = {}
 
 -- The step budget consumes one unit per continue outcome; handlers below that
@@ -982,10 +998,15 @@ end
 HANDLERS.message = function(node, run)
   requireForeground(run, "message")
   if node.waitForPrint == false then
-    if run.services.dialogue then
-      run.services.dialogue:openMessage(node)
-      run.services.dialogue:startPrint(node.message, node.bindings or {})
-    end
+    -- Nonblocking print: open and start the printer same tick, then continue.
+    -- A missing dialogue service is an attributed fault, never a silent skip,
+    -- and the instance's buffered text args ride alongside node bindings
+    -- exactly as on the blocking DialogueTask path.
+    local host = requireService(run, "dialogue")
+    -- LuaLS cannot see through Errors.raise; requireService never returns nil.
+    ---@cast host table
+    host:openMessage(node)
+    host:startPrint(node.message, node.bindings or {}, run.instance.textArgs or {})
     return Runtime.OUTCOME_CONTINUE
   end
   return blockOnTask(run, "dialogue", { node = node })
@@ -1105,28 +1126,6 @@ HANDLERS.unsupported = function(node, run)
   })
 end
 
--- Same-tick audio, camera, dialogue-primitive, and open/close operations:
--- they apply their side effect and continue. A missing service is an
--- attributed fault, never a silent skip: the platform must not count an
--- unsupported operation as successfully executed.
-local function requireService(run, name)
-  local service = run.services[name]
-  if service == nil then
-    Errors.raise(
-      ScriptErrors.SCRIPT_SERVICE_MISSING,
-      name .. " service is unavailable",
-      { scriptId = run.instance.scriptId }
-    )
-  end
-  return service
-end
-
-local function passthroughOp()
-  return function(node, run)
-    return Runtime.OUTCOME_CONTINUE
-  end
-end
-
 HANDLERS.play_sound = function(node, run)
   requireService(run, "audio"):play(node.sound)
   return Runtime.OUTCOME_CONTINUE
@@ -1199,7 +1198,6 @@ HANDLERS.hide_waiting_icon = function(node, run)
   requireService(run, "dialogue"):hideWaitingIcon()
   return Runtime.OUTCOME_CONTINUE
 end
-HANDLERS.resolve_common_message_bank = passthroughOp()
 
 -- Execute one graph node against the run state. The outcome is one of the
 -- outcome constants; a blocking node records its task id in run.blockTaskId.

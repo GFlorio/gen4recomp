@@ -435,9 +435,6 @@ end
 function M.hideWaitingIcon(spec)
   return op("hide_waiting_icon", spec)
 end
-function M.resolveCommonMessageBank(spec)
-  return op("resolve_common_message_bank", spec)
-end
 
 -- Lock and actor constructors
 

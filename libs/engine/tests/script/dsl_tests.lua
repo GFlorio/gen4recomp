@@ -493,9 +493,6 @@ local CASES = {
     {
       op = "say",
       message = "msg.elms_lab.elm_intro",
-      wait = "button",
-      close = true,
-      timingProfile = "hgss",
       bindings = {},
     },
   },
@@ -503,18 +500,12 @@ local CASES = {
     function()
       return S.say({
         message = "msg.elms_lab.elm_intro",
-        wait = "button",
-        close = false,
-        timingProfile = "hgss",
         bindings = { [0] = S.playerName() },
       })
     end,
     {
       op = "say",
       message = "msg.elms_lab.elm_intro",
-      wait = "button",
-      close = false,
-      timingProfile = "hgss",
       bindings = { [0] = { text = "player_name" } },
     },
   },
@@ -606,21 +597,6 @@ local CASES = {
       return S.hideWaitingIcon()
     end,
     { op = "hide_waiting_icon" },
-  },
-  resolve_common_message_bank = {
-    function()
-      return S.resolveCommonMessageBank({
-        script = "common.elms_lab_intro",
-        bankResult = S.var("a"),
-        memberResult = S.var("b"),
-      })
-    end,
-    {
-      op = "resolve_common_message_bank",
-      script = "common.elms_lab_intro",
-      bankResult = { value = "var", id = "a" },
-      memberResult = { value = "var", id = "b" },
-    },
   },
 
   -- Lock and actor constructors
@@ -1117,6 +1093,21 @@ end
 -- Every raw handler sees ctx.apiVersion == 1.
 function T.api_version_is_one()
   Assert.equal(S.apiVersion, 1)
+end
+
+-- The inert say options are not part of the API 1 surface: the constructors
+-- must not emit fields the runtime never reads.
+function T.say_constructors_do_not_emit_inert_options()
+  local say = S.say({ message = "msg.greeting" })
+  Assert.isNil(say.close)
+  Assert.isNil(say.wait)
+  Assert.isNil(say.timingProfile)
+end
+
+-- resolve_common_message_bank is an unconditional no-op and has no
+-- constructor on the API 1 surface.
+function T.resolve_common_message_bank_constructor_is_removed()
+  Assert.isNil(S.resolveCommonMessageBank)
 end
 
 -- Constructors return ordinary tables with no metatables.

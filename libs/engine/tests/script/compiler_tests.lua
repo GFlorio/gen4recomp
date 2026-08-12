@@ -138,7 +138,6 @@ local function allOpsScript()
     S.bufferText({ slot = 0, value = S.playerName() }),
     S.showWaitingIcon(),
     S.hideWaitingIcon(),
-    S.resolveCommonMessageBank({ script = "msg.x", bankResult = S.local_("bank"), memberResult = S.local_("member") }),
     S.lockPlayer(),
     S.releasePlayer(),
     S.lockAll(),
@@ -203,8 +202,6 @@ local function allOpsScript()
       r2 = "string",
       counter = "integer",
       yn = "bool",
-      bank = "id",
-      member = "id",
       px = "integer",
       pz = "integer",
       ex = "integer",
@@ -249,9 +246,6 @@ function T.flat_sequence_compiles_to_linear_graph()
   Assert.deepEqual(graph.nodes["path:steps/2"], {
     op = "say",
     message = "msg.hgss.0543.00097",
-    wait = "button",
-    close = true,
-    timingProfile = "hgss",
     bindings = {},
     next = "path:steps/3",
   })

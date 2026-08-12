@@ -55,7 +55,6 @@ function DialogueTask.create(spec, ctx)
   return {
     message = message,
     bindings = node.bindings or {},
-    timingProfile = node.timingProfile or "hgss",
     phase = "typing",
     phaseReadyInTicks = 0,
   }

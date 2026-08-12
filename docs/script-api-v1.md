@@ -127,7 +127,7 @@ Constructors return ordinary serializable Lua tables. Direct table form is alway
 
 | Signature | Canonical | Notes |
 |---|---|---|
-| `S.say(spec)` | `op=say` | spec={message,wait="button",close=true,timingProfile="hgss",bindings={}}. |
+| `S.say(spec)` | `op=say` | spec={message,bindings={}}. |
 | `S.openMessage(spec)` | `op=open_message` | spec optional. |
 | `S.message(spec)` | `op=message` | spec={message,waitForPrint=true,bindings={}}; generated scripts emit waitForPrint explicitly. |
 | `S.waitInput(spec)` | `op=wait_input` | spec={buttons={a,b},allowDpad=false}. |
@@ -138,7 +138,6 @@ Constructors return ordinary serializable Lua tables. Direct table form is alway
 | `S.bufferText(spec)` | `op=buffer_text` | spec={slot 0..7,value}. |
 | `S.showWaitingIcon(spec)` | `op=show_waiting_icon` | spec optional. |
 | `S.hideWaitingIcon(spec)` | `op=hide_waiting_icon` | spec optional. |
-| `S.resolveCommonMessageBank(spec)` | `op=resolve_common_message_bank` | spec={script,bankResult,memberResult}. |
 
 ### Lock and actor constructors
 
@@ -957,16 +956,6 @@ No fields.
 | `key` | string |  |  |
 | `provenance` | source_provenance |  |  |
 
-### `resolve_common_message_bank`
-
-| Field | Type | Required | Default |
-|---|---|---|---|
-| `bankResult` | value | yes |  |
-| `key` | string |  |  |
-| `memberResult` | value | yes |  |
-| `provenance` | source_provenance |  |  |
-| `script` | string | yes |  |
-
 ### `return`
 
 | Field | Type | Required | Default |
@@ -980,12 +969,9 @@ No fields.
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `bindings` | bindings |  | `{}` |
-| `close` | boolean |  | `true` |
 | `key` | string |  |  |
 | `message` | message | yes |  |
 | `provenance` | source_provenance |  |  |
-| `timingProfile` | enum:timing_profile |  | `hgss` |
-| `wait` | enum:say_wait |  | `button` |
 
 ### `set_auxiliary_ui_visible`
 
@@ -1275,12 +1261,8 @@ No fields.
 
 `movement_scope`: environment, actors
 
-`say_wait`: button
-
 `script_kind`: field_script
 
 `speed`: slower, slow, normal, fast, faster, slightly_fast, slightly_faster, fastest, run, hgss_96, hgss_97, hgss_98, hgss_99
 
 `text_pad`: none, zero, space
-
-`timing_profile`: hgss

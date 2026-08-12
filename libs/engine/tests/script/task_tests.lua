@@ -384,12 +384,14 @@ T["save during dialogue"] = function()
 end
 
 -- 11. NonNPCMsg-style: message with waitForPrint=false starts the printer and
--- continues the same tick.
+-- continues the same tick. Buffered text args (buffer_text) must ride
+-- alongside, matching the blocking path.
 T["nonblocking message continues same tick"] = function()
   local h = harness({ printTicks = 2 })
   startForeground(
     h,
     script("test.nonblock", {
+      S.bufferText({ slot = 0, value = S.playerName() }),
       S.message({ message = "msg.system", waitForPrint = false }),
       S.setVar({ variable = "VAR_AFTER", value = 1 }),
       S.stop(),
@@ -398,7 +400,47 @@ T["nonblocking message continues same tick"] = function()
   )
   h.scheduler:step(100, {})
   Assert.isTrue(h.host:isOpen())
+  Assert.equal(h.host.calls[2].args[3][0].text, "player_name", "buffered text args reach the nonblocking printer")
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 1, "starting the printer is a same-tick operation")
+end
+
+-- 11b. Blocking say forwards buffered text args to the host (the fixed
+-- DialogueTask path); the node itself carries no bindings, so only the
+-- instance textArgs can satisfy the substitution.
+T["blocking say forwards buffered text args"] = function()
+  local h = harness({ printTicks = 2 })
+  startForeground(
+    h,
+    script("test.sayargs", {
+      S.bufferText({ slot = 0, value = S.playerName() }),
+      S.say({ message = "msg.greeting" }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, {})
+  Assert.equal(h.host.calls[2].args[3][0].text, "player_name")
+end
+
+-- 11c. Nonblocking message with no dialogue service faults the instance with
+-- attribution instead of silently continuing.
+T["nonblocking message without a dialogue service faults"] = function()
+  local h = harness()
+  h.services.dialogue = nil
+  local instanceId = startForeground(
+    h,
+    script("test.nodialogue", {
+      S.message({ message = "msg.system", waitForPrint = false }),
+      S.setVar({ variable = "VAR_AFTER", value = 1 }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, {})
+  local instance = assert(h.scheduler:instance(instanceId))
+  Assert.equal(instance.status, "faulted")
+  Assert.equal(instance.endReason, "SCRIPT_SERVICE_MISSING")
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "the script must not continue past the missing service")
 end
 
 -- 12. open/close primitives drive the host directly.
