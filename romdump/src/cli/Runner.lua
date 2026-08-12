@@ -215,14 +215,26 @@ function Runner._runGenScriptOverrides()
   return love.event.quit(0)
 end
 
--- Derive payload-free map resolution facts from every ready canonical dump.
+-- Derive payload-free map resolution facts from every ready canonical dump,
+-- plus the corpus material census backing the shininess-table decision.
 function Runner._runAnalyzeMaps()
   local MapAnalysis = require("romdump.src.digest.MapAnalysis")
+  local FieldMaterialCensus = require("romdump.src.digest.FieldMaterialCensus")
   local allOk = forEachReadyVersion("analyze-maps", function(romFs, version)
     print("version\t" .. version)
     local results = MapAnalysis.analyze(romFs)
     for _, line in ipairs(MapAnalysis.lines(results)) do
       print(line)
+    end
+    local censusOk, census = pcall(function()
+      return assert(FieldMaterialCensus.run(romFs))
+    end)
+    if censusOk then
+      for _, line in ipairs(FieldMaterialCensus.lines(census)) do
+        print(line)
+      end
+    else
+      error(census)
     end
   end)
   if allOk == nil then
