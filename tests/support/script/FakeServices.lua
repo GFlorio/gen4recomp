@@ -298,6 +298,21 @@ function FakeEvents:emit(name, payload)
   self.records[#self.records + 1] = { name = name, payload = payload }
 end
 
+-- The first recorded payload of `name` attributed to `instanceId`, or nil.
+-- Ended script instances are not retained by the scheduler, so script.error
+-- and script.ended events are the end-state observation surface.
+---@param name string
+---@param instanceId string
+---@return table|nil
+function FakeEvents:eventFor(name, instanceId)
+  for _, record in ipairs(self.records) do
+    if record.name == name and record.payload.instanceId == instanceId then
+      return record.payload
+    end
+  end
+  return nil
+end
+
 ---@class FakeServices
 ---@field world FakeWorld
 ---@field actors FakeActors

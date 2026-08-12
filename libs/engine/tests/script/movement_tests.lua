@@ -278,8 +278,7 @@ T["conflicting movement ownership"] = function()
   })
   local instanceId = startForeground(h, resource, 100)
   h.scheduler:step(100, nil)
-  local instance = assert(h.scheduler:instance(instanceId))
-  Assert.equal(instance.status, "faulted")
+  Assert.notNil(h.services.events:eventFor("script.error", instanceId))
 end
 
 -- 8. Missing actors are attributed errors.
@@ -291,7 +290,7 @@ T["missing movement actor"] = function()
   })
   local instanceId = startForeground(h, resource, 100)
   h.scheduler:step(100, nil)
-  Assert.equal(assert(h.scheduler:instance(instanceId)).endReason, "SCRIPT_ACTOR_NOT_FOUND")
+  Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_ACTOR_NOT_FOUND")
 end
 
 -- 9. Background scripts may not move the player.
@@ -306,7 +305,7 @@ T["background cannot move player"] = function()
   local composed = assert(h.composition:effective(resource.id))
   local instanceId = h.scheduler:createBackground(composed, nil, 100)
   h.scheduler:step(100, nil)
-  Assert.equal(assert(h.scheduler:instance(instanceId)).endReason, "SCRIPT_BACKGROUND_FORBIDDEN")
+  Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_BACKGROUND_FORBIDDEN")
 end
 
 -- 10. Cancellation releases movement ownership.

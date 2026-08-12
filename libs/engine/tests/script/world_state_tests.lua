@@ -167,8 +167,10 @@ T["persistent variables survive save"] = function()
   Assert.equal(restoredWorld:getVar("VAR_SCENE_NEW_BARK_TOWN_OW"), 1)
 end
 
--- 5. Temporary locals are not persisted after instance completion.
-T["temp locals cleared on completion"] = function()
+-- 5. Temporary locals do not persist after instance completion: the ended
+-- root is dropped entirely, so neither its locals nor any record of the
+-- instance survive.
+T["temp locals do not persist after completion"] = function()
   local h = harness()
   local resource = script("test.locals", {
     locals = { temp = "integer" },
@@ -185,10 +187,7 @@ T["temp locals cleared on completion"] = function()
   Assert.equal(assert(h.scheduler:instance(instanceId)).locals.temp, 7)
   h.scheduler:step(101, nil)
   h.scheduler:step(102, nil)
-  Assert.isNil(
-    assert(h.scheduler:instance(instanceId)).locals.temp,
-    "locals must not persist after instance completion"
-  )
+  Assert.isNil(h.scheduler:instance(instanceId), "the ended root is not retained")
 end
 
 -- 6. The script RNG is deterministic, serializable, and seeded from state.

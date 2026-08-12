@@ -413,9 +413,8 @@ T["missing actor fault through binding path"] = function()
   }
   p.scheduler:createForeground(composed, trigger, 100)
   p.scheduler:step(100, nil)
-  local instance = assert(p.scheduler:instances()[1])
-  Assert.equal(instance.status, "faulted")
-  Assert.equal(instance.endReason, "SCRIPT_ACTOR_NOT_FOUND")
+  local fault = assert(p.services.events:eventFor("script.error", "script-00000001"))
+  Assert.equal(fault.code, "SCRIPT_ACTOR_NOT_FOUND")
 end
 
 -- 16. Map transition cancellation: a warp cancels the foreground environment,
@@ -439,7 +438,9 @@ T["map transition cancels scripts"] = function()
   local envId = assert(p.scheduler:foregroundEnvironmentId())
   p.scheduler:cancelEnvironment(envId, "map transition")
   Assert.isNil(p.scheduler:foregroundEnvironmentId())
-  Assert.equal(assert(p.scheduler:instance(instanceId)).status, "cancelled")
+  local ended = assert(p.services.events:eventFor("script.ended", instanceId))
+  Assert.isFalse(ended.completed)
+  Assert.equal(ended.reason, "map transition")
   Assert.equal(#p.scheduler:tasks(), 0)
 end
 
