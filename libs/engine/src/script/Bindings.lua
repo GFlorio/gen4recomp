@@ -1,22 +1,17 @@
 -- Map event bindings : the manifest maps map ids and event
--- keys (object actor ids, background array indices, coordinate indices) to
+-- keys (object actor ids, background array indices) to
 -- stable public script ids. Runtime bindings never contain the ROM's one-based
 -- script-index convention; the importer resolves that during
 -- binding generation. Interaction resolution order: the
 -- facing cell prefers an interactable object, then a matching background
--- event. The module builds the trigger descriptor. Pure
--- domain module: no love dependency.
+-- event. The module builds the trigger descriptor and validates the binding
+-- manifest strictly at load: only the dispatched trigger kinds (object and
+-- background) may be bound, the required arrays must be present, and an
+-- object binding key may not repeat. Pure domain module: no love dependency.
 
-local Bindings = {}
+local Errors = require("libs.rom.src.Errors")
 
-local TRIGGER_KINDS = {
-  object = true,
-  background = true,
-  coordinate = true,
-  map_init = true,
-  map_enter = true,
-  map_resume = true,
-}
+local BINDINGS_MANIFEST_INVALID = "SCRIPT_BINDING_MANIFEST_INVALID"
 
 ---@class ScriptBindings
 ---@field private _maps table
@@ -25,11 +20,91 @@ Bindings.__index = Bindings
 
 Bindings.SCHEMA_NAME = "g4-script-bindings-v1"
 
+-- Validate the manifest structure strictly: the maps table is required, every
+-- map carries exactly the objects and backgrounds sections (a missing array
+-- is an error, never an implicit empty one), keys and targets have the
+-- required types, and an object binding key may not repeat across the
+-- manifest. Raises SCRIPT_BINDING_MANIFEST_INVALID on any violation.
+---@param manifest table
+local function validate(manifest)
+  if type(manifest.maps) ~= "table" then
+    Errors.raise(BINDINGS_MANIFEST_INVALID, "bindings manifest requires a maps table", {})
+  end
+  local seen = {}
+  for mapId, map in pairs(manifest.maps) do
+    if type(mapId) ~= "number" or math.floor(mapId) ~= mapId then
+      Errors.raise(BINDINGS_MANIFEST_INVALID, "bindings map id must be an integer", { mapId = mapId })
+    end
+    if type(map) ~= "table" then
+      Errors.raise(BINDINGS_MANIFEST_INVALID, "bindings map entry must be a table", { mapId = mapId })
+    end
+    if type(map.objects) ~= "table" or type(map.backgrounds) ~= "table" then
+      Errors.raise(
+        BINDINGS_MANIFEST_INVALID,
+        "bindings map entry requires objects and backgrounds arrays",
+        { mapId = mapId }
+      )
+    end
+    for section, entries in pairs(map) do
+      if section ~= "objects" and section ~= "backgrounds" then
+        Errors.raise(
+          BINDINGS_MANIFEST_INVALID,
+          "unknown binding section " .. tostring(section) .. ": only object and background triggers are dispatched",
+          { mapId = mapId, section = section }
+        )
+      end
+      if section == "objects" then
+        for key, target in pairs(entries) do
+          if type(key) ~= "string" then
+            Errors.raise(BINDINGS_MANIFEST_INVALID, "object binding key must be a string", { mapId = mapId, key = key })
+          end
+          if type(target) ~= "string" then
+            Errors.raise(
+              BINDINGS_MANIFEST_INVALID,
+              "binding target must be a string",
+              { mapId = mapId, section = section, key = key }
+            )
+          end
+          local existing = seen[key]
+          if existing ~= nil and existing ~= target then
+            Errors.raise(
+              BINDINGS_MANIFEST_INVALID,
+              "conflicting bindings for " .. key,
+              { key = key, target = target, existing = existing }
+            )
+          elseif existing ~= nil then
+            Errors.raise(BINDINGS_MANIFEST_INVALID, "duplicate binding " .. key, { key = key, target = target })
+          end
+          seen[key] = target
+        end
+      else
+        for key, target in pairs(entries) do
+          if type(key) ~= "number" or math.floor(key) ~= key or key < 0 then
+            Errors.raise(
+              BINDINGS_MANIFEST_INVALID,
+              "background binding key must be a non-negative integer",
+              { mapId = mapId, key = key }
+            )
+          end
+          if type(target) ~= "string" then
+            Errors.raise(
+              BINDINGS_MANIFEST_INVALID,
+              "binding target must be a string",
+              { mapId = mapId, section = section, key = key }
+            )
+          end
+        end
+      end
+    end
+  end
+end
+
 ---@param manifest table
 ---@return table bindings
 function Bindings.new(manifest)
   assert(type(manifest) == "table", "bindings manifest required")
-  return setmetatable({ _maps = manifest.maps or {} }, Bindings)
+  validate(manifest)
+  return setmetatable({ _maps = manifest.maps }, Bindings)
 end
 
 -- Resolve the public script id for one map event, or nil when the manifest
@@ -70,7 +145,6 @@ function Bindings.objectTrigger(intent, scriptId, playerFacing)
     selfActor = intent.object.actorId,
     playerFacing = playerFacing,
     backgroundId = nil,
-    coordinateId = nil,
     sourceFieldX = intent.sourceFieldX,
     sourceFieldZ = intent.sourceFieldZ,
     targetFieldX = intent.targetFieldX,
@@ -94,7 +168,6 @@ function Bindings.backgroundTrigger(intent, scriptId, playerFacing)
     selfActor = nil,
     playerFacing = playerFacing,
     backgroundId = intent.background.eventIndex,
-    coordinateId = nil,
     sourceFieldX = intent.sourceFieldX,
     sourceFieldZ = intent.sourceFieldZ,
     targetFieldX = intent.targetFieldX,
@@ -104,8 +177,7 @@ end
 
 -- Resolve one interaction intent against the manifest into a trigger
 -- descriptor plus the bound script id, or nil when nothing is bound (object
--- preferred, then background; coordinate and map-level
--- kinds resolve by their own keys).
+-- preferred, then background; other intent kinds are not dispatched).
 ---@param intent table InteractionIntent
 ---@param playerFacing string
 ---@return table|nil { trigger, scriptId }
@@ -129,44 +201,17 @@ function Bindings:resolveIntent(intent, playerFacing)
       trigger = Bindings.backgroundTrigger(intent, scriptId, playerFacing),
       scriptId = scriptId,
     }
-  elseif TRIGGER_KINDS[kind] then
-    local key
-    if kind == "coordinate" then
-      key = intent.coordinateIndex
-    elseif kind == "map_init" or kind == "map_enter" or kind == "map_resume" then
-      key = 0
-    end
-    local scriptId = key ~= nil and self:scriptFor(intent.mapId, kind, key) or nil
-    if scriptId == nil then
-      return nil
-    end
-    return {
-      trigger = {
-        kind = kind,
-        mapId = intent.mapId,
-        objectId = nil,
-        scriptId = scriptId,
-        selfActor = nil,
-        playerFacing = playerFacing,
-        backgroundId = nil,
-        coordinateId = key,
-        sourceFieldX = intent.sourceFieldX,
-        sourceFieldZ = intent.sourceFieldZ,
-      },
-      scriptId = scriptId,
-    }
   end
   return nil
 end
 
--- All bound script ids (for diagnostics and coverage): every binding kind,
--- including map-init/enter/resume events.
+-- All bound script ids (for diagnostics and coverage).
 ---@return string[]
 function Bindings:allScriptIds()
   local out, seen = {}, {}
   for _, map in pairs(self._maps) do
-    for _, kind in ipairs({ "object", "background", "coordinate", "map_init", "map_enter", "map_resume" }) do
-      for _, scriptId in pairs(map[kind .. "s"] or {}) do
+    for _, kind in ipairs({ "object", "background" }) do
+      for _, scriptId in pairs(map[kind .. "s"]) do
         if type(scriptId) == "string" and not seen[scriptId] then
           seen[scriptId] = true
           out[#out + 1] = scriptId
