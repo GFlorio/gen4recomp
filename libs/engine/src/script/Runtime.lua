@@ -959,21 +959,15 @@ end
 local function startMovement(run, node, blocking)
   local actorId = Runtime.requireActor(node.actor, run)
   requireForegroundPlayer(run, actorId)
-  local existing = run.scheduler:activeMovementForActor(run.environment.environmentId, actorId)
-  if existing ~= nil then
-    Errors.raise(
-      ScriptErrors.SCRIPT_ACTOR_BUSY,
-      "another foreground task already moves this actor",
-      { scriptId = run.instance.scriptId, actor = actorId, taskId = existing }
-    )
-  end
+  -- The actor-busy check and the movement-generation registration are owned
+  -- by the task-creation boundary (MovementTask.create + Scheduler:createTask),
+  -- so raw ctx.tasks.movement descriptors share them.
   local taskId = run.scheduler:createTask("movement", {
     actor = actorId,
     sequence = node.movement,
     movementId = node.movementId,
     blocking = blocking,
   }, run.instance, run.tick, run.input)
-  run.environment:registerMovementTask(taskId)
   if blocking then
     run.blockTaskId = taskId
     return Runtime.OUTCOME_BLOCK

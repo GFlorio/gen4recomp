@@ -95,6 +95,18 @@ function TaskRegistry:resolve(taskType, version)
   return impl
 end
 
+-- Enumerate every registered task type, sorted by name (the order the
+-- fingerprint projection uses).
+---@return string[]
+function TaskRegistry:types()
+  local out = {}
+  for taskType in pairs(self._byType) do
+    out[#out + 1] = taskType
+  end
+  table.sort(out)
+  return out
+end
+
 -- Deterministic fingerprint over every registered (type, version) pair; the
 -- save schema stores it and load rejects a mismatch. Lookup
 -- is order-independent, so the fingerprint is too: types are sorted by name.

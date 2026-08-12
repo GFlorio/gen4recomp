@@ -292,7 +292,7 @@ end
 -- read-only records; mutation operations reach the manager.
 T["actor world adapter"] = function()
   local actors = {}
-  actors.elm = { id = "elm", fieldX = 4, fieldZ = 5, facing = "north", visible = true }
+  actors.elm = { id = "elm", fieldX = 4, fieldZ = 5, facing = "north", visible = true, mapId = 61 }
   local manager = {
     getActor = function(self, id)
       return actors[id]
@@ -356,6 +356,7 @@ T["actor world adapter"] = function()
   local snapshot = world:snapshot("elm")
   ---@cast snapshot table
   Assert.equal(snapshot.actorId, "elm")
+  Assert.equal(snapshot.mapId, 61, "the snapshot carries the actor's map id")
   Assert.equal(snapshot.facing, "north")
   world:setFacing("elm", "east")
   world:hide("elm")

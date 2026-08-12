@@ -25,9 +25,9 @@ local Scheduler = require("libs.engine.src.script.Scheduler")
 local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 
-local FieldScripts = {}
-
--- Every task implementation the runtime can create.
+-- Every task implementation the runtime can create. The registered-task
+-- declaration a mod-facing conformance derives its expectations from; the
+-- class table re-exports it as FieldScripts.TASK_MODULES.
 local TASK_MODULES = {
   "libs.engine.src.script.tasks.WaitTicksTask",
   "libs.engine.src.script.tasks.WaitInputTask",
@@ -170,6 +170,8 @@ end
 ---@field auxiliaryUi AuxiliaryFieldUi logical auxiliary field UI state
 ---@field contextChoice ContextChoiceProvider contextual two-choice provider
 ---@field menu FieldMenuHost modal field menu host
+---@field rawModules table? mod raw-Lua module registry wired as the lua node's rawModules service
+---@field modScripts table? mod script installs ({id, script, owner}) into the script registry before it seals
 
 ---@class FieldScripts
 ---@field registry table
@@ -187,8 +189,14 @@ end
 ---@field registrySnapshotKey string|nil key the live registry was built under
 ---@field registrySnapshotUsed boolean true when a matching snapshot skipped per-use validation
 ---@field warmup RegistryWarmup|nil background warm-up after a snapshot miss
+---@field taskRegistry TaskRegistry the live registered-task registry
+---@field hasModScripts boolean true when mod scripts were installed before the seal
 local FieldScripts = {}
 FieldScripts.__index = FieldScripts
+
+-- The registered-task declaration (the mod-facing conformance source of
+-- truth): every task implementation the runtime can create.
+FieldScripts.TASK_MODULES = TASK_MODULES
 
 -- opts.overrideFs: love.filesystem-shaped read access for the repo
 -- `data/scripts/overrides` tree (the game mounts `data` before calling);
@@ -215,6 +223,14 @@ function FieldScripts.new(opts)
     "field scripts require transition, auxiliary UI, context choice, and menu host"
   )
 
+  -- Mod assets: `modScripts` installs new script ids into the registry before
+  -- it seals (the mod-asset seam); `rawModules` is the raw-Lua module
+  -- registry the lua node handler resolves through. Both are assets a host
+  -- supplies at construction; the production game wires neither yet.
+  local modScripts = opts.modScripts or {}
+  assert(type(modScripts) == "table", "field scripts modScripts must be a table")
+  local hasModScripts = #modScripts > 0
+
   -- The registry is always installed lazily: only the generated layer's
   -- presence comes from the index, and each script decodes on first use. A
   -- matching snapshot proves the corpus unchanged since the cache build
@@ -227,10 +243,20 @@ function FieldScripts.new(opts)
   local registry = ScriptLoader.buildRegistry(opts.cacheFs, opts.overrideFs, nil, {
     lazy = true,
     validateGenerated = not fast,
+    -- The mod-asset seam installs before the seal; without mod scripts the
+    -- loader seals as usual.
+    seal = not hasModScripts,
   })
+  -- The restored snapshot memo is valid only while the registry is exactly
+  -- the keyed corpus: mod installs bump the version below, so the memo is
+  -- restored first and recomputed live once the mods land.
   if snapshot ~= nil and snapshot.fingerprint ~= nil then
     registry:restoreFingerprint(snapshot.fingerprint)
   end
+  for _, mod in ipairs(modScripts) do
+    registry:register(mod.id, mod.script, mod.owner)
+  end
+  registry:seal()
   local warmup
   if not fast then
     warmup = RegistryWarmup.new({
@@ -299,7 +325,15 @@ function FieldScripts.new(opts)
     mapsService = mapsService,
     menuHost = menuHost,
     player = player,
+    -- Mod scripts make the live registry differ from the keyed corpus: the
+    -- fingerprint is recomputed live and never published to the snapshot.
+    hasModScripts = hasModScripts,
   }, FieldScripts)
+
+  -- The live task registry: the scheduler routes through it, and the mod
+  -- surface enumerates it (TaskRegistry:types) to prove every registered
+  -- task type is declared and reachable.
+  local liveTaskRegistry = taskRegistry()
 
   local scheduler
   local advanceAsync = function()
@@ -325,14 +359,16 @@ function FieldScripts.new(opts)
       contextChoice = opts.contextChoice,
       menu = opts.menu,
       scriptMenu = menuHost,
+      rawModules = opts.rawModules,
       advanceAsync = advanceAsync,
     },
-    taskRegistry = taskRegistry(),
+    taskRegistry = liveTaskRegistry,
     resolveComposition = function(id)
       return composition:effective(id)
     end,
   })
   platform.scheduler = scheduler
+  platform.taskRegistry = liveTaskRegistry
   platform.client = ScriptInteractionClient.new({
     bindings = bindings,
     compose = function(id)
@@ -362,7 +398,7 @@ function FieldScripts:registryFingerprint()
   else
     fingerprint = self.registry:fingerprint()
   end
-  if self.registrySnapshotKey ~= nil then
+  if self.registrySnapshotKey ~= nil and not self.hasModScripts then
     RegistrySnapshot.save(self.cacheFs, self.overrideFs, fingerprint, self.registrySnapshotKey)
   end
   return fingerprint

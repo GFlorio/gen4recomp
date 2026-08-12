@@ -46,6 +46,19 @@ function MovementTask.create(spec, ctx)
   if #sequence == 0 then
     Errors.raise(ScriptErrors.SCRIPT_SCHEMA_INVALID, "movement sequence is empty", { scriptId = ctx.instance.scriptId })
   end
+  -- One ownership boundary for every movement entry point: a raw task
+  -- descriptor (ctx.tasks.movement) and a compiled move/apply_movement node
+  -- both reject a second movement on an actor this environment already
+  -- moves.
+  local actorId = type(actor) == "string" and actor or (actor and actor.id) or actor
+  local existing = ctx.scheduler:activeMovementForActor(ctx.environment.environmentId, actorId)
+  if existing ~= nil then
+    Errors.raise(
+      ScriptErrors.SCRIPT_ACTOR_BUSY,
+      "another foreground task already moves this actor",
+      { scriptId = ctx.instance.scriptId, actor = actorId, taskId = existing }
+    )
+  end
   local position = ctx.services.actors:getPosition(actor)
   return {
     actor = actor,

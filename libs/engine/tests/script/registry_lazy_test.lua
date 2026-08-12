@@ -311,4 +311,17 @@ T["seal exempts the post-load machinery"] = function()
   end)
 end
 
+-- 15. buildRegistry can defer its seal: `seal = false` keeps the registry
+-- mutable so a caller can install mod scripts before sealing it itself (the
+-- FieldScripts mod-asset seam). The default stays sealed.
+T["buildRegistry can defer the seal for pre-seal installs"] = function()
+  local registry = ScriptLoader.buildRegistry(scriptCache(), overrideFs(), requireShim, { lazy = true, seal = false })
+  registry:register("mod.helper", { id = "mod.helper" }, { modId = "mod.a" })
+  Assert.notNil(registry:get("mod.helper"))
+  registry:seal()
+  throwsCode("SCRIPT_REGISTRY_SEALED", function()
+    registry:register("mod.late", { id = "mod.late" }, { modId = "mod.a" })
+  end)
+end
+
 return T

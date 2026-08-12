@@ -231,7 +231,7 @@ end
 ---@param cacheFs table CacheFs-shaped
 ---@param fs table directory-shaped filesystem for data/scripts/overrides
 ---@param requireFn function|nil defaults to the restricted gen4.script-only require
----@param opts table|nil { lazy: boolean?, validateGenerated: boolean? }
+---@param opts table|nil { lazy: boolean?, validateGenerated: boolean?, seal: boolean? }
 ---@return table registry
 function ScriptLoader.buildRegistry(cacheFs, fs, requireFn, opts)
   opts = opts or {}
@@ -262,8 +262,12 @@ function ScriptLoader.buildRegistry(cacheFs, fs, requireFn, opts)
   -- Load finished: the registry is sealed so cached compositions and the
   -- fingerprint memo can never describe stale data. The post-load machinery
   -- (restoreFingerprint, cacheScriptHash, on-demand decode) is exempt from
-  -- the gate.
-  registry:seal()
+  -- the gate. `seal = false` defers the gate for a caller that installs
+  -- pre-seal contributions (the FieldScripts mod-asset seam); that caller
+  -- must seal the registry itself.
+  if opts.seal ~= false then
+    registry:seal()
+  end
   return registry
 end
 

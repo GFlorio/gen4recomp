@@ -68,8 +68,10 @@ end
 
 -- --- Task descriptors ----------------------------------------------------------
 
--- Build a task descriptor from a spec; every factory validates its spec
--- here so raw handlers cannot smuggle malformed task state.
+-- Build a task descriptor from a spec; every factory checks the generic
+-- descriptor envelope (a serializable table) here. Task-specific validation
+-- is owned by the registered task implementation: createTask runs the
+-- implementation's create, and its validate guards saved records.
 ---@param taskType string
 ---@param taskVersion integer
 ---@param spec table
@@ -111,7 +113,16 @@ function ScriptContext.build(opts)
       return instance.owner
     end,
     trigger = function()
-      return trigger
+      if trigger == nil then
+        return nil
+      end
+      -- A fresh copy per call: the live trigger table is scheduler-owned
+      -- state and must never be exposed to raw handlers.
+      local copy = {}
+      for key, value in pairs(trigger) do
+        copy[key] = value
+      end
+      return copy
     end,
     call = function(_, scriptId, args)
       assert(type(scriptId) == "string", "call target must be a script id")
@@ -244,42 +255,10 @@ function ScriptContext.build(opts)
     end,
   }
 
-  ctx.dialogue = {
-    isOpen = function()
-      if services.dialogue == nil or services.dialogue.isOpen == nil then
-        return false
-      end
-      return services.dialogue:isOpen()
-    end,
-    resolve = function(_, messageRef, bindings)
-      if services.dialogue == nil or services.dialogue.resolveText == nil then
-        Errors.raise(
-          ScriptErrors.SCRIPT_RAW_HANDLER_ERROR,
-          "dialogue resolution is unavailable",
-          { scriptId = instance.scriptId }
-        )
-      end
-      return {
-        message = messageRef,
-        bindings = bindings,
-        rendered = services.dialogue:resolveText(messageRef),
-      }
-    end,
-  }
-
-  ctx.movement = {
-    isActorBusy = function(_, ref)
-      local actorId = objectFor(ref)
-      return actorId ~= nil and services.actors:isBusy(actorId)
-    end,
-    canMove = function(_, ref, direction)
-      local actorId = objectFor(ref)
-      return actorId ~= nil and services.actors:canMove(actorId, direction)
-    end,
-  }
-
-  -- Camera and maps raise an attributed error when the owning subsystem has
-  -- not been wired; the other facades degrade gracefully.
+  -- Every service-backed facade faults when the owning subsystem has not
+  -- been wired: an unsupported reachable operation is an attributed error,
+  -- never a silent success (one policy for events, audio, camera, dialogue,
+  -- and maps).
   local function requireService(name)
     local service = services[name]
     if service == nil then
@@ -291,6 +270,12 @@ function ScriptContext.build(opts)
     end
     return service
   end
+
+  ctx.dialogue = {
+    isOpen = function()
+      return requireService("dialogue"):isOpen()
+    end,
+  }
 
   ctx.camera = {
     target = function()
@@ -315,10 +300,7 @@ function ScriptContext.build(opts)
 
   ctx.audio = {
     isPlaying = function(_, soundId)
-      if services.audio == nil or services.audio.isPlaying == nil then
-        return false
-      end
-      return services.audio:isPlaying(soundId)
+      return requireService("audio"):isPlaying(soundId)
     end,
   }
 
@@ -333,35 +315,36 @@ function ScriptContext.build(opts)
           { scriptId = instance.scriptId, modId = modId, event = name }
         )
       end
-      if services.events and services.events.emit then
-        services.events:emit(name, payload)
-      end
+      requireService("events"):emit(name, payload)
     end,
   }
 
+  -- Task factories are plain functions called as `ctx.tasks.<name>(spec)`
+  -- (Lua dot calls pass no implicit self); each returns a serializable task
+  -- descriptor the lua node turns into one authoritative scheduler task.
   ctx.tasks = {
-    waitTicks = function(_, spec)
+    waitTicks = function(spec)
       return taskDescriptor("wait_ticks", 1, spec)
     end,
-    waitInput = function(_, spec)
+    waitInput = function(spec)
       return taskDescriptor("wait_input", 1, spec)
     end,
-    dialogue = function(_, spec)
+    dialogue = function(spec)
       return taskDescriptor("dialogue", 1, spec)
     end,
-    movement = function(_, spec)
+    movement = function(spec)
       return taskDescriptor("movement", 1, spec)
     end,
-    movementBarrier = function(_, spec)
+    movementBarrier = function(spec)
       return taskDescriptor("movement_barrier", 1, spec)
     end,
-    fade = function(_, spec)
+    fade = function(spec)
       return taskDescriptor("fade", 1, spec)
     end,
-    soundWait = function(_, spec)
+    soundWait = function(spec)
       return taskDescriptor("sound_wait", 1, spec)
     end,
-    warp = function(_, spec)
+    warp = function(spec)
       return taskDescriptor("warp", 1, spec)
     end,
   }

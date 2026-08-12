@@ -517,4 +517,43 @@ T["lock all pauses on blocking movement"] = function()
   Assert.equal(h.services.actors.actors.elm.fieldX, 5)
 end
 
+-- 17. A raw movement task (the ctx.tasks.movement descriptor path, created
+-- through the registry exactly as the lua-node handler does) joins the
+-- environment's movement generation at creation and rejects a second raw
+-- movement on the same actor: raw and compiled movement share one ownership
+-- boundary.
+T["raw movement task owns the generation and rejects conflicts"] = function()
+  local h = harness()
+  h.services.actors:add("elm", { fieldX = 4, fieldZ = 6, facing = "north" })
+  local resource = script("test.rawmove", {
+    S.waitTicks({ ticks = 500 }),
+    S.stop(),
+  })
+  local instanceId = startForeground(h, resource, 100)
+  local instance = assert(h.scheduler:instance(instanceId))
+  local env = assert(h.scheduler:environments()[1])
+  local spec = {
+    actor = "elm",
+    sequence = { { action = "walk", direction = "east", speed = "slow", tiles = 1 } },
+    blocking = true,
+  }
+  local firstId = h.scheduler:createTask("movement", spec, instance, 100, nil)
+  Assert.notNil(firstId)
+  Assert.isTrue(env:hasOutstandingMovement(), "the raw blocking movement registers in the generation")
+  local ok, err = pcall(function()
+    h.scheduler:createTask("movement", spec, instance, 100, nil)
+  end)
+  Assert.isFalse(ok, "a second raw movement on the same actor must fault")
+  Assert.isTrue(Errors.is(err), "the conflict must be a structured error, got: " .. tostring(err))
+  ---@cast err Errors.Error
+  Assert.equal(err.code, "SCRIPT_ACTOR_BUSY")
+  -- The first movement still completes and empties the generation (a slow
+  -- walk runs 16 plan ticks, polls 101..116).
+  for tick = 101, 116 do
+    h.scheduler:step(tick, nil)
+  end
+  Assert.isFalse(env:hasOutstandingMovement(), "the completed raw movement left the generation")
+  Assert.equal(h.services.actors.actors.elm.fieldX, 5, "the raw movement plan reached its destination")
+end
+
 return T

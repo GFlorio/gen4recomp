@@ -64,8 +64,27 @@ local TestRaw = {
   needsCamera = function(ctx)
     return ctx.camera:target()
   end,
+  needsAudio = function(ctx)
+    return ctx.audio:isPlaying("SEQ_SE_DP_SELECT")
+  end,
+  emitsNoHost = function(ctx)
+    ctx.events:emit("mod.test.mod.evt", {})
+  end,
+  dialogueIsOpenNoHost = function(ctx)
+    return ctx.dialogue:isOpen()
+  end,
+  triggerCopy = function(ctx)
+    local t1 = ctx.script:trigger()
+    local t2 = ctx.script:trigger()
+    if t1 ~= t2 and t1.scriptId == "test.trigger" and t2.scriptId == "test.trigger" then
+      ctx.variables:set("VAR_COPY", 1)
+    end
+  end,
   callsScript = function(ctx)
     return ctx.script:call("common.helper", { value = 3 })
+  end,
+  usesTaskFactory = function(ctx)
+    return ctx.tasks.waitTicks({ ticks = 3 })
   end,
 }
 
@@ -392,6 +411,67 @@ T["raw task save resume"] = function()
   local starter = h.services.world:getVar("VAR_AFTER")
   ---@cast starter any
   Assert.equal(starter.species, 158)
+end
+
+-- 15. ctx.script:trigger hands out a fresh copy per call: the live trigger
+-- table is never exposed to raw handlers.
+T["trigger returns a fresh copy per call"] = function()
+  local h = harness()
+  local resource = luaScript("test.trigger", "test.raw", "triggerCopy")
+  h.registry:installBase(resource.id, resource, "generated")
+  local composed = assert(h.composition:effective(resource.id))
+  h.scheduler:createForeground(composed, { kind = "test", scriptId = "test.trigger" }, 100)
+  h.scheduler:step(100, nil)
+  h.scheduler:step(101, nil)
+  Assert.equal(h.services.world:getVar("VAR_COPY"), 1, "the trigger copy contract must hold")
+end
+
+-- 16. ctx.audio.isPlaying without an audio service faults instead of
+-- silently returning false (one silent-degradation policy).
+T["audio isPlaying without service faults"] = function()
+  local h = harness()
+  local instanceId = startForeground(h, luaScript("test.audio", "test.raw", "needsAudio"), 100)
+  h.scheduler:step(100, nil)
+  local errorEvent = assert(h.services.events:eventFor("script.error", instanceId))
+  Assert.equal(errorEvent.code, "SCRIPT_RAW_HANDLER_ERROR")
+end
+
+-- 17. ctx.events.emit without an events service faults instead of silently
+-- dropping the event. With no events host the scheduler's own emission is
+-- nil-safe, so the observable surface is the ownership release: the
+-- foreground environment tears down.
+T["events emit without service faults"] = function()
+  local h = harness()
+  h.services.events = nil
+  startForeground(h, luaScript("test.noevents", "test.raw", "emitsNoHost"), 100)
+  h.scheduler:step(100, nil)
+  Assert.equal(
+    h.services.world:getVar("VAR_AFTER"),
+    0,
+    "the emit must fault before the marker node runs (it silently succeeds today)"
+  )
+  Assert.isNil(h.scheduler:foregroundEnvironmentId(), "the events fault must release the environment")
+end
+
+-- 18. ctx.dialogue.isOpen without a dialogue service faults instead of
+-- silently reporting closed (the dialogue service is always wired in
+-- production; an unwired composition is a composition fault).
+T["dialogue isOpen without service faults"] = function()
+  local h = harness()
+  local instanceId = startForeground(h, luaScript("test.nodialogue", "test.raw", "dialogueIsOpenNoHost"), 100)
+  h.scheduler:step(100, nil)
+  local errorEvent = assert(h.services.events:eventFor("script.error", instanceId))
+  Assert.equal(errorEvent.code, "SCRIPT_RAW_HANDLER_ERROR")
+end
+
+-- 19. A ctx.tasks factory called with dot syntax (the documented
+-- `ctx.tasks.<name>(spec)` form) passes the spec as the handler's argument:
+-- Lua dot calls carry no implicit self, so the factory signature must not
+-- expect one.
+T["task factory dot call passes the spec"] = function()
+  local h = harness()
+  runToCompletion(h, luaScript("test.factory", "test.raw", "usesTaskFactory"), 100, 104)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
 end
 
 return T

@@ -51,6 +51,8 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field saveFs SaveFs?
 ---@field presentation boolean?
 ---@field scriptHosts table? deterministic host boundaries for script effects
+---@field rawModules table? mod raw-Lua module registry (the script mod seam)
+---@field modScripts table? mod script installs ({id, script, owner}) into the script registry before it seals
 
 ---@class FieldRuntimeScriptHosts
 ---@field audio table?
@@ -79,6 +81,8 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field saveFs SaveFs?
 ---@field presentation boolean
 ---@field scriptHosts FieldRuntimeScriptHosts?
+---@field rawModules table? mod raw-Lua module registry (the script mod seam)
+---@field modScripts table? mod script installs ({id, script, owner}) into the script registry before it seals
 local FieldRuntime = {}
 FieldRuntime.__index = FieldRuntime
 
@@ -179,6 +183,8 @@ function FieldRuntime.new(versionId, idOrSymbol, options)
     saveFs = options.saveFs,
     presentation = options.presentation == true,
     scriptHosts = options.scriptHosts,
+    rawModules = options.rawModules,
+    modScripts = options.modScripts,
     errorText = nil,
     zoom = FieldZoom.new(options.zoomConfig or FieldPresentation.zoom),
   }, FieldRuntime)
@@ -387,6 +393,8 @@ function FieldRuntime:_load()
       auxiliaryUi = self.auxiliaryFieldUi,
       contextChoice = self.contextChoiceProvider,
       menu = self.menuHost,
+      rawModules = self.rawModules,
+      modScripts = self.modScripts,
     })
     if restored and restored.scripts then
       ScriptSave.restore(restored.scripts, self.scripts.scheduler, 0, {

@@ -15,7 +15,6 @@
 ---@field worldY number
 ---@field movementType string|nil
 ---@field animationPaused boolean
----@field busy boolean
 ---@field numericId integer|nil
 ---@field movementOwner string|nil
 ---@field movementState table|nil
@@ -118,7 +117,6 @@ function FakeActors:add(id, opts)
     worldY = opts.worldY or 0,
     movementType = opts.movementType,
     animationPaused = false,
-    busy = opts.busy or false,
     numericId = opts.numericId,
     movementOwner = nil,
   }
@@ -192,15 +190,6 @@ end
 function FakeActors:getFacing(actorId)
   local actor = assert(self.actors[actorId], "fake actor missing: " .. actorId)
   return actor.facing
-end
-
-function FakeActors:isBusy(actorId)
-  local actor = self.actors[actorId]
-  return actor ~= nil and actor.busy
-end
-
-function FakeActors:canMove(actorId, direction)
-  return self:exists(actorId)
 end
 
 function FakeActors:id(actorId)

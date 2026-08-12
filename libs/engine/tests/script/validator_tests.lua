@@ -375,6 +375,32 @@ function T.rejects_unknown_value_kind()
   )
 end
 
+-- Numeric world ids are valid in id_or_var positions (the world store is
+-- U16-keyed and catalog symbols resolve to those ids; a mod's scratch
+-- variables beyond the catalog must be addressable by id).
+function T.accepts_numeric_world_ids()
+  valid({ api = 1, id = "x", steps = { S.setVar({ variable = 16416, value = 1 }), S.stop() } })
+  valid({ api = 1, id = "x", steps = { S.setFlag({ flag = 0x3F3 }), S.stop() } })
+end
+
+function T.rejects_malformed_numeric_world_ids()
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { S.setVar({ variable = 1.5, value = 1 }), S.stop() },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { S.setVar({ variable = -1, value = 1 }), S.stop() },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { S.setVar({ variable = 0x10000, value = 1 }), S.stop() },
+  })
+end
+
 function T.rejects_malformed_value_reference()
   invalidCode(
     "SCRIPT_SCHEMA_INVALID",

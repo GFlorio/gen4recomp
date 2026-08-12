@@ -363,6 +363,12 @@ function Scheduler:createTask(taskType, spec, instance, tick, input)
   })
   self._tasks[#self._tasks + 1] = task
   self._tasksById[task.taskId] = task
+  if taskType == "movement" then
+    -- Movement tasks register in the environment's current movement
+    -- generation at creation, so barriers and pause logic observe raw
+    -- ctx.tasks.movement descriptors exactly like compiled move nodes.
+    environment:registerMovementTask(task.taskId)
+  end
   self:_emit("script.task_started", {
     taskId = task.taskId,
     taskType = taskType,

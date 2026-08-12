@@ -494,8 +494,23 @@ CHECKERS.scalar_or_value = function(context, v, path, field)
 end
 CHECKERS.value = checkValueRef
 CHECKERS.text_value = checkTextValue
+-- A world id or a variable reference. World ids are the U16 keys of the
+-- world store (catalog symbols resolve to them at runtime), so a numeric id
+-- is valid exactly when it satisfies the store's range contract.
 CHECKERS.id_or_var = function(context, v, path, field)
   if type(v) == "string" and #v > 0 then
+    return
+  end
+  if type(v) == "number" then
+    if v ~= math.floor(v) or v < 0 or v > 0xFFFF then
+      fail(
+        context,
+        ScriptErrors.SCRIPT_SCHEMA_INVALID,
+        path,
+        "world id must be an unsigned 16-bit integer",
+        { field = field, id = v }
+      )
+    end
     return
   end
   checkVarRef(context, v, path, field)

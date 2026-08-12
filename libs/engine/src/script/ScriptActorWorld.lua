@@ -121,6 +121,7 @@ function ScriptActorWorld:snapshot(actorId)
   local facing = self._manager:getFacing(actorId)
   return {
     actorId = actorId,
+    mapId = actor.mapId,
     position = position,
     facing = facing,
     -- Scripted hide_object is transient visibility on the live actor: the
