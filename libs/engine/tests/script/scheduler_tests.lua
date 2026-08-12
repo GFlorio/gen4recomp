@@ -194,8 +194,7 @@ T["same-tick chain"] = function()
   h.scheduler:step(100, nil)
   Assert.equal(h.services.world:getVar("VAR_SCENE"), 1)
   Assert.isTrue(h.services.world:isFlagSet("FLAG_SCENE"))
-  local instance = assert(h.scheduler:instances()[1])
-  Assert.equal(instance.status, "completed")
+  Assert.isNil(h.scheduler:instance("script-00000001"), "the completed root is not archived")
   Assert.isNil(h.scheduler:foregroundEnvironmentId())
 end
 
@@ -531,13 +530,96 @@ T["common child handoff"] = function()
   end
   childInstanceId = assert(child).instanceId
   Assert.equal(caller.status, "blocked")
+  -- An ended child stays resolvable while the caller's child_script task
+  -- still polls its termination state.
+  Assert.equal(assert(h.scheduler:instance(childInstanceId)).status, "completed")
   -- The child signalled and terminated: its task completes at T+1's poll and
   -- the parent resumes at T+2.
   h.scheduler:step(101, nil)
   Assert.equal(h.services.world:getVar("VAR_PARENT"), 0)
+  -- The archived record is pruned once its last referencing task completed.
+  Assert.isNil(h.scheduler:instance(childInstanceId))
   h.scheduler:step(102, nil)
   Assert.equal(h.services.world:getVar("VAR_PARENT"), 1)
   Assert.equal(caller.status, "completed")
+  -- The completed root (no observer) is not archived either.
+  Assert.equal(#h.scheduler:instances(), 0)
+end
+
+-- An ended root has no task observer, so it is not archived at all: the
+-- scheduler retains no completed-root record.
+T["completed root is not archived"] = function()
+  local h = harness()
+  local instanceId = startForeground(
+    h,
+    script("test.done", {
+      S.setVar({ variable = "VAR_DONE", value = 1 }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  Assert.equal(h.services.world:getVar("VAR_DONE"), 1)
+  Assert.isNil(h.scheduler:instance(instanceId))
+  Assert.equal(#h.scheduler:instances(), 0)
+  Assert.isTrue(assert(h.services.events:eventFor("script.ended", instanceId)).completed)
+end
+
+-- The same for a faulted root; the attributed error stays observable
+-- through the script.error event stream, not through an archived record.
+T["faulted root is not archived"] = function()
+  local h = harness()
+  local instanceId = startForeground(
+    h,
+    script("test.faulted", {
+      S.call({ target = "scripts.nowhere" }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  Assert.isNil(h.scheduler:instance(instanceId))
+  Assert.equal(#h.scheduler:instances(), 0)
+  local fault = assert(h.services.events:eventFor("script.error", instanceId))
+  Assert.equal(fault.scriptId, "test.faulted")
+  Assert.equal(fault.code, "SCRIPT_CALL_TARGET_MISSING")
+end
+
+-- Failure sequence: a faulted child is archived while its caller's task is
+-- live, the task's faulted result faults the parent, and the whole chain is
+-- pruned with both attributions on the event stream.
+T["faulted child prunes through the parent fault"] = function()
+  local h = harness()
+  local common = script("common.badchild", {
+    S.call({ target = "scripts.nowhere" }),
+    S.stop(),
+  })
+  h.registry:installBase(common.id, common, "generated")
+  local parentInstanceId = startForeground(
+    h,
+    script("test.faultchain", {
+      S.callCommon({ target = "common.badchild" }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  local childId = nil
+  for _, instance in ipairs(h.scheduler:instances()) do
+    if instance.contextSlot > 0 then
+      childId = instance.instanceId
+    end
+  end
+  childId = childId --[[@as string]]
+  Assert.notNil(childId, "the faulted child is archived while its caller's task is live")
+  Assert.equal(assert(h.scheduler:instance(childId)).status, "faulted")
+  h.scheduler:step(101, nil)
+  Assert.isNil(h.scheduler:instance(childId), "the child record is pruned once its task completed")
+  Assert.equal(#h.scheduler:instances(), 0, "the fault chain leaves no archived or live records")
+  local childFault = assert(h.services.events:eventFor("script.error", childId))
+  local parentFault = assert(h.services.events:eventFor("script.error", parentInstanceId))
+  Assert.equal(childFault.code, "SCRIPT_CALL_TARGET_MISSING")
+  Assert.equal(parentFault.code, "SCRIPT_CALL_TARGET_MISSING")
 end
 
 -- 14. Context-slot exhaustion faults with SCRIPT_CONTEXT_SLOTS_EXHAUSTED.
@@ -592,18 +674,8 @@ T["step budget fault"] = function()
     100
   )
   h.scheduler:step(100, nil)
-  local instance = assert(h.scheduler:instances()[1])
-  Assert.equal(instance.status, "faulted")
-  Assert.equal(instance.endReason, "SCRIPT_STEP_BUDGET_EXCEEDED")
-  local errorEvent = nil
-  for _, record in ipairs(h.services.events.records) do
-    if record.name == "script.error" then
-      errorEvent = record.payload
-    end
-  end
-  ---@cast errorEvent table
-  Assert.notNil(errorEvent)
-  Assert.equal(errorEvent.code, "SCRIPT_STEP_BUDGET_EXCEEDED")
+  local fault = assert(h.services.events:eventFor("script.error", "script-00000001"))
+  Assert.equal(fault.code, "SCRIPT_STEP_BUDGET_EXCEEDED")
 end
 
 -- 16. The budget limit is precise: exactly N non-blocking nodes complete,
@@ -627,9 +699,8 @@ T["budget boundary"] = function()
   h2.scheduler:setMaxNodes(8)
   startForeground(h2, budgetScript(8), 200)
   h2.scheduler:step(200, nil)
-  local instance = assert(h2.scheduler:instance("script-00000001"))
-  Assert.equal(instance.status, "faulted")
-  Assert.equal(instance.endReason, "SCRIPT_STEP_BUDGET_EXCEEDED")
+  local fault = assert(h2.services.events:eventFor("script.error", "script-00000001"))
+  Assert.equal(fault.code, "SCRIPT_STEP_BUDGET_EXCEEDED")
 end
 
 -- 17. Locks: owner-counted, released on completion, and strict release.
@@ -651,7 +722,7 @@ T["lock ownership and release"] = function()
   h.scheduler:step(100, nil)
   Assert.equal(env:lockCount("player"), 0)
   Assert.isTrue(h.services.world:isFlagSet("FLAG_MID"))
-  Assert.equal(assert(h.scheduler:instance(instanceId)).status, "completed")
+  Assert.isTrue(assert(h.services.events:eventFor("script.ended", instanceId)).completed)
   Assert.isNil(h.scheduler:foregroundEnvironmentId())
 end
 
@@ -666,9 +737,8 @@ T["release unowned lock errors"] = function()
     100
   )
   h.scheduler:step(100, nil)
-  local instance = assert(h.scheduler:instance(instanceId))
-  Assert.equal(instance.status, "faulted")
-  Assert.equal(instance.endReason, "SCRIPT_LOCK_NOT_OWNED")
+  local fault = assert(h.services.events:eventFor("script.error", instanceId))
+  Assert.equal(fault.code, "SCRIPT_LOCK_NOT_OWNED")
 end
 
 -- 18. Ending an instance releases its locks.
@@ -802,8 +872,7 @@ T["missing call target"] = function()
     100
   )
   h.scheduler:step(100, nil)
-  Assert.equal(assert(h.scheduler:instance(instanceId)).status, "faulted")
-  Assert.equal(assert(h.scheduler:instance(instanceId)).endReason, "SCRIPT_CALL_TARGET_MISSING")
+  Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_CALL_TARGET_MISSING")
 end
 
 -- 24. Wrapper composition: a before script that ends its linear tail falls
@@ -820,12 +889,11 @@ T["wrapper chain fall through"] = function()
     S.setVar({ variable = "VAR_PRE", value = 1 }),
   })
   h.registry:before(base.id, preface, { modId = "example.mod" }, { priority = 0 })
-  startForeground(h, base, 100)
+  local instanceId = startForeground(h, base, 100)
   h.scheduler:step(100, nil)
   Assert.equal(h.services.world:getVar("VAR_PRE"), 1)
   Assert.equal(h.services.world:getVar("VAR_BASE"), 1)
-  local instance = assert(h.scheduler:instances()[1])
-  Assert.equal(instance.status, "completed")
+  Assert.isTrue(assert(h.services.events:eventFor("script.ended", instanceId)).completed)
 end
 
 -- 25. A wrapper `next` mid-script jumps into the next contribution.
@@ -880,9 +948,7 @@ T["signal_caller in root faults"] = function()
     100
   )
   h.scheduler:step(100, nil)
-  local instance = assert(h.scheduler:instance(instanceId))
-  Assert.equal(instance.status, "faulted")
-  Assert.equal(instance.endReason, "SCRIPT_CALLER_SIGNAL_INVALID")
+  Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_CALLER_SIGNAL_INVALID")
 end
 
 -- 28. Background scripts cannot lock the player, warp, or open dialogue
@@ -899,14 +965,15 @@ T["background restrictions"] = function()
   local instanceId = h.scheduler:createBackground(composed, nil, 100)
   h.scheduler:step(100, nil)
   Assert.equal(h.services.world:getVar("VAR_BG"), 1)
-  local instance = assert(h.scheduler:instance(instanceId))
-  Assert.equal(instance.status, "faulted")
-  Assert.equal(instance.endReason, "SCRIPT_BACKGROUND_FORBIDDEN")
+  Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_BACKGROUND_FORBIDDEN")
 end
 
--- 29. Actor locks are exclusive per actor.
-T["actor lock exclusivity"] = function()
+-- 29. A common child's actor lock runs and releases before the parent's
+-- post-call continuation: the parent is still in flight at the handoff
+-- boundary and completes only after the child's task was consumed.
+T["common child actor lock completes the handoff"] = function()
   local h = harness()
+  h.services.actors:add("elm", { fieldX = 4, fieldZ = 5, facing = "north" })
   local common = script("common.a", {
     S.lockActor({ actor = "elm" }),
     { op = "signal_caller" },
@@ -924,14 +991,18 @@ T["actor lock exclusivity"] = function()
   )
   h.scheduler:step(100, nil)
   h.scheduler:step(101, nil)
-  -- The parent's lock attempt runs at 101+; the child already owns elm.
+  -- The parent's own lock attempt runs only after the child's task
+  -- completed and it promoted.
   local instance
   for _, i in ipairs(h.scheduler:instances()) do
     if i.contextSlot == 0 then
       instance = i
     end
   end
-  Assert.isFalse(assert(instance).status == "completed")
+  Assert.equal(assert(instance).status, "resume_pending", "the parent waits at the handoff boundary")
+  h.scheduler:step(102, nil)
+  Assert.equal(assert(instance).status, "completed", "the parent's lock runs and the script completes")
+  Assert.equal(#h.scheduler:instances(), 0, "no ended record outlives the completed root")
 end
 
 -- 30. Deterministic traces: context runs, yields, blocks, task polls, and
@@ -1024,9 +1095,7 @@ T["missing actor fault"] = function()
     100
   )
   h.scheduler:step(100, nil)
-  local instance = assert(h.scheduler:instance(instanceId))
-  Assert.equal(instance.status, "faulted")
-  Assert.equal(instance.endReason, "SCRIPT_ACTOR_NOT_FOUND")
+  Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_ACTOR_NOT_FOUND")
 end
 
 -- 33. Conditions: compare, flag, not/all/any, truthy.
@@ -1138,8 +1207,7 @@ T["goto_script enters another script's label"] = function()
   h.scheduler:step(100, nil)
   Assert.isTrue(h.services.world:isFlagSet("FLAG_TAIL"))
   Assert.equal(h.services.world:getVar("VAR_NEVER"), 0, "the jump must not fall through to the caller's next node")
-  local instance = assert(h.scheduler:instances()[1])
-  Assert.equal(instance.status, "completed")
+  Assert.isTrue(assert(h.services.events:eventFor("script.ended", "script-00000001")).completed)
 end
 
 -- 3y. goto_script without a label jumps to the composed target's entry.
@@ -1197,8 +1265,7 @@ T["cross-script call with label returns to the caller"] = function()
     "the caller must continue in the same tick after the callee returns"
   )
   Assert.equal(h.services.world:getVar("VAR_NEVER"), 0)
-  local instance = assert(h.scheduler:instances()[1])
-  Assert.equal(instance.status, "completed")
+  Assert.isTrue(assert(h.services.events:eventFor("script.ended", "script-00000001")).completed)
 end
 
 -- 3w. A conditional cross-script jump (the structured if wrap) selects the
@@ -1268,7 +1335,7 @@ T["cross-script reference errors are attributed"] = function()
     100
   )
   h.scheduler:step(100, nil)
-  Assert.equal(assert(h.scheduler:instance(badTarget)).endReason, "SCRIPT_CALL_TARGET_MISSING")
+  Assert.equal(assert(h.services.events:eventFor("script.error", badTarget)).code, "SCRIPT_CALL_TARGET_MISSING")
 
   local badLabel = startForeground(
     h,
@@ -1279,7 +1346,7 @@ T["cross-script reference errors are attributed"] = function()
     200
   )
   h.scheduler:step(200, nil)
-  Assert.equal(assert(h.scheduler:instance(badLabel)).endReason, "SCRIPT_LABEL_MISSING")
+  Assert.equal(assert(h.services.events:eventFor("script.error", badLabel)).code, "SCRIPT_LABEL_MISSING")
 end
 
 -- 3u. A mod that replaces the target script redirects the jump: the
@@ -1341,7 +1408,7 @@ T["cross-script compare-state branch"] = function()
   Assert.isFalse(h.services.world:isFlagSet("FLAG_TAIL"))
   Assert.equal(h.services.world:getVar("VAR_NEVER"), 1, "a false compare state must not jump")
 
-  startForeground(
+  local cmpTrueId = startForeground(
     h,
     script("test.cmptrue", {
       S.setVar({ variable = "VAR_A", value = 1 }),
@@ -1355,7 +1422,7 @@ T["cross-script compare-state branch"] = function()
   h.scheduler:step(200, nil)
   Assert.isTrue(h.services.world:isFlagSet("FLAG_TAIL"))
   Assert.equal(h.services.world:getVar("VAR_NEVER"), 1, "the taken branch must not fall through")
-  Assert.equal(assert(h.scheduler:instances()[1]).status, "completed")
+  Assert.isTrue(assert(h.services.events:eventFor("script.ended", cmpTrueId)).completed)
 end
 
 -- 3s. An observable countdown variable is mirrored into the world store
@@ -1402,8 +1469,7 @@ T["map index and camera target actors"] = function()
   h.scheduler:step(100, nil)
   Assert.equal(h.services.world:getVar("VAR_X"), 7, "the map index resolves to the current map's object")
   Assert.equal(h.services.world:getVar("VAR_Z"), 8)
-  local instance = assert(h.scheduler:instances()[1])
-  Assert.equal(instance.status, "completed")
+  Assert.isTrue(assert(h.services.events:eventFor("script.ended", "script-00000001")).completed)
 
   local bad = startForeground(
     h,
@@ -1414,7 +1480,7 @@ T["map index and camera target actors"] = function()
     200
   )
   h.scheduler:step(200, nil)
-  Assert.equal(assert(h.scheduler:instance(bad)).endReason, "SCRIPT_ACTOR_NOT_FOUND")
+  Assert.equal(assert(h.services.events:eventFor("script.error", bad)).code, "SCRIPT_ACTOR_NOT_FOUND")
 end
 
 -- 3u. The countdown variable is the authoritative counter (source
@@ -1458,18 +1524,8 @@ T["non-yielding recursion faults through the node budget"] = function()
     100
   )
   h.scheduler:step(100, nil)
-  local instance = assert(h.scheduler:instances()[1])
-  Assert.equal(instance.status, "faulted")
-  Assert.equal(instance.endReason, "SCRIPT_STEP_BUDGET_EXCEEDED")
-  local errorEvent = nil
-  for _, record in ipairs(h.services.events.records) do
-    if record.name == "script.error" then
-      errorEvent = record.payload
-    end
-  end
-  ---@cast errorEvent table
-  Assert.notNil(errorEvent)
-  Assert.equal(errorEvent.code, "SCRIPT_STEP_BUDGET_EXCEEDED")
+  local fault = assert(h.services.events:eventFor("script.error", "script-00000001"))
+  Assert.equal(fault.code, "SCRIPT_STEP_BUDGET_EXCEEDED")
 end
 
 -- 37. Recursion that terminates within the budget still completes in one
@@ -1497,8 +1553,7 @@ T["recursive call that terminates completes"] = function()
   )
   h.scheduler:step(100, nil)
   Assert.isTrue(h.services.world:isFlagSet("FLAG_RECURSED"))
-  local instance = assert(h.scheduler:instances()[1])
-  Assert.equal(instance.status, "completed")
+  Assert.isTrue(assert(h.services.events:eventFor("script.ended", "script-00000001")).completed)
 end
 
 -- --- Task-callback fault boundary ---------------------------------------------
@@ -1580,9 +1635,6 @@ T["poll raise faults the owner with attribution"] = function()
   local instanceId = startFaultyScript(h, "poll", 100)
   h.scheduler:step(100, nil)
   h.scheduler:step(101, nil)
-  local instance = assert(h.scheduler:instance(instanceId))
-  Assert.equal(instance.status, "faulted")
-  Assert.equal(instance.endReason, "SCRIPT_TASK_CALLBACK_FAULT")
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
   Assert.equal(#h.scheduler:tasks(), 0, "the broken task leaves the task sets")
   Assert.isNil(h.scheduler:foregroundEnvironmentId(), "a root fault tears the environment down")
@@ -1607,9 +1659,7 @@ T["poll raise with structured error keeps its code"] = function()
   local instanceId = startFaultyScript(h, "structured", 100)
   h.scheduler:step(100, nil)
   h.scheduler:step(101, nil)
-  local instance = assert(h.scheduler:instance(instanceId))
-  Assert.equal(instance.status, "faulted")
-  Assert.equal(instance.endReason, "SCRIPT_SERVICE_MISSING")
+  Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_SERVICE_MISSING")
   Assert.equal(#h.scheduler:tasks(), 0)
 end
 
@@ -1627,9 +1677,7 @@ T["onComplete raise faults the owner"] = function()
   local instanceId = startFaultyScript(h, "oncomplete", 100)
   h.scheduler:step(100, nil)
   h.scheduler:step(101, nil)
-  local instance = assert(h.scheduler:instance(instanceId))
-  Assert.equal(instance.status, "faulted")
-  Assert.equal(instance.endReason, "SCRIPT_TASK_CALLBACK_FAULT")
+  Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_TASK_CALLBACK_FAULT")
   Assert.equal(#h.scheduler:tasks(), 0, "the faulted task record leaves the task sets")
 end
 
@@ -1649,9 +1697,7 @@ T["cancel raise faults the owner instead of escaping"] = function()
   h.scheduler:step(100, nil)
   local env = assert(h.scheduler:environments()[1])
   h.scheduler:cancelEnvironment(env.environmentId, "test")
-  local instance = assert(h.scheduler:instance(instanceId))
-  Assert.equal(instance.status, "faulted")
-  Assert.equal(instance.endReason, "SCRIPT_TASK_CALLBACK_FAULT")
+  Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_TASK_CALLBACK_FAULT")
   Assert.isNil(h.scheduler:foregroundEnvironmentId())
   Assert.equal(#h.scheduler:tasks(), 0, "the task is still cancelled and removed")
 end
@@ -1674,9 +1720,7 @@ T["later poll raise leaves earlier completions intact"] = function()
   local instanceId = startFaultyScript(h, "later", 100)
   h.scheduler:step(100, nil)
   h.scheduler:step(101, nil)
-  local instance = assert(h.scheduler:instance(instanceId))
-  Assert.equal(instance.status, "faulted")
-  Assert.equal(instance.endReason, "SCRIPT_TASK_CALLBACK_FAULT")
+  Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_TASK_CALLBACK_FAULT")
   h.scheduler:step(102, nil)
   Assert.equal(h.services.world:getVar("VAR_EARLY"), 1, "the earlier task completed on time")
 end

@@ -287,7 +287,7 @@ T["sound wait without backend faults"] = function()
   })
   local instanceId = startForeground(h, resource, 100)
   h.scheduler:step(100, nil)
-  Assert.equal(assert(h.scheduler:instance(instanceId)).endReason, "SCRIPT_SERVICE_MISSING")
+  Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_SERVICE_MISSING")
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
 end
 
@@ -458,9 +458,8 @@ T["warp task faults a malformed operand"] = function()
   })
   local instanceId = startForeground(h, resource, 100)
   h.scheduler:step(100, nil)
-  local instance = assert(h.scheduler:instance(instanceId))
-  Assert.equal(instance.status, "faulted")
-  Assert.equal(instance.endReason, "SCRIPT_INVALID_REFERENCE")
+  local fault = assert(h.services.events:eventFor("script.error", instanceId))
+  Assert.equal(fault.code, "SCRIPT_INVALID_REFERENCE")
   Assert.equal(#h.maps.calls, 0, "the maps service must never see a malformed target")
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
 end
@@ -517,9 +516,8 @@ T["failed scripted warp faults the script"] = function()
   transition.phase = "idle"
   transition.sourceMap = nil
   h.scheduler:step(101, nil)
-  local instance = assert(h.scheduler:instance(instanceId))
-  Assert.equal(instance.status, "faulted")
-  Assert.equal(instance.endReason, "FIELD_DESTINATION_MAP_UNKNOWN")
+  local fault = assert(h.services.events:eventFor("script.error", instanceId))
+  Assert.equal(fault.code, "FIELD_DESTINATION_MAP_UNKNOWN")
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "the script must not continue as though the warp succeeded")
 end
 
@@ -560,7 +558,7 @@ T["background cannot warp"] = function()
   local composed = assert(h.composition:effective(resource.id))
   local instanceId = h.scheduler:createBackground(composed, nil, 100)
   h.scheduler:step(100, nil)
-  Assert.equal(assert(h.scheduler:instance(instanceId)).endReason, "SCRIPT_BACKGROUND_FORBIDDEN")
+  Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_BACKGROUND_FORBIDDEN")
 end
 
 -- 7. set_object_position accepts variable-backed coordinates: the scalar_or_

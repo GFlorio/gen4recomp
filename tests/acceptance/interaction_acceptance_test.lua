@@ -52,17 +52,15 @@ local function waitForDialogue(game)
   end, 120)
 end
 
--- The production fault surface: the scheduler archives a faulted foreground
--- script with its attributed error code. The snapshot surface carries no
--- fault attribution, so the scenarios read the archived instance records
--- through the harness's runtime handle (the same probe the harness's own
--- failForegroundScript uses).
+-- The production fault surface: the scheduler emits script.error with full
+-- attribution through the events host; the snapshot surface carries no
+-- fault attribution. Ended roots are not archived, so the scenarios
+-- read the recorded event stream through the harness's hosts handle.
 local function scriptFaults(game)
-  local scheduler = game.runtime.scripts.scheduler
   local faults = {}
-  for _, instance in ipairs(scheduler:instances()) do
-    if instance.status == "faulted" then
-      faults[#faults + 1] = { scriptId = instance.scriptId, endReason = instance.endReason }
+  for _, record in ipairs(game.hosts.events.records) do
+    if record.name == "script.error" then
+      faults[#faults + 1] = { scriptId = record.payload.scriptId, endReason = record.payload.code }
     end
   end
   return faults
@@ -157,6 +155,9 @@ function T.tests.new_bark_woman_bound_script_runs_its_full_dialogue_lifecycle()
       "audio:SEQ_SE_DP_SELECT",
     })
     Assert.isNil(game:interaction().actorFacingOverride)
+    -- Ended instances are pruned once nothing references them; the
+    -- completed root (no observer) must not remain in the scheduler archive.
+    Assert.equal(#game.runtime.scripts.scheduler:instances(), 0)
   end)
 end
 

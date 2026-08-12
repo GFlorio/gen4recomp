@@ -187,7 +187,7 @@ T["value without declared result"] = function()
   })
   local instanceId = startForeground(h, resource, 100)
   h.scheduler:step(100, nil)
-  Assert.equal(assert(h.scheduler:instance(instanceId)).endReason, "SCRIPT_RAW_RESULT_INVALID")
+  Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_RAW_RESULT_INVALID")
 end
 
 -- 4. A task descriptor result delegates through the lua task; the starter
@@ -232,17 +232,7 @@ T["handler error attribution"] = function()
   local resource = luaScript("test.err", "test.raw", "errors")
   local instanceId = startForeground(h, resource, 100)
   h.scheduler:step(100, nil)
-  local instance = assert(h.scheduler:instance(instanceId))
-  Assert.equal(instance.status, "faulted")
-  Assert.equal(instance.endReason, "SCRIPT_RAW_HANDLER_ERROR")
-  local errorEvent = nil
-  for _, record in ipairs(h.services.events.records) do
-    if record.name == "script.error" then
-      errorEvent = record.payload
-    end
-  end
-  ---@cast errorEvent table
-  Assert.notNil(errorEvent)
+  local errorEvent = assert(h.services.events:eventFor("script.error", instanceId))
   Assert.equal(errorEvent.code, "SCRIPT_RAW_HANDLER_ERROR")
   Assert.equal(errorEvent.context.module, "test.raw")
   Assert.equal(errorEvent.context.fn, "errors")
@@ -253,11 +243,11 @@ T["invalid result shapes"] = function()
   local h = harness()
   local instanceId = startForeground(h, luaScript("test.fn", "test.raw", "returnsFunction"), 100)
   h.scheduler:step(100, nil)
-  Assert.equal(assert(h.scheduler:instance(instanceId)).endReason, "SCRIPT_RAW_RESULT_INVALID")
+  Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_RAW_RESULT_INVALID")
   local h2 = harness()
   local instanceId2 = startForeground(h2, luaScript("test.tbl", "test.raw", "returnsNakedTable"), 100)
   h2.scheduler:step(100, nil)
-  Assert.equal(assert(h2.scheduler:instance(instanceId2)).endReason, "SCRIPT_RAW_RESULT_INVALID")
+  Assert.equal(assert(h2.services.events:eventFor("script.error", instanceId2)).code, "SCRIPT_RAW_RESULT_INVALID")
 end
 
 -- 7. An attempted yield is a distinct attributed error.
@@ -265,7 +255,7 @@ T["attempted yield rejected"] = function()
   local h = harness()
   local instanceId = startForeground(h, luaScript("test.yield", "test.raw", "yields"), 100)
   h.scheduler:step(100, nil)
-  Assert.equal(assert(h.scheduler:instance(instanceId)).endReason, "SCRIPT_RAW_HANDLER_YIELDED")
+  Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_RAW_HANDLER_YIELDED")
 end
 
 -- 8. The context facades reach the world, locals, objects, and RNG.
@@ -305,7 +295,7 @@ T["unavailable service"] = function()
   local h = harness()
   local instanceId = startForeground(h, luaScript("test.cam", "test.raw", "needsCamera"), 100)
   h.scheduler:step(100, nil)
-  Assert.equal(assert(h.scheduler:instance(instanceId)).endReason, "SCRIPT_RAW_HANDLER_ERROR")
+  Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_RAW_HANDLER_ERROR")
 end
 
 -- 11. Mod events are restricted to the owning mod's namespace.
@@ -322,7 +312,7 @@ T["event namespace restriction"] = function()
   local h2 = harness()
   local instanceId = startForeground(h2, luaScript("test.evt2", "test.raw", "emitsForeign"), 100)
   h2.scheduler:step(100, nil)
-  Assert.equal(assert(h2.scheduler:instance(instanceId)).endReason, "SCRIPT_RAW_RESULT_INVALID")
+  Assert.equal(assert(h2.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_RAW_RESULT_INVALID")
 end
 
 -- 12. Unknown modules and functions are attributed raw errors.
@@ -330,11 +320,11 @@ T["unknown module and function"] = function()
   local h = harness()
   local instanceId = startForeground(h, luaScript("test.nomod", "test.missing", "fn"), 100)
   h.scheduler:step(100, nil)
-  Assert.equal(assert(h.scheduler:instance(instanceId)).endReason, "SCRIPT_RAW_MODULE_NOT_FOUND")
+  Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_RAW_MODULE_NOT_FOUND")
   local h2 = harness()
   local instanceId2 = startForeground(h2, luaScript("test.nofn", "test.raw", "missingFn"), 100)
   h2.scheduler:step(100, nil)
-  Assert.equal(assert(h2.scheduler:instance(instanceId2)).endReason, "SCRIPT_RAW_FUNCTION_NOT_FOUND")
+  Assert.equal(assert(h2.services.events:eventFor("script.error", instanceId2)).code, "SCRIPT_RAW_FUNCTION_NOT_FOUND")
 end
 
 -- 13. ctx.script:call creates a common child through a child_script task and

@@ -41,7 +41,7 @@ local ScriptTask = require("libs.engine.src.script.ScriptTask")
 ---@field private _backgrounds ScriptEnvironment[]
 ---@field private _foregroundEnvironmentId string|nil
 ---@field private _instances table<string, ScriptInstance> live instances
----@field private _endedInstances table<string, ScriptInstance> ended instance history
+---@field private _endedInstances table<string, ScriptInstance> archived child records, pruned when no task observes them
 ---@field private _tasks ScriptTask[] active and completed-but-unconsumed tasks
 ---@field private _tasksById table<string, ScriptTask>
 ---@field private _nextEnvironmentId integer
@@ -505,6 +505,9 @@ function Scheduler:_handlePollResult(task, impl, owner, ctx, result, tick)
       owner.readyAtTick = tick + 1
       owner.taskResult = result.result
     end
+    -- A completing child_script task read the child's outcome it needed:
+    -- drop the archived record now that its last observer ended.
+    self:_pruneArchivedInstances()
   end
 end
 
@@ -816,12 +819,43 @@ function Scheduler:_faultInstance(instance, tick, error)
   self:_archiveInstance(instance)
 end
 
--- Move an ended instance out of the live set; the accessors and child-task
--- polling still reach it through the ended-instance history, but live
--- iteration and save capture only see running state.
+-- Move an ended instance out of the live set. An ended root has no task
+-- observer and is dropped entirely; an ended child is retained only while
+-- the child_script task of its caller still polls its termination state,
+-- and pruned once that task ends. Live iteration and save capture see only
+-- running state.
 function Scheduler:_archiveInstance(instance)
   self._instances[instance.instanceId] = nil
-  self._endedInstances[instance.instanceId] = instance
+  if self:_hasObservingTask(instance.instanceId) then
+    self._endedInstances[instance.instanceId] = instance
+  end
+end
+
+-- True when an active task still polls the instance's termination state
+-- (the child_script task of a common-call caller).
+---@param instanceId string
+---@return boolean
+function Scheduler:_hasObservingTask(instanceId)
+  for _, task in ipairs(self._tasks) do
+    if task.status == "active" and task.state ~= nil and task.state.childInstanceId == instanceId then
+      return true
+    end
+  end
+  return false
+end
+
+-- Remove archived child records whose last observing task ended: the
+-- completing poll already captured the child's outcome, so the record is
+-- no longer reachable by anything.
+function Scheduler:_pruneArchivedInstances()
+  if next(self._endedInstances) == nil then
+    return
+  end
+  for instanceId in pairs(self._endedInstances) do
+    if not self:_hasObservingTask(instanceId) then
+      self._endedInstances[instanceId] = nil
+    end
+  end
 end
 
 -- Free the context slot of a finished child, or tear down the whole
@@ -874,6 +908,9 @@ function Scheduler:_cancelTaskState(task, reason)
     end
   end
   self._tasksById[task.taskId] = nil
+  -- A cancelled child_script task never polls again: prune the child
+  -- record it observed, if no other task still does.
+  self:_pruneArchivedInstances()
   return containedErr
 end
 
@@ -1057,7 +1094,8 @@ end
 -- --- Accessors -----------------------------------------------------------------
 
 -- Live instances only: the scheduler's own tick work and save capture
--- operate on running state; ended instances live in the history.
+-- operate on running state; ended roots are dropped and ended children are
+-- archived only while a task observes them.
 ---@return ScriptInstance[]
 function Scheduler:liveInstances()
   local out = {}
@@ -1070,8 +1108,9 @@ function Scheduler:liveInstances()
   return out
 end
 
--- Live and ended instances (the latter for diagnostics and child-task
--- termination checks).
+-- Live instances plus archived children still observed by a task (the
+-- child-task termination checks); a retained ended record is pruned once its
+-- observer ends.
 ---@return ScriptInstance[]
 function Scheduler:instances()
   local out = self:liveInstances()

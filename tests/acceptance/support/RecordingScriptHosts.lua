@@ -3,10 +3,11 @@
 
 local RecordingScriptHosts = {}
 
----@return table { effects: string[], audio: table }
+---@return table { effects: string[], audio: table, events: table }
 function RecordingScriptHosts.new()
   local effects = {}
   local audio = { current = nil }
+  local events = { records = {} }
 
   function audio:play(sound)
     self.current = sound
@@ -47,7 +48,11 @@ function RecordingScriptHosts.new()
   function audio:fadeMusicOut() end
   function audio:fadeMusicIn() end
 
-  return { effects = effects, audio = audio }
+  function events:emit(name, payload)
+    self.records[#self.records + 1] = { name = name, payload = payload }
+  end
+
+  return { effects = effects, audio = audio, events = events }
 end
 
 return RecordingScriptHosts
