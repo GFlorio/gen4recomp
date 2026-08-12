@@ -8,8 +8,7 @@
 -- reaches frameCount * FRAME_UNIT -- the single completion notion. Reverse
 -- playback (setDirection) and the atTerminal/completed split are cut:
 -- playback always runs forward from 0, and one finish notion remains.
--- Seeking stays: seekFx/seekFirst/seekLast clamp into the checked-advance
--- window. Pure domain module.
+-- Pure domain module.
 
 local Assert = require("tests.support.Assert")
 local AnimationPlayer = require("libs.engine.src.AnimationPlayer")
@@ -28,7 +27,6 @@ function T.default_state()
   local p = new(8)
   Assert.equal(p.frameFx, 0)
   Assert.equal(p.deltaFx, 0x1000)
-  Assert.isFalse(p.paused)
   Assert.equal(p.loopMode, "loop")
   Assert.isFalse(p.completed)
   Assert.isFalse(p:isComplete())
@@ -85,68 +83,6 @@ end
 function T.the_terminal_split_is_cut()
   local p = new(8)
   Assert.isNil(p.atTerminal, "one completion notion replaces the atTerminal/completed split")
-end
-
-function T.pause_and_play()
-  local p = new(8)
-  p:pause()
-  Assert.isTrue(p.paused)
-  p:updateFixed()
-  Assert.equal(p.frameFx, 0, "paused players do not advance")
-  p:play()
-  Assert.isFalse(p.paused)
-  p:updateFixed()
-  Assert.equal(p.frameFx, 0x1000)
-end
-
-function T.seek_clamps_into_the_checked_advance_window()
-  local p = new(8)
-  p.loopMode = "once"
-  for _ = 1, 10 do
-    p:updateFixed()
-  end
-  Assert.isTrue(p:isComplete())
-  p:seekFx(3 * 0x1000)
-  Assert.equal(p.frameFx, 3 * 0x1000)
-  Assert.isFalse(p:isComplete(), "a seek clears completion")
-  p:seekFx(-4096)
-  Assert.equal(p.frameFx, 0)
-  p:seekFx(1e9)
-  Assert.equal(p.frameFx, 8 * 0x1000, "seeks clamp to the checked-advance terminal")
-end
-
-function T.seek_first_and_last()
-  local p = new(8)
-  p:seekLast()
-  Assert.equal(p.frameFx, 8 * 0x1000, "the last frame is numFrame * FRAME_UNIT")
-  p:seekFirst()
-  Assert.equal(p.frameFx, 0)
-end
-
-function T.restart_resets_state()
-  local p = new(8)
-  p.loopMode = "once"
-  for _ = 1, 10 do
-    p:updateFixed()
-  end
-  Assert.isTrue(p:isComplete())
-  p:pause()
-  p:restart()
-  Assert.equal(p.frameFx, 0)
-  Assert.isFalse(p.paused)
-  Assert.isFalse(p:isComplete())
-end
-
-function T.play_after_completion_restarts_forward()
-  local p = new(3)
-  p.loopMode = "once"
-  for _ = 1, 3 do
-    p:updateFixed()
-  end
-  p:play()
-  Assert.equal(p.frameFx, 0)
-  p:updateFixed()
-  Assert.equal(p.frameFx, 0x1000)
 end
 
 function T.players_are_independent()

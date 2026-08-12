@@ -22,7 +22,8 @@
 -- unconditionally -- there is no dirty-forwarding layer and no between-tick
 -- refresh (control ops like the door choreography run inside session ticks,
 -- so the same or next tick's updateAnimated renders them). The renderer
--- never re-evaluates poses itself.
+-- never re-evaluates poses itself. The list starts as the static building
+-- draws only; the first tick's updateAnimated builds the animated half.
 
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local Matrix4 = require("libs.math.src.Matrix4")
@@ -369,7 +370,6 @@ local function buildScene(pool, cacheFs, scene, opts)
 
   local runtime = {}
   local staticBuildingDraws = buildingDraws
-  local animatedItemsDirty = true
 
   -- The per-instance refresh pass shared by the tick update and the initial
   -- build: it re-evaluates each pose from the current attachment frames,
@@ -400,18 +400,6 @@ local function buildScene(pool, cacheFs, scene, opts)
       instance:updateFixed()
     end
     refreshAnimatedItems()
-    animatedItemsDirty = false
-  end
-
-  -- The pre-render refresh: builds the initial draw list after load (the
-  -- list starts as the static building draws only) and is a no-op afterwards
-  -- -- nothing between ticks marks it dirty, so it never refreshes again
-  -- (pinned by draw_items_refresh_only_on_the_scene_tick).
-  local function rebuildAnimatedDrawItems()
-    if animatedItemsDirty then
-      refreshAnimatedItems()
-      animatedItemsDirty = false
-    end
   end
 
   -- Switch the time-of-day band of every banded prop (HGSS ov01_022047DC):
@@ -470,7 +458,6 @@ local function buildScene(pool, cacheFs, scene, opts)
   runtime.fieldTimeSeconds = FieldLightProfile.DEFAULT_TIME_SECONDS
   runtime.timeBand = timeBand
   runtime.animatedInstances = animatedInstances
-  runtime.rebuildAnimatedDrawItems = rebuildAnimatedDrawItems
   runtime.updateAnimated = updateAnimated
   runtime.setTimeBand = setTimeBand
   -- The door lookup: a MapProps facade over this scene's placements and

@@ -209,7 +209,7 @@ function T.state_detach_removes_the_exact_attachment()
   Assert.equal(#joint, 1)
   Assert.isTrue(joint[1] == second, "detaching one handle leaves the other attachment")
   state:detach(second)
-  Assert.isFalse(state:hasAttachments())
+  Assert.equal(#state:attachments("joint"), 0)
 end
 
 -- The O(active) enumeration contract: play/stop cycles must
@@ -224,7 +224,6 @@ function T.state_attachments_return_only_the_active_attachments()
     state:detach(handle)
   end
   Assert.equal(#state:attachments("joint"), 0, "100 play/stop cycles leave no stale attachments")
-  Assert.isFalse(state:hasAttachments())
   local survivor = state:attach(clip)
   Assert.equal(#state:attachments("joint"), 1)
   Assert.isTrue(state:attachments("joint")[1] == survivor)

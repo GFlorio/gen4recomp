@@ -193,7 +193,6 @@ function T.animations_resolve_by_name_and_semantic()
   Assert.equal(def:animation("open").id, "c1")
   Assert.equal(def:animation("door.open").id, "c1", "semantic roles resolve")
   Assert.isNil(def:animation("missing"))
-  Assert.equal(#def:animationNames(), 1)
 end
 
 function T.binding_is_precomputed_for_node_and_material_clips()

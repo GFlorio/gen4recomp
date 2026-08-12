@@ -142,18 +142,4 @@ function ModelAnimationState:updateFixed()
   end
 end
 
--- True when any attachment is playing in a group (or any group when `category`
--- is omitted).
-function ModelAnimationState:hasAttachments(category)
-  if category then
-    return next(self.groups[category]) ~= nil
-  end
-  for _, group in pairs(self.groups) do
-    if next(group) ~= nil then
-      return true
-    end
-  end
-  return false
-end
-
 return ModelAnimationState

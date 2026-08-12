@@ -157,7 +157,6 @@ function T.play_stop_cycles_leave_no_stale_attachments()
     instance:stop(handle)
   end
   Assert.equal(#instance.animationState:attachments("joint"), 0)
-  Assert.isFalse(instance.animationState:hasAttachments())
   local survivor = instance:play("door.open")
   Assert.equal(#instance.animationState:attachments("joint"), 1)
   Assert.isTrue(instance.animationState:attachments("joint")[1] == survivor)

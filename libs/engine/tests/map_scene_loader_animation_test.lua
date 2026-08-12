@@ -503,7 +503,7 @@ function T.animated_building_loads_advances_and_renders()
   -- the scene starts with the bind-pose draw list and holds it until a
   -- scripted role plays.
   local instance = runtime.animatedInstances[1]
-  runtime:rebuildAnimatedDrawItems()
+  runtime:updateAnimated()
   Assert.equal(#runtime.buildingDraws, 1)
   local m0 = runtime.buildingDraws[1].transform
 
@@ -701,7 +701,7 @@ function T.update_advances_the_pose_driven_draw_items()
   local instance = runtime.animatedInstances[1]
   local door = assert(runtime.mapProps:doorAt(doorMapFor(runtime, 4, 14), 4, 14))
   door:open()
-  runtime:rebuildAnimatedDrawItems()
+  runtime:updateAnimated()
   local m0 = runtime.buildingDraws[1].transform
   for _ = 1, 7 do
     runtime:updateAnimated()
@@ -738,21 +738,14 @@ function T.draw_items_refresh_only_on_the_scene_tick()
     { meshBuilder = fakeMeshBuilder }
   )
   local instance = runtime.animatedInstances[1]
-  -- The first refresh builds the initial list; a second refresh is a no-op
-  -- and keeps the item identity.
-  runtime:rebuildAnimatedDrawItems()
+  -- The first tick builds the initial draw list.
+  runtime:updateAnimated()
   local draws = runtime.buildingDraws
-  runtime:rebuildAnimatedDrawItems()
-  Assert.isTrue(runtime.buildingDraws == draws, "a clean refresh keeps the cached list")
   -- A control op between ticks marks nothing: the cached list stays until
   -- the scene tick rebuilds it.
   instance:play("door.open")
-  runtime:rebuildAnimatedDrawItems()
-  Assert.isTrue(runtime.buildingDraws == draws, "a between-tick play does not refresh the list")
-  -- The scene tick advances the players and rebuilds once.
-  local drawsAfterUpdate = runtime.buildingDraws
   runtime:updateAnimated()
-  Assert.isFalse(runtime.buildingDraws == drawsAfterUpdate, "updateAnimated rebuilds the items")
+  Assert.isFalse(runtime.buildingDraws == draws, "updateAnimated rebuilds the items")
   Assert.equal(instance.animationState:attachments("joint")[1].player.frameFx, 4096)
 
   runtime:release()
@@ -780,7 +773,7 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
     { meshBuilder = fakeMeshBuilder }
   )
   local instance = runtime.animatedInstances[1]
-  Assert.isTrue(instance.animationState:hasAttachments("joint"), "the ambient clip autoplays at load")
+  Assert.isTrue(#instance.animationState:attachments("joint") == 1, "the ambient clip autoplays at load")
 
   local playerSteps, cameraSteps = 0, 0
   local player = {
@@ -943,7 +936,7 @@ function T.animated_material_resolves_its_image_with_the_material_wrap()
     assert(cache:loadLua(MapAssetCache.mapDir(61) .. "/scene.lua")),
     { meshBuilder = fakeMeshBuilder, imageBuilder = recordingImageBuilder(images) }
   )
-  runtime:rebuildAnimatedDrawItems()
+  runtime:updateAnimated()
   local image = runtime.buildingDraws[1].material.image
   Assert.notNil(image, "the animated material resolves an image")
   Assert.equal(image.path, desc.materials[1].texture)
@@ -985,7 +978,7 @@ function T.animated_variant_texture_uses_the_material_wrap()
   local instance = runtime.animatedInstances[1]
 
   -- The base texture first: the material's wrap applies to the base too.
-  runtime:rebuildAnimatedDrawItems()
+  runtime:updateAnimated()
   local baseImage = runtime.buildingDraws[1].material.image
   Assert.deepEqual(baseImage.wraps, { { "repeat", "repeat" } }, "the base texture uses the material's wrap")
 
@@ -1019,7 +1012,7 @@ function T.untextured_animated_materials_never_request_an_image()
   )
   Assert.equal(#images, 0, "no image is requested for an untextured material")
   Assert.equal(runtime.stats.textureCount, 0)
-  runtime:rebuildAnimatedDrawItems()
+  runtime:updateAnimated()
   Assert.isNil(runtime.buildingDraws[1].material.image)
   -- Even while a clip plays, an untextured material never resolves an image.
   local instance = runtime.animatedInstances[1]

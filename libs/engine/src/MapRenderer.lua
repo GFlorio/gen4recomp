@@ -498,9 +498,6 @@ function MapRenderer:draw(runtime, camera, worldDraws, viewport, alpha)
 
   self.stats = {
     drawCalls = 0,
-    triangles = runtime.stats.triangleCount,
-    meshCount = runtime.stats.meshCount,
-    textureCount = runtime.stats.textureCount,
   }
 
   local rectangle = viewport.worldViewport

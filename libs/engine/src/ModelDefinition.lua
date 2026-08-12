@@ -370,15 +370,6 @@ function ModelDefinition:animation(nameOrSemantic)
   return self.animationByName[nameOrSemantic] or self.animationBySemantic[nameOrSemantic]
 end
 
--- All clip names of the definition, in declaration order.
-function ModelDefinition:animationNames()
-  local out = {}
-  for _, clip in ipairs(self.animations) do
-    out[#out + 1] = clip.name
-  end
-  return out
-end
-
 -- The model node for a node index, or nil.
 function ModelDefinition:node(index)
   return self.nodes[index + 1]
