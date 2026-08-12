@@ -32,22 +32,25 @@ local function scriptCache(marker)
 end
 
 -- A read-shaped filesystem for the override tree: the manifest and the
--- override files.
-local function overrideFs(files)
+-- override files. `manifestText` overrides the derived manifest when the
+-- test needs a malformed one.
+local function overrideFs(files, manifestText)
   files = files or {}
-  local manifest = {}
-  for name in pairs(files) do
-    local id = name:match("^(.*)%.lua$")
-    if id ~= nil then
-      manifest[#manifest + 1] = id
+  if manifestText == nil then
+    local manifest = {}
+    for name in pairs(files) do
+      local id = name:match("^(.*)%.lua$")
+      if id ~= nil then
+        manifest[#manifest + 1] = id
+      end
     end
+    table.sort(manifest)
+    manifestText = "return {\n"
+    for _, id in ipairs(manifest) do
+      manifestText = manifestText .. "  " .. string.format("%q", id) .. ",\n"
+    end
+    manifestText = manifestText .. "}\n"
   end
-  table.sort(manifest)
-  local manifestText = "return {\n"
-  for _, id in ipairs(manifest) do
-    manifestText = manifestText .. "  " .. string.format("%q", id) .. ",\n"
-  end
-  manifestText = manifestText .. "}\n"
   return {
     read = function(self, path)
       if path == ScriptLoader.OVERRIDE_MANIFEST then
@@ -121,6 +124,14 @@ T["key returns nil without a script cache marker"] = function()
   local cache = scriptCache()
   cache:remove(ScriptCache.markerPath())
   Assert.isNil(RegistrySnapshot.key(cache, overrideFs()))
+end
+
+-- 2b. The manifest is evaluated in a restricted environment so the fast
+-- path cannot diverge from the slow path: a manifest relying on a global
+-- yields no key.
+T["key rejects a manifest that relies on globals"] = function()
+  local fs = overrideFs({ ["elms_lab.elm.lua"] = "override-a" }, 'return { string.lower("ELMS_LAB.ELM") }\n')
+  Assert.isNil(RegistrySnapshot.key(scriptCache(), fs))
 end
 
 -- 3. Load returns nil when the script cache marker is absent.

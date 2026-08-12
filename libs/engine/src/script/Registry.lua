@@ -1,6 +1,6 @@
 -- Script resource registry : owns the vanilla base
--- definitions (generated transcripts plus handwritten replacements) and every
--- mod contribution. Contributions are appended in registration order with an
+-- definitions (generated transcripts plus overrides) and every mod
+-- contribution. Contributions are appended in registration order with an
 -- explicit priority, owner, and mod load order; the composition layer (not
 -- this module) folds them into the effective chain. A `remove` contribution is
 -- an explicit tombstone that suppresses the base and lower-priority
@@ -31,16 +31,13 @@ Registry.__index = Registry
 -- Sentinel for a base layer whose resource is not decoded yet.
 local PENDING = {}
 
--- Vanilla base layers :
--- the checked-in `data/scripts/overrides` layer is a compatibility layer
--- above the generated transcript but below handwritten replacements;
--- handwritten content takes priority over everything else. The effective
--- base selection happens here so the composition layer only ever sees one
--- base definition.
-local BASE_LAYERS = { generated = 1, override = 2, handwritten = 3 }
+-- Vanilla base layers : the checked-in `data/scripts/overrides` layer
+-- (every script named by the override manifest) sits above the generated
+-- transcript. The effective base selection happens here so the composition
+-- layer only ever sees one base definition.
+local BASE_LAYERS = { generated = 1, override = 2 }
 
--- Accepted contribution operations. `replace` is the registry-level alias of
--- `override` ; the stored operation name is `override`.
+-- Accepted contribution operations.
 local OPS = {
   register = true,
   override = true,
@@ -107,17 +104,16 @@ function Registry:_hasBase(id)
   return self._bases[id] ~= nil and next(self._bases[id]) ~= nil
 end
 
--- Install a vanilla base definition. `layer` is "generated", "override", or
--- "handwritten"; handwritten wins, then override, then generated.
--- Installing the same layer twice is
--- a hard duplicate error.
+-- Install a vanilla base definition. `layer` is "generated" or "override";
+-- override wins over the generated transcript. Installing the same layer
+-- twice is a hard duplicate error.
 ---@param id string
 ---@param script table
 ---@param layer string
 function Registry:installBase(id, script, layer)
   assert(type(id) == "string" and id ~= "", "script id required")
   assert(type(script) == "table", "base script must be a table")
-  assert(BASE_LAYERS[layer] ~= nil, "base layer must be generated, handwritten, or override")
+  assert(BASE_LAYERS[layer] ~= nil, "base layer must be generated or override")
   self:_installLayer(id, layer, script)
   return script
 end
@@ -129,7 +125,7 @@ end
 ---@param layer string
 function Registry:installBaseDeferred(id, layer)
   assert(type(id) == "string" and id ~= "", "script id required")
-  assert(BASE_LAYERS[layer] ~= nil, "base layer must be generated, handwritten, or override")
+  assert(BASE_LAYERS[layer] ~= nil, "base layer must be generated or override")
   self:_installLayer(id, layer, PENDING)
 end
 
@@ -171,9 +167,9 @@ function Registry:_load(id, layer)
   return resource
 end
 
--- The effective base resource: handwritten over override over generated,
--- ignoring mod contributions (the composition layer applies those). A
--- deferred layer decodes on first access and is memoized.
+-- The effective base resource: override over generated, ignoring mod
+-- contributions (the composition layer applies those). A deferred layer
+-- decodes on first access and is memoized.
 ---@param id string
 ---@return table?
 function Registry:base(id)
@@ -181,9 +177,7 @@ function Registry:base(id)
   if not layers then
     return nil
   end
-  local layer = layers.handwritten and "handwritten"
-    or layers.override and "override"
-    or layers.generated and "generated"
+  local layer = layers.override and "override" or layers.generated and "generated"
   if not layer then
     return nil
   end
@@ -332,7 +326,7 @@ function Registry:contributions(id)
 end
 
 -- The first base-definition contender at the highest priority: an override/
--- replace/remove contribution, or nil when only before/after/wrap/register
+-- remove contribution, or nil when only before/after/wrap/register
 -- contributions exist. Same-priority conflicts are the composition layer's
 -- call; this helper returns the raw contenders.
 ---@param id string
@@ -433,7 +427,7 @@ end
 ---@param hash string
 function Registry:cacheScriptHash(id, layer, hash)
   assert(type(id) == "string" and id ~= "", "script id required")
-  assert(BASE_LAYERS[layer] ~= nil, "base layer must be generated, handwritten, or override")
+  assert(BASE_LAYERS[layer] ~= nil, "base layer must be generated or override")
   assert(type(hash) == "string" and #hash == 64, "script hash must be a 64-character hex digest")
   local cache = self._hashCache
   if cache == nil or cache.version ~= self._version then

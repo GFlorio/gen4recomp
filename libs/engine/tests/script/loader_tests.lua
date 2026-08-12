@@ -42,22 +42,25 @@ local function scriptCache()
 end
 
 -- A read-shaped filesystem for the override tree: the manifest and the
--- override files.
-local function overrideFs(files)
+-- override files. `manifestText` overrides the derived manifest when the
+-- test needs a malformed one.
+local function overrideFs(files, manifestText)
   files = files or {}
-  local manifest = {}
-  for name in pairs(files) do
-    local id = name:match("^(.*)%.lua$")
-    if id ~= nil then
-      manifest[#manifest + 1] = id
+  if manifestText == nil then
+    local manifest = {}
+    for name in pairs(files) do
+      local id = name:match("^(.*)%.lua$")
+      if id ~= nil then
+        manifest[#manifest + 1] = id
+      end
     end
+    table.sort(manifest)
+    manifestText = "return {\n"
+    for _, id in ipairs(manifest) do
+      manifestText = manifestText .. "  " .. string.format("%q", id) .. ",\n"
+    end
+    manifestText = manifestText .. "}\n"
   end
-  table.sort(manifest)
-  local manifestText = "return {\n"
-  for _, id in ipairs(manifest) do
-    manifestText = manifestText .. "  " .. string.format("%q", id) .. ",\n"
-  end
-  manifestText = manifestText .. "}\n"
   return {
     read = function(self, path)
       if path == ScriptLoader.OVERRIDE_MANIFEST then
@@ -103,6 +106,20 @@ T["override replaces the base script with the same id"] = function()
   Assert.deepEqual(ids, { "new_bark.lab_sign" })
   local base = assert(registry:base("new_bark.lab_sign"))
   Assert.equal(base.steps[1].op, "noop", "the override wins over the generated base")
+end
+
+-- 2b. The override manifest is evaluated in the same restricted environment
+-- as resource chunks: a manifest relying on a global must fail loudly
+-- instead of loading through the ordinary global environment.
+T["override manifest runs in the restricted environment"] = function()
+  local Registry = require("libs.engine.src.script.Registry")
+  local registry = Registry.new()
+  local fs = overrideFs({
+    ["elms_lab.elm.lua"] = 'local S = require("gen4.script")\nreturn S.script { api = 1, id = "elms_lab.elm", steps = { S.stop() } }\n',
+  }, 'return { string.lower("ELMS_LAB.ELM") }\n')
+  throwsCode("SCRIPT_LOAD_FAILED", function()
+    ScriptLoader.installOverrides(registry, fs, requireShim)
+  end)
 end
 
 -- 3. An override may introduce an id with no generated base (the curated

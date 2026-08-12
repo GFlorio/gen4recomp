@@ -187,7 +187,8 @@ end
 -- Install every override named by the override manifest. Files are
 -- `data/scripts/overrides/<id>.lua`; the manifest lists the exact ids (it is
 -- regenerated with the overrides, so no directory enumeration happens at
--- runtime). Returns the ids installed, sorted.
+-- runtime). The manifest is evaluated in the same restricted environment as
+-- resource chunks. Returns the ids installed, sorted.
 ---@param registry table Registry
 ---@param fs table { read(path): string? }
 ---@param requireFn fun(name: string): any
@@ -202,8 +203,7 @@ function ScriptLoader.installOverrides(registry, fs, requireFn)
       { path = ScriptLoader.OVERRIDE_MANIFEST }
     )
   end
-  local ids = assert(loadstring(manifest --[[@as string]]))()
-  assert(type(ids) == "table", "override manifest must be a list of ids")
+  local ids = loadResourceChunk(manifest --[[@as string]], ScriptLoader.OVERRIDE_MANIFEST, requireFn)
   table.sort(ids)
   local installed = {}
   for _, id in ipairs(ids) do
