@@ -1219,7 +1219,6 @@ function T.stair_transition_ticks_advance_props_but_not_the_pose_clock()
   local transition = {
     phase = "fade_out",
     locked = true,
-    stairActive = true,
     updateFixed = function()
       return false
     end,

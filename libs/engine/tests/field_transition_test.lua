@@ -4,10 +4,8 @@
 -- failed transition never touches loader protection, and a commit fault
 -- after the black-frame ownership transfer begins is fatal (no transition
 -- rollback). The explicit door choreography facts (sourceKind, sourceDoor,
--- destinationDoor, needsDestinationEgress). Door-kind warps with an
--- unresolvable door or ingress step, and egress steps without a terrain
--- destination are data-contract failures and raise. The door choreography
--- pins the
+-- destinationDoor) determine the destination-egress predicate at its read
+-- sites. The door choreography pins the
 -- HGSS event order -- open-start, open-finished, player-step-start,
 -- player-step-finished, close-start, close-finished -- with the fade
 -- orthogonal where HGSS overlaps it: the ingress begins only after the
@@ -620,7 +618,7 @@ function T.source_door_waits_for_the_open_before_the_ingress()
   Assert.equal(sourceDoor.closed, 0, "the source door never closes on the source side")
   Assert.equal(#player.steps, 0, "the ingress waits for the door to finish opening")
   Assert.equal(player.motion, "idle")
-  Assert.isFalse(transition.needsDestinationEgress, "egress need is decided at load")
+  Assert.isNil(transition.destinationChoreo, "egress need is decided at load")
 
   -- The opening clip runs inside the fade; the player stays at the anchor
   -- and the transition reports no locomotion while it runs.
@@ -654,7 +652,7 @@ function T.source_door_waits_for_the_open_before_the_ingress()
   Assert.equal(player.motion, "idle", "the ingress finished before the swap")
   Assert.equal(#swaps, 0, "no swap before the choreography completes")
   transition:updateFixed()
-  Assert.isTrue(transition.needsDestinationEgress, "a door source always egresses")
+  Assert.isTrue(transition.sourceKind == "door" or transition.destinationDoor ~= nil, "a door source always egresses")
   transition:updateFixed()
   Assert.equal(transition.phase, "fade_in")
   Assert.equal(#swaps, 1)
@@ -997,7 +995,6 @@ function T.stair_source_climb_drives_the_player_held_movement()
   local sounds
   transition, source, _, _, sounds = transitionFixture({ behavior = BEHAVIOR_STAIRS_WEST, player = player })
   transition:start(source, DOOR_WARP, "west")
-  Assert.isTrue(transition.stairActive, "the stair warp activates the stair choreography")
   Assert.isNil(transition.sourceDoor, "stairs never activate the door choreography")
   Assert.equal(transition.sourceKind, "stairs")
   Assert.equal(player.motion, "climbing", "the source stair climb drives the player's held stair movement")
@@ -1063,7 +1060,7 @@ function T.stair_transition_sounds_twice_and_finishes_at_fade_in_end()
   runTicks(transition, FADE)
   Assert.equal(transition.phase, "idle")
   Assert.isFalse(transition.locked)
-  Assert.isFalse(transition.stairActive)
+  Assert.equal(player.motion, "idle", "the stair choreography ends with the held movement")
   Assert.equal(#swaps, 1, "the map swaps once")
   Assert.equal(#sounds, 2, "one stair sound per side: the source climb and the destination climb")
   Assert.equal(sounds[1], FieldTransition.STAIR_SOUND)
@@ -1090,7 +1087,7 @@ function T.plain_warps_never_play_the_stair_choreography()
   transition:start(source, DOOR_WARP, "north")
   runTicks(transition, 2 * FADE + 2)
   Assert.equal(transition.phase, "idle")
-  Assert.isFalse(transition.stairActive)
+  Assert.isFalse(transition.sourceKind == "stairs")
   Assert.deepEqual(sounds, {}, "plain warps play no stair sound")
   Assert.deepEqual(player.steps, {})
 end

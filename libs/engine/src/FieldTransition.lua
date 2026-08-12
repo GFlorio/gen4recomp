@@ -20,10 +20,12 @@
 -- and the close resolves immediately. The source door never closes.
 --
 -- The choreography facts are explicit: sourceKind (the warp's metatile
--- classification), sourceDoor (resolved on the source map), destinationDoor
--- (resolved at load on the destination map), and needsDestinationEgress (a
--- door source always egresses; a door destination alone -- the Elm Lab exit
--- pattern -- also activates the destination choreography). A door-kind warp
+-- classification), sourceDoor (resolved on the source map), and
+-- destinationDoor (resolved at load on the destination map). The destination
+-- egress predicate (a door source always egresses; a door destination alone
+-- -- the Elm Lab exit pattern -- also activates the destination
+-- choreography) is derived from sourceKind and destinationDoor at its read
+-- sites. A door-kind warp
 -- whose door does not resolve, an ingress step with no terrain destination
 -- (surfacing when the choreography reaches the ingress, after the open
 -- finished), or an egress step without a terrain destination, is a
@@ -62,10 +64,8 @@ local Errors = require("libs.errors.src.Errors")
 ---@field sourceKind "door"|"stairs"|nil -- the source warp's classification
 ---@field sourceDoor table|nil -- the resolved source door, when the source kind is a door
 ---@field destinationDoor table|nil -- the resolved destination door, when the destination resolves one
----@field needsDestinationEgress boolean -- the destination side runs choreography
 ---@field sourceChoreo "wait_open"|"wait_step"|"done"|nil -- the source-side door choreography state
 ---@field destinationChoreo "wait_open"|"wait_step"|"wait_close"|"done"|nil -- the destination-side door choreography state
----@field stairActive boolean
 ---@field completed table?
 ---@field error any?
 ---@field warpContext table?
@@ -116,10 +116,8 @@ function FieldTransition.new(options)
     sourceKind = nil,
     sourceDoor = nil,
     destinationDoor = nil,
-    needsDestinationEgress = false,
     sourceChoreo = nil,
     destinationChoreo = nil,
-    stairActive = false,
     fadeAlpha = 0,
   }, FieldTransition)
 end
@@ -180,7 +178,6 @@ local function beginSourceChoreography(self)
     return
   end
   if kind == "stairs" then
-    self.stairActive = true
     -- The climb is the player's held stair movement (HGSS
     -- MapObject_SetHeldMovement), so the movement starts here and its
     -- completion -- not a transition timer -- fires the sound and gates the
@@ -317,7 +314,7 @@ end
 -- SEQ_SE_DP_KAIDAN2 after the held movement finishes, before the fade). The
 -- climb never reports locomotion: the player stays on the warp tile.
 local function advanceStairClimb(self)
-  if not self.stairActive or not self.player then
+  if self.sourceKind ~= "stairs" or not self.player then
     return
   end
   if self.player.motion == "climbing" then
@@ -334,10 +331,8 @@ local function finish(self)
   self.locked = false
   self.sourceDoor = nil
   self.destinationDoor = nil
-  self.needsDestinationEgress = false
   self.sourceChoreo = nil
   self.destinationChoreo = nil
-  self.stairActive = false
   self.completed = {
     sourceMapId = self.sourceMap.mapId,
     destinationMapId = self.resolution.destinationMap.mapId,
@@ -362,10 +357,8 @@ function FieldTransition:start(sourceMap, warp, facing)
   self.sourceKind = nil
   self.sourceDoor = nil
   self.destinationDoor = nil
-  self.needsDestinationEgress = false
   self.sourceChoreo = nil
   self.destinationChoreo = nil
-  self.stairActive = false
   self.phase = FieldTransition.PHASES.fade_out
   self.locked = true
   self.fadeAlpha = 0
@@ -388,10 +381,8 @@ function FieldTransition:_abort(err)
   self.locked = false
   self.sourceDoor = nil
   self.destinationDoor = nil
-  self.needsDestinationEgress = false
   self.sourceChoreo = nil
   self.destinationChoreo = nil
-  self.stairActive = false
   self.fadeAlpha = 0
   self.progressTicks = 0
   self.completed = nil
@@ -431,12 +422,11 @@ function FieldTransition:updateFixed()
       local result = self.resolveDestination(self.loader, self.sourceMap, self.sourceWarp)
       self.resolution = result
       detectDestinationDoor(self)
-      self.needsDestinationEgress = self.sourceKind == "door" or self.destinationDoor ~= nil
       -- Door and stair warps never suppress: the player egresses off the anchor
       -- (doors) or lands on the standing stair tile (stairs), so pressing back
       -- re-arms immediately. Generic standing-tile warps keep coordinate
       -- suppression.
-      if self.needsDestinationEgress or self.stairActive then
+      if self.sourceKind == "door" or self.destinationDoor ~= nil or self.sourceKind == "stairs" then
         self.suppression = nil
       else
         self.suppression = result.suppression
@@ -452,13 +442,13 @@ function FieldTransition:updateFixed()
   if self.phase == FieldTransition.PHASES.swap_map then
     assert(self.fadeAlpha == 1, "map swap must occur while fully black")
     self.commit(self.resolution, self.facing, self.prepared)
-    if self.needsDestinationEgress then
+    if self.sourceKind == "door" or self.destinationDoor ~= nil then
       beginDestinationChoreography(self)
       -- Start the destination choreography on the swap tick: an animated door
       -- holds in wait_open, a static one (nothing to wait for) steps at once.
       advanceChoreo(self, advanceDestinationChoreo)
     end
-    if self.stairActive then
+    if self.sourceKind == "stairs" then
       -- The destination climb begins on the rebound player at the swap,
       -- exactly like the source side: the held stair movement, not a timer.
       if self.player then
