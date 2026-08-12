@@ -9,10 +9,11 @@
 local ScriptCache = {}
 
 local Validate = require("libs.assets.src.Validate")
+local Contract = require("libs.assets.src.DerivedAssetContract")
 
-ScriptCache.FORMAT = "script-cache-v1"
-ScriptCache.INDEX_SCHEMA = "g4-script-index-v1"
-ScriptCache.PROVENANCE_SCHEMA = "g4-script-provenance-v1"
+ScriptCache.FORMAT = Contract.scripts.cacheFormat
+ScriptCache.INDEX_SCHEMA = Contract.scripts.indexSchema
+ScriptCache.PROVENANCE_SCHEMA = Contract.scripts.provenanceSchema
 
 local DATA_DIR = "data/generated/script"
 

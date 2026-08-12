@@ -11,10 +11,11 @@ local MapAssetCache = {}
 local Errors = require("libs.errors.src.Errors")
 local Validate = require("libs.assets.src.Validate")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
+local Contract = require("libs.assets.src.DerivedAssetContract")
 
-MapAssetCache.FORMAT = "map-cache-v5"
-MapAssetCache.SCENE_SCHEMA = "g4-map-scene-v3"
-MapAssetCache.TERRAIN_SCHEMA = "g4-terrain-surfaces-v1"
+MapAssetCache.FORMAT = Contract.map.cacheFormat
+MapAssetCache.SCENE_SCHEMA = Contract.map.sceneSchema
+MapAssetCache.TERRAIN_SCHEMA = Contract.map.terrainSchema
 
 local DERIVED_DATA = "data/generated"
 local DERIVED_ASSETS = "assets/generated"

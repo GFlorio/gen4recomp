@@ -8,8 +8,10 @@
 
 local FieldFontCache = {}
 
-FieldFontCache.FORMAT = "field-font-cache-v1"
-FieldFontCache.SCHEMA = "g4-field-font-v1"
+local Contract = require("libs.assets.src.DerivedAssetContract")
+
+FieldFontCache.FORMAT = Contract.font.cacheFormat
+FieldFontCache.SCHEMA = Contract.font.schema
 
 local DATA_DIR = "data/generated/field/font"
 local ASSET_DIR = "assets/generated/field/font"

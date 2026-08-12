@@ -10,11 +10,12 @@
 local Errors = require("libs.errors.src.Errors")
 local BinaryReader = require("libs.codec.src.BinaryReader")
 local VertexFormat = require("libs.assets.src.VertexFormat")
+local Contract = require("libs.assets.src.DerivedAssetContract")
 
 local SceneMesh = {}
 
-local MAGIC = "G4M2"
-local VERSION = 2
+local MAGIC = Contract.mesh.magic
+local VERSION = Contract.mesh.version
 local STRIDE = 40
 local HEADER = 24 -- "G4M2", u16 ver, u16 flags, u32 vcount, u32 icount, u16 stride, u16 iwidth, u32 reserved
 

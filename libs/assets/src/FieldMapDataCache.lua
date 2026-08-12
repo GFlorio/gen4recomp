@@ -4,9 +4,10 @@
 local FieldMapDataCache = {}
 
 local Validate = require("libs.assets.src.Validate")
+local Contract = require("libs.assets.src.DerivedAssetContract")
 
-FieldMapDataCache.FORMAT = "g4-field-map-cache-v1"
-FieldMapDataCache.FIELD_SCHEMA = "g4-field-map-v1"
+FieldMapDataCache.FORMAT = Contract.fieldMapData.cacheFormat
+FieldMapDataCache.FIELD_SCHEMA = Contract.fieldMapData.fieldSchema
 
 -- The event collections the current field-map schema always carries.
 local EVENT_COLLECTIONS = { "background", "objects", "warps", "coordinates" }

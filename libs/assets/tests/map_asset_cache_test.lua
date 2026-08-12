@@ -39,7 +39,7 @@ function T.model_path_is_filesystem_safe()
 end
 
 function T.not_ready_without_files()
-  Assert.isTrue(not MapAssetCache.isReady(cache(), 61, "map-cache-v5:x:61:y"), "no files")
+  Assert.isTrue(not MapAssetCache.isReady(cache(), 61, MapAssetCache.marker("x", 61, "y")), "no files")
 end
 
 function T.ready_only_with_exact_marker_and_files()

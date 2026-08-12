@@ -57,7 +57,8 @@ local function _compile(romFs, config, sha1hex)
     recordCount = decoded.recordCount,
     profiles = decoded.records,
   }
-  local marker = "g4-field-camera-cache-v1:"
+  local marker = FieldCameraCache.FORMAT
+    .. ":"
     .. romFs:metadata().sha1
     .. ":"
     .. overlaySha1

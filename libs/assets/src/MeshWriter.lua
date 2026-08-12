@@ -10,10 +10,12 @@
 
 local Errors = require("libs.errors.src.Errors")
 local BinaryWriter = require("libs.codec.src.BinaryWriter")
+local Contract = require("libs.assets.src.DerivedAssetContract")
 
 local MeshWriter = {}
 
-local VERSION = 2
+local MAGIC = Contract.mesh.magic
+local VERSION = Contract.mesh.version
 local STRIDE = 40
 
 function MeshWriter.encode(batch)
@@ -27,7 +29,7 @@ function MeshWriter.encode(batch)
   local indexWidth = (#vertices <= 65535) and 2 or 4
 
   local w = BinaryWriter.new()
-  w:bytes("G4M2"):u16(VERSION):u16(0):u32(#vertices):u32(#indices):u16(STRIDE):u16(indexWidth):u32(0)
+  w:bytes(MAGIC):u16(VERSION):u16(0):u32(#vertices):u32(#indices):u16(STRIDE):u16(indexWidth):u32(0)
 
   for _, v in ipairs(vertices) do
     local source = v.colorSource

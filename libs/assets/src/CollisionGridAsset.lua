@@ -11,11 +11,12 @@
 local Errors = require("libs.errors.src.Errors")
 local BinaryReader = require("libs.codec.src.BinaryReader")
 local BinaryWriter = require("libs.codec.src.BinaryWriter")
+local Contract = require("libs.assets.src.DerivedAssetContract")
 
 local CollisionGridAsset = {}
 
 CollisionGridAsset.MAGIC = "G4CL"
-CollisionGridAsset.VERSION = 1
+CollisionGridAsset.VERSION = Contract.map.collisionVersion
 
 local HEADER_SIZE = 10 -- magic 4 + version 2 + width 2 + height 2
 

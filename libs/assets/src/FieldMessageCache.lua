@@ -9,11 +9,12 @@
 local FieldMessageCache = {}
 
 local Validate = require("libs.assets.src.Validate")
+local Contract = require("libs.assets.src.DerivedAssetContract")
 
-FieldMessageCache.FORMAT = "field-message-cache-v1"
-FieldMessageCache.SCHEMA = "g4-field-message-bank-v1"
-FieldMessageCache.INDEX_SCHEMA = "g4-field-message-index-v1"
-FieldMessageCache.PROVENANCE_SCHEMA = "g4-field-message-provenance-v1"
+FieldMessageCache.FORMAT = Contract.messages.cacheFormat
+FieldMessageCache.SCHEMA = Contract.messages.schema
+FieldMessageCache.INDEX_SCHEMA = Contract.messages.indexSchema
+FieldMessageCache.PROVENANCE_SCHEMA = Contract.messages.provenanceSchema
 
 local DATA_DIR = "data/generated/field/messages"
 

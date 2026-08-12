@@ -11,10 +11,11 @@
 local FieldActorCache = {}
 
 local Validate = require("libs.assets.src.Validate")
+local Contract = require("libs.assets.src.DerivedAssetContract")
 
-FieldActorCache.FORMAT = "field-actor-cache-v1"
-FieldActorCache.SCHEMA = "g4-field-actor-v1"
-FieldActorCache.INDEX_SCHEMA = "g4-field-actor-index-v1"
+FieldActorCache.FORMAT = Contract.fieldActors.cacheFormat
+FieldActorCache.SCHEMA = Contract.fieldActors.schema
+FieldActorCache.INDEX_SCHEMA = Contract.fieldActors.indexSchema
 
 local DATA_DIR = "data/generated/field/actors"
 local ASSET_DIR = "assets/generated/field/actors"

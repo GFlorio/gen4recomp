@@ -6,7 +6,9 @@
 
 local VertexFormat = {}
 
-VertexFormat.VERSION = 2
+local Contract = require("libs.assets.src.DerivedAssetContract")
+
+VertexFormat.VERSION = Contract.mesh.vertexFormatVersion
 
 VertexFormat.LAYOUT = {
   { "VertexPosition", "float", 3 },

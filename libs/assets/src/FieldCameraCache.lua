@@ -5,7 +5,10 @@
 
 local FieldCameraCache = {}
 
-FieldCameraCache.SCHEMA = "g4-field-camera-profiles-v1"
+local Contract = require("libs.assets.src.DerivedAssetContract")
+
+FieldCameraCache.FORMAT = Contract.fieldCamera.cacheFormat
+FieldCameraCache.SCHEMA = Contract.fieldCamera.schema
 
 local DIR = "data/generated/field/camera"
 
