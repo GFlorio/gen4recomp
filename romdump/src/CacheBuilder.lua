@@ -1,8 +1,8 @@
 -- Concrete per-version derived-cache build pipeline: compiles every cache
 -- class, writes only stale artifacts, emits the machine-readable build-cache
--- log, and returns the CachePipeline `prepareVersion` report shape
--- (`{ current = true }` / `nil, err`). Command selection, process exit codes,
--- and love coupling stay in Runner; this module is pure Lua.
+-- log, and returns the build report shape (`{ current = true }` /
+-- `nil, err`). Command selection, process exit codes, and love coupling
+-- stay in Runner; this module is pure Lua.
 
 local MapAnalysis = require("romdump.src.digest.MapAnalysis")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
@@ -50,7 +50,7 @@ function CacheBuilder.buildVersions(versionIds, options)
     log("build: no ready version to compile")
     return nil, "no ready version to compile"
   end
-  local allOk, compileExclusions = true, false
+  local allOk, hasCompileExclusions = true, false
   for _, version in ipairs(versionIds) do
     local romFs
     local ok, err = pcall(function()
@@ -183,7 +183,7 @@ function CacheBuilder.buildVersions(versionIds, options)
         )
       )
       if #compileExcluded > 0 then
-        compileExclusions = true
+        hasCompileExclusions = true
       end
     end)
     if romFs then
@@ -197,7 +197,7 @@ function CacheBuilder.buildVersions(versionIds, options)
   -- The cache written above is usable, so the scan always finishes; an
   -- unsupported asset still has to be visible to CI, hence the nonzero exit
   -- unless the caller asked for an exploratory run.
-  if compileExclusions and not options.allowCompileExclusions then
+  if hasCompileExclusions and not options.allowCompileExclusions then
     log("build-cache: compile exclusions remain; rerun with --allow-compile-exclusions to accept them")
     allOk = false
   end
