@@ -16,6 +16,12 @@ local T = {}
 
 local HEX = "^[0-9a-f]+$"
 
+local function throwsCode(code, fn)
+  local ok, err = pcall(fn)
+  Assert.isFalse(ok, "expected a raised error")
+  Assert.equal(err.code, code)
+end
+
 -- A cache whose script class is complete: marker, index, and script files.
 local function scriptCache(marker)
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
@@ -233,6 +239,22 @@ T["save returns false when the write fails"] = function()
   end
   local key = RegistrySnapshot.key(cache, overrideFs())
   Assert.isFalse(RegistrySnapshot.save(cache, overrideFs(), FP_A, key))
+end
+
+-- 14. The snapshot-restored fingerprint memo works on a sealed registry: the
+-- fast path restores the digest as a read-only memo after buildRegistry
+-- seals the registry.
+T["restored fingerprint stays authoritative on a sealed registry"] = function()
+  local cache = scriptCache()
+  local fs = overrideFs()
+  local key = RegistrySnapshot.key(cache, fs)
+  cache:write(RegistrySnapshot.FILE, snapshotText(key, FP_A))
+  local registry = ScriptLoader.buildRegistry(cache, fs, nil, { lazy = true })
+  registry:restoreFingerprint(FP_A)
+  Assert.equal(registry:fingerprint(), FP_A, "the restored memo is the digest")
+  throwsCode("SCRIPT_REGISTRY_SEALED", function()
+    registry:installBase("late.id", { id = "late.id" }, "generated")
+  end)
 end
 
 return T

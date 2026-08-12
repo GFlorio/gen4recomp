@@ -259,6 +259,11 @@ function ScriptLoader.buildRegistry(cacheFs, fs, requireFn, opts)
   end
   ScriptLoader.installGenerated(registry, cacheFs, requireFn, opts)
   ScriptLoader.installOverrides(registry, fs, requireFn)
+  -- Load finished: the registry is sealed so cached compositions and the
+  -- fingerprint memo can never describe stale data. The post-load machinery
+  -- (restoreFingerprint, cacheScriptHash, on-demand decode) is exempt from
+  -- the gate.
+  registry:seal()
   return registry
 end
 

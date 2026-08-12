@@ -4,8 +4,9 @@
 -- owning content root through the game's mod loader; this registry only maps
 -- names to module tables and owners, and rejects unknown modules with
 -- attributed errors. Engine-internal module imports are rejected by the mod
--- loader's restricted environment. Pure domain module:
--- no love dependency.
+-- loader's restricted environment. The registry is sealed after load: once
+-- sealed, registration raises while resolution stays live. Pure domain
+-- module: no love dependency.
 
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -13,12 +14,19 @@ local ScriptErrors = require("libs.engine.src.script.errors")
 ---@class RawModules
 ---@field private _modules table<string, table>
 ---@field private _owners table<string, table>
+---@field private _sealed boolean
 local RawModules = {}
 RawModules.__index = RawModules
 
 ---@return RawModules
 function RawModules.new()
-  return setmetatable({ _modules = {}, _owners = {} }, RawModules)
+  return setmetatable({ _modules = {}, _owners = {}, _sealed = false }, RawModules)
+end
+
+-- Seal the registry after load: registration raises from here on. Sealing
+-- is one-way; resolution stays live.
+function RawModules:seal()
+  self._sealed = true
 end
 
 -- Register a handler module under its module name. The owner names the mod
@@ -28,6 +36,13 @@ end
 ---@param module table
 ---@param owner table
 function RawModules:register(moduleName, module, owner)
+  if self._sealed then
+    Errors.raise(
+      ScriptErrors.SCRIPT_RAW_MODULES_SEALED,
+      "the raw module registry is sealed; registration must happen before load finishes",
+      { module = moduleName }
+    )
+  end
   assert(type(moduleName) == "string" and moduleName ~= "", "module name required")
   assert(type(module) == "table", "raw module must be a table")
   if

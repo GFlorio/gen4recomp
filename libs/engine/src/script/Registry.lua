@@ -9,8 +9,11 @@
 -- (installBaseDeferred) that decode through an injected resource loader on
 -- first access, so a boot never needs to decode the whole generated corpus;
 -- the warm-up pass can stash per-resource fingerprint hashes
--- (cacheScriptHash) that fingerprint() consumes without decoding. Pure domain
--- module: no love dependency.
+-- (cacheScriptHash) that fingerprint() consumes without decoding. The
+-- registry is sealed after load: the public install/contribution surface
+-- raises once sealed, while the post-load machinery (restoreFingerprint,
+-- cacheScriptHash, and the private `_load` memoization) stays live. Pure
+-- domain module: no love dependency.
 
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -22,6 +25,7 @@ local Sha256 = require("libs.engine.src.script.Sha256")
 ---@field private _contributions table<string, table[]> id -> ordered contribution records
 ---@field private _registrationIndex integer
 ---@field private _version integer
+---@field private _sealed boolean
 ---@field private _fingerprintCache table|nil { version: integer, value: string }
 ---@field private _hashCache table|nil { version: integer, values: table<string, table<string, string>> }
 ---@field private _loadResource fun(id: string, layer: string): table|nil, any?|nil
@@ -86,10 +90,31 @@ function Registry.new(opts)
     _contributions = {},
     _registrationIndex = 0,
     _version = 0,
+    _sealed = false,
     _fingerprintCache = nil,
     _hashCache = nil,
     _loadResource = opts.loadResource,
   }, Registry)
+end
+
+-- Seal the registry after load: the public install and contribution surface
+-- raises from here on, so cached compositions and the fingerprint memo can
+-- never describe stale data. Sealing is one-way; the post-load machinery the
+-- composition wires (restoreFingerprint, cacheScriptHash, and the private
+-- `_load` memoization) is exempt.
+function Registry:seal()
+  self._sealed = true
+end
+
+---@param id string
+function Registry:_assertMutable(id)
+  if self._sealed then
+    Errors.raise(
+      ScriptErrors.SCRIPT_REGISTRY_SEALED,
+      "the script registry is sealed; installs must happen before load finishes",
+      { scriptId = id }
+    )
+  end
 end
 
 -- A script is already defined when any base layer or contribution exists for
@@ -111,6 +136,7 @@ end
 ---@param script table
 ---@param layer string
 function Registry:installBase(id, script, layer)
+  self:_assertMutable(id)
   assert(type(id) == "string" and id ~= "", "script id required")
   assert(type(script) == "table", "base script must be a table")
   assert(BASE_LAYERS[layer] ~= nil, "base layer must be generated or override")
@@ -124,6 +150,7 @@ end
 ---@param id string
 ---@param layer string
 function Registry:installBaseDeferred(id, layer)
+  self:_assertMutable(id)
   assert(type(id) == "string" and id ~= "", "script id required")
   assert(BASE_LAYERS[layer] ~= nil, "base layer must be generated or override")
   self:_installLayer(id, layer, PENDING)
@@ -199,6 +226,7 @@ end
 ---@return table contribution record
 function Registry:_append(id, operation, resource, owner, opts)
   opts = opts or {}
+  self:_assertMutable(id)
   assert(type(id) == "string" and id ~= "", "script id required")
   assert(OPS[operation] ~= nil, "unknown registry operation " .. tostring(operation))
   assert(operation == "remove" or type(resource) == "table", "contribution resource must be a table")
@@ -305,13 +333,18 @@ end
 
 -- Deterministically sorted contribution list for one id :
 -- priority descending, then mod load order ascending, then registration index
--- ascending.
+-- ascending. Each returned record is a copy: mutating it cannot alter the
+-- registry (the seal is the mutation gate; copies close the reference leak).
 ---@param id string
 ---@return table[]
 function Registry:contributions(id)
   local list = {}
   for _, record in ipairs(self._contributions[id] or {}) do
-    list[#list + 1] = record
+    local copy = {}
+    for key, value in pairs(record) do
+      copy[key] = value
+    end
+    list[#list + 1] = copy
   end
   table.sort(list, function(a, b)
     if a.priority ~= b.priority then
