@@ -24,8 +24,8 @@ Dispatch one `general-purpose` subagent whose prompt has these four parts, in or
    structural changes made, findings you deliberately left and why, and the final
    test/lint status.`
 
-If a spec file and an implementation notes file exist for this work, add a fifth part: their
-absolute paths, and `Read both before reviewing.` Paths only.
+If a spec file exists for this work, add a fifth part: its absolute path, and
+`Read it before reviewing.` Paths only. DO NOT pass implementation notes.
 
 The prompt contains those parts and nothing else — no branch summary, no architecture tour,
 no defense or critique of the existing design, no list of files you think matter. Everything
@@ -73,8 +73,8 @@ reachable.
 
 ## Applying
 
-Fix directly. Work file by file, smallest safe edits, running `scripts/test.sh` as you go —
-not one giant rewrite at the end.
+Fix directly. Work file by file, smallest safe edits, running focused `scripts/test.sh`
+as you go — not one giant rewrite at the end.
 
 Then `scripts/lint.sh` (stylua + lua-language-server), fix every finding, re-run tests.
 
