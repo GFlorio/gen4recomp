@@ -38,11 +38,16 @@
 -- Only the position sum is reproduced; assertRigidBindPose enforces the
 -- checked assumption that makes the normal sum follow from it.
 --
--- Out of scope (fail loudly): BBY, external display lists (CALLDL), and the
--- Si3D scaling rule.
+-- Out of scope (fail loudly): BBY, external display lists (CALLDL), the
+-- Si3D scaling rule, and any opcode outside the handled set (NOP and ENVMAP
+-- included -- both are absent from the HGSS corpus). Matrix-stack slot reads
+-- (MTX, NODEDESC restore, NODEMIX terms) are strict: a slot no command wrote
+-- raises NSBMD_SBC_SLOT_NOT_FOUND rather than falling back to identity.
+-- PRJMAP is handled as a no-op: it selects projection-map texgen state only
+-- (matrix-palette entry) and never touches the position-matrix stack.
 --
 -- This module is pure domain: programs are decoded data, no ROM bytes are
--- read, and Matrix4/Errors are the only dependencies.
+-- read, and all dependencies are pure-domain modules.
 
 local Errors = require("libs.rom.src.Errors")
 local Matrix4 = require("libs.math.src.Matrix4")
@@ -63,9 +68,24 @@ local function copyRestoreStack(stack)
   return copy
 end
 
-local function slotOrIdentity(slots, slot)
+-- The matrix-stack slot read of MTX, NODEDESC restore, and NODEMIX terms
+-- must name a slot a previous command wrote. A missing slot means the
+-- program restores state that was never set; replaying it as identity would
+-- silently draw with a wrong matrix. Every real HGSS program and compiled
+-- fixture satisfies the invariant (census: 0 unset-slot reads across 7
+-- fixture programs, 640 compiled dynamic programs, and 1238 raw archive
+-- members), so the raise is corpus-safe and no compiler-side validation is
+-- needed.
+local function slotAt(program, slots, slot, cmd)
   local m = slots[slot]
-  return m and copyMatrix(m) or Matrix4.identity()
+  if not m then
+    Errors.raise(
+      "NSBMD_SBC_SLOT_NOT_FOUND",
+      "matrix-stack slot " .. tostring(slot) .. " was never written",
+      { slot = slot, offset = cmd.offset, model = program.name }
+    )
+  end
+  return copyMatrix(m)
 end
 
 -- The 4x3 part of a column-major matrix: the three basis columns plus the
@@ -127,7 +147,7 @@ local function nodemixMatrix(program, cmd, matrixSlots)
     assertRigidBindPose(program, term.nodeIndex)
     -- The SDK restores the slot then multiplies invM into it, which in row-vector
     -- order applies invM to the vertex first.
-    local m = Matrix4.multiply(slotOrIdentity(matrixSlots, term.matrixSlot), evp.invM)
+    local m = Matrix4.multiply(slotAt(program, matrixSlots, term.matrixSlot, cmd), evp.invM)
     local weight = term.ratio / 256 -- the operand is `ratio << 4` in fx32
     for _, i in ipairs(AFFINE_INDICES) do
       sum[i] = sum[i] + weight * m[i]
@@ -214,7 +234,7 @@ function NsbmdSbcEvaluator.evaluate(program, poseProvider)
       local override = poseProvider.nodeVisible and poseProvider.nodeVisible(cmd.nodeIndex)
       nodeVisibility[cmd.nodeIndex] = cmd.visible and override ~= false
     elseif op == 0x03 then -- MTX
-      currentMatrix = slotOrIdentity(matrixSlots, cmd.matrixSlot)
+      currentMatrix = slotAt(program, matrixSlots, cmd.matrixSlot, cmd)
       billboardBase = nil
     elseif op == 0x04 then -- MAT
       currentMaterial = cmd.materialIndex
@@ -245,7 +265,7 @@ function NsbmdSbcEvaluator.evaluate(program, poseProvider)
 
       local baseMatrix
       if cmd.restoreSlot ~= nil then
-        baseMatrix = slotOrIdentity(matrixSlots, cmd.restoreSlot)
+        baseMatrix = slotAt(program, matrixSlots, cmd.restoreSlot, cmd)
       elseif cmd.parentIndex ~= cmd.nodeIndex and nodeMatrices[cmd.parentIndex] then
         baseMatrix = copyMatrix(nodeMatrices[cmd.parentIndex])
       else
@@ -293,6 +313,20 @@ function NsbmdSbcEvaluator.evaluate(program, poseProvider)
     elseif op == 0x0B then -- POSSCALE
       local scale = cmd.inverse and program.invPosScale or program.posScale
       currentMatrix = Matrix4.multiply(currentMatrix, Matrix4.scale(scale, scale, scale))
+    elseif op == 0x0D then -- PRJMAP
+      -- PRJMAP selects projection-map texgen state (a matrix-palette entry;
+      -- NNSi_G3dFuncSbc_PRJMAP in NitroSystem g3d/sbc.c reads two operands and
+      -- touches only texture-side state). It reads and writes nothing on the
+      -- position-matrix stack, so the replay ignores it. Three HGSS field
+      -- models use it (interior_build_models member 177 obj_sylph, one
+      -- placement on MAP_SAFFRON_SILPH_CO_HQ), so the terminal raise below
+      -- must not subsume it.
+    else
+      Errors.raise(
+        "NSBMD_SBC_UNKNOWN_OPCODE",
+        (cmd.name or "SBC command") .. " is not handled by SBC evaluation",
+        { opcode = op, command = cmd.command, offset = cmd.offset, model = program.name }
+      )
     end
   end
 

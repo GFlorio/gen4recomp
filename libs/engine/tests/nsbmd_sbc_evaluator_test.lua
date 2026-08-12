@@ -888,4 +888,119 @@ function T.nodemix_referencing_an_absent_joint_raises()
   Assert.equal(err.code, "NSBMD_SBC_NODEMIX_JOINT_NOT_FOUND")
 end
 
+-- ---- invalid programs ----
+
+-- An opcode outside the handled set (0x00 NOP, 0x0C ENVMAP) raises
+-- instead of falling through the chain silently.
+function T.rejects_unknown_opcodes()
+  for _, opcode in ipairs({ 0x00, 0x0C }) do
+    local p = program({
+      commands = { { opcode = opcode, name = "unknown", offset = 5 }, { opcode = 0x01 } },
+    })
+    local err = Assert.throws(function()
+      NsbmdSbcEvaluator.evaluate(p, provider())
+    end)
+    Assert.equal(err.code, "NSBMD_SBC_UNKNOWN_OPCODE")
+    Assert.equal(err.context.opcode, opcode)
+  end
+end
+
+-- MTX restoring a matrix-stack slot no command ever wrote must raise with
+-- the slot, command offset, and model in context -- a missing slot is a
+-- malformed program, not an identity fallback.
+function T.mtx_restore_of_an_unset_slot_raises()
+  local mtx = cmdMtx(5)
+  mtx.offset = 40
+  local p = program({ commands = { mtx, { opcode = 0x01 } } })
+  local err = Assert.throws(function()
+    NsbmdSbcEvaluator.evaluate(p, provider())
+  end)
+  Assert.equal(err.code, "NSBMD_SBC_SLOT_NOT_FOUND")
+  Assert.equal(err.context.slot, 5)
+  Assert.equal(err.context.offset, 40)
+  Assert.equal(err.context.model, "test")
+end
+
+function T.nodedesc_restore_of_an_unset_slot_raises()
+  local cmd = cmdNodedesc(0, 0, 0, nil, 7)
+  cmd.offset = 41
+  local p = program({ commands = { cmd, { opcode = 0x01 } } })
+  local err = Assert.throws(function()
+    NsbmdSbcEvaluator.evaluate(
+      p,
+      provider({
+        nodeSRT = function()
+          return p.nodes[1]
+        end,
+      })
+    )
+  end)
+  Assert.equal(err.code, "NSBMD_SBC_SLOT_NOT_FOUND")
+  Assert.equal(err.context.slot, 7)
+  Assert.equal(err.context.offset, 41)
+  Assert.equal(err.context.model, "test")
+end
+
+function T.nodemix_term_referencing_an_unset_slot_raises()
+  -- Nodes 0 and 1 write slots 0 and 1; the second term reads slot 9.
+  local tail = {
+    {
+      opcode = 0x09,
+      storeSlot = 2,
+      offset = 42,
+      terms = {
+        { matrixSlot = 0, nodeIndex = 0, ratio = 128 },
+        { matrixSlot = 9, nodeIndex = 1, ratio = 128 },
+      },
+    },
+    cmdShp(0),
+    { opcode = 0x01 },
+  }
+  local p = nodemixProgram(tail, evpBlock())
+  local err = Assert.throws(function()
+    NsbmdSbcEvaluator.evaluate(
+      p,
+      provider({
+        nodeSRT = function(i)
+          return p.nodes[i + 1]
+        end,
+      })
+    )
+  end)
+  Assert.equal(err.code, "NSBMD_SBC_SLOT_NOT_FOUND")
+  Assert.equal(err.context.slot, 9)
+  Assert.equal(err.context.offset, 42)
+  Assert.equal(err.context.model, "test")
+end
+
+-- PRJMAP selects projection-map texgen state only (NNSi_G3dFuncSbc_PRJMAP in
+-- NitroSystem g3d/sbc.c): it reads and writes nothing on the position-matrix
+-- stack, so the replay must leave the current matrix and the slots untouched.
+-- Real HGSS data uses it (interior_build_models member 177 obj_sylph), so the
+-- terminal unknown-opcode raise must not subsume it.
+function T.prjmap_only_selects_texgen_state()
+  local p = program({
+    nodes = {
+      srt(0, { translation = { x = 2, y = 0, z = 0 } }),
+    },
+    commands = oneDraw({
+      cmdNodedesc(0, 0),
+      cmdNode(0, true),
+      { opcode = 0x0D, name = "PRJMAP", offset = 9 },
+    }),
+  })
+  local result = NsbmdSbcEvaluator.evaluate(
+    p,
+    provider({
+      nodeSRT = function()
+        return p.nodes[1]
+      end,
+    })
+  )
+  Assert.equal(#result.draws, 1)
+  assertMatrixAtPoint(result.draws[1].matrix, 0, 0, 0, 2, 0, 0, "PRJMAP leaves the position matrix untouched")
+  assertMatrixAtPoint(result.matrixSlots[0], 0, 0, 0, 2, 0, 0, "the NODEDESC store survives unchanged")
+  Assert.equal(result.matrixSlots[1], nil, "PRJMAP writes no matrix-stack slot")
+end
+
 return T
