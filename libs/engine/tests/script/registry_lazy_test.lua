@@ -280,4 +280,35 @@ T["warmup finish is idempotent"] = function()
   Assert.equal(registry:fingerprint(), fingerprint)
 end
 
+-- 13. buildRegistry returns a sealed registry: the post-load registry is
+-- immutable during gameplay.
+T["buildRegistry returns a sealed registry"] = function()
+  local registry = ScriptLoader.buildRegistry(scriptCache(), overrideFs(), requireShim, { lazy = true })
+  throwsCode("SCRIPT_REGISTRY_SEALED", function()
+    registry:installBase("late.id", { id = "late.id" }, "generated")
+  end)
+  throwsCode("SCRIPT_REGISTRY_SEALED", function()
+    registry:override("new_bark.lab_sign", { id = "new_bark.lab_sign" }, { modId = "mod.a" })
+  end)
+end
+
+-- 14. The seal exempts the post-load machinery: per-resource hash stashing,
+-- the restored fingerprint memo, and on-demand decode all keep working on a
+-- sealed registry, while the install surface stays shut.
+T["seal exempts the post-load machinery"] = function()
+  local cache = scriptCache()
+  local registry, calls = lazyRegistry(cache)
+  registry:seal()
+  local resource = assert(ScriptLoader.loadGenerated(cache, "new_bark.lab_sign", requireShim, { validate = false }))
+  registry:cacheScriptHash("new_bark.lab_sign", "generated", Sha256.hex(LuaWriter.encode(resource)))
+  registry:fingerprint()
+  Assert.deepEqual(calls, { "vanilla.hgss.scr_seq.0842.script_001" }, "the stashed hash avoids the loader for its id")
+  registry:restoreFingerprint(("0"):rep(64))
+  Assert.equal(registry:fingerprint(), ("0"):rep(64), "the restored memo must stay authoritative")
+  Assert.equal(assert(registry:base("new_bark.lab_sign")).id, "new_bark.lab_sign")
+  throwsCode("SCRIPT_REGISTRY_SEALED", function()
+    registry:register("late.id", { id = "late.id" }, { modId = "mod.a" })
+  end)
+end
+
 return T

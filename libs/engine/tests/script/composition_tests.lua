@@ -541,4 +541,101 @@ T["tombstone suppresses lower priority wrappers"] = function()
   Assert.equal(effective.entries[1].owner.id, "mod.high", "the lower-priority before is suppressed by the tombstone")
 end
 
+-- 24. Once sealed, every public install/contribution mutation is rejected:
+-- the seal is the post-load mutation gate.
+T["sealed registry rejects every install and contribution op"] = function()
+  local registry = newRegistry()
+  registry:installBase("new_bark.lab_sign", signScript(), "generated")
+  registry:register("new_bark.custom", signScript(), { modId = "mod.a" })
+  registry:seal()
+  local ops = {
+    {
+      "installBase",
+      function()
+        registry:installBase("new_bark.x", signScript(), "generated")
+      end,
+    },
+    {
+      "installBaseDeferred",
+      function()
+        registry:installBaseDeferred("new_bark.x", "generated")
+      end,
+    },
+    {
+      "register",
+      function()
+        registry:register("new_bark.x", signScript(), { modId = "mod.a" })
+      end,
+    },
+    {
+      "override",
+      function()
+        registry:override("new_bark.x", signScript(), { modId = "mod.a" })
+      end,
+    },
+    {
+      "before",
+      function()
+        registry:before("new_bark.x", signScript(), { modId = "mod.a" })
+      end,
+    },
+    {
+      "after",
+      function()
+        registry:after("new_bark.x", signScript(), { modId = "mod.a" })
+      end,
+    },
+    {
+      "wrap",
+      function()
+        registry:wrap("new_bark.x", signScript(), { modId = "mod.a" })
+      end,
+    },
+    {
+      "remove",
+      function()
+        registry:remove("new_bark.x", { modId = "mod.a" })
+      end,
+    },
+  }
+  for _, op in ipairs(ops) do
+    local err = throwsCode("SCRIPT_REGISTRY_SEALED", op[2])
+    Assert.equal(err.context.scriptId, "new_bark.x")
+  end
+end
+
+-- 25. A returned contribution record is a copy: mutating it cannot change
+-- what the registry later reports.
+T["a returned record cannot alter the registry"] = function()
+  local registry = newRegistry()
+  local script = signScript()
+  registry:register("new_bark.custom", script, { modId = "mod.a" }, { priority = 2 })
+  local record = assert(registry:contributions("new_bark.custom")[1])
+  record.priority = 999
+  record.operation = "remove"
+  record.resource = nil
+  local fresh = assert(registry:contributions("new_bark.custom")[1])
+  Assert.equal(fresh.priority, 2, "a returned record must not carry mutations back in")
+  Assert.equal(fresh.operation, "register")
+  Assert.notNil(fresh.resource)
+  Assert.equal(registry:get("new_bark.custom"), script, "the stored resource is untouched")
+end
+
+-- 26. A sealed registry's digest and composed chains are stable even when a
+-- stored resource is mutated in place: the version is frozen, so the
+-- memoized fingerprint and the composition cache never recompute and the
+-- registry keeps reporting the state it was sealed with.
+T["fingerprint and composition are immune to stored-resource mutation"] = function()
+  local registry, composition = newRegistry()
+  registry:installBase("new_bark.lab_sign", signScript(), "generated")
+  registry:seal()
+  local fingerprint = registry:fingerprint()
+  local effective = assert(composition:effective("new_bark.lab_sign"))
+  local stored = assert(registry:base("new_bark.lab_sign"))
+  stored.steps[1].sound = "SEQ_SE_DP_HEAL"
+  Assert.equal(registry:fingerprint(), fingerprint, "the digest must stay stable")
+  Assert.equal(assert(composition:effective("new_bark.lab_sign")), effective, "the composed chain must stay stable")
+  Assert.equal(registry:version(), 1, "a sealed registry never bumps its version")
+end
+
 return T
