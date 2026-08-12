@@ -261,6 +261,11 @@ function T.failed_reimport_preserves_previous_dump_and_saves()
   end
   Assert.equal(h.backend.files["saves/heartgold/field-session-v1.lua"], "SAVE-DATA")
   Assert.isTrue(RomImporter.isReady("heartgold", CacheFs.forVersion("heartgold", h.backend), h.versions))
+  Assert.isNil(h.backend.dirs["staging/heartgold"], "a failed re-import must remove its staging tree immediately")
+  Assert.isNil(
+    h.backend.files["staging/heartgold/romfs/a/0/0/2"],
+    "a failed re-import must leave no partial staging files"
+  )
 end
 
 -- A successful import leaves no staging residue: the staged tree is moved into
