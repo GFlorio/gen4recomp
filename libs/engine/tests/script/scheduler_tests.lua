@@ -1516,9 +1516,13 @@ local FAULTY_MODULE = {
 }
 
 -- Task implementations whose callbacks raise, pinning the task-callback fault
--- boundary. Each carries the required version field.
+-- boundary. Each carries the required version and validate fields; the
+-- fakes never reach validate.
 local function faultyTaskImpl(callbacks)
   callbacks.version = 1
+  callbacks.validate = callbacks.validate or function()
+    return nil
+  end
   callbacks.create = callbacks.create or function(spec, ctx)
     return {}
   end

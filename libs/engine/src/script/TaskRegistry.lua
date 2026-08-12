@@ -1,11 +1,17 @@
--- Versioned script task registry : every task type is
--- registered by a stable name and major version; implementations supply
--- `create`, `poll`, and `validate`. The scheduler routes task
+-- Versioned script task registry : every task type is registered by a stable
+-- name and major version; implementations supply `create`, `poll`, and
+-- `validate`, and may supply `cancel`/`onComplete`. The scheduler routes task
 -- creation and polling through this registry so save records can verify both
--- the type and the version on load, and so raw-Lua handlers can
--- only ever return a task type that is registered here. The
--- deterministic fingerprint covers every registered type and version; saves
--- store it and reject a mismatch. Pure domain module: no love dependency.
+-- the type and the version on load, and so raw-Lua handlers can only ever
+-- return a task type that is registered here. The deterministic fingerprint
+-- covers every registered type and version; saves store it and reject a
+-- mismatch. Pure domain module: no love dependency.
+--
+-- Any change to a task's serialized-state shape (what `validate` accepts and
+-- what the save schema carries) requires a major version bump of that task
+-- type: the fingerprint is a (type, version) projection, not an
+-- implementation identity, so compatibility relies entirely on this manual
+-- versioning.
 
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -34,15 +40,25 @@ function TaskRegistry.new()
 end
 
 -- Register a task implementation under a stable type name and major version.
--- Registering the same type and version twice is a programming invariant.
+-- Registering the same type and version twice is a programming invariant, as
+-- is a fractional version (the version is the serialized-state shape's major
+-- version, not a real number). `validate` is required; the optional
+-- `cancel`/`onComplete` callbacks, when present, must be functions.
 ---@param taskType string
 ---@param version integer
 ---@param impl TaskImplementation
 function TaskRegistry:register(taskType, version, impl)
   assert(type(taskType) == "string" and taskType ~= "", "task type required")
   assert(type(version) == "number", "task version required")
+  assert(version == math.floor(version), "task version must be an integer")
   assert(type(impl) == "table" and type(impl.poll) == "function", "task implementation must supply poll")
   assert(type(impl.create) == "function", "task implementation must supply create")
+  assert(type(impl.validate) == "function", "task implementation must supply validate")
+  assert(impl.cancel == nil or type(impl.cancel) == "function", "task implementation must supply a function cancel")
+  assert(
+    impl.onComplete == nil or type(impl.onComplete) == "function",
+    "task implementation must supply a function onComplete"
+  )
   local versions = self._byType[taskType]
   if versions == nil then
     versions = {}
