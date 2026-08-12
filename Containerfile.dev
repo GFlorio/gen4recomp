@@ -1,10 +1,36 @@
-FROM ghcr.io/gflorio/agentbox:latest
+FROM docker.io/library/ubuntu:24.04
 
-USER root
+ARG DEBIAN_FRONTEND=noninteractive
+ARG USER_ID=1000
+ARG GROUP_ID=1000
+ARG OPENCODE_VERSION=latest
+
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
 RUN apt-get update \
+    && apt-get install -y --no-install-recommends software-properties-common \
     && add-apt-repository --yes ppa:bartbes/love-stable \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
+        bash \
+        build-essential \
+        ca-certificates \
+        curl \
+        fd-find \
+        git \
+        jq \
+        less \
+        nodejs \
+        npm \
+        procps \
+        python3 \
+        python3-pil \
+        python3-numpy \
+        ripgrep \
+        shellcheck \
+        unzip \
+        xz-utils \
         luajit \
         love \
         libgl1 \
@@ -12,7 +38,23 @@ RUN apt-get update \
         libgl1-mesa-dri \
         libegl-mesa0 \
         libglx-mesa0 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /home/agent \
+    && chown "${USER_ID}" /home/agent
+
+RUN npm install --global "opencode-ai@${OPENCODE_VERSION}" \
+    && npm cache clean --force
+
+RUN mkdir -p /tmp/opencode \
+    && chown "${USER_ID}" /tmp/opencode \
+    && mkdir -p /etc/opencode \
+    && echo '{"permission": { "*": "allow" }, "lsp": true }' > /etc/opencode/opencode.json
+
+ENV HOME=/home/agent
+ENV XDG_CACHE_HOME=/home/agent/.cache
+ENV XDG_CONFIG_HOME=/home/agent/.config
+ENV XDG_DATA_HOME=/home/agent/.local/share
+ENV XDG_STATE_HOME=/home/agent/.local/state
 # The sandbox has no display and no GPU device, so LÖVE renders through SDL's
 # offscreen video driver against Mesa's llvmpipe software rasterizer. libgl1 and
 # libegl1 are the libglvnd dispatch libraries SDL dlopens; the mesa packages are
@@ -44,3 +86,7 @@ RUN set -eux \
     && chmod 0755 /usr/local/bin/stylua \
     && rm -rf /tmp/stylua.zip
 USER 1000:1000
+
+WORKDIR /workspace
+CMD ["opencode", "/workspace"]
+
