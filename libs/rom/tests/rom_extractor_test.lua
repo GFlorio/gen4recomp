@@ -53,6 +53,8 @@ function T.resolves_required_narcs_and_smoke_decodes()
   Assert.equal(r.report.matrix.height, 2)
   Assert.equal(r.report.matrix.name, "MM")
   Assert.equal(r.report.matrix.modelCellCount, 4)
+  Assert.isNil(r.report.parserWarnings, "the always-empty parserWarnings field must be gone")
+  Assert.isTrue(type(r.report.narcWarnings) == "table", "narcWarnings must remain the populated warning field")
 end
 
 -- A required NARC path missing from the FNT aborts before the marker is written.
@@ -149,7 +151,9 @@ local function assertLiveUnchanged(backend, files, dirs)
 end
 
 -- A failed extraction must leave a previously ready dump untouched and ready:
--- nothing is written to the live root until the staged dump is published.
+-- nothing is written to the live root until the staged dump is published, and
+-- the failed staging tree is removed immediately rather than lingering until
+-- the next import.
 function T.failed_extraction_preserves_ready_dump()
   local backend = FakeCache.new()
   extractOk({ backend = backend })
@@ -169,6 +173,11 @@ function T.failed_extraction_preserves_ready_dump()
     backend.files["staging/heartgold/rom-dump.complete"],
     "a partial staged dump must never expose its marker"
   )
+  local stagingPrefix = "staging/heartgold/"
+  Assert.isNil(backend.dirs["staging/heartgold"], "the failed staging root must be removed immediately")
+  for k in pairs(backend.files) do
+    Assert.isFalse(k:sub(1, #stagingPrefix) == stagingPrefix, "no staging file may survive a failed extraction: " .. k)
+  end
 end
 
 -- A successful extraction replaces the previous dump: the old tree is dropped
@@ -226,6 +235,11 @@ function T.failed_publish_restores_previous_dump()
   assertLiveUnchanged(backend, files, dirs)
   Assert.isTrue(RomImporter.isReady("heartgold", CacheFs.forVersion("heartgold", backend)))
   Assert.isNil(backend.files["staging/heartgold.old/romfs/a/0/0/2"], "no orphaned old root after rollback")
+  Assert.isNil(backend.dirs["staging/heartgold"], "a failed publish must not leave the staged tree behind")
+  Assert.isNil(
+    backend.files["staging/heartgold/rom-dump.complete"],
+    "a failed publish must not leave the complete staged marker behind"
+  )
 end
 
 return T

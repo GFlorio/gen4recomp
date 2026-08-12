@@ -2,11 +2,13 @@
 -- live per-version cache: a lossless raw NitroFS dump plus deterministic
 -- generated metadata, finished by a marker-last transaction. The live dump is
 -- not touched until the staged tree is complete and validated; a failed
--- extraction or failed publish leaves the previous ready dump usable. Only
--- after the staged tree lands is the previous version root removed. Orchestration
--- only; all binary parsing lives in the pure modules it drives. run() wraps a
--- private pipeline in pcall and returns (report | nil, err); the completion
--- marker is written last inside staging, and the staged tree is then published.
+-- extraction or failed publish leaves the previous ready dump usable and
+-- removes the failed staging tree immediately rather than leaving it for the
+-- next import. Only after the staged tree lands is the previous version root
+-- removed. Orchestration only; all binary parsing lives in the pure modules it
+-- drives. run() wraps a private pipeline in pcall and returns
+-- (report | nil, err); the completion marker is written last inside staging,
+-- and the staged tree is then published.
 --
 -- This module is allowed to hold the full ROM (via NdsRom); releasing it is the
 -- caller's responsibility. Responsiveness/yielding belongs to the
@@ -24,6 +26,17 @@ RomExtractor.__index = RomExtractor
 -- only when the dump layout or romfs_index schema changes.
 RomExtractor.DUMP_FORMAT = 1
 local MARKER_PATH = "rom-dump.complete"
+
+-- Extractor error identifiers, centralized in one module-local table.
+local EXTRACT_ERROR_CODES = {
+  READ_FAILED = "EXTRACT_READ_FAILED",
+  WRITE_SIZE_MISMATCH = "EXTRACT_WRITE_SIZE_MISMATCH",
+  REQUIRED_NARC_MISSING = "EXTRACT_REQUIRED_NARC_MISSING",
+  REQUIRED_NARC_INVALID = "EXTRACT_REQUIRED_NARC_INVALID",
+  SMOKE_READ_FAILED = "EXTRACT_SMOKE_READ_FAILED",
+  SMOKE_DECODE_FAILED = "EXTRACT_SMOKE_DECODE_FAILED",
+  OUTPUT_MISSING = "EXTRACT_OUTPUT_MISSING",
+}
 
 function RomExtractor.markerContent(versionId, sha1)
   return "g4-rom-dump-v" .. RomExtractor.DUMP_FORMAT .. ":" .. versionId .. ":" .. sha1
@@ -82,7 +95,7 @@ end
 local function readRom(rom, offset, length, name)
   local bytes, err = rom:read(offset, length)
   if not bytes then
-    Errors.raise("EXTRACT_READ_FAILED", name .. ": " .. Errors.format(err), { section = name })
+    Errors.raise(EXTRACT_ERROR_CODES.READ_FAILED, name .. ": " .. Errors.format(err), { section = name })
   end
   return bytes
 end
@@ -138,7 +151,7 @@ function RomExtractor:_dumpFiles()
     local info = self._stage:getInfo(dest.path)
     if not info or info.size ~= dest.size then
       Errors.raise(
-        "EXTRACT_WRITE_SIZE_MISMATCH",
+        EXTRACT_ERROR_CODES.WRITE_SIZE_MISMATCH,
         "wrote " .. tostring(info and info.size) .. " bytes to " .. dest.path .. ", expected " .. dest.size,
         { path = dest.path, fileId = fileId, expected = dest.size, actual = info and info.size }
       )
@@ -258,7 +271,7 @@ function RomExtractor:_validateNarcs()
     if not fileId then
       if entry.required then
         Errors.raise(
-          "EXTRACT_REQUIRED_NARC_MISSING",
+          EXTRACT_ERROR_CODES.REQUIRED_NARC_MISSING,
           "required NARC " .. entry.symbol .. " path " .. entry.path .. " not in FNT",
           { symbol = entry.symbol, path = entry.path }
         )
@@ -269,7 +282,7 @@ function RomExtractor:_validateNarcs()
       if not narc then
         if entry.required then
           Errors.raise(
-            "EXTRACT_REQUIRED_NARC_INVALID",
+            EXTRACT_ERROR_CODES.REQUIRED_NARC_INVALID,
             "required NARC " .. entry.symbol .. " (" .. entry.path .. ") failed to open: " .. Errors.format(err),
             { symbol = entry.symbol, path = entry.path, fileId = fileId }
           )
@@ -295,12 +308,12 @@ function RomExtractor:_smokeDecode(openedNarcs)
   assert(narc, "map_matrices must have been opened as a required NARC")
   local member, err = narc:readMember(0)
   if not member then
-    Errors.raise("EXTRACT_SMOKE_READ_FAILED", "map_matrices member 0: " .. Errors.format(err), {})
+    Errors.raise(EXTRACT_ERROR_CODES.SMOKE_READ_FAILED, "map_matrices member 0: " .. Errors.format(err), {})
   end
   local matrix, decodeErr = MapMatrix.decode(member, 0)
   if not matrix then
     Errors.raise(
-      "EXTRACT_SMOKE_DECODE_FAILED",
+      EXTRACT_ERROR_CODES.SMOKE_DECODE_FAILED,
       "map_matrices member 0 did not decode: " .. Errors.format(decodeErr),
       {}
     )
@@ -327,7 +340,7 @@ function RomExtractor:_finalize(report)
     "data/generated/overlay_index.lua",
   }) do
     if not self._stage:exists(path, "file") then
-      Errors.raise("EXTRACT_OUTPUT_MISSING", "required output missing at finalize: " .. path, { path = path })
+      Errors.raise(EXTRACT_ERROR_CODES.OUTPUT_MISSING, "required output missing at finalize: " .. path, { path = path })
     end
   end
 
@@ -363,7 +376,6 @@ function RomExtractor:_run()
     totalBytesWritten = totalBytes,
     resolvedRequiredNarcCount = requiredCount,
     narcWarnings = warnings,
-    parserWarnings = {},
     matrix = matrix,
   }
   self:_finalize(report)
@@ -376,6 +388,12 @@ function RomExtractor:run()
   if ok then
     return result
   end
+  -- The extractor owns its staging tree (_prepare created it): a failed run
+  -- removes it immediately instead of leaving it for the next import to
+  -- discard. removeStagedTree also drops an orphaned `<stagingRoot>.old`
+  -- sibling. If removing staging itself fails, that failure propagates -- the
+  -- no-stale-staging invariant was not met.
+  self._cache:removeStagedTree(self._stage)
   if Errors.is(result) then
     return nil, result
   end
