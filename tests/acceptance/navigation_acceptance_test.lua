@@ -80,7 +80,10 @@ function T.tests.lab_town_round_trip_swaps_transitions_and_ownership()
       requireGameCapability(game, "waitForTransition")
       requireGameCapability(game, "face")
       requireGameCapability(game, "ownership")
+      -- The lab door is a direction-gated warp (WARP_ENTRANCE_SOUTH): it
+      -- fires on the input path, pressing south while standing on the tile.
       game:moveTo({ fieldX = 4, fieldZ = 14 })
+      game:face("south")
       -- At the destination-load/swap boundary the loader still protects
       -- exactly the current source map. A transition-owned pin would
       -- protect a second map here.

@@ -323,4 +323,4 @@ function T.player_house_stairs_acceptance(romFs, versionId)
   house2f.runtime:release()
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

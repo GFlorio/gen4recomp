@@ -111,4 +111,4 @@ function T.new_bark_door_and_machine_stay_unbanded(romFs, version)
   Assert.isNil(TimeOfDayProps.plan(doorDef), "the door pair is not banded")
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

@@ -101,11 +101,13 @@ end
 -- The flattened scene draw list: map geometry, buildings, the neighbour ring,
 -- then actors. SceneAssembly owns submission ordering -- it concatenates every
 -- part in this source order, so equal-depth translucent ties break
--- map before building before neighbour before actor, deterministically.
+-- map before building before neighbour before actor, deterministically. Scene
+-- draws live on the runtime map's scene runtime, not on the coordinator.
 function FieldState:_worldDraws(alpha)
+  local sceneRuntime = self.runtime.runtimeMap.sceneRuntime
   return SceneAssembly.flatten({
-    self.runtime.runtimeMap.sceneRuntime.mapDraws,
-    self.runtime.runtimeMap.sceneRuntime.buildingDraws,
+    sceneRuntime.mapDraws,
+    sceneRuntime.buildingDraws,
     self.runtime.runtimeMap.coverageRuntime and self.runtime.runtimeMap.coverageRuntime.draws or {},
     self:_actorDraws(alpha),
   })

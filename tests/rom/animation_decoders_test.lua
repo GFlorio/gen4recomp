@@ -152,4 +152,4 @@ function T.material_animation_members(romFs)
   Assert.isTrue(sMid.alpha <= 1, "alpha faded by frame 30 (saw " .. tostring(sMid.alpha) .. ")")
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

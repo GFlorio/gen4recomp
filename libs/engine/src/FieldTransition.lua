@@ -154,6 +154,14 @@ local function beginSourceChoreography(self)
   if kind == "door" then
     local door = self.doorAt and self.doorAt(self.sourceMap, self.sourceWarp.x, self.sourceWarp.z)
     if not door then
+      -- A scene-less runtime (headless boot: the collision-only runtime has
+      -- no props, nothing to animate) has no doors to choreograph, so the
+      -- warp degrades to a plain fade. A presentation scene whose door
+      -- cannot resolve is a data-contract failure.
+      if self.sourceMap.sceneRuntime == nil or self.sourceMap.sceneRuntime.mapProps == nil then
+        self.sourceKind = nil
+        return
+      end
       Errors.raise(
         "MAP_TRANSITION_UNRESOLVED_SOURCE_DOOR",
         "door-kind warp on map "

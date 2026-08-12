@@ -239,4 +239,4 @@ function T.door_open_that_never_finishes_stalls_the_ordered_trace(romFs, version
 >>>>>>> 9685302 (tests: drive door choreography through a real scene fixture)
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

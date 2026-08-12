@@ -182,4 +182,4 @@ function T.interior_entrances_and_non_door_warps_resolve_nil(romFs)
   Assert.isNil(townProps:doorAt(townMap, 684, 394), "the walkable tile south of the lab door is not a door lookup")
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

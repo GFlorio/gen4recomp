@@ -464,6 +464,7 @@ local function sourceMap(behavior)
   return {
     mapId = 61,
     coordinateOrigin = { x = 0, z = 0 },
+    sceneRuntime = { mapProps = {} }, -- a presentation scene: an unresolvable door raises
     collision = {
       containsLocal = function(_, x, z)
         return x >= 0 and x < 32 and z >= 0 and z < 32

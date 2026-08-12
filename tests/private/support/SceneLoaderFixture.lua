@@ -218,7 +218,6 @@ function SceneLoaderFixture.newHarness(versionId, opts)
       harness.player = player
       session.currentMap = resolution.destinationMap
       session.player = player
-      session.actor = player
     end,
   })
   transition.player = player
@@ -230,6 +229,7 @@ function SceneLoaderFixture.newHarness(versionId, opts)
       end
     end,
   }
+  local actors = { step = function() end }
   session = FieldSession.new({
     versionId = versionId,
     currentMap = spawn.map,
@@ -239,6 +239,7 @@ function SceneLoaderFixture.newHarness(versionId, opts)
     transition = transition,
     input = harness.input,
     playerVisual = playerVisual,
+    actors = actors,
   })
   harness.session = session
   harness.transition = transition

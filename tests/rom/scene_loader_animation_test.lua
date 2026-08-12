@@ -31,4 +31,4 @@ function T.new_bark_animated_descriptors_reference_round_tripping_g4mesh(romFs)
   Assert.isTrue(animatedCount > 0, "New Bark places animated door models")
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

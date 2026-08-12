@@ -125,4 +125,4 @@ function T.door_resources_always_compile_with_door_semantics(romFs)
   Assert.isTrue(seen["door.close"] > 0, "door.close is referenced")
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

@@ -10,6 +10,7 @@ local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 local MapRenderer = require("libs.engine.src.MapRenderer")
 local VertexFormat = require("libs.assets.src.VertexFormat")
 local FieldViewport = require("libs.engine.src.FieldViewport")
+local Matrix4 = require("libs.math.src.Matrix4")
 
 local T = {}
 
@@ -441,7 +442,9 @@ function T.lit_then_unlit_scene_does_not_inherit_lighting(scope)
   end
 
   -- The lit frame is bright at both triangles: the NORMAL triangle under a
-  -- head-on light, the field-diffuse triangle from the white diffuse color.
+  -- head-on light, the field-diffuse triangle from its material color (the
+  -- identity u_matDiffuse reset -- COLOR_DIFFUSE reads the material's
+  -- diffuse register, not the lighting diffuse, per NSBMA semantics).
   renderer:draw(litRuntime, camera, { item }, viewport)
   local litImg = renderer.sceneColor:newImageData()
   local sr, sg, sb = litImg:getPixel(0, 0)
@@ -449,12 +452,15 @@ function T.lit_then_unlit_scene_does_not_inherit_lighting(scope)
   Assert.isTrue(anyBright(litImg, normalSamples, threshold), "lit frame shades the NORMAL triangle")
   Assert.isTrue(anyBright(litImg, diffuseSamples, threshold), "lit frame shades the field-diffuse triangle")
 
-  -- The profile-less frame must reset every lighting/material uniform: neither
-  -- triangle may stay bright from the lit frame's light or diffuse values.
+  -- The profile-less frame must reset every lighting uniform: the NORMAL
+  -- triangle may not stay bright from the lit frame's light values. The
+  -- field-diffuse triangle reads the material color directly, so it keeps
+  -- the identity material color -- the reset value, never the previous
+  -- frame's light or material state.
   renderer:draw(unlitRuntime, camera, { item }, viewport)
   local unlitImg = renderer.sceneColor:newImageData()
   Assert.isFalse(anyBright(unlitImg, normalSamples, threshold), "unlit frame inherits the previous light state")
-  Assert.isFalse(anyBright(unlitImg, diffuseSamples, threshold), "unlit frame inherits the previous material color")
+  Assert.isTrue(anyBright(unlitImg, diffuseSamples, threshold), "field-diffuse keeps the identity material color")
 end
 
 function T.a_straddling_item_bends_its_leading_vertices(scope)

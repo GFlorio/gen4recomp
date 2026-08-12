@@ -230,4 +230,4 @@ function T.house_2f_to_1f_stairs_choreograph(romFs, version)
   Assert.equal(back.kind, "stairs")
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

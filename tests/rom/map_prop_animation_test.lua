@@ -355,4 +355,4 @@ function T.shared_resource_cache_reuses_clip_records_across_maps(romFs, version)
   assertClipContentEqual(freshClip, byNameA.door_op, "door_op")
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

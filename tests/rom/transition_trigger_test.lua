@@ -67,4 +67,4 @@ function T.route_29_north_warps_classify_generic_on_real_data(romFs)
   Assert.isNil(TransitionTrigger.inputPath(route29, 626, 389, "south"), "north warps never fire on the input path")
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)
