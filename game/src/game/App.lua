@@ -111,9 +111,11 @@ function App._startImport()
   App.setState(ImportState.new(App.importer, App.saveDir))
 end
 
--- Fired once on a successful import: enter the normal field runtime unless an
--- explicit developer field target was requested.
+-- Fired once on a successful import: the session ends here, so the importer
+-- is cleared and the normal field runtime is entered unless an explicit
+-- developer field target was requested.
 function App._onImported(versionId)
+  App.importer = nil
   if App.opts.field then
     App.setState(newFieldState(versionId, fieldTarget(App.opts.field), false))
   else
@@ -143,6 +145,13 @@ function App.update(dt)
   if App.importer and App.importer:isBusy() then
     App.importer:update()
   end
+  -- A failed import ends its session: clear the importer so a stale reference
+  -- is never reused. The import screen holds its own reference and keeps
+  -- showing the error. (Success clears through _onImported, fired by the
+  -- importer's completion callback above.)
+  if App.importer and not App.importer:isBusy() and App.importer.state == "error" then
+    App.importer = nil
+  end
   if App.state and App.state.update then
     App.state:update(dt)
   end
@@ -162,14 +171,13 @@ function App.draw()
 end
 
 function App.filedropped(file)
-  -- If an importer is present (import screen) route the drop there; otherwise
-  -- spin one up. Ignore drops while a busy import is running.
+  -- Import sessions are single-use. Ignore drops while an import is running;
+  -- every other drop enters a fresh session through the import state, so an
+  -- importer left over from a completed or failed session is never invoked.
   if App.importer and App.importer:isBusy() then
     return
   end
-  if not App.importer then
-    App._startImport()
-  end
+  App._startImport()
   App.importer:filedropped(file)
 end
 

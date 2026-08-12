@@ -360,9 +360,10 @@ function T.busy_rejection_never_releases_and_terminal_release_is_exactly_once()
   Assert.equal(assert(err).code, "ROM_RELEASED")
 end
 
--- The busy guard must not lock the importer after a terminal state: App
--- re-imports on the same importer once a completed import is done, and a
--- failed import must be retryable.
+-- The busy guard must not lock the importer after a terminal state: a
+-- completed or failed importer accepts a fresh start (App no longer exercises
+-- this — it starts a fresh importer per session — but the restart capability
+-- is the importer's own contract).
 function T.terminal_importer_accepts_a_fresh_start()
   local h = harness()
   h.importer:startSource(RomSource.fromString(h.data))
