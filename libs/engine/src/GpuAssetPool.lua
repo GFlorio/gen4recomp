@@ -4,7 +4,10 @@
 -- state", so this pool is that shared responsibility. It dedups meshes by
 -- content-addressed path and images by path plus wrap X/Y (two materials
 -- sharing pixels but sampling them differently never alias one mutable
--- sampler), and owns every object it creates. Failure has two scopes: a
+-- sampler), and owns every object it creates. The mesh entry caches the
+-- model-space bounding-box center and AABB of each unique geometry path,
+-- computed once (pure SceneDescriptor math) so no loader rescan of the
+-- decoded vertices happens per draw or placement. Failure has two scopes: a
 -- construction wrapped in transaction() releases everything the construction
 -- created (the loaders wrap their whole scene build in one), while a single
 -- lazy acquire outside a transaction releases only the object that failed
@@ -12,9 +15,10 @@
 -- evaluation never frees the resources the scene is drawing. The filter is
 -- currently uniform (nearest), so it stays out of the image key; if it ever
 -- varies, it belongs in the key too. The pool knows nothing about maps,
--- neighbors, materials, bounds, or transforms; those stay in the loaders.
+-- neighbors, materials, or transforms; those stay in the loaders.
 
 local SceneMesh = require("libs.engine.src.SceneMesh")
+local SceneDescriptor = require("libs.engine.src.SceneDescriptor")
 local Errors = require("libs.errors.src.Errors")
 
 ---@class GpuAssetPool
@@ -98,17 +102,23 @@ function GpuAssetPool.new(cacheFs, opts)
 end
 
 -- Acquire (or fetch) the shared Mesh for a content-addressed geometry path.
--- Returns { mesh, verts, triangles }; the decoded vertices stay for sort
--- centers and the triangle count feeds loader stats exactly once per mesh.
+-- Returns { mesh, triangles, center, bounds }: the model-space bounding-box
+-- center and AABB are computed once per path (pure SceneDescriptor math over
+-- the decoded vertices, which are otherwise discarded) and shared by every
+-- consumer -- draw sort centers, descriptor bounds folds -- so no loader
+-- rescan happens per draw/placement. The triangle count feeds loader stats
+-- exactly once per mesh. All four fields are stable references across
+-- repeated acquires of the same path.
 ---@param path string
----@return { mesh: love.Mesh, verts: table, triangles: number }
+---@return { mesh: love.Mesh, triangles: number, center: number[], bounds: { minX: number, maxX: number, minY: number, maxY: number, minZ: number, maxZ: number } }
 function GpuAssetPool:meshFor(path)
   local entry = self._meshCache[path]
   if not entry then
     guarded(self, function()
       local decoded = SceneMesh.decode(assert(self.cacheFs:read(path), "missing mesh " .. path), path)
       local mesh = self.meshBuilder(decoded)
-      entry = { mesh = mesh, verts = decoded.vertices, triangles = decoded.indexCount / 3 }
+      local geometry = SceneDescriptor.meshGeometry(decoded.vertices)
+      entry = { mesh = mesh, triangles = decoded.indexCount / 3, center = geometry.center, bounds = geometry.bounds }
       self._meshCache[path] = entry
       self.meshes[#self.meshes + 1] = mesh
       self.triangles = self.triangles + entry.triangles

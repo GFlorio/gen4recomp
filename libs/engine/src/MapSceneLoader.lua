@@ -7,18 +7,22 @@
 -- its model descriptor, and loads the scene's collision asset into a
 -- CollisionGrid (the door-ownership pass resolves against it). A billboard
 -- batch keeps the base transform the renderer resolves against the camera
--- each frame instead of a baked matrix. All GPU construction happens here,
--- once, never in draw; the pool releases every owned mesh/image. Load is
--- transactional: the whole build runs inside pool:transaction(), so any
--- failure -- a missing descriptor, an unsupported transform mode -- releases
--- every GPU object the construction acquired before the error propagates.
--- After load, a single lazy acquire failure (resolveImage during live draw
--- evaluation) releases only the object that acquisition itself created, never
--- the resources the live scene is drawing. The runtime also exposes the
--- scene's MapProps facade so field coordinates resolve to placed doors and
--- their semantic animations. The only ROM knowledge that reaches this layer
--- is the normalized scene descriptor; raw Nitro formats stopped at the
--- compiler.
+-- each frame instead of a baked matrix. The build is the GPU-acquisition half
+-- of scene loading: pure descriptor normalization (material wrap resolution,
+-- the texture-to-wrap map, per-mesh centers/AABBs, model bounds folds) lives
+-- in SceneDescriptor, and the pool mesh entry caches each geometry path's
+-- center and AABB once, so no vertex rescan happens per draw or placement.
+-- All GPU construction happens here, once, never in draw; the pool releases
+-- every owned mesh/image. Load is transactional: the whole build runs inside
+-- pool:transaction(), so any failure -- a missing descriptor, an unsupported
+-- transform mode -- releases every GPU object the construction acquired
+-- before the error propagates. After load, a single lazy acquire failure
+-- (resolveImage during live draw evaluation) releases only the object that
+-- acquisition itself created, never the resources the live scene is drawing.
+-- The runtime also exposes the scene's MapProps facade so field coordinates
+-- resolve to placed doors and their semantic animations. The only ROM
+-- knowledge that reaches this layer is the normalized scene descriptor; raw
+-- Nitro formats stopped at the compiler.
 --
 -- The animated draw list is owned by the scene tick: every fixed tick
 -- advances each attachment player and rebuilds the items once,
@@ -44,6 +48,7 @@ local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
 local DoorTiles = require("libs.engine.src.DoorTiles")
 local PolygonState = require("libs.assets.src.PolygonState")
+local SceneDescriptor = require("libs.engine.src.SceneDescriptor")
 
 local MapSceneLoader = {}
 
@@ -52,22 +57,18 @@ for _, band in ipairs(TimeOfDayProps.bands()) do
   VALID_BANDS[band] = true
 end
 
-local function materialRuntime(record, pool)
-  local wrap = record.wrap or { x = "clamp", y = "clamp" }
-  return {
-    id = record.id,
-    name = record.name,
-    image = pool:imageFor(record.texture, wrap.x, wrap.y),
-  }
-end
-
--- Index a material list (map scene or model descriptor) by its zero-based id.
--- The sampler state (wrap pair) is part of the image identity, so materials
--- with the same pixels but different wraps resolve to independent images.
+-- Material assembly: acquire each normalized material record's image
+-- under its resolved sampler wrap. The wrap pair is part of the image
+-- identity, so materials with the same pixels but different wraps resolve to
+-- independent images.
 local function materialsById(list, pool)
   local byId = {}
-  for _, record in ipairs(list or {}) do
-    byId[record.id] = materialRuntime(record, pool)
+  for id, record in pairs(SceneDescriptor.materials(list)) do
+    byId[id] = {
+      id = record.id,
+      name = record.name,
+      image = pool:imageFor(record.texture, record.wrap.x, record.wrap.y),
+    }
   end
   return byId
 end
@@ -83,33 +84,10 @@ local function buildScene(pool, cacheFs, scene, opts)
   assert(VALID_BANDS[timeBand], "unknown time-of-day band " .. tostring(timeBand))
   local bounds = { min = { math.huge, math.huge, math.huge }, max = { -math.huge, -math.huge, -math.huge } }
 
-  -- Grow the scene bounds by a batch's vertices under a placement transform.
-  local function growBounds(verts, transform)
-    for _, v in ipairs(verts) do
-      local x, y, z = Matrix4.transformPoint(transform, v[1], v[2], v[3])
-      if x < bounds.min[1] then
-        bounds.min[1] = x
-      end
-      if y < bounds.min[2] then
-        bounds.min[2] = y
-      end
-      if z < bounds.min[3] then
-        bounds.min[3] = z
-      end
-      if x > bounds.max[1] then
-        bounds.max[1] = x
-      end
-      if y > bounds.max[2] then
-        bounds.max[2] = y
-      end
-      if z > bounds.max[3] then
-        bounds.max[3] = z
-      end
-    end
-  end
-
   -- Grow the scene bounds by a model-space AABB under a placement transform
-  -- (the image of the box is its eight transformed corners).
+  -- (the image of the box is its eight transformed corners). The per-mesh
+  -- AABBs come from the pool mesh entry (cached per geometry path), so the
+  -- scene bounds are folds over cached boxes, never vertex rescans.
   local function growBoundsAabb(aabb, transform)
     for i = 0, 1 do
       for j = 0, 1 do
@@ -141,21 +119,6 @@ local function buildScene(pool, cacheFs, scene, opts)
         end
       end
     end
-  end
-
-  -- Bounding-box center of a mesh's vertices in model space.
-  local function modelCenter(verts)
-    local minx, miny, minz = math.huge, math.huge, math.huge
-    local maxx, maxy, maxz = -math.huge, -math.huge, -math.huge
-    for _, v in ipairs(verts) do
-      minx = math.min(minx, v[1])
-      maxx = math.max(maxx, v[1])
-      miny = math.min(miny, v[2])
-      maxy = math.max(maxy, v[2])
-      minz = math.min(minz, v[3])
-      maxz = math.max(maxz, v[3])
-    end
-    return { (minx + maxx) / 2, (miny + maxy) / 2, (minz + maxz) / 2 }
   end
 
   -- Per-batch draw state that lives on the draw item, not the material
@@ -208,7 +171,7 @@ local function buildScene(pool, cacheFs, scene, opts)
       )
     end
     local transform = billboardBase or instanceTransform
-    growBounds(meshResource.verts, transform)
+    growBoundsAabb(meshResource.bounds, transform)
     local state = batchDrawState(batch)
     return {
       mesh = meshResource.mesh,
@@ -224,7 +187,7 @@ local function buildScene(pool, cacheFs, scene, opts)
       polygonId = state.polygonId,
       translucentDepthWrite = state.translucentDepthWrite,
       depthEqual = state.depthEqual,
-      center = modelCenter(meshResource.verts),
+      center = meshResource.center,
     }
   end
 
@@ -251,18 +214,7 @@ local function buildScene(pool, cacheFs, scene, opts)
       -- Pattern-variant textures are resolved lazily at evaluation time; map
       -- every texture key (base and variants) to its material's wrap so a
       -- variant never samples with the wrong wrap.
-      local wrapByTexture = {}
-      for _, record in ipairs(desc.materials or {}) do
-        local wrap = record.wrap or { x = "clamp", y = "clamp" }
-        if record.texture then
-          wrapByTexture[record.texture] = wrap
-        end
-        for _, variant in ipairs(record.variants or {}) do
-          if variant.texture then
-            wrapByTexture[variant.texture] = wrap
-          end
-        end
-      end
+      local wrapByTexture = SceneDescriptor.wrapByTexture(desc.materials)
       local batches
       if desc.kind == "static" then
         batches = desc.batches
@@ -275,27 +227,18 @@ local function buildScene(pool, cacheFs, scene, opts)
           { modelKey = modelKey, kind = desc.kind }
         )
       end
-      local aabb
+      -- The model-space AABB is a pure fold over the per-mesh entry bounds
+      -- (cached on the pool entry per geometry path), one table per model
+      -- shared by every placement record.
+      local meshBounds = {}
       for _, batch in ipairs(batches) do
-        local meshResource = pool:meshFor(batch.geometry)
-        for _, v in ipairs(meshResource.verts) do
-          if not aabb then
-            aabb = { minX = v[1], maxX = v[1], minY = v[2], maxY = v[2], minZ = v[3], maxZ = v[3] }
-          else
-            aabb.minX = math.min(aabb.minX, v[1])
-            aabb.maxX = math.max(aabb.maxX, v[1])
-            aabb.minY = math.min(aabb.minY, v[2])
-            aabb.maxY = math.max(aabb.maxY, v[2])
-            aabb.minZ = math.min(aabb.minZ, v[3])
-            aabb.maxZ = math.max(aabb.maxZ, v[3])
-          end
-        end
+        meshBounds[#meshBounds + 1] = pool:meshFor(batch.geometry).bounds
       end
       cached = {
         descriptor = desc,
         materials = mats,
         wrapByTexture = wrapByTexture,
-        bounds = aabb or { minX = 0, maxX = 0, minY = 0, maxY = 0, minZ = 0, maxZ = 0 },
+        bounds = SceneDescriptor.bounds(meshBounds),
       }
       descriptorCache[modelKey] = cached
     end
@@ -353,7 +296,7 @@ local function buildScene(pool, cacheFs, scene, opts)
         for _, mesh in ipairs(definition.meshes) do
           local meshResource = pool:meshFor(mesh.geometry)
           renderMeshesById[mesh.id] = meshResource.mesh
-          mesh.center = modelCenter(meshResource.verts)
+          mesh.center = meshResource.center
         end
         modelResource = { definition = definition, renderMeshesById = renderMeshesById }
         animatedResourceCache[inst.modelKey] = modelResource

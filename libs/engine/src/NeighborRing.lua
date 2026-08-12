@@ -6,7 +6,9 @@
 -- load() reads those assets through the shared GpuAssetPool (one persistent
 -- Mesh per unique geometry path, one Image per unique texture/wrap sampler
 -- state, deduplicated across cells), and bakes each cell's world offset into
--- the draw transform and sort center. All GPU construction happens here, once;
+-- the draw transform and sort center. Material wrap resolution lives in
+-- SceneDescriptor; each geometry path's sort center is the pool mesh
+-- entry's cached model-space center. All GPU construction happens here, once;
 -- the pool releases every owned mesh/image. Load is transactional: the whole
 -- build runs inside pool:transaction(), so a failure -- including a malformed
 -- cell descriptor -- releases every GPU object the construction acquired.
@@ -17,37 +19,24 @@ local Matrix4 = require("libs.math.src.Matrix4")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
 local DsLighting = require("libs.engine.src.DsLighting")
 local PolygonState = require("libs.assets.src.PolygonState")
+local SceneDescriptor = require("libs.engine.src.SceneDescriptor")
 
 local NeighborRing = {}
 
--- Index a descriptor's scene-form material list by id. The wrap pair is part
--- of the image identity, so cells sharing a texture but sampling it
--- differently get independent configured images.
+-- Material assembly: acquire each normalized material record's image
+-- under its resolved sampler wrap. The wrap pair is part of the image
+-- identity, so cells sharing a texture but sampling it differently get
+-- independent configured images.
 local function materialsById(list, pool)
   local byId = {}
-  for _, m in ipairs(list or {}) do
-    local wrap = m.wrap or { x = "clamp", y = "clamp" }
-    byId[m.id] = {
-      id = m.id,
-      name = m.name,
-      image = pool:imageFor(m.texture, wrap.x, wrap.y),
+  for id, record in pairs(SceneDescriptor.materials(list)) do
+    byId[id] = {
+      id = record.id,
+      name = record.name,
+      image = pool:imageFor(record.texture, record.wrap.x, record.wrap.y),
     }
   end
   return byId
-end
-
-local function modelCenter(verts)
-  local minx, miny, minz = math.huge, math.huge, math.huge
-  local maxx, maxy, maxz = -math.huge, -math.huge, -math.huge
-  for _, v in ipairs(verts) do
-    minx = math.min(minx, v[1])
-    maxx = math.max(maxx, v[1])
-    miny = math.min(miny, v[2])
-    maxy = math.max(maxy, v[2])
-    minz = math.min(minz, v[3])
-    maxz = math.max(maxz, v[3])
-  end
-  return { (minx + maxx) / 2, (miny + maxy) / 2, (minz + maxz) / 2 }
 end
 
 -- Build the ring against an already-created pool, inside the transaction
@@ -75,7 +64,7 @@ local function buildRing(pool, descriptors)
     local materials = materialsById(cell.materials, pool)
     for _, batch in ipairs(cell.batches) do
       local entry = pool:meshFor(batch.geometry)
-      local c = modelCenter(entry.verts)
+      local c = entry.center
       ---@type table<string, any>
       local draw = {
         mesh = entry.mesh,

@@ -210,6 +210,48 @@ function T.failed_mesh_load_releases_acquired_images()
   Assert.equal(graphics.images[1].released, true, "a failed mesh load releases the acquired image")
 end
 
+-- The dedup consumption contract: one content-addressed mesh is
+-- shared by the terrain batch, both placements of one static building model,
+-- and the model's descriptor AABB. Every draw item must carry the SAME
+-- per-mesh center (the value cached on the pool entry, not a per-draw
+-- recomputation), and both placement records must share one descriptor AABB
+-- table. A consumer that recomputes a center or folds bounds per placement
+-- instead of reading the shared cached values turns this red.
+function T.one_mesh_center_serves_every_consumer_and_placement()
+  local cache, geomPath, texPath, luaFiles = cacheFs()
+  local s = scene({ material(0, texPath, { x = "clamp", y = "clamp" }) })
+  s.mapBatches = { batch(geomPath, 0) }
+  s.buildingInstances = {
+    { placementIndex = 0, modelKey = "building", transform = IDENTITY },
+    {
+      placementIndex = 1,
+      modelKey = "building",
+      transform = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 0, 0, 1 },
+    },
+  }
+  luaFiles[MapAssetCache.modelPath("building")] = {
+    schema = "g4-model-descriptor-v1",
+    kind = "static",
+    batches = { batch(geomPath, 0) },
+    materials = { material(0, texPath, { x = "clamp", y = "clamp" }) },
+  }
+  local runtime = MapSceneLoader.load(cache, s)
+  local expectedCenter = { 1, 0, 1 }
+  Assert.deepEqual(runtime.mapDraws[1].center, expectedCenter, "the terrain draw carries the mesh center")
+  Assert.deepEqual(runtime.buildingDraws[1].center, expectedCenter, "placement 0 carries the same mesh center")
+  Assert.deepEqual(runtime.buildingDraws[2].center, expectedCenter, "placement 1 carries the same mesh center")
+  local a = runtime.mapProps.placements[1].bounds
+  local b = runtime.mapProps.placements[2].bounds
+  Assert.equal(a, b, "both placements share one cached descriptor AABB")
+  Assert.equal(a.minX, 0)
+  Assert.equal(a.maxX, 2)
+  Assert.equal(a.minY, 0)
+  Assert.equal(a.maxY, 0)
+  Assert.equal(a.minZ, 0)
+  Assert.equal(a.maxZ, 2)
+  runtime:release()
+end
+
 -- A missing model descriptor fails building creation after scene images
 -- exist; every acquired image must be released.
 function T.failed_descriptor_load_releases_acquired_images()

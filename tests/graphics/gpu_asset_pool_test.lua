@@ -227,10 +227,32 @@ function T.mesh_entries_dedup_and_accumulate_triangles_once()
   local first = pool:meshFor(GEOM_PATH)
   local second = pool:meshFor(GEOM_PATH)
   Assert.equal(first.mesh, second.mesh)
-  Assert.equal(first.verts, second.verts)
   Assert.equal(first.triangles, 1)
   Assert.equal(pool.triangles, 1, "shared geometry is counted once")
   Assert.equal(#pool.meshes, 1)
+  pool:release()
+end
+
+-- The per-mesh geometry cache: the entry exposes the model-space
+-- bounding-box center and AABB, computed ONCE per content-addressed path and
+-- shared by every consumer (draw items, descriptor folds, sort centers) --
+-- consumers read the cached values instead of rescanning the same vertices
+-- per draw/placement. The values live on the shared entry, so repeated
+-- acquires return the same precomputed tables.
+function T.mesh_entries_expose_cached_center_and_aabb()
+  local pool = GpuAssetPool.new(fakeCacheFs())
+  local entry = pool:meshFor(GEOM_PATH)
+  -- The triangle fixture spans x[0,2], y=0, z[0,2].
+  Assert.deepEqual(entry.center, { 1, 0, 1 }, "the pool mesh entry exposes the cached model-space center")
+  Assert.deepEqual(
+    entry.bounds,
+    { minX = 0, maxX = 2, minY = 0, maxY = 0, minZ = 0, maxZ = 2 },
+    "the pool mesh entry exposes the cached model-space AABB"
+  )
+  local again = pool:meshFor(GEOM_PATH)
+  Assert.equal(again, entry, "the entry is the shared per-path object")
+  Assert.equal(again.center, entry.center, "the cached center is computed once per content-addressed path")
+  Assert.equal(again.bounds, entry.bounds, "the cached AABB is computed once per content-addressed path")
   pool:release()
 end
 
