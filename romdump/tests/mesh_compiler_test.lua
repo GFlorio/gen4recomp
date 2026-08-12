@@ -6,7 +6,7 @@
 
 local Assert = require("tests.support.Assert")
 local MeshCompiler = require("romdump.src.digest.MeshCompiler")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
 local NsbmdStaticTransforms = require("romdump.src.digest.NsbmdStaticTransforms")
 local Matrix4 = require("libs.math.src.Matrix4")

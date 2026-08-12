@@ -3,7 +3,7 @@
 -- subtree without disturbing the raw-dump marker.
 
 local Assert = require("tests.support.Assert")
-local CacheFs = require("libs.rom.src.CacheFs")
+local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local MapCacheWriter = require("romdump.src.digest.MapCacheWriter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")

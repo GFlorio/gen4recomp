@@ -19,7 +19,7 @@
 -- NNS_G3dRSOnGlb.scaleCache is written as the SBC stream is walked and read by
 -- later joints. Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local Matrix4 = require("libs.math.src.Matrix4")
 
 local NsbmdJointTransforms = {}

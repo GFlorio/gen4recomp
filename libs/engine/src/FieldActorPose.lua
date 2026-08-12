@@ -7,7 +7,7 @@
 -- frame length. Frame indices are 1-based into the visual's `frames` list, which
 -- is also the atlas strip order. Pure domain module: no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 local FieldActorPose = {}
 

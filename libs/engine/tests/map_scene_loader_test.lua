@@ -8,7 +8,7 @@
 -- releases already-acquired images use an injected fake graphics namespace.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local MeshWriter = require("libs.assets.src.MeshWriter")

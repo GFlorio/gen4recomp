@@ -2,7 +2,7 @@
 -- terrain-height envelope. It is pure: callers own map loading and use the
 -- returned zero-based cell list to protect visible and prefetched resources.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 local FieldCoveragePlanner = {}
 

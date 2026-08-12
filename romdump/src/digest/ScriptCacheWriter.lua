@@ -8,7 +8,7 @@
 
 local ScriptCache = require("libs.assets.src.ScriptCache")
 local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
-local ArtifactPublisher = require("libs.rom.src.ArtifactPublisher")
+local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
 
 local ScriptCacheWriter = {}
 

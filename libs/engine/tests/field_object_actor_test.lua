@@ -2,7 +2,7 @@
 -- the stable actor identity, and the tokenized temporary facing override.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldObjectActor = require("libs.engine.src.FieldObjectActor")
 
 local T = {}

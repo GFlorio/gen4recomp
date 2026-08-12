@@ -2,8 +2,8 @@
 -- FieldMapLoader, drives the deterministic elevation-aware player, and
 -- exposes the field warp transition lifecycle.
 
-local CacheFs = require("libs.rom.src.CacheFs")
-local SaveFs = require("libs.rom.src.SaveFs")
+local CacheFs = require("libs.storage.src.CacheFs")
+local SaveFs = require("libs.storage.src.SaveFs")
 local DialogueLayout = require("libs.engine.src.DialogueLayout")
 local FieldActorDefinitionProvider = require("libs.engine.src.FieldActorDefinitionProvider")
 local AuxiliaryFieldUi = require("libs.engine.src.AuxiliaryFieldUi")

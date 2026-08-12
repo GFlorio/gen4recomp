@@ -29,7 +29,7 @@
 --
 -- Pure domain module: no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local Matrix4 = require("libs.math.src.Matrix4")
 local NsbmdJointTransforms = require("romdump.src.digest.nitro.NsbmdJointTransforms")
 

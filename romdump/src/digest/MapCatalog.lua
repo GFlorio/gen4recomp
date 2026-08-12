@@ -2,8 +2,8 @@
 -- Pure domain module: no love dependency. Records are immutable by convention;
 -- callers must not mutate them.
 
-local Errors = require("libs.rom.src.Errors")
-local reference = require("data.reference.hgss.maps")
+local Errors = require("libs.errors.src.Errors")
+local reference = require("romdump.src.reference.hgss.maps")
 
 local MapCatalog = {}
 local COUNT = 540

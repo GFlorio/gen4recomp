@@ -15,7 +15,7 @@
 -- with the player's own position or the crossing edge -- corrupted terrain
 -- that callers must propagate rather than treat as a blocked step.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 ---@class SurfaceResolver
 ---@field terrain TerrainSurface

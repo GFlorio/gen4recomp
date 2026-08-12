@@ -9,7 +9,7 @@
 -- restricts mods to their own namespace. ScriptObject snapshots are invalid
 -- after the handler returns. Pure domain module: no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local Serializable = require("libs.engine.src.script.Serializable")
 

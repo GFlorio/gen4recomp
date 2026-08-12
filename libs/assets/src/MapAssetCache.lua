@@ -8,7 +8,7 @@
 
 local MapAssetCache = {}
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local Validate = require("libs.assets.src.Validate")
 local PermissionGrid = require("libs.assets.src.PermissionGrid")
 

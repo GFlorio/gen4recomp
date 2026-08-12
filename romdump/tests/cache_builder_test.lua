@@ -5,12 +5,12 @@
 -- exercised without a ROM or filesystem.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 -- Every module CacheBuilder requires at load; each is replaced with a fake.
 local FAKE_PATHS = {
-  "libs.rom.src.RomFs",
-  "libs.rom.src.CacheFs",
+  "romdump.src.source.RomFs",
+  "libs.storage.src.CacheFs",
   "romdump.src.digest.MapAnalysis",
   "romdump.src.digest.MapAssetCompiler",
   "romdump.src.digest.MapCacheWriter",

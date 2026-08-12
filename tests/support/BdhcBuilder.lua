@@ -2,7 +2,7 @@
 -- Records use the binary layout emitted by Pokemon DS Map Studio's pinned
 -- BdhcWriterHGSS implementation. Test-only.
 
-local BinaryWriter = require("libs.rom.src.BinaryWriter")
+local BinaryWriter = require("libs.codec.src.BinaryWriter")
 
 local BdhcBuilder = {}
 

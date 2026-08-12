@@ -3,7 +3,7 @@
 
 local Assert = require("tests.support.Assert")
 local PngWriter = require("libs.assets.src.PngWriter")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 local T = {}
 

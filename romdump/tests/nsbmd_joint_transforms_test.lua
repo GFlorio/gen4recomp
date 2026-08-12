@@ -13,7 +13,7 @@
 -- sends a probe point rather than comparing 16 raw cells.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local Matrix4 = require("libs.math.src.Matrix4")
 local Joint = require("romdump.src.digest.nitro.NsbmdJointTransforms")
 

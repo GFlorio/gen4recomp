@@ -1,9 +1,9 @@
 -- Tests for FieldLightProfile: record parsing, validation, and cyclic time
--- selection, plus HgssFieldLighting's light-type -> profile/path mapping.
+-- selection. The HGSS light-type -> profile/path mapping lives with
+-- HgssFieldLighting under romdump.
 
 local Assert = require("tests.support.Assert")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
-local HgssFieldLighting = require("libs.assets.src.HgssFieldLighting")
 
 local T = {}
 
@@ -102,17 +102,6 @@ function T.rejects_missing_eof()
   local ok, err = pcall(FieldLightProfile.parse, record(0, 11, 0))
   Assert.isFalse(ok)
   Assert.equal(err.code, "FIELD_LIGHT_BAD_RECORD")
-end
-
-function T.maps_light_type_to_profile_and_path()
-  Assert.equal(HgssFieldLighting.profileIdForLightType(0), 1)
-  Assert.equal(HgssFieldLighting.profileIdForLightType(1), 0)
-  Assert.equal(HgssFieldLighting.profileIdForLightType(2), 3)
-  Assert.equal(HgssFieldLighting.profileIdForLightType(2, true), 4) -- second-dungeon override
-  Assert.equal(HgssFieldLighting.profileIdForLightType(9), 0) -- unknown -> profile 0
-  Assert.equal(HgssFieldLighting.pathForProfile(1), "data/area01light.txt")
-  Assert.equal(HgssFieldLighting.resolve(0).sourcePath, "data/area01light.txt")
-  Assert.equal(HgssFieldLighting.resolve(1).sourcePath, "data/area00light.txt")
 end
 
 return T

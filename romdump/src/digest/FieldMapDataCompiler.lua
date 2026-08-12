@@ -2,8 +2,8 @@
 -- lightweight field-map cache schema. Map identity and member selection come
 -- exclusively from the frozen map catalog.
 
-local Errors = require("libs.rom.src.Errors")
-local ZoneEvents = require("libs.assets.src.ZoneEvents")
+local Errors = require("libs.errors.src.Errors")
+local ZoneEvents = require("romdump.src.digest.ZoneEvents")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
 local Hashing = require("romdump.src.digest.Hashing")

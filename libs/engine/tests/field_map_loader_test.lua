@@ -2,7 +2,7 @@
 -- aggregate and LRU ownership contract without constructing LÖVE GPU objects.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldMapLoader = require("libs.engine.src.FieldMapLoader")
 
 local T = {}

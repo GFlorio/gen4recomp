@@ -3,7 +3,7 @@
 -- and warp arrival suppression.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldEventState = require("libs.engine.src.FieldEventState")
 local FieldSave = require("libs.engine.src.FieldSave")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")

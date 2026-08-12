@@ -6,7 +6,7 @@
 -- a failed write.
 
 local Assert = require("tests.support.Assert")
-local CacheFs = require("libs.rom.src.CacheFs")
+local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local ScriptCache = require("libs.assets.src.ScriptCache")
 local ScriptLoader = require("libs.engine.src.script.ScriptLoader")

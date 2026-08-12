@@ -15,9 +15,9 @@
 -- cacheScriptHash, and the private `_load` memoization) stays live. Pure
 -- domain module: no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
-local LuaWriter = require("libs.rom.src.LuaWriter")
+local LuaWriter = require("libs.codec.src.LuaWriter")
 local Sha256 = require("libs.engine.src.script.Sha256")
 
 ---@class Registry

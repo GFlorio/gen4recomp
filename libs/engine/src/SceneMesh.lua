@@ -7,8 +7,8 @@
 -- normalized to 0..1 and colorSource kept as a raw 0/1/2 float; indices stay
 -- zero-based as stored, and build() rebases them to love's 1-based vertex map.
 
-local Errors = require("libs.rom.src.Errors")
-local BinaryReader = require("libs.rom.src.BinaryReader")
+local Errors = require("libs.errors.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
 local VertexFormat = require("libs.assets.src.VertexFormat")
 
 local SceneMesh = {}

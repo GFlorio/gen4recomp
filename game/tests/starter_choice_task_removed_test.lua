@@ -15,7 +15,7 @@ local T = {
 
 -- Production trees only, matching the other repo-content scans.
 local PRODUCTION_ROOTS = {
-  "libs/rom/src",
+  "libs/codec/src",
   "libs/assets/src",
   "libs/engine/src",
   "libs/math/src",

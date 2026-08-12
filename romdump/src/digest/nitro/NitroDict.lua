@@ -18,8 +18,8 @@
 -- entry list and duplicate decoded names are rejected. Offsets in returned
 -- entries are absolute within the supplied buffer. Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
-local BinaryReader = require("libs.rom.src.BinaryReader")
+local Errors = require("libs.errors.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
 
 local NitroDict = {}
 

@@ -4,8 +4,8 @@
 -- errors a missing or uncompiled sprite must produce.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
-local CacheFs = require("libs.rom.src.CacheFs")
+local Errors = require("libs.errors.src.Errors")
+local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local FieldActorAssetProvider = require("libs.engine.src.FieldActorAssetProvider")

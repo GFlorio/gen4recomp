@@ -8,7 +8,7 @@
 -- nil` -- so the player never knows which object blocks it, and the actor
 -- manager stays the only owner of the occupancy index.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 

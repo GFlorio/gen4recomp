@@ -5,7 +5,7 @@
 -- associations, and font geometry.
 
 local Assert = require("tests.support.Assert")
-local CacheFs = require("libs.rom.src.CacheFs")
+local CacheFs = require("libs.storage.src.CacheFs")
 local FieldMessageBank = require("romdump.src.digest.FieldMessageBank")
 local FieldMessageTokenizer = require("romdump.src.digest.FieldMessageTokenizer")
 local FieldMessageCompiler = require("romdump.src.digest.FieldMessageCompiler")
@@ -14,7 +14,7 @@ local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
 local FieldFontCompiler = require("romdump.src.digest.FieldFontCompiler")
 local FieldFontDecoder = require("romdump.src.digest.FieldFontDecoder")
 local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
-local charmap = require("data.reference.hgss.charmap")
+local charmap = require("romdump.src.reference.hgss.charmap")
 local MenuProtocol = require("data.reference.hgss.menu_protocol")
 
 local T = {}

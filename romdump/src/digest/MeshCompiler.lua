@@ -10,7 +10,7 @@
 -- polygon-attr word rides on each batch. Pure domain module; the compiler
 -- boundary at which DS geometry stops.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local MapUnits = require("romdump.src.digest.MapUnits")
 local GxDisplayList = require("romdump.src.digest.nitro.GxDisplayList")
 local DsMaterial = require("romdump.src.digest.nitro.DsMaterial")

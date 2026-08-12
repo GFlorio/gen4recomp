@@ -3,7 +3,7 @@
 -- an unresolvable entry fails loudly instead of hiding the wrong actor.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldEventState = require("libs.engine.src.FieldEventState")
 local FieldScenario = require("libs.engine.src.FieldScenario")
 

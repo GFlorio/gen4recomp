@@ -4,7 +4,7 @@
 -- records carrying pre-resolved global destination coordinates and resolve
 -- through their own branch before any indexed-record dispatch.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 

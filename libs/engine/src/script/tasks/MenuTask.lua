@@ -2,7 +2,7 @@
 -- script menu. Presentation hosts receive snapshots only; physical geometry
 -- and render resources never enter the saved task state.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local FieldMenuController = require("libs.engine.src.FieldMenuController")
 

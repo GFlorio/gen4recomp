@@ -6,8 +6,8 @@
 -- whole.
 
 local Assert = require("tests.support.Assert")
-local CacheFs = require("libs.rom.src.CacheFs")
-local SaveFs = require("libs.rom.src.SaveFs")
+local CacheFs = require("libs.storage.src.CacheFs")
+local SaveFs = require("libs.storage.src.SaveFs")
 local FieldSave = require("libs.engine.src.FieldSave")
 local FieldSaveStore = require("libs.engine.src.FieldSaveStore")
 local ScriptSave = require("libs.engine.src.script.ScriptSave")

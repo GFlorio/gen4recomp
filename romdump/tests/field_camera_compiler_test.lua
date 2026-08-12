@@ -3,9 +3,9 @@
 local Assert = require("tests.support.Assert")
 local FieldCameraCompiler = require("romdump.src.digest.FieldCameraCompiler")
 local FieldCameraCacheWriter = require("romdump.src.digest.FieldCameraCacheWriter")
-local CacheFs = require("libs.rom.src.CacheFs")
+local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
-local LuaWriter = require("libs.rom.src.LuaWriter")
+local LuaWriter = require("libs.codec.src.LuaWriter")
 local FieldCameraInspector = require("romdump.src.digest.FieldCameraInspector")
 local FieldCamera = require("libs.engine.src.FieldCamera")
 

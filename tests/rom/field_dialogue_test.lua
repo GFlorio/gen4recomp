@@ -5,7 +5,7 @@
 -- asserted or printed.
 
 local Assert = require("tests.support.Assert")
-local CacheFs = require("libs.rom.src.CacheFs")
+local CacheFs = require("libs.storage.src.CacheFs")
 local DialogueLayout = require("libs.engine.src.DialogueLayout")
 local FieldDialogueController = require("libs.engine.src.FieldDialogueController")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")

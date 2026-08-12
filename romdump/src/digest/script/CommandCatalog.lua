@@ -1,11 +1,11 @@
 -- HGSS script command catalog accessor: loads the pinned in-repo catalog
--- (data/reference/hgss/script_commands.lua) and exposes the opcode names,
+-- (romdump/src/reference/hgss/script_commands.lua) and exposes the opcode names,
 -- operand widths, and execution classifications the translator uses
 -- internally. The catalog is owned in-repo: the decomp's command table named
 -- every opcode once; names may be adjusted here without touching the decomp.
 -- Pure domain module: no love dependency.
 
-local ScriptCommands = require("data.reference.hgss.script_commands")
+local ScriptCommands = require("romdump.src.reference.hgss.script_commands")
 
 local CommandCatalog = {}
 

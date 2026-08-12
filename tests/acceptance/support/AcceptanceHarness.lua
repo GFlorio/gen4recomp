@@ -3,9 +3,9 @@
 -- while FieldRuntime remains the sole owner of maps, scripts, actors, and saves.
 
 local FieldSave = require("libs.engine.src.FieldSave")
-local SaveFs = require("libs.rom.src.SaveFs")
-local GameVersion = require("libs.rom.src.GameVersion")
-local RomImporter = require("libs.rom.src.RomImporter")
+local SaveFs = require("libs.storage.src.SaveFs")
+local GameVersion = require("romdump.src.source.GameVersion")
+local RomImporter = require("romdump.src.source.RomImporter")
 local FieldRuntime = require("game.src.game.FieldRuntime")
 local FieldBoot = require("game.src.game.FieldBoot")
 local App = require("game.src.game.App")

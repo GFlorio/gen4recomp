@@ -8,7 +8,7 @@
 -- deterministic: identical dumps produce identical resources. Pure domain
 -- module: no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local S = require("gen4.script")
 local ScriptBinaryDecoder = require("romdump.src.digest.script.ScriptBinaryDecoder")
 local SemanticLowering = require("romdump.src.digest.script.SemanticLowering")
@@ -19,7 +19,7 @@ local Coverage = require("romdump.src.digest.script.Coverage")
 local SourceCatalog = require("romdump.src.digest.script.SourceCatalog")
 local Hashing = require("romdump.src.digest.Hashing")
 local ScriptCache = require("libs.assets.src.ScriptCache")
-local ScriptMembers = require("data.reference.hgss.script_members")
+local ScriptMembers = require("romdump.src.reference.hgss.script_members")
 
 local ScriptCompiler = {}
 
@@ -51,7 +51,7 @@ ScriptCompiler.COMPILER_VERSION = "script-compiler-v6"
 -- curated ids live in the data manifest; standard-script members resolve
 -- through the std catalog to `common.<name>`; everything else stays
 -- mechanical.
-local CURATED_IDS = require("data.reference.hgss.script_ids")
+local CURATED_IDS = require("romdump.src.reference.hgss.script_ids")
 
 ---@param member integer
 ---@param scriptIndex integer
@@ -149,11 +149,11 @@ function ScriptCompiler.compile(romFs, sha1hex, hashLua)
   local stdCatalog = SourceCatalog.catalog()
   local sourcePath = "romfs/" .. source.archiveInfo.path
   local catalog = {
-    sounds = require("data.reference.hgss.sndseq").byId,
+    sounds = require("romdump.src.reference.hgss.sndseq").byId,
     flags = require("data.reference.hgss.flags").byId,
     vars = require("data.reference.hgss.vars").byId,
-    maps = require("data.reference.hgss.maps").byId,
-    spawns = require("data.reference.hgss.spawns").byId,
+    maps = require("romdump.src.reference.hgss.maps").byId,
+    spawns = require("romdump.src.reference.hgss.spawns").byId,
   }
   local memberIrs = ScriptBinaryDecoder.decodeArchive(archive, ScriptMembers.banks, sourcePath, catalog)
 
@@ -268,19 +268,19 @@ local function sourceOf(module)
 end
 
 function ScriptCompiler.commandCatalogVersion()
-  return sourceOf(require("data.reference.hgss.script_commands"))
+  return sourceOf(require("romdump.src.reference.hgss.script_commands"))
 end
 
 function ScriptCompiler.movementCatalogVersion()
-  return sourceOf(require("data.reference.hgss.movement_commands"))
+  return sourceOf(require("romdump.src.reference.hgss.movement_commands"))
 end
 
 function ScriptCompiler.stdCatalogVersion()
-  return sourceOf(require("data.reference.hgss.std_script_catalog"))
+  return sourceOf(require("romdump.src.reference.hgss.std_script_catalog"))
 end
 
 function ScriptCompiler.memberBanksVersion()
-  return sourceOf(require("data.reference.hgss.script_members"))
+  return sourceOf(require("romdump.src.reference.hgss.script_members"))
 end
 
 -- Emit the Lua text for one resource (the cache writer persists it).

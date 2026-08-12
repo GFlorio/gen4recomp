@@ -6,8 +6,8 @@
 -- err) at the public boundary and preserves unknown sections rather than
 -- discarding them.
 
-local Errors = require("libs.rom.src.Errors")
-local BinaryReader = require("libs.rom.src.BinaryReader")
+local Errors = require("libs.errors.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
 
 local NitroFile = {}
 

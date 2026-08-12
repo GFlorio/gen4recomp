@@ -3,7 +3,7 @@
 -- idle fallback for a class whose walk clip is absent.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
 local FieldActorPose = require("libs.engine.src.FieldActorPose")
 

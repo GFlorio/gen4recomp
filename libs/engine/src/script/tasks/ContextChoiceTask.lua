@@ -1,7 +1,7 @@
 -- Waits for the distinct HGSS GetMenuChoice provider. It owns opening and
 -- closing the provider exactly once and returns its vanilla two-choice value.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 
 local ContextChoiceTask = {}

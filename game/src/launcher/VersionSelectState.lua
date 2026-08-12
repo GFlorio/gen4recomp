@@ -2,7 +2,7 @@
 -- HeartGold and SoulSilver dumps are ready and no version was requested. Number
 -- keys pick a version; onPick(versionId) hands control back to App.
 
-local GameVersion = require("libs.rom.src.GameVersion")
+local GameVersion = require("romdump.src.source.GameVersion")
 
 local VersionSelectState = {}
 VersionSelectState.__index = VersionSelectState

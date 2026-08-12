@@ -37,7 +37,7 @@ function T.reports_file_and_directory_types()
   Assert.equal(files.getInfo("libs/engine/tests/script").type, "directory")
   Assert.equal(files.getInfo("libs/engine/tests/script/scheduler_tests.lua").type, "file")
   Assert.isNil(files.getInfo("libs/engine/tests/nope"))
-  Assert.isNil(files.getInfo("libs/rom/tests"), "a directory outside the indexed roots is unknown")
+  Assert.isNil(files.getInfo("libs/codec/tests"), "a directory outside the indexed roots is unknown")
 end
 
 function T.an_empty_root_is_a_hard_error()

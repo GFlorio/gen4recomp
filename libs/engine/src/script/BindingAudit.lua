@@ -8,7 +8,7 @@
 -- event is a composition error, not a fallback to look for later. Pure
 -- domain module: no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldInteractionResolver = require("libs.engine.src.FieldInteractionResolver")
 local FieldObjectActor = require("libs.engine.src.FieldObjectActor")
 

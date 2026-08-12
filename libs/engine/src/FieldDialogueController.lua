@@ -5,7 +5,7 @@
 -- controller never touches presentation. Pages come from the injected layout
 -- function and stay immutable while the reveal cursor advances over them.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 ---@class FieldDialogueController
 ---@field _layout fun(message: FieldMessageProvider.FormattedMessage): DialogueLayout.Result

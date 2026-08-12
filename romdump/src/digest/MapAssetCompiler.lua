@@ -10,12 +10,12 @@
 local MapResolver = require("romdump.src.digest.MapResolver")
 local AreaData = require("romdump.src.digest.AreaData")
 local LandData = require("romdump.src.digest.LandData")
-local HgssBdhc = require("libs.assets.src.HgssBdhc")
+local HgssBdhc = require("romdump.src.digest.HgssBdhc")
 local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
 local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
 local MaterialCompiler = require("romdump.src.digest.MaterialCompiler")
 local AlphaClassifier = require("romdump.src.digest.AlphaClassifier")
-local HgssFieldLighting = require("libs.assets.src.HgssFieldLighting")
+local HgssFieldLighting = require("romdump.src.digest.HgssFieldLighting")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
 local BuildingTransform = require("romdump.src.digest.BuildingTransform")
 local MapUnits = require("romdump.src.digest.MapUnits")
@@ -27,7 +27,7 @@ local MapCatalog = require("romdump.src.digest.MapCatalog")
 local NeighborPlan = require("romdump.src.digest.NeighborPlan")
 local ModelAssetCompiler = require("romdump.src.digest.ModelAssetCompiler")
 local NeighborChunkCompiler = require("romdump.src.digest.NeighborChunkCompiler")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 local MapAssetCompiler = {}
 

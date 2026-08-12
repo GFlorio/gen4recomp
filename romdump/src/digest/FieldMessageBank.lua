@@ -6,8 +6,8 @@
 -- MAT_ENTRY struct shape is `include/msgdata.h`. Pure module: BinaryReader and
 -- Errors only, no love dependency.
 
-local BinaryReader = require("libs.rom.src.BinaryReader")
-local Errors = require("libs.rom.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
+local Errors = require("libs.errors.src.Errors")
 
 local FieldMessageBank = {}
 

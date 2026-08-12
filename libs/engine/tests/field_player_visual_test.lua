@@ -3,7 +3,7 @@
 -- render position, and a deterministic clock that only advances mid-step.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
 local FieldActorPose = require("libs.engine.src.FieldActorPose")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")

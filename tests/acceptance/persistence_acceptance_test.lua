@@ -3,7 +3,7 @@
 -- restore FieldSave or construct a field subsystem themselves.
 
 local Assert = require("tests.support.Assert")
-local CacheFs = require("libs.rom.src.CacheFs")
+local CacheFs = require("libs.storage.src.CacheFs")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 
 local T = {

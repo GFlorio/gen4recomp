@@ -3,7 +3,7 @@
 
 local Assert = require("tests.support.Assert")
 local MapUnits = require("romdump.src.digest.MapUnits")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 local T = {}
 

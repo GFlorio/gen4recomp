@@ -10,8 +10,8 @@
 -- (grid | nil, err). Masks use plain arithmetic: for a byte, band(b, 0x80) ~= 0
 -- is b >= 0x80, and band(b, 0x7F) is b % 0x80.
 
-local Errors = require("libs.rom.src.Errors")
-local BinaryReader = require("libs.rom.src.BinaryReader")
+local Errors = require("libs.errors.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
 
 local PermissionGrid = {}
 PermissionGrid.__index = PermissionGrid

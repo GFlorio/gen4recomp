@@ -11,21 +11,21 @@
 -- dependency.
 
 local S = require("gen4.script")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local ScriptBinaryDecoder = require("romdump.src.digest.script.ScriptBinaryDecoder")
 local SemanticLowering = require("romdump.src.digest.script.SemanticLowering")
 local Structurer = require("romdump.src.digest.script.Structurer")
 local LuaEmitter = require("romdump.src.digest.script.LuaEmitter")
 local SourceCatalog = require("romdump.src.digest.script.SourceCatalog")
 local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
-local ScriptMembers = require("data.reference.hgss.script_members")
+local ScriptMembers = require("romdump.src.reference.hgss.script_members")
 
 local OverrideGenerator = {}
 
 -- The generated transcripts overridden by the New Bark slice: member and
 -- script index to the override's public id. The target table is a data
--- manifest (data/reference/hgss/script_override_targets.lua).
-local TARGETS = require("data.reference.hgss.script_override_targets")
+-- manifest (romdump/src/reference/hgss/script_override_targets.lua).
+local TARGETS = require("romdump.src.reference.hgss.script_override_targets")
 
 -- The common-script ids the transform may replace: every std script that is
 -- itself unsupported, resolved once from the decoded corpus.
@@ -140,11 +140,11 @@ local function decodeCorpus(romFs)
   local archive = assert(romFs:openNarc("field_scripts"))
   local stdCatalog = SourceCatalog.catalog()
   local catalog = {
-    sounds = require("data.reference.hgss.sndseq").byId,
+    sounds = require("romdump.src.reference.hgss.sndseq").byId,
     flags = require("data.reference.hgss.flags").byId,
     vars = require("data.reference.hgss.vars").byId,
-    maps = require("data.reference.hgss.maps").byId,
-    spawns = require("data.reference.hgss.spawns").byId,
+    maps = require("romdump.src.reference.hgss.maps").byId,
+    spawns = require("romdump.src.reference.hgss.spawns").byId,
   }
   local memberIrs = ScriptBinaryDecoder.decodeArchive(archive, ScriptMembers.banks, "romfs/scr_seq.narc", catalog)
   return memberIrs, stdCatalog

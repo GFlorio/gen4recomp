@@ -4,7 +4,7 @@
 -- visual or frame is absent is fatal rather than skipped.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldActorDraw = require("libs.engine.src.FieldActorDraw")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
 

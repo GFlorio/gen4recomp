@@ -2,7 +2,7 @@
 -- the message asset contract (GMM-style markers, nothing dropped).
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldMessageText = require("libs.assets.src.FieldMessageText")
 
 local T = {}

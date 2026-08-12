@@ -6,10 +6,10 @@
 -- actor artifact untouched; the stage is discarded. The raw ROM dump and any
 -- compiled map are never touched.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local PngWriter = require("libs.assets.src.PngWriter")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
-local ArtifactPublisher = require("libs.rom.src.ArtifactPublisher")
+local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
 
 local FieldActorCacheWriter = {}
 

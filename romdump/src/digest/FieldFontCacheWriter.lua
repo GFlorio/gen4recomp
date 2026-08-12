@@ -6,9 +6,9 @@
 -- left untouched, so a partial build never reads as complete and never destroys
 -- a valid one.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
-local ArtifactPublisher = require("libs.rom.src.ArtifactPublisher")
+local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
 
 local FieldFontCacheWriter = {}
 

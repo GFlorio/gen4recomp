@@ -2,7 +2,7 @@
 -- deliberately owns no atlas or graphics objects; presentation loads those
 -- separately when it creates the dialogue renderer.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 
 local FieldFontLoader = {}

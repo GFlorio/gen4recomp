@@ -4,7 +4,7 @@
 -- and loadable. Missing schema fields must not default to empty collections.
 
 local Assert = require("tests.support.Assert")
-local CacheFs = require("libs.rom.src.CacheFs")
+local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local FieldMessageCache = require("libs.assets.src.FieldMessageCache")

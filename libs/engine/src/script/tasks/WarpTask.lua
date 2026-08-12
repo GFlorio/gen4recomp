@@ -8,7 +8,7 @@
 -- the warp succeeded. Warps are foreground-only.
 -- Pure domain module: no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local Runtime = require("libs.engine.src.script.Runtime")
 

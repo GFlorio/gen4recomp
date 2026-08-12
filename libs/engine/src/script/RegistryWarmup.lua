@@ -8,12 +8,12 @@
 -- pass; the snapshot is written only at completion. Pure domain module: no
 -- love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local ScriptCache = require("libs.assets.src.ScriptCache")
 local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
 local RegistrySnapshot = require("libs.engine.src.script.RegistrySnapshot")
-local LuaWriter = require("libs.rom.src.LuaWriter")
+local LuaWriter = require("libs.codec.src.LuaWriter")
 local Sha256 = require("libs.engine.src.script.Sha256")
 
 ---@class RegistryWarmup

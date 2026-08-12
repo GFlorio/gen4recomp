@@ -8,7 +8,7 @@
 -- registry) owns only the opaque `state`; the record owns all scheduling
 -- fields. Pure domain module: no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 
 ---@class ScriptTask

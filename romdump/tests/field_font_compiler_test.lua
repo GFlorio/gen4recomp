@@ -2,19 +2,19 @@
 -- synthetic font member and RLCN palette.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldFontCompiler = require("romdump.src.digest.FieldFontCompiler")
 local FieldFontCacheWriter = require("romdump.src.digest.FieldFontCacheWriter")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
-local CacheFs = require("libs.rom.src.CacheFs")
+local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
-local LuaWriter = require("libs.rom.src.LuaWriter")
+local LuaWriter = require("libs.codec.src.LuaWriter")
 
 local T = {}
 
 local function buildFontMember(numGlyphs, glyphBytes, widths)
   local glyphSize = 64
-  local writer = require("libs.rom.src.BinaryWriter").new()
+  local writer = require("libs.codec.src.BinaryWriter").new()
   writer:u32(16)
   writer:u32(16 + #glyphBytes)
   writer:u32(numGlyphs)

@@ -3,7 +3,7 @@
 -- round trip that keeps keys numeric. Pure; no LÖVE and no imported data.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldEventState = require("libs.engine.src.FieldEventState")
 
 local T = {}

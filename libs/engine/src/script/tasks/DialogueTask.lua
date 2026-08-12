@@ -9,7 +9,7 @@
 -- satisfy a wait created by the same trigger. Gendered messages resolve at
 -- creation from the player's gender. Pure domain module: no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 
 local DialogueTask = {}

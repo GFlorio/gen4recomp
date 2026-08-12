@@ -5,8 +5,8 @@
 -- version mismatches, and malformed references.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
-local LuaWriter = require("libs.rom.src.LuaWriter")
+local Errors = require("libs.errors.src.Errors")
+local LuaWriter = require("libs.codec.src.LuaWriter")
 local Validator = require("libs.engine.src.script.Validator")
 local S = require("gen4.script")
 

@@ -6,7 +6,7 @@
 -- exact per-tick sequences. Records serialize through LuaWriter so identical
 -- runs produce identical text. Pure domain module: no love dependency.
 
-local LuaWriter = require("libs.rom.src.LuaWriter")
+local LuaWriter = require("libs.codec.src.LuaWriter")
 
 local Diagnostics = {}
 

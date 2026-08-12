@@ -8,7 +8,7 @@
 -- Every load is fatal on a missing or malformed artifact: a target map must
 -- never silently fall back to a placeholder visual.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local FieldActorMesh = require("libs.engine.src.FieldActorMesh")
 

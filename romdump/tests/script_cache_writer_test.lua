@@ -5,7 +5,7 @@
 local Assert = require("tests.support.Assert")
 local ScriptCache = require("libs.assets.src.ScriptCache")
 local ScriptCacheWriter = require("romdump.src.digest.ScriptCacheWriter")
-local CacheFs = require("libs.rom.src.CacheFs")
+local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 
 local T = {}

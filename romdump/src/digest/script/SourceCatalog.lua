@@ -1,11 +1,11 @@
 -- Standard-script catalog accessor: loads the pinned in-repo std catalog
--- (data/reference/hgss/std_script_catalog.lua, derived once from the
+-- (romdump/src/reference/hgss/std_script_catalog.lua, derived once from the
 -- decomp's std_script.h and sScriptBankMapping) and resolves a CallStd
 -- operand (numeric id in binary mode, `std_*` symbol in decomp mode) to the
 -- public `common.<name>` script id and to the physical member/script index
 -- the runtime would load. Pure domain module: no love dependency.
 
-local StdCatalog = require("data.reference.hgss.std_script_catalog")
+local StdCatalog = require("romdump.src.reference.hgss.std_script_catalog")
 
 local SourceCatalog = {}
 

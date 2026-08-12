@@ -2,7 +2,7 @@
 -- permission cell and centered render space. Player, camera, warp, and save
 -- code share this boundary so matrix-origin arithmetic cannot diverge.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldGrid = require("libs.engine.src.FieldGrid")
 
 local FieldCoordinates = {}

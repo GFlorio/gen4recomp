@@ -4,9 +4,9 @@
 -- completed stage published with the marker last. On any failure the stage is
 -- discarded and any previous live record for that map is left untouched.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
-local ArtifactPublisher = require("libs.rom.src.ArtifactPublisher")
+local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
 
 local FieldMapDataCacheWriter = {}
 

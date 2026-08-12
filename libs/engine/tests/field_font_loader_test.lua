@@ -3,7 +3,7 @@
 -- renderer exists.
 
 local Assert = require("tests.support.Assert")
-local CacheFs = require("libs.rom.src.CacheFs")
+local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldFontLoader = require("libs.engine.src.FieldFontLoader")

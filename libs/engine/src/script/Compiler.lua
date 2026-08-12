@@ -17,9 +17,9 @@
 -- passed explicitly to the stateful helpers, so calls are reentrant and
 -- cannot contaminate one another.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
-local LuaWriter = require("libs.rom.src.LuaWriter")
+local LuaWriter = require("libs.codec.src.LuaWriter")
 local Schema = require("libs.engine.src.script.Schema")
 local Validator = require("libs.engine.src.script.Validator")
 local Sha256 = require("libs.engine.src.script.Sha256")

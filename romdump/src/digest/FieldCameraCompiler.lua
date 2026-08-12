@@ -1,11 +1,11 @@
 -- Compiles ROM-derived HGSS camera records into deterministic normalized field
 -- profiles. Overlay discovery, decoding, and provenance remain separate steps.
 
-local Errors = require("libs.rom.src.Errors")
-local HgssCameraTable = require("libs.assets.src.HgssCameraTable")
+local Errors = require("libs.errors.src.Errors")
+local HgssCameraTable = require("romdump.src.digest.HgssCameraTable")
 local FieldCameraDiscovery = require("romdump.src.digest.FieldCameraDiscovery")
 local Hashing = require("romdump.src.digest.Hashing")
-local Manifest = require("data.manifests.field_cameras")
+local Manifest = require("romdump.src.config.FieldCameras")
 
 local FieldCameraCompiler = {}
 FieldCameraCompiler.COMPILER_VERSION = "field-camera-compiler-v1"

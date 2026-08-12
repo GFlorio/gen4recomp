@@ -5,8 +5,8 @@
 -- words, and reserved bytes preserved verbatim. Layout from the HGSS field
 -- building-placement record. Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
-local BinaryReader = require("libs.rom.src.BinaryReader")
+local Errors = require("libs.errors.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
 local FixedPoint = require("libs.math.src.FixedPoint")
 
 local BuildingPlacement = {}

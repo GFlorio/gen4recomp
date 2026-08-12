@@ -9,7 +9,7 @@
 -- background) may be bound, the required arrays must be present, and an
 -- object binding key may not repeat. Pure domain module: no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 local BINDINGS_MANIFEST_INVALID = "SCRIPT_BINDING_MANIFEST_INVALID"
 

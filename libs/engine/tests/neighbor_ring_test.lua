@@ -8,7 +8,7 @@
 -- release every image the earlier cells already acquired.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local PngWriter = require("libs.assets.src.PngWriter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")

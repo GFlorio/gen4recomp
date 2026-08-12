@@ -20,7 +20,9 @@ local ENV = setmetatable({}, {
 
 ---@type RunnerRoot[]
 local ROOTS = {
-  { path = "libs/rom/tests", prefix = "libs.rom.tests", layer = "unit" },
+  { path = "libs/codec/tests", prefix = "libs.codec.tests", layer = "unit" },
+  { path = "libs/errors/tests", prefix = "libs.errors.tests", layer = "unit" },
+  { path = "libs/storage/tests", prefix = "libs.storage.tests", layer = "unit" },
   { path = "libs/math/tests", prefix = "libs.math.tests", layer = "unit" },
   { path = "libs/assets/tests", prefix = "libs.assets.tests", layer = "unit" },
   { path = "libs/engine/tests", prefix = "libs.engine.tests", layer = "unit" },

@@ -6,7 +6,7 @@
 -- Layout observed from the HGSS field build-model animation list. Pure domain
 -- module.
 
-local BinaryReader = require("libs.rom.src.BinaryReader")
+local BinaryReader = require("libs.codec.src.BinaryReader")
 
 local BuildModelAnimList = {}
 

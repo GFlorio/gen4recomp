@@ -3,7 +3,7 @@
 -- it. Shows the drop instruction and the save-directory path where the private
 -- cache lands, plus live stage/progress and structured error text on failure.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 local ImportState = {}
 ImportState.__index = ImportState

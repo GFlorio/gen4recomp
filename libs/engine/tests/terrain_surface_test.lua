@@ -2,7 +2,7 @@
 
 local Assert = require("tests.support.Assert")
 local Builder = require("tests.support.BdhcBuilder")
-local HgssBdhc = require("libs.assets.src.HgssBdhc")
+local HgssBdhc = require("romdump.src.digest.HgssBdhc")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 

@@ -12,7 +12,7 @@
 --
 -- `inspectModel` is pure; `scan` walks a RomFs and is the LÖVE-side entry point.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local LandData = require("romdump.src.digest.LandData")
 local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
 

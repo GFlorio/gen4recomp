@@ -1,9 +1,9 @@
 -- Adapts a real-dump fact table into an explicit ROM-conformance suite. The
 -- suite owns an open RomFs for every ready game version between its hooks.
 
-local GameVersion = require("libs.rom.src.GameVersion")
-local RomImporter = require("libs.rom.src.RomImporter")
-local RomFs = require("libs.rom.src.RomFs")
+local GameVersion = require("romdump.src.source.GameVersion")
+local RomImporter = require("romdump.src.source.RomImporter")
+local RomFs = require("romdump.src.source.RomFs")
 
 local RomSuite = {}
 

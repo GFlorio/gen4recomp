@@ -5,10 +5,10 @@
 -- Pure domain module: it depends only on a RomFs-shaped object exposing
 -- openNarc("map_matrices"):readMember(id). No NARC handle leaks into the result.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
 local MapCellSelector = require("romdump.src.digest.MapCellSelector")
-local MapMatrix = require("libs.assets.src.MapMatrix")
+local MapMatrix = require("romdump.src.digest.MapMatrix")
 
 local MapResolver = {}
 

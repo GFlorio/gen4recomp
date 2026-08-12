@@ -8,7 +8,7 @@
 -- data. An invalid initial selection is a schema fault, never a silent
 -- reset to the first choice. Pure domain module: no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 
 local StarterChoiceTask = {}

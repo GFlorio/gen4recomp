@@ -4,7 +4,7 @@
 -- LÖVE or ROM data is involved.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldInteractionResolver = require("libs.engine.src.FieldInteractionResolver")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 

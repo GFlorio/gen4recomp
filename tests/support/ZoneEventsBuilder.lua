@@ -1,7 +1,7 @@
 -- Synthetic HGSS zone-event member builder. It mirrors all four count-prefixed
 -- record layouts and is used to verify decoding without private ROM payloads.
 
-local BinaryWriter = require("libs.rom.src.BinaryWriter")
+local BinaryWriter = require("libs.codec.src.BinaryWriter")
 
 local ZoneEventsBuilder = {}
 

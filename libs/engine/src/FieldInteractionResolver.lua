@@ -24,7 +24,7 @@
 -- that do not exist yet: they are skipped. Pure domain module:
 -- no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 

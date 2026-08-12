@@ -11,8 +11,8 @@
 -- primitives are converted to indexed triangles. Unknown opcodes are fatal
 -- with a byte offset. Pure domain module; arithmetic only.
 
-local Errors = require("libs.rom.src.Errors")
-local BinaryReader = require("libs.rom.src.BinaryReader")
+local Errors = require("libs.errors.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
 local FixedPoint = require("libs.math.src.FixedPoint")
 
 local GxDisplayList = {}

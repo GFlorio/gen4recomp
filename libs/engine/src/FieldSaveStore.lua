@@ -6,7 +6,7 @@
 -- path. Loading and saving both use the one current schema.
 
 local FieldSave = require("libs.engine.src.FieldSave")
-local SaveFs = require("libs.rom.src.SaveFs")
+local SaveFs = require("libs.storage.src.SaveFs")
 
 local FieldSaveStore = {}
 FieldSaveStore.__index = FieldSaveStore

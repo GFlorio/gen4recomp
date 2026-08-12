@@ -5,7 +5,7 @@
 -- imported fade/warp nodes have stable semantics.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local S = require("gen4.script")
 local Registry = require("libs.engine.src.script.Registry")
 local Composition = require("libs.engine.src.script.Composition")
@@ -361,7 +361,7 @@ end
 -- (never a silent "not found").
 T["real maps service warp"] = function()
   local ScriptMapsService = require("libs.engine.src.script.ScriptMapsService")
-  local Errors = require("libs.rom.src.Errors")
+  local Errors = require("libs.errors.src.Errors")
   local started = nil
   local loader = {}
   loader.load = function(self, symbol)

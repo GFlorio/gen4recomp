@@ -6,7 +6,7 @@
 -- and spare the raw-dump marker. Runs only in the ROM-gated layer.
 
 local Assert = require("tests.support.Assert")
-local CacheFs = require("libs.rom.src.CacheFs")
+local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local MapCacheWriter = require("romdump.src.digest.MapCacheWriter")

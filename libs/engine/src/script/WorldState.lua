@@ -9,7 +9,7 @@
 -- g4-field-save-v2 captures directly from this module. Pure domain module:
 -- no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local FieldEventState = require("libs.engine.src.FieldEventState")
 local ScriptRng = require("libs.engine.src.script.ScriptRng")

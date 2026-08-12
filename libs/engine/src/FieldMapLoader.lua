@@ -2,7 +2,7 @@
 -- visual, event, permission, and terrain caches remain independent; this loader
 -- only joins their validated runtime views and releases owned GPU resources.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldCoveragePlanner = require("libs.engine.src.FieldCoveragePlanner")
 local FieldGrid = require("libs.engine.src.FieldGrid")
 local FieldRegion = require("libs.engine.src.FieldRegion")

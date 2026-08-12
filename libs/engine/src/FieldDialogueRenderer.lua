@@ -9,7 +9,7 @@
 -- image was created releases the acquired images before rethrowing, and draw()
 -- balances its transform push even when drawing raises.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")

@@ -3,7 +3,7 @@
 
 local Assert = require("tests.support.Assert")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
-local CacheFs = require("libs.rom.src.CacheFs")
+local CacheFs = require("libs.storage.src.CacheFs")
 local FieldMapLoader = require("libs.engine.src.FieldMapLoader")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldRegion = require("libs.engine.src.FieldRegion")

@@ -20,7 +20,7 @@ local CollisionGrid = require("libs.engine.src.CollisionGrid")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local Matrix4 = require("libs.math.src.Matrix4")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
 local DsLighting = require("libs.engine.src.DsLighting")
 

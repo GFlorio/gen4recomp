@@ -11,7 +11,7 @@
 -- there is no "first record must cover midnight" requirement. Source: the field
 -- light tables and loader in pret/pokeheartgold.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 local FieldLightProfile = {}
 

@@ -1,17 +1,17 @@
--- Compiles the selected HGSS message banks (data/manifests/field_messages.lua)
+-- Compiles the selected HGSS message banks (romdump/src/config/FieldMessages.lua)
 -- into tokenized, lossless bank artifacts. Each bank member is validated and
 -- decrypted by FieldMessageBank (src/msgdata.c Decrypt1/Decrypt2) and then
 -- tokenized by FieldMessageTokenizer. Identity and bank selection come from
 -- the frozen map catalog and the selected-set manifest only.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local Hashing = require("romdump.src.digest.Hashing")
 local FieldMessageBank = require("romdump.src.digest.FieldMessageBank")
 local FieldMessageTokenizer = require("romdump.src.digest.FieldMessageTokenizer")
 local FieldMessageText = require("libs.assets.src.FieldMessageText")
 local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
-local charmap = require("data.reference.hgss.charmap")
-local manifest = require("data.manifests.field_messages")
+local charmap = require("romdump.src.reference.hgss.charmap")
+local manifest = require("romdump.src.config.FieldMessages")
 
 ---@class FieldMessageCompiler.Bundle
 ---@field marker string

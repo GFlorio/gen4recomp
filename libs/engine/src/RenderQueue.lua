@@ -17,7 +17,7 @@
 -- `_viewZ`-style field is written back onto the persistent items. The returned
 -- queue holds the original item tables.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local Matrix4 = require("libs.math.src.Matrix4")
 
 local RenderQueue = {}

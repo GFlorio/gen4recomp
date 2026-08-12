@@ -2,7 +2,7 @@
 -- save coordinates, the loaded permission cell, and centered render space.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 
 local T = {}

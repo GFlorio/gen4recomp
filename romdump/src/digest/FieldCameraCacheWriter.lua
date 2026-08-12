@@ -4,8 +4,8 @@
 -- stage published with the completion marker last. On any failure the stage is
 -- discarded and any previous live camera artifact is left untouched.
 
-local Errors = require("libs.rom.src.Errors")
-local ArtifactPublisher = require("libs.rom.src.ArtifactPublisher")
+local Errors = require("libs.errors.src.Errors")
+local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
 
 local FieldCameraCacheWriter = {}
 local DIR = "data/generated/field/camera"

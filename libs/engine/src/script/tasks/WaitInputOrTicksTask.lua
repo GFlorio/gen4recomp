@@ -5,7 +5,7 @@
 -- first poll and graph continuation follows one tick later). Pure domain
 -- module: no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local WaitInputTask = require("libs.engine.src.script.tasks.WaitInputTask")
 

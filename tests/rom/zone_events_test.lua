@@ -2,7 +2,7 @@
 
 local Assert = require("tests.support.Assert")
 local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
-local LuaWriter = require("libs.rom.src.LuaWriter")
+local LuaWriter = require("libs.codec.src.LuaWriter")
 
 local T = {}
 

@@ -14,7 +14,7 @@
 -- `NNS_G3D_SBC_BB`; docs/adr/field-actor-visual-representation.md.
 -- Pure domain module; no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local AlphaClassifier = require("romdump.src.digest.AlphaClassifier")
 local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
 local MapUnits = require("romdump.src.digest.MapUnits")

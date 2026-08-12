@@ -6,8 +6,8 @@
 -- the generation, RomFs, readiness, and quit boundaries are stubbed.
 
 local Assert = require("tests.support.Assert")
-local RomImporter = require("libs.rom.src.RomImporter")
-local RomFs = require("libs.rom.src.RomFs")
+local RomImporter = require("romdump.src.source.RomImporter")
+local RomFs = require("romdump.src.source.RomFs")
 local Runner = require("romdump.src.cli.Runner")
 
 local T = {}

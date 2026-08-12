@@ -11,7 +11,7 @@ local SemanticLowering = require("romdump.src.digest.script.SemanticLowering")
 local Structurer = require("romdump.src.digest.script.Structurer")
 local Verifier = require("romdump.src.digest.script.Verifier")
 local SourceCatalog = require("romdump.src.digest.script.SourceCatalog")
-local ScriptMembers = require("data.reference.hgss.script_members")
+local ScriptMembers = require("romdump.src.reference.hgss.script_members")
 local S = require("gen4.script")
 
 local T = {}
@@ -19,11 +19,11 @@ local T = {}
 local function decodeAll(romFs)
   local archive = assert(romFs:openNarc("field_scripts"))
   local catalog = {
-    sounds = require("data.reference.hgss.sndseq").byId,
+    sounds = require("romdump.src.reference.hgss.sndseq").byId,
     flags = require("data.reference.hgss.flags").byId,
     vars = require("data.reference.hgss.vars").byId,
-    maps = require("data.reference.hgss.maps").byId,
-    spawns = require("data.reference.hgss.spawns").byId,
+    maps = require("romdump.src.reference.hgss.maps").byId,
+    spawns = require("romdump.src.reference.hgss.spawns").byId,
   }
   return archive, ScriptBinaryDecoder.decodeArchive(archive, ScriptMembers.banks, "romfs/scr_seq.narc", catalog)
 end
@@ -121,7 +121,7 @@ end
 T["std member public ids"] = function(romFs)
   local stdCatalog = SourceCatalog.catalog()
   local names = {}
-  local member3 = require("data.reference.hgss.script_members").banks
+  local member3 = require("romdump.src.reference.hgss.script_members").banks
   Assert.equal(member3[3], 40)
   -- The give_item_verbose std script lives in member 3; the catalog names it.
   local giveId = nil

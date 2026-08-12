@@ -4,7 +4,7 @@
 -- record and the `MapObject` it constructs. Actors are static:
 -- `rawMovement` is preserved, never executed. Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 ---@class FieldObjectActor
 ---@field actorId string

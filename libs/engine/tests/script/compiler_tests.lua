@@ -5,7 +5,7 @@
 -- Every supported authoring construct compiles to a deterministic graph.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local S = require("gen4.script")
 local Compiler = require("libs.engine.src.script.Compiler")
 local Graph = require("libs.engine.src.script.Graph")

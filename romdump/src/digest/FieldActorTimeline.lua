@@ -14,8 +14,8 @@
 -- are read from the thresholds rather than assumed uniform: Marill's
 -- south-facing loop is deliberately uneven. Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
-local BinaryReader = require("libs.rom.src.BinaryReader")
+local Errors = require("libs.errors.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
 
 local FieldActorTimeline = {}
 

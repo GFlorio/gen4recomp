@@ -3,7 +3,7 @@
 
 local Assert = require("tests.support.Assert")
 local Builder = require("tests.support.BdhcBuilder")
-local HgssBdhc = require("libs.assets.src.HgssBdhc")
+local HgssBdhc = require("romdump.src.digest.HgssBdhc")
 local TerrainInspector = require("romdump.src.digest.TerrainInspector")
 
 local T = {}

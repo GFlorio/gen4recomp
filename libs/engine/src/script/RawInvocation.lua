@@ -9,7 +9,7 @@
 -- attributed to mod, script, node, module, and function. Pure domain module:
 -- no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local Serializable = require("libs.engine.src.script.Serializable")
 local ScriptContext = require("libs.engine.src.script.ScriptContext")

@@ -3,7 +3,7 @@
 -- CacheFs. Source of map identity is the compiled scenes, not the ROM.
 
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 local WorldManifest = {}
 

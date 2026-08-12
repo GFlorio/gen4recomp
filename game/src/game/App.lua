@@ -5,8 +5,8 @@
 -- coupling lives here and in the launcher/game UI states. Headless ROM/asset
 -- flows live in the romdump app, not here.
 
-local GameVersion = require("libs.rom.src.GameVersion")
-local RomImporter = require("libs.rom.src.RomImporter")
+local GameVersion = require("romdump.src.source.GameVersion")
+local RomImporter = require("romdump.src.source.RomImporter")
 local FieldState = require("game.src.game.FieldState")
 local ActorPreviewState = require("game.src.game.ActorPreviewState")
 local ImportState = require("game.src.launcher.ImportState")

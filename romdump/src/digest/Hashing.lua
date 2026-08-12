@@ -4,8 +4,8 @@
 -- the module never requires love, matching the guarded-global pattern used by
 -- CacheFs and MapAssetInspector. Pure otherwise.
 
-local Errors = require("libs.rom.src.Errors")
-local LuaWriter = require("libs.rom.src.LuaWriter")
+local Errors = require("libs.errors.src.Errors")
+local LuaWriter = require("libs.codec.src.LuaWriter")
 
 local Hashing = {}
 

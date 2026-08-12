@@ -1,7 +1,7 @@
 # Commercial ROMs and importer output — never commit
 *.nds
 *.sav
-.cache/
+.cache
 import-output/
 data/generated/
 romfs/

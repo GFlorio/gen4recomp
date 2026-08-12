@@ -4,7 +4,7 @@
 -- ROM bytes are involved.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local Fixture = require("tests.support.FieldActorFixture")
 local FieldActorGraphics = require("romdump.src.digest.FieldActorGraphics")
 

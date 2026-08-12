@@ -3,7 +3,7 @@
 -- and skipping cells whose header has no area mapping. No ROM, no love.
 
 local Assert = require("tests.support.Assert")
-local MapMatrix = require("libs.assets.src.MapMatrix")
+local MapMatrix = require("romdump.src.digest.MapMatrix")
 local NeighborPlan = require("romdump.src.digest.NeighborPlan")
 
 local T = {}

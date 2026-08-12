@@ -3,7 +3,7 @@
 -- All fixtures are authored token streams with a synthetic font metric table.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local DialogueLayout = require("libs.engine.src.DialogueLayout")
 
 local T = {}

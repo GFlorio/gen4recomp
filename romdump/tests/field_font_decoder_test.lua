@@ -2,8 +2,8 @@
 -- The fixtures are hand-authored byte strings, not ROM data.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
-local BinaryWriter = require("libs.rom.src.BinaryWriter")
+local Errors = require("libs.errors.src.Errors")
+local BinaryWriter = require("libs.codec.src.BinaryWriter")
 local FieldFontDecoder = require("romdump.src.digest.FieldFontDecoder")
 
 local T = {}

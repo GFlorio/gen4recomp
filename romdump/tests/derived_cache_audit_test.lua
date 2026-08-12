@@ -2,7 +2,7 @@
 -- partial cache without invoking the expensive source compilers.
 
 local Assert = require("tests.support.Assert")
-local CacheFs = require("libs.rom.src.CacheFs")
+local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local DerivedCacheAudit = require("romdump.src.DerivedCacheAudit")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")

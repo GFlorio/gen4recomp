@@ -5,7 +5,7 @@
 -- unsigned 16-bit integers with clear/zero defaults; no symbolic decomp name is
 -- required at runtime. Pure domain module: no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 ---@class FieldEventState
 ---@field private _flags table<integer, boolean>

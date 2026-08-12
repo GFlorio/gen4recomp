@@ -5,8 +5,8 @@
 -- Layout recovered from pret/pokeheartgold field area-data handling.
 -- Pure domain module; decode() returns (area | nil, err).
 
-local Errors = require("libs.rom.src.Errors")
-local BinaryReader = require("libs.rom.src.BinaryReader")
+local Errors = require("libs.errors.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
 
 local AreaData = {}
 

@@ -6,9 +6,9 @@
 -- completion.
 
 local Assert = require("tests.support.Assert")
-local CacheFs = require("libs.rom.src.CacheFs")
+local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
-local LuaWriter = require("libs.rom.src.LuaWriter")
+local LuaWriter = require("libs.codec.src.LuaWriter")
 local ScriptCache = require("libs.assets.src.ScriptCache")
 local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
 local Registry = require("libs.engine.src.script.Registry")

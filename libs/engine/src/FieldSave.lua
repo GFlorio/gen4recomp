@@ -7,7 +7,7 @@
 -- covers stable simulation state only; no dialogue, facing override, or
 -- actor position is persisted. This is not a Nintendo DS save format.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local FieldEventState = require("libs.engine.src.FieldEventState")
 local WarpSystem = require("libs.engine.src.WarpSystem")

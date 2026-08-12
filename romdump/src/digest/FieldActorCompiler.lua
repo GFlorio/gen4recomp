@@ -12,8 +12,8 @@
 -- descriptor, and the descriptor's model/timeline keys resolve through the
 -- overlay's own key tables. No spriteId -> member table is hardcoded.
 
-local Errors = require("libs.rom.src.Errors")
-local ZoneEvents = require("libs.assets.src.ZoneEvents")
+local Errors = require("libs.errors.src.Errors")
+local ZoneEvents = require("romdump.src.digest.ZoneEvents")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
 local Hashing = require("romdump.src.digest.Hashing")

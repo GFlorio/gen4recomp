@@ -1,7 +1,7 @@
 -- Waits for the logical auxiliary field UI to reach a requested visibility.
 -- The state owner lives in the field runtime, so this task owns no resource.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 
 local AuxiliaryUiTask = {}

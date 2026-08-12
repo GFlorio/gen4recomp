@@ -3,7 +3,7 @@
 -- even when its shared descriptor carries unusable walking slots.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local Fixture = require("tests.support.FieldActorFixture")
 local FieldActorFrames = require("romdump.src.digest.FieldActorFrames")
 local FieldActorTimeline = require("romdump.src.digest.FieldActorTimeline")

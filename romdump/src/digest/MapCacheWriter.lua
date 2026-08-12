@@ -13,12 +13,12 @@
 -- same bytes) and any unreferenced partial garbage from a failed build is
 -- inert. The map's readiness never depends on them being absent.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local PngWriter = require("libs.assets.src.PngWriter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local PermissionGrid = require("libs.assets.src.PermissionGrid")
-local ArtifactPublisher = require("libs.rom.src.ArtifactPublisher")
+local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
 
 local MapCacheWriter = {}
 

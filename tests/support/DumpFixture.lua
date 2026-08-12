@@ -9,13 +9,13 @@
 
 local NdsBuilder = require("tests.support.NdsBuilder")
 local NarcBuilder = require("tests.support.NarcBuilder")
-local NdsRom = require("libs.rom.src.NdsRom")
-local RomSource = require("libs.rom.src.RomSource")
-local CacheFs = require("libs.rom.src.CacheFs")
+local NdsRom = require("romdump.src.source.NdsRom")
+local RomSource = require("romdump.src.source.RomSource")
+local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
-local GameVersion = require("libs.rom.src.GameVersion")
-local RomExtractor = require("libs.rom.src.RomExtractor")
-local Hgss = require("data.manifests.hgss")
+local GameVersion = require("romdump.src.source.GameVersion")
+local RomExtractor = require("romdump.src.source.RomExtractor")
+local HgssArchives = require("romdump.src.config.HgssArchives")
 
 local DumpFixture = {}
 
@@ -103,7 +103,7 @@ function DumpFixture.extract(opts)
   local rom, romErr = DumpFixture.openRom(opts.spec)
   assert(rom, "fixture ROM failed to open: " .. tostring(romErr))
   local cache = CacheFs.forVersion(versionId, backend)
-  local extractor = RomExtractor.new(rom, GameVersion.info(versionId), cache, Hgss, opts.progress)
+  local extractor = RomExtractor.new(rom, GameVersion.info(versionId), cache, HgssArchives, opts.progress)
   local report, err = extractor:run()
   return { cache = cache, backend = backend, report = report, err = err, rom = rom, versionId = versionId }
 end

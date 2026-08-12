@@ -16,8 +16,8 @@
 -- G4RECOMP_DERIVED_CACHE_READY. A ready raw dump alone therefore never claims a
 -- current derived cache.
 
-local GameVersion = require("libs.rom.src.GameVersion")
-local RomImporter = require("libs.rom.src.RomImporter")
+local GameVersion = require("romdump.src.source.GameVersion")
+local RomImporter = require("romdump.src.source.RomImporter")
 
 local Capabilities = {}
 

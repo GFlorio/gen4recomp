@@ -56,7 +56,7 @@ end
 function T.failures_are_detailed_with_the_slowest_one_named()
   local lines = Report.lines(run({
     {
-      module = "libs.rom.tests.a_test",
+      module = "libs.codec.tests.a_test",
       test = "quick",
       status = "fail",
       message = "boom quick",
@@ -64,7 +64,7 @@ function T.failures_are_detailed_with_the_slowest_one_named()
       duration = 0.01,
     },
     {
-      module = "libs.rom.tests.b_test",
+      module = "libs.codec.tests.b_test",
       test = "slow",
       status = "fail",
       message = "boom slow",
@@ -76,9 +76,9 @@ function T.failures_are_detailed_with_the_slowest_one_named()
     byLayer = { unit = { passed = 0, failed = 2, skipped = 0, duration = 0.51 } },
   }))
 
-  Assert.isTrue(contains(lines, "FAIL libs.rom.tests.a_test :: quick"), "names each failure")
+  Assert.isTrue(contains(lines, "FAIL libs.codec.tests.a_test :: quick"), "names each failure")
   Assert.isTrue(contains(lines, "boom slow"), "keeps failure messages")
-  Assert.isTrue(contains(lines, "slowest failing: libs.rom.tests.b_test :: slow"), "names the slowest failure")
+  Assert.isTrue(contains(lines, "slowest failing: libs.codec.tests.b_test :: slow"), "names the slowest failure")
   Assert.isFalse(contains(lines, "slowest 1:"), "no slowest-five list while red")
 end
 
@@ -86,7 +86,7 @@ function T.green_run_lists_the_slowest_passing_tests_and_capabilities()
   local results = {}
   for index = 1, 6 do
     results[index] = {
-      module = "libs.rom.tests.a_test",
+      module = "libs.codec.tests.a_test",
       test = "case " .. index,
       status = "pass",
       layer = "unit",
@@ -100,8 +100,8 @@ function T.green_run_lists_the_slowest_passing_tests_and_capabilities()
     capabilities = { graphics = true, rom_dump = true },
   }))
 
-  Assert.isTrue(contains(lines, "slowest 1: libs.rom.tests.a_test :: case 6"), "slowest first")
-  Assert.isTrue(contains(lines, "slowest 5: libs.rom.tests.a_test :: case 2"), "five entries")
+  Assert.isTrue(contains(lines, "slowest 1: libs.codec.tests.a_test :: case 6"), "slowest first")
+  Assert.isTrue(contains(lines, "slowest 5: libs.codec.tests.a_test :: case 2"), "five entries")
   Assert.isFalse(contains(lines, "slowest 6:"), "at most five entries")
   Assert.isTrue(contains(lines, "capabilities: graphics, rom_dump"), "names detected capabilities")
 end

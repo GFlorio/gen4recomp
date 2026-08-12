@@ -7,7 +7,7 @@
 -- to the compiler. Validation is strict-only: unknown fields are rejected
 -- unconditionally.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local Schema = require("libs.engine.src.script.Schema")
 

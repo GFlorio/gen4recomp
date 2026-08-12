@@ -5,7 +5,7 @@
 -- resizing never repaginates. EOS is terminal: the first EOS ends pagination
 -- and every later token is ignored.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 ---@class DialogueLayout
 local DialogueLayout = {}

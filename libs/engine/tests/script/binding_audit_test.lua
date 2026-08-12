@@ -4,7 +4,7 @@
 -- the type-2 hidden-item background family are noninteractive by the data.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local BindingAudit = require("libs.engine.src.script.BindingAudit")
 
 local T = {}

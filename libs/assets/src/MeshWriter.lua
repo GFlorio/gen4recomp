@@ -8,8 +8,8 @@
 --   indices:  u16 (vertexCount <= 65535) or u32, zero-based
 -- Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
-local BinaryWriter = require("libs.rom.src.BinaryWriter")
+local Errors = require("libs.errors.src.Errors")
+local BinaryWriter = require("libs.codec.src.BinaryWriter")
 
 local MeshWriter = {}
 

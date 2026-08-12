@@ -12,7 +12,7 @@
 -- object and installs only after the entire bucket has restored. Input
 -- edges are never serialized. Pure domain module: no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local ScriptTask = require("libs.engine.src.script.ScriptTask")
 local ScriptEnvironment = require("libs.engine.src.script.ScriptEnvironment")

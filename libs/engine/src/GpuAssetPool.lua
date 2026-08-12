@@ -11,7 +11,7 @@
 -- neighbors, materials, bounds, or transforms; those stay in the loaders.
 
 local SceneMesh = require("libs.engine.src.SceneMesh")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 ---@class GpuAssetPool
 ---@field cacheFs table

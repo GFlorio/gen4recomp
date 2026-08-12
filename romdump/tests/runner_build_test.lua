@@ -5,7 +5,7 @@
 -- belongs to CacheBuilder and its writer tests.
 
 local Assert = require("tests.support.Assert")
-local RomImporter = require("libs.rom.src.RomImporter")
+local RomImporter = require("romdump.src.source.RomImporter")
 local Runner = require("romdump.src.cli.Runner")
 
 local T = {}
@@ -143,12 +143,12 @@ function T.completed_import_with_build_cache_runs_audit_build_then_boot_and_disp
   local realQuit = love.event.quit
   local realOpts, realImporter = Runner.opts, Runner.importer
   local saved = {
-    dumpAudit = package.loaded["libs.rom.src.DumpAudit"],
+    dumpAudit = package.loaded["romdump.src.source.DumpAudit"],
     builder = package.loaded["romdump.src.CacheBuilder"],
     runtime = package.loaded["game.src.game.FieldRuntime"],
   }
   local calls, exitCode, buildOptions
-  package.loaded["libs.rom.src.DumpAudit"] = {
+  package.loaded["romdump.src.source.DumpAudit"] = {
     run = function(versionId)
       calls[#calls + 1] = "audit:" .. versionId
       return { ok = true }
@@ -194,7 +194,7 @@ function T.completed_import_with_build_cache_runs_audit_build_then_boot_and_disp
   end, debug.traceback)
   love.event.quit = realQuit
   Runner.opts, Runner.importer = realOpts, realImporter
-  package.loaded["libs.rom.src.DumpAudit"] = saved.dumpAudit
+  package.loaded["romdump.src.source.DumpAudit"] = saved.dumpAudit
   package.loaded["romdump.src.CacheBuilder"] = saved.builder
   package.loaded["game.src.game.FieldRuntime"] = saved.runtime
   if not ok then
@@ -213,11 +213,11 @@ function T.completed_import_audit_failure_exits_nonzero_without_building()
   local realQuit = love.event.quit
   local realOpts, realImporter = Runner.opts, Runner.importer
   local saved = {
-    dumpAudit = package.loaded["libs.rom.src.DumpAudit"],
+    dumpAudit = package.loaded["romdump.src.source.DumpAudit"],
     builder = package.loaded["romdump.src.CacheBuilder"],
   }
   local calls, exitCode
-  package.loaded["libs.rom.src.DumpAudit"] = {
+  package.loaded["romdump.src.source.DumpAudit"] = {
     run = function()
       calls[#calls + 1] = "audit"
       return { version = "heartgold", ok = false, checks = {} }
@@ -252,7 +252,7 @@ function T.completed_import_audit_failure_exits_nonzero_without_building()
   end, debug.traceback)
   love.event.quit = realQuit
   Runner.opts, Runner.importer = realOpts, realImporter
-  package.loaded["libs.rom.src.DumpAudit"] = saved.dumpAudit
+  package.loaded["romdump.src.source.DumpAudit"] = saved.dumpAudit
   package.loaded["romdump.src.CacheBuilder"] = saved.builder
   if not ok then
     error(err, 0)
@@ -268,12 +268,12 @@ function T.completed_import_build_failure_exits_nonzero_without_booting()
   local realQuit = love.event.quit
   local realOpts, realImporter = Runner.opts, Runner.importer
   local saved = {
-    dumpAudit = package.loaded["libs.rom.src.DumpAudit"],
+    dumpAudit = package.loaded["romdump.src.source.DumpAudit"],
     builder = package.loaded["romdump.src.CacheBuilder"],
     runtime = package.loaded["game.src.game.FieldRuntime"],
   }
   local calls, exitCode
-  package.loaded["libs.rom.src.DumpAudit"] = {
+  package.loaded["romdump.src.source.DumpAudit"] = {
     run = function(versionId)
       calls[#calls + 1] = "audit:" .. versionId
       return { ok = true }
@@ -314,7 +314,7 @@ function T.completed_import_build_failure_exits_nonzero_without_booting()
   end, debug.traceback)
   love.event.quit = realQuit
   Runner.opts, Runner.importer = realOpts, realImporter
-  package.loaded["libs.rom.src.DumpAudit"] = saved.dumpAudit
+  package.loaded["romdump.src.source.DumpAudit"] = saved.dumpAudit
   package.loaded["romdump.src.CacheBuilder"] = saved.builder
   package.loaded["game.src.game.FieldRuntime"] = saved.runtime
   if not ok then
@@ -359,13 +359,13 @@ end
 function T.check_dump_audits_every_ready_version_once()
   local realIsReady, realQuit = RomImporter.isReady, love.event.quit
   local realOpts, realImporter = Runner.opts, Runner.importer
-  local saved = package.loaded["libs.rom.src.DumpAudit"]
+  local saved = package.loaded["romdump.src.source.DumpAudit"]
   local calls, exitCodes = {}, {}
   local verdicts = {
     heartgold = { ok = true },
     soulsilver = { ok = false },
   }
-  package.loaded["libs.rom.src.DumpAudit"] = {
+  package.loaded["romdump.src.source.DumpAudit"] = {
     run = function(version)
       calls[#calls + 1] = "audit:" .. version
       return verdicts[version]
@@ -387,7 +387,7 @@ function T.check_dump_audits_every_ready_version_once()
   local ok2, err2 = xpcall(Runner._runCheckDump, debug.traceback)
   RomImporter.isReady, love.event.quit = realIsReady, realQuit
   Runner.opts, Runner.importer = realOpts, realImporter
-  package.loaded["libs.rom.src.DumpAudit"] = saved
+  package.loaded["romdump.src.source.DumpAudit"] = saved
   if not ok1 then
     error(err1, 0)
   end

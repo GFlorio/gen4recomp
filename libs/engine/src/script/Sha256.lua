@@ -7,7 +7,7 @@
 -- HASHING_UNAVAILABLE failure code. This is a fingerprint, not a security
 -- boundary.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 local Sha256 = {}
 

@@ -21,13 +21,13 @@
 
 local AreaData = require("romdump.src.digest.AreaData")
 local LandData = require("romdump.src.digest.LandData")
-local HgssBdhc = require("libs.assets.src.HgssBdhc")
+local HgssBdhc = require("romdump.src.digest.HgssBdhc")
 local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
 local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
 local ModelAssetCompiler = require("romdump.src.digest.ModelAssetCompiler")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local Hashing = require("romdump.src.digest.Hashing")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 local NeighborChunkCompiler = {}
 

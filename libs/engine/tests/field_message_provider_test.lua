@@ -2,10 +2,10 @@
 -- substitution formatting, and eviction.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
 local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
-local CacheFs = require("libs.rom.src.CacheFs")
+local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 
 local T = {}

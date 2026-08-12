@@ -2,7 +2,7 @@
 -- never opens an atlas or creates a graphics resource; presentation owns that
 -- work through FieldActorAssetProvider.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 
 ---@class FieldActorDefinitionProvider: FieldActorAssets

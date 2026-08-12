@@ -7,7 +7,7 @@
 -- `advance`), and reports typing progress from the controller's status.
 -- Pure domain module: no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
 

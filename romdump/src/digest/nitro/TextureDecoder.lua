@@ -8,7 +8,7 @@
 -- the material without re-scanning the texture. Pure domain module, arithmetic
 -- bit extraction only.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FixedPoint = require("libs.math.src.FixedPoint")
 
 local TextureDecoder = {}

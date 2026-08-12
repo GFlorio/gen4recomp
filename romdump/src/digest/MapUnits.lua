@@ -8,7 +8,7 @@
 -- domain module. The axis convention is provisional and centralized here so a
 -- later render calibration changes exactly one place.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 local MapUnits = {}
 

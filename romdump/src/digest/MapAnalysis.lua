@@ -4,7 +4,7 @@
 
 local MapCatalog = require("romdump.src.digest.MapCatalog")
 local MapCellSelector = require("romdump.src.digest.MapCellSelector")
-local MapMatrix = require("libs.assets.src.MapMatrix")
+local MapMatrix = require("romdump.src.digest.MapMatrix")
 
 local MapAnalysis = {}
 

@@ -9,7 +9,7 @@
 -- action is an attributed fault: the plan must never skip source commands.
 -- Pure domain module: no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local MovementCalibration = require("libs.engine.src.script.tasks.MovementCalibration")
 

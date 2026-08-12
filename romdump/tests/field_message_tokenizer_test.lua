@@ -3,10 +3,10 @@
 -- Fixture text is authored; retail message bytes never appear.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local Tokenizer = require("romdump.src.digest.FieldMessageTokenizer")
 local FieldMessageText = require("libs.assets.src.FieldMessageText")
-local charmap = require("data.reference.hgss.charmap")
+local charmap = require("romdump.src.reference.hgss.charmap")
 
 local T = {}
 

@@ -4,7 +4,7 @@
 -- MessageTemplate access, and substitution formatting that never mutates the
 -- template. Pure module: CacheFs-shaped IO only, no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
 local FieldMessageText = require("libs.assets.src.FieldMessageText")
 

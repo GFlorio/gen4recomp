@@ -7,9 +7,9 @@ local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
 local FieldMapDataCacheWriter = require("romdump.src.digest.FieldMapDataCacheWriter")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldMapDataInspector = require("romdump.src.digest.FieldMapDataInspector")
-local CacheFs = require("libs.rom.src.CacheFs")
+local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
-local LuaWriter = require("libs.rom.src.LuaWriter")
+local LuaWriter = require("libs.codec.src.LuaWriter")
 
 local T = {}
 

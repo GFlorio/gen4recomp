@@ -6,8 +6,8 @@
 -- model, and it acquires and releases through FieldActorAssetProvider exactly
 -- like the runtime does.
 
-local CacheFs = require("libs.rom.src.CacheFs")
-local Errors = require("libs.rom.src.Errors")
+local CacheFs = require("libs.storage.src.CacheFs")
+local Errors = require("libs.errors.src.Errors")
 local FieldActorAssetProvider = require("libs.engine.src.FieldActorAssetProvider")
 local FieldSession = require("libs.engine.src.FieldSession")
 

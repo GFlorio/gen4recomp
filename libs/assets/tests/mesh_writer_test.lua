@@ -2,9 +2,9 @@
 -- source byte, index width selection, and rejection of empty / malformed batches.
 
 local Assert = require("tests.support.Assert")
-local BinaryReader = require("libs.rom.src.BinaryReader")
+local BinaryReader = require("libs.codec.src.BinaryReader")
 local MeshWriter = require("libs.assets.src.MeshWriter")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 local T = {}
 

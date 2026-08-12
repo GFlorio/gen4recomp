@@ -8,7 +8,7 @@
 -- non-UI script saves and resumes with an identical per-tick node/task trace.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local S = require("gen4.script")
 local Registry = require("libs.engine.src.script.Registry")
 local Composition = require("libs.engine.src.script.Composition")

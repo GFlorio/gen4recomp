@@ -11,7 +11,7 @@
 --
 -- Pure domain module: matrix arithmetic only, no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldActorPose = require("libs.engine.src.FieldActorPose")
 local Matrix4 = require("libs.math.src.Matrix4")
 local DsLighting = require("libs.engine.src.DsLighting")

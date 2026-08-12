@@ -5,7 +5,7 @@
 -- never mutates the caller's draw records.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local RenderQueue = require("libs.engine.src.RenderQueue")
 local Matrix4 = require("libs.math.src.Matrix4")
 

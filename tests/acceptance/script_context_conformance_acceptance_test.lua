@@ -21,7 +21,7 @@
 --   fault with attribution instead of degrading.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local S = require("gen4.script")
 local RawModules = require("libs.engine.src.script.RawModules")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")

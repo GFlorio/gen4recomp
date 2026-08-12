@@ -20,7 +20,7 @@ local T = {
 
 -- Production trees only, matching the D11 scan.
 local PRODUCTION_ROOTS = {
-  "libs/rom/src",
+  "libs/codec/src",
   "libs/assets/src",
   "libs/engine/src",
   "libs/math/src",

@@ -6,7 +6,7 @@
 -- instances. Value and condition evaluation also live here because task
 -- implementations share them. Pure domain module: no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local ScriptEnvironment = require("libs.engine.src.script.ScriptEnvironment")
 local RawInvocation = require("libs.engine.src.script.RawInvocation")

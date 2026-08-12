@@ -22,7 +22,7 @@ local T = {
 -- fixture suite (tests/rom/pre_script_interactions_test.lua) are deleted by
 -- the implementation; the scan must not depend on their fate.
 local PRODUCTION_ROOTS = {
-  "libs/rom/src",
+  "libs/codec/src",
   "libs/assets/src",
   "libs/engine/src",
   "libs/math/src",

@@ -7,7 +7,7 @@
 -- 2083) and zlib/DEFLATE (RFC 1950/1951) specifications.
 
 local bit = require("bit")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 local PngWriter = {}
 

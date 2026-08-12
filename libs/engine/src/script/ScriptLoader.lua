@@ -11,7 +11,7 @@
 -- io-backed repo filesystem for the override tree outside the LÖVE source
 -- mount. Pure domain module: no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local ScriptCache = require("libs.assets.src.ScriptCache")
 local Validator = require("libs.engine.src.script.Validator")

@@ -4,7 +4,7 @@
 -- carries directional slots that do not exist in that resource (HGSS rocks use
 -- this shape). Pure domain module; no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldActorTimeline = require("romdump.src.digest.FieldActorTimeline")
 
 local FieldActorFrames = {}

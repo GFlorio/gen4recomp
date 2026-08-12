@@ -2,14 +2,14 @@
 -- synthetic encrypted bank member.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldMessageBank = require("romdump.src.digest.FieldMessageBank")
 local FieldMessageCompiler = require("romdump.src.digest.FieldMessageCompiler")
 local FieldMessageCacheWriter = require("romdump.src.digest.FieldMessageCacheWriter")
 local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
-local CacheFs = require("libs.rom.src.CacheFs")
+local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
-local LuaWriter = require("libs.rom.src.LuaWriter")
+local LuaWriter = require("libs.codec.src.LuaWriter")
 
 local T = {}
 

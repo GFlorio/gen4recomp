@@ -8,7 +8,7 @@
 -- against the frozen charmap reference by the importer tests. Pure module:
 -- no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 local FieldMessageText = {}
 
@@ -42,7 +42,7 @@ FieldMessageText.UNK_FF02 = 0xFF02
 
 -- The marker name registry: family bases for STRVAR families, plain codes
 -- otherwise. Names are exactly what the marker syntax accepts and must stay in
--- sync with data/reference/hgss/charmap.lua controlNames (verified by the
+-- sync with romdump/src/reference/hgss/charmap.lua controlNames (verified by the
 -- importer tests).
 FieldMessageText.controlNames = {
   [0x0100] = "STRVAR_1",

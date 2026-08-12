@@ -8,8 +8,8 @@
 -- consumes the compiled font definition, never this digester. Pure module: no
 -- love dependency.
 
-local BinaryReader = require("libs.rom.src.BinaryReader")
-local Errors = require("libs.rom.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
+local Errors = require("libs.errors.src.Errors")
 
 ---@class FieldFontDecoder
 ---@field FALLBACK_GLYPH_INDEX integer

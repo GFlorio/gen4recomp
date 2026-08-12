@@ -1,8 +1,8 @@
 -- Discovers the HGSS field-camera table through the duplicate RAM pointers in
 -- ARM9 overlay 1. This keeps version-specific offsets out of the binary parser.
 
-local BinaryReader = require("libs.rom.src.BinaryReader")
-local Errors = require("libs.rom.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
+local Errors = require("libs.errors.src.Errors")
 
 local FieldCameraDiscovery = {}
 

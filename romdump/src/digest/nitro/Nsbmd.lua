@@ -16,8 +16,8 @@
 --   SBC:           packed byte stream, MAT(0x04)/SHP(0x05) form draw calls
 -- Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
-local BinaryReader = require("libs.rom.src.BinaryReader")
+local Errors = require("libs.errors.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local NitroFile = require("romdump.src.digest.nitro.NitroFile")
 local NitroDict = require("romdump.src.digest.nitro.NitroDict")

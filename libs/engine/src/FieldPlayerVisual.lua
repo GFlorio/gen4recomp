@@ -14,7 +14,7 @@
 -- Pure domain module: no love dependency and no resource ownership. The caller
 -- acquires the avatar's visual from FieldActorAssetProvider and hands it in.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 ---@class FieldPlayerVisual
 ---@field actorId string

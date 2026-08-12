@@ -3,12 +3,12 @@
 -- can drive imports and verification without a human. Synchronous commands quit
 -- inside load(); the ROM import is a coroutine pumped by update() so progress
 -- stays responsive. All love coupling lives here; the underlying work is done
--- by libs/rom and libs/assets.
+-- by the romdump app and the shared libraries under libs/
 
-local GameVersion = require("libs.rom.src.GameVersion")
-local RomImporter = require("libs.rom.src.RomImporter")
-local RomFs = require("libs.rom.src.RomFs")
-local Errors = require("libs.rom.src.Errors")
+local GameVersion = require("romdump.src.source.GameVersion")
+local RomImporter = require("romdump.src.source.RomImporter")
+local RomFs = require("romdump.src.source.RomFs")
+local Errors = require("libs.errors.src.Errors")
 
 local Runner = {}
 
@@ -108,7 +108,7 @@ end
 -- dependency hashes; an explicit cache build owns freshness.
 function Runner._runCheckDerivedCache()
   local DerivedCacheAudit = require("romdump.src.DerivedCacheAudit")
-  local CacheFs = require("libs.rom.src.CacheFs")
+  local CacheFs = require("libs.storage.src.CacheFs")
   local targets = readyVersions()
   if #targets == 0 then
     print("check-derived-cache: no ready dump")
@@ -222,7 +222,7 @@ end
 -- Audit every ready version and exit 0 only if all pass. Proves the runtime
 -- boots from the private cache without the ROM.
 function Runner._runCheckDump()
-  local DumpAudit = require("libs.rom.src.DumpAudit")
+  local DumpAudit = require("romdump.src.source.DumpAudit")
   local targets = readyVersions()
   if #targets == 0 then
     print("check-dump: no ready version to audit")
@@ -392,7 +392,7 @@ end
 -- the verification runtime, disposed on this same path.
 ---@param status table
 function Runner._finishImport(status)
-  local DumpAudit = require("libs.rom.src.DumpAudit")
+  local DumpAudit = require("romdump.src.source.DumpAudit")
   local versionId = status.versionId
   assert(type(versionId) == "string", "import must report versionId")
   local audit = DumpAudit.run(versionId)

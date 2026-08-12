@@ -5,7 +5,7 @@
 -- initialization, and is applied only when an event store is first created.
 -- Pure domain module: no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 local FieldScenario = {}
 

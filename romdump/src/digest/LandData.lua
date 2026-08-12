@@ -9,8 +9,8 @@
 -- domain module; decode() returns (land | nil, err). The BGS and BDHC payloads
 -- are preserved byte-for-byte and left opaque for this slice.
 
-local Errors = require("libs.rom.src.Errors")
-local BinaryReader = require("libs.rom.src.BinaryReader")
+local Errors = require("libs.errors.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
 local PermissionGrid = require("libs.assets.src.PermissionGrid")
 local BuildingPlacement = require("romdump.src.digest.BuildingPlacement")
 

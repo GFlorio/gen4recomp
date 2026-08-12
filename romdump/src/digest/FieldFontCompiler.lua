@@ -5,14 +5,14 @@
 -- map to palette slots via GenerateFontHalfRowLookupTable (src/text.c):
 -- 0 = transparent, 1 = foreground, 2 = shadow, 3 = background.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local Hashing = require("romdump.src.digest.Hashing")
 local PngWriter = require("libs.assets.src.PngWriter")
 local FieldFontDecoder = require("romdump.src.digest.FieldFontDecoder")
 local FieldMessageCompiler = require("romdump.src.digest.FieldMessageCompiler")
-local charmap = require("data.reference.hgss.charmap")
+local charmap = require("romdump.src.reference.hgss.charmap")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
-local manifest = require("data.manifests.field_messages")
+local manifest = require("romdump.src.config.FieldMessages")
 
 local FieldFontCompiler = {}
 

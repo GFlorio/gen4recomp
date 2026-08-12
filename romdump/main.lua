@@ -1,7 +1,7 @@
 ---@diagnostic disable: duplicate-set-field
 -- ROM dump CLI entry point. This app is its own LÖVE root (`love romdump/`);
 -- the repo root (the source base directory) is added to package.path first so
--- `require` resolves libs by their full repo-relative path (libs.rom.*,
+-- `require` resolves libs by their full repo-relative path (romdump.src.*,
 -- libs.assets.*) independent of the working directory. Cli parses the argv into
 -- options; Runner executes the selected headless command and exits with a
 -- status code (pumped across frames for the async ROM import).

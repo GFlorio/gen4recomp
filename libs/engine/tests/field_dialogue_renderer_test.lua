@@ -6,8 +6,8 @@
 -- smokes live in field_dialogue_renderer_graphics_test.lua.
 
 local Assert = require("tests.support.Assert")
-local CacheFs = require("libs.rom.src.CacheFs")
-local Errors = require("libs.rom.src.Errors")
+local CacheFs = require("libs.storage.src.CacheFs")
+local Errors = require("libs.errors.src.Errors")
 local FakeCache = require("tests.support.FakeCache")
 local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
 local FieldDialogueRenderer = require("libs.engine.src.FieldDialogueRenderer")

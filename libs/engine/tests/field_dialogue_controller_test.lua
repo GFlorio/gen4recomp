@@ -5,7 +5,7 @@
 -- lifecycle runs without LÖVE.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldDialogueController = require("libs.engine.src.FieldDialogueController")
 
 local T = {}

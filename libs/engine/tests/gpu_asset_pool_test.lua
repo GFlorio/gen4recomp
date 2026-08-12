@@ -7,7 +7,7 @@
 -- construction needs a real graphics context, so this is a graphics suite.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local PngWriter = require("libs.assets.src.PngWriter")

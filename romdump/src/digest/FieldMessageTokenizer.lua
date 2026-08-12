@@ -7,7 +7,7 @@
 -- names come from the frozen charmap reference; widths are resolved later from
 -- the font, never here. Pure module: no love dependency.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldMessageText = require("libs.assets.src.FieldMessageText")
 
 local FieldMessageTokenizer = {}
@@ -107,7 +107,7 @@ local function tokenizeUnits(units, charmap, opts)
 end
 
 -- units: decrypted u16 code units (FieldMessageBank output). charmap: the
--- frozen reference (data/reference/hgss/charmap.lua). Returns the lossless
+-- frozen reference (romdump/src/reference/hgss/charmap.lua). Returns the lossless
 -- token stream; raises MESSAGE_CONTROL_TRUNCATED / MESSAGE_GLYPH_UNMAPPED.
 function FieldMessageTokenizer.tokenize(units, charmap, opts)
   assert(type(units) == "table", "tokenize requires a code-unit array")

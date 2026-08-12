@@ -9,7 +9,7 @@
 -- name, deterministic inspection output, and the deterministic edge/reach
 -- traversal used by the compiler.
 
-local LuaWriter = require("libs.rom.src.LuaWriter")
+local LuaWriter = require("libs.codec.src.LuaWriter")
 
 local Graph = {}
 

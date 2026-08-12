@@ -3,7 +3,7 @@
 -- with embedded TEX0 data and do not use the mmodel billboard descriptor table.
 -- The original loader is `ov01_021FD2EC` / NARC 103 in pokeheartgold.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local AlphaClassifier = require("romdump.src.digest.AlphaClassifier")
 local MaterialCompiler = require("romdump.src.digest.MaterialCompiler")
 local MeshCompiler = require("romdump.src.digest.MeshCompiler")

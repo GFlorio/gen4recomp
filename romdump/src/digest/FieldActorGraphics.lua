@@ -27,8 +27,8 @@
 --   bits 5-9   map-object callback family (behavior, not an asset selector)
 --   bits 10-15 visual descriptor index    (the asset selector)
 
-local Errors = require("libs.rom.src.Errors")
-local BinaryReader = require("libs.rom.src.BinaryReader")
+local Errors = require("libs.errors.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
 
 local FieldActorGraphics = {}
 

@@ -6,7 +6,7 @@
 -- field_dialogue_renderer_test.lua.
 
 local Assert = require("tests.support.Assert")
-local CacheFs = require("libs.rom.src.CacheFs")
+local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")

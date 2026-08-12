@@ -2,7 +2,7 @@
 -- MAT message decoder.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FieldMessageBank = require("romdump.src.digest.FieldMessageBank")
 
 local T = {}
