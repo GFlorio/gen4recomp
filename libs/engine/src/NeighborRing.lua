@@ -16,6 +16,7 @@
 local Matrix4 = require("libs.math.src.Matrix4")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
 local DsLighting = require("libs.engine.src.DsLighting")
+local PolygonState = require("libs.assets.src.PolygonState")
 
 local NeighborRing = {}
 
@@ -52,7 +53,18 @@ end
 -- Build the ring against an already-created pool, inside the transaction
 -- load() opens. Raises on any failure; the transaction releases the pool in
 -- that case. Draws carry no submission numbers: the final scene assembly
--- (SceneAssembly) orders every draw in source order, positionally.
+-- (SceneAssembly) orders every draw in source order, positionally. The
+-- draw-state field set is the shared PolygonState schema; the defaults cover
+-- cell records
+-- that predate it (derived data never needs them; lightMask has no default
+-- -- a missing mask must never mean "all lights").
+local DRAW_STATE_DEFAULTS = {
+  cullMode = "back",
+  polygonMode = "modulation",
+  polygonId = 0,
+  translucentDepthWrite = false,
+  depthEqual = false,
+}
 local function buildRing(pool, descriptors)
   -- One draw per (cell, batch), with the cell's 32-tile world offset baked into
   -- the transform and the sort center.
@@ -64,21 +76,24 @@ local function buildRing(pool, descriptors)
     for _, batch in ipairs(cell.batches) do
       local entry = pool:meshFor(batch.geometry)
       local c = modelCenter(entry.verts)
-      draws[#draws + 1] = {
+      ---@type table<string, any>
+      local draw = {
         mesh = entry.mesh,
         material = materials[batch.material],
         transform = transform,
         alphaClass = batch.alphaClass or "opaque",
-        cullMode = batch.cullMode or "back",
         alphaCutoff = 0.5 / 255,
-        polygonAlpha = batch.polygonAlpha ~= nil and (batch.polygonAlpha / DsLighting.RGB5_MAX) or 1.0,
-        polygonMode = batch.polygonMode or "modulation",
-        lightMask = batch.lightMask,
-        polygonId = batch.polygonId or 0,
-        translucentDepthWrite = batch.translucentDepthWrite or false,
-        depthEqual = batch.depthEqual or false,
         center = { c[1] + ox, c[2], c[3] + oz },
       }
+      for _, field in ipairs(PolygonState.FIELDS) do
+        local value = batch[field]
+        if field == "polygonAlpha" then
+          draw[field] = value ~= nil and (value / DsLighting.RGB5_MAX) or 1.0
+        else
+          draw[field] = value or DRAW_STATE_DEFAULTS[field]
+        end
+      end
+      draws[#draws + 1] = draw
     end
   end
 

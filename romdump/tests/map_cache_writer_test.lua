@@ -168,7 +168,18 @@ function T.failed_rebuild_preserves_the_previous_model_descriptor()
       memberId = 1,
       kind = "static",
       materials = {},
-      batches = { { geometry = MapAssetCache.geometryPath("mesh0000000000000000000000000000000000aa") } },
+      batches = {
+        {
+          geometry = MapAssetCache.geometryPath("mesh0000000000000000000000000000000000aa"),
+          cullMode = "back",
+          polygonMode = "modulation",
+          polygonId = 0,
+          translucentDepthWrite = false,
+          depthEqual = false,
+          polygonAlpha = 31,
+          lightMask = 5,
+        },
+      },
     },
   }
   local orig = backend.write

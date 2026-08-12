@@ -16,12 +16,19 @@
 -- loader cannot drift apart. Pure domain module.
 
 local Errors = require("libs.rom.src.Errors")
+local PolygonState = require("libs.assets.src.PolygonState")
 local Validate = require("libs.assets.src.Validate")
 
 local ModelAsset = {}
 
 ModelAsset.SCHEMA = "g4-model-v2"
 ModelAsset.KINDS = { static = true, ["nitro-dynamic"] = true }
+
+-- The four DS base-material registers a material's optional `colors` block
+-- may carry (the dynamic compiler emits the block per channel; the static
+-- path emits no block and the shared evaluator falls back to baseColor).
+---@type table<string, boolean>
+ModelAsset.MATERIAL_COLOR_CHANNELS = { diffuse = true, ambient = true, specular = true, emission = true }
 
 local function invalid(reason, context)
   Errors.raise("MODEL_DESC_INVALID", "model descriptor is malformed: " .. reason, {
@@ -31,7 +38,11 @@ local function invalid(reason, context)
 end
 
 -- Validate one descriptor record strictly. Raises MODEL_DESC_INVALID on any
--- contract violation.
+-- contract violation. The authoritative artifact gate: MapCacheWriter runs
+-- every compiled descriptor through this before publishing, and the emitted
+-- shape (both batch kinds carry the full polygon draw-state field set) must
+-- validate -- a malformed variant is diagnosed here, never defaulted at the
+-- load boundary.
 function ModelAsset.validate(desc)
   if type(desc) ~= "table" then
     invalid("descriptor is not a table")
@@ -43,9 +54,38 @@ function ModelAsset.validate(desc)
     invalid("kind must be static or nitro-dynamic, got " .. tostring(desc.kind), desc.key)
   end
 
+  -- Every batch of either kind requires the full shared draw-state field set
+  -- with the range checks (PolygonState is the single schema source); the
+  -- asset boundary reports violations under its own error contract.
   local function checkBatch(b, where)
     if type(b) ~= "table" or type(b.geometry) ~= "string" then
       invalid(where .. " batch does not reference a geometry path", desc.key)
+    end
+    local ok, err = pcall(PolygonState.validate, b, where .. " batch")
+    if not ok then
+      -- The asset boundary reports polygon-state violations under its own
+      -- error contract; anything else is a fault and re-raises.
+      if Errors.is(err) then
+        invalid(Errors.format(err), desc.key)
+      end
+      error(err)
+    end
+  end
+  -- Dynamic batches additionally reference the model's nodes and materials
+  -- by index and carry the draw id the runtime keyed meshes by.
+  local function checkDynamicBatch(b)
+    checkBatch(b, "dynamic")
+    if type(b.id) ~= "string" or #b.id == 0 then
+      invalid("dynamic batch requires a non-empty id", desc.key)
+    end
+    if not Validate.isNonNegativeInteger(b.drawIndex) then
+      invalid("dynamic batch " .. tostring(b.id) .. " drawIndex must be a non-negative integer", desc.key)
+    end
+    if not (Validate.isNonNegativeInteger(b.nodeIndex) and b.nodeIndex < #desc.dynamic.nodes) then
+      invalid("dynamic batch " .. tostring(b.id) .. " nodeIndex is out of range", desc.key)
+    end
+    if not (Validate.isNonNegativeInteger(b.materialIndex) and b.materialIndex < #desc.materials) then
+      invalid("dynamic batch " .. tostring(b.id) .. " materialIndex is out of range", desc.key)
     end
   end
   local function checkMaterial(m, where)
@@ -70,6 +110,50 @@ function ModelAsset.validate(desc)
           invalid(where .. " material variant has a non-string texture path", desc.key)
         end
       end
+    end
+    -- The optional four-channel colors block: {diffuse|ambient|specular|
+    -- emission} -> { r, g, b } integers in 0..255, the shape the dynamic
+    -- compiler emits from the DS base-material registers.
+    if m.colors ~= nil then
+      if type(m.colors) ~= "table" then
+        invalid(where .. " material colors must be a table", desc.key)
+      end
+      for name, color in pairs(m.colors) do
+        if not ModelAsset.MATERIAL_COLOR_CHANNELS[name] then
+          invalid(where .. " material colors carries an unknown channel " .. tostring(name), desc.key)
+        end
+        if
+          type(color) ~= "table"
+          or not Validate.isNonNegativeInteger(color.r)
+          or color.r > 255
+          or not Validate.isNonNegativeInteger(color.g)
+          or color.g > 255
+          or not Validate.isNonNegativeInteger(color.b)
+          or color.b > 255
+        then
+          invalid(where .. " material colors." .. name .. " must be { r, g, b } integers in 0..255", desc.key)
+        end
+      end
+    end
+  end
+  -- The clip envelope every animation record must satisfy: id/name/category/
+  -- frameCount/tracks. The category vocabulary and the compiled payload are
+  -- the engine's clip contract (libs/assets must not require libs/engine),
+  -- so the asset boundary checks shape only.
+  local function checkAnimation(clip)
+    if
+      type(clip) ~= "table"
+      or type(clip.id) ~= "string"
+      or #clip.id == 0
+      or type(clip.name) ~= "string"
+      or #clip.name == 0
+      or type(clip.category) ~= "string"
+      or #clip.category == 0
+      or not (type(clip.frameCount) == "number" and clip.frameCount >= 1 and clip.frameCount % 1 == 0)
+      or not Validate.isArray(clip.tracks)
+      or #clip.tracks == 0
+    then
+      invalid("animation clip must carry id, name, category, frameCount, and non-empty tracks", desc.key)
     end
   end
 
@@ -108,11 +192,19 @@ function ModelAsset.validate(desc)
   if not Validate.isArray(desc.animations) then
     invalid("nitro-dynamic descriptor requires an animations array", desc.key)
   end
+  local seenBatchIds = {}
   for _, b in ipairs(desc.dynamic.batches) do
-    checkBatch(b, "dynamic")
+    checkDynamicBatch(b)
+    if seenBatchIds[b.id] then
+      invalid("dynamic descriptor lists batch id " .. tostring(b.id) .. " twice", desc.key)
+    end
+    seenBatchIds[b.id] = true
   end
   for _, m in ipairs(desc.materials) do
     checkMaterial(m, "dynamic")
+  end
+  for _, clip in ipairs(desc.animations) do
+    checkAnimation(clip)
   end
   return desc
 end

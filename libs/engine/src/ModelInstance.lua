@@ -33,6 +33,7 @@ local NitroPoseBackend = require("libs.engine.src.NitroPoseBackend")
 local PoseContract = require("libs.engine.src.PoseContract")
 local MaterialEvaluator = require("libs.engine.src.MaterialEvaluator")
 local AlphaClassifier = require("libs.engine.src.AlphaClassifier")
+local PolygonState = require("libs.assets.src.PolygonState")
 
 ---@class MaterialRGB
 ---@field r integer
@@ -65,18 +66,26 @@ ModelInstance.__index = ModelInstance
 local CUTOUT_EPSILON = 0.5 / 255
 
 -- The polygon draw fields the draw path consumes from a nitro backend mesh
--- record. A record present but missing any of them is malformed generated
--- data and raises at drawItems (the record can be patched after
--- construction, so the check lives at the consumption point). polygonAlpha
--- is not consumed here -- it rides on the effective material -- so its
--- strictness lives at the descriptor boundary, not here.
-local DRAW_STATE_FIELDS = {
-  "polygonMode",
-  "polygonId",
-  "cullMode",
-  "translucentDepthWrite",
-  "depthEqual",
-  "lightMask",
+-- record: the shared PolygonState schema minus polygonAlpha, which rides on
+-- the effective material (it can be animated) rather than the batch record.
+-- A record present but missing any of them is malformed generated data and
+-- raises at drawItems (the record can be patched after construction, so the
+-- check lives at the consumption point). Records absent entirely
+-- (non-backend definitions) keep the defaults below.
+local DRAW_STATE_FIELDS = {}
+for _, field in ipairs(PolygonState.FIELDS) do
+  if field ~= "polygonAlpha" then
+    DRAW_STATE_FIELDS[#DRAW_STATE_FIELDS + 1] = field
+  end
+end
+
+local ITEM_DRAW_STATE_DEFAULTS = {
+  polygonMode = "modulation",
+  polygonId = 0,
+  lightMask = 0,
+  cullMode = "back",
+  translucentDepthWrite = false,
+  depthEqual = false,
 }
 
 -- alphaMode -> the renderer's render-pass class (the material contract).
@@ -354,14 +363,14 @@ function ModelInstance:drawItems(renderMeshesById)
         alphaClass = material.alphaClass,
         alphaCutoff = material.alphaCutoff,
         polygonAlpha = material.polygonAlpha,
-        polygonMode = meshState and meshState.polygonMode or "modulation",
-        polygonId = meshState and meshState.polygonId or 0,
-        lightMask = meshState and meshState.lightMask or 0,
-        cullMode = meshState and meshState.cullMode or "back",
-        translucentDepthWrite = meshState and meshState.translucentDepthWrite or false,
-        depthEqual = meshState and meshState.depthEqual or false,
         center = mesh.center or { 0, 0, 0 },
       }
+      -- The shared draw-state set rides on the item from the backend record
+      -- (present and complete after the check above); non-backend
+      -- definitions keep the documented defaults.
+      for _, field in ipairs(DRAW_STATE_FIELDS) do
+        item[field] = meshState and meshState[field] or ITEM_DRAW_STATE_DEFAULTS[field]
+      end
       -- A straddling draw carries the bend: the first `leading` vertices
       -- were submitted under the pre-boundary matrix, so the renderer needs
       -- both transforms and the split to reproduce the DS per-vertex bend.

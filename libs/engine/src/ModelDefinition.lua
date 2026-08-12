@@ -30,31 +30,13 @@
 
 local Errors = require("libs.rom.src.Errors")
 local AnimationClip = require("libs.engine.src.AnimationClip")
+local ModelAsset = require("libs.assets.src.ModelAsset")
+local PolygonState = require("libs.assets.src.PolygonState")
 
 local ModelDefinition = {}
 ModelDefinition.__index = ModelDefinition
 
 ModelDefinition.ALPHA_MODES = { opaque = true, mask = true, blend = true }
-
--- The four DS base-material registers a material's optional `colors` block
--- may carry (the shape NsbmdDynamicModel.baseMaterial compiles them into).
--- The block is optional: static-path materials emit only a baseColor, and
--- the shared evaluator falls back to it per component.
-local MATERIAL_COLOR_CHANNELS = { diffuse = true, ambient = true, specular = true, emission = true }
-
--- The polygon draw fields MapAssetCompiler emits on every dynamic batch
--- record. A nitro-dynamic descriptor missing any of them is malformed
--- generated data; positionSource/transformMode are not mandatory (the
--- billboard batch in the corpus legitimately omits positionSource).
-local DESCRIPTOR_DRAW_STATE_FIELDS = {
-  "cullMode",
-  "polygonMode",
-  "polygonId",
-  "translucentDepthWrite",
-  "depthEqual",
-  "polygonAlpha",
-  "lightMask",
-}
 
 local function isFiniteNumber(value)
   return type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge
@@ -230,7 +212,7 @@ local function validateMaterials(materials)
         )
       end
       for name, color in pairs(material.colors) do
-        if not MATERIAL_COLOR_CHANNELS[name] then
+        if not ModelAsset.MATERIAL_COLOR_CHANNELS[name] then
           Errors.raise(
             "MODEL_DEF_BAD_MATERIAL_COLORS",
             "material " .. material.id .. " colors carries an unknown channel " .. tostring(name),
@@ -485,7 +467,7 @@ function ModelDefinition.fromNitroDescriptor(desc, opts)
     end
     -- The per-segment polygon draw state is compiled by our own compiler, so
     -- a record missing any field is malformed generated data, not a default.
-    for _, field in ipairs(DESCRIPTOR_DRAW_STATE_FIELDS) do
+    for _, field in ipairs(PolygonState.FIELDS) do
       if mesh[field] == nil then
         Errors.raise(
           "NITRO_DESC_BAD_DRAW_STATE",
@@ -503,18 +485,13 @@ function ModelDefinition.fromNitroDescriptor(desc, opts)
       record.geometry = mesh.geometry
     end
     meshes[#meshes + 1] = record
-    local backendRecord = {
-      drawIndex = mesh.drawIndex,
-      positionSource = mesh.positionSource,
-      transformMode = mesh.transformMode,
-      cullMode = mesh.cullMode,
-      polygonMode = mesh.polygonMode,
-      polygonId = mesh.polygonId,
-      lightMask = mesh.lightMask,
-      translucentDepthWrite = mesh.translucentDepthWrite,
-      depthEqual = mesh.depthEqual,
-      polygonAlpha = mesh.polygonAlpha,
-    }
+    -- The shared draw-state set rides on the backend record;
+    -- positionSource/transformMode are not mandatory (the billboard batch
+    -- in the corpus legitimately omits positionSource).
+    local backendRecord = PolygonState.copy(mesh)
+    backendRecord.drawIndex = mesh.drawIndex
+    backendRecord.positionSource = mesh.positionSource
+    backendRecord.transformMode = mesh.transformMode
     -- A batch whose run straddled a mid-run matrix boundary carries the
     -- per-vertex provenance (the leading vertices resolve under the
     -- pre-boundary source at draw time); without it the batch is fully

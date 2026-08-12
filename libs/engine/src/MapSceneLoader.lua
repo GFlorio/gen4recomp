@@ -19,7 +19,6 @@
 -- their semantic animations. The only ROM knowledge that reaches this layer
 -- is the normalized scene descriptor; raw Nitro formats stopped at the
 -- compiler.
->>>>>>> 454a521 (engine: isolate GpuAssetPool lazy-acquisition failures)
 --
 -- The animated draw list is owned by the scene tick: every fixed tick
 -- advances each attachment player and rebuilds the items once,
@@ -44,6 +43,7 @@ local MeshWriter = require("libs.assets.src.MeshWriter")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
 local DoorTiles = require("libs.engine.src.DoorTiles")
+local PolygonState = require("libs.assets.src.PolygonState")
 
 local MapSceneLoader = {}
 
@@ -158,19 +158,33 @@ local function buildScene(pool, cacheFs, scene, opts)
     return { (minx + maxx) / 2, (miny + maxy) / 2, (minz + maxz) / 2 }
   end
 
-  -- Per-batch draw state that lives on the draw item, not the material record.
+  -- Per-batch draw state that lives on the draw item, not the material
+  -- record. The field set is the shared PolygonState schema; the defaults
+  -- cover scene records that predate the schema (derived data always emits
+  -- every field; lightMask has no default -- a missing mask must never mean
+  -- "all lights on").
+  local DRAW_STATE_DEFAULTS = {
+    cullMode = "back",
+    polygonMode = "modulation",
+    polygonId = 0,
+    translucentDepthWrite = false,
+    depthEqual = false,
+  }
   local function batchDrawState(batch)
-    return {
+    ---@type table<string, any>
+    local state = {
       alphaClass = batch.alphaClass or "opaque",
-      cullMode = batch.cullMode or "back",
       alphaCutoff = MapRenderer.CUTOUT_EPSILON,
-      polygonAlpha = batch.polygonAlpha ~= nil and (batch.polygonAlpha / 31) or 1.0,
-      polygonMode = batch.polygonMode or "modulation",
-      lightMask = batch.lightMask,
-      polygonId = batch.polygonId or 0,
-      translucentDepthWrite = batch.translucentDepthWrite or false,
-      depthEqual = batch.depthEqual or false,
     }
+    for _, field in ipairs(PolygonState.FIELDS) do
+      local value = batch[field]
+      if field == "polygonAlpha" then
+        state[field] = value ~= nil and (value / 31) or 1.0
+      else
+        state[field] = value or DRAW_STATE_DEFAULTS[field]
+      end
+    end
+    return state
   end
 
   -- One draw item for one batch under `instanceTransform` (identity for terrain,

@@ -35,6 +35,7 @@ local AlphaClassifier = require("libs.engine.src.AlphaClassifier")
 local NsbmdDynamicModel = require("romdump.src.digest.NsbmdDynamicModel")
 local MapPropAnimCompiler = require("romdump.src.digest.MapPropAnimCompiler")
 local ModelAsset = require("libs.assets.src.ModelAsset")
+local PolygonState = require("libs.assets.src.PolygonState")
 
 local MapAssetCompiler = {}
 
@@ -130,7 +131,7 @@ local function compileModel(model, texturePack, meshes, textures, context)
       local alphaClass = AlphaClassifier.classify(poly.polygonAlpha, fmt, info and info.alphaUsage or nil)
       local sha1 = Hashing.sha1hex(MeshWriter.encode(batch))
       meshes[sha1] = batch
-      batches[#batches + 1] = {
+      local record = {
         geometry = MapAssetCache.geometryPath(sha1),
         material = batch.materialIndex,
         node = batch.nodeIndex,
@@ -141,17 +142,17 @@ local function compileModel(model, texturePack, meshes, textures, context)
         transformMode = batch.transformMode ~= PoseContract.STATIC and batch.transformMode or nil,
         baseTransform = batch.baseTransform,
         alphaClass = alphaClass,
-        cullMode = poly.cullMode,
-        polygonAlpha = poly.polygonAlpha,
-        polygonMode = poly.polygonMode,
-        lightMask = poly.lightMask,
-        polygonId = poly.polygonId,
-        translucentDepthWrite = poly.translucentDepthWrite,
-        depthEqual = poly.depthEqual,
-        farClipEnabled = poly.farClipEnabled,
-        oneDotEnabled = poly.oneDotEnabled,
-        fogEnabled = poly.fogEnabled,
       }
+      -- The shared polygon draw-state field set (PolygonState.FIELDS).
+      for _, field in ipairs(PolygonState.FIELDS) do
+        record[field] = poly[field]
+      end
+      -- The static-only extras stay outside the shared draw-state schema:
+      -- they are authoring metadata the runtime does not consume.
+      record.farClipEnabled = poly.farClipEnabled
+      record.oneDotEnabled = poly.oneDotEnabled
+      record.fogEnabled = poly.fogEnabled
+      batches[#batches + 1] = record
     end
   end
   return { batches = batches, materials = sceneMaterials(mat.materials), unresolved = unresolved }
@@ -312,14 +313,11 @@ local function dynamicBatches(dynamicModel, meshes)
         transformMode = mesh.transformMode,
         positionSource = mesh.positionSource,
         geometry = MapAssetCache.geometryPath(sha1),
-        cullMode = poly.cullMode,
-        polygonMode = poly.polygonMode,
-        polygonId = poly.polygonId,
-        lightMask = poly.lightMask,
-        translucentDepthWrite = poly.translucentDepthWrite,
-        depthEqual = poly.depthEqual,
-        polygonAlpha = poly.polygonAlpha,
       }
+      -- The shared polygon draw-state field set (PolygonState.FIELDS).
+      for _, field in ipairs(PolygonState.FIELDS) do
+        record[field] = poly[field]
+      end
       -- A run split at a mid-run matrix boundary: the batch's first
       -- `leading` vertices resolve under the pre-boundary source at draw
       -- time (the DS bends each vertex under the then-current matrix).
