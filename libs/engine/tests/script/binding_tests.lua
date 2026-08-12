@@ -25,15 +25,22 @@ local MANIFEST = {
     [57] = {
       objects = { obj_T20_gswoman1 = "new_bark.npc.woman_1" },
       backgrounds = {},
-      coordinates = {},
     },
     [58] = {
       objects = { obj_T20R0101_doctor = "elms_lab.elm" },
       backgrounds = { [9] = "new_bark.lab_sign" },
-      coordinates = {},
     },
   },
 }
+
+local function throwsCode(code, fn)
+  local ok, err = pcall(fn)
+  Assert.isFalse(ok, "expected a raised error")
+  Assert.isTrue(Errors.is(err), "expected Errors object, got: " .. tostring(err))
+  ---@cast err Errors.Error
+  Assert.equal(err.code, code)
+  return err
+end
 
 local function objectIntent(mapId, actorId, playerFacing)
   return {
@@ -127,7 +134,83 @@ T["bound script ids"] = function()
   })
 end
 
--- 5. The interaction client starts a bound script in the trigger tick.
+-- 5. The manifest loader is strict: a missing maps array is a schema error,
+-- never an empty binding set.
+T["manifest without maps is rejected"] = function()
+  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
+    Bindings.new({})
+  end)
+  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
+    Bindings.new({ maps = "not a table" })
+  end)
+end
+
+-- 6. Every bound map must carry its required objects and backgrounds arrays:
+-- a missing array is a schema error, never an implicit empty one.
+T["map without required binding arrays is rejected"] = function()
+  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
+    Bindings.new({ maps = { [57] = { backgrounds = {} } } })
+  end)
+  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
+    Bindings.new({ maps = { [57] = { objects = {} } } })
+  end)
+end
+
+-- 7. Only dispatched trigger kinds may be bound. The coordinate and
+-- map-lifecycle kinds have no dispatcher: carrying one is a schema error at
+-- load, not data the loader silently accepts.
+T["undispatched trigger kinds are rejected at load"] = function()
+  for _, section in ipairs({ "coordinates", "map_init", "map_enter", "map_resume" }) do
+    throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
+      Bindings.new({ maps = { [57] = { objects = {}, backgrounds = {}, [section] = {} } } })
+    end)
+  end
+end
+
+-- 8. Binding keys and targets must have the required types: string object
+-- keys, non-negative integer background keys, string targets, integer map
+-- ids.
+T["invalid binding key and target types are rejected"] = function()
+  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
+    Bindings.new({ maps = { [57] = { objects = { [0] = "a" }, backgrounds = {} } } })
+  end)
+  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
+    Bindings.new({ maps = { [57] = { objects = {}, backgrounds = { [-1] = "a" } } } })
+  end)
+  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
+    Bindings.new({ maps = { [57] = { objects = {}, backgrounds = { [0.5] = "a" } } } })
+  end)
+  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
+    Bindings.new({ maps = { [57] = { objects = { ["map:57:object:0"] = 7 }, backgrounds = {} } } })
+  end)
+  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
+    Bindings.new({ maps = { ["57"] = { objects = {}, backgrounds = {} } } })
+  end)
+end
+
+-- 9. An object binding key identifies one event and may not repeat across the
+-- manifest: the same key bound twice is a duplicate, the same key bound to
+-- two targets is a conflict.
+T["duplicate and conflicting bindings are rejected"] = function()
+  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
+    Bindings.new({
+      maps = {
+        [57] = { objects = { ["map:57:object:0"] = "a" }, backgrounds = {} },
+        [60] = { objects = { ["map:57:object:0"] = "a" }, backgrounds = {} },
+      },
+    })
+  end)
+  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
+    Bindings.new({
+      maps = {
+        [57] = { objects = { ["map:57:object:0"] = "a" }, backgrounds = {} },
+        [60] = { objects = { ["map:57:object:0"] = "b" }, backgrounds = {} },
+      },
+    })
+  end)
+end
+
+-- 10. The interaction client starts a bound script in the trigger tick.
 T["client starts script in trigger tick"] = function()
   local p = platform()
   local resource = script("new_bark.npc.woman_1", {
@@ -155,7 +238,7 @@ T["client starts script in trigger tick"] = function()
   Assert.equal(instance.trigger.selfActor, "obj_T20_gswoman1")
 end
 
--- 6. A second interaction while a foreground root owns the field is blocked.
+-- 11. A second interaction while a foreground root owns the field is blocked.
 T["interaction while locked"] = function()
   local p = platform()
   local resource = script("new_bark.npc.woman_1", {
@@ -174,7 +257,7 @@ T["interaction while locked"] = function()
   Assert.equal(client:consume(objectIntent(57, "obj_T20_gswoman1", "north"), 101), "blocked")
 end
 
--- 7. Unmapped intents report "unmapped" so the caller can fall through to a
+-- 12. Unmapped intents report "unmapped" so the caller can fall through to a
 -- fallback client.
 T["unmapped intent falls through"] = function()
   local p = platform()
@@ -189,7 +272,7 @@ T["unmapped intent falls through"] = function()
   Assert.isNil(p.scheduler:foregroundEnvironmentId())
 end
 
--- 8. A tombstoned script (composition resolves nil) behaves as unmapped.
+-- 13. A tombstoned script (composition resolves nil) behaves as unmapped.
 T["removed script is unmapped"] = function()
   local p = platform()
   local resource = script("new_bark.npc.woman_1", { S.stop() })
@@ -205,7 +288,7 @@ T["removed script is unmapped"] = function()
   Assert.equal(client:consume(objectIntent(57, "obj_T20_gswoman1", "north"), 100), "unmapped")
 end
 
--- 9. Actor world adapter: the player is always present; snapshots are
+-- 14. Actor world adapter: the player is always present; snapshots are
 -- read-only records; mutation operations reach the manager.
 T["actor world adapter"] = function()
   local actors = {}
@@ -281,7 +364,7 @@ T["actor world adapter"] = function()
   Assert.equal(world:getPosition("player").fieldX, 10)
 end
 
--- 10. Missing actors through the runtime are attributed errors.
+-- 15. Missing actors through the runtime are attributed errors.
 T["missing actor fault through binding path"] = function()
   local p = platform()
   local manager = {
@@ -335,7 +418,7 @@ T["missing actor fault through binding path"] = function()
   Assert.equal(instance.endReason, "SCRIPT_ACTOR_NOT_FOUND")
 end
 
--- 11. Map transition cancellation: a warp cancels the foreground environment,
+-- 16. Map transition cancellation: a warp cancels the foreground environment,
 -- releasing locks and tasks.
 T["map transition cancels scripts"] = function()
   local p = platform()
@@ -360,7 +443,7 @@ T["map transition cancels scripts"] = function()
   Assert.equal(#p.scheduler:tasks(), 0)
 end
 
--- 12. Session-level integration: with a script scheduler attached, the
+-- 17. Session-level integration: with a script scheduler attached, the
 -- session steps the script phase each tick and consumes the tick while a
 -- foreground script owns the field (player movement suppressed).
 T["session script phase"] = function()
@@ -435,7 +518,7 @@ T["session script phase"] = function()
   Assert.isNil(p.scheduler:foregroundEnvironmentId())
 end
 
--- 12b. A live foreground root locks player movement even before the script
+-- 18. A live foreground root locks player movement even before the script
 -- has issued any explicit lock: foreground ownership is field ownership.
 T["foreground root locks movement without an explicit lock"] = function()
   local p = platform()
