@@ -8,9 +8,7 @@
 local GameVersion = require("libs.rom.src.GameVersion")
 local RomImporter = require("libs.rom.src.RomImporter")
 local RomFs = require("libs.rom.src.RomFs")
-local DumpAudit = require("libs.rom.src.DumpAudit")
 local Errors = require("libs.rom.src.Errors")
-local CachePipeline = require("romdump.src.CachePipeline")
 
 local Runner = {}
 
@@ -65,7 +63,7 @@ function Runner.load(opts)
     end
     local targets = readyVersions()
     if #targets > 0 then
-      return Runner._runBuild()
+      return Runner._runBuild({ allowCompileExclusions = Runner.opts.allowCompileExclusions })
     end
     if Runner.opts.importRom then
       return Runner._startImport(Runner.opts.importRom)
@@ -131,7 +129,10 @@ end
 -- Regenerate the checked-in script overrides for the New Bark slice
 -- (data/scripts/overrides/<id>.lua) from the first ready dump. Files are
 -- written into the repo tree (the override system's checked-in content), not
--- the cache; identical dumps produce byte-identical files.
+-- the cache; identical dumps produce byte-identical files. Every file is
+-- staged at <path>.new and renamed into place only after the whole set
+-- staged, so a failed staging run leaves the previous checked-in set
+-- untouched.
 function Runner._runGenScriptOverrides()
   local OverrideGenerator = require("romdump.src.digest.script.OverrideGenerator")
   local targets = readyVersions()
@@ -139,52 +140,66 @@ function Runner._runGenScriptOverrides()
     print("gen-script-overrides: no ready version")
     return love.event.quit(1)
   end
+  local version = targets[1]
   local root = love.filesystem.getSourceBaseDirectory()
-  for _, version in ipairs(targets) do
-    local romFs, err = RomFs.open(version)
-    if not romFs then
-      print("gen-script-overrides: open failed for " .. version .. ": " .. Errors.format(err))
-      return love.event.quit(1)
-    end
-    local ok, files = pcall(OverrideGenerator.generate, romFs)
-    romFs:close()
-    if not ok then
-      print("gen-script-overrides: " .. tostring(files))
-      return love.event.quit(1)
-    end
-    for _, file in ipairs(files) do
-      local full = root .. "/" .. file.path
-      local parent = full:match("^(.*)/[^/]+$")
+  local romFs, err = RomFs.open(version)
+  if not romFs then
+    print("gen-script-overrides: open failed for " .. version .. ": " .. Errors.format(err))
+    return love.event.quit(1)
+  end
+  local ok, files = pcall(OverrideGenerator.generate, romFs)
+  romFs:close()
+  if not ok then
+    print("gen-script-overrides: " .. tostring(files))
+    return love.event.quit(1)
+  end
+  -- Rewrite the override manifest with the exact generated ids so the
+  -- loader never enumerates the directory.
+  local manifest = "return {\n"
+  for _, file in ipairs(files) do
+    manifest = manifest .. "  " .. string.format("%q", file.id) .. ",\n"
+  end
+  manifest = manifest .. "}\n"
+  local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
+  local staged = {}
+  local stageOk, stageErr = pcall(function()
+    local function stage(path, text)
+      local parent = path:match("^(.*)/[^/]+$")
       if parent then
         os.execute(("mkdir -p %q"):format(parent))
       end
-      local handle, openErr = io.open(full, "wb")
+      local handle, openErr = io.open(path .. ".new", "wb")
       if not handle then
-        print("gen-script-overrides: open failed for " .. file.path .. ": " .. tostring(openErr))
-        return love.event.quit(1)
+        error("open failed for " .. path .. ": " .. tostring(openErr), 0)
       end
-      handle:write(file.text)
+      handle:write(text)
       handle:close()
+      staged[#staged + 1] = path
     end
-    -- Rewrite the override manifest with the exact generated ids so the
-    -- loader never enumerates the directory.
-    local manifest = "return {\n"
     for _, file in ipairs(files) do
-      manifest = manifest .. "  " .. string.format("%q", file.id) .. ",\n"
+      stage(root .. "/" .. file.path, file.text)
     end
-    manifest = manifest .. "}\n"
-    local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
-    local manifestPath = root .. "/" .. ScriptLoader.OVERRIDE_MANIFEST
-    local mh, mErr = io.open(manifestPath, "wb")
-    if not mh then
-      print("gen-script-overrides: open failed for override manifest: " .. tostring(mErr))
+    stage(root .. "/" .. ScriptLoader.OVERRIDE_MANIFEST, manifest)
+  end)
+  if not stageOk then
+    for _, path in ipairs(staged) do
+      os.remove(path .. ".new")
+    end
+    print("gen-script-overrides: " .. tostring(stageErr))
+    return love.event.quit(1)
+  end
+  for _, path in ipairs(staged) do
+    local renamed, renameErr = os.rename(path .. ".new", path)
+    if not renamed then
+      for _, remaining in ipairs(staged) do
+        os.remove(remaining .. ".new")
+      end
+      print("gen-script-overrides: publish failed for " .. path .. ": " .. tostring(renameErr))
       return love.event.quit(1)
     end
-    mh:write(manifest)
-    mh:close()
-    print(string.format("gen-script-overrides: %s wrote %d override files", version, #files))
-    return love.event.quit(0)
   end
+  print(string.format("gen-script-overrides: %s wrote %d override files", version, #files))
+  return love.event.quit(0)
 end
 
 -- Derive payload-free map resolution facts from every ready canonical dump.
@@ -207,16 +222,15 @@ end
 -- Audit every ready version and exit 0 only if all pass. Proves the runtime
 -- boots from the private cache without the ROM.
 function Runner._runCheckDump()
-  local pipeline = CachePipeline.production()
-  local targets = pipeline:readyVersions()
+  local DumpAudit = require("libs.rom.src.DumpAudit")
+  local targets = readyVersions()
   if #targets == 0 then
     print("check-dump: no ready version to audit")
     return love.event.quit(1)
   end
   local allOk = true
-  local reports = pipeline:auditReady()
   for _, version in ipairs(targets) do
-    local report = reports[version]
+    local report = DumpAudit.run(version)
     for _, line in ipairs(DumpAudit.lines(report)) do
       print(line)
     end
@@ -307,20 +321,21 @@ end
 
 -- Build the derived cache for every listed version (or every ready version)
 -- and quit with the build status. The pipeline itself lives in CacheBuilder;
--- this wrapper owns only the process exit codes and the prepareVersion report
--- shape. A map whose cell could not be selected is recorded as `excluded`; a
--- resolved map rejected with a structured compiler error is recorded as
--- `compileExcluded`, writes no partial artifacts, and makes the build exit
--- nonzero unless --allow-compile-exclusions is given. A map whose completion
--- marker already matches the current build is left in place, so an unchanged
--- cache rebuilds only what is stale.
----@param options { versionIds: string[]?, noQuit: boolean? }|nil
+-- this wrapper owns only the process exit codes and the report shape. A map
+-- whose cell could not be selected is recorded as `excluded`; a resolved map
+-- rejected with a structured compiler error is recorded as `compileExcluded`,
+-- writes no partial artifacts, and makes the build exit nonzero unless the
+-- allowCompileExclusions option accepts them. A map whose completion marker
+-- already matches the current build is left in place, so an unchanged cache
+-- rebuilds only what is stale. The option wins over any CLI state; callers
+-- pass the parsed flag through explicitly.
+---@param options { versionIds: string[]?, allowCompileExclusions: boolean?, noQuit: boolean? }|nil
 ---@return table|nil, string|nil
 function Runner._runBuild(options)
   options = options or {}
   local CacheBuilder = require("romdump.src.CacheBuilder")
   local report, err = CacheBuilder.buildVersions(options.versionIds or readyVersions(), {
-    allowCompileExclusions = Runner.opts.allowCompileExclusions,
+    allowCompileExclusions = options.allowCompileExclusions,
   })
   if report then
     if not options.noQuit then
@@ -356,37 +371,50 @@ function Runner._maybeExit()
     return
   end
   if imp.state == "complete" then
-    printImportResult(imp:status())
-    local imported = imp:status()
+    local status = imp:status()
+    printImportResult(status)
     Runner.importer = nil
     if Runner.opts.buildCache then
-      local pipeline = CachePipeline.production({
-        prepareVersion = function(versionId)
-          return Runner._runBuild({ versionIds = { versionId }, noQuit = true })
-        end,
-        importSource = function(source)
-          assert(source == Runner.opts.importRom, "source import path changed while importing")
-          return { versionId = imported.versionId }
-        end,
-        -- scripts/test.sh owns the isolated root and removes it in its EXIT
-        -- trap. The LÖVE process only consumes that already-isolated root.
-        createIsolatedRoot = function()
-          return "script-owned-isolated-root"
-        end,
-        removeIsolatedRoot = function()
-          return true
-        end,
-      })
-      pipeline:runSource(Runner.opts.importRom)
-      love.event.quit(0)
-    else
-      love.event.quit(0)
+      return Runner._finishImport(status)
     end
+    love.event.quit(0)
   elseif imp.state == "error" then
     local s = imp:status()
     print("import failed [" .. tostring(s.errorCode or "ERROR") .. "]: " .. Errors.format(s.error))
     love.event.quit(1)
   end
+end
+
+-- Complete a finished build-cache import: audit the imported dump, build the
+-- derived cache from it, and prove the runtime boots from that cache before
+-- the process exits. A failed audit exits nonzero; the importer already
+-- published into the version cache, and the only resource acquired here is
+-- the verification runtime, disposed on this same path.
+---@param status table
+function Runner._finishImport(status)
+  local DumpAudit = require("libs.rom.src.DumpAudit")
+  local versionId = status.versionId
+  assert(type(versionId) == "string", "import must report versionId")
+  local audit = DumpAudit.run(versionId)
+  if not audit.ok then
+    for _, line in ipairs(DumpAudit.lines(audit)) do
+      print(line)
+    end
+    return love.event.quit(1)
+  end
+  local report, err = Runner._runBuild({
+    versionIds = { versionId },
+    allowCompileExclusions = Runner.opts.allowCompileExclusions,
+    noQuit = true,
+  })
+  if not report then
+    print("build-cache: " .. versionId .. " failed: " .. tostring(err))
+    return love.event.quit(1)
+  end
+  local runtime = require("game.src.game.FieldRuntime").new(versionId)
+  assert(runtime, "prepared runtime did not boot for " .. versionId)
+  runtime:dispose()
+  return love.event.quit(0)
 end
 
 function Runner.update()
