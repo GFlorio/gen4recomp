@@ -77,9 +77,11 @@ if [ "$prepare" -eq 1 ]; then
     love romdump/ --build-cache "$rom_source"
   else
     mkdir -p "$(dirname "$BUILD_LOG")"
-    # CacheBuilder owns the complete dependency identity for every derived
-    # artifact. Running it is cheap when current and prevents tests from
-    # accepting a merely complete but stale cache.
+    # The producer fingerprint + build-state check makes --build-cache cheap
+    # when nothing relevant changed: an identity match with a fully available
+    # cache means no ROM open and no compilation. A producer/contract/dump
+    # change rebuilds once; a damaged cache takes the repair path. This
+    # prevents tests from accepting a merely complete but stale cache.
     echo "== prepare derived cache (log: $BUILD_LOG) =="
     love romdump/ --build-cache >"$BUILD_LOG" 2>&1 || status=$?
     if [ "$status" -ne 0 ] && [ "$status" -ne "$NO_DUMP_STATUS" ]; then

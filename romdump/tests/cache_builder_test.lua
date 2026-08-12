@@ -32,6 +32,9 @@ local FAKE_PATHS = {
   "romdump.src.digest.script.ScriptCompiler",
   "romdump.src.digest.ScriptCacheWriter",
   "libs.assets.src.ScriptCache",
+  "romdump.src.DerivedCacheState",
+  "romdump.src.ProducerFingerprint",
+  "romdump.src.DerivedCacheAudit",
 }
 
 local T = {}
@@ -51,6 +54,18 @@ local function newEnv()
     opens = {},
     closes = {},
     manifest = nil,
+    -- Derived-cache state gate: the identity comparison outcome and the
+    -- fast-path availability audit. Defaults model a damaged cache under a
+    -- matching identity, which runs the incremental pipeline exactly like
+    -- the pre-D4 builder (the existing tests below).
+    stateMatches = true,
+    auditAvailable = false,
+    stateMatchesCalls = 0,
+    auditCalls = 0,
+    stateInvalidations = 0,
+    statePublishes = 0,
+    identityInputs = nil,
+    producerComputations = 0,
     mapResults = {
       {
         status = "resolved",
@@ -145,8 +160,54 @@ local function makeFakes()
   end
   fakes.CacheFs.forVersion = function(version)
     env.calls[#env.calls + 1] = "CacheFs.forVersion:" .. version
-    return { version = version }
+    return {
+      version = version,
+      read = function(_, path)
+        if path == "rom-dump.complete" then
+          return "g4-rom-dump-v1:" .. version .. ":deadbeef"
+        end
+        return nil
+      end,
+      loadLua = function()
+        return env.stateStored
+      end,
+    }
   end
+  fakes.DerivedCacheState = {
+    path = "data/generated/build.lua",
+    current = function(inputs)
+      env.identityInputs = inputs
+      env.calls[#env.calls + 1] = "DerivedCacheState.current"
+      return { identity = true }
+    end,
+    matches = function()
+      env.stateMatchesCalls = env.stateMatchesCalls + 1
+      return env.stateMatches
+    end,
+    invalidate = function()
+      env.stateInvalidations = env.stateInvalidations + 1
+      env.calls[#env.calls + 1] = "DerivedCacheState.invalidate"
+    end,
+    publish = function()
+      env.statePublishes = env.statePublishes + 1
+      env.calls[#env.calls + 1] = "DerivedCacheState.publish"
+    end,
+  }
+  fakes.ProducerFingerprint = {
+    appBackend = function()
+      return {}
+    end,
+    compute = function()
+      env.producerComputations = env.producerComputations + 1
+      return "producer-fingerprint"
+    end,
+  }
+  fakes.DerivedCacheAudit = {
+    isAvailable = function()
+      env.auditCalls = env.auditCalls + 1
+      return env.auditAvailable
+    end,
+  }
   fakes.MapAnalysis.analyze = function()
     return env.mapResults
   end
@@ -318,6 +379,8 @@ function T.stale_classes_compile_with_counts_in_pipeline_order()
   })
   Assert.deepEqual(env.calls, {
     "CacheFs.forVersion:heartgold",
+    "DerivedCacheState.current",
+    "DerivedCacheState.invalidate",
     "FieldCameraCacheWriter.write",
     "FieldActorCacheWriter.write",
     "FieldMapDataCacheWriter.write",
@@ -328,6 +391,7 @@ function T.stale_classes_compile_with_counts_in_pipeline_order()
     "MapCacheWriter.write",
     "MapCacheWriter.write",
     "WorldManifest.write",
+    "DerivedCacheState.publish",
   })
 end
 
@@ -370,6 +434,9 @@ function T.compile_exclusions_fail_the_build_unless_allowed()
     accepted.lines[10],
     "build-cache: heartgold world.lua written (1 maps, 0 unresolved cells, 1 compile-excluded)"
   )
+  -- A build that accepted compile exclusions is not a strict success and must
+  -- never publish the successful-build attestation.
+  Assert.equal(env.statePublishes, 0, "an exclusion-accepting build must not publish state")
 end
 
 -- One broken version is reported, its RomFs handle is still closed, and the
@@ -426,6 +493,116 @@ function T.log_defaults_to_print()
   Assert.equal(err, nil)
   Assert.deepEqual(report, { current = true })
   Assert.equal(lines[1], "build-cache: heartgold field cameras current")
+end
+
+-- A matching identity with a fully available cache must short-circuit: zero
+-- compiler functions, zero RomFs opens, no state mutation, and the
+-- current-style report line. This is the regression test for the original
+-- performance problem (expensive compilation before marker checks).
+function T.matching_identity_with_available_cache_invokes_no_compilers_and_no_romfs()
+  env = newEnv()
+  env.stateMatches = true
+  env.auditAvailable = true
+  local capture = collectLog()
+  local report, err = CacheBuilder.buildVersions({ "heartgold" }, { log = capture.log })
+  Assert.isNil(err)
+  Assert.deepEqual(report, { current = true })
+  Assert.deepEqual(capture.lines, { "build-cache: heartgold current" })
+  Assert.deepEqual(env.opens, {}, "the fast path must never open the ROM")
+  Assert.deepEqual(env.calls, {
+    "CacheFs.forVersion:heartgold",
+    "DerivedCacheState.current",
+  }, "no compiler or writer may run")
+  Assert.equal(env.stateMatchesCalls, 1, "the stored identity must be compared exactly once")
+  Assert.equal(env.auditCalls, 1, "the availability audit is the fast-path gate")
+  Assert.equal(env.stateInvalidations, 0, "a current cache must not be invalidated")
+  Assert.equal(env.statePublishes, 0, "a current cache must not be republished")
+  Assert.equal(env.producerComputations, 1, "the producer fingerprint is part of the identity")
+  Assert.equal(
+    env.identityInputs.dump,
+    "g4-rom-dump-v1:heartgold:deadbeef",
+    "the identity carries the published dump marker"
+  )
+end
+
+-- An identity mismatch forces every writer even though the ordinary marker
+-- checks would say current; the state is invalidated before any mutation
+-- begins; and the strict rebuild publishes the new identity.
+function T.producer_mismatch_forces_every_writer_and_publishes_after_strict_success()
+  env = newEnv()
+  env.stateMatches = false
+  env.stale = {}
+  local capture = collectLog()
+  local report, err = CacheBuilder.buildVersions({ "heartgold" }, { log = capture.log })
+  Assert.isNil(err)
+  Assert.deepEqual(report, { current = true })
+  for _, line in ipairs(capture.lines) do
+    Assert.isTrue(line:find(" current$") == nil, "a forced rebuild must not log 'current': " .. line)
+  end
+  local writes = {}
+  for _, call in ipairs(env.calls) do
+    if call:find(".write$") ~= nil then
+      writes[#writes + 1] = call
+    end
+  end
+  Assert.deepEqual(writes, {
+    "FieldCameraCacheWriter.write",
+    "FieldActorCacheWriter.write",
+    "FieldMapDataCacheWriter.write",
+    "FieldMapDataCacheWriter.write",
+    "FieldFontCacheWriter.write",
+    "FieldMessageCacheWriter.write",
+    "ScriptCacheWriter.write",
+    "MapCacheWriter.write",
+    "MapCacheWriter.write",
+    "WorldManifest.write",
+  }, "every class must regenerate despite current-looking markers")
+  local invalidateIndex, firstWriteIndex
+  for index, call in ipairs(env.calls) do
+    if call == "DerivedCacheState.invalidate" then
+      invalidateIndex = index
+    end
+    if firstWriteIndex == nil and call:find(".write$") ~= nil then
+      firstWriteIndex = index
+    end
+  end
+  Assert.isTrue(
+    invalidateIndex ~= nil and invalidateIndex < firstWriteIndex,
+    "the state must be invalidated before any artifact mutation"
+  )
+  Assert.equal(env.statePublishes, 1, "a fully strict rebuild publishes the new identity")
+end
+
+-- A failed build must never publish the state; it was already invalidated
+-- before mutation began.
+function T.a_failed_build_does_not_publish_state()
+  env = newEnv()
+  env.failCompilers.heartgold = "boom"
+  local capture = collectLog()
+  local report, err = CacheBuilder.buildVersions({ "heartgold" }, { log = capture.log })
+  Assert.isNil(report)
+  Assert.equal(err, "cache preparation failed")
+  Assert.equal(env.stateInvalidations, 1, "the stale/missing state is invalidated before the build")
+  Assert.equal(env.statePublishes, 0, "a failed build must never publish state")
+end
+
+-- A matching identity with a damaged cache must enter the incremental repair
+-- path (marker checks decide what to rewrite) instead of fast-pathing, and a
+-- strict repair republishes the state.
+function T.matching_identity_with_damaged_cache_repairs_incrementally()
+  env = newEnv()
+  env.stateMatches = true
+  env.auditAvailable = false
+  env.stale = { FieldCameraCacheWriter = true }
+  local capture = collectLog()
+  local report, err = CacheBuilder.buildVersions({ "heartgold" }, { log = capture.log })
+  Assert.isNil(err)
+  Assert.deepEqual(report, { current = true })
+  Assert.equal(capture.lines[1], "build-cache: heartgold field cameras compiled")
+  Assert.equal(capture.lines[2], "build-cache: heartgold field actors current")
+  Assert.deepEqual(env.opens, { "heartgold" }, "repair must open the ROM")
+  Assert.equal(env.stateInvalidations, 1, "the damaged attestation is invalidated before repair")
+  Assert.equal(env.statePublishes, 1, "a strict repair republishes the state")
 end
 
 return module

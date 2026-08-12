@@ -41,7 +41,7 @@ function RomImporter.isReady(versionId, cache, versions)
     return false
   end
   cache = cache or CacheFs.forVersion(versionId)
-  if cache:read("rom-dump.complete") ~= RomExtractor.markerContent(versionId, info.sha1) then
+  if cache:read(RomExtractor.MARKER_PATH) ~= RomExtractor.markerContent(versionId, info.sha1) then
     return false
   end
   for _, path in ipairs(REQUIRED_FILES) do

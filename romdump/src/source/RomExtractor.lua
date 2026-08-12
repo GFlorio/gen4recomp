@@ -25,7 +25,10 @@ RomExtractor.__index = RomExtractor
 -- Raw-dump cache format. Independent of any future decoded-data format; bump
 -- only when the dump layout or romfs_index schema changes.
 RomExtractor.DUMP_FORMAT = 1
-local MARKER_PATH = "rom-dump.complete"
+-- Completion marker written last in staging; its exact content is the raw
+-- dump identity that the derived-cache build state trusts without rehashing
+-- extracted files.
+RomExtractor.MARKER_PATH = "rom-dump.complete"
 
 -- Extractor error identifiers, centralized in one module-local table.
 local EXTRACT_ERROR_CODES = {
@@ -344,7 +347,7 @@ function RomExtractor:_finalize(report)
     end
   end
 
-  self._stage:write(MARKER_PATH, RomExtractor.markerContent(self._version.id, self._version.sha1))
+  self._stage:write(RomExtractor.MARKER_PATH, RomExtractor.markerContent(self._version.id, self._version.sha1))
   self:_emit("finalize", 1, 1)
 end
 

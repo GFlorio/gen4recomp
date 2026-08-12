@@ -19,15 +19,18 @@ local FieldActorCompiler = require("romdump.src.digest.FieldActorCompiler")
 local FieldActorCacheWriter = require("romdump.src.digest.FieldActorCacheWriter")
 local FieldMessageCompiler = require("romdump.src.digest.FieldMessageCompiler")
 local FieldMessageCacheWriter = require("romdump.src.digest.FieldMessageCacheWriter")
-local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
 local FieldFontCompiler = require("romdump.src.digest.FieldFontCompiler")
 local FieldFontCacheWriter = require("romdump.src.digest.FieldFontCacheWriter")
-local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
 local ScriptCacheWriter = require("romdump.src.digest.ScriptCacheWriter")
-local ScriptCache = require("libs.assets.src.ScriptCache")
 local RomFs = require("romdump.src.source.RomFs")
 local Errors = require("libs.errors.src.Errors")
+local DerivedCacheState = require("romdump.src.DerivedCacheState")
+local ProducerFingerprint = require("romdump.src.ProducerFingerprint")
+local DerivedCacheAudit = require("romdump.src.DerivedCacheAudit")
+local DerivedAssetContract = require("libs.assets.src.DerivedAssetContract")
+local RomExtractor = require("romdump.src.source.RomExtractor")
+local ScriptDsl = require("gen4.script")
 
 local CacheBuilder = {}
 
@@ -40,6 +43,16 @@ local CacheBuilder = {}
 -- current build is left in place, so an unchanged cache rebuilds only what is
 -- stale. Every version's RomFs handle is closed exactly once on every path; a
 -- failed version is reported and the remaining versions still run.
+--
+-- For each version the build identity (dump marker + producer fingerprint +
+-- asset contract + script DSL API) is compared against the stored
+-- successful-build attestation first, before any RomFs open: a matching
+-- identity whose availability audit passes reports the version current
+-- without opening the ROM or calling any compiler, and a matching identity
+-- whose audit fails enters the incremental repair path. A differing identity
+-- forces every class to regenerate regardless of its marker checks. Only a
+-- fully strict per-version build (no compile exclusions) republishes the
+-- attestation; any failure or exclusion leaves it absent.
 ---@param versionIds string[]
 ---@param options { allowCompileExclusions?: boolean, log?: fun(line: string) }|nil
 ---@return table|nil report, string|nil err
@@ -50,52 +63,69 @@ function CacheBuilder.buildVersions(versionIds, options)
     log("build: no ready version to compile")
     return nil, "no ready version to compile"
   end
+  local producerFingerprint = ProducerFingerprint.compute(ProducerFingerprint.appBackend())
   local allOk, hasCompileExclusions = true, false
   for _, version in ipairs(versionIds) do
     local romFs
     local ok, err = pcall(function()
-      romFs = assert(RomFs.open(version))
       local cacheFs = CacheFs.forVersion(version)
-      local cameraBundle = assert(FieldCameraCompiler.compile(romFs))
-      if FieldCameraCacheWriter.isReady(cacheFs, cameraBundle.marker) then
-        log(string.format("build-cache: %s field cameras current", version))
+      local dumpMarker = cacheFs:read(RomExtractor.MARKER_PATH)
+      assert(type(dumpMarker) == "string", "a ready version must have a published dump marker")
+      local identity = DerivedCacheState.current({
+        dump = dumpMarker,
+        producer = producerFingerprint,
+        assetContract = DerivedAssetContract,
+        scriptApi = ScriptDsl.apiVersion,
+      })
+      local forced = false
+      if DerivedCacheState.matches(cacheFs:loadLua(DerivedCacheState.path), identity) then
+        if DerivedCacheAudit.isAvailable(cacheFs) then
+          log(string.format("build-cache: %s current", version))
+          return
+        end
       else
+        forced = true
+      end
+      DerivedCacheState.invalidate(cacheFs)
+      romFs = assert(RomFs.open(version))
+      local cameraBundle = assert(FieldCameraCompiler.compile(romFs))
+      if forced or not FieldCameraCacheWriter.isReady(cacheFs, cameraBundle.marker) then
         FieldCameraCacheWriter.write(cacheFs, cameraBundle)
         log(string.format("build-cache: %s field cameras compiled", version))
+      else
+        log(string.format("build-cache: %s field cameras current", version))
       end
       local actorBundle = assert(FieldActorCompiler.compile(romFs))
-      if FieldActorCacheWriter.isReady(cacheFs, actorBundle.marker) then
-        log(string.format("build-cache: %s field actors current", version))
-      else
+      if forced or not FieldActorCacheWriter.isReady(cacheFs, actorBundle.marker) then
         FieldActorCacheWriter.write(cacheFs, actorBundle)
         log(string.format("build-cache: %s field actors compiled (%d sprites)", version, #actorBundle.index.spriteIds))
+      else
+        log(string.format("build-cache: %s field actors current", version))
       end
       for _, fieldBundle in ipairs(assert(FieldMapDataCompiler.compileAll(romFs))) do
-        if FieldMapDataCache.isReady(cacheFs, fieldBundle.mapId, fieldBundle.marker) then
-          log(string.format("build-cache: %s map %d field data current", version, fieldBundle.mapId))
-        else
+        if forced or not FieldMapDataCache.isReady(cacheFs, fieldBundle.mapId, fieldBundle.marker) then
           FieldMapDataCacheWriter.write(cacheFs, fieldBundle)
           log(string.format("build-cache: %s map %d field data compiled", version, fieldBundle.mapId))
+        else
+          log(string.format("build-cache: %s map %d field data current", version, fieldBundle.mapId))
         end
       end
       local fontBundle = assert(FieldFontCompiler.compile(romFs))
-      if FieldFontCacheWriter.isReady(cacheFs, fontBundle.fontId, fontBundle.marker) then
-        log(string.format("build-cache: %s field font current", version))
-      else
+      if forced or not FieldFontCacheWriter.isReady(cacheFs, fontBundle.fontId, fontBundle.marker) then
         FieldFontCacheWriter.write(cacheFs, fontBundle)
         log(string.format("build-cache: %s field font compiled", version))
+      else
+        log(string.format("build-cache: %s field font current", version))
       end
       local messageBundle = assert(FieldMessageCompiler.compile(romFs))
-      if FieldMessageCacheWriter.isReady(cacheFs, messageBundle.marker) then
-        log(string.format("build-cache: %s field messages current", version))
-      else
+      if forced or not FieldMessageCacheWriter.isReady(cacheFs, messageBundle.marker) then
         FieldMessageCacheWriter.write(cacheFs, messageBundle)
         log(string.format("build-cache: %s field messages compiled (%d banks)", version, #messageBundle.index.bankIds))
+      else
+        log(string.format("build-cache: %s field messages current", version))
       end
       local scriptBundle = assert(ScriptCompiler.compile(romFs))
-      if ScriptCacheWriter.isReady(cacheFs, scriptBundle.marker) then
-        log(string.format("build-cache: %s scripts current", version))
-      else
+      if forced or not ScriptCacheWriter.isReady(cacheFs, scriptBundle.marker) then
         ScriptCacheWriter.write(cacheFs, scriptBundle)
         log(
           string.format(
@@ -105,6 +135,8 @@ function CacheBuilder.buildVersions(versionIds, options)
             scriptBundle.index.scriptMemberCount
           )
         )
+      else
+        log(string.format("build-cache: %s scripts current", version))
       end
       local entries, excluded, compileExcluded = {}, {}, {}
       for _, result in ipairs(MapAnalysis.analyze(romFs)) do
@@ -129,11 +161,11 @@ function CacheBuilder.buildVersions(versionIds, options)
             }
             log(string.format("build-cache: %s map %d excluded: %s", version, result.id, Errors.format(compileErr)))
           else
-            if MapAssetCache.isReady(cacheFs, bundle.mapId, bundle.marker) then
-              log(string.format("build-cache: %s map %d current", version, bundle.mapId))
-            else
+            if forced or not MapAssetCache.isReady(cacheFs, bundle.mapId, bundle.marker) then
               MapCacheWriter.write(cacheFs, bundle)
               log(string.format("build-cache: %s map %d compiled", version, bundle.mapId))
+            else
+              log(string.format("build-cache: %s map %d current", version, bundle.mapId))
             end
             -- Untextured on the DS too, so the map is usable; still reported,
             -- because a mis-routed pack would show up here as a flood.
@@ -182,6 +214,9 @@ function CacheBuilder.buildVersions(versionIds, options)
           #compileExcluded
         )
       )
+      if #compileExcluded == 0 then
+        DerivedCacheState.publish(cacheFs, identity)
+      end
       if #compileExcluded > 0 then
         hasCompileExclusions = true
       end
