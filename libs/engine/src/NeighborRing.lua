@@ -7,11 +7,11 @@
 -- Mesh per unique geometry path, one Image per unique texture/wrap sampler
 -- state, deduplicated across cells), and bakes each cell's world offset into
 -- the draw transform and sort center. All GPU construction happens here, once;
--- the pool releases every owned mesh/image. Load is transactional: the pool
--- guards its own acquires, and load() guards everything after pool creation,
--- so a failure -- including a malformed cell descriptor -- releases every GPU
--- object already acquired. Neighbours are additive: an empty descriptor list
--- yields no draws and the central scene is untouched.
+-- the pool releases every owned mesh/image. Load is transactional: the whole
+-- build runs inside pool:transaction(), so a failure -- including a malformed
+-- cell descriptor -- releases every GPU object the construction acquired.
+-- Neighbours are additive: an empty descriptor list yields no draws and the
+-- central scene is untouched.
 
 local Matrix4 = require("libs.math.src.Matrix4")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
@@ -49,10 +49,10 @@ local function modelCenter(verts)
   return { (minx + maxx) / 2, (miny + maxy) / 2, (minz + maxz) / 2 }
 end
 
--- Build the ring against an already-created pool. Raises on any failure;
--- load() releases the pool in that case. Draws carry no submission numbers:
--- the final scene assembly (SceneAssembly) orders every draw in source order,
--- positionally.
+-- Build the ring against an already-created pool, inside the transaction
+-- load() opens. Raises on any failure; the transaction releases the pool in
+-- that case. Draws carry no submission numbers: the final scene assembly
+-- (SceneAssembly) orders every draw in source order, positionally.
 local function buildRing(pool, descriptors)
   -- One draw per (cell, batch), with the cell's 32-tile world offset baked into
   -- the transform and the sort center.
@@ -99,19 +99,18 @@ end
 -- Load the compiled neighbour ring into GPU draw items. `cacheFs` is a
 -- CacheFs.forVersion; `descriptors` is scene.neighbors; `opts` passes through
 -- to the asset pool (injectable graphics for headless tests). Returns
--- { draws, stats, release }.
+-- { draws, stats, release }. The whole build runs inside pool:transaction(),
+-- so any failure -- including a malformed cell descriptor -- releases every
+-- GPU object the construction acquired before the error propagates.
 ---@param cacheFs table
 ---@param descriptors table[]
 ---@param opts { graphics?: love.Graphics? }?
 ---@return table
 function NeighborRing.load(cacheFs, descriptors, opts)
   local pool = GpuAssetPool.new(cacheFs, opts)
-  local ok, ring = pcall(buildRing, pool, descriptors)
-  if not ok then
-    pool:release()
-    error(ring)
-  end
-  return ring
+  return pool:transaction(function()
+    return buildRing(pool, descriptors)
+  end)
 end
 
 return NeighborRing

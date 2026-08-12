@@ -9,13 +9,17 @@
 -- batch keeps the base transform the renderer resolves against the camera
 -- each frame instead of a baked matrix. All GPU construction happens here,
 -- once, never in draw; the pool releases every owned mesh/image. Load is
--- transactional: the pool guards its own acquires, and load() guards
--- everything after pool creation, so any failure -- a missing descriptor, an
--- unsupported transform mode -- releases every GPU object already acquired
--- before the error propagates. The runtime also exposes the scene's MapProps
--- facade so field coordinates resolve to placed doors and their semantic
--- animations. The only ROM knowledge that reaches this layer is the
--- normalized scene descriptor; raw Nitro formats stopped at the compiler.
+-- transactional: the whole build runs inside pool:transaction(), so any
+-- failure -- a missing descriptor, an unsupported transform mode -- releases
+-- every GPU object the construction acquired before the error propagates.
+-- After load, a single lazy acquire failure (resolveImage during live draw
+-- evaluation) releases only the object that acquisition itself created, never
+-- the resources the live scene is drawing. The runtime also exposes the
+-- scene's MapProps facade so field coordinates resolve to placed doors and
+-- their semantic animations. The only ROM knowledge that reaches this layer
+-- is the normalized scene descriptor; raw Nitro formats stopped at the
+-- compiler.
+>>>>>>> 454a521 (engine: isolate GpuAssetPool lazy-acquisition failures)
 --
 -- The animated draw list is owned by the scene tick: every fixed tick
 -- advances each attachment player and rebuilds the items once,
@@ -68,11 +72,12 @@ local function materialsById(list, pool)
   return byId
 end
 
--- Build the runtime scene against an already-created pool. Raises on any
--- failure; load() releases the pool in that case. `opts.timeBand` seeds the
--- time-of-day band (default: the band of the default field time, noon =
--- day); `opts.meshBuilder` / `opts.imageBuilder` pass through to the pool
--- (the GPU seams, injectable in headless tests).
+-- Build the runtime scene against an already-created pool, inside the
+-- transaction load() opens. Raises on any failure; the transaction releases
+-- the pool in that case. `opts.timeBand` seeds the time-of-day band
+-- (default: the band of the default field time, noon = day); `opts.meshBuilder`
+-- / `opts.imageBuilder` pass through to the pool (the GPU seams, injectable
+-- in headless tests).
 local function buildScene(pool, cacheFs, scene, opts)
   local timeBand = opts.timeBand or TimeOfDayProps.bandForSeconds(FieldLightProfile.DEFAULT_TIME_SECONDS)
   assert(VALID_BANDS[timeBand], "unknown time-of-day band " .. tostring(timeBand))
@@ -514,12 +519,9 @@ function MapSceneLoader.load(cacheFs, scene, opts)
   end
 
   local pool = GpuAssetPool.new(cacheFs, opts)
-  local ok, runtime = pcall(buildScene, pool, cacheFs, scene, opts)
-  if not ok then
-    pool:release()
-    error(runtime)
-  end
-  return runtime
+  return pool:transaction(function()
+    return buildScene(pool, cacheFs, scene, opts)
+  end)
 end
 
 return MapSceneLoader
