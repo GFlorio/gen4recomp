@@ -212,7 +212,7 @@ function T.semantic_choose_blocks_and_writes_its_stable_item_result()
       S.stop(),
     },
   })
-  h.registry:installBase(script.id, script, "handwritten")
+  h.registry:installBase(script.id, script, "generated")
   h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
 
   h.scheduler:step(100, {})
@@ -240,7 +240,7 @@ function T.semantic_choose_resolves_gendered_text_and_preserves_false_cancel_res
       S.stop(),
     },
   })
-  h.registry:installBase(script.id, script, "handwritten")
+  h.registry:installBase(script.id, script, "generated")
   h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
 
   h.scheduler:step(100, {})

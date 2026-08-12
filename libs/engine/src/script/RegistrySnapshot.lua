@@ -40,6 +40,11 @@ function RegistrySnapshot.key(cacheFs, overrideFs)
   if not chunk then
     return nil
   end
+  -- The manifest must be a pure literal list: evaluate it with an empty
+  -- environment so a manifest relying on globals yields no key, matching
+  -- installOverrides' restricted load (the fast path cannot diverge from
+  -- the slow path).
+  setfenv(chunk --[[@as function]], {})
   local ok, ids = pcall(chunk)
   if not ok or type(ids) ~= "table" then
     return nil

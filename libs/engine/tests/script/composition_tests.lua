@@ -1,6 +1,6 @@
 -- Registry and composition tests. They pin
 -- the deterministic contribution model: base layers (generated
--- vs handwritten), register/override/before/after/wrap/remove, priority and
+-- vs override), register/override/before/after/wrap/remove, priority and
 -- load-order ordering, tombstones, same-priority replacement conflicts,
 -- owner attribution, the effective chain, and cache invalidation. The exit
 -- criterion: the effective graph for a script ID is deterministic and
@@ -56,29 +56,9 @@ T["base only"] = function()
   Assert.isFalse(entry.graph.usesNext)
 end
 
--- 2. Handwritten wins over generated; both remain
+-- 2. The override layer wins over the generated transcript; both remain
 -- inspectable through the registry.
-T["handwritten over generated"] = function()
-  local registry, composition = newRegistry()
-  local generated = signScript()
-  local handwritten = S.script({
-    api = 1,
-    id = "new_bark.lab_sign",
-    steps = { S.say({ message = "msg.elms_lab.lab_sign" }) },
-  })
-  registry:installBase("new_bark.lab_sign", generated, "generated")
-  registry:installBase("new_bark.lab_sign", handwritten, "handwritten")
-  Assert.equal(registry:base("new_bark.lab_sign"), handwritten)
-  local effective = assert(composition:effective("new_bark.lab_sign"))
-  Assert.equal(#effective.entries, 1)
-  Assert.equal(effective.entries[1].script, handwritten)
-  Assert.equal(effective.entries[1].graph.scriptId, "new_bark.lab_sign")
-end
-
--- 3. Handwritten content takes priority over the override layer, which sits
--- above the generated transcript (the override system's compatibility
--- ordering).
-T["handwritten over override over generated"] = function()
+T["override over generated"] = function()
   local registry, composition = newRegistry()
   local generated = signScript()
   local override = S.script({
@@ -86,18 +66,27 @@ T["handwritten over override over generated"] = function()
     id = "new_bark.lab_sign",
     steps = { S.say({ message = "msg.hgss.0543.00097" }) },
   })
-  local handwritten = S.script({
-    api = 1,
-    id = "new_bark.lab_sign",
-    steps = { S.say({ message = "msg.elms_lab.lab_sign" }) },
-  })
   registry:installBase("new_bark.lab_sign", generated, "generated")
   registry:installBase("new_bark.lab_sign", override, "override")
-  Assert.equal(registry:base("new_bark.lab_sign"), override, "the override beats the generated transcript")
-  registry:installBase("new_bark.lab_sign", handwritten, "handwritten")
-  Assert.equal(registry:base("new_bark.lab_sign"), handwritten, "handwritten beats the override")
+  Assert.equal(registry:base("new_bark.lab_sign"), override)
   local effective = assert(composition:effective("new_bark.lab_sign"))
-  Assert.equal(effective.entries[1].script, handwritten)
+  Assert.equal(#effective.entries, 1)
+  Assert.equal(effective.entries[1].script, override)
+  Assert.equal(effective.entries[1].graph.scriptId, "new_bark.lab_sign")
+end
+
+-- 3. The handwritten base layer no longer exists: installing it must be a
+-- hard rejection, not a silent no-op or a documented-but-unused priority.
+T["handwritten base layer is rejected"] = function()
+  local registry = newRegistry()
+  local ok = pcall(function()
+    registry:installBase("new_bark.lab_sign", signScript(), "handwritten")
+  end)
+  Assert.isFalse(ok, "installBase must reject the handwritten base layer")
+  local okDeferred = pcall(function()
+    registry:installBaseDeferred("new_bark.lab_sign", "handwritten")
+  end)
+  Assert.isFalse(okDeferred, "installBaseDeferred must reject the handwritten base layer")
 end
 
 -- 4. Unknown id resolves to nil; a tombstone alone also resolves to nil.
@@ -515,7 +504,7 @@ T["fingerprint tracks script content"] = function()
   local first = registry:fingerprint()
   local changed = signScript()
   changed.steps[1].sound = "SEQ_SE_DP_HEAL"
-  registry:installBase("new_bark.lab_sign", changed, "handwritten")
+  registry:installBase("new_bark.lab_sign", changed, "override")
   Assert.isFalse(registry:fingerprint() == first, "a content change without an id change must change the fingerprint")
 end
 
