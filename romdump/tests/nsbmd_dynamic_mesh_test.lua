@@ -173,6 +173,27 @@ function T.billboard_quad_model()
   Assert.notNil(draws[1].baseTransform)
 end
 
+-- The billboard bake is a per-segment loop invariant: the linear part of the
+-- draw matrix feeds the normal transform of every vertex in the segment, so
+-- it must be computed once per segment, not once per vertex. Observed through
+-- a counting wrapper on the public Matrix4.linear entry point: the billboard
+-- quad compiles into one segment of four vertices, so a per-segment
+-- computation yields exactly one call while a per-vertex one yields four.
+function T.billboard_bake_linear_part_is_computed_once_per_segment()
+  local m = assert(Nsbmd.decode(NsbmdFixture.buildBillboardQuad())).models[1]
+  local originalLinear = Matrix4.linear
+  local calls = 0
+  ---@diagnostic disable: duplicate-set-field
+  Matrix4.linear = function(bake)
+    calls = calls + 1
+    return originalLinear(bake)
+  end
+  local ok, err = pcall(MeshCompiler.compileDynamic, m)
+  Matrix4.linear = originalLinear
+  assert(ok, tostring(err))
+  Assert.equal(calls, 1, "billboard bake linear part computed once per segment (4 vertices, got " .. calls .. " calls)")
+end
+
 function T.matrix_slot_restore_two_nodes()
   local node0 = ModelFixture.transformedNodeData(10, 0, 0, 1, 1, 1, 0)
   local node1 = ModelFixture.transformedNodeData(0, 20, 0, 1, 1, 1, 1)

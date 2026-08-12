@@ -132,10 +132,17 @@ end
 ---@field vertices CompiledVertex[]
 ---@field indices integer[]
 
--- Compile the static batches of a decoded model (shapes, display lists,
--- materials, sbc.commands, nodes).
----@return CompiledBatch[]
-function MeshCompiler.compile(model)
+-- Decode every draw of `draws` into the per-draw inputs both compile paths
+-- consume: the shape, its decoded geometry, and the resolved material state.
+-- Owns the shared prologue (shape/material lookup, geometry-engine color
+-- carry, unsupported-opcode and billboard-matrix guards). `dynamic` selects
+-- the transform-preserving decode (pre-draw-space segments) over the static
+-- bake of the draw matrix.
+---@param model table
+---@param draws table[] SBC draw submissions (the NsbmdSbcEvaluator.evaluate shape)
+---@param dynamic boolean
+---@return { draw: table, shape: table, matState: { polygonAttrRaw: integer, seed: table|nil }, geom: table }[]
+local function decodeDraws(model, draws, dynamic)
   local shapeByIndex = {}
   for _, shp in ipairs(model.shapes) do
     shapeByIndex[shp.index] = shp
@@ -146,9 +153,7 @@ function MeshCompiler.compile(model)
     stateByMaterial[mat.index] = materialState(mat)
   end
 
-  local draws = NsbmdStaticTransforms.evaluate(model)
-
-  local batches = {}
+  local decoded = {}
   local carriedState -- geometry-engine color state carried across shapes
   for _, draw in ipairs(draws) do
     local shp = shapeByIndex[draw.shapeIndex]
@@ -170,13 +175,18 @@ function MeshCompiler.compile(model)
     end
 
     local context = { model = model.name, shape = shp.name, material = draw.materialIndex }
-    local geom, err = GxDisplayList.decode(shp.displayListBytes, {
+    local options = {
       initialState = initialState,
-      matrix = draw.matrix,
-      restoreStack = draw.restoreStack,
       requireColorSource = true,
       context = context,
-    })
+    }
+    if dynamic then
+      options.dynamic = true
+    else
+      options.matrix = draw.matrix
+      options.restoreStack = draw.restoreStack
+    end
+    local geom, err = GxDisplayList.decode(shp.displayListBytes, options)
     if not geom then
       error(err)
     end
@@ -185,6 +195,22 @@ function MeshCompiler.compile(model)
       assertWholeShapeBillboard(geom, context)
     end
     carriedState = geom.finalState
+
+    decoded[#decoded + 1] = { draw = draw, shape = shp, matState = matState, geom = geom }
+  end
+  return decoded
+end
+
+-- Compile the static batches of a decoded model (shapes, display lists,
+-- materials, sbc.commands, nodes).
+---@return CompiledBatch[]
+function MeshCompiler.compile(model)
+  local batches = {}
+  for _, record in ipairs(decodeDraws(model, NsbmdStaticTransforms.evaluate(model), false)) do
+    local draw = record.draw
+    local shp = record.shape
+    local matState = record.matState
+    local geom = record.geom
 
     local vertices = {}
     for _, v in ipairs(geom.vertices) do
@@ -279,16 +305,6 @@ end
 ---@return DynamicMeshRecord[]
 ---@return { shape: string, straddling: integer }[]? straddlingPrimitives
 function MeshCompiler.compileDynamic(model)
-  local shapeByIndex = {}
-  for _, shp in ipairs(model.shapes) do
-    shapeByIndex[shp.index] = shp
-  end
-
-  local stateByMaterial = {}
-  for _, mat in ipairs(model.materials) do
-    stateByMaterial[mat.index] = materialState(mat)
-  end
-
   -- The draw set (order, visibility, material carries) is pose-independent:
   -- the bind-pose evaluation yields the same draws the static path compiles.
   local program = NsbmdTransformProgram.compile(model)
@@ -296,37 +312,11 @@ function MeshCompiler.compileDynamic(model)
 
   local meshes = {}
   local straddlingByShape = {}
-  local carriedState -- geometry-engine color state carried across shapes
-  for drawIndex, draw in ipairs(draws) do
-    local shp = shapeByIndex[draw.shapeIndex]
-    if not shp then
-      Errors.raise(
-        "MAP_COMPILE_MISSING_SHAPE",
-        "SBC draw references shape index " .. tostring(draw.shapeIndex) .. " not in the model",
-        { shapeIndex = draw.shapeIndex, materialIndex = draw.materialIndex }
-      )
-    end
-    local matState = stateByMaterial[draw.materialIndex]
-    assert(matState, "SBC draw references material " .. tostring(draw.materialIndex) .. " not in the model")
-
-    local initialState = carriedState or matState.seed
-    if draw.materialReapplied then
-      initialState = matState.seed
-    end
-    local context = { model = model.name, shape = shp.name, material = draw.materialIndex }
-    local geom, err = GxDisplayList.decode(
-      shp.displayListBytes,
-      { dynamic = true, initialState = initialState, requireColorSource = true, context = context }
-    )
-    if not geom then
-      error(err)
-    end
-    assertSupportedShape(geom, context)
-    if draw.transformMode == PoseContract.BILLBOARD then
-      assertWholeShapeBillboard(geom, context)
-    end
-    carriedState = geom.finalState
-
+  for drawIndex, record in ipairs(decodeDraws(model, draws, true)) do
+    local draw = record.draw
+    local shp = record.shape
+    local matState = record.matState
+    local geom = record.geom
     for segmentIndex, segment in ipairs(geom.segments) do
       -- A segment whose run was split at a matrix boundary can hold a lone
       -- straddling vertex with no indices: nothing to draw.
@@ -338,12 +328,16 @@ function MeshCompiler.compileDynamic(model)
       -- so it bakes into the vertices exactly like the static path; only the
       -- captured baseTransform remains runtime-resolved.
       local bake = draw.transformMode == PoseContract.BILLBOARD and draw.matrix or nil
+      -- The linear part of the bake is a per-segment loop invariant: it feeds
+      -- the normal transform of every vertex in the segment, so compute it
+      -- once per segment, not once per vertex. It is non-nil exactly when
+      -- `bake` is (Matrix4.linear is total).
+      local bakeLinear = bake and Matrix4.linear(bake) or nil
       local vertices = {}
       for _, v in ipairs(segment.vertices) do
         local x, y, z = v.x, v.y, v.z
         local nx, ny, nz = v.nx, v.ny, v.nz
-        if bake then
-          local bakeLinear = Matrix4.linear(bake)
+        if bake and bakeLinear then
           local ox, oy, oz = x, y, z
           x = bake[1] * ox + bake[5] * oy + bake[9] * oz + bake[13]
           y = bake[2] * ox + bake[6] * oy + bake[10] * oz + bake[14]
