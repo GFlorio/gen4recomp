@@ -133,6 +133,7 @@ function T.play_of_a_zero_binding_clip_fails_loudly()
     category = "material",
     kind = "color",
     frameCount = 4,
+    compiled = {},
     tracks = {
       {
         target = "absent",

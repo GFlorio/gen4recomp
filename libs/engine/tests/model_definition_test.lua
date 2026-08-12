@@ -22,6 +22,9 @@ local function jointClip()
     category = "joint",
     kind = "trs",
     frameCount = 8,
+    -- A minimal compiled stub: validation requires the payload, and the
+    -- samplers only touch it when the clip actually plays through them.
+    compiled = {},
     tracks = {
       {
         target = 0,
@@ -219,6 +222,14 @@ function T.validation_rejects_bad_shapes()
   throwsCode("MODEL_DEF_BAD_ANIMATION", function()
     return ModelDefinition.new(s)
   end)
+  -- The compiled payload is part of the playback contract: the samplers
+  -- consume it, so a clip that carries the envelope but no compiled data
+  -- fails validation like any other incomplete record.
+  s = definitionSpec()
+  s.animations[1].compiled = nil
+  throwsCode("MODEL_DEF_BAD_ANIMATION", function()
+    return ModelDefinition.new(s)
+  end)
 end
 
 function T.animations_resolve_by_name_and_semantic()
@@ -241,6 +252,7 @@ function T.binding_is_precomputed_for_node_and_material_clips()
     category = "material",
     kind = "color",
     frameCount = 4,
+    compiled = {},
     tracks = {
       {
         target = "wall",
@@ -362,6 +374,16 @@ function T.from_nitro_descriptor_requires_animations()
   desc.animations = {}
   throwsCode("NITRO_DESC_NO_ANIMATIONS", function()
     return ModelDefinition.fromNitroDescriptor(desc)
+  end)
+end
+
+-- A descriptor clip without its compiled payload is malformed generated data:
+-- the samplers consume `compiled`, so the load boundary rejects it.
+function T.from_nitro_descriptor_requires_the_compiled_payload()
+  local desc = nitroDescriptor()
+  desc.animations[1].compiled = nil
+  throwsCode("MODEL_DEF_BAD_ANIMATION", function()
+    return ModelDefinition.fromNitroDescriptor(desc, { key = desc.key })
   end)
 end
 

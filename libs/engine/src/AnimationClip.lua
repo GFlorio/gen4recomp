@@ -16,7 +16,7 @@
 --     tracks = { { target = t, targetIndex = i }, ... },
 --     semanticNames = { "door.open" },  optional engine-level animation roles
 --     source = { type = "nitro", ... },  opaque provenance
---     compiled = ...,              the compiled Nitro payload (compilers)
+--     compiled = ...,              required: the compiled Nitro payload (compilers)
 --   }
 --
 -- Track targets are the keys a binding maps onto model elements: joint
@@ -62,8 +62,8 @@ local function validateTracks(tracks, context)
 end
 
 -- Build a validated clip from a plain data table. Raises a structured error
--- on any contract violation. Track tables are kept by reference; the clip
--- never writes to caller-owned data.
+-- on any contract violation. Track tables and the compiled payload are kept
+-- by reference; the clip never writes to caller-owned data.
 function AnimationClip.new(data)
   assert(type(data) == "table", "AnimationClip.new requires a table")
   if not AnimationClip.CATEGORIES[data.category] then
@@ -94,6 +94,11 @@ function AnimationClip.new(data)
   if data.source ~= nil and type(data.source) ~= "table" then
     Errors.raise("ANIM_CLIP_BAD_SOURCE", "clip source must be a table or nil", {})
   end
+  -- The compiled payload is what the samplers consume: a clip without it
+  -- cannot be sampled, so it is required and retained by reference.
+  if type(data.compiled) ~= "table" then
+    Errors.raise("ANIM_CLIP_NO_COMPILED", "clip " .. data.id .. " requires a compiled payload table", {})
+  end
   if data.semanticNames ~= nil then
     assert(type(data.semanticNames) == "table", "semanticNames must be a table")
     for _, name in ipairs(data.semanticNames) do
@@ -112,6 +117,7 @@ function AnimationClip.new(data)
     tracks = data.tracks,
     semanticNames = data.semanticNames or {},
     source = data.source,
+    compiled = data.compiled,
   }
 end
 

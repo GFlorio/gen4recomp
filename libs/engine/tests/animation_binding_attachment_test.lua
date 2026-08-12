@@ -31,6 +31,9 @@ local function jointClip()
     category = "joint",
     kind = "trs",
     frameCount = 8,
+    -- Minimal compiled stub: validation requires the payload; the samplers
+    -- touch it only when the clip actually plays through them.
+    compiled = {},
     tracks = {
       {
         target = 3,
@@ -58,6 +61,7 @@ local function materialClip()
     category = "material",
     kind = "color",
     frameCount = 4,
+    compiled = {},
     tracks = {
       {
         target = "door",
@@ -78,6 +82,7 @@ local function crossedMaterialClip()
     category = "material",
     kind = "color",
     frameCount = 4,
+    compiled = {},
     tracks = {
       {
         target = "sign",
@@ -100,6 +105,7 @@ local function ghostClip()
     category = "material",
     kind = "color",
     frameCount = 4,
+    compiled = {},
     tracks = {
       {
         target = "absent",

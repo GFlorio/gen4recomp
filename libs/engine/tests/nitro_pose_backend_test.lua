@@ -475,23 +475,23 @@ function T.straddling_meshes_resolve_both_sources()
   Assert.equal(items[1].transform[13], 1)
 end
 
+-- The pose guard is defense in depth: the definition load boundary itself
+-- rejects clips without a compiled payload (MODEL_DEF_BAD_ANIMATION), so
+-- the pose-level raise is reachable only by a foreign clip attached
+-- directly through the state surface.
 function T.uncompiled_joint_clips_raise()
-  local def = singleMeshDefinition({
-    animations = {
-      {
-        id = "generic",
-        name = "generic",
-        category = "joint",
-        kind = "trs",
-        frameCount = 2,
-        tracks = { { target = 0 } },
-        semanticNames = {},
-        source = { type = "nitro", format = "NSBCA" },
-      },
-    },
-  })
+  local def = singleMeshDefinition()
   local instance = newInstance(def)
-  instance:play("generic")
+  instance.animationState:attach({
+    id = "generic",
+    name = "generic",
+    category = "joint",
+    kind = "trs",
+    frameCount = 2,
+    tracks = { { target = 0 } },
+    semanticNames = {},
+    source = { type = "nitro", format = "NSBCA" },
+  })
   local err = Assert.throws(function()
     instance:evaluatePose()
   end)

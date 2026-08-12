@@ -394,6 +394,7 @@ function T.to_definition_builds_a_valid_nitro_model()
         frameCount = 2,
         tracks = { { target = 0, targetIndex = 0 } },
         source = { type = "nitro", format = "NSBCA", archive = "build_anim", memberId = 1 },
+        compiled = {},
       },
     },
   }, { key = "fixture:door" })
@@ -449,6 +450,7 @@ function T.compiled_descriptor_preserves_light_mask_and_four_material_colors()
         frameCount = 2,
         tracks = { { target = 0, targetIndex = 0 } },
         source = { type = "nitro", format = "NSBCA", archive = "build_anim", memberId = 1 },
+        compiled = {},
       },
     },
   }, { key = "fixture:contract" })

@@ -280,7 +280,8 @@ end
 
 -- Every clip must be a real AnimationClip record: an animation addressed by
 -- name or semantic must satisfy the whole playback contract, not merely
--- carry an id.
+-- carry an id. The compiled payload is part of that contract -- the samplers
+-- consume it, so a clip without it cannot be played.
 local function validateAnimations(animations)
   for _, clip in ipairs(animations) do
     if
@@ -291,6 +292,7 @@ local function validateAnimations(animations)
       or not (isInteger(clip.frameCount) and clip.frameCount >= 1)
       or type(clip.tracks) ~= "table"
       or #clip.tracks == 0
+      or type(clip.compiled) ~= "table"
     then
       Errors.raise("MODEL_DEF_BAD_ANIMATION", "animations must be AnimationClip values", {})
     end
