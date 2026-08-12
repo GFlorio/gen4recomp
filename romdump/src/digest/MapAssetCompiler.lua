@@ -16,7 +16,7 @@ local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
 local MaterialCompiler = require("romdump.src.digest.MaterialCompiler")
 local AlphaClassifier = require("romdump.src.digest.AlphaClassifier")
 local HgssFieldLighting = require("romdump.src.digest.HgssFieldLighting")
-local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
+local HgssFieldLightProfile = require("romdump.src.digest.HgssFieldLightProfile")
 local BuildingTransform = require("romdump.src.digest.BuildingTransform")
 local MapUnits = require("romdump.src.digest.MapUnits")
 local Hashing = require("romdump.src.digest.Hashing")
@@ -128,7 +128,7 @@ local function _compile(romFs, idOrSymbol)
   local selectedLight = HgssFieldLighting.resolve(area.lightTypeRaw, false)
   local lightBytes =
     assert(romFs:readSourcePath(selectedLight.sourcePath), "missing field-light profile: " .. selectedLight.sourcePath)
-  local lightProfile = assert(FieldLightProfile.parse(lightBytes, { sourcePath = selectedLight.sourcePath }))
+  local lightProfile = assert(HgssFieldLightProfile.parse(lightBytes, { sourcePath = selectedLight.sourcePath }))
   local lightSha1 = Hashing.sha1hex(lightBytes)
 
   local meshes, textures = {}, {}
@@ -267,7 +267,7 @@ local function _compile(romFs, idOrSymbol)
       collision = {
         width = 32,
         height = 32,
-        file = MapAssetCache.neighborPermissionsPath(mapId, cell.landDataMemberId),
+        file = MapAssetCache.neighborCollisionPath(mapId, cell.landDataMemberId),
       },
       terrain = {
         schema = chunk.terrain.schema,
@@ -289,7 +289,7 @@ local function _compile(romFs, idOrSymbol)
     textureDecoderVersion = MaterialCompiler.DECODER_VERSION,
     materialNormalizerVersion = AlphaClassifier.VERSION,
     vertexFormatVersion = VertexFormat.VERSION,
-    fieldLightParserVersion = FieldLightProfile.VERSION,
+    fieldLightParserVersion = HgssFieldLightProfile.VERSION,
     fieldLightSourcePath = selectedLight.sourcePath,
     fieldLightSourceSha1 = lightSha1,
     versionRomSha1 = romSha1,
@@ -336,7 +336,7 @@ local function _compile(romFs, idOrSymbol)
     collision = {
       width = 32,
       height = 32,
-      file = MapAssetCache.mapDir(mapId) .. "/permissions.bin",
+      file = MapAssetCache.collisionPath(mapId),
     },
     terrain = {
       schema = terrain.schema,
@@ -366,12 +366,10 @@ local function _compile(romFs, idOrSymbol)
     limitations = {
       dynamicTexturesStatic = true,
     },
+    -- The runtime consumes only the normalized records for time-of-day
+    -- selection; the source light type, profile id, source path, and source
+    -- hash are producer provenance and live in the dependency record.
     lighting = {
-      lightTypeRaw = area.lightTypeRaw,
-      profileId = selectedLight.profileId,
-      sourcePath = selectedLight.sourcePath,
-      sourceSha1 = lightSha1,
-      parserVersion = FieldLightProfile.VERSION,
       records = lightProfile.records,
     },
   }
@@ -381,7 +379,7 @@ local function _compile(romFs, idOrSymbol)
     marker = marker,
     scene = scene,
     dependencies = dependencies,
-    permissions = land.permissionBytes,
+    collision = land.collision,
     terrain = terrain,
     neighborChunks = neighborChunkByMember,
     meshes = meshes,

@@ -25,7 +25,7 @@ local FieldActorFrames = require("romdump.src.digest.FieldActorFrames")
 local FieldActorModel = require("romdump.src.digest.FieldActorModel")
 local FieldActorStaticModel = require("romdump.src.digest.FieldActorStaticModel")
 local FieldActorTimeline = require("romdump.src.digest.FieldActorTimeline")
-local manifest = require("data.manifests.field_actors")
+local manifest = require("romdump.src.config.FieldActors")
 
 local FieldActorCompiler = {}
 
@@ -503,11 +503,22 @@ local function _compile(romFs)
     schema = FieldActorCache.INDEX_SCHEMA,
     romVersion = romFs:version(),
     spriteIds = spriteIds,
-    -- Sprite IDs the runtime must resolve through field variables before lookup;
-    -- every value they take is one of the compiled player graphics.
-    variableSpriteRange = manifest.variableSpriteRange,
+    -- Sprite IDs the runtime must resolve through field variables before
+    -- lookup; every value they take is one of the compiled player graphics.
     variableSprites = variableSprites,
     recordCount = graphics.recordCount,
+    -- The runtime-facing actor configuration: avatar selection and the
+    -- variable-sprite policy come from this generated block, never from the
+    -- source manifest. The manifest's addresses, archive paths, and table
+    -- layouts stay in romdump.
+    runtime = {
+      avatars = manifest.avatars,
+      variableSprites = {
+        first = manifest.variableSpriteRange.first,
+        last = manifest.variableSpriteRange.last,
+        variableBase = manifest.variableVarBase,
+      },
+    },
   }
 
   local provenance = {

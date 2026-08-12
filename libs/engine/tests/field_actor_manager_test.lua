@@ -13,8 +13,7 @@ local TerrainSurface = require("libs.engine.src.TerrainSurface")
 local T = {}
 
 local POLICY = {
-  variableSpriteRange = { first = 101, last = 117 },
-  variableVarBase = 0x4020,
+  variableSprites = { first = 101, last = 117, variableBase = 0x4020 },
 }
 
 local function throwsCode(code, fn)
@@ -94,7 +93,7 @@ local function runtimeMap(objects, mapId)
   return {
     mapId = mapId or 61,
     coordinateOrigin = { x = 0, z = 0 },
-    permissions = {
+    collision = {
       containsLocal = function(_, x, z)
         return x >= 0 and x < 40 and z >= 0 and z < 32
       end,
@@ -374,7 +373,7 @@ end
 -- A real FieldPlayer whose occupancy predicate reads this manager's index,
 -- integrating the terrain resolver and the move.
 local function playerOn(mgr, map, fieldX, fieldZ, surfaceId)
-  map.permissions.isBlockedLocal = function()
+  map.collision.isBlockedLocal = function()
     return false
   end
   local p = FieldPlayer.new({

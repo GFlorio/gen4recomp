@@ -479,7 +479,7 @@ T["field save v2 round trip"] = function()
     currentMap = {
       mapId = 58,
       coordinateOrigin = { x = 680, z = 390 },
-      permissions = {
+      collision = {
         containsLocal = function()
           return true
         end,

@@ -340,7 +340,7 @@ local function warpSession(options)
     cameraType = 4,
     coordinateOrigin = { x = 0, z = 0 },
     fieldData = { events = { warps = { warp } } },
-    permissions = {
+    collision = {
       containsLocal = function(_, x, z)
         return x >= 0 and x < 32 and z >= 0 and z < 32
       end,
@@ -414,7 +414,7 @@ function T.actor_on_a_blocked_warp_cell_does_not_block_the_facing_warp()
     cameraType = 4,
     coordinateOrigin = { x = 0, z = 0 },
     fieldData = { events = { warps = { warp } } },
-    permissions = {
+    collision = {
       containsLocal = function(_, x, z)
         return x >= 0 and x < 32 and z >= 0 and z < 32
       end,
@@ -486,7 +486,7 @@ function T.actor_on_an_open_warp_cell_blocks_the_walk_but_not_the_route()
     cameraType = 4,
     coordinateOrigin = { x = 0, z = 0 },
     fieldData = { events = { warps = { warp } } },
-    permissions = {
+    collision = {
       containsLocal = function(_, x, z)
         return x >= 0 and x < 32 and z >= 0 and z < 32
       end,
@@ -921,7 +921,7 @@ function T.a_two_tile_walk_keeps_one_phase_across_the_session_ticks()
     cameraType = 4,
     coordinateOrigin = { x = 0, z = 0 },
     fieldData = { events = { warps = {} } },
-    permissions = {
+    collision = {
       containsLocal = function(_, x, z)
         return x >= 0 and x < 32 and z >= 0 and z < 32
       end,

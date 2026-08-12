@@ -1,11 +1,19 @@
 -- Minimal self-consistent compiled-map bundle for exercising MapCacheWriter and
 -- MapAssetCache without the real ROM pipeline: one mesh batch, one 1x1 texture,
 -- one model descriptor, and a scene that references all three by their cache
--- paths, plus a 2048-byte permission grid and a marker.
+-- paths, plus a normalized collision grid and a marker.
 
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 
 local BundleFixture = {}
+
+local function collisionGrid(width, height)
+  local cells = {}
+  for index = 1, width * height do
+    cells[index] = { behavior = 0, terrainResponseId = 0, blocked = false }
+  end
+  return { width = width, height = height, cells = cells }
+end
 
 function BundleFixture.minimal(mapId)
   mapId = mapId or 61
@@ -45,7 +53,7 @@ function BundleFixture.minimal(mapId)
     marker = MapAssetCache.marker("romsha1", mapId, "dephash"),
     scene = scene,
     dependencies = { cacheFormat = MapAssetCache.FORMAT },
-    permissions = string.rep("\0", 2048),
+    collision = collisionGrid(32, 32),
     terrain = {
       schema = "g4-terrain-surfaces-v1",
       source = { landDataMemberId = 0, bdhcOffset = 0, bdhcSize = 16, bdhcSha1 = "bdhcsha1" },

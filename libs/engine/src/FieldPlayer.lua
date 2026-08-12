@@ -2,7 +2,7 @@
 -- Integer field coordinates commit only after a fixed-duration tile step;
 -- continuous XYZ is the shared camera and renderer position throughout it.
 --
--- Collision order: permissions, then terrain surface
+-- Collision order: collision, then terrain surface
 -- transition, then dynamic occupancy. The occupancy check is injected as a
 -- pure predicate -- `occupancy(fieldX, fieldZ, surfaceId) -> blockingActorId or
 -- nil` -- so the player never knows which object blocks it, and the actor
@@ -116,7 +116,7 @@ function FieldPlayer:_resolveStep(direction)
   local ok, result = pcall(function()
     local destinationLocalX, destinationLocalZ =
       FieldCoordinates.fieldToLocal(self.currentMap, destinationX, destinationZ)
-    if self.currentMap.permissions:isBlockedLocal(destinationLocalX, destinationLocalZ) then
+    if self.currentMap.collision:isBlockedLocal(destinationLocalX, destinationLocalZ) then
       return nil
     end
     local sourceX, sourceZ =

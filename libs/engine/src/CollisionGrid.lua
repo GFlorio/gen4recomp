@@ -1,22 +1,34 @@
--- Wraps a PermissionGrid with the map cell's global tile origin so the runtime
--- can address tiles in either local (0..31 within the 32x32 cell) or global
--- (matrix-wide) coordinates. Blocking is exactly the permission grid's hard-
--- block bit (0x80); surface responses like 4 and 6 stay passable. Elm's Lab has
--- origin (0,0) so local == global there; New Bark will carry a nonzero origin.
--- Pure domain module (no love); the permission policy lives in PermissionGrid.
+-- Wraps a decoded collision grid asset with the map cell's global tile origin
+-- so the runtime can address tiles in either local (0..width-1 within the
+-- cell) or global (matrix-wide) coordinates. Blocking is exactly the asset's
+-- semantic `blocked` cell flag; behavior and terrainResponseId are opaque
+-- cell fields the runtime carries for HUD/diagnostics. The decoded asset is
+-- immutable generated data: getLocal returns a copy so no consumer can mutate
+-- a shared cell. Pure domain module (no love); the G4CL binary format lives in
+-- CollisionGridAsset and the HGSS source packing lives in romdump.
 
 local CollisionGrid = {}
 CollisionGrid.__index = CollisionGrid
 
-function CollisionGrid.new(permissionGrid, opts)
-  assert(permissionGrid, "CollisionGrid.new requires a permission grid")
+local function finiteInteger(value)
+  return type(value) == "number"
+    and value == value
+    and value ~= math.huge
+    and value ~= -math.huge
+    and value == math.floor(value)
+end
+
+---@param collisionGrid { width: integer, height: integer, cells: table[] }
+---@param opts { worldOriginX?: integer, worldOriginZ?: integer }|nil
+function CollisionGrid.new(collisionGrid, opts)
+  assert(collisionGrid and type(collisionGrid.cells) == "table", "CollisionGrid.new requires a decoded collision grid")
   opts = opts or {}
   return setmetatable({
-    grid = permissionGrid,
+    grid = collisionGrid,
     worldOriginX = opts.worldOriginX or 0,
     worldOriginZ = opts.worldOriginZ or 0,
-    width = permissionGrid.width,
-    height = permissionGrid.height,
+    width = collisionGrid.width,
+    height = collisionGrid.height,
   }, CollisionGrid)
 end
 
@@ -28,23 +40,37 @@ function CollisionGrid:localToGlobal(localX, localZ)
   return localX + self.worldOriginX, localZ + self.worldOriginZ
 end
 
+-- Cell coordinates are finite integers: a fractional coordinate would
+-- otherwise read the shifted neighbouring cell.
 function CollisionGrid:containsLocal(localX, localZ)
-  return self.grid:contains(localX, localZ)
+  return finiteInteger(localX)
+    and finiteInteger(localZ)
+    and localX >= 0
+    and localZ >= 0
+    and localX < self.width
+    and localZ < self.height
 end
 
--- The full permission record for a local tile (behavior/permission/hardBlocked/
--- terrainResponseId), for HUD/diagnostics.
+-- The full cell record (behavior/terrainResponseId/blocked) for a local tile,
+-- copied so callers cannot mutate the shared decoded grid.
 function CollisionGrid:getLocal(localX, localZ)
-  return self.grid:get(localX, localZ)
+  assert(self:containsLocal(localX, localZ), "local tile outside collision grid")
+  local cell = self.grid.cells[localZ * self.width + localX + 1]
+  return {
+    behavior = cell.behavior,
+    terrainResponseId = cell.terrainResponseId,
+    blocked = cell.blocked,
+  }
 end
 
 function CollisionGrid:isBlockedLocal(localX, localZ)
-  return self.grid:isBlocked(localX, localZ)
+  assert(self:containsLocal(localX, localZ), "local tile outside collision grid")
+  return self.grid.cells[localZ * self.width + localX + 1].blocked == true
 end
 
 function CollisionGrid:isBlockedGlobal(globalX, globalZ)
   local lx, lz = self:globalToLocal(globalX, globalZ)
-  return self.grid:isBlocked(lx, lz)
+  return self:isBlockedLocal(lx, lz)
 end
 
 return CollisionGrid

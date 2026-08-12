@@ -10,7 +10,7 @@ local MapAssetCache = {}
 
 local Errors = require("libs.errors.src.Errors")
 local Validate = require("libs.assets.src.Validate")
-local PermissionGrid = require("libs.assets.src.PermissionGrid")
+local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 
 MapAssetCache.FORMAT = "map-cache-v5"
 MapAssetCache.SCENE_SCHEMA = "g4-map-scene-v3"
@@ -27,8 +27,12 @@ function MapAssetCache.terrainPath(mapId)
   return MapAssetCache.mapDir(mapId) .. "/terrain.lua"
 end
 
-function MapAssetCache.neighborPermissionsPath(mapId, landDataMemberId)
-  return string.format("%s/neighbors/%d/permissions.bin", MapAssetCache.mapDir(mapId), landDataMemberId)
+function MapAssetCache.collisionPath(mapId)
+  return MapAssetCache.mapDir(mapId) .. "/collision.g4collision"
+end
+
+function MapAssetCache.neighborCollisionPath(mapId, landDataMemberId)
+  return string.format("%s/neighbors/%d/collision.g4collision", MapAssetCache.mapDir(mapId), landDataMemberId)
 end
 
 function MapAssetCache.neighborTerrainPath(mapId, landDataMemberId)
@@ -148,11 +152,23 @@ function MapAssetCache.referencedPaths(scene, cacheFs)
   return paths
 end
 
+-- A collision asset is ready only when it exists and fully decodes as the
+-- current project format: malformed magic/version/dimensions/blocked bytes
+-- must never read as a valid grid.
+local function validCollision(cacheFs, path)
+  local bytes = cacheFs:read(path)
+  if type(bytes) ~= "string" then
+    return false
+  end
+  local grid = CollisionGridAsset.decode(bytes, { path = path })
+  return grid ~= nil
+end
+
 -- True only if the marker is exact, the scene carries the current identity
--- (schema and mapId), scene/dependencies/terrain load, permissions.bin is
--- exactly PermissionGrid.SIZE bytes, every model descriptor opens, and every
--- referenced asset exists. A malformed scene shape reports not ready rather
--- than raising.
+-- (schema and mapId), scene/dependencies/terrain load, the collision asset
+-- decodes (magic/version/dimensions/blocked bytes are all validated), every
+-- model descriptor opens, and every referenced asset exists. A malformed
+-- scene shape reports not ready rather than raising.
 function MapAssetCache.isReady(cacheFs, mapId, expectedMarker)
   local dir = MapAssetCache.mapDir(mapId)
   local marker = cacheFs:read(dir .. "/complete")
@@ -175,8 +191,7 @@ function MapAssetCache.isReady(cacheFs, mapId, expectedMarker)
     return false
   end
 
-  local perms = cacheFs:getInfo(dir .. "/permissions.bin")
-  if not perms or perms.type ~= "file" or perms.size ~= PermissionGrid.SIZE then
+  if not validCollision(cacheFs, MapAssetCache.collisionPath(mapId)) then
     return false
   end
 
@@ -194,8 +209,7 @@ function MapAssetCache.isReady(cacheFs, mapId, expectedMarker)
   end
   for _, cell in ipairs(scene.neighbors) do
     if type(cell.collision) == "table" and cell.collision.file then
-      local info = cacheFs:getInfo(cell.collision.file)
-      if not info or info.type ~= "file" or info.size ~= PermissionGrid.SIZE then
+      if not validCollision(cacheFs, cell.collision.file) then
         return false
       end
     end

@@ -1,5 +1,5 @@
 -- Composes one runtime map cell and its cached neighboring cells into a single
--- permission and terrain view. Coordinates remain local to the central cell;
+-- collision and terrain view. Coordinates remain local to the central cell;
 -- neighboring BDHC planes are translated without changing sampled height.
 
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
@@ -25,7 +25,7 @@ local function copyPlate(plate, id, offsetX, offsetZ)
 end
 
 local function collisionRegion(cells)
-  local permissions = {}
+  local collision = {}
 
   local function cellAt(localX, localZ)
     for _, cell in ipairs(cells) do
@@ -37,23 +37,23 @@ local function collisionRegion(cells)
     return nil
   end
 
-  function permissions:containsLocal(localX, localZ)
+  function collision:containsLocal(localX, localZ)
     return cellAt(localX, localZ) ~= nil
   end
 
-  function permissions:getLocal(localX, localZ)
+  function collision:getLocal(localX, localZ)
     local cell, x, z = cellAt(localX, localZ)
     assert(cell, "field coordinate outside composed region")
     return cell.collision:getLocal(x, z)
   end
 
-  function permissions:isBlockedLocal(localX, localZ)
+  function collision:isBlockedLocal(localX, localZ)
     local cell, x, z = cellAt(localX, localZ)
     assert(cell, "field coordinate outside composed region")
     return cell.collision:isBlockedLocal(x, z)
   end
 
-  return permissions
+  return collision
 end
 
 function FieldRegion.new(centralCollision, centralTerrain, neighbors)
@@ -88,7 +88,7 @@ function FieldRegion.new(centralCollision, centralTerrain, neighbors)
   end
 
   return {
-    permissions = collisionRegion(cells),
+    collision = collisionRegion(cells),
     terrain = TerrainSurface.new({ schema = "g4-composite-terrain-v1", plates = plates }),
     cells = cells,
   }

@@ -141,8 +141,8 @@ local function decodeCorpus(romFs)
   local stdCatalog = SourceCatalog.catalog()
   local catalog = {
     sounds = require("romdump.src.reference.hgss.sndseq").byId,
-    flags = require("data.reference.hgss.flags").byId,
-    vars = require("data.reference.hgss.vars").byId,
+    flags = require("romdump.src.reference.hgss.flags").byId,
+    vars = require("romdump.src.reference.hgss.vars").byId,
     maps = require("romdump.src.reference.hgss.maps").byId,
     spawns = require("romdump.src.reference.hgss.spawns").byId,
   }

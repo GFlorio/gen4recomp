@@ -114,10 +114,13 @@ end
 
 function T.the_shipped_demo_manifest_is_well_formed()
   local demo = require("data.manifests.field_scenario")
-  local actors = require("data.manifests.field_actors")
+  -- The demo avatar must name one of the compiled player graphics. The
+  -- compiled avatar set is generated (romdump) and validated against at
+  -- runtime; here the well-formedness contract is checked against the
+  -- project-owned avatar surface.
   Assert.equal(demo.id, "pre-script-demo-v1")
   Assert.notNil(
-    FieldScenario.avatarById(actors.avatars, demo.avatar),
+    FieldScenario.avatarById(AVATARS, demo.avatar),
     "the demo avatar must name one of the compiled player graphics"
   )
   Assert.isTrue(#demo.visibility > 0)

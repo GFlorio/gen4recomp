@@ -81,7 +81,7 @@ function T.target_terrain_artifacts_are_deterministic(romFs)
     local first = assert(MapAssetCompiler.compile(romFs, symbol))
     local second = assert(MapAssetCompiler.compile(romFs, symbol))
     Assert.equal(first.terrain.schema, "g4-terrain-surfaces-v1")
-    Assert.equal(first.scene.terrain.file, first.scene.collision.file:gsub("permissions%.bin$", "terrain.lua"))
+    Assert.equal(first.scene.terrain.file, first.scene.collision.file:gsub("collision%.g4collision$", "terrain.lua"))
     Assert.equal(Hashing.hashLua(first.terrain), Hashing.hashLua(second.terrain))
     Assert.equal(first.dependencies.bdhcSha1, first.terrain.source.bdhcSha1)
   end
@@ -114,7 +114,7 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
     mapId = resolved.map.id,
     cameraType = resolved.map.cameraType,
     coordinateOrigin = { x = resolved.worldOriginX, z = resolved.worldOriginZ },
-    permissions = {
+    collision = {
       containsLocal = function(_, x, z)
         return x >= 0 and x < 32 and z >= 0 and z < 32
       end,
@@ -217,7 +217,7 @@ function T.upper_new_bark_staircase_state_reloads_on_the_same_surface(romFs, ver
   local runtimeMap = {
     mapId = resolved.map.id,
     coordinateOrigin = { x = resolved.worldOriginX, z = resolved.worldOriginZ },
-    permissions = {
+    collision = {
       containsLocal = function(_, x, z)
         return x >= 0 and x < 32 and z >= 0 and z < 32
       end,

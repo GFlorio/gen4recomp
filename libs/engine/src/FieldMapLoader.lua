@@ -1,25 +1,27 @@
 -- Owns live field-map aggregates and evicts them by least-recent use. Serialized
--- visual, event, permission, and terrain caches remain independent; this loader
--- only joins their validated runtime views and releases owned GPU resources.
+-- visual, event, collision, and terrain caches remain independent; this loader
+-- joins their validated runtime views. The central and neighbor collision
+-- grids decode through the same pure project-owned asset path regardless of
+-- presentation: the visual scene loader (MapSceneLoader) and the neighbor
+-- coverage ring are optional presentation-only collaborators supplied by the
+-- composition, and a simulation-only runtime simply leaves them out.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldCoveragePlanner = require("libs.engine.src.FieldCoveragePlanner")
 local FieldGrid = require("libs.engine.src.FieldGrid")
 local FieldRegion = require("libs.engine.src.FieldRegion")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
-local PermissionGrid = require("libs.assets.src.PermissionGrid")
+local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
-local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
-local NeighborRing = require("libs.engine.src.NeighborRing")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 ---@class FieldMapLoader
 ---@field cacheFs CacheFs
 ---@field world table
 ---@field capacity integer
----@field sceneLoader table
----@field coverageLoader table
+---@field sceneLoader table|nil presentation-only visual scene loader
+---@field coverageLoader table|nil presentation-only neighbor coverage loader
 ---@field entries table<integer, table>
 ---@field protectedMaps table<integer, boolean>
 ---@field clock integer
@@ -30,10 +32,10 @@ FieldMapLoader.__index = FieldMapLoader
 ---@class RuntimeFieldMap
 ---@field mapId integer
 ---@field mapSymbol string
----@field sceneRuntime table
+---@field sceneRuntime table|nil
 ---@field scene table
 ---@field fieldData table
----@field permissions table
+---@field collision table
 ---@field terrain TerrainSurface
 ---@field terrainDependencyHash string
 ---@field fieldRegion table
@@ -99,7 +101,9 @@ local function releaseAggregate(runtimeMap)
   if runtimeMap.coverageRuntime then
     runtimeMap.coverageRuntime:release()
   end
-  runtimeMap.sceneRuntime:release()
+  if runtimeMap.sceneRuntime then
+    runtimeMap.sceneRuntime:release()
+  end
 end
 
 -- The terrain artifact's source record is part of the map dependency identity
@@ -109,6 +113,25 @@ local function requireTerrainSource(artifact, context)
   if type(artifact.source) ~= "table" or type(artifact.source.bdhcSha1) ~= "string" then
     Errors.raise("FIELD_MAP_TERRAIN_CACHE_INVALID", "terrain artifact source or bdhcSha1 is missing", context)
   end
+end
+
+-- Decode a collision asset into a runtime grid at a cell origin. Malformed
+-- or missing generated collision data fails the load loudly -- a map with a
+-- half-decoded grid must never move the player. `missingCode` names the
+-- structured failure for the caller's artifact class.
+local function loadCollision(cacheFs, descriptor, missingCode, context)
+  local bytes = cacheFs:read(descriptor.file)
+  if type(bytes) ~= "string" then
+    Errors.raise(missingCode, "collision asset is unavailable", { path = descriptor.file, mapId = context.mapId })
+  end
+  local grid, decodeErr = CollisionGridAsset.decode(bytes, { mapId = context.mapId, path = descriptor.file })
+  if not grid then
+    error(decodeErr)
+  end
+  return CollisionGrid.new(grid, {
+    worldOriginX = context.worldOriginX or 0,
+    worldOriginZ = context.worldOriginZ or 0,
+  })
 end
 
 local function loadNeighborRegion(cacheFs, scene, centralCollision, centralTerrain)
@@ -121,21 +144,6 @@ local function loadNeighborRegion(cacheFs, scene, centralCollision, centralTerra
         { mapId = scene.mapId, offsetTilesX = descriptor.offsetTilesX, offsetTilesZ = descriptor.offsetTilesZ }
       )
     end
-    local permissionBytes = cacheFs:read(descriptor.collision.file)
-    if not permissionBytes then
-      Errors.raise(
-        "FIELD_MAP_NEIGHBOR_CACHE_MISSING",
-        "neighbor permissions are unavailable",
-        { mapId = scene.mapId, path = descriptor.collision.file }
-      )
-    end
-    local permissionGrid, permissionErr = PermissionGrid.decode(permissionBytes, {
-      mapId = scene.mapId,
-      path = descriptor.collision.file,
-    })
-    if not permissionGrid then
-      error(permissionErr)
-    end
     local terrainArtifact = loadRequired(cacheFs, descriptor.terrain.file, "FIELD_MAP_NEIGHBOR_CACHE_MISSING")
     requireTerrainSource(terrainArtifact, {
       mapId = scene.mapId,
@@ -145,7 +153,9 @@ local function loadNeighborRegion(cacheFs, scene, centralCollision, centralTerra
     neighbors[#neighbors + 1] = {
       offsetTilesX = descriptor.offsetTilesX,
       offsetTilesZ = descriptor.offsetTilesZ,
-      collision = CollisionGrid.new(permissionGrid),
+      collision = loadCollision(cacheFs, descriptor.collision, "FIELD_MAP_NEIGHBOR_CACHE_MISSING", {
+        mapId = scene.mapId,
+      }),
       terrain = TerrainSurface.new(terrainArtifact),
     }
   end
@@ -167,12 +177,15 @@ function FieldMapLoader.new(cacheFs, world, options)
   options = options or {}
   local capacity = options.capacity or 4
   assert(capacity >= 1 and capacity == math.floor(capacity), "map capacity must be a positive integer")
+  -- The visual scene loader and the neighbor coverage ring are presentation
+  -- collaborators: a simulation-only runtime leaves both out and still gets
+  -- collision and terrain through the shared asset paths.
   return setmetatable({
     cacheFs = cacheFs,
     world = world,
     capacity = capacity,
-    sceneLoader = options.sceneLoader or MapSceneLoader,
-    coverageLoader = options.coverageLoader or NeighborRing,
+    sceneLoader = options.sceneLoader,
+    coverageLoader = options.coverageLoader,
     entries = {},
     protectedMaps = {},
     clock = 0,
@@ -252,28 +265,48 @@ function FieldMapLoader:load(idOrSymbol)
     )
   end
 
-  local sceneRuntime = self.sceneLoader.load(self.cacheFs, scene)
+  -- The central collision decodes through the same pure project-owned asset
+  -- path whether or not presentation is enabled, so simulation and rendering
+  -- can never disagree about blocking. The visual scene runtime is optional:
+  -- only a presentation composition supplies a scene loader.
+  local sceneRuntime
+  if self.sceneLoader then
+    sceneRuntime = self.sceneLoader.load(self.cacheFs, scene)
+  end
   -- One transaction covers every step after the scene runtime is acquired:
-  -- coverage load, terrain construction, neighbor decoding, region assembly,
-  -- and aggregate construction. Any failure releases the coverage runtime (if
-  -- created) and the scene runtime exactly once before the error propagates;
-  -- a failure inside the scene loader itself is that loader's own transaction.
+  -- coverage load, collision decode, terrain construction, neighbor decoding,
+  -- region assembly, and aggregate construction. Any failure releases the
+  -- coverage runtime (if created) and the scene runtime exactly once before
+  -- the error propagates; a failure inside the scene loader itself is that
+  -- loader's own transaction.
   local coverageRuntime
   local runtimeMap
   local ok, loadErr = pcall(function()
-    if #scene.neighbors > 0 then
+    if self.coverageLoader and #scene.neighbors > 0 then
       coverageRuntime = self.coverageLoader.load(self.cacheFs, scene.neighbors)
     end
 
+    if not scene.collision or type(scene.collision.file) ~= "string" then
+      Errors.raise(
+        "FIELD_MAP_VISUAL_CACHE_INVALID",
+        "scene collision descriptor is missing; rebuild the derived cache",
+        { mapId = record.id }
+      )
+    end
+    local centralCollision = loadCollision(self.cacheFs, scene.collision, "FIELD_MAP_COLLISION_CACHE_MISSING", {
+      mapId = record.id,
+      worldOriginX = scene.matrix.worldOriginX,
+      worldOriginZ = scene.matrix.worldOriginZ,
+    })
     local centralTerrain = TerrainSurface.new(terrainArtifact)
-    local region = loadNeighborRegion(self.cacheFs, scene, sceneRuntime.collision, centralTerrain)
+    local region = loadNeighborRegion(self.cacheFs, scene, centralCollision, centralTerrain)
     runtimeMap = {
       mapId = record.id,
       mapSymbol = record.symbol,
       sceneRuntime = sceneRuntime,
       scene = scene,
       fieldData = fieldData,
-      permissions = region.permissions,
+      collision = region.collision,
       terrain = region.terrain,
       terrainDependencyHash = terrainDependencyHash(region),
       fieldRegion = region,
@@ -295,7 +328,9 @@ function FieldMapLoader:load(idOrSymbol)
     if coverageRuntime then
       coverageRuntime:release()
     end
-    sceneRuntime:release()
+    if sceneRuntime then
+      sceneRuntime:release()
+    end
     error(loadErr)
   end
 

@@ -11,8 +11,8 @@ local FakeCache = require("tests.support.FakeCache")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local MapCacheWriter = require("romdump.src.digest.MapCacheWriter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
+local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local SceneMesh = require("libs.engine.src.SceneMesh")
-local PermissionGrid = require("libs.assets.src.PermissionGrid")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
 
 local T = {}
@@ -58,7 +58,9 @@ end
 function T.completeness_and_ready(romFs, version)
   local c, bundle, marker = compileInto(romFs, version)
   Assert.isTrue(MapAssetCache.isReady(c, MAP_ID, marker), "cache reports ready")
-  Assert.equal(#c:read(MapAssetCache.mapDir(MAP_ID) .. "/permissions.bin"), 2048)
+  local collision = assert(CollisionGridAsset.decode(assert(c:read(MapAssetCache.collisionPath(MAP_ID)))))
+  Assert.equal(collision.width, 32)
+  Assert.equal(#collision.cells, 1024)
   Assert.equal(bundle.scene.schema, "g4-map-scene-v3")
   Assert.equal(bundle.terrain.schema, "g4-terrain-surfaces-v1")
   Assert.isTrue(c:exists(MapAssetCache.terrainPath(MAP_ID)), "terrain artifact on disk")
@@ -93,21 +95,23 @@ end
 
 -- The selected field-light profile is source-hashed and its records
 -- serialize deterministically; compiling twice yields identical lighting data.
+-- The runtime scene carries only the normalized records; source identity stays
+-- in the dependency record.
 function T.lighting_profile_is_deterministic(romFs, version)
   local _, b1 = compileInto(romFs, version)
   local _, b2 = compileInto(romFs, version)
   local l1, l2 = b1.scene.lighting, b2.scene.lighting
-  Assert.equal(l1.lightTypeRaw, l2.lightTypeRaw)
-  Assert.equal(l1.profileId, l2.profileId)
-  Assert.equal(l1.sourcePath, l2.sourcePath)
-  Assert.equal(l1.sourceSha1, l2.sourceSha1)
+  Assert.isNil(l1.lightTypeRaw)
+  Assert.isNil(l1.sourcePath)
+  Assert.isNil(l1.sourceSha1)
   Assert.equal(#l1.records, #l2.records)
   for i = 1, #l1.records do
     Assert.deepEqual(l1.records[i], l2.records[i])
   end
   -- Profile source is hashed into cache dependencies.
-  Assert.equal(b1.dependencies.fieldLightSourceSha1, l1.sourceSha1)
-  Assert.equal(b2.dependencies.fieldLightSourceSha1, l2.sourceSha1)
+  Assert.equal(b1.dependencies.fieldLightSourceSha1, b2.dependencies.fieldLightSourceSha1)
+  Assert.equal(b1.dependencies.fieldLightParserVersion, "field-light-v1")
+  Assert.equal(b1.dependencies.fieldLightSourcePath, b2.dependencies.fieldLightSourcePath)
 end
 
 -- Regression: DS texcoords are in texel units and must be normalized to
@@ -160,10 +164,10 @@ function T.cache_only_restart(romFs, version)
     Assert.isTrue(cache:exists(MapAssetCache.modelPath(inst.modelKey)), "model descriptor cached")
   end
 
-  -- Load and traverse from the cached permission grid alone.
-  local perms = assert(cache:read(dir .. "/permissions.bin"))
-  Assert.equal(#perms, 2048)
-  local collision = CollisionGrid.new(assert(PermissionGrid.decode(perms)), {
+  -- Load and traverse from the cached collision asset alone.
+  local bytes = assert(cache:read(MapAssetCache.collisionPath(MAP_ID)))
+  local grid = assert(CollisionGridAsset.decode(bytes))
+  local collision = CollisionGrid.new(grid, {
     worldOriginX = scene.matrix.worldOriginX,
     worldOriginZ = scene.matrix.worldOriginZ,
   })

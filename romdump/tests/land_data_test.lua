@@ -18,14 +18,15 @@ function T.decodes_valid_member_with_empty_bgs_payload()
   Assert.equal(land.sizes.model, 0x10)
   Assert.equal(land.sizes.bdhc, 0)
 
-  -- Permissions decode to a usable grid, buildings to an empty list.
-  Assert.notNil(land.permissions:get(0, 0))
+  -- Permissions decode to a normalized collision grid, buildings to an empty
+  -- list. The raw packed section never leaves the container decoder.
+  Assert.equal(land.collision.width, 32)
+  Assert.equal(land.collision.height, 32)
+  Assert.equal(#land.collision.cells, 1024)
+  Assert.equal(land.collision.cells[1].blocked, false)
   Assert.equal(#land.buildings, 0)
   Assert.equal(land.mapModelBytes:sub(1, 4), "BMD0")
   Assert.equal(land.bdhcBytes, "")
-
-  -- The raw 0x800-byte permission slice is exposed for the derived cache.
-  Assert.equal(#land.permissionBytes, 0x800)
 end
 
 -- Regression for New Bark: a non-empty BGS/soundplate payload must shift the

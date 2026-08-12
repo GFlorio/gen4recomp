@@ -57,7 +57,7 @@ local function runtimeMap(blocked, plates)
   return {
     mapId = 60,
     coordinateOrigin = { x = 0, z = 0 },
-    permissions = {
+    collision = {
       containsLocal = function(_, x, z)
         return x >= 0 and x < 32 and z >= 0 and z < 32
       end,
@@ -65,7 +65,7 @@ local function runtimeMap(blocked, plates)
         return blocked and blocked[x .. ":" .. z] or false
       end,
       getLocal = function()
-        return { hardBlocked = false }
+        return { blocked = false }
       end,
     },
     terrain = TerrainSurface.new({ plates = plates }),
@@ -204,7 +204,7 @@ function T.terrain_rejection_takes_precedence_over_occupancy()
 end
 
 -- Flat plate at the given height over the given x range; the fixture map
--- covers z 0..32 and keeps permissions over 0..31.
+-- covers z 0..32 and keeps collision over 0..31.
 local function flatPlate(id, minX, maxX, distance)
   return {
     id = id,

@@ -7,6 +7,7 @@ local Assert = require("tests.support.Assert")
 local MapResolver = require("romdump.src.digest.MapResolver")
 local AreaData = require("romdump.src.digest.AreaData")
 local LandData = require("romdump.src.digest.LandData")
+local HgssPermissionGrid = require("romdump.src.digest.HgssPermissionGrid")
 local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
 local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
 local TextureDecoder = require("romdump.src.digest.nitro.TextureDecoder")
@@ -17,7 +18,7 @@ local FakeCache = require("tests.support.FakeCache")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local MapCacheWriter = require("romdump.src.digest.MapCacheWriter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
-local PermissionGrid = require("libs.assets.src.PermissionGrid")
+local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
 local FieldSpawns = require("data.manifests.field_spawns")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
@@ -89,9 +90,13 @@ function T.land_containers(romFs)
   -- 4-byte 0x1234+size header), pushing permissions to 0x14 + 88 = 0x6C.
   Assert.equal(#land.bgs.payload, 88)
   Assert.equal(land.offsets.permissions, 0x14 + 88)
-  -- Observed permission bytes: only 0x80 hard-blocks; 0, 4, 6 are passable
-  -- surface responses.
-  Assert.deepEqual(land.permissions:usedPermissionValues(), { 0, 4, 6, 128 })
+  -- Observed raw permission bytes: only 0x80 hard-blocks; 0, 4, 6 are
+  -- passable surface responses. The raw byte distribution is a romdump
+  -- diagnostic read through HgssPermissionGrid.
+  local rawSlice = bytes:sub(land.offsets.permissions + 1, land.offsets.permissions + land.sizes.permissions)
+  local permissionGrid = assert(HgssPermissionGrid.decode(rawSlice, { mapId = r.map.id }))
+  Assert.deepEqual(permissionGrid.usedPermissionValues, { 0, 4, 6, 128 })
+  Assert.equal(#land.collision.cells, 1024)
 end
 
 -- The outdoor map/building texture packs inventory cleanly, including
@@ -256,8 +261,11 @@ end
 function T.exterior_models_share_lighting_and_material_path(romFs)
   local bundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK"))
   local scene = bundle.scene
-  Assert.equal(scene.lighting.profileId, 0)
-  Assert.equal(scene.lighting.sourcePath, "data/area00light.txt")
+  -- The scene carries the normalized light records; the source profile
+  -- identity (New Bark's outdoor light type resolves to profile 0) lives in
+  -- the producer dependency record.
+  Assert.isTrue(#scene.lighting.records > 0, "scene carries parsed light records")
+  Assert.equal(bundle.dependencies.fieldLightSourcePath, "data/area00light.txt")
 
   local outdoorCount = 0
   for key, desc in pairs(bundle.models) do
@@ -320,8 +328,8 @@ function T.central_cell_scene(romFs, version)
   Assert.equal(spawn.z + m.worldOriginZ, 394)
 
   -- The spawn lands inside the central 32x32 cell on a passable tile.
-  local perms = assert(c:read(MapAssetCache.mapDir(60) .. "/permissions.bin"))
-  local collision = CollisionGrid.new(assert(PermissionGrid.decode(perms)), {
+  local grid = assert(CollisionGridAsset.decode(assert(c:read(MapAssetCache.collisionPath(60)))))
+  local collision = CollisionGrid.new(grid, {
     worldOriginX = m.worldOriginX,
     worldOriginZ = m.worldOriginZ,
   })

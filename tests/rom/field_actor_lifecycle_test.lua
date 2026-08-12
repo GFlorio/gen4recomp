@@ -16,7 +16,7 @@ local HgssBdhc = require("romdump.src.digest.HgssBdhc")
 local LandData = require("romdump.src.digest.LandData")
 local MapResolver = require("romdump.src.digest.MapResolver")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
-local actorManifest = require("data.manifests.field_actors")
+local actorManifest = require("romdump.src.config.FieldActors")
 local scenarioManifest = require("data.manifests.field_scenario")
 
 local T = {}
@@ -24,8 +24,11 @@ local T = {}
 local LAB = 61
 
 local POLICY = {
-  variableSpriteRange = actorManifest.variableSpriteRange,
-  variableVarBase = actorManifest.variableVarBase,
+  variableSprites = {
+    first = actorManifest.variableSpriteRange.first,
+    last = actorManifest.variableSpriteRange.last,
+    variableBase = actorManifest.variableVarBase,
+  },
 }
 
 local function stubAssets()
@@ -73,7 +76,7 @@ local function labRuntimeMap(romFs, fieldData)
   return {
     mapId = LAB,
     coordinateOrigin = { x = 0, z = 0 },
-    permissions = {
+    collision = {
       containsLocal = function(_, x, z)
         return x >= 0 and x < 32 and z >= 0 and z < 32
       end,

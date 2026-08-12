@@ -10,7 +10,7 @@
 local CommandCatalog = require("romdump.src.digest.script.CommandCatalog")
 local MovementDecoder = require("romdump.src.digest.script.MovementDecoder")
 local SourceCatalog = require("romdump.src.digest.script.SourceCatalog")
-local MenuProtocol = require("data.reference.hgss.menu_protocol")
+local MenuProtocol = require("libs.assets.src.MenuProtocol")
 
 local SemanticLowering = {}
 

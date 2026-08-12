@@ -1,26 +1,15 @@
 -- CollisionGrid maps local<->global tile coordinates around a cell origin and
--- reports blocking straight through the permission grid's hard-block bit.
+-- reports blocking straight from the decoded project-owned collision asset.
+-- It knows nothing about HGSS permission packing: blocked is a semantic cell
+-- flag, and behavior/terrainResponseId are opaque cell fields.
 
 local Assert = require("tests.support.Assert")
-local PermissionGrid = require("libs.assets.src.PermissionGrid")
+local CollisionFixture = require("tests.support.CollisionFixture")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
-
--- 0x800 permission section; set tile (lx,lz) byte 1 to `perm`.
-local function gridWith(entries)
-  local bytes = {}
-  for i = 1, 0x800 do
-    bytes[i] = "\0"
-  end
-  for _, e in ipairs(entries) do
-    local index = e.z * 32 + e.x
-    bytes[index * 2 + 2] = string.char(e.perm) -- byte 1 (permission)
-  end
-  return assert(PermissionGrid.decode(table.concat(bytes)))
-end
 
 return {
   ["origin 0,0 makes local == global"] = function()
-    local c = CollisionGrid.new(gridWith({}), {})
+    local c = CollisionGrid.new(CollisionFixture.grid32(), {})
     local gx, gz = c:localToGlobal(4, 14)
     Assert.equal(gx, 4)
     Assert.equal(gz, 14)
@@ -30,7 +19,7 @@ return {
   end,
 
   ["applies a nonzero cell origin both ways"] = function()
-    local c = CollisionGrid.new(gridWith({}), { worldOriginX = 672, worldOriginZ = 384 })
+    local c = CollisionGrid.new(CollisionFixture.grid32(), { worldOriginX = 672, worldOriginZ = 384 })
     local lx, lz = c:globalToLocal(684, 393)
     Assert.equal(lx, 12)
     Assert.equal(lz, 9)
@@ -39,24 +28,45 @@ return {
     Assert.equal(gz, 393)
   end,
 
-  ["blocks only the 0x80 bit, local and global"] = function()
-    local c = CollisionGrid.new(
-      gridWith({
-        { x = 1, z = 2, perm = 0x80 },
-        { x = 3, z = 2, perm = 0x06 },
-      }),
-      { worldOriginX = 100, worldOriginZ = 200 }
-    )
+  ["blocks only flagged cells, local and global"] = function()
+    local c =
+      CollisionGrid.new(CollisionFixture.grid32({ { x = 1, z = 2 } }), { worldOriginX = 100, worldOriginZ = 200 })
     Assert.isTrue(c:isBlockedLocal(1, 2))
-    Assert.isFalse(c:isBlockedLocal(3, 2)) -- surface response 6, passable
+    Assert.isFalse(c:isBlockedLocal(3, 2))
+    Assert.isFalse(c:isBlockedLocal(5, 2))
     Assert.isTrue(c:isBlockedGlobal(101, 202)) -- same tile via global
     Assert.isFalse(c:isBlockedGlobal(103, 202))
   end,
 
-  ["exposes the permission record for HUD"] = function()
-    local c = CollisionGrid.new(gridWith({ { x = 5, z = 5, perm = 0x86 } }), {})
+  ["exposes the cell record for HUD"] = function()
+    local cells = {}
+    for z = 0, 31 do
+      for x = 0, 31 do
+        cells[z * 32 + x + 1] = { behavior = 7, terrainResponseId = 6, blocked = false }
+      end
+    end
+    cells[5 * 32 + 5 + 1] = { behavior = 7, terrainResponseId = 6, blocked = true }
+    local c = CollisionGrid.new({ width = 32, height = 32, cells = cells }, {})
     local rec = c:getLocal(5, 5)
-    Assert.isTrue(rec.hardBlocked)
+    Assert.isTrue(rec.blocked)
     Assert.equal(rec.terrainResponseId, 6)
+    Assert.equal(rec.behavior, 7)
+    Assert.isFalse(c:getLocal(0, 0).blocked)
+  end,
+
+  ["contains rejects out-of-range and fractional coordinates"] = function()
+    local c = CollisionGrid.new(CollisionFixture.grid32(), {})
+    Assert.isTrue(c:containsLocal(0, 0))
+    Assert.isTrue(c:containsLocal(31, 31))
+    Assert.isFalse(c:containsLocal(32, 0))
+    Assert.isFalse(c:containsLocal(0, 32))
+    Assert.isFalse(c:containsLocal(-1, 0))
+    Assert.isFalse(c:containsLocal(0.5, 0))
+    Assert.throws(function()
+      c:isBlockedLocal(32, 0)
+    end)
+    Assert.throws(function()
+      c:isBlockedGlobal(32, 0)
+    end)
   end,
 }

@@ -15,7 +15,7 @@ local FieldFontCompiler = require("romdump.src.digest.FieldFontCompiler")
 local FieldFontDecoder = require("romdump.src.digest.FieldFontDecoder")
 local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
 local charmap = require("romdump.src.reference.hgss.charmap")
-local MenuProtocol = require("data.reference.hgss.menu_protocol")
+local MenuProtocol = require("libs.assets.src.MenuProtocol")
 
 local T = {}
 

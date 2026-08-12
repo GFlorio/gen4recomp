@@ -5,6 +5,7 @@ local Errors = require("libs.errors.src.Errors")
 local HgssCameraTable = require("romdump.src.digest.HgssCameraTable")
 local FieldCameraDiscovery = require("romdump.src.digest.FieldCameraDiscovery")
 local Hashing = require("romdump.src.digest.Hashing")
+local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
 local Manifest = require("romdump.src.config.FieldCameras")
 
 local FieldCameraCompiler = {}
@@ -51,7 +52,7 @@ local function _compile(romFs, config, sha1hex)
     overlaySha1 = overlaySha1,
   }
   local profiles = {
-    schema = "g4-field-camera-profiles-v1",
+    schema = FieldCameraCache.SCHEMA,
     source = provenance,
     recordCount = decoded.recordCount,
     profiles = decoded.records,

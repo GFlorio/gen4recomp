@@ -4,6 +4,7 @@
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
+local CollisionFixture = require("tests.support.CollisionFixture")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 
 local T = {}
@@ -24,7 +25,7 @@ local function writeReadyMap(c, marker)
   )
   c:write(dir .. "/dependencies.lua", "return {}\n")
   c:write(MapAssetCache.terrainPath(61), "return { schema = 'g4-terrain-surfaces-v1' }\n")
-  c:write(dir .. "/permissions.bin", string.rep("\0", 2048))
+  c:write(MapAssetCache.collisionPath(61), CollisionFixture.asset(32, 32))
   c:write(dir .. "/complete", marker)
 end
 
@@ -61,17 +62,17 @@ function T.not_ready_when_referenced_asset_missing()
     )
   )
   c:write(dir .. "/dependencies.lua", "return {}\n")
-  c:write(dir .. "/permissions.bin", string.rep("\0", 2048))
+  c:write(dir .. "/collision.g4collision", CollisionFixture.asset(32, 32))
   c:write(dir .. "/complete", marker)
   Assert.isTrue(not MapAssetCache.isReady(c, 61, marker), "missing mesh -> not ready")
 end
 
-function T.not_ready_with_wrong_permission_size()
+function T.not_ready_with_malformed_collision_asset()
   local c = cache()
   local marker = MapAssetCache.marker("romsha", 61, "dep")
   writeReadyMap(c, marker)
-  c:write(MapAssetCache.mapDir(61) .. "/permissions.bin", string.rep("\0", 100))
-  Assert.isTrue(not MapAssetCache.isReady(c, 61, marker), "wrong perm size -> not ready")
+  c:write(MapAssetCache.collisionPath(61), string.rep("\0", 100))
+  Assert.isTrue(not MapAssetCache.isReady(c, 61, marker), "wrong collision bytes -> not ready")
 end
 
 function T.not_ready_when_model_descriptor_references_missing_asset()
@@ -90,7 +91,7 @@ function T.not_ready_when_model_descriptor_references_missing_asset()
     )
   )
   c:write(dir .. "/dependencies.lua", "return {}\n")
-  c:write(dir .. "/permissions.bin", string.rep("\0", 2048))
+  c:write(dir .. "/collision.g4collision", CollisionFixture.asset(32, 32))
   c:write(modelPath, string.format("return { batches = { { geometry = %q } }, materials = {} }\n", meshPath))
   c:write(dir .. "/complete", marker)
   Assert.isTrue(not MapAssetCache.isReady(c, 61, marker), "missing model-internal geometry -> not ready")
@@ -108,7 +109,7 @@ end
 function T.referenced_paths_includes_neighbor_batches_and_materials()
   local neighborGeometry = "assets/generated/maps/geometry/abc.g4mesh"
   local neighborTexture = "assets/generated/maps/textures/def.png"
-  local neighborPermissions = "data/generated/maps/0060/neighbors/3/permissions.bin"
+  local neighborCollision = "data/generated/maps/0060/neighbors/3/collision.g4collision"
   local neighborTerrain = "data/generated/maps/0060/neighbors/3/terrain.lua"
   local scene = {
     schema = "g4-map-scene-v3",
@@ -122,7 +123,7 @@ function T.referenced_paths_includes_neighbor_batches_and_materials()
         offsetTilesZ = 0,
         batches = { { geometry = neighborGeometry, material = 0 } },
         materials = { { id = 0, texture = neighborTexture } },
-        collision = { file = neighborPermissions },
+        collision = { file = neighborCollision },
         terrain = { file = neighborTerrain },
       },
     },
@@ -130,7 +131,7 @@ function T.referenced_paths_includes_neighbor_batches_and_materials()
   local paths = MapAssetCache.referencedPaths(scene, nil)
   Assert.isTrue(contains(paths, neighborGeometry), "missing neighbor geometry path")
   Assert.isTrue(contains(paths, neighborTexture), "missing neighbor texture path")
-  Assert.isTrue(contains(paths, neighborPermissions), "missing neighbor permissions path")
+  Assert.isTrue(contains(paths, neighborCollision), "missing neighbor collision path")
   Assert.isTrue(contains(paths, neighborTerrain), "missing neighbor terrain path")
 end
 

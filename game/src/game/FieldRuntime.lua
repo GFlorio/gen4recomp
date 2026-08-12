@@ -15,12 +15,13 @@ local FieldDialogueController = require("libs.engine.src.FieldDialogueController
 local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
+local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local FieldInput = require("libs.engine.src.FieldInput")
 local FieldMenuHost = require("libs.engine.src.FieldMenuHost")
 local FieldInteractionResolver = require("libs.engine.src.FieldInteractionResolver")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldMapLoader = require("libs.engine.src.FieldMapLoader")
-local MapCollisionLoader = require("libs.engine.src.MapCollisionLoader")
 local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldPlayerVisual = require("libs.engine.src.FieldPlayerVisual")
@@ -33,9 +34,10 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local FieldZoom = require("libs.engine.src.FieldZoom")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
+local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
+local NeighborRing = require("libs.engine.src.NeighborRing")
 local ScriptSave = require("libs.engine.src.script.ScriptSave")
 local TargetSpawns = require("data.manifests.field_spawns")
-local FieldActorManifest = require("data.manifests.field_actors")
 local FieldPresentation = require("data.manifests.field_presentation")
 local FieldScenarioManifest = require("data.manifests.field_scenario")
 local RepoFs = require("game.src.game.RepoFs")
@@ -86,7 +88,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 local FieldRuntime = {}
 FieldRuntime.__index = FieldRuntime
 
-local CAMERA_PROFILES_PATH = "data/generated/field/camera/profiles.lua"
+local CAMERA_PROFILES_PATH = FieldCameraCache.profilesPath()
 local DEFAULT_MAP = "MAP_NEW_BARK_ELMS_LAB_1F"
 ---@return table<string, boolean>
 local function actionBindings()
@@ -107,11 +109,13 @@ local function cancelBindings()
 end
 
 -- The save validation set of compiled avatar ids, so a corrupt save naming an
--- unbuilt player graphic is rejected before it reaches the runtime.
+-- unbuilt player graphic is rejected before it reaches the runtime. The set
+-- comes from the generated actor index's runtime block, not a source manifest.
+---@param actorIndex table
 ---@return table<string, boolean>
-local function avatarIdSet()
+local function avatarIdSet(actorIndex)
   local set = {}
-  for _, avatar in ipairs(FieldActorManifest.avatars or {}) do
+  for _, avatar in ipairs(actorIndex.runtime.avatars) do
     set[avatar.id] = true
   end
   return set
@@ -198,8 +202,20 @@ function FieldRuntime:_load()
   local ok, err = pcall(function()
     local cacheFs = CacheFs.forVersion(self.versionId)
     self.cacheFs = cacheFs
+    -- The compiled actor index carries the runtime-facing actor configuration
+    -- (avatars + variable-sprite policy); a missing runtime block is a stale
+    -- or foreign cache and fails the boot loudly.
+    local actorIndex = assert(
+      cacheFs:loadLua(FieldActorCache.indexPath()),
+      "field actor index missing -- run `scripts/buildcache.sh` first"
+    )
+    assert(
+      actorIndex.runtime and actorIndex.runtime.avatars and actorIndex.runtime.variableSprites,
+      "field actor index has no runtime configuration"
+    )
+    self.actorConfig = actorIndex.runtime
     self.saveStore = FieldSaveStore.new(self.saveFs or SaveFs.forVersion(self.versionId), {
-      avatars = avatarIdSet(),
+      avatars = avatarIdSet(actorIndex),
       scriptsValidate = function(bucket)
         return ScriptSave.validate(bucket, {})
       end,
@@ -213,16 +229,16 @@ function FieldRuntime:_load()
       assert(cacheFs:loadLua(MapAssetCache.worldPath()), "world.lua missing -- run `scripts/buildcache.sh` first")
     local profiles =
       assert(cacheFs:loadLua(CAMERA_PROFILES_PATH), "field camera cache is cold -- run `scripts/buildcache.sh` first")
-    assert(profiles.schema == "g4-field-camera-profiles-v1", "unsupported field camera cache")
+    assert(profiles.schema == FieldCameraCache.SCHEMA, "unsupported field camera cache")
     self.cameraProfiles = profiles.profiles
 
+    -- FieldMapLoader owns the simulation assets (field data, collision,
+    -- terrain) through the pure asset paths for every composition. The visual
+    -- scene loader and neighbor coverage ring are presentation-only
+    -- collaborators: a non-presentation runtime simply leaves them out.
     self.mapLoader = FieldMapLoader.new(cacheFs, world, {
-      sceneLoader = self.presentation and nil or MapCollisionLoader,
-      coverageLoader = self.presentation and nil or {
-        load = function()
-          return nil
-        end,
-      },
+      sceneLoader = self.presentation and MapSceneLoader or nil,
+      coverageLoader = self.presentation and NeighborRing or nil,
     })
     local restored
     if self.resumeSave then
@@ -300,21 +316,17 @@ function FieldRuntime:_load()
     self.actorAssets = FieldActorDefinitionProvider.new(cacheFs)
     self.actors = FieldActorManager.new({
       assets = self.actorAssets,
-      policy = {
-        variableSpriteRange = FieldActorManifest.variableSpriteRange,
-        variableVarBase = FieldActorManifest.variableVarBase,
-      },
+      policy = { variableSprites = self.actorConfig.variableSprites },
     })
     self.actors:enterMap(self.runtimeMap, self.eventState)
 
     -- The player's graphic is one more compiled actor visual: it is acquired from
     -- the same reference-counted provider, and FieldPlayer keeps every bit of
     -- movement authority. A resumed save names the avatar; a fresh boot uses the
-    -- scenario's configured pick.
-    self.avatar = FieldScenario.avatarById(
-      FieldActorManifest.avatars,
-      (restored and restored.avatar) or FieldScenarioManifest.avatar
-    )
+    -- scenario's configured pick. Avatar selection validates against the
+    -- generated actor configuration.
+    self.avatar =
+      FieldScenario.avatarById(self.actorConfig.avatars, (restored and restored.avatar) or FieldScenarioManifest.avatar)
     self.avatarAsset = self.actorAssets:acquire(self.avatar.spriteId)
     self.playerVisual = FieldPlayerVisual.new({
       player = self.player,
@@ -633,7 +645,7 @@ function FieldRuntime:_releaseAll()
   self.transition, self.camera, self.player, self.runtimeMap = nil, nil, nil, nil
   self.viewport, self.envelope, self.input, self.menuHost = nil, nil, nil, nil
   self.auxiliaryFieldUi, self.contextChoiceProvider, self.interactionResolver = nil, nil, nil
-  self.eventState, self.avatar = nil, nil
+  self.eventState, self.avatar, self.actorConfig = nil, nil, nil
 end
 
 -- End the state's lifetime: persist the field session if one is live, then

@@ -80,7 +80,8 @@ function T.binds_against_the_neighbour_cells_own_area_pack()
   Assert.equal(#chunk.batches, 2)
   Assert.equal(chunk.materials[1].name, "mat0")
   Assert.notNil(chunk.materials[1].texture)
-  Assert.equal(#chunk.permissions, 0x800)
+  Assert.equal(#chunk.collision.cells, 1024)
+  Assert.equal(chunk.collision.width, 32)
   Assert.equal(chunk.terrain.source.landDataMemberId, LAND_MEMBER)
 end
 

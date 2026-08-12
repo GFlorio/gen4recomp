@@ -4,7 +4,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
-local MenuProtocol = require("data.reference.hgss.menu_protocol")
+local MenuProtocol = require("libs.assets.src.MenuProtocol")
 
 ---@class ScriptMenuHost
 ---@field _provider FieldMessageProvider

@@ -1,4 +1,4 @@
--- FieldRegion tests cover permission routing and translated BDHC surfaces over
+-- FieldRegion tests cover collision routing and translated BDHC surfaces over
 -- the central cell plus cached neighbors, including a connected edge crossing.
 
 local Assert = require("tests.support.Assert")
@@ -17,7 +17,7 @@ local function collision(blocked)
       return blocked and blocked[x .. ":" .. z] or false
     end,
     getLocal = function(_, x, z)
-      return { x = x, z = z, hardBlocked = false }
+      return { x = x, z = z, blocked = false }
     end,
   }
 end
@@ -45,11 +45,11 @@ function T.routes_collision_to_neighbor_cell_coordinates()
   local region = FieldRegion.new(collision(), flatTerrain(0), {
     { offsetTilesX = 32, offsetTilesZ = 0, collision = collision({ ["0:4"] = true }), terrain = flatTerrain(0) },
   })
-  Assert.isTrue(region.permissions:containsLocal(63, 4))
-  Assert.isFalse(region.permissions:containsLocal(64, 4))
-  Assert.isTrue(region.permissions:isBlockedLocal(32, 4))
-  Assert.isFalse(region.permissions:isBlockedLocal(31, 4))
-  Assert.equal(region.permissions:getLocal(33, 5).x, 1)
+  Assert.isTrue(region.collision:containsLocal(63, 4))
+  Assert.isFalse(region.collision:containsLocal(64, 4))
+  Assert.isTrue(region.collision:isBlockedLocal(32, 4))
+  Assert.isFalse(region.collision:isBlockedLocal(31, 4))
+  Assert.equal(region.collision:getLocal(33, 5).x, 1)
 end
 
 function T.translates_neighbor_surfaces_and_connects_shared_edge()

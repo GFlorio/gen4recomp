@@ -17,6 +17,8 @@ local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
 local GxDisplayList = require("romdump.src.digest.nitro.GxDisplayList")
 local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
 local HgssFieldLighting = require("romdump.src.digest.HgssFieldLighting")
+local HgssFieldLightProfile = require("romdump.src.digest.HgssFieldLightProfile")
+local HgssPermissionGrid = require("romdump.src.digest.HgssPermissionGrid")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
 local MeshCompiler = require("romdump.src.digest.MeshCompiler")
 local BuildModelAnimList = require("romdump.src.digest.BuildModelAnimList")
@@ -484,13 +486,17 @@ function MapAssetInspector.inspect(romFs, idOrSymbol)
   for _, t in ipairs(bldTexPack.textures) do
     inv.textureFormats[t.format] = true
   end
+  -- Raw permission-byte distribution (a source diagnostic: the hard-block bit
+  -- and response id split happens only inside HgssPermissionGrid).
+  local rawPermissions = landBytes:sub(land.offsets.permissions + 1, land.offsets.permissions + land.sizes.permissions)
+  local permissionGrid = assert(HgssPermissionGrid.decode(rawPermissions, { mapId = resolved.map.id }))
   local buildingReport = inspectBuildings(romFs, area, buildings, warnings, inv)
 
   -- Field-light profile: resolve the area's light type, read and parse the
   -- selected text table, and select the noon record for a deterministic sample.
   local selected = HgssFieldLighting.resolve(area.lightTypeRaw)
   local lightText = assert(romFs:readSourcePath(selected.sourcePath))
-  local profile = assert(FieldLightProfile.parse(lightText, { sourcePath = selected.sourcePath }))
+  local profile = assert(HgssFieldLightProfile.parse(lightText, { sourcePath = selected.sourcePath }))
   local noonRecord = FieldLightProfile.select(profile, FieldLightProfile.DEFAULT_TIME_SECONDS)
 
   local report = {
@@ -531,8 +537,8 @@ function MapAssetInspector.inspect(romFs, idOrSymbol)
       bdhcSize = land.sizes.bdhc,
       modelMagic = land.mapModelBytes:sub(1, 4),
       bdhcMagic = land.sizes.bdhc > 0 and land.bdhcBytes:sub(1, 4) or "",
-      permissionValues = land.permissions:usedPermissionValues(),
-      behaviorValues = land.permissions:usedBehaviorValues(),
+      permissionValues = permissionGrid.usedPermissionValues,
+      behaviorValues = permissionGrid.usedBehaviorValues,
       -- Derived section offsets. The permission grid is NOT at a fixed 0x14: for
       -- ordinary maps a non-empty soundplate (BGS) block shifts it, matching the
       -- decomp's dynamic field loader (the fixed-0x14 TerrainAttributes path

@@ -10,7 +10,7 @@ local FieldActorGraphics = require("romdump.src.digest.FieldActorGraphics")
 local FieldActorCompiler = require("romdump.src.digest.FieldActorCompiler")
 local FieldActorCacheWriter = require("romdump.src.digest.FieldActorCacheWriter")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
-local manifest = require("data.manifests.field_actors")
+local manifest = require("romdump.src.config.FieldActors")
 
 local T = {}
 

@@ -4,7 +4,7 @@
 
 ---@class MenuLayout
 ---@type { BOTTOM_SCREEN_TILE_PLACEMENT: string }
-local MenuProtocol = require("data.reference.hgss.menu_protocol")
+local MenuProtocol = require("libs.assets.src.MenuProtocol")
 local MenuLayout = {}
 
 MenuLayout.minimumTouchTarget = 44

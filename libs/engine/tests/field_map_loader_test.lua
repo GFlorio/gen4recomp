@@ -3,9 +3,17 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
+local CollisionFixture = require("tests.support.CollisionFixture")
 local FieldMapLoader = require("libs.engine.src.FieldMapLoader")
 
 local T = {}
+
+-- A structurally valid G4CL header for a 32x32 grid with a truncated cell
+-- payload: decodes as COLLISION_BAD_SIZE, proving the artifact class parses
+-- before the failure.
+local function truncatedCollision()
+  return "G4CL" .. string.char(1, 0, 32, 0, 32, 0) .. string.char(0, 0, 0)
+end
 
 local function fixture(mapCount)
   local files, world = {}, { maps = {}, byId = {}, bySymbol = {} }
@@ -17,6 +25,7 @@ local function fixture(mapCount)
       mapSymbol = symbol,
       cameraType = mapId,
       neighbors = {},
+      collision = { file = string.format("data/generated/maps/%04d/collision.g4collision", mapId) },
       matrix = { width = 1, height = 1, x = 0, z = 0, worldOriginX = mapId * 32, worldOriginZ = 0 },
     }
     files[string.format("data/generated/maps/%04d/scene.lua", mapId)] = scene
@@ -25,6 +34,7 @@ local function fixture(mapCount)
       source = { bdhcSha1 = "central-" .. mapId },
       plates = {},
     }
+    files[scene.collision.file] = CollisionFixture.asset(32, 32)
     files[string.format("data/generated/field/maps/%04d/field.lua", mapId)] = {
       schema = "g4-field-map-v1",
       mapId = mapId,
@@ -49,11 +59,6 @@ local function fixture(mapCount)
     load = function(_, scene)
       return {
         scene = scene,
-        collision = {
-          containsLocal = function()
-            return true
-          end,
-        },
         release = function()
           releases[scene.mapId] = (releases[scene.mapId] or 0) + 1
         end,
@@ -63,14 +68,16 @@ local function fixture(mapCount)
   return cache, world, sceneLoader, releases, files
 end
 
-function T.loads_visual_field_permission_and_terrain_into_one_aggregate()
+function T.loads_visual_field_collision_and_terrain_into_one_aggregate()
   local cache, world, sceneLoader = fixture(1)
   local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader, capacity = 4 })
   local map = loader:load("MAP_0")
   Assert.equal(map.mapId, 0)
   Assert.equal(map.sceneRuntime.scene.mapSymbol, "MAP_0")
   Assert.equal(map.fieldData.schema, "g4-field-map-v1")
-  Assert.equal(map.fieldRegion.cells[1].collision, map.sceneRuntime.collision)
+  Assert.equal(map.fieldRegion.collision, map.collision)
+  Assert.isTrue(map.fieldRegion.cells[1].collision:containsLocal(4, 4))
+  Assert.isTrue(map.collision:containsLocal(4, 4))
   Assert.equal(map.terrain.artifact.schema, "g4-composite-terrain-v1")
   Assert.deepEqual(map.coordinateOrigin, { x = 0, z = 0 })
   loader:release()
@@ -122,15 +129,15 @@ function T.round_trip_reuses_both_resident_map_aggregates()
   loader:release()
 end
 
-function T.composes_neighbor_permissions_and_terrain_into_runtime_map()
+function T.composes_neighbor_collision_and_terrain_into_runtime_map()
   local cache, world, _, _, files = fixture(1)
-  local permissionPath = "data/generated/maps/0000/neighbors/3/permissions.bin"
+  local collisionPath = "data/generated/maps/0000/neighbors/3/collision.g4collision"
   local terrainPath = "data/generated/maps/0000/neighbors/3/terrain.lua"
   files["data/generated/maps/0000/scene.lua"].neighbors = {
     {
       offsetTilesX = 32,
       offsetTilesZ = 0,
-      collision = { file = permissionPath },
+      collision = { file = collisionPath },
       terrain = { file = terrainPath },
       batches = {},
       materials = {},
@@ -153,43 +160,18 @@ function T.composes_neighbor_permissions_and_terrain_into_runtime_map()
     },
     source = { bdhcSha1 = "east" },
   }
-  local bytes = {}
-  for index = 0, 1023 do
-    bytes[#bytes + 1] = string.char(0, index == 4 * 32 and 128 or 0)
-  end
-  local blobs = { [permissionPath] = table.concat(bytes) }
-  cache.read = function(_, path)
-    return blobs[path]
-  end
-  local centralCollision = {
-    containsLocal = function(_, x, z)
-      return x >= 0 and x < 32 and z >= 0 and z < 32
-    end,
-    isBlockedLocal = function()
-      return false
-    end,
-    getLocal = function()
-      return { hardBlocked = false }
-    end,
-  }
-  local sceneLoader = {
-    load = function()
-      return { collision = centralCollision, release = function() end }
-    end,
-  }
+  files[collisionPath] = CollisionFixture.asset(32, 32, { { x = 0, z = 4 } })
   local coverageLoader = {
     load = function()
       return { draws = {}, release = function() end }
     end,
   }
-  local loader = FieldMapLoader.new(cache, world, {
-    sceneLoader = sceneLoader,
-    coverageLoader = coverageLoader,
-  })
+  local loader = FieldMapLoader.new(cache, world, { coverageLoader = coverageLoader })
   local map = loader:load(0)
   Assert.equal(map.terrainDependencyHash, "g4-composite-terrain-v1|0:0:central-0|32:0:east")
-  Assert.isTrue(map.permissions:containsLocal(32, 4))
-  Assert.isTrue(map.permissions:isBlockedLocal(32, 4))
+  Assert.isTrue(map.collision:containsLocal(32, 4))
+  Assert.isTrue(map.collision:isBlockedLocal(32, 4))
+  Assert.isFalse(map.collision:isBlockedLocal(33, 4))
   local candidates = map.terrain:candidatesAt(32.5, 4.5)
   Assert.equal(#candidates, 1)
   Assert.equal(candidates[1].cellOffsetX, 32)
@@ -205,9 +187,9 @@ function T.missing_prefetch_cells_do_not_reject_loaded_visible_cells()
     for x = -1, 1 do
       if x ~= 0 or z ~= 0 then
         local key = x .. "_" .. z
-        local permissionPath = "neighbor_" .. key .. ".bin"
+        local collisionPath = "neighbor_" .. key .. ".g4collision"
         local terrainPath = "neighbor_" .. key .. ".lua"
-        files[permissionPath] = string.rep("\0", 2048)
+        files[collisionPath] = CollisionFixture.asset(32, 32)
         files[terrainPath] = {
           schema = "g4-terrain-surfaces-v1",
           plates = {},
@@ -216,7 +198,7 @@ function T.missing_prefetch_cells_do_not_reject_loaded_visible_cells()
         scene.neighbors[#scene.neighbors + 1] = {
           offsetTilesX = x * 32,
           offsetTilesZ = z * 32,
-          collision = { file = permissionPath },
+          collision = { file = collisionPath },
           terrain = { file = terrainPath },
         }
       end
@@ -262,9 +244,9 @@ function T.finite_neighbor_region_reports_missing_visible_cells_without_crashing
     for x = -1, 1 do
       if x ~= 0 or z ~= 0 then
         local key = x .. "_" .. z
-        local permissionPath = "finite_" .. key .. ".bin"
+        local collisionPath = "finite_" .. key .. ".g4collision"
         local terrainPath = "finite_" .. key .. ".lua"
-        files[permissionPath] = string.rep("\0", 2048)
+        files[collisionPath] = CollisionFixture.asset(32, 32)
         files[terrainPath] = {
           schema = "g4-terrain-surfaces-v1",
           plates = {},
@@ -273,7 +255,7 @@ function T.finite_neighbor_region_reports_missing_visible_cells_without_crashing
         scene.neighbors[#scene.neighbors + 1] = {
           offsetTilesX = x * 32,
           offsetTilesZ = z * 32,
-          collision = { file = permissionPath },
+          collision = { file = collisionPath },
           terrain = { file = terrainPath },
         }
       end
@@ -333,6 +315,41 @@ function T.failed_coverage_load_releases_the_scene_runtime()
   Assert.equal(releases[0], 1, "release stays exactly once")
 end
 
+-- The central collision decodes inside the load transaction; malformed
+-- generated data must fail the load after the acquired scene and coverage
+-- runtimes, and both must be released exactly once.
+function T.failed_central_collision_decode_releases_scene_and_coverage()
+  local cache, world, sceneLoader, releases, files = fixture(1)
+  files["data/generated/maps/0000/scene.lua"].neighbors = {
+    { offsetTilesX = 32, offsetTilesZ = 0, batches = {}, materials = {} },
+  }
+  files["data/generated/maps/0000/collision.g4collision"] = truncatedCollision()
+  local coverageReleases = 0
+  local coverageLoader = {
+    load = function()
+      return {
+        draws = {},
+        release = function()
+          coverageReleases = coverageReleases + 1
+        end,
+      }
+    end,
+  }
+  local loader = FieldMapLoader.new(cache, world, {
+    sceneLoader = sceneLoader,
+    coverageLoader = coverageLoader,
+  })
+  local err = Assert.throws(function()
+    loader:load(0)
+  end)
+  Assert.isTrue(Errors.is(err) and err.code == "COLLISION_BAD_SIZE", "the collision failure propagates")
+  Assert.equal(releases[0], 1, "the scene runtime is released")
+  Assert.equal(coverageReleases, 1, "the coverage runtime is released")
+  loader:release()
+  Assert.equal(releases[0], 1, "scene release stays exactly once")
+  Assert.equal(coverageReleases, 1, "coverage release stays exactly once")
+end
+
 -- A malformed terrain artifact fails construction after both the scene runtime
 -- and the coverage runtime were acquired; both must be released. The source
 -- record is present (the strict identity fields), so the failure is the
@@ -386,6 +403,20 @@ function T.map_without_a_neighbors_record_fails_to_load()
   loader:release()
 end
 
+-- A scene without a collision descriptor is equally malformed: the central
+-- grid is mandatory for every composition, presentation or not.
+function T.map_without_a_collision_descriptor_fails_to_load()
+  local cache, world, sceneLoader, _, files = fixture(1)
+  files["data/generated/maps/0000/scene.lua"].collision = nil
+  local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader })
+  local err = Assert.throws(function()
+    loader:load(0)
+  end)
+  Assert.isTrue(Errors.is(err) and err.code == "FIELD_MAP_VISUAL_CACHE_INVALID", "the missing descriptor propagates")
+  Assert.isNil(loader:get(0), "no partly loaded aggregate is resident")
+  loader:release()
+end
+
 -- The terrain artifact source record is part of the terrain dependency
 -- identity; its absence must fail the load instead of degrading the hash.
 function T.map_without_a_terrain_artifact_source_fails_to_load()
@@ -422,17 +453,17 @@ end
 -- acquired scene and coverage runtimes are released.
 function T.map_without_a_neighbor_terrain_source_fails_to_load()
   local cache, world, sceneLoader, releases, files = fixture(1)
-  local permissionPath = "data/generated/maps/0000/neighbors/3/permissions.bin"
+  local collisionPath = "data/generated/maps/0000/neighbors/3/collision.g4collision"
   local terrainPath = "data/generated/maps/0000/neighbors/3/terrain.lua"
   files["data/generated/maps/0000/scene.lua"].neighbors = {
     {
       offsetTilesX = 32,
       offsetTilesZ = 0,
-      collision = { file = permissionPath },
+      collision = { file = collisionPath },
       terrain = { file = terrainPath },
     },
   }
-  files[permissionPath] = string.rep("\0", 2048)
+  files[collisionPath] = CollisionFixture.asset(32, 32)
   files[terrainPath] = { schema = "g4-terrain-surfaces-v1", plates = {} }
   local coverageReleases = 0
   local coverageLoader = {
@@ -461,22 +492,22 @@ function T.map_without_a_neighbor_terrain_source_fails_to_load()
   loader:release()
 end
 
--- Malformed neighbor permissions fail neighbor decoding after both runtimes
+-- Malformed neighbor collision fails neighbor decoding after both runtimes
 -- were acquired; both must be released.
-function T.failed_neighbor_permission_decode_releases_scene_and_coverage()
+function T.failed_neighbor_collision_decode_releases_scene_and_coverage()
   local cache, world, sceneLoader, releases, files = fixture(1)
-  local permissionPath = "data/generated/maps/0000/neighbors/3/permissions.bin"
+  local collisionPath = "data/generated/maps/0000/neighbors/3/collision.g4collision"
   local terrainPath = "data/generated/maps/0000/neighbors/3/terrain.lua"
   files["data/generated/maps/0000/scene.lua"].neighbors = {
     {
       offsetTilesX = 32,
       offsetTilesZ = 0,
-      collision = { file = permissionPath },
+      collision = { file = collisionPath },
       terrain = { file = terrainPath },
     },
   }
-  files[permissionPath] = string.rep("\0", 10)
-  files[terrainPath] = { schema = "g4-terrain-surfaces-v1", plates = {} }
+  files[collisionPath] = truncatedCollision()
+  files[terrainPath] = { schema = "g4-terrain-surfaces-v1", plates = {}, source = { bdhcSha1 = "east" } }
   local coverageReleases = 0
   local coverageLoader = {
     load = function()
@@ -495,7 +526,7 @@ function T.failed_neighbor_permission_decode_releases_scene_and_coverage()
   local err = Assert.throws(function()
     loader:load(0)
   end)
-  Assert.isTrue(Errors.is(err) and err.code == "PERMISSION_BAD_SIZE", "the permission failure propagates")
+  Assert.isTrue(Errors.is(err) and err.code == "COLLISION_BAD_SIZE", "the collision failure propagates")
   Assert.equal(releases[0], 1, "the scene runtime is released")
   Assert.equal(coverageReleases, 1, "the coverage runtime is released")
   loader:release()

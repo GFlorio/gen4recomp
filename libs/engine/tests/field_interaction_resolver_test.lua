@@ -29,7 +29,7 @@ local function map(backgrounds)
       messageBankId = 543,
       events = { background = backgrounds or {} },
     },
-    permissions = {
+    collision = {
       containsLocal = function(_, x, z)
         return x >= 0 and x < 32 and z >= 0 and z < 32
       end,

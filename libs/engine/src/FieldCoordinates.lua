@@ -45,8 +45,8 @@ local function origin(runtimeMap)
 end
 
 local function requireLocal(runtimeMap, localX, localZ, context)
-  assert(runtimeMap.permissions and runtimeMap.permissions.containsLocal, "runtime map permission coverage required")
-  if not runtimeMap.permissions:containsLocal(localX, localZ) then
+  assert(runtimeMap.collision and runtimeMap.collision.containsLocal, "runtime map collision coverage required")
+  if not runtimeMap.collision:containsLocal(localX, localZ) then
     context = context or {}
     context.localX, context.localZ = localX, localZ
     context.mapId = runtimeMap.mapId

@@ -6,34 +6,20 @@
 
 local Errors = require("libs.errors.src.Errors")
 local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
+local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
 
 local FieldCameraCacheWriter = {}
-local DIR = "data/generated/field/camera"
-
-function FieldCameraCacheWriter.profilesPath()
-  return DIR .. "/profiles.lua"
-end
-function FieldCameraCacheWriter.provenancePath()
-  return DIR .. "/provenance.lua"
-end
-function FieldCameraCacheWriter.markerPath()
-  return DIR .. "/complete"
-end
 
 function FieldCameraCacheWriter.isReady(cacheFs, marker)
-  if cacheFs:read(FieldCameraCacheWriter.markerPath()) ~= marker then
-    return false
-  end
-  return cacheFs:exists(FieldCameraCacheWriter.profilesPath(), "file")
-    and cacheFs:exists(FieldCameraCacheWriter.provenancePath(), "file")
+  return FieldCameraCache.isReady(cacheFs, marker)
 end
 
 local function persist(tx, bundle)
   local stage = tx.stage
-  stage:writeLua(FieldCameraCacheWriter.profilesPath(), bundle.profiles)
-  stage:writeLua(FieldCameraCacheWriter.provenancePath(), bundle.provenance)
-  local profiles, profileErr = stage:loadLua(FieldCameraCacheWriter.profilesPath())
-  local provenance, provenanceErr = stage:loadLua(FieldCameraCacheWriter.provenancePath())
+  stage:writeLua(FieldCameraCache.profilesPath(), bundle.profiles)
+  stage:writeLua(FieldCameraCache.provenancePath(), bundle.provenance)
+  local profiles, profileErr = stage:loadLua(FieldCameraCache.profilesPath())
+  local provenance, provenanceErr = stage:loadLua(FieldCameraCache.provenancePath())
   if not profiles or not provenance then
     Errors.raise(
       "FIELD_CAMERA_CACHE_STALE",
@@ -41,16 +27,16 @@ local function persist(tx, bundle)
       {}
     )
   end
-  assert(profiles.schema == "g4-field-camera-profiles-v1")
+  assert(profiles.schema == FieldCameraCache.SCHEMA)
   assert(profiles.recordCount == bundle.profiles.recordCount)
-  stage:write(FieldCameraCacheWriter.markerPath(), bundle.marker)
+  stage:write(FieldCameraCache.markerPath(), bundle.marker)
   tx:publish()
   return bundle.marker
 end
 
 function FieldCameraCacheWriter.write(cacheFs, bundle)
   assert(cacheFs and type(bundle) == "table" and bundle.marker, "invalid camera bundle")
-  local tx = ArtifactPublisher.begin(cacheFs, "field-cameras", { DIR })
+  local tx = ArtifactPublisher.begin(cacheFs, "field-cameras", { FieldCameraCache.dir() })
   local ok, result = pcall(persist, tx, bundle)
   if ok then
     return result

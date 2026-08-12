@@ -27,7 +27,7 @@ local PARTNER_OBJECT_ID = 253
 
 ---@class FieldActorManager
 ---@field assets FieldActorAssets
----@field variableSpriteRange { first: integer, last: integer }
+---@field variableSprites { first: integer, last: integer, variableBase: integer }
 ---@field variableVarBase integer
 ---@field maps table<integer, table>
 ---@field eventState FieldEventState?
@@ -48,24 +48,23 @@ local SURFACE_ERROR_CODES = {
 
 ---@class FieldActorManagerOptions
 ---@field assets FieldActorAssets
----@field policy { variableSpriteRange: { first: integer, last: integer }, variableVarBase: integer }
+---@field policy { variableSprites: { first: integer, last: integer, variableBase: integer } }
 
 -- opts.assets: a FieldActorAssetProvider-shaped acquire/release/knows owner.
--- opts.policy: { variableSpriteRange, variableVarBase } from
--- the field-actor manifest, so no decomp-derived constant is inlined here.
+-- opts.policy: the generated actor index's runtime block
+-- ({ variableSprites = { first, last, variableBase } }), so no decomp-derived
+-- constant is inlined here.
 ---@param opts FieldActorManagerOptions
 ---@return FieldActorManager
 function FieldActorManager.new(opts)
   assert(type(opts) == "table" and opts.assets, "FieldActorManager requires an asset provider")
   local policy = opts.policy
-  assert(
-    type(policy) == "table" and policy.variableSpriteRange and policy.variableVarBase,
-    "FieldActorManager requires a sprite policy"
-  )
+  assert(type(policy) == "table" and policy.variableSprites, "FieldActorManager requires a variable-sprite policy")
+  local variableSprites = policy.variableSprites
   return setmetatable({
     assets = opts.assets,
-    variableSpriteRange = policy.variableSpriteRange,
-    variableVarBase = policy.variableVarBase,
+    variableSprites = variableSprites,
+    variableVarBase = variableSprites.variableBase,
     maps = {},
     eventState = nil,
     unsubscribe = nil,
@@ -114,12 +113,12 @@ end
 -- so this mirrors that call. The variables default to 0, the hero graphic, so a
 -- variable actor exists even when no script has written one.
 function FieldActorManager:_resolveSpriteId(event)
-  local range = self.variableSpriteRange
-  if event.spriteId < range.first or event.spriteId > range.last then
+  local sprites = self.variableSprites
+  if event.spriteId < sprites.first or event.spriteId > sprites.last then
     return event.spriteId
   end
   assert(self.eventState, "variable sprite resolution requires an event state")
-  return self.eventState:getVar(self.variableVarBase + (event.spriteId - range.first))
+  return self.eventState:getVar(self.variableVarBase + (event.spriteId - sprites.first))
 end
 
 function FieldActorManager:_acquireVisual(spriteId, actorId)

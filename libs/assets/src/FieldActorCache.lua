@@ -48,9 +48,10 @@ function FieldActorCache.marker(romSha1, depHash)
 end
 
 -- True only if the marker is exact, the index loads with the expected schema,
--- spriteIds is the required array of sprite ids, and every indexed sprite's
--- visual definition (with the expected schema and matching identity) and atlas
--- is present.
+-- spriteIds is the required array of sprite ids, the runtime configuration
+-- block (avatars + variable-sprite policy) is present, and every indexed
+-- sprite's visual definition (with the expected schema and matching identity)
+-- and atlas is present.
 function FieldActorCache.isReady(cacheFs, expectedMarker)
   if cacheFs:read(FieldActorCache.markerPath()) ~= expectedMarker then
     return false
@@ -60,6 +61,13 @@ function FieldActorCache.isReady(cacheFs, expectedMarker)
     return false
   end
   if not Validate.isArray(index.spriteIds) then
+    return false
+  end
+  if
+    type(index.runtime) ~= "table"
+    or type(index.runtime.avatars) ~= "table"
+    or type(index.runtime.variableSprites) ~= "table"
+  then
     return false
   end
   for _, spriteId in ipairs(index.spriteIds) do

@@ -64,7 +64,7 @@ local function batch(geomPath, materialId)
 end
 
 -- A minimal current scene: no building instances, no neighbors, one terrain
--- batch per supplied material. Collision is a valid zeroed permissions grid.
+-- batch per supplied material. Collision is a FieldMapLoader concern.
 local function scene(materials)
   return {
     schema = "g4-map-scene-v3",
@@ -75,13 +75,12 @@ local function scene(materials)
     mapBatches = {},
     buildingInstances = {},
     neighbors = {},
-    collision = { file = "permissions.bin" },
   }
 end
 
--- A cacheFs serving canned bytes for the shared geometry/texture paths plus
--- the permissions grid. luaFiles backs loadLua for model descriptors. The
--- blob table is returned so tests can corrupt or omit individual files.
+-- A cacheFs serving canned bytes for the shared geometry/texture paths.
+-- luaFiles backs loadLua for model descriptors. The blob table is returned so
+-- tests can corrupt or omit individual files.
 local function cacheFs()
   local geomPath = MapAssetCache.geometryPath("aaaa")
   local texPath = MapAssetCache.texturePath("bbbb")
@@ -89,7 +88,6 @@ local function cacheFs()
   local blob = {
     [geomPath] = MeshWriter.encode(triangleBatch()),
     [texPath] = PngWriter.encode(1, 1, string.char(255, 0, 0, 255)),
-    ["permissions.bin"] = string.rep("\0", 2048),
   }
   return {
     read = function(_, path)
@@ -243,35 +241,6 @@ function T.unknown_wrap_in_a_building_descriptor_releases_acquired_images()
   Assert.isTrue(Errors.is(err) and err.code == "GPU_ASSET_UNKNOWN_WRAP", "raises GPU_ASSET_UNKNOWN_WRAP")
   Assert.equal(#graphics.images, 1)
   Assert.equal(graphics.images[1].released, true, "the scene image is released with the failed descriptor")
-end
-
--- Missing permissions bytes fail the collision step after GPU objects exist.
-function T.failed_permissions_read_releases_acquired_images()
-  local cache, _, texPath = cacheFs()
-  local s = scene({ material(0, texPath, { x = "clamp", y = "clamp" }) })
-  s.collision.file = "missing-permissions.bin"
-  local graphics = fakeGraphics()
-  local err = Assert.throws(function()
-    MapSceneLoader.load(cache, s, { graphics = graphics })
-  end)
-  Assert.isTrue(tostring(err):find("missing permissions", 1, true) ~= nil, "permissions failure propagates")
-  Assert.equal(#graphics.images, 1)
-  Assert.equal(graphics.images[1].released, true, "a failed permissions read releases the acquired image")
-end
-
--- Malformed permissions bytes fail the decode step after GPU objects exist.
-function T.failed_permissions_decode_releases_acquired_images()
-  local cache, _, texPath, _, blob = cacheFs()
-  local s = scene({ material(0, texPath, { x = "clamp", y = "clamp" }) })
-  blob["permissions.bin"] = string.rep("\0", 10)
-  local graphics = fakeGraphics()
-  local ok, err = pcall(MapSceneLoader.load, cache, s, { graphics = graphics })
-  Assert.isTrue(
-    not ok and Errors.is(err) and err.code == "PERMISSION_BAD_SIZE",
-    "malformed permissions fail the load: " .. tostring(err and err.code)
-  )
-  Assert.equal(#graphics.images, 1)
-  Assert.equal(graphics.images[1].released, true, "a failed permissions decode releases the acquired image")
 end
 
 -- An unsupported transform mode raises after its mesh was acquired; the load

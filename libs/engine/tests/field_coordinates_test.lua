@@ -10,7 +10,7 @@ local T = {}
 local function runtimeMap()
   return {
     coordinateOrigin = { x = 672, z = 384 },
-    permissions = {
+    collision = {
       containsLocal = function(_, x, z)
         return x >= 0 and x < 32 and z >= 0 and z < 32
       end,

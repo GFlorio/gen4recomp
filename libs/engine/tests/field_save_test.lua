@@ -14,7 +14,7 @@ local function runtimeMap(hash, plates, warps)
   return {
     mapId = 60,
     coordinateOrigin = { x = 680, z = 390 },
-    permissions = {
+    collision = {
       containsLocal = function(_, x, z)
         return x >= 0 and x < 32 and z >= 0 and z < 32
       end,

@@ -42,7 +42,7 @@ end
 
 -- Compile land member `landMemberId`, textured through the map-texture pack of
 -- `areaMemberId` (the cell's own area-data member), into
--- { batches, materials, meshes, textures, permissions, terrain }.
+-- { batches, materials, meshes, textures, collision, terrain }.
 function NeighborChunkCompiler.compile(romFs, landMemberId, areaMemberId, context)
   local areaBytes = readMember(assert(romFs:openNarc("area_data")), "area_data", areaMemberId)
   local area = assert(AreaData.decode(areaBytes, { alias = "area_data", memberId = areaMemberId }))
@@ -97,7 +97,7 @@ function NeighborChunkCompiler.compile(romFs, landMemberId, areaMemberId, contex
     unresolved = compiled.unresolved,
     meshes = meshes,
     textures = textures,
-    permissions = land.permissionBytes,
+    collision = land.collision,
     terrain = {
       schema = MapAssetCache.TERRAIN_SCHEMA,
       sourceFormat = decodedTerrain.schema,

@@ -17,7 +17,7 @@ local T = {
   tests = {},
 }
 
--- The pre-set flag id is FLAG_GOT_STARTER (data/reference/hgss/flags.lua byId).
+-- The pre-set flag id is FLAG_GOT_STARTER (libs/assets FieldScriptSymbols).
 local POKEGEAR_SCRIPT = "vanilla.hgss.scr_seq.0843.script_013"
 local STARTER_FLAG = 106
 

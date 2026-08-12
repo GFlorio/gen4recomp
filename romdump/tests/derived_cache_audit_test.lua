@@ -11,7 +11,7 @@ local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local ScriptCache = require("libs.assets.src.ScriptCache")
-local FieldCameraCacheWriter = require("romdump.src.digest.FieldCameraCacheWriter")
+local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
 local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
 
 local T = {}
@@ -20,7 +20,7 @@ local function publishedCache()
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   for _, path in ipairs({
     FieldActorCache.markerPath(),
-    FieldCameraCacheWriter.markerPath(),
+    FieldCameraCache.markerPath(),
     FieldFontCache.markerPath(),
     FieldMessageCache.markerPath(),
     ScriptCache.markerPath(),

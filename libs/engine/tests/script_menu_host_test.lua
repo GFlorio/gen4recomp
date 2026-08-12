@@ -6,7 +6,7 @@ local Errors = require("libs.errors.src.Errors")
 local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
 local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
 local ScriptMenuHost = require("libs.engine.src.script.ScriptMenuHost")
-local MenuProtocol = require("data.reference.hgss.menu_protocol")
+local MenuProtocol = require("libs.assets.src.MenuProtocol")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 

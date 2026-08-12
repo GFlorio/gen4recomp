@@ -7,6 +7,7 @@ local Assert = require("tests.support.Assert")
 local MapResolver = require("romdump.src.digest.MapResolver")
 local AreaData = require("romdump.src.digest.AreaData")
 local LandData = require("romdump.src.digest.LandData")
+local HgssPermissionGrid = require("romdump.src.digest.HgssPermissionGrid")
 local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
 local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
 local TextureDecoder = require("romdump.src.digest.nitro.TextureDecoder")
@@ -72,8 +73,7 @@ function T.area_data(romFs)
   Assert.equal(area.lightType, 0)
 end
 
--- Land-data container boundaries, BGS, permissions, buildings, model,
--- BDHC.
+-- Land-data container boundaries, BGS, collision, buildings, model, BDHC.
 function T.land_containers(romFs)
   local r = resolve(romFs)
   local narc = assert(romFs:openNarc("land_data"))
@@ -84,12 +84,16 @@ function T.land_containers(romFs)
   Assert.equal(land.sizes.buildings % 0x30, 0)
   Assert.equal(land.mapModelBytes:sub(1, 4), "BMD0")
   Assert.notNil(land.bdhcBytes, "BDHC slice must be available as opaque bytes")
-  Assert.notNil(land.permissions:get(0, 0))
+  Assert.notNil(land.collision.cells[1])
+  Assert.equal(#land.collision.cells, 1024)
   -- Indoor chunk carries no BGS/soundplate payload, so permissions sit at 0x14.
   Assert.equal(#land.bgs.payload, 0)
-  -- Observed permission bytes: only 0x80 hard-blocks; 0 and 6 are passable
-  -- surface responses, not obstacles.
-  Assert.deepEqual(land.permissions:usedPermissionValues(), { 0, 6, 128 })
+  -- Observed raw permission bytes: only 0x80 hard-blocks; 0 and 6 are
+  -- passable surface responses, not obstacles. The raw byte distribution is a
+  -- romdump diagnostic, so it is read through HgssPermissionGrid.
+  local rawSlice = bytes:sub(land.offsets.permissions + 1, land.offsets.permissions + land.sizes.permissions)
+  local permissionGrid = assert(HgssPermissionGrid.decode(rawSlice, { mapId = r.map.id }))
+  Assert.deepEqual(permissionGrid.usedPermissionValues, { 0, 6, 128 })
 end
 
 -- The map and building texture packs inventory cleanly, and every
@@ -206,14 +210,13 @@ function T.material_and_vertex_validity(romFs)
 end
 
 -- The provisional spawn and the exit warp are passable tiles on the real
--- permission grid: spawn (4,13), one step south onto the warp tile (4,14).
--- Only the 0x80 hard-block bit blocks; the 32x32 cell is a hard boundary.
+-- collision grid: spawn (4,13), one step south onto the warp tile (4,14).
+-- Only the hard-blocked cells block; the 32x32 cell is a hard boundary.
 function T.traversal(romFs)
   local r = resolve(romFs)
   local land =
     assert(LandData.decode(assert(romFs:openNarc("land_data")):readMember(r.landDataMemberId), { mapId = r.map.id }))
-  local grid = land.permissions
-  local collision = CollisionGrid.new(grid, {
+  local collision = CollisionGrid.new(land.collision, {
     worldOriginX = r.worldOriginX,
     worldOriginZ = r.worldOriginZ,
   })
@@ -229,11 +232,10 @@ function T.traversal(romFs)
   Assert.isFalse(collision:isBlockedLocal(4, 14))
   Assert.isTrue(collision:containsLocal(4, 14))
 
-  -- Only the 0x80 bit blocks: the perimeter wall hard-blocks, interior floor
-  -- (behavior 0 / response 6) does not.
-  Assert.isTrue(grid:isBlocked(0, 0))
-  Assert.isFalse(grid:isBlocked(4, 13))
-  Assert.deepEqual(grid:usedPermissionValues(), { 0, 6, 128 })
+  -- Only hard-blocked cells block: the perimeter wall hard-blocks, interior
+  -- floor (behavior 0 / response 6) does not.
+  Assert.isTrue(collision:isBlockedLocal(0, 0))
+  Assert.isFalse(collision:isBlockedLocal(4, 13))
 
   -- Movement respects a wall: the (12,13) wall tile is hard-blocked.
   Assert.isTrue(collision:isBlockedLocal(12, 13))

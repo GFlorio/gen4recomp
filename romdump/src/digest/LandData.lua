@@ -7,11 +7,13 @@
 -- (e.g. New Bark's 88-byte payload, permissions at 0x6C), so the permission
 -- offset is always derived from the encoded payload size, never fixed. Pure
 -- domain module; decode() returns (land | nil, err). The BGS and BDHC payloads
--- are preserved byte-for-byte and left opaque for this slice.
+-- are preserved byte-for-byte and left opaque for this slice. The permission
+-- section crosses the source boundary as a normalized collision grid
+-- (HgssPermissionGrid); the raw packed bytes are never exposed.
 
 local Errors = require("libs.errors.src.Errors")
 local BinaryReader = require("libs.codec.src.BinaryReader")
-local PermissionGrid = require("libs.assets.src.PermissionGrid")
+local HgssPermissionGrid = require("romdump.src.digest.HgssPermissionGrid")
 local BuildingPlacement = require("romdump.src.digest.BuildingPlacement")
 
 local LandData = {}
@@ -105,9 +107,9 @@ local function parse(bytes, context)
     )
   end
 
-  local permissions, permErr = PermissionGrid.decode(r:bytes(permissionsOffset, permissionsSize), context)
-  if not permissions then
-    error(permErr)
+  local collision, collisionErr = HgssPermissionGrid.decode(r:bytes(permissionsOffset, permissionsSize), context)
+  if not collision then
+    error(collisionErr)
   end
   local buildings, buildErr = BuildingPlacement.decodeAll(r:bytes(buildingsOffset, buildingsSize), context)
   if not buildings then
@@ -119,8 +121,7 @@ local function parse(bytes, context)
       signature = signature,
       payload = r:bytes(BGS_OFFSET + BGS_HEADER_SIZE, bgsPayloadSize),
     },
-    permissions = permissions,
-    permissionBytes = r:bytes(permissionsOffset, permissionsSize),
+    collision = collision,
     buildings = buildings,
     mapModelBytes = r:bytes(modelOffset, modelSize),
     bdhcBytes = r:bytes(bdhcOffset, bdhcSize),

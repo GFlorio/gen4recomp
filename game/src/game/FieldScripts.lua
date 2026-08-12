@@ -24,6 +24,7 @@ local WorldState = require("libs.engine.src.script.WorldState")
 local Scheduler = require("libs.engine.src.script.Scheduler")
 local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
+local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 
 -- Every task implementation the runtime can create. The registered-task
 -- declaration a mod-facing conformance derives its expectations from; the
@@ -58,18 +59,6 @@ local function taskRegistry()
   local pause = require("libs.engine.src.script.tasks.MovementPauseTask")
   registry:register("actor_pause", pause.version, pause)
   return registry
-end
-
--- Invert an id -> name reference catalog into the name -> id shape the world
--- state resolves symbolic references through.
----@param byId table<integer, string>
----@return table<string, integer>
-local function invertCatalog(byId)
-  local out = {}
-  for id, name in pairs(byId or {}) do
-    out[name] = id
-  end
-  return out
 end
 
 -- The player facade the script services consume: position/facing/gender/name
@@ -278,8 +267,8 @@ function FieldScripts.new(opts)
   local worldState = WorldState.new({
     eventState = opts.eventState,
     catalogs = {
-      flags = invertCatalog(require("data.reference.hgss.flags").byId),
-      variables = invertCatalog(require("data.reference.hgss.vars").byId),
+      flags = FieldScriptSymbols.flagsByName,
+      variables = FieldScriptSymbols.variablesByName,
     },
     seed = opts.seedText or opts.cacheFs.versionId,
   })

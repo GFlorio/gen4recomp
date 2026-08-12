@@ -17,7 +17,7 @@ local Errors = require("libs.errors.src.Errors")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local PngWriter = require("libs.assets.src.PngWriter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
-local PermissionGrid = require("libs.assets.src.PermissionGrid")
+local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
 
 local MapCacheWriter = {}
@@ -38,29 +38,19 @@ local function persist(cacheFs, tx, bundle)
   for modelKey, descriptor in pairs(bundle.models) do
     cacheFs:writeLua(MapAssetCache.modelPath(modelKey), descriptor)
   end
-  -- 4. Permission grid.
-  if #bundle.permissions ~= PermissionGrid.SIZE then
-    Errors.raise(
-      "MAP_CACHE_BAD_PERMISSIONS",
-      "permission grid is " .. #bundle.permissions .. " bytes, expected " .. PermissionGrid.SIZE,
-      { mapId = mapId }
-    )
-  end
-  stage:write(dir .. "/permissions.bin", bundle.permissions)
+  -- 4. Collision grid, encoded into the project-owned G4CL asset. The
+  -- encoder rejects malformed grids (bad dimensions, missing/wrong cells,
+  -- non-boolean blocked), so an invalid bundle never reaches the stage.
+  local collisionBytes = CollisionGridAsset.encode(bundle.collision)
+  stage:write(dir .. "/collision.g4collision", collisionBytes)
   -- 5. Terrain surfaces.
   if type(bundle.terrain) ~= "table" or bundle.terrain.schema ~= MapAssetCache.TERRAIN_SCHEMA then
     Errors.raise("MAP_CACHE_BAD_TERRAIN", "terrain artifact is missing or has the wrong schema", { mapId = mapId })
   end
   stage:writeLua(MapAssetCache.terrainPath(mapId), bundle.terrain)
-  -- 6. Neighbor permission and terrain artifacts.
+  -- 6. Neighbor collision and terrain artifacts.
   for landDataMemberId, chunk in pairs(bundle.neighborChunks or {}) do
-    if #chunk.permissions ~= PermissionGrid.SIZE then
-      Errors.raise(
-        "MAP_CACHE_BAD_NEIGHBOR_PERMISSIONS",
-        "neighbor permission grid must be " .. PermissionGrid.SIZE .. " bytes",
-        { mapId = mapId, landDataMemberId = landDataMemberId, size = #chunk.permissions }
-      )
-    end
+    local neighborCollisionBytes = CollisionGridAsset.encode(chunk.collision)
     if type(chunk.terrain) ~= "table" or chunk.terrain.schema ~= MapAssetCache.TERRAIN_SCHEMA then
       Errors.raise(
         "MAP_CACHE_BAD_NEIGHBOR_TERRAIN",
@@ -68,7 +58,7 @@ local function persist(cacheFs, tx, bundle)
         { mapId = mapId, landDataMemberId = landDataMemberId }
       )
     end
-    stage:write(MapAssetCache.neighborPermissionsPath(mapId, landDataMemberId), chunk.permissions)
+    stage:write(MapAssetCache.neighborCollisionPath(mapId, landDataMemberId), neighborCollisionBytes)
     stage:writeLua(MapAssetCache.neighborTerrainPath(mapId, landDataMemberId), chunk.terrain)
   end
   -- 7. Scene descriptor. 8. Dependency record.

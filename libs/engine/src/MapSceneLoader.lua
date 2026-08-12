@@ -1,22 +1,21 @@
--- Turns the derived map cache into a runtime scene the renderer can draw: it
--- reads scene.lua, builds one persistent love Mesh per unique `.g4mesh` path and one
--- Image per unique (texture, wrap) sampler state (both deduplicated through
--- the shared GpuAssetPool, so repeated building models and shared textures
--- cost a single GPU object per sampler), wraps each material's render state,
--- resolves every placed building instance through its model descriptor, and
--- loads permissions.bin into a CollisionGrid. A billboard batch keeps the
--- base transform the renderer resolves against the camera each frame instead
--- of a baked matrix. All GPU construction happens here, once, never in draw;
--- the pool releases every owned mesh/image. Load is transactional: the pool
--- guards its own acquires, and load() guards everything after pool creation,
--- so any failure -- a missing descriptor, permissions read/decode failure,
--- an unsupported transform mode -- releases every GPU object already
--- acquired before the error propagates. The only ROM knowledge that reaches
--- this layer is the normalized scene descriptor; raw Nitro formats stopped
--- at the compiler.
+-- Turns the derived map cache into a visual runtime scene the renderer can
+-- draw: it reads scene.lua, builds one persistent love Mesh per unique
+-- `.g4mesh` path and one Image per unique (texture, wrap) sampler state (both
+-- deduplicated through the shared GpuAssetPool, so repeated building models
+-- and shared textures cost a single GPU object per sampler), wraps each
+-- material's render state, and resolves every placed building instance
+-- through its model descriptor. Simulation facts (collision, terrain) are
+-- owned by FieldMapLoader through the shared asset paths; this loader returns
+-- no collision object. A billboard batch keeps the base transform the renderer
+-- resolves against the camera each frame instead of a baked matrix. All GPU
+-- construction happens here, once, never in draw; the pool releases every
+-- owned mesh/image. Load is transactional: the pool guards its own acquires,
+-- and load() guards everything after pool creation, so any failure -- a
+-- missing descriptor, an unsupported transform mode -- releases every GPU
+-- object already acquired before the error propagates. The only ROM knowledge
+-- that reaches this layer is the normalized scene descriptor; raw Nitro
+-- formats stopped at the compiler.
 
-local PermissionGrid = require("libs.assets.src.PermissionGrid")
-local CollisionGrid = require("libs.engine.src.CollisionGrid")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local Matrix4 = require("libs.math.src.Matrix4")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
@@ -176,15 +175,8 @@ local function buildScene(pool, cacheFs, scene)
     end
   end
 
-  -- Collision from permissions.bin (PermissionGrid.SIZE bytes), around the
-  -- cell origin.
-  local permBytes = assert(cacheFs:read(scene.collision.file), "missing permissions")
-  local grid = assert(PermissionGrid.decode(permBytes, scene.mapSymbol))
-  local collision = CollisionGrid.new(grid, {
-    worldOriginX = scene.matrix.worldOriginX,
-    worldOriginZ = scene.matrix.worldOriginZ,
-  })
-
+  -- Simulation facts (collision, terrain) are loaded by FieldMapLoader through
+  -- the pure project-owned asset paths, never here.
   bounds.center = {
     (bounds.min[1] + bounds.max[1]) / 2,
     (bounds.min[2] + bounds.max[2]) / 2,
@@ -195,7 +187,6 @@ local function buildScene(pool, cacheFs, scene)
     scene = scene,
     mapId = scene.mapId,
     cameraType = scene.cameraType,
-    collision = collision,
     bounds = bounds,
     mapDraws = mapDraws,
     buildingDraws = buildingDraws,

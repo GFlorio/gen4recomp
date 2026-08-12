@@ -1,6 +1,7 @@
 -- Tests for HgssFieldLighting: the HGSS light-type -> field-light profile
 -- mapping that drives time-of-day lighting. Parsing of the profile text
--- itself is FieldLightProfile's contract (libs/assets).
+-- itself is HgssFieldLightProfile's contract (romdump); runtime time
+-- selection is FieldLightProfile's (libs/assets).
 
 local Assert = require("tests.support.Assert")
 local HgssFieldLighting = require("romdump.src.digest.HgssFieldLighting")

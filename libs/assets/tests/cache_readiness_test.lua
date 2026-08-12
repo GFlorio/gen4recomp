@@ -9,6 +9,7 @@ local FakeCache = require("tests.support.FakeCache")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
+local CollisionFixture = require("tests.support.CollisionFixture")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local ScriptCache = require("libs.assets.src.ScriptCache")
 
@@ -24,6 +25,10 @@ local function writeActorIndex(c, spriteIds)
   c:writeLua(FieldActorCache.indexPath(), {
     schema = FieldActorCache.INDEX_SCHEMA,
     spriteIds = spriteIds,
+    runtime = {
+      avatars = { { id = "hero", spriteId = 0 } },
+      variableSprites = { first = 101, last = 117, variableBase = 0x4020 },
+    },
   })
   c:write(FieldActorCache.markerPath(), "m")
 end
@@ -48,6 +53,13 @@ function T.actor_index_with_non_array_sprite_ids_is_not_ready()
   local c = cache()
   writeActorIndex(c, { named = 1 })
   Assert.isFalse(FieldActorCache.isReady(c, "m"), "a hash table is not a spriteIds array")
+end
+
+function T.actor_index_without_runtime_config_is_not_ready()
+  local c = cache()
+  c:writeLua(FieldActorCache.indexPath(), { schema = FieldActorCache.INDEX_SCHEMA, spriteIds = { 0 } })
+  c:write(FieldActorCache.markerPath(), "m")
+  Assert.isFalse(FieldActorCache.isReady(c, "m"), "the runtime avatar/sprite config is required by the schema")
 end
 
 function T.actor_visual_with_wrong_schema_is_not_ready()
@@ -135,7 +147,7 @@ local function writeMapScene(c, mapId, scene)
   c:writeLua(MapAssetCache.mapDir(mapId) .. "/scene.lua", scene or mapScene(mapId))
   c:writeLua(MapAssetCache.terrainPath(mapId), { schema = "g4-terrain-surfaces-v1" })
   c:write(MapAssetCache.mapDir(mapId) .. "/dependencies.lua", "return {}\n")
-  c:write(MapAssetCache.mapDir(mapId) .. "/permissions.bin", string.rep("\0", 2048))
+  c:write(MapAssetCache.collisionPath(mapId), CollisionFixture.asset(32, 32))
   c:write(MapAssetCache.mapDir(mapId) .. "/complete", "m")
 end
 

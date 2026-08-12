@@ -69,7 +69,7 @@ function WarpSystem.findBlockedFacing(runtimeMap, fieldX, fieldZ, direction)
     return nil
   end
   local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, destinationX, destinationZ)
-  if runtimeMap.permissions:isBlockedLocal(localX, localZ) then
+  if runtimeMap.collision:isBlockedLocal(localX, localZ) then
     return warp
   end
   return nil
