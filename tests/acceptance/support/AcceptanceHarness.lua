@@ -335,7 +335,6 @@ function Game:interaction()
     actorId = interaction.actorId,
     scriptId = interaction.scriptId,
     scriptSource = interaction.scriptSource,
-    owner = interaction.owner,
     actorFacing = actor and actor.facing or nil,
     actorFacingOverride = actor and actor.interactionFacingOverride or nil,
   }
@@ -357,9 +356,6 @@ function Game:pressAction()
         interaction.scriptSource = "override"
       end
     end
-    interaction.owner = "script"
-  elseif intent then
-    interaction.owner = "pre-script-dialogue"
   end
   self.lastInteraction = interaction
   runtime:pressAction()

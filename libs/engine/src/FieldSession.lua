@@ -11,13 +11,13 @@
 --
 -- Step 6 is wired through the optional `interactions`
 -- service: `resolve(snapshot)` returns an immutable InteractionIntent for an
--- idle player's Action edge and `consume(intent)` dispatches it to the
--- configured interaction client (the pre-script adapter). A consumed
--- interaction owns the tick, so the same edge can never also start a move or
--- a warp. The session never imports the adapter; FieldState constructs the
--- replacement point. The service methods are invoked with the interactions
--- table as self (colon style), so implementations must declare a leading
--- self parameter.
+-- idle player's Action edge, which the session dispatches to
+-- `scriptClient:consume(intent, tick)`. A consumed interaction owns the
+-- tick, so the same edge can never also start a move or a warp. There is no
+-- fallback client: the binding audit at load time guarantees every
+-- interactable event is bound, so an unmapped intent is a composition fault.
+-- The resolve service is invoked with the interactions table as self (colon
+-- style), so implementations must declare a leading self parameter.
 
 local WarpSystem = require("libs.engine.src.WarpSystem")
 
@@ -40,7 +40,6 @@ local WarpSystem = require("libs.engine.src.WarpSystem")
 
 ---@class FieldSession.Interactions
 ---@field resolve fun(self: FieldSession.Interactions, snapshot: InteractionResolverSnapshot): InteractionIntent?
----@field consume fun(self: FieldSession.Interactions, intent: InteractionIntent): boolean
 
 ---@class FieldSession
 ---@field versionId string
@@ -83,6 +82,7 @@ function FieldSession.new(options)
   assert(options.transition, "field session transition required")
   assert(options.input, "field session input required")
   assert(options.actors, "field session actors required")
+  assert(not options.interactions or options.scriptClient, "the interaction resolver and script client are paired")
   return setmetatable({
     versionId = options.versionId,
     currentMap = options.currentMap,
@@ -222,20 +222,18 @@ function FieldSession:updateFixed(inputSnapshot)
       tick = self.tick + 1,
     })
     if intent then
-      -- The script client replaces the pre-script adapter: it resolves the
-      -- binding, starts the composed script, and runs it during this tick.
-      -- Unmapped intents fall through to the fixture client.
-      if self.scriptClient then
-        local result = self.scriptClient:consume(intent, self.tick + 1)
-        if result == "started" or result == "blocked" then
-          self:_advanceTick()
-          return
-        end
-      end
-      if self.interactions:consume(intent) then
-        self:_advanceTick()
-        return
-      end
+      -- The script client resolves the binding, starts the composed script,
+      -- and runs it during this tick. There is no fallback client: the
+      -- binding audit at load time guarantees every interactable event is
+      -- bound, so an unmapped intent here is a composition fault, not a
+      -- silent absorption.
+      local result = self.scriptClient:consume(intent, self.tick + 1)
+      assert(
+        result == "started" or result == "blocked",
+        "an interactable event must be bound: " .. tostring(intent.mapId)
+      )
+      self:_advanceTick()
+      return
     end
   end
 

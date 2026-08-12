@@ -3,10 +3,12 @@
 -- unsupported commands into a checked-in `data/scripts/overrides/<id>.lua`
 -- override. The transform preserves every supported operation and control
 -- edge; each maximal run of unsupported commands (and each call into a
--- common script that is itself unsupported) is replaced by one visible dummy
--- dialogue node so the interaction still does something in-game instead of
--- faulting. Output is deterministic: identical dumps produce byte-identical
--- override files. Pure domain module: no love dependency.
+-- common script that is itself unsupported) is collapsed into one explicit
+-- unsupported node, which the runtime faults with attribution when reached.
+-- There are no placeholder dialogues: an unsupported command fails loudly
+-- instead of pretending to work. Output is deterministic: identical dumps
+-- produce byte-identical override files. Pure domain module: no love
+-- dependency.
 
 local S = require("gen4.script")
 local Errors = require("libs.rom.src.Errors")
@@ -19,11 +21,6 @@ local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
 local ScriptMembers = require("data.reference.hgss.script_members")
 
 local OverrideGenerator = {}
-
--- The visible placeholder message every dummy dialogue node shows. It is a
--- project-owned reference the game's dialogue host resolves to a short
--- ellipsis; scripts never embed bulk text.
-OverrideGenerator.PLACEHOLDER_MESSAGE = "msg.project.placeholder"
 
 -- The generated transcripts overridden by the New Bark slice: member and
 -- script index to the override's public id. The target table is a data
@@ -58,21 +55,27 @@ local function unsupportedCallTargets(memberIrs, stdCatalog)
   return targets
 end
 
--- One visible dummy node replacing a run of unsupported commands (or an
--- unsupported call target): a short project placeholder dialogue.
+-- One explicit unsupported node replacing a run of unsupported commands (or
+-- an unsupported call target): reaching it faults with attribution instead of
+-- pretending the interaction succeeded.
 ---@param node table
 ---@return table
-local function dummyNode(node)
-  local dummy = { op = "say", message = OverrideGenerator.PLACEHOLDER_MESSAGE }
+local function unsupportedNode(node)
+  local unsupported = {
+    op = "unsupported",
+    command = node.command or 0,
+    originalName = node.originalName or ("call to unsupported script " .. tostring(node.target or node.script)),
+    arguments = node.arguments or {},
+  }
   if node.provenance ~= nil then
-    dummy.provenance = node.provenance
+    unsupported.provenance = node.provenance
   end
-  return dummy
+  return unsupported
 end
 
 -- Replace every maximal run of consecutive `unsupported` ops in one linear
--- sequence with a single dummy node; `if`/`switch` bodies are walked
--- recursively. For background-triggered scripts, `face_player` on the
+-- sequence with a single explicit unsupported node; `if`/`switch` bodies are
+-- walked recursively. For background-triggered scripts, `face_player` on the
 -- script's own object (self or a map index) is dropped: a background event
 -- has no self object, so the source facing would fault at runtime. Returns a
 -- fresh sequence (the input is never mutated).
@@ -86,7 +89,7 @@ local function transformSequence(sequence, ctx)
     if runStart == nil then
       return
     end
-    out[#out + 1] = dummyNode(runStart)
+    out[#out + 1] = unsupportedNode(runStart)
     runStart = nil
   end
   for _, step in ipairs(sequence) do
@@ -120,7 +123,7 @@ local function transformSequence(sequence, ctx)
         (step.op == "call_common" or step.op == "call" or step.op == "goto_script")
         and ctx.unsupportedTargets[step.target or step.script]
       then
-        out[#out + 1] = dummyNode(step)
+        out[#out + 1] = unsupportedNode(step)
       else
         out[#out + 1] = step
       end
@@ -166,20 +169,20 @@ local function portScript(memberIr, scriptIndex, target, stdCatalog, unsupported
   if not ok then
     error("ported override for " .. tostring(scriptIndex) .. " fails validation: " .. tostring(validateErr))
   end
-  -- Coverage is the count of placeholder dialogues: every unsupported run
-  -- (or unsupported call target) was replaced by one visible placeholder.
+  -- Coverage is the count of explicit unsupported nodes: every unsupported
+  -- run (or unsupported call target) was collapsed into one loud failure.
   local unsupportedCount = 0
-  local function countPlaceholders(items)
+  local function countUnsupported(items)
     for _, item in ipairs(items or {}) do
-      if item.op == "say" and item.message == OverrideGenerator.PLACEHOLDER_MESSAGE then
+      if item.op == "unsupported" then
         unsupportedCount = unsupportedCount + 1
       elseif item.op == "if" then
-        countPlaceholders(item.yes)
-        countPlaceholders(item.no)
+        countUnsupported(item.yes)
+        countUnsupported(item.no)
       end
     end
   end
-  countPlaceholders(steps)
+  countUnsupported(steps)
   local metadata = {
     override = true,
     generated = true,

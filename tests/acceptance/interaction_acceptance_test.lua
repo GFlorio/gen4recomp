@@ -52,6 +52,49 @@ local function waitForDialogue(game)
   end, 120)
 end
 
+-- The production fault surface: the scheduler archives a faulted foreground
+-- script with its attributed error code. The snapshot surface carries no
+-- fault attribution, so the scenarios read the archived instance records
+-- through the harness's runtime handle (the same probe the harness's own
+-- failForegroundScript uses).
+local function scriptFaults(game)
+  local scheduler = game.runtime.scripts.scheduler
+  local faults = {}
+  for _, instance in ipairs(scheduler:instances()) do
+    if instance.status == "faulted" then
+      faults[#faults + 1] = { scriptId = instance.scriptId, endReason = instance.endReason }
+    end
+  end
+  return faults
+end
+
+-- Live scheduler ownership after a script ends: no running instance, no
+-- live task record, no foreground environment owning the field.
+local function liveSchedulerState(game)
+  local scheduler = game.runtime.scripts.scheduler
+  return {
+    liveInstances = #scheduler:liveInstances(),
+    tasks = #scheduler:tasks(),
+    foregroundEnvironmentId = scheduler:foregroundEnvironmentId(),
+  }
+end
+
+-- A faulting script contract: the script faults with the attributed code and
+-- releases every interaction owner (no modal, no field lock, no live
+-- scheduler state, no facing override).
+local function assertFaultReleasedEverything(game, snapshot, scriptId, endReason)
+  local fault = assert(scriptFaults(game)[1], "the foreground script must fault")
+  Assert.equal(fault.scriptId, scriptId)
+  Assert.equal(fault.endReason, endReason)
+  Assert.isFalse(snapshot.dialogue.modal)
+  Assert.isFalse(snapshot.fieldLocked)
+  local scheduler = liveSchedulerState(game)
+  Assert.equal(scheduler.liveInstances, 0)
+  Assert.equal(scheduler.tasks, 0)
+  Assert.isNil(scheduler.foregroundEnvironmentId)
+  Assert.isNil(game:interaction().actorFacingOverride)
+end
+
 local function completeDialogue(game)
   requireGameCapability(game, "advanceDialogue")
   game:advanceDialogue()
@@ -102,49 +145,63 @@ function T.tests.new_bark_woman_bound_script_restores_field_control()
   end)
 end
 
--- INT-04: Elm's fresh-save conversation must follow the bound production
--- script scheduler, not the legacy pre-script preview fixture.
-function T.tests.elm_fresh_save_conversation_runs_through_bound_script_scheduler()
+-- INT-04: Elm's fresh-save conversation reaches its first unsupported node
+-- and faults loudly with attribution (SCRIPT_UNSUPPORTED_REACHABLE). There
+-- is no placeholder dialogue anymore: the script must not open a box, must
+-- not keep the field, and must release every ownership it acquired.
+function T.tests.elm_fresh_save_conversation_faults_at_its_first_unsupported_node()
   withGame(LAB, function(game)
     interactAt(game, { fieldX = 6, fieldZ = 6 }, "north")
     requireGameCapability(game, "interaction")
     Assert.equal(game:interaction().scriptId, "elms_lab.elm")
-    local opened = waitForDialogue(game)
-    Assert.isTrue(opened.fieldLocked)
-    completeDialogue(game)
+    -- The fresh-save conversation's first reachable node is an unsupported
+    -- command (ScrCmd_GetPartyCount): the script faults instead of opening
+    -- the placeholder box.
+    local faulted = game:advanceUntil("elms script faults at its first unsupported node", function(snapshot)
+      return not snapshot.dialogue.modal and not snapshot.fieldLocked
+    end, 120)
+    assertFaultReleasedEverything(game, faulted, "elms_lab.elm", "SCRIPT_UNSUPPORTED_REACHABLE")
   end)
 end
 
 -- INT-05: a checked-in override must be observable as the selected source
--- layer while still executing through the same generated-script registry.
-function T.tests.checked_in_override_composes_and_runs_to_completion()
+-- layer while still executing through the same generated-script registry;
+-- the override's first unsupported node faults with attribution instead of
+-- composing into a working placeholder box.
+function T.tests.checked_in_override_faults_at_its_first_unsupported_node()
   withGame(LAB, function(game)
     interactAt(game, { fieldX = 6, fieldZ = 6 }, "north")
     requireGameCapability(game, "interaction")
     Assert.equal(game:interaction().scriptSource, "override")
-    waitForDialogue(game)
-    completeDialogue(game)
+    local faulted = game:advanceUntil("composed override faults at its first unsupported node", function(snapshot)
+      return not snapshot.dialogue.modal and not snapshot.fieldLocked
+    end, 120)
+    assertFaultReleasedEverything(game, faulted, "elms_lab.elm", "SCRIPT_UNSUPPORTED_REACHABLE")
   end)
 end
 
--- INT-06: intentionally unbound supported events use the production fallback
--- adapter, including terminal cleanup of its temporary face-player override.
-function T.tests.unbound_supported_interaction_uses_fallback_and_releases_override()
+-- INT-06: the aide event (the pre-script fallback's former unmapped target)
+-- is bound by the manifest; its generated script faults at its first
+-- unsupported node with attribution instead of running a preview box.
+function T.tests.bound_aide_script_faults_at_its_first_unsupported_node()
   withGame(LAB, function(game)
     interactAt(game, { fieldX = 9, fieldZ = 11 }, "south")
     requireGameCapability(game, "interaction")
-    Assert.equal(game:interaction().owner, "pre-script-dialogue")
-    waitForDialogue(game)
-    completeDialogue(game)
-    Assert.isNil(game:interaction().actorFacingOverride)
+    Assert.equal(game:interaction().scriptId, "vanilla.hgss.scr_seq.0843.script_002")
+    local faulted = game:advanceUntil("aide script faults at its first unsupported node", function(snapshot)
+      return not snapshot.dialogue.modal and not snapshot.fieldLocked
+    end, 120)
+    assertFaultReleasedEverything(game, faulted, "vanilla.hgss.scr_seq.0843.script_002", "SCRIPT_UNSUPPORTED_REACHABLE")
   end)
 end
 
 -- INT-07: dialogue/script ownership must reject movement until the modal path
--- completes; input edges may not leak into FieldPlayer while locked.
+-- completes; input edges may not leak into FieldPlayer while locked. The
+-- vehicle is the New Bark woman's bound script (the elms cell opens no
+-- dialogue anymore: its script faults at its first unsupported node).
 function T.tests.modal_owners_prevent_movement_until_completion()
-  withGame(LAB, function(game)
-    interactAt(game, { fieldX = 6, fieldZ = 6 }, "north")
+  withGame(TOWN, function(game)
+    interactAt(game, { fieldX = 683, fieldZ = 400 }, "north")
     waitForDialogue(game)
     local before = game:snapshot().player
     game:move("south")

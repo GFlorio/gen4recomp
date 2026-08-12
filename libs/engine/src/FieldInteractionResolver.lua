@@ -17,7 +17,9 @@
 -- touches presentation: it returns an immutable InteractionIntent (fresh
 -- numbers and strings only) or nil. An object is eligible regardless of its
 -- raw scriptId -- the original always starts the scene script with the raw
--- u16, so 0 or 0xFFFF is the script engine's business, not ours. Type-2
+-- u16 -- except script id 0, the no-interaction marker (the original starts
+-- the map bank's script 0 there; the project treats that as noninteractive
+-- until bank-script-0 bindings exist, matching the binding audit). Type-2
 -- background events are the hidden-item path and depend on collection flags
 -- that do not exist yet: they are skipped. Pure domain module:
 -- no love dependency.
@@ -182,7 +184,8 @@ end
 
 -- Scans background events in source order and returns the first eligible
 -- record, or nil. Type-2 records (the hidden-item path) are skipped because
--- their collection flags are not tracked yet; every other type must pass the
+-- their collection flags are not tracked yet, and script-id-0 records are
+-- noninteractive (the no-interaction marker); every other type must pass the
 -- raw direction compatibility check.
 function FieldInteractionResolver:_firstEligibleBackground(snapshot, targetX, targetZ)
   local map = snapshot.runtimeMap
@@ -194,6 +197,7 @@ function FieldInteractionResolver:_firstEligibleBackground(snapshot, targetX, ta
       event.x == targetX
       and event.z == targetZ
       and event.type ~= FieldInteractionResolver.HIDDEN_ITEM_EVENT_TYPE
+      and event.scriptId ~= 0
       and FieldInteractionResolver.backgroundDirectionCompatible(playerRaw, event.directionRaw)
     then
       return event
@@ -248,9 +252,15 @@ function FieldInteractionResolver:resolve(snapshot)
   -- Object actors first: the occupancy index is keyed by the exact surface,
   -- and the key is the facing cell's RESOLVED surface, so a cross-surface
   -- boundary looks up the actor where it actually stands, and a same-x/z
-  -- actor on another surface stays ineligible.
+  -- actor on another surface stays ineligible. A script-id-0 actor is
+  -- noninteractive and resolves to nothing: the interaction the original
+  -- would start (bank script 0) is not implemented, so the intent must not
+  -- reach the script client.
   local actor = self.actorAt(map.mapId, targetX, targetZ, targetSample.surfaceId)
   if actor then
+    if actor.sourceEvent.scriptId == 0 then
+      return nil
+    end
     local intent = baseIntent("object", snapshot, targetX, targetZ, actor.sourceEvent.scriptId)
     intent.object = {
       actorId = actor.actorId,

@@ -1,16 +1,14 @@
 -- Script dialogue host : the game-side bridge between the
 -- script runtime's dialogue contract and the field dialogue controller. It
 -- resolves message references (`msg.hgss.<bank>.<id>` through the message
--- provider, `msg.project.placeholder` to the project placeholder ellipsis),
--- formats substitution slots from the instance's buffered text arguments,
--- opens the controller as a script-owned request (the session's modal gate
--- skips script-owned boxes; the scheduler steps them through `advance`), and
--- reports typing progress from the controller's status. Pure domain module:
--- no love dependency.
+-- provider), formats substitution slots from the instance's buffered text
+-- arguments, opens the controller as a script-owned request (the session's
+-- modal gate skips script-owned boxes; the scheduler steps them through
+-- `advance`), and reports typing progress from the controller's status.
+-- Pure domain module: no love dependency.
 
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
-local FieldMessageText = require("libs.assets.src.FieldMessageText")
 local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
 
 ---@class ScriptDialogueHost
@@ -23,11 +21,6 @@ local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
 ---@field private _pendingNode table|nil
 local ScriptDialogueHost = {}
 ScriptDialogueHost.__index = ScriptDialogueHost
-
--- The project placeholder message: a short ellipsis box shown where a
--- translated script's unsupported commands were replaced by a dummy node.
-ScriptDialogueHost.PLACEHOLDER_REF = "msg.project.placeholder"
-ScriptDialogueHost.PLACEHOLDER_TEXT = "..."
 
 -- Text-value descriptor resolvers for the implemented forms: player name
 -- and integers backed by a variable. Any other form is a fault: the
@@ -99,10 +92,6 @@ end
 ---@param textArgs table slot -> text value
 ---@return table formatted { tokens, ... }
 function ScriptDialogueHost:resolveMessage(message, bindings, textArgs)
-  if message == ScriptDialogueHost.PLACEHOLDER_REF then
-    local tokens = FieldMessageText.parse(ScriptDialogueHost.PLACEHOLDER_TEXT, self._fontDef, { eos = false })
-    return { tokens = tokens, text = ScriptDialogueHost.PLACEHOLDER_TEXT, hadUnresolvedSubstitutions = false }
-  end
   local bankId, messageId
   if type(message) == "string" then
     bankId, messageId = message:match("^msg%.hgss%.(%d+)%.(%d+)$")

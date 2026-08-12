@@ -1,5 +1,5 @@
 -- Production-composed contracts for the raw HGSS GetMenuChoice command. The
--- real starter script reaches opcode 748 through the normal cache, override,
+-- pokegear reception reaches opcode 748 through the normal cache, override,
 -- script scheduler, and field runtime path; rendering remains trapped.
 
 local Assert = require("tests.support.Assert")
@@ -14,7 +14,12 @@ local T = {
   tests = {},
 }
 
-local STARTER_SCRIPT = "vanilla.hgss.scr_seq.0843.script_012"
+-- The pokegear reception (scr_seq 843 script 13): with FLAG_GOT_STARTER set
+-- its supported branch reaches message -> 746 hide -> 748 choice -> 747 show,
+-- and the cancel selection skips the unsupported HealParty node. The pre-set
+-- flag id is FLAG_GOT_STARTER (data/reference/hgss/flags.lua byId).
+local POKEGEAR_SCRIPT = "vanilla.hgss.scr_seq.0843.script_013"
+local STARTER_FLAG = 106
 
 local function withGame(fn)
   local game = AcceptanceHarness.new():boot({ versionId = "heartgold", save = "fresh" })
@@ -40,14 +45,15 @@ local function advanceToContextChoice(game)
   end, 240)
 end
 
--- After the real starter confirmation message, opcode 748 must
+-- After the reception's confirmation message, opcode 748 must
 -- block the foreground script on its own contextual provider. It is not a
 -- MenuExec reconstruction and it must not be replaced by a placeholder
 -- dialogue. This scenario establishes the production boundary that every
 -- classified provider must cross.
-function T.tests.real_get_menu_choice_opens_a_contextual_provider()
+function T.tests.pokegear_reception_get_menu_choice_opens_a_contextual_provider()
   withGame(function(game)
-    local started = game:startScript(STARTER_SCRIPT)
+    game:setWorldState({ flag = STARTER_FLAG })
+    local started = game:startScript(POKEGEAR_SCRIPT)
     Assert.isTrue(started.fieldLocked)
 
     local active = advanceToContextChoice(game)
@@ -64,13 +70,16 @@ end
 -- the waiting provider with the selected vanilla result intact, and the
 -- restored provider must accept confirmation without a replacement direction
 -- edge.
-function T.tests.restart_preserves_and_confirms_the_selected_contextual_choice()
+function T.tests.restart_preserves_and_confirms_the_selected_pokegear_choice()
   withGame(function(game)
+    game:setWorldState({ flag = STARTER_FLAG })
+    game:startScript(POKEGEAR_SCRIPT)
     advanceToContextChoice(game)
     game:move("east")
     Assert.equal(game:contextChoiceStatus().selected, 1)
 
     local resumed = game:restart({ save = "resume" })
+    resumed:step()
     Assert.deepEqual(resumed:contextChoiceStatus(), { state = "active", selected = 1 })
     resumed:pressAction()
     Assert.isNil(resumed:contextChoiceStatus())

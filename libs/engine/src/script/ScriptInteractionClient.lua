@@ -1,11 +1,12 @@
 -- Script interaction client : the construction
--- point that replaces the pre-script interaction adapter. It resolves an
+-- point that replaced the pre-script interaction adapter. It resolves an
 -- immutable InteractionIntent through the bindings manifest into a trigger
 -- descriptor, composes the bound script, and starts it as the foreground
 -- root through the scheduler so a newly resolved interaction may execute
--- during its trigger tick. Unmapped intents fall through to the session's
--- pre-script fixture client, which remains the fallback until every
--- interaction is bound. Pure domain module: no love dependency.
+-- during its trigger tick. The binding audit at load time guarantees every
+-- interactable event is bound, so an unmapped intent reaching this client is
+-- a composition fault (the session asserts on it) — there is no fallback.
+-- Pure domain module: no love dependency.
 
 ---@class ScriptInteractionClient
 ---@field private _bindings table
@@ -46,8 +47,9 @@ end
 
 -- Consume one interaction intent. Returns "started" when a script now owns
 -- the field, "blocked" when a foreground script already owns it, or
--- "unmapped" when nothing is bound (the caller may defer to a fallback
--- client). A started script may execute during this tick.
+-- "unmapped" when nothing is bound (the session treats that as a composition
+-- fault: the binding audit guarantees every interactable event is bound). A
+-- started script may execute during this tick.
 ---@param intent table InteractionIntent
 ---@param tick integer
 ---@return string started|blocked|unmapped

@@ -194,7 +194,6 @@ through services that `FieldState` wires together:
 FieldInteractionResolver  (pure; object-first, background-second priority)
   -> InteractionIntent   (immutable; raw scriptId + script bank carried)
   -> ScriptInteractionClient      (binding -> composed script on the scheduler)
-  -> PreScriptInteractionAdapter  (fallback: fixture match -> dialogue request)
   -> FieldDialogueController      (modal input ownership)
 ```
 
@@ -203,16 +202,17 @@ object actor from the occupancy index wins, then a source-order background
 event whose raw direction passes the pinned assembly's compatibility table
 (raw 4 wildcard; 0/1/2/3 accept {0,6}/{3,6}/{2,5}/{1,5}), then nothing.
 Type-2 background events (hidden items) are skipped because their collection
-flags are not tracked yet. A resolved intent goes first to
+flags are not tracked yet, and script-id-0 events are noninteractive (the
+bank-script-0 no-interaction marker, matching the binding audit). A resolved
+intent goes to
 `ScriptInteractionClient`, which looks the intent up in the bindings manifest,
 composes the bound script, and starts it as the foreground root on the scheduler
-so it runs during the trigger tick. An intent with no binding falls through to
-`PreScriptInteractionAdapter`, the fixture client that remains until every
-interaction is bound: it matches intents against
-`data/manifests/pre_script_interactions.lua`, formats the fixture message
-through `FieldMessageProvider`, pushes a temporary face-player override that
-every terminal dialogue path releases exactly once, and opens the modal
-dialogue.
+so it runs during the trigger tick. There is no fallback client: a load-time
+binding audit (`BindingAudit`, run in `FieldScripts` construction) validates
+every interactable object/background event of every bound map against the
+manifest and rejects the composition when any event is unbound or the manifest
+names a map with no compiled data. An unmapped intent at runtime is therefore
+a composition fault, never a silently absorbed Action press.
 
 ## Raw dump vs. derived data
 

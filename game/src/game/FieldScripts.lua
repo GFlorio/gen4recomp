@@ -3,10 +3,12 @@
 -- `data/scripts/overrides` layer, the composition, the bindings manifest, the
 -- full task registry, the service adapters over the game's field objects, and
 -- the scheduler + interaction client the session steps. FieldState wires the
--- result into FieldSession; the pre-script fixture client remains the
--- fallback for unmapped intents.
+-- result into FieldSession. Every interactable event of the bound maps is
+-- audited against the manifest at construction; there is no runtime fallback
+-- for unmapped intents.
 
 local Bindings = require("libs.engine.src.script.Bindings")
+local BindingAudit = require("libs.engine.src.script.BindingAudit")
 local Composition = require("libs.engine.src.script.Composition")
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -19,6 +21,7 @@ local ScriptMapsService = require("libs.engine.src.script.ScriptMapsService")
 local WorldState = require("libs.engine.src.script.WorldState")
 local Scheduler = require("libs.engine.src.script.Scheduler")
 local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
+local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 
 local FieldScripts = {}
 
@@ -209,6 +212,12 @@ function FieldScripts.new(opts)
   local registry = ScriptLoader.buildRegistry(opts.cacheFs, opts.overrideFs)
   local composition = Composition.new(registry)
   local bindings = Bindings.new(opts.bindingsManifest)
+  -- Load-time audit: every interactable event of every bound map must be
+  -- bound by the manifest (or be noninteractive by the zone-event data).
+  -- There is no runtime fallback for an unbound interaction.
+  BindingAudit.check(opts.bindingsManifest, function(mapId)
+    return opts.cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId))
+  end)
 
   local worldState = WorldState.new({
     eventState = opts.eventState,

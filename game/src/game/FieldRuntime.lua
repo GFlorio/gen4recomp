@@ -24,7 +24,6 @@ local MapCollisionLoader = require("libs.engine.src.MapCollisionLoader")
 local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldPlayerVisual = require("libs.engine.src.FieldPlayerVisual")
-local PreScriptInteractionAdapter = require("libs.engine.src.PreScriptInteractionAdapter")
 local FieldSave = require("libs.engine.src.FieldSave")
 local FieldScenario = require("libs.engine.src.FieldScenario")
 local FieldSaveStore = require("libs.engine.src.FieldSaveStore")
@@ -39,7 +38,6 @@ local TargetSpawns = require("data.manifests.field_spawns")
 local FieldActorManifest = require("data.manifests.field_actors")
 local FieldPresentation = require("data.manifests.field_presentation")
 local FieldScenarioManifest = require("data.manifests.field_scenario")
-local PreScriptInteractions = require("data.manifests.pre_script_interactions")
 local RepoFs = require("game.src.game.RepoFs")
 local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 
@@ -345,37 +343,21 @@ function FieldRuntime:_load()
     self.actionKeys = actionBindings()
     self.cancelKeys = cancelBindings()
 
-    -- Interaction discovery and the pre-script fallback client. The resolver
-    -- is pure and consults the manager's occupancy index; the adapter remains
-    -- the fallback for interactions without script bindings.
+    -- Interaction discovery: the resolver is pure and consults the manager's
+    -- occupancy index; bound interactions run through the script client and
+    -- the binding audit guarantees every interactable event is bound.
     self.messageProvider = FieldMessageProvider.new(cacheFs)
     self.interactionResolver = FieldInteractionResolver.new({
       actorAt = function(mapId, fieldX, fieldZ, surfaceId)
         return self.actors and self.actors:getAt(mapId, fieldX, fieldZ, surfaceId) or nil
       end,
     })
-    self.preScript = PreScriptInteractionAdapter.new({
-      dialogue = self.dialogue,
-      provider = self.messageProvider,
-      layout = layoutMessage,
-      fontDef = fontDef,
-      getActor = function(actorId)
-        return self.actors and self.actors:getById(actorId) or nil
-      end,
-      mapMessageBank = function(mapId)
-        if mapId ~= self.runtimeMap.mapId then
-          return nil
-        end
-        return self.runtimeMap.fieldData.messageBankId
-      end,
-      fixtures = PreScriptInteractions,
-    })
 
     -- The field-script platform (the script override system): registry over
     -- the compiled cache + data/scripts/overrides, composition, bindings,
-    -- scheduler, and interaction client. Bound interactions now run through
-    -- the scheduler; the pre-script fixture client stays as the fallback for
-    -- unmapped events. A resumed v2 save reattaches its script bucket.
+    -- scheduler, and interaction client. Bound interactions run through the
+    -- scheduler; the binding audit rejects unbound interactable events at
+    -- construction. A resumed v2 save reattaches its script bucket.
     -- The override files live in the repo tree outside the LÖVE source dir,
     -- so the loader reads them through the io-backed repo filesystem.
     self.scripts = FieldScripts.new({
@@ -427,9 +409,6 @@ function FieldRuntime:_load()
       interactions = {
         resolve = function(_, snapshot)
           return self.interactionResolver:resolve(snapshot)
-        end,
-        consume = function(_, intent)
-          return self.preScript:consume(intent)
         end,
       },
       coverage = function()

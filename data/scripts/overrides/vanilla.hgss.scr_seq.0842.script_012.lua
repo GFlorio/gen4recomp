@@ -1,9 +1,9 @@
 -- Generated override (script override system): the supported flow of the
--- translated script with unsupported commands replaced by a visible
--- placeholder dialogue. Regenerate, do not hand-edit.
+-- translated script with unsupported commands collapsed into explicit
+-- unsupported nodes. Regenerate, do not hand-edit.
 local S = require("gen4.script")
 
-return S.script({
+return S.script {
   api = 1,
   id = "vanilla.hgss.scr_seq.0842.script_012",
   metadata = {
@@ -21,244 +21,28 @@ return S.script({
     coverage = { complete = false, unsupportedCount = 3 },
   },
   steps = {
-    {
-      message = "msg.project.placeholder",
-      op = "say",
-      provenance = { offsets = { [1] = 5392 }, opcodes = { [1] = 609 } },
-    },
+    { arguments = {}, command = 609, op = "unsupported", originalName = "ScrCmd_609", provenance = { offsets = { [1] = 5392 }, opcodes = { [1] = 609 } } },
     { op = "lock_all", provenance = { offsets = { [1] = 5394 }, opcodes = { [1] = 96 } } },
-    {
-      actor = { mapIndex = 8, ref = "actor" },
-      movement = {
-        [1] = { action = "face", count = 1, direction = "east" },
-        [2] = { action = "emote", count = 1, name = "exclamation" },
-      },
-      op = "apply_movement",
-      provenance = { offsets = { [1] = 5396 }, opcodes = { [1] = 94 } },
-    },
+    { actor = { mapIndex = 8, ref = "actor" }, movement = { [1] = { action = "face", count = 1, direction = "east" }, [2] = { action = "emote", count = 1, name = "exclamation" } }, op = "apply_movement", provenance = { offsets = { [1] = 5396 }, opcodes = { [1] = 94 } } },
     { op = "wait_movement", provenance = { offsets = { [1] = 5404 }, opcodes = { [1] = 95 } } },
-    {
-      op = "buffer_text",
-      provenance = { offsets = { [1] = 5406 }, opcodes = { [1] = 190 } },
-      slot = 0,
-      value = { text = "player_name" },
-    },
-    {
-      message = { female = "msg.hgss.0542.00028", male = "msg.hgss.0542.00027", text = "gendered_message" },
-      op = "message",
-      provenance = { offsets = { [1] = 5409 }, opcodes = { [1] = 132 } },
-      waitForPrint = true,
-    },
+    { op = "buffer_text", provenance = { offsets = { [1] = 5406 }, opcodes = { [1] = 190 } }, slot = 0, value = { text = "player_name" } },
+    { message = { female = "msg.hgss.0542.00028", male = "msg.hgss.0542.00027", text = "gendered_message" }, op = "message", provenance = { offsets = { [1] = 5409 }, opcodes = { [1] = 132 } }, waitForPrint = true },
     { erase = true, op = "close_message", provenance = { offsets = { [1] = 5413 }, opcodes = { [1] = 53 } } },
-    {
-      op = "get_player_coords",
-      provenance = { offsets = { [1] = 5415 }, opcodes = { [1] = 105 } },
-      x = { id = "VAR_SPECIAL_x8004", value = "var" },
-      z = { id = "VAR_SPECIAL_x8005", value = "var" },
-    },
-    {
-      message = "msg.project.placeholder",
-      op = "say",
-      provenance = { offsets = { [1] = 5421 }, opcodes = { [1] = 602 } },
-    },
-    {
-      condition = {
-        condition = "compare",
-        left = { id = "VAR_SPECIAL_x8005", value = "var" },
-        operator = "eq",
-        right = 398,
-      },
-      no = {
-        [1] = {
-          condition = {
-            condition = "compare",
-            left = { id = "VAR_SPECIAL_x8005", value = "var" },
-            operator = "ne",
-            right = 399,
-          },
-          op = "goto_if",
-          provenance = { offsets = { [1] = 5458, [2] = 5464 }, opcodes = { [1] = 17, [2] = 28 } },
-          target = "_156D",
-        },
-        [2] = {
-          actor = { mapIndex = 8, ref = "actor" },
-          movement = { [1] = { action = "walk_in_place", count = 1, direction = "east", speed = "normal" } },
-          op = "apply_movement",
-          provenance = { offsets = { [1] = 5471 }, opcodes = { [1] = 94 } },
-        },
-        [3] = { op = "goto", provenance = { offsets = { [1] = 5479 }, opcodes = { [1] = 22 } }, target = "_15AB" },
-        [4] = { name = "_156D", op = "label" },
-        [5] = {
-          condition = {
-            condition = "compare",
-            left = { id = "VAR_SPECIAL_x8005", value = "var" },
-            operator = "ne",
-            right = 399,
-          },
-          op = "goto_if",
-          provenance = { offsets = { [1] = 5485, [2] = 5491 }, opcodes = { [1] = 17, [2] = 28 } },
-          target = "_1588",
-        },
-        [6] = {
-          actor = { mapIndex = 8, ref = "actor" },
-          movement = { [1] = { action = "walk", direction = "east", speed = "normal", tiles = 1 } },
-          op = "apply_movement",
-          provenance = { offsets = { [1] = 5498 }, opcodes = { [1] = 94 } },
-        },
-        [7] = { op = "goto", provenance = { offsets = { [1] = 5506 }, opcodes = { [1] = 22 } }, target = "_15AB" },
-        [8] = { name = "_1588", op = "label" },
-        [9] = {
-          condition = {
-            condition = "compare",
-            left = { id = "VAR_SPECIAL_x8005", value = "var" },
-            operator = "ne",
-            right = 399,
-          },
-          op = "goto_if",
-          provenance = { offsets = { [1] = 5512, [2] = 5518 }, opcodes = { [1] = 17, [2] = 28 } },
-          target = "_15A3",
-        },
-        [10] = {
-          actor = { mapIndex = 8, ref = "actor" },
-          movement = { [1] = { action = "walk_in_place", count = 1, direction = "east", speed = "normal" } },
-          op = "apply_movement",
-          provenance = { offsets = { [1] = 5525 }, opcodes = { [1] = 94 } },
-        },
-        [11] = { op = "goto", provenance = { offsets = { [1] = 5533 }, opcodes = { [1] = 22 } }, target = "_15AB" },
-        [12] = { name = "_15A3", op = "label" },
-        [13] = {
-          actor = { mapIndex = 8, ref = "actor" },
-          movement = { [1] = { action = "walk_in_place", count = 1, direction = "east", speed = "normal" } },
-          op = "apply_movement",
-          provenance = { offsets = { [1] = 5539 }, opcodes = { [1] = 94 } },
-        },
-      },
-      op = "if",
-      provenance = { offsets = { [1] = 5431, [2] = 5437 }, opcodes = { [1] = 17, [2] = 28 } },
-      yes = {
-        [1] = {
-          actor = { mapIndex = 8, ref = "actor" },
-          movement = { [1] = { action = "walk_in_place", count = 1, direction = "east", speed = "normal" } },
-          op = "apply_movement",
-          provenance = { offsets = { [1] = 5444 }, opcodes = { [1] = 94 } },
-        },
-        [2] = { op = "goto", provenance = { offsets = { [1] = 5452 }, opcodes = { [1] = 22 } }, target = "_15AB" },
-      },
-    },
+    { op = "get_player_coords", provenance = { offsets = { [1] = 5415 }, opcodes = { [1] = 105 } }, x = { id = "VAR_SPECIAL_x8004", value = "var" }, z = { id = "VAR_SPECIAL_x8005", value = "var" } },
+    { arguments = { [1] = 0 }, command = 602, op = "unsupported", originalName = "ScrCmd_ToggleFollowingPokemonMovement", provenance = { offsets = { [1] = 5421 }, opcodes = { [1] = 602 } } },
+    { condition = { condition = "compare", left = { id = "VAR_SPECIAL_x8005", value = "var" }, operator = "eq", right = 398 }, no = { [1] = { condition = { condition = "compare", left = { id = "VAR_SPECIAL_x8005", value = "var" }, operator = "ne", right = 399 }, op = "goto_if", provenance = { offsets = { [1] = 5458, [2] = 5464 }, opcodes = { [1] = 17, [2] = 28 } }, target = "_156D" }, [2] = { actor = { mapIndex = 8, ref = "actor" }, movement = { [1] = { action = "walk_in_place", count = 1, direction = "east", speed = "normal" } }, op = "apply_movement", provenance = { offsets = { [1] = 5471 }, opcodes = { [1] = 94 } } }, [3] = { op = "goto", provenance = { offsets = { [1] = 5479 }, opcodes = { [1] = 22 } }, target = "_15AB" }, [4] = { name = "_156D", op = "label" }, [5] = { condition = { condition = "compare", left = { id = "VAR_SPECIAL_x8005", value = "var" }, operator = "ne", right = 399 }, op = "goto_if", provenance = { offsets = { [1] = 5485, [2] = 5491 }, opcodes = { [1] = 17, [2] = 28 } }, target = "_1588" }, [6] = { actor = { mapIndex = 8, ref = "actor" }, movement = { [1] = { action = "walk", direction = "east", speed = "normal", tiles = 1 } }, op = "apply_movement", provenance = { offsets = { [1] = 5498 }, opcodes = { [1] = 94 } } }, [7] = { op = "goto", provenance = { offsets = { [1] = 5506 }, opcodes = { [1] = 22 } }, target = "_15AB" }, [8] = { name = "_1588", op = "label" }, [9] = { condition = { condition = "compare", left = { id = "VAR_SPECIAL_x8005", value = "var" }, operator = "ne", right = 399 }, op = "goto_if", provenance = { offsets = { [1] = 5512, [2] = 5518 }, opcodes = { [1] = 17, [2] = 28 } }, target = "_15A3" }, [10] = { actor = { mapIndex = 8, ref = "actor" }, movement = { [1] = { action = "walk_in_place", count = 1, direction = "east", speed = "normal" } }, op = "apply_movement", provenance = { offsets = { [1] = 5525 }, opcodes = { [1] = 94 } } }, [11] = { op = "goto", provenance = { offsets = { [1] = 5533 }, opcodes = { [1] = 22 } }, target = "_15AB" }, [12] = { name = "_15A3", op = "label" }, [13] = { actor = { mapIndex = 8, ref = "actor" }, movement = { [1] = { action = "walk_in_place", count = 1, direction = "east", speed = "normal" } }, op = "apply_movement", provenance = { offsets = { [1] = 5539 }, opcodes = { [1] = 94 } } } }, op = "if", provenance = { offsets = { [1] = 5431, [2] = 5437 }, opcodes = { [1] = 17, [2] = 28 } }, yes = { [1] = { actor = { mapIndex = 8, ref = "actor" }, movement = { [1] = { action = "walk_in_place", count = 1, direction = "east", speed = "normal" } }, op = "apply_movement", provenance = { offsets = { [1] = 5444 }, opcodes = { [1] = 94 } } }, [2] = { op = "goto", provenance = { offsets = { [1] = 5452 }, opcodes = { [1] = 22 } }, target = "_15AB" } } },
     { name = "_15AB", op = "label" },
-    {
-      actor = { ref = "actor", special = "player" },
-      movement = { [1] = { action = "walk", direction = "west", speed = "normal", tiles = 2 } },
-      op = "apply_movement",
-      provenance = { offsets = { [1] = 5547 }, opcodes = { [1] = 94 } },
-    },
+    { actor = { ref = "actor", special = "player" }, movement = { [1] = { action = "walk", direction = "west", speed = "normal", tiles = 2 } }, op = "apply_movement", provenance = { offsets = { [1] = 5547 }, opcodes = { [1] = 94 } } },
     { op = "wait_movement", provenance = { offsets = { [1] = 5555 }, opcodes = { [1] = 95 } } },
-    {
-      message = "msg.project.placeholder",
-      op = "say",
-      provenance = { offsets = { [1] = 5557 }, opcodes = { [1] = 603 } },
-    },
-    {
-      op = "buffer_text",
-      provenance = { offsets = { [1] = 5567 }, opcodes = { [1] = 190 } },
-      slot = 0,
-      value = { text = "player_name" },
-    },
-    {
-      message = { female = "msg.hgss.0542.00030", male = "msg.hgss.0542.00029", text = "gendered_message" },
-      op = "message",
-      provenance = { offsets = { [1] = 5570 }, opcodes = { [1] = 132 } },
-      waitForPrint = true,
-    },
+    { arguments = {}, command = 603, op = "unsupported", originalName = "ScrCmd_WaitFollowingPokemonMovement", provenance = { offsets = { [1] = 5557 }, opcodes = { [1] = 603 } } },
+    { op = "buffer_text", provenance = { offsets = { [1] = 5567 }, opcodes = { [1] = 190 } }, slot = 0, value = { text = "player_name" } },
+    { message = { female = "msg.hgss.0542.00030", male = "msg.hgss.0542.00029", text = "gendered_message" }, op = "message", provenance = { offsets = { [1] = 5570 }, opcodes = { [1] = 132 } }, waitForPrint = true },
     { erase = true, op = "close_message", provenance = { offsets = { [1] = 5574 }, opcodes = { [1] = 53 } } },
-    {
-      condition = {
-        condition = "compare",
-        left = { id = "VAR_SPECIAL_x8005", value = "var" },
-        operator = "eq",
-        right = 398,
-      },
-      no = {
-        [1] = {
-          condition = {
-            condition = "compare",
-            left = { id = "VAR_SPECIAL_x8005", value = "var" },
-            operator = "ne",
-            right = 399,
-          },
-          op = "goto_if",
-          provenance = { offsets = { [1] = 5603, [2] = 5609 }, opcodes = { [1] = 17, [2] = 28 } },
-          target = "_15FE",
-        },
-        [2] = {
-          actor = { mapIndex = 8, ref = "actor" },
-          movement = { [1] = { action = "walk_in_place", count = 1, direction = "west", speed = "normal" } },
-          op = "apply_movement",
-          provenance = { offsets = { [1] = 5616 }, opcodes = { [1] = 94 } },
-        },
-        [3] = { op = "goto", provenance = { offsets = { [1] = 5624 }, opcodes = { [1] = 22 } }, target = "_163C" },
-        [4] = { name = "_15FE", op = "label" },
-        [5] = {
-          condition = {
-            condition = "compare",
-            left = { id = "VAR_SPECIAL_x8005", value = "var" },
-            operator = "ne",
-            right = 399,
-          },
-          op = "goto_if",
-          provenance = { offsets = { [1] = 5630, [2] = 5636 }, opcodes = { [1] = 17, [2] = 28 } },
-          target = "_1619",
-        },
-        [6] = {
-          actor = { mapIndex = 8, ref = "actor" },
-          movement = { [1] = { action = "walk_in_place", count = 1, direction = "west", speed = "normal" } },
-          op = "apply_movement",
-          provenance = { offsets = { [1] = 5643 }, opcodes = { [1] = 94 } },
-        },
-        [7] = { op = "goto", provenance = { offsets = { [1] = 5651 }, opcodes = { [1] = 22 } }, target = "_163C" },
-        [8] = { name = "_1619", op = "label" },
-        [9] = {
-          condition = {
-            condition = "compare",
-            left = { id = "VAR_SPECIAL_x8005", value = "var" },
-            operator = "ne",
-            right = 399,
-          },
-          op = "goto_if",
-          provenance = { offsets = { [1] = 5657, [2] = 5663 }, opcodes = { [1] = 17, [2] = 28 } },
-          target = "_1634",
-        },
-        [10] = {
-          actor = { mapIndex = 8, ref = "actor" },
-          movement = { [1] = { action = "walk_in_place", count = 1, direction = "west", speed = "normal" } },
-          op = "apply_movement",
-          provenance = { offsets = { [1] = 5670 }, opcodes = { [1] = 94 } },
-        },
-        [11] = { op = "goto", provenance = { offsets = { [1] = 5678 }, opcodes = { [1] = 22 } }, target = "_163C" },
-        [12] = { name = "_1634", op = "label" },
-        [13] = {
-          actor = { mapIndex = 8, ref = "actor" },
-          movement = { [1] = { action = "walk_in_place", count = 1, direction = "west", speed = "normal" } },
-          op = "apply_movement",
-          provenance = { offsets = { [1] = 5684 }, opcodes = { [1] = 94 } },
-        },
-      },
-      op = "if",
-      provenance = { offsets = { [1] = 5576, [2] = 5582 }, opcodes = { [1] = 17, [2] = 28 } },
-      yes = {
-        [1] = {
-          actor = { mapIndex = 8, ref = "actor" },
-          movement = { [1] = { action = "walk_in_place", count = 1, direction = "west", speed = "normal" } },
-          op = "apply_movement",
-          provenance = { offsets = { [1] = 5589 }, opcodes = { [1] = 94 } },
-        },
-        [2] = { op = "goto", provenance = { offsets = { [1] = 5597 }, opcodes = { [1] = 22 } }, target = "_163C" },
-      },
-    },
+    { condition = { condition = "compare", left = { id = "VAR_SPECIAL_x8005", value = "var" }, operator = "eq", right = 398 }, no = { [1] = { condition = { condition = "compare", left = { id = "VAR_SPECIAL_x8005", value = "var" }, operator = "ne", right = 399 }, op = "goto_if", provenance = { offsets = { [1] = 5603, [2] = 5609 }, opcodes = { [1] = 17, [2] = 28 } }, target = "_15FE" }, [2] = { actor = { mapIndex = 8, ref = "actor" }, movement = { [1] = { action = "walk_in_place", count = 1, direction = "west", speed = "normal" } }, op = "apply_movement", provenance = { offsets = { [1] = 5616 }, opcodes = { [1] = 94 } } }, [3] = { op = "goto", provenance = { offsets = { [1] = 5624 }, opcodes = { [1] = 22 } }, target = "_163C" }, [4] = { name = "_15FE", op = "label" }, [5] = { condition = { condition = "compare", left = { id = "VAR_SPECIAL_x8005", value = "var" }, operator = "ne", right = 399 }, op = "goto_if", provenance = { offsets = { [1] = 5630, [2] = 5636 }, opcodes = { [1] = 17, [2] = 28 } }, target = "_1619" }, [6] = { actor = { mapIndex = 8, ref = "actor" }, movement = { [1] = { action = "walk_in_place", count = 1, direction = "west", speed = "normal" } }, op = "apply_movement", provenance = { offsets = { [1] = 5643 }, opcodes = { [1] = 94 } } }, [7] = { op = "goto", provenance = { offsets = { [1] = 5651 }, opcodes = { [1] = 22 } }, target = "_163C" }, [8] = { name = "_1619", op = "label" }, [9] = { condition = { condition = "compare", left = { id = "VAR_SPECIAL_x8005", value = "var" }, operator = "ne", right = 399 }, op = "goto_if", provenance = { offsets = { [1] = 5657, [2] = 5663 }, opcodes = { [1] = 17, [2] = 28 } }, target = "_1634" }, [10] = { actor = { mapIndex = 8, ref = "actor" }, movement = { [1] = { action = "walk_in_place", count = 1, direction = "west", speed = "normal" } }, op = "apply_movement", provenance = { offsets = { [1] = 5670 }, opcodes = { [1] = 94 } } }, [11] = { op = "goto", provenance = { offsets = { [1] = 5678 }, opcodes = { [1] = 22 } }, target = "_163C" }, [12] = { name = "_1634", op = "label" }, [13] = { actor = { mapIndex = 8, ref = "actor" }, movement = { [1] = { action = "walk_in_place", count = 1, direction = "west", speed = "normal" } }, op = "apply_movement", provenance = { offsets = { [1] = 5684 }, opcodes = { [1] = 94 } } } }, op = "if", provenance = { offsets = { [1] = 5576, [2] = 5582 }, opcodes = { [1] = 17, [2] = 28 } }, yes = { [1] = { actor = { mapIndex = 8, ref = "actor" }, movement = { [1] = { action = "walk_in_place", count = 1, direction = "west", speed = "normal" } }, op = "apply_movement", provenance = { offsets = { [1] = 5589 }, opcodes = { [1] = 94 } } }, [2] = { op = "goto", provenance = { offsets = { [1] = 5597 }, opcodes = { [1] = 22 } }, target = "_163C" } } },
     { name = "_163C", op = "label" },
     { op = "wait_movement", provenance = { offsets = { [1] = 5692 }, opcodes = { [1] = 95 } } },
     { op = "release_all", provenance = { offsets = { [1] = 5694 }, opcodes = { [1] = 97 } } },
     { op = "yield_tick" },
     { op = "stop", provenance = { offsets = { [1] = 5696 }, opcodes = { [1] = 2 } } },
   },
-})
+}

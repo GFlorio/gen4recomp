@@ -331,6 +331,25 @@ function T.type_two_does_not_block_a_later_compatible_event()
   Assert.equal(intent.background.eventIndex, 1)
 end
 
+-- Script id 0 is the bank-script-0 no-interaction marker: the binding audit
+-- exempts it, so the resolver must never emit an intent that the client
+-- cannot bind (that would fault the session as an unmapped composition).
+function T.script_id_zero_actor_is_noninteractive()
+  local elm = actor("map:61:object:0", 0, 99, 4, 13, 0)
+  local r = resolver({ ["4:13"] = { surfaceId = 0, actor = elm } })
+  local m = map({ bgEvent(0, 6, 4, 13, 0) })
+  Assert.isNil(
+    r:resolve(baseSnapshot({ runtimeMap = m })),
+    "a script-id-0 actor must resolve to nothing, not fall through to the background"
+  )
+end
+
+function T.script_id_zero_background_is_noninteractive()
+  local m = map({ bgEvent(0, 0, 4, 13, 0) })
+  local r = resolver()
+  Assert.isNil(r:resolve(baseSnapshot({ runtimeMap = m })))
+end
+
 function T.hidden_actor_leaves_the_background_to_win()
   local m = map({ bgEvent(0, 6, 4, 13, 0) })
   local r = resolver({}) -- no actor at the cell (hidden actors are not in the index)

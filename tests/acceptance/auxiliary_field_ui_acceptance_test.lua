@@ -16,7 +16,13 @@ local T = {
 
 local HIDE_SCRIPT = "common.pokemart"
 local SHOW_SCRIPT = "common.pokemart_cancel"
-local STARTER_SCRIPT = "vanilla.hgss.scr_seq.0843.script_012"
+-- The pokegear reception (scr_seq 843 script 13): with FLAG_GOT_STARTER set
+-- its supported branch runs message -> 746 hide -> 748 choice -> 747 show and
+-- the cancel selection skips the unsupported HealParty node, so the vanilla
+-- 746/747/748 operations are reachable through production composition. The
+-- pre-set flag id is FLAG_GOT_STARTER (data/reference/hgss/flags.lua byId).
+local POKEGEAR_SCRIPT = "vanilla.hgss.scr_seq.0843.script_013"
+local STARTER_FLAG = 106
 
 local function withGame(fn)
   local game = AcceptanceHarness.new():boot({ versionId = "heartgold", save = "fresh" })
@@ -30,8 +36,8 @@ local function withGame(fn)
   end
 end
 
-local function advanceToStarterChoice(game)
-  return game:advanceUntil("starter script opens its contextual choice", function(snapshot)
+local function advanceToContextChoice(game)
+  return game:advanceUntil("pokegear reception opens its contextual choice", function(snapshot)
     if game:contextChoiceStatus() ~= nil then
       return true
     end
@@ -72,14 +78,15 @@ function T.tests.show_from_a_real_script_synchronizes_asynchronously_without_a_h
   end)
 end
 
--- The checked-in starter override contains source opcode
+-- The pokegear reception's starter-flag branch contains source opcode
 -- 746 before its first contextual choice. Its production-composed execution
 -- must issue the supported auxiliary-UI hide operation, not consume a stale
 -- placeholder dialogue node.
-function T.tests.starter_override_executes_opcode_746_as_auxiliary_ui_hide()
+function T.tests.pokegear_reception_runs_opcode_746_as_auxiliary_ui_hide()
   withGame(function(game)
-    game:startScript(STARTER_SCRIPT)
-    game:advanceUntil("starter opcode 746 requests auxiliary UI hide", function(snapshot)
+    game:setWorldState({ flag = STARTER_FLAG })
+    game:startScript(POKEGEAR_SCRIPT)
+    game:advanceUntil("pokegear reception opcode 746 requests auxiliary UI hide", function(snapshot)
       if game:auxiliaryUiStatus().requested == "hidden" then
         return true
       end
@@ -91,16 +98,25 @@ function T.tests.starter_override_executes_opcode_746_as_auxiliary_ui_hide()
   end)
 end
 
--- Selecting the non-cancel starter branch reaches source
+-- Confirming the reception's choice on the cancel branch reaches source
 -- opcode 747. It must begin the real asynchronous show operation rather than
--- opening a generated placeholder dialogue.
-function T.tests.starter_override_executes_opcode_747_as_auxiliary_ui_show()
+-- opening a generated placeholder dialogue, and the supported branch then
+-- completes, releasing field control.
+function T.tests.pokegear_reception_runs_opcode_747_as_auxiliary_ui_show()
   withGame(function(game)
-    game:startScript(STARTER_SCRIPT)
-    advanceToStarterChoice(game)
+    game:setWorldState({ flag = STARTER_FLAG })
+    game:startScript(POKEGEAR_SCRIPT)
+    advanceToContextChoice(game)
     game:move("east")
     game:pressAction()
+    game:advanceUntil("pokegear reception opcode 747 requests auxiliary UI show", function()
+      return game:auxiliaryUiStatus().requested == "shown"
+    end, 120)
     Assert.deepEqual(game:auxiliaryUiStatus(), { requested = "shown", state = "showing" })
+    local completed = game:advanceUntil("pokegear reception completes releasing field control", function(snapshot)
+      return game:auxiliaryUiStatus().state == "shown" and not snapshot.fieldLocked
+    end, 120)
+    Assert.isFalse(completed.fieldLocked)
   end)
 end
 
@@ -124,7 +140,9 @@ end
 -- hiding state rather than reinitializing its newly-created service to shown.
 -- The resumed task must then complete on the same two semantic fixed-update
 -- boundaries as the original flow: one update finishes the transition, and a
--- second observes completion and releases the foreground script.
+-- second promotes the resumed script. pokemart's 746 is followed by its
+-- 749-752 mart menu, so the field lock persists through the handoff and the
+-- real menu becomes modal from the restored instance.
 function T.tests.restart_resumes_an_in_flight_auxiliary_ui_hide_transition()
   withGame(function(game)
     game:startScript(HIDE_SCRIPT)
@@ -134,7 +152,12 @@ function T.tests.restart_resumes_an_in_flight_auxiliary_ui_hide_transition()
     Assert.deepEqual(resumed:auxiliaryUiStatus(), { requested = "hidden", state = "hiding" })
     Assert.isTrue(resumed:step().fieldLocked)
     Assert.deepEqual(resumed:auxiliaryUiStatus(), { requested = "hidden", state = "hidden" })
-    Assert.isFalse(resumed:step().fieldLocked)
+    local continued = resumed:step()
+    Assert.isTrue(continued.fieldLocked)
+    Assert.isNil(next(resumed.runtime.scripts.scheduler:tasks()), "the restored hide task must be consumed")
+    resumed:advanceUntil("resumed mart menu becomes modal", function(snapshot)
+      return snapshot.menu ~= nil and snapshot.menu.modal == true
+    end, 120)
   end)
 end
 

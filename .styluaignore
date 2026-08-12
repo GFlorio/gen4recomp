@@ -4,5 +4,6 @@
 .cache/
 .agents/
 data/generated/
+data/scripts/overrides/
 import-output/
 tmp/

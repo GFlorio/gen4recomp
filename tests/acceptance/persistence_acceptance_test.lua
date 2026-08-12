@@ -15,6 +15,7 @@ local T = {
 }
 
 local LAB = "MAP_NEW_BARK_ELMS_LAB_1F"
+local TOWN = "MAP_NEW_BARK"
 
 local function requireCapability(value, name)
   Assert.isTrue(
@@ -23,8 +24,12 @@ local function requireCapability(value, name)
   )
 end
 
-local function withGame(fn)
-  local game = AcceptanceHarness.new():boot({ versionId = "heartgold", map = LAB, save = "fresh" })
+local function withGame(map, fn)
+  if fn == nil then
+    fn = map
+    map = LAB
+  end
+  local game = AcceptanceHarness.new():boot({ versionId = "heartgold", map = map, save = "fresh" })
   local ok, err = xpcall(function()
     fn(game)
     Assert.equal(game:renderAttempts(), 0)
@@ -42,14 +47,22 @@ end
 
 -- DET-02 helper: confirm edges like the harness's advanceDialogue, but stop
 -- at the first mid-script boundary — no modal box open while the foreground
--- script still holds field control. The save at that boundary must restore a
--- live script task record.
+-- script still holds field control. One further tick lands on the live
+-- wait_input task (the dialogue task completes one tick before the handoff
+-- creates it), so the save captures the blocked instance with its live task
+-- record.
 local function confirmToMidScriptBoundary(game)
   for _ = 1, 480 do
     local snapshot = game:snapshot()
     if not snapshot.dialogue.modal then
       if snapshot.fieldLocked then
-        return snapshot
+        game:step()
+        local boundary = game:snapshot()
+        assert(
+          not boundary.dialogue.modal and boundary.fieldLocked,
+          "mid-script boundary must hold field control with no modal box"
+        )
+        return boundary
       end
       error("foreground script released field control before a mid-script boundary", 2)
     end
@@ -173,43 +186,49 @@ function T.tests.semantic_input_replay_has_a_stable_runtime_trace()
   end)
 end
 
--- DET-02: a save captured mid-script (the bound elms script holding field
--- control between its dialogue boxes) must restore through the recomputed
--- revision path: the resumed script reopens its real message rather than the
--- fresh-session placeholder, and completes releasing field control.
+-- DET-02: a save captured mid-script (the bound New Bark woman script
+-- holding field control at its wait_input prompt, after its real message
+-- closed) must restore through the recomputed revision path: the resumed
+-- script resumes at its real prompt — there is no placeholder anymore —
+-- and completes releasing field control.
 function T.tests.mid_script_restart_resumes_through_recomputed_revisions()
-  withGame(function(game)
+  withGame(TOWN, function(game)
     requireCapability(game, "moveTo")
     requireCapability(game, "face")
     requireCapability(game, "pressAction")
     requireCapability(game, "interaction")
     requireCapability(game, "advanceUntil")
-    game:moveTo({ fieldX = 6, fieldZ = 6 })
+    game:moveTo({ fieldX = 683, fieldZ = 400 })
     game:face("north")
     game:pressAction()
-    Assert.equal(game:interaction().scriptId, "elms_lab.elm")
-    local placeholder = game:advanceUntil("elms script opens its first dialogue", function(snapshot)
+    Assert.equal(game:interaction().scriptId, "new_bark.npc.woman_1")
+    -- The fresh-save conversation opens its real first message
+    -- (msg.hgss.0542.00009) through the bound script, not a placeholder.
+    local opened = game:advanceUntil("woman script opens its real first message", function(snapshot)
       return snapshot.dialogue.modal
     end, 120)
-    Assert.isTrue(placeholder.fieldLocked)
-    -- The fresh-session placeholder box (msg.project.placeholder) resolves to
-    -- no real bank message and therefore carries no message id; the resumed
-    -- session must never reopen it.
-    Assert.isNil(placeholder.dialogue.messageId)
+    Assert.isTrue(opened.fieldLocked)
+    Assert.equal(opened.dialogue.messageId, 9)
+    -- The save boundary: after the first box closes the script still holds
+    -- field control at its wait_input prompt.
     local boundary = confirmToMidScriptBoundary(game)
     Assert.isTrue(boundary.fieldLocked)
+    Assert.isFalse(boundary.dialogue.modal)
     local resumed = restart(game, { save = "resume" })
     Assert.equal(resumed.saveStatus, "Resumed saved field session")
-    -- Foreground environment restored: field control survives the restart.
+    -- Foreground environment restored: the live task record survives the
+    -- restart through the recomputed-revision path.
     Assert.isTrue(resumed:snapshot().fieldLocked)
-    -- The resumed script reopens its real message (msg.hgss.0543.00005, bank
-    -- 543 message 5 — Elm's first greeting in the fresh-save conversation),
-    -- not the fresh-session placeholder.
-    local reopened = resumed:advanceUntil("resumed script reopens its real message", function(snapshot)
-      return snapshot.dialogue.modal
+    -- The resumed script continues at its real wait_input prompt: no
+    -- placeholder box reopens (there is no placeholder anymore), and the
+    -- next confirm edge completes the flow and releases field control.
+    Assert.isFalse(resumed:snapshot().dialogue.modal)
+    resumed:pressAction()
+    local done = resumed:advanceUntil("resumed script completes and releases field control", function(snapshot)
+      return not snapshot.dialogue.modal and not snapshot.fieldLocked
     end, 480)
-    Assert.equal(reopened.dialogue.messageId, 5)
-    resumed:advanceDialogue()
+    Assert.isFalse(done.dialogue.modal)
+    Assert.isFalse(done.fieldLocked)
   end)
 end
 

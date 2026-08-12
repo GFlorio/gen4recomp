@@ -156,8 +156,8 @@ end
 
 -- Render an override resource for `data/scripts/overrides/<id>.lua` (the
 -- script override system): the supported flow of the translated script with
--- unsupported commands replaced by visible placeholders. Deterministic like
--- the cache emission; the header states the override origin and the
+-- unsupported commands collapsed into explicit unsupported nodes. Deterministic
+-- like the cache emission; the header states the override origin and the
 -- `replaces` field names the generated base when the override id is curated.
 ---@param resource table
 ---@param meta table { member, scriptIndex, sourcePath, replaces? }
@@ -165,8 +165,8 @@ end
 function LuaEmitter.emitOverride(resource, meta)
   local lines = {}
   lines[#lines + 1] = "-- Generated override (script override system): the supported flow of the"
-  lines[#lines + 1] = "-- translated script with unsupported commands replaced by a visible"
-  lines[#lines + 1] = "-- placeholder dialogue. Regenerate, do not hand-edit."
+  lines[#lines + 1] = "-- translated script with unsupported commands collapsed into explicit"
+  lines[#lines + 1] = "-- unsupported nodes. Regenerate, do not hand-edit."
   lines[#lines + 1] = 'local S = require("gen4.script")'
   lines[#lines + 1] = ""
   lines[#lines + 1] = "return S.script {"

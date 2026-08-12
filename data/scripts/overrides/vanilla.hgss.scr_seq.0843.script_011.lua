@@ -1,9 +1,9 @@
 -- Generated override (script override system): the supported flow of the
--- translated script with unsupported commands replaced by a visible
--- placeholder dialogue. Regenerate, do not hand-edit.
+-- translated script with unsupported commands collapsed into explicit
+-- unsupported nodes. Regenerate, do not hand-edit.
 local S = require("gen4.script")
 
-return S.script({
+return S.script {
   api = 1,
   id = "vanilla.hgss.scr_seq.0843.script_011",
   metadata = {
@@ -21,208 +21,45 @@ return S.script({
     coverage = { complete = false, unsupportedCount = 1 },
   },
   steps = {
-    {
-      message = "msg.project.placeholder",
-      op = "say",
-      provenance = { offsets = { [1] = 202 }, opcodes = { [1] = 609 } },
-    },
+    { arguments = {}, command = 609, op = "unsupported", originalName = "ScrCmd_609", provenance = { offsets = { [1] = 202 }, opcodes = { [1] = 609 } } },
     { op = "lock_all", provenance = { offsets = { [1] = 204 }, opcodes = { [1] = 96 } } },
-    {
-      condition = { condition = "flag", expected = true, id = "FLAG_ELMS_LAB_PREVENT_PLAYER_ESCAPE" },
-      op = "goto_if",
-      provenance = { offsets = { [1] = 206, [2] = 210 }, opcodes = { [1] = 32, [2] = 28 } },
-      target = "_0197",
-    },
-    {
-      op = "get_player_coords",
-      provenance = { offsets = { [1] = 217 }, opcodes = { [1] = 105 } },
-      x = { id = "VAR_BASE", value = "var" },
-      z = { id = "VAR_TEMP_x4001", value = "var" },
-    },
-    {
-      condition = { condition = "compare", left = { id = "VAR_BASE", value = "var" }, operator = "eq", right = 3 },
-      no = {
-        [1] = {
-          condition = { condition = "compare", left = { id = "VAR_BASE", value = "var" }, operator = "ne", right = 4 },
-          op = "goto_if",
-          provenance = { offsets = { [1] = 250, [2] = 256 }, opcodes = { [1] = 17, [2] = 28 } },
-          target = "_0115",
-        },
-        [2] = {
-          actor = { ref = "actor", special = "player" },
-          movement = { [1] = { action = "walk", direction = "north", speed = "normal", tiles = 3 } },
-          op = "apply_movement",
-          provenance = { offsets = { [1] = 263 }, opcodes = { [1] = 94 } },
-        },
-        [3] = { op = "goto", provenance = { offsets = { [1] = 271 }, opcodes = { [1] = 22 } }, target = "_0145" },
-        [4] = { name = "_0115", op = "label" },
-        [5] = {
-          condition = { condition = "compare", left = { id = "VAR_BASE", value = "var" }, operator = "ne", right = 5 },
-          op = "goto_if",
-          provenance = { offsets = { [1] = 277, [2] = 283 }, opcodes = { [1] = 17, [2] = 28 } },
-          target = "_0130",
-        },
-        [6] = {
-          actor = { ref = "actor", special = "player" },
-          movement = {
-            [1] = { action = "walk", direction = "north", speed = "normal", tiles = 2 },
-            [2] = { action = "walk", direction = "west", speed = "normal", tiles = 1 },
-            [3] = { action = "walk", direction = "north", speed = "normal", tiles = 1 },
-          },
-          op = "apply_movement",
-          provenance = { offsets = { [1] = 290 }, opcodes = { [1] = 94 } },
-        },
-        [7] = { op = "goto", provenance = { offsets = { [1] = 298 }, opcodes = { [1] = 22 } }, target = "_0145" },
-        [8] = { name = "_0130", op = "label" },
-        [9] = {
-          condition = { condition = "compare", left = { id = "VAR_BASE", value = "var" }, operator = "ne", right = 6 },
-          op = "goto_if",
-          provenance = { offsets = { [1] = 304, [2] = 310 }, opcodes = { [1] = 17, [2] = 28 } },
-          target = "_0145",
-        },
-        [10] = {
-          actor = { ref = "actor", special = "player" },
-          movement = {
-            [1] = { action = "walk", direction = "north", speed = "normal", tiles = 2 },
-            [2] = { action = "walk", direction = "west", speed = "normal", tiles = 2 },
-            [3] = { action = "walk", direction = "north", speed = "normal", tiles = 1 },
-          },
-          op = "apply_movement",
-          provenance = { offsets = { [1] = 317 }, opcodes = { [1] = 94 } },
-        },
-      },
-      op = "if",
-      provenance = { offsets = { [1] = 223, [2] = 229 }, opcodes = { [1] = 17, [2] = 28 } },
-      yes = {
-        [1] = {
-          actor = { ref = "actor", special = "player" },
-          movement = {
-            [1] = { action = "walk", direction = "north", speed = "normal", tiles = 2 },
-            [2] = { action = "walk", direction = "east", speed = "normal", tiles = 1 },
-            [3] = { action = "walk", direction = "north", speed = "normal", tiles = 1 },
-          },
-          op = "apply_movement",
-          provenance = { offsets = { [1] = 236 }, opcodes = { [1] = 94 } },
-        },
-        [2] = { op = "goto", provenance = { offsets = { [1] = 244 }, opcodes = { [1] = 22 } }, target = "_0145" },
-      },
-    },
+    { condition = { condition = "flag", expected = true, id = "FLAG_ELMS_LAB_PREVENT_PLAYER_ESCAPE" }, op = "goto_if", provenance = { offsets = { [1] = 206, [2] = 210 }, opcodes = { [1] = 32, [2] = 28 } }, target = "_0197" },
+    { op = "get_player_coords", provenance = { offsets = { [1] = 217 }, opcodes = { [1] = 105 } }, x = { id = "VAR_BASE", value = "var" }, z = { id = "VAR_TEMP_x4001", value = "var" } },
+    { condition = { condition = "compare", left = { id = "VAR_BASE", value = "var" }, operator = "eq", right = 3 }, no = { [1] = { condition = { condition = "compare", left = { id = "VAR_BASE", value = "var" }, operator = "ne", right = 4 }, op = "goto_if", provenance = { offsets = { [1] = 250, [2] = 256 }, opcodes = { [1] = 17, [2] = 28 } }, target = "_0115" }, [2] = { actor = { ref = "actor", special = "player" }, movement = { [1] = { action = "walk", direction = "north", speed = "normal", tiles = 3 } }, op = "apply_movement", provenance = { offsets = { [1] = 263 }, opcodes = { [1] = 94 } } }, [3] = { op = "goto", provenance = { offsets = { [1] = 271 }, opcodes = { [1] = 22 } }, target = "_0145" }, [4] = { name = "_0115", op = "label" }, [5] = { condition = { condition = "compare", left = { id = "VAR_BASE", value = "var" }, operator = "ne", right = 5 }, op = "goto_if", provenance = { offsets = { [1] = 277, [2] = 283 }, opcodes = { [1] = 17, [2] = 28 } }, target = "_0130" }, [6] = { actor = { ref = "actor", special = "player" }, movement = { [1] = { action = "walk", direction = "north", speed = "normal", tiles = 2 }, [2] = { action = "walk", direction = "west", speed = "normal", tiles = 1 }, [3] = { action = "walk", direction = "north", speed = "normal", tiles = 1 } }, op = "apply_movement", provenance = { offsets = { [1] = 290 }, opcodes = { [1] = 94 } } }, [7] = { op = "goto", provenance = { offsets = { [1] = 298 }, opcodes = { [1] = 22 } }, target = "_0145" }, [8] = { name = "_0130", op = "label" }, [9] = { condition = { condition = "compare", left = { id = "VAR_BASE", value = "var" }, operator = "ne", right = 6 }, op = "goto_if", provenance = { offsets = { [1] = 304, [2] = 310 }, opcodes = { [1] = 17, [2] = 28 } }, target = "_0145" }, [10] = { actor = { ref = "actor", special = "player" }, movement = { [1] = { action = "walk", direction = "north", speed = "normal", tiles = 2 }, [2] = { action = "walk", direction = "west", speed = "normal", tiles = 2 }, [3] = { action = "walk", direction = "north", speed = "normal", tiles = 1 } }, op = "apply_movement", provenance = { offsets = { [1] = 317 }, opcodes = { [1] = 94 } } } }, op = "if", provenance = { offsets = { [1] = 223, [2] = 229 }, opcodes = { [1] = 17, [2] = 28 } }, yes = { [1] = { actor = { ref = "actor", special = "player" }, movement = { [1] = { action = "walk", direction = "north", speed = "normal", tiles = 2 }, [2] = { action = "walk", direction = "east", speed = "normal", tiles = 1 }, [3] = { action = "walk", direction = "north", speed = "normal", tiles = 1 } }, op = "apply_movement", provenance = { offsets = { [1] = 236 }, opcodes = { [1] = 94 } } }, [2] = { op = "goto", provenance = { offsets = { [1] = 244 }, opcodes = { [1] = 22 } }, target = "_0145" } } },
     { name = "_0145", op = "label" },
     { op = "wait_movement", provenance = { offsets = { [1] = 325 }, opcodes = { [1] = 95 } } },
-    {
-      op = "buffer_text",
-      provenance = { offsets = { [1] = 327 }, opcodes = { [1] = 190 } },
-      slot = 0,
-      value = { text = "player_name" },
-    },
-    {
-      message = { female = "msg.hgss.0543.00001", male = "msg.hgss.0543.00000", text = "gendered_message" },
-      op = "message",
-      provenance = { offsets = { [1] = 330 }, opcodes = { [1] = 132 } },
-      waitForPrint = true,
-    },
+    { op = "buffer_text", provenance = { offsets = { [1] = 327 }, opcodes = { [1] = 190 } }, slot = 0, value = { text = "player_name" } },
+    { message = { female = "msg.hgss.0543.00001", male = "msg.hgss.0543.00000", text = "gendered_message" }, op = "message", provenance = { offsets = { [1] = 330 }, opcodes = { [1] = 132 } }, waitForPrint = true },
     { erase = true, op = "close_message", provenance = { offsets = { [1] = 334 }, opcodes = { [1] = 53 } } },
-    {
-      actor = { ref = "actor", special = "player" },
-      movement = { [1] = { action = "face", count = 1, direction = "east" } },
-      op = "apply_movement",
-      provenance = { offsets = { [1] = 336 }, opcodes = { [1] = 94 } },
-    },
+    { actor = { ref = "actor", special = "player" }, movement = { [1] = { action = "face", count = 1, direction = "east" } }, op = "apply_movement", provenance = { offsets = { [1] = 336 }, opcodes = { [1] = 94 } } },
     { op = "wait_movement", provenance = { offsets = { [1] = 344 }, opcodes = { [1] = 95 } } },
-    {
-      countdownVariable = { id = "VAR_SPECIAL_x8004", value = "var" },
-      op = "wait_ticks",
-      provenance = { offsets = { [1] = 346 }, opcodes = { [1] = 3 } },
-      ticks = 15,
-    },
+    { countdownVariable = { id = "VAR_SPECIAL_x8004", value = "var" }, op = "wait_ticks", provenance = { offsets = { [1] = 346 }, opcodes = { [1] = 3 } }, ticks = 15 },
     { op = "play_sound", provenance = { offsets = { [1] = 352 }, opcodes = { [1] = 73 } }, sound = "SEQ_SE_GS_PHONE0" },
-    {
-      actor = { ref = "actor", special = "player" },
-      movement = {
-        [1] = { action = "emote", count = 1, name = "exclamation" },
-        [2] = { action = "walk", direction = "north", speed = "normal", tiles = 1 },
-        [3] = { action = "delay", count = 1, ticks = 16 },
-      },
-      op = "apply_movement",
-      provenance = { offsets = { [1] = 356 }, opcodes = { [1] = 94 } },
-    },
+    { actor = { ref = "actor", special = "player" }, movement = { [1] = { action = "emote", count = 1, name = "exclamation" }, [2] = { action = "walk", direction = "north", speed = "normal", tiles = 1 }, [3] = { action = "delay", count = 1, ticks = 16 } }, op = "apply_movement", provenance = { offsets = { [1] = 356 }, opcodes = { [1] = 94 } } },
     { op = "wait_movement", provenance = { offsets = { [1] = 364 }, opcodes = { [1] = 95 } } },
-    {
-      message = "msg.hgss.0543.00002",
-      op = "message",
-      provenance = { offsets = { [1] = 366 }, opcodes = { [1] = 45 } },
-      waitForPrint = true,
-    },
-    {
-      message = "msg.hgss.0543.00003",
-      op = "message",
-      provenance = { offsets = { [1] = 369 }, opcodes = { [1] = 45 } },
-      waitForPrint = true,
-    },
+    { message = "msg.hgss.0543.00002", op = "message", provenance = { offsets = { [1] = 366 }, opcodes = { [1] = 45 } }, waitForPrint = true },
+    { message = "msg.hgss.0543.00003", op = "message", provenance = { offsets = { [1] = 369 }, opcodes = { [1] = 45 } }, waitForPrint = true },
     { erase = true, op = "close_message", provenance = { offsets = { [1] = 372 }, opcodes = { [1] = 53 } } },
-    {
-      actor = { ref = "actor", special = "player" },
-      movement = { [1] = { action = "walk", direction = "south", speed = "normal", tiles = 1 } },
-      op = "apply_movement",
-      provenance = { offsets = { [1] = 374 }, opcodes = { [1] = 94 } },
-    },
+    { actor = { ref = "actor", special = "player" }, movement = { [1] = { action = "walk", direction = "south", speed = "normal", tiles = 1 } }, op = "apply_movement", provenance = { offsets = { [1] = 374 }, opcodes = { [1] = 94 } } },
     { op = "wait_movement", provenance = { offsets = { [1] = 382 }, opcodes = { [1] = 95 } } },
-    {
-      message = "msg.hgss.0543.00004",
-      op = "message",
-      provenance = { offsets = { [1] = 384 }, opcodes = { [1] = 45 } },
-      waitForPrint = true,
-    },
+    { message = "msg.hgss.0543.00004", op = "message", provenance = { offsets = { [1] = 384 }, opcodes = { [1] = 45 } }, waitForPrint = true },
     { erase = true, op = "close_message", provenance = { offsets = { [1] = 387 }, opcodes = { [1] = 53 } } },
-    {
-      actor = { ref = "actor", special = "player" },
-      movement = { [1] = { action = "face", count = 1, direction = "east" } },
-      op = "apply_movement",
-      provenance = { offsets = { [1] = 389 }, opcodes = { [1] = 94 } },
-    },
+    { actor = { ref = "actor", special = "player" }, movement = { [1] = { action = "face", count = 1, direction = "east" } }, op = "apply_movement", provenance = { offsets = { [1] = 389 }, opcodes = { [1] = 94 } } },
     { op = "wait_movement", provenance = { offsets = { [1] = 397 }, opcodes = { [1] = 95 } } },
-    {
-      flag = "FLAG_ELMS_LAB_PREVENT_PLAYER_ESCAPE",
-      op = "set_flag",
-      provenance = { offsets = { [1] = 399 }, opcodes = { [1] = 30 } },
-    },
+    { flag = "FLAG_ELMS_LAB_PREVENT_PLAYER_ESCAPE", op = "set_flag", provenance = { offsets = { [1] = 399 }, opcodes = { [1] = 30 } } },
     { op = "release_all", provenance = { offsets = { [1] = 403 }, opcodes = { [1] = 97 } } },
     { op = "yield_tick" },
     { op = "stop", provenance = { offsets = { [1] = 405 }, opcodes = { [1] = 2 } } },
     { name = "_0197", op = "label" },
-    {
-      actor = { ref = "actor", special = "player" },
-      movement = {
-        [1] = { action = "face", count = 1, direction = "south" },
-        [2] = { action = "emote", count = 1, name = "exclamation" },
-        [3] = { action = "walk_in_place", count = 2, direction = "south", speed = "normal" },
-      },
-      op = "apply_movement",
-      provenance = { offsets = { [1] = 407 }, opcodes = { [1] = 94 } },
-    },
+    { actor = { ref = "actor", special = "player" }, movement = { [1] = { action = "face", count = 1, direction = "south" }, [2] = { action = "emote", count = 1, name = "exclamation" }, [3] = { action = "walk_in_place", count = 2, direction = "south", speed = "normal" } }, op = "apply_movement", provenance = { offsets = { [1] = 407 }, opcodes = { [1] = 94 } } },
     { op = "wait_movement", provenance = { offsets = { [1] = 415 }, opcodes = { [1] = 95 } } },
-    {
-      message = "msg.hgss.0543.00006",
-      op = "message",
-      provenance = { offsets = { [1] = 417 }, opcodes = { [1] = 45 } },
-      waitForPrint = true,
-    },
+    { message = "msg.hgss.0543.00006", op = "message", provenance = { offsets = { [1] = 417 }, opcodes = { [1] = 45 } }, waitForPrint = true },
     { erase = true, op = "close_message", provenance = { offsets = { [1] = 420 }, opcodes = { [1] = 53 } } },
-    {
-      actor = { ref = "actor", special = "player" },
-      movement = { [1] = { action = "face", count = 1, direction = "east" } },
-      op = "apply_movement",
-      provenance = { offsets = { [1] = 422 }, opcodes = { [1] = 94 } },
-    },
-    {
-      actor = { ref = "actor", special = "player" },
-      movement = { [1] = { action = "walk", direction = "north", speed = "normal", tiles = 1 } },
-      op = "apply_movement",
-      provenance = { offsets = { [1] = 430 }, opcodes = { [1] = 94 } },
-    },
+    { actor = { ref = "actor", special = "player" }, movement = { [1] = { action = "face", count = 1, direction = "east" } }, op = "apply_movement", provenance = { offsets = { [1] = 422 }, opcodes = { [1] = 94 } } },
+    { actor = { ref = "actor", special = "player" }, movement = { [1] = { action = "walk", direction = "north", speed = "normal", tiles = 1 } }, op = "apply_movement", provenance = { offsets = { [1] = 430 }, opcodes = { [1] = 94 } } },
     { op = "wait_movement", provenance = { offsets = { [1] = 438 }, opcodes = { [1] = 95 } } },
     { op = "release_all", provenance = { offsets = { [1] = 440 }, opcodes = { [1] = 97 } } },
     { op = "yield_tick" },
     { op = "stop", provenance = { offsets = { [1] = 442 }, opcodes = { [1] = 2 } } },
   },
-})
+}

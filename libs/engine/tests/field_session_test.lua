@@ -115,6 +115,24 @@ function T.required_collaborators_are_validated_at_construction()
   end
 end
 
+-- The interaction resolver and the script client are a pair: an intent can
+-- only be produced through the resolver service, so a session that wires
+-- interactions without the consuming client is a composition fault.
+function T.interactions_without_a_script_client_is_rejected()
+  local options = {
+    versionId = "heartgold",
+    currentMap = { mapId = 61 },
+    player = { worldX = 0, worldY = 0, worldZ = 0 },
+    camera = { updateFixed = function() end },
+    transition = idleTransition(),
+    input = idleInput(),
+    actors = idleActors(),
+    interactions = { resolve = function() end },
+  }
+  local ok, err = pcall(FieldSession.new, options)
+  Assert.isFalse(ok, "interactions require the paired script client: " .. tostring(err))
+end
+
 function T.fixed_ticks_are_render_cadence_independent()
   local a = session()
   a:update(1 / 30)
@@ -198,10 +216,12 @@ function T.script_completion_consumes_its_final_action_edge()
     resolve = function()
       resolved = resolved + 1
     end,
-    consume = function()
-      return false
-    end,
   } --[[@as FieldSession.Interactions]]
+  local client = {
+    consume = function()
+      error("the script client must not be reached while the scheduler owns the tick", 2)
+    end,
+  }
   local s = FieldSession.new({
     versionId = "heartgold",
     currentMap = map,
@@ -212,6 +232,7 @@ function T.script_completion_consumes_its_final_action_edge()
     actors = idleActors(),
     scriptScheduler = scheduler,
     interactions = interactions,
+    scriptClient = client,
   })
   s:updateFixed({ actionPressed = true })
   Assert.equal(resolved, 0)
@@ -696,10 +717,12 @@ local function interactionSession(opts)
       interactions.resolveSnapshot = snapshot
       return opts.intent or nil
     end,
-    consume = function(_, intent)
+  }
+  local client = {
+    consume = function(_, intent, tick)
       consumed = intent
       interactions.consumedIntent = intent
-      return opts.consumed ~= false
+      return opts.result or "started"
     end,
   }
   local steps = 0
@@ -730,6 +753,7 @@ local function interactionSession(opts)
     input = idleInput(),
     actors = actors,
     interactions = interactions,
+    scriptClient = client,
   })
   return session, player, interactions, function()
     return steps
@@ -755,13 +779,29 @@ function T.unresolved_interaction_falls_through_to_movement()
   Assert.equal(player.facing, "north")
 end
 
-function T.unconsumed_interaction_does_not_own_the_tick()
+-- The binding audit guarantees every interactable event is bound; an
+-- unmapped intent reaching the session is a composition fault that must fail
+-- loudly, never a silently absorbed Action press.
+function T.unmapped_interaction_is_a_composition_fault()
+  local session, player, interactions, steps = interactionSession({
+    intent = { kind = "object", object = { actorId = "map:61:object:0" } },
+    result = "unmapped",
+  })
+  Assert.throws(function()
+    session:updateFixed({ actionPressed = true, heldDirection = "north" })
+  end)
+  Assert.equal(steps(), 0, "a faulting interaction must not start movement")
+end
+
+-- A foreground script already owning the field blocks the new interaction;
+-- the tick is still consumed.
+function T.blocked_interaction_still_consumes_the_tick()
   local session, player, interactions, steps = interactionSession({
     intent = { kind = "background" },
-    consumed = false,
+    result = "blocked",
   })
   session:updateFixed({ actionPressed = true, heldDirection = "north" })
-  Assert.equal(steps(), 1, "a rejected intent does not block movement")
+  Assert.equal(steps(), 0, "a blocked interaction consumes the tick")
   Assert.equal(player.facing, "north")
 end
 
@@ -826,8 +866,10 @@ function T.catch_up_ticks_do_not_replay_one_action_edge()
       resolved = resolved + 1
       return { kind = "object", object = { actorId = "map:61:object:0" } }
     end,
+  }
+  local client = {
     consume = function()
-      return true
+      return "started"
     end,
   }
   local player = {
@@ -856,6 +898,7 @@ function T.catch_up_ticks_do_not_replay_one_action_edge()
     actors = actors,
     input = input,
     interactions = interactions,
+    scriptClient = client,
   })
   -- A render delta spanning several fixed ticks: the one Action edge must be
   -- consumed by the first tick's snapshot and never replayed by catch-up.

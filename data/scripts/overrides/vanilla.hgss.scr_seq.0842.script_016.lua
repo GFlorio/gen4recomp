@@ -1,9 +1,9 @@
 -- Generated override (script override system): the supported flow of the
--- translated script with unsupported commands replaced by a visible
--- placeholder dialogue. Regenerate, do not hand-edit.
+-- translated script with unsupported commands collapsed into explicit
+-- unsupported nodes. Regenerate, do not hand-edit.
 local S = require("gen4.script")
 
-return S.script({
+return S.script {
   api = 1,
   id = "vanilla.hgss.scr_seq.0842.script_016",
   metadata = {
@@ -21,22 +21,9 @@ return S.script({
     coverage = { complete = false, unsupportedCount = 2 },
   },
   steps = {
-    {
-      op = "buffer_text",
-      provenance = { offsets = { [1] = 4284 }, opcodes = { [1] = 192 } },
-      slot = 0,
-      value = { text = "friend_name" },
-    },
-    {
-      message = "msg.project.placeholder",
-      op = "say",
-      provenance = { offsets = { [1] = 4287 }, opcodes = { [1] = 56 } },
-    },
-    {
-      message = "msg.project.placeholder",
-      op = "say",
-      provenance = { offsets = { [1] = 4302 }, opcodes = { [1] = 20 } },
-    },
+    { op = "buffer_text", provenance = { offsets = { [1] = 4284 }, opcodes = { [1] = 192 } }, slot = 0, value = { text = "friend_name" } },
+    { arguments = { [1] = 2, [2] = 0 }, command = 56, op = "unsupported", originalName = "ScrCmd_SetSignpostMap", provenance = { offsets = { [1] = 4287 }, opcodes = { [1] = 56 } } },
+    { arguments = {}, command = 0, op = "unsupported", originalName = "call to unsupported script common.signpost", provenance = { offsets = { [1] = 4302 }, opcodes = { [1] = 20 } } },
     { op = "stop", provenance = { offsets = { [1] = 4306 }, opcodes = { [1] = 2 } } },
   },
-})
+}
