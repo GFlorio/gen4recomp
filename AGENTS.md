@@ -93,6 +93,34 @@ This file provides guidance to Coding Agents when working with code in this repo
   work that changes a user-visible flow, production composition, persistence,
   transitions, scripts, or ROM-derived behavior.
 - Running the entire test suite takes a while; Run unit tests frequently, be deliberate about the other layers.
+- Test economy:
+  - Tests are code and runtime cost. Minimize both while preserving meaningful behavioral coverage.
+  - Before adding a test, find the existing owner of the behavior. Prefer extending or
+    strengthening that test over adding another.
+  - A new test must protect a materially distinct failure mode, behavioral contract, or
+    composition boundary. A different assertion over substantially the same setup is not
+    sufficient reason for another test.
+  - Prefer the cheapest layer that can prove the behavior. Edge cases, validation, state
+    transitions, and failure branches belong in unit/component tests unless production
+    composition itself is the contract.
+  - Expensive setup should be amortized. When several assertions require the same
+    production boot, ROM decode, compilation, fixture construction, or long simulated flow,
+    prefer one scenario that performs the flow once and asserts all related postconditions.
+  - Do not repeat an expensive user journey merely to give each postcondition its own test
+    name.
+  - Parameter matrices are suspect by default. Test multiple versions, resolutions, input
+    modalities, or configurations only when those dimensions can materially change the
+    behavior under test.
+  - When adding coverage to an already-expensive layer, look for obsolete, overlapping, or
+    mergeable coverage in that layer first.
+  - Treat suite runtime regressions as design regressions. If a change materially increases
+    an expensive layer's runtime, simplify the tests or explain why the additional cost buys
+    unique coverage.
+  - When a high-level test finds a bug whose cause can be isolated below that layer, put the
+    regression test at the lower layer. Do not automatically add another high-level
+    regression scenario.
+  - For acceptance tests specifically, every production runtime boot is expensive. Minimize
+    the number of boots, not merely the number of test functions.
 - Adversarial prompts, to consider when applicable — not a mandatory list:
   What if the Nth acquisition fails? What if an operation starts while one is already
   active? What if a valid previous artifact exists and the rebuild fails? What if multiple
