@@ -944,7 +944,19 @@ HANDLERS.random = function(node, run)
   return Runtime.OUTCOME_CONTINUE
 end
 
-HANDLERS.apply_movement = function(node, run)
+-- The single movement-start path shared by the asynchronous
+-- (`apply_movement`) and blocking (`move`) forms: resolve the actor,
+-- enforce foreground-player and actor-busy ownership, create the task, and
+-- register it in the environment's movement generation so barriers and
+-- pause logic observe it. The blocking form records the task id and returns
+-- the block outcome. Completion cleanup for both forms lives in the task's
+-- poll: the nonblocking form completes through the scheduler, the blocking
+-- form unregisters before reporting its completion result.
+---@param run table
+---@param node table
+---@param blocking boolean
+---@return string outcome
+local function startMovement(run, node, blocking)
   local actorId = Runtime.requireActor(node.actor, run)
   requireForegroundPlayer(run, actorId)
   local existing = run.scheduler:activeMovementForActor(run.environment.environmentId, actorId)
@@ -959,9 +971,18 @@ HANDLERS.apply_movement = function(node, run)
     actor = actorId,
     sequence = node.movement,
     movementId = node.movementId,
+    blocking = blocking,
   }, run.instance, run.tick, run.input)
   run.environment:registerMovementTask(taskId)
+  if blocking then
+    run.blockTaskId = taskId
+    return Runtime.OUTCOME_BLOCK
+  end
   return Runtime.OUTCOME_CONTINUE
+end
+
+HANDLERS.apply_movement = function(node, run)
+  return startMovement(run, node, false)
 end
 
 -- Generic blocking ops: dispatch through the task registry. The task types
@@ -1074,9 +1095,7 @@ HANDLERS.wait_movement = function(node, run)
   return blockOnTask(run, "movement_barrier", { node = node })
 end
 HANDLERS.move = function(node, run)
-  local actorId = Runtime.requireActor(node.actor, run)
-  requireForegroundPlayer(run, actorId)
-  return blockOnTask(run, "movement", { node = node, blocking = true })
+  return startMovement(run, node, true)
 end
 HANDLERS.wait_sound = blockingHandler("sound_wait")
 HANDLERS.wait_cry = blockingHandler("sound_wait")

@@ -187,11 +187,15 @@ function MovementTask.poll(state, ctx)
   if not state.completed then
     local done = MovementTask._advancePlan(state, ctx)
     applyPosition(state, ctx)
-    if done and not state.blocking then
+    if done then
+      if state.blocking then
+        -- The blocking record completes through the scheduler's poll-result
+        -- path; unregister from the movement generation here so barriers
+        -- and pause tasks observe the emptied generation in the same poll.
+        ctx.environment:unregisterMovementTask(ctx.taskId)
+        return { complete = true, state = state, result = { completed = true } }
+      end
       ctx.scheduler:completeMovementTask(ctx.taskId, ctx.tick)
-    end
-    if done and state.blocking then
-      return { complete = true, state = state, result = { completed = true } }
     end
   end
   return { complete = false, state = state }

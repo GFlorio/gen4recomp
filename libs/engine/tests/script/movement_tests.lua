@@ -1,9 +1,9 @@
 -- Movement task tests : the movement plan
 -- machine, environment-generation barriers, actor-scoped barriers, multiple
 -- actors started before one barrier, movement save/resume, facing locks,
--- ownership conflicts, cancellation, and the background no-player-movement
--- rule. Elm's source-facing movement and one multi-actor
--- movement fixture work.
+-- ownership conflicts (blocking and nonblocking forms), cancellation, and
+-- the background no-player-movement rule. Elm's source-facing
+-- movement and one multi-actor movement fixture work.
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.rom.src.Errors")
@@ -14,6 +14,7 @@ local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
 local Scheduler = require("libs.engine.src.script.Scheduler")
 local ScriptSave = require("libs.engine.src.script.ScriptSave")
 local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
+local ChildScriptTask = require("libs.engine.src.script.tasks.ChildScriptTask")
 local MovementTask = require("libs.engine.src.script.tasks.MovementTask")
 local MovementBarrierTask = require("libs.engine.src.script.tasks.MovementBarrierTask")
 local MovementPauseTask = require("libs.engine.src.script.tasks.MovementPauseTask")
@@ -37,6 +38,8 @@ local function harness()
   local composition = Composition.new(registry)
   local taskRegistry = TaskRegistry.new()
   taskRegistry:register("wait_ticks", 1, WaitTicksTask)
+  -- The conflicting-blocking-move test drives its common child via call_common.
+  taskRegistry:register("child_script", 1, ChildScriptTask)
   taskRegistry:register("movement", 1, MovementTask)
   taskRegistry:register("movement_barrier", 1, MovementBarrierTask)
   taskRegistry:register("movement_pause", 1, MovementPauseTask)
@@ -402,6 +405,116 @@ T["actor scoped barrier with canonical refs"] = function()
   h.scheduler:step(106, nil)
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
   Assert.equal(h.services.actors.actors.b.fieldX, 0, "b is not watched by the barrier")
+end
+
+-- 14. A blocking `move` joins the environment's movement generation: a
+-- barrier created in the same tick stays active through the walk, the
+-- generation empties exactly at the move's final poll, and the script
+-- continues one tick later (a completed blocking move never leaves the
+-- generation occupied).
+T["blocking move participates in movement barriers"] = function()
+  local h = harness()
+  h.services.actors:add("elm", { fieldX = 4, fieldZ = 6, facing = "north" })
+  local resource = script("test.blockbarrier", {
+    S.move({ actor = "elm", movement = { S.m.walk({ direction = "east", speed = "slow", tiles = 1 }) } }),
+    S.stop(),
+  })
+  local instanceId = startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  local env = assert(h.scheduler:environments()[1])
+  local instance = assert(h.scheduler:instance(instanceId))
+  -- The blocking task is registered in the current generation: a barrier
+  -- created in the same tick must not complete while the walk is mid-plan
+  -- (a slow walk runs 16 plan ticks, polls 101..116).
+  local barrierId = h.scheduler:createTask("movement_barrier", {}, instance, 100, nil)
+  h.scheduler:step(101, nil)
+  for tick = 102, 115 do
+    h.scheduler:step(tick, nil)
+    Assert.equal(
+      assert(h.scheduler:tasksById(barrierId)).status,
+      "active",
+      "the barrier waits on the blocking move at tick " .. tick
+    )
+  end
+  Assert.isTrue(env:hasOutstandingMovement(), "the blocking move owns the generation mid-walk")
+  Assert.equal(h.services.actors.actors.elm.fieldX, 4, "the walk is still mid-plan")
+  -- The move's final poll empties the generation; the barrier completes in
+  -- the same poll loop and the script's continuation follows one tick later
+  -- (the barrier record is cancelled by the environment teardown when the
+  -- script stops, so its completion is asserted before then).
+  h.scheduler:step(116, nil)
+  Assert.equal(assert(h.scheduler:tasksById(barrierId)).status, "completed")
+  Assert.isFalse(env:hasOutstandingMovement(), "the completed blocking move left the generation")
+  Assert.equal(h.services.actors.actors.elm.fieldX, 5, "the actor reaches its destination")
+  h.scheduler:step(117, nil)
+  Assert.isTrue(assert(h.services.events:eventFor("script.ended", instanceId)).completed)
+end
+
+-- 15. A blocking `move` participates in the actor-busy check: a move that
+-- tries to start on an actor another context's movement already owns faults
+-- SCRIPT_ACTOR_BUSY instead of creating a second conflicting task. The child
+-- faults in the caller's tick (dynamic slot loop); the caller faults on the
+-- next tick when its child_script task observes the faulted child.
+T["conflicting blocking move is rejected"] = function()
+  local h = harness()
+  h.services.actors:add("elm", { fieldX = 4, fieldZ = 6, facing = "north" })
+  local child = script("common.mover", {
+    S.move({ actor = "elm", movement = { S.m.walk({ direction = "east", speed = "slow", tiles = 1 }) } }),
+    S.stop(),
+  })
+  h.registry:installBase(child.id, child, "generated")
+  local root = script("test.busymove", {
+    S.applyMovement({ actor = "elm", movement = { S.m.walk({ direction = "east", speed = "slow", tiles = 1 }) } }),
+    S.callCommon({ target = "common.mover" }),
+    S.stop(),
+  })
+  local instanceId = startForeground(h, root, 100)
+  h.scheduler:step(100, nil)
+  h.scheduler:step(101, nil)
+  local fault = assert(
+    h.services.events:eventFor("script.error", instanceId),
+    "the caller faults when the common child's blocking move conflicts"
+  )
+  Assert.equal(fault.code, "SCRIPT_ACTOR_BUSY")
+  Assert.equal(h.services.actors.actors.elm.fieldX, 4, "the conflicting move never started")
+end
+
+-- 16. lock_all sees a blocking movement: the movement_pause task behind
+-- lock_all watches the current generation, so a blocking `move` started by
+-- the script must hold it incomplete until the walk reaches a pausable
+-- boundary (the pause task is created directly because the same-tick
+-- overlap cannot arise from one script: a blocking move blocks its own
+-- context until it finishes).
+T["lock all pauses on blocking movement"] = function()
+  local h = harness()
+  h.services.actors:add("elm", { fieldX = 4, fieldZ = 6, facing = "north" })
+  local resource = script("test.blockpause", {
+    S.move({ actor = "elm", movement = { S.m.walk({ direction = "east", speed = "slow", tiles = 1 }) } }),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
+    S.stop(),
+  })
+  local instanceId = startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  local env = assert(h.scheduler:environments()[1])
+  local instance = assert(h.scheduler:instance(instanceId))
+  local pauseId = h.scheduler:createTask("movement_pause", {}, instance, 100, nil)
+  for tick = 101, 115 do
+    h.scheduler:step(tick, nil)
+    Assert.equal(
+      assert(h.scheduler:tasksById(pauseId)).status,
+      "active",
+      "the pause task waits on the blocking move at tick " .. tick
+    )
+  end
+  Assert.isTrue(env:hasOutstandingMovement(), "lock_all sees the blocking movement mid-walk")
+  -- The move's final poll reaches the pausable boundary and empties the
+  -- generation; the pause task completes in the same poll loop and the
+  -- script continues one tick later.
+  h.scheduler:step(116, nil)
+  Assert.equal(assert(h.scheduler:tasksById(pauseId)).status, "completed")
+  h.scheduler:step(117, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+  Assert.equal(h.services.actors.actors.elm.fieldX, 5)
 end
 
 return T
