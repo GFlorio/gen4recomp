@@ -22,7 +22,6 @@ local TerrainSurface = require("libs.engine.src.TerrainSurface")
 ---@field coverageLoader table
 ---@field entries table<integer, table>
 ---@field protectedMaps table<integer, boolean>
----@field protectedCells table<integer, table>
 ---@field clock integer
 ---@field released boolean
 local FieldMapLoader = {}
@@ -79,7 +78,7 @@ local function availableCells(scene)
     available[x .. ":" .. z] = true
   end
   add(scene.matrix.x, scene.matrix.z)
-  for _, descriptor in ipairs(scene.neighbors or {}) do
+  for _, descriptor in ipairs(scene.neighbors) do
     assert(
       descriptor.offsetTilesX % FieldGrid.CELL_TILES == 0 and descriptor.offsetTilesZ % FieldGrid.CELL_TILES == 0,
       "neighbor offsets must align to field cells"
@@ -103,9 +102,18 @@ local function releaseAggregate(runtimeMap)
   runtimeMap.sceneRuntime:release()
 end
 
+-- The terrain artifact's source record is part of the map dependency identity
+-- (see terrainDependencyHash); a missing source or bdhcSha1 is malformed
+-- generated data and must fail the load rather than degrade the identity.
+local function requireTerrainSource(artifact, context)
+  if type(artifact.source) ~= "table" or type(artifact.source.bdhcSha1) ~= "string" then
+    Errors.raise("FIELD_MAP_TERRAIN_CACHE_INVALID", "terrain artifact source or bdhcSha1 is missing", context)
+  end
+end
+
 local function loadNeighborRegion(cacheFs, scene, centralCollision, centralTerrain)
   local neighbors = {}
-  for _, descriptor in ipairs(scene.neighbors or {}) do
+  for _, descriptor in ipairs(scene.neighbors) do
     if not descriptor.collision or not descriptor.terrain then
       Errors.raise(
         "FIELD_MAP_NEIGHBOR_CACHE_MISSING",
@@ -129,6 +137,11 @@ local function loadNeighborRegion(cacheFs, scene, centralCollision, centralTerra
       error(permissionErr)
     end
     local terrainArtifact = loadRequired(cacheFs, descriptor.terrain.file, "FIELD_MAP_NEIGHBOR_CACHE_MISSING")
+    requireTerrainSource(terrainArtifact, {
+      mapId = scene.mapId,
+      offsetTilesX = descriptor.offsetTilesX,
+      offsetTilesZ = descriptor.offsetTilesZ,
+    })
     neighbors[#neighbors + 1] = {
       offsetTilesX = descriptor.offsetTilesX,
       offsetTilesZ = descriptor.offsetTilesZ,
@@ -142,9 +155,8 @@ end
 local function terrainDependencyHash(region)
   local identities = { "g4-composite-terrain-v1" }
   for _, cell in ipairs(region.cells) do
-    local source = cell.terrain.artifact.source or {}
     identities[#identities + 1] =
-      string.format("%d:%d:%s", cell.offsetTilesX, cell.offsetTilesZ, tostring(source.bdhcSha1 or "unknown"))
+      string.format("%d:%d:%s", cell.offsetTilesX, cell.offsetTilesZ, cell.terrain.artifact.source.bdhcSha1)
   end
   return table.concat(identities, "|")
 end
@@ -163,7 +175,6 @@ function FieldMapLoader.new(cacheFs, world, options)
     coverageLoader = options.coverageLoader or NeighborRing,
     entries = {},
     protectedMaps = {},
-    protectedCells = {},
     clock = 0,
     released = false,
   }, FieldMapLoader)
@@ -174,15 +185,11 @@ function FieldMapLoader:_touch(entry)
   entry.lastUsed = self.clock
 end
 
-function FieldMapLoader:_isProtected(mapId)
-  return self.protectedMaps[mapId] or next(self.protectedCells[mapId] or {}) ~= nil
-end
-
 function FieldMapLoader:_evict(skipMapId)
   while self:residentCount() > self.capacity do
     local victim
     for mapId, entry in pairs(self.entries) do
-      if mapId ~= skipMapId and not self:_isProtected(mapId) and (not victim or entry.lastUsed < victim.lastUsed) then
+      if mapId ~= skipMapId and not self.protectedMaps[mapId] and (not victim or entry.lastUsed < victim.lastUsed) then
         victim = entry
       end
     end
@@ -215,6 +222,13 @@ function FieldMapLoader:load(idOrSymbol)
       { mapId = record.id, schema = scene.schema }
     )
   end
+  if type(scene.neighbors) ~= "table" then
+    Errors.raise(
+      "FIELD_MAP_VISUAL_CACHE_INVALID",
+      "scene neighbors record is missing or malformed; rebuild the derived cache",
+      { mapId = record.id }
+    )
+  end
   if fieldData.schema ~= FieldMapDataCache.FIELD_SCHEMA or fieldData.mapId ~= record.id then
     Errors.raise(
       "FIELD_MAP_DATA_CACHE_INVALID",
@@ -229,6 +243,7 @@ function FieldMapLoader:load(idOrSymbol)
       { mapId = record.id, schema = terrainArtifact.schema }
     )
   end
+  requireTerrainSource(terrainArtifact, { mapId = record.id })
   if fieldData.cameraType ~= scene.cameraType then
     Errors.raise(
       "FIELD_MAP_CAMERA_MISMATCH",
@@ -246,7 +261,7 @@ function FieldMapLoader:load(idOrSymbol)
   local coverageRuntime
   local runtimeMap
   local ok, loadErr = pcall(function()
-    if #(scene.neighbors or {}) > 0 then
+    if #scene.neighbors > 0 then
       coverageRuntime = self.coverageLoader.load(self.cacheFs, scene.neighbors)
     end
 
@@ -309,17 +324,6 @@ function FieldMapLoader:protectMap(mapId, protected)
   end
 end
 
-function FieldMapLoader:protectCells(mapId, cells)
-  local keys = {}
-  for _, cell in ipairs(cells or {}) do
-    keys[cell.x .. ":" .. cell.z] = true
-  end
-  self.protectedCells[mapId] = keys
-  if next(keys) == nil then
-    self:_evict()
-  end
-end
-
 function FieldMapLoader:updateCoverage(runtimeMap, camera, envelope, options)
   assert(
     self.entries[runtimeMap.mapId] and self.entries[runtimeMap.mapId].runtimeMap == runtimeMap,
@@ -361,7 +365,6 @@ function FieldMapLoader:updateCoverage(runtimeMap, camera, envelope, options)
   plan.cells = loaded
   plan.missingVisibleCells = missingVisible
   plan.missingPrefetchCells = missing
-  self:protectCells(runtimeMap.mapId, plan.cells)
   runtimeMap.coveragePlan = plan
   return plan
 end
@@ -374,7 +377,7 @@ function FieldMapLoader:release()
   for _, entry in pairs(self.entries) do
     releaseAggregate(entry.runtimeMap)
   end
-  self.entries, self.protectedMaps, self.protectedCells = {}, {}, {}
+  self.entries, self.protectedMaps = {}, {}
 end
 
 return FieldMapLoader
