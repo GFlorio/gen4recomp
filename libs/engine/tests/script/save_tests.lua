@@ -833,4 +833,256 @@ T["environment records without a creation offset restore at the load boundary"] 
   Assert.equal(restored.createdAtTick, 0)
 end
 
+-- Bucket validation is the complete load boundary. Beyond the
+-- envelope, fingerprints, and task records, the id counters, environment
+-- records, instance records, and cross-record references must be validated
+-- before any live scheduler state is constructed; a malformed record is a
+-- load error, never a partial install.
+
+local function expectValidationError(err, context)
+  Assert.isTrue(
+    err ~= nil and err.code == "SCRIPT_TASK_UNSERIALIZABLE",
+    "expected "
+      .. context
+      .. " to fail validation with SCRIPT_TASK_UNSERIALIZABLE, got "
+      .. tostring(err and err.code or err)
+  )
+end
+
+local function freshScheduler(h)
+  return Scheduler.new({
+    services = h.services,
+    taskRegistry = h.taskRegistry,
+    resolveComposition = function(id)
+      return h.composition:effective(id)
+    end,
+  })
+end
+
+-- Capture a valid live bucket and run one corruption through the whole-bucket
+-- validation.
+---@param mutate fun(bucket: table)
+---@param context string
+local function expectCorruptBucketError(mutate, context)
+  local h = harness()
+  startForeground(
+    h,
+    script("test.refs", {
+      S.waitTicks({ ticks = 1 }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  local bucket = ScriptSave.capture(h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
+  mutate(bucket)
+  expectValidationError(ScriptSave.validate(bucket, {}), context)
+end
+
+-- The id counters must be non-negative integers; a malformed counter is a
+-- validation failure, not a silently accepted value.
+T["validate rejects malformed id counters"] = function()
+  local h = harness()
+  startForeground(
+    h,
+    script("test.counters", {
+      S.waitTicks({ ticks = 1 }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  local bucket = ScriptSave.capture(h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
+  bucket.nextInstanceId = "3"
+  expectValidationError(ScriptSave.validate(bucket, {}), "a non-integer id counter")
+end
+
+-- A malformed environment record (unknown mode) fails validation before any
+-- restore arithmetic runs.
+T["validate rejects malformed environment records"] = function()
+  local h = harness()
+  startForeground(
+    h,
+    script("test.env", {
+      S.waitTicks({ ticks = 1 }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  local bucket = ScriptSave.capture(h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
+  bucket.environments[1].mode = "banana"
+  expectValidationError(ScriptSave.validate(bucket, {}), "an environment record with an unknown mode")
+end
+
+-- Malformed instance records fail validation: an out-of-range context slot,
+-- a missing script identity, or a frame without a composition entry would
+-- otherwise raise inside restore instead of failing as a load error.
+T["validate rejects malformed instance records"] = function()
+  local h = harness()
+  startForeground(
+    h,
+    script("test.inst", {
+      S.waitTicks({ ticks = 1 }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  local bucket = ScriptSave.capture(h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
+  bucket.instances[1].contextSlot = 7
+  expectValidationError(ScriptSave.validate(bucket, {}), "an instance record with an out-of-range context slot")
+  expectCorruptBucketError(function(corrupted)
+    corrupted.instances[1].scriptId = nil
+  end, "an instance record without a script identity")
+  expectCorruptBucketError(function(corrupted)
+    corrupted.instances[1].frames[1].composition = nil
+  end, "an instance record with a malformed frame composition")
+end
+
+-- A dangling cross-reference (an instance naming an environment that has no
+-- record) fails validation instead of restoring corrupted live state.
+T["validate rejects dangling cross-references"] = function()
+  local h = harness()
+  startForeground(
+    h,
+    script("test.ref", {
+      S.waitTicks({ ticks = 1 }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  local bucket = ScriptSave.capture(h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
+  bucket.instances[1].environmentId = "e-missing"
+  expectValidationError(ScriptSave.validate(bucket, {}), "an instance referencing a missing environment")
+end
+
+-- Multi-step sequence: a capture whose later record is malformed fails the
+-- whole load, and the scheduler keeps no environment, instance, task, or
+-- counter from the failed restore.
+T["failed restore leaves the scheduler untouched"] = function()
+  local h = harness()
+  startForeground(
+    h,
+    script("test.atomic", {
+      S.waitTicks({ ticks = 3 }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  local bucket = ScriptSave.capture(h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
+  bucket.instances[1].contextSlot = 7
+
+  local scheduler = freshScheduler(h)
+  local ok, err = pcall(ScriptSave.restore, bucket, scheduler, 100, {})
+  Assert.isFalse(ok)
+  Assert.isTrue(Errors.is(err), "the malformed record must fail validation, not raise mid-restore")
+  Assert.equal(#scheduler:environments(), 0, "no environment may be installed from a failed load")
+  Assert.isNil(scheduler:foregroundEnvironmentId(), "no foreground may be installed from a failed load")
+  Assert.equal(#scheduler:liveInstances(), 0, "no instance may be installed from a failed load")
+  Assert.equal(#scheduler:tasks(), 0, "no task may be installed from a failed load")
+  local counters = scheduler:counters()
+  Assert.equal(counters.nextEnvironmentId, 0, "no id counter may advance from a failed load")
+  Assert.equal(counters.nextInstanceId, 0, "no id counter may advance from a failed load")
+  Assert.equal(counters.nextTaskId, 0, "no id counter may advance from a failed load")
+end
+
+-- Capture a valid live bucket and run one corruption through the whole-bucket
+-- validation.
+---@param mutate fun(bucket: table)
+---@param context string
+local function expectCorruptBucketError(mutate, context)
+  local h = harness()
+  startForeground(
+    h,
+    script("test.refs", {
+      S.waitTicks({ ticks = 1 }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  local bucket = ScriptSave.capture(h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
+  mutate(bucket)
+  expectValidationError(ScriptSave.validate(bucket, {}), context)
+end
+
+-- Every id a task record names must exist, and the envelope shape must be
+-- valid: a dangling owner or environment would be copied into live state
+-- with no one to poll or own it, and a missing environment id or unknown
+-- status would raise inside restore instead of failing validation.
+T["validate rejects task records with malformed shape or dangling references"] = function()
+  expectCorruptBucketError(function(bucket)
+    bucket.tasks[1].ownerInstanceId = "i-missing"
+  end, "a task referencing a missing owner instance")
+  expectCorruptBucketError(function(bucket)
+    bucket.tasks[1].environmentId = "e-missing"
+  end, "a task referencing a missing environment")
+  expectCorruptBucketError(function(bucket)
+    bucket.tasks[1].environmentId = nil
+  end, "a task record without an environment")
+  expectCorruptBucketError(function(bucket)
+    bucket.tasks[1].status = "banana"
+  end, "a task record with an unknown status")
+end
+
+-- Environment-held instance references (root, context slots, lock
+-- owners) must all resolve; a dangling one silently corrupts the slot loop
+-- or the lock release path.
+T["validate rejects environment references to missing instances"] = function()
+  expectCorruptBucketError(function(bucket)
+    bucket.environments[1].rootInstanceId = "i-missing"
+  end, "an environment root referencing a missing instance")
+  expectCorruptBucketError(function(bucket)
+    bucket.environments[1].contextSlots[0] = "i-missing"
+  end, "an environment context slot referencing a missing instance")
+  expectCorruptBucketError(function(bucket)
+    bucket.environments[1].locks = { player = { count = 1, owners = { ["i-missing"] = 1 } } }
+  end, "an environment lock referencing a missing owner")
+end
+
+-- The movement generation sets name tasks that must exist: a dangling id
+-- would make the barrier wait on a task that never polls.
+T["validate rejects movement generations referencing missing tasks"] = function()
+  expectCorruptBucketError(function(bucket)
+    bucket.environments[1].movementTasksByGeneration[0]["t-missing"] = true
+  end, "an environment movement generation referencing a missing task")
+end
+
+-- A blocked instance's wait reference must resolve to a serialized task; a
+-- dangling one would never resume after the load.
+T["validate rejects an instance referencing a missing task"] = function()
+  expectCorruptBucketError(function(bucket)
+    bucket.instances[1].waitingTaskId = "t-missing"
+  end, "an instance referencing a missing task")
+end
+
+-- Duplicate ids would silently overwrite live scheduler entries; multiple
+-- foreground environments would silently last-wins on the field.
+T["validate rejects duplicate ids and multiple foreground environments"] = function()
+  expectCorruptBucketError(function(bucket)
+    bucket.environments[#bucket.environments + 1] = {
+      environmentId = bucket.environments[1].environmentId,
+      mode = "background",
+    }
+  end, "a duplicate environment id")
+  expectCorruptBucketError(function(bucket)
+    bucket.environments[#bucket.environments + 1] = {
+      environmentId = "e-extra",
+      mode = "foreground",
+      createdAtInTicks = 0,
+    }
+  end, "a second foreground environment")
+end
+
+-- The record arrays are required by the schema: a missing array is an
+-- error, never an implicit empty restore.
+T["validate rejects a bucket missing a required record array"] = function()
+  expectCorruptBucketError(function(bucket)
+    bucket.tasks = nil
+  end, "a bucket without tasks")
+end
+
 return T

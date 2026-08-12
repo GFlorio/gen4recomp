@@ -190,7 +190,12 @@ function FieldRuntime:_load()
   local ok, err = pcall(function()
     local cacheFs = CacheFs.forVersion(self.versionId)
     self.cacheFs = cacheFs
-    self.saveStore = FieldSaveStore.new(self.saveFs or SaveFs.forVersion(self.versionId), { avatars = avatarIdSet() })
+    self.saveStore = FieldSaveStore.new(self.saveFs or SaveFs.forVersion(self.versionId), {
+      avatars = avatarIdSet(),
+      scriptsValidate = function(bucket)
+        return ScriptSave.validate(bucket, {})
+      end,
+    })
     if self.resetSave then
       self.saveStore:reset()
       self.resetSave = false

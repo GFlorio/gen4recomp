@@ -170,6 +170,16 @@ function ScriptTask.validateRecord(record)
   if type(record.ownerInstanceId) ~= "string" then
     return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "task owner missing", { taskId = record.taskId })
   end
+  if type(record.environmentId) ~= "string" then
+    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "task environment missing", { taskId = record.taskId })
+  end
+  if STATUSES[record.status] == nil then
+    return Errors.new(
+      ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
+      "task status unknown",
+      { taskId = record.taskId, status = record.status }
+    )
+  end
   if type(record.pollInTicks) ~= "number" or record.pollInTicks < 0 then
     return Errors.new(
       ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,

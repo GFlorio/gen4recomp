@@ -244,4 +244,30 @@ T["new bark branching driven by save state"] = function()
   Assert.equal(h2.world:getVar("VAR_SCENE_ELMS_LAB"), 2)
 end
 
+-- 9. A present-but-malformed rng value is rejected instead of silently
+-- dropped: losing serialized RNG state would silently break determinism.
+T["restoreRng rejects a malformed rng value"] = function()
+  local world = WorldState.new({ catalogs = CATALOGS, seed = 7 })
+  local err = Assert.throws(function()
+    world:restoreRng({ rng = "malformed" })
+  end)
+  Assert.isTrue(
+    err ~= nil and err.code == "SCRIPT_TASK_UNSERIALIZABLE",
+    "expected SCRIPT_TASK_UNSERIALIZABLE, got " .. tostring(err and err.code or err)
+  )
+end
+
+-- 10. A present rng table with invalid fields is rejected the same way: the
+-- rejection is a structured load error, not a raw assert or a silent drop.
+T["restoreRng rejects a malformed rng table"] = function()
+  local world = WorldState.new({ catalogs = CATALOGS, seed = 7 })
+  local err = Assert.throws(function()
+    world:restoreRng({ rng = {} })
+  end)
+  Assert.isTrue(
+    err ~= nil and err.code == "SCRIPT_TASK_UNSERIALIZABLE",
+    "expected SCRIPT_TASK_UNSERIALIZABLE, got " .. tostring(err and err.code or err)
+  )
+end
+
 return T

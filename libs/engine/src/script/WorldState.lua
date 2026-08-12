@@ -116,11 +116,18 @@ function WorldState:capture()
 end
 
 -- Rebuild the rng from a captured world bucket; the event state itself is
--- restored by the game layer (it owns the save's authoritative flags).
+-- restored by the game layer (it owns the save's authoritative flags). A
+-- present rng value must be valid serialized state: silently dropping it
+-- would break determinism across the load.
 ---@param world table
 function WorldState:restoreRng(world)
-  if type(world) == "table" and type(world.rng) == "table" then
-    self.rng = ScriptRng.restore(world.rng)
+  assert(type(world) == "table", "world bucket must be a table")
+  if world.rng ~= nil then
+    local ok, rng = pcall(ScriptRng.restore, world.rng)
+    if not ok then
+      Errors.raise(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "serialized rng state is malformed", { rng = world.rng })
+    end
+    self.rng = rng
   end
 end
 

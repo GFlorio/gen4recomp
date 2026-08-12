@@ -1,13 +1,16 @@
 -- FieldSaveStore tests verify version-scoped transactional publication and
 -- rejection of malformed persisted data with an in-memory filesystem. The
 -- store is rooted in the persistent user-data namespace (SaveFs), never in the
--- disposable version cache.
+-- disposable version cache. Loading is the complete validation boundary: a
+-- record whose wired scripts bucket fails deep validation is rejected as a
+-- whole.
 
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.rom.src.CacheFs")
 local SaveFs = require("libs.rom.src.SaveFs")
 local FieldSave = require("libs.engine.src.FieldSave")
 local FieldSaveStore = require("libs.engine.src.FieldSaveStore")
+local ScriptSave = require("libs.engine.src.script.ScriptSave")
 local FakeCache = require("tests.support.FakeCache")
 
 local T = {}
@@ -127,6 +130,36 @@ function T.store_rejects_a_disposable_cache_root()
     FieldSaveStore.new(CacheFs.forVersion("heartgold", FakeCache.new()))
   end)
   Assert.isTrue(tostring(err):find("SaveFs"), "expected a SaveFs-required assertion, got: " .. tostring(err))
+end
+
+-- The store load is the complete validation boundary: a scripts bucket that
+-- passes the envelope but carries a malformed environment record must be
+-- rejected as a whole before any live state is constructed.
+function T.load_rejects_a_deeply_malformed_scripts_bucket()
+  local backend = FakeCache.new()
+  local saveFs = SaveFs.forVersion("heartgold", backend)
+  local store = FieldSaveStore.new(saveFs, {
+    scriptsValidate = function(bucket)
+      return ScriptSave.validate(bucket, {})
+    end,
+  })
+  local value = record("heartgold")
+  value.scripts = {
+    schema = ScriptSave.SCHEMA_NAME,
+    nextEnvironmentId = 1,
+    nextInstanceId = 1,
+    nextTaskId = 1,
+    environments = { { environmentId = "e1", mode = "banana", createdAtInTicks = 0 } },
+    instances = {},
+    tasks = {},
+  }
+  saveFs:writeLua(FieldSave.PATH, value)
+  local loaded, loadErr = store:load()
+  Assert.isNil(loaded)
+  Assert.isTrue(
+    loadErr and loadErr.code == "FIELD_SAVE_SCRIPTS_INVALID",
+    "expected FIELD_SAVE_SCRIPTS_INVALID, got " .. tostring(loadErr and loadErr.code or loadErr)
+  )
 end
 
 return T
