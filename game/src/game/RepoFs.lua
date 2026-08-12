@@ -20,12 +20,23 @@ function RepoFs.new(root)
   return setmetatable({ _root = root }, RepoFs)
 end
 
+-- Confines a repo-relative path below the root: normalize separators, reject
+-- absolute paths and `.`/`..` components, then verify the joined canonical
+-- path still sits inside the root. Rejection raises; a missing normal file
+-- stays nil (read's io.open failure).
 function RepoFs:_full(relativePath)
-  assert(
-    type(relativePath) == "string" and relativePath:sub(1, 1) ~= "/" and relativePath:sub(1, 2) ~= "..",
-    "repo fs paths are repo-relative"
-  )
-  return self._root .. "/" .. relativePath
+  assert(type(relativePath) == "string", "repo fs paths are repo-relative")
+  local canonical = relativePath:gsub("\\", "/")
+  assert(canonical:sub(1, 1) ~= "/", "repo fs paths are repo-relative")
+  local components = {}
+  for component in canonical:gmatch("[^/]+") do
+    assert(component ~= "." and component ~= "..", "repo fs paths may not contain traversal components")
+    components[#components + 1] = component
+  end
+  assert(#components > 0, "repo fs paths are repo-relative")
+  local full = self._root .. "/" .. table.concat(components, "/")
+  assert(full:sub(1, #self._root) == self._root, "repo fs path escapes the repo root")
+  return full
 end
 
 ---@param path string
