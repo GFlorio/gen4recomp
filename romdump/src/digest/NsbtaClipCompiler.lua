@@ -16,12 +16,18 @@
 --   }
 --
 -- where each channel is
---   { source = "absent" }                    -- zero flag: identity component
 --   { source = "constant", value = u32 }     -- the ofs field IS the value
 --   { source = "curve", rate, limit, storage, keys = { ... } }
 --     -- raw words exactly as the decoder reads them: fx16 sign-extended,
 --     -- fx32 raw u32, rotation keys always the packed u32 sin/cos words
--- Pure domain module.
+--
+-- Every channel carries data: a nil slot or a zero flag raises
+-- NSBTA_COMPILE_ABSENT_CHANNEL -- the compiled payload has no "absent"
+-- state, and the corpus census (99/99 NSBTA members) proves no real member
+-- needs one; identity components are authored as explicit constants (scale
+-- 0x1000, rotation identity word, translation 0). Pure domain module.
+
+local Errors = require("libs.rom.src.Errors")
 
 local NsbtaClipCompiler = {}
 
@@ -32,7 +38,6 @@ local function s16(value)
   return value
 end
 
-local ABSENT = "absent"
 local CONSTANT = "constant"
 local CURVE = "curve"
 
@@ -95,18 +100,27 @@ local function readKeys(reader, chan, nextBase, sectionLimit)
 end
 
 -- Project one decoded channel into its compiled form, attaching the curve's
--- key array. A zero flag (no data) becomes "absent": the runtime treats the
--- component as identity, which is the authored intent (the DS reads garbage
--- in that case; no real member carries one).
-local function copyChannel(chan, reader, bounds, sectionLimit)
+-- key array. A channel with no data (nil slot or zero flag) raises
+-- NSBTA_COMPILE_ABSENT_CHANNEL: the compiled payload has no "absent" state,
+-- and the corpus census proves no real member carries one -- identity
+-- components are authored as explicit constants.
+local function raiseAbsent(ctx, reason)
+  Errors.raise(
+    "NSBTA_COMPILE_ABSENT_CHANNEL",
+    "NSBTA clip " .. ctx.clip .. " target " .. tostring(ctx.target) .. " channel " .. ctx.channel .. " " .. reason,
+    ctx
+  )
+end
+
+local function copyChannel(chan, reader, bounds, sectionLimit, ctx)
   if not chan then
-    return { source = ABSENT }
+    raiseAbsent(ctx, "has no channel data")
   end
   if chan.source == CONSTANT then
     return { source = CONSTANT, value = chan.value }
   end
   if chan.flagRaw == 0 then
-    return { source = ABSENT }
+    raiseAbsent(ctx, "has a zero flag")
   end
   return {
     source = CURVE,
@@ -120,7 +134,7 @@ end
 -- Compile `res` (a decoded NSBTA record) into the compiled payload. `reader`
 -- is the BinaryReader over the SRT0 section; `sectionLimit` the section's
 -- byte length.
-function NsbtaClipCompiler.compilePayload(res, reader, sectionLimit)
+function NsbtaClipCompiler.compilePayload(res, reader, sectionLimit, clipId)
   assert(type(res) == "table" and res.targets ~= nil, "NsbtaClipCompiler requires a decoded NSBTA record")
   assert(reader ~= nil and sectionLimit ~= nil, "NsbtaClipCompiler requires the section reader and limit")
 
@@ -129,7 +143,11 @@ function NsbtaClipCompiler.compilePayload(res, reader, sectionLimit)
   for _, target in ipairs(res.targets) do
     local channels = {}
     for _, name in ipairs({ "transS", "transT", "rot", "scaleS", "scaleT" }) do
-      channels[name] = copyChannel(target.channels[name], reader, bounds, sectionLimit)
+      channels[name] = copyChannel(target.channels[name], reader, bounds, sectionLimit, {
+        clip = clipId or "nsbta",
+        target = target.index,
+        channel = name,
+      })
     end
     targets[#targets + 1] = { index = target.index, name = target.name, channels = channels }
   end
@@ -143,7 +161,7 @@ end
 --   opts.source          provenance block (archive, memberId, sha1)
 function NsbtaClipCompiler.compile(res, reader, sectionLimit, opts)
   opts = opts or {}
-  local payload = NsbtaClipCompiler.compilePayload(res, reader, sectionLimit)
+  local payload = NsbtaClipCompiler.compilePayload(res, reader, sectionLimit, opts.id)
   local tracks = {}
   for i, target in ipairs(payload.targets) do
     tracks[#tracks + 1] = { target = target.name, targetIndex = i - 1 }

@@ -187,14 +187,14 @@ function T.ambient_effects_stay_unbanded()
   Assert.isTrue(result.clips[1].ambientLoop, "the ambient effect plays at load")
 end
 
--- The ambient role moves from the clip-count heuristic to the decoded
--- header policy, so the compile semantics change: the clip-compile version
--- must bump, or the derived cache would serve stale clips.
-function T.compiler_version_bumps_with_the_policy_semantics()
+-- The clip-compile version pins the compile semantics: any decoder or clip
+-- compiler behavior change (currently: the absent-channel rejection) must
+-- bump it, or the derived cache would serve stale clips.
+function T.compiler_version_bumps_with_the_compile_semantics()
   Assert.equal(
     MapPropAnimCompiler.VERSION,
-    "map-prop-anim-clip-v4",
-    "the header-derived ambient policy bumps the clip-compile version"
+    "map-prop-anim-clip-v5",
+    "the clip-compile version must bump with the compile semantics"
   )
 end
 

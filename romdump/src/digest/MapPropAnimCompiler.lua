@@ -54,7 +54,7 @@ local ANIM_ARCHIVE = "build_anim"
 -- compiled assets must account for it: a decoder or sampler change without
 -- it would leave stale compiled clips in the derived cache. Bump whenever
 -- the decoders or the clip compilers change behavior.
-MapPropAnimCompiler.VERSION = "map-prop-anim-clip-v4"
+MapPropAnimCompiler.VERSION = "map-prop-anim-clip-v5"
 
 -- clip name -> semantic role. Patterns match the tail of the Nitro dict
 -- name; the whole name matches when the pattern is exact. The role

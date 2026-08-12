@@ -17,7 +17,13 @@
 --
 -- The result carries the raw component values (15-bit colors, 0..31
 -- alpha); the material evaluator packs them into the effective material
--- colors and polygon alpha. Pure domain module.
+-- colors and polygon alpha. The compiler emits all five channels with a
+-- source vocabulary of {constant, curve}, so a hand-written record with a
+-- missing channel or any other source is malformed and raises
+-- ANIM_NSBMA_BAD_CHANNEL rather than taking the implicit curve path.
+-- Pure domain module.
+
+local Errors = require("libs.rom.src.Errors")
 
 local CompiledNsbmaSampler = {}
 
@@ -107,7 +113,21 @@ function CompiledNsbmaSampler.sample(clip, targetIndex, frameFx)
   end
 
   local out = {}
-  for name, chan in pairs(target.channels) do
+  for _, name in ipairs({ "diffuse", "ambient", "specular", "emission", "alpha" }) do
+    local chan = target.channels[name]
+    if not chan or (chan.source ~= "constant" and chan.source ~= "curve") then
+      Errors.raise(
+        "ANIM_NSBMA_BAD_CHANNEL",
+        "compiled NSBMA clip "
+          .. tostring(clip.id)
+          .. " target "
+          .. tostring(targetIndex)
+          .. " channel "
+          .. name
+          .. " source is neither constant nor curve",
+        { clip = clip.id, targetIndex = targetIndex, channel = name }
+      )
+    end
     if chan.source == "constant" then
       out[name] = chan.value
     else

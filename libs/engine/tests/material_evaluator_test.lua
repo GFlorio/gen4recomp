@@ -22,7 +22,7 @@ end
 
 -- A texsrt clip: translation-S curve (the Maya convention's scroll
 -- channel -- the real `wind` clip animates transS), identity scale and
--- rotation.
+-- rotation (spelled as the explicit constants the compiler emits).
 local function scrollClip(frames, transKeys)
   return {
     id = "fixture:scroll",
@@ -38,11 +38,11 @@ local function scrollClip(frames, transKeys)
           index = 0,
           name = "wall",
           channels = {
-            scaleS = { source = "absent" },
-            scaleT = { source = "absent" },
-            rot = { source = "absent" },
+            scaleS = { source = "constant", value = 0x1000 },
+            scaleT = { source = "constant", value = 0x1000 },
+            rot = { source = "constant", value = 0x10000000 },
             transS = { source = "curve", rate = 1, limit = frames - 1, storage = "fx32", keys = transKeys },
-            transT = { source = "absent" },
+            transT = { source = "constant", value = 0 },
           },
         },
       },
@@ -300,8 +300,8 @@ function T.rotating_uv_swaps_the_axis_cells()
           index = 0,
           name = "wall",
           channels = {
-            transS = { source = "absent" },
-            transT = { source = "absent" },
+            transS = { source = "constant", value = 0 },
+            transT = { source = "constant", value = 0 },
             rot = {
               source = "curve",
               rate = 1,
@@ -314,8 +314,8 @@ function T.rotating_uv_swaps_the_axis_cells()
                 0x10000000,
               },
             },
-            scaleS = { source = "absent" },
-            scaleT = { source = "absent" },
+            scaleS = { source = "constant", value = 0x1000 },
+            scaleT = { source = "constant", value = 0x1000 },
           },
         },
       },
@@ -358,8 +358,8 @@ function T.rotating_uv_center_compensation_translates_in_texcoord_fixed_point()
           index = 0,
           name = "wall",
           channels = {
-            transS = { source = "absent" },
-            transT = { source = "absent" },
+            transS = { source = "constant", value = 0 },
+            transT = { source = "constant", value = 0 },
             rot = {
               source = "curve",
               rate = 1,
@@ -367,8 +367,8 @@ function T.rotating_uv_center_compensation_translates_in_texcoord_fixed_point()
               storage = "fx32",
               keys = { 0x0DD70800, 0x0DD70800, 0x0DD70800, 0x0DD70800 },
             },
-            scaleS = { source = "absent" },
-            scaleT = { source = "absent" },
+            scaleS = { source = "constant", value = 0x1000 },
+            scaleT = { source = "constant", value = 0x1000 },
           },
         },
       },
@@ -404,9 +404,9 @@ function T.scaling_uv_anchor_translates_in_texcoord_fixed_point()
           index = 0,
           name = "wall",
           channels = {
-            transS = { source = "absent" },
-            transT = { source = "absent" },
-            rot = { source = "absent" },
+            transS = { source = "constant", value = 0 },
+            transT = { source = "constant", value = 0 },
+            rot = { source = "constant", value = 0x10000000 },
             scaleS = { source = "constant", value = 0x2000 },
             scaleT = { source = "constant", value = 0x1800 },
           },

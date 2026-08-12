@@ -133,17 +133,91 @@ function T.bma_colors_and_alpha_identical()
   end
 end
 
--- An absent (zero-flag) channel compiles as an identity component and never
--- raises, unlike the decoder which would read garbage (no real member does).
-function T.srt_absent_channels_stay_identity()
+-- A decoded NSBTA record whose channel has no data (a nil slot or a zero
+-- flag) cannot be compiled: the compiled payload has no "absent" state, and
+-- the corpus census proves no real member carries one (identity components
+-- are spelled as constants: scale 0x1000, rotation identity, translation 0).
+function T.srt_absent_channel_raises_at_compile()
+  local decoded = assert(NitroAnimation.decode(require("tests.support.AnimationFixture").srtWater()))
+  local resource = decoded.animations[1].resource
+  local reader = BinaryReader.new(decoded.bytes, "sec")
+  local function compile()
+    return NsbtaClipCompiler.compile(resource, reader, #decoded.bytes, {
+      id = "fixture:en_sp1",
+      name = "en_sp1",
+    })
+  end
+
+  resource.targets[1].channels.scaleS = nil
+  local ok, err = pcall(compile)
+  Assert.isFalse(ok)
+  Assert.equal(err.code, "NSBTA_COMPILE_ABSENT_CHANNEL")
+
+  resource.targets[1].channels.scaleS = {
+    source = "curve",
+    ofs = 0,
+    rate = 1,
+    limit = 0,
+    storage = "fx32",
+    flagRaw = 0,
+  }
+  ok, err = pcall(compile)
+  Assert.isFalse(ok)
+  Assert.equal(err.code, "NSBTA_COMPILE_ABSENT_CHANNEL")
+end
+
+-- The compiled payload has no "absent" state (the compiler rejects it), so a
+-- hand-written record carrying one is malformed data: the sampler raises
+-- instead of silently treating it as identity.
+function T.srt_absent_channel_raises_at_sample()
   local _, _, clip = compileClip(require("tests.support.AnimationFixture").srtSpin())
-  local targets = clip.compiled.targets
-  targets[1].channels.scaleS = { source = "absent" }
-  targets[1].channels.scaleT = { source = "absent" }
-  targets[1].channels.rot = { source = "absent" }
-  local s = CompiledNsbtaSampler.sample(clip, 0, 4096)
-  Assert.isTrue(s.rotOne)
-  Assert.isTrue(s.scaleOne)
+  clip.compiled.targets[1].channels.rot = { source = "absent" }
+  local ok, err = pcall(CompiledNsbtaSampler.sample, clip, 0, 4096)
+  Assert.isFalse(ok)
+  Assert.equal(err.code, "ANIM_NSBTA_BAD_CHANNEL")
+end
+
+-- A decoded NSBMA record whose channel has no data (a nil slot or a zero
+-- key offset) cannot be compiled: the compiled payload has no "absent"
+-- state, and the corpus census proves no real member carries one.
+function T.bma_absent_channel_raises_at_compile()
+  local decoded = assert(NitroAnimation.decode(require("tests.support.AnimationFixture").matFade()))
+  local resource = decoded.animations[1].resource
+  local reader = BinaryReader.new(decoded.bytes, "sec")
+  local function compile()
+    return NsbmaClipCompiler.compile(resource, reader, #decoded.bytes, {
+      id = "fixture:psentry_rode",
+      name = "psentry_rode",
+    })
+  end
+
+  resource.targets[1].channels.diffuse = nil
+  local ok, err = pcall(compile)
+  Assert.isFalse(ok)
+  Assert.equal(err.code, "NSBMA_COMPILE_ABSENT_CHANNEL")
+
+  resource.targets[1].channels.diffuse = { source = "curve", ofs = 0, rate = 1, limit = 0, isAlpha = false }
+  ok, err = pcall(compile)
+  Assert.isFalse(ok)
+  Assert.equal(err.code, "NSBMA_COMPILE_ABSENT_CHANNEL")
+end
+
+-- Defense in depth: a hand-written compiled record with a missing channel
+-- or a channel source that is neither "constant" nor "curve" raises instead
+-- of silently skipping the channel or taking the implicit curve path (which
+-- crashes on a missing key array).
+function T.bma_sampler_rejects_missing_or_unknown_channels()
+  local _, _, clip = compileClip(require("tests.support.AnimationFixture").matFade())
+  local channels = clip.compiled.targets[1].channels
+  channels.diffuse = nil
+  local ok, err = pcall(CompiledNsbmaSampler.sample, clip, 0, 4096)
+  Assert.isFalse(ok)
+  Assert.equal(err.code, "ANIM_NSBMA_BAD_CHANNEL")
+
+  channels.diffuse = { source = "absent" }
+  ok, err = pcall(CompiledNsbmaSampler.sample, clip, 0, 4096)
+  Assert.isFalse(ok)
+  Assert.equal(err.code, "ANIM_NSBMA_BAD_CHANNEL")
 end
 
 return T

@@ -11,12 +11,17 @@
 --       transS, transT, rot, scaleS, scaleT } } } }
 --
 -- where each channel is
---   { source = "absent" }                    -- no data: identity component
 --   { source = "constant", value = u32 }     -- the ofs field IS the value
 --   { source = "curve", rate = 1|2|4, limit, storage = "fx16"|"fx32",
 --     keys = { ... } }                       -- raw words as decoded: fx16
 --     sign-extended, fx32 raw u32, rotation keys always packed u32
 --     (sin low half, cos high half, fx16; 0x10000000 = identity)
+--
+-- The source vocabulary is {constant, curve}: the compiler rejects absent
+-- channels (corpus: no real NSBTA member has one), so the sampler has no
+-- identity fallback -- identity components are authored as explicit
+-- constants (scale 0x1000, rotation identity word, translation 0), and any
+-- other source in a hand-written record raises ANIM_NSBTA_BAD_CHANNEL.
 --
 -- The result matches GetTexSRTAnm_ (pokediamond NNS_G3D_nsbta.s): the
 -- "one" flags select the texture-matrix variant, and a component flagged
@@ -25,6 +30,8 @@
 --   rotOne    = rotation identity
 --   scaleOne  = scaleS == 0x1000 and scaleT == 0x1000
 -- Pure domain module.
+
+local Errors = require("libs.rom.src.Errors")
 
 local CompiledNsbtaSampler = {}
 
@@ -177,43 +184,51 @@ function CompiledNsbtaSampler.sample(clip, targetIndex, frameFx)
     scaleOne = false,
   }
 
-  -- Absent channels are identity components: zero translations, identity
-  -- scales (0x1000) -- the authored values GetTexSRTAnm_ would compare for
-  -- its "one" flags.
-  local function transValue(chan)
-    if chan.source == "constant" then
-      return chan.value
+  -- A compiled channel is "constant" or "curve"; anything else (absent,
+  -- nil, misspelled) is malformed data the compiler can no longer produce.
+  local function sourceOf(chan, name)
+    local source = chan and chan.source
+    if source ~= "constant" and source ~= "curve" then
+      Errors.raise(
+        "ANIM_NSBTA_BAD_CHANNEL",
+        "compiled NSBTA clip "
+          .. tostring(clip.id)
+          .. " target "
+          .. tostring(targetIndex)
+          .. " channel "
+          .. name
+          .. " source is neither constant nor curve",
+        { clip = clip.id, targetIndex = targetIndex, channel = name }
+      )
     end
-    if chan.source == "curve" then
-      return sampleVector(chan, frame)
-    end
-    return 0
-  end
-  local function scaleValue(chan)
-    if chan.source == "constant" then
-      return chan.value
-    end
-    if chan.source == "curve" then
-      return sampleVector(chan, frame)
-    end
-    return 0x1000
+    return source
   end
 
-  result.transS = transValue(ch.transS)
-  result.transT = transValue(ch.transT)
+  -- A vector channel samples to its fx value; identity components are
+  -- authored as explicit constants (scale 0x1000, translation 0), which the
+  -- "one" flag comparisons below pick up.
+  local function vectorValue(chan, name)
+    if sourceOf(chan, name) == "constant" then
+      return chan.value
+    end
+    return sampleVector(chan, frame)
+  end
+
+  result.transS = vectorValue(ch.transS, "transS")
+  result.transT = vectorValue(ch.transT, "transT")
 
   local rot = ch.rot
-  if rot.source == "constant" then
+  if sourceOf(rot, "rot") == "constant" then
     result.rot = unpackRot(rot.value)
-  elseif rot.source == "curve" then
+  else
     result.rot = sampleRot(rot, frame)
   end
   if result.rot == nil then
     result.rotOne = true
   end
 
-  result.scaleS = scaleValue(ch.scaleS)
-  result.scaleT = scaleValue(ch.scaleT)
+  result.scaleS = vectorValue(ch.scaleS, "scaleS")
+  result.scaleT = vectorValue(ch.scaleT, "scaleT")
   if result.scaleS == 0x1000 and result.scaleT == 0x1000 then
     result.scaleOne = true
   end

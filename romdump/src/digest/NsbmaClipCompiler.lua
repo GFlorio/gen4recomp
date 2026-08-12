@@ -18,11 +18,16 @@
 --   { source = "constant", value = n }    -- value = (flag >> 16) & 0xFFFF
 --   { source = "curve", rate = 1|2|4, limit, isAlpha, keys = { ... } }
 --     -- color keys raw u16 RGB555, alpha keys raw u8 (0..31)
--- Pure domain module.
+--
+-- Every channel carries data: a nil slot or a zero key offset raises
+-- NSBMA_COMPILE_ABSENT_CHANNEL -- the compiled payload has no "absent"
+-- state, and the corpus census proves no real member needs one (the DS
+-- reads garbage for such a flag). Pure domain module.
+
+local Errors = require("libs.rom.src.Errors")
 
 local NsbmaClipCompiler = {}
 
-local ABSENT = "absent"
 local CONSTANT = "constant"
 local CURVE = "curve"
 
@@ -72,18 +77,27 @@ local function readKeys(reader, chan, base, nextBase, sectionLimit)
 end
 
 -- Project one decoded channel into its compiled form, attaching the curve's
--- key array. A zero flag (no data) becomes "absent"; the DS reads garbage
--- for it, so no real member carries one. The compiled key base is absolute
--- (record + ofs).
-local function copyChannel(chan, reader, bounds, record, sectionLimit)
+-- key array. A channel with no data (nil slot or zero key offset) raises
+-- NSBMA_COMPILE_ABSENT_CHANNEL: the compiled payload has no "absent" state,
+-- and the corpus census proves no real member carries one. The compiled key
+-- base is absolute (record + ofs).
+local function raiseAbsent(ctx, reason)
+  Errors.raise(
+    "NSBMA_COMPILE_ABSENT_CHANNEL",
+    "NSBMA clip " .. ctx.clip .. " target " .. tostring(ctx.target) .. " channel " .. ctx.channel .. " " .. reason,
+    ctx
+  )
+end
+
+local function copyChannel(chan, reader, bounds, record, sectionLimit, ctx)
   if not chan then
-    return { source = ABSENT }
+    raiseAbsent(ctx, "has no channel data")
   end
   if chan.source == CONSTANT then
     return { source = CONSTANT, value = chan.value }
   end
   if chan.ofs == 0 then
-    return { source = ABSENT }
+    raiseAbsent(ctx, "has a zero key offset")
   end
   local base = record + chan.ofs
   return {
@@ -98,7 +112,7 @@ end
 -- Compile `res` (a decoded NSBMA record) into the compiled payload. `reader`
 -- is the BinaryReader over the MAT0 section; `sectionLimit` the section's
 -- byte length.
-function NsbmaClipCompiler.compilePayload(res, reader, sectionLimit)
+function NsbmaClipCompiler.compilePayload(res, reader, sectionLimit, clipId)
   assert(type(res) == "table" and res.targets ~= nil, "NsbmaClipCompiler requires a decoded NSBMA record")
   assert(reader ~= nil and sectionLimit ~= nil, "NsbmaClipCompiler requires the section reader and limit")
 
@@ -106,8 +120,12 @@ function NsbmaClipCompiler.compilePayload(res, reader, sectionLimit)
   local targets = {}
   for _, target in ipairs(res.targets) do
     local channels = {}
-    for name, chan in pairs(target.channels) do
-      channels[name] = copyChannel(chan, reader, bounds, res.record, sectionLimit)
+    for _, name in ipairs({ "diffuse", "ambient", "specular", "emission", "alpha" }) do
+      channels[name] = copyChannel(target.channels[name], reader, bounds, res.record, sectionLimit, {
+        clip = clipId or "nsbma",
+        target = target.index,
+        channel = name,
+      })
     end
     targets[#targets + 1] = { index = target.index, name = target.name, channels = channels }
   end
@@ -121,7 +139,7 @@ end
 --   opts.source          provenance block (archive, memberId, sha1)
 function NsbmaClipCompiler.compile(res, reader, sectionLimit, opts)
   opts = opts or {}
-  local payload = NsbmaClipCompiler.compilePayload(res, reader, sectionLimit)
+  local payload = NsbmaClipCompiler.compilePayload(res, reader, sectionLimit, opts.id)
   local tracks = {}
   for i, target in ipairs(payload.targets) do
     tracks[#tracks + 1] = { target = target.name, targetIndex = i - 1 }
