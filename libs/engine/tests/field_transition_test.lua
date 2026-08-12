@@ -16,7 +16,6 @@ local function recordingLoader()
     protectMap = function(_, mapId, protected)
       protections[#protections + 1] = { mapId, protected }
     end,
-    protectCells = function() end,
   }
 end
 
@@ -28,16 +27,13 @@ function T.fades_loads_swaps_while_black_and_completes()
   local source = { mapId = 61 }
   local destination = { mapId = 60 }
   local warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 }
-  local protections, cellProtections, swaps = {}, {}, {}
+  local protections, swaps = {}, {}
   local loader = {
     load = function()
       return destination
     end,
     protectMap = function(_, mapId, protected)
       protections[#protections + 1] = { mapId, protected }
-    end,
-    protectCells = function(_, mapId, cells)
-      cellProtections[#cellProtections + 1] = { mapId, #cells }
     end,
   }
   local transition = FieldTransition.new({
@@ -92,7 +88,6 @@ function T.fades_loads_swaps_while_black_and_completes()
     { 60, true },
     { 61, false },
   })
-  Assert.deepEqual(cellProtections, { { 61, 0 } })
 end
 
 -- The default resolver is WarpSystem.resolveDestination: a transition built
@@ -128,7 +123,6 @@ function T.default_resolver_handles_direct_warp_records()
       return destination
     end,
     protectMap = function() end,
-    protectCells = function() end,
   }
   local transition = FieldTransition.new({
     loader = loader,
@@ -216,7 +210,6 @@ function T.destination_pin_failure_aborts_with_pins_released()
         error("pin failed", 0)
       end
     end,
-    protectCells = function() end,
   }
   local transition = FieldTransition.new({
     loader = loader,
@@ -251,7 +244,6 @@ function T.source_pin_failure_at_start_aborts_idle()
         error("pin failed", 0)
       end
     end,
-    protectCells = function() end,
   }
   local transition = FieldTransition.new({
     loader = loader,

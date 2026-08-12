@@ -107,20 +107,6 @@ function T.protection_defers_eviction_and_release_is_exactly_once()
   Assert.equal(releases[1], 1)
 end
 
-function T.visible_cell_protection_keeps_its_aggregate_resident()
-  local cache, world, sceneLoader, releases = fixture(2)
-  local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader, capacity = 1 })
-  loader:load(0)
-  loader:protectCells(0, { { x = 0, z = 0 } })
-  loader:load(1)
-  Assert.notNil(loader:get(0))
-  Assert.equal(loader:residentCount(), 2)
-  loader:protectCells(0, {})
-  Assert.isNil(loader:get(0))
-  Assert.equal(releases[0], 1)
-  loader:release()
-end
-
 function T.round_trip_reuses_both_resident_map_aggregates()
   local cache, world, sceneLoader, releases = fixture(2)
   local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader, capacity = 4 })
@@ -222,7 +208,11 @@ function T.missing_prefetch_cells_do_not_reject_loaded_visible_cells()
         local permissionPath = "neighbor_" .. key .. ".bin"
         local terrainPath = "neighbor_" .. key .. ".lua"
         files[permissionPath] = string.rep("\0", 2048)
-        files[terrainPath] = { schema = "g4-terrain-surfaces-v1", plates = {} }
+        files[terrainPath] = {
+          schema = "g4-terrain-surfaces-v1",
+          plates = {},
+          source = { bdhcSha1 = "neighbor-" .. key },
+        }
         scene.neighbors[#scene.neighbors + 1] = {
           offsetTilesX = x * 32,
           offsetTilesZ = z * 32,
@@ -275,7 +265,11 @@ function T.finite_neighbor_region_reports_missing_visible_cells_without_crashing
         local permissionPath = "finite_" .. key .. ".bin"
         local terrainPath = "finite_" .. key .. ".lua"
         files[permissionPath] = string.rep("\0", 2048)
-        files[terrainPath] = { schema = "g4-terrain-surfaces-v1", plates = {} }
+        files[terrainPath] = {
+          schema = "g4-terrain-surfaces-v1",
+          plates = {},
+          source = { bdhcSha1 = "neighbor-" .. key },
+        }
         scene.neighbors[#scene.neighbors + 1] = {
           offsetTilesX = x * 32,
           offsetTilesZ = z * 32,
@@ -340,13 +334,18 @@ function T.failed_coverage_load_releases_the_scene_runtime()
 end
 
 -- A malformed terrain artifact fails construction after both the scene runtime
--- and the coverage runtime were acquired; both must be released.
+-- and the coverage runtime were acquired; both must be released. The source
+-- record is present (the strict identity fields), so the failure is the
+-- missing plates inside the terrain construction transaction.
 function T.failed_terrain_construction_releases_scene_and_coverage()
   local cache, world, sceneLoader, releases, files = fixture(1)
   files["data/generated/maps/0000/scene.lua"].neighbors = {
     { offsetTilesX = 32, offsetTilesZ = 0, batches = {}, materials = {} },
   }
-  files["data/generated/maps/0000/terrain.lua"] = { schema = "g4-terrain-surfaces-v1" }
+  files["data/generated/maps/0000/terrain.lua"] = {
+    schema = "g4-terrain-surfaces-v1",
+    source = { bdhcSha1 = "central-0" },
+  }
   local coverageReleases = 0
   local coverageLoader = {
     load = function()
@@ -371,6 +370,95 @@ function T.failed_terrain_construction_releases_scene_and_coverage()
   loader:release()
   Assert.equal(releases[0], 1, "scene release stays exactly once")
   Assert.equal(coverageReleases, 1, "coverage release stays exactly once")
+end
+
+-- The generated scene contract is strict: a scene without a neighbors record
+-- is malformed generated data and must fail the load, never load with an
+-- empty neighbor set (a partly working map).
+function T.map_without_a_neighbors_record_fails_to_load()
+  local cache, world, sceneLoader, _, files = fixture(1)
+  files["data/generated/maps/0000/scene.lua"].neighbors = nil
+  local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader })
+  Assert.throws(function()
+    loader:load(0)
+  end)
+  Assert.isNil(loader:get(0), "no partly loaded aggregate is resident")
+  loader:release()
+end
+
+-- The terrain artifact source record is part of the terrain dependency
+-- identity; its absence must fail the load instead of degrading the hash.
+function T.map_without_a_terrain_artifact_source_fails_to_load()
+  local cache, world, sceneLoader, _, files = fixture(1)
+  files["data/generated/maps/0000/terrain.lua"] = { schema = "g4-terrain-surfaces-v1", plates = {} }
+  local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader })
+  Assert.throws(function()
+    loader:load(0)
+  end)
+  Assert.isNil(loader:get(0), "no partly loaded aggregate is resident")
+  loader:release()
+end
+
+-- A source record without its bdhcSha1 is equally malformed: the hash must
+-- not silently degrade to "unknown".
+function T.map_without_a_terrain_source_sha1_fails_to_load()
+  local cache, world, sceneLoader, _, files = fixture(1)
+  files["data/generated/maps/0000/terrain.lua"] = {
+    schema = "g4-terrain-surfaces-v1",
+    plates = {},
+    source = {},
+  }
+  local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader })
+  Assert.throws(function()
+    loader:load(0)
+  end)
+  Assert.isNil(loader:get(0), "no partly loaded aggregate is resident")
+  loader:release()
+end
+
+-- A neighbor terrain artifact without its source record is equally malformed:
+-- the dependency identity covers every region cell, so neighbor cells must not
+-- degrade to "unknown". The failure lands inside the load transaction, so the
+-- acquired scene and coverage runtimes are released.
+function T.map_without_a_neighbor_terrain_source_fails_to_load()
+  local cache, world, sceneLoader, releases, files = fixture(1)
+  local permissionPath = "data/generated/maps/0000/neighbors/3/permissions.bin"
+  local terrainPath = "data/generated/maps/0000/neighbors/3/terrain.lua"
+  files["data/generated/maps/0000/scene.lua"].neighbors = {
+    {
+      offsetTilesX = 32,
+      offsetTilesZ = 0,
+      collision = { file = permissionPath },
+      terrain = { file = terrainPath },
+    },
+  }
+  files[permissionPath] = string.rep("\0", 2048)
+  files[terrainPath] = { schema = "g4-terrain-surfaces-v1", plates = {} }
+  local coverageReleases = 0
+  local coverageLoader = {
+    load = function()
+      return {
+        draws = {},
+        release = function()
+          coverageReleases = coverageReleases + 1
+        end,
+      }
+    end,
+  }
+  local loader = FieldMapLoader.new(cache, world, {
+    sceneLoader = sceneLoader,
+    coverageLoader = coverageLoader,
+  })
+  local err = Assert.throws(function()
+    loader:load(0)
+  end)
+  Assert.isTrue(
+    Errors.is(err) and err.code == "FIELD_MAP_TERRAIN_CACHE_INVALID",
+    "the terrain identity failure propagates"
+  )
+  Assert.equal(releases[0], 1, "the scene runtime is released")
+  Assert.equal(coverageReleases, 1, "the coverage runtime is released")
+  loader:release()
 end
 
 -- Malformed neighbor permissions fail neighbor decoding after both runtimes

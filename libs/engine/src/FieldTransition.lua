@@ -155,12 +155,7 @@ function FieldTransition:updateFixed()
   -- cleanup: a failure there is recorded but must not abort (aborting would
   -- unpin the now-live destination map).
   if self.sourceMap.mapId ~= self.resolution.destinationMap.mapId then
-    local ok, err = pcall(function()
-      if self.loader.protectCells then
-        self.loader:protectCells(self.sourceMap.mapId, {})
-      end
-      self.loader:protectMap(self.sourceMap.mapId, false)
-    end)
+    local ok, err = pcall(self.loader.protectMap, self.loader, self.sourceMap.mapId, false)
     if not ok then
       self.error = err
     end
