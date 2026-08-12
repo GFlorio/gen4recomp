@@ -64,15 +64,65 @@ local function loadResourceChunk(content, chunkName, requireFn)
   return resource
 end
 
+-- Decode one generated script file from the compiled cache: read, parse, and
+-- execute the restricted chunk, check the resource id against the entry, and
+-- optionally validate the schema. Returns the resource, or nil plus an Errors
+-- object on any failure.
+---@param cacheFs table CacheFs-shaped
+---@param id string
+---@param requireFn fun(name: string): any|nil defaults to the restricted gen4.script-only require
+---@param opts table|nil { validate: boolean? }
+---@return table|nil, Errors.Error?
+function ScriptLoader.loadGenerated(cacheFs, id, requireFn, opts)
+  requireFn = requireFn or defaultRequire
+  opts = opts or {}
+  local path = ScriptCache.scriptPath(id)
+  local content = cacheFs:read(path)
+  if content == nil then
+    return nil,
+      Errors.new(
+        ScriptErrors.SCRIPT_LOAD_FAILED,
+        "script cache resource is unavailable",
+        { scriptId = id, path = path }
+      )
+  end
+  local ok, resource = pcall(loadResourceChunk, content --[[@as string]], path, requireFn)
+  if not ok then
+    return nil, resource --[[@as Errors.Error]]
+  end
+  resource = resource --[[@as table]]
+  if resource.id ~= id then
+    return nil,
+      Errors.new(
+        ScriptErrors.SCRIPT_LOAD_FAILED,
+        "script cache resource does not match its index entry",
+        { scriptId = id, resourceId = resource.id }
+      )
+  end
+  if opts.validate ~= false then
+    local ok, validateErr = Validator.validate(resource)
+    if not ok then
+      return nil, validateErr
+    end
+  end
+  return resource
+end
+
 -- Load every generated base from the compiled script cache: the index lists
 -- the resources and each file is one `S.script` resource. A missing or
 -- invalid base is a hard load error (the cache readiness check already gates
--- the build, so a mismatch here is a real fault).
+-- the build, so a mismatch here is a real fault). With `opts.lazy`, only the
+-- layer presence is installed (installBaseDeferred): the resources decode
+-- through the build's resource loader on first access, and
+-- `opts.validateGenerated` (default true) gates per-load validation on that
+-- path; the eager path validates every loaded resource under the same flag.
 ---@param registry table Registry
 ---@param cacheFs table CacheFs-shaped
 ---@param requireFn fun(name: string): any
-function ScriptLoader.installGenerated(registry, cacheFs, requireFn)
+---@param opts table|nil { lazy: boolean?, validateGenerated: boolean? }
+function ScriptLoader.installGenerated(registry, cacheFs, requireFn, opts)
   requireFn = requireFn or defaultRequire
+  opts = opts or {}
   local index, indexErr = cacheFs:loadLua(ScriptCache.indexPath())
   if not index then
     Errors.raise(
@@ -90,31 +140,21 @@ function ScriptLoader.installGenerated(registry, cacheFs, requireFn)
   end
   for _, entry in ipairs(index.resources or {}) do
     assert(type(entry.id) == "string" and entry.id ~= "", "script cache index entry id required")
-    local content = cacheFs:read(ScriptCache.scriptPath(entry.id))
-    if content == nil then
-      Errors.raise(
-        ScriptErrors.SCRIPT_LOAD_FAILED,
-        "script cache resource is unavailable",
-        { scriptId = entry.id, path = ScriptCache.scriptPath(entry.id) }
-      )
+    if opts.lazy then
+      registry:installBaseDeferred(entry.id, "generated")
+    else
+      local resource, err = ScriptLoader.loadGenerated(cacheFs, entry.id, requireFn, {
+        validate = opts.validateGenerated ~= false,
+      })
+      if resource == nil then
+        Errors.raise(
+          err and err.code or ScriptErrors.SCRIPT_LOAD_FAILED,
+          err and err.message or "generated script failed to load",
+          { scriptId = entry.id, cause = err and err.context or nil }
+        )
+      end
+      registry:installBase(entry.id, resource, "generated")
     end
-    local resource = loadResourceChunk(content --[[@as string]], ScriptCache.scriptPath(entry.id), requireFn)
-    if resource.id ~= entry.id then
-      Errors.raise(
-        ScriptErrors.SCRIPT_LOAD_FAILED,
-        "script cache resource does not match its index entry",
-        { scriptId = entry.id, resourceId = resource.id }
-      )
-    end
-    local ok, validateErr = Validator.validate(resource)
-    if not ok then
-      Errors.raise(
-        validateErr and validateErr.code or ScriptErrors.SCRIPT_SCHEMA_INVALID,
-        "generated script fails validation: " .. tostring(validateErr and validateErr.message or "?"),
-        { scriptId = entry.id, cause = validateErr and validateErr.context or nil }
-      )
-    end
-    registry:installBase(entry.id, resource, "generated")
   end
 end
 
@@ -182,16 +222,42 @@ end
 
 -- Build a registry from the script cache plus the override directory. `fs`
 -- must expose the repo `data/scripts/overrides` directory; the game passes an
--- io-backed repo filesystem (RepoFs) reading the checkout tree.
+-- io-backed repo filesystem (RepoFs) reading the checkout tree. With
+-- `opts.lazy` the generated layer installs as deferred placeholders that
+-- decode on first access through a loader closure over `cacheFs`;
+-- `opts.validateGenerated` (default true) gates per-load validation on the
+-- lazy path and per-file validation on the eager path. The override layer is
+-- always loaded and validated eagerly.
 ---@param cacheFs table CacheFs-shaped
 ---@param fs table directory-shaped filesystem for data/scripts/overrides
 ---@param requireFn function|nil defaults to the restricted gen4.script-only require
+---@param opts table|nil { lazy: boolean?, validateGenerated: boolean? }
 ---@return table registry
-function ScriptLoader.buildRegistry(cacheFs, fs, requireFn)
-  local Registry = require("libs.engine.src.script.Registry")
-  local registry = Registry.new()
+function ScriptLoader.buildRegistry(cacheFs, fs, requireFn, opts)
+  opts = opts or {}
   requireFn = requireFn or defaultRequire
-  ScriptLoader.installGenerated(registry, cacheFs, requireFn)
+  local Registry = require("libs.engine.src.script.Registry")
+  local registry
+  if opts.lazy then
+    registry = Registry.new({
+      loadResource = function(id, layer)
+        local resource, err = ScriptLoader.loadGenerated(cacheFs, id, requireFn, {
+          validate = opts.validateGenerated ~= false,
+        })
+        if resource == nil then
+          Errors.raise(
+            err and err.code or ScriptErrors.SCRIPT_LOAD_FAILED,
+            err and err.message or "generated script failed to load",
+            { scriptId = id, cause = err and err.context or nil }
+          )
+        end
+        return resource
+      end,
+    })
+  else
+    registry = Registry.new()
+  end
+  ScriptLoader.installGenerated(registry, cacheFs, requireFn, opts)
   ScriptLoader.installOverrides(registry, fs, requireFn)
   return registry
 end

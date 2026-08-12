@@ -5,7 +5,12 @@
 -- this module) folds them into the effective chain. A `remove` contribution is
 -- an explicit tombstone that suppresses the base and lower-priority
 -- definitions. The registry also stamps the deterministic fingerprint used by
--- save validation. Pure domain module: no love dependency.
+-- save validation. Base layers may be installed as deferred placeholders
+-- (installBaseDeferred) that decode through an injected resource loader on
+-- first access, so a boot never needs to decode the whole generated corpus;
+-- the warm-up pass can stash per-resource fingerprint hashes
+-- (cacheScriptHash) that fingerprint() consumes without decoding. Pure domain
+-- module: no love dependency.
 
 local Errors = require("libs.rom.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -18,8 +23,13 @@ local Sha256 = require("libs.engine.src.script.Sha256")
 ---@field private _registrationIndex integer
 ---@field private _version integer
 ---@field private _fingerprintCache table|nil { version: integer, value: string }
+---@field private _hashCache table|nil { version: integer, values: table<string, table<string, string>> }
+---@field private _loadResource fun(id: string, layer: string): table|nil, any?|nil
 local Registry = {}
 Registry.__index = Registry
+
+-- Sentinel for a base layer whose resource is not decoded yet.
+local PENDING = {}
 
 -- Vanilla base layers :
 -- the checked-in `data/scripts/overrides` layer is a compatibility layer
@@ -70,14 +80,18 @@ local function normalizeOwner(owner)
   return { kind = owner.kind, id = owner.id, api = owner.api or 1 }
 end
 
+---@param opts table|nil { loadResource: fun(id: string, layer: string): table|nil, any?|nil }
 ---@return Registry
-function Registry.new()
+function Registry.new(opts)
+  opts = opts or {}
   return setmetatable({
     _bases = {},
     _contributions = {},
     _registrationIndex = 0,
     _version = 0,
     _fingerprintCache = nil,
+    _hashCache = nil,
+    _loadResource = opts.loadResource,
   }, Registry)
 end
 
@@ -104,6 +118,22 @@ function Registry:installBase(id, script, layer)
   assert(type(id) == "string" and id ~= "", "script id required")
   assert(type(script) == "table", "base script must be a table")
   assert(BASE_LAYERS[layer] ~= nil, "base layer must be generated, handwritten, or override")
+  self:_installLayer(id, layer, script)
+  return script
+end
+
+-- Record a base layer whose resource is not decoded yet; `base` resolves it
+-- through the registry's resource loader on first access. Same duplicate
+-- rules as installBase.
+---@param id string
+---@param layer string
+function Registry:installBaseDeferred(id, layer)
+  assert(type(id) == "string" and id ~= "", "script id required")
+  assert(BASE_LAYERS[layer] ~= nil, "base layer must be generated, handwritten, or override")
+  self:_installLayer(id, layer, PENDING)
+end
+
+function Registry:_installLayer(id, layer, value)
   local layers = self._bases[id]
   if layers == nil then
     layers = {}
@@ -116,13 +146,34 @@ function Registry:installBase(id, script, layer)
       { scriptId = id, layer = layer, owner = VANILLA_OWNER }
     )
   end
-  layers[layer] = script
+  layers[layer] = value
   self._version = self._version + 1
-  return script
+end
+
+-- Decode a pending layer through the resource loader and memoize it in the
+-- slot; the loader is wired at construction, so its absence is a programming
+-- fault, and a loader failure is a hard load error.
+---@param id string
+---@param layer string
+---@return table
+function Registry:_load(id, layer)
+  local loader = assert(self._loadResource, "registry has no resource loader for deferred base " .. id)
+  local resource, err = loader(id, layer)
+  if resource == nil then
+    Errors.raise(
+      ScriptErrors.SCRIPT_LOAD_FAILED,
+      "deferred base is unavailable: " .. id .. " (" .. tostring(err and err.message or "?") .. ")",
+      { scriptId = id, layer = layer, cause = err and err.context or nil }
+    )
+  end
+  ---@cast resource table
+  self._bases[id][layer] = resource
+  return resource
 end
 
 -- The effective base resource: handwritten over override over generated,
--- ignoring mod contributions (the composition layer applies those).
+-- ignoring mod contributions (the composition layer applies those). A
+-- deferred layer decodes on first access and is memoized.
 ---@param id string
 ---@return table?
 function Registry:base(id)
@@ -130,7 +181,17 @@ function Registry:base(id)
   if not layers then
     return nil
   end
-  return layers.handwritten or layers.override or layers.generated or nil
+  local layer = layers.handwritten and "handwritten"
+    or layers.override and "override"
+    or layers.generated and "generated"
+  if not layer then
+    return nil
+  end
+  local script = layers[layer]
+  if script == PENDING then
+    script = self:_load(id, layer)
+  end
+  return script
 end
 
 -- Append one contribution. The `owner` may be a mod `{modId, api}` or an
@@ -352,6 +413,41 @@ function Registry:version()
   return self._version
 end
 
+-- Preload the fingerprint memo from a validated keyed snapshot: the key
+-- proves the registry content is what the digest was computed from. Valid
+-- only while the registry is unmutated; any later install bumps `_version`
+-- and the memo is recomputed from live content.
+---@param value string
+function Registry:restoreFingerprint(value)
+  assert(type(value) == "string" and value ~= "", "restored fingerprint must be a non-empty string")
+  self._fingerprintCache = { version = self._version, value = value }
+end
+
+-- Stash one base layer's fingerprint hash so fingerprint() can assemble the
+-- digest without decoding that resource. Keyed on the mutation version: any
+-- later install invalidates the stash and fingerprint() recomputes live.
+-- The hash must be exactly what fingerprint() would compute
+-- (Sha256.hex(LuaWriter.encode(resource))).
+---@param id string
+---@param layer string
+---@param hash string
+function Registry:cacheScriptHash(id, layer, hash)
+  assert(type(id) == "string" and id ~= "", "script id required")
+  assert(BASE_LAYERS[layer] ~= nil, "base layer must be generated, handwritten, or override")
+  assert(type(hash) == "string" and #hash == 64, "script hash must be a 64-character hex digest")
+  local cache = self._hashCache
+  if cache == nil or cache.version ~= self._version then
+    cache = { version = self._version, values = {} }
+    self._hashCache = cache
+  end
+  local byLayer = cache.values[id]
+  if byLayer == nil then
+    byLayer = {}
+    cache.values[id] = byLayer
+  end
+  byLayer[layer] = hash
+end
+
 -- Deterministic registry fingerprint over every base and contribution:
 -- ordering, owners, priorities, operations, resource ids, and
 -- a content hash of each resource. The fingerprint therefore changes when a
@@ -367,15 +463,31 @@ function Registry:fingerprint()
     return cached.value
   end
   local projection = {}
+  local hashCache = self._hashCache
+  local cachedValues
+  if hashCache ~= nil and hashCache.version == self._version then
+    cachedValues = hashCache.values
+  end
   for _, id in ipairs(self:ids()) do
     local entry = { id = id, bases = {} }
+    local byLayer = cachedValues and cachedValues[id] or nil
     for layer in pairs(self._bases[id] or {}) do
-      local script = self._bases[id][layer]
-      entry.bases[#entry.bases + 1] = {
-        layer = layer,
-        scriptId = script.id,
-        scriptHash = Sha256.hex(LuaWriter.encode(script)),
-      }
+      local cachedHash = byLayer and byLayer[layer] or nil
+      if cachedHash ~= nil then
+        -- A stashed hash implies the resource was already decoded with its
+        -- id checked at load time, so the layer id equals the script id.
+        entry.bases[#entry.bases + 1] = { layer = layer, scriptId = id, scriptHash = cachedHash }
+      else
+        local script = self._bases[id][layer]
+        if script == PENDING then
+          script = self:_load(id, layer)
+        end
+        entry.bases[#entry.bases + 1] = {
+          layer = layer,
+          scriptId = script.id,
+          scriptHash = Sha256.hex(LuaWriter.encode(script)),
+        }
+      end
     end
     table.sort(entry.bases, function(a, b)
       return a.layer < b.layer

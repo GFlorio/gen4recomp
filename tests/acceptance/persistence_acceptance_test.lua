@@ -3,6 +3,7 @@
 -- restore FieldSave or construct a field subsystem themselves.
 
 local Assert = require("tests.support.Assert")
+local CacheFs = require("libs.rom.src.CacheFs")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 
 local T = {
@@ -146,6 +147,66 @@ function T.tests.mid_script_restart_resumes_through_recomputed_revisions()
     Assert.isFalse(done.dialogue.modal)
     Assert.isFalse(done.fieldLocked)
   end)
+end
+
+-- A compact source-faithful three-choice vanilla menu (749--752 flow): the
+-- post-resume script that proves lazy on-demand decode through production
+-- composition. Its second value is 1, so selection is observably distinct.
+local VANILLA_MENU = "vanilla.hgss.scr_seq.0003.script_056"
+local RESULT_VARIABLE = 32780
+
+local function menuIsModal(snapshot)
+  return snapshot.menu ~= nil and snapshot.menu.modal == true
+end
+
+local function itemCenter(snapshot, itemIndex)
+  local menu = assert(snapshot.menu, "field menu snapshot is required")
+  local rect = assert(menu.itemRects[itemIndex], "field menu item rectangle is required")
+  return rect.x + rect.width / 2, rect.y + rect.height / 2
+end
+
+-- REG-SNAP-01: the full snapshot cycle through production composition. A
+-- forced snapshot miss boots lazily with the background warm-up running
+-- during play; the save finishes the warm-up, computes the fingerprint, and
+-- publishes the snapshot; the resume boot reuses it and then decodes a real
+-- generated script on first use.
+function T.tests.resume_reuses_the_registry_snapshot_after_a_saved_session()
+  CacheFs.forVersion("heartgold"):remove("data/generated/script/registry.lua")
+  local game = AcceptanceHarness.new():boot({ versionId = "heartgold", map = LAB, save = "fresh" })
+  local ok, err = xpcall(function()
+    game:moveTo({ fieldX = 6, fieldZ = 6 })
+    game:face("north")
+    local before = game:snapshot()
+    local resumed = restart(game, { save = "resume" })
+    Assert.deepEqual(resumed:snapshot().player, before.player)
+    local scripts = resumed.runtime.scripts
+    Assert.isTrue(scripts.registrySnapshotUsed, "resume boot must reuse the persisted registry snapshot")
+    local snapshot = CacheFs.forVersion("heartgold"):loadLua("data/generated/script/registry.lua")
+    Assert.notNil(snapshot, "registry snapshot file must exist after a saved session")
+    ---@cast snapshot table
+    Assert.equal(snapshot.schema, "g4-registry-snapshot-v1")
+    Assert.isTrue(snapshot.key:match("^[0-9a-f]+$") ~= nil, "snapshot key must be a hex digest")
+    Assert.isTrue(snapshot.fingerprint:match("^[0-9a-f]+$") ~= nil, "snapshot fingerprint must be a hex digest")
+
+    -- The snapshot-hit resume decodes generated scripts lazily on first
+    -- use: a real 749--752 menu starts, opens, accepts a pointer selection,
+    -- and commits its script-owned value.
+    resumed:startScript(VANILLA_MENU)
+    resumed:step()
+    local opened = resumed:advanceUntil("vanilla field menu becomes modal", menuIsModal, 120)
+    local x, y = itemCenter(opened, 1)
+    resumed.runtime.input:pointerDown("mouse:1", x, y)
+    resumed:step()
+    resumed.runtime.input:pointerUp("mouse:1", x, y)
+    resumed:advanceUntil("menu closes after selection", function(snapshot)
+      return snapshot.menu ~= nil and not snapshot.menu.modal
+    end, 120)
+    Assert.equal(resumed.runtime.scripts.worldState:getVar(RESULT_VARIABLE), 1)
+  end, debug.traceback)
+  game:close()
+  if not ok then
+    error(err, 0)
+  end
 end
 
 return T

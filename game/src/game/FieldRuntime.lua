@@ -385,7 +385,7 @@ function FieldRuntime:_load()
     })
     if restored and restored.scripts then
       ScriptSave.restore(restored.scripts, self.scripts.scheduler, 0, {
-        expectedRegistryFingerprint = self.scripts.registry:fingerprint(),
+        expectedRegistryFingerprint = self.scripts:registryFingerprint(),
       })
     end
     if restored and restored.world then
@@ -423,6 +423,11 @@ function FieldRuntime:_load()
 end
 
 function FieldRuntime:update(dt)
+  -- The background registry warm-up (snapshot-miss boot) runs one time
+  -- slice per frame; the first save finishes whatever it has not.
+  if self.scripts and self.scripts.warmup then
+    self.scripts.warmup:update()
+  end
   if self.session then
     self.session:update(dt)
     if self.transition.error then
@@ -489,7 +494,7 @@ function FieldRuntime:_save(successText)
     local scriptsBucket
     if self.scripts then
       scriptsBucket = ScriptSave.capture(self.scripts.scheduler, self.session.tick, {
-        registryFingerprint = self.scripts.registry:fingerprint(),
+        registryFingerprint = self.scripts:registryFingerprint(),
       })
     end
     self.saveStore:save(FieldSave.capture(self.session, {

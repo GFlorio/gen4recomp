@@ -18,6 +18,8 @@ local ScriptMenuHost = require("libs.engine.src.script.ScriptMenuHost")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
 local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
 local ScriptMapsService = require("libs.engine.src.script.ScriptMapsService")
+local RegistrySnapshot = require("libs.engine.src.script.RegistrySnapshot")
+local RegistryWarmup = require("libs.engine.src.script.RegistryWarmup")
 local WorldState = require("libs.engine.src.script.WorldState")
 local Scheduler = require("libs.engine.src.script.Scheduler")
 local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
@@ -181,6 +183,11 @@ end
 ---@field mapsService ScriptMapsService
 ---@field menuHost ScriptMenuHost
 ---@field player ScriptPlayerFacade
+---@field cacheFs table CacheFs-shaped
+---@field overrideFs table read-shaped filesystem for data/scripts/overrides
+---@field registrySnapshotKey string|nil key the live registry was built under
+---@field registrySnapshotUsed boolean true when a matching snapshot skipped per-use validation
+---@field warmup RegistryWarmup|nil background warm-up after a snapshot miss
 local FieldScripts = {}
 FieldScripts.__index = FieldScripts
 
@@ -209,7 +216,31 @@ function FieldScripts.new(opts)
     "field scripts require transition, auxiliary UI, context choice, and menu host"
   )
 
-  local registry = ScriptLoader.buildRegistry(opts.cacheFs, opts.overrideFs)
+  -- The registry is always installed lazily: only the generated layer's
+  -- presence comes from the index, and each script decodes on first use. A
+  -- matching snapshot proves the corpus unchanged since the cache build
+  -- validated it (skip per-use validation) and restores the memoized
+  -- fingerprint; on a miss the background warm-up decodes, hashes, and
+  -- publishes the snapshot while the game plays, and the first save finishes
+  -- it. The override layer is always loaded and validated eagerly.
+  local snapshot = RegistrySnapshot.load(opts.cacheFs, opts.overrideFs)
+  local fast = snapshot ~= nil and snapshot.fingerprint ~= nil
+  local registry = ScriptLoader.buildRegistry(opts.cacheFs, opts.overrideFs, nil, {
+    lazy = true,
+    validateGenerated = not fast,
+  })
+  if snapshot ~= nil and snapshot.fingerprint ~= nil then
+    registry:restoreFingerprint(snapshot.fingerprint)
+  end
+  local warmup
+  if not fast then
+    warmup = RegistryWarmup.new({
+      registry = registry,
+      cacheFs = opts.cacheFs,
+      overrideFs = opts.overrideFs,
+      snapshotKey = snapshot and snapshot.key or nil,
+    })
+  end
   local composition = Composition.new(registry)
   local bindings = Bindings.new(opts.bindingsManifest)
   -- Load-time audit: every interactable event of every bound map must be
@@ -257,6 +288,11 @@ function FieldScripts.new(opts)
 
   local platform = setmetatable({
     registry = registry,
+    registrySnapshotKey = snapshot and snapshot.key or nil,
+    registrySnapshotUsed = fast,
+    warmup = warmup,
+    cacheFs = opts.cacheFs,
+    overrideFs = opts.overrideFs,
     composition = composition,
     bindings = bindings,
     worldState = worldState,
@@ -306,6 +342,31 @@ function FieldScripts.new(opts)
     scheduler = scheduler,
   })
   return platform
+end
+
+-- The registry fingerprint used for save validation. On a snapshot miss the
+-- warm-up is finished synchronously here (the fingerprint is the save's
+-- cross-boot contract and cannot be partial); a warm-up failure is a corrupt
+-- cache and fails the save loudly. The digest is then persisted into the
+-- keyed snapshot while the world still matches the key it was computed
+-- under: a mid-session override edit skips the write, so the next boot
+-- warms up again instead of trusting a stale digest.
+---@return string
+function FieldScripts:registryFingerprint()
+  local fingerprint
+  if self.warmup ~= nil then
+    local failure = self.warmup:finish()
+    if failure ~= nil then
+      Errors.raise(failure.code, failure.message, failure.context)
+    end
+    fingerprint = self.registry:fingerprint()
+  else
+    fingerprint = self.registry:fingerprint()
+  end
+  if self.registrySnapshotKey ~= nil then
+    RegistrySnapshot.save(self.cacheFs, self.overrideFs, fingerprint, self.registrySnapshotKey)
+  end
+  return fingerprint
 end
 
 -- Rebind the facade and warp source after a map swap (the player and the

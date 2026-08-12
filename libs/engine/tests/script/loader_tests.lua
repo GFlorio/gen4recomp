@@ -173,4 +173,82 @@ T["buildRegistry injects require for generated files"] = function()
   Assert.isTrue(#calls > 0, "the injected require ran for the generated files")
 end
 
+-- A cache whose generated script fails validation (the shape the compiled
+-- cache writer can never emit, but a hand-tampered file could).
+local function invalidScriptCache()
+  local cache = CacheFs.forVersion("heartgold", FakeCache.new())
+  cache:writeLua("data/generated/script/index.lua", {
+    schema = "g4-script-index-v1",
+    resources = { { id = "invalid.script" } },
+  })
+  cache:write(
+    "data/generated/script/scripts/invalid.script.lua",
+    'local S = require("gen4.script")\nreturn S.script { api = 1, id = "invalid.script", steps = { S.setVar { } } }\n'
+  )
+  return cache
+end
+
+-- 8. A lazy build decodes nothing until first use: no script file is read
+-- at build time, and base() reads exactly its own file.
+T["lazy build reads no script files until first use"] = function()
+  local Registry = require("libs.engine.src.script.Registry")
+  local cache = scriptCache()
+  local originalRead = cache.backend.read
+  local scriptReads = 0
+  cache.backend.read = function(self, path)
+    if path:find("data/generated/script/scripts/", 1, true) then
+      scriptReads = scriptReads + 1
+    end
+    return originalRead(self, path)
+  end
+  local registry = ScriptLoader.buildRegistry(cache, overrideFs({}), requireShim, { lazy = true })
+  Assert.equal(scriptReads, 0, "a lazy build must not read any script file")
+  Assert.notNil(registry:base("new_bark.lab_sign"))
+  Assert.equal(scriptReads, 1, "base() reads exactly its own file")
+end
+
+-- 8b. The lazy per-use validation policy: by default a generated script is
+-- validated on first use, so invalid content fails at the access point.
+T["lazy build validates generated content on first use"] = function()
+  local Registry = require("libs.engine.src.script.Registry")
+  local registry = ScriptLoader.buildRegistry(invalidScriptCache(), overrideFs({}), requireShim, { lazy = true })
+  throwsCode("SCRIPT_SCHEMA_INVALID", function()
+    registry:base("invalid.script")
+  end)
+end
+
+-- 8c. validateGenerated=false skips validation on the lazy path (a keyed
+-- snapshot already proved the corpus unchanged since the cache build
+-- validated it); the identity check still applies.
+T["lazy build without validation accepts invalid generated content"] = function()
+  local Registry = require("libs.engine.src.script.Registry")
+  local registry = ScriptLoader.buildRegistry(invalidScriptCache(), overrideFs({}), requireShim, {
+    lazy = true,
+    validateGenerated = false,
+  })
+  Assert.notNil(registry:base("invalid.script"))
+end
+
+-- 8d. The eager path still validates generated content by default.
+T["eager build validates generated content by default"] = function()
+  throwsCode("SCRIPT_SCHEMA_INVALID", function()
+    ScriptLoader.buildRegistry(invalidScriptCache(), overrideFs({}), requireShim)
+  end)
+end
+
+-- 8e. The lazy path never skips the checked-in override layer: overrides are
+-- fully validated eagerly on every boot.
+T["lazy build does not skip override validation"] = function()
+  throwsCode("SCRIPT_SCHEMA_INVALID", function()
+    ScriptLoader.buildRegistry(
+      scriptCache(),
+      overrideFs({
+        ["bad.override.lua"] = 'local S = require("gen4.script")\nreturn S.script { api = 1, id = "bad.override", steps = { S.setVar { } } }\n',
+      }),
+      requireShim,
+      { lazy = true }
+    )
+  end)
+end
+
 return T

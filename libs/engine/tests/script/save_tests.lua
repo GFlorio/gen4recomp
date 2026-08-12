@@ -436,6 +436,19 @@ T["task fingerprint ignores registration order"] = function()
   Assert.equal(a:fingerprint(), b:fingerprint())
 end
 
+-- 10c. A snapshot-restored fingerprint memo is reused verbatim and is
+-- invalidated by any later mutation, so save validation still sees the
+-- recomputed digest after a change.
+T["restored fingerprint memo is reused and invalidated on mutation"] = function()
+  local h = harness()
+  h.registry:installBase("test.memo", script("test.memo", { S.stop() }), "generated")
+  local computed = h.registry:fingerprint()
+  h.registry:restoreFingerprint(computed)
+  Assert.equal(h.registry:fingerprint(), computed, "the restored memo is reused verbatim")
+  h.registry:installBase("test.memo2", script("test.memo2", { S.stop() }), "generated")
+  Assert.isTrue(h.registry:fingerprint() ~= computed, "a later mutation invalidates the restored memo")
+end
+
 -- 11. Capture refuses a running context: saves occur only at fixed-tick
 -- phase boundaries.
 T["capture requires phase boundary"] = function()
