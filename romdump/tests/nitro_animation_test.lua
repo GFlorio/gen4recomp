@@ -1,4 +1,4 @@
--- Synthetic tests for the five NitroSystem 3D animation formats.
+-- Synthetic tests for the four NitroSystem 3D animation formats.
 -- Fixtures mirror the verified real HGSS byte layouts (see the decoder
 -- headers); sampling tests assert the exact NitroSystem arithmetic from the
 -- pinned pokediamond asm.
@@ -12,7 +12,6 @@ local Nsbca = require("romdump.src.digest.nitro.Nsbca")
 local Nsbta = require("romdump.src.digest.nitro.Nsbta")
 local Nsbtp = require("romdump.src.digest.nitro.Nsbtp")
 local Nsbma = require("romdump.src.digest.nitro.Nsbma")
-local Nsbva = require("romdump.src.digest.nitro.Nsbva")
 local AnimationFixture = require("tests.support.AnimationFixture")
 
 local T = {}
@@ -344,23 +343,14 @@ function T.bma_colors_and_alpha()
   Assert.equal(s59.alpha, math.max(0, math.floor(31 - 59 / 2)))
 end
 
--- ---- NSBVA ----
-
-function T.bva_bit_extraction()
-  local res, r = decodeOne(AnimationFixture.visSimple())
-  Assert.equal(res.numFrame, 4)
-  Assert.equal(res.numAnm, 2)
-  -- bit frame * numAnm + node of the words at +0x0C.
-  Assert.isTrue(Nsbva.sample(res, 0, 0)) -- frame 0, node 0
-  Assert.isFalse(Nsbva.sample(res, 1, 0)) -- frame 0, node 1
-  Assert.isTrue(Nsbva.sample(res, 0, 1)) -- frame 1, node 0
-  Assert.isTrue(Nsbva.sample(res, 1, 1)) -- frame 1, node 1
-  Assert.isFalse(Nsbva.sample(res, 0, 2)) -- frame 2, node 0
-  Assert.isFalse(Nsbva.sample(res, 1, 2)) -- frame 2, node 1
-  Assert.isTrue(Nsbva.sample(res, 0, 3)) -- frame 3, node 0
-  Assert.isFalse(Nsbva.sample(res, 1, 3)) -- frame 3, node 1
-  -- Out-of-range frames clamp.
-  Assert.isTrue(Nsbva.sample(res, 0, 99))
+-- The BVA0 surface is deleted: the HGSS field archive has no VIS0 members
+-- (pinned by the ROM census), so NitroAnimation exposes the format no longer
+-- and a BVA0 byte stream is an unknown file magic, not a decodeable NSBVA.
+function T.bva0_surface_is_removed()
+  Assert.isNil(NitroAnimation.FORMATS and NitroAnimation.FORMATS["BVA0"])
+  throwsCode("ANM_UNKNOWN_FILE_MAGIC", function()
+    return NitroAnimation.decode("BVA0" .. string.rep("\0", 16))
+  end)
 end
 
 return T

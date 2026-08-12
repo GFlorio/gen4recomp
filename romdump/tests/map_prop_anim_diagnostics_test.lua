@@ -1,9 +1,10 @@
 -- MapPropAnimCompiler fatal diagnostics: a referenced animation resource
 -- that cannot decode or compile is an explicit fatal diagnostic identifying
 -- the model member and resource -- never a silent
--- fallback that drops the clip and compiles the model static. NSBVA is the
--- honest unsupported case: it has a decoder but no clip compiler, so a VIS0
--- resource in an anim-list record raises MAP_PROP_ANIM_UNSUPPORTED_FORMAT.
+-- fallback that drops the clip and compiles the model static. NSBVA was
+-- deleted (the HGSS field archive has no VIS0 members), so every format
+-- NitroAnimation decodes has a clip compiler and a broken resource surfaces
+-- as MAP_PROP_ANIM_UNRESOLVED.
 
 local Assert = require("tests.support.Assert")
 local BinaryWriter = require("libs.rom.src.BinaryWriter")
@@ -48,19 +49,6 @@ local function throwsCode(code, fn)
   return err
 end
 
-function T.unsupported_format_is_an_explicit_diagnostic()
-  -- NSBVA decodes (the decoder exists) but has no clip compiler: compiling a
-  -- VIS0 resource must raise, never drop the clip.
-  local res = resNarc({ [1] = AnimationFixture.visSimple() })
-  local err = throwsCode("MAP_PROP_ANIM_UNSUPPORTED_FORMAT", function()
-    return MapPropAnimCompiler.compile(referencingRecord({ 1 }), res, {
-      archiveAlias = "exterior_build_anim_list",
-      memberId = 26,
-    })
-  end)
-  Assert.equal(err.context.memberId, 1, "context identifies the resource member")
-end
-
 function T.unresolved_resource_is_an_explicit_diagnostic()
   -- A referenced member that fails to decode: the compile raises with the
   -- model member and resource in context.
@@ -103,19 +91,6 @@ function T.compiling_a_broken_resource_through_the_map_compile_is_fatal()
   err = assert(err)
   Assert.equal(err.code, "MAP_PROP_ANIM_UNRESOLVED")
   Assert.equal(err.context.memberId, MapRomFixture.BUILDING_MODEL_MEMBER_ID)
-end
-
-function T.unsupported_format_through_the_map_compile_is_fatal()
-  local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
-  local MapRomFixture = require("tests.support.MapRomFixture")
-  local romFs = MapRomFixture.build({
-    interiorBuildAnimList = { [MapRomFixture.BUILDING_MODEL_MEMBER_ID] = referencingRecord({ 0 }) },
-    buildAnim = { [0] = AnimationFixture.visSimple() },
-  })
-  local bundle, err = MapAssetCompiler.compile(romFs, MapRomFixture.MAP_SYMBOL)
-  Assert.isNil(bundle, "an unsupported animation format must fail the compile")
-  Assert.isTrue(Errors.is(err), "expected a structured error")
-  Assert.equal(assert(err).code, "MAP_PROP_ANIM_UNSUPPORTED_FORMAT")
 end
 
 return T

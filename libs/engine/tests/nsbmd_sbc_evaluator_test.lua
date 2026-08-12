@@ -78,7 +78,9 @@ local function program(opts)
   }
 end
 
--- The pose provider contract: nodeSRT + optional nodeVisible override.
+-- The pose provider contract is nodeSRT only. The nodeVisible slot is kept
+-- inert so tests can pin that a stray visibility hook is never consulted
+-- (the SBC NODE command alone decides visibility).
 local function provider(opts)
   opts = opts or {}
   return {
@@ -349,20 +351,11 @@ function T.invisible_node_skips_draw()
   Assert.equal(#draws, 0)
 end
 
-function T.provider_visibility_override_hides_a_visible_node()
+-- The pose-provider contract carries no visibility hook: the SBC NODE
+-- command alone decides, so a provider-side nodeVisible is never consulted
+-- (NSBVA support was deleted and no production provider ever supplied it).
+function T.provider_node_visible_hook_is_not_consulted()
   local p = program({ commands = oneDraw({ cmdNodedesc(0, 0), cmdNode(0, true) }) })
-  local draws = evaluate(
-    p,
-    provider({
-      nodeSRT = function()
-        return p.nodes[1]
-      end,
-      nodeVisible = function()
-        return false
-      end,
-    })
-  )
-  Assert.equal(#draws, 0)
   local result = NsbmdSbcEvaluator.evaluate(
     p,
     provider({
@@ -374,23 +367,8 @@ function T.provider_visibility_override_hides_a_visible_node()
       end,
     })
   )
-  Assert.equal(result.nodeVisibility[0], false)
-end
-
-function T.provider_visibility_nil_lets_the_sbc_command_decide()
-  local p = program({ commands = oneDraw({ cmdNodedesc(0, 0), cmdNode(0, true) }) })
-  local draws = evaluate(
-    p,
-    provider({
-      nodeSRT = function()
-        return p.nodes[1]
-      end,
-      nodeVisible = function()
-        return nil
-      end,
-    })
-  )
-  Assert.equal(#draws, 1)
+  Assert.equal(#result.draws, 1, "the SBC NODE command alone decides visibility")
+  Assert.equal(result.nodeVisibility[0], true, "the NODE command alone decides visibility")
 end
 
 function T.evaluator_reports_node_matrices_and_visibility()

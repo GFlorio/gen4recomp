@@ -21,7 +21,7 @@ function T.all_animation_members_decode(romFs)
   local narc = assert(romFs:openNarc("build_anim"))
   local count = narc:memberCount()
   Assert.equal(count, 273, "field animation archive member count")
-  local formats = { NSBCA = 0, NSBTA = 0, NSBTP = 0, NSBMA = 0, NSBVA = 0 }
+  local formats = { NSBCA = 0, NSBTA = 0, NSBTP = 0, NSBMA = 0 }
   for memberId = 0, count - 1 do
     local bytes = assert(narc:readMember(memberId))
     local decoded, err = NitroAnimation.decode(bytes, { alias = "build_anim", memberId = memberId })
@@ -97,7 +97,8 @@ function T.all_animation_members_decode(romFs)
   Assert.equal(formats.NSBTA, 99, "NSBTA count")
   Assert.equal(formats.NSBTP, 79, "NSBTP count")
   Assert.equal(formats.NSBMA, 10, "NSBMA count")
-  Assert.equal(formats.NSBVA, 0, "NSBVA count")
+  -- No NSBVA pin: the format was deleted, so a VIS0 member would fail the
+  -- decode above (ANM_UNKNOWN_FILE_MAGIC) and fail this test on its own.
 end
 
 -- The real door_op member: node 0, rotation animated through 8 pivot keys,

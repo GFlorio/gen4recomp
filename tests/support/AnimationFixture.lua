@@ -1,5 +1,5 @@
 -- Synthetic Nitro 3D animation resources for unit tests: BCA0/JNT0, BTA0/SRT0,
--- BTP0/PAT0, BMA0/MAT0, BVA0/VIS0 files whose byte layouts match the verified
+-- BTP0/PAT0, BMA0/MAT0 files whose byte layouts match the verified
 -- real-format layouts (see the NitroAnimation modules). Test-only.
 
 local BinaryWriter = require("libs.rom.src.BinaryWriter")
@@ -574,25 +574,6 @@ function AnimationFixture.matFade()
     bw:bytes(b)
   end
   return file("BMA0", "MAT0", dictWithRecord({ { name = "psentry_rode", data = u32(0) } }, bw:tostring()))
-end
-
--- ---- NSBVA / VIS0 ----
-
--- Two nodes, four frames of visibility bits.
-function AnimationFixture.visSimple()
-  local numFrame = 4
-  local numAnm = 2
-  -- bit frame * numAnm + node: f0:{n0}, f1:{n0,n1}, f2:{}, f3:{n0}
-  local words = { 0x4D }
-  local bw = BinaryWriter.new()
-  bw:bytes("V\0AV")
-  bw:u16(numFrame)
-  bw:u16(numAnm)
-  bw:u32(0)
-  for _, w in ipairs(words) do
-    bw:u32(w)
-  end
-  return file("BVA0", "VIS0", dictWithRecord({ { name = "vis", data = u32(0) } }, bw:tostring()))
 end
 
 return AnimationFixture

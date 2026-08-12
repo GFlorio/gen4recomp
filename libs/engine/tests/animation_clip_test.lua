@@ -6,8 +6,9 @@
 -- their own compiled curve semantics (the compiled.* payload), no caller
 -- uses AnimationClip.sample, so there is no sample(), no INTERPOLATIONS, and
 -- no channel-key validation. Track tables are retained by reference and
--- NEVER mutated. Field visibility animation does not exist (the corpus
--- references no NSBVA), so the category vocabulary is joint and material.
+-- NEVER mutated. Field visibility animation does not exist (the corpus has
+-- no NSBVA members and the format was deleted), so the category vocabulary
+-- is joint and material.
 -- Pure domain module.
 
 local Assert = require("tests.support.Assert")

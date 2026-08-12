@@ -16,10 +16,11 @@
 --         -- the effective node translation/rotation/scale/inverseScale
 --         -- plus the transZero/rotZero/scaleOne flags; nil falls back to
 --         -- the program's bind SRT (unaffected node)
---     nodeVisible(nodeIndex) -> boolean | nil,
---         -- visibility override (NSBVA-style hiding); nil lets the SBC
---         -- NODE command decide
 --   }
+--
+-- Visibility is not part of the contract: the SBC NODE command alone
+-- decides it (NSBVA-style hiding was deleted; no provider ever supplied a
+-- visibility hook).
 --
 -- The SRT record shape matches the decoded Nsbmd node record
 -- (NsbmdJointTransforms composes it under the model's scaling rule), so a
@@ -231,8 +232,7 @@ function NsbmdSbcEvaluator.evaluate(program, poseProvider)
       break
     elseif op == 0x02 then -- NODE
       currentNode = cmd.nodeIndex
-      local override = poseProvider.nodeVisible and poseProvider.nodeVisible(cmd.nodeIndex)
-      nodeVisibility[cmd.nodeIndex] = cmd.visible and override ~= false
+      nodeVisibility[cmd.nodeIndex] = cmd.visible
     elseif op == 0x03 then -- MTX
       currentMatrix = slotAt(program, matrixSlots, cmd.matrixSlot, cmd)
       billboardBase = nil

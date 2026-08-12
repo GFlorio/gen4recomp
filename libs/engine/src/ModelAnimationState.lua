@@ -5,9 +5,9 @@
 --   joint        -- NSBCA-style node transforms (blended)
 --   material     -- NSBTA/NSBTP/NSBMA material state (composed)
 --
--- Field visibility animation does not exist (the corpus references no
--- NSBVA), so there is no visibility group and the clip category vocabulary
--- is joint and material.
+-- Field visibility animation does not exist (the corpus has no NSBVA
+-- members and the format was deleted), so there is no visibility group and
+-- the clip category vocabulary is joint and material.
 --
 -- Attachments are attached by clip category into the matching group and are
 -- independent of each other: any number of clips of any group can play

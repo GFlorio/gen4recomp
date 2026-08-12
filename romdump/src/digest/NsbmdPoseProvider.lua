@@ -10,8 +10,6 @@
 --
 --   nodeSRT(nodeIndex) -> SRT record | nil
 --       -- nil falls back to the program's bind SRT
---   nodeVisible(nodeIndex) -> boolean | nil
---       -- visibility override; nil lets the SBC NODE command decide
 --
 -- Pure domain module.
 

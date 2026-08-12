@@ -1,16 +1,18 @@
--- NitroAnimation: the shared entry point for the five NitroSystem 3D
--- animation formats used by Gen IV.
+-- NitroAnimation: the shared entry point for the four NitroSystem 3D
+-- animation formats used by Gen IV. NSBVA/BVA0 (VIS0 visibility animation)
+-- is deleted: the HGSS field archive has no VIS0 members and no runtime
+-- consumer exists, so BVA0 bytes are an unknown file magic here.
 --
--- Each animation resource file (BCA0/BTA0/BTP0/BMA0/BVA0) contains one
--- section (JNT0/SRT0/PAT0/MAT0/VIS0) whose dictionary maps animation names
+-- Each animation resource file (BCA0/BTA0/BTP0/BMA0) contains one
+-- section (JNT0/SRT0/PAT0/MAT0) whose dictionary maps animation names
 -- to per-format records. This module decodes the file and dispatches to the
 -- format decoder, returning one normalized shape:
 --
---   { format = "NSBCA"|"NSBTA"|"NSBTP"|"NSBMA"|"NSBVA",
+--   { format = "NSBCA"|"NSBTA"|"NSBTP"|"NSBMA",
 --     animations = { { name, recordOffset, resource } } }
 --
 -- where `resource` is the decoded record of the corresponding module
--- (Nsbca/Nsbta/Nsbtp/Nsbma/Nsbva) ready for sampling. The file magic and
+-- (Nsbca/Nsbta/Nsbtp/Nsbma) ready for sampling. The file magic and
 -- section magic must agree; anything else is a structured error.
 -- Pure domain module.
 
@@ -19,7 +21,6 @@ local Nsbca = require("romdump.src.digest.nitro.Nsbca")
 local Nsbta = require("romdump.src.digest.nitro.Nsbta")
 local Nsbtp = require("romdump.src.digest.nitro.Nsbtp")
 local Nsbma = require("romdump.src.digest.nitro.Nsbma")
-local Nsbva = require("romdump.src.digest.nitro.Nsbva")
 
 local NitroAnimation = {}
 
@@ -29,7 +30,6 @@ local FORMATS = {
   ["BTA0"] = { format = "NSBTA", section = "SRT0", decoder = Nsbta },
   ["BTP0"] = { format = "NSBTP", section = "PAT0", decoder = Nsbtp },
   ["BMA0"] = { format = "NSBMA", section = "MAT0", decoder = Nsbma },
-  ["BVA0"] = { format = "NSBVA", section = "VIS0", decoder = Nsbva },
 }
 
 local function _decode(bytes, context)

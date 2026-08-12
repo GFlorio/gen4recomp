@@ -4,11 +4,11 @@
 -- inventory of animated model members -- each record's resource ids index
 -- the shared animation archive (a/1/0/6) -- so walking every record and
 -- compiling every referenced resource covers every animated asset the field
--- builds. A resource that cannot decode or compile now raises an explicit
--- MAP_PROP_ANIM_UNRESOLVED / MAP_PROP_ANIM_UNSUPPORTED_FORMAT diagnostic
--- (nothing returns an unresolved list and compiles the model static), so a
--- raise here IS the "either compiles or explicit diagnostic" outcome; the
--- corpus must raise nothing. Counts below are pinned against the heartgold
+-- builds. A resource that cannot decode now raises an explicit
+-- MAP_PROP_ANIM_UNRESOLVED diagnostic (nothing returns an unresolved list
+-- and compiles the model static), so a raise here IS the "either compiles
+-- or explicit diagnostic" outcome; the corpus must raise nothing. Counts
+-- below are pinned against the heartgold
 -- dump, identified by its checksum (asserted by the census test): any
 -- drift in the archive layout or the resource set fails the test and
 -- requires an audit before re-pinning.
@@ -81,7 +81,8 @@ function T.every_animated_asset_compiles_with_an_explicit_outcome(romFs)
   Assert.equal(interior.clips, 140, "interior clip embeddings")
 
   -- Format histogram across every embedding (the census's format spread:
-  -- no NSBVA in the field corpus -- its decoder stays test-proven only).
+  -- no NSBVA in the field corpus; the format and its decoder were deleted,
+  -- so a referenced VIS0 member would fail decode and raise here instead).
   local formats = {}
   for k, v in pairs(exterior.formats) do
     formats[k] = (formats[k] or 0) + v
@@ -93,7 +94,6 @@ function T.every_animated_asset_compiles_with_an_explicit_outcome(romFs)
   Assert.equal(formats.NSBTA, 129)
   Assert.equal(formats.NSBTP, 122)
   Assert.equal(formats.NSBMA, 10)
-  Assert.equal(formats.NSBVA, nil, "no NSBVA resource is referenced")
 end
 
 -- The shared door pair (resources 1/2 = door_op/door_cl) is the corpus's

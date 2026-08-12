@@ -25,13 +25,12 @@ local BuildModelAnimList = require("romdump.src.digest.BuildModelAnimList")
 
 -- NitroSystem animation-resource magic -> what it drives. The distinction the
 -- build-model transform cares about is joint (node SRT) vs. everything else:
--- only BCA0 can move geometry; BTA0/BMA0/BVA0 animate texture, material, and
--- visibility and leave the node matrix alone.
+-- only BCA0 can move geometry; BTA0/BMA0 animate texture and material and
+-- leave the node matrix alone.
 local ANIM_KIND = {
   BCA0 = "joint-srt",
   BTA0 = "texture-srt",
   BMA0 = "material",
-  BVA0 = "visibility",
 }
 
 local MapAssetInspector = {}

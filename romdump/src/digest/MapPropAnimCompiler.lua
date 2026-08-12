@@ -2,16 +2,17 @@
 -- member of the exterior/interior build-anim-list archive, HGSS a/1/0/7 and
 -- a/1/0/8) into compiled animation clips for the model descriptor. Each
 -- record's resource ids index the shared animation archive (a/1/0/6), whose
--- members are any of the five Nitro animation formats; the matching decoder
+-- members are any of the four Nitro animation formats; the matching decoder
 -- is dispatched by format and compiled by the matching clip compiler, so the
 -- runtime never touches Nitro animation bytes.
 --
--- A referenced resource that cannot decode or compile is an EXPLICIT FATAL
--- diagnostic -- MAP_PROP_ANIM_UNRESOLVED / MAP_PROP_ANIM_UNSUPPORTED_FORMAT,
--- identifying the model member and resource, with every compiler failure
--- converted to the same code. Nothing returns an unresolved entry and falls
--- back to compiling the model static: the animation either compiles or the
--- map compile fails loudly.
+-- A referenced resource that cannot decode is an EXPLICIT FATAL diagnostic
+-- -- MAP_PROP_ANIM_UNRESOLVED -- identifying the model member and resource,
+-- with every compiler failure converted to the same code. Nothing returns an
+-- unresolved entry and falls back to compiling the model static: the
+-- animation either compiles or the map compile fails loudly. (NSBVA support
+-- was deleted, so every format NitroAnimation decodes has a clip compiler
+-- here.)
 --
 -- Semantic roles: clip names are the source-format identifiers; gameplay
 -- must not depend on them. The door open/close pairs the field corpus uses
@@ -110,14 +111,11 @@ local function compileOne(decoded, sectionReader, sectionLimit, opts)
   elseif decoded.format == "NSBMA" then
     clip = NsbmaClipCompiler.compile(anim.resource, sectionReader, sectionLimit, opts)
   else
-    Errors.raise(
-      "MAP_PROP_ANIM_UNSUPPORTED_FORMAT",
-      "animation resource "
-        .. tostring(opts.source and opts.source.memberId)
-        .. " has unsupported format "
-        .. tostring(decoded.format),
-      opts.source or {}
-    )
+    -- NitroAnimation decodes exactly these four formats, so an unknown one
+    -- is a programming fault (decoder and compiler vocabulary out of sync),
+    -- never malformed data: dropping the clip silently is the one behavior
+    -- this module must not have.
+    assert(false, "no clip compiler for animation format " .. tostring(decoded.format))
   end
   return clip
 end
@@ -161,9 +159,9 @@ end
 --                       the key carries no list identity.
 --   listBytes           the model's anim-list record bytes
 --   resNarc             the shared animation archive (a/1/0/6)
--- Returns { clips = {...} }. A referenced resource that cannot decode or
--- compile raises MAP_PROP_ANIM_UNRESOLVED; an animation format with no clip
--- compiler raises MAP_PROP_ANIM_UNSUPPORTED_FORMAT (no silent fallback).
+-- Returns { clips = {...} }. A referenced resource that cannot decode
+-- raises MAP_PROP_ANIM_UNRESOLVED (no silent fallback); the format
+-- vocabulary is closed by the decode gatekeeper.
 function MapPropAnimCompiler.compile(listBytes, resNarc, opts)
   assert(
     type(listBytes) == "string" and #listBytes == 0x18,
@@ -203,8 +201,8 @@ function MapPropAnimCompiler.compile(listBytes, resNarc, opts)
       source = source,
     })
     if not ok then
-      -- A structured error from the clip compilers (e.g. an unsupported
-      -- format) keeps its own code; any other failure is converted to the
+      -- A structured error from the clip compilers (e.g. a rejected channel)
+      -- keeps its own code; any other failure is converted to the
       -- resource-resolution diagnostic.
       if Errors.is(clip) then
         error(clip)
