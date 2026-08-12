@@ -321,10 +321,22 @@ function CacheFs:loadLua(relativePath)
   return result
 end
 
--- Loads a generated Lua module (a file that `require`s other modules) with
--- the standard library and require access. Used by the script-cache readback
--- and by runtime loaders that consume generated DSL modules. Must never be
--- pointed at raw ROM file contents.
+-- The one module a generated chunk may require: the gen4 script DSL emitted
+-- by the script cache generator. Mirrors ScriptLoader's resource-loader
+-- allowlist; anything wider would let generated cache content reach (and
+-- corrupt) process-wide package state.
+local ALLOWED_MODULES = { ["gen4.script"] = true }
+
+local function moduleRequire(name)
+  assert(ALLOWED_MODULES[name], "generated modules may only require gen4.script")
+  return require(name)
+end
+
+-- Loads a generated Lua module (a file that `require`s other modules) in an
+-- environment whose only entry is a require restricted to the gen4.script
+-- allowlist. Used by the script-cache readback and by runtime loaders that
+-- consume generated DSL modules. Must never be pointed at raw ROM file
+-- contents. A module requiring outside the allowlist fails to load.
 function CacheFs:loadModule(relativePath)
   local data = self:read(relativePath)
   if data == nil then
@@ -334,7 +346,7 @@ function CacheFs:loadModule(relativePath)
   if not chunk then
     return nil, Errors.new("CACHE_LUA_PARSE_FAILED", loadErr, { path = relativePath })
   end
-  setfenv(chunk, { require = require, package = package })
+  setfenv(chunk, { require = moduleRequire })
   local ok, result = pcall(chunk)
   if not ok then
     return nil, Errors.new("CACHE_LUA_EVAL_FAILED", tostring(result), { path = relativePath })
