@@ -286,10 +286,10 @@ end
 -- Convert compiled dynamic segments into serializable descriptor records: the
 -- geometry is encoded into the shared content-addressed mesh table and the
 -- record references the path (never raw vertex arrays), and the polygon draw
--- state (cull mode, polygon mode/id, depth flags, polygon alpha) is decoded
--- per segment -- the same state the static path rides on each batch. Segments
--- that render neither surface ("all" cull) are skipped, exactly like the
--- static path.
+-- state (cull mode, polygon mode/id, depth flags, polygon alpha, light mask)
+-- is decoded per segment -- the same state the static path rides on each
+-- batch. Segments that render neither surface ("all" cull) are skipped,
+-- exactly like the static path.
 local function dynamicBatches(dynamicModel, meshes)
   local out = {}
   for _, mesh in ipairs(dynamicModel.meshes) do
@@ -315,6 +315,7 @@ local function dynamicBatches(dynamicModel, meshes)
         cullMode = poly.cullMode,
         polygonMode = poly.polygonMode,
         polygonId = poly.polygonId,
+        lightMask = poly.lightMask,
         translucentDepthWrite = poly.translucentDepthWrite,
         depthEqual = poly.depthEqual,
         polygonAlpha = poly.polygonAlpha,

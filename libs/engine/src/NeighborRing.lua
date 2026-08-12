@@ -73,7 +73,7 @@ local function buildRing(pool, descriptors)
         alphaCutoff = 0.5 / 255,
         polygonAlpha = batch.polygonAlpha ~= nil and (batch.polygonAlpha / DsLighting.RGB5_MAX) or 1.0,
         polygonMode = batch.polygonMode or "modulation",
-        lightMask = batch.lightMask or 0,
+        lightMask = batch.lightMask,
         polygonId = batch.polygonId or 0,
         translucentDepthWrite = batch.translucentDepthWrite or false,
         depthEqual = batch.depthEqual or false,

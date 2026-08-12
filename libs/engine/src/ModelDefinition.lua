@@ -36,6 +36,12 @@ ModelDefinition.__index = ModelDefinition
 
 ModelDefinition.ALPHA_MODES = { opaque = true, mask = true, blend = true }
 
+-- The four DS base-material registers a material's optional `colors` block
+-- may carry (the shape NsbmdDynamicModel.baseMaterial compiles them into).
+-- The block is optional: static-path materials emit only a baseColor, and
+-- the shared evaluator falls back to it per component.
+local MATERIAL_COLOR_CHANNELS = { diffuse = true, ambient = true, specular = true, emission = true }
+
 -- The polygon draw fields MapAssetCompiler emits on every dynamic batch
 -- record. A nitro-dynamic descriptor missing any of them is malformed
 -- generated data; positionSource/transformMode are not mandatory (the
@@ -47,6 +53,7 @@ local DESCRIPTOR_DRAW_STATE_FIELDS = {
   "translucentDepthWrite",
   "depthEqual",
   "polygonAlpha",
+  "lightMask",
 }
 
 local function isFiniteNumber(value)
@@ -208,6 +215,47 @@ local function validateMaterials(materials)
         "material " .. material.id .. " texMtxMode must be 0..3",
         { materialIndex = material.id }
       )
+    end
+    -- The optional colors block: the four DS base-material registers the
+    -- dynamic compiler emits, each a { r, g, b } integer triple in 0..255.
+    -- Records without the block (the static path) are the shared evaluator's
+    -- baseColor-fallback case, so the block is optional but strictly shaped
+    -- when present.
+    if material.colors ~= nil then
+      if type(material.colors) ~= "table" then
+        Errors.raise(
+          "MODEL_DEF_BAD_MATERIAL_COLORS",
+          "material " .. material.id .. " colors must be a table or nil",
+          { materialIndex = material.id }
+        )
+      end
+      for name, color in pairs(material.colors) do
+        if not MATERIAL_COLOR_CHANNELS[name] then
+          Errors.raise(
+            "MODEL_DEF_BAD_MATERIAL_COLORS",
+            "material " .. material.id .. " colors carries an unknown channel " .. tostring(name),
+            { materialIndex = material.id, channel = name }
+          )
+        end
+        if
+          type(color) ~= "table"
+          or not isInteger(color.r)
+          or not isInteger(color.g)
+          or not isInteger(color.b)
+          or color.r < 0
+          or color.r > 255
+          or color.g < 0
+          or color.g > 255
+          or color.b < 0
+          or color.b > 255
+        then
+          Errors.raise(
+            "MODEL_DEF_BAD_MATERIAL_COLORS",
+            "material " .. material.id .. " colors." .. name .. " must be { r, g, b } integers in 0..255",
+            { materialIndex = material.id, channel = name }
+          )
+        end
+      end
     end
     -- Pattern-animation variants: one entry per (texture, palette) pair the
     -- model's pattern clips can select, keyed by the authoring name.
@@ -462,6 +510,7 @@ function ModelDefinition.fromNitroDescriptor(desc, opts)
       cullMode = mesh.cullMode,
       polygonMode = mesh.polygonMode,
       polygonId = mesh.polygonId,
+      lightMask = mesh.lightMask,
       translucentDepthWrite = mesh.translucentDepthWrite,
       depthEqual = mesh.depthEqual,
       polygonAlpha = mesh.polygonAlpha,

@@ -4,7 +4,7 @@
 --   result = {
 --     program = <NsbmdTransformProgram>,        -- the pose evaluator's input
 --     meshes = <MeshCompiler.compileDynamic>,   -- per-draw-segment geometry
---     materials = { { id, name, baseColor, alphaMode, doubleSided,
+--     materials = { { id, name, baseColor, colors, alphaMode, doubleSided,
 --       polygonAlpha, texMtxMode, srt, texWidth, texHeight } },
 --   }
 --
@@ -32,7 +32,19 @@ local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
 
 local NsbmdDynamicModel = {}
 
+-- One DS material register (a resolved 5-bit-per-channel color) as a
+-- 0..255 per-channel record, the shape the runtime consumes.
+local function channel(color)
+  local r, g, b = FixedPoint.rgb555(color.rgb555)
+  return { r = r, g = g, b = b }
+end
+
 -- Resolve one decoded material into the definition's base material record.
+-- The four DS lighting registers (diffuse/ambient/specular/emission) are
+-- carried per channel in `colors` -- the shader and the NSBMA sampler
+-- distinguish them, so a uniform baseColor reconstruction would not match
+-- the source material. `baseColor` stays as the alpha carrier and the
+-- baseColor-fallback target for consumers of records without the block.
 local function baseMaterial(mat, texMtxMode)
   local resolved = DsMaterial.resolve(mat, DsMaterial.HGSS_FIELD_DEFAULTS, DsMaterial.applyFieldPolicy(mat))
   local poly = DsPolygonAttr.decode(resolved.polyAttr)
@@ -46,6 +58,12 @@ local function baseMaterial(mat, texMtxMode)
       g = g,
       b = b,
       a = math.floor(poly.polygonAlpha * 255 / 31 + 0.5),
+    },
+    colors = {
+      diffuse = channel(resolved.colors.diffuse),
+      ambient = channel(resolved.colors.ambient),
+      specular = channel(resolved.colors.specular),
+      emission = channel(resolved.colors.emission),
     },
     alphaMode = poly.polygonAlpha < 31 and "blend" or "opaque",
     doubleSided = poly.cullMode ~= "back",

@@ -101,24 +101,50 @@ local function winnerForMaterial(attachments, kind, materialIndex)
   return best
 end
 
+-- The per-component base colors of a material record: the optional `colors`
+-- block (the dynamic compiler's four DS registers) when present, else the
+-- baseColor reconstruction -- baseColor for the lit channels and black for
+-- emission (the static path's record shape). ModelInstance's initial
+-- material state calls the same helper, so the reconstruction cannot drift
+-- between the evaluator and the instance.
+
+---@class MaterialColorComponents
+---@field diffuse MaterialRGB
+---@field ambient MaterialRGB
+---@field specular MaterialRGB
+---@field emission MaterialRGB
+---@param material table
+---@return MaterialColorComponents
+function MaterialEvaluator.baseColors(material)
+  local baseColor = material.baseColor or { r = 255, g = 255, b = 255, a = 255 }
+  local function component(name)
+    local c = material.colors and material.colors[name]
+    if c then
+      return { r = c.r, g = c.g, b = c.b }
+    end
+    if name == "emission" then
+      return { r = 0, g = 0, b = 0 }
+    end
+    return { r = baseColor.r, g = baseColor.g, b = baseColor.b }
+  end
+  return {
+    diffuse = component("diffuse"),
+    ambient = component("ambient"),
+    specular = component("specular"),
+    emission = component("emission"),
+  }
+end
+
 -- The material record of `definition` with a default for the polygon state.
--- The base colors are kept per component (diffuse/ambient/specular/
--- emission), matching the DS material registers NSBMA packs into.
+-- The base colors come from baseColors (the per-DS-register reconstruction
+-- above).
 local function baseMaterialState(definition, materialIndex)
   local material =
     assert(definition.materials[materialIndex + 1], "material index " .. tostring(materialIndex) .. " out of range")
   local baseColor = material.baseColor or { r = 255, g = 255, b = 255, a = 255 }
-  local function component()
-    return { r = baseColor.r, g = baseColor.g, b = baseColor.b }
-  end
   return {
     record = material,
-    colors = {
-      diffuse = component(),
-      ambient = component(),
-      specular = component(),
-      emission = { r = 0, g = 0, b = 0 },
-    },
+    colors = MaterialEvaluator.baseColors(material),
     alpha = baseColor.a,
     polygonAlpha = material.polygonAlpha or 31,
   }

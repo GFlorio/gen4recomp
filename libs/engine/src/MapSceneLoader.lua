@@ -161,7 +161,7 @@ local function buildScene(pool, cacheFs, scene, opts)
       alphaCutoff = MapRenderer.CUTOUT_EPSILON,
       polygonAlpha = batch.polygonAlpha ~= nil and (batch.polygonAlpha / 31) or 1.0,
       polygonMode = batch.polygonMode or "modulation",
-      lightMask = batch.lightMask or 0,
+      lightMask = batch.lightMask,
       polygonId = batch.polygonId or 0,
       translucentDepthWrite = batch.translucentDepthWrite or false,
       depthEqual = batch.depthEqual or false,

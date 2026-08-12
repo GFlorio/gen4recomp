@@ -39,12 +39,6 @@ local AlphaClassifier = require("libs.engine.src.AlphaClassifier")
 ---@field g integer
 ---@field b integer
 
----@class MaterialColorComponents
----@field diffuse MaterialRGB
----@field ambient MaterialRGB
----@field specular MaterialRGB
----@field emission MaterialRGB
-
 ---@class MaterialInstanceState
 ---@field texture string|nil
 ---@field texWidth integer|nil
@@ -82,6 +76,7 @@ local DRAW_STATE_FIELDS = {
   "cullMode",
   "translucentDepthWrite",
   "depthEqual",
+  "lightMask",
 }
 
 -- alphaMode -> the renderer's render-pass class (the material contract).
@@ -98,15 +93,16 @@ end
 local IDENTITY_TEX_MATRIX = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
 
 -- The base material state with no animation: the definition's texture and
--- colors, the static SRT matrix (the evaluator builds it), and the alpha
--- class from the texture's alpha usage when the record carries texture
--- metadata, else the model contract's alphaMode.
-local function baseMaterialState(definition, material)
+-- the per-register base colors (MaterialEvaluator.baseColors), the static
+-- SRT matrix (the evaluator builds it), and the alpha class from the
+-- texture's alpha usage when the record carries texture metadata, else the
+-- model contract's alphaMode.
+local function baseMaterialState(material)
   local state = {
     texture = material.texture,
     texWidth = material.texWidth,
     texHeight = material.texHeight,
-    colors = { r = 255, g = 255, b = 255, a = 255 },
+    colors = MaterialEvaluator.baseColors(material),
     polygonAlpha = material.polygonAlpha or 31,
     texMatrix = IDENTITY_TEX_MATRIX,
   }
@@ -127,7 +123,7 @@ function ModelInstance.new(definition, opts)
 
   local materialState = {}
   for _, material in ipairs(definition.materials) do
-    materialState[material.id] = baseMaterialState(definition, material)
+    materialState[material.id] = baseMaterialState(material)
   end
 
   return setmetatable({
@@ -281,6 +277,7 @@ end
 ---@field polygonAlpha number
 ---@field polygonMode string
 ---@field polygonId integer
+---@field lightMask integer
 ---@field cullMode string
 ---@field translucentDepthWrite boolean
 ---@field depthEqual boolean
@@ -359,6 +356,7 @@ function ModelInstance:drawItems(renderMeshesById)
         polygonAlpha = material.polygonAlpha,
         polygonMode = meshState and meshState.polygonMode or "modulation",
         polygonId = meshState and meshState.polygonId or 0,
+        lightMask = meshState and meshState.lightMask or 0,
         cullMode = meshState and meshState.cullMode or "back",
         translucentDepthWrite = meshState and meshState.translucentDepthWrite or false,
         depthEqual = meshState and meshState.depthEqual or false,
