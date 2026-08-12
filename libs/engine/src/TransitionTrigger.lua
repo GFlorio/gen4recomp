@@ -244,13 +244,11 @@ local function attachWarp(classification, runtimeMap, fieldX, fieldZ)
   if not warp then
     return nil
   end
-  local attached = {}
-  for k, v in pairs(classification) do
-    attached[k] = v
-  end
-  attached.warp = warp
-  attached.behavior = TransitionTrigger.behaviorAt(runtimeMap, fieldX, fieldZ)
-  return attached
+  -- `classification` is always a fresh classify() record, never shared, so
+  -- the warp attaches in place.
+  classification.warp = warp
+  classification.behavior = TransitionTrigger.behaviorAt(runtimeMap, fieldX, fieldZ)
+  return classification
 end
 
 -- HGSS FieldSystem_CheckMapTransition: evaluated while the player is idle and

@@ -132,6 +132,18 @@ function T.facing_door_triggers_from_blocked_facing_tile()
   Assert.equal(trigger.triggerMode, "facing")
   Assert.equal(trigger.behavior, BEHAVIOR.DOOR)
   Assert.equal(assert(trigger.warp), warps[1])
+  -- One-record contract: the returned trigger is a single record carrying the
+  -- full classification (including ladder, which doors classify as false) plus
+  -- the attached warp data. No field may be dropped or duplicated when the
+  -- warp is attached.
+  Assert.equal(trigger.evaluatesOn, "input")
+  Assert.isFalse(trigger.ladder)
+  Assert.deepEqual(trigger.requiredDirections, {})
+  local keyCount = 0
+  for _ in pairs(trigger) do
+    keyCount = keyCount + 1
+  end
+  Assert.equal(keyCount, 7, "trigger must be exactly classification + warp + behavior")
 end
 
 function T.facing_door_requires_the_facing_tile_to_be_blocked()
