@@ -15,17 +15,21 @@
 -- the tile centre -- the predicate verified against the real ROM, where
 -- door models are planar slabs whose model-space AABB does not contain the
 -- tile centre (New Bark member 26: x[-0.3,0.0] z[0.0,0.0]) and a containment
--- test resolves the wrong static building. doorAt is then an O(1) index
--- lookup: no placement scan, no matrix inversion, no epsilon on the hot
--- path. The index is authoritative: a tile it does not cover resolves nil,
--- and mutating the placement list after assembly changes nothing. Ambiguity
--- (two placements tied for one door tile) and missing coverage (a door tile
--- with no placement at all) are data failures diagnosed once at assembly,
--- not per lookup. Only DOOR-kind warp tiles resolve; stairs, directional
--- warps, and generic warps return nil (their choreography is separate
--- policy). A door whose building is static (no animated instance) resolves
--- but animates nothing -- HGSS's interior doors without animation records
--- behave the same. Pure domain module.
+-- test resolves the wrong static building. The nearest pivot decides
+-- ownership only within MAX_DOOR_PIVOT_DISTANCE_TILES (corpus-backed: a
+-- real-ROM census over every door map found each door tile's nearest pivot
+-- within the bound); a tile beyond it is diagnosed once at assembly as
+-- uncovered, like a tile with no placement at all. doorAt is then an O(1)
+-- index lookup: no placement scan, no matrix inversion, no epsilon on the
+-- hot path. The index is authoritative: a tile it does not cover resolves
+-- nil, and mutating the placement list after assembly changes nothing.
+-- Ambiguity (two placements tied for one door tile) and missing coverage (a
+-- door tile with no placement at all, or none within the bound) are data
+-- failures diagnosed once at assembly, not per lookup. Only DOOR-kind warp tiles resolve; stairs, directional warps, and
+-- generic warps return nil (their choreography is separate policy). A door
+-- whose building is static (no animated instance) resolves but animates
+-- nothing -- HGSS's interior doors without animation records behave the
+-- same. Pure domain module.
 --
 -- The playback surface is the collapsed animation object graph:
 -- MapProps carries no controller. MapDoor plays through the instance and
@@ -50,6 +54,22 @@ local ModelAnimationState = require("libs.engine.src.ModelAnimationState")
 local MapProps = {}
 MapProps.__index = MapProps
 
+-- The corpus-backed door-ownership bound, in tiles (one world unit per
+-- tile): a door tile whose NEAREST placement pivot is farther away is
+-- uncovered. Over the whole real-ROM census (517 maps, 111 door tiles) the
+-- largest nearest-pivot distance is 4.001953 tiles (Rotom room); the bound
+-- clears that with headroom. Distances are measured from the transform
+-- translation to the tile centre, matching the pivot predicate below.
+MapProps.MAX_DOOR_PIVOT_DISTANCE_TILES = 5.0
+
+-- The ambiguity tie window, in SQUARED tile units (the units the tie
+-- comparison works in): transform translations are dyadic products, so real
+-- ties are exact (gap 0) and the window only guards hand-authored or modded
+-- floats. Corpus window: it must catch the synthetic 1.3e-6 gap and stay
+-- below the smallest real non-tie gap (0.01171875 sq, Route 5); 1e-4 leaves
+-- headroom on both sides.
+local DOOR_TIE_EPSILON_SQ = 1e-4
+
 local function raiseUnknown(definition, animation)
   Errors.raise(
     "MAP_PROP_ANIM_UNKNOWN",
@@ -60,9 +80,10 @@ end
 
 -- `doorTiles` are the DOOR-kind tiles of the scene's permission cell as
 -- local indices -- exactly the list the assembly enumerates and the space
--- doorAt keys its index with. Ambiguity (two placements tied for one tile)
--- and missing coverage (a door tile with no placement at all) raise here,
--- once, as generated-data failures rather than per-lookup surprises.
+-- doorAt keys its index with. Ambiguity (two placements tied for one tile,
+-- within DOOR_TIE_EPSILON_SQ) and missing coverage (a door tile with no
+-- placement at all, or none within MAX_DOOR_PIVOT_DISTANCE_TILES) raise
+-- here, once, as generated-data failures rather than per-lookup surprises.
 ---@param opts { placements: table, instances: { [integer]: table|nil }, doorTiles: { x: integer, z: integer }[] }
 ---@return MapProps
 function MapProps.new(opts)
@@ -85,9 +106,10 @@ function MapProps.new(opts)
       local distance = dx * dx + dz * dz
       if not best then
         best = { placement = placement, distance = distance }
-      elseif distance < best.distance then
-        best = { placement = placement, distance = distance }
-      elseif distance == best.distance then
+      elseif math.abs(distance - best.distance) < DOOR_TIE_EPSILON_SQ then
+        -- The ambiguity window is symmetric: a within-epsilon pair raises
+        -- whether or not the newcomer is nominally nearer -- the transform
+        -- data does not distinguish them.
         Errors.raise(
           "MAP_PROP_AMBIGUOUS_DOOR",
           "door tile ("
@@ -104,6 +126,8 @@ function MapProps.new(opts)
             placements = { best.placement.placementIndex, placement.placementIndex },
           }
         )
+      elseif distance < best.distance then
+        best = { placement = placement, distance = distance }
       end
     end
     if not best then
@@ -111,6 +135,22 @@ function MapProps.new(opts)
         "MAP_PROP_UNCOVERED_DOOR",
         "door tile (" .. tile.x .. "," .. tile.z .. ") has no building placement",
         { x = tile.x, z = tile.z }
+      )
+    end
+    local nearestDistance = math.sqrt(best.distance)
+    if nearestDistance > MapProps.MAX_DOOR_PIVOT_DISTANCE_TILES then
+      Errors.raise(
+        "MAP_PROP_UNCOVERED_DOOR",
+        "door tile ("
+          .. tile.x
+          .. ","
+          .. tile.z
+          .. ") nearest placement is "
+          .. nearestDistance
+          .. " tiles away (beyond "
+          .. MapProps.MAX_DOOR_PIVOT_DISTANCE_TILES
+          .. ")",
+        { x = tile.x, z = tile.z, nearestDistance = nearestDistance }
       )
     end
     self.doorIndex[tile.x .. ":" .. tile.z] = {

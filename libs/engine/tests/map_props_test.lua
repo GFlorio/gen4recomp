@@ -204,11 +204,11 @@ end
 
 function T.door_at_returns_nil_for_a_tile_the_index_does_not_cover()
   -- The index is authoritative: a door warp whose tile the assembly did not
-  -- enumerate resolves nothing, even when a placement's footprint contains
-  -- it. The production assembly enumerates every door-behavior tile, so
-  -- this only fires on an assembly bug -- loudly nil, never a scanned
-  -- guess.
-  local wx, wz = tileCenterWorld(4, 14)
+  -- enumerate resolves nothing, even when a placement sits somewhere else
+  -- in the cell. The production assembly enumerates every door-behavior
+  -- tile, so this only fires on an assembly bug -- loudly nil, never a
+  -- scanned guess.
+  local wx, wz = tileCenterWorld(5, 5)
   local props = MapProps.new({
     placements = { placement(0, "fixture:door", wx, wz, 1) },
     instances = {},
@@ -219,12 +219,14 @@ end
 
 function T.door_at_resolves_a_static_placement_when_no_door_model_is_placed()
   -- With the door model absent, the tile still resolves to its nearest
-  -- placement -- here the static building (nil instance, no-op playback).
-  -- The pivot predicate is total; the assembly diagnoses only a door tile
-  -- with no placement at all. HGSS's static interior doors resolve and
-  -- animate nothing the same way.
+  -- placement -- here the static building placed at the door tile (nil
+  -- instance, no-op playback). The pivot predicate is total; the assembly
+  -- diagnoses only a door tile whose nearest placement is beyond the
+  -- corpus-backed bound (or absent altogether). HGSS's static interior
+  -- doors resolve and animate nothing the same way.
+  local wx, wz = tileCenterWorld(4, 14)
   local props = MapProps.new({
-    placements = { placement(0, "fixture:building", 0, 0, 4) },
+    placements = { placement(0, "fixture:building", wx, wz, 4) },
     instances = {},
     doorTiles = { { x = 4, z = 14 } },
   })
@@ -316,6 +318,104 @@ function T.assembly_raises_when_a_door_tile_has_no_placement()
   throwsCode("MAP_PROP_UNCOVERED_DOOR", function()
     return MapProps.new({
       placements = {},
+      instances = {},
+      doorTiles = { { x = 4, z = 14 } },
+    })
+  end)
+end
+
+-- The corpus-backed maximum door distance: HGSS door models are planar
+-- slabs whose pivot sits at the door tile, so a door tile whose NEAREST
+-- placement pivot is far away is uncovered -- the nearest pivot decides
+-- ownership only within the bound. A placement 10 tiles away must not own
+-- the tile; the assembly raises MAP_PROP_UNCOVERED_DOOR with the tile and
+-- the nearest distance in context instead of resolving a wrong building.
+-- (Corpus basis: every real door tile's nearest pivot is within a few tiles
+-- of its tile -- the largest is 4.001953 tiles -- and the bound clears it
+-- with headroom.)
+function T.assembly_raises_when_the_nearest_placement_is_beyond_the_door_bound()
+  local wx, wz = tileCenterWorld(4, 14)
+  local err = Assert.throws(function()
+    return MapProps.new({
+      placements = { placement(0, "fixture:building", wx + 10, wz, 4) },
+      instances = {},
+      doorTiles = { { x = 4, z = 14 } },
+    })
+  end)
+  Assert.equal(err.code, "MAP_PROP_UNCOVERED_DOOR")
+  Assert.equal(err.context.x, 4, "the uncovered tile x is in the error context")
+  Assert.equal(err.context.z, 14, "the uncovered tile z is in the error context")
+  Assert.equal(err.context.nearestDistance, 10, "the nearest pivot distance in tiles is in the error context")
+end
+
+-- The ambiguity epsilon: transform translations are float products, not
+-- integers, so two placements whose pivot distances differ by a hair are a
+-- genuine tie -- the assembly raises MAP_PROP_AMBIGUOUS_DOOR instead of
+-- silently resolving the float near-miss. (The epsilon must stay below the
+-- smallest real non-tie gap, 0.01171875 squared tiles.)
+function T.assembly_raises_for_a_near_tie_within_the_ambiguity_epsilon()
+  local wx, wz = tileCenterWorld(4, 14)
+  local eps = 1e-6
+  throwsCode("MAP_PROP_AMBIGUOUS_DOOR", function()
+    return MapProps.new({
+      placements = {
+        placement(0, "fixture:door", wx + 0.65, wz - 0.26, 1),
+        placement(1, "fixture:door2", wx + 0.65 + eps, wz - 0.26, 1),
+      },
+      instances = {},
+      doorTiles = { { x = 4, z = 14 } },
+    })
+  end)
+end
+
+-- The near side of the bound: a placement whose pivot is beyond the real
+-- corpus maximum (4.001953 tiles, Rotom room) but within the chosen bound
+-- still owns the tile -- the bound must clear the corpus with headroom, and
+-- the distance is compared in tiles (not squared).
+function T.assembly_resolves_when_the_nearest_placement_is_within_the_door_bound()
+  local wx, wz = tileCenterWorld(4, 14)
+  local props = MapProps.new({
+    placements = { placement(0, "fixture:building", wx + 4.1, wz, 4) },
+    instances = {},
+    doorTiles = { { x = 4, z = 14 } },
+  })
+  local door = assert(props:doorAt(doorMap(), 4, 14))
+  Assert.equal(door.placementIndex, 0)
+  Assert.equal(door.modelKey, "fixture:building")
+end
+
+-- The far side of the epsilon: a genuine near-miss ABOVE the ambiguity
+-- window (gap 0.01 squared tiles -- just under the smallest real non-tie
+-- gap, 0.01171875 squared tiles) resolves to the nearer placement; the
+-- epsilon must not swallow distances the transform data really
+-- distinguishes.
+function T.assembly_resolves_a_near_tie_beyond_the_ambiguity_epsilon()
+  local wx, wz = tileCenterWorld(4, 14)
+  local props = MapProps.new({
+    placements = {
+      placement(0, "fixture:door", wx + 1, wz, 1),
+      placement(1, "fixture:door2", wx + 1, wz + 0.1, 1),
+    },
+    instances = {},
+    doorTiles = { { x = 4, z = 14 } },
+  })
+  local door = assert(props:doorAt(doorMap(), 4, 14))
+  Assert.equal(door.placementIndex, 0, "the nearer placement wins outside the ambiguity window")
+end
+
+-- The ambiguity window is symmetric: a within-epsilon pair raises even when
+-- the NEARER placement is processed second -- a tie is a tie in either
+-- order, never resolved to whichever candidate the placement list happened
+-- to enumerate first.
+function T.assembly_raises_for_a_near_tie_when_the_nearer_placement_comes_second()
+  local wx, wz = tileCenterWorld(4, 14)
+  local eps = 1e-6
+  throwsCode("MAP_PROP_AMBIGUOUS_DOOR", function()
+    return MapProps.new({
+      placements = {
+        placement(0, "fixture:door", wx + 0.65 + eps, wz - 0.26, 1),
+        placement(1, "fixture:door2", wx + 0.65, wz - 0.26, 1),
+      },
       instances = {},
       doorTiles = { { x = 4, z = 14 } },
     })

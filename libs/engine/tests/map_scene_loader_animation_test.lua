@@ -11,6 +11,7 @@ local Assert = require("tests.support.Assert")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local MapRenderer = require("libs.engine.src.MapRenderer")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
+local FieldGrid = require("libs.engine.src.FieldGrid")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local FieldSession = require("libs.engine.src.FieldSession")
 local FakeCache = require("tests.support.FakeCache")
@@ -50,6 +51,18 @@ end
 
 local function identityMatrix()
   return { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 }
+end
+
+-- The transform of a door placement at the door tile (4,14)'s centre -- the
+-- tile the door fixtures enumerate, so the placement sits within the
+-- corpus-backed door-ownership bound (the scene fixture's cell origin is
+-- (0,0)).
+local function doorTransform()
+  local wx, wz = FieldGrid.tileCenterToWorld(4, 14)
+  local transform = identityMatrix()
+  transform[13] = wx
+  transform[15] = wz
+  return transform
 end
 
 -- The in-memory cache facade over a FakeCache backend: loadLua reads and
@@ -695,7 +708,7 @@ function T.update_advances_the_pose_driven_draw_items()
     {
       placementIndex = 0,
       modelKey = "outdoor:26:door",
-      transform = identityMatrix(),
+      transform = doorTransform(),
     },
   }, { [desc.key] = desc }, { { x = 4, z = 14 } })
   local runtime = MapSceneLoader.load(
@@ -734,7 +747,7 @@ function T.draw_items_refresh_only_on_the_scene_tick()
     {
       placementIndex = 0,
       modelKey = "outdoor:26:door",
-      transform = identityMatrix(),
+      transform = doorTransform(),
     },
   }, { [desc.key] = desc }, { { x = 4, z = 14 } })
   local runtime = MapSceneLoader.load(
