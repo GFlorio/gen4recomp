@@ -28,7 +28,7 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field previousWorldZ number
 ---@field surfaceId integer
 ---@field facing FieldDirection
----@field motion "idle"|"walking"
+---@field motion "idle"|"walking"|"climbing"
 ---@field progressTicks integer
 ---@field durationTicks integer
 ---@field bufferedDirection FieldDirection?
@@ -217,6 +217,19 @@ function FieldPlayer:scriptedStep(direction)
   return true
 end
 
+-- The held stair movement the transition choreography drives (HGSS
+-- sub_0205613C sets MapObject_SetHeldMovement and waits for its completion):
+-- an in-place climb that completes after the player's own movement duration
+-- and never commits a tile. The transition's stair choreography polls the
+-- player's motion, so the movement duration has exactly one owner.
+function FieldPlayer:beginStairClimb()
+  assert(self.motion == "idle", "cannot begin a stair climb while walking")
+  self.motion = "climbing"
+  self.progressTicks = 0
+  self.durationTicks = FieldPlayer.WALK_STEP_TICKS
+  return true
+end
+
 function FieldPlayer:_advanceStep()
   assert(self.motion == "walking" and self.from and self.to, "walking step endpoints required")
   self.progressTicks = self.progressTicks + 1
@@ -257,6 +270,18 @@ function FieldPlayer:updateFixed(input)
       self.bufferedDirection = input.pressedDirection
     end
     return self:_advanceStep()
+  end
+
+  -- The in-place stair climb advances on its own clock and commits nothing:
+  -- the transition choreography polls the motion, so a climbing player
+  -- absorbs ticks until the movement duration elapses, then rests idle.
+  if self.motion == "climbing" then
+    self.progressTicks = self.progressTicks + 1
+    if self.progressTicks >= self.durationTicks then
+      self.motion = "idle"
+      self.progressTicks = 0
+    end
+    return false
   end
 
   local direction

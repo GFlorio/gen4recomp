@@ -61,57 +61,57 @@ local function validateTracks(tracks, context)
   end
 end
 
--- Build a validated clip from a plain spec table. Raises a structured error
+-- Build a validated clip from a plain data table. Raises a structured error
 -- on any contract violation. Track tables are kept by reference; the clip
 -- never writes to caller-owned data.
-function AnimationClip.new(spec)
-  assert(type(spec) == "table", "AnimationClip.new requires a table")
-  if not AnimationClip.CATEGORIES[spec.category] then
+function AnimationClip.new(data)
+  assert(type(data) == "table", "AnimationClip.new requires a table")
+  if not AnimationClip.CATEGORIES[data.category] then
     Errors.raise(
       "ANIM_CLIP_BAD_CATEGORY",
-      "clip category must be joint or material, got " .. tostring(spec.category),
+      "clip category must be joint or material, got " .. tostring(data.category),
       {}
     )
   end
-  if type(spec.id) ~= "string" or #spec.id == 0 then
+  if type(data.id) ~= "string" or #data.id == 0 then
     Errors.raise("ANIM_CLIP_NO_ID", "clip requires a non-empty id", {})
   end
-  if type(spec.name) ~= "string" or #spec.name == 0 then
+  if type(data.name) ~= "string" or #data.name == 0 then
     Errors.raise("ANIM_CLIP_NO_NAME", "clip requires a non-empty name", {})
   end
   if
-    not (type(spec.frameCount) == "number" and spec.frameCount >= 1 and math.floor(spec.frameCount) == spec.frameCount)
+    not (type(data.frameCount) == "number" and data.frameCount >= 1 and math.floor(data.frameCount) == data.frameCount)
   then
     Errors.raise(
       "ANIM_CLIP_BAD_FRAME_COUNT",
-      "clip frame count must be a positive integer, got " .. tostring(spec.frameCount),
+      "clip frame count must be a positive integer, got " .. tostring(data.frameCount),
       {}
     )
   end
-  if type(spec.tracks) ~= "table" or #spec.tracks == 0 then
-    Errors.raise("ANIM_CLIP_NO_TRACKS", "clip " .. spec.id .. " has no tracks", {})
+  if type(data.tracks) ~= "table" or #data.tracks == 0 then
+    Errors.raise("ANIM_CLIP_NO_TRACKS", "clip " .. data.id .. " has no tracks", {})
   end
-  if spec.source ~= nil and type(spec.source) ~= "table" then
+  if data.source ~= nil and type(data.source) ~= "table" then
     Errors.raise("ANIM_CLIP_BAD_SOURCE", "clip source must be a table or nil", {})
   end
-  if spec.semanticNames ~= nil then
-    assert(type(spec.semanticNames) == "table", "semanticNames must be a table")
-    for _, name in ipairs(spec.semanticNames) do
+  if data.semanticNames ~= nil then
+    assert(type(data.semanticNames) == "table", "semanticNames must be a table")
+    for _, name in ipairs(data.semanticNames) do
       assert(type(name) == "string" and #name > 0, "semantic names must be non-empty strings")
     end
   end
 
-  validateTracks(spec.tracks, spec.id)
+  validateTracks(data.tracks, data.id)
 
   return {
-    id = spec.id,
-    name = spec.name,
-    category = spec.category,
-    kind = spec.kind,
-    frameCount = spec.frameCount,
-    tracks = spec.tracks,
-    semanticNames = spec.semanticNames or {},
-    source = spec.source,
+    id = data.id,
+    name = data.name,
+    category = data.category,
+    kind = data.kind,
+    frameCount = data.frameCount,
+    tracks = data.tracks,
+    semanticNames = data.semanticNames or {},
+    source = data.source,
   }
 end
 

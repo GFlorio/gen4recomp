@@ -154,8 +154,9 @@ end
 --   opts.resourceCache  optional plain memo table shared across a build run
 --                       (resource member, sha1) -> compiled clip: each
 --                       resource is decoded and compiled once, and every
---                       model that references it embeds the same immutable
---                       clip record (identity-shared; never mutated). Both
+--                       model that references it builds a per-model shallow
+--                       copy (modelClip) so the memo's pristine record is
+--                       never mutated by per-model playback policy. Both
 --                       lists reference the shared build_anim archive, so
 --                       the key carries no list identity.
 --   listBytes           the model's anim-list record bytes

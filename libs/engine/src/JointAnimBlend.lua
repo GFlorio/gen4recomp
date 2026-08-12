@@ -20,8 +20,9 @@
 -- and VEC_Normalize are linked from the precompiled libsys, which the
 -- pokediamond decomp does not contain; as with the NSBCA reconstruction, a
 -- double-precision cross/normalize is used, which is within the established
--- bind-pose equivalence tolerance (32-bit products are exact in doubles; the
--- shift is the only truncation).
+-- bind-pose equivalence tolerance (the rotation cells are bounded by the
+-- normalized reconstruction, so their products stay well within a double's
+-- 53-bit significand; the shift is the only truncation).
 --
 -- Do not substitute quaternion SLERP: the Nitro basis-vector blend above is
 -- the engine's rotation combination contract for joint clips.
@@ -57,8 +58,11 @@ local function mul32(a, b)
 end
 
 -- The ARM `smull` path (FX_Mul): the middle 32 bits of the full 64-bit
--- product, i.e. (a * b) >> 12 as a signed 32-bit value. Doubles hold the
--- product exactly (32-bit factors fit in 53 bits).
+-- product, i.e. (a * b) >> 12 as a signed 32-bit value. In the weighted
+-- blend one factor is the normalized weight, which is at most 0x1000 (the
+-- summed ratio total), so |a * b| stays far below 2^53 and the double
+-- product is exact; the generic claim that any two 32-bit factors fit in a
+-- double's significand is false and not relied on here.
 local function fxMul64(a, b)
   return wrap32(math.floor(a * b / 4096))
 end

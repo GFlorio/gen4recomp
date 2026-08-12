@@ -26,7 +26,6 @@ local T = {}
 -- A loader whose protection record must stay empty: the transition is not a
 -- protection owner, so no lifecycle path may call protectMap.
 local FADE = FieldTransition.FADE_OUT_TICKS
-local STAIR_CLIMB = FieldTransition.STAIR_CLIMB_TICKS
 
 local function recordingLoader()
   local protections = {}
@@ -397,6 +396,11 @@ end
 -- final tick), and the step start/finish land in `trace` when shared.
 -- `stepTicks` may be a number or a per-step list (e.g. a short ingress and
 -- a long egress), so a test can stretch only the step it is probing.
+-- beginStairClimb mirrors the held stair movement HGSS sets on the player
+-- object (sub_0205613C: MapObject_SetHeldMovement): an in-place motion that
+-- completes after `stairTicks` (the player's own movement duration -- the
+-- transition never owns a climb timer), never steps the player off the tile,
+-- and is advanced by the transition through updateFixed exactly like a walk.
 local function stubPlayer(opts)
   opts = opts or {}
   local p = {
@@ -405,7 +409,9 @@ local function stubPlayer(opts)
     steps = {},
     updates = 0,
     stepTicks = opts.stepTicks or 8,
+    stairTicks = opts.stairTicks or 8,
     remaining = 0,
+    climbs = 0,
     trace = opts.trace,
     scriptedStep = function(self, direction)
       assert(self.motion == "idle", "cannot begin a scripted step while walking")
@@ -422,14 +428,22 @@ local function stubPlayer(opts)
       end
       return true
     end,
+    beginStairClimb = function(self)
+      assert(self.motion == "idle", "cannot begin a stair climb while walking")
+      self.climbs = self.climbs + 1
+      self.remaining = self.stairTicks
+      self.motion = "climbing"
+      return true
+    end,
     updateFixed = function(self)
-      assert(self.motion == "walking", "the choreography advances a walking step")
+      assert(self.motion == "walking" or self.motion == "climbing", "the choreography advances a moving player")
       self.updates = self.updates + 1
       self.remaining = self.remaining - 1
       if self.remaining <= 0 then
+        local wasWalking = self.motion == "walking"
         self.motion = "idle"
         self.remaining = 0
-        if self.trace then
+        if self.trace and wasWalking then
           self.trace[#self.trace + 1] = "step-finished"
         end
         return true
@@ -959,10 +973,23 @@ end
 
 -- ---- stair choreography ----
 
-function T.stair_source_climbs_in_place_without_door_or_step()
+-- The climb duration is the player's own movement duration (HGSS drives
+-- the stair choreography from the held-movement completion -- sub_0205613C
+-- sets MapObject_SetHeldMovement and waits IsMovementPaused -- so the
+-- transition must not duplicate a movement length as its own constant).
+function T.stair_choreography_owns_no_climb_duration_constant()
+  local deleted = nil
+  ---@diagnostic disable-next-line: undefined-field -- intentional: the deleted constant must not reappear
+  deleted = FieldTransition.STAIR_CLIMB_TICKS
+  Assert.isNil(deleted, "the stair climb duration is owned by the player's locomotion, not the transition")
+end
+
+function T.stair_source_climb_drives_the_player_held_movement()
   -- Stairs are a separate policy: the transition takes movement ownership as
   -- an in-place climb -- the tile ahead is the blocked stair wall, and HGSS
-  -- holds a stair movement rather than stepping the player.
+  -- holds a stair movement rather than stepping the player. The climb is the
+  -- player's held stair movement: begun at start, advanced by the transition
+  -- each tick, and the sound fires when the movement completes.
   local player = stubPlayer()
   local transition
   local source
@@ -972,27 +999,55 @@ function T.stair_source_climbs_in_place_without_door_or_step()
   Assert.isTrue(transition.stairActive, "the stair warp activates the stair choreography")
   Assert.isNil(transition.sourceDoor, "stairs never activate the door choreography")
   Assert.equal(transition.sourceKind, "stairs")
+  Assert.equal(player.motion, "climbing", "the source stair climb drives the player's held stair movement")
   Assert.deepEqual(player.steps, {}, "the stair climb never steps the player")
-  Assert.equal(player.updates, 0, "the player keeps standing on the warp tile")
+  Assert.equal(player.updates, 0, "the held movement begins without advancing")
   Assert.equal(#sounds, 0, "the sound fires when the climb completes, not at start")
 
   local playerAdvanced = transition:updateFixed()
   Assert.isFalse(playerAdvanced, "the in-place climb reports no locomotion")
+  Assert.equal(player.updates, 1, "the transition advances the climbing player")
   Assert.equal(#sounds, 0, "the climb needs its full duration before the sound")
-  Assert.equal(player.updates, 0)
+  Assert.equal(player.motion, "climbing")
 
-  for _ = 1, STAIR_CLIMB - 1 do
+  for _ = 1, player.stairTicks - 1 do
     transition:updateFixed()
   end
   Assert.equal(#sounds, 1, "the stair sound fires when the climb completes")
   Assert.equal(sounds[1], FieldTransition.STAIR_SOUND, "the HGSS stair-climb sound id")
+  Assert.equal(player.motion, "idle", "the climb finished with the held movement")
   Assert.equal(transition.phase, "fade_out", "the climb finishes inside the fade")
+end
+
+function T.stair_climb_completes_with_the_player_movement_not_a_transition_timer()
+  -- Stretch the player's held movement past the old eight-tick constant: the
+  -- choreography must follow the movement's completion, not a timer the
+  -- transition owns.
+  local player = stubPlayer({ stairTicks = 12 })
+  local transition
+  local source
+  local sounds
+  transition, source, _, _, sounds = transitionFixture({ behavior = BEHAVIOR_STAIRS_WEST, player = player })
+  transition:start(source, DOOR_WARP, "west")
+  for _ = 1, 8 do
+    transition:updateFixed()
+  end
+  Assert.equal(#sounds, 0, "no stair sound before the player's held movement completes")
+  Assert.equal(player.motion, "climbing", "the movement is still climbing at the old constant's tick")
+  for _ = 1, 4 do
+    transition:updateFixed()
+  end
+  Assert.equal(#sounds, 1, "the stair sound fires with the movement completion")
+  Assert.equal(player.motion, "idle")
+  Assert.equal(transition.phase, "load_destination", "the 12-tick climb ends exactly at the 12-tick fade")
 end
 
 function T.stair_transition_sounds_twice_and_finishes_at_fade_in_end()
   -- One climb per side (source + destination); the swap stays black-only;
   -- stairs skip coordinate suppression; input unlocks right after the
-  -- destination fade-in -- there is no door to close.
+  -- destination fade-in -- there is no door to close. Each side drives the
+  -- player's held stair movement, so the destination climb begins on the
+  -- rebound player at the swap.
   local player = stubPlayer()
   local transition
   local source
@@ -1000,7 +1055,11 @@ function T.stair_transition_sounds_twice_and_finishes_at_fade_in_end()
   local sounds
   transition, source, _, swaps, sounds = transitionFixture({ behavior = BEHAVIOR_STAIRS_WEST, player = player })
   transition:start(source, DOOR_WARP, "west")
-  runTicks(transition, 2 * FADE + 2)
+  runTicks(transition, FADE + 2)
+  Assert.equal(transition.phase, "fade_in")
+  Assert.equal(player.motion, "climbing", "the destination climb drives the rebound player at the swap")
+  Assert.equal(player.climbs, 2, "one held stair movement per side")
+  runTicks(transition, FADE)
   Assert.equal(transition.phase, "idle")
   Assert.isFalse(transition.locked)
   Assert.isFalse(transition.stairActive)

@@ -3,8 +3,8 @@
 -- meshes, materials, animations -- lives here in one shape; the nitro backend
 -- (the only producer) poses through the compiled transform program carried in
 -- `backend`. The definition is nitro by construction: there is no
--- sourceBackend abstraction, and a spec that still carries the removed key is
--- a stale-schema artifact rejected at the load boundary.
+-- sourceBackend abstraction, and a record that still carries the removed key
+-- is a stale-schema artifact rejected at the load boundary.
 --
 --   definition = ModelDefinition.new({
 --     key = "outdoor:12:abcd...",
@@ -267,43 +267,43 @@ local function validateAnimations(animations)
   end
 end
 
-function ModelDefinition.new(spec)
-  assert(type(spec) == "table", "ModelDefinition.new requires a table")
-  if type(spec.key) ~= "string" or #spec.key == 0 then
+function ModelDefinition.new(definition)
+  assert(type(definition) == "table", "ModelDefinition.new requires a table")
+  if type(definition.key) ~= "string" or #definition.key == 0 then
     Errors.raise("MODEL_DEF_NO_KEY", "model definition requires a non-empty key", {})
   end
   -- The sourceBackend abstraction is cut: the definition is nitro by
-  -- construction, so the key is not part of the spec. A spec that still
-  -- carries it is a stale-schema artifact and fails loudly at the load
-  -- boundary.
-  if spec.sourceBackend ~= nil then
+  -- construction, so the key is not part of the definition record. A record
+  -- that still carries it is a stale-schema artifact and fails loudly at the
+  -- load boundary.
+  if definition.sourceBackend ~= nil then
     Errors.raise(
       "MODEL_DEF_BAD_SOURCE_BACKEND",
-      "sourceBackend is not part of the model definition spec; a definition is nitro by construction",
-      { sourceBackend = spec.sourceBackend }
+      "sourceBackend is not part of the model definition record; a definition is nitro by construction",
+      { sourceBackend = definition.sourceBackend }
     )
   end
-  if type(spec.nodes) ~= "table" or #spec.nodes == 0 then
+  if type(definition.nodes) ~= "table" or #definition.nodes == 0 then
     Errors.raise("MODEL_DEF_NO_NODES", "model definition requires at least one node", {})
   end
-  if type(spec.meshes) ~= "table" or #spec.meshes == 0 then
+  if type(definition.meshes) ~= "table" or #definition.meshes == 0 then
     Errors.raise("MODEL_DEF_NO_MESHES", "model definition requires a meshes list", {})
   end
-  if type(spec.materials) ~= "table" or #spec.materials == 0 then
+  if type(definition.materials) ~= "table" or #definition.materials == 0 then
     Errors.raise("MODEL_DEF_NO_MATERIALS", "model definition requires a materials list", {})
   end
-  if spec.animations ~= nil and type(spec.animations) ~= "table" then
+  if definition.animations ~= nil and type(definition.animations) ~= "table" then
     Errors.raise("MODEL_DEF_BAD_ANIMATIONS", "animations must be a table or nil", {})
   end
-  if spec.backend ~= nil and type(spec.backend) ~= "table" then
+  if definition.backend ~= nil and type(definition.backend) ~= "table" then
     Errors.raise("MODEL_DEF_BAD_BACKEND", "backend payload must be a table or nil", {})
   end
 
-  validateNodes(spec.nodes)
-  validateMeshes(spec.meshes, #spec.nodes, #spec.materials)
-  validateMaterials(spec.materials)
-  if spec.animations then
-    validateAnimations(spec.animations)
+  validateNodes(definition.nodes)
+  validateMeshes(definition.meshes, #definition.nodes, #definition.materials)
+  validateMaterials(definition.materials)
+  if definition.animations then
+    validateAnimations(definition.animations)
   end
 
   -- Semantic animation lookup: by clip name first, then by any semantic role
@@ -311,29 +311,29 @@ function ModelDefinition.new(spec)
   -- clip name colliding with another clip's semantic role is ambiguous --
   -- both raise rather than making lookup precedence significant.
   local byName, bySemantic = {}, {}
-  for _, clip in ipairs(spec.animations or {}) do
+  for _, clip in ipairs(definition.animations or {}) do
     if byName[clip.name] then
       Errors.raise(
         "MODEL_DEF_DUPLICATE_ANIMATION",
-        "model " .. spec.key .. " has two clips named " .. clip.name,
+        "model " .. definition.key .. " has two clips named " .. clip.name,
         { name = clip.name }
       )
     end
     byName[clip.name] = clip
   end
-  for _, clip in ipairs(spec.animations or {}) do
+  for _, clip in ipairs(definition.animations or {}) do
     for _, semantic in ipairs(clip.semanticNames or {}) do
       if bySemantic[semantic] then
         Errors.raise(
           "MODEL_DEF_DUPLICATE_SEMANTIC",
-          "model " .. spec.key .. " maps role " .. semantic .. " twice",
+          "model " .. definition.key .. " maps role " .. semantic .. " twice",
           { semantic = semantic, name = clip.name }
         )
       end
       if byName[semantic] then
         Errors.raise(
           "MODEL_DEF_NAME_SEMANTIC_COLLISION",
-          "model " .. spec.key .. " clip name " .. semantic .. " collides with a semantic role",
+          "model " .. definition.key .. " clip name " .. semantic .. " collides with a semantic role",
           { semantic = semantic, name = clip.name }
         )
       end
@@ -342,12 +342,12 @@ function ModelDefinition.new(spec)
   end
 
   local self = setmetatable({
-    key = spec.key,
-    nodes = spec.nodes,
-    meshes = spec.meshes,
-    materials = spec.materials,
-    animations = spec.animations or {},
-    backend = spec.backend,
+    key = definition.key,
+    nodes = definition.nodes,
+    meshes = definition.meshes,
+    materials = definition.materials,
+    animations = definition.animations or {},
+    backend = definition.backend,
     animationByName = byName,
     animationBySemantic = bySemantic,
     bindings = {},

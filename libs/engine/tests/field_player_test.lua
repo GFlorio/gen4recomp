@@ -329,4 +329,40 @@ function T.scripted_step_requires_an_idle_player()
   Assert.notNil(err)
 end
 
+-- The held stair movement the transition choreography drives (HGSS
+-- sub_0205613C sets MapObject_SetHeldMovement and waits for its completion):
+-- an in-place climb that completes after the player's own movement duration
+-- and never commits a tile. The transition's stair choreography polls the
+-- player's motion, so the movement duration has exactly one owner.
+function T.stair_climb_starts_in_place_and_completes_after_the_movement_duration()
+  ---@type FieldPlayer & { beginStairClimb: fun(self: FieldPlayer): boolean }
+  local p = player(runtimeMap(), 0, 4, 0)
+  Assert.isTrue(p:beginStairClimb(), "the held stair movement begins")
+  Assert.equal(p.motion, "climbing")
+  Assert.equal(p.fieldX, 0, "the climb never commits a tile")
+  Assert.equal(p.fieldZ, 4)
+  Assert.equal(p.durationTicks, FieldPlayer.WALK_STEP_TICKS, "the climb shares the movement-duration owner")
+  for index = 1, FieldPlayer.WALK_STEP_TICKS - 1 do
+    local committed = p:updateFixed({})
+    Assert.isFalse(committed, "the in-place climb commits nothing")
+    Assert.equal(p.motion, "climbing")
+    Assert.equal(p.fieldX, 0)
+  end
+  p:updateFixed({})
+  Assert.equal(p.motion, "idle", "the climb completes after the movement duration")
+  Assert.equal(p.fieldX, 0)
+  Assert.equal(p.fieldZ, 4)
+end
+
+function T.stair_climb_rejects_a_walking_player()
+  ---@type FieldPlayer & { beginStairClimb: fun(self: FieldPlayer): boolean }
+  local p = player(runtimeMap(), 0, 4, 0)
+  tick(p, "east", "east")
+  local ok, err = pcall(function()
+    p:beginStairClimb()
+  end)
+  Assert.isFalse(ok, "a stair climb cannot begin mid-walk")
+  Assert.notNil(err)
+end
+
 return { tests = T }

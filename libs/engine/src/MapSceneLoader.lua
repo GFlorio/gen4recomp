@@ -175,7 +175,7 @@ local function buildScene(pool, cacheFs, scene, opts)
   -- submission numbers: the final scene assembly (SceneAssembly) orders every
   -- draw in source order, positionally.
   local function drawItem(batch, materials, instanceTransform)
-    local entry = pool:meshFor(batch.geometry)
+    local meshResource = pool:meshFor(batch.geometry)
     local billboardBase
     if batch.transformMode == PoseContract.BILLBOARD then
       billboardBase =
@@ -188,10 +188,10 @@ local function buildScene(pool, cacheFs, scene, opts)
       )
     end
     local transform = billboardBase or instanceTransform
-    growBounds(entry.verts, transform)
+    growBounds(meshResource.verts, transform)
     local state = batchDrawState(batch)
     return {
-      mesh = entry.mesh,
+      mesh = meshResource.mesh,
       material = materials[batch.material],
       transform = transform,
       billboardBase = billboardBase,
@@ -204,7 +204,7 @@ local function buildScene(pool, cacheFs, scene, opts)
       polygonId = state.polygonId,
       translucentDepthWrite = state.translucentDepthWrite,
       depthEqual = state.depthEqual,
-      center = modelCenter(entry.verts),
+      center = modelCenter(meshResource.verts),
     }
   end
 
@@ -219,8 +219,9 @@ local function buildScene(pool, cacheFs, scene, opts)
   -- Placed building instances: resolve each modelKey's descriptor (batches +
   -- its own materials) and instance it at the placement transform. The
   -- descriptor cache entry also carries the model-space AABB of the model's
-  -- geometry: the footprint MapProps uses to resolve a door tile to the
-  -- building whose footprint contains it.
+  -- geometry: the scene bounds grow it under each placement transform, and
+  -- the placement records carry it for the scene's MapProps facade (the
+  -- door index resolves by placement pivot, not by footprint).
   local descriptorCache = {}
   local function descriptorFor(modelKey)
     local cached = descriptorCache[modelKey]
@@ -256,8 +257,8 @@ local function buildScene(pool, cacheFs, scene, opts)
       end
       local aabb
       for _, batch in ipairs(batches) do
-        local entry = pool:meshFor(batch.geometry)
-        for _, v in ipairs(entry.verts) do
+        local meshResource = pool:meshFor(batch.geometry)
+        for _, v in ipairs(meshResource.verts) do
           if not aabb then
             aabb = { minX = v[1], maxX = v[1], minY = v[2], maxY = v[2], minZ = v[3], maxZ = v[3] }
           else
@@ -325,31 +326,31 @@ local function buildScene(pool, cacheFs, scene, opts)
   for _, inst in ipairs(scene.buildingInstances or {}) do
     local desc = descriptorFor(inst.modelKey)
     if desc.descriptor.kind == "nitro-dynamic" then
-      local entry = animatedResourceCache[inst.modelKey]
-      if not entry then
+      local modelResource = animatedResourceCache[inst.modelKey]
+      if not modelResource then
         local definition = ModelDefinition.fromNitroDescriptor(desc.descriptor, { key = inst.modelKey })
         local renderMeshesById = {}
         for _, mesh in ipairs(definition.meshes) do
-          local entry = pool:meshFor(mesh.geometry)
-          renderMeshesById[mesh.id] = entry.mesh
-          mesh.center = modelCenter(entry.verts)
+          local meshResource = pool:meshFor(mesh.geometry)
+          renderMeshesById[mesh.id] = meshResource.mesh
+          mesh.center = modelCenter(meshResource.verts)
         end
-        entry = { definition = definition, renderMeshesById = renderMeshesById }
-        animatedResourceCache[inst.modelKey] = entry
+        modelResource = { definition = definition, renderMeshesById = renderMeshesById }
+        animatedResourceCache[inst.modelKey] = modelResource
         animatedModelCount = animatedModelCount + 1
       end
-      local instance = ModelInstance.new(entry.definition, {
+      local instance = ModelInstance.new(modelResource.definition, {
         transform = inst.transform,
         resolveImage = function(key)
           local wrap = assert(desc.wrapByTexture[key], "missing wrap for animated texture " .. key)
           return pool:imageFor(key, wrap.x, wrap.y)
         end,
       })
-      instance.renderMeshesById = entry.renderMeshesById
+      instance.renderMeshesById = modelResource.renderMeshesById
       growBoundsAabb(desc.bounds, inst.transform)
       animatedInstances[#animatedInstances + 1] = instance
       instanceByPlacement[inst.placementIndex] = instance
-      local timeBandClips = TimeOfDayProps.plan(entry.definition)
+      local timeBandClips = TimeOfDayProps.plan(modelResource.definition)
       instance.timeOfDayPlan = timeBandClips
       if timeBandClips then
         local clip = timeBandClips[timeBand]
@@ -357,7 +358,7 @@ local function buildScene(pool, cacheFs, scene, opts)
           instance:play(clip.name, { loopMode = "loop" })
         end
       else
-        for _, clip in ipairs(entry.definition.animations) do
+        for _, clip in ipairs(modelResource.definition.animations) do
           if clip.ambientLoop then
             instance:play(clip.name, { loopMode = "loop" })
           end

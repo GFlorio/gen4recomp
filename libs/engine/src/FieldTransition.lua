@@ -56,7 +56,6 @@ local Errors = require("libs.errors.src.Errors")
 ---@field player table|nil -- FieldPlayer, bound by the owner across the swap
 ---@field fadeOutTicks integer
 ---@field fadeInTicks integer
----@field stairClimbTicks integer
 ---@field phase "idle"|"fade_out"|"load_destination"|"swap_map"|"fade_in"|"door_close"|"error"
 ---@field fadeAlpha number
 ---@field locked boolean
@@ -67,7 +66,6 @@ local Errors = require("libs.errors.src.Errors")
 ---@field sourceChoreo "wait_open"|"wait_step"|"done"|nil -- the source-side door choreography state
 ---@field destinationChoreo "wait_open"|"wait_step"|"wait_close"|"done"|nil -- the destination-side door choreography state
 ---@field stairActive boolean
----@field stairClimbRemaining integer
 ---@field completed table?
 ---@field error any?
 ---@field warpContext table?
@@ -80,12 +78,10 @@ FieldTransition.__index = FieldTransition
 
 FieldTransition.FADE_OUT_TICKS = 12
 FieldTransition.FADE_IN_TICKS = 12
--- The in-place climb lasts eight ticks on each side of the stair warp, the
--- same cadence as the door animations; the sound fires at its end. Tune
--- against HGSS alongside the fade cadence.
-FieldTransition.STAIR_CLIMB_TICKS = 8
 -- HGSS plays the stair-climb sound after the held stair movement completes,
 -- before the fade (unk_02055BF0.c sub_0205613C; sndseq.h SEQ_SE_DP_KAIDAN2).
+-- The climb duration is the player's own movement duration
+-- (FieldPlayer:beginStairClimb) -- the transition never owns a climb timer.
 FieldTransition.STAIR_SOUND = "SEQ_SE_DP_KAIDAN2"
 
 FieldTransition.PHASES = {
@@ -103,10 +99,8 @@ function FieldTransition.new(options)
   assert(type(options.commit) == "function", "field transition commit callback required")
   local fadeOutTicks = options.fadeOutTicks or FieldTransition.FADE_OUT_TICKS
   local fadeInTicks = options.fadeInTicks or FieldTransition.FADE_IN_TICKS
-  local stairClimbTicks = options.stairClimbTicks or FieldTransition.STAIR_CLIMB_TICKS
   assert(fadeOutTicks > 0 and fadeOutTicks == math.floor(fadeOutTicks), "positive fade-out ticks required")
   assert(fadeInTicks > 0 and fadeInTicks == math.floor(fadeInTicks), "positive fade-in ticks required")
-  assert(stairClimbTicks > 0 and stairClimbTicks == math.floor(stairClimbTicks), "positive stair climb ticks required")
   return setmetatable({
     loader = options.loader,
     resolveDestination = options.resolveDestination or WarpSystem.resolveDestination,
@@ -117,7 +111,6 @@ function FieldTransition.new(options)
     player = options.player,
     fadeOutTicks = fadeOutTicks,
     fadeInTicks = fadeInTicks,
-    stairClimbTicks = stairClimbTicks,
     phase = FieldTransition.PHASES.idle,
     locked = false,
     sourceKind = nil,
@@ -127,7 +120,6 @@ function FieldTransition.new(options)
     sourceChoreo = nil,
     destinationChoreo = nil,
     stairActive = false,
-    stairClimbRemaining = 0,
     fadeAlpha = 0,
   }, FieldTransition)
 end
@@ -181,7 +173,17 @@ local function beginSourceChoreography(self)
   end
   if kind == "stairs" then
     self.stairActive = true
-    self.stairClimbRemaining = self.stairClimbTicks
+    -- The climb is the player's held stair movement (HGSS
+    -- MapObject_SetHeldMovement), so the movement starts here and its
+    -- completion -- not a transition timer -- fires the sound and gates the
+    -- choreography.
+    if self.player then
+      assert(
+        self.player.beginStairClimb ~= nil,
+        "stair warps require a player with a held stair movement (FieldPlayer)"
+      )
+      self.player:beginStairClimb()
+    end
   end
 end
 
@@ -301,17 +303,20 @@ local function advanceChoreo(self, advance)
   end
 end
 
--- Advance the in-place stair climb by one tick. The HGSS stair sound fires
--- when the climb completes (sub_0205613C plays SEQ_SE_DP_KAIDAN2 after the
--- held movement finishes, before the fade). The climb never reports
--- locomotion: the player stays on the warp tile.
+-- Advance the in-place stair climb by one tick. The climb is the player's
+-- held stair movement: the transition advances it like a walk, and the HGSS
+-- stair sound fires when the movement completes (sub_0205613C plays
+-- SEQ_SE_DP_KAIDAN2 after the held movement finishes, before the fade). The
+-- climb never reports locomotion: the player stays on the warp tile.
 local function advanceStairClimb(self)
-  if not self.stairActive or self.stairClimbRemaining <= 0 then
+  if not self.stairActive or not self.player then
     return
   end
-  self.stairClimbRemaining = self.stairClimbRemaining - 1
-  if self.stairClimbRemaining == 0 and self.playSound then
-    self.playSound(FieldTransition.STAIR_SOUND)
+  if self.player.motion == "climbing" then
+    self.player:updateFixed({})
+    if self.player.motion ~= "climbing" and self.playSound then
+      self.playSound(FieldTransition.STAIR_SOUND)
+    end
   end
 end
 
@@ -325,7 +330,6 @@ local function finish(self)
   self.sourceChoreo = nil
   self.destinationChoreo = nil
   self.stairActive = false
-  self.stairClimbRemaining = 0
   self.completed = {
     sourceMapId = self.sourceMap.mapId,
     destinationMapId = self.resolution.destinationMap.mapId,
@@ -354,7 +358,6 @@ function FieldTransition:start(sourceMap, warp, facing)
   self.sourceChoreo = nil
   self.destinationChoreo = nil
   self.stairActive = false
-  self.stairClimbRemaining = 0
   self.phase = FieldTransition.PHASES.fade_out
   self.locked = true
   self.fadeAlpha = 0
@@ -381,7 +384,6 @@ function FieldTransition:_abort(err)
   self.sourceChoreo = nil
   self.destinationChoreo = nil
   self.stairActive = false
-  self.stairClimbRemaining = 0
   self.fadeAlpha = 0
   self.progressTicks = 0
   self.completed = nil
@@ -449,7 +451,15 @@ function FieldTransition:updateFixed()
       advanceChoreo(self, advanceDestinationChoreo)
     end
     if self.stairActive then
-      self.stairClimbRemaining = self.stairClimbTicks
+      -- The destination climb begins on the rebound player at the swap,
+      -- exactly like the source side: the held stair movement, not a timer.
+      if self.player then
+        assert(
+          self.player.beginStairClimb ~= nil,
+          "stair warps require a player with a held stair movement (FieldPlayer)"
+        )
+        self.player:beginStairClimb()
+      end
     end
     self.progressTicks = 0
     self.phase = FieldTransition.PHASES.fade_in
