@@ -68,7 +68,9 @@ local function crossesBoundary(map, sourceX, destinationX, direction)
   return nil
 end
 
-function T.new_bark_crosses_into_route_29_and_route_27_cells(romFs)
+function T.new_bark_crosses_into_route_29_and_route_27_cells(romFs, versionId)
+  -- Compiled-bundle region: the same crossings must hold from fresh ROM
+  -- compilation, which also pins the neighbor header mapping.
   local map, descriptors = runtimeMap(romFs)
   local westHeader, eastHeader
   for _, descriptor in ipairs(descriptors) do
@@ -82,9 +84,9 @@ function T.new_bark_crosses_into_route_29_and_route_27_cells(romFs)
   Assert.equal(eastHeader, 31)
   Assert.notNil(crossesBoundary(map, 0, -1, "west"), "no Route 29 boundary crossing")
   Assert.notNil(crossesBoundary(map, 31, 32, "east"), "no Route 27 boundary crossing")
-end
 
-function T.generated_cache_loads_as_traversable_region(_, versionId)
+  -- Generated-cache region: the production loader path must yield the same
+  -- traversable neighbor ring for the same boundary steps.
   local cacheFs = CacheFs.forVersion(versionId)
   local world = assert(cacheFs:loadLua(MapAssetCache.worldPath()))
   local sceneLoader = {
@@ -102,9 +104,9 @@ function T.generated_cache_loads_as_traversable_region(_, versionId)
     sceneLoader = sceneLoader,
     coverageLoader = coverageLoader,
   })
-  local map = loader:load(60)
-  Assert.notNil(crossesBoundary(map, 0, -1, "west"))
-  Assert.notNil(crossesBoundary(map, 31, 32, "east"))
+  local cached = loader:load(60)
+  Assert.notNil(crossesBoundary(cached, 0, -1, "west"))
+  Assert.notNil(crossesBoundary(cached, 31, 32, "east"))
   loader:release()
 end
 

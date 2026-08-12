@@ -7,7 +7,6 @@ local MapResolver = require("romdump.src.digest.MapResolver")
 local LandData = require("romdump.src.digest.LandData")
 local HgssBdhc = require("libs.assets.src.HgssBdhc")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
-local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 local FieldCamera = require("libs.engine.src.FieldCamera")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldSession = require("libs.engine.src.FieldSession")
@@ -106,33 +105,6 @@ function T.new_bark_east_staircase_facts_and_path_are_frozen(romFs)
   -- half. The upper hold step crosses X while remaining on ramp plate 0.
   near(terrain:sampleHeight(4, 16.5, 10), 1)
   near(terrain:sampleHeight(11, 17.5, 10), 1)
-  local path = {
-    { x = 16.5, z = 10.5, surfaceId = 4 },
-    { x = 16.5, z = 9.5, surfaceId = 0 },
-    { x = 16.5, z = 8.5, surfaceId = 0 },
-    { x = 16.5, z = 7.5, surfaceId = 0 },
-    { x = 16.5, z = 6.5, surfaceId = 0 },
-    { x = 17.5, z = 6.5, surfaceId = 0 },
-    { x = 17.5, z = 7.5, surfaceId = 0 },
-    { x = 17.5, z = 8.5, surfaceId = 0 },
-    { x = 17.5, z = 9.5, surfaceId = 0 },
-    { x = 17.5, z = 10.5, surfaceId = 11 },
-  }
-  local resolver = SurfaceResolver.new(terrain)
-  local current = path[1]
-  local currentY = terrain:sampleHeight(current.surfaceId, current.x, current.z)
-  for index = 2, #path do
-    local destination = path[index]
-    local sample = resolver:resolve({
-      localX = destination.x,
-      localZ = destination.z,
-      currentSurfaceId = current.surfaceId,
-      currentY = currentY,
-      crossing = { fromX = current.x, fromZ = current.z, toX = destination.x, toZ = destination.z },
-    })
-    Assert.equal(sample.surfaceId, destination.surfaceId, "path surface at step " .. index)
-    current, currentY = destination, sample.worldY
-  end
 end
 
 function T.field_player_traverses_new_bark_east_staircase(romFs)

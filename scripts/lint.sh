@@ -33,4 +33,4 @@ echo "==> stylua --check"
 stylua --check .
 
 echo "==> lua-language-server --check"
-lua-language-server --check . --checklevel=Warning --logpath=.agents/tmp/luals
+lua-language-server --check . --num_threads="4" --checklevel=Warning --logpath=.agents/tmp/luals

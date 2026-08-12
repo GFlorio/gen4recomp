@@ -106,6 +106,7 @@ This file provides guidance to Coding Agents when working with code in this repo
 - If there isn't a script for a common task, bias towards creating one.
 - When authoring scripts, assume a UNIX-like environment.
 - Write temporary files to `.agents/tmp/`
+- Look for ROM files (.nds, .zip) in `tmp/` inside the workspace and dumps are often available in `.cache/love/g4recomp/{heartgold,soulsilver}`
 
 When calling skills or any commands, prefer a direct syntax (avoiding e.g. variable substitution)
 to avoid shell injection or permission issues.

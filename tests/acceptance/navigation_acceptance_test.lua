@@ -40,18 +40,11 @@ local function withLab(fn)
   end
 end
 
--- NAV-01: the named route is deliberately semantic; no test-owned movement
--- loop may substitute for session input processing.
-function T.tests.canonical_lab_path_reaches_the_cell_south_of_elm()
-  withLab(function(game)
-    requireGameCapability(game, "moveTo")
-    game:moveTo({ fieldX = 6, fieldZ = 6 })
-    local snapshot = game:snapshot()
-    Assert.deepEqual({ snapshot.player.fieldX, snapshot.player.fieldZ }, { 6, 6 })
-  end)
-end
-
-function T.tests.elm_occupancy_turns_the_player_without_entering_elms_cell()
+-- NAV-01/02: occupancy and collision are both real movement constraints. Elm
+-- turns the player without letting him enter his cell, and a known wall tile
+-- rejects the step while preserving facing; the named route is deliberately
+-- semantic, no test-owned movement loop may substitute for session input.
+function T.tests.occupancy_and_collision_constrain_lab_movement()
   withLab(function(game)
     requireGameCapability(game, "moveTo")
     requireGameCapability(game, "move")
@@ -62,75 +55,20 @@ function T.tests.elm_occupancy_turns_the_player_without_entering_elms_cell()
     end, 120)
     local snapshot = game:snapshot()
     Assert.deepEqual({ snapshot.player.fieldX, snapshot.player.fieldZ }, { 6, 6 })
-  end)
-end
 
-function T.tests.known_lab_collision_rejects_movement_and_preserves_facing()
-  withLab(function(game)
-    requireGameCapability(game, "moveTo")
     requireGameCapability(game, "moveUntilBlocked")
     game:moveTo({ fieldX = 3, fieldZ = 14 })
-    local snapshot = game:moveUntilBlocked("south")
-    Assert.equal(snapshot.player.facing, "south")
-    Assert.deepEqual({ snapshot.player.fieldX, snapshot.player.fieldZ }, { 3, 14 })
+    local blocked = game:moveUntilBlocked("south")
+    Assert.equal(blocked.player.facing, "south")
+    Assert.deepEqual({ blocked.player.fieldX, blocked.player.fieldZ }, { 3, 14 })
   end)
 end
 
-function T.tests.lab_exit_warp_swaps_to_new_bark_exactly_once()
-  withLab(function(game)
-    requireGameCapability(game, "moveTo")
-    requireGameCapability(game, "waitForTransition")
-    game:moveTo({ fieldX = 4, fieldZ = 14 })
-    local transition = game:waitForTransition()
-    Assert.equal(transition.source.mapSymbol, LAB)
-    Assert.equal(transition.destination.mapSymbol, TOWN)
-    Assert.equal(game:snapshot().mapSymbol, TOWN)
-  end)
-end
-
-function T.tests.arrival_on_town_warp_cell_does_not_immediately_return_to_lab()
-  withLab(function(game)
-    requireGameCapability(game, "moveTo")
-    requireGameCapability(game, "waitForTransition")
-    game:moveTo({ fieldX = 4, fieldZ = 14 })
-    game:waitForTransition()
-    game:step()
-    Assert.equal(game:snapshot().mapSymbol, TOWN)
-  end)
-end
-
-function T.tests.town_facing_warp_returns_to_the_lab()
-  withLab(function(game)
-    requireGameCapability(game, "moveTo")
-    requireGameCapability(game, "waitForTransition")
-    requireGameCapability(game, "face")
-    game:moveTo({ fieldX = 4, fieldZ = 14 })
-    game:waitForTransition()
-    game:move("south")
-    game:face("north")
-    local transition = game:waitForTransition()
-    Assert.equal(transition.destination.mapSymbol, LAB)
-  end)
-end
-
-function T.tests.round_trip_releases_and_reacquires_map_actor_and_session_ownership()
-  withLab(function(game)
-    requireGameCapability(game, "moveTo")
-    requireGameCapability(game, "waitForTransition")
-    requireGameCapability(game, "ownership")
-    game:moveTo({ fieldX = 4, fieldZ = 14 })
-    game:waitForTransition()
-    game:move("south")
-    game:face("north")
-    game:waitForTransition()
-    local ownership = game:ownership()
-    Assert.equal(ownership.mapProtections, 1)
-    Assert.equal(ownership.activeActorMaps, 1)
-    Assert.equal(ownership.sessionReferences, 1)
-  end)
-end
-
-function T.tests.semantic_lab_town_round_trip_runs_for_every_ready_version()
+-- NAV-03..07: a semantic lab-town round trip runs for every ready version,
+-- swaps to New Bark exactly once without immediately returning, releases and
+-- reacquires map/actor/session ownership, and ends back in the lab only when
+-- the player actually faces the town warp.
+function T.tests.lab_town_round_trip_swaps_transitions_and_ownership()
   local harness = AcceptanceHarness.new()
   harness:forEachVersion(function(versionId)
     local game = harness:boot({ versionId = versionId, map = LAB, save = "fresh" })
@@ -138,12 +76,23 @@ function T.tests.semantic_lab_town_round_trip_runs_for_every_ready_version()
       requireGameCapability(game, "moveTo")
       requireGameCapability(game, "waitForTransition")
       requireGameCapability(game, "face")
+      requireGameCapability(game, "ownership")
       game:moveTo({ fieldX = 4, fieldZ = 14 })
-      game:waitForTransition()
+      local transition = game:waitForTransition()
+      Assert.equal(transition.source.mapSymbol, LAB)
+      Assert.equal(transition.destination.mapSymbol, TOWN)
+      Assert.equal(game:snapshot().mapSymbol, TOWN)
+      game:step()
+      Assert.equal(game:snapshot().mapSymbol, TOWN)
+
       game:move("south")
       game:face("north")
       game:waitForTransition()
       Assert.equal(game:snapshot().mapSymbol, LAB)
+      local ownership = game:ownership()
+      Assert.equal(ownership.mapProtections, 1)
+      Assert.equal(ownership.activeActorMaps, 1)
+      Assert.equal(ownership.sessionReferences, 1)
     end, debug.traceback)
     game:close()
     if not ok then

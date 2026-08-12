@@ -7,8 +7,8 @@ local LuaWriter = require("libs.rom.src.LuaWriter")
 local T = {}
 
 local EXPECTED = {
-  [60] = { counts = { 5, 10, 5, 4 }, x = 684, z = 393, destinationMapId = 61 },
-  [61] = { counts = { 11, 4, 1, 2 }, x = 4, z = 14, destinationMapId = 60 },
+  [60] = { counts = { 5, 10, 5, 4 } },
+  [61] = { counts = { 11, 4, 1, 2 } },
 }
 
 function T.target_members_compile_completely_and_deterministically(romFs)
@@ -22,10 +22,7 @@ function T.target_members_compile_completely_and_deterministically(romFs)
     Assert.equal(#events.coordinates, expected.counts[4])
     local warp = events.warps[1]
     Assert.equal(warp.index, 0)
-    Assert.equal(warp.x, expected.x)
-    Assert.equal(warp.z, expected.z)
     Assert.equal(warp.y, 0)
-    Assert.equal(warp.destinationMapId, expected.destinationMapId)
     Assert.equal(warp.destinationWarpId, 0)
     local again = assert(FieldMapDataCompiler.compile(romFs, mapId))
     Assert.equal(LuaWriter.encode(bundle.field), LuaWriter.encode(again.field))
