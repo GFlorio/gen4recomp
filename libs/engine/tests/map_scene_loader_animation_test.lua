@@ -208,6 +208,7 @@ local function doorDescriptor()
           translucentDepthWrite = false,
           depthEqual = false,
           polygonAlpha = 31,
+          lightMask = 5,
         },
       },
     },
@@ -506,6 +507,10 @@ function T.animated_building_loads_advances_and_renders()
   runtime:updateAnimated()
   Assert.equal(#runtime.buildingDraws, 1)
   local m0 = runtime.buildingDraws[1].transform
+  -- The animated draw items carry the compiled per-segment polygon state:
+  -- the light mask survives descriptor -> definition -> drawItems on the
+  -- loader-assembled animated model.
+  Assert.equal(runtime.buildingDraws[1].lightMask, 5, "the animated door item carries its polygon light mask")
 
   -- Advance and sync: a scripted door holds its bind pose.
   for _ = 1, 7 do

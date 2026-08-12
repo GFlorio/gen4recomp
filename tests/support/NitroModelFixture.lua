@@ -168,7 +168,9 @@ function NitroModelFixture.doorQuad()
   }
 end
 
--- The per-mesh draw record (polygon state compiled per segment).
+-- The per-mesh draw record (polygon state compiled per segment). The polygon
+-- light mask is part of the compiled state: the strict draw path requires it
+-- on every backend record (ModelInstance.DRAW_STATE_FIELDS).
 function NitroModelFixture.drawState()
   return {
     drawIndex = 0,
@@ -180,6 +182,7 @@ function NitroModelFixture.drawState()
     translucentDepthWrite = false,
     depthEqual = false,
     polygonAlpha = 31,
+    lightMask = 5,
   }
 end
 

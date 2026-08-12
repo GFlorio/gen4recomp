@@ -58,7 +58,10 @@ local function doorClip()
 end
 
 -- A one-door nitro model: a single node, one SBC draw, one segment mesh
--- (a 2x2-tile quad at the origin in tile space).
+-- (a 2x2-tile quad at the origin in tile space). The vertices use the
+-- NORMAL_LIT color source (the compiled vocabulary: 0 literal, 1 normal-lit,
+-- 2 field-diffuse) so the polygon light mask governs the rendered result (a
+-- literal-color vertex bypasses the lighting stage entirely).
 local function doorQuad()
   return {
     vertices = {
@@ -75,7 +78,7 @@ local function doorQuad()
         g = 255,
         b = 255,
         a = 255,
-        colorSource = 0,
+        colorSource = 1,
       },
       {
         x = 2,
@@ -90,7 +93,7 @@ local function doorQuad()
         g = 255,
         b = 255,
         a = 255,
-        colorSource = 0,
+        colorSource = 1,
       },
       {
         x = 2,
@@ -105,7 +108,7 @@ local function doorQuad()
         g = 255,
         b = 255,
         a = 255,
-        colorSource = 0,
+        colorSource = 1,
       },
       {
         x = 0,
@@ -120,7 +123,7 @@ local function doorQuad()
         g = 255,
         b = 255,
         a = 255,
-        colorSource = 0,
+        colorSource = 1,
       },
     },
     indices = { 0, 1, 2, 0, 2, 3 },
@@ -174,6 +177,14 @@ local function doorDefinition()
         baseColor = { r = 255, g = 255, b = 255, a = 255 },
         alphaMode = "opaque",
         doubleSided = false,
+        -- The four DS base-material registers, distinct per channel (the
+        -- shape NsbmdDynamicModel.baseMaterial compiles them into).
+        colors = {
+          diffuse = { r = 255, g = 0, b = 0 },
+          ambient = { r = 0, g = 255, b = 0 },
+          specular = { r = 0, g = 0, b = 255 },
+          emission = { r = 123, g = 123, b = 123 },
+        },
       },
     },
     skins = {},
@@ -191,6 +202,7 @@ local function doorDefinition()
           translucentDepthWrite = false,
           depthEqual = false,
           polygonAlpha = 31,
+          lightMask = 5,
         },
       },
     },
@@ -222,12 +234,33 @@ local function identityCamera()
   }
 end
 
-local function runtime()
+-- A runtime with a lit field-light profile: lights 0 and 2 enabled (the
+-- polygon's 0b0101 mask admits exactly those two), white, head-on to the
+-- quad's +Y normals, with zero ambient/specular/emission so an unlit polygon
+-- renders black.
+local function litRuntime()
+  local white = 31 + 31 * 32 + 31 * 1024
   return {
     mapDraws = {},
     buildingDraws = {},
     stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
-    lighting = nil,
+    lighting = {
+      records = {
+        {
+          startHalfSeconds = 0,
+          lights = {
+            { enabled = true, colorRgb555 = white, vectorFx12 = { 0, -4096, 0 } },
+            { enabled = false, colorRgb555 = 0, vectorFx12 = { 0, 0, 0 } },
+            { enabled = true, colorRgb555 = white, vectorFx12 = { 0, -4096, 0 } },
+            { enabled = false, colorRgb555 = 0, vectorFx12 = { 0, 0, 0 } },
+          },
+          diffuseRgb555 = white,
+          ambientRgb555 = 0,
+          specularRgb555 = 0,
+          emissionRgb555 = 0,
+        },
+      },
+    },
   }
 end
 
@@ -237,7 +270,7 @@ local function drawInstance(renderer, rt, instance, alpha)
   for index, item in ipairs(items) do
     item.submissionIndex = index
   end
-  renderer:draw(rt, identityCamera(), items, FieldViewport.new(320, 240, { mode = "strict" }), alpha)
+  renderer:draw(rt, identityCamera(), items, FieldViewport.new(640, 480, { mode = "strict" }), alpha)
   return items
 end
 
@@ -246,13 +279,40 @@ function T.nitro_animated_model_renders_and_scrubs_without_recompiling()
   local def = doorDefinition()
   local instance = ModelInstance.new(def)
   instance.renderMeshesById = buildRenders(def)
-  local rt = runtime()
+  local rt = litRuntime()
 
   -- Bind pose first: the draw matrix is identity, so the quad renders at
   -- its tile-space placement.
   instance:evaluatePose()
-  drawInstance(renderer, rt, instance, 1)
+  local items = drawInstance(renderer, rt, instance, 1)
   Assert.isTrue(renderer.stats.drawCalls >= 1, "the nitro mesh draws")
+
+  -- The draw item carries the shader-consumed polygon state: the compiled
+  -- light mask and the four DS material color registers survive to the item
+  -- the renderer sends uniforms from -- never just "a draw happened".
+  local item = items[1]
+  Assert.equal(item.lightMask, 5, "the draw item carries the polygon light mask")
+  Assert.deepEqual(item.material.matDiffuse, { 1, 0, 0 }, "the draw item carries the diffuse color")
+  Assert.deepEqual(item.material.matAmbient, { 0, 1, 0 }, "the draw item carries the ambient color")
+  Assert.deepEqual(item.material.matSpecular, { 0, 0, 1 }, "the draw item carries the specular color")
+  Assert.near(item.material.matEmission[1], 123 / 255, 1e-9, "the draw item carries the emission color")
+  Assert.near(item.material.matEmission[2], 123 / 255, 1e-9)
+  Assert.near(item.material.matEmission[3], 123 / 255, 1e-9)
+
+  -- The "draw happened but black" class: a NORMAL-lit vertex under the lit
+  -- profile must render non-black -- the polygon's mask admits lights 0 and 2
+  -- and both are enabled. A dropped light mask (all bits gated off) renders
+  -- the frame black while drawCalls still counts. The quad spans world x,y in
+  -- [0,2], so world (0.5, 0.5) is interior (canonical pixel 480,360); canvas
+  -- readbacks come back Y-inverted on some drivers, so sample the pixel and
+  -- its Y-mirror and require the lit half.
+  local img = renderer.sceneColor:newImageData()
+  local function bright(pixel)
+    return pixel[1] > 0.5 or pixel[2] > 0.5 or pixel[3] > 0.5
+  end
+  local interior = { img:getPixel(480, 360) }
+  local mirrored = { img:getPixel(480, 119) }
+  Assert.isTrue(bright(interior) or bright(mirrored), "the lit masked polygon renders non-black")
 
   -- Scrub through several frames; the same built meshes serve every frame.
   local rendersBefore = instance.renderMeshesById

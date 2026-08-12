@@ -25,6 +25,13 @@ function T.new_bark_animated_descriptors_reference_round_tripping_g4mesh(romFs)
         Assert.isTrue(mesh.cullMode ~= nil, "per-segment cull state compiled")
         Assert.isTrue(mesh.polygonMode ~= nil, "per-segment polygon mode compiled")
         Assert.isTrue(mesh.polygonId ~= nil, "per-segment polygon id compiled")
+        -- The 4-bit light mask is part of the per-segment polygon draw state:
+        -- the dynamic batches must emit it exactly like the static path, or
+        -- the runtime draws the segment with every light gated off.
+        Assert.isTrue(
+          mesh.lightMask ~= nil and mesh.lightMask >= 0 and mesh.lightMask <= 15,
+          "per-segment light mask compiled"
+        )
       end
     end
   end

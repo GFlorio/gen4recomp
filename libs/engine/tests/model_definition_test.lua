@@ -84,6 +84,21 @@ function T.fixture_definition_is_valid()
   Assert.equal(#def.animations, 2)
 end
 
+-- The optional colors block is accepted: a record carrying the four DS
+-- base-material registers (the shape the dynamic compiler emits) passes
+-- validation.
+function T.materials_accept_the_optional_colors_block()
+  local s = definitionSpec()
+  s.materials[1].colors = {
+    diffuse = { r = 255, g = 0, b = 0 },
+    ambient = { r = 0, g = 255, b = 0 },
+    specular = { r = 0, g = 0, b = 255 },
+    emission = { r = 123, g = 123, b = 123 },
+  }
+  local def = ModelDefinition.new(s)
+  Assert.deepEqual(def.materials[1].colors.diffuse, { r = 255, g = 0, b = 0 })
+end
+
 -- The sourceBackend abstraction is cut: the definition is nitro by
 -- construction, so a spec needs no backend key and the field does not exist.
 function T.new_requires_no_source_backend()
@@ -136,6 +151,24 @@ function T.validation_rejects_bad_shapes()
   s = definitionSpec()
   s.materials[1].baseColor = { r = 300, g = 0, b = 0, a = 255 }
   throwsCode("MODEL_DEF_BAD_BASE_COLOR", function()
+    return ModelDefinition.new(s)
+  end)
+  -- The optional colors block (the four DS material registers the dynamic
+  -- compiler emits) is validated like any other record field: a non-record
+  -- block, an unknown channel, and an out-of-range component all raise.
+  s = definitionSpec()
+  s.materials[1].colors = 5
+  throwsCode("MODEL_DEF_BAD_MATERIAL_COLORS", function()
+    return ModelDefinition.new(s)
+  end)
+  s = definitionSpec()
+  s.materials[1].colors = { emissive = { r = 0, g = 0, b = 0 } }
+  throwsCode("MODEL_DEF_BAD_MATERIAL_COLORS", function()
+    return ModelDefinition.new(s)
+  end)
+  s = definitionSpec()
+  s.materials[1].colors = { diffuse = { r = 0, g = 0, b = 256 } }
+  throwsCode("MODEL_DEF_BAD_MATERIAL_COLORS", function()
     return ModelDefinition.new(s)
   end)
   s = definitionSpec()
@@ -252,6 +285,7 @@ local function nitroDescriptor()
           translucentDepthWrite = false,
           depthEqual = true,
           polygonAlpha = 31,
+          lightMask = 5,
         },
       },
     },
@@ -349,7 +383,7 @@ function T.from_nitro_descriptor_rejects_an_embedded_batch()
 end
 
 -- The per-segment polygon draw state is mandatory: the compiler always
--- emits all six fields, so a record missing one is malformed generated data.
+-- emits all seven fields, so a record missing one is malformed generated data.
 function T.from_nitro_descriptor_requires_the_draw_state_on_every_batch()
   for _, field in ipairs({
     "cullMode",
@@ -358,6 +392,7 @@ function T.from_nitro_descriptor_requires_the_draw_state_on_every_batch()
     "translucentDepthWrite",
     "depthEqual",
     "polygonAlpha",
+    "lightMask",
   }) do
     local desc = nitroDescriptor()
     desc.dynamic.batches[1][field] = nil

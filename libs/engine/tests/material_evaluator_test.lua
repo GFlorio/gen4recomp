@@ -452,6 +452,37 @@ end
 
 -- ---- NSBMA: color and alpha ----
 
+-- A record carrying the optional colors block (the four DS base-material
+-- registers the dynamic compiler emits) seeds the evaluated state per
+-- component; records without the block keep the baseColor reconstruction.
+-- The evaluated colors are what NSBMA channel overrides mutate, so the base
+-- channels must be the material's own, not a uniform baseColor.
+function T.base_material_state_reads_per_component_colors()
+  local def = texturedDefinition()
+  def.materials[1].colors = {
+    diffuse = { r = 255, g = 0, b = 0 },
+    ambient = { r = 0, g = 255, b = 0 },
+    specular = { r = 0, g = 0, b = 255 },
+    emission = { r = 123, g = 123, b = 123 },
+  }
+  local instance = ModelInstance.new(def)
+  instance:evaluateMaterials()
+  local state = instance.materialState[0]
+  Assert.equal(state.colors.diffuse.r, 255)
+  Assert.equal(state.colors.diffuse.g, 0)
+  Assert.equal(state.colors.ambient.g, 255)
+  Assert.equal(state.colors.specular.b, 255)
+  Assert.equal(state.colors.emission.r, 123)
+  Assert.equal(state.colors.emission.g, 123)
+  Assert.equal(state.colors.emission.b, 123)
+  -- The effective render material carries the same per-component colors.
+  local m = instance:effectiveMaterial(0)
+  Assert.deepEqual(m.matDiffuse, { 1, 0, 0 })
+  Assert.deepEqual(m.matAmbient, { 0, 1, 0 })
+  Assert.deepEqual(m.matSpecular, { 0, 0, 1 })
+  Assert.near(m.matEmission[1], 123 / 255, 1e-9)
+end
+
 function T.color_clip_animates_diffuse_and_alpha()
   local def = texturedDefinition()
   local instance = instanceWith(def, { fadeClip(4) })

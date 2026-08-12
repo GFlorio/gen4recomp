@@ -13,6 +13,8 @@ local NsbmdDynamicModel = require("romdump.src.digest.NsbmdDynamicModel")
 local NsbmdSbcEvaluator = require("libs.engine.src.NsbmdSbcEvaluator")
 local NsbmdPoseProvider = require("romdump.src.digest.NsbmdPoseProvider")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
+local ModelInstance = require("libs.engine.src.ModelInstance")
+local MapRenderer = require("libs.engine.src.MapRenderer")
 local ModelFixture = require("tests.support.NsbmdModelFixture")
 local NsbmdFixture = require("tests.support.NsbmdFixture")
 local Matrix4 = require("libs.math.src.Matrix4")
@@ -344,7 +346,9 @@ end
 
 -- Convert the digest intermediate records (raw batches + polygonAttrRaw) into
 -- the serialized descriptor shape MapAssetCompiler.dynamicBatches writes:
--- .g4mesh geometry paths and the decoded per-segment polygon draw state.
+-- .g4mesh geometry paths and the decoded per-segment polygon draw state --
+-- the polygon light mask included, exactly like the static path's batch
+-- records (the strict descriptor boundary requires it).
 local function serializeBatches(meshes)
   local out = {}
   for _, mesh in ipairs(meshes) do
@@ -364,6 +368,7 @@ local function serializeBatches(meshes)
       translucentDepthWrite = poly.translucentDepthWrite,
       depthEqual = poly.depthEqual,
       polygonAlpha = poly.polygonAlpha,
+      lightMask = poly.lightMask,
     }
   end
   return out
@@ -405,6 +410,61 @@ function T.to_definition_builds_a_valid_nitro_model()
   Assert.equal(def.backend.meshes[def.meshes[1].id].polygonMode, "modulation")
   -- The definition is a valid engine IR object (validation ran in new).
   Assert.equal(def:animation("door.open"), nil)
+end
+
+-- The compiler-to-runtime contract: a compiled dynamic descriptor with
+-- deliberately distinctive values -- a polygon light mask of 0b0101 and
+-- four distinct DS base-material colors -- preserves both exactly through
+-- ModelDefinition.fromNitroDescriptor -> ModelInstance:drawItems, and the
+-- renderer's per-draw mask decode matches the shader's per-light gating.
+-- The fixture NSBMD material carries distinct RGB555 values per register
+-- (diffuse 31,0,0 / ambient 0,31,0 / specular 0,0,31 / emission 15,15,15) and
+-- a polygon-attr word whose light-mask field is 0b0101.
+function T.compiled_descriptor_preserves_light_mask_and_four_material_colors()
+  local m = assert(Nsbmd.decode(NsbmdFixture.buildStaticQuad({ polyAttr = 0x001F00C5 }))).models[1]
+  local descriptor = NsbmdDynamicModel.compile(m)
+
+  -- The compiler emits each DS material register per channel, 5-bit -> 8-bit.
+  Assert.deepEqual(descriptor.materials[1].colors, {
+    diffuse = { r = 255, g = 0, b = 0 },
+    ambient = { r = 0, g = 255, b = 0 },
+    specular = { r = 0, g = 0, b = 255 },
+    emission = { r = 123, g = 123, b = 123 },
+  })
+
+  local def = ModelDefinition.fromNitroDescriptor({
+    key = "fixture:contract",
+    dynamic = {
+      nodes = descriptor.program.nodes,
+      transformProgram = descriptor.program,
+      batches = serializeBatches(descriptor.meshes),
+    },
+    materials = descriptor.materials,
+    animations = {
+      {
+        id = "fixture:anim",
+        name = "anim",
+        category = "joint",
+        kind = "trs",
+        frameCount = 2,
+        tracks = { { target = 0, targetIndex = 0 } },
+        source = { type = "nitro", format = "NSBCA", archive = "build_anim", memberId = 1 },
+      },
+    },
+  }, { key = "fixture:contract" })
+  local items = ModelInstance.new(def):drawItems({ ["draw0.seg0"] = "stub" })
+  local item = items[1]
+  Assert.equal(item.lightMask, 5, "the polygon light mask survives to the draw item")
+  Assert.deepEqual(item.material.matDiffuse, { 1, 0, 0 }, "diffuse survives to the draw item")
+  Assert.deepEqual(item.material.matAmbient, { 0, 1, 0 }, "ambient survives to the draw item")
+  Assert.deepEqual(item.material.matSpecular, { 0, 0, 1 }, "specular survives to the draw item")
+  Assert.near(item.material.matEmission[1], 123 / 255, 1e-9, "emission survives to the draw item")
+  Assert.near(item.material.matEmission[2], 123 / 255, 1e-9)
+  Assert.near(item.material.matEmission[3], 123 / 255, 1e-9)
+
+  -- The renderer decodes mask 0b0101 into the per-light 0/1 uniform the
+  -- shader gates each light with; the assertion pins the exact decode.
+  Assert.deepEqual(MapRenderer.lightMaskUniforms(5), { 1, 0, 1, 0 })
 end
 
 -- ---- static/dynamic render-state parity ----

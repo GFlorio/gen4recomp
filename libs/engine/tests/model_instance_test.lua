@@ -166,6 +166,30 @@ function T.draw_items_carry_pose_transforms()
   Assert.equal(items[1].polygonMode, "modulation")
   Assert.equal(items[1].polygonId, 0)
   Assert.equal(items[1].translucentDepthWrite, false)
+  Assert.equal(items[1].lightMask, 5)
+end
+
+-- The effective material reads the record's optional colors block (the four
+-- DS base-material registers the dynamic compiler emits) per component even
+-- before any evaluation -- the initial material state carries the record's
+-- channels, not a baseColor reconstruction; records without the block keep
+-- the baseColor fallback.
+function T.effective_material_reads_per_component_colors_before_evaluation()
+  local def = NitroModelFixture.doorDefinition()
+  def.materials[1].colors = {
+    diffuse = { r = 255, g = 0, b = 0 },
+    ambient = { r = 0, g = 255, b = 0 },
+    specular = { r = 0, g = 0, b = 255 },
+    emission = { r = 123, g = 123, b = 123 },
+  }
+  local instance = ModelInstance.new(def)
+  local m = instance:effectiveMaterial(0)
+  Assert.deepEqual(m.matDiffuse, { 1, 0, 0 })
+  Assert.deepEqual(m.matAmbient, { 0, 1, 0 })
+  Assert.deepEqual(m.matSpecular, { 0, 0, 1 })
+  Assert.near(m.matEmission[1], 123 / 255, 1e-9)
+  Assert.near(m.matEmission[2], 123 / 255, 1e-9)
+  Assert.near(m.matEmission[3], 123 / 255, 1e-9)
 end
 
 -- ---- strict dynamic draw state ----
@@ -176,7 +200,7 @@ end
 -- ("mostly right" visual output is the exact failure mode strict loading
 -- rejects).
 function T.draw_items_reject_an_incomplete_backend_draw_record()
-  for _, field in ipairs({ "polygonMode", "polygonId", "cullMode", "translucentDepthWrite", "depthEqual" }) do
+  for _, field in ipairs({ "polygonMode", "polygonId", "cullMode", "translucentDepthWrite", "depthEqual", "lightMask" }) do
     local def = NitroModelFixture.doorDefinition()
     def.backend.meshes["draw0.seg0"][field] = nil
     local instance = ModelInstance.new(def)
