@@ -1220,10 +1220,12 @@ end
 -- The restore tick is the load boundary: the caller
 -- resumes with the first step at restoreTick + 1, so relative delays rebase
 -- exactly and no tick is duplicated or skipped. The caller is responsible
--- for the registry and task-registry fingerprint checks (ScriptSave.restore
--- performs them); this method reattaches environments, instances, tasks, and
--- composition chains, verifying every frame's graph revision against the
--- current compositions.
+-- for the whole-bucket and registry/task-registry fingerprint checks
+-- (ScriptSave.restore performs them); this method verifies every frame's
+-- graph revision against the current compositions, then stages every
+-- restored environment, instance, and task as a fresh object and installs
+-- them only after the entire bucket has restored, so a raise anywhere in
+-- the stage leaves the scheduler idle.
 ---@param bucket table
 ---@param restoreTick integer
 function Scheduler:restoreScriptState(bucket, restoreTick)
@@ -1271,17 +1273,23 @@ function Scheduler:restoreScriptState(bucket, restoreTick)
     end
   end
 
-  for _, envRecord in ipairs(bucket.environments or {}) do
+  -- Stage: restore every record into fresh objects; nothing is installed
+  -- until the whole bucket has restored.
+  local environments = {}
+  local backgrounds = {}
+  local foregroundEnvironmentId = nil
+  for _, envRecord in ipairs(bucket.environments) do
     local environment = ScriptEnvironment.restore(envRecord, restoreTick)
-    self._environments[environment.environmentId] = environment
+    environments[environment.environmentId] = environment
     if environment.mode == "foreground" then
-      self._foregroundEnvironmentId = environment.environmentId
+      foregroundEnvironmentId = environment.environmentId
     else
-      self._backgrounds[#self._backgrounds + 1] = environment
+      backgrounds[#backgrounds + 1] = environment
     end
   end
 
-  for _, instanceRecord in ipairs(bucket.instances or {}) do
+  local instances = {}
+  for _, instanceRecord in ipairs(bucket.instances) do
     local instance = ScriptInstance.restore(instanceRecord, restoreTick, graphs)
     for _, frame in ipairs(instance.frames) do
       local composed = self:resolveComposition(frame.chainScriptId)
@@ -1289,18 +1297,27 @@ function Scheduler:restoreScriptState(bucket, restoreTick)
       frame.chain = composed.entries
       frame.graph = graphs[frame.graphRevision]
     end
-    self._instances[instance.instanceId] = instance
+    instances[instance.instanceId] = instance
   end
 
-  for _, taskRecord in ipairs(bucket.tasks or {}) do
+  local tasks = {}
+  local tasksById = {}
+  for _, taskRecord in ipairs(bucket.tasks) do
     local task = ScriptTask.restore(taskRecord, restoreTick)
-    self._tasks[#self._tasks + 1] = task
-    self._tasksById[task.taskId] = task
+    tasks[#tasks + 1] = task
+    tasksById[task.taskId] = task
   end
 
-  self._nextEnvironmentId = bucket.nextEnvironmentId or 0
-  self._nextInstanceId = bucket.nextInstanceId or 0
-  self._nextTaskId = bucket.nextTaskId or 0
+  -- Publish: install the staged state and the id counters.
+  self._environments = environments
+  self._backgrounds = backgrounds
+  self._foregroundEnvironmentId = foregroundEnvironmentId
+  self._instances = instances
+  self._tasks = tasks
+  self._tasksById = tasksById
+  self._nextEnvironmentId = bucket.nextEnvironmentId
+  self._nextInstanceId = bucket.nextInstanceId
+  self._nextTaskId = bucket.nextTaskId
 end
 
 return Scheduler
