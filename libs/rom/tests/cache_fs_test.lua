@@ -125,6 +125,31 @@ function T.load_lua_missing_returns_nil_err()
   Assert.notNil(err)
 end
 
+-- loadModule evaluates generated script modules under a restricted require
+-- allowlist (gen4.script only, matching ScriptLoader's resource loader), not
+-- the unrestricted global require/package. The allowlisted happy path is
+-- pinned by ScriptCache's readiness tests (script_valid_artifact_is_ready).
+function T.load_module_rejects_a_require_of_a_disallowed_module()
+  local c = cache("heartgold")
+  c:write("data/generated/script/a.b.lua", 'local X = require("libs.rom.src.Errors")\nreturn X\n')
+  local data, err = c:loadModule("data/generated/script/a.b.lua")
+  Assert.isNil(data, "a module requiring outside the allowlist must fail to load")
+  Assert.notNil(err, "a disallowed require must surface as an error")
+  Assert.isTrue(Errors.is(err), "the failure must be a structured cache error")
+end
+
+-- The package global must not be reachable from a generated module: at best
+-- it is a permission hole, at worst a generated module can corrupt the
+-- process-wide package tables the allowlist is meant to keep it away from.
+function T.load_module_env_does_not_expose_package()
+  local c = cache("heartgold")
+  c:write("data/generated/script/a.b.lua", "local p = package\nreturn p.path\n")
+  local data, err = c:loadModule("data/generated/script/a.b.lua")
+  Assert.isNil(data, "the package global must not be reachable from a generated module")
+  Assert.notNil(err)
+  Assert.isTrue(Errors.is(err), "the failure must be a structured cache error")
+end
+
 local function staging(versionId, backend)
   return CacheFs.forStaging(versionId, backend)
 end
