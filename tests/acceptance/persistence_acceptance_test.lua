@@ -149,6 +149,34 @@ function T.tests.mid_script_restart_resumes_through_recomputed_revisions()
   end)
 end
 
+-- SAVE-07: the game autosaves after every completed warp, and warp
+-- destinations can be any compiled map -- not only the two spawn-manifest
+-- maps. A resume must restore from the save record alone: the spawn manifest
+-- gates fresh boots only, or the game would produce saves it cannot load
+-- (walk into a New Bark house, autosave, restart, and the boot fails).
+-- SAVE-07: the game autosaves after every completed warp, and warp
+-- destinations can be any compiled map -- not only the two spawn-manifest
+-- maps. A resume must restore from the save record alone: the spawn manifest
+-- gates fresh boots only, or the game would produce saves it cannot load
+-- (walk into a New Bark house, autosave, restart, and the boot fails).
+function T.tests.resume_restores_a_save_on_a_map_without_a_declared_spawn()
+  withGame(TOWN, function(game)
+    requireCapability(game, "moveTo")
+    requireCapability(game, "waitForTransition")
+    -- The Elms Lab 2F door warp is the only TOWN exit whose tile is walkable;
+    -- its destination map (62) has no spawn-manifest entry.
+    game:moveTo({ fieldX = 688, fieldZ = 392 })
+    local transition = game:waitForTransition()
+    Assert.equal(transition.destination.mapSymbol, "MAP_NEW_BARK_ELMS_LAB_2F")
+    local before = game:snapshot()
+    local resumed = restart(game, { save = "resume" })
+    Assert.equal(resumed.saveStatus, "Resumed saved field session")
+    local after = resumed:snapshot()
+    Assert.equal(after.mapSymbol, "MAP_NEW_BARK_ELMS_LAB_2F")
+    Assert.deepEqual(after.player, before.player)
+  end)
+end
+
 -- A compact source-faithful three-choice vanilla menu (749--752 flow): the
 -- post-resume script that proves lazy on-demand decode through production
 -- composition. Its second value is 1, so selection is observably distinct.

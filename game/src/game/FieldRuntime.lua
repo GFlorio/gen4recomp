@@ -129,20 +129,22 @@ local function playerOccupancy(self)
   end
 end
 
-local function initialSurface(runtimeMap, localX, localZ)
-  local x, z = localX + FieldCoordinates.TILE_CENTER_OFFSET, localZ + FieldCoordinates.TILE_CENTER_OFFSET
+-- The spawn surface at a declared spawn tile: the topmost walkable terrain
+-- surface at the point, exactly the no-hint arrival rule of scripted warp
+-- resolution (WarpSystem.directSurface). The historic nearest-world-Y-zero
+-- choice served only the deleted (0,0) synthesis and selected the wrong floor
+-- on vertically stacked maps.
+local function spawnSurface(runtimeMap, localX, localZ)
+  local x = localX + FieldCoordinates.TILE_CENTER_OFFSET
+  local z = localZ + FieldCoordinates.TILE_CENTER_OFFSET
   local best
   for _, plate in ipairs(runtimeMap.terrain:candidatesAt(x, z)) do
     local sample = runtimeMap.terrain:sample(plate.id, x, z)
-    if
-      not best
-      or math.abs(sample.worldY) < math.abs(best.worldY)
-      or (math.abs(sample.worldY) == math.abs(best.worldY) and sample.surfaceId < best.surfaceId)
-    then
+    if best == nil or sample.worldY > best.worldY then
       best = sample
     end
   end
-  assert(best, string.format("spawn tile (%d,%d) has no terrain surface", localX, localZ))
+  assert(best, string.format("spawn tile (%d,%d) has no walkable terrain surface", localX, localZ))
   return best
 end
 
@@ -237,26 +239,27 @@ function FieldRuntime:_load()
     self.runtimeMap = restored and restored.runtimeMap or self.mapLoader:load(self.idOrSymbol)
     self.mapLoader:protectMap(self.runtimeMap.mapId, true)
 
-    -- The provisional spawn manifest is flat: each entry is itself the spawn
-    -- record (x, z, facing). Unmapped maps keep the historic default so any
-    -- map can be booted by id; a malformed entry is a manifest bug and must
-    -- fail loudly instead of dumping the player onto a blocked tile.
+    -- The spawn manifest is flat: each entry is itself the spawn record
+    -- (x, z, facing). A fresh boot must declare a spawn -- a missing entry is
+    -- a loud boot failure naming the map, never a synthetic (0,0) origin --
+    -- and a malformed entry is a manifest bug and must fail loudly instead of
+    -- dumping the player onto a blocked tile. A resumed boot places the player
+    -- from the save record, which carries its own position, surface, and
+    -- facing; warp destinations can be any compiled map and the game autosaves
+    -- after every warp, so a resume must not require a spawn entry.
     local spawn = TargetSpawns[self.runtimeMap.mapSymbol]
-    if not spawn then
-      spawn = { x = 0, z = 0, facing = "south" }
-    else
-      assert(
-        type(spawn.x) == "number" and type(spawn.z) == "number",
-        "spawn manifest must define x and z for " .. self.runtimeMap.mapSymbol
-      )
-    end
+    assert(
+      spawn == nil or (type(spawn.x) == "number" and type(spawn.z) == "number"),
+      "spawn manifest must define x and z for " .. self.runtimeMap.mapSymbol
+    )
     local fieldX, fieldZ, surfaceId, facing
     if restored then
       fieldX, fieldZ = restored.fieldX, restored.fieldZ
       surfaceId, facing = restored.surfaceId, restored.facing
     else
+      assert(spawn, "spawn manifest must define a spawn for " .. self.runtimeMap.mapSymbol)
       fieldX, fieldZ = FieldCoordinates.localToField(self.runtimeMap, spawn.x, spawn.z)
-      surfaceId, facing = initialSurface(self.runtimeMap, spawn.x, spawn.z).surfaceId, spawn.facing
+      surfaceId, facing = spawnSurface(self.runtimeMap, spawn.x, spawn.z).surfaceId, spawn.facing
     end
     self.player = FieldPlayer.new({
       currentMap = self.runtimeMap,
@@ -431,7 +434,7 @@ function FieldRuntime:_load()
   end)
   if not ok then
     self.errorText = tostring(err)
-    self:_release()
+    self:_releaseAll()
   end
 end
 
@@ -534,9 +537,7 @@ function FieldRuntime:_reset()
     self.saveStatus = "Reset failed: " .. tostring(err)
     return
   end
-  self:_release()
-  self.session, self.transition, self.camera, self.player = nil, nil, nil, nil
-  self.runtimeMap, self.viewport, self.saveStore = nil, nil, nil
+  self:_releaseAll()
   self.resumeSave = false
   self.errorText = nil
   self.saveStatus = "Field session reset"
@@ -599,10 +600,13 @@ function FieldRuntime:_applyZoomChange()
   self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
 end
 
--- Every actor the frame draws: the ROM-derived player billboard first, then the
--- object actors the manager considers present. Records stay presentation-neutral;
--- FieldActorDraw turns them into world draw items against the resident visuals.
-function FieldRuntime:_release()
+-- The one teardown path shared by reset and dispose: release every owned
+-- collaborator exactly once and clear every owned field, so a later release
+-- call is a no-op. Disposing the dialogue first is deliberate -- a half-open
+-- dialogue must never be persisted, so dispose() saves against a cancelled
+-- dialogue -- and the field clearing means reset never leaves a hand-picked
+-- subset behind for its re-boot.
+function FieldRuntime:_releaseAll()
   if self.dialogue then
     self.dialogue:dispose()
   end
@@ -625,23 +629,27 @@ function FieldRuntime:_release()
     self.mapLoader:release()
   end
   self.actors, self.actorAssets, self.mapLoader = nil, nil, nil
+  self.session, self.saveStore, self.scripts = nil, nil, nil
+  self.transition, self.camera, self.player, self.runtimeMap = nil, nil, nil, nil
+  self.viewport, self.envelope, self.input, self.menuHost = nil, nil, nil, nil
+  self.auxiliaryFieldUi, self.contextChoiceProvider, self.interactionResolver = nil, nil, nil
+  self.eventState, self.avatar = nil, nil
 end
 
 -- End the state's lifetime: persist the field session if one is live, then
--- release every owned resource exactly once. This is the single general
--- disposal hook invoked by App on both state replacement and application
--- shutdown; clearing the capture-bearing fields after release makes a repeat
--- call a no-op rather than a second save.
+-- release every owned resource exactly once through the shared teardown. This
+-- is the single general disposal hook invoked by App on both state
+-- replacement and application shutdown; clearing the capture-bearing fields
+-- in the teardown makes a repeat call a no-op rather than a second save.
 function FieldRuntime:dispose()
   -- A half-open dialogue must never be persisted; disposal cancels it cleanly
-  -- before the capture (and releases it once, before _release runs).
+  -- before the capture (and releases it once, before the shared teardown).
   if self.dialogue then
     self.dialogue:dispose()
     self.dialogue = nil
   end
   self:_save("Field session saved")
-  self:_release()
-  self.session, self.saveStore, self.scripts = nil, nil, nil
+  self:_releaseAll()
 end
 
 return FieldRuntime
