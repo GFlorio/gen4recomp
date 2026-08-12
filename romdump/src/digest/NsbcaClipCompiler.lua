@@ -24,13 +24,16 @@
 --   { source = "curve", rate, limit, storage, keys = { ... } }
 --     -- keys hold the raw words exactly as the decoders read them: fx16
 --     -- sign-extended, fx32 raw u32 (scale pairs { scale, inverse }), and
---     -- rotation keys always raw u16
+--     -- rotation keys always raw u16; limit always equals numFrame
+--     -- (asserted at compile -- the corpus invariant)
 --
 -- The rotation tables are compiled up to the highest entry the clip's
 -- rotation keys and constants reference (pivot and compressed forms
 -- separately); a sampler fed a key beyond them raises, matching the
 -- malformed-offset diagnostics of the decoders.
 -- Pure domain module.
+
+local Errors = require("libs.rom.src.Errors")
 
 local NsbcaClipCompiler = {}
 
@@ -139,8 +142,12 @@ local function readKeys(reader, curve, limit, isRot)
 end
 
 -- Project one decoded channel into its compiled form, attaching the curve's
--- key array. `isRot` marks the rotation channel (raw u16 keys).
-local function copyChannel(chan, reader, bounds, isRot)
+-- key array. `isRot` marks the rotation channel (raw u16 keys). A curve
+-- whose limit differs from numFrame raises NSBCA_CURVE_LIMIT_MISMATCH: the
+-- corpus invariant (verified for all 85 NSBCA members of the HGSS field
+-- archive) is limit == numFrame, and anything else is either a different
+-- title/resource or malformed data.
+local function copyChannel(chan, reader, bounds, isRot, numFrame, ctx)
   if not chan then
     return nil
   end
@@ -155,6 +162,22 @@ local function copyChannel(chan, reader, bounds, isRot)
     return out
   end
   local curve = chan.curve
+  if curve.limit ~= numFrame then
+    Errors.raise(
+      "NSBCA_CURVE_LIMIT_MISMATCH",
+      "NSBCA clip "
+        .. ctx.clip
+        .. " target "
+        .. tostring(ctx.target)
+        .. " channel "
+        .. ctx.channel
+        .. " limit "
+        .. tostring(curve.limit)
+        .. " != numFrame "
+        .. tostring(numFrame),
+      { clip = ctx.clip, target = ctx.target, channel = ctx.channel, limit = curve.limit, numFrame = numFrame }
+    )
+  end
   local limit = bounds[curve.keyBase] or bounds.sectionLimit
   return {
     source = CURVE,
@@ -167,8 +190,8 @@ end
 
 -- Compile `res` (a decoded NSBCA record) into the compiled payload. `reader`
 -- is the BinaryReader over the JNT0 section; `sectionLimit` the section's
--- byte length.
-function NsbcaClipCompiler.compilePayload(res, reader, sectionLimit)
+-- byte length; `clipId` names the clip in compile error contexts.
+function NsbcaClipCompiler.compilePayload(res, reader, sectionLimit, clipId)
   assert(type(res) == "table" and res.targets ~= nil, "NsbcaClipCompiler requires a decoded NSBCA record")
   assert(reader ~= nil and sectionLimit ~= nil, "NsbcaClipCompiler requires the section reader and limit")
 
@@ -203,17 +226,24 @@ function NsbcaClipCompiler.compilePayload(res, reader, sectionLimit)
   local targets = {}
   for _, target in ipairs(res.targets) do
     local channels = target.channels
+    local function copy(name, chan, isRot)
+      return copyChannel(chan, reader, bounds, isRot, res.numFrame, {
+        clip = clipId or "nsbca",
+        target = target.nodeIndex,
+        channel = name,
+      })
+    end
     local compiledChannels = {
       trans = {
-        x = copyChannel(channels.trans.x, reader, bounds, false),
-        y = copyChannel(channels.trans.y, reader, bounds, false),
-        z = copyChannel(channels.trans.z, reader, bounds, false),
+        x = copy("trans.x", channels.trans.x, false),
+        y = copy("trans.y", channels.trans.y, false),
+        z = copy("trans.z", channels.trans.z, false),
       },
-      rot = copyChannel(channels.rot, reader, bounds, true),
+      rot = copy("rot", channels.rot, true),
       scale = {
-        x = copyChannel(channels.scale.x, reader, bounds, false),
-        y = copyChannel(channels.scale.y, reader, bounds, false),
-        z = copyChannel(channels.scale.z, reader, bounds, false),
+        x = copy("scale.x", channels.scale.x, false),
+        y = copy("scale.y", channels.scale.y, false),
+        z = copy("scale.z", channels.scale.z, false),
       },
     }
     targets[#targets + 1] = {
@@ -237,7 +267,7 @@ end
 --   opts.source          provenance block (archive, memberId, sha1)
 function NsbcaClipCompiler.compile(res, reader, sectionLimit, opts)
   opts = opts or {}
-  local payload = NsbcaClipCompiler.compilePayload(res, reader, sectionLimit)
+  local payload = NsbcaClipCompiler.compilePayload(res, reader, sectionLimit, opts.id)
   local tracks = {}
   for i, target in ipairs(payload.targets) do
     tracks[#tracks + 1] = { target = target.nodeIndex, targetIndex = i - 1 }

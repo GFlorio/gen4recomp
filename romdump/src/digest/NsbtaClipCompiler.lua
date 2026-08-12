@@ -103,7 +103,10 @@ end
 -- key array. A channel with no data (nil slot or zero flag) raises
 -- NSBTA_COMPILE_ABSENT_CHANNEL: the compiled payload has no "absent" state,
 -- and the corpus census proves no real member carries one -- identity
--- components are authored as explicit constants.
+-- components are authored as explicit constants. A curve whose limit differs
+-- from numFrame raises NSBTA_CURVE_LIMIT_MISMATCH: the corpus census
+-- (217/217 curve channels across the 99 NSBTA members) records
+-- limit == numFrame everywhere, and anything else is malformed data.
 local function raiseAbsent(ctx, reason)
   Errors.raise(
     "NSBTA_COMPILE_ABSENT_CHANNEL",
@@ -121,6 +124,22 @@ local function copyChannel(chan, reader, bounds, sectionLimit, ctx)
   end
   if chan.flagRaw == 0 then
     raiseAbsent(ctx, "has a zero flag")
+  end
+  if chan.limit ~= ctx.numFrame then
+    Errors.raise(
+      "NSBTA_CURVE_LIMIT_MISMATCH",
+      "NSBTA clip "
+        .. ctx.clip
+        .. " target "
+        .. tostring(ctx.target)
+        .. " channel "
+        .. ctx.channel
+        .. " limit "
+        .. tostring(chan.limit)
+        .. " != numFrame "
+        .. tostring(ctx.numFrame),
+      { clip = ctx.clip, target = ctx.target, channel = ctx.channel, limit = chan.limit, numFrame = ctx.numFrame }
+    )
   end
   return {
     source = CURVE,
@@ -147,6 +166,7 @@ function NsbtaClipCompiler.compilePayload(res, reader, sectionLimit, clipId)
         clip = clipId or "nsbta",
         target = target.index,
         channel = name,
+        numFrame = res.numFrame,
       })
     end
     targets[#targets + 1] = { index = target.index, name = target.name, channels = channels }

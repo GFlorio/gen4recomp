@@ -16,7 +16,9 @@
 --
 -- and NitroJointState.srtFromBlend turns that into the SRT record the pose
 -- evaluator composes. The frame is clamped into [0, numFrame << 12 - 1],
--- exactly like NNSi_G3dAnmCalcNsBca. Pure domain module.
+-- exactly like NNSi_G3dAnmCalcNsBca. Every curve carries limit == numFrame
+-- (asserted at compile), so the sampling paths never see a frame past the
+-- last key. Pure domain module.
 
 local Errors = require("libs.rom.src.Errors")
 local JointAnimBlend = require("libs.engine.src.JointAnimBlend")
@@ -30,7 +32,7 @@ local FX_UNIT = 4096
 -- 3-bit quotients (5 x 3 bits at positions 0,3,6,9,12 -> one 12.19 value).
 local PACKED_SCALE = 524288
 
-local FULL, HALF, QUARTER = 1, 2, 4
+local HALF, QUARTER = 2, 4
 local FROM_MODEL = JointAnimBlend.FROM_MODEL
 
 local function bitSet(value, bit)
@@ -238,11 +240,6 @@ local function sampleCurveValues(channel, frameFx, numFrame, interpolate, wrapFi
 
   if interpolate and frac ~= 0 then
     local fracWide = frameFx % (FX_UNIT * step)
-    if frame >= channel.limit then
-      index = math.floor(channel.limit / step)
-      fracWide = frac
-      step = FULL
-    end
     return between(index, index + 1, function(a, b)
       return lerpEx(a, b, step, fracWide)
     end)
@@ -250,9 +247,6 @@ local function sampleCurveValues(channel, frameFx, numFrame, interpolate, wrapFi
 
   if step == HALF then
     if frame % 2 == 1 then
-      if frame > channel.limit then
-        return at(math.floor(channel.limit / 2) + 1)
-      end
       if channel.storage == "fx32" then
         return between(index, index + 1, function(a, b)
           return asr(a, 1) + asr(b, 1)
@@ -265,9 +259,6 @@ local function sampleCurveValues(channel, frameFx, numFrame, interpolate, wrapFi
     return at(index)
   elseif step == QUARTER then
     if frame % 4 ~= 0 then
-      if frame > channel.limit then
-        return at(frame % 4 + math.floor(channel.limit / 4))
-      end
       if frame % 4 == 2 then
         return between(index, index + 1, function(a, b)
           return asr(a + b, 1)
@@ -329,11 +320,6 @@ local function sampleRot(clip, channel, frameFx, numFrame, targetIndex)
     local index = math.floor(frame / channel.rate)
     local step = channel.rate
     local fracWide = frameFx % (FX_UNIT * channel.rate)
-    if frame >= channel.limit then
-      index = math.floor(channel.limit / channel.rate)
-      fracWide = frac
-      step = FULL
-    end
     return lerpKeys(clip, keyAt(index), keyAt(index + 1), fracWide, step, targetIndex)
   end
 
@@ -342,17 +328,11 @@ local function sampleRot(clip, channel, frameFx, numFrame, targetIndex)
   local index = math.floor(frame / rate)
   if rate == HALF then
     if frame % 2 == 1 then
-      if frame > channel.limit then
-        return reconstructFinal(clip, keyAt(math.floor(channel.limit / 2) + 1), targetIndex)
-      end
       return mergeKeys(clip, keyAt(index), keyAt(index + 1), 1, targetIndex)
     end
     return reconstructFinal(clip, keyAt(index), targetIndex)
   elseif rate == QUARTER then
     if frame % 4 ~= 0 then
-      if frame > channel.limit then
-        return reconstructFinal(clip, keyAt(frame % 4 + math.floor(channel.limit / 4)), targetIndex)
-      end
       if frame % 4 == 2 then
         return mergeKeys(clip, keyAt(index), keyAt(index + 1), 1, targetIndex)
       end

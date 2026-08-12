@@ -133,6 +133,22 @@ function T.bma_colors_and_alpha_identical()
   end
 end
 
+-- The corpus invariant holds for NSBTA curves too (the ROM census records
+-- limit == numFrame for every NSBTA curve channel of the field archive), so
+-- the compile path must raise NSBTA_CURVE_LIMIT_MISMATCH for a curve whose
+-- limit differs, exactly like the NSBCA side.
+function T.srt_curve_limit_below_num_frame_raises_at_compile()
+  local decoded = assert(NitroAnimation.decode(require("tests.support.AnimationFixture").srtSpin(3)))
+  local resource = decoded.animations[1].resource
+  local reader = BinaryReader.new(decoded.bytes, "sec")
+  local ok, err = pcall(NsbtaClipCompiler.compile, resource, reader, #decoded.bytes, {
+    id = "fixture:spin",
+    name = "spin",
+  })
+  Assert.isFalse(ok)
+  Assert.equal(err.code, "NSBTA_CURVE_LIMIT_MISMATCH")
+end
+
 -- A decoded NSBTA record whose channel has no data (a nil slot or a zero
 -- flag) cannot be compiled: the compiled payload has no "absent" state, and
 -- the corpus census proves no real member carries one (identity components

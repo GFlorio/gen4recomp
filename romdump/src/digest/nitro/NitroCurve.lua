@@ -5,10 +5,11 @@
 -- 038cccaed, 2025-12-24) -- getTransData_/getTransDataEx_/getScaleData_/
 -- getScaleDataEx_/getRotDataEx_ all share this machinery. Channel flag:
 --
---   bits 16-28 (0x1FFF0000): limit -- in the real ROM always numFrame,
---          i.e. the key count at full rate (verified for all 85 NSBCA
---          members of the HGSS field archive); frames past it clamp to
---          the last key
+--   bits 16-28 (0x1FFF0000): limit -- the key count at full rate, always
+--          numFrame (verified for all 85 NSBCA members of the HGSS field
+--          archive; the clip compilers assert limit == numFrame, and the
+--          callers clamp frames to numFrame - 1, so the sampler never
+--          sees a frame past the last key)
 --   bit 29   (0x20000000): fx16 storage (u16 keys; else fx32 u32 keys).
 --          Rotation channels ignore this bit and always use u16 keys.
 --   bit 30   (0x40000000): half rate (2 frames per key, stored values
@@ -155,13 +156,9 @@ function NitroCurve:sampleValues(r, frameFx, numFrame, interpolate, wrapFinal)
 
   if interpolate and frac ~= 0 then
     -- Ex path: keys at index and index+1, 12/13/14-bit fractional part.
+    -- limit == numFrame and the frame is clamped to numFrame - 1, so the
+    -- frame never passes the last key (no tail branch).
     local fracWide = frameFx % (4096 * step)
-    if frame >= self.limit then
-      -- Past the last key: clamp to it with the plain 12-bit fraction.
-      index = math.floor(self.limit / step)
-      fracWide = frac
-      step = NitroCurve.FULL
-    end
     return between(index, index + 1, function(a, b)
       return lerpEx(a, b, step, fracWide)
     end)
@@ -170,9 +167,6 @@ function NitroCurve:sampleValues(r, frameFx, numFrame, interpolate, wrapFinal)
   -- Integer path.
   if step == NitroCurve.HALF then
     if frame % 2 == 1 then
-      if frame > self.limit then
-        return at(math.floor(self.limit / 2) + 1)
-      end
       if self.storage == "fx32" then
         return between(index, index + 1, function(a, b)
           return asr(a, 1) + asr(b, 1)
@@ -185,9 +179,6 @@ function NitroCurve:sampleValues(r, frameFx, numFrame, interpolate, wrapFinal)
     return at(index)
   elseif step == NitroCurve.QUARTER then
     if frame % 4 ~= 0 then
-      if frame > self.limit then
-        return at(frame % 4 + math.floor(self.limit / 4))
-      end
       if frame % 4 == 2 then
         return between(index, index + 1, function(a, b)
           return asr(a + b, 1)

@@ -235,4 +235,17 @@ function T.key_bounds_chain_across_multiple_channels()
   Assert.equal(#channels.scale.z.keys, 8, "fx32 scale pair z")
 end
 
+-- The corpus invariant (all real NSBCA curves have limit == numFrame --
+-- verified by the ROM census over all 85 field-archive members) is enforced
+-- at the compile path: a curve whose limit differs is either a different
+-- title/resource or malformed data, and the compile must raise
+-- NSBCA_CURVE_LIMIT_MISMATCH instead of emitting a clip whose sampler would
+-- need the removed tail branches.
+function T.curve_limit_below_num_frame_raises_at_compile()
+  local AF = require("tests.support.AnimationFixture")
+  throwsCode("NSBCA_CURVE_LIMIT_MISMATCH", function()
+    compileClip(AF.jntFull(nil, 8, 8, 6), "jntLimitMismatch")
+  end)
+end
+
 return T

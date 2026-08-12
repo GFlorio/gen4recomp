@@ -62,6 +62,17 @@ function T.all_animation_members_decode(romFs)
           end
         end
       elseif decoded.format == "NSBTA" then
+        -- NSBTA curve limits equal numFrame like NSBCA (census: 217/217
+        -- curve channels across the 99 members), so the compile path may
+        -- assert the same invariant.
+        for _, t in ipairs(res.targets) do
+          for _, name in ipairs({ "transS", "transT", "rot", "scaleS", "scaleT" }) do
+            local c = t.channels[name]
+            if c.source == "curve" then
+              Assert.equal(c.limit, res.numFrame, name .. " limit")
+            end
+          end
+        end
         -- Sample the middle frame of every target: exercises the constant
         -- channels (including non-identity packed rotations), the sampled
         -- fx16/fx32 vector channels, and the packed rotation pairs.

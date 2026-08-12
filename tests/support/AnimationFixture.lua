@@ -217,11 +217,14 @@ end
 
 -- All channels animated: fx16 trans curves, pivot rot curve, fx32 scale
 -- pairs. `rateFlag` varies the sampling rate (half/quarter rate add
--- 0x40000000 / 0x80000000); keys then cover 2/4 frames per key.
-function AnimationFixture.jntFull(rateFlag, keyCount, numFrame)
+-- 0x40000000 / 0x80000000); keys then cover 2/4 frames per key. `limit`
+-- overrides the authored curve limit (the real-format invariant is
+-- limit == numFrame; a caller passing a smaller value authors the malformed
+-- shape the compiler must reject).
+function AnimationFixture.jntFull(rateFlag, keyCount, numFrame, limit)
   keyCount = keyCount or 8
   numFrame = numFrame or 8
-  local flag = (rateFlag or 0) + numFrame * 0x10000
+  local flag = (rateFlag or 0) + (limit or numFrame) * 0x10000
   local flagFx16 = flag + 0x20000000
   -- (values stay within the fx16 range; the caller's expectations match)
   local function transKeys(base)
@@ -405,7 +408,10 @@ local function buildSrtRecord(opts)
       bw:u32(0x30000000 + numFrame)
       bw:u32(c.const)
     else
-      local flag = numFrame
+      -- `limit` overrides the authored curve limit (the real-format
+      -- invariant is limit == numFrame; a smaller value authors the
+      -- malformed shape the compiler must reject).
+      local flag = c.limit or numFrame
       if c.fx16 then
         flag = flag + 0x10000000
       end
@@ -446,8 +452,10 @@ function AnimationFixture.srtWater()
 end
 
 -- SRT with an animated rotation (packed sin/cos keys) and a translation-S
--- curve.
-function AnimationFixture.srtSpin()
+-- curve. `rotLimit` overrides the rotation channel's authored curve limit
+-- (the real-format invariant is limit == numFrame; a smaller value authors
+-- the malformed shape the compiler must reject).
+function AnimationFixture.srtSpin(rotLimit)
   local record = buildSrtRecord({
     numFrame = 4,
     channels = {
@@ -455,6 +463,7 @@ function AnimationFixture.srtSpin()
       scaleT = { const = 0x1000 },
       rot = {
         packed = true,
+        limit = rotLimit,
         keys = {
           packedSinCos(0.5, 0.8660),
           packedSinCos(0.7071, 0.7071),
