@@ -242,11 +242,15 @@ function T.modal_menu_routes_ui_events_to_the_script_scheduler()
     end,
   }
   local player = { worldX = 0, worldY = 0, worldZ = 0 }
+  local map = { mapId = 61 }
+  local camera = { updateFixed = function() end }
   local session = FieldSession.new({
     versionId = "heartgold",
-    currentMap = { mapId = 61 },
+    currentMap = map,
     player = player,
-    camera = { updateFixed = function() end },
+    camera = camera,
+    transition = idleTransition(),
+    actors = idleActors(),
     input = input,
     menuHost = menuHost,
     scriptScheduler = scheduler,

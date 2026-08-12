@@ -80,10 +80,10 @@ end
 
 function T.rejects_missing_or_invalid_surface_data()
   Assert.throws(function()
-    ScreenTopology.oneDisplay({ id = "main", rect = rectangle(0, 0, 256, 192), role = "world" })
+    ScreenTopology.oneDisplay({ id = "main", rect = rectangle(0, 0, 256, 192), role = "world" } --[[@as any]])
   end)
   Assert.throws(function()
-    ScreenTopology.oneDisplay({ id = "main", rect = rectangle(0, 0, 256, 192), role = "unknown", touch = false })
+    ScreenTopology.oneDisplay({ id = "main", rect = rectangle(0, 0, 256, 192), role = "unknown", touch = false } --[[@as any]])
   end)
   Assert.throws(function()
     ScreenTopology.oneDisplay({
@@ -115,7 +115,7 @@ function T.rejects_missing_or_invalid_surface_data()
       role = "world",
       touch = false,
       safeRect = false,
-    })
+    } --[[@as any]])
   end)
   Assert.throws(function()
     ScreenTopology.oneDisplay({
@@ -124,7 +124,7 @@ function T.rejects_missing_or_invalid_surface_data()
       role = "world",
       touch = false,
       occupiedRegions = false,
-    })
+    } --[[@as any]])
   end)
   Assert.throws(function()
     ScreenTopology.new({

@@ -15,6 +15,7 @@ local FieldFontCompiler = require("romdump.src.digest.FieldFontCompiler")
 local FieldFontDecoder = require("romdump.src.digest.FieldFontDecoder")
 local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
 local charmap = require("data.reference.hgss.charmap")
+local MenuProtocol = require("data.reference.hgss.menu_protocol")
 
 local T = {}
 
@@ -180,6 +181,21 @@ function T.font_palette_matches_the_rom_member(romFs)
   Assert.deepEqual(palette.colors[16], { r = 255, g = 255, b = 255 })
 end
 
+function T.standard_menu_bank_holds_the_vanilla_list_menu_ids(romFs)
+  -- Source-faithful 749 menus resolve item ids against the standard list-menu
+  -- bank (MenuProtocol.STANDARD_MESSAGE_BANK). The scr_seq corpus references
+  -- ids up to 475 (member 3's mart menus use 321/322/323, the info menu 324),
+  -- so the standard bank must cover every id the runtime will resolve.
+  local messages = assert(romFs:openNarc("messages"))
+  local menu = assert(
+    FieldMessageBank.decode(messages:readMember(MenuProtocol.STANDARD_MESSAGE_BANK), {}),
+    "standard menu bank must exist"
+  )
+  for _, id in ipairs({ 321, 322, 323, 324, 475 }) do
+    Assert.isTrue(menu.messages[id + 1] ~= nil, "standard menu bank must hold list-menu message " .. tostring(id))
+  end
+end
+
 function T.compiled_cache_artifacts_are_ready_and_stable(romFs, version)
   local cache = CacheFs.forVersion(version)
   local messages = assert(romFs:openNarc("messages"))
@@ -196,6 +212,13 @@ function T.compiled_cache_artifacts_are_ready_and_stable(romFs, version)
   local messageBundle = assert(FieldMessageCompiler.compile(romFs))
   Assert.equal(messageBundle.index.bankIds[1], 542)
   Assert.equal(messageBundle.index.bankIds[2], 543)
+  local menuBankSelected = false
+  for _, bankId in ipairs(messageBundle.index.bankIds) do
+    if bankId == MenuProtocol.STANDARD_MESSAGE_BANK then
+      menuBankSelected = true
+    end
+  end
+  Assert.isTrue(menuBankSelected, "the standard menu bank must be selected for the derived cache")
   Assert.isTrue(FieldMessageCache.isReady(cache, messageBundle.marker))
   Assert.equal(FieldMessageCache.bankPath(542), "data/generated/field/messages/banks/0542.lua")
   local fontBundle = assert(FieldFontCompiler.compile(romFs))

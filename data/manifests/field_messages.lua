@@ -22,8 +22,10 @@ return {
   },
   -- Message banks selected for the demo scenario : the
   -- two town banks plus every New Bark interior bank (544-549), because the
-  -- bound scripts of the New Bark slice reference their maps' own banks.
-  banks = { 542, 543, 544, 545, 546, 547, 548, 549 },
+  -- bound scripts of the New Bark slice reference their maps' own banks, and
+  -- bank 191 because the vanilla 749-752 menus (common.pokemart and the
+  -- New Bark slice's menus) resolve their items there.
+  banks = { 542, 543, 544, 545, 546, 547, 548, 549, 191 },
   -- Font 0 is the field dialogue font (src/font.c sFontArcParam[0]).
   fontId = 0,
   fontGlyphMember = 0,

@@ -358,6 +358,7 @@ function T.menu_task_rejects_out_of_range_saved_logical_state()
   local err
   state.selectedIndex = 2
   err = MenuTask.validate(state)
+  ---@cast err Errors.Error
   Assert.equal(err.code, "SCRIPT_TASK_UNSERIALIZABLE")
 end
 

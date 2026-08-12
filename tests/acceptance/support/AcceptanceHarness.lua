@@ -687,6 +687,7 @@ function Game:replaceApplicationState()
     self.trap,
     self.versionId,
     self.map,
+    self.fieldOptions,
     self.faults,
     activeLifecycle,
     false

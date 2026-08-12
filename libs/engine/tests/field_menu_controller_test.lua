@@ -95,7 +95,7 @@ function T.cancellable_must_be_a_boolean()
         { text = "Only", value = 1 },
       },
       cancellable = 1,
-    })
+    } --[[@as any]])
   end)
 end
 

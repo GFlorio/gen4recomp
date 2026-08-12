@@ -101,6 +101,14 @@ function T.retains_var_derived_item_operands_as_concrete_values()
   Assert.equal(menu.items[1].value, 401)
 end
 
+-- Source-faithful 749 menus carry `messageSource = "standard"`; their
+-- message ids are indices into the HGSS standard list-menu bank. The
+-- protocol constant is ROM-pinned (tests/rom verifies bank 191 holds the
+-- vanilla list-menu ids), so a standard menu must resolve there.
+function T.standard_menu_messages_resolve_from_the_hgss_standard_bank()
+  Assert.equal(MenuProtocol.STANDARD_MESSAGE_BANK, 191)
+end
+
 function T.publishes_semantic_choices_without_entering_the_imported_builder()
   local h = host()
   local menu = h:choose({

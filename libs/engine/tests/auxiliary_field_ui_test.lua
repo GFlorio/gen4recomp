@@ -54,7 +54,7 @@ end
 
 function T.auxiliary_ui_task_validation_returns_a_structured_error_for_invalid_saved_state()
   local err = AuxiliaryUiTask.validate({ visible = "hidden" })
-
+  ---@cast err Errors.Error
   Assert.equal(err.code, "SCRIPT_TASK_UNSERIALIZABLE")
 end
 

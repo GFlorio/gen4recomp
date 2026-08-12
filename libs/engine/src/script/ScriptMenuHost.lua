@@ -7,8 +7,8 @@ local ScriptErrors = require("libs.engine.src.script.errors")
 local MenuProtocol = require("data.reference.hgss.menu_protocol")
 
 ---@class ScriptMenuHost
----@field private _provider FieldMessageProvider
----@field private _resolveText fun(message: any): table|nil
+---@field _provider FieldMessageProvider
+---@field _resolveText fun(message: any): table|nil
 local ScriptMenuHost = {}
 ScriptMenuHost.__index = ScriptMenuHost
 
@@ -77,6 +77,7 @@ local function resolveSemanticText(self, message)
         { message = message }
       )
     end
+    ---@cast resolveText fun(message: any): table|nil
     local text = resolveText(message)
     if type(text) ~= "table" or type(text.text) ~= "string" then
       Errors.raise(
@@ -175,12 +176,13 @@ function ScriptMenuHost:beginMenu(spec)
   }
 end
 
----@param builder table imported HGSS menu builder owned by a ScriptInstance
+---@param builder table|nil imported HGSS menu builder owned by a ScriptInstance
 ---@param item table { messageId, vanillaMetadata, value }
 function ScriptMenuHost:addItem(builder, item)
   if builder == nil then
     Errors.raise(ScriptErrors.SCRIPT_MENU_NOT_INITIALIZED, "script menu item added without a menu builder")
   end
+  ---@cast builder table
   assert(type(item) == "table", "script menu item must be a table")
   assertInteger(item.messageId, "script menu message id")
   assert(item.vanillaMetadata ~= nil, "script menu vanilla metadata is required")
@@ -195,12 +197,13 @@ end
 -- Resolves every builder entry before publication. Bank acquisitions are
 -- released after each lookup; on any failure no controller request is made
 -- and the builder remains available for diagnostic inspection by its caller.
----@param builder table imported HGSS menu builder owned by a ScriptInstance
+---@param builder table|nil imported HGSS menu builder owned by a ScriptInstance
 ---@return any menuController
 function ScriptMenuHost:execute(builder)
   if builder == nil then
     Errors.raise(ScriptErrors.SCRIPT_MENU_NOT_INITIALIZED, "script menu executed without a menu builder")
   end
+  ---@cast builder table
   if #builder.items == 0 then
     Errors.raise(ScriptErrors.SCRIPT_MENU_EMPTY, "script menu has no items")
   end
