@@ -437,9 +437,9 @@ T["nonblocking message without a dialogue service faults"] = function()
     100
   )
   h.scheduler:step(100, {})
-  local instance = assert(h.scheduler:instance(instanceId))
-  Assert.equal(instance.status, "faulted")
-  Assert.equal(instance.endReason, "SCRIPT_SERVICE_MISSING")
+  local fault = assert(h.services.events:eventFor("script.error", instanceId))
+  Assert.equal(fault.code, "SCRIPT_SERVICE_MISSING")
+  Assert.equal(assert(h.services.events:eventFor("script.ended", instanceId)).completed, false)
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "the script must not continue past the missing service")
 end
 
