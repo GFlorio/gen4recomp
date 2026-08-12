@@ -15,6 +15,8 @@ item is a *cut* lens: the default answer is "remove it", and keeping code needs 
 - **Layer violations.** `libs/rom` and `libs/assets` must not `require` love. No raw-ROM
   decoding or decomp-derived reference data in `libs/engine` or `game/src`.
 - **Misplaced code.** Domain logic sitting in an interface/infrastructure module.
+- **Code lacks intent.** A function that does not have a clear, single responsibility; a module that
+  does not have a clear, single purpose; a class that does not have a clear, single role.
 
 ## Branches and control flow
 
