@@ -1,8 +1,9 @@
--- Headless theme geometry tests: the dialogue
--- box lives inside the centered 4:3 reference canvas at 4:3, 16:9, and
--- ultrawide aspects, with constant reference-space dimensions and two full
--- text lines of extracted font height. Layout returns reference-canvas
--- geometry plus one origin/scale mapping; screenRect() projects any rect.
+-- Headless theme geometry tests: the dialogue box is the canonical HGSS
+-- content rect 16,152,216,32 (2/19/27/4 tiles at 8px) inside the centered
+-- 4:3 reference canvas at 4:3, 16:9, and ultrawide aspects, with constant
+-- reference-space dimensions and two full 16px text lines inside the 32px
+-- height. Layout returns reference-canvas geometry plus one origin/scale
+-- mapping; screenRect() projects any rect.
 
 local Assert = require("tests.support.Assert")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
@@ -18,16 +19,18 @@ local function screen(layout, rect)
   return FieldDialogueTheme.screenRect(layout, rect)
 end
 
-function T.box_is_bottom_anchored_inside_the_reference_canvas()
+function T.box_is_the_canonical_hgss_content_rect()
   local box = FieldDialogueTheme.box
-  Assert.equal(box.width, 240)
-  Assert.equal(box.height, 56)
-  Assert.equal(box.x, 8)
-  Assert.equal(box.y + box.height, 192 - 8, "bottom inset is 8 reference pixels")
-  -- Two 16px text lines plus symmetric padding fit inside the box height.
+  Assert.deepEqual(box, { x = 16, y = 152, width = 216, height = 32 }, "canonical dialogue content rect")
+  -- Two 16px text lines fit exactly inside the 32px content height.
   Assert.isTrue(
     FieldDialogueTheme.textInsetY * 2 + FieldDialogueTheme.lineHeight * FieldDialogueTheme.maxLines <= box.height,
-    "two lines fit with padding"
+    "two 16px lines fit in the content height"
+  )
+  -- The text area stays inside the box horizontally.
+  Assert.isTrue(
+    FieldDialogueTheme.textInsetX * 2 + FieldDialogueTheme.textWidth <= box.width,
+    "text area inside the box"
   )
 end
 
@@ -52,7 +55,7 @@ function T.layout_maps_inside_the_reference_frame_at_43()
   Assert.near(layout.scale, 720 / 192)
   Assert.deepEqual(layout.origin, { x = 0, y = 0 })
   local box = screen(layout, layout.box)
-  Assert.near(box.width, 240 * layout.scale)
+  Assert.near(box.width, 216 * layout.scale)
   Assert.isTrue(box.x >= 0 and box.y >= 0, "box inside frame")
   Assert.isTrue(box.x + box.width <= 960 + 1e-9)
   Assert.isTrue(box.y + box.height <= 720 + 1e-9)
