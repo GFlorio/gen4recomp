@@ -214,8 +214,9 @@ function T.stale_staging_does_not_make_ready_and_is_cleaned()
 end
 
 -- A failure while the staged tree is being moved into place restores the
--- previous live root and re-raises, so even a failed publish keeps the old
--- dump ready.
+-- previous live root and re-raises the original failure, so a failed publish
+-- keeps the old dump ready. From the moment publish begins the staged tree is
+-- recovery material: run() must not remove it, and the next import discards it.
 function T.failed_publish_restores_previous_dump()
   local backend = FakeCache.new()
   extractOk({ backend = backend })
@@ -236,11 +237,40 @@ function T.failed_publish_restores_previous_dump()
   assertLiveUnchanged(backend, files, dirs)
   Assert.isTrue(RomImporter.isReady("heartgold", CacheFs.forVersion("heartgold", backend)))
   Assert.isNil(backend.files["staging/heartgold.old/romfs/a/0/0/2"], "no orphaned old root after rollback")
-  Assert.isNil(backend.dirs["staging/heartgold"], "a failed publish must not leave the staged tree behind")
-  Assert.isNil(
+  Assert.notNil(
     backend.files["staging/heartgold/rom-dump.complete"],
-    "a failed publish must not leave the complete staged marker behind"
+    "run() must not remove the staged tree once publish has begun"
   )
+end
+
+-- Once publish has begun, run() must not remove the staging tree or the
+-- recovery material: an incomplete rollback leaves the previous dump at the
+-- aside root, the only remaining copy of the last-known-good artifact.
+function T.failed_publish_keeps_recovery_material_in_staging()
+  local backend = FakeCache.new()
+  extractOk({ backend = backend })
+  local oldPersonal = backend.files[HG .. "romfs/a/0/0/2"]
+  local newPersonal = require("tests.support.NarcBuilder").build({ "P0", "P1", "P2" })
+  local originalReplace = backend.replace
+  ---@diagnostic disable: duplicate-set-field
+  backend.replace = function(self, sourcePath, destinationPath)
+    if sourcePath == "staging/heartgold" or sourcePath == "staging/heartgold.old" then
+      return false, "injected publish failure"
+    end
+    return originalReplace(self, sourcePath, destinationPath)
+  end
+  local spec = DumpFixture.spec()
+  spec.tree.dirs[1].dirs[1].dirs[1].files[1].content = newPersonal
+  local r = DumpFixture.extract({ spec = spec, backend = backend })
+
+  Assert.isNil(r.report, "expected extraction to fail")
+  Assert.equal(r.err.code, "CACHE_PUBLISH_ROLLBACK_INCOMPLETE")
+  Assert.equal(
+    backend.files["staging/heartgold.old/romfs/a/0/0/2"],
+    oldPersonal,
+    "the last-known-good dump stays in the aside root"
+  )
+  Assert.equal(backend.files["staging/heartgold/romfs/a/0/0/2"], newPersonal, "the staged dump stays in place")
 end
 
 return { tests = T }

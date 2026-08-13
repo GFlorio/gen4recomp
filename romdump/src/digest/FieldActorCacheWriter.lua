@@ -63,7 +63,6 @@ local function persist(tx, bundle)
   end
 
   stage:write(FieldActorCache.markerPath(), bundle.marker)
-  tx:publish()
   return bundle.marker
 end
 
@@ -74,11 +73,12 @@ function FieldActorCacheWriter.write(cacheFs, bundle)
     FieldActorCache.dir(),
   })
   local ok, result = pcall(persist, tx, bundle)
-  if ok then
-    return result
+  if not ok then
+    tx:abort()
+    error(result, 0)
   end
-  tx:abort()
-  error(result)
+  tx:publish()
+  return result
 end
 
 return FieldActorCacheWriter

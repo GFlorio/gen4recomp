@@ -400,9 +400,43 @@ function T.publish_from_stage_restores_previous_root_when_replace_reports_failur
   Assert.isNil(backend.files["staging/heartgold.old/romfs/a/0/0/2"], "no orphaned old root after rollback")
 end
 
+-- When the aside restore fails too, the rollback is incomplete: the previous
+-- dump stays at the aside root (the only remaining recovery material) and the
+-- failure reports both the original publish error and the rollback error.
+function T.publish_from_stage_reports_incomplete_rollback()
+  local backend = FakeCache.new()
+  local c = cache("heartgold", backend)
+  local s = staging("heartgold", backend)
+  c:write("romfs/a/0/0/2", "OLD")
+  c:write("rom-dump.complete", "OLD-MARKER")
+  s:write("romfs/a/0/0/2", "NEW")
+  s:write("rom-dump.complete", "NEW-MARKER")
+  local originalReplace = backend.replace
+  ---@diagnostic disable: duplicate-set-field
+  backend.replace = function(self, sourcePath, destinationPath)
+    if sourcePath == "staging/heartgold" then
+      return false, "injected publish failure"
+    end
+    if sourcePath == "staging/heartgold.old" then
+      return false, "injected rollback failure"
+    end
+    return originalReplace(self, sourcePath, destinationPath)
+  end
+  local err = Assert.throws(function()
+    c:publishFromStage(s)
+  end)
+  Assert.isTrue(Errors.is(err), "an incomplete rollback must surface as a structured error")
+  Assert.equal(err.code, "CACHE_PUBLISH_ROLLBACK_INCOMPLETE")
+  Assert.isTrue(tostring(err.context.cause):match("CACHE_REPLACE_FAILED"), "the original publish error is the cause")
+  Assert.isTrue(tostring(err.context.rollback):match("injected rollback failure"), "the rollback error is recorded")
+  Assert.equal(backend.files["staging/heartgold.old/romfs/a/0/0/2"], "OLD", "the aside keeps the last-known-good dump")
+  Assert.equal(backend.files["staging/heartgold/romfs/a/0/0/2"], "NEW", "the staged dump stays in place")
+end
+
 -- A backend-reported failure removing the previous root after the swap must
--- still surface: publication cannot report success when a mutation it
--- performed failed, even though the new dump has already landed.
+-- surface as the shared cleanup outcome: the new dump is live, so the failure
+-- reports cleanup-failed rather than a failed publication, and the old root is
+-- the only recovery material left.
 function T.publish_from_stage_reports_cleanup_failure()
   local backend = FakeCache.new()
   local c = cache("heartgold", backend)
@@ -417,10 +451,13 @@ function T.publish_from_stage_reports_cleanup_failure()
     end
     return originalRemove(self, path)
   end
-  throwsCode("CACHE_REMOVE_FAILED", function()
+  local err = Assert.throws(function()
     c:publishFromStage(s)
   end)
+  Assert.isTrue(Errors.is(err), "a cleanup failure must surface as a structured error")
+  Assert.equal(err.code, "CACHE_PUBLISH_CLEANUP_FAILED")
   Assert.equal(backend.files["heartgold/romfs/a/0/0/2"], "NEW", "the new dump has landed before cleanup")
+  Assert.equal(backend.files["staging/heartgold.old/romfs/a/0/0/2"], "OLD", "the old root is the only staging residue")
 end
 
 function T.remove_staged_tree_reports_backend_failure()

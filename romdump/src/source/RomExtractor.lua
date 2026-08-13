@@ -2,13 +2,14 @@
 -- live per-version cache: a lossless raw NitroFS dump plus deterministic
 -- generated metadata, finished by a marker-last transaction. The live dump is
 -- not touched until the staged tree is complete and validated; a failed
--- extraction or failed publish leaves the previous ready dump usable and
--- removes the failed staging tree immediately rather than leaving it for the
--- next import. Only after the staged tree lands is the previous version root
--- removed. Orchestration only; all binary parsing lives in the pure modules it
--- drives. run() wraps a private pipeline in pcall and returns
--- (report | nil, err); the completion marker is written last inside staging,
--- and the staged tree is then published.
+-- extraction removes the failed staging tree immediately rather than leaving
+-- it for the next import. Publication is a separate step from staging: once
+-- publish begins, the cache owns the recovery material and a failed publish
+-- (or an incomplete rollback) leaves that material in place instead of
+-- removing it here. Only after the staged tree lands is the previous version
+-- root removed. Orchestration only; all binary parsing lives in the pure
+-- modules it drives. run() returns (report | nil, err); the completion marker
+-- is written last inside staging, and the staged tree is then published.
 --
 -- This module is allowed to hold the full ROM (via NdsRom); releasing it is the
 -- caller's responsibility. Responsiveness/yielding belongs to the
@@ -356,7 +357,11 @@ function RomExtractor:_publish()
   self:_emit("publish", 1, 1)
 end
 
-function RomExtractor:_run()
+-- Stage 1-7: build and validate the staged dump, returning the import report.
+-- Nothing in here touches the live tree, so a failure owns the disposable
+-- staging tree: run() removes it. Publication is deliberately not part of this
+-- step (see run()).
+function RomExtractor:_stageDump()
   self:_prepare()
   self:_writeSystemMetadata()
   local map, fileCount, totalBytes, unmappedCount = self:_dumpFiles()
@@ -379,25 +384,35 @@ function RomExtractor:_run()
     matrix = matrix,
   }
   self:_finalize(report)
-  self:_publish()
   return report
 end
 
 function RomExtractor:run()
-  local ok, result = pcall(self._run, self)
-  if ok then
-    return result
+  local ok, result = pcall(self._stageDump, self)
+  if not ok then
+    -- The extractor owns its staging tree until publication begins: a failed
+    -- staging removes it immediately instead of leaving it for the next import
+    -- to discard. removeStagedTree also drops an orphaned `<stagingRoot>.old`
+    -- sibling. If removing staging itself fails, that failure propagates -- the
+    -- no-stale-staging invariant was not met.
+    self._cache:removeStagedTree(self._stage)
+    if Errors.is(result) then
+      return nil, result
+    end
+    error(result, 0)
   end
-  -- The extractor owns its staging tree (_prepare created it): a failed run
-  -- removes it immediately instead of leaving it for the next import to
-  -- discard. removeStagedTree also drops an orphaned `<stagingRoot>.old`
-  -- sibling. If removing staging itself fails, that failure propagates -- the
-  -- no-stale-staging invariant was not met.
-  self._cache:removeStagedTree(self._stage)
-  if Errors.is(result) then
-    return nil, result
+  -- Publication is outside the staging catch: once publish begins, the cache
+  -- owns the rollback/recovery material and this module must not remove the
+  -- staging tree, or it could delete the last remaining copy of the previous
+  -- dump.
+  local ok, pubErr = pcall(self._publish, self)
+  if not ok then
+    if Errors.is(pubErr) then
+      return nil, pubErr
+    end
+    error(pubErr, 0)
   end
-  error(result)
+  return result
 end
 
 return RomExtractor

@@ -2,9 +2,10 @@
 -- primitive: the provenance record, the index, the coverage report, and one
 -- file per translated script are written into a disposable staging root,
 -- readback-validated there, and only then is the completed stage published
--- with the marker last. On any failure the stage is discarded and the previous
--- live script artifact is left untouched, so a partial build never reads as
--- complete and never destroys a valid one.
+-- with the marker last. Staging and validation are one step; publication
+-- happens outside that step's error handler, so a publish failure never
+-- triggers writer-level stage cleanup that could delete the last remaining
+-- copy of the previous artifact.
 
 local ScriptCache = require("libs.assets.src.ScriptCache")
 local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
@@ -79,49 +80,51 @@ local function jsonValue(value)
   return "null"
 end
 
+local function stageBundle(tx, bundle)
+  local stage = tx.stage
+  stage:writeLua(ScriptCache.provenancePath(), {
+    schema = ScriptCache.PROVENANCE_SCHEMA,
+    dependencies = bundle.dependencies,
+  })
+  stage:writeLua(ScriptCache.indexPath(), bundle.index)
+  stage:write(ScriptCache.coverageJsonPath(), jsonValue(bundle.coverageRecord) .. "\n")
+  stage:write(
+    ScriptCache.coverageMdPath(),
+    require("romdump.src.digest.script.Coverage").markdown(bundle.coverageRecord)
+  )
+  local emitOpts = {
+    sourcePath = "romfs/" .. bundle.dependencies.scrSeqNarc.path,
+    romSha1 = bundle.dependencies.versionRomSha1,
+    game = bundle.index.version,
+  }
+  for _, entry in ipairs(bundle.resources) do
+    local text = ScriptCompiler.emit(entry, emitOpts)
+    stage:write(ScriptCache.scriptPath(entry.id), text)
+  end
+  local readIndex = stage:loadLua(ScriptCache.indexPath())
+  if type(readIndex) ~= "table" or readIndex.schema ~= ScriptCache.INDEX_SCHEMA then
+    error("script cache index readback failed", 0)
+  end
+  for _, entry in ipairs(bundle.index.resources) do
+    local script = stage:loadModule(ScriptCache.scriptPath(entry.id))
+    if type(script) ~= "table" or script.kind ~= "field_script" or script.id ~= entry.id then
+      error("script " .. entry.id .. " readback failed", 0)
+    end
+  end
+  stage:write(ScriptCache.markerPath(), bundle.marker)
+end
+
 function ScriptCacheWriter.write(cacheFs, bundle)
   assert(bundle and bundle.marker and bundle.index and bundle.resources, "write requires a script bundle")
   assert(bundle.index.schema == ScriptCache.INDEX_SCHEMA, "bundle index schema mismatch")
   local tx = ArtifactPublisher.begin(cacheFs, "scripts", { ScriptCache.dir() })
-  local ok, err = pcall(function()
-    local stage = tx.stage
-    stage:writeLua(ScriptCache.provenancePath(), {
-      schema = ScriptCache.PROVENANCE_SCHEMA,
-      dependencies = bundle.dependencies,
-    })
-    stage:writeLua(ScriptCache.indexPath(), bundle.index)
-    stage:write(ScriptCache.coverageJsonPath(), jsonValue(bundle.coverageRecord) .. "\n")
-    stage:write(
-      ScriptCache.coverageMdPath(),
-      require("romdump.src.digest.script.Coverage").markdown(bundle.coverageRecord)
-    )
-    local emitOpts = {
-      sourcePath = "romfs/" .. bundle.dependencies.scrSeqNarc.path,
-      romSha1 = bundle.dependencies.versionRomSha1,
-      game = bundle.index.version,
-    }
-    for _, entry in ipairs(bundle.resources) do
-      local text = ScriptCompiler.emit(entry, emitOpts)
-      stage:write(ScriptCache.scriptPath(entry.id), text)
-    end
-    local readIndex = stage:loadLua(ScriptCache.indexPath())
-    if type(readIndex) ~= "table" or readIndex.schema ~= ScriptCache.INDEX_SCHEMA then
-      error("script cache index readback failed", 0)
-    end
-    for _, entry in ipairs(bundle.index.resources) do
-      local script = stage:loadModule(ScriptCache.scriptPath(entry.id))
-      if type(script) ~= "table" or script.kind ~= "field_script" or script.id ~= entry.id then
-        error("script " .. entry.id .. " readback failed", 0)
-      end
-    end
-    stage:write(ScriptCache.markerPath(), bundle.marker)
-    tx:publish()
-  end)
-  if ok then
-    return true
+  local ok, err = pcall(stageBundle, tx, bundle)
+  if not ok then
+    tx:abort()
+    error(err, 0)
   end
-  tx:abort()
-  error(err)
+  tx:publish()
+  return true
 end
 
 return ScriptCacheWriter

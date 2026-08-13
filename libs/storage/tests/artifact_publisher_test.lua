@@ -142,8 +142,6 @@ function T.a_failed_publish_rolls_back_every_moved_root()
   Assert.equal(cache:read(DATA .. "/complete"), "old-marker", "first root restored after the failed publish")
   Assert.equal(cache:read(DATA .. "/index.lua"), "old-index")
   Assert.equal(cache:read(ASSET .. "/0000.png"), "old-png", "second root never left the stage")
-  tx:abort()
-  Assert.isNil(cache.backend:getInfo(STAGE_ROOT), "stage cleaned after the failed publish")
 end
 
 function T.publish_restores_the_previous_artifact_when_an_aside_rename_fails()
@@ -167,7 +165,6 @@ function T.publish_restores_the_previous_artifact_when_an_aside_rename_fails()
   end)
   Assert.equal(cache:read(DATA .. "/complete"), "old-marker", "aside of the first root rolled back")
   Assert.equal(cache:read(ASSET .. "/0000.png"), "old-png")
-  tx:abort()
 end
 
 function T.rejects_an_invalid_artifact_name()
@@ -216,7 +213,6 @@ function T.publish_cannot_report_success_when_a_rename_reports_failure()
   Assert.equal(cache:read(DATA .. "/complete"), "old-marker", "previous artifact restored")
   Assert.equal(cache:read(DATA .. "/index.lua"), "old-index")
   Assert.equal(cache:read(ASSET .. "/0000.png"), "old-png")
-  tx:abort()
 end
 
 function T.publish_reports_an_aside_failure_instead_of_success()
@@ -241,22 +237,23 @@ function T.publish_reports_an_aside_failure_instead_of_success()
   Assert.equal(err.code, "CACHE_REPLACE_FAILED")
   Assert.equal(cache:read(DATA .. "/complete"), "old-marker", "aside of the first root rolled back")
   Assert.equal(cache:read(ASSET .. "/0000.png"), "old-png")
-  tx:abort()
 end
 
 -- A rollback rename that reports failure must surface as an incomplete
 -- rollback: publish may never claim the previous artifact was restored when a
--- checked rollback rename failed.
+-- checked rollback rename failed, and the aside root (the remaining copy of
+-- the last-known-good artifact) must stay in the stage as recovery material.
 function T.publish_reports_an_incomplete_rollback_when_a_rollback_rename_fails()
   local backend = FakeCache.new()
   ---@diagnostic disable: duplicate-set-field
   backend.replace = function(self, sourcePath, destinationPath)
-    -- Fail the stage -> live rename of the second root AND the rollback of
-    -- the first root (live -> stage), so the rollback cannot restore it.
+    -- Fail the stage -> live rename of the second root AND the aside restore
+    -- of the first root (stage .old -> live), so the rollback cannot restore
+    -- the first root.
     if sourcePath == STAGE_ROOT .. "/" .. ASSET then
       return false, "injected replace failure"
     end
-    if sourcePath == "heartgold/" .. DATA and destinationPath == STAGE_ROOT .. "/" .. DATA then
+    if sourcePath == STAGE_ROOT .. "/" .. DATA .. ".old" then
       return false, "injected rollback failure"
     end
     return FakeCache.replace(self, sourcePath, destinationPath)
@@ -272,7 +269,11 @@ function T.publish_reports_an_incomplete_rollback_when_a_rollback_rename_fails()
   Assert.equal(err.code, "CACHE_PUBLISH_ROLLBACK_INCOMPLETE")
   Assert.isTrue(tostring(err.context.cause):match("CACHE_REPLACE_FAILED"), "the original publish error is the cause")
   Assert.isTrue(tostring(err.context.rollback):match("injected rollback failure"), "the rollback error is recorded")
-  tx:abort()
+  Assert.equal(
+    backend.files[STAGE_ROOT .. "/" .. DATA .. ".old/index.lua"],
+    "old-index",
+    "the aside root stays in the stage as recovery material"
+  )
 end
 
 -- A failing stage cleanup after every root was published is reported as
@@ -300,7 +301,6 @@ function T.publish_reports_cleanup_failure_after_success()
   Assert.equal(cache:read(DATA .. "/complete"), "new-marker", "the new artifact is live despite the cleanup failure")
   Assert.equal(cache:read(DATA .. "/index.lua"), "new-index")
   Assert.equal(cache:read(ASSET .. "/0000.png"), "new-png")
-  tx:abort()
 end
 
 return { tests = T }

@@ -143,4 +143,33 @@ T["failed rebuild preserves the previous script artifact"] = function()
   Assert.isNil(backend:getInfo("staging/heartgold/scripts"), "the stage is cleaned on success")
 end
 
+-- 5. A rename failure after publish begins must not trigger writer-level
+-- stage cleanup: the aside root in the stage is the only remaining copy of
+-- the last-known-good script class.
+T["publish failure keeps the stage with recovery material"] = function()
+  local backend = FakeCache.new()
+  local cache = CacheFs.forVersion("heartgold", backend)
+  ScriptCacheWriter.write(cache, bundle())
+  local originalReplace = backend.replace
+  ---@diagnostic disable: duplicate-set-field
+  backend.replace = function(self, sourcePath, destinationPath)
+    if sourcePath:find("staging/heartgold/scripts", 1, true) then
+      return false, "injected publish failure"
+    end
+    return originalReplace(self, sourcePath, destinationPath)
+  end
+  local second = bundle()
+  second.marker = "script-cache-v1:rom-sha:new-dep-sha"
+  local err = Assert.throws(function()
+    ScriptCacheWriter.write(cache, second)
+  end)
+  Assert.equal(err.code, "CACHE_PUBLISH_ROLLBACK_INCOMPLETE")
+  Assert.notNil(backend:getInfo("staging/heartgold/scripts"), "the stage is not removed once publish has begun")
+  Assert.equal(
+    backend.files["staging/heartgold/scripts/" .. ScriptCache.dir() .. ".old/complete"],
+    "script-cache-v1:rom-sha:dep-sha",
+    "the last-known-good script class stays in the stage as recovery material"
+  )
+end
+
 return { tests = T }

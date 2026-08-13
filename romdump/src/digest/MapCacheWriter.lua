@@ -88,24 +88,28 @@ local function persist(cacheFs, tx, bundle)
     end
   end
 
-  -- 10. Completion marker, written last, then publish.
+  -- 10. Completion marker, written last. Publication happens in write()
+  -- outside the staging-validation error handler, so a publish failure never
+  -- triggers stage cleanup that could delete the last remaining copy of the
+  -- previous artifact.
   stage:write(dir .. "/complete", bundle.marker)
-  tx:publish()
   return bundle.marker
 end
 
--- Write the bundle transactionally. Returns the marker on success; on failure
--- discards the stage and re-raises the original structured error, leaving any
--- previous ready map intact.
+-- Write the bundle transactionally. Staging/validation failures discard the
+-- stage and re-raise; once publish begins the stage is the publisher's
+-- recovery material and is never removed here, so any previous ready map
+-- stays recoverable.
 function MapCacheWriter.write(cacheFs, bundle)
   assert(type(bundle) == "table" and bundle.mapId and bundle.marker, "invalid bundle")
   local tx = ArtifactPublisher.begin(cacheFs, "map-" .. bundle.mapId, { MapAssetCache.mapDir(bundle.mapId) })
   local ok, result = pcall(persist, cacheFs, tx, bundle)
-  if ok then
-    return result
+  if not ok then
+    tx:abort()
+    error(result, 0)
   end
-  tx:abort()
-  error(result)
+  tx:publish()
+  return result
 end
 
 return MapCacheWriter

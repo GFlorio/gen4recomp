@@ -83,6 +83,37 @@ function T.failure_preserves_raw_dump_marker()
   Assert.isTrue(c:exists("rom-dump.complete"), "raw marker untouched")
 end
 
+-- A rename failure after publish begins must not trigger writer-level stage
+-- cleanup: the aside root in the stage is the only remaining copy of the
+-- last-known-good artifact, so write() re-raises and leaves it in place.
+function T.publish_failure_keeps_the_stage_with_recovery_material()
+  local backend = FakeCache.new()
+  local c = CacheFs.forVersion("heartgold", backend)
+  local first = Bundle.minimal()
+  MapCacheWriter.write(c, first)
+  local originalReplace = backend.replace
+  ---@diagnostic disable: duplicate-set-field
+  backend.replace = function(self, sourcePath, destinationPath)
+    if sourcePath:find("staging/heartgold/map-", 1, true) then
+      return false, "injected publish failure"
+    end
+    return originalReplace(self, sourcePath, destinationPath)
+  end
+  local second = Bundle.minimal()
+  second.marker = MapAssetCache.marker("romsha1", second.mapId, "new-dephash")
+  local err = Assert.throws(function()
+    MapCacheWriter.write(c, second)
+  end)
+  Assert.equal(err.code, "CACHE_PUBLISH_ROLLBACK_INCOMPLETE")
+  local stageRoot = "staging/heartgold/map-" .. first.mapId
+  Assert.notNil(backend:getInfo(stageRoot), "the stage is not removed once publish has begun")
+  Assert.equal(
+    backend.files[stageRoot .. "/" .. MapAssetCache.mapDir(first.mapId) .. ".old/complete"],
+    first.marker,
+    "the last-known-good map stays in the stage as recovery material"
+  )
+end
+
 function T.failed_rebuild_preserves_the_previous_map()
   local backend = FakeCache.new()
   local c = CacheFs.forVersion("heartgold", backend)

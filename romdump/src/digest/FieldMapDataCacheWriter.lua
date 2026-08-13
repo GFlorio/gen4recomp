@@ -1,8 +1,10 @@
 -- Persists one normalized field-map record through the shared staged
 -- publication primitive: the record and its dependencies are written into a
 -- disposable staging root, readback-validated there, and only then is the
--- completed stage published with the marker last. On any failure the stage is
--- discarded and any previous live record for that map is left untouched.
+-- completed stage published with the marker last. Staging and validation are
+-- one step; publication happens outside that step's error handler, so a
+-- publish failure never triggers writer-level stage cleanup that could delete
+-- the last remaining copy of the previous artifact.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
@@ -33,7 +35,6 @@ local function persist(tx, bundle)
     )
   end
   stage:write(FieldMapDataCache.markerPath(mapId), bundle.marker)
-  tx:publish()
   return bundle.marker
 end
 
@@ -42,11 +43,12 @@ function FieldMapDataCacheWriter.write(cacheFs, bundle)
   local tx =
     ArtifactPublisher.begin(cacheFs, "field-map-data-" .. bundle.mapId, { FieldMapDataCache.mapDir(bundle.mapId) })
   local ok, result = pcall(persist, tx, bundle)
-  if ok then
-    return result
+  if not ok then
+    tx:abort()
+    error(result, 0)
   end
-  tx:abort()
-  error(result)
+  tx:publish()
+  return result
 end
 
 return FieldMapDataCacheWriter

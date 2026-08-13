@@ -137,4 +137,34 @@ function T.failed_rebuild_preserves_the_previous_artifact()
   Assert.isNil(backend:getInfo("staging/heartgold/field-actors"), "the stage is cleaned on success")
 end
 
+-- A rename failure after publish begins must not trigger writer-level stage
+-- cleanup: the aside roots in the stage are the only remaining copies of the
+-- last-known-good actor class.
+function T.publish_failure_keeps_the_stage_with_recovery_material()
+  local backend = FakeCache.new()
+  local cache = CacheFs.forVersion("heartgold", backend)
+  local first = bundle({ 0 })
+  FieldActorCacheWriter.write(cache, first)
+  local originalReplace = backend.replace
+  ---@diagnostic disable: duplicate-set-field
+  backend.replace = function(self, sourcePath, destinationPath)
+    if sourcePath:find("staging/heartgold/field-actors", 1, true) then
+      return false, "injected publish failure"
+    end
+    return originalReplace(self, sourcePath, destinationPath)
+  end
+  local second = bundle({ 0 })
+  second.marker = FieldActorCache.marker("abc", "new-dep")
+  local err = Assert.throws(function()
+    FieldActorCacheWriter.write(cache, second)
+  end)
+  Assert.equal(err.code, "CACHE_PUBLISH_ROLLBACK_INCOMPLETE")
+  Assert.notNil(backend:getInfo("staging/heartgold/field-actors"), "the stage is not removed once publish has begun")
+  Assert.equal(
+    backend.files["staging/heartgold/field-actors/" .. FieldActorCache.dir() .. ".old/complete"],
+    first.marker,
+    "the last-known-good actor class stays in the stage as recovery material"
+  )
+end
+
 return { tests = T }
