@@ -135,7 +135,7 @@ Each version gets its own subtree so the two games never interfere:
 │                                      #   staging is removed at the next import
 └── saves/                            # persistent user data, NOT part of any
     └── heartgold/                    #   version cache: re-imports and cache
-        └── field-session-v1.lua      #   clears can never delete it
+        └── field-session.lua         #   clears can never delete it
 ```
 
 Persistent saves live in the sibling `saves/<version>/` namespace so every

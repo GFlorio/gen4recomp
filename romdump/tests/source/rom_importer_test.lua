@@ -118,7 +118,7 @@ function T.validation_precedes_cache_cleanup()
   -- of them intact.
   h.backend.files[HG .. "rom-dump.complete"] = "STALE"
   h.backend.files[HG .. "stray"] = "KEEP"
-  h.backend.files["saves/heartgold/field-session-v1.lua"] = "SAVE-DATA"
+  h.backend.files["saves/heartgold/field-session.lua"] = "SAVE-DATA"
   -- A version catalog that recognizes nothing => NdsRom.open rejects by SHA-1.
   local blind = { info = function() end, forSha1 = function() end, forGameCode = function() end }
   local importer = RomImporter.new({
@@ -136,7 +136,7 @@ function T.validation_precedes_cache_cleanup()
   Assert.equal(importer:status().errorCode, "NDS_UNKNOWN_ROM")
   Assert.equal(h.backend.files[HG .. "rom-dump.complete"], "STALE")
   Assert.equal(h.backend.files[HG .. "stray"], "KEEP")
-  Assert.equal(h.backend.files["saves/heartgold/field-session-v1.lua"], "SAVE-DATA")
+  Assert.equal(h.backend.files["saves/heartgold/field-session.lua"], "SAVE-DATA")
 end
 
 -- A dropped non-.nds file is rejected with a friendly error before any read,
@@ -215,13 +215,13 @@ end
 -- disposable cache root.
 function T.reimport_preserves_saves()
   local h = harness()
-  SaveFs.forVersion("heartgold", h.backend):write("field-session-v1.lua", "SAVE-DATA")
-  SaveFs.forVersion("soulsilver", h.backend):write("field-session-v1.lua", "SS-SAVE")
+  SaveFs.forVersion("heartgold", h.backend):write("field-session.lua", "SAVE-DATA")
+  SaveFs.forVersion("soulsilver", h.backend):write("field-session.lua", "SS-SAVE")
   h.importer:startSource(RomSource.fromString(h.data))
   runToTerminal(h.importer)
   Assert.equal(h.importer.state, "complete")
-  Assert.equal(h.backend.files["saves/heartgold/field-session-v1.lua"], "SAVE-DATA")
-  Assert.equal(h.backend.files["saves/soulsilver/field-session-v1.lua"], "SS-SAVE")
+  Assert.equal(h.backend.files["saves/heartgold/field-session.lua"], "SAVE-DATA")
+  Assert.equal(h.backend.files["saves/soulsilver/field-session.lua"], "SS-SAVE")
   Assert.isTrue(RomImporter.isReady("heartgold", CacheFs.forVersion("heartgold", h.backend), h.versions))
 end
 
@@ -229,7 +229,7 @@ end
 -- byte-for-byte intact and ready, with the save untouched.
 function T.failed_reimport_preserves_previous_dump_and_saves()
   local h = harness()
-  SaveFs.forVersion("heartgold", h.backend):write("field-session-v1.lua", "SAVE-DATA")
+  SaveFs.forVersion("heartgold", h.backend):write("field-session.lua", "SAVE-DATA")
   h.importer:startSource(RomSource.fromString(h.data))
   runToTerminal(h.importer)
   Assert.equal(h.importer.state, "complete")
@@ -263,7 +263,7 @@ function T.failed_reimport_preserves_previous_dump_and_saves()
   for k, v in pairs(snapshot) do
     Assert.equal(h.backend.files[k], v, "live state changed: " .. k)
   end
-  Assert.equal(h.backend.files["saves/heartgold/field-session-v1.lua"], "SAVE-DATA")
+  Assert.equal(h.backend.files["saves/heartgold/field-session.lua"], "SAVE-DATA")
   Assert.isTrue(RomImporter.isReady("heartgold", CacheFs.forVersion("heartgold", h.backend), h.versions))
   Assert.isNil(h.backend.dirs["staging/heartgold"], "a failed re-import must remove its staging tree immediately")
   Assert.isNil(

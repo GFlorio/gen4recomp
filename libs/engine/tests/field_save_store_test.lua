@@ -15,7 +15,7 @@ local FakeCache = require("tests.support.FakeCache")
 
 local T = {}
 
-local SAVE_TEMP = "saves/heartgold/field-session-v1.lua.tmp"
+local SAVE_TEMP = "saves/heartgold/" .. FieldSave.PATH .. ".tmp"
 
 local function record(versionId, overrides)
   local value = {
@@ -30,7 +30,8 @@ local function record(versionId, overrides)
     facing = "south",
     avatar = "hero",
     scenario = "pre-script-demo-v1",
-    events = { flags = {}, vars = {} },
+    world = { flags = {}, variables = {}, objects = {}, rng = { state = 1, calls = 0 } },
+    scripts = {},
     auxiliaryUi = { requested = "shown", state = "shown" },
   }
   for key, item in pairs(overrides or {}) do
@@ -45,7 +46,7 @@ function T.atomic_save_publishes_without_leaving_temporary_file()
   store:save(record("heartgold"))
   Assert.deepEqual(assert(store:load()), record("heartgold"))
   Assert.isNil(backend.files[SAVE_TEMP])
-  Assert.isNil(backend.files["heartgold/save/field-session-v1.lua"], "saves must not live in the cache root")
+  Assert.isNil(backend.files["heartgold/save/" .. FieldSave.PATH], "saves must not live in the cache root")
 end
 
 function T.imported_versions_have_independent_saves()
@@ -76,8 +77,26 @@ function T.load_rejects_unknown_schemas()
   local loaded, loadErr = store:load()
   Assert.isNil(loaded)
   Assert.isTrue(
-    loadErr and loadErr.code == "FIELD_SAVE_SCHEMA_NEWER",
-    "expected FIELD_SAVE_SCHEMA_NEWER, got " .. tostring(loadErr)
+    loadErr and loadErr.code == "FIELD_SAVE_SCHEMA_UNSUPPORTED",
+    "expected FIELD_SAVE_SCHEMA_UNSUPPORTED, got " .. tostring(loadErr)
+  )
+end
+
+-- The store load is the production save boundary: a persisted world bucket
+-- whose rng state is malformed must be rejected as a whole, never accepted
+-- and left for a later runtime stage to fail on.
+function T.load_rejects_a_malformed_world_bucket()
+  local backend = FakeCache.new()
+  local saveFs = SaveFs.forVersion("heartgold", backend)
+  local value = record("heartgold")
+  value.world.rng = {}
+  saveFs:writeLua(FieldSave.PATH, value)
+  local store = FieldSaveStore.new(saveFs)
+  local loaded, loadErr = store:load()
+  Assert.isNil(loaded)
+  Assert.isTrue(
+    loadErr and loadErr.code == "FIELD_SAVE_WORLD_INVALID",
+    "expected FIELD_SAVE_WORLD_INVALID, got " .. tostring(loadErr and loadErr.code or loadErr)
   )
 end
 

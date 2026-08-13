@@ -297,7 +297,7 @@ function FieldRuntime:_load()
     -- demo scenario. Only a fresh boot (no save) seeds the scenario. The v2
     -- save's world bucket carries the numeric flag/var maps in the
     -- event-state shape.
-    local restoredWorld = restored and restored.world or nil
+    local restoredWorld = restored and restored.world
     self.eventState = FieldEventState.new(restoredWorld and {
       flags = restoredWorld.flags,
       vars = restoredWorld.variables,
@@ -407,12 +407,12 @@ function FieldRuntime:_load()
       contextChoice = self.contextChoiceProvider,
       menu = self.menuHost,
     })
-    if restored and restored.scripts then
+    -- The strict schema makes the world and scripts buckets required: a
+    -- restored save always carries both, so restore is unconditional.
+    if restored then
       ScriptSave.restore(restored.scripts, self.scripts.scheduler, 0, {
         expectedRegistryFingerprint = self.scripts:registryFingerprint(),
       })
-    end
-    if restored and restored.world then
       self.scripts.worldState:restoreRng(restored.world)
     end
 

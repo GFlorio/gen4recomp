@@ -3,21 +3,27 @@
 -- id, the scenario id that explains initialization, the `world` bucket
 -- (project-owned serializable state: flags, variables, objects, rng), and
 -- the serializable `scripts` bucket owned by ScriptSave. There is no older
--- format: a save that is not exactly this schema is rejected. Validation
--- covers stable simulation state only; no dialogue, facing override, or
--- actor position is persisted. This is not a Nintendo DS save format.
+-- format: a save that is not exactly this schema is rejected. The schema
+-- boundary itself validates the world bucket through the authoritative
+-- event-state and rng validators, so a save store cannot skip world
+-- validation. Validation covers stable simulation state only; no dialogue,
+-- facing override, or actor position is persisted. This is not a Nintendo
+-- DS save format.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local FieldEventState = require("libs.engine.src.FieldEventState")
 local FieldTransition = require("libs.engine.src.FieldTransition")
+local ScriptRng = require("libs.engine.src.script.ScriptRng")
 local WarpSystem = require("libs.engine.src.WarpSystem")
 
 local FieldSave = {}
 
 FieldSave.SCHEMA = "g4-field-save-v2"
 -- Relative to the SaveFs root (saves/<versionId>/), never the version cache.
-FieldSave.PATH = "field-session-v1.lua"
+-- The live save is the only supported schema, so the path is the semantic
+-- name rather than a schema-numbered development filename.
+FieldSave.PATH = "field-session.lua"
 
 local FACING = { north = true, south = true, west = true, east = true }
 local HEIGHT_EPSILON = 1e-9
@@ -80,41 +86,47 @@ local function validateAvatar(record, opts)
 end
 
 local function validateScenario(record)
-  if record.scenario ~= nil and (type(record.scenario) ~= "string" or record.scenario == "") then
+  if type(record.scenario) ~= "string" or record.scenario == "" then
     Errors.raise(
       "FIELD_SAVE_SCENARIO_INVALID",
-      "field save scenario must be an id string or absent",
+      "field save scenario must be an id string",
       { scenario = record.scenario }
     )
   end
 end
 
--- The world bucket: project-owned serializable state, validated by the
--- caller's `opts.worldValidate` when wired.
-local function validateWorld(record, opts)
-  if record.world == nil then
-    return
-  end
-  if type(record.world) ~= "table" then
+-- The world bucket: project-owned serializable state. The save schema
+-- boundary itself validates the bucket through the authoritative
+-- substructure validators -- FieldEventState for the numeric flag/var maps
+-- and ScriptRng for the serialized rng state -- so no caller can omit world
+-- validation.
+local function validateWorld(record)
+  local world = record.world
+  if type(world) ~= "table" then
     Errors.raise("FIELD_SAVE_WORLD_INVALID", "field save world must be a table", {})
   end
-  if opts and opts.worldValidate then
-    local err = opts.worldValidate(record.world)
-    if err ~= nil then
-      Errors.raise(
-        "FIELD_SAVE_WORLD_INVALID",
-        "field save world is invalid: " .. tostring(err.message),
-        { cause = err.code }
-      )
-    end
+  if type(world.objects) ~= "table" then
+    Errors.raise("FIELD_SAVE_WORLD_INVALID", "field save world objects must be a table", {})
+  end
+  local ok, err = pcall(FieldEventState.new, { flags = world.flags, vars = world.variables })
+  if not ok then
+    ---@cast err Errors.Error
+    Errors.raise(
+      "FIELD_SAVE_WORLD_INVALID",
+      "field save world event state is invalid: " .. tostring(err),
+      { cause = Errors.is(err) and err.code or nil }
+    )
+  end
+  if not pcall(ScriptRng.restore, world.rng) then
+    Errors.raise("FIELD_SAVE_WORLD_INVALID", "field save world rng state is malformed", { rng = world.rng })
   end
 end
 
 -- The scripts bucket, validated by the caller's `opts.scriptsValidate`
 -- (the game layer wires ScriptSave.validate for it).
 local function validateScripts(record, opts)
-  if record.scripts == nil then
-    return
+  if type(record.scripts) ~= "table" then
+    Errors.raise("FIELD_SAVE_SCRIPTS_INVALID", "field save scripts bucket is required", {})
   end
   if opts and opts.scriptsValidate then
     local err = opts.scriptsValidate(record.scripts)
@@ -155,16 +167,12 @@ local function validate(record, opts)
     Errors.raise("FIELD_SAVE_INVALID", "field save must be a table", {})
   end
   if record.schema ~= FieldSave.SCHEMA then
-    Errors.raise(
-      "FIELD_SAVE_SCHEMA_NEWER",
-      "unknown field save schema; newer than runtime or corrupt",
-      { schema = record.schema }
-    )
+    Errors.raise("FIELD_SAVE_SCHEMA_UNSUPPORTED", "unsupported field save schema", { schema = record.schema })
   end
   validateFieldState(record)
   validateAvatar(record, opts)
   validateScenario(record)
-  validateWorld(record, opts)
+  validateWorld(record)
   validateScripts(record, opts)
   validateAuxiliaryUi(record)
   return record
@@ -193,14 +201,10 @@ function FieldSave.canCapture(session)
     and (not session.dialogue or not session.dialogue:isModal())
 end
 
--- The world bucket default: project-owned serializable state.
-local function defaultWorld()
-  return { flags = {}, variables = {}, objects = {}, rng = {} }
-end
-
 -- Capture the record: the identity/location fields plus the world and
--- scripts buckets, and auxiliary UI state. `opts.scriptsBucket` is the
--- ScriptSave capture output; `opts.world` defaults to empty project state.
+-- scripts buckets, and auxiliary UI state. Every bucket is required because
+-- the current runtime capture always supplies it; `opts.scriptsBucket` is
+-- the ScriptSave capture output.
 
 ---@param session FieldSession
 ---@param opts table
@@ -208,6 +212,10 @@ end
 function FieldSave.capture(session, opts)
   assert(FieldSave.canCapture(session), "field save requires an idle tile boundary")
   assert(opts and type(opts.avatarId) == "string" and opts.avatarId ~= "", "field save capture requires an avatar id")
+  assert(type(opts.scenario) == "string" and opts.scenario ~= "", "field save capture requires a scenario id")
+  assert(type(opts.world) == "table", "field save capture requires a world bucket")
+  assert(type(opts.scriptsBucket) == "table", "field save capture requires a scripts bucket")
+  assert(type(opts.auxiliaryUi) == "table", "field save capture requires auxiliary UI state")
   local player = session.player
   local runtimeMap = session.currentMap
   assert(type(runtimeMap.terrainDependencyHash) == "string", "runtime map terrain dependency identity required")
@@ -222,10 +230,10 @@ function FieldSave.capture(session, opts)
     terrainDependencyHash = runtimeMap.terrainDependencyHash,
     facing = player.facing,
     avatar = opts.avatarId,
-    scenario = opts.scenario or nil,
-    world = opts.world or defaultWorld(),
+    scenario = opts.scenario,
+    world = opts.world,
     scripts = opts.scriptsBucket,
-    auxiliaryUi = opts.auxiliaryUi or { requested = "shown", state = "shown" },
+    auxiliaryUi = opts.auxiliaryUi,
   }
 end
 
@@ -275,9 +283,9 @@ end
 
 -- Strict restore of the only schema. Returns the restored location plus the
 -- persisted avatar id, world and scripts buckets, so the caller rebuilds
--- exactly what the save holds. `opts.scriptsValidate` and
--- `opts.worldValidate` are the domain validators wired by the game layer
--- (ScriptSave.validate for the scripts bucket).
+-- exactly what the save holds. `opts.scriptsValidate` is the domain
+-- validator wired by the game layer (ScriptSave.validate for the scripts
+-- bucket); the world bucket is validated by this boundary itself.
 local function restore(record, loader, expectedVersionId, opts)
   validate(record, opts)
   if record.versionId ~= expectedVersionId then
@@ -320,7 +328,7 @@ local function restore(record, loader, expectedVersionId, opts)
     suppression = suppression,
     avatar = record.avatar,
     scenario = record.scenario,
-    world = record.world or defaultWorld(),
+    world = record.world,
     scripts = record.scripts,
     auxiliaryUi = record.auxiliaryUi,
   }

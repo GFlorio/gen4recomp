@@ -507,8 +507,9 @@ T["field save v2 round trip"] = function()
   local record = FieldSave.capture(session, {
     avatarId = "hero",
     scenario = "scenario-a",
-    world = { flags = { [5] = true }, variables = {}, objects = {}, rng = {} },
+    world = { flags = { [5] = true }, variables = {}, objects = {}, rng = { state = 1, calls = 0 } },
     scriptsBucket = { schema = ScriptSave.SCHEMA_NAME, placeholder = true },
+    auxiliaryUi = { requested = "shown", state = "shown" },
   })
   Assert.equal(record.schema, FieldSave.SCHEMA)
   Assert.equal(record.world.flags[5], true)

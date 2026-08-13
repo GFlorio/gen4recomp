@@ -42,6 +42,14 @@ local function flat(id, y)
   }
 end
 
+local function world(overrides)
+  local value = { flags = {}, variables = {}, objects = {}, rng = { state = 1, calls = 0 } }
+  for key, item in pairs(overrides or {}) do
+    value[key] = item
+  end
+  return value
+end
+
 local function record(overrides)
   local value = {
     schema = FieldSave.SCHEMA,
@@ -55,7 +63,8 @@ local function record(overrides)
     facing = "north",
     avatar = "hero",
     scenario = "pre-script-demo-v1",
-    world = { flags = {}, variables = {}, objects = {}, rng = {} },
+    world = world(),
+    scripts = {},
     auxiliaryUi = { requested = "shown", state = "shown" },
   }
   for key, item in pairs(overrides or {}) do
@@ -77,9 +86,10 @@ local function capture(map, opts)
   opts = opts or {}
   return FieldSave.capture(session(map), {
     avatarId = opts.avatarId or "hero",
-    world = opts.world,
+    world = opts.world or world(),
     scenario = opts.scenario or "pre-script-demo-v1",
-    auxiliaryUi = opts.auxiliaryUi,
+    scriptsBucket = opts.scriptsBucket or {},
+    auxiliaryUi = opts.auxiliaryUi or { requested = "shown", state = "shown" },
   })
 end
 
@@ -107,7 +117,7 @@ function T.stable_state_round_trips_exactly()
   Assert.equal(result.worldY, 4)
   Assert.equal(result.avatar, "hero")
   Assert.equal(result.scenario, "pre-script-demo-v1")
-  Assert.deepEqual(result.world, { flags = {}, variables = {}, objects = {}, rng = {} })
+  Assert.deepEqual(result.world, { flags = {}, variables = {}, objects = {}, rng = { state = 1, calls = 0 } })
 end
 
 function T.auxiliary_ui_state_round_trips_with_the_field_save()
@@ -147,7 +157,7 @@ function T.event_flags_and_vars_round_trip()
   state:setFlag(744)
   state:setVar(0x4020, 97)
   local serialized = state:serialize()
-  local world = { flags = serialized.flags, variables = serialized.vars, objects = {}, rng = {} }
+  local world = { flags = serialized.flags, variables = serialized.vars, objects = {}, rng = { state = 1, calls = 0 } }
   local saved = capture(map, { world = world, avatarId = "heroine" })
   Assert.deepEqual(saved.world, world)
   local result = assert(restore(saved, map))
@@ -215,21 +225,33 @@ function T.saved_warp_tile_initializes_arrival_suppression()
   Assert.deepEqual(result.suppression, { mapId = 60, fieldX = 684, fieldZ = 393 })
 end
 
-function T.unknown_schema_is_rejected_as_newer()
-  throwsCode("FIELD_SAVE_SCHEMA_NEWER", function()
-    local _, err = FieldSave.validate({ schema = "old" })
+function T.any_unknown_schema_is_rejected_as_unsupported()
+  -- The schema is the only one that exists: older, newer, and arbitrary
+  -- identifiers are all rejected with the same unsupported-schema error even
+  -- when the rest of the record is complete.
+  for _, schema in ipairs({ "old", "g4-field-save-v9", "g4-field-save-v0", "g4-field-save-v1" }) do
+    throwsCode("FIELD_SAVE_SCHEMA_UNSUPPORTED", function()
+      local _, err = FieldSave.validate(record({ schema = schema }))
+      error(err)
+    end)
+  end
+end
+
+function T.missing_required_world_and_scripts_buckets_are_rejected()
+  throwsCode("FIELD_SAVE_WORLD_INVALID", function()
+    local missing = record()
+    missing.world = nil
+    local _, err = FieldSave.validate(missing)
     error(err)
   end)
-  throwsCode("FIELD_SAVE_SCHEMA_NEWER", function()
-    local _, err = FieldSave.validate(record({ schema = "g4-field-save-v9" }))
+  throwsCode("FIELD_SAVE_SCRIPTS_INVALID", function()
+    local missing = record()
+    missing.scripts = nil
+    local _, err = FieldSave.validate(missing)
     error(err)
   end)
-  -- The schema is the only one that exists: any other version is rejected
-  -- even when the rest of the record is complete.
-  throwsCode("FIELD_SAVE_SCHEMA_NEWER", function()
-    local prior = record()
-    prior.schema = "g4-field-save-v0"
-    local _, err = FieldSave.validate(prior)
+  throwsCode("FIELD_SAVE_WORLD_INVALID", function()
+    local _, err = FieldSave.validate(record({ world = "not-a-table" }))
     error(err)
   end)
 end
@@ -237,7 +259,7 @@ end
 function T.validates_schema_coordinates_facing_and_version()
   local map = runtimeMap("terrain-a", { flat(11, 4) })
   for _, case in ipairs({
-    { "FIELD_SAVE_SCHEMA_NEWER", { schema = "old" } },
+    { "FIELD_SAVE_SCHEMA_UNSUPPORTED", { schema = "old" } },
     { "FIELD_SAVE_COORDINATES_INVALID", { fieldX = 1.5 } },
     { "FIELD_SAVE_HEIGHT_INVALID", { worldY = math.huge } },
     { "FIELD_SAVE_FACING_INVALID", { facing = "up" } },
@@ -279,31 +301,43 @@ function T.invalid_scenario_ids_are_rejected()
     local _, err = FieldSave.validate(record({ scenario = "" }))
     error(err)
   end)
-  Assert.notNil(FieldSave.validate(record({ scenario = nil })))
-end
-
-function T.invalid_world_is_rejected_as_save_error()
-  -- The world bucket is validated through the caller's worldValidate hook;
-  -- a non-table world is a schema error regardless.
-  throwsCode("FIELD_SAVE_WORLD_INVALID", function()
-    local _, err = FieldSave.validate(record({ world = "not-a-table" }))
+  -- The current runtime capture always emits the scenario id: absence is
+  -- invalid, not a defaulting case.
+  throwsCode("FIELD_SAVE_SCENARIO_INVALID", function()
+    local missing = record()
+    missing.scenario = nil
+    local _, err = FieldSave.validate(missing)
     error(err)
   end)
-  for _, world in ipairs({
+end
+
+-- The schema boundary itself owns deep world validation through the
+-- authoritative event-state and rng validators: no caller hook can skip it.
+function T.valid_world_passes_deep_validation()
+  local value = world({
+    flags = { [413] = true },
+    variables = { [0x4020] = 97 },
+    rng = { state = 42, calls = 3 },
+  })
+  local valid = assert(FieldSave.validate(record({ world = value })))
+  Assert.deepEqual(valid.world, value)
+end
+
+function T.invalid_world_data_is_rejected_at_the_schema_boundary()
+  local cases = {
     { flags = { [-1] = true }, variables = {} },
     { flags = { [70000] = true }, variables = {} },
     { flags = { [5] = true }, variables = { [0x4020] = -1 } },
     { flags = { [5] = "yes" }, variables = {} },
-  }) do
+    { flags = {}, variables = { [0x4020] = 1.5 } },
+    { objects = "none" },
+    { rng = {} },
+    { rng = { state = 0, calls = 0 } },
+    { rng = { state = 1, calls = -1 } },
+  }
+  for _, value in ipairs(cases) do
     throwsCode("FIELD_SAVE_WORLD_INVALID", function()
-      local _, err = FieldSave.validate(record({ world = world }), {
-        worldValidate = function(value)
-          return pcall(FieldEventState.new, {
-            flags = value.flags,
-            vars = value.variables,
-          }) and nil or Errors.new("WORLD_EVENT_STATE_INVALID", "bad event state", {})
-        end,
-      })
+      local _, err = FieldSave.validate(record({ world = world(value) }))
       error(err)
     end)
   end
@@ -315,19 +349,7 @@ function T.event_state_over_the_safety_limit_is_rejected()
     flags[id] = true
   end
   throwsCode("FIELD_SAVE_WORLD_INVALID", function()
-    local _, err = FieldSave.validate(
-      record({
-        world = { flags = flags, variables = {}, objects = {}, rng = {} },
-      }),
-      {
-        worldValidate = function(value)
-          return pcall(FieldEventState.new, {
-            flags = value.flags,
-            vars = value.variables,
-          }) and nil or Errors.new("WORLD_EVENT_STATE_INVALID", "bad event state", {})
-        end,
-      }
-    )
+    local _, err = FieldSave.validate(record({ world = world({ flags = flags }) }))
     error(err)
   end)
 end

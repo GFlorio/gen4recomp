@@ -13,7 +13,7 @@ local RemapBackend = require("tests.support.RemapBackend")
 
 local T = {}
 
-local SAVE_PATH = "field-session-v1.lua"
+local SAVE_PATH = "field-session.lua"
 
 local function throwsCode(code, fn)
   local err = Assert.throws(fn)

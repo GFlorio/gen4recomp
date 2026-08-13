@@ -287,7 +287,13 @@ function T.upper_new_bark_staircase_state_reloads_on_the_same_surface(romFs, ver
     player = player,
     transition = { phase = "idle" },
   }
-  local saved = FieldSave.capture(session, { avatarId = "hero" })
+  local saved = FieldSave.capture(session, {
+    avatarId = "hero",
+    scenario = "terrain-surfaces",
+    world = { flags = {}, variables = {}, objects = {}, rng = { state = 1, calls = 0 } },
+    scriptsBucket = {},
+    auxiliaryUi = { requested = "shown", state = "shown" },
+  })
   local restored = assert(FieldSave.restore(saved, {
     load = function(_, mapId)
       Assert.equal(mapId, resolved.map.id)

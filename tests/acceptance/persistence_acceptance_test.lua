@@ -3,8 +3,11 @@
 -- restore FieldSave or construct a field subsystem themselves.
 
 local Assert = require("tests.support.Assert")
+local LuaWriter = require("libs.codec.src.LuaWriter")
 local CacheFs = require("libs.storage.src.CacheFs")
+local FieldSave = require("libs.engine.src.FieldSave")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
+local FieldScenarioManifest = require("data.manifests.field_scenario")
 
 local T = {
   metadata = {
@@ -123,6 +126,56 @@ function T.tests.resume_reports_a_save_read_failure_instead_of_treating_it_as_mi
       resumed.saveStatus:find("Save ignored:", 1, true) ~= nil,
       "the resume boundary must present the read failure as 'Save ignored: ...', got " .. tostring(resumed.saveStatus)
     )
+  end)
+end
+
+-- SAVE-09: the live save filename is the current semantic name, and an
+-- obsolete development save at the old filename is never read as current.
+-- The first restart round-trips the real session through the production save
+-- path, which must land at the semantic filename. A stale file planted at the
+-- obsolete name afterwards must not replace the real session on the next
+-- resume: the restart's disposal write is faulted so it cannot overwrite the
+-- planted file before the resume read; a runtime that consumed the obsolete
+-- name would restore the planted facing instead of the session's.
+function T.tests.obsolete_save_filename_is_not_read_as_the_current_save()
+  withGame(function(game)
+    requireCapability(game, "failNextSave")
+    game:moveTo({ fieldX = 6, fieldZ = 6 })
+    game:face("north")
+    local resumed = restart(game, { save = "resume" })
+    Assert.equal(resumed.saveStatus, "Resumed saved field session")
+    Assert.equal(resumed:snapshot().player.facing, "north")
+    local before = resumed:snapshot()
+    love.filesystem.write(
+      resumed.saveNamespace .. "/field-session-v1.lua",
+      LuaWriter.encode({
+        schema = FieldSave.SCHEMA,
+        versionId = "heartgold",
+        mapId = before.mapId,
+        fieldX = before.player.fieldX,
+        fieldZ = before.player.fieldZ,
+        worldY = before.player.worldY,
+        surfaceId = before.player.surfaceId,
+        terrainDependencyHash = resumed.runtime.runtimeMap.terrainDependencyHash,
+        facing = "south",
+        avatar = before.avatarId,
+        scenario = FieldScenarioManifest.id,
+        world = resumed.runtime.scripts.worldState:capture(),
+        auxiliaryUi = { requested = "shown", state = "shown" },
+      })
+    )
+    resumed:failNextSave()
+    local again = restart(resumed, { save = "resume" })
+    Assert.equal(
+      again:snapshot().player.facing,
+      "north",
+      "an obsolete field-session-v1.lua must never be read as the current save"
+    )
+    Assert.notNil(
+      love.filesystem.getInfo(resumed.saveNamespace .. "/field-session.lua"),
+      "the live save must be written at the current semantic filename"
+    )
+    love.filesystem.remove(resumed.saveNamespace .. "/field-session-v1.lua")
   end)
 end
 
