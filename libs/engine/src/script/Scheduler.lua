@@ -17,6 +17,7 @@ local Runtime = require("libs.engine.src.script.Runtime")
 local ScriptInstance = require("libs.engine.src.script.ScriptInstance")
 local ScriptEnvironment = require("libs.engine.src.script.ScriptEnvironment")
 local ScriptTask = require("libs.engine.src.script.ScriptTask")
+local MovementTask = require("libs.engine.src.script.tasks.MovementTask")
 
 ---@class SchedulerServices
 ---@field world table
@@ -363,7 +364,7 @@ function Scheduler:createTask(taskType, spec, instance, tick, input)
   })
   self._tasks[#self._tasks + 1] = task
   self._tasksById[task.taskId] = task
-  if taskType == "movement" then
+  if taskType == MovementTask.type then
     -- Movement tasks register in the environment's current movement
     -- generation at creation, so barriers and pause logic observe raw
     -- ctx.tasks.movement descriptors exactly like compiled move nodes.
@@ -428,7 +429,7 @@ end
 function Scheduler:_resumePendingSnapshot()
   local out = {}
   for instanceId, instance in pairs(self._instances) do
-    if instance.status == "resume_pending" then
+    if instance.status == ScriptInstance.STATUSES.resume_pending then
       out[#out + 1] = instanceId
     end
   end
@@ -507,7 +508,7 @@ function Scheduler:_handlePollResult(task, impl, owner, ctx, result, tick)
           })
       )
     else
-      owner.status = "resume_pending"
+      owner.status = ScriptInstance.STATUSES.resume_pending
       owner.readyAtTick = tick + 1
       owner.taskResult = result.result
     end
@@ -593,8 +594,12 @@ end
 function Scheduler:_promoteResumePending(tick, pendingSnapshot)
   for _, instanceId in ipairs(pendingSnapshot) do
     local instance = self._instances[instanceId]
-    if instance ~= nil and instance.status == "resume_pending" and instance.readyAtTick <= tick then
-      instance.status = "ready"
+    if
+      instance ~= nil
+      and instance.status == ScriptInstance.STATUSES.resume_pending
+      and instance.readyAtTick <= tick
+    then
+      instance.status = ScriptInstance.STATUSES.ready
       instance.yieldReason = nil
       local task = self._tasksById[instance.waitingTaskId]
       if task then
@@ -632,7 +637,11 @@ function Scheduler:_runEnvironmentSlots(env, tick, input)
     local instanceId = env:contextAt(slot)
     if instanceId ~= nil then
       local instance = assert(self._instances[instanceId], "context references a missing instance")
-      if instance.status == "ready" and instance.readyAtTick <= tick and instance.lastRunTick ~= tick then
+      if
+        instance.status == ScriptInstance.STATUSES.ready
+        and instance.readyAtTick <= tick
+        and instance.lastRunTick ~= tick
+      then
         self:_runToYield(instance, tick, input)
       end
     end
@@ -671,7 +680,7 @@ end
 -- non-yielding execution instead of yielding implicitly.
 function Scheduler:_runToYield(instance, tick, input)
   assert(instance.lastRunTick ~= tick, "context may run at most once per tick")
-  instance.status = "running"
+  instance.status = ScriptInstance.STATUSES.running
   instance.lastRunTick = tick
   instance.yieldReason = nil
   local environment = assert(self._environments[instance.environmentId], "instance environment missing")
@@ -723,7 +732,7 @@ function Scheduler:_runToYield(instance, tick, input)
         return
       end
     elseif outcome == Runtime.OUTCOME_YIELD_TICK then
-      instance.status = "ready"
+      instance.status = ScriptInstance.STATUSES.ready
       instance.readyAtTick = tick + 1
       instance.yieldReason = "explicit_yield"
       self:_trace("context_yielded", {
@@ -732,7 +741,7 @@ function Scheduler:_runToYield(instance, tick, input)
       })
       return
     elseif outcome == Runtime.OUTCOME_BLOCK then
-      instance.status = "blocked"
+      instance.status = ScriptInstance.STATUSES.blocked
       instance.waitingTaskId = run.blockTaskId
       instance.pendingResultRef = run.blockResultRef
       instance.yieldReason = "task"
@@ -758,7 +767,11 @@ function Scheduler:_releaseInstanceOwnership(instance)
     environment:releaseLocksFor(instance.instanceId)
     local movement = {}
     for _, task in ipairs(self._tasks) do
-      if task.ownerInstanceId == instance.instanceId and task.taskType == "movement" and task.status == "active" then
+      if
+        task.ownerInstanceId == instance.instanceId
+        and task.taskType == MovementTask.type
+        and task.status == "active"
+      then
         movement[#movement + 1] = task
       end
     end
@@ -773,7 +786,7 @@ end
 -- clear text arguments, free the context slot, and tear down the environment
 -- when the root completes.
 function Scheduler:_completeInstance(instance, tick)
-  instance.status = "completed"
+  instance.status = ScriptInstance.STATUSES.completed
   instance.endReason = "completed"
   instance:clearInstanceState()
   self:_releaseInstanceOwnership(instance)
@@ -795,10 +808,14 @@ end
 ---@param tick integer
 ---@param error Errors.Error
 function Scheduler:_faultInstance(instance, tick, error)
-  if instance.status == "completed" or instance.status == "faulted" or instance.status == "cancelled" then
+  if
+    instance.status == ScriptInstance.STATUSES.completed
+    or instance.status == ScriptInstance.STATUSES.faulted
+    or instance.status == ScriptInstance.STATUSES.cancelled
+  then
     return
   end
-  instance.status = "faulted"
+  instance.status = ScriptInstance.STATUSES.faulted
   instance.endReason = error.code
   instance:clearInstanceState()
   self:_emit("script.error", {
@@ -1003,7 +1020,11 @@ end
 ---@param instance ScriptInstance
 ---@param reason string
 function Scheduler:_cancelInstance(instance, reason)
-  if instance.status == "completed" or instance.status == "cancelled" or instance.status == "faulted" then
+  if
+    instance.status == ScriptInstance.STATUSES.completed
+    or instance.status == ScriptInstance.STATUSES.cancelled
+    or instance.status == ScriptInstance.STATUSES.faulted
+  then
     return
   end
   local doomed = {}
@@ -1019,7 +1040,7 @@ function Scheduler:_cancelInstance(instance, reason)
       return
     end
   end
-  instance.status = "cancelled"
+  instance.status = ScriptInstance.STATUSES.cancelled
   instance.endReason = reason
   instance:clearInstanceState()
   self:_releaseInstanceOwnership(instance)
@@ -1164,7 +1185,7 @@ end
 
 ---@param taskId string
 ---@return ScriptTask|nil
-function Scheduler:tasksById(taskId)
+function Scheduler:taskById(taskId)
   return self._tasksById[taskId]
 end
 
@@ -1178,7 +1199,7 @@ function Scheduler:activeMovementForActor(environmentId, actorId)
     if
       task.status == "active"
       and task.environmentId == environmentId
-      and task.taskType == "movement"
+      and task.taskType == MovementTask.type
       and task.state ~= nil
       and task.state.actor == actorId
     then

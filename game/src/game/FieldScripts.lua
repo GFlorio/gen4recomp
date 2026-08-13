@@ -57,7 +57,7 @@ local function taskRegistry()
     registry:register(impl.type, impl.version, impl)
   end
   local pause = require("libs.engine.src.script.tasks.MovementPauseTask")
-  registry:register("actor_pause", pause.version, pause)
+  registry:register(pause.actorType, pause.version, pause)
   return registry
 end
 

@@ -16,6 +16,7 @@ local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local ScriptTask = require("libs.engine.src.script.ScriptTask")
 local ScriptEnvironment = require("libs.engine.src.script.ScriptEnvironment")
+local ScriptInstance = require("libs.engine.src.script.ScriptInstance")
 
 local ScriptSave = {}
 
@@ -28,7 +29,10 @@ ScriptSave.SCHEMA_NAME = "g4-script-save-v1"
 function ScriptSave.capture(scheduler, tick, opts)
   assert(opts and type(opts.registryFingerprint) == "string", "registry fingerprint required for capture")
   for _, instance in ipairs(scheduler:liveInstances()) do
-    assert(instance.status ~= "running", "capture requires a fixed-tick phase boundary (no running context)")
+    assert(
+      instance.status ~= ScriptInstance.STATUSES.running,
+      "capture requires a fixed-tick phase boundary (no running context)"
+    )
   end
   local environments = {}
   for _, environment in ipairs(scheduler:environments()) do
@@ -59,15 +63,6 @@ end
 
 local ENVIRONMENT_MODES = { foreground = true, background = true }
 local INSTANCE_MODES = { foreground = true, background = true }
-local INSTANCE_STATUSES = {
-  ready = true,
-  running = true,
-  blocked = true,
-  resume_pending = true,
-  completed = true,
-  faulted = true,
-  cancelled = true,
-}
 
 ---@param message string
 ---@param context table
@@ -210,7 +205,7 @@ local function validateInstanceRecord(record, instanceIds)
   if type(record.revision) ~= "string" then
     return invalid("instance script revision missing", { instanceId = record.instanceId })
   end
-  if not INSTANCE_STATUSES[record.status] then
+  if not ScriptInstance.STATUSES[record.status] then
     return invalid(
       "unknown instance status " .. tostring(record.status),
       { instanceId = record.instanceId, status = record.status }

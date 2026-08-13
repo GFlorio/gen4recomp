@@ -42,7 +42,7 @@ function MovementBarrierTask.create(spec, ctx)
     local taskIds = {}
     local environment = ctx.environment
     for _, taskId in ipairs(environment:movementTasksInGeneration(environment:currentGeneration())) do
-      local task = ctx.scheduler:tasksById(taskId)
+      local task = ctx.scheduler:taskById(taskId)
       if task ~= nil and task.state ~= nil and task.state.actor ~= nil then
         for _, actor in ipairs(actors) do
           if task.state.actor == actor then
@@ -72,7 +72,7 @@ function MovementBarrierTask.poll(state, ctx)
   else
     done = true
     for _, taskId in ipairs(state.taskIds) do
-      local task = ctx.scheduler:tasksById(taskId)
+      local task = ctx.scheduler:taskById(taskId)
       if task == nil or task.status ~= "completed" then
         done = false
         break

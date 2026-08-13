@@ -24,6 +24,11 @@ local HgssArchives = require("romdump.src.config.HgssArchives")
 local RomImporter = {}
 RomImporter.__index = RomImporter
 
+local IMPORT_ERROR_CODES = {
+  BUSY = "IMPORT_BUSY",
+  NOT_NDS = "IMPORT_NOT_NDS",
+}
+
 local REQUIRED_FILES = {
   "data/generated/rom_metadata.lua",
   "data/generated/romfs_index.lua",
@@ -100,11 +105,13 @@ function RomImporter:isBusy()
   return self.state == "reading" or self.state == "verifying" or self.state == "extracting"
 end
 
--- The importer owns its state-machine invariant: while busy, the start APIs
--- reject new requests without touching the active import.
-function RomImporter:_requireIdle()
+-- The importer owns its state-machine invariant: the start APIs accept every
+-- state that is not an in-flight import (idle, complete, and error all
+-- restart), and reject new requests while busy without touching the active
+-- import.
+function RomImporter:_requireNotBusy()
   if self:isBusy() then
-    Errors.raise("IMPORT_BUSY", "an import is already in progress", { state = self.state })
+    Errors.raise(IMPORT_ERROR_CODES.BUSY, "an import is already in progress", { state = self.state })
   end
 end
 
@@ -177,7 +184,7 @@ end
 
 -- Start from an already-opened RomSource (used by tests and the start* helpers).
 function RomImporter:startSource(source)
-  self:_requireIdle()
+  self:_requireNotBusy()
   assert(source, "startSource requires a RomSource")
   self._source = source
   self._sourceName = source:displayName()
@@ -191,7 +198,7 @@ function RomImporter:startSource(source)
 end
 
 function RomImporter:startPath(path)
-  self:_requireIdle()
+  self:_requireNotBusy()
   local source, err = RomSource.fromPath(path)
   if not source then
     return self:_fail(err)
@@ -200,7 +207,7 @@ function RomImporter:startPath(path)
 end
 
 function RomImporter:startDroppedFile(droppedFile)
-  self:_requireIdle()
+  self:_requireNotBusy()
   local source, err = RomSource.fromDroppedFile(droppedFile)
   if not source then
     return self:_fail(err)
@@ -211,10 +218,12 @@ end
 -- Drop handler with a friendly extension guard. Accepts a
 -- raw .nds or a .zip containing one.
 function RomImporter:filedropped(droppedFile)
-  self:_requireIdle()
+  self:_requireNotBusy()
   local name = droppedFile:getFilename() or ""
   if not name:lower():match("%.nds$") and not name:lower():match("%.zip$") then
-    return self:_fail(Errors.new("IMPORT_NOT_NDS", "dropped file is not a .nds or .zip ROM: " .. name, { name = name }))
+    return self:_fail(
+      Errors.new(IMPORT_ERROR_CODES.NOT_NDS, "dropped file is not a .nds or .zip ROM: " .. name, { name = name })
+    )
   end
   self:startDroppedFile(droppedFile)
 end

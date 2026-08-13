@@ -9,6 +9,7 @@
 local MapAssetCache = {}
 
 local Errors = require("libs.errors.src.Errors")
+local AssetErrors = require("libs.assets.src.errors")
 local Validate = require("libs.assets.src.Validate")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local Contract = require("libs.assets.src.DerivedAssetContract")
@@ -72,7 +73,7 @@ function MapAssetCache.referencedPaths(scene, cacheFs)
   local paths = {}
 
   local function invalid(reason)
-    Errors.raise("MAP_CACHE_SCENE_INVALID", "scene descriptor is malformed: " .. reason, { reason = reason })
+    Errors.raise(AssetErrors.MAP_CACHE_SCENE_INVALID, "scene descriptor is malformed: " .. reason, { reason = reason })
   end
 
   if not Validate.isArray(scene.mapBatches) then
@@ -198,7 +199,7 @@ function MapAssetCache.isReady(cacheFs, mapId, expectedMarker)
 
   local ok, paths = pcall(MapAssetCache.referencedPaths, scene, cacheFs)
   if not ok then
-    if Errors.is(paths) and paths.code == "MAP_CACHE_SCENE_INVALID" then
+    if Errors.is(paths) and paths.code == AssetErrors.MAP_CACHE_SCENE_INVALID then
       return false
     end
     error(paths)

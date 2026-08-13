@@ -431,7 +431,7 @@ T["blocking move participates in movement barriers"] = function()
   for tick = 102, 115 do
     h.scheduler:step(tick, nil)
     Assert.equal(
-      assert(h.scheduler:tasksById(barrierId)).status,
+      assert(h.scheduler:taskById(barrierId)).status,
       "active",
       "the barrier waits on the blocking move at tick " .. tick
     )
@@ -443,7 +443,7 @@ T["blocking move participates in movement barriers"] = function()
   -- (the barrier record is cancelled by the environment teardown when the
   -- script stops, so its completion is asserted before then).
   h.scheduler:step(116, nil)
-  Assert.equal(assert(h.scheduler:tasksById(barrierId)).status, "completed")
+  Assert.equal(assert(h.scheduler:taskById(barrierId)).status, "completed")
   Assert.isFalse(env:hasOutstandingMovement(), "the completed blocking move left the generation")
   Assert.equal(h.services.actors.actors.elm.fieldX, 5, "the actor reaches its destination")
   h.scheduler:step(117, nil)
@@ -501,7 +501,7 @@ T["lock all pauses on blocking movement"] = function()
   for tick = 101, 115 do
     h.scheduler:step(tick, nil)
     Assert.equal(
-      assert(h.scheduler:tasksById(pauseId)).status,
+      assert(h.scheduler:taskById(pauseId)).status,
       "active",
       "the pause task waits on the blocking move at tick " .. tick
     )
@@ -511,7 +511,7 @@ T["lock all pauses on blocking movement"] = function()
   -- generation; the pause task completes in the same poll loop and the
   -- script continues one tick later.
   h.scheduler:step(116, nil)
-  Assert.equal(assert(h.scheduler:tasksById(pauseId)).status, "completed")
+  Assert.equal(assert(h.scheduler:taskById(pauseId)).status, "completed")
   h.scheduler:step(117, nil)
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
   Assert.equal(h.services.actors.actors.elm.fieldX, 5)

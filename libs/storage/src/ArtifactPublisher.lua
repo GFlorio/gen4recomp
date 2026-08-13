@@ -11,6 +11,7 @@
 
 local CacheFs = require("libs.storage.src.CacheFs")
 local Errors = require("libs.errors.src.Errors")
+local StorageErrors = require("libs.storage.src.errors")
 
 ---@class ArtifactPublisher
 ---@field stage CacheFs
@@ -133,7 +134,7 @@ function ArtifactPublisher:publish()
   if not ok then
     local rollbackErr = self:_rollbackAsides(aside)
     if rollbackErr ~= nil then
-      Errors.raise("CACHE_PUBLISH_ROLLBACK_INCOMPLETE", "publish failed and the rollback was incomplete", {
+      Errors.raise(StorageErrors.CACHE_PUBLISH_ROLLBACK_INCOMPLETE, "publish failed and the rollback was incomplete", {
         cause = tostring(err),
         rollback = tostring(rollbackErr),
       })
@@ -152,7 +153,7 @@ function ArtifactPublisher:publish()
   if not ok then
     local rollbackErr = self:_rollbackPublished(movedIn, aside)
     if rollbackErr ~= nil then
-      Errors.raise("CACHE_PUBLISH_ROLLBACK_INCOMPLETE", "publish failed and the rollback was incomplete", {
+      Errors.raise(StorageErrors.CACHE_PUBLISH_ROLLBACK_INCOMPLETE, "publish failed and the rollback was incomplete", {
         cause = tostring(err),
         rollback = tostring(rollbackErr),
       })
@@ -164,9 +165,13 @@ function ArtifactPublisher:publish()
   -- a failed publication.
   local ok, cleanupErr = pcall(stage.removeTree, stage, "")
   if not ok then
-    Errors.raise("CACHE_PUBLISH_CLEANUP_FAILED", "the new artifact is live but its stage could not be removed", {
-      cause = tostring(cleanupErr),
-    })
+    Errors.raise(
+      StorageErrors.CACHE_PUBLISH_CLEANUP_FAILED,
+      "the new artifact is live but its stage could not be removed",
+      {
+        cause = tostring(cleanupErr),
+      }
+    )
   end
   return true
 end

@@ -6,6 +6,7 @@
 -- required at runtime. Pure domain module: no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 
 ---@class FieldEventState
 ---@field private _flags table<integer, boolean>
@@ -37,7 +38,7 @@ local function copyValidated(source, idCode, kind, validateValue)
     count = count + 1
     if count > FieldEventState.MAX_ENTRIES then
       Errors.raise(
-        "EVENT_STATE_TOO_LARGE",
+        FieldErrors.EVENT_STATE_TOO_LARGE,
         kind .. " store exceeds " .. FieldEventState.MAX_ENTRIES .. " entries",
         { limit = FieldEventState.MAX_ENTRIES }
       )
@@ -49,7 +50,11 @@ end
 
 local function validFlag(value, id)
   if value ~= true then
-    Errors.raise("EVENT_FLAG_VALUE_INVALID", "flag " .. id .. " must be stored as true", { id = id, value = value })
+    Errors.raise(
+      FieldErrors.EVENT_FLAG_VALUE_INVALID,
+      "flag " .. id .. " must be stored as true",
+      { id = id, value = value }
+    )
   end
   return true
 end
@@ -57,7 +62,7 @@ end
 local function validVar(value, id)
   if not isU16(value) then
     Errors.raise(
-      "EVENT_VAR_VALUE_INVALID",
+      FieldErrors.EVENT_VAR_VALUE_INVALID,
       "variable " .. id .. " must hold an unsigned 16-bit integer, got " .. tostring(value),
       { id = id, value = value }
     )
@@ -71,8 +76,8 @@ function FieldEventState.new(serialized)
   serialized = serialized or {}
   assert(type(serialized) == "table", "FieldEventState.new requires a serialized table")
   return setmetatable({
-    _flags = copyValidated(serialized.flags, "EVENT_FLAG_ID_INVALID", "flag", validFlag),
-    _vars = copyValidated(serialized.vars, "EVENT_VAR_ID_INVALID", "variable", validVar),
+    _flags = copyValidated(serialized.flags, FieldErrors.EVENT_FLAG_ID_INVALID, "flag", validFlag),
+    _vars = copyValidated(serialized.vars, FieldErrors.EVENT_VAR_ID_INVALID, "variable", validVar),
     _listeners = {},
     _tick = 0,
   }, FieldEventState)
@@ -112,11 +117,11 @@ function FieldEventState:_notify(change)
 end
 
 function FieldEventState:isFlagSet(flagId)
-  return self._flags[requireId("EVENT_FLAG_ID_INVALID", "flag", flagId)] == true
+  return self._flags[requireId(FieldErrors.EVENT_FLAG_ID_INVALID, "flag", flagId)] == true
 end
 
 function FieldEventState:_writeFlag(flagId, value)
-  flagId = requireId("EVENT_FLAG_ID_INVALID", "flag", flagId)
+  flagId = requireId(FieldErrors.EVENT_FLAG_ID_INVALID, "flag", flagId)
   local old = self._flags[flagId] == true
   if old == value then
     return
@@ -134,11 +139,11 @@ function FieldEventState:clearFlag(flagId)
 end
 
 function FieldEventState:getVar(varId)
-  return self._vars[requireId("EVENT_VAR_ID_INVALID", "variable", varId)] or 0
+  return self._vars[requireId(FieldErrors.EVENT_VAR_ID_INVALID, "variable", varId)] or 0
 end
 
 function FieldEventState:setVar(varId, value)
-  varId = requireId("EVENT_VAR_ID_INVALID", "variable", varId)
+  varId = requireId(FieldErrors.EVENT_VAR_ID_INVALID, "variable", varId)
   validVar(value, varId)
   local old = self._vars[varId] or 0
   if old == value then

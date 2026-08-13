@@ -16,6 +16,7 @@
 -- that callers must propagate rather than treat as a blocked step.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 
 ---@class SurfaceResolver
 ---@field terrain TerrainSurface
@@ -37,7 +38,7 @@ local HEIGHT_TIE_EPSILON = 1e-9
 ---@param err any
 ---@return boolean
 function SurfaceResolver.isStepRejection(err)
-  return Errors.is(err) and err.code == "TERRAIN_SURFACE_DISCONNECTED" and err.context.kind == "step-beyond"
+  return Errors.is(err) and err.code == FieldErrors.TERRAIN_SURFACE_DISCONNECTED and err.context.kind == "step-beyond"
 end
 
 function SurfaceResolver.new(terrain, opts)
@@ -63,7 +64,7 @@ local function closestUnique(terrain, candidates, localX, localZ, currentY, opts
   end
   if currentY == nil then
     raise(
-      "TERRAIN_SURFACE_AMBIGUOUS",
+      FieldErrors.TERRAIN_SURFACE_AMBIGUOUS,
       "multiple terrain surfaces cover the coordinate",
       opts,
       { candidateCount = #candidates }
@@ -80,7 +81,7 @@ local function closestUnique(terrain, candidates, localX, localZ, currentY, opts
   end
   if tied then
     raise(
-      "TERRAIN_SURFACE_AMBIGUOUS",
+      FieldErrors.TERRAIN_SURFACE_AMBIGUOUS,
       "equally near terrain surfaces cover the coordinate",
       opts,
       { candidateCount = #candidates, heightDelta = bestDelta }
@@ -94,12 +95,12 @@ function SurfaceResolver:resolve(opts)
   assert(type(opts.localX) == "number" and type(opts.localZ) == "number", "destination coordinates must be numbers")
   local candidates = self.terrain:candidatesAt(opts.localX, opts.localZ)
   if #candidates == 0 then
-    raise("TERRAIN_SURFACE_NOT_FOUND", "no terrain surface covers the coordinate", opts)
+    raise(FieldErrors.TERRAIN_SURFACE_NOT_FOUND, "no terrain surface covers the coordinate", opts)
   end
 
   local current = opts.currentSurfaceId ~= nil and self.terrain:plate(opts.currentSurfaceId) or nil
   if opts.currentSurfaceId ~= nil and not current then
-    raise("TERRAIN_SURFACE_NOT_FOUND", "current terrain surface does not exist", opts)
+    raise(FieldErrors.TERRAIN_SURFACE_NOT_FOUND, "current terrain surface does not exist", opts)
   end
 
   if current and opts.crossing then
@@ -113,7 +114,7 @@ function SurfaceResolver:resolve(opts)
     )
     if not self.terrain:contains(current.id, crossing.fromX, crossing.fromZ) then
       raise(
-        "TERRAIN_SURFACE_DISCONNECTED",
+        FieldErrors.TERRAIN_SURFACE_DISCONNECTED,
         "current surface does not cover the crossing source",
         opts,
         { kind = "current-inconsistent", fromX = crossing.fromX, fromZ = crossing.fromZ }
@@ -132,7 +133,7 @@ function SurfaceResolver:resolve(opts)
     local edgeZ = (crossing.fromZ + crossing.toZ) / 2
     if not self.terrain:contains(current.id, edgeX, edgeZ) then
       raise(
-        "TERRAIN_SURFACE_DISCONNECTED",
+        FieldErrors.TERRAIN_SURFACE_DISCONNECTED,
         "current surface does not reach the shared edge",
         opts,
         { kind = "current-inconsistent", edgeX = edgeX, edgeZ = edgeZ }
@@ -150,7 +151,7 @@ function SurfaceResolver:resolve(opts)
     end
     if #eligible == 0 then
       raise(
-        "TERRAIN_SURFACE_DISCONNECTED",
+        FieldErrors.TERRAIN_SURFACE_DISCONNECTED,
         "destination surfaces are a step beyond the current surface",
         opts,
         { kind = "step-beyond", edgeX = edgeX, edgeZ = edgeZ, stepHeightLimit = self.stepHeightLimit }

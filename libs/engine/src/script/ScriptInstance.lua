@@ -50,14 +50,16 @@ ScriptInstance.__index = ScriptInstance
 
 ScriptInstance.SCHEMA_NAME = "g4-script-instance-v1"
 
-local STATUSES = {
-  ready = true,
-  running = true,
-  blocked = true,
-  resume_pending = true,
-  completed = true,
-  faulted = true,
-  cancelled = true,
+-- The shared instance-status protocol, serialized by ScriptSave: the
+-- scheduler writes and compares status through these named constants.
+ScriptInstance.STATUSES = {
+  ready = "ready",
+  running = "running",
+  blocked = "blocked",
+  resume_pending = "resume_pending",
+  completed = "completed",
+  faulted = "faulted",
+  cancelled = "cancelled",
 }
 
 ---@class ScriptInstance.CreateSpec
@@ -105,7 +107,7 @@ function ScriptInstance.new(spec)
     readyAtTick = spec.readyAtTick,
     lastRunTick = nil,
     yieldReason = nil,
-    status = "ready",
+    status = ScriptInstance.STATUSES.ready,
     endReason = nil,
   }, ScriptInstance)
 end
@@ -230,7 +232,7 @@ end
 ---@return ScriptInstance
 function ScriptInstance.restore(record, restoreTick, graphs)
   assert(record and record.instanceId, "instance record required")
-  assert(STATUSES[record.status] ~= nil, "unknown instance status " .. tostring(record.status))
+  assert(ScriptInstance.STATUSES[record.status] ~= nil, "unknown instance status " .. tostring(record.status))
   local instance = ScriptInstance.new({
     instanceId = record.instanceId,
     environmentId = record.environmentId,

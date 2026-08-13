@@ -5,6 +5,7 @@
 -- `rawMovement` is preserved, never executed. Pure domain module.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 
 ---@class FieldObjectActor
 ---@field actorId string
@@ -45,7 +46,7 @@ local function requireFacing(facing, context)
   if FACINGS[facing] then
     return facing
   end
-  Errors.raise("ACTOR_FACING_INVALID", "unsupported actor facing " .. tostring(facing), context)
+  Errors.raise(FieldErrors.ACTOR_FACING_INVALID, "unsupported actor facing " .. tostring(facing), context)
 end
 
 function FieldObjectActor.new(opts)

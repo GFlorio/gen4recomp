@@ -10,6 +10,8 @@ local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local ScriptEnvironment = require("libs.engine.src.script.ScriptEnvironment")
 local RawInvocation = require("libs.engine.src.script.RawInvocation")
+local MovementPauseTask = require("libs.engine.src.script.tasks.MovementPauseTask")
+local MovementTask = require("libs.engine.src.script.tasks.MovementTask")
 
 local Runtime = {}
 
@@ -843,7 +845,7 @@ HANDLERS.lock_all = function(node, run)
   run.environment:acquireLock(ScriptEnvironment.LOCK_PLAYER, nil, run.instance.instanceId)
   run.environment:acquireLock(ScriptEnvironment.LOCK_AUTONOMOUS, nil, run.instance.instanceId)
   if run.environment:hasOutstandingMovement() then
-    return blockOnTask(run, "movement_pause", {})
+    return blockOnTask(run, MovementPauseTask.type, {})
   end
   return Runtime.OUTCOME_YIELD_TICK
 end
@@ -860,7 +862,7 @@ HANDLERS.lock_actor = function(node, run)
   if node.waitUntilPausable then
     -- The pause task watches the actor's movement and completes when the
     -- actor is at a pausable boundary (or is not moving at all).
-    return blockOnTask(run, "actor_pause", { actor = actorId })
+    return blockOnTask(run, MovementPauseTask.actorType, { actor = actorId })
   end
   return Runtime.OUTCOME_CONTINUE
 end
@@ -962,7 +964,7 @@ local function startMovement(run, node, blocking)
   -- The actor-busy check and the movement-generation registration are owned
   -- by the task-creation boundary (MovementTask.create + Scheduler:createTask),
   -- so raw ctx.tasks.movement descriptors share them.
-  local taskId = run.scheduler:createTask("movement", {
+  local taskId = run.scheduler:createTask(MovementTask.type, {
     actor = actorId,
     sequence = node.movement,
     movementId = node.movementId,

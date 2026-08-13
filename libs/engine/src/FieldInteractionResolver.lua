@@ -27,6 +27,7 @@
 -- Pure domain module: no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 
@@ -259,7 +260,7 @@ function FieldInteractionResolver:resolve(snapshot)
   local delta = DIRECTION_DELTAS[snapshot.facing]
   if not delta then
     Errors.raise(
-      "ACTOR_FACING_INVALID",
+      FieldErrors.ACTOR_FACING_INVALID,
       "unsupported player facing " .. tostring(snapshot.facing),
       { mapId = map.mapId }
     )

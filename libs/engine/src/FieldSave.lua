@@ -10,6 +10,7 @@
 local Errors = require("libs.errors.src.Errors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldTransition = require("libs.engine.src.FieldTransition")
 local WarpSystem = require("libs.engine.src.WarpSystem")
 
 local FieldSave = {}
@@ -188,7 +189,7 @@ function FieldSave.canCapture(session)
   return session
     and session.player
     and session.player.motion == "idle"
-    and (not session.transition or session.transition.phase == "idle")
+    and (not session.transition or session.transition.phase == FieldTransition.PHASES.idle)
     and (not session.dialogue or not session.dialogue:isModal())
 end
 
