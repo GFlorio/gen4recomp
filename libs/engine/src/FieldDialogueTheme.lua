@@ -1,7 +1,10 @@
 -- The single theme record for field dialogue presentation: the 256 x 192
 -- reference canvas (matching the DS top-screen aspect),
--- the bottom box geometry, text metrics, colors, cursor blink,
--- and the reference-to-screen mapping into FieldViewport.referenceFrame.
+-- the canonical HGSS message-box content rect, text metrics, colors, cursor
+-- blink, and the reference-to-screen mapping into FieldViewport.referenceFrame.
+-- The content rect is 16,152,216,32: DIALOG_BOX_X=2, DIALOG_BOX_Y=19,
+-- DIALOG_BOX_W=27, DIALOG_BOX_H=4 tiles at 8px/tile (src/dialog_box.c,
+-- pret/pokeheartgold commit 008257708bd41df5b8c9037e019088ba24df0a87).
 -- All geometry is pure so the box layout is testable headlessly at every
 -- host aspect; the LÖVE renderer draws exactly what this module computes.
 
@@ -33,22 +36,24 @@ FieldDialogueTheme.schema = "g4-field-dialogue-theme-v1"
 FieldDialogueTheme.referenceWidth = 256
 FieldDialogueTheme.referenceHeight = 192
 
--- Bottom box inside the reference canvas:
--- horizontal inset 8, bottom inset 8, width 240, height 56.
+-- Canonical HGSS message-box content rect: 2 tiles in, 19 tiles down,
+-- 27 tiles wide, 4 tiles tall on the 32x24-tile field screen.
 FieldDialogueTheme.box = {
-  x = 8,
-  y = 192 - 8 - 56,
-  width = 240,
-  height = 56,
+  x = 16,
+  y = 152,
+  width = 216,
+  height = 32,
 }
 
--- Text area inside the box: two 16px lines plus symmetric padding.
+-- Text area inside the box: two 16px lines fill the 32px content height
+-- (HGSS prints from the window origin); a small horizontal inset keeps the
+-- text clear of the window border.
 FieldDialogueTheme.textInsetX = 10
-FieldDialogueTheme.textInsetY = 10
+FieldDialogueTheme.textInsetY = 0
 FieldDialogueTheme.lineHeight = 16
 FieldDialogueTheme.maxLines = 2
-FieldDialogueTheme.textWidth = 240 - 2 * 10
-FieldDialogueTheme.textHeight = 56 - 2 * 10
+FieldDialogueTheme.textWidth = 216 - 2 * 10
+FieldDialogueTheme.textHeight = 32
 
 -- Cursor: a down-pointing triangle at the text area's bottom-right, blinking
 -- on a fixed tick period.
