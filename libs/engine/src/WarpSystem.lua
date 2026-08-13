@@ -86,7 +86,7 @@ local function loadDestination(loader, sourceMap, warp)
     return result
   end
   if Errors.is(result) and result.code == FieldErrors.FIELD_MAP_UNKNOWN then
-    Errors.raise("FIELD_DESTINATION_MAP_UNKNOWN", "warp destination map is unavailable", {
+    Errors.raise(FieldErrors.FIELD_DESTINATION_MAP_UNKNOWN, "warp destination map is unavailable", {
       sourceMapId = sourceMap.mapId,
       sourceWarpId = warp.index,
       destinationMapId = warp.destinationMapId,
@@ -153,7 +153,7 @@ function WarpSystem.resolveDestination(loader, sourceMap, warp)
     return resolutionRecord(sourceMap, warp, destinationMap, destinationRecord, warp.x, warp.z, sample)
   end
   if warp.destinationWarpId == WarpSystem.DYNAMIC_WARP_SENTINEL then
-    Errors.raise("FIELD_DYNAMIC_WARP_UNSUPPORTED", "dynamic warp anchors are not supported", {
+    Errors.raise(FieldErrors.FIELD_DYNAMIC_WARP_UNSUPPORTED, "dynamic warp anchors are not supported", {
       sourceMapId = sourceMap.mapId,
       sourceWarpId = warp.index,
       destinationMapId = warp.destinationMapId,
@@ -164,7 +164,7 @@ function WarpSystem.resolveDestination(loader, sourceMap, warp)
   local destinationMap = loadDestination(loader, sourceMap, warp)
   local destinationWarp = warps(destinationMap)[warp.destinationWarpId + 1]
   if not destinationWarp or destinationWarp.index ~= warp.destinationWarpId then
-    Errors.raise("FIELD_DESTINATION_WARP_UNKNOWN", "destination warp index is unavailable", {
+    Errors.raise(FieldErrors.FIELD_DESTINATION_WARP_UNKNOWN, "destination warp index is unavailable", {
       sourceMapId = sourceMap.mapId,
       sourceWarpId = warp.index,
       destinationMapId = destinationMap.mapId,

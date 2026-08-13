@@ -1,8 +1,8 @@
 -- Stable error codes for the engine field layer: event state, actors,
--- terrain surfaces, render-queue classification, and map loading. Every
--- module in this layer raises Errors with exactly these codes; modules must
--- reference the named constants, never bare literals, so a rename stays in
--- one place. The script subsystem keeps its own catalogue
+-- terrain surfaces, render-queue classification, warp resolution, and map
+-- loading. Every module in this layer raises Errors with exactly these
+-- codes; modules must reference the named constants, never bare literals, so
+-- a rename stays in one place. The script subsystem keeps its own catalogue
 -- (script/errors.lua). Pure domain module: no love dependency.
 
 local FieldErrors = {}
@@ -29,6 +29,9 @@ FieldErrors.TERRAIN_SURFACE_AMBIGUOUS = "TERRAIN_SURFACE_AMBIGUOUS"
 FieldErrors.TERRAIN_SURFACE_DISCONNECTED = "TERRAIN_SURFACE_DISCONNECTED"
 
 FieldErrors.FIELD_MAP_UNKNOWN = "FIELD_MAP_UNKNOWN"
+FieldErrors.FIELD_DESTINATION_MAP_UNKNOWN = "FIELD_DESTINATION_MAP_UNKNOWN"
+FieldErrors.FIELD_DESTINATION_WARP_UNKNOWN = "FIELD_DESTINATION_WARP_UNKNOWN"
+FieldErrors.FIELD_DYNAMIC_WARP_UNSUPPORTED = "FIELD_DYNAMIC_WARP_UNSUPPORTED"
 FieldErrors.FIELD_MAP_VISUAL_CACHE_MISSING = "FIELD_MAP_VISUAL_CACHE_MISSING"
 FieldErrors.FIELD_MAP_DATA_CACHE_MISSING = "FIELD_MAP_DATA_CACHE_MISSING"
 FieldErrors.FIELD_MAP_TERRAIN_CACHE_MISSING = "FIELD_MAP_TERRAIN_CACHE_MISSING"

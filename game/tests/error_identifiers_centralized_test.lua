@@ -34,7 +34,9 @@ local PRODUCTION_ROOTS = {
 -- with the owner file(s) at HEAD. FieldEventState's whole family is listed,
 -- not just the two codes the audit cites, because the per-subsystem table
 -- covers the file's raise sites. ACTOR_FACING_INVALID is the D35-added member
--- of the actor family (raised in WarpSystem and FieldObjectActor).
+-- of the actor family (raised in WarpSystem and FieldObjectActor); the warp
+-- resolution codes are the D35-standardized unknown-destination codes
+-- (raised in WarpSystem).
 local CENTRALIZED_CODES = {
   "EVENT_STATE_TOO_LARGE",
   "EVENT_FLAG_VALUE_INVALID",
@@ -61,6 +63,9 @@ local CENTRALIZED_CODES = {
   "TERRAIN_SURFACE_AMBIGUOUS",
   "TERRAIN_SURFACE_DISCONNECTED",
   "FIELD_MAP_UNKNOWN",
+  "FIELD_DESTINATION_MAP_UNKNOWN",
+  "FIELD_DESTINATION_WARP_UNKNOWN",
+  "FIELD_DYNAMIC_WARP_UNSUPPORTED",
 }
 
 -- Consumer-side raw literals of the shared protocol strings: a named
