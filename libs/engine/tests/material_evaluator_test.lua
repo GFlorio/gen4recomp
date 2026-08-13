@@ -452,6 +452,40 @@ end
 
 -- ---- NSBMA: color and alpha ----
 
+-- The evaluated state marks a material whose colors an NSBMA color clip
+-- drives: the renderer composes the effective DS material register as
+-- "the clip's sampled colors when a color clip plays, else the field
+-- profile", so it must know whether a clip plays. Compiled NSBMA clips
+-- always carry all four color channels (the compiler has no absent state),
+-- so one boolean covers the whole register set.
+function T.color_clip_marks_the_material_as_color_animated()
+  local def = texturedDefinition()
+  local plain = instanceWith(def, {})
+  Assert.equal(plain.materialState[0].colorAnimated, false)
+  Assert.equal(plain:effectiveMaterial(0).colorsAnimated, false)
+
+  local animated = instanceWith(def, { fadeClip(4) })
+  Assert.equal(animated.materialState[0].colorAnimated, true)
+  Assert.equal(animated:effectiveMaterial(0).colorsAnimated, true)
+end
+
+-- A material without the colors block (the static field path) must keep the
+-- identity emission multiplier: the shader multiplies the profile's emission
+-- register by u_matEmission, so a static item whose material never declares
+-- colors would otherwise lose its entire emission contribution -- the
+-- profile's emission is a large part of HGSS brightness on dim surfaces
+-- (building sides, sprites).
+function T.no_colors_block_keeps_identity_emission_multiplier()
+  local def = texturedDefinition()
+  local instance = ModelInstance.new(def)
+  instance:evaluateMaterials()
+  local m = instance:effectiveMaterial(0)
+  Assert.deepEqual(m.matDiffuse, { 1, 1, 1 })
+  Assert.deepEqual(m.matAmbient, { 1, 1, 1 })
+  Assert.deepEqual(m.matSpecular, { 1, 1, 1 })
+  Assert.deepEqual(m.matEmission, { 1, 1, 1 })
+end
+
 -- A record carrying the optional colors block (the four DS base-material
 -- registers the dynamic compiler emits) seeds the evaluated state per
 -- component; records without the block keep the baseColor reconstruction.

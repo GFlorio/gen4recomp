@@ -10,7 +10,12 @@
 // c/31, contributions sum as lightColor * (ambient + diffuse*ld + specular*ls),
 // where ls is the melonDS cos(2a) term clamp(2*ndh^2 - 1, 0, 1) gated on the
 // front-light test ld > 0 (dot(-L,N) > 0), and the result clamps to [0,1] and
-// quantizes to 5 bits with round-half-up.
+// quantizes to 5 bits with round-half-up. The u_mat* uniforms carry the
+// effective DS material registers: the field profile's colors -- the HGSS
+// field engine overrides every material's stored color registers with the
+// profile -- replaced wholesale by the sampled colors of a playing NSBMA
+// material clip. The renderer composes them per draw item (effectiveMaterial-
+// Color); a static item always receives the profile.
 // Each light additionally requires the polygon's light-mask bit: the renderer
 // sends the draw item's 4-bit mask decoded into u_lightMask (one 0/1 float per
 // light), so a light contributes only when the profile enables it AND the
@@ -43,13 +48,8 @@ uniform vec3 u_lightColor0;
 uniform vec3 u_lightColor1;
 uniform vec3 u_lightColor2;
 uniform vec3 u_lightColor3;
-uniform vec3 u_diffuseColor;
-uniform vec3 u_ambientColor;
-uniform vec3 u_specularColor;
-uniform vec3 u_emissionColor;
-
-// Per-material animated colors (NSBMA): they multiply the lighting-set
-// colors in the vertex stage and select the COLOR_DIFFUSE vertex color.
+// The effective DS material registers (normalized c/31): the field profile's
+// colors, replaced by a playing NSBMA clip's sampled colors.
 uniform vec3 u_matDiffuse;
 uniform vec3 u_matAmbient;
 uniform vec3 u_matSpecular;
@@ -73,17 +73,17 @@ vec3 dsLightContribution(vec3 normal, vec3 L, vec3 lightColor)
     ls = clamp(2.0 * ndh * ndh - 1.0, 0.0, 1.0);
   }
 
-  // The material's own colors multiply the lighting-set colors, as the DS
-  // material registers do (NSBMA animates them per material).
-  vec3 contrib = u_matAmbient * u_ambientColor
-    + u_matDiffuse * u_diffuseColor * ld
-    + u_matSpecular * u_specularColor * ls;
+  // The effective material registers contribute directly; the renderer has
+  // already composed the field profile over any playing NSBMA colors.
+  vec3 contrib = u_matAmbient
+    + u_matDiffuse * ld
+    + u_matSpecular * ls;
   return lightColor * contrib;
 }
 
 vec3 computeDsLighting(vec3 normal)
 {
-  vec3 acc = u_matEmission * u_emissionColor;
+  vec3 acc = u_matEmission;
 
   if (u_lightEnabled0 && u_lightMask.x > 0.5)
     acc += dsLightContribution(normal, normalize(u_lightVector0), u_lightColor0);
@@ -110,7 +110,8 @@ vec4 position(mat4 transform_projection, vec4 vertex_position)
   if (src == 0) {
     v_dsColor = quantizeRgb5(VertexColor.rgb);
   } else if (src == 2) {
-    // COLOR_DIFFUSE: the vertex color IS the material's diffuse register.
+    // COLOR_DIFFUSE: the vertex color IS the effective diffuse register
+    // (the field profile, or the NSBMA colors replacing it).
     v_dsColor = quantizeRgb5(u_matDiffuse);
   } else {
     v_dsColor = quantizeRgb5(computeDsLighting(normal));

@@ -106,10 +106,12 @@ end
 
 -- The per-component base colors of a material record: the optional `colors`
 -- block (the dynamic compiler's four DS registers) when present, else the
--- baseColor reconstruction -- baseColor for the lit channels and black for
--- emission (the static path's record shape). ModelInstance's initial
--- material state calls the same helper, so the reconstruction cannot drift
--- between the evaluator and the instance.
+-- baseColor reconstruction -- baseColor for every channel, since the shader
+-- multiplies the field profile's registers by these values and a static
+-- field material owns none of them (the HGSS field policy clears the four
+-- color ownership bits). ModelInstance's initial material state calls the
+-- same helper, so the reconstruction cannot drift between the evaluator and
+-- the instance.
 
 ---@class MaterialColorComponents
 ---@field diffuse MaterialRGB
@@ -125,9 +127,6 @@ function MaterialEvaluator.baseColors(material)
     local c = material.colors and material.colors[name]
     if c then
       return { r = c.r, g = c.g, b = c.b }
-    end
-    if name == "emission" then
-      return { r = 0, g = 0, b = 0 }
     end
     return { r = baseColor.r, g = baseColor.g, b = baseColor.b }
   end
@@ -305,12 +304,17 @@ function MaterialEvaluator.evaluate(definition, attachments, materialState)
     local tex = currentTexture(material, pattern, patternTrack)
 
     -- NSBMA: the winning color attachment overrides the sampled channels;
-    -- channels it does not animate keep the base material colors.
+    -- channels it does not animate keep the base material colors. A playing
+    -- clip drives the whole register set (compiled clips always carry all
+    -- four color channels), so `colorAnimated` marks the material for the
+    -- renderer: its colors replace the field profile at the register.
     local colors = baseState.colors
+    local colorAnimated = false
     if color then
       local track = trackForMaterial(color, materialIndex)
       if track then
         local sampled = CompiledNsbmaSampler.sample(color.clip, track.targetIndex, color.player.frameFx)
+        colorAnimated = true
         for _, name in ipairs({ "diffuse", "ambient", "specular", "emission" }) do
           local value = sampled[name]
           if value ~= nil then
@@ -370,6 +374,7 @@ function MaterialEvaluator.evaluate(definition, attachments, materialState)
         texWidth = nil,
         texHeight = nil,
         colors = colors,
+        colorAnimated = colorAnimated,
         polygonAlpha = baseState.polygonAlpha,
         texMatrix = identity,
         alphaClass = alphaClass,
@@ -395,6 +400,7 @@ function MaterialEvaluator.evaluate(definition, attachments, materialState)
         texWidth = curW,
         texHeight = curH,
         colors = colors,
+        colorAnimated = colorAnimated,
         polygonAlpha = baseState.polygonAlpha,
         texMatrix = texMatrix(cells, baseW, baseH, curW, curH),
         alphaClass = AlphaClassifier.classify(baseState.polygonAlpha, tex.format, tex.alphaUsage),

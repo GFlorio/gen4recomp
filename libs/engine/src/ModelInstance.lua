@@ -45,6 +45,7 @@ local PolygonState = require("libs.assets.src.PolygonState")
 ---@field texWidth integer|nil
 ---@field texHeight integer|nil
 ---@field colors MaterialColorComponents
+---@field colorAnimated boolean -- a playing NSBMA clip drives the colors
 ---@field polygonAlpha integer
 ---@field texMatrix number[]
 ---@field alphaClass string|nil
@@ -246,15 +247,12 @@ function ModelInstance:effectiveMaterial(materialIndex)
   )
   local state = self.materialState[materialIndex]
   local colors = state and state.colors
-  local function component(name, fallback)
+  local function component(name)
     local c = colors and colors[name]
     if c then
       return { c.r / 255, c.g / 255, c.b / 255 }
     end
     local base = material.baseColor or { r = 255, g = 255, b = 255, a = 255 }
-    if name == "emission" then
-      return fallback
-    end
     return { base.r / 255, base.g / 255, base.b / 255 }
   end
   local image
@@ -268,7 +266,12 @@ function ModelInstance:effectiveMaterial(materialIndex)
     matDiffuse = component("diffuse"),
     matAmbient = component("ambient"),
     matSpecular = component("specular"),
-    matEmission = component("emission", { 0, 0, 0 }),
+    matEmission = component("emission"),
+    -- A playing NSBMA color clip replaces the field profile at the register:
+    -- the renderer uses the material's colors directly when this is set, and
+    -- the field profile otherwise (the HGSS field policy clears all four
+    -- color ownership bits, so the stored colors alone never reach the DS).
+    colorsAnimated = state and state.colorAnimated or false,
     alphaClass = alphaClass,
     alphaCutoff = alphaClass == "cutout" and CUTOUT_EPSILON or nil,
     polygonAlpha = (state and state.polygonAlpha or 31) / 31,

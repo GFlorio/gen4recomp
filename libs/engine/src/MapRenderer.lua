@@ -250,28 +250,35 @@ local function fx12ToFloat3(vec)
   return { vec[1] / DsLighting.FX12_SCALE, vec[2] / DsLighting.FX12_SCALE, vec[3] / DsLighting.FX12_SCALE }
 end
 
--- Select the active profile record and bind all lighting uniforms. A runtime
--- with no lighting profile still gets the disabled/default state sent
--- explicitly: an unlit scene must not inherit lights or material colors from
--- a lit scene drawn earlier with the same renderer. (u_lightMask needs no
--- reset: every draw path sends it before drawing.)
+-- Select the active profile record, bind the light uniforms, and keep the
+-- profile's material registers for the per-item composition in _drawMesh /
+-- _drawWireframe: the field engine owns every material color channel, so a
+-- static item's effective registers are the profile's. A runtime with no
+-- lighting profile clears the light uniforms and drops the registers (the
+-- per-draw u_mat* sends then reset to zero), so an unlit scene cannot
+-- inherit lights or material colors from a lit scene drawn earlier with the
+-- same renderer. (u_lightMask needs no reset: every draw path sends it
+-- before drawing.)
 function MapRenderer:_sendLighting(runtime)
   local shader = self.shader
   local profile = runtime.lighting
   if not profile or not profile.records then
+    self._lightMaterialColors = nil
     for i = 0, 3 do
       shader:send("u_lightEnabled" .. i, false)
       shader:send("u_lightVector" .. i, { 0, 0, 0 })
       shader:send("u_lightColor" .. i, { 0, 0, 0 })
     end
-    shader:send("u_diffuseColor", { 0, 0, 0 })
-    shader:send("u_ambientColor", { 0, 0, 0 })
-    shader:send("u_specularColor", { 0, 0, 0 })
-    shader:send("u_emissionColor", { 0, 0, 0 })
     return
   end
 
   local record = FieldLightProfile.select(profile, runtime.fieldTimeSeconds or FieldLightProfile.DEFAULT_TIME_SECONDS)
+  self._lightMaterialColors = {
+    diffuse = rgb555ToFloat3(record.diffuseRgb555),
+    ambient = rgb555ToFloat3(record.ambientRgb555),
+    specular = rgb555ToFloat3(record.specularRgb555),
+    emission = rgb555ToFloat3(record.emissionRgb555),
+  }
 
   for i = 1, 4 do
     local light = record.lights[i]
@@ -284,11 +291,20 @@ function MapRenderer:_sendLighting(runtime)
       shader:send("u_lightColor" .. (i - 1), { 0, 0, 0 })
     end
   end
+end
 
-  shader:send("u_diffuseColor", rgb555ToFloat3(record.diffuseRgb555))
-  shader:send("u_ambientColor", rgb555ToFloat3(record.ambientRgb555))
-  shader:send("u_specularColor", rgb555ToFloat3(record.specularRgb555))
-  shader:send("u_emissionColor", rgb555ToFloat3(record.emissionRgb555))
+-- The effective DS material register for one channel of one draw item: the
+-- field profile supplies every channel (the HGSS field policy clears the
+-- materials' color ownership, so stored colors alone never reach the DS),
+-- except channels a playing NSBMA color clip drives -- the clip replaces
+-- the register. With no profile the register resets to zero so a later lit
+-- scene cannot inherit stale material colors.
+local ZERO_COLOR = { 0, 0, 0 }
+local function effectiveMaterialColor(value, colorsAnimated, profileColor)
+  if value ~= nil and colorsAnimated then
+    return value
+  end
+  return profileColor or ZERO_COLOR
 end
 
 -- The world normal matrix of a model transform: the inverse-transpose of its
@@ -420,12 +436,35 @@ function MapRenderer:_drawMesh(item, viewMatrix, polygonIdOverride, projection, 
   shader:send("u_model", "column", modelMatrix)
   shader:send("u_normalMatrix", "column", normalMatrix)
 
-  -- Per-material animated colors (defaults are the identity multipliers,
-  -- so static items are unchanged) and the animated UV transform.
-  shader:send("u_matDiffuse", mat and mat.matDiffuse or { 1, 1, 1 })
-  shader:send("u_matAmbient", mat and mat.matAmbient or { 1, 1, 1 })
-  shader:send("u_matSpecular", mat and mat.matSpecular or { 1, 1, 1 })
-  shader:send("u_matEmission", mat and mat.matEmission or { 0, 0, 0 })
+  -- The effective DS material registers: the field profile's colors, with
+  -- any playing NSBMA color clip's sampled colors replacing them (see
+  -- effectiveMaterialColor). Static items (no material colors) always get
+  -- the profile.
+  local profileColors = self._lightMaterialColors
+  shader:send(
+    "u_matDiffuse",
+    effectiveMaterialColor(mat and mat.matDiffuse, mat and mat.colorsAnimated, profileColors and profileColors.diffuse)
+  )
+  shader:send(
+    "u_matAmbient",
+    effectiveMaterialColor(mat and mat.matAmbient, mat and mat.colorsAnimated, profileColors and profileColors.ambient)
+  )
+  shader:send(
+    "u_matSpecular",
+    effectiveMaterialColor(
+      mat and mat.matSpecular,
+      mat and mat.colorsAnimated,
+      profileColors and profileColors.specular
+    )
+  )
+  shader:send(
+    "u_matEmission",
+    effectiveMaterialColor(
+      mat and mat.matEmission,
+      mat and mat.colorsAnimated,
+      profileColors and profileColors.emission
+    )
+  )
   shader:send("u_texMatrix", "column", mat and mat.texMatrix or { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
 
   if mat and mat.image then
@@ -461,10 +500,13 @@ function MapRenderer:_drawWireframe(item, viewMatrix, projection)
   shader:send("u_proj", "column", projection)
   shader:send("u_model", "column", item.transform)
   shader:send("u_normalMatrix", "column", normalMatrix)
-  shader:send("u_matDiffuse", { 1, 1, 1 })
-  shader:send("u_matAmbient", { 1, 1, 1 })
-  shader:send("u_matSpecular", { 1, 1, 1 })
-  shader:send("u_matEmission", { 0, 0, 0 })
+  -- Wireframe polygons are static field geometry: the effective registers
+  -- are the field profile's.
+  local profileColors = self._lightMaterialColors
+  shader:send("u_matDiffuse", profileColors and profileColors.diffuse or ZERO_COLOR)
+  shader:send("u_matAmbient", profileColors and profileColors.ambient or ZERO_COLOR)
+  shader:send("u_matSpecular", profileColors and profileColors.specular or ZERO_COLOR)
+  shader:send("u_matEmission", profileColors and profileColors.emission or ZERO_COLOR)
   shader:send("u_texMatrix", "column", { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
   shader:send("u_useTexture", false)
   shader:send("u_alphaMode", 0)
