@@ -98,8 +98,8 @@ function FieldState:_actorDraws(alpha)
 end
 
 -- The flattened scene draw list: map geometry, buildings, the neighbour ring,
--- then actors. SceneAssembly owns submission ordering -- it numbers every draw
--- monotonically in this source order, so equal-depth translucent ties break
+-- then actors. SceneAssembly owns submission ordering -- it concatenates every
+-- part in this source order, so equal-depth translucent ties break
 -- map before building before neighbour before actor, deterministically.
 function FieldState:_worldDraws(alpha)
   return SceneAssembly.flatten({

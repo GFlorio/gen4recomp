@@ -20,9 +20,11 @@
 -- u16 -- except script id 0, the no-interaction marker (the original starts
 -- the map bank's script 0 there; the project treats that as noninteractive
 -- until bank-script-0 bindings exist, matching the binding audit). Type-2
--- background events are the hidden-item path and depend on collection flags
--- that do not exist yet: they are skipped. Pure domain module:
--- no love dependency.
+-- background events are the hidden-item family, declared noninteractive:
+-- their pickup scripts depend on collection flags that are not tracked, so
+-- the resolver never emits an intent for them, the binding audit rejects
+-- bindings for them, and the manifest omits them (see `isHiddenItem`).
+-- Pure domain module: no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
@@ -30,6 +32,7 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 
 ---@class FieldInteractionResolver
 ---@field actorAt fun(mapId: integer, fieldX: integer, fieldZ: integer, surfaceId: integer): table|nil
+---@field _surfaceResolver SurfaceResolver?
 local FieldInteractionResolver = {}
 FieldInteractionResolver.__index = FieldInteractionResolver
 
@@ -78,9 +81,19 @@ FieldInteractionResolver.RAW_FACING = { north = 0, south = 1, west = 2, east = 3
 -- (`BgEventDirectionIsCompatibleWithPlayerFacing`, asm/unk_0203DB6C.s).
 FieldInteractionResolver.BACKGROUND_DIRECTION_WILDCARD = 4
 
--- Background event type of the hidden-item path (collection-flag
--- dependent); the resolver skips it.
+-- Background event type of the hidden-item family. Hidden items carry
+-- pickup scripts (the hidden-item script ids) whose collection-flag state is
+-- not tracked yet, so the family is DECLARED noninteractive: the resolver
+-- never emits an intent for it, the binding audit exempts and rejects
+-- bindings for it, and the manifest omits it. `isHiddenItem` is the single
+-- owner of this classification.
 FieldInteractionResolver.HIDDEN_ITEM_EVENT_TYPE = 2
+
+---@param event table
+---@return boolean
+function FieldInteractionResolver.isHiddenItem(event)
+  return event.type == FieldInteractionResolver.HIDDEN_ITEM_EVENT_TYPE
+end
 
 -- Player facing raw code -> background event raw direction codes that
 -- resolve. Derived from `BgEventDirectionIsCompatibleWithPlayerFacing`
@@ -132,6 +145,7 @@ function FieldInteractionResolver.new(opts)
   )
   return setmetatable({
     actorAt = opts.actorAt,
+    _surfaceResolver = nil,
   }, FieldInteractionResolver)
 end
 
@@ -150,6 +164,9 @@ end
 -- from the player's surface (an expected boundary). The sample is the lookup
 -- key for object interactions, so a cross-surface boundary resolves actors
 -- on the facing cell's actual surface rather than the player's.
+-- The surface resolver is owned by the resolver and rebuilt only when the
+-- map terrain changes: the terrain table is the full configuration of the
+-- surface selection, so the ownership key is the terrain itself.
 function FieldInteractionResolver:_resolveFacingCell(snapshot, targetX, targetZ)
   local map = snapshot.runtimeMap
   local ok, localX, localZ = pcall(FieldCoordinates.fieldToLocal, map, targetX, targetZ)
@@ -159,8 +176,13 @@ function FieldInteractionResolver:_resolveFacingCell(snapshot, targetX, targetZ)
     end
     return nil
   end
+  local surfaceResolver = self._surfaceResolver
+  if surfaceResolver == nil or surfaceResolver.terrain ~= map.terrain then
+    surfaceResolver = SurfaceResolver.new(map.terrain)
+    self._surfaceResolver = surfaceResolver
+  end
   local okSample, sample = pcall(function()
-    return SurfaceResolver.new(map.terrain):resolve({
+    return surfaceResolver:resolve({
       localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
       localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
       currentSurfaceId = snapshot.surfaceId,
@@ -183,8 +205,8 @@ function FieldInteractionResolver:_resolveFacingCell(snapshot, targetX, targetZ)
 end
 
 -- Scans background events in source order and returns the first eligible
--- record, or nil. Type-2 records (the hidden-item path) are skipped because
--- their collection flags are not tracked yet, and script-id-0 records are
+-- record, or nil. Type-2 records (the hidden-item family) are declared
+-- noninteractive and never eligible, and script-id-0 records are
 -- noninteractive (the no-interaction marker); every other type must pass the
 -- raw direction compatibility check.
 function FieldInteractionResolver:_firstEligibleBackground(snapshot, targetX, targetZ)
@@ -196,7 +218,7 @@ function FieldInteractionResolver:_firstEligibleBackground(snapshot, targetX, ta
     if
       event.x == targetX
       and event.z == targetZ
-      and event.type ~= FieldInteractionResolver.HIDDEN_ITEM_EVENT_TYPE
+      and not FieldInteractionResolver.isHiddenItem(event)
       and event.scriptId ~= 0
       and FieldInteractionResolver.backgroundDirectionCompatible(playerRaw, event.directionRaw)
     then

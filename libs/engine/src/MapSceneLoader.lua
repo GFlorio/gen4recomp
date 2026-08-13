@@ -110,8 +110,8 @@ local function buildScene(pool, cacheFs, scene)
   -- billboard-local space and its matrix depends on the camera, so the composed
   -- transform becomes `billboardBase` for the renderer to resolve each frame; its
   -- static equivalent seeds `transform` and the scene bounds. Draw items carry no
-  -- submission numbers: the final scene assembly (SceneAssembly) numbers every
-  -- draw in source order at draw time.
+  -- submission numbers: the final scene assembly (SceneAssembly) orders every
+  -- draw in source order, positionally.
   local function drawItem(batch, materials, instanceTransform)
     local entry = pool:meshFor(batch.geometry)
     local billboardBase

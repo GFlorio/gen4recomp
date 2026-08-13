@@ -6,6 +6,7 @@ local FieldInput = require("libs.engine.src.FieldInput")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldPlayerVisual = require("libs.engine.src.FieldPlayerVisual")
 local FieldSession = require("libs.engine.src.FieldSession")
+local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = {}
@@ -722,7 +723,7 @@ local function interactionSession(opts)
     consume = function(_, intent, tick)
       consumed = intent
       interactions.consumedIntent = intent
-      return opts.result or "started"
+      return opts.result or ScriptInteractionClient.RESULTS.started
     end,
   }
   local steps = 0
@@ -785,7 +786,7 @@ end
 function T.unmapped_interaction_is_a_composition_fault()
   local session, player, interactions, steps = interactionSession({
     intent = { kind = "object", object = { actorId = "map:61:object:0" } },
-    result = "unmapped",
+    result = ScriptInteractionClient.RESULTS.unmapped,
   })
   Assert.throws(function()
     session:updateFixed({ actionPressed = true, heldDirection = "north" })
@@ -798,7 +799,7 @@ end
 function T.blocked_interaction_still_consumes_the_tick()
   local session, player, interactions, steps = interactionSession({
     intent = { kind = "background" },
-    result = "blocked",
+    result = ScriptInteractionClient.RESULTS.blocked,
   })
   session:updateFixed({ actionPressed = true, heldDirection = "north" })
   Assert.equal(steps(), 0, "a blocked interaction consumes the tick")
@@ -869,7 +870,7 @@ function T.catch_up_ticks_do_not_replay_one_action_edge()
   }
   local client = {
     consume = function()
-      return "started"
+      return ScriptInteractionClient.RESULTS.started
     end,
   }
   local player = {
@@ -910,6 +911,31 @@ function T.catch_up_ticks_do_not_replay_one_action_edge()
   Assert.equal(resolved, 1, "one Action edge must not be replayed over catch-up ticks")
   Assert.isFalse(input.actionPressed, "the first tick consumed the edge")
   Assert.equal(input.actionDown, true, "held state survives the edge")
+end
+
+-- renderAlpha is an interpolation factor the renderer forwards to the
+-- camera; extreme render deltas must not push it out of [0, 1]. A huge delta
+-- saturates the catch-up cap and drops the remainder, and a near-boundary
+-- delta leaves a negative float residual in the drop branch, so the clamp is
+-- a real invariant, not a formality.
+function T.render_alpha_stays_in_unit_range_after_extreme_deltas()
+  local session, _, _, _ = warpSession({
+    fieldX = 4,
+    fieldZ = 14,
+    warpX = 4,
+    warpZ = 14,
+  })
+  local function assertInRange(label)
+    local alpha = session:renderAlpha()
+    Assert.isTrue(alpha >= 0 and alpha <= 1, label .. " renderAlpha out of [0, 1]: " .. tostring(alpha))
+  end
+  -- A near-boundary delta leaves a negative float residual in the drop
+  -- branch, so the clamp is a real invariant, not a formality.
+  session:update(1.8)
+  assertInRange("drop")
+  -- A huge delta saturates the catch-up cap and drops the remainder.
+  session:update(600)
+  assertInRange("catch-up")
 end
 
 -- The session captures the player's walking state before the movement update

@@ -357,11 +357,10 @@ function T.direct_warp_record_bypasses_the_dynamic_sentinel()
   Assert.equal(result.fieldZ, 392)
 end
 
--- The direct branch loads its destination map plainly and propagates the
--- loader error unwrapped (the FIELD_DESTINATION_MAP_UNKNOWN wrap belongs to
--- the indexed-record path only). This pins the exact FieldRuntime behavior
--- the move preserves.
-function T.direct_warp_destination_loader_failure_propagates_raw()
+-- The direct branch shares the indexed path's unknown-destination-map wrap:
+-- one standardized code names an unavailable destination map with the warp
+-- identity in context, whichever resolution branch found it.
+function T.direct_warp_destination_loader_failure_wraps_like_the_indexed_path()
   local failing = {
     load = function()
       Errors.raise("FIELD_MAP_UNKNOWN", "map 62 is missing", { mapId = 62 })
@@ -380,7 +379,18 @@ function T.direct_warp_destination_loader_failure_propagates_raw()
     WarpSystem.resolveDestination(failing, runtimeMap(60, 672, 384, {}), directWarp)
   end)
   Assert.isTrue(Errors.is(err), "expected structured error")
-  Assert.equal(assert(err).code, "FIELD_MAP_UNKNOWN")
+  Assert.equal(assert(err).code, "FIELD_DESTINATION_MAP_UNKNOWN")
+  Assert.equal(assert(err).context.destinationMapId, 62)
+end
+
+-- An invalid facing is a programming fault at the resolver boundary, not an
+-- empty "no warp" result: callers pass only known direction names.
+function T.find_blocked_facing_rejects_invalid_directions()
+  local map = runtimeMap(61, 0, 0, {})
+  throwsCode("ACTOR_FACING_INVALID", function()
+    WarpSystem.findBlockedFacing(map, 4, 14, "up")
+  end)
+  Assert.isNil(WarpSystem.findBlockedFacing(map, 4, 14, "north"), "a known facing stays a plain miss")
 end
 
 function T.suppression_lasts_until_the_player_leaves_its_coordinate()

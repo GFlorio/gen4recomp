@@ -205,7 +205,11 @@ function FieldDialogueController:_complete(kind, extra)
 end
 
 -- Fires the terminal callback exactly once, after every internal table is
--- fully settled, and returns the result.
+-- fully settled, and returns the result. The request, handle, and page state
+-- are released before the callback runs, so a callback that reopens a
+-- dialogue (the reentrant-open contract) starts from a clean CLOSED
+-- controller instead of inheriting the finished request; the terminal result
+-- already carries the identity copies it needs.
 
 ---@return FieldDialogueController.Result?
 function FieldDialogueController:_dispatch()
@@ -217,6 +221,11 @@ function FieldDialogueController:_dispatch()
   local callback = terminal.kind == "complete" and self._handle._onComplete
     or terminal.kind == "cancel" and self._handle._onCancel
     or self._handle._onError
+  self._request = nil
+  self._handle = nil
+  self._pages = nil
+  self._pageGlyphs = nil
+  self._warnings = nil
   local ok, err = pcall(function()
     if callback then
       callback(terminal.result)
@@ -365,8 +374,8 @@ function FieldDialogueController:_revealTick(snapshot)
   end
 end
 
--- One fixed simulation tick. snapshot = { actionPressed, actionDown,
--- cancelPressed, cancelDown } (FieldInput snapshot fields). Returns the
+-- One fixed simulation tick. snapshot = { actionPressed, cancelPressed }
+-- (the FieldInput snapshot edges this controller reads). Returns the
 -- terminal result when this tick finished the dialogue, else nil.
 
 ---@param snapshot FieldDialogueController.Input?
@@ -483,9 +492,7 @@ end
 
 ---@class FieldDialogueController.Input
 ---@field actionPressed boolean?
----@field actionDown boolean?
 ---@field cancelPressed boolean?
----@field cancelDown boolean?
 
 -- Snapshot of the controller's reveal position for the renderer and HUD.
 

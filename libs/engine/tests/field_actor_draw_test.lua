@@ -111,7 +111,10 @@ function T.emits_every_static_model_part_with_its_own_material()
   Assert.equal(items[1].material.image, asset.image)
   Assert.isNil(items[2].material.image)
   Assert.equal(items[2].alphaClass, "translucent")
-  Assert.isNil(items[1].submissionIndex, "actor items carry no submission numbers; SceneAssembly assigns them")
+  Assert.isNil(
+    items[1].submissionIndex,
+    "actor items carry no submission numbers; the flat list position is the assembly's submission order"
+  )
   Assert.isNil(items[2].submissionIndex)
 end
 
@@ -145,7 +148,7 @@ function T.items_skip_hidden_records_and_leave_submissions_to_assembly()
   end)
   Assert.equal(#items, 1)
   Assert.equal(items[1].actorId, "map:61:object:0")
-  Assert.isNil(items[1].submissionIndex, "the flattened scene assembly owns actor submission order")
+  Assert.isNil(items[1].submissionIndex, "the flat scene list position is the assembly's actor submission order")
 end
 
 function T.a_record_without_a_resident_visual_is_fatal()

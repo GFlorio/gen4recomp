@@ -2,11 +2,15 @@
 -- bound map must be covered by the bindings manifest. An object event with a
 -- script id is interactable (the resolver starts the bound script); a
 -- background event with a script id is interactable unless it is the type-2
--- hidden-item family the resolver skips. Events whose script id is 0 are the
--- bank-script-0 no-interaction marker the resolver treats as noninteractive.
--- The audit runs at build/load, never at runtime: an unbound interactable
--- event is a composition error, not a fallback to look for later. Pure
--- domain module: no love dependency.
+-- hidden-item family the resolver declares noninteractive. Events whose
+-- script id is 0 are the bank-script-0 no-interaction marker the resolver
+-- treats as noninteractive. The hidden-item declaration is shared with the
+-- resolver (`FieldInteractionResolver.isHiddenItem`): exempting those events
+-- and rejecting manifest bindings for them keeps the two sides of the
+-- declaration from drifting -- a bound hidden item could never dispatch. The
+-- audit runs at build/load, never at runtime: an unbound interactable event
+-- is a composition error, not a fallback to look for later. Pure domain
+-- module: no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldInteractionResolver = require("libs.engine.src.FieldInteractionResolver")
@@ -61,7 +65,19 @@ function BindingAudit.check(manifest, loadFieldData)
       end
     end
     for _, event in ipairs(fieldEvents.background) do
-      if event.scriptId ~= 0 and event.type ~= FieldInteractionResolver.HIDDEN_ITEM_EVENT_TYPE then
+      if FieldInteractionResolver.isHiddenItem(event) then
+        -- The hidden-item family is declared noninteractive: a manifest
+        -- binding for it is a dead binding the resolver can never dispatch,
+        -- so it is rejected loudly instead of accepted silently.
+        local key = event.index
+        if type(map.backgrounds[key]) == "string" then
+          Errors.raise(
+            "SCRIPT_BINDING_AUDIT_HIDDEN_ITEM_BOUND",
+            "hidden-item events are declared noninteractive and cannot be bound",
+            { mapId = mapId, eventIndex = key, scriptId = event.scriptId }
+          )
+        end
+      elseif event.scriptId ~= 0 then
         local key = string.format("map:%d:background:%d", mapId, event.index)
         if type(map.backgrounds[event.index]) ~= "string" then
           missing[#missing + 1] = { kind = "background", mapId = mapId, key = key, scriptId = event.scriptId }

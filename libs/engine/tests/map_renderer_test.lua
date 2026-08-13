@@ -251,7 +251,6 @@ function T.draw_failure_restores_exact_state_and_rethrows()
         cullMode = "none",
         transform = identity,
         center = { 0, 0, 0 },
-        submissionIndex = 1,
       },
     }, FieldViewport.new(640, 480, { mode = "strict" }))
   end)
@@ -456,7 +455,6 @@ function T.draw_renders_only_the_given_world_draws()
       polygonId = 0,
       lightMask = 0,
       center = { 0, 0, 0 },
-      submissionIndex = 1,
     }
   end
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })

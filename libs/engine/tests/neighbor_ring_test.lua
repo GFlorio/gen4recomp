@@ -125,7 +125,10 @@ function T.builds_one_draw_per_cell_batch_with_offset_baked()
   local d2 = ring.draws[2]
   Assert.equal(d2.transform[13], -32)
   Assert.equal(d2.transform[15], -32)
-  Assert.isNil(d1.submissionIndex, "the ring carries no submission numbers; SceneAssembly assigns them")
+  Assert.isNil(
+    d1.submissionIndex,
+    "the ring carries no submission numbers; the flat list position is the assembly's submission order"
+  )
   Assert.isNil(d2.submissionIndex)
 
   ring:release()

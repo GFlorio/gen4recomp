@@ -20,6 +20,7 @@
 -- style), so implementations must declare a leading self parameter.
 
 local WarpSystem = require("libs.engine.src.WarpSystem")
+local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
 
 ---@class FieldSessionOptions
 ---@field versionId string
@@ -228,8 +229,9 @@ function FieldSession:updateFixed(inputSnapshot)
       -- bound, so an unmapped intent here is a composition fault, not a
       -- silent absorption.
       local result = self.scriptClient:consume(intent, self.tick + 1)
+      local results = ScriptInteractionClient.RESULTS
       assert(
-        result == "started" or result == "blocked",
+        result == results.started or result == results.blocked,
         "an interactable event must be bound: " .. tostring(intent.mapId)
       )
       self:_advanceTick()
@@ -301,8 +303,12 @@ function FieldSession:update(dt)
   return executed
 end
 
+-- The render interpolation factor. The catch-up cap and the drop branch can
+-- leave a small float residual outside the tick interval, so the factor is
+-- clamped defensively into [0, 1] for presentation consumers.
 function FieldSession:renderAlpha()
-  return self.accumulator / FieldSession.FIXED_DT
+  local alpha = self.accumulator / FieldSession.FIXED_DT
+  return math.min(1, math.max(0, alpha))
 end
 
 return FieldSession

@@ -1,8 +1,9 @@
--- Tests for RenderQueue: classification, submission-order preservation for
--- opaque/cutout/wireframe, translucent back-to-front sorting, and deterministic
--- tie-breaking. Queue construction validates its input contract -- only the
--- four known alpha classes, an integer submission index on every item -- and
--- never mutates the caller's draw records.
+-- Tests for RenderQueue: classification, pass-order preservation for
+-- opaque/cutout/wireframe, translucent back-to-front sorting, and
+-- deterministic tie-breaking by the item's position in the flat scene list
+-- (the assembly's submission order). Queue construction validates its input
+-- contract -- only the four known alpha classes -- and never mutates the
+-- caller's draw records.
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
@@ -11,9 +12,9 @@ local Matrix4 = require("libs.math.src.Matrix4")
 
 local T = {}
 
-local function item(index, mode, center, transform)
+local function item(id, mode, center, transform)
   return {
-    submissionIndex = index,
+    id = id,
     alphaClass = mode,
     center = center or { 0, 0, 0 },
     transform = transform or Matrix4.identity(),
@@ -23,7 +24,7 @@ end
 local function ids(queue, key)
   local out = {}
   for _, it in ipairs(queue[key]) do
-    out[#out + 1] = it.submissionIndex
+    out[#out + 1] = it.id
   end
   return out
 end
@@ -39,40 +40,39 @@ end
 
 function T.classifies_by_alpha_class()
   local items = {
-    item(1, "opaque"),
-    item(2, "cutout"),
-    item(3, "translucent"),
-    item(4, "wireframe"),
+    item("a", "opaque"),
+    item("b", "cutout"),
+    item("c", "translucent"),
+    item("d", "wireframe"),
   }
   local q = RenderQueue.build(items, Matrix4.identity())
-  Assert.deepEqual(ids(q, "opaque"), { 1 })
-  Assert.deepEqual(ids(q, "cutout"), { 2 })
-  Assert.deepEqual(ids(q, "translucent"), { 3 })
-  Assert.deepEqual(ids(q, "wireframe"), { 4 })
+  Assert.deepEqual(ids(q, "opaque"), { "a" })
+  Assert.deepEqual(ids(q, "cutout"), { "b" })
+  Assert.deepEqual(ids(q, "translucent"), { "c" })
+  Assert.deepEqual(ids(q, "wireframe"), { "d" })
 end
 
 function T.falls_back_to_material_alpha_class()
   local matItem = {
-    submissionIndex = 1,
+    id = "mat",
     alphaClass = nil,
     material = { alphaClass = "cutout" },
     center = { 0, 0, 0 },
     transform = Matrix4.identity(),
   }
   local q = RenderQueue.build({ matItem }, Matrix4.identity())
-  Assert.deepEqual(ids(q, "cutout"), { 1 })
+  Assert.deepEqual(ids(q, "cutout"), { "mat" })
 end
 
 function T.rejects_unknown_alpha_class()
   local err = throwsCode("RENDER_QUEUE_UNKNOWN_ALPHA_CLASS", function()
-    RenderQueue.build({ item(1, "ghostly") }, Matrix4.identity())
+    RenderQueue.build({ item("ghostly", "ghostly") }, Matrix4.identity())
   end)
   Assert.equal(err.context.alphaClass, "ghostly")
 end
 
 function T.rejects_missing_alpha_class()
   local bare = {
-    submissionIndex = 1,
     center = { 0, 0, 0 },
     transform = Matrix4.identity(),
   }
@@ -83,7 +83,6 @@ end
 
 function T.rejects_unknown_material_alpha_class()
   local matItem = {
-    submissionIndex = 1,
     material = { alphaClass = "shiny" },
     center = { 0, 0, 0 },
     transform = Matrix4.identity(),
@@ -94,71 +93,52 @@ function T.rejects_unknown_material_alpha_class()
 end
 
 function T.preserves_submission_order_for_opaque()
-  local items = { item(1, "opaque"), item(2, "opaque"), item(3, "opaque") }
+  local items = { item("a", "opaque"), item("b", "opaque"), item("c", "opaque") }
   local q = RenderQueue.build(items, Matrix4.identity())
-  Assert.deepEqual(ids(q, "opaque"), { 1, 2, 3 })
+  Assert.deepEqual(ids(q, "opaque"), { "a", "b", "c" })
 end
 
 function T.preserves_submission_order_for_cutout_and_wireframe()
-  local items = { item(1, "cutout"), item(2, "wireframe"), item(3, "cutout") }
+  local items = { item("a", "cutout"), item("b", "wireframe"), item("c", "cutout") }
   local q = RenderQueue.build(items, Matrix4.identity())
-  Assert.deepEqual(ids(q, "cutout"), { 1, 3 })
-  Assert.deepEqual(ids(q, "wireframe"), { 2 })
+  Assert.deepEqual(ids(q, "cutout"), { "a", "c" })
+  Assert.deepEqual(ids(q, "wireframe"), { "b" })
 end
 
 function T.sorts_translucent_back_to_front()
   -- Camera at (0,0,5) looking at origin; view matrix maps world +Z to -Z.
   local view = Matrix4.lookAt({ 0, 0, 5 }, { 0, 0, 0 }, { 0, 1, 0 })
   local items = {
-    item(1, "translucent", { 0, 0, 0 }), -- nearest
-    item(2, "translucent", { 0, 0, -10 }), -- farthest
-    item(3, "translucent", { 0, 0, -5 }), -- middle
+    item("nearest", "translucent", { 0, 0, 0 }),
+    item("farthest", "translucent", { 0, 0, -10 }),
+    item("middle", "translucent", { 0, 0, -5 }),
   }
   local q = RenderQueue.build(items, view)
-  Assert.deepEqual(ids(q, "translucent"), { 2, 3, 1 })
+  Assert.deepEqual(ids(q, "translucent"), { "farthest", "middle", "nearest" })
 end
 
-function T.uses_submission_index_as_tie_breaker()
+-- Equal-depth translucent draws tie-break by the item's position in the flat
+-- scene list: that position is the assembly's submission order, so the
+-- earlier part (map geometry) draws before the later part (actors) no matter
+-- how the list was produced.
+function T.equal_depth_ties_break_by_flat_list_position()
   local view = Matrix4.lookAt({ 0, 0, 5 }, { 0, 0, 0 }, { 0, 1, 0 })
   local items = {
-    item(3, "translucent", { 0, 0, -5 }),
-    item(1, "translucent", { 0, 0, -5 }),
-    item(2, "translucent", { 0, 0, -5 }),
+    item("first", "translucent", { 0, 0, -5 }),
+    item("second", "translucent", { 0, 0, -5 }),
+    item("third", "translucent", { 0, 0, -5 }),
   }
   local q = RenderQueue.build(items, view)
-  Assert.deepEqual(ids(q, "translucent"), { 1, 2, 3 })
+  Assert.deepEqual(ids(q, "translucent"), { "first", "second", "third" })
 end
 
 function T.transforms_center_by_item_transform()
   -- Two items at the same model-space center but translated differently.
   local view = Matrix4.lookAt({ 0, 0, 5 }, { 0, 0, 0 }, { 0, 1, 0 })
-  local near = item(1, "translucent", { 0, 0, 0 }, Matrix4.translate(0, 0, 0))
-  local far = item(2, "translucent", { 0, 0, 0 }, Matrix4.translate(0, 0, -10))
+  local near = item("near", "translucent", { 0, 0, 0 }, Matrix4.translate(0, 0, 0))
+  local far = item("far", "translucent", { 0, 0, 0 }, Matrix4.translate(0, 0, -10))
   local q = RenderQueue.build({ near, far }, view)
-  Assert.deepEqual(ids(q, "translucent"), { 2, 1 })
-end
-
-function T.missing_submission_index_fails()
-  local noIndex = {
-    alphaClass = "opaque",
-    center = { 0, 0, 0 },
-    transform = Matrix4.identity(),
-  }
-  throwsCode("RENDER_QUEUE_SUBMISSION_INVALID", function()
-    RenderQueue.build({ noIndex }, Matrix4.identity())
-  end)
-end
-
-function T.non_integer_submission_indices_fail()
-  local function buildWith(index)
-    local it = item(index, "opaque")
-    return function()
-      RenderQueue.build({ it }, Matrix4.identity())
-    end
-  end
-  throwsCode("RENDER_QUEUE_SUBMISSION_INVALID", buildWith(1.5))
-  throwsCode("RENDER_QUEUE_SUBMISSION_INVALID", buildWith(0 / 0))
-  throwsCode("RENDER_QUEUE_SUBMISSION_INVALID", buildWith(math.huge))
+  Assert.deepEqual(ids(q, "translucent"), { "far", "near" })
 end
 
 -- Sorting must not attach fields (e.g. a cached `_viewZ`) to the persistent
@@ -166,11 +146,11 @@ end
 function T.build_does_not_mutate_input_items()
   local view = Matrix4.lookAt({ 0, 0, 5 }, { 0, 0, 0 }, { 0, 1, 0 })
   local items = {
-    item(1, "opaque", { 0, 0, 0 }),
-    item(2, "translucent", { 0, 0, -10 }),
-    item(3, "translucent", { 0, 0, -5 }),
-    item(4, "cutout"),
-    item(5, "wireframe"),
+    item("a", "opaque", { 0, 0, 0 }),
+    item("b", "translucent", { 0, 0, -10 }),
+    item("c", "translucent", { 0, 0, -5 }),
+    item("d", "cutout"),
+    item("e", "wireframe"),
   }
   local before = {}
   for i, it in ipairs(items) do
@@ -191,10 +171,10 @@ end
 -- The returned queue holds the original item tables, not decorated copies.
 function T.queue_entries_are_the_original_items()
   local items = {
-    item(1, "opaque"),
-    item(2, "translucent"),
-    item(3, "cutout"),
-    item(4, "wireframe"),
+    item("a", "opaque"),
+    item("b", "translucent"),
+    item("c", "cutout"),
+    item("d", "wireframe"),
   }
   local q = RenderQueue.build(items, Matrix4.identity())
   Assert.isTrue(q.opaque[1] == items[1], "opaque pass returns the original item")
