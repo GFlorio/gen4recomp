@@ -76,12 +76,14 @@ love game/
 
 The headless `romdump/main.lua` parses with `Cli` and dispatches to `Runner`,
 which drives the romdump producers and the `libs/assets` contracts and exits
-with a status code:
+with a status code. The parser accepts only the documented options: unknown
+options, stray arguments, missing option values, and conflicting commands are
+rejected with a message and exit status 2:
 
 ```
 love romdump/
   └─ Runner.load(Cli.parse(argv))
-       ├─ --import-rom P [--import-only] → import P (version detected from SHA-1)
+       ├─ --import-rom P               → import P (version detected from SHA-1)
        ├─ --check-dump                   → audit every ready cache with DumpAudit,
        │                                   using only RomFs, never opening the ROM
        ├─ --analyze-maps                 → derive map-cell resolution inventory

@@ -5,6 +5,7 @@
 -- belongs to CacheBuilder and its writer tests.
 
 local Assert = require("tests.support.Assert")
+local Cli = require("romdump.src.cli.Cli")
 local RomImporter = require("romdump.src.source.RomImporter")
 local Runner = require("romdump.src.cli.Runner")
 
@@ -23,7 +24,7 @@ function T.build_cache_without_a_ready_dump_exits_with_usage_failure()
   end
 
   local ok, err = xpcall(function()
-    Runner.load({ buildCache = true })
+    Runner.load({ command = "build-cache" })
   end, debug.traceback)
   RomImporter.isReady, love.event.quit = realIsReady, realQuit
   Runner.opts, Runner.importer = realOpts, realImporter
@@ -86,7 +87,7 @@ function T.cli_build_cache_flag_allow_compile_exclusions_reaches_the_builder()
   end
 
   local ok, err = xpcall(function()
-    Runner.load({ buildCache = true, allowCompileExclusions = true })
+    Runner.load({ command = "build-cache", allowCompileExclusions = true })
   end, debug.traceback)
   RomImporter.isReady, love.event.quit = realIsReady, realQuit
   Runner.opts, Runner.importer = realOpts, realImporter
@@ -186,7 +187,7 @@ function T.completed_import_with_build_cache_runs_audit_build_then_boot_and_disp
       }
     end,
   }
-  Runner.opts = { buildCache = true, importRom = "provided.nds", allowCompileExclusions = true }
+  Runner.opts = { command = "build-cache", romPath = "provided.nds", allowCompileExclusions = true }
   calls = {}
 
   local ok, err = xpcall(function()
@@ -244,7 +245,7 @@ function T.completed_import_audit_failure_exits_nonzero_without_building()
       }
     end,
   }
-  Runner.opts = { buildCache = true, importRom = "provided.nds" }
+  Runner.opts = { command = "build-cache", romPath = "provided.nds" }
   calls = {}
 
   local ok, err = xpcall(function()
@@ -306,7 +307,7 @@ function T.completed_import_build_failure_exits_nonzero_without_booting()
       }
     end,
   }
-  Runner.opts = { buildCache = true, importRom = "provided.nds" }
+  Runner.opts = { command = "build-cache", romPath = "provided.nds" }
   calls = {}
 
   local ok, err = xpcall(function()
@@ -340,7 +341,7 @@ function T.failed_import_exits_nonzero_without_running_the_build_pipeline()
       return { errorCode = "NDS_UNKNOWN_ROM", error = "boom" }
     end,
   }
-  Runner.opts = { buildCache = true, importRom = "wrong.nds" }
+  Runner.opts = { command = "build-cache", romPath = "wrong.nds" }
 
   local ok, err = xpcall(function()
     Runner._maybeExit()
@@ -352,6 +353,66 @@ function T.failed_import_exits_nonzero_without_running_the_build_pipeline()
   end
 
   Assert.equal(exitCode, 1)
+end
+
+-- A missing command is a usage fault: nothing dispatches and the process
+-- exits with the usage status.
+function T.no_command_exits_with_usage_failure()
+  local realQuit = love.event.quit
+  local realOpts, realImporter = Runner.opts, Runner.importer
+  local exitCode
+  love.event.quit = function(code)
+    exitCode = code
+  end
+
+  local ok, err = xpcall(function()
+    Runner.load({})
+  end, debug.traceback)
+  love.event.quit = realQuit
+  Runner.opts, Runner.importer = realOpts, realImporter
+  if not ok then
+    error(err, 0)
+  end
+
+  Assert.equal(exitCode, 2, "a missing command must usage-quit")
+end
+
+-- Through the production seam (main.lua runs Runner.load(Cli.parse(argv))),
+-- conflicting commands are rejected before any action dispatches: the
+-- rejection may surface as a parse raise or a usage-quit (exit 2), but no
+-- command runs.
+function T.conflicting_cli_commands_are_rejected_before_dispatch()
+  local realIsReady, realQuit = RomImporter.isReady, love.event.quit
+  local realOpts, realImporter = Runner.opts, Runner.importer
+  local saved = package.loaded["romdump.src.source.DumpAudit"]
+  local dumpAuditCalls = 0
+  local exitCode
+  package.loaded["romdump.src.source.DumpAudit"] = {
+    run = function()
+      dumpAuditCalls = dumpAuditCalls + 1
+      return { ok = true }
+    end,
+    lines = function()
+      return {}
+    end,
+  }
+  ---@diagnostic disable: duplicate-set-field
+  RomImporter.isReady = function()
+    return true
+  end
+  love.event.quit = function(code)
+    exitCode = code
+  end
+
+  local ok, err = xpcall(function()
+    Runner.load(Cli.parse({ "--check-dump", "--import-rom", "/tmp/hg.nds" }))
+  end, debug.traceback)
+  RomImporter.isReady, love.event.quit = realIsReady, realQuit
+  Runner.opts, Runner.importer = realOpts, realImporter
+  package.loaded["romdump.src.source.DumpAudit"] = saved
+
+  Assert.equal(dumpAuditCalls, 0, "conflicting commands must never dispatch an action")
+  Assert.isTrue(not ok or exitCode == 2, "conflicting commands must raise or usage-quit, never run: " .. tostring(err))
 end
 
 -- check-dump audits every ready version exactly once and its exit code
