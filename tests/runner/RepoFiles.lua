@@ -12,10 +12,17 @@
 
 local RepoFiles = {}
 
+-- Single-quote a path for the shell: an apostrophe inside the path is escaped
+-- with the standard `'\''` sequence, so a root whose name contains one is
+-- indexed instead of turning the `find` command into a syntax error.
+local function shellQuote(path)
+  return "'" .. path:gsub("'", "'\\''") .. "'"
+end
+
 local function indexRoot(files, baseDirectory, path)
   -- stderr is discarded: a missing or unreadable root surfaces as the empty
   -- index assertion below rather than as noise in the test output.
-  local command = "find '" .. baseDirectory .. "/" .. path .. "' -type f -name '*.lua' -print 2>/dev/null"
+  local command = "find " .. shellQuote(baseDirectory .. "/" .. path) .. " -type f -name '*.lua' -print 2>/dev/null"
   local pipe = assert(io.popen(command, "r"), "cannot list " .. path .. ": io.popen unavailable")
   local prefix = baseDirectory .. "/"
   local count = 0
