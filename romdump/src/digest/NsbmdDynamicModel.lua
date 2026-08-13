@@ -23,10 +23,8 @@
 -- them with the bound textures, wrap/flip sampler state, pattern variants,
 -- and animated colors. Pure domain module.
 
-local Errors = require("libs.errors.src.Errors")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local MeshCompiler = require("romdump.src.digest.MeshCompiler")
-local NsbmdTransformProgram = require("romdump.src.digest.NsbmdTransformProgram")
 local DsMaterial = require("romdump.src.digest.nitro.DsMaterial")
 local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
 
@@ -97,10 +95,11 @@ end
 -- Returns { program, meshes, materials }. The meshes carry their per-vertex
 -- straddle provenance when a run was split at a mid-run matrix boundary (see
 -- GxDisplayList dynamic mode); the straddle census over the corpus reads
--- MeshCompiler.compileDynamic directly.
+-- MeshCompiler.compileDynamic directly. The transform program is compiled
+-- once here and shared with the mesh compile.
 function NsbmdDynamicModel.compile(model)
   assert(type(model) == "table" and model.sbc ~= nil, "NsbmdDynamicModel.compile requires a decoded Nsbmd model")
-  local meshes = MeshCompiler.compileDynamic(model)
+  local meshes, _, program = MeshCompiler.compileDynamic(model)
   -- UVs are texel units; normalize against the material's authored texture
   -- size, the base dimensions texture pattern variants are authored against
   -- (the animated layers keep the per-variant normalization).
@@ -127,7 +126,7 @@ function NsbmdDynamicModel.compile(model)
     end
   end
   return {
-    program = NsbmdTransformProgram.compile(model),
+    program = program,
     meshes = meshes,
     materials = materialList,
   }

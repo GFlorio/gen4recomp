@@ -8,7 +8,9 @@
 --   * weights normalize over the summed ratios; a total of exactly 0x1000
 --     keeps each ratio as its weight (FX_Div skipped);
 --   * scale and inverse-scale vectors blend with 32-bit mul + asr #12, or
---     accumulate the weight directly when the channel is "from model";
+--     accumulate the weight directly when the channel is "from model". The
+--     NSBCA scale channel is one 2-bit scale-mode field covering scale and
+--     inverse scale together, so both vectors gate on the single scale flag.
 --   * translation blends with the 64-bit FX_Mul (smull) semantics -- the
 --     middle 32 bits of the full product -- NOT the 32-bit path;
 --   * rotation cells 0-5 blend with 32-bit mul + asr #12; "from model" cells
@@ -30,15 +32,16 @@
 -- A result (NNSG3dAnmResult) is:
 --   { flags, scale = {x,y,z}, scaleEx = {x,y,z}, rot = {9 cells},
 --     trans = {x,y,z} } with every value an fx32 integer and
---   flags: bit 0 scale, bit 1 rot, bit 2 trans, bit 3 inverse scale
---     "from model" (the channel is resolved against the model bind pose
---     after the blend). Pure domain module.
+--   flags: bit 0 scale, bit 1 rot, bit 2 trans "from model" (the channel is
+--     resolved against the model bind pose after the blend); scaleEx, the
+--     inverse-scale companion of the NSBCA scale channel, gates on the scale
+--     bit -- there is no independent inverse-scale flag. Pure domain module.
 
 local FixedPoint = require("libs.math.src.FixedPoint")
 
 local JointAnimBlend = {}
 
-JointAnimBlend.FROM_MODEL = { scale = 0x01, rot = 0x02, trans = 0x04, inverseScale = 0x08 }
+JointAnimBlend.FROM_MODEL = { scale = 0x01, rot = 0x02, trans = 0x04 }
 
 -- 32-bit signed wrap (two's complement).
 local function wrap32(v)
@@ -69,24 +72,26 @@ local function fxMul64(a, b)
   return wrap32(math.floor(a * b / FixedPoint.FX32_SCALE))
 end
 
--- Bitwise AND over the 5 flag bits.
+-- Bitwise AND over the four participating flag bits (scale, rot, trans, and
+-- the NSBMA rotEx position 0x10 the asm sentinel leaves room for; the NSBCA
+-- inverse-scale bit no longer exists).
+local BIT_AND_BITS = { 1, 2, 4, 16 }
+
 local function bitAnd(a, b)
   local out = 0
-  local bit = 1
-  while bit <= 0x10 do
+  for _, bit in ipairs(BIT_AND_BITS) do
     if math.floor(a / bit) % 2 == 1 and math.floor(b / bit) % 2 == 1 then
       out = out + bit
     end
-    bit = bit * 2
   end
   return out
 end
 
 -- A fresh zero result with everything "from model" (the asm's 0xFFFFFFFF
--- sentinel collapses to the 5 flag bits that ever participate).
+-- sentinel collapses to the four flag bits that ever participate).
 local function newResult()
   return {
-    flags = 0x1F,
+    flags = 0x17,
     scale = { 0, 0, 0 },
     scaleEx = { 0, 0, 0 },
     rot = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
@@ -151,8 +156,8 @@ local function orthonormalize(rot)
 end
 
 -- A blended joint result (the NNSG3dAnmResult shape): every value an fx32
--- integer, with the "from model" flag bits (scale 0x1, rot 0x2, trans 0x4,
--- inverse scale 0x8).
+-- integer, with the "from model" flag bits (scale 0x1, rot 0x2, trans 0x4;
+-- scaleEx gates on the scale bit).
 ---@class JointAnimResult
 ---@field flags integer
 ---@field scale integer[]
@@ -203,7 +208,7 @@ function JointAnimBlend.blend(entries)
     local r = entry.result
 
     blendScaleVec(out.scale, r.scale, weight, math.floor(r.flags / JointAnimBlend.FROM_MODEL.scale) % 2 == 1)
-    blendScaleVec(out.scaleEx, r.scaleEx, weight, math.floor(r.flags / JointAnimBlend.FROM_MODEL.inverseScale) % 2 == 1)
+    blendScaleVec(out.scaleEx, r.scaleEx, weight, math.floor(r.flags / JointAnimBlend.FROM_MODEL.scale) % 2 == 1)
 
     if math.floor(r.flags / JointAnimBlend.FROM_MODEL.trans) % 2 == 0 then
       for i = 1, 3 do

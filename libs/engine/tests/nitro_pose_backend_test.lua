@@ -498,6 +498,35 @@ function T.uncompiled_joint_clips_raise()
   Assert.equal(err.code, "POSE_NITRO_JOINT_CLIP_NOT_COMPILED")
 end
 
+-- A slot-source mesh naming a slot the program never wrote is a broken
+-- compiled transform program: the draw's restore-stack snapshot cannot
+-- resolve it, and drawing identity instead would silently misplace the
+-- geometry. Only a nil source (baked billboard segments) resolves to
+-- identity.
+function T.slot_source_naming_an_unproduced_slot_raises()
+  local def = singleMeshDefinition({
+    meshes = {
+      ["draw0.seg0"] = {
+        drawIndex = 0,
+        positionSource = { slot = 5 },
+        transformMode = "static",
+        cullMode = "back",
+        polygonMode = "modulation",
+        polygonId = 0,
+        translucentDepthWrite = false,
+        depthEqual = false,
+        polygonAlpha = 31,
+      },
+    },
+  })
+  local instance = newInstance(def)
+  local err = Assert.throws(function()
+    instance:evaluatePose()
+  end)
+  Assert.equal(err.code, "POSE_NITRO_SLOT_NOT_FOUND")
+  Assert.equal(err.context.slot, 5)
+end
+
 function T.mesh_referencing_an_absent_draw_raises()
   local def = singleMeshDefinition({
     meshes = {

@@ -301,9 +301,12 @@ end
 -- boundary, see GxDisplayList options.dynamic), an array of
 -- { shape = <name>, straddling = <count> } for the caller to report --
 -- one count per provenance record, so every reported straddle is
--- represented by exactly one record on its mesh.
+-- represented by exactly one record on its mesh. The compiled transform
+-- program is returned as the third result so the caller does not compile it
+-- a second time for the descriptor it ships.
 ---@return DynamicMeshRecord[]
 ---@return { shape: string, straddling: integer }[]? straddlingPrimitives
+---@return table program
 function MeshCompiler.compileDynamic(model)
   -- The draw set (order, visibility, material carries) is pose-independent:
   -- the bind-pose evaluation yields the same draws the static path compiles.
@@ -409,7 +412,7 @@ function MeshCompiler.compileDynamic(model)
     end
   end
   if next(straddlingByShape) == nil then
-    return meshes
+    return meshes, nil, program
   end
   local straddling = {}
   for _, rec in pairs(straddlingByShape) do
@@ -418,7 +421,7 @@ function MeshCompiler.compileDynamic(model)
   table.sort(straddling, function(a, b)
     return a.shape < b.shape
   end)
-  return meshes, straddling
+  return meshes, straddling, program
 end
 
 return MeshCompiler

@@ -118,6 +118,22 @@ function T.from_model_scale_accumulates_weight()
   Assert.equal(out.scale[3], 0x800 + 0x800)
 end
 
+-- The NSBCA scale channel is one 2-bit scale-mode field covering scale and
+-- inverse scale together, so the inverse-scale (scaleEx) channel blends under
+-- the same "from model" flag as scale -- there is no independent inverse-scale
+-- presence bit. The blend must gate both channels on the scale bit: a
+-- from-model contributor accumulates the weight into scaleEx directly instead
+-- of weight * value.
+function T.scale_ex_follows_the_scale_flag()
+  local a = result({ flags = F.scale, scaleEx = { 0x2000, 0x2000, 0x2000 } })
+  local b = result()
+  local out = assert(JointAnimBlend.blend({ { ratio = 0x800, result = a }, { ratio = 0x800, result = b } }))
+  -- a: dst += weight (0x800) per component; b: 0x800 * 0x1000 >> 12 = 0x800.
+  Assert.equal(out.scaleEx[1], 0x1000)
+  Assert.equal(out.scaleEx[2], 0x1000)
+  Assert.equal(out.scaleEx[3], 0x1000)
+end
+
 function T.from_model_rotation_accumulates_weight_on_two_cells()
   -- A "from model" rotation accumulates the weight on cells 0 and 2 only
   -- (asm cell indices 0 and 2), then the rows are re-normalized like every

@@ -35,14 +35,20 @@
 -- (BillboardTransform).
 --
 -- NODEMIX blends matrix-stack slots through the joints' inverse bind poses.
--- Only the position sum is reproduced; assertRigidBindPose enforces the
--- checked assumption that makes the normal sum follow from it.
+-- Only the position sum is reproduced; the rigid-bind-pose invariant that
+-- makes the normal sum follow from it is a static program property and is
+-- enforced once at compile time (NsbmdTransformProgram.compile), not per
+-- evaluation frame.
 --
 -- Out of scope (fail loudly): BBY, external display lists (CALLDL), the
 -- Si3D scaling rule, and any opcode outside the handled set (NOP and ENVMAP
 -- included -- both are absent from the HGSS corpus). Matrix-stack slot reads
 -- (MTX, NODEDESC restore, NODEMIX terms) are strict: a slot no command wrote
--- raises NSBMD_SBC_SLOT_NOT_FOUND rather than falling back to identity.
+-- raises NSBMD_SBC_SLOT_NOT_FOUND rather than falling back to identity. A
+-- NODEDESC whose parent matrix was never generated (parentIndex naming a
+-- node whose NODEDESC has not executed) raises NSBMD_SBC_NODE_PARENT_MISSING
+-- the same way -- identity is only the self-parenting root's no-source
+-- matrix.
 -- PRJMAP is handled as a no-op: it selects projection-map texgen state only
 -- (matrix-palette entry) and never touches the position-matrix stack.
 --
@@ -91,10 +97,6 @@ end
 -- The 4x3 part of a column-major matrix: the three basis columns plus the
 -- translation. The implicit fourth row is (0,0,0,1), which NODEMIX never sums.
 local AFFINE_INDICES = { 1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15 }
-local LINEAR_INDICES = { 1, 2, 3, 5, 6, 7, 9, 10, 11 }
-
--- One fx32 step: the quantum the bind-pose matrices are stored in.
-local FX32_STEP = 1 / 4096
 
 -- NitroSystem accumulates two independent sums for NODEMIX (sbc.c
 -- NNSi_G3dFuncSbc_NODEMIX):
@@ -104,23 +106,9 @@ local FX32_STEP = 1 / 4096
 -- matrix of a draw is derived as the linear part of its position matrix.
 -- Under that contract sum.N comes out as the linear part of sum.M, which
 -- equals the SDK's result exactly when invN is the linear part of invM --
--- true of a rigid bind pose. So the property is checked per joint instead of
--- being assumed: a program with a non-rigid bind pose would need per-slot
--- direction matrices threaded through to the display-list decoder, and says
--- so rather than blending wrong normals.
-local function assertRigidBindPose(program, jointIndex)
-  local evp = program.evpMatrices[jointIndex]
-  for _, i in ipairs(LINEAR_INDICES) do
-    if math.abs(evp.invN[i] - evp.invM[i]) > FX32_STEP then
-      Errors.raise(
-        "NSBMD_SBC_NODEMIX_NONRIGID_BIND_POSE",
-        "NODEMIX joint has an inverse normal matrix that is not the linear part of "
-          .. "its inverse position matrix, so blended normals need separate direction slots",
-        { jointIndex = jointIndex, model = program.name, element = i, invM = evp.invM[i], invN = evp.invN[i] }
-      )
-    end
-  end
-end
+-- true of a rigid bind pose. NsbmdTransformProgram.compile rejects
+-- non-rigid bind poses once at compile time, so the evaluator itself can
+-- assume the property instead of blending wrong normals.
 
 -- The blended matrix a NODEMIX command installs and stores.
 local function nodemixMatrix(program, cmd, matrixSlots)
@@ -144,7 +132,6 @@ local function nodemixMatrix(program, cmd, matrixSlots)
         { jointIndex = term.nodeIndex, model = program.name, offset = cmd.offset }
       )
     end
-    assertRigidBindPose(program, term.nodeIndex)
     -- The SDK restores the slot then multiplies invM into it, which in row-vector
     -- order applies invM to the vertex first.
     local m = Matrix4.multiply(slotAt(program, matrixSlots, term.matrixSlot, cmd), evp.invM)
@@ -265,10 +252,21 @@ function NsbmdSbcEvaluator.evaluate(program, poseProvider)
       local baseMatrix
       if cmd.restoreSlot ~= nil then
         baseMatrix = slotAt(program, matrixSlots, cmd.restoreSlot, cmd)
-      elseif cmd.parentIndex ~= cmd.nodeIndex and nodeMatrices[cmd.parentIndex] then
-        baseMatrix = copyMatrix(nodeMatrices[cmd.parentIndex])
-      else
+      elseif cmd.parentIndex == cmd.nodeIndex then
+        -- Self-parenting root: no source matrix (the explicit no-source op).
         baseMatrix = Matrix4.identity()
+      else
+        local parent = nodeMatrices[cmd.parentIndex]
+        if not parent then
+          Errors.raise(
+            "NSBMD_SBC_NODE_PARENT_MISSING",
+            "NODEDESC references parent node index "
+              .. tostring(cmd.parentIndex)
+              .. " whose NODEDESC has not executed; pre-order streams place the parent first",
+            { nodeIndex = cmd.nodeIndex, parentIndex = cmd.parentIndex, model = program.name }
+          )
+        end
+        baseMatrix = copyMatrix(parent)
       end
 
       local localMatrix = NsbmdJointTransforms.localMatrix(scalingRule, srt, cmd, mayaScaleCache)

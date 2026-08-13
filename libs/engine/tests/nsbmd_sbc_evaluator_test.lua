@@ -429,6 +429,28 @@ function T.provider_nil_falls_back_to_the_bind_srt()
   assertMatrixClose(draws[1].matrix, Matrix4.identity(), "bind fallback is the program node")
 end
 
+-- A NODEDESC whose parent matrix has not been generated is a malformed
+-- program: pre-order streams always place the parent's NODEDESC first, so a
+-- missing parent means the program breaks the invariant the composition
+-- relies on. Identity stays for self-parenting roots only (the explicit
+-- no-source operation).
+function T.nodedesc_with_an_unexecuted_parent_raises()
+  local p = program({
+    nodes = { srt(0), srt(1) },
+    commands = oneDraw({ cmdNodedesc(1, 0) }),
+  })
+  local prov = provider({
+    nodeSRT = function(i)
+      return p.nodes[i + 1]
+    end,
+  })
+  local err = Assert.throws(function()
+    NsbmdSbcEvaluator.evaluate(p, prov)
+  end)
+  Assert.equal(err.code, "NSBMD_SBC_NODE_PARENT_MISSING")
+  Assert.equal(err.context.parentIndex, 0)
+end
+
 function T.provider_missing_node_raises()
   local p = program({ nodes = {}, commands = oneDraw({ cmdNodedesc(0, 0), cmdNode(0, true) }) })
   local prov = provider({
@@ -649,8 +671,7 @@ end
 
 -- Decoded NNSG3dResEvpMtx entries are floats (FixedPoint.fx32 already
 -- applied), matching the model's decoded evpMatrices.
-local function evpEntry(tx, ty, tz, invNScale)
-  invNScale = invNScale or 1
+local function evpEntry(tx, ty, tz)
   return {
     invM = {
       1,
@@ -671,17 +692,17 @@ local function evpEntry(tx, ty, tz, invNScale)
       1,
     },
     invN = {
-      invNScale,
+      1,
       0,
       0,
       0,
       0,
-      invNScale,
+      1,
       0,
       0,
       0,
       0,
-      invNScale,
+      1,
       0,
       0,
       0,
@@ -807,21 +828,6 @@ function T.nodemix_weights_follow_the_operand_ratios()
     })
   )
   assertMatrixAtPoint(draws[1].matrix, 0, 0, 0, 7.5, 5, 0, "ratio/256 weights")
-end
-
-function T.nodemix_rejects_a_non_rigid_bind_pose()
-  local p = nodemixProgram(EVEN_BLEND, { [0] = evpEntry(0, 0, 0, 2), [1] = evpEntry(0, 0, 0) })
-  local err = Assert.throws(function()
-    NsbmdSbcEvaluator.evaluate(
-      p,
-      provider({
-        nodeSRT = function(i)
-          return p.nodes[i + 1]
-        end,
-      })
-    )
-  end)
-  Assert.equal(err.code, "NSBMD_SBC_NODEMIX_NONRIGID_BIND_POSE")
 end
 
 function T.nodemix_without_an_evp_block_raises()

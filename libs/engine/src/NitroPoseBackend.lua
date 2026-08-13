@@ -105,15 +105,28 @@ local function nodeSrt(program, attachments)
 end
 
 -- Resolve one mesh's position matrix against its draw record. A nil source
--- (baked billboard segments) resolves to identity.
+-- (baked billboard segments) resolves to identity; a source naming a
+-- matrix-stack slot the draw's restore-stack snapshot does not hold is a
+-- broken compiled transform program and raises (drawing identity instead
+-- would silently misplace the geometry).
 ---@param source DrawSource|nil
 ---@return number[] -- 16-element column-major matrix, engine units
-local function resolvePosition(draw, source, tileScale)
+local function resolvePosition(draw, source, tileScale, modelKey)
   if source == PoseContract.DRAW then
     return toTiles(draw.matrix, tileScale)
   end
-  local slot = source and draw.restoreStack[source.slot]
-  return toTiles(slot or Matrix4.identity(), tileScale)
+  if source == nil then
+    return toTiles(Matrix4.identity(), tileScale)
+  end
+  local slot = draw.restoreStack[source.slot]
+  if not slot then
+    Errors.raise(
+      "POSE_NITRO_SLOT_NOT_FOUND",
+      "mesh transform source names matrix-stack slot " .. tostring(source.slot) .. " the draw does not hold",
+      { slot = source.slot, model = modelKey }
+    )
+  end
+  return toTiles(slot, tileScale)
 end
 
 -- Evaluate `instance` into a PoseState (see PoseBackend). Joint attachments
@@ -161,7 +174,7 @@ function NitroPoseBackend.evaluate(instance)
         { meshId = meshId, drawIndex = mesh.drawIndex, model = def.key }
       )
     end
-    local position = resolvePosition(draw, mesh.positionSource, program.tileScale)
+    local position = resolvePosition(draw, mesh.positionSource, program.tileScale, def.key)
     ---@type PoseDrawMatrix
     local record = {
       position = position,
@@ -174,7 +187,7 @@ function NitroPoseBackend.evaluate(instance)
     -- bend the first `leading` vertices per-vertex exactly like the DS
     -- geometry engine (the batch carries the split and the source).
     if mesh.straddle then
-      local oldPosition = resolvePosition(draw, mesh.straddle.source, program.tileScale)
+      local oldPosition = resolvePosition(draw, mesh.straddle.source, program.tileScale, def.key)
       record.straddle = {
         leading = mesh.straddle.leading,
         position = oldPosition,

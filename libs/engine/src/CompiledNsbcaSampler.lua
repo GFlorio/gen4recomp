@@ -421,8 +421,11 @@ function CompiledNsbcaSampler.sample(clip, targetIndex, frameFx)
       scaleEx[i] = pair[2] or 0
     end
   end
+  -- The NSBCA scale channel is one 2-bit scale-mode field covering scale and
+  -- inverse scale together, so both vectors travel under the single scale
+  -- flag bit (there is no independent inverse-scale presence bit).
   if scaleFromModel then
-    flags = flags + FROM_MODEL.scale + FROM_MODEL.inverseScale
+    flags = flags + FROM_MODEL.scale
   end
 
   return {
