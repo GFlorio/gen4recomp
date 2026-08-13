@@ -339,7 +339,7 @@ end
 ---@param input table|nil
 ---@return string taskId
 function Scheduler:createTask(taskType, spec, instance, tick, input)
-  local impl, resolveErr = self._taskRegistry:resolve(taskType, 1)
+  local impl, resolveErr = self._taskRegistry:resolveCurrent(taskType)
   if not impl then
     local err = resolveErr --[[@as Errors.Error]]
     Errors.raise(

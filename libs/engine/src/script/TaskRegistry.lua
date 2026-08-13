@@ -95,6 +95,29 @@ function TaskRegistry:resolve(taskType, version)
   return impl
 end
 
+-- Resolve the current implementation of a task type for creation: the
+-- highest registered major version, since a type can hold several save-shape
+-- versions while creation always uses the newest. Unknown types are
+-- attributed save errors, never silently skipped.
+---@param taskType string
+---@return TaskImplementation|nil, Errors.Error|nil
+function TaskRegistry:resolveCurrent(taskType)
+  local versions = self._byType[taskType]
+  if versions == nil then
+    return nil,
+      Errors.new(
+        ScriptErrors.SCRIPT_TASK_VERSION_UNSUPPORTED,
+        "no registered task type " .. tostring(taskType),
+        { taskType = taskType }
+      )
+  end
+  local currentVersion = -math.huge
+  for version in pairs(versions) do
+    currentVersion = math.max(currentVersion, version)
+  end
+  return self:resolve(taskType, currentVersion)
+end
+
 -- Enumerate every registered task type, sorted by name (the order the
 -- fingerprint projection uses).
 ---@return string[]

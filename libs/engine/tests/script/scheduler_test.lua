@@ -1628,6 +1628,43 @@ T["cancel raise faults the owner instead of escaping"] = function()
   Assert.equal(#h.scheduler:tasks(), 0, "the task is still cancelled and removed")
 end
 
+-- Task creation resolves the version from the registered implementation, not
+-- a literal: a type registered only at a non-1 version is still creatable and
+-- its record carries the registered version.
+T["createTask uses the registered task version"] = function()
+  local h = harness()
+  h.taskRegistry:register("versioned", 2, {
+    type = "versioned",
+    version = 2,
+    create = function()
+      return {}
+    end,
+    poll = function(state, ctx)
+      return { complete = false, state = state }
+    end,
+    validate = function()
+      return nil
+    end,
+  })
+  local instanceId = startForeground(
+    h,
+    script("test.versioned", {
+      S.yieldTick(),
+      S.setVar({ variable = "VAR_AFTER", value = 1 }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:createTask("versioned", {}, assert(h.scheduler:instance(instanceId)), 100, nil)
+  local tasks = h.scheduler:tasks()
+  Assert.equal(#tasks, 1)
+  Assert.equal(tasks[1].taskType, "versioned")
+  Assert.equal(tasks[1].taskVersion, 2, "the descriptor carries the registered version, not a literal")
+  h.scheduler:step(101, nil)
+  h.scheduler:step(102, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1, "the owner script keeps running with the task live")
+end
+
 -- 42. Failure sequence: a task that completes normally in an earlier tick is
 -- not corrupted by a later tick's poll raise in another instance.
 T["later poll raise leaves earlier completions intact"] = function()

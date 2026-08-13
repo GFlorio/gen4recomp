@@ -123,4 +123,29 @@ T["optional callbacks omitted accepted"] = function()
   Assert.notNil(registry:resolve("test.minimal", 1))
 end
 
+-- 6. resolveCurrent picks the highest registered version of a type: the
+-- current implementation for creation, without a caller-supplied version.
+T["resolveCurrent picks the highest registered version"] = function()
+  local registry = TaskRegistry.new()
+  registry:register("test.current", 1, impl())
+  local latest = impl({
+    version = 2,
+    create = function()
+      return { shape = "v2" }
+    end,
+  })
+  registry:register("test.current", 2, latest)
+  Assert.equal(assert(registry:resolveCurrent("test.current")).version, 2)
+  Assert.equal(assert(registry:resolveCurrent("test.current")), latest)
+end
+
+-- 7. An unknown type is attributed the same save error as resolve, never
+-- silently skipped.
+T["resolveCurrent attributes unknown types"] = function()
+  local registry = TaskRegistry.new()
+  local resolved, err = registry:resolveCurrent("test.unknown")
+  Assert.isNil(resolved)
+  Assert.equal(assert(err).code, "SCRIPT_TASK_VERSION_UNSUPPORTED")
+end
+
 return { tests = T }
