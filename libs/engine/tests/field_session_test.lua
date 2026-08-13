@@ -237,6 +237,7 @@ function T.completed_transition_holds_the_arrival_tile_for_autosave()
     updateFixed = function()
       updates = updates + 1
     end,
+    collapseRenderInterpolation = function() end,
   }
   local transition = {
     phase = "fade_in",
@@ -395,6 +396,7 @@ function T.the_player_pose_clock_advances_once_per_tick_and_freezes_under_a_tran
     updateFixed = function()
       return false
     end,
+    collapseRenderInterpolation = function() end,
   }
   local transition = {
     phase = "idle",
@@ -802,6 +804,7 @@ function T.transition_commit_clears_stale_action_edges()
     updateFixed = function()
       return false
     end,
+    collapseRenderInterpolation = function() end,
   }
   local transition = {
     phase = "fade_in",
@@ -863,6 +866,7 @@ local function interactionSession(opts)
       steps = steps + 1
       return false
     end,
+    collapseRenderInterpolation = function() end,
   }
   local camera = { updateFixed = function() end }
   local actors = { step = function() end }
@@ -1236,6 +1240,7 @@ function T.stair_transition_ticks_advance_props_but_not_the_pose_clock()
     updateFixed = function()
       return false
     end,
+    collapseRenderInterpolation = function() end,
   }
   local camera = {
     updateFixed = function()
@@ -1331,12 +1336,12 @@ function T.plain_locked_transition_stays_frozen()
   Assert.equal(animatedSteps, 1, "the scene clock advances on every locked tick")
 end
 
--- The camera shake regression: during door_close there is no player step, so
--- the camera must still sample every locked tick -- with a stale
--- previous/current pair, view(alpha) replays one small movement on every
--- tick. After one stable tick the pair collapses and view(0) == view(1),
--- whether or not a playerVisual exists, and the completion tick samples too.
-function T.door_close_ticks_never_replay_camera_interpolation()
+-- The visual shake regression: during door_close there is no player step, so
+-- both the camera and player sprite must collapse stale interpolation pairs.
+-- Otherwise every render interval replays the final fraction of the egress
+-- step while the door animation runs. This is most visible as vertical shake
+-- for north/south doors, whose Z movement projects vertically on screen.
+function T.door_close_ticks_never_replay_camera_or_player_interpolation()
   local FieldCamera = require("libs.engine.src.FieldCamera")
   local profile = {
     projectionType = "orthographic",
@@ -1358,21 +1363,41 @@ function T.door_close_ticks_never_replay_camera_interpolation()
     return true
   end
 
+  local function pointEquals(a, b)
+    return math.abs(a.x - b.x) <= 1e-9 and math.abs(a.y - b.y) <= 1e-9 and math.abs(a.z - b.z) <= 1e-9
+  end
+
   local function runDoorClose(withVisual)
     local camera = FieldCamera.new(profile, { initialTarget = { x = 0, y = 0, z = 0 } })
-    local player = {
-      fieldX = 4,
-      fieldZ = 14,
-      worldX = 1,
-      worldY = 0,
-      worldZ = 1,
-      surfaceId = 0,
-      facing = "south",
-      motion = "idle",
-      updateFixed = function()
-        return false
-      end,
+    local map = {
+      mapId = 61,
+      cameraType = 4,
+      coordinateOrigin = { x = 0, z = 0 },
+      collision = TilePermissions.new(),
+      terrain = TerrainSurface.new({
+        plates = {
+          {
+            id = 0,
+            minX = 0,
+            minZ = 0,
+            maxX = 32,
+            maxZ = 32,
+            normal = { x = 0, y = 1, z = 0 },
+            distance = 0,
+            slopeClass = "flat",
+          },
+        },
+      }),
     }
+    local player = FieldPlayer.new({ currentMap = map, fieldX = 4, fieldZ = 14, surfaceId = 0, facing = "south" })
+    Assert.isTrue(player:scriptedStep("south"))
+    for _ = 1, FieldPlayer.WALK_STEP_TICKS do
+      player:updateFixed({})
+    end
+    Assert.isFalse(
+      pointEquals(player:renderPosition(0), player:renderPosition(1)),
+      "the completed egress leaves one real interpolation pair"
+    )
     local playerVisual = withVisual and {
       updateFixed = function() end,
     } or nil
@@ -1384,7 +1409,6 @@ function T.door_close_ticks_never_replay_camera_interpolation()
       end,
       start = function() end,
     }
-    local map = { mapId = 61, cameraType = 4 }
     local session = FieldSession.new(baseOptions({
       currentMap = map,
       player = player,
@@ -1395,8 +1419,13 @@ function T.door_close_ticks_never_replay_camera_interpolation()
     -- Prime the interpolation pair with a real movement.
     camera:updateFixed({ x = 2, y = 0, z = 2 })
     Assert.isFalse(matrixEquals(camera:view(0), camera:view(1)), "the primed pair differs")
-    -- Two door_close ticks with no movement; the camera samples both.
+    -- The first stationary door-close tick collapses the player's final step;
+    -- the second also collapses the camera pair after its last real target.
     session:updateFixed({})
+    Assert.isTrue(
+      pointEquals(player:renderPosition(0), player:renderPosition(1)),
+      "the first door-close tick settles player interpolation"
+    )
     session:updateFixed({})
     Assert.isTrue(matrixEquals(camera:view(0), camera:view(1)), "no replayed interpolation while the door closes")
     -- The completion tick also samples before the session consumes it.

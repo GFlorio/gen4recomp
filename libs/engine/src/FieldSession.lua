@@ -141,6 +141,9 @@ function FieldSession:updateFixed(inputSnapshot)
   local walkingAtTickStart = self.player.motion == "walking"
   local playerAdvanced = self.transition:updateFixed()
   if self.transition.locked or self.transition.completed then
+    if not playerAdvanced and self.player.motion == "idle" then
+      self.player:collapseRenderInterpolation()
+    end
     if self.currentMap.sceneRuntime and self.currentMap.sceneRuntime.updateAnimated then
       self.currentMap.sceneRuntime:updateAnimated()
     end

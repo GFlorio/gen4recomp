@@ -310,6 +310,15 @@ function FieldPlayer:renderPosition(alpha)
   }
 end
 
+-- Collapse the render pair after a fixed tick that did not advance movement.
+-- Locked transition phases still render between fixed updates; retaining the
+-- final pair of a scripted door step would replay that fraction throughout
+-- the following door animation.
+function FieldPlayer:collapseRenderInterpolation()
+  assert(self.motion == "idle", "cannot collapse interpolation while the player is moving")
+  self.previousWorldX, self.previousWorldY, self.previousWorldZ = self.worldX, self.worldY, self.worldZ
+end
+
 function FieldPlayer:status()
   local plate = assert(self.currentMap.terrain:plate(self.surfaceId), "player surface missing")
   return {
