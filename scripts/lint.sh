@@ -7,6 +7,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 scripts/check-repository.sh
+scripts/check-invariants.sh
 
 for tool in stylua lua-language-server; do
   command -v "$tool" >/dev/null || {
