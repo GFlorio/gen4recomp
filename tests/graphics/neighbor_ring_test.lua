@@ -231,6 +231,6 @@ function T.malformed_cell_descriptor_releases_earlier_cells_images()
 end
 
 return {
-  metadata = { layer = "graphics", capabilities = { "graphics" } },
+  metadata = { capabilities = { "graphics" } },
   tests = T,
 }

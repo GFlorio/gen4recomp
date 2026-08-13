@@ -80,4 +80,4 @@ function T.rejects_duplicate_file_id()
   end)
 end
 
-return { metadata = { layer = "unit" }, tests = T }
+return { tests = T }

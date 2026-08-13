@@ -94,7 +94,7 @@ function T.missing_capability_skips_the_suite()
   local executed = false
   local corpus = FakeCorpus.new({
     ["fake/acc/lab_test.lua"] = {
-      metadata = { layer = "acceptance", capabilities = { "rom_dump" } },
+      metadata = { capabilities = { "rom_dump" } },
       tests = {
         ["boots the lab"] = function()
           executed = true
@@ -198,7 +198,7 @@ function T.context_is_shared_between_hooks_and_tests()
   local seen = {}
   local corpus = FakeCorpus.new({
     ["fake/unit/alpha_test.lua"] = {
-      metadata = { layer = "unit", capabilities = { "graphics" } },
+      metadata = { capabilities = { "graphics" } },
       beforeAll = function(context)
         context.fixture = "prepared"
       end,
@@ -237,7 +237,7 @@ function T.report_summarises_counts_and_durations_by_layer()
       },
     },
     ["fake/rom/dump_test.lua"] = {
-      metadata = { layer = "rom", capabilities = { "rom_dump" } },
+      metadata = { capabilities = { "rom_dump" } },
       tests = { ["reads the dump"] = function() end },
     },
   })

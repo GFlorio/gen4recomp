@@ -84,4 +84,4 @@ function T.mtime_only_changes_do_not_affect_the_fingerprint()
   Assert.equal(fingerprint(tree()), fingerprint(touched), "mtime must never enter the fingerprint")
 end
 
-return { metadata = { layer = "unit" }, tests = T }
+return { tests = T }

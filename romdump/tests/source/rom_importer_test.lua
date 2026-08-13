@@ -424,4 +424,4 @@ function T.importer_states_are_named_constants()
   Assert.equal(h.importer.state, RomImporter.STATES.COMPLETE)
 end
 
-return { metadata = { layer = "unit" }, tests = T }
+return { tests = T }

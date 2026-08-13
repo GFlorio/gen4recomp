@@ -152,4 +152,4 @@ function T.open_rejects_overlay_schema_mismatch()
   Assert.equal(asError(err).code, "ROMFS_OVERLAY_INDEX_SCHEMA")
 end
 
-return { metadata = { layer = "unit" }, tests = T }
+return { tests = T }

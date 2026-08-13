@@ -260,6 +260,6 @@ function T.failed_transform_mode_releases_acquired_gpu_objects()
 end
 
 return {
-  metadata = { layer = "graphics", capabilities = { "graphics" } },
+  metadata = { capabilities = { "graphics" } },
   tests = T,
 }

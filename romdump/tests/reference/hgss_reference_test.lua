@@ -94,4 +94,4 @@ function T.new_bark_records_are_stable()
   }, { 100, 25, 843, 616, 543, 58 })
 end
 
-return { metadata = { layer = "unit" }, tests = T }
+return { tests = T }

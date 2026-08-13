@@ -50,7 +50,7 @@ function T.every_fact_runs_once_per_ready_version()
     },
   })
 
-  Assert.equal(suite.metadata.layer, "rom")
+  Assert.equal(suite.metadata.capabilities[1], "rom_dump")
   Assert.deepEqual(suite.metadata.capabilities, { "rom_dump" })
 
   local context = {}

@@ -30,6 +30,7 @@ local ROOTS = {
   { path = "romdump/tests", prefix = "romdump.tests", layer = "component" },
   { path = "tests/runner/tests", prefix = "tests.runner.tests", layer = "unit" },
   { path = "tests/architecture", prefix = "tests.architecture", layer = "unit" },
+  { path = "tests/graphics", prefix = "tests.graphics", layer = "graphics" },
   { path = "tests/rom", prefix = "tests.rom", layer = "rom" },
   { path = "tests/acceptance", prefix = "tests.acceptance", layer = "acceptance" },
 }

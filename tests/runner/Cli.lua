@@ -30,7 +30,7 @@ local STRICT_COMMAND = STRICT_ENV .. "=1 scripts/test.sh"
 
 Cli.USAGE = table.concat({
   "usage: scripts/test.sh [--plan] [--list] [--layer <" .. table.concat(Cli.LAYERS, "|") .. ">]",
-  "                      [--filter <substring-or-pattern>] [--rom-source <path-to-nds-or-zip>]",
+  "                      [--filter <substring>] [--rom-source <path-to-nds-or-zip>]",
 }, "\n")
 
 local function isLayer(value)
@@ -49,18 +49,6 @@ local function realFileExists(path)
   end
   handle:close()
   return true
-end
-
--- A filter is a substring or a Lua pattern; a malformed pattern must be
--- diagnosed here, not silently select nothing at execution time. Pattern
--- compilation is independent of the subject string, so an empty probe proves
--- validity.
-local function validPattern(filter)
-  local ok, err = pcall(string.find, "", filter)
-  if ok then
-    return true
-  end
-  return false, tostring(err)
 end
 
 -- The value of an option, or nil when it is missing or is itself an option.
@@ -126,11 +114,7 @@ function Cli.parse(argv, context)
     elseif option == "--filter" then
       local filter = value(argv, index + 1)
       if filter == nil or filter == "" then
-        return nil, "--filter needs a non-empty substring or Lua pattern"
-      end
-      local valid, reason = validPattern(filter)
-      if not valid then
-        return nil, "--filter '" .. filter .. "' is not a valid Lua pattern: " .. reason
+        return nil, "--filter needs a non-empty substring"
       end
       plan.filter = filter
       index = index + 2

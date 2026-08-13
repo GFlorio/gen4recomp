@@ -178,6 +178,6 @@ function T.mesh_entries_dedup_and_accumulate_triangles_once()
 end
 
 return {
-  metadata = { layer = "graphics", capabilities = { "graphics" } },
+  metadata = { capabilities = { "graphics" } },
   tests = T,
 }

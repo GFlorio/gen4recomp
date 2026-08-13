@@ -3,7 +3,7 @@
 #   scripts/test.sh
 #   scripts/test.sh --list
 #   scripts/test.sh --layer unit|component|graphics|rom|acceptance
-#   scripts/test.sh --filter <substring-or-pattern>
+#   scripts/test.sh --filter <substring>
 #   scripts/test.sh --rom-source <path-to.nds-or-zip>
 #
 # Arguments are parsed by tests/runner/Cli.lua; this script only decides where

@@ -84,4 +84,4 @@ function T.rejects_wrong_size()
   Assert.equal(assert(err).code, "PERMISSION_BAD_SIZE")
 end
 
-return { metadata = { layer = "unit" }, tests = T }
+return { tests = T }

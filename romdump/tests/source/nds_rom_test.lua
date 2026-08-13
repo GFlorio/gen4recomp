@@ -164,4 +164,4 @@ function T.rejects_out_of_range_section()
   throwsOpenCode("NDS_SECTION_OUT_OF_RANGE", RomSource.fromString(data), matchingVersions(data, "IPKE"))
 end
 
-return { metadata = { layer = "unit" }, tests = T }
+return { tests = T }

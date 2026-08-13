@@ -91,4 +91,4 @@ function T.alias_list_is_complete_and_deterministic()
   end
 end
 
-return { metadata = { layer = "unit" }, tests = T }
+return { tests = T }

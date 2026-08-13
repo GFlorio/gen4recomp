@@ -9,7 +9,7 @@
 --   load         fun(moduleName): table       defaults to require
 --   capabilities table<string, boolean>       available capabilities, default {}
 --   layer        string|nil                   run only this layer
---   filter       string|nil                   substring or Lua pattern over
+--   filter       string|nil                   literal substring over
 --                                             "module :: test"
 
 local Discovery = require("tests.runner.Discovery")
@@ -44,18 +44,12 @@ local function loadFailure(entry, message)
   }
 end
 
--- Whether a discovered entry may be loaded under the selection. A suite's own
--- layer is only knowable by loading its module, so the root layer is an
--- approximation: the unit and component roots always load — the graphics
--- suites live under the unit root, and the romdump digest suites declare the
--- unit layer under the component root. The rom and acceptance roots are leaf
--- layers whose modules load only when selected, so a broken or
--- environment-dependent suite there cannot break a run of another layer.
+-- Whether a discovered entry may be loaded under the selection. The discovery
+-- root is the single source of a suite's layer, so the decision is exact: a
+-- module loads exactly when its root layer is selected, with no
+-- approximation branch, and an unselected root's module is never required.
 local function mayLoad(entry, layer)
-  if layer == nil then
-    return true
-  end
-  return entry.layer == layer or entry.layer == "unit" or entry.layer == "component"
+  return layer == nil or entry.layer == layer
 end
 
 -- Discovers and normalizes every suite of the selected layer, in module order.
@@ -76,7 +70,7 @@ local function collect(config)
         ok, normalized = pcall(Suite.normalize, loaded, entry.module, entry.layer)
         if not ok then
           items[#items + 1] = { failure = loadFailure(entry, tostring(normalized)) }
-        elseif Selection.matchesLayer(normalized.layer, config.layer) then
+        else
           items[#items + 1] = { suite = normalized }
         end
       end

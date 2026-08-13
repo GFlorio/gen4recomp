@@ -1,11 +1,12 @@
 -- Shared scaffolding for the graphics smoke suites. LÖVE's graphics state is
 -- process-global and its objects are GPU memory, so a failing smoke test must
 -- leave neither behind for the next one. `GraphicsSmoke.suite` declares the
--- graphics layer and capability once and wraps every body so that the resources
--- the body took ownership of through `scope:own` are released, and every
--- captured global state is restored, on the failure path as well as the success
--- path. A body that asserts release behavior itself keeps its own explicit
--- `release()` call and does not hand the object to the scope.
+-- graphics capability once (the graphics layer comes from the discovery root
+-- the suite lives under) and wraps every body so that the resources the body
+-- took ownership of through `scope:own` are released, and every captured
+-- global state is restored, on the failure path as well as the success path. A
+-- body that asserts release behavior itself keeps its own explicit `release()`
+-- call and does not hand the object to the scope.
 
 local GraphicsSmoke = {}
 
@@ -100,7 +101,7 @@ function GraphicsSmoke.suite(tests)
     wrapped[name] = wrap(body)
   end
   return {
-    metadata = { layer = "graphics", capabilities = { "graphics" } },
+    metadata = { capabilities = { "graphics" } },
     tests = wrapped,
   }
 end

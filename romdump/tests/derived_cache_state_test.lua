@@ -101,4 +101,4 @@ function T.failed_atomic_publication_propagates_and_preserves_previous_state()
   Assert.isTrue(DerivedCacheState.matches(stored, identity()), "the previous attestation must survive")
 end
 
-return { metadata = { layer = "unit" }, tests = T }
+return { tests = T }

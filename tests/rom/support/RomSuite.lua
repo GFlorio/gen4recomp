@@ -21,7 +21,7 @@ function RomSuite.build(options)
   local open = assert(options.open, "RomSuite needs a RomFs opener")
   local handles = nil
   local suite = {
-    metadata = { layer = "rom", capabilities = { "rom_dump" } },
+    metadata = { capabilities = { "rom_dump" } },
     tests = {},
   }
 

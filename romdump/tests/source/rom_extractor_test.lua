@@ -243,4 +243,4 @@ function T.failed_publish_restores_previous_dump()
   )
 end
 
-return { metadata = { layer = "unit" }, tests = T }
+return { tests = T }

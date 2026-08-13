@@ -35,4 +35,4 @@ function T.rejects_expected_size_mismatch()
   Assert.equal(asError(err).code, "OVERLAY_COMPRESSION_SIZE_MISMATCH")
 end
 
-return { metadata = { layer = "unit" }, tests = T }
+return { tests = T }

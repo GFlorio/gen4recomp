@@ -1,7 +1,7 @@
 -- The graphics layer, as seen by discovery. A renderer test that quietly
 -- returns when `love.graphics` is nil reports a pass for work it never did, so
 -- the corpus must contain no availability guard at all: real GPU work belongs to
--- suites that declare the graphics layer and require the graphics capability,
+-- suites under the graphics discovery root that require the graphics capability,
 -- and a host without one skips explicitly through the runner.
 
 local Assert = require("tests.support.Assert")
@@ -52,13 +52,13 @@ function T.the_corpus_owns_at_least_one_graphics_suite()
     end
   end
 
-  Assert.isTrue(#graphics > 0, "no suite declares the graphics layer, so --layer graphics runs nothing")
+  Assert.isTrue(#graphics > 0, "no suite lives under the graphics root, so --layer graphics runs nothing")
 end
 
-function T.graphics_layer_selection_uses_suite_metadata()
+function T.graphics_layer_selection_uses_the_graphics_root()
   local graphics = Runner.list({ layer = "graphics" })
 
-  Assert.isTrue(#graphics > 0, "--layer graphics must select suites that declare graphics metadata")
+  Assert.isTrue(#graphics > 0, "--layer graphics must select the suites under the graphics root")
   for _, suite in ipairs(graphics) do
     Assert.equal(suite.layer, "graphics")
   end

@@ -133,4 +133,4 @@ function T.rejects_named_file_id_outside_fat()
   end)
 end
 
-return { metadata = { layer = "unit" }, tests = T }
+return { tests = T }

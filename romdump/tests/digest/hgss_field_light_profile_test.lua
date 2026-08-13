@@ -95,4 +95,4 @@ function T.rejects_short_profile()
   Assert.equal(err.code, "FIELD_LIGHT_BAD_RECORD")
 end
 
-return { metadata = { layer = "unit" }, tests = T }
+return { tests = T }

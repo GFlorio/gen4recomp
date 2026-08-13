@@ -9,7 +9,6 @@
 
 local T = {
   metadata = {
-    layer = "component",
     tags = { "regression", "repo-content" },
   },
   tests = {},

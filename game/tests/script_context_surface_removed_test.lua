@@ -11,7 +11,6 @@ local Assert = require("tests.support.Assert")
 
 local T = {
   metadata = {
-    layer = "component",
     tags = { "regression", "repo-content" },
   },
   tests = {},

@@ -12,7 +12,6 @@ local RepoFs = require("game.src.game.RepoFs")
 
 local T = {
   metadata = {
-    layer = "component",
     tags = { "security", "regression" },
   },
   tests = {},

@@ -35,9 +35,6 @@ local function listFiles(root)
 end
 
 local module = {
-  metadata = {
-    layer = "component",
-  },
   beforeAll = function()
     saved.isReady = RomImporter.isReady
     saved.romFsOpen = RomFs.open

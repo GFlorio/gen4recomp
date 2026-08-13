@@ -123,4 +123,4 @@ function T.preserves_zero_area_vertical_sentinels_as_nonwalkable()
   Assert.equal(terrain.plates[1].normal.z, 1)
 end
 
-return { metadata = { layer = "unit" }, tests = T }
+return { tests = T }

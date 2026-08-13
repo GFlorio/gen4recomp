@@ -129,10 +129,10 @@ This file provides guidance to Coding Agents when working with code in this repo
   messages. A workflow-time grep/review check is fine; a permanent source-content test is
   not.
 - Test modules are discovered recursively from the roots in `tests/run.lua`; do
-  not add manual module registration.
-- New cross-layer suites declare layer metadata (`metadata.layer`) and required
-  `capabilities`. An explicit skip uses `context:skip(reason)`, never a normal
-  return.
+  not add manual module registration. A suite's layer is the layer of the
+  discovery root that contains it — suites cannot declare their own layer.
+- Suites declare required `capabilities`. An explicit skip uses
+  `context:skip(reason)`, never a normal return.
 - Use the `tdd` skill for behavior changes. Use `acceptance-testing` before
   work that changes a user-visible flow, production composition, persistence,
   transitions, scripts, or ROM-derived behavior.

@@ -10,7 +10,6 @@ local ScreenTopology = require("libs.engine.src.ScreenTopology")
 
 local T = {
   metadata = {
-    layer = "acceptance",
     capabilities = { "rom_dump", "derived_cache" },
     tags = { "field", "menu", "responsive", "topology", "script" },
   },

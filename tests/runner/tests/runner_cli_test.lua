@@ -230,23 +230,11 @@ function T.invalid_arguments_are_rejected_with_exit_two()
   contains(rejects({ "unit" }), "unit", "stray positional argument")
 end
 
--- A malformed Lua pattern must be diagnosed at parse time. Selecting with it
--- at execution time would silently match nothing and surface only as the
--- generic empty-run failure — indistinguishable from a filter that simply
--- matched no test.
-function T.malformed_filter_pattern_is_rejected_at_parse()
-  for _, pattern in ipairs({ "(", "[", "%" }) do
-    local message = rejects({ "--filter", pattern })
-    contains(message, "pattern", "diagnoses the malformed pattern for " .. string.format("%q", pattern))
-    contains(message, pattern, "names the offending pattern")
-  end
-end
-
--- A filter that parses as a valid Lua pattern keeps the substring-or-pattern
--- contract.
-function T.valid_filter_patterns_still_parse()
-  for _, pattern in ipairs({ "warp", "^libs%.rom", "no%-such%-test", "resolves door" }) do
-    Assert.equal(parse({ "--filter", pattern }).filter, pattern)
+-- A filter is literal text, never a Lua pattern: metacharacters parse and
+-- select literally instead of being diagnosed or interpreted.
+function T.filter_metacharacters_are_literal_substrings()
+  for _, filter in ipairs({ "(", "[", "%", "^libs%.rom", "warp" }) do
+    Assert.equal(parse({ "--filter", filter }).filter, filter)
   end
 end
 
@@ -452,13 +440,13 @@ end
 -- A run that executed nothing is never reported as success -- this is
 -- what a filter that matches no test looks like.
 function T.a_run_that_executed_nothing_is_not_success()
-  local plan = parse({ "--filter", "no%-such%-test" })
+  local plan = parse({ "--filter", "no-such-test" })
 
   local outcome = Cli.outcome(plan, READY_DUMP, runOf({}))
 
   Assert.isTrue(outcome.exitCode ~= 0, "zero executed tests must not read as a green run")
   Assert.notNil(outcome.failure)
-  contains(outcome.failure, "no%-such%-test", "the empty-selection failure names the filter")
+  contains(outcome.failure, "no-such-test", "the empty-selection failure names the filter")
 end
 
 -- The report names the ready game versions the run exercised.

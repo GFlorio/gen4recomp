@@ -374,4 +374,4 @@ function T.zip_scan_releases_the_fallback_when_a_supported_candidate_wins()
   Assert.equal(s:sha1(), goodSha)
 end
 
-return { metadata = { layer = "unit" }, tests = T }
+return { tests = T }

@@ -112,4 +112,4 @@ function T.detect_compression_is_non_destructive()
   Assert.isNil(Narc.detectCompression(""))
 end
 
-return { metadata = { layer = "unit" }, tests = T }
+return { tests = T }

@@ -64,4 +64,4 @@ function T.order_lists_both_versions()
   Assert.deepEqual(GameVersion.ORDER, { "heartgold", "soulsilver" })
 end
 
-return { metadata = { layer = "unit" }, tests = T }
+return { tests = T }

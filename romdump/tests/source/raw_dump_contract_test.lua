@@ -73,4 +73,4 @@ function T.readiness_depends_on_every_contract_file()
   end
 end
 
-return { metadata = { layer = "unit" }, tests = T }
+return { tests = T }

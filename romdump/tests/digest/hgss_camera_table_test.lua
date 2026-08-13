@@ -110,4 +110,4 @@ function T.rejects_bad_projection_and_truncated_table()
   Assert.equal(assert(err).code, "FIELD_CAMERA_TABLE_OUT_OF_BOUNDS")
 end
 
-return { metadata = { layer = "unit" }, tests = T }
+return { tests = T }

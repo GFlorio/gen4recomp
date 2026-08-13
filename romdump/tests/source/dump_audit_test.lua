@@ -34,4 +34,4 @@ function T.fails_on_output_size_mismatch()
   Assert.isFalse(report.fileCheck.ok)
 end
 
-return { metadata = { layer = "unit" }, tests = T }
+return { tests = T }

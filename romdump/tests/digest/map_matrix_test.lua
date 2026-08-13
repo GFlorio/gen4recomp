@@ -238,4 +238,4 @@ function T.rejects_truncated_model_section()
   Assert.equal(assert(err).code, "READ_OUT_OF_BOUNDS")
 end
 
-return { metadata = { layer = "unit" }, tests = T }
+return { tests = T }

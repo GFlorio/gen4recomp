@@ -1,16 +1,17 @@
 -- Normalizes a loaded test module into the one suite shape:
 --
---   { metadata = { layer, capabilities, tags },
+--   { metadata = { capabilities, tags },
 --     beforeAll = f, afterAll = f, tests = { name = function } }
 --
 -- Every key is validated: metadata is optional but must be a table of known
 -- keys, capability/tag arrays must be contiguous with no extra keys, hooks
 -- must be functions or absent, and a missing `tests` table is an error. The
--- layer defaults to the root the suite was discovered under.
+-- layer is the discovery root's alone: suites inherit it and a metadata
+-- layer is rejected rather than second-guessing the root.
 
 local Suite = {}
 
-local METADATA_KEYS = { layer = true, capabilities = true, tags = true }
+local METADATA_KEYS = { capabilities = true, tags = true }
 local MODULE_KEYS = { metadata = true, beforeAll = true, afterAll = true, tests = true }
 
 local function sortedKeys(t)
@@ -89,8 +90,8 @@ function Suite.normalize(mod, moduleName, defaultLayer)
     assert(type(fns[name]) == "function", moduleName .. ": test '" .. name .. "' must be a function")
   end
 
-  local layer = metadata.layer or defaultLayer
-  assert(type(layer) == "string", moduleName .. ": metadata.layer must be a string")
+  local layer = defaultLayer
+  assert(type(layer) == "string", moduleName .. ": discovery root needs a string layer")
 
   return {
     module = moduleName,

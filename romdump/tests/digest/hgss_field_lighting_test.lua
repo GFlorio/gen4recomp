@@ -19,4 +19,4 @@ function T.maps_light_type_to_profile_and_path()
   Assert.equal(HgssFieldLighting.resolve(1).sourcePath, "data/area00light.txt")
 end
 
-return { metadata = { layer = "unit" }, tests = T }
+return { tests = T }

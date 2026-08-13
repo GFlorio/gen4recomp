@@ -131,4 +131,4 @@ function T.rejects_or_optionally_preserves_trailing_bytes()
   Assert.equal(result.trailingBytes, "tail")
 end
 
-return { metadata = { layer = "unit" }, tests = T }
+return { tests = T }

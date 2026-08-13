@@ -1,12 +1,9 @@
 -- Pure selection rules: which suites and tests a run executes, and which
 -- declared capability (if any) is unavailable.
 --
--- A filter is matched against the fully qualified `module :: test` name, so a
--- module name, a test name, or any substring spanning both selects. Plain
--- substring first, then Lua pattern, so `--filter warp` and `--filter ^libs%.`
--- both work. A filter is validated once at the CLI parse boundary, so the
--- per-test match never needs to swallow a malformed pattern: one that reaches
--- selection anyway raises loudly instead of silently matching nothing.
+-- A filter is matched literally against the fully qualified `module :: test`
+-- name, so a module name, a test name, or any substring spanning both
+-- selects. Lua pattern metacharacters have no special meaning.
 
 local Selection = {}
 
@@ -19,22 +16,13 @@ function Selection.qualify(moduleName, testName)
   return moduleName .. Selection.QUALIFIER .. testName
 end
 
----@param layer string suite layer
----@param wanted string|nil selected layer; nil selects every layer
-function Selection.matchesLayer(layer, wanted)
-  return wanted == nil or layer == wanted
-end
-
 ---@param qualified string
 ---@param filter string|nil nil selects every test
 function Selection.matchesFilter(qualified, filter)
   if filter == nil then
     return true
   end
-  if qualified:find(filter, 1, true) ~= nil then
-    return true
-  end
-  return qualified:find(filter) ~= nil
+  return qualified:find(filter, 1, true) ~= nil
 end
 
 -- The first declared capability that is unavailable, or nil when the suite can

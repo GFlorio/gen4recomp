@@ -61,15 +61,22 @@ end
 
 -- A module under a root the selection excludes must not even load: a broken
 -- or environment-dependent suite under a foreign layer must not break a
--- unit-only run, and must not execute its module body in it.
+-- unit-only run, and must not execute its module body in it. The root is the
+-- only classifier, so a component-root module is excluded exactly like a
+-- graphics-root one.
 function T.excluded_layer_modules_are_not_loaded()
   local loads = {}
   local corpus = FakeCorpus.new({
     ["fake/gfx/broken_test.lua"] = FakeCorpus.LOAD_ERROR,
+    ["fake/comp/broken_test.lua"] = FakeCorpus.LOAD_ERROR,
     ["fake/unit/ok_test.lua"] = { tests = { ["passes"] = function() end } },
   })
   local options = {
-    roots = { corpus:root("fake/gfx", "graphics"), corpus:root("fake/unit", "unit") },
+    roots = {
+      corpus:root("fake/gfx", "graphics"),
+      corpus:root("fake/comp", "component"),
+      corpus:root("fake/unit", "unit"),
+    },
     fs = corpus.fs,
     layer = "unit",
     capabilities = {},
@@ -140,13 +147,14 @@ function T.listing_does_not_execute_test_bodies()
   Assert.isFalse(executed, "listing executed a test body")
 end
 
--- explicit metadata is surfaced; legacy modules default their layer
--- from the root they were discovered under, and declare no capabilities.
+-- explicit metadata is surfaced; a module's layer comes from the root it
+-- was discovered under, and a module with no metadata declares no
+-- capabilities.
 function T.listing_reports_layer_capabilities_and_tags()
   local corpus = FakeCorpus.new({
     ["fake/unit/alpha_test.lua"] = { tests = { ["a"] = function() end } },
     ["fake/acc/lab_test.lua"] = {
-      metadata = { layer = "acceptance", capabilities = { "rom_dump", "derived_cache" }, tags = { "field" } },
+      metadata = { capabilities = { "rom_dump", "derived_cache" }, tags = { "field" } },
       beforeAll = function() end,
       afterAll = function() end,
       tests = { ["lab exit round trip"] = function() end },
@@ -180,10 +188,7 @@ function T.layer_selection_runs_only_that_layer()
   end
   local corpus = FakeCorpus.new({
     ["fake/unit/alpha_test.lua"] = { tests = { ["unit case"] = record("unit") } },
-    ["fake/gfx/shader_test.lua"] = {
-      metadata = { layer = "graphics" },
-      tests = { ["graphics case"] = record("graphics") },
-    },
+    ["fake/gfx/shader_test.lua"] = { tests = { ["graphics case"] = record("graphics") } },
   })
   local options = {
     roots = { corpus:root("fake/gfx", "graphics"), corpus:root("fake/unit", "unit") },
@@ -218,6 +223,24 @@ function T.filter_matches_qualified_module_and_test_name()
 
   local byBoth = TestRunner.run({ roots = roots, fs = corpus.fs, load = corpus.load, filter = "resolves door" })
   Assert.equal(byBoth.passed, 2)
+end
+
+-- A filter is literal text, not a Lua pattern: metacharacters select nothing
+-- unless the qualified name really contains them.
+function T.filter_treats_pattern_metacharacters_literally()
+  local corpus = FakeCorpus.new({
+    ["fake/unit/alpha_test.lua"] = { tests = { ["a"] = function() end } },
+  })
+  local roots = { corpus:root("fake/unit", "unit") }
+
+  local byClass = TestRunner.run({ roots = roots, fs = corpus.fs, load = corpus.load, filter = "%a" })
+  Assert.equal(byClass.passed, 0, "`%a` must not act as a character class")
+
+  local byAnchor = TestRunner.run({ roots = roots, fs = corpus.fs, load = corpus.load, filter = "^fake%.unit" })
+  Assert.equal(byAnchor.passed, 0, "`^` must not anchor and `%.` must not escape")
+
+  local byText = TestRunner.run({ roots = roots, fs = corpus.fs, load = corpus.load, filter = "alpha_test" })
+  Assert.equal(byText.passed, 1, "a plain substring still selects")
 end
 
 return { tests = T }

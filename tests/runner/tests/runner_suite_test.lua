@@ -49,12 +49,14 @@ function T.array_metadata_must_be_contiguous_without_extra_keys()
   Assert.isTrue(tostring(hole):find("tags", 1, true) ~= nil, "names tags: " .. tostring(hole))
 end
 
-function T.explicit_metadata_overrides_the_root_layer()
+-- The layer is the discovery root's alone: suites inherit it and cannot
+-- declare their own.
+function T.suites_inherit_the_root_layer()
   local suite = normalize({
-    metadata = { layer = "graphics", capabilities = { "graphics" }, tags = { "renderer" } },
+    metadata = { capabilities = { "graphics" }, tags = { "renderer" } },
     beforeAll = function() end,
     tests = { ["compiles a shader"] = function() end },
-  })
+  }, "graphics")
 
   Assert.equal(suite.layer, "graphics")
   Assert.deepEqual(suite.capabilities, { "graphics" })
@@ -63,11 +65,20 @@ function T.explicit_metadata_overrides_the_root_layer()
   Assert.equal(type(suite.beforeAll), "function")
 end
 
+-- A metadata layer would be a second classifier next to the discovery root;
+-- it is rejected as an unknown metadata key.
+function T.metadata_layer_is_rejected_as_an_unknown_key()
+  local err = Assert.throws(function()
+    normalize({ metadata = { layer = "graphics" }, tests = { ["a"] = function() end } })
+  end)
+  Assert.isTrue(tostring(err):find("layer", 1, true) ~= nil, "names the rejected key: " .. tostring(err))
+end
+
 -- A module carrying metadata or hooks but no `tests` table would otherwise
 -- normalize to an empty legacy suite and report nothing at all.
 function T.metadata_without_tests_is_rejected()
   local err = Assert.throws(function()
-    normalize({ metadata = { layer = "rom" } })
+    normalize({ metadata = {} })
   end)
   Assert.isTrue(tostring(err):find("tests table", 1, true) ~= nil, "names the missing tests table: " .. tostring(err))
 end

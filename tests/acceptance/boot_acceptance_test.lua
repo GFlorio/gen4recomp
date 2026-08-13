@@ -10,7 +10,6 @@ local FieldSpawns = require("data.manifests.field_spawns")
 
 local T = {
   metadata = {
-    layer = "acceptance",
     capabilities = { "rom_dump", "derived_cache" },
     tags = { "field", "boot" },
   },
