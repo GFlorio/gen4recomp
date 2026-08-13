@@ -152,7 +152,10 @@ function MapRomFixture.build(opts)
           return highest + 1
         end,
         readMember = function(_, memberId)
-          return assert(byId[memberId], string.format("fixture %s has no member %d", alias, memberId))
+          -- Collapse to one value: `return assert(...)` would leak the assert
+          -- message as a second return value into argument-list consumers.
+          local bytes = assert(byId[memberId], string.format("fixture %s has no member %d", alias, memberId))
+          return bytes
         end,
       }
     end,
