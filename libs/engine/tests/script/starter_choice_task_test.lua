@@ -47,4 +47,4 @@ T["valid selections are preserved"] = function()
   Assert.equal(chosen.selection, 2)
 end
 
-return T
+return { tests = T }

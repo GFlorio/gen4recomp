@@ -194,4 +194,4 @@ function T.rejects_a_cache_without_an_index()
   end)
 end
 
-return T
+return { tests = T }

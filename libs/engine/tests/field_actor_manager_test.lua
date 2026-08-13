@@ -601,4 +601,4 @@ function T.dispose_unsubscribes_from_the_event_state()
   Assert.equal(#mgr:drawRecords(), 0)
 end
 
-return T
+return { tests = T }

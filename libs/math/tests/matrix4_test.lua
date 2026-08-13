@@ -78,4 +78,4 @@ function T.orthographic_maps_bounds_to_ndc()
   Assert.isTrue(approx(right, 1) and approx(top, 1) and approx(far, 1), "maximum bounds")
 end
 
-return T
+return { tests = T }

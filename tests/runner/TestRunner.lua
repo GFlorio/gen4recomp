@@ -44,28 +44,41 @@ local function loadFailure(entry, message)
   }
 end
 
+-- Whether a discovered entry may be loaded under the selection. A suite's own
+-- layer is only knowable by loading its module, so the root layer is an
+-- approximation: the unit and component roots always load — the graphics
+-- suites live under the unit root, and the romdump digest suites declare the
+-- unit layer under the component root. The rom and acceptance roots are leaf
+-- layers whose modules load only when selected, so a broken or
+-- environment-dependent suite there cannot break a run of another layer.
+local function mayLoad(entry, layer)
+  if layer == nil then
+    return true
+  end
+  return entry.layer == layer or entry.layer == "unit" or entry.layer == "component"
+end
+
 -- Discovers and normalizes every suite of the selected layer, in module order.
--- Loads modules (test names come from the module itself) but never executes a
--- test body. Each returned item carries either a normalized `suite` or the
--- `failure` result of a module that could not be loaded or normalized.
+-- Modules under a root the selection excludes are never loaded; the rest are
+-- loaded (test names come from the module itself) but never executed. Each
+-- returned item carries either a normalized `suite` or the `failure` result of
+-- a module that could not be loaded or normalized.
 ---@return { suite: RunnerSuite|nil, failure: table|nil }[]
 local function collect(config)
   local items = {}
   for _, entry in ipairs(Discovery.suites(config.fs, config.roots)) do
-    local ok, loaded = pcall(config.load, entry.module)
-    if not ok then
-      if Selection.matchesLayer(entry.layer, config.layer) then
-        items[#items + 1] = { failure = loadFailure(entry, "module load failed: " .. tostring(loaded)) }
-      end
-    else
-      local normalized
-      ok, normalized = pcall(Suite.normalize, loaded, entry.module, entry.layer)
+    if mayLoad(entry, config.layer) then
+      local ok, loaded = pcall(config.load, entry.module)
       if not ok then
-        if Selection.matchesLayer(entry.layer, config.layer) then
+        items[#items + 1] = { failure = loadFailure(entry, "module load failed: " .. tostring(loaded)) }
+      else
+        local normalized
+        ok, normalized = pcall(Suite.normalize, loaded, entry.module, entry.layer)
+        if not ok then
           items[#items + 1] = { failure = loadFailure(entry, tostring(normalized)) }
+        elseif Selection.matchesLayer(normalized.layer, config.layer) then
+          items[#items + 1] = { suite = normalized }
         end
-      elseif Selection.matchesLayer(normalized.layer, config.layer) then
-        items[#items + 1] = { suite = normalized }
       end
     end
   end

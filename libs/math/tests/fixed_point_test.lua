@@ -62,4 +62,4 @@ function T.angle16_range()
   Assert.equal(FixedPoint.angle16(32768), math.pi)
 end
 
-return T
+return { tests = T }

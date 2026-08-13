@@ -213,4 +213,4 @@ function T.oversized_stores_are_rejected()
   end)
 end
 
-return T
+return { tests = T }

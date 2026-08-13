@@ -140,4 +140,4 @@ function T.world_path_is_stable()
   Assert.isTrue(MapAssetCache.worldPath():match("world%.lua$") ~= nil)
 end
 
-return T
+return { tests = T }

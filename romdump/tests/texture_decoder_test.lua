@@ -181,4 +181,4 @@ function T.partial_alpha_usage_for_a5i3()
   Assert.isFalse(r.alphaUsage.hasOpaque)
 end
 
-return T
+return { tests = T }

@@ -70,4 +70,4 @@ function T.conf_and_runtime_use_the_named_reference()
   end
 end
 
-return T
+return { tests = T }

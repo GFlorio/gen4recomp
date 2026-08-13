@@ -437,4 +437,4 @@ function T.remove_staged_tree_reports_backend_failure()
   end)
 end
 
-return T
+return { tests = T }

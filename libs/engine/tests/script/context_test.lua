@@ -474,4 +474,4 @@ T["task factory dot call passes the spec"] = function()
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
 end
 
-return T
+return { tests = T }

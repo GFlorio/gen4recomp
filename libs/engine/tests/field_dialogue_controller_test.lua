@@ -386,4 +386,4 @@ function T.status_exposes_visible_lines_up_to_the_reveal()
   Assert.equal(c:status().state, "WAITING_CLOSE")
 end
 
-return T
+return { tests = T }

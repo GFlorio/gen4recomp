@@ -238,4 +238,4 @@ function T.retains_an_explicit_zero_cancellation_value()
   Assert.equal(h:execute(builder).cancelValue, 0)
 end
 
-return T
+return { tests = T }

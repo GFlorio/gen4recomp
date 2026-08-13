@@ -123,4 +123,4 @@ T["optional callbacks omitted accepted"] = function()
   Assert.notNil(registry:resolve("test.minimal", 1))
 end
 
-return T
+return { tests = T }

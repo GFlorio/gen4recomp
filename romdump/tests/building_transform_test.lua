@@ -89,4 +89,4 @@ function T.matches_reference_call_order()
   end
 end
 
-return T
+return { tests = T }

@@ -50,4 +50,4 @@ function T.releases_the_definition_after_its_last_owner()
   end)
 end
 
-return T
+return { tests = T }

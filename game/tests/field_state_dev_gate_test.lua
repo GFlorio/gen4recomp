@@ -154,4 +154,4 @@ function T.product_mode_keeps_the_documented_zoom_controls()
   Assert.equal(changes, 3, "each zoom key reapplies the camera projection")
 end
 
-return T
+return { tests = T }

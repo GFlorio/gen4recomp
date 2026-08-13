@@ -107,4 +107,4 @@ function T.opaque_passes_preserve_assembly_order()
   Assert.equal(queue.opaque[3].id, "actor")
 end
 
-return T
+return { tests = T }

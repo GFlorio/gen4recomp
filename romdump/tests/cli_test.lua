@@ -143,4 +143,4 @@ function T.forcedump_only_applies_to_import_or_build_cache()
   end)
 end
 
-return T
+return { tests = T }

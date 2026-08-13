@@ -124,4 +124,4 @@ function T.skips_neighbors_without_land_data()
   Assert.deepEqual(plan.uniqueLandMembers, { 3, 11, 208, 209, 210 })
 end
 
-return T
+return { tests = T }

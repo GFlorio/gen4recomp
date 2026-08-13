@@ -270,4 +270,4 @@ T["restoreRng rejects a malformed rng table"] = function()
   )
 end
 
-return T
+return { tests = T }

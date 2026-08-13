@@ -110,4 +110,4 @@ function T.failed_rebuild_preserves_the_previous_map()
   Assert.isNil(backend:getInfo("staging/heartgold/map-" .. first.mapId), "the stage is cleaned on success")
 end
 
-return T
+return { tests = T }

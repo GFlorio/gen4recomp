@@ -235,4 +235,4 @@ function T.nothing_is_dropped_from_the_text_form()
   Assert.equal(FieldMessageText.tokensToText(tokens), "P\n{STRVAR_1 3, 0, 0}\r\f{YESNO 0}{COLOR 0}{PAUSE}")
 end
 
-return T
+return { tests = T }

@@ -183,4 +183,4 @@ function T.queue_entries_are_the_original_items()
   Assert.isTrue(q.wireframe[1] == items[4], "wireframe pass returns the original item")
 end
 
-return T
+return { tests = T }

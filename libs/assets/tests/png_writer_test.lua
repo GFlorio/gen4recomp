@@ -42,4 +42,4 @@ function T.decodes_back_to_the_same_pixels()
   Assert.equal(math.floor(r2 * 255 + 0.5), 200)
 end
 
-return T
+return { tests = T }

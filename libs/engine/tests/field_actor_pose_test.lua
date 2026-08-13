@@ -79,4 +79,4 @@ function T.rejects_a_visual_without_the_requested_direction()
   end)
 end
 
-return T
+return { tests = T }

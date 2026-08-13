@@ -58,4 +58,4 @@ function T.auxiliary_ui_task_validation_returns_a_structured_error_for_invalid_s
   Assert.equal(err.code, "SCRIPT_TASK_UNSERIALIZABLE")
 end
 
-return T
+return { tests = T }

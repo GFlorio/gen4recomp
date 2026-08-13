@@ -116,4 +116,4 @@ function T.cleanup_tolerates_a_setup_that_never_ran()
   Assert.equal(#opened, 0, "nothing was acquired, so nothing is released")
 end
 
-return T
+return { tests = T }

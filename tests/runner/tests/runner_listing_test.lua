@@ -11,7 +11,7 @@ local T = {}
 
 function T.listing_reports_a_broken_module_instead_of_raising()
   local corpus = FakeCorpus.new({
-    ["fake/list/alpha_test.lua"] = { a = function() end },
+    ["fake/list/alpha_test.lua"] = { tests = { ["a"] = function() end } },
     ["fake/list/broken_test.lua"] = FakeCorpus.LOAD_ERROR,
   })
 
@@ -28,4 +28,4 @@ function T.listing_reports_a_broken_module_instead_of_raising()
   Assert.deepEqual(listing[2].tests, {})
 end
 
-return T
+return { tests = T }

@@ -117,4 +117,4 @@ function T.runtime_fields_are_not_forwarded_onto_the_instance()
   Assert.isNil(state["zoom"])
 end
 
-return T
+return { tests = T }

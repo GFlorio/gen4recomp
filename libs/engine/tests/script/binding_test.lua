@@ -549,4 +549,4 @@ T["foreground root locks movement without an explicit lock"] = function()
   Assert.isFalse(p.scheduler:playerMovementLocked(), "the field unlocks when the foreground root ends")
 end
 
-return T
+return { tests = T }

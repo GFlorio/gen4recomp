@@ -362,4 +362,4 @@ function T.menu_task_rejects_out_of_range_saved_logical_state()
   Assert.equal(err.code, "SCRIPT_TASK_UNSERIALIZABLE")
 end
 
-return T
+return { tests = T }

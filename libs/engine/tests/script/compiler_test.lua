@@ -1252,4 +1252,4 @@ function T.reentrant_compile_does_not_contaminate_either_graph()
   Assert.deepEqual(captured.graph.nodes["path:steps/0"], { op = "set_var", variable = "VAR_A", value = 1 })
 end
 
-return T
+return { tests = T }

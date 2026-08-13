@@ -335,4 +335,4 @@ function T.corrupt_palette_member_is_typed()
   Assert.equal(assert(err).code, "FONT_FORMAT_INVALID")
 end
 
-return T
+return { tests = T }

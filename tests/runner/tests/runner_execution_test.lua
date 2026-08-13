@@ -21,20 +21,24 @@ local function resultFor(run, moduleName, testName)
   error("no result for " .. moduleName .. " :: " .. tostring(testName), 2)
 end
 
--- legacy `name -> function` modules still run, with the layer taken
--- from the root they were discovered under.
-function T.legacy_module_shape_runs_with_root_layer()
+-- A flat `name -> function` module is no legacy shape: normalization rejects
+-- it, so the runner reports one failed result naming the module instead of
+-- guessing what the module means.
+function T.flat_module_is_rejected_as_a_failed_result()
   local corpus = FakeCorpus.new({
     ["fake/unit/alpha_test.lua"] = { ["adds"] = function() end, ["subtracts"] = function() end },
   })
 
   local run = TestRunner.run({ roots = { corpus:root("fake/unit", "unit") }, fs = corpus.fs, load = corpus.load })
 
-  Assert.equal(run.passed, 2)
-  Assert.equal(run.failed, 0)
-  Assert.equal(run.skipped, 0)
-  Assert.equal(resultFor(run, "fake.unit.alpha_test", "adds").status, "pass")
-  Assert.equal(resultFor(run, "fake.unit.alpha_test", "adds").layer, "unit")
+  Assert.equal(run.passed, 0)
+  Assert.equal(run.failed, 1)
+  local failure = resultFor(run, "fake.unit.alpha_test")
+  Assert.equal(failure.status, "fail")
+  Assert.isTrue(
+    tostring(failure.message):find("tests table", 1, true) ~= nil,
+    "the rejection names the missing tests table: " .. tostring(failure.message)
+  )
 end
 
 -- a module that fails to load is one failed result naming the
@@ -42,7 +46,7 @@ end
 function T.module_load_failure_is_a_failed_result()
   local corpus = FakeCorpus.new({
     ["fake/unit/broken_test.lua"] = FakeCorpus.LOAD_ERROR,
-    ["fake/unit/healthy_test.lua"] = { ["works"] = function() end },
+    ["fake/unit/healthy_test.lua"] = { tests = { ["works"] = function() end } },
   })
 
   local run = TestRunner.run({ roots = { corpus:root("fake/unit", "unit") }, fs = corpus.fs, load = corpus.load })
@@ -62,10 +66,12 @@ end
 function T.explicit_skip_is_counted_as_skip()
   local corpus = FakeCorpus.new({
     ["fake/rom/dump_test.lua"] = {
-      ["reads the dump"] = function(context)
-        context:skip("no ready user-owned HGSS dump")
-        error("skip must abort the test body", 0)
-      end,
+      tests = {
+        ["reads the dump"] = function(context)
+          context:skip("no ready user-owned HGSS dump")
+          error("skip must abort the test body", 0)
+        end,
+      },
     },
   })
 
@@ -135,7 +141,7 @@ function T.setup_failure_reports_and_still_runs_cleanup()
         end,
       },
     },
-    ["fake/unit/beta_test.lua"] = { ["still runs"] = function() end },
+    ["fake/unit/beta_test.lua"] = { tests = { ["still runs"] = function() end } },
   })
 
   local run = TestRunner.run({ roots = { corpus:root("fake/unit", "unit") }, fs = corpus.fs, load = corpus.load })
@@ -169,7 +175,7 @@ function T.test_failure_does_not_stop_the_run()
         ["c passes"] = function() end,
       },
     },
-    ["fake/unit/beta_test.lua"] = { ["runs after a failure"] = function() end },
+    ["fake/unit/beta_test.lua"] = { tests = { ["runs after a failure"] = function() end } },
   })
 
   local run = TestRunner.run({ roots = { corpus:root("fake/unit", "unit") }, fs = corpus.fs, load = corpus.load })
@@ -223,10 +229,12 @@ end
 function T.report_summarises_counts_and_durations_by_layer()
   local corpus = FakeCorpus.new({
     ["fake/unit/alpha_test.lua"] = {
-      ["passes"] = function() end,
-      ["fails"] = function()
-        error("deliberate failure", 0)
-      end,
+      tests = {
+        ["passes"] = function() end,
+        ["fails"] = function()
+          error("deliberate failure", 0)
+        end,
+      },
     },
     ["fake/rom/dump_test.lua"] = {
       metadata = { layer = "rom", capabilities = { "rom_dump" } },
@@ -250,4 +258,4 @@ function T.report_summarises_counts_and_durations_by_layer()
   Assert.equal(type(resultFor(run, "fake.unit.alpha_test", "passes").duration), "number")
 end
 
-return T
+return { tests = T }

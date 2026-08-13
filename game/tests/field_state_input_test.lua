@@ -136,4 +136,4 @@ function T.gamepad_dpad_and_left_stick_drive_normal_field_movement()
   )
 end
 
-return T
+return { tests = T }

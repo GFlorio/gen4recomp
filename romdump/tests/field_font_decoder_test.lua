@@ -206,4 +206,4 @@ function T.palette_validation_is_typed()
   end)
 end
 
-return T
+return { tests = T }

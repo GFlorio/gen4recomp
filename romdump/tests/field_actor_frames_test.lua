@@ -56,4 +56,4 @@ function T.multi_texture_resource_still_rejects_a_missing_slot()
   end)
 end
 
-return T
+return { tests = T }

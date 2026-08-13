@@ -102,4 +102,4 @@ function T.font_metrics_resolve_advances_with_fallback()
   Assert.equal(metrics.glyphWidth(99), 4, "unknown codes use the fallback glyph")
 end
 
-return T
+return { tests = T }

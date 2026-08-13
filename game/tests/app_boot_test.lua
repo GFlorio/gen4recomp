@@ -22,4 +22,4 @@ function T.nil_passes_through()
   Assert.isNil(App.fieldTarget(nil))
 end
 
-return T
+return { tests = T }

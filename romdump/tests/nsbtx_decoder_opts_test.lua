@@ -77,4 +77,4 @@ function T.direct_color_needs_no_palette()
   Assert.equal(opts.palette, "")
 end
 
-return T
+return { tests = T }

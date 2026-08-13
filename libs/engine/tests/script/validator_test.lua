@@ -610,4 +610,4 @@ function T.sequential_validation_calls_stay_isolated()
   Assert.equal(err3.context.scriptId, "fourth.script")
 end
 
-return T
+return { tests = T }

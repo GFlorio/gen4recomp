@@ -81,4 +81,4 @@ function T.composes_view_and_model()
   Assert.isTrue(approxVec({ x, y, z }, { 0, 0, 1 }), "got " .. x .. "," .. y .. "," .. z)
 end
 
-return T
+return { tests = T }

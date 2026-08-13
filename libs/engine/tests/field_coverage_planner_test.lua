@@ -95,4 +95,4 @@ function T.detects_missing_planned_cells()
   Assert.equal(err.context.x, 2)
 end
 
-return T
+return { tests = T }

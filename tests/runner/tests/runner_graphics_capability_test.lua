@@ -116,4 +116,4 @@ function T.a_failed_preflight_releases_what_it_already_acquired()
   end
 end
 
-return T
+return { tests = T }

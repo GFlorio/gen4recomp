@@ -32,4 +32,4 @@ function T.ready_requires_marker_and_both_artifacts()
   Assert.isFalse(FieldCameraCache.isReady(c, "other"), "stale marker not ready")
 end
 
-return T
+return { tests = T }

@@ -162,4 +162,4 @@ function T.load_rejects_a_deeply_malformed_scripts_bucket()
   )
 end
 
-return T
+return { tests = T }

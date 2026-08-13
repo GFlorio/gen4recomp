@@ -69,13 +69,16 @@ documented delegate for that source-ROM command, not a second test runner.
 
 ## Writing tests
 
-Use explicit suite metadata for new cross-layer tests and declare capabilities.
-Call `context:skip(reason)` for an optional unavailable capability; returning
-normally is always a pass. Keep unit and component contracts narrow. ROM suites
-assert ready-dump facts; acceptance scenarios boot the real `FieldRuntime` via
-the shared harness, drive semantic input, use real derived data and isolated
-saves, fake only true host boundaries, and never draw. Use the `tdd` skill for
-behavior changes and `acceptance-testing` before new user-visible flows.
+Every suite module returns the explicit suite shape
+`{ metadata, beforeAll, afterAll, tests }` — the legacy flat
+`name -> function` module was removed. Use explicit suite metadata for
+cross-layer tests and declare capabilities. Call `context:skip(reason)` for an
+optional unavailable capability; returning normally is always a pass. Keep
+unit and component contracts narrow. ROM suites assert ready-dump facts;
+acceptance scenarios boot the real `FieldRuntime` via the shared harness,
+drive semantic input, use real derived data and isolated saves, fake only true
+host boundaries, and never draw. Use the `tdd` skill for behavior changes and
+`acceptance-testing` before new user-visible flows.
 
 ## Troubleshooting
 

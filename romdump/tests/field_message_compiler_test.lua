@@ -215,4 +215,4 @@ function T.unmapped_glyph_fails_compilation_with_context()
   Assert.equal(assert(err).context.messageId, 0)
 end
 
-return T
+return { tests = T }

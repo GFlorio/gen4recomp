@@ -111,4 +111,4 @@ function T.failed_mesh_construction_releases_already_acquired_meshes()
   Assert.isTrue(built[1].released, "the mesh acquired before the failure must be released")
 end
 
-return T
+return { tests = T }

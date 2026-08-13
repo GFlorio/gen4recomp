@@ -3,11 +3,11 @@
 -- table exposing `getDirectoryItems` and `getInfo`), so the runner's own tests
 -- drive it with a fake corpus.
 --
--- A file is a suite when its name ends in `_test.lua` or its plural
--- `_tests.lua`; both spellings exist in the repository (see
--- `libs/engine/tests/script/*_tests.lua`). Results are sorted by module name so
--- execution order never depends on filesystem order, and a module name reachable
--- twice is an error rather than a silently doubled or dropped suite.
+-- A file is a suite exactly when its name ends in `_test.lua`. The repository
+-- controls every suite filename, so the former plural `_tests.lua` spelling
+-- is not discovered. Results are sorted by module name so execution order
+-- never depends on filesystem order, and a module name reachable twice is an
+-- error rather than a silently doubled or dropped suite.
 
 local Discovery = {}
 
@@ -17,7 +17,7 @@ local Discovery = {}
 ---@field layer string default layer for suites discovered here
 
 local function isSuiteFile(name)
-  return name:match("_test%.lua$") ~= nil or name:match("_tests%.lua$") ~= nil
+  return name:match("_test%.lua$") ~= nil
 end
 
 local function walk(fs, path, prefix, layer, out)

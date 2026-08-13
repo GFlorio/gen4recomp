@@ -63,4 +63,4 @@ function T.availability_ignores_producer_version_metadata()
   Assert.isTrue(available, reason)
 end
 
-return T
+return { tests = T }

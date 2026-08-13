@@ -39,4 +39,4 @@ function T.untextured_alpha_31_is_opaque()
   Assert.equal(AlphaClassifier.classify(31, 0, nil), "opaque")
 end
 
-return T
+return { tests = T }

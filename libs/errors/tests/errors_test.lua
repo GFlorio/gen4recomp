@@ -54,4 +54,4 @@ function T.raise_survives_pcall()
   Assert.equal(assert(err).context.size, 10)
 end
 
-return T
+return { tests = T }

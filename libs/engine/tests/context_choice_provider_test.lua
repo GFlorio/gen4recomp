@@ -93,4 +93,4 @@ T["context choice task cancellation tolerates an unmaterialized restored provide
   Assert.equal(provider:status(), nil)
 end
 
-return T
+return { tests = T }

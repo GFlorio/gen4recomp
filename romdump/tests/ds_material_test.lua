@@ -117,4 +117,4 @@ function T.resolve_rejects_partial_mask()
   end)
 end
 
-return T
+return { tests = T }

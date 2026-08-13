@@ -129,4 +129,4 @@ function T.listing_shows_layer_capabilities_tags_and_broken_modules()
   Assert.isTrue(contains(lines, "2 suites"), "totals the listing")
 end
 
-return T
+return { tests = T }

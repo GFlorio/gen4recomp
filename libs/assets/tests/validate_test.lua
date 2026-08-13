@@ -40,4 +40,4 @@ function T.is_non_negative_integer_pins_the_id_domain()
   Assert.isFalse(Validate.isNonNegativeInteger(0 / 0))
 end
 
-return T
+return { tests = T }

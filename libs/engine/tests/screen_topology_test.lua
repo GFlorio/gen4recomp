@@ -167,4 +167,4 @@ function T.one_display_creates_one_surface()
   Assert.equal(#topology.surfaces, 1)
 end
 
-return T
+return { tests = T }

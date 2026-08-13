@@ -240,4 +240,4 @@ function T.reset_failure_keeps_the_live_runtime_untouched()
   Assert.equal(reloads(), 0, "failed reset does not re-boot")
 end
 
-return T
+return { tests = T }

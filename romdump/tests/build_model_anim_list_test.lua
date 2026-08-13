@@ -45,4 +45,4 @@ function T.rejects_wrong_record_size()
   end)
 end
 
-return T
+return { tests = T }

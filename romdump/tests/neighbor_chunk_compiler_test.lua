@@ -98,4 +98,4 @@ function T.an_unresolved_name_reports_the_cell_own_pack_as_the_source()
   Assert.equal(entry.source, "map_textures member " .. CELL_PACK_ID)
 end
 
-return T
+return { tests = T }

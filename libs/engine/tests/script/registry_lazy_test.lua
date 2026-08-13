@@ -324,4 +324,4 @@ T["buildRegistry can defer the seal for pre-seal installs"] = function()
   end)
 end
 
-return T
+return { tests = T }

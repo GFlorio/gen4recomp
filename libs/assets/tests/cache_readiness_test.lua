@@ -353,4 +353,4 @@ function T.script_valid_artifact_is_ready()
   Assert.isTrue(ScriptCache.isReady(c, "m"))
 end
 
-return T
+return { tests = T }

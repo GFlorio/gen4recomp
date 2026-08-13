@@ -167,4 +167,4 @@ function T.a_frame_the_visual_cannot_provide_is_fatal()
   end)
 end
 
-return T
+return { tests = T }

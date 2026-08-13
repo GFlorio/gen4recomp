@@ -47,4 +47,4 @@ function T.empty_profile_is_fatal()
   end)
 end
 
-return T
+return { tests = T }

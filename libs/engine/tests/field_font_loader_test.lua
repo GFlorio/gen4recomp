@@ -17,4 +17,4 @@ function T.loads_the_compiled_definition_without_a_graphics_namespace()
   Assert.deepEqual(FieldFontLoader.load(cache), definition)
 end
 
-return T
+return { tests = T }

@@ -145,4 +145,4 @@ function T.resolve_reports_absent_sprite_and_unknown_descriptor()
   Assert.equal(assert(descErr).code, "FIELD_ACTOR_DESCRIPTOR_UNKNOWN")
 end
 
-return T
+return { tests = T }

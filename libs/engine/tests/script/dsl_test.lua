@@ -1133,4 +1133,4 @@ function T.constructor_output_has_no_metatables()
   assertNoMetatables(S.script({ api = 1, id = "x", steps = { S.stop() } }), "script")
 end
 
-return T
+return { tests = T }

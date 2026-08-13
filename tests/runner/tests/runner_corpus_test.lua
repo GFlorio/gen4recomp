@@ -40,10 +40,11 @@ function T.every_declared_root_contributes_suites()
   end
 end
 
--- Both suffix spellings exist in the repository; the nested script suites use
--- the plural one and were previously registered by hand.
+-- The nested script suites live under `libs/engine/tests/script/` and were
+-- previously registered by hand; discovery must reach them by the single
+-- `_test.lua` suffix.
 function T.nested_script_suites_are_discovered()
-  Assert.notNil(find("libs.engine.tests.script.scheduler_tests"), "nested plural suite is missing")
+  Assert.notNil(find("libs.engine.tests.script.scheduler_test"), "nested script suite is missing")
   Assert.notNil(find("libs.engine.tests.field_session_test"), "immediate suite is missing")
 end
 
@@ -54,4 +55,4 @@ function T.every_listed_suite_has_a_layer_and_tests()
   end
 end
 
-return T
+return { tests = T }
