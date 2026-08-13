@@ -105,9 +105,11 @@ order:
 4. `The acceptance tests from the prior subagent are contract tests. Make them pass
    without weakening them. Add lower-layer tests as required by TDD.`
 5. `Follow CLAUDE.md. Run scripts/test.sh until green.`
-6. `Append anything later deliverables need to the Messages section of the notes file.
+6. `The spec is temporary context. Do not copy deliverable numbers, phase names, or plan
+   terminology into code, tests, comments, docstrings, or commit messages.`
+7. `Append anything later deliverables need to the Messages section of the notes file.
    Do not edit the spec. Do not commit.`
-7. The return shape: `Return: files touched, what you built, deviations from the spec and
+8. The return shape: `Return: files touched, what you built, deviations from the spec and
    why, the test status, and the ownership/failure cases you introduced or changed with the
    tests covering them (say so explicitly if there are none).`
 

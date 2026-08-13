@@ -36,6 +36,9 @@ This file provides guidance to Coding Agents when working with code in this repo
 - **Runtime boundary:** `libs/engine` and normal `game` runtime consume generated assets only. They must not import `romdump`, decomp-derived references, NARC/Nitro/overlay parsers, or interpret source binary packing. The launcher/import UI is the sole allowed `game` → `romdump` provisioning dependency.
 - **Producer test:** if changing a module can change generated output for an unchanged raw dump without changing a shared asset contract, that implementation belongs under `romdump`.
 - **Source metadata:** source physical IDs/paths/offsets belong in producer dependencies/provenance, not runtime asset fields, unless a concrete runtime/mod-facing semantic use exists.
+- Winner selection, conflict resolution, status classification, schema validation, and
+  similar business rules have one authoritative implementation. Do not maintain a second
+  "inspection" implementation with slightly different semantics.
 - The `tests/architecture/module_boundaries_test.lua` unit suite scans literal requires across the `libs/*` packages and `game` and enforces these boundaries; keep it green.
 
 
@@ -45,8 +48,18 @@ This file provides guidance to Coding Agents when working with code in this repo
   on every later failure path.
 - A multi-step constructor or loader must clean up what it already acquired when a later
   step fails.
+- A normal constructor/factory must return a usable object or fail. Do not return a
+  partially initialized object whose methods are guarded by `if collaborator then` checks.
+  If partial state is a real domain concept, model it as an explicit state type or state
+  machine rather than a half-constructed instance.
+- Cleanup after a failed multi-step construction is not recovery. Release locally acquired
+  resources, then rethrow the original failure unless the factory itself is a documented
+  public `nil, err` boundary.
 - Replacing owned state disposes the previous state exactly once.
 - Reentrancy/busy protection lives inside the stateful subsystem, not only in its callers.
+- A boolean `protected`/`pinned` flag has one owner. If independent owners must
+  acquire/release the same protection, use an ownership token/count or restructure to one
+  owner. Code must never release protection it did not establish.
 - `push`, mount, subscribe, acquire, open, and creating an Image/Mesh/Canvas are ownership
   changes and need matching cleanup. No generic RAII helper framework.
 
@@ -58,6 +71,10 @@ This file provides guidance to Coding Agents when working with code in this repo
   validated.
 - Transactional replacement is: **stage, validate, publish.** Writing the completion marker
   last proves completeness; it is not by itself transactional replacement.
+- Caller-owned cleanup ends when `publish` begins. Before publication, the caller may
+  discard its disposable stage. Once publication starts, the publisher owns
+  rollback/recovery material and the caller must not blindly abort or remove that stage
+  after a publish error.
 - Filesystem failures propagate. A wrapper must never report success after an underlying
   write/remove/rename/create failed.
 - Do not build a generic transaction framework without several concrete users.
@@ -66,6 +83,10 @@ This file provides guidance to Coding Agents when working with code in this repo
 
 - Project-owned current schemas are strict. A missing required array/table is an error, not
   `{}`; an unknown enum/mode value is an error, not a plausible default.
+- Before adding `or {}`, `or default`, an alias, or a missing-field branch for
+  project-owned data, identify the current producer path that can validly omit the value.
+  A test fixture or an obsolete development artifact is not evidence that the production
+  schema is optional.
 - Generated artifacts get no backward-compatibility handling unless explicitly requested.
 - Validate finite/integer/range constraints wherever a value becomes an ID, index, offset,
   tick, size, or binary field.
@@ -95,6 +116,18 @@ This file provides guidance to Coding Agents when working with code in this repo
 - Stateful, cached, resource-owning, or asynchronous code needs at least one failure or
   multi-step sequence test, not only a happy path.
 - Test behavioral ownership boundaries, not helper internals.
+- Required production collaborators stay required in tests. Do not add production nil
+  checks, optional methods, or fallback branches solely because a fake omits part of the
+  real interface. Fix the fake or inject failure at a boundary that can fail in
+  production.
+- Do not add source-text tombstone tests whose contract is that a deleted symbol/string
+  never reappears. Protect current behavior or an architectural boundary instead. If
+  deletion has no surviving behavioral invariant, deletion needs no permanent regression
+  test.
+- Temporary spec/deliverable/phase identifiers (for example `D12`, `DEV-06`, `Gate 3`,
+  `pre-D4`) must not appear in committed source, tests, comments, docstrings, or commit
+  messages. A workflow-time grep/review check is fine; a permanent source-content test is
+  not.
 - Test modules are discovered recursively from the roots in `tests/run.lua`; do
   not add manual module registration.
 - New cross-layer suites declare layer metadata (`metadata.layer`) and required
@@ -164,3 +197,6 @@ to avoid shell injection or permission issues.
 - **Binary access:** generic binary primitives live in `libs/codec`; interpreting a Nintendo/HGSS source binary with them belongs under `romdump`, even when the parser is pure. Project-owned generated binary formats belong under `libs/assets`.
 - **Errors vs assert:** malformed input / user faults raise `Errors.raise(CODE, message, context)` with a `SCREAMING_SNAKE_CASE` module-prefixed code (`NDS_*`, `OVERLAY_*`, `READ_*`). Programming invariants use plain `assert`. Public `open`/`parse` entry points wrap a private `_parse` in `pcall` and return `nil, err` when `Errors.is(result)`, else re-raise.
 - **Tests:** unit tests live beside their library in `libs/<lib>/tests/*_test.lua` (app tests under `<app>/tests/`); each returns the explicit suite shape (`metadata`/`beforeAll`/`afterAll`/`tests`). Discovery is recursive over the roots declared in `tests/run.lua` — there is no module registry, so a new `*_test.lua` file runs as soon as it exists. Use `tests/support/Assert`; reuse the local `throwsCode(code, fn)` helper pattern to assert a raised `Errors` object with a given code. Put binary fixture generators in `tests/support/`. Run with `scripts/test.sh`.
+- A `_private` method is not an inter-module API. If another module legitimately needs the
+  operation, expose a semantic public method or move the responsibility; do not normalize
+  cross-module calls to underscored helpers.

@@ -52,6 +52,9 @@ and indirection that only existed because producer and runtime shared the old mo
   default. Raise internally; `nil, err` only at a documented public error boundary.
 - **Unjustified recovery.** A `pcall` that swallows a whole error family or code prefix, a
   missing required field defaulted to `{}`, an unknown enum mapped to a plausible value.
+- **Fake-driven branches.** A nil/missing-method branch that exists only because a test
+  fake omits part of the required production interface — fix the fake, do not weaken
+  production.
 - **Nesting.** Flat is better than nested. Early-return instead of `if ... else` pyramids.
 - **Missing assertions.** Invariants the code relies on but never checks.
 
@@ -75,10 +78,18 @@ and indirection that only existed because producer and runtime shared the old mo
   shared tables, stale cached state, iteration order assumptions.
 - **Ownership and lifecycle.** Unclear owner, partial acquisition never cleaned up on a
   later failure, replaced state disposed twice or never, reentrancy guarded only in callers.
+- **Half-valid objects.** A constructor/factory returning a partial object whose methods
+  are guarded by `if collaborator then` checks instead of failing outright.
+- **Protection ownership.** One owner releasing another owner's map/resource protection; a
+  `protected`/`pinned` flag released by code that never established it.
+- **Duplicate business rules.** The same winner/status/schema algorithm reimplemented in
+  separate modules with slightly different semantics.
 - **Publication and data integrity.** The last known-good artifact destroyed before its
   replacement validated; persistent user state sharing a deletion root with generated cache
   state; a filesystem wrapper reporting success after a failed underlying operation;
   marker-last completeness described as transactional replacement.
+- **Publication ownership.** A caller calling `abort`/stage cleanup after a publisher has
+  started rollback-sensitive work.
 - **Shared mutation.** A cache key missing a property that changes the cached object's
   runtime configuration; shared cached data mutated per consumer; bookkeeping fields
   attached to caller-owned objects.
@@ -93,6 +104,8 @@ and indirection that only existed because producer and runtime shared the old mo
   field matters, hardcoded offsets that duplicate the implementation, ordering assumptions
   on unordered data, real-ROM dependence in unit tests.
 - **Tests that restate the implementation** instead of pinning behavior.
+- **Source-text tombstones.** A test whose only contract is that a deleted symbol/string
+  never reappears — protect the current behavior or architectural boundary instead.
 - **Discovery.** Test modules are discovered recursively under the roots declared in
   `tests/run.lua`; a suite outside those roots never runs. There is no registry, and
   ROM-dependent suites declare the capability they need instead of living behind a second
@@ -101,8 +114,9 @@ and indirection that only existed because producer and runtime shared the old mo
 ## Residue
 
 - **Debug/trace code.** Leftover prints, commented-out blocks, temporary flags.
-- **Spec mentions.** Specs are temporary and get discarded — no references to them in code,
-  comments, docstrings, or commit messages. Same for "Gate N"-style plan phase labels.
+- **Spec mentions.** Specs are temporary and get discarded — no references to them in
+  production code, tests, comments, docstrings, or commit messages. Same for "Gate
+  N"-style plan phase labels; review committed tests as well as production code.
 - **Dead code.** Unused locals, unreachable arms, "just in case" compatibility shims,
   exports nobody requires.
 - **Stale comments.** Comments describing what the code used to do.

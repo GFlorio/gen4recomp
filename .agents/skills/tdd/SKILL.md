@@ -53,7 +53,12 @@ isolates the failure cause; keep the acceptance test when composition is the con
 - Assert behavior and ownership boundaries, not helper call order or private fields
   without a durable reason.
 - Prefer real collaborators when cheap and deterministic; fake true host boundaries.
+- A fake may omit a production collaborator only if absence is part of the production
+  contract. Otherwise make the fake conform to the real interface.
 - Do not add production forwarding interfaces only for tests.
+- Do not create a regression test that scans source text merely to prove an old
+  implementation name is absent. Test the current behavioral or architectural contract
+  that made the deletion correct.
 - A round trip needs an independent contract anchor when writer and reader are both
   project code.
 - Refactors require characterization before movement when behavior is not already
