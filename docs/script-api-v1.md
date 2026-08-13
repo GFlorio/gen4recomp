@@ -214,12 +214,11 @@ Constructors return ordinary serializable Lua tables. Direct table form is alway
 | `S.setSpawn(spec)` | `op=set_spawn` | spec={spawn}. |
 | `S.shakeCamera(spec)` | `op=shake_camera` | Requires amplitude/interval/count fields. |
 
-### Random, raw, and diagnostic constructors
+### Random and diagnostic constructors
 
 | Signature | Canonical | Notes |
 |---|---|---|
 | `S.random(spec)` | `op=random` | spec={maxExclusive,result}. |
-| `S.lua(spec)` | `op=lua` | Requires module and fn; defaults args={}, result=nil. |
 | `S.unsupported(spec)` | `op=unsupported` | Requires command/name/source metadata sufficient for diagnostics. |
 
 ## Values
@@ -803,17 +802,6 @@ No fields.
 |---|---|---|---|
 | `key` | string |  |  |
 | `provenance` | source_provenance |  |  |
-
-### `lua`
-
-| Field | Type | Required | Default |
-|---|---|---|---|
-| `args` | args |  | `{}` |
-| `fn` | string | yes |  |
-| `key` | string |  |  |
-| `module` | string | yes |  |
-| `provenance` | source_provenance |  |  |
-| `result` | value |  |  |
 
 ### `menu_add`
 

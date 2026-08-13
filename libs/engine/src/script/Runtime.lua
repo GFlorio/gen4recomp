@@ -9,7 +9,6 @@
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local ScriptEnvironment = require("libs.engine.src.script.ScriptEnvironment")
-local RawInvocation = require("libs.engine.src.script.RawInvocation")
 local MovementPauseTask = require("libs.engine.src.script.tasks.MovementPauseTask")
 local MovementTask = require("libs.engine.src.script.tasks.MovementTask")
 
@@ -349,7 +348,7 @@ local function requireScriptMenu(run)
 end
 
 -- Create a blocking task through the scheduler and return the block outcome.
--- The blocking node's `result` ref (ask_yes_no, lua) rides along so the
+-- The blocking node's `result` ref (ask_yes_no) rides along so the
 -- scheduler can write the completed task result on continuation.
 ---@param run table
 ---@param taskType string
@@ -963,7 +962,7 @@ local function startMovement(run, node, blocking)
   requireForegroundPlayer(run, actorId)
   -- The actor-busy check and the movement-generation registration are owned
   -- by the task-creation boundary (MovementTask.create + Scheduler:createTask),
-  -- so raw ctx.tasks.movement descriptors share them.
+  -- so both the blocking and nonblocking move forms share them.
   local taskId = run.scheduler:createTask(MovementTask.type, {
     actor = actorId,
     sequence = node.movement,
@@ -1101,37 +1100,7 @@ HANDLERS.warp = function(node, run)
   requireForeground(run, "warp")
   return blockOnTask(run, "warp", { node = node })
 end
-HANDLERS.lua = function(node, run)
-  local modules = assert(run.services.rawModules, "the lua node requires the raw module registry in services")
-  local classification, value = RawInvocation.invoke({
-    modules = modules,
-    scheduler = run.scheduler,
-    instance = run.instance,
-    environment = run.environment,
-    services = run.services,
-    node = node,
-    module = node.module,
-    fn = node.fn,
-    args = node.args,
-  })
-  if classification == "none" then
-    -- A synchronous nil result: nothing to write, continue same tick.
-    return Runtime.OUTCOME_CONTINUE
-  elseif classification == "value" then
-    -- A synchronous serializable value written to the declared result.
-    Runtime.writeRef(node.result, value, run)
-    return Runtime.OUTCOME_CONTINUE
-  end
-  -- A task descriptor becomes one authoritative scheduler task: the lua
-  -- node blocks on the real task, and the task's result flows through the
-  -- generic blocked-result path.
-  assert(classification == "task", "unexpected raw result classification")
-  assert(value.taskVersion == 1, "task descriptors must reference the registered version 1")
-  local taskId = run.scheduler:createTask(value.taskType, value.state, run.instance, run.tick, run.input)
-  run.blockTaskId = taskId
-  run.blockResultRef = node.result
-  return Runtime.OUTCOME_BLOCK
-end
+
 HANDLERS.unsupported = function(node, run)
   Errors.raise(ScriptErrors.SCRIPT_UNSUPPORTED_REACHABLE, "reachable unsupported node", {
     scriptId = run.instance.scriptId,

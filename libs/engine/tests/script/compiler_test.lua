@@ -176,7 +176,6 @@ local function allOpsScript()
     S.setSpawn({ spawn = "SPAWN_NEW_BARK" }),
     S.shakeCamera({ amplitudeX = 2, amplitudeY = 0, intervalTicks = 2, count = 8 }),
     S.random({ maxExclusive = 10, result = S.local_("roll") }),
-    S.lua({ module = "scripts.story.elm", fn = "chooseStarter", args = {}, result = S.local_("starter") }),
     S.unsupported({
       command = 0x017A,
       originalName = "ScrCmd_378",

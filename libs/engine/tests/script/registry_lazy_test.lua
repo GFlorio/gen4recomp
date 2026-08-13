@@ -1,8 +1,8 @@
 -- Lazy registry tests: deferred base layers decode through the registry's
--- resource loader on first access, presence semantics (has/ids/duplicates)
--- work without decoding, the fingerprint consumes pre-stashed per-resource
--- hashes without touching the loader, and the RegistryWarmup background pass
--- slices decode+hash work, records failures, and publishes the snapshot on
+-- resource loader on first access, presence semantics (ids/duplicates) work
+-- without decoding, the fingerprint consumes pre-stashed per-resource hashes
+-- without touching the loader, and the RegistryWarmup background pass slices
+-- decode+hash work, records failures, and publishes the snapshot on
 -- completion.
 
 local Assert = require("tests.support.Assert")
@@ -114,10 +114,9 @@ T["deferred base decodes through the loader once"] = function()
   Assert.deepEqual(calls, { "new_bark.lab_sign" }, "the decoded base is memoized")
 end
 
--- 2. Presence works without decoding: has/ids never touch the loader.
+-- 2. Presence works without decoding: ids never touch the loader.
 T["presence semantics never decode"] = function()
   local registry, calls = lazyRegistry(scriptCache())
-  Assert.isTrue(registry:has("new_bark.lab_sign"))
   Assert.deepEqual(registry:ids(), { "new_bark.lab_sign", "vanilla.hgss.scr_seq.0842.script_001" })
   Assert.isNil(registry:base("unknown.id"))
   Assert.deepEqual(calls, {})
@@ -287,9 +286,6 @@ T["buildRegistry returns a sealed registry"] = function()
   throwsCode("SCRIPT_REGISTRY_SEALED", function()
     registry:installBase("late.id", { id = "late.id" }, "generated")
   end)
-  throwsCode("SCRIPT_REGISTRY_SEALED", function()
-    registry:override("new_bark.lab_sign", { id = "new_bark.lab_sign" }, { modId = "mod.a" })
-  end)
 end
 
 -- 14. The seal exempts the post-load machinery: per-resource hash stashing,
@@ -307,20 +303,7 @@ T["seal exempts the post-load machinery"] = function()
   Assert.equal(registry:fingerprint(), ("0"):rep(64), "the restored memo must stay authoritative")
   Assert.equal(assert(registry:base("new_bark.lab_sign")).id, "new_bark.lab_sign")
   throwsCode("SCRIPT_REGISTRY_SEALED", function()
-    registry:register("late.id", { id = "late.id" }, { modId = "mod.a" })
-  end)
-end
-
--- 15. buildRegistry can defer its seal: `seal = false` keeps the registry
--- mutable so a caller can install mod scripts before sealing it itself (the
--- FieldScripts mod-asset seam). The default stays sealed.
-T["buildRegistry can defer the seal for pre-seal installs"] = function()
-  local registry = ScriptLoader.buildRegistry(scriptCache(), overrideFs(), requireShim, { lazy = true, seal = false })
-  registry:register("mod.helper", { id = "mod.helper" }, { modId = "mod.a" })
-  Assert.notNil(registry:get("mod.helper"))
-  registry:seal()
-  throwsCode("SCRIPT_REGISTRY_SEALED", function()
-    registry:register("mod.late", { id = "mod.late" }, { modId = "mod.a" })
+    registry:installBase("late.id", { id = "late.id" }, "generated")
   end)
 end
 

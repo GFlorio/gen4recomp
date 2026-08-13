@@ -315,7 +315,6 @@ end
 ---@field advanceAsync fun(tick: integer)|nil
 ---@field foreground { resolve: fun(input: table|nil): table|nil }|nil
 ---@field resolveComposition fun(scriptId: string): table|nil|nil
----@field rawModules table|nil
 ---@field menu table
 ---@field scriptMenu table
 ---@field auxiliaryUi AuxiliaryFieldUi

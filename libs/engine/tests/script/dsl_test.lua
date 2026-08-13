@@ -909,35 +909,12 @@ local CASES = {
     { op = "shake_camera", amplitudeX = 2, amplitudeY = 0, intervalTicks = 2, count = 8 },
   },
 
-  -- Random, raw, and diagnostic constructors
+  -- Random and diagnostic constructors
   random = {
     function()
       return S.random({ maxExclusive = 10, result = S.local_("roll") })
     end,
     { op = "random", maxExclusive = 10, result = { value = "local", name = "roll" } },
-  },
-  lua = {
-    function()
-      return S.lua({
-        module = "scripts.story.elm",
-        fn = "chooseStarter",
-        args = { professor = S.actor("elm") },
-        result = S.local_("starter"),
-      })
-    end,
-    {
-      op = "lua",
-      module = "scripts.story.elm",
-      fn = "chooseStarter",
-      args = { professor = { ref = "actor", id = "elm" } },
-      result = { value = "local", name = "starter" },
-    },
-  },
-  lua_minimal = {
-    function()
-      return S.lua({ module = "scripts.story.elm", fn = "chooseStarter" })
-    end,
-    { op = "lua", module = "scripts.story.elm", fn = "chooseStarter", args = {} },
   },
   unsupported = {
     function()

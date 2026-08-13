@@ -575,7 +575,7 @@ function Scheduler:_applyDeferredFaults()
 end
 
 -- Write a completed task result into the blocking node's result reference
--- (ask_yes_no, lua). The ref is evaluated
+-- (ask_yes_no). The ref is evaluated
 -- against the instance on the promotion tick.
 function Scheduler:_writeTaskResult(instance)
   local run = {

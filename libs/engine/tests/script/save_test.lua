@@ -613,15 +613,17 @@ T["cross-script jump pins the target revision"] = function()
   local bucket = ScriptSave.capture(h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
 
   -- Replace the target script and restore: the pinned revision is gone.
-  h.registry:override(
+  -- An override-layer install bumps the registry version exactly like any
+  -- other load-time mutation, so the pinned composition revision no longer
+  -- matches.
+  h.registry:installBase(
     "test.tail",
     script("test.tail", {
       S.label({ name = "_0050" }),
       S.setVar({ variable = "VAR_REPLACED", value = 2 }),
       S.stop(),
     }),
-    { modId = "mod.a" },
-    {}
+    "override"
   )
   local scheduler = Scheduler.new({
     services = h.services,

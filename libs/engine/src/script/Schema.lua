@@ -571,14 +571,6 @@ Schema.OPERATIONS = {
       result = { type = "value", required = true },
     },
   },
-  lua = {
-    fields = {
-      module = { type = "string", required = true },
-      fn = { type = "string", required = true },
-      args = { type = "args", default = {} },
-      result = { type = "value" },
-    },
-  },
   unsupported = {
     fields = {
       command = { type = "integer", required = true },
@@ -1023,14 +1015,9 @@ Schema.CONSTRUCTORS = {
     },
   },
   {
-    section = "Random, raw, and diagnostic constructors",
+    section = "Random and diagnostic constructors",
     rows = {
       { signature = "S.random(spec)", canonical = "op=random", notes = "spec={maxExclusive,result}." },
-      {
-        signature = "S.lua(spec)",
-        canonical = "op=lua",
-        notes = "Requires module and fn; defaults args={}, result=nil.",
-      },
       {
         signature = "S.unsupported(spec)",
         canonical = "op=unsupported",

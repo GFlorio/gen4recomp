@@ -9,7 +9,6 @@ local Composition = require("libs.engine.src.script.Composition")
 local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
 local Scheduler = require("libs.engine.src.script.Scheduler")
 local ScriptSave = require("libs.engine.src.script.ScriptSave")
-local RawModules = require("libs.engine.src.script.RawModules")
 local MenuTask = require("libs.engine.src.script.tasks.MenuTask")
 local FakeServices = require("tests.support.script.FakeServices")
 
@@ -33,24 +32,14 @@ function RecordingMenuHost:close()
   self.closes = self.closes + 1
 end
 
-local TestRaw = {
-  startMenu = function()
-    return {
-      taskType = "menu",
-      taskVersion = 1,
-      state = {
-        menu = {
-          items = {
-            { text = "First", value = 41 },
-            { text = "Second", value = 99 },
-          },
-          initialCursor = 0,
-          cancellable = true,
-          cancelValue = -1,
-        },
-      },
-    }
-  end,
+local MENU_SPEC = {
+  items = {
+    { text = "First", value = 41 },
+    { text = "Second", value = 99 },
+  },
+  initialCursor = 0,
+  cancellable = true,
+  cancelValue = -1,
 }
 
 local RecordingScriptMenuHost = {}
@@ -95,9 +84,6 @@ local function harness()
   local composition = Composition.new(registry)
   local taskRegistry = TaskRegistry.new()
   taskRegistry:register(MenuTask.type, MenuTask.version, MenuTask)
-  local modules = RawModules.new()
-  modules:register("test.menu", TestRaw, { kind = "mod", id = "test", api = 1 })
-  services.rawModules = modules
   local scheduler = Scheduler.new({
     services = services,
     taskRegistry = taskRegistry,
@@ -258,7 +244,13 @@ local function resource()
     id = "test.menu_task",
     locals = { selection = "integer" },
     steps = {
-      S.lua({ module = "test.menu", fn = "startMenu", result = S.local_("selection") }),
+      S.choose({
+        items = MENU_SPEC.items,
+        result = S.local_("selection"),
+        cancellable = MENU_SPEC.cancellable,
+        cancelValue = MENU_SPEC.cancelValue,
+        initialCursor = MENU_SPEC.initialCursor,
+      }),
       S.setVar({ variable = "VAR_RESULT", value = S.local_("selection") }),
       S.stop(),
     },
@@ -351,10 +343,7 @@ function T.cancelling_the_blocked_script_releases_the_menu_once()
 end
 
 function T.menu_task_rejects_out_of_range_saved_logical_state()
-  local state = MenuTask.create(
-    { menu = TestRaw.startMenu().state.menu },
-    { services = { menu = RecordingMenuHost.new() } }
-  )
+  local state = MenuTask.create({ menu = MENU_SPEC }, { services = { menu = RecordingMenuHost.new() } })
   local err
   state.selectedIndex = 2
   err = MenuTask.validate(state)

@@ -1,12 +1,12 @@
 -- Production-composed registry sealing contract: once FieldScripts finishes
--- loading, the script registry rejects every public install/contribution
--- mutation, while the post-load machinery the seal exempts keeps both
--- production boot paths live — the snapshot-restored fingerprint memo (fast
--- path), the background warm-up's per-resource hash stashing and digest
--- publish (warmup path), and on-demand decode of deferred generated scripts
--- during play. The mutation-gate enumeration is unit-owned
--- (registry_lazy_test.lua / composition_tests.lua); acceptance pins that
--- sealing does not break either production composition path.
+-- loading, the script registry rejects every public install mutation, while
+-- the post-load machinery the seal exempts keeps both production boot paths
+-- live — the snapshot-restored fingerprint memo (fast path), the background
+-- warm-up's per-resource hash stashing and digest publish (warmup path), and
+-- on-demand decode of deferred generated scripts during play. The
+-- mutation-gate enumeration is unit-owned (registry_lazy_test.lua /
+-- composition_test.lua); acceptance pins that sealing does not break either
+-- production composition path.
 
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
@@ -24,23 +24,15 @@ local LAB = "MAP_NEW_BARK_ELMS_LAB_1F"
 local TOWN = "MAP_NEW_BARK"
 local SNAPSHOT_PATH = "data/generated/script/registry.lua"
 
--- Every public install/contribution mutation of a loaded production
--- registry must be rejected: the registry is sealed once load finishes.
--- Each probe uses its own fresh id so one probe's registration can never
--- collide with another probe's.
+-- Every public install mutation of a loaded production registry must be
+-- rejected: the registry is sealed once load finishes. Each probe uses its
+-- own fresh id so one probe's registration can never collide with another's.
 local function assertSealedRegistry(registry)
   local probeId = "acceptance.seal.probe"
-  local owner = { modId = "acceptance" }
   local function id(suffix)
     return probeId .. "." .. suffix
   end
   local attempts = {
-    {
-      "register",
-      function()
-        registry:register(id("register"), { id = id("register") }, owner)
-      end,
-    },
     {
       "installBase",
       function()
@@ -51,36 +43,6 @@ local function assertSealedRegistry(registry)
       "installBaseDeferred",
       function()
         registry:installBaseDeferred(id("deferred"), "generated")
-      end,
-    },
-    {
-      "override",
-      function()
-        registry:override(id("override"), { id = id("override") }, owner)
-      end,
-    },
-    {
-      "before",
-      function()
-        registry:before(id("before"), { id = id("before") }, owner)
-      end,
-    },
-    {
-      "after",
-      function()
-        registry:after(id("after"), { id = id("after") }, owner)
-      end,
-    },
-    {
-      "wrap",
-      function()
-        registry:wrap(id("wrap"), { id = id("wrap") }, owner)
-      end,
-    },
-    {
-      "remove",
-      function()
-        registry:remove(id("remove"), owner)
       end,
     },
   }
@@ -141,9 +103,9 @@ end
 
 -- SEAL-02: the snapshot-restored fast path stays live under the seal — the
 -- restored fingerprint is the digest save validation uses, every public
--- install/contribution mutation is rejected, and a real generated script
--- still decodes on demand (the exempted `_load` memoization) and runs to
--- completion through the production composition.
+-- install mutation is rejected, and a real generated script still decodes on
+-- demand (the exempted `_load` memoization) and runs to completion through
+-- the production composition.
 function T.tests.snapshot_restored_fast_path_rejects_post_load_mutation()
   local harness = AcceptanceHarness.new()
   harness:forEachVersion(function(versionId)

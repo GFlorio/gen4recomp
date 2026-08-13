@@ -615,13 +615,10 @@ function M.shakeCamera(spec)
   return op("shake_camera", spec)
 end
 
--- Random, raw, and diagnostic constructors
+-- Random and diagnostic constructors
 
 function M.random(spec)
   return op("random", spec)
-end
-function M.lua(spec)
-  return op("lua", spec)
 end
 function M.unsupported(spec)
   return op("unsupported", spec)

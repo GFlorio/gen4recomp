@@ -278,26 +278,7 @@ T["unmapped intent falls through"] = function()
   Assert.isNil(p.scheduler:foregroundEnvironmentId())
 end
 
--- 13. A tombstoned script (composition resolves nil) behaves as unmapped.
-T["removed script is unmapped"] = function()
-  local p = platform()
-  local resource = script("new_bark.npc.woman_1", { S.stop() })
-  p.registry:installBase(resource.id, resource, "generated")
-  p.registry:remove(resource.id, { modId = "mod.a" }, { priority = 10 })
-  local client = ScriptInteractionClient.new({
-    bindings = Bindings.new(MANIFEST),
-    compose = function(id)
-      return p.composition:effective(id)
-    end,
-    scheduler = p.scheduler,
-  })
-  Assert.equal(
-    client:consume(objectIntent(57, "obj_T20_gswoman1", "north"), 100),
-    ScriptInteractionClient.RESULTS.unmapped
-  )
-end
-
--- 14. Actor world adapter: the player is always present; snapshots are
+-- 13. Actor world adapter: the player is always present; snapshots are
 -- read-only records; mutation operations reach the manager.
 T["actor world adapter"] = function()
   local actors = {}

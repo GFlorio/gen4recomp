@@ -875,68 +875,7 @@ T["missing call target"] = function()
   Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_CALL_TARGET_MISSING")
 end
 
--- 24. Wrapper composition: a before script that ends its linear tail falls
--- through to the base (the example-mod preface behavior);
--- ownership flows through frames.
-T["wrapper chain fall through"] = function()
-  local h = harness()
-  local base = script("new_bark.lab_sign", {
-    S.setVar({ variable = "VAR_BASE", value = 1 }),
-    S.stop(),
-  })
-  h.registry:installBase(base.id, base, "generated")
-  local preface = script("example.preface", {
-    S.setVar({ variable = "VAR_PRE", value = 1 }),
-  })
-  h.registry:before(base.id, preface, { modId = "example.mod" }, { priority = 0 })
-  local instanceId = startForeground(h, base, 100)
-  h.scheduler:step(100, nil)
-  Assert.equal(h.services.world:getVar("VAR_PRE"), 1)
-  Assert.equal(h.services.world:getVar("VAR_BASE"), 1)
-  Assert.isTrue(assert(h.services.events:eventFor("script.ended", instanceId)).completed)
-end
-
--- 25. A wrapper `next` mid-script jumps into the next contribution.
-T["wrapper explicit next"] = function()
-  local h = harness()
-  local base = script("new_bark.lab_sign", {
-    S.setVar({ variable = "VAR_BASE", value = 1 }),
-    S.stop(),
-  })
-  h.registry:installBase(base.id, base, "generated")
-  local preface = script("example.preface", {
-    S.setVar({ variable = "VAR_PRE", value = 1 }),
-    S.next(),
-    S.setVar({ variable = "VAR_SKIPPED", value = 1 }),
-  })
-  h.registry:before(base.id, preface, { modId = "example.mod" }, { priority = 0 })
-  startForeground(h, base, 100)
-  h.scheduler:step(100, nil)
-  Assert.equal(h.services.world:getVar("VAR_PRE"), 1)
-  Assert.equal(h.services.world:getVar("VAR_BASE"), 1)
-  Assert.equal(h.services.world:getVar("VAR_SKIPPED"), 0, "nodes after next are unreachable on the path")
-end
-
--- 26. A wrapper ending with `stop` consumes the original behavior.
-T["wrapper consumes with stop"] = function()
-  local h = harness()
-  local base = script("new_bark.lab_sign", {
-    S.setVar({ variable = "VAR_BASE", value = 1 }),
-    S.stop(),
-  })
-  h.registry:installBase(base.id, base, "generated")
-  local preface = script("example.preface", {
-    S.setVar({ variable = "VAR_PRE", value = 1 }),
-    S.stop(),
-  })
-  h.registry:before(base.id, preface, { modId = "example.mod" }, { priority = 0 })
-  startForeground(h, base, 100)
-  h.scheduler:step(100, nil)
-  Assert.equal(h.services.world:getVar("VAR_PRE"), 1)
-  Assert.equal(h.services.world:getVar("VAR_BASE"), 0)
-end
-
--- 27. signal_caller in the root context is invalid.
+-- 24. signal_caller in the root context is invalid.
 T["signal_caller in root faults"] = function()
   local h = harness()
   local instanceId = startForeground(
@@ -1349,8 +1288,8 @@ T["cross-script reference errors are attributed"] = function()
   Assert.equal(assert(h.services.events:eventFor("script.error", badLabel)).code, "SCRIPT_LABEL_MISSING")
 end
 
--- 3u. A mod that replaces the target script redirects the jump: the
--- reference is resolved through the composition registry at execution time.
+-- 3u. An override-layer replacement of the target script redirects the jump:
+-- the reference is resolved through the composition registry at execution time.
 T["goto_script resolves the composed target"] = function()
   local h = harness()
   h.registry:installBase(
@@ -1365,7 +1304,7 @@ T["goto_script resolves the composed target"] = function()
     S.setVar({ variable = "VAR_REPLACED", value = 9 }),
     S.stop(),
   })
-  h.registry:override("test.tail", replacement, { modId = "mod.a" }, {})
+  h.registry:installBase("test.tail", replacement, "override")
   startForeground(
     h,
     script("test.jumper", {
@@ -1562,14 +1501,6 @@ end
 -- instead of the error escaping the scheduler, and the broken task record is
 -- cancelled deterministically.
 
-local RawModules = require("libs.engine.src.script.RawModules")
-
-local FAULTY_MODULE = {
-  start = function(ctx, args)
-    return { taskType = "faulty", taskVersion = 1, state = args.state or {} }
-  end,
-}
-
 -- Task implementations whose callbacks raise, pinning the task-callback fault
 -- boundary. Each carries the required version and validate fields; the
 -- fakes never reach validate.
@@ -1587,30 +1518,25 @@ end
 local function faultyHarness(taskImpl)
   local h = harness()
   h.taskRegistry:register("faulty", 1, taskImpl)
-  local modules = RawModules.new()
-  modules:register("test.faulty", FAULTY_MODULE, { kind = "mod", id = "test.mod", api = 1 })
-  h.services.rawModules = modules
   return h
 end
 
+-- A live foreground instance for the broken task to be attributed to, with
+-- the task created directly on the scheduler (the lua-node vehicle is gone).
+-- The yield keeps the instance live across the poll window; the marker after
+-- it never runs because the fault tears the instance down first.
 local function startFaultyScript(h, name, tick)
-  return startForeground(
+  local instanceId = startForeground(
     h,
     script("test.faulty." .. name, {
-      locals = { out = "serializable" },
-      steps = {
-        S.lua({
-          module = "test.faulty",
-          fn = "start",
-          args = {},
-          result = S.local_("out"),
-        }),
-        S.setVar({ variable = "VAR_AFTER", value = 1 }),
-        S.stop(),
-      },
+      S.yieldTick(),
+      S.setVar({ variable = "VAR_AFTER", value = 1 }),
+      S.stop(),
     }),
     tick
   )
+  h.scheduler:createTask("faulty", {}, assert(h.scheduler:instance(instanceId)), tick, nil)
+  return instanceId
 end
 
 local function lastEventNamed(h, name)
