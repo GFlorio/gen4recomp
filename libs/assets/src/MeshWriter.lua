@@ -6,8 +6,9 @@
 --     dynamic (animated) segments alike: Nitro field batches are rigid
 --     segments transformed by the pose program, so no vertex skinning
 --     attributes exist:
---     header (24 bytes): "G4M2", u16 version(2), u16 flags, u32 vertexCount,
---       u32 indexCount, u16 stride(40), u16 indexWidth(2|4), u32 reserved(0)
+--     header (24 bytes): G4M2 magic, u16 version(2), u16 flags, u32
+--       vertexCount, u32 indexCount, u16 stride(40), u16 indexWidth(2|4),
+--       u32 reserved(0)
 --     vertices: f32 x,y,z,u,v,nx,ny,nz then u8 r,g,b,a, u8 colorSource,
 --       u8 pad[3] (40 bytes each)
 --     indices:  u16 (vertexCount <= 65535) or u32, zero-based
@@ -16,13 +17,9 @@
 
 local Errors = require("libs.errors.src.Errors")
 local BinaryWriter = require("libs.codec.src.BinaryWriter")
-local Contract = require("libs.assets.src.DerivedAssetContract")
+local G4MeshFormat = require("libs.assets.src.G4MeshFormat")
 
 local MeshWriter = {}
-
-local MAGIC = Contract.mesh.magic
-local VERSION = Contract.mesh.version
-local STRIDE = 40
 
 function MeshWriter.encode(batch)
   local vertices, indices = batch.vertices, batch.indices
@@ -32,10 +29,17 @@ function MeshWriter.encode(batch)
   if #indices % 3 ~= 0 then
     Errors.raise("MESH_BAD_INDEX_COUNT", "index count " .. #indices .. " is not a multiple of 3", { count = #indices })
   end
-  local indexWidth = (#vertices <= 65535) and 2 or 4
+  local indexWidth = (#vertices <= 65535) and G4MeshFormat.indexWidths[1] or G4MeshFormat.indexWidths[2]
 
   local w = BinaryWriter.new()
-  w:bytes(MAGIC):u16(VERSION):u16(0):u32(#vertices):u32(#indices):u16(STRIDE):u16(indexWidth):u32(0)
+  w:bytes(G4MeshFormat.MAGIC)
+    :u16(G4MeshFormat.VERSION)
+    :u16(0)
+    :u32(#vertices)
+    :u32(#indices)
+    :u16(G4MeshFormat.STRIDE)
+    :u16(indexWidth)
+    :u32(0)
 
   for i, v in ipairs(vertices) do
     local source = v.colorSource

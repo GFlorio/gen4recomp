@@ -7,6 +7,15 @@
 
 local FixedPoint = {}
 
+-- One unit in 1.M.12 fixed point: fx16 and fx32 words divide by this to
+-- reach real numbers (GBATEK's "DS 3D" fixed-point convention).
+FixedPoint.FX32_SCALE = 4096
+
+-- The 5-bit RGB component range and the 8-bit byte range of the RGB5 -> 8
+-- color conversion.
+FixedPoint.RGB5_MAX = 31
+FixedPoint.BYTE_MAX = 255
+
 local TWO_PI = 2 * math.pi
 
 -- Sign-extend an n-bit unsigned integer to a signed Lua number.
@@ -20,12 +29,12 @@ end
 
 -- Signed 20.12 (fx32) -> real number. Input is the raw unsigned 32-bit word.
 function FixedPoint.fx32(value)
-  return signExtend(value, 32) / 4096
+  return signExtend(value, 32) / FixedPoint.FX32_SCALE
 end
 
 -- Signed 3.12 (fx16) -> real number. Input is the raw unsigned 16-bit word.
 function FixedPoint.fx16(value)
-  return signExtend(value, 16) / 4096
+  return signExtend(value, 16) / FixedPoint.FX32_SCALE
 end
 
 -- Sign-extend a 10-bit integer (0..1023) to -512..511.
@@ -42,13 +51,19 @@ function FixedPoint.normal10(word)
   return FixedPoint.s10(x) / 512, FixedPoint.s10(y) / 512, FixedPoint.s10(z) / 512
 end
 
+-- 5-bit RGB component -> 8-bit byte (round half up): the per-component step
+-- of the RGB5 -> 8 conversion.
+function FixedPoint.rgb5ToByte(value)
+  return math.floor(value * FixedPoint.BYTE_MAX / FixedPoint.RGB5_MAX + 0.5)
+end
+
 -- BGR555 -> r, g, b each 0..255. Bits 0-4 red, 5-9 green, 10-14 blue. The high
 -- bit is ignored here; callers decide alpha per format.
 function FixedPoint.rgb555(value)
   local r5 = value % 32
   local g5 = math.floor(value / 32) % 32
   local b5 = math.floor(value / 1024) % 32
-  return math.floor(r5 * 255 / 31 + 0.5), math.floor(g5 * 255 / 31 + 0.5), math.floor(b5 * 255 / 31 + 0.5)
+  return FixedPoint.rgb5ToByte(r5), FixedPoint.rgb5ToByte(g5), FixedPoint.rgb5ToByte(b5)
 end
 
 -- DS angle word (0x10000 == full turn) -> radians.

@@ -11,15 +11,15 @@
 
 local Errors = require("libs.errors.src.Errors")
 local BinaryReader = require("libs.codec.src.BinaryReader")
+local G4MeshFormat = require("libs.assets.src.G4MeshFormat")
 local VertexFormat = require("libs.assets.src.VertexFormat")
-local Contract = require("libs.assets.src.DerivedAssetContract")
 
 local SceneMesh = {}
 
-local HEADER = 24 -- magic, u16 ver, u16 flags, u32 vcount, u32 icount, u16 stride, u16 iwidth, u32 reserved
-local MAGIC = Contract.mesh.magic
-local VERSION = Contract.mesh.version
-local STRIDE = 40
+local HEADER = G4MeshFormat.HEADER_SIZE -- magic, u16 ver, u16 flags, u32 vcount, u32 icount, u16 stride, u16 iwidth, u32 reserved
+local MAGIC = G4MeshFormat.MAGIC
+local VERSION = G4MeshFormat.VERSION
+local STRIDE = G4MeshFormat.STRIDE
 
 local function isFinite(n)
   return n == n and n ~= math.huge and n ~= -math.huge
@@ -35,7 +35,7 @@ function SceneMesh.decode(bytes, context)
   local r = BinaryReader.new(bytes, "g4mesh")
   local magic = r:ascii(0, 4)
   if magic ~= MAGIC then
-    Errors.raise("MESH_BAD_MAGIC", "expected G4M2 magic, got " .. magic, { source = context })
+    Errors.raise("MESH_BAD_MAGIC", "expected " .. MAGIC .. " magic, got " .. magic, { source = context })
   end
   local version = r:u16le(4)
   if version ~= VERSION then
@@ -48,7 +48,7 @@ function SceneMesh.decode(bytes, context)
   if stride ~= STRIDE then
     Errors.raise("MESH_BAD_STRIDE", "expected stride " .. STRIDE .. ", got " .. stride, { source = context })
   end
-  if indexWidth ~= 2 and indexWidth ~= 4 then
+  if indexWidth ~= G4MeshFormat.indexWidths[1] and indexWidth ~= G4MeshFormat.indexWidths[2] then
     Errors.raise("MESH_BAD_INDEX_WIDTH", "index width must be 2 or 4, got " .. indexWidth, { source = context })
   end
   if indexCount % 3 ~= 0 then

@@ -34,6 +34,8 @@
 --     "from model" (the channel is resolved against the model bind pose
 --     after the blend). Pure domain module.
 
+local FixedPoint = require("libs.math.src.FixedPoint")
+
 local JointAnimBlend = {}
 
 JointAnimBlend.FROM_MODEL = { scale = 0x01, rot = 0x02, trans = 0x04, inverseScale = 0x08 }
@@ -64,7 +66,7 @@ end
 -- product is exact; the generic claim that any two 32-bit factors fit in a
 -- double's significand is false and not relied on here.
 local function fxMul64(a, b)
-  return wrap32(math.floor(a * b / 4096))
+  return wrap32(math.floor(a * b / FixedPoint.FX32_SCALE))
 end
 
 -- Bitwise AND over the 5 flag bits.
@@ -122,18 +124,18 @@ local function normalizeRow(cells, offset)
   if length == 0 then
     return
   end
-  cells[offset + 1] = math.floor(x * 4096 / length)
-  cells[offset + 2] = math.floor(y * 4096 / length)
-  cells[offset + 3] = math.floor(z * 4096 / length)
+  cells[offset + 1] = math.floor(x * FixedPoint.FX32_SCALE / length)
+  cells[offset + 2] = math.floor(y * FixedPoint.FX32_SCALE / length)
+  cells[offset + 3] = math.floor(z * FixedPoint.FX32_SCALE / length)
 end
 
 -- Double-precision cross product (VEC_CrossProduct stand-in, see header):
 -- out = cross(a, b), every product exact, one >> 12 per component.
 local function cross(a, b)
   return {
-    math.floor((a[2] * b[3] - a[3] * b[2]) / 4096),
-    math.floor((a[3] * b[1] - a[1] * b[3]) / 4096),
-    math.floor((a[1] * b[2] - a[2] * b[1]) / 4096),
+    math.floor((a[2] * b[3] - a[3] * b[2]) / FixedPoint.FX32_SCALE),
+    math.floor((a[3] * b[1] - a[1] * b[3]) / FixedPoint.FX32_SCALE),
+    math.floor((a[1] * b[2] - a[2] * b[1]) / FixedPoint.FX32_SCALE),
   }
 end
 
@@ -193,10 +195,10 @@ function JointAnimBlend.blend(entries)
   for _, entry in ipairs(contributing) do
     -- FX_Div is skipped when the total is exactly 0x1000 (asm compare).
     local weight
-    if total == 0x1000 then
+    if total == FixedPoint.FX32_SCALE then
       weight = entry.ratio
     else
-      weight = math.floor(entry.ratio * 4096 / total)
+      weight = math.floor(entry.ratio * FixedPoint.FX32_SCALE / total)
     end
     local r = entry.result
 

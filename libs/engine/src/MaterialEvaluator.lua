@@ -44,6 +44,7 @@
 -- non-positive ratio are ignored. Pure domain module.
 
 local Errors = require("libs.rom.src.Errors")
+local FixedPoint = require("libs.math.src.FixedPoint")
 local AlphaClassifier = require("libs.engine.src.AlphaClassifier")
 local NitroTexMatrix = require("libs.engine.src.NitroTexMatrix")
 local CompiledNsbtaSampler = require("libs.engine.src.CompiledNsbtaSampler")
@@ -60,15 +61,17 @@ local CONVENTIONS = {
   [1] = NitroTexMatrix.si3d,
 }
 
-local function bit5To8(value)
-  return math.floor(value * 255 / 31 + 0.5)
-end
-
+-- BGR555 (low 5 bits -> blue) — the NSBMA packed order, the OPPOSITE of
+-- FixedPoint.rgb555 (low 5 bits -> red); keep this unpacking exactly.
 local function rgb555To8(value)
   local r = math.floor(value / 1024) % 32
   local g = math.floor(value / 32) % 32
   local b = value % 32
-  return { r = bit5To8(r), g = bit5To8(g), b = bit5To8(b) }
+  return {
+    r = FixedPoint.rgb5ToByte(r),
+    g = FixedPoint.rgb5ToByte(g),
+    b = FixedPoint.rgb5ToByte(b),
+  }
 end
 
 -- The track of `attachment` whose precomputed binding maps onto
@@ -116,7 +119,8 @@ end
 ---@param material table
 ---@return MaterialColorComponents
 function MaterialEvaluator.baseColors(material)
-  local baseColor = material.baseColor or { r = 255, g = 255, b = 255, a = 255 }
+  local baseColor = material.baseColor
+    or { r = FixedPoint.BYTE_MAX, g = FixedPoint.BYTE_MAX, b = FixedPoint.BYTE_MAX, a = FixedPoint.BYTE_MAX }
   local function component(name)
     local c = material.colors and material.colors[name]
     if c then
@@ -141,12 +145,13 @@ end
 local function baseMaterialState(definition, materialIndex)
   local material =
     assert(definition.materials[materialIndex + 1], "material index " .. tostring(materialIndex) .. " out of range")
-  local baseColor = material.baseColor or { r = 255, g = 255, b = 255, a = 255 }
+  local baseColor = material.baseColor
+    or { r = FixedPoint.BYTE_MAX, g = FixedPoint.BYTE_MAX, b = FixedPoint.BYTE_MAX, a = FixedPoint.BYTE_MAX }
   return {
     record = material,
     colors = MaterialEvaluator.baseColors(material),
     alpha = baseColor.a,
-    polygonAlpha = material.polygonAlpha or 31,
+    polygonAlpha = material.polygonAlpha or FixedPoint.RGB5_MAX,
   }
 end
 
@@ -163,7 +168,7 @@ end
 -- linear cells: one fx32 translation unit (0x1000) is exactly one texture
 -- width of normalized translation.
 local function texMatrix(cells, baseW, baseH, curW, curH)
-  local scale = 4096
+  local scale = FixedPoint.FX32_SCALE
   return {
     cells[1] * baseW / (scale * curW), -- m00: u * s
     cells[2] * baseW / (scale * curH), -- m10: v * s
@@ -187,8 +192,8 @@ local function staticSrt(material)
       transS = 0,
       transT = 0,
       rot = nil,
-      scaleS = 0x1000,
-      scaleT = 0x1000,
+      scaleS = FixedPoint.FX32_SCALE,
+      scaleT = FixedPoint.FX32_SCALE,
       transOne = true,
       rotOne = true,
       scaleOne = true,
@@ -382,8 +387,8 @@ function MaterialEvaluator.evaluate(definition, attachments, materialState)
         transOne = srt.transOne,
         rotOne = srt.rotOne,
         scaleOne = srt.scaleOne,
-        ratioS = 0x1000,
-        ratioT = 0x1000,
+        ratioS = FixedPoint.FX32_SCALE,
+        ratioT = FixedPoint.FX32_SCALE,
       })
       materialState[materialIndex] = {
         texture = tex.texture,

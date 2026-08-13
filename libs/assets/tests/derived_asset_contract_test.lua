@@ -13,7 +13,6 @@ local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local ScriptCache = require("libs.assets.src.ScriptCache")
-local VertexFormat = require("libs.assets.src.VertexFormat")
 
 local T = {}
 
@@ -54,11 +53,6 @@ function T.contract_pins_the_current_asset_identities()
       indexSchema = "g4-script-index-v1",
       provenanceSchema = "g4-script-provenance-v1",
     },
-    mesh = {
-      magic = "G4M2",
-      version = 2,
-      vertexFormatVersion = 2,
-    },
   })
 end
 
@@ -83,7 +77,6 @@ function T.cache_modules_consume_the_contract_constants()
   Assert.equal(ScriptCache.FORMAT, DerivedAssetContract.scripts.cacheFormat)
   Assert.equal(ScriptCache.INDEX_SCHEMA, DerivedAssetContract.scripts.indexSchema)
   Assert.equal(ScriptCache.PROVENANCE_SCHEMA, DerivedAssetContract.scripts.provenanceSchema)
-  Assert.equal(VertexFormat.VERSION, DerivedAssetContract.mesh.vertexFormatVersion)
 end
 
 return { tests = T }

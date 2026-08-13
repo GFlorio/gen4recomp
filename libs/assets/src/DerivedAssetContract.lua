@@ -52,10 +52,8 @@ DerivedAssetContract.scripts = {
   provenanceSchema = "g4-script-provenance-v1",
 }
 
-DerivedAssetContract.mesh = {
-  magic = "G4M2",
-  version = 2,
-  vertexFormatVersion = 2,
-}
+-- The mesh batch format constants (magic, version, stride, header size,
+-- index widths) have their own owner (G4MeshFormat); the vertex-layout
+-- version aliases that owner's version, so nothing mesh-shaped lives here.
 
 return DerivedAssetContract

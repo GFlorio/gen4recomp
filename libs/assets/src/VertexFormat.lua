@@ -5,11 +5,14 @@
 -- The table is plain data (no love calls), so it is safe to require anywhere.
 -- Color is carried as float4 in 0..1 to keep the shader read unambiguous.
 
+local G4MeshFormat = require("libs.assets.src.G4MeshFormat")
+
 local VertexFormat = {}
 
-local Contract = require("libs.assets.src.DerivedAssetContract")
-
-VertexFormat.VERSION = Contract.mesh.vertexFormatVersion
+-- The renderer's vertex layout version is the batch-format version: the
+-- mesh batches it consumes are G4MeshFormat.VERSION, so the two cannot
+-- drift apart.
+VertexFormat.VERSION = G4MeshFormat.VERSION
 
 VertexFormat.LAYOUT = {
   { "VertexPosition", "float", 3 },

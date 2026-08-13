@@ -54,6 +54,11 @@ function T.rgb555_range_ends()
   Assert.equal(r, 255)
   Assert.equal(g, 0)
   Assert.equal(b, 0)
+  -- The per-component 5-bit -> 8-bit conversion is the same round-half-up
+  -- step rgb555 applies to every channel.
+  Assert.equal(FixedPoint.rgb5ToByte(0), 0)
+  Assert.equal(FixedPoint.rgb5ToByte(15), 123)
+  Assert.equal(FixedPoint.rgb5ToByte(31), 255)
 end
 
 function T.angle16_range()
