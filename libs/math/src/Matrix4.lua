@@ -172,47 +172,4 @@ function Matrix4.toArray(m)
   return a
 end
 
--- Inverse of an affine 4x4 (last row 0,0,0,1): the linear part is inverted
--- by its cofactor matrix, then the translation is mapped back through it.
--- Building placement transforms are always affine, so this is the only shape
--- the runtime inverts.
-function Matrix4.invert(m)
-  assert(m[4] == 0 and m[8] == 0 and m[12] == 0 and m[16] == 1, "Matrix4.invert requires an affine matrix")
-  -- Cofactor matrix of the 3x3 linear part (column-major: inv[i] holds the
-  -- transposed cofactors, the inverse when divided by the determinant).
-  local a11, a12, a13 = m[1], m[5], m[9]
-  local a21, a22, a23 = m[2], m[6], m[10]
-  local a31, a32, a33 = m[3], m[7], m[11]
-  local det = a11 * (a22 * a33 - a23 * a32) - a12 * (a21 * a33 - a23 * a31) + a13 * (a21 * a32 - a22 * a31)
-  assert(det ~= 0, "Matrix4.invert requires a non-singular matrix")
-  local invDet = 1 / det
-  local b11 = (a22 * a33 - a23 * a32) * invDet
-  local b12 = (a13 * a32 - a12 * a33) * invDet
-  local b13 = (a12 * a23 - a13 * a22) * invDet
-  local b21 = (a23 * a31 - a21 * a33) * invDet
-  local b22 = (a11 * a33 - a13 * a31) * invDet
-  local b23 = (a13 * a21 - a11 * a23) * invDet
-  local b31 = (a21 * a32 - a22 * a31) * invDet
-  local b32 = (a12 * a31 - a11 * a32) * invDet
-  local b33 = (a11 * a22 - a12 * a21) * invDet
-  return {
-    b11,
-    b12,
-    b13,
-    0,
-    b21,
-    b22,
-    b23,
-    0,
-    b31,
-    b32,
-    b33,
-    0,
-    -(b11 * m[13] + b21 * m[14] + b31 * m[15]),
-    -(b12 * m[13] + b22 * m[14] + b32 * m[15]),
-    -(b13 * m[13] + b23 * m[14] + b33 * m[15]),
-    1,
-  }
-end
-
 return Matrix4
