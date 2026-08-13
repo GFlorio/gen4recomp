@@ -1,7 +1,15 @@
 local Assert = require("tests.support.Assert")
 local WorldManifest = require("romdump.src.digest.WorldManifest")
+local CacheFs = require("libs.storage.src.CacheFs")
+local FakeCache = require("tests.support.FakeCache")
+local MapAssetCache = require("libs.assets.src.MapAssetCache")
 
 local T = {}
+
+-- The artifact staging root mirrors the live cache-relative layout, so the
+-- staged manifest lives under `staging/<version>/world/` until publish.
+local WORLD_ROOT = "staging/heartgold/world"
+local WORLD_STAGE = WORLD_ROOT .. "/" .. MapAssetCache.worldPath()
 
 local function sample()
   return {
@@ -97,6 +105,82 @@ function T.build_rejects_duplicate_id()
   Assert.throws(function()
     WorldManifest.build(dup)
   end)
+end
+
+-- The staged manifest lives under the artifact staging root until publish, and
+-- the live world.lua is never written directly.
+function T.stage_leaves_live_world_untouched_until_publish()
+  local backend = FakeCache.new()
+  local c = CacheFs.forVersion("heartgold", backend)
+  local world = WorldManifest.stage(c, sample(), selectionExcluded(), compileExcluded())
+  Assert.isNil(c:getInfo(MapAssetCache.worldPath()), "live world.lua must not exist before publish")
+  Assert.notNil(backend:getInfo(WORLD_STAGE), "the manifest is staged for the pending publication")
+  world:publish()
+  local live = assert(c:loadLua(MapAssetCache.worldPath()))
+  Assert.equal(live.maps[1].id, 60)
+  Assert.equal(live.bySymbol["MAP_NEW_BARK"], 60)
+  Assert.equal(live.analysis.mapHeaderCount, 5)
+  Assert.isNil(backend:getInfo(WORLD_ROOT), "the stage is removed after a successful publish")
+end
+
+-- A staged manifest that does not read back as a manifest fails the stage: the
+-- stage is discarded and the previous live world stays the last-known-good.
+function T.corrupted_staged_write_fails_without_touching_the_live_world()
+  local backend = FakeCache.new()
+  local c = CacheFs.forVersion("heartgold", backend)
+  local first = WorldManifest.stage(c, sample())
+  first:publish()
+  local orig = backend.write
+  ---@diagnostic disable: duplicate-set-field
+  backend.write = function(self, path, data)
+    if path == WORLD_STAGE then
+      return orig(self, path, "not a lua manifest")
+    end
+    return orig(self, path, data)
+  end
+  local err = Assert.throws(function()
+    WorldManifest.stage(c, sample(), selectionExcluded(), compileExcluded())
+  end)
+  backend.write = orig
+  Assert.equal(err.code, "WORLD_MANIFEST_READBACK_FAILED")
+  Assert.isNil(backend:getInfo(WORLD_ROOT), "the failed stage is discarded")
+  local live = assert(c:loadLua(MapAssetCache.worldPath()))
+  Assert.equal(live.analysis.mapHeaderCount, 2, "the live world must stay the last-known-good")
+end
+
+-- A publish failure re-raises and leaves the last-known-good live world in
+-- place: the single-file swap is atomic on the host rename.
+function T.publish_failure_keeps_the_last_known_good_world_live()
+  local backend = FakeCache.new()
+  local c = CacheFs.forVersion("heartgold", backend)
+  local first = WorldManifest.stage(c, sample())
+  first:publish()
+  local originalReplace = backend.replace
+  ---@diagnostic disable: duplicate-set-field
+  backend.replace = function(self, sourcePath, destinationPath)
+    if sourcePath:find(WORLD_ROOT, 1, true) then
+      return false, "injected publish failure"
+    end
+    return originalReplace(self, sourcePath, destinationPath)
+  end
+  local second = WorldManifest.stage(c, sample(), selectionExcluded(), compileExcluded())
+  local err = Assert.throws(function()
+    second:publish()
+  end)
+  backend.replace = originalReplace
+  Assert.equal(err.code, "CACHE_REPLACE_FAILED")
+  local live = assert(c:loadLua(MapAssetCache.worldPath()))
+  Assert.equal(live.analysis.mapHeaderCount, 2, "the last-known-good world stays live after a failed publish")
+end
+
+-- Abort discards the disposable stage; the live world is never touched.
+function T.abort_discards_the_staged_manifest_without_touching_live()
+  local backend = FakeCache.new()
+  local c = CacheFs.forVersion("heartgold", backend)
+  local world = WorldManifest.stage(c, sample(), selectionExcluded(), compileExcluded())
+  world:abort()
+  Assert.isNil(c:getInfo(MapAssetCache.worldPath()), "abort never touches the live world")
+  Assert.isNil(backend:getInfo(WORLD_ROOT), "abort discards the staged manifest")
 end
 
 return { tests = T }

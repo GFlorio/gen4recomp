@@ -334,8 +334,9 @@ end
 
 -- Build the derived cache for every listed version (or every ready version)
 -- and quit with the build status. The pipeline itself lives in CacheBuilder;
--- this wrapper owns only the process exit codes and the report shape. A map
--- whose cell could not be selected is recorded as `excluded`; a resolved map
+-- this wrapper owns only the process exit codes; the machine-readable report
+-- is the builder's own, passed through unchanged. A map whose cell could not
+-- be selected is recorded as `excluded`; a resolved map
 -- rejected with a structured compiler error is recorded as `compileExcluded`,
 -- writes no partial artifacts, and makes the build exit nonzero unless the
 -- allowCompileExclusions option accepts them. A map whose completion marker
@@ -354,7 +355,7 @@ function Runner._runBuild(options)
     if not options.noQuit then
       love.event.quit(0)
     end
-    return { current = true }
+    return report
   end
   if not options.noQuit then
     love.event.quit(1)

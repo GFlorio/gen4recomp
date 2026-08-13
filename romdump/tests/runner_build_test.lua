@@ -42,17 +42,17 @@ end
 function T.run_build_honors_its_options_parameter_allow_compile_exclusions()
   local realOpts, realImporter = Runner.opts, Runner.importer
   local realBuilder = package.loaded["romdump.src.CacheBuilder"]
-  local received
+  local received, report
   package.loaded["romdump.src.CacheBuilder"] = {
     buildVersions = function(versionIds, options)
       received = { versionIds = versionIds, options = options }
-      return { current = true }
+      return { published = true, complete = true, exclusionCount = 0 }
     end,
   }
   Runner.opts = { allowCompileExclusions = true }
 
   local ok, err = xpcall(function()
-    Runner._runBuild({ versionIds = { "heartgold" }, allowCompileExclusions = false, noQuit = true })
+    report = Runner._runBuild({ versionIds = { "heartgold" }, allowCompileExclusions = false, noQuit = true })
   end, debug.traceback)
   Runner.opts, Runner.importer = realOpts, realImporter
   package.loaded["romdump.src.CacheBuilder"] = realBuilder
@@ -62,6 +62,11 @@ function T.run_build_honors_its_options_parameter_allow_compile_exclusions()
 
   Assert.deepEqual(received.versionIds, { "heartgold" })
   Assert.isFalse(received.options.allowCompileExclusions, "the options parameter must win over Runner.opts")
+  Assert.deepEqual(
+    report,
+    { published = true, complete = true, exclusionCount = 0 },
+    "_runBuild must pass the builder's report through unchanged"
+  )
 end
 
 -- The CLI path still delivers --allow-compile-exclusions to the builder when
@@ -76,7 +81,7 @@ function T.cli_build_cache_flag_allow_compile_exclusions_reaches_the_builder()
   package.loaded["romdump.src.CacheBuilder"] = {
     buildVersions = function(_, options)
       received = options
-      return { current = true }
+      return { published = true, complete = true, exclusionCount = 0 }
     end,
   }
   RomImporter.isReady = function()
@@ -162,7 +167,7 @@ function T.completed_import_with_build_cache_runs_audit_build_then_boot_and_disp
     buildVersions = function(versionIds, options)
       calls[#calls + 1] = "build:" .. table.concat(versionIds, ",")
       buildOptions = { versionIds = versionIds, options = options }
-      return { current = true }
+      return { published = true, complete = true, exclusionCount = 0 }
     end,
   }
   package.loaded["game.src.game.FieldRuntime"] = {
@@ -231,7 +236,7 @@ function T.completed_import_audit_failure_exits_nonzero_without_building()
   package.loaded["romdump.src.CacheBuilder"] = {
     buildVersions = function()
       calls[#calls + 1] = "build"
-      return { current = true }
+      return { published = true, complete = true, exclusionCount = 0 }
     end,
   }
   love.event.quit = function(code)
@@ -351,7 +356,7 @@ function T.completed_import_constructor_raise_exits_nonzero()
   package.loaded["romdump.src.CacheBuilder"] = {
     buildVersions = function(versionIds)
       calls[#calls + 1] = "build:" .. table.concat(versionIds, ",")
-      return { current = true }
+      return { published = true, complete = true, exclusionCount = 0 }
     end,
   }
   package.loaded["game.src.game.FieldRuntime"] = {

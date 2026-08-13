@@ -6,8 +6,10 @@
 -- this producer + contract for this dump?" without opening the ROM. publish
 -- writes a temporary sibling and atomically replaces the live state, and the
 -- state is only ever written after a fully strict build (no compile
--- exclusions); invalidate removes the attestation without touching the
--- artifacts themselves.
+-- exclusions) whose whole batch succeeded: CacheBuilder defers both the world
+-- index and this attestation to the batch outcome, so the attestation never
+-- vouches for a world index the batch left stale. invalidate removes the
+-- attestation without touching the artifacts themselves.
 
 local Hashing = require("romdump.src.digest.Hashing")
 

@@ -1,9 +1,16 @@
 -- Builds and persists the whole-ROM world manifest: the map index the game
--- boots and switches on. Pure build-side domain (no love); write() takes a
+-- boots and switches on. Pure build-side domain (no love); stage() takes a
 -- CacheFs. Source of map identity is the compiled scenes, not the ROM.
+--
+-- The manifest follows the shared staged-publication lifecycle of every other
+-- generated artifact: it is written into the disposable artifact stage, read
+-- back and validated there, and only published over the live `world.lua` when
+-- the caller has reached the success level that makes the new index
+-- authoritative. The live path is never written directly.
 
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local Errors = require("libs.errors.src.Errors")
+local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
 
 local WorldManifest = {}
 
@@ -70,10 +77,40 @@ function WorldManifest.build(entries, excluded, compileExcluded)
   }
 end
 
-function WorldManifest.write(cacheFs, entries, excluded, compileExcluded)
+-- Stage the current manifest for the version's cache: build it, write it into
+-- the disposable artifact stage, and prove it reads back as a manifest. The
+-- live world.lua is untouched. Returns a handle with `version`, `publish()`
+-- (swap the staged manifest over the live path through the shared publication
+-- lifecycle, after which the caller must not abort), and `abort()` (discard
+-- the disposable stage). A staging/validation failure discards the stage and
+-- re-raises.
+function WorldManifest.stage(cacheFs, entries, excluded, compileExcluded)
   local manifest = WorldManifest.build(entries, excluded, compileExcluded)
-  cacheFs:writeLua(MapAssetCache.worldPath(), manifest)
-  return manifest
+  local tx = ArtifactPublisher.begin(cacheFs, "world", { MapAssetCache.worldPath() })
+  local ok, result = pcall(function()
+    tx.stage:writeLua(MapAssetCache.worldPath(), manifest)
+    local readBack = tx.stage:loadLua(MapAssetCache.worldPath())
+    if type(readBack) ~= "table" or type(readBack.maps) ~= "table" then
+      Errors.raise(
+        "WORLD_MANIFEST_READBACK_FAILED",
+        "world.lua did not read back as a manifest",
+        { path = MapAssetCache.worldPath() }
+      )
+    end
+  end)
+  if not ok then
+    tx:abort()
+    error(result, 0)
+  end
+  return {
+    version = cacheFs.versionId,
+    publish = function()
+      tx:publish()
+    end,
+    abort = function()
+      tx:abort()
+    end,
+  }
 end
 
 return WorldManifest

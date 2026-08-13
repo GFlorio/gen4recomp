@@ -1,8 +1,8 @@
 -- Concrete per-version derived-cache build pipeline: compiles every cache
 -- class, writes only stale artifacts, emits the machine-readable build-cache
--- log, and returns the build report shape (`{ current = true }` /
--- `nil, err`). Command selection, process exit codes, and love coupling
--- stay in Runner; this module is pure Lua.
+-- log, and returns the build report (`{ published = true, complete = ...,
+-- exclusionCount = ... }` / `nil, err`). Command selection, process exit
+-- codes, and love coupling stay in Runner; this module is pure Lua.
 
 local MapAnalysis = require("romdump.src.digest.MapAnalysis")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
@@ -56,9 +56,16 @@ end
 -- identity whose availability audit passes reports the version current
 -- without opening the ROM or calling any compiler, and a matching identity
 -- whose audit fails enters the incremental repair path. A differing identity
--- forces every class to regenerate regardless of its marker checks. Only a
--- fully strict per-version build (no compile exclusions) republishes the
--- attestation; any failure or exclusion leaves it absent.
+-- forces every class to regenerate regardless of its marker checks.
+--
+-- The world manifest is staged per version but published only after the whole
+-- batch has reached the success level required for the authoritative index: a
+-- failed version or an unaccepted exclusion leaves every staged manifest
+-- discarded and the previous live world.lua untouched, so a later build
+-- failure can never install a new partial world. The successful-build
+-- attestation publishes at the same point (per strict version, never before
+-- the world it vouches for), so a stale world index can never fast-path as
+-- current.
 --
 -- Expected per-version failures are the structured errors the source-data
 -- stage boundaries (RomFs.open and the compilers) return as `nil, err`; they
@@ -67,6 +74,13 @@ end
 -- the batch boundary: programming faults and structured errors that are raised
 -- directly (cache write failures, duplicate world-manifest ids) indicate a
 -- broken invariant and propagate after the version's RomFs has been closed.
+--
+-- The returned report distinguishes a complete strict build from an explicitly
+-- accepted partial build: `published` is true whenever the authoritative world
+-- index is in place for the outcome (newly staged worlds were published; a
+-- fast-path build found them already current), `complete` is false exactly
+-- when compile exclusions were present, and `exclusionCount` totals the
+-- compile-excluded maps across every version.
 ---@param versionIds string[]
 ---@param options { allowCompileExclusions?: boolean, log?: fun(line: string) }|nil
 ---@return table|nil report, string|nil err
@@ -78,7 +92,14 @@ function CacheBuilder.buildVersions(versionIds, options)
     return nil, "no ready version to compile"
   end
   local producerFingerprint = ProducerFingerprint.compute(ProducerFingerprint.appBackend())
-  local allOk, hasCompileExclusions = true, false
+  local allOk, hasCompileExclusions, exclusionCount = true, false, 0
+  local stagedWorlds = {}
+  local strictVersions = {}
+  local function discardStagedWorlds()
+    for _, world in ipairs(stagedWorlds) do
+      world:abort()
+    end
+  end
   for _, version in ipairs(versionIds) do
     local romFs
     local ok, result, failureErr = pcall(function()
@@ -241,21 +262,22 @@ function CacheBuilder.buildVersions(versionIds, options)
           end
         end
       end
-      WorldManifest.write(cacheFs, entries, excluded, compileExcluded)
+      local world = WorldManifest.stage(cacheFs, entries, excluded, compileExcluded)
+      stagedWorlds[#stagedWorlds + 1] = world
       log(
         string.format(
-          "build-cache: %s world.lua written (%d maps, %d unresolved cells, %d compile-excluded)",
+          "build-cache: %s world.lua staged (%d maps, %d unresolved cells, %d compile-excluded)",
           version,
           #entries,
           #excluded,
           #compileExcluded
         )
       )
-      if #compileExcluded == 0 then
-        DerivedCacheState.publish(cacheFs, identity)
-      end
       if #compileExcluded > 0 then
         hasCompileExclusions = true
+        exclusionCount = exclusionCount + #compileExcluded
+      else
+        strictVersions[#strictVersions + 1] = { cacheFs = cacheFs, identity = identity }
       end
       return true
     end)
@@ -263,6 +285,7 @@ function CacheBuilder.buildVersions(versionIds, options)
       romFs:close()
     end
     if not ok then
+      discardStagedWorlds()
       error(result, 0)
     end
     if result == nil then
@@ -272,15 +295,30 @@ function CacheBuilder.buildVersions(versionIds, options)
   end
   -- The cache written above is usable, so the scan always finishes; an
   -- unsupported asset still has to be visible to CI, hence the nonzero exit
-  -- unless the caller asked for an exploratory run.
+  -- unless the caller asked for an exploratory run. Only a successful batch
+  -- (no failed version, no unaccepted exclusion) publishes the staged worlds
+  -- and the successful-build attestations: a failed batch discards every
+  -- staged manifest, so the previous live world.lua stays authoritative.
   if hasCompileExclusions and not options.allowCompileExclusions then
     log("build-cache: compile exclusions remain; rerun with --allow-compile-exclusions to accept them")
     allOk = false
   end
-  if allOk then
-    return { current = true }
+  if not allOk then
+    discardStagedWorlds()
+    return nil, "cache preparation failed"
   end
-  return nil, "cache preparation failed"
+  for _, world in ipairs(stagedWorlds) do
+    world:publish()
+    log("build-cache: " .. world.version .. " world.lua published")
+  end
+  for _, strict in ipairs(strictVersions) do
+    DerivedCacheState.publish(strict.cacheFs, strict.identity)
+  end
+  return {
+    published = true,
+    complete = not hasCompileExclusions,
+    exclusionCount = exclusionCount,
+  }
 end
 
 return CacheBuilder
