@@ -9,6 +9,7 @@ local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
 local RomFs = require("romdump.src.source.RomFs")
 local Errors = require("libs.errors.src.Errors")
+local Cli = require("romdump.src.cli.Cli")
 
 local Runner = {}
 
@@ -52,55 +53,67 @@ local function forEachReadyVersion(prefix, work)
   return allOk
 end
 
+-- Dispatch the parsed command. Cli.parse rejects conflicting commands, so
+-- exactly one action runs per invocation; a missing command is a usage fault.
 function Runner.load(opts)
   Runner.opts = opts or {}
   Runner.importer = nil
 
-  if Runner.opts.buildCache then
-    if Runner.opts.forceDump then
-      assert(Runner.opts.importRom, "forcedump requires a ROM path")
-      return Runner._startImport(Runner.opts.importRom)
-    end
-    local targets = readyVersions()
-    if #targets > 0 then
-      return Runner._runBuild({ allowCompileExclusions = Runner.opts.allowCompileExclusions })
-    end
-    if Runner.opts.importRom then
-      return Runner._startImport(Runner.opts.importRom)
-    end
-    print("build-cache: no ready dump; pass a ROM path")
-    return love.event.quit(2)
+  local command = Runner.opts.command
+  if command == "import" then
+    assert(Runner.opts.romPath, "import requires a ROM path")
+    return Runner._startImport(Runner.opts.romPath)
   end
-  if Runner.opts.checkDump then
+  if command == "build-cache" then
+    return Runner._runBuildCache()
+  end
+  if command == "check-dump" then
     return Runner._runCheckDump()
   end
-  if Runner.opts.checkDerivedCache then
+  if command == "check-derived-cache" then
     return Runner._runCheckDerivedCache()
   end
-  if Runner.opts.inspect then
+  if command == "inspect" then
     return Runner._runInspect()
   end
-  if Runner.opts.inspectSbc then
+  if command == "inspect-sbc" then
     return Runner._runInspectSbc()
   end
-  if Runner.opts.inspectActors then
+  if command == "inspect-actors" then
     return Runner._runInspectActors()
   end
-  if Runner.opts.analyzeMaps then
+  if command == "analyze-maps" then
     return Runner._runAnalyzeMaps()
   end
-  if Runner.opts.genScriptOverrides then
+  if command == "gen-script-overrides" then
     return Runner._runGenScriptOverrides()
-  end
-  if Runner.opts.importRom then
-    return Runner._startImport(Runner.opts.importRom)
   end
   print(
     "romdump: no command given (expected --import-rom, --check-dump, --check-derived-cache, "
       .. "--analyze-maps, --inspect, --inspect-sbc, "
       .. "--inspect-actors, --build-cache, or --gen-script-overrides)"
   )
-  love.event.quit(2)
+  love.event.quit(Cli.EXIT_USAGE)
+end
+
+-- Build the derived cache from every ready dump; with --forcedump (or an
+-- explicit ROM path) the ROM is imported first and the build runs when the
+-- import completes.
+function Runner._runBuildCache()
+  local opts = Runner.opts
+  if opts.forceDump then
+    assert(opts.romPath, "forcedump requires a ROM path")
+    return Runner._startImport(opts.romPath)
+  end
+  local targets = readyVersions()
+  if #targets > 0 then
+    return Runner._runBuild({ allowCompileExclusions = opts.allowCompileExclusions })
+  end
+  if opts.romPath then
+    return Runner._startImport(opts.romPath)
+  end
+  print("build-cache: no ready dump; pass a ROM path")
+  return love.event.quit(Cli.EXIT_USAGE)
 end
 
 -- Check that the current published derived artifacts can be used by the test
@@ -374,7 +387,7 @@ function Runner._maybeExit()
     local status = imp:status()
     printImportResult(status)
     Runner.importer = nil
-    if Runner.opts.buildCache then
+    if Runner.opts.command == "build-cache" then
       return Runner._finishImport(status)
     end
     love.event.quit(0)
