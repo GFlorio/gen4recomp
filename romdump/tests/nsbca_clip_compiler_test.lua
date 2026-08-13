@@ -211,4 +211,4 @@ function T.curve_limit_below_num_frame_raises_at_compile()
   end)
 end
 
-return T
+return { tests = T }

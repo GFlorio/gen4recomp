@@ -204,4 +204,4 @@ function T.blend_never_mutates_inputs()
   assertDeepEqual(b, beforeB, "b")
 end
 
-return T
+return { tests = T }

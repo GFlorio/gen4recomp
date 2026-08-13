@@ -92,9 +92,10 @@ local function surfaceAt(map, fieldX, fieldZ)
 end
 
 -- Drive one full stair choreography over the real pair. `spawn` places the
--- source player on the standing stair warp tile; the swap rebuilds the player
--- like FieldState:_swapMap. Returns the final player, the transition, the
--- first-tick phase timeline, and the recorded sound ids.
+-- source player on the standing stair warp tile; preparation builds the
+-- destination player before the black-screen commit, like FieldRuntime.
+-- Returns the final player, the transition, the first-tick phase timeline,
+-- and the recorded sound ids.
 local function runChoreography(romFs, sourceScene, destinationScene, warp, facing, spawn)
   local sourceMap, destinationMap = sourceScene.map, destinationScene.map
   local maps = { [sourceMap.mapId] = sourceMap, [destinationMap.mapId] = destinationMap }
@@ -133,15 +134,18 @@ local function runChoreography(romFs, sourceScene, destinationScene, warp, facin
     playSound = function(soundId)
       sounds[#sounds + 1] = soundId
     end,
-    swap = function(resolution, swapFacing)
-      Assert.equal(transition.fadeAlpha, 1, "the swap happens only at full black")
-      player = FieldPlayer.new({
+    prepare = function(resolution, swapFacing)
+      return FieldPlayer.new({
         currentMap = resolution.destinationMap,
         fieldX = resolution.fieldX,
         fieldZ = resolution.fieldZ,
         surfaceId = resolution.surfaceId,
         facing = swapFacing,
       })
+    end,
+    commit = function(resolution, _, preparedPlayer)
+      Assert.equal(transition.fadeAlpha, 1, "the swap happens only at full black")
+      player = preparedPlayer
       transition.player = player
       currentInstances = instancesByMapId[resolution.destinationMap.mapId]
     end,

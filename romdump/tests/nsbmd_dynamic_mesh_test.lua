@@ -549,4 +549,4 @@ function T.polygon_draw_state_matches_the_static_path()
   end
 end
 
-return T
+return { tests = T }

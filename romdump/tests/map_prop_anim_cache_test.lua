@@ -181,4 +181,4 @@ function T.shared_cache_dedups_clip_records_across_map_builds()
   assertClipContentEqual(freshClip, doorOpA, "door_op")
 end
 
-return T
+return { tests = T }

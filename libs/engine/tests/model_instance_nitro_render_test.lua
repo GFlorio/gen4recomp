@@ -351,6 +351,6 @@ function T.nitro_animated_model_renders_and_scrubs_without_recompiling()
 end
 
 return {
-  metadata = { layer = "graphics", capabilities = { "graphics" } },
+  metadata = { capabilities = { "graphics" } },
   tests = T,
 }

@@ -285,4 +285,4 @@ function T.the_source_backend_key_is_rejected_at_construction()
   end)
 end
 
-return T
+return { tests = T }

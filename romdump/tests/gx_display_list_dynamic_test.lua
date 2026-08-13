@@ -350,4 +350,4 @@ function T.static_and_dynamic_decode_agree_on_color_state()
   Assert.equal(dv.colorSource, sv.colorSource)
 end
 
-return T
+return { tests = T }

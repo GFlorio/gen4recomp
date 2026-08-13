@@ -353,4 +353,4 @@ function T.bma_colors_and_alpha()
   Assert.equal(s59.alpha, math.max(0, math.floor(31 - 59 / 2)))
 end
 
-return T
+return { tests = T }

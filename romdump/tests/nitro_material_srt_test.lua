@@ -77,4 +77,4 @@ function T.srt_malformed_extra_raises()
   Assert.equal(assert(err).code, "READ_OUT_OF_BOUNDS")
 end
 
-return T
+return { tests = T }

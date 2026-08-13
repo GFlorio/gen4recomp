@@ -334,4 +334,4 @@ function T.attach_accepts_a_custom_player()
   Assert.equal(handle.player, player)
 end
 
-return T
+return { tests = T }

@@ -828,25 +828,31 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
     currentMap = map,
     player = player,
     camera = camera,
+    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     transition = {
       locked = false,
       updateFixed = function() end,
       start = function() end,
     },
+    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     actors = { step = function() end },
+    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     input = {
       snapshot = function()
         return {}
       end,
     },
     dialogue = inactiveDialogue,
+    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     scriptScheduler = {
       step = function() end,
       playerMovementLocked = function()
         return false
       end,
     },
+    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     scriptClient = { consume = function() end },
+    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     menuHost = {
       isModal = function()
         return false
@@ -1045,6 +1051,6 @@ function T.untextured_animated_materials_never_request_an_image()
 end
 
 return {
-  metadata = { layer = "graphics", capabilities = { "graphics" } },
+  metadata = { capabilities = { "graphics" } },
   tests = T,
 }

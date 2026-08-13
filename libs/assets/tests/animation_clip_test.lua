@@ -159,4 +159,4 @@ function T.roles_and_frame_unit_are_the_shared_vocabulary()
   Assert.equal(AnimationClip.FRAME_UNIT, 4096)
 end
 
-return T
+return { tests = T }

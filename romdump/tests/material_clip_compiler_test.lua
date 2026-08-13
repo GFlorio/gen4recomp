@@ -207,4 +207,4 @@ function T.bma_absent_channel_raises_at_compile()
   Assert.equal(err.code, "NSBMA_COMPILE_ABSENT_CHANNEL")
 end
 
-return T
+return { tests = T }

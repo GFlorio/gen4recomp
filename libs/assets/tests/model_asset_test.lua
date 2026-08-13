@@ -740,4 +740,4 @@ function T.validate_accepts_a_pattern_payload_without_counts()
   Assert.equal(ModelAsset.validate(desc), desc)
 end
 
-return T
+return { tests = T }

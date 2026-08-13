@@ -191,4 +191,4 @@ function T.swap_restarts_the_clip_from_frame_zero()
   Assert.equal(attachment.player.frameFx, 0, "the new band starts from the first frame")
 end
 
-return T
+return { tests = T }

@@ -94,6 +94,6 @@ function T.nitro_animated_fixture_renders_through_map_renderer()
 end
 
 return {
-  metadata = { layer = "graphics", capabilities = { "graphics" } },
+  metadata = { capabilities = { "graphics" } },
   tests = T,
 }

@@ -163,4 +163,4 @@ function T.maya_ratios_apply()
   Assert.equal(cells[1], math.floor(0x1000 * 0x800 / 4096))
 end
 
-return T
+return { tests = T }

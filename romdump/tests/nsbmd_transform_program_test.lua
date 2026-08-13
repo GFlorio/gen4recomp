@@ -56,4 +56,4 @@ function T.rigid_bind_pose_compiles()
   Assert.equal(program.evpMatrices[0].invN[1], 1)
 end
 
-return T
+return { tests = T }

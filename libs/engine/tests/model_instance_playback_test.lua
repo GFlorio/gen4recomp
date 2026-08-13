@@ -124,4 +124,4 @@ function T.play_stop_cycles_leave_no_stale_attachments()
   Assert.isTrue(instance.animationState:attachments("joint")[1] == survivor)
 end
 
-return T
+return { tests = T }

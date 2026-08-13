@@ -81,4 +81,4 @@ function T.players_are_independent()
   Assert.equal(a.frameFx, 8 * 0x1000, "the once clip holds at the terminal")
 end
 
-return T
+return { tests = T }

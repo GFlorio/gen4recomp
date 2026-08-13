@@ -43,7 +43,11 @@ local function validateBundle(bundle)
     Errors.raise("MAP_CACHE_BAD_COLLISION", "collision grid is invalid: " .. tostring(err), { mapId = mapId })
   end
   if type(bundle.terrain) ~= "table" or bundle.terrain.schema ~= MapAssetCache.TERRAIN_SCHEMA then
-    Errors.raise("MAP_CACHE_BAD_TERRAIN", "terrain artifact is missing or has the wrong schema", { mapId = mapId })
+    Errors.raise(
+      AssetErrors.MAP_CACHE_BAD_TERRAIN,
+      "terrain artifact is missing or has the wrong schema",
+      { mapId = mapId }
+    )
   end
   for landDataMemberId, chunk in pairs(bundle.neighborChunks or {}) do
     local okChunk, chunkErr = pcall(CollisionGridAsset.encode, chunk.collision)
@@ -56,7 +60,7 @@ local function validateBundle(bundle)
     end
     if type(chunk.terrain) ~= "table" or chunk.terrain.schema ~= MapAssetCache.TERRAIN_SCHEMA then
       Errors.raise(
-        "MAP_CACHE_BAD_NEIGHBOR_TERRAIN",
+        AssetErrors.MAP_CACHE_BAD_NEIGHBOR_TERRAIN,
         "neighbor terrain artifact is invalid",
         { mapId = mapId, landDataMemberId = landDataMemberId }
       )

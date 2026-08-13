@@ -139,4 +139,4 @@ function T.a_typed_data_error_from_a_clip_compiler_is_the_resource_diagnostic()
   Assert.equal(err.context.memberId, 26)
 end
 
-return T
+return { tests = T }

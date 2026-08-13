@@ -302,4 +302,4 @@ function T.from_nitro_descriptor_requires_the_key()
   Assert.equal(def.key, "outdoor:26:door")
 end
 
-return T
+return { tests = T }

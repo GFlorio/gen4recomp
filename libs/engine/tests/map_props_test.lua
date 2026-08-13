@@ -589,4 +589,4 @@ function T.prop_resolves_from_the_precomputed_index()
   Assert.equal(again.modelKey, "fixture:door")
 end
 
-return T
+return { tests = T }

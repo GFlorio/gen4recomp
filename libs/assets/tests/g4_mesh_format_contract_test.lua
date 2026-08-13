@@ -71,4 +71,4 @@ function T.every_mesh_format_module_consumes_the_owner()
   end
 end
 
-return T
+return { tests = T }

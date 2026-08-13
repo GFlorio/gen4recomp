@@ -611,4 +611,4 @@ function T.pose_reports_the_matrix_slot_stack_in_tiles()
   Assert.equal(instance.poseState.matrixSlots[0][13], 1, "slot 0 holds node 0 at (1,0,0) tiles")
 end
 
-return T
+return { tests = T }

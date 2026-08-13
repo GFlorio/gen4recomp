@@ -97,4 +97,4 @@ function T.copy_carries_exactly_the_shared_fields()
   Assert.isTrue(copy ~= record, "copy must not alias the source record")
 end
 
-return T
+return { tests = T }

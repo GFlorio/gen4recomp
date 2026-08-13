@@ -137,6 +137,5 @@ function T.mesh_geometry_with_no_vertices_raises()
 end
 
 return {
-  metadata = { layer = "unit" },
   tests = T,
 }

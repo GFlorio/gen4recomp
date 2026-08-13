@@ -200,16 +200,19 @@ function SceneLoaderFixture.newHarness(versionId, opts)
     playSound = function(soundId)
       harness.sounds[#harness.sounds + 1] = soundId
     end,
-    swap = function(resolution, swapFacing)
-      harness.swapCount = harness.swapCount + 1
-      harness.preSwapPosition = { x = player.fieldX, z = player.fieldZ }
-      player = FieldPlayer.new({
+    prepare = function(resolution, swapFacing)
+      return FieldPlayer.new({
         currentMap = resolution.destinationMap,
         fieldX = resolution.fieldX,
         fieldZ = resolution.fieldZ,
         surfaceId = resolution.surfaceId,
         facing = swapFacing,
       })
+    end,
+    commit = function(resolution, _, preparedPlayer)
+      harness.swapCount = harness.swapCount + 1
+      harness.preSwapPosition = { x = player.fieldX, z = player.fieldZ }
+      player = preparedPlayer
       transition.player = player
       harness.player = player
       session.currentMap = resolution.destinationMap
@@ -236,6 +239,34 @@ function SceneLoaderFixture.newHarness(versionId, opts)
     input = harness.input,
     playerVisual = playerVisual,
     actors = actors,
+    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
+    dialogue = {
+      isModal = function()
+        return false
+      end,
+    },
+    interactions = { resolve = function() end },
+    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
+    scriptScheduler = {
+      step = function() end,
+      playerMovementLocked = function()
+        return false
+      end,
+    },
+    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
+    scriptClient = { consume = function() end },
+    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
+    menuHost = {
+      isModal = function()
+        return false
+      end,
+      advance = function() end,
+    },
+    contextChoice = {
+      isActive = function()
+        return false
+      end,
+    },
   })
   harness.session = session
   harness.transition = transition

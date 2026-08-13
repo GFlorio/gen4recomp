@@ -988,4 +988,4 @@ function T.prjmap_only_selects_texgen_state()
   Assert.equal(result.matrixSlots[1], nil, "PRJMAP writes no matrix-stack slot")
 end
 
-return T
+return { tests = T }

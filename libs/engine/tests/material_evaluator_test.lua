@@ -651,4 +651,4 @@ function T.untextured_material_has_no_matrix()
   Assert.equal(instance:effectiveMaterial(0).alphaClass, "opaque")
 end
 
-return T
+return { tests = T }

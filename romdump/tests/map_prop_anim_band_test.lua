@@ -197,4 +197,4 @@ function T.compiler_version_bumps_with_the_compile_semantics()
   )
 end
 
-return T
+return { tests = T }

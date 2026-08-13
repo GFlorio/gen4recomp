@@ -22,7 +22,6 @@ local MapProps = require("libs.engine.src.MapProps")
 
 local T = {
   metadata = {
-    layer = "rom",
     capabilities = { "rom_dump", "derived_cache" },
     tags = { "door", "census" },
   },
