@@ -4,13 +4,16 @@
 #   scripts/test.sh --list
 #   scripts/test.sh --layer unit|component|graphics|rom|acceptance
 #   scripts/test.sh --filter <substring-or-pattern>
-#   scripts/test.sh --rom-source <path-to.nds-or.zip>
+#   scripts/test.sh --rom-source <path-to.nds-or-zip>
 #
 # Arguments are parsed by tests/runner/Cli.lua; this script only decides where
-# the save root lives and whether to prepare the derived cache first. With a
-# ready dump the published derived cache is checked before the ROM-gated layers. The
-# incremental builder runs only when that audit finds no usable cache; with no
-# dump those layers skip loudly.
+# the save root lives and whether to prepare the derived cache first. That
+# decision comes from the runner's own plan mode (`--plan`): the plan call
+# itself exits 2 on a usage error and answers, machine-readably, whether
+# preparation (and a supplied source import) is needed — the shell never
+# re-implements option scanning. With a ready dump the published derived cache
+# is checked before the ROM-gated layers. The incremental builder runs only
+# when that audit finds no usable cache; with no dump those layers skip loudly.
 # G4RECOMP_REQUIRE_ROM_TESTS=1 makes a missing dump fatal.
 # Exit status: 0 green, 1 failures or a missing required capability, 2 usage.
 set -euo pipefail
@@ -34,39 +37,26 @@ export G4RECOMP_REQUIRE_GRAPHICS_TESTS="${G4RECOMP_REQUIRE_GRAPHICS_TESTS:-1}"
 NO_DUMP_STATUS=2
 BUILD_LOG=.agents/tmp/buildcache.log
 
-# Preparation exists for the ROM-gated layers: listing executes nothing, and the
-# three ROM-independent layers never need the derived cache. A supplied source is
-# always imported, whatever layer it is paired with.
+# The runner's plan answer: preparation is needed for everything except a
+# listing and the three ROM-independent layers, and a supplied source is
+# always imported. A misread plan (protocol drift) must fail loudly rather
+# than silently run against a stale cache.
+plan="$(love game/ --test --plan "$@")"
+prepare=""
 rom_source=""
-listing=0
-rom_independent=0
-args=("$@")
-index=0
-while [ "$index" -lt "${#args[@]}" ]; do
-  case "${args[$index]}" in
-    --rom-source) rom_source="${args[$((index + 1))]:-}" ;;
-    --list) listing=1 ;;
-    --layer)
-      case "${args[$((index + 1))]:-}" in
-        unit | component | graphics) rom_independent=1 ;;
-      esac
-      ;;
+while IFS= read -r line; do
+  case "$line" in
+    prepare=*) prepare="${line#prepare=}" ;;
+    rom_source=*) rom_source="${line#rom_source=}" ;;
   esac
-  index=$((index + 1))
-done
-
-prepare=1
-if [ "$listing" -eq 1 ] || { [ "$rom_independent" -eq 1 ] && [ -z "$rom_source" ]; }; then
-  prepare=0
+done <<<"$plan"
+if [ "$prepare" != 0 ] && [ "$prepare" != 1 ]; then
+  echo "test: the runner plan did not answer prepare=0|1 (got '$prepare')" >&2
+  exit 1
 fi
 
 status=0
-if [ "$prepare" -eq 1 ]; then
-  # Reject bad arguments before paying for a cache build or a ROM import: the
-  # discovery-only pass runs the same parser and exits 2 on a usage error. When
-  # nothing expensive follows, the run itself reports the usage error.
-  love game/ --test --list "$@" >/dev/null
-
+if [ "$prepare" = 1 ]; then
   if [ -n "$rom_source" ]; then
     # An isolated save root: importing and building a supplied source must never
     # touch the user's ordinary cache or saves.

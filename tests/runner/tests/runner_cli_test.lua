@@ -37,6 +37,20 @@ function T.test_entrypoint_runs_the_incremental_builder_for_real_dependency_fres
   Assert.isNil(script:find("--check-derived-cache", 1, true))
 end
 
+-- The shell must not re-implement option scanning: `scripts/test.sh` decides
+-- whether to prepare the derived cache from the runner's machine-readable
+-- plan response (`--plan`), not from a bash copy of the argument parser
+-- coupled through exit codes.
+function T.test_entrypoint_delegates_selection_to_the_runner()
+  local handle = assert(io.open("scripts/test.sh", "rb"))
+  local script = handle:read("*a")
+  handle:close()
+
+  contains(script, "--plan", "test entrypoint")
+  Assert.isNil(script:find("rom_independent", 1, true), "no bash re-scan of --layer")
+  Assert.isNil(script:find('case "${args[$index]}"', 1, true), "no bash option scanner")
+end
+
 -- Raises when parsing unexpectedly failed so a contract test fails on the
 -- parser defect rather than on a nil index further down.
 ---@return table plan
@@ -60,6 +74,55 @@ local function hasCapability(plan, name)
     end
   end
   return false
+end
+
+-- The plan mode is part of the same command surface: it parses like any
+-- other invocation, so the shell's plan lookup cannot drift from the run's
+-- parsing.
+function T.the_plan_mode_is_part_of_the_command_surface()
+  local plan = parse({ "--plan" })
+  Assert.isTrue(plan.planMode, "--plan marks the machine-readable plan mode")
+
+  local combined = parse({ "--plan", "--layer", "unit" })
+  Assert.isTrue(combined.planMode)
+  Assert.equal(combined.layer, "unit")
+
+  local listed = parse({ "--plan", "--list" })
+  Assert.isTrue(listed.planMode)
+  Assert.isTrue(listed.list)
+end
+
+-- The plan the shell consumes is a machine-readable answer, not a second
+-- parser: whether the derived cache must be prepared (a supplied source is
+-- always imported, whatever layer it is paired with) and the source path.
+function T.the_plan_response_names_whether_the_cache_must_be_prepared()
+  local function fields(argv, context)
+    local lines = {}
+    for _, line in ipairs(Cli.renderPlan(parse(argv, context))) do
+      local key, value = line:match("^([^=]+)=(.*)$")
+      Assert.notNil(key, "every plan line is key=value: " .. line)
+      lines[key] = value
+    end
+    return lines
+  end
+
+  Assert.equal(fields({}).prepare, "1", "a default run must prepare the derived cache")
+  Assert.equal(fields({ "--list" }).prepare, "0", "listing executes nothing")
+  Assert.equal(fields({ "--layer", "unit" }).prepare, "0", "a ROM-independent layer skips preparation")
+  Assert.equal(fields({ "--layer", "component" }).prepare, "0")
+  Assert.equal(fields({ "--layer", "graphics" }).prepare, "0")
+  Assert.equal(fields({ "--layer", "rom" }).prepare, "1", "a ROM-gated layer must prepare")
+  Assert.equal(fields({ "--layer", "acceptance" }).prepare, "1")
+
+  local context = {
+    fileExists = function(path)
+      return path == "/roms/hg.nds"
+    end,
+  }
+  local sourced = fields({ "--layer", "unit", "--rom-source", "/roms/hg.nds" }, context)
+  Assert.equal(sourced.prepare, "1", "a supplied source is always imported")
+  Assert.equal(sourced.rom_source, "/roms/hg.nds", "the plan names the source path")
+  Assert.isNil(fields({}, context).rom_source, "no source line when none was supplied")
 end
 
 -- A RunnerRun-shaped result. `layers` maps a layer name to its

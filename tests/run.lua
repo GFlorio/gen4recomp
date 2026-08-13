@@ -70,6 +70,13 @@ local function main(argv)
     return Cli.EXIT_USAGE
   end
 
+  if plan.planMode then
+    -- Machine-readable orchestration response for the shell entrypoint; a
+    -- parse failure above already answered with the usage status.
+    print(table.concat(Cli.renderPlan(plan), "\n"))
+    return 0
+  end
+
   local capabilities, versions = Capabilities.detect({ env = ENV })
   if plan.romSource ~= nil then
     -- The shell entrypoint imported and built that source into an isolated save

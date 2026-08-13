@@ -15,8 +15,9 @@ Cli.EXIT_USAGE = 2
 
 Cli.LAYERS = { "unit", "component", "graphics", "rom", "acceptance" }
 
--- Layers whose data comes from a user-owned dump, so selecting one makes the
--- ROM capabilities mandatory instead of optional.
+-- Layers whose data comes from a user-owned dump: selecting one makes the
+-- ROM capabilities mandatory instead of optional, and the derived cache must
+-- be prepared for it (and for a whole-run selection, which includes them).
 local ROM_GATED = { rom = true, acceptance = true }
 
 local ROM_CAPABILITIES = { "rom_dump", "derived_cache" }
@@ -28,7 +29,7 @@ local BUILD_COMMAND = "scripts/buildcache.sh /path/to/rom.nds"
 local STRICT_COMMAND = STRICT_ENV .. "=1 scripts/test.sh"
 
 Cli.USAGE = table.concat({
-  "usage: scripts/test.sh [--list] [--layer <" .. table.concat(Cli.LAYERS, "|") .. ">]",
+  "usage: scripts/test.sh [--plan] [--list] [--layer <" .. table.concat(Cli.LAYERS, "|") .. ">]",
   "                      [--filter <substring-or-pattern>] [--rom-source <path-to-nds-or-zip>]",
 }, "\n")
 
@@ -72,6 +73,7 @@ local function value(argv, index)
 end
 
 ---@class TestPlan
+---@field planMode boolean
 ---@field list boolean
 ---@field layer string|nil
 ---@field filter string|nil
@@ -93,6 +95,7 @@ function Cli.parse(argv, context)
   local fileExists = context.fileExists or realFileExists
 
   local plan = {
+    planMode = false,
     list = false,
     strict = env[STRICT_ENV] == "1",
     graphicsStrict = env[GRAPHICS_STRICT_ENV] == "1",
@@ -103,6 +106,9 @@ function Cli.parse(argv, context)
   while index <= #(argv or {}) do
     local option = argv[index]
     if option == "--test" then
+      index = index + 1
+    elseif option == "--plan" then
+      plan.planMode = true
       index = index + 1
     elseif option == "--list" then
       plan.list = true
@@ -158,6 +164,22 @@ function Cli.parse(argv, context)
   end
 
   return plan
+end
+
+-- The machine-readable `key=value` response the shell entrypoint consumes in
+-- place of its own option scanning: whether the derived cache must be
+-- prepared before the run (a listing executes nothing, and a selection needs
+-- it exactly when it includes a ROM-gated layer; a supplied source is always
+-- imported, whatever layer it is paired with) and the source path to import.
+---@param plan TestPlan
+---@return string[]
+function Cli.renderPlan(plan)
+  local prepare = not plan.list and (plan.romSource ~= nil or plan.layer == nil or ROM_GATED[plan.layer])
+  local lines = { "prepare=" .. (prepare and "1" or "0") }
+  if plan.romSource ~= nil then
+    lines[#lines + 1] = "rom_source=" .. plan.romSource
+  end
+  return lines
 end
 
 local function missingCapabilities(plan, capabilities)
