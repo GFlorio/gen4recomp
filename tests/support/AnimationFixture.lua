@@ -319,6 +319,20 @@ function AnimationFixture.jntConstants()
         },
       },
       { nodeIndex = 5, flag = 0x00000001, channels = {} },
+      -- Rot constant with bit 7 set but bit 6 clear: the decoder's rot-mode
+      -- gate tests bit 6 only (the asm's fromModel bit, `ands r5, #0x40`),
+      -- NOT the full 0xC0 mode field, so this decodes as a constant, not
+      -- from the model. The encoder sets both bits for model-sourced
+      -- rotation, so no real member exercises this corner.
+      {
+        nodeIndex = 6,
+        flag = 0x00000786, -- trans mode + rot const (bit 7, no bit 6) + scale mode
+        channels = {
+          trans = { x = "model", y = "model", z = "model" },
+          rot = { const = 0x8000 },
+          scale = { x = "model", y = "model", z = "model" },
+        },
+      },
     },
     rotData = pivotTable({ { a = 1, b = 0 }, { a = 0, b = 1 } }),
   })

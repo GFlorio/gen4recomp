@@ -52,7 +52,7 @@ local CURVE = "curve"
 local F_WHOLE_MODEL = 0x001
 local F_TRANS_MODE = 0x006
 local F_TRANS_CONST = { 0x008, 0x010, 0x020 }
-local F_ROT_MODE = 0x0C0
+local F_ROT_FROM_MODEL = 0x040 -- rot fromModel gate: asm `ands r5, #0x40`; the 0x0C0 mode field is NOT the gate
 local F_ROT_CONST = 0x100
 local F_SCALE_MODE = 0x600
 local F_SCALE_CONST = { 0x800, 0x1000, 0x2000 }
@@ -60,6 +60,25 @@ local AXES = { "x", "y", "z" }
 
 local function bitSet(value, bit)
   return math.floor(value / bit) % 2 == 1
+end
+
+-- Any bit of `mask` set in `value`: the asm's ands mode gates. `mask` must
+-- be a nonzero contiguous run of set bits (bitSet above is single-bit only
+-- and must not be called with the mode masks).
+local function maskAny(value, mask)
+  assert(mask > 0, "mode mask must be nonzero")
+  local shift = 1
+  while mask % 2 == 0 do
+    mask = math.floor(mask / 2)
+    shift = shift * 2
+  end
+  local width = 2
+  while math.floor(mask / 2) % 2 == 1 do
+    width = width * 2
+    mask = math.floor(mask / 2)
+  end
+  assert(mask == 1, "mode mask must span contiguous bits")
+  return math.floor(value / shift) % width ~= 0
 end
 
 -- Cross product for the third row (cells 6-8 = row 0 x row 1), as the asm
@@ -110,7 +129,7 @@ local function decodeChannels(r, flag, at, context)
     local axis = AXES[i]
     -- Mode bits win over the constant bits, exactly like the asm (the
     -- encoder sets both for model-sourced channels).
-    if flag % 8 ~= 0 then -- F_TRANS_MODE bits 1-2 set (bit 0 already handled)
+    if maskAny(flag, F_TRANS_MODE) then
       channels.trans[axis] = { source = MODEL }
     elseif bitSet(flag, F_TRANS_CONST[i]) then
       r:assertRange(at, 4, "anm-const-trans")
@@ -123,7 +142,7 @@ local function decodeChannels(r, flag, at, context)
     end
   end
 
-  if flag % 128 >= 64 then -- F_ROT_MODE bits 6-7 set
+  if bitSet(flag, F_ROT_FROM_MODEL) then
     channels.rot = { source = MODEL }
   elseif bitSet(flag, F_ROT_CONST) then
     r:assertRange(at, 4, "anm-const-rot")
@@ -135,7 +154,7 @@ local function decodeChannels(r, flag, at, context)
     channels.rot = { source = CURVE, curve = curve }
   end
 
-  if math.floor(flag / 512) % 4 ~= 0 then -- F_SCALE_MODE bits 9-10 set
+  if maskAny(flag, F_SCALE_MODE) then
     for _, axis in ipairs(AXES) do
       channels.scale[axis] = { source = MODEL }
     end

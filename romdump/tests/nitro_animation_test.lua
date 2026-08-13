@@ -94,7 +94,7 @@ end
 
 function T.jnt_constants_and_model_channels()
   local res, r = decodeOne(AnimationFixture.jntConstants())
-  Assert.equal(res.numAnm, 4)
+  Assert.equal(res.numAnm, 5)
 
   -- Target 0: constant translation, model rotation and scale.
   local s0 = jnt(res, r, 0, 0)
@@ -123,6 +123,16 @@ function T.jnt_constants_and_model_channels()
   local s3 = jnt(res, r, 3, 0)
   Assert.isTrue(s3.transFromModel and s3.rotFromModel and s3.scaleFromModel)
   Assert.equal(s3.trans, nil)
+
+  -- Target 4: bit 7 set, bit 6 clear, bit 8 set -- the rot-mode gate is the
+  -- asm's fromModel bit (0x40), not the full 0xC0 mode mask, so the channel
+  -- is a constant, not from-model (pins the bit-6-only decode).
+  local s4 = jnt(res, r, 4, 0)
+  Assert.isFalse(s4.rotFromModel)
+  Assert.equal(s4.rot[1], 0x1000) -- pivot entry 0 (A=1)
+  Assert.equal(s4.rot[3], 0) -- B=0
+  Assert.isTrue(s4.transFromModel)
+  Assert.isTrue(s4.scaleFromModel)
 end
 
 function T.jnt_full_rate_sampling_fx16_fx32()
