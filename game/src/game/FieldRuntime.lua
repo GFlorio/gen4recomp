@@ -41,6 +41,7 @@ local TargetSpawns = require("data.manifests.field_spawns")
 local FieldPresentation = require("data.manifests.field_presentation")
 local FieldScenarioManifest = require("data.manifests.field_scenario")
 local RepoFs = require("game.src.game.RepoFs")
+local WindowConfig = require("game.src.WindowConfig")
 local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 
 ---@class FieldRuntimeOptions
@@ -183,8 +184,8 @@ function FieldRuntime.new(versionId, idOrSymbol, options)
     idOrSymbol = idOrSymbol or DEFAULT_MAP,
     resumeSave = options.resumeSave == true,
     resetSave = options.resetSave == true,
-    viewportWidth = options.viewportWidth or 640,
-    viewportHeight = options.viewportHeight or 480,
+    viewportWidth = options.viewportWidth or WindowConfig.REFERENCE_WIDTH,
+    viewportHeight = options.viewportHeight or WindowConfig.REFERENCE_HEIGHT,
     screenTopology = options.screenTopology,
     saveFs = options.saveFs,
     presentation = options.presentation == true,

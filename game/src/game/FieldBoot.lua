@@ -3,38 +3,23 @@
 
 local FieldBoot = {}
 
-local Selection = {}
-Selection.__index = Selection
-
-function Selection:versions()
-  local versions = {}
-  for index, versionId in ipairs(self._versions) do
-    versions[index] = versionId
-  end
-  return versions
-end
-
-function Selection:choose(versionId)
-  assert(self._available[versionId], "unknown ready version " .. tostring(versionId))
-  return versionId
-end
+-- One ready version selects it directly; several return the ready array
+-- itself so the caller offers a choice over exactly what it found.
 
 ---@param versions string[]
----@return string|table
+---@return string|string[]
 function FieldBoot.select(versions)
   assert(type(versions) == "table" and #versions > 0, "at least one ready version required")
-  local available = {}
-  local copied = {}
-  for index, versionId in ipairs(versions) do
+  local seen = {}
+  for _, versionId in ipairs(versions) do
     assert(type(versionId) == "string" and versionId ~= "", "ready version id required")
-    assert(not available[versionId], "duplicate ready version " .. versionId)
-    available[versionId] = true
-    copied[index] = versionId
+    assert(not seen[versionId], "duplicate ready version " .. versionId)
+    seen[versionId] = true
   end
   if #versions == 1 then
-    return copied[1]
+    return versions[1]
   end
-  return setmetatable({ _versions = copied, _available = available }, Selection)
+  return versions
 end
 
 return FieldBoot

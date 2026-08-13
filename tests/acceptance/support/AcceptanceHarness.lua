@@ -7,7 +7,6 @@ local SaveFs = require("libs.storage.src.SaveFs")
 local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
 local FieldRuntime = require("game.src.game.FieldRuntime")
-local FieldBoot = require("game.src.game.FieldBoot")
 local App = require("game.src.game.App")
 local RecordingScriptHosts = require("tests.acceptance.support.RecordingScriptHosts")
 
@@ -776,27 +775,6 @@ function AcceptanceHarness:boot(options)
     lifecycle,
     true
   )
-end
-
-function AcceptanceHarness:bootSelected(options)
-  assert(type(options) == "table" and type(options.versions) == "table", "ready versions required")
-  local selected = FieldBoot.select(options.versions)
-  assert(type(selected) == "string", "multiple ready versions require explicit selection")
-  return self:boot({ versionId = selected, save = options.save, map = options.map })
-end
-
-function AcceptanceHarness:selectVersion(versions)
-  local selection = FieldBoot.select(versions)
-  assert(type(selection) == "table", "multiple ready versions required for selection")
-  local harness = self
-  return {
-    versions = function()
-      return selection:versions()
-    end,
-    choose = function(_, versionId)
-      return harness:boot({ versionId = selection:choose(versionId), save = "fresh" })
-    end,
-  }
 end
 
 function AcceptanceHarness:bootWithCorruptArtifact(versionId, artifact)

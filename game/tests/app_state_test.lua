@@ -6,10 +6,15 @@
 -- import session through the import state and never invoke an importer left
 -- over from a previous session.
 
+---@diagnostic disable: duplicate-set-field -- RomImporter.isReady is stubbed per test and restored immediately
+
 local Assert = require("tests.support.Assert")
 local App = require("game.src.game.App")
 local ImportState = require("game.src.launcher.ImportState")
 local ActorPreviewState = require("game.src.game.ActorPreviewState")
+local RomImporter = require("romdump.src.source.RomImporter")
+local FieldState = require("game.src.game.FieldState")
+local VersionSelectState = require("game.src.launcher.VersionSelectState")
 
 local T = {}
 
@@ -240,6 +245,107 @@ function T.failed_import_is_cleared_on_the_next_update()
   App.update(0.016)
   Assert.isNil(App.importer, "a failed import session must not linger")
   Assert.equal(App.state, state, "clearing the importer must not disturb the import screen")
+end
+
+-- The boot decision when no ROM was supplied: zero ready versions enter the
+-- import state, one resumes its field session, and both offer the version
+-- selector over exactly the ready array. FieldBoot.select's own contract is
+-- pinned in field_boot_test.lua; these tests cover the App wiring, which has
+-- no other coverage. RomImporter.isReady and FieldState.new are the seams:
+-- readiness is a pure check and a real FieldState boot is ROM-gated.
+
+-- Capture newFieldState's arguments through the module boundary instead of
+-- booting a real runtime.
+local function captureFieldState()
+  local captured
+  local state = countingState()
+  local originalNew = FieldState.new
+  FieldState.new = function(versionId, _, options)
+    captured = { versionId = versionId, options = options }
+    return state
+  end
+  return {
+    captured = function()
+      return captured
+    end,
+    state = state,
+    restore = function()
+      FieldState.new = originalNew
+    end,
+  }
+end
+
+function T.boot_existing_with_no_ready_version_starts_an_import()
+  fresh()
+  App.opts = {}
+  local originalIsReady = RomImporter.isReady
+  RomImporter.isReady = function()
+    return false
+  end
+  local ok, err = pcall(App._bootExisting)
+  RomImporter.isReady = originalIsReady
+  if not ok then
+    error(err, 0)
+  end
+  Assert.notNil(App.importer)
+  Assert.equal(getmetatable(App.state).__index, ImportState)
+end
+
+function T.boot_existing_with_one_ready_version_resumes_its_field_session()
+  fresh()
+  App.opts = {}
+  local capture = captureFieldState()
+  local originalIsReady = RomImporter.isReady
+  RomImporter.isReady = function(id)
+    return id == "heartgold"
+  end
+  local ok, err = pcall(App._bootExisting)
+  RomImporter.isReady = originalIsReady
+  capture.restore()
+  if not ok then
+    error(err, 0)
+  end
+  local captured = capture.captured()
+  Assert.notNil(captured)
+  Assert.equal(captured.versionId, "heartgold")
+  Assert.isTrue(captured.options.resumeSave)
+  Assert.equal(App.state, capture.state)
+end
+
+function T.boot_existing_with_two_ready_versions_offers_the_selector_over_the_ready_array()
+  fresh()
+  App.opts = {}
+  local capture = captureFieldState()
+  local originalIsReady = RomImporter.isReady
+  RomImporter.isReady = function(id)
+    return id == "heartgold" or id == "soulsilver"
+  end
+  local ok, err = pcall(App._bootExisting)
+  RomImporter.isReady = originalIsReady
+  if not ok then
+    capture.restore()
+    error(err, 0)
+  end
+  -- The stub must stay installed while the selector's onPick callback is
+  -- probed, so the whole assertion phase is protected and restore runs on
+  -- every path.
+  local ok2, err2 = pcall(function()
+    Assert.isNil(capture.captured(), "the selector must not boot a field state")
+    local selector = App.state
+    ---@cast selector table
+    Assert.equal(getmetatable(selector).__index, VersionSelectState)
+    Assert.deepEqual(selector.ready, { "heartgold", "soulsilver" })
+    selector.onPick("soulsilver")
+    local picked = capture.captured()
+    Assert.notNil(picked)
+    Assert.equal(picked.versionId, "soulsilver")
+    Assert.isTrue(picked.options.resumeSave)
+    Assert.equal(App.state, capture.state)
+  end)
+  capture.restore()
+  if not ok2 then
+    error(err2, 0)
+  end
 end
 
 return T
