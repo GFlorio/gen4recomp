@@ -116,6 +116,7 @@ local function singleMeshDefinition(overrides)
         nodeIndex = 0,
         materialIndex = 0,
         geometry = "fixtures/draw0.seg0.g4mesh",
+        center = { 1, 0, 1 },
       },
     },
     materials = {
@@ -125,6 +126,10 @@ local function singleMeshDefinition(overrides)
         baseColor = { r = 255, g = 255, b = 255, a = 255 },
         alphaMode = "opaque",
         doubleSided = false,
+        polygonAlpha = 31,
+        texMtxMode = 0,
+        texWidth = 0,
+        texHeight = 0,
       },
     },
     skins = {},
@@ -422,6 +427,7 @@ function T.straddling_meshes_resolve_both_sources()
         nodeIndex = 0,
         materialIndex = 0,
         geometry = "fixtures/draw0.seg0.g4mesh",
+        center = { 1, 0, 1 },
       },
     },
     materials = {
@@ -431,6 +437,10 @@ function T.straddling_meshes_resolve_both_sources()
         baseColor = { r = 255, g = 255, b = 255, a = 255 },
         alphaMode = "opaque",
         doubleSided = false,
+        polygonAlpha = 31,
+        texMtxMode = 0,
+        texWidth = 0,
+        texHeight = 0,
       },
     },
     skins = {},
@@ -476,14 +486,12 @@ function T.straddling_meshes_resolve_both_sources()
   Assert.equal(items[1].transform[13], 1)
 end
 
--- The pose guard is defense in depth: the definition load boundary itself
--- rejects clips without a compiled payload (MODEL_DEF_BAD_ANIMATION), so
--- the pose-level raise is reachable only by a foreign clip attached
--- directly through the state surface.
+-- The pose guard is defense in depth: the artifact gate rejects a serialized
+-- clip without a compiled payload, but a definition assembled directly (a
+-- hand-built IR record) can still carry one, so the pose backend raises
+-- instead of pretending to animate it.
 function T.uncompiled_joint_clips_raise()
-  local def = singleMeshDefinition()
-  local instance = newInstance(def)
-  instance.animationState:attach({
+  local clip = {
     id = "generic",
     name = "generic",
     category = "joint",
@@ -492,7 +500,10 @@ function T.uncompiled_joint_clips_raise()
     tracks = { { target = 0 } },
     semanticNames = {},
     source = { type = "nitro", format = "NSBCA" },
-  })
+  }
+  local def = singleMeshDefinition({ animations = { clip } })
+  local instance = newInstance(def)
+  instance.animationState:attach(clip)
   local err = Assert.throws(function()
     instance:evaluatePose()
   end)

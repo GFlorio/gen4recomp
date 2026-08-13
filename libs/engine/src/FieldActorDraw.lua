@@ -15,11 +15,16 @@ local Errors = require("libs.errors.src.Errors")
 local FieldActorPose = require("libs.engine.src.FieldActorPose")
 local Matrix4 = require("libs.math.src.Matrix4")
 local FixedPoint = require("libs.math.src.FixedPoint")
+local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 
 local FieldActorDraw = {}
 
 -- Draw items carry no submission numbers: the final scene assembly
 -- (SceneAssembly) orders every draw in source order, positionally.
+
+-- The identity UV-transform matrix of actor materials (actors carry no
+-- texture-SRT): the renderer reads the material's texMatrix directly.
+local IDENTITY_TEX_MATRIX = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
 
 local function requireMesh(entry, meshIndex, record)
   local mesh = entry.meshes and entry.meshes[meshIndex]
@@ -66,7 +71,7 @@ function FieldActorDraw.item(record, entry, partIndex)
 
   return {
     mesh = requireMesh(entry, render.kind == "staticModel" and (partIndex or 1) or frameIndex, record),
-    material = { image = image, alphaClass = part.alphaClass },
+    material = { image = image, alphaClass = part.alphaClass, texMatrix = IDENTITY_TEX_MATRIX },
     transform = transform,
     billboardBase = billboardBase,
     -- Actor quads draw through the depth-biased billboard projection (see
@@ -74,6 +79,9 @@ function FieldActorDraw.item(record, entry, partIndex)
     -- projection like the DS's 3D-object task manager.
     billboardProjection = isBillboard,
     alphaClass = part.alphaClass,
+    -- The fragment cutoff is a render constant the shader reads only in
+    -- cutout mode; the item contract requires a concrete value.
+    alphaCutoff = AlphaClassifier.CUTOUT_EPSILON,
     cullMode = polygon.cullMode,
     polygonAlpha = polygon.polygonAlpha / FixedPoint.RGB5_MAX,
     polygonMode = polygon.polygonMode,

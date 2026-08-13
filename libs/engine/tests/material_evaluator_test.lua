@@ -31,6 +31,7 @@ local function scrollClip(frames, transKeys)
     kind = "texsrt",
     frameCount = frames,
     tracks = { { target = "wall", targetIndex = 0 } },
+    semanticNames = {},
     source = { type = "nitro", format = "NSBTA" },
     compiled = {
       targets = {
@@ -41,7 +42,7 @@ local function scrollClip(frames, transKeys)
             scaleS = { source = "constant", value = 0x1000 },
             scaleT = { source = "constant", value = 0x1000 },
             rot = { source = "constant", value = 0x10000000 },
-            transS = { source = "curve", rate = 1, limit = frames - 1, storage = "fx32", keys = transKeys },
+            transS = { source = "curve", rate = 1, limit = frames, storage = "fx32", keys = transKeys },
             transT = { source = "constant", value = 0 },
           },
         },
@@ -60,6 +61,7 @@ local function patternClip()
     kind = "pattern",
     frameCount = 8,
     tracks = { { target = "wall", targetIndex = 0 } },
+    semanticNames = {},
     source = { type = "nitro", format = "NSBTP" },
     compiled = {
       numTextures = 2,
@@ -97,6 +99,7 @@ local function fadeClip(frames)
     kind = "color",
     frameCount = frames,
     tracks = { { target = "wall", targetIndex = 0 } },
+    semanticNames = {},
     source = { type = "nitro", format = "NSBMA" },
     compiled = {
       targets = {
@@ -293,6 +296,7 @@ function T.rotating_uv_swaps_the_axis_cells()
     kind = "texsrt",
     frameCount = 4,
     tracks = { { target = "wall", targetIndex = 0 } },
+    semanticNames = {},
     source = { type = "nitro", format = "NSBTA" },
     compiled = {
       targets = {
@@ -351,6 +355,7 @@ function T.rotating_uv_center_compensation_translates_in_texcoord_fixed_point()
     kind = "texsrt",
     frameCount = 4,
     tracks = { { target = "wall", targetIndex = 0 } },
+    semanticNames = {},
     source = { type = "nitro", format = "NSBTA" },
     compiled = {
       targets = {
@@ -397,6 +402,7 @@ function T.scaling_uv_anchor_translates_in_texcoord_fixed_point()
     kind = "texsrt",
     frameCount = 4,
     tracks = { { target = "wall", targetIndex = 0 } },
+    semanticNames = {},
     source = { type = "nitro", format = "NSBTA" },
     compiled = {
       targets = {
@@ -682,6 +688,9 @@ function T.untextured_material_has_no_matrix()
         alphaMode = "opaque",
         doubleSided = false,
         polygonAlpha = 31,
+        texMtxMode = 0,
+        texWidth = 0,
+        texHeight = 0,
       },
     },
     skins = {},

@@ -110,13 +110,14 @@ function T.material_only_cutout_item_renders_with_the_cutout_shader_mode(scope)
   }))
   local item = {
     mesh = mesh,
-    material = { alphaClass = "cutout" },
+    material = { alphaClass = "cutout", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
     transform = IDENTITY,
     cullMode = "back",
     polygonAlpha = 0,
     polygonMode = "modulation",
     polygonId = 0,
     lightMask = 0,
+    alphaCutoff = 0.5 / 255,
     center = { 0.5, 0.5, 0 },
   }
   renderer:draw(emptyRuntime(), fixedCamera(), { item }, FieldViewport.new(640, 480, { mode = "strict" }))
@@ -147,7 +148,7 @@ function T.an_actor_billboard_draw_leaks_no_render_state(scope)
   }))
   local actor = {
     mesh = mesh,
-    material = { alphaClass = "cutout" },
+    material = { alphaClass = "cutout", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
     transform = IDENTITY,
     billboardBase = IDENTITY,
     alphaClass = "cutout",
@@ -156,6 +157,7 @@ function T.an_actor_billboard_draw_leaks_no_render_state(scope)
     polygonMode = "modulation",
     polygonId = 0,
     lightMask = 1,
+    alphaCutoff = 0.5 / 255,
     center = { 0, 1, 0 },
   }
 
@@ -229,7 +231,7 @@ function T.draw_restores_exact_caller_state_on_real_graphics(scope)
   }))
   local actor = {
     mesh = mesh,
-    material = { alphaClass = "cutout" },
+    material = { alphaClass = "cutout", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
     transform = IDENTITY,
     billboardBase = IDENTITY,
     alphaClass = "cutout",
@@ -238,6 +240,7 @@ function T.draw_restores_exact_caller_state_on_real_graphics(scope)
     polygonMode = "modulation",
     polygonId = 0,
     lightMask = 1,
+    alphaCutoff = 0.5 / 255,
     center = { 0, 1, 0 },
   }
   local wireframeItem = {
@@ -249,6 +252,7 @@ function T.draw_restores_exact_caller_state_on_real_graphics(scope)
     polygonMode = "modulation",
     polygonId = 0,
     lightMask = 1,
+    alphaCutoff = 0.5 / 255,
     center = { 0, 1, 0 },
   }
 
@@ -329,7 +333,7 @@ function T.polygon_light_mask_changes_the_rendered_result(scope)
     renderer:draw(runtime, camera, {
       {
         mesh = mesh,
-        material = { alphaClass = "opaque" },
+        material = { alphaClass = "opaque", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
         transform = IDENTITY,
         alphaClass = "opaque",
         cullMode = "back",
@@ -337,6 +341,7 @@ function T.polygon_light_mask_changes_the_rendered_result(scope)
         polygonMode = "modulation",
         polygonId = 0,
         lightMask = mask,
+        alphaCutoff = 0.5 / 255,
         center = { 0.5, 0.5, 0 },
       },
     }, viewport)
@@ -405,7 +410,7 @@ function T.emission_passes_through_for_static_materials(scope)
   renderer:draw(runtime, camera, {
     {
       mesh = mesh,
-      material = { alphaClass = "opaque" },
+      material = { alphaClass = "opaque", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
       transform = IDENTITY,
       alphaClass = "opaque",
       cullMode = "back",
@@ -413,6 +418,7 @@ function T.emission_passes_through_for_static_materials(scope)
       polygonMode = "modulation",
       polygonId = 0,
       lightMask = 0,
+      alphaCutoff = 0.5 / 255,
       center = { 0.5, 0.5, 0 },
       submissionIndex = 1,
     },
@@ -476,6 +482,7 @@ function T.stored_material_colors_never_dim_the_profile(scope)
         matAmbient = { 0, 0, 0 },
         matSpecular = { 0, 0, 0 },
         matEmission = { 0, 0, 0 },
+        texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 },
       },
       transform = IDENTITY,
       alphaClass = "opaque",
@@ -484,6 +491,7 @@ function T.stored_material_colors_never_dim_the_profile(scope)
       polygonMode = "modulation",
       polygonId = 0,
       lightMask = 15,
+      alphaCutoff = 0.5 / 255,
       center = { 0.5, 0.5, 0 },
       submissionIndex = 1,
     },
@@ -544,6 +552,7 @@ function T.color_animated_materials_replace_the_profile(scope)
         alphaClass = "opaque",
         matDiffuse = { 1, 1, 1 },
         colorsAnimated = true,
+        texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 },
       },
       transform = IDENTITY,
       alphaClass = "opaque",
@@ -552,6 +561,7 @@ function T.color_animated_materials_replace_the_profile(scope)
       polygonMode = "modulation",
       polygonId = 0,
       lightMask = 15,
+      alphaCutoff = 0.5 / 255,
       center = { 0.5, 0.5, 0 },
       submissionIndex = 1,
     },
@@ -615,7 +625,7 @@ function T.lit_then_unlit_scene_does_not_inherit_lighting(scope)
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
   local item = {
     mesh = mesh,
-    material = { alphaClass = "opaque" },
+    material = { alphaClass = "opaque", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
     transform = IDENTITY,
     alphaClass = "opaque",
     cullMode = "back",
@@ -623,6 +633,7 @@ function T.lit_then_unlit_scene_does_not_inherit_lighting(scope)
     polygonMode = "modulation",
     polygonId = 0,
     lightMask = 15,
+    alphaCutoff = 0.5 / 255,
     center = { 0.5, 0.5, 0 },
   }
   -- Interior points of the two triangles plus their Y-mirrored counterparts
@@ -686,7 +697,7 @@ function T.a_straddling_item_bends_its_leading_vertices(scope)
   mesh:setVertexMap({ 4, 5, 6, 1, 2, 3 })
   local item = {
     mesh = mesh,
-    material = { alphaClass = "opaque" },
+    material = { alphaClass = "opaque", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
     transform = IDENTITY,
     alphaClass = "opaque",
     cullMode = "none",
@@ -694,6 +705,7 @@ function T.a_straddling_item_bends_its_leading_vertices(scope)
     polygonMode = "modulation",
     polygonId = 0,
     lightMask = 0,
+    alphaCutoff = 0.5 / 255,
     center = { 0, 0, 0 },
     submissionIndex = 1,
     straddle = {
@@ -785,7 +797,7 @@ local function specularFrame(renderer, scope, normal, vectorFx12)
   renderer:draw(specularOnlyRuntime(vectorFx12), fixedCamera(), {
     {
       mesh = litMesh(scope, normal),
-      material = { alphaClass = "opaque" },
+      material = { alphaClass = "opaque", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
       transform = IDENTITY,
       alphaClass = "opaque",
       cullMode = "back",
@@ -793,6 +805,7 @@ local function specularFrame(renderer, scope, normal, vectorFx12)
       polygonMode = "modulation",
       polygonId = 0,
       lightMask = 1,
+      alphaCutoff = 0.5 / 255,
       center = { 0.5, 0.5, 0 },
       submissionIndex = 1,
     },

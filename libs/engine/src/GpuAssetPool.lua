@@ -8,14 +8,15 @@
 -- model-space bounding-box center and AABB of each unique geometry path,
 -- computed once (pure SceneDescriptor math) so no loader rescan of the
 -- decoded vertices happens per draw or placement. Failure has two scopes: a
--- construction wrapped in transaction() releases everything the construction
--- created (the loaders wrap their whole scene build in one), while a single
--- lazy acquire outside a transaction releases only the object that failed
--- acquisition itself created -- a failed variant load during live draw
--- evaluation never frees the resources the scene is drawing. The filter is
--- currently uniform (nearest), so it stays out of the image key; if it ever
--- varies, it belongs in the key too. The pool knows nothing about maps,
--- neighbors, materials, or transforms; those stay in the loaders.
+-- construction wrapped in build() releases everything the construction
+-- created (the loaders wrap their whole scene build in one, on a pool
+-- created immediately before), while a single lazy acquire outside a build
+-- releases only the object that failed acquisition itself created -- a
+-- failed variant load during live draw evaluation never frees the resources
+-- the scene is drawing. The filter is currently uniform (nearest), so it
+-- stays out of the image key; if it ever varies, it belongs in the key too.
+-- The pool knows nothing about maps, neighbors, materials, or transforms;
+-- those stay in the loaders.
 
 local SceneMesh = require("libs.engine.src.SceneMesh")
 local SceneDescriptor = require("libs.engine.src.SceneDescriptor")
@@ -29,7 +30,6 @@ local Errors = require("libs.errors.src.Errors")
 ---@field meshes love.Mesh[]
 ---@field images love.Image[]
 ---@field triangles integer
----@field _inTransaction boolean
 local GpuAssetPool = {}
 GpuAssetPool.__index = GpuAssetPool
 
@@ -97,7 +97,6 @@ function GpuAssetPool.new(cacheFs, opts)
     triangles = 0,
     _meshCache = {},
     _imageCache = {},
-    _inTransaction = false,
   }, GpuAssetPool)
 end
 
@@ -199,20 +198,19 @@ function GpuAssetPool:release()
   self.triangles = 0
 end
 
--- Run `fn` as a construction transaction: the loaders wrap their whole scene
--- build in it. On failure everything the pool owns is released (the whole
--- construction rolls back, dedup caches included) and the failure re-raises;
--- on success everything stays owned and fn's value is returned. The
--- transaction is not release-on-exit, and nesting is rejected -- an inner
--- rollback would release the outer construction's objects.
+-- Run the scene construction against this (freshly created) pool: the
+-- loaders create the pool and immediately wrap their whole build in build().
+-- On failure everything the construction acquired is released (dedup caches
+-- included) and the failure re-raises; on success everything stays owned and
+-- fn's value is returned. The wrapper is exactly "construct a fresh scene
+-- pool, release on failed construction" -- nothing more: it is not a generic
+-- transaction API, and callers must not reuse a pool that already owns
+-- objects (a failed inner construction would release them).
 ---@param fn fun(): any
 ---@return any
-function GpuAssetPool:transaction(fn)
-  assert(type(fn) == "function", "GpuAssetPool:transaction requires a function")
-  assert(not self._inTransaction, "GpuAssetPool:transaction is not nestable")
-  self._inTransaction = true
+function GpuAssetPool:build(fn)
+  assert(type(fn) == "function", "GpuAssetPool:build requires a function")
   local ok, result = pcall(fn)
-  self._inTransaction = false
   if not ok then
     self:release()
     error(result)

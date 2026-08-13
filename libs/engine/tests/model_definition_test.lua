@@ -1,6 +1,9 @@
--- ModelDefinition: the engine-native model IR -- validation, semantic
+-- ModelDefinition: the engine-native model IR -- assembly, semantic
 -- animation resolution, and the loading-time binding maps a nitro descriptor
--- produces.
+-- produces. The serialized descriptor shape is validated once at the
+-- artifact gate (ModelAsset.validate), so these tests cover the IR-level
+-- assembly contract: key resolution, stale-schema rejection, the required
+-- lists, name/semantic resolution, and the precomputed bindings.
 
 local Assert = require("tests.support.Assert")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
@@ -34,6 +37,25 @@ local function jointClip()
       },
     },
     semanticNames = { "door.open" },
+  })
+end
+
+-- A material clip binding onto the fixture's "wall" material, listed in the
+-- definition's animations like every playable clip.
+local function materialClip()
+  return AnimationClip.new({
+    id = "c2",
+    name = "fade",
+    category = "material",
+    kind = "color",
+    frameCount = 4,
+    compiled = {},
+    tracks = {
+      {
+        target = "wall",
+        channels = { diffuse = { interpolation = "step", keys = { { frame = 0, value = 0x203C } } } },
+      },
+    },
   })
 end
 
@@ -87,21 +109,6 @@ function T.fixture_definition_is_valid()
   Assert.equal(#def.animations, 2)
 end
 
--- The optional colors block is accepted: a record carrying the four DS
--- base-material registers (the shape the dynamic compiler emits) passes
--- validation.
-function T.materials_accept_the_optional_colors_block()
-  local s = definitionSpec()
-  s.materials[1].colors = {
-    diffuse = { r = 255, g = 0, b = 0 },
-    ambient = { r = 0, g = 255, b = 0 },
-    specular = { r = 0, g = 0, b = 255 },
-    emission = { r = 123, g = 123, b = 123 },
-  }
-  local def = ModelDefinition.new(s)
-  Assert.deepEqual(def.materials[1].colors.diffuse, { r = 255, g = 0, b = 0 })
-end
-
 -- The definition is nitro by construction: a spec needs no backend key, and
 -- the field does not exist.
 function T.new_requires_no_source_backend()
@@ -120,58 +127,33 @@ function T.new_rejects_a_source_backend_key()
   end)
 end
 
-function T.validation_rejects_bad_shapes()
+-- The IR-level shape requirements: the required lists and the animation
+-- name/semantic resolution rules. The descriptor field shapes themselves are
+-- gate-owned (ModelAsset.validate), so they are not re-checked here.
+function T.new_enforces_the_ir_level_requirements()
   local s = definitionSpec()
   s.sourceBackend = "vrm"
   throwsCode("MODEL_DEF_BAD_SOURCE_BACKEND", function()
     return ModelDefinition.new(s)
   end)
   s = definitionSpec()
-  s.materials[1].alphaMode = "pbr"
-  throwsCode("MODEL_DEF_BAD_ALPHA_MODE", function()
+  s.animations = nil
+  throwsCode("MODEL_DEF_BAD_ANIMATIONS", function()
     return ModelDefinition.new(s)
   end)
   s = definitionSpec()
-  s.nodes[2].index = 2
-  throwsCode("MODEL_DEF_NODE_INDEX_MISMATCH", function()
+  s.nodes = {}
+  throwsCode("MODEL_DEF_NO_NODES", function()
     return ModelDefinition.new(s)
   end)
   s = definitionSpec()
-  s.nodes[2].parentIndex = 5
-  throwsCode("MODEL_DEF_BAD_PARENT", function()
+  s.meshes = {}
+  throwsCode("MODEL_DEF_NO_MESHES", function()
     return ModelDefinition.new(s)
   end)
   s = definitionSpec()
-  s.meshes[1].nodeIndex = 7
-  throwsCode("MODEL_DEF_MESH_BAD_NODE", function()
-    return ModelDefinition.new(s)
-  end)
-  s = definitionSpec()
-  s.meshes[1].materialIndex = 7
-  throwsCode("MODEL_DEF_MESH_BAD_MATERIAL", function()
-    return ModelDefinition.new(s)
-  end)
-  s = definitionSpec()
-  s.materials[1].baseColor = { r = 300, g = 0, b = 0, a = 255 }
-  throwsCode("MODEL_DEF_BAD_BASE_COLOR", function()
-    return ModelDefinition.new(s)
-  end)
-  -- The optional colors block (the four DS material registers the dynamic
-  -- compiler emits) is validated like any other record field: a non-record
-  -- block, an unknown channel, and an out-of-range component all raise.
-  s = definitionSpec()
-  s.materials[1].colors = 5
-  throwsCode("MODEL_DEF_BAD_MATERIAL_COLORS", function()
-    return ModelDefinition.new(s)
-  end)
-  s = definitionSpec()
-  s.materials[1].colors = { emissive = { r = 0, g = 0, b = 0 } }
-  throwsCode("MODEL_DEF_BAD_MATERIAL_COLORS", function()
-    return ModelDefinition.new(s)
-  end)
-  s = definitionSpec()
-  s.materials[1].colors = { diffuse = { r = 0, g = 0, b = 256 } }
-  throwsCode("MODEL_DEF_BAD_MATERIAL_COLORS", function()
+  s.materials = {}
+  throwsCode("MODEL_DEF_NO_MATERIALS", function()
     return ModelDefinition.new(s)
   end)
   s = definitionSpec()
@@ -204,32 +186,6 @@ function T.validation_rejects_bad_shapes()
   throwsCode("MODEL_DEF_NAME_SEMANTIC_COLLISION", function()
     return ModelDefinition.new(s)
   end)
-  -- A mesh with neither a geometry path nor a batch cannot be drawn.
-  s = definitionSpec()
-  s.meshes[1].geometry = nil
-  throwsCode("MODEL_DEF_MESH_NO_GEOMETRY", function()
-    return ModelDefinition.new(s)
-  end)
-  -- Two meshes sharing an id are ambiguous.
-  s = definitionSpec()
-  s.meshes[2] = s.meshes[1]
-  throwsCode("MODEL_DEF_DUPLICATE_MESH", function()
-    return ModelDefinition.new(s)
-  end)
-  -- An animation must satisfy the whole clip contract, not just carry an id.
-  s = definitionSpec()
-  s.animations = { { id = "c9" } }
-  throwsCode("MODEL_DEF_BAD_ANIMATION", function()
-    return ModelDefinition.new(s)
-  end)
-  -- The compiled payload is part of the playback contract: the samplers
-  -- consume it, so a clip that carries the envelope but no compiled data
-  -- fails validation like any other incomplete record.
-  s = definitionSpec()
-  s.animations[1].compiled = nil
-  throwsCode("MODEL_DEF_BAD_ANIMATION", function()
-    return ModelDefinition.new(s)
-  end)
 end
 
 function T.animations_resolve_by_name_and_semantic()
@@ -239,33 +195,40 @@ function T.animations_resolve_by_name_and_semantic()
   Assert.isNil(def:animation("missing"))
 end
 
+-- Bindings are precomputed at assembly for every listed clip -- node clips
+-- map node indices to themselves, material clips map material names and
+-- carry the material-index -> track-index table the evaluator consumes.
 function T.binding_is_precomputed_for_node_and_material_clips()
-  local def = ModelDefinition.new(definitionSpec())
+  local s = definitionSpec()
+  s.animations = { jointClip(), materialClip() }
+  local def = ModelDefinition.new(s)
   local joint = def:animation("open")
   local jointBinding = def:binding(joint)
   Assert.notNil(jointBinding)
   Assert.deepEqual(jointBinding.map, { [0] = 0 })
 
-  local material = AnimationClip.new({
-    id = "c2",
-    name = "fade",
-    category = "material",
-    kind = "color",
-    frameCount = 4,
-    compiled = {},
-    tracks = {
-      {
-        target = "wall",
-        channels = { diffuse = { interpolation = "step", keys = { { frame = 0, value = 0x203C } } } },
-      },
-    },
-  })
+  local material = def:animation("fade")
   local materialBinding = def:binding(material)
   Assert.notNil(materialBinding)
   Assert.deepEqual(materialBinding.map, { wall = 0 })
   -- The MaterialEvaluator's per-material track lookup consumes the
   -- precomputed material-index -> track-index mapping.
   Assert.deepEqual(materialBinding.trackByMaterial, { [0] = 0 })
+end
+
+-- A clip outside the animations list has no binding: the lazy-binding
+-- escape hatch is cut, so an unlisted clip fails loudly instead of being
+-- bound on first access.
+function T.binding_rejects_a_clip_outside_the_animations_list()
+  local def = ModelDefinition.new(definitionSpec())
+  local stray = materialClip()
+  stray.id = "c9"
+  stray.name = "stray"
+  local ok, err = pcall(function()
+    return def:binding(stray)
+  end)
+  Assert.isFalse(ok, "an unlisted clip has no binding")
+  Assert.isTrue(tostring(err):find("not in the animations list", 1, true) ~= nil)
 end
 
 -- The complete serialized nitro descriptor shape MapAssetCompiler writes:
@@ -334,11 +297,8 @@ function T.from_nitro_descriptor_carries_the_straddle_provenance()
   Assert.deepEqual(def.backend.meshes["draw0.seg0"].straddle, { leading = 2, source = "draw" })
 end
 
--- ---- strict descriptor loading ----
-
--- A generated descriptor that omits a mandatory field must fail at the load
--- boundary with the descriptor's own diagnostic, never with a plausible
--- default key.
+-- A generated descriptor that omits the key must fail at the load boundary
+-- with the descriptor's own diagnostic, never with a plausible default key.
 function T.from_nitro_descriptor_requires_the_key()
   local desc = nitroDescriptor()
   desc.key = nil
@@ -349,95 +309,6 @@ function T.from_nitro_descriptor_requires_the_key()
   -- that path still assembles.
   local def = ModelDefinition.fromNitroDescriptor(desc, { key = "outdoor:26:door" })
   Assert.equal(def.key, "outdoor:26:door")
-end
-
-function T.from_nitro_descriptor_requires_materials()
-  local desc = nitroDescriptor()
-  desc.materials = nil
-  throwsCode("NITRO_DESC_NO_MATERIALS", function()
-    return ModelDefinition.fromNitroDescriptor(desc)
-  end)
-  desc = nitroDescriptor()
-  desc.materials = {}
-  throwsCode("NITRO_DESC_NO_MATERIALS", function()
-    return ModelDefinition.fromNitroDescriptor(desc)
-  end)
-end
-
-function T.from_nitro_descriptor_requires_animations()
-  local desc = nitroDescriptor()
-  desc.animations = nil
-  throwsCode("NITRO_DESC_NO_ANIMATIONS", function()
-    return ModelDefinition.fromNitroDescriptor(desc)
-  end)
-  desc = nitroDescriptor()
-  desc.animations = {}
-  throwsCode("NITRO_DESC_NO_ANIMATIONS", function()
-    return ModelDefinition.fromNitroDescriptor(desc)
-  end)
-end
-
--- A descriptor clip without its compiled payload is malformed generated data:
--- the samplers consume `compiled`, so the load boundary rejects it.
-function T.from_nitro_descriptor_requires_the_compiled_payload()
-  local desc = nitroDescriptor()
-  desc.animations[1].compiled = nil
-  throwsCode("MODEL_DEF_BAD_ANIMATION", function()
-    return ModelDefinition.fromNitroDescriptor(desc, { key = desc.key })
-  end)
-end
-
--- A descriptor batch record carrying an embedded batch instead of (or
--- alongside) the .g4mesh geometry path is a stale fixture artifact, not a
--- loadable model.
-function T.from_nitro_descriptor_rejects_an_embedded_batch()
-  local desc = nitroDescriptor()
-  desc.dynamic.batches[1].geometry = nil
-  desc.dynamic.batches[1].batch = { vertices = {}, indices = {} }
-  throwsCode("MODEL_DEF_MESH_EMBEDDED_BATCH", function()
-    return ModelDefinition.fromNitroDescriptor(desc)
-  end)
-  desc = nitroDescriptor()
-  desc.dynamic.batches[1].batch = { vertices = {}, indices = {} }
-  throwsCode("MODEL_DEF_MESH_EMBEDDED_BATCH", function()
-    return ModelDefinition.fromNitroDescriptor(desc)
-  end)
-end
-
--- The per-segment polygon draw state is mandatory: the compiler always
--- emits all seven fields, so a record missing one is malformed generated data.
-function T.from_nitro_descriptor_requires_the_draw_state_on_every_batch()
-  for _, field in ipairs({
-    "cullMode",
-    "polygonMode",
-    "polygonId",
-    "translucentDepthWrite",
-    "depthEqual",
-    "polygonAlpha",
-    "lightMask",
-  }) do
-    local desc = nitroDescriptor()
-    desc.dynamic.batches[1][field] = nil
-    throwsCode("NITRO_DESC_BAD_DRAW_STATE", function()
-      return ModelDefinition.fromNitroDescriptor(desc)
-    end)
-  end
-end
-
--- The definition spec itself carries no embedded batch: a mesh `batch` key
--- is rejected.
-function T.new_rejects_an_embedded_batch_mesh()
-  local s = definitionSpec()
-  s.meshes[1].batch = { vertices = {}, indices = {} }
-  throwsCode("MODEL_DEF_MESH_EMBEDDED_BATCH", function()
-    return ModelDefinition.new(s)
-  end)
-  s = definitionSpec()
-  s.meshes[1].geometry = nil
-  s.meshes[1].batch = { vertices = {}, indices = {} }
-  throwsCode("MODEL_DEF_MESH_EMBEDDED_BATCH", function()
-    return ModelDefinition.new(s)
-  end)
 end
 
 return T

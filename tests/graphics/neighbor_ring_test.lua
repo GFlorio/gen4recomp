@@ -195,7 +195,7 @@ function T.failed_cell_acquire_releases_earlier_cells_images()
       cell(-32, { x = "mirror", y = "clamp" }),
     }, { graphics = graphics })
   end)
-  Assert.isTrue(Errors.is(err) and err.code == "GPU_ASSET_UNKNOWN_WRAP", "raises GPU_ASSET_UNKNOWN_WRAP")
+  Assert.isTrue(Errors.is(err) and err.code == "SCENE_DESC_BAD_WRAP", "raises SCENE_DESC_BAD_WRAP")
   Assert.equal(#graphics.images, 1, "the first cell's image was acquired")
   Assert.equal(graphics.images[1].released, true, "a failed cell acquire releases the earlier cells' images")
 end

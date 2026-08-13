@@ -20,7 +20,6 @@
 -- (asserted at compile), so the sampling paths never see a frame past the
 -- last key. Pure domain module.
 
-local Errors = require("libs.errors.src.Errors")
 local JointAnimBlend = require("libs.engine.src.JointAnimBlend")
 
 local CompiledNsbcaSampler = {}
@@ -100,22 +99,16 @@ local function reconstruct(clip, key, targetIndex)
   local cells = { 0, 0, 0, 0, 0, 0, 0, 0, 0 }
   local index = key % 32768
   if key >= 0x8000 then
-    local entry = clip.compiled.rotData[index + 1]
-    if not entry then
-      Errors.raise(
-        "ANIM_COMPILED_ROT_TABLE_OUT_OF_RANGE",
-        "rotation key " .. tostring(key) .. " indexes pivot entry " .. tostring(index) .. ", beyond the compiled table",
-        { key = key, target = targetIndex, clip = clip.id }
-      )
-    end
+    -- The rotation tables are compiled to the highest key the clip's keys
+    -- reference, and the artifact gate (ModelAsset.validate) requires every
+    -- key inside its table and every pivot within 0..8, so an out-of-range
+    -- read here is a program invariant, not data.
+    local entry = assert(
+      clip.compiled.rotData[index + 1],
+      "rotation key " .. tostring(key) .. " indexes pivot entry " .. tostring(index) .. ", beyond the compiled table"
+    )
     local pivot = entry.control % 16
-    if pivot > 8 then
-      Errors.raise(
-        "ANIM_COMPILED_ROT_PIVOT_INDEX_INVALID",
-        "pivot index " .. tostring(pivot) .. " exceeds the 0..8 pivotUtil table",
-        { pivot = pivot, key = key, target = targetIndex, clip = clip.id }
-      )
-    end
+    assert(pivot <= 8, "pivot index " .. tostring(pivot) .. " exceeds the 0..8 pivotUtil table")
     cells[pivot + 1] = bitSet(entry.control, 0x10) and -FX_UNIT or FX_UNIT
     local u = PIVOT_UTIL[pivot + 1]
     cells[u[1] + 1] = entry.a
@@ -124,18 +117,10 @@ local function reconstruct(clip, key, targetIndex)
     cells[u[4] + 1] = bitSet(entry.control, 0x40) and -entry.a or entry.a
     return cells, false
   end
-  local e = clip.compiled.pivotData[index + 1]
-  if not e then
-    Errors.raise(
-      "ANIM_COMPILED_ROT_TABLE_OUT_OF_RANGE",
-      "rotation key "
-        .. tostring(key)
-        .. " indexes compressed entry "
-        .. tostring(index)
-        .. ", beyond the compiled table",
-      { key = key, target = targetIndex, clip = clip.id }
-    )
-  end
+  local e = assert(
+    clip.compiled.pivotData[index + 1],
+    "rotation key " .. tostring(key) .. " indexes compressed entry " .. tostring(index) .. ", beyond the compiled table"
+  )
   for i = 1, 5 do
     cells[i] = asr(e[i], 3)
   end
@@ -291,14 +276,13 @@ local function sampleRot(clip, channel, frameFx, numFrame, targetIndex)
   local wrapFinal = math.floor(anmFlags / 2) % 2 == 1
 
   local function keyAt(keyIndex)
-    local key = channel.keys[keyIndex + 1]
-    if key == nil then
-      Errors.raise(
-        "ANIM_COMPILED_ROT_KEY_OUT_OF_RANGE",
-        "rotation curve references key " .. tostring(keyIndex) .. " beyond its compiled array",
-        { keyIndex = keyIndex, target = targetIndex, clip = clip.id }
-      )
-    end
+    -- The gate requires every rotation curve to carry at least as many keys
+    -- as its frames demand (and the frame is clamped below numFrame), so a
+    -- missing key here is a program invariant, not data.
+    local key = assert(
+      channel.keys[keyIndex + 1],
+      "rotation curve references key " .. tostring(keyIndex) .. " beyond its compiled array"
+    )
     return key
   end
 

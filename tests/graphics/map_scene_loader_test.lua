@@ -198,8 +198,8 @@ function T.unknown_wrap_modes_fail_loudly()
   s.mapBatches = { batch(geomPath, 0) }
   local ok, err = pcall(MapSceneLoader.load, cache, s)
   Assert.isTrue(
-    not ok and Errors.is(err) and err.code == "GPU_ASSET_UNKNOWN_WRAP",
-    "raises GPU_ASSET_UNKNOWN_WRAP: " .. tostring(err.code)
+    not ok and Errors.is(err) and err.code == "SCENE_DESC_BAD_WRAP",
+    "raises SCENE_DESC_BAD_WRAP: " .. tostring(err.code)
   )
 end
 
@@ -290,7 +290,7 @@ function T.unknown_wrap_in_a_building_descriptor_releases_acquired_images()
   local err = Assert.throws(function()
     MapSceneLoader.load(cache, s, { graphics = graphics })
   end)
-  Assert.isTrue(Errors.is(err) and err.code == "GPU_ASSET_UNKNOWN_WRAP", "raises GPU_ASSET_UNKNOWN_WRAP")
+  Assert.isTrue(Errors.is(err) and err.code == "SCENE_DESC_BAD_WRAP", "raises SCENE_DESC_BAD_WRAP")
   Assert.equal(#graphics.images, 1)
   Assert.equal(graphics.images[1].released, true, "the scene image is released with the failed descriptor")
 end

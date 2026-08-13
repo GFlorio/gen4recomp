@@ -1,15 +1,24 @@
 -- Unit tests for SceneDescriptor, the pure descriptor normalization of scene
--- loading: material wrap resolution and id indexing, the texture-to-wrap map
--- an animated model's pattern variants need, and the per-mesh geometry math
--- (model-space center + AABB) plus the per-model bounds fold that the
--- loaders (MapSceneLoader/NeighborRing) consume from the pool mesh entry
--- instead of rescanning vertices.
+-- loading: material wrap resolution and id indexing, the material-keyed
+-- sampler-wrap map an animated model's pattern variants need, and the
+-- per-mesh geometry math (model-space center + AABB) plus the per-model
+-- bounds fold that the loaders (MapSceneLoader/NeighborRing) consume from
+-- the pool mesh entry instead of rescanning vertices. The scene-form
+-- material records the compilers emit always carry their sampler wrap, so
+-- normalization is strict: a missing wrap or a missing material list is
+-- malformed generated data, never a default.
 
 local Assert = require("tests.support.Assert")
 local ErrorCodes = require("libs.assets.src.ErrorCodes")
 local SceneDescriptor = require("libs.engine.src.SceneDescriptor")
 
 local T = {}
+
+local function throwsCode(code, fn)
+  local ok, err = pcall(fn)
+  Assert.isFalse(ok, "expected error " .. code)
+  Assert.equal(type(err) == "table" and err.code or err, code)
+end
 
 local function material(id, texture, wrap)
   return {
@@ -20,10 +29,16 @@ local function material(id, texture, wrap)
   }
 end
 
--- A record without a wrap defaults to clamp/clamp.
-function T.missing_wrap_defaults_to_clamp()
-  local wrap = SceneDescriptor.wrap({ id = 0, name = "mat", texture = "tex" })
-  Assert.deepEqual(wrap, { x = "clamp", y = "clamp" })
+-- A material record without a wrap is malformed generated data: the
+-- compiler emits the sampler state on every material, so a missing wrap
+-- raises instead of defaulting to clamp.
+function T.missing_wrap_raises()
+  throwsCode("SCENE_DESC_BAD_WRAP", function()
+    SceneDescriptor.wrap({ id = 0, name = "mat", texture = "tex" })
+  end)
+  throwsCode("SCENE_DESC_BAD_WRAP", function()
+    SceneDescriptor.wrap({ id = 0, name = "mat", texture = "tex", wrap = { x = "mirror", y = "clamp" } })
+  end)
   local record = material(0, "tex", { x = "repeat", y = "repeat" })
   Assert.equal(SceneDescriptor.wrap(record), record.wrap, "an explicit wrap is preserved by identity")
 end
@@ -32,18 +47,26 @@ end
 function T.materials_index_by_id_with_resolved_wraps()
   local byId = SceneDescriptor.materials({
     material(0, "a.png", { x = "repeat", y = "repeat" }),
-    material(1, "b.png", nil),
+    material(1, "b.png", { x = "clamp", y = "clamp" }),
   })
   Assert.equal(byId[0] ~= nil and byId[1] ~= nil, true, "both ids are indexed")
   Assert.deepEqual(byId[0], { id = 0, name = "mat0", texture = "a.png", wrap = { x = "repeat", y = "repeat" } })
   Assert.deepEqual(byId[1], { id = 1, name = "mat1", texture = "b.png", wrap = { x = "clamp", y = "clamp" } })
-  Assert.deepEqual(SceneDescriptor.materials(nil), {}, "a missing material list normalizes to an empty map")
 end
 
--- Every texture key a material can sample -- base and pattern variants --
--- maps to the owning material's wrap, so a variant never resolves with a
--- different sampler than its material.
-function T.wrap_by_texture_covers_base_and_variants()
+-- A missing material list is malformed scene data, not an empty map.
+function T.materials_requires_a_list()
+  throwsCode("SCENE_DESC_BAD_MATERIALS", function()
+    ---@diagnostic disable: param-type-mismatch
+    SceneDescriptor.materials(nil)
+  end)
+end
+
+-- The sampler-wrap map is keyed by material id (base texture and pattern
+-- variants of one material share its wrap): a texture path does not uniquely
+-- imply a wrap -- two materials can share pixels under different wraps -- so
+-- a path-keyed map would silently overwrite one sampler with the other.
+function T.wrap_by_material_maps_each_material_to_its_wrap()
   local list = {
     {
       id = 0,
@@ -55,14 +78,20 @@ function T.wrap_by_texture_covers_base_and_variants()
         { name = "v2", texture = "v2.png" },
       },
     },
-    { id = 1, name = "mat1", wrap = nil },
+    { id = 1, name = "mat1", wrap = { x = "repeat", y = "repeat" } },
   }
-  local byTexture = SceneDescriptor.wrapByTexture(list)
-  Assert.deepEqual(byTexture["base.png"], { x = "repeat", y = "clamp" })
-  Assert.deepEqual(byTexture["v1.png"], { x = "repeat", y = "clamp" })
-  Assert.deepEqual(byTexture["v2.png"], { x = "repeat", y = "clamp" })
-  Assert.equal(byTexture["untextured"], nil, "a material without a texture maps nothing")
-  Assert.deepEqual(SceneDescriptor.wrapByTexture(nil), {})
+  local byMaterial = SceneDescriptor.wrapByMaterial(list)
+  Assert.deepEqual(byMaterial[0], { x = "repeat", y = "clamp" })
+  Assert.deepEqual(byMaterial[1], { x = "repeat", y = "repeat" })
+  -- Two materials sharing one texture under different wraps both resolve:
+  -- neither overwrites the other.
+  local shared = {
+    { id = 0, name = "a", texture = "same.png", wrap = { x = "clamp", y = "clamp" } },
+    { id = 1, name = "b", texture = "same.png", wrap = { x = "repeat", y = "repeat" } },
+  }
+  local byMaterial2 = SceneDescriptor.wrapByMaterial(shared)
+  Assert.deepEqual(byMaterial2[0], { x = "clamp", y = "clamp" })
+  Assert.deepEqual(byMaterial2[1], { x = "repeat", y = "repeat" })
 end
 
 -- The per-mesh geometry math: bounding-box center and {minX..maxZ} AABB of
@@ -74,12 +103,6 @@ function T.mesh_geometry_computes_center_and_aabb()
   local g2 = SceneDescriptor.meshGeometry({ { -4, 2, 6 }, { 4, 8, -6 } })
   Assert.deepEqual(g2.center, { 0, 5, 0 })
   Assert.deepEqual(g2.bounds, { minX = -4, maxX = 4, minY = 2, maxY = 8, minZ = -6, maxZ = 6 })
-end
-
-local function throwsCode(code, fn)
-  local ok, err = pcall(fn)
-  Assert.isFalse(ok, "expected error " .. code)
-  Assert.equal(type(err) == "table" and err.code or err, code)
 end
 
 -- The model bounds fold unions per-mesh AABBs into one fresh table (never

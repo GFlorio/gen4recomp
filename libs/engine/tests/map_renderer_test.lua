@@ -262,6 +262,7 @@ function T.draw_failure_restores_exact_state_and_rethrows()
         mesh = { setTexture = function() end },
         alphaClass = "wireframe",
         cullMode = "none",
+        lightMask = 0,
         transform = identity,
         center = { 0, 0, 0 },
       },
@@ -495,7 +496,6 @@ function T.light_mask_uniforms_decode_polygon_bits()
   Assert.deepEqual(MapRenderer.lightMaskUniforms(2), { 0, 1, 0, 0 })
   Assert.deepEqual(MapRenderer.lightMaskUniforms(5), { 1, 0, 1, 0 })
   Assert.deepEqual(MapRenderer.lightMaskUniforms(15), { 1, 1, 1, 1 })
-  Assert.deepEqual(MapRenderer.lightMaskUniforms(), { 0, 0, 0, 0 })
   -- Masks outside the 4-bit polygon field are malformed data.
   Assert.throws(function()
     MapRenderer.lightMaskUniforms(16)
@@ -574,8 +574,12 @@ end
 local function straddleGraphics(opts)
   opts = opts or {}
   local meshes = {}
+  local wireframeCount = 0
   return {
     meshes = meshes,
+    wireframeCount = function()
+      return wireframeCount
+    end,
     newShader = function()
       return { send = function() end }
     end,
@@ -595,6 +599,14 @@ local function straddleGraphics(opts)
       }
       meshes[#meshes + 1] = scratch
       return scratch
+    end,
+    setShader = function() end,
+    setDepthMode = function() end,
+    setBlendMode = function() end,
+    setWireframe = function(enabled)
+      if enabled then
+        wireframeCount = wireframeCount + 1
+      end
     end,
     setMeshCullMode = function() end,
     draw = function()
@@ -691,6 +703,61 @@ function T.a_failed_straddle_draw_still_releases_the_scratch()
 
   Assert.equal(#fake.meshes, 1)
   Assert.isTrue(fake.meshes[1].released, "a failed straddle draw releases its scratch")
+end
+
+-- ---- wireframe straddle dispatch ----
+--
+-- The wireframe pass routes straddling items through the same per-vertex
+-- bend as the filled passes (the corpus has one real straddle+wireframe
+-- case: indoor:146:e8aca8e43479 in map 0080), so a wireframe straddle item
+-- bakes its leading vertices under the straddle transform, draws the scratch
+-- with wireframe mode on, and releases it within the call.
+function T.wireframe_straddle_bakes_into_a_released_scratch_drawn_in_wireframe()
+  local fake = straddleGraphics()
+  local renderer = MapRenderer.new({ graphics = fake })
+  local item = straddleDrawItem(sourceMesh())
+
+  renderer:_drawWireframe(item, Matrix4.identity(), Matrix4.identity())
+
+  Assert.equal(#fake.meshes, 1)
+  local scratch = fake.meshes[1]
+  Assert.isTrue(scratch.released, "the wireframe scratch is released after the draw")
+  Assert.deepEqual(scratch.vertexMap, { 4, 3, 2, 1 }, "the wireframe scratch carries the source's vertex map")
+  -- The bake moved the first `leading` vertices under the straddle
+  -- transform and left the rest under the item transform.
+  Assert.near(scratch.vertices[1][1], 9, 1e-9)
+  Assert.near(scratch.vertices[2][1], 11, 1e-9)
+  Assert.near(scratch.vertices[3][1], 1, 1e-9)
+  Assert.near(scratch.vertices[4][1], -1, 1e-9)
+  Assert.equal(fake.wireframeCount(), 1, "the straddle scratch draws in wireframe mode")
+end
+
+-- A non-straddling wireframe item draws its own mesh directly, without
+-- baking a scratch.
+function T.wireframe_draw_without_a_straddle_uses_the_item_mesh()
+  local fake = straddleGraphics()
+  local renderer = MapRenderer.new({ graphics = fake })
+  local item = straddleDrawItem(sourceMesh())
+  item.straddle = nil
+
+  renderer:_drawWireframe(item, Matrix4.identity(), Matrix4.identity())
+
+  Assert.equal(#fake.meshes, 0, "no scratch is baked for a non-straddling wireframe item")
+  Assert.equal(fake.wireframeCount(), 1, "the item mesh draws in wireframe mode")
+end
+
+-- A draw failure inside the wireframe straddle path must still release the
+-- scratch mesh it already acquired.
+function T.a_failed_wireframe_straddle_draw_still_releases_the_scratch()
+  local fake = straddleGraphics({ failOnDraw = true })
+  local renderer = MapRenderer.new({ graphics = fake })
+
+  Assert.throws(function()
+    renderer:_drawWireframe(straddleDrawItem(sourceMesh()), Matrix4.identity(), Matrix4.identity())
+  end)
+
+  Assert.equal(#fake.meshes, 1)
+  Assert.isTrue(fake.meshes[1].released, "a failed wireframe straddle draw releases its scratch")
 end
 
 return { tests = T }

@@ -58,7 +58,7 @@ local PolygonState = require("libs.assets.src.PolygonState")
 ---@field materialState { [integer]: MaterialInstanceState }
 ---@field poseState PoseState|nil
 ---@field renderMeshesById table|nil -- caller-built render meshes per mesh id
----@field resolveImage fun(key: string): any|nil
+---@field resolveImage fun(key: string, materialId: integer): any|nil
 ---@field timeOfDayPlan table|nil -- band plan the scene loader attaches (TimeOfDayProps.plan)
 local ModelInstance = {}
 ModelInstance.__index = ModelInstance
@@ -71,10 +71,9 @@ local CUTOUT_EPSILON = AlphaClassifier.CUTOUT_EPSILON
 -- The polygon draw fields the draw path consumes from a nitro backend mesh
 -- record: the shared PolygonState schema minus polygonAlpha, which rides on
 -- the effective material (it can be animated) rather than the batch record.
--- A record present but missing any of them is malformed generated data and
--- raises at drawItems (the record can be patched after construction, so the
--- check lives at the consumption point). Records absent entirely
--- (non-backend definitions) keep the defaults below.
+-- The descriptor gate guarantees the full field set on every batch, and
+-- fromNitroDescriptor copies it onto the backend record, so the draw path
+-- reads the fields directly -- never a default.
 local DRAW_STATE_FIELDS = {}
 for _, field in ipairs(PolygonState.FIELDS) do
   if field ~= "polygonAlpha" then
@@ -82,16 +81,9 @@ for _, field in ipairs(PolygonState.FIELDS) do
   end
 end
 
-local ITEM_DRAW_STATE_DEFAULTS = {
-  polygonMode = "modulation",
-  polygonId = 0,
-  lightMask = 0,
-  cullMode = "back",
-  translucentDepthWrite = false,
-  depthEqual = false,
-}
-
--- alphaMode -> the renderer's render-pass class (the material contract).
+-- alphaMode -> the renderer's render-pass class (the material contract). The
+-- descriptor gate restricts alphaMode to this vocabulary, so a lookup can
+-- never miss.
 local ALPHA_CLASS = {
   opaque = AlphaClassifier.OPAQUE,
   mask = AlphaClassifier.CUTOUT,
@@ -115,13 +107,13 @@ local function baseMaterialState(material)
     texWidth = material.texWidth,
     texHeight = material.texHeight,
     colors = MaterialEvaluator.baseColors(material),
-    polygonAlpha = material.polygonAlpha or FixedPoint.RGB5_MAX,
+    polygonAlpha = material.polygonAlpha,
     texMatrix = IDENTITY_TEX_MATRIX,
   }
   if material.textureFormat ~= nil then
     state.alphaClass = AlphaClassifier.classify(state.polygonAlpha, material.textureFormat, material.alphaUsage)
   else
-    state.alphaClass = ALPHA_CLASS[material.alphaMode] or AlphaClassifier.OPAQUE
+    state.alphaClass = ALPHA_CLASS[material.alphaMode]
   end
   return state
 end
@@ -212,7 +204,7 @@ function ModelInstance:stop(nameOrHandle)
     for _, attachment in ipairs(state:attachments(category)) do
       local clip = attachment.clip
       local matchesName = clip.name == nameOrHandle or clip.id == nameOrHandle
-      for _, semantic in ipairs(clip.semanticNames or {}) do
+      for _, semantic in ipairs(clip.semanticNames) do
         if semantic == nameOrHandle then
           matchesName = true
         end
@@ -254,14 +246,14 @@ function ModelInstance:effectiveMaterial(materialIndex)
     if c then
       return { c.r / 255, c.g / 255, c.b / 255 }
     end
-    local base = material.baseColor or { r = 255, g = 255, b = 255, a = 255 }
+    local base = material.baseColor
     return { base.r / 255, base.g / 255, base.b / 255 }
   end
   local image
   if state and state.texture and self.resolveImage then
-    image = self.resolveImage(state.texture)
+    image = self.resolveImage(state.texture, materialIndex)
   end
-  local alphaClass = state and state.alphaClass or ALPHA_CLASS[material.alphaMode] or AlphaClassifier.OPAQUE
+  local alphaClass = state and state.alphaClass or ALPHA_CLASS[material.alphaMode]
   return {
     image = image,
     texMatrix = state and state.texMatrix or IDENTITY_TEX_MATRIX,
@@ -275,8 +267,10 @@ function ModelInstance:effectiveMaterial(materialIndex)
     -- color ownership bits, so the stored colors alone never reach the DS).
     colorsAnimated = state and state.colorAnimated or false,
     alphaClass = alphaClass,
-    alphaCutoff = alphaClass == AlphaClassifier.CUTOUT and CUTOUT_EPSILON or nil,
-    polygonAlpha = (state and state.polygonAlpha or FixedPoint.RGB5_MAX) / FixedPoint.RGB5_MAX,
+    -- The fragment cutoff is a render constant the shader reads only in
+    -- cutout mode; the item contract requires a concrete value.
+    alphaCutoff = CUTOUT_EPSILON,
+    polygonAlpha = state.polygonAlpha / FixedPoint.RGB5_MAX,
   }
 end
 
@@ -287,7 +281,7 @@ end
 ---@field material table -- effective material record
 ---@field transform number[] -- 16-element column-major matrix
 ---@field alphaClass string
----@field alphaCutoff number|nil
+---@field alphaCutoff number -- the fragment cutoff (read only in cutout mode)
 ---@field polygonAlpha number
 ---@field polygonMode string
 ---@field polygonId integer
@@ -343,22 +337,10 @@ function ModelInstance:drawItems(renderMeshesById)
         end
         transform = Matrix4.multiply(self.transform, nodeMatrix)
       end
-      local meshState = backendMeshes[mesh.id]
-      if meshState then
-        -- Strict dynamic draw state: a backend record missing a consumed
-        -- draw field fails loudly instead of silently defaulting.
-        -- Records absent entirely (non-backend definitions) keep the
-        -- defaults below.
-        for _, field in ipairs(DRAW_STATE_FIELDS) do
-          if meshState[field] == nil then
-            Errors.raise(
-              "MODEL_DEF_BAD_DRAW_STATE",
-              "backend mesh " .. mesh.id .. " is missing the " .. field .. " draw state",
-              { meshId = mesh.id, field = field }
-            )
-          end
-        end
-      end
+      local meshState = assert(
+        backendMeshes[mesh.id],
+        "backend mesh record missing for " .. mesh.id .. " (a nitro definition must cover every mesh)"
+      )
       local material = self:effectiveMaterial(mesh.materialIndex)
       local item = {
         mesh = renderMeshesById[mesh.id],
@@ -368,13 +350,15 @@ function ModelInstance:drawItems(renderMeshesById)
         alphaClass = material.alphaClass,
         alphaCutoff = material.alphaCutoff,
         polygonAlpha = material.polygonAlpha,
-        center = mesh.center or { 0, 0, 0 },
+        -- The loader stamps each mesh's model-space center from the decoded
+        -- geometry; a definition mesh without one cannot be sorted.
+        center = assert(mesh.center, "mesh " .. mesh.id .. " has no stamped model-space center"),
       }
       -- The shared draw-state set rides on the item from the backend record
-      -- (present and complete after the check above); non-backend
-      -- definitions keep the documented defaults.
+      -- (complete by contract: the descriptor gate requires every field on
+      -- every batch, and fromNitroDescriptor copies the batch records).
       for _, field in ipairs(DRAW_STATE_FIELDS) do
-        item[field] = meshState and meshState[field] or ITEM_DRAW_STATE_DEFAULTS[field]
+        item[field] = meshState[field]
       end
       -- A straddling draw carries the bend: the first `leading` vertices
       -- were submitted under the pre-boundary matrix, so the renderer needs

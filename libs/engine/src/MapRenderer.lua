@@ -5,21 +5,25 @@
 -- fragments), translucent (depth test on, write governed by polygon bit 11),
 -- and wireframe edges. Opaque, cutout, and wireframe passes additionally stamp
 -- their polygon ID and depth into a second render target that the DS
--- edge-marking post-process reads when compositing to the screen; the
--- translucent pass deliberately leaves that target alone. It clears the depth
+-- edge-marking post-process reads when compositing to the screen (the
+-- wireframe pass stamps the rear-plane sentinel, not a real polygon ID); the
+-- translucent pass stamps the translucent sentinel there instead, so it
+-- occludes opaque geometry behind it for edge marking while the edge pass
+-- never outlines the translucent pixels themselves. It clears the depth
 -- buffer itself (love's frame clear only touches color) and restores the exact
 -- caller state it changed (canvas, shader, depth, cull, blend, wireframe,
 -- color) even when drawing raises, so the diagnostic UI drawn afterwards is
 -- unaffected. A straddling draw item (the first `leading` vertices submitted
--- under a pre-boundary matrix, per the DS geometry engine) is bent per frame:
--- the shared mesh's vertex data is CPU-baked under the two transforms into a
--- scratch mesh drawn with an identity model and released within the frame --
--- the pool-shared mesh is never mutated. Resource construction is
--- transactional: a failed shader or canvas allocation releases everything
--- already created, and a canvas recreation keeps the previous target set
--- usable until the replacement is complete. It builds no persistent meshes or
--- textures and reads no ROM/NARC data -- those belong to the loader and
--- compiler; here everything is already resident.
+-- under a pre-boundary matrix, per the DS geometry engine) is bent per frame,
+-- in the filled passes and the wireframe pass alike: the shared mesh's vertex
+-- data is CPU-baked under the two transforms into a scratch mesh drawn with an
+-- identity model and released within the frame -- the pool-shared mesh is
+-- never mutated. Resource construction is transactional: a failed shader or
+-- canvas allocation releases everything already created, and a canvas
+-- recreation keeps the previous target set usable until the replacement is
+-- complete. It builds no persistent meshes or textures and reads no ROM/NARC
+-- data -- those belong to the loader and compiler; here everything is already
+-- resident.
 
 local RenderQueue = require("libs.engine.src.RenderQueue")
 local BillboardTransform = require("libs.engine.src.BillboardTransform")
@@ -229,9 +233,8 @@ end
 -- lights its mask admits -- the global profile enabled state alone is not
 -- enough. LÖVE's GLSL version has no integer bitwise operators, so the decode
 -- happens here once per draw instead.
-function MapRenderer.lightMaskUniforms(mask)
-  local m = mask or 0
-  assert(m >= 0 and m <= 15 and m % 1 == 0, "light mask must be a 4-bit integer, got " .. tostring(mask))
+function MapRenderer.lightMaskUniforms(m)
+  assert(m >= 0 and m <= 15 and m % 1 == 0, "light mask must be a 4-bit integer, got " .. tostring(m))
   return {
     m % 2 >= 1 and 1.0 or 0.0,
     m % 4 >= 2 and 1.0 or 0.0,
@@ -466,7 +469,7 @@ function MapRenderer:_drawMesh(item, viewMatrix, polygonIdOverride, projection, 
       profileColors and profileColors.emission
     )
   )
-  shader:send("u_texMatrix", "column", mat and mat.texMatrix or { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
+  shader:send("u_texMatrix", "column", mat.texMatrix)
 
   if mat and mat.image then
     shader:send("u_useTexture", true)
@@ -477,29 +480,82 @@ function MapRenderer:_drawMesh(item, viewMatrix, polygonIdOverride, projection, 
   end
 
   shader:send("u_alphaMode", alphaModeId(RenderQueue.effectiveAlphaClass(item)))
-  shader:send("u_alphaCutoff", item.alphaCutoff or CUTOUT_EPSILON)
-  shader:send("u_polygonAlpha", item.polygonAlpha or 1.0)
+  shader:send("u_alphaCutoff", item.alphaCutoff)
+  shader:send("u_polygonAlpha", item.polygonAlpha)
   shader:send("u_polygonMode", item.polygonMode == "decal" and 1 or 0)
-  shader:send("u_polygonId", polygonIdOverride or (item.polygonId or 0) / MapRenderer.REAR_PLANE_ID)
+  shader:send("u_polygonId", polygonIdOverride or item.polygonId / MapRenderer.REAR_PLANE_ID)
   shader:send("u_lightMask", MapRenderer.lightMaskUniforms(item.lightMask))
-  lg.setMeshCullMode(item.cullMode or "back")
+  lg.setMeshCullMode(item.cullMode)
   lg.draw(mesh)
   self.stats.drawCalls = self.stats.drawCalls + 1
 end
 
 -- Draw the edges of a wireframe batch through the same projection path as
 -- filled geometry. The DS draws polygon alpha zero as wireframe edges rather
--- than an invisible filled polygon.
+-- than an invisible filled polygon. A straddling wireframe item takes the
+-- same per-vertex bend dispatch as the filled passes: the first `leading`
+-- vertices are baked under the straddle transform into a released scratch
+-- mesh, exactly like _drawStraddle.
 function MapRenderer:_drawWireframe(item, viewMatrix, projection)
+  if item.straddle then
+    self:_drawWireframeStraddle(item, viewMatrix, projection)
+    return
+  end
+  self:_drawWireframeMesh(
+    item,
+    viewMatrix,
+    projection,
+    item.transform,
+    Matrix3.normalMatrix(item.transform, viewMatrix),
+    item.mesh
+  )
+end
+
+-- Draw a straddling wireframe item: bake the shared mesh's vertices under
+-- the straddle transform (leading) and the item transform (trailing) into a
+-- scratch mesh, draw it with an identity model, and release the scratch
+-- within the call -- on the failure path as well as the success path.
+function MapRenderer:_drawWireframeStraddle(item, viewMatrix, projection)
+  local lg = assert(self._graphics)
+  local scratch
+  local ok, err = pcall(function()
+    local vertices = {}
+    for i = 1, item.mesh:getVertexCount() do
+      vertices[i] = { item.mesh:getVertex(i) }
+    end
+    scratch = lg.newMesh(
+      VertexFormat.LAYOUT,
+      MapRenderer.bakeStraddle(vertices, item.straddle.leading, item.straddle.transform, item.transform),
+      "triangles",
+      "static"
+    )
+    local map = item.mesh:getVertexMap()
+    if map and #map > 0 then
+      scratch:setVertexMap(map)
+    end
+    local identity = Matrix4.identity()
+    self:_drawWireframeMesh(item, viewMatrix, projection, identity, Matrix3.normalMatrix(identity, viewMatrix), scratch)
+  end)
+  if scratch then
+    scratch:release()
+  end
+  if not ok then
+    error(err)
+  end
+end
+
+-- The common wireframe draw body: bind the model/normal matrices, the
+-- profile registers, and the rear-plane id, then draw the mesh with
+-- wireframe mode on.
+function MapRenderer:_drawWireframeMesh(item, viewMatrix, projection, modelMatrix, normalMatrix, mesh)
   local lg = assert(self._graphics)
   local shader = self.shader
-  local normalMatrix = Matrix3.normalMatrix(item.transform, viewMatrix)
 
   lg.setShader(shader)
   lg.setDepthMode("less", true)
   lg.setBlendMode("alpha")
   shader:send("u_proj", "column", projection)
-  shader:send("u_model", "column", item.transform)
+  shader:send("u_model", "column", modelMatrix)
   shader:send("u_normalMatrix", "column", normalMatrix)
   -- Wireframe polygons are static field geometry: the effective registers
   -- are the field profile's.
@@ -518,10 +574,10 @@ function MapRenderer:_drawWireframe(item, viewMatrix, projection)
   -- domain exactly like every other id (255/255 == 1.0).
   shader:send("u_polygonId", MapRenderer.REAR_PLANE_ID / MapRenderer.REAR_PLANE_ID)
   shader:send("u_lightMask", MapRenderer.lightMaskUniforms(item.lightMask))
-  item.mesh:setTexture()
-  lg.setMeshCullMode(item.cullMode or "back")
+  mesh:setTexture()
+  lg.setMeshCullMode(item.cullMode)
   lg.setWireframe(true)
-  lg.draw(item.mesh)
+  lg.draw(mesh)
   lg.setWireframe(false)
   self.stats.drawCalls = self.stats.drawCalls + 1
 end
@@ -606,7 +662,9 @@ function MapRenderer:draw(runtime, camera, worldDraws, viewport, alpha)
     end
 
     -- Pass 4: wireframe edges (polygon alpha zero). These count as opaque for
-    -- edge marking and write their real polygon ID into the ID target.
+    -- edge marking and stamp the rear-plane sentinel into the ID target --
+    -- 255/255 == 1.0, the same sentinel the wireframe draw body writes (see
+    -- _drawWireframeMesh), never the item's own polygon id.
     lg.setCanvas(sceneTargets)
     for _, d in ipairs(queue.wireframe) do
       self:_drawWireframe(d, viewMatrix, projectionFor(d))

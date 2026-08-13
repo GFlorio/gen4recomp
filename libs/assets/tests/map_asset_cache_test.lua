@@ -148,7 +148,7 @@ function T.not_ready_when_a_variant_texture_is_missing()
   c:write(
     modelPath,
     string.format(
-      "return { schema = 'g4-model-v2', key = %q, memberId = 1, kind = 'static', batches = {}, materials = { { id = 0, name = 'wall', texture = %q, variants = { { name = 'sign.a', texture = %q } } } } }\n",
+      "return { schema = 'g4-model-v2', key = %q, memberId = 1, kind = 'static', batches = {}, materials = { { id = 0, name = 'wall', texture = %q, textureFormat = 3, wrap = { x = 'clamp', y = 'clamp' }, flip = { x = false, y = false }, diffuse = { r = 255, g = 255, b = 255, a = 255 }, variants = { { name = 'sign.a', texture = %q } } } } }\n",
       modelKey,
       baseTexture,
       variantTexture

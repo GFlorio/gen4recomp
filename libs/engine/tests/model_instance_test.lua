@@ -30,6 +30,8 @@ local function texturedDoorDefinition()
     baseColor = { r = 255, g = 255, b = 255, a = 255 },
     alphaMode = "opaque",
     doubleSided = false,
+    polygonAlpha = 31,
+    texMtxMode = 0,
     texture = "wall.png",
     texWidth = 64,
     texHeight = 64,
@@ -192,25 +194,6 @@ function T.effective_material_reads_per_component_colors_before_evaluation()
   Assert.near(m.matEmission[3], 123 / 255, 1e-9)
 end
 
--- ---- strict dynamic draw state ----
-
--- The dynamic draw state is compiled by the project's own compiler, so a
--- backend mesh record missing one of the polygon fields the draw path
--- consumes must fail loudly at drawItems instead of silently defaulting
--- ("mostly right" visual output is the exact failure mode strict loading
--- rejects).
-function T.draw_items_reject_an_incomplete_backend_draw_record()
-  for _, field in ipairs({ "polygonMode", "polygonId", "cullMode", "translucentDepthWrite", "depthEqual", "lightMask" }) do
-    local def = NitroModelFixture.doorDefinition()
-    def.backend.meshes["draw0.seg0"][field] = nil
-    local instance = ModelInstance.new(def)
-    throwsCode("MODEL_DEF_BAD_DRAW_STATE", function()
-      instance:evaluatePose()
-      return instance:drawItems(rendersFor(def))
-    end)
-  end
-end
-
 -- A complete backend record is consulted, not defaulted: distinctive values
 -- land on the item unchanged.
 function T.draw_items_honor_the_backend_records_draw_values()
@@ -258,8 +241,9 @@ function T.material_contract_maps_to_render_state()
 end
 
 -- The resolveImage callback contract: effectiveMaterial invokes it with the
--- texture key only.
-function T.resolve_image_receives_only_the_texture_key()
+-- texture key and the material index (the sampler wrap is looked up by
+-- material, never by texture path).
+function T.resolve_image_receives_only_the_texture_key_and_material_index()
   local calls = {}
   local instance = ModelInstance.new(texturedDoorDefinition(), {
     resolveImage = function(...)
@@ -268,8 +252,9 @@ function T.resolve_image_receives_only_the_texture_key()
   })
   local material = instance:effectiveMaterial(0)
   Assert.equal(#calls, 1, "the textured material resolves an image")
-  Assert.equal(#calls[1], 1, "the resolveImage callback receives exactly the texture key")
+  Assert.equal(#calls[1], 2, "the resolveImage callback receives the texture key and the material index")
   Assert.equal(calls[1][1], "wall.png")
+  Assert.equal(calls[1][2], 0, "the material index keys the sampler-wrap lookup")
   Assert.isNil(material.image, "the callback return value passes through")
 end
 
@@ -277,13 +262,13 @@ end
 
 function T.nitro_backend_without_a_program_raises()
   local def = NitroModelFixture.doorDefinition()
-  def.backend = { meshes = {} }
+  def.backend = { meshes = def.backend.meshes }
   local instance = ModelInstance.new(def)
   throwsCode("POSE_NITRO_NO_TRANSFORM_PROGRAM", function()
     return instance:evaluatePose()
   end)
   -- Without a pose the draw path falls back to bind placement rather than
-  -- pretending to animate.
+  -- pretending to animate; the backend draw records still cover the meshes.
   local items = instance:drawItems(rendersFor(def))
   Assert.equal(#items, 1)
   Assert.equal(items[1].transform[1], 1)
@@ -314,6 +299,10 @@ function T.the_source_backend_key_is_rejected_at_construction()
           baseColor = { r = 255, g = 255, b = 255, a = 255 },
           alphaMode = "opaque",
           doubleSided = false,
+          polygonAlpha = 31,
+          texMtxMode = 0,
+          texWidth = 0,
+          texHeight = 0,
         },
       },
       animations = {},

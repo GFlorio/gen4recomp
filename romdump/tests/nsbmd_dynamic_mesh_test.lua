@@ -426,6 +426,7 @@ function T.to_definition_builds_a_valid_nitro_model()
         kind = "trs",
         frameCount = 2,
         tracks = { { target = 0, targetIndex = 0 } },
+        semanticNames = {},
         source = { type = "nitro", format = "NSBCA", archive = "build_anim", memberId = 1 },
         compiled = {},
       },
@@ -482,11 +483,17 @@ function T.compiled_descriptor_preserves_light_mask_and_four_material_colors()
         kind = "trs",
         frameCount = 2,
         tracks = { { target = 0, targetIndex = 0 } },
+        semanticNames = {},
         source = { type = "nitro", format = "NSBCA", archive = "build_anim", memberId = 1 },
         compiled = {},
       },
     },
   }, { key = "fixture:contract" })
+  -- The loader stamps each mesh's model-space center after assembly; the
+  -- draw path requires it.
+  for _, mesh in ipairs(def.meshes) do
+    mesh.center = { 1, 0, 1 }
+  end
   local items = ModelInstance.new(def):drawItems({ ["draw0.seg0"] = "stub" })
   local item = items[1]
   Assert.equal(item.lightMask, 5, "the polygon light mask survives to the draw item")

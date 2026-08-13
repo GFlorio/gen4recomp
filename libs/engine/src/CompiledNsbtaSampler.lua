@@ -20,8 +20,9 @@
 -- The source vocabulary is {constant, curve}: the compiler rejects absent
 -- channels (corpus: no real NSBTA member has one), so the sampler has no
 -- identity fallback -- identity components are authored as explicit
--- constants (scale 0x1000, rotation identity word, translation 0), and any
--- other source in a hand-written record raises ANIM_NSBTA_BAD_CHANNEL.
+-- constants (scale 0x1000, rotation identity word, translation 0). The
+-- artifact gate (ModelAsset.validate) rejects any other source before the
+-- runtime, so a bad channel here is a program invariant, not data.
 --
 -- The result matches GetTexSRTAnm_ (pokediamond NNS_G3D_nsbta.s): the
 -- "one" flags select the texture-matrix variant, and a component flagged
@@ -32,7 +33,6 @@
 -- Pure domain module.
 
 local AnimationClip = require("libs.assets.src.AnimationClip")
-local Errors = require("libs.errors.src.Errors")
 
 local CompiledNsbtaSampler = {}
 
@@ -186,22 +186,20 @@ function CompiledNsbtaSampler.sample(clip, targetIndex, frameFx)
   }
 
   -- A compiled channel is "constant" or "curve"; anything else (absent,
-  -- nil, misspelled) is malformed data the compiler can no longer produce.
+  -- nil, misspelled) is malformed data the artifact gate (ModelAsset
+  -- validate) rejects before the runtime, so this is a program invariant.
   local function sourceOf(chan, name)
     local source = chan and chan.source
-    if source ~= "constant" and source ~= "curve" then
-      Errors.raise(
-        "ANIM_NSBTA_BAD_CHANNEL",
-        "compiled NSBTA clip "
-          .. tostring(clip.id)
-          .. " target "
-          .. tostring(targetIndex)
-          .. " channel "
-          .. name
-          .. " source is neither constant nor curve",
-        { clip = clip.id, targetIndex = targetIndex, channel = name }
-      )
-    end
+    assert(
+      source == "constant" or source == "curve",
+      "compiled NSBTA clip "
+        .. tostring(clip.id)
+        .. " target "
+        .. tostring(targetIndex)
+        .. " channel "
+        .. name
+        .. " source is neither constant nor curve"
+    )
     return source
   end
 

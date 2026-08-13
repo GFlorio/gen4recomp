@@ -235,6 +235,8 @@ local function doorDescriptor()
         doubleSided = false,
         polygonAlpha = 31,
         texMtxMode = 0,
+        texWidth = 0,
+        texHeight = 0,
         wrap = { x = "clamp", y = "clamp" },
         flip = { x = false, y = false },
       },
@@ -255,7 +257,7 @@ local function skyClipRecord(name)
   end
   clip.id = "sky:" .. name
   clip.name = name
-  clip.semanticNames = nil
+  clip.semanticNames = {}
   clip.timeBand = BAND_BY_SUFFIX[name:match("_(%a)$")]
   return clip
 end
@@ -430,6 +432,7 @@ local function patternClip()
     kind = "pattern",
     frameCount = 8,
     tracks = { { target = "wall", targetIndex = 0 } },
+    semanticNames = {},
     source = { type = "nitro", format = "NSBTP", archive = "build_anim", memberId = 3 },
     compiled = {
       numTextures = 1,
@@ -965,8 +968,8 @@ function T.animated_material_resolves_its_image_with_the_material_wrap()
 end
 
 -- A pattern variant texture is resolved with the SAME wrap as its material:
--- wrapByTexture maps every variant texture key to the owning material's
--- wrap, so a variant never samples with the wrong sampler.
+-- the sampler state is keyed by material id, so a variant never samples
+-- with the wrong sampler.
 function T.animated_variant_texture_uses_the_material_wrap()
   local variantTexture = MapAssetCache.texturePath("texvariant")
   local desc = texturedDescriptor({

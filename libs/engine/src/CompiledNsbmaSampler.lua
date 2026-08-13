@@ -18,13 +18,12 @@
 -- The result carries the raw component values (15-bit colors, 0..31
 -- alpha); the material evaluator packs them into the effective material
 -- colors and polygon alpha. The compiler emits all five channels with a
--- source vocabulary of {constant, curve}, so a hand-written record with a
--- missing channel or any other source is malformed and raises
--- ANIM_NSBMA_BAD_CHANNEL rather than taking the implicit curve path.
--- Pure domain module.
+-- source vocabulary of {constant, curve}; the artifact gate
+-- (ModelAsset.validate) rejects a missing channel or any other source
+-- before the runtime, so a bad channel here is a program invariant, not
+-- data. Pure domain module.
 
 local AnimationClip = require("libs.assets.src.AnimationClip")
-local Errors = require("libs.errors.src.Errors")
 
 local CompiledNsbmaSampler = {}
 
@@ -120,19 +119,16 @@ function CompiledNsbmaSampler.sample(clip, targetIndex, frameFx)
   local out = {}
   for _, name in ipairs(CHANNEL_NAMES) do
     local chan = target.channels[name]
-    if not chan or (chan.source ~= "constant" and chan.source ~= "curve") then
-      Errors.raise(
-        "ANIM_NSBMA_BAD_CHANNEL",
-        "compiled NSBMA clip "
-          .. tostring(clip.id)
-          .. " target "
-          .. tostring(targetIndex)
-          .. " channel "
-          .. name
-          .. " source is neither constant nor curve",
-        { clip = clip.id, targetIndex = targetIndex, channel = name }
-      )
-    end
+    assert(
+      chan and (chan.source == "constant" or chan.source == "curve"),
+      "compiled NSBMA clip "
+        .. tostring(clip.id)
+        .. " target "
+        .. tostring(targetIndex)
+        .. " channel "
+        .. name
+        .. " source is neither constant nor curve"
+    )
     if chan.source == "constant" then
       out[name] = chan.value
     else

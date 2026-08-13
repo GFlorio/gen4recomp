@@ -1,9 +1,10 @@
 -- PolygonState: the one polygon draw-state schema shared by the compiler
 -- emission, the serialized-artifact validator, and the runtime backend
 -- records. FIELDS is the single list; requirePresent and validate are the
--- strict checks the asset boundary (ModelAsset) and the runtime boundaries
--- (ModelDefinition, ModelInstance) convert into their own error contracts,
--- and copy builds the backend record shape.
+-- strict checks the asset boundary (ModelAsset) converts into its own error
+-- contract, and copy builds the backend record shape. Scene-form and model
+-- batch records always carry the full field set (the compilers emit it), so
+-- there is no defaulting path.
 
 local Assert = require("tests.support.Assert")
 local PolygonState = require("libs.assets.src.PolygonState")
@@ -94,55 +95,6 @@ function T.copy_carries_exactly_the_shared_fields()
   local copy = PolygonState.copy(record)
   Assert.deepEqual(copy, validRecord())
   Assert.isTrue(copy ~= record, "copy must not alias the source record")
-end
-
--- The scene-form consumption path: every field the record carries is kept
--- as-is -- 0 and false are real values, never "missing" -- and polygonAlpha
--- is normalized to the renderer's 0..1 unit.
-function T.with_defaults_preserves_zero_and_false_values()
-  local record = validRecord()
-  record.lightMask = 0
-  record.translucentDepthWrite = false
-  record.depthEqual = false
-  record.polygonId = 0
-  record.polygonAlpha = 0
-  local out = PolygonState.withDefaults(record)
-  Assert.equal(out.lightMask, 0, "lightMask 0 is a real value, not a missing mask")
-  Assert.equal(out.translucentDepthWrite, false)
-  Assert.equal(out.depthEqual, false)
-  Assert.equal(out.polygonId, 0)
-  Assert.equal(out.polygonAlpha, 0, "polygonAlpha 0 normalizes to 0")
-end
-
--- A record missing a field (a scene-form record that predates the schema)
--- takes the documented default; lightMask has no default, so a missing mask
--- stays nil and can never read as "all lights on".
-function T.with_defaults_fills_pre_schema_defaults()
-  local out = PolygonState.withDefaults({
-    cullMode = "back",
-    polygonMode = "modulation",
-    polygonId = 0,
-    translucentDepthWrite = false,
-    depthEqual = false,
-    polygonAlpha = 31,
-  })
-  Assert.deepEqual(out, {
-    cullMode = "back",
-    polygonMode = "modulation",
-    polygonId = 0,
-    translucentDepthWrite = false,
-    depthEqual = false,
-    polygonAlpha = 1.0,
-  })
-  Assert.equal(out.lightMask, nil, "a missing lightMask stays missing")
-  local bare = PolygonState.withDefaults({})
-  Assert.equal(bare.cullMode, "back")
-  Assert.equal(bare.polygonMode, "modulation")
-  Assert.equal(bare.polygonId, 0)
-  Assert.equal(bare.translucentDepthWrite, false)
-  Assert.equal(bare.depthEqual, false)
-  Assert.equal(bare.polygonAlpha, 1.0, "a missing polygonAlpha defaults to full alpha")
-  Assert.equal(bare.lightMask, nil, "a missing lightMask stays missing")
 end
 
 return T

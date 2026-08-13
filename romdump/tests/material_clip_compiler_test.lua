@@ -182,17 +182,6 @@ function T.srt_absent_channel_raises_at_compile()
   Assert.equal(err.code, "NSBTA_COMPILE_ABSENT_CHANNEL")
 end
 
--- The compiled payload has no "absent" state (the compiler rejects it), so a
--- hand-written record carrying one is malformed data: the sampler raises
--- instead of silently treating it as identity.
-function T.srt_absent_channel_raises_at_sample()
-  local _, _, clip = compileClip(require("tests.support.AnimationFixture").srtSpin())
-  clip.compiled.targets[1].channels.rot = { source = "absent" }
-  local ok, err = pcall(CompiledNsbtaSampler.sample, clip, 0, 4096)
-  Assert.isFalse(ok)
-  Assert.equal(err.code, "ANIM_NSBTA_BAD_CHANNEL")
-end
-
 -- A decoded NSBMA record whose channel has no data (a nil slot or a zero
 -- key offset) cannot be compiled: the compiled payload has no "absent"
 -- state, and the corpus census proves no real member carries one.
@@ -216,24 +205,6 @@ function T.bma_absent_channel_raises_at_compile()
   ok, err = pcall(compile)
   Assert.isFalse(ok)
   Assert.equal(err.code, "NSBMA_COMPILE_ABSENT_CHANNEL")
-end
-
--- Defense in depth: a hand-written compiled record with a missing channel
--- or a channel source that is neither "constant" nor "curve" raises instead
--- of silently skipping the channel or taking the implicit curve path (which
--- crashes on a missing key array).
-function T.bma_sampler_rejects_missing_or_unknown_channels()
-  local _, _, clip = compileClip(require("tests.support.AnimationFixture").matFade())
-  local channels = clip.compiled.targets[1].channels
-  channels.diffuse = nil
-  local ok, err = pcall(CompiledNsbmaSampler.sample, clip, 0, 4096)
-  Assert.isFalse(ok)
-  Assert.equal(err.code, "ANIM_NSBMA_BAD_CHANNEL")
-
-  channels.diffuse = { source = "absent" }
-  ok, err = pcall(CompiledNsbmaSampler.sample, clip, 0, 4096)
-  Assert.isFalse(ok)
-  Assert.equal(err.code, "ANIM_NSBMA_BAD_CHANNEL")
 end
 
 return T

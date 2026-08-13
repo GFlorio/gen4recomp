@@ -10,18 +10,22 @@
 -- SceneDescriptor; each geometry path's sort center is the pool mesh
 -- entry's cached model-space center. All GPU construction happens here, once;
 -- the pool releases every owned mesh/image. Load is transactional: the whole
--- build runs inside pool:transaction(), so a failure -- including a malformed
+-- build runs inside pool:build(), so a failure -- including a malformed
 -- cell descriptor -- releases every GPU object the construction acquired.
 -- Neighbours are additive: an empty descriptor list yields no draws and the
 -- central scene is untouched.
 
 local Matrix4 = require("libs.math.src.Matrix4")
+local FixedPoint = require("libs.math.src.FixedPoint")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
-local PolygonState = require("libs.assets.src.PolygonState")
 local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 local SceneDescriptor = require("libs.engine.src.SceneDescriptor")
 
 local NeighborRing = {}
+
+-- The identity UV-transform matrix of scene-form materials (they carry no
+-- texture-SRT): the renderer reads the material's texMatrix directly.
+local IDENTITY_TEX_MATRIX = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
 
 -- Material assembly: acquire each normalized material record's image
 -- under its resolved sampler wrap. The wrap pair is part of the image
@@ -34,35 +38,43 @@ local function materialsById(list, pool)
       id = record.id,
       name = record.name,
       image = pool:imageFor(record.texture, record.wrap.x, record.wrap.y),
+      texMatrix = IDENTITY_TEX_MATRIX,
     }
   end
   return byId
 end
 
--- Build the ring against an already-created pool, inside the transaction
--- load() opens. Raises on any failure; the transaction releases the pool in
--- that case. Draws carry no submission numbers: the final scene assembly
+-- Build the ring against an already-created pool, inside the build
+-- wrapper load() opens. Raises on any failure; the wrapper releases the pool
+-- in that case. Draws carry no submission numbers: the final scene assembly
 -- (SceneAssembly) orders every draw in source order, positionally. The
--- draw-state field set is the shared PolygonState schema consumed with its
--- defaults; lightMask has no default because a missing mask must never mean
--- "all lights on."
+-- draw-state field set is the shared PolygonState schema the compiler emits on every batch
+-- (lightMask included), with polygonAlpha normalized to the renderer's 0..1
+-- unit.
 local function buildRing(pool, descriptors)
   -- One draw per (cell, batch), with the cell's 32-tile world offset baked into
   -- the transform and the sort center.
   local draws = {}
-  for _, cell in ipairs(descriptors or {}) do
+  for _, cell in ipairs(descriptors) do
     local ox, oz = cell.offsetTilesX, cell.offsetTilesZ
     local transform = Matrix4.translate(ox, 0, oz)
     local materials = materialsById(cell.materials, pool)
     for _, batch in ipairs(cell.batches) do
       local entry = pool:meshFor(batch.geometry)
       local c = entry.center
-      ---@type table<string, any>
-      local draw = PolygonState.withDefaults(batch)
+      local draw = {
+        cullMode = batch.cullMode,
+        polygonMode = batch.polygonMode,
+        polygonId = batch.polygonId,
+        translucentDepthWrite = batch.translucentDepthWrite,
+        depthEqual = batch.depthEqual,
+        lightMask = batch.lightMask,
+        polygonAlpha = batch.polygonAlpha / FixedPoint.RGB5_MAX,
+        alphaClass = batch.alphaClass,
+      }
       draw.mesh = entry.mesh
       draw.material = materials[batch.material]
       draw.transform = transform
-      draw.alphaClass = batch.alphaClass or AlphaClassifier.OPAQUE
       draw.alphaCutoff = AlphaClassifier.CUTOUT_EPSILON
       draw.center = { c[1] + ox, c[2], c[3] + oz }
       draws[#draws + 1] = draw
@@ -72,7 +84,7 @@ local function buildRing(pool, descriptors)
   local ring = {
     draws = draws,
     stats = {
-      cellCount = #(descriptors or {}),
+      cellCount = #descriptors,
       meshCount = #pool.meshes,
       textureCount = #pool.images,
     },
@@ -86,7 +98,7 @@ end
 -- Load the compiled neighbour ring into GPU draw items. `cacheFs` is a
 -- CacheFs.forVersion; `descriptors` is scene.neighbors; `opts` passes through
 -- to the asset pool (injectable graphics for headless tests). Returns
--- { draws, stats, release }. The whole build runs inside pool:transaction(),
+-- { draws, stats, release }. The whole build runs inside pool:build(),
 -- so any failure -- including a malformed cell descriptor -- releases every
 -- GPU object the construction acquired before the error propagates.
 ---@param cacheFs table
@@ -95,7 +107,7 @@ end
 ---@return table
 function NeighborRing.load(cacheFs, descriptors, opts)
   local pool = GpuAssetPool.new(cacheFs, opts)
-  return pool:transaction(function()
+  return pool:build(function()
     return buildRing(pool, descriptors)
   end)
 end

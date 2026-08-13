@@ -2,59 +2,73 @@
 -- records the loaders (MapSceneLoader, NeighborRing) assemble with GPU
 -- resources: the GPU side of loading lives in those loaders, never here.
 -- Scene and model material lists share one shape, so the sampler-wrap
--- resolution and the id index live here once; the texture-to-wrap map an
+-- resolution and the id index live here once; the material-to-wrap map an
 -- animated model's pattern variants sample with, the per-mesh model-space
 -- center/AABB the pool entry caches, and the per-model bounds fold over those
 -- per-mesh AABBs are pure folds over the descriptor records and decoded
--- vertices. No love, no pool, no acquisition. The per-mesh bounds shape is
--- {minX,maxX,minY,maxY,minZ,maxZ}, shared with the runtime placement
--- records; the model bounds fold allocates a fresh table per model, never
--- aliasing a pooled mesh entry's cached AABB.
+-- vertices. The scene-form material records the compilers emit always carry
+-- their sampler state and the required lists are always present, so
+-- normalization is strict: a missing wrap or list is malformed generated
+-- data and raises, never a default. No love, no pool, no acquisition. The
+-- per-mesh bounds shape is {minX,maxX,minY,maxY,minZ,maxZ}, shared with the
+-- runtime placement records; the model bounds fold allocates a fresh table
+-- per model, never aliasing a pooled mesh entry's cached AABB.
 
 local Errors = require("libs.errors.src.Errors")
 local ErrorCodes = require("libs.assets.src.ErrorCodes")
 
 local SceneDescriptor = {}
 
--- Resolve a material record's sampler wrap; a missing wrap means clamp/clamp
--- (the pre-schema default the compiler has emitted explicitly since
--- map-compiler-v17).
+local WRAP_MODES = { clamp = true, ["repeat"] = true }
+
+-- Resolve a material record's sampler wrap. The compiler emits the wrap pair
+-- on every material, so a missing or unknown wrap is malformed generated
+-- data and raises instead of degrading to clamp.
 function SceneDescriptor.wrap(record)
-  return record.wrap or { x = "clamp", y = "clamp" }
+  local wrap = record.wrap
+  if type(wrap) ~= "table" or not WRAP_MODES[wrap.x] or not WRAP_MODES[wrap.y] then
+    Errors.raise(
+      ErrorCodes.SCENE_DESC_BAD_WRAP,
+      "material " .. tostring(record.id) .. " requires a wrap { x, y } of clamp/repeat",
+      { material = record.id }
+    )
+  end
+  return wrap
 end
 
 -- Normalize a scene-form material list into id-indexed records carrying the
--- resolved sampler wrap; the image itself is GPU-side work.
----@param list table[]?
+-- resolved sampler wrap; the image itself is GPU-side work. A missing list
+-- is malformed scene data, never an empty map.
+---@param list table[]
 ---@return table<number, { id: number, name: string, texture: string?, wrap: { x: string, y: string } }>
 function SceneDescriptor.materials(list)
+  if type(list) ~= "table" then
+    Errors.raise(ErrorCodes.SCENE_DESC_BAD_MATERIALS, "a material list is required", {})
+  end
   local byId = {}
-  for _, record in ipairs(list or {}) do
+  for _, record in ipairs(list) do
     local wrap = SceneDescriptor.wrap(record)
     byId[record.id] = { id = record.id, name = record.name, texture = record.texture, wrap = wrap }
   end
   return byId
 end
 
--- Map every texture key a model's material list can sample -- base textures
--- and pattern variants alike -- to the owning material's wrap, so a variant
--- never resolves with a different sampler than its material.
----@param list table[]?
----@return table<string, { x: string, y: string }>
-function SceneDescriptor.wrapByTexture(list)
-  local byTexture = {}
-  for _, record in ipairs(list or {}) do
-    local wrap = SceneDescriptor.wrap(record)
-    if record.texture then
-      byTexture[record.texture] = wrap
-    end
-    for _, variant in ipairs(record.variants or {}) do
-      if variant.texture then
-        byTexture[variant.texture] = wrap
-      end
-    end
+-- Map every material id to its sampler wrap, so an animated model's variant
+-- resolution (base texture and pattern variants alike) looks the wrap up by
+-- material, never by texture path: two materials can share one texture under
+-- different wraps, and a path-keyed map would silently overwrite one sampler
+-- with the other.
+---@param list table[]
+---@return table<number, { x: string, y: string }>
+function SceneDescriptor.wrapByMaterial(list)
+  if type(list) ~= "table" then
+    Errors.raise(ErrorCodes.SCENE_DESC_BAD_MATERIALS, "a material list is required", {})
   end
-  return byTexture
+  local byMaterial = {}
+  for _, record in ipairs(list) do
+    byMaterial[record.id] = SceneDescriptor.wrap(record)
+  end
+  return byMaterial
 end
 
 -- Model-space bounding-box center and AABB of decoded vertices; the pool

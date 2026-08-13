@@ -3,7 +3,7 @@
 -- pair is part of the key, so two materials sharing pixels but sampling them
 -- differently never alias one mutable sampler), unknown wrap rejection, and
 -- exactly-once ownership release. Failure handling has two scopes, mirroring
--- the two production failure classes: a transaction wrapper rolls back every
+-- the two production failure classes: a build wrapper rolls back every
 -- object created inside a failed construction (the whole scene build), while
 -- a single post-construction acquire failure rolls back only the object that
 -- acquisition itself created -- the live scene keeps the resources it is
@@ -150,21 +150,21 @@ function T.untextured_materials_get_no_image()
   Assert.equal(#pool.images, 0)
 end
 
--- Construction rollback: the whole scene build runs inside a transaction
+-- Construction rollback: the whole scene build runs inside the build
 -- wrapper (MapSceneLoader.load and the NeighborRing load path), so the Nth
--- acquire failing must roll back every object created inside the transaction
--- -- a partially failed construction never leaks GPU objects.
-function T.transaction_releases_everything_when_the_second_acquire_fails()
+-- acquire failing must roll back every object created inside the build -- a
+-- partially failed construction never leaks GPU objects.
+function T.build_releases_everything_when_the_second_acquire_fails()
   local graphics = fakeGraphics({ failOnNewImage = 2 })
   local pool = GpuAssetPool.new(fakeCacheFs(), { graphics = graphics })
   local err = Assert.throws(function()
-    pool:transaction(function()
+    pool:build(function()
       pool:imageFor(TEX_PATH, "clamp", "clamp")
       pool:imageFor(TEX_PATH, "repeat", "repeat")
     end)
   end)
   Assert.isTrue(tostring(err):find("injected newImage failure", 1, true) ~= nil, "rethrows the image build failure")
-  Assert.equal(graphics.images[1].released, true, "the transaction rolls back the first image")
+  Assert.equal(graphics.images[1].released, true, "the build rolls back the first image")
   Assert.equal(#pool.images, 0, "the pool owns nothing after the failed construction")
   local retry = pool:imageFor(TEX_PATH, "clamp", "clamp")
   Assert.isTrue(retry ~= nil, "the pool is usable after the rollback")
@@ -172,30 +172,18 @@ function T.transaction_releases_everything_when_the_second_acquire_fails()
   Assert.equal(graphics.images[2].released, false, "the rebuilt image is owned, not a released leftover")
 end
 
--- The transaction is not a release-everything-on-exit wrapper: a successful
+-- The build wrapper is not a release-everything-on-exit path: a successful
 -- construction keeps its objects owned and returns the builder's value.
-function T.transaction_keeps_objects_and_returns_the_value_on_success()
+function T.build_keeps_objects_and_returns_the_value_on_success()
   local graphics = fakeGraphics()
   local pool = GpuAssetPool.new(fakeCacheFs(), { graphics = graphics })
-  local result = pool:transaction(function()
+  local result = pool:build(function()
     pool:imageFor(TEX_PATH, "clamp", "clamp")
     return "built"
   end)
-  Assert.equal(result, "built", "the transaction returns the builder's value")
+  Assert.equal(result, "built", "the build returns the builder's value")
   Assert.equal(graphics.images[1].released, false, "a successful construction keeps its objects")
   Assert.equal(#pool.images, 1)
-end
-
--- A nested transaction would release the outer construction's objects on the
--- inner rollback, so nesting is rejected outright.
-function T.transaction_rejects_nesting()
-  local pool = GpuAssetPool.new(fakeCacheFs(), { graphics = fakeGraphics() })
-  local err = Assert.throws(function()
-    pool:transaction(function()
-      pool:transaction(function() end)
-    end)
-  end)
-  Assert.isTrue(tostring(err):find("not nestable", 1, true) ~= nil, "rejects a nested transaction")
 end
 
 -- Post-construction failure: a single lazy acquire failing while the live

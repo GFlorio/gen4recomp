@@ -9,12 +9,13 @@
 -- batch keeps the base transform the renderer resolves against the camera
 -- each frame instead of a baked matrix. The build is the GPU-acquisition half
 -- of scene loading: pure descriptor normalization (material wrap resolution,
--- the texture-to-wrap map, per-mesh centers/AABBs, model bounds folds) lives
--- in SceneDescriptor, and the pool mesh entry caches each geometry path's
--- center and AABB once, so no vertex rescan happens per draw or placement.
+-- the material-keyed sampler-wrap map, per-mesh centers/AABBs, model bounds
+-- folds) lives in SceneDescriptor, and the pool mesh entry caches each
+-- geometry path's center and AABB once, so no vertex rescan happens per draw
+-- or placement.
 -- All GPU construction happens here, once, never in draw; the pool releases
 -- every owned mesh/image. Load is transactional: the whole build runs inside
--- pool:transaction(), so any failure -- a missing descriptor, an unsupported
+-- pool:build(), so any failure -- a missing descriptor, an unsupported
 -- transform mode -- releases every GPU object the construction acquired
 -- before the error propagates. After load, a single lazy acquire failure
 -- (resolveImage during live draw evaluation) releases only the object that
@@ -37,6 +38,7 @@
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 local Matrix4 = require("libs.math.src.Matrix4")
+local FixedPoint = require("libs.math.src.FixedPoint")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
 local Errors = require("libs.errors.src.Errors")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
@@ -50,10 +52,13 @@ local MeshWriter = require("libs.assets.src.MeshWriter")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
 local DoorTiles = require("libs.engine.src.DoorTiles")
-local PolygonState = require("libs.assets.src.PolygonState")
 local SceneDescriptor = require("libs.engine.src.SceneDescriptor")
 
 local MapSceneLoader = {}
+
+-- The identity UV-transform matrix of scene-form materials (they carry no
+-- texture-SRT): the renderer reads the material's texMatrix directly.
+local IDENTITY_TEX_MATRIX = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
 
 local VALID_BANDS = {}
 for _, band in ipairs(TimeOfDayProps.BANDS) do
@@ -63,7 +68,8 @@ end
 -- Material assembly: acquire each normalized material record's image
 -- under its resolved sampler wrap. The wrap pair is part of the image
 -- identity, so materials with the same pixels but different wraps resolve to
--- independent images.
+-- independent images. Scene-form materials carry no UV transform; the item
+-- contract's material record provides the identity matrix.
 local function materialsById(list, pool)
   local byId = {}
   for id, record in pairs(SceneDescriptor.materials(list)) do
@@ -71,13 +77,14 @@ local function materialsById(list, pool)
       id = record.id,
       name = record.name,
       image = pool:imageFor(record.texture, record.wrap.x, record.wrap.y),
+      texMatrix = IDENTITY_TEX_MATRIX,
     }
   end
   return byId
 end
 
 -- Build the runtime scene against an already-created pool, inside the
--- transaction load() opens. Raises on any failure; the transaction releases
+-- build wrapper load() opens. Raises on any failure; the wrapper releases
 -- the pool in that case. `opts.timeBand` seeds the time-of-day band
 -- (default: the band of the default field time, noon = day); `opts.meshBuilder`
 -- / `opts.imageBuilder` pass through to the pool (the GPU seams, injectable
@@ -125,15 +132,21 @@ local function buildScene(pool, cacheFs, scene, opts)
   end
 
   -- Per-batch draw state that lives on the draw item, not the material
-  -- record: the shared PolygonState schema consumed with the pre-schema
-  -- defaults (lightMask has no default -- a missing mask must never mean
-  -- "all lights on").
+  -- record: the shared PolygonState schema the compiler emits on every batch
+  -- (lightMask included), with polygonAlpha normalized to the renderer's
+  -- 0..1 unit and the batch's compiled alpha class carried as-is.
   local function batchDrawState(batch)
-    ---@type table<string, any>
-    local state = PolygonState.withDefaults(batch)
-    state.alphaClass = batch.alphaClass or AlphaClassifier.OPAQUE
-    state.alphaCutoff = AlphaClassifier.CUTOUT_EPSILON
-    return state
+    return {
+      cullMode = batch.cullMode,
+      polygonMode = batch.polygonMode,
+      polygonId = batch.polygonId,
+      translucentDepthWrite = batch.translucentDepthWrite,
+      depthEqual = batch.depthEqual,
+      lightMask = batch.lightMask,
+      polygonAlpha = batch.polygonAlpha / FixedPoint.RGB5_MAX,
+      alphaClass = batch.alphaClass,
+      alphaCutoff = AlphaClassifier.CUTOUT_EPSILON,
+    }
   end
 
   -- One draw item for one batch under `instanceTransform` (identity for terrain,
@@ -181,7 +194,7 @@ local function buildScene(pool, cacheFs, scene, opts)
   local mapMaterials = materialsById(scene.materials, pool)
   local identity = Matrix4.identity()
   local mapDraws = {}
-  for _, batch in ipairs(scene.mapBatches or {}) do
+  for _, batch in ipairs(scene.mapBatches) do
     mapDraws[#mapDraws + 1] = drawItem(batch, mapMaterials, identity)
   end
 
@@ -197,10 +210,11 @@ local function buildScene(pool, cacheFs, scene, opts)
     if not cached then
       local desc = assert(cacheFs:loadLua(MapAssetCache.modelPath(modelKey)), "missing model " .. modelKey)
       local mats = materialsById(desc.materials, pool)
-      -- Pattern-variant textures are resolved lazily at evaluation time; map
-      -- every texture key (base and variants) to its material's wrap so a
-      -- variant never samples with the wrong wrap.
-      local wrapByTexture = SceneDescriptor.wrapByTexture(desc.materials)
+      -- Pattern-variant textures are resolved lazily at evaluation time; the
+      -- sampler state is keyed by material (never by texture path -- two
+      -- materials can share one texture under different wraps), so the
+      -- variant always samples with its own material's wrap.
+      local wrapByMaterial = SceneDescriptor.wrapByMaterial(desc.materials)
       local batches
       if desc.kind == "static" then
         batches = desc.batches
@@ -223,7 +237,7 @@ local function buildScene(pool, cacheFs, scene, opts)
       cached = {
         descriptor = desc,
         materials = mats,
-        wrapByTexture = wrapByTexture,
+        wrapByMaterial = wrapByMaterial,
         bounds = SceneDescriptor.bounds(meshBounds),
       }
       descriptorCache[modelKey] = cached
@@ -232,7 +246,7 @@ local function buildScene(pool, cacheFs, scene, opts)
   end
 
   local buildingDraws = {}
-  for _, inst in ipairs(scene.buildingInstances or {}) do
+  for _, inst in ipairs(scene.buildingInstances) do
     local desc = descriptorFor(inst.modelKey)
     -- Dynamic (animated) descriptors carry their geometry in the `dynamic`
     -- half; the static batches loop applies to baked descriptors only. The
@@ -272,7 +286,7 @@ local function buildScene(pool, cacheFs, scene, opts)
   local instanceByPlacement = {}
   local animatedModelCount = 0
   local animatedResourceCache = {}
-  for _, inst in ipairs(scene.buildingInstances or {}) do
+  for _, inst in ipairs(scene.buildingInstances) do
     local desc = descriptorFor(inst.modelKey)
     if desc.descriptor.kind == "nitro-dynamic" then
       local modelResource = animatedResourceCache[inst.modelKey]
@@ -290,8 +304,8 @@ local function buildScene(pool, cacheFs, scene, opts)
       end
       local instance = ModelInstance.new(modelResource.definition, {
         transform = inst.transform,
-        resolveImage = function(key)
-          local wrap = assert(desc.wrapByTexture[key], "missing wrap for animated texture " .. key)
+        resolveImage = function(key, materialId)
+          local wrap = assert(desc.wrapByMaterial[materialId], "missing wrap for animated texture " .. key)
           return pool:imageFor(key, wrap.x, wrap.y)
         end,
       })
@@ -401,7 +415,7 @@ local function buildScene(pool, cacheFs, scene, opts)
   runtime.collision = collision
   runtime.bounds = bounds
   runtime.mapDraws = mapDraws
-  -- Build the frame-0 animated items inside the load transaction: the scene
+  -- Build the frame-0 animated items inside the load build: the scene
   -- is renderable immediately after load, and the animation clocks never
   -- advanced (the first tick's updateAnimated starts them).
   refreshAnimatedItems()
@@ -416,7 +430,7 @@ local function buildScene(pool, cacheFs, scene, opts)
   -- there -- nothing Nitro leaks into gameplay. Ownership over the scene's
   -- door tiles is precomputed here, once, from the nearest placement pivot.
   local placements = {}
-  for _, inst in ipairs(scene.buildingInstances or {}) do
+  for _, inst in ipairs(scene.buildingInstances) do
     placements[#placements + 1] = {
       placementIndex = inst.placementIndex,
       modelKey = inst.modelKey,
@@ -433,7 +447,7 @@ local function buildScene(pool, cacheFs, scene, opts)
     meshCount = #pool.meshes,
     textureCount = #pool.images,
     triangleCount = pool.triangles,
-    buildingInstances = #(scene.buildingInstances or {}),
+    buildingInstances = #scene.buildingInstances,
     animatedInstances = #animatedInstances,
     animatedModelCount = animatedModelCount,
   }
@@ -465,7 +479,7 @@ function MapSceneLoader.load(cacheFs, scene, opts)
   end
 
   local pool = GpuAssetPool.new(cacheFs, opts)
-  return pool:transaction(function()
+  return pool:build(function()
     return buildScene(pool, cacheFs, scene, opts)
   end)
 end

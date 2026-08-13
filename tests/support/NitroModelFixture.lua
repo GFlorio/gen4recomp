@@ -205,7 +205,15 @@ function NitroModelFixture.doorDefinition(clips)
         scale = { x = 1, y = 1, z = 1 },
       },
     },
-    meshes = { { id = "draw0.seg0", nodeIndex = 0, materialIndex = 0, geometry = "fixtures/draw0.seg0.g4mesh" } },
+    meshes = {
+      {
+        id = "draw0.seg0",
+        nodeIndex = 0,
+        materialIndex = 0,
+        geometry = "fixtures/draw0.seg0.g4mesh",
+        center = { 1, 0, 1 },
+      },
+    },
     materials = {
       {
         id = 0,
@@ -213,6 +221,10 @@ function NitroModelFixture.doorDefinition(clips)
         baseColor = { r = 255, g = 255, b = 255, a = 255 },
         alphaMode = "opaque",
         doubleSided = false,
+        polygonAlpha = 31,
+        texMtxMode = 0,
+        texWidth = 0,
+        texHeight = 0,
       },
     },
     animations = clips,

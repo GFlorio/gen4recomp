@@ -123,7 +123,6 @@ end
 ---@return MaterialColorComponents
 function MaterialEvaluator.baseColors(material)
   local baseColor = material.baseColor
-    or { r = FixedPoint.BYTE_MAX, g = FixedPoint.BYTE_MAX, b = FixedPoint.BYTE_MAX, a = FixedPoint.BYTE_MAX }
   local function component(name)
     local c = material.colors and material.colors[name]
     if c then
@@ -139,19 +138,19 @@ function MaterialEvaluator.baseColors(material)
   }
 end
 
--- The material record of `definition` with a default for the polygon state.
--- The base colors come from baseColors (the per-DS-register reconstruction
--- above).
+-- The material record of `definition` with the base material state the
+-- evaluator mutates per frame. The base colors come from baseColors (the
+-- per-DS-register reconstruction above); the descriptor gate guarantees the
+-- baseColor and polygonAlpha fields on every dynamic material record.
 local function baseMaterialState(definition, materialIndex)
   local material =
     assert(definition.materials[materialIndex + 1], "material index " .. tostring(materialIndex) .. " out of range")
   local baseColor = material.baseColor
-    or { r = FixedPoint.BYTE_MAX, g = FixedPoint.BYTE_MAX, b = FixedPoint.BYTE_MAX, a = FixedPoint.BYTE_MAX }
   return {
     record = material,
     colors = MaterialEvaluator.baseColors(material),
     alpha = baseColor.a,
-    polygonAlpha = material.polygonAlpha or FixedPoint.RGB5_MAX,
+    polygonAlpha = material.polygonAlpha,
   }
 end
 
@@ -277,7 +276,7 @@ local function currentTexture(material, patternAttachment, patternTrack)
     texture = record.texture,
     width = record.texWidth or record.width,
     height = record.texHeight or record.height,
-    format = record.textureFormat or 0,
+    format = record.textureFormat,
     alphaUsage = record.alphaUsage,
   }
 end
@@ -341,7 +340,7 @@ function MaterialEvaluator.evaluate(definition, attachments, materialState)
       end
     end
 
-    local mode = material.texMtxMode or 0
+    local mode = material.texMtxMode
     local convention = CONVENTIONS[mode]
     if not convention then
       Errors.raise(
@@ -356,10 +355,10 @@ function MaterialEvaluator.evaluate(definition, attachments, materialState)
         { modelKey = definition.key, material = material.name, mode = mode }
       )
     end
-    local baseW = material.texWidth or 0
-    local baseH = material.texHeight or 0
-    local curW = tex.width or 0
-    local curH = tex.height or 0
+    local baseW = material.texWidth
+    local baseH = material.texHeight
+    local curW = tex.width
+    local curH = tex.height
     if baseW == 0 or baseH == 0 or curW == 0 or curH == 0 then
       -- Untextured materials carry no texture matrix; their class follows
       -- the model contract's alphaMode unless the record carries texture
