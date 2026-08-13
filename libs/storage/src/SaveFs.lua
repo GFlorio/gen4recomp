@@ -4,38 +4,34 @@
 -- re-import, derived-cache invalidation, deleting a version root -- is
 -- structurally able to reach a save. The version id is any safe path component;
 -- which ids exist is the ROM catalog's business, not this package's.
--- Path/security rules match CacheFs; the backend is injectable: the default
--- wraps love.filesystem; tests inject an in-memory fake. Love-free under bare
--- LuaJIT.
+-- Confinement, backend handling, parent creation, and Lua loading share the
+-- internal ScopedFs mechanics with CacheFs; the save root, allowed
+-- mutations, and SAVE_* error namespace stay its own, and it never gains
+-- cache tree-deletion or publication operations. The backend is injectable:
+-- the default wraps love.filesystem; tests inject an in-memory fake.
+-- Love-free under bare LuaJIT.
 --
 -- Failure convention: every mutating operation reports success only if the
 -- backend did; a falsy backend result is translated into a structured SAVE_*
 -- error that reaches the caller, and a backend that raises propagates. No
 -- mutating method may silently return true after a backend failure.
 
-local Errors = require("libs.errors.src.Errors")
 local LuaWriter = require("libs.codec.src.LuaWriter")
+local ScopedFs = require("libs.storage.src.ScopedFs")
+local StorageErrors = require("libs.storage.src.errors")
 
--- A version id is a structural path component: it must be able to name exactly
--- one namespace below the save root. Catalog membership (which ids exist) is
--- validated by the ROM catalog, not here.
-local function validateVersionId(versionId)
-  assert(type(versionId) == "string", "version id must be a string")
-  assert(
-    versionId:match("^[%w%-_]+$") ~= nil,
-    "version id must be a single safe path component: " .. tostring(versionId)
-  )
-end
-
--- Raise a structured error when a backend mutation reported failure (falsy
--- result, optionally with an error string). The one place the wrapper layer
--- converts backend-reported failures into structured save errors.
-local function ensureBackend(ok, err, code, message, context)
-  if not ok then
-    Errors.raise(code, err or message, context)
-  end
-  return true
-end
+-- The SAVE_* codes this type raises through the shared mechanics.
+local SAVE_ERRORS = {
+  PATH_INVALID = StorageErrors.SAVE_PATH_INVALID,
+  FILE_MISSING = StorageErrors.SAVE_FILE_MISSING,
+  READ_FAILED = StorageErrors.SAVE_READ_FAILED,
+  LUA_PARSE_FAILED = StorageErrors.SAVE_LUA_PARSE_FAILED,
+  LUA_EVAL_FAILED = StorageErrors.SAVE_LUA_EVAL_FAILED,
+  MKDIR_FAILED = StorageErrors.SAVE_MKDIR_FAILED,
+  WRITE_FAILED = StorageErrors.SAVE_WRITE_FAILED,
+  REMOVE_FAILED = StorageErrors.SAVE_REMOVE_FAILED,
+  REPLACE_FAILED = StorageErrors.SAVE_REPLACE_FAILED,
+}
 
 ---@class SaveFs
 ---@field versionId string
@@ -53,50 +49,16 @@ end
 local SaveFs = {}
 SaveFs.__index = SaveFs
 
--- love.filesystem-backed backend, constructed lazily so requiring this module
--- never touches love (keeps the domain testable off-runtime). Mutating backend
--- operations report failure by returning falsy (optionally with an error
--- string); the SaveFs wrappers translate that into structured SAVE_* errors.
-local function loveBackend()
-  local fs = love.filesystem
-  return {
-    write = function(_, path, data)
-      return fs.write(path, data)
-    end,
-    read = function(_, path)
-      return (fs.read(path))
-    end,
-    getInfo = function(_, path)
-      return fs.getInfo(path)
-    end,
-    createDirectory = function(_, path)
-      return fs.createDirectory(path)
-    end,
-    remove = function(_, path)
-      return fs.remove(path)
-    end,
-    replace = function(_, sourcePath, destinationPath)
-      local root = fs.getSaveDirectory()
-      return os.rename(root .. "/" .. sourcePath, root .. "/" .. destinationPath)
-    end,
-  }
-end
-
 ---@param versionId string
 ---@param backend table|nil
----@param prefix string|nil save root, without a leading slash
 ---@return SaveFs
-function SaveFs.forVersion(versionId, backend, prefix)
-  validateVersionId(versionId)
-  prefix = prefix or ("saves/" .. versionId)
-  assert(type(prefix) == "string" and prefix ~= "", "save prefix required")
-  assert(prefix:sub(1, 1) ~= "/" and not prefix:find("..", 1, true), "save prefix must be confined")
-  prefix = prefix:gsub("/+$", "") .. "/"
+function SaveFs.forVersion(versionId, backend)
+  ScopedFs.validateVersionId(versionId)
   return setmetatable({
     versionId = versionId,
-    _prefix = prefix,
-    _root = prefix:gsub("/$", ""),
-    backend = backend or loveBackend(),
+    _prefix = "saves/" .. versionId .. "/",
+    _root = "saves/" .. versionId,
+    backend = backend or ScopedFs.loveBackend(),
   }, SaveFs)
 end
 
@@ -107,40 +69,11 @@ end
 -- Normalize and confine a relative path, returning the full save-dir path.
 -- Raises a structured error on any escape attempt. "" means the save root.
 function SaveFs:resolve(relativePath)
-  assert(type(relativePath) == "string", "path must be a string")
-  local path = relativePath:gsub("\\", "/")
-  if path:find("\0", 1, true) then
-    Errors.raise("SAVE_PATH_INVALID", "path contains NUL", { path = relativePath })
-  end
-  if path == "" then
-    return self._root
-  end
-  if path:sub(1, 1) == "/" or path:match("^%a:") then
-    Errors.raise("SAVE_PATH_INVALID", "path must be relative", { path = relativePath })
-  end
-  for component in (path .. "/"):gmatch("(.-)/") do
-    if component == "" or component == "." or component == ".." then
-      Errors.raise(
-        "SAVE_PATH_INVALID",
-        "illegal path component: '" .. component .. "'",
-        { path = relativePath, component = component }
-      )
-    end
-  end
-  return self._root .. "/" .. path
+  return ScopedFs.resolve(self._root, relativePath, SAVE_ERRORS)
 end
 
 function SaveFs:write(relativePath, data)
-  local full = self:resolve(relativePath)
-  -- Ensure the parent chain exists; the love backend's createDirectory is
-  -- mkdir -p, so one call materializes every intermediate directory.
-  local parent = full:match("^(.*)/[^/]+$")
-  if parent then
-    local ok, err = self.backend:createDirectory(parent)
-    ensureBackend(ok, err, "SAVE_MKDIR_FAILED", "could not create directory", { path = parent })
-  end
-  local ok, err = self.backend:write(full, data)
-  return ensureBackend(ok, err, "SAVE_WRITE_FAILED", "write failed", { path = full })
+  return ScopedFs.write(self.backend, self:resolve(relativePath), data, SAVE_ERRORS)
 end
 
 function SaveFs:read(relativePath)
@@ -151,12 +84,7 @@ end
 -- exists); removing an existing path that the backend cannot remove raises
 -- SAVE_REMOVE_FAILED.
 function SaveFs:remove(relativePath)
-  local full = self:resolve(relativePath)
-  if not self.backend:getInfo(full) then
-    return true
-  end
-  local ok, err = self.backend:remove(full)
-  return ensureBackend(ok, err, "SAVE_REMOVE_FAILED", "could not remove", { path = full })
+  return ScopedFs.remove(self.backend, self:resolve(relativePath), SAVE_ERRORS)
 end
 
 -- Atomically replaces destination with an already-written sibling file. The
@@ -164,12 +92,7 @@ end
 function SaveFs:replace(sourceRelativePath, destinationRelativePath)
   local source = self:resolve(sourceRelativePath)
   local destination = self:resolve(destinationRelativePath)
-  assert(self.backend.replace, "SaveFs backend does not support atomic replacement")
-  local ok, err = self.backend:replace(source, destination)
-  return ensureBackend(ok, err, "SAVE_REPLACE_FAILED", "replace failed", {
-    sourcePath = source,
-    destinationPath = destination,
-  })
+  return ScopedFs.replace(self.backend, source, destination, SAVE_ERRORS)
 end
 
 function SaveFs:writeLua(relativePath, value)
@@ -179,20 +102,7 @@ end
 -- Loads a persisted save data file in an empty environment. Must never be
 -- pointed at raw ROM file contents.
 function SaveFs:loadLua(relativePath)
-  local data = self:read(relativePath)
-  if data == nil then
-    return nil, Errors.new("SAVE_FILE_MISSING", "no such save file", { path = relativePath })
-  end
-  local chunk, loadErr = loadstring(data, "@" .. relativePath)
-  if not chunk then
-    return nil, Errors.new("SAVE_LUA_PARSE_FAILED", loadErr, { path = relativePath })
-  end
-  setfenv(chunk, {})
-  local ok, result = pcall(chunk)
-  if not ok then
-    return nil, Errors.new("SAVE_LUA_EVAL_FAILED", tostring(result), { path = relativePath })
-  end
-  return result
+  return ScopedFs.loadChunk(self.backend, self:resolve(relativePath), relativePath, SAVE_ERRORS)
 end
 
 return SaveFs

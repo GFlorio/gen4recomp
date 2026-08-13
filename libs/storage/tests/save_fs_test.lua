@@ -1,12 +1,15 @@
 -- SaveFs tests: the persistent save namespace is version-scoped, confined to
 -- its own root, and structurally unreachable by any cache-clearing operation
 -- (version-root removal, ROM re-extraction). Cache rebuilding must never be
--- able to delete a save.
+-- able to delete a save. Test isolation is backend-level (a remapping
+-- backend wrapper), never a production rooting mode.
 
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
 local SaveFs = require("libs.storage.src.SaveFs")
+local StorageErrors = require("libs.storage.src.errors")
 local FakeCache = require("tests.support.FakeCache")
+local RemapBackend = require("tests.support.RemapBackend")
 
 local T = {}
 
@@ -52,9 +55,19 @@ function T.rejects_unsafe_version_ids()
   end)
 end
 
-function T.scoped_save_root_is_confined_to_the_requested_namespace()
-  local scoped = SaveFs.forVersion("heartgold", FakeCache.new(), "acceptance/heartgold/1")
-  Assert.equal(scoped:prefix(), "acceptance/heartgold/1/")
+-- Test isolation is backend-level: the production constructor has one
+-- rooting rule (saves/<versionId>/), and a test that needs a different
+-- physical namespace remaps the backend into it.
+function T.test_isolation_remaps_the_save_root_into_a_namespace()
+  local backend = FakeCache.new()
+  local remapped = RemapBackend.new(backend, function(path)
+    return (path:gsub("^saves/heartgold/", "acceptance/heartgold/1/"))
+  end)
+  local s = SaveFs.forVersion("heartgold", remapped)
+  Assert.equal(s:prefix(), "saves/heartgold/", "the production root is the only rooting rule")
+  s:write(SAVE_PATH, "SAVE-DATA")
+  Assert.isNil(backend.files["saves/heartgold/" .. SAVE_PATH], "the real save root must stay untouched")
+  Assert.equal(backend.files["acceptance/heartgold/1/" .. SAVE_PATH], "SAVE-DATA")
 end
 
 function T.write_lands_below_the_save_root()
@@ -85,31 +98,31 @@ function T.versions_are_isolated()
 end
 
 function T.rejects_absolute_paths()
-  throwsCode("SAVE_PATH_INVALID", function()
+  throwsCode(StorageErrors.SAVE_PATH_INVALID, function()
     save("heartgold"):write("/etc/passwd", "x")
   end)
 end
 
 function T.rejects_drive_letters()
-  throwsCode("SAVE_PATH_INVALID", function()
+  throwsCode(StorageErrors.SAVE_PATH_INVALID, function()
     save("heartgold"):write("C:/x", "x")
   end)
 end
 
 function T.rejects_parent_components()
-  throwsCode("SAVE_PATH_INVALID", function()
+  throwsCode(StorageErrors.SAVE_PATH_INVALID, function()
     save("heartgold"):read("../soulsilver/" .. SAVE_PATH)
   end)
-  throwsCode("SAVE_PATH_INVALID", function()
+  throwsCode(StorageErrors.SAVE_PATH_INVALID, function()
     save("heartgold"):read("a/../../b")
   end)
 end
 
 function T.rejects_dot_and_nul_components()
-  throwsCode("SAVE_PATH_INVALID", function()
+  throwsCode(StorageErrors.SAVE_PATH_INVALID, function()
     save("heartgold"):read("a/./b")
   end)
-  throwsCode("SAVE_PATH_INVALID", function()
+  throwsCode(StorageErrors.SAVE_PATH_INVALID, function()
     save("heartgold"):read("a\0b")
   end)
 end
@@ -130,10 +143,51 @@ function T.atomic_replace_moves_a_file_over_its_destination()
   Assert.isNil(s:read(SAVE_PATH .. ".tmp"))
 end
 
-function T.load_lua_missing_returns_nil_err()
+function T.load_lua_missing_is_a_missing_file_error()
   local data, err = save("heartgold"):loadLua("absent.lua")
   Assert.isNil(data)
-  Assert.notNil(err)
+  Assert.isTrue(
+    err ~= nil and err.code == StorageErrors.SAVE_FILE_MISSING,
+    "expected " .. StorageErrors.SAVE_FILE_MISSING .. ", got " .. tostring(err)
+  )
+end
+
+-- An actual backend read failure is not a missing save: the load boundary
+-- must keep the two apart, or a save that exists but cannot be read would be
+-- silently treated as absent (and the session restarted fresh). The backend
+-- shape (a file getInfo reports present, read returns nil + an error string)
+-- is exactly what the LÖVE filesystem backend produces.
+function T.load_lua_read_failure_is_not_reclassified_as_missing()
+  local backend = FakeCache.new()
+  local s = save("heartgold", backend)
+  s:write(SAVE_PATH, "SAVE-DATA")
+  ---@diagnostic disable: duplicate-set-field
+  backend.read = function(_, path)
+    return nil, "injected read failure"
+  end
+  local data, err = s:loadLua(SAVE_PATH)
+  Assert.isNil(data)
+  Assert.isTrue(
+    err ~= nil and err.code == StorageErrors.SAVE_READ_FAILED,
+    "expected " .. StorageErrors.SAVE_READ_FAILED .. ", got " .. tostring(err)
+  )
+  Assert.isTrue(
+    tostring(err):find("injected read failure", 1, true) ~= nil,
+    "the backend read error must survive to the load boundary: " .. tostring(err)
+  )
+end
+
+-- The two scoped types remain separate public surfaces: the shared
+-- mechanics must never leak cache-only capabilities (tree deletion, staged
+-- publication, module loading) into the save type, or a save-carrying
+-- object could gain a cache-clearing operation.
+function T.save_surface_has_no_cache_capabilities()
+  local s = save("heartgold")
+  local c = CacheFs.forVersion("heartgold", FakeCache.new())
+  for _, name in ipairs({ "removeTree", "removeStagedTree", "publishStaged", "publishFromStage", "loadModule" }) do
+    Assert.isNil(s[name], "SaveFs must not expose " .. name)
+    Assert.notNil(c[name], "CacheFs must expose " .. name)
+  end
 end
 
 -- The umbrella structural invariant: the disposable version cache root and the
@@ -160,7 +214,7 @@ function T.write_reports_backend_failure()
   backend.write = function()
     return false, "injected write failure"
   end
-  throwsCode("SAVE_WRITE_FAILED", function()
+  throwsCode(StorageErrors.SAVE_WRITE_FAILED, function()
     save("heartgold", backend):write(SAVE_PATH, "x")
   end)
 end
@@ -171,7 +225,7 @@ function T.write_reports_parent_directory_failure()
   backend.createDirectory = function()
     return false, "injected mkdir failure"
   end
-  throwsCode("SAVE_MKDIR_FAILED", function()
+  throwsCode(StorageErrors.SAVE_MKDIR_FAILED, function()
     save("heartgold", backend):write("dir/" .. SAVE_PATH, "x")
   end)
 end
@@ -184,7 +238,7 @@ function T.remove_reports_backend_failure()
   backend.remove = function()
     return false, "injected remove failure"
   end
-  throwsCode("SAVE_REMOVE_FAILED", function()
+  throwsCode(StorageErrors.SAVE_REMOVE_FAILED, function()
     s:remove(SAVE_PATH)
   end)
 end
@@ -208,7 +262,7 @@ function T.replace_reports_backend_failure()
   backend.replace = function()
     return false, "injected replace failure"
   end
-  throwsCode("SAVE_REPLACE_FAILED", function()
+  throwsCode(StorageErrors.SAVE_REPLACE_FAILED, function()
     s:replace(SAVE_PATH .. ".tmp", SAVE_PATH)
   end)
 end

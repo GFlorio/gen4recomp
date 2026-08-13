@@ -1,6 +1,7 @@
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
 local Errors = require("libs.errors.src.Errors")
+local StorageErrors = require("libs.storage.src.errors")
 local FakeCache = require("tests.support.FakeCache")
 
 local function cache(versionId, backend)
@@ -151,10 +152,36 @@ function T.atomic_replace_moves_a_file_over_its_destination()
   Assert.isNil(c:read("save/session.lua.tmp"))
 end
 
-function T.load_lua_missing_returns_nil_err()
+function T.load_lua_missing_is_a_missing_file_error()
   local data, err = cache("heartgold"):loadLua("data/generated/absent.lua")
   Assert.isNil(data)
-  Assert.notNil(err)
+  Assert.isTrue(
+    err ~= nil and err.code == StorageErrors.CACHE_FILE_MISSING,
+    "expected " .. StorageErrors.CACHE_FILE_MISSING .. ", got " .. tostring(err)
+  )
+end
+
+-- An actual backend read failure is not a missing cache file: the load
+-- boundary must keep the two apart, or corruption of an existing generated
+-- file would be silently treated as absence.
+function T.load_lua_read_failure_is_not_reclassified_as_missing()
+  local backend = FakeCache.new()
+  local c = cache("heartgold", backend)
+  c:write("data/generated/x.lua", "DATA")
+  ---@diagnostic disable: duplicate-set-field
+  backend.read = function(_, path)
+    return nil, "injected read failure"
+  end
+  local data, err = c:loadLua("data/generated/x.lua")
+  Assert.isNil(data)
+  Assert.isTrue(
+    err ~= nil and err.code == StorageErrors.CACHE_READ_FAILED,
+    "expected " .. StorageErrors.CACHE_READ_FAILED .. ", got " .. tostring(err)
+  )
+  Assert.isTrue(
+    tostring(err):find("injected read failure", 1, true) ~= nil,
+    "the backend read error must survive to the load boundary: " .. tostring(err)
+  )
 end
 
 -- loadModule evaluates generated script modules under a restricted require
@@ -249,7 +276,7 @@ function T.publish_from_stage_restores_previous_root_on_failure()
   ---@diagnostic disable: duplicate-set-field
   backend.replace = function(self, sourcePath, destinationPath)
     if sourcePath == "staging/heartgold" then
-      error(Errors.new("CACHE_REPLACE_FAILED", "injected publish failure", { sourcePath = sourcePath }))
+      error(Errors.new(StorageErrors.CACHE_REPLACE_FAILED, "injected publish failure", { sourcePath = sourcePath }))
     end
     return originalReplace(self, sourcePath, destinationPath)
   end
@@ -257,7 +284,7 @@ function T.publish_from_stage_restores_previous_root_on_failure()
     c:publishFromStage(s)
   end)
   Assert.isTrue(Errors.is(err))
-  Assert.equal(err.code, "CACHE_REPLACE_FAILED")
+  Assert.equal(err.code, StorageErrors.CACHE_REPLACE_FAILED)
   Assert.equal(backend.files["heartgold/romfs/a/0/0/2"], "OLD", "previous dump must be restored")
   Assert.equal(backend.files["heartgold/rom-dump.complete"], "OLD-MARKER")
   Assert.isNil(backend.files["staging/heartgold.old/romfs/a/0/0/2"], "no orphaned old root after rollback")
@@ -279,7 +306,7 @@ function T.write_reports_backend_failure()
   backend.write = function()
     return false, "injected write failure"
   end
-  throwsCode("CACHE_WRITE_FAILED", function()
+  throwsCode(StorageErrors.CACHE_WRITE_FAILED, function()
     cache("heartgold", backend):write("romfs/a/0/0/2", "data")
   end)
 end
@@ -290,7 +317,7 @@ function T.write_reports_parent_directory_failure()
   backend.createDirectory = function()
     return false, "injected mkdir failure"
   end
-  throwsCode("CACHE_MKDIR_FAILED", function()
+  throwsCode(StorageErrors.CACHE_MKDIR_FAILED, function()
     cache("heartgold", backend):write("romfs/a/0/0/2", "data")
   end)
 end
@@ -301,7 +328,7 @@ function T.create_directory_reports_backend_failure()
   backend.createDirectory = function()
     return false, "injected mkdir failure"
   end
-  throwsCode("CACHE_MKDIR_FAILED", function()
+  throwsCode(StorageErrors.CACHE_MKDIR_FAILED, function()
     cache("heartgold", backend):createDirectory("romfs/a")
   end)
 end
@@ -313,7 +340,7 @@ function T.remove_reports_backend_failure()
   backend.remove = function()
     return false, "injected remove failure"
   end
-  throwsCode("CACHE_REMOVE_FAILED", function()
+  throwsCode(StorageErrors.CACHE_REMOVE_FAILED, function()
     cache("heartgold", backend):remove("romfs/a/0/0/2")
   end)
 end
@@ -336,7 +363,7 @@ function T.remove_tree_reports_backend_failure()
   backend.remove = function()
     return false, "injected remove failure"
   end
-  throwsCode("CACHE_REMOVE_FAILED", function()
+  throwsCode(StorageErrors.CACHE_REMOVE_FAILED, function()
     cache("heartgold", backend):removeTree("romfs/a")
   end)
 end
@@ -350,7 +377,7 @@ function T.replace_reports_backend_failure()
   backend.replace = function()
     return false, "injected replace failure"
   end
-  throwsCode("CACHE_REPLACE_FAILED", function()
+  throwsCode(StorageErrors.CACHE_REPLACE_FAILED, function()
     c:replace("save/session.lua.tmp", "save/session.lua")
   end)
 end
@@ -370,7 +397,7 @@ function T.publish_from_stage_reports_aside_failure()
     end
     return FakeCache.replace(self, sourcePath, destinationPath)
   end
-  throwsCode("CACHE_REPLACE_FAILED", function()
+  throwsCode(StorageErrors.CACHE_REPLACE_FAILED, function()
     c:publishFromStage(s)
   end)
   Assert.equal(backend.files["heartgold/romfs/a/0/0/2"], "OLD", "failed aside must leave the live dump in place")
@@ -392,7 +419,7 @@ function T.publish_from_stage_restores_previous_root_when_replace_reports_failur
     end
     return FakeCache.replace(self, sourcePath, destinationPath)
   end
-  throwsCode("CACHE_REPLACE_FAILED", function()
+  throwsCode(StorageErrors.CACHE_REPLACE_FAILED, function()
     c:publishFromStage(s)
   end)
   Assert.equal(backend.files["heartgold/romfs/a/0/0/2"], "OLD", "previous dump must be restored")
@@ -426,8 +453,11 @@ function T.publish_from_stage_reports_incomplete_rollback()
     c:publishFromStage(s)
   end)
   Assert.isTrue(Errors.is(err), "an incomplete rollback must surface as a structured error")
-  Assert.equal(err.code, "CACHE_PUBLISH_ROLLBACK_INCOMPLETE")
-  Assert.isTrue(tostring(err.context.cause):match("CACHE_REPLACE_FAILED"), "the original publish error is the cause")
+  Assert.equal(err.code, StorageErrors.CACHE_PUBLISH_ROLLBACK_INCOMPLETE)
+  Assert.isTrue(
+    tostring(err.context.cause):match(StorageErrors.CACHE_REPLACE_FAILED),
+    "the original publish error is the cause"
+  )
   Assert.isTrue(tostring(err.context.rollback):match("injected rollback failure"), "the rollback error is recorded")
   Assert.equal(backend.files["staging/heartgold.old/romfs/a/0/0/2"], "OLD", "the aside keeps the last-known-good dump")
   Assert.equal(backend.files["staging/heartgold/romfs/a/0/0/2"], "NEW", "the staged dump stays in place")
@@ -455,7 +485,7 @@ function T.publish_from_stage_reports_cleanup_failure()
     c:publishFromStage(s)
   end)
   Assert.isTrue(Errors.is(err), "a cleanup failure must surface as a structured error")
-  Assert.equal(err.code, "CACHE_PUBLISH_CLEANUP_FAILED")
+  Assert.equal(err.code, StorageErrors.CACHE_PUBLISH_CLEANUP_FAILED)
   Assert.equal(backend.files["heartgold/romfs/a/0/0/2"], "NEW", "the new dump has landed before cleanup")
   Assert.equal(backend.files["staging/heartgold.old/romfs/a/0/0/2"], "OLD", "the old root is the only staging residue")
 end
@@ -469,7 +499,7 @@ function T.remove_staged_tree_reports_backend_failure()
   backend.remove = function()
     return false, "injected remove failure"
   end
-  throwsCode("CACHE_REMOVE_FAILED", function()
+  throwsCode(StorageErrors.CACHE_REMOVE_FAILED, function()
     c:removeStagedTree(s)
   end)
 end

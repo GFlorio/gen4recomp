@@ -42,10 +42,19 @@ local function removeNamespace(path)
   fs.remove(path)
 end
 
--- Acceptance owns the save-root host boundary, so it can inject one scoped
--- write failure without changing the runtime's real save composition.
-local function saveBackend(faults, lifecycle)
+-- Acceptance owns the save-root host boundary: every SaveFs path below the
+-- normal `saves/<versionId>/` root is remapped into the per-boot acceptance
+-- namespace, so an acceptance run can never touch the user's real saves and
+-- the production SaveFs constructor needs no test-only rooting mode. The
+-- wrapper also injects one scoped write or read failure without changing the
+-- runtime's real save composition.
+local function saveBackend(faults, lifecycle, namespace)
   local fs = love.filesystem
+  local function remap(path)
+    local rest = path:gsub("^saves/[^/]+", "")
+    local remapped = namespace .. "/" .. rest:gsub("^/", "")
+    return (remapped:gsub("/$", ""))
+  end
   return {
     write = function(_, path, data)
       lifecycle.saveWrites = lifecycle.saveWrites + 1
@@ -53,22 +62,30 @@ local function saveBackend(faults, lifecycle)
         faults.failWrite = false
         return false, "acceptance injected save write failure"
       end
-      return fs.write(path, data)
+      return fs.write(remap(path), data)
     end,
     read = function(_, path)
-      return fs.read(path)
+      lifecycle.saveReads = lifecycle.saveReads + 1
+      if faults.failRead then
+        faults.failRead = false
+        return nil, "acceptance injected save read failure"
+      end
+      return fs.read(remap(path))
     end,
     getInfo = function(_, path)
-      return fs.getInfo(path)
+      return fs.getInfo(remap(path))
     end,
     createDirectory = function(_, path)
-      return fs.createDirectory(path)
+      return fs.createDirectory(remap(path))
     end,
     remove = function(_, path)
-      return fs.remove(path)
+      return fs.remove(remap(path))
     end,
     replace = function(_, sourcePath, destinationPath)
-      return os.rename(fs.getSaveDirectory() .. "/" .. sourcePath, fs.getSaveDirectory() .. "/" .. destinationPath)
+      return os.rename(
+        fs.getSaveDirectory() .. "/" .. remap(sourcePath),
+        fs.getSaveDirectory() .. "/" .. remap(destinationPath)
+      )
     end,
   }
 end
@@ -139,9 +156,9 @@ end
 ---@field closed boolean?
 ---@field runtimeDisposed boolean?
 ---@field disposeErr any
----@field lifecycle { saveWrites: integer, runtimeDisposals: integer }
+---@field lifecycle { saveWrites: integer, saveReads: integer, runtimeDisposals: integer }
 ---@field worldProbe { flags: table<integer, boolean>, variables: table<integer, integer> }
----@field faults { failWrite: boolean? }
+---@field faults { failWrite: boolean?, failRead: boolean? }
 ---@field harness AcceptanceHarness
 ---@field versionId string
 ---@field map string|integer|nil
@@ -156,7 +173,7 @@ function AcceptanceHarness:_newRuntime(versionId, map, namespace, save, faults, 
   for key, value in pairs(fieldOptions or {}) do
     runtimeOptions[key] = value
   end
-  runtimeOptions.saveFs = SaveFs.forVersion(versionId, saveBackend(faults, lifecycle), namespace)
+  runtimeOptions.saveFs = SaveFs.forVersion(versionId, saveBackend(faults, lifecycle, namespace))
   runtimeOptions.resumeSave = save == "resume"
   runtimeOptions.resetSave = save == "fresh"
   runtimeOptions.scriptHosts = RecordingScriptHosts.new()
@@ -322,6 +339,10 @@ end
 
 function Game:failNextSave()
   self.faults.failWrite = true
+end
+
+function Game:failNextRead()
+  self.faults.failRead = true
 end
 
 local function interactionFor(runtime)
@@ -674,7 +695,7 @@ function Game:replaceApplicationState()
     error(replaced.disposeErr, 0)
   end
 
-  local activeLifecycle = { saveWrites = 0, runtimeDisposals = 0 }
+  local activeLifecycle = { saveWrites = 0, saveReads = 0, runtimeDisposals = 0 }
   local ok, runtime = pcall(
     self.harness._newRuntime,
     self.harness,
@@ -760,7 +781,7 @@ function AcceptanceHarness:boot(options)
   local namespace = self.saveNamespace(options.versionId, serial)
   local trap = installRenderTrap()
   local faults = {}
-  local lifecycle = { saveWrites = 0, runtimeDisposals = 0 }
+  local lifecycle = { saveWrites = 0, saveReads = 0, runtimeDisposals = 0 }
   local ok, runtime = pcall(
     self._newRuntime,
     self,

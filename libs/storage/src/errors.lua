@@ -1,11 +1,23 @@
--- Stable error codes for the storage package (CacheFs, ArtifactPublisher).
--- Modules must reference the named constants, never bare literals, so a
--- rename stays in one place. Pure domain module: no love dependency.
+-- Stable error codes for the storage package (SaveFs, CacheFs,
+-- ArtifactPublisher). Modules must reference the named constants, never bare
+-- literals, so a rename stays in one place. Save and cache keep separate
+-- namespaces: the two scoped filesystem types share mechanics but never
+-- error codes. Pure domain module: no love dependency.
 
 local Errors = {}
 
+Errors.SAVE_PATH_INVALID = "SAVE_PATH_INVALID"
+Errors.SAVE_FILE_MISSING = "SAVE_FILE_MISSING"
+Errors.SAVE_READ_FAILED = "SAVE_READ_FAILED"
+Errors.SAVE_LUA_PARSE_FAILED = "SAVE_LUA_PARSE_FAILED"
+Errors.SAVE_LUA_EVAL_FAILED = "SAVE_LUA_EVAL_FAILED"
+Errors.SAVE_MKDIR_FAILED = "SAVE_MKDIR_FAILED"
+Errors.SAVE_WRITE_FAILED = "SAVE_WRITE_FAILED"
+Errors.SAVE_REMOVE_FAILED = "SAVE_REMOVE_FAILED"
+Errors.SAVE_REPLACE_FAILED = "SAVE_REPLACE_FAILED"
 Errors.CACHE_PATH_INVALID = "CACHE_PATH_INVALID"
 Errors.CACHE_FILE_MISSING = "CACHE_FILE_MISSING"
+Errors.CACHE_READ_FAILED = "CACHE_READ_FAILED"
 Errors.CACHE_LUA_PARSE_FAILED = "CACHE_LUA_PARSE_FAILED"
 Errors.CACHE_LUA_EVAL_FAILED = "CACHE_LUA_EVAL_FAILED"
 Errors.CACHE_MKDIR_FAILED = "CACHE_MKDIR_FAILED"

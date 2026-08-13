@@ -11,6 +11,7 @@ local Assert = require("tests.support.Assert")
 local FieldSave = require("libs.engine.src.FieldSave")
 local FieldRuntime = require("game.src.game.FieldRuntime")
 local SaveFs = require("libs.storage.src.SaveFs")
+local RemapBackend = require("tests.support.RemapBackend")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 
 local T = {
@@ -131,11 +132,16 @@ end
 -- The save boundary presents expected save/storage failures as a save
 -- failure, but a non-structured host fault inside the save path is a
 -- programming fault: it must propagate instead of being flattened into the
--- friendly save-failure text.
+-- friendly save-failure text. The real love backend is confined to the
+-- per-test namespace by a remapping wrapper -- test isolation is backend
+-- composition, never a second production rooting mode.
 function T.tests.save_host_programming_fault_is_rethrown_not_reported_as_save_failure()
   local namespace = "component/save-fault/heartgold"
   removeNamespace(namespace)
-  local saveFs = SaveFs.forVersion("heartgold", raisingWriteBackend(true), namespace)
+  local backend = RemapBackend.new(raisingWriteBackend(true), function(path)
+    return (path:gsub("^saves/heartgold/", namespace .. "/"))
+  end)
+  local saveFs = SaveFs.forVersion("heartgold", backend)
   local runtime = FieldRuntime.new("heartgold", LAB, { saveFs = saveFs })
   local ok, err = xpcall(function()
     runtime:dispose()

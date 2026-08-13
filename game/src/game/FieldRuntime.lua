@@ -4,6 +4,7 @@
 
 local CacheFs = require("libs.storage.src.CacheFs")
 local SaveFs = require("libs.storage.src.SaveFs")
+local StorageErrors = require("libs.storage.src.errors")
 local Errors = require("libs.errors.src.Errors")
 local DialogueLayout = require("libs.engine.src.DialogueLayout")
 local FieldActorDefinitionProvider = require("libs.engine.src.FieldActorDefinitionProvider")
@@ -239,7 +240,7 @@ function FieldRuntime:_load()
       if saved then
         restored, saveErr = FieldSave.restore(saved, self.mapLoader, self.versionId)
       end
-      if saveErr and saveErr.code ~= "SAVE_FILE_MISSING" then
+      if saveErr and saveErr.code ~= StorageErrors.SAVE_FILE_MISSING then
         self.saveStatus = "Save ignored: " .. tostring(saveErr)
       elseif restored then
         self.saveStatus = "Resumed saved field session"

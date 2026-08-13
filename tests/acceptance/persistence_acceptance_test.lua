@@ -102,6 +102,30 @@ function T.tests.disposal_saves_once_and_a_failed_save_is_visible_without_double
   end)
 end
 
+-- SAVE-08: a save that exists but cannot be read must be distinguishable from
+-- a missing save at the resume boundary. The runtime just wrote the file on
+-- disposal, then the injected filesystem I/O failure hits the resume read; if
+-- the load boundary reclassified that read failure as "file missing", the
+-- session would silently restart fresh and discard the user's save without
+-- notice. The failure is the harness's own save-root host boundary.
+function T.tests.resume_reports_a_save_read_failure_instead_of_treating_it_as_missing()
+  withGame(function(game)
+    requireCapability(game, "failNextRead")
+    game:moveTo({ fieldX = 6, fieldZ = 6 })
+    game:failNextRead()
+    local resumed = restart(game, { save = "resume" })
+    Assert.equal(resumed.lifecycle.saveReads, 1, "the resume boot must have read the save exactly once")
+    Assert.notNil(
+      resumed.saveStatus,
+      "a save that exists but cannot be read must be reported at the resume boundary, not silently treated as a fresh session"
+    )
+    Assert.isTrue(
+      resumed.saveStatus:find("Save ignored:", 1, true) ~= nil,
+      "the resume boundary must present the read failure as 'Save ignored: ...', got " .. tostring(resumed.saveStatus)
+    )
+  end)
+end
+
 -- DET-02: a save captured mid-script (the bound New Bark woman script
 -- holding field control at its wait_input prompt, after its real message
 -- closed) must restore through the recomputed revision path: the resumed

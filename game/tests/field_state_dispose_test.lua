@@ -7,6 +7,7 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
+local StorageErrors = require("libs.storage.src.errors")
 local FieldRuntime = require("game.src.game.FieldRuntime")
 local FieldState = require("game.src.game.FieldState")
 
@@ -252,7 +253,7 @@ function T.reset_structured_save_failure_is_presented_and_keeps_the_live_runtime
   local runtime = state.runtime --[[@as any]]
   resources.saveStore.reset = function(self)
     self.calls = self.calls + 1
-    Errors.raise("SAVE_REMOVE_FAILED", "injected reset failure")
+    Errors.raise(StorageErrors.SAVE_REMOVE_FAILED, "injected reset failure")
   end
   runtime:reset()
   Assert.isTrue(runtime.saveStatus:find("Reset failed:", 1, true) ~= nil, "reset reports the wipe failure")
