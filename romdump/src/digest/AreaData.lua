@@ -30,10 +30,8 @@ local function parse(bytes, context)
     dynamicTextureType = r:u16le(0x04),
     areaType = AREA_TYPE[areaTypeRaw] or "unknown",
     areaTypeRaw = areaTypeRaw,
-    -- Selects the HGSS field-light profile (see HgssFieldLighting). lightType is
-    -- a transitional alias removed once every call site reads lightTypeRaw.
+    -- Selects the HGSS field-light profile (see HgssFieldLighting).
     lightTypeRaw = lightTypeRaw,
-    lightType = lightTypeRaw,
     source = context,
   }
 end

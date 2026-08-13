@@ -36,7 +36,7 @@ This file provides guidance to Coding Agents when working with code in this repo
 - **Runtime boundary:** `libs/engine` and normal `game` runtime consume generated assets only. They must not import `romdump`, decomp-derived references, NARC/Nitro/overlay parsers, or interpret source binary packing. The launcher/import UI is the sole allowed `game` → `romdump` provisioning dependency.
 - **Producer test:** if changing a module can change generated output for an unchanged raw dump without changing a shared asset contract, that implementation belongs under `romdump`.
 - **Source metadata:** source physical IDs/paths/offsets belong in producer dependencies/provenance, not runtime asset fields, unless a concrete runtime/mod-facing semantic use exists.
-- The `tests/architecture/module_boundaries_test.lua` unit suite scans literal requires across `libs/assets`, `libs/engine`, and `game` and enforces these boundaries; keep it green.
+- The `tests/architecture/module_boundaries_test.lua` unit suite scans literal requires across the `libs/*` packages and `game` and enforces these boundaries; keep it green.
 
 
 ## Ownership and failure safety

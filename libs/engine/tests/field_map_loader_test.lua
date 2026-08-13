@@ -20,7 +20,7 @@ local function fixture(mapCount)
   for mapId = 0, mapCount - 1 do
     local symbol = "MAP_" .. mapId
     local scene = {
-      schema = "g4-map-scene-v3",
+      schema = "g4-map-scene-v4",
       mapId = mapId,
       mapSymbol = symbol,
       cameraType = mapId,

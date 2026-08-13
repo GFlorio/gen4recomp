@@ -107,7 +107,7 @@ local function dataLines(text, context)
   return lines
 end
 
--- Parse profile text into { version, records = { record, ... } }.
+-- Parse profile text into { records = { record, ... } }.
 ---@param text string
 ---@param context table|nil
 function HgssFieldLightProfile.parse(text, context)

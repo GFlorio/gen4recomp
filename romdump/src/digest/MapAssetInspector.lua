@@ -525,7 +525,7 @@ function MapAssetInspector.inspect(romFs, idOrSymbol)
       mapTexturePackId = area.mapTexturePackId,
       dynamicTextureType = area.dynamicTextureType,
       areaType = area.areaType,
-      lightType = area.lightType,
+      lightType = area.lightTypeRaw,
     },
     land = {
       memberSize = #landBytes,
@@ -602,7 +602,7 @@ function MapAssetInspector.lines(report)
     report.area.mapTexturePackId,
     report.area.buildingTexturePackId,
     report.area.dynamicTextureType,
-    report.area.lightType
+    report.area.lightTypeRaw
   )
   local l = report.land
   add(

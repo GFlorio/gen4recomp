@@ -21,11 +21,7 @@ CollisionGridAsset.VERSION = Contract.map.collisionVersion
 local HEADER_SIZE = 10 -- magic 4 + version 2 + width 2 + height 2
 
 local function fail(code, message, context)
-  local detail = { code = code, message = message }
-  if context then
-    detail.context = context
-  end
-  return nil, Errors.new(code, message, detail)
+  return nil, Errors.new(code, message, context)
 end
 
 -- Encode a normalized collision grid { width, height, cells } where each cell

@@ -72,7 +72,7 @@ function T.area_data(romFs)
   Assert.equal(area.mapTexturePackId, 2)
   Assert.equal(area.dynamicTextureType, 0)
   Assert.equal(area.areaType, "outdoor")
-  Assert.equal(area.lightType, 1)
+  Assert.equal(area.lightTypeRaw, 1)
 end
 
 -- Land-data container for the outdoor chunk.
@@ -163,7 +163,7 @@ end
 function T.format_1_and_6_are_translucent(romFs)
   local bundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK"))
   local scene = bundle.scene
-  Assert.equal(scene.schema, "g4-map-scene-v3")
+  Assert.equal(scene.schema, "g4-map-scene-v4")
 
   local found = false
   local function translucentBatches(materials, batches)
@@ -295,23 +295,29 @@ function T.central_cell_scene(romFs, version)
   local scene = bundle.scene
 
   local m = scene.matrix
-  Assert.equal(m.memberId, 0)
-  Assert.equal(m.name, "map")
   Assert.equal(m.width, 47)
   Assert.equal(m.height, 17)
   Assert.equal(m.x, 21)
   Assert.equal(m.z, 12)
-  Assert.equal(m.index, 585)
   Assert.equal(m.worldOriginX, 672)
   Assert.equal(m.worldOriginZ, 384)
-  -- The land member identity stays producer-side; the dependency record
-  -- proves which bytes were compiled.
+  -- Source identity (matrix/area members, texture packs, cell index) stays
+  -- producer-side; the dependency record proves which bytes were compiled.
   Assert.equal(#bundle.dependencies.landDataMemberSha1, 40)
-
-  Assert.equal(scene.area.memberId, 2)
-  Assert.equal(scene.area.type, "outdoor")
-  Assert.equal(scene.area.mapTexturePackId, 2)
-  Assert.equal(scene.area.buildingTexturePackId, 0)
+  Assert.deepEqual(bundle.dependencies.matrix, {
+    memberId = 0,
+    name = "map",
+    index = 585,
+    altitude = 0,
+  })
+  Assert.deepEqual(bundle.dependencies.area, {
+    memberId = 2,
+    type = "outdoor",
+    mapTexturePackId = 2,
+    buildingTexturePackId = 0,
+    dynamicTextureType = 0,
+    lightType = 1,
+  })
 
   -- Outdoor map model with its texture pack is drawn, and the laboratory
   -- exterior (wk_labo, member 21) resolves through the outdoor archive.

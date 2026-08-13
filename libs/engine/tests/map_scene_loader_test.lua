@@ -67,7 +67,7 @@ end
 -- batch per supplied material. Collision is a FieldMapLoader concern.
 local function scene(materials)
   return {
-    schema = "g4-map-scene-v3",
+    schema = "g4-map-scene-v4",
     mapId = 1,
     cameraType = 0,
     matrix = { width = 1, height = 1, x = 0, z = 0, worldOriginX = 0, worldOriginZ = 0 },

@@ -1,8 +1,8 @@
 -- Static architecture guard: enforces the romdump boundary by scanning literal
--- require("...") strings across the libs/assets, libs/engine, and game packages
--- (src and tests). Literal scanning is sufficient because the repository
--- requires modules by full repo-relative path; this is deliberately not a
--- general-purpose dependency analyzer.
+-- require("...") strings across the libs packages (assets, codec, storage,
+-- errors, math, engine) and the game package (src and tests). Literal scanning
+-- is sufficient because the repository requires modules by full repo-relative
+-- path; this is deliberately not a general-purpose dependency analyzer.
 
 local Assert = require("tests.support.Assert")
 
@@ -22,7 +22,15 @@ local GAME_ALLOWLIST = {
   },
 }
 
-local PACKAGE_ROOTS = { "libs/assets", "libs/engine", "game" }
+local PACKAGE_ROOTS = {
+  "libs/assets",
+  "libs/codec",
+  "libs/errors",
+  "libs/storage",
+  "libs/math",
+  "libs/engine",
+  "game",
+}
 
 -- Namespaces deleted by the boundary moves; none may reappear.
 local FORBIDDEN_PREFIXES = {

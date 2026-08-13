@@ -297,6 +297,24 @@ local function _compile(romFs, idOrSymbol)
     buildingTextureMemberId = bldTexBytes and area.buildingTexturePackId or nil,
     buildingTextureMemberSha1 = bldTexBytes and Hashing.sha1hex(bldTexBytes) or nil,
     uniqueBuildingModelMemberSha1s = buildingModelShas,
+    -- Source-only facts about the compiled cell: matrix and area member
+    -- identity, the matrix cell index/altitude, and the raw area record
+    -- fields. None of these have a runtime consumer; they live on the
+    -- producer dependency record, never in the runtime scene.
+    matrix = {
+      memberId = resolved.matrixMemberId,
+      name = resolved.matrix.name,
+      index = resolved.matrixIndex,
+      altitude = resolved.matrixAltitude,
+    },
+    area = {
+      memberId = resolved.areaDataMemberId,
+      type = area.areaType,
+      mapTexturePackId = area.mapTexturePackId,
+      buildingTexturePackId = area.buildingTexturePackId,
+      dynamicTextureType = area.dynamicTextureType,
+      lightType = area.lightTypeRaw,
+    },
   }
   local marker = MapAssetCache.marker(romSha1, mapId, Hashing.hashLua(dependencies))
 
@@ -306,24 +324,12 @@ local function _compile(romFs, idOrSymbol)
     mapId = mapId,
     mapSymbol = resolved.map.symbol,
     matrix = {
-      memberId = resolved.matrixMemberId,
-      name = resolved.matrix.name,
       width = resolved.matrix.width,
       height = resolved.matrix.height,
       x = resolved.matrixX,
       z = resolved.matrixZ,
-      index = resolved.matrixIndex,
-      altitude = resolved.matrixAltitude,
       worldOriginX = resolved.worldOriginX,
       worldOriginZ = resolved.worldOriginZ,
-    },
-    area = {
-      memberId = resolved.areaDataMemberId,
-      type = area.areaType,
-      mapTexturePackId = area.mapTexturePackId,
-      buildingTexturePackId = area.buildingTexturePackId,
-      dynamicTextureType = area.dynamicTextureType,
-      lightType = area.lightType,
     },
     cameraType = resolved.map.cameraType,
     collision = {

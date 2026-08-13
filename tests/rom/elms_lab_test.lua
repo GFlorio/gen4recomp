@@ -70,7 +70,7 @@ function T.area_data(romFs)
   Assert.equal(area.mapTexturePackId, 25)
   Assert.equal(area.dynamicTextureType, 0xFFFF)
   Assert.equal(area.areaType, "indoor")
-  Assert.equal(area.lightType, 0)
+  Assert.equal(area.lightTypeRaw, 0)
 end
 
 -- Land-data container boundaries, BGS, collision, buildings, model, BDHC.

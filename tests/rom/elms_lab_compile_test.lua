@@ -61,7 +61,7 @@ function T.completeness_and_ready(romFs, version)
   local collision = assert(CollisionGridAsset.decode(assert(c:read(MapAssetCache.collisionPath(MAP_ID)))))
   Assert.equal(collision.width, 32)
   Assert.equal(#collision.cells, 1024)
-  Assert.equal(bundle.scene.schema, "g4-map-scene-v3")
+  Assert.equal(bundle.scene.schema, "g4-map-scene-v4")
   Assert.equal(bundle.terrain.schema, "g4-terrain-surfaces-v1")
   Assert.isTrue(c:exists(MapAssetCache.terrainPath(MAP_ID)), "terrain artifact on disk")
 
