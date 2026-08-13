@@ -4,8 +4,9 @@
 -- model spans model X/Z ~[-16, 16], and Elm's interior room sits in the same
 -- centred frame), so tile (0,0)'s centre is at world (-15.5, -15.5) and tile
 -- (31,31)'s at (15.5, 15.5). One world unit per tile, +X east / +Z south to
--- match MapUnits. This centring is provisional the way the camera profiles are:
--- if a later map proves a different placement the constant lives here alone.
+-- match MapUnits. This centring is the project-owned placement convention the
+-- camera profiles share: if a later map proves a different placement the
+-- constant lives here alone.
 -- Pure domain module (no love).
 
 local FieldGrid = {}

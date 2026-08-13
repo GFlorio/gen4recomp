@@ -17,13 +17,16 @@ done
 
 echo "==> temporary-spec reference guard"
 # Reject references to the planning spec ("tmp/spec", "spec section N",
-# "Workstream N", "milestone N", "slice N") in source, tests, data, and
+# "Workstream N", "milestone N", "slice N", "WS N") and planning language
+# ("under development", "provisional") in source, tests, data, and
 # permanent docs. The patterns are narrow on purpose: bare "section"/"slice"
 # and project concepts like the playable "New Bark slice" stay legal.
-# lint.sh is excluded because it contains the patterns themselves.
+# lint.sh and the temporary-spec-language scan suite are excluded because
+# they contain the patterns themselves.
 if grep -RInE --include='*.lua' --include='*.md' --include='*.sh' --include='*.toml' \
   -e 'tmp/spec' -e 'spec section' -e 'Workstream' -e 'milestone' -e 'slice [0-9]' \
-  --exclude='lint.sh' \
+  -e 'WS[0-9]' -e 'under development' -e 'provisional' \
+  --exclude='lint.sh' --exclude='temporary_spec_language_removed_test.lua' \
   README.md docs data libs game romdump tests scripts; then
   echo "lint: temporary-spec references found; replace them with durable reasoning" >&2
   exit 1

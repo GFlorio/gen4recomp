@@ -1,4 +1,4 @@
--- The provisional field spawn manifest contract: every entry is itself the
+-- The field spawn manifest contract: every entry is itself the
 -- spawn record, flat (x, z, facing) -- the shape FieldState consumes. A
 -- nested `spawn` wrapper regressed silently into the (0,0) fallback before,
 -- so the flat shape is pinned here.

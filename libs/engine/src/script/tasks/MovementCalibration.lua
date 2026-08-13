@@ -1,7 +1,7 @@
--- Movement calibration : provisional v1 tick durations per HGSS movement speed
+-- Movement calibration: v1 tick durations per HGSS movement speed
 -- profile, at the engine's 30 Hz fixed tick. The pinned decomp does not
 -- decompile the movement engine (EventObjectMovementMan lives in an
--- overlay), so these values are documented provisional calibrations; the
+-- overlay), so these values are documented calibrations; the
 -- hgss_96..hgss_99 names preserve distinct source profiles whose final
 -- timings may be supplied later. Pure domain module: no love dependency.
 

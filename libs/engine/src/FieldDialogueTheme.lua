@@ -1,6 +1,6 @@
 -- The single theme record for field dialogue presentation: the 256 x 192
 -- reference canvas (matching the DS top-screen aspect),
--- the provisional bottom box geometry, text metrics, colors, cursor blink,
+-- the bottom box geometry, text metrics, colors, cursor blink,
 -- and the reference-to-screen mapping into FieldViewport.referenceFrame.
 -- All geometry is pure so the box layout is testable headlessly at every
 -- host aspect; the LÖVE renderer draws exactly what this module computes.
@@ -33,7 +33,7 @@ FieldDialogueTheme.schema = "g4-field-dialogue-theme-v1"
 FieldDialogueTheme.referenceWidth = 256
 FieldDialogueTheme.referenceHeight = 192
 
--- Provisional bottom box inside the reference canvas:
+-- Bottom box inside the reference canvas:
 -- horizontal inset 8, bottom inset 8, width 240, height 56.
 FieldDialogueTheme.box = {
   x = 8,
@@ -60,7 +60,7 @@ FieldDialogueTheme.cursor = {
   blinkTicks = 30,
 }
 
--- Colors (project-owned provisional window; the extracted glyph atlas bakes
+-- Colors (project-owned window; the extracted glyph atlas bakes
 -- its own ink/shadow/background colors, so text is drawn unmodified).
 FieldDialogueTheme.colors = {
   fill = { 0.93, 0.93, 0.97, 0.96 },
@@ -69,7 +69,7 @@ FieldDialogueTheme.colors = {
   marker = { 0.55, 0.25, 0.10, 1 },
 }
 
--- Provisional nine-slice: a 6x6 source image with 2px corners and edges, so
+-- Nine-slice: a 6x6 source image with 2px corners and edges, so
 -- the center stretches without seams under nearest filtering.
 FieldDialogueTheme.slice = { size = 6, corner = 2 }
 

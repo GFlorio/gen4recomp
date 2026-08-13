@@ -1,5 +1,6 @@
 -- Public ScriptContext v1: the current service facade a named raw-Lua handler
--- receives. v1 is still under development and not declared stable. It never
+-- receives. v1 is not declared stable: until stability is explicitly declared
+-- the surface stays minimal and incompatible cleanup is allowed. It never
 -- exposes the app object, the renderer, global LÖVE state,
 -- physical save tables, or mutable engine subsystem tables; every service is a
 -- thin read-only or validated facade over the injected services. `ctx.tasks`

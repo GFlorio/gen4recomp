@@ -102,7 +102,7 @@ end
 -- --- Composition resolution ---------------------------------------------------
 
 -- Resolve a public script id to its effective composed chain; the game layer
--- wires this to the registry/composition pair (WS7). Unknown ids resolve to
+-- wires this to the registry/composition pair. Unknown ids resolve to
 -- nil and produce attributed call errors.
 ---@param scriptId string
 ---@return table|nil

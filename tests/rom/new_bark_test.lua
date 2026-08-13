@@ -330,7 +330,7 @@ function T.central_cell_scene(romFs, version)
   end
   Assert.isTrue(labo, "lab exterior model 21 placed via the outdoor archive")
 
-  -- The provisional spawn is coordinate-consistent: local + cell origin == global.
+  -- The spawn is coordinate-consistent: local + cell origin == global.
   local spawn = FieldSpawns.MAP_NEW_BARK
   Assert.equal(spawn.x + m.worldOriginX, 684)
   Assert.equal(spawn.z + m.worldOriginZ, 394)

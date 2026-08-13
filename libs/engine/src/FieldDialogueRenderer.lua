@@ -1,5 +1,5 @@
 -- Renders the modal dialogue box into the viewport's centered 4:3 reference
--- frame: a provisional nine-slice window, the extracted
+-- frame: a nine-slice window, the extracted
 -- glyph atlas text (ink and shadow baked at import time), and a blinking
 -- continue cursor. It owns the font definition and atlas Image, builds the
 -- slice source image once, draws after the 3D world pass, and restores every
@@ -28,7 +28,7 @@ local FieldMessageText = require("libs.assets.src.FieldMessageText")
 local FieldDialogueRenderer = {}
 FieldDialogueRenderer.__index = FieldDialogueRenderer
 
--- Provisional nine-slice drawn from a 6x6 source image: 2px border ring and a
+-- Nine-slice drawn from a 6x6 source image: 2px border ring and a
 -- stretchable center, nearest-filtered so scaled edges never seam.
 local SLICE_BORDER = 2
 
@@ -132,7 +132,7 @@ end
 
 -- Converts marker text to glyph runs through the compiled charmap.
 -- Characters without a glyph render the compiled fallback glyph; marker text
--- is provisional developer aid, never silently dropped.
+-- is developer aid, never silently dropped.
 
 ---@param text string
 ---@return FieldDialogueRenderer.GlyphRun[]

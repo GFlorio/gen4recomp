@@ -5,7 +5,7 @@
 -- ~512 model units, so 16 model units == 1 field tile, and the runtime uses one
 -- world unit per tile. The runtime axes (+X east, +Y up, +Z south) use the same
 -- handedness as Nitro here, so this is a pure scale with no winding flip. Pure
--- domain module. The axis convention is provisional and centralized here so a
+-- domain module. The axis convention is centralized here so a
 -- later render calibration changes exactly one place.
 
 local Errors = require("libs.errors.src.Errors")
