@@ -40,6 +40,17 @@ local function drawableState(development)
       viewport = { width = 640, height = 480, worldViewport = { x = 0, y = 0, width = 640, height = 480 } },
       mapLoader = { updateCoverage = function() end },
       camera = {},
+      transition = { fadeAlpha = 0 },
+      dialogue = {
+        isModal = function()
+          return false
+        end,
+      },
+      menuHost = {
+        presentation = function()
+          return nil
+        end,
+      },
     },
     renderer = { draw = function() end },
   }, FieldState)
@@ -92,10 +103,10 @@ function T.product_mode_ignores_the_f1_and_f2_developer_binds()
     runtime = {
       actionKeys = {},
       cancelKeys = {},
-      _save = function()
+      saveSession = function()
         saves = saves + 1
       end,
-      _reset = function()
+      reset = function()
         resets = resets + 1
       end,
     },
@@ -114,10 +125,10 @@ function T.dev_mode_keeps_the_f1_and_f2_developer_binds()
     runtime = {
       actionKeys = {},
       cancelKeys = {},
-      _save = function()
+      saveSession = function()
         saves = saves + 1
       end,
-      _reset = function()
+      reset = function()
         resets = resets + 1
       end,
     },
@@ -148,7 +159,7 @@ function T.product_mode_keeps_the_documented_zoom_controls()
           zooms[#zooms + 1] = "reset"
         end,
       },
-      _applyZoomChange = function()
+      applyZoomChange = function()
         changes = changes + 1
       end,
     },

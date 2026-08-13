@@ -34,6 +34,22 @@ local function fresh()
   App.importer = nil
 end
 
+-- App opts are module state read by the boot and draw paths; this fixture
+-- installs the value under test and restores the previous one on every path,
+-- so no test leaks its options into the next. The fn must not raise; tests
+-- that probe fallible paths wrap their call in pcall inside the fn.
+---@param opts table|nil
+---@param fn fun()
+local function withAppOptions(opts, fn)
+  local original = App.opts
+  App.opts = opts or {}
+  local ok, err = pcall(fn)
+  App.opts = original
+  if not ok then
+    error(err, 0)
+  end
+end
+
 -- An importer stand-in in a given state. App reads isBusy()/state and forwards
 -- drops; a terminal (complete/error) stand-in models an importer left over
 -- from a finished session.
@@ -157,14 +173,16 @@ end
 -- product mode draws nothing.
 function T.app_draw_skips_the_emergency_brand_text_in_product_mode()
   fresh()
-  App.opts = { dev = false }
   local prints = 0
   local graphics = love.graphics
   local originalPrint = graphics.print
   graphics.print = function()
     prints = prints + 1
   end
-  local ok, err = pcall(App.draw)
+  local ok, err
+  withAppOptions({ dev = false }, function()
+    ok, err = pcall(App.draw)
+  end)
   graphics.print = originalPrint
   if not ok then
     error(err, 0)
@@ -175,14 +193,16 @@ end
 -- DEV-07: dev mode keeps the emergency brand text on an empty frame.
 function T.app_draw_keeps_the_emergency_brand_text_in_dev_mode()
   fresh()
-  App.opts = { dev = true }
   local prints = 0
   local graphics = love.graphics
   local originalPrint = graphics.print
   graphics.print = function()
     prints = prints + 1
   end
-  local ok, err = pcall(App.draw)
+  local ok, err
+  withAppOptions({ dev = true }, function()
+    ok, err = pcall(App.draw)
+  end)
   graphics.print = originalPrint
   if not ok then
     error(err, 0)
@@ -249,12 +269,12 @@ end
 
 -- The boot decision when no ROM was supplied: zero ready versions enter the
 -- import state, one resumes its field session, and both offer the version
--- selector over exactly the ready array. FieldBoot.select's own contract is
--- pinned in field_boot_test.lua; these tests cover the App wiring, which has
--- no other coverage. RomImporter.isReady and FieldState.new are the seams:
--- readiness is a pure check and a real FieldState boot is ROM-gated.
+-- selector over exactly the ready array. These tests cover the whole boot
+-- selection wiring -- version-selection has one owner, App itself.
+-- RomImporter.isReady and FieldState.new are the seams: readiness is a pure
+-- check and a real FieldState boot is ROM-gated.
 
--- Capture newFieldState's arguments through the module boundary instead of
+-- Capture FieldState.new's arguments through the module boundary instead of
 -- booting a real runtime.
 local function captureFieldState()
   local captured
@@ -277,12 +297,14 @@ end
 
 function T.boot_existing_with_no_ready_version_starts_an_import()
   fresh()
-  App.opts = {}
   local originalIsReady = RomImporter.isReady
   RomImporter.isReady = function()
     return false
   end
-  local ok, err = pcall(App._bootExisting)
+  local ok, err
+  withAppOptions({}, function()
+    ok, err = pcall(App._bootExisting)
+  end)
   RomImporter.isReady = originalIsReady
   if not ok then
     error(err, 0)
@@ -293,13 +315,15 @@ end
 
 function T.boot_existing_with_one_ready_version_resumes_its_field_session()
   fresh()
-  App.opts = {}
   local capture = captureFieldState()
   local originalIsReady = RomImporter.isReady
   RomImporter.isReady = function(id)
     return id == "heartgold"
   end
-  local ok, err = pcall(App._bootExisting)
+  local ok, err
+  withAppOptions({}, function()
+    ok, err = pcall(App._bootExisting)
+  end)
   RomImporter.isReady = originalIsReady
   capture.restore()
   if not ok then
@@ -309,42 +333,68 @@ function T.boot_existing_with_one_ready_version_resumes_its_field_session()
   Assert.notNil(captured)
   Assert.equal(captured.versionId, "heartgold")
   Assert.isTrue(captured.options.resumeSave)
+  Assert.isFalse(captured.options.resetSave)
+  Assert.isFalse(captured.options.development)
   Assert.equal(App.state, capture.state)
+end
+
+-- The CLI session flags are applied once at the boot boundary: --dev reaches
+-- the state as the presentation flag, and --new-field-session forces a fresh
+-- session instead of a resume.
+function T.boot_flags_flow_into_the_field_state_options()
+  fresh()
+  local capture = captureFieldState()
+  local originalIsReady = RomImporter.isReady
+  RomImporter.isReady = function(id)
+    return id == "heartgold"
+  end
+  local ok, err
+  withAppOptions({ dev = true, newFieldSession = true }, function()
+    ok, err = pcall(App._bootExisting)
+  end)
+  RomImporter.isReady = originalIsReady
+  capture.restore()
+  if not ok then
+    error(err, 0)
+  end
+  local captured = capture.captured()
+  Assert.notNil(captured)
+  Assert.isTrue(captured.options.development, "--dev reaches the field state")
+  Assert.isTrue(captured.options.resetSave, "--new-field-session forces a reset")
+  Assert.isFalse(captured.options.resumeSave, "--new-field-session never resumes")
 end
 
 function T.boot_existing_with_two_ready_versions_offers_the_selector_over_the_ready_array()
   fresh()
-  App.opts = {}
   local capture = captureFieldState()
   local originalIsReady = RomImporter.isReady
   RomImporter.isReady = function(id)
     return id == "heartgold" or id == "soulsilver"
   end
-  local ok, err = pcall(App._bootExisting)
-  RomImporter.isReady = originalIsReady
-  if not ok then
-    capture.restore()
-    error(err, 0)
-  end
-  -- The stub must stay installed while the selector's onPick callback is
-  -- probed, so the whole assertion phase is protected and restore runs on
-  -- every path.
-  local ok2, err2 = pcall(function()
-    Assert.isNil(capture.captured(), "the selector must not boot a field state")
-    local selector = App.state
-    ---@cast selector table
-    Assert.equal(getmetatable(selector).__index, VersionSelectState)
-    Assert.deepEqual(selector.ready, { "heartgold", "soulsilver" })
-    selector.onPick("soulsilver")
-    local picked = capture.captured()
-    Assert.notNil(picked)
-    Assert.equal(picked.versionId, "soulsilver")
-    Assert.isTrue(picked.options.resumeSave)
-    Assert.equal(App.state, capture.state)
+  -- The selector's onPick callback reads App.opts through fieldSessionOptions,
+  -- so boot and probe run inside the one fixture that installs them; every
+  -- stub is restored on every path afterwards.
+  local ok, err
+  withAppOptions({}, function()
+    ok, err = pcall(function()
+      App._bootExisting()
+      Assert.isNil(capture.captured(), "the selector must not boot a field state")
+      local selector = App.state
+      ---@cast selector table
+      Assert.equal(getmetatable(selector).__index, VersionSelectState)
+      Assert.deepEqual(selector.ready, { "heartgold", "soulsilver" })
+      selector.onPick("soulsilver")
+      local picked = capture.captured()
+      Assert.notNil(picked)
+      Assert.equal(picked.versionId, "soulsilver")
+      Assert.isTrue(picked.options.resumeSave)
+      Assert.equal(App.state, capture.state)
+    end)
   end)
+  RomImporter.isReady = originalIsReady
   capture.restore()
-  if not ok2 then
-    error(err2, 0)
+  if not ok then
+    error(err, 0)
   end
 end
 

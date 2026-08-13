@@ -66,7 +66,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 
 ---@class FieldRuntime
 ---@field versionId string
----@field idOrSymbol string|integer?
+---@field mapIdOrSymbol string|integer?
 ---@field resumeSave boolean
 ---@field resetSave boolean
 ---@field viewportWidth integer
@@ -172,14 +172,14 @@ local function terrainEnvelope(terrain)
 end
 
 ---@param versionId string
----@param idOrSymbol string|integer|nil
+---@param mapIdOrSymbol string|integer|nil
 ---@param options FieldRuntimeOptions|nil
 ---@return FieldRuntime
-function FieldRuntime.new(versionId, idOrSymbol, options)
+function FieldRuntime.new(versionId, mapIdOrSymbol, options)
   options = options or {}
   local self = setmetatable({
     versionId = versionId,
-    idOrSymbol = idOrSymbol or DEFAULT_MAP,
+    mapIdOrSymbol = mapIdOrSymbol or DEFAULT_MAP,
     resumeSave = options.resumeSave == true,
     resetSave = options.resetSave == true,
     viewportWidth = options.viewportWidth or WindowConfig.REFERENCE_WIDTH,
@@ -251,7 +251,7 @@ function FieldRuntime:_load()
         self.saveStatus = "Resumed saved field session"
       end
     end
-    self.runtimeMap = restored and restored.runtimeMap or self.mapLoader:load(self.idOrSymbol)
+    self.runtimeMap = restored and restored.runtimeMap or self.mapLoader:load(self.mapIdOrSymbol)
     self.mapLoader:protectMap(self.runtimeMap.mapId, true)
 
     -- The spawn manifest is flat: each entry is itself the spawn record
@@ -476,7 +476,7 @@ function FieldRuntime:update(dt)
     end
   end
   if self.transition:consumeCompleted() then
-    self:_save("Autosaved after warp")
+    self:saveSession("Autosaved after warp")
   end
 end
 
@@ -514,15 +514,18 @@ function FieldRuntime:releaseCancel()
   self.input:releaseCancel("runtime")
 end
 
-function FieldRuntime:_save(successText)
+-- Save the current field session (developer F1 bind, autosave after warp, and
+-- disposal). The save boundary presents only expected save/storage failures
+-- (the structured SAVE_*/FIELD_SAVE_* errors the UI shows as save status); any
+-- other failure inside the capture/write is a programming fault and rethrows
+-- instead of being flattened into friendly text.
+---@param successText string?
+---@return boolean saved
+function FieldRuntime:saveSession(successText)
   if not self.session or not FieldSave.canCapture(self.session) then
     self.saveStatus = "Save deferred: movement or transition is active"
     return false
   end
-  -- The save boundary presents only expected save/storage failures (the
-  -- structured SAVE_*/FIELD_SAVE_* errors the UI shows as save status); any
-  -- other failure inside the capture/write is a programming fault and
-  -- rethrows instead of being flattened into friendly text.
   local ok, err = pcall(function()
     self.saveStore:save(FieldSave.capture(self.session, {
       avatarId = self.avatar.id,
@@ -545,7 +548,10 @@ function FieldRuntime:_save(successText)
   return true
 end
 
-function FieldRuntime:_reset()
+-- Reset the field session (developer F2 bind): wipe the save store, release
+-- every owned collaborator, and re-boot a fresh session. Expected storage
+-- failures present as saveStatus; programming faults rethrow.
+function FieldRuntime:reset()
   local ok, err = pcall(function()
     self.saveStore:reset()
   end)
@@ -612,7 +618,23 @@ function FieldRuntime:_updateCameraProjection()
   self.camera:setZoom(self.zoom:effectiveZoom())
 end
 
-function FieldRuntime:_applyZoomChange()
+-- Re-apply the user's zoom change to the camera projection and the coverage
+-- ring.
+function FieldRuntime:applyZoomChange()
+  self:_updateCameraProjection()
+  self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
+end
+
+-- Presentation viewport resize owned by the runtime: the viewport and menu
+-- host geometry, the new screen topology, the camera projection, and the
+-- coverage ring update together.
+---@param width integer
+---@param height integer
+---@param screenTopology ScreenTopology
+function FieldRuntime:resizePresentation(width, height, screenTopology)
+  self.viewport:resize(width, height)
+  self.menuHost:resize(width, height)
+  self.menuHost:setScreenTopology(screenTopology)
   self:_updateCameraProjection()
   self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
 end
@@ -665,7 +687,7 @@ function FieldRuntime:dispose()
     self.dialogue:dispose()
     self.dialogue = nil
   end
-  self:_save("Field session saved")
+  self:saveSession("Field session saved")
   self:_releaseAll()
 end
 

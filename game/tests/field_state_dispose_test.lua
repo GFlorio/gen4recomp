@@ -201,7 +201,7 @@ end
 function T.reset_routes_through_the_shared_teardown_path()
   local state, resources, reloads = resetState()
   local runtime = state.runtime --[[@as any]]
-  runtime:_reset()
+  runtime:reset()
   Assert.equal(resources.saveStore.calls, 1, "reset wipes the save store")
   Assert.equal(resources.dialogue.calls, 1, "reset releases the dialogue")
   Assert.equal(resources.messageProvider.calls, 1, "reset releases the message provider")
@@ -254,7 +254,7 @@ function T.reset_structured_save_failure_is_presented_and_keeps_the_live_runtime
     self.calls = self.calls + 1
     Errors.raise("SAVE_REMOVE_FAILED", "injected reset failure")
   end
-  runtime:_reset()
+  runtime:reset()
   Assert.isTrue(runtime.saveStatus:find("Reset failed:", 1, true) ~= nil, "reset reports the wipe failure")
   Assert.notNil(runtime.session, "failed reset keeps the live session")
   Assert.notNil(runtime.mapLoader, "failed reset keeps the loaded map")
@@ -275,7 +275,7 @@ function T.reset_programming_failure_is_rethrown_and_keeps_the_live_runtime_unto
     error("injected reset programming fault")
   end
   local err = Assert.throws(function()
-    runtime:_reset()
+    runtime:reset()
   end)
   Assert.isTrue(
     tostring(err):find("injected reset programming fault", 1, true) ~= nil,

@@ -46,11 +46,15 @@ function T.world_draws_read_the_scene_runtime_of_the_runtime_map()
   Assert.equal(draws[2].kind, "building")
 end
 
-function T.draw_passes_the_scene_runtime_to_the_renderer()
+-- A live presentation runtime always carries the transition, dialogue, and
+-- menu host; draw consults all three unconditionally, and the renderer
+-- receives the scene runtime.
+function T.draw_passes_the_scene_runtime_and_queries_the_menu_host()
   local sceneRuntime = {
     mapDraws = { { kind = "map" } },
     buildingDraws = { { kind = "building" } },
   }
+  local presentations = 0
   local received
   local state = setmetatable({
     runtime = {
@@ -76,6 +80,18 @@ function T.draw_passes_the_scene_runtime_to_the_renderer()
         height = 480,
         worldViewport = { x = 0, y = 0, width = 640, height = 480 },
       },
+      transition = { fadeAlpha = 0 },
+      dialogue = {
+        isModal = function()
+          return false
+        end,
+      },
+      menuHost = {
+        presentation = function()
+          presentations = presentations + 1
+          return nil
+        end,
+      },
     },
     renderer = {
       draw = function(_, scene, camera, worldDraws)
@@ -87,6 +103,7 @@ function T.draw_passes_the_scene_runtime_to_the_renderer()
   Assert.equal(received.scene, sceneRuntime, "the renderer receives the runtime map's scene runtime")
   Assert.equal(received.camera, nil, "the draw path forwards the state's camera (absent in this fake)")
   Assert.equal(#received.worldDraws, 2)
+  Assert.equal(presentations, 1, "draw always queries the menu host presentation")
 end
 
 function T.draw_hud_reads_the_player_state()
@@ -95,6 +112,44 @@ function T.draw_hud_reads_the_player_state()
     player = { fieldX = 3, fieldZ = 7, worldY = 1.5, surfaceId = 0, facing = "east", motion = "idle" },
   })
   state:_drawHud()
+end
+
+-- A live presentation runtime always carries the menu host, so a state
+-- without one has no zombie mode: drawing it is a programming error, not a
+-- silently skipped menu query.
+function T.draw_without_a_menu_host_is_a_programming_error()
+  local state = setmetatable({
+    runtime = {
+      runtimeMap = { mapId = 61, mapSymbol = "MAP_NEW_BARK", sceneRuntime = { mapDraws = {}, buildingDraws = {} } },
+      player = { fieldX = 3, fieldZ = 7, worldY = 1.5, surfaceId = 0, facing = "east", motion = "idle" },
+      playerVisual = {
+        drawRecord = function()
+          return { visible = false }
+        end,
+      },
+      actors = {
+        drawRecords = function()
+          return {}
+        end,
+      },
+      session = {
+        renderAlpha = function()
+          return 0.5
+        end,
+      },
+      viewport = { width = 640, height = 480, worldViewport = { x = 0, y = 0, width = 640, height = 480 } },
+      transition = { fadeAlpha = 0 },
+      dialogue = {
+        isModal = function()
+          return false
+        end,
+      },
+    },
+    renderer = { draw = function() end },
+  }, FieldState)
+  Assert.throws(function()
+    state:draw()
+  end)
 end
 
 -- Presentation reads must go through the explicit `runtime` reference: the

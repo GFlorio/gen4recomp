@@ -11,7 +11,6 @@ local FieldState = require("game.src.game.FieldState")
 local ActorPreviewState = require("game.src.game.ActorPreviewState")
 local ImportState = require("game.src.launcher.ImportState")
 local VersionSelectState = require("game.src.launcher.VersionSelectState")
-local FieldBoot = require("game.src.game.FieldBoot")
 
 local App = {}
 
@@ -42,12 +41,18 @@ local function readyVersions()
   return out
 end
 
-local function newFieldState(versionId, target, resumeSave)
-  return FieldState.new(versionId, target, {
-    resumeSave = resumeSave and not App.opts.newFieldSession,
-    resetSave = App.opts.newFieldSession,
-    development = App.opts.dev == true,
-  })
+-- The CLI session flags are applied here once, then passed as explicit
+-- FieldState options: --new-field-session forces a fresh session (wiping the
+-- save) instead of a resume, and --dev enables the playtest presentation.
+---@param resumeSave boolean
+---@return { resumeSave: boolean, resetSave: boolean, development: boolean }
+local function fieldSessionOptions(resumeSave)
+  local opts = App.opts
+  return {
+    resumeSave = resumeSave and not opts.newFieldSession,
+    resetSave = opts.newFieldSession,
+    development = opts.dev == true,
+  }
 end
 
 function App.load(opts)
@@ -99,7 +104,7 @@ function App._bootField(mapIdOrSymbol)
     App._startImport()
     return
   end
-  App.setState(newFieldState(ready[1], fieldTarget(mapIdOrSymbol), false))
+  App.setState(FieldState.new(ready[1], fieldTarget(mapIdOrSymbol), fieldSessionOptions(false)))
 end
 
 function App._startImport()
@@ -117,28 +122,29 @@ end
 function App._onImported(versionId)
   App.importer = nil
   if App.opts.field then
-    App.setState(newFieldState(versionId, fieldTarget(App.opts.field), false))
+    App.setState(FieldState.new(versionId, fieldTarget(App.opts.field), fieldSessionOptions(false)))
   else
-    App.setState(newFieldState(versionId, nil, true))
+    App.setState(FieldState.new(versionId, nil, fieldSessionOptions(true)))
   end
 end
 
 -- Boot decision when no ROM was supplied: one ready cache resumes its field
--- session, both ready shows a selector, and none ready offers import.
+-- session, both ready show a selector over exactly the ready array, and none
+-- ready offers import. Version selection lives here -- zero/exactly one/
+-- several -- and nowhere else.
 function App._bootExisting()
   local ready = readyVersions()
   if #ready == 0 then
     App._startImport()
     return
   end
-  local decision = FieldBoot.select(ready)
-  if type(decision) == "string" then
-    App.setState(newFieldState(decision, nil, true))
-  else
-    App.setState(VersionSelectState.new(decision, function(versionId)
-      App.setState(newFieldState(versionId, nil, true))
-    end))
+  if #ready == 1 then
+    App.setState(FieldState.new(ready[1], nil, fieldSessionOptions(true)))
+    return
   end
+  App.setState(VersionSelectState.new(ready, function(versionId)
+    App.setState(FieldState.new(versionId, nil, fieldSessionOptions(true)))
+  end))
 end
 
 function App.update(dt)

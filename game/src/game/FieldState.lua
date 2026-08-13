@@ -14,9 +14,9 @@ local KEY_DIRECTIONS =
 local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", dpright = "east" }
 
 ---@class FieldStateOptions
----@field resumeSave boolean?
----@field resetSave boolean?
----@field zoomConfig table?
+---@field resumeSave boolean? resume the saved field session (runtime contract)
+---@field resetSave boolean? wipe the save and start a fresh session (runtime contract)
+---@field zoomConfig table? runtime zoom configuration (runtime contract)
 ---@field development boolean? product mode (the default) hides the playtest HUD and ignores the F1/F2 developer binds
 ---@field topologyProvider fun(width: number, height: number): ScreenTopology
 
@@ -41,20 +41,21 @@ local function defaultScreenTopology(width, height)
   })
 end
 
-function FieldState.new(versionId, idOrSymbol, options)
+function FieldState.new(versionId, mapIdOrSymbol, options)
   options = options or {}
-  local runtimeOptions = {}
-  for key, value in pairs(options) do
-    if key ~= "development" then
-      runtimeOptions[key] = value
-    end
-  end
-  runtimeOptions.presentation = true
+  -- Only the documented runtime contract crosses the boundary; a state-only
+  -- option (development, topologyProvider) must never become a runtime option.
+  local runtimeOptions = {
+    resumeSave = options.resumeSave == true,
+    resetSave = options.resetSave == true,
+    zoomConfig = options.zoomConfig,
+    presentation = true,
+  }
   -- Construction is binary: FieldRuntime.new either raised (boot failed) or
   -- returned a fully usable runtime, so presentation resources are acquired
   -- unconditionally. A failure here releases the booted runtime exactly once
   -- through the shared disposal and rethrows.
-  local runtime = FieldRuntime.new(versionId, idOrSymbol, runtimeOptions)
+  local runtime = FieldRuntime.new(versionId, mapIdOrSymbol, runtimeOptions)
   local self = setmetatable({
     runtime = runtime,
     development = options.development == true,
@@ -79,9 +80,7 @@ function FieldState.new(versionId, idOrSymbol, options)
 end
 
 function FieldState:update(dt)
-  if self.runtime then
-    self.runtime:update(dt)
-  end
+  self.runtime:update(dt)
 end
 
 -- Every actor the frame draws: the ROM-derived player billboard first, then the
@@ -122,13 +121,7 @@ function FieldState:draw()
   end
   local width, height = lg.getDimensions()
   if self.runtime.viewport.width ~= width or self.runtime.viewport.height ~= height then
-    self.runtime.viewport:resize(width, height)
-    if self.runtime.menuHost then
-      self.runtime.menuHost:resize(width, height)
-      self.runtime.menuHost:setScreenTopology(self.topologyProvider(width, height))
-    end
-    self.runtime:_updateCameraProjection()
-    self.runtime.mapLoader:updateCoverage(self.runtime.runtimeMap, self.runtime.camera, self.runtime.envelope)
+    self.runtime:resizePresentation(width, height, self.topologyProvider(width, height))
   end
   local alpha = self.runtime.session:renderAlpha()
   self.renderer:draw(
@@ -138,18 +131,17 @@ function FieldState:draw()
     self.runtime.viewport,
     alpha
   )
-  if self.runtime.transition and self.runtime.transition.fadeAlpha > 0 then
+  if self.runtime.transition.fadeAlpha > 0 then
     local rectangle = self.runtime.viewport.worldViewport
     lg.setColor(0, 0, 0, self.runtime.transition.fadeAlpha)
     lg.rectangle("fill", rectangle.x, rectangle.y, rectangle.width, rectangle.height)
   end
   -- The dialogue UI composites after the world and the fade, inside the
   -- centered 4:3 reference frame, and before the developer HUD.
-  if self.runtime.dialogue and self.runtime.dialogue:isModal() then
+  if self.runtime.dialogue:isModal() then
     self.dialogueRenderer:draw(self.runtime.dialogue, self.runtime.viewport)
   end
-  local menu = self.runtime.menuHost
-  local presentation = menu and menu:presentation()
+  local presentation = self.runtime.menuHost:presentation()
   if presentation then
     assert(self.menuRenderer, "field menu renderer is unavailable"):draw(presentation)
   end
@@ -195,10 +187,10 @@ function FieldState:keypressed(key, scancode, isrepeat)
   end
   if self.development then
     if key == "f1" then
-      self.runtime:_save()
+      self.runtime:saveSession()
     end
     if key == "f2" then
-      self.runtime:_reset()
+      self.runtime:reset()
       return
     end
   end
@@ -210,17 +202,17 @@ function FieldState:keypressed(key, scancode, isrepeat)
   end
   if key == "-" or key == "kp-" then
     self.runtime.zoom:zoomOut()
-    self.runtime:_applyZoomChange()
+    self.runtime:applyZoomChange()
     return
   end
   if key == "=" or key == "+" or key == "kp+" then
     self.runtime.zoom:zoomIn()
-    self.runtime:_applyZoomChange()
+    self.runtime:applyZoomChange()
     return
   end
   if key == "0" or key == "kp0" then
     self.runtime.zoom:reset()
-    self.runtime:_applyZoomChange()
+    self.runtime:applyZoomChange()
     return
   end
   local direction = KEY_DIRECTIONS[key]
