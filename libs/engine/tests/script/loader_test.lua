@@ -9,6 +9,7 @@ local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
+local ScriptOverrides = require("libs.assets.src.ScriptOverrides")
 local LuaWriter = require("libs.codec.src.LuaWriter")
 
 local T = {}
@@ -63,7 +64,7 @@ local function overrideFs(files, manifestText)
   end
   return {
     read = function(self, path)
-      if path == ScriptLoader.OVERRIDE_MANIFEST then
+      if path == ScriptOverrides.MANIFEST then
         return manifestText
       end
       for name, content in pairs(files) do

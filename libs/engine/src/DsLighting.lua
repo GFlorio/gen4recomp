@@ -11,11 +11,9 @@
 -- colors are multiplied as fractions of full scale, not as saturating
 -- integers, so a dim light dims a bright material proportionally. This
 -- reference works in normalized 0..1 (RGB555 color / 31, fx12 vector / 4096)
--- and quantizes the clamped result to RGB555 with round-half-up, mirroring
--- the shader's quantizeRgb5. (The hardware truncates its fixed-point
--- accumulator instead, capping a single full-intensity light at 30/31;
--- round-half-up is the repo's chosen quantization and is what the shader
--- renders.)
+-- and quantizes the clamped result to RGB555 by truncation
+-- (floor(c * 31)), matching the hardware, which truncates its fixed-point
+-- accumulator (a single full-intensity light caps at 30/31 per channel).
 --
 -- The light vectors stored in HGSS profiles point in the direction the light
 -- travels (from light source toward the surface). The diffuse factor is
@@ -30,14 +28,14 @@
 -- every enabled light regardless of the light/normal dot, like melonDS.
 -- Pure domain module: no love, arithmetic only.
 
+local FixedPoint = require("libs.math.src.FixedPoint")
+
 local DsLighting = {}
 
--- The DS 5-bit numeric domain, owned here: RGB5/alpha5 channels span 0..31 and
--- fx12 vectors span 0..4096. Runtime consumers (MapRenderer, FieldActorDraw,
--- the loaders) reference these instead of repeating the literals; the GLSL
--- shader cannot share them and documents the same values in map.glsl.
-DsLighting.RGB5_MAX = 31
-DsLighting.FX12_SCALE = 4096
+-- The DS 5-bit numeric domain is owned by libs/math FixedPoint: RGB5/alpha5
+-- channels span 0..31 (FixedPoint.RGB5_MAX) and fx12 vectors span 0..4096
+-- (FixedPoint.FX32_SCALE); the GLSL shader cannot require Lua and documents
+-- the same values in map.glsl.
 local VIEW_DIRECTION = { 0, 0, 1 }
 
 local function rgb555(r, g, b)
@@ -51,7 +49,7 @@ end
 -- Unpack an RGB555 color to normalized 0..1 channel values.
 local function unpackColor(packed)
   local r, g, b = DsLighting.unpackRgb555(packed)
-  return { r / DsLighting.RGB5_MAX, g / DsLighting.RGB5_MAX, b / DsLighting.RGB5_MAX }
+  return { r / FixedPoint.RGB5_MAX, g / FixedPoint.RGB5_MAX, b / FixedPoint.RGB5_MAX }
 end
 
 local function dot3(a, b)
@@ -76,11 +74,12 @@ local function addInPlace(dst, src)
   dst[3] = dst[3] + src[3]
 end
 
--- Clamp a normalized channel to [0, 1] and quantize to 5 bits, rounding
--- half-up exactly like the shader's quantizeRgb5.
+-- Clamp a normalized channel to [0, 1] and quantize to 5 bits by truncation,
+-- exactly like the shader's quantizeRgb5: the DS hardware truncates its
+-- fixed-point accumulator, so a value of 30.9/31 lands on 30, not 31.
 local function quantize5(c)
   local clamped = c < 0 and 0 or (c > 1 and 1 or c)
-  return math.floor(clamped * DsLighting.RGB5_MAX + 0.5)
+  return math.floor(clamped * FixedPoint.RGB5_MAX)
 end
 
 -- Compute the lit RGB555 for one vertex. Colors are packed RGB555; lights use
@@ -101,9 +100,9 @@ function DsLighting.vertexColorRgb5(params)
     local light = lights[i]
     if light and light.enabled and (lightMask % (bit * 2) >= bit) then
       local L = normalize3({
-        light.vectorFx12[1] / DsLighting.FX12_SCALE,
-        light.vectorFx12[2] / DsLighting.FX12_SCALE,
-        light.vectorFx12[3] / DsLighting.FX12_SCALE,
+        light.vectorFx12[1] / FixedPoint.FX32_SCALE,
+        light.vectorFx12[2] / FixedPoint.FX32_SCALE,
+        light.vectorFx12[3] / FixedPoint.FX32_SCALE,
       })
       local ndl = dot3(L, normal)
       local ld = math.max(0, -ndl)

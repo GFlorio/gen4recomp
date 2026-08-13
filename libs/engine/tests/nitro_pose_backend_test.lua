@@ -8,6 +8,7 @@
 local Assert = require("tests.support.Assert")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local ModelInstance = require("libs.engine.src.ModelInstance")
+local ErrorCodes = require("libs.assets.src.ErrorCodes")
 local NitroPoseBackend = require("libs.engine.src.NitroPoseBackend")
 
 local T = {}
@@ -523,7 +524,7 @@ function T.slot_source_naming_an_unproduced_slot_raises()
   local err = Assert.throws(function()
     instance:evaluatePose()
   end)
-  Assert.equal(err.code, "POSE_NITRO_SLOT_NOT_FOUND")
+  Assert.equal(err.code, ErrorCodes.POSE_NITRO_SLOT_NOT_FOUND)
   Assert.equal(err.context.slot, 5)
 end
 

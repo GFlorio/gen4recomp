@@ -10,8 +10,10 @@
 // c/31, contributions sum as lightColor * (ambient + diffuse*ld + specular*ls),
 // where ls is the melonDS cos(2a) term clamp(2*ndh^2 - 1, 0, 1) gated on the
 // front-light test ld > 0 (dot(-L,N) > 0), and the result clamps to [0,1] and
-// quantizes to 5 bits with round-half-up. The u_mat* uniforms carry the
-// effective DS material registers: the field profile's colors -- the HGSS
+// quantizes to 5 bits by truncation (floor(c * 31.0)), matching the DS
+// hardware, which truncates its fixed-point accumulator (a single
+// full-intensity light caps at 30/31 per channel). The u_mat* uniforms carry
+// the effective DS material registers: the field profile's colors -- the HGSS
 // field engine overrides every material's stored color registers with the
 // profile -- replaced wholesale by the sampled colors of a playing NSBMA
 // material clip. The renderer composes them per draw item (effectiveMaterial-
@@ -99,7 +101,7 @@ vec3 computeDsLighting(vec3 normal)
 
 vec3 quantizeRgb5(vec3 c)
 {
-  return floor(c * 31.0 + 0.5) / 31.0;
+  return floor(c * 31.0) / 31.0;
 }
 
 vec4 position(mat4 transform_projection, vec4 vertex_position)

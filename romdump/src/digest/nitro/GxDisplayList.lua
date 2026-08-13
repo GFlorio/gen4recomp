@@ -44,7 +44,7 @@ local Errors = require("libs.errors.src.Errors")
 local BinaryReader = require("libs.codec.src.BinaryReader")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local Matrix4 = require("libs.math.src.Matrix4")
-local PoseContract = require("libs.engine.src.PoseContract")
+local PoseContract = require("libs.assets.src.PoseContract")
 
 local GxDisplayList = {}
 

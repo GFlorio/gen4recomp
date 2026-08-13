@@ -21,10 +21,10 @@ local DsMaterial = require("romdump.src.digest.nitro.DsMaterial")
 local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local Matrix4 = require("libs.math.src.Matrix4")
-local PoseContract = require("libs.engine.src.PoseContract")
+local PoseContract = require("libs.assets.src.PoseContract")
 local NsbmdStaticTransforms = require("romdump.src.digest.NsbmdStaticTransforms")
 local NsbmdTransformProgram = require("romdump.src.digest.NsbmdTransformProgram")
-local NsbmdSbcEvaluator = require("libs.engine.src.NsbmdSbcEvaluator")
+local NsbmdSbcEvaluator = require("libs.assets.src.NsbmdSbcEvaluator")
 local NsbmdPoseProvider = require("romdump.src.digest.NsbmdPoseProvider")
 
 local MeshCompiler = {}

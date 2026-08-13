@@ -29,7 +29,7 @@
 -- Pure domain module: no love.
 
 local Errors = require("libs.errors.src.Errors")
-local AnimationClip = require("libs.engine.src.AnimationClip")
+local AnimationClip = require("libs.assets.src.AnimationClip")
 local ModelAsset = require("libs.assets.src.ModelAsset")
 local PolygonState = require("libs.assets.src.PolygonState")
 

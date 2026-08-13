@@ -23,11 +23,12 @@
 -- ANIM_NSBMA_BAD_CHANNEL rather than taking the implicit curve path.
 -- Pure domain module.
 
+local AnimationClip = require("libs.assets.src.AnimationClip")
 local Errors = require("libs.errors.src.Errors")
 
 local CompiledNsbmaSampler = {}
 
-local FRAME_UNIT = 4096
+local FRAME_UNIT = AnimationClip.FRAME_UNIT
 
 local function asr(value, bits)
   return math.floor(value / 2 ^ bits)

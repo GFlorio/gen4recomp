@@ -7,7 +7,8 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local Matrix4 = require("libs.math.src.Matrix4")
-local NsbmdSbcEvaluator = require("libs.engine.src.NsbmdSbcEvaluator")
+local ErrorCodes = require("libs.assets.src.ErrorCodes")
+local NsbmdSbcEvaluator = require("libs.assets.src.NsbmdSbcEvaluator")
 
 local T = {}
 
@@ -447,7 +448,7 @@ function T.nodedesc_with_an_unexecuted_parent_raises()
   local err = Assert.throws(function()
     NsbmdSbcEvaluator.evaluate(p, prov)
   end)
-  Assert.equal(err.code, "NSBMD_SBC_NODE_PARENT_MISSING")
+  Assert.equal(err.code, ErrorCodes.NSBMD_SBC_NODE_PARENT_MISSING)
   Assert.equal(err.context.parentIndex, 0)
 end
 

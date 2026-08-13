@@ -25,14 +25,15 @@
 -- different frames and with different material overrides. Pure domain module.
 
 local Errors = require("libs.errors.src.Errors")
+local FixedPoint = require("libs.math.src.FixedPoint")
 local Matrix4 = require("libs.math.src.Matrix4")
 local ModelAnimationState = require("libs.engine.src.ModelAnimationState")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local AnimationPlayer = require("libs.engine.src.AnimationPlayer")
 local NitroPoseBackend = require("libs.engine.src.NitroPoseBackend")
-local PoseContract = require("libs.engine.src.PoseContract")
+local PoseContract = require("libs.assets.src.PoseContract")
 local MaterialEvaluator = require("libs.engine.src.MaterialEvaluator")
-local AlphaClassifier = require("libs.engine.src.AlphaClassifier")
+local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 local PolygonState = require("libs.assets.src.PolygonState")
 
 ---@class MaterialRGB
@@ -62,9 +63,10 @@ local PolygonState = require("libs.assets.src.PolygonState")
 local ModelInstance = {}
 ModelInstance.__index = ModelInstance
 
--- Fragment alpha cutoff for cutout materials; the same value the renderer
--- uses when an item carries no explicit cutoff (MapRenderer.CUTOUT_EPSILON).
-local CUTOUT_EPSILON = 0.5 / 255
+-- Fragment alpha cutoff for cutout materials; the shared render constant
+-- (AlphaClassifier.CUTOUT_EPSILON) the renderer also uses as the default for
+-- items carrying no explicit cutoff.
+local CUTOUT_EPSILON = AlphaClassifier.CUTOUT_EPSILON
 
 -- The polygon draw fields the draw path consumes from a nitro backend mesh
 -- record: the shared PolygonState schema minus polygonAlpha, which rides on
@@ -91,9 +93,9 @@ local ITEM_DRAW_STATE_DEFAULTS = {
 
 -- alphaMode -> the renderer's render-pass class (the material contract).
 local ALPHA_CLASS = {
-  opaque = "opaque",
-  mask = "cutout",
-  blend = "translucent",
+  opaque = AlphaClassifier.OPAQUE,
+  mask = AlphaClassifier.CUTOUT,
+  blend = AlphaClassifier.TRANSLUCENT,
 }
 
 local function identityMatrix()
@@ -113,13 +115,13 @@ local function baseMaterialState(material)
     texWidth = material.texWidth,
     texHeight = material.texHeight,
     colors = MaterialEvaluator.baseColors(material),
-    polygonAlpha = material.polygonAlpha or 31,
+    polygonAlpha = material.polygonAlpha or FixedPoint.RGB5_MAX,
     texMatrix = IDENTITY_TEX_MATRIX,
   }
   if material.textureFormat ~= nil then
     state.alphaClass = AlphaClassifier.classify(state.polygonAlpha, material.textureFormat, material.alphaUsage)
   else
-    state.alphaClass = ALPHA_CLASS[material.alphaMode] or "opaque"
+    state.alphaClass = ALPHA_CLASS[material.alphaMode] or AlphaClassifier.OPAQUE
   end
   return state
 end
@@ -259,7 +261,7 @@ function ModelInstance:effectiveMaterial(materialIndex)
   if state and state.texture and self.resolveImage then
     image = self.resolveImage(state.texture)
   end
-  local alphaClass = state and state.alphaClass or ALPHA_CLASS[material.alphaMode] or "opaque"
+  local alphaClass = state and state.alphaClass or ALPHA_CLASS[material.alphaMode] or AlphaClassifier.OPAQUE
   return {
     image = image,
     texMatrix = state and state.texMatrix or IDENTITY_TEX_MATRIX,
@@ -273,8 +275,8 @@ function ModelInstance:effectiveMaterial(materialIndex)
     -- color ownership bits, so the stored colors alone never reach the DS).
     colorsAnimated = state and state.colorAnimated or false,
     alphaClass = alphaClass,
-    alphaCutoff = alphaClass == "cutout" and CUTOUT_EPSILON or nil,
-    polygonAlpha = (state and state.polygonAlpha or 31) / 31,
+    alphaCutoff = alphaClass == AlphaClassifier.CUTOUT and CUTOUT_EPSILON or nil,
+    polygonAlpha = (state and state.polygonAlpha or FixedPoint.RGB5_MAX) / FixedPoint.RGB5_MAX,
   }
 end
 

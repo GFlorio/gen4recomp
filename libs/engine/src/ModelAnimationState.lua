@@ -28,7 +28,7 @@
 -- different frames on different instances. Pure domain module.
 
 local Errors = require("libs.errors.src.Errors")
-local AnimationClip = require("libs.engine.src.AnimationClip")
+local AnimationClip = require("libs.assets.src.AnimationClip")
 local AnimationPlayer = require("libs.engine.src.AnimationPlayer")
 
 local ModelAnimationState = {}

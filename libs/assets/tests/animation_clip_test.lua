@@ -11,7 +11,7 @@
 -- Pure domain module.
 
 local Assert = require("tests.support.Assert")
-local AnimationClip = require("libs.engine.src.AnimationClip")
+local AnimationClip = require("libs.assets.src.AnimationClip")
 
 local T = {}
 
@@ -83,8 +83,8 @@ function T.rejects_bad_envelope()
 end
 
 function T.categories_are_joint_and_material_only()
-  Assert.equal(AnimationClip.CATEGORIES.joint, true)
-  Assert.equal(AnimationClip.CATEGORIES.material, true)
+  Assert.equal(AnimationClip.CATEGORIES.joint, "joint")
+  Assert.equal(AnimationClip.CATEGORIES.material, "material")
   Assert.isNil(AnimationClip.CATEGORIES.visibility, "no field visibility animation exists")
 end
 

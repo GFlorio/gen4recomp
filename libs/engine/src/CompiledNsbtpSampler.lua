@@ -17,9 +17,11 @@
 -- forward while the next key's frame <= frame. A plttIdx of 0xFF means the
 -- key carries no palette change. Pure domain module.
 
+local AnimationClip = require("libs.assets.src.AnimationClip")
+
 local CompiledNsbtpSampler = {}
 
-local FRAME_UNIT = 4096
+local FRAME_UNIT = AnimationClip.FRAME_UNIT
 
 -- The active key for the integer `frame` (see Nsbtp.keyAt for the exact
 -- walk semantics). Returns { frame, texIdx, plttIdx }.

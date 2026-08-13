@@ -89,11 +89,9 @@ The numeric domain is the important part: the DS hardware multiplies its RGB555
 colors as fractions of full scale (fixed point), not as saturating integers, so
 a dim light dims a bright material proportionally. Both implementations
 therefore work in normalized 0..1 (RGB555 color / 31, fx12 vector / 4096), and
-both quantize the clamped result to 5 bits with round-half-up
-(`floor(c*31 + 0.5)`). One documented deviation: the hardware truncates its
-fixed-point accumulator, capping a single full-intensity light at 30/31 per
-channel; round-half-up is this project's chosen quantization and is what the
-shader renders.
+both quantize the clamped result to 5 bits by truncation
+(`floor(c*31)`), matching the hardware, which truncates its fixed-point
+accumulator (a single full-intensity light caps at 30/31 per channel).
 
 The vertex shader (`libs/engine/src/shaders/map.glsl`) is the rendered form of
 this contract, and `libs/engine/src/DsLighting.lua` is its pure-Lua reference;

@@ -57,8 +57,9 @@
 
 local Errors = require("libs.errors.src.Errors")
 local Matrix4 = require("libs.math.src.Matrix4")
-local NsbmdJointTransforms = require("libs.engine.src.NsbmdJointTransforms")
-local PoseContract = require("libs.engine.src.PoseContract")
+local ErrorCodes = require("libs.assets.src.ErrorCodes")
+local NsbmdJointTransforms = require("libs.assets.src.NsbmdJointTransforms")
+local PoseContract = require("libs.assets.src.PoseContract")
 
 local NsbmdSbcEvaluator = {}
 
@@ -259,7 +260,7 @@ function NsbmdSbcEvaluator.evaluate(program, poseProvider)
         local parent = nodeMatrices[cmd.parentIndex]
         if not parent then
           Errors.raise(
-            "NSBMD_SBC_NODE_PARENT_MISSING",
+            ErrorCodes.NSBMD_SBC_NODE_PARENT_MISSING,
             "NODEDESC references parent node index "
               .. tostring(cmd.parentIndex)
               .. " whose NODEDESC has not executed; pre-order streams place the parent first",

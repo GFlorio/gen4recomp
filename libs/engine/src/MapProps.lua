@@ -43,7 +43,7 @@ local WarpSystem = require("libs.engine.src.WarpSystem")
 local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
 local FieldGrid = require("libs.engine.src.FieldGrid")
 local Errors = require("libs.errors.src.Errors")
-local AnimationClip = require("libs.engine.src.AnimationClip")
+local AnimationClip = require("libs.assets.src.AnimationClip")
 local ModelAnimationState = require("libs.engine.src.ModelAnimationState")
 
 ---@class MapProps

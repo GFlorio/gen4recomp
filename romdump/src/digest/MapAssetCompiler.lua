@@ -30,8 +30,9 @@ local NeighborPlan = require("romdump.src.digest.NeighborPlan")
 local ModelAssetCompiler = require("romdump.src.digest.ModelAssetCompiler")
 local NeighborChunkCompiler = require("romdump.src.digest.NeighborChunkCompiler")
 local Errors = require("libs.errors.src.Errors")
-local PoseContract = require("libs.engine.src.PoseContract")
-local AlphaClassifier = require("libs.engine.src.AlphaClassifier")
+local AnimationClip = require("libs.assets.src.AnimationClip")
+local PoseContract = require("libs.assets.src.PoseContract")
+local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 local NsbmdDynamicModel = require("romdump.src.digest.NsbmdDynamicModel")
 local MapPropAnimCompiler = require("romdump.src.digest.MapPropAnimCompiler")
 local ModelAsset = require("libs.assets.src.ModelAsset")
@@ -194,7 +195,7 @@ end
 local function patternVariants(clips)
   local byMaterial = {}
   for _, clip in ipairs(clips) do
-    if clip.kind == "pattern" then
+    if clip.kind == AnimationClip.KINDS.PATTERN then
       local names = clip.compiled.textureNames
       local pltts = clip.compiled.paletteNames
       for _, target in ipairs(clip.compiled.targets) do

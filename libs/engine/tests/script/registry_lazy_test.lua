@@ -11,6 +11,7 @@ local FakeCache = require("tests.support.FakeCache")
 local LuaWriter = require("libs.codec.src.LuaWriter")
 local ScriptCache = require("libs.assets.src.ScriptCache")
 local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
+local ScriptOverrides = require("libs.assets.src.ScriptOverrides")
 local Registry = require("libs.engine.src.script.Registry")
 local RegistrySnapshot = require("libs.engine.src.script.RegistrySnapshot")
 local RegistryWarmup = require("libs.engine.src.script.RegistryWarmup")
@@ -66,7 +67,7 @@ local function overrideFs(files)
   manifestText = manifestText .. "}\n"
   return {
     read = function(self, path)
-      if path == ScriptLoader.OVERRIDE_MANIFEST then
+      if path == ScriptOverrides.MANIFEST then
         return manifestText
       end
       for name, content in pairs(files) do

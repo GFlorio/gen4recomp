@@ -27,6 +27,8 @@ local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")
 local VertexFormat = require("libs.assets.src.VertexFormat")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
+local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
+local FixedPoint = require("libs.math.src.FixedPoint")
 local DsLighting = require("libs.engine.src.DsLighting")
 
 ---@class MapRenderer
@@ -76,11 +78,10 @@ local function defaultReadSource(path)
   error("cannot read shader source: " .. path)
 end
 
--- Epsilon for the DS fragment alpha contract: a 5-bit alpha of zero becomes a
--- normalized value just below half of one 8-bit step. Exported: the scene
--- loader's batch draw state carries the same value.
-local CUTOUT_EPSILON = 0.5 / 255
-MapRenderer.CUTOUT_EPSILON = CUTOUT_EPSILON
+-- The DS fragment alpha cutoff for cutout draws; the shared render constant
+-- (AlphaClassifier.CUTOUT_EPSILON) the model draw path and the neighbor ring
+-- reference too.
+local CUTOUT_EPSILON = AlphaClassifier.CUTOUT_EPSILON
 
 -- App background color; the scene canvas is cleared to it so the final blit
 -- matches the previous direct-to-screen output exactly.
@@ -213,10 +214,10 @@ function MapRenderer.fieldEdgeRadiusPixels(viewportHeight)
 end
 
 local function alphaModeId(alphaClass)
-  if alphaClass == "cutout" then
+  if alphaClass == AlphaClassifier.CUTOUT then
     return 1
   end
-  if alphaClass == "translucent" then
+  if alphaClass == AlphaClassifier.TRANSLUCENT then
     return 2
   end
   return 0 -- opaque / wireframe (wireframe is drawn separately)
@@ -240,14 +241,14 @@ function MapRenderer.lightMaskUniforms(mask)
 end
 
 local function rgb555ToFloat3(packed)
-  local r = (packed % 32) / DsLighting.RGB5_MAX
-  local g = (math.floor(packed / 32) % 32) / DsLighting.RGB5_MAX
-  local b = (math.floor(packed / 1024) % 32) / DsLighting.RGB5_MAX
+  local r = (packed % 32) / FixedPoint.RGB5_MAX
+  local g = (math.floor(packed / 32) % 32) / FixedPoint.RGB5_MAX
+  local b = (math.floor(packed / 1024) % 32) / FixedPoint.RGB5_MAX
   return { r, g, b }
 end
 
 local function fx12ToFloat3(vec)
-  return { vec[1] / DsLighting.FX12_SCALE, vec[2] / DsLighting.FX12_SCALE, vec[3] / DsLighting.FX12_SCALE }
+  return { vec[1] / FixedPoint.FX32_SCALE, vec[2] / FixedPoint.FX32_SCALE, vec[3] / FixedPoint.FX32_SCALE }
 end
 
 -- Select the active profile record, bind the light uniforms, and keep the

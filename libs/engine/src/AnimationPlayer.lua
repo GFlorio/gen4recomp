@@ -19,7 +19,7 @@
 -- forward from frame 0. The player knows nothing about clips' source formats:
 -- it consumes only the frame count. Pure domain module.
 
-local AnimationClip = require("libs.engine.src.AnimationClip")
+local AnimationClip = require("libs.assets.src.AnimationClip")
 
 local AnimationPlayer = {}
 AnimationPlayer.__index = AnimationPlayer

@@ -15,12 +15,12 @@
 -- Pure domain module; no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
-local AlphaClassifier = require("libs.engine.src.AlphaClassifier")
+local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
 local MapUnits = require("romdump.src.digest.MapUnits")
 local MeshCompiler = require("romdump.src.digest.MeshCompiler")
 local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
-local PoseContract = require("libs.engine.src.PoseContract")
+local PoseContract = require("libs.assets.src.PoseContract")
 
 local FieldActorModel = {}
 
@@ -172,7 +172,7 @@ function FieldActorModel.compile(modelBytes, opts)
     fail("FIELD_ACTOR_MODEL_INVISIBLE", "shared actor model renders neither polygon surface", { context = context })
   end
   local alphaClass = AlphaClassifier.classify(polygon.polygonAlpha, opts.textureFormat or 0, opts.alphaUsage)
-  if alphaClass ~= "cutout" and alphaClass ~= "opaque" then
+  if alphaClass ~= AlphaClassifier.CUTOUT and alphaClass ~= AlphaClassifier.OPAQUE then
     -- A translucent or wireframe actor would need a different render pass and a
     -- sorting contract; no target actor asks for one.
     fail(

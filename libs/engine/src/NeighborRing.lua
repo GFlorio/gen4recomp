@@ -18,6 +18,7 @@
 local Matrix4 = require("libs.math.src.Matrix4")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
 local PolygonState = require("libs.assets.src.PolygonState")
+local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 local SceneDescriptor = require("libs.engine.src.SceneDescriptor")
 
 local NeighborRing = {}
@@ -61,8 +62,8 @@ local function buildRing(pool, descriptors)
       draw.mesh = entry.mesh
       draw.material = materials[batch.material]
       draw.transform = transform
-      draw.alphaClass = batch.alphaClass or "opaque"
-      draw.alphaCutoff = 0.5 / 255
+      draw.alphaClass = batch.alphaClass or AlphaClassifier.OPAQUE
+      draw.alphaCutoff = AlphaClassifier.CUTOUT_EPSILON
       draw.center = { c[1] + ox, c[2], c[3] + oz }
       draws[#draws + 1] = draw
     end

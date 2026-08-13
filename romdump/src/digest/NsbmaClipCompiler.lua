@@ -25,6 +25,7 @@
 -- reads garbage for such a flag). Pure domain module.
 
 local Errors = require("libs.errors.src.Errors")
+local AnimationClip = require("libs.assets.src.AnimationClip")
 
 local NsbmaClipCompiler = {}
 
@@ -147,8 +148,8 @@ function NsbmaClipCompiler.compile(res, reader, sectionLimit, opts)
   return {
     id = opts.id or "nsbma",
     name = opts.name or "nsbma",
-    category = "material",
-    kind = "color",
+    category = AnimationClip.CATEGORIES.material,
+    kind = AnimationClip.KINDS.COLOR,
     frameCount = res.numFrame,
     tracks = tracks,
     semanticNames = opts.semanticNames or {},

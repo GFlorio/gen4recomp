@@ -34,6 +34,7 @@
 -- Pure domain module.
 
 local Errors = require("libs.errors.src.Errors")
+local AnimationClip = require("libs.assets.src.AnimationClip")
 
 local NsbcaClipCompiler = {}
 
@@ -275,8 +276,8 @@ function NsbcaClipCompiler.compile(res, reader, sectionLimit, opts)
   return {
     id = opts.id or "nsbca",
     name = opts.name or "nsbca",
-    category = "joint",
-    kind = "trs",
+    category = AnimationClip.CATEGORIES.joint,
+    kind = AnimationClip.KINDS.TRS,
     frameCount = res.numFrame,
     tracks = tracks,
     semanticNames = opts.semanticNames or {},

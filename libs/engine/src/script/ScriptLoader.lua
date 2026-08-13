@@ -15,12 +15,10 @@ local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local ScriptCache = require("libs.assets.src.ScriptCache")
 local Validate = require("libs.assets.src.Validate")
+local ScriptOverrides = require("libs.assets.src.ScriptOverrides")
 local Validator = require("libs.engine.src.script.Validator")
 
 local ScriptLoader = {}
-
-ScriptLoader.OVERRIDES_DIR = "data/scripts/overrides"
-ScriptLoader.OVERRIDE_MANIFEST = "data/scripts/manifests/overrides.lua"
 
 -- The default restricted require for resource chunks: generated and override
 -- modules may import gen4.script and nothing else. Callers that trust their
@@ -179,7 +177,7 @@ end
 ---@param requireFn function
 ---@return table resource
 function ScriptLoader.loadOverride(id, content, requireFn)
-  local resource = loadResourceChunk(content, ScriptLoader.OVERRIDES_DIR .. "/" .. id .. ".lua", requireFn)
+  local resource = loadResourceChunk(content, ScriptOverrides.DIR .. "/" .. id .. ".lua", requireFn)
   if resource.id ~= id then
     Errors.raise(
       ScriptErrors.SCRIPT_LOAD_FAILED,
@@ -209,20 +207,20 @@ end
 ---@return string[]
 function ScriptLoader.installOverrides(registry, fs, requireFn)
   requireFn = requireFn or defaultRequire
-  local manifest, manifestErr = fs:read(ScriptLoader.OVERRIDE_MANIFEST)
+  local manifest, manifestErr = fs:read(ScriptOverrides.MANIFEST)
   if manifest == nil then
     Errors.raise(
       ScriptErrors.SCRIPT_LOAD_FAILED,
       "override manifest is unavailable: " .. tostring(manifestErr and manifestErr.message or "?"),
-      { path = ScriptLoader.OVERRIDE_MANIFEST }
+      { path = ScriptOverrides.MANIFEST }
     )
   end
-  local ids = loadResourceChunk(manifest --[[@as string]], ScriptLoader.OVERRIDE_MANIFEST, requireFn)
+  local ids = loadResourceChunk(manifest --[[@as string]], ScriptOverrides.MANIFEST, requireFn)
   table.sort(ids)
   local installed = {}
   for _, id in ipairs(ids) do
     assert(type(id) == "string" and id ~= "", "override manifest ids must be strings")
-    local path = ScriptLoader.OVERRIDES_DIR .. "/" .. id .. ".lua"
+    local path = ScriptOverrides.DIR .. "/" .. id .. ".lua"
     local content = fs:read(path)
     if content == nil then
       Errors.raise(ScriptErrors.SCRIPT_LOAD_FAILED, "override file is unreadable: " .. path, { scriptId = id })

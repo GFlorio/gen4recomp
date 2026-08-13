@@ -45,7 +45,8 @@
 
 local Errors = require("libs.errors.src.Errors")
 local FixedPoint = require("libs.math.src.FixedPoint")
-local AlphaClassifier = require("libs.engine.src.AlphaClassifier")
+local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
+local AnimationClip = require("libs.assets.src.AnimationClip")
 local NitroTexMatrix = require("libs.engine.src.NitroTexMatrix")
 local CompiledNsbtaSampler = require("libs.engine.src.CompiledNsbtaSampler")
 local CompiledNsbtpSampler = require("libs.engine.src.CompiledNsbtpSampler")
@@ -293,9 +294,9 @@ function MaterialEvaluator.evaluate(definition, attachments, materialState)
   )
 
   for materialIndex = 0, #definition.materials - 1 do
-    local pattern = winnerForMaterial(attachments, "pattern", materialIndex)
-    local texsrt = winnerForMaterial(attachments, "texsrt", materialIndex)
-    local color = winnerForMaterial(attachments, "color", materialIndex)
+    local pattern = winnerForMaterial(attachments, AnimationClip.KINDS.PATTERN, materialIndex)
+    local texsrt = winnerForMaterial(attachments, AnimationClip.KINDS.TEXSRT, materialIndex)
+    local color = winnerForMaterial(attachments, AnimationClip.KINDS.COLOR, materialIndex)
 
     local baseState = baseMaterialState(definition, materialIndex)
     local material = baseState.record

@@ -99,7 +99,8 @@ end
 -- Pure mirror of the GLSL algebra in shaders/map.glsl (computeDsLighting,
 -- dsLightContribution, quantizeRgb5), written from the shader line by line:
 -- normalized 0..1 colors, per-light lightColor * (ambient + diffuse*ld +
--- specular*ls), clamp to [0,1], round-half-up 5-bit quantization. Specular is
+-- specular*ls), clamp to [0,1], truncating 5-bit quantization (floor(c*31),
+-- the DS hardware behavior). Specular is
 -- the melonDS cos(2a) term behind its front-light gate: ls = 0 unless ld > 0,
 -- then ls = clamp(2*ndh^2 - 1, 0, 1) with H = normalize(-L + z) and
 -- ndh = max(0, dot(N,H)). Ambient is NOT gated: melonDS adds it for every
@@ -142,7 +143,7 @@ local function shaderEquivalent(normal, u, mask)
 
   local function quantize5(c)
     local clamped = c < 0 and 0 or (c > 1 and 1 or c)
-    return math.floor(clamped * 31 + 0.5)
+    return math.floor(clamped * 31)
   end
   return rgb555(quantize5(acc[1]), quantize5(acc[2]), quantize5(acc[3]))
 end
@@ -298,10 +299,14 @@ function T.material_owned_channel_used_when_passed()
     lightMask = 1,
   }))
   local r, g, b = DsLighting.unpackRgb555(c)
-  -- lightColor * (ambient + diffuse) = 1.0 * (10, 18, 26) / 31 each.
+  -- lightColor * (ambient + diffuse) = 1.0 * (10, 18, 26) / 31 each. The
+  -- float sum 2/31 + 16/31 sits one ULP below 18/31 (17.99999...), and the
+  -- truncating quantization does not mask that the way round-half-up did, so
+  -- the green and blue channels land one step low. The GLSL algebra computes
+  -- the same expression order, so reference and shader agree at 17/25.
   Assert.equal(r, 10)
-  Assert.equal(g, 18)
-  Assert.equal(b, 26)
+  Assert.equal(g, 17)
+  Assert.equal(b, 25)
 end
 
 -- The CPU reference and the GLSL algebra agree at midrange values --
@@ -387,7 +392,8 @@ function T.light_mask_changes_the_lit_result_for_the_same_profile()
 end
 
 -- Hand-verified midrange anchor: colors multiply as fractions of full scale,
--- never as saturating integers.
+-- never as saturating integers, and the truncating 5-bit quantization drops
+-- the fractional step (the green channel is 12.90/31 and lands on 12, not 13).
 function T.midrange_colors_scale_with_light_intensity()
   local c = DsLighting.vertexColorRgb5(params({
     diffuse = rgb555(20, 15, 10),
@@ -395,8 +401,8 @@ function T.midrange_colors_scale_with_light_intensity()
     lights = { { enabled = true, colorRgb555 = rgb555(15, 20, 25), vectorFx12 = { 0, 0, -4096 } } },
     lightMask = 1,
   }))
-  -- (15/31)*(25/31), (20/31)*(20/31), (25/31)*(15/31) -> 12, 13, 12.
-  Assert.equal(c, rgb555(12, 13, 12))
+  -- (15/31)*(25/31), (20/31)*(20/31), (25/31)*(15/31) -> 12, 12, 12.
+  Assert.equal(c, rgb555(12, 12, 12))
 end
 
 -- Real HGSS profile colors with a head-on light so ambient, diffuse, and the
@@ -454,7 +460,7 @@ end
 -- ls = clamp(2*d^2 - 1, 0, 1):
 --   d=0.25 -> ls=0     -> (0,0,0)
 --   d=0.50 -> ls=0     -> (0,0,0)
---   d=0.75 -> ls=0.125 -> (2,2,2)  (14*0.125=1.75->2, 16*0.125=2->2)
+--   d=0.75 -> ls=0.125 -> (1,1,2)  (14*0.125=1.75->1, 16*0.125=2->2)
 --   d=1.00 -> ls=1     -> (14,14,16), the unchanged head-on case
 -- Each pin is asserted against the CPU reference AND the shader-equivalent
 -- oracle: the pins are what keep the production algebra and the GLSL mirror
@@ -481,7 +487,7 @@ function T.cos2a_specular_pins_at_midrange()
       Assert.equal(b, 0, "ndh=" .. d .. " blue")
     end
   end
-  Assert.equal(DsLighting.vertexColorRgb5(params(lit(0.75))), rgb555(2, 2, 2))
+  Assert.equal(DsLighting.vertexColorRgb5(params(lit(0.75))), rgb555(1, 1, 2))
   Assert.equal(DsLighting.vertexColorRgb5(params(lit(1.0))), rgb555(14, 14, 16))
 end
 

@@ -4,7 +4,7 @@
 
 local Assert = require("tests.support.Assert")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
-local AnimationClip = require("libs.engine.src.AnimationClip")
+local AnimationClip = require("libs.assets.src.AnimationClip")
 local NitroModelFixture = require("tests.support.NitroModelFixture")
 
 local T = {}

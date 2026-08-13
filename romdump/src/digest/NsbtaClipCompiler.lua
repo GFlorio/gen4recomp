@@ -28,6 +28,7 @@
 -- 0x1000, rotation identity word, translation 0). Pure domain module.
 
 local Errors = require("libs.errors.src.Errors")
+local AnimationClip = require("libs.assets.src.AnimationClip")
 
 local NsbtaClipCompiler = {}
 
@@ -189,8 +190,8 @@ function NsbtaClipCompiler.compile(res, reader, sectionLimit, opts)
   return {
     id = opts.id or "nsbta",
     name = opts.name or "nsbta",
-    category = "material",
-    kind = "texsrt",
+    category = AnimationClip.CATEGORIES.material,
+    kind = AnimationClip.KINDS.TEXSRT,
     frameCount = res.numFrame,
     tracks = tracks,
     semanticNames = opts.semanticNames or {},

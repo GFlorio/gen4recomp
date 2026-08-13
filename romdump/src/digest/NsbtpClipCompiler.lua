@@ -18,6 +18,8 @@
 -- resolves each variant texture/palette by name against the model's texture
 -- set (the embedded TEX0 for real field models). Pure domain module.
 
+local AnimationClip = require("libs.assets.src.AnimationClip")
+
 local NsbtpClipCompiler = {}
 
 -- Compile `res` (a decoded NSBTP record) into the compiled payload.
@@ -61,8 +63,8 @@ function NsbtpClipCompiler.compile(res, opts)
   return {
     id = opts.id or "nsbtp",
     name = opts.name or "nsbtp",
-    category = "material",
-    kind = "pattern",
+    category = AnimationClip.CATEGORIES.material,
+    kind = AnimationClip.KINDS.PATTERN,
     frameCount = res.numFrame,
     tracks = tracks,
     semanticNames = opts.semanticNames or {},

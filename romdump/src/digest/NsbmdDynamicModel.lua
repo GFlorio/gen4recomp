@@ -63,7 +63,7 @@ local function baseMaterial(mat, texMtxMode)
       specular = channel(resolved.colors.specular),
       emission = channel(resolved.colors.emission),
     },
-    alphaMode = poly.polygonAlpha < 31 and "blend" or "opaque",
+    alphaMode = poly.polygonAlpha < FixedPoint.RGB5_MAX and "blend" or "opaque",
     doubleSided = poly.cullMode ~= "back",
     polygonAlpha = poly.polygonAlpha,
     texMtxMode = texMtxMode or 0,

@@ -1,8 +1,9 @@
 -- Static architecture guard: enforces the romdump boundary by scanning literal
 -- require("...") strings across the libs packages (assets, codec, storage,
--- errors, math, engine) and the game package (src and tests). Literal scanning
--- is sufficient because the repository requires modules by full repo-relative
--- path; this is deliberately not a general-purpose dependency analyzer.
+-- errors, math, engine), the game package (src and tests), and romdump/src
+-- (production producers). Literal scanning is sufficient because the
+-- repository requires modules by full repo-relative path; this is deliberately
+-- not a general-purpose dependency analyzer.
 
 local Assert = require("tests.support.Assert")
 
@@ -41,6 +42,20 @@ local PACKAGE_ROOTS = {
   "libs/math",
   "libs/engine",
   "game",
+  "romdump/src",
+}
+
+-- The producer side of the same boundary: romdump digests raw ROM bytes and
+-- may depend on the domain libs (assets, codec, storage, errors, math) but
+-- never on a libs runtime package. Digest compilers and the runtime engine
+-- must both consume the same lower shared contracts, so a romdump -> engine
+-- require points the dependency upward. libs.engine is the only libs runtime
+-- package today; a future runtime libs package joins this list. The scan
+-- covers romdump/src only: romdump tests legitimately compose compiler output
+-- against engine consumers (round-trip pipeline tests), which is not
+-- production composition.
+local ROMDUMP_FORBIDDEN_LIBS = {
+  "libs.engine.",
 }
 
 -- Namespaces deleted by the boundary moves; none may reappear.
@@ -160,6 +175,21 @@ function T.removed_namespaces_do_not_reappear()
     return false
   end)
   Assert.isTrue(#violations == 0, violationMessage("removed namespaces reappeared:\n", violations))
+end
+
+function T.romdump_never_imports_libs_engine()
+  local violations = violationsFor(scannedFiles(), function(file, module)
+    if file:sub(1, #"romdump/src/") ~= "romdump/src/" then
+      return false
+    end
+    for _, prefix in ipairs(ROMDUMP_FORBIDDEN_LIBS) do
+      if module:sub(1, #prefix) == prefix then
+        return true
+      end
+    end
+    return false
+  end)
+  Assert.isTrue(#violations == 0, violationMessage("romdump/src imports a libs runtime package:\n", violations))
 end
 
 return { tests = T }

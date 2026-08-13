@@ -61,7 +61,7 @@ MapPropAnimCompiler.VERSION = "map-prop-anim-clip-v5"
 -- vocabulary lives on the animation contract (AnimationClip.ROLES), the one
 -- owner compiler and runtime share -- the digest never depends
 -- on a runtime controller.
-local AnimationClip = require("libs.engine.src.AnimationClip")
+local AnimationClip = require("libs.assets.src.AnimationClip")
 
 local ROLE_PATTERNS = {
   door_op = AnimationClip.ROLES.DOOR_OPEN,
@@ -81,9 +81,10 @@ function MapPropAnimCompiler.roleFor(name)
 end
 
 -- The four band slots in the game's band-map order (ov01_022095EC: MORN=0,
--- DAY=1, EVE=2, NITE=3, LATE=3). A banded anim-list record's ids are these
--- slots in order; the slot, not the clip name, is the band.
-local BAND_BY_SLOT = { "morn", "day", "eve", "nite" }
+-- DAY=1, EVE=2, NITE=3, LATE=3), owned by the animation contract: a banded
+-- anim-list record's ids are these slots in order; the slot, not the clip
+-- name, is the band.
+local BAND_BY_SLOT = AnimationClip.BANDS
 
 -- Compile one decoded animation resource into a clip record.
 --   opts.name            the Nitro dictionary entry name

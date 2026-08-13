@@ -11,7 +11,7 @@
 -- tokens: play/stop cycles leave no monotonically growing range behind.
 
 local Assert = require("tests.support.Assert")
-local AnimationClip = require("libs.engine.src.AnimationClip")
+local AnimationClip = require("libs.assets.src.AnimationClip")
 local AnimationPlayer = require("libs.engine.src.AnimationPlayer")
 local ModelAnimationState = require("libs.engine.src.ModelAnimationState")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")

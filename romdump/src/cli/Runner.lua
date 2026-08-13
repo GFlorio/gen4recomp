@@ -173,7 +173,7 @@ function Runner._runGenScriptOverrides()
     manifest = manifest .. "  " .. string.format("%q", file.id) .. ",\n"
   end
   manifest = manifest .. "}\n"
-  local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
+  local ScriptOverrides = require("libs.assets.src.ScriptOverrides")
   local staged = {}
   local stageOk, stageErr = pcall(function()
     local function stage(path, text)
@@ -192,7 +192,7 @@ function Runner._runGenScriptOverrides()
     for _, file in ipairs(files) do
       stage(root .. "/" .. file.path, file.text)
     end
-    stage(root .. "/" .. ScriptLoader.OVERRIDE_MANIFEST, manifest)
+    stage(root .. "/" .. ScriptOverrides.MANIFEST, manifest)
   end)
   if not stageOk then
     for _, path in ipairs(staged) do

@@ -12,6 +12,7 @@
 -- aliasing a pooled mesh entry's cached AABB.
 
 local Errors = require("libs.errors.src.Errors")
+local ErrorCodes = require("libs.assets.src.ErrorCodes")
 
 local SceneDescriptor = {}
 
@@ -64,7 +65,7 @@ end
 ---@return { center: number[], bounds: { minX: number, maxX: number, minY: number, maxY: number, minZ: number, maxZ: number } }
 function SceneDescriptor.meshGeometry(verts)
   if #verts == 0 then
-    Errors.raise("SCENE_DESC_EMPTY_MESH", "a mesh must have at least one vertex", {})
+    Errors.raise(ErrorCodes.SCENE_DESC_EMPTY_MESH, "a mesh must have at least one vertex", {})
   end
   local minx, miny, minz = math.huge, math.huge, math.huge
   local maxx, maxy, maxz = -math.huge, -math.huge, -math.huge

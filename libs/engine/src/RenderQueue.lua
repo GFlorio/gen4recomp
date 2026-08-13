@@ -19,14 +19,15 @@
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
 local Matrix4 = require("libs.math.src.Matrix4")
+local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 
 local RenderQueue = {}
 
 local ALPHA_CLASSES = {
-  opaque = true,
-  cutout = true,
-  translucent = true,
-  wireframe = true,
+  [AlphaClassifier.OPAQUE] = true,
+  [AlphaClassifier.CUTOUT] = true,
+  [AlphaClassifier.TRANSLUCENT] = true,
+  [AlphaClassifier.WIREFRAME] = true,
 }
 
 -- Resolve the item's effective alpha class (item first, then its material's)
@@ -73,13 +74,13 @@ function RenderQueue.build(items, viewMatrix)
   local entries = {}
   for position, item in ipairs(items) do
     local mode = RenderQueue.effectiveAlphaClass(item)
-    if mode == "translucent" then
+    if mode == AlphaClassifier.TRANSLUCENT then
       translucent[#translucent + 1] = item
       local wx, wy, wz = Matrix4.transformPoint(item.transform, item.center[1], item.center[2], item.center[3])
       entries[#entries + 1] = { item = item, viewZ = viewSpaceZ(viewMatrix, { wx, wy, wz }), position = position }
-    elseif mode == "cutout" then
+    elseif mode == AlphaClassifier.CUTOUT then
       cutout[#cutout + 1] = item
-    elseif mode == "wireframe" then
+    elseif mode == AlphaClassifier.WIREFRAME then
       wireframe[#wireframe + 1] = item
     else
       opaque[#opaque + 1] = item

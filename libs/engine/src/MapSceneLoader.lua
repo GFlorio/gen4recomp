@@ -35,11 +35,12 @@
 -- renderable the moment load returns.
 
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
+local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 local Matrix4 = require("libs.math.src.Matrix4")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
 local Errors = require("libs.errors.src.Errors")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
-local PoseContract = require("libs.engine.src.PoseContract")
+local PoseContract = require("libs.assets.src.PoseContract")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local ModelInstance = require("libs.engine.src.ModelInstance")
 local MapProps = require("libs.engine.src.MapProps")
@@ -130,8 +131,8 @@ local function buildScene(pool, cacheFs, scene, opts)
   local function batchDrawState(batch)
     ---@type table<string, any>
     local state = PolygonState.withDefaults(batch)
-    state.alphaClass = batch.alphaClass or "opaque"
-    state.alphaCutoff = MapRenderer.CUTOUT_EPSILON
+    state.alphaClass = batch.alphaClass or AlphaClassifier.OPAQUE
+    state.alphaCutoff = AlphaClassifier.CUTOUT_EPSILON
     return state
   end
 

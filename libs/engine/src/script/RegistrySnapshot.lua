@@ -9,6 +9,7 @@
 
 local ScriptCache = require("libs.assets.src.ScriptCache")
 local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
+local ScriptOverrides = require("libs.assets.src.ScriptOverrides")
 local Sha256 = require("libs.engine.src.script.Sha256")
 
 local RegistrySnapshot = {}
@@ -32,11 +33,11 @@ function RegistrySnapshot.key(cacheFs, overrideFs)
   if marker == nil then
     return nil
   end
-  local manifest = overrideFs:read(ScriptLoader.OVERRIDE_MANIFEST)
+  local manifest = overrideFs:read(ScriptOverrides.MANIFEST)
   if manifest == nil then
     return nil
   end
-  local chunk, loadErr = loadstring(manifest --[[@as string]], ScriptLoader.OVERRIDE_MANIFEST)
+  local chunk, loadErr = loadstring(manifest --[[@as string]], ScriptOverrides.MANIFEST)
   if not chunk then
     return nil
   end
@@ -60,7 +61,7 @@ function RegistrySnapshot.key(cacheFs, overrideFs)
   table.sort(idsList)
   local parts = { marker, "\n", manifest }
   for _, id in ipairs(idsList) do
-    local content = overrideFs:read(ScriptLoader.OVERRIDES_DIR .. "/" .. id .. ".lua")
+    local content = overrideFs:read(ScriptOverrides.DIR .. "/" .. id .. ".lua")
     if content == nil then
       return nil
     end

@@ -26,17 +26,37 @@
 -- reference and never mutated. Pure domain module.
 
 local Errors = require("libs.errors.src.Errors")
+local FixedPoint = require("libs.math.src.FixedPoint")
 
 local AnimationClip = {}
 
 -- Fixed-point frame unit: one frame is FRAME_UNIT, shared by every player
--- and sampler in the animation runtime (DS fixed point is 1.M.12).
-AnimationClip.FRAME_UNIT = 4096
+-- and sampler in the animation runtime (DS fixed point is 1.M.12, the same
+-- scale FixedPoint.FX32_SCALE owns for the lighting/vector domain).
+AnimationClip.FRAME_UNIT = FixedPoint.FX32_SCALE
 
 -- The category vocabulary is joint and material: no field visibility
 -- animation exists (the corpus has no NSBVA members), so a clip claiming the
--- visibility category is rejected.
-AnimationClip.CATEGORIES = { joint = true, material = true }
+-- visibility category is rejected. A map from category name to itself, so
+-- both the compilers that stamp it and the validation that checks it
+-- reference the same table.
+AnimationClip.CATEGORIES = { joint = "joint", material = "material" }
+
+-- The clip-kind strings the Nitro clip compilers stamp (the NSBCA/NSBTA/
+-- NSBMA/NSBTP compiled payloads each carry exactly one kind) and the runtime
+-- material evaluator dispatches on.
+AnimationClip.KINDS = {
+  TRS = "trs",
+  TEXSRT = "texsrt",
+  COLOR = "color",
+  PATTERN = "pattern",
+}
+
+-- The four time bands in HGSS band-slot order (ov01_022095EC indices 0-3;
+-- LATE maps to the NITE slot). A banded anim-list record's ids are these
+-- slots in order, so the slot, not the clip name, is the band: the digest
+-- stamps clip.timeBand from this table and TimeOfDayProps swaps on it.
+AnimationClip.BANDS = { "morn", "day", "eve", "nite" }
 
 -- The semantic animation roles gameplay and the digest share: the one owner
 -- for the door open/close vocabulary -- MapPropAnimCompiler stamps the roles

@@ -31,12 +31,13 @@
 --   scaleOne  = scaleS == 0x1000 and scaleT == 0x1000
 -- Pure domain module.
 
+local AnimationClip = require("libs.assets.src.AnimationClip")
 local Errors = require("libs.errors.src.Errors")
 
 local CompiledNsbtaSampler = {}
 
 local ROT_IDENTITY = 0x10000000
-local FRAME_UNIT = 4096
+local FRAME_UNIT = AnimationClip.FRAME_UNIT
 
 local function s16(value)
   if value >= 32768 then

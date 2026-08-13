@@ -6,6 +6,7 @@
 -- instead of rescanning vertices.
 
 local Assert = require("tests.support.Assert")
+local ErrorCodes = require("libs.assets.src.ErrorCodes")
 local SceneDescriptor = require("libs.engine.src.SceneDescriptor")
 
 local T = {}
@@ -107,7 +108,7 @@ end
 -- A mesh with no vertices is malformed data: the geometry math must fail
 -- loudly, never fold the inf/nan seed values into a nonsense box.
 function T.mesh_geometry_with_no_vertices_raises()
-  throwsCode("SCENE_DESC_EMPTY_MESH", function()
+  throwsCode(ErrorCodes.SCENE_DESC_EMPTY_MESH, function()
     return SceneDescriptor.meshGeometry({})
   end)
 end

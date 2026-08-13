@@ -14,11 +14,14 @@
 -- ordinary-policy anim-list record carries the compiled ambientLoop role).
 -- Pure domain module.
 
+-- The four bands in HGSS band-slot order, owned by the animation contract
+-- (AnimationClip.BANDS): the digest stamps clip.timeBand from the same table
+-- (ov01_022095EC indices 0-3; LATE maps to the NITE slot).
+local AnimationClip = require("libs.assets.src.AnimationClip")
+
 local TimeOfDayProps = {}
 
--- The four bands in HGSS band-slot order (ov01_022095EC indices 0-3; LATE
--- maps to the NITE slot).
-TimeOfDayProps.BANDS = { "morn", "day", "eve", "nite" }
+TimeOfDayProps.BANDS = AnimationClip.BANDS
 
 -- Band by hour, transcribed from sTimeOfDayByHour (gf_rtc.c): 0-3 LATE,
 -- 4-9 MORN, 10-16 DAY, 17-19 EVE, 20-23 NITE, with LATE folded into the

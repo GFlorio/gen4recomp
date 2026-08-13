@@ -28,11 +28,12 @@
 --  the end of the replay, tile space (engine units)
 
 local Errors = require("libs.errors.src.Errors")
+local ErrorCodes = require("libs.assets.src.ErrorCodes")
 local JointAnimBlend = require("libs.engine.src.JointAnimBlend")
 local NitroJointState = require("libs.engine.src.NitroJointState")
 local CompiledNsbcaSampler = require("libs.engine.src.CompiledNsbcaSampler")
-local NsbmdSbcEvaluator = require("libs.engine.src.NsbmdSbcEvaluator")
-local PoseContract = require("libs.engine.src.PoseContract")
+local NsbmdSbcEvaluator = require("libs.assets.src.NsbmdSbcEvaluator")
+local PoseContract = require("libs.assets.src.PoseContract")
 local Matrix4 = require("libs.math.src.Matrix4")
 
 local NitroPoseBackend = {}
@@ -121,7 +122,7 @@ local function resolvePosition(draw, source, tileScale, modelKey)
   local slot = draw.restoreStack[source.slot]
   if not slot then
     Errors.raise(
-      "POSE_NITRO_SLOT_NOT_FOUND",
+      ErrorCodes.POSE_NITRO_SLOT_NOT_FOUND,
       "mesh transform source names matrix-stack slot " .. tostring(source.slot) .. " the draw does not hold",
       { slot = source.slot, model = modelKey }
     )

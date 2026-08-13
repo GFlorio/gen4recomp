@@ -10,7 +10,7 @@
 --
 -- Pure domain module: no love dependency.
 
-local NsbmdSbcEvaluator = require("libs.engine.src.NsbmdSbcEvaluator")
+local NsbmdSbcEvaluator = require("libs.assets.src.NsbmdSbcEvaluator")
 local NsbmdTransformProgram = require("romdump.src.digest.NsbmdTransformProgram")
 local NsbmdPoseProvider = require("romdump.src.digest.NsbmdPoseProvider")
 

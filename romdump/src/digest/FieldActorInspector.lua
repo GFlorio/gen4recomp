@@ -3,6 +3,8 @@
 -- tuple, frame inventory, and pose timing -- without emitting any ROM-derived
 -- image or texel byte. Pure: it formats an already-compiled bundle.
 
+local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
+
 local FieldActorInspector = {}
 
 local function poseSummary(pose)
@@ -106,7 +108,7 @@ function FieldActorInspector.lines(report)
         v.render.frameCount,
         a.width,
         a.height,
-        (v.render.alphaUsage.hasZero and "cutout" or "opaque")
+        (v.render.alphaUsage.hasZero and AlphaClassifier.CUTOUT or AlphaClassifier.OPAQUE)
       )
     end
     for _, direction in ipairs({ "north", "south", "west", "east" }) do
