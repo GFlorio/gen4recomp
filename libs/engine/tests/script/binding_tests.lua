@@ -227,7 +227,7 @@ T["client starts script in trigger tick"] = function()
     scheduler = p.scheduler,
   })
   local result = client:consume(objectIntent(57, "obj_T20_gswoman1", "north"), 100)
-  Assert.equal(result, "started")
+  Assert.equal(result, ScriptInteractionClient.RESULTS.started)
   Assert.equal(
     p.services.world:getVar("VAR_SCENE"),
     1,
@@ -253,8 +253,14 @@ T["interaction while locked"] = function()
     end,
     scheduler = p.scheduler,
   })
-  Assert.equal(client:consume(objectIntent(57, "obj_T20_gswoman1", "north"), 100), "started")
-  Assert.equal(client:consume(objectIntent(57, "obj_T20_gswoman1", "north"), 101), "blocked")
+  Assert.equal(
+    client:consume(objectIntent(57, "obj_T20_gswoman1", "north"), 100),
+    ScriptInteractionClient.RESULTS.started
+  )
+  Assert.equal(
+    client:consume(objectIntent(57, "obj_T20_gswoman1", "north"), 101),
+    ScriptInteractionClient.RESULTS.blocked
+  )
 end
 
 -- 12. Unmapped intents report "unmapped" so the caller can fall through to a
@@ -268,7 +274,7 @@ T["unmapped intent falls through"] = function()
     end,
     scheduler = p.scheduler,
   })
-  Assert.equal(client:consume(objectIntent(57, "obj_unmapped", "north"), 100), "unmapped")
+  Assert.equal(client:consume(objectIntent(57, "obj_unmapped", "north"), 100), ScriptInteractionClient.RESULTS.unmapped)
   Assert.isNil(p.scheduler:foregroundEnvironmentId())
 end
 
@@ -285,7 +291,10 @@ T["removed script is unmapped"] = function()
     end,
     scheduler = p.scheduler,
   })
-  Assert.equal(client:consume(objectIntent(57, "obj_T20_gswoman1", "north"), 100), "unmapped")
+  Assert.equal(
+    client:consume(objectIntent(57, "obj_T20_gswoman1", "north"), 100),
+    ScriptInteractionClient.RESULTS.unmapped
+  )
 end
 
 -- 14. Actor world adapter: the player is always present; snapshots are

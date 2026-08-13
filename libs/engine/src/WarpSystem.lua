@@ -61,7 +61,11 @@ end
 function WarpSystem.findBlockedFacing(runtimeMap, fieldX, fieldZ, direction)
   local delta = DIRECTION_DELTAS[direction]
   if not delta then
-    return nil
+    -- Callers pass only known direction names; anything else is a
+    -- programming fault at this resolver boundary, not an empty result.
+    Errors.raise("ACTOR_FACING_INVALID", "unsupported player facing " .. tostring(direction), {
+      mapId = runtimeMap.mapId,
+    })
   end
   local destinationX, destinationZ = fieldX + delta.x, fieldZ + delta.z
   local warp = WarpSystem.findAt(runtimeMap, destinationX, destinationZ)
@@ -134,11 +138,12 @@ function WarpSystem.resolveDestination(loader, sourceMap, warp)
   assert(sourceMap and sourceMap.mapId and warp, "source map and warp required")
 
   -- A scripted `direct` record carries pre-resolved global coordinates and
-  -- resolves its own warp instead of an indexed destination record. It loads
-  -- plainly (failures propagate raw) and must precede every indexed-path
-  -- dispatch, including the dynamic-warp refusal.
+  -- resolves its own warp instead of an indexed destination record. It
+  -- loads through the same unknown-destination-map wrap as the indexed path
+  -- (one standardized code) and must precede every indexed-path dispatch,
+  -- including the dynamic-warp refusal.
   if warp.direct then
-    local destinationMap = loader.load(loader, warp.destinationMapId)
+    local destinationMap = loadDestination(loader, sourceMap, warp)
     local localX, localZ = FieldCoordinates.fieldToLocal(destinationMap, warp.x, warp.z)
     local sample = directSurface(destinationMap, warp, localX, localZ)
     return resolutionRecord(sourceMap, warp, destinationMap, warp, warp.x, warp.z, sample)

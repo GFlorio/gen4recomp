@@ -115,7 +115,6 @@ function T.material_only_cutout_item_renders_with_the_cutout_shader_mode(scope)
     polygonId = 0,
     lightMask = 0,
     center = { 0.5, 0.5, 0 },
-    submissionIndex = 1,
   }
   renderer:draw(emptyRuntime(), fixedCamera(), { item }, FieldViewport.new(640, 480, { mode = "strict" }))
   local img = renderer.idDepth:newImageData()
@@ -155,7 +154,6 @@ function T.an_actor_billboard_draw_leaks_no_render_state(scope)
     polygonId = 0,
     lightMask = 1,
     center = { 0, 1, 0 },
-    submissionIndex = 1,
   }
 
   lg.setMeshCullMode("none")
@@ -238,7 +236,6 @@ function T.draw_restores_exact_caller_state_on_real_graphics(scope)
     polygonId = 0,
     lightMask = 1,
     center = { 0, 1, 0 },
-    submissionIndex = 1,
   }
   local wireframeItem = {
     mesh = mesh,
@@ -250,7 +247,6 @@ function T.draw_restores_exact_caller_state_on_real_graphics(scope)
     polygonId = 0,
     lightMask = 1,
     center = { 0, 1, 0 },
-    submissionIndex = 2,
   }
 
   local canvas = scope:own(lg.newCanvas(64, 64))
@@ -339,7 +335,6 @@ function T.polygon_light_mask_changes_the_rendered_result(scope)
         polygonId = 0,
         lightMask = mask,
         center = { 0.5, 0.5, 0 },
-        submissionIndex = 1,
       },
     }, viewport)
     local img = renderer.sceneColor:newImageData()
@@ -425,7 +420,6 @@ function T.lit_then_unlit_scene_does_not_inherit_lighting(scope)
     polygonId = 0,
     lightMask = 15,
     center = { 0.5, 0.5, 0 },
-    submissionIndex = 1,
   }
   -- Interior points of the two triangles plus their Y-mirrored counterparts
   -- (the 640x480 canvas mirrors to a 480 pixel row 95/383).

@@ -19,7 +19,7 @@ local DsLighting = require("libs.engine.src.DsLighting")
 local FieldActorDraw = {}
 
 -- Draw items carry no submission numbers: the final scene assembly
--- (SceneAssembly) numbers every draw in source order at draw time.
+-- (SceneAssembly) orders every draw in source order, positionally.
 
 local function requireMesh(entry, meshIndex, record)
   local mesh = entry.meshes and entry.meshes[meshIndex]

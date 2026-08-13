@@ -155,6 +155,33 @@ function T.tests.new_bark_woman_bound_script_runs_its_full_dialogue_lifecycle()
       "audio:SEQ_SE_DP_SELECT",
     })
     Assert.isNil(game:interaction().actorFacingOverride)
+
+    -- The terminal close clears the request and page state, so the
+    -- presentation-facing status after completion carries no stale message
+    -- identity for the renderer to keep showing.
+    local closed = game:snapshot().dialogue
+    Assert.equal(closed.state, "CLOSED")
+    Assert.isNil(closed.requestId)
+    Assert.isNil(closed.bankId)
+    Assert.isNil(closed.messageId)
+    Assert.equal(closed.pageCount, 0)
+
+    -- The cleared terminal state must not break a reentrant open: a second
+    -- interaction with the same NPC re-runs the same real message through
+    -- production composition and closes cleanly again.
+    interactAt(game, { fieldX = 683, fieldZ = 400 }, "north")
+    local reopened = waitForDialogue(game)
+    Assert.isTrue(reopened.dialogue.modal)
+    Assert.equal(reopened.dialogue.messageId, 9)
+    Assert.isTrue(reopened.fieldLocked)
+    game:advanceDialogue()
+    completeDialogue(game)
+    local reclosed = game:snapshot().dialogue
+    Assert.equal(reclosed.state, "CLOSED")
+    Assert.isNil(reclosed.requestId)
+    Assert.isNil(reclosed.messageId)
+    Assert.equal(reclosed.pageCount, 0)
+
     -- Ended instances are pruned once nothing references them; the
     -- completed root (no observer) must not remain in the scheduler archive.
     Assert.equal(#game.runtime.scripts.scheduler:instances(), 0)

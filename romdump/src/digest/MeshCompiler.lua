@@ -92,7 +92,7 @@ end
 -- { nodeIndex, materialIndex, shapeIndex, polygonAttrRaw,
 --   transformMode, baseTransform, vertices = { {x,y,z,u,v,nx,ny,nz,r,g,b,a,
 --   colorSource}, ... }, indices }. The list order is the SBC submission
--- order; the runtime assembler (SceneAssembly) derives submission numbers
+-- order; the runtime assembler (SceneAssembly) derives submission order
 -- from that position, so no batch carries an index of its own. Billboard
 -- batches carry `baseTransform` (tile-space translation, see
 -- MapUnits.matrixToTiles); static ones do not.

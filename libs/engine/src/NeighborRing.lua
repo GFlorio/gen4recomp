@@ -51,7 +51,8 @@ end
 
 -- Build the ring against an already-created pool. Raises on any failure;
 -- load() releases the pool in that case. Draws carry no submission numbers:
--- the final scene assembly (SceneAssembly) numbers every draw in source order.
+-- the final scene assembly (SceneAssembly) orders every draw in source order,
+-- positionally.
 local function buildRing(pool, descriptors)
   -- One draw per (cell, batch), with the cell's 32-tile world offset baked into
   -- the transform and the sort center.

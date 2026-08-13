@@ -313,6 +313,33 @@ function T.background_requires_exact_facing_cell_match()
   )
 end
 
+-- D35: the hidden-item family is an explicit declaration, not an accidental
+-- eligibility gap: the named predicate is the single owner of the type-2
+-- classification shared with the binding audit.
+function T.is_hidden_item_identifies_the_type_two_family()
+  Assert.isTrue(
+    FieldInteractionResolver.isHiddenItem({ type = FieldInteractionResolver.HIDDEN_ITEM_EVENT_TYPE }),
+    "type 2 is the hidden-item family"
+  )
+  Assert.isFalse(FieldInteractionResolver.isHiddenItem({ type = 0 }))
+  Assert.isFalse(FieldInteractionResolver.isHiddenItem({ type = 1 }))
+end
+
+-- The resolver owns one surface resolver per terrain: resolving against a
+-- second map with different terrain must not reuse the first map's surface
+-- state (no stale selection across maps).
+function T.resolving_across_maps_never_reuses_stale_terrain_state()
+  local r = resolver()
+  local first = assert(r:resolve(baseSnapshot({ runtimeMap = map({ bgEvent(0, 6, 4, 13, 0) }) })))
+  Assert.equal(first.kind, "background")
+  local second = assert(r:resolve(baseSnapshot({ runtimeMap = crossSurfaceMap({ bgEvent(0, 6, 4, 13, 0) }) })))
+  Assert.equal(second.kind, "background")
+  Assert.equal(second.background.eventIndex, 0)
+end
+
+-- The type-two family is declared noninteractive (hidden-item pickup depends
+-- on collection flags that are not tracked); it resolves to nothing rather
+-- than emitting an intent the client could never bind.
 function T.type_two_background_events_are_skipped()
   local m = map({ bgEvent(0, 100, 4, 13, 4, 2) })
   local r = resolver()

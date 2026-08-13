@@ -329,6 +329,22 @@ function T.cursor_blink_is_deterministic()
   Assert.deepEqual(pattern, { true, true, true, false, false, false, true, true })
 end
 
+-- The terminal close releases the request, handle, and page state, so
+-- the presentation-facing status after completion carries no stale message
+-- identity for the renderer to keep showing; the next open starts fresh.
+function T.terminal_close_clears_request_handle_and_page_state()
+  local c = controller({ page({ line({ glyph("A", 1) }) }, "eos") })
+  c:open(request("t", message()))
+  local result = assert(c:close())
+  Assert.equal(result.kind, "complete")
+  local status = c:status()
+  Assert.equal(status.state, "CLOSED")
+  Assert.isNil(status.requestId)
+  Assert.isNil(status.bankId)
+  Assert.isNil(status.messageId)
+  Assert.equal(status.pageCount, 0)
+end
+
 function T.open_while_modal_raises()
   local c = controller({ page({ line({ glyph("A", 1) }) }, "eos") })
   c:open(request("t", message()))

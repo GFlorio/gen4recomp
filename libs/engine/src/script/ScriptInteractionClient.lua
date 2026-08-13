@@ -15,6 +15,16 @@
 local ScriptInteractionClient = {}
 ScriptInteractionClient.__index = ScriptInteractionClient
 
+-- The consume() outcome protocol shared with FieldSession: a consumed intent
+-- either started a foreground script, found the field already owned, or was
+-- unmapped (a composition fault the session asserts on). The session and
+-- every consumer read these constants, never the literal strings.
+ScriptInteractionClient.RESULTS = {
+  started = "started",
+  blocked = "blocked",
+  unmapped = "unmapped",
+}
+
 ---@param opts table
 ---@return ScriptInteractionClient
 function ScriptInteractionClient.new(opts)
@@ -45,24 +55,24 @@ function ScriptInteractionClient:resolve(intent)
   return { trigger = hit.trigger, composed = composed }
 end
 
--- Consume one interaction intent. Returns "started" when a script now owns
--- the field, "blocked" when a foreground script already owns it, or
--- "unmapped" when nothing is bound (the session treats that as a composition
--- fault: the binding audit guarantees every interactable event is bound). A
--- started script may execute during this tick.
+-- Consume one interaction intent. Returns the RESULTS.started outcome when a
+-- script now owns the field, RESULTS.blocked when a foreground script already
+-- owns it, or RESULTS.unmapped when nothing is bound (the session treats that
+-- as a composition fault: the binding audit guarantees every interactable
+-- event is bound). A started script may execute during this tick.
 ---@param intent table InteractionIntent
 ---@param tick integer
 ---@return string started|blocked|unmapped
 function ScriptInteractionClient:consume(intent, tick)
   if self._scheduler:foregroundEnvironmentId() ~= nil then
-    return "blocked"
+    return ScriptInteractionClient.RESULTS.blocked
   end
   local hit = self:resolve(intent)
   if hit == nil then
-    return "unmapped"
+    return ScriptInteractionClient.RESULTS.unmapped
   end
   self._scheduler:startInteraction(hit.trigger, hit.composed, tick)
-  return "started"
+  return ScriptInteractionClient.RESULTS.started
 end
 
 return ScriptInteractionClient

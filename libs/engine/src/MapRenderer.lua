@@ -347,8 +347,9 @@ function MapRenderer:_drawWireframe(item, viewMatrix, projection)
 end
 
 -- `worldDraws` is the flattened scene draw list -- map geometry, building
--- batches, the neighbour ring, and actors -- already numbered with submission
--- indices in desired source order by SceneAssembly; the renderer draws exactly
+-- batches, the neighbour ring, and actors -- concatenated in desired source
+-- order by SceneAssembly, whose flat-list position is the queue's
+-- deterministic tie-breaker; the renderer draws exactly
 -- this list and no other scene state. `alpha` is the render interpolation
 -- factor forwarded to the camera so the scene is viewed from the same smoothed
 -- state the actors render at. FieldViewport limits the render-target size and

@@ -86,6 +86,23 @@ function T.type_two_background_events_are_noninteractive()
   Assert.isTrue(ok)
 end
 
+-- The hidden-item family is declared noninteractive, so a manifest
+-- binding for one is a dead binding the resolver can never dispatch; the
+-- audit rejects it loudly instead of accepting it silently.
+function T.binding_a_hidden_item_event_is_rejected()
+  local manifest = manifestFor({
+    objects = {},
+    backgrounds = { [0] = "script.bg0", [7] = "vanilla.hiddenitem.8000" },
+  })
+  local err = throwsCode("SCRIPT_BINDING_AUDIT_HIDDEN_ITEM_BOUND", function()
+    BindingAudit.check(manifest, function()
+      return fieldData({}, { backgroundEvent(0, 4), backgroundEvent(7, 8000, 2) })
+    end)
+  end)
+  Assert.equal(err.context.mapId, 60)
+  Assert.equal(err.context.eventIndex, 7)
+end
+
 function T.a_manifest_map_with_no_field_data_is_rejected()
   throwsCode("SCRIPT_BINDING_AUDIT_MAP_MISSING", function()
     BindingAudit.check(manifestFor(FULL_MAP), function()
