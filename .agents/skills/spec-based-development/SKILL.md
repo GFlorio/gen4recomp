@@ -66,13 +66,15 @@ pipeline, preserve acceptance → implementation → review → verify → commi
 concurrently only when the dependency graph shows they are independent.
 
 After a pipeline commits, inspect its diff and verification result, then integrate it into
-the primary branch using a commit-preserving operation. Integrate only ready dependencies.
-Dispatch a fresh integration-fix subagent for conflicts; do not edit source yourself. Re-run
-full verification after every integration batch.
+the primary branch by rebasing the deliverable branch onto the primary branch and
+fast-forwarding it — keep history linear, never create merge commits. Integrate only ready
+dependencies. Dispatch a fresh integration-fix subagent for conflicts; do not edit source
+yourself. Re-run full verification after every integration batch.
 
 The primary branch's commit order may differ from the order printed in the spec. Preserve one
 cohesive commit per deliverable, but choose a dependency-safe integration order. Record the
-actual order and each reordering reason in the notes and final report.
+actual order and each reordering reason in the notes and final report. After integration,
+remove the deliverable worktree and delete its branch.
 
 ## Per-deliverable loop
 
@@ -124,9 +126,10 @@ in mind, no summary of prior deliverables. The subagent reads both files itself.
 (`.agents/skills/change-review/SKILL.md`) per its Dispatch section, passing the spec and
 notes paths as the optional fifth part. It reviews and fixes the uncommitted diff.
 
-**3. Verify.** Run `scripts/test.sh` and `scripts/lint.sh` yourself in the worktree. Green before commit,
-always. Red means dispatch a fresh subagent to fix it — you still don't write the code.
-Record pass/fail/skip counts by layer. A skipped layer is not a pass: if the deliverable's
+**3. Verify.** Run `scripts/test.sh` and `scripts/lint.sh` yourself in the worktree unless the
+last subagent already ran them there and reported results. Green before commit, always. Red
+means dispatch a fresh subagent to fix it — you still don't write the code. Record
+pass/fail/skip results by layer. A skipped layer is not a pass: if the deliverable's
 contract lives in a layer that skipped for a missing capability, the deliverable is
 unverified. Make the capability available and rerun, or record it unverified in the notes
 and leave its box unticked.
