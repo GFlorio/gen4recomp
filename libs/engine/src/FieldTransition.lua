@@ -58,7 +58,7 @@ local Errors = require("libs.errors.src.Errors")
 ---@field player table|nil -- FieldPlayer, bound by the owner across the swap
 ---@field fadeOutTicks integer
 ---@field fadeInTicks integer
----@field phase "idle"|"fade_out"|"load_destination"|"swap_map"|"fade_in"|"door_close"|"error"
+---@field phase "idle"|"fade_out"|"load_destination"|"swap_map"|"fade_in"|"door_close"
 ---@field fadeAlpha number
 ---@field locked boolean
 ---@field sourceKind "door"|"stairs"|nil -- the source warp's classification
@@ -295,11 +295,12 @@ local function advanceDestinationChoreo(self)
   end
 end
 
--- Run one choreography advance; a data-contract failure inside it (a scripted
--- step with no terrain destination) lands the transition in the error phase
--- and re-raises the Errors object so the caller's pcall sees it.
-local function advanceChoreo(self, advance)
-  local ok, err = pcall(advance, self)
+-- Run one choreography step (a begin or an advance). Before the ownership
+-- commit, a failure aborts to idle and records the error. After the commit,
+-- the same failure propagates as fatal because live state cannot be rolled
+-- back safely.
+local function runChoreo(self, fn)
+  local ok, err = pcall(fn, self)
   if not ok then
     if self.phase == FieldTransition.PHASES.fade_out then
       self:_abort(err)
@@ -362,7 +363,7 @@ function FieldTransition:start(sourceMap, warp, facing)
   self.phase = FieldTransition.PHASES.fade_out
   self.locked = true
   self.fadeAlpha = 0
-  beginSourceChoreography(self)
+  runChoreo(self, beginSourceChoreography)
 end
 
 -- Restore a coherent idle state after failed destination preparation. Map
@@ -405,7 +406,7 @@ function FieldTransition:updateFixed()
     local playerAdvanced = self.sourceChoreo ~= nil and self.player ~= nil and self.player.motion == "walking"
     advanceStairClimb(self)
     if self.sourceChoreo then
-      advanceChoreo(self, advanceSourceChoreo)
+      runChoreo(self, advanceSourceChoreo)
     end
     self.progressTicks = self.progressTicks + 1
     -- The ingress finishes after the 12-tick fade, so the fade clamps at
@@ -443,21 +444,23 @@ function FieldTransition:updateFixed()
     assert(self.fadeAlpha == 1, "map swap must occur while fully black")
     self.commit(self.resolution, self.facing, self.prepared)
     if self.sourceKind == "door" or self.destinationDoor ~= nil then
-      beginDestinationChoreography(self)
+      runChoreo(self, beginDestinationChoreography)
       -- Start the destination choreography on the swap tick: an animated door
       -- holds in wait_open, a static one (nothing to wait for) steps at once.
-      advanceChoreo(self, advanceDestinationChoreo)
+      runChoreo(self, advanceDestinationChoreo)
     end
     if self.sourceKind == "stairs" then
       -- The destination climb begins on the rebound player at the swap,
       -- exactly like the source side: the held stair movement, not a timer.
-      if self.player then
-        assert(
-          self.player.beginStairClimb ~= nil,
-          "stair warps require a player with a held stair movement (FieldPlayer)"
-        )
-        self.player:beginStairClimb()
-      end
+      runChoreo(self, function(self)
+        if self.player then
+          assert(
+            self.player.beginStairClimb ~= nil,
+            "stair warps require a player with a held stair movement (FieldPlayer)"
+          )
+          self.player:beginStairClimb()
+        end
+      end)
     end
     self.progressTicks = 0
     self.phase = FieldTransition.PHASES.fade_in
@@ -467,7 +470,7 @@ function FieldTransition:updateFixed()
     local playerAdvanced = self.destinationChoreo ~= nil and self.player ~= nil and self.player.motion == "walking"
     advanceStairClimb(self)
     if self.destinationChoreo then
-      advanceChoreo(self, advanceDestinationChoreo)
+      runChoreo(self, advanceDestinationChoreo)
     end
     if self.phase == FieldTransition.PHASES.fade_in then
       self.progressTicks = self.progressTicks + 1

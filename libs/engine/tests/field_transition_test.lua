@@ -488,12 +488,13 @@ local function transitionFixture(opts)
   opts = opts or {}
   local source = sourceMap(opts.behavior or BEHAVIOR_DOOR)
   local destination = { mapId = 60 }
-  local loader = {
-    load = function()
-      return destination
-    end,
-    protectMap = function() end,
-  }
+  local loader = opts.loader
+    or {
+      load = function()
+        return destination
+      end,
+      protectMap = function() end,
+    }
   local swaps = {}
   local sounds = {}
   local transition = FieldTransition.new({
@@ -855,11 +856,15 @@ end
 function T.failed_ingress_step_is_a_data_contract_failure()
   -- The ingress step is attempted only after the source door finished
   -- opening, so the failure surfaces when the choreography reaches the
-  -- ingress -- not at transition start.
+  -- ingress -- not at transition start. The failure aborts to a coherent
+  -- idle state: unlocked, the source pin released, and the error recorded
+  -- with its warp context for FieldRuntime reporting.
+  local loader = recordingLoader()
   local sourceDoor = doorStub()
   local transition
   local source
   transition, source = transitionFixture({
+    loader = loader,
     doorAt = function(runtimeMap)
       if runtimeMap == source then
         return sourceDoor
@@ -883,8 +888,19 @@ function T.failed_ingress_step_is_a_data_contract_failure()
   local ok, err = pcall(transition.updateFixed, transition)
   Assert.isFalse(ok, "an ingress step with no terrain destination raises")
   Assert.equal(type(err) == "table" and err.code or err, "MAP_TRANSITION_INGRESS_FAILED")
-  Assert.equal(transition.phase, "idle", "a pre-commit ingress failure aborts safely")
+  Assert.equal(transition.phase, "idle")
+  Assert.isFalse(transition.locked)
+  Assert.equal(transition.fadeAlpha, 0)
+  Assert.equal(transition.error.code, "MAP_TRANSITION_INGRESS_FAILED")
+  Assert.deepEqual(transition.warpContext, {
+    sourceMapId = 61,
+    sourceWarpId = 0,
+    destinationMapId = 60,
+    destinationWarpId = 0,
+  })
+  Assert.isNil(transition:consumeCompleted())
   Assert.equal(transition.error, err)
+  Assert.deepEqual(loader.protections, {}, "a pre-commit failure does not touch runtime-owned protection")
 end
 
 function T.failed_egress_step_is_a_data_contract_failure()
@@ -892,6 +908,7 @@ function T.failed_egress_step_is_a_data_contract_failure()
   -- opening, so the failure surfaces when the choreography reaches it on the
   -- destination side -- not at the swap. Because this is after the ownership
   -- commit, it propagates as a fatal fault instead of pretending to roll back.
+  local loader = recordingLoader()
   local sourceDoor = doorStub()
   local destinationDoor = doorStub()
   local player = stubPlayer()
@@ -905,6 +922,7 @@ function T.failed_egress_step_is_a_data_contract_failure()
   local transition
   local source
   transition, source = transitionFixture({
+    loader = loader,
     doorAt = function(runtimeMap)
       if runtimeMap == source then
         return sourceDoor
@@ -927,6 +945,177 @@ function T.failed_egress_step_is_a_data_contract_failure()
   Assert.equal(type(err) == "table" and err.code or err, "MAP_TRANSITION_EGRESS_FAILED")
   Assert.equal(transition.phase, "fade_in")
   Assert.isNil(transition.error)
+  Assert.isTrue(transition.locked)
+  Assert.isNil(transition:consumeCompleted())
+  Assert.deepEqual(loader.protections, {}, "a post-commit fault does not transfer map ownership")
+end
+
+-- A throwing source door:open() occurs before the commit, so it aborts to a
+-- coherent idle state without touching runtime-owned map protection. The
+-- error propagates, and a later start can run a full choreography.
+function T.source_door_open_failure_aborts_idle_without_touching_map_protection()
+  local loader = recordingLoader()
+  local sourceDoor = doorStub()
+  local originalOpen = sourceDoor.open
+  local opens = 0
+  sourceDoor.open = function(self)
+    opens = opens + 1
+    if opens == 1 then
+      error("door open failed", 0)
+    end
+    originalOpen(self)
+  end
+  local transition
+  local source
+  transition, source = transitionFixture({
+    loader = loader,
+    doorAt = function(runtimeMap)
+      if runtimeMap == source then
+        return sourceDoor
+      end
+      return nil
+    end,
+    player = stubPlayer(),
+  })
+  local ok, err = pcall(transition.start, transition, source, DOOR_WARP, "south")
+  Assert.isFalse(ok, "a throwing source door open propagates out of start")
+  Assert.equal(transition.phase, "idle")
+  Assert.isFalse(transition.locked)
+  Assert.equal(transition.fadeAlpha, 0)
+  Assert.equal(tostring(transition.error), "door open failed")
+  Assert.deepEqual(transition.warpContext, {
+    sourceMapId = 61,
+    sourceWarpId = 0,
+    destinationMapId = 60,
+    destinationWarpId = 0,
+  })
+  Assert.isNil(transition.sourceMap)
+  Assert.deepEqual(loader.protections, {})
+
+  transition:start(source, DOOR_WARP, "south")
+  runUntil(transition, { sourceDoor }, function()
+    return transition.phase == "idle"
+  end, 300)
+  Assert.isFalse(transition.locked)
+  Assert.notNil(transition:consumeCompleted())
+end
+
+-- Destination choreography starts after the irreversible commit. A throwing
+-- door open propagates without pretending to restore the source state.
+function T.destination_door_open_failure_propagates_after_commit()
+  local loader = recordingLoader()
+  local sourceDoor = doorStub()
+  local destinationDoor = doorStub()
+  local originalOpen = destinationDoor.open
+  local opens = 0
+  destinationDoor.open = function(self)
+    opens = opens + 1
+    if opens == 1 then
+      error("door open failed", 0)
+    end
+    originalOpen(self)
+  end
+  local player = stubPlayer()
+  local transition
+  local source
+  transition, source = transitionFixture({
+    loader = loader,
+    doorAt = function(runtimeMap)
+      if runtimeMap == source then
+        return sourceDoor
+      end
+      return destinationDoor
+    end,
+    player = player,
+  })
+  transition:start(source, DOOR_WARP, "south")
+  runUntil(transition, { sourceDoor }, function()
+    return transition.phase == "swap_map"
+  end, 200)
+  local ok, err = pcall(transition.updateFixed, transition)
+  Assert.isFalse(ok, "a throwing destination door open propagates out of the swap tick")
+  Assert.equal(tostring(err), "door open failed")
+  Assert.equal(transition.phase, "swap_map")
+  Assert.isTrue(transition.locked)
+  Assert.equal(transition.fadeAlpha, 1)
+  Assert.isNil(transition.error)
+  Assert.notNil(transition.sourceMap)
+  Assert.notNil(transition.resolution)
+  Assert.deepEqual(loader.protections, {})
+end
+
+-- A throwing destination close is also post-commit and therefore fatal; live
+-- state remains in its current transition phase for diagnostics.
+function T.destination_door_close_failure_propagates_after_commit()
+  local loader = recordingLoader()
+  local sourceDoor = doorStub()
+  local destinationDoor = doorStub()
+  local originalClose = destinationDoor.close
+  local closes = 0
+  destinationDoor.close = function(self)
+    closes = closes + 1
+    if closes == 1 then
+      error("door close failed", 0)
+    end
+    originalClose(self)
+  end
+  local player = stubPlayer()
+  local transition
+  local source
+  transition, source = transitionFixture({
+    loader = loader,
+    doorAt = function(runtimeMap)
+      if runtimeMap == source then
+        return sourceDoor
+      end
+      return destinationDoor
+    end,
+    player = player,
+  })
+  transition:start(source, DOOR_WARP, "south")
+  -- The close is attempted on the tick that completes the egress movement.
+  runUntil(transition, { sourceDoor, destinationDoor }, function()
+    return #player.steps == 2 and player.motion == "walking" and player.remaining == 1
+  end, 200)
+  local ok, err = pcall(transition.updateFixed, transition)
+  Assert.isFalse(ok, "a throwing destination door close propagates out of the choreography")
+  Assert.equal(tostring(err), "door close failed")
+  Assert.equal(transition.phase, "door_close")
+  Assert.isTrue(transition.locked)
+  Assert.isNil(transition.error)
+  Assert.notNil(transition.sourceMap)
+  Assert.notNil(transition.resolution)
+  Assert.deepEqual(loader.protections, {})
+end
+
+-- Completion leaves map protection entirely to the runtime owner.
+function T.finish_does_not_touch_map_protection()
+  local protections = {}
+  local loader = {
+    protectMap = function(_, mapId, protected)
+      protections[#protections + 1] = { mapId, protected }
+      if not protected then
+        error("release failed", 0)
+      end
+    end,
+  }
+  local transition = FieldTransition.new({
+    loader = loader,
+    fadeOutTicks = 1,
+    fadeInTicks = 1,
+    resolveDestination = destination,
+    prepare = function() end,
+    commit = function() end,
+  })
+  transition:start(plainSource(), { index = 0, x = 0, z = 0, destinationMapId = 60, destinationWarpId = 0 }, "south")
+  for _ = 1, 6 do
+    transition:updateFixed()
+  end
+  Assert.equal(transition.phase, "idle")
+  Assert.isFalse(transition.locked)
+  Assert.isNil(transition.error)
+  Assert.notNil(transition:consumeCompleted())
+  Assert.deepEqual(protections, {})
 end
 
 function T.door_warps_skip_coordinate_suppression()
