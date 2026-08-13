@@ -67,20 +67,34 @@ end
 -- swaps to New Bark exactly once without immediately returning, releases and
 -- reacquires map/actor/session ownership, and ends back in the lab only when
 -- the player actually faces the town warp.
+-- Current-map protection has one owner (the runtime). A live transition
+-- must not pin a second map while the destination loads and swaps, and a
+-- completed warp transfers protection to the destination exactly once.
 function T.tests.lab_town_round_trip_swaps_transitions_and_ownership()
   local harness = AcceptanceHarness.new()
   harness:forEachVersion(function(versionId)
     local game = harness:boot({ versionId = versionId, map = LAB, save = "fresh" })
     local ok, err = xpcall(function()
       requireGameCapability(game, "moveTo")
+      requireGameCapability(game, "advanceUntil")
       requireGameCapability(game, "waitForTransition")
       requireGameCapability(game, "face")
       requireGameCapability(game, "ownership")
       game:moveTo({ fieldX = 4, fieldZ = 14 })
+      -- At the destination-load/swap boundary the loader still protects
+      -- exactly the current source map. A transition-owned pin would
+      -- protect a second map here.
+      game:advanceUntil("transition reaches the map swap", function(snapshot)
+        return snapshot.transition.phase == "swap_map"
+      end, 120)
+      Assert.deepEqual(game:ownership().mapProtectedIds, { game:snapshot().mapId })
       local transition = game:waitForTransition()
       Assert.equal(transition.source.mapSymbol, LAB)
       Assert.equal(transition.destination.mapSymbol, TOWN)
       Assert.equal(game:snapshot().mapSymbol, TOWN)
+      -- Protection transferred exactly once: the destination is now the
+      -- only protected map.
+      Assert.deepEqual(game:ownership().mapProtectedIds, { transition.destination.mapId })
       game:step()
       Assert.equal(game:snapshot().mapSymbol, TOWN)
 

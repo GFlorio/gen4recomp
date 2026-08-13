@@ -1,15 +1,19 @@
 -- Owns the deterministic fade/load/swap/fade lifecycle for field warps. Map
--- projection and actor state swap atomically through an injected callback only
--- while the viewport is fully black. Every failure inside the load/protect/
--- swap transaction aborts to a coherent idle state: transition-owned pins are
--- released, movement unlocks, and the error is recorded separately from live
--- state so a later start always works.
+-- projection and actor state swap through an injected commit callback only
+-- while the viewport is fully black. Fallible destination preparation (load,
+-- resolve, player/camera construction) runs while the source map remains the
+-- authoritative current map; a failure there aborts to a coherent idle state
+-- with movement unlocked and the error recorded separately from live state.
+-- Map protection is owned by the runtime, never by this transition. The
+-- commit step is the irreversible ownership transfer: a fault inside it is a
+-- fatal programming error and propagates instead of rolling back.
 
 local WarpSystem = require("libs.engine.src.WarpSystem")
 
 ---@class FieldTransition
 ---@field loader FieldMapLoader
----@field swap fun(resolution: table, facing: FieldDirection)
+---@field prepare fun(resolution: table, facing: FieldDirection): table
+---@field commit fun(resolution: table, facing: FieldDirection, prepared: table)
 ---@field resolveDestination function
 ---@field fadeOutTicks integer
 ---@field fadeInTicks integer
@@ -20,6 +24,7 @@ local WarpSystem = require("libs.engine.src.WarpSystem")
 ---@field error any?
 ---@field warpContext table?
 ---@field suppression table?
+---@field prepared table?
 ---@field sourceMap RuntimeFieldMap?
 ---@field sourceWarp table?
 local FieldTransition = {}
@@ -39,8 +44,9 @@ FieldTransition.PHASES = {
 }
 
 function FieldTransition.new(options)
-  assert(options and options.loader and options.loader.protectMap, "field transition loader required")
-  assert(type(options.swap) == "function", "field transition swap callback required")
+  assert(options and options.loader, "field transition loader required")
+  assert(type(options.prepare) == "function", "field transition prepare callback required")
+  assert(type(options.commit) == "function", "field transition commit callback required")
   local fadeOutTicks = options.fadeOutTicks or FieldTransition.FADE_OUT_TICKS
   local fadeInTicks = options.fadeInTicks or FieldTransition.FADE_IN_TICKS
   assert(fadeOutTicks > 0 and fadeOutTicks == math.floor(fadeOutTicks), "positive fade-out ticks required")
@@ -48,7 +54,8 @@ function FieldTransition.new(options)
   return setmetatable({
     loader = options.loader,
     resolveDestination = options.resolveDestination or WarpSystem.resolveDestination,
-    swap = options.swap,
+    prepare = options.prepare,
+    commit = options.commit,
     fadeOutTicks = fadeOutTicks,
     fadeInTicks = fadeInTicks,
     phase = FieldTransition.PHASES.idle,
@@ -66,22 +73,20 @@ function FieldTransition:start(sourceMap, warp, facing)
   self.progressTicks = 0
   self.resolution = nil
   self.suppression = nil
+  self.prepared = nil
   self.error = nil
   self.warpContext = nil
   self.completed = nil
-  local ok, err = pcall(self.loader.protectMap, self.loader, sourceMap.mapId, true)
-  if not ok then
-    self:_abort(err)
-    return
-  end
   self.phase = FieldTransition.PHASES.fade_out
   self.locked = true
   self.fadeAlpha = 0
 end
 
--- Restore a coherent idle state after a failed transaction: release every
--- transition-owned pin, unlock movement, clear all source/destination state,
--- and record the failure (with its warp context) separately from live state.
+-- Restore a coherent idle state after a failed preparation: unlock movement,
+-- clear all source/destination state, and record the failure (with its warp
+-- context) separately from live state. Map protection is untouched: the
+-- transition never pins or unpins maps, so the current source map keeps its
+-- runtime-owned protection.
 function FieldTransition:_abort(err)
   local context
   if self.sourceMap and self.sourceWarp then
@@ -92,23 +97,15 @@ function FieldTransition:_abort(err)
       destinationWarpId = self.sourceWarp.destinationWarpId,
     }
   end
-  local sourceMapId = self.sourceMap and self.sourceMap.mapId or nil
-  local destinationMapId = self.resolution and self.resolution.destinationMap.mapId or nil
   self.phase = FieldTransition.PHASES.idle
   self.locked = false
   self.fadeAlpha = 0
   self.progressTicks = 0
   self.completed = nil
   self.suppression = nil
-  self.sourceMap, self.sourceWarp, self.resolution = nil, nil, nil
+  self.sourceMap, self.sourceWarp, self.resolution, self.prepared = nil, nil, nil, nil
   self.error = err
   self.warpContext = context
-  if sourceMapId then
-    pcall(self.loader.protectMap, self.loader, sourceMapId, false)
-  end
-  if destinationMapId then
-    pcall(self.loader.protectMap, self.loader, destinationMapId, false)
-  end
 end
 
 function FieldTransition:updateFixed()
@@ -125,11 +122,14 @@ function FieldTransition:updateFixed()
     return
   end
   if self.phase == FieldTransition.PHASES.load_destination then
+    -- Resolution and destination preparation are the fallible warp steps:
+    -- they run while the source map is still the authoritative current map,
+    -- and a failure aborts with the source's ownership untouched.
     local ok, err = pcall(function()
       local result = self.resolveDestination(self.loader, self.sourceMap, self.sourceWarp)
       self.resolution = result
       self.suppression = result.suppression
-      self.loader:protectMap(result.destinationMap.mapId, true)
+      self.prepared = self.prepare(result, self.facing)
     end)
     if not ok then
       return self:_abort(err)
@@ -139,10 +139,11 @@ function FieldTransition:updateFixed()
   end
   if self.phase == FieldTransition.PHASES.swap_map then
     assert(self.fadeAlpha == 1, "map swap must occur while fully black")
-    local ok, err = pcall(self.swap, self.resolution, self.facing)
-    if not ok then
-      return self:_abort(err)
-    end
+    -- The commit is the irreversible current-map ownership transfer (actor
+    -- source removal, protection transfer, pointer updates). A fault here is
+    -- a fatal programming error: propagate instead of pretending to roll
+    -- back partially mutated game state.
+    self.commit(self.resolution, self.facing, self.prepared)
     self.progressTicks = 0
     self.phase = FieldTransition.PHASES.fade_in
     return
@@ -161,16 +162,7 @@ function FieldTransition:updateFixed()
     destinationMapId = self.resolution.destinationMap.mapId,
     sourceWarpId = self.sourceWarp.index,
   }
-  -- The swap has already committed, so post-swap pin release is best-effort
-  -- cleanup: a failure there is recorded but must not abort (aborting would
-  -- unpin the now-live destination map).
-  if self.sourceMap.mapId ~= self.resolution.destinationMap.mapId then
-    local ok, err = pcall(self.loader.protectMap, self.loader, self.sourceMap.mapId, false)
-    if not ok then
-      self.error = err
-    end
-  end
-  self.sourceMap, self.sourceWarp, self.resolution = nil, nil, nil
+  self.sourceMap, self.sourceWarp, self.resolution, self.prepared = nil, nil, nil, nil
 end
 
 function FieldTransition:consumeCompleted()

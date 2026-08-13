@@ -586,15 +586,19 @@ end
 function Game:ownership()
   local runtime = self.runtime
   local mapProtections = 0
-  for _ in pairs(runtime.mapLoader.protectedMaps) do
+  local mapProtectedIds = {}
+  for mapId in pairs(runtime.mapLoader.protectedMaps) do
     mapProtections = mapProtections + 1
+    mapProtectedIds[#mapProtectedIds + 1] = mapId
   end
+  table.sort(mapProtectedIds)
   local activeActorMaps = 0
   for _ in pairs(runtime.actors.maps) do
     activeActorMaps = activeActorMaps + 1
   end
   return {
     mapProtections = mapProtections,
+    mapProtectedIds = mapProtectedIds,
     activeActorMaps = activeActorMaps,
     sessionReferences = runtime.session and 1 or 0,
   }

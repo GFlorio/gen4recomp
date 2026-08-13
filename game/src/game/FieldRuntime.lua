@@ -329,11 +329,15 @@ function FieldRuntime:_load()
     -- Warp resolution is owned by WarpSystem through FieldTransition's
     -- default resolver: ordinary records follow the indexed path; scripted
     -- `direct` records carry global destination coordinates and resolve
-    -- through their own branch.
+    -- through their own branch. Fallible destination preparation runs before
+    -- the commit, so a failed warp never touches current-map ownership.
     self.transition = FieldTransition.new({
       loader = self.mapLoader,
-      swap = function(resolution, facing)
-        self:_swapMap(resolution, facing)
+      prepare = function(resolution, facing)
+        return self:_prepareSwap(resolution, facing)
+      end,
+      commit = function(resolution, facing, prepared)
+        self:_commitSwap(resolution, facing, prepared)
       end,
     })
     self.transition.suppression = restored and restored.suppression or nil
@@ -561,7 +565,16 @@ function FieldRuntime:reset()
   self:_load()
 end
 
-function FieldRuntime:_swapMap(resolution, facing)
+-- Fallible warp preparation, run by FieldTransition while the source map is
+-- still the authoritative current map: construct the destination player and
+-- camera, compute the terrain envelope and player visual, then enter the
+-- destination actors last. Every earlier step is pure construction and
+-- enterMap is internally transactional, so a failure at any point aborts the
+-- transition with the source map's ownership untouched.
+---@param resolution table
+---@param facing FieldDirection
+---@return table prepared destination player, camera, envelope, and player visual
+function FieldRuntime:_prepareSwap(resolution, facing)
   assert(self.transition.fadeAlpha == 1, "field map swap must be hidden by fade")
   local runtimeMap = resolution.destinationMap
   local player = FieldPlayer.new({
@@ -579,9 +592,31 @@ function FieldRuntime:_swapMap(resolution, facing)
   local camera = FieldCamera.new(profile, { initialTarget = player:renderPosition() })
   camera:setProjectionAspect(self.viewport:worldAspect())
   camera:setZoom(self.zoom:effectiveZoom())
-
-  local previousMapId = self.runtimeMap.mapId
+  local playerVisual = FieldPlayerVisual.new({
+    player = player,
+    spriteId = self.avatar.spriteId,
+  })
+  local envelope = terrainEnvelope(runtimeMap.terrain)
   self.actors:enterMap(runtimeMap, self.eventState)
+  return {
+    player = player,
+    camera = camera,
+    envelope = envelope,
+    playerVisual = playerVisual,
+  }
+end
+
+-- The irreversible current-map ownership transfer, run by FieldTransition
+-- only after every fallible preparation step succeeded: actor source
+-- removal, map protection transfer, and the runtime/session pointer
+-- updates. A fault here is a fatal programming error; there is no
+-- transition-level rollback of partially committed state.
+---@param resolution table
+---@param facing FieldDirection
+---@param prepared table
+function FieldRuntime:_commitSwap(resolution, facing, prepared)
+  local runtimeMap = resolution.destinationMap
+  local previousMapId = self.runtimeMap.mapId
   if runtimeMap.mapId ~= previousMapId then
     self.actors:leaveMap(previousMapId)
     self.mapLoader:protectMap(runtimeMap.mapId, true)
@@ -589,19 +624,16 @@ function FieldRuntime:_swapMap(resolution, facing)
   end
 
   self.runtimeMap = runtimeMap
-  self.player = player
-  self.playerVisual = FieldPlayerVisual.new({
-    player = player,
-    spriteId = self.avatar.spriteId,
-  })
-  self.session.playerVisual = self.playerVisual
-  self.camera = camera
-  self.envelope = terrainEnvelope(runtimeMap.terrain)
+  self.player = prepared.player
+  self.playerVisual = prepared.playerVisual
+  self.session.playerVisual = prepared.playerVisual
+  self.camera = prepared.camera
+  self.envelope = prepared.envelope
   self.session.currentMap = runtimeMap
-  self.session.player = player
-  self.session.camera = camera
-  self.scripts:onMapSwap(player, runtimeMap)
-  self.mapLoader:updateCoverage(runtimeMap, camera, self.envelope)
+  self.session.player = prepared.player
+  self.session.camera = prepared.camera
+  self.scripts:onMapSwap(prepared.player, runtimeMap)
+  self.mapLoader:updateCoverage(runtimeMap, prepared.camera, prepared.envelope)
 end
 
 function FieldRuntime:_updateCameraProjection()

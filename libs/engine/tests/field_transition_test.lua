@@ -1,7 +1,9 @@
 -- FieldTransition tests freeze the project fade cadence, black-only swap,
--- resource protection, input lock, completion event, and arrival suppression.
--- Failure paths must abort to a coherent idle state: pins released, unlock
--- restored, and the error recorded separately so a later start always works.
+-- input lock, completion event, and arrival suppression. Map protection is
+-- owned by the runtime: the transition never pins or unpins maps, aborting a
+-- failed transition never touches loader protection, and a commit fault
+-- after the black-frame ownership transfer begins is fatal (no transition
+-- rollback).
 
 local Assert = require("tests.support.Assert")
 local FieldTransition = require("libs.engine.src.FieldTransition")
@@ -9,6 +11,8 @@ local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = {}
 
+-- A loader whose protection record must stay empty: the transition is not a
+-- protection owner, so no lifecycle path may call protectMap.
 local function recordingLoader()
   local protections = {}
   return {
@@ -27,11 +31,8 @@ function T.fades_loads_swaps_while_black_and_completes()
   local source = { mapId = 61 }
   local destination = { mapId = 60 }
   local warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 }
-  local protections, swaps = {}, {}
+  local protections, prepares, commits = {}, {}, {}
   local loader = {
-    load = function()
-      return destination
-    end,
     protectMap = function(_, mapId, protected)
       protections[#protections + 1] = { mapId, protected }
     end,
@@ -50,8 +51,12 @@ function T.fades_loads_swaps_while_black_and_completes()
         suppression = { mapId = 60, fieldX = 684, fieldZ = 393 },
       }
     end,
-    swap = function(result, facing)
-      swaps[#swaps + 1] = { result = result, facing = facing }
+    prepare = function(result, facing)
+      prepares[#prepares + 1] = { result = result, facing = facing }
+      return { payload = result.destinationMap }
+    end,
+    commit = function(result, facing, prepared)
+      commits[#commits + 1] = { result = result, facing = facing, prepared = prepared }
     end,
   })
 
@@ -65,12 +70,15 @@ function T.fades_loads_swaps_while_black_and_completes()
   Assert.equal(transition.fadeAlpha, 1)
   transition:updateFixed()
   Assert.equal(transition.phase, "swap_map")
-  Assert.equal(#swaps, 0)
+  Assert.equal(#prepares, 1)
+  Assert.equal(prepares[1].facing, "south")
+  Assert.equal(#commits, 0)
   transition:updateFixed()
   Assert.equal(transition.phase, "fade_in")
   Assert.equal(transition.fadeAlpha, 1)
-  Assert.equal(#swaps, 1)
-  Assert.equal(swaps[1].facing, "south")
+  Assert.equal(#commits, 1)
+  Assert.equal(commits[1].facing, "south")
+  Assert.equal(commits[1].prepared.payload.mapId, 60)
   transition:updateFixed()
   Assert.equal(transition.fadeAlpha, 0.5)
   transition:updateFixed()
@@ -83,16 +91,13 @@ function T.fades_loads_swaps_while_black_and_completes()
     sourceWarpId = 0,
   })
   Assert.isNil(transition:consumeCompleted())
-  Assert.deepEqual(protections, {
-    { 61, true },
-    { 60, true },
-    { 61, false },
-  })
+  Assert.deepEqual(protections, {})
 end
 
 -- The default resolver is WarpSystem.resolveDestination: a transition built
 -- without a custom resolver must resolve a scripted direct warp record (the
--- production wiring FieldRuntime relies on) through the moved branch.
+-- production wiring FieldRuntime relies on) through the moved branch. The
+-- loader needs no protectMap surface: protection is not transition-owned.
 function T.default_resolver_handles_direct_warp_records()
   local destination = {
     mapId = 60,
@@ -122,13 +127,13 @@ function T.default_resolver_handles_direct_warp_records()
     load = function()
       return destination
     end,
-    protectMap = function() end,
   }
   local transition = FieldTransition.new({
     loader = loader,
     fadeOutTicks = 1,
     fadeInTicks = 1,
-    swap = function() end,
+    prepare = function() end,
+    commit = function() end,
   })
   transition:start(
     { mapId = 61 },
@@ -144,9 +149,11 @@ function T.default_resolver_handles_direct_warp_records()
   Assert.deepEqual(transition.suppression, { mapId = 60, fieldX = 688, fieldZ = 392 })
 end
 
--- A failed resolution aborts to a coherent idle state: unlocked, pins
--- released, source state cleared, and the error recorded separately. A later
--- start must run a full transition to completion.
+-- A failed resolution aborts to a coherent idle state: unlocked, source
+-- state cleared, and the error recorded separately. Loader protection is
+-- never touched, so an aborted transition can never release the current
+-- source map's runtime-owned protection. A later start must run a full
+-- transition to completion.
 function T.resolve_failure_aborts_and_a_second_transition_succeeds()
   local loader = recordingLoader()
   local failures = 1
@@ -161,7 +168,8 @@ function T.resolve_failure_aborts_and_a_second_transition_succeeds()
       end
       return destination()
     end,
-    swap = function() end,
+    prepare = function() end,
+    commit = function() end,
   })
 
   transition:start({ mapId = 61 }, { index = 0, destinationMapId = 60, destinationWarpId = 0 }, "south")
@@ -175,6 +183,7 @@ function T.resolve_failure_aborts_and_a_second_transition_succeeds()
   Assert.isNil(transition.sourceWarp)
   Assert.isNil(transition.resolution)
   Assert.isNil(transition:consumeCompleted())
+  Assert.deepEqual(loader.protections, {}, "an aborted transition never touches map protection")
 
   transition:start({ mapId = 61 }, { index = 0, destinationMapId = 60, destinationWarpId = 0 }, "south")
   transition:updateFixed()
@@ -190,112 +199,61 @@ function T.resolve_failure_aborts_and_a_second_transition_succeeds()
     destinationMapId = 60,
     sourceWarpId = 0,
   })
-  Assert.deepEqual(loader.protections, {
-    { 61, true },
-    { 61, false },
-    { 61, true },
-    { 60, true },
-    { 61, false },
-  })
+  Assert.deepEqual(loader.protections, {})
 end
 
--- A failing destination pin aborts: the source pin is released and the
--- partially pinned destination is released too.
-function T.destination_pin_failure_aborts_with_pins_released()
-  local protections = {}
-  local loader = {
-    protectMap = function(_, mapId, protected)
-      protections[#protections + 1] = { mapId, protected }
-      if protected and mapId == 60 then
-        error("pin failed", 0)
-      end
-    end,
-  }
-  local transition = FieldTransition.new({
-    loader = loader,
-    fadeOutTicks = 1,
-    fadeInTicks = 1,
-    resolveDestination = destination,
-    swap = function() end,
-  })
-  transition:start({ mapId = 61 }, { index = 0, destinationMapId = 60, destinationWarpId = 0 }, "south")
-  transition:updateFixed()
-  transition:updateFixed()
-  Assert.equal(transition.phase, "idle")
-  Assert.isFalse(transition.locked)
-  Assert.equal(tostring(transition.error), "pin failed")
-  Assert.isNil(transition.sourceMap)
-  Assert.deepEqual(protections, {
-    { 61, true },
-    { 60, true },
-    { 61, false },
-    { 60, false },
-  })
-end
-
--- A failing source pin at start aborts before the transition begins: idle,
--- unlocked, error recorded, nothing left pinned.
-function T.source_pin_failure_at_start_aborts_idle()
-  local protections = {}
-  local loader = {
-    protectMap = function(_, mapId, protected)
-      protections[#protections + 1] = { mapId, protected }
-      if protected then
-        error("pin failed", 0)
-      end
-    end,
-  }
-  local transition = FieldTransition.new({
-    loader = loader,
-    fadeOutTicks = 1,
-    fadeInTicks = 1,
-    resolveDestination = destination,
-    swap = function() end,
-  })
-  transition:start({ mapId = 61 }, { index = 0, destinationMapId = 60, destinationWarpId = 0 }, "south")
-  Assert.equal(transition.phase, "idle")
-  Assert.isFalse(transition.locked)
-  Assert.equal(tostring(transition.error), "pin failed")
-  Assert.isNil(transition.sourceMap)
-  Assert.deepEqual(protections, { { 61, true }, { 61, false } })
-end
-
--- A failing swap callback aborts after the destination was pinned: both pins
--- are released and a later start is accepted.
-function T.swap_failure_aborts_and_releases_both_pins()
+-- A failed prepare aborts the same way: destination player/camera
+-- construction is fallible preparation that must run while the source map
+-- remains the authoritative current map, so a failure leaves source
+-- protection untouched and records the error.
+function T.prepare_failure_aborts_with_source_protection_untouched()
   local loader = recordingLoader()
   local transition = FieldTransition.new({
     loader = loader,
     fadeOutTicks = 1,
     fadeInTicks = 1,
     resolveDestination = destination,
-    swap = function()
-      error("swap failed", 0)
+    prepare = function()
+      error("prepare failed", 0)
+    end,
+    commit = function() end,
+  })
+  transition:start({ mapId = 61 }, { index = 0, destinationMapId = 60, destinationWarpId = 0 }, "south")
+  transition:updateFixed()
+  transition:updateFixed()
+  Assert.equal(transition.phase, "idle")
+  Assert.isFalse(transition.locked)
+  Assert.equal(tostring(transition.error), "prepare failed")
+  Assert.isNil(transition.resolution)
+  Assert.deepEqual(loader.protections, {})
+end
+
+-- A fault inside the commit (the irreversible black-frame ownership
+-- transfer) is a fatal programming error: it propagates out of updateFixed
+-- and the transition does not pretend to roll back arbitrary partially
+-- mutated game state by aborting to idle.
+function T.commit_fault_propagates_as_fatal()
+  local loader = recordingLoader()
+  local transition = FieldTransition.new({
+    loader = loader,
+    fadeOutTicks = 1,
+    fadeInTicks = 1,
+    resolveDestination = destination,
+    prepare = function() end,
+    commit = function()
+      error("commit failed", 0)
     end,
   })
   transition:start({ mapId = 61 }, { index = 0, destinationMapId = 60, destinationWarpId = 0 }, "south")
   transition:updateFixed()
   transition:updateFixed()
   Assert.equal(transition.phase, "swap_map")
-  transition:updateFixed()
-  Assert.equal(transition.phase, "idle")
-  Assert.isFalse(transition.locked)
-  Assert.equal(transition.fadeAlpha, 0)
-  Assert.equal(tostring(transition.error), "swap failed")
-  Assert.isNil(transition.sourceMap)
-  Assert.isNil(transition.sourceWarp)
-  Assert.isNil(transition.resolution)
-  Assert.deepEqual(loader.protections, {
-    { 61, true },
-    { 60, true },
-    { 61, false },
-    { 60, false },
-  })
-
-  transition:start({ mapId = 61 }, { index = 0, destinationMapId = 60, destinationWarpId = 0 }, "south")
-  Assert.equal(transition.phase, "fade_out")
-  Assert.isTrue(transition.locked)
-  Assert.isNil(transition.error)
+  local ok, err = pcall(transition.updateFixed, transition)
+  Assert.isFalse(ok)
+  Assert.equal(tostring(err), "commit failed")
+  Assert.equal(transition.phase, "swap_map")
+  Assert.isNil(transition.error, "commit faults are not transition errors")
+  Assert.deepEqual(loader.protections, {})
 end
 
 -- The failed-warp context is recorded with the error: the destination and
@@ -309,7 +267,8 @@ function T.abort_records_the_failed_warp_context()
     resolveDestination = function()
       error("resolve failed", 0)
     end,
-    swap = function() end,
+    prepare = function() end,
+    commit = function() end,
   })
   transition:start({ mapId = 61 }, { index = 4, destinationMapId = 60, destinationWarpId = 2 }, "south")
   transition:updateFixed()
