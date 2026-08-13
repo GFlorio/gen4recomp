@@ -114,6 +114,7 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
     mapId = resolved.map.id,
     cameraType = resolved.map.cameraType,
     coordinateOrigin = { x = resolved.worldOriginX, z = resolved.worldOriginZ },
+    fieldData = { events = { warps = {} } },
     collision = {
       containsLocal = function(_, x, z)
         return x >= 0 and x < 32 and z >= 0 and z < 32
@@ -147,7 +148,14 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
   }
   local camera = FieldCamera.new(profile, { initialTarget = player:renderPosition() })
   local cameraSamples = {}
-  local transition = { phase = "idle", locked = false, updateFixed = function() end }
+  local transition = {
+    phase = "idle",
+    locked = false,
+    updateFixed = function() end,
+    start = function()
+      error("staircase fixture never starts a warp", 2)
+    end,
+  }
   local input = {
     snapshot = function()
       return {}
@@ -155,6 +163,34 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
     clearEdges = function() end,
   }
   local actors = { step = function() end }
+  local dialogue = {
+    isModal = function()
+      return false
+    end,
+  }
+  local scriptScheduler = {
+    step = function() end,
+    playerMovementLocked = function()
+      return false
+    end,
+  }
+  local scriptClient = { consume = function() end }
+  local menuHost = {
+    isModal = function()
+      return false
+    end,
+    advance = function() end,
+  }
+  local contextChoice = {
+    isActive = function()
+      return false
+    end,
+  }
+  local interactions = {
+    resolve = function()
+      return nil
+    end,
+  }
   local session = FieldSession.new({
     versionId = "rom-conformance",
     currentMap = runtimeMap,
@@ -163,6 +199,12 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
     transition = transition,
     input = input,
     actors = actors,
+    dialogue = dialogue,
+    scriptScheduler = scriptScheduler,
+    scriptClient = scriptClient,
+    menuHost = menuHost,
+    contextChoice = contextChoice,
+    interactions = interactions,
   })
 
   local directions = {

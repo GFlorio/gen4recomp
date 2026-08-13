@@ -342,6 +342,26 @@ function T.ui_snapshot_normalizes_navigation_buttons_and_key_repeat()
   Assert.deepEqual(input:uiSnapshot(5), { { type = "navigate", direction = "down" } })
 end
 
+function T.ui_ticks_must_be_non_negative_integers()
+  local input = FieldInput.new()
+  local beginErr = Assert.throws(function()
+    input:beginUi(-1)
+  end)
+  Assert.notNil(
+    beginErr:find("non-negative integer", 1, true),
+    "beginUi rejects negative ticks: " .. tostring(beginErr)
+  )
+  local snapshotErr = Assert.throws(function()
+    input:uiSnapshot(-1)
+  end)
+  Assert.notNil(
+    snapshotErr:find("non-negative integer", 1, true),
+    "uiSnapshot rejects negative ticks: " .. tostring(snapshotErr)
+  )
+  input:beginUi(0)
+  Assert.deepEqual(input:uiSnapshot(0), {})
+end
+
 function T.ui_stick_uses_hysteresis_and_modal_open_flushes_held_input()
   local input = FieldInput.new({ uiRepeatDelay = 3, uiRepeatInterval = 1 })
   input:setStick("gamepad:4:left", -0.7, 0)

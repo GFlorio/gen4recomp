@@ -490,7 +490,14 @@ T["session script phase"] = function()
   }
   local runtimeMap = { mapId = 57 }
   local camera = { updateFixed = function() end }
-  local transition = { phase = "idle", locked = false, updateFixed = function() end }
+  local transition = {
+    phase = "idle",
+    locked = false,
+    updateFixed = function() end,
+    start = function()
+      error("binding fixture never starts a warp", 2)
+    end,
+  }
   local input = {
     snapshot = function()
       return {}
@@ -498,6 +505,22 @@ T["session script phase"] = function()
     clearEdges = function() end,
   }
   local actors = { step = function() end }
+  local dialogue = {
+    isModal = function()
+      return false
+    end,
+  }
+  local menuHost = {
+    isModal = function()
+      return false
+    end,
+    advance = function() end,
+  }
+  local contextChoice = {
+    isActive = function()
+      return false
+    end,
+  }
   local session = FieldSession.new({
     versionId = "heartgold",
     currentMap = runtimeMap,
@@ -512,10 +535,10 @@ T["session script phase"] = function()
       resolve = function(_, snapshot)
         return objectIntent(57, "obj_T20_gswoman1", "north")
       end,
-      consume = function()
-        return false
-      end,
     },
+    dialogue = dialogue,
+    menuHost = menuHost,
+    contextChoice = contextChoice,
   })
   -- The script client starts the interaction and the tick is consumed: the
   -- player does not move while the foreground root owns the field.

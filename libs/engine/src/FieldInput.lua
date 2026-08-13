@@ -49,6 +49,7 @@ FieldInput.TOUCH_DRAG_THRESHOLD_PIXELS = 8
 local VALID = { north = true, south = true, west = true, east = true }
 local UI_DIRECTIONS = { up = true, down = true, left = true, right = true }
 local TO_UI_DIRECTION = { north = "up", south = "down", west = "left", east = "right" }
+local UI_TO_FIELD_DIRECTION = { up = "north", down = "south", left = "west", right = "east" }
 
 ---@param direction string
 local function requireDirection(direction)
@@ -78,6 +79,15 @@ end
 ---@param name string
 local function requirePositiveInteger(value, name)
   assert(type(value) == "number" and value == math.floor(value) and value > 0, name .. " must be a positive integer")
+end
+
+---@param value any
+---@param name string
+local function requireNonNegativeInteger(value, name)
+  assert(
+    type(value) == "number" and value == math.floor(value) and value >= 0,
+    name .. " must be a non-negative integer"
+  )
 end
 
 ---@param value any
@@ -336,7 +346,7 @@ function FieldInput:setStick(source, x, y)
   end
   self.stickDirections[source] = direction
   if direction then
-    self:pressDirection(({ left = "west", right = "east", up = "north", down = "south" })[direction], source)
+    self:pressDirection(UI_TO_FIELD_DIRECTION[direction], source)
   end
 end
 
@@ -436,7 +446,7 @@ end
 
 ---@param tick integer
 function FieldInput:beginUi(tick)
-  requirePositiveInteger(tick + 1, "UI tick")
+  requireNonNegativeInteger(tick, "UI tick")
   self.uiPressedDirection = nil
   self.uiConfirmPressed = nil
   self.uiCancelPressed = nil
@@ -450,7 +460,7 @@ end
 ---@param tick integer
 ---@return table[]
 function FieldInput:uiSnapshot(tick)
-  requirePositiveInteger(tick + 1, "UI tick")
+  requireNonNegativeInteger(tick, "UI tick")
   local events = {}
   local direction = self.uiPressedDirection
   if direction then

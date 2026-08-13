@@ -11,12 +11,19 @@ local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = {}
 
--- Complete fakes for the collaborators FieldSession now requires at
--- construction: an idle transition (never completes, never locks, no warp
--- capability), an input that snapshots nothing, and a manager that steps no
--- actors.
+-- Complete fakes for the collaborators FieldSession requires at
+-- construction: an idle transition (never completes, never locks, never
+-- starts a warp), an input that snapshots nothing, and a manager that steps
+-- no actors.
 local function idleTransition()
-  return { phase = "idle", locked = false, updateFixed = function() end }
+  return {
+    phase = "idle",
+    locked = false,
+    updateFixed = function() end,
+    start = function()
+      error("idle transition must never start a warp", 2)
+    end,
+  }
 end
 
 local function idleInput()
@@ -30,6 +37,71 @@ end
 
 local function idleActors()
   return { step = function() end }
+end
+
+local function defaultPlayer()
+  return {
+    fieldX = 4,
+    fieldZ = 13,
+    worldX = 0,
+    worldY = 0,
+    worldZ = 0,
+    surfaceId = 0,
+    facing = "south",
+    motion = "idle",
+    updateFixed = function()
+      return false
+    end,
+  }
+end
+
+-- Every collaborator the production runtime supplies is required at
+-- construction; these defaults implement the full required interface so a
+-- fixture overrides only the collaborators it exercises. The default map
+-- carries empty warp events so a pressed direction reaches the warp check
+-- safely.
+local function baseOptions(overrides)
+  local options = {
+    versionId = "heartgold",
+    currentMap = { mapId = 61, fieldData = { events = { warps = {} } } },
+    player = defaultPlayer(),
+    camera = { updateFixed = function() end },
+    transition = idleTransition(),
+    actors = idleActors(),
+    input = idleInput(),
+    dialogue = {
+      isModal = function()
+        return false
+      end,
+    },
+    scriptScheduler = {
+      step = function() end,
+      playerMovementLocked = function()
+        return false
+      end,
+    },
+    scriptClient = { consume = function() end },
+    menuHost = {
+      isModal = function()
+        return false
+      end,
+      advance = function() end,
+    },
+    contextChoice = {
+      isActive = function()
+        return false
+      end,
+    },
+    interactions = {
+      resolve = function()
+        return nil
+      end,
+    },
+  }
+  for key, value in pairs(overrides) do
+    options[key] = value
+  end
+  return options
 end
 
 local function session()
@@ -47,17 +119,7 @@ local function session()
       return false
     end,
   }
-  local map = { mapId = 61 }
-  return FieldSession.new({
-    versionId = "heartgold",
-    currentMap = map,
-    player = player,
-    camera = camera,
-    transition = idleTransition(),
-    input = idleInput(),
-    actors = idleActors(),
-  }),
-    targets
+  return FieldSession.new(baseOptions({ player = player, camera = camera })), targets
 end
 
 function T.actor_only_construction_is_rejected()
@@ -76,62 +138,62 @@ function T.actor_only_construction_is_rejected()
 end
 
 function T.player_is_used_as_the_session_player()
-  local player = { worldX = 1.25, worldY = 2.5, worldZ = 3.75 }
+  local player = {
+    worldX = 1.25,
+    worldY = 2.5,
+    worldZ = 3.75,
+    updateFixed = function() end,
+  }
   local camera = { updateFixed = function() end }
-  local map = { mapId = 61 }
-  local s = FieldSession.new({
-    versionId = "heartgold",
-    currentMap = map,
-    player = player,
-    camera = camera,
-    transition = idleTransition(),
-    input = idleInput(),
-    actors = idleActors(),
-  })
+  local s = FieldSession.new(baseOptions({ player = player, camera = camera }))
   Assert.equal(s.player, player)
   Assert.deepEqual(s:actorTarget(), { x = 1.25, y = 2.5, z = 3.75 })
 end
 
 -- The transition, input, and actor manager are tick-path collaborators every
 -- production session supplies; construction must require them instead of
--- letting a session run with half its tick machinery missing.
+-- letting a session run with half its tick machinery missing. The dialogue,
+-- script scheduler/client, menu host, context choice, and interaction
+-- resolver complete the production composition set and are required the same
+-- way.
 function T.required_collaborators_are_validated_at_construction()
-  local options = {
-    versionId = "heartgold",
-    currentMap = { mapId = 61 },
-    player = { worldX = 0, worldY = 0, worldZ = 0 },
-    camera = { updateFixed = function() end },
-    transition = idleTransition(),
-    input = idleInput(),
-    actors = idleActors(),
+  local required = {
+    "versionId",
+    "currentMap",
+    "player",
+    "camera",
+    "transition",
+    "actors",
+    "input",
+    "dialogue",
+    "scriptScheduler",
+    "scriptClient",
+    "menuHost",
+    "contextChoice",
+    "interactions",
   }
-  for _, missing in ipairs({ "transition", "input", "actors" }) do
-    local partial = {}
-    for key, value in pairs(options) do
-      partial[key] = value
-    end
+  for _, missing in ipairs(required) do
+    local partial = baseOptions({})
     partial[missing] = nil
     local ok, err = pcall(FieldSession.new, partial)
     Assert.isFalse(ok, "a session must require " .. missing .. ": " .. tostring(err))
   end
 end
 
--- The interaction resolver and the script client are a pair: an intent can
--- only be produced through the resolver service, so a session that wires
--- interactions without the consuming client is a composition fault.
-function T.interactions_without_a_script_client_is_rejected()
-  local options = {
-    versionId = "heartgold",
-    currentMap = { mapId = 61 },
-    player = { worldX = 0, worldY = 0, worldZ = 0 },
-    camera = { updateFixed = function() end },
-    transition = idleTransition(),
-    input = idleInput(),
-    actors = idleActors(),
-    interactions = { resolve = function() end },
+-- The session calls required collaborator operations unconditionally on its
+-- tick paths, so a collaborator missing one of those methods is the same
+-- composition fault as a missing collaborator.
+function T.required_collaborator_methods_are_validated_at_construction()
+  local cases = {
+    { key = "transition", method = "start", label = "transition.start" },
+    { key = "dialogue", method = "isModal", label = "dialogue.isModal" },
   }
-  local ok, err = pcall(FieldSession.new, options)
-  Assert.isFalse(ok, "interactions require the paired script client: " .. tostring(err))
+  for _, case in ipairs(cases) do
+    local options = baseOptions({})
+    options[case.key][case.method] = nil
+    local ok, err = pcall(FieldSession.new, options)
+    Assert.isFalse(ok, "a session must require " .. case.label .. ": " .. tostring(err))
+  end
 end
 
 function T.fixed_ticks_are_render_cadence_independent()
@@ -181,18 +243,18 @@ function T.completed_transition_holds_the_arrival_tile_for_autosave()
       self.phase, self.locked = "idle", false
       self.completed = { destinationMapId = 61 }
     end,
+    start = function()
+      error("a completing transition never starts a warp", 2)
+    end,
   }
   local map = { mapId = 61, cameraType = 4 }
   local camera = { updateFixed = function() end }
-  local s = FieldSession.new({
-    versionId = "heartgold",
+  local s = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
     camera = camera,
     transition = transition,
-    input = idleInput(),
-    actors = idleActors(),
-  })
+  }))
   s:updateFixed({ heldDirection = "south" })
   Assert.equal(updates, 0)
   Assert.equal(player.fieldZ, 14)
@@ -210,7 +272,16 @@ function T.script_completion_consumes_its_final_action_edge()
       return locked
     end,
   }
-  local player = { fieldX = 0, fieldZ = 0, worldX = 0, worldY = 0, worldZ = 0, surfaceId = 0, motion = "idle" }
+  local player = {
+    fieldX = 0,
+    fieldZ = 0,
+    worldX = 0,
+    worldY = 0,
+    worldZ = 0,
+    surfaceId = 0,
+    motion = "idle",
+    updateFixed = function() end,
+  }
   local map = { mapId = 61 } --[[@as any]]
   local camera = { updateFixed = function() end } --[[@as any]]
   local interactions = {
@@ -223,20 +294,36 @@ function T.script_completion_consumes_its_final_action_edge()
       error("the script client must not be reached while the scheduler owns the tick", 2)
     end,
   }
-  local s = FieldSession.new({
-    versionId = "heartgold",
+  local s = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
     camera = camera,
-    transition = idleTransition(),
-    input = idleInput(),
-    actors = idleActors(),
     scriptScheduler = scheduler,
     interactions = interactions,
     scriptClient = client,
-  })
+  }))
   s:updateFixed({ actionPressed = true })
   Assert.equal(resolved, 0)
+end
+
+-- The input snapshot vocabulary is actionPressed/cancelPressed; the
+-- scheduler receives edges only through that vocabulary. Snapshot properties
+-- outside it are ignored -- the scheduler's own step-input vocabulary
+-- (pressedAction/pressedCancel) is a separate contract.
+function T.scheduler_edges_come_only_from_current_snapshot_properties()
+  local received
+  local scheduler = {
+    step = function(_, _, snapshot)
+      received = snapshot
+    end,
+    playerMovementLocked = function()
+      return false
+    end,
+  }
+  local s = FieldSession.new(baseOptions({ scriptScheduler = scheduler }))
+  s:updateFixed({ pressedAction = true, pressedCancel = true })
+  Assert.isNil(received.pressedAction, "snapshot pressedAction is not scheduler input")
+  Assert.isNil(received.pressedCancel, "snapshot pressedCancel is not scheduler input")
 end
 
 -- A modal menu receives normalized UI events through the scheduler input,
@@ -263,20 +350,24 @@ function T.modal_menu_routes_ui_events_to_the_script_scheduler()
       return true
     end,
   }
-  local player = { worldX = 0, worldY = 0, worldZ = 0 }
+  local player = {
+    worldX = 0,
+    worldY = 0,
+    worldZ = 0,
+    updateFixed = function()
+      return false
+    end,
+  }
   local map = { mapId = 61 }
   local camera = { updateFixed = function() end }
-  local session = FieldSession.new({
-    versionId = "heartgold",
+  local session = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
     camera = camera,
-    transition = idleTransition(),
-    actors = idleActors(),
     input = input,
     menuHost = menuHost,
     scriptScheduler = scheduler,
-  })
+  }))
 
   input:pressDirection("south", "key:s")
   session:updateFixed()
@@ -303,19 +394,22 @@ function T.the_player_pose_clock_advances_once_per_tick_and_freezes_under_a_tran
       return false
     end,
   }
-  local transition = { phase = "idle", updateFixed = function() end }
+  local transition = {
+    phase = "idle",
+    updateFixed = function() end,
+    start = function()
+      error("idle transition must never start a warp", 2)
+    end,
+  }
   local map = { mapId = 61, cameraType = 4 }
   local camera = { updateFixed = function() end }
-  local s = FieldSession.new({
-    versionId = "heartgold",
+  local s = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
     camera = camera,
     transition = transition,
-    input = idleInput(),
-    actors = idleActors(),
     playerVisual = playerVisual,
-  })
+  }))
   s:updateFixed({})
   s:updateFixed({})
   Assert.equal(steps, 2)
@@ -369,15 +463,12 @@ local function warpSession(options)
     return false
   end
   local camera = { updateFixed = function() end }
-  local session = FieldSession.new({
-    versionId = "heartgold",
+  local session = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
     camera = camera,
     transition = transition,
-    input = idleInput(),
-    actors = idleActors(),
-  })
+  }))
   return session, transition, starts, warp
 end
 
@@ -452,15 +543,12 @@ function T.actor_on_a_blocked_warp_cell_does_not_block_the_facing_warp()
     end,
   })
   local camera = { updateFixed = function() end }
-  local session = FieldSession.new({
-    versionId = "heartgold",
+  local session = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
     camera = camera,
     transition = transition,
-    input = idleInput(),
-    actors = idleActors(),
-  })
+  }))
   session:updateFixed({ heldDirection = "south", pressedDirection = "south" })
   Assert.equal(#starts, 1)
   Assert.equal(starts[1].warp, warp)
@@ -524,15 +612,12 @@ function T.actor_on_an_open_warp_cell_blocks_the_walk_but_not_the_route()
     end,
   })
   local camera = { updateFixed = function() end }
-  local session = FieldSession.new({
-    versionId = "heartgold",
+  local session = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
     camera = camera,
     transition = transition,
-    input = idleInput(),
-    actors = idleActors(),
-  })
+  }))
   session:updateFixed({ heldDirection = "south", pressedDirection = "south" })
   Assert.equal(#starts, 0)
   Assert.equal(player.fieldZ, 13)
@@ -614,19 +699,24 @@ local function dialogueSession(opts)
       worldSteps.visual = worldSteps.visual + 1
     end,
   }
-  local transition = { phase = "idle", locked = false, updateFixed = function() end }
-  local map = { mapId = 61, cameraType = 4 }
-  local session = FieldSession.new({
-    versionId = "heartgold",
+  local transition = {
+    phase = "idle",
+    locked = false,
+    updateFixed = function() end,
+    start = function()
+      error("dialogue fixture never starts a warp", 2)
+    end,
+  }
+  local map = { mapId = 61, cameraType = 4, fieldData = { events = { warps = {} } } }
+  local session = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
     camera = camera,
     transition = transition,
-    input = idleInput(),
     actors = actors,
     playerVisual = playerVisual,
     dialogue = dialogue,
-  })
+  }))
   return session, worldSteps, function()
     return dialogueSteps, received
   end, dialogue
@@ -688,18 +778,19 @@ function T.transition_commit_clears_stale_action_edges()
       self.phase, self.locked = "idle", false
       self.completed = { destinationMapId = 60 }
     end,
+    start = function()
+      error("a completing transition never starts a warp", 2)
+    end,
   }
   local camera = { updateFixed = function() end }
   local map = { mapId = 61, cameraType = 4 }
-  local session = FieldSession.new({
-    versionId = "heartgold",
+  local session = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
     camera = camera,
     transition = transition,
     input = input,
-    actors = idleActors(),
-  })
+  }))
   session:updateFixed({ actionPressed = true })
   -- The commit tick consumed the snapshot edge and cleared the input object's
   -- pending edges, so a later tick cannot act on a stale action edge after
@@ -743,19 +834,31 @@ local function interactionSession(opts)
   }
   local camera = { updateFixed = function() end }
   local actors = { step = function() end }
-  local transition = { phase = "idle", locked = false, updateFixed = function() end }
-  local map = { mapId = 61, cameraType = 4 }
-  local session = FieldSession.new({
-    versionId = "heartgold",
+  local transition = {
+    phase = "idle",
+    locked = false,
+    updateFixed = function() end,
+    start = function()
+      error("interaction fixture never starts a warp", 2)
+    end,
+  }
+  local map = { mapId = 61, cameraType = 4, fieldData = { events = { warps = {} } } }
+  local dialogue = {
+    isModal = function()
+      return opts.modalDialogue == true
+    end,
+    step = function() end,
+  }
+  local session = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
     camera = camera,
     transition = transition,
-    input = idleInput(),
     actors = actors,
     interactions = interactions,
     scriptClient = client,
-  })
+    dialogue = dialogue,
+  }))
   return session, player, interactions, function()
     return steps
   end
@@ -838,7 +941,7 @@ function T.interaction_never_resolves_without_the_action_edge()
 end
 
 function T.interaction_never_resolves_under_a_locked_transition_or_modal()
-  local session, player, interactions, steps = interactionSession({
+  local session, _, interactions, steps = interactionSession({
     intent = { kind = "object", object = { actorId = "map:61:object:0" } },
   })
   session.transition.locked = true
@@ -846,16 +949,13 @@ function T.interaction_never_resolves_under_a_locked_transition_or_modal()
   Assert.isNil(interactions.resolveSnapshot, "a locked transition owns the tick")
   Assert.equal(steps(), 0)
 
-  session.transition.locked = false
-  local modal = {
-    isModal = function()
-      return true
-    end,
-    step = function() end,
-  }
-  session.dialogue = modal
-  session:updateFixed({ actionPressed = true })
-  Assert.isNil(interactions.resolveSnapshot, "modal ownership blocks new interactions")
+  local modalSession, _, modalInteractions, modalSteps = interactionSession({
+    intent = { kind = "object", object = { actorId = "map:61:object:0" } },
+    modalDialogue = true,
+  })
+  modalSession:updateFixed({ actionPressed = true })
+  Assert.isNil(modalInteractions.resolveSnapshot, "modal ownership blocks new interactions")
+  Assert.equal(modalSteps(), 0)
 end
 
 function T.catch_up_ticks_do_not_replay_one_action_edge()
@@ -888,10 +988,16 @@ function T.catch_up_ticks_do_not_replay_one_action_edge()
   }
   local camera = { updateFixed = function() end }
   local actors = { step = function() end }
-  local transition = { phase = "idle", locked = false, updateFixed = function() end }
+  local transition = {
+    phase = "idle",
+    locked = false,
+    updateFixed = function() end,
+    start = function()
+      error("catch-up fixture never starts a warp", 2)
+    end,
+  }
   local map = { mapId = 61, cameraType = 4 }
-  local session = FieldSession.new({
-    versionId = "heartgold",
+  local session = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
     camera = camera,
@@ -900,7 +1006,7 @@ function T.catch_up_ticks_do_not_replay_one_action_edge()
     input = input,
     interactions = interactions,
     scriptClient = client,
-  })
+  }))
   -- A render delta spanning several fixed ticks: the one Action edge must be
   -- consumed by the first tick's snapshot and never replayed by catch-up.
   -- update() takes no snapshot of its own -- each fixed step samples the input,
@@ -985,16 +1091,12 @@ function T.a_two_tile_walk_keeps_one_phase_across_the_session_ticks()
     spriteId = 0,
   })
   local camera = { updateFixed = function() end }
-  local session = FieldSession.new({
-    versionId = "heartgold",
+  local session = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
     camera = camera,
-    transition = idleTransition(),
-    input = idleInput(),
-    actors = idleActors(),
     playerVisual = visual,
-  })
+  }))
 
   session:updateFixed({ heldDirection = "east", pressedDirection = "east" })
   for tick = 2, 16 do

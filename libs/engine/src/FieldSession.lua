@@ -9,7 +9,7 @@
 -- step it executes, so an edge can never be replayed across catch-up ticks;
 -- `updateFixed(snapshot)` is the explicit deterministic unit-test API.
 --
--- Step 6 is wired through the optional `interactions`
+-- Step 6 is wired through the `interactions`
 -- service: `resolve(snapshot)` returns an immutable InteractionIntent for an
 -- idle player's Action edge, which the session dispatches to
 -- `scriptClient:consume(intent, tick)`. A consumed interaction owns the
@@ -30,13 +30,13 @@ local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractio
 ---@field transition FieldTransition
 ---@field actors FieldActorManager
 ---@field playerVisual FieldPlayerVisual?
----@field dialogue FieldDialogueController?
+---@field dialogue FieldDialogueController
 ---@field input FieldInput
----@field interactions FieldSession.Interactions?
----@field scriptScheduler Scheduler?
----@field scriptClient ScriptInteractionClient?
----@field menuHost FieldMenuHost?
----@field contextChoice ContextChoiceProvider?
+---@field interactions FieldSession.Interactions
+---@field scriptScheduler Scheduler
+---@field scriptClient ScriptInteractionClient
+---@field menuHost FieldMenuHost
+---@field contextChoice ContextChoiceProvider
 ---@field coverage fun(session: FieldSession)?
 
 ---@class FieldSession.Interactions
@@ -50,13 +50,13 @@ local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractio
 ---@field transition FieldTransition
 ---@field actors FieldActorManager
 ---@field playerVisual FieldPlayerVisual?
----@field dialogue FieldDialogueController?
+---@field dialogue FieldDialogueController
 ---@field input FieldInput
----@field interactions FieldSession.Interactions?
----@field scriptScheduler Scheduler?
----@field scriptClient ScriptInteractionClient?
----@field menuHost FieldMenuHost?
----@field contextChoice ContextChoiceProvider?
+---@field interactions FieldSession.Interactions
+---@field scriptScheduler Scheduler
+---@field scriptClient ScriptInteractionClient
+---@field menuHost FieldMenuHost
+---@field contextChoice ContextChoiceProvider
 ---@field coverage fun(session: FieldSession)?
 ---@field tick integer
 ---@field accumulator number
@@ -76,14 +76,29 @@ local ACCUMULATOR_EPSILON = 1e-12
 ---@return FieldSession
 -- Every collaborator the session steps on a tick is required here: the
 -- production runtime supplies them unconditionally, so a session missing any
--- of them is a composition fault rather than a partial-tick configuration.
+-- of them -- or missing an operation a tick path calls unconditionally -- is
+-- a composition fault rather than a partial-tick configuration.
 function FieldSession.new(options)
   assert(options and options.versionId and options.currentMap, "field session identity required")
-  assert(options.player and options.camera, "field session player and camera required")
-  assert(options.transition, "field session transition required")
-  assert(options.input, "field session input required")
-  assert(options.actors, "field session actors required")
-  assert(not options.interactions or options.scriptClient, "the interaction resolver and script client are paired")
+  assert(
+    options.player and options.player.updateFixed and options.camera and options.camera.updateFixed,
+    "field session player and camera required"
+  )
+  assert(
+    options.transition and options.transition.updateFixed and options.transition.start,
+    "field session transition required"
+  )
+  assert(options.actors and options.actors.step, "field session actors required")
+  assert(options.input and options.input.snapshot, "field session input required")
+  assert(options.dialogue and options.dialogue.isModal, "field session dialogue required")
+  assert(
+    options.scriptScheduler and options.scriptScheduler.step and options.scriptScheduler.playerMovementLocked,
+    "field session script scheduler required"
+  )
+  assert(options.scriptClient and options.scriptClient.consume, "field session script client required")
+  assert(options.menuHost and options.menuHost.isModal and options.menuHost.advance, "field session menu host required")
+  assert(options.contextChoice and options.contextChoice.isActive, "field session context choice required")
+  assert(options.interactions and options.interactions.resolve, "field session interaction resolver required")
   return setmetatable({
     versionId = options.versionId,
     currentMap = options.currentMap,
@@ -96,7 +111,7 @@ function FieldSession.new(options)
     input = options.input,
     interactions = options.interactions,
     scriptScheduler = options.scriptScheduler,
-    scriptClient = options.scriptClient --[[@as any]],
+    scriptClient = options.scriptClient,
     menuHost = options.menuHost,
     contextChoice = options.contextChoice,
     coverage = options.coverage,
@@ -133,11 +148,7 @@ function FieldSession:updateFixed(inputSnapshot)
   -- pose clocks, no camera motion. Only the dialogue reads this tick's input.
   -- Script-owned boxes are exempt: the script scheduler steps them from its
   -- own async phase and the script phase owns the tick instead.
-  if
-    self.dialogue
-    and self.dialogue:isModal()
-    and not (self.dialogue.isScriptOwned and self.dialogue:isScriptOwned())
-  then
+  if self.dialogue:isModal() and not (self.dialogue.isScriptOwned and self.dialogue:isScriptOwned()) then
     self.dialogue:step(inputSnapshot)
     self:_advanceTick()
     return
@@ -147,51 +158,39 @@ function FieldSession:updateFixed(inputSnapshot)
   -- advances script-owned asynchronous work, polls tasks, promotes completed
   -- handoffs, runs ready contexts to yield, and resolves at most one new
   -- interaction. The session never steps the scheduler twice per tick.
-  if self.scriptScheduler then
-    local scriptOwnedInput = self.scriptScheduler:playerMovementLocked()
-    local schedulerInput = {
-      heldDirection = inputSnapshot.heldDirection,
-      pressedDirection = inputSnapshot.pressedDirection,
-      pressedAction = inputSnapshot.actionPressed or inputSnapshot.pressedAction,
-      pressedCancel = inputSnapshot.cancelPressed or inputSnapshot.pressedCancel,
-    }
-    local menuModal = self.menuHost and self.menuHost:isModal()
-    local contextChoiceModal = self.contextChoice and self.contextChoice:isActive()
-    if menuModal or contextChoiceModal then
-      assert(self.input, "modal field menu requires FieldInput")
-      local uiEvents = self.input:uiSnapshot(self.tick + 1)
-      if menuModal then
-        schedulerInput.menuEvents = self.menuHost:inputEvents(uiEvents)
-      else
-        schedulerInput.uiEvents = uiEvents
-      end
-      schedulerInput.pressedDirection = nil
-      schedulerInput.pressedAction = nil
-      schedulerInput.pressedCancel = nil
+  local scriptOwnedInput = self.scriptScheduler:playerMovementLocked()
+  local schedulerInput = {
+    heldDirection = inputSnapshot.heldDirection,
+    pressedDirection = inputSnapshot.pressedDirection,
+    pressedAction = inputSnapshot.actionPressed,
+    pressedCancel = inputSnapshot.cancelPressed,
+  }
+  local menuModal = self.menuHost:isModal()
+  local contextChoiceModal = self.contextChoice:isActive()
+  if menuModal or contextChoiceModal then
+    local uiEvents = self.input:uiSnapshot(self.tick + 1)
+    if menuModal then
+      schedulerInput.menuEvents = self.menuHost:inputEvents(uiEvents)
+    else
+      schedulerInput.uiEvents = uiEvents
     end
-    self.scriptScheduler:step(self.tick + 1, {
-      heldDirection = schedulerInput.heldDirection,
-      pressedDirection = schedulerInput.pressedDirection,
-      pressedAction = schedulerInput.pressedAction,
-      pressedCancel = schedulerInput.pressedCancel,
-      menuEvents = schedulerInput.menuEvents,
-      uiEvents = schedulerInput.uiEvents,
-    })
-    if self.menuHost then
-      self.menuHost:advance(self.tick + 1)
-    end
-    local contextChoiceNowModal = self.contextChoice and self.contextChoice:isActive()
-    if not contextChoiceModal and contextChoiceNowModal then
-      self.input:beginUi(self.tick + 1)
-    elseif contextChoiceModal and not contextChoiceNowModal then
-      self.input:clearUi()
-    end
-    -- A foreground root owns the field or a player lock suppresses movement
-    -- and new triggers; the tick is consumed.
-    if scriptOwnedInput or self.scriptScheduler:playerMovementLocked() then
-      self:_advanceTick()
-      return
-    end
+    schedulerInput.pressedDirection = nil
+    schedulerInput.pressedAction = nil
+    schedulerInput.pressedCancel = nil
+  end
+  self.scriptScheduler:step(self.tick + 1, schedulerInput)
+  self.menuHost:advance(self.tick + 1)
+  local contextChoiceNowModal = self.contextChoice:isActive()
+  if not contextChoiceModal and contextChoiceNowModal then
+    self.input:beginUi(self.tick + 1)
+  elseif contextChoiceModal and not contextChoiceNowModal then
+    self.input:clearUi()
+  end
+  -- A foreground root owns the field or a player lock suppresses movement
+  -- and new triggers; the tick is consumed.
+  if scriptOwnedInput or self.scriptScheduler:playerMovementLocked() then
+    self:_advanceTick()
+    return
   end
 
   if self.transition.suppression then
@@ -212,7 +211,7 @@ function FieldSession:updateFixed(inputSnapshot)
   -- tick (the dialogue becomes modal on it), so the same edge cannot also
   -- start a move or warp. The edge itself was already consumed by the input
   -- snapshot, so a held Action cannot re-open anything.
-  if self.interactions and self.player.motion == "idle" and inputSnapshot.actionPressed then
+  if self.player.motion == "idle" and inputSnapshot.actionPressed then
     local intent = self.interactions:resolve({
       runtimeMap = self.currentMap,
       fieldX = self.player.fieldX,
@@ -240,7 +239,7 @@ function FieldSession:updateFixed(inputSnapshot)
   end
 
   local direction = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
-  if self.transition.start and self.player.motion == "idle" and direction then
+  if self.player.motion == "idle" and direction then
     local facingWarp = WarpSystem.findBlockedFacing(self.currentMap, self.player.fieldX, self.player.fieldZ, direction)
     if
       facingWarp
@@ -259,7 +258,7 @@ function FieldSession:updateFixed(inputSnapshot)
   local walkingAtTickStart = self.player.motion == "walking"
 
   local stepCompleted = self.player:updateFixed(inputSnapshot) == true
-  if stepCompleted and self.transition.start then
+  if stepCompleted then
     local standingWarp = WarpSystem.findAt(self.currentMap, self.player.fieldX, self.player.fieldZ)
     if
       standingWarp
