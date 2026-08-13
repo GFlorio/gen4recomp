@@ -55,7 +55,7 @@ local function runtimeMap(originX, originZ, warps, tiles)
     mapId = 61,
     coordinateOrigin = { x = originX, z = originZ },
     fieldData = { events = { warps = warps } },
-    permissions = TilePermissions.new(tiles),
+    collision = TilePermissions.new(tiles),
   }
 end
 

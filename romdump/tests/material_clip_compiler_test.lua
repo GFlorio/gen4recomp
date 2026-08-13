@@ -6,7 +6,7 @@
 -- the NSBCA cross-check.
 
 local Assert = require("tests.support.Assert")
-local BinaryReader = require("libs.rom.src.BinaryReader")
+local BinaryReader = require("libs.codec.src.BinaryReader")
 local NitroAnimation = require("romdump.src.digest.nitro.NitroAnimation")
 local Nsbta = require("romdump.src.digest.nitro.Nsbta")
 local Nsbtp = require("romdump.src.digest.nitro.Nsbtp")

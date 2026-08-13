@@ -79,7 +79,7 @@ local function compileScene(romFs, symbol)
   local props = MapProps.new({
     placements = placements,
     instances = instances,
-    doorTiles = DoorTiles.fromGrid(map.permissions),
+    doorTiles = DoorTiles.fromGrid(map.collision),
   })
   return { map = map, props = props, instances = instances }
 end
@@ -108,7 +108,6 @@ local function runChoreography(romFs, sourceScene, destinationScene, warp, facin
       return assert(maps[mapId], "map " .. tostring(mapId))
     end,
     protectMap = function() end,
-    protectCells = function() end,
   }
 
   local player = FieldPlayer.new({

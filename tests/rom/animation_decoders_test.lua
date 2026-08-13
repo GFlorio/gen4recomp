@@ -5,8 +5,8 @@
 -- pivot entries.
 
 local Assert = require("tests.support.Assert")
-local BinaryReader = require("libs.rom.src.BinaryReader")
-local Errors = require("libs.rom.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
+local Errors = require("libs.errors.src.Errors")
 local NitroAnimation = require("romdump.src.digest.nitro.NitroAnimation")
 local Nsbca = require("romdump.src.digest.nitro.Nsbca")
 local Nsbta = require("romdump.src.digest.nitro.Nsbta")

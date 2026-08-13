@@ -238,10 +238,14 @@ end
 function T.tests.resume_restores_a_save_on_a_map_without_a_declared_spawn()
   withGame(TOWN, function(game)
     requireCapability(game, "moveTo")
+    requireCapability(game, "face")
     requireCapability(game, "waitForTransition")
     -- The Elms Lab 2F door warp is the only TOWN exit whose tile is walkable;
-    -- its destination map (62) has no spawn-manifest entry.
+    -- its destination map (62) has no spawn-manifest entry. The warp is a
+    -- direction-gated tile (WARP_WEST): it fires on the input path, pressing
+    -- west while standing on it.
     game:moveTo({ fieldX = 688, fieldZ = 392 })
+    game:face("west")
     local transition = game:waitForTransition()
     Assert.equal(transition.destination.mapSymbol, "MAP_NEW_BARK_ELMS_LAB_2F")
     local before = game:snapshot()

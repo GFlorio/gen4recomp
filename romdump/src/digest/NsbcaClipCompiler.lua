@@ -33,7 +33,7 @@
 -- malformed-offset diagnostics of the decoders.
 -- Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 local NsbcaClipCompiler = {}
 

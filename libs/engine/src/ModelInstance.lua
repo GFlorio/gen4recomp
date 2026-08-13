@@ -24,7 +24,7 @@
 -- the instance's own map, so two instances of one model can animate at
 -- different frames and with different material overrides. Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local Matrix4 = require("libs.math.src.Matrix4")
 local ModelAnimationState = require("libs.engine.src.ModelAnimationState")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")

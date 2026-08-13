@@ -27,7 +27,7 @@
 -- Two instances of one model each own a state, so the same clip can play at
 -- different frames on different instances. Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local AnimationClip = require("libs.engine.src.AnimationClip")
 local AnimationPlayer = require("libs.engine.src.AnimationPlayer")
 

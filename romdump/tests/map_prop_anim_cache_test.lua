@@ -12,7 +12,7 @@
 -- the real-dump file.
 
 local Assert = require("tests.support.Assert")
-local BinaryWriter = require("libs.rom.src.BinaryWriter")
+local BinaryWriter = require("libs.codec.src.BinaryWriter")
 local Hashing = require("romdump.src.digest.Hashing")
 local AnimationFixture = require("tests.support.AnimationFixture")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")

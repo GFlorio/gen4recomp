@@ -27,7 +27,7 @@
 -- needs one; identity components are authored as explicit constants (scale
 -- 0x1000, rotation identity word, translation 0). Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 local NsbtaClipCompiler = {}
 

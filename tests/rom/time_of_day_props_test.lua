@@ -8,7 +8,7 @@
 -- must drive exactly the decomp's remove-and-add playback.
 
 local Assert = require("tests.support.Assert")
-local CacheFs = require("libs.rom.src.CacheFs")
+local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local MapCacheWriter = require("romdump.src.digest.MapCacheWriter")

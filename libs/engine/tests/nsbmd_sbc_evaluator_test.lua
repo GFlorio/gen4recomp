@@ -5,7 +5,7 @@
 -- romdump/tests/nsbmd_dynamic_mesh_test.lua.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local Matrix4 = require("libs.math.src.Matrix4")
 local NsbmdSbcEvaluator = require("libs.engine.src.NsbmdSbcEvaluator")
 

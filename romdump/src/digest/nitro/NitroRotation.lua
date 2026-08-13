@@ -26,8 +26,8 @@
 -- `reconstruct` handles one key; interpolating between two keys is the
 -- caller's job (the curve machinery in Nsbca.lua). Pure domain module.
 
-local BinaryReader = require("libs.rom.src.BinaryReader")
-local Errors = require("libs.rom.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
+local Errors = require("libs.errors.src.Errors")
 local FixedPoint = require("libs.math.src.FixedPoint")
 
 local NitroRotation = {}

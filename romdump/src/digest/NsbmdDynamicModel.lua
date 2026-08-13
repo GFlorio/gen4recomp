@@ -23,7 +23,7 @@
 -- them with the bound textures, wrap/flip sampler state, pattern variants,
 -- and animated colors. Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local MeshCompiler = require("romdump.src.digest.MeshCompiler")
 local NsbmdTransformProgram = require("romdump.src.digest.NsbmdTransformProgram")

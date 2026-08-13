@@ -25,7 +25,7 @@
 -- payload, so a track needs only its target. Track tables are retained by
 -- reference and never mutated. Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 local AnimationClip = {}
 

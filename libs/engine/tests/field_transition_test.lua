@@ -493,7 +493,6 @@ local function transitionFixture(opts)
       return destination
     end,
     protectMap = function() end,
-    protectCells = function() end,
   }
   local swaps = {}
   local sounds = {}

@@ -2,7 +2,7 @@
 -- BTP0/PAT0, BMA0/MAT0 files whose byte layouts match the verified
 -- real-format layouts (see the NitroAnimation modules). Test-only.
 
-local BinaryWriter = require("libs.rom.src.BinaryWriter")
+local BinaryWriter = require("libs.codec.src.BinaryWriter")
 local NitroBuilder = require("tests.support.NitroBuilder")
 
 local AnimationFixture = {}

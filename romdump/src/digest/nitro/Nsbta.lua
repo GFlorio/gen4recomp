@@ -26,8 +26,8 @@
 -- (a + b) >> 1, quarter rate 3a + b >> 2 weighted toward the nearer key;
 -- frames past the limit read the last key. Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
-local BinaryReader = require("libs.rom.src.BinaryReader")
+local Errors = require("libs.errors.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
 local NitroFile = require("romdump.src.digest.nitro.NitroFile")
 local NitroDict = require("romdump.src.digest.nitro.NitroDict")
 

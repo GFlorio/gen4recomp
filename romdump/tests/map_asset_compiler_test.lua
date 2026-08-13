@@ -164,7 +164,7 @@ end
 function T.animated_straddling_primitives_serialize_per_vertex_sources()
   local AnimationFixture = require("tests.support.AnimationFixture")
 
-  local bw = require("libs.rom.src.BinaryWriter").new()
+  local bw = require("libs.codec.src.BinaryWriter").new()
   bw:u16(0)
   bw:u16(0)
   bw:u32(0)
@@ -224,14 +224,14 @@ end
 -- through MapSceneLoader -- the exact boundary the buildcache failure
 -- regressed at.
 function T.animated_bundle_round_trips_through_writer_readiness_and_loader()
-  local CacheFs = require("libs.rom.src.CacheFs")
+  local CacheFs = require("libs.storage.src.CacheFs")
   local FakeCache = require("tests.support.FakeCache")
   local MapCacheWriter = require("romdump.src.digest.MapCacheWriter")
   local MapAssetCache = require("libs.assets.src.MapAssetCache")
   local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
   local AnimationFixture = require("tests.support.AnimationFixture")
 
-  local bw = require("libs.rom.src.BinaryWriter").new()
+  local bw = require("libs.codec.src.BinaryWriter").new()
   bw:u16(0)
   bw:u16(0)
   bw:u32(0)

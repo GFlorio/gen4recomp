@@ -9,10 +9,10 @@
 -- corpus is clean, and it pins that the contract cannot break real data.
 
 local Assert = require("tests.support.Assert")
-local CacheFs = require("libs.rom.src.CacheFs")
-local GameVersion = require("libs.rom.src.GameVersion")
+local CacheFs = require("libs.storage.src.CacheFs")
+local GameVersion = require("romdump.src.source.GameVersion")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
-local RomImporter = require("libs.rom.src.RomImporter")
+local RomImporter = require("romdump.src.source.RomImporter")
 
 local T = {
   metadata = {

@@ -15,10 +15,9 @@ local FieldGrid = require("libs.engine.src.FieldGrid")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local FieldSession = require("libs.engine.src.FieldSession")
 local FakeCache = require("tests.support.FakeCache")
-local LuaWriter = require("libs.rom.src.LuaWriter")
+local LuaWriter = require("libs.codec.src.LuaWriter")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
-local Hashing = require("romdump.src.digest.Hashing")
 
 local T = {}
 
@@ -185,7 +184,9 @@ end
 -- encoded quad; the fixture writes those bytes into the cache alongside.
 local function doorDescriptor()
   local quad = doorQuad()
-  local meshSha = Hashing.sha1hex(MeshWriter.encode(quad))
+  -- Content-addressed key: the same literal the fixture writes the encoded
+  -- quad under (the geometry path is arbitrary within this test).
+  local meshSha = "mesh_door_quad_0000000000000000000000000000000000"
   return {
     schema = "g4-model-v2",
     key = "outdoor:26:door",
@@ -349,11 +350,7 @@ local function sceneWith(instances, descriptors, doorTiles)
       end
     end
   end
-  local doorList = {}
-  for _, tile in ipairs(doorTiles or {}) do
-    doorList[tile.z * 32 + tile.x + 1] = { behavior = 105, terrainResponseId = 0, blocked = false }
-  end
-  backend:write(dir .. "/collision.g4collision", collisionGrid(doorList))
+  backend:write(dir .. "/collision.g4collision", collisionGrid(doorTiles))
   return luaCache(backend)
 end
 
@@ -371,7 +368,7 @@ local function doorMapFor(runtime, x, z)
         },
       },
     },
-    permissions = runtime.collision,
+    collision = runtime.collision,
   }
 end
 

@@ -5,7 +5,7 @@
 -- the lockstep invariant between the two samplers.
 
 local Assert = require("tests.support.Assert")
-local BinaryReader = require("libs.rom.src.BinaryReader")
+local BinaryReader = require("libs.codec.src.BinaryReader")
 local NitroAnimation = require("romdump.src.digest.nitro.NitroAnimation")
 local Nsbca = require("romdump.src.digest.nitro.Nsbca")
 local NsbcaClipCompiler = require("romdump.src.digest.NsbcaClipCompiler")

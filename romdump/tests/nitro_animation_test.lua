@@ -4,7 +4,7 @@
 -- pinned pokediamond asm.
 
 local Assert = require("tests.support.Assert")
-local BinaryReader = require("libs.rom.src.BinaryReader")
+local BinaryReader = require("libs.codec.src.BinaryReader")
 local NitroBuilder = require("tests.support.NitroBuilder")
 local NitroAnimation = require("romdump.src.digest.nitro.NitroAnimation")
 local NitroCurve = require("romdump.src.digest.nitro.NitroCurve")

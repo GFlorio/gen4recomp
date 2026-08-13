@@ -24,8 +24,8 @@
 -- 64 (the matrix form). The static values initialize the material's texture
 -- state the same way a BTA clip drives it at runtime. Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
-local BinaryReader = require("libs.rom.src.BinaryReader")
+local Errors = require("libs.errors.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
 
 local NsbmdMaterialSrt = {}
 

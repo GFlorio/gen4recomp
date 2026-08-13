@@ -20,7 +20,7 @@
 -- (asserted at compile), so the sampling paths never see a frame past the
 -- last key. Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local JointAnimBlend = require("libs.engine.src.JointAnimBlend")
 
 local CompiledNsbcaSampler = {}

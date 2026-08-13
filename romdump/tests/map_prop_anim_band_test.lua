@@ -17,7 +17,7 @@
 -- because every slot is unique.
 
 local Assert = require("tests.support.Assert")
-local BinaryWriter = require("libs.rom.src.BinaryWriter")
+local BinaryWriter = require("libs.codec.src.BinaryWriter")
 local AnimationFixture = require("tests.support.AnimationFixture")
 local MapPropAnimCompiler = require("romdump.src.digest.MapPropAnimCompiler")
 

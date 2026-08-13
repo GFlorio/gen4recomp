@@ -36,8 +36,8 @@
 -- time_anime1..4), so no name convention is consulted. The mapping is a
 -- compile-time policy decision, not a runtime assumption. Pure domain module.
 
-local BinaryReader = require("libs.rom.src.BinaryReader")
-local Errors = require("libs.rom.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
+local Errors = require("libs.errors.src.Errors")
 local Hashing = require("romdump.src.digest.Hashing")
 local NitroAnimation = require("romdump.src.digest.nitro.NitroAnimation")
 local NsbcaClipCompiler = require("romdump.src.digest.NsbcaClipCompiler")

@@ -10,11 +10,11 @@
 -- only, never the distance outcome.
 
 local Assert = require("tests.support.Assert")
-local CacheFs = require("libs.rom.src.CacheFs")
-local GameVersion = require("libs.rom.src.GameVersion")
-local RomImporter = require("libs.rom.src.RomImporter")
+local CacheFs = require("libs.storage.src.CacheFs")
+local GameVersion = require("romdump.src.source.GameVersion")
+local RomImporter = require("romdump.src.source.RomImporter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
-local PermissionGrid = require("libs.assets.src.PermissionGrid")
+local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
 local DoorTiles = require("libs.engine.src.DoorTiles")
 local FieldGrid = require("libs.engine.src.FieldGrid")
@@ -91,8 +91,8 @@ function T.tests.real_door_tiles_stay_within_the_corpus_backed_bound(context)
       if cache:exists(dir .. "/complete") then
         sceneCount = sceneCount + 1
         local scene = assert(cache:loadLua(dir .. "/scene.lua"), "scene " .. map.id .. " is loadable")
-        local permBytes = assert(cache:read(dir .. "/permissions.bin"), "permission grid readable")
-        local grid = assert(PermissionGrid.decode(permBytes, "map " .. map.id))
+        local collisionBytes = assert(cache:read(MapAssetCache.collisionPath(map.id)), "collision asset readable")
+        local grid = assert(CollisionGridAsset.decode(collisionBytes, "map " .. map.id))
         local facts = doorFacts(scene, CollisionGrid.new(grid))
         if facts.tiles > 0 then
           doorMaps = doorMaps + 1

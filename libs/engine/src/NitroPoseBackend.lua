@@ -27,7 +27,7 @@
 ---@field matrixSlots { [integer]: number[] } -- the matrix-stack slots as of
 --  the end of the replay, tile space (engine units)
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local JointAnimBlend = require("libs.engine.src.JointAnimBlend")
 local NitroJointState = require("libs.engine.src.NitroJointState")
 local CompiledNsbcaSampler = require("libs.engine.src.CompiledNsbcaSampler")

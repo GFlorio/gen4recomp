@@ -49,7 +49,7 @@
 -- This module is pure domain: programs are decoded data, no ROM bytes are
 -- read, and all dependencies are pure-domain modules.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local Matrix4 = require("libs.math.src.Matrix4")
 local NsbmdJointTransforms = require("libs.engine.src.NsbmdJointTransforms")
 local PoseContract = require("libs.engine.src.PoseContract")

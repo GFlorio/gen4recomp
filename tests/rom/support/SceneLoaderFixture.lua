@@ -26,8 +26,9 @@ local FieldInput = require("libs.engine.src.FieldInput")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldSession = require("libs.engine.src.FieldSession")
 local FieldTransition = require("libs.engine.src.FieldTransition")
-local LuaWriter = require("libs.rom.src.LuaWriter")
+local LuaWriter = require("libs.codec.src.LuaWriter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
+local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local MeshWriter = require("libs.assets.src.MeshWriter")
@@ -78,13 +79,13 @@ local function fakeImageBuilder()
 end
 
 -- Write one compiled bundle into the cache layout the loader reads: scene.lua,
--- permissions.bin, every content-addressed .g4mesh, and every model
+-- the collision asset, every content-addressed .g4mesh, and every model
 -- descriptor. Texture blobs are deliberately omitted -- the fake image
 -- builder never reads them.
 local function writeBundle(backend, assets)
   local scene = assets.scene
   backend:write(MapAssetCache.mapDir(scene.mapId) .. "/scene.lua", LuaWriter.encode(scene))
-  backend:write(scene.collision.file, assets.permissions)
+  backend:write(scene.collision.file, CollisionGridAsset.encode(assets.collision))
   for sha, mesh in pairs(assets.meshes) do
     backend:write(MapAssetCache.geometryPath(sha), MeshWriter.encode(mesh))
   end
@@ -159,7 +160,6 @@ function SceneLoaderFixture.newHarness(versionId, opts)
       return assert(maps[mapId], "map " .. tostring(mapId))
     end,
     protectMap = function() end,
-    protectCells = function() end,
   }
   local spawn = opts.spawn
   local player = FieldPlayer.new({

@@ -36,8 +36,8 @@
 -- omit the final shift and rely on row normalization, exactly like the asm).
 -- Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
-local BinaryReader = require("libs.rom.src.BinaryReader")
+local Errors = require("libs.errors.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
 local NitroFile = require("romdump.src.digest.nitro.NitroFile")
 local NitroDict = require("romdump.src.digest.nitro.NitroDict")
 local NitroCurve = require("romdump.src.digest.nitro.NitroCurve")

@@ -21,8 +21,8 @@
 -- one does not) and the non-Ex integer path's odd-frame averages.
 -- Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
-local BinaryReader = require("libs.rom.src.BinaryReader")
+local Errors = require("libs.errors.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
 
 local NitroCurve = {}
 

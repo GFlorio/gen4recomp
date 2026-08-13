@@ -89,7 +89,7 @@ local function propsFor(romFs, symbol)
   local props = MapProps.new({
     placements = placements,
     instances = instances,
-    doorTiles = DoorTiles.fromGrid(map.permissions),
+    doorTiles = DoorTiles.fromGrid(map.collision),
   })
   return props, map, instances
 end
@@ -112,7 +112,7 @@ function T.new_bark_town_doors_resolve_to_their_placed_models(romFs)
   -- The assembly enumerates exactly the four town door tiles (and no other
   -- DOOR-behavior tile) from the real permission grid, as local cell
   -- indices.
-  local enumerated = DoorTiles.fromGrid(map.permissions)
+  local enumerated = DoorTiles.fromGrid(map.collision)
   Assert.equal(#enumerated, #TOWN_DOORS)
   for _, expected in ipairs(TOWN_DOORS) do
     local lx, lz = FieldCoordinates.fieldToLocal(map, expected.x, expected.z)

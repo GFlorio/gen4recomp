@@ -13,7 +13,7 @@ local RomRuntimeMap = require("tests.support.RomRuntimeMap")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
 local WarpSystem = require("libs.engine.src.WarpSystem")
-local actorManifest = require("data.manifests.field_actors")
+local actorManifest = require("romdump.src.config.FieldActors")
 local scenarioManifest = require("data.manifests.field_scenario")
 
 local T = {}
@@ -22,8 +22,11 @@ local LAB = 61
 local TOWN = 60
 
 local POLICY = {
-  variableSpriteRange = actorManifest.variableSpriteRange,
-  variableVarBase = actorManifest.variableVarBase,
+  variableSprites = {
+    first = actorManifest.variableSpriteRange.first,
+    last = actorManifest.variableSpriteRange.last,
+    variableBase = actorManifest.variableVarBase,
+  },
 }
 
 -- Manager + player on one map under the deterministic scenario. The scenario

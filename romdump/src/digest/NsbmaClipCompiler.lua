@@ -24,7 +24,7 @@
 -- state, and the corpus census proves no real member needs one (the DS
 -- reads garbage for such a flag). Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 local NsbmaClipCompiler = {}
 

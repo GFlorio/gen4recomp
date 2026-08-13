@@ -27,8 +27,8 @@
 -- register packing (which must preserve the material's 0x8000 vertex-color
 -- bit and the other polyAttr fields) to the runtime. Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
-local BinaryReader = require("libs.rom.src.BinaryReader")
+local Errors = require("libs.errors.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
 local NitroFile = require("romdump.src.digest.nitro.NitroFile")
 local NitroDict = require("romdump.src.digest.nitro.NitroDict")
 

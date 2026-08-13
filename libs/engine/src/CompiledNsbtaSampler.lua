@@ -31,7 +31,7 @@
 --   scaleOne  = scaleS == 0x1000 and scaleT == 0x1000
 -- Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 local CompiledNsbtaSampler = {}
 

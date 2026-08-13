@@ -7,8 +7,8 @@
 -- as MAP_PROP_ANIM_UNRESOLVED.
 
 local Assert = require("tests.support.Assert")
-local BinaryWriter = require("libs.rom.src.BinaryWriter")
-local Errors = require("libs.rom.src.Errors")
+local BinaryWriter = require("libs.codec.src.BinaryWriter")
+local Errors = require("libs.errors.src.Errors")
 local AnimationFixture = require("tests.support.AnimationFixture")
 local MapPropAnimCompiler = require("romdump.src.digest.MapPropAnimCompiler")
 

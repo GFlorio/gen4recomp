@@ -43,7 +43,7 @@
 -- selection is per target material, not per kind). Attachments with a
 -- non-positive ratio are ignored. Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local AlphaClassifier = require("libs.engine.src.AlphaClassifier")
 local NitroTexMatrix = require("libs.engine.src.NitroTexMatrix")

@@ -23,7 +23,7 @@
 -- ANIM_NSBMA_BAD_CHANNEL rather than taking the implicit curve path.
 -- Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 local CompiledNsbmaSampler = {}
 

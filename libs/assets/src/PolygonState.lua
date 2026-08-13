@@ -7,7 +7,7 @@
 -- authoring metadata the runtime does not consume, so they stay outside the
 -- shared schema. No draw-state class hierarchy. Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 
 local PolygonState = {}
 

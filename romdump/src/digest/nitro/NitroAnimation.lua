@@ -16,7 +16,7 @@
 -- section magic must agree; anything else is a structured error.
 -- Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local Nsbca = require("romdump.src.digest.nitro.Nsbca")
 local Nsbta = require("romdump.src.digest.nitro.Nsbta")
 local Nsbtp = require("romdump.src.digest.nitro.Nsbtp")

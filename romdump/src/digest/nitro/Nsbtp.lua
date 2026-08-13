@@ -27,8 +27,8 @@
 -- plttIdx of 0xFF means the key carries no palette change.
 -- Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
-local BinaryReader = require("libs.rom.src.BinaryReader")
+local Errors = require("libs.errors.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
 local NitroFile = require("romdump.src.digest.nitro.NitroFile")
 local NitroDict = require("romdump.src.digest.nitro.NitroDict")
 

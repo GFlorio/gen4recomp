@@ -15,7 +15,7 @@
 -- (pre-publish validation) use this module, so the writer/readiness and the
 -- loader cannot drift apart. Pure domain module.
 
-local Errors = require("libs.rom.src.Errors")
+local Errors = require("libs.errors.src.Errors")
 local PolygonState = require("libs.assets.src.PolygonState")
 local Validate = require("libs.assets.src.Validate")
 

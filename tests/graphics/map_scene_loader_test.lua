@@ -12,6 +12,7 @@ local Errors = require("libs.errors.src.Errors")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local MeshWriter = require("libs.assets.src.MeshWriter")
+local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local PngWriter = require("libs.assets.src.PngWriter")
 
 local T = {}
@@ -64,13 +65,15 @@ local function batch(geomPath, materialId)
 end
 
 -- A minimal current scene: no building instances, no neighbors, one terrain
--- batch per supplied material. Collision is a FieldMapLoader concern.
+-- batch per supplied material, and the scene's collision asset (the door
+-- pass resolves against the grid it decodes into).
 local function scene(materials)
   return {
     schema = "g4-map-scene-v4",
     mapId = 1,
     cameraType = 0,
     matrix = { width = 1, height = 1, x = 0, z = 0, worldOriginX = 0, worldOriginZ = 0 },
+    collision = { width = 32, height = 32, file = MapAssetCache.collisionPath(1) },
     materials = materials,
     mapBatches = {},
     buildingInstances = {},
@@ -85,9 +88,14 @@ local function cacheFs()
   local geomPath = MapAssetCache.geometryPath("aaaa")
   local texPath = MapAssetCache.texturePath("bbbb")
   local luaFiles = {}
+  local cells = {}
+  for index = 1, 32 * 32 do
+    cells[index] = { behavior = 0, terrainResponseId = 0, blocked = false }
+  end
   local blob = {
     [geomPath] = MeshWriter.encode(triangleBatch()),
     [texPath] = PngWriter.encode(1, 1, string.char(255, 0, 0, 255)),
+    [MapAssetCache.collisionPath(1)] = CollisionGridAsset.encode({ width = 32, height = 32, cells = cells }),
   }
   return {
     read = function(_, path)
