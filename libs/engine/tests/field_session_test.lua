@@ -9,7 +9,6 @@ local FieldSession = require("libs.engine.src.FieldSession")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 local TilePermissions = require("tests.support.TilePermissions")
-local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
 
 local T = {}
 
@@ -429,8 +428,8 @@ local function warpSession(options)
     phase = "idle",
     locked = false,
     updateFixed = function() end,
-    start = function(_, map, warp, facing)
-      starts[#starts + 1] = { map = map, warp = warp, facing = facing }
+    start = function(_, map, trigger, facing)
+      starts[#starts + 1] = { map = map, warp = trigger.warp, facing = facing }
     end,
   }
   local warp = { index = 0, x = options.warpX, z = options.warpZ, destinationMapId = 60, destinationWarpId = 0, y = 0 }
@@ -470,11 +469,12 @@ local function warpSession(options)
 end
 
 -- The facing-tile door: warp tile (4,14) is a blocked DOOR ahead of the idle
--- player at (4,13) facing south. Behavior bytes come from TransitionTrigger's
+-- player at (4,13) facing south. Behavior bytes come from MetatileBehavior's
 -- TILE_BEHAVIOR_* table (pokeheartgold metatile_behavior.h).
-local DOOR = TransitionTrigger.BEHAVIOR.DOOR
-local ENTRANCE_SOUTH = TransitionTrigger.BEHAVIOR.WARP_ENTRANCE_SOUTH
-local ENTRANCE_NORTH = TransitionTrigger.BEHAVIOR.WARP_ENTRANCE_NORTH
+local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
+local DOOR = MetatileBehavior.BEHAVIOR.DOOR
+local ENTRANCE_SOUTH = MetatileBehavior.BEHAVIOR.WARP_ENTRANCE_SOUTH
+local ENTRANCE_NORTH = MetatileBehavior.BEHAVIOR.WARP_ENTRANCE_NORTH
 
 function T.door_warp_starts_before_player_collision()
   local session, _, starts, warp = warpSession({
@@ -500,8 +500,8 @@ function T.actor_on_a_blocked_door_cell_does_not_block_the_facing_warp()
     phase = "idle",
     locked = false,
     updateFixed = function() end,
-    start = function(_, map, warp, facing)
-      starts[#starts + 1] = { map = map, warp = warp, facing = facing }
+    start = function(_, map, trigger, facing)
+      starts[#starts + 1] = { map = map, warp = trigger.warp, facing = facing }
     end,
   }
   local warp = { index = 0, x = 4, z = 14, destinationMapId = 60, destinationWarpId = 0, y = 0 }
@@ -563,8 +563,8 @@ function T.actor_on_an_open_warp_cell_blocks_the_walk_but_not_the_route()
     phase = "idle",
     locked = false,
     updateFixed = function() end,
-    start = function(_, map, warp, facing)
-      starts[#starts + 1] = { map = map, warp = warp, facing = facing }
+    start = function(_, map, trigger, facing)
+      starts[#starts + 1] = { map = map, warp = trigger.warp, facing = facing }
     end,
   }
   local warp = { index = 0, x = 4, z = 14, destinationMapId = 60, destinationWarpId = 0, y = 0 }
@@ -1336,12 +1336,12 @@ function T.plain_locked_transition_stays_frozen()
   Assert.equal(animatedSteps, 1, "the scene clock advances on every locked tick")
 end
 
--- The visual shake regression: during door_close there is no player step, so
+-- The visual shake regression: during choreo_hold there is no player step, so
 -- both the camera and player sprite must collapse stale interpolation pairs.
 -- Otherwise every render interval replays the final fraction of the egress
 -- step while the door animation runs. This is most visible as vertical shake
 -- for north/south doors, whose Z movement projects vertically on screen.
-function T.door_close_ticks_never_replay_camera_or_player_interpolation()
+function T.choreo_hold_ticks_never_replay_camera_or_player_interpolation()
   local FieldCamera = require("libs.engine.src.FieldCamera")
   local profile = {
     projectionType = "orthographic",
@@ -1402,7 +1402,7 @@ function T.door_close_ticks_never_replay_camera_or_player_interpolation()
       updateFixed = function() end,
     } or nil
     local transition = {
-      phase = "door_close",
+      phase = "choreo_hold",
       locked = true,
       updateFixed = function()
         return false

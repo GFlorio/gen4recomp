@@ -6,7 +6,7 @@
 -- (no love).
 
 local FieldGrid = require("libs.engine.src.FieldGrid")
-local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
+local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
 
 local DoorTiles = {}
 
@@ -20,9 +20,7 @@ function DoorTiles.fromGrid(grid)
   local out = {}
   for localX = 0, FieldGrid.CELL_TILES - 1 do
     for localZ = 0, FieldGrid.CELL_TILES - 1 do
-      local behavior = grid:getLocal(localX, localZ).behavior
-      local classification = behavior and TransitionTrigger.classify(behavior)
-      if classification and classification.kind == "door" then
+      if MetatileBehavior.isDoor(grid:getLocal(localX, localZ).behavior) then
         out[#out + 1] = { x = localX, z = localZ }
       end
     end

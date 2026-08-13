@@ -3,15 +3,18 @@
 -- evaluation paths from field_control.c: inputPath mirrors
 -- FieldSystem_CheckMapTransition (the blocked-facing door and the
 -- direction-gated standing warps), stepPath mirrors FieldSystem_CheckTransition
--- (north/panel/ladder-down/escalator standing warps).
+-- (north/panel/ladder-down/escalator standing warps). The trigger paths
+-- return the minimal public record -- kind plus warp -- so classification
+-- internals are asserted through classify(), never through the record shape.
 
 local Assert = require("tests.support.Assert")
 local TilePermissions = require("tests.support.TilePermissions")
 local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
+local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
 
 local T = {}
 
-local BEHAVIOR = TransitionTrigger.BEHAVIOR
+local BEHAVIOR = MetatileBehavior.BEHAVIOR
 
 -- Stub runtime map: 32x32 permission grid addressed by "fieldX:fieldZ" tiles.
 -- tiles entries are { behavior = byte, blocked = boolean }; defaults are
@@ -128,22 +131,16 @@ function T.facing_door_triggers_from_blocked_facing_tile()
     ["4:14"] = { behavior = BEHAVIOR.DOOR, blocked = true },
   })
   local trigger = assert(TransitionTrigger.inputPath(map, 4, 13, "south"))
+  -- The minimal public record: the classification kind plus the attached
+  -- warp. Classification internals stay local to the trigger policy and are
+  -- asserted through classify() above.
   Assert.equal(trigger.kind, "door")
-  Assert.equal(trigger.triggerMode, "facing")
-  Assert.equal(trigger.behavior, BEHAVIOR.DOOR)
   Assert.equal(assert(trigger.warp), warps[1])
-  -- One-record contract: the returned trigger is a single record carrying the
-  -- full classification (including ladder, which doors classify as false) plus
-  -- the attached warp data. No field may be dropped or duplicated when the
-  -- warp is attached.
-  Assert.equal(trigger.evaluatesOn, "input")
-  Assert.isFalse(trigger.ladder)
-  Assert.deepEqual(trigger.requiredDirections, {})
   local keyCount = 0
   for _ in pairs(trigger) do
     keyCount = keyCount + 1
   end
-  Assert.equal(keyCount, 7, "trigger must be exactly classification + warp + behavior")
+  Assert.equal(keyCount, 2, "the trigger record is exactly kind + warp")
 end
 
 function T.facing_door_requires_the_facing_tile_to_be_blocked()
@@ -178,7 +175,6 @@ function T.standing_directional_triggers_when_the_gate_matches()
   })
   local trigger = assert(TransitionTrigger.inputPath(map, 4, 14, "south"))
   Assert.equal(trigger.kind, "directional")
-  Assert.equal(trigger.behavior, BEHAVIOR.WARP_ENTRANCE_SOUTH)
   Assert.equal(assert(trigger.warp), warps[1])
 end
 
@@ -198,7 +194,6 @@ function T.standing_stairs_triggers_with_its_direction_gate()
   })
   local trigger = assert(TransitionTrigger.inputPath(map, 3, 3, "west"))
   Assert.equal(trigger.kind, "stairs")
-  Assert.equal(trigger.behavior, BEHAVIOR.WARP_STAIRS_WEST)
   Assert.equal(assert(trigger.warp), warps[1])
   Assert.isNil(TransitionTrigger.inputPath(map, 3, 3, "east"))
 end
@@ -268,7 +263,6 @@ function T.north_warp_triggers_on_step_in_any_facing()
   })
   local trigger = assert(TransitionTrigger.stepPath(map, 4, 14, "south"))
   Assert.equal(trigger.kind, "generic")
-  Assert.equal(trigger.behavior, BEHAVIOR.WARP_NORTH)
   Assert.equal(assert(trigger.warp), warps[1])
   Assert.notNil(TransitionTrigger.stepPath(map, 4, 14, "north"))
 end

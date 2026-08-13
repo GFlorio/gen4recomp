@@ -40,7 +40,7 @@
 -- production caller and do not exist.
 
 local WarpSystem = require("libs.engine.src.WarpSystem")
-local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
+local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
 local FieldGrid = require("libs.engine.src.FieldGrid")
 local Errors = require("libs.errors.src.Errors")
 local AnimationClip = require("libs.assets.src.AnimationClip")
@@ -249,10 +249,9 @@ function MapProps:doorAt(runtimeMap, fieldX, fieldZ)
     return nil
   end
   -- The tile is inside permission coverage (checked above), so the behavior
-  -- byte is always present.
-  local behavior = assert(TransitionTrigger.behaviorAt(runtimeMap, fieldX, fieldZ))
-  local classification = TransitionTrigger.classify(behavior)
-  if not classification or classification.kind ~= "door" then
+  -- byte is always present; only the DOOR metatile resolves a door.
+  local behavior = assert(runtimeMap.collision:getLocal(localX, localZ).behavior)
+  if not MetatileBehavior.isDoor(behavior) then
     return nil
   end
   local entry = self.doorIndex[localX .. ":" .. localZ]

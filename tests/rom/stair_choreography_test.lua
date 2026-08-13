@@ -147,7 +147,7 @@ local function runChoreography(romFs, sourceScene, destinationScene, warp, facin
     end,
   })
   transition.player = player
-  transition:start(sourceMap, warp, facing)
+  transition:start(sourceMap, { kind = "stairs", warp = warp }, facing)
 
   -- The fixed-tick loop mirrors the session: the transition ticks, and while
   -- the stair choreography is active the scene's animated instances advance.
@@ -190,7 +190,7 @@ function T.house_1f_to_2f_stairs_choreograph(romFs, version)
   Assert.equal(player.motion, "idle")
   Assert.isFalse(transition.locked, "input unlocks once the destination fade-in completes")
   Assert.isNil(transition.suppression, "stair warps never carry coordinate suppression")
-  Assert.isNil(timeline.door_close, "stairs never enter the door-close wait")
+  Assert.isNil(timeline.choreo_hold, "stairs never enter the door-close wait")
   Assert.equal(#sounds, 2, "one stair sound per side")
   for _, id in ipairs(sounds) do
     Assert.equal(id, FieldTransition.STAIR_SOUND, "the HGSS stair-climb sound id")
@@ -221,7 +221,7 @@ function T.house_2f_to_1f_stairs_choreograph(romFs, version)
   Assert.equal(player.motion, "idle")
   Assert.isFalse(transition.locked)
   Assert.isNil(transition.suppression)
-  Assert.isNil(timeline.door_close)
+  Assert.isNil(timeline.choreo_hold)
   Assert.equal(#sounds, 2)
   Assert.isTrue(timeline.fade_out < timeline.swap_map)
 

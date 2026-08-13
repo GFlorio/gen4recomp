@@ -332,6 +332,19 @@ function FieldRuntime:_load()
     -- `direct` records carry global destination coordinates and resolve
     -- through their own branch. Fallible destination preparation runs before
     -- the commit, so a failed warp never touches current-map ownership.
+    -- The door choreography resolves doors through each scene's MapProps
+    -- facade: field coordinate -> building placement -> ModelInstance ->
+    -- semantic door animation. Nothing Nitro leaks into the transition. The
+    -- resolver is the door capability: only a presentation runtime supplies
+    -- one (every presentation map carries a scene runtime), so a door-less
+    -- composition is exactly "no door resolver, no door choreography" and a
+    -- door-kind warp there degrades to a plain fade instead of raising.
+    local doorAt
+    if self.presentation then
+      doorAt = function(runtimeMap, fieldX, fieldZ)
+        return runtimeMap.sceneRuntime.mapProps:doorAt(runtimeMap, fieldX, fieldZ)
+      end
+    end
     self.transition = FieldTransition.new({
       loader = self.mapLoader,
       prepare = function(resolution, facing)
@@ -340,16 +353,7 @@ function FieldRuntime:_load()
       commit = function(resolution, facing, prepared)
         self:_commitSwap(resolution, facing, prepared)
       end,
-      -- The door choreography resolves doors through each scene's MapProps
-      -- facade: field coordinate -> building placement -> ModelInstance ->
-      -- semantic door animation. Nothing Nitro leaks into the transition.
-      doorAt = function(runtimeMap, fieldX, fieldZ)
-        local props = runtimeMap.sceneRuntime and runtimeMap.sceneRuntime.mapProps
-        if not props then
-          return nil
-        end
-        return props:doorAt(runtimeMap, fieldX, fieldZ)
-      end,
+      doorAt = doorAt,
     })
     self.transition.player = self.player
     self.transition.suppression = restored and restored.suppression or nil

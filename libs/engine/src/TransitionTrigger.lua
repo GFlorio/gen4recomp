@@ -7,10 +7,17 @@
 -- facing-tile door. Authoritative source: pret/pokeheartgold
 -- src/field/field_control.c with TILE_BEHAVIOR_* values from
 -- include/constants/metatile_behavior.h (sequential enum, NONE = 255).
+--
+-- The trigger paths return the minimum public record the session needs --
+-- the classification kind plus the attached warp; the full classification
+-- (triggerMode, requiredDirections, evaluatesOn, ladder) stays local to this
+-- module's policy. The raw behavior byte vocabulary lives in MetatileBehavior
+-- below this module.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
 local WarpSystem = require("libs.engine.src.WarpSystem")
+local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
 
 local DIRECTION_DELTAS = {
   north = { x = 0, z = -1 },
@@ -19,36 +26,21 @@ local DIRECTION_DELTAS = {
   east = { x = 1, z = 0 },
 }
 
----@class TransitionTrigger
+---@class TransitionTriggerClassification -- the full classification: trigger policy internals
 ---@field kind "door"|"stairs"|"directional"|"generic"
 ---@field triggerMode "facing"|"standing"
----@field behavior integer?
 ---@field requiredDirections string[]
 ---@field evaluatesOn "input"|"step"
 ---@field ladder boolean
+
+---@class TransitionTrigger -- the public trigger record: kind plus the attached warp
+---@field kind "door"|"stairs"|"directional"|"generic"
 ---@field warp table?
 local TransitionTrigger = {}
 
--- TILE_BEHAVIOR_* warp-relevant values (pokeheartgold metatile_behavior.h).
-local BEHAVIOR = {
-  LADDER_NORTH = 60,
-  LADDER_SOUTH = 61,
-  LADDER_DOWN = 62,
-  WARP_STAIRS_EAST = 94,
-  WARP_STAIRS_WEST = 95,
-  WARP_ENTRANCE_EAST = 98,
-  WARP_ENTRANCE_WEST = 99,
-  WARP_ENTRANCE_NORTH = 100,
-  WARP_ENTRANCE_SOUTH = 101,
-  WARP_PANEL = 103,
-  DOOR = 105,
-  ESCALATOR_FLIP_FACE = 106,
-  ESCALATOR = 107,
-  WARP_EAST = 108,
-  WARP_WEST = 109,
-  WARP_NORTH = 110,
-  WARP_SOUTH = 111,
-}
+-- The raw behavior byte vocabulary lives in MetatileBehavior, below this
+-- module's policy.
+local BEHAVIOR = MetatileBehavior.BEHAVIOR
 
 -- Behavior byte -> semantic classification. requiredDirections is the gate
 -- FieldSystem_CheckMapTransition applies (empty = any facing); evaluatesOn
@@ -162,14 +154,13 @@ local CLASSIFICATIONS = {
 }
 
 ---@param behavior integer
----@return TransitionTrigger?
+---@return TransitionTriggerClassification?
 function TransitionTrigger.classify(behavior)
   local record = CLASSIFICATIONS[behavior]
   if not record then
     return nil
   end
-  -- A fresh plain record per call: callers may attach a warp without ever
-  -- mutating the shared classification table or another caller's record.
+  -- A fresh plain record per call: callers never receive a shared table.
   return {
     kind = record.kind,
     triggerMode = record.triggerMode,
@@ -181,7 +172,7 @@ end
 
 -- Whether a classification's direction gate admits `facing` (empty gate =
 -- any facing).
----@param classification TransitionTrigger
+---@param classification TransitionTriggerClassification
 ---@param facing string
 ---@return boolean
 function TransitionTrigger.matchesDirection(classification, facing)
@@ -207,13 +198,12 @@ local function localCoords(runtimeMap, fieldX, fieldZ)
 end
 
 -- The metatile behavior byte at a field tile, or nil outside permission
--- coverage (out-of-coverage tiles can never trigger). Shared by the trigger
--- paths and the door/model lookup.
+-- coverage (out-of-coverage tiles can never trigger).
 ---@param runtimeMap table
 ---@param fieldX integer
 ---@param fieldZ integer
 ---@return integer?
-function TransitionTrigger.behaviorAt(runtimeMap, fieldX, fieldZ)
+local function behaviorAt(runtimeMap, fieldX, fieldZ)
   local localX, localZ = localCoords(runtimeMap, fieldX, fieldZ)
   if not localX then
     return nil
@@ -224,7 +214,7 @@ end
 -- Classification of the metatile behavior at a field tile; nil when the tile
 -- is outside permission coverage (out-of-coverage tiles can never trigger).
 local function classifyAt(runtimeMap, fieldX, fieldZ)
-  local behavior = TransitionTrigger.behaviorAt(runtimeMap, fieldX, fieldZ)
+  local behavior = behaviorAt(runtimeMap, fieldX, fieldZ)
   if behavior == nil then
     return nil
   end
@@ -244,11 +234,10 @@ local function attachWarp(classification, runtimeMap, fieldX, fieldZ)
   if not warp then
     return nil
   end
-  -- `classification` is always a fresh classify() record, never shared, so
-  -- the warp attaches in place.
-  classification.warp = warp
-  classification.behavior = TransitionTrigger.behaviorAt(runtimeMap, fieldX, fieldZ)
-  return classification
+  -- The minimal public trigger record: the classification kind plus the
+  -- attached warp. The remaining classification data is trigger-policy
+  -- internals and never leaves this module.
+  return { kind = classification.kind, warp = warp }
 end
 
 -- HGSS FieldSystem_CheckMapTransition: evaluated while the player is idle and
@@ -318,9 +307,5 @@ function TransitionTrigger.stepPath(runtimeMap, fieldX, fieldZ, facing)
   end
   return attachWarp(classification, runtimeMap, fieldX, fieldZ)
 end
-
--- Exported for fixtures and diagnostics that need the raw TILE_BEHAVIOR_*
--- bytes rather than a classified trigger.
-TransitionTrigger.BEHAVIOR = BEHAVIOR
 
 return TransitionTrigger

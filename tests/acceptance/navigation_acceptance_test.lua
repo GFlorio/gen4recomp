@@ -70,6 +70,12 @@ end
 -- Current-map protection has one owner (the runtime). A live transition
 -- must not pin a second map while the destination loads and swaps, and a
 -- completed warp transfers protection to the destination exactly once.
+-- The return leg fires the town DOOR
+-- tile (behavior 105) in a runtime that owns no door choreography -- the
+-- non-presentation boot has no scene runtime -- so it also verifies the
+-- door-capability contract: a door-less composition completes the door warp
+-- as a plain fade, never a choreography hold phase and never an
+-- unresolved-door raise.
 function T.tests.lab_town_round_trip_swaps_transitions_and_ownership()
   local harness = AcceptanceHarness.new()
   harness:forEachVersion(function(versionId)
@@ -105,6 +111,23 @@ function T.tests.lab_town_round_trip_swaps_transitions_and_ownership()
       game:face("north")
       game:waitForTransition()
       Assert.equal(game:snapshot().mapSymbol, LAB)
+      -- The door-capability contract: the door-less runtime completes the
+      -- town DOOR warp through the plain fade lifecycle and records no error
+      -- (a supplied resolver returning no door where the headless caller
+      -- stated it has none must never degrade to bad data).
+      for _, snapshot in ipairs(game:trace()) do
+        local phase = snapshot.transition.phase
+        Assert.isTrue(
+          phase == "idle"
+            or phase == "fade_out"
+            or phase == "load_destination"
+            or phase == "swap_map"
+            or phase == "fade_in",
+          "a door warp in a door-less runtime runs the plain fade lifecycle, not a choreography phase: "
+            .. tostring(phase)
+        )
+      end
+      Assert.isNil(game.runtime.transition.error, "a door warp in a door-less runtime records no unresolved-door error")
       local ownership = game:ownership()
       Assert.equal(ownership.mapProtections, 1)
       Assert.equal(ownership.activeActorMaps, 1)

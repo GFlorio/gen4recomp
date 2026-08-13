@@ -31,14 +31,14 @@ local Assert = require("tests.support.Assert")
 local TilePermissions = require("tests.support.TilePermissions")
 local Matrix4 = require("libs.math.src.Matrix4")
 local FieldGrid = require("libs.engine.src.FieldGrid")
-local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
+local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
 local NitroModelFixture = require("tests.support.NitroModelFixture")
 local ModelInstance = require("libs.engine.src.ModelInstance")
 local MapProps = require("libs.engine.src.MapProps")
 
 local T = {}
 
-local BEHAVIOR = TransitionTrigger.BEHAVIOR
+local BEHAVIOR = MetatileBehavior.BEHAVIOR
 
 local function throwsCode(code, fn)
   local ok, result = pcall(fn)

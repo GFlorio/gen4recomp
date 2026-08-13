@@ -287,7 +287,7 @@ function FieldSession:updateFixed(inputSnapshot)
       )
     then
       self.player.facing = direction
-      self.transition:start(self.currentMap, trigger.warp, direction)
+      self.transition:start(self.currentMap, trigger, direction)
       self:_advanceTick()
       return
     end
@@ -314,7 +314,7 @@ function FieldSession:updateFixed(inputSnapshot)
         trigger.warp.z
       )
     then
-      self.transition:start(self.currentMap, trigger.warp, self.player.facing)
+      self.transition:start(self.currentMap, trigger, self.player.facing)
     end
   end
   -- Pose clocks advance only on a tick that could change the world, so a fade or

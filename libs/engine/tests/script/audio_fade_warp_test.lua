@@ -372,8 +372,8 @@ T["real maps service warp"] = function()
     Errors.raise("FIELD_MAP_UNKNOWN", "no runtime map for " .. tostring(symbol), {})
   end
   local transition = {
-    start = function(self, sourceMap, warp, facing)
-      started = { warp = warp, facing = facing }
+    start = function(self, sourceMap, trigger, facing)
+      started = { warp = trigger.warp, facing = facing }
     end,
   }
   local maps = ScriptMapsService.new({

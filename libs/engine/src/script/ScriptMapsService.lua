@@ -131,7 +131,9 @@ function ScriptMapsService:startWarp(target)
   }
   self.pendingWarp = warp
   self._error = nil
-  self._transition:start(self._sourceMap, warp, target.facing)
+  -- A scripted warp carries no trigger classification: it is a plain fade
+  -- record ({ kind = nil, warp = warp }), never a door or stair choreography.
+  self._transition:start(self._sourceMap, { warp = warp }, target.facing)
 end
 
 -- True when the started warp has run its course: the application consumed

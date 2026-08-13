@@ -195,11 +195,7 @@ function SceneLoaderFixture.newHarness(versionId, opts)
   transition = FieldTransition.new({
     loader = loader,
     doorAt = function(runtimeMap, fieldX, fieldZ)
-      local props = runtimeMap.sceneRuntime and runtimeMap.sceneRuntime.mapProps
-      if not props then
-        return nil
-      end
-      return props:doorAt(runtimeMap, fieldX, fieldZ)
+      return runtimeMap.sceneRuntime.mapProps:doorAt(runtimeMap, fieldX, fieldZ)
     end,
     playSound = function(soundId)
       harness.sounds[#harness.sounds + 1] = soundId

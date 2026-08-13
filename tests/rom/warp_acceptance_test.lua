@@ -94,7 +94,7 @@ function T.town_to_lab_door_acceptance(romFs, versionId)
   -- close wait -- the checklist's interior item only holds for buildings
   -- whose interior doors carry anim-list records (door_pc01, maq_dr01, ...).
   Assert.isNil(lab.runtime.mapProps:doorAt(lab.map, LAB_ENTRANCE_TILE.x, LAB_ENTRANCE_TILE.z))
-  Assert.isNil(harness.timeline.door_close, "a static interior destination has no close wait")
+  Assert.isNil(harness.timeline.choreo_hold, "a static interior destination has no close wait")
 
   Assert.equal(harness.player.fieldX, 4)
   Assert.equal(harness.player.fieldZ, 13, "the egress lands on the lab floor tile")
@@ -158,7 +158,7 @@ function T.lab_to_town_door_acceptance(romFs, versionId)
   Assert.isTrue(doorOpenPlaying, "the exterior destination door animates open at the swap")
 
   local door = assert(town.runtime.mapProps:doorAt(town.map, TOWN_DOOR_TILE.x, TOWN_DOOR_TILE.z))
-  Assert.notNil(harness.timeline.door_close, "the destination door close is waited")
+  Assert.notNil(harness.timeline.choreo_hold, "the destination door close is waited")
   Assert.isTrue(SceneLoaderFixture.entryRole(door) == CLOSE_ROLE, "the retained entry state records the closing role")
   Assert.isTrue(door:isFinished(), "the destination door closes to completion")
 
@@ -273,7 +273,7 @@ function T.player_house_stairs_acceptance(romFs, versionId)
   SceneLoaderFixture.drive(harness, 500)
 
   Assert.equal(harness.swapCount, 1, "exactly one map swap")
-  Assert.isNil(harness.timeline.door_close, "stairs never enter the door-close wait")
+  Assert.isNil(harness.timeline.choreo_hold, "stairs never enter the door-close wait")
   Assert.equal(#harness.sounds, 2, "one stair sound per side")
   for _, id in ipairs(harness.sounds) do
     Assert.equal(id, FieldTransition.STAIR_SOUND, "the HGSS stair-climb sound id")

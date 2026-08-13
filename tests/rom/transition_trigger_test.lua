@@ -13,8 +13,6 @@ function T.elms_lab_door_classifies_directional_south_on_real_data(romFs)
   local lab = RomRuntimeMap.compile(romFs, "MAP_NEW_BARK_ELMS_LAB_1F")
   local trigger = assert(TransitionTrigger.inputPath(lab, 4, 14, "south"), "facing south on the lab door tile resolves")
   Assert.equal(trigger.kind, "directional")
-  Assert.equal(trigger.triggerMode, "standing")
-  Assert.equal(trigger.behavior, 101)
   Assert.equal(assert(trigger.warp).destinationMapId, 60)
   Assert.isNil(TransitionTrigger.inputPath(lab, 4, 14, "north"), "the gate requires facing south")
   Assert.isNil(
@@ -33,8 +31,6 @@ function T.new_bark_doors_classify_door_on_real_data(romFs)
   }) do
     local trigger = assert(TransitionTrigger.inputPath(town, door.x, door.z, "north"), "facing the town door resolves")
     Assert.equal(trigger.kind, "door")
-    Assert.equal(trigger.triggerMode, "facing")
-    Assert.equal(trigger.behavior, 105)
     Assert.equal(assert(trigger.warp).destinationMapId, door.destinationMapId)
   end
   Assert.isNil(TransitionTrigger.stepPath(town, 684, 393, "north"), "doors never fire on the step path")
@@ -44,8 +40,6 @@ function T.player_house_stairs_classify_stairs_on_real_data(romFs)
   local house1f = RomRuntimeMap.compile(romFs, "MAP_NEW_BARK_PLAYER_HOUSE_1F")
   local down = assert(TransitionTrigger.inputPath(house1f, 3, 3, "west"), "facing west on the stairs resolves")
   Assert.equal(down.kind, "stairs")
-  Assert.equal(down.triggerMode, "standing")
-  Assert.equal(down.behavior, 95)
   Assert.equal(assert(down.warp).destinationMapId, 64)
   Assert.isNil(TransitionTrigger.inputPath(house1f, 3, 3, "east"), "the stairs gate requires facing west")
   Assert.isNil(TransitionTrigger.stepPath(house1f, 3, 3, "west"), "stairs never fire on the step path")
@@ -53,7 +47,6 @@ function T.player_house_stairs_classify_stairs_on_real_data(romFs)
   local house2f = RomRuntimeMap.compile(romFs, "MAP_NEW_BARK_PLAYER_HOUSE_2F")
   local up = assert(TransitionTrigger.inputPath(house2f, 3, 4, "west"), "facing west upstairs resolves")
   Assert.equal(up.kind, "stairs")
-  Assert.equal(up.behavior, 95)
   Assert.equal(assert(up.warp).destinationMapId, 63)
 end
 
@@ -62,8 +55,6 @@ function T.route_29_north_warps_classify_generic_on_real_data(romFs)
   local trigger =
     assert(TransitionTrigger.stepPath(route29, 626, 389, "south"), "stepping onto the north warp resolves")
   Assert.equal(trigger.kind, "generic")
-  Assert.equal(trigger.triggerMode, "standing")
-  Assert.equal(trigger.behavior, 110)
   Assert.isNil(TransitionTrigger.inputPath(route29, 626, 389, "south"), "north warps never fire on the input path")
 end
 

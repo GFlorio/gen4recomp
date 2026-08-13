@@ -14,18 +14,22 @@
 -- and the fade-in are both finished. The fade runs orthogonally where HGSS
 -- overlaps it: the source fade-out clamps at black until the ingress
 -- completes (never overruns), and the fade-in ending early parks the
--- choreography in the door_close phase -- fadeAlpha stays 0, input locked --
+-- choreography in the choreo_hold phase -- fadeAlpha stays 0, input locked --
 -- until the close finishes. A static door (no animation instance) has
 -- isFinished() == nil, so nothing waits on it: the egress begins at the swap
 -- and the close resolves immediately. The source door never closes.
 --
--- The choreography facts are explicit: sourceKind (the warp's metatile
--- classification), sourceDoor (resolved on the source map), and
+-- The choreography facts are explicit: sourceKind (the warp's trigger
+-- classification, passed down from the trigger paths -- never re-read from
+-- the permission grid here), sourceDoor (resolved on the source map), and
 -- destinationDoor (resolved at load on the destination map). The destination
 -- egress predicate (a door source always egresses; a door destination alone
 -- -- the Elm Lab exit pattern -- also activates the destination
 -- choreography) is derived from sourceKind and destinationDoor at its read
--- sites. A door-kind warp
+-- sites. Doors are a capability contract: no door resolver means no door
+-- choreography at all (a headless caller states it has none, and a door-kind
+-- warp degrades to a plain fade), while a supplied resolver returning no door
+-- for a required door is bad data and raises. A door-kind warp
 -- whose door does not resolve, an ingress step with no terrain destination
 -- (surfacing when the choreography reaches the ingress, after the open
 -- finished), or an egress step without a terrain destination, is a
@@ -43,9 +47,11 @@
 -- destination stair tile and unlocks at the end of the fade-in. No door
 -- animation anywhere, and no coordinate suppression, so pressing the gate
 -- direction on the destination stair tile re-arms the transition immediately.
+-- Stair warps require a player: production FieldRuntime always binds one
+-- before any start, so a missing player is a programming fault, not a silent
+-- degradation into an ordinary fade.
 
 local WarpSystem = require("libs.engine.src.WarpSystem")
-local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
 local Errors = require("libs.errors.src.Errors")
 
 ---@class FieldTransition
@@ -53,15 +59,15 @@ local Errors = require("libs.errors.src.Errors")
 ---@field prepare fun(resolution: table, facing: FieldDirection): table
 ---@field commit fun(resolution: table, facing: FieldDirection, prepared: table)
 ---@field resolveDestination function
----@field doorAt fun(runtimeMap: table, fieldX: integer, fieldZ: integer): table|nil
+---@field doorAt fun(runtimeMap: table, fieldX: integer, fieldZ: integer): table|nil -- nil = no door choreography
 ---@field playSound fun(soundId: string)?
 ---@field player table|nil -- FieldPlayer, bound by the owner across the swap
+---@field phase "idle"|"fade_out"|"load_destination"|"swap_map"|"fade_in"|"choreo_hold"
+---@field fadeAlpha number
 ---@field fadeOutTicks integer
 ---@field fadeInTicks integer
----@field phase "idle"|"fade_out"|"load_destination"|"swap_map"|"fade_in"|"door_close"
----@field fadeAlpha number
 ---@field locked boolean
----@field sourceKind "door"|"stairs"|nil -- the source warp's classification
+---@field sourceKind "door"|"stairs"|"directional"|"generic"|nil -- the trigger classification passed down
 ---@field sourceDoor table|nil -- the resolved source door, when the source kind is a door
 ---@field destinationDoor table|nil -- the resolved destination door, when the destination resolves one
 ---@field sourceChoreo "wait_open"|"wait_step"|"done"|nil -- the source-side door choreography state
@@ -90,7 +96,7 @@ FieldTransition.PHASES = {
   fade_in = "fade_in",
   load_destination = "load_destination",
   swap_map = "swap_map",
-  door_close = "door_close",
+  choreo_hold = "choreo_hold",
 }
 
 function FieldTransition.new(options)
@@ -122,44 +128,27 @@ function FieldTransition.new(options)
   }, FieldTransition)
 end
 
--- The warp's metatile classification kind ("door" for behavior 105, "stairs"
--- for 94/95), or nil. Runtime maps always carry the permission grid and
--- coordinate origin (the loader installs both); a map without them cannot
--- classify its warps and is a data-contract failure, not a plain warp.
-local function warpKind(sourceMap, warp)
-  if not sourceMap or not sourceMap.collision or not sourceMap.coordinateOrigin then
-    Errors.raise(
-      "MAP_TRANSITION_NO_PERMISSIONS",
-      "source map " .. tostring(sourceMap and sourceMap.mapId) .. " has no collision grid or coordinate origin",
-      { mapId = sourceMap and sourceMap.mapId }
-    )
-  end
-  local behavior = TransitionTrigger.behaviorAt(sourceMap, warp.x, warp.z)
-  local classification = behavior and TransitionTrigger.classify(behavior)
-  return classification and classification.kind
-end
-
 -- Begin the source choreography: resolve the source door at the warp tile and
 -- start its opening animation. The scripted ingress step is NOT started here
 -- -- it waits for the opening to finish (advanceSourceChoreo), per HGSS, and
 -- a door-kind warp whose door does not resolve is a data-contract failure.
--- Stair warps instead take movement ownership as an in-place climb: HGSS
--- holds a stair movement and never steps the player off the warp tile, so no
--- door and no step here.
+-- The door is a capability contract: a transition without a door resolver is
+-- a headless caller stating it has no door choreography, so the door warp
+-- degrades to a plain fade; a supplied resolver returning no door for a
+-- required door is bad data. Stair warps instead take movement ownership as
+-- an in-place climb: HGSS holds a stair movement and never steps the player
+-- off the warp tile, so no door and no step here. Stairs require a player
+-- (production FieldRuntime always binds one): a missing player is a
+-- programming fault.
 local function beginSourceChoreography(self)
-  local kind = warpKind(self.sourceMap, self.sourceWarp)
-  self.sourceKind = kind
+  local kind = self.sourceKind
   if kind == "door" then
-    local door = self.doorAt and self.doorAt(self.sourceMap, self.sourceWarp.x, self.sourceWarp.z)
+    if not self.doorAt then
+      self.sourceKind = nil
+      return
+    end
+    local door = self.doorAt(self.sourceMap, self.sourceWarp.x, self.sourceWarp.z)
     if not door then
-      -- A scene-less runtime (headless boot: the collision-only runtime has
-      -- no props, nothing to animate) has no doors to choreograph, so the
-      -- warp degrades to a plain fade. A presentation scene whose door
-      -- cannot resolve is a data-contract failure.
-      if self.sourceMap.sceneRuntime == nil or self.sourceMap.sceneRuntime.mapProps == nil then
-        self.sourceKind = nil
-        return
-      end
       Errors.raise(
         "MAP_TRANSITION_UNRESOLVED_SOURCE_DOOR",
         "door-kind warp on map "
@@ -182,13 +171,11 @@ local function beginSourceChoreography(self)
     -- MapObject_SetHeldMovement), so the movement starts here and its
     -- completion -- not a transition timer -- fires the sound and gates the
     -- choreography.
-    if self.player then
-      assert(
-        self.player.beginStairClimb ~= nil,
-        "stair warps require a player with a held stair movement (FieldPlayer)"
-      )
-      self.player:beginStairClimb()
-    end
+    assert(
+      self.player and self.player.beginStairClimb ~= nil,
+      "stair warps require a player with a held stair movement (FieldPlayer)"
+    )
+    self.player:beginStairClimb()
   end
 end
 
@@ -313,9 +300,11 @@ end
 -- held stair movement: the transition advances it like a walk, and the HGSS
 -- stair sound fires when the movement completes (sub_0205613C plays
 -- SEQ_SE_DP_KAIDAN2 after the held movement finishes, before the fade). The
--- climb never reports locomotion: the player stays on the warp tile.
+-- climb never reports locomotion: the player stays on the warp tile. Stair
+-- warps require a player (asserted at the source begin), so one is always
+-- bound here.
 local function advanceStairClimb(self)
-  if self.sourceKind ~= "stairs" or not self.player then
+  if self.sourceKind ~= "stairs" then
     return
   end
   if self.player.motion == "climbing" then
@@ -342,11 +331,17 @@ local function finish(self)
   self.sourceMap, self.sourceWarp, self.resolution, self.prepared = nil, nil, nil, nil
 end
 
-function FieldTransition:start(sourceMap, warp, facing)
+-- Begin a transition from a warp trigger record: the classified trigger
+-- ({ kind, warp }) from the session's trigger paths, or a plain-fade record
+-- ({ warp = warp }) from scripted warps, which carry no classification. The
+-- kind is authoritative -- the transition never re-reads the permission grid
+-- to classify the warp tile.
+function FieldTransition:start(sourceMap, trigger, facing)
   assert(self.phase == FieldTransition.PHASES.idle, "field transition already active")
-  assert(sourceMap and warp and facing, "transition source, warp, and facing required")
+  assert(sourceMap and trigger and trigger.warp and facing, "transition source, trigger, and facing required")
   self.sourceMap = sourceMap
-  self.sourceWarp = warp
+  self.sourceWarp = trigger.warp
+  self.sourceKind = trigger.kind
   self.facing = facing
   self.progressTicks = 0
   self.resolution = nil
@@ -355,7 +350,6 @@ function FieldTransition:start(sourceMap, warp, facing)
   self.error = nil
   self.warpContext = nil
   self.completed = nil
-  self.sourceKind = nil
   self.sourceDoor = nil
   self.destinationDoor = nil
   self.sourceChoreo = nil
@@ -452,21 +446,20 @@ function FieldTransition:updateFixed()
     if self.sourceKind == "stairs" then
       -- The destination climb begins on the rebound player at the swap,
       -- exactly like the source side: the held stair movement, not a timer.
+      -- Stairs require a player (asserted on the source side too).
       runChoreo(self, function(self)
-        if self.player then
-          assert(
-            self.player.beginStairClimb ~= nil,
-            "stair warps require a player with a held stair movement (FieldPlayer)"
-          )
-          self.player:beginStairClimb()
-        end
+        assert(
+          self.player and self.player.beginStairClimb ~= nil,
+          "stair warps require a player with a held stair movement (FieldPlayer)"
+        )
+        self.player:beginStairClimb()
       end)
     end
     self.progressTicks = 0
     self.phase = FieldTransition.PHASES.fade_in
     return false
   end
-  if self.phase == FieldTransition.PHASES.fade_in or self.phase == FieldTransition.PHASES.door_close then
+  if self.phase == FieldTransition.PHASES.fade_in or self.phase == FieldTransition.PHASES.choreo_hold then
     local playerAdvanced = self.destinationChoreo ~= nil and self.player ~= nil and self.player.motion == "walking"
     advanceStairClimb(self)
     if self.destinationChoreo then
@@ -480,9 +473,9 @@ function FieldTransition:updateFixed()
           finish(self)
         else
           -- The egress/close choreography outlives the fade-in: hold black
-          -- (fadeAlpha stays 0, input stays locked) in the door_close phase
+          -- (fadeAlpha stays 0, input stays locked) in the choreo_hold phase
           -- until the choreography finishes.
-          self.phase = FieldTransition.PHASES.door_close
+          self.phase = FieldTransition.PHASES.choreo_hold
         end
       end
     elseif self.destinationChoreo == "done" then

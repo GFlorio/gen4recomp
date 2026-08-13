@@ -81,7 +81,7 @@ function T.town_to_lab_door_transition_choreographs(romFs, versionId)
   Assert.equal(harness.player.motion, "idle")
   Assert.isFalse(harness.transition.locked, "input unlocks once the choreography completes")
   Assert.isNil(harness.transition.suppression, "door warps never carry coordinate suppression")
-  Assert.isNil(harness.timeline.door_close, "a static destination door has no close wait")
+  Assert.isNil(harness.timeline.choreo_hold, "a static destination door has no close wait")
   Assert.isTrue(harness.timeline.fade_out < harness.timeline.swap_map, "the fade ran before the swap")
   local warp = assert(WarpSystem.findAt(town.map, 684, 393))
   Assert.equal(warp.destinationMapId, LAB_MAP_ID, "the town door tile is the lab warp")
@@ -112,7 +112,7 @@ function T.lab_to_town_door_transition_choreographs(romFs, versionId)
     "the destination door opens, the egress waits for it, and the close waits for the egress (got: " .. trace .. ")"
   )
 
-  Assert.notNil(harness.timeline.door_close, "the destination door close is waited")
+  Assert.notNil(harness.timeline.choreo_hold, "the destination door close is waited")
 
   local door = assert(town.runtime.mapProps:doorAt(town.map, TOWN_DOOR_TILE.x, TOWN_DOOR_TILE.z))
   Assert.isTrue(SceneLoaderFixture.entryRole(door) == CLOSE_ROLE, "the retained entry state records the closing role")
@@ -185,7 +185,7 @@ end
 -- states and could not see the missing open-finished event in the middle of
 -- the sequence. (In its verification form this probe asserted the trace
 -- completes and ran red for exactly this reason: the trace stalled at
--- open-start, phase door_close, input locked.)
+-- open-start, phase choreo_hold, input locked.)
 function T.door_open_that_never_finishes_stalls_the_ordered_trace(romFs, versionId)
   local lab = SceneLoaderFixture.loadScene(romFs, "MAP_NEW_BARK_ELMS_LAB_1F")
   local town = SceneLoaderFixture.loadScene(romFs, "MAP_NEW_BARK", {
@@ -231,7 +231,7 @@ function T.door_open_that_never_finishes_stalls_the_ordered_trace(romFs, version
   -- trace: no egress step (the open gates it) and no close (the egress does).
   local trace = table.concat(harness.events, ",")
   Assert.equal(trace, "open-start", "the only observed event is the opening (trace: " .. trace .. ")")
-  Assert.equal(harness.transition.phase, "door_close", "the choreography parks in the close wait")
+  Assert.equal(harness.transition.phase, "choreo_hold", "the choreography parks in the close wait")
   Assert.isTrue(harness.transition.locked, "input stays locked while the opening never finishes")
 
   town.runtime:release()
