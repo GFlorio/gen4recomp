@@ -313,7 +313,7 @@ function T.background_requires_exact_facing_cell_match()
   )
 end
 
--- D35: the hidden-item family is an explicit declaration, not an accidental
+-- The hidden-item family is an explicit declaration, not an accidental
 -- eligibility gap: the named predicate is the single owner of the type-2
 -- classification shared with the binding audit.
 function T.is_hidden_item_identifies_the_type_two_family()

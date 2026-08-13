@@ -6,7 +6,7 @@
 -- import session through the import state and never invoke an importer left
 -- over from a previous session.
 
----@diagnostic disable: duplicate-set-field -- RomImporter.isReady is stubbed per test and restored immediately
+---@diagnostic disable: duplicate-set-field -- seams below are stubbed per test and restored by the harness
 
 local Assert = require("tests.support.Assert")
 local App = require("game.src.game.App")
@@ -34,20 +34,49 @@ local function fresh()
   App.importer = nil
 end
 
--- App opts are module state read by the boot and draw paths; this fixture
--- installs the value under test and restores the previous one on every path,
--- so no test leaks its options into the next. The fn must not raise; tests
--- that probe fallible paths wrap their call in pcall inside the fn.
+-- One harness for every App-level seam a test can touch: fresh module state,
+-- the App opts the boot/draw paths read, the RomImporter.isReady seam, a
+-- FieldState.new capture (so boot tests never construct a real runtime), and
+-- a graphics.print spy. Every stub is restored on every path, so no test
+-- leaks options or stubs into the next.
+---@class AppStateHarness
+---@field prints integer
+---@field captured table|nil
+---@field state table
 ---@param opts table|nil
----@param fn fun()
-local function withAppOptions(opts, fn)
-  local original = App.opts
+---@param ready fun(id: string): boolean
+---@param fn fun(result: AppStateHarness)
+---@return AppStateHarness
+local function withAppHarness(opts, ready, fn)
+  fresh()
+  local originalOpts = App.opts
+  local originalIsReady = RomImporter.isReady
+  local originalNew = FieldState.new
+  local graphics = love.graphics
+  local originalPrint = graphics.print
+  local result = {
+    prints = 0,
+    captured = nil,
+    state = countingState(),
+  }
   App.opts = opts or {}
-  local ok, err = pcall(fn)
-  App.opts = original
+  RomImporter.isReady = ready
+  FieldState.new = function(versionId, _, options)
+    result.captured = { versionId = versionId, options = options }
+    return result.state
+  end
+  graphics.print = function()
+    result.prints = result.prints + 1
+  end
+  local ok, err = pcall(fn, result)
+  App.opts = originalOpts
+  RomImporter.isReady = originalIsReady
+  FieldState.new = originalNew
+  graphics.print = originalPrint
   if not ok then
     error(err, 0)
   end
+  return result
 end
 
 -- An importer stand-in in a given state. App reads isBusy()/state and forwards
@@ -106,16 +135,9 @@ function T.set_state_without_dispose_replaces_without_error()
   Assert.equal(App.state, nextState)
 end
 
-function T.set_state_with_nil_disposes_the_current_state()
-  fresh()
-  local state = countingState()
-  App.setState(state)
-  App.setState(nil)
-  Assert.equal(state.disposed, 1)
-  Assert.isNil(App.state)
-end
-
-function T.quit_disposes_the_current_state_exactly_once()
+-- App.quit is App.setState(nil): the first quit disposes the current state
+-- and clears it, and any further quit is a safe no-op.
+function T.quit_disposes_the_current_state_exactly_once_and_is_repeat_safe()
   fresh()
   local state = countingState()
   App.setState(state)
@@ -169,75 +191,41 @@ function T.starting_an_import_disposes_the_active_field_state()
   Assert.notNil(App.importer)
 end
 
--- DEV-06: the bare "g4recomp" draw is developer branding on an empty frame;
--- product mode draws nothing.
-function T.app_draw_skips_the_emergency_brand_text_in_product_mode()
-  fresh()
-  local prints = 0
-  local graphics = love.graphics
-  local originalPrint = graphics.print
-  graphics.print = function()
-    prints = prints + 1
+-- The bare "g4recomp" draw is developer branding on an empty frame: product
+-- mode draws nothing, dev mode keeps the emergency text.
+function T.app_draw_keeps_the_emergency_brand_text_only_in_dev_mode()
+  for _, dev in ipairs({ false, true }) do
+    local result = withAppHarness({ dev = dev }, function()
+      return false
+    end, function()
+      App.draw()
+    end)
+    local expected = 0
+    if dev then
+      expected = 1
+    end
+    Assert.equal(result.prints, expected, "brand text on an empty frame tracks dev mode")
   end
-  local ok, err
-  withAppOptions({ dev = false }, function()
-    ok, err = pcall(App.draw)
-  end)
-  graphics.print = originalPrint
-  if not ok then
-    error(err, 0)
-  end
-  Assert.equal(prints, 0, "product mode must not draw the bare g4recomp emergency text")
-end
-
--- DEV-07: dev mode keeps the emergency brand text on an empty frame.
-function T.app_draw_keeps_the_emergency_brand_text_in_dev_mode()
-  fresh()
-  local prints = 0
-  local graphics = love.graphics
-  local originalPrint = graphics.print
-  graphics.print = function()
-    prints = prints + 1
-  end
-  local ok, err
-  withAppOptions({ dev = true }, function()
-    ok, err = pcall(App.draw)
-  end)
-  graphics.print = originalPrint
-  if not ok then
-    error(err, 0)
-  end
-  Assert.equal(prints, 1, "dev mode keeps the emergency brand text")
 end
 
 -- An import session is single-use. A file drop during gameplay after a
--- completed import must enter a fresh import session through the import
--- state; the stale importer's completion callback would otherwise replace the
--- active field state unexpectedly.
-function T.drop_after_completed_import_starts_a_fresh_session()
-  fresh()
-  local stale = importerStub("complete")
-  App.importer = stale
-  App.setState({})
-  App.filedropped(droppedFile())
-  Assert.equal(stale.filedroppedCalls, 0, "the stale importer must not be invoked")
-  Assert.isFalse(App.importer == stale, "a completed import session must not be reused")
-  Assert.notNil(App.importer)
-  Assert.equal(getmetatable(App.state).__index, ImportState)
-  Assert.equal(App.state.importer, App.importer)
-end
-
--- The same single-use contract holds after a failed import: the dropped file
--- starts a fresh session rather than re-running the failed importer.
-function T.drop_after_failed_import_starts_a_fresh_session()
-  fresh()
-  local stale = importerStub("error")
-  App.importer = stale
-  App.setState({})
-  App.filedropped(droppedFile())
-  Assert.equal(stale.filedroppedCalls, 0, "a failed import session must not be reused")
-  Assert.isFalse(App.importer == stale)
-  Assert.equal(getmetatable(App.state).__index, ImportState)
+-- finished import (complete or failed) must enter a fresh import session
+-- through the import state; the stale importer's completion callback would
+-- otherwise replace the active field state unexpectedly, and re-running a
+-- failed importer is just as wrong.
+function T.drop_after_a_finished_import_starts_a_fresh_session()
+  for _, terminalState in ipairs({ "complete", "error" }) do
+    fresh()
+    local stale = importerStub(terminalState)
+    App.importer = stale
+    App.setState({})
+    App.filedropped(droppedFile())
+    Assert.equal(stale.filedroppedCalls, 0, "the stale importer must not be invoked")
+    Assert.isFalse(App.importer == stale, "a finished import session must not be reused")
+    Assert.notNil(App.importer)
+    Assert.equal(getmetatable(App.state).__index, ImportState)
+    Assert.equal(App.state.importer, App.importer)
+  end
 end
 
 -- Drops while an import is running are ignored: no new session, no forward to
@@ -274,128 +262,70 @@ end
 -- RomImporter.isReady and FieldState.new are the seams: readiness is a pure
 -- check and a real FieldState boot is ROM-gated.
 
--- Capture FieldState.new's arguments through the module boundary instead of
--- booting a real runtime.
-local function captureFieldState()
-  local captured
-  local state = countingState()
-  local originalNew = FieldState.new
-  FieldState.new = function(versionId, _, options)
-    captured = { versionId = versionId, options = options }
-    return state
-  end
-  return {
-    captured = function()
-      return captured
-    end,
-    state = state,
-    restore = function()
-      FieldState.new = originalNew
-    end,
-  }
-end
-
 function T.boot_existing_with_no_ready_version_starts_an_import()
-  fresh()
-  local originalIsReady = RomImporter.isReady
-  RomImporter.isReady = function()
+  withAppHarness({}, function()
     return false
-  end
-  local ok, err
-  withAppOptions({}, function()
-    ok, err = pcall(App._bootExisting)
+  end, function()
+    App._bootExisting()
+    Assert.notNil(App.importer)
+    Assert.equal(getmetatable(App.state).__index, ImportState)
   end)
-  RomImporter.isReady = originalIsReady
-  if not ok then
-    error(err, 0)
-  end
-  Assert.notNil(App.importer)
-  Assert.equal(getmetatable(App.state).__index, ImportState)
 end
 
 function T.boot_existing_with_one_ready_version_resumes_its_field_session()
-  fresh()
-  local capture = captureFieldState()
-  local originalIsReady = RomImporter.isReady
-  RomImporter.isReady = function(id)
+  local result = withAppHarness({}, function(id)
     return id == "heartgold"
-  end
-  local ok, err
-  withAppOptions({}, function()
-    ok, err = pcall(App._bootExisting)
+  end, function()
+    App._bootExisting()
   end)
-  RomImporter.isReady = originalIsReady
-  capture.restore()
-  if not ok then
-    error(err, 0)
-  end
-  local captured = capture.captured()
+  local captured = result.captured
   Assert.notNil(captured)
+  ---@cast captured table
   Assert.equal(captured.versionId, "heartgold")
   Assert.isTrue(captured.options.resumeSave)
   Assert.isFalse(captured.options.resetSave)
   Assert.isFalse(captured.options.development)
-  Assert.equal(App.state, capture.state)
+  Assert.equal(App.state, result.state)
 end
 
 -- The CLI session flags are applied once at the boot boundary: --dev reaches
 -- the state as the presentation flag, and --new-field-session forces a fresh
 -- session instead of a resume.
 function T.boot_flags_flow_into_the_field_state_options()
-  fresh()
-  local capture = captureFieldState()
-  local originalIsReady = RomImporter.isReady
-  RomImporter.isReady = function(id)
+  local result = withAppHarness({ dev = true, newFieldSession = true }, function(id)
     return id == "heartgold"
-  end
-  local ok, err
-  withAppOptions({ dev = true, newFieldSession = true }, function()
-    ok, err = pcall(App._bootExisting)
+  end, function()
+    App._bootExisting()
   end)
-  RomImporter.isReady = originalIsReady
-  capture.restore()
-  if not ok then
-    error(err, 0)
-  end
-  local captured = capture.captured()
+  local captured = result.captured
   Assert.notNil(captured)
+  ---@cast captured table
   Assert.isTrue(captured.options.development, "--dev reaches the field state")
   Assert.isTrue(captured.options.resetSave, "--new-field-session forces a reset")
   Assert.isFalse(captured.options.resumeSave, "--new-field-session never resumes")
 end
 
 function T.boot_existing_with_two_ready_versions_offers_the_selector_over_the_ready_array()
-  fresh()
-  local capture = captureFieldState()
-  local originalIsReady = RomImporter.isReady
-  RomImporter.isReady = function(id)
+  withAppHarness({}, function(id)
     return id == "heartgold" or id == "soulsilver"
-  end
-  -- The selector's onPick callback reads App.opts through fieldSessionOptions,
-  -- so boot and probe run inside the one fixture that installs them; every
-  -- stub is restored on every path afterwards.
-  local ok, err
-  withAppOptions({}, function()
-    ok, err = pcall(function()
-      App._bootExisting()
-      Assert.isNil(capture.captured(), "the selector must not boot a field state")
-      local selector = App.state
-      ---@cast selector table
-      Assert.equal(getmetatable(selector).__index, VersionSelectState)
-      Assert.deepEqual(selector.ready, { "heartgold", "soulsilver" })
-      selector.onPick("soulsilver")
-      local picked = capture.captured()
-      Assert.notNil(picked)
-      Assert.equal(picked.versionId, "soulsilver")
-      Assert.isTrue(picked.options.resumeSave)
-      Assert.equal(App.state, capture.state)
-    end)
+  end, function(result)
+    -- The selector's onPick callback reads App.opts through fieldSessionOptions,
+    -- so boot and probe run inside the one fixture that installs them; every
+    -- stub is restored on every path afterwards.
+    App._bootExisting()
+    Assert.isNil(result.captured, "the selector must not boot a field state")
+    local selector = App.state
+    ---@cast selector table
+    Assert.equal(getmetatable(selector).__index, VersionSelectState)
+    Assert.deepEqual(selector.ready, { "heartgold", "soulsilver" })
+    selector.onPick("soulsilver")
+    local picked = result.captured
+    Assert.notNil(picked)
+    ---@cast picked table
+    Assert.equal(picked.versionId, "soulsilver")
+    Assert.isTrue(picked.options.resumeSave)
+    Assert.equal(App.state, result.state)
   end)
-  RomImporter.isReady = originalIsReady
-  capture.restore()
-  if not ok then
-    error(err, 0)
-  end
 end
 
 return { tests = T }

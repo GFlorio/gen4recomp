@@ -17,17 +17,19 @@ done
 
 echo "==> temporary-spec reference guard"
 # Reject references to the planning spec ("tmp/spec", "spec section N",
-# "Workstream N", "milestone N", "slice N", "WS N") and planning language
-# ("under development", "provisional") in source, tests, data, and
-# permanent docs. The patterns are narrow on purpose: bare "section"/"slice"
-# and project concepts like the playable "New Bark slice" stay legal.
-# lint.sh and the temporary-spec-language scan suite are excluded because
-# they contain the patterns themselves.
+# "Workstream N", "milestone N", "slice N", "WS N"), planning language
+# ("under development", "provisional", "may change in a future API"), and
+# temporary phase/deliverable identifiers ("D12", "DEV-06", "pre-D4") in
+# source, tests, data, and permanent docs. The patterns are narrow on
+# purpose: bare "section"/"slice" and project concepts like the playable
+# "New Bark slice" stay legal. lint.sh is excluded because it contains the
+# patterns itself.
 if grep -RInE --include='*.lua' --include='*.md' --include='*.sh' --include='*.toml' \
   -e 'tmp/spec' -e 'spec section' -e 'Workstream' -e 'milestone' -e 'slice [0-9]' \
-  -e 'WS[0-9]' -e 'under development' -e 'provisional' \
-  --exclude='lint.sh' --exclude='temporary_spec_language_removed_test.lua' \
-  README.md docs data libs game romdump tests scripts; then
+  -e 'WS[0-9]' -e 'under development' -e 'provisional' -e 'may change in a future API' \
+  -e '\bD[0-9]+\b' -e '\bDEV-[0-9]+\b' -e 'pre-D[0-9]+' \
+  --exclude='lint.sh' \
+  README.md docs data libs game romdump tests scripts gen4; then
   echo "lint: temporary-spec references found; replace them with durable reasoning" >&2
   exit 1
 fi

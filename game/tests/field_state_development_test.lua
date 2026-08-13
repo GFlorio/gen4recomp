@@ -1,7 +1,7 @@
--- The development gate over the playtest presentation. Product mode (the
+-- Dev-mode behavior over the playtest presentation. Product mode (the
 -- default) renders no playtest HUD and ignores the F1 save / F2 reset
 -- developer binds; dev mode keeps both. The zoom keys are documented product
--- camera controls (docs/field-camera.md) and must survive the gate.
+-- camera controls (docs/field-camera.md) and stay available in both modes.
 
 local Assert = require("tests.support.Assert")
 local FieldState = require("game.src.game.FieldState")
@@ -78,7 +78,7 @@ local function withHudGraphicsSpy(fn)
   return counts
 end
 
--- DEV-01: product mode (the default) renders no playtest HUD.
+-- Product mode (the default) renders no playtest HUD.
 function T.product_mode_draw_renders_no_playtest_hud()
   local counts = withHudGraphicsSpy(function()
     drawableState(false):draw()
@@ -87,7 +87,7 @@ function T.product_mode_draw_renders_no_playtest_hud()
   Assert.equal(counts.rectangle, 0, "product mode must not draw the HUD backdrop")
 end
 
--- DEV-02: dev mode keeps the playtest HUD exactly as today.
+-- Dev mode keeps the playtest HUD.
 function T.dev_mode_draw_keeps_the_playtest_hud()
   local counts = withHudGraphicsSpy(function()
     drawableState(true):draw()
@@ -96,7 +96,7 @@ function T.dev_mode_draw_keeps_the_playtest_hud()
   Assert.equal(counts.rectangle, 1, "dev mode keeps the HUD backdrop")
 end
 
--- DEV-03: product mode ignores the F1 save / F2 reset developer binds.
+-- Product mode ignores the F1 save / F2 reset developer binds.
 function T.product_mode_ignores_the_f1_and_f2_developer_binds()
   local saves, resets = 0, 0
   local state = setmetatable({
@@ -117,7 +117,7 @@ function T.product_mode_ignores_the_f1_and_f2_developer_binds()
   Assert.equal(resets, 0, "product mode must ignore the F2 developer reset bind")
 end
 
--- DEV-04: dev mode keeps the F1 save / F2 reset binds.
+-- Dev mode keeps the F1 save / F2 reset binds.
 function T.dev_mode_keeps_the_f1_and_f2_developer_binds()
   local saves, resets = 0, 0
   local state = setmetatable({
@@ -139,8 +139,8 @@ function T.dev_mode_keeps_the_f1_and_f2_developer_binds()
   Assert.equal(resets, 1, "dev mode keeps the F2 reset bind")
 end
 
--- DEV-05: the zoom keys are documented product camera controls
--- (docs/field-camera.md "Configurable zoom") and must survive the gate.
+-- The zoom keys are documented product camera controls
+-- (docs/field-camera.md "Configurable zoom") and stay available in both modes.
 function T.product_mode_keeps_the_documented_zoom_controls()
   local zooms = {}
   local changes = 0

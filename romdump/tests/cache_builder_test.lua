@@ -56,8 +56,8 @@ local function newEnv()
     worldStage = nil,
     -- Derived-cache state gate: the identity comparison outcome and the
     -- fast-path availability audit. Defaults model a damaged cache under a
-    -- matching identity, which runs the incremental pipeline exactly like
-    -- the pre-D4 builder (the existing tests below).
+    -- matching identity, which runs the incremental pipeline (the existing
+    -- tests below).
     stateMatches = true,
     auditAvailable = false,
     stateMatchesCalls = 0,

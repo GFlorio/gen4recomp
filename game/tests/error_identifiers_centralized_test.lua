@@ -1,11 +1,11 @@
--- D37 executable acceptance: error identifiers, protocol strings, and names.
--- The audit's raw error identifiers must be raised through per-subsystem
+-- Centralized error identifiers, protocol strings, and names. The audit's
+-- raw error identifiers must be raised through per-subsystem
 -- constant tables (the script/errors.lua pattern), never as bare literals at
 -- raise sites; the shared protocol strings (task types, scheduler states,
 -- transition phases, common map-error codes) must be named constants at both
 -- producer and consumer; and the misleading names must be renamed. This is a
--- repo-content scan (like pre_script_fallback_removed_test.lua): it reads
--- production source files and never executes the game.
+-- repo-content scan: it reads production source files and never executes the
+-- game.
 
 local T = {
   metadata = {
@@ -32,9 +32,9 @@ local PRODUCTION_ROOTS = {
 -- Raw error identifiers the audit names for per-subsystem centralization,
 -- with the owner file(s) at HEAD. FieldEventState's whole family is listed,
 -- not just the two codes the audit cites, because the per-subsystem table
--- covers the file's raise sites. ACTOR_FACING_INVALID is the D35-added member
+-- covers the file's raise sites. ACTOR_FACING_INVALID is the added member
 -- of the actor family (raised in WarpSystem and FieldObjectActor); the warp
--- resolution codes are the D35-standardized unknown-destination codes
+-- resolution codes are the standardized unknown-destination codes
 -- (raised in WarpSystem).
 local CENTRALIZED_CODES = {
   "EVENT_STATE_TOO_LARGE",
