@@ -94,6 +94,10 @@ local function sampleKeys(chan, frame)
   return single(frame)
 end
 
+-- The five material registers the compiler always emits, in their authored
+-- order (the sampler's per-call channel iteration).
+local CHANNEL_NAMES = { "diffuse", "ambient", "specular", "emission", "alpha" }
+
 -- Sample one target of a compiled NSBMA clip at `frameFx` (the calc uses
 -- the integer frame, clamped into [0, numFrame - 1]). Returns
 -- { diffuse, ambient, specular, emission, alpha } as raw values (15-bit
@@ -113,7 +117,7 @@ function CompiledNsbmaSampler.sample(clip, targetIndex, frameFx)
   end
 
   local out = {}
-  for _, name in ipairs({ "diffuse", "ambient", "specular", "emission", "alpha" }) do
+  for _, name in ipairs(CHANNEL_NAMES) do
     local chan = target.channels[name]
     if not chan or (chan.source ~= "constant" and chan.source ~= "curve") then
       Errors.raise(

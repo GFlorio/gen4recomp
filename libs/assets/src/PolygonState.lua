@@ -8,6 +8,7 @@
 -- shared schema. No draw-state class hierarchy. Pure domain module.
 
 local Errors = require("libs.errors.src.Errors")
+local FixedPoint = require("libs.math.src.FixedPoint")
 
 local PolygonState = {}
 
@@ -87,6 +88,34 @@ function PolygonState.copy(record)
   local out = {}
   for _, field in ipairs(PolygonState.FIELDS) do
     out[field] = record[field]
+  end
+  return out
+end
+
+-- The defaults scene-form batch records fall back to when a field is absent
+-- (records that predate the schema; derived data always emits every field).
+-- lightMask has no default: a missing mask must never mean "all lights on".
+local DRAW_STATE_DEFAULTS = {
+  cullMode = "back",
+  polygonMode = "modulation",
+  polygonId = 0,
+  translucentDepthWrite = false,
+  depthEqual = false,
+  polygonAlpha = 31,
+}
+
+-- Consume the shared field set from a scene-form batch record with the
+-- pre-schema defaults: a field the record carries is kept as-is (0 and
+-- false are real values, never "missing"), polygonAlpha is normalized to
+-- 0..1 (the renderer's alpha unit), and a missing field takes its default.
+function PolygonState.withDefaults(record)
+  local out = {}
+  for _, field in ipairs(PolygonState.FIELDS) do
+    local value = record[field]
+    if value == nil then
+      value = DRAW_STATE_DEFAULTS[field]
+    end
+    out[field] = field == "polygonAlpha" and value / FixedPoint.RGB5_MAX or value
   end
   return out
 end

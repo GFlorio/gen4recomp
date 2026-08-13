@@ -226,15 +226,9 @@ function Runner._runAnalyzeMaps()
     for _, line in ipairs(MapAnalysis.lines(results)) do
       print(line)
     end
-    local censusOk, census = pcall(function()
-      return assert(FieldMaterialCensus.run(romFs))
-    end)
-    if censusOk then
-      for _, line in ipairs(FieldMaterialCensus.lines(census)) do
-        print(line)
-      end
-    else
-      error(census)
+    local census = FieldMaterialCensus.run(romFs)
+    for _, line in ipairs(FieldMaterialCensus.lines(census)) do
+      print(line)
     end
   end)
   if allOk == nil then

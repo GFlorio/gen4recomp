@@ -163,6 +163,7 @@ function GpuAssetPool:imageFor(path, wrapX, wrapY)
       local created
       if self.imageBuilder then
         created = self.imageBuilder(path)
+        assert(created, "imageBuilder returned no image for " .. path)
       else
         local bytes = assert(self.cacheFs:read(path), "missing texture " .. path)
         local data = love.filesystem.newFileData(bytes, "tex.png")

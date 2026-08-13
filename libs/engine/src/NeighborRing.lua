@@ -17,7 +17,6 @@
 
 local Matrix4 = require("libs.math.src.Matrix4")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
-local DsLighting = require("libs.engine.src.DsLighting")
 local PolygonState = require("libs.assets.src.PolygonState")
 local SceneDescriptor = require("libs.engine.src.SceneDescriptor")
 
@@ -43,17 +42,9 @@ end
 -- load() opens. Raises on any failure; the transaction releases the pool in
 -- that case. Draws carry no submission numbers: the final scene assembly
 -- (SceneAssembly) orders every draw in source order, positionally. The
--- draw-state field set is the shared PolygonState schema; the defaults cover
--- cell records
--- that predate it (derived data never needs them; lightMask has no default
--- -- a missing mask must never mean "all lights").
-local DRAW_STATE_DEFAULTS = {
-  cullMode = "back",
-  polygonMode = "modulation",
-  polygonId = 0,
-  translucentDepthWrite = false,
-  depthEqual = false,
-}
+-- draw-state field set is the shared PolygonState schema consumed with its
+-- defaults; lightMask has no default because a missing mask must never mean
+-- "all lights on."
 local function buildRing(pool, descriptors)
   -- One draw per (cell, batch), with the cell's 32-tile world offset baked into
   -- the transform and the sort center.
@@ -66,22 +57,13 @@ local function buildRing(pool, descriptors)
       local entry = pool:meshFor(batch.geometry)
       local c = entry.center
       ---@type table<string, any>
-      local draw = {
-        mesh = entry.mesh,
-        material = materials[batch.material],
-        transform = transform,
-        alphaClass = batch.alphaClass or "opaque",
-        alphaCutoff = 0.5 / 255,
-        center = { c[1] + ox, c[2], c[3] + oz },
-      }
-      for _, field in ipairs(PolygonState.FIELDS) do
-        local value = batch[field]
-        if field == "polygonAlpha" then
-          draw[field] = value ~= nil and (value / DsLighting.RGB5_MAX) or 1.0
-        else
-          draw[field] = value or DRAW_STATE_DEFAULTS[field]
-        end
-      end
+      local draw = PolygonState.withDefaults(batch)
+      draw.mesh = entry.mesh
+      draw.material = materials[batch.material]
+      draw.transform = transform
+      draw.alphaClass = batch.alphaClass or "opaque"
+      draw.alphaCutoff = 0.5 / 255
+      draw.center = { c[1] + ox, c[2], c[3] + oz }
       draws[#draws + 1] = draw
     end
   end

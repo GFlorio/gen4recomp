@@ -122,31 +122,14 @@ local function buildScene(pool, cacheFs, scene, opts)
   end
 
   -- Per-batch draw state that lives on the draw item, not the material
-  -- record. The field set is the shared PolygonState schema; the defaults
-  -- cover scene records that predate the schema (derived data always emits
-  -- every field; lightMask has no default -- a missing mask must never mean
+  -- record: the shared PolygonState schema consumed with the pre-schema
+  -- defaults (lightMask has no default -- a missing mask must never mean
   -- "all lights on").
-  local DRAW_STATE_DEFAULTS = {
-    cullMode = "back",
-    polygonMode = "modulation",
-    polygonId = 0,
-    translucentDepthWrite = false,
-    depthEqual = false,
-  }
   local function batchDrawState(batch)
     ---@type table<string, any>
-    local state = {
-      alphaClass = batch.alphaClass or "opaque",
-      alphaCutoff = MapRenderer.CUTOUT_EPSILON,
-    }
-    for _, field in ipairs(PolygonState.FIELDS) do
-      local value = batch[field]
-      if field == "polygonAlpha" then
-        state[field] = value ~= nil and (value / 31) or 1.0
-      else
-        state[field] = value or DRAW_STATE_DEFAULTS[field]
-      end
-    end
+    local state = PolygonState.withDefaults(batch)
+    state.alphaClass = batch.alphaClass or "opaque"
+    state.alphaCutoff = MapRenderer.CUTOUT_EPSILON
     return state
   end
 

@@ -330,8 +330,8 @@ function MeshCompiler.compileDynamic(model)
       local bake = draw.transformMode == PoseContract.BILLBOARD and draw.matrix or nil
       -- The linear part of the bake is a per-segment loop invariant: it feeds
       -- the normal transform of every vertex in the segment, so compute it
-      -- once per segment, not once per vertex. It is non-nil exactly when
-      -- `bake` is (Matrix4.linear is total).
+      -- once per segment, not once per vertex. It is non-nil exactly when the
+      -- bake applies (Matrix4.linear is total).
       local bakeLinear = bake and Matrix4.linear(bake) or nil
       local vertices = {}
       for _, v in ipairs(segment.vertices) do
