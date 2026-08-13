@@ -511,11 +511,11 @@ function T.animated_building_loads_advances_and_renders()
   Assert.equal(#runtime.animatedInstances, 1)
 
   -- The door is scripted (its clip carries a door role, not ambientLoop);
-  -- the scene starts with the bind-pose draw list and holds it until a
-  -- scripted role plays.
+  -- loading still produces the frame-0 renderable draw list immediately --
+  -- the animated item exists without any tick -- and the animation clock
+  -- has not advanced.
   local instance = runtime.animatedInstances[1]
-  runtime:updateAnimated()
-  Assert.equal(#runtime.buildingDraws, 1)
+  Assert.equal(#runtime.buildingDraws, 1, "the animated door item exists right after load")
   local m0 = runtime.buildingDraws[1].transform
   -- The animated draw items carry the compiled per-segment polygon state:
   -- the light mask survives descriptor -> definition -> drawItems on the
@@ -670,6 +670,11 @@ function T.banded_model_plays_its_time_band_and_swaps()
     end
   end
   Assert.deepEqual(names, { "kk_sky_d" })
+  Assert.equal(
+    instance.animationState:attachments("joint")[1].player.frameFx,
+    0,
+    "load starts the day band at frame 0 without advancing the clock"
+  )
 
   -- A time-of-day change swaps the band (stop the old, play the new).
   runtime:setTimeBand("nite")
@@ -753,11 +758,10 @@ function T.draw_items_refresh_only_on_the_scene_tick()
     { meshBuilder = fakeMeshBuilder }
   )
   local instance = runtime.animatedInstances[1]
-  -- The first tick builds the initial draw list.
-  runtime:updateAnimated()
+  -- The load-time build already produced the frame-0 draw list; a control
+  -- op between ticks marks nothing: the cached list stays until the scene
+  -- tick rebuilds it.
   local draws = runtime.buildingDraws
-  -- A control op between ticks marks nothing: the cached list stays until
-  -- the scene tick rebuilds it.
   instance:play("door.open")
   runtime:updateAnimated()
   Assert.isFalse(runtime.buildingDraws == draws, "updateAnimated rebuilds the items")

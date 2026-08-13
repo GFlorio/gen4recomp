@@ -11,6 +11,8 @@
 -- records; the model bounds fold allocates a fresh table per model, never
 -- aliasing a pooled mesh entry's cached AABB.
 
+local Errors = require("libs.errors.src.Errors")
+
 local SceneDescriptor = {}
 
 -- Resolve a material record's sampler wrap; a missing wrap means clamp/clamp
@@ -55,10 +57,15 @@ function SceneDescriptor.wrapByTexture(list)
 end
 
 -- Model-space bounding-box center and AABB of decoded vertices; the pool
--- mesh entry caches this per content-addressed path.
+-- mesh entry caches this per content-addressed path. A mesh with no
+-- vertices is malformed data and raises instead of folding the inf/nan seed
+-- values into a nonsense box.
 ---@param verts table[]
 ---@return { center: number[], bounds: { minX: number, maxX: number, minY: number, maxY: number, minZ: number, maxZ: number } }
 function SceneDescriptor.meshGeometry(verts)
+  if #verts == 0 then
+    Errors.raise("SCENE_DESC_EMPTY_MESH", "a mesh must have at least one vertex", {})
+  end
   local minx, miny, minz = math.huge, math.huge, math.huge
   local maxx, maxy, maxz = -math.huge, -math.huge, -math.huge
   for _, v in ipairs(verts) do
@@ -75,14 +82,26 @@ function SceneDescriptor.meshGeometry(verts)
   }
 end
 
--- Fold per-mesh model-space AABBs into one model AABB, seeded with the zero
--- box: an empty model folds to it, and every non-empty model's box contains
--- the origin (the pre-refactor vertex-union semantics did not).
+-- Fold per-mesh model-space AABBs into one model AABB, seeded with the
+-- FIRST mesh's bounds: a model whose geometry lies away from the origin
+-- never acquires an artificial origin-containing bound. The zero box is
+-- only the fold of an actually empty model (no meshes).
 ---@param meshBounds { minX: number, maxX: number, minY: number, maxY: number, minZ: number, maxZ: number }[]
 ---@return { minX: number, maxX: number, minY: number, maxY: number, minZ: number, maxZ: number }
 function SceneDescriptor.bounds(meshBounds)
-  local aabb = { minX = 0, maxX = 0, minY = 0, maxY = 0, minZ = 0, maxZ = 0 }
-  for _, entry in ipairs(meshBounds) do
+  local first = meshBounds[1]
+  local aabb = first
+      and {
+        minX = first.minX,
+        maxX = first.maxX,
+        minY = first.minY,
+        maxY = first.maxY,
+        minZ = first.minZ,
+        maxZ = first.maxZ,
+      }
+    or { minX = 0, maxX = 0, minY = 0, maxY = 0, minZ = 0, maxZ = 0 }
+  for i = 2, #meshBounds do
+    local entry = meshBounds[i]
     aabb.minX = math.min(aabb.minX, entry.minX)
     aabb.maxX = math.max(aabb.maxX, entry.maxX)
     aabb.minY = math.min(aabb.minY, entry.minY)

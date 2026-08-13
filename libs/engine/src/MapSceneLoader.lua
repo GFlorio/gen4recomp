@@ -29,8 +29,10 @@
 -- unconditionally -- there is no dirty-forwarding layer and no between-tick
 -- refresh (control ops like the door choreography run inside session ticks,
 -- so the same or next tick's updateAnimated renders them). The renderer
--- never re-evaluates poses itself. The list starts as the static building
--- draws only; the first tick's updateAnimated builds the animated half.
+-- never re-evaluates poses itself. Loading builds the frame-0 list
+-- immediately -- static building draws plus the animated items at their
+-- initial frames -- without advancing any animation clock, so the scene is
+-- renderable the moment load returns.
 
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local Matrix4 = require("libs.math.src.Matrix4")
@@ -398,7 +400,10 @@ local function buildScene(pool, cacheFs, scene, opts)
   runtime.collision = collision
   runtime.bounds = bounds
   runtime.mapDraws = mapDraws
-  runtime.buildingDraws = buildingDraws
+  -- Build the frame-0 animated items inside the load transaction: the scene
+  -- is renderable immediately after load, and the animation clocks never
+  -- advanced (the first tick's updateAnimated starts them).
+  refreshAnimatedItems()
   runtime.lighting = scene.lighting
   runtime.fieldTimeSeconds = FieldLightProfile.DEFAULT_TIME_SECONDS
   runtime.timeBand = timeBand

@@ -75,6 +75,12 @@ function T.mesh_geometry_computes_center_and_aabb()
   Assert.deepEqual(g2.bounds, { minX = -4, maxX = 4, minY = 2, maxY = 8, minZ = -6, maxZ = 6 })
 end
 
+local function throwsCode(code, fn)
+  local ok, err = pcall(fn)
+  Assert.isFalse(ok, "expected error " .. code)
+  Assert.equal(type(err) == "table" and err.code or err, code)
+end
+
 -- The model bounds fold unions per-mesh AABBs into one fresh table (never
 -- aliasing an entry's cached table) and degrades to the zero AABB for a
 -- model with no meshes.
@@ -86,6 +92,24 @@ function T.bounds_folds_per_mesh_aabbs_into_one_model_box()
   Assert.isFalse(folded == a, "the fold allocates a fresh table")
   Assert.isFalse(folded == b)
   Assert.deepEqual(SceneDescriptor.bounds({}), { minX = 0, maxX = 0, minY = 0, maxY = 0, minZ = 0, maxZ = 0 })
+end
+
+-- The aggregate AABB seeds from the FIRST mesh's bounds: a model whose
+-- geometry lies entirely away from the origin must not acquire an
+-- artificial origin-containing bound.
+function T.bounds_seed_from_the_first_mesh_not_the_origin()
+  local a = { minX = 10, maxX = 12, minY = 10, maxY = 14, minZ = 10, maxZ = 15 }
+  local b = { minX = 18, maxX = 20, minY = 16, maxY = 20, minZ = 17, maxZ = 20 }
+  local folded = SceneDescriptor.bounds({ a, b })
+  Assert.deepEqual(folded, { minX = 10, maxX = 20, minY = 10, maxY = 20, minZ = 10, maxZ = 20 })
+end
+
+-- A mesh with no vertices is malformed data: the geometry math must fail
+-- loudly, never fold the inf/nan seed values into a nonsense box.
+function T.mesh_geometry_with_no_vertices_raises()
+  throwsCode("SCENE_DESC_EMPTY_MESH", function()
+    return SceneDescriptor.meshGeometry({})
+  end)
 end
 
 return {

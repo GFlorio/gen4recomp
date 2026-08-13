@@ -16,11 +16,13 @@ local Errors = require("libs.errors.src.Errors")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local PngWriter = require("libs.assets.src.PngWriter")
+local BinaryWriter = require("libs.codec.src.BinaryWriter")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
 
 local T = {}
 
 local GEOM_PATH = MapAssetCache.geometryPath("aaaa")
+local EMPTY_GEOM_PATH = MapAssetCache.geometryPath("empty")
 local TEX_PATH = MapAssetCache.texturePath("bbbb")
 
 -- One-triangle batch in the MeshWriter vertex layout.
@@ -45,11 +47,20 @@ local function triangleBatch()
   return { vertices = { v(0, 0), v(2, 0), v(0, 2) }, indices = { 0, 1, 2 } }
 end
 
+-- A syntactically valid G4M2 batch with zero vertices: MeshWriter refuses
+-- to encode an empty batch, so this is the hand-crafted malformed-data shape
+-- that must fail loudly at the geometry step, not decode or fold into a
+-- NaN box.
+local function emptyMeshBytes()
+  return BinaryWriter.new():bytes("G4M2"):u16(2):u16(0):u32(0):u32(0):u16(40):u16(2):u32(0):tostring()
+end
+
 -- A CacheFs whose :read(path) serves canned bytes for the known paths,
 -- mirroring CacheFs:read's string-or-nil contract.
 local function fakeCacheFs()
   local blob = {
     [GEOM_PATH] = MeshWriter.encode(triangleBatch()),
+    [EMPTY_GEOM_PATH] = emptyMeshBytes(),
     [TEX_PATH] = PngWriter.encode(1, 1, string.char(255, 0, 0, 255)),
   }
   return {
@@ -231,6 +242,33 @@ function T.mesh_entries_dedup_and_accumulate_triangles_once()
   Assert.equal(pool.triangles, 1, "shared geometry is counted once")
   Assert.equal(#pool.meshes, 1)
   pool:release()
+end
+
+-- A mesh file that decodes to zero vertices is malformed data: the geometry
+-- math raises SCENE_DESC_EMPTY_MESH instead of folding inf/nan seeds. The
+-- mesh object the builder created before that step must already be owned by
+-- the pool, so the guarded acquire pops and releases it exactly once --
+-- never an orphaned love Mesh.
+function T.empty_mesh_fails_and_releases_the_created_mesh()
+  local created = {}
+  local pool = GpuAssetPool.new(fakeCacheFs(), {
+    graphics = fakeGraphics(),
+    meshBuilder = function()
+      local mesh = { released = false }
+      mesh.release = function()
+        mesh.released = true
+      end
+      created[#created + 1] = mesh
+      return mesh
+    end,
+  })
+  local err = Assert.throws(function()
+    pool:meshFor(EMPTY_GEOM_PATH)
+  end)
+  Assert.isTrue(Errors.is(err) and err.code == "SCENE_DESC_EMPTY_MESH", "raises SCENE_DESC_EMPTY_MESH")
+  Assert.equal(#created, 1, "the builder created the mesh before the geometry step")
+  Assert.equal(created[1].released, true, "the failed acquisition's own mesh is released")
+  Assert.equal(#pool.meshes, 0, "the pool owns no mesh after the failed acquire")
 end
 
 -- The per-mesh geometry cache: the entry exposes the model-space

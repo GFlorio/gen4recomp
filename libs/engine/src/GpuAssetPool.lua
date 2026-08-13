@@ -117,10 +117,13 @@ function GpuAssetPool:meshFor(path)
     guarded(self, function()
       local decoded = SceneMesh.decode(assert(self.cacheFs:read(path), "missing mesh " .. path), path)
       local mesh = self.meshBuilder(decoded)
+      -- Record ownership before the failure-capable geometry step: a later
+      -- failure (e.g. an empty mesh) pops and releases exactly this mesh
+      -- instead of orphaning it.
+      self.meshes[#self.meshes + 1] = mesh
       local geometry = SceneDescriptor.meshGeometry(decoded.vertices)
       entry = { mesh = mesh, triangles = decoded.indexCount / 3, center = geometry.center, bounds = geometry.bounds }
       self._meshCache[path] = entry
-      self.meshes[#self.meshes + 1] = mesh
       self.triangles = self.triangles + entry.triangles
     end)
   end
