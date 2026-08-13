@@ -32,9 +32,9 @@ local HOUSE_2F = "MAP_NEW_BARK_PLAYER_HOUSE_2F"
 -- One compiled scene: the runtime map and the MapProps facade, the shape
 -- MapSceneLoader produces (the player house carries no building placements,
 -- so there are no animated instances to advance).
--- The model-space AABB of a descriptor's geometry (the loader stamps this
--- from the decoded .g4mesh assets; the private suite computes it from the
--- compiled bundle's mesh table).
+-- The model-space AABB of a descriptor's geometry, recomputed from the
+-- compiled bundle's mesh table (the loader stamps this from the decoded
+-- .g4mesh assets).
 local function footprintOf(desc, assets)
   local batches = desc.kind == "static" and desc.batches or desc.dynamic.batches
   local minX, maxX, minZ, maxZ

@@ -1,6 +1,6 @@
--- Private corpus contract for straddling primitives: the real HGSS field
--- corpus contains primitives that span a mid-run matrix boundary, so the
--- dynamic path carries their per-vertex source provenance instead of
+-- ROM-conformance census behind the straddling-primitive contract: the real
+-- HGSS field corpus contains primitives that span a mid-run matrix boundary,
+-- so the dynamic path carries their per-vertex source provenance instead of
 -- rendering them rigidly under the boundary's new source. The census pins
 -- the exact straddle population of the heartgold dump (identified by
 -- checksum), and every straddling mesh record must carry the per-vertex
@@ -105,4 +105,4 @@ function T.the_real_corpus_straddle_census_is_pinned(romFs)
   Assert.equal(interior.byModel[174].straddles, 2)
 end
 
-return T
+return require("tests.rom.support.RomSuite").fromFacts(T)

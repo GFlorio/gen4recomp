@@ -12,7 +12,7 @@
 -- dump through the ROM layer.
 
 local Assert = require("tests.support.Assert")
-local SceneLoaderFixture = require("tests.private.support.SceneLoaderFixture")
+local SceneLoaderFixture = require("tests.rom.support.SceneLoaderFixture")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local WarpSystem = require("libs.engine.src.WarpSystem")
 

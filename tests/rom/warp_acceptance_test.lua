@@ -27,7 +27,7 @@ local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldSave = require("libs.engine.src.FieldSave")
 local FieldSaveStore = require("libs.engine.src.FieldSaveStore")
 local FieldTransition = require("libs.engine.src.FieldTransition")
-local SceneLoaderFixture = require("tests.private.support.SceneLoaderFixture")
+local SceneLoaderFixture = require("tests.rom.support.SceneLoaderFixture")
 local SaveFs = require("libs.rom.src.SaveFs")
 
 local T = {}

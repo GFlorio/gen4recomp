@@ -36,9 +36,9 @@ local TOWN_DOORS = {
   { x = 690, z = 407, destinationMapId = 66, modelMemberId = 25 },
 }
 
--- The model-space AABB of a descriptor's geometry (the loader stamps this
--- from the decoded .g4mesh assets; the private suite computes it from the
--- compiled bundle's mesh table).
+-- The model-space AABB of a descriptor's geometry, recomputed from the
+-- compiled bundle's mesh table (the loader stamps this from the decoded
+-- .g4mesh assets).
 local function footprintOf(desc, assets)
   local batches = desc.kind == "static" and desc.batches or desc.dynamic.batches
   local minX, maxX, minZ, maxZ
