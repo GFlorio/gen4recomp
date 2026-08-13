@@ -41,7 +41,11 @@ end
 -- Compile one model into batches; append meshes/textures to the shared bundle
 -- accumulators; return { batches (scene refs), materials, unresolved } -- the
 -- last being the materials whose names the bound pack does not define, tagged
--- with the model they came from so a caller can report them.
+-- with the model they came from so a caller can report them. When the caller
+-- passes a map-scoped terrain-animation compiler in `context.terrainAnimations`
+-- (the option's presence selects annotation, not the role), every material
+-- whose texture name an fldtanime record names gets a textureSwap record and
+-- its alternate frames join the shared texture accumulator.
 local function compileModel(model, texturePack, meshes, textures, context)
   local mat = MaterialCompiler.compile(model.materials, texturePack, { context = context })
   for sha1, tex in pairs(mat.textures) do
@@ -71,6 +75,18 @@ local function compileModel(model, texturePack, meshes, textures, context)
       textureFormat = m.textureFormat or 0,
       alphaUsage = m.texture and textures[m.texture] and textures[m.texture].alphaUsage or nil,
     }
+  end
+
+  local materials = sceneMaterials(mat.materials)
+  if context.terrainAnimations then
+    for i, m in ipairs(mat.materials) do
+      -- A matched record yields a textureSwap record; an unmatched or
+      -- all-sentinel record leaves the field omitted.
+      local swap = context.terrainAnimations:annotateMaterial(model.materials[i], m, texturePack, textures)
+      if swap then
+        materials[i].textureSwap = swap
+      end
+    end
   end
 
   local batches = {}
@@ -113,7 +129,7 @@ local function compileModel(model, texturePack, meshes, textures, context)
       batches[#batches + 1] = record
     end
   end
-  return { batches = batches, materials = sceneMaterials(mat.materials), unresolved = unresolved }
+  return { batches = batches, materials = materials, unresolved = unresolved }
 end
 
 ModelAssetCompiler.compileModel = compileModel

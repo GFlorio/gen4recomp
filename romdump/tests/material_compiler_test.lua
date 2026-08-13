@@ -6,6 +6,7 @@
 
 local Assert = require("tests.support.Assert")
 local MaterialCompiler = require("romdump.src.digest.MaterialCompiler")
+local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
 local TexFixture = require("tests.support.Tex0Fixture")
 
 local T = {}
@@ -86,6 +87,39 @@ function T.an_unresolved_material_keeps_its_wrap_and_flip()
   )
   Assert.equal(out.materials[1].wrap.x, "repeat")
   Assert.isTrue(out.materials[1].flip.y)
+end
+
+function T.decode_texture_is_the_single_content_addressed_store()
+  -- The shared decode/store step: identical texel/palette bytes produce one
+  -- key and one asset, different texel bytes a different key, and the stored
+  -- asset carries the decoded pixels and alpha usage. The terrain texture-swap
+  -- compile and the base material resolve both call here, so equal bytes must
+  -- deduplicate across callers.
+  local pack = buildPack()
+  local tex = pack.textureByName["t"]
+  local pal = pack.paletteByName["p"]
+  local opts = Nsbtx.decoderOpts(pack, tex, pal)
+  local textures = {}
+
+  local a = MaterialCompiler.decodeTexture(tex, opts, textures, "t")
+  local b = MaterialCompiler.decodeTexture(tex, opts, textures, "t")
+  Assert.equal(a, b)
+  Assert.equal(countKeys(textures), 1)
+
+  local otherOpts = {}
+  for k, v in pairs(opts) do
+    otherOpts[k] = v
+  end
+  otherOpts.texel = string.rep("\0", 32)
+  local c = MaterialCompiler.decodeTexture(tex, otherOpts, textures, "t")
+  Assert.isTrue(a ~= c)
+  Assert.equal(countKeys(textures), 2)
+
+  local asset = textures[a]
+  Assert.equal(asset.width, 8)
+  Assert.equal(#asset.pixels, 8 * 8 * 4)
+  Assert.isTrue(asset.alphaUsage.hasOpaque)
+  Assert.isFalse(asset.alphaUsage.hasZero)
 end
 
 return { tests = T }

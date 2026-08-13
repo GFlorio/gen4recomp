@@ -5,13 +5,19 @@
 -- the interior building-model archive, and a field-light profile. Every archive
 -- is independently overridable so tests can give terrain and buildings
 -- deliberately disjoint texture names and observe which pack each model is bound
--- to. Test-only.
+-- to. `field_texture_animations` always exists (member 0 defaults to a valid
+-- zero-record table, because terrain compilation depends on it unconditionally);
+-- `field_area_texture_srt` exists only when a test opts into a selected NSBTA
+-- member, and the area's `dynamicTextureType` defaults to 0xFFFF (no area
+-- texture-coordinate animation), so archives that should stay unread are absent.
+-- Test-only.
 
 local NB = require("tests.support.NitroBuilder")
 local LandDataBuilder = require("tests.support.LandDataBuilder")
 local BdhcBuilder = require("tests.support.BdhcBuilder")
 local NsbmdFixture = require("tests.support.NsbmdFixture")
 local Tex0Fixture = require("tests.support.Tex0Fixture")
+local FieldTexAnimFixture = require("tests.support.FieldTextureAnimationFixture")
 
 local MapRomFixture = {}
 
@@ -63,7 +69,7 @@ end
 local function areaMember(opts)
   return NB.u16(opts.buildingTexturePackId)
     .. NB.u16(opts.mapTexturePackId)
-    .. NB.u16(0)
+    .. NB.u16(opts.dynamicTextureType or 0xFFFF)
     .. NB.u8(0)
     .. NB.u8(opts.lightTypeRaw or 0) -- areaType 0 == indoor
 end
@@ -78,6 +84,11 @@ end
 --                       false for the four-byte placeholder the ROM stores when
 --                       an area has no placed buildings
 --   buildingTexturePackId / mapTexturePackId
+--   dynamicTextureType  the area record's dynamic-texture animation type,
+--                       default 0xFFFF (no area texture-coordinate animation)
+--   fieldTextureAnimations / fieldAreaTextureSrt
+--                       member maps for the two terrain-animation archives;
+--                       see the archive notes in build()
 -- Returns romFs, members -- the latter keyed by archive alias for sha assertions.
 function MapRomFixture.build(opts)
   opts = opts or {}
@@ -107,6 +118,7 @@ function MapRomFixture.build(opts)
       [MapRomFixture.AREA_DATA_MEMBER_ID] = areaMember({
         mapTexturePackId = mapTexturePackId,
         buildingTexturePackId = buildingTexturePackId,
+        dynamicTextureType = opts.dynamicTextureType,
         lightTypeRaw = opts.lightTypeRaw,
       }),
     },
@@ -137,7 +149,18 @@ function MapRomFixture.build(opts)
     interior_build_anim_list = opts.interiorBuildAnimList
       or { [MapRomFixture.BUILDING_MODEL_MEMBER_ID] = NB.u16(0xFFFF) .. string.rep("\0", 0x16) },
     build_anim = opts.buildAnim or { [0] = "\0" },
+    -- The fldtanime table (member 0) is an unconditional terrain-compile
+    -- dependency; the default is a valid zero-record table so maps with no
+    -- animation records compile. Replacement members (recordIndex + 1) are
+    -- provided only by tests whose fixtures use them.
+    field_texture_animations = opts.fieldTextureAnimations or { [0] = FieldTexAnimFixture.member({}) },
   }
+  -- The area texture-SRT archive exists only when a test opts into a selected
+  -- NSBTA member (dynamicTextureType != 0xFFFF); a compiler that reads it
+  -- anyway trips the fixture's missing-archive assert.
+  if opts.fieldAreaTextureSrt then
+    members.field_area_texture_srt = opts.fieldAreaTextureSrt
+  end
 
   local romFs = {
     openNarc = function(_, alias)

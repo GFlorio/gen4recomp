@@ -21,6 +21,36 @@ local MaterialCompiler = {}
 -- content-addressed texture key so the model cache invalidates.
 local DECODER_VERSION = "texdec-v1"
 
+-- Decode a texture from ready decoder opts into the shared content-addressed
+-- `textures` accumulator and return its sha1 key. The definition string and
+-- hash formula are the single authority for texture identity: the base
+-- material resolve and the terrain texture-swap decode both call here, so
+-- equal texel/palette bytes (base palette included) produce the same key.
+-- `texture` is the decoded NSBTX texture record the opts describe.
+function MaterialCompiler.decodeTexture(texture, decoderOpts, textures, name)
+  local definition = string.format(
+    "%d:%dx%d:%s",
+    texture.formatRaw,
+    texture.width,
+    texture.height,
+    texture.color0Transparent and "1" or "0"
+  )
+  local key = Hashing.sha1hex(
+    DECODER_VERSION .. definition .. decoderOpts.texel .. decoderOpts.palette .. (decoderOpts.indexData or "")
+  )
+
+  if not textures[key] then
+    local img = TextureDecoder.decode(decoderOpts, { name = name })
+    textures[key] = {
+      pixels = img.pixels,
+      width = img.width,
+      height = img.height,
+      alphaUsage = img.alphaUsage,
+    }
+  end
+  return key
+end
+
 -- Paletted formats require a palette; direct color (7) and none (0) do not.
 local function needsPalette(formatRaw)
   return formatRaw >= 1 and formatRaw <= 6
@@ -77,21 +107,7 @@ function MaterialCompiler.resolveTexture(mat, pack, textures, unresolved, opts)
 
   if tex then
     local decoderOpts = Nsbtx.decoderOpts(pack, tex, pal)
-    local definition =
-      string.format("%d:%dx%d:%s", tex.formatRaw, tex.width, tex.height, tex.color0Transparent and "1" or "0")
-    local key = Hashing.sha1hex(
-      DECODER_VERSION .. definition .. decoderOpts.texel .. decoderOpts.palette .. (decoderOpts.indexData or "")
-    )
-
-    if not textures[key] then
-      local img = TextureDecoder.decode(decoderOpts, { name = mat.textureName })
-      textures[key] = {
-        pixels = img.pixels,
-        width = img.width,
-        height = img.height,
-        alphaUsage = img.alphaUsage,
-      }
-    end
+    local key = MaterialCompiler.decodeTexture(tex, decoderOpts, textures, mat.textureName)
 
     record.texture = key
     record.textureFormat = tex.formatRaw

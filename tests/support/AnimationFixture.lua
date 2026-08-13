@@ -507,6 +507,30 @@ function AnimationFixture.srtConstRot()
   return file("BTA0", "SRT0", dictWithRecord({ { name = "constrot", data = u32(0) } }, record))
 end
 
+-- A BTA0 member whose dictionary maps every name in `names` to one record
+-- built from `opts` (the buildSrtRecord options; the default channels are
+-- all identity constants). One name builds the usual single-animation
+-- member; several names author the ambiguous-multiple-animations member;
+-- zero names the empty-animation-set member.
+function AnimationFixture.srtMember(names, opts)
+  opts = opts or {}
+  local record = buildSrtRecord({
+    numFrame = opts.numFrame,
+    channels = opts.channels or {
+      scaleS = { const = 0x1000 },
+      scaleT = { const = 0x1000 },
+      rot = { const = 0x10000000 },
+      transS = { const = 0 },
+      transT = { const = 0 },
+    },
+  })
+  local entries = {}
+  for _, name in ipairs(names) do
+    entries[#entries + 1] = { name = name, data = u32(0) }
+  end
+  return file("BTA0", "SRT0", dictWithRecord(entries, record))
+end
+
 -- ---- NSBTP / PAT0 ----
 
 -- pc_mb-like BTP: one target, 4 textures/palettes, keys every 4 frames.
