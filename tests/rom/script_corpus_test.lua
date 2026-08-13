@@ -11,6 +11,7 @@ local SemanticLowering = require("romdump.src.digest.script.SemanticLowering")
 local Structurer = require("romdump.src.digest.script.Structurer")
 local Verifier = require("romdump.src.digest.script.Verifier")
 local SourceCatalog = require("romdump.src.digest.script.SourceCatalog")
+local CommandCatalog = require("romdump.src.digest.script.CommandCatalog")
 local ScriptMembers = require("romdump.src.reference.hgss.script_members")
 local S = require("gen4.script")
 
@@ -157,6 +158,144 @@ T["corpus compile is deterministic"] = function(romFs)
     end
   end
   Assert.isTrue(sorted, "the compiled index is sorted by id")
+end
+
+-- 5. The signpost command family (55-60) decodes without losing operands on
+-- the real corpus: every decoded operand of every signpost instruction equals
+-- the member bytes at its offset, and the six opcodes all occur. The compiled
+-- TrainerTipsEx and DirectionSignpostEx macro sequences and the std_signpost
+-- common script are the pinned real-script fixtures the signpost runtime work
+-- must keep byte- and sequence-faithful.
+T["signpost contracts hold on the real corpus"] = function(romFs)
+  local archive, memberIrs = decodeAll(romFs)
+  local stdCatalog = SourceCatalog.catalog()
+  local vars = require("romdump.src.reference.hgss.vars").byId
+  local varNameToId = {}
+  for id, name in pairs(vars) do
+    varNameToId[name] = id
+  end
+
+  local function byteValue(bytes, pos, width)
+    local value = 0
+    for i = 0, width - 1 do
+      value = value + bytes:byte(pos + i) * (2 ^ (8 * i))
+    end
+    return value
+  end
+
+  local counts = {}
+  local membersWithSignposts = {}
+  for member, ir in pairs(memberIrs) do
+    if ir ~= nil then
+      for _, script in pairs(ir.scripts) do
+        for _, ins in ipairs(script.instructions) do
+          if ins.opcode >= 55 and ins.opcode <= 60 then
+            counts[ins.opcode] = (counts[ins.opcode] or 0) + 1
+            membersWithSignposts[member] = true
+          end
+        end
+      end
+    end
+  end
+  for opcode = 55, 60 do
+    Assert.isTrue((counts[opcode] or 0) > 0, "opcode " .. opcode .. " occurs in the corpus")
+  end
+
+  -- Operand preservation against the raw member bytes. The decoder renames
+  -- var-range operands through the pinned vars catalog; every other operand
+  -- must survive as the exact number it was encoded with.
+  for member, ir in pairs(membersWithSignposts) do
+    local bytes = assert(archive:readMember(member))
+    for _, script in pairs(memberIrs[member].scripts) do
+      for _, ins in ipairs(script.instructions) do
+        if ins.opcode >= 55 and ins.opcode <= 60 then
+          local widths = assert(CommandCatalog.widths(ins.opcode), "opcode " .. ins.opcode .. " has pinned widths")
+          Assert.equal(#ins.operands, #widths, "opcode " .. ins.opcode .. " operand count")
+          local expectedSize = 2
+          for _, width in ipairs(widths) do
+            expectedSize = expectedSize + width
+          end
+          Assert.equal(ins.size, expectedSize, "opcode " .. ins.opcode .. " instruction size")
+          -- `ins.offset` is the zero-based opcode byte; `bytes:byte` is
+          -- 1-based, so the first operand byte sits at ins.offset + 3.
+          local pos = ins.offset + 3
+          for index, width in ipairs(widths) do
+            local encoded = byteValue(bytes, pos, width)
+            local raw = ins.operands[index].raw
+            if type(raw) == "number" then
+              Assert.equal(raw, encoded, "opcode " .. ins.opcode .. " operand " .. index .. " preserved")
+            else
+              Assert.equal(
+                varNameToId[raw],
+                encoded,
+                "opcode " .. ins.opcode .. " named operand " .. index .. " (" .. raw .. ") preserved"
+              )
+            end
+            pos = pos + width
+          end
+        end
+      end
+    end
+  end
+
+  -- TrainerTipsEx compiles to SetSignpostMap type,0; SetSignpostAction
+  -- WIPE_IN; WaitSignpostAction; TrainerTips; CallStd std_signpost.
+  local tips = memberIrs[9].scripts[0]
+  local function opSequence(script)
+    local out = {}
+    for _, ins in ipairs(script.instructions) do
+      local operands = {}
+      for _, operand in ipairs(ins.operands) do
+        operands[#operands + 1] = operand.raw
+      end
+      out[#out + 1] = { opcode = ins.opcode, operands = operands }
+    end
+    return out
+  end
+  Assert.deepEqual(opSequence(tips), {
+    { opcode = 56, operands = { 2, 0 } },
+    { opcode = 57, operands = { 3 } },
+    { opcode = 58, operands = {} },
+    { opcode = 59, operands = { 0, "VAR_SPECIAL_RESULT" } },
+    { opcode = 20, operands = { 2000 } },
+    { opcode = 2, operands = {} },
+  }, "the TrainerTipsEx compiled sequence")
+
+  -- DirectionSignpostEx compiles to DirectionSignpost message,type,map,out;
+  -- SetSignpostAction WIPE_IN; WaitSignpostAction; WaitSignpost;
+  -- CallStd std_signpost. The opcode-55 out operand decodes but is unused.
+  local direction = memberIrs[168].scripts[2]
+  Assert.deepEqual(opSequence(direction), {
+    { opcode = 55, operands = { 0, 1, 4, "VAR_SPECIAL_RESULT" } },
+    { opcode = 57, operands = { 3 } },
+    { opcode = 58, operands = {} },
+    { opcode = 60, operands = { "VAR_SPECIAL_RESULT" } },
+    { opcode = 20, operands = { 2000 } },
+    { opcode = 2, operands = {} },
+  }, "the DirectionSignpostEx compiled sequence")
+
+  -- std_signpost (CallStd 2000) lives in member 3 script 0 and drives the
+  -- wipe/hide cleanup from the special result: WIPE_OUT for results 0 and 2,
+  -- HIDE for result 1 (directional dismissal).
+  Assert.equal(SourceCatalog.commonPublicId(stdCatalog, 2000), "common.signpost")
+  local located = stdCatalog.locate(2000)
+  Assert.equal(located.member, 3)
+  Assert.equal(located.scriptIndex, 0)
+  local signpostScript = memberIrs[3].scripts[0]
+  local commands = {}
+  local waitSignpostCount = 0
+  for _, ins in ipairs(signpostScript.instructions) do
+    if ins.opcode == 57 then
+      commands[#commands + 1] = ins.operands[1].raw
+    elseif ins.opcode == 58 then
+      Assert.equal(#ins.operands, 0)
+    elseif ins.opcode == 60 then
+      Assert.equal(ins.operands[1].raw, "VAR_SPECIAL_RESULT")
+      waitSignpostCount = waitSignpostCount + 1
+    end
+  end
+  Assert.deepEqual(commands, { 2, 2, 4 }, "std_signpost uses WIPE_OUT and HIDE")
+  Assert.equal(waitSignpostCount, 1)
 end
 
 return require("tests.rom.support.RomSuite").fromFacts(T)

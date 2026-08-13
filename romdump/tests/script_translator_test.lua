@@ -12,6 +12,7 @@ local LuaEmitter = require("romdump.src.digest.script.LuaEmitter")
 local Verifier = require("romdump.src.digest.script.Verifier")
 local Coverage = require("romdump.src.digest.script.Coverage")
 local SourceCatalog = require("romdump.src.digest.script.SourceCatalog")
+local CommandCatalog = require("romdump.src.digest.script.CommandCatalog")
 local S = require("gen4.script")
 
 local T = {}
@@ -458,6 +459,62 @@ T["field menu operations verify as supported"] = function()
     report.problems[1] and report.problems[1].message or "field-menu operations are verifier-supported"
   )
   Assert.equal(report.unsupportedCount, 0)
+end
+
+-- 12. Opcodes 55-60 carry no execution classification yet: the decoder-only
+-- step keeps them explicit unsupported nodes whose operands survive lowering
+-- untouched, and they never enter the SUPPORTED set. The later signpost
+-- runtime work adds each classification atomically with support.
+T["signpost commands stay unclassified with preserved operands"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          {
+            op = 55,
+            args = {
+              { value = 0, width = 1 },
+              { value = 1, width = 1 },
+              { value = 4, width = 2 },
+              { value = 0x8008, width = 2 },
+            },
+          },
+          { op = 56, args = { { value = 2, width = 1 }, { value = 0, width = 2 } } },
+          { op = 57, args = { { value = 3, width = 1 } } },
+          { op = 58, args = {} },
+          { op = 59, args = { { value = 0, width = 1 }, { value = 0x8008, width = 2 } } },
+          { op = 60, args = { { value = 0x8008, width = 2 } } },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  for opcode = 55, 60 do
+    Assert.equal(CommandCatalog.classification(opcode), CommandCatalog.UNSUPPORTED)
+    Assert.isNil(CommandCatalog.SUPPORTED[opcode], "opcode " .. opcode .. " is not marked supported")
+  end
+  local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 5, "synthetic", { msgBank = 543, catalog = CATALOG }))
+  local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+  Assert.equal(#lowered.unsupported, 6)
+  local expected = {
+    { command = 55, originalName = "ScrCmd_DirectionSignpost", arguments = { 0, 1, 4, "VAR_SPECIAL_x8008" } },
+    { command = 56, originalName = "ScrCmd_SetSignpostMap", arguments = { 2, 0 } },
+    { command = 57, originalName = "ScrCmd_SetSignpostAction", arguments = { 3 } },
+    { command = 58, originalName = "ScrCmd_WaitSignpostAction", arguments = {} },
+    { command = 59, originalName = "ScrCmd_TrainerTips", arguments = { 0, "VAR_SPECIAL_x8008" } },
+    { command = 60, originalName = "ScrCmd_WaitSignpost", arguments = { "VAR_SPECIAL_x8008" } },
+  }
+  for index, contract in ipairs(expected) do
+    local step = lowered.unsupported[index]
+    Assert.equal(step.op, "unsupported")
+    Assert.equal(step.command, contract.command)
+    Assert.equal(step.originalName, contract.originalName)
+    Assert.deepEqual(step.arguments, contract.arguments, "opcode " .. contract.command .. " keeps its operands")
+  end
+  local report = Verifier.verifyScript(Structurer.structure(lowered, 0), ir.scripts[0], ir, lowered.omissions)
+  Assert.equal(report.unsupportedCount, 6)
+  Assert.isFalse(report.complete)
 end
 
 return { tests = T }
