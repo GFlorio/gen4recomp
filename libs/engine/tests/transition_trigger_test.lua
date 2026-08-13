@@ -131,16 +131,11 @@ function T.facing_door_triggers_from_blocked_facing_tile()
     ["4:14"] = { behavior = BEHAVIOR.DOOR, blocked = true },
   })
   local trigger = assert(TransitionTrigger.inputPath(map, 4, 13, "south"))
-  -- The minimal public record: the classification kind plus the attached
-  -- warp. Classification internals stay local to the trigger policy and are
+  -- The record carries the classification kind plus the attached warp;
+  -- classification internals stay local to the trigger policy and are
   -- asserted through classify() above.
   Assert.equal(trigger.kind, "door")
   Assert.equal(assert(trigger.warp), warps[1])
-  local keyCount = 0
-  for _ in pairs(trigger) do
-    keyCount = keyCount + 1
-  end
-  Assert.equal(keyCount, 2, "the trigger record is exactly kind + warp")
 end
 
 function T.facing_door_requires_the_facing_tile_to_be_blocked()

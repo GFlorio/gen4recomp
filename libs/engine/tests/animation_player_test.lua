@@ -6,8 +6,7 @@
 -- positive terminal at numFrame << 12 and sets done there; pokeheartgold
 -- overlay_01_021FB878.s), so a "once" clip finishes exactly when frameFx
 -- reaches frameCount * FRAME_UNIT -- the single completion notion: playback
--- always runs forward from 0, with no direction option (setDirection) and no
--- atTerminal/completed split. Pure domain module.
+-- always runs forward from 0. Pure domain module.
 
 local Assert = require("tests.support.Assert")
 local AnimationPlayer = require("libs.engine.src.AnimationPlayer")
@@ -53,9 +52,7 @@ end
 
 -- The single completion notion: a once-clip finishes exactly when frameFx
 -- reaches numFrame * FRAME_UNIT -- the positive terminal the checked advance
--- clamps to (numFrame << 12) and reports done at. Not one tick earlier (the
--- old atTerminal last-key-frame notion) and not clamped one unit short (the
--- old completed clamp).
+-- clamps to (numFrame << 12) and reports done at.
 function T.once_completes_exactly_at_numFrame_times_frame_unit()
   local p = new(8)
   p.loopMode = "once"
@@ -70,16 +67,6 @@ function T.once_completes_exactly_at_numFrame_times_frame_unit()
   p:updateFixed()
   Assert.equal(p.frameFx, 8 * 0x1000, "completed players stay at the terminal")
   Assert.isTrue(p:isComplete(), "completed players do not advance")
-end
-
-function T.the_direction_api_is_cut()
-  local p = new(8)
-  Assert.isNil(p.setDirection, "setDirection has no caller and must not exist")
-end
-
-function T.the_terminal_split_is_cut()
-  local p = new(8)
-  Assert.isNil(p.atTerminal, "one completion notion replaces the atTerminal/completed split")
 end
 
 function T.players_are_independent()

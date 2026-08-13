@@ -295,9 +295,8 @@ function T.zero_binding_clip_cannot_be_attached()
 end
 
 -- One attachment per clip kind: the state rejects a conflicting same-kind
--- attachment instead of arbitrating between them (the material priority
--- arbitration is cut, and the joint group's only kind is trs, so it is
--- single-attachment for the same reason).
+-- attachment instead of arbitrating between them; the joint group's only
+-- kind is trs, so it is single-attachment for the same reason.
 function T.state_rejects_a_second_same_kind_attachment()
   local def = definition()
   local state = ModelAnimationState.new(def)
@@ -308,18 +307,16 @@ function T.state_rejects_a_second_same_kind_attachment()
   end)
 end
 
--- Field visibility animation does not exist: the category vocabulary is
--- joint and material (the corpus has no NSBVA members), so a clip carrying
--- the visibility category is rejected at attach like any unknown category.
--- (A plain-table clip, since AnimationClip.new itself rejects the category.)
-function T.state_attach_rejects_the_visibility_category()
+-- A clip carrying a category outside the joint/material vocabulary is
+-- rejected at attach like any other bad record.
+function T.state_attach_rejects_an_unknown_category()
   local def = definition()
   local state = ModelAnimationState.new(def)
   throwsCode("ANIM_STATE_BAD_CATEGORY", function()
     return state:attach({
-      id = "clip:vis",
-      name = "visibility",
-      category = "visibility",
+      id = "clip:unknown",
+      name = "unknown",
+      category = "bogus",
       kind = "trs",
       frameCount = 4,
       tracks = { { target = 0 } },

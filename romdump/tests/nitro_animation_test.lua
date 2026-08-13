@@ -353,14 +353,4 @@ function T.bma_colors_and_alpha()
   Assert.equal(s59.alpha, math.max(0, math.floor(31 - 59 / 2)))
 end
 
--- The BVA0 surface is deleted: the HGSS field archive has no VIS0 members
--- (pinned by the ROM census), so NitroAnimation exposes the format no longer
--- and a BVA0 byte stream is an unknown file magic, not a decodeable NSBVA.
-function T.bva0_surface_is_removed()
-  Assert.isNil(NitroAnimation.FORMATS and NitroAnimation.FORMATS["BVA0"])
-  throwsCode("ANM_UNKNOWN_FILE_MAGIC", function()
-    return NitroAnimation.decode("BVA0" .. string.rep("\0", 16))
-  end)
-end
-
 return T

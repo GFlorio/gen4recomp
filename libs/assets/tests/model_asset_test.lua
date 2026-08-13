@@ -710,9 +710,9 @@ function T.validate_rejects_a_pattern_key_index_out_of_range()
   end)
 end
 
--- The compiled NSBTP payload trusts its arrays: the redundant
--- keyCount/numTextures/numPalettes counts were cut from the serialized
--- shape, so a count-less payload is current-schema data the gate accepts.
+-- The compiled NSBTP payload trusts its arrays: keyCount/numTextures/
+-- numPalettes counts are not part of the serialized shape, so a count-less
+-- payload is current-schema data the gate accepts.
 function T.validate_accepts_a_pattern_payload_without_counts()
   local desc = emittedDynamicDescriptor()
   desc.animations[1] = {

@@ -1,7 +1,7 @@
 -- Synthetic tests for the texture-matrix convention (Maya, transcribed from
--- the pinned pokediamond asm). Si3D (mode 1) is cut: no real HGSS field
--- asset uses it, and mode-1 materials raise at the evaluator. The raw
--- static texture-SRT decode (NsbmdMaterialSrt) is tested in
+-- the pinned pokediamond asm). Only the Maya (mode 0) convention is
+-- supported; mode-1 materials raise at the evaluator. The raw static
+-- texture-SRT decode (NsbmdMaterialSrt) is tested in
 -- romdump/tests; this suite covers only the engine-side NitroTexMatrix
 -- dispatch and matrix assembly.
 

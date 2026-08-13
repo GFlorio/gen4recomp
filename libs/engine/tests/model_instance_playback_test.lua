@@ -6,9 +6,8 @@
 -- plays raises ANIM_STATE_SAME_KIND_IN_USE (one attachment per kind).
 -- stop() takes the handle (or a name/semantic, removing every play of that
 -- clip). The HGSS completion condition reads the retained handle's player
--- terminal state. There is no controller layer: no
--- pause/resume/setDirection/animationsFor facade exists without a game
--- caller.
+-- terminal state. There is no controller layer: playback is play/stop
+-- through the instance.
 
 local Assert = require("tests.support.Assert")
 local ModelInstance = require("libs.engine.src.ModelInstance")

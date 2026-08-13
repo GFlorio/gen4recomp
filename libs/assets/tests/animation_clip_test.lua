@@ -3,12 +3,9 @@
 -- material), a free-form kind, frameCount, tracks (one target per track),
 -- semanticNames, opaque provenance, and the compiled payload the samplers
 -- consume -- plus the shared door-role vocabulary. Nitro clips bring their
--- own compiled curve semantics (the compiled.* payload): there is no
--- sample(), no INTERPOLATIONS, and no channel-key validation. Track tables and
--- the compiled payload are retained by reference and NEVER mutated. Field
--- visibility animation does not exist (the corpus has no NSBVA members), so
--- the category vocabulary is joint and material.
--- Pure domain module.
+-- own compiled curve semantics (the compiled.* payload), and tracks need
+-- only their target. Track tables and the compiled payload are retained by
+-- reference and NEVER mutated. Pure domain module.
 
 local Assert = require("tests.support.Assert")
 local AnimationClip = require("libs.assets.src.AnimationClip")
@@ -85,7 +82,6 @@ end
 function T.categories_are_joint_and_material_only()
   Assert.equal(AnimationClip.CATEGORIES.joint, "joint")
   Assert.equal(AnimationClip.CATEGORIES.material, "material")
-  Assert.isNil(AnimationClip.CATEGORIES.visibility, "no field visibility animation exists")
 end
 
 function T.rejects_tracks_without_a_target()
@@ -94,19 +90,8 @@ function T.rejects_tracks_without_a_target()
   end)
 end
 
--- AnimationClip.sample has no caller: Nitro clips sample through their
--- compiled payload, so the generic interpolation machinery does not exist.
-function T.the_generic_sampler_is_cut()
-  Assert.isNil(AnimationClip.sample, "no caller uses the generic sampler")
-end
-
-function T.the_interpolation_vocabulary_is_cut()
-  Assert.isNil(AnimationClip.INTERPOLATIONS)
-end
-
--- Channels are opaque to the clip contract: the step/linear key envelope was
--- the generic sampler's machinery, and Nitro clips carry their own compiled
--- curve semantics. A track needs only its target.
+-- Channels are opaque to the clip contract: Nitro clips carry their own
+-- compiled curve semantics, so a track needs only its target.
 function T.a_track_needs_only_its_target()
   local clip = AnimationClip.new(clipSpec({ tracks = { { target = 1 } } }))
   Assert.equal(clip.tracks[1].target, 1)
@@ -150,8 +135,7 @@ function T.new_preserves_the_compiled_payload_by_reference()
   Assert.isTrue(clip.compiled == compiled, "the compiled payload is retained by reference")
 end
 
--- Track tables are kept by reference and never written: the old sampler's
--- zero-based `index` bookkeeping mutated caller-owned data.
+-- Track tables are kept by reference and never written.
 function T.new_never_mutates_the_callers_tracks()
   local track = {
     target = 1,

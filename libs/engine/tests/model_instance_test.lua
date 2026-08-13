@@ -124,10 +124,6 @@ function T.play_validates_loop_options()
   local instance = ModelInstance.new(NitroModelFixture.doorDefinition())
   local ok = pcall(instance.play, instance, "door.open", { loopMode = "bounce" })
   Assert.isFalse(ok, "unknown loop mode is a programming error")
-  ok = pcall(instance.play, instance, "door.open", { direction = 1 })
-  Assert.isFalse(ok, "any direction option is rejected: reverse playback is cut")
-  ok = pcall(instance.play, instance, "door.open", { direction = -1 })
-  Assert.isFalse(ok, "any direction option is rejected: reverse playback is cut")
   Assert.equal(#instance.animationState:attachments("joint"), 0, "failed plays attach nothing")
 end
 

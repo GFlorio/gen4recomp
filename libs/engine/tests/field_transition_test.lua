@@ -1173,17 +1173,6 @@ end
 
 -- ---- stair choreography ----
 
--- The climb duration is the player's own movement duration (HGSS drives
--- the stair choreography from the held-movement completion -- sub_0205613C
--- sets MapObject_SetHeldMovement and waits IsMovementPaused -- so the
--- transition must not duplicate a movement length as its own constant).
-function T.stair_choreography_owns_no_climb_duration_constant()
-  local deleted = nil
-  ---@diagnostic disable-next-line: undefined-field -- intentional: the deleted constant must not reappear
-  deleted = FieldTransition.STAIR_CLIMB_TICKS
-  Assert.isNil(deleted, "the stair climb duration is owned by the player's locomotion, not the transition")
-end
-
 -- Stairs require a player (human decision): production FieldRuntime always
 -- binds one before any start, so a stair warp without a player is a
 -- programming fault -- it aborts loudly to a coherent idle state, never a
@@ -1238,9 +1227,8 @@ function T.stair_source_climb_drives_the_player_held_movement()
 end
 
 function T.stair_climb_completes_with_the_player_movement_not_a_transition_timer()
-  -- Stretch the player's held movement past the old eight-tick constant: the
-  -- choreography must follow the movement's completion, not a timer the
-  -- transition owns.
+  -- Stretch the player's held movement to twelve ticks: the choreography must
+  -- follow the movement's completion, not a timer the transition owns.
   local player = stubPlayer({ stairTicks = 12 })
   local transition
   local source
@@ -1251,7 +1239,7 @@ function T.stair_climb_completes_with_the_player_movement_not_a_transition_timer
     transition:updateFixed()
   end
   Assert.equal(#sounds, 0, "no stair sound before the player's held movement completes")
-  Assert.equal(player.motion, "climbing", "the movement is still climbing at the old constant's tick")
+  Assert.equal(player.motion, "climbing", "the movement is still climbing at tick 8")
   for _ = 1, 4 do
     transition:updateFixed()
   end

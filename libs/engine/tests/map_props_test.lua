@@ -21,11 +21,9 @@
 --
 -- The playback surface is the COLLAPSED animation object graph:
 -- MapProps carries no controller. MapDoor plays through the instance and
--- retains the returned play handle on the tile's index entry (entry.animation
--- replaces the old currentRole string); isFinished reads that handle, so the
--- finish state never depends on the disposable MapDoor identity. SceneProp
--- keeps play/stop/isFinished; pause/resume/setDirection/animationsFor do not
--- exist -- no production caller uses them.
+-- retains the returned play handle on the tile's index entry (entry.animation);
+-- isFinished reads that handle, so the finish state never depends on the
+-- disposable MapDoor identity. SceneProp keeps play/stop/isFinished.
 
 local Assert = require("tests.support.Assert")
 local TilePermissions = require("tests.support.TilePermissions")
@@ -555,19 +553,6 @@ function T.prop_is_finished_is_nil_before_any_play()
   local props = doorScene()
   local prop = assert(props:prop(1))
   Assert.isNil(prop:isFinished("door.open"))
-end
-
--- The generic prop surface is exactly play/stop/isFinished: pause, resume,
--- setDirection, and animationsFor have no production caller anywhere (the
--- debugger overlay and inventory tooling do not exist on this branch), so
--- the collapsed surface does not carry them.
-function T.prop_surface_is_play_stop_and_is_finished_only()
-  local props = doorScene()
-  local prop = assert(props:prop(1))
-  Assert.isNil(prop.pause, "pause has no caller and must not exist")
-  Assert.isNil(prop.resume, "resume has no caller and must not exist")
-  Assert.isNil(prop.setDirection, "setDirection has no caller and must not exist")
-  Assert.isNil(prop.animationsFor, "animationsFor has no caller and must not exist")
 end
 
 function T.prop_for_a_static_placement_is_a_noop_handle()

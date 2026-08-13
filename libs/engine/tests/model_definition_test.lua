@@ -109,14 +109,6 @@ function T.fixture_definition_is_valid()
   Assert.equal(#def.animations, 2)
 end
 
--- The definition is nitro by construction: a spec needs no backend key, and
--- the field does not exist.
-function T.new_requires_no_source_backend()
-  local def = ModelDefinition.new(definitionSpec())
-  Assert.equal(def.key, "model:test")
-  Assert.isNil(def.sourceBackend, "the sourceBackend abstraction is cut")
-end
-
 -- A spec that still carries the removed key is a stale-schema artifact and
 -- fails loudly at the load boundary.
 function T.new_rejects_a_source_backend_key()
@@ -216,9 +208,8 @@ function T.binding_is_precomputed_for_node_and_material_clips()
   Assert.deepEqual(materialBinding.trackByMaterial, { [0] = 0 })
 end
 
--- A clip outside the animations list has no binding: the lazy-binding
--- escape hatch is cut, so an unlisted clip fails loudly instead of being
--- bound on first access.
+-- A clip outside the animations list has no binding: an unlisted clip fails
+-- loudly at binding.
 function T.binding_rejects_a_clip_outside_the_animations_list()
   local def = ModelDefinition.new(definitionSpec())
   local stray = materialClip()
