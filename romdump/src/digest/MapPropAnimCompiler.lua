@@ -7,11 +7,13 @@
 -- runtime never touches Nitro animation bytes.
 --
 -- A referenced resource that cannot decode is an EXPLICIT FATAL diagnostic
--- -- MAP_PROP_ANIM_UNRESOLVED -- identifying the model member and resource,
--- with every compiler failure converted to the same code. Nothing returns an
--- unresolved entry and falls back to compiling the model static: the
--- animation either compiles or the map compile fails loudly. (Every format
--- NitroAnimation decodes has a clip compiler here.)
+-- -- MAP_PROP_ANIM_UNRESOLVED -- identifying the model member and resource;
+-- a typed data error from a clip compiler (malformed resource data it
+-- rejects) is converted to the same code. A plain failure is a compiler bug
+-- and propagates loudly as itself, never misreported as corrupt ROM data.
+-- Nothing returns an unresolved entry and falls back to compiling the model
+-- static: the animation either compiles or the map compile fails loudly.
+-- (Every format NitroAnimation decodes has a clip compiler here.)
 --
 -- Semantic roles: clip names are the source-format identifiers; gameplay
 -- must not depend on them. The door open/close pairs the field corpus uses
@@ -173,7 +175,13 @@ function MapPropAnimCompiler.compile(listBytes, resNarc, opts)
   local record = BuildModelAnimList.decode(listBytes)
 
   local clips = {}
-  local function compileResource(resourceId, bytes, sha1)
+  -- Resolve one resource member and decode it: a member that is not a
+  -- decodable Nitro animation is the resource-resolution diagnostic
+  -- (MAP_PROP_ANIM_UNRESOLVED), and the decode either returns or raises.
+  ---@param resourceId integer
+  ---@param bytes string
+  ---@return table
+  local function decodeResource(resourceId, bytes)
     local decoded, err = NitroAnimation.decode(bytes, { alias = ANIM_ARCHIVE, memberId = resourceId })
     if not decoded then
       Errors.raise(
@@ -187,7 +195,13 @@ function MapPropAnimCompiler.compile(listBytes, resNarc, opts)
         { resourceId = resourceId, memberId = opts.memberId, archiveAlias = opts.archiveAlias or "-" }
       )
     end
-    assert(decoded, "the raise above must not fall through")
+    -- The raise above terminates; the cast narrows for LuaLS.
+    ---@cast decoded table
+    return decoded
+  end
+
+  local function compileResource(resourceId, bytes, sha1)
+    local decoded = decodeResource(resourceId, bytes)
     -- The caller resolves the resource digest exactly once; the compiled
     -- record's provenance sha1 must be the same value the cache key was
     -- built from, or the memo could key on one digest and record another.
@@ -205,22 +219,23 @@ function MapPropAnimCompiler.compile(listBytes, resNarc, opts)
       source = source,
     })
     if not ok then
-      -- A structured error from the clip compilers (e.g. a rejected channel)
-      -- keeps its own code; any other failure is converted to the
-      -- resource-resolution diagnostic.
+      -- Only a typed data error (a malformed resource the clip compilers
+      -- reject, e.g. NSBCA_CURVE_LIMIT_MISMATCH) is the resource-resolution
+      -- diagnostic. A plain failure is a compiler bug: it propagates loudly
+      -- as itself so it can never be misreported as corrupt ROM data.
       if Errors.is(clip) then
-        error(clip)
+        Errors.raise(
+          "MAP_PROP_ANIM_UNRESOLVED",
+          "animation resource "
+            .. tostring(resourceId)
+            .. " referenced by model member "
+            .. tostring(opts.memberId)
+            .. " failed to compile: "
+            .. Errors.format(clip),
+          { resourceId = resourceId, memberId = opts.memberId, archiveAlias = opts.archiveAlias or "-" }
+        )
       end
-      Errors.raise(
-        "MAP_PROP_ANIM_UNRESOLVED",
-        "animation resource "
-          .. tostring(resourceId)
-          .. " referenced by model member "
-          .. tostring(opts.memberId)
-          .. " failed to compile: "
-          .. tostring(clip),
-        { resourceId = resourceId, memberId = opts.memberId, archiveAlias = opts.archiveAlias or "-" }
-      )
+      error(clip)
     end
     return clip
   end

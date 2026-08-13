@@ -1,8 +1,7 @@
 -- MapPropAnimCompiler playback-policy contract: every runtime playback
 -- role is compiled from the decoded anim-list header (BuildModelAnimList),
 -- never guessed from clip count. The game's ordinary registrar
--- (ov01_021E8F3C in tmp/refs/pokeheartgold/asm/overlay_01_021E8744.s)
--- registers and plays EVERY id slot of a record whose header is
+-- (ov01_021E8F3C) registers and plays EVERY id slot of a record whose header is
 -- registration=1, policy=0 (both bits clear), control=0 (the
 -- never-finishing forward loop state, ov01_022044C8(-1, 0, 0)), areaGate=0
 -- -- so every clip of such a record is an ambient loop, and no clip of any
@@ -34,8 +33,8 @@ end
 
 -- An anim-list record with the given header bytes and resource ids.
 -- Header fields (see BuildModelAnimList): registration (byte 0), policy
--- (byte 1), control (byte 2), areaGate (byte 3), reserved (bytes 4-5),
--- raw6 (byte 6), raw7 (byte 7).
+-- (byte 1), control (byte 2), areaGate (byte 3); bytes 4-7 stay on the
+-- wire for the real corpus layout but are not carried by decode.
 local function record(registration, policy, control, areaGate, reserved, raw6, raw7, ids)
   local bw = BinaryWriter.new()
   bw:u8(registration)

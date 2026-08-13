@@ -82,15 +82,12 @@ function Runner.load(opts)
   if command == "inspect-actors" then
     return Runner._runInspectActors()
   end
-  if command == "analyze-maps" then
-    return Runner._runAnalyzeMaps()
-  end
   if command == "gen-script-overrides" then
     return Runner._runGenScriptOverrides()
   end
   print(
     "romdump: no command given (expected --import-rom, --check-dump, --check-derived-cache, "
-      .. "--analyze-maps, --inspect, --inspect-sbc, "
+      .. "--inspect, --inspect-sbc, "
       .. "--inspect-actors, --build-cache, or --gen-script-overrides)"
   )
   love.event.quit(Cli.EXIT_USAGE)
@@ -213,29 +210,6 @@ function Runner._runGenScriptOverrides()
   end
   print(string.format("gen-script-overrides: %s wrote %d override files", version, #files))
   return love.event.quit(0)
-end
-
--- Derive payload-free map resolution facts from every ready canonical dump,
--- plus the corpus material census backing the shininess-table decision.
-function Runner._runAnalyzeMaps()
-  local MapAnalysis = require("romdump.src.digest.MapAnalysis")
-  local FieldMaterialCensus = require("romdump.src.digest.FieldMaterialCensus")
-  local allOk = forEachReadyVersion("analyze-maps", function(romFs, version)
-    print("version\t" .. version)
-    local results = MapAnalysis.analyze(romFs)
-    for _, line in ipairs(MapAnalysis.lines(results)) do
-      print(line)
-    end
-    local census = FieldMaterialCensus.run(romFs)
-    for _, line in ipairs(FieldMaterialCensus.lines(census)) do
-      print(line)
-    end
-  end)
-  if allOk == nil then
-    print("analyze-maps: no ready version to analyze")
-    return love.event.quit(1)
-  end
-  love.event.quit(allOk and 0 or 1)
 end
 
 -- Audit every ready version and exit 0 only if all pass. Proves the runtime

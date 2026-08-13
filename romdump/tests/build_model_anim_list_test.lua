@@ -5,10 +5,10 @@
 -- index the shared build_anim archive (a/1/0/6). Unused id slots are
 -- 0xFFFFFFFF.
 --
--- The header decodes into a source-grounded record -- no byte is thrown
--- away or folded into a vague type. decode() returns { ids, registration,
--- policy, control, areaGate, reserved, raw6, raw7, banded } -- every byte
--- named by its consumer's meaning (the asm sources are in
+-- The header decodes into a source-grounded record -- the bytes that have a
+-- consumer meaning are named, the rest is not carried. decode() returns
+-- { ids, registration, policy, control, areaGate, banded } -- the fields
+-- named by their consumer's meaning (the asm sources are in
 -- BuildModelAnimList's header comment); banded = (policy == 0x08). The
 -- no-animation sentinel (first header u16 0xFFFF) yields empty ids.
 
@@ -32,14 +32,11 @@ local function record(header, ids)
 end
 
 -- The named header fields every decode must carry, by byte offset.
-local function assertHeader(r, registration, policy, control, areaGate, reserved, raw6, raw7)
+local function assertHeader(r, registration, policy, control, areaGate)
   Assert.equal(r.registration, registration, "byte 0 registration gate")
   Assert.equal(r.policy, policy, "byte 1 policy bits")
   Assert.equal(r.control, control, "byte 2 control state")
   Assert.equal(r.areaGate, areaGate, "byte 3 area-loader gate")
-  Assert.equal(r.reserved, reserved, "bytes 4-5 preserved")
-  Assert.equal(r.raw6, raw6, "byte 6 preserved")
-  Assert.equal(r.raw7, raw7, "byte 7 preserved")
 end
 
 function T.decodes_single_referenced_resource()
@@ -50,7 +47,7 @@ function T.decodes_single_referenced_resource()
   local r = BuildModelAnimList.decode(record("\1\0\0\0\0\0\1\1", { 6 }))
   Assert.equal(#r.ids, 1)
   Assert.equal(r.ids[1], 6)
-  assertHeader(r, 1, 0, 0, 0, 0x0000, 1, 1)
+  assertHeader(r, 1, 0, 0, 0)
   Assert.isFalse(r.banded, "ambient policy is not the time-band policy")
 end
 
@@ -62,7 +59,7 @@ function T.decodes_multiple_referenced_resources()
   Assert.equal(#r.ids, 2)
   Assert.equal(r.ids[1], 1)
   Assert.equal(r.ids[2], 2)
-  assertHeader(r, 1, 3, 0, 1, 0x0001, 1, 2)
+  assertHeader(r, 1, 3, 0, 1)
   Assert.isFalse(r.banded, "the door pair is not banded")
 end
 
@@ -72,7 +69,7 @@ function T.no_animation_record_yields_no_ids()
   -- resources are referenced. The bytes are still exposed.
   local r = BuildModelAnimList.decode(record("\255\255\0\0\0\0\0\0", {}))
   Assert.equal(#r.ids, 0)
-  assertHeader(r, 0xFF, 0xFF, 0, 0, 0x0000, 0, 0)
+  assertHeader(r, 0xFF, 0xFF, 0, 0)
   Assert.isFalse(r.banded, "the sentinel is not banded")
 end
 
@@ -82,7 +79,7 @@ function T.banded_records_carry_the_time_band_policy()
   -- (MORN/DAY/EVE/NITE, band map ov01_022095EC) and swaps them on RTC
   -- time-of-day changes (ov01_022047DC).
   local r = BuildModelAnimList.decode(record("\1\8\0\0\0\0\4\1", { 6, 7, 8, 9 }))
-  assertHeader(r, 1, 8, 0, 0, 0x0000, 4, 1)
+  assertHeader(r, 1, 8, 0, 0)
   Assert.equal(#r.ids, 4)
   Assert.isTrue(r.banded, "policy 0x08 selects the banded-prop policy")
 end
@@ -115,11 +112,15 @@ function T.policy_bits_name_the_registrar_and_the_play_state()
   Assert.equal(banded.policy, 8, "the time-band policy is the 0x08 special case")
 end
 
-function T.unestablished_header_bytes_are_preserved()
-  -- Bytes 4-7 have no established consumer meaning; any value must decode
-  -- verbatim (reserved as a little-endian u16) instead of being dropped.
+function T.unestablished_header_bytes_are_not_carried()
+  -- Bytes 4-7 have no established consumer meaning; the decoded record must
+  -- not carry them ("just in case" API surface -- the source bytes remain in
+  -- the archive if future research discovers meaning).
   local r = BuildModelAnimList.decode(record("\1\0\0\0\2\3\4\5", { 9 }))
-  assertHeader(r, 1, 0, 0, 0, 0x0302, 4, 5)
+  assertHeader(r, 1, 0, 0, 0)
+  Assert.isNil(r.reserved, "bytes 4-5 are not carried")
+  Assert.isNil(r.raw6, "byte 6 is not carried")
+  Assert.isNil(r.raw7, "byte 7 is not carried")
 end
 
 function T.rejects_wrong_record_size()

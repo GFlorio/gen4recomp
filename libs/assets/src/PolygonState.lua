@@ -1,6 +1,7 @@
 -- The one polygon draw-state schema shared by the compiler emission, the
 -- serialized-artifact validator, and the runtime backend records: the
--- compiler (MapAssetCompiler) writes the seven fields on both batch kinds,
+-- static batch compiler (ModelAssetCompiler) and the dynamic segment path
+-- (MapAssetCompiler) write the seven fields on both batch kinds,
 -- ModelAsset.validate gates them at the artifact boundary, and the runtime
 -- backend records (ModelDefinition, ModelInstance) copy and consume them.
 -- The static batch extras (farClipEnabled, oneDotEnabled, fogEnabled) are

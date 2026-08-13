@@ -56,7 +56,7 @@ local SceneDescriptor = require("libs.engine.src.SceneDescriptor")
 local MapSceneLoader = {}
 
 local VALID_BANDS = {}
-for _, band in ipairs(TimeOfDayProps.bands()) do
+for _, band in ipairs(TimeOfDayProps.BANDS) do
   VALID_BANDS[band] = true
 end
 

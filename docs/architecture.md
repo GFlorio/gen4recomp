@@ -86,7 +86,6 @@ love romdump/
        ├─ --import-rom P               → import P (version detected from SHA-1)
        ├─ --check-dump                   → audit every ready cache with DumpAudit,
        │                                   using only RomFs, never opening the ROM
-       ├─ --analyze-maps                 → derive map-cell resolution inventory
        ├─ --inspect                      → payload-free inventory of every renderable map
        ├─ --inspect-actors               → payload-free inventory of the compiled actor set
        └─ --build-cache [P] [--forcedump P]

@@ -31,8 +31,6 @@ local ModelAssetCompiler = require("romdump.src.digest.ModelAssetCompiler")
 local NeighborChunkCompiler = require("romdump.src.digest.NeighborChunkCompiler")
 local Errors = require("libs.errors.src.Errors")
 local AnimationClip = require("libs.assets.src.AnimationClip")
-local PoseContract = require("libs.assets.src.PoseContract")
-local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 local NsbmdDynamicModel = require("romdump.src.digest.NsbmdDynamicModel")
 local MapPropAnimCompiler = require("romdump.src.digest.MapPropAnimCompiler")
 local ModelAsset = require("libs.assets.src.ModelAsset")
@@ -58,105 +56,6 @@ local function sortedNumbers(set)
   end
   table.sort(out)
   return out
-end
-
--- Convert MaterialCompiler records (texture = sha1 key) into scene material
--- records (texture = cache-relative PNG path). Polygon state (alpha class,
--- cull mode, polygon alpha/mode) lives on the batch, not the material.
-local function sceneMaterials(records)
-  local out = {}
-  for _, m in ipairs(records) do
-    out[#out + 1] = {
-      id = m.id,
-      name = m.name,
-      texture = m.texture and MapAssetCache.texturePath(m.texture) or nil,
-      textureFormat = m.textureFormat,
-      wrap = m.wrap,
-      flip = m.flip,
-      diffuse = m.diffuse,
-    }
-  end
-  return out
-end
-
--- Compile one model into batches; append meshes/textures to the shared bundle
--- accumulators; return { batches (scene refs), materials, unresolved } -- the
--- last being the materials whose names the bound pack does not define, tagged
--- with the model they came from so a caller can report them.
-local function compileModel(model, texturePack, meshes, textures, context)
-  local mat = MaterialCompiler.compile(model.materials, texturePack, { context = context })
-  for sha1, tex in pairs(mat.textures) do
-    textures[sha1] = tex
-  end
-
-  local unresolved = {}
-  for _, entry in ipairs(mat.unresolved) do
-    unresolved[#unresolved + 1] = {
-      role = context.role,
-      modelArchive = context.modelArchive,
-      modelMemberId = context.modelMemberId,
-      modelName = context.modelName,
-      material = entry.material,
-      kind = entry.kind,
-      name = entry.name,
-      source = entry.source,
-    }
-  end
-
-  -- Per-material texture info needed for batch classification and UV normalization.
-  local matInfoById = {}
-  for _, m in ipairs(mat.materials) do
-    matInfoById[m.id] = {
-      texWidth = m.texWidth,
-      texHeight = m.texHeight,
-      textureFormat = m.textureFormat or 0,
-      alphaUsage = m.texture and textures[m.texture] and textures[m.texture].alphaUsage or nil,
-    }
-  end
-
-  local batches = {}
-  for _, batch in ipairs(MeshCompiler.compile(model)) do
-    local info = matInfoById[batch.materialIndex]
-    if info then
-      if info.texWidth then
-        for _, vtx in ipairs(batch.vertices) do
-          vtx.u = vtx.u / info.texWidth
-          vtx.v = vtx.v / info.texHeight
-        end
-      end
-    end
-
-    local poly = DsPolygonAttr.decode(batch.polygonAttrRaw)
-    if poly.cullMode ~= "all" then
-      local fmt = info and info.textureFormat or 0
-      local alphaClass = AlphaClassifier.classify(poly.polygonAlpha, fmt, info and info.alphaUsage or nil)
-      local sha1 = Hashing.sha1hex(MeshWriter.encode(batch))
-      meshes[sha1] = batch
-      local record = {
-        geometry = MapAssetCache.geometryPath(sha1),
-        material = batch.materialIndex,
-        node = batch.nodeIndex,
-        -- A billboard batch's geometry is in billboard-local space and its
-        -- matrix is only resolvable against a live camera; the runtime rebuilds
-        -- it from baseTransform every frame. The static mode is the default and
-        -- is left off, so it does not repeat on every batch of every scene.
-        transformMode = batch.transformMode ~= PoseContract.STATIC and batch.transformMode or nil,
-        baseTransform = batch.baseTransform,
-        alphaClass = alphaClass,
-      }
-      -- The shared polygon draw-state field set (PolygonState.FIELDS).
-      for _, field in ipairs(PolygonState.FIELDS) do
-        record[field] = poly[field]
-      end
-      -- The static-only extras stay outside the shared draw-state schema:
-      -- they are authoring metadata the runtime does not consume.
-      record.farClipEnabled = poly.farClipEnabled
-      record.oneDotEnabled = poly.oneDotEnabled
-      record.fogEnabled = poly.fogEnabled
-      batches[#batches + 1] = record
-    end
-  end
-  return { batches = batches, materials = sceneMaterials(mat.materials), unresolved = unresolved }
 end
 
 local function archiveForArea(area)
@@ -380,7 +279,7 @@ local function compileAnimatedModel(
   end
 
   -- Wrap the raw MaterialCompiler-shaped entries with the model context, the
-  -- same record shape the static path (compileModel) reports.
+  -- same record shape the static path (ModelAssetCompiler.compileModel) reports.
   local wrapped = {}
   for _, entry in ipairs(unresolved) do
     wrapped[#wrapped + 1] = {
@@ -477,7 +376,7 @@ local function _compile(romFs, idOrSymbol, opts)
   local lightSha1 = Hashing.sha1hex(lightBytes)
 
   local meshes, textures = {}, {}
-  local mapCompiled = compileModel(mapModel, mapTexPack, meshes, textures, {
+  local mapCompiled = ModelAssetCompiler.compileModel(mapModel, mapTexPack, meshes, textures, {
     mapId = mapId,
     mapSymbol = resolved.map.symbol,
     role = "map",
@@ -592,7 +491,7 @@ local function _compile(romFs, idOrSymbol, opts)
     end
 
     if not animated then
-      local compiled = compileModel(buildingModel, bldTexPack, meshes, textures, context)
+      local compiled = ModelAssetCompiler.compileModel(buildingModel, bldTexPack, meshes, textures, context)
       collectUnresolved(compiled)
       modelDescriptor = {
         schema = ModelAsset.SCHEMA,
@@ -795,10 +694,5 @@ function MapAssetCompiler.compile(romFs, idOrSymbol, opts)
   end
   error(result)
 end
-
--- Exposed for the neighbour-ring chunk compiler, which reuses the exact batch
--- build (UV normalization, alpha classification, content hashing) on a single
--- terrain model without the full per-map resolve/scene/cache orchestration.
-MapAssetCompiler.compileModel = compileModel
 
 return MapAssetCompiler

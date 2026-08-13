@@ -93,4 +93,50 @@ function T.compiling_a_broken_resource_through_the_map_compile_is_fatal()
   Assert.equal(err.context.memberId, MapRomFixture.BUILDING_MODEL_MEMBER_ID)
 end
 
+-- Fault injection at the clip-compiler seam: only a typed data error (a
+-- malformed resource the clip compiler rejects) is the resource-resolution
+-- diagnostic; a programming fault is not -- it propagates loudly as itself
+-- so a real compiler bug is never misreported as corrupt ROM data.
+local function withClipCompilerStub(impl, fn)
+  local mod = require("romdump.src.digest.NsbcaClipCompiler")
+  local original = mod.compile
+  mod.compile = impl
+  local ok, err = pcall(fn)
+  mod.compile = original
+  return ok, err
+end
+
+function T.a_programming_fault_in_a_clip_compiler_propagates()
+  local res = resNarc({ [1] = AnimationFixture.jntDoor() })
+  local ok, err = withClipCompilerStub(function()
+    error("injected clip-compiler bug")
+  end, function()
+    return MapPropAnimCompiler.compile(referencingRecord({ 1 }), res, {
+      archiveAlias = "exterior_build_anim_list",
+      memberId = 26,
+    })
+  end)
+  Assert.isFalse(ok, "a programming fault must fail the compile")
+  Assert.isFalse(Errors.is(err), "a compiler bug must not masquerade as an unresolved resource")
+  Assert.isTrue(tostring(err):find("injected clip-compiler bug", 1, true) ~= nil, "the original fault surfaces")
+end
+
+function T.a_typed_data_error_from_a_clip_compiler_is_the_resource_diagnostic()
+  local res = resNarc({ [1] = AnimationFixture.jntDoor() })
+  local ok, err = withClipCompilerStub(function()
+    Errors.raise("NSBCA_CURVE_LIMIT_MISMATCH", "injected malformed channel data", {})
+  end, function()
+    return MapPropAnimCompiler.compile(referencingRecord({ 1 }), res, {
+      archiveAlias = "exterior_build_anim_list",
+      memberId = 26,
+    })
+  end)
+  Assert.isFalse(ok)
+  Assert.isTrue(Errors.is(err), "a typed data error is the structured diagnostic")
+  err = assert(err)
+  Assert.equal(err.code, "MAP_PROP_ANIM_UNRESOLVED")
+  Assert.equal(err.context.resourceId, 1)
+  Assert.equal(err.context.memberId, 26)
+end
+
 return T

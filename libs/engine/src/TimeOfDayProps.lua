@@ -72,16 +72,6 @@ function TimeOfDayProps.bandForSeconds(seconds)
   return TimeOfDayProps.bandForHour(math.floor(seconds / 3600) % 24)
 end
 
--- The four bands in band order.
----@return string[]
-function TimeOfDayProps.bands()
-  local out = {}
-  for i, band in ipairs(TimeOfDayProps.BANDS) do
-    out[i] = band
-  end
-  return out
-end
-
 -- The band plan of a model definition: band -> clip for every clip carrying
 -- compiled time-band metadata, or nil when the model has no banded clips.
 -- Bands are compiled from the banded anim-list record's unique slots, so a

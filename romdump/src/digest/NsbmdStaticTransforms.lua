@@ -2,22 +2,24 @@
 -- record set the map compiler bakes geometry with.
 --
 -- The pose-driven evaluator (NsbmdSbcEvaluator) replays the compiled
--- transform program under a pose provider; with the bind-pose provider this
--- reproduces the static draw records exactly, so this module is that
--- evaluation and nothing more -- the bind-pose equivalence invariant is
--- checked in romdump/tests/nsbmd_dynamic_mesh_test.lua (static batches vs
--- dynamic meshes resolved at the bind pose).
+-- transform program under a pose provider; this module is that evaluation
+-- and nothing more -- it owns the bind-pose provider (every node at its
+-- model bind SRT) and returns the program it compiled, so the dynamic mesh
+-- path reuses the same compile instead of building a second one. The
+-- bind-pose equivalence invariant is checked in
+-- romdump/tests/nsbmd_dynamic_mesh_test.lua (static batches vs dynamic
+-- meshes resolved at the bind pose).
 --
 -- Pure domain module: no love dependency.
 
 local NsbmdSbcEvaluator = require("libs.assets.src.NsbmdSbcEvaluator")
 local NsbmdTransformProgram = require("romdump.src.digest.NsbmdTransformProgram")
-local NsbmdPoseProvider = require("romdump.src.digest.NsbmdPoseProvider")
 
 local NsbmdStaticTransforms = {}
 
 -- Replay the SBC stream for `model` and return the ordered draw submissions
--- at the bind pose (the shape documented by NsbmdSbcEvaluator.evaluate):
+-- at the bind pose (the shape documented by NsbmdSbcEvaluator.evaluate),
+-- plus the compiled transform program:
 --
 --   {
 --     nodeIndex, materialIndex, shapeIndex, materialReapplied,
@@ -26,9 +28,21 @@ local NsbmdStaticTransforms = {}
 --     transformMode = "static" | "billboard",
 --     baseTransform = <matrix>,  -- billboard draws only
 --   }
+--   , program
 function NsbmdStaticTransforms.evaluate(model)
   assert(type(model) == "table" and model.sbc ~= nil, "NsbmdStaticTransforms.evaluate requires a decoded Nsbmd model")
-  return NsbmdSbcEvaluator.evaluate(NsbmdTransformProgram.compile(model), NsbmdPoseProvider.bindPose(model)).draws
+  local program = NsbmdTransformProgram.compile(model)
+  -- The bind-pose provider: the model's decoded node records unchanged.
+  -- nodeSRT falls back to nil for nodes the model does not carry (the
+  -- evaluator then raises, exactly like the static path).
+  local nodes = model.nodes
+  local draws = NsbmdSbcEvaluator.evaluate(program, {
+    nodeSRT = function(nodeIndex)
+      assert(type(nodeIndex) == "number", "nodeSRT requires a numeric node index")
+      return nodes[nodeIndex + 1]
+    end,
+  }).draws
+  return draws, program
 end
 
 return NsbmdStaticTransforms

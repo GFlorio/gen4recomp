@@ -16,7 +16,6 @@ local COMMANDS = {
   { flag = "--inspect", argv = { "--inspect" }, command = "inspect" },
   { flag = "--inspect-sbc", argv = { "--inspect-sbc" }, command = "inspect-sbc" },
   { flag = "--inspect-actors", argv = { "--inspect-actors" }, command = "inspect-actors" },
-  { flag = "--analyze-maps", argv = { "--analyze-maps" }, command = "analyze-maps" },
   { flag = "--gen-script-overrides", argv = { "--gen-script-overrides" }, command = "gen-script-overrides" },
 }
 
@@ -106,7 +105,7 @@ function T.conflicting_commands_are_rejected()
     Cli.parse({ "--check-dump", "--build-cache" })
   end)
   Assert.throws(function()
-    Cli.parse({ "--inspect", "--analyze-maps" })
+    Cli.parse({ "--inspect", "--inspect-sbc" })
   end)
   Assert.throws(function()
     Cli.parse({ "--import-rom", "/tmp/hg.nds", "--import-rom", "/tmp/ss.nds" })
@@ -139,7 +138,7 @@ function T.forcedump_only_applies_to_import_or_build_cache()
     Cli.parse({ "--check-dump", "--forcedump", "/tmp/hg.nds" })
   end)
   Assert.throws(function()
-    Cli.parse({ "--forcedump", "/tmp/hg.nds", "--analyze-maps" })
+    Cli.parse({ "--forcedump", "/tmp/hg.nds", "--check-dump" })
   end)
 end
 

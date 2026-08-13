@@ -23,9 +23,6 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 local Matrix4 = require("libs.math.src.Matrix4")
 local PoseContract = require("libs.assets.src.PoseContract")
 local NsbmdStaticTransforms = require("romdump.src.digest.NsbmdStaticTransforms")
-local NsbmdTransformProgram = require("romdump.src.digest.NsbmdTransformProgram")
-local NsbmdSbcEvaluator = require("libs.assets.src.NsbmdSbcEvaluator")
-local NsbmdPoseProvider = require("romdump.src.digest.NsbmdPoseProvider")
 
 local MeshCompiler = {}
 
@@ -310,8 +307,9 @@ end
 function MeshCompiler.compileDynamic(model)
   -- The draw set (order, visibility, material carries) is pose-independent:
   -- the bind-pose evaluation yields the same draws the static path compiles.
-  local program = NsbmdTransformProgram.compile(model)
-  local draws = NsbmdSbcEvaluator.evaluate(program, NsbmdPoseProvider.bindPose(model)).draws
+  -- NsbmdStaticTransforms owns the bind-pose replay and returns the program
+  -- it compiled, so the descriptor ships that same single compile.
+  local draws, program = NsbmdStaticTransforms.evaluate(model)
 
   local meshes = {}
   local straddlingByShape = {}

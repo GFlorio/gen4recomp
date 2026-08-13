@@ -34,7 +34,7 @@ comes from the NDS ROM, HGSS, or a decomp reference.
 | NARC container (`NARC`/`BTAF`/`BTNF`/`GMIF` blocks, GMIF-relative member offsets) | `romdump/src/source/Narc.lua` | `pret/pokeheartgold`: `tools/o2narc/Narc.h`, `src/filesystem.c` |
 | NARC catalog (`NarcId` enum ↔ NitroFS path) | `romdump/src/reference/hgss/narcs.lua` | `pret/pokeheartgold`: `include/filesystem_files_def.h` |
 | Map-header catalog | `romdump/src/reference/hgss/maps.lua` | `pret/pokeheartgold`: `include/constants/maps.h`, `include/encounter_tables_narc.h`, `src/data/map_headers.h` |
-| Map renderability, representative cells, and land members | generated `world.lua` analysis | `scripts/analyze-maps.sh` over the user's canonical dump |
+| Map renderability, representative cells, and land members | generated `world.lua` analysis | `WorldManifest.write` during `romdump --build-cache` over the user's canonical dump |
 | Curated aliases + required set | `romdump/src/config/HgssArchives.lua` | gen4recomp runtime interface over the frozen NARC reference |
 | Map-matrix member layout (width/height, optional headers & altitudes, model IDs) | `romdump/src/digest/MapMatrix.lua` | `pret/pokeheartgold`: `src/map_matrix.c`, `include/map_matrix.h` |
 | Area-data member layout (texture packs, dynamic texture, area/light type) | `romdump/src/digest/AreaData.lua` | `pret/pokeheartgold`: `src/fielddata.c`, `include/fielddata.h` |

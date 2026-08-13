@@ -1,8 +1,11 @@
--- Shared model-compilation core producing content-addressed batches, meshes,
--- and textures for one decoded model bound to one texture pack. Used by both
--- MapAssetCompiler (map and placed-building models) and NeighborChunkCompiler
--- (terrain models); each caller owns its bundle accumulators and continues
--- from the returned batches/materials/unresolved records.
+-- The one model-compilation core producing content-addressed batches, meshes,
+-- and textures for one decoded model bound to one texture pack. MapAssetCompiler
+-- (map and placed-building models) and NeighborChunkCompiler (terrain models)
+-- both call compileModel; each caller owns its bundle accumulators and
+-- continues from the returned batches/materials/unresolved records. The batch
+-- record's polygon draw state rides the shared PolygonState schema and the
+-- transform-mode vocabulary comes from PoseContract, so the serialized model
+-- descriptor has exactly one authority.
 
 local MeshCompiler = require("romdump.src.digest.MeshCompiler")
 local MaterialCompiler = require("romdump.src.digest.MaterialCompiler")
@@ -11,6 +14,8 @@ local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local Hashing = require("romdump.src.digest.Hashing")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
+local PoseContract = require("libs.assets.src.PoseContract")
+local PolygonState = require("libs.assets.src.PolygonState")
 
 local ModelAssetCompiler = {}
 
@@ -84,28 +89,28 @@ local function compileModel(model, texturePack, meshes, textures, context)
       local alphaClass = AlphaClassifier.classify(poly.polygonAlpha, fmt, info and info.alphaUsage or nil)
       local sha1 = Hashing.sha1hex(MeshWriter.encode(batch))
       meshes[sha1] = batch
-      batches[#batches + 1] = {
+      local record = {
         geometry = MapAssetCache.geometryPath(sha1),
         material = batch.materialIndex,
         node = batch.nodeIndex,
         -- A billboard batch's geometry is in billboard-local space and its
         -- matrix is only resolvable against a live camera; the runtime rebuilds
-        -- it from baseTransform every frame. "static" is the default and is left
-        -- off, so it does not repeat on every batch of every scene.
-        transformMode = batch.transformMode ~= "static" and batch.transformMode or nil,
+        -- it from baseTransform every frame. The static mode is the default and
+        -- is left off, so it does not repeat on every batch of every scene.
+        transformMode = batch.transformMode ~= PoseContract.STATIC and batch.transformMode or nil,
         baseTransform = batch.baseTransform,
         alphaClass = alphaClass,
-        cullMode = poly.cullMode,
-        polygonAlpha = poly.polygonAlpha,
-        polygonMode = poly.polygonMode,
-        lightMask = poly.lightMask,
-        polygonId = poly.polygonId,
-        translucentDepthWrite = poly.translucentDepthWrite,
-        depthEqual = poly.depthEqual,
-        farClipEnabled = poly.farClipEnabled,
-        oneDotEnabled = poly.oneDotEnabled,
-        fogEnabled = poly.fogEnabled,
       }
+      -- The shared polygon draw-state field set (PolygonState.FIELDS).
+      for _, field in ipairs(PolygonState.FIELDS) do
+        record[field] = poly[field]
+      end
+      -- The static-only extras stay outside the shared draw-state schema:
+      -- they are authoring metadata the runtime does not consume.
+      record.farClipEnabled = poly.farClipEnabled
+      record.oneDotEnabled = poly.oneDotEnabled
+      record.fogEnabled = poly.fogEnabled
+      batches[#batches + 1] = record
     end
   end
   return { batches = batches, materials = sceneMaterials(mat.materials), unresolved = unresolved }

@@ -32,7 +32,10 @@ local MapCacheWriter = {}
 -- Cheap structural invariants are validated up front, before anything is
 -- written to any shared root: a bad collision grid, terrain, or descriptor
 -- must not replace a model descriptor or leave new shared meshes behind on
--- the way to failing.
+-- the way to failing. The mesh bytes are encoded exactly once here; the
+-- returned table (content sha1 -> encoded bytes) is what persist writes, so
+-- a batch that cannot round-trip is rejected before publication and the
+-- validated bytes are reused verbatim.
 local function validateBundle(bundle)
   local mapId = bundle.mapId
   local ok, err = pcall(CollisionGridAsset.encode, bundle.collision)
@@ -60,17 +63,13 @@ local function validateBundle(bundle)
     end
   end
   for _, descriptor in pairs(bundle.models) do
-    local okModel, modelErr = pcall(ModelAsset.validate, descriptor)
-    if not okModel then
-      error(modelErr)
-    end
+    ModelAsset.validate(descriptor)
   end
-  -- The meshes are encoded twice (validate, then write); the encode is pure
-  -- and deterministic, so this is a cheap guard against publishing a batch
-  -- that cannot round-trip.
-  for _, batch in pairs(bundle.meshes) do
-    MeshWriter.encode(batch)
+  local encodedMeshes = {}
+  for sha1, batch in pairs(bundle.meshes) do
+    encodedMeshes[sha1] = MeshWriter.encode(batch)
   end
+  return encodedMeshes
 end
 
 local function persist(cacheFs, tx, bundle)
@@ -78,15 +77,16 @@ local function persist(cacheFs, tx, bundle)
   local dir = MapAssetCache.mapDir(mapId)
   local stage = tx.stage
 
-  validateBundle(bundle)
+  local encodedMeshes = validateBundle(bundle)
 
-  -- 1. Shared content-addressed geometry. 2. Shared content-addressed textures.
-  -- 3. Shared model descriptors. The model key is content-addressed over the
-  -- descriptor, so a re-write is idempotent and a failure can never clobber
-  -- a descriptor an older ready map references (a different descriptor gets a
-  -- different path).
-  for sha1, batch in pairs(bundle.meshes) do
-    cacheFs:write(MapAssetCache.geometryPath(sha1), MeshWriter.encode(batch))
+  -- 1. Shared content-addressed geometry (the encoded bytes validated
+  -- above). 2. Shared content-addressed textures. 3. Shared model
+  -- descriptors. The model key is content-addressed over the descriptor, so
+  -- a re-write is idempotent and a failure can never clobber a descriptor an
+  -- older ready map references (a different descriptor gets a different
+  -- path).
+  for sha1, bytes in pairs(encodedMeshes) do
+    cacheFs:write(MapAssetCache.geometryPath(sha1), bytes)
   end
   for sha1, tex in pairs(bundle.textures) do
     cacheFs:write(MapAssetCache.texturePath(sha1), PngWriter.encode(tex.width, tex.height, tex.pixels))
