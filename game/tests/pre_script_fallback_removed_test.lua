@@ -4,8 +4,7 @@
 -- placeholder message reference and text, the unmapped-interaction text, and
 -- the checked-in override files that used the placeholder must all be gone
 -- from production code and data after regeneration. This is a repo-content
--- scan (like private_test_mode_removed_test.lua): it reads source files and
--- never executes the game.
+-- scan: it reads source files and never executes the game.
 
 local Assert = require("tests.support.Assert")
 

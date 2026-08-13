@@ -4,9 +4,8 @@
 -- `ctx.movement` called `actors:isBusy`/`actors:canMove` (production
 -- `ScriptActorWorld` exposes neither; `FakeServices` implemented both,
 -- concealing the mismatch). Both groups are deleted; the concealing fake
--- methods go with them. This is a repo-content scan (like
--- private_test_mode_removed_test.lua): it reads source files and never
--- executes the game.
+-- methods go with them. This is a repo-content scan: it reads source files
+-- and never executes the game.
 
 local Assert = require("tests.support.Assert")
 
