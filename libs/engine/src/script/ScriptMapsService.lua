@@ -10,14 +10,16 @@
 
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
+local FieldTransition = require("libs.engine.src.FieldTransition")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 
 ---@class ScriptMapsService
 ---@field private _transition table FieldTransition-shaped
 ---@field private _loader table FieldMapLoader-shaped
 ---@field private _sourceMap table RuntimeFieldMap
----@field private _pending table|nil
+---@field private pendingWarp table|nil
 ---@field private _error any|nil
 local ScriptMapsService = {}
 ScriptMapsService.__index = ScriptMapsService
@@ -33,7 +35,7 @@ function ScriptMapsService.new(opts)
     _transition = opts.transition,
     _loader = opts.loader,
     _sourceMap = opts.sourceMap,
-    _pending = nil,
+    pendingWarp = nil,
     _error = nil,
   }, ScriptMapsService)
 end
@@ -66,7 +68,7 @@ function ScriptMapsService:resolve(ref)
   end
   if Errors.is(map) then
     local err = map --[[@as Errors.Error]]
-    if err.code == "FIELD_MAP_UNKNOWN" then
+    if err.code == FieldErrors.FIELD_MAP_UNKNOWN then
       return nil
     end
     Errors.raise(err.code, err.message, err.context)
@@ -97,7 +99,7 @@ end
 -- destination coordinates in the destination map's local cell space.
 ---@param target table
 function ScriptMapsService:startWarp(target)
-  assert(self._pending == nil, "a scripted warp is already in progress")
+  assert(self.pendingWarp == nil, "a scripted warp is already in progress")
   local destination, loadErr = self._loader:load(target.map)
   if destination == nil or destination.mapId == nil then
     Errors.raise(
@@ -127,7 +129,7 @@ function ScriptMapsService:startWarp(target)
     destinationWarpId = warpId,
     direct = true,
   }
-  self._pending = warp
+  self.pendingWarp = warp
   self._error = nil
   self._transition:start(self._sourceMap, warp, target.facing)
 end
@@ -137,17 +139,17 @@ end
 -- transition failure is captured so the warp task can fault its script.
 ---@return boolean
 function ScriptMapsService:warpDone()
-  if self._pending == nil then
+  if self.pendingWarp == nil then
     return false
   end
   local transition = self._transition
   if transition.error ~= nil then
     self._error = transition.error
-    self._pending = nil
+    self.pendingWarp = nil
     return true
   end
-  if transition.phase == "idle" and transition.sourceMap == nil then
-    self._pending = nil
+  if transition.phase == FieldTransition.PHASES.idle and transition.sourceMap == nil then
+    self.pendingWarp = nil
     return true
   end
   return false

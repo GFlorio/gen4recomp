@@ -10,6 +10,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local FieldObjectActor = require("libs.engine.src.FieldObjectActor")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
@@ -40,10 +41,13 @@ FieldActorManager.__index = FieldActorManager
 -- Raw event Y is a 1/16-unit fixed-point hint, matching the field event decoder.
 local EVENT_Y_UNITS = 16
 
+-- The terrain-surface failure codes an actor construction can recover from,
+-- mapped to the actor-scoped codes the script world observes. A structured
+-- error of any other kind propagates unchanged rather than being re-labelled.
 local SURFACE_ERROR_CODES = {
-  TERRAIN_SURFACE_NOT_FOUND = "ACTOR_SURFACE_MISSING",
-  TERRAIN_SURFACE_AMBIGUOUS = "ACTOR_SURFACE_AMBIGUOUS",
-  TERRAIN_SURFACE_DISCONNECTED = "ACTOR_SURFACE_AMBIGUOUS",
+  [FieldErrors.TERRAIN_SURFACE_NOT_FOUND] = FieldErrors.ACTOR_SURFACE_MISSING,
+  [FieldErrors.TERRAIN_SURFACE_AMBIGUOUS] = FieldErrors.ACTOR_SURFACE_AMBIGUOUS,
+  [FieldErrors.TERRAIN_SURFACE_DISCONNECTED] = FieldErrors.ACTOR_SURFACE_AMBIGUOUS,
 }
 
 ---@class FieldActorManagerOptions
@@ -124,7 +128,7 @@ end
 function FieldActorManager:_acquireVisual(spriteId, actorId)
   if not self.assets:knows(spriteId) then
     Errors.raise(
-      "ACTOR_VISUAL_MISSING",
+      FieldErrors.ACTOR_VISUAL_MISSING,
       "spriteId " .. spriteId .. " for " .. actorId .. " is not in the compiled actor set",
       { actorId = actorId, spriteId = spriteId }
     )
@@ -137,7 +141,7 @@ function FieldActorManager:_instantiate(entry, event)
   local actorId = FieldObjectActor.actorId(runtimeMap.mapId, event.objectEventId)
   if entry.actors[actorId] then
     Errors.raise(
-      "ACTOR_DUPLICATE_ID",
+      FieldErrors.ACTOR_DUPLICATE_ID,
       "map " .. runtimeMap.mapId .. " declares object event " .. event.objectEventId .. " more than once",
       { actorId = actorId, mapId = runtimeMap.mapId, objectEventId = event.objectEventId }
     )
@@ -170,7 +174,7 @@ function FieldActorManager:_instantiate(entry, event)
     local occupant = entry.occupancy[key]
     if actor.solid and occupant then
       Errors.raise(
-        "ACTOR_OCCUPANCY_CONFLICT",
+        FieldErrors.ACTOR_OCCUPANCY_CONFLICT,
         actorId .. " and " .. occupant.actorId .. " occupy the same field cell and surface",
         {
           actorId = actorId,
@@ -422,14 +426,18 @@ function FieldActorManager:setPosition(actorId, position)
   if actor.solid then
     local occupant = entry.occupancy[newKey]
     if occupant ~= nil and occupant ~= actor then
-      Errors.raise("ACTOR_OCCUPANCY_CONFLICT", actorId .. " cannot move onto " .. occupant.actorId .. "'s field cell", {
-        actorId = actorId,
-        otherActorId = occupant.actorId,
-        mapId = actor.mapId,
-        fieldX = position.fieldX,
-        fieldZ = position.fieldZ,
-        surfaceId = sample.surfaceId,
-      })
+      Errors.raise(
+        FieldErrors.ACTOR_OCCUPANCY_CONFLICT,
+        actorId .. " cannot move onto " .. occupant.actorId .. "'s field cell",
+        {
+          actorId = actorId,
+          otherActorId = occupant.actorId,
+          mapId = actor.mapId,
+          fieldX = position.fieldX,
+          fieldZ = position.fieldZ,
+          surfaceId = sample.surfaceId,
+        }
+      )
     end
     local oldKey = occupancyKey(actor.mapId, actor.fieldX, actor.fieldZ, actor.surfaceId)
     if entry.occupancy[oldKey] == actor then

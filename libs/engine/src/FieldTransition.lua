@@ -28,6 +28,16 @@ FieldTransition.__index = FieldTransition
 FieldTransition.FADE_OUT_TICKS = 12
 FieldTransition.FADE_IN_TICKS = 12
 
+-- The shared phase protocol of the fade/load/swap lifecycle, referenced by
+-- consumers (FieldSave, ScriptMapsService) so a rename stays in one place.
+FieldTransition.PHASES = {
+  idle = "idle",
+  fade_out = "fade_out",
+  fade_in = "fade_in",
+  load_destination = "load_destination",
+  swap_map = "swap_map",
+}
+
 function FieldTransition.new(options)
   assert(options and options.loader and options.loader.protectMap, "field transition loader required")
   assert(type(options.swap) == "function", "field transition swap callback required")
@@ -41,14 +51,14 @@ function FieldTransition.new(options)
     swap = options.swap,
     fadeOutTicks = fadeOutTicks,
     fadeInTicks = fadeInTicks,
-    phase = "idle",
+    phase = FieldTransition.PHASES.idle,
     locked = false,
     fadeAlpha = 0,
   }, FieldTransition)
 end
 
 function FieldTransition:start(sourceMap, warp, facing)
-  assert(self.phase == "idle", "field transition already active")
+  assert(self.phase == FieldTransition.PHASES.idle, "field transition already active")
   assert(sourceMap and warp and facing, "transition source, warp, and facing required")
   self.sourceMap = sourceMap
   self.sourceWarp = warp
@@ -64,7 +74,7 @@ function FieldTransition:start(sourceMap, warp, facing)
     self:_abort(err)
     return
   end
-  self.phase = "fade_out"
+  self.phase = FieldTransition.PHASES.fade_out
   self.locked = true
   self.fadeAlpha = 0
 end
@@ -84,7 +94,7 @@ function FieldTransition:_abort(err)
   end
   local sourceMapId = self.sourceMap and self.sourceMap.mapId or nil
   local destinationMapId = self.resolution and self.resolution.destinationMap.mapId or nil
-  self.phase = "idle"
+  self.phase = FieldTransition.PHASES.idle
   self.locked = false
   self.fadeAlpha = 0
   self.progressTicks = 0
@@ -102,19 +112,19 @@ function FieldTransition:_abort(err)
 end
 
 function FieldTransition:updateFixed()
-  if self.phase == "idle" then
+  if self.phase == FieldTransition.PHASES.idle then
     return
   end
-  if self.phase == "fade_out" then
+  if self.phase == FieldTransition.PHASES.fade_out then
     self.progressTicks = self.progressTicks + 1
     self.fadeAlpha = self.progressTicks / self.fadeOutTicks
     if self.progressTicks >= self.fadeOutTicks then
       self.fadeAlpha = 1
-      self.phase = "load_destination"
+      self.phase = FieldTransition.PHASES.load_destination
     end
     return
   end
-  if self.phase == "load_destination" then
+  if self.phase == FieldTransition.PHASES.load_destination then
     local ok, err = pcall(function()
       local result = self.resolveDestination(self.loader, self.sourceMap, self.sourceWarp)
       self.resolution = result
@@ -124,27 +134,27 @@ function FieldTransition:updateFixed()
     if not ok then
       return self:_abort(err)
     end
-    self.phase = "swap_map"
+    self.phase = FieldTransition.PHASES.swap_map
     return
   end
-  if self.phase == "swap_map" then
+  if self.phase == FieldTransition.PHASES.swap_map then
     assert(self.fadeAlpha == 1, "map swap must occur while fully black")
     local ok, err = pcall(self.swap, self.resolution, self.facing)
     if not ok then
       return self:_abort(err)
     end
     self.progressTicks = 0
-    self.phase = "fade_in"
+    self.phase = FieldTransition.PHASES.fade_in
     return
   end
-  assert(self.phase == "fade_in", "unknown field transition phase")
+  assert(self.phase == FieldTransition.PHASES.fade_in, "unknown field transition phase")
   self.progressTicks = self.progressTicks + 1
   self.fadeAlpha = 1 - self.progressTicks / self.fadeInTicks
   if self.progressTicks < self.fadeInTicks then
     return
   end
   self.fadeAlpha = 0
-  self.phase = "idle"
+  self.phase = FieldTransition.PHASES.idle
   self.locked = false
   self.completed = {
     sourceMapId = self.sourceMap.mapId,

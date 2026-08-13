@@ -15,6 +15,7 @@
 -- cleanup, "the failure surfaced").
 
 local Errors = require("libs.errors.src.Errors")
+local StorageErrors = require("libs.storage.src.errors")
 local LuaWriter = require("libs.codec.src.LuaWriter")
 
 -- A version id is a structural path component: it must be able to name exactly
@@ -151,18 +152,18 @@ function CacheFs:resolve(relativePath)
   assert(type(relativePath) == "string", "path must be a string")
   local path = relativePath:gsub("\\", "/")
   if path:find("\0", 1, true) then
-    Errors.raise("CACHE_PATH_INVALID", "path contains NUL", { path = relativePath })
+    Errors.raise(StorageErrors.CACHE_PATH_INVALID, "path contains NUL", { path = relativePath })
   end
   if path == "" then
     return self._root
   end
   if path:sub(1, 1) == "/" or path:match("^%a:") then
-    Errors.raise("CACHE_PATH_INVALID", "path must be relative", { path = relativePath })
+    Errors.raise(StorageErrors.CACHE_PATH_INVALID, "path must be relative", { path = relativePath })
   end
   for component in (path .. "/"):gmatch("(.-)/") do
     if component == "" or component == "." or component == ".." then
       Errors.raise(
-        "CACHE_PATH_INVALID",
+        StorageErrors.CACHE_PATH_INVALID,
         "illegal path component: '" .. component .. "'",
         { path = relativePath, component = component }
       )
@@ -178,10 +179,10 @@ function CacheFs:write(relativePath, data)
   local parent = full:match("^(.*)/[^/]+$")
   if parent then
     local ok, err = self.backend:createDirectory(parent)
-    ensureBackend(ok, err, "CACHE_MKDIR_FAILED", "could not create directory", { path = parent })
+    ensureBackend(ok, err, StorageErrors.CACHE_MKDIR_FAILED, "could not create directory", { path = parent })
   end
   local ok, err = self.backend:write(full, data)
-  return ensureBackend(ok, err, "CACHE_WRITE_FAILED", "write failed", { path = full })
+  return ensureBackend(ok, err, StorageErrors.CACHE_WRITE_FAILED, "write failed", { path = full })
 end
 
 function CacheFs:read(relativePath)
@@ -206,7 +207,7 @@ end
 function CacheFs:createDirectory(relativePath)
   local full = self:resolve(relativePath)
   local ok, err = self.backend:createDirectory(full)
-  return ensureBackend(ok, err, "CACHE_MKDIR_FAILED", "could not create directory", { path = full })
+  return ensureBackend(ok, err, StorageErrors.CACHE_MKDIR_FAILED, "could not create directory", { path = full })
 end
 
 -- Removing an absent path is a no-op; removing an existing path that the
@@ -217,7 +218,7 @@ function CacheFs:remove(relativePath)
     return true
   end
   local ok, err = self.backend:remove(full)
-  return ensureBackend(ok, err, "CACHE_REMOVE_FAILED", "could not remove", { path = full })
+  return ensureBackend(ok, err, StorageErrors.CACHE_REMOVE_FAILED, "could not remove", { path = full })
 end
 
 -- Atomically replaces destination with an already-written sibling file. The
@@ -236,7 +237,7 @@ end
 -- publication report success.
 function CacheFs:replaceAt(sourcePath, destinationPath)
   local ok, err = self.backend:replace(sourcePath, destinationPath)
-  return ensureBackend(ok, err, "CACHE_REPLACE_FAILED", "replace failed", {
+  return ensureBackend(ok, err, StorageErrors.CACHE_REPLACE_FAILED, "replace failed", {
     sourcePath = sourcePath,
     destinationPath = destinationPath,
   })
@@ -258,13 +259,13 @@ function CacheFs:_removeTreeAt(fullPath)
     end
     if info.type == "directory" then
       local items = self.backend:getDirectoryItems(path)
-      ensureBackend(items, nil, "CACHE_REMOVE_FAILED", "could not list directory", { path = path })
+      ensureBackend(items, nil, StorageErrors.CACHE_REMOVE_FAILED, "could not list directory", { path = path })
       for _, name in ipairs(items) do
         rec(path .. "/" .. name)
       end
     end
     local ok, err = self.backend:remove(path)
-    ensureBackend(ok, err, "CACHE_REMOVE_FAILED", "could not remove", { path = path })
+    ensureBackend(ok, err, StorageErrors.CACHE_REMOVE_FAILED, "could not remove", { path = path })
   end
   rec(fullPath)
 end
@@ -317,16 +318,16 @@ end
 function CacheFs:loadLua(relativePath)
   local data = self:read(relativePath)
   if data == nil then
-    return nil, Errors.new("CACHE_FILE_MISSING", "no such cache file", { path = relativePath })
+    return nil, Errors.new(StorageErrors.CACHE_FILE_MISSING, "no such cache file", { path = relativePath })
   end
   local chunk, loadErr = loadstring(data, "@" .. relativePath)
   if not chunk then
-    return nil, Errors.new("CACHE_LUA_PARSE_FAILED", loadErr, { path = relativePath })
+    return nil, Errors.new(StorageErrors.CACHE_LUA_PARSE_FAILED, loadErr, { path = relativePath })
   end
   setfenv(chunk, {})
   local ok, result = pcall(chunk)
   if not ok then
-    return nil, Errors.new("CACHE_LUA_EVAL_FAILED", tostring(result), { path = relativePath })
+    return nil, Errors.new(StorageErrors.CACHE_LUA_EVAL_FAILED, tostring(result), { path = relativePath })
   end
   return result
 end
@@ -350,16 +351,16 @@ end
 function CacheFs:loadModule(relativePath)
   local data = self:read(relativePath)
   if data == nil then
-    return nil, Errors.new("CACHE_FILE_MISSING", "no such cache file", { path = relativePath })
+    return nil, Errors.new(StorageErrors.CACHE_FILE_MISSING, "no such cache file", { path = relativePath })
   end
   local chunk, loadErr = loadstring(data, "@" .. relativePath)
   if not chunk then
-    return nil, Errors.new("CACHE_LUA_PARSE_FAILED", loadErr, { path = relativePath })
+    return nil, Errors.new(StorageErrors.CACHE_LUA_PARSE_FAILED, loadErr, { path = relativePath })
   end
   setfenv(chunk, { require = moduleRequire })
   local ok, result = pcall(chunk)
   if not ok then
-    return nil, Errors.new("CACHE_LUA_EVAL_FAILED", tostring(result), { path = relativePath })
+    return nil, Errors.new(StorageErrors.CACHE_LUA_EVAL_FAILED, tostring(result), { path = relativePath })
   end
   return result
 end

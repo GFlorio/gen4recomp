@@ -8,6 +8,7 @@
 -- is also the atlas strip order. Pure domain module: no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 
 local FieldActorPose = {}
 
@@ -42,7 +43,7 @@ function FieldActorPose.select(visualDef, facing, poseName)
   )
   if not FACINGS[facing] then
     Errors.raise(
-      "ACTOR_FACING_INVALID",
+      FieldErrors.ACTOR_FACING_INVALID,
       "unsupported actor facing " .. tostring(facing),
       { spriteId = visualDef.spriteId, facing = facing }
     )
@@ -50,7 +51,7 @@ function FieldActorPose.select(visualDef, facing, poseName)
   local set = visualDef.directions[facing]
   if not set then
     Errors.raise(
-      "ACTOR_POSE_DIRECTION_MISSING",
+      FieldErrors.ACTOR_POSE_DIRECTION_MISSING,
       "sprite " .. tostring(visualDef.spriteId) .. " has no " .. facing .. " pose set",
       { spriteId = visualDef.spriteId, facing = facing }
     )
@@ -61,7 +62,7 @@ function FieldActorPose.select(visualDef, facing, poseName)
   end
   if not set.idle then
     Errors.raise(
-      "ACTOR_POSE_MISSING",
+      FieldErrors.ACTOR_POSE_MISSING,
       "sprite " .. tostring(visualDef.spriteId) .. " has no " .. tostring(poseName) .. " or idle pose facing " .. facing,
       { spriteId = visualDef.spriteId, facing = facing, pose = poseName }
     )

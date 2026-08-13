@@ -17,6 +17,7 @@ local Errors = require("libs.errors.src.Errors")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local PngWriter = require("libs.assets.src.PngWriter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
+local AssetErrors = require("libs.assets.src.errors")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
 
@@ -45,7 +46,11 @@ local function persist(cacheFs, tx, bundle)
   stage:write(dir .. "/collision.g4collision", collisionBytes)
   -- 5. Terrain surfaces.
   if type(bundle.terrain) ~= "table" or bundle.terrain.schema ~= MapAssetCache.TERRAIN_SCHEMA then
-    Errors.raise("MAP_CACHE_BAD_TERRAIN", "terrain artifact is missing or has the wrong schema", { mapId = mapId })
+    Errors.raise(
+      AssetErrors.MAP_CACHE_BAD_TERRAIN,
+      "terrain artifact is missing or has the wrong schema",
+      { mapId = mapId }
+    )
   end
   stage:writeLua(MapAssetCache.terrainPath(mapId), bundle.terrain)
   -- 6. Neighbor collision and terrain artifacts.
@@ -53,7 +58,7 @@ local function persist(cacheFs, tx, bundle)
     local neighborCollisionBytes = CollisionGridAsset.encode(chunk.collision)
     if type(chunk.terrain) ~= "table" or chunk.terrain.schema ~= MapAssetCache.TERRAIN_SCHEMA then
       Errors.raise(
-        "MAP_CACHE_BAD_NEIGHBOR_TERRAIN",
+        AssetErrors.MAP_CACHE_BAD_NEIGHBOR_TERRAIN,
         "neighbor terrain artifact is invalid",
         { mapId = mapId, landDataMemberId = landDataMemberId }
       )
@@ -71,11 +76,15 @@ local function persist(cacheFs, tx, bundle)
   -- marker after the marker file is written; here validate references directly.
   local scene = stage:loadLua(dir .. "/scene.lua")
   if type(scene) ~= "table" then
-    Errors.raise("MAP_CACHE_READBACK_FAILED", "scene.lua did not read back as a table", { mapId = mapId })
+    Errors.raise(AssetErrors.MAP_CACHE_READBACK_FAILED, "scene.lua did not read back as a table", { mapId = mapId })
   end
   for _, path in ipairs(MapAssetCache.referencedPaths(scene, cacheFs)) do
     if not stage:exists(path) and not cacheFs:exists(path) then
-      Errors.raise("MAP_CACHE_MISSING_ASSET", "referenced asset missing after write: " .. path, { mapId = mapId })
+      Errors.raise(
+        AssetErrors.MAP_CACHE_MISSING_ASSET,
+        "referenced asset missing after write: " .. path,
+        { mapId = mapId }
+      )
     end
   end
 

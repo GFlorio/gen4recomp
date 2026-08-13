@@ -5,6 +5,7 @@
 -- through their own branch before any indexed-record dispatch.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 
@@ -63,7 +64,7 @@ function WarpSystem.findBlockedFacing(runtimeMap, fieldX, fieldZ, direction)
   if not delta then
     -- Callers pass only known direction names; anything else is a
     -- programming fault at this resolver boundary, not an empty result.
-    Errors.raise("ACTOR_FACING_INVALID", "unsupported player facing " .. tostring(direction), {
+    Errors.raise(FieldErrors.ACTOR_FACING_INVALID, "unsupported player facing " .. tostring(direction), {
       mapId = runtimeMap.mapId,
     })
   end
@@ -84,7 +85,7 @@ local function loadDestination(loader, sourceMap, warp)
   if ok then
     return result
   end
-  if Errors.is(result) and result.code == "FIELD_MAP_UNKNOWN" then
+  if Errors.is(result) and result.code == FieldErrors.FIELD_MAP_UNKNOWN then
     Errors.raise("FIELD_DESTINATION_MAP_UNKNOWN", "warp destination map is unavailable", {
       sourceMapId = sourceMap.mapId,
       sourceWarpId = warp.index,
@@ -146,7 +147,10 @@ function WarpSystem.resolveDestination(loader, sourceMap, warp)
     local destinationMap = loadDestination(loader, sourceMap, warp)
     local localX, localZ = FieldCoordinates.fieldToLocal(destinationMap, warp.x, warp.z)
     local sample = directSurface(destinationMap, warp, localX, localZ)
-    return resolutionRecord(sourceMap, warp, destinationMap, warp, warp.x, warp.z, sample)
+    -- The direct record is the source trigger and the destination record in
+    -- one table: it carries the pre-resolved destination coordinates.
+    local destinationRecord = warp
+    return resolutionRecord(sourceMap, warp, destinationMap, destinationRecord, warp.x, warp.z, sample)
   end
   if warp.destinationWarpId == WarpSystem.DYNAMIC_WARP_SENTINEL then
     Errors.raise("FIELD_DYNAMIC_WARP_UNSUPPORTED", "dynamic warp anchors are not supported", {

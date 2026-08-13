@@ -7,6 +7,7 @@
 -- composition, and a simulation-only runtime simply leaves them out.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldCoveragePlanner = require("libs.engine.src.FieldCoveragePlanner")
 local FieldGrid = require("libs.engine.src.FieldGrid")
 local FieldRegion = require("libs.engine.src.FieldRegion")
@@ -54,7 +55,7 @@ local function worldRecord(world, idOrSymbol)
   local index = mapId ~= nil and world.byId[mapId] or nil
   local record = index and world.maps[index] or nil
   if not record then
-    Errors.raise("FIELD_MAP_UNKNOWN", "no runtime map for " .. tostring(idOrSymbol), { key = idOrSymbol })
+    Errors.raise(FieldErrors.FIELD_MAP_UNKNOWN, "no runtime map for " .. tostring(idOrSymbol), { key = idOrSymbol })
   end
   return assert(record)
 end
@@ -111,7 +112,7 @@ end
 -- generated data and must fail the load rather than degrade the identity.
 local function requireTerrainSource(artifact, context)
   if type(artifact.source) ~= "table" or type(artifact.source.bdhcSha1) ~= "string" then
-    Errors.raise("FIELD_MAP_TERRAIN_CACHE_INVALID", "terrain artifact source or bdhcSha1 is missing", context)
+    Errors.raise(FieldErrors.FIELD_MAP_TERRAIN_CACHE_INVALID, "terrain artifact source or bdhcSha1 is missing", context)
   end
 end
 
@@ -139,12 +140,12 @@ local function loadNeighborRegion(cacheFs, scene, centralCollision, centralTerra
   for _, descriptor in ipairs(scene.neighbors) do
     if not descriptor.collision or not descriptor.terrain then
       Errors.raise(
-        "FIELD_MAP_NEIGHBOR_CACHE_MISSING",
+        FieldErrors.FIELD_MAP_NEIGHBOR_CACHE_MISSING,
         "neighbor collision or terrain is missing; rebuild the derived cache",
         { mapId = scene.mapId, offsetTilesX = descriptor.offsetTilesX, offsetTilesZ = descriptor.offsetTilesZ }
       )
     end
-    local terrainArtifact = loadRequired(cacheFs, descriptor.terrain.file, "FIELD_MAP_NEIGHBOR_CACHE_MISSING")
+    local terrainArtifact = loadRequired(cacheFs, descriptor.terrain.file, FieldErrors.FIELD_MAP_NEIGHBOR_CACHE_MISSING)
     requireTerrainSource(terrainArtifact, {
       mapId = scene.mapId,
       offsetTilesX = descriptor.offsetTilesX,
@@ -153,7 +154,7 @@ local function loadNeighborRegion(cacheFs, scene, centralCollision, centralTerra
     neighbors[#neighbors + 1] = {
       offsetTilesX = descriptor.offsetTilesX,
       offsetTilesZ = descriptor.offsetTilesZ,
-      collision = loadCollision(cacheFs, descriptor.collision, "FIELD_MAP_NEIGHBOR_CACHE_MISSING", {
+      collision = loadCollision(cacheFs, descriptor.collision, FieldErrors.FIELD_MAP_NEIGHBOR_CACHE_MISSING, {
         mapId = scene.mapId,
       }),
       terrain = TerrainSurface.new(terrainArtifact),
@@ -224,34 +225,35 @@ function FieldMapLoader:load(idOrSymbol)
   end
 
   local mapDir = MapAssetCache.mapDir(record.id)
-  local scene = loadRequired(self.cacheFs, mapDir .. "/scene.lua", "FIELD_MAP_VISUAL_CACHE_MISSING")
-  local fieldData = loadRequired(self.cacheFs, FieldMapDataCache.fieldPath(record.id), "FIELD_MAP_DATA_CACHE_MISSING")
+  local scene = loadRequired(self.cacheFs, mapDir .. "/scene.lua", FieldErrors.FIELD_MAP_VISUAL_CACHE_MISSING)
+  local fieldData =
+    loadRequired(self.cacheFs, FieldMapDataCache.fieldPath(record.id), FieldErrors.FIELD_MAP_DATA_CACHE_MISSING)
   local terrainArtifact =
-    loadRequired(self.cacheFs, MapAssetCache.terrainPath(record.id), "FIELD_MAP_TERRAIN_CACHE_MISSING")
+    loadRequired(self.cacheFs, MapAssetCache.terrainPath(record.id), FieldErrors.FIELD_MAP_TERRAIN_CACHE_MISSING)
   if scene.schema ~= MapAssetCache.SCENE_SCHEMA or scene.mapId ~= record.id then
     Errors.raise(
-      "FIELD_MAP_VISUAL_CACHE_INVALID",
+      FieldErrors.FIELD_MAP_VISUAL_CACHE_INVALID,
       "visual cache identity or schema mismatch",
       { mapId = record.id, schema = scene.schema }
     )
   end
   if type(scene.neighbors) ~= "table" then
     Errors.raise(
-      "FIELD_MAP_VISUAL_CACHE_INVALID",
+      FieldErrors.FIELD_MAP_VISUAL_CACHE_INVALID,
       "scene neighbors record is missing or malformed; rebuild the derived cache",
       { mapId = record.id }
     )
   end
   if fieldData.schema ~= FieldMapDataCache.FIELD_SCHEMA or fieldData.mapId ~= record.id then
     Errors.raise(
-      "FIELD_MAP_DATA_CACHE_INVALID",
+      FieldErrors.FIELD_MAP_DATA_CACHE_INVALID,
       "field cache identity or schema mismatch",
       { mapId = record.id, schema = fieldData.schema }
     )
   end
   if terrainArtifact.schema ~= MapAssetCache.TERRAIN_SCHEMA then
     Errors.raise(
-      "FIELD_MAP_TERRAIN_CACHE_INVALID",
+      FieldErrors.FIELD_MAP_TERRAIN_CACHE_INVALID,
       "terrain cache schema mismatch",
       { mapId = record.id, schema = terrainArtifact.schema }
     )
@@ -259,7 +261,7 @@ function FieldMapLoader:load(idOrSymbol)
   requireTerrainSource(terrainArtifact, { mapId = record.id })
   if fieldData.cameraType ~= scene.cameraType then
     Errors.raise(
-      "FIELD_MAP_CAMERA_MISMATCH",
+      FieldErrors.FIELD_MAP_CAMERA_MISMATCH,
       "visual and field camera types disagree",
       { mapId = record.id, visualCameraType = scene.cameraType, fieldCameraType = fieldData.cameraType }
     )
@@ -288,16 +290,17 @@ function FieldMapLoader:load(idOrSymbol)
 
     if not scene.collision or type(scene.collision.file) ~= "string" then
       Errors.raise(
-        "FIELD_MAP_VISUAL_CACHE_INVALID",
+        FieldErrors.FIELD_MAP_VISUAL_CACHE_INVALID,
         "scene collision descriptor is missing; rebuild the derived cache",
         { mapId = record.id }
       )
     end
-    local centralCollision = loadCollision(self.cacheFs, scene.collision, "FIELD_MAP_COLLISION_CACHE_MISSING", {
-      mapId = record.id,
-      worldOriginX = scene.matrix.worldOriginX,
-      worldOriginZ = scene.matrix.worldOriginZ,
-    })
+    local centralCollision =
+      loadCollision(self.cacheFs, scene.collision, FieldErrors.FIELD_MAP_COLLISION_CACHE_MISSING, {
+        mapId = record.id,
+        worldOriginX = scene.matrix.worldOriginX,
+        worldOriginZ = scene.matrix.worldOriginZ,
+      })
     local centralTerrain = TerrainSurface.new(terrainArtifact)
     local region = loadNeighborRegion(self.cacheFs, scene, centralCollision, centralTerrain)
     runtimeMap = {

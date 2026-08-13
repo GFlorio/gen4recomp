@@ -17,6 +17,7 @@
 -- items. The returned queue holds the original item tables.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local Matrix4 = require("libs.math.src.Matrix4")
 
 local RenderQueue = {}
@@ -39,7 +40,7 @@ function RenderQueue.effectiveAlphaClass(item)
   local mode = item.alphaClass or (item.material and item.material.alphaClass)
   if not ALPHA_CLASSES[mode] then
     Errors.raise(
-      "RENDER_QUEUE_UNKNOWN_ALPHA_CLASS",
+      FieldErrors.RENDER_QUEUE_UNKNOWN_ALPHA_CLASS,
       "render item has unknown alpha class " .. tostring(mode),
       { alphaClass = mode }
     )

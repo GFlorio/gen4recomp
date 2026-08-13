@@ -15,6 +15,11 @@ local MovementPauseTask = {}
 MovementPauseTask.type = "movement_pause"
 MovementPauseTask.version = 1
 
+-- The actor-scoped registration alias of this implementation: `actor_pause`
+-- (lock_actor waitUntilPausable) shares the movement-pause task, scoped to
+-- one actor, and is registered and created under this name.
+MovementPauseTask.actorType = "actor_pause"
+
 -- True when one movement task's state is at a pausable boundary: completed,
 -- or no plan action is mid-tick.
 ---@param state table
@@ -56,7 +61,7 @@ end
 function MovementPauseTask.poll(state, ctx)
   local ids = watchedTaskIds(state, ctx)
   for _, taskId in ipairs(ids) do
-    local task = ctx.scheduler:tasksById(taskId)
+    local task = ctx.scheduler:taskById(taskId)
     if task ~= nil and task.status == "active" then
       if not MovementPauseTask.atBoundary(task.state) then
         return { complete = false, state = state }
