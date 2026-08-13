@@ -52,7 +52,13 @@ end
 -- invokes the same FieldState callbacks that LÖVE dispatches in production.
 -- It deliberately has no synthetic input behavior of its own.
 local function hostCallbacks(game)
-  return setmetatable({ runtime = { input = game.runtime.input } }, FieldState)
+  return setmetatable({
+    runtime = {
+      input = game.runtime.input,
+      actionKeys = game.runtime.actionKeys,
+      cancelKeys = game.runtime.cancelKeys,
+    },
+  }, FieldState)
 end
 
 local function menuIsModal(snapshot)

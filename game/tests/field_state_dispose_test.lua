@@ -6,6 +6,7 @@
 -- store, release every collaborator, clear every owned field, then re-boot.
 
 local Assert = require("tests.support.Assert")
+local Errors = require("libs.errors.src.Errors")
 local FieldRuntime = require("game.src.game.FieldRuntime")
 local FieldState = require("game.src.game.FieldState")
 
@@ -53,6 +54,38 @@ local function captureReadySession()
   }
 end
 
+-- The scripts platform in the shape _save's capture touches: an empty
+-- scheduler and the fingerprint/world capture edges.
+local function fakeScripts()
+  return {
+    scheduler = {
+      liveInstances = function()
+        return {}
+      end,
+      environments = function()
+        return {}
+      end,
+      tasks = function()
+        return {}
+      end,
+      counters = function()
+        return {}
+      end,
+      taskRegistryFingerprint = function()
+        return "task-fp"
+      end,
+    },
+    registryFingerprint = function()
+      return "registry-fp"
+    end,
+    worldState = {
+      capture = function()
+        return {}
+      end,
+    },
+  }
+end
+
 -- A bare FieldState (no boot) with every resource the disposal path touches.
 local function disposableState()
   local resources = {
@@ -74,6 +107,7 @@ local function disposableState()
     mapLoader = resources.mapLoader,
     saveStore = resources.saveStore,
     session = captureReadySession(),
+    scripts = fakeScripts(),
     avatar = { id = "hero" },
     auxiliaryFieldUi = {
       capture = function()
@@ -120,13 +154,6 @@ function T.dispose_without_a_live_session_skips_the_save()
   state:dispose()
   Assert.equal(resources.saveStore.calls, 0)
   Assert.equal(resources.renderer.calls, 1)
-end
-
-function T.dispose_on_a_failed_boot_state_is_a_no_op()
-  local state = setmetatable({
-    runtime = setmetatable({ errorText = "boom" }, FieldRuntime),
-  }, FieldState)
-  state:dispose()
 end
 
 function T.dispose_releases_runtime_and_presentation_resources_once()
@@ -218,20 +245,46 @@ function T.reset_routes_through_the_shared_teardown_path()
   Assert.equal(resources.saveStore.calls, 1, "dispose after reset saves nothing")
 end
 
--- A failed save-store wipe must not tear down or re-boot the live runtime:
--- reset reports the failure and every owned collaborator stays in place.
-function T.reset_failure_keeps_the_live_runtime_untouched()
+-- A structured save-store failure is the expected reset failure the UI
+-- presents: reset reports it and every owned collaborator stays in place.
+function T.reset_structured_save_failure_is_presented_and_keeps_the_live_runtime_untouched()
   local state, resources, reloads = resetState()
   local runtime = state.runtime --[[@as any]]
-  resources.saveStore.failReset = true
   resources.saveStore.reset = function(self)
     self.calls = self.calls + 1
-    if self.failReset then
-      error("injected reset failure")
-    end
+    Errors.raise("SAVE_REMOVE_FAILED", "injected reset failure")
   end
   runtime:_reset()
   Assert.isTrue(runtime.saveStatus:find("Reset failed:", 1, true) ~= nil, "reset reports the wipe failure")
+  Assert.notNil(runtime.session, "failed reset keeps the live session")
+  Assert.notNil(runtime.mapLoader, "failed reset keeps the loaded map")
+  Assert.equal(resources.mapLoader.calls, 0, "failed reset releases nothing")
+  Assert.equal(resources.dialogue.calls, 0, "failed reset releases nothing")
+  Assert.equal(resources.saveStore.calls, 1)
+  Assert.equal(reloads(), 0, "failed reset does not re-boot")
+end
+
+-- A non-structured failure inside the reset save-store call is a programming
+-- fault, not a save failure: it must propagate instead of being flattened
+-- into the reset error text, and the live runtime stays untouched.
+function T.reset_programming_failure_is_rethrown_and_keeps_the_live_runtime_untouched()
+  local state, resources, reloads = resetState()
+  local runtime = state.runtime --[[@as any]]
+  resources.saveStore.reset = function(self)
+    self.calls = self.calls + 1
+    error("injected reset programming fault")
+  end
+  local err = Assert.throws(function()
+    runtime:_reset()
+  end)
+  Assert.isTrue(
+    tostring(err):find("injected reset programming fault", 1, true) ~= nil,
+    "the raw programming fault must propagate: " .. tostring(err)
+  )
+  Assert.isTrue(
+    tostring(err):find("Reset failed:", 1, true) == nil,
+    "a programming fault must not become the reset error text"
+  )
   Assert.notNil(runtime.session, "failed reset keeps the live session")
   Assert.notNil(runtime.mapLoader, "failed reset keeps the loaded map")
   Assert.equal(resources.mapLoader.calls, 0, "failed reset releases nothing")

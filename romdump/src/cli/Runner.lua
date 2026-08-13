@@ -424,8 +424,16 @@ function Runner._finishImport(status)
     print("build-cache: " .. versionId .. " failed: " .. tostring(err))
     return love.event.quit(1)
   end
-  local runtime = require("game.src.game.FieldRuntime").new(versionId)
-  assert(runtime, "prepared runtime did not boot for " .. versionId)
+  -- Boot verification is binary: FieldRuntime.new either raises or returns a
+  -- fully usable runtime. A raised boot failure is a build failure, never
+  -- proof that the cache boots.
+  local ok, runtime = pcall(function()
+    return require("game.src.game.FieldRuntime").new(versionId)
+  end)
+  if not ok then
+    print("build-cache: " .. versionId .. " runtime boot failed: " .. tostring(runtime))
+    return love.event.quit(1)
+  end
   runtime:dispose()
   return love.event.quit(0)
 end

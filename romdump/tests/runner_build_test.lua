@@ -169,6 +169,7 @@ function T.completed_import_with_build_cache_runs_audit_build_then_boot_and_disp
     new = function(versionId)
       calls[#calls + 1] = "boot:" .. versionId
       return {
+        session = {},
         dispose = function()
           calls[#calls + 1] = "dispose"
         end,
@@ -324,6 +325,70 @@ function T.completed_import_build_failure_exits_nonzero_without_booting()
 
   Assert.equal(exitCode, 1, "a failed completion-path build must exit nonzero")
   Assert.deepEqual(calls, { "audit:heartgold", "build" }, "a failed build must never boot the runtime")
+end
+
+-- A raising runtime constructor is the production failure shape after binary
+-- construction: the completion path must convert the raise into a nonzero
+-- process exit, never leave it to crash the loop or claim boot success.
+function T.completed_import_constructor_raise_exits_nonzero()
+  local realQuit = love.event.quit
+  local realOpts, realImporter = Runner.opts, Runner.importer
+  local saved = {
+    dumpAudit = package.loaded["romdump.src.source.DumpAudit"],
+    builder = package.loaded["romdump.src.CacheBuilder"],
+    runtime = package.loaded["game.src.game.FieldRuntime"],
+  }
+  local calls, exitCode
+  package.loaded["romdump.src.source.DumpAudit"] = {
+    run = function(versionId)
+      calls[#calls + 1] = "audit:" .. versionId
+      return { ok = true }
+    end,
+    lines = function()
+      return {}
+    end,
+  }
+  package.loaded["romdump.src.CacheBuilder"] = {
+    buildVersions = function(versionIds)
+      calls[#calls + 1] = "build:" .. table.concat(versionIds, ",")
+      return { current = true }
+    end,
+  }
+  package.loaded["game.src.game.FieldRuntime"] = {
+    new = function(versionId)
+      calls[#calls + 1] = "boot:" .. versionId
+      error("field actor index missing")
+    end,
+  }
+  love.event.quit = function(code)
+    exitCode = code
+  end
+  Runner.importer = {
+    state = "complete",
+    status = function()
+      return {
+        versionId = "heartgold",
+        report = { sha1 = "abc", fatEntryCount = 2, totalBytesWritten = 3 },
+      }
+    end,
+  }
+  Runner.opts = { command = "build-cache", romPath = "provided.nds" }
+  calls = {}
+
+  local ok, err = xpcall(function()
+    Runner._maybeExit()
+  end, debug.traceback)
+  love.event.quit = realQuit
+  Runner.opts, Runner.importer = realOpts, realImporter
+  package.loaded["romdump.src.source.DumpAudit"] = saved.dumpAudit
+  package.loaded["romdump.src.CacheBuilder"] = saved.builder
+  package.loaded["game.src.game.FieldRuntime"] = saved.runtime
+  if not ok then
+    error(err, 0)
+  end
+
+  Assert.equal(exitCode, 1, "a raising runtime constructor must exit nonzero")
+  Assert.deepEqual(calls, { "audit:heartgold", "build:heartgold", "boot:heartgold" }, "a failed boot is not disposed")
 end
 
 -- A failed import exits nonzero on the error state and never touches the

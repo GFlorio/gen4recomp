@@ -770,7 +770,7 @@ function AcceptanceHarness:boot(options)
   )
   if not ok then
     abortBoot(nil, trap, self.removeSaveNamespace, namespace)
-    error(runtime, 0)
+    error("acceptance runtime boot failed: " .. tostring(runtime), 0)
   end
   if not runtime or not runtime.session then
     local errorText = runtime and runtime.errorText

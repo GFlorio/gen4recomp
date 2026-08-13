@@ -4,6 +4,7 @@
 
 local CacheFs = require("libs.storage.src.CacheFs")
 local SaveFs = require("libs.storage.src.SaveFs")
+local Errors = require("libs.errors.src.Errors")
 local DialogueLayout = require("libs.engine.src.DialogueLayout")
 local FieldActorDefinitionProvider = require("libs.engine.src.FieldActorDefinitionProvider")
 local AuxiliaryFieldUi = require("libs.engine.src.AuxiliaryFieldUi")
@@ -74,7 +75,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field errorText string?
 ---@field zoom FieldZoom
 ---@field saveStatus string?
----@field session FieldSession?
+---@field session FieldSession
 ---@field dialogue FieldDialogueController?
 ---@field auxiliaryFieldUi AuxiliaryFieldUi?
 ---@field contextChoiceProvider ContextChoiceProvider?
@@ -126,9 +127,6 @@ end
 -- keyed by the map the player is on, so FieldPlayer never imports the manager.
 local function playerOccupancy(self)
   return function(fieldX, fieldZ, surfaceId)
-    if not self.actors then
-      return nil
-    end
     local occupant = self.actors:getAt(self.runtimeMap.mapId, fieldX, fieldZ, surfaceId)
     return occupant and occupant.actorId or nil
   end
@@ -445,38 +443,40 @@ function FieldRuntime:_load()
       end,
     })
   end)
+  -- Construction is binary: a failed boot releases everything acquired so
+  -- far exactly once, then the original failure propagates to the caller.
+  -- There is no half-constructed runtime; errorText never records boot
+  -- failures (warp failures after a successful boot do).
   if not ok then
-    self.errorText = tostring(err)
     self:_releaseAll()
+    error(err, 0)
   end
 end
 
 function FieldRuntime:update(dt)
   -- The background registry warm-up (snapshot-miss boot) runs one time
   -- slice per frame; the first save finishes whatever it has not.
-  if self.scripts and self.scripts.warmup then
+  if self.scripts.warmup then
     self.scripts.warmup:update()
   end
-  if self.session then
-    self.session:update(dt)
-    if self.transition.error then
-      local context = self.transition.warpContext
-      if context then
-        self.errorText = string.format(
-          "%s\nsource map %s warp %s -> map %s warp %s",
-          tostring(self.transition.error),
-          tostring(context.sourceMapId),
-          tostring(context.sourceWarpId),
-          tostring(context.destinationMapId),
-          tostring(context.destinationWarpId)
-        )
-      else
-        self.errorText = tostring(self.transition.error)
-      end
+  self.session:update(dt)
+  if self.transition.error then
+    local context = self.transition.warpContext
+    if context then
+      self.errorText = string.format(
+        "%s\nsource map %s warp %s -> map %s warp %s",
+        tostring(self.transition.error),
+        tostring(context.sourceMapId),
+        tostring(context.sourceWarpId),
+        tostring(context.destinationMapId),
+        tostring(context.destinationWarpId)
+      )
+    else
+      self.errorText = tostring(self.transition.error)
     end
-    if self.transition:consumeCompleted() then
-      self:_save("Autosaved after warp")
-    end
+  end
+  if self.transition:consumeCompleted() then
+    self:_save("Autosaved after warp")
   end
 end
 
@@ -484,33 +484,33 @@ end
 -- gamepad event translation. Hosts drive these edges directly.
 ---@param direction string
 function FieldRuntime:press(direction)
-  assert(self.input, "field runtime is not loaded")
+  assert(self.input, "field runtime is disposed")
   self.input:press(direction)
 end
 
 ---@param direction string
 function FieldRuntime:release(direction)
-  assert(self.input, "field runtime is not loaded")
+  assert(self.input, "field runtime is disposed")
   self.input:release(direction)
 end
 
 function FieldRuntime:pressAction()
-  assert(self.input, "field runtime is not loaded")
+  assert(self.input, "field runtime is disposed")
   self.input:pressAction("runtime")
 end
 
 function FieldRuntime:releaseAction()
-  assert(self.input, "field runtime is not loaded")
+  assert(self.input, "field runtime is disposed")
   self.input:releaseAction("runtime")
 end
 
 function FieldRuntime:pressCancel()
-  assert(self.input, "field runtime is not loaded")
+  assert(self.input, "field runtime is disposed")
   self.input:pressCancel("runtime")
 end
 
 function FieldRuntime:releaseCancel()
-  assert(self.input, "field runtime is not loaded")
+  assert(self.input, "field runtime is disposed")
   self.input:releaseCancel("runtime")
 end
 
@@ -519,24 +519,27 @@ function FieldRuntime:_save(successText)
     self.saveStatus = "Save deferred: movement or transition is active"
     return false
   end
+  -- The save boundary presents only expected save/storage failures (the
+  -- structured SAVE_*/FIELD_SAVE_* errors the UI shows as save status); any
+  -- other failure inside the capture/write is a programming fault and
+  -- rethrows instead of being flattened into friendly text.
   local ok, err = pcall(function()
-    local scriptsBucket
-    if self.scripts then
-      scriptsBucket = ScriptSave.capture(self.scripts.scheduler, self.session.tick, {
-        registryFingerprint = self.scripts:registryFingerprint(),
-      })
-    end
     self.saveStore:save(FieldSave.capture(self.session, {
       avatarId = self.avatar.id,
       scenario = FieldScenarioManifest.id,
-      world = self.scripts and self.scripts.worldState:capture() or nil,
-      scriptsBucket = scriptsBucket,
+      world = self.scripts.worldState:capture(),
+      scriptsBucket = ScriptSave.capture(self.scripts.scheduler, self.session.tick, {
+        registryFingerprint = self.scripts:registryFingerprint(),
+      }),
       auxiliaryUi = self.auxiliaryFieldUi:capture(),
     }))
   end)
   if not ok then
-    self.saveStatus = "Save failed: " .. tostring(err)
-    return false
+    if Errors.is(err) then
+      self.saveStatus = "Save failed: " .. tostring(err)
+      return false
+    end
+    error(err, 0)
   end
   self.saveStatus = successText or "Field session saved"
   return true
@@ -547,8 +550,11 @@ function FieldRuntime:_reset()
     self.saveStore:reset()
   end)
   if not ok then
-    self.saveStatus = "Reset failed: " .. tostring(err)
-    return
+    if Errors.is(err) then
+      self.saveStatus = "Reset failed: " .. tostring(err)
+      return
+    end
+    error(err, 0)
   end
   self:_releaseAll()
   self.resumeSave = false
@@ -596,9 +602,7 @@ function FieldRuntime:_swapMap(resolution, facing)
   self.session.currentMap = runtimeMap
   self.session.player = player
   self.session.camera = camera
-  if self.scripts then
-    self.scripts:onMapSwap(player, runtimeMap)
-  end
+  self.scripts:onMapSwap(player, runtimeMap)
   self.mapLoader:updateCoverage(runtimeMap, camera, self.envelope)
 end
 

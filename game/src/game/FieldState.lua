@@ -50,28 +50,30 @@ function FieldState.new(versionId, idOrSymbol, options)
     end
   end
   runtimeOptions.presentation = true
+  -- Construction is binary: FieldRuntime.new either raised (boot failed) or
+  -- returned a fully usable runtime, so presentation resources are acquired
+  -- unconditionally. A failure here releases the booted runtime exactly once
+  -- through the shared disposal and rethrows.
   local runtime = FieldRuntime.new(versionId, idOrSymbol, runtimeOptions)
   local self = setmetatable({
     runtime = runtime,
     development = options.development == true,
     topologyProvider = options.topologyProvider or defaultScreenTopology,
   }, FieldState)
-  if runtime.session then
-    local ok, err = pcall(function()
-      self.renderer = MapRenderer.new()
-      self.dialogueRenderer = FieldDialogueRenderer.new({ cacheFs = runtime.cacheFs })
-      self.menuRenderer = FieldMenuRenderer.new()
-      local width, height = love.graphics.getDimensions()
-      runtime.menuHost:setScreenTopology(self.topologyProvider(width, height))
-      runtime.menuHost:setPresentationMetrics(function(text)
-        return love.graphics.getFont():getWidth(text)
-      end)
-      self.presentationActorAssets = FieldActorAssetProvider.new(runtime.cacheFs)
+  local ok, err = pcall(function()
+    self.renderer = MapRenderer.new()
+    self.dialogueRenderer = FieldDialogueRenderer.new({ cacheFs = runtime.cacheFs })
+    self.menuRenderer = FieldMenuRenderer.new()
+    local width, height = love.graphics.getDimensions()
+    runtime.menuHost:setScreenTopology(self.topologyProvider(width, height))
+    runtime.menuHost:setPresentationMetrics(function(text)
+      return love.graphics.getFont():getWidth(text)
     end)
-    if not ok then
-      self:dispose()
-      error(err)
-    end
+    self.presentationActorAssets = FieldActorAssetProvider.new(runtime.cacheFs)
+  end)
+  if not ok then
+    self:dispose()
+    error(err)
   end
   return self
 end
@@ -200,10 +202,10 @@ function FieldState:keypressed(key, scancode, isrepeat)
       return
     end
   end
-  if self.runtime.actionKeys and self.runtime.actionKeys[key] and self.runtime.input then
+  if self.runtime.actionKeys[key] then
     self.runtime.input:pressAction("key:" .. key)
   end
-  if self.runtime.cancelKeys and self.runtime.cancelKeys[key] and self.runtime.input then
+  if self.runtime.cancelKeys[key] then
     self.runtime.input:pressCancel("key:" .. key)
   end
   if key == "-" or key == "kp-" then
@@ -222,7 +224,7 @@ function FieldState:keypressed(key, scancode, isrepeat)
     return
   end
   local direction = KEY_DIRECTIONS[key]
-  if direction and self.runtime.input then
+  if direction then
     self.runtime.input:pressDirection(direction, "key:" .. key)
   end
 end
@@ -230,25 +232,25 @@ end
 ---@param key string
 ---@param scancode string?
 function FieldState:keyreleased(key, scancode)
-  if self.runtime.actionKeys and self.runtime.actionKeys[key] and self.runtime.input then
+  if self.runtime.actionKeys[key] then
     self.runtime.input:releaseAction("key:" .. key)
     return
   end
-  if self.runtime.cancelKeys and self.runtime.cancelKeys[key] and self.runtime.input then
+  if self.runtime.cancelKeys[key] then
     self.runtime.input:releaseCancel("key:" .. key)
     return
   end
-  if not KEY_DIRECTIONS[key] or not self.runtime.input then
-    return
+  local direction = KEY_DIRECTIONS[key]
+  if direction then
+    self.runtime.input:releaseDirection("key:" .. key)
   end
-  self.runtime.input:releaseDirection("key:" .. key)
 end
 
 -- Focus loss clears held and edge state so a blurred window cannot feed a
 -- stale Action into the next frame's dialogue or movement.
 ---@param focused boolean
 function FieldState:focus(focused)
-  if not focused and self.runtime.input then
+  if not focused then
     self.runtime.input:clearAll()
   end
 end
@@ -259,9 +261,6 @@ end
 ---@param joystick love.Joystick
 ---@param button string
 function FieldState:gamepadpressed(joystick, button)
-  if not self.runtime.input then
-    return
-  end
   local source = "gamepad:" .. joystick:getID() .. ":" .. button
   if button == "a" then
     self.runtime.input:pressAction(source)
@@ -278,9 +277,6 @@ end
 ---@param joystick love.Joystick
 ---@param button string
 function FieldState:gamepadreleased(joystick, button)
-  if not self.runtime.input then
-    return
-  end
   local source = "gamepad:" .. joystick:getID() .. ":" .. button
   if button == "a" then
     self.runtime.input:releaseAction(source)
@@ -300,7 +296,7 @@ end
 ---@param axis string
 ---@param value number
 function FieldState:gamepadaxis(joystick, axis, value)
-  if not self.runtime.input or (axis ~= "leftx" and axis ~= "lefty") then
+  if axis ~= "leftx" and axis ~= "lefty" then
     return
   end
   local source = "gamepad:" .. joystick:getID() .. ":left"
@@ -311,7 +307,7 @@ end
 ---@param y number
 ---@param button integer
 function FieldState:mousepressed(x, y, button)
-  if self.runtime.input and button == 1 then
+  if button == 1 then
     self.runtime.input:pointerDown("mouse:1", x, y)
   end
 end
@@ -322,7 +318,7 @@ end
 ---@param dy number
 ---@param istouch boolean
 function FieldState:mousemoved(x, y, dx, dy, istouch)
-  if self.runtime.input and not istouch then
+  if not istouch then
     self.runtime.input:pointerMove("mouse:1", x, y)
   end
 end
@@ -331,7 +327,7 @@ end
 ---@param y number
 ---@param button integer
 function FieldState:mousereleased(x, y, button)
-  if self.runtime.input and button == 1 then
+  if button == 1 then
     self.runtime.input:pointerUp("mouse:1", x, y)
   end
 end
@@ -339,36 +335,28 @@ end
 ---@param x number
 ---@param y number
 function FieldState:wheelmoved(x, y)
-  if self.runtime.input then
-    self.runtime.input:pointerScroll("mouse", x, y)
-  end
+  self.runtime.input:pointerScroll("mouse", x, y)
 end
 
 ---@param id any
 ---@param x number
 ---@param y number
 function FieldState:touchpressed(id, x, y)
-  if self.runtime.input then
-    self.runtime.input:pointerDown("touch:" .. tostring(id), x, y)
-  end
+  self.runtime.input:pointerDown("touch:" .. tostring(id), x, y)
 end
 
 ---@param id any
 ---@param x number
 ---@param y number
 function FieldState:touchmoved(id, x, y)
-  if self.runtime.input then
-    self.runtime.input:pointerMove("touch:" .. tostring(id), x, y)
-  end
+  self.runtime.input:pointerMove("touch:" .. tostring(id), x, y)
 end
 
 ---@param id any
 ---@param x number
 ---@param y number
 function FieldState:touchreleased(id, x, y)
-  if self.runtime.input then
-    self.runtime.input:pointerUp("touch:" .. tostring(id), x, y)
-  end
+  self.runtime.input:pointerUp("touch:" .. tostring(id), x, y)
 end
 
 function FieldState:dispose()
