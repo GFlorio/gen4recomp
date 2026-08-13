@@ -4,6 +4,7 @@
 local Assert = require("tests.support.Assert")
 local maps = require("romdump.src.reference.hgss.maps")
 local narcs = require("romdump.src.reference.hgss.narcs")
+local signpostCommands = require("romdump.src.reference.hgss.signpost_commands")
 
 local T = {}
 
@@ -92,6 +93,33 @@ function T.new_bark_records_are_stable()
     lab.messageMemberId,
     lab.eventMemberId,
   }, { 100, 25, 843, 616, 543, 58 })
+end
+
+-- The five signpost window commands (MAPSIGNCOMMAND_*) are the source-faithful
+-- command contract opcodes 57/58 decode: exactly 0..4, complete, and uniquely
+-- named. The corpus and std_signpost scripts carry real command values, so the
+-- mapping is pinned here once.
+function T.signpost_command_constants_are_complete()
+  Assert.equal(signpostCommands.schema, 1)
+  local expected = {
+    { 0, "MAPSIGNCOMMAND_NOP" },
+    { 1, "MAPSIGNCOMMAND_SHOW" },
+    { 2, "MAPSIGNCOMMAND_WIPE_OUT" },
+    { 3, "MAPSIGNCOMMAND_WIPE_IN" },
+    { 4, "MAPSIGNCOMMAND_HIDE" },
+  }
+  local seen = {}
+  for _, entry in ipairs(expected) do
+    local record = assert(signpostCommands.byCode[entry[1]], "command " .. entry[1] .. " recorded")
+    Assert.equal(record.name, entry[2])
+    Assert.isNil(seen[record.name])
+    seen[record.name] = true
+  end
+  local count = 0
+  for _ in pairs(signpostCommands.byCode) do
+    count = count + 1
+  end
+  Assert.equal(count, 5)
 end
 
 return { tests = T }

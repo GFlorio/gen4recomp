@@ -313,4 +313,74 @@ T["field menu commands decode every operand"] = function()
   Assert.equal(instructions[6].operands[3].raw, "VAR_0x8005")
 end
 
+-- 9. The signpost command family (55-60) has fixed, source-faithful operand
+-- layouts. These widths are the binary compatibility contract; execution
+-- timing/classification is deliberately deferred to the signpost runtime
+-- work. Operand values mirror the real corpus fixtures (the Mount Moon
+-- Square Trainer Tips and Route 1 directional signs).
+T["signpost commands decode every operand"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          -- DirectionSignpost: message, type, map, unused out.
+          {
+            op = 55,
+            args = {
+              { value = 0, width = 1 },
+              { value = 1, width = 1 },
+              { value = 4, width = 2 },
+              { value = 0x8008, width = 2 },
+            },
+          },
+          -- SetSignpostMap: type, map.
+          { op = 56, args = { { value = 2, width = 1 }, { value = 0, width = 2 } } },
+          -- SetSignpostAction: the raw MAPSIGNCOMMAND value.
+          { op = 57, args = { { value = 3, width = 1 } } },
+          { op = 58, args = {} },
+          -- TrainerTips: message, result var.
+          { op = 59, args = { { value = 0, width = 1 }, { value = 0x8008, width = 2 } } },
+          -- WaitSignpost: result var.
+          { op = 60, args = { { value = 0x8008, width = 2 } } },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local member = decode(bytes, 5)
+  local instructions = member.scripts[0].instructions
+  local expected = {
+    { opcode = 55, name = "ScrCmd_DirectionSignpost", widths = { 1, 1, 2, 2 } },
+    { opcode = 56, name = "ScrCmd_SetSignpostMap", widths = { 1, 2 } },
+    { opcode = 57, name = "ScrCmd_SetSignpostAction", widths = { 1 } },
+    { opcode = 58, name = "ScrCmd_WaitSignpostAction", widths = {} },
+    { opcode = 59, name = "ScrCmd_TrainerTips", widths = { 1, 2 } },
+    { opcode = 60, name = "ScrCmd_WaitSignpost", widths = { 2 } },
+  }
+  for index, contract in ipairs(expected) do
+    local instruction = instructions[index]
+    Assert.equal(instruction.opcode, contract.opcode)
+    Assert.equal(instruction.name, contract.name)
+    Assert.equal(#instruction.operands, #contract.widths)
+    for operandIndex, width in ipairs(contract.widths) do
+      Assert.equal(instruction.operands[operandIndex].width, width)
+    end
+  end
+  -- Non-catalog operands keep their raw numbers: the opcode-55 message/type/
+  -- map and the opcode-56 type/map are presentation data the decoder must not
+  -- rename or drop.
+  Assert.equal(instructions[1].operands[1].raw, 0)
+  Assert.equal(instructions[1].operands[2].raw, 1)
+  Assert.equal(instructions[1].operands[3].raw, 4)
+  Assert.equal(instructions[1].operands[4].raw, "VAR_SPECIAL_x8008")
+  Assert.equal(instructions[2].operands[1].raw, 2)
+  Assert.equal(instructions[2].operands[2].raw, 0)
+  Assert.equal(instructions[3].operands[1].raw, 3)
+  Assert.equal(instructions[5].operands[1].raw, 0)
+  Assert.equal(instructions[5].operands[2].raw, "VAR_SPECIAL_x8008")
+  Assert.equal(instructions[6].operands[1].raw, "VAR_SPECIAL_x8008")
+  Assert.equal(instructions[7].opcode, 2)
+end
+
 return { tests = T }
