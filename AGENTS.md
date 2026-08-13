@@ -25,12 +25,18 @@ This file provides guidance to Coding Agents when working with code in this repo
 
 ## Architecture
 
-- The repo is a small monorepo: top-level `game/` and `romdump/` are runnable apps (each its own LÖVE root); `libs/rom`, `libs/assets`, and `libs/engine` are the shared capabilities they build on. See `docs/architecture.md`.
+- The repo is a small monorepo: top-level `game/` and `romdump/` are runnable apps (each its own LÖVE root); `libs/assets`, `libs/engine`, `libs/codec`, `libs/storage`, `libs/errors`, and `libs/math` are the shared capabilities they build on. See `docs/architecture.md`.
 - Cutting across that, work in three conceptual layers: interface, domain, and infrastructure.
-- Domain contains all the game logic and should be testable independently of LÖVE. `libs/rom` and `libs/assets` are overwhelmingly domain and must not `require` love.
+- Domain contains all the game logic and should be testable independently of LÖVE. `libs/assets`, `libs/codec`, `libs/storage`, and `libs/errors` are overwhelmingly domain and must not `require` love.
 - Interface and infrastructure can depend on LÖVE, but should be kept as thin as possible.
 - Modability comes through explicit mod-facing asset contracts and deliberately designated public APIs — not through interfaces, callbacks, forwarding layers, compatibility shims, or extension hooks added for hypothetical future mods. Public/mod-facing does not mean stable or frozen: stability is an explicit project decision, and until it is declared the surface stays minimal and incompatible cleanup is allowed.
 - Derived data crosses three roles (see docs/architecture.md "Digestion, assets, and the game"): romdump digests raw ROM bytes, libs/assets owns the modder-facing asset contracts (text + metadata shapes), and the game operates only on the asset level — no raw-ROM decoding, no decomp-derived reference imports in libs/engine or game/src.
+- **ROM-source boundary:** `romdump` owns every structure whose meaning comes from the NDS ROM, HGSS, or a decomp/reverse-engineering reference. This includes pure parsers, NARC/member selection, overlay data, raw source bitfields, ROM-specific catalogs, and build-only source manifests. Purity does not make source-format code a shared library.
+- **Asset boundary:** `libs/assets` owns only g4recomp-defined generated/mod-facing formats and their paths, schemas, validation, and source-independent encoders/decoders. If a custom asset tool can use a structure without understanding HGSS/NDS, it may belong here. `libs/assets` must never import `romdump`.
+- **Runtime boundary:** `libs/engine` and normal `game` runtime consume generated assets only. They must not import `romdump`, decomp-derived references, NARC/Nitro/overlay parsers, or interpret source binary packing. The launcher/import UI is the sole allowed `game` → `romdump` provisioning dependency.
+- **Producer test:** if changing a module can change generated output for an unchanged raw dump without changing a shared asset contract, that implementation belongs under `romdump`.
+- **Source metadata:** source physical IDs/paths/offsets belong in producer dependencies/provenance, not runtime asset fields, unless a concrete runtime/mod-facing semantic use exists.
+- The `tests/architecture/module_boundaries_test.lua` unit suite scans literal requires across `libs/assets`, `libs/engine`, and `game` and enforces these boundaries; keep it green.
 
 
 ## Ownership and failure safety
@@ -77,6 +83,11 @@ This file provides guidance to Coding Agents when working with code in this repo
   consumer.
 - Builders, sorters, and queue builders must not attach temporary bookkeeping fields to
   caller-owned objects; keep that state local.
+- Derived-cache implementation freshness is owned by the `romdump/src` producer fingerprint.
+  Do not introduce per-compiler version constants solely to invalidate caches. Format/schema/
+  API versions describe persisted contracts, not source-code revisions. A shared asset-contract
+  change must update `DerivedAssetContract`; a compiler implementation change needs no manual
+  version bump.
 
 ## Testing
 
@@ -146,10 +157,10 @@ to avoid shell injection or permission issues.
 
 ## Code Conventions
 
-- **Layout:** library code lives under `libs/<lib>/src/` (`rom`, `assets`, `engine`); pure domain modules (`rom`, `assets`) must not `require` love. App code lives under `game/src/` and `romdump/src/`. Require by full repo-relative path: `require("libs.rom.src.BinaryReader")`.
+- **Layout:** library code lives under `libs/<lib>/src/` (`assets`, `engine`, `codec`, `storage`, `errors`, `math`); pure domain modules (`assets`, `codec`, `storage`, `errors`, `math`) must not `require` love. App code lives under `game/src/` and `romdump/src/`. Require by full repo-relative path: `require("libs.codec.src.BinaryReader")`.
 - **Module shape:** each file returns one table. Instance types set `M.__index = M` and construct with `setmetatable({...}, M)`. 2-space indent, LF, final newline.
 - **Header comment:** open each module with a short paragraph stating its role. Where it implements an external binary format, name the authoritative source (a GBATEK section, a `pret/pokeheartgold` file, or a `docs/` page) rather than an internal document.
 - **Zero-based everywhere:** offsets, `fileId`, `memberId`, overlay tables. Iterate zero-based maps with `for id = 0, count - 1`, never `ipairs`. Never expose a generic `id`; use `narcId` / `fileId` / `memberId`.
-- **Binary access:** go through `BinaryReader` (bounds-checked, zero-based, little-endian by arithmetic). No `bit`/Lua 5.3 ops needed for 8/16/32-bit values.
+- **Binary access:** generic binary primitives live in `libs/codec`; interpreting a Nintendo/HGSS source binary with them belongs under `romdump`, even when the parser is pure. Project-owned generated binary formats belong under `libs/assets`.
 - **Errors vs assert:** malformed input / user faults raise `Errors.raise(CODE, message, context)` with a `SCREAMING_SNAKE_CASE` module-prefixed code (`NDS_*`, `OVERLAY_*`, `READ_*`). Programming invariants use plain `assert`. Public `open`/`parse` entry points wrap a private `_parse` in `pcall` and return `nil, err` when `Errors.is(result)`, else re-raise.
 - **Tests:** unit tests live beside their library in `libs/<lib>/tests/*_test.lua` (app tests under `<app>/tests/`); each returns a table of `name -> function`, or the explicit suite shape (`metadata`/`beforeAll`/`afterAll`/`tests`). Discovery is recursive over the roots declared in `tests/run.lua` — there is no module registry, so a new `*_test.lua`/`*_tests.lua` file runs as soon as it exists. Use `tests/support/Assert`; reuse the local `throwsCode(code, fn)` helper pattern to assert a raised `Errors` object with a given code. Put binary fixture generators in `tests/support/`. Run with `scripts/test.sh`.

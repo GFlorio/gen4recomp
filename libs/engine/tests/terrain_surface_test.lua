@@ -1,8 +1,7 @@
 -- Pure plane sampling, containment, overlap, and edge-connectivity behavior.
 
 local Assert = require("tests.support.Assert")
-local Builder = require("tests.support.BdhcBuilder")
-local HgssBdhc = require("romdump.src.digest.HgssBdhc")
+local TerrainFixture = require("tests.support.TerrainFixture")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 
@@ -16,7 +15,7 @@ local function near(actual, expected, epsilon)
 end
 
 local function terrain(opts)
-  return TerrainSurface.new(assert(HgssBdhc.decode(Builder.build(opts))))
+  return TerrainSurface.new(TerrainFixture.build(opts))
 end
 
 function T.samples_flat_and_four_direction_ramps()
@@ -29,7 +28,7 @@ function T.samples_flat_and_four_direction_ramps()
       { nx = 0, ny = 2896, nz = 2896 },
       { nx = 0, ny = 2896, nz = -2896 },
     },
-    heights = { Builder.heightRaw(0), Builder.heightRaw(math.sqrt(0.5) * 16) },
+    heights = { TerrainFixture.heightRaw(0), TerrainFixture.heightRaw(math.sqrt(0.5) * 16) },
     plates = {
       { minPointIndex = 0, maxPointIndex = 1, slopeIndex = 0, heightIndex = 0 },
       { minPointIndex = 0, maxPointIndex = 1, slopeIndex = 1, heightIndex = 1 },
@@ -63,7 +62,7 @@ end
 
 function T.resolver_keeps_current_surface_through_an_overlap()
   local t = terrain({
-    heights = { Builder.heightRaw(0), Builder.heightRaw(5) },
+    heights = { TerrainFixture.heightRaw(0), TerrainFixture.heightRaw(5) },
     plates = {
       { minPointIndex = 0, maxPointIndex = 1, slopeIndex = 0, heightIndex = 0 },
       { minPointIndex = 0, maxPointIndex = 1, slopeIndex = 0, heightIndex = 1 },
@@ -89,7 +88,7 @@ function T.resolver_connects_joined_edges_and_rejects_height_jumps()
       { x = 0, z = -16 },
       { x = 16, z = 16 },
     },
-    heights = { Builder.heightRaw(0) },
+    heights = { TerrainFixture.heightRaw(0) },
     plates = {
       { minPointIndex = 0, maxPointIndex = 1, slopeIndex = 0, heightIndex = 0 },
       { minPointIndex = 2, maxPointIndex = 3, slopeIndex = 0, heightIndex = 0 },
@@ -111,7 +110,7 @@ function T.resolver_connects_joined_edges_and_rejects_height_jumps()
       { x = 0, z = -16 },
       { x = 16, z = 16 },
     },
-    heights = { Builder.heightRaw(0), Builder.heightRaw(2) },
+    heights = { TerrainFixture.heightRaw(0), TerrainFixture.heightRaw(2) },
     plates = {
       { minPointIndex = 0, maxPointIndex = 1, slopeIndex = 0, heightIndex = 0 },
       { minPointIndex = 2, maxPointIndex = 3, slopeIndex = 0, heightIndex = 1 },
@@ -143,7 +142,7 @@ function T.resolver_crosses_seams_within_the_step_height_limit()
       { x = 0, z = -16 },
       { x = 16, z = 16 },
     },
-    heights = { Builder.heightRaw(0), Builder.heightRaw(0.0014) },
+    heights = { TerrainFixture.heightRaw(0), TerrainFixture.heightRaw(0.0014) },
     plates = {
       { minPointIndex = 0, maxPointIndex = 1, slopeIndex = 0, heightIndex = 0 },
       { minPointIndex = 2, maxPointIndex = 3, slopeIndex = 0, heightIndex = 1 },
@@ -178,7 +177,7 @@ function T.resolver_rejects_a_step_at_the_height_limit()
       { x = 0, z = -16 },
       { x = 16, z = 16 },
     },
-    heights = { Builder.heightRaw(0), Builder.heightRaw(1.25) },
+    heights = { TerrainFixture.heightRaw(0), TerrainFixture.heightRaw(1.25) },
     plates = {
       { minPointIndex = 0, maxPointIndex = 1, slopeIndex = 0, heightIndex = 0 },
       { minPointIndex = 2, maxPointIndex = 3, slopeIndex = 0, heightIndex = 1 },
@@ -208,7 +207,7 @@ function T.current_surface_disconnected_from_the_crossing_is_a_distinct_kind()
       { x = 0, z = -16 },
       { x = 16, z = 16 },
     },
-    heights = { Builder.heightRaw(0) },
+    heights = { TerrainFixture.heightRaw(0) },
     plates = {
       { minPointIndex = 0, maxPointIndex = 1, slopeIndex = 0, heightIndex = 0 },
       { minPointIndex = 2, maxPointIndex = 3, slopeIndex = 0, heightIndex = 0 },

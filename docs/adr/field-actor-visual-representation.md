@@ -56,18 +56,18 @@ normalizes their textures.
 | Debuggability | Private PNG plus a declarative manifest | Needs a specialized preview path |
 | Scope risk | Bounded | Risks becoming a general field-model animation subsystem |
 
-The schema keeps every source fact the atlas discards -- member IDs, packed
-subfields, texture and palette slots, per-frame tick counts, source frame ranges,
-end modes, and the billboard mode. Static objects use the second render kind
-without reshaping the billboard data.
+The runtime definition keeps only what rendering needs; the source facts the
+atlas discards (member IDs, packed subfields, key-table resolutions, source
+frame ranges) live in the producer-side provenance record (`g4-field-actor-provenance-v1`)
+for the CLI inspectors, never in the runtime asset. Static objects use the
+second render kind without reshaping the billboard data.
 
 ### `g4-field-actor-v1`
 
 ```lua
 {
   schema = "g4-field-actor-v1",
-  spriteId, mapModelId, rawGraphicsFlags,
-  original = { movementProfile, actorFamily, visualDescriptor },
+  spriteId,
   render = {
     kind = "atlas", image, frameWidth, frameHeight, frameCount,
     billboardMode = "cameraFacingFull", mirrorEastWest = false,
@@ -84,8 +84,6 @@ without reshaping the billboard data.
     north = { idle = Pose, walk = Pose }, south = ..., west = ..., east = ...,
   },
   directionalSet2 = { north = Pose, ... } or nil,
-  source = { archive, modelMemberId, textureMemberId, timelineMemberId,
-             modelKey, timelineKey, graphicsRecordOffset, ...Sha1 },
 }
 
 Pose = {
@@ -118,7 +116,7 @@ Deliberate choices inside the schema:
 Every mapping is read from the ROM. There is no `spriteId -> member` table, and
 no `modelKey`/`timelineKey` table, in the repository: the graphics table, the
 descriptor table, and both key tables are parsed out of overlay 1 at import time
-using the load address the ROM's own overlay table reports. `data/manifests/field_actors.lua`
+using the load address the ROM's own overlay table reports. `romdump/src/config/FieldActors.lua`
 carries only original runtime addresses and the invariants to check them against.
 
 Validated against the canonical US HeartGold dump:
@@ -174,11 +172,13 @@ The packed word is fully partitioned; no bit is unclassified.
 
 | Bits | Meaning | Handling |
 | --- | --- | --- |
-| 0-4 | movement/terrain response profile | preserved as `original.movementProfile`; behavior, not an asset selector |
-| 5-9 | map-object callback family | preserved as `original.actorFamily`; behavior, not an asset selector |
+| 0-4 | movement/terrain response profile | behavior, not an asset selector — discarded from the runtime definition |
+| 5-9 | map-object callback family | behavior, not an asset selector — discarded from the runtime definition |
 | 10-15 | visual descriptor index | the asset selector, compiled now |
 
-The whole word is also kept verbatim as `rawGraphicsFlags`.
+The raw word is not carried into the runtime definition; the per-sprite
+graphics record (including the packed word and the descriptor fields above)
+remains in the producer-side provenance `records` for the CLI inspectors.
 
 ## Consequences
 

@@ -286,20 +286,24 @@ light/shininess commands fail compilation with:
 
 ## Cache invalidation
 
-Derived map caches carry explicit versions:
+Derived map caches carry the persisted format/schema identities:
 
 ```lua
-MapAssetCache.FORMAT              = "map-cache-v5"
-MapAssetCompiler.COMPILER_VERSION = "map-compiler-v14"
+MapAssetCache.FORMAT              = "map-cache-v6"
 scene.schema                      = "g4-map-scene-v3"
+terrain.schema                    = "g4-terrain-surfaces-v1"
+collision version                 = 1
 VertexFormat.VERSION              = 2
-FieldLightProfile.VERSION         = "field-light-v1"
 ```
 
-The dependency record also includes the field-light source SHA-1, ROM SHA-1,
-member SHA-1s, and decoder/normalizer versions. `MapAssetCache.isReady` rejects
-any marker mismatch or missing referenced file, so a stale cache rebuilds from
-the raw dump rather than loading old data.
+These values describe persisted contracts and live in
+`DerivedAssetContract`; there are no compiler-version literals. Implementation
+freshness is owned by the `romdump/src` producer fingerprint: any producer
+change forces one complete derived rebuild, so a stale cache can never
+masquerade as current. The dependency record also includes the field-light
+source SHA-1, ROM SHA-1, and member SHA-1s. `MapAssetCache.isReady` rejects any
+marker mismatch or missing referenced file, so a damaged cache repairs from the
+raw dump rather than loading old data.
 
 Old scene schemas (`g4-map-scene-v1`) and mesh versions (`G4M1`) are rejected
 explicitly with `MAP_SCENE_UNSUPPORTED_SCHEMA` and `MESH_BAD_VERSION`.

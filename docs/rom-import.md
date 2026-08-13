@@ -24,8 +24,13 @@ a compatible ROM.
 ## Build the game cache
 
 One command imports a ROM when necessary and rebuilds all derived data used by
-the game — classes whose completion markers already match are skipped, so an
-unchanged cache rebuilds only what is stale:
+the game. An unchanged producer fast-paths: the `--build-cache` entry point
+compares the successful-build identity (raw-dump marker + `romdump/src` source
+fingerprint + derived-asset contract) with what is on disk and, when it matches
+and the cache passes a cheap availability audit, skips every compiler without
+ever opening the ROM. A producer/contract/dump change forces one complete
+derived rebuild; a damaged cache takes the repair path and rebuilds only the
+missing classes.
 
 ```sh
 scripts/buildcache.sh /path/to/your.nds
@@ -87,6 +92,17 @@ A failed extraction or failed publish therefore leaves the previous ready dump
 usable, and a partial staged dump never exposes its marker. `RomImporter.isReady`
 only ever looks at the live version root, so leftover staging can never make a
 version look ready.
+
+### The immutable-dump invariant
+
+A successfully published raw dump is treated as **immutable**: it is replaced
+only through the importer, never edited in place. That is what makes the
+derived-cache freshness check cheap — the build identity trusts the
+`rom-dump.complete` marker (the definition of a fully validated, published
+dump) instead of re-hashing every extracted file. A source/import-format change
+that requires a different raw-dump representation must therefore bump the raw
+dump format (`RomExtractor.DUMP_FORMAT`) and re-import; it cannot be smuggled in
+as a derived-data change.
 
 ## Cache location & layout
 

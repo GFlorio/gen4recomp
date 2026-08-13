@@ -6,8 +6,11 @@ geometry and host presentation are separate contracts.
 
 ## ROM-derived camera
 
-`HgssCameraTable` discovers and decodes the 17 records stored in ARM9 overlay 1.
-The record layout and initialization behavior follow `pret/pokeheartgold`'s
+`romdump/src/digest/HgssCameraTable.lua` decodes the 17 records stored in ARM9
+overlay 1 (discovered by `FieldCameraDiscovery`); the generated profiles are
+published through the `libs/assets/src/FieldCameraCache.lua` contract that the
+runtime reads. The record layout and initialization behavior follow
+`pret/pokeheartgold`'s
 `src/camera.c` and field overlay assembly. Each normalized profile retains its
 projection type, distance, X/Y angles, half FOV, clipping planes, and target
 offset. `FieldCamera` derives the eye from those values:

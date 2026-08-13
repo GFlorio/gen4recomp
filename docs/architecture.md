@@ -13,13 +13,15 @@ run; `libs/` holds the capabilities they share. Each app is its own LÖVE root.
 
 ```text
 game/         Interactive app — launcher, boot, and the field runtime (love game/)
-romdump/      Headless ROM/asset CLI — import, audit, inspect, compile (love romdump/)
-libs/rom/     NDS/NitroFS/NARC formats, binary reading, ROM validation, dump filesystem
-libs/assets/  Asset contracts for generated data (schemas, cache paths/readiness,
-             modder-facing text forms), plus shared section readers and
-             map/mesh/material compilation
+romdump/      Source ingestion + ROM-specific digestion + asset production (love romdump/)
+libs/assets/  Project-owned asset contracts (generated schemas, cache paths/readiness,
+              modder-facing text forms)
+libs/codec/   Generic serialization primitives (binary/lua readers and writers)
+libs/storage/ Cache, save, and staged-publication infrastructure
+libs/errors/  Structured errors
+libs/math/    Fixed-point and matrix primitives
 libs/engine/  Rendering, cameras, scenes, collision/world primitives
-data/         Frozen references and runtime manifests
+data/         Game-owned runtime manifests and scripts
 tests/        Test runner (tests/runner), ROM and acceptance suites, shared fixtures (tests/support)
 ```
 
@@ -28,19 +30,20 @@ declares the discovery roots and their default layers, and `tests/runner/`
 implements discovery, suite normalization, selection, execution, and reporting.
 An app's `main.lua` adds the repo root (its LÖVE source base directory) to
 `package.path`, so every module is required by its full repo-relative path —
-`libs.rom.src.NdsRom`, `game.src.game.App`, `data.manifests.hgss`.
+`romdump.src.source.NdsRom`, `game.src.game.App`, `data.manifests.field_scenario`.
 
 ## Layers
 
 Cutting across that layout, the code follows three conceptual layers. The domain
 layer is pure and testable without LÖVE; interface and infrastructure are
-allowed to depend on LÖVE and are kept thin. `libs/rom` and `libs/assets` are
-overwhelmingly domain; `libs/engine` and the app `src/` trees are interface.
+allowed to depend on LÖVE and are kept thin. `romdump/src`, `libs/assets`,
+`libs/codec`, `libs/storage`, `libs/errors`, and `libs/math` are overwhelmingly
+domain; `libs/engine` and the app `src/` trees are interface.
 
 | Layer | Modules | LÖVE? |
 | --- | --- | --- |
-| **Domain — pure parsers/decoders** | `BinaryReader`, `NdsRom`, `NitroFs`, `OverlayTable`, `Narc`, `MapMatrix`, `AreaData`, `LandData`, `Nsbmd`, `Nsbtx`, `GxDisplayList`, `DsMaterial`, `DsPolygonAttr`, `FieldLightProfile`, `DsLighting`, `RenderQueue`, `LuaWriter`, `Errors`, `GameVersion` | no |
-| **Infrastructure** | `RomSource` (owns the ROM bytes, SHA-1), `CacheFs` (private per-version storage), `ArtifactPublisher` (staged generated-cache publication), `RomExtractor` (dump orchestration), `RomFs` (runtime read API), `DumpAudit`, `MapAssetCompiler`, `MapCacheWriter`, `MapAssetCache` | `RomSource`/`CacheFs` only |
+| **Domain — pure parsers/decoders** | `BinaryReader`, `LuaWriter` (libs/codec), `Errors` (libs/errors), `NdsRom`, `NitroFs`, `OverlayTable`, `Narc`, `GameVersion` (romdump/src/source), `MapMatrix`, `AreaData`, `LandData` (romdump/src/digest), `Nsbmd`, `Nsbtx`, `GxDisplayList`, `DsMaterial`, `DsPolygonAttr` (romdump/src/digest/nitro), `FieldLightProfile` (libs/assets), `DsLighting`, `RenderQueue` | no |
+| **Infrastructure** | `RomSource` (owns the ROM bytes, SHA-1), `RomExtractor` (dump orchestration), `RomFs` (runtime read API), `DumpAudit`, `MapAssetCompiler`, `MapCacheWriter` (romdump), `CacheFs` (private per-version storage), `ArtifactPublisher` (staged generated-cache publication) (libs/storage), `MapAssetCache` (libs/assets) | `RomSource`/`CacheFs` only |
 | **Interface** | `game` `App` (dispatch/boot), `romdump` `Cli` (flag parsing, pure) + `Runner` (headless commands), `RomImporter` (state machine + coroutine), `MapSceneLoader`, `MapRenderer`, `FieldCamera`, `FieldViewport`, the `game/src` UI states | yes |
 
 The pure parsers never touch LÖVE, never read a file, and never mutate global
@@ -72,7 +75,8 @@ love game/
 ```
 
 The headless `romdump/main.lua` parses with `Cli` and dispatches to `Runner`,
-which drives `libs/rom` and `libs/assets` and exits with a status code:
+which drives the romdump producers and the `libs/assets` contracts and exits
+with a status code:
 
 ```
 love romdump/
@@ -177,7 +181,7 @@ never executed; actors move only through script movement tasks.
 `data/manifests/field_scenario.lua` seeds which target objects start hidden; it names objects by map/object
 identity and `FieldScenario` resolves each to the ROM's numeric flag.
 
-The player's movement decision order is permissions, then terrain surface
+The player's movement decision order is collision, then terrain surface
 transition, then actor occupancy (`FieldPlayer` consults the manager's
 occupancy index through an injected predicate that returns the blocking
 actor's id, keyed by the resolved destination surface), then the move commits.
@@ -226,9 +230,12 @@ The cache separates two concerns so future format work never forces a re-import:
   independently rebuildable class with its own completion marker: compiled maps
   (`data/generated/maps`), field cameras (`data/generated/field/camera`), field
   map data (`data/generated/field/maps`), and field-actor visuals
-  (`data/generated/field/actors` plus `assets/generated/field/actors`). Changing
-  one decoder rebuilds only its class and must never invalidate
-  `rom-dump.complete`. Text and Pokémon data follow the same pattern.
+  (`data/generated/field/actors` plus `assets/generated/field/actors`). Any
+  `romdump/src` change forces one complete rebuild through the producer
+  fingerprint; afterwards per-class markers let a damaged cache repair only
+  what is missing. A raw-dump change never follows from derived work, and
+  rebuilding derived data never invalidates `rom-dump.complete`. Text and
+  Pokémon data follow the same pattern.
 
 Every derived class publishes through the same staged publication primitive
 (`ArtifactPublisher`): the class's writers stage all new files under a
@@ -246,32 +253,85 @@ once, and every later format iteration works from the private dump.
 
 ## Digestion, assets, and the game
 
-Derived data crosses three roles, each with a hard rule. The message/font
-classes are the reference implementation of the split; the map classes still
-carry their section readers in `libs/assets` and are the planned follow-up.
+Derived data crosses three roles, each with a hard rule enforced by
+`tests/architecture/module_boundaries_test.lua`:
 
 | Role | Owner | Rule |
 | --- | --- | --- |
-| **Digestion** | `romdump/src/digest` — raw-byte decoders (MAT decryption, tile bit-packing, charmap mapping) and the compilers that emit artifacts | every ROM-byte interpretation happens here: NARC members in, generated artifacts out. Nothing else may know a MAT header, a 2bpp tile layout, or a code unit |
-| **Asset contract** | `libs/assets/src` — artifact schemas, cache paths/readiness, modder-facing text forms (`FieldMessageText`) | generated artifacts are presented as traditional game assets — for text, a display string with metadata — and the contract is stable, documented, and modder-facing |
-| **Game** | `libs/engine` + `game/src` — runtime models and behavior | operates only on the asset level: message banks are text with a lossless token stream, fonts are atlases with metrics. No NARC/member parsing, no ROM access, no decomp-derived reference imports |
+| **Digestion** | `romdump/src` — NDS/HGSS source interpretation (source parsers under `src/source`, record decoders and compilers under `src/digest`, frozen source catalogs under `src/reference`, build-only manifests under `src/config`) | every ROM-byte interpretation happens here: NARC members in, generated artifacts out. Nothing else may know a MAT header, a 2bpp tile layout, an overlay address, or a code unit |
+| **Asset contract** | `libs/assets/src` — artifact schemas, cache paths/readiness, modder-facing text forms (`FieldMessageText`) | generated artifacts are presented as traditional game assets — for text, a display string with metadata — and the contract is stable, documented, and modder-facing. `libs/assets` never imports `romdump` |
+| **Game** | `libs/engine` + `game/src` — runtime models and behavior | operates only on the asset level: message banks are text with a lossless token stream, fonts are atlases with metrics. No NARC/member parsing, no ROM access, no decomp-derived reference imports, and no `romdump` imports — the launcher/import UI (`game/src/game/App.lua`, `game/src/launcher/VersionSelectState.lua`) is the sole sanctioned `game` → `romdump` provisioning dependency |
 
-The message/font classes follow it strictly: `romdump` digests msgdata MAT
-members and font tiles into bank artifacts whose messages are
+The litmus test for a structure's home:
+
+> If a custom tool could reasonably produce/consume this structure without
+> understanding a Nintendo DS ROM, it may be an asset contract. If understanding
+> the structure requires HGSS/NDS knowledge, it belongs in `romdump`.
+
+Purity is not a reason to put source-format code in a shared library: a pure
+HGSS binary parser is still `romdump` code. The dependency direction is
+enforced as:
+
+```text
+data/ (game-owned manifests, scripts)
+         │
+         ▼
+romdump ──► libs/assets ──► libs/engine ──► game
+   │             │
+   │             └──► libs/codec, libs/errors (generic primitives)
+   └──► libs/storage (cache/save/publication), libs/codec, libs/errors
+```
+
+`libs/assets` is the interface where a future custom asset importer/editor can
+meet vanilla-ROM-produced content without knowing anything about the source
+ROM.
+
+The message/font classes follow the split strictly: `romdump` digests msgdata
+MAT members and font tiles into bank artifacts whose messages are
 `{ id, text, tokens, raw }` with GMM-style markers (`{STRVAR_1 3, 0, 0}`), and
 a font definition that carries its own charmap metadata; the runtime renders,
 formats, and substitutes text without ever seeing a code unit or importing the
 frozen charmap reference. Markers are a first-class API (`FieldMessageText`:
 constants, `marker()`, `parse()`, `tokensToText()`), so mods can read and write
-the text form directly.
+the text form directly. The same rule holds everywhere else: `romdump` decodes
+BDHC terrain and HGSS permission sections into the project-owned collision and
+terrain artifacts, `libs/engine` consumes only those normalized artifacts, and
+no runtime module ever sees a raw source byte layout.
 
-The map classes are the known exception: section readers such as
-`PermissionGrid`, `HgssBdhc`, and `MapMatrix` live in `libs/assets` and are
-shared by the importer (which extracts and validates the sections) and the
-runtime (which decodes the artifact bytes at map load). Moving their raw
-readers into `romdump/src/digest` — leaving `libs/assets` with only the
-artifact-format readers the runtime genuinely needs — is the planned follow-up
-so the boundary is uniform.
+### Cache identity
+
+The derived cache is trusted as a full set only when its top-level build
+identity matches what the current producer would build:
+
+```text
+validated immutable raw dump (rom-dump.complete marker)
+        +
+romdump/src source fingerprint (ProducerFingerprint)
+        +
+derived asset contract identity (DerivedAssetContract + script API version)
+        ↓
+successful derived-build identity (data/generated/build.lua)
+```
+
+The raw dump identity is the published `rom-dump.complete` marker, not a rehash
+of extracted files: a successfully published raw dump is immutable and is
+replaced only through the importer. `romdump/src` hashes all its own source
+files, so any producer implementation change forces one complete derived
+rebuild without manual compiler-version bookkeeping; `DerivedAssetContract`
+holds the one manual revision for a shared contract-behavior change that alters
+generated bytes without changing a schema constant.
+
+The two freshness questions are distinct and have distinct owners:
+
+- top-level identity: "were these artifacts produced by this producer +
+  contract?" — the `--build-cache` fast path skips every compiler (and never
+  opens the ROM) when it matches and the availability audit passes;
+- per-artifact completion markers: "is this artifact complete and consistent
+  with its concrete source inputs?" — markers repair missing classes after a
+  damaged cache.
+
+A failed or exclusion-accepting build never publishes the top-level identity,
+so an incomplete cache can never fast-path later.
 
 ## The three ID namespaces
 

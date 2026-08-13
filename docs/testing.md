@@ -1,7 +1,7 @@
 # Testing
 
 `scripts/test.sh` is the only test command. It recursively discovers suites,
-selects layers, prepares a ready dump's derived cache when needed, and reports
+selects layers, checks the ready dump's derived cache when needed, and reports
 passes, failures, skips, capabilities, and timings.
 
 ## Layers
@@ -36,6 +36,30 @@ The default command runs every available layer. Without a ready dump it runs
 unit, component, and graphics tests, then emits a loud warning with ROM and
 acceptance skip counts, remediation, and strict-mode instructions. This is a
 successful optional skip only when all executed tests pass.
+
+### Derived-cache preparation
+
+Before the ROM-gated layers, `test.sh` runs `love romdump/ --build-cache`, which
+follows three paths:
+
+```text
+unchanged producer:
+    fingerprint + build-state check only
+    (no ROM open, no compiler runs)
+
+producer/contract/dump change:
+    rebuild once, then publish the build identity
+
+missing/damaged generated artifacts:
+    repair path (rebuild only what is missing)
+```
+
+Normal ROM/acceptance test startup therefore never decodes the ROM merely to
+prove cache freshness: an identity match plus a cheap availability audit
+short-circuits before any ROM access. The shell treats a successful
+preparation as authoritative and exports `G4RECOMP_DERIVED_CACHE_READY=1`;
+a failed build makes the ROM-gated layers fail loudly rather than run against
+an unverified cache.
 
 `--layer rom`, `--layer acceptance`, and `G4RECOMP_REQUIRE_ROM_TESTS=1
 scripts/test.sh` require a ready dump and fail nonzero if one is unavailable.

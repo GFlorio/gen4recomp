@@ -12,9 +12,35 @@ item is a *cut* lens: the default answer is "remove it", and keeping code needs 
   an interface.
 - **Indirection layers.** A function that only forwards to another function, a module
   that only re-exports, a table that only wraps one value — cut them.
-- **Layer violations.** `libs/rom` and `libs/assets` must not `require` love. No raw-ROM
-  decoding or decomp-derived reference data in `libs/engine` or `game/src`.
+- **Layer violations.** `libs/assets`, `libs/codec`, `libs/storage`, and `libs/errors` must
+  not `require` love. No raw-ROM decoding or decomp-derived reference data in `libs/engine`
+  or `game/src`. `libs/assets` must never import `romdump`; `game/src` may import `romdump`
+  only in the launcher/import UI files (`tests/architecture/module_boundaries_test.lua`
+  enforces all of this).
 - **Misplaced code.** Domain logic sitting in an interface/infrastructure module.
+
+## Boundary / vocabulary
+
+For each changed/new module, ask:
+
+- Does its API expose source vocabulary such as `narcId`, `fileId`, `memberId`, overlay
+  addresses, Nitro paths, raw source flags or packed bytes?
+- Does interpreting its input require an HGSS/NDS/decomp reference?
+- Can its implementation change generated output for the same ROM?
+- Is runtime parsing source data that the compiler could normalize instead?
+- Is source provenance leaking into a runtime structure without a consumer?
+- Has a compatibility alias/wrapper been left after a module move?
+- Has a compiler-version literal been added merely because the author was unsure how cache
+  invalidation works?
+- Did a generated contract change without changing the authoritative `DerivedAssetContract`
+  identity?
+
+For the first three, a "yes" is presumptive evidence the implementation belongs in
+`romdump`.
+
+For files substantially touched by a boundary move, explicitly look for data that can stop
+being carried across the boundary, duplicate decode/load paths, old source-oriented names,
+and indirection that only existed because producer and runtime shared the old module.
 - **Code lacks intent.** A function that does not have a clear, single responsibility; a module that
   does not have a clear, single purpose; a class that does not have a clear, single role.
 
