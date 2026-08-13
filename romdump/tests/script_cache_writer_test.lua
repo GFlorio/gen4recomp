@@ -27,7 +27,6 @@ local function bundle()
     },
     dependencies = {
       cacheFormat = ScriptCache.FORMAT,
-      compilerVersion = "script-compiler-v1",
       versionRomSha1 = "rom-sha",
       scrSeqNarc = { path = "a/0/1/2", sha1 = "archive-sha" },
     },

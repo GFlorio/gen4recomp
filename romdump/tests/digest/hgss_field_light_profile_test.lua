@@ -42,7 +42,7 @@ function T.parses_records_and_channels()
   Assert.equal(r0.lights[1].colorRgb555, 11 + 11 * 32 + 11 * 1024)
   Assert.deepEqual(r0.lights[1].vectorFx12, { -296, -296, -296 })
   Assert.equal(r0.diffuseRgb555, 14 + 14 * 32 + 16 * 1024)
-  Assert.equal(p.version, "field-light-v1")
+  Assert.isNil(p.version, "parser version is producer provenance, not asset content")
 end
 
 function T.accepts_lf_line_endings()

@@ -23,8 +23,6 @@ local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
 
 local FieldActorModel = {}
 
-FieldActorModel.DECODER_VERSION = "field-actor-model-v1"
-
 -- Model-space geometry is compared against the manifest placement in tiles.
 local EPSILON = 1e-6
 

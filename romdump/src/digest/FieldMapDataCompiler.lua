@@ -10,9 +10,6 @@ local Hashing = require("romdump.src.digest.Hashing")
 
 local FieldMapDataCompiler = {}
 
-FieldMapDataCompiler.COMPILER_VERSION = "field-map-data-compiler-v2"
-FieldMapDataCompiler.DECODER_VERSION = "hgss-zone-events-v1"
-
 local function must(value, err)
   if value == nil then
     error(err)
@@ -46,8 +43,6 @@ local function compileMap(romFs, map, source, sha1hex, hashLua)
   local memberSha1 = sha1hex(memberBytes)
   local dependencies = {
     cacheFormat = FieldMapDataCache.FORMAT,
-    compilerVersion = FieldMapDataCompiler.COMPILER_VERSION,
-    decoderVersion = FieldMapDataCompiler.DECODER_VERSION,
     mapCatalogVersion = MapCatalog.VERSION,
     versionRomSha1 = romFs:metadata().sha1,
     eventNarc = {
@@ -71,11 +66,6 @@ local function compileMap(romFs, map, source, sha1hex, hashLua)
     -- bank; it reads these fields.
     messageBankId = map.messageMemberId,
     scriptBankId = map.scriptsMemberId,
-    source = {
-      eventNarc = "fielddata_eventdata_zone_event",
-      eventMemberId = map.eventMemberId,
-      eventMemberSha1 = memberSha1,
-    },
     events = {
       background = decoded.backgroundEvents,
       objects = decoded.objectEvents,

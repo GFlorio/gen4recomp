@@ -32,8 +32,6 @@ local BinaryReader = require("libs.codec.src.BinaryReader")
 
 local FieldActorGraphics = {}
 
-FieldActorGraphics.DECODER_VERSION = "hgss-field-actor-graphics-v1"
-
 local RECORD_SIZE = 6
 local DESCRIPTOR_SIZE = 8
 local RANGE_SIZE = 12
@@ -288,7 +286,6 @@ local function _decode(overlayBytes, locator, manifest)
 
   local graphics = decodeRecords(reader, bounded, tables)
   local result = {
-    decoderVersion = FieldActorGraphics.DECODER_VERSION,
     ramAddress = bounded.ramAddress,
     overlaySize = bounded.size,
     records = graphics.records,

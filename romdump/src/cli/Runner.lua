@@ -291,12 +291,12 @@ function Runner._runInspect()
   local FieldMapDataInspector = require("romdump.src.digest.FieldMapDataInspector")
   local allOk = forEachReadyVersion("inspect", function(romFs, version)
     local cameraBundle = assert(FieldCameraCompiler.compile(romFs))
-    local cameraReport = FieldCameraInspector.inspect(cameraBundle.profiles)
+    local cameraReport = FieldCameraInspector.inspect(cameraBundle.profiles, cameraBundle.provenance)
     for _, line in ipairs(FieldCameraInspector.lines(cameraReport)) do
       print(line)
     end
     for _, fieldBundle in ipairs(assert(FieldMapDataCompiler.compileAll(romFs))) do
-      local fieldReport = FieldMapDataInspector.inspect(fieldBundle.field)
+      local fieldReport = FieldMapDataInspector.inspect(fieldBundle.field, fieldBundle.dependencies)
       for _, line in ipairs(FieldMapDataInspector.lines(fieldReport)) do
         print(line)
       end

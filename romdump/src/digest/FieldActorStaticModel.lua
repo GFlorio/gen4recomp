@@ -12,8 +12,6 @@ local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
 
 local FieldActorStaticModel = {}
 
-FieldActorStaticModel.COMPILER_VERSION = "field-actor-static-model-v1"
-
 local function fail(code, message, context)
   Errors.raise(code, message, { context = context })
 end

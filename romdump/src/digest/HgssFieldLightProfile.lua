@@ -14,10 +14,6 @@ local Errors = require("libs.errors.src.Errors")
 
 local HgssFieldLightProfile = {}
 
--- Parser format provenance for the producer's dependency record: describes
--- the source-text grammar, not the runtime contract.
-HgssFieldLightProfile.VERSION = "field-light-v1"
-
 local SECONDS_PER_DAY = 86400
 local LIGHT_SLOTS = 4
 local LINES_PER_RECORD = 1 + LIGHT_SLOTS + 4 -- threshold, 4 lights, 4 colors
@@ -172,7 +168,7 @@ function HgssFieldLightProfile.parse(text, context)
     }
   end
 
-  return { version = HgssFieldLightProfile.VERSION, records = records }
+  return { records = records }
 end
 
 return HgssFieldLightProfile

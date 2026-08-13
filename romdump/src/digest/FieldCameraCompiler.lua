@@ -9,7 +9,6 @@ local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
 local Manifest = require("romdump.src.config.FieldCameras")
 
 local FieldCameraCompiler = {}
-FieldCameraCompiler.COMPILER_VERSION = "field-camera-compiler-v1"
 
 local function _compile(romFs, config, sha1hex)
   assert(romFs and romFs.readOverlay, "compile requires a RomFs-shaped object")
@@ -51,19 +50,26 @@ local function _compile(romFs, config, sha1hex)
     recordCount = config.recordCount,
     overlaySha1 = overlaySha1,
   }
+  -- The runtime asset carries only normalized records; the raw HGSS field
+  -- values stay with the decoder (HgssCameraTable) and the overlay provenance
+  -- is written separately by the cache writer.
+  local normalized = {}
+  for cameraType = 0, decoded.recordCount - 1 do
+    local record = decoded.records[cameraType]
+    local clean = {}
+    for key, value in pairs(record) do
+      if key ~= "raw" then
+        clean[key] = value
+      end
+    end
+    normalized[cameraType] = clean
+  end
   local profiles = {
     schema = FieldCameraCache.SCHEMA,
-    source = provenance,
     recordCount = decoded.recordCount,
-    profiles = decoded.records,
+    profiles = normalized,
   }
-  local marker = FieldCameraCache.FORMAT
-    .. ":"
-    .. romFs:metadata().sha1
-    .. ":"
-    .. overlaySha1
-    .. ":"
-    .. FieldCameraCompiler.COMPILER_VERSION
+  local marker = FieldCameraCache.FORMAT .. ":" .. romFs:metadata().sha1 .. ":" .. overlaySha1
   return { profiles = profiles, provenance = provenance, marker = marker }
 end
 

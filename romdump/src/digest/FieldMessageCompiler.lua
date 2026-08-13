@@ -21,8 +21,9 @@ local manifest = require("romdump.src.config.FieldMessages")
 
 local FieldMessageCompiler = {}
 
-FieldMessageCompiler.COMPILER_VERSION = "field-message-compiler-v2"
-FieldMessageCompiler.TOKENIZER_VERSION = "g4-field-message-tokenizer-v1"
+-- The charmap catalog identity: a source-input hash (commit + input SHA-256),
+-- not an implementation version. Implementation freshness belongs to the
+-- producer fingerprint.
 FieldMessageCompiler.CHARMAP_VERSION = "hgss-charmap-v1:"
   .. charmap.source.commit
   .. ":"
@@ -86,13 +87,9 @@ local function compileBank(romFs, source, bankId, sha1hex)
     bankId = bankId,
     messageCount = bank.messageCount,
     key = bank.key,
-    source = {
-      narc = source.archiveInfo.symbol,
-      memberId = bankId,
-      memberSha1 = memberSha1,
-    },
     messages = messages,
-  }
+  },
+    memberSha1
 end
 
 local function _compile(romFs, sha1hex, hashLua)
@@ -102,8 +99,9 @@ local function _compile(romFs, sha1hex, hashLua)
   local source = loadSource(romFs, sha1hex)
 
   local banks = {}
+  local bankSha1s = {}
   for _, bankId in ipairs(manifest.banks) do
-    banks[bankId] = compileBank(romFs, source, bankId, sha1hex)
+    banks[bankId], bankSha1s[bankId] = compileBank(romFs, source, bankId, sha1hex)
   end
 
   local index = {
@@ -114,8 +112,6 @@ local function _compile(romFs, sha1hex, hashLua)
 
   local dependencies = {
     cacheFormat = FieldMessageCache.FORMAT,
-    compilerVersion = FieldMessageCompiler.COMPILER_VERSION,
-    tokenizerVersion = FieldMessageCompiler.TOKENIZER_VERSION,
     charmapVersion = FieldMessageCompiler.CHARMAP_VERSION,
     manifestSchema = manifest.schema,
     versionRomSha1 = romFs:metadata().sha1,
@@ -129,7 +125,7 @@ local function _compile(romFs, sha1hex, hashLua)
     },
   }
   for _, bankId in ipairs(manifest.banks) do
-    dependencies["bank" .. bankId .. "MemberSha1"] = banks[bankId].source.memberSha1
+    dependencies["bank" .. bankId .. "MemberSha1"] = bankSha1s[bankId]
   end
 
   local marker = FieldMessageCache.marker(romFs:metadata().sha1, hashLua(dependencies))

@@ -14,11 +14,24 @@ local function poseSummary(pose)
 end
 
 function FieldActorInspector.inspect(bundle)
+  local provenance = assert(bundle.provenance, "actor bundle provenance is required")
   local sprites = {}
   for _, spriteId in ipairs(bundle.index.spriteIds) do
     local visual = bundle.visuals[spriteId]
     local atlas = bundle.atlases[spriteId]
-    sprites[#sprites + 1] = { spriteId = spriteId, visual = visual, atlas = atlas }
+    local record = provenance.records[spriteId]
+    local descriptor = provenance.descriptors[record.visualDescriptor]
+    sprites[#sprites + 1] = {
+      spriteId = spriteId,
+      visual = visual,
+      atlas = atlas,
+      record = record,
+      descriptor = descriptor,
+      staticModelMemberId = provenance.staticModels and provenance.staticModels.bySpriteId[spriteId] or nil,
+      -- Overlay static models use their own archive member; a shared model
+      -- member compiled as static falls back to its descriptor's member id.
+      modelMemberId = descriptor.modelMemberId,
+    }
   end
   return {
     overlay = bundle.dependencies.overlay,
@@ -45,6 +58,7 @@ function FieldActorInspector.lines(report)
   end
   for _, entry in ipairs(report.sprites) do
     local v, a = entry.visual, entry.atlas
+    local record, descriptor = entry.record, entry.descriptor
     local parts = v.render.kind == "staticModel" and v.render.parts or { v.render }
     for partIndex, part in ipairs(parts) do
       local geometry, polygon = part.geometry, part.polygon
@@ -72,9 +86,9 @@ function FieldActorInspector.lines(report)
       out[#out + 1] = string.format(
         "actors\tsprite\tid=%d\tstaticModel=%d\tpacked=0x%04X\tdescriptor=%d" .. "\tparts=%d\tatlas=%dx%d",
         v.spriteId,
-        v.source.staticModelMemberId or v.source.modelMemberId,
-        v.rawGraphicsFlags,
-        v.original.visualDescriptor,
+        entry.staticModelMemberId or entry.modelMemberId,
+        record.packed,
+        record.visualDescriptor,
         #v.render.parts,
         a.width,
         a.height
@@ -84,11 +98,11 @@ function FieldActorInspector.lines(report)
         "actors\tsprite\tid=%d\ttexture=%d\tmodel=%d\ttimeline=%d\tpacked=0x%04X"
           .. "\tdescriptor=%d\tframes=%d\tatlas=%dx%d\talpha=%s",
         v.spriteId,
-        v.source.textureMemberId,
-        v.source.modelMemberId,
-        v.source.timelineMemberId,
-        v.rawGraphicsFlags,
-        v.original.visualDescriptor,
+        record.mapModelId,
+        descriptor.modelMemberId,
+        descriptor.timelineMemberId,
+        record.packed,
+        record.visualDescriptor,
         v.render.frameCount,
         a.width,
         a.height,

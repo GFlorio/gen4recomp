@@ -12,17 +12,15 @@ local LuaEmitter = require("romdump.src.digest.script.LuaEmitter")
 local Verifier = require("romdump.src.digest.script.Verifier")
 local Coverage = require("romdump.src.digest.script.Coverage")
 local SourceCatalog = require("romdump.src.digest.script.SourceCatalog")
-local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
 local S = require("gen4.script")
 
 local T = {}
 
--- Semantic lowering is part of the generated script artifact. Its menu
--- lowering must invalidate an earlier cache rather than reusing its stale
--- coverage and resources.
-T["menu lowering invalidates prior script cache"] = function()
-  Assert.equal(ScriptCompiler.COMPILER_VERSION, "script-compiler-v6")
-end
+-- Script-cache invalidation is owned by the producer fingerprint: any edit
+-- under romdump/src (including semantic-lowering changes) changes the
+-- fingerprint and forces a full derived rebuild (producer_fingerprint_test +
+-- cache_builder_test's forced-rebuild case). The old per-compiler
+-- COMPILER_VERSION pin is gone with the constant.
 
 local CATALOG = {
   sounds = { [1500] = "SEQ_SE_DP_SELECT" },

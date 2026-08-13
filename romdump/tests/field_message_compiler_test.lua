@@ -102,7 +102,7 @@ function T.compiles_tokenized_lossless_banks()
   Assert.equal(bank.schema, FieldMessageCache.SCHEMA)
   Assert.equal(bank.bankId, 542)
   Assert.equal(bank.messageCount, 2)
-  Assert.equal(bank.source.memberSha1, "member-542-sha")
+  Assert.isNil(bank.source, "bank source identity lives in the dependency record")
   Assert.deepEqual(bank.messages[0].raw, { 0x0141, 0x0153, 0x015B, 0x01AD, 0x01DE, 0xFFFF })
   -- The asset carries the modder-facing display text beside the tokens.
   Assert.equal(bank.messages[0].text, "Wow, ")

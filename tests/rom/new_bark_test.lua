@@ -304,7 +304,9 @@ function T.central_cell_scene(romFs, version)
   Assert.equal(m.index, 585)
   Assert.equal(m.worldOriginX, 672)
   Assert.equal(m.worldOriginZ, 384)
-  Assert.equal(scene.source.landData.memberId, 0)
+  -- The land member identity stays producer-side; the dependency record
+  -- proves which bytes were compiled.
+  Assert.equal(#bundle.dependencies.landDataMemberSha1, 40)
 
   Assert.equal(scene.area.memberId, 2)
   Assert.equal(scene.area.type, "outdoor")

@@ -80,13 +80,14 @@ function T.discovers_duplicate_pointers_and_compiles_exact_count()
   Assert.equal(bundle.profiles.recordCount, 2)
   Assert.equal(bundle.profiles.profiles[0].projection, "perspective")
   Assert.equal(bundle.profiles.profiles[1].projection, "orthographic")
+  -- The runtime asset carries no raw HGSS fields or overlay provenance; both
+  -- stay with the decoder and the separate provenance record.
+  Assert.isNil(bundle.profiles.source)
+  Assert.isNil(bundle.profiles.profiles[0].raw)
   Assert.notNil(
     FieldCamera.new(bundle.profiles.profiles[0]),
     "compiled profiles are directly consumable by FieldCamera"
   )
-  Assert.equal(bundle.profiles.source.tableFileOffset, 0x20)
-  Assert.deepEqual(bundle.profiles.source.pointerFileOffsets, { 8, 12 })
-  Assert.equal(bundle.profiles.source.overlaySha1, "overlay-sha")
   local again = assert(FieldCameraCompiler.compile(romFs, discovery, function()
     return "overlay-sha"
   end))
@@ -98,11 +99,12 @@ function T.inspector_reports_profiles_without_presentation_policy()
   local bundle = assert(FieldCameraCompiler.compile(romFs, discovery, function()
     return "overlay-sha"
   end))
-  local report = FieldCameraInspector.inspect(bundle.profiles)
+  local report = FieldCameraInspector.inspect(bundle.profiles, bundle.provenance)
   Assert.equal(#report.records, 2)
   Assert.equal(report.records[1].cameraType, 0)
   Assert.equal(report.records[2].projection, "orthographic")
   Assert.isNil(report.aspect)
+  Assert.equal(report.provenance.overlaySha1, "overlay-sha")
 end
 
 function T.rejects_disagreeing_pointers()

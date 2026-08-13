@@ -40,12 +40,9 @@ function ScriptCompiler.scrub(items)
   end
 end
 
--- The cache class version: bumps whenever emitted output or the compiled
--- graph shape changes, so stale caches are always regenerated. v4: canonical
--- raw-table emission, retained region-terminal gotos, and the multi-step
--- MovePersonFacing lowering. v5: message ops no longer emit the ignored
--- `style` field. v6: field menu opcodes lower to executable semantic nodes.
-ScriptCompiler.COMPILER_VERSION = "script-compiler-v6"
+-- Implementation freshness is owned by the producer fingerprint: any edit
+-- under romdump/src forces a full derived rebuild, so generated script output
+-- changes never need a manual version bump.
 
 -- The public resource id for one script index : the
 -- curated ids live in the data manifest; standard-script members resolve
@@ -225,7 +222,6 @@ function ScriptCompiler.compile(romFs, sha1hex, hashLua)
   }
   local dependencies = {
     cacheFormat = ScriptCache.FORMAT,
-    compilerVersion = ScriptCompiler.COMPILER_VERSION,
     commandCatalog = ScriptCompiler.commandCatalogVersion(),
     movementCatalog = ScriptCompiler.movementCatalogVersion(),
     stdCatalog = ScriptCompiler.stdCatalogVersion(),

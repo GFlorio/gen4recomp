@@ -1,6 +1,7 @@
 -- Lightweight availability audit for the published derived cache. It checks
 -- completion markers only; dependency freshness remains the cache builder's
--- responsibility when a developer explicitly rebuilds.
+-- responsibility when a developer explicitly rebuilds, and implementation
+-- freshness belongs to the producer fingerprint.
 
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
@@ -9,7 +10,6 @@ local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local ScriptCache = require("libs.assets.src.ScriptCache")
 local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
-local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
 
 local DerivedCacheAudit = {}
 
@@ -21,12 +21,6 @@ local REQUIRED_MARKERS = {
   ScriptCache.markerPath(),
 }
 
-local function scriptCompilerIsCurrent(cacheFs)
-  local provenance = cacheFs:loadLua(ScriptCache.provenancePath())
-  local dependencies = provenance and provenance.dependencies
-  return type(dependencies) == "table" and dependencies.compilerVersion == ScriptCompiler.COMPILER_VERSION
-end
-
 ---@param cacheFs CacheFs
 ---@return boolean, string|nil
 function DerivedCacheAudit.isAvailable(cacheFs)
@@ -35,9 +29,6 @@ function DerivedCacheAudit.isAvailable(cacheFs)
     if cacheFs:read(path) == nil then
       return false, "missing completion marker " .. path
     end
-  end
-  if not scriptCompilerIsCurrent(cacheFs) then
-    return false, "script cache compiler is not " .. ScriptCompiler.COMPILER_VERSION
   end
 
   local world = cacheFs:loadLua(MapAssetCache.worldPath())

@@ -29,10 +29,6 @@ local function onlyModel(bundle)
   return assert(found, "expected one building model")
 end
 
-function T.exports_compiler_version()
-  Assert.equal(MapAssetCompiler.COMPILER_VERSION, "map-compiler-v14")
-end
-
 function T.compile_requires_romfs_shaped_object()
   local err = Assert.throws(function()
     MapAssetCompiler.compile({}, "x")
@@ -93,8 +89,8 @@ function T.a_map_with_no_placed_buildings_never_opens_the_building_pack()
   local bundle = assert(compile({ buildings = "", buildingPack = false }))
   Assert.deepEqual(bundle.models, {})
   Assert.equal(#bundle.scene.buildingInstances, 0)
-  Assert.isNil(bundle.scene.source.buildingTexture)
   Assert.isNil(bundle.dependencies.buildingTextureMemberSha1)
+  Assert.isNil(bundle.scene.source, "source identity lives in the dependency record")
 end
 
 function T.terrain_does_not_see_building_textures()
@@ -132,12 +128,11 @@ function T.a_fully_resolved_map_reports_nothing_unresolved()
   Assert.deepEqual(assert(compile()).unresolvedMaterials, {})
 end
 
-function T.records_the_building_pack_in_dependencies_and_scene_source()
+function T.records_the_building_pack_in_dependencies()
   local bundle = assert(compile())
-  Assert.equal(bundle.scene.source.buildingTexture.alias, "building_textures")
-  Assert.equal(bundle.scene.source.buildingTexture.memberId, MapRomFixture.BUILDING_TEXTURE_PACK_ID)
-  Assert.equal(bundle.scene.source.buildingTexture.sha1, bundle.dependencies.buildingTextureMemberSha1)
   Assert.equal(bundle.dependencies.buildingTextureMemberId, MapRomFixture.BUILDING_TEXTURE_PACK_ID)
+  Assert.notNil(bundle.dependencies.buildingTextureMemberSha1, "the building pack bytes are hashed")
+  Assert.isNil(bundle.scene.source, "source identity lives in the dependency record")
 end
 
 function T.changing_the_building_texture_member_changes_the_marker()

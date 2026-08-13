@@ -13,8 +13,6 @@ local LandData = require("romdump.src.digest.LandData")
 local HgssBdhc = require("romdump.src.digest.HgssBdhc")
 local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
 local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
-local MaterialCompiler = require("romdump.src.digest.MaterialCompiler")
-local AlphaClassifier = require("romdump.src.digest.AlphaClassifier")
 local HgssFieldLighting = require("romdump.src.digest.HgssFieldLighting")
 local HgssFieldLightProfile = require("romdump.src.digest.HgssFieldLightProfile")
 local BuildingTransform = require("romdump.src.digest.BuildingTransform")
@@ -31,7 +29,6 @@ local Errors = require("libs.errors.src.Errors")
 
 local MapAssetCompiler = {}
 
-local COMPILER_VERSION = "map-compiler-v14"
 local COORDINATE_CONVENTION = "nsbmd-sbc-matrix-16-tile-v3"
 
 local function readMember(narc, alias, memberId)
@@ -283,13 +280,9 @@ local function _compile(romFs, idOrSymbol)
   end
   local dependencies = {
     cacheFormat = MapAssetCache.FORMAT,
-    compilerVersion = COMPILER_VERSION,
     sceneSchemaVersion = MapAssetCache.SCENE_SCHEMA,
     coordinateConventionVersion = COORDINATE_CONVENTION,
-    textureDecoderVersion = MaterialCompiler.DECODER_VERSION,
-    materialNormalizerVersion = AlphaClassifier.VERSION,
     vertexFormatVersion = VertexFormat.VERSION,
-    fieldLightParserVersion = HgssFieldLightProfile.VERSION,
     fieldLightSourcePath = selectedLight.sourcePath,
     fieldLightSourceSha1 = lightSha1,
     versionRomSha1 = romSha1,
@@ -347,22 +340,6 @@ local function _compile(romFs, idOrSymbol)
     buildingInstances = buildingInstances,
     neighbors = neighbors,
     calibration = { modelExtentTilesX = exTiles, modelExtentTilesZ = ezTiles, posScale = mapModel.info.posScale },
-    source = {
-      romSha1 = romSha1,
-      mapMatrix = { alias = "map_matrices", memberId = resolved.matrixMemberId, sha1 = dependencies.matrixMemberSha1 },
-      areaData = { alias = "area_data", memberId = resolved.areaDataMemberId, sha1 = dependencies.areaDataMemberSha1 },
-      landData = { alias = "land_data", memberId = resolved.landDataMemberId, sha1 = dependencies.landDataMemberSha1 },
-      mapTexture = {
-        alias = "map_textures",
-        memberId = area.mapTexturePackId,
-        sha1 = dependencies.mapTextureMemberSha1,
-      },
-      buildingTexture = bldTexBytes and {
-        alias = "building_textures",
-        memberId = area.buildingTexturePackId,
-        sha1 = dependencies.buildingTextureMemberSha1,
-      } or nil,
-    },
     limitations = {
       dynamicTexturesStatic = true,
     },
@@ -400,7 +377,5 @@ function MapAssetCompiler.compile(romFs, idOrSymbol)
   end
   error(result)
 end
-
-MapAssetCompiler.COMPILER_VERSION = COMPILER_VERSION
 
 return MapAssetCompiler

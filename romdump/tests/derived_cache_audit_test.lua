@@ -1,5 +1,7 @@
 -- The test-runner cache probe accepts fully published artifacts and rejects a
--- partial cache without invoking the expensive source compilers.
+-- partial cache without invoking the expensive source compilers. Availability
+-- is marker presence only: per-artifact freshness belongs to the cache
+-- builder, and implementation freshness belongs to the producer fingerprint.
 
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
@@ -12,7 +14,6 @@ local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local ScriptCache = require("libs.assets.src.ScriptCache")
 local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
-local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
 
 local T = {}
 
@@ -29,10 +30,6 @@ local function publishedCache()
   }) do
     cache:write(path, "complete")
   end
-  cache:writeLua(ScriptCache.provenancePath(), {
-    schema = ScriptCache.PROVENANCE_SCHEMA,
-    dependencies = { compilerVersion = ScriptCompiler.COMPILER_VERSION },
-  })
   cache:writeLua(MapAssetCache.worldPath(), { maps = { { id = 7 } } })
   return cache
 end
@@ -51,7 +48,10 @@ function T.a_missing_published_artifact_requires_a_build()
   Assert.equal(reason, "missing completion marker " .. ScriptCache.markerPath())
 end
 
-function T.a_script_cache_from_an_older_compiler_requires_a_build()
+function T.availability_ignores_producer_version_metadata()
+  -- Compiler-version provenance must never gate availability: implementation
+  -- freshness is owned by the producer fingerprint, which forces a full
+  -- rebuild whenever romdump/src changes.
   local cache = publishedCache()
   cache:writeLua(ScriptCache.provenancePath(), {
     schema = ScriptCache.PROVENANCE_SCHEMA,
@@ -60,8 +60,7 @@ function T.a_script_cache_from_an_older_compiler_requires_a_build()
 
   local available, reason = DerivedCacheAudit.isAvailable(cache)
 
-  Assert.isFalse(available)
-  Assert.equal(reason, "script cache compiler is not " .. ScriptCompiler.COMPILER_VERSION)
+  Assert.isTrue(available, reason)
 end
 
 return T

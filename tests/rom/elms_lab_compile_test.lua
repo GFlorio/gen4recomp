@@ -110,7 +110,6 @@ function T.lighting_profile_is_deterministic(romFs, version)
   end
   -- Profile source is hashed into cache dependencies.
   Assert.equal(b1.dependencies.fieldLightSourceSha1, b2.dependencies.fieldLightSourceSha1)
-  Assert.equal(b1.dependencies.fieldLightParserVersion, "field-light-v1")
   Assert.equal(b1.dependencies.fieldLightSourcePath, b2.dependencies.fieldLightSourcePath)
 end
 

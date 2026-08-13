@@ -1,9 +1,11 @@
 -- Read-only camera-profile summary for CLI or future diagnostic UI. It reports
 -- exact raw and normalized fields without adding presentation/aspect policy.
+-- The overlay provenance is a separate producer record, not part of the
+-- runtime profiles asset.
 
 local FieldCameraInspector = {}
 
-function FieldCameraInspector.inspect(profiles)
+function FieldCameraInspector.inspect(profiles, provenance)
   assert(type(profiles) == "table" and profiles.profiles, "profiles are required")
   local records = {}
   for cameraType = 0, profiles.recordCount - 1 do
@@ -17,10 +19,9 @@ function FieldCameraInspector.inspect(profiles)
       halfFovDegrees = p.halfFovDegrees,
       nearTiles = p.nearTiles,
       farTiles = p.farTiles,
-      raw = p.raw,
     }
   end
-  return { provenance = profiles.source, records = records }
+  return { provenance = provenance, records = records }
 end
 
 function FieldCameraInspector.lines(report)

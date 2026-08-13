@@ -19,8 +19,6 @@ local BinaryReader = require("libs.codec.src.BinaryReader")
 
 local FieldActorTimeline = {}
 
-FieldActorTimeline.DECODER_VERSION = "hgss-field-actor-timeline-v1"
-
 local MAX_ENTRIES = 1024
 
 local function _decode(bytes, context)
@@ -80,7 +78,6 @@ local function _decode(bytes, context)
   end
 
   return {
-    decoderVersion = FieldActorTimeline.DECODER_VERSION,
     count = count,
     entries = entries, -- zero-based
   }

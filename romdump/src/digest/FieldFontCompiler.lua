@@ -16,9 +16,6 @@ local manifest = require("romdump.src.config.FieldMessages")
 
 local FieldFontCompiler = {}
 
-FieldFontCompiler.COMPILER_VERSION = "field-font-compiler-v4"
-FieldFontCompiler.DECODER_VERSION = "hgss-field-font-decoder-v2"
-
 local GLYPH_SIZE = 16
 
 local function must(value, err)
@@ -185,19 +182,10 @@ local function compileFont(romFs, source, sha1hex, hashLua)
     glyphs = glyphs,
     charmap = textToCode,
     palette = palette.colors,
-    source = {
-      narc = source.archiveInfo.symbol,
-      glyphMemberId = manifest.fontGlyphMember,
-      glyphMemberSha1 = glyphSha1,
-      paletteMemberId = manifest.fontPaletteMember,
-      paletteMemberSha1 = paletteSha1,
-    },
   }
 
   local dependencies = {
     cacheFormat = FieldFontCache.FORMAT,
-    compilerVersion = FieldFontCompiler.COMPILER_VERSION,
-    decoderVersion = FieldFontCompiler.DECODER_VERSION,
     charmapVersion = FieldMessageCompiler.CHARMAP_VERSION,
     manifestSchema = manifest.schema,
     versionRomSha1 = romFs:metadata().sha1,

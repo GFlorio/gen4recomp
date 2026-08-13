@@ -36,7 +36,11 @@ function T.every_catalog_map_event_member_decodes(romFs)
   for index, bundle in ipairs(bundles) do
     Assert.equal(bundle.mapId, index - 1)
     Assert.equal(bundle.field.mapId, index - 1)
-    Assert.equal(bundle.field.source.eventMemberId, bundle.dependencies.eventMemberId)
+    Assert.isNil(bundle.field.source)
+    Assert.isTrue(
+      type(bundle.dependencies.eventMemberId) == "number",
+      "source member identity lives in the dependency record"
+    )
   end
 end
 

@@ -15,9 +15,6 @@ local function visual(spriteId)
   return {
     schema = FieldActorCache.SCHEMA,
     spriteId = spriteId,
-    mapModelId = 25,
-    rawGraphicsFlags = 0,
-    original = { movementProfile = 0, actorFamily = 0, visualDescriptor = 0 },
     render = {
       kind = "atlas",
       image = FieldActorCache.atlasPath(spriteId),

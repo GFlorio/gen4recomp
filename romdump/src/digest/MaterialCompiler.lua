@@ -5,18 +5,17 @@
 -- material, listed in `unresolved` for the caller to report: no HGSS material
 -- stores a texture format or address of its own -- every one is zero until a
 -- successful bind writes it -- so Nitro's name-based bind failing leaves the DS
--- drawing that material with no texture at all. Textures sharing identical source bytes
--- deduplicate to one asset keyed by SHA-1 over the decoder version plus the
--- texture definition and raw texel/palette bytes. Pure domain module.
+-- drawing that material with no texture at all. Textures sharing identical
+-- source bytes deduplicate to one asset keyed by SHA-1 over the texture
+-- definition and raw texel/palette bytes; implementation changes to the
+-- decoder invalidate through the producer fingerprint, which forces a full
+-- derived rebuild. Pure domain module.
 
 local Hashing = require("romdump.src.digest.Hashing")
 local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
 local TextureDecoder = require("romdump.src.digest.nitro.TextureDecoder")
 
 local MaterialCompiler = {}
-
--- Bumping this re-addresses every generated texture (its bytes may change).
-local DECODER_VERSION = "texdec-v1"
 
 -- Paletted formats require a palette; direct color (7) and none (0) do not.
 local function needsPalette(formatRaw)
@@ -87,9 +86,8 @@ function MaterialCompiler.compile(materials, pack, opts)
       local decoderOpts = Nsbtx.decoderOpts(pack, tex, pal)
       local definition =
         string.format("%d:%dx%d:%s", tex.formatRaw, tex.width, tex.height, tex.color0Transparent and "1" or "0")
-      local key = Hashing.sha1hex(
-        DECODER_VERSION .. definition .. decoderOpts.texel .. decoderOpts.palette .. (decoderOpts.indexData or "")
-      )
+      local key =
+        Hashing.sha1hex(definition .. decoderOpts.texel .. decoderOpts.palette .. (decoderOpts.indexData or ""))
 
       if not textures[key] then
         local img = TextureDecoder.decode(decoderOpts, { name = mat.textureName })
@@ -123,7 +121,5 @@ function MaterialCompiler.compile(materials, pack, opts)
 
   return { materials = records, textures = textures, unresolved = unresolved }
 end
-
-MaterialCompiler.DECODER_VERSION = DECODER_VERSION
 
 return MaterialCompiler

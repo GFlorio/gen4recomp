@@ -213,9 +213,6 @@ function FieldActorFixture.visual(spriteId, opts)
   return {
     schema = "g4-field-actor-v1",
     spriteId = spriteId,
-    mapModelId = 25,
-    rawGraphicsFlags = 0,
-    original = { movementProfile = 0, actorFamily = 0, visualDescriptor = 0 },
     render = {
       kind = "atlas",
       image = string.format("assets/generated/field/actors/%04d.png", spriteId),

@@ -113,7 +113,7 @@ local function fakeAssets(known)
     end,
     acquire = function(self, spriteId)
       self.references[spriteId] = (self.references[spriteId] or 0) + 1
-      return { spriteId = spriteId, visual = { spriteId = spriteId, mapModelId = spriteId } }
+      return { spriteId = spriteId, visual = { spriteId = spriteId } }
     end,
     release = function(self, spriteId)
       local count = self.references[spriteId] or 0

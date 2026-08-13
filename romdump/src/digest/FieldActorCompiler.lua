@@ -17,7 +17,6 @@ local ZoneEvents = require("romdump.src.digest.ZoneEvents")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
 local Hashing = require("romdump.src.digest.Hashing")
-local AlphaClassifier = require("romdump.src.digest.AlphaClassifier")
 local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
 local TextureDecoder = require("romdump.src.digest.nitro.TextureDecoder")
 local FieldActorGraphics = require("romdump.src.digest.FieldActorGraphics")
@@ -28,8 +27,6 @@ local FieldActorTimeline = require("romdump.src.digest.FieldActorTimeline")
 local manifest = require("romdump.src.config.FieldActors")
 
 local FieldActorCompiler = {}
-
-FieldActorCompiler.COMPILER_VERSION = "field-actor-compiler-v3"
 
 local MODEL_MAGIC = "BMD0"
 local TEXTURE_MAGIC = "BTX0"
@@ -238,32 +235,24 @@ local function staticDirections()
   return directions
 end
 
-local function finishStaticModel(spriteId, record, compiled, sourceRecord)
+local function finishStaticModel(spriteId, compiled)
   local render, atlas = compiled.render, compiled.atlas
   render.image = FieldActorCache.atlasPath(spriteId)
   local visual = {
     schema = FieldActorCache.SCHEMA,
     spriteId = spriteId,
-    mapModelId = record.mapModelId,
-    rawGraphicsFlags = record.packed,
-    original = {
-      movementProfile = record.movementProfile,
-      actorFamily = record.actorFamily,
-      visualDescriptor = record.visualDescriptor,
-    },
     render = render,
     bounds = { width = atlas.frameWidth, height = atlas.frameHeight, depth = 0 },
     pivot = { x = 0.5, y = 1 },
     frames = { { textureSlot = 0, paletteSlot = 0 } },
     directions = staticDirections(),
-    source = sourceRecord,
   }
   return visual, atlas
 end
 
-local function compileStaticModel(spriteId, record, memberId, archive, source, context)
+local function compileStaticModel(spriteId, memberId, staticArchive, context)
   local modelBytes = must(
-    archive:readMember(memberId),
+    staticArchive:readMember(memberId),
     Errors.new(
       "FIELD_ACTOR_STATIC_MODEL_MEMBER_MISSING",
       "static model member " .. memberId .. " is absent",
@@ -271,21 +260,15 @@ local function compileStaticModel(spriteId, record, memberId, archive, source, c
     )
   )
   local compiled = FieldActorStaticModel.compile(modelBytes, context, nil, manifest.staticModels.archive.path)
-  return finishStaticModel(spriteId, record, compiled, {
-    archive = manifest.staticModels.archive.path,
-    staticModelMemberId = memberId,
-    graphicsRecordOffset = record.offset,
-    overlaySha1 = source.overlaySha1,
-    modelMemberSha1 = Hashing.sha1hex(modelBytes),
-  })
+  return finishStaticModel(spriteId, compiled)
 end
 
-local function compileSprite(romFs, spriteId, graphics, archive, staticArchive, source)
+local function compileSprite(romFs, spriteId, graphics, archive, staticArchive)
   local context = { spriteId = spriteId, romVersion = romFs:version() }
   local resolved = must(FieldActorGraphics.resolve(graphics, spriteId))
   local record = resolved.record
   if resolved.staticModelMemberId then
-    return compileStaticModel(spriteId, record, resolved.staticModelMemberId, staticArchive, source, context)
+    return compileStaticModel(spriteId, resolved.staticModelMemberId, staticArchive, context)
   end
   local descriptor = resolved.descriptor
 
@@ -319,19 +302,7 @@ local function compileSprite(romFs, spriteId, graphics, archive, staticArchive, 
   local drawMode = FieldActorModel.drawMode(modelBytes, context)
   if drawMode == "static" then
     local compiled = FieldActorStaticModel.compile(modelBytes, context, pack, manifest.archive.path)
-    return finishStaticModel(spriteId, record, compiled, {
-      archive = manifest.archive.path,
-      modelMemberId = descriptor.modelMemberId,
-      textureMemberId = record.mapModelId,
-      timelineMemberId = descriptor.timelineMemberId,
-      modelKey = descriptor.modelKey,
-      timelineKey = descriptor.timelineKey,
-      graphicsRecordOffset = record.offset,
-      overlaySha1 = source.overlaySha1,
-      textureMemberSha1 = Hashing.sha1hex(textureBytes),
-      timelineMemberSha1 = Hashing.sha1hex(timelineBytes),
-      modelMemberSha1 = Hashing.sha1hex(modelBytes),
-    })
+    return finishStaticModel(spriteId, compiled)
   end
   if drawMode ~= "billboard" then
     Errors.raise(
@@ -363,13 +334,6 @@ local function compileSprite(romFs, spriteId, graphics, archive, staticArchive, 
   local visual = {
     schema = FieldActorCache.SCHEMA,
     spriteId = spriteId,
-    mapModelId = record.mapModelId,
-    rawGraphicsFlags = record.packed,
-    original = {
-      movementProfile = record.movementProfile,
-      actorFamily = record.actorFamily,
-      visualDescriptor = record.visualDescriptor,
-    },
     render = {
       kind = "atlas",
       animationMode = frameSet.mode,
@@ -401,19 +365,6 @@ local function compileSprite(romFs, spriteId, graphics, archive, staticArchive, 
     directions = directions,
     directionalSet2 = alternate,
     nonDirectionalAnimations = animations,
-    source = {
-      archive = manifest.archive.path,
-      modelMemberId = descriptor.modelMemberId,
-      textureMemberId = record.mapModelId,
-      timelineMemberId = descriptor.timelineMemberId,
-      modelKey = descriptor.modelKey,
-      timelineKey = descriptor.timelineKey,
-      graphicsRecordOffset = record.offset,
-      overlaySha1 = source.overlaySha1,
-      textureMemberSha1 = Hashing.sha1hex(textureBytes),
-      timelineMemberSha1 = Hashing.sha1hex(timelineBytes),
-      modelMemberSha1 = Hashing.sha1hex(modelBytes),
-    },
   }
   return visual, atlas
 end
@@ -457,18 +408,12 @@ local function _compile(romFs)
   local spriteIds, variableSprites = selectedSpriteIds(romFs)
   local visuals, atlases = {}, {}
   for _, spriteId in ipairs(spriteIds) do
-    visuals[spriteId], atlases[spriteId] = compileSprite(romFs, spriteId, graphics, archive, staticArchive, source)
+    visuals[spriteId], atlases[spriteId] = compileSprite(romFs, spriteId, graphics, archive, staticArchive)
   end
 
   local dependencies = {
     cacheFormat = FieldActorCache.FORMAT,
     schema = FieldActorCache.SCHEMA,
-    compilerVersion = FieldActorCompiler.COMPILER_VERSION,
-    graphicsDecoderVersion = FieldActorGraphics.DECODER_VERSION,
-    timelineDecoderVersion = FieldActorTimeline.DECODER_VERSION,
-    modelDecoderVersion = FieldActorModel.DECODER_VERSION,
-    staticModelCompilerVersion = FieldActorStaticModel.COMPILER_VERSION,
-    alphaClassifierVersion = AlphaClassifier.VERSION,
     manifestSchema = manifest.schema,
     mapCatalogVersion = MapCatalog.VERSION,
     versionRomSha1 = romFs:metadata().sha1,
@@ -525,6 +470,10 @@ local function _compile(romFs)
     schema = "g4-field-actor-provenance-v1",
     source = manifest.provenance,
     dependencies = dependencies,
+    -- Per-sprite source identity (graphics record, key-table resolutions, and
+    -- static-model members) for the CLI inspectors; the runtime visuals carry
+    -- no source fields.
+    records = graphics.bySpriteId,
     descriptors = graphics.descriptors,
     modelKeys = graphics.modelMembers.byKey,
     timelineKeys = graphics.timelineMembers.byKey,

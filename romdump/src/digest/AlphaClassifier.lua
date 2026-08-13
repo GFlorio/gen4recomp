@@ -7,9 +7,6 @@
 
 local AlphaClassifier = {}
 
--- Bumped whenever the classification rules change in a cache-breaking way.
-local VERSION = "alpha-classifier-v1"
-
 -- Classify an effective polygon state against a texture. `textureFormat` is the
 -- raw NSBTX format (0 for untextured); `alphaUsage` comes from
 -- TextureDecoder.decode (nil when untextured).
@@ -28,7 +25,5 @@ function AlphaClassifier.classify(polygonAlpha, textureFormat, alphaUsage)
   end
   return "opaque"
 end
-
-AlphaClassifier.VERSION = VERSION
 
 return AlphaClassifier
