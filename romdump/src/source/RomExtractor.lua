@@ -18,6 +18,7 @@ local Errors = require("libs.errors.src.Errors")
 local Narc = require("romdump.src.source.Narc")
 local CacheFs = require("libs.storage.src.CacheFs")
 local MapMatrix = require("romdump.src.digest.MapMatrix")
+local RawDumpContract = require("romdump.src.source.RawDumpContract")
 
 local RomExtractor = {}
 RomExtractor.__index = RomExtractor
@@ -25,10 +26,6 @@ RomExtractor.__index = RomExtractor
 -- Raw-dump cache format. Independent of any future decoded-data format; bump
 -- only when the dump layout or romfs_index schema changes.
 RomExtractor.DUMP_FORMAT = 1
--- Completion marker written last in staging; its exact content is the raw
--- dump identity that the derived-cache build state trusts without rehashing
--- extracted files.
-RomExtractor.MARKER_PATH = "rom-dump.complete"
 
 -- Extractor error identifiers, centralized in one module-local table.
 local EXTRACT_ERROR_CODES = {
@@ -176,8 +173,8 @@ function RomExtractor:_writeIndexes(map, fileCount, totalBytes, unmappedCount)
   local arm9Ov, arm7Ov = rom:arm9Overlays(), rom:arm7Overlays()
   local namedCount = rom:nitroFs().namedFileCount
 
-  self._stage:writeLua("data/generated/rom_metadata.lua", {
-    schema = 1,
+  self._stage:writeLua(RawDumpContract.METADATA_PATH, {
+    schema = RawDumpContract.METADATA_SCHEMA,
     version = v.id,
     displayName = v.displayName,
     sha1 = v.sha1,
@@ -220,8 +217,8 @@ function RomExtractor:_writeIndexes(map, fileCount, totalBytes, unmappedCount)
       overlayId = dest.overlayId,
     }
   end
-  self._stage:writeLua("data/generated/romfs_index.lua", {
-    schema = 1,
+  self._stage:writeLua(RawDumpContract.ROMFS_INDEX_PATH, {
+    schema = RawDumpContract.ROMFS_INDEX_SCHEMA,
     version = v.id,
     romSha1 = v.sha1,
     fileCount = fileCount,
@@ -248,8 +245,8 @@ function RomExtractor:_writeIndexes(map, fileCount, totalBytes, unmappedCount)
     end
     return out
   end
-  self._stage:writeLua("data/generated/overlay_index.lua", {
-    schema = 1,
+  self._stage:writeLua(RawDumpContract.OVERLAY_INDEX_PATH, {
+    schema = RawDumpContract.OVERLAY_INDEX_SCHEMA,
     arm9 = overlayTable(arm9Ov),
     arm7 = overlayTable(arm7Ov),
   })
@@ -338,16 +335,16 @@ function RomExtractor:_finalize(report)
   self._stage:writeLua("data/generated/import_report.lua", report)
 
   for _, path in ipairs({
-    "data/generated/rom_metadata.lua",
-    "data/generated/romfs_index.lua",
-    "data/generated/overlay_index.lua",
+    RawDumpContract.METADATA_PATH,
+    RawDumpContract.ROMFS_INDEX_PATH,
+    RawDumpContract.OVERLAY_INDEX_PATH,
   }) do
     if not self._stage:exists(path, "file") then
       Errors.raise(EXTRACT_ERROR_CODES.OUTPUT_MISSING, "required output missing at finalize: " .. path, { path = path })
     end
   end
 
-  self._stage:write(RomExtractor.MARKER_PATH, RomExtractor.markerContent(self._version.id, self._version.sha1))
+  self._stage:write(RawDumpContract.MARKER_PATH, RomExtractor.markerContent(self._version.id, self._version.sha1))
   self:_emit("finalize", 1, 1)
 end
 

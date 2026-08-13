@@ -1,10 +1,11 @@
 -- Readiness for the derived map-asset cache. This cache has its own format
 -- version, fully independent of the raw ROM dump: changing it may rebuild
--- derived maps but must never disturb rom-dump.complete, romfs/, or the raw
--- dump indexes. A map is ready only when its completion marker matches
--- exactly and every artifact it references is present and loadable, so a
--- partial or stale build never reads as complete. Paths are cache-relative; all
--- IO goes through a CacheFs (which confines every write to the version subtree).
+-- derived maps but must never disturb the raw-dump completion marker,
+-- romfs/, or the raw dump indexes. A map is ready only when its completion
+-- marker matches exactly and every artifact it references is present and
+-- loadable, so a partial or stale build never reads as complete. Paths are
+-- cache-relative; all IO goes through a CacheFs (which confines every write
+-- to the version subtree).
 
 local MapAssetCache = {}
 

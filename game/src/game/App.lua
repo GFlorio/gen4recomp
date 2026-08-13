@@ -93,13 +93,13 @@ end
 
 -- Boot the fixed-step field runtime. A bare --field selects Elm's Lab;
 -- an argument may select another compiled map by semantic symbol or numeric id.
-function App._bootField(idOrSymbol)
+function App._bootField(mapIdOrSymbol)
   local ready = readyVersions()
   if #ready == 0 then
     App._startImport()
     return
   end
-  App.setState(newFieldState(ready[1], fieldTarget(idOrSymbol), false))
+  App.setState(newFieldState(ready[1], fieldTarget(mapIdOrSymbol), false))
 end
 
 function App._startImport()
@@ -149,7 +149,7 @@ function App.update(dt)
   -- is never reused. The import screen holds its own reference and keeps
   -- showing the error. (Success clears through _onImported, fired by the
   -- importer's completion callback above.)
-  if App.importer and not App.importer:isBusy() and App.importer.state == "error" then
+  if App.importer and not App.importer:isBusy() and App.importer.state == RomImporter.STATES.ERROR then
     App.importer = nil
   end
   if App.state and App.state.update then

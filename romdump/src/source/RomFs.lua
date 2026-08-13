@@ -14,6 +14,7 @@ local Narc = require("romdump.src.source.Narc")
 local RomImporter = require("romdump.src.source.RomImporter")
 local OverlayCompression = require("romdump.src.source.OverlayCompression")
 local HgssArchives = require("romdump.src.config.HgssArchives")
+local RawDumpContract = require("romdump.src.source.RawDumpContract")
 
 ---@class RomFs
 ---@field private _version string
@@ -57,15 +58,19 @@ local function _open(versionId, cache)
     Errors.raise("ROMFS_NOT_READY", "no ready dump for version " .. tostring(versionId), { version = versionId })
   end
 
-  local metadata = loadRequired(cache, "data/generated/rom_metadata.lua")
-  local index = loadRequired(cache, "data/generated/romfs_index.lua")
-  local overlayIndex = loadRequired(cache, "data/generated/overlay_index.lua")
-  requireSchema(metadata, 1, "rom_metadata")
-  requireSchema(index, 1, "romfs_index")
-  if overlayIndex.schema ~= 1 or type(overlayIndex.arm9) ~= "table" or type(overlayIndex.arm7) ~= "table" then
+  local metadata = loadRequired(cache, RawDumpContract.METADATA_PATH)
+  local index = loadRequired(cache, RawDumpContract.ROMFS_INDEX_PATH)
+  local overlayIndex = loadRequired(cache, RawDumpContract.OVERLAY_INDEX_PATH)
+  requireSchema(metadata, RawDumpContract.METADATA_SCHEMA, "rom_metadata")
+  requireSchema(index, RawDumpContract.ROMFS_INDEX_SCHEMA, "romfs_index")
+  if
+    overlayIndex.schema ~= RawDumpContract.OVERLAY_INDEX_SCHEMA
+    or type(overlayIndex.arm9) ~= "table"
+    or type(overlayIndex.arm7) ~= "table"
+  then
     Errors.raise(
       "ROMFS_OVERLAY_INDEX_SCHEMA",
-      "overlay_index must use schema 1 with arm9 and arm7 tables",
+      "overlay_index must use schema " .. RawDumpContract.OVERLAY_INDEX_SCHEMA .. " with arm9 and arm7 tables",
       { schema = overlayIndex.schema }
     )
   end

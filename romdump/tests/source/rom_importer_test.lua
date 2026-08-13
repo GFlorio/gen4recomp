@@ -398,4 +398,30 @@ function T.terminal_importer_accepts_a_fresh_start()
   Assert.equal(h.events[3], "heartgold")
 end
 
+-- The importer's state strings are one named vocabulary: every state the
+-- production consumers (App, the import screen, the CLI runner) compare
+-- against is exposed as a RomImporter.STATES constant, and every transition
+-- lands on one of those named states.
+function T.importer_states_are_named_constants()
+  for _, name in ipairs({ "IDLE", "READING", "VERIFYING", "EXTRACTING", "COMPLETE", "ERROR" }) do
+    Assert.equal("string", type(RomImporter.STATES[name]), "RomImporter.STATES." .. name .. " must be a named state")
+  end
+  local fresh = RomImporter.new({
+    now = function()
+      return 0
+    end,
+  })
+  Assert.equal(fresh.state, RomImporter.STATES.IDLE)
+  fresh:filedropped({
+    getFilename = function()
+      return "photo.png"
+    end,
+  })
+  Assert.equal(fresh.state, RomImporter.STATES.ERROR)
+  local h = harness()
+  h.importer:startSource(RomSource.fromString(h.data))
+  runToTerminal(h.importer)
+  Assert.equal(h.importer.state, RomImporter.STATES.COMPLETE)
+end
+
 return { metadata = { layer = "unit" }, tests = T }

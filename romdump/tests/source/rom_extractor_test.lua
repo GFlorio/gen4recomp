@@ -40,8 +40,9 @@ function T.writes_raw_system_sections()
 end
 
 function T.writes_marker_last_with_exact_content()
+  local RawDumpContract = require("romdump.src.source.RawDumpContract")
   local r = extractOk()
-  local marker = r.backend.files[HG .. "rom-dump.complete"]
+  local marker = r.backend.files[HG .. RawDumpContract.MARKER_PATH]
   local info = require("romdump.src.source.GameVersion").info("heartgold")
   Assert.equal(marker, RomExtractor.markerContent("heartgold", info.sha1))
 end

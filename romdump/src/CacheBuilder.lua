@@ -29,7 +29,7 @@ local DerivedCacheState = require("romdump.src.DerivedCacheState")
 local ProducerFingerprint = require("romdump.src.ProducerFingerprint")
 local DerivedCacheAudit = require("romdump.src.DerivedCacheAudit")
 local DerivedAssetContract = require("libs.assets.src.DerivedAssetContract")
-local RomExtractor = require("romdump.src.source.RomExtractor")
+local RawDumpContract = require("romdump.src.source.RawDumpContract")
 local ScriptDsl = require("gen4.script")
 
 local CacheBuilder = {}
@@ -69,7 +69,7 @@ function CacheBuilder.buildVersions(versionIds, options)
     local romFs
     local ok, err = pcall(function()
       local cacheFs = CacheFs.forVersion(version)
-      local dumpMarker = cacheFs:read(RomExtractor.MARKER_PATH)
+      local dumpMarker = cacheFs:read(RawDumpContract.MARKER_PATH)
       assert(type(dumpMarker) == "string", "a ready version must have a published dump marker")
       local identity = DerivedCacheState.current({
         dump = dumpMarker,

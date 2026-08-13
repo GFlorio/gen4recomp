@@ -4,6 +4,7 @@
 -- cache lands, plus live stage/progress and structured error text on failure.
 
 local Errors = require("libs.errors.src.Errors")
+local RomImporter = require("romdump.src.source.RomImporter")
 
 local ImportState = {}
 ImportState.__index = ImportState
@@ -54,7 +55,8 @@ function ImportState.render(status, saveDir)
     lg.print("Target: " .. status.displayName, x, y + 40)
   end
 
-  if status.state == "extracting" or status.state == "complete" then
+  local s = RomImporter.STATES
+  if status.state == s.EXTRACTING or status.state == s.COMPLETE then
     lg.print((status.stageLabel or "Working") .. (status.detail and ("  " .. status.detail) or ""), x, y + 68)
     local w, h = 360, 14
     lg.setColor(0.2, 0.22, 0.28)
@@ -65,10 +67,10 @@ function ImportState.render(status, saveDir)
     lg.print(string.format("%d%%", math.floor((status.progress or 0) * 100 + 0.5)), x + w + 12, y + 90)
   end
 
-  if status.state == "complete" then
+  if status.state == s.COMPLETE then
     lg.setColor(0.6, 0.9, 0.6)
     lg.print("Import complete.", x, y + 120)
-  elseif status.state == "error" then
+  elseif status.state == s.ERROR then
     lg.setColor(1, 0.5, 0.5)
     lg.print("Import failed [" .. tostring(status.errorCode or "ERROR") .. "]:", x, y + 120)
     lg.print(Errors.format(status.error), x, y + 140)

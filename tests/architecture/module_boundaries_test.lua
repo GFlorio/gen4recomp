@@ -20,6 +20,11 @@ local GAME_ALLOWLIST = {
   ["game/src/launcher/VersionSelectState.lua"] = {
     ["romdump.src.source.GameVersion"] = true,
   },
+  -- The import screen renders importer status, so it consumes the importer's
+  -- named state vocabulary.
+  ["game/src/launcher/ImportState.lua"] = {
+    ["romdump.src.source.RomImporter"] = true,
+  },
   -- App's boot-wiring test stubs the same readiness seam App itself uses to
   -- cover the _bootExisting branches, which no other layer can (App requires
   -- a window; a real boot is ROM-gated acceptance territory).

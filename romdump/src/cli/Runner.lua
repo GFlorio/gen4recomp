@@ -383,7 +383,8 @@ function Runner._maybeExit()
   if not imp then
     return
   end
-  if imp.state == "complete" then
+  local s = RomImporter.STATES
+  if imp.state == s.COMPLETE then
     local status = imp:status()
     printImportResult(status)
     Runner.importer = nil
@@ -391,9 +392,9 @@ function Runner._maybeExit()
       return Runner._finishImport(status)
     end
     love.event.quit(0)
-  elseif imp.state == "error" then
-    local s = imp:status()
-    print("import failed [" .. tostring(s.errorCode or "ERROR") .. "]: " .. Errors.format(s.error))
+  elseif imp.state == s.ERROR then
+    local status = imp:status()
+    print("import failed [" .. tostring(status.errorCode or "ERROR") .. "]: " .. Errors.format(status.error))
     love.event.quit(1)
   end
 end

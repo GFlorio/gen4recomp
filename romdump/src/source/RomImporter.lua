@@ -20,9 +20,21 @@ local RomSource = require("romdump.src.source.RomSource")
 local NdsRom = require("romdump.src.source.NdsRom")
 local Errors = require("libs.errors.src.Errors")
 local HgssArchives = require("romdump.src.config.HgssArchives")
+local RawDumpContract = require("romdump.src.source.RawDumpContract")
 
 local RomImporter = {}
 RomImporter.__index = RomImporter
+
+-- The importer's state vocabulary, shared by the UI/runner consumers so the
+-- raw state strings have one owner.
+RomImporter.STATES = {
+  IDLE = "idle",
+  READING = "reading",
+  VERIFYING = "verifying",
+  EXTRACTING = "extracting",
+  COMPLETE = "complete",
+  ERROR = "error",
+}
 
 local IMPORT_ERROR_CODES = {
   BUSY = "IMPORT_BUSY",
@@ -30,9 +42,9 @@ local IMPORT_ERROR_CODES = {
 }
 
 local REQUIRED_FILES = {
-  "data/generated/rom_metadata.lua",
-  "data/generated/romfs_index.lua",
-  "data/generated/overlay_index.lua",
+  RawDumpContract.METADATA_PATH,
+  RawDumpContract.ROMFS_INDEX_PATH,
+  RawDumpContract.OVERLAY_INDEX_PATH,
   "romfs/a/0/0/2",
   "romfs/a/0/4/1",
   "romfs/data/sound/gs_sound_data.sdat",
@@ -46,7 +58,7 @@ function RomImporter.isReady(versionId, cache, versions)
     return false
   end
   cache = cache or CacheFs.forVersion(versionId)
-  if cache:read(RomExtractor.MARKER_PATH) ~= RomExtractor.markerContent(versionId, info.sha1) then
+  if cache:read(RawDumpContract.MARKER_PATH) ~= RomExtractor.markerContent(versionId, info.sha1) then
     return false
   end
   for _, path in ipairs(REQUIRED_FILES) do
@@ -80,7 +92,7 @@ function RomImporter.new(opts)
       return CacheFs.forVersion(id)
     end,
     _now = opts.now or defaultNow,
-    state = "idle",
+    state = RomImporter.STATES.IDLE,
     progress = 0,
   }, RomImporter)
 end
@@ -102,7 +114,8 @@ function RomImporter:status()
 end
 
 function RomImporter:isBusy()
-  return self.state == "reading" or self.state == "verifying" or self.state == "extracting"
+  local s = RomImporter.STATES
+  return self.state == s.READING or self.state == s.VERIFYING or self.state == s.EXTRACTING
 end
 
 -- The importer owns its state-machine invariant: the start APIs accept every
@@ -115,10 +128,6 @@ function RomImporter:_requireNotBusy()
   end
 end
 
-function RomImporter:_setState(state)
-  self.state = state
-end
-
 function RomImporter:_fail(err)
   if self._source then
     self._source:release()
@@ -126,7 +135,7 @@ function RomImporter:_fail(err)
   self._source, self._co = nil, nil
   self._error = err
   self._errorCode = Errors.is(err) and err.code or nil
-  self.state = "error"
+  self.state = RomImporter.STATES.ERROR
   collectgarbage("collect")
 end
 
@@ -134,7 +143,7 @@ function RomImporter:_complete(report)
   self._source, self._co = nil, nil
   self._report = report
   self.progress = 1
-  self.state = "complete"
+  self.state = RomImporter.STATES.COMPLETE
   collectgarbage("collect")
 end
 
@@ -157,7 +166,7 @@ end
 function RomImporter:_beginWork()
   local source = self._source
   self._co = coroutine.create(function()
-    self:_setState("verifying")
+    self.state = RomImporter.STATES.VERIFYING
     local rom, err = NdsRom.open(source, self._versions)
     if not rom then
       return self:_fail(err)
@@ -168,7 +177,7 @@ function RomImporter:_beginWork()
     self._displayName = info.displayName
     local cache = self._cacheFactory(info.id)
 
-    self:_setState("extracting")
+    self.state = RomImporter.STATES.EXTRACTING
     self._lastYield = self._now()
     local extractor = RomExtractor.new(rom, info, cache, self._manifest, function(p)
       self:_onProgress(p)
@@ -193,7 +202,7 @@ function RomImporter:startSource(source)
   self._stage, self._stageLabel, self._detail = nil, nil, nil
   self._completeFired = false
   self.progress = 0
-  self.state = "reading"
+  self.state = RomImporter.STATES.READING
   self:_beginWork()
 end
 
@@ -234,11 +243,11 @@ function RomImporter:update()
   local co = self._co
   if co and coroutine.status(co) ~= "dead" then
     local ok, err = coroutine.resume(co)
-    if not ok and self.state ~= "error" then
+    if not ok and self.state ~= RomImporter.STATES.ERROR then
       self:_fail(err)
     end
   end
-  if self.state == "complete" and not self._completeFired then
+  if self.state == RomImporter.STATES.COMPLETE and not self._completeFired then
     self._completeFired = true
     if self._onComplete then
       self._onComplete(self._versionId, self._report)
