@@ -188,12 +188,16 @@ function MapPropAnimCompiler.compile(listBytes, resNarc, opts)
       )
     end
     assert(decoded, "the raise above must not fall through")
+    -- The caller resolves the resource digest exactly once; the compiled
+    -- record's provenance sha1 must be the same value the cache key was
+    -- built from, or the memo could key on one digest and record another.
+    assert(sha1, "compileResource requires the caller-resolved resource digest")
     local source = {
       type = "nitro",
       format = decoded.format,
       archive = ANIM_ARCHIVE,
       memberId = resourceId,
-      sha1 = sha1 or Hashing.sha1hex(bytes),
+      sha1 = sha1,
     }
     local ok, clip = pcall(compileOne, decoded, BinaryReader.new(decoded.bytes, "sec"), #decoded.bytes, {
       name = assert(decoded.animations[1]).name,
@@ -225,9 +229,12 @@ function MapPropAnimCompiler.compile(listBytes, resNarc, opts)
   -- policy annotation (timeBand/ambientLoop) is per model and must never
   -- mutate the record other models share through the resource cache.
   local function modelClip(resourceId, bytes, sha1)
+    -- Resolve the resource digest once and share it between the cache key
+    -- and the compiled record's provenance sha1.
+    sha1 = sha1 or Hashing.sha1hex(bytes)
     local clip
     if opts.resourceCache then
-      local cacheKey = string.format("%s:%d:%s", ANIM_ARCHIVE, resourceId, sha1 or Hashing.sha1hex(bytes))
+      local cacheKey = string.format("%s:%d:%s", ANIM_ARCHIVE, resourceId, sha1)
       clip = opts.resourceCache[cacheKey]
       if not clip then
         clip = compileResource(resourceId, bytes, sha1)
@@ -239,7 +246,7 @@ function MapPropAnimCompiler.compile(listBytes, resNarc, opts)
       end
       return copy
     end
-    return compileResource(resourceId, bytes)
+    return compileResource(resourceId, bytes, sha1)
   end
 
   for _, resourceId in ipairs(record.ids) do
