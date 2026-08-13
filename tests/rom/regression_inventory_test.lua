@@ -81,8 +81,8 @@ function T.every_animated_asset_compiles_with_an_explicit_outcome(romFs)
   Assert.equal(interior.clips, 140, "interior clip embeddings")
 
   -- Format histogram across every embedding (the census's format spread:
-  -- no NSBVA in the field corpus; the format and its decoder were deleted,
-  -- so a referenced VIS0 member would fail decode and raise here instead).
+  -- no NSBVA in the field corpus, so a referenced VIS0 member would fail
+  -- decode and raise here instead).
   local formats = {}
   for k, v in pairs(exterior.formats) do
     formats[k] = (formats[k] or 0) + v

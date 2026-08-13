@@ -19,8 +19,7 @@
 --   }
 --
 -- Visibility is not part of the contract: the SBC NODE command alone
--- decides it (NSBVA-style hiding was deleted; no provider ever supplied a
--- visibility hook).
+-- decides it (no provider supplies a visibility hook).
 --
 -- The SRT record shape matches the decoded Nsbmd node record
 -- (NsbmdJointTransforms composes it under the model's scaling rule), so a

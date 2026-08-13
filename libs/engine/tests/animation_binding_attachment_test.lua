@@ -308,9 +308,8 @@ function T.bad_priority_or_ratio_raises()
 end
 
 -- Field visibility animation does not exist: the category vocabulary is
--- joint and material (the corpus has no NSBVA members and the format was
--- deleted), so a clip carrying the visibility category is rejected at attach
--- like any unknown category.
+-- joint and material (the corpus has no NSBVA members), so a clip carrying
+-- the visibility category is rejected at attach like any unknown category.
 -- (A plain-table clip, since AnimationClip.new itself rejects the category.)
 function T.state_attach_rejects_the_visibility_category()
   local def = definition()

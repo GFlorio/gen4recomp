@@ -258,7 +258,7 @@ function T.material_contract_maps_to_render_state()
 end
 
 -- The resolveImage callback contract: effectiveMaterial invokes it with the
--- texture key only -- the stale width/height arguments are gone.
+-- texture key only.
 function T.resolve_image_receives_only_the_texture_key()
   local calls = {}
   local instance = ModelInstance.new(texturedDoorDefinition(), {
@@ -290,9 +290,9 @@ function T.nitro_backend_without_a_program_raises()
 end
 
 function T.the_source_backend_key_is_rejected_at_construction()
-  -- The sourceBackend abstraction is cut: a definition spec that still
-  -- carries the removed key is a stale-schema artifact (a definition is
-  -- nitro by construction).
+  -- A definition spec that still carries the sourceBackend key is a
+  -- stale-schema artifact: a definition is nitro by construction, and the
+  -- key is rejected at the load boundary.
   throwsCode("MODEL_DEF_BAD_SOURCE_BACKEND", function()
     return ModelDefinition.new({
       key = "fixture:bad",

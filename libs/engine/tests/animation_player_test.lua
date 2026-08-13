@@ -5,10 +5,9 @@
 -- checked advance (Field3dModelAnimation_FrameAdvanceAndCheck clamps the
 -- positive terminal at numFrame << 12 and sets done there; pokeheartgold
 -- overlay_01_021FB878.s), so a "once" clip finishes exactly when frameFx
--- reaches frameCount * FRAME_UNIT -- the single completion notion. Reverse
--- playback (setDirection) and the atTerminal/completed split are cut:
--- playback always runs forward from 0, and one finish notion remains.
--- Pure domain module.
+-- reaches frameCount * FRAME_UNIT -- the single completion notion: playback
+-- always runs forward from 0, with no direction option (setDirection) and no
+-- atTerminal/completed split. Pure domain module.
 
 local Assert = require("tests.support.Assert")
 local AnimationPlayer = require("libs.engine.src.AnimationPlayer")

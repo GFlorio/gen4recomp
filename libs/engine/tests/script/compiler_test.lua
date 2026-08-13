@@ -423,9 +423,8 @@ function T.duplicate_label_raises()
   Assert.equal(err.context.label, "a")
 end
 
--- A label inside `switch.default` must be registrable: the prewalk used to
--- descend into switch cases but not the default branch, so a goto targeting
--- it raised SCRIPT_LABEL_MISSING even though the branch compiles.
+-- A label inside `switch.default` is registrable: a goto targeting it
+-- resolves to the default branch.
 function T.switch_default_label_is_targetable()
   local graph = compile(S.script({
     api = 1,
@@ -844,10 +843,9 @@ function T.compile_propagates_validator_errors()
   )
 end
 
--- Recursive local call cycles are no longer rejected at load time: the
--- static "contains a blocking op" heuristic was path-insensitive, and the
--- scheduler's deterministic per-run node budget faults non-yielding
--- recursion at runtime. Call targets still resolve structurally.
+-- Recursive local call cycles compile: call targets resolve structurally,
+-- and the scheduler's deterministic per-run node budget faults non-yielding
+-- recursion at runtime.
 function T.recursive_call_cycle_compiles()
   local graph = compile(S.script({
     api = 1,

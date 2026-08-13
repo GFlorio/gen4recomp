@@ -1,7 +1,6 @@
--- `--list` must survive a module that cannot be loaded. Execution already
--- reports such a module as one failed `<load>` result; listing used to raise
--- instead, so one broken suite replaced the whole corpus listing with a
--- traceback.
+-- `--list` must survive a module that cannot be loaded: such a module is
+-- reported as one failed `<load>` result instead of replacing the whole
+-- corpus listing with a traceback.
 
 local Assert = require("tests.support.Assert")
 local FakeCorpus = require("tests.runner.tests.support.FakeCorpus")

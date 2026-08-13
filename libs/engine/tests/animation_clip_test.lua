@@ -2,13 +2,12 @@
 -- field runtime and the digest share -- id, name, category (joint or
 -- material), a free-form kind, frameCount, tracks (one target per track),
 -- semanticNames, opaque provenance, and the compiled payload the samplers
--- consume -- plus the shared door-role vocabulary. The generic channel-sampler
--- surface is cut: Nitro clips bring their own compiled curve semantics (the
--- compiled.* payload), no caller uses AnimationClip.sample, so there is no
+-- consume -- plus the shared door-role vocabulary. Nitro clips bring their
+-- own compiled curve semantics (the compiled.* payload): there is no
 -- sample(), no INTERPOLATIONS, and no channel-key validation. Track tables and
 -- the compiled payload are retained by reference and NEVER mutated. Field
--- visibility animation does not exist (the corpus has no NSBVA members and the
--- format was deleted), so the category vocabulary is joint and material.
+-- visibility animation does not exist (the corpus has no NSBVA members), so
+-- the category vocabulary is joint and material.
 -- Pure domain module.
 
 local Assert = require("tests.support.Assert")
@@ -95,9 +94,8 @@ function T.rejects_tracks_without_a_target()
   end)
 end
 
--- The generic sampler surface is cut: AnimationClip.sample has no caller
--- (Nitro clips sample through their compiled payload), so the interpolation
--- machinery it existed for is gone too.
+-- AnimationClip.sample has no caller: Nitro clips sample through their
+-- compiled payload, so the generic interpolation machinery does not exist.
 function T.the_generic_sampler_is_cut()
   Assert.isNil(AnimationClip.sample, "no caller uses the generic sampler")
 end

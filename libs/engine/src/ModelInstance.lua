@@ -162,9 +162,9 @@ end
 -- Start playing a clip, resolved by name or semantic role (e.g.
 -- "door.open"). The binding comes from the definition's precomputed record;
 -- player setup happens here, once per play, never per frame. `opts` passes
--- through to the attachment: priority, ratioFx, loopMode. Reverse playback
--- is cut: there is no direction option and a one-shot always plays forward
--- from 0. Returns the LIVE attachment as the handle (a plain table carrying
+-- through to the attachment: priority, ratioFx, loopMode. There is no
+-- direction option; a one-shot always plays forward from 0. Returns the LIVE
+-- attachment as the handle (a plain table carrying
 -- clip/binding/player/priority/ratioFx) for stop() -- there is no token
 -- layer. Every play attaches an independent player, so several clips can run
 -- simultaneously. A clip that binds no model element raises

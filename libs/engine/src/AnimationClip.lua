@@ -34,8 +34,8 @@ local AnimationClip = {}
 AnimationClip.FRAME_UNIT = 4096
 
 -- The category vocabulary is joint and material: no field visibility
--- animation exists (the corpus has no NSBVA members and the format was
--- deleted), so a clip claiming the visibility category is rejected.
+-- animation exists (the corpus has no NSBVA members), so a clip claiming the
+-- visibility category is rejected.
 AnimationClip.CATEGORIES = { joint = true, material = true }
 
 -- The semantic animation roles gameplay and the digest share: the one owner

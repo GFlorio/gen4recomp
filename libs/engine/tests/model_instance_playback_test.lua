@@ -109,7 +109,7 @@ function T.play_rejects_bad_options()
   local instance = ModelInstance.new(NitroModelFixture.doorDefinition())
   local ok = pcall(instance.play, instance, "door.open", { loopMode = "bounce" })
   Assert.isFalse(ok, "unknown loop mode is a programming error")
-  -- Reverse playback is cut: no direction option exists on the player.
+  -- Reverse playback is not an option: no direction option exists on the player.
   ok = pcall(instance.play, instance, "door.open", { direction = 1 })
   Assert.isFalse(ok, "any direction option is rejected: reverse playback is cut")
   ok = pcall(instance.play, instance, "door.open", { direction = -1 })

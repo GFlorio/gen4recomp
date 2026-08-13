@@ -102,8 +102,8 @@ function T.materials_accept_the_optional_colors_block()
   Assert.deepEqual(def.materials[1].colors.diffuse, { r = 255, g = 0, b = 0 })
 end
 
--- The sourceBackend abstraction is cut: the definition is nitro by
--- construction, so a spec needs no backend key and the field does not exist.
+-- The definition is nitro by construction: a spec needs no backend key, and
+-- the field does not exist.
 function T.new_requires_no_source_backend()
   local def = ModelDefinition.new(definitionSpec())
   Assert.equal(def.key, "model:test")
@@ -424,8 +424,8 @@ function T.from_nitro_descriptor_requires_the_draw_state_on_every_batch()
   end
 end
 
--- The definition spec itself carries no embedded batch: the batch key is the
--- stale fixture compatibility the fixtures now avoid.
+-- The definition spec itself carries no embedded batch: a mesh `batch` key
+-- is rejected.
 function T.new_rejects_an_embedded_batch_mesh()
   local s = definitionSpec()
   s.meshes[1].batch = { vertices = {}, indices = {} }

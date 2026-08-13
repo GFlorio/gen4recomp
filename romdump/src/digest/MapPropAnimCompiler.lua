@@ -10,9 +10,8 @@
 -- -- MAP_PROP_ANIM_UNRESOLVED -- identifying the model member and resource,
 -- with every compiler failure converted to the same code. Nothing returns an
 -- unresolved entry and falls back to compiling the model static: the
--- animation either compiles or the map compile fails loudly. (NSBVA support
--- was deleted, so every format NitroAnimation decodes has a clip compiler
--- here.)
+-- animation either compiles or the map compile fails loudly. (Every format
+-- NitroAnimation decodes has a clip compiler here.)
 --
 -- Semantic roles: clip names are the source-format identifiers; gameplay
 -- must not depend on them. The door open/close pairs the field corpus uses

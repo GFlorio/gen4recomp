@@ -1,7 +1,7 @@
 -- NitroAnimation: the shared entry point for the four NitroSystem 3D
 -- animation formats used by Gen IV. NSBVA/BVA0 (VIS0 visibility animation)
--- is deleted: the HGSS field archive has no VIS0 members and no runtime
--- consumer exists, so BVA0 bytes are an unknown file magic here.
+-- is not a decoded format: the HGSS field archive has no VIS0 members and
+-- no runtime consumer exists, so BVA0 bytes are an unknown file magic here.
 --
 -- Each animation resource file (BCA0/BTA0/BTP0/BMA0) contains one
 -- section (JNT0/SRT0/PAT0/MAT0) whose dictionary maps animation names

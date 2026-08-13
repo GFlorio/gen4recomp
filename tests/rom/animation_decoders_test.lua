@@ -108,8 +108,8 @@ function T.all_animation_members_decode(romFs)
   Assert.equal(formats.NSBTA, 99, "NSBTA count")
   Assert.equal(formats.NSBTP, 79, "NSBTP count")
   Assert.equal(formats.NSBMA, 10, "NSBMA count")
-  -- No NSBVA pin: the format was deleted, so a VIS0 member would fail the
-  -- decode above (ANM_UNKNOWN_FILE_MAGIC) and fail this test on its own.
+  -- No NSBVA pin: a VIS0 member would fail the decode above
+  -- (ANM_UNKNOWN_FILE_MAGIC) and fail this test on its own.
 end
 
 -- The real door_op member: node 0, rotation animated through 8 pivot keys,

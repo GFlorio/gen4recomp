@@ -353,7 +353,7 @@ end
 
 -- The pose-provider contract carries no visibility hook: the SBC NODE
 -- command alone decides, so a provider-side nodeVisible is never consulted
--- (NSBVA support was deleted and no production provider ever supplied it).
+-- (no production provider supplies one).
 function T.provider_node_visible_hook_is_not_consulted()
   local p = program({ commands = oneDraw({ cmdNodedesc(0, 0), cmdNode(0, true) }) })
   local result = NsbmdSbcEvaluator.evaluate(

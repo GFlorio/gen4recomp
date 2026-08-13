@@ -40,9 +40,7 @@ function T.every_declared_root_contributes_suites()
   end
 end
 
--- The nested script suites live under `libs/engine/tests/script/` and were
--- previously registered by hand; discovery must reach them by the single
--- `_test.lua` suffix.
+-- Discovery reaches nested script suites through the `_test.lua` suffix.
 function T.nested_script_suites_are_discovered()
   Assert.notNil(find("libs.engine.tests.script.scheduler_test"), "nested script suite is missing")
   Assert.notNil(find("libs.engine.tests.field_session_test"), "immediate suite is missing")

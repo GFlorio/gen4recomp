@@ -386,8 +386,8 @@ function T.light_mask_changes_the_lit_result_for_the_same_profile()
   Assert.equal(lit(3), rgb555(31, 0, 31))
 end
 
--- Hand-verified midrange anchor: colors multiplied as fractions of full scale,
--- never as saturating integers (light 15 * diffuse 20 used to saturate to 31).
+-- Hand-verified midrange anchor: colors multiply as fractions of full scale,
+-- never as saturating integers.
 function T.midrange_colors_scale_with_light_intensity()
   local c = DsLighting.vertexColorRgb5(params({
     diffuse = rgb555(20, 15, 10),

@@ -304,10 +304,8 @@ function ModelDefinition.new(definition)
   if type(definition.key) ~= "string" or #definition.key == 0 then
     Errors.raise("MODEL_DEF_NO_KEY", "model definition requires a non-empty key", {})
   end
-  -- The sourceBackend abstraction is cut: the definition is nitro by
-  -- construction, so the key is not part of the definition record. A record
-  -- that still carries it is a stale-schema artifact and fails loudly at the
-  -- load boundary.
+  -- A record that still carries `sourceBackend` is a stale-schema artifact;
+  -- it fails loudly at the load boundary.
   if definition.sourceBackend ~= nil then
     Errors.raise(
       "MODEL_DEF_BAD_SOURCE_BACKEND",
