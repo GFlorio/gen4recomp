@@ -337,6 +337,23 @@ function T.entering_the_same_map_twice_is_idempotent()
   Assert.equal(assets:total(), 1)
 end
 
+-- A runtime map without the compiled object collection is a malformed
+-- record, never an empty map: enterMap fails and rolls the entry back, the
+-- same shape as a mid-construction actor failure.
+function T.enter_map_without_object_collection_fails_and_rolls_back()
+  local mgr = FieldActorManager.new({ assets = fakeAssets({ [99] = true }), policy = POLICY })
+  local err = Assert.throws(function()
+    mgr:enterMap(runtimeMap(nil), FieldEventState.new())
+  end)
+  Assert.isTrue(
+    tostring(err):find("compiled object collection", 1, true) ~= nil,
+    "the failure names the missing collection"
+  )
+  Assert.isNil(mgr.maps[61], "no partial map entry remains")
+  Assert.equal(#mgr:drawRecords(), 0)
+  mgr:dispose()
+end
+
 function T.leaving_a_map_releases_every_visual()
   local mgr, _, assets = manager({ object({}) })
   mgr:leaveMap(61)

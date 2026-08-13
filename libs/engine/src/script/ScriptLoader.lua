@@ -14,6 +14,7 @@
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local ScriptCache = require("libs.assets.src.ScriptCache")
+local Validate = require("libs.assets.src.Validate")
 local Validator = require("libs.engine.src.script.Validator")
 
 local ScriptLoader = {}
@@ -138,7 +139,20 @@ function ScriptLoader.installGenerated(registry, cacheFs, requireFn, opts)
       { path = ScriptCache.indexPath(), schema = index and index.schema or nil }
     )
   end
-  for _, entry in ipairs(index.resources or {}) do
+  -- resources is the current schema's required array; a missing or malformed
+  -- index must fail before any install, never become an empty registry. The
+  -- rule matches the build-path readiness validator (ScriptCache.isReady).
+  -- This checks only the index shape -- the per-resource files still decode
+  -- lazily on the deferred path, so snapshot-hit validation avoidance is
+  -- untouched.
+  if not Validate.isArray(index.resources) then
+    Errors.raise(
+      ScriptErrors.SCRIPT_LOAD_FAILED,
+      "script cache index resources are missing or malformed",
+      { path = ScriptCache.indexPath() }
+    )
+  end
+  for _, entry in ipairs(index.resources) do
     assert(type(entry.id) == "string" and entry.id ~= "", "script cache index entry id required")
     if opts.lazy then
       registry:installBaseDeferred(entry.id, "generated")

@@ -417,6 +417,26 @@ function T.map_without_a_collision_descriptor_fails_to_load()
   loader:release()
 end
 
+-- The field record's event collections are part of the authoritative
+-- four-array contract: a record missing one collection (here `objects`) is
+-- malformed generated data and must fail the load, never enter the game as
+-- an empty object set.
+function T.map_without_object_events_fails_to_load()
+  local cache, world, sceneLoader, _, files = fixture(1)
+  files["data/generated/field/maps/0000/field.lua"].events = {
+    background = {},
+    warps = {},
+    coordinates = {},
+  }
+  local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader })
+  local err = Assert.throws(function()
+    loader:load(0)
+  end)
+  Assert.isTrue(Errors.is(err) and err.code == "FIELD_MAP_DATA_CACHE_INVALID", "the malformed record propagates")
+  Assert.isNil(loader:get(0), "no partly loaded aggregate is resident")
+  loader:release()
+end
+
 -- The terrain artifact source record is part of the terrain dependency
 -- identity; its absence must fail the load instead of degrading the hash.
 function T.map_without_a_terrain_artifact_source_fails_to_load()

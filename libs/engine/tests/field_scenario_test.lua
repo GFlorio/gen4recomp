@@ -19,11 +19,14 @@ end
 local FIELD_DATA = {
   [61] = {
     events = {
+      background = {},
       objects = {
         { objectEventId = 0, eventFlag = 401 },
         { objectEventId = 1, eventFlag = 413 },
         { objectEventId = 2, eventFlag = 0 },
       },
+      warps = {},
+      coordinates = {},
     },
   },
 }
@@ -91,6 +94,46 @@ end
 function T.unknown_operations_are_fatal()
   throwsCode("SCENARIO_FLAG_RESOLUTION_FAILED", function()
     FieldScenario.apply(manifest({ { op = "teleport", mapId = 61 } }), FieldEventState.new(), fieldDataFor)
+  end)
+end
+
+-- A record whose events table is present but misses the objects collection is
+-- malformed generated data: it must fail as a resolution failure, never be
+-- misattributed to a missing object.
+function T.malformed_record_without_object_collection_is_fatal()
+  local data = {
+    [61] = { events = { background = {}, warps = {}, coordinates = {} } },
+  }
+  throwsCode("SCENARIO_FLAG_RESOLUTION_FAILED", function()
+    FieldScenario.apply(
+      manifest({
+        { op = "set_object_event_flag", mapId = 61, objectEventId = 0 },
+      }),
+      FieldEventState.new(),
+      function(mapId)
+        return data[mapId]
+      end
+    )
+  end)
+end
+
+-- A record that is not a table at all (for example a hand-tampered field
+-- file returning a number) is malformed generated data too: it must fail as
+-- a resolution failure, never as a raw indexing error.
+function T.non_table_record_is_fatal()
+  local data = {
+    [61] = 42,
+  }
+  throwsCode("SCENARIO_FLAG_RESOLUTION_FAILED", function()
+    FieldScenario.apply(
+      manifest({
+        { op = "set_object_event_flag", mapId = 61, objectEventId = 0 },
+      }),
+      FieldEventState.new(),
+      function(mapId)
+        return data[mapId]
+      end
+    )
   end)
 end
 

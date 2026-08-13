@@ -247,7 +247,14 @@ function FieldActorManager:enterMap(runtimeMap, eventState)
   self.maps[runtimeMap.mapId] = entry
   self.currentMapId = runtimeMap.mapId
   local ok, err = pcall(function()
-    for _, event in ipairs(runtimeMap.fieldData.events.objects or {}) do
+    -- The map loader validates the four event collections against the
+    -- authoritative field-record rule, so a runtime map always carries the
+    -- objects array; a missing collection here is a composition fault, never
+    -- an empty map. The failure rolls the entry back like any construction
+    -- failure.
+    local objects = runtimeMap.fieldData.events.objects
+    assert(type(objects) == "table", "enterMap requires the compiled object collection")
+    for _, event in ipairs(objects) do
       local flagged = entry.byFlag[event.eventFlag] or {}
       flagged[#flagged + 1] = event
       entry.byFlag[event.eventFlag] = flagged

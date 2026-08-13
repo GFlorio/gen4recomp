@@ -212,7 +212,7 @@ end
 -- raw direction compatibility check.
 function FieldInteractionResolver:_firstEligibleBackground(snapshot, targetX, targetZ)
   local map = snapshot.runtimeMap
-  local events = map.fieldData and map.fieldData.events and map.fieldData.events.background or {}
+  local events = assert(map.fieldData.events.background, "runtime map background events required")
   local playerRaw =
     assert(FieldInteractionResolver.RAW_FACING[snapshot.facing], "unknown player facing " .. tostring(snapshot.facing))
   for _, event in ipairs(events) do

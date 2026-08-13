@@ -268,4 +268,37 @@ T["lazy build does not skip override validation"] = function()
   end)
 end
 
+-- 9. An index without the resources array is malformed generated data, never
+-- an empty registry: installGenerated fails before installing anything.
+T["index without resources fails before any install"] = function()
+  local Registry = require("libs.engine.src.script.Registry")
+  local cache = CacheFs.forVersion("heartgold", FakeCache.new())
+  cache:writeLua("data/generated/script/index.lua", { schema = "g4-script-index-v1" })
+  local registry = Registry.new()
+  throwsCode("SCRIPT_LOAD_FAILED", function()
+    ScriptLoader.installGenerated(registry, cache, requireShim)
+  end)
+  Assert.deepEqual(registry:ids(), {}, "no bases are installed from a malformed index")
+end
+
+-- 9b. The lazy build path applies the same strict index rule.
+T["lazy build rejects an index without resources"] = function()
+  local cache = CacheFs.forVersion("heartgold", FakeCache.new())
+  cache:writeLua("data/generated/script/index.lua", { schema = "g4-script-index-v1" })
+  throwsCode("SCRIPT_LOAD_FAILED", function()
+    ScriptLoader.buildRegistry(cache, overrideFs({}), requireShim, { lazy = true })
+  end)
+end
+
+-- 9c. An explicitly empty resources array is schema-legal and installs
+-- nothing: an empty script corpus must not fail the load.
+T["empty resources array installs zero bases"] = function()
+  local Registry = require("libs.engine.src.script.Registry")
+  local cache = CacheFs.forVersion("heartgold", FakeCache.new())
+  cache:writeLua("data/generated/script/index.lua", { schema = "g4-script-index-v1", resources = {} })
+  local registry = Registry.new()
+  ScriptLoader.installGenerated(registry, cache, requireShim)
+  Assert.deepEqual(registry:ids(), {})
+end
+
 return { tests = T }

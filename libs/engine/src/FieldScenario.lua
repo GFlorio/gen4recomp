@@ -6,6 +6,7 @@
 -- Pure domain module: no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 
 local FieldScenario = {}
 
@@ -15,13 +16,14 @@ end
 
 local function resolveFlag(entry, fieldDataFor)
   local fieldData = fieldDataFor(entry.mapId)
-  if type(fieldData) ~= "table" or type(fieldData.events) ~= "table" then
+  local events = type(fieldData) == "table" and fieldData.events or nil
+  if not FieldMapDataCache.hasRequiredEvents(events) then
     fail(
-      "scenario references map " .. tostring(entry.mapId) .. ", which has no compiled data",
+      "scenario references map " .. tostring(entry.mapId) .. ", which has no compiled event data",
       { mapId = entry.mapId, objectEventId = entry.objectEventId }
     )
   end
-  for _, event in ipairs(fieldData.events.objects or {}) do
+  for _, event in ipairs(fieldData.events.objects) do
     if event.objectEventId == entry.objectEventId then
       if event.eventFlag == 0 then
         fail(
