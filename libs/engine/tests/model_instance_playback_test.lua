@@ -2,11 +2,13 @@
 -- graph. instance:play resolves the clip by name or
 -- semantic role, attaches it through the state's precomputed definition
 -- binding, and returns the LIVE attachment as the handle -- a plain table
--- carrying clip/binding/player/priority/ratioFx. stop() takes the handle
--- (or a name/semantic, removing every play of that clip). The HGSS
--- completion condition reads the retained handle's player terminal state.
--- There is no controller layer: no pause/resume/setDirection/animationsFor
--- facade exists without a game caller.
+-- carrying clip/binding/player. A second play of a clip whose kind already
+-- plays raises ANIM_STATE_SAME_KIND_IN_USE (one attachment per kind).
+-- stop() takes the handle (or a name/semantic, removing every play of that
+-- clip). The HGSS completion condition reads the retained handle's player
+-- terminal state. There is no controller layer: no
+-- pause/resume/setDirection/animationsFor facade exists without a game
+-- caller.
 
 local Assert = require("tests.support.Assert")
 local ModelInstance = require("libs.engine.src.ModelInstance")
@@ -30,8 +32,6 @@ function T.play_returns_the_live_attachment_handle()
   Assert.equal(handle.clip.name, "DoorOpen")
   Assert.deepEqual(handle.clip.semanticNames, { "door.open" })
   Assert.notNil(handle.player)
-  Assert.equal(handle.priority, 0x7F)
-  Assert.equal(handle.ratioFx, 0x1000)
 end
 
 -- The handle returned by play IS the attachment the state enumerates: the
@@ -66,36 +66,16 @@ function T.stop_by_handle_detaches_the_attachment()
   Assert.equal(#instance.animationState:attachments("joint"), 0)
 end
 
--- Stopping by name removes every play of that clip, whichever alias played
--- it (name or semantic role resolve the same clips).
-function T.stop_by_name_removes_every_play_of_the_clip()
+-- Replaying a clip whose kind is already playing is rejected: one
+-- attachment per kind, so a second play raises instead of stacking
+-- (MapDoor stops the previous play first, so replays restart fresh).
+function T.replaying_an_attached_kind_raises()
   local instance = ModelInstance.new(NitroModelFixture.doorDefinition())
   instance:play("door.open")
-  instance:play("DoorOpen")
-  Assert.equal(#instance.animationState:attachments("joint"), 2)
-  Assert.equal(instance:stop("door.open"), 2)
-  Assert.equal(#instance.animationState:attachments("joint"), 0)
-end
-
--- Replaying the same clip attaches an independent player each time: two
--- plays are two attachments, both live in the state, both advancing.
-function T.replay_attaches_independent_players()
-  local instance = ModelInstance.new(NitroModelFixture.doorDefinition())
-  local first = instance:play("door.open")
-  local second = instance:play("door.open")
-  Assert.equal(#instance.animationState:attachments("joint"), 2)
-  Assert.isFalse(first == second, "each play attaches a fresh handle")
-  Assert.isFalse(first.player == second.player, "each play owns an independent player")
-  instance:updateFixed()
-  Assert.equal(first.player.frameFx, 0x1000)
-  Assert.equal(second.player.frameFx, 0x1000)
-end
-
-function T.play_passes_priority_and_ratio_to_the_handle()
-  local instance = ModelInstance.new(NitroModelFixture.doorDefinition())
-  local handle = instance:play("door.open", { priority = 0x20, ratioFx = 0x800 })
-  Assert.equal(handle.priority, 0x20)
-  Assert.equal(handle.ratioFx, 0x800)
+  throwsCode("ANIM_STATE_SAME_KIND_IN_USE", function()
+    return instance:play("DoorOpen")
+  end)
+  Assert.equal(#instance.animationState:attachments("joint"), 1, "the rejected play attaches nothing")
 end
 
 function T.unknown_animation_raises()
@@ -103,24 +83,6 @@ function T.unknown_animation_raises()
   throwsCode("ANIM_INSTANCE_UNKNOWN_ANIMATION", function()
     return instance:play("no.such.clip")
   end)
-end
-
-function T.play_rejects_bad_options()
-  local instance = ModelInstance.new(NitroModelFixture.doorDefinition())
-  local ok = pcall(instance.play, instance, "door.open", { loopMode = "bounce" })
-  Assert.isFalse(ok, "unknown loop mode is a programming error")
-  -- Reverse playback is not an option: no direction option exists on the player.
-  ok = pcall(instance.play, instance, "door.open", { direction = 1 })
-  Assert.isFalse(ok, "any direction option is rejected: reverse playback is cut")
-  ok = pcall(instance.play, instance, "door.open", { direction = -1 })
-  Assert.isFalse(ok, "any direction option is rejected: reverse playback is cut")
-  throwsCode("ANIM_ATTACHMENT_BAD_PRIORITY", function()
-    return instance:play("door.open", { priority = 0x100 })
-  end)
-  throwsCode("ANIM_ATTACHMENT_BAD_RATIO", function()
-    return instance:play("door.open", { ratioFx = 0.5 })
-  end)
-  Assert.equal(#instance.animationState:attachments("joint"), 0, "failed plays attach nothing")
 end
 
 -- A clip whose tracks bind no model element is a data failure at play time:

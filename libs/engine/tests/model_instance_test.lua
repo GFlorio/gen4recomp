@@ -113,16 +113,6 @@ function T.two_instances_animate_independently()
   Assert.isFalse(ma == mb, "per-instance playback state")
 end
 
-function T.multiple_simultaneous_clips()
-  local instance = newInstance()
-  instance:play("door.open")
-  instance:play("door.close")
-  Assert.equal(#instance.animationState:attachments("joint"), 2)
-  local stopped = instance:stop("door.close")
-  Assert.equal(stopped, 1)
-  Assert.equal(#instance.animationState:attachments("joint"), 1)
-end
-
 function T.stop_by_handle()
   local instance = newInstance()
   local handle = instance:play("door.open")
@@ -139,18 +129,6 @@ function T.play_validates_loop_options()
   ok = pcall(instance.play, instance, "door.open", { direction = -1 })
   Assert.isFalse(ok, "any direction option is rejected: reverse playback is cut")
   Assert.equal(#instance.animationState:attachments("joint"), 0, "failed plays attach nothing")
-end
-
--- Concurrent clips on one node blend by attachment ratio: at frame 0 the
--- open clip is the identity rotation and the close clip is the peak swing,
--- so a 50/50 cell blend with the basis-vector rebuild lands on the
--- half-angle (rotation about Y: cos(45deg) = 0.7071).
-function T.concurrent_clips_blend_on_the_same_node()
-  local instance = newInstance()
-  instance:play("door.open")
-  instance:play("door.close")
-  instance:evaluatePose()
-  Assert.near(swingCell(instance), math.cos(math.pi / 4), 1e-3)
 end
 
 -- ---- draw items ----

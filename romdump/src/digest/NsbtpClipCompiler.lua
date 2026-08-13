@@ -14,6 +14,10 @@
 --       { frame, texIdx, plttIdx } } } },
 --   }
 --
+-- The arrays are the counts: the payload carries no redundant
+-- keyCount/numTextures/numPalettes (the sampler trusts #keys,
+-- #textureNames, #paletteNames).
+--
 -- Texture/palette names are the runtime binding key: the material evaluator
 -- resolves each variant texture/palette by name against the model's texture
 -- set (the embedded TEX0 for real field models). Pure domain module.
@@ -35,13 +39,10 @@ function NsbtpClipCompiler.compilePayload(res)
       index = target.index,
       name = target.name,
       rate = target.rate,
-      keyCount = target.keyCount,
       keys = keys,
     }
   end
   return {
-    numTextures = res.numTextures,
-    numPalettes = res.numPalettes,
     textureNames = res.textureNames,
     paletteNames = res.paletteNames,
     targets = targets,

@@ -62,17 +62,11 @@ local function sampleVector(chan, frame)
   end
   if chan.rate == 2 then
     if frame % 2 == 1 then
-      if frame > chan.limit then
-        return single(math.floor(chan.limit / 2) + 1)
-      end
       return pair(math.floor(frame / 2))
     end
     return single(math.floor(frame / 2))
   elseif chan.rate == 4 then
     if frame % 4 ~= 0 then
-      if frame > chan.limit then
-        return single(frame % 4 + math.floor(chan.limit / 4))
-      end
       if frame % 4 == 2 then
         return pair(math.floor(frame / 4))
       end
@@ -127,17 +121,11 @@ local function sampleRot(chan, frame)
   end
   if chan.rate == 2 then
     if frame % 2 == 1 then
-      if frame > chan.limit then
-        return unpackRot(singleWord(math.floor(chan.limit / 2) + 1))
-      end
       return avgPair(math.floor(frame / 2))
     end
     return unpackRot(singleWord(math.floor(frame / 2)))
   elseif chan.rate == 4 then
     if frame % 4 ~= 0 then
-      if frame > chan.limit then
-        return unpackRot(singleWord(frame % 4 + math.floor(chan.limit / 4)))
-      end
       if frame % 4 == 2 then
         return avgPair(math.floor(frame / 4))
       end
@@ -153,7 +141,10 @@ end
 
 -- Sample one target of a compiled NSBTA clip at `frameFx` (fixed-point;
 -- the calc uses the integer frame, so the fractional part is ignored and
--- the frame is clamped into [0, numFrame - 1] like the decoder). Returns
+-- the frame is clamped into [0, numFrame - 1] like the decoder). The gate
+-- enforces limit == frameCount for every curve, so frame > limit is
+-- unreachable and the rate-2/rate-4 tails the raw decoder keeps for
+-- out-of-range frames do not exist here. Returns
 -- the texture-SRT state consumed by the texture-matrix conventions:
 --   transS/transT/scaleS/scaleT   raw fx values (meaningful only when the
 --                                 matching "one" flag is clear)

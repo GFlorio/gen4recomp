@@ -700,7 +700,6 @@ function T.validate_rejects_a_pattern_key_index_out_of_range()
           index = 0,
           name = "wall",
           rate = 0x1000,
-          keyCount = 1,
           keys = { { frame = 0, texIdx = 1, plttIdx = 0xFF } },
         },
       },
@@ -709,6 +708,36 @@ function T.validate_rejects_a_pattern_key_index_out_of_range()
   throwsCode("MODEL_DESC_INVALID", function()
     ModelAsset.validate(desc)
   end)
+end
+
+-- The compiled NSBTP payload trusts its arrays: the redundant
+-- keyCount/numTextures/numPalettes counts were cut from the serialized
+-- shape, so a count-less payload is current-schema data the gate accepts.
+function T.validate_accepts_a_pattern_payload_without_counts()
+  local desc = emittedDynamicDescriptor()
+  desc.animations[1] = {
+    id = "build_anim-3",
+    name = "pattern",
+    category = "material",
+    kind = "pattern",
+    frameCount = 8,
+    tracks = { { target = "wall", targetIndex = 0 } },
+    semanticNames = {},
+    source = { type = "nitro", format = "NSBTP", archive = "build_anim", memberId = 3 },
+    compiled = {
+      textureNames = { "v1" },
+      paletteNames = { "v1_pl" },
+      targets = {
+        {
+          index = 0,
+          name = "wall",
+          rate = 0x1000,
+          keys = { { frame = 0, texIdx = 0, plttIdx = 0xFF } },
+        },
+      },
+    },
+  }
+  Assert.equal(ModelAsset.validate(desc), desc)
 end
 
 return T

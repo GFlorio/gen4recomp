@@ -29,6 +29,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local ErrorCodes = require("libs.assets.src.ErrorCodes")
+local FixedPoint = require("libs.math.src.FixedPoint")
 local JointAnimBlend = require("libs.engine.src.JointAnimBlend")
 local NitroJointState = require("libs.engine.src.NitroJointState")
 local CompiledNsbcaSampler = require("libs.engine.src.CompiledNsbcaSampler")
@@ -55,52 +56,42 @@ end
 
 -- The effective per-node SRT records from the instance's joint attachments:
 -- sampling + blending per node, with channels the clips leave to the model
--- resolved against the program's bind SRTs.
+-- resolved against the program's bind SRTs. Attach rejects a second
+-- same-kind clip, so at most one joint clip plays; the blend still runs
+-- through JointAnimBlend with the full default ratio (the multi-attachment
+-- blend was cut with same-kind stacking, so it always takes its
+-- single-contributor shortcut).
 local function nodeSrt(program, attachments)
   local srt = {}
-  local entriesByNode = {}
   for _, attachment in ipairs(attachments) do
-    if attachment.ratioFx > 0 then
-      local clip = attachment.clip
-      if not clip.compiled then
-        Errors.raise(
-          "POSE_NITRO_JOINT_CLIP_NOT_COMPILED",
-          "joint clip "
-            .. clip.id
-            .. " on model "
-            .. program.name
-            .. " is not a compiled NSBCA clip; the Nitro backend cannot sample it",
-          { clip = clip.id, model = program.name }
+    local clip = attachment.clip
+    if not clip.compiled then
+      Errors.raise(
+        "POSE_NITRO_JOINT_CLIP_NOT_COMPILED",
+        "joint clip "
+          .. clip.id
+          .. " on model "
+          .. program.name
+          .. " is not a compiled NSBCA clip; the Nitro backend cannot sample it",
+        { clip = clip.id, model = program.name }
+      )
+    end
+    for _, track in ipairs(clip.tracks) do
+      local nodeIndex = attachment.binding.map[track.target]
+      -- Targets that name nodes the program does not carry are ignored,
+      -- like the digest-side provider's permissive binding.
+      if nodeIndex ~= nil and program.nodes[nodeIndex + 1] then
+        srt[nodeIndex] = NitroJointState.srtFromBlend(
+          JointAnimBlend.blend({
+            {
+              ratio = FixedPoint.FX32_SCALE,
+              result = CompiledNsbcaSampler.sample(clip, track.targetIndex, attachment.player.frameFx),
+            },
+          }),
+          program.nodes[nodeIndex + 1]
         )
       end
-      for _, track in ipairs(clip.tracks) do
-        local nodeIndex = attachment.binding.map[track.target]
-        -- Targets that name nodes the program does not carry are ignored,
-        -- like the digest-side provider's permissive binding.
-        if nodeIndex ~= nil and program.nodes[nodeIndex + 1] then
-          local list = entriesByNode[nodeIndex] or {}
-          list[#list + 1] = {
-            ratio = attachment.ratioFx,
-            clip = clip,
-            track = track,
-            player = attachment.player,
-          }
-          entriesByNode[nodeIndex] = list
-        end
-      end
     end
-  end
-  for nodeIndex, entries in pairs(entriesByNode) do
-    local contributed = {}
-    for _, entry in ipairs(entries) do
-      contributed[#contributed + 1] = {
-        ratio = entry.ratio,
-        result = CompiledNsbcaSampler.sample(entry.clip, entry.track.targetIndex, entry.player.frameFx),
-      }
-    end
-    -- Every entry here carries a positive ratio, so the blend always has a
-    -- contributor and never returns nil.
-    srt[nodeIndex] = NitroJointState.srtFromBlend(JointAnimBlend.blend(contributed), program.nodes[nodeIndex + 1])
   end
   return srt
 end

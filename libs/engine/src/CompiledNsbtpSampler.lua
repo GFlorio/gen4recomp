@@ -11,6 +11,10 @@
 --     targets = { { index, name, rate, keys = {
 --       { frame, texIdx, plttIdx } } } } }
 --
+-- The arrays are the counts: the payload carries no keyCount/
+-- numTextures/numPalettes, so the sampler reads #keys/#textureNames/
+-- #paletteNames.
+--
 -- The calc consumes the integer frame (frame >> 12; the caller drops the
 -- fractional part before sampling), and returns the active key: start at
 -- (rate * frame) >> 12, walk back while key.frame >= frame (floor 0) and
@@ -32,14 +36,15 @@ function CompiledNsbtpSampler.keyAt(clip, targetIndex, frameFx)
     "target index " .. tostring(targetIndex) .. " out of range for clip " .. clip.id
   )
   local frame = math.floor(frameFx / FRAME_UNIT)
+  local keyCount = #target.keys
   local i = math.floor(target.rate * frame / FRAME_UNIT)
-  if i >= target.keyCount then
-    i = target.keyCount - 1
+  if i >= keyCount then
+    i = keyCount - 1
   end
   while i > 0 and target.keys[i].frame >= frame do
     i = i - 1
   end
-  while i + 1 < target.keyCount and target.keys[i + 2].frame <= frame do
+  while i + 1 < keyCount and target.keys[i + 2].frame <= frame do
     i = i + 1
   end
   return target.keys[i + 1]

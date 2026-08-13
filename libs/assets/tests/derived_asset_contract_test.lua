@@ -18,7 +18,7 @@ local T = {}
 
 function T.contract_pins_the_current_asset_identities()
   Assert.deepEqual(DerivedAssetContract, {
-    revision = 1,
+    revision = 2,
     map = {
       cacheFormat = "map-cache-v6",
       sceneSchema = "g4-map-scene-v4",

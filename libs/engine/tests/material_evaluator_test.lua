@@ -64,8 +64,6 @@ local function patternClip()
     semanticNames = {},
     source = { type = "nitro", format = "NSBTP" },
     compiled = {
-      numTextures = 2,
-      numPalettes = 2,
       textureNames = { "sign.a", "sign.b" },
       paletteNames = { "sign.a_pl", "sign.b_pl" },
       targets = {
@@ -73,7 +71,6 @@ local function patternClip()
           index = 0,
           name = "wall",
           rate = 0x800,
-          keyCount = 4,
           keys = {
             { frame = 0, texIdx = 0, plttIdx = 0xFF },
             { frame = 2, texIdx = 1, plttIdx = 0xFF },
@@ -579,37 +576,6 @@ function T.no_attachments_restores_the_base_state()
   Assert.equal(state.alphaClass, "cutout")
 end
 
-function T.ignores_zero_ratio_attachments()
-  local def = texturedDefinition()
-  local instance = ModelInstance.new(definitionWith(def, { scrollClip(4, { 0, 0x100, 0x200, 0x300 }) }))
-  instance:play("scroll", { ratioFx = 0 })
-  instance:evaluateMaterials()
-  local state = instance.materialState[0]
-  local identity = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
-  for i = 1, 9 do
-    Assert.near(state.texMatrix[i], identity[i], 1e-9)
-  end
-end
-
-function T.highest_priority_attachment_wins()
-  local def = texturedDefinition()
-  local low = scrollClip(4, { 0x0, 0x100, 0x200, 0x300 })
-  low.name, low.id = "scrollLow", "fixture:scrollLow"
-  local high = scrollClip(4, { 0x0, 0x200, 0x400, 0x600 })
-  high.name, high.id = "scrollHigh", "fixture:scrollHigh"
-  local instance = ModelInstance.new(definitionWith(def, { low, high }))
-  instance:play("scrollHigh", { priority = 0x20 })
-  instance:play("scrollLow", { priority = 0x10 })
-  instance:updateFixed()
-  instance:evaluateMaterials()
-  Assert.near(
-    instance.materialState[0].texMatrix[7],
-    -0x200 / 4096,
-    1e-9,
-    "the higher priority clip drives the material"
-  )
-end
-
 -- The evaluator consumes the attachment's PRECOMPUTED material binding:
 -- the attachment carries the material-index -> track-index
 -- mapping resolved at definition assembly, so evaluation never loops every
@@ -624,28 +590,6 @@ function T.attachments_carry_the_precomputed_material_binding()
   Assert.deepEqual(attachment.binding.trackByMaterial, { [0] = 0 })
 end
 
--- Equal-priority ties resolve to the LAST attached attachment: attachment
--- order IS significant to the selection (the comment claiming otherwise is
--- wrong), so the contract pins the tie behavior.
-function T.equal_priority_ties_resolve_to_the_last_attached()
-  local def = texturedDefinition()
-  local first = scrollClip(4, { 0x0, 0x100, 0x200, 0x300 })
-  first.name, first.id = "scrollFirst", "fixture:scrollFirst"
-  local last = scrollClip(4, { 0x0, 0x200, 0x400, 0x600 })
-  last.name, last.id = "scrollLast", "fixture:scrollLast"
-  local instance = ModelInstance.new(definitionWith(def, { first, last }))
-  instance:play("scrollFirst", { priority = 0x10 })
-  instance:play("scrollLast", { priority = 0x10 })
-  instance:updateFixed()
-  instance:evaluateMaterials()
-  Assert.near(
-    instance.materialState[0].texMatrix[7],
-    -0x200 / 4096,
-    1e-9,
-    "the last-attached clip wins an equal-priority tie"
-  )
-end
-
 function T.missing_variant_raises()
   local def = texturedDefinition()
   local clip = patternClip()
@@ -657,12 +601,17 @@ function T.missing_variant_raises()
   end)
 end
 
+-- Only the Maya convention (mode 0) is compiled; every other mode -- Si3D
+-- (1), 3ds Max (2), XSI (3) -- has no transcription and raises rather than
+-- silently falling back (no real HGSS field asset uses them).
 function T.unsupported_texture_matrix_mode_raises()
-  local def = texturedDefinition({ texMtxMode = 2 })
-  local instance = ModelInstance.new(def)
-  throwsCode("ANIM_MATERIAL_UNSUPPORTED_TEXMTX_MODE", function()
-    instance:evaluateMaterials()
-  end)
+  for _, mode in ipairs({ 1, 2 }) do
+    local def = texturedDefinition({ texMtxMode = mode })
+    local instance = ModelInstance.new(def)
+    throwsCode("ANIM_MATERIAL_UNSUPPORTED_TEXMTX_MODE", function()
+      instance:evaluateMaterials()
+    end)
+  end
 end
 
 -- A material without a texture carries no UV transform and classifies on

@@ -40,7 +40,6 @@ function AnimationPlayer.new(clip)
   return setmetatable({
     frameCount = frameCount,
     frameFx = 0,
-    deltaFx = AnimationPlayer.FRAME_UNIT,
     loopMode = "loop",
     completed = false,
   }, AnimationPlayer)
@@ -54,7 +53,7 @@ function AnimationPlayer:updateFixed()
     return
   end
   local stepFx = self.frameCount * AnimationPlayer.FRAME_UNIT
-  local frameFx = self.frameFx + self.deltaFx
+  local frameFx = self.frameFx + AnimationPlayer.FRAME_UNIT
 
   if frameFx >= stepFx then
     if self.loopMode == "once" then

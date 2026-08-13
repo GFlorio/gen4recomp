@@ -435,8 +435,6 @@ local function patternClip()
     semanticNames = {},
     source = { type = "nitro", format = "NSBTP", archive = "build_anim", memberId = 3 },
     compiled = {
-      numTextures = 1,
-      numPalettes = 0,
       textureNames = { "v1" },
       paletteNames = {},
       targets = {
@@ -444,7 +442,6 @@ local function patternClip()
           index = 0,
           name = "wall",
           rate = 0x1000,
-          keyCount = 1,
           keys = { { frame = 0, texIdx = 0, plttIdx = 0xFF } },
         },
       },
@@ -566,8 +563,6 @@ function T.animated_building_loads_advances_and_renders()
   instance:updateFixed()
   Assert.isTrue(handle.player:isComplete())
 
-  -- The scene's door lookup resolves the loader-built instance from the door
-  -- tile and drives the semantic door animation.
   local doorMap = {
     mapId = 61,
     coordinateOrigin = { x = 0, z = 0 },
@@ -580,6 +575,11 @@ function T.animated_building_loads_advances_and_renders()
     },
     collision = runtime.collision,
   }
+  -- The scene's door lookup resolves the loader-built instance from the door
+  -- tile and drives the semantic door animation (the manual play above is
+  -- stopped first: one attachment per kind, so the door replay must not
+  -- stack).
+  instance:stop(handle)
   local door = runtime.mapProps:doorAt(doorMap, 4, 14)
   assert(door)
   Assert.equal(door.instance, instance)

@@ -551,17 +551,6 @@ function T.prop_resolves_an_animated_placement_by_index()
   Assert.equal(#instances[1].animationState:attachments("joint"), 0)
 end
 
-function T.prop_play_accepts_clip_names_and_options()
-  local props, instances = doorScene()
-  local prop = assert(props:prop(1))
-  prop:play("DoorOpen", { ratioFx = 0x2000 })
-  local attachment = instances[1].animationState:attachments("joint")[1]
-  Assert.equal(attachment.ratioFx, 0x2000)
-  Assert.equal(attachment.player.frameFx, 0, "play starts at frame 0, forward")
-  instances[1]:updateFixed()
-  Assert.equal(attachment.player.frameFx, 4096, "the clip always plays forward")
-end
-
 function T.prop_is_finished_is_nil_before_any_play()
   local props = doorScene()
   local prop = assert(props:prop(1))

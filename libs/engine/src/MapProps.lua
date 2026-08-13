@@ -301,9 +301,8 @@ local function attachmentByClip(instance, clip)
 end
 
 -- Play an animation by role or clip name; `opts` passes through to the
--- instance (priority, ratioFx, loopMode, direction). Returns the live
--- attachment handle. Raises MAP_PROP_ANIM_UNKNOWN for a name the model does
--- not define.
+-- instance (loopMode). Returns the live attachment handle. Raises
+-- MAP_PROP_ANIM_UNKNOWN for a name the model does not define.
 function SceneProp:play(animation, opts)
   if not self.instance then
     return nil

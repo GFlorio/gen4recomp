@@ -9,20 +9,19 @@
 -- members), so there is no visibility group and the clip category
 -- vocabulary is joint and material.
 --
--- Attachments are attached by clip category into the matching group and are
--- independent of each other: any number of clips of any group can play
--- simultaneously on one model. The binding comes from the definition (the
--- definition IS the model), so attach takes the clip and playback opts only
--- -- never a caller-supplied binding. Each attach returns the
--- LIVE attachment as the handle; detach(handle) removes exactly that
--- attachment. Storage is compact: each group is an array of the active
--- attachments in attach order, so attachments(category) snapshots only what
--- is active and detach never scans the other groups -- there is
--- no token bookkeeping and no monotonically growing range. The group
--- evaluators (pose backends, material evaluator) read attachments() at
--- evaluation time; attachment order IS significant to the material
--- evaluator's equal-priority tie (last attached wins), so the snapshot keeps
--- attach order.
+-- Attachments are attached by clip category into the matching group. One
+-- attachment per clip kind: a second same-kind clip is rejected at attach
+-- (the material priority arbitration is cut; the joint group's only kind is
+-- trs, so it is single-attachment for the same reason). The binding comes
+-- from the definition (the definition IS the model), so attach takes the
+-- clip and playback opts only -- never a caller-supplied binding. Each
+-- attach returns the LIVE attachment as the handle; detach(handle) removes
+-- exactly that attachment. Storage is compact: each group is an array of
+-- the active attachments in attach order, so attachments(category)
+-- snapshots only what is active and detach never scans the other groups --
+-- there is no token bookkeeping and no monotonically growing range. The
+-- group evaluators (pose backends, material evaluator) read attachments()
+-- at evaluation time.
 --
 -- Two instances of one model each own a state, so the same clip can play at
 -- different frames on different instances. Pure domain module.
@@ -36,9 +35,6 @@ ModelAnimationState.__index = ModelAnimationState
 
 ModelAnimationState.GROUPS = { "joint", "material" }
 
-ModelAnimationState.DEFAULT_PRIORITY = 0x7F
-ModelAnimationState.DEFAULT_RATIO_FX = 0x1000
-
 function ModelAnimationState.new(definition)
   assert(type(definition) == "table" and definition.key ~= nil, "ModelAnimationState.new requires a ModelDefinition")
   return setmetatable({
@@ -49,10 +45,10 @@ end
 
 -- Attach a clip to the group its category selects, bound through the
 -- definition's precomputed binding. `opts` may supply the player (defaults
--- to a fresh one), priority (0..0xFF), and ratioFx (any integer; combination
--- evaluates the sign). A clip whose binding resolves zero model elements is
--- a data failure and raises ANIM_STATE_ZERO_BINDING. Returns the LIVE
--- attachment as the handle.
+-- to a fresh one). A clip whose binding resolves zero model elements is a
+-- data failure and raises ANIM_STATE_ZERO_BINDING; a second attachment of
+-- the same kind raises ANIM_STATE_SAME_KIND_IN_USE (one attachment per
+-- kind). Returns the LIVE attachment as the handle.
 function ModelAnimationState:attach(clip, opts)
   if not AnimationClip.CATEGORIES[clip.category] then
     Errors.raise(
@@ -74,32 +70,30 @@ function ModelAnimationState:attach(clip, opts)
     )
   end
 
-  opts = opts or {}
-  local priority = opts.priority or ModelAnimationState.DEFAULT_PRIORITY
-  local ratioFx = opts.ratioFx or ModelAnimationState.DEFAULT_RATIO_FX
-  if not (type(priority) == "number" and math.floor(priority) == priority and priority >= 0 and priority <= 0xFF) then
-    Errors.raise(
-      "ANIM_ATTACHMENT_BAD_PRIORITY",
-      "attachment priority must be an integer in 0..0xFF, got " .. tostring(priority),
-      { clip = clip.id }
-    )
-  end
-  if not (type(ratioFx) == "number" and math.floor(ratioFx) == ratioFx) then
-    Errors.raise(
-      "ANIM_ATTACHMENT_BAD_RATIO",
-      "attachment ratioFx must be an integer, got " .. tostring(ratioFx),
-      { clip = clip.id }
-    )
+  local group = self.groups[clip.category]
+  for _, attachment in ipairs(group) do
+    if attachment.clip.kind == clip.kind then
+      Errors.raise(
+        "ANIM_STATE_SAME_KIND_IN_USE",
+        "clip "
+          .. clip.id
+          .. " (kind "
+          .. tostring(clip.kind)
+          .. ") conflicts with the already-attached "
+          .. attachment.clip.id
+          .. " on "
+          .. self.definition.key
+          .. "; one attachment per kind",
+        { clip = clip.id, kind = clip.kind, modelKey = self.definition.key }
+      )
+    end
   end
 
   local attachment = {
     clip = clip,
     binding = binding,
-    player = opts.player or AnimationPlayer.new(clip),
-    priority = priority,
-    ratioFx = ratioFx,
+    player = (opts or {}).player or AnimationPlayer.new(clip),
   }
-  local group = self.groups[clip.category]
   group[#group + 1] = attachment
   return attachment
 end

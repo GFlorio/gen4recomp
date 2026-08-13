@@ -1,15 +1,13 @@
 -- Nitro texture-matrix conventions: the per-convention math that turns a
 -- texture-SRT state into the six texture-matrix cells the geometry engine
--- loads. The model's texMtxMode selects Maya (0), Si3D (1), 3ds Max (2) and
--- XSI (3); Diamond ships separate implementations and the conventions
--- genuinely differ, so no single generic UV formula is used.
+-- loads. The model's texMtxMode selects the convention; only Maya (mode 0)
+-- is transcribed -- Si3D (1), 3ds Max (2) and XSI (3) have no compiled
+-- convention and raise at the evaluator (no real HGSS field asset uses
+-- them).
 --
--- Authority: pokediamond arm9/asm/NNS_G3D_maya.s / NNS_G3D_si3d.s (pinned
--- commit 038cccaed, 2025-12-24), the texmtxCalc_* variants and the two
--- SendTexSRT shells. All HGSS field build models use mode 0 (Maya); Si3D is
--- implemented from the asm too; 3ds Max and XSI remain a transcription of
--- their texmtxCalc_* variants (their SendTexSRT shells are structurally
--- identical to Maya's).
+-- Authority: pokediamond arm9/asm/NNS_G3D_maya.s (pinned commit
+-- 038cccaed, 2025-12-24), the texmtxCalc_* variants and the SendTexSRT
+-- shell. All HGSS field build models use mode 0 (Maya).
 --
 -- Correction over the earlier transcription: the anm result's scale and
 -- translation slots enter the cells in the asm order -- scaleS/scaleT at
@@ -230,46 +228,6 @@ local MAYA_VARIANTS = {
 
 function NitroTexMatrix.maya(srt)
   return applyRatios(MAYA_VARIANTS[variantIndex(srt) + 1](srt), srt)
-end
-
--- ---- Si3D (mode 1) ----
-
--- NNSi_G3dSendTexSRTSi3d (0x020BEF10): one inline build, no variant
--- dispatch. The convention maps the result fields differently from Maya:
--- the matrix's scale cells come from the scale slots (the "one" flags are
--- the same GetTexSRTAnm_ bits), and the translation cells fold the
--- trans/scale products the same way as Maya's flag_/flagR_ variants.
---   cells: { m00, 0, 0, m11, m20, m21 } at 0x08/0x18/0x2c/0x30.
-function NitroTexMatrix.si3d(srt)
-  local scaleOne = srt.scaleOne
-  local transOne = srt.transOne
-  local m00, m11, m20, m21
-  if scaleOne then
-    m20, m21 = 0, 0
-    if transOne then
-      m00, m11 = 0x1000, 0x1000
-    else
-      m00, m11 = srt.scaleS, srt.scaleT
-    end
-  elseif transOne then
-    m00, m11 = 0x1000, 0x1000
-    m20 = wrap32(-shl(srt.transS, 4) * srt.width)
-    m21 = wrap32(-shl(srt.transT, 4) * srt.height)
-  else
-    m00, m11 = srt.scaleS, srt.scaleT
-    m20 = wrap32(-mul32(srt.width, mulShr8(srt.scaleS, srt.transS)))
-    m21 = wrap32(-mul32(srt.height, mulShr8(srt.scaleT, srt.transT)))
-  end
-  local cells = { m00, 0, 0, m11, m20, m21 }
-  if srt.ratioS and srt.ratioS ~= 0x1000 then
-    cells[1] = mulFx(cells[1], srt.ratioS)
-    cells[5] = mulFx(cells[5], srt.ratioS)
-  end
-  if srt.ratioT and srt.ratioT ~= 0x1000 then
-    cells[4] = mulFx(cells[4], srt.ratioT)
-    cells[6] = mulFx(cells[6], srt.ratioT)
-  end
-  return cells
 end
 
 NitroTexMatrix.mulFx = mulFx

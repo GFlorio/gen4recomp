@@ -25,7 +25,6 @@ end
 function T.default_state()
   local p = new(8)
   Assert.equal(p.frameFx, 0)
-  Assert.equal(p.deltaFx, 0x1000)
   Assert.equal(p.loopMode, "loop")
   Assert.isFalse(p.completed)
   Assert.isFalse(p:isComplete())
@@ -76,7 +75,6 @@ end
 function T.the_direction_api_is_cut()
   local p = new(8)
   Assert.isNil(p.setDirection, "setDirection has no caller and must not exist")
-  Assert.equal(p.deltaFx, 0x1000, "the step is always forward")
 end
 
 function T.the_terminal_split_is_cut()

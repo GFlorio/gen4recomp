@@ -157,13 +157,14 @@ end
 -- Start playing a clip, resolved by name or semantic role (e.g.
 -- "door.open"). The binding comes from the definition's precomputed record;
 -- player setup happens here, once per play, never per frame. `opts` passes
--- through to the attachment: priority, ratioFx, loopMode. There is no
+-- the player and loopMode through to the attachment. There is no
 -- direction option; a one-shot always plays forward from 0. Returns the LIVE
 -- attachment as the handle (a plain table carrying
--- clip/binding/player/priority/ratioFx) for stop() -- there is no token
--- layer. Every play attaches an independent player, so several clips can run
--- simultaneously. A clip that binds no model element raises
--- ANIM_STATE_ZERO_BINDING and attaches nothing.
+-- clip/binding/player) for stop() -- there is no token
+-- layer. Every play attaches an independent player, so several clips of
+-- different kinds can run simultaneously; a second clip of a kind that is
+-- already playing raises ANIM_STATE_SAME_KIND_IN_USE. A clip that binds no
+-- model element raises ANIM_STATE_ZERO_BINDING and attaches nothing.
 function ModelInstance:play(nameOrSemantic, opts)
   local clip = self.definition:animation(nameOrSemantic)
   if not clip then
@@ -184,11 +185,7 @@ function ModelInstance:play(nameOrSemantic, opts)
     player.loopMode = opts.loopMode
   end
 
-  return self.animationState:attach(clip, {
-    player = player,
-    priority = opts.priority,
-    ratioFx = opts.ratioFx,
-  })
+  return self.animationState:attach(clip, { player = player })
 end
 
 -- Stop playing clips: by attachment handle (exactly that attachment), or by

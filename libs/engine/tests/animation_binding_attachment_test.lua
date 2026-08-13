@@ -5,10 +5,12 @@
 -- MaterialEvaluator consumes -- and the state attaches clips WITHOUT a
 -- caller-supplied binding: attach(clip, opts) builds the attachment from the
 -- definition's precomputed binding and returns the LIVE attachment as the
--- handle. The attachment is a plain table (clip/binding/player/priority/
--- ratioFx); detach takes that handle and removes exactly one attachment;
--- attachments(category) snapshots only the active attachments. There are no
--- tokens: play/stop cycles leave no monotonically growing range behind.
+-- handle. One attachment per clip kind: a second same-kind clip raises
+-- ANIM_STATE_SAME_KIND_IN_USE. The attachment is a plain table
+-- (clip/binding/player); detach takes that handle and removes exactly one
+-- attachment; attachments(category) snapshots only the active attachments.
+-- There are no tokens: play/stop cycles leave no monotonically growing range
+-- behind.
 
 local Assert = require("tests.support.Assert")
 local AnimationClip = require("libs.assets.src.AnimationClip")
@@ -189,17 +191,15 @@ end
 -- ---- ModelAnimationState ----
 
 -- The collapsed attach surface: the binding comes from the definition, so
--- attach takes the clip and opts (priority/ratioFx/player), never a caller
--- binding. It returns the LIVE attachment as the handle.
+-- attach takes the clip and the optional player, never a caller binding. It
+-- returns the LIVE attachment as the handle.
 function T.state_attach_builds_the_attachment_from_the_definitions_binding()
   local def = definition()
   local state = ModelAnimationState.new(def)
   local clip = def:animation("joint")
-  local handle = state:attach(clip, { priority = 0x20, ratioFx = 0x800 })
+  local handle = state:attach(clip)
   Assert.equal(handle.clip, clip)
   Assert.equal(handle.binding, def:binding(clip), "the attachment carries the precomputed binding")
-  Assert.equal(handle.priority, 0x20)
-  Assert.equal(handle.ratioFx, 0x800)
   Assert.notNil(handle.player)
   Assert.equal(handle.player.frameCount, 8)
 end
@@ -207,15 +207,14 @@ end
 function T.state_detach_removes_the_exact_attachment()
   local def = definition()
   local state = ModelAnimationState.new(def)
-  local clip = def:animation("joint")
-  local first = state:attach(clip)
-  local second = state:attach(clip)
-  state:detach(first)
-  local joint = state:attachments("joint")
-  Assert.equal(#joint, 1)
-  Assert.isTrue(joint[1] == second, "detaching one handle leaves the other attachment")
-  state:detach(second)
+  local joint = state:attach(def:animation("joint"))
+  local material = state:attach(def:animation("material"))
+  state:detach(joint)
   Assert.equal(#state:attachments("joint"), 0)
+  Assert.equal(#state:attachments("material"), 1)
+  Assert.isTrue(state:attachments("material")[1] == material, "detaching one handle leaves the other attachment")
+  state:detach(material)
+  Assert.equal(#state:attachments("material"), 0)
 end
 
 -- The O(active) enumeration contract: play/stop cycles must
@@ -241,44 +240,45 @@ end
 function T.state_double_detach_is_a_noop()
   local def = definition()
   local state = ModelAnimationState.new(def)
-  local clip = def:animation("joint")
-  local first = state:attach(clip)
-  local second = state:attach(clip)
-  state:detach(first)
-  state:detach(first)
-  Assert.equal(#state:attachments("joint"), 1)
-  Assert.isTrue(state:attachments("joint")[1] == second, "the second detach leaves the other attachment")
+  local joint = state:attach(def:animation("joint"))
+  local material = state:attach(def:animation("material"))
+  state:detach(joint)
+  state:detach(joint)
+  Assert.equal(#state:attachments("joint"), 0)
+  Assert.equal(#state:attachments("material"), 1)
+  Assert.isTrue(state:attachments("material")[1] == material, "the second detach leaves the other attachment")
 end
 
+-- Different-kind clips coexist: joint (trs) and material (color) clips
+-- attach side by side in attach order, and every player advances.
 function T.state_attachments_are_in_attach_order()
   local def = definition()
   local state = ModelAnimationState.new(def)
-  local clip = def:animation("joint")
-  local first = state:attach(clip)
-  local second = state:attach(clip)
-  local joint = state:attachments("joint")
-  Assert.isTrue(joint[1] == first)
-  Assert.isTrue(joint[2] == second)
+  local joint = state:attach(def:animation("joint"))
+  local material = state:attach(def:animation("material"))
+  local jointAttachments = state:attachments("joint")
+  Assert.isTrue(jointAttachments[1] == joint)
+  local materialAttachments = state:attachments("material")
+  Assert.isTrue(materialAttachments[1] == material)
 end
 
 function T.state_updates_all_players()
   local def = definition()
   local state = ModelAnimationState.new(def)
-  local clip = def:animation("joint")
-  local a = state:attach(clip)
-  local b = state:attach(clip)
+  local joint = state:attach(def:animation("joint"))
+  local material = state:attach(def:animation("material"))
   state:updateFixed()
-  Assert.equal(a.player.frameFx, 0x1000)
-  Assert.equal(b.player.frameFx, 0x1000)
+  Assert.equal(joint.player.frameFx, 0x1000)
+  Assert.equal(material.player.frameFx, 0x1000)
 end
 
 function T.state_supports_multiple_simultaneous_clips()
   local def = definition()
   local state = ModelAnimationState.new(def)
-  local clip = def:animation("joint")
-  state:attach(clip)
-  state:attach(clip)
-  Assert.equal(#state:attachments("joint"), 2)
+  state:attach(def:animation("joint"))
+  state:attach(def:animation("material"))
+  Assert.equal(#state:attachments("joint"), 1)
+  Assert.equal(#state:attachments("material"), 1)
 end
 
 -- ---- validation stays ----
@@ -294,16 +294,17 @@ function T.zero_binding_clip_cannot_be_attached()
   end)
 end
 
--- Bad policy values are rejected at attach time, not deferred to evaluation.
-function T.bad_priority_or_ratio_raises()
+-- One attachment per clip kind: the state rejects a conflicting same-kind
+-- attachment instead of arbitrating between them (the material priority
+-- arbitration is cut, and the joint group's only kind is trs, so it is
+-- single-attachment for the same reason).
+function T.state_rejects_a_second_same_kind_attachment()
   local def = definition()
   local state = ModelAnimationState.new(def)
   local clip = def:animation("joint")
-  throwsCode("ANIM_ATTACHMENT_BAD_PRIORITY", function()
-    return state:attach(clip, { priority = 0x100 })
-  end)
-  throwsCode("ANIM_ATTACHMENT_BAD_RATIO", function()
-    return state:attach(clip, { ratioFx = 0.5 })
+  state:attach(clip)
+  throwsCode("ANIM_STATE_SAME_KIND_IN_USE", function()
+    return state:attach(clip)
   end)
 end
 

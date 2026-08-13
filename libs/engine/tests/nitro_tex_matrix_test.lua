@@ -1,7 +1,9 @@
--- Synthetic tests for the texture-matrix conventions (Maya + Si3D,
--- transcribed from the pinned pokediamond asm). The raw static texture-SRT
--- decode (NsbmdMaterialSrt) is tested in romdump/tests; this suite covers
--- only the engine-side NitroTexMatrix dispatch and matrix assembly.
+-- Synthetic tests for the texture-matrix convention (Maya, transcribed from
+-- the pinned pokediamond asm). Si3D (mode 1) is cut: no real HGSS field
+-- asset uses it, and mode-1 materials raise at the evaluator. The raw
+-- static texture-SRT decode (NsbmdMaterialSrt) is tested in
+-- romdump/tests; this suite covers only the engine-side NitroTexMatrix
+-- dispatch and matrix assembly.
 
 local Assert = require("tests.support.Assert")
 local NitroTexMatrix = require("libs.engine.src.NitroTexMatrix")
@@ -159,37 +161,6 @@ function T.maya_ratios_apply()
   Assert.equal(cells[6], math.floor((0x2000 * 4) * 16 * 0x2000 / 4096))
   -- The identity cells are scaled too.
   Assert.equal(cells[1], math.floor(0x1000 * 0x800 / 4096))
-end
-
--- ---- NitroTexMatrix: Si3D ----
-
-function T.si3d_all_present()
-  local srt = { transS = 0x1000, transT = 0x2000, scaleS = 0x2000, scaleT = 0x1000, width = 8, height = 4 }
-  local cells = NitroTexMatrix.si3d(srt)
-  -- The scale slots feed the diagonal; the translation cells fold the
-  -- scale/trans products.
-  Assert.equal(cells[1], 0x2000)
-  Assert.equal(cells[4], 0x1000)
-  Assert.equal(cells[5], -8 * math.floor(0x2000 * 0x1000 / 256))
-  Assert.equal(cells[6], -4 * math.floor(0x1000 * 0x2000 / 256))
-end
-
-function T.si3d_trans_one()
-  local srt = { transOne = true, transS = 0x2000, transT = 0x1000, width = 8, height = 4 }
-  local cells = NitroTexMatrix.si3d(srt)
-  Assert.equal(cells[1], 0x1000)
-  Assert.equal(cells[4], 0x1000)
-  Assert.equal(cells[5], -(0x2000 * 8) * 16)
-  Assert.equal(cells[6], -(0x1000 * 4) * 16)
-end
-
-function T.si3d_scale_one()
-  local srt = { scaleOne = true, scaleS = 0x2000, scaleT = 0x1000, width = 8, height = 4 }
-  local cells = NitroTexMatrix.si3d(srt)
-  Assert.equal(cells[1], 0x2000)
-  Assert.equal(cells[4], 0x1000)
-  Assert.equal(cells[5], 0)
-  Assert.equal(cells[6], 0)
 end
 
 return T

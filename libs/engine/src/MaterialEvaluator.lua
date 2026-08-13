@@ -35,14 +35,11 @@
 -- from the selected texture's format/alpha usage and the effective polygon
 -- alpha before the render queue is built.
 --
--- When several attachments of one kind play, each target material is driven
--- by the highest-priority attachment whose clip binds to it; ties resolve to
--- the last attached. An attachment that targets disjoint materials never
--- suppresses another attachment's materials (Nitro carries at most one
--- animation per kind per object, so real assets never stack these, but the
--- selection is per target material, not per kind). Attachments with a
--- non-positive ratio are ignored. Pure domain module.
-
+-- There is no per-kind arbitration: attach rejects a second attachment of
+-- the same kind, so at most one clip of each kind (pattern/texsrt/color)
+-- plays on a model, and an attachment drives exactly its bound materials
+-- (Nitro carries at most one animation per kind per object, so real assets
+-- never stack these). Pure domain module.
 local Errors = require("libs.errors.src.Errors")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
@@ -54,13 +51,11 @@ local CompiledNsbmaSampler = require("libs.engine.src.CompiledNsbmaSampler")
 
 local MaterialEvaluator = {}
 
--- The texture-matrix conventions by model texMtxMode. Modes 2 and 3 (3ds
--- Max, XSI) have no transcribed formulas; no real HGSS field asset uses
--- them (census), so they raise rather than silently falling back.
-local CONVENTIONS = {
-  [0] = NitroTexMatrix.maya,
-  [1] = NitroTexMatrix.si3d,
-}
+-- The texture-matrix conventions by model texMtxMode. Only Maya (mode 0) is
+-- transcribed; Si3D (1), 3ds Max (2) and XSI (3) have no compiled formulas
+-- and no real HGSS field asset uses them (census), so they raise rather
+-- than silently falling back.
+local MAYA_MODE = 0
 
 -- BGR555 (low 5 bits -> blue) — the NSBMA packed order, the OPPOSITE of
 -- FixedPoint.rgb555 (low 5 bits -> red); keep this unpacking exactly.
@@ -87,22 +82,18 @@ local function trackForMaterial(attachment, materialIndex)
   return attachment.clip.tracks[trackIndex + 1]
 end
 
--- Pick the winning attachment of one kind for a single target material: the
--- highest priority whose clip actually binds to the material, ties to the
--- last attached (the attachment list is in attach order). Non-positive
--- ratios are ignored. Returns nil when none plays for the material.
-local function winnerForMaterial(attachments, kind, materialIndex)
-  local best
+-- The single playing attachment of `kind`, or nil: attach rejects a second
+-- same-kind attachment, so at most one exists; a second one here is a
+-- programming fault (the state was mutated outside attach).
+local function attachmentOfKind(attachments, kind)
+  local found
   for _, attachment in ipairs(attachments) do
-    if attachment.ratioFx > 0 and attachment.clip.kind == kind then
-      if attachment.binding.trackByMaterial[materialIndex] ~= nil then
-        if not best or attachment.priority >= best.priority then
-          best = attachment
-        end
-      end
+    if attachment.clip.kind == kind then
+      assert(found == nil, "state holds more than one " .. tostring(kind) .. " attachment")
+      found = attachment
     end
   end
-  return best
+  return found
 end
 
 -- The per-component base colors of a material record: the optional `colors`
@@ -293,9 +284,9 @@ function MaterialEvaluator.evaluate(definition, attachments, materialState)
   )
 
   for materialIndex = 0, #definition.materials - 1 do
-    local pattern = winnerForMaterial(attachments, AnimationClip.KINDS.PATTERN, materialIndex)
-    local texsrt = winnerForMaterial(attachments, AnimationClip.KINDS.TEXSRT, materialIndex)
-    local color = winnerForMaterial(attachments, AnimationClip.KINDS.COLOR, materialIndex)
+    local pattern = attachmentOfKind(attachments, AnimationClip.KINDS.PATTERN)
+    local texsrt = attachmentOfKind(attachments, AnimationClip.KINDS.TEXSRT)
+    local color = attachmentOfKind(attachments, AnimationClip.KINDS.COLOR)
 
     local baseState = baseMaterialState(definition, materialIndex)
     local material = baseState.record
@@ -303,7 +294,7 @@ function MaterialEvaluator.evaluate(definition, attachments, materialState)
     local patternTrack = pattern and trackForMaterial(pattern, materialIndex)
     local tex = currentTexture(material, pattern, patternTrack)
 
-    -- NSBMA: the winning color attachment overrides the sampled channels;
+    -- NSBMA: the playing color attachment overrides the sampled channels;
     -- channels it does not animate keep the base material colors. A playing
     -- clip drives the whole register set (compiled clips always carry all
     -- four color channels), so `colorAnimated` marks the material for the
@@ -329,7 +320,7 @@ function MaterialEvaluator.evaluate(definition, attachments, materialState)
       end
     end
 
-    -- NSBTA: the winning texture-SRT attachment drives the matrix for its
+    -- NSBTA: the playing texture-SRT attachment drives the matrix for its
     -- target materials; others keep the static SRT. The matrix is built
     -- against the current texture dimensions.
     local srt = staticSrt(material)
@@ -341,8 +332,7 @@ function MaterialEvaluator.evaluate(definition, attachments, materialState)
     end
 
     local mode = material.texMtxMode
-    local convention = CONVENTIONS[mode]
-    if not convention then
+    if mode ~= MAYA_MODE then
       Errors.raise(
         "ANIM_MATERIAL_UNSUPPORTED_TEXMTX_MODE",
         "model "
@@ -351,7 +341,7 @@ function MaterialEvaluator.evaluate(definition, attachments, materialState)
           .. tostring(material.name)
           .. " uses texture-matrix mode "
           .. tostring(mode)
-          .. " (3ds Max / XSI), which has no compiled convention",
+          .. ", which has no compiled convention (only Maya mode 0 is supported)",
         { modelKey = definition.key, material = material.name, mode = mode }
       )
     end
@@ -380,7 +370,7 @@ function MaterialEvaluator.evaluate(definition, attachments, materialState)
         alphaClass = alphaClass,
       }
     else
-      local cells = convention({
+      local cells = NitroTexMatrix.maya({
         transS = srt.transS,
         transT = srt.transT,
         sin = srt.rot and srt.rot.sin or 0,

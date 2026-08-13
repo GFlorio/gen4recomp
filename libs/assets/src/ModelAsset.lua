@@ -477,7 +477,8 @@ local function checkColorPayload(compiled, clip, desc)
 end
 
 -- NSBTP (pattern): the texture/palette name tables and one target per track,
--- whose keys index them.
+-- whose keys index them. The payload trusts its arrays: no redundant
+-- keyCount/numTextures/numPalettes counts are carried.
 local function checkPatternPayload(compiled, clip, desc)
   local where = "animation " .. clip.id
   if not Validate.isArray(compiled.textureNames) or #compiled.textureNames == 0 then
@@ -506,9 +507,6 @@ local function checkPatternPayload(compiled, clip, desc)
     end
     if not Validate.isNonNegativeInteger(target.rate) then
       invalid(whereT .. " requires a rate", desc.key)
-    end
-    if not (isInteger(target.keyCount) and target.keyCount >= 1) then
-      invalid(whereT .. " requires a positive keyCount", desc.key)
     end
     if not Validate.isArray(target.keys) or #target.keys == 0 then
       invalid(whereT .. " requires a non-empty keys array", desc.key)
