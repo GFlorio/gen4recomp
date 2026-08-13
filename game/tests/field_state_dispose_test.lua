@@ -91,6 +91,7 @@ end
 
 function T.dispose_saves_and_releases_each_resource_exactly_once()
   local state, resources = disposableState()
+  local runtime = state.runtime --[[@as any]]
   state:dispose()
   Assert.equal(resources.dialogue.calls, 1)
   Assert.equal(resources.dialogueRenderer.calls, 1)
@@ -101,7 +102,7 @@ function T.dispose_saves_and_releases_each_resource_exactly_once()
   Assert.equal(resources.renderer.calls, 1)
   Assert.equal(resources.mapLoader.calls, 1)
   Assert.equal(resources.saveStore.calls, 1)
-  Assert.isNil(state.session)
+  Assert.isNil(runtime.session)
 end
 
 function T.dispose_is_a_no_op_on_repeat_calls()
@@ -122,7 +123,9 @@ function T.dispose_without_a_live_session_skips_the_save()
 end
 
 function T.dispose_on_a_failed_boot_state_is_a_no_op()
-  local state = setmetatable({ errorText = "boom" }, FieldState)
+  local state = setmetatable({
+    runtime = setmetatable({ errorText = "boom" }, FieldRuntime),
+  }, FieldState)
   state:dispose()
 end
 
@@ -170,7 +173,7 @@ end
 -- left to release or save.
 function T.reset_routes_through_the_shared_teardown_path()
   local state, resources, reloads = resetState()
-  local runtime = state.runtime
+  local runtime = state.runtime --[[@as any]]
   runtime:_reset()
   Assert.equal(resources.saveStore.calls, 1, "reset wipes the save store")
   Assert.equal(resources.dialogue.calls, 1, "reset releases the dialogue")
@@ -219,7 +222,7 @@ end
 -- reset reports the failure and every owned collaborator stays in place.
 function T.reset_failure_keeps_the_live_runtime_untouched()
   local state, resources, reloads = resetState()
-  local runtime = state.runtime
+  local runtime = state.runtime --[[@as any]]
   resources.saveStore.failReset = true
   resources.saveStore.reset = function(self)
     self.calls = self.calls + 1

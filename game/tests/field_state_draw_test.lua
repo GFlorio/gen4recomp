@@ -97,4 +97,24 @@ function T.draw_hud_reads_the_player_state()
   state:_drawHud()
 end
 
+-- Presentation reads must go through the explicit `runtime` reference: the
+-- catch-all proxy that forwarded any unknown instance read into the runtime is
+-- gone, so a forwarded field name on the instance itself is nil and a typo
+-- cannot silently resolve. The reads go through the instance (not rawget, which
+-- would bypass the proxy and pass even with it present).
+function T.runtime_fields_are_not_forwarded_onto_the_instance()
+  local state = stateWith({
+    viewport = { width = 640, height = 480 },
+    session = {
+      renderAlpha = function()
+        return 0.5
+      end,
+    },
+  })
+  Assert.isNil(state["viewport"])
+  Assert.isNil(state["session"])
+  Assert.isNil(state["player"])
+  Assert.isNil(state["zoom"])
+end
+
 return T

@@ -22,7 +22,7 @@ local function stateWithInput(calls)
       calls[#calls + 1] = { name, ... }
     end
   end
-  return setmetatable({ input = input }, FieldState)
+  return setmetatable({ runtime = { input = input } }, FieldState)
 end
 
 local joystick = {
@@ -94,7 +94,7 @@ end
 
 function T.focus_loss_discards_stale_stick_axes_before_refocus()
   local input = FieldInput.new()
-  local state = setmetatable({ input = input, heldDirectionKeys = {} }, FieldState)
+  local state = setmetatable({ runtime = { input = input } }, FieldState)
 
   state:gamepadaxis(joystick, "leftx", -0.75)
   state:focus(false)
@@ -105,7 +105,7 @@ end
 
 function T.focus_loss_does_not_leave_a_keyboard_direction_stuck_after_refocus()
   local input = FieldInput.new()
-  local state = setmetatable({ input = input, heldDirectionKeys = {} }, FieldState)
+  local state = setmetatable({ runtime = { input = input } }, FieldState)
 
   state:keypressed("down")
   state:focus(false)
@@ -121,7 +121,7 @@ end
 
 function T.gamepad_dpad_and_left_stick_drive_normal_field_movement()
   local input = FieldInput.new()
-  local state = setmetatable({ input = input, heldDirectionKeys = {} }, FieldState)
+  local state = setmetatable({ runtime = { input = input } }, FieldState)
 
   state:gamepadpressed(joystick, "dpdown")
   Assert.deepEqual(

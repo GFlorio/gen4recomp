@@ -25,36 +25,11 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@field renderer any
 ---@field dialogueRenderer any
 ---@field menuRenderer FieldMenuRenderer?
----@field runtimeMap any
----@field playerVisual any
----@field actors any
----@field actorAssets any
 ---@field presentationActorAssets FieldActorAssetProvider?
----@field errorText string?
----@field viewport any
----@field mapLoader any
----@field camera any
----@field envelope any
----@field session any
----@field transition any
----@field dialogue any
----@field saveStatus string?
----@field actionKeys table<string, boolean>?
----@field cancelKeys table<string, boolean>?
----@field input any
----@field zoom any
----@field player FieldPlayer? forwarded from the runtime
 ---@field development boolean product mode (default) hides the playtest HUD and ignores the F1/F2 developer binds
 ---@field topologyProvider fun(width: number, height: number): ScreenTopology
 local FieldState = {}
-FieldState.__index = function(self, key)
-  local method = FieldState[key]
-  if method then
-    return method
-  end
-  local runtime = rawget(self, "runtime")
-  return runtime and runtime[key]
-end
+FieldState.__index = FieldState
 
 local function defaultScreenTopology(width, height)
   local os = love.system and love.system.getOS and love.system.getOS() or ""
@@ -107,27 +82,12 @@ function FieldState:update(dt)
   end
 end
 
-function FieldState:_updateCameraProjection()
-  self.runtime:_updateCameraProjection()
-end
-function FieldState:_applyZoomChange()
-  self.runtime:_applyZoomChange()
-end
-
-function FieldState:_save()
-  return self.runtime:_save()
-end
-
-function FieldState:_reset()
-  return self.runtime:_reset()
-end
-
 -- Every actor the frame draws: the ROM-derived player billboard first, then the
 -- object actors the manager considers present. Records stay presentation-neutral;
 -- FieldActorDraw turns them into world draw items against the resident visuals.
 function FieldState:_actorDraws(alpha)
-  local records = { self.playerVisual:drawRecord(alpha) }
-  for _, record in ipairs(self.actors:drawRecords()) do
+  local records = { self.runtime.playerVisual:drawRecord(alpha) }
+  for _, record in ipairs(self.runtime.actors:drawRecords()) do
     records[#records + 1] = record
   end
   return FieldActorDraw.items(records, function(spriteId)
@@ -145,40 +105,46 @@ function FieldState:_worldDraws(alpha)
   return SceneAssembly.flatten({
     self.runtime.runtimeMap.sceneRuntime.mapDraws,
     self.runtime.runtimeMap.sceneRuntime.buildingDraws,
-    self.runtimeMap.coverageRuntime and self.runtimeMap.coverageRuntime.draws or {},
+    self.runtime.runtimeMap.coverageRuntime and self.runtime.runtimeMap.coverageRuntime.draws or {},
     self:_actorDraws(alpha),
   })
 end
 
 function FieldState:draw()
   local lg = love.graphics
-  if self.errorText then
+  if self.runtime.errorText then
     lg.setColor(1, 0.5, 0.5)
     lg.print("Field runtime failed:", 24, 24)
-    lg.printf(self.errorText, 24, 48, lg.getWidth() - 48)
+    lg.printf(self.runtime.errorText, 24, 48, lg.getWidth() - 48)
     return
   end
   local width, height = lg.getDimensions()
-  if self.viewport.width ~= width or self.viewport.height ~= height then
-    self.viewport:resize(width, height)
+  if self.runtime.viewport.width ~= width or self.runtime.viewport.height ~= height then
+    self.runtime.viewport:resize(width, height)
     if self.runtime.menuHost then
       self.runtime.menuHost:resize(width, height)
       self.runtime.menuHost:setScreenTopology(self.topologyProvider(width, height))
     end
-    self:_updateCameraProjection()
-    self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
+    self.runtime:_updateCameraProjection()
+    self.runtime.mapLoader:updateCoverage(self.runtime.runtimeMap, self.runtime.camera, self.runtime.envelope)
   end
-  local alpha = self.session:renderAlpha()
-  self.renderer:draw(self.runtime.runtimeMap.sceneRuntime, self.camera, self:_worldDraws(alpha), self.viewport, alpha)
-  if self.transition and self.transition.fadeAlpha > 0 then
-    local rectangle = self.viewport.worldViewport
-    lg.setColor(0, 0, 0, self.transition.fadeAlpha)
+  local alpha = self.runtime.session:renderAlpha()
+  self.renderer:draw(
+    self.runtime.runtimeMap.sceneRuntime,
+    self.runtime.camera,
+    self:_worldDraws(alpha),
+    self.runtime.viewport,
+    alpha
+  )
+  if self.runtime.transition and self.runtime.transition.fadeAlpha > 0 then
+    local rectangle = self.runtime.viewport.worldViewport
+    lg.setColor(0, 0, 0, self.runtime.transition.fadeAlpha)
     lg.rectangle("fill", rectangle.x, rectangle.y, rectangle.width, rectangle.height)
   end
   -- The dialogue UI composites after the world and the fade, inside the
   -- centered 4:3 reference frame, and before the developer HUD.
-  if self.dialogue and self.dialogue:isModal() then
-    self.dialogueRenderer:draw(self.dialogue, self.viewport)
+  if self.runtime.dialogue and self.runtime.dialogue:isModal() then
+    self.dialogueRenderer:draw(self.runtime.dialogue, self.runtime.viewport)
   end
   local menu = self.runtime.menuHost
   local presentation = menu and menu:presentation()
@@ -196,17 +162,17 @@ end
 function FieldState:_drawHud()
   local lg = love.graphics
   local lines = {
-    string.format("map %d  %s", self.runtimeMap.mapId, self.runtimeMap.mapSymbol),
+    string.format("map %d  %s", self.runtime.runtimeMap.mapId, self.runtime.runtimeMap.mapSymbol),
     string.format(
       "player (%d,%d) y %.3f surface %d %s %s",
-      self.player.fieldX,
-      self.player.fieldZ,
-      self.player.worldY,
-      self.player.surfaceId,
-      self.player.facing,
-      self.player.motion
+      self.runtime.player.fieldX,
+      self.runtime.player.fieldZ,
+      self.runtime.player.worldY,
+      self.runtime.player.surfaceId,
+      self.runtime.player.facing,
+      self.runtime.player.motion
     ),
-    self.saveStatus or "save not written this run",
+    self.runtime.saveStatus or "save not written this run",
     "WASD/arrows move   Z/Space/Enter action   X/Backspace cancel   -/= zoom"
       .. "   0 reset zoom   F1 save   F2 reset   Esc quit",
   }
@@ -219,71 +185,71 @@ function FieldState:_drawHud()
 end
 
 ---@param key string
----@param scancode string
----@param isrepeat boolean
+---@param scancode string?
+---@param isrepeat boolean?
 function FieldState:keypressed(key, scancode, isrepeat)
   if key == "escape" then
     love.event.quit(0)
   end
   if self.development then
     if key == "f1" then
-      self:_save()
+      self.runtime:_save()
     end
     if key == "f2" then
-      self:_reset()
+      self.runtime:_reset()
       return
     end
   end
-  if self.actionKeys and self.actionKeys[key] and self.input then
-    self.input:pressAction("key:" .. key)
+  if self.runtime.actionKeys and self.runtime.actionKeys[key] and self.runtime.input then
+    self.runtime.input:pressAction("key:" .. key)
   end
-  if self.cancelKeys and self.cancelKeys[key] and self.input then
-    self.input:pressCancel("key:" .. key)
+  if self.runtime.cancelKeys and self.runtime.cancelKeys[key] and self.runtime.input then
+    self.runtime.input:pressCancel("key:" .. key)
   end
   if key == "-" or key == "kp-" then
-    self.zoom:zoomOut()
-    self:_applyZoomChange()
+    self.runtime.zoom:zoomOut()
+    self.runtime:_applyZoomChange()
     return
   end
   if key == "=" or key == "+" or key == "kp+" then
-    self.zoom:zoomIn()
-    self:_applyZoomChange()
+    self.runtime.zoom:zoomIn()
+    self.runtime:_applyZoomChange()
     return
   end
   if key == "0" or key == "kp0" then
-    self.zoom:reset()
-    self:_applyZoomChange()
+    self.runtime.zoom:reset()
+    self.runtime:_applyZoomChange()
     return
   end
   local direction = KEY_DIRECTIONS[key]
-  if direction and self.input then
-    self.input:pressDirection(direction, "key:" .. key)
+  if direction and self.runtime.input then
+    self.runtime.input:pressDirection(direction, "key:" .. key)
   end
 end
 
 ---@param key string
----@param scancode string
+---@param scancode string?
 function FieldState:keyreleased(key, scancode)
-  if self.actionKeys and self.actionKeys[key] and self.input then
-    self.input:releaseAction("key:" .. key)
+  if self.runtime.actionKeys and self.runtime.actionKeys[key] and self.runtime.input then
+    self.runtime.input:releaseAction("key:" .. key)
     return
   end
-  if self.cancelKeys and self.cancelKeys[key] and self.input then
-    self.input:releaseCancel("key:" .. key)
+  if self.runtime.cancelKeys and self.runtime.cancelKeys[key] and self.runtime.input then
+    self.runtime.input:releaseCancel("key:" .. key)
     return
   end
-  if not KEY_DIRECTIONS[key] or not self.input then
+  if not KEY_DIRECTIONS[key] or not self.runtime.input then
     return
   end
-  self.input:releaseDirection("key:" .. key)
+  self.runtime.input:releaseDirection("key:" .. key)
 end
 
 -- Focus loss clears held and edge state so a blurred window cannot feed a
 -- stale Action into the next frame's dialogue or movement.
 ---@param focused boolean
 function FieldState:focus(focused)
-  if not focused and self.input then
-    self.input:clearAll()
+  if not focused and self.runtime.input then
+    self.runtime.input:clearAll()
   end
 end
 
@@ -293,38 +259,38 @@ end
 ---@param joystick love.Joystick
 ---@param button string
 function FieldState:gamepadpressed(joystick, button)
-  if not self.input then
+  if not self.runtime.input then
     return
   end
   local source = "gamepad:" .. joystick:getID() .. ":" .. button
   if button == "a" then
-    self.input:pressAction(source)
+    self.runtime.input:pressAction(source)
   end
   if button == "b" then
-    self.input:pressCancel(source)
+    self.runtime.input:pressCancel(source)
   end
   local direction = GAMEPAD_DIRECTIONS[button]
   if direction then
-    self.input:pressDirection(direction, source)
+    self.runtime.input:pressDirection(direction, source)
   end
 end
 
 ---@param joystick love.Joystick
 ---@param button string
 function FieldState:gamepadreleased(joystick, button)
-  if not self.input then
+  if not self.runtime.input then
     return
   end
   local source = "gamepad:" .. joystick:getID() .. ":" .. button
   if button == "a" then
-    self.input:releaseAction(source)
+    self.runtime.input:releaseAction(source)
   end
   if button == "b" then
-    self.input:releaseCancel(source)
+    self.runtime.input:releaseCancel(source)
   end
   local direction = GAMEPAD_DIRECTIONS[button]
   if direction then
-    self.input:releaseDirection(source)
+    self.runtime.input:releaseDirection(source)
   end
 end
 
@@ -334,19 +300,19 @@ end
 ---@param axis string
 ---@param value number
 function FieldState:gamepadaxis(joystick, axis, value)
-  if not self.input or (axis ~= "leftx" and axis ~= "lefty") then
+  if not self.runtime.input or (axis ~= "leftx" and axis ~= "lefty") then
     return
   end
   local source = "gamepad:" .. joystick:getID() .. ":left"
-  self.input:setStickAxis(source, axis == "leftx" and "x" or "y", value)
+  self.runtime.input:setStickAxis(source, axis == "leftx" and "x" or "y", value)
 end
 
 ---@param x number
 ---@param y number
 ---@param button integer
 function FieldState:mousepressed(x, y, button)
-  if self.input and button == 1 then
-    self.input:pointerDown("mouse:1", x, y)
+  if self.runtime.input and button == 1 then
+    self.runtime.input:pointerDown("mouse:1", x, y)
   end
 end
 
@@ -356,8 +322,8 @@ end
 ---@param dy number
 ---@param istouch boolean
 function FieldState:mousemoved(x, y, dx, dy, istouch)
-  if self.input and not istouch then
-    self.input:pointerMove("mouse:1", x, y)
+  if self.runtime.input and not istouch then
+    self.runtime.input:pointerMove("mouse:1", x, y)
   end
 end
 
@@ -365,16 +331,16 @@ end
 ---@param y number
 ---@param button integer
 function FieldState:mousereleased(x, y, button)
-  if self.input and button == 1 then
-    self.input:pointerUp("mouse:1", x, y)
+  if self.runtime.input and button == 1 then
+    self.runtime.input:pointerUp("mouse:1", x, y)
   end
 end
 
 ---@param x number
 ---@param y number
 function FieldState:wheelmoved(x, y)
-  if self.input then
-    self.input:pointerScroll("mouse", x, y)
+  if self.runtime.input then
+    self.runtime.input:pointerScroll("mouse", x, y)
   end
 end
 
@@ -382,8 +348,8 @@ end
 ---@param x number
 ---@param y number
 function FieldState:touchpressed(id, x, y)
-  if self.input then
-    self.input:pointerDown("touch:" .. tostring(id), x, y)
+  if self.runtime.input then
+    self.runtime.input:pointerDown("touch:" .. tostring(id), x, y)
   end
 end
 
@@ -391,8 +357,8 @@ end
 ---@param x number
 ---@param y number
 function FieldState:touchmoved(id, x, y)
-  if self.input then
-    self.input:pointerMove("touch:" .. tostring(id), x, y)
+  if self.runtime.input then
+    self.runtime.input:pointerMove("touch:" .. tostring(id), x, y)
   end
 end
 
@@ -400,8 +366,8 @@ end
 ---@param x number
 ---@param y number
 function FieldState:touchreleased(id, x, y)
-  if self.input then
-    self.input:pointerUp("touch:" .. tostring(id), x, y)
+  if self.runtime.input then
+    self.runtime.input:pointerUp("touch:" .. tostring(id), x, y)
   end
 end
 

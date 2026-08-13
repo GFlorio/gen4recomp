@@ -89,13 +89,14 @@ end
 function T.product_mode_ignores_the_f1_and_f2_developer_binds()
   local saves, resets = 0, 0
   local state = setmetatable({
-    runtime = {},
-    _save = function()
-      saves = saves + 1
-    end,
-    _reset = function()
-      resets = resets + 1
-    end,
+    runtime = {
+      _save = function()
+        saves = saves + 1
+      end,
+      _reset = function()
+        resets = resets + 1
+      end,
+    },
   }, FieldState)
   state:keypressed("f1")
   state:keypressed("f2")
@@ -108,13 +109,14 @@ function T.dev_mode_keeps_the_f1_and_f2_developer_binds()
   local saves, resets = 0, 0
   local state = setmetatable({
     development = true,
-    runtime = {},
-    _save = function()
-      saves = saves + 1
-    end,
-    _reset = function()
-      resets = resets + 1
-    end,
+    runtime = {
+      _save = function()
+        saves = saves + 1
+      end,
+      _reset = function()
+        resets = resets + 1
+      end,
+    },
   }, FieldState)
   state:keypressed("f1")
   state:keypressed("f2")
@@ -128,20 +130,22 @@ function T.product_mode_keeps_the_documented_zoom_controls()
   local zooms = {}
   local changes = 0
   local state = setmetatable({
-    zoom = {
-      zoomOut = function()
-        zooms[#zooms + 1] = "out"
-      end,
-      zoomIn = function()
-        zooms[#zooms + 1] = "in"
-      end,
-      reset = function()
-        zooms[#zooms + 1] = "reset"
+    runtime = {
+      zoom = {
+        zoomOut = function()
+          zooms[#zooms + 1] = "out"
+        end,
+        zoomIn = function()
+          zooms[#zooms + 1] = "in"
+        end,
+        reset = function()
+          zooms[#zooms + 1] = "reset"
+        end,
+      },
+      _applyZoomChange = function()
+        changes = changes + 1
       end,
     },
-    _applyZoomChange = function()
-      changes = changes + 1
-    end,
   }, FieldState)
   state:keypressed("-")
   state:keypressed("=")
