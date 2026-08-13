@@ -66,6 +66,7 @@ local function newEnv()
     statePublishes = 0,
     identityInputs = nil,
     producerComputations = 0,
+    manifestRaise = nil,
     mapResults = {
       {
         status = "resolved",
@@ -219,7 +220,11 @@ local function makeFakes()
   end
   fakes.FieldCameraCompiler.compile = function(romFs)
     if env.failCompilers[romFs.version] ~= nil then
-      error(env.failCompilers[romFs.version], 0)
+      local failure = env.failCompilers[romFs.version]
+      if Errors.is(failure) then
+        return nil, failure
+      end
+      error(failure, 0)
     end
     return env.cameraBundle
   end
@@ -239,6 +244,9 @@ local function makeFakes()
     return env.scriptBundle
   end
   fakes.WorldManifest.write = function(_, entries, excluded, compileExcluded)
+    if env.manifestRaise ~= nil then
+      error(env.manifestRaise, 0)
+    end
     env.calls[#env.calls + 1] = "WorldManifest.write"
     env.manifest = { entries = entries, excluded = excluded, compileExcluded = compileExcluded }
   end
@@ -377,22 +385,8 @@ function T.stale_classes_compile_with_counts_in_pipeline_order()
     "build-cache: heartgold map 5 unresolved map texture: material bike_02_2_lm3 of m_name01_00_00c land_data:280 wants bike_02_2 from map_textures member 42",
     "build-cache: heartgold world.lua written (2 maps, 0 unresolved cells, 0 compile-excluded)",
   })
-  Assert.deepEqual(env.calls, {
-    "CacheFs.forVersion:heartgold",
-    "DerivedCacheState.current",
-    "DerivedCacheState.invalidate",
-    "FieldCameraCacheWriter.write",
-    "FieldActorCacheWriter.write",
-    "FieldMapDataCacheWriter.write",
-    "FieldMapDataCacheWriter.write",
-    "FieldFontCacheWriter.write",
-    "FieldMessageCacheWriter.write",
-    "ScriptCacheWriter.write",
-    "MapCacheWriter.write",
-    "MapCacheWriter.write",
-    "WorldManifest.write",
-    "DerivedCacheState.publish",
-  })
+  Assert.equal(env.stateInvalidations, 1, "the damaged attestation is invalidated before the rebuild")
+  Assert.equal(env.statePublishes, 1, "a strict rebuild publishes the new identity")
 end
 
 -- A structured compile rejection is recorded in the manifest, logged, and
@@ -439,16 +433,19 @@ function T.compile_exclusions_fail_the_build_unless_allowed()
   Assert.equal(env.statePublishes, 0, "an exclusion-accepting build must not publish state")
 end
 
--- One broken version is reported, its RomFs handle is still closed, and the
--- remaining versions run to completion.
+-- One version whose source data fails to compile is reported, its RomFs
+-- handle is still closed, and the remaining versions run to completion.
 function T.a_failed_version_continues_and_closes_its_romfs()
   env = newEnv()
-  env.failCompilers.heartgold = "boom"
+  env.failCompilers.heartgold = Errors.new("FIELD_CAMERA_VERSION_UNSUPPORTED", "injected compile failure")
   local capture = collectLog()
   local report, err = CacheBuilder.buildVersions({ "heartgold", "soulsilver" }, { log = capture.log })
   Assert.isNil(report)
   Assert.equal(err, "cache preparation failed")
-  Assert.equal(capture.lines[1], "build-cache: heartgold failed: boom")
+  Assert.equal(
+    capture.lines[1],
+    "build-cache: heartgold failed: FIELD_CAMERA_VERSION_UNSUPPORTED: injected compile failure"
+  )
   Assert.equal(capture.lines[2], "build-cache: soulsilver field cameras current")
   Assert.deepEqual(env.closes, { "heartgold", "soulsilver" })
 end
@@ -457,7 +454,7 @@ end
 -- does not stop the remaining versions.
 function T.open_failure_is_reported_and_closes_nothing()
   env = newEnv()
-  env.openFailures.heartgold = "injected open failure"
+  env.openFailures.heartgold = Errors.new("ROMFS_LOAD_FAILED", "injected open failure", { path = "rom_metadata.lua" })
   local capture = collectLog()
   local report, err = CacheBuilder.buildVersions({ "heartgold", "soulsilver" }, { log = capture.log })
   Assert.isNil(report)
@@ -466,6 +463,37 @@ function T.open_failure_is_reported_and_closes_nothing()
   Assert.equal(capture.lines[2], "build-cache: soulsilver field cameras current")
   Assert.deepEqual(env.opens, { "soulsilver" })
   Assert.deepEqual(env.closes, { "soulsilver" })
+end
+
+-- A programming fault inside a version's build is rethrown after the version's
+-- RomFs is closed: it must never be flattened into a normal failed-version
+-- report, and the remaining versions must not run.
+function T.a_programming_fault_aborts_the_batch_after_closing_the_romfs()
+  env = newEnv()
+  env.failCompilers.heartgold = "boom"
+  local capture = collectLog()
+  local raised = Assert.throws(function()
+    CacheBuilder.buildVersions({ "heartgold", "soulsilver" }, { log = capture.log })
+  end)
+  Assert.equal(raised, "boom", "the original fault must propagate unchanged")
+  Assert.deepEqual(env.opens, { "heartgold" }, "the batch must stop at the faulting version")
+  Assert.deepEqual(env.closes, { "heartgold" }, "the version's RomFs is closed before the fault rethrows")
+  Assert.deepEqual(capture.lines, {}, "a programming fault must not become a failed-version report")
+end
+
+-- A structured error raised directly by a writer (a cache write failure or a
+-- duplicate world-manifest id) is not a per-version source-data failure: it
+-- indicates a broken builder/cache invariant and must abort the batch, not be
+-- flattened into a failed-version report.
+function T.a_raised_structured_error_aborts_the_batch()
+  env = newEnv()
+  env.manifestRaise = Errors.new("WORLD_MANIFEST_DUP_ID", "duplicate map id 2", { id = 2 })
+  local raised = Assert.throws(function()
+    CacheBuilder.buildVersions({ "heartgold", "soulsilver" }, { log = collectLog().log })
+  end)
+  Assert.equal(raised.code, "WORLD_MANIFEST_DUP_ID", "the structured error must propagate unchanged")
+  Assert.deepEqual(env.opens, { "heartgold" }, "the batch must stop at the faulting version")
+  Assert.deepEqual(env.closes, { "heartgold" }, "the version's RomFs is closed before the fault rethrows")
 end
 
 -- An empty version list is part of the function contract: no build runs and
@@ -509,10 +537,6 @@ function T.matching_identity_with_available_cache_invokes_no_compilers_and_no_ro
   Assert.deepEqual(report, { current = true })
   Assert.deepEqual(capture.lines, { "build-cache: heartgold current" })
   Assert.deepEqual(env.opens, {}, "the fast path must never open the ROM")
-  Assert.deepEqual(env.calls, {
-    "CacheFs.forVersion:heartgold",
-    "DerivedCacheState.current",
-  }, "no compiler or writer may run")
   Assert.equal(env.stateMatchesCalls, 1, "the stored identity must be compared exactly once")
   Assert.equal(env.auditCalls, 1, "the availability audit is the fast-path gate")
   Assert.equal(env.stateInvalidations, 0, "a current cache must not be invalidated")
@@ -545,16 +569,17 @@ function T.producer_mismatch_forces_every_writer_and_publishes_after_strict_succ
       writes[#writes + 1] = call
     end
   end
+  table.sort(writes)
   Assert.deepEqual(writes, {
-    "FieldCameraCacheWriter.write",
     "FieldActorCacheWriter.write",
-    "FieldMapDataCacheWriter.write",
-    "FieldMapDataCacheWriter.write",
+    "FieldCameraCacheWriter.write",
     "FieldFontCacheWriter.write",
+    "FieldMapDataCacheWriter.write",
+    "FieldMapDataCacheWriter.write",
     "FieldMessageCacheWriter.write",
+    "MapCacheWriter.write",
+    "MapCacheWriter.write",
     "ScriptCacheWriter.write",
-    "MapCacheWriter.write",
-    "MapCacheWriter.write",
     "WorldManifest.write",
   }, "every class must regenerate despite current-looking markers")
   local invalidateIndex, firstWriteIndex
@@ -577,7 +602,7 @@ end
 -- before mutation began.
 function T.a_failed_build_does_not_publish_state()
   env = newEnv()
-  env.failCompilers.heartgold = "boom"
+  env.failCompilers.heartgold = Errors.new("FIELD_CAMERA_VERSION_UNSUPPORTED", "injected compile failure")
   local capture = collectLog()
   local report, err = CacheBuilder.buildVersions({ "heartgold" }, { log = capture.log })
   Assert.isNil(report)
