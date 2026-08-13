@@ -37,7 +37,8 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 local FieldPlayer = {}
 FieldPlayer.__index = FieldPlayer
 
--- Provisional gameplay timing, centralized for later emulator calibration.
+-- Gameplay timing constants, centralized so emulator calibration changes
+-- exactly one place.
 FieldPlayer.WALK_STEP_TICKS = 8
 
 ---@alias FieldDirection "north"|"south"|"west"|"east"

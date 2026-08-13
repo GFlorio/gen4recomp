@@ -209,7 +209,7 @@ function T.material_and_vertex_validity(romFs)
   end
 end
 
--- The provisional spawn and the exit warp are passable tiles on the real
+-- The spawn and the exit warp are passable tiles on the real
 -- collision grid: spawn (4,13), one step south onto the warp tile (4,14).
 -- Only the hard-blocked cells block; the 32x32 cell is a hard boundary.
 function T.traversal(romFs)
@@ -221,7 +221,7 @@ function T.traversal(romFs)
     worldOriginZ = r.worldOriginZ,
   })
 
-  -- Provisional spawn is in-bounds and passable (no relocation needed).
+  -- Spawn is in-bounds and passable (no relocation needed).
   local spawn = FieldSpawns.MAP_NEW_BARK_ELMS_LAB_1F
   Assert.isTrue(collision:containsLocal(spawn.x, spawn.z))
   Assert.isFalse(collision:isBlockedLocal(spawn.x, spawn.z))
