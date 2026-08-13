@@ -143,4 +143,4 @@ T["failed rebuild preserves the previous script artifact"] = function()
   Assert.isNil(backend:getInfo("staging/heartgold/scripts"), "the stage is cleaned on success")
 end
 
-return T
+return { tests = T }

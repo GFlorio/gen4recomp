@@ -47,4 +47,4 @@ function T.supported_auxiliary_ui_opcodes_are_semantic_operations_in_overrides()
   Assert.isTrue(seen[747])
 end
 
-return T
+return { tests = T }

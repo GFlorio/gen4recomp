@@ -40,4 +40,4 @@ T["sealed modules reject registration but still resolve"] = function()
   Assert.deepEqual(modules:moduleNames(), { "mod.handler" })
 end
 
-return T
+return { tests = T }

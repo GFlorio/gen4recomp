@@ -135,4 +135,4 @@ function T.the_graphics_layer_covers_shaders_render_targets_and_the_dialogue_atl
   Assert.isTrue(covers("nine_slice"), "no graphics test draws the dialogue nine-slice")
 end
 
-return T
+return { tests = T }

@@ -492,4 +492,4 @@ function T.light_mask_uniforms_decode_polygon_bits()
   end)
 end
 
-return T
+return { tests = T }

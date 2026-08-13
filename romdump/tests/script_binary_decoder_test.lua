@@ -313,4 +313,4 @@ T["field menu commands decode every operand"] = function()
   Assert.equal(instructions[6].operands[3].raw, "VAR_0x8005")
 end
 
-return T
+return { tests = T }

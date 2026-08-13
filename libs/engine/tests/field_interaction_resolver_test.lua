@@ -496,4 +496,4 @@ function T.intent_values_survive_source_mutation()
   Assert.equal(intent.playerFacing, "north")
 end
 
-return T
+return { tests = T }

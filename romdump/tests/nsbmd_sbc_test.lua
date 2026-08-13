@@ -187,4 +187,4 @@ function T.retains_offsets_and_raw_option_bits()
   Assert.isTrue(posscale.inverse)
 end
 
-return T
+return { tests = T }

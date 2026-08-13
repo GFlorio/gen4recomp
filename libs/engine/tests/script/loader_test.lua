@@ -268,4 +268,4 @@ T["lazy build does not skip override validation"] = function()
   end)
 end
 
-return T
+return { tests = T }

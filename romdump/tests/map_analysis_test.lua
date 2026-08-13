@@ -125,4 +125,4 @@ function T.excludes_cell_without_land_data()
   Assert.equal(result.matchCount, 1)
 end
 
-return T
+return { tests = T }

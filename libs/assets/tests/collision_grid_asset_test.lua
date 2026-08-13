@@ -114,4 +114,4 @@ function T.encode_rejects_malformed_grids()
   end)
 end
 
-return T
+return { tests = T }

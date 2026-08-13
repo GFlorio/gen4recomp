@@ -1,6 +1,7 @@
--- Contract tests for suite normalization. A mis-shaped module must be a loud
--- error, not a suite that silently contributes zero tests: the runner has no
--- registry left to notice the difference.
+-- Contract tests for suite normalization. The explicit shape is the only
+-- shape: a mis-shaped module must be a loud error, not a suite that silently
+-- contributes zero tests — the runner has no registry left to notice the
+-- difference.
 
 local Assert = require("tests.support.Assert")
 local Suite = require("tests.runner.Suite")
@@ -11,14 +12,41 @@ local function normalize(mod, defaultLayer)
   return Suite.normalize(mod, "fake.unit.alpha_test", defaultLayer or "unit")
 end
 
-function T.legacy_module_takes_the_root_layer_and_declares_nothing()
-  local suite = normalize({ ["b case"] = function() end, ["a case"] = function() end })
+-- A bare `name -> function` module is not a legacy shape to normalize: the
+-- runner no longer guesses what a module means, so a flat module raises.
+function T.flat_module_without_a_tests_table_is_rejected()
+  local err = Assert.throws(function()
+    normalize({ ["a case"] = function() end, ["b case"] = function() end })
+  end)
+  Assert.isTrue(tostring(err):find("tests table", 1, true) ~= nil, "names the missing tests table: " .. tostring(err))
+end
 
-  Assert.equal(suite.layer, "unit")
-  Assert.deepEqual(suite.tests, { "a case", "b case" })
-  Assert.deepEqual(suite.capabilities, {})
-  Assert.deepEqual(suite.tags, {})
-  Assert.isNil(suite.beforeAll)
+-- Hooks are plain functions or absent; a non-function hook would be stored and
+-- later called as one, surfacing as a confusing runner crash.
+function T.non_function_hooks_are_rejected()
+  local beforeErr = Assert.throws(function()
+    normalize({ beforeAll = "setup", tests = {} })
+  end)
+  Assert.isTrue(tostring(beforeErr):find("beforeAll", 1, true) ~= nil, "names beforeAll: " .. tostring(beforeErr))
+
+  local afterErr = Assert.throws(function()
+    normalize({ afterAll = 1, tests = {} })
+  end)
+  Assert.isTrue(tostring(afterErr):find("afterAll", 1, true) ~= nil, "names afterAll: " .. tostring(afterErr))
+end
+
+-- Capability and tag arrays must be real arrays: `ipairs` alone swallows both
+-- holes and extra keys, which would silently drop declarations.
+function T.array_metadata_must_be_contiguous_without_extra_keys()
+  local extra = Assert.throws(function()
+    normalize({ metadata = { capabilities = { "graphics", extra = "x" } }, tests = {} })
+  end)
+  Assert.isTrue(tostring(extra):find("capabilities", 1, true) ~= nil, "names capabilities: " .. tostring(extra))
+
+  local hole = Assert.throws(function()
+    normalize({ metadata = { tags = { "field", nil, "dialogue" } }, tests = {} })
+  end)
+  Assert.isTrue(tostring(hole):find("tags", 1, true) ~= nil, "names tags: " .. tostring(hole))
 end
 
 function T.explicit_metadata_overrides_the_root_layer()
@@ -66,4 +94,4 @@ function T.non_function_test_entry_is_rejected()
   Assert.isTrue(tostring(err):find("not callable", 1, true) ~= nil, "names the offending test: " .. tostring(err))
 end
 
-return T
+return { tests = T }

@@ -1007,4 +1007,4 @@ function T.a_two_tile_walk_keeps_one_phase_across_the_session_ticks()
   Assert.equal(visual.poseTick, 16, "the session never lets the gait phase restart mid-walk")
 end
 
-return T
+return { tests = T }

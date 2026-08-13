@@ -4,7 +4,9 @@
 -- A filter is matched against the fully qualified `module :: test` name, so a
 -- module name, a test name, or any substring spanning both selects. Plain
 -- substring first, then Lua pattern, so `--filter warp` and `--filter ^libs%.`
--- both work.
+-- both work. A filter is validated once at the CLI parse boundary, so the
+-- per-test match never needs to swallow a malformed pattern: one that reaches
+-- selection anyway raises loudly instead of silently matching nothing.
 
 local Selection = {}
 
@@ -32,8 +34,7 @@ function Selection.matchesFilter(qualified, filter)
   if qualified:find(filter, 1, true) ~= nil then
     return true
   end
-  local ok, found = pcall(string.find, qualified, filter)
-  return ok and found ~= nil
+  return qualified:find(filter) ~= nil
 end
 
 -- The first declared capability that is unavailable, or nil when the suite can

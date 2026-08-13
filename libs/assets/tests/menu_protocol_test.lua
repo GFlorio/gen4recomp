@@ -13,4 +13,4 @@ function T.protocol_constants_are_stable()
   Assert.equal(MenuProtocol.BOTTOM_SCREEN_TILE_PLACEMENT, "hgss_bottom_screen_tiles")
 end
 
-return T
+return { tests = T }

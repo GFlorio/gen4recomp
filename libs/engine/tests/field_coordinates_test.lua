@@ -68,4 +68,4 @@ function T.rejects_nonfinite_or_fractional_coordinates()
   Assert.equal(err.code, "FIELD_COORDINATES_INVALID")
 end
 
-return T
+return { tests = T }

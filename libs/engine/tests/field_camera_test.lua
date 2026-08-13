@@ -232,4 +232,4 @@ function T.elms_lab_profile_has_exact_canonical_orthographic_extents()
   Assert.isTrue(approx(camera.eye.z, 62.930273, 1e-5))
 end
 
-return T
+return { tests = T }

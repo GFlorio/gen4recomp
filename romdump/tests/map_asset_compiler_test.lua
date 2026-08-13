@@ -156,4 +156,4 @@ function T.compile_is_deterministic()
   Assert.equal(onlyModel(first).key, onlyModel(second).key)
 end
 
-return T
+return { tests = T }

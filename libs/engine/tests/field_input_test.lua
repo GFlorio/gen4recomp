@@ -420,4 +420,4 @@ function T.clear_ui_flushes_modal_events_without_releasing_field_controls()
   )
 end
 
-return T
+return { tests = T }

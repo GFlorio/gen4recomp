@@ -50,6 +50,18 @@ local function realFileExists(path)
   return true
 end
 
+-- A filter is a substring or a Lua pattern; a malformed pattern must be
+-- diagnosed here, not silently select nothing at execution time. Pattern
+-- compilation is independent of the subject string, so an empty probe proves
+-- validity.
+local function validPattern(filter)
+  local ok, err = pcall(string.find, "", filter)
+  if ok then
+    return true
+  end
+  return false, tostring(err)
+end
+
 -- The value of an option, or nil when it is missing or is itself an option.
 local function value(argv, index)
   local argument = argv[index]
@@ -109,6 +121,10 @@ function Cli.parse(argv, context)
       local filter = value(argv, index + 1)
       if filter == nil or filter == "" then
         return nil, "--filter needs a non-empty substring or Lua pattern"
+      end
+      local valid, reason = validPattern(filter)
+      if not valid then
+        return nil, "--filter '" .. filter .. "' is not a valid Lua pattern: " .. reason
       end
       plan.filter = filter
       index = index + 2

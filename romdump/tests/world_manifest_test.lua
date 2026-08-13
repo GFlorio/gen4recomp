@@ -99,4 +99,4 @@ function T.build_rejects_duplicate_id()
   end)
 end
 
-return T
+return { tests = T }

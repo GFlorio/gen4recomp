@@ -1725,4 +1725,4 @@ T["later poll raise leaves earlier completions intact"] = function()
   Assert.equal(h.services.world:getVar("VAR_EARLY"), 1, "the earlier task completed on time")
 end
 
-return T
+return { tests = T }

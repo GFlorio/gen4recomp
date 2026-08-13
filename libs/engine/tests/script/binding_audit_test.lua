@@ -140,4 +140,4 @@ function T.a_field_record_without_event_collections_is_rejected()
   end)
 end
 
-return T
+return { tests = T }

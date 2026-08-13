@@ -88,4 +88,4 @@ function T.result_is_a_fresh_matrix()
   Assert.isTrue(math.abs(m[16] - 1) < EPS, "w row is affine")
 end
 
-return T
+return { tests = T }

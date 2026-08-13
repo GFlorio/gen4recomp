@@ -157,4 +157,4 @@ function T.draws_zero_based_layout_rows_in_visual_order()
   Assert.deepEqual(texts, { "Option 1", "Option 2", "Option 3" })
 end
 
-return T
+return { tests = T }

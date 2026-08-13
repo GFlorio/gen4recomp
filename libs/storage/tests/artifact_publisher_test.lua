@@ -303,4 +303,4 @@ function T.publish_reports_cleanup_failure_after_success()
   tx:abort()
 end
 
-return T
+return { tests = T }

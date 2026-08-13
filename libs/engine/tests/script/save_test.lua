@@ -1085,4 +1085,4 @@ T["validate rejects a bucket missing a required record array"] = function()
   end, "a bucket without tasks")
 end
 
-return T
+return { tests = T }

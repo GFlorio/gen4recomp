@@ -1,12 +1,12 @@
--- Normalizes a loaded test module into one suite shape. Two module shapes are
--- accepted:
+-- Normalizes a loaded test module into the one suite shape:
 --
---   legacy:   { ["test name"] = function(context) end, ... }
---   explicit: { metadata = { layer, capabilities, tags },
---               beforeAll = f, afterAll = f, tests = { ... } }
+--   { metadata = { layer, capabilities, tags },
+--     beforeAll = f, afterAll = f, tests = { name = function } }
 --
--- A legacy module inherits the layer of the root it was discovered under and
--- declares no capabilities. Metadata/hook keys are never treated as tests.
+-- Every key is validated: metadata is optional but must be a table of known
+-- keys, capability/tag arrays must be contiguous with no extra keys, hooks
+-- must be functions or absent, and a missing `tests` table is an error. The
+-- layer defaults to the root the suite was discovered under.
 
 local Suite = {}
 
@@ -22,21 +22,30 @@ local function sortedKeys(t)
   return keys
 end
 
+-- Validates a metadata string array as a contiguous 1..n array: `ipairs`
+-- alone would swallow both holes and extra keys, silently dropping
+-- declarations.
 local function stringArray(value, what, moduleName)
   if value == nil then
     return {}
   end
   assert(type(value) == "table", moduleName .. ": metadata." .. what .. " must be an array")
+  local count = 0
+  for key in pairs(value) do
+    assert(
+      type(key) == "number" and key >= 1 and key % 1 == 0,
+      moduleName .. ": metadata." .. what .. " must be a contiguous array"
+    )
+    count = count + 1
+  end
   local out = {}
-  for index, entry in ipairs(value) do
+  for index = 1, count do
+    local entry = value[index]
+    assert(entry ~= nil, moduleName .. ": metadata." .. what .. " must be a contiguous array")
     assert(type(entry) == "string", moduleName .. ": metadata." .. what .. "[" .. index .. "] must be a string")
     out[index] = entry
   end
   return out
-end
-
-local function isExplicit(mod)
-  return mod.tests ~= nil or mod.metadata ~= nil or mod.beforeAll ~= nil or mod.afterAll ~= nil
 end
 
 ---@class RunnerSuite
@@ -57,24 +66,24 @@ end
 ---@return RunnerSuite
 function Suite.normalize(mod, moduleName, defaultLayer)
   assert(type(mod) == "table", moduleName .. ": test module must return a table")
+  assert(type(mod.tests) == "table", moduleName .. ": suite needs a tests table")
 
-  local fns, metadata
-  if isExplicit(mod) then
-    for _, key in ipairs(sortedKeys(mod)) do
-      assert(MODULE_KEYS[key], moduleName .. ": unknown suite key '" .. key .. "'")
-    end
-    assert(type(mod.tests) == "table", moduleName .. ": suite needs a tests table")
-    fns = mod.tests
-    metadata = mod.metadata or {}
-    assert(type(metadata) == "table", moduleName .. ": metadata must be a table")
-    for _, key in ipairs(sortedKeys(metadata)) do
-      assert(METADATA_KEYS[key], moduleName .. ": unknown metadata key '" .. key .. "'")
-    end
-  else
-    fns = mod
-    metadata = {}
+  for _, key in ipairs(sortedKeys(mod)) do
+    assert(MODULE_KEYS[key], moduleName .. ": unknown suite key '" .. key .. "'")
+  end
+  assert(
+    mod.beforeAll == nil or type(mod.beforeAll) == "function",
+    moduleName .. ": beforeAll must be a function or nil"
+  )
+  assert(mod.afterAll == nil or type(mod.afterAll) == "function", moduleName .. ": afterAll must be a function or nil")
+
+  local metadata = mod.metadata or {}
+  assert(type(metadata) == "table", moduleName .. ": metadata must be a table")
+  for _, key in ipairs(sortedKeys(metadata)) do
+    assert(METADATA_KEYS[key], moduleName .. ": unknown metadata key '" .. key .. "'")
   end
 
+  local fns = mod.tests
   local names = sortedKeys(fns)
   for _, name in ipairs(names) do
     assert(type(fns[name]) == "function", moduleName .. ": test '" .. name .. "' must be a function")

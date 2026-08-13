@@ -22,4 +22,4 @@ function T.hashLua_differs_on_different_content()
   Assert.isTrue(Hashing.hashLua({ a = 1 }) ~= Hashing.hashLua({ a = 2 }), "content-sensitive")
 end
 
-return T
+return { tests = T }

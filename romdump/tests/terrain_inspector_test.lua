@@ -33,4 +33,4 @@ function T.filters_plate_metadata_and_builds_height_gizmos()
   Assert.equal(gizmos[1].corners[1].y, 2)
 end
 
-return T
+return { tests = T }

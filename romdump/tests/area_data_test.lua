@@ -53,4 +53,4 @@ function T.rejects_wrong_length()
   Assert.isNil(long)
 end
 
-return T
+return { tests = T }

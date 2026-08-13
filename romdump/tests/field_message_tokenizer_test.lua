@@ -160,4 +160,4 @@ function T.stream_is_lossless_through_eos()
   Assert.deepEqual(rebuilt, units)
 end
 
-return T
+return { tests = T }

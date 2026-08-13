@@ -204,4 +204,4 @@ function T.draw_failure_balances_transform_stack_and_restores_state()
   renderer:release()
 end
 
-return T
+return { tests = T }

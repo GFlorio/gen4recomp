@@ -556,4 +556,4 @@ T["raw movement task owns the generation and rejects conflicts"] = function()
   Assert.equal(h.services.actors.actors.elm.fieldX, 5, "the raw movement plan reached its destination")
 end
 
-return T
+return { tests = T }

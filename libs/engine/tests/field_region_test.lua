@@ -95,4 +95,4 @@ function T.translates_sloped_plane_distance_without_changing_height()
   Assert.equal(region.terrain:sampleHeight(plate.id, -31.5, 32.5), 0.5)
 end
 
-return T
+return { tests = T }

@@ -75,4 +75,4 @@ function T.area_for_map_header()
   Assert.isNil(MapCatalog.areaForMapHeader(9999))
 end
 
-return T
+return { tests = T }

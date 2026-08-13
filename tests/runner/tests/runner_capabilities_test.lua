@@ -65,4 +65,4 @@ function T.a_prepared_ready_dump_offers_both_capabilities_and_names_versions()
   Assert.deepEqual(versions, { "heartgold", "soulsilver" }, "versions follow the declared order")
 end
 
-return T
+return { tests = T }

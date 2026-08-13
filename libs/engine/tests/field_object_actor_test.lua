@@ -129,4 +129,4 @@ function T.clear_facing_override_is_unconditional_and_idempotent()
   Assert.equal(a.facing, "south")
 end
 
-return T
+return { tests = T }

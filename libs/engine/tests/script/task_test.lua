@@ -494,4 +494,4 @@ T["cancellation closes the open box"] = function()
   Assert.isTrue(closed, "the host received a close during cancellation")
 end
 
-return T
+return { tests = T }

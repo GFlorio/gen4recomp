@@ -56,4 +56,4 @@ function T.invalid_dimensions_and_modes_are_rejected()
   end)
 end
 
-return T
+return { tests = T }

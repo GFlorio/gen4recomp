@@ -88,4 +88,4 @@ function T.an_unresolved_material_keeps_its_wrap_and_flip()
   Assert.isTrue(out.materials[1].flip.y)
 end
 
-return T
+return { tests = T }

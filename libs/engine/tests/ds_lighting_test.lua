@@ -436,4 +436,4 @@ function T.decal_alpha_ignores_texture_alpha()
   Assert.equal(DsLighting.composeAlpha5(31, 20, "decal"), 20)
 end
 
-return T
+return { tests = T }

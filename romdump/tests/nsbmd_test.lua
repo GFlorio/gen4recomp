@@ -171,4 +171,4 @@ function T.rejects_missing_mdl0()
   Assert.equal(assert(err).code, "NSBMD_NO_MDL0")
 end
 
-return T
+return { tests = T }

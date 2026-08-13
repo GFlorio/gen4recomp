@@ -77,4 +77,4 @@ function T.filtered_out_suite_runs_no_hooks()
   Assert.equal(hooks, 0)
 end
 
-return T
+return { tests = T }

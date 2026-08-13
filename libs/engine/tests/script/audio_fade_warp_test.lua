@@ -591,4 +591,4 @@ T["set object position evaluates variable-backed coordinates"] = function()
   Assert.equal(position.worldY, 2.5)
 end
 
-return T
+return { tests = T }

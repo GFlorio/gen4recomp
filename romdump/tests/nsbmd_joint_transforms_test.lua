@@ -215,4 +215,4 @@ function T.si3d_is_not_implemented()
   end)
 end
 
-return T
+return { tests = T }

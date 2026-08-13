@@ -25,4 +25,4 @@ function T.multiple_ready_versions_return_the_ready_array()
   Assert.deepEqual(decision, { "heartgold", "soulsilver" })
 end
 
-return T
+return { tests = T }

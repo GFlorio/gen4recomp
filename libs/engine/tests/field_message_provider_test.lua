@@ -248,4 +248,4 @@ function T.dispose_resets_the_instrument_counters()
   Assert.equal(provider:stats().disposals, 0, "a disposed provider reports no stale disposals")
 end
 
-return T
+return { tests = T }

@@ -118,4 +118,4 @@ function T.rejects_a_model_that_draws_more_than_one_shape()
   end)
 end
 
-return T
+return { tests = T }

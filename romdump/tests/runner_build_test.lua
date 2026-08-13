@@ -460,4 +460,4 @@ function T.check_dump_audits_every_ready_version_once()
   Assert.deepEqual(exitCodes, { 1, 0 }, "any failing report must fail the exit code")
 end
 
-return T
+return { tests = T }

@@ -280,4 +280,4 @@ function T.only_the_first_pointer_can_control_a_menu_gesture()
   })
 end
 
-return T
+return { tests = T }

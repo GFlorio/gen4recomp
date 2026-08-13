@@ -257,4 +257,4 @@ T["restored fingerprint stays authoritative on a sealed registry"] = function()
   end)
 end
 
-return T
+return { tests = T }

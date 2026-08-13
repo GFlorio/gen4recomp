@@ -534,4 +534,4 @@ function T.failed_neighbor_collision_decode_releases_scene_and_coverage()
   Assert.equal(coverageReleases, 1, "coverage release stays exactly once")
 end
 
-return T
+return { tests = T }

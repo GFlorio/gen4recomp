@@ -638,4 +638,4 @@ T["fingerprint and composition are immune to stored-resource mutation"] = functi
   Assert.equal(registry:version(), 1, "a sealed registry never bumps its version")
 end
 
-return T
+return { tests = T }

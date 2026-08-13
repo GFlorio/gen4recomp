@@ -87,4 +87,4 @@ function T.rejects_cyclic_tables()
   Assert.isTrue(tostring(err):lower():find("cycl", 1, true) ~= nil)
 end
 
-return T
+return { tests = T }

@@ -460,4 +460,4 @@ T["field menu operations verify as supported"] = function()
   Assert.equal(report.unsupportedCount, 0)
 end
 
-return T
+return { tests = T }

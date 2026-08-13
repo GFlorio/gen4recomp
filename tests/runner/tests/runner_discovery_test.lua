@@ -3,23 +3,14 @@
 -- of truth: no hand-maintained module registry may exist. Listing reports
 -- layer/capability metadata without executing any test body.
 --
--- Suffix rule under test: a file is a suite when its name ends in `_test.lua`
--- or its plural `_tests.lua` (the existing `libs/engine/tests/script/*_tests.lua`
--- suites must be discoverable without renaming).
+-- Suffix rule under test: a file is a suite exactly when its name ends in
+-- `_test.lua`; the plural `_tests.lua` spelling is not discovered.
 
 local Assert = require("tests.support.Assert")
 local FakeCorpus = require("tests.runner.tests.support.FakeCorpus")
 local TestRunner = require("tests.runner.TestRunner")
 
 local T = {}
-
-local function legacy(names)
-  local mod = {}
-  for _, name in ipairs(names) do
-    mod[name] = function() end
-  end
-  return mod
-end
 
 local function moduleNames(listing)
   local out = {}
@@ -44,23 +35,64 @@ end
 -- nested suites are discovered; non-suite files are not.
 function T.discovery_finds_nested_suites_and_ignores_other_files()
   local corpus = FakeCorpus.new({
-    ["fake/unit/alpha_test.lua"] = legacy({ "a" }),
-    ["fake/unit/nested/deep/beta_tests.lua"] = legacy({ "b" }),
+    ["fake/unit/alpha_test.lua"] = { tests = { ["a"] = function() end } },
+    ["fake/unit/nested/deep/beta_test.lua"] = { tests = { ["b"] = function() end } },
     ["fake/unit/support/Helper.lua"] = {},
     ["fake/unit/nested/notes.md"] = {},
   })
 
   local listing = TestRunner.list({ roots = { corpus:root("fake/unit", "unit") }, fs = corpus.fs, load = corpus.load })
 
-  Assert.deepEqual(moduleNames(listing), { "fake.unit.alpha_test", "fake.unit.nested.deep.beta_tests" })
+  Assert.deepEqual(moduleNames(listing), { "fake.unit.alpha_test", "fake.unit.nested.deep.beta_test" })
+end
+
+-- The repository controls every suite filename, so the plural spelling is
+-- dropped: a file named `_tests.lua` is not a suite.
+function T.plural_suffix_is_no_longer_discovered()
+  local corpus = FakeCorpus.new({
+    ["fake/unit/alpha_test.lua"] = { tests = { ["a"] = function() end } },
+    ["fake/unit/alpha_tests.lua"] = { tests = { ["plural"] = function() end } },
+  })
+
+  local listing = TestRunner.list({ roots = { corpus:root("fake/unit", "unit") }, fs = corpus.fs, load = corpus.load })
+
+  Assert.deepEqual(moduleNames(listing), { "fake.unit.alpha_test" })
+end
+
+-- A module under a root the selection excludes must not even load: a broken
+-- or environment-dependent suite under a foreign layer must not break a
+-- unit-only run, and must not execute its module body in it.
+function T.excluded_layer_modules_are_not_loaded()
+  local loads = {}
+  local corpus = FakeCorpus.new({
+    ["fake/gfx/broken_test.lua"] = FakeCorpus.LOAD_ERROR,
+    ["fake/unit/ok_test.lua"] = { tests = { ["passes"] = function() end } },
+  })
+  local options = {
+    roots = { corpus:root("fake/gfx", "graphics"), corpus:root("fake/unit", "unit") },
+    fs = corpus.fs,
+    layer = "unit",
+    capabilities = {},
+    load = function(moduleName)
+      loads[#loads + 1] = moduleName
+      return corpus.load(moduleName)
+    end,
+  }
+
+  local run = TestRunner.run(options)
+
+  Assert.deepEqual(loads, { "fake.unit.ok_test" }, "only matching-root modules load")
+  Assert.equal(run.passed, 1)
+  Assert.equal(run.failed, 0)
+  Assert.equal(run.skipped, 0)
 end
 
 -- order is deterministic and independent of filesystem order.
 function T.discovery_order_is_sorted_not_filesystem_order()
   local corpus = FakeCorpus.new({
-    ["fake/unit/zulu_test.lua"] = legacy({ "z second", "a first" }),
-    ["fake/unit/alpha_test.lua"] = legacy({ "only" }),
-    ["fake/unit/mike_test.lua"] = legacy({ "only" }),
+    ["fake/unit/zulu_test.lua"] = { tests = { ["z second"] = function() end, ["a first"] = function() end } },
+    ["fake/unit/alpha_test.lua"] = { tests = { ["only"] = function() end } },
+    ["fake/unit/mike_test.lua"] = { tests = { ["only"] = function() end } },
   })
   local options = { roots = { corpus:root("fake/unit", "unit") }, fs = corpus.fs, load = corpus.load }
 
@@ -74,7 +106,7 @@ end
 -- a module name reachable from two roots is a hard error, not a
 -- silently doubled or dropped suite.
 function T.duplicate_module_name_is_rejected()
-  local corpus = FakeCorpus.new({ ["fake/unit/alpha_test.lua"] = legacy({ "a" }) })
+  local corpus = FakeCorpus.new({ ["fake/unit/alpha_test.lua"] = { tests = { ["a"] = function() end } } })
   local root = corpus:root("fake/unit", "unit")
 
   local err = Assert.throws(function()
@@ -92,10 +124,12 @@ function T.listing_does_not_execute_test_bodies()
   local executed = false
   local corpus = FakeCorpus.new({
     ["fake/unit/alpha_test.lua"] = {
-      ["explodes when executed"] = function()
-        executed = true
-        error("test body must not run during --list", 0)
-      end,
+      tests = {
+        ["explodes when executed"] = function()
+          executed = true
+          error("test body must not run during --list", 0)
+        end,
+      },
     },
   })
 
@@ -110,7 +144,7 @@ end
 -- from the root they were discovered under, and declare no capabilities.
 function T.listing_reports_layer_capabilities_and_tags()
   local corpus = FakeCorpus.new({
-    ["fake/unit/alpha_test.lua"] = legacy({ "a" }),
+    ["fake/unit/alpha_test.lua"] = { tests = { ["a"] = function() end } },
     ["fake/acc/lab_test.lua"] = {
       metadata = { layer = "acceptance", capabilities = { "rom_dump", "derived_cache" }, tags = { "field" } },
       beforeAll = function() end,
@@ -145,7 +179,7 @@ function T.layer_selection_runs_only_that_layer()
     end
   end
   local corpus = FakeCorpus.new({
-    ["fake/unit/alpha_test.lua"] = { ["unit case"] = record("unit") },
+    ["fake/unit/alpha_test.lua"] = { tests = { ["unit case"] = record("unit") } },
     ["fake/gfx/shader_test.lua"] = {
       metadata = { layer = "graphics" },
       tests = { ["graphics case"] = record("graphics") },
@@ -169,8 +203,10 @@ end
 -- filter matches against the fully qualified module :: test name.
 function T.filter_matches_qualified_module_and_test_name()
   local corpus = FakeCorpus.new({
-    ["fake/unit/warp_test.lua"] = { ["resolves door"] = function() end, ["resolves stairs"] = function() end },
-    ["fake/unit/camera_test.lua"] = { ["resolves door"] = function() end, ["pans"] = function() end },
+    ["fake/unit/warp_test.lua"] = {
+      tests = { ["resolves door"] = function() end, ["resolves stairs"] = function() end },
+    },
+    ["fake/unit/camera_test.lua"] = { tests = { ["resolves door"] = function() end, ["pans"] = function() end } },
   })
   local roots = { corpus:root("fake/unit", "unit") }
 
@@ -184,4 +220,4 @@ function T.filter_matches_qualified_module_and_test_name()
   Assert.equal(byBoth.passed, 2)
 end
 
-return T
+return { tests = T }

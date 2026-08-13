@@ -226,4 +226,4 @@ function T.current_surface_disconnected_from_the_crossing_is_a_distinct_kind()
   Assert.equal(err.context.kind, "current-inconsistent")
 end
 
-return T
+return { tests = T }

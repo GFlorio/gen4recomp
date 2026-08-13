@@ -167,6 +167,26 @@ function T.invalid_arguments_are_rejected_with_exit_two()
   contains(rejects({ "unit" }), "unit", "stray positional argument")
 end
 
+-- A malformed Lua pattern must be diagnosed at parse time. Selecting with it
+-- at execution time would silently match nothing and surface only as the
+-- generic empty-run failure — indistinguishable from a filter that simply
+-- matched no test.
+function T.malformed_filter_pattern_is_rejected_at_parse()
+  for _, pattern in ipairs({ "(", "[", "%" }) do
+    local message = rejects({ "--filter", pattern })
+    contains(message, "pattern", "diagnoses the malformed pattern for " .. string.format("%q", pattern))
+    contains(message, pattern, "names the offending pattern")
+  end
+end
+
+-- A filter that parses as a valid Lua pattern keeps the substring-or-pattern
+-- contract.
+function T.valid_filter_patterns_still_parse()
+  for _, pattern in ipairs({ "warp", "^libs%.rom", "no%-such%-test", "resolves door" }) do
+    Assert.equal(parse({ "--filter", pattern }).filter, pattern)
+  end
+end
+
 -- Selecting a ROM-gated layer makes the dump mandatory.
 function T.rom_gated_layers_require_the_dump()
   for _, layer in ipairs({ "rom", "acceptance" }) do
@@ -388,4 +408,4 @@ function T.report_names_the_ready_versions_exercised()
   contains(text, "soulsilver", "report names the ready versions exercised")
 end
 
-return T
+return { tests = T }

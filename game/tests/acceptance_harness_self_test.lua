@@ -35,6 +35,8 @@ end
 function T.tests.synthetic_boot_is_closed_once_and_uses_a_unique_save_namespace()
   local deleted = {}
   local runtimes = {}
+  local graphics = love.graphics
+  local originalShader = graphics.newShader
   local harness = AcceptanceHarness.new({
     versions = { "heartgold" },
     runtimeFactory = function(versionId)
@@ -59,6 +61,10 @@ function T.tests.synthetic_boot_is_closed_once_and_uses_a_unique_save_namespace(
   Assert.equal(runtimes[1].disposeCalls, 1)
   Assert.equal(runtimes[2].disposeCalls, 1)
   Assert.deepEqual(deleted, { first.saveNamespace, second.saveNamespace })
+  -- Each boot installs a render trap over the process-global graphics
+  -- namespace; a second boot captures the trapped functions as its
+  -- "originals", so any close order must still restore the real functions.
+  Assert.equal(graphics.newShader, originalShader, "closing every game restores the graphics namespace")
 end
 
 function T.tests.advance_until_timeout_contains_a_bounded_semantic_trace()

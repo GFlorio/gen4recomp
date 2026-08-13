@@ -303,4 +303,4 @@ function T.projection_matrix_mode_is_fatal()
   Assert.equal(assert(err).code, "GX_PROJECTION_MATRIX_MODE_UNSUPPORTED")
 end
 
-return T
+return { tests = T }

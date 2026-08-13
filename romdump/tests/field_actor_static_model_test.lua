@@ -23,4 +23,4 @@ function T.compiles_a_static_model_with_its_embedded_texture()
   Assert.equal(#result.render.parts[1].geometry.vertices, 4)
 end
 
-return T
+return { tests = T }

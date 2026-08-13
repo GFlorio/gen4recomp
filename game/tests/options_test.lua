@@ -106,4 +106,4 @@ function T.test_mode_defers_every_remaining_argument_to_the_test_command()
   Assert.isTrue(mixed.test)
 end
 
-return T
+return { tests = T }

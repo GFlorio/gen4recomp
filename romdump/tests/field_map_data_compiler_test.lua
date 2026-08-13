@@ -200,4 +200,4 @@ function T.compile_all_covers_the_catalog_in_numeric_order()
   end
 end
 
-return T
+return { tests = T }

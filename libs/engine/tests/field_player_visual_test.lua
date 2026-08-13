@@ -238,4 +238,4 @@ function T.changing_facing_during_continuous_movement_resets_the_phase()
   Assert.equal(presentation.poseTick, 8)
 end
 
-return T
+return { tests = T }

@@ -157,4 +157,4 @@ function T.removed_namespaces_do_not_reappear()
   Assert.isTrue(#violations == 0, violationMessage("removed namespaces reappeared:\n", violations))
 end
 
-return T
+return { tests = T }

@@ -413,4 +413,4 @@ function T.billboard_shape_using_matrix_restore_raises()
   )
 end
 
-return T
+return { tests = T }

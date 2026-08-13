@@ -91,4 +91,4 @@ function T.decodes_negative_fx32_scale()
   Assert.equal(p.scale.width, -1.0)
 end
 
-return T
+return { tests = T }

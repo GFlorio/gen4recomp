@@ -168,4 +168,4 @@ function T.fails_on_unknown_map()
   Assert.equal(assert(err).code, "MAP_CATALOG_UNKNOWN")
 end
 
-return T
+return { tests = T }

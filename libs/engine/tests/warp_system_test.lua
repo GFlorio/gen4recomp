@@ -400,4 +400,4 @@ function T.suppression_lasts_until_the_player_leaves_its_coordinate()
   Assert.isNil(WarpSystem.updateSuppression(token, 60, 684, 394))
 end
 
-return T
+return { tests = T }

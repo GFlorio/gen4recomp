@@ -49,4 +49,4 @@ function T.unknown_symbols_are_absent()
   Assert.isNil(FieldScriptSymbols.variablesByName["VAR_NOT_A_REAL_SYMBOL"])
 end
 
-return T
+return { tests = T }

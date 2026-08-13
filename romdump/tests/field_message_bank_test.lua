@@ -223,4 +223,4 @@ function T.missing_eos_is_typed()
   end)
 end
 
-return T
+return { tests = T }

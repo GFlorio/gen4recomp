@@ -119,4 +119,4 @@ function T.rejects_a_timeline_that_does_not_start_at_frame_zero()
   )
 end
 
-return T
+return { tests = T }

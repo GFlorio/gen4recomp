@@ -173,4 +173,4 @@ function T.failed_rebuild_preserves_the_previous_camera_artifact()
   Assert.isTrue(FieldCameraCacheWriter.isReady(cache, second.marker), "a retry publishes the new camera artifact")
 end
 
-return T
+return { tests = T }

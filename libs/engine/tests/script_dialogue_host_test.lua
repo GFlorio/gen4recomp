@@ -198,4 +198,4 @@ function T.unresolved_substitution_fails_explicitly()
   Assert.equal(err.context.messageId, 0)
 end
 
-return T
+return { tests = T }

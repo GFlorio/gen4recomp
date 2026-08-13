@@ -348,4 +348,4 @@ function T.boot_existing_with_two_ready_versions_offers_the_selector_over_the_re
   end
 end
 
-return T
+return { tests = T }

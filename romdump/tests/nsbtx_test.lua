@@ -112,4 +112,4 @@ function T.rejects_non_tex0_block()
   Assert.equal(assert(err).code, "NSBTX_BAD_MAGIC")
 end
 
-return T
+return { tests = T }

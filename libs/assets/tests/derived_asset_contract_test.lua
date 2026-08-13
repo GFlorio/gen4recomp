@@ -86,4 +86,4 @@ function T.cache_modules_consume_the_contract_constants()
   Assert.equal(VertexFormat.VERSION, DerivedAssetContract.mesh.vertexFormatVersion)
 end
 
-return T
+return { tests = T }

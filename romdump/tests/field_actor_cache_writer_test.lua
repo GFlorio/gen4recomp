@@ -137,4 +137,4 @@ function T.failed_rebuild_preserves_the_previous_artifact()
   Assert.isNil(backend:getInfo("staging/heartgold/field-actors"), "the stage is cleaned on success")
 end
 
-return T
+return { tests = T }

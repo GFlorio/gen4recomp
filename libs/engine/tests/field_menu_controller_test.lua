@@ -133,4 +133,4 @@ function T.directional_navigation_restores_focus_after_pointer_hover()
   Assert.equal(controller:status().selectedIndex, 1)
 end
 
-return T
+return { tests = T }

@@ -105,4 +105,4 @@ function T.error_context_names_the_source_member()
   Assert.equal(err.context.source.mapId, 61)
 end
 
-return T
+return { tests = T }

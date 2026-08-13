@@ -63,4 +63,4 @@ function T.invalid_configuration_is_rejected()
   end)
 end
 
-return T
+return { tests = T }

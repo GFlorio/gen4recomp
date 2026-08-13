@@ -16,4 +16,4 @@ function T.checked_in_docs_match_generated_output()
   Assert.equal(DocGen.render(), checkedIn, "docs/script-api-v1.md is stale; run scripts/gen-script-docs.sh")
 end
 
-return T
+return { tests = T }

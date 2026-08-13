@@ -61,4 +61,4 @@ function T.calibration_rejects_degenerate_extent()
   Assert.isTrue(Errors.is(err) and err.code == "MAP_COMPILE_CALIBRATION", "code")
 end
 
-return T
+return { tests = T }

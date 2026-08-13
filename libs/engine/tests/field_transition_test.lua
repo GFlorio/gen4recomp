@@ -323,4 +323,4 @@ function T.abort_records_the_failed_warp_context()
   })
 end
 
-return T
+return { tests = T }

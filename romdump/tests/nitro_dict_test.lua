@@ -53,4 +53,4 @@ function T.rejects_duplicate_names()
   Assert.equal(assert(err).code, "NITRO_DICT_DUPLICATE_NAME")
 end
 
-return T
+return { tests = T }

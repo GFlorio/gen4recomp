@@ -193,4 +193,4 @@ function T.writes_into_the_compiled_graph_do_not_touch_authoring_input()
   Assert.isNil(author.steps[3].bindings.injected)
 end
 
-return T
+return { tests = T }

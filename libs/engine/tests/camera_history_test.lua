@@ -40,4 +40,4 @@ function T.invalid_ring_configuration_is_rejected()
   end)
 end
 
-return T
+return { tests = T }

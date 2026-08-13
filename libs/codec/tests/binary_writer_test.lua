@@ -105,4 +105,4 @@ function T.integer_encoders_accept_the_full_width()
   Assert.equal(r:u32le(10), 4294967295)
 end
 
-return T
+return { tests = T }

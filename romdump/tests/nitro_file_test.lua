@@ -67,4 +67,4 @@ function T.rejects_too_small()
   end)
 end
 
-return T
+return { tests = T }

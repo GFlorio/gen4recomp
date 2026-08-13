@@ -73,27 +73,41 @@ local function saveBackend(faults, lifecycle)
   }
 end
 
+-- The render trap wraps process-global graphics functions, so it cannot be
+-- owned per game: a second boot while a first game is live would capture the
+-- first game's trapped functions as its "originals", and closing in the wrong
+-- order would leave the namespace trapped forever. The real functions are
+-- therefore captured once per process and restored by the first close; any
+-- boot/close sequence leaves the namespace untrapped.
+local TRAPPED_FUNCTIONS = { "newShader", "newCanvas", "newImage", "newMesh", "newQuad", "draw" }
+local graphicsOriginals = nil
+
 local function installRenderTrap()
   local graphics = love and love.graphics
   if not graphics then
     return { attempts = 0, restore = function() end }
   end
-  local trap = { attempts = 0, original = {} }
-  for _, name in ipairs({ "newShader", "newCanvas", "newImage", "newMesh", "newQuad", "draw" }) do
-    trap.original[name] = graphics[name]
+  if graphicsOriginals == nil then
+    graphicsOriginals = {}
+    for _, name in ipairs(TRAPPED_FUNCTIONS) do
+      graphicsOriginals[name] = graphics[name]
+    end
+  end
+  local trap = { attempts = 0 }
+  for _, name in ipairs(TRAPPED_FUNCTIONS) do
     graphics[name] = function()
       trap.attempts = trap.attempts + 1
       error("acceptance runtime attempted love.graphics." .. name, 2)
     end
   end
   function trap:restore()
-    if not self.original then
+    if graphicsOriginals == nil then
       return
     end
-    for name, value in pairs(self.original) do
+    for name, value in pairs(graphicsOriginals) do
       graphics[name] = value
     end
-    self.original = nil
+    graphicsOriginals = nil
   end
   return trap
 end

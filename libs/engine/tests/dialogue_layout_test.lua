@@ -306,4 +306,4 @@ function T.marker_width_affects_wrap_positions()
   Assert.equal(#plain.pages[1].lines, 1, "widthless marker fits the whole line")
 end
 
-return T
+return { tests = T }

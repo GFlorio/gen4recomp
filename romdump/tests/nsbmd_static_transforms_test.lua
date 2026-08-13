@@ -633,4 +633,4 @@ function T.evp_matrices_are_only_decoded_for_a_model_that_blends()
   Assert.notNil(blending.evpMatrices[1])
 end
 
-return T
+return { tests = T }

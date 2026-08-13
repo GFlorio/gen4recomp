@@ -131,4 +131,4 @@ function T.the_shipped_demo_manifest_is_well_formed()
   end
 end
 
-return T
+return { tests = T }

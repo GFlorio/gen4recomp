@@ -88,4 +88,4 @@ function T.lines_are_deterministic_and_payload_free()
   Assert.isTrue(joined:find("land_data:7 m0") ~= nil, joined)
 end
 
-return T
+return { tests = T }

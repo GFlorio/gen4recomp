@@ -332,4 +332,4 @@ function T.event_state_over_the_safety_limit_is_rejected()
   end)
 end
 
-return T
+return { tests = T }

@@ -132,4 +132,4 @@ function T.rejects_nan_and_fractional_lengths()
   end)
 end
 
-return T
+return { tests = T }

@@ -24,4 +24,4 @@ function T.target_maps_have_spawns()
   Assert.notNil(FieldSpawns.MAP_NEW_BARK, "New Bark spawn missing")
 end
 
-return T
+return { tests = T }

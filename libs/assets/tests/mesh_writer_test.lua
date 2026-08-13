@@ -82,4 +82,4 @@ function T.rejects_non_triangle_index_count()
   raisesCode("MESH_BAD_INDEX_COUNT", MeshWriter.encode, b)
 end
 
-return T
+return { tests = T }

@@ -284,4 +284,4 @@ function T.rejects_malformed_menu_and_placement_input()
   end)
 end
 
-return T
+return { tests = T }

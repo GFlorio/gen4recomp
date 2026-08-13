@@ -279,4 +279,4 @@ function T.occupancy_blocks_only_the_cell_it_names()
   Assert.equal(p.fieldX, 2)
 end
 
-return T
+return { tests = T }

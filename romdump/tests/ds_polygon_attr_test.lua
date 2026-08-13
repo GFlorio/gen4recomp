@@ -78,4 +78,4 @@ function T.rejects_non_32bit_word()
   end)
 end
 
-return T
+return { tests = T }
