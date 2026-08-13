@@ -20,6 +20,12 @@ local GAME_ALLOWLIST = {
   ["game/src/launcher/VersionSelectState.lua"] = {
     ["romdump.src.source.GameVersion"] = true,
   },
+  -- App's boot-wiring test stubs the same readiness seam App itself uses to
+  -- cover the _bootExisting branches, which no other layer can (App requires
+  -- a window; a real boot is ROM-gated acceptance territory).
+  ["game/tests/app_state_test.lua"] = {
+    ["romdump.src.source.RomImporter"] = true,
+  },
 }
 
 local PACKAGE_ROOTS = {

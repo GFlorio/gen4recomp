@@ -6,7 +6,12 @@
 -- the suite neither steals the desktop nor paces itself against a monitor; the
 -- host modules no test needs (audio, sound, joystick, touch) stay off. An
 -- ordinary boot gets a normal resizable window. Test detection is a plain scan
--- of `arg` because modules are not up yet.
+-- of `arg` because LÖVE modules are not up yet.
+
+-- Requires the shared window reference. love.conf runs before main.lua, so the
+-- repo-root package.path it installs is not available yet; the module resolves
+-- through the launch working directory instead.
+local WindowConfig = require("game.src.WindowConfig")
 
 local function isTest()
   for _, a in ipairs(arg or {}) do
@@ -29,8 +34,8 @@ function love.conf(t)
     t.modules.touch = false
 
     t.window.title = "g4recomp tests"
-    t.window.width = 640
-    t.window.height = 480
+    t.window.width = WindowConfig.REFERENCE_WIDTH
+    t.window.height = WindowConfig.REFERENCE_HEIGHT
     t.window.resizable = false
     t.window.visible = false
     t.window.vsync = 0
@@ -42,8 +47,19 @@ function love.conf(t)
     t.window.vsync = 1
     t.window.depth = 24 -- 3D map rendering needs a depth buffer
     t.window.stencil = 8
-    local width = tonumber(os.getenv("G4RECOMP_WINDOW_WIDTH") or "")
-    local height = tonumber(os.getenv("G4RECOMP_WINDOW_HEIGHT") or "")
+    -- Environment-provided dimensions must be positive integers; an invalid
+    -- value is a configuration fault that refuses to boot rather than silently
+    -- opening at a different size.
+    local width, widthError =
+      WindowConfig.parseEnvDimension(os.getenv("G4RECOMP_WINDOW_WIDTH"), "G4RECOMP_WINDOW_WIDTH")
+    if widthError then
+      error(widthError, 0)
+    end
+    local height, heightError =
+      WindowConfig.parseEnvDimension(os.getenv("G4RECOMP_WINDOW_HEIGHT"), "G4RECOMP_WINDOW_HEIGHT")
+    if heightError then
+      error(heightError, 0)
+    end
     if width then
       t.window.width = width
     end

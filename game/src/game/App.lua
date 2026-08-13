@@ -135,7 +135,7 @@ function App._bootExisting()
   if type(decision) == "string" then
     App.setState(newFieldState(decision, nil, true))
   else
-    App.setState(VersionSelectState.new(decision:versions(), function(versionId)
+    App.setState(VersionSelectState.new(decision, function(versionId)
       App.setState(newFieldState(versionId, nil, true))
     end))
   end

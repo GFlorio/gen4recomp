@@ -15,10 +15,14 @@ function T.ready_version_ids_are_validated_before_selection()
   end)
 end
 
-function T.multiple_ready_versions_expose_a_deterministic_selection()
-  local selection = FieldBoot.select({ "heartgold", "soulsilver" })
-  Assert.deepEqual(selection:versions(), { "heartgold", "soulsilver" })
-  Assert.equal(selection:choose("soulsilver"), "soulsilver")
+-- Several ready versions return the ready array itself: the caller offers a
+-- choice over exactly the versions it found, with no intermediate selection
+-- object.
+function T.multiple_ready_versions_return_the_ready_array()
+  local versions = { "heartgold", "soulsilver" }
+  local decision = FieldBoot.select(versions)
+  Assert.equal(decision, versions, "the ready array itself, not a copy or wrapper")
+  Assert.deepEqual(decision, { "heartgold", "soulsilver" })
 end
 
 return T
