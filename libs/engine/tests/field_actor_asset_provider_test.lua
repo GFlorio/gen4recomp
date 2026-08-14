@@ -122,6 +122,13 @@ function T.reacquiring_an_idle_entry_is_a_hit_and_leaves_the_idle_list()
   Assert.equal(p:stats().idle, 0)
 end
 
+function T.resident_does_not_expose_an_idle_entry_as_owned()
+  local p = provider({ 0 })
+  p:acquire(0)
+  p:release(0)
+  Assert.isNil(p:resident(0), "an idle cache entry is not presentation residency")
+end
+
 function T.dispose_releases_every_image()
   local created = {}
   local p = provider({ 0, 29 }, nil, created)

@@ -35,6 +35,7 @@ local PARTNER_OBJECT_ID = 253
 ---@field unsubscribe fun()?
 ---@field pendingFlags table[]
 ---@field currentMapId integer|nil
+---@field _visualRevision integer
 local FieldActorManager = {}
 FieldActorManager.__index = FieldActorManager
 
@@ -74,6 +75,7 @@ function FieldActorManager.new(opts)
     unsubscribe = nil,
     pendingFlags = {},
     currentMapId = nil,
+    _visualRevision = 0,
   }, FieldActorManager)
 end
 
@@ -192,6 +194,7 @@ function FieldActorManager:_instantiate(entry, event)
     entry.actors[actorId] = actor
     entry.byIndex[actor.objectEventId] = actorId
     entry.order[#entry.order + 1] = actor
+    self._visualRevision = self._visualRevision + 1
   end)
   if not ok then
     self.assets:release(spriteId)
@@ -218,6 +221,7 @@ function FieldActorManager:_destroy(entry, actor)
     end
   end
   self.assets:release(actor.spriteId)
+  self._visualRevision = self._visualRevision + 1
 end
 
 -- Idempotent for an already-active runtime map, so a transition's overlapping
@@ -324,6 +328,26 @@ function FieldActorManager:step(tick)
       if not actor.animationPaused then
         actor.poseTick = actor.poseTick + 1
       end
+    end
+  end
+end
+
+-- Monotonic signal for presentation residency. Movement, facing, pose, and
+-- visibility changes do not alter the set of sprite definitions the field
+-- presentation must hold.
+---@return integer
+function FieldActorManager:visualRevision()
+  return self._visualRevision
+end
+
+-- Add the distinct sprite definitions needed by every live actor to `out`.
+-- The caller owns clearing a reused set before collecting a new snapshot.
+---@param out table<integer, boolean>
+function FieldActorManager:collectSpriteIds(out)
+  assert(type(out) == "table", "collectSpriteIds requires a set table")
+  for _, entry in pairs(self.maps) do
+    for _, actor in ipairs(entry.order) do
+      out[actor.spriteId] = true
     end
   end
 end
