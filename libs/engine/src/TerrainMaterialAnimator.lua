@@ -7,21 +7,23 @@
 -- items reference.
 --
 -- Each texture-swap animation name owns one clock over its replacement
--- steps: construction puts the clock on step 1 with 0 ticks elapsed and
--- leaves every runtime material on its initial image (the loader bound the
--- base material.texture), acquiring every replacement step image up front
--- through the injected resolver. Each updateFixed counts one tick; when the
--- current step's durationTicks expires the clock advances (wrapping at the
--- step list end) and only then swaps every member of the group to the new
--- step's own preloaded image. Same-name materials share one clock and stay
--- in phase, each selecting from its own preloaded array -- neighbor cells
--- compile against their own packs, so same-name arrays may hold different
--- paths; the asset cache validates that same-name schedules agree.
+-- schedule: construction puts the clock on schedule entry 1 with 0 ticks
+-- elapsed and leaves every runtime material on its initial image (the base
+-- material.texture stays outside the replacement schedule), acquiring every
+-- replacement image up front through the injected resolver. Each
+-- updateFixed counts one tick; when the current entry's durationTicks
+-- expires the clock advances (wrapping at the schedule end) and only then
+-- swaps every member of the group to the new entry's own preloaded image --
+-- so the first switch lands one tick later than an intuitive implementation.
+-- Same-name materials share one clock and stay in phase, each selecting from
+-- its own preloaded array -- neighbor cells compile against their own packs,
+-- so same-name arrays may hold different paths; the asset cache validates
+-- that same-name schedules agree.
 --
--- The texture-SRT clip plays through one looping AnimationPlayer: frame 0
--- is sampled at construction, and updateFixed advances one frame and
--- re-samples every targeted material through TextureSrtEvaluator (the
--- shared composition with MaterialEvaluator); untargeted materials keep the
+-- The texture-SRT clip plays through one looping AnimationPlayer: area NSBTA
+-- frame 0 is sampled at construction, and updateFixed advances one frame and
+-- re-samples every SRT-bound material through TextureSrtEvaluator (the
+-- shared composition with MaterialEvaluator); unbound materials keep the
 -- matrix construction initialized. Construction initializes every binding's
 -- texMatrix -- the static srt, or the frame-0 NSBTA sample for a clip
 -- target -- so a fully static scene needs no separate path. updateFixed
@@ -34,8 +36,8 @@ local CompiledNsbtaSampler = require("libs.engine.src.CompiledNsbtaSampler")
 local TextureSrtEvaluator = require("libs.engine.src.TextureSrtEvaluator")
 
 ---@class TerrainMaterialAnimator
----@field groups { steps: table, stepIndex: integer, ticksInStep: integer, members: table[] }[]
----@field targeted { record: table, runtime: table, targetIndex: integer }[]
+---@field groups { steps: table, scheduleIndex: integer, ticksInScheduleEntry: integer, members: table[] }[]
+---@field srtBindings { record: table, runtime: table, targetIndex: integer }[]
 ---@field clip table|false
 ---@field player table|nil
 local TerrainMaterialAnimator = {}
@@ -45,6 +47,8 @@ TerrainMaterialAnimator.__index = TerrainMaterialAnimator
 -- generated-data validation (including the same-name schedule agreement the
 -- shared clocks rely on); only true local programming faults are asserted
 -- here. `clip` is the compiled texsrt clip or false for no area animation.
+-- The base material image stays outside the replacement schedule: the loader
+-- bound material.texture, the schedule entries only supply alternate frames.
 ---@param bindings { record: table, runtime: table }[] scene material record + live runtime material table
 ---@param clip table|false the compiled texsrt clip or false for no area animation
 ---@param resolveImage fun(path: string, wrapX: string, wrapY: string): any the pool-backed image resolver
@@ -69,7 +73,7 @@ function TerrainMaterialAnimator.new(bindings, clip, resolveImage)
 
   local groups = {}
   local groupByName = {}
-  local targeted = {}
+  local srtBindings = {}
 
   for _, binding in ipairs(bindings) do
     local record = assert(binding.record, "TerrainMaterialAnimator.new requires bindings with records")
@@ -80,10 +84,9 @@ function TerrainMaterialAnimator.new(bindings, clip, resolveImage)
       local group = groupByName[swap.name]
       if not group then
         group = {
-          name = swap.name,
           steps = swap.steps,
-          stepIndex = 1,
-          ticksInStep = 0,
+          scheduleIndex = 1,
+          ticksInScheduleEntry = 0,
           members = {},
         }
         groups[#groups + 1] = group
@@ -91,8 +94,8 @@ function TerrainMaterialAnimator.new(bindings, clip, resolveImage)
       end
 
       local images = {}
-      for stepIndex, step in ipairs(swap.steps) do
-        images[stepIndex] = resolveImage(step.texture, record.wrap.x, record.wrap.y)
+      for scheduleIndex, step in ipairs(swap.steps) do
+        images[scheduleIndex] = resolveImage(step.texture, record.wrap.x, record.wrap.y)
       end
       group.members[#group.members + 1] = {
         runtime = runtime,
@@ -104,37 +107,39 @@ function TerrainMaterialAnimator.new(bindings, clip, resolveImage)
     local sampled
     if targetIndex ~= nil then
       sampled = CompiledNsbtaSampler.sample(clip, targetIndex, player.frameFx)
-      targeted[#targeted + 1] = { record = record, runtime = runtime, targetIndex = targetIndex }
+      srtBindings[#srtBindings + 1] = { record = record, runtime = runtime, targetIndex = targetIndex }
     end
     runtime.texMatrix = TextureSrtEvaluator.matrix(record, sampled)
   end
 
   return setmetatable({
     groups = groups,
-    targeted = targeted,
+    srtBindings = srtBindings,
     clip = clip,
     player = player,
   }, TerrainMaterialAnimator)
 end
 
 -- Advance every shared clock exactly once: each texture-swap group takes one
--- counter step, and when the current step's duration crosses, the clock
--- advances (wrapping at the step list end) and every member selects the new
--- step from its own preloaded array; the looping SRT player advances one
--- frame and each targeted material's matrix is re-sampled. Untargeted
--- matrices keep their base value. Image assignment happens only inside the
--- step-crossing branch. No acquisition, filesystem access, or record
--- mutation here.
+-- counter step, and when the current schedule entry's duration crosses, the
+-- clock advances (wrapping at the schedule end) and every member selects the
+-- new entry from its own preloaded array; the looping SRT player advances
+-- one frame and each targeted material's matrix is re-sampled. Untargeted
+-- matrices keep their base value. The first switch lands one tick later than
+-- an intuitive implementation: the base image shows for the first entry's
+-- full duration, and only a crossing swaps to the first alternate. Image
+-- assignment happens only inside the crossing branch. No acquisition,
+-- filesystem access, or record mutation here.
 function TerrainMaterialAnimator:updateFixed()
   for _, group in ipairs(self.groups) do
-    local step = group.steps[group.stepIndex]
-    if step.durationTicks > group.ticksInStep then
-      group.ticksInStep = group.ticksInStep + 1
+    local entry = group.steps[group.scheduleIndex]
+    if entry.durationTicks > group.ticksInScheduleEntry then
+      group.ticksInScheduleEntry = group.ticksInScheduleEntry + 1
     else
-      group.ticksInStep = 1
-      group.stepIndex = group.stepIndex % #group.steps + 1
+      group.ticksInScheduleEntry = 1
+      group.scheduleIndex = group.scheduleIndex % #group.steps + 1
       for _, member in ipairs(group.members) do
-        member.runtime.image = member.images[group.stepIndex]
+        member.runtime.image = member.images[group.scheduleIndex]
       end
     end
   end
@@ -142,9 +147,9 @@ function TerrainMaterialAnimator:updateFixed()
   if self.player then
     self.player:updateFixed()
     local frameFx = self.player.frameFx
-    for _, entry in ipairs(self.targeted) do
-      local sampled = CompiledNsbtaSampler.sample(self.clip, entry.targetIndex, frameFx)
-      entry.runtime.texMatrix = TextureSrtEvaluator.matrix(entry.record, sampled)
+    for _, binding in ipairs(self.srtBindings) do
+      local sampled = CompiledNsbtaSampler.sample(self.clip, binding.targetIndex, frameFx)
+      binding.runtime.texMatrix = TextureSrtEvaluator.matrix(binding.record, sampled)
     end
   end
 end

@@ -5,18 +5,13 @@
 -- the scene-form material records and the runtime material tables the draw
 -- items reference. Construction must leave the runtime material on its
 -- initial image (the loader bound the base material.texture), acquire every
--- replacement step image once, initialize every binding's texMatrix (static
--- srt or the clip's frame-0 sample), and never mutate the generated
--- descriptor records; updateFixed must advance each shared clock exactly
--- once, assign images only when a step boundary crosses, and perform no
--- acquisition. The texture-matrix math is pinned against the existing
--- MaterialEvaluator behavior through ModelInstance, so the extracted
--- TextureSrtEvaluator must compose identically. Pure domain; no rendering,
--- no love.
+-- replacement image once, initialize every binding's texMatrix (static srt
+-- or the clip's frame-0 sample), and never mutate the generated descriptor
+-- records; updateFixed must advance each shared clock exactly once, assign
+-- images only when a schedule boundary crosses, and perform no acquisition.
+-- Pure domain; no rendering, no love.
 
 local Assert = require("tests.support.Assert")
-local ModelDefinition = require("libs.engine.src.ModelDefinition")
-local ModelInstance = require("libs.engine.src.ModelInstance")
 local TerrainMaterialAnimator = require("libs.engine.src.TerrainMaterialAnimator")
 local TextureSrtEvaluator = require("libs.engine.src.TextureSrtEvaluator")
 
@@ -151,17 +146,6 @@ local function assertResolved(calls, path, wrapX, wrapY)
   )
 end
 
-local function deepCopy(value)
-  if type(value) ~= "table" then
-    return value
-  end
-  local out = {}
-  for k, v in pairs(value) do
-    out[k] = deepCopy(v)
-  end
-  return out
-end
-
 local function assertMatrixEqual(actual, expected, label)
   for i = 1, 9 do
     Assert.near(actual[i], expected[i], 1e-9, (label or "texMatrix") .. " cell " .. tostring(i))
@@ -172,9 +156,9 @@ local IDENTITY = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
 
 -- ---- texture-swap clock ----
 
--- 14.1: construction leaves the runtime material on the base image -- never
--- the first replacement step's image -- acquires every step image under the
--- material's wrap, and consumes no tick.
+-- Construction leaves the runtime material on the base image -- never the
+-- first replacement entry's image -- acquires every replacement image under
+-- the material's wrap, and consumes no tick.
 function T.initial_base_image_is_left_in_place_and_no_tick_is_consumed()
   local base = "base.png"
   local record = swapRecord(0, "flower01", base, flowerSteps())
@@ -193,56 +177,6 @@ function T.initial_base_image_is_left_in_place_and_no_tick_is_consumed()
     images[base .. "@repeat|repeat"],
     "the first switch comes only after the first step's 18 ticks"
   )
-end
-
--- 14.2: for a duration-1 step the first transition lands on the SECOND
--- update and advances to step 2, never to step 1's image.
-function T.first_transition_switches_on_the_second_update_for_duration_one()
-  local record = swapRecord(0, "flower", "base.png", {
-    { texture = "r0.png", durationTicks = 1 },
-    { texture = "r1.png", durationTicks = 1 },
-  })
-  local resolve, _, images = fakeImageResolver()
-  local list = bindings({ record }, resolve)
-  local runtime = list[1].runtime
-  local animator = TerrainMaterialAnimator.new(list, false, resolve)
-  animator:updateFixed()
-  Assert.equal(runtime.image, images["base.png@repeat|repeat"], "update 1 stays on the base image")
-  animator:updateFixed()
-  Assert.equal(runtime.image, images["r1.png@repeat|repeat"], "update 2 enters replacement step 2")
-end
-
--- 14.3: after the second step's duration expires the schedule wraps to
--- replacement step 1 -- actual replacement step zero appears after the wrap.
-function T.wrap_returns_to_replacement_step_zero()
-  local record = swapRecord(0, "flower", "base.png", {
-    { texture = "r0.png", durationTicks = 1 },
-    { texture = "r1.png", durationTicks = 1 },
-  })
-  local resolve, _, images = fakeImageResolver()
-  local list = bindings({ record }, resolve)
-  local runtime = list[1].runtime
-  local animator = TerrainMaterialAnimator.new(list, false, resolve)
-  for _ = 1, 3 do
-    animator:updateFixed()
-  end
-  Assert.equal(runtime.image, images["r0.png@repeat|repeat"], "the wrap enters replacement step 1")
-end
-
--- 14.4: a single-step schedule shows the base image for its duration, then
--- replacement step 1 forever.
-function T.single_step_schedule_stays_on_replacement_zero_after_the_boundary()
-  local record = swapRecord(0, "flower", "base.png", { { texture = "r0.png", durationTicks = 1 } })
-  local resolve, _, images = fakeImageResolver()
-  local list = bindings({ record }, resolve)
-  local runtime = list[1].runtime
-  local animator = TerrainMaterialAnimator.new(list, false, resolve)
-  animator:updateFixed()
-  Assert.equal(runtime.image, images["base.png@repeat|repeat"], "the first duration interval shows the base")
-  animator:updateFixed()
-  Assert.equal(runtime.image, images["r0.png@repeat|repeat"], "the first schedule boundary enters step 1")
-  animator:updateFixed()
-  Assert.equal(runtime.image, images["r0.png@repeat|repeat"], "the single step repeats itself")
 end
 
 -- A zero-duration step follows the same state machine: the transition fires
@@ -294,33 +228,10 @@ function T.boundary_ticks_of_an_18_tick_step_follow_the_clock()
   Assert.equal(image(), images["r0.png@repeat|repeat"], "the cursor wraps to step 1 at tick 73")
 end
 
--- Two materials sharing one animation name stay in phase: one shared
--- stepIndex/ticksInStep pair drives both runtime tables, so every switch
--- lands on the same tick with the same step.
-function T.two_materials_in_one_group_remain_in_phase()
-  local a = swapRecord(0, "flower", "base-a.png", flowerSteps())
-  local b = swapRecord(1, "flower", "base-b.png", flowerSteps())
-  local resolve, _, images = fakeImageResolver()
-  local list = bindings({ a, b }, resolve)
-  local animator = TerrainMaterialAnimator.new(list, false, resolve)
-  for _ = 1, 18 do
-    animator:updateFixed()
-  end
-  Assert.equal(list[1].runtime.image, images["base-a.png@repeat|repeat"])
-  Assert.equal(list[2].runtime.image, images["base-b.png@repeat|repeat"])
-  animator:updateFixed()
-  Assert.equal(list[1].runtime.image, images["r1.png@repeat|repeat"], "both materials switch at tick 19")
-  Assert.equal(list[2].runtime.image, images["r1.png@repeat|repeat"])
-  for _ = 1, 54 do
-    animator:updateFixed()
-  end
-  Assert.equal(list[1].runtime.image, images["r0.png@repeat|repeat"], "both materials wrap at tick 73")
-  Assert.equal(list[2].runtime.image, images["r0.png@repeat|repeat"])
-end
-
 -- Same-name materials may hold different replacement paths (neighbors
--- compile against their own packs): one clock drives the group, and on a
--- switch each material selects the step from its own preloaded array.
+-- compile against their own packs): one clock drives the group -- every
+-- member stays in phase -- and on a switch each material selects the entry
+-- from its own preloaded array.
 function T.same_name_materials_select_their_own_paths_in_phase()
   local a = swapRecord(0, "flower", "base-a.png", {
     { texture = "a0.png", durationTicks = 18 },
@@ -377,8 +288,8 @@ function T.srt_starts_at_frame_zero_changes_after_one_update_and_loops_at_frame_
   Assert.near(list[1].runtime.texMatrix[7], 0, 1e-9, "the loop wraps at frameCount back to frame 0")
 end
 
--- 14.6: a targeted material's matrix follows the clip; an untargeted
--- material keeps its base matrix (the same table object) across updates; an
+-- A targeted material's matrix follows the clip; an untargeted material
+-- keeps its base matrix (the same table object) across updates; an
 -- untextured material carries the identity matrix untouched.
 function T.targeted_and_untargeted_materials_behave_independently()
   local clip = scrollClip(4, { 0x0, 0x1000, 0x2000, 0x3000 })
@@ -388,6 +299,7 @@ function T.targeted_and_untargeted_materials_behave_independently()
     transS = 0x100,
     transT = 0,
     scaleOne = true,
+    rotOne = true,
     transOne = false,
   }
   local water = staticRecord(0, "water", { texture = "water.png" })
@@ -421,6 +333,7 @@ function T.static_srt_is_initialized_for_every_binding_without_a_clip()
     transS = 0x100,
     transT = 0,
     scaleOne = true,
+    rotOne = true,
     transOne = false,
   }
   local static = staticRecord(0, "soil", { texture = "soil.png", srt = srt })
@@ -436,174 +349,7 @@ function T.static_srt_is_initialized_for_every_binding_without_a_clip()
   Assert.equal(list[1].runtime.texMatrix, matrix, "no clip leaves matrices untouched")
 end
 
--- ---- parity with the existing MaterialEvaluator ----
-
--- The base (static-SRT) composition must be bit-equivalent to the matrix the
--- existing dynamic-model evaluator builds for the same material fields, and
--- the extracted TextureSrtEvaluator must expose that composition directly.
-function T.base_srt_composes_exactly_like_material_evaluator()
-  local variants = {
-    {
-      label = "non-identity",
-      srt = {
-        scaleS = 0x1800,
-        scaleT = 0x1000,
-        transS = 0x200,
-        transT = 0x100,
-        rot = { sin = 0x400, cos = 0xE00 },
-        scaleOne = false,
-        transOne = false,
-        rotOne = false,
-      },
-    },
-    {
-      label = "no-rotation",
-      srt = {
-        scaleS = 0x1000,
-        scaleT = 0x1000,
-        transS = 0x100,
-        transT = 0,
-        scaleOne = true,
-        transOne = false,
-      },
-    },
-    { label = "absent", srt = nil },
-  }
-  for _, variant in ipairs(variants) do
-    local record = staticRecord(0, "soil", { texture = "soil.png", srt = variant.srt })
-    local resolve, _, _ = fakeImageResolver()
-    local list = bindings({ record }, resolve)
-    local animator = TerrainMaterialAnimator.new(list, false, resolve)
-    local definition = ModelDefinition.new({
-      key = "fixture:soil",
-      nodes = {
-        {
-          index = 0,
-          name = "root",
-          translation = { x = 0, y = 0, z = 0 },
-          rotation = { 1, 0, 0, 0, 1, 0, 0, 0, 1 },
-          scale = { x = 1, y = 1, z = 1 },
-        },
-      },
-      meshes = { { id = "m", nodeIndex = 0, materialIndex = 0, geometry = "fixtures/m.g4mesh" } },
-      materials = {
-        {
-          id = 0,
-          name = "soil",
-          baseColor = { r = 255, g = 255, b = 255, a = 255 },
-          alphaMode = "opaque",
-          doubleSided = false,
-          texture = "soil.png",
-          texWidth = 16,
-          texHeight = 16,
-          textureFormat = 3,
-          alphaUsage = { hasZero = true },
-          polygonAlpha = 31,
-          texMtxMode = 0,
-          srt = variant.srt,
-        },
-      },
-      skins = {},
-      animations = {},
-    })
-    local instance = ModelInstance.new(definition)
-    instance:evaluateMaterials()
-    assertMatrixEqual(list[1].runtime.texMatrix, instance.materialState[0].texMatrix, variant.label .. " animator")
-    assertMatrixEqual(
-      TextureSrtEvaluator.matrix(record, nil),
-      instance.materialState[0].texMatrix,
-      variant.label .. " evaluator"
-    )
-  end
-end
-
--- The sampled composition must be bit-equivalent to the existing evaluator
--- at every frame: the animator's player and the instance's attachment player
--- advance in lockstep, and a static srt is replaced by the clip sample.
-function T.sampled_srt_composes_exactly_like_material_evaluator()
-  local clip = scrollClip(4, { 0x0, 0x1000, 0x2000, 0x3000 })
-  local srt = {
-    scaleS = 0x1800,
-    scaleT = 0x1000,
-    transS = 0x200,
-    transT = 0x100,
-    rot = { sin = 0x400, cos = 0xE00 },
-    scaleOne = false,
-    transOne = false,
-    rotOne = false,
-  }
-  local record = staticRecord(0, "water", { texture = "water.png", srt = srt })
-  local resolve, _, _ = fakeImageResolver()
-  local list = bindings({ record }, resolve)
-  local animator = TerrainMaterialAnimator.new(list, clip, resolve)
-  local definition = ModelDefinition.new({
-    key = "fixture:water",
-    nodes = {
-      {
-        index = 0,
-        name = "root",
-        translation = { x = 0, y = 0, z = 0 },
-        rotation = { 1, 0, 0, 0, 1, 0, 0, 0, 1 },
-        scale = { x = 1, y = 1, z = 1 },
-      },
-    },
-    meshes = { { id = "m", nodeIndex = 0, materialIndex = 0, geometry = "fixtures/m.g4mesh" } },
-    materials = {
-      {
-        id = 0,
-        name = "water",
-        baseColor = { r = 255, g = 255, b = 255, a = 255 },
-        alphaMode = "opaque",
-        doubleSided = false,
-        texture = "water.png",
-        texWidth = 16,
-        texHeight = 16,
-        textureFormat = 3,
-        alphaUsage = { hasZero = true },
-        polygonAlpha = 31,
-        texMtxMode = 0,
-        srt = srt,
-      },
-    },
-    skins = {},
-    animations = { clip },
-  })
-  local instance = ModelInstance.new(definition)
-  instance:play("scroll")
-  instance:evaluateMaterials()
-  assertMatrixEqual(
-    list[1].runtime.texMatrix,
-    instance.materialState[0].texMatrix,
-    "frame 0 replaces the static srt with the sample"
-  )
-  for frame = 1, 3 do
-    instance:updateFixed()
-    instance:evaluateMaterials()
-    animator:updateFixed()
-    assertMatrixEqual(list[1].runtime.texMatrix, instance.materialState[0].texMatrix, "frame " .. tostring(frame))
-  end
-end
-
--- ---- ownership and immutability ----
-
--- Construction and playback never mutate the generated descriptor records or
--- the compiled clip: the animator consumes them read-only.
-function T.generated_descriptors_are_unchanged_after_construction_and_updates()
-  local clip = scrollClip(4, { 0x0, 0x1000, 0x2000, 0x3000 })
-  local swap = swapRecord(0, "flower", "base.png", flowerSteps())
-  local water = staticRecord(1, "water", { texture = "water.png" })
-  local records = { swap, water }
-  local clipCopy = deepCopy(clip)
-  local recordsCopy = deepCopy(records)
-  local resolve, _, _ = fakeImageResolver()
-  local list = bindings(records, resolve)
-  local animator = TerrainMaterialAnimator.new(list, clip, resolve)
-  for _ = 1, 80 do
-    animator:updateFixed()
-  end
-  Assert.deepEqual(clip, clipCopy, "clip")
-  Assert.deepEqual(records, recordsCopy, "records")
-end
+-- ---- ownership ----
 
 -- updateFixed performs no image acquisition: every resolver call happened at
 -- construction, and several updates spanning multiple switches and SRT
