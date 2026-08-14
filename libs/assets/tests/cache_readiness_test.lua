@@ -140,6 +140,7 @@ local function mapScene(mapId)
     materials = {},
     buildingInstances = {},
     neighbors = {},
+    terrainAnimations = { textureSrt = false },
   }
 end
 
@@ -189,6 +190,36 @@ function T.map_scene_missing_neighbors_is_not_ready()
   scene.neighbors = nil
   writeMapScene(c, 61, scene)
   Assert.isFalse(MapAssetCache.isReady(c, 61, "m"), "neighbors is required by the current schema")
+end
+
+function T.map_scene_missing_terrain_animations_is_not_ready()
+  local c = cache()
+  local scene = mapScene(61)
+  scene.terrainAnimations = nil
+  writeMapScene(c, 61, scene)
+  Assert.isFalse(MapAssetCache.isReady(c, 61, "m"), "terrainAnimations is required by the current schema")
+end
+
+function T.map_scene_with_malformed_texture_swap_is_not_ready()
+  local c = cache()
+  local scene = mapScene(61)
+  scene.materials = {
+    {
+      id = 0,
+      name = "flower01",
+      texture = "assets/generated/maps/textures/a.png",
+      texWidth = 16,
+      texHeight = 16,
+      texMtxMode = 0,
+      textureSwap = {
+        name = "flower01",
+        textures = {},
+        timeline = { { textureIndex = 0, durationTicks = 18 } },
+      },
+    },
+  }
+  writeMapScene(c, 61, scene)
+  Assert.isFalse(MapAssetCache.isReady(c, 61, "m"), "a malformed textureSwap must never read as ready")
 end
 
 function T.map_scene_with_non_array_neighbors_is_not_ready()

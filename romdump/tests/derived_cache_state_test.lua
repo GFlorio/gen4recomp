@@ -14,7 +14,7 @@ local T = {}
 
 local CONTRACT = {
   revision = 1,
-  map = { cacheFormat = "map-cache-v6" },
+  map = { cacheFormat = "map-cache-v7" },
 }
 
 local function inputs(overrides)

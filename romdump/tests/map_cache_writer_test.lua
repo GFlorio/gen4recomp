@@ -141,6 +141,26 @@ function T.failed_rebuild_preserves_the_previous_map()
   Assert.isNil(backend:getInfo("staging/heartgold/map-" .. first.mapId), "the stage is cleaned on success")
 end
 
+-- A rebuilt bundle whose scene fails the strict v5 validation (missing
+-- terrainAnimations) must raise MAP_CACHE_SCENE_INVALID and leave the prior
+-- ready artifact exactly as it was: same marker, no stage, no new artifacts.
+function T.failed_scene_validation_preserves_the_previous_map()
+  local backend = FakeCache.new()
+  local c = CacheFs.forVersion("heartgold", backend)
+  local first = Bundle.minimal()
+  MapCacheWriter.write(c, first)
+  local second = Bundle.minimal()
+  second.marker = MapAssetCache.marker("romsha1", second.mapId, "new-dephash")
+  second.scene.terrainAnimations = nil
+  local err = Assert.throws(function()
+    MapCacheWriter.write(c, second)
+  end)
+  Assert.equal(err.code, "MAP_CACHE_SCENE_INVALID")
+  Assert.isTrue(MapAssetCache.isReady(c, first.mapId, first.marker), "the previous map remains ready")
+  Assert.equal(c:read(MapAssetCache.mapDir(first.mapId) .. "/complete"), first.marker, "no new marker leaked")
+  Assert.isNil(backend:getInfo("staging/heartgold/map-" .. first.mapId), "the stage is cleaned on validation failure")
+end
+
 -- A failed rebuild never replaces a model descriptor an older ready map
 -- references: the model key is content-addressed over the descriptor, so a
 -- changed descriptor gets a new path and the old path keeps its bytes even

@@ -245,6 +245,16 @@ function T.animated_bundle_round_trips_through_writer_readiness_and_loader()
     buildAnim = { [0] = AnimationFixture.jntDoor() },
   })
   local bundle = assert(MapAssetCompiler.compile(romFs, MapRomFixture.MAP_SYMBOL))
+  -- The scene the current producer emits predates the v5 terrain-animation
+  -- fields; complete the shape here so the round trip exercises the writer,
+  -- the readiness gate, and the loader rather than the missing producer
+  -- wiring.
+  bundle.scene.terrainAnimations = { textureSrt = false }
+  for _, material in ipairs(bundle.scene.materials) do
+    material.texWidth = 16
+    material.texHeight = 16
+    material.texMtxMode = 0
+  end
   local model = onlyModel(bundle)
   Assert.equal(model.schema, "g4-model-v2")
   Assert.equal(model.kind, "nitro-dynamic")

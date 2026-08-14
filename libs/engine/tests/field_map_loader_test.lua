@@ -20,11 +20,12 @@ local function fixture(mapCount)
   for mapId = 0, mapCount - 1 do
     local symbol = "MAP_" .. mapId
     local scene = {
-      schema = "g4-map-scene-v4",
+      schema = "g4-map-scene-v5",
       mapId = mapId,
       mapSymbol = symbol,
       cameraType = mapId,
       neighbors = {},
+      terrainAnimations = { textureSrt = false },
       collision = { file = string.format("data/generated/maps/%04d/collision.g4collision", mapId) },
       matrix = { width = 1, height = 1, x = 0, z = 0, worldOriginX = mapId * 32, worldOriginZ = 0 },
     }

@@ -16,8 +16,8 @@ local DerivedAssetContract = {}
 DerivedAssetContract.revision = 2
 
 DerivedAssetContract.map = {
-  cacheFormat = "map-cache-v6",
-  sceneSchema = "g4-map-scene-v4",
+  cacheFormat = "map-cache-v7",
+  sceneSchema = "g4-map-scene-v5",
   terrainSchema = "g4-terrain-surfaces-v1",
   collisionVersion = 1,
 }

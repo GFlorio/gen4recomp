@@ -69,7 +69,7 @@ end
 -- pass resolves against the grid it decodes into).
 local function scene(materials)
   return {
-    schema = "g4-map-scene-v4",
+    schema = "g4-map-scene-v5",
     mapId = 1,
     cameraType = 0,
     matrix = { width = 1, height = 1, x = 0, z = 0, worldOriginX = 0, worldOriginZ = 0 },
@@ -78,6 +78,7 @@ local function scene(materials)
     mapBatches = {},
     buildingInstances = {},
     neighbors = {},
+    terrainAnimations = { textureSrt = false },
   }
 end
 

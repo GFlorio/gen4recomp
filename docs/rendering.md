@@ -12,7 +12,7 @@ The pipeline has four stages:
 1. **Parse** raw Nitro formats (`Nsbmd`, `Nsbtx`, `GxDisplayList`) independently
    of LÖVE.
 2. **Compile** a map + its placed buildings into derived, content-addressed
-   assets: `g4-map-scene-v4` descriptors, `G4M2` mesh batches, and PNG textures.
+   assets: `g4-map-scene-v5` descriptors, `G4M2` mesh batches, and PNG textures.
 3. **Load** the derived cache into runtime GPU objects (`MapSceneLoader`).
 4. **Draw** with the DS-shaped shader and render queue (`MapRenderer`).
 
@@ -293,8 +293,8 @@ light/shininess commands fail compilation with:
 Derived map caches carry the persisted format/schema identities:
 
 ```lua
-MapAssetCache.FORMAT              = "map-cache-v6"
-scene.schema                      = "g4-map-scene-v4"
+MapAssetCache.FORMAT              = "map-cache-v7"
+scene.schema                      = "g4-map-scene-v5"
 terrain.schema                    = "g4-terrain-surfaces-v1"
 collision version                 = 1
 VertexFormat.VERSION              = 2
