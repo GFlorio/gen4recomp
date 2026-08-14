@@ -8,6 +8,12 @@
 local Assert = require("tests.support.Assert")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 local MapRenderer = require("libs.engine.src.MapRenderer")
+local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
+local MapAssetCache = require("libs.assets.src.MapAssetCache")
+local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
+local LuaWriter = require("libs.codec.src.LuaWriter")
+local MeshWriter = require("libs.assets.src.MeshWriter")
+local FakeCache = require("tests.support.FakeCache")
 local VertexFormat = require("libs.assets.src.VertexFormat")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local Matrix4 = require("libs.math.src.Matrix4")
@@ -842,6 +848,327 @@ function T.behind_light_specular_stays_dark(scope)
 
   Assert.isTrue(headOn > 0, "the head-on specular frame must have a sample to derive a threshold from")
   Assert.isTrue(behind < headOn / 2, "a behind-the-surface light contributes no specular under the melonDS gate")
+end
+
+-- ---- terrain-animation offscreen fixtures ----
+
+-- The New Bark flower schedule: 0 for 18 ticks, 1 for 18, 0 for 18, 2 for
+-- 18, loop (the generated-contract record shape).
+local function flowerTimeline()
+  return {
+    { textureIndex = 0, durationTicks = 18 },
+    { textureIndex = 1, durationTicks = 18 },
+    { textureIndex = 0, durationTicks = 18 },
+    { textureIndex = 2, durationTicks = 18 },
+  }
+end
+
+-- A compiled texsrt clip in the NsbtaClipCompiler payload shape: one target
+-- whose transS curve moves 0x0800 fx32 units (half a texture width -- 8
+-- texels on the 16-wide texture) between frame 0 and frame 1.
+local function terrainSrtClip()
+  return {
+    id = "fixture:area00_ani",
+    name = "area00_ani",
+    category = "material",
+    kind = "texsrt",
+    frameCount = 2,
+    tracks = { { target = "water", targetIndex = 0 } },
+    semanticNames = {},
+    compiled = {
+      targets = {
+        {
+          index = 0,
+          name = "water",
+          channels = {
+            scaleS = { source = "constant", value = 0x1000 },
+            scaleT = { source = "constant", value = 0x1000 },
+            rot = { source = "constant", value = 0x10000000 },
+            transS = { source = "curve", rate = 1, limit = 2, storage = "fx32", keys = { 0x0, 0x0800 } },
+            transT = { source = "constant", value = 0 },
+          },
+        },
+      },
+    },
+  }
+end
+
+-- One solid-color PNG frame for the swap schedule.
+local function solidPng(width, height, r, g, b)
+  local data = love.image.newImageData(width, height)
+  for y = 0, height - 1 do
+    for x = 0, width - 1 do
+      data:setPixel(x, y, r, g, b, 255)
+    end
+  end
+  return data:encode("png")
+end
+
+-- A two-tone PNG: left half red, right half blue, so a half-width texture
+-- translation observably moves the sampled texel.
+local function twoTonePng(width, height)
+  local data = love.image.newImageData(width, height)
+  for y = 0, height - 1 do
+    for x = 0, width - 1 do
+      if x < width / 2 then
+        data:setPixel(x, y, 255, 0, 0, 255)
+      else
+        data:setPixel(x, y, 0, 0, 255, 255)
+      end
+    end
+  end
+  return data:encode("png")
+end
+
+-- A full-screen-height quad in world space with UVs spanning [0,1].
+local function uvQuad(x0, y0, x1, y1)
+  local function v(x, y, u, uv)
+    return {
+      x = x,
+      y = y,
+      z = 0,
+      u = u,
+      v = uv,
+      nx = 0,
+      ny = 0,
+      nz = 1,
+      r = 255,
+      g = 255,
+      b = 255,
+      a = 255,
+      colorSource = 0,
+    }
+  end
+  return {
+    vertices = { v(x0, y0, 0, 0), v(x1, y0, 1, 0), v(x1, y1, 1, 1), v(x0, y1, 0, 1) },
+    indices = { 0, 1, 2, 0, 2, 3 },
+  }
+end
+
+-- A 32x32 all-plain collision grid (the scene cell).
+local function collisionGridBytes()
+  local cells = {}
+  for index = 1, 32 * 32 do
+    cells[index] = { behavior = 0, terrainResponseId = 0, blocked = false }
+  end
+  return CollisionGridAsset.encode({ width = 32, height = 32, cells = cells })
+end
+
+-- The in-memory cache facade over a FakeCache backend: loadLua reads and
+-- evals in an empty environment, like CacheFs.loadLua.
+local function luaCache(backend)
+  local function loadLua(path)
+    local data = assert(backend:read(path), "missing cache file " .. path)
+    local chunk = assert(loadstring(data, path))
+    setfenv(chunk, {})
+    local ok, result = pcall(chunk)
+    assert(ok, result)
+    return result
+  end
+  return {
+    read = function(_, path)
+      return backend:read(path)
+    end,
+    loadLua = function(_, path)
+      return loadLua(path)
+    end,
+  }
+end
+
+-- A terrain scene with two materials: a texture-swap flower quad covering
+-- the left half of the screen and a water quad covering the right half,
+-- animated by the given SRT clip. Returns the cache facade.
+local function terrainAnimationScene(flowerFrames, waterPng, srtClip)
+  local mapId = 61
+  local backend = FakeCache.new()
+  local dir = MapAssetCache.mapDir(mapId)
+  local flowerPaths = {}
+  for i, png in ipairs(flowerFrames) do
+    local path = MapAssetCache.texturePath("flower-f" .. i)
+    backend:write(path, png)
+    flowerPaths[i] = path
+  end
+  local waterPath = MapAssetCache.texturePath("water")
+  backend:write(waterPath, waterPng)
+
+  local flowerQuad = MapAssetCache.geometryPath("flower-quad")
+  local waterQuad = MapAssetCache.geometryPath("water-quad")
+  backend:write(flowerQuad, MeshWriter.encode(uvQuad(-1, -1, 0, 1)))
+  backend:write(waterQuad, MeshWriter.encode(uvQuad(0, -1, 1, 1)))
+
+  local scene = {
+    schema = MapAssetCache.SCENE_SCHEMA,
+    versionId = "heartgold",
+    mapId = mapId,
+    mapSymbol = "MAP_NEW_BARK",
+    matrix = {
+      memberId = 0,
+      name = "map",
+      width = 1,
+      height = 1,
+      x = 0,
+      z = 0,
+      index = 0,
+      altitude = 0,
+      worldOriginX = 0,
+      worldOriginZ = 0,
+    },
+    area = {
+      memberId = 2,
+      type = "outdoor",
+      mapTexturePackId = 0,
+      buildingTexturePackId = 0,
+      dynamicTextureType = 0,
+      lightType = 0,
+    },
+    collision = { width = 32, height = 32, file = dir .. "/collision.g4collision" },
+    mapBatches = {
+      {
+        geometry = flowerQuad,
+        material = 0,
+        cullMode = "none",
+        polygonMode = "modulation",
+        polygonId = 0,
+        translucentDepthWrite = false,
+        depthEqual = false,
+        polygonAlpha = 31,
+        lightMask = 0,
+        alphaClass = "opaque",
+      },
+      {
+        geometry = waterQuad,
+        material = 1,
+        cullMode = "none",
+        polygonMode = "modulation",
+        polygonId = 0,
+        translucentDepthWrite = false,
+        depthEqual = false,
+        polygonAlpha = 31,
+        lightMask = 0,
+        alphaClass = "opaque",
+      },
+    },
+    materials = {
+      {
+        id = 0,
+        name = "flower01",
+        texture = flowerPaths[1],
+        wrap = { x = "repeat", y = "repeat" },
+        texWidth = 16,
+        texHeight = 16,
+        texMtxMode = 0,
+        textureSwap = {
+          name = "flower01",
+          textures = flowerPaths,
+          timeline = flowerTimeline(),
+        },
+      },
+      {
+        id = 1,
+        name = "water",
+        texture = waterPath,
+        wrap = { x = "repeat", y = "repeat" },
+        texWidth = 16,
+        texHeight = 16,
+        texMtxMode = 0,
+      },
+    },
+    buildingInstances = {},
+    neighbors = {},
+    lighting = nil,
+    terrainAnimations = { textureSrt = srtClip },
+  }
+  backend:write(dir .. "/scene.lua", LuaWriter.encode(scene))
+  backend:write(dir .. "/collision.g4collision", collisionGridBytes())
+  return luaCache(backend)
+end
+
+-- One offscreen scenario for the terrain-animation proof: a single
+-- renderer and a single loader boot draw (1) the frame-0 terrain
+-- quad, (2) the same quad after the clock crossed a texture-swap boundary,
+-- asserting the selected pixel changed to the frame-1 image, and (3) the
+-- SRT-targeted quad after a non-identity sample, asserting the sampling
+-- moved to the expected texel. The production MapSceneLoader runtime
+-- material tables (image + texMatrix, mutated by TerrainMaterialAnimator)
+-- drive the draw; nothing here is a test-only shader.
+function T.terrain_animation_offscreen_swap_and_srt(scope)
+  local flowerFrames = {
+    solidPng(16, 16, 255, 0, 0),
+    solidPng(16, 16, 0, 0, 255),
+    solidPng(16, 16, 0, 255, 0),
+  }
+  local cache = terrainAnimationScene(flowerFrames, twoTonePng(16, 16), terrainSrtClip())
+  local scene = assert(cache:loadLua(MapAssetCache.mapDir(61) .. "/scene.lua"))
+  local runtime = scope:own(MapSceneLoader.load(cache, scene))
+  local renderer = scope:own(MapRenderer.new())
+  local camera = fixedCamera()
+  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
+
+  -- World position -> canvas pixel under the identity camera (the shader
+  -- flips clip Y). Both quads span the full canvas height, so the mirrored
+  -- row (used on drivers whose readbacks come back Y-inverted) is interior
+  -- too.
+  local function pixelAt(w, h, x, y)
+    return math.floor((x + 1) / 2 * w + 0.5), math.floor((1 - y) / 2 * h + 0.5)
+  end
+  local flowerX, flowerY = pixelAt(640, 480, -0.25, 0.25)
+  local waterX, waterY = pixelAt(640, 480, 0.625, 0.125)
+  local flowerMirrorY = 480 - 1 - flowerY
+  local waterMirrorY = 480 - 1 - waterY
+
+  local function draw()
+    renderer:draw(runtime, camera, runtime.mapDraws, viewport)
+    return renderer.sceneColor:newImageData()
+  end
+
+  -- The readback scale is driver-dependent (0..255 or 0..1), so channels
+  -- are compared against a scale derived from the sampled pixel itself.
+  local function isColor(pixel, r, g, b)
+    local scale = pixel[1] > 1 and 255 or 1
+    local function channel(value, want)
+      return want == 0 and value <= 0.4 * scale or value >= 0.6 * scale
+    end
+    return channel(pixel[1], r) and channel(pixel[2], g) and channel(pixel[3], b)
+  end
+
+  local function assertPixel(img, x, y, r, g, b, label)
+    local p = { img:getPixel(x, y) }
+    Assert.isTrue(
+      isColor(p, r, g, b),
+      label .. " at (" .. x .. "," .. y .. "): got " .. p[1] .. "," .. p[2] .. "," .. p[3]
+    )
+  end
+
+  -- Frame 0: the swap material binds its frame-0 image (red) and the SRT
+  -- target samples its identity matrix (the water quad's u=0.625 samples
+  -- the blue half). Loading established frame 0 without advancing.
+  local img0 = draw()
+  assertPixel(img0, flowerX, flowerY, 1, 0, 0, "flower frame 0 renders red")
+  assertPixel(img0, flowerX, flowerMirrorY, 1, 0, 0, "flower frame 0 renders red (mirror row)")
+  assertPixel(img0, waterX, waterY, 0, 0, 1, "water frame 0 samples the blue half")
+  assertPixel(img0, waterX, waterMirrorY, 0, 0, 1, "water frame 0 samples the blue half (mirror row)")
+
+  -- One fixed tick applies the first non-identity SRT sample: the 0x0800
+  -- transS (half a texture width -- 8 texels on the 16-wide texture) moves
+  -- the sample from the blue half to the red half. The flower clock has not
+  -- reached its first switch (tick 19), so the flower stays on frame 0.
+  runtime:updateAnimated()
+  local img1 = draw()
+  assertPixel(img1, waterX, waterY, 1, 0, 0, "water frame 1 samples the red half after the SRT move")
+  assertPixel(img1, waterX, waterMirrorY, 1, 0, 0, "water frame 1 samples the red half (mirror row)")
+  assertPixel(img1, flowerX, flowerY, 1, 0, 0, "flower stays on frame 0 before the swap boundary")
+
+  -- Crossing the texture-swap boundary (18 more ticks, first switch at tick
+  -- 19): the runtime material image switches to the frame-1 image and the
+  -- quad renders blue. The 2-frame SRT clip is at frame 19 mod 2 = 1, so
+  -- the water sample stays shifted.
+  for _ = 1, 18 do
+    runtime:updateAnimated()
+  end
+  local img2 = draw()
+  assertPixel(img2, flowerX, flowerY, 0, 0, 1, "flower switched to the frame-1 image at the swap boundary")
+  assertPixel(img2, flowerX, flowerMirrorY, 0, 0, 1, "flower switched to the frame-1 image (mirror row)")
+  assertPixel(img2, waterX, waterY, 1, 0, 0, "water keeps the shifted sample")
 end
 
 return GraphicsSmoke.suite(T)
