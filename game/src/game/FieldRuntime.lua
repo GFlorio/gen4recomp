@@ -17,6 +17,7 @@ local FieldDialogueController = require("libs.engine.src.FieldDialogueController
 local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldPlayerData = require("libs.engine.src.FieldPlayerData")
 local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local FieldInput = require("libs.engine.src.FieldInput")
@@ -33,6 +34,7 @@ local FieldSaveStore = require("libs.engine.src.FieldSaveStore")
 local FieldScripts = require("game.src.game.FieldScripts")
 local FieldSession = require("libs.engine.src.FieldSession")
 local FieldTransition = require("libs.engine.src.FieldTransition")
+local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local FieldZoom = require("libs.engine.src.FieldZoom")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
@@ -42,6 +44,7 @@ local ScriptSave = require("libs.engine.src.script.ScriptSave")
 local TargetSpawns = require("data.manifests.field_spawns")
 local FieldPresentation = require("data.manifests.field_presentation")
 local FieldScenarioManifest = require("data.manifests.field_scenario")
+local FieldPlayerManifest = require("data.manifests.field_player")
 local RepoFs = require("game.src.game.RepoFs")
 local WindowConfig = require("game.src.WindowConfig")
 local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
@@ -74,6 +77,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field errorText string?
 ---@field zoom FieldZoom
 ---@field saveStatus string?
+---@field playerData table the validated profile/options authority (FieldPlayerData shape)
 ---@field session FieldSession
 ---@field dialogue FieldDialogueController?
 ---@field auxiliaryFieldUi AuxiliaryFieldUi?
@@ -188,11 +192,31 @@ function FieldRuntime:_load()
       "field actor index has no runtime configuration"
     )
     self.actorConfig = actorIndex.runtime
+    -- The player-data validation context: the generated field font charmap
+    -- and the imported dialogue frame-index set, loaded once and injected
+    -- into fresh-session construction and the save store (the same pattern
+    -- as the compiled avatar set). The field-UI class is a required runtime
+    -- asset: its manifest is the authority for which frame indexes resolve.
+    local fontDef = FieldFontLoader.load(cacheFs)
+    local uiManifest = assert(
+      cacheFs:loadLua(FieldUiAssetCache.manifestPath()),
+      "field UI cache is cold -- run `scripts/buildcache.sh` first"
+    )
+    assert(FieldUiAssetCache.validateManifest(uiManifest), "field UI manifest is invalid")
+    local frameIndexes = {}
+    for frame = 0, uiManifest.dialogueFrames.count - 1 do
+      frameIndexes[frame] = true
+    end
+    local playerDataContext = {
+      charmap = fontDef.charmap,
+      frameIndexes = frameIndexes,
+    }
     self.saveStore = FieldSaveStore.new(self.saveFs or SaveFs.forVersion(self.versionId), {
       avatars = avatarIdSet(actorIndex),
       scriptsValidate = function(bucket)
         return ScriptSave.validate(bucket, {})
       end,
+      playerDataContext = playerDataContext,
     })
     if self.resetSave then
       self.saveStore:reset()
@@ -218,7 +242,9 @@ function FieldRuntime:_load()
     if self.resumeSave then
       local saved, saveErr = self.saveStore:load()
       if saved then
-        restored, saveErr = FieldSave.restore(saved, self.mapLoader, self.versionId)
+        restored, saveErr = FieldSave.restore(saved, self.mapLoader, self.versionId, {
+          playerDataContext = playerDataContext,
+        })
       end
       if saveErr and saveErr.code ~= StorageErrors.SAVE_FILE_MISSING then
         self.saveStatus = "Save ignored: " .. tostring(saveErr)
@@ -228,6 +254,15 @@ function FieldRuntime:_load()
     end
     self.runtimeMap = restored and restored.runtimeMap or self.mapLoader:load(self.mapIdOrSymbol)
     self.mapLoader:protectMap(self.runtimeMap.mapId, true)
+
+    -- The player profile/options authority: a fresh session copies and
+    -- validates the checked-in initial manifest; a resumed session uses the
+    -- required saved player-data bucket (validated at the store boundary).
+    -- This is the single authority the script platform and later dialogue
+    -- presentation consume; they never re-read the manifest.
+    local initialPlayerData, initialPlayerDataErr = FieldPlayerData.validate(FieldPlayerManifest, playerDataContext)
+    assert(initialPlayerData, "the initial player data manifest is invalid: " .. tostring(initialPlayerDataErr))
+    self.playerData = restored and restored.playerData or initialPlayerData
 
     -- The spawn manifest is flat: each entry is itself the spawn record
     -- (x, z, facing). A fresh boot must declare a spawn -- a missing entry is
@@ -271,7 +306,7 @@ function FieldRuntime:_load()
     self.viewport = FieldViewport.new(width, height, { mode = "expanded" })
     self:_updateCameraProjection()
     -- Event state: a persisted save owns the flags/vars and wins over the
-    -- demo scenario. Only a fresh boot (no save) seeds the scenario. The v2
+    -- demo scenario. Only a fresh boot (no save) seeds the scenario. The
     -- save's world bucket carries the numeric flag/var maps in the
     -- event-state shape.
     local restoredWorld = restored and restored.world
@@ -337,7 +372,8 @@ function FieldRuntime:_load()
 
     -- Modal dialogue is pure and fixed-tick. Runtime layout needs only the
     -- compiled font definition; presentation later owns the atlas and drawing.
-    local fontDef = FieldFontLoader.load(cacheFs)
+    -- The text-speed cadence is captured from the player options at
+    -- construction, so an open request never queries options afterwards.
     local fontMetrics = FieldDialogueTheme.fontMetrics(fontDef)
     self.menuHost = FieldMenuHost.new({
       width = self.viewportWidth,
@@ -353,7 +389,10 @@ function FieldRuntime:_load()
         { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines }
       )
     end
-    self.dialogue = FieldDialogueController.new({ layout = layoutMessage })
+    self.dialogue = FieldDialogueController.new({
+      layout = layoutMessage,
+      ticksPerGlyph = FieldPlayerData.ticksPerGlyph(self.playerData.options.textSpeed),
+    })
     self.auxiliaryFieldUi = restored and AuxiliaryFieldUi.restore(restored.auxiliaryUi) or AuxiliaryFieldUi.new()
     self.contextChoiceProvider = ContextChoiceProvider.new()
     self.actionKeys = actionBindings()
@@ -373,7 +412,7 @@ function FieldRuntime:_load()
     -- the compiled cache + data/scripts/overrides, composition, bindings,
     -- scheduler, and interaction client. Bound interactions run through the
     -- scheduler; the binding audit rejects unbound interactable events at
-    -- construction. A resumed v2 save reattaches its script bucket.
+    -- construction. A resumed save reattaches its script bucket.
     -- The override files live in the repo tree outside the LÖVE source dir,
     -- so the loader reads them through the io-backed repo filesystem.
     self.scripts = FieldScripts.new({
@@ -383,6 +422,7 @@ function FieldRuntime:_load()
       eventState = self.eventState,
       actors = self.actors,
       player = self.player,
+      profile = self.playerData.profile,
       dialogue = self.dialogue,
       messageProvider = self.messageProvider,
       layout = layoutMessage,
@@ -526,6 +566,7 @@ function FieldRuntime:saveSession(successText)
         registryFingerprint = self.scripts:registryFingerprint(),
       }),
       auxiliaryUi = self.auxiliaryFieldUi:capture(),
+      playerData = self.playerData,
     }))
   end)
   if not ok then
@@ -685,7 +726,7 @@ function FieldRuntime:_releaseAll()
   self.transition, self.camera, self.player, self.runtimeMap = nil, nil, nil, nil
   self.viewport, self.input, self.menuHost = nil, nil, nil
   self.auxiliaryFieldUi, self.contextChoiceProvider, self.interactionResolver = nil, nil, nil
-  self.eventState, self.avatar, self.actorConfig = nil, nil, nil
+  self.eventState, self.avatar, self.actorConfig, self.playerData = nil, nil, nil, nil
 end
 
 -- End the state's lifetime: persist the field session if one is live, then

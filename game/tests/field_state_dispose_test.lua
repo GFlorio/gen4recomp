@@ -110,6 +110,10 @@ local function disposableState()
     session = captureReadySession(),
     scripts = fakeScripts(),
     avatar = { id = "hero" },
+    playerData = {
+      profile = { name = "GOLD", gender = 0, trainerId = 0 },
+      options = { textFrame = 0, textSpeed = "mid" },
+    },
     auxiliaryFieldUi = {
       capture = function()
         return { requested = "shown", state = "shown" }
@@ -233,6 +237,7 @@ function T.reset_routes_through_the_shared_teardown_path()
     "actors",
     "actorAssets",
     "mapLoader",
+    "playerData",
   }) do
     Assert.isNil(runtime[field], "reset must clear " .. field)
   end

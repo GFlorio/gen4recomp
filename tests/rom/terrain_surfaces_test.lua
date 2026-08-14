@@ -299,6 +299,10 @@ function T.upper_new_bark_staircase_state_reloads_on_the_same_surface(romFs, ver
     world = { flags = {}, variables = {}, objects = {}, rng = { state = 1, calls = 0 } },
     scriptsBucket = {},
     auxiliaryUi = { requested = "shown", state = "shown" },
+    playerData = {
+      profile = { name = "GOLD", gender = 0, trainerId = 0 },
+      options = { textFrame = 0, textSpeed = "mid" },
+    },
   })
   local restored = assert(FieldSave.restore(saved, {
     load = function(_, mapId)

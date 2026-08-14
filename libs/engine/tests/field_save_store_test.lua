@@ -33,6 +33,10 @@ local function record(versionId, overrides)
     world = { flags = {}, variables = {}, objects = {}, rng = { state = 1, calls = 0 } },
     scripts = {},
     auxiliaryUi = { requested = "shown", state = "shown" },
+    playerData = {
+      profile = { name = "GOLD", gender = 0, trainerId = 0 },
+      options = { textFrame = 0, textSpeed = "mid" },
+    },
   }
   for key, item in pairs(overrides or {}) do
     value[key] = item
@@ -178,6 +182,29 @@ function T.load_rejects_a_deeply_malformed_scripts_bucket()
   Assert.isTrue(
     loadErr and loadErr.code == "FIELD_SAVE_SCRIPTS_INVALID",
     "expected FIELD_SAVE_SCRIPTS_INVALID, got " .. tostring(loadErr and loadErr.code or loadErr)
+  )
+end
+
+-- The store load is the complete validation boundary: a player-data bucket
+-- that fails the injected model validation (here: an over-long name against
+-- the generated font context) must be rejected as a whole, never defaulted.
+function T.load_rejects_a_deeply_invalid_player_data_bucket()
+  local backend = FakeCache.new()
+  local saveFs = SaveFs.forVersion("heartgold", backend)
+  local store = FieldSaveStore.new(saveFs, {
+    playerDataContext = {
+      charmap = { G = 1, O = 2, L = 3, D = 4 },
+      frameIndexes = { [0] = true },
+    },
+  })
+  local value = record("heartgold")
+  value.playerData.profile.name = "GOLDGOLD"
+  saveFs:writeLua(FieldSave.PATH, value)
+  local loaded, loadErr = store:load()
+  Assert.isNil(loaded)
+  Assert.isTrue(
+    loadErr and loadErr.code == "FIELD_SAVE_PLAYER_DATA_INVALID",
+    "expected FIELD_SAVE_PLAYER_DATA_INVALID, got " .. tostring(loadErr and loadErr.code or loadErr)
   )
 end
 

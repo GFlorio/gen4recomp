@@ -1,6 +1,8 @@
 -- Defines and restores the project-owned field session save. The one schema
--- `g4-field-save-v2` carries the player field location, the persisted avatar
--- id, the scenario id that explains initialization, the `world` bucket
+-- `g4-field-save-v3` carries the player field location, the persisted avatar
+-- id, the scenario id that explains initialization, the required player-data
+-- bucket (the strict profile/options model, validated through the injected
+-- font charmap and frame-index context), the `world` bucket
 -- (project-owned serializable state: flags, variables, objects, rng), and
 -- the serializable `scripts` bucket owned by ScriptSave. There is no older
 -- format: a save that is not exactly this schema is rejected. The schema
@@ -14,13 +16,14 @@ local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldPlayerData = require("libs.engine.src.FieldPlayerData")
 local FieldTransition = require("libs.engine.src.FieldTransition")
 local ScriptRng = require("libs.engine.src.script.ScriptRng")
 local WarpSystem = require("libs.engine.src.WarpSystem")
 
 local FieldSave = {}
 
-FieldSave.SCHEMA = "g4-field-save-v2"
+FieldSave.SCHEMA = "g4-field-save-v3"
 -- Relative to the SaveFs root (saves/<versionId>/), never the version cache.
 -- The live save is the only supported schema, so the path is the semantic
 -- name rather than a schema-numbered development filename.
@@ -170,6 +173,26 @@ local function validateAuxiliaryUi(record)
   end
 end
 
+-- The player-data bucket, validated through the authoritative model with the
+-- caller's injected context (the generated font charmap and the imported
+-- frame-index set). The bucket is required; a missing or invalid record is
+-- rejected, never defaulted or upgraded.
+local function validatePlayerData(record, opts)
+  if type(record.playerData) ~= "table" then
+    Errors.raise("FIELD_SAVE_PLAYER_DATA_INVALID", "field save player data bucket is required", {})
+  end
+  local context = opts and opts.playerDataContext
+  if context then
+    local valid, err = FieldPlayerData.validate(record.playerData, context)
+    if not valid then
+      ---@cast err Errors.Error
+      Errors.raise("FIELD_SAVE_PLAYER_DATA_INVALID", "field save player data is invalid: " .. tostring(err), {
+        cause = err.code,
+      })
+    end
+  end
+end
+
 -- Strict schema validation (raising). Used by save and restore paths.
 local function validate(record, opts)
   if type(record) ~= "table" then
@@ -184,6 +207,7 @@ local function validate(record, opts)
   validateWorld(record)
   validateScripts(record, opts)
   validateAuxiliaryUi(record)
+  validatePlayerData(record, opts)
   return record
 end
 
@@ -211,9 +235,9 @@ function FieldSave.canCapture(session)
 end
 
 -- Capture the record: the identity/location fields plus the world and
--- scripts buckets, and auxiliary UI state. Every bucket is required because
--- the current runtime capture always supplies it; `opts.scriptsBucket` is
--- the ScriptSave capture output.
+-- scripts buckets, auxiliary UI state, and the player-data bucket. Every
+-- bucket is required because the current runtime capture always supplies
+-- it; `opts.scriptsBucket` is the ScriptSave capture output.
 
 ---@param session FieldSession
 ---@param opts table
@@ -225,6 +249,7 @@ function FieldSave.capture(session, opts)
   assert(type(opts.world) == "table", "field save capture requires a world bucket")
   assert(type(opts.scriptsBucket) == "table", "field save capture requires a scripts bucket")
   assert(type(opts.auxiliaryUi) == "table", "field save capture requires auxiliary UI state")
+  assert(type(opts.playerData) == "table", "field save capture requires the player-data bucket")
   local player = session.player
   local runtimeMap = session.currentMap
   assert(type(runtimeMap.terrainDependencyHash) == "string", "runtime map terrain dependency identity required")
@@ -243,6 +268,7 @@ function FieldSave.capture(session, opts)
     world = opts.world,
     scripts = opts.scriptsBucket,
     auxiliaryUi = opts.auxiliaryUi,
+    playerData = opts.playerData,
   }
 end
 
@@ -295,10 +321,12 @@ local function closestSurface(runtimeMap, localX, localZ, savedY)
 end
 
 -- Strict restore of the only schema. Returns the restored location plus the
--- persisted avatar id, world and scripts buckets, so the caller rebuilds
--- exactly what the save holds. `opts.scriptsValidate` is the domain
--- validator wired by the game layer (ScriptSave.validate for the scripts
--- bucket); the world bucket is validated by this boundary itself.
+-- persisted avatar id, world and scripts buckets, auxiliary UI state, and
+-- the player-data bucket, so the caller rebuilds exactly what the save
+-- holds. `opts.scriptsValidate` is the domain validator wired by the game
+-- layer (ScriptSave.validate for the scripts bucket); `opts.playerDataContext`
+-- is the player-data validation context; the world bucket is validated by
+-- this boundary itself.
 local function restore(record, loader, expectedVersionId, opts)
   validate(record, opts)
   if record.versionId ~= expectedVersionId then
@@ -344,6 +372,7 @@ local function restore(record, loader, expectedVersionId, opts)
     world = record.world,
     scripts = record.scripts,
     auxiliaryUi = record.auxiliaryUi,
+    playerData = record.playerData,
   }
 end
 

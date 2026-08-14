@@ -50,6 +50,36 @@ local function world(overrides)
   return value
 end
 
+-- The validation context mirrors the runtime injection: the generated font
+-- charmap (A-Z resolvable) and an imported dialogue frame-index set.
+local function playerDataContext()
+  return {
+    charmap = {
+      G = 305,
+      O = 313,
+      L = 310,
+      D = 302,
+      H = 306,
+      I = 307,
+      K = 309,
+      A = 299,
+      R = 316,
+    },
+    frameIndexes = { [0] = true, [1] = true },
+  }
+end
+
+local function playerData(overrides)
+  local value = {
+    profile = { name = "GOLD", gender = 0, trainerId = 0 },
+    options = { textFrame = 0, textSpeed = "mid" },
+  }
+  for key, item in pairs(overrides or {}) do
+    value[key] = item
+  end
+  return value
+end
+
 local function record(overrides)
   local value = {
     schema = FieldSave.SCHEMA,
@@ -66,6 +96,7 @@ local function record(overrides)
     world = world(),
     scripts = {},
     auxiliaryUi = { requested = "shown", state = "shown" },
+    playerData = playerData(),
   }
   for key, item in pairs(overrides or {}) do
     value[key] = item
@@ -90,6 +121,7 @@ local function capture(map, opts)
     scenario = opts.scenario or "pre-script-demo-v1",
     scriptsBucket = opts.scriptsBucket or {},
     auxiliaryUi = opts.auxiliaryUi or { requested = "shown", state = "shown" },
+    playerData = opts.playerData or playerData(),
   })
 end
 
@@ -129,6 +161,58 @@ function T.auxiliary_ui_state_round_trips_with_the_field_save()
 
   Assert.deepEqual(saved.auxiliaryUi, auxiliaryUi)
   Assert.deepEqual(restored.auxiliaryUi, auxiliaryUi)
+end
+
+-- The player-data bucket is required and round-trips exactly: a resumed
+-- session must restore the saved profile/options record, not the initial
+-- manifest.
+function T.player_data_bucket_round_trips_exactly()
+  local map = runtimeMap("terrain-a", { flat(11, 4) })
+  local modified = playerData({
+    profile = { name = "HIKARI", gender = 1, trainerId = 65535 },
+    options = { textFrame = 1, textSpeed = "slow" },
+  })
+
+  local saved = capture(map, { playerData = modified })
+  local restored = assert(restore(saved, map))
+
+  Assert.deepEqual(saved.playerData, modified)
+  Assert.deepEqual(restored.playerData, modified)
+end
+
+-- The current schema requires the player-data bucket: an old or hand-edited
+-- record missing it is rejected with the structured player-data error, never
+-- defaulted or upgraded.
+function T.missing_player_data_bucket_is_rejected()
+  throwsCode("FIELD_SAVE_PLAYER_DATA_INVALID", function()
+    local missing = record()
+    missing.playerData = nil
+    local _, err = FieldSave.validate(missing)
+    error(err)
+  end)
+end
+
+-- With the injected validation context (the generated font charmap and the
+-- imported frame-index set), an invalid player-data record is rejected at the
+-- save boundary as a whole, and the cause names the model's own code.
+function T.invalid_player_data_is_rejected_at_the_schema_boundary()
+  local context = playerDataContext()
+  throwsCode("FIELD_SAVE_PLAYER_DATA_INVALID", function()
+    local _, err = FieldSave.validate(
+      record({ playerData = playerData({ profile = { name = "GOLDGOLD", gender = 0, trainerId = 0 } }) }),
+      { playerDataContext = context }
+    )
+    error(err)
+  end)
+  throwsCode("FIELD_SAVE_PLAYER_DATA_INVALID", function()
+    local _, err = FieldSave.validate(
+      record({ playerData = playerData({ options = { textFrame = 9, textSpeed = "mid" } }) }),
+      { playerDataContext = context }
+    )
+    error(err)
+  end)
+  -- A valid record passes with the same context.
+  Assert.notNil(FieldSave.validate(record(), { playerDataContext = context }))
 end
 
 function T.invalid_auxiliary_ui_state_is_rejected()
@@ -229,7 +313,7 @@ function T.any_unknown_schema_is_rejected_as_unsupported()
   -- The schema is the only one that exists: older, newer, and arbitrary
   -- identifiers are all rejected with the same unsupported-schema error even
   -- when the rest of the record is complete.
-  for _, schema in ipairs({ "old", "g4-field-save-v9", "g4-field-save-v0", "g4-field-save-v1" }) do
+  for _, schema in ipairs({ "old", "g4-field-save-v9", "g4-field-save-v2", "g4-field-save-v1", "g4-field-save-v0" }) do
     throwsCode("FIELD_SAVE_SCHEMA_UNSUPPORTED", function()
       local _, err = FieldSave.validate(record({ schema = schema }))
       error(err)

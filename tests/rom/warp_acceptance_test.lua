@@ -57,6 +57,10 @@ local function autosaveRoundTrip(harness)
     world = { flags = {}, variables = {}, objects = {}, rng = { state = 1, calls = 0 } },
     scriptsBucket = {},
     auxiliaryUi = { requested = "shown", state = "shown" },
+    playerData = {
+      profile = { name = "GOLD", gender = 0, trainerId = 0 },
+      options = { textFrame = 0, textSpeed = "mid" },
+    },
   })
   local store = FieldSaveStore.new(SaveFs.forVersion(harness.versionId, FakeCache.new()), { avatars = { hero = true } })
   store:save(record)
