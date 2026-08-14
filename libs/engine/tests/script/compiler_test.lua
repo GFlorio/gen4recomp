@@ -755,6 +755,67 @@ function T.provenance_payload_edits_keep_the_revision()
   Assert.equal(base.revision, opcodes.revision, "opcode-only edit must not change the revision")
 end
 
+-- `copy_var` owns the `source` operand name, but the compiler maps step
+-- provenance onto the node `source` field for provenance-carrying steps.
+-- The generated common.signpost resource carries both on its copy_var
+-- steps: the compiled node must keep the var-ref operand, never the
+-- provenance payload (clobbering it faults the runtime handler with
+-- EVENT_VAR_ID_INVALID when the operand table reaches WorldState).
+function T.provenance_must_not_clobber_a_copy_var_source_operand()
+  local graph = compile(S.script({
+    api = 1,
+    id = "common.signpost",
+    metadata = {
+      generated = true,
+      source = {
+        repository = "g4recomp",
+        path = "romfs/a/0/1/2",
+        game = "heartgold",
+        archive = "scr_seq",
+        member = 3,
+        scriptIndex = 0,
+      },
+    },
+    steps = {
+      {
+        op = "copy_var",
+        destination = { id = "VAR_SPECIAL_x8008", value = "var" },
+        source = { id = "VAR_SPECIAL_RESULT", value = "var" },
+        provenance = { offsets = { 1176 }, opcodes = { 42 } },
+      },
+      S.stop(),
+    },
+  }))
+  local node = graph.nodes[graph.entry]
+  Assert.equal(node.op, "copy_var")
+  Assert.deepEqual(node.source, { id = "VAR_SPECIAL_RESULT", value = "var" })
+end
+
+-- copy_var's `source` is a real semantic operand, not a provenance payload:
+-- an edit to it must change the revision like any operand (the projection
+-- excludes only the provenance payload channel, never operands).
+function T.copy_var_source_operand_edits_change_the_revision()
+  local function scriptWith(source)
+    return S.script({
+      api = 1,
+      id = "x",
+      metadata = { generated = true, source = { member = 3, scriptIndex = 0 } },
+      steps = {
+        {
+          op = "copy_var",
+          destination = { id = "VAR_X", value = "var" },
+          source = source,
+          provenance = { offsets = { 4 }, opcodes = { 42 } },
+        },
+        S.stop(),
+      },
+    })
+  end
+  local a = compile(scriptWith({ id = "VAR_A", value = "var" }))
+  local b = compile(scriptWith({ id = "VAR_B", value = "var" }))
+  Assert.isFalse(a.revision == b.revision, "copy_var source operand edit must change the revision")
+end
+
 function T.semantic_edits_change_revision()
   local base = S.script({
     api = 1,

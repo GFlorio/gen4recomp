@@ -318,6 +318,7 @@ end
 ---@field menu table
 ---@field scriptMenu table
 ---@field signpost ScriptSignpostHost|nil
+---@field startMenuReopen { request: fun() }|nil the opcode-61 Start Menu reopen hook boundary
 ---@field auxiliaryUi AuxiliaryFieldUi
 local FakeServices = {}
 FakeServices.__index = FakeServices

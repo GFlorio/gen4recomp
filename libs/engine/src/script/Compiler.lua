@@ -32,6 +32,8 @@ Compiler.MAX_STATIC_NESTING = 64
 
 -- Ops whose linear continuation is not a `next` edge: branch nodes carry
 -- explicit edges, calls carry return frames, and stop/return/next terminate.
+-- `signal_caller` (the source `RestartCurrentScript`) returns FALSE and ends
+-- the script context, so it terminates the run too.
 local NO_CHAIN_NEXT = {
   ["if"] = true,
   switch = true,
@@ -42,6 +44,8 @@ local NO_CHAIN_NEXT = {
   call_compared = true,
   ["return"] = true,
   stop = true,
+  request_start_menu = true,
+  signal_caller = true,
   next = true,
 }
 
@@ -401,7 +405,11 @@ local function compileStep(context, step, path, cont, depth, id)
       node[k] = v
     end
   end
-  if step.provenance ~= nil then
+  -- Provenance rides on the node `source` field, but operations that own
+  -- the `source` operand name (copy_var, copy_local) keep their operand:
+  -- the provenance payload must never clobber it. The step field is named
+  -- `provenance` precisely because of this collision (Schema.STEP_FIELDS).
+  if step.provenance ~= nil and node.source == nil then
     node.source = step.provenance
   end
 
@@ -567,8 +575,10 @@ end
 -- provenance.offsets[1], `key:` IDs carry the author key. Edits to
 -- provenance offsets or metadata source identity therefore change the
 -- revision of a script with generated nodes; author key edits change it for
--- keyed nodes. Only the node `source` payload (provenance opcodes etc.),
--- warnings, and the non-identity metadata/coverage fields are excluded.
+-- keyed nodes. Only the node `source` provenance payload (opcodes, ...),
+-- warnings, and the non-identity metadata/coverage fields are excluded; an
+-- operation-owned `source` operand (copy_var) is semantic data and stays in
+-- the projection.
 ---@param graph table
 ---@return table
 local function buildProjection(graph)
@@ -576,7 +586,10 @@ local function buildProjection(graph)
   for id, node in pairs(graph.nodes) do
     local copy = {}
     for k, v in pairs(node) do
-      if k ~= "source" then
+      -- The provenance payload is the only excluded `source` shape; a node
+      -- whose `source` is a real operand keeps it in the projection.
+      local excluded = k == "source" and type(v) == "table" and type(v.offsets) == "table"
+      if not excluded then
         copy[k] = v
       end
     end

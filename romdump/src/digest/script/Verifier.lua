@@ -75,6 +75,14 @@ local YIELD_OPS = {
   stop = true,
 }
 
+-- Operations that end the script context (a stop-classified instruction
+-- must be covered by one of these): plain completion and the opcode-61
+-- context end that requests the Start Menu reopen hook.
+local TERMINAL_OPS = {
+  stop = true,
+  request_start_menu = true,
+}
+
 -- The documented multi-instruction folds (they own a timing profile of their
 -- own, so per-instruction classification checks do not apply to them).
 -- `if` covers the conditional cross-script branch wrap; `goto_if` is the
@@ -491,9 +499,9 @@ function Verifier.verifyScript(steps, script, memberIr, omissions)
             "yield instruction lacks a run-phase boundary",
             { offset = ins.offset, opcode = ins.opcode, node = node.op }
           )
-        elseif classification == CommandCatalog.STOP and node.op ~= "stop" then
+        elseif classification == CommandCatalog.STOP and not TERMINAL_OPS[node.op] then
           problem(
-            "stop instruction translated to a non-stop node",
+            "stop instruction translated to a non-terminal node",
             { offset = ins.offset, opcode = ins.opcode, node = node.op }
           )
         elseif classification == CommandCatalog.CONTINUE and boundary and node.op ~= "stop" then

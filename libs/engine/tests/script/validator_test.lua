@@ -184,6 +184,23 @@ function T.trainer_tips_and_wait_signpost_validate_canonical_shapes()
   }))
 end
 
+-- Opcode 61's terminal request_start_menu operation: no fields, accepts no
+-- operands (an extra field is a schema error).
+function T.request_start_menu_operation_has_no_operands()
+  valid(S.script({
+    api = 1,
+    id = "x",
+    steps = {
+      { op = "request_start_menu" },
+    },
+  }))
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "request_start_menu", extra = true } },
+  })
+end
+
 function T.trainer_tips_and_wait_signpost_reject_malformed_shapes()
   invalidCode("SCRIPT_SCHEMA_INVALID", {
     api = 1,

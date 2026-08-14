@@ -607,4 +607,78 @@ function T.trainer_tips_and_wait_signpost_states_validate_strictly()
   end
 end
 
+-- The compiled-graph path of the generated common.signpost resource: a
+-- copy_var step carries both its var-ref `source` operand and provenance.
+-- The compiler must keep the operand on the node (the provenance payload
+-- rides only on provenance-less nodes), so the runtime handler copies the
+-- actual variable instead of faulting EVENT_VAR_ID_INVALID over a
+-- provenance table.
+function T.compiled_copy_var_with_provenance_copies_the_operand_source()
+  local h = harness()
+  local script = S.script({
+    api = 1,
+    id = "test.copy_var_provenance",
+    metadata = { generated = true, source = { member = 3, scriptIndex = 0 } },
+    steps = {
+      {
+        op = "copy_var",
+        destination = { id = "VAR_SPECIAL_x8008", value = "var" },
+        source = { id = "VAR_SPECIAL_RESULT", value = "var" },
+        provenance = { offsets = { 1176 }, opcodes = { 42 } },
+      },
+      S.stop(),
+    },
+  })
+  h.services.world:setVar("VAR_SPECIAL_RESULT", 5)
+  h.registry:installBase(script.id, script, "generated")
+  local instanceId = h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+  h.scheduler:step(100, {})
+  Assert.equal(h.services.world:getVar("VAR_SPECIAL_x8008"), 5)
+  Assert.isNil(h.services.events:eventFor("script.error", instanceId), "the copy must not fault")
+  Assert.equal(#h.scheduler:tasks(), 0)
+end
+
+-- ScrCmd_061: no operands, ends the script context and requests the Start
+-- Menu reopen hook. The request must reach the startMenuReopen service
+-- exactly once and the run must stop (the compiled graph has no next edge);
+-- a missing service is an attributed fault, never a silent success.
+function T.request_start_menu_requests_the_hook_once_and_stops_the_script()
+  local requests = 0
+  local h = harness()
+  h.services.startMenuReopen = {
+    request = function()
+      requests = requests + 1
+    end,
+  }
+  local script = S.script({
+    api = 1,
+    id = "test.request_start_menu",
+    steps = {
+      { op = "request_start_menu" },
+      S.setVar({ variable = "VAR_AFTER", value = 1 }),
+      S.stop(),
+    },
+  })
+  h.registry:installBase(script.id, script, "generated")
+  h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+  h.scheduler:step(100, {})
+  Assert.equal(requests, 1, "the startMenuReopen hook must be requested exactly once")
+  h.scheduler:step(101, {})
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "the script context must end at the request node")
+  Assert.equal(#h.scheduler:tasks(), 0)
+end
+
+function T.request_start_menu_requires_the_reopen_service()
+  local h = harness()
+  local script = S.script({
+    api = 1,
+    id = "test.request_start_menu_no_service",
+    steps = { { op = "request_start_menu" } },
+  })
+  h.registry:installBase(script.id, script, "generated")
+  local instanceId = h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+  h.scheduler:step(100, {})
+  Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_SERVICE_MISSING")
+end
+
 return { tests = T }

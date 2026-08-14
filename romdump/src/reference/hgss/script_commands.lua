@@ -418,6 +418,7 @@ return {
       },
     },
     [61] = {
+      classification = "stop",
       name = "ScrCmd_061",
       widths = {},
     },

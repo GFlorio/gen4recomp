@@ -546,6 +546,45 @@ T["common child handoff"] = function()
   Assert.equal(#h.scheduler:instances(), 0)
 end
 
+-- The source `ScrCmd_RestartCurrentScript` (opcode 21) returns FALSE: a
+-- common child ends its context at the signal and never falls through to
+-- the instructions after signal_caller (std_signpost's hide branch is
+-- reachable only through its goto targets). The compiled signal node
+-- therefore carries no next edge.
+T["signal_caller ends the common child context"] = function()
+  local h = harness()
+  local common = script("common.signpost", {
+    S.setVar({ variable = "VAR_CHILD", value = 1 }),
+    { op = "signal_caller" },
+    S.setVar({ variable = "VAR_FALLTHROUGH", value = 1 }),
+    S.stop(),
+  })
+  h.registry:installBase(common.id, common, "generated")
+  local graph = assert(h.composition:effective(common.id)).entries[1].graph
+  for _, node in pairs(graph.nodes) do
+    if node.op == "signal_caller" then
+      Assert.isNil(node.next, "the signal node must end the run phase")
+    end
+  end
+  local root = script("test.std", {
+    S.callCommon({ target = "common.signpost" }),
+    S.setVar({ variable = "VAR_PARENT", value = 1 }),
+    S.stop(),
+  })
+  startForeground(h, root, 100)
+  h.scheduler:step(100, nil)
+  Assert.equal(h.services.world:getVar("VAR_CHILD"), 1)
+  Assert.equal(
+    h.services.world:getVar("VAR_FALLTHROUGH"),
+    0,
+    "the child context must end at signal_caller, not fall through"
+  )
+  h.scheduler:step(101, nil)
+  h.scheduler:step(102, nil)
+  Assert.equal(h.services.world:getVar("VAR_PARENT"), 1, "the caller must resume after the child signals")
+  Assert.equal(h.services.world:getVar("VAR_FALLTHROUGH"), 0, "the fallthrough must never run")
+end
+
 -- An ended root has no task observer, so it is not archived at all: the
 -- scheduler retains no completed-root record.
 T["completed root is not archived"] = function()

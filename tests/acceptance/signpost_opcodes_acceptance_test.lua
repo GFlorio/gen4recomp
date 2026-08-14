@@ -17,9 +17,11 @@
 -- (WaitSignpost) always installs a waiter and completes on A/B (result 0,
 -- window closed) or a direction (result 0, window closed, player turned);
 -- touch and mouse map to the semantic A edge. After the signpost opcode
--- completes, both scripts resume to their collapsed call of the
--- still-unsupported std_signpost cleanup script, which is where the scripts
--- fault. Rendering stays trapped.
+-- completes, both scripts resume into the real common.signpost child script
+-- (std_signpost): the child copies the special result, branches on it, and
+-- for results 0/2 queues WIPE_OUT and signals the caller, so the whole
+-- cleanup runs from the actual ROM-derived script material with zero script
+-- faults. Rendering stays trapped.
 
 local Assert = require("tests.support.Assert")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
@@ -35,11 +37,6 @@ local T = {
 
 local DIRECTION_SIGNPOST = "vanilla.hgss.scr_seq.0842.script_014"
 local SET_SIGNPOST_MAP = "vanilla.hgss.scr_seq.0842.script_013"
--- The terminal tail of both scripts: the collapsed call of the std_signpost
--- cleanup script (common.signpost still contains unsupported source
--- opcodes), emitted as an explicit unsupported node with command 0. Reaching
--- it after the signpost opcode completes is what proves the script resumed.
-local COLLAPSED_CALL_COMMAND = 0
 
 -- The result operand of opcodes 55/59/60 (VAR_SPECIAL_RESULT, 0x800C): 55
 -- never writes it, 59/60 write their completion value through the scheduler
@@ -81,18 +78,34 @@ local function faultCode(faults)
 end
 
 -- The post-signpost tail of both real scripts: after the 59/60 completion
--- the script resumes into its collapsed std_signpost call, an explicit
--- unsupported node whose command is 0. Asserting its fault proves the script
--- advanced past the signpost opcode instead of faulting at it.
-local function assertResumedToCollapsedCall(faults)
-  Assert.equal(#faults, 1, "exactly the collapsed std_signpost call must fault, got: " .. tostring(#faults))
-  Assert.equal(faults[1].code, "SCRIPT_UNSUPPORTED_REACHABLE")
+-- the script resumes into the real common.signpost child (std_signpost),
+-- which copies the special result, branches on it, and for results 0/2
+-- queues WIPE_OUT and signals the caller. Only the real child script can
+-- set the wipe_out command, so observing it (with zero faults) proves the
+-- collapsed call is gone and the actual cleanup material runs end to end.
+local function assertStdSignpostWipeOut(game, label)
+  game:advanceUntil(label .. ": the real std_signpost must queue its wipe-out", function()
+    return #scriptFaults(game) >= 1 or signpostStatus(game).command == "wipe_out"
+  end, 16)
   Assert.equal(
-    faults[1].command,
-    COLLAPSED_CALL_COMMAND,
-    "the script must have advanced past the signpost opcode to the std_signpost call, got: "
-      .. tostring(faults[1].command)
+    #scriptFaults(game),
+    0,
+    label .. ": the real std_signpost must run without faulting, got: " .. faultCode(scriptFaults(game))
   )
+  -- The wipe is real fixed-tick motion (one 16px step per scheduler tick
+  -- through the production advanceAsync wiring), not an instant close.
+  game:step()
+  Assert.equal(signpostStatus(game).logicalYOffset, -16, label .. ": the wipe-out must move one 16px step per tick")
+  game:advanceUntil(label .. ": the std_signpost wipe-out must complete", function()
+    local status = signpostStatus(game)
+    return status.command == "nop" and status.logicalYOffset == 0
+  end, 16)
+  Assert.equal(
+    #scriptFaults(game),
+    0,
+    label .. ": the std_signpost wipe-out must complete without faulting, got: " .. faultCode(scriptFaults(game))
+  )
+  Assert.isFalse(signpostStatus(game).active, label .. ": the signpost must stay closed after the cleanup")
 end
 
 -- Walk the stable, previously pinned journey of the direction-signpost script (55 at
@@ -165,7 +178,8 @@ end
 -- operand. Opcode 57 queues WIPE_IN without executing it, opcode 58 blocks
 -- until the wipe completes, and opcode 60 then waits for dismissal: A (the
 -- semantic edge touch and mouse map to) dismisses with result 0 and closes
--- the window, and the script resumes into its collapsed std_signpost call.
+-- the window, and the script resumes into the real std_signpost child,
+-- whose wipe-out cleanup ends the flow without a script fault.
 function T.tests.direction_signpost_shows_immediately_yields_once_and_never_writes_its_out_operand()
   withGame(function(game)
     game:setWorldState({ variable = SPECIAL_RESULT, value = 77 })
@@ -206,17 +220,14 @@ function T.tests.direction_signpost_shows_immediately_yields_once_and_never_writ
     Assert.isTrue(signpostStatus(game).active, "the signpost stays presented while WaitSignpost waits")
 
     -- A dismisses the signpost (the semantic edge touch and mouse map to):
-    -- result 0, the window closes, and the script resumes into its
-    -- collapsed std_signpost call on the following tick.
+    -- result 0, the window closes, and the script resumes into the real
+    -- std_signpost cleanup on the following tick.
     game:pressAction()
     Assert.isFalse(signpostStatus(game).active, "A must dismiss the signpost window (textbox_open = false)")
     Assert.equal(signpostStatus(game).command, "nop")
     local dismissed = scriptFaults(game)
     Assert.equal(#dismissed, 0, "the dismissal itself must not fault, got: " .. faultCode(dismissed))
-    game:advanceUntil("the script resumes past opcode 60", function()
-      return #scriptFaults(game) >= 1
-    end, 8)
-    assertResumedToCollapsedCall(scriptFaults(game))
+    assertStdSignpostWipeOut(game, "direction sign A dismissal")
     Assert.equal(
       game.runtime.scripts.worldState:getVar(SPECIAL_RESULT),
       0,
@@ -231,9 +242,9 @@ end
 -- update. Opcode 57 then queues WIPE_IN and yields, opcode 58 blocks until
 -- the wipe completes, and opcode 59 types its message into the signpost
 -- window at the player text speed: normal completion writes 2 and leaves
--- the window open (the script's own std_signpost cleanup performs the
--- hide), after which the script resumes into its collapsed std_signpost
--- call.
+-- the window open, after which the script resumes into the real
+-- std_signpost child, whose own WaitSignpost keeps the window open until a
+-- dismissal input and then wipes the sign out.
 function T.tests.set_signpost_map_queues_show_and_yields_once()
   withGame(function(game)
     game:startScript(SET_SIGNPOST_MAP)
@@ -266,26 +277,50 @@ function T.tests.set_signpost_map_queues_show_and_yields_once()
     Assert.isTrue(signpostStatus(game).active, "the signpost stays presented while Trainer Tips prints")
 
     -- The print completes at the fixed-tick cadence without any input;
-    -- normal completion writes 2 and leaves the window open.
+    -- normal completion writes 2 (on the promotion tick) and leaves the
+    -- window open.
     game:advanceUntil("the trainer tips print completes", function()
       return signpostStatus(game).printDone
     end, 64)
     Assert.equal(#scriptFaults(game), 0, "the print completion must not fault")
-    game:advanceUntil("the script resumes past opcode 59", function()
-      return #scriptFaults(game) >= 1
-    end, 8)
-    assertResumedToCollapsedCall(scriptFaults(game))
+
+    -- The script resumes into the real std_signpost child, whose own
+    -- WaitSignpost (opcode 60) keeps the window open until a dismissal.
+    game:step()
+    Assert.equal(
+      #scriptFaults(game),
+      0,
+      "the std_signpost child must not fault, got: " .. faultCode(scriptFaults(game))
+    )
+    Assert.isTrue(signpostStatus(game).active, "the std_signpost child keeps the window open while it waits")
+    game:step()
+    Assert.equal(
+      #scriptFaults(game),
+      0,
+      "the std_signpost child must not fault, got: " .. faultCode(scriptFaults(game))
+    )
+    Assert.isTrue(signpostStatus(game).active, "the std_signpost child keeps the window open while it waits")
     Assert.equal(
       game.runtime.scripts.worldState:getVar(SPECIAL_RESULT),
       2,
       "opcode 59 must write its normal completion result 2"
     )
-    Assert.isTrue(signpostStatus(game).active, "normal Trainer Tips completion leaves the signpost window open")
+
+    -- A dismisses the child's wait: the child writes its own dismissal
+    -- result 0 over the completion value and wipes the sign out.
+    game:pressAction()
+    assertStdSignpostWipeOut(game, "trainer tips normal completion")
+    Assert.equal(
+      game.runtime.scripts.worldState:getVar(SPECIAL_RESULT),
+      0,
+      "the std_signpost WaitSignpost must write its dismissal result 0"
+    )
   end)
 end
 
 -- A directional edge while WaitSignpost waits dismisses like A/B but also
--- turns the player to that direction before completing with result 0.
+-- turns the player to that direction before completing with result 0; the
+-- real std_signpost cleanup then wipes the sign out.
 function T.tests.wait_signpost_directional_dismissal_turns_the_player_and_writes_zero()
   withGame(function(game)
     game:startScript(DIRECTION_SIGNPOST)
@@ -312,10 +347,7 @@ function T.tests.wait_signpost_directional_dismissal_turns_the_player_and_writes
     local dismissed = scriptFaults(game)
     Assert.equal(#dismissed, 0, "the dismissal itself must not fault, got: " .. faultCode(dismissed))
 
-    game:advanceUntil("the script resumes past opcode 60", function()
-      return #scriptFaults(game) >= 1
-    end, 8)
-    assertResumedToCollapsedCall(scriptFaults(game))
+    assertStdSignpostWipeOut(game, "directional signpost dismissal")
     Assert.equal(
       game.runtime.scripts.worldState:getVar(SPECIAL_RESULT),
       0,
@@ -326,7 +358,8 @@ end
 
 -- A directional edge pressed while the Trainer Tips print is still typing
 -- stops the printer, turns the player, closes the window, and completes
--- with result 0 — the source directional-interruption path.
+-- with result 0 — the source directional-interruption path. The real
+-- std_signpost cleanup then wipes the sign out.
 function T.tests.trainer_tips_directional_interrupt_stops_the_print_turns_and_writes_zero()
   withGame(function(game)
     game:startScript(SET_SIGNPOST_MAP)
@@ -355,10 +388,7 @@ function T.tests.trainer_tips_directional_interrupt_stops_the_print_turns_and_wr
     local interrupted = scriptFaults(game)
     Assert.equal(#interrupted, 0, "the interrupt itself must not fault, got: " .. faultCode(interrupted))
 
-    game:advanceUntil("the script resumes past opcode 59", function()
-      return #scriptFaults(game) >= 1
-    end, 8)
-    assertResumedToCollapsedCall(scriptFaults(game))
+    assertStdSignpostWipeOut(game, "trainer tips directional interrupt")
     Assert.equal(
       game.runtime.scripts.worldState:getVar(SPECIAL_RESULT),
       0,
@@ -369,7 +399,8 @@ end
 
 -- A/B during the Trainer Tips print is the text printer's speed-up
 -- behavior, not a dismissal: pressing A mid-print must keep the signpost
--- window open and the script must still complete normally with result 2.
+-- window open and the script must still complete normally with result 2,
+-- then the real std_signpost child waits for its own dismissal.
 function T.tests.trainer_tips_a_during_print_is_not_a_dismissal()
   withGame(function(game)
     game:startScript(SET_SIGNPOST_MAP)
@@ -397,16 +428,37 @@ function T.tests.trainer_tips_a_during_print_is_not_a_dismissal()
       return signpostStatus(game).printDone
     end, 64)
     Assert.equal(#scriptFaults(game), 0, "the print completion must not fault")
-    game:advanceUntil("the script resumes past opcode 59", function()
-      return #scriptFaults(game) >= 1
-    end, 8)
-    assertResumedToCollapsedCall(scriptFaults(game))
+
+    -- The real std_signpost child then waits for its own dismissal and
+    -- wipes the sign out.
+    game:step()
+    Assert.equal(
+      #scriptFaults(game),
+      0,
+      "the std_signpost child must not fault, got: " .. faultCode(scriptFaults(game))
+    )
+    Assert.isTrue(signpostStatus(game).active, "the std_signpost child keeps the window open while it waits")
+    game:step()
+    Assert.equal(
+      #scriptFaults(game),
+      0,
+      "the std_signpost child must not fault, got: " .. faultCode(scriptFaults(game))
+    )
+    Assert.isTrue(signpostStatus(game).active, "the std_signpost child keeps the window open while it waits")
     Assert.equal(
       game.runtime.scripts.worldState:getVar(SPECIAL_RESULT),
       2,
       "A during the print must not change the normal completion result 2"
     )
     Assert.isTrue(signpostStatus(game).active, "the signpost window stays open after a button-speed-up completion")
+
+    game:pressAction()
+    assertStdSignpostWipeOut(game, "trainer tips button-speed-up completion")
+    Assert.equal(
+      game.runtime.scripts.worldState:getVar(SPECIAL_RESULT),
+      0,
+      "the std_signpost WaitSignpost must write its dismissal result 0"
+    )
   end)
 end
 

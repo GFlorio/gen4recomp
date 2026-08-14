@@ -425,6 +425,13 @@ local HANDLERS = {
       result = varRef(ins.operands[1]),
     }
   end,
+  [61] = function()
+    -- ScrCmd_061 (std_signpost's hide-branch tail): no operands; installs
+    -- the Start Menu reopen end callback and returns FALSE, ending the
+    -- script context. The runtime request_start_menu handler routes the
+    -- reopen request through the startMenuReopen service and stops.
+    return { op = "request_start_menu" }
+  end,
   [63] = function(ins)
     return { op = "ask_yes_no", result = varRef(ins.operands[1] or 0) }
   end,

@@ -418,6 +418,11 @@ Schema.OPERATIONS = {
       result = { type = "value", required = true },
     },
   },
+  -- Opcode 61 (ScrCmd_061, std_signpost's hide-branch tail): no operands.
+  -- Ends the script context and requests the Start Menu reopen hook
+  -- through the startMenuReopen service; a missing service is an
+  -- attributed fault, never a silent close.
+  request_start_menu = { fields = {} },
   message = {
     fields = {
       message = { type = "message", required = true },
@@ -634,12 +639,14 @@ Schema.OPERATIONS = {
 -- `provenance` carries source offsets/opcodes and drives generated `src:`
 -- node IDs (the compiler maps it onto the node's `source` field). The step
 -- field is named `provenance` because `copy_var` owns the `source` operand
--- name. Both are additive API 1 fields: identity and provenance, never
--- runtime semantics. Both drive node IDs, and node IDs are revision inputs:
--- the graph revision hashes a projection keyed by node ID, so author `key`
--- edits change the revision, and provenance identity edits do too for
--- generated `src:` nodes. Only the node `source` payload (opcodes, ...) is
--- excluded from that hash.
+-- name; the compiler keeps an operation-owned `source` operand and never
+-- lets the provenance payload clobber it. Both are additive API 1 fields:
+-- identity and provenance, never runtime semantics. Both drive node IDs,
+-- and node IDs are revision inputs: the graph revision hashes a projection
+-- keyed by node ID, so author `key` edits change the revision, and
+-- provenance identity edits do too for generated `src:` nodes. Only the
+-- node `source` provenance payload (opcodes, ...) is excluded from that
+-- hash.
 Schema.STEP_FIELDS = {
   key = { type = "string" },
   provenance = { type = "source_provenance" },
