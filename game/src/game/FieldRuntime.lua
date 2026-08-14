@@ -49,6 +49,8 @@ local ScriptSave = require("libs.engine.src.script.ScriptSave")
 local StartMenuController = require("libs.engine.src.StartMenuController")
 local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
 local StartMenuRegistry = require("libs.engine.src.StartMenuRegistry")
+local TrainerCardController = require("libs.engine.src.TrainerCardController")
+local TrainerCardModel = require("libs.engine.src.TrainerCardModel")
 local TargetSpawns = require("data.manifests.field_spawns")
 local FieldPresentation = require("data.manifests.field_presentation")
 local FieldScenarioManifest = require("data.manifests.field_scenario")
@@ -480,6 +482,19 @@ function FieldRuntime:_load()
         return self:_composeStartMenu(rememberedActionId)
       end,
     })
+    -- The Trainer Card viewer is the sprint's concrete destination: the
+    -- production factory composes the §29.1 read model from the authoritative
+    -- player-data record and the close-input-only controller. The factory
+    -- must return a fully usable controller or raise.
+    self.applications:register({
+      id = "trainer_card",
+      factory = function()
+        return TrainerCardController.new({
+          model = TrainerCardModel.new(self.playerData),
+          audio = self:_uiAudioFacade(),
+        })
+      end,
+    })
     for _, descriptor in ipairs(self.applicationDescriptors or {}) do
       self.applications:register(descriptor)
     end
@@ -672,6 +687,25 @@ function FieldRuntime:releaseMenu()
   requireLiveInput(self):releaseMenu("runtime")
 end
 
+-- The §21.1 application-audio facade: semantic UI sound requests route
+-- through the script audio seam when present (the non-rendering
+-- composition), else through the presentation UI-SFX player. Shared by the
+-- Start Menu and Trainer Card compositions; the controllers never name a
+-- ROM sequence or member number.
+---@return { play: fun(_: table, requestId: string) }
+function FieldRuntime:_uiAudioFacade()
+  return {
+    play = function(_, requestId)
+      local hosts = self.scriptHosts
+      if hosts and hosts.audio then
+        hosts.audio:play(requestId)
+      elseif self.uiSfx then
+        self.uiSfx:play(requestId)
+      end
+    end,
+  }
+end
+
 -- The Start Menu composition step: build the strict §19.1 policy snapshot
 -- from the authoritative world state and the sealed application-id set,
 -- merge the sealed mod actions, resolve every label through the message
@@ -741,16 +775,7 @@ function FieldRuntime:_composeStartMenu(rememberedActionId)
   if not ok then
     error(resolveErr, 0)
   end
-  local audioFacade = {
-    play = function(_, requestId)
-      local hosts = self.scriptHosts
-      if hosts and hosts.audio then
-        hosts.audio:play(requestId)
-      elseif self.uiSfx then
-        self.uiSfx:play(requestId)
-      end
-    end,
-  }
+  local audioFacade = self:_uiAudioFacade()
   return StartMenuController.new({
     entries = resolved,
     development = self.development,

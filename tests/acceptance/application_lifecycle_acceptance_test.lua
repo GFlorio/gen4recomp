@@ -1,20 +1,21 @@
 -- Production-composed application registry and Start Menu transition contract:
 -- the runtime must expose a sealed per-runtime application registry populated
--- before seal (the start_menu factory is production-registered; a boot-config
--- descriptor supplies the fake destination this journey launches), and an
--- application host owning the transition phase machine (closed/opening_menu/
--- menu/fading_out/application/fading_in/closing_menu), the fixed-tick fade
--- counter, and exactly-once controller disposal. One boot walks the full
--- lifecycle with a registered fake destination: ineligible open edges acquire
--- nothing, the menu opens at an idle boundary, world simulation stays paused
--- across the child application, the destination is constructed through the
--- registry factory and disposed exactly once on return, the menu rebuilds
--- with the remembered selection, the closing edges leak nothing into the
--- field, and runtime disposal mid-menu defers the save and releases cleanly.
--- The second boot pins the capability gate in developer mode (capability-
--- missing canonical entries rendered disabled) and the destination-factory
--- failure after fade-out: the original error is retained, no successful
--- return to the menu is reported, and the runtime stays terminally frozen.
+-- before seal (the start_menu and trainer_card factories are
+-- production-registered; a boot-config descriptor supplies the mod fake
+-- destination this journey launches), and an application host owning the
+-- transition phase machine (closed/opening_menu/menu/fading_out/application/
+-- fading_in/closing_menu), the fixed-tick fade counter, and exactly-once
+-- controller disposal. One boot walks the full lifecycle with a registered
+-- mod destination: ineligible open edges acquire nothing, the menu opens at
+-- an idle boundary, world simulation stays paused across the child
+-- application, the destination is constructed through the registry factory
+-- and disposed exactly once on return, the menu rebuilds with the remembered
+-- selection, the closing edges leak nothing into the field, and runtime
+-- disposal mid-menu defers the save and releases cleanly. The second boot
+-- pins the capability gate in developer mode (capability-missing canonical
+-- entries rendered disabled) and the destination-factory failure after
+-- fade-out: the original error is retained, no successful return to the menu
+-- is reported, and the runtime stays terminally frozen.
 
 local Assert = require("tests.support.Assert")
 local FieldSave = require("libs.engine.src.FieldSave")
@@ -28,9 +29,15 @@ local T = {
   tests = {},
 }
 
-local FAKE_DESTINATION = "trainer_card"
+local FAKE_DESTINATION = "fake_destination"
 local TRAINER_CARD_REF = "msg.hgss.0196.00003"
 local FACTORY_FAILURE_TEXT = "acceptance injected destination factory failure"
+
+-- The fake destination rides a mod Start Menu action after the production
+-- trainer card, so the production card and the fake are both visible and the
+-- journey can launch the fake (whose disposal counter is observable).
+local FAKE_ACTION = "my_mod.fake_destination"
+local FAKE_ACTION_REF = "msg.hgss.0542.00034"
 
 -- The §17.1 minimal controller contract a destination factory must return:
 -- updateFixed(uiInput) mutates pure logical state, status() is presentation
@@ -162,6 +169,15 @@ function T.tests.start_menu_lifecycle_with_a_registered_destination_runs_through
           end,
         },
       },
+      startMenuDescriptors = {
+        {
+          id = FAKE_ACTION,
+          label = FAKE_ACTION_REF,
+          icon = "asset.my_mod.fake_destination_icon",
+          targetApplication = FAKE_DESTINATION,
+          placement = { after = "vanilla.trainer_card" },
+        },
+      },
     },
   })
   local ok, err = xpcall(function()
@@ -226,23 +242,31 @@ function T.tests.start_menu_lifecycle_with_a_registered_destination_runs_through
     local menu = hostStatus(game).menu ---@type any
     Assert.isTrue(type(menu) == "table" and menu.open == true, "the host must present the open start menu")
     local actions = menuActions(game)
-    Assert.equal(#actions, 1, "normal mode must omit every capability-missing canonical action")
+    Assert.equal(#actions, 2, "the production trainer card and the mod fake destination are both visible")
     local card = actionById(actions, "vanilla.trainer_card") ---@type any
     Assert.notNil(card, "the trainer card action must be visible once its destination is registered")
     Assert.equal(card.enabled, true, "the registered destination must enable its action")
     Assert.equal(card.position, 0, "the trainer card is the first present action of a fresh game")
     Assert.equal(card.slotId, 2, "display position 0 occupies manifest slot 2")
-    Assert.equal(card.targetApplication, FAKE_DESTINATION, "the action must target the registered destination")
+    Assert.equal(card.targetApplication, "trainer_card", "the action must target the production trainer card")
     Assert.isTrue(
       type(card.message) == "string" and card.message ~= "" and card.message ~= TRAINER_CARD_REF,
       "the composition step must resolve the action label through the message provider"
     )
+    local fakeAction = actionById(actions, FAKE_ACTION) ---@type any
+    Assert.notNil(fakeAction, "the mod fake action must be visible after the trainer card")
+    Assert.equal(fakeAction.enabled, true, "the fake destination must enable its action")
+    Assert.equal(fakeAction.position, 1, "the mod action occupies the next display position")
+    Assert.equal(fakeAction.slotId, 3, "display position 1 occupies manifest slot 3")
     Assert.equal(menu.cursorSlotId, 2, "the fresh menu selects the first enabled action")
     Assert.equal(#audioEffects(game), 1, "opening the menu must request exactly the open sound")
     local pausedAtOpen = game:snapshot().player
+    -- The pause check doubles as the selection move: with exactly two visible
+    -- actions a south move navigates the wrap-around list to the mod fake
+    -- action (slot 3), which the round trip must then restore by action id.
+    game:move("south")
     assertPausedAt(pausedAtOpen, game, "the open menu")
-    game:move("north")
-    assertPausedAt(pausedAtOpen, game, "the open menu")
+    Assert.equal(hostStatus(game).menu.cursorSlotId, 3, "the move navigates the menu to the fake destination action")
 
     -- Confirm: the select sound fires once, then the fade-out ticks run and
     -- the destination is constructed through the registry factory only after
@@ -278,7 +302,11 @@ function T.tests.start_menu_lifecycle_with_a_registered_destination_runs_through
     Assert.equal(fake.disposeCount, 1, "the destination must never be disposed twice")
     Assert.equal(#audioEffects(game), 3, "the menu rebuild must request the open sound again")
     local rebuiltMenu = hostStatus(game).menu ---@type any
-    Assert.equal(rebuiltMenu.cursorSlotId, 2, "the rebuild must restore the selection by action id")
+    Assert.equal(
+      rebuiltMenu.cursorSlotId,
+      3,
+      "the rebuild must restore the remembered fake destination selection by action id"
+    )
     assertPausedAt(pausedAtOpen, game, "the rebuilt menu")
 
     -- The menu-key close: the cancel sound fires once, the host returns to
@@ -331,6 +359,15 @@ function T.tests.development_menu_disables_capability_missing_actions_and_a_dest
           end,
         },
       },
+      startMenuDescriptors = {
+        {
+          id = FAKE_ACTION,
+          label = FAKE_ACTION_REF,
+          icon = "asset.my_mod.fake_destination_icon",
+          targetApplication = FAKE_DESTINATION,
+          placement = { after = "vanilla.trainer_card" },
+        },
+      },
     },
   })
   local ok, err = xpcall(function()
@@ -354,7 +391,7 @@ function T.tests.development_menu_disables_capability_missing_actions_and_a_dest
     pressMenuEdge(game)
     advanceToPhase(game, "menu", 16)
     local actions = menuActions(game)
-    Assert.equal(#actions, 6, "developer mode must show every present canonical action")
+    Assert.equal(#actions, 7, "developer mode must show every present canonical action plus the mod action")
     local save = actionById(actions, "vanilla.save") ---@type any
     Assert.notNil(save, "the save action must be visible in developer mode")
     Assert.equal(save.enabled, false, "a capability-missing canonical action must render disabled in developer mode")
@@ -367,14 +404,22 @@ function T.tests.development_menu_disables_capability_missing_actions_and_a_dest
     )
     Assert.isNil(actionById(actions, "vanilla.pokedex"), "a vanilla-withheld action must stay absent in developer mode")
     local card = actionById(actions, "vanilla.trainer_card") ---@type any
-    Assert.notNil(card, "the registered destination action must be visible in developer mode")
-    Assert.equal(card.enabled, true, "the registered destination must enable its action")
+    Assert.notNil(card, "the production destination action must be visible in developer mode")
+    Assert.equal(card.enabled, true, "the production destination must enable its action")
+    local fakeAction = actionById(actions, FAKE_ACTION) ---@type any
+    Assert.notNil(fakeAction, "the mod fake action must be visible in developer mode")
+    Assert.equal(fakeAction.enabled, true, "the fake destination must enable its action")
     local devMenu = hostStatus(game).menu ---@type any
     Assert.equal(devMenu.cursorSlotId, 2, "the developer menu selects the first enabled action")
 
-    -- The destination factory fails after the fade-out hides the world: the
+    -- Navigate to the mod action whose factory raises, then confirm: the
+    -- destination factory fails after the fade-out hides the world, the
     -- original error is retained, no successful return to the menu is
     -- reported, and the runtime freezes terminally.
+    game.runtime.input:pressDirection("south", "test:navigate")
+    game:step()
+    game.runtime.input:releaseDirection("test:navigate")
+    Assert.equal(hostStatus(game).menu.cursorSlotId, 3, "navigating selects the failing fake destination action")
     runtime:pressAction()
     game:step()
     runtime:releaseAction()
