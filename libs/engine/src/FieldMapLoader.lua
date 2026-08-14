@@ -3,13 +3,11 @@
 -- joins their validated runtime views. The central and neighbor collision
 -- grids decode through the same pure project-owned asset path regardless of
 -- presentation: the visual scene loader (MapSceneLoader) and the neighbor
--- coverage ring are optional presentation-only collaborators supplied by the
+-- ring are optional presentation-only collaborators supplied by the
 -- composition, and a simulation-only runtime simply leaves them out.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
-local FieldCoveragePlanner = require("libs.engine.src.FieldCoveragePlanner")
-local FieldGrid = require("libs.engine.src.FieldGrid")
 local FieldRegion = require("libs.engine.src.FieldRegion")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
@@ -22,7 +20,7 @@ local TerrainSurface = require("libs.engine.src.TerrainSurface")
 ---@field world table
 ---@field capacity integer
 ---@field sceneLoader table|nil presentation-only visual scene loader
----@field coverageLoader table|nil presentation-only neighbor coverage loader
+---@field neighborLoader table|nil presentation-only finite neighbor-ring loader
 ---@field entries table<integer, table>
 ---@field protectedMaps table<integer, boolean>
 ---@field clock integer
@@ -42,9 +40,7 @@ FieldMapLoader.__index = FieldMapLoader
 ---@field fieldRegion table
 ---@field cameraType integer
 ---@field coordinateOrigin { x: integer, z: integer }
----@field coverageRuntime table?
----@field coveragePlan table?
----@field availableCells table<string, boolean>
+---@field neighborRuntime table?
 ---@field release fun(self: RuntimeFieldMap)
 ---@field updateAnimated fun(self: RuntimeFieldMap)
 
@@ -76,32 +72,13 @@ local function loadRequired(cacheFs, path, code)
   return value --[[@as table]]
 end
 
-local function availableCells(scene)
-  local available = {}
-  local function add(x, z)
-    available[x .. ":" .. z] = true
-  end
-  add(scene.matrix.x, scene.matrix.z)
-  for _, descriptor in ipairs(scene.neighbors) do
-    assert(
-      descriptor.offsetTilesX % FieldGrid.CELL_TILES == 0 and descriptor.offsetTilesZ % FieldGrid.CELL_TILES == 0,
-      "neighbor offsets must align to field cells"
-    )
-    add(
-      scene.matrix.x + descriptor.offsetTilesX / FieldGrid.CELL_TILES,
-      scene.matrix.z + descriptor.offsetTilesZ / FieldGrid.CELL_TILES
-    )
-  end
-  return available
-end
-
 local function releaseAggregate(runtimeMap)
   if runtimeMap.released then
     return
   end
   runtimeMap.released = true
-  if runtimeMap.coverageRuntime then
-    runtimeMap.coverageRuntime:release()
+  if runtimeMap.neighborRuntime then
+    runtimeMap.neighborRuntime:release()
   end
   if runtimeMap.sceneRuntime then
     runtimeMap.sceneRuntime:release()
@@ -179,7 +156,7 @@ function FieldMapLoader.new(cacheFs, world, options)
   options = options or {}
   local capacity = options.capacity or 4
   assert(capacity >= 1 and capacity == math.floor(capacity), "map capacity must be a positive integer")
-  -- The visual scene loader and the neighbor coverage ring are presentation
+  -- The visual scene loader and the finite neighbor ring are presentation
   -- collaborators: a simulation-only runtime leaves both out and still gets
   -- collision and terrain through the shared asset paths.
   return setmetatable({
@@ -187,7 +164,7 @@ function FieldMapLoader.new(cacheFs, world, options)
     world = world,
     capacity = capacity,
     sceneLoader = options.sceneLoader,
-    coverageLoader = options.coverageLoader,
+    neighborLoader = options.neighborLoader,
     entries = {},
     protectedMaps = {},
     clock = 0,
@@ -284,16 +261,16 @@ function FieldMapLoader:load(idOrSymbol)
     sceneRuntime = self.sceneLoader.load(self.cacheFs, scene)
   end
   -- One transaction covers every step after the scene runtime is acquired:
-  -- coverage load, collision decode, terrain construction, neighbor decoding,
+  -- neighbor-ring load, collision decode, terrain construction, neighbor decoding,
   -- region assembly, and aggregate construction. Any failure releases the
-  -- coverage runtime (if created) and the scene runtime exactly once before
+  -- neighbor runtime (if created) and the scene runtime exactly once before
   -- the error propagates; a failure inside the scene loader itself is that
   -- loader's own transaction.
-  local coverageRuntime
+  local neighborRuntime
   local runtimeMap
   local ok, loadErr = pcall(function()
-    if self.coverageLoader and #scene.neighbors > 0 then
-      coverageRuntime = self.coverageLoader.load(self.cacheFs, scene.neighbors, {
+    if self.neighborLoader and #scene.neighbors > 0 then
+      neighborRuntime = self.neighborLoader.load(self.cacheFs, scene.neighbors, {
         textureSrt = scene.terrainAnimations.textureSrt,
       })
     end
@@ -325,22 +302,21 @@ function FieldMapLoader:load(idOrSymbol)
       fieldRegion = region,
       cameraType = scene.cameraType,
       coordinateOrigin = { x = scene.matrix.worldOriginX, z = scene.matrix.worldOriginZ },
-      coverageRuntime = coverageRuntime,
-      availableCells = availableCells(scene),
+      neighborRuntime = neighborRuntime,
       released = false,
     }
     function runtimeMap:release()
       releaseAggregate(self)
     end
     -- The one fixed-tick entry FieldSession steps: fans out to the central
-    -- scene runtime and the neighbor coverage runtime, each guarded so a
+    -- scene runtime and the neighbor ring runtime, each guarded so a
     -- simulation-only aggregate (no presentation runtimes) stays a safe no-op.
     function runtimeMap:updateAnimated()
       if self.sceneRuntime then
         self.sceneRuntime:updateAnimated()
       end
-      if self.coverageRuntime then
-        self.coverageRuntime:updateAnimated()
+      if self.neighborRuntime then
+        self.neighborRuntime:updateAnimated()
       end
     end
 
@@ -349,8 +325,8 @@ function FieldMapLoader:load(idOrSymbol)
     self:_touch(entry)
   end)
   if not ok then
-    if coverageRuntime then
-      coverageRuntime:release()
+    if neighborRuntime then
+      neighborRuntime:release()
     end
     if sceneRuntime then
       sceneRuntime:release()
@@ -381,51 +357,6 @@ function FieldMapLoader:protectMap(mapId, protected)
   if not protected then
     self:_evict()
   end
-end
-
-function FieldMapLoader:updateCoverage(runtimeMap, camera, envelope, options)
-  assert(
-    self.entries[runtimeMap.mapId] and self.entries[runtimeMap.mapId].runtimeMap == runtimeMap,
-    "runtime map is not resident"
-  )
-  local matrix = runtimeMap.scene.matrix
-  options = options or {}
-  local planOptions = {
-    matrixWidth = matrix.width,
-    matrixHeight = matrix.height,
-    cellSize = FieldGrid.CELL_TILES,
-    -- Render coordinates are centred on the active cell, not global field X/Z.
-    worldOriginX = -FieldGrid.CELL_TILES / 2 - matrix.x * FieldGrid.CELL_TILES,
-    worldOriginZ = -FieldGrid.CELL_TILES / 2 - matrix.z * FieldGrid.CELL_TILES,
-  }
-  local bounds = FieldCoveragePlanner.frustumGroundBounds(camera, envelope)
-  planOptions.prefetchMargin = 0
-  local visiblePlan = FieldCoveragePlanner.planBounds(bounds, planOptions)
-  local missingVisible, visibleKeys = {}, {}
-  for _, cell in ipairs(visiblePlan.cells) do
-    visibleKeys[cell.x .. ":" .. cell.z] = true
-    if not runtimeMap.availableCells[cell.x .. ":" .. cell.z] then
-      missingVisible[#missingVisible + 1] = cell
-    end
-  end
-
-  -- The compiled neighbour ring is finite. Visible cells are mandatory, while
-  -- the one-cell lookahead is best-effort at that boundary.
-  planOptions.prefetchMargin = options.prefetchMargin or 1
-  local plan = FieldCoveragePlanner.planBounds(bounds, planOptions)
-  local loaded, missing = {}, {}
-  for _, cell in ipairs(plan.cells) do
-    if runtimeMap.availableCells[cell.x .. ":" .. cell.z] then
-      loaded[#loaded + 1] = cell
-    elseif not visibleKeys[cell.x .. ":" .. cell.z] then
-      missing[#missing + 1] = cell
-    end
-  end
-  plan.cells = loaded
-  plan.missingVisibleCells = missingVisible
-  plan.missingPrefetchCells = missing
-  runtimeMap.coveragePlan = plan
-  return plan
 end
 
 function FieldMapLoader:release()

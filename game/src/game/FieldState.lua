@@ -173,7 +173,7 @@ function FieldState:_worldDraws(alpha)
   return SceneAssembly.flatten({
     sceneRuntime.mapDraws,
     sceneRuntime.buildingDraws,
-    self.runtime.runtimeMap.coverageRuntime and self.runtime.runtimeMap.coverageRuntime.draws or {},
+    self.runtime.runtimeMap.neighborRuntime and self.runtime.runtimeMap.neighborRuntime.draws or {},
     self:_actorDraws(alpha),
   })
 end

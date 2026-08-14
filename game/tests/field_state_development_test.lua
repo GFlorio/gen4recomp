@@ -38,7 +38,6 @@ local function drawableState(development)
         end,
       },
       viewport = { width = 640, height = 480, worldViewport = { x = 0, y = 0, width = 640, height = 480 } },
-      mapLoader = { updateCoverage = function() end },
       camera = {},
       transition = { fadeAlpha = 0 },
       dialogue = {
