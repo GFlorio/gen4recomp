@@ -22,6 +22,7 @@ local Sha256 = require("libs.engine.src.script.Sha256")
 ---@field private overrideFs table read-shaped filesystem for data/scripts/overrides
 ---@field private snapshotKey string|nil
 ---@field private requireFn fun(name: string): any
+---@field private clock fun(): number
 ---@field private budget number
 ---@field private index table|nil
 ---@field private cursor integer
@@ -29,8 +30,9 @@ local Sha256 = require("libs.engine.src.script.Sha256")
 ---@field private failure Errors.Error|nil
 local RegistryWarmup = {}
 RegistryWarmup.__index = RegistryWarmup
+RegistryWarmup.DEFAULT_BUDGET_SECONDS = 0.002
 
----@param opts table { registry: table, cacheFs: table, overrideFs: table, snapshotKey: string|nil, requireFn: fun(name: string): any|nil, budget: number? }
+---@param opts table { registry: table, cacheFs: table, overrideFs: table, snapshotKey: string|nil, requireFn: fun(name: string): any|nil, clock: fun(): number?, budget: number? }
 ---@return RegistryWarmup
 function RegistryWarmup.new(opts)
   assert(opts and opts.registry and opts.cacheFs and opts.overrideFs, "warm-up requires the registry and filesystems")
@@ -40,7 +42,8 @@ function RegistryWarmup.new(opts)
     overrideFs = opts.overrideFs,
     snapshotKey = opts.snapshotKey,
     requireFn = opts.requireFn,
-    budget = opts.budget or 0.008,
+    clock = opts.clock or os.clock,
+    budget = opts.budget or RegistryWarmup.DEFAULT_BUDGET_SECONDS,
     index = nil,
     cursor = 0,
     complete = false,
@@ -106,13 +109,13 @@ function RegistryWarmup:update()
     self.index = index.resources
   end
   local entries = assert(self.index, "warm-up index is unavailable")
-  local deadline = os.clock() + self.budget
+  local deadline = self.clock() + self.budget
   repeat
     local ok = self:_step()
     if not ok then
       return
     end
-  until os.clock() >= deadline
+  until self.clock() >= deadline
 end
 
 -- Run the remaining work synchronously (the save path); a clean quit is the

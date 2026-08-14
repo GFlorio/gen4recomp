@@ -22,6 +22,37 @@ local T = {
 
 local LAB = "MAP_NEW_BARK_ELMS_LAB_1F"
 local TOWN = "MAP_NEW_BARK"
+
+local function assertWarmupSliceUsesTwoMilliseconds(game)
+  local scripts = game.runtime.scripts
+  local warmup = assert(scripts.warmup, "snapshot miss must expose the production warm-up")
+  local registry = assert(scripts.registry, "snapshot miss must expose the production registry")
+  local originalCacheScriptHash = registry.cacheScriptHash
+  local processed = 0
+  registry.cacheScriptHash = function(self, ...)
+    processed = processed + 1
+    return originalCacheScriptHash(self, ...)
+  end
+
+  local ok, err = xpcall(function()
+    local before = processed
+    game:step()
+    local processedThisUpdate = processed - before
+    Assert.equal(
+      processedThisUpdate,
+      2,
+      string.format(
+        "one snapshot-miss update must consume the 2 ms default warm-up budget; got %d units",
+        processedThisUpdate
+      )
+    )
+    Assert.isFalse(warmup:isComplete(), "the first 2 ms slice must leave the real registry warm-up in progress")
+  end, debug.traceback)
+  rawset(registry, "cacheScriptHash", nil)
+  if not ok then
+    error(err, 0)
+  end
+end
 local SNAPSHOT_PATH = "data/generated/script/registry.lua"
 
 -- Every public install mutation of a loaded production registry must be
@@ -51,9 +82,10 @@ local function assertSealedRegistry(registry)
   end
 end
 
--- SEAL-01: a forced snapshot miss boots the warm-up path; the background
--- pass runs during play and the save finishes it, publishing the same
--- keyed digest the cache build produced. Sealing must exempt exactly this
+-- A forced snapshot miss boots the warm-up path; one
+-- production runtime update uses the bounded 2 ms default slice, then the
+-- background pass runs during play and the save finishes it, publishing the
+-- same keyed digest the cache build produced. Sealing must exempt exactly this
 -- machinery (cacheScriptHash / fingerprint / restoreFingerprint), so the
 -- warm-up path survives the seal and the two boot paths agree.
 function T.tests.warmup_path_publishes_a_matching_fingerprint()
@@ -63,14 +95,21 @@ function T.tests.warmup_path_publishes_a_matching_fingerprint()
     local originalBytes = cacheFs:read(SNAPSHOT_PATH)
     local original = assert(cacheFs:loadLua(SNAPSHOT_PATH), "derived cache must carry the registry snapshot")
     local game
+    local originalClock = os.clock
+    local clock = 0
     local ok, err = xpcall(function()
+      rawset(os, "clock", function()
+        clock = clock + 0.001
+        return clock
+      end)
       cacheFs:remove(SNAPSHOT_PATH)
       game = harness:boot({ versionId = versionId, map = LAB, save = "fresh" })
       local scripts = game.runtime.scripts
       Assert.isFalse(scripts.registrySnapshotUsed, "a snapshot miss must boot the warm-up path")
       Assert.notNil(scripts.warmup, "a snapshot miss must create the background warm-up")
-      -- Warm-up slices run during play.
-      game:step()
+      assertWarmupSliceUsesTwoMilliseconds(game)
+      rawset(os, "clock", originalClock)
+      -- Further warm-up slices run during play.
       game:step()
       game:close()
       Assert.isFalse(
@@ -81,6 +120,7 @@ function T.tests.warmup_path_publishes_a_matching_fingerprint()
       Assert.equal(published.key, original.key, "the published snapshot must key the same corpus")
       Assert.equal(published.fingerprint, original.fingerprint, "the warm-up digest must match the cache-build digest")
     end, debug.traceback)
+    rawset(os, "clock", originalClock)
     if game then
       local closeOk, closeErr = pcall(function()
         game:close()
@@ -101,7 +141,7 @@ function T.tests.warmup_path_publishes_a_matching_fingerprint()
   end)
 end
 
--- SEAL-02: the snapshot-restored fast path stays live under the seal — the
+-- The snapshot-restored fast path stays live under the seal — the
 -- restored fingerprint is the digest save validation uses, every public
 -- install mutation is rejected, and a real generated script still decodes on
 -- demand (the exempted `_load` memoization) and runs to completion through
