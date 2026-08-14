@@ -469,7 +469,12 @@ T["session script phase"] = function()
       return false
     end,
   }
-  local runtimeMap = { mapId = 57 }
+  local runtimeMap = {
+    mapId = 57,
+    -- Mirrors the simulation-only aggregate: no presentation runtimes, so the
+    -- map clock entry is a safe no-op.
+    updateAnimated = function() end,
+  }
   local camera = { updateFixed = function() end }
   local transition = {
     phase = "idle",

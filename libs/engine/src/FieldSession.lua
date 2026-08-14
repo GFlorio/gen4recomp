@@ -144,9 +144,7 @@ function FieldSession:updateFixed(inputSnapshot)
     if not playerAdvanced and self.player.motion == "idle" then
       self.player:collapseRenderInterpolation()
     end
-    if self.currentMap.sceneRuntime and self.currentMap.sceneRuntime.updateAnimated then
-      self.currentMap.sceneRuntime:updateAnimated()
-    end
+    self.currentMap:updateAnimated()
     if playerAdvanced and self.playerVisual then
       self.playerVisual:updateFixed(walkingAtTickStart)
     end
@@ -170,22 +168,19 @@ function FieldSession:updateFixed(inputSnapshot)
   -- Script-owned boxes are exempt: the script scheduler steps them from its
   -- own async phase and the script phase owns the tick instead.
   if self.dialogue:isModal() and not (self.dialogue.isScriptOwned and self.dialogue:isScriptOwned()) then
-    if self.currentMap.sceneRuntime and self.currentMap.sceneRuntime.updateAnimated then
-      self.currentMap.sceneRuntime:updateAnimated()
-    end
+    self.currentMap:updateAnimated()
     self.dialogue:step(inputSnapshot)
     self:_advanceTick()
     return
   end
 
-  -- Scene animation clock: the world's animated props advance once per tick
+  -- Field animation clock: the world's animated props advance once per tick
   -- -- ordinary movement, script-locked ticks, interaction ticks, the
   -- transition-start tick, and modal-dialogue ticks alike (transition ticks
-  -- advance it in the branch above). FieldSession owns this clock; no other
-  -- module steps it.
-  if self.currentMap.sceneRuntime and self.currentMap.sceneRuntime.updateAnimated then
-    self.currentMap.sceneRuntime:updateAnimated()
-  end
+  -- advance it in the branch above). FieldSession owns this clock; the map
+  -- aggregate fans one call out to the central scene runtime and the
+  -- neighbor coverage runtime. No other module steps it.
+  self.currentMap:updateAnimated()
 
   -- Script phase : the field-script scheduler
   -- advances script-owned asynchronous work, polls tasks, promotes completed

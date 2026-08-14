@@ -31,6 +31,17 @@ function RomRuntimeMap.compile(romFs, symbol, assets)
     }),
     terrain = TerrainSurface.new(assets.terrain),
     terrainDependencyHash = Hashing.hashLua(assets.terrain),
+    -- Mirrors the FieldMapLoader aggregate shape: the field clock entry fans
+    -- out to the presentation runtimes the ROM harness installs (scene, and
+    -- coverage when composed), and stays a safe no-op without them.
+    updateAnimated = function(self)
+      if self.sceneRuntime then
+        self.sceneRuntime:updateAnimated()
+      end
+      if self.coverageRuntime then
+        self.coverageRuntime:updateAnimated()
+      end
+    end,
   }
 end
 

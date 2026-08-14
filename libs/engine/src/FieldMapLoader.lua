@@ -46,6 +46,7 @@ FieldMapLoader.__index = FieldMapLoader
 ---@field coveragePlan table?
 ---@field availableCells table<string, boolean>
 ---@field release fun(self: RuntimeFieldMap)
+---@field updateAnimated fun(self: RuntimeFieldMap)
 
 ---@param world table
 ---@param idOrSymbol string|integer
@@ -292,7 +293,9 @@ function FieldMapLoader:load(idOrSymbol)
   local runtimeMap
   local ok, loadErr = pcall(function()
     if self.coverageLoader and #scene.neighbors > 0 then
-      coverageRuntime = self.coverageLoader.load(self.cacheFs, scene.neighbors)
+      coverageRuntime = self.coverageLoader.load(self.cacheFs, scene.neighbors, {
+        textureSrt = scene.terrainAnimations and scene.terrainAnimations.textureSrt or false,
+      })
     end
 
     if not scene.collision or type(scene.collision.file) ~= "string" then
@@ -328,6 +331,17 @@ function FieldMapLoader:load(idOrSymbol)
     }
     function runtimeMap:release()
       releaseAggregate(self)
+    end
+    -- The one fixed-tick entry FieldSession steps: fans out to the central
+    -- scene runtime and the neighbor coverage runtime, each guarded so a
+    -- simulation-only aggregate (no presentation runtimes) stays a safe no-op.
+    function runtimeMap:updateAnimated()
+      if self.sceneRuntime then
+        self.sceneRuntime:updateAnimated()
+      end
+      if self.coverageRuntime then
+        self.coverageRuntime:updateAnimated()
+      end
     end
 
     local entry = { runtimeMap = runtimeMap }

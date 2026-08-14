@@ -124,6 +124,9 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
       end,
     },
     terrain = terrain,
+    -- Mirrors the simulation-only aggregate: no presentation runtimes, so the
+    -- map clock entry is a safe no-op.
+    updateAnimated = function() end,
   }
   local player = FieldPlayer.new({
     currentMap = runtimeMap,
@@ -270,6 +273,9 @@ function T.upper_new_bark_staircase_state_reloads_on_the_same_surface(romFs, ver
     terrain = TerrainSurface.new(artifact),
     terrainDependencyHash = Hashing.hashLua(artifact),
     fieldData = { events = { warps = {} } },
+    -- Mirrors the simulation-only aggregate: no presentation runtimes, so the
+    -- map clock entry is a safe no-op.
+    updateAnimated = function() end,
   }
   local player = FieldPlayer.new({
     currentMap = runtimeMap,

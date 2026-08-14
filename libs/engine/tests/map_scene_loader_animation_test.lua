@@ -973,7 +973,16 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
       return false
     end,
   }
-  local map = { mapId = 61, cameraType = 4, sceneRuntime = runtime }
+  local map = {
+    mapId = 61,
+    cameraType = 4,
+    sceneRuntime = runtime,
+    updateAnimated = function(self)
+      if self.sceneRuntime then
+        self.sceneRuntime:updateAnimated()
+      end
+    end,
+  }
   local camera = {
     updateFixed = function()
       cameraSteps = cameraSteps + 1

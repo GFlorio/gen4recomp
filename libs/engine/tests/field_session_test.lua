@@ -64,7 +64,13 @@ end
 local function baseOptions(overrides)
   local options = {
     versionId = "heartgold",
-    currentMap = { mapId = 61, fieldData = { events = { warps = {} } } },
+    currentMap = {
+      mapId = 61,
+      fieldData = { events = { warps = {} } },
+      -- Mirrors the simulation-only aggregate: no presentation runtimes, so
+      -- the map clock entry is a safe no-op.
+      updateAnimated = function() end,
+    },
     player = defaultPlayer(),
     camera = { updateFixed = function() end },
     transition = idleTransition(),
@@ -249,7 +255,7 @@ function T.completed_transition_holds_the_arrival_tile_for_autosave()
       error("a completing transition never starts a warp", 2)
     end,
   }
-  local map = { mapId = 61, cameraType = 4 }
+  local map = { mapId = 61, cameraType = 4, updateAnimated = function() end }
   local camera = { updateFixed = function() end }
   local s = FieldSession.new(baseOptions({
     currentMap = map,
@@ -284,7 +290,7 @@ function T.script_completion_consumes_its_final_action_edge()
     motion = "idle",
     updateFixed = function() end,
   }
-  local map = { mapId = 61 } --[[@as any]]
+  local map = { mapId = 61, updateAnimated = function() end } --[[@as any]]
   local camera = { updateFixed = function() end } --[[@as any]]
   local interactions = {
     resolve = function()
@@ -360,7 +366,7 @@ function T.modal_menu_routes_ui_events_to_the_script_scheduler()
       return false
     end,
   }
-  local map = { mapId = 61 }
+  local map = { mapId = 61, updateAnimated = function() end }
   local camera = { updateFixed = function() end }
   local session = FieldSession.new(baseOptions({
     currentMap = map,
@@ -404,7 +410,7 @@ function T.the_player_pose_clock_advances_once_per_tick_and_freezes_under_a_tran
       error("idle transition must never start a warp", 2)
     end,
   }
-  local map = { mapId = 61, cameraType = 4 }
+  local map = { mapId = 61, cameraType = 4, updateAnimated = function() end }
   local camera = { updateFixed = function() end }
   local s = FieldSession.new(baseOptions({
     currentMap = map,
@@ -438,6 +444,7 @@ local function warpSession(options)
     cameraType = 4,
     coordinateOrigin = { x = 0, z = 0 },
     fieldData = { events = { warps = { warp } } },
+    updateAnimated = function() end,
     collision = TilePermissions.new(options.tiles),
   }
   local player = {
@@ -510,6 +517,7 @@ function T.actor_on_a_blocked_door_cell_does_not_block_the_facing_warp()
     cameraType = 4,
     coordinateOrigin = { x = 0, z = 0 },
     fieldData = { events = { warps = { warp } } },
+    updateAnimated = function() end,
     collision = TilePermissions.new({ ["4:14"] = { behavior = DOOR, blocked = true } }),
     terrain = TerrainSurface.new({
       plates = {
@@ -573,6 +581,7 @@ function T.actor_on_an_open_warp_cell_blocks_the_walk_but_not_the_route()
     cameraType = 4,
     coordinateOrigin = { x = 0, z = 0 },
     fieldData = { events = { warps = { warp } } },
+    updateAnimated = function() end,
     collision = TilePermissions.new(),
     terrain = TerrainSurface.new({
       plates = {
@@ -741,7 +750,7 @@ local function dialogueSession(opts)
       error("dialogue fixture never starts a warp", 2)
     end,
   }
-  local map = { mapId = 61, cameraType = 4, fieldData = { events = { warps = {} } } }
+  local map = { mapId = 61, cameraType = 4, fieldData = { events = { warps = {} } }, updateAnimated = function() end }
   local session = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
@@ -771,7 +780,7 @@ end
 
 function T.modal_dialogue_blocks_warp_evaluation()
   local session, _, _ = dialogueSession()
-  local map = { mapId = 61, fieldData = { events = { warps = {} } } }
+  local map = { mapId = 61, fieldData = { events = { warps = {} } }, updateAnimated = function() end }
   session.currentMap = map
   session:updateFixed({ heldDirection = "south", pressedDirection = "south" })
   Assert.equal(session.player.fieldZ, 13, "no movement and no warp from the modal tick")
@@ -818,7 +827,7 @@ function T.transition_commit_clears_stale_action_edges()
     end,
   }
   local camera = { updateFixed = function() end }
-  local map = { mapId = 61, cameraType = 4 }
+  local map = { mapId = 61, cameraType = 4, updateAnimated = function() end }
   local session = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
@@ -878,7 +887,7 @@ local function interactionSession(opts)
       error("interaction fixture never starts a warp", 2)
     end,
   }
-  local map = { mapId = 61, cameraType = 4, fieldData = { events = { warps = {} } } }
+  local map = { mapId = 61, cameraType = 4, fieldData = { events = { warps = {} } }, updateAnimated = function() end }
   local dialogue = {
     isModal = function()
       return opts.modalDialogue == true
@@ -1032,7 +1041,7 @@ function T.catch_up_ticks_do_not_replay_one_action_edge()
       error("catch-up fixture never starts a warp", 2)
     end,
   }
-  local map = { mapId = 61, cameraType = 4 }
+  local map = { mapId = 61, cameraType = 4, updateAnimated = function() end }
   local session = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
@@ -1089,6 +1098,7 @@ function T.a_two_tile_walk_keeps_one_phase_across_the_session_ticks()
     cameraType = 4,
     coordinateOrigin = { x = 0, z = 0 },
     fieldData = { events = { warps = {} } },
+    updateAnimated = function() end,
     collision = {
       containsLocal = function(_, x, z)
         return x >= 0 and x < 32 and z >= 0 and z < 32
@@ -1193,6 +1203,11 @@ function T.door_transition_ticks_advance_the_world_while_locked()
         animatedSteps = animatedSteps + 1
       end,
     },
+    updateAnimated = function(self)
+      if self.sceneRuntime then
+        self.sceneRuntime:updateAnimated()
+      end
+    end,
   }
   local session = FieldSession.new(baseOptions({
     currentMap = map,
@@ -1260,6 +1275,11 @@ function T.stair_transition_ticks_advance_props_but_not_the_pose_clock()
         animatedSteps = animatedSteps + 1
       end,
     },
+    updateAnimated = function(self)
+      if self.sceneRuntime then
+        self.sceneRuntime:updateAnimated()
+      end
+    end,
   }
   local session = FieldSession.new(baseOptions({
     currentMap = map,
@@ -1322,6 +1342,11 @@ function T.plain_locked_transition_stays_frozen()
         animatedSteps = animatedSteps + 1
       end,
     },
+    updateAnimated = function(self)
+      if self.sceneRuntime then
+        self.sceneRuntime:updateAnimated()
+      end
+    end,
   }
   local session = FieldSession.new(baseOptions({
     currentMap = map,
@@ -1373,6 +1398,7 @@ function T.choreo_hold_ticks_never_replay_camera_or_player_interpolation()
       mapId = 61,
       cameraType = 4,
       coordinateOrigin = { x = 0, z = 0 },
+      updateAnimated = function() end,
       collision = TilePermissions.new(),
       terrain = TerrainSurface.new({
         plates = {
@@ -1464,6 +1490,11 @@ function T.script_locked_ticks_still_advance_the_scene_clock()
         animatedSteps = animatedSteps + 1
       end,
     },
+    updateAnimated = function(self)
+      if self.sceneRuntime then
+        self.sceneRuntime:updateAnimated()
+      end
+    end,
   }
   local scheduler = {
     step = function() end,
@@ -1480,6 +1511,99 @@ function T.script_locked_ticks_still_advance_the_scene_clock()
   session:updateFixed({})
   Assert.equal(animatedSteps, 1, "a script-locked tick advances the scene clock once")
   Assert.equal(session.tick, 1)
+end
+
+-- The field clock contract: FieldSession steps one aggregate map entry point
+-- per fixed tick; FieldMapLoader owns the fan-out to the central scene
+-- runtime and the neighbor coverage runtime. This fake mirrors that
+-- aggregate so a branch can only pass by going through the map clock.
+local function clockMap()
+  local calls = { aggregate = 0, scene = 0, coverage = 0 }
+  local map = {
+    mapId = 61,
+    cameraType = 4,
+    sceneRuntime = {
+      updateAnimated = function()
+        calls.scene = calls.scene + 1
+      end,
+    },
+    coverageRuntime = {
+      updateAnimated = function()
+        calls.coverage = calls.coverage + 1
+      end,
+    },
+    updateAnimated = function(self)
+      calls.aggregate = calls.aggregate + 1
+      if self.sceneRuntime then
+        self.sceneRuntime:updateAnimated()
+      end
+      if self.coverageRuntime then
+        self.coverageRuntime:updateAnimated()
+      end
+    end,
+  }
+  return map, calls
+end
+
+-- An ordinary tick advances the central scene runtime and the neighbor
+-- coverage runtime exactly once each, through the aggregate map clock.
+function T.normal_ticks_advance_scene_and_coverage_once_through_the_map_clock()
+  local map, calls = clockMap()
+  local session = FieldSession.new(baseOptions({ currentMap = map }))
+  session:updateFixed({})
+  Assert.equal(calls.aggregate, 1, "the normal tick advances the aggregate map clock exactly once")
+  Assert.equal(calls.scene, 1, "the central scene runtime advances exactly once")
+  Assert.equal(calls.coverage, 1, "the coverage runtime advances exactly once")
+  session:updateFixed({})
+  Assert.equal(calls.aggregate, 2, "each normal tick advances the aggregate map clock exactly once")
+  Assert.equal(calls.scene, 2, "each normal tick advances the scene runtime exactly once")
+  Assert.equal(calls.coverage, 2, "each normal tick advances the coverage runtime exactly once")
+end
+
+-- A locked transition tick advances both runtimes exactly once through the
+-- aggregate map clock, alongside the camera sampling and pose freezing.
+function T.locked_transition_ticks_advance_scene_and_coverage_once_through_the_map_clock()
+  local player = defaultPlayer()
+  player.collapseRenderInterpolation = function() end
+  local transition = {
+    phase = "fade_out",
+    locked = true,
+    updateFixed = function()
+      return false
+    end,
+    start = function() end,
+  }
+  local map, calls = clockMap()
+  local session = FieldSession.new(baseOptions({
+    currentMap = map,
+    player = player,
+    transition = transition,
+  }))
+  session:updateFixed({})
+  Assert.equal(calls.aggregate, 1, "the locked transition tick advances the aggregate map clock exactly once")
+  Assert.equal(calls.scene, 1, "the central scene runtime advances exactly once")
+  Assert.equal(calls.coverage, 1, "the coverage runtime advances exactly once")
+end
+
+-- A modal-dialogue tick owns the field while the world steps freeze, but the
+-- scene clock keeps running: both runtimes advance exactly once through the
+-- aggregate map clock.
+function T.modal_dialogue_ticks_advance_scene_and_coverage_once_through_the_map_clock()
+  local dialogue = {
+    isModal = function()
+      return true
+    end,
+    step = function() end,
+  }
+  local map, calls = clockMap()
+  local session = FieldSession.new(baseOptions({
+    currentMap = map,
+    dialogue = dialogue,
+  }))
+  session:updateFixed({})
+  Assert.equal(calls.aggregate, 1, "the modal-dialogue tick advances the aggregate map clock exactly once")
+  Assert.equal(calls.scene, 1, "the central scene runtime advances exactly once")
+  Assert.equal(calls.coverage, 1, "the coverage runtime advances exactly once")
 end
 
 return { tests = T }

@@ -318,13 +318,26 @@ end
 
 -- The central collision decodes inside the load transaction; malformed
 -- generated data must fail the load after the acquired scene and coverage
--- runtimes, and both must be released exactly once.
+-- runtimes, and both must be released exactly once, coverage before scene.
 function T.failed_central_collision_decode_releases_scene_and_coverage()
-  local cache, world, sceneLoader, releases, files = fixture(1)
+  local cache, world, _, _, files = fixture(1)
   files["data/generated/maps/0000/scene.lua"].neighbors = {
     { offsetTilesX = 32, offsetTilesZ = 0, batches = {}, materials = {} },
   }
   files["data/generated/maps/0000/collision.g4collision"] = truncatedCollision()
+  local releases = {}
+  local releaseOrder = {}
+  local sceneLoader = {
+    load = function(_, scene)
+      return {
+        scene = scene,
+        release = function()
+          releases[scene.mapId] = (releases[scene.mapId] or 0) + 1
+          releaseOrder[#releaseOrder + 1] = "scene"
+        end,
+      }
+    end,
+  }
   local coverageReleases = 0
   local coverageLoader = {
     load = function()
@@ -332,6 +345,7 @@ function T.failed_central_collision_decode_releases_scene_and_coverage()
         draws = {},
         release = function()
           coverageReleases = coverageReleases + 1
+          releaseOrder[#releaseOrder + 1] = "coverage"
         end,
       }
     end,
@@ -346,9 +360,11 @@ function T.failed_central_collision_decode_releases_scene_and_coverage()
   Assert.isTrue(Errors.is(err) and err.code == "COLLISION_BAD_SIZE", "the collision failure propagates")
   Assert.equal(releases[0], 1, "the scene runtime is released")
   Assert.equal(coverageReleases, 1, "the coverage runtime is released")
+  Assert.deepEqual(releaseOrder, { "coverage", "scene" }, "release order stays coverage then scene")
   loader:release()
   Assert.equal(releases[0], 1, "scene release stays exactly once")
   Assert.equal(coverageReleases, 1, "coverage release stays exactly once")
+  Assert.deepEqual(releaseOrder, { "coverage", "scene" }, "no further releases after the failed load")
 end
 
 -- A malformed terrain artifact fails construction after both the scene runtime
@@ -553,6 +569,128 @@ function T.failed_neighbor_collision_decode_releases_scene_and_coverage()
   loader:release()
   Assert.equal(releases[0], 1, "scene release stays exactly once")
   Assert.equal(coverageReleases, 1, "coverage release stays exactly once")
+end
+
+-- The field clock entry point: the aggregate map runtime fans one update
+-- call out to the central scene runtime and the neighbor coverage runtime.
+-- A successful release keeps the coverage-then-scene order.
+function T.runtime_map_update_animated_advances_scene_and_coverage_exactly_once()
+  local cache, world, _, _, files = fixture(1)
+  local scene = files["data/generated/maps/0000/scene.lua"]
+  local collisionPath = "data/generated/maps/0000/neighbors/3/collision.g4collision"
+  local terrainPath = "data/generated/maps/0000/neighbors/3/terrain.lua"
+  scene.neighbors = {
+    {
+      offsetTilesX = 32,
+      offsetTilesZ = 0,
+      collision = { file = collisionPath },
+      terrain = { file = terrainPath },
+    },
+  }
+  files[terrainPath] = { schema = "g4-terrain-surfaces-v1", plates = {}, source = { bdhcSha1 = "east" } }
+  files[collisionPath] = CollisionFixture.asset(32, 32)
+  local sceneCalls, coverageCalls = 0, 0
+  local releaseOrder = {}
+  local sceneLoader = {
+    load = function(_, s)
+      return {
+        scene = s,
+        updateAnimated = function()
+          sceneCalls = sceneCalls + 1
+        end,
+        release = function()
+          releaseOrder[#releaseOrder + 1] = "scene"
+        end,
+      }
+    end,
+  }
+  local coverageLoader = {
+    load = function()
+      return {
+        draws = {},
+        updateAnimated = function()
+          coverageCalls = coverageCalls + 1
+        end,
+        release = function()
+          releaseOrder[#releaseOrder + 1] = "coverage"
+        end,
+      }
+    end,
+  }
+  local loader = FieldMapLoader.new(cache, world, {
+    sceneLoader = sceneLoader,
+    coverageLoader = coverageLoader,
+  })
+  local map = loader:load(0)
+  map:updateAnimated()
+  Assert.equal(sceneCalls, 1, "one aggregate call advances the central scene runtime exactly once")
+  Assert.equal(coverageCalls, 1, "one aggregate call advances the coverage runtime exactly once")
+  map:updateAnimated()
+  Assert.equal(sceneCalls, 2, "each aggregate call advances the central scene runtime exactly once")
+  Assert.equal(coverageCalls, 2, "each aggregate call advances the coverage runtime exactly once")
+  map:release()
+  Assert.deepEqual(releaseOrder, { "coverage", "scene" }, "release order stays coverage then scene")
+  loader:release()
+end
+
+-- A simulation-only map runtime has no presentation runtimes; the aggregate
+-- clock entry stays exposed and must be a safe no-op (headless field
+-- behavior preserved).
+function T.simulation_only_runtime_exposes_a_safe_update_animated()
+  local cache, world = fixture(1)
+  local loader = FieldMapLoader.new(cache, world)
+  local map = loader:load(0)
+  Assert.isTrue(
+    type(map.updateAnimated) == "function",
+    "the non-presentation runtime still exposes the aggregate clock"
+  )
+  map:updateAnimated()
+  map:updateAnimated()
+  loader:release()
+end
+
+-- The neighbor loader receives the central scene's textureSrt clip: the one
+-- area animation applies to the central terrain and all displayed neighbor
+-- cells, so the aggregate must pass the scene field through on the coverage
+-- load.
+function T.neighbor_loader_receives_the_central_scene_texture_srt_clip()
+  local cache, world, _, _, files = fixture(1)
+  local scene = files["data/generated/maps/0000/scene.lua"]
+  local collisionPath = "data/generated/maps/0000/neighbors/3/collision.g4collision"
+  local terrainPath = "data/generated/maps/0000/neighbors/3/terrain.lua"
+  scene.neighbors = {
+    {
+      offsetTilesX = 32,
+      offsetTilesZ = 0,
+      collision = { file = collisionPath },
+      terrain = { file = terrainPath },
+    },
+  }
+  files[terrainPath] = { schema = "g4-terrain-surfaces-v1", plates = {}, source = { bdhcSha1 = "east" } }
+  files[collisionPath] = CollisionFixture.asset(32, 32)
+  local clip = {
+    id = "area00_ani",
+    name = "area00_ani",
+    category = "material",
+    kind = "texsrt",
+    frameCount = 360,
+    tracks = {},
+    semanticNames = {},
+    compiled = { targets = {} },
+  }
+  scene.terrainAnimations = { textureSrt = clip }
+  local received
+  local coverageLoader = {
+    load = function(_, _, opts)
+      received = opts
+      return { draws = {}, release = function() end }
+    end,
+  }
+  local loader = FieldMapLoader.new(cache, world, { coverageLoader = coverageLoader })
+  loader:load(0)
+  Assert.notNil(received, "the neighbor loader receives the central scene's textureSrt clip")
+  Assert.equal(received.textureSrt, clip, "the passed clip is the central scene's terrain animation")
+  loader:release()
 end
 
 return { tests = T }
