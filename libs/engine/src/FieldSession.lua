@@ -83,6 +83,10 @@ local ACCUMULATOR_EPSILON = 1e-12
 function FieldSession.new(options)
   assert(options and options.versionId and options.currentMap, "field session identity required")
   assert(
+    options.currentMap and type(options.currentMap.updateAnimated) == "function",
+    "field session current map animation clock required"
+  )
+  assert(
     options.player and options.player.updateFixed and options.camera and options.camera.updateFixed,
     "field session player and camera required"
   )

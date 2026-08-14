@@ -194,6 +194,7 @@ function T.required_collaborator_methods_are_validated_at_construction()
   local cases = {
     { key = "transition", method = "start", label = "transition.start" },
     { key = "dialogue", method = "isModal", label = "dialogue.isModal" },
+    { key = "currentMap", method = "updateAnimated", label = "currentMap.updateAnimated" },
   }
   for _, case in ipairs(cases) do
     local options = baseOptions({})
