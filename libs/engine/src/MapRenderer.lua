@@ -3,13 +3,14 @@
 -- placement directly to the vertex shader, and runs four passes:
 -- opaque (depth write on), cutout (depth write on, shader discards alpha-zero
 -- fragments), translucent (depth test on, write governed by polygon bit 11),
--- and wireframe edges. Opaque, cutout, and wireframe passes additionally stamp
--- their polygon ID and depth into a second render target that the DS
--- edge-marking post-process reads when compositing to the screen (the
--- wireframe pass stamps the rear-plane sentinel, not a real polygon ID); the
--- translucent pass stamps the translucent sentinel there instead, so it
--- occludes opaque geometry behind it for edge marking while the edge pass
--- never outlines the translucent pixels themselves. It clears the depth
+-- and wireframe edges. Every pass stamps its polygon ID and DS-quantized depth
+-- into a second render target that the DS edge-marking post-process reads
+-- when compositing to the screen (the wireframe pass stamps the rear-plane
+-- sentinel, not a real polygon ID); the translucent pass stamps its own real
+-- polygon ID plus a separate translucent-attribute flag in that target's blue
+-- channel -- the opaque-ID field is never overloaded to also mean translucent
+-- -- so it occludes opaque geometry behind it for edge marking while the edge
+-- pass never outlines the translucent pixels themselves. It clears the depth
 -- buffer itself (love's frame clear only touches color) and restores the exact
 -- caller state it changed (canvas, shader, depth, cull, blend, wireframe,
 -- color) even when drawing raises, so the diagnostic UI drawn afterwards is
@@ -34,14 +35,15 @@ local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
 local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local DsLighting = require("libs.engine.src.DsLighting")
+local DsDepth = require("libs.engine.src.DsDepth")
 
 ---@class MapRenderer
 ---@field _graphics love.Graphics
 ---@field clearColor number[]
 ---@field shader love.Shader
 ---@field edgeShader love.Shader
----@field edgeColors table<integer, number[]>
----@field edgeAlpha number
+---@field _edgeColorsCache number[][]
+---@field _edgeColorsProfile table<integer, integer>?
 ---@field stats { drawCalls: integer, triangles: integer, meshCount: integer, textureCount: integer }
 ---@field sceneColor love.Canvas?
 ---@field idDepth love.Canvas?
@@ -103,13 +105,14 @@ local DEFAULT_CLEAR_COLOR = { 0, 0, 0, 1 }
 local IDENTITY_MODEL = Matrix4.identity()
 local IDENTITY_MODEL_NORMAL = Matrix3.identity()
 
--- Rear-plane entry for the polygon-ID/depth target: the rear-plane sentinel
--- (MapRenderer.REAR_PLANE_ID) at a depth beyond the far plane. The green
--- channel holds linear eye-space depth, so the rear plane must clear to a
--- large value for background neighbours to read as farther than any geometry --
--- that is what outlines silhouettes against the background (GBATEK: at the
--- screen borders edges are resolved against the rear plane's polygon_id).
-local ID_CLEAR = { 1, 1e9, 0, 1 }
+-- Rear-plane entry for the polygon-ID/depth/translucent-attribute target: the
+-- rear-plane sentinel (MapRenderer.REAR_PLANE_ID) at the farthest quantized
+-- depth (DsDepth.MAX_DEPTH), not translucent (blue channel 0). Clearing depth
+-- to the maximum makes background neighbours read as farther than any real
+-- geometry -- that is what outlines silhouettes against the background
+-- (GBATEK: at the screen borders edges are resolved against the rear plane's
+-- polygon_id).
+local ID_CLEAR = { 1, DsDepth.MAX_DEPTH, 0, 1 }
 
 -- DS framebuffer height. Edge marking is one hardware pixel wide, so the
 -- post-process samples that many framebuffer pixels out to keep the outline at
@@ -118,33 +121,18 @@ local DS_NATIVE_HEIGHT = 192
 local MAX_EDGE_RADIUS = 8
 
 -- Polygon-ID domain (GBATEK POLYGON_ATTR polygon ID, 6-bit 0..63) and the
--- sentinels stamped into the ID/depth target: 254 marks translucent fragments
--- (clear of the real IDs and of the rear plane), 255 is the rear plane and the
--- wireframe pass. The shader normalizes by the rear-plane value (id/255;
--- map.glsl documents it).
+-- sentinel stamped into the ID/depth target by the wireframe pass (255, the
+-- rear plane). The shader normalizes by the rear-plane value (id/255;
+-- map.glsl documents it). Translucent fragments stamp their own real polygon
+-- ID -- never a sentinel carved out of this domain -- and are told apart from
+-- opaque fragments by the target's separate translucent-attribute channel
+-- (see u_translucentAttribute in map.glsl and DsEdgeMarking's edge predicate).
 MapRenderer.MAX_POLYGON_ID = 63
 MapRenderer.REAR_PLANE_ID = 255
 
--- Polygon ID stamped into the ID/depth target by translucent fragments. It makes
--- translucent geometry OCCLUDE the opaque geometry behind it for edge marking --
--- so a back object is no longer outlined through a translucent object in front of
--- it -- while telling the edge pass never to outline the translucent pixel itself
--- (GBATEK: edge marking is applied to opaque and wireframe polygons only). 254
--- stays clear of the real 6-bit IDs (0-63) and the 255 rear-plane/wireframe id.
-local TRANSLUCENT_SENTINEL_ID = 254
-
----@param opts { edgeMarking?: { colors?: number[][], alpha?: number }, graphics?: love.Graphics, clearColor?: number[], rasterScale?: number, readSource?: fun(path: string): string }?
+---@param opts { graphics?: love.Graphics, clearColor?: number[], rasterScale?: number, readSource?: fun(path: string): string }?
 function MapRenderer.new(opts)
   opts = opts or {}
-  local edgeMarking = opts.edgeMarking or {}
-  local colors = edgeMarking.colors
-  if not colors then
-    colors = {}
-    for i = 1, 8 do
-      colors[i] = { 0.16, 0.16, 0.16 }
-    end
-  end
-  assert(#colors == 8, "edgeMarking.colors must have 8 entries")
   local graphics = opts.graphics
   if graphics == nil then
     graphics = love and love.graphics
@@ -155,8 +143,17 @@ function MapRenderer.new(opts)
     _graphics = graphics,
     _rasterScale = opts.rasterScale,
     clearColor = opts.clearColor or DEFAULT_CLEAR_COLOR,
-    edgeColors = colors,
-    edgeAlpha = edgeMarking.alpha or 0.5,
+    _edgeColorsCache = {
+      { 0, 0, 0 },
+      { 0, 0, 0 },
+      { 0, 0, 0 },
+      { 0, 0, 0 },
+      { 0, 0, 0 },
+      { 0, 0, 0 },
+      { 0, 0, 0 },
+      { 0, 0, 0 },
+    },
+    _edgeColorsProfile = nil,
     stats = { drawCalls = 0, triangles = 0, meshCount = 0, textureCount = 0 },
     _lightMaterialColorCache = {
       diffuse = { 0, 0, 0 },
@@ -191,8 +188,6 @@ function MapRenderer.new(opts)
   local ok, err = pcall(function()
     renderer.shader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.map))
     renderer.edgeShader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.edge))
-    renderer.edgeShader:send("u_edgeColors", unpack(renderer.edgeColors))
-    renderer.edgeShader:send("u_edgeAlpha", renderer.edgeAlpha)
   end)
   if not ok then
     renderer:release()
@@ -247,11 +242,13 @@ function MapRenderer:_ensureCanvases(w, h)
     -- (see the final composite draw in MapRenderer:draw), so the raster
     -- stays DS-relative instead of blurring into the host resolution.
     sceneColor:setFilter("nearest", "nearest")
-    -- Red holds the normalized polygon ID, green the linear eye-space depth in
-    -- world units. The format must be 32-bit float: the depth spans the full near
-    -- to far range (hundreds of units) and edge marking tests sub-unit steps
-    -- against it, which 16-bit floats cannot resolve across that range.
-    idDepth = lg.newCanvas(w, h, { format = "rg32f" })
+    -- Red holds the normalized polygon ID, green the DS-quantized W-buffer
+    -- depth (DsDepth.wbufferDepth's 24-bit integer domain, stored as a float),
+    -- blue the translucent-attribute flag (0 opaque/wireframe, 1 translucent
+    -- -- see u_translucentAttribute in map.glsl and DsEdgeMarking's edge
+    -- predicate). The format must be 32-bit float: the quantized depth spans
+    -- the full 24-bit domain, which 16-bit floats cannot resolve exactly.
+    idDepth = lg.newCanvas(w, h, { format = "rgba32f" })
     idDepth:setFilter("nearest", "nearest")
     depth = lg.newCanvas(w, h, { format = "depth24stencil8", readable = false })
     sceneTargets = { sceneColor, idDepth, depthstencil = depth }
@@ -416,6 +413,26 @@ function MapRenderer:_sendLighting(sceneRuntime)
   self._lightMaterialColors = materialColors
 end
 
+-- Edge colors are scene state, never a constructor invariant: the
+-- compiled area's real HGSS eight-entry RGB555 table (HgssFieldEdgeColors),
+-- decoded into the persistent cache and resent only when the scene supplies a
+-- different table reference -- the same reference-equality cache pattern as
+-- _sendLighting's profile/record tracking. Every compiled HGSS field scene
+-- carries this table unconditionally (edge marking is always enabled), so a
+-- missing table is a collaborator gone missing, not a case to default around.
+function MapRenderer:_sendEdgeColors(sceneRuntime)
+  local edgeColors = assert(sceneRuntime.edgeColors, "scene runtime requires an edgeColors table")
+  if self._edgeColorsProfile == edgeColors then
+    return
+  end
+  local decoded = self._edgeColorsCache
+  for i = 0, 7 do
+    decodeRgb555(decoded[i + 1], edgeColors[i])
+  end
+  self.edgeShader:send("u_edgeColors", unpack(decoded))
+  self._edgeColorsProfile = edgeColors
+end
+
 -- The effective DS material register for one channel of one draw item: the
 -- field profile supplies every channel (the HGSS field policy clears the
 -- materials' color ownership, so stored colors alone never reach the DS),
@@ -476,14 +493,13 @@ end
 -- straddling item draws its baked world-space scratch mesh with an identity
 -- model). `alphaClass` was selected by the queue pass and is passed through
 -- without reclassifying the item.
-function MapRenderer:_drawItem(item, polygonIdOverride, projection, alphaClass, viewMatrix)
+function MapRenderer:_drawItem(item, projection, alphaClass, viewMatrix)
   if item.straddle then
-    self:_drawStraddle(item, polygonIdOverride, projection, alphaClass, viewMatrix)
+    self:_drawStraddle(item, projection, alphaClass, viewMatrix)
     return
   end
   self:_drawMesh(
     item,
-    polygonIdOverride,
     projection,
     item.transform,
     item.billboardCenter and IDENTITY_MODEL_NORMAL or assert(item.modelNormal, "render item requires modelNormal"),
@@ -502,7 +518,7 @@ end
 -- path): a scratch mesh is created, drawn, and released within this call, on
 -- the failure path as well as the success path. The scratch carries the
 -- source mesh's vertex map, so index order is preserved exactly.
-function MapRenderer:_drawStraddle(item, polygonIdOverride, projection, alphaClass, viewMatrix)
+function MapRenderer:_drawStraddle(item, projection, alphaClass, viewMatrix)
   local lg = assert(self._graphics)
   local scratch
   local ok, err = pcall(function()
@@ -531,17 +547,7 @@ function MapRenderer:_drawStraddle(item, polygonIdOverride, projection, alphaCla
     if map and #map > 0 then
       scratch:setVertexMap(map)
     end
-    self:_drawMesh(
-      item,
-      polygonIdOverride,
-      projection,
-      IDENTITY_MODEL,
-      IDENTITY_MODEL_NORMAL,
-      scratch,
-      alphaClass,
-      nil,
-      nil
-    )
+    self:_drawMesh(item, projection, IDENTITY_MODEL, IDENTITY_MODEL_NORMAL, scratch, alphaClass, nil, nil)
   end)
   if scratch then
     scratch:release()
@@ -556,7 +562,6 @@ end
 -- uniforms/texture/cull state, draw the mesh, and count the call.
 function MapRenderer:_drawMesh(
   item,
-  polygonIdOverride,
   projection,
   modelMatrix,
   modelNormal,
@@ -624,7 +629,10 @@ function MapRenderer:_drawMesh(
   shader:send("u_alphaCutoff", item.alphaCutoff)
   shader:send("u_polygonAlpha", item.polygonAlpha)
   shader:send("u_polygonMode", item.polygonMode == "decal" and 1 or 0)
-  shader:send("u_polygonId", polygonIdOverride or item.polygonId / MapRenderer.REAR_PLANE_ID)
+  shader:send("u_polygonId", item.polygonId / MapRenderer.REAR_PLANE_ID)
+  -- The translucent-attribute flag is a separate logical field from
+  -- the polygon ID -- translucent draws still send their own real ID above.
+  shader:send("u_translucentAttribute", alphaClass == AlphaClassifier.TRANSLUCENT)
   shader:send("u_lightMask", LIGHT_MASK_UNIFORMS[item.lightMask])
   lg.setMeshCullMode(item.cullMode)
   lg.draw(mesh)
@@ -736,6 +744,8 @@ function MapRenderer:_drawWireframeMesh(
   -- Wireframe polygons stamp the rear-plane sentinel, normalized by the id
   -- domain exactly like every other id (255/255 == 1.0).
   shader:send("u_polygonId", MapRenderer.REAR_PLANE_ID / MapRenderer.REAR_PLANE_ID)
+  -- Wireframe counts as opaque for edge marking (GBATEK): never translucent.
+  shader:send("u_translucentAttribute", false)
   shader:send("u_lightMask", LIGHT_MASK_UNIFORMS[item.lightMask])
   mesh:setTexture()
   lg.setMeshCullMode(item.cullMode)
@@ -784,26 +794,28 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
     self.shader:send("u_view", "column", viewMatrix)
 
     self:_sendLighting(sceneRuntime)
+    self:_sendEdgeColors(sceneRuntime)
     local queue = RenderQueue.buildInto(parts, viewMatrix, self._queueScratch)
 
     -- Pass 1: opaque, depth test + write.
     for _, d in ipairs(queue.opaque) do
       local projection = d.billboardProjection and billboardProjection or worldProjection
-      self:_drawItem(d, nil, projection, AlphaClassifier.OPAQUE, viewMatrix)
+      self:_drawItem(d, projection, AlphaClassifier.OPAQUE, viewMatrix)
     end
 
     -- Pass 2: cutout, depth test + write, shader discards alpha-zero fragments.
     for _, d in ipairs(queue.cutout) do
       local projection = d.billboardProjection and billboardProjection or worldProjection
-      self:_drawItem(d, nil, projection, AlphaClassifier.CUTOUT, viewMatrix)
+      self:_drawItem(d, projection, AlphaClassifier.CUTOUT, viewMatrix)
     end
 
     -- Pass 3: blended, depth test on, write governed by polygon state. The
     -- ID/depth target stays bound so translucent fragments occlude the opaque
-    -- geometry behind them for edge marking; they stamp a sentinel ID so the
-    -- edge pass never outlines them. The ID/depth attachment carries alpha 1,
-    -- so it is replaced -- not alpha-blended -- even while the colour
-    -- attachment blends.
+    -- geometry behind them for edge marking; they stamp their own real
+    -- polygon ID (never an invented sentinel) plus the separate
+    -- translucent-attribute flag so the edge pass never outlines them itself.
+    -- The ID/depth attachment carries alpha 1, so it is replaced -- not
+    -- alpha-blended -- even while the colour attachment blends.
     local lastDepthCompare, lastDepthWrite = "less", true
     if #queue.translucent > 0 then
       lg.setBlendMode("alpha", "alphamultiply")
@@ -816,13 +828,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
         lastDepthCompare, lastDepthWrite = depthCompare, depthWrite
       end
       local projection = d.billboardProjection and billboardProjection or worldProjection
-      self:_drawItem(
-        d,
-        TRANSLUCENT_SENTINEL_ID / MapRenderer.REAR_PLANE_ID,
-        projection,
-        AlphaClassifier.TRANSLUCENT,
-        viewMatrix
-      )
+      self:_drawItem(d, projection, AlphaClassifier.TRANSLUCENT, viewMatrix)
     end
 
     -- Pass 4: wireframe edges (polygon alpha zero). These count as opaque for

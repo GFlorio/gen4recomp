@@ -256,6 +256,7 @@ local function litRuntime()
     mapDraws = {},
     buildingDraws = {},
     stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
+    edgeColors = { [0] = 0, 0, 0, 0, 0, 0, 0, 0 },
     lighting = {
       records = {
         {

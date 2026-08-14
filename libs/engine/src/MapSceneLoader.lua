@@ -495,6 +495,10 @@ local function buildScene(pool, cacheFs, scene, opts)
   -- advanced (the first tick's updateAnimated starts them).
   refreshAnimatedItems()
   runtime.lighting = scene.lighting
+  -- The compiled area's real HGSS edge-color table, forwarded as
+  -- opaque scene state -- MapRenderer decodes and sends it, with no ROM
+  -- knowledge of its own.
+  runtime.edgeColors = scene.edgeColors
   runtime.fieldTimeSeconds = FieldLightProfile.DEFAULT_TIME_SECONDS
   runtime.timeBand = timeBand
   runtime.animatedInstances = animatedInstances

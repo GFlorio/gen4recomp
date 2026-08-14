@@ -683,6 +683,7 @@ function T.animated_building_loads_advances_and_renders()
     neighbors = {},
     terrainAnimations = { textureSrt = false },
     lighting = nil,
+    edgeColors = { [0] = 0, 0, 0, 0, 0, 0, 0, 0 },
   }
   local descriptor = doorDescriptor()
   local modelPath = MapAssetCache.modelPath("outdoor:26:door")

@@ -17,7 +17,8 @@ DerivedAssetContract.revision = 2
 
 DerivedAssetContract.map = {
   cacheFormat = "map-cache-v7",
-  sceneSchema = "g4-map-scene-v5",
+  -- v6: scenes carry the real HGSS field edge-color table (scene.edgeColors).
+  sceneSchema = "g4-map-scene-v6",
   terrainSchema = "g4-terrain-surfaces-v1",
   collisionVersion = 1,
 }

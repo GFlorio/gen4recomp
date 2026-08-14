@@ -17,6 +17,7 @@ local MaterialCompiler = require("romdump.src.digest.MaterialCompiler")
 local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
 local HgssFieldLighting = require("romdump.src.digest.HgssFieldLighting")
 local HgssFieldLightProfile = require("romdump.src.digest.HgssFieldLightProfile")
+local HgssFieldEdgeColors = require("romdump.src.digest.HgssFieldEdgeColors")
 local BuildingTransform = require("romdump.src.digest.BuildingTransform")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local MapUnits = require("romdump.src.digest.MapUnits")
@@ -688,6 +689,13 @@ local function _compile(romFs, idOrSymbol, opts)
     lighting = {
       records = lightProfile.records,
     },
+    -- The real HGSS edge-color table selected by the same per-area
+    -- light-pattern byte HgssFieldLighting.resolve reads above (AreaData's
+    -- lightTypeRaw at area-data offset 0x07 IS the byte AreaDataManager_Load
+    -- reads at +0x8B7 to select between the two overlay tables). Field edge
+    -- marking is unconditionally enabled, so every compiled scene carries
+    -- this table.
+    edgeColors = HgssFieldEdgeColors.tableForAreaLightPattern(area.lightTypeRaw),
   }
 
   return {

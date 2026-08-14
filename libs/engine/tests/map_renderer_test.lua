@@ -14,6 +14,27 @@ local BillboardTransform = require("libs.engine.src.BillboardTransform")
 
 local T = {}
 
+-- Eight zero-based RGB555-packed edge colors, the shape
+-- MapAssetCompiler now emits (HgssFieldEdgeColors.TABLE_A/TABLE_B) and
+-- MapRenderer decodes at draw time -- distinct, arbitrary packed values so a
+-- decode bug (wrong channel, wrong index) cannot hide behind a uniform grey
+-- fixture.
+local function edgeColorsFixture()
+  return { [0] = 0, 1 + 2 * 32 + 3 * 1024, 4, 5 * 32, 6 * 1024, 7, 8 + 8 * 32, 9 }
+end
+
+-- The exact decode MapRenderer applies to a packed RGB555 edge-color entry:
+-- each 5-bit channel normalized to 0..1. Mirrors MapRenderer's private
+-- decodeRgb555 so tests assert against the documented contract, not an
+-- internal helper.
+local function decodeRgb555Float(packed)
+  return {
+    (packed % 32) / 31,
+    (math.floor(packed / 32) % 32) / 31,
+    (math.floor(packed / 1024) % 32) / 31,
+  }
+end
+
 -- An empty scene and camera for the restoration-contract tests: the renderer
 -- draws nothing but still binds/unbinds canvases, shaders, and state.
 local function emptySceneCamera()
@@ -35,6 +56,9 @@ local function emptySceneCamera()
       mapDraws = {},
       buildingDraws = {},
       stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
+      -- Edge colors are scene state fed from the compiled area's
+      -- real HGSS table, never a MapRenderer constructor invariant.
+      edgeColors = edgeColorsFixture(),
     },
   }
 end
@@ -624,9 +648,9 @@ function T.canvas_recreation_send_failure_retains_previous_targets()
 end
 
 -- Renderer-owned frame storage is stable while its contents reset. The scene
--- target descriptor and edge uniforms change only with target generation;
--- construction-only edge values are sent once. Releasing the canvases clears
--- the descriptor so it cannot retain released targets.
+-- target descriptor and edge size uniforms change only with target
+-- generation. Releasing the canvases clears the descriptor so it cannot
+-- retain released targets.
 function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
   local lg = fakeGraphics()
   local renderer = MapRenderer.new({ graphics = lg })
@@ -635,8 +659,9 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
   local stats = renderer.stats
   local edgeShader = renderer.edgeShader
 
-  Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 1, "edge colors are construction invariant")
-  Assert.equal(shaderSendCount(edgeShader, "u_edgeAlpha"), 1, "edge alpha is construction invariant")
+  -- Edge colors are scene state, not a value the constructor sends
+  -- before any scene exists.
+  Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 0, "construction sends no scene-derived edge colors")
 
   renderer:draw(scene.runtime, scene.camera, nil, viewport)
   local targets = assert(renderer._sceneTargets, "successful canvas creation publishes its target descriptor")
@@ -647,6 +672,7 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
   Assert.equal(shaderSendCount(edgeShader, "u_idTex"), 1)
   Assert.equal(shaderSendCount(edgeShader, "u_texelSize"), 1)
   Assert.equal(shaderSendCount(edgeShader, "u_edgeRadius"), 1)
+  Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 1, "the first draw establishes the scene edge table")
 
   renderer:draw(scene.runtime, scene.camera, nil, viewport)
   Assert.equal(renderer._sceneTargets, targets, "unchanged dimensions reuse the descriptor")
@@ -654,8 +680,7 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
   Assert.equal(shaderSendCount(edgeShader, "u_idTex"), 1, "unchanged targets do not resend their texture")
   Assert.equal(shaderSendCount(edgeShader, "u_texelSize"), 1, "unchanged size does not resend texel size")
   Assert.equal(shaderSendCount(edgeShader, "u_edgeRadius"), 1, "unchanged size does not resend edge radius")
-  Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 1)
-  Assert.equal(shaderSendCount(edgeShader, "u_edgeAlpha"), 1)
+  Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 1, "the same edge table reference is not resent")
 
   viewport:resize(1280, 720)
   renderer:draw(scene.runtime, scene.camera, nil, viewport)
@@ -663,11 +688,62 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
   Assert.equal(shaderSendCount(edgeShader, "u_idTex"), 2)
   Assert.equal(shaderSendCount(edgeShader, "u_texelSize"), 2)
   Assert.equal(shaderSendCount(edgeShader, "u_edgeRadius"), 2)
-  Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 1)
-  Assert.equal(shaderSendCount(edgeShader, "u_edgeAlpha"), 1)
+  Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 1, "a target resize alone does not resend the edge table")
+
+  -- A different edge table (a new area's scene profile) resends, even though
+  -- the raster size and target descriptor are unchanged.
+  scene.runtime.edgeColors = edgeColorsFixture()
+  renderer:draw(scene.runtime, scene.camera, nil, viewport)
+  Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 2, "a changed edge table resends")
+
+  -- The DS composites edge color by RGB replacement, not an
+  -- alpha-mix scalar; the fidelity path carries no alpha uniform to blend
+  -- with.
+  Assert.equal(shaderSendCount(edgeShader, "u_edgeAlpha"), 0, "no alpha-mix uniform exists on the fidelity path")
 
   renderer:release()
   Assert.isNil(renderer._sceneTargets, "release clears the target descriptor")
+end
+
+-- The decoded values MapRenderer sends for u_edgeColors are the
+-- exact RGB555 decode of the scene's edge table, in table order -- not a
+-- placeholder grey and not the wrong index/channel.
+function T.draw_sends_the_scene_edge_table_decoded_to_normalized_rgb()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  local edgeShader = renderer.edgeShader --[[@as any]]
+
+  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+
+  local sent
+  for _, send in ipairs(edgeShader.sends) do
+    if send.name == "u_edgeColors" then
+      sent = send.values
+    end
+  end
+  assert(sent, "u_edgeColors was sent")
+  local fixture = edgeColorsFixture()
+  for i = 0, 7 do
+    Assert.deepEqual(sent[i + 1], decodeRgb555Float(fixture[i]), "edge color entry " .. i)
+  end
+  renderer:release()
+end
+
+-- A scene with no edge-color table is a required production collaborator
+-- gone missing (every compiled HGSS field scene carries one -- field edge
+-- marking is unconditionally enabled), not a case MapRenderer papers over
+-- with an invented default.
+function T.draw_requires_the_scenes_edge_color_table()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  scene.runtime.edgeColors = nil
+
+  Assert.throws(function()
+    renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+  end)
+  renderer:release()
 end
 
 -- After a failed recreation the renderer stays usable at the previous size,
@@ -882,6 +958,36 @@ local function passItem(alphaClass, z, opts)
   }
 end
 
+-- The opaque polygon-ID field survives translucent drawing rather
+-- than being replaced by an invented sentinel (melonDS: the ID/depth
+-- attribute the edge pass reads is not one value overloaded to also mean
+-- "translucent"). A translucent item's own polygon ID is a distinct,
+-- independent attribute -- it must send exactly the same
+-- polygonId/REAR_PLANE_ID normalization every opaque/cutout item sends, never
+-- a value carved out of the polygon-ID domain to signal translucency.
+function T.translucent_draws_send_their_own_polygon_id_not_an_invented_sentinel()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  local item = passItem("translucent", -1)
+  item.polygonId = 7
+
+  renderer:draw(scene.runtime, scene.camera, { { item } }, FieldViewport.new(640, 480, { mode = "strict" }))
+
+  local sent
+  for _, send in ipairs(lg.shaders[1].sends) do
+    if send.name == "u_polygonId" then
+      sent = send.values[1]
+    end
+  end
+  Assert.equal(
+    sent,
+    item.polygonId / MapRenderer.REAR_PLANE_ID,
+    "translucent items send their real polygon id, never a sentinel outside the item's own attributes"
+  )
+  renderer:release()
+end
+
 function T.billboard_draw_sends_change_driven_data_for_nonuniform_scale()
   local lg = fakeGraphics()
   local renderer = MapRenderer.new({ graphics = lg })
@@ -921,7 +1027,7 @@ function T.ordinary_draw_sends_the_items_precomputed_model_normal()
   local item = passItem("opaque", 0)
   item.modelNormal = { 0.5, 0, 0, 0, 1 / 3, 0, 0, 0, 0.25 }
 
-  renderer:_drawItem(item, nil, Matrix4.identity(), "opaque")
+  renderer:_drawItem(item, Matrix4.identity(), "opaque")
 
   local sent
   for _, send in ipairs(lg.shaders[1].sends) do
@@ -940,7 +1046,7 @@ function T.ordinary_draw_requires_an_explicit_model_normal()
   item.modelNormal = nil
 
   Assert.throws(function()
-    renderer:_drawItem(item, nil, Matrix4.identity(), "opaque")
+    renderer:_drawItem(item, Matrix4.identity(), "opaque")
   end)
   renderer:release()
 end
@@ -1144,7 +1250,7 @@ function T.straddle_filled_and_wireframe_paths_send_identity_model_normal()
   local renderer = MapRenderer.new({ graphics = fake })
   local item = straddleDrawItem(sourceMesh())
 
-  renderer:_drawStraddle(item, nil, Matrix4.identity(), "opaque")
+  renderer:_drawStraddle(item, Matrix4.identity(), "opaque")
   renderer:_drawWireframeStraddle(item, Matrix4.identity(), "wireframe")
 
   local sent = {}
@@ -1167,7 +1273,7 @@ function T.billboard_straddles_keep_the_cpu_fallback_for_the_scratch_bake()
   item.billboardCenter, item.billboardScale = BillboardTransform.components(item.billboardBase)
   local viewMatrix = Matrix4.rotateY(math.pi / 2)
 
-  renderer:_drawStraddle(item, nil, Matrix4.identity(), "opaque", viewMatrix)
+  renderer:_drawStraddle(item, Matrix4.identity(), "opaque", viewMatrix)
 
   local resolved = BillboardTransform.resolve(item.billboardBase, viewMatrix)
   local expectedX, expectedY, expectedZ = Matrix4.transformPoint(resolved, 1, 2, 0)
@@ -1187,7 +1293,7 @@ function T.straddle_draw_bakes_into_a_released_scratch_with_the_source_map()
   local source = sourceMesh()
   local item = straddleDrawItem(source)
 
-  renderer:_drawStraddle(item, nil, Matrix4.identity())
+  renderer:_drawStraddle(item, Matrix4.identity())
 
   Assert.equal(#fake.meshes, 1)
   local scratch = fake.meshes[1]
@@ -1208,7 +1314,7 @@ function T.a_failed_straddle_draw_still_releases_the_scratch()
   local renderer = MapRenderer.new({ graphics = fake })
 
   Assert.throws(function()
-    renderer:_drawStraddle(straddleDrawItem(sourceMesh()), nil, Matrix4.identity())
+    renderer:_drawStraddle(straddleDrawItem(sourceMesh()), Matrix4.identity())
   end)
 
   Assert.equal(#fake.meshes, 1)

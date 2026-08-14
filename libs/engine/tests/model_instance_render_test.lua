@@ -59,6 +59,7 @@ function T.nitro_animated_fixture_renders_through_map_renderer()
     buildingDraws = {},
     stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
     lighting = nil,
+    edgeColors = { [0] = 0, 0, 0, 0, 0, 0, 0, 0 },
   }
 
   instance:play("door.open")

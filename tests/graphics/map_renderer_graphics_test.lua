@@ -36,6 +36,7 @@ local function emptyRuntime()
     mapDraws = {},
     buildingDraws = {},
     stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
+    edgeColors = { [0] = 0, 0, 0, 0, 0, 0, 0, 0 },
   }
 end
 
@@ -87,6 +88,19 @@ function T.shader_has_polygon_light_mask_uniform(scope)
   -- Presence is checked by sending a value; LÖVE errors for unknown names.
   shader:send("u_lightMask", { 1, 0, 0, 0 })
   shader:send("u_lightMask", { 0, 1, 0, 1 })
+end
+
+-- The DS composites edge color by RGB replacement, not an alpha-mix
+-- scalar, so the fidelity shader carries no alpha-mix uniform to blend
+-- against. Absence is checked the same way presence is checked elsewhere in
+-- this suite: LÖVE errors when a name is not a real uniform of the compiled
+-- shader.
+function T.edge_shader_has_no_alpha_mix_uniform(scope)
+  local edgeShader = scope:own(MapRenderer.new()).edgeShader
+
+  Assert.throws(function()
+    edgeShader:send("u_edgeAlpha", 0.5)
+  end)
 end
 
 function T.field_viewport_sizes_and_rebuilds_render_targets(scope)
@@ -1195,6 +1209,7 @@ local function terrainAnimationScene(flowerFrames, waterPng, srtClip)
     neighbors = {},
     lighting = nil,
     terrainAnimations = { textureSrt = srtClip },
+    edgeColors = { [0] = 0, 0, 0, 0, 0, 0, 0, 0 },
   }
   backend:write(dir .. "/scene.lua", LuaWriter.encode(scene))
   backend:write(dir .. "/collision.g4collision", collisionGridBytes())

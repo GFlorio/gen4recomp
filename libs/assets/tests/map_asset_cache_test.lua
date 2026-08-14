@@ -176,7 +176,7 @@ function T.referenced_paths_includes_neighbor_batches_and_materials()
   local neighborCollision = "data/generated/maps/0060/neighbors/3/collision.g4collision"
   local neighborTerrain = "data/generated/maps/0060/neighbors/3/terrain.lua"
   local scene = {
-    schema = "g4-map-scene-v5",
+    schema = "g4-map-scene-v6",
     mapId = 61,
     mapBatches = {},
     materials = {},

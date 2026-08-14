@@ -197,6 +197,7 @@ uniform float u_alphaCutoff;
 uniform float u_polygonAlpha;  // normalized 5-bit polygon alpha
 uniform int u_polygonMode;     // 0 modulation/toon, 1 decal
 uniform float u_polygonId;     // normalized 6-bit polygon ID (id / 255), sentinel 1.0
+uniform bool u_translucentAttribute; // translucent identity, separate from polygon ID
 uniform mat3 u_texMatrix;      // normalized-UV transform (NSBTA texture SRT)
 uniform sampler2D MainTex;
 
@@ -241,6 +242,23 @@ vec3 decalRgb6(vec3 texture6, vec3 vertex6, float textureAlpha5)
   return vertex6 + floor((texture6 - vertex6) * textureAlpha5 / 31.0);
 }
 
+// DS W-buffer depth quantization (DsDepth.wbufferDepth, libs/engine/src/DsDepth.lua):
+// gl_FragCoord.w is 1/clip.w and clip.w IS the eye-space distance, so 1/w is the
+// linear depth in world units. It is normalized against a generous field
+// draw-distance bound and truncated into the 24-bit integer domain both DS
+// depth-buffer modes share, stored as a float (exactly representable: float32's
+// 24-bit mantissa covers the full 0..0xFFFFFF range). The edge shader compares
+// this value with a strict integer-domain inequality (DsDepth.isInFront), never
+// a tolerance-scaled float heuristic.
+const float DS_DEPTH_WMAX = 400.0; // field draw-distance bound, world units
+const float DS_DEPTH_MAX = 16777215.0; // DsDepth.MAX_DEPTH
+
+float dsWbufferDepth(float linearEyeDepth)
+{
+  float fraction = clamp(linearEyeDepth / DS_DEPTH_WMAX, 0.0, 1.0);
+  return floor(fraction * DS_DEPTH_MAX);
+}
+
 void effect()
 {
   vec2 uv = (u_texMatrix * vec3(VaryingTexCoord.xy, 1.0)).xy;
@@ -277,9 +295,12 @@ void effect()
   }
 
   love_Canvases[0] = vec4(outRgb, alpha);
-  // Green holds LINEAR eye-space depth (world units) for edge marking: perspective
-  // window Z is too crushed at this near/far to resolve short-object silhouettes.
-  // gl_FragCoord.w is 1/clip.w and clip.w is the eye-space distance, so 1/w = depth.
-  love_Canvases[1] = vec4(u_polygonId, 1.0 / gl_FragCoord.w, 0.0, 1.0);
+  // Red: normalized polygon ID (the fragment's own real ID -- translucent
+  // fragments included, never a sentinel). Green: DS-quantized W-buffer depth (see
+  // dsWbufferDepth above); perspective window Z is too crushed at this
+  // near/far to resolve short-object silhouettes, hence the linear domain.
+  // Blue: the translucent-attribute flag, a separate logical field from the
+  // polygon ID (never an invented sentinel carved out of the ID domain).
+  love_Canvases[1] = vec4(u_polygonId, dsWbufferDepth(1.0 / gl_FragCoord.w), u_translucentAttribute ? 1.0 : 0.0, 1.0);
 }
 #endif

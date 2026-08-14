@@ -21,6 +21,7 @@ local Errors = require("libs.errors.src.Errors")
 local FieldTexAnimFixture = require("tests.support.FieldTextureAnimationFixture")
 local FieldTextureAnimation = require("romdump.src.digest.FieldTextureAnimation")
 local Hashing = require("romdump.src.digest.Hashing")
+local HgssFieldEdgeColors = require("romdump.src.digest.HgssFieldEdgeColors")
 local LandDataBuilder = require("tests.support.LandDataBuilder")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
@@ -263,6 +264,21 @@ function T.an_unresolved_material_names_the_source_that_was_checked()
     bundle.unresolvedMaterials[1].source,
     "building_textures member " .. MapRomFixture.BUILDING_TEXTURE_PACK_ID
   )
+end
+
+-- The compiled scene must carry the real HGSS field
+-- edge-color table selected by the area's raw light-pattern byte
+-- (AreaData.lightTypeRaw at area-data offset 0x07), the exact byte
+-- AreaDataManager_Load reads at +0x8B7 to branch between the two real overlay
+-- tables ov01_02208BA0 / ov01_02208BB0 (HgssFieldEdgeColors) -- the same byte
+-- HgssFieldLighting.resolve already reads to select the field-light profile.
+-- MapRenderer must stop inventing a placeholder eight-grey table.
+function T.scene_edge_colors_follow_the_area_light_pattern_byte()
+  local zero = assert(compile({ lightTypeRaw = 0 }))
+  Assert.deepEqual(zero.scene.edgeColors, HgssFieldEdgeColors.TABLE_A)
+
+  local nonzero = assert(compile({ lightTypeRaw = 1 }))
+  Assert.deepEqual(nonzero.scene.edgeColors, HgssFieldEdgeColors.TABLE_B)
 end
 
 function T.a_fully_resolved_map_reports_nothing_unresolved()
