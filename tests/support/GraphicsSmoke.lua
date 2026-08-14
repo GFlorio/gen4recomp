@@ -59,15 +59,15 @@ local function restore(lg, state)
   end
 end
 
----@param body fun(scope: GraphicsScope)
----@return fun()
+---@param body fun(scope: GraphicsScope, context: table?)
+---@return fun(context: table?)
 local function wrap(body)
-  return function()
+  return function(context)
     local lg = love.graphics
     local before = capture(lg)
     local scope = setmetatable({ _owned = {} }, Scope)
 
-    local ok, err = xpcall(body, debug.traceback, scope)
+    local ok, err = xpcall(body, debug.traceback, scope, context)
 
     local cleanupError
     for index = #scope._owned, 1, -1 do
@@ -91,9 +91,10 @@ local function wrap(body)
 end
 
 -- Builds the explicit suite shape a graphics module returns. Every body takes
--- the scope instead of the runner context; these suites need no capability
--- probing of their own, because the declared capability already gates them.
----@param tests table<string, fun(scope: GraphicsScope)>
+-- the scope (and, for tests that need it, the runner context for explicit
+-- `context:skip`); these suites need no capability probing of their own,
+-- because the declared capability already gates them.
+---@param tests table<string, fun(scope: GraphicsScope, context: table?)>
 ---@return table suite
 function GraphicsSmoke.suite(tests)
   local wrapped = {}

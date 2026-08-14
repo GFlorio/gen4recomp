@@ -1,0 +1,245 @@
+-- Graphics smoke tests for the Start Menu renderer: the canonical 256x192
+-- surface renders pixel-exact against an independently composed reference
+-- (the fixture's own slot art with the cursor frame centered over the
+-- presented slot, and the real generated assets from the shared derived
+-- cache when a UI class is present), every graphics state the draw touched
+-- is proven restored against the real driver, and release frees the owned
+-- images. The construction/draw failure paths are injected fakes and stay in
+-- start_menu_renderer_test.lua.
+
+local Assert = require("tests.support.Assert")
+local CacheFs = require("libs.storage.src.CacheFs")
+local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
+local FieldUiFixture = require("tests.support.FieldUiFixture")
+local GraphicsSmoke = require("tests.support.GraphicsSmoke")
+local StartMenuRenderer = require("libs.engine.src.StartMenuRenderer")
+local FieldViewport = require("libs.engine.src.FieldViewport")
+
+local T = {}
+
+local CANONICAL_WIDTH = 256
+local CANONICAL_HEIGHT = 192
+
+local function canonicalViewport()
+  return FieldViewport.new(CANONICAL_WIDTH, CANONICAL_HEIGHT, { mode = "expanded" })
+end
+
+-- Renders one canonical surface presentation into a real canvas and returns
+-- its ImageData.
+---@param scope GraphicsScope
+---@param cacheFs CacheFs
+---@param cursorSlotId integer
+---@param cursorFrameIndex integer
+---@return love.ImageData
+local function canonicalRender(scope, cacheFs, cursorSlotId, cursorFrameIndex)
+  local lg = love.graphics
+  local renderer = scope:own(StartMenuRenderer.new({ cacheFs = cacheFs }))
+  local canvas = scope:own(lg.newCanvas(CANONICAL_WIDTH, CANONICAL_HEIGHT))
+  lg.setCanvas(canvas)
+  lg.clear(0, 0, 0, 0)
+  renderer:draw({ cursorSlotId = cursorSlotId, cursorFrameIndex = cursorFrameIndex }, canonicalViewport())
+  lg.setCanvas()
+  return scope:own(canvas:newImageData())
+end
+
+-- Compares two ImageData buffers 8-bit channel by 8-bit channel; a single
+-- differing pixel fails with its canonical coordinates.
+local function assertPixelsEqual(expected, actual, label)
+  Assert.equal(expected:getWidth(), actual:getWidth(), label .. " width")
+  Assert.equal(expected:getHeight(), actual:getHeight(), label .. " height")
+  local function quantize(v)
+    return math.floor(v * 255 + 0.5)
+  end
+  for y = 0, CANONICAL_HEIGHT - 1 do
+    for x = 0, CANONICAL_WIDTH - 1 do
+      local er, eg, eb, ea = expected:getPixel(x, y)
+      local ar, ag, ab, aa = actual:getPixel(x, y)
+      if
+        quantize(er) ~= quantize(ar)
+        or quantize(eg) ~= quantize(ag)
+        or quantize(eb) ~= quantize(ab)
+        or quantize(ea) ~= quantize(aa)
+      then
+        error(
+          string.format(
+            "%s: pixel mismatch at (%d,%d): expected (%d,%d,%d,%d) got (%d,%d,%d,%d)",
+            label,
+            x,
+            y,
+            quantize(er),
+            quantize(eg),
+            quantize(eb),
+            quantize(ea),
+            quantize(ar),
+            quantize(ag),
+            quantize(ab),
+            quantize(aa)
+          )
+        )
+      end
+    end
+  end
+end
+
+-- The independent fixture reference: the slot-colored surface plus the
+-- presented cursor frame's solid color centered over the presented slot.
+-- Built without the renderer, so a draw regression (wrong rect, wrong
+-- position, wrong frame, wrong scale) is a mismatch.
+---@param cursorSlotId integer
+---@param cursorFrameIndex integer
+---@return love.ImageData
+local function fixtureReference(cursorSlotId, cursorFrameIndex)
+  local reference = love.image.newImageData(CANONICAL_WIDTH, CANONICAL_HEIGHT)
+  local function paste(x, y, r, g, b, a)
+    reference:setPixel(x, y, r, g, b, a)
+  end
+  for y = 0, CANONICAL_HEIGHT - 1 do
+    for x = 0, CANONICAL_WIDTH - 1 do
+      local slotId = FieldUiFixture.slotIdAt(x, y)
+      if slotId then
+        local r, g, b = FieldUiFixture.startMenuSlotColor(slotId)
+        paste(x, y, r / 255, g / 255, b / 255, 1)
+      end
+    end
+  end
+  local slot = FieldUiFixture.START_MENU_SLOTS[cursorSlotId]
+  local frame = FieldUiFixture.START_MENU_CURSOR_FRAMES[cursorFrameIndex + 1]
+  local r, g, b = FieldUiFixture.startMenuCursorColor(cursorFrameIndex + 1)
+  local originX = slot.x + slot.width / 2 - frame.width / 2
+  local originY = slot.y + slot.height / 2 - frame.height / 2
+  for y = 0, frame.height - 1 do
+    for x = 0, frame.width - 1 do
+      paste(originX + x, originY + y, r / 255, g / 255, b / 255, 1)
+    end
+  end
+  return reference
+end
+
+-- Canonical golden: the full Start Menu surface from the fixture assets
+-- matches the independent reference pixel for pixel, with the cursor frame
+-- centered over the default (first) slot.
+function T.canonical_golden_matches_the_fixture_surface_pixel_for_pixel(scope)
+  local rendered = canonicalRender(scope, FieldUiFixture.startMenuCache(), 1, 0)
+  assertPixelsEqual(fixtureReference(1, 0), rendered, "fixture surface golden")
+end
+
+-- The fixture's two cursor frames are distinct artwork at the same slot
+-- position: the frame index selects the atlas row, never the placement.
+function T.cursor_frames_are_distinct_artwork_at_the_same_position(scope)
+  local frame0 = canonicalRender(scope, FieldUiFixture.startMenuCache(), 4, 0)
+  local frame1 = canonicalRender(scope, FieldUiFixture.startMenuCache(), 4, 1)
+  assertPixelsEqual(fixtureReference(4, 1), frame1, "fixture cursor frame 1 golden")
+
+  local quantize = function(v)
+    return math.floor(v * 255 + 0.5)
+  end
+  local function pixel(data, x, y)
+    local r, g, b, a = data:getPixel(x, y)
+    return quantize(r), quantize(g), quantize(b), quantize(a)
+  end
+  local slot = FieldUiFixture.START_MENU_SLOTS[4]
+  local sampleX = slot.x + slot.width / 2
+  local sampleY = slot.y + slot.height / 2
+  local f0r, f0g, f0b, f0a = pixel(frame0, sampleX, sampleY)
+  local f1r, f1g, f1b, f1a = pixel(frame1, sampleX, sampleY)
+  Assert.equal(f0a, 255, "the cursor pixel is opaque")
+  Assert.isTrue(f0r ~= f1r or f0g ~= f1g or f0b ~= f1b, "cursor frames have distinct artwork")
+  Assert.equal(f0a, f1a, "the cursor frames occupy the same position")
+end
+
+-- Canonical golden: the real generated Start Menu assets render pixel-exact
+-- against an independent reference decoded from the same compiled PNGs
+-- (the panel art is baked at compile time; the renderer's job is placement
+-- and composition, never repainting). Skips explicitly when no UI class is
+-- present in the shared derived cache.
+function T.canonical_golden_matches_the_real_generated_surface_pixel_for_pixel(scope, context)
+  local cache = CacheFs.forVersion("heartgold")
+  if cache:getInfo(FieldUiAssetCache.manifestPath()) == nil then
+    context:skip("no field-UI class in the shared derived cache")
+    return
+  end
+  local manifest = assert(cache:loadLua(FieldUiAssetCache.manifestPath()), "the manifest must load")
+  local background = manifest.assets["hgss.start_menu.background"]
+  local cursor = manifest.assets["hgss.start_menu.cursor"]
+  Assert.notNil(background, "the generated class indexes the start menu background")
+  Assert.notNil(cursor, "the generated class indexes the start menu cursor")
+  local startMenu = assert(manifest.startMenu, "the generated class carries the start menu section")
+  local slots = assert(startMenu.slots, "the start menu section carries slots")
+  local frames = assert(startMenu.cursor and startMenu.cursor.frames, "the start menu section carries cursor frames")
+
+  local reference = love.image.newImageData(CANONICAL_WIDTH, CANONICAL_HEIGHT)
+  local backgroundPixels =
+    love.image.newImageData(love.filesystem.newFileData(cache:read(background.image), background.image))
+  local cursorPixels = love.image.newImageData(love.filesystem.newFileData(cache:read(cursor.image), cursor.image))
+  local function blend(target, source, originX, originY)
+    for y = 0, source:getHeight() - 1 do
+      for x = 0, source:getWidth() - 1 do
+        local r, g, b, a = source:getPixel(x, y)
+        if a > 0 then
+          target:setPixel(originX + x, originY + y, r, g, b, a)
+        end
+      end
+    end
+  end
+  blend(reference, backgroundPixels, 0, 0)
+  local slot = slots[1]
+  local frame = frames[1]
+  blend(reference, cursorPixels, slot.x + slot.width / 2 - frame.width / 2, slot.y + slot.height / 2 - frame.height / 2)
+
+  local rendered = canonicalRender(scope, cache, 1, 0)
+  assertPixelsEqual(reference, rendered, "real generated surface golden")
+end
+
+function T.restores_graphics_state_after_draw(scope)
+  local lg = love.graphics
+  local renderer = scope:own(StartMenuRenderer.new({ cacheFs = FieldUiFixture.startMenuCache() }))
+
+  local canvas = scope:own(lg.newCanvas(64, 64))
+  local shader = lg.getShader()
+  lg.setCanvas(canvas)
+  lg.setBlendMode("add")
+  lg.setDepthMode("lequal", true)
+  lg.setWireframe(true)
+  lg.setMeshCullMode("back")
+  lg.setColor(0.2, 0.4, 0.6, 0.8)
+  lg.setScissor(4, 8, 32, 16)
+
+  renderer:draw({ cursorSlotId = 1, cursorFrameIndex = 0 }, FieldViewport.new(1280, 720, { mode = "expanded" }))
+
+  local function assertRestored(canvasExpected, shaderExpected)
+    Assert.equal(lg.getCanvas(), canvasExpected)
+    Assert.equal(lg.getShader(), shaderExpected)
+    local blend, alpha = lg.getBlendMode()
+    Assert.equal(blend, "add")
+    Assert.equal(alpha, "alphamultiply")
+    local depthMode, depthWrite = lg.getDepthMode()
+    Assert.equal(depthMode, "lequal")
+    Assert.equal(depthWrite, true)
+    Assert.equal(lg.isWireframe(), true)
+    Assert.equal(lg.getMeshCullMode(), "back")
+    local r, g, b, a = lg.getColor()
+    Assert.near(r, 0.2, 1e-6)
+    Assert.near(g, 0.4, 1e-6)
+    Assert.near(b, 0.6, 1e-6)
+    Assert.near(a, 0.8, 1e-6)
+    local sx, sy, sw, sh = lg.getScissor()
+    Assert.equal(sx, 4)
+    Assert.equal(sy, 8)
+    Assert.equal(sw, 32)
+    Assert.equal(sh, 16)
+  end
+  assertRestored(canvas, shader)
+end
+
+-- Release is the contract here; it is still scoped so a failed assertion does
+-- not leak the renderer. The scope's later release exercises repeat safety.
+function T.release_frees_the_owned_images(scope)
+  local renderer = scope:own(StartMenuRenderer.new({ cacheFs = FieldUiFixture.startMenuCache() }))
+
+  renderer:release()
+
+  Assert.isNil(renderer._backgroundImage)
+  Assert.isNil(renderer._cursorImage)
+end
+
+return GraphicsSmoke.suite(T)

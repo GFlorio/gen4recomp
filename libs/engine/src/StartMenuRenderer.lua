@@ -1,0 +1,275 @@
+-- Renders the authentic Start Menu surface into the viewport's centered 4:3
+-- reference frame: the generated menu background (the icon art is baked into
+-- the compiled PNG) and the animated cursor frame over the presented action
+-- slot. The generated field-UI manifest's `startMenu` section is the single
+-- geometry authority: the background rect, the logical slot rects, the icon
+-- mapping, and the cursor frames with their durations. Runtime code
+-- addresses slots by the manifest's own slot ids and never repeats source
+-- coordinates. The cursor animation itself is pure fixed-tick state
+-- (StartMenuCursorAnimation); this renderer consumes only the frame index
+-- from the presentation snapshot, so render refresh rate cannot change the
+-- animation speed. The surface is not a generic list menu: only the two
+-- generated images are drawn, at identity tint, with no theme colors or
+-- styled primitives. Construction is failure-safe: a missing manifest,
+-- background, or cursor asset is a typed error, a quad failure after the
+-- images were created releases them before rethrowing, and draw() restores
+-- every graphics state it touches.
+
+local Errors = require("libs.errors.src.Errors")
+local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
+local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
+
+---@class StartMenuRenderer
+---@field _graphics love.Graphics
+---@field _backgroundImage love.Image?
+---@field _cursorImage love.Image?
+---@field _backgroundQuad love.Quad?
+---@field _cursorQuads love.Quad[]? per cursor-frame quads, built once
+---@field menu StartMenuRenderer.Menu the resolved manifest surface geometry
+local StartMenuRenderer = {}
+StartMenuRenderer.__index = StartMenuRenderer
+
+-- opts.cacheFs: version-scoped private cache holding the generated field-UI
+-- class (manifest + Start Menu PNGs); opts.graphics: injectable LÖVE
+-- graphics namespace.
+
+---@param opts { cacheFs: CacheFs, graphics?: love.Graphics? }
+---@return StartMenuRenderer
+function StartMenuRenderer.new(opts)
+  assert(
+    type(opts) == "table" and opts.cacheFs and opts.cacheFs.loadLua,
+    "StartMenuRenderer requires a CacheFs-shaped object"
+  )
+  local graphics = opts.graphics
+  if graphics == nil then
+    graphics = love and love.graphics
+  end
+  assert(graphics and graphics.newImage and graphics.newQuad, "StartMenuRenderer requires love.graphics")
+  local cacheFs = opts.cacheFs
+
+  -- The generated field-UI class is a required renderer asset: the manifest
+  -- names the Start Menu background/cursor PNGs and every rect. The runtime
+  -- boot already validates the full manifest; the renderer resolves what it
+  -- draws.
+  local manifest = cacheFs:loadLua(FieldUiAssetCache.manifestPath())
+  if type(manifest) ~= "table" then
+    Errors.raise(
+      "FIELD_UI_MANIFEST_MISSING",
+      "field UI manifest missing at " .. FieldUiAssetCache.manifestPath(),
+      { path = FieldUiAssetCache.manifestPath() }
+    )
+  end
+  local uiManifest = manifest --[[@as table]]
+  local assets = uiManifest.assets
+  local startMenu = uiManifest.startMenu
+  if
+    type(assets) ~= "table"
+    or type(startMenu) ~= "table"
+    or type(startMenu.background) ~= "table"
+    or type(startMenu.cursor) ~= "table"
+    or type(startMenu.cursor.frames) ~= "table"
+    or #startMenu.cursor.frames < 1
+    or type(startMenu.slots) ~= "table"
+    or next(startMenu.slots) == nil
+    or type(startMenu.icons) ~= "table"
+  then
+    Errors.raise("FIELD_UI_MANIFEST_INVALID", "field UI manifest has no start menu surface", {})
+  end
+  local backgroundAsset = assets["hgss.start_menu.background"]
+  local cursorAsset = assets["hgss.start_menu.cursor"]
+  if
+    type(backgroundAsset) ~= "table"
+    or type(backgroundAsset.image) ~= "string"
+    or type(cursorAsset) ~= "table"
+    or type(cursorAsset.image) ~= "string"
+  then
+    Errors.raise("FIELD_UI_MANIFEST_INVALID", "field UI manifest has no start menu background/cursor assets", {})
+  end
+
+  local self = setmetatable({
+    _graphics = graphics,
+    _backgroundImage = nil,
+    _cursorImage = nil,
+    _backgroundQuad = nil,
+    _cursorQuads = nil,
+    menu = {
+      background = startMenu.background,
+      slots = startMenu.slots,
+      icons = startMenu.icons,
+      cursor = { frames = startMenu.cursor.frames },
+    },
+  }, StartMenuRenderer)
+
+  local backgroundPath = backgroundAsset.image
+  local backgroundData = cacheFs:read(backgroundPath)
+  if not backgroundData then
+    Errors.raise("FIELD_UI_START_MENU_BACKGROUND_MISSING", "start menu background missing at " .. backgroundPath, {
+      path = backgroundPath,
+    })
+  end
+  self._backgroundImage = graphics.newImage(love.filesystem.newFileData(backgroundData, backgroundPath))
+  local cursorPath = cursorAsset.image
+  local cursorData = cacheFs:read(cursorPath)
+  if not cursorData then
+    self:release()
+    Errors.raise("FIELD_UI_START_MENU_CURSOR_MISSING", "start menu cursor missing at " .. cursorPath, {
+      path = cursorPath,
+    })
+  end
+  local ok, err = pcall(function()
+    self._backgroundImage:setFilter("nearest", "nearest")
+    self._cursorImage = graphics.newImage(love.filesystem.newFileData(cursorData, cursorPath))
+    self._cursorImage:setFilter("nearest", "nearest")
+    self:_buildQuads()
+  end)
+  if not ok then
+    self:release()
+    error(err)
+  end
+  return self
+end
+
+-- The quads are the manifest rects inside their atlases: one for the
+-- background surface, one per cursor frame.
+function StartMenuRenderer:_buildQuads()
+  local lg = assert(self._graphics)
+  local background = assert(self._backgroundImage)
+  local backgroundRect = self.menu.background
+  self._backgroundQuad = lg.newQuad(
+    backgroundRect.x,
+    backgroundRect.y,
+    backgroundRect.width,
+    backgroundRect.height,
+    background:getWidth(),
+    background:getHeight()
+  )
+  local cursor = assert(self._cursorImage)
+  local quads = {}
+  for index, frame in ipairs(self.menu.cursor.frames) do
+    quads[index] = lg.newQuad(frame.x, frame.y, frame.width, frame.height, cursor:getWidth(), cursor:getHeight())
+  end
+  self._cursorQuads = quads
+end
+
+-- The cursor frame's reference position for a presented slot: centered on
+-- the slot rect from the manifest, sized by the frame rect. Derived purely
+-- from the manifest geometry; no source coordinates are repeated.
+---@param slot FieldDialogueTheme.Rect
+---@param frame FieldDialogueTheme.Rect
+---@return number x
+---@return number y
+function StartMenuRenderer:_cursorPosition(slot, frame)
+  return slot.x + slot.width / 2 - frame.width / 2, slot.y + slot.height / 2 - frame.height / 2
+end
+
+-- Draws the canonical menu surface into viewport.referenceFrame: the
+-- background image over the manifest background rect, then the cursor frame
+-- (selected by the presentation's frame index, advanced by the pure
+-- fixed-tick animation state the controller owns) centered over the
+-- presented manifest slot. No-op (and no state touched) when this renderer
+-- has no images. Restores canvas, shader, scissor, blend, depth, wireframe,
+-- cull, and color afterwards so the HUD and host overlays draw normally.
+
+---@param presentation { cursorSlotId: integer, cursorFrameIndex: integer }?
+---@param viewport { referenceFrame: FieldDialogueTheme.Rect }
+function StartMenuRenderer:draw(presentation, viewport)
+  if not presentation or not self._backgroundImage then
+    return
+  end
+  assert(
+    type(presentation.cursorSlotId) == "number" and presentation.cursorSlotId % 1 == 0,
+    "the start menu cursor requires a slot id"
+  )
+  local slot = assert(
+    self.menu.slots[presentation.cursorSlotId],
+    "cursor slot " .. tostring(presentation.cursorSlotId) .. " is outside the generated slot set"
+  )
+  assert(
+    type(presentation.cursorFrameIndex) == "number" and presentation.cursorFrameIndex % 1 == 0,
+    "the start menu cursor requires a frame index"
+  )
+  local frame = assert(
+    self.menu.cursor.frames[presentation.cursorFrameIndex + 1],
+    "cursor frame " .. tostring(presentation.cursorFrameIndex) .. " is outside the generated frame set"
+  )
+  local lg = assert(self._graphics)
+
+  local canvas = lg.getCanvas()
+  local shader = lg.getShader()
+  local blendMode, blendAlpha = lg.getBlendMode()
+  local depthMode, depthWrite = lg.getDepthMode()
+  local wireframe = lg.isWireframe()
+  local cullMode = lg.getMeshCullMode()
+  local color = { lg.getColor() }
+  local scissorX, scissorY, scissorW, scissorH = lg.getScissor()
+
+  local pushed = false
+  local ok, err = pcall(function()
+    -- Everything draws in reference-canvas coordinates under one
+    -- translate(origin) + scale transform; the manifest rects are already
+    -- reference-space, so nothing is scaled twice.
+    local layout = FieldDialogueTheme.layout(viewport.referenceFrame)
+    lg.push()
+    pushed = true
+    lg.translate(layout.origin.x, layout.origin.y)
+    lg.scale(layout.scale, layout.scale)
+    lg.setColor(1, 1, 1, 1)
+    lg.draw(assert(self._backgroundImage), assert(self._backgroundQuad), self.menu.background.x, self.menu.background.y)
+    local x, y = self:_cursorPosition(slot, frame)
+    lg.draw(assert(self._cursorImage), assert(self._cursorQuads[presentation.cursorFrameIndex + 1]), x, y)
+    lg.pop()
+    pushed = false
+  end)
+
+  -- Finally-style cleanup: a draw error must not leave the transform stack
+  -- unbalanced for the caller's next frame.
+  if pushed then
+    lg.pop()
+  end
+
+  lg.setCanvas(canvas)
+  lg.setShader(shader)
+  if blendMode then
+    lg.setBlendMode(blendMode, blendAlpha)
+  end
+  if depthMode then
+    lg.setDepthMode(depthMode, depthWrite)
+  end
+  lg.setWireframe(wireframe)
+  if cullMode then
+    lg.setMeshCullMode(cullMode)
+  end
+  lg.setColor(color[1], color[2], color[3], color[4])
+  if scissorX then
+    lg.setScissor(scissorX, scissorY, scissorW, scissorH)
+  else
+    lg.setScissor()
+  end
+
+  if not ok then
+    error(err)
+  end
+end
+
+function StartMenuRenderer:release()
+  if self._backgroundImage and self._backgroundImage.release then
+    self._backgroundImage:release()
+  end
+  if self._cursorImage and self._cursorImage.release then
+    self._cursorImage:release()
+  end
+  self._backgroundImage, self._cursorImage = nil, nil
+  self._backgroundQuad, self._cursorQuads = nil, nil
+end
+
+-- The resolved manifest surface: background rect, logical slot rects, the
+-- action-id -> icon-index mapping, and the cursor frames (rects plus
+-- fixed-tick durations).
+
+---@class StartMenuRenderer.Menu
+---@field background FieldDialogueTheme.Rect
+---@field slots table<integer, FieldDialogueTheme.Rect>
+---@field icons table<string, integer>
+---@field cursor { frames: { x: integer, y: integer, width: integer, height: integer, duration: integer }[] }
+
+return StartMenuRenderer

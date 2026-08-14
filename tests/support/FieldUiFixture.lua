@@ -1,14 +1,19 @@
--- Synthetic field-UI fixtures for the dialogue frame and window style work: a
--- generated-shape `ui.lua` manifest carrying two dialogue frame strips (18
--- tiles of 8x8 stacked per frame, like the compiled class), the signpost
--- frame strip and wayfinding atlas, and the signpost source-type map (the
--- full 25-type corpus set, types 0/1 with wayfinding rects), plus a cache
--- builder that also carries the dialogue font. Frame tiles are solid per-tile
--- colors from two distinct palettes (frame 0 blue family, frame 1 cream
--- family, mirroring the real compiled frames' variety), so a misplacement or
--- wrong-frame rect is a pixel mismatch, never a wash.
+-- Synthetic field-UI fixtures for the dialogue frame, window style, signpost,
+-- and Start Menu surface work: a generated-shape `ui.lua` manifest carrying
+-- two dialogue frame strips (18 tiles of 8x8 stacked per frame, like the
+-- compiled class), the signpost frame strip and wayfinding atlas, the
+-- signpost source-type map (the full 25-type corpus set, types 0/1 with
+-- wayfinding rects), and the Start Menu surface (background, slot grid, icon
+-- mapping, cursor frames), plus cache builders that carry the dialogue font
+-- and/or the Start Menu assets. Frame tiles are solid per-tile colors from
+-- two distinct palettes (frame 0 blue family, frame 1 cream family, mirroring
+-- the real compiled frames' variety) and each Start Menu slot/cursor frame is
+-- a distinct color, so a misplacement or wrong rect is a pixel mismatch,
+-- never a wash.
 
 local PngWriter = require("libs.assets.src.PngWriter")
+local CacheFs = require("libs.storage.src.CacheFs")
+local FakeCache = require("tests.support.FakeCache")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
 
@@ -20,6 +25,9 @@ FieldUiFixture.FRAME_COUNT = 2
 
 FieldUiFixture.SIGNPOST_TILES_PATH = "assets/generated/field/ui/signpost-tiles.png"
 FieldUiFixture.WAYFINDING_PATH = "assets/generated/field/ui/wayfinding-tiles.png"
+
+FieldUiFixture.START_MENU_BACKGROUND_PATH = "assets/generated/field/ui/start-menu.png"
+FieldUiFixture.START_MENU_CURSOR_PATH = "assets/generated/field/ui/start-menu-cursor.png"
 
 -- Every signpost source type the real scr_seq corpus uses (opcodes 55/56),
 -- the set pinned by the producer configuration; types 0/1 reserve the
@@ -166,6 +174,106 @@ function FieldUiFixture.wayfindingBytes()
   return PngWriter.encode(192, 32, table.concat(rows))
 end
 
+-- The canonical Start Menu logical action-slot grid (the manifest's own
+-- metadata shape): ten 128x38 rects in two columns of five. The fixture
+-- values mirror the compiled class; the runtime renderer must resolve them
+-- from the manifest, never hard-code them.
+FieldUiFixture.START_MENU_SLOTS = {
+  [1] = { x = 0, y = 0, width = 128, height = 38 },
+  [2] = { x = 128, y = 0, width = 128, height = 38 },
+  [3] = { x = 0, y = 38, width = 128, height = 38 },
+  [4] = { x = 128, y = 38, width = 128, height = 38 },
+  [5] = { x = 0, y = 76, width = 128, height = 38 },
+  [6] = { x = 128, y = 76, width = 128, height = 38 },
+  [7] = { x = 0, y = 114, width = 128, height = 38 },
+  [8] = { x = 128, y = 114, width = 128, height = 38 },
+  [9] = { x = 0, y = 152, width = 128, height = 38 },
+  [10] = { x = 128, y = 152, width = 128, height = 38 },
+}
+
+-- The action-id -> icon-index mapping the manifest carries (the
+-- sActionToIconIndex authority); the fixture mirrors the compiled class.
+FieldUiFixture.START_MENU_ICONS = {
+  pokedex = 0,
+  pokemon = 1,
+  bag = 2,
+  pokegear = 3,
+  trainerCard = 4,
+  save = 5,
+  options = 6,
+}
+
+-- Two distinct cursor frames in a 16x32 atlas (frame 1 row y=0, frame 2 row
+-- y=16) with distinct durations, so the fixed-tick cadence is pixel-visible
+-- in the goldens and the durations are observable in unit tests.
+FieldUiFixture.START_MENU_CURSOR_FRAMES = {
+  { x = 0, y = 0, width = 16, height = 16, duration = 22 },
+  { x = 0, y = 16, width = 16, height = 16, duration = 11 },
+}
+
+-- The solid color of one Start Menu slot region; every slot is a distinct
+-- color so a wrong placement is a pixel mismatch in the goldens.
+---@param slotId integer
+---@return integer, integer, integer
+function FieldUiFixture.startMenuSlotColor(slotId)
+  return (10 + slotId * 21) % 256, (90 + slotId * 17) % 200, (220 - slotId * 13) % 240
+end
+
+-- The slot containing the pixel (x, y), or nil outside the grid (the two
+-- bottom rows of the 256x192 surface are uncovered).
+---@param x integer
+---@param y integer
+---@return integer?
+function FieldUiFixture.slotIdAt(x, y)
+  for slotId, rect in pairs(FieldUiFixture.START_MENU_SLOTS) do
+    if x >= rect.x and x < rect.x + rect.width and y >= rect.y and y < rect.y + rect.height then
+      return slotId
+    end
+  end
+  return nil
+end
+
+-- The background surface: each slot region is its slot's solid color; the
+-- uncovered rows are transparent.
+---@return string png
+function FieldUiFixture.startMenuBackgroundBytes()
+  local bytes = {}
+  for y = 0, 191 do
+    for x = 0, 255 do
+      local slotId = FieldUiFixture.slotIdAt(x, y)
+      if slotId then
+        local r, g, b = FieldUiFixture.startMenuSlotColor(slotId)
+        bytes[#bytes + 1] = string.char(r, g, b, 255)
+      else
+        bytes[#bytes + 1] = string.char(0, 0, 0, 0)
+      end
+    end
+  end
+  return PngWriter.encode(256, 192, table.concat(bytes))
+end
+
+-- The solid color of one cursor frame; the two frames are distinct colors.
+---@param frame integer 1-based
+---@return integer, integer, integer
+function FieldUiFixture.startMenuCursorColor(frame)
+  if frame == 1 then
+    return 255, 0, 255
+  end
+  return 0, 255, 255
+end
+
+-- The cursor atlas: two distinct 16x16 frames stacked (frame 1 at y=0,
+-- frame 2 at y=16), so a wrong frame index is a pixel mismatch.
+---@return string png
+function FieldUiFixture.startMenuCursorBytes()
+  local bytes = {}
+  for y = 0, 31 do
+    local r, g, b = FieldUiFixture.startMenuCursorColor(y < 16 and 1 or 2)
+    bytes[#bytes + 1] = string.rep(string.char(r, g, b, 255), 16)
+  end
+  return PngWriter.encode(16, 32, table.concat(bytes))
+end
+
 -- The signpost source-type map in the generated manifest shape: every corpus
 -- type with its raw number preserved, types 0/1 carrying wayfinding atlas
 -- rects. The on-screen 56px graphic region is NOT the atlas rect; the style
@@ -208,6 +316,16 @@ function FieldUiFixture.manifest()
         width = 192,
         height = 32,
       },
+      ["hgss.start_menu.background"] = {
+        image = FieldUiFixture.START_MENU_BACKGROUND_PATH,
+        width = 256,
+        height = 192,
+      },
+      ["hgss.start_menu.cursor"] = {
+        image = FieldUiFixture.START_MENU_CURSOR_PATH,
+        width = 16,
+        height = 32,
+      },
     },
     dialogueFrames = {
       count = FieldUiFixture.FRAME_COUNT,
@@ -222,6 +340,12 @@ function FieldUiFixture.manifest()
       },
       types = FieldUiFixture.signpostTypes(),
     },
+    startMenu = {
+      background = { x = 0, y = 0, width = 256, height = 192 },
+      cursor = { frames = FieldUiFixture.START_MENU_CURSOR_FRAMES },
+      slots = FieldUiFixture.START_MENU_SLOTS,
+      icons = FieldUiFixture.START_MENU_ICONS,
+    },
   }
 end
 
@@ -232,6 +356,20 @@ function FieldUiFixture.cacheWithFontAndFrames()
   cache:write(FieldUiFixture.STRIP_PATH, FieldUiFixture.stripBytes())
   cache:write(FieldUiFixture.SIGNPOST_TILES_PATH, FieldUiFixture.signpostTilesBytes())
   cache:write(FieldUiFixture.WAYFINDING_PATH, FieldUiFixture.wayfindingBytes())
+  cache:write(FieldUiFixture.START_MENU_BACKGROUND_PATH, FieldUiFixture.startMenuBackgroundBytes())
+  cache:write(FieldUiFixture.START_MENU_CURSOR_PATH, FieldUiFixture.startMenuCursorBytes())
+  return cache
+end
+
+-- The same manifest and Start Menu assets without the dialogue font: the
+-- Start Menu surface carries its art baked into the background image, so its
+-- renderer needs no font atlas.
+---@return CacheFs
+function FieldUiFixture.startMenuCache()
+  local cache = CacheFs.forVersion("heartgold", FakeCache.new())
+  cache:writeLua(FieldUiAssetCache.manifestPath(), FieldUiFixture.manifest())
+  cache:write(FieldUiFixture.START_MENU_BACKGROUND_PATH, FieldUiFixture.startMenuBackgroundBytes())
+  cache:write(FieldUiFixture.START_MENU_CURSOR_PATH, FieldUiFixture.startMenuCursorBytes())
   return cache
 end
 
