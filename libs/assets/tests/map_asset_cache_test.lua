@@ -612,6 +612,21 @@ end
 
 -- ---- additional strictness rules ----
 
+-- Material ids are the runtime's indexing domain: a record without an id, or
+-- with an id outside the non-negative integers, is malformed generated data.
+function T.material_ids_must_be_valid_non_negative_integers()
+  raisesSceneInvalid(patchedScene(function(s)
+    s.materials = {
+      { id = nil, name = "a", texture = BASE_TEX, texWidth = 16, texHeight = 16, texMtxMode = 0 },
+    }
+  end))
+  raisesSceneInvalid(patchedScene(function(s)
+    s.materials = {
+      { id = 0.5, name = "a", texture = BASE_TEX, texWidth = 16, texHeight = 16, texMtxMode = 0 },
+    }
+  end))
+end
+
 function T.duplicate_material_ids_in_one_list_raise_scene_invalid()
   local function withMaterials(materials)
     return patchedScene(function(s)

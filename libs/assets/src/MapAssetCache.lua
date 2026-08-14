@@ -167,17 +167,23 @@ local function checkTerrainMaterial(m, invalid)
   end
 end
 
--- Two material records sharing one id in the same list are malformed: the id
--- identifies a material within its scene (central or per-neighbor list).
-local function checkDuplicateMaterialIds(materials, invalid)
+-- Every material record of one list needs a valid id and a unique one: the
+-- runtime indexes materials by record.id, so a missing, negative, fractional,
+-- or duplicate id is malformed generated data. Ids are local to each list
+-- (central or per-neighbor).
+local function checkMaterialIds(materials, invalid)
   local seen = {}
-  for _, m in ipairs(materials) do
-    if type(m) == "table" and m.id ~= nil then
-      if seen[m.id] then
-        invalid("two material records share the id " .. tostring(m.id) .. " in one list")
-      end
-      seen[m.id] = true
+  for _, material in ipairs(materials) do
+    if type(material) ~= "table" then
+      invalid("a material is not a record")
     end
+    if not Validate.isNonNegativeInteger(material.id) then
+      invalid("a material id must be a non-negative integer")
+    end
+    if seen[material.id] then
+      invalid("two material records share the id " .. tostring(material.id) .. " in one list")
+    end
+    seen[material.id] = true
   end
 end
 
@@ -279,7 +285,7 @@ function MapAssetCache.referencedPaths(scene, cacheFs)
   for _, b in ipairs(scene.mapBatches) do
     addBatch(b)
   end
-  checkDuplicateMaterialIds(scene.materials, invalid)
+  checkMaterialIds(scene.materials, invalid)
   for _, m in ipairs(scene.materials) do
     addMaterial(m)
   end
@@ -290,7 +296,7 @@ function MapAssetCache.referencedPaths(scene, cacheFs)
     for _, b in ipairs(cell.batches) do
       addBatch(b)
     end
-    checkDuplicateMaterialIds(cell.materials, invalid)
+    checkMaterialIds(cell.materials, invalid)
     for _, m in ipairs(cell.materials) do
       addMaterial(m)
     end
@@ -313,7 +319,7 @@ function MapAssetCache.referencedPaths(scene, cacheFs)
     end
     local ok, referenced = pcall(ModelAsset.referencedPaths, desc)
     if not ok then
-      if Errors.is(referenced) and referenced.code == "MODEL_DESC_INVALID" then
+      if Errors.is(referenced) and referenced.code == ModelAsset.ERROR_INVALID then
         invalid("model descriptor is malformed: " .. inst.modelKey)
       end
       error(referenced)
@@ -370,10 +376,7 @@ function MapAssetCache.isReady(cacheFs, mapId, expectedMarker)
 
   local ok, paths = pcall(MapAssetCache.referencedPaths, scene, cacheFs)
   if not ok then
-    if
-      Errors.is(paths)
-      and (paths.code == AssetErrors.MAP_CACHE_SCENE_INVALID or paths.code == "MODEL_DESC_INVALID")
-    then
+    if Errors.is(paths) and paths.code == AssetErrors.MAP_CACHE_SCENE_INVALID then
       return false
     end
     error(paths)
