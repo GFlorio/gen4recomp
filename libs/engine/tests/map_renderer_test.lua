@@ -47,6 +47,12 @@ local function fakeGraphics(opts)
   opts = opts or {}
   local shaders, canvases = {}, {}
   local shaderCount, canvasCount, drawCalls = 0, 0, 0
+  local calls = {
+    canvas = {},
+    blend = {},
+    depth = {},
+    wireframe = {},
+  }
   local state = {
     canvas = opts.canvas,
     shader = opts.shader,
@@ -61,6 +67,7 @@ local function fakeGraphics(opts)
   return {
     shaders = shaders,
     canvases = canvases,
+    calls = calls,
     getDrawCalls = function()
       return drawCalls
     end,
@@ -69,8 +76,17 @@ local function fakeGraphics(opts)
       if opts.failOnNewShader == shaderCount then
         error("injected shader failure")
       end
-      local shader = { source = source, releaseCount = 0 }
-      shader.send = function() end
+      local shaderIndex = shaderCount
+      local sendCount = 0
+      local shader = { source = source, releaseCount = 0, sends = {}, uniforms = {} }
+      shader.send = function(_, name, ...)
+        sendCount = sendCount + 1
+        if shaderIndex == 2 and opts.failOnEdgeShaderSend == sendCount then
+          error("injected edge shader send failure")
+        end
+        shader.sends[#shader.sends + 1] = { name = name, values = { ... } }
+        shader.uniforms[name] = select(1, ...)
+      end
       shader.release = function()
         shader.releaseCount = shader.releaseCount + 1
       end
@@ -95,6 +111,7 @@ local function fakeGraphics(opts)
     end,
     setCanvas = function(canvas)
       state.canvas = canvas
+      calls.canvas[#calls.canvas + 1] = canvas
     end,
     getShader = function()
       return state.shader
@@ -107,18 +124,21 @@ local function fakeGraphics(opts)
     end,
     setBlendMode = function(mode, alpha)
       state.blendMode, state.blendAlpha = mode, alpha
+      calls.blend[#calls.blend + 1] = { mode = mode, alpha = alpha }
     end,
     getDepthMode = function()
       return state.depthMode, state.depthWrite
     end,
     setDepthMode = function(mode, write)
       state.depthMode, state.depthWrite = mode, write
+      calls.depth[#calls.depth + 1] = { mode = mode, write = write }
     end,
     isWireframe = function()
       return state.wireframe
     end,
     setWireframe = function(wireframe)
       state.wireframe = wireframe
+      calls.wireframe[#calls.wireframe + 1] = wireframe
     end,
     getMeshCullMode = function()
       return state.cullMode
@@ -140,6 +160,32 @@ local function fakeGraphics(opts)
     end,
     clear = function() end,
   }
+end
+
+local function shaderSendCount(shader, name)
+  local count = 0
+  for _, send in ipairs(shader.sends) do
+    if send.name == name then
+      count = count + 1
+    end
+  end
+  return count
+end
+
+local function callCount(calls, expected)
+  local count = 0
+  for _, call in ipairs(calls) do
+    local matches = true
+    for key, value in pairs(expected) do
+      if call[key] ~= value then
+        matches = false
+      end
+    end
+    if matches then
+      count = count + 1
+    end
+  end
+  return count
 end
 
 -- The exact restoration contract: every captured state (canvas, shader,
@@ -386,6 +432,7 @@ function T.canvas_recreation_failure_releases_partial_new_canvases()
     local scene = emptySceneCamera()
     renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
     local oldW, oldH = renderer.canvasW, renderer.canvasH
+    local oldTargets = renderer._sceneTargets
     Assert.equal(#lg.canvases, 3, "the first target set was created")
 
     local err = Assert.throws(function()
@@ -402,6 +449,7 @@ function T.canvas_recreation_failure_releases_partial_new_canvases()
     Assert.equal(renderer.depth, lg.canvases[3], "the previous depth canvas survives")
     Assert.equal(renderer.canvasW, oldW, "the recorded size survives")
     Assert.equal(renderer.canvasH, oldH, "the recorded size survives")
+    Assert.equal(renderer._sceneTargets, oldTargets, "the previous target descriptor survives")
     Assert.equal(lg.canvases[1].releaseCount, 0, "the previous scene canvas is still owned")
     Assert.equal(lg.canvases[2].releaseCount, 0, "the previous id-depth canvas is still owned")
     Assert.equal(lg.canvases[3].releaseCount, 0, "the previous depth canvas is still owned")
@@ -411,6 +459,93 @@ function T.canvas_recreation_failure_releases_partial_new_canvases()
       Assert.equal(canvas.releaseCount, 1, "release cleans up every canvas exactly once")
     end
   end
+end
+
+-- Edge configuration is part of target staging: a failure after the new ID
+-- texture was sent but before all size uniforms were accepted restores the
+-- previous uniforms, retains the previous published descriptor and canvases,
+-- and releases the unpublished replacement set.
+function T.canvas_recreation_send_failure_retains_previous_targets()
+  local lg = fakeGraphics({ failOnEdgeShaderSend = 7 })
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  local oldViewport = FieldViewport.new(640, 480, { mode = "strict" })
+  renderer:draw(scene.runtime, scene.camera, nil, oldViewport)
+  local oldTargets = assert(renderer._sceneTargets)
+  local edgeShader = assert(lg.shaders[2])
+
+  local err = Assert.throws(function()
+    renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(1280, 720, { mode = "expanded" }))
+  end)
+  Assert.isTrue(tostring(err):find("injected edge shader send failure", 1, true) ~= nil, "rethrows send failure")
+
+  Assert.equal(renderer._sceneTargets, oldTargets, "the previous descriptor remains published")
+  Assert.equal(renderer.sceneColor, lg.canvases[1], "the previous scene canvas survives")
+  Assert.equal(renderer.idDepth, lg.canvases[2], "the previous ID canvas survives")
+  Assert.equal(renderer.depth, lg.canvases[3], "the previous depth canvas survives")
+  Assert.equal(renderer.canvasW, 640)
+  Assert.equal(renderer.canvasH, 480)
+  Assert.equal(edgeShader.uniforms.u_idTex, lg.canvases[2], "the previous ID texture binding is restored")
+  Assert.deepEqual(edgeShader.uniforms.u_texelSize, { 1 / 640, 1 / 480 }, "the previous texel size is restored")
+  Assert.equal(edgeShader.uniforms.u_edgeRadius, MapRenderer.fieldEdgeRadiusPixels(480))
+  for i = 1, 3 do
+    Assert.equal(lg.canvases[i].releaseCount, 0, "the previous canvas remains owned")
+    Assert.equal(lg.canvases[i + 3].releaseCount, 1, "the unpublished replacement canvas is released")
+  end
+
+  renderer:draw(scene.runtime, scene.camera, nil, oldViewport)
+  Assert.equal(#lg.canvases, 6, "the retained target set remains usable without allocation")
+  renderer:release()
+  for _, canvas in ipairs(lg.canvases) do
+    Assert.equal(canvas.releaseCount, 1, "release cleans up every canvas exactly once")
+  end
+end
+
+-- Renderer-owned frame storage is stable while its contents reset. The scene
+-- target descriptor and edge uniforms change only with target generation;
+-- construction-only edge values are sent once. Releasing the canvases clears
+-- the descriptor so it cannot retain released targets.
+function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
+  local stats = renderer.stats
+  local edgeShader = renderer.edgeShader
+
+  Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 1, "edge colors are construction invariant")
+  Assert.equal(shaderSendCount(edgeShader, "u_edgeAlpha"), 1, "edge alpha is construction invariant")
+
+  renderer:draw(scene.runtime, scene.camera, nil, viewport)
+  local targets = assert(renderer._sceneTargets, "successful canvas creation publishes its target descriptor")
+  Assert.equal(targets[1], renderer.sceneColor)
+  Assert.equal(targets[2], renderer.idDepth)
+  Assert.equal(targets.depthstencil, renderer.depth)
+  Assert.equal(renderer.stats, stats, "draw reuses the public stats table")
+  Assert.equal(shaderSendCount(edgeShader, "u_idTex"), 1)
+  Assert.equal(shaderSendCount(edgeShader, "u_texelSize"), 1)
+  Assert.equal(shaderSendCount(edgeShader, "u_edgeRadius"), 1)
+
+  renderer:draw(scene.runtime, scene.camera, nil, viewport)
+  Assert.equal(renderer._sceneTargets, targets, "unchanged dimensions reuse the descriptor")
+  Assert.equal(renderer.stats, stats, "later draws retain stats identity")
+  Assert.equal(shaderSendCount(edgeShader, "u_idTex"), 1, "unchanged targets do not resend their texture")
+  Assert.equal(shaderSendCount(edgeShader, "u_texelSize"), 1, "unchanged size does not resend texel size")
+  Assert.equal(shaderSendCount(edgeShader, "u_edgeRadius"), 1, "unchanged size does not resend edge radius")
+  Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 1)
+  Assert.equal(shaderSendCount(edgeShader, "u_edgeAlpha"), 1)
+
+  viewport:resize(1280, 720)
+  renderer:draw(scene.runtime, scene.camera, nil, viewport)
+  Assert.isTrue(renderer._sceneTargets ~= targets, "replacement publishes a new target descriptor")
+  Assert.equal(shaderSendCount(edgeShader, "u_idTex"), 2)
+  Assert.equal(shaderSendCount(edgeShader, "u_texelSize"), 2)
+  Assert.equal(shaderSendCount(edgeShader, "u_edgeRadius"), 2)
+  Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 1)
+  Assert.equal(shaderSendCount(edgeShader, "u_edgeAlpha"), 1)
+
+  renderer:release()
+  Assert.isNil(renderer._sceneTargets, "release clears the target descriptor")
 end
 
 -- After a failed recreation the renderer stays usable at the previous size,
@@ -527,6 +662,134 @@ function T.light_mask_uniforms_decode_polygon_bits()
   end)
 end
 
+function T.light_mask_uniforms_returns_caller_owned_values()
+  local exposed = MapRenderer.lightMaskUniforms(5)
+  exposed[1], exposed[3] = 0, 0
+
+  Assert.deepEqual(MapRenderer.lightMaskUniforms(5), { 1, 0, 1, 0 }, "callers cannot mutate the cached lookup")
+end
+
+local function lightingRecord(startHalfSeconds, diffuseRgb555, vectorX)
+  local lights = {}
+  for i = 1, 4 do
+    lights[i] = {
+      enabled = i == 1,
+      colorRgb555 = diffuseRgb555,
+      vectorFx12 = { vectorX, 0, -4096 },
+    }
+  end
+  return {
+    startHalfSeconds = startHalfSeconds,
+    lights = lights,
+    diffuseRgb555 = diffuseRgb555,
+    ambientRgb555 = diffuseRgb555,
+    specularRgb555 = diffuseRgb555,
+    emissionRgb555 = diffuseRgb555,
+  }
+end
+
+-- Lighting uniforms are change-driven by both profile and selected-record
+-- identity. Decoded material arrays retain identity while their values track
+-- record changes, and a lit/unlit transition clears the profile exactly once.
+function T.lighting_cache_tracks_profile_record_and_unlit_transitions()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local shader = lg.shaders[1]
+  local red, green = 31, 31 * 32
+  local morning = lightingRecord(0, red, 0)
+  local evening = lightingRecord(10, green, 4096)
+  local profile = { records = { morning, evening } }
+  local runtime = { lighting = profile, fieldTimeSeconds = 0 }
+
+  renderer:_sendLighting(runtime)
+  Assert.equal(#shader.sends, 12, "first lit record sends four light uniform groups")
+  local colors = renderer._lightMaterialColors
+  local diffuse = colors.diffuse
+  Assert.deepEqual(diffuse, { 1, 0, 0 })
+
+  renderer:_sendLighting(runtime)
+  Assert.equal(#shader.sends, 12, "same profile and record sends nothing")
+  Assert.equal(renderer._lightMaterialColors, colors)
+  Assert.equal(renderer._lightMaterialColors.diffuse, diffuse)
+
+  runtime.fieldTimeSeconds = 20
+  renderer:_sendLighting(runtime)
+  Assert.equal(#shader.sends, 24, "time selection moving records resends lighting")
+  Assert.equal(renderer._lightMaterialColors, colors, "decoded material storage is persistent")
+  Assert.equal(renderer._lightMaterialColors.diffuse, diffuse)
+  Assert.deepEqual(diffuse, { 0, 1, 0 })
+
+  runtime.lighting = { records = { evening } }
+  renderer:_sendLighting(runtime)
+  Assert.equal(#shader.sends, 36, "profile identity participates in the cache key")
+
+  runtime.lighting = nil
+  renderer:_sendLighting(runtime)
+  Assert.equal(#shader.sends, 48, "lit to unlit clears every light uniform once")
+  Assert.isNil(renderer._lightMaterialColors, "unlit scenes expose no profile material colors")
+  renderer:_sendLighting(runtime)
+  Assert.equal(#shader.sends, 48, "stable unlit state sends nothing")
+
+  runtime.lighting = profile
+  runtime.fieldTimeSeconds = 0
+  renderer:_sendLighting(runtime)
+  Assert.equal(#shader.sends, 60, "unlit to lit restores the selected record")
+  Assert.equal(renderer._lightMaterialColors, colors)
+  Assert.deepEqual(renderer._lightMaterialColors.diffuse, { 1, 0, 0 })
+  renderer:release()
+end
+
+local function passItem(alphaClass, z, opts)
+  opts = opts or {}
+  return {
+    mesh = { setTexture = function() end },
+    material = { texMatrix = Matrix4.identity() },
+    transform = Matrix4.identity(),
+    alphaClass = alphaClass,
+    cullMode = "back",
+    polygonAlpha = 1.0,
+    polygonMode = "modulation",
+    polygonId = 0,
+    lightMask = 0,
+    alphaCutoff = 0.5 / 255,
+    center = { 0, 0, z },
+    depthEqual = opts.depthEqual or false,
+    translucentDepthWrite = opts.translucentDepthWrite or false,
+  }
+end
+
+-- Pass-invariant state is established once. Translucent depth mode changes
+-- only when its compare/write tuple changes in sorted order.
+function T.draw_sets_wireframe_and_translucent_state_once_per_run()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  local items = {
+    passItem("translucent", -4),
+    passItem("translucent", -3),
+    passItem("translucent", -2, { depthEqual = true }),
+    passItem("translucent", -1, { depthEqual = true, translucentDepthWrite = true }),
+    passItem("wireframe", 0),
+    passItem("wireframe", 1),
+  }
+
+  renderer:draw(scene.runtime, scene.camera, { items }, FieldViewport.new(640, 480, { mode = "strict" }))
+
+  Assert.equal(callCount(lg.calls.blend, { mode = "alpha", alpha = "alphamultiply" }), 1)
+  Assert.equal(callCount(lg.calls.depth, { mode = "less", write = false }), 1)
+  Assert.equal(callCount(lg.calls.depth, { mode = "lequal", write = false }), 1)
+  Assert.equal(callCount(lg.calls.depth, { mode = "lequal", write = true }), 1)
+  Assert.equal(callCount(lg.calls.depth, { mode = "less", write = true }), 2, "filled and wireframe passes")
+  local wireframeEnables = 0
+  for _, enabled in ipairs(lg.calls.wireframe) do
+    if enabled then
+      wireframeEnables = wireframeEnables + 1
+    end
+  end
+  Assert.equal(wireframeEnables, 1, "wireframe mode is enabled once for the pass")
+  renderer:release()
+end
+
 -- The DS geometry engine submits each vertex under the then-current matrix;
 -- the bend bake must move only the first `leading` vertices under the
 -- straddle transform and leave the rest under the item transform, with every
@@ -596,12 +859,8 @@ end
 local function straddleGraphics(opts)
   opts = opts or {}
   local meshes = {}
-  local wireframeCount = 0
   return {
     meshes = meshes,
-    wireframeCount = function()
-      return wireframeCount
-    end,
     newShader = function()
       return { send = function() end }
     end,
@@ -625,11 +884,7 @@ local function straddleGraphics(opts)
     setShader = function() end,
     setDepthMode = function() end,
     setBlendMode = function() end,
-    setWireframe = function(enabled)
-      if enabled then
-        wireframeCount = wireframeCount + 1
-      end
-    end,
+    setWireframe = function() end,
     setMeshCullMode = function() end,
     draw = function()
       if opts.failOnDraw then
@@ -732,9 +987,9 @@ end
 -- The wireframe pass routes straddling items through the same per-vertex
 -- bend as the filled passes (the corpus has one real straddle+wireframe
 -- case: indoor:146:e8aca8e43479 in map 0080), so a wireframe straddle item
--- bakes its leading vertices under the straddle transform, draws the scratch
--- with wireframe mode on, and releases it within the call.
-function T.wireframe_straddle_bakes_into_a_released_scratch_drawn_in_wireframe()
+-- bakes its leading vertices under the straddle transform and releases the
+-- scratch within the call. Pass-wide wireframe state is owned by draw().
+function T.wireframe_straddle_bakes_into_a_released_scratch()
   local fake = straddleGraphics()
   local renderer = MapRenderer.new({ graphics = fake })
   local item = straddleDrawItem(sourceMesh())
@@ -751,7 +1006,6 @@ function T.wireframe_straddle_bakes_into_a_released_scratch_drawn_in_wireframe()
   Assert.near(scratch.vertices[2][1], 11, 1e-9)
   Assert.near(scratch.vertices[3][1], 1, 1e-9)
   Assert.near(scratch.vertices[4][1], -1, 1e-9)
-  Assert.equal(fake.wireframeCount(), 1, "the straddle scratch draws in wireframe mode")
 end
 
 -- A non-straddling wireframe item draws its own mesh directly, without
@@ -765,7 +1019,6 @@ function T.wireframe_draw_without_a_straddle_uses_the_item_mesh()
   renderer:_drawWireframe(item, Matrix4.identity(), Matrix4.identity())
 
   Assert.equal(#fake.meshes, 0, "no scratch is baked for a non-straddling wireframe item")
-  Assert.equal(fake.wireframeCount(), 1, "the item mesh draws in wireframe mode")
 end
 
 -- A draw failure inside the wireframe straddle path must still release the
