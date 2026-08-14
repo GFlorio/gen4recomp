@@ -71,6 +71,44 @@ function T.fixed_ticks_reveal_expected_glyph_count()
   Assert.equal(c:status().state, "WAITING_CLOSE")
 end
 
+-- The player-selected HGSS user-frame index travels on the open request and
+-- stays on the presentation status for the whole open lifetime; closing
+-- clears it. The request may omit it (hosts without player options), in
+-- which case status exposes nil rather than inventing a frame.
+function T.request_frame_index_is_carried_on_status_and_cleared_on_close()
+  local c = controller({ page({ line({ glyph("A", 1) }) }, "eos") })
+  local req = request("t", message())
+  req.frameIndex = 3
+  c:open(req)
+  Assert.equal(c:status().frameIndex, 3, "open status carries the request frame index")
+  c:step({})
+  c:step({})
+  Assert.equal(c:status().frameIndex, 3, "frame index survives the reveal lifecycle")
+  c:close()
+  Assert.isNil(c:status().frameIndex, "closed status clears the frame")
+end
+
+-- A request without a frame index still opens: the frame is an option-carrying
+-- host's concern, not a requirement of the dialogue contract itself.
+function T.request_without_a_frame_index_still_opens()
+  local c = controller({ page({ line({ glyph("A", 1) }) }, "eos") })
+  c:open(request("t", message()))
+  Assert.equal(c:status().state, "OPENING")
+  Assert.isNil(c:status().frameIndex)
+end
+
+-- A malformed frame index is a programming fault at the request boundary.
+function T.rejects_a_malformed_frame_index()
+  local c = controller({ page({ line({ glyph("A", 1) }) }, "eos") })
+  for _, bad in ipairs({ -1, 0.5, "3", true }) do
+    local req = request("t", message())
+    req.frameIndex = bad
+    Assert.throws(function()
+      c:open(req)
+    end, "frame index " .. tostring(bad) .. " must be rejected")
+  end
+end
+
 -- The reveal cadence is injected, not a renderer constant: the runtime wires
 -- the player's selected text speed into construction (ticksPerGlyph), so an
 -- open request reveals at the captured cadence without ever querying options.

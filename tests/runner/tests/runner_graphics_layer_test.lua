@@ -132,7 +132,7 @@ function T.the_graphics_layer_covers_shaders_render_targets_and_the_dialogue_atl
   Assert.isTrue(covers("shader"), "no graphics test compiles a shader")
   Assert.isTrue(covers("render_target") or covers("canvas"), "no graphics test allocates a canvas or render target")
   Assert.isTrue(covers("atlas"), "no graphics test loads the dialogue atlas")
-  Assert.isTrue(covers("nine_slice"), "no graphics test draws the dialogue nine-slice")
+  Assert.isTrue(covers("golden"), "no graphics test renders a canonical dialogue golden")
 end
 
 return { tests = T }

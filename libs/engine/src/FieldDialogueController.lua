@@ -158,6 +158,7 @@ function FieldDialogueController:status()
     requestId = self._request and self._request.id or nil,
     bankId = self._request and self._request.message and self._request.message.bankId or nil,
     messageId = self._request and self._request.message and self._request.message.messageId or nil,
+    frameIndex = self._request and self._request.frameIndex or nil,
     pageIndex = self._pageIndex,
     pageCount = self._pages and #self._pages or 0,
     revealedGlyphs = self._revealed,
@@ -271,6 +272,15 @@ function FieldDialogueController:open(request)
     self._onError = fn
     return self
   end
+  -- The player-selected HGSS user-frame index is presentation data captured
+  -- at open time: an already-open message keeps the frame it opened with.
+  -- The request may omit it; status then exposes nil rather than inventing a
+  -- frame.
+  local frameIndex = request.frameIndex
+  assert(
+    frameIndex == nil or (type(frameIndex) == "number" and frameIndex >= 0 and frameIndex % 1 == 0),
+    "dialogue request frameIndex must be a non-negative integer"
+  )
   local ok, pages = pcall(self._layout, request.message)
   self._request = request
   self._handle = handle
@@ -459,13 +469,16 @@ end
 
 -- A DialogueRequest is the immutable open() argument.
 -- The message is a formatted, pre-layout message; the pre-script adapter
--- builds it from the message provider.
+-- builds it from the message provider. `frameIndex` is the player-selected
+-- HGSS user-frame index, captured at open time (optional: a host without
+-- player options opens without one).
 
 ---@class FieldDialogueController.Request
 ---@field id string
 ---@field message FieldMessageProvider.FormattedMessage
 ---@field allowCancel boolean
 ---@field metadata table?
+---@field frameIndex integer?
 
 -- The completion handle: exactly one of onComplete/onCancel/onError fires,
 -- once, after the dialogue settles. Register handlers right after open().
@@ -503,6 +516,7 @@ end
 ---@field requestId string?
 ---@field bankId integer?
 ---@field messageId integer?
+---@field frameIndex integer?
 ---@field pageIndex integer
 ---@field pageCount integer
 ---@field revealedGlyphs integer

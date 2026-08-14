@@ -9,16 +9,18 @@ local LuaWriter = require("libs.codec.src.LuaWriter")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
 local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
+local FieldUiFixture = require("tests.support.FieldUiFixture")
 local FieldRuntime = require("game.src.game.FieldRuntime")
 local FieldState = require("game.src.game.FieldState")
 
 local T = {}
 
 -- A cache serving everything the presentation boot reads: the compiled font
--- definition and atlas the dialogue renderer opens and the actor index the
--- presentation asset provider loads.
+-- definition and atlas the dialogue renderer opens, the generated field-UI
+-- class (manifest + dialogue frame strip) the renderer draws, and the actor
+-- index the presentation asset provider loads.
 local function presentationCache()
-  local cache = FieldDialogueFixture.cacheWithFont()
+  local cache = FieldUiFixture.cacheWithFontAndFrames()
   cache:write(
     FieldActorCache.indexPath(),
     LuaWriter.encode({ schema = FieldActorCache.INDEX_SCHEMA, spriteIds = { 0 } })

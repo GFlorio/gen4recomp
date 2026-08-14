@@ -1,10 +1,14 @@
 -- The single theme record for field dialogue presentation: the 256 x 192
 -- reference canvas (matching the DS top-screen aspect),
 -- the canonical HGSS message-box content rect, text metrics, colors, cursor
--- blink, and the reference-to-screen mapping into FieldViewport.referenceFrame.
+-- blink, the user-frame tilemap composition, and the reference-to-screen
+-- mapping into FieldViewport.referenceFrame.
 -- The content rect is 16,152,216,32: DIALOG_BOX_X=2, DIALOG_BOX_Y=19,
 -- DIALOG_BOX_W=27, DIALOG_BOX_H=4 tiles at 8px/tile (src/dialog_box.c,
 -- pret/pokeheartgold commit 008257708bd41df5b8c9037e019088ba24df0a87).
+-- The frame tilemap is the DrawFrameAndWindow2 composition
+-- (asm/render_window.s sub_0200E6B4 at the same commit): 18 strip tiles
+-- placed around the box -- one tile above and below, two left, three right.
 -- All geometry is pure so the box layout is testable headlessly at every
 -- host aspect; the LÖVE renderer draws exactly what this module computes.
 
@@ -22,8 +26,8 @@ local FieldMessageText = require("libs.assets.src.FieldMessageText")
 ---@field textWidth integer
 ---@field textHeight integer
 ---@field cursor { width: integer, height: integer, offsetX: integer, offsetY: integer, blinkTicks: integer }
----@field colors { fill: number[], border: number[], cursor: number[], marker: number[] }
----@field slice { size: integer, corner: integer }
+---@field colors { cursor: number[], marker: number[] }
+---@field frameTilePlacements fun(box: FieldDialogueTheme.Rect): { tile: integer, x: integer, y: integer, spanX?: integer, spanY?: integer }[]
 ---@field layout fun(referenceFrame: FieldDialogueTheme.Rect): FieldDialogueTheme.Layout
 ---@field screenRect fun(layout: FieldDialogueTheme.Layout, rect: FieldDialogueTheme.Rect): FieldDialogueTheme.Rect
 ---@field fontMetrics fun(fontDef: FieldFontDef): FieldDialogueTheme.Metrics
@@ -66,17 +70,50 @@ FieldDialogueTheme.cursor = {
 }
 
 -- Colors (project-owned window; the extracted glyph atlas bakes
--- its own ink/shadow/background colors, so text is drawn unmodified).
+-- its own ink/shadow/background colors, so text is drawn unmodified; the
+-- HGSS user-frame artwork carries its own baked colors).
 FieldDialogueTheme.colors = {
-  fill = { 0.93, 0.93, 0.97, 0.96 },
-  border = { 0.16, 0.20, 0.42, 1 },
   cursor = { 0.10, 0.12, 0.30, 1 },
   marker = { 0.55, 0.25, 0.10, 1 },
 }
 
--- Nine-slice: a 6x6 source image with 2px corners and edges, so
--- the center stretches without seams under nearest filtering.
-FieldDialogueTheme.slice = { size = 6, corner = 2 }
+-- The audited DrawFrameAndWindow2 tilemap: every tile of the user-frame
+-- strip placed around the content box, in strip order. Positions are
+-- reference-canvas pixels; a span entry repeats the tile across the named
+-- axis in 8px tile steps. The content box stays uncovered and the composed
+-- frame exactly fills the 256x192 reference canvas.
+
+---@param box FieldDialogueTheme.Rect
+---@return { tile: integer, x: integer, y: integer, spanX?: integer, spanY?: integer }[]
+function FieldDialogueTheme.frameTilePlacements(box)
+  assert(
+    type(box) == "table" and box.x and box.y and box.width and box.height,
+    "frameTilePlacements requires the content box"
+  )
+  local left = box.x - 16
+  local right = box.x + box.width
+  local top = box.y - 8
+  local bottom = box.y + box.height
+  return {
+    { tile = 0, x = left, y = top },
+    { tile = 1, x = left + 8, y = top },
+    { tile = 2, x = box.x, y = top, spanX = box.width / 8 },
+    { tile = 3, x = right, y = top },
+    { tile = 4, x = right + 8, y = top },
+    { tile = 5, x = right + 16, y = top },
+    { tile = 6, x = left, y = box.y, spanY = box.height / 8 },
+    { tile = 7, x = left + 8, y = box.y, spanY = box.height / 8 },
+    { tile = 9, x = right, y = box.y, spanY = box.height / 8 },
+    { tile = 10, x = right + 8, y = box.y, spanY = box.height / 8 },
+    { tile = 11, x = right + 16, y = box.y, spanY = box.height / 8 },
+    { tile = 12, x = left, y = bottom },
+    { tile = 13, x = left + 8, y = bottom },
+    { tile = 14, x = box.x, y = bottom, spanX = box.width / 8 },
+    { tile = 15, x = right, y = bottom },
+    { tile = 16, x = right + 8, y = bottom },
+    { tile = 17, x = right + 16, y = bottom },
+  }
+end
 
 -- Reference-to-screen mapping for one viewport. The reference canvas scales
 -- uniformly into the centered 4:3 referenceFrame, so wide hosts keep the box

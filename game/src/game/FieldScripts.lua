@@ -147,6 +147,7 @@ end
 ---@field messageProvider FieldMessageProvider
 ---@field layout fun(formatted: table): table
 ---@field fontDef table
+---@field frameIndex integer|nil player-selected HGSS user-frame index for dialogue requests
 ---@field transition FieldTransition
 ---@field mapLoader FieldMapLoader
 ---@field sourceMap RuntimeFieldMap
@@ -261,6 +262,7 @@ function FieldScripts.new(opts)
     fontDef = opts.fontDef,
     player = player,
     world = worldState,
+    frameIndex = opts.frameIndex,
   })
   local mapsService = ScriptMapsService.new({
     transition = opts.transition,

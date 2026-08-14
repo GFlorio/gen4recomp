@@ -1,19 +1,24 @@
 -- Renders the modal dialogue box into the viewport's centered 4:3 reference
--- frame: a nine-slice window, the extracted
--- glyph atlas text (ink and shadow baked at import time), and a blinking
--- continue cursor. It owns the font definition and atlas Image, builds the
--- slice source image once, draws after the 3D world pass, and restores every
--- graphics state it touches (canvas, shader, scissor, blend, depth, color).
--- Presentation-only by design: FieldFontLoader owns runtime font definitions.
--- Construction is failure-safe: a quad/slice failure after the atlas or slice
--- image was created releases the acquired images before rethrowing, and draw()
--- balances its transform push even when drawing raises.
+-- frame: the authentic HGSS user-frame strip (the player's selected frame
+-- index resolved from the generated field-UI manifest and drawn by the
+-- DrawFrameAndWindow2 tilemap), the extracted glyph atlas text (ink and
+-- shadow baked at import time), and a blinking continue cursor. It owns the
+-- font definition, the font atlas, and the frame strip Images; builds glyph
+-- quads once and frame quads lazily per frame index; draws after the 3D
+-- world pass; and restores every graphics state it touches (canvas, shader,
+-- scissor, blend, depth, color). Presentation-only by design: FieldFontLoader
+-- owns runtime font definitions and the generated manifest owns frame rects.
+-- Construction is failure-safe: a missing manifest or frame strip is a typed
+-- error, a quad failure after the images were created releases the acquired
+-- images before rethrowing, and draw() balances its transform push even when
+-- drawing raises.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
+local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldMessageText = require("libs.assets.src.FieldMessageText")
 
 ---@class FieldDialogueRenderer
@@ -24,17 +29,15 @@ local FieldMessageText = require("libs.assets.src.FieldMessageText")
 ---@field fontDef FieldFontDef
 ---@field atlas love.Image?
 ---@field _quads table<integer, love.Quad>?
----@field _sliceImage love.Image?
----@field _sliceQuads love.Quad[]?
+---@field _manifest table|nil the generated field-UI manifest
+---@field _frameImage love.Image?
+---@field _frameQuadCache table<integer, love.Quad[]>|nil per-frame tile quads, built lazily
 local FieldDialogueRenderer = {}
 FieldDialogueRenderer.__index = FieldDialogueRenderer
 
--- Nine-slice drawn from a 6x6 source image: 2px border ring and a
--- stretchable center, nearest-filtered so scaled edges never seam.
-local SLICE_BORDER = 2
-
--- opts.cacheFs: version-scoped private cache holding the compiled font def
--- and atlas PNG; opts.graphics: injectable LÖVE graphics namespace; opts.theme:
+-- opts.cacheFs: version-scoped private cache holding the compiled font def,
+-- the font atlas PNG, and the generated field-UI class (manifest + frame
+-- strip); opts.graphics: injectable LÖVE graphics namespace; opts.theme:
 -- geometry record.
 
 ---@param opts { cacheFs: CacheFs, fontId?: integer, theme?: FieldDialogueTheme, graphics?: love.Graphics? }
@@ -55,6 +58,27 @@ function FieldDialogueRenderer.new(opts)
 
   local def = FieldFontLoader.load(cacheFs, fontId)
 
+  -- The generated field-UI class is a required renderer asset: the manifest
+  -- names the frame strip and every frame's tile rects. The runtime boot
+  -- already validates the full manifest; the renderer resolves what it draws.
+  local manifest = cacheFs:loadLua(FieldUiAssetCache.manifestPath())
+  if type(manifest) ~= "table" then
+    Errors.raise(
+      "FIELD_UI_MANIFEST_MISSING",
+      "field UI manifest missing at " .. FieldUiAssetCache.manifestPath(),
+      { path = FieldUiAssetCache.manifestPath() }
+    )
+  end
+  local uiManifest = manifest --[[@as table]]
+  local manifestAssets = uiManifest.assets
+  if type(manifestAssets) ~= "table" then
+    Errors.raise("FIELD_UI_MANIFEST_INVALID", "field UI manifest has no assets", {})
+  end
+  local frameAsset = manifestAssets["hgss.dialogue_frame.tiles"]
+  if type(frameAsset) ~= "table" or type(frameAsset.image) ~= "string" then
+    Errors.raise("FIELD_UI_MANIFEST_INVALID", "field UI manifest has no dialogue frame strip", {})
+  end
+
   local self = setmetatable({
     _cacheFs = cacheFs,
     _theme = theme,
@@ -63,8 +87,9 @@ function FieldDialogueRenderer.new(opts)
     fontDef = def,
     atlas = nil,
     _quads = nil,
-    _sliceImage = nil,
-    _sliceQuads = nil,
+    _manifest = manifest,
+    _frameImage = nil,
+    _frameQuadCache = nil,
   }, FieldDialogueRenderer)
 
   local data = cacheFs:read(FieldFontCache.atlasPath(fontId))
@@ -76,10 +101,21 @@ function FieldDialogueRenderer.new(opts)
     )
   end
   self.atlas = graphics.newImage(love.filesystem.newFileData(data, FieldFontCache.atlasPath(fontId)))
+  local frameImagePath = frameAsset.image
+  local frameData = cacheFs:read(frameImagePath)
+  if not frameData then
+    self:release()
+    Errors.raise(
+      "FIELD_UI_FRAME_ATLAS_MISSING",
+      "dialogue frame strip missing at " .. frameImagePath,
+      { path = frameImagePath }
+    )
+  end
   local ok, err = pcall(function()
     self.atlas:setFilter("nearest", "nearest")
+    self._frameImage = graphics.newImage(love.filesystem.newFileData(frameData, frameImagePath))
+    self._frameImage:setFilter("nearest", "nearest")
     self:_buildQuads()
-    self:_buildSlice()
   end)
   if not ok then
     self:release()
@@ -99,36 +135,27 @@ function FieldDialogueRenderer:_buildQuads()
   self._quads = quads
 end
 
--- The 6x6 slice source: 2px border ring (border color) around a stretchable
--- center (window fill). Quads are split at the 2/4 grid lines.
-function FieldDialogueRenderer:_buildSlice()
+-- The 18 tile quads of one frame: each 8x8 tile of the strip row named by
+-- the manifest rect. Built lazily per frame index and cached, so a session
+-- that only ever shows one frame never materializes the other rows.
+---@param frameIndex integer
+---@param rect { x: integer, y: integer, width: integer, height: integer }
+---@return love.Quad[]
+function FieldDialogueRenderer:_buildFrameQuads(frameIndex, rect)
   local lg = assert(self._graphics)
-  local colors = self._theme.colors
-  local size = self._theme.slice.size
-  local imageData = love.image.newImageData(size, size)
-  local border, fill = colors.border, colors.fill
-  for y = 0, size - 1 do
-    for x = 0, size - 1 do
-      local onBorder = x < SLICE_BORDER or y < SLICE_BORDER or x >= size - SLICE_BORDER or y >= size - SLICE_BORDER
-      local c = onBorder and border or fill
-      imageData:setPixel(x, y, c[1], c[2], c[3], c[4])
+  local image = assert(self._frameImage)
+  local atlasWidth, atlasHeight = image:getWidth(), image:getHeight()
+  local cache = self._frameQuadCache or {}
+  local quads = cache[frameIndex]
+  if quads == nil then
+    quads = {}
+    for tile = 0, rect.width / 8 - 1 do
+      quads[tile] = lg.newQuad(rect.x + tile * 8, rect.y, 8, 8, atlasWidth, atlasHeight)
     end
+    cache[frameIndex] = quads
   end
-  self._sliceImage = lg.newImage(imageData)
-  self._sliceImage:setFilter("nearest", "nearest")
-  local quads = {}
-  local index = 0
-  for row = 0, 2 do
-    local sy = row * SLICE_BORDER
-    local sh = row < 2 and SLICE_BORDER or size - 2 * SLICE_BORDER
-    for col = 0, 2 do
-      local sx = col * SLICE_BORDER
-      local sw = col < 2 and SLICE_BORDER or size - 2 * SLICE_BORDER
-      index = index + 1
-      quads[index] = lg.newQuad(sx, sy, sw, sh, size, size)
-    end
-  end
-  self._sliceQuads = quads
+  self._frameQuadCache = cache
+  return quads
 end
 
 -- Converts marker text to glyph runs through the compiled charmap.
@@ -245,34 +272,33 @@ function FieldDialogueRenderer:_drawCursor(status, layout)
   )
 end
 
--- Draws the window nine-slice over the box rect in reference coordinates.
--- Each slice quad is SLICE_BORDER source pixels; LÖVE scale factors are
--- destination-size / source-size, so dividing by SLICE_BORDER keeps the
--- center at box.width-2*edge instead of doubling it.
+-- Draws the player's selected HGSS user-frame: the strip row named by the
+-- manifest rect for the status frame index, composed by the audited
+-- DrawFrameAndWindow2 tilemap around the content box. The content region
+-- itself stays uncovered, so the world shows through the window. A status
+-- without a frame index (a host that carries no player options) draws no
+-- frame at all rather than inventing one.
 
+---@param status FieldDialogueController.Status
 ---@param layout FieldDialogueTheme.Layout
-function FieldDialogueRenderer:_drawBox(layout)
+function FieldDialogueRenderer:_drawFrame(status, layout)
+  local frameIndex = status.frameIndex
+  if frameIndex == nil then
+    return
+  end
   local lg = assert(self._graphics)
-  local sliceImage = assert(self._sliceImage)
-  local sliceQuads = assert(self._sliceQuads)
-  local box = layout.box
-  local spansX = { box.x, box.x + SLICE_BORDER, box.x + box.width - SLICE_BORDER }
-  local spansY = { box.y, box.y + SLICE_BORDER, box.y + box.height - SLICE_BORDER }
-  local widths = { SLICE_BORDER, box.width - 2 * SLICE_BORDER, SLICE_BORDER }
-  local heights = { SLICE_BORDER, box.height - 2 * SLICE_BORDER, SLICE_BORDER }
-  local index = 0
-  for row = 1, 3 do
-    for col = 1, 3 do
-      index = index + 1
-      lg.draw(
-        sliceImage,
-        sliceQuads[index],
-        spansX[col],
-        spansY[row],
-        0,
-        widths[col] / SLICE_BORDER,
-        heights[row] / SLICE_BORDER
-      )
+  local image = assert(self._frameImage)
+  local frames = assert(self._manifest and self._manifest.dialogueFrames)
+  local rect = frames.frameTiles[frameIndex]
+  assert(rect ~= nil, "dialogue frame index " .. tostring(frameIndex) .. " is outside the generated frame set")
+  local quads = self:_buildFrameQuads(frameIndex, rect)
+  lg.setColor(1, 1, 1, 1)
+  for _, placement in ipairs(self._theme.frameTilePlacements(layout.box)) do
+    local tile = assert(quads[placement.tile])
+    for row = 0, (placement.spanY or 1) - 1 do
+      for col = 0, (placement.spanX or 1) - 1 do
+        lg.draw(image, tile, placement.x + col * 8, placement.y + row * 8)
+      end
     end
   end
 end
@@ -310,8 +336,7 @@ function FieldDialogueRenderer:draw(controller, viewport)
     pushed = true
     lg.translate(layout.origin.x, layout.origin.y)
     lg.scale(layout.scale, layout.scale)
-    lg.setColor(1, 1, 1, 1)
-    self:_drawBox(layout)
+    self:_drawFrame(status, layout)
     local lineY = layout.text.y
     for _, tokens in ipairs(status.visibleLines) do
       self:_drawLine(tokens, layout.text.x, lineY)
@@ -356,11 +381,11 @@ function FieldDialogueRenderer:release()
   if self.atlas and self.atlas.release then
     self.atlas:release()
   end
-  if self._sliceImage and self._sliceImage.release then
-    self._sliceImage:release()
+  if self._frameImage and self._frameImage.release then
+    self._frameImage:release()
   end
-  self.atlas, self._sliceImage = nil, nil
-  self._quads, self._sliceQuads = nil, nil
+  self.atlas, self._frameImage = nil, nil
+  self._quads, self._frameQuadCache = nil, nil
 end
 
 -- One positioned glyph of marker text: the atlas quad and the advance to the

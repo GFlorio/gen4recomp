@@ -427,6 +427,7 @@ function FieldRuntime:_load()
       messageProvider = self.messageProvider,
       layout = layoutMessage,
       fontDef = fontDef,
+      frameIndex = self.playerData.options.textFrame,
       transition = self.transition,
       mapLoader = self.mapLoader,
       sourceMap = self.runtimeMap,
