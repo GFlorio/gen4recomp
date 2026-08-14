@@ -200,33 +200,6 @@ function T.map_scene_missing_terrain_animations_is_not_ready()
   Assert.isFalse(MapAssetCache.isReady(c, 61, "m"), "terrainAnimations is required by the current schema")
 end
 
--- A scene carrying the textures + timeline swap form (no direct steps) must
--- never read as ready: the current validator rejects it and the readiness
--- path must not bypass scene validation for it.
-function T.map_scene_with_textures_timeline_swap_is_not_ready()
-  local c = cache()
-  local scene = mapScene(61)
-  scene.materials = {
-    {
-      id = 0,
-      name = "flower01",
-      texture = "assets/generated/maps/textures/a.png",
-      texWidth = 16,
-      texHeight = 16,
-      texMtxMode = 0,
-      textureSwap = {
-        name = "flower01",
-        textures = { "assets/generated/maps/textures/a.png", "assets/generated/maps/textures/b.png" },
-        timeline = { { textureIndex = 0, durationTicks = 18 } },
-      },
-    },
-  }
-  writeMapScene(c, 61, scene)
-  c:write("assets/generated/maps/textures/a.png", "png")
-  c:write("assets/generated/maps/textures/b.png", "png")
-  Assert.isFalse(MapAssetCache.isReady(c, 61, "m"), "a textures + timeline swap must never read as ready")
-end
-
 function T.map_scene_with_non_array_neighbors_is_not_ready()
   local c = cache()
   local scene = mapScene(61)

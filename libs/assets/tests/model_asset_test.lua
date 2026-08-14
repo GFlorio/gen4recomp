@@ -9,7 +9,7 @@
 -- descriptor MapAssetCompiler emits is validated here before MapCacheWriter
 -- publishes it and MapAssetCache reads it back, so the emitted shape (the
 -- fixtures below) must validate and any malformed variant of it must raise
--- MODEL_DESC_INVALID. The gate covers the full serialized contract: batch
+-- ModelAsset.ERROR_INVALID. The gate covers the full serialized contract: batch
 -- draw state, the per-kind material contract (scene-form materials for
 -- static descriptors, the DS-register shape for dynamic ones), and the
 -- per-kind compiled clip payload (category/kind vocabulary plus the payload
@@ -96,7 +96,7 @@ function T.validate_rejects_non_string_variant_texture()
   local material = dynamicMaterial()
   material.variants = { { name = "a.1", texture = 7 } }
   local desc = dynamicDescriptor(material)
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -138,7 +138,7 @@ end
 -- materials carry the four-channel colors block and the render fields, and
 -- animation records carry the clip envelope plus a compiled payload whose
 -- shape follows the clip kind. The valid shape must pass; each malformed
--- variant below must raise MODEL_DESC_INVALID -- ModelAsset.validate is the
+-- variant below must raise ModelAsset.ERROR_INVALID -- ModelAsset.validate is the
 -- pre-publish gate MapCacheWriter runs every compiled descriptor through.
 
 local function emittedNode()
@@ -384,7 +384,7 @@ end
 function T.validate_rejects_a_batch_missing_light_mask()
   local desc = emittedDynamicDescriptor()
   desc.dynamic.batches[1].lightMask = nil
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -392,7 +392,7 @@ end
 function T.validate_rejects_an_out_of_range_polygon_id()
   local desc = emittedDynamicDescriptor()
   desc.dynamic.batches[1].polygonId = 64
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -403,7 +403,7 @@ function T.validate_rejects_duplicate_batch_ids()
   for k, v in pairs(desc.dynamic.batches[1]) do
     desc.dynamic.batches[2][k] = v
   end
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -411,7 +411,7 @@ end
 function T.validate_rejects_an_animation_without_tracks()
   local desc = emittedDynamicDescriptor()
   desc.animations[1].tracks = {}
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -422,7 +422,7 @@ end
 function T.validate_rejects_a_dynamic_batch_without_geometry()
   local desc = emittedDynamicDescriptor()
   desc.dynamic.batches[1].geometry = nil
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -430,7 +430,7 @@ end
 function T.validate_rejects_a_dynamic_descriptor_without_materials()
   local desc = emittedDynamicDescriptor()
   desc.materials = nil
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -438,7 +438,7 @@ end
 function T.validate_rejects_an_out_of_range_material_color_channel()
   local desc = emittedDynamicDescriptor()
   desc.materials[1].colors.diffuse = { r = 256, g = 0, b = 0 }
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -446,7 +446,7 @@ end
 function T.validate_rejects_an_unknown_material_color_channel()
   local desc = emittedDynamicDescriptor()
   desc.materials[1].colors.rim = { r = 255, g = 255, b = 255 }
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -454,7 +454,7 @@ end
 function T.validate_rejects_a_dynamic_batch_with_an_out_of_range_node_index()
   local desc = emittedDynamicDescriptor()
   desc.dynamic.batches[1].nodeIndex = 1
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -462,7 +462,7 @@ end
 function T.validate_rejects_a_dynamic_batch_with_an_out_of_range_material_index()
   local desc = emittedDynamicDescriptor()
   desc.dynamic.batches[1].materialIndex = 1
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -474,7 +474,7 @@ end
 function T.validate_rejects_a_static_material_missing_wrap()
   local desc = emittedStaticDescriptor()
   desc.materials[1].wrap = nil
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -482,7 +482,7 @@ end
 function T.validate_rejects_a_static_material_missing_an_id()
   local desc = emittedStaticDescriptor()
   desc.materials[1].id = nil
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -492,7 +492,7 @@ end
 function T.validate_rejects_a_static_texture_without_a_format()
   local desc = emittedStaticDescriptor()
   desc.materials[1].textureFormat = nil
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -503,7 +503,7 @@ end
 function T.validate_rejects_a_dynamic_material_missing_base_color()
   local desc = emittedDynamicDescriptor()
   desc.materials[1].baseColor = nil
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -514,7 +514,7 @@ end
 function T.validate_rejects_non_contiguous_material_ids()
   local desc = emittedDynamicDescriptor()
   desc.materials[1].id = 5
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -522,7 +522,7 @@ end
 function T.validate_rejects_a_static_material_with_a_non_contiguous_id()
   local desc = emittedStaticDescriptor()
   desc.materials[1].id = 3
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -530,7 +530,7 @@ end
 function T.validate_rejects_a_dynamic_material_missing_polygon_alpha()
   local desc = emittedDynamicDescriptor()
   desc.materials[1].polygonAlpha = nil
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -538,7 +538,7 @@ end
 function T.validate_rejects_a_dynamic_material_with_an_unknown_alpha_mode()
   local desc = emittedDynamicDescriptor()
   desc.materials[1].alphaMode = "pbr"
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -546,7 +546,7 @@ end
 function T.validate_rejects_a_dynamic_material_missing_tex_dimensions()
   local desc = emittedDynamicDescriptor()
   desc.materials[1].texWidth = nil
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -554,7 +554,7 @@ end
 function T.validate_rejects_a_dynamic_material_without_the_colors_block()
   local desc = emittedDynamicDescriptor()
   desc.materials[1].colors = nil
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -564,7 +564,7 @@ end
 function T.validate_rejects_an_unknown_animation_category()
   local desc = emittedDynamicDescriptor()
   desc.animations[1].category = "visibility"
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -572,7 +572,7 @@ end
 function T.validate_rejects_an_unknown_clip_kind()
   local desc = emittedDynamicDescriptor()
   desc.animations[1].kind = "lipsync"
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -580,7 +580,7 @@ end
 function T.validate_rejects_a_clip_without_a_compiled_payload()
   local desc = emittedDynamicDescriptor()
   desc.animations[1].compiled = nil
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -588,7 +588,7 @@ end
 function T.validate_rejects_a_dynamic_descriptor_without_animations()
   local desc = emittedDynamicDescriptor()
   desc.animations = nil
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -599,7 +599,7 @@ end
 function T.validate_rejects_a_trs_curve_whose_limit_mismatches_the_frame_count()
   local desc = emittedDynamicDescriptor()
   desc.animations[1].compiled.targets[1].channels.rot.limit = 6
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -609,7 +609,7 @@ end
 function T.validate_rejects_a_trs_rotation_key_beyond_the_compiled_table()
   local desc = emittedDynamicDescriptor()
   desc.animations[1].compiled.targets[1].channels.rot.keys[8] = 0x8001
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -617,7 +617,7 @@ end
 function T.validate_rejects_a_trs_pivot_index_above_eight()
   local desc = emittedDynamicDescriptor()
   desc.animations[1].compiled.rotData[1].control = 0x10 + 9
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -625,7 +625,7 @@ end
 function T.validate_rejects_a_trs_rotation_curve_shorter_than_its_frames()
   local desc = emittedDynamicDescriptor()
   desc.animations[1].compiled.targets[1].channels.rot.keys = { 0x8000 }
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -634,7 +634,7 @@ function T.validate_rejects_a_texsrt_clip_with_a_missing_channel()
   local desc = emittedDynamicDescriptor()
   desc.animations[1] = emittedTexsrtClip()
   desc.animations[1].compiled.targets[1].channels.rot = nil
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -643,7 +643,7 @@ function T.validate_rejects_a_texsrt_clip_with_a_bad_channel_source()
   local desc = emittedDynamicDescriptor()
   desc.animations[1] = emittedTexsrtClip()
   desc.animations[1].compiled.targets[1].channels.rot = { source = "absent" }
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -652,7 +652,7 @@ function T.validate_rejects_a_color_clip_with_a_missing_channel()
   local desc = emittedDynamicDescriptor()
   desc.animations[1] = emittedColorClip()
   desc.animations[1].compiled.targets[1].channels.alpha = nil
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -664,7 +664,7 @@ function T.validate_rejects_a_texsrt_clip_with_a_model_source()
   local desc = emittedDynamicDescriptor()
   desc.animations[1] = emittedTexsrtClip()
   desc.animations[1].compiled.targets[1].channels.rot = { source = "model" }
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -676,7 +676,7 @@ function T.validate_rejects_a_texsrt_curve_with_insufficient_keys()
   desc.animations[1] = emittedTexsrtClip()
   desc.animations[1].compiled.targets[1].channels.transS =
     { source = "curve", rate = 1, limit = 4, storage = "fx16", keys = { 0, 1, 2 } }
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -701,7 +701,7 @@ function T.validate_rejects_texsrt_duplicate_track_target_names()
     { target = "wall", targetIndex = 0 },
     { target = "wall", targetIndex = 1 },
   }
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -710,7 +710,7 @@ function T.validate_rejects_a_color_clip_with_a_model_source()
   local desc = emittedDynamicDescriptor()
   desc.animations[1] = emittedColorClip()
   desc.animations[1].compiled.targets[1].channels.diffuse = { source = "model" }
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end
@@ -742,7 +742,7 @@ function T.validate_rejects_a_pattern_key_index_out_of_range()
       },
     },
   }
-  throwsCode("MODEL_DESC_INVALID", function()
+  throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
 end

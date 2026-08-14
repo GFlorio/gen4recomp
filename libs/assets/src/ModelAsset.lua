@@ -33,6 +33,9 @@ local ModelAsset = {}
 ModelAsset.SCHEMA = "g4-model-v2"
 ModelAsset.KINDS = { static = true, ["nitro-dynamic"] = true }
 
+-- Structured error code owned by this module.
+ModelAsset.ERROR_INVALID = "MODEL_DESC_INVALID"
+
 -- The four DS base-material registers a material's `colors` block carries
 -- (the dynamic compiler emits the block per channel; the static path emits
 -- no block).
@@ -46,7 +49,7 @@ local WRAP_MODES = { clamp = true, ["repeat"] = true }
 local ALPHA_MODES = { opaque = true, mask = true, blend = true }
 
 local function invalid(reason, context)
-  Errors.raise("MODEL_DESC_INVALID", "model descriptor is malformed: " .. reason, {
+  Errors.raise(ModelAsset.ERROR_INVALID, "model descriptor is malformed: " .. reason, {
     reason = reason,
     modelKey = context,
   })
@@ -433,7 +436,7 @@ end
 -- NSBTA (texsrt): the compiled payload contract is the shared validator's
 -- (five texture-SRT channels per target, exact curve key coverage, and
 -- unique track targets); ModelAsset reports its violations under
--- MODEL_DESC_INVALID.
+-- ModelAsset.ERROR_INVALID.
 
 -- NSBMA (color): one target per track, each carrying the five material
 -- registers (diffuse/ambient/specular/emission/alpha).
@@ -563,7 +566,7 @@ local function checkAnimation(clip, desc)
   end
 end
 
--- Validate one descriptor record strictly. Raises MODEL_DESC_INVALID on any
+-- Validate one descriptor record strictly. Raises ModelAsset.ERROR_INVALID on any
 -- contract violation. The authoritative artifact gate: MapCacheWriter runs
 -- every compiled descriptor through this before publishing, and the emitted
 -- shape (both batch kinds carry the full polygon draw-state field set) must
@@ -686,7 +689,7 @@ end
 -- Every cache-relative path a descriptor references: batch geometry, base
 -- material textures, and pattern-variant textures (a variant PNG is a
 -- referenced asset just like the base texture; readiness must cover it).
--- Raises MODEL_DESC_INVALID on a malformed descriptor.
+-- Raises ModelAsset.ERROR_INVALID on a malformed descriptor.
 function ModelAsset.referencedPaths(desc)
   ModelAsset.validate(desc)
   local paths = {}

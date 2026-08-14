@@ -7,8 +7,8 @@
 -- the rate-2/rate-4 interpolation lookahead). Track target names are the
 -- runtime binding keys, so they must resolve onto the compiled targets
 -- and be unique. The owning descriptor validator supplies `invalid(reason)`
--- so ModelAsset raises MODEL_DESC_INVALID and MapAssetCache raises
--- MAP_CACHE_SCENE_INVALID at their own boundaries. Pure domain module.
+-- so ModelAsset and MapAssetCache raise their own owner-local error codes at
+-- their boundaries. Pure domain module.
 
 local AnimationClip = require("libs.assets.src.AnimationClip")
 local Validate = require("libs.assets.src.Validate")
