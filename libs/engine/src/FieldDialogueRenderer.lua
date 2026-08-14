@@ -64,7 +64,7 @@ function FieldDialogueRenderer.new(opts)
   local manifest = cacheFs:loadLua(FieldUiAssetCache.manifestPath())
   if type(manifest) ~= "table" then
     Errors.raise(
-      "FIELD_UI_MANIFEST_MISSING",
+      FieldErrors.FIELD_UI_MANIFEST_MISSING,
       "field UI manifest missing at " .. FieldUiAssetCache.manifestPath(),
       { path = FieldUiAssetCache.manifestPath() }
     )
@@ -72,11 +72,11 @@ function FieldDialogueRenderer.new(opts)
   local uiManifest = manifest --[[@as table]]
   local manifestAssets = uiManifest.assets
   if type(manifestAssets) ~= "table" then
-    Errors.raise("FIELD_UI_MANIFEST_INVALID", "field UI manifest has no assets", {})
+    Errors.raise(FieldErrors.FIELD_UI_MANIFEST_INVALID, "field UI manifest has no assets", {})
   end
   local frameAsset = manifestAssets["hgss.dialogue_frame.tiles"]
   if type(frameAsset) ~= "table" or type(frameAsset.image) ~= "string" then
-    Errors.raise("FIELD_UI_MANIFEST_INVALID", "field UI manifest has no dialogue frame strip", {})
+    Errors.raise(FieldErrors.FIELD_UI_MANIFEST_INVALID, "field UI manifest has no dialogue frame strip", {})
   end
 
   local self = setmetatable({
@@ -106,7 +106,7 @@ function FieldDialogueRenderer.new(opts)
   if not frameData then
     self:release()
     Errors.raise(
-      "FIELD_UI_FRAME_ATLAS_MISSING",
+      FieldErrors.FIELD_UI_FRAME_ATLAS_MISSING,
       "dialogue frame strip missing at " .. frameImagePath,
       { path = frameImagePath }
     )

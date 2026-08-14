@@ -179,14 +179,14 @@ end
 -- rejected, never defaulted or upgraded.
 local function validatePlayerData(record, opts)
   if type(record.playerData) ~= "table" then
-    Errors.raise("FIELD_SAVE_PLAYER_DATA_INVALID", "field save player data bucket is required", {})
+    Errors.raise(FieldErrors.FIELD_SAVE_PLAYER_DATA_INVALID, "field save player data bucket is required", {})
   end
   local context = opts and opts.playerDataContext
   if context then
     local valid, err = FieldPlayerData.validate(record.playerData, context)
     if not valid then
       ---@cast err Errors.Error
-      Errors.raise("FIELD_SAVE_PLAYER_DATA_INVALID", "field save player data is invalid: " .. tostring(err), {
+      Errors.raise(FieldErrors.FIELD_SAVE_PLAYER_DATA_INVALID, "field save player data is invalid: " .. tostring(err), {
         cause = err.code,
       })
     end

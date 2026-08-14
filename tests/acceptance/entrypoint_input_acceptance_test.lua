@@ -27,7 +27,7 @@ local CALLBACKS = {
 
 local function withEntrypoint(fn)
   local savedLoveCallbacks = {}
-  for _, name in ipairs({ "load", table.unpack(CALLBACKS) }) do
+  for _, name in ipairs({ "load", unpack(CALLBACKS) }) do
     savedLoveCallbacks[name] = love[name]
   end
 
@@ -60,7 +60,7 @@ local function withEntrypoint(fn)
   for _, name in ipairs(CALLBACKS) do
     App[name] = savedAppCallbacks[name]
   end
-  for _, name in ipairs({ "load", table.unpack(CALLBACKS) }) do
+  for _, name in ipairs({ "load", unpack(CALLBACKS) }) do
     love[name] = savedLoveCallbacks[name]
   end
   if not ok then
@@ -71,7 +71,7 @@ end
 local function assertForwarded(calls, name, expected)
   Assert.equal(type(love[name]), "function", "love." .. name .. " must be registered by the entrypoint")
   calls[name] = nil
-  love[name](table.unpack(expected))
+  love[name](unpack(expected))
   local actual = calls[name]
   Assert.notNil(actual, "love." .. name .. " must reach App." .. name)
   Assert.equal(#actual, #expected, "love." .. name .. " must preserve every LÖVE argument")

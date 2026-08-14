@@ -201,7 +201,7 @@ function T.input_callbacks_preserve_the_complete_host_argument_tuple()
   withInputState(function(calls)
     for _, case in ipairs(cases) do
       local name, expected = case[1], case[2]
-      App[name](table.unpack(expected))
+      App[name](unpack(expected))
       local actual = calls[name]
       Assert.notNil(actual, "App." .. name .. " must reach the active state")
       Assert.equal(#actual, #expected, "App." .. name .. " must preserve every host argument")

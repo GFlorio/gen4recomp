@@ -16,6 +16,7 @@
 -- every graphics state it touches.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 
@@ -54,7 +55,7 @@ function StartMenuRenderer.new(opts)
   local manifest = cacheFs:loadLua(FieldUiAssetCache.manifestPath())
   if type(manifest) ~= "table" then
     Errors.raise(
-      "FIELD_UI_MANIFEST_MISSING",
+      FieldErrors.FIELD_UI_MANIFEST_MISSING,
       "field UI manifest missing at " .. FieldUiAssetCache.manifestPath(),
       { path = FieldUiAssetCache.manifestPath() }
     )
@@ -73,7 +74,7 @@ function StartMenuRenderer.new(opts)
     or next(startMenu.slots) == nil
     or type(startMenu.icons) ~= "table"
   then
-    Errors.raise("FIELD_UI_MANIFEST_INVALID", "field UI manifest has no start menu surface", {})
+    Errors.raise(FieldErrors.FIELD_UI_MANIFEST_INVALID, "field UI manifest has no start menu surface", {})
   end
   local backgroundAsset = assets["hgss.start_menu.background"]
   local cursorAsset = assets["hgss.start_menu.cursor"]
@@ -83,7 +84,11 @@ function StartMenuRenderer.new(opts)
     or type(cursorAsset) ~= "table"
     or type(cursorAsset.image) ~= "string"
   then
-    Errors.raise("FIELD_UI_MANIFEST_INVALID", "field UI manifest has no start menu background/cursor assets", {})
+    Errors.raise(
+      FieldErrors.FIELD_UI_MANIFEST_INVALID,
+      "field UI manifest has no start menu background/cursor assets",
+      {}
+    )
   end
 
   local self = setmetatable({
@@ -103,16 +108,20 @@ function StartMenuRenderer.new(opts)
   local backgroundPath = backgroundAsset.image
   local backgroundData = cacheFs:read(backgroundPath)
   if not backgroundData then
-    Errors.raise("FIELD_UI_START_MENU_BACKGROUND_MISSING", "start menu background missing at " .. backgroundPath, {
-      path = backgroundPath,
-    })
+    Errors.raise(
+      FieldErrors.FIELD_UI_START_MENU_BACKGROUND_MISSING,
+      "start menu background missing at " .. backgroundPath,
+      {
+        path = backgroundPath,
+      }
+    )
   end
   self._backgroundImage = graphics.newImage(love.filesystem.newFileData(backgroundData, backgroundPath))
   local cursorPath = cursorAsset.image
   local cursorData = cacheFs:read(cursorPath)
   if not cursorData then
     self:release()
-    Errors.raise("FIELD_UI_START_MENU_CURSOR_MISSING", "start menu cursor missing at " .. cursorPath, {
+    Errors.raise(FieldErrors.FIELD_UI_START_MENU_CURSOR_MISSING, "start menu cursor missing at " .. cursorPath, {
       path = cursorPath,
     })
   end

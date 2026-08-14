@@ -14,6 +14,7 @@
 -- 008257708; full audit in docs/research/start-menu-policy.md.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 
 local StartMenuPolicy = {}
 
@@ -181,7 +182,7 @@ local VANILLA_GATES = {
 }
 
 local function invalidSnapshot(message, context)
-  Errors.raise("START_MENU_POLICY_INVALID_SNAPSHOT", message, context)
+  Errors.raise(FieldErrors.START_MENU_POLICY_INVALID_SNAPSHOT, message, context)
 end
 
 -- Strict snapshot validation (raising): context is a named enum,
@@ -205,7 +206,11 @@ local function validateSnapshot(value)
     invalidSnapshot("the snapshot must carry the context")
   end
   if not CONTEXT_MASKS[value.context] then
-    Errors.raise("START_MENU_POLICY_UNKNOWN_CONTEXT", "unknown start menu context", { context = value.context })
+    Errors.raise(
+      FieldErrors.START_MENU_POLICY_UNKNOWN_CONTEXT,
+      "unknown start menu context",
+      { context = value.context }
+    )
   end
   local progression = value.progression
   if type(progression) ~= "table" then
@@ -229,7 +234,7 @@ local function validateSnapshot(value)
   end
   local capabilities = value.capabilities
   if capabilities ~= nil and type(capabilities) ~= "table" then
-    Errors.raise("START_MENU_POLICY_INVALID_CAPABILITIES", "capabilities must be an array of application ids")
+    Errors.raise(FieldErrors.START_MENU_POLICY_INVALID_CAPABILITIES, "capabilities must be an array of application ids")
   end
   if capabilities == nil then
     invalidSnapshot("the snapshot must carry the capabilities set")
@@ -239,23 +244,26 @@ local function validateSnapshot(value)
   for key in pairs(capabilities) do
     count = count + 1
     if type(key) ~= "number" or key % 1 ~= 0 or key < 1 then
-      Errors.raise("START_MENU_POLICY_INVALID_CAPABILITIES", "capabilities must be an array of application ids")
+      Errors.raise(
+        FieldErrors.START_MENU_POLICY_INVALID_CAPABILITIES,
+        "capabilities must be an array of application ids"
+      )
     end
   end
   if count ~= #capabilities then
-    Errors.raise("START_MENU_POLICY_INVALID_CAPABILITIES", "capabilities must be an array of application ids")
+    Errors.raise(FieldErrors.START_MENU_POLICY_INVALID_CAPABILITIES, "capabilities must be an array of application ids")
   end
   for index = 1, #capabilities do
     local id = capabilities[index]
     if type(id) ~= "string" or id == "" then
       Errors.raise(
-        "START_MENU_POLICY_INVALID_CAPABILITIES",
+        FieldErrors.START_MENU_POLICY_INVALID_CAPABILITIES,
         "capabilities must be non-empty application ids",
         { id = id }
       )
     end
     if seen[id] then
-      Errors.raise("START_MENU_POLICY_INVALID_CAPABILITIES", "duplicate capability id", { id = id })
+      Errors.raise(FieldErrors.START_MENU_POLICY_INVALID_CAPABILITIES, "duplicate capability id", { id = id })
     end
     seen[id] = true
   end

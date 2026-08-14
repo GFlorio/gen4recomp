@@ -16,6 +16,7 @@
 -- restores every graphics state it touched.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
@@ -75,7 +76,7 @@ function FieldSignpostRenderer.new(opts)
   local manifest = cacheFs:loadLua(FieldUiAssetCache.manifestPath())
   if type(manifest) ~= "table" then
     Errors.raise(
-      "FIELD_UI_MANIFEST_MISSING",
+      FieldErrors.FIELD_UI_MANIFEST_MISSING,
       "field UI manifest missing at " .. FieldUiAssetCache.manifestPath(),
       { path = FieldUiAssetCache.manifestPath() }
     )
@@ -83,7 +84,7 @@ function FieldSignpostRenderer.new(opts)
   local uiManifest = manifest --[[@as table]]
   local manifestAssets = uiManifest.assets
   if type(manifestAssets) ~= "table" then
-    Errors.raise("FIELD_UI_MANIFEST_INVALID", "field UI manifest has no assets", {})
+    Errors.raise(FieldErrors.FIELD_UI_MANIFEST_INVALID, "field UI manifest has no assets", {})
   end
   local tilesAsset = manifestAssets["hgss.signpost.tiles"]
   local wayfindingAsset = manifestAssets["hgss.signpost.wayfinding"]
@@ -96,7 +97,7 @@ function FieldSignpostRenderer.new(opts)
     or type(frameTiles) ~= "table"
     or type(frameTiles.width) ~= "number"
   then
-    Errors.raise("FIELD_UI_MANIFEST_INVALID", "field UI manifest has no signpost frame/wayfinding assets", {})
+    Errors.raise(FieldErrors.FIELD_UI_MANIFEST_INVALID, "field UI manifest has no signpost frame/wayfinding assets", {})
   end
 
   local self = setmetatable({
@@ -119,7 +120,7 @@ function FieldSignpostRenderer.new(opts)
   local data = cacheFs:read(FieldFontCache.atlasPath(fontId))
   if not data then
     Errors.raise(
-      "FONT_ATLAS_MISSING",
+      FieldErrors.FONT_ATLAS_MISSING,
       "font atlas missing at " .. FieldFontCache.atlasPath(fontId),
       { fontId = fontId, path = FieldFontCache.atlasPath(fontId) }
     )
@@ -129,7 +130,7 @@ function FieldSignpostRenderer.new(opts)
   local tilesData = cacheFs:read(tilesPath)
   if not tilesData then
     self:release()
-    Errors.raise("FIELD_UI_SIGNPOST_TILES_MISSING", "signpost frame strip missing at " .. tilesPath, {
+    Errors.raise(FieldErrors.FIELD_UI_SIGNPOST_TILES_MISSING, "signpost frame strip missing at " .. tilesPath, {
       path = tilesPath,
     })
   end
@@ -137,7 +138,7 @@ function FieldSignpostRenderer.new(opts)
   local wayfindingData = cacheFs:read(wayfindingPath)
   if not wayfindingData then
     self:release()
-    Errors.raise("FIELD_UI_WAYFINDING_MISSING", "wayfinding atlas missing at " .. wayfindingPath, {
+    Errors.raise(FieldErrors.FIELD_UI_WAYFINDING_MISSING, "wayfinding atlas missing at " .. wayfindingPath, {
       path = wayfindingPath,
     })
   end

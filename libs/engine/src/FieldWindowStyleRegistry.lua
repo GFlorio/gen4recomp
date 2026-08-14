@@ -12,6 +12,7 @@
 -- constants, src/dialog_box.c, 8px/tile).
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 
 ---@class FieldWindowStyleRegistry
 ---@field sealed boolean true once inheritance has been resolved
@@ -108,7 +109,7 @@ local function invalidDescriptor(id, message, extra)
       context[key] = value
     end
   end
-  Errors.raise("WINDOW_STYLE_INVALID_DESCRIPTOR", message, context)
+  Errors.raise(FieldErrors.WINDOW_STYLE_INVALID_DESCRIPTOR, message, context)
 end
 
 ---@return FieldWindowStyleRegistry
@@ -129,7 +130,7 @@ end
 ---@param allowReserved boolean?
 function FieldWindowStyleRegistry:_storeDescriptor(descriptor, allowReserved)
   if self._resolved then
-    Errors.raise("WINDOW_STYLE_ALREADY_SEALED", "cannot register a window style after seal", {})
+    Errors.raise(FieldErrors.WINDOW_STYLE_ALREADY_SEALED, "cannot register a window style after seal", {})
   end
   assert(type(descriptor) == "table", "window style descriptor must be a table")
   local id = descriptor.id
@@ -138,12 +139,16 @@ function FieldWindowStyleRegistry:_storeDescriptor(descriptor, allowReserved)
   end
   local reservedPrefix = FieldWindowStyleRegistry.RESERVED_PREFIX
   if not allowReserved and id:sub(1, #reservedPrefix) == reservedPrefix then
-    Errors.raise("WINDOW_STYLE_RESERVED_ID", "window style ids under the hgss. prefix are reserved for built-ins", {
-      id = id,
-    })
+    Errors.raise(
+      FieldErrors.WINDOW_STYLE_RESERVED_ID,
+      "window style ids under the hgss. prefix are reserved for built-ins",
+      {
+        id = id,
+      }
+    )
   end
   if self._descriptors[id] then
-    Errors.raise("WINDOW_STYLE_DUPLICATE_ID", "duplicate window style id", { id = id })
+    Errors.raise(FieldErrors.WINDOW_STYLE_DUPLICATE_ID, "duplicate window style id", { id = id })
   end
   local base = descriptor.base
   if base ~= nil and (type(base) ~= "string" or base == "") then
@@ -286,7 +291,7 @@ end
 -- bases are composition errors naming both ids.
 function FieldWindowStyleRegistry:seal()
   if self._resolved then
-    Errors.raise("WINDOW_STYLE_ALREADY_SEALED", "the window style registry is already sealed", {})
+    Errors.raise(FieldErrors.WINDOW_STYLE_ALREADY_SEALED, "the window style registry is already sealed", {})
   end
   local resolved = {}
   local resolving = {}
@@ -296,11 +301,11 @@ function FieldWindowStyleRegistry:seal()
       return record
     end
     if resolving[id] then
-      Errors.raise("WINDOW_STYLE_BASE_CYCLE", "window style base cycle", { id = id })
+      Errors.raise(FieldErrors.WINDOW_STYLE_BASE_CYCLE, "window style base cycle", { id = id })
     end
     local descriptor = assert(self._descriptors[id])
     if descriptor.base and not self._descriptors[descriptor.base] then
-      Errors.raise("WINDOW_STYLE_UNKNOWN_BASE", "window style base does not exist", {
+      Errors.raise(FieldErrors.WINDOW_STYLE_UNKNOWN_BASE, "window style base does not exist", {
         id = id,
         base = descriptor.base,
       })
@@ -334,7 +339,7 @@ end
 function FieldWindowStyleRegistry:resolve(id)
   assert(type(id) == "string" and id ~= "", "window style id must be a non-empty string")
   if not self._resolved then
-    Errors.raise("WINDOW_STYLE_NOT_SEALED", "the window style registry is not sealed", {})
+    Errors.raise(FieldErrors.WINDOW_STYLE_NOT_SEALED, "the window style registry is not sealed", {})
   end
   return self._resolved[id]
 end
