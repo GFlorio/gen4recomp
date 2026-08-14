@@ -33,8 +33,10 @@ local TerrainMaterialAnimator = require("libs.engine.src.TerrainMaterialAnimator
 
 local NeighborRing = {}
 
--- The identity UV-transform matrix of scene-form materials (they carry no
--- texture-SRT): the renderer reads the material's texMatrix directly.
+-- The identity UV-transform matrix scene-form materials start with (they
+-- carry no texture-SRT until the terrain animator replaces the matrix of a
+-- ring that has animation inputs): the renderer reads the material's
+-- texMatrix directly.
 local IDENTITY_TEX_MATRIX = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
 
 -- Material assembly: acquire each normalized material record's image
