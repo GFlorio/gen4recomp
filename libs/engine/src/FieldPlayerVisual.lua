@@ -15,6 +15,7 @@
 -- acquires the avatar's visual from FieldActorAssetProvider and hands it in.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 
 ---@class FieldPlayerVisual
 ---@field actorId string
@@ -47,7 +48,11 @@ end
 -- a swap cannot display a frame index the new atlas does not have.
 function FieldPlayerVisual:setAvatar(spriteId)
   if type(spriteId) ~= "number" then
-    Errors.raise("PLAYER_AVATAR_INVALID", "the player avatar requires a compiled spriteId", { spriteId = spriteId })
+    Errors.raise(
+      FieldErrors.PLAYER_AVATAR_INVALID,
+      "the player avatar requires a compiled spriteId",
+      { spriteId = spriteId }
+    )
   end
   self.spriteId = spriteId
   self.poseTick = 0

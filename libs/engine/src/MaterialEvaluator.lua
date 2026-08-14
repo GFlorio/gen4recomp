@@ -41,6 +41,7 @@
 -- (Nitro carries at most one animation per kind per object, so real assets
 -- never stack these). Pure domain module.
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 local AnimationClip = require("libs.assets.src.AnimationClip")
@@ -150,7 +151,7 @@ local function variantFor(compiled, key, material)
   local texName = compiled.textureNames[key.texIdx + 1]
   if texName == nil then
     Errors.raise(
-      "ANIM_MATERIAL_VARIANT_MISSING",
+      FieldErrors.ANIM_MATERIAL_VARIANT_MISSING,
       "material "
         .. tostring(material.name)
         .. " pattern key references texture index "
@@ -164,7 +165,7 @@ local function variantFor(compiled, key, material)
     local plttName = compiled.paletteNames[key.plttIdx + 1]
     if plttName == nil then
       Errors.raise(
-        "ANIM_MATERIAL_VARIANT_MISSING",
+        FieldErrors.ANIM_MATERIAL_VARIANT_MISSING,
         "material "
           .. tostring(material.name)
           .. " pattern key references palette index "
@@ -181,7 +182,7 @@ local function variantFor(compiled, key, material)
     end
   end
   Errors.raise(
-    "ANIM_MATERIAL_VARIANT_MISSING",
+    FieldErrors.ANIM_MATERIAL_VARIANT_MISSING,
     "material "
       .. tostring(material.name)
       .. " has no compiled variant named "

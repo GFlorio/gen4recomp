@@ -3,6 +3,7 @@
 -- separately when it creates the dialogue renderer.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 
 local FieldFontLoader = {}
@@ -16,7 +17,7 @@ function FieldFontLoader.load(cacheFs, fontId)
   local definition = cacheFs:loadLua(FieldFontCache.defPath(fontId))
   if type(definition) ~= "table" or definition.schema ~= FieldFontCache.SCHEMA then
     Errors.raise(
-      "FONT_DEF_MISSING",
+      FieldErrors.FONT_DEF_MISSING,
       "no " .. FieldFontCache.SCHEMA .. " definition at " .. FieldFontCache.defPath(fontId),
       { fontId = fontId, path = FieldFontCache.defPath(fontId) }
     )

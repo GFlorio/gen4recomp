@@ -11,6 +11,7 @@
 -- Pure domain module: matrix arithmetic only, no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldActorPose = require("libs.engine.src.FieldActorPose")
 local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")
@@ -33,7 +34,7 @@ local function requireMesh(entry, meshIndex, record)
     return mesh
   end
   Errors.raise(
-    "ACTOR_DRAW_FRAME_MISSING",
+    FieldErrors.ACTOR_DRAW_FRAME_MISSING,
     "actor "
       .. tostring(record.actorId)
       .. " selected mesh "
@@ -160,7 +161,7 @@ function FieldActorDraw.itemsInto(records, assetFor, storage)
       local entry = assetFor(record.spriteId)
       if not entry then
         Errors.raise(
-          "ACTOR_DRAW_VISUAL_MISSING",
+          FieldErrors.ACTOR_DRAW_VISUAL_MISSING,
           "actor " .. tostring(record.actorId) .. " has no resident visual for spriteId " .. tostring(record.spriteId),
           { actorId = record.actorId, spriteId = record.spriteId }
         )

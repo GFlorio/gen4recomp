@@ -25,6 +25,7 @@
 -- different frames and with different material overrides. Pure domain module.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")
@@ -185,7 +186,7 @@ function ModelInstance:play(nameOrSemantic, opts)
   local clip = self.definition:animation(nameOrSemantic)
   if not clip then
     Errors.raise(
-      "ANIM_INSTANCE_UNKNOWN_ANIMATION",
+      FieldErrors.ANIM_INSTANCE_UNKNOWN_ANIMATION,
       "model " .. self.definition.key .. " has no clip named " .. tostring(nameOrSemantic),
       { modelKey = self.definition.key, name = nameOrSemantic }
     )

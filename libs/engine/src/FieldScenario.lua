@@ -6,12 +6,13 @@
 -- Pure domain module: no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 
 local FieldScenario = {}
 
 local function fail(message, context)
-  Errors.raise("SCENARIO_FLAG_RESOLUTION_FAILED", message, context)
+  Errors.raise(FieldErrors.SCENARIO_FLAG_RESOLUTION_FAILED, message, context)
 end
 
 local function resolveFlag(entry, fieldDataFor)
@@ -39,7 +40,7 @@ local function resolveFlag(entry, fieldDataFor)
     end
   end
   Errors.raise(
-    "SCENARIO_OBJECT_NOT_FOUND",
+    FieldErrors.SCENARIO_OBJECT_NOT_FOUND,
     "map " .. entry.mapId .. " has no object event " .. entry.objectEventId,
     { mapId = entry.mapId, objectEventId = entry.objectEventId }
   )
@@ -83,7 +84,7 @@ function FieldScenario.avatarById(avatars, id)
     end
   end
   Errors.raise(
-    "SCENARIO_AVATAR_UNKNOWN",
+    FieldErrors.SCENARIO_AVATAR_UNKNOWN,
     "avatar " .. tostring(id) .. " is not one of the compiled player graphics",
     { avatar = id }
   )

@@ -470,38 +470,39 @@ function FieldRuntime:update(dt)
   end
 end
 
+-- Every semantic-input entry point below needs the same live-input guard;
+-- factored so the assertion text stays in one place. Returns the input
+-- component so a call site can chain straight into it.
+local function requireLiveInput(self)
+  return assert(self.input, "field runtime is disposed")
+end
+
 -- Semantic input keeps the non-rendering runtime independent of keyboard and
 -- gamepad event translation. Hosts drive these edges directly.
 ---@param direction string
 function FieldRuntime:press(direction)
-  assert(self.input, "field runtime is disposed")
-  self.input:press(direction)
+  requireLiveInput(self):press(direction)
 end
 
 ---@param direction string
 function FieldRuntime:release(direction)
-  assert(self.input, "field runtime is disposed")
-  self.input:release(direction)
+  requireLiveInput(self):release(direction)
 end
 
 function FieldRuntime:pressAction()
-  assert(self.input, "field runtime is disposed")
-  self.input:pressAction("runtime")
+  requireLiveInput(self):pressAction("runtime")
 end
 
 function FieldRuntime:releaseAction()
-  assert(self.input, "field runtime is disposed")
-  self.input:releaseAction("runtime")
+  requireLiveInput(self):releaseAction("runtime")
 end
 
 function FieldRuntime:pressCancel()
-  assert(self.input, "field runtime is disposed")
-  self.input:pressCancel("runtime")
+  requireLiveInput(self):pressCancel("runtime")
 end
 
 function FieldRuntime:releaseCancel()
-  assert(self.input, "field runtime is disposed")
-  self.input:releaseCancel("runtime")
+  requireLiveInput(self):releaseCancel("runtime")
 end
 
 -- Save the current field session (developer F1 bind, autosave after warp, and

@@ -21,6 +21,7 @@
 local SceneMesh = require("libs.engine.src.SceneMesh")
 local SceneDescriptor = require("libs.engine.src.SceneDescriptor")
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 
 ---@class GpuAssetPool
 ---@field cacheFs table
@@ -157,7 +158,7 @@ function GpuAssetPool:imageFor(path, wrapX, wrapY)
     guarded(self, function()
       if not WRAP_MODES[wrapX] or not WRAP_MODES[wrapY] then
         Errors.raise(
-          "GPU_ASSET_UNKNOWN_WRAP",
+          FieldErrors.GPU_ASSET_UNKNOWN_WRAP,
           "unknown texture wrap mode " .. tostring(wrapX) .. "/" .. tostring(wrapY),
           { path = path, wrapX = wrapX, wrapY = wrapY }
         )

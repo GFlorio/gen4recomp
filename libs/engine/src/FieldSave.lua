@@ -11,6 +11,7 @@
 -- DS save format.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local FieldEventState = require("libs.engine.src.FieldEventState")
 local FieldTransition = require("libs.engine.src.FieldTransition")
@@ -40,29 +41,37 @@ end
 -- points wrap it in pcall per the project error convention.
 local function validateFieldState(record)
   if type(record.versionId) ~= "string" or record.versionId == "" then
-    Errors.raise("FIELD_SAVE_VERSION_INVALID", "field save version is missing", {})
+    Errors.raise(FieldErrors.FIELD_SAVE_VERSION_INVALID, "field save version is missing", {})
   end
   if not integer(record.mapId) or record.mapId < 0 then
-    Errors.raise("FIELD_SAVE_MAP_INVALID", "field save map id is invalid", { mapId = record.mapId })
+    Errors.raise(FieldErrors.FIELD_SAVE_MAP_INVALID, "field save map id is invalid", { mapId = record.mapId })
   end
   if not integer(record.fieldX) or not integer(record.fieldZ) then
     Errors.raise(
-      "FIELD_SAVE_COORDINATES_INVALID",
+      FieldErrors.FIELD_SAVE_COORDINATES_INVALID,
       "field save coordinates must be finite integers",
       { fieldX = record.fieldX, fieldZ = record.fieldZ }
     )
   end
   if not finite(record.worldY) then
-    Errors.raise("FIELD_SAVE_HEIGHT_INVALID", "field save height must be finite", { worldY = record.worldY })
+    Errors.raise(FieldErrors.FIELD_SAVE_HEIGHT_INVALID, "field save height must be finite", { worldY = record.worldY })
   end
   if not integer(record.surfaceId) or record.surfaceId < 0 then
-    Errors.raise("FIELD_SAVE_SURFACE_INVALID", "field save surface id is invalid", { surfaceId = record.surfaceId })
+    Errors.raise(
+      FieldErrors.FIELD_SAVE_SURFACE_INVALID,
+      "field save surface id is invalid",
+      { surfaceId = record.surfaceId }
+    )
   end
   if type(record.terrainDependencyHash) ~= "string" or record.terrainDependencyHash == "" then
-    Errors.raise("FIELD_SAVE_TERRAIN_DEPENDENCY_INVALID", "field save terrain dependency identity is missing", {})
+    Errors.raise(
+      FieldErrors.FIELD_SAVE_TERRAIN_DEPENDENCY_INVALID,
+      "field save terrain dependency identity is missing",
+      {}
+    )
   end
   if not FACING[record.facing] then
-    Errors.raise("FIELD_SAVE_FACING_INVALID", "field save facing is invalid", { facing = record.facing })
+    Errors.raise(FieldErrors.FIELD_SAVE_FACING_INVALID, "field save facing is invalid", { facing = record.facing })
   end
   return record
 end
@@ -70,7 +79,7 @@ end
 local function validateAvatar(record, opts)
   if type(record.avatar) ~= "string" or record.avatar == "" then
     Errors.raise(
-      "FIELD_SAVE_AVATAR_INVALID",
+      FieldErrors.FIELD_SAVE_AVATAR_INVALID,
       "field save avatar must be a non-empty id string",
       { avatar = record.avatar }
     )
@@ -78,7 +87,7 @@ local function validateAvatar(record, opts)
   local avatars = opts and opts.avatars
   if avatars and not avatars[record.avatar] then
     Errors.raise(
-      "FIELD_SAVE_AVATAR_INVALID",
+      FieldErrors.FIELD_SAVE_AVATAR_INVALID,
       "field save avatar is not one of the compiled player graphics",
       { avatar = record.avatar }
     )
@@ -88,7 +97,7 @@ end
 local function validateScenario(record)
   if type(record.scenario) ~= "string" or record.scenario == "" then
     Errors.raise(
-      "FIELD_SAVE_SCENARIO_INVALID",
+      FieldErrors.FIELD_SAVE_SCENARIO_INVALID,
       "field save scenario must be an id string",
       { scenario = record.scenario }
     )
@@ -103,22 +112,22 @@ end
 local function validateWorld(record)
   local world = record.world
   if type(world) ~= "table" then
-    Errors.raise("FIELD_SAVE_WORLD_INVALID", "field save world must be a table", {})
+    Errors.raise(FieldErrors.FIELD_SAVE_WORLD_INVALID, "field save world must be a table", {})
   end
   if type(world.objects) ~= "table" then
-    Errors.raise("FIELD_SAVE_WORLD_INVALID", "field save world objects must be a table", {})
+    Errors.raise(FieldErrors.FIELD_SAVE_WORLD_INVALID, "field save world objects must be a table", {})
   end
   local ok, err = pcall(FieldEventState.new, { flags = world.flags, vars = world.variables })
   if not ok then
     ---@cast err Errors.Error
     Errors.raise(
-      "FIELD_SAVE_WORLD_INVALID",
+      FieldErrors.FIELD_SAVE_WORLD_INVALID,
       "field save world event state is invalid: " .. tostring(err),
       { cause = Errors.is(err) and err.code or nil }
     )
   end
   if not pcall(ScriptRng.restore, world.rng) then
-    Errors.raise("FIELD_SAVE_WORLD_INVALID", "field save world rng state is malformed", { rng = world.rng })
+    Errors.raise(FieldErrors.FIELD_SAVE_WORLD_INVALID, "field save world rng state is malformed", { rng = world.rng })
   end
 end
 
@@ -126,13 +135,13 @@ end
 -- (the game layer wires ScriptSave.validate for it).
 local function validateScripts(record, opts)
   if type(record.scripts) ~= "table" then
-    Errors.raise("FIELD_SAVE_SCRIPTS_INVALID", "field save scripts bucket is required", {})
+    Errors.raise(FieldErrors.FIELD_SAVE_SCRIPTS_INVALID, "field save scripts bucket is required", {})
   end
   if opts and opts.scriptsValidate then
     local err = opts.scriptsValidate(record.scripts)
     if err ~= nil then
       Errors.raise(
-        "FIELD_SAVE_SCRIPTS_INVALID",
+        FieldErrors.FIELD_SAVE_SCRIPTS_INVALID,
         "field save scripts bucket is invalid: " .. tostring(err.message),
         { cause = err.code }
       )
@@ -143,10 +152,10 @@ end
 local function validateAuxiliaryUi(record)
   local auxiliaryUi = record.auxiliaryUi
   if type(auxiliaryUi) ~= "table" then
-    Errors.raise("FIELD_SAVE_AUXILIARY_UI_INVALID", "field save auxiliary UI state must be a table", {})
+    Errors.raise(FieldErrors.FIELD_SAVE_AUXILIARY_UI_INVALID, "field save auxiliary UI state must be a table", {})
   end
   if auxiliaryUi.requested ~= "shown" and auxiliaryUi.requested ~= "hidden" then
-    Errors.raise("FIELD_SAVE_AUXILIARY_UI_INVALID", "field save auxiliary UI request is invalid", {})
+    Errors.raise(FieldErrors.FIELD_SAVE_AUXILIARY_UI_INVALID, "field save auxiliary UI request is invalid", {})
   end
   if
     auxiliaryUi.state ~= "shown"
@@ -154,20 +163,20 @@ local function validateAuxiliaryUi(record)
     and auxiliaryUi.state ~= "hidden"
     and auxiliaryUi.state ~= "hiding"
   then
-    Errors.raise("FIELD_SAVE_AUXILIARY_UI_INVALID", "field save auxiliary UI state is invalid", {})
+    Errors.raise(FieldErrors.FIELD_SAVE_AUXILIARY_UI_INVALID, "field save auxiliary UI state is invalid", {})
   end
   if (auxiliaryUi.requested == "shown") ~= (auxiliaryUi.state == "shown" or auxiliaryUi.state == "showing") then
-    Errors.raise("FIELD_SAVE_AUXILIARY_UI_INVALID", "field save auxiliary UI request and state disagree", {})
+    Errors.raise(FieldErrors.FIELD_SAVE_AUXILIARY_UI_INVALID, "field save auxiliary UI request and state disagree", {})
   end
 end
 
 -- Strict schema validation (raising). Used by save and restore paths.
 local function validate(record, opts)
   if type(record) ~= "table" then
-    Errors.raise("FIELD_SAVE_INVALID", "field save must be a table", {})
+    Errors.raise(FieldErrors.FIELD_SAVE_INVALID, "field save must be a table", {})
   end
   if record.schema ~= FieldSave.SCHEMA then
-    Errors.raise("FIELD_SAVE_SCHEMA_UNSUPPORTED", "unsupported field save schema", { schema = record.schema })
+    Errors.raise(FieldErrors.FIELD_SAVE_SCHEMA_UNSUPPORTED, "unsupported field save schema", { schema = record.schema })
   end
   validateFieldState(record)
   validateAvatar(record, opts)
@@ -263,20 +272,24 @@ local function closestSurface(runtimeMap, localX, localZ, savedY)
   end)
   if #samples == 0 then
     Errors.raise(
-      "FIELD_SAVE_SURFACE_NOT_FOUND",
+      FieldErrors.FIELD_SAVE_SURFACE_NOT_FOUND,
       "saved coordinate has no terrain surface",
       { mapId = runtimeMap.mapId, localX = localX, localZ = localZ }
     )
   end
   if samples[2] and math.abs(samples[2].distance - samples[1].distance) <= HEIGHT_EPSILON then
-    Errors.raise("FIELD_SAVE_SURFACE_AMBIGUOUS", "saved height is equally close to multiple terrain surfaces", {
-      mapId = runtimeMap.mapId,
-      localX = localX,
-      localZ = localZ,
-      worldY = savedY,
-      firstSurfaceId = samples[1].surfaceId,
-      secondSurfaceId = samples[2].surfaceId,
-    })
+    Errors.raise(
+      FieldErrors.FIELD_SAVE_SURFACE_AMBIGUOUS,
+      "saved height is equally close to multiple terrain surfaces",
+      {
+        mapId = runtimeMap.mapId,
+        localX = localX,
+        localZ = localZ,
+        worldY = savedY,
+        firstSurfaceId = samples[1].surfaceId,
+        secondSurfaceId = samples[2].surfaceId,
+      }
+    )
   end
   return samples[1]
 end
@@ -290,7 +303,7 @@ local function restore(record, loader, expectedVersionId, opts)
   validate(record, opts)
   if record.versionId ~= expectedVersionId then
     Errors.raise(
-      "FIELD_SAVE_VERSION_MISMATCH",
+      FieldErrors.FIELD_SAVE_VERSION_MISMATCH,
       "field save belongs to another imported version",
       { expected = expectedVersionId, actual = record.versionId }
     )

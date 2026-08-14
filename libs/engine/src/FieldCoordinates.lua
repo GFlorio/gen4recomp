@@ -3,6 +3,7 @@
 -- code share this boundary so matrix-origin arithmetic cannot diverge.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldGrid = require("libs.engine.src.FieldGrid")
 
 local FieldCoordinates = {}
@@ -24,7 +25,7 @@ end
 local function requireIndex(value, name, context)
   if not finiteInteger(value) then
     Errors.raise(
-      "FIELD_COORDINATES_INVALID",
+      FieldErrors.FIELD_COORDINATES_INVALID,
       name .. " must be a finite integer tile coordinate, got " .. tostring(value),
       context
     )
@@ -35,7 +36,7 @@ end
 -- are rejected, mirroring FieldSave's height validation.
 local function requireFinite(value, name, context)
   if type(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge then
-    Errors.raise("FIELD_COORDINATES_INVALID", name .. " must be finite, got " .. tostring(value), context)
+    Errors.raise(FieldErrors.FIELD_COORDINATES_INVALID, name .. " must be finite, got " .. tostring(value), context)
   end
 end
 
@@ -51,7 +52,7 @@ local function requireLocal(runtimeMap, localX, localZ, context)
     context.localX, context.localZ = localX, localZ
     context.mapId = runtimeMap.mapId
     Errors.raise(
-      "FIELD_COORDINATES_OUT_OF_COVERAGE",
+      FieldErrors.FIELD_COORDINATES_OUT_OF_COVERAGE,
       string.format(
         "coordinate (%s,%s) is outside map %s permission coverage",
         tostring(localX),

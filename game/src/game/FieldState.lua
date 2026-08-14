@@ -1,5 +1,6 @@
 -- Interactive presentation over the non-rendering field runtime.
 
+local WindowConfig = require("game.src.WindowConfig")
 local FieldRuntime = require("game.src.game.FieldRuntime")
 local FieldActorAssetProvider = require("libs.engine.src.FieldActorAssetProvider")
 local FieldActorDraw = require("libs.engine.src.FieldActorDraw")
@@ -78,7 +79,7 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
     worldParts = {},
   }, FieldState)
   local ok, err = pcall(function()
-    self.renderer = MapRenderer.new()
+    self.renderer = MapRenderer.new({ clearColor = WindowConfig.BACKGROUND_COLOR })
     self.dialogueRenderer = FieldDialogueRenderer.new({ cacheFs = runtime.cacheFs })
     self.menuRenderer = FieldMenuRenderer.new()
     local width, height = love.graphics.getDimensions()

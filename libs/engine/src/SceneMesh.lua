@@ -10,6 +10,7 @@
 -- rebases them to love's 1-based vertex map.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local BinaryReader = require("libs.codec.src.BinaryReader")
 local G4MeshFormat = require("libs.assets.src.G4MeshFormat")
 local VertexFormat = require("libs.assets.src.VertexFormat")
@@ -30,34 +31,42 @@ end
 function SceneMesh.decode(bytes, context)
   assert(type(bytes) == "string", "SceneMesh.decode requires a string")
   if #bytes < HEADER then
-    Errors.raise("MESH_TOO_SMALL", "mesh shorter than header", { size = #bytes, source = context })
+    Errors.raise(FieldErrors.MESH_TOO_SMALL, "mesh shorter than header", { size = #bytes, source = context })
   end
   local r = BinaryReader.new(bytes, "g4mesh")
   local magic = r:ascii(0, 4)
   if magic ~= MAGIC then
-    Errors.raise("MESH_BAD_MAGIC", "expected " .. MAGIC .. " magic, got " .. magic, { source = context })
+    Errors.raise(FieldErrors.MESH_BAD_MAGIC, "expected " .. MAGIC .. " magic, got " .. magic, { source = context })
   end
   local version = r:u16le(4)
   if version ~= VERSION then
-    Errors.raise("MESH_BAD_VERSION", "unsupported mesh version " .. version, { source = context })
+    Errors.raise(FieldErrors.MESH_BAD_VERSION, "unsupported mesh version " .. version, { source = context })
   end
   local vertexCount = r:u32le(8)
   local indexCount = r:u32le(12)
   local stride = r:u16le(16)
   local indexWidth = r:u16le(18)
   if stride ~= STRIDE then
-    Errors.raise("MESH_BAD_STRIDE", "expected stride " .. STRIDE .. ", got " .. stride, { source = context })
+    Errors.raise(FieldErrors.MESH_BAD_STRIDE, "expected stride " .. STRIDE .. ", got " .. stride, { source = context })
   end
   if indexWidth ~= G4MeshFormat.indexWidths[1] and indexWidth ~= G4MeshFormat.indexWidths[2] then
-    Errors.raise("MESH_BAD_INDEX_WIDTH", "index width must be 2 or 4, got " .. indexWidth, { source = context })
+    Errors.raise(
+      FieldErrors.MESH_BAD_INDEX_WIDTH,
+      "index width must be 2 or 4, got " .. indexWidth,
+      { source = context }
+    )
   end
   if indexCount % 3 ~= 0 then
-    Errors.raise("MESH_BAD_INDEX_COUNT", "index count not a multiple of 3: " .. indexCount, { source = context })
+    Errors.raise(
+      FieldErrors.MESH_BAD_INDEX_COUNT,
+      "index count not a multiple of 3: " .. indexCount,
+      { source = context }
+    )
   end
 
   local expected = HEADER + vertexCount * STRIDE + indexCount * indexWidth
   if expected ~= #bytes then
-    Errors.raise("MESH_BAD_LENGTH", "expected " .. expected .. " bytes, got " .. #bytes, { source = context })
+    Errors.raise(FieldErrors.MESH_BAD_LENGTH, "expected " .. expected .. " bytes, got " .. #bytes, { source = context })
   end
 
   local vertices = {}
@@ -68,7 +77,7 @@ function SceneMesh.decode(bytes, context)
     local nx, ny, nz = r:f32le(off + 20), r:f32le(off + 24), r:f32le(off + 28)
     for _, n in ipairs({ x, y, z, u, v, nx, ny, nz }) do
       if not isFinite(n) then
-        Errors.raise("MESH_NONFINITE", "non-finite vertex component at vertex " .. i, { source = context })
+        Errors.raise(FieldErrors.MESH_NONFINITE, "non-finite vertex component at vertex " .. i, { source = context })
       end
     end
     local red = r:u8(off + 32) / 255
@@ -77,7 +86,7 @@ function SceneMesh.decode(bytes, context)
     local alpha = r:u8(off + 35) / 255
     local colorSource = r:u8(off + 36)
     if colorSource > 2 then
-      Errors.raise("MESH_BAD_COLOR_SOURCE", "color source out of range at vertex " .. i, { source = context })
+      Errors.raise(FieldErrors.MESH_BAD_COLOR_SOURCE, "color source out of range at vertex " .. i, { source = context })
     end
     vertices[i] = { x, y, z, u, v, nx, ny, nz, red, green, blue, alpha, colorSource }
     off = off + STRIDE
@@ -88,7 +97,7 @@ function SceneMesh.decode(bytes, context)
     local value = (indexWidth == 2) and r:u16le(off) or r:u32le(off)
     if value >= vertexCount then
       Errors.raise(
-        "MESH_INDEX_OUT_OF_RANGE",
+        FieldErrors.MESH_INDEX_OUT_OF_RANGE,
         "index " .. value .. " >= vertex count " .. vertexCount,
         { source = context }
       )
