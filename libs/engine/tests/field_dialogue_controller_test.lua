@@ -71,6 +71,23 @@ function T.fixed_ticks_reveal_expected_glyph_count()
   Assert.equal(c:status().state, "WAITING_CLOSE")
 end
 
+-- The reveal cadence is injected, not a renderer constant: the runtime wires
+-- the player's selected text speed into construction (ticksPerGlyph), so an
+-- open request reveals at the captured cadence without ever querying options.
+function T.injected_ticks_per_glyph_drives_reveal_cadence()
+  local c = controller({ page({ line({ glyph("A", 1), glyph("B", 2) }) }, "eos") }, { ticksPerGlyph = 3 })
+  c:open(request("t", message()))
+  c:step({})
+  c:step({})
+  Assert.equal(c:status().revealedGlyphs, 0, "no glyph before three reveal ticks")
+  c:step({})
+  Assert.equal(c:status().revealedGlyphs, 1, "one glyph per three injected ticks")
+  c:step({})
+  c:step({})
+  c:step({})
+  Assert.equal(c:status().revealedGlyphs, 2)
+end
+
 function T.action_during_reveal_jumps_to_boundary_only()
   local c = controller({
     page({ line({ glyph("A", 1), glyph("B", 2), glyph("C", 3), glyph("D", 4), glyph("E", 5) }) }, "prompt"),

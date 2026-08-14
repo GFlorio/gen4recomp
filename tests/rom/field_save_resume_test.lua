@@ -107,6 +107,10 @@ function T.field_state_avatar_and_events_resume_on_both_target_maps(romFs, versi
       world = { flags = serialized.flags, variables = serialized.vars, objects = {}, rng = { state = 1, calls = 0 } },
       scriptsBucket = {},
       auxiliaryUi = { requested = "shown", state = "shown" },
+      playerData = {
+        profile = { name = "GOLD", gender = 0, trainerId = 0 },
+        options = { textFrame = 0, textSpeed = "mid" },
+      },
     })
     local restored = assert(FieldSave.restore(saved, loader, versionId))
     Assert.equal(restored.runtimeMap.mapId, map.mapId)
@@ -151,6 +155,10 @@ function T.a_resumed_event_store_keeps_scenario_actors_hidden(romFs)
     world = { flags = serialized.flags, variables = serialized.vars, objects = {}, rng = { state = 1, calls = 0 } },
     scriptsBucket = {},
     auxiliaryUi = { requested = "shown", state = "shown" },
+    playerData = {
+      profile = { name = "GOLD", gender = 0, trainerId = 0 },
+      options = { textFrame = 0, textSpeed = "mid" },
+    },
   })
   local restored = assert(FieldSave.restore(saved, {
     load = function(_, mapId)

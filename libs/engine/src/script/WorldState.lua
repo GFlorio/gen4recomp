@@ -6,7 +6,7 @@
 -- stay numeric. The event store is either injected (the game owns the
 -- authoritative FieldEventState for the demo scenario and save restore) or
 -- constructed from a serialized events table. The world bucket of
--- g4-field-save-v2 captures directly from this module. Pure domain module:
+-- g4-field-save-v3 captures directly from this module. Pure domain module:
 -- no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
@@ -101,7 +101,7 @@ function WorldState:subVar(id, amount)
   self._events:setVar(resolved, self._events:getVar(resolved) - amount)
 end
 
--- Captured world bucket for the save schema (g4-field-save-v2). The flag
+-- Captured world bucket for the save schema (g4-field-save-v3). The flag
 -- and variable maps are numeric (the FieldEventState shape); the RNG state
 -- rides along so determinism survives a save/load cycle.
 ---@return table

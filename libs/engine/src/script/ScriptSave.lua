@@ -1,5 +1,5 @@
 -- Script save and resume : the serializable `scripts`
--- bucket of the g4-field-save-v2 schema. Capture happens only at a fixed-tick
+-- bucket of the g4-field-save-v3 schema. Capture happens only at a fixed-tick
 -- phase boundary (no context in `running` status); absolute scheduling ticks
 -- become relative delays rebased at restore, so no tick is duplicated or
 -- skipped. The bucket carries the registry fingerprint, the task-registry
