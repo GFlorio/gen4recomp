@@ -93,6 +93,9 @@ local function disposableState()
     dialogue = fakeResource("dispose"),
     signpost = fakeResource("dispose"),
     dialogueRenderer = fakeResource("release"),
+    signpostRenderer = fakeResource("release"),
+    startMenuRenderer = fakeResource("release"),
+    trainerCardRenderer = fakeResource("release"),
     messageProvider = fakeResource("dispose"),
     actors = fakeResource("dispose"),
     actorAssets = fakeAssetProvider(),
@@ -125,6 +128,9 @@ local function disposableState()
   local state = setmetatable({
     runtime = runtime,
     dialogueRenderer = resources.dialogueRenderer,
+    signpostRenderer = resources.signpostRenderer,
+    startMenuRenderer = resources.startMenuRenderer,
+    trainerCardRenderer = resources.trainerCardRenderer,
     renderer = resources.renderer,
   }, FieldState)
   return state, resources
@@ -137,6 +143,9 @@ function T.dispose_saves_and_releases_each_resource_exactly_once()
   Assert.equal(resources.dialogue.calls, 1)
   Assert.equal(resources.signpost.calls, 1, "disposal cancels the signpost controller once")
   Assert.equal(resources.dialogueRenderer.calls, 1)
+  Assert.equal(resources.signpostRenderer.calls, 1, "disposal releases the signpost renderer once")
+  Assert.equal(resources.startMenuRenderer.calls, 1, "disposal releases the start menu renderer once")
+  Assert.equal(resources.trainerCardRenderer.calls, 1, "disposal releases the trainer card renderer once")
   Assert.equal(resources.messageProvider.calls, 1)
   Assert.equal(resources.actors.calls, 1)
   Assert.equal(resources.actorAssets.releaseCalls, 1)
@@ -155,6 +164,9 @@ function T.dispose_is_a_no_op_on_repeat_calls()
   Assert.equal(resources.signpost.calls, 1, "repeat disposal never releases the signpost twice")
   Assert.equal(resources.renderer.calls, 1)
   Assert.equal(resources.saveStore.calls, 1)
+  Assert.equal(resources.signpostRenderer.calls, 1, "repeat disposal never releases the signpost renderer twice")
+  Assert.equal(resources.startMenuRenderer.calls, 1, "repeat disposal never releases the start menu renderer twice")
+  Assert.equal(resources.trainerCardRenderer.calls, 1, "repeat disposal never releases the trainer card renderer twice")
 end
 
 function T.dispose_without_a_live_session_skips_the_save()

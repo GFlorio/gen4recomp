@@ -5,6 +5,7 @@
 
 local Assert = require("tests.support.Assert")
 local FieldState = require("game.src.game.FieldState")
+local ScreenTopology = require("libs.engine.src.ScreenTopology")
 
 local T = {}
 
@@ -45,12 +46,30 @@ local function drawableState(development)
           return false
         end,
       },
+      signpost = {
+        isModal = function()
+          return false
+        end,
+      },
+      applicationHost = {
+        status = function()
+          return { phase = "closed", fadeAlpha = 0 }
+        end,
+      },
       menuHost = {
         presentation = function()
           return nil
         end,
       },
     },
+    topologyProvider = function()
+      return ScreenTopology.oneDisplay({
+        id = "main",
+        rect = { x = 0, y = 0, width = 640, height = 480 },
+        touch = false,
+        role = "world",
+      })
+    end,
     worldParts = {},
     renderer = { draw = function() end },
     _actorDrawStorage = { items = {}, actorSlots = {}, generation = 0 },

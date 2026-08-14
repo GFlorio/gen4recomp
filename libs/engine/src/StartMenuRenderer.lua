@@ -1,5 +1,5 @@
--- Renders the authentic Start Menu surface into the viewport's centered 4:3
--- reference frame: the generated menu background (the icon art is baked into
+-- Renders the authentic Start Menu surface through the placement record from
+-- StartMenuLayout: the generated menu background (the icon art is baked into
 -- the compiled PNG) and the animated cursor frame over the presented action
 -- slot. The generated field-UI manifest's `startMenu` section is the single
 -- geometry authority: the background rect, the logical slot rects, the icon
@@ -8,7 +8,11 @@
 -- coordinates. The cursor animation itself is pure fixed-tick state
 -- (StartMenuCursorAnimation); this renderer consumes only the frame index
 -- from the presentation snapshot, so render refresh rate cannot change the
--- animation speed. The surface is not a generic list menu: only the two
+-- animation speed. Drawing consumes the same StartMenuLayout placement
+-- record hit testing maps through (hostToLogical): the surface draws under
+-- translate(frame origin) + scale(placement scale) in canonical coordinates,
+-- so rendering and hit testing share one record with no second set of
+-- scaled rectangles. The surface is not a generic list menu: only the two
 -- generated images are drawn, at identity tint, with no theme colors or
 -- styled primitives. Construction is failure-safe: a missing manifest,
 -- background, or cursor asset is a typed error, a quad failure after the
@@ -17,7 +21,6 @@
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
-local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 
 ---@class StartMenuRenderer
@@ -171,20 +174,27 @@ function StartMenuRenderer:_cursorPosition(slot, frame)
   return slot.x + slot.width / 2 - frame.width / 2, slot.y + slot.height / 2 - frame.height / 2
 end
 
--- Draws the canonical menu surface into viewport.referenceFrame: the
--- background image over the manifest background rect, then the cursor frame
+-- Draws the canonical menu surface through the placement record: the
+-- background image over the manifest background rect and the cursor frame
 -- (selected by the presentation's frame index, advanced by the pure
 -- fixed-tick animation state the controller owns) centered over the
--- presented manifest slot. No-op (and no state touched) when this renderer
+-- presented manifest slot, all under translate(frame origin) + scale(record
+-- scale) so the record's frame is exactly where the surface lands and
+-- hostToLogical's inverse transform maps hit points back onto the same
+-- canonical coordinates. No-op (and no state touched) when this renderer
 -- has no images. Restores canvas, shader, scissor, blend, depth, wireframe,
 -- cull, and color afterwards so the HUD and host overlays draw normally.
 
 ---@param presentation { cursorSlotId: integer, cursorFrameIndex: integer }?
----@param viewport { referenceFrame: FieldDialogueTheme.Rect }
-function StartMenuRenderer:draw(presentation, viewport)
+---@param placement StartMenuLayout.Placement
+function StartMenuRenderer:draw(presentation, placement)
   if not presentation or not self._backgroundImage then
     return
   end
+  assert(
+    placement ~= nil and type(placement.frame) == "table" and type(placement.scale) == "number",
+    "the start menu surface requires the placement record"
+  )
   assert(
     type(presentation.cursorSlotId) == "number" and presentation.cursorSlotId % 1 == 0,
     "the start menu cursor requires a slot id"
@@ -214,14 +224,13 @@ function StartMenuRenderer:draw(presentation, viewport)
 
   local pushed = false
   local ok, err = pcall(function()
-    -- Everything draws in reference-canvas coordinates under one
-    -- translate(origin) + scale transform; the manifest rects are already
-    -- reference-space, so nothing is scaled twice.
-    local layout = FieldDialogueTheme.layout(viewport.referenceFrame)
+    -- Everything draws in canonical coordinates under the placement record's
+    -- transform: translate(frame origin) + scale(record scale). The manifest
+    -- rects are canonical, so nothing is scaled twice.
     lg.push()
     pushed = true
-    lg.translate(layout.origin.x, layout.origin.y)
-    lg.scale(layout.scale, layout.scale)
+    lg.translate(placement.frame.x, placement.frame.y)
+    lg.scale(placement.scale, placement.scale)
     lg.setColor(1, 1, 1, 1)
     lg.draw(assert(self._backgroundImage), assert(self._backgroundQuad), self.menu.background.x, self.menu.background.y)
     local x, y = self:_cursorPosition(slot, frame)
