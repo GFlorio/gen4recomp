@@ -9,6 +9,7 @@
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local ScriptEnvironment = require("libs.engine.src.script.ScriptEnvironment")
+local FieldWindowStyleRegistry = require("libs.engine.src.FieldWindowStyleRegistry")
 local MovementPauseTask = require("libs.engine.src.script.tasks.MovementPauseTask")
 local MovementTask = require("libs.engine.src.script.tasks.MovementTask")
 
@@ -1278,6 +1279,66 @@ HANDLERS.wait_signpost = function(node, run)
   requireForeground(run, "wait_signpost")
   requireService(run, "signpost")
   return blockOnTask(run, "wait_signpost", { node = node })
+end
+
+-- The high-level sign ops route their requested appearance (a semantic
+-- value or a registered style id) through the sealed window-style registry
+-- service: the style id is stamped into the controller, and a style that
+-- does not exist is an attributed script fault, never a presentation crash
+-- at draw time.
+---@param run table
+---@param appearance string
+---@return string styleId
+local function resolveSignpostStyle(run, appearance)
+  local styles = requireService(run, "windowStyles")
+  -- LuaLS cannot see through Errors.raise; requireService never returns nil.
+  ---@cast styles FieldWindowStyleRegistry
+  local styleId = FieldWindowStyleRegistry.semanticStyleId(appearance) or appearance
+  if styles:resolve(styleId) == nil then
+    Errors.raise(
+      ScriptErrors.SCRIPT_STYLE_UNKNOWN,
+      "window style is not registered: " .. tostring(styleId),
+      { scriptId = run.instance.scriptId, styleId = styleId }
+    )
+  end
+  return styleId
+end
+
+-- The high-level S.sign operation: present the signpost window with the
+-- requested style id (no source type/map data), print the message
+-- instantly, and either continue in the same tick (wait=false) or block on
+-- the registered sign task until an A/B/directional dismissal closes the
+-- window. The open composes the same host/controller primitives the
+-- imported operations use.
+HANDLERS.sign = function(node, run)
+  requireForeground(run, "sign")
+  local host = requireService(run, "signpost")
+  ---@cast host ScriptSignpostHost
+  host:setStyleId(resolveSignpostStyle(run, node.appearance))
+  host:setCommand("show")
+  host:advance()
+  host:printInstant(node.message, nil, run.instance.textArgs or {})
+  if node.wait then
+    return blockOnTask(run, "sign", { node = node })
+  end
+  return Runtime.OUTCOME_CONTINUE
+end
+
+-- The high-level S.trainerTip operation: present the signpost window with
+-- the requested style id, type the message at the player's configured text
+-- speed, and block on the registered sign task. The task waits for the
+-- print and then for an A/B/directional dismissal; a direction pressed
+-- while the print is live is the source interruption (printer stops, player
+-- turns, window closes).
+HANDLERS.trainer_tip = function(node, run)
+  requireForeground(run, "trainer_tip")
+  local host = requireService(run, "signpost")
+  ---@cast host ScriptSignpostHost
+  host:setStyleId(resolveSignpostStyle(run, node.appearance))
+  host:setCommand("show")
+  host:advance()
+  host:printTyped(node.message, nil, run.instance.textArgs or {})
+  return blockOnTask(run, "sign", { node = node })
 end
 HANDLERS.close_message = function(node, run)
   requireService(run, "dialogue"):close(node.erase ~= false)

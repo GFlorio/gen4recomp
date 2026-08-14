@@ -1,4 +1,5 @@
 return {
+  "demo.signpost",
   "elms_lab.elm",
   "vanilla.hgss.scr_seq.0842.script_002",
   "vanilla.hgss.scr_seq.0842.script_007",

@@ -36,6 +36,7 @@ local TASK_MODULES = {
   "libs.engine.src.script.tasks.WaitSignpostActionTask",
   "libs.engine.src.script.tasks.TrainerTipsTask",
   "libs.engine.src.script.tasks.WaitSignpostTask",
+  "libs.engine.src.script.tasks.SignTask",
   "libs.engine.src.script.tasks.DialogueTask",
   "libs.engine.src.script.tasks.MovementTask",
   "libs.engine.src.script.tasks.MovementBarrierTask",
@@ -153,6 +154,7 @@ end
 ---@field fontDef table
 ---@field frameIndex integer|nil player-selected HGSS user-frame index for dialogue requests
 ---@field signpost FieldSignpostController the fixed-tick signpost controller the host advances
+---@field windowStyles FieldWindowStyleRegistry the sealed per-runtime window style catalogue the high-level sign ops resolve appearances against
 ---@field transition FieldTransition
 ---@field mapLoader FieldMapLoader
 ---@field sourceMap RuntimeFieldMap
@@ -207,6 +209,7 @@ function FieldScripts.new(opts)
     "field scripts require the dialogue stack"
   )
   assert(opts.signpost and opts.signpost.isModal, "field scripts require the signpost controller")
+  assert(opts.windowStyles and opts.windowStyles.resolve, "field scripts require the sealed window style registry")
   assert(
     opts.transition and opts.mapLoader and opts.sourceMap and opts.auxiliaryUi and opts.menu and opts.contextChoice,
     "field scripts require transition, auxiliary UI, context choice, and menu host"
@@ -340,6 +343,7 @@ function FieldScripts.new(opts)
       menu = opts.menu,
       scriptMenu = menuHost,
       signpost = signpostHost,
+      windowStyles = opts.windowStyles,
       advanceAsync = advanceAsync,
     },
     taskRegistry = liveTaskRegistry,

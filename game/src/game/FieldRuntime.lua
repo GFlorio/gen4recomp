@@ -61,6 +61,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field saveFs SaveFs?
 ---@field presentation boolean?
 ---@field scriptHosts table? deterministic host boundaries for script effects
+---@field windowStyleDescriptors table[]? mod window-style descriptors registered after the built-ins and before the registry seals
 
 ---@class FieldRuntimeScriptHosts
 ---@field audio table?
@@ -91,6 +92,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field saveFs SaveFs?
 ---@field presentation boolean
 ---@field windowStyles FieldWindowStyleRegistry the sealed per-runtime window style catalogue
+---@field windowStyleDescriptors table[]? boot-config mod style descriptors registered before the registry seals
 ---@field scriptHosts FieldRuntimeScriptHosts?
 local FieldRuntime = {}
 FieldRuntime.__index = FieldRuntime
@@ -173,6 +175,7 @@ function FieldRuntime.new(versionId, mapIdOrSymbol, options)
     saveFs = options.saveFs,
     presentation = options.presentation == true,
     scriptHosts = options.scriptHosts,
+    windowStyleDescriptors = options.windowStyleDescriptors,
     errorText = nil,
     zoom = FieldZoom.new(options.zoomConfig or FieldPresentation.zoom),
   }, FieldRuntime)
@@ -209,8 +212,13 @@ function FieldRuntime:_load()
     assert(FieldUiAssetCache.validateManifest(uiManifest), "field UI manifest is invalid")
     -- The window-style catalogue is composed per runtime from the same
     -- generated manifest and sealed before the script platform exists.
+    -- Mod styles register after the built-ins and before the seal through
+    -- the boot-config descriptors (the pre-seal registration seam).
     self.windowStyles = FieldWindowStyleRegistry.new()
     self.windowStyles:registerBuiltins(uiManifest)
+    for _, descriptor in ipairs(self.windowStyleDescriptors or {}) do
+      self.windowStyles:register(descriptor)
+    end
     self.windowStyles:seal()
     local frameIndexes = {}
     for frame = 0, uiManifest.dialogueFrames.count - 1 do
@@ -454,6 +462,7 @@ function FieldRuntime:_load()
       fontDef = fontDef,
       frameIndex = self.playerData.options.textFrame,
       signpost = self.signpost,
+      windowStyles = self.windowStyles,
       transition = self.transition,
       mapLoader = self.mapLoader,
       sourceMap = self.runtimeMap,

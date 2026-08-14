@@ -318,6 +318,7 @@ end
 ---@field menu table
 ---@field scriptMenu table
 ---@field signpost ScriptSignpostHost|nil
+---@field windowStyles { resolve: fun(registry: table, id: string): table|nil }|nil the sealed window-style registry surface the high-level sign ops resolve appearances against
 ---@field startMenuReopen { request: fun() }|nil the opcode-61 Start Menu reopen hook boundary
 ---@field auxiliaryUi AuxiliaryFieldUi
 local FakeServices = {}

@@ -75,6 +75,61 @@ function T.style_id_is_injected_presentation_data()
   Assert.equal(c:status().styleId, "my_mod.sign")
 end
 
+-- The high-level sign path routes a script-requested style id into the
+-- controller: setStyleId replaces the presentation style without touching
+-- any other state.
+function T.set_style_id_routes_the_requested_style()
+  local c = controller({}, { styleId = "hgss.signpost" })
+  c:setStyleId("mod.route_sign")
+  Assert.equal(c:status().styleId, "mod.route_sign")
+  Assert.equal(c:status().active, false, "style routing must not touch presentation state")
+  c:setStyleId("hgss.trainer_tip")
+  Assert.equal(c:status().styleId, "hgss.trainer_tip")
+end
+
+-- The routed style ends with the presentation it styled: the hide case and
+-- the wipe-out endpoint check return it to the construction default, so a
+-- high-level flow (including the advanced wait=false + wipe_out path) never
+-- leaks its style into a later flow.
+function T.presentation_end_restores_the_routed_style()
+  local c = controller({}, { styleId = "hgss.signpost" })
+  c:setStyleId("mod.route_sign")
+  c:setCommand("hide")
+  c:updateFixed()
+  Assert.equal(c:status().styleId, "hgss.signpost", "hide must restore the default style")
+
+  c:setStyleId("mod.route_sign")
+  c:setCommand("wipe_out")
+  for _ = 1, 3 do
+    c:updateFixed()
+    Assert.equal(c:status().styleId, "mod.route_sign", "motion updates keep the routed style")
+  end
+  c:updateFixed()
+  Assert.equal(c:status().styleId, "hgss.signpost", "the wipe-out endpoint check must restore the default style")
+end
+
+-- The style id is routing data: malformed values are programming faults.
+function T.set_style_id_rejects_malformed_ids()
+  local c = controller({})
+  local empty = "" ---@type any
+  local number = 7 ---@type any
+  Assert.throws(function()
+    c:setStyleId(empty)
+  end)
+  Assert.throws(function()
+    c:setStyleId(number)
+  end)
+end
+
+-- Dispose releases the routed style back to the initial default exactly
+-- once with the rest of the hidden state.
+function T.dispose_resets_the_routed_style_to_the_default()
+  local c = controller({}, { styleId = "hgss.signpost" })
+  c:setStyleId("mod.route_sign")
+  c:dispose()
+  Assert.equal(c:status().styleId, "hgss.signpost", "dispose must restore the default style id")
+end
+
 -- The presentation snapshot is presentation-ready: exact field set of plain
 -- data (no LÖVE objects), and fresh copies so a consumer cannot mutate the
 -- controller through its status.

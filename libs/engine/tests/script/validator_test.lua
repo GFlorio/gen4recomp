@@ -165,6 +165,76 @@ function T.signpost_operations_validate_canonical_shapes()
   }))
 end
 
+-- The high-level sign operations: message is required; appearance is the
+-- registered-style-id-or-semantic string (any non-empty string, the sealed
+-- registry resolves it at runtime); sign's mapGraphic is an optional string
+-- and wait defaults to true.
+function T.high_level_sign_operations_validate_canonical_shapes()
+  valid(S.script({
+    api = 1,
+    id = "x",
+    steps = {
+      {
+        op = "sign",
+        message = "msg.hgss.0542.00034",
+        appearance = "mod.route_sign",
+        wait = true,
+      },
+      {
+        op = "trainer_tip",
+        message = { message = "external", bank = 542, id = 36 },
+        appearance = "trainer_tip",
+      },
+      S.stop(),
+    },
+  }))
+  valid(S.script({
+    api = 1,
+    id = "x",
+    steps = {
+      { op = "sign", message = "msg.hgss.0542.00034", mapGraphic = "asset.my_mod.graphic" },
+    },
+  }))
+end
+
+function T.high_level_sign_operations_reject_malformed_shapes()
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "sign", appearance = "sign" } },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "sign", message = "msg.x", wait = "yes" } },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "sign", message = "msg.x", appearance = 7 } },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "sign", message = "msg.x", mapGraphic = 3 } },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "sign", message = "msg.x", extra = true } },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "trainer_tip", appearance = "trainer_tip" } },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "trainer_tip", message = "msg.x", extra = true } },
+  })
+end
+
 function T.trainer_tips_and_wait_signpost_validate_canonical_shapes()
   valid(S.script({
     api = 1,

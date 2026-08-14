@@ -17,6 +17,7 @@ local FakeServices = require("tests.support.script.FakeServices")
 local WaitSignpostActionTask = require("libs.engine.src.script.tasks.WaitSignpostActionTask")
 local TrainerTipsTask = require("libs.engine.src.script.tasks.TrainerTipsTask")
 local WaitSignpostTask = require("libs.engine.src.script.tasks.WaitSignpostTask")
+local SignTask = require("libs.engine.src.script.tasks.SignTask")
 
 local T = {}
 
@@ -36,6 +37,7 @@ function RecordingSignpostHost.new()
     prints = {},
     stops = 0,
     closes = 0,
+    styles = {},
     command = "nop",
     printDone = false,
   }, RecordingSignpostHost)
@@ -48,6 +50,11 @@ end
 
 function RecordingSignpostHost:setSourceAppearance(appearance)
   self.appearances[#self.appearances + 1] = appearance
+end
+
+function RecordingSignpostHost:setStyleId(styleId)
+  self.styleId = styleId
+  self.styles[#self.styles + 1] = styleId
 end
 
 function RecordingSignpostHost:printInstant(message, bindings, textArgs)
@@ -81,12 +88,27 @@ local function harness()
   local services = FakeServices.new()
   local signpost = RecordingSignpostHost.new()
   services.signpost = signpost
+  -- The sealed window-style registry surface the high-level sign handlers
+  -- resolve appearances against: the three built-ins plus a registered mod
+  -- style.
+  local styles = { "hgss.signpost", "hgss.trainer_tip", "mod.route_sign" }
+  services.windowStyles = {
+    resolve = function(_, id)
+      for _, known in ipairs(styles) do
+        if known == id then
+          return {}
+        end
+      end
+      return nil
+    end,
+  }
   local registry = Registry.new()
   local composition = Composition.new(registry)
   local taskRegistry = require("libs.engine.src.script.TaskRegistry").new()
   taskRegistry:register(WaitSignpostActionTask.type, WaitSignpostActionTask.version, WaitSignpostActionTask)
   taskRegistry:register(TrainerTipsTask.type, TrainerTipsTask.version, TrainerTipsTask)
   taskRegistry:register(WaitSignpostTask.type, WaitSignpostTask.version, WaitSignpostTask)
+  taskRegistry:register(SignTask.type, SignTask.version, SignTask)
   local scheduler = Scheduler.new({
     services = services,
     taskRegistry = taskRegistry,
@@ -679,6 +701,269 @@ function T.request_start_menu_requires_the_reopen_service()
   local instanceId = h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
   h.scheduler:step(100, {})
   Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_SERVICE_MISSING")
+end
+
+-- The high-level sign operations: S.sign presents the window with the
+-- requested style (never source type/map data) and prints instantly; with
+-- wait=true the registered sign task blocks until an A/B/directional
+-- dismissal closes the window, and the script resumes on the following
+-- tick. No result reference rides along.
+local SIGN_NODE = {
+  op = "sign",
+  message = "msg.hgss.0542.00034",
+  appearance = "mod.route_sign",
+  wait = true,
+}
+
+local TRAINER_TIP_NODE = {
+  op = "trainer_tip",
+  message = "msg.hgss.0542.00036",
+  appearance = "trainer_tip",
+}
+
+function T.high_level_sign_presents_with_the_style_prints_instantly_and_waits_for_dismissal()
+  local h = harness()
+  local script = S.script({
+    api = 1,
+    id = "test.sign",
+    steps = { SIGN_NODE, S.setVar({ variable = "VAR_AFTER", value = 1 }), S.stop() },
+  })
+  h.registry:installBase(script.id, script, "generated")
+  h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+
+  h.scheduler:step(100, {})
+  Assert.deepEqual(h.signpost.styles, { "mod.route_sign" }, "S.sign routes the requested style id")
+  Assert.deepEqual(h.signpost.commands, { "show" }, "S.sign selects SHOW")
+  Assert.equal(h.signpost.advances, 1, "S.sign executes the show immediately")
+  Assert.equal(#h.signpost.prints, 1, "S.sign prints its message instantly")
+  Assert.equal(h.signpost.prints[1].kind, "instant")
+  Assert.equal(#h.signpost.appearances, 0, "S.sign must never carry source type/map data")
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "wait=true must block on the sign task")
+  local tasks = h.scheduler:tasks()
+  Assert.equal(#tasks, 1)
+  Assert.equal(tasks[1].taskType, "sign")
+
+  -- The instant print is complete, so the A edge is a dismissal, not a
+  -- speed-up: close exactly once and resume on the following tick.
+  h.signpost.printDone = true
+  h.scheduler:step(101, { pressedAction = true })
+  Assert.equal(h.signpost.closes, 1, "A must dismiss the high-level signpost")
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "completion never resumes in the completion tick")
+  h.scheduler:step(102, {})
+  Assert.equal(#h.scheduler:tasks(), 0)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+end
+
+-- A directional edge dismisses the high-level sign and turns the player,
+-- exactly like the imported WaitSignpost path.
+function T.high_level_sign_directional_dismissal_turns_the_player()
+  local h = harness()
+  local script = S.script({
+    api = 1,
+    id = "test.sign",
+    steps = { SIGN_NODE, S.setVar({ variable = "VAR_AFTER", value = 1 }), S.stop() },
+  })
+  h.registry:installBase(script.id, script, "generated")
+  h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+  h.scheduler:step(100, {})
+
+  h.services.player:turn("south")
+  h.scheduler:step(101, { pressedDirection = "west" })
+  Assert.equal(h.services.player:facing(), "west", "the dismissal must turn the player")
+  Assert.equal(h.signpost.closes, 1)
+  h.scheduler:step(102, {})
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+end
+
+-- wait=false opens the window and continues in the same tick: no sign task
+-- is created and the next node runs in the start tick.
+function T.high_level_sign_with_wait_false_continues_in_the_same_tick()
+  local h = harness()
+  local script = S.script({
+    api = 1,
+    id = "test.sign",
+    steps = {
+      { op = "sign", message = "msg.hgss.0542.00034", appearance = "sign", wait = false },
+      S.setVar({ variable = "VAR_AFTER", value = 1 }),
+      S.stop(),
+    },
+  })
+  h.registry:installBase(script.id, script, "generated")
+  h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+
+  h.scheduler:step(100, {})
+  Assert.deepEqual(h.signpost.styles, { "hgss.signpost" }, "the semantic appearance resolves to the built-in")
+  Assert.equal(h.signpost.advances, 1, "the window must be presented in-handler")
+  Assert.equal(#h.scheduler:tasks(), 0, "wait=false must not create a sign task")
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1, "wait=false must continue in the same tick")
+end
+
+-- S.trainerTip types at the player cadence and blocks; a directional edge
+-- during the live print is the source interruption (stop, turn, close), an
+-- A/B edge is the printer's speed-up (never a dismissal), and after the
+-- print completes an A/B edge dismisses.
+function T.high_level_trainer_tip_types_then_waits_for_dismissal()
+  local h = harness()
+  local script = S.script({
+    api = 1,
+    id = "test.trainer_tip",
+    steps = { TRAINER_TIP_NODE, S.setVar({ variable = "VAR_AFTER", value = 1 }), S.stop() },
+  })
+  h.registry:installBase(script.id, script, "generated")
+  h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+
+  h.scheduler:step(100, {})
+  Assert.deepEqual(h.signpost.styles, { "hgss.trainer_tip" }, "S.trainerTip routes the semantic style")
+  Assert.equal(#h.signpost.prints, 1, "S.trainerTip starts its print in-handler")
+  Assert.equal(h.signpost.prints[1].kind, "typed", "S.trainerTip types at the player cadence, never instantly")
+  Assert.equal(#h.signpost.appearances, 0, "S.trainerTip must never carry source type/map data")
+  local tasks = h.scheduler:tasks()
+  Assert.equal(#tasks, 1)
+  Assert.equal(tasks[1].taskType, "sign")
+
+  -- A/B during the live print is speed-up, not a dismissal.
+  h.scheduler:step(101, { pressedAction = true })
+  Assert.equal(#h.scheduler:tasks(), 1, "A during the print must not dismiss the trainer tip")
+  Assert.equal(h.signpost.closes, 0)
+  h.scheduler:step(102, { pressedCancel = true })
+  Assert.equal(#h.scheduler:tasks(), 1, "B during the print must not dismiss the trainer tip")
+  Assert.equal(h.signpost.closes, 0)
+
+  -- A directional edge during the print is the source interruption.
+  h.services.player:turn("south")
+  h.scheduler:step(103, { pressedDirection = "east" })
+  Assert.equal(h.services.player:facing(), "east", "the interrupt must turn the player")
+  Assert.equal(h.signpost.closes, 1, "the interrupt must close the window")
+  h.scheduler:step(104, {})
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+end
+
+function T.high_level_trainer_tip_dismisses_after_the_print_completes()
+  local h = harness()
+  local script = S.script({
+    api = 1,
+    id = "test.trainer_tip",
+    steps = { TRAINER_TIP_NODE, S.setVar({ variable = "VAR_AFTER", value = 1 }), S.stop() },
+  })
+  h.registry:installBase(script.id, script, "generated")
+  h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+  h.scheduler:step(100, {})
+
+  h.signpost.printDone = true
+  h.scheduler:step(101, { pressedAction = true })
+  Assert.equal(h.signpost.closes, 1, "A after the print completes must dismiss the trainer tip")
+  h.scheduler:step(102, {})
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+end
+
+-- An appearance naming an unregistered style is an attributed script fault
+-- (SCRIPT_STYLE_UNKNOWN), and the handler acquires nothing before it.
+function T.high_level_sign_faults_on_an_unregistered_style()
+  local h = harness()
+  local script = S.script({
+    api = 1,
+    id = "test.sign_unknown_style",
+    steps = {
+      { op = "sign", message = "msg.hgss.0542.00034", appearance = "mod.missing" },
+      S.stop(),
+    },
+  })
+  h.registry:installBase(script.id, script, "generated")
+  local instanceId = h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+  h.scheduler:step(100, {})
+  local err = assert(h.services.events:eventFor("script.error", instanceId))
+  Assert.equal(err.code, "SCRIPT_STYLE_UNKNOWN")
+  Assert.equal(err.context.styleId, "mod.missing")
+  Assert.equal(#h.signpost.styles, 0, "the fault must acquire nothing")
+  Assert.equal(#h.signpost.commands, 0)
+  Assert.equal(#h.signpost.prints, 0)
+  Assert.equal(#h.scheduler:tasks(), 0)
+end
+
+-- The high-level operations are foreground-only and require both the
+-- signpost host and the window-style registry service.
+function T.high_level_sign_operations_require_foreground_and_services()
+  local h = harness()
+  local script = S.script({
+    api = 1,
+    id = "test.sign_background",
+    steps = { SIGN_NODE, S.stop() },
+  })
+  h.registry:installBase(script.id, script, "generated")
+  local composed = assert(h.composition:effective(script.id))
+  local instanceId = h.scheduler:createBackground(composed, nil, 100)
+  h.scheduler:step(100, nil)
+  Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_BACKGROUND_FORBIDDEN")
+  Assert.equal(#h.signpost.styles, 0, "the background script must acquire nothing")
+
+  local missingStyles = harness()
+  missingStyles.services.windowStyles = nil
+  local noStyles = S.script({
+    api = 1,
+    id = "test.sign_no_styles",
+    steps = { SIGN_NODE, S.stop() },
+  })
+  missingStyles.registry:installBase(noStyles.id, noStyles, "generated")
+  local noStylesInstance =
+    missingStyles.scheduler:createForeground(assert(missingStyles.composition:effective(noStyles.id)), nil, 100)
+  missingStyles.scheduler:step(100, {})
+  Assert.equal(
+    assert(missingStyles.services.events:eventFor("script.error", noStylesInstance)).code,
+    "SCRIPT_SERVICE_MISSING"
+  )
+
+  local missingSignpost = harness()
+  missingSignpost.services.signpost = nil
+  local noSignpost = S.script({
+    api = 1,
+    id = "test.sign_no_signpost",
+    steps = { SIGN_NODE, S.stop() },
+  })
+  missingSignpost.registry:installBase(noSignpost.id, noSignpost, "generated")
+  local noSignpostInstance =
+    missingSignpost.scheduler:createForeground(assert(missingSignpost.composition:effective(noSignpost.id)), nil, 100)
+  missingSignpost.scheduler:step(100, {})
+  Assert.equal(
+    assert(missingSignpost.services.events:eventFor("script.error", noSignpostInstance)).code,
+    "SCRIPT_SERVICE_MISSING"
+  )
+end
+
+-- Cancelling an instance while its sign task owns the presented window
+-- releases it exactly once through the host close.
+function T.high_level_sign_cancel_closes_the_signpost_exactly_once()
+  local h = harness()
+  local script = S.script({
+    api = 1,
+    id = "test.sign_cancel",
+    steps = { SIGN_NODE, S.stop() },
+  })
+  h.registry:installBase(script.id, script, "generated")
+  local composed = assert(h.composition:effective(script.id))
+  local instanceId = h.scheduler:createForeground(composed, nil, 100)
+  h.scheduler:step(100, {})
+  Assert.equal(#h.scheduler:tasks(), 1)
+  Assert.equal(h.signpost.closes, 0)
+
+  h.scheduler:cancelInstance(instanceId, "test cancellation")
+  Assert.equal(h.signpost.closes, 1, "the sign task must close the window exactly once on cancel")
+  Assert.equal(h.signpost.stops, 1, "the sign task cancel must stop the printer")
+  Assert.equal(#h.scheduler:tasks(), 0)
+end
+
+-- The registered sign task state is strictly validated: non-table or
+-- markerless state is an unserializable task record, never a silent
+-- acceptance.
+function T.high_level_sign_state_validates_strictly()
+  local markerless = {} ---@type any
+  local nonTable = 7 ---@type any
+  local err = SignTask.validate(markerless)
+  ---@cast err Errors.Error
+  Assert.equal(err.code, "SCRIPT_TASK_UNSERIALIZABLE")
+  local err2 = SignTask.validate(nonTable)
+  ---@cast err2 Errors.Error
+  Assert.equal(err2.code, "SCRIPT_TASK_UNSERIALIZABLE")
+  Assert.isNil(SignTask.validate({ waiting = true }))
 end
 
 return { tests = T }
