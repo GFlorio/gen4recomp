@@ -108,6 +108,19 @@ Constructors return ordinary serializable Lua tables. Direct table form is alway
 | `S.menuAdd(spec)` | `op=menu_add` | Generated/advanced imported-HGSS builder form. |
 | `S.menuExec(spec)` | `op=menu_exec` | Generated/advanced imported-HGSS builder form. |
 
+### Signpost constructors
+
+| Signature | Canonical | Notes |
+|---|---|---|
+| `S.sign(message, opts)` | `op=sign` | opts={appearance="sign",mapGraphic=nil,wait=true}; appearance is a registered style id or the semantic "sign". |
+| `S.trainerTip(message, opts)` | `op=trainer_tip` | opts={appearance="trainer_tip"}; types at the player text speed and waits for dismissal. |
+| `S.signpostSet(spec)` | `op=signpost_set` | Generated/advanced imported-HGSS form; spec={sourceAppearance={game,type,map}}. |
+| `S.signpostCommand(command)` | `op=signpost_command` | Generated/advanced; command is one of the semantic strings (nop/show/wipe_out/wipe_in/hide). |
+| `S.waitSignpostAction(spec)` | `op=wait_signpost_action` | Generated/advanced imported-HGSS form; spec optional. |
+| `S.signpostDirection(spec)` | `op=signpost_direction` | Generated/advanced imported-HGSS form. |
+| `S.trainerTipsPrint(spec)` | `op=trainer_tips_print` | Generated/advanced imported-HGSS form. |
+| `S.waitSignpost(spec)` | `op=wait_signpost` | Generated/advanced imported-HGSS form. |
+
 ### State constructors
 
 | Signature | Canonical | Notes |
@@ -1065,6 +1078,17 @@ No fields.
 | `key` | string |  |  |
 | `provenance` | source_provenance |  |  |
 
+### `sign`
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `appearance` | string |  | `sign` |
+| `key` | string |  |  |
+| `mapGraphic` | string |  |  |
+| `message` | message | yes |  |
+| `provenance` | source_provenance |  |  |
+| `wait` | boolean |  | `true` |
+
 ### `signal_caller`
 
 | Field | Type | Required | Default |
@@ -1155,6 +1179,15 @@ No fields.
 |---|---|---|---|
 | `key` | string |  |  |
 | `music` | string | yes |  |
+| `provenance` | source_provenance |  |  |
+
+### `trainer_tip`
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `appearance` | string |  | `trainer_tip` |
+| `key` | string |  |  |
+| `message` | message | yes |  |
 | `provenance` | source_provenance |  |  |
 
 ### `trainer_tips_print`

@@ -11,6 +11,7 @@
 ---@class FieldSignpostController
 ---@field _layout fun(message: FieldMessageProvider.FormattedMessage): { lines: { tokens: MessageToken[] }[] }
 ---@field _ticksPerGlyph integer
+---@field _defaultStyleId string the construction style id setStyleId(nil) restores
 ---@field _styleId string
 ---@field _command "nop"|"show"|"wipe_out"|"wipe_in"|"hide"
 ---@field _offset integer
@@ -102,6 +103,7 @@ function FieldSignpostController.new(opts)
   return setmetatable({
     _layout = opts.layout,
     _ticksPerGlyph = ticksPerGlyph,
+    _defaultStyleId = styleId,
     _styleId = styleId,
     _command = "nop",
     _offset = HIDDEN_OFFSET,
@@ -202,8 +204,10 @@ function FieldSignpostController:updateFixed()
     self._print = nil
     -- The source case removes the window, clears the tile area, and resets
     -- the BG position to 0, so a later wipe starts from the presented 0.
+    -- The routed style ends with the presentation it styled.
     self._offset = 0
     self._command = "nop"
+    self._styleId = self._defaultStyleId
   elseif command == "wipe_in" then
     if self._offset < 0 then
       self._offset = math.min(self._offset + WIPE_STEP, 0)
@@ -216,11 +220,13 @@ function FieldSignpostController:updateFixed()
     else
       -- Endpoint observed: clear the tile area and reset the stored BG
       -- offset to 0. The cleared window must not flash at the reset
-      -- position, so the snapshot no longer presents the window.
+      -- position, so the snapshot no longer presents the window; the
+      -- routed style ends with the presentation.
       self._active = false
       self._print = nil
       self._offset = 0
       self._command = "nop"
+      self._styleId = self._defaultStyleId
     end
   end
   self:_advancePrint()
@@ -277,15 +283,27 @@ function FieldSignpostController:stopPrint()
   end
 end
 
+-- Routes a script-requested window style id into the presentation (the
+-- high-level S.sign / S.trainerTip path; the imported operations never set
+-- it). The style lives only while the window is presented: the hide case
+-- and the wipe-out endpoint check return it to the construction default, so
+-- a high-level flow never leaks its style into a later flow.
+---@param styleId string
+function FieldSignpostController:setStyleId(styleId)
+  assert(type(styleId) == "string" and styleId ~= "", "style id must be a non-empty string")
+  self._styleId = styleId
+end
+
 -- Session teardown: returns the controller to its initial hidden state and
--- releases every owned surface (command, presentation, printer, appearance)
--- exactly once. Idempotent.
+-- releases every owned surface (command, presentation, printer, appearance,
+-- routed style) exactly once. Idempotent.
 function FieldSignpostController:dispose()
   self._command = "nop"
   self._active = false
   self._offset = HIDDEN_OFFSET
   self._sourceAppearance = nil
   self._print = nil
+  self._styleId = self._defaultStyleId
 end
 
 function FieldSignpostController:_advancePrint()

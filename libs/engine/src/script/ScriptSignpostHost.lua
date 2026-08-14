@@ -51,6 +51,15 @@ function ScriptSignpostHost:setSourceAppearance(appearance)
   self._controller:setSourceAppearance(appearance)
 end
 
+-- Style routing for the high-level sign operations: the script-requested
+-- window style id (a registered id or a semantic appearance already resolved
+-- by the runtime) is stamped into the controller's presentation. The host
+-- never resolves geometry from it.
+---@param styleId string
+function ScriptSignpostHost:setStyleId(styleId)
+  self._controller:setStyleId(styleId)
+end
+
 -- Print the whole message instantly in the signpost window (the immediate
 -- direction-signpost path): resolve and expand, then print. The request is
 -- presentation-neutral; text colors are the style's, never the host's.
@@ -95,7 +104,8 @@ end
 
 -- Fault/cancellation cleanup: stop any active printer, close the signpost
 -- window, return the command to nop, and release modal ownership exactly
--- once. Idempotent: a second close has no further effect.
+-- once (the controller's hide case also restores the default style).
+-- Idempotent: a second close has no further effect.
 function ScriptSignpostHost:close()
   local controller = self._controller
   controller:stopPrint()

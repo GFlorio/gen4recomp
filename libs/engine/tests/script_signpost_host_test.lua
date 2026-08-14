@@ -43,6 +43,7 @@ local function fakeController()
       self.active = false
       self.print = nil
       self.command = "nop"
+      self.styleId = self.defaultStyleId or "hgss.signpost"
     end
   end
   function controller:printInstant(message)
@@ -60,6 +61,10 @@ local function fakeController()
   function controller:setSourceAppearance(appearance)
     self.calls[#self.calls + 1] = "setSourceAppearance"
     self.appearance = appearance and { game = appearance.game, type = appearance.type, map = appearance.map } or nil
+  end
+  function controller:setStyleId(styleId)
+    self.calls[#self.calls + 1] = "setStyleId"
+    self.styleId = styleId
   end
   function controller:isModal()
     return self.active
@@ -180,6 +185,30 @@ function T.set_command_forwards_the_window_request()
   local h, _, _ = host({ controller = controller })
   h:setCommand("wipe_in")
   Assert.equal(controller.command, "wipe_in", "the window request reaches the controller command")
+end
+
+-- The high-level sign path routes a script-requested style id through the
+-- host into the controller's presentation routing.
+function T.set_style_id_forwards_the_requested_style()
+  local controller = fakeController()
+  local h, _, _ = host({ controller = controller })
+  h:setStyleId("mod.route_sign")
+  Assert.equal(controller.styleId, "mod.route_sign", "the requested style id reaches the controller")
+end
+
+-- The close teardown returns the routed style to the default with the rest
+-- of the presentation, so a high-level flow never leaks its style into a
+-- later flow.
+function T.close_resets_the_routed_style_to_the_default()
+  local controller = fakeController()
+  local h, _, _ = host({ controller = controller })
+  h:setStyleId("mod.route_sign")
+  h:setCommand("show")
+  h:advance()
+  Assert.isTrue(h:isModal())
+  h:close()
+  Assert.isFalse(h:isModal())
+  Assert.equal(controller.styleId, "hgss.signpost", "close must restore the default style id")
 end
 
 -- The scheduler calls advance exactly once per tick; it must touch only the

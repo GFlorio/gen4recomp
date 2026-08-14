@@ -418,6 +418,31 @@ Schema.OPERATIONS = {
       result = { type = "value", required = true },
     },
   },
+  -- High-level handwritten-signpost operations (the mod-facing S.sign /
+  -- S.trainerTip API). They present the signpost window with a registered
+  -- style id or a semantic appearance value -- never source-only type/map
+  -- data -- and delegate to the same ScriptSignpostHost /
+  -- FieldSignpostController primitives as the imported operations; the
+  -- registered sign task owns the open -> dismiss -> close lifecycle.
+  -- Imported ROM scripts never lower to these operations.
+  sign = {
+    fields = {
+      message = { type = "message", required = true },
+      -- A registered style id or the semantic "sign" (resolved to the
+      -- hgss.signpost built-in at script execution).
+      appearance = { type = "string", default = "sign" },
+      -- Reserved mod-facing wayfinding graphic asset id; the style's own
+      -- assets carry the map graphic.
+      mapGraphic = { type = "string" },
+      wait = { type = "boolean", default = true },
+    },
+  },
+  trainer_tip = {
+    fields = {
+      message = { type = "message", required = true },
+      appearance = { type = "string", default = "trainer_tip" },
+    },
+  },
   -- Opcode 61 (ScrCmd_061, std_signpost's hide-branch tail): no operands.
   -- Ends the script context and requests the Start Menu reopen hook
   -- through the startMenuReopen service; a missing service is an
@@ -867,6 +892,52 @@ Schema.CONSTRUCTORS = {
         signature = "S.menuExec(spec)",
         canonical = "op=menu_exec",
         notes = "Generated/advanced imported-HGSS builder form.",
+      },
+    },
+  },
+  {
+    section = "Signpost constructors",
+    notes = "S.sign and S.trainerTip are the high-level semantic surface: they present the signpost window with a registered style id or the semantic appearance value (never source-only type/map data) and delegate to the same signpost host/controller primitives as the imported operations. The six generated/advanced forms map 1:1 onto the imported signpost operations.",
+    rows = {
+      {
+        signature = "S.sign(message, opts)",
+        canonical = "op=sign",
+        notes = 'opts={appearance="sign",mapGraphic=nil,wait=true}; appearance is a registered style id or the semantic "sign".',
+      },
+      {
+        signature = "S.trainerTip(message, opts)",
+        canonical = "op=trainer_tip",
+        notes = 'opts={appearance="trainer_tip"}; types at the player text speed and waits for dismissal.',
+      },
+      {
+        signature = "S.signpostSet(spec)",
+        canonical = "op=signpost_set",
+        notes = "Generated/advanced imported-HGSS form; spec={sourceAppearance={game,type,map}}.",
+      },
+      {
+        signature = "S.signpostCommand(command)",
+        canonical = "op=signpost_command",
+        notes = "Generated/advanced; command is one of the semantic strings (nop/show/wipe_out/wipe_in/hide).",
+      },
+      {
+        signature = "S.waitSignpostAction(spec)",
+        canonical = "op=wait_signpost_action",
+        notes = "Generated/advanced imported-HGSS form; spec optional.",
+      },
+      {
+        signature = "S.signpostDirection(spec)",
+        canonical = "op=signpost_direction",
+        notes = "Generated/advanced imported-HGSS form.",
+      },
+      {
+        signature = "S.trainerTipsPrint(spec)",
+        canonical = "op=trainer_tips_print",
+        notes = "Generated/advanced imported-HGSS form.",
+      },
+      {
+        signature = "S.waitSignpost(spec)",
+        canonical = "op=wait_signpost",
+        notes = "Generated/advanced imported-HGSS form.",
       },
     },
   },

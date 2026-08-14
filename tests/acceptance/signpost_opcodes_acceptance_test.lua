@@ -73,6 +73,21 @@ local function signpostStatus(game)
   return game.runtime.signpost:status()
 end
 
+-- The imported script keeps the low-level nodes: the high-level sign
+-- operations never rewrite the imported sequence (a walk over the compiled
+-- effective graph, no high-level op anywhere).
+local function assertNoHighLevelSignOps(game, scriptId, label)
+  local composed = assert(game.runtime.scripts.composition:effective(scriptId))
+  local graph = assert(composed.entries[1].graph, label .. " must compile to an executable graph")
+  local count = 0
+  for _, node in pairs(graph.nodes) do
+    Assert.isTrue(node.op ~= "sign", label .. " must keep the low-level signpost nodes")
+    Assert.isTrue(node.op ~= "trainer_tip", label .. " must keep the low-level signpost nodes")
+    count = count + 1
+  end
+  Assert.isTrue(count > 0, label .. " compiled graph must have nodes")
+end
+
 local function faultCode(faults)
   return faults[1] and faults[1].code or "none"
 end
@@ -182,6 +197,7 @@ end
 -- whose wipe-out cleanup ends the flow without a script fault.
 function T.tests.direction_signpost_shows_immediately_yields_once_and_never_writes_its_out_operand()
   withGame(function(game)
+    assertNoHighLevelSignOps(game, DIRECTION_SIGNPOST, "the direction-signpost override")
     game:setWorldState({ variable = SPECIAL_RESULT, value = 77 })
     game:startScript(DIRECTION_SIGNPOST)
 

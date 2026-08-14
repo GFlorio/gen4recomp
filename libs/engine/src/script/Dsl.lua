@@ -501,6 +501,56 @@ function M.menuExec(spec)
   return op("menu_exec", spec)
 end
 
+-- High-level signpost constructors: the semantic mod-facing S.sign /
+-- S.trainerTip operations. The message is positional; every other option
+-- rides one canonical spec table with the schema defaults. The six
+-- generated/advanced forms below map 1:1 onto the imported signpost
+-- operations and are never rewritten into the high-level helpers.
+function M.sign(message, opts)
+  assert(message ~= nil, "sign message is required")
+  local given = {}
+  for key, value in pairs(opts or {}) do
+    given[key] = value
+  end
+  given.message = message
+  return op("sign", given)
+end
+
+function M.trainerTip(message, opts)
+  assert(message ~= nil, "trainer tip message is required")
+  local given = {}
+  for key, value in pairs(opts or {}) do
+    given[key] = value
+  end
+  given.message = message
+  return op("trainer_tip", given)
+end
+
+function M.signpostSet(spec)
+  return op("signpost_set", spec)
+end
+
+function M.signpostCommand(command)
+  assert(type(command) == "string" and command ~= "", "signpost command must be a non-empty string")
+  return op("signpost_command", { command = command })
+end
+
+function M.waitSignpostAction(spec)
+  return op("wait_signpost_action", spec)
+end
+
+function M.signpostDirection(spec)
+  return op("signpost_direction", spec)
+end
+
+function M.trainerTipsPrint(spec)
+  return op("trainer_tips_print", spec)
+end
+
+function M.waitSignpost(spec)
+  return op("wait_signpost", spec)
+end
+
 -- Movement constructors (spec-table forms)
 
 function M.applyMovement(spec)

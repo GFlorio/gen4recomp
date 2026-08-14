@@ -32,6 +32,23 @@ FieldWindowStyleRegistry.ROLES = {
 -- replace them.
 FieldWindowStyleRegistry.RESERVED_PREFIX = "hgss."
 
+-- The semantic appearance values handwritten scripts may pass to the
+-- high-level sign operations in place of a registered style id. The
+-- runtime resolves them to the built-in styles at script execution; any
+-- other appearance string is treated as a registered style id.
+FieldWindowStyleRegistry.SEMANTIC_STYLES = {
+  sign = "hgss.signpost",
+  trainer_tip = "hgss.trainer_tip",
+}
+
+-- Resolves a semantic appearance value to its built-in style id, or returns
+-- nil when the value is a raw registered style id.
+---@param appearance string
+---@return string|nil
+function FieldWindowStyleRegistry.semanticStyleId(appearance)
+  return FieldWindowStyleRegistry.SEMANTIC_STYLES[appearance]
+end
+
 local VALID_ASSET_KEYS = { frame = true, mapGraphic = true }
 
 -- Canonical HGSS signpost content geometry: types 0/1 reserve the wayfinding

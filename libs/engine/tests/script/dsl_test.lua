@@ -909,6 +909,86 @@ local CASES = {
     { op = "shake_camera", amplitudeX = 2, amplitudeY = 0, intervalTicks = 2, count = 8 },
   },
 
+  -- Signpost constructors: the high-level S.sign / S.trainerTip operations
+  -- (defaults come from the schema) and the six generated/advanced forms
+  -- mapping 1:1 onto the imported signpost operations.
+  sign = {
+    function()
+      return S.sign("msg.hgss.0542.00034", { appearance = "mod.route_sign", wait = true })
+    end,
+    { op = "sign", message = "msg.hgss.0542.00034", appearance = "mod.route_sign", wait = true },
+  },
+  sign_defaults = {
+    function()
+      return S.sign("msg.hgss.0542.00034")
+    end,
+    { op = "sign", message = "msg.hgss.0542.00034", appearance = "sign", wait = true },
+  },
+  trainer_tip = {
+    function()
+      return S.trainerTip("msg.hgss.0542.00036", { appearance = "trainer_tip" })
+    end,
+    { op = "trainer_tip", message = "msg.hgss.0542.00036", appearance = "trainer_tip" },
+  },
+  trainer_tip_defaults = {
+    function()
+      return S.trainerTip("msg.hgss.0542.00036")
+    end,
+    { op = "trainer_tip", message = "msg.hgss.0542.00036", appearance = "trainer_tip" },
+  },
+  signpost_set = {
+    function()
+      return S.signpostSet({ sourceAppearance = { game = "hgss", type = 0, map = 42 } })
+    end,
+    { op = "signpost_set", sourceAppearance = { game = "hgss", type = 0, map = 42 } },
+  },
+  signpost_command = {
+    function()
+      return S.signpostCommand("wipe_in")
+    end,
+    { op = "signpost_command", command = "wipe_in" },
+  },
+  wait_signpost_action = {
+    function()
+      return S.waitSignpostAction()
+    end,
+    { op = "wait_signpost_action" },
+  },
+  signpost_direction = {
+    function()
+      return S.signpostDirection({
+        message = { message = "external", bank = 542, id = 34 },
+        sourceAppearance = { game = "hgss", type = 0, map = 11 },
+        sourceUnusedOut = "VAR_SPECIAL_RESULT",
+      })
+    end,
+    {
+      op = "signpost_direction",
+      message = { message = "external", bank = 542, id = 34 },
+      sourceAppearance = { game = "hgss", type = 0, map = 11 },
+      sourceUnusedOut = "VAR_SPECIAL_RESULT",
+    },
+  },
+  trainer_tips_print = {
+    function()
+      return S.trainerTipsPrint({
+        message = { message = "external", bank = 542, id = 34 },
+        result = S.var("VAR_SPECIAL_RESULT"),
+      })
+    end,
+    {
+      op = "trainer_tips_print",
+      message = { message = "external", bank = 542, id = 34 },
+      result = { value = "var", id = "VAR_SPECIAL_RESULT" },
+    },
+  },
+  wait_signpost = {
+    function()
+      return S.waitSignpost({ result = S.var("VAR_SPECIAL_RESULT") })
+    end,
+    { op = "wait_signpost", result = { value = "var", id = "VAR_SPECIAL_RESULT" } },
+  },
+
   -- Random and diagnostic constructors
   random = {
     function()
@@ -1065,6 +1145,17 @@ function T.script_does_not_mutate_given_spec()
   local script = S.script(spec)
   Assert.isNil(spec.kind)
   Assert.equal(script.kind, "field_script")
+end
+
+-- The high-level sign constructors take the message positionally and must
+-- not mutate the caller's options table.
+function T.sign_constructors_do_not_mutate_given_options()
+  local signOpts = { appearance = "mod.route_sign", wait = true }
+  S.sign("msg.hgss.0542.00034", signOpts)
+  Assert.deepEqual(signOpts, { appearance = "mod.route_sign", wait = true })
+  local tipOpts = { appearance = "trainer_tip" }
+  S.trainerTip("msg.hgss.0542.00036", tipOpts)
+  Assert.deepEqual(tipOpts, { appearance = "trainer_tip" })
 end
 
 -- Every raw handler sees ctx.apiVersion == 1.
