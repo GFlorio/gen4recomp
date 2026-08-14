@@ -29,6 +29,9 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@field _lastActorManager any?
 ---@field _lastActorVisualRevision integer?
 ---@field _lastPlayerSpriteId integer?
+---@field _actorRecords table[]
+---@field _actorDrawStorage FieldActorDrawStorage
+---@field _actorAssetLookup fun(spriteId: integer): table
 ---@field worldParts table[][] ordered map, building, neighbor, and actor draw arrays
 ---@field development boolean product mode (default) hides the playtest HUD and ignores the F1/F2 developer binds
 ---@field topologyProvider fun(width: number, height: number): ScreenTopology
@@ -70,6 +73,8 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
     _lastActorManager = nil,
     _lastActorVisualRevision = nil,
     _lastPlayerSpriteId = nil,
+    _actorRecords = {},
+    _actorDrawStorage = { items = {}, actorSlots = {}, generation = 0 },
     worldParts = {},
   }, FieldState)
   local ok, err = pcall(function()
@@ -82,6 +87,10 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
       return love.graphics.getFont():getWidth(text)
     end)
     self.presentationActorAssets = FieldActorAssetProvider.new(runtime.cacheFs)
+    self._actorAssetLookup = function(spriteId)
+      local assets = assert(self.presentationActorAssets, "field presentation assets are unavailable")
+      return assert(assets:resident(spriteId), "field actor presentation visual is not resident")
+    end
     self:_syncPresentationAssets()
   end)
   if not ok then
@@ -156,14 +165,19 @@ end
 -- object actors the manager considers present. Records stay presentation-neutral;
 -- FieldActorDraw turns them into world draw items against the resident visuals.
 function FieldState:_actorDraws(alpha)
-  local records = { self.runtime.playerVisual:drawRecord(alpha) }
-  for _, record in ipairs(self.runtime.actors:drawRecords()) do
-    records[#records + 1] = record
+  local records = self._actorRecords or {}
+  self._actorRecords = records
+  records[1] = self.runtime.playerVisual:drawRecord(alpha)
+  local actorRecords = self.runtime.actors:drawRecords()
+  for index, record in ipairs(actorRecords) do
+    records[index + 1] = record
   end
-  return FieldActorDraw.items(records, function(spriteId)
-    local assets = assert(self.presentationActorAssets, "field presentation assets are unavailable")
-    return assert(assets:resident(spriteId), "field actor presentation visual is not resident")
-  end)
+  for index = #records, #actorRecords + 2, -1 do
+    records[index] = nil
+  end
+  local storage = assert(self._actorDrawStorage, "field actor draw storage is unavailable")
+  local assetLookup = assert(self._actorAssetLookup, "field actor asset lookup is unavailable")
+  return FieldActorDraw.itemsInto(records, assetLookup, storage)
 end
 
 -- Refresh the persistent ordered scene parts: map geometry, buildings, the
@@ -429,6 +443,14 @@ function FieldState:dispose()
   if self.dialogueRenderer then
     self.dialogueRenderer:release()
     self.dialogueRenderer = nil
+  end
+  -- Draw items borrow provider-owned GPU objects; they must not outlive the
+  -- presentation residency that made those objects valid.
+  self._actorRecords = nil
+  self._actorDrawStorage = nil
+  self._actorAssetLookup = nil
+  if self.worldParts then
+    self.worldParts[4] = nil
   end
   if self.presentationActorAssets then
     for spriteId in pairs(self._presentationSpriteRefs or {}) do

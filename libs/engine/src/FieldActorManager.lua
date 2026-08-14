@@ -36,6 +36,8 @@ local PARTNER_OBJECT_ID = 253
 ---@field pendingFlags table[]
 ---@field currentMapId integer|nil
 ---@field _visualRevision integer
+---@field _drawRecords table[]
+---@field _drawRecordByActorId table<string, table>
 local FieldActorManager = {}
 FieldActorManager.__index = FieldActorManager
 
@@ -76,6 +78,8 @@ function FieldActorManager.new(opts)
     pendingFlags = {},
     currentMapId = nil,
     _visualRevision = 0,
+    _drawRecords = {},
+    _drawRecordByActorId = {},
   }, FieldActorManager)
 end
 
@@ -221,6 +225,7 @@ function FieldActorManager:_destroy(entry, actor)
     end
   end
   self.assets:release(actor.spriteId)
+  self._drawRecordByActorId[actor.actorId] = nil
   self._visualRevision = self._visualRevision + 1
 end
 
@@ -353,19 +358,30 @@ function FieldActorManager:collectSpriteIds(out)
 end
 
 function FieldActorManager:drawRecords()
-  local records = {}
+  local records = self._drawRecords
+  local count = 0
   for _, entry in pairs(self.maps) do
     for _, actor in ipairs(entry.order) do
-      records[#records + 1] = {
-        actorId = actor.actorId,
-        spriteId = actor.spriteId,
-        world = { x = actor.worldX, y = actor.worldY, z = actor.worldZ },
-        facing = actor.facing,
-        pose = actor.pose,
-        poseTick = actor.poseTick,
-        visible = actor.visible,
-      }
+      count = count + 1
+      local record = self._drawRecordByActorId[actor.actorId]
+      if not record then
+        record = { world = {} }
+        self._drawRecordByActorId[actor.actorId] = record
+      end
+      record.actorId = actor.actorId
+      record.spriteId = actor.spriteId
+      record.world.x = actor.worldX
+      record.world.y = actor.worldY
+      record.world.z = actor.worldZ
+      record.facing = actor.facing
+      record.pose = actor.pose
+      record.poseTick = actor.poseTick
+      record.visible = actor.visible
+      records[count] = record
     end
+  end
+  for index = #records, count + 1, -1 do
+    records[index] = nil
   end
   return records
 end

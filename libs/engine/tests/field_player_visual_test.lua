@@ -114,6 +114,21 @@ function T.the_draw_record_interpolates_the_shared_render_position()
   Assert.isTrue(record.visible)
 end
 
+function T.the_draw_record_and_world_table_are_reused_and_updated()
+  local subject = player()
+  local presentation = visual(subject)
+  local record = presentation:drawRecord(0.5)
+  subject.previousWorldX = 2
+  subject.worldX = 5
+  subject.facing = "east"
+
+  local updated = presentation:drawRecord(1)
+  Assert.isTrue(updated == record, "the player record is reusable")
+  Assert.isTrue(updated.world == record.world, "the player world table is reusable")
+  Assert.equal(updated.world.x, 5)
+  Assert.equal(updated.facing, "east")
+end
+
 function T.the_record_follows_the_players_facing()
   local subject = player()
   local presentation = visual(subject)

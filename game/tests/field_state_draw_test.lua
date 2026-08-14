@@ -28,7 +28,13 @@ local function presentationEntry(spriteId)
   for frameIndex = 1, visual.render.frameCount do
     meshes[frameIndex] = { frameIndex = frameIndex }
   end
-  return { spriteId = spriteId, visual = visual, image = {}, meshes = meshes }
+  return {
+    spriteId = spriteId,
+    visual = visual,
+    image = {},
+    meshes = meshes,
+    billboardScales = { [visual.render.geometry] = { 1, 1, 1 } },
+  }
 end
 
 local function presentationAssets(entries)
@@ -78,6 +84,10 @@ local function presentationState(assets, actorIds)
     runtime = runtime,
     presentationActorAssets = assets,
     _presentationSpriteRefs = {},
+    _actorDrawStorage = { items = {}, actorSlots = {}, generation = 0 },
+    _actorAssetLookup = function(spriteId)
+      return assert(assets:resident(spriteId), "field actor presentation visual is not resident")
+    end,
     worldParts = {},
   }, FieldState),
     actors,
@@ -191,6 +201,10 @@ function T.draw_passes_the_scene_runtime_and_queries_the_menu_host()
         received = { scene = scene, camera = camera, worldParts = worldParts }
       end,
     },
+    _actorDrawStorage = { items = {}, actorSlots = {}, generation = 0 },
+    _actorAssetLookup = function()
+      error("no actor in this scenario is visible, so the asset lookup must not run")
+    end,
     worldParts = {},
   }, FieldState)
   state:draw()
@@ -325,6 +339,15 @@ end
 
 function T.draw_rejects_a_sprite_without_presentation_residency()
   local acquisitions = 0
+  local assets = {
+    resident = function(_, _spriteId)
+      return nil
+    end,
+    acquire = function()
+      acquisitions = acquisitions + 1
+      return nil
+    end,
+  }
   local state = setmetatable({
     runtime = {
       playerVisual = {
@@ -338,20 +361,39 @@ function T.draw_rejects_a_sprite_without_presentation_residency()
         end,
       },
     },
-    presentationActorAssets = {
-      resident = function()
-        return nil
-      end,
-      acquire = function()
-        acquisitions = acquisitions + 1
-        return nil
-      end,
-    },
+    presentationActorAssets = assets,
+    _actorDrawStorage = { items = {}, actorSlots = {}, generation = 0 },
+    _actorAssetLookup = function(spriteId)
+      return assert(assets:resident(spriteId), "field actor presentation visual is not resident")
+    end,
   }, FieldState)
   Assert.throws(function()
     state:_actorDraws(0)
   end)
   Assert.equal(acquisitions, 0)
+end
+
+function T.actor_draws_reuse_state_storage_without_acquiring_assets()
+  local assets = presentationAssets({ [99] = presentationEntry(99) })
+  local state, actors = presentationState(assets, { [99] = true })
+  actors.records = { actorRecord("map:61:object:0", 99) }
+  function actors:drawRecords()
+    return self.records
+  end
+
+  local items = state:_actorDraws(0.5)
+  local actorItem = items[2]
+  actors.records[1].world.x = 7
+  local updated = state:_actorDraws(0.5)
+
+  Assert.isTrue(updated == items, "FieldState reuses the actor item array")
+  Assert.isTrue(updated[2] == actorItem, "FieldState reuses the actor item skeleton")
+  Assert.equal(updated[2].transform[13], 7)
+  Assert.isNil(assets.acquisitions[99], "draw reads residency without acquiring assets")
+
+  state:dispose()
+  Assert.isNil(state._actorRecords, "disposal drops borrowed actor records")
+  Assert.isNil(state._actorDrawStorage, "disposal drops borrowed draw items")
 end
 
 -- Presentation reads must go through the explicit `runtime` reference: the
