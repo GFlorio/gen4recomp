@@ -55,6 +55,9 @@ Schema.ENUMS = {
   menu_placement_mode = { "auto", "floating", "docked" },
   menu_anchor = { "auto", "top_left", "top_right", "bottom_left", "bottom_right", "bottom", "side" },
   menu_surface = { "auto", "main", "auxiliary" },
+  -- The five MAPSIGNCOMMAND_* values as the semantic command enum; numeric
+  -- source codes never appear at runtime (lowering converts them).
+  signpost_command = { "nop", "show", "wipe_out", "wipe_in", "hide" },
 }
 
 Schema.ACTOR_SPECIALS = { "player", "self", "last_talked", "partner", "camera_target" }
@@ -388,6 +391,17 @@ Schema.OPERATIONS = {
       sourceAppearance = { type = "serializable", required = true },
     },
   },
+  -- Opcode 57: assign one of the five signpost commands to the persistent
+  -- signpost window (a bare assignment, no busy guard); the controller
+  -- returns it to nop only when the action completes. Opcode 58 waits for
+  -- the command to return to nop, continuing in the same tick when it
+  -- already is.
+  signpost_command = {
+    fields = {
+      command = { type = "enum:signpost_command", required = true },
+    },
+  },
+  wait_signpost_action = { fields = {} },
   message = {
     fields = {
       message = { type = "message", required = true },

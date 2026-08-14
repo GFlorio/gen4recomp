@@ -24,6 +24,7 @@
 local Cfg = require("romdump.src.digest.script.Cfg")
 local CommandCatalog = require("romdump.src.digest.script.CommandCatalog")
 local SemanticLowering = require("romdump.src.digest.script.SemanticLowering")
+local SignpostCommands = require("romdump.src.reference.hgss.signpost_commands")
 
 local Verifier = {}
 
@@ -57,6 +58,7 @@ local BLOCKING_OPS = {
   menu_exec = true,
   warp = true,
   call_common = true,
+  wait_signpost_action = true,
 }
 
 -- Operations that end the run phase: yield boundaries and stops.
@@ -67,6 +69,7 @@ local YIELD_OPS = {
   menu_begin = true,
   signpost_direction = true,
   signpost_set = true,
+  signpost_command = true,
   stop = true,
 }
 
@@ -257,6 +260,13 @@ local CHECKERS = {
     local appearance = step.sourceAppearance or {}
     if appearance.type ~= ins.operands[1].raw or appearance.map ~= ins.operands[2].raw then
       return "SetSignpostMap type/map changed by translation"
+    end
+  end,
+  [57] = function(ins, step)
+    -- SetSignpostAction: the raw MAPSIGNCOMMAND_* code must lower to the
+    -- exact semantic command, never a default.
+    if step.command ~= SignpostCommands.semanticName(ins.operands[1].raw) then
+      return "SetSignpostAction command changed by translation"
     end
   end,
 }

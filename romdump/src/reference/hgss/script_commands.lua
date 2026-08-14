@@ -391,12 +391,14 @@ return {
       },
     },
     [57] = {
+      classification = "yield_next_tick",
       name = "ScrCmd_SetSignpostAction",
       widths = {
         [1] = 1,
       },
     },
     [58] = {
+      classification = "native_wait",
       name = "ScrCmd_WaitSignpostAction",
       widths = {},
     },

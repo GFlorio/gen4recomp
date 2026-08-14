@@ -10,6 +10,7 @@
 local CommandCatalog = require("romdump.src.digest.script.CommandCatalog")
 local MovementDecoder = require("romdump.src.digest.script.MovementDecoder")
 local SourceCatalog = require("romdump.src.digest.script.SourceCatalog")
+local SignpostCommands = require("romdump.src.reference.hgss.signpost_commands")
 local MenuProtocol = require("libs.assets.src.MenuProtocol")
 
 local SemanticLowering = {}
@@ -389,6 +390,20 @@ local HANDLERS = {
         map = operandValue(ins.operands[2]),
       },
     }
+  end,
+  [57] = function(ins)
+    -- SetSignpostAction command: the raw MAPSIGNCOMMAND_* code 0..4 lowers
+    -- to the semantic command enum (nop/show/wipe_out/wipe_in/hide). An
+    -- unknown code is malformed source and never defaults to nop.
+    local raw = operandValue(ins.operands[1])
+    local command = SignpostCommands.semanticName(raw)
+    assert(command ~= nil, "unknown signpost command code " .. tostring(raw))
+    return { op = "signpost_command", command = command }
+  end,
+  [58] = function()
+    -- WaitSignpostAction: blocks until the command returns to nop; the
+    -- runtime wait task polls the signpost host's command.
+    return { op = "wait_signpost_action" }
   end,
   [63] = function(ins)
     return { op = "ask_yes_no", result = varRef(ins.operands[1] or 0) }

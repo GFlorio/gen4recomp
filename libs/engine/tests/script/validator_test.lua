@@ -165,6 +165,43 @@ function T.signpost_operations_validate_canonical_shapes()
   }))
 end
 
+function T.signpost_command_enum_is_exactly_the_five_semantic_strings()
+  Assert.deepEqual(
+    require("libs.engine.src.script.Schema").ENUMS.signpost_command,
+    { "nop", "show", "wipe_out", "wipe_in", "hide" }
+  )
+  for _, command in ipairs({ "nop", "show", "wipe_out", "wipe_in", "hide" }) do
+    valid(S.script({
+      api = 1,
+      id = "x",
+      steps = { { op = "signpost_command", command = command }, { op = "wait_signpost_action" }, S.stop() },
+    }))
+  end
+end
+
+function T.signpost_command_and_wait_reject_malformed_shapes()
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "signpost_command" } },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "signpost_command", command = "fade_out" } },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "signpost_command", command = "wipe_in", extra = true } },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "wait_signpost_action", extra = true } },
+  })
+end
+
 function T.signpost_operations_reject_malformed_shapes()
   invalidCode("SCRIPT_SCHEMA_INVALID", {
     api = 1,

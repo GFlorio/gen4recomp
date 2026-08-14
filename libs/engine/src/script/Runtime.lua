@@ -1195,6 +1195,35 @@ HANDLERS.signpost_set = function(node, run)
   host:setCommand("show")
   return Runtime.OUTCOME_YIELD_TICK
 end
+
+-- SetSignpostAction (57): assign the semantic command to the signpost
+-- window. Signpost_SetCommand is a bare assignment with no busy guard, so a
+-- running action is superseded; the fixed-tick controller executes it at the
+-- next field update (never in-handler) and returns the command to nop when
+-- the action completes. Yields one tick.
+HANDLERS.signpost_command = function(node, run)
+  requireForeground(run, "signpost_command")
+  local host = requireService(run, "signpost")
+  ---@cast host ScriptSignpostHost
+  host:setCommand(node.command)
+  return Runtime.OUTCOME_YIELD_TICK
+end
+
+-- WaitSignpostAction (58): block until the signpost command returns to nop.
+-- On entry the command may already be nop (the source returns immediately),
+-- in which case the script continues in the same tick; otherwise a
+-- registered task polls the host's command each tick and completes only when
+-- it is nop again. Opcode 58 has no result operand, so no result reference
+-- rides along.
+HANDLERS.wait_signpost_action = function(node, run)
+  requireForeground(run, "wait_signpost_action")
+  local host = requireService(run, "signpost")
+  ---@cast host ScriptSignpostHost
+  if host:status().command == "nop" then
+    return Runtime.OUTCOME_CONTINUE
+  end
+  return blockOnTask(run, "wait_signpost_action", {})
+end
 HANDLERS.close_message = function(node, run)
   requireService(run, "dialogue"):close(node.erase ~= false)
   return Runtime.OUTCOME_CONTINUE
