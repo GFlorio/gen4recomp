@@ -86,9 +86,12 @@ end
 
 -- The §17.1/§41 presentation snapshot: the phase, the host-owned fade
 -- alpha, the active application id (while a destination owns the tick or is
--- being entered/left), and the Start Menu presentation status while the
--- menu phases run.
----@return { phase: string, fadeAlpha: number, applicationId?: string, menu?: table }
+-- being entered/left), the Start Menu presentation status while the menu
+-- phases run, and the active destination's own presentation status while
+-- the application phase runs (the §17.1 renderer channel: FieldState
+-- chooses the destination renderer from this snapshot; only the one active
+-- modal surface is presented).
+---@return { phase: string, fadeAlpha: number, applicationId?: string, menu?: table, application?: table }
 function FieldApplicationHost:status()
   local phase = self._phase
   local status = {
@@ -104,6 +107,9 @@ function FieldApplicationHost:status()
     and (phase == FieldApplicationHost.PHASES.opening_menu or phase == FieldApplicationHost.PHASES.menu)
   then
     status.menu = controller:status()
+  end
+  if controller ~= nil and phase == FieldApplicationHost.PHASES.application then
+    status.application = controller:status()
   end
   return status
 end

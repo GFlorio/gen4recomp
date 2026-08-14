@@ -207,6 +207,34 @@ function T.tests.application_steps_the_destination_once_per_tick_until_close()
   Assert.equal(destination.updateFixedCalls, 3)
 end
 
+-- The §17.1 renderer channel: during the application phase the host snapshot
+-- exposes the destination's own presentation (status.application), and the
+-- menu phase / fade phases expose no application surface even while the
+-- destination id is known. FieldState chooses the renderer from this channel.
+function T.tests.application_phase_exposes_the_destination_presentation_and_other_phases_do_not()
+  local host, _, registry = fixture()
+  local menu = openMenu(host, _, registry)
+  host:updateFixed(11, {})
+  Assert.equal(host:status().application, nil, "the menu phase presents no application surface")
+  menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
+  local destination = fakeController({ presentation = { name = "GOLD", trainerId = 0 } })
+  registry.controllers.trainer_card = destination
+  host:updateFixed(12, {})
+  Assert.equal(host:status().application, nil, "the fade-out phase presents no application surface")
+  for tick = 13, 12 + FieldApplicationHost.FADE_TICKS do
+    host:updateFixed(tick, {})
+  end
+  Assert.equal(host:status().phase, "application")
+  Assert.deepEqual(
+    host:status().application,
+    destination:status(),
+    "the application phase exposes the destination presentation"
+  )
+  destination.result = { kind = "close" }
+  host:updateFixed(30, {})
+  Assert.equal(host:status().application, nil, "the fade-in after a close presents no application surface")
+end
+
 function T.tests.destination_close_disposes_exactly_once_and_fades_back_in()
   local host, _, registry = fixture()
   local menu = openMenu(host, _, registry)

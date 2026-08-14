@@ -22,7 +22,8 @@ local T = {
   tests = {},
 }
 
-local DESTINATION_ID = "trainer_card"
+local DESTINATION_ID = "fake_destination"
+local DESTINATION_ACTION = "my_mod.fake_destination"
 local FACTORY_FAILURE_TEXT = "component injected destination factory failure"
 
 local function fakeDestination(registry, id)
@@ -71,6 +72,9 @@ end
 local function bootWithRegistry(options)
   options = options or {}
   local registry = {}
+  -- The fake destination rides a mod Start Menu action after the production
+  -- trainer card (which the runtime registers itself), so the fake's
+  -- observable counters drive the disposal matrix.
   local fieldOptions = {
     applicationDescriptors = {
       {
@@ -78,6 +82,15 @@ local function bootWithRegistry(options)
         factory = function()
           return fakeDestination(registry, DESTINATION_ID)
         end,
+      },
+    },
+    startMenuDescriptors = {
+      {
+        id = DESTINATION_ACTION,
+        label = "msg.hgss.0542.00034",
+        icon = "asset.my_mod.fake_destination_icon",
+        targetApplication = DESTINATION_ID,
+        placement = { after = "vanilla.trainer_card" },
       },
     },
   }
@@ -125,7 +138,17 @@ local function confirmAction(game)
   game.runtime:releaseAction()
 end
 
+-- The mod fake action occupies slot 3 below the production trainer card
+-- (slot 2); select it before confirming so the fake's counters drive the
+-- ownership assertions.
+local function navigateToFake(game)
+  game.runtime.input:pressDirection("south", "test:navigate")
+  game:step()
+  game.runtime.input:releaseDirection("test:navigate")
+end
+
 local function launchDestination(game, maxTicks)
+  navigateToFake(game)
   confirmAction(game)
   advanceToPhase(game, "application", 64)
 end
@@ -233,10 +256,20 @@ function T.tests.runtime_disposal_in_the_failed_phase_releases_cleanly()
           end,
         },
       },
+      startMenuDescriptors = {
+        {
+          id = DESTINATION_ACTION,
+          label = "msg.hgss.0542.00034",
+          icon = "asset.my_mod.fake_destination_icon",
+          targetApplication = DESTINATION_ID,
+          placement = { after = "vanilla.trainer_card" },
+        },
+      },
     },
   })
   local ok, err = xpcall(function()
     openMenu(game)
+    navigateToFake(game)
     confirmAction(game)
     game:advanceUntil("the factory failure is retained", function()
       return game.runtime.errorText ~= nil
@@ -289,8 +322,9 @@ function T.tests.resize_cancels_an_active_menu_pointer_capture()
       })
     end
     -- Canonical (192, 19) is the center of manifest slot 2 (the fresh menu's
-    -- only visible action). The 4:3 surface scales uniformly, so that
-    -- canonical point is (192, 19) at scale 1 and (768, 76) at scale 4.
+    -- first action, the production trainer card). The 4:3 surface scales
+    -- uniformly, so that canonical point is (192, 19) at scale 1 and
+    -- (768, 76) at scale 4.
     runtime:resizePresentation(256, 192, topology(256, 192))
     openMenu(game)
     runtime.input:pointerDown("touch:1", 192, 19)
@@ -326,12 +360,6 @@ function T.tests.the_rebuild_restores_the_remembered_selection_by_action_id()
     save = "fresh",
     fieldOptions = {
       applicationDescriptors = {
-        {
-          id = DESTINATION_ID,
-          factory = function()
-            return fakeDestination(registry, DESTINATION_ID)
-          end,
-        },
         {
           id = "my_mod.quest_log",
           factory = function()

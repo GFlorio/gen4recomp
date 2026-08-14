@@ -28,6 +28,7 @@ FieldUiFixture.WAYFINDING_PATH = "assets/generated/field/ui/wayfinding-tiles.png
 
 FieldUiFixture.START_MENU_BACKGROUND_PATH = "assets/generated/field/ui/start-menu.png"
 FieldUiFixture.START_MENU_CURSOR_PATH = "assets/generated/field/ui/start-menu-cursor.png"
+FieldUiFixture.TRAINER_CARD_PATH = "assets/generated/field/ui/trainer-card.png"
 
 -- Every signpost source type the real scr_seq corpus uses (opcodes 55/56),
 -- the set pinned by the producer configuration; types 0/1 reserve the
@@ -274,6 +275,82 @@ function FieldUiFixture.startMenuCursorBytes()
   return PngWriter.encode(16, 32, table.concat(bytes))
 end
 
+-- The trainer card front art: a per-tile tinted surface (every 8x8 tile a
+-- distinct color so a misplacement is a pixel mismatch), with the bottom 64
+-- rows transparent exactly like the compiled class (the DS screen buffer is
+-- 32x32 tiles but the visible card fills the 256x192 screen).
+---@return string png
+function FieldUiFixture.cardBytes()
+  local bytes = {}
+  for y = 0, 255 do
+    for x = 0, 255 do
+      if y < 192 then
+        local tileX = math.floor(x / 8)
+        local tileY = math.floor(y / 8)
+        local r = (10 + tileX * 23 + tileY * 7) % 256
+        local g = (30 + tileY * 41 + tileX * 5) % 256
+        local b = (200 - tileX * 13 - tileY * 17) % 256
+        bytes[#bytes + 1] = string.char(r, g, b, 255)
+      else
+        bytes[#bytes + 1] = string.char(0, 0, 0, 0)
+      end
+    end
+  end
+  return PngWriter.encode(256, 256, table.concat(bytes))
+end
+
+-- The trainer card label/value charset: the fixture font carries every
+-- character the audited front-side labels and values can draw (A-Z, a-z for
+-- the "No." label, digits, space, period). Codes 1..64 in the first atlas
+-- row; the fallback glyph 0 sits in the second row.
+FieldUiFixture.CARD_CHARSET = " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789."
+
+-- The solid color of card glyph code i: distinct per code, so a wrong glyph
+-- (or a wrong anchor) is a pixel mismatch in the goldens.
+---@param code integer
+---@return integer, integer, integer
+function FieldUiFixture.cardGlyphColor(code)
+  return (code * 37) % 256, (60 + code * 13) % 200, (200 - code * 11) % 180
+end
+
+---@return FieldFontDef
+function FieldUiFixture.cardFontDef()
+  local glyphs = {}
+  for code = 1, #FieldUiFixture.CARD_CHARSET do
+    glyphs[code] = { x = (code - 1) * 8, y = 0, w = 8, h = 16, advance = 8, bearingX = 0, bearingY = 0 }
+  end
+  glyphs[0] = { x = 0, y = 16, w = 8, h = 16, advance = 8, bearingX = 0, bearingY = 0 }
+  local charmap = {}
+  for index = 1, #FieldUiFixture.CARD_CHARSET do
+    charmap[FieldUiFixture.CARD_CHARSET:sub(index, index)] = index
+  end
+  return {
+    schema = "g4-field-font-v1",
+    fontId = 0,
+    lineHeight = 16,
+    maxLetterHeight = 16,
+    letterSpacing = 0,
+    atlas = { width = 512, height = 32, glyphsPerRow = 64, glyphWidth = 8, glyphHeight = 16 },
+    glyphs = glyphs,
+    charmap = charmap,
+  }
+end
+
+-- The card font atlas: glyph codes 1..64 in the first 512x16 row, the
+-- fallback in the second row.
+---@return string png
+function FieldUiFixture.cardFontAtlasBytes()
+  local bytes = {}
+  for y = 0, 31 do
+    for x = 0, 511 do
+      local code = y < 16 and (math.floor(x / 8) + 1) or 0
+      local r, g, b = FieldUiFixture.cardGlyphColor(code)
+      bytes[#bytes + 1] = string.char(r, g, b, 255)
+    end
+  end
+  return PngWriter.encode(512, 32, table.concat(bytes))
+end
+
 -- The signpost source-type map in the generated manifest shape: every corpus
 -- type with its raw number preserved, types 0/1 carrying wayfinding atlas
 -- rects. The on-screen 56px graphic region is NOT the atlas rect; the style
@@ -326,6 +403,11 @@ function FieldUiFixture.manifest()
         width = 16,
         height = 32,
       },
+      ["hgss.trainer_card.front"] = {
+        image = FieldUiFixture.TRAINER_CARD_PATH,
+        width = 256,
+        height = 256,
+      },
     },
     dialogueFrames = {
       count = FieldUiFixture.FRAME_COUNT,
@@ -346,6 +428,9 @@ function FieldUiFixture.manifest()
       slots = FieldUiFixture.START_MENU_SLOTS,
       icons = FieldUiFixture.START_MENU_ICONS,
     },
+    trainerCard = {
+      front = { x = 0, y = 0, width = 256, height = 256 },
+    },
   }
 end
 
@@ -358,6 +443,19 @@ function FieldUiFixture.cacheWithFontAndFrames()
   cache:write(FieldUiFixture.WAYFINDING_PATH, FieldUiFixture.wayfindingBytes())
   cache:write(FieldUiFixture.START_MENU_BACKGROUND_PATH, FieldUiFixture.startMenuBackgroundBytes())
   cache:write(FieldUiFixture.START_MENU_CURSOR_PATH, FieldUiFixture.startMenuCursorBytes())
+  return cache
+end
+
+-- The trainer card front viewer fixture: the card font (the full label/value
+-- charset), the field-UI manifest with the trainerCard section, and the
+-- synthetic 256x256 card front art.
+---@return CacheFs
+function FieldUiFixture.trainerCardCache()
+  local cache = CacheFs.forVersion("heartgold", FakeCache.new())
+  cache:writeLua("data/generated/field/font/font-0.lua", FieldUiFixture.cardFontDef())
+  cache:write("assets/generated/field/font/font-0.png", FieldUiFixture.cardFontAtlasBytes())
+  cache:writeLua(FieldUiAssetCache.manifestPath(), FieldUiFixture.manifest())
+  cache:write(FieldUiFixture.TRAINER_CARD_PATH, FieldUiFixture.cardBytes())
   return cache
 end
 
