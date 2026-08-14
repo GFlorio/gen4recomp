@@ -39,6 +39,8 @@ local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractio
 ---@field scriptClient ScriptInteractionClient
 ---@field menuHost FieldMenuHost
 ---@field contextChoice ContextChoiceProvider
+---@field signpost FieldSignpostController
+---@field coverage fun(session: FieldSession)?
 
 ---@class FieldSession.Interactions
 ---@field resolve fun(self: FieldSession.Interactions, snapshot: InteractionResolverSnapshot): InteractionIntent?
@@ -58,6 +60,8 @@ local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractio
 ---@field scriptClient ScriptInteractionClient
 ---@field menuHost FieldMenuHost
 ---@field contextChoice ContextChoiceProvider
+---@field signpost FieldSignpostController the fixed-tick signpost controller (save-gate interrogation only; the scheduler steps it)
+---@field coverage fun(session: FieldSession)?
 ---@field tick integer
 ---@field accumulator number
 local FieldSession = {}
@@ -102,6 +106,7 @@ function FieldSession.new(options)
   assert(options.scriptClient and options.scriptClient.consume, "field session script client required")
   assert(options.menuHost and options.menuHost.isModal and options.menuHost.advance, "field session menu host required")
   assert(options.contextChoice and options.contextChoice.isActive, "field session context choice required")
+  assert(options.signpost and options.signpost.isModal, "field session signpost controller required")
   assert(options.interactions and options.interactions.resolve, "field session interaction resolver required")
   return setmetatable({
     versionId = options.versionId,
@@ -118,6 +123,8 @@ function FieldSession.new(options)
     scriptClient = options.scriptClient,
     menuHost = options.menuHost,
     contextChoice = options.contextChoice,
+    signpost = options.signpost,
+    coverage = options.coverage,
     tick = 0,
     accumulator = 0,
   }, FieldSession)
@@ -323,6 +330,9 @@ function FieldSession:updateFixed(inputSnapshot)
     self.playerVisual:updateFixed(walkingAtTickStart)
   end
   self.camera:updateFixed(self:actorTarget())
+  if self.coverage then
+    self.coverage(self)
+  end
   self:_advanceTick()
 end
 

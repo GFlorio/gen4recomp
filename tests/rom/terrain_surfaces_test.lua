@@ -189,6 +189,11 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
       return false
     end,
   }
+  local signpost = {
+    isModal = function()
+      return false
+    end,
+  }
   local interactions = {
     resolve = function()
       return nil
@@ -207,6 +212,7 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
     scriptClient = scriptClient,
     menuHost = menuHost,
     contextChoice = contextChoice,
+    signpost = signpost,
     interactions = interactions,
   })
 

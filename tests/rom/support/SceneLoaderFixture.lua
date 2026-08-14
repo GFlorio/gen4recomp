@@ -267,6 +267,12 @@ function SceneLoaderFixture.newHarness(versionId, opts)
         return false
       end,
     },
+    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
+    signpost = {
+      isModal = function()
+        return false
+      end,
+    },
   })
   harness.session = session
   harness.transition = transition

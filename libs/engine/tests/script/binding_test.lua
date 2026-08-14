@@ -525,6 +525,12 @@ T["session script phase"] = function()
     dialogue = dialogue,
     menuHost = menuHost,
     contextChoice = contextChoice,
+    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
+    signpost = {
+      isModal = function()
+        return false
+      end,
+    },
   })
   -- The script client starts the interaction and the tick is consumed: the
   -- player does not move while the foreground root owns the field.
