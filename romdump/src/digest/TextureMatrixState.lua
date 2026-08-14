@@ -10,11 +10,12 @@
 local TextureMatrixState = {}
 
 ---@param mat table a decoded DS material record (Nsbmd material)
----@param texMtxMode integer? the model's texture-matrix convention (0 by default)
+---@param texMtxMode integer the model's texture-matrix convention (Maya = 0)
 ---@return { texMtxMode: integer, texWidth: integer?, texHeight: integer?, srt?: table, srtMatrix?: table }
 function TextureMatrixState.fromMaterial(mat, texMtxMode)
+  assert(type(texMtxMode) == "number", "TextureMatrixState requires the model's texture-matrix convention")
   local state = {
-    texMtxMode = texMtxMode or 0,
+    texMtxMode = texMtxMode,
     texWidth = mat.origWidth,
     texHeight = mat.origHeight,
   }
