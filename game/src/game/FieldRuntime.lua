@@ -35,6 +35,7 @@ local FieldScripts = require("game.src.game.FieldScripts")
 local FieldSession = require("libs.engine.src.FieldSession")
 local FieldTransition = require("libs.engine.src.FieldTransition")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
+local FieldWindowStyleRegistry = require("libs.engine.src.FieldWindowStyleRegistry")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local FieldZoom = require("libs.engine.src.FieldZoom")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
@@ -87,6 +88,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field cancelKeys table<string, boolean>?
 ---@field saveFs SaveFs?
 ---@field presentation boolean
+---@field windowStyles FieldWindowStyleRegistry the sealed per-runtime window style catalogue
 ---@field scriptHosts FieldRuntimeScriptHosts?
 local FieldRuntime = {}
 FieldRuntime.__index = FieldRuntime
@@ -203,6 +205,11 @@ function FieldRuntime:_load()
       "field UI cache is cold -- run `scripts/buildcache.sh` first"
     )
     assert(FieldUiAssetCache.validateManifest(uiManifest), "field UI manifest is invalid")
+    -- The window-style catalogue is composed per runtime from the same
+    -- generated manifest and sealed before the script platform exists.
+    self.windowStyles = FieldWindowStyleRegistry.new()
+    self.windowStyles:registerBuiltins(uiManifest)
+    self.windowStyles:seal()
     local frameIndexes = {}
     for frame = 0, uiManifest.dialogueFrames.count - 1 do
       frameIndexes[frame] = true
@@ -728,6 +735,7 @@ function FieldRuntime:_releaseAll()
   self.viewport, self.input, self.menuHost = nil, nil, nil
   self.auxiliaryFieldUi, self.contextChoiceProvider, self.interactionResolver = nil, nil, nil
   self.eventState, self.avatar, self.actorConfig, self.playerData = nil, nil, nil, nil
+  self.windowStyles = nil
 end
 
 -- End the state's lifetime: persist the field session if one is live, then
