@@ -111,6 +111,52 @@ function T.field_viewport_sizes_and_rebuilds_render_targets(scope)
   Assert.equal(renderer.canvasH, 720)
 end
 
+-- The 2x DS-relative world raster (Story 1/14) against real driver resources:
+-- the renderer allocates its targets at the derived raster size rather than
+-- the raw display viewport, several host resolutions at the same aspect and
+-- scale reuse that same raster target instead of reallocating, and the
+-- composited scene canvas is nearest-filtered on the real driver like idDepth
+-- already is.
+function T.raster_scale_derives_and_reuses_target_size_and_nearest_filters_scene_color(scope)
+  local renderer = scope:own(MapRenderer.new({ rasterScale = 2 }))
+  local camera, runtime = fixedCamera(), emptyRuntime()
+
+  local viewport = FieldViewport.new(1280, 720, { mode = "expanded" })
+  renderer:draw(runtime, camera, nil, viewport)
+  Assert.equal(renderer.canvasW, 683)
+  Assert.equal(renderer.canvasH, 384)
+  local min, mag = renderer.sceneColor:getFilter()
+  Assert.equal(min, "nearest", "the composited scene canvas is nearest-filtered")
+  Assert.equal(mag, "nearest")
+
+  local targets = renderer._sceneTargets
+  for _, size in ipairs({ { 1920, 1080 }, { 2560, 1440 } }) do
+    viewport:resize(size[1], size[2])
+    renderer:draw(runtime, camera, nil, viewport)
+    Assert.equal(renderer.canvasW, 683, "same aspect/scale reuses the 683x384 raster")
+    Assert.equal(renderer.canvasH, 384)
+    Assert.equal(renderer._sceneTargets, targets, "same derived raster size does not reallocate targets")
+  end
+end
+
+-- setRasterScale on a real driver: switching to a raster scale recreates the
+-- targets at the derived size, and switching back to nil (unrestricted host
+-- resolution) recreates them again at the raw display viewport.
+function T.set_raster_scale_recreates_real_targets_at_the_derived_size(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local camera, runtime = fixedCamera(), emptyRuntime()
+  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
+
+  renderer:draw(runtime, camera, nil, viewport)
+  Assert.equal(renderer.canvasW, 640)
+  Assert.equal(renderer.canvasH, 480)
+
+  renderer:setRasterScale(2)
+  renderer:draw(runtime, camera, nil, viewport)
+  Assert.equal(renderer.canvasW, 512)
+  Assert.equal(renderer.canvasH, 384)
+end
+
 -- An actor draw is a cutout billboard submitted as an overlay item, and it sets
 -- per-item cull, depth, and alpha state. Nothing it touches may survive the
 -- frame, or the 2D dialogue UI and the next map's draws inherit it.

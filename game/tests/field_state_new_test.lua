@@ -11,6 +11,8 @@ local FieldActorFixture = require("tests.support.FieldActorFixture")
 local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
 local FieldRuntime = require("game.src.game.FieldRuntime")
 local FieldState = require("game.src.game.FieldState")
+local MapRenderer = require("libs.engine.src.MapRenderer")
+local WindowConfig = require("game.src.WindowConfig")
 
 local T = {}
 
@@ -81,6 +83,34 @@ function T.only_documented_runtime_options_reach_the_runtime()
     zoomConfig = { mode = "test" },
     presentation = true,
   })
+  state:dispose()
+end
+
+-- The 2x DS-relative world raster (Story 1/14) is presentation policy, wired
+-- from game configuration -- libs/engine must not import it. WindowConfig is
+-- asserted directly first so a coincidental nil-equals-nil between an unset
+-- config constant and an unset renderer option can never pass this test.
+function T.raster_scale_from_window_config_reaches_the_renderer()
+  Assert.equal(WindowConfig.WORLD_RASTER_SCALE, 2, "WindowConfig declares the default DS-relative raster scale")
+
+  local originalMapRendererNew = MapRenderer.new
+  local capturedOpts
+  MapRenderer.new = function(opts)
+    capturedOpts = opts
+    return originalMapRendererNew(opts)
+  end
+  local ok, stateOrErr = pcall(bootWithCapturedRuntimeOptions, {})
+  MapRenderer.new = originalMapRendererNew
+  if not ok then
+    error(stateOrErr, 0)
+  end
+  local state = stateOrErr
+
+  Assert.equal(
+    capturedOpts.rasterScale,
+    WindowConfig.WORLD_RASTER_SCALE,
+    "FieldState forwards the configured raster scale"
+  )
   state:dispose()
 end
 

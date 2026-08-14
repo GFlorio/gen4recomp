@@ -96,13 +96,17 @@ local function fakeGraphics(opts)
       shaders[#shaders + 1] = shader
       return shader
     end,
-    newCanvas = function()
+    newCanvas = function(w, h, canvasOpts)
       canvasCount = canvasCount + 1
       if opts.failOnNewCanvas == canvasCount then
         error("injected canvas failure")
       end
-      local canvas = { releaseCount = 0 }
-      canvas.setFilter = function() end
+      -- Records the requested size/format and every setFilter call so raster
+      -- target-sizing and nearest-filter contracts can be asserted headlessly.
+      local canvas = { releaseCount = 0, w = w, h = h, canvasOpts = canvasOpts }
+      canvas.setFilter = function(_, min, mag)
+        canvas.filter = { min, mag }
+      end
       canvas.release = function()
         canvas.releaseCount = canvas.releaseCount + 1
       end
@@ -249,6 +253,33 @@ function T.field_edge_radius_uses_only_viewport_height()
   Assert.equal(MapRenderer.fieldEdgeRadiusPixels(192), 1)
   Assert.equal(MapRenderer.fieldEdgeRadiusPixels(384), 2)
   Assert.equal(MapRenderer.fieldEdgeRadiusPixels(1080), 6)
+end
+
+-- rasterTargetSize is the pure derivation the DS-relative world raster is
+-- built on: nil scale never restricts the host resolution; otherwise the
+-- raster height is scale * 192 DS lines, clamped so the raster is never
+-- upscaled past the presentation viewport (the 320x240 row), and the width
+-- follows the display aspect. Every row is the epic's locked pixel-conform
+-- table; the 1280x720/1920x1080/2560x1440 rows additionally prove distinct
+-- host resolutions at the same aspect and scale collapse onto one raster size
+-- so same-aspect resizes can reuse render targets.
+function T.rasterTargetSize_matches_the_pixel_conform_table()
+  local cases = {
+    { 640, 480, 2, 512, 384 },
+    { 960, 720, 2, 512, 384 },
+    { 1280, 720, 2, 683, 384 },
+    { 1920, 1080, 2, 683, 384 },
+    { 2560, 1440, 2, 683, 384 },
+    { 2560, 720, 2, 1365, 384 },
+    { 320, 240, 2, 320, 240 },
+    { 1280, 720, nil, 1280, 720 },
+  }
+  for _, case in ipairs(cases) do
+    local displayW, displayH, scale, expectedW, expectedH = case[1], case[2], case[3], case[4], case[5]
+    local rasterW, rasterH = MapRenderer.rasterTargetSize(displayW, displayH, scale)
+    Assert.equal(rasterW, expectedW, ("%dx%d @ %s -> width"):format(displayW, displayH, tostring(scale)))
+    Assert.equal(rasterH, expectedH, ("%dx%d @ %s -> height"):format(displayW, displayH, tostring(scale)))
+  end
 end
 
 function T.rejects_stale_scene_schema()
@@ -446,6 +477,69 @@ function T.new_first_shader_source_failure_leaks_nothing()
   end)
   Assert.isTrue(tostring(err):find("injected read failure", 1, true) ~= nil, "rethrows the read failure")
   Assert.equal(#lg.shaders, 0, "no shader was created")
+end
+
+-- opts.rasterScale (Story 1/14) makes the renderer allocate its targets at
+-- the derived raster size, not the raw display viewport, and nearest-filter
+-- the composited scene the same way idDepth already is -- the world stays
+-- DS-relative while the final draw upscales it to the display viewport.
+function T.new_with_raster_scale_derives_canvas_size_and_nearest_filters_scene_color()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg, rasterScale = 2 })
+  local scene = emptySceneCamera()
+  local viewport = { worldViewport = { x = 0, y = 0, width = 1280, height = 720 } }
+  renderer:draw(scene.runtime, scene.camera, nil, viewport)
+  Assert.equal(renderer.canvasW, 683, "the raster target width is derived from scale, not the display viewport")
+  Assert.equal(renderer.canvasH, 384, "the raster target height is derived from scale, not the display viewport")
+  local sceneColor = renderer.sceneColor --[[@as any]]
+  Assert.deepEqual(
+    sceneColor.filter,
+    { "nearest", "nearest" },
+    "the composited scene canvas is nearest-filtered like idDepth"
+  )
+  renderer:release()
+end
+
+-- setRasterScale is the seam the eventual in-game setting uses: it changes
+-- which derived size the next draw allocates, and target recreation is
+-- change-driven -- it fires only when the derived raster dimensions actually
+-- differ, never merely because the method was called or the host resized at
+-- an unchanged aspect/scale.
+function T.setRasterScale_recreates_targets_only_when_derived_size_changes()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  local viewport = { worldViewport = { x = 0, y = 0, width = 640, height = 480 } }
+
+  renderer:draw(scene.runtime, scene.camera, nil, viewport)
+  Assert.equal(renderer.canvasW, 640, "nil scale renders at unrestricted host resolution")
+  Assert.equal(renderer.canvasH, 480)
+
+  renderer:setRasterScale(2)
+  renderer:draw(scene.runtime, scene.camera, nil, viewport)
+  local targets = renderer._sceneTargets
+  Assert.equal(renderer.canvasW, 512, "raster scale 2 derives 512x384 from a 640x480 display viewport")
+  Assert.equal(renderer.canvasH, 384)
+
+  -- Redrawing at the same scale and display size must not recreate targets.
+  renderer:draw(scene.runtime, scene.camera, nil, viewport)
+  Assert.equal(renderer._sceneTargets, targets, "unchanged derived size reuses the target descriptor")
+
+  -- A same-aspect host resize that derives the same raster size must also
+  -- reuse the targets, not recreate them off the raw display dimensions.
+  local widerSameAspect = { worldViewport = { x = 0, y = 0, width = 960, height = 720 } }
+  renderer:draw(scene.runtime, scene.camera, nil, widerSameAspect)
+  Assert.equal(renderer.canvasW, 512, "960x720 at scale 2 derives the same 512x384 raster as 640x480")
+  Assert.equal(renderer.canvasH, 384)
+  Assert.equal(renderer._sceneTargets, targets, "same derived raster size reuses the target descriptor")
+
+  renderer:setRasterScale(nil)
+  renderer:draw(scene.runtime, scene.camera, nil, viewport)
+  Assert.isTrue(renderer._sceneTargets ~= targets, "changing the derived size recreates the target descriptor")
+  Assert.equal(renderer.canvasW, 640, "nil scale again renders at unrestricted host resolution")
+  Assert.equal(renderer.canvasH, 480)
+
+  renderer:release()
 end
 
 -- Target reallocation builds the full replacement set before releasing the

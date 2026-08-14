@@ -18,7 +18,7 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@field resetSave boolean? wipe the save and start a fresh session (runtime contract)
 ---@field zoomConfig table? runtime zoom configuration (runtime contract)
 ---@field development boolean? product mode (the default) hides the playtest HUD and ignores the F1/F2 developer binds
----@field topologyProvider fun(width: number, height: number): ScreenTopology
+---@field topologyProvider (fun(width: number, height: number): ScreenTopology)?
 
 ---@class FieldState
 ---@field runtime FieldRuntime?
@@ -79,7 +79,8 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
     worldParts = {},
   }, FieldState)
   local ok, err = pcall(function()
-    self.renderer = MapRenderer.new({ clearColor = WindowConfig.BACKGROUND_COLOR })
+    self.renderer =
+      MapRenderer.new({ clearColor = WindowConfig.BACKGROUND_COLOR, rasterScale = WindowConfig.WORLD_RASTER_SCALE })
     self.dialogueRenderer = FieldDialogueRenderer.new({ cacheFs = runtime.cacheFs })
     self.menuRenderer = FieldMenuRenderer.new()
     local width, height = love.graphics.getDimensions()

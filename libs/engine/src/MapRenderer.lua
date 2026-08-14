@@ -53,6 +53,7 @@ local DsLighting = require("libs.engine.src.DsLighting")
 ---@field _lightVectorCache number[][]
 ---@field _lightColorCache number[][]
 ---@field _queueScratch RenderQueueScratch
+---@field _rasterScale number?
 local MapRenderer = {}
 MapRenderer.__index = MapRenderer
 
@@ -132,7 +133,7 @@ MapRenderer.REAR_PLANE_ID = 255
 -- stays clear of the real 6-bit IDs (0-63) and the 255 rear-plane/wireframe id.
 local TRANSLUCENT_SENTINEL_ID = 254
 
----@param opts { edgeMarking?: { colors?: number[][], alpha?: number }, graphics?: love.Graphics, clearColor?: number[], readSource?: fun(path: string): string }?
+---@param opts { edgeMarking?: { colors?: number[][], alpha?: number }, graphics?: love.Graphics, clearColor?: number[], rasterScale?: number, readSource?: fun(path: string): string }?
 function MapRenderer.new(opts)
   opts = opts or {}
   local edgeMarking = opts.edgeMarking or {}
@@ -152,6 +153,7 @@ function MapRenderer.new(opts)
   local readSource = opts.readSource or defaultReadSource
   local renderer = setmetatable({
     _graphics = graphics,
+    _rasterScale = opts.rasterScale,
     clearColor = opts.clearColor or DEFAULT_CLEAR_COLOR,
     edgeColors = colors,
     edgeAlpha = edgeMarking.alpha or 0.5,
@@ -199,6 +201,15 @@ function MapRenderer.new(opts)
   return renderer
 end
 
+-- Change the raster scale for subsequent draws. Target recreation is
+-- change-driven: the next `draw` reallocates only if the newly derived
+-- raster size actually differs from the currently published one (see
+-- `_ensureCanvases`), never merely because this method was called.
+---@param scale number|nil
+function MapRenderer:setRasterScale(scale)
+  self._rasterScale = scale
+end
+
 function MapRenderer:_releaseCanvases()
   if self.sceneColor then
     self.sceneColor:release()
@@ -232,6 +243,10 @@ function MapRenderer:_ensureCanvases(w, h)
   local sceneColor, idDepth, depth, sceneTargets
   local ok, err = pcall(function()
     sceneColor = lg.newCanvas(w, h)
+    -- The completed world is nearest-upscaled to the presentation viewport
+    -- (see the final composite draw in MapRenderer:draw), so the raster
+    -- stays DS-relative instead of blurring into the host resolution.
+    sceneColor:setFilter("nearest", "nearest")
     -- Red holds the normalized polygon ID, green the linear eye-space depth in
     -- world units. The format must be 32-bit float: the depth spans the full near
     -- to far range (hundreds of units) and edge marking tests sub-unit steps
@@ -267,6 +282,29 @@ end
 -- only with viewport height.
 function MapRenderer.fieldEdgeRadiusPixels(viewportHeight)
   return math.max(1, math.min(MAX_EDGE_RADIUS, math.floor(viewportHeight / DS_NATIVE_HEIGHT + 0.5)))
+end
+
+-- The DS-relative world raster derivation: `nil` scale renders at the raw
+-- display viewport, unrestricted. Otherwise the raster height is
+-- `scale * DS_NATIVE_HEIGHT` DS lines, clamped so the raster is never
+-- upscaled past the presentation viewport (a display shorter than that many
+-- lines renders 1:1 instead), and the raster width follows the display
+-- aspect ratio at that height. Two display sizes with the same aspect ratio
+-- and scale derive the same raster size, so `MapRenderer:draw` can reuse
+-- render targets across same-aspect host resizes.
+---@param displayW number
+---@param displayH number
+---@param scale number|nil
+---@return integer rasterW
+---@return integer rasterH
+function MapRenderer.rasterTargetSize(displayW, displayH, scale)
+  if scale == nil then
+    return math.floor(displayW + 0.5), math.floor(displayH + 0.5)
+  end
+  assert(scale > 0, "rasterScale must be a positive number or nil")
+  local rasterH = math.min(displayH, scale * DS_NATIVE_HEIGHT)
+  local rasterW = displayW * (rasterH / displayH)
+  return math.floor(rasterW + 0.5), math.floor(rasterH + 0.5)
 end
 
 local function alphaModeId(alphaClass)
@@ -721,8 +759,9 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
   self.stats.drawCalls = 0
 
   local rectangle = viewport.worldViewport
-  local w = math.max(1, math.floor(rectangle.width + 0.5))
-  local h = math.max(1, math.floor(rectangle.height + 0.5))
+  local displayW = math.max(1, math.floor(rectangle.width + 0.5))
+  local displayH = math.max(1, math.floor(rectangle.height + 0.5))
+  local w, h = MapRenderer.rasterTargetSize(displayW, displayH, self._rasterScale)
   self:_ensureCanvases(w, h)
 
   local viewMatrix = camera:view(alpha)
