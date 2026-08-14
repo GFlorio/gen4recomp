@@ -6,7 +6,8 @@
 -- load() reads those assets through the shared GpuAssetPool (one persistent
 -- Mesh per unique geometry path, one Image per unique texture/wrap sampler
 -- state, deduplicated across cells), and bakes each cell's world offset into
--- the draw transform and sort center. Material wrap resolution lives in
+-- the draw transform while retaining each mesh's model-space sort center.
+-- Material wrap resolution lives in
 -- SceneDescriptor; each geometry path's sort center is the pool mesh
 -- entry's cached model-space center. All GPU construction happens here, once;
 -- the pool releases every owned mesh/image. Load is transactional: the whole
@@ -61,9 +62,10 @@ end
 -- owned by the central scene: the ring never selects a clip per neighbour.
 local function buildRing(pool, descriptors, clip)
   -- One draw per (cell, batch), with the cell's 32-tile world offset baked into
-  -- the transform and the sort center, and one { record, runtime } binding per
-  -- source material: the original descriptor records are immutable and are
-  -- referenced directly, so no synthetic id space is needed.
+  -- the transform only -- the mesh center stays in model space for queue
+  -- sorting -- and one { record, runtime } binding per source material: the
+  -- original descriptor records are immutable and are referenced directly,
+  -- so no synthetic id space is needed.
   local draws = {}
   local bindings = {}
   for _, cell in ipairs(descriptors) do
@@ -96,7 +98,7 @@ local function buildRing(pool, descriptors, clip)
       draw.material = materials[batch.material]
       draw.transform = transform
       draw.alphaCutoff = AlphaClassifier.CUTOUT_EPSILON
-      draw.center = { c[1] + ox, c[2], c[3] + oz }
+      draw.center = c
       draws[#draws + 1] = draw
     end
   end
