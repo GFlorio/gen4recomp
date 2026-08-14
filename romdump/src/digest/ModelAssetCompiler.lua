@@ -55,10 +55,10 @@ end
 -- last being the materials whose names the bound pack does not define, tagged
 -- with the model they came from so a caller can report them. When the caller
 -- passes a map-scoped terrain-animation compiler in
--- `context.terrainAnimationCompiler` (the option's presence selects
--- annotation, not the role), every material whose texture name an fldtanime
--- record names gets a textureSwap record and its alternate frames join the
--- shared texture accumulator.
+-- `context.terrainAnimationCompiler` and the role is a terrain role (map or
+-- neighbor), every material whose texture name an fldtanime record names gets
+-- a textureSwap record and its alternate frames join the shared texture
+-- accumulator; other roles never gain terrain annotation.
 local function compileModel(model, texturePack, meshes, textures, context)
   local mat = MaterialCompiler.compile(model.materials, texturePack, { context = context })
   for sha1, tex in pairs(mat.textures) do
@@ -93,8 +93,10 @@ local function compileModel(model, texturePack, meshes, textures, context)
   -- Terrain scene materials (map and neighbor roles) carry the decoded
   -- texture-matrix fields, the same conversion the dynamic model base
   -- materials use; placed-building models never gain them.
+  local isTerrain = context.role == "map" or context.role == "neighbor"
+
   local terrainStateById
-  if context.role == "map" or context.role == "neighbor" then
+  if isTerrain then
     terrainStateById = {}
     for _, mat in ipairs(model.materials) do
       terrainStateById[mat.index] = TextureMatrixState.fromMaterial(mat, model.info.texMtxMode)
@@ -102,7 +104,7 @@ local function compileModel(model, texturePack, meshes, textures, context)
   end
 
   local materials = sceneMaterials(mat.materials, terrainStateById)
-  if context.terrainAnimationCompiler then
+  if isTerrain and context.terrainAnimationCompiler then
     for i, m in ipairs(mat.materials) do
       -- A matched record yields a textureSwap record; an unmatched material
       -- or one that failed texture binding leaves the field omitted.
