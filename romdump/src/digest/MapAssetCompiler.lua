@@ -29,6 +29,7 @@ local MapCatalog = require("romdump.src.digest.MapCatalog")
 local NeighborPlan = require("romdump.src.digest.NeighborPlan")
 local ModelAssetCompiler = require("romdump.src.digest.ModelAssetCompiler")
 local NeighborChunkCompiler = require("romdump.src.digest.NeighborChunkCompiler")
+local TerrainAnimationCompiler = require("romdump.src.digest.TerrainAnimationCompiler")
 local Errors = require("libs.errors.src.Errors")
 local AnimationClip = require("libs.assets.src.AnimationClip")
 local NsbmdDynamicModel = require("romdump.src.digest.NsbmdDynamicModel")
@@ -323,6 +324,15 @@ local function _compile(romFs, idOrSymbol, opts)
   local areaBytes = readMember(areaNarc, "area_data", resolved.areaDataMemberId)
   local area = assert(AreaData.decode(areaBytes, { alias = "area_data", memberId = resolved.areaDataMemberId }))
 
+  -- Terrain-animation compilation is map-scoped: one compiler parses the
+  -- fldtanime table and serves every central and neighbor terrain compile,
+  -- so all matched replacement members land in one dependency record, and
+  -- the one area NSBTA clip is compiled from the central area's selection.
+  local terrainAnimations = TerrainAnimationCompiler.new(romFs, {
+    mapId = mapId,
+    dynamicTextureType = area.dynamicTextureType,
+  })
+
   local landNarc = assert(romFs:openNarc("land_data"))
   local landBytes = readMember(landNarc, "land_data", resolved.landDataMemberId)
   local land =
@@ -387,6 +397,7 @@ local function _compile(romFs, idOrSymbol, opts)
     modelArchive = "land_data",
     modelMemberId = resolved.landDataMemberId,
     modelName = mapModel.name,
+    terrainAnimations = terrainAnimations,
   })
 
   -- Materials whose names the pack they bind to does not define. They draw
@@ -550,6 +561,7 @@ local function _compile(romFs, idOrSymbol, opts)
       mapId = mapId,
       mapSymbol = resolved.map.symbol,
       neighborCells = neighborCells,
+      terrainAnimations = terrainAnimations,
     })
     for sha1, b in pairs(chunk.meshes) do
       meshes[sha1] = b
@@ -582,6 +594,11 @@ local function _compile(romFs, idOrSymbol, opts)
       },
     }
   end
+
+  -- The one area texture-coordinate clip (or false) is compiled once after
+  -- every central and neighbor terrain compile so the dependency record
+  -- covers the whole ring; the neighbor areas' own selections are ignored.
+  local textureSrt = terrainAnimations:compileTextureSrt()
 
   -- Dependency record -> hash -> marker.
   local buildingModelShas = {}
@@ -627,6 +644,13 @@ local function _compile(romFs, idOrSymbol, opts)
     },
     animationListMemberSha1s = animDeps,
   }
+  -- The animation sources are producer provenance like every other
+  -- dependency: the fldtanime table hash unconditionally, only the used
+  -- replacement members, and the selected area NSBTA member -- merged before
+  -- the marker hash so any animation source change invalidates the map.
+  local terrainAnimDeps = terrainAnimations:dependencies()
+  dependencies.fieldTextureAnimations = terrainAnimDeps.fieldTextureAnimations
+  dependencies.terrainTextureSrt = terrainAnimDeps.terrainTextureSrt
   local marker = MapAssetCache.marker(romSha1, mapId, Hashing.hashLua(dependencies))
 
   local scene = {
@@ -656,6 +680,9 @@ local function _compile(romFs, idOrSymbol, opts)
     materials = mapCompiled.materials,
     buildingInstances = buildingInstances,
     neighbors = neighbors,
+    -- The central scene owns the one area texture-coordinate clip; the
+    -- neighbor runtime receives it from the loader, never per-descriptor.
+    terrainAnimations = { textureSrt = textureSrt },
     calibration = { modelExtentTilesX = exTiles, modelExtentTilesZ = ezTiles, posScale = mapModel.info.posScale },
     limitations = {
       dynamicTexturesStatic = true,

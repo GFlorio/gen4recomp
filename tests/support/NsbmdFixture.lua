@@ -84,11 +84,35 @@ end
 --   texImageParam at 0x14 requests repeat S/T (bits 16-17), full mask;
 --   origWidth/Height at 0x20/0x22 come from the caller; magW/magH fx32 1.0 at
 --   0x24/0x28.
-local function materialData(origWidth, origHeight, polyAttr)
+-- `srt` appends the static texture-SRT extension (NsbmdMaterialSrt layout):
+-- present components pack after the fixed prefix in scale/rot/trans order and
+-- the absent ones set the SRT absence flags bits (0x002/0x004/0x008), so the
+-- decoder reads exactly the authored components. A record with all three
+-- components present has size 0x4C.
+local function materialData(origWidth, origHeight, polyAttr, srt)
+  local flags = 0x140
+  local extra = ""
+  if srt then
+    if srt.scale then
+      extra = extra .. NB.u32(srt.scale.s) .. NB.u32(srt.scale.t)
+    else
+      flags = flags + 0x002
+    end
+    if srt.rot then
+      extra = extra .. NB.u16(srt.rot.sin) .. NB.u16(srt.rot.cos)
+    else
+      flags = flags + 0x004
+    end
+    if srt.trans then
+      extra = extra .. NB.u32(srt.trans.s) .. NB.u32(srt.trans.t)
+    else
+      flags = flags + 0x008
+    end
+  end
   local diffAmb = 0x1F + 0x8000 + 0x03E0 * 0x10000
   local specEmi = 0x7C00 + 0x3DEF * 0x10000
   return NB.u16(0)
-    .. NB.u16(0x2C)
+    .. NB.u16(0x2C + #extra)
     .. NB.u32(diffAmb)
     .. NB.u32(specEmi)
     .. NB.u32(polyAttr or 0x001F00C1)
@@ -96,11 +120,12 @@ local function materialData(origWidth, origHeight, polyAttr)
     .. NB.u32(0x30000)
     .. NB.u32(0xFFFFFFFF)
     .. NB.u16(0)
-    .. NB.u16(0x140)
+    .. NB.u16(flags)
     .. NB.u16(origWidth)
     .. NB.u16(origHeight)
     .. NB.u32(0x1000)
     .. NB.u32(0x1000)
+    .. extra
 end
 
 -- texToMat / plttToMat entry: u16 ofsList, u8 count, u8 bound. The lists are
@@ -112,7 +137,7 @@ end
 -- Material block holding one material named `materialName`, optionally bound to
 -- one texture name and one palette name.
 local function buildMaterialBlock(opts, materialName, textureName, paletteName)
-  local matData = materialData(opts.origWidth or 8, opts.origHeight or 16, opts.polyAttr)
+  local matData = materialData(opts.origWidth or 8, opts.origHeight or 16, opts.polyAttr, opts.materialSrt)
   local hasBindings = textureName ~= nil
 
   local matDict0 = NB.dict({ { name = materialName, data = u32(0) } })
@@ -259,6 +284,12 @@ local SBC_TWO_DRAWS = SBC_ONE_DRAW:sub(1, -2)
 --   triangle                  three { x, y, z } vertices, default
 --                             (0,0,0) (2,0,0) (0,3,0); use a triangle spanning
 --                             X and Z for models the map compiler calibrates
+--   materialSrt              an optional static texture-SRT extension:
+--                             { scale = { s, t }?, rot = { sin, cos }?,
+--                               trans = { s, t }? }; omitted components are
+--                             marked absent by the SRT flags bits, so a record
+--                             with every component omitted decodes identically
+--                             to a record with no extension
 --   embeddedTex0              a Tex0Fixture.block to attach as a TEX0 section
 function NsbmdFixture.build(opts)
   -- Identity node: flags = TRANS_ZERO | ROT_ZERO | SCALE_ONE, _00 = 0.

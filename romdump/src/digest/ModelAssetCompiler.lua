@@ -14,6 +14,7 @@ local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local Hashing = require("romdump.src.digest.Hashing")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
+local NsbmdDynamicModel = require("romdump.src.digest.NsbmdDynamicModel")
 local PoseContract = require("libs.assets.src.PoseContract")
 local PolygonState = require("libs.assets.src.PolygonState")
 
@@ -22,10 +23,13 @@ local ModelAssetCompiler = {}
 -- Convert MaterialCompiler records (texture = sha1 key) into scene material
 -- records (texture = cache-relative PNG path). Polygon state (alpha class,
 -- cull mode, polygon alpha/mode) lives on the batch, not the material.
-local function sceneMaterials(records)
+-- `terrainStateById` supplies the shared decoded-material texture-matrix
+-- fields (texWidth/texHeight/texMtxMode and the normalized static srt) for
+-- terrain scene materials; building models compile without it.
+local function sceneMaterials(records, terrainStateById)
   local out = {}
   for _, m in ipairs(records) do
-    out[#out + 1] = {
+    local record = {
       id = m.id,
       name = m.name,
       texture = m.texture and MapAssetCache.texturePath(m.texture) or nil,
@@ -34,6 +38,14 @@ local function sceneMaterials(records)
       flip = m.flip,
       diffuse = m.diffuse,
     }
+    local terrain = terrainStateById and terrainStateById[m.id]
+    if terrain then
+      record.texWidth = terrain.texWidth
+      record.texHeight = terrain.texHeight
+      record.texMtxMode = terrain.texMtxMode
+      record.srt = terrain.srt
+    end
+    out[#out + 1] = record
   end
   return out
 end
@@ -77,7 +89,18 @@ local function compileModel(model, texturePack, meshes, textures, context)
     }
   end
 
-  local materials = sceneMaterials(mat.materials)
+  -- Terrain scene materials (map and neighbor roles) carry the decoded
+  -- texture-matrix fields, the same conversion the dynamic model base
+  -- materials use; placed-building models never gain them.
+  local terrainStateById
+  if context.role == "map" or context.role == "neighbor" then
+    terrainStateById = {}
+    for _, mat in ipairs(model.materials) do
+      terrainStateById[mat.index] = NsbmdDynamicModel.textureMatrixState(mat, model.info.texMtxMode)
+    end
+  end
+
+  local materials = sceneMaterials(mat.materials, terrainStateById)
   if context.terrainAnimations then
     for i, m in ipairs(mat.materials) do
       -- A matched record yields a textureSwap record; an unmatched or

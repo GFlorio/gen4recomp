@@ -19,6 +19,7 @@ local MapRomFixture = require("tests.support.MapRomFixture")
 local ModelAssetCompiler = require("romdump.src.digest.ModelAssetCompiler")
 local NitroAnimation = require("romdump.src.digest.nitro.NitroAnimation")
 local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
+local NsbmdDynamicModel = require("romdump.src.digest.NsbmdDynamicModel")
 local NsbmdFixture = require("tests.support.NsbmdFixture")
 local NsbtaClipCompiler = require("romdump.src.digest.NsbtaClipCompiler")
 local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
@@ -400,6 +401,78 @@ function T.dependencies_carry_the_table_hash_and_only_used_member_hashes()
     },
   })
   Assert.equal(deps.terrainTextureSrt, false)
+end
+
+-- The texture-matrix fields are a terrain-material contract: compileModel
+-- emits them for the map and neighbor roles, and never for placed-building
+-- models -- the fields are role-scoped while the textureSwap annotation is
+-- option-scoped (context.terrainAnimations presence).
+function T.terrain_fields_are_scoped_to_terrain_roles()
+  local scene = buildScene(animationSceneOpts())
+  local function compileModel(role)
+    local meshes, textures = {}, {}
+    return ModelAssetCompiler.compileModel(terrainModel(), scene.pack, meshes, textures, {
+      mapId = MAP_ID,
+      role = role,
+      textureArchive = "map_textures",
+      textureMemberId = PACK_ID,
+      modelArchive = "land_data",
+      modelMemberId = LAND_MEMBER_ID,
+      modelName = "map0",
+    })
+  end
+  local terrain = compileModel("map")
+  Assert.equal(terrain.materials[1].texWidth, 8)
+  Assert.equal(terrain.materials[1].texHeight, 8)
+  Assert.equal(terrain.materials[1].texMtxMode, 0)
+  Assert.isNil(terrain.materials[1].srt, "a material without a static SRT omits the field")
+  local building = compileModel("building")
+  Assert.isNil(building.materials[1].texWidth, "building models never carry terrain fields")
+  Assert.isNil(building.materials[1].texHeight)
+  Assert.isNil(building.materials[1].texMtxMode)
+  Assert.isNil(building.materials[1].srt)
+end
+
+-- The static terrain material's normalized srt and the dynamic model base
+-- material's srt come from one shared conversion: the same decoded
+-- material yields the same evaluator-consumed record on both paths, never a
+-- second, slightly different copy.
+function T.the_static_terrain_srt_matches_the_dynamic_base_material_conversion()
+  local function srtModel()
+    local bytes = NsbmdFixture.build({
+      modelName = "map0",
+      materialName = "m_flower01",
+      textureName = "flower01",
+      paletteName = "map_pal",
+      origWidth = 8,
+      origHeight = 8,
+      triangle = { { 0, 0, 0 }, { 2, 0, 0 }, { 0, 0, 3 } },
+      materialSrt = { scale = { s = 0x2000, t = 0x1000 }, trans = { s = 0x40, t = 0x80 } },
+    })
+    return assert(Nsbmd.decode(bytes, { alias = "land_data", memberId = LAND_MEMBER_ID })).models[1]
+  end
+  local scene = buildScene(animationSceneOpts())
+  local meshes, textures = {}, {}
+  local static = ModelAssetCompiler.compileModel(srtModel(), scene.pack, meshes, textures, {
+    mapId = MAP_ID,
+    role = "map",
+    textureArchive = "map_textures",
+    textureMemberId = PACK_ID,
+    modelArchive = "land_data",
+    modelMemberId = LAND_MEMBER_ID,
+    modelName = "map0",
+  })
+  local dynamic = NsbmdDynamicModel.compile(srtModel())
+  Assert.deepEqual(static.materials[1].srt, dynamic.materials[1].srt)
+  Assert.deepEqual(static.materials[1].srt, {
+    transS = 0x40,
+    transT = 0x80,
+    scaleS = 0x2000,
+    scaleT = 0x1000,
+    transOne = false,
+    rotOne = true,
+    scaleOne = false,
+  })
 end
 
 function T.error_contexts_name_the_record_schedule_and_source_member()

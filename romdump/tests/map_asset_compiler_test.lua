@@ -5,11 +5,31 @@
 -- routes are exercised with deliberately disjoint pack contents so a model bound
 -- to the wrong pack cannot resolve by accident -- which shows up as a reported
 -- unresolved material drawing untextured, as it would on the DS, not as a failure.
+--
+-- The terrain-animation wiring tests pin the producer side of the scene
+-- contract: central and neighbour terrain materials carry the texture-matrix
+-- fields and fldtanime-matched textureSwap records (`data/fldtanime.narc` in
+-- pret/pokeheartgold), the central scene owns the one area NSBTA clip (never a
+-- per-neighbour copy), placed buildings never gain a swap from a texture-name
+-- coincidence, and the animation source hashes ride the dependency record into
+-- the completion marker.
 
 local Assert = require("tests.support.Assert")
+local AnimationFixture = require("tests.support.AnimationFixture")
+local BinaryReader = require("libs.codec.src.BinaryReader")
+local BdhcBuilder = require("tests.support.BdhcBuilder")
+local Errors = require("libs.errors.src.Errors")
+local FieldTexAnimFixture = require("tests.support.FieldTextureAnimationFixture")
+local Hashing = require("romdump.src.digest.Hashing")
+local LandDataBuilder = require("tests.support.LandDataBuilder")
+local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local MapRomFixture = require("tests.support.MapRomFixture")
+local NB = require("tests.support.NitroBuilder")
+local NitroAnimation = require("romdump.src.digest.nitro.NitroAnimation")
 local NsbmdFixture = require("tests.support.NsbmdFixture")
+local NsbtaClipCompiler = require("romdump.src.digest.NsbtaClipCompiler")
+local TF = require("tests.support.TextureFixtures")
 local Tex0Fixture = require("tests.support.Tex0Fixture")
 
 local T = {}
@@ -27,6 +47,134 @@ local function onlyModel(bundle)
     found = model
   end
   return assert(found, "expected one building model")
+end
+
+-- ---- terrain-animation fixtures ----
+
+-- The New Bark flower01 schedule: 0 for 18 ticks, 1 for 18, 0 for 18, 2 for
+-- 18, loop. Live entries only.
+local FLOWER_TIMELINE = { { 0, 18 }, { 1, 18 }, { 0, 18 }, { 2, 18 } }
+
+-- The compiled timeline record shape: named entries, live only.
+local FLOWER_TIMELINE_RECORDS = {
+  { textureIndex = 0, durationTicks = 18 },
+  { textureIndex = 1, durationTicks = 18 },
+  { textureIndex = 0, durationTicks = 18 },
+  { textureIndex = 2, durationTicks = 18 },
+}
+
+-- Base map texture: 8x8 palette16 texels all index 1, so a frame's decoded
+-- pixel colour identifies the palette index -- and thereby the pack -- it was
+-- decoded under.
+local BASE_TEXEL = string.rep(string.char(0x11), 32)
+
+-- Palette index 2 differs per pack so a frame decoded with the wrong pack's
+-- palette is visible in the pixels: green in the central pack, blue in the
+-- neighbour's.
+local CENTRAL_PALETTE = { TF.BLACK, TF.RED, TF.GREEN, TF.BLACK }
+local NEIGHBOR_PALETTE = { TF.BLACK, TF.RED, TF.BLUE, TF.BLACK }
+
+local function texels(pattern)
+  return string.rep(string.char(pattern), 32)
+end
+
+-- A replacement BTX0 member whose dictionary textures, in order, are the swap
+-- frames. The palette is deliberately the replacement's own: a compiler that
+-- decoded alternates with it instead of the base material's palette would
+-- produce the wrong colours.
+local function replacementMember(texelList)
+  local textures = {}
+  for i, texel in ipairs(texelList) do
+    textures[#textures + 1] = { name = "alt" .. i, texel = texel }
+  end
+  return Tex0Fixture.btx0({
+    textures = textures,
+    palettes = { { name = "alt_pal", palette = TF.palette({ TF.BLACK, TF.BLUE, TF.BLUE, TF.BLUE }) } },
+  })
+end
+
+-- The map texture pack whose one texture the fldtanime table names.
+local function flowerPack()
+  return {
+    textures = { { name = "flower01", texel = BASE_TEXEL } },
+    palettes = { { name = "map_pal", palette = TF.palette(CENTRAL_PALETTE) } },
+  }
+end
+
+-- The fldtanime table member naming flower01 plus its replacement member.
+local function flowerAnimations()
+  return {
+    [0] = FieldTexAnimFixture.member({ { name = "flower01", timeline = FLOWER_TIMELINE } }),
+    [1] = replacementMember({ BASE_TEXEL, texels(0x22), texels(0x33) }),
+  }
+end
+
+-- One decoded central terrain model whose material binds the flower01 texture.
+local function terrainLandModel(opts)
+  opts = opts or {}
+  return NsbmdFixture.build({
+    modelName = "labo01",
+    textureName = "flower01",
+    paletteName = "map_pal",
+    origWidth = 8,
+    origHeight = 8,
+    triangle = { { 0, 0, 0 }, { 2, 0, 0 }, { 0, 0, 3 } },
+    materialSrt = opts.materialSrt,
+  })
+end
+
+-- The compiled texture asset a scene material path refers to.
+local function textureAsset(path, textures)
+  for sha1, asset in pairs(textures) do
+    if MapAssetCache.texturePath(sha1) == path then
+      return asset
+    end
+  end
+  error("no compiled texture for " .. path)
+end
+
+-- Pixels of an 8x8 solid-colour decoded frame (64 texels, RGBA).
+local function solidPixels(r, g, b)
+  return string.rep(string.char(r, g, b, 255), 64)
+end
+
+-- ---- neighbour-ring fixtures ----
+
+-- Header 1 (MAP_NOTHING) resolves through the catalog to area member 0; the
+-- fixture provides that member. Its dynamicTextureType is deliberately 0 -- a
+-- non-selection sentinel for the NEIGHBOUR area, which must never compile a
+-- clip: only the central area's selection does.
+local NEIGHBOR_HEADER = 1
+local NEIGHBOR_AREA_MEMBER = 0
+local NEIGHBOR_LAND_MEMBER = 432
+local NEIGHBOR_PACK_ID = 10
+
+local function neighborAreaMember()
+  return NB.u16(0) .. NB.u16(NEIGHBOR_PACK_ID) .. NB.u16(0) .. NB.u8(0) .. NB.u8(0)
+end
+
+-- One decoded neighbour land member whose model binds flower01 through the
+-- cell's own map texture pack (the cell's palette names cell_pal).
+local function neighborLandMember()
+  return LandDataBuilder.build({
+    model = NsbmdFixture.build({
+      modelName = "cell0",
+      textureName = "flower01",
+      paletteName = "cell_pal",
+      origWidth = 8,
+      origHeight = 8,
+      triangle = { { 0, 0, 0 }, { 2, 0, 0 }, { 0, 0, 3 } },
+    }),
+    bdhc = BdhcBuilder.build(),
+  })
+end
+
+-- The neighbour cell's own map texture pack member.
+local function neighborPack()
+  return Tex0Fixture.btx0({
+    textures = { { name = "flower01", texel = BASE_TEXEL } },
+    palettes = { { name = "cell_pal", palette = TF.palette(NEIGHBOR_PALETTE) } },
+  })
 end
 
 function T.compile_requires_romfs_shaped_object()
@@ -156,14 +304,275 @@ function T.compile_is_deterministic()
   Assert.equal(onlyModel(first).key, onlyModel(second).key)
 end
 
+function T.central_terrain_materials_carry_the_terrain_fields_and_matched_swaps()
+  local tableMember = FieldTexAnimFixture.member({ { name = "flower01", timeline = FLOWER_TIMELINE } })
+  local member1 = replacementMember({ BASE_TEXEL, texels(0x22), texels(0x33) })
+  local bundle = assert(compile({
+    mapPack = flowerPack(),
+    landModel = terrainLandModel(),
+    fieldTextureAnimations = { [0] = tableMember, [1] = member1 },
+  }))
+
+  -- The fixture's dynamicTextureType is the 0xFFFF default and the
+  -- field_area_texture_srt archive is absent, so a compiler that opened it
+  -- would trip the fixture's missing-archive assert: the scene owns one
+  -- explicit false clip and reads nothing.
+  Assert.deepEqual(bundle.scene.terrainAnimations, { textureSrt = false })
+
+  local material = bundle.scene.materials[1]
+  Assert.equal(material.texWidth, 8)
+  Assert.equal(material.texHeight, 8)
+  Assert.equal(material.texMtxMode, 0)
+  Assert.isNil(material.srt, "a terrain material without a static SRT omits the field")
+
+  -- The flower01 record matched by texture name rides the same material.
+  Assert.equal(material.textureSwap.name, "flower01")
+  Assert.deepEqual(material.textureSwap.timeline, FLOWER_TIMELINE_RECORDS)
+  Assert.equal(#material.textureSwap.textures, 3)
+  Assert.equal(material.textureSwap.textures[1], material.texture)
+  Assert.isTrue(
+    material.textureSwap.textures[1]:find("^assets/generated/maps/textures/") ~= nil,
+    "swap frames are cache-relative paths"
+  )
+
+  -- The dependency record carries the table hash and the used replacement
+  -- member's hash; the marker inputs are complete for a no-clip map.
+  Assert.deepEqual(bundle.dependencies.fieldTextureAnimations, {
+    tableSha1 = Hashing.sha1hex(tableMember),
+    memberSha1s = { { memberId = 1, sha1 = Hashing.sha1hex(member1) } },
+  })
+  Assert.equal(bundle.dependencies.terrainTextureSrt, false)
+end
+
+function T.a_material_with_a_static_srt_carries_the_normalized_record()
+  local bundle = assert(compile({
+    mapPack = flowerPack(),
+    landModel = terrainLandModel({ materialSrt = { scale = { s = 0x2000, t = 0x1000 } } }),
+    fieldTextureAnimations = flowerAnimations(),
+  }))
+  local material = bundle.scene.materials[1]
+  -- The normalized shape the runtime texture-matrix evaluator consumes: the
+  -- absent rotation is omitted, the absent translation reads zero, and the
+  -- "one" flags come from the source components' presence.
+  Assert.deepEqual(material.srt, {
+    transS = 0,
+    transT = 0,
+    scaleS = 0x2000,
+    scaleT = 0x1000,
+    transOne = true,
+    rotOne = true,
+    scaleOne = false,
+  })
+  Assert.isNil(material.srt.rot)
+  -- The matched swap still rides the same material.
+  Assert.equal(material.textureSwap.name, "flower01")
+end
+
+function T.the_selected_area_nsbta_lands_in_scene_terrain_animations()
+  local srtBytes = AnimationFixture.srtWater()
+  local bundle = assert(compile({
+    dynamicTextureType = 0,
+    fieldAreaTextureSrt = { [0] = srtBytes },
+  }))
+  local clip = bundle.scene.terrainAnimations and bundle.scene.terrainAnimations.textureSrt
+  Assert.isTrue(type(clip) == "table", "the selected NSBTA compiles into scene.terrainAnimations.textureSrt")
+  assert(clip ~= false, "the selected NSBTA compiles into scene.terrainAnimations.textureSrt")
+  Assert.equal(clip.name, "en_sp1")
+  Assert.equal(clip.id, "en_sp1")
+  Assert.equal(clip.category, "material")
+  Assert.equal(clip.kind, "texsrt")
+  Assert.equal(clip.frameCount, 8)
+  Assert.deepEqual(clip.tracks, { { target = "en_sp1_3", targetIndex = 0 } })
+  Assert.deepEqual(clip.semanticNames, {})
+  Assert.isNil(clip.source, "the scene clip carries no physical source provenance")
+  -- The payload is exactly the existing NsbtaClipCompiler output.
+  local decoded = assert(NitroAnimation.decode(srtBytes))
+  local anim = assert(decoded.animations[1])
+  local reader = BinaryReader.new(decoded.bytes, "sec")
+  local expected = NsbtaClipCompiler.compilePayload(anim.resource, reader, #decoded.bytes, anim.name)
+  Assert.deepEqual(clip.compiled, expected)
+  -- The selected member is producer provenance in the dependency record.
+  Assert.deepEqual(bundle.dependencies.terrainTextureSrt, {
+    memberId = 0,
+    sha1 = Hashing.sha1hex(srtBytes),
+  })
+  Assert.isTrue(bundle.marker ~= assert(compile()).marker, "selecting an area clip changes the completion marker")
+end
+
+function T.neighbor_terrain_compiles_against_its_own_pack_into_one_dependency_set()
+  -- The central terrain matches flower02 (replacement member 2); the one
+  -- neighbour cell chunk matches flower01 (member 1) against the cell's own
+  -- map texture pack. Both compiles feed one map-scoped compiler, so the
+  -- dependency record holds both used members sorted by member id.
+  local tableMember = FieldTexAnimFixture.member({
+    { name = "flower01", timeline = FLOWER_TIMELINE },
+    { name = "flower02", timeline = { { 0, 12 }, { 1, 12 } } },
+  })
+  local member1 = replacementMember({ BASE_TEXEL, texels(0x22), texels(0x33) })
+  local member2 = replacementMember({ BASE_TEXEL, texels(0x22) })
+  local bundle = assert(compile({
+    mapPack = {
+      textures = { { name = "flower02", texel = BASE_TEXEL } },
+      palettes = { { name = "map_pal", palette = TF.palette(CENTRAL_PALETTE) } },
+    },
+    landModel = NsbmdFixture.build({
+      modelName = "labo01",
+      textureName = "flower02",
+      paletteName = "map_pal",
+      origWidth = 8,
+      origHeight = 8,
+      triangle = { { 0, 0, 0 }, { 2, 0, 0 }, { 0, 0, 3 } },
+    }),
+    fieldTextureAnimations = { [0] = tableMember, [1] = member1, [2] = member2 },
+    extraMembers = {
+      map_matrices = {
+        [MapRomFixture.MATRIX_MEMBER_ID] = MapRomFixture.gridMatrix({
+          width = 3,
+          height = 3,
+          headers = {
+            NEIGHBOR_HEADER,
+            NEIGHBOR_HEADER,
+            NEIGHBOR_HEADER,
+            NEIGHBOR_HEADER,
+            MapRomFixture.MAP_ID,
+            NEIGHBOR_HEADER,
+            NEIGHBOR_HEADER,
+            NEIGHBOR_HEADER,
+            NEIGHBOR_HEADER,
+          },
+          modelIds = {
+            NEIGHBOR_LAND_MEMBER,
+            NEIGHBOR_LAND_MEMBER,
+            NEIGHBOR_LAND_MEMBER,
+            NEIGHBOR_LAND_MEMBER,
+            MapRomFixture.LAND_DATA_MEMBER_ID,
+            NEIGHBOR_LAND_MEMBER,
+            NEIGHBOR_LAND_MEMBER,
+            NEIGHBOR_LAND_MEMBER,
+            NEIGHBOR_LAND_MEMBER,
+          },
+        }),
+      },
+      area_data = { [NEIGHBOR_AREA_MEMBER] = neighborAreaMember() },
+      land_data = { [NEIGHBOR_LAND_MEMBER] = neighborLandMember() },
+      map_textures = { [NEIGHBOR_PACK_ID] = neighborPack() },
+    },
+  }))
+
+  -- Central terrain: flower02's frames decode under the central palette
+  -- (green at index 2).
+  local central = bundle.scene.materials[1]
+  Assert.equal(central.texWidth, 8)
+  Assert.equal(central.texHeight, 8)
+  Assert.equal(central.texMtxMode, 0)
+  Assert.equal(central.textureSwap.name, "flower02")
+  Assert.equal(central.textureSwap.textures[1], central.texture)
+  Assert.equal(textureAsset(central.textureSwap.textures[2], bundle.textures).pixels, solidPixels(0, 255, 0))
+
+  -- The neighbour chunk binds its own pack: flower01's frames decode under the
+  -- neighbour palette (blue at index 2), never the central one.
+  Assert.equal(#bundle.scene.neighbors, 8)
+  local neighbor = bundle.scene.neighbors[1].materials[1]
+  Assert.equal(neighbor.texWidth, 8)
+  Assert.equal(neighbor.texHeight, 8)
+  Assert.equal(neighbor.texMtxMode, 0)
+  Assert.isNil(neighbor.srt)
+  Assert.equal(neighbor.textureSwap.name, "flower01")
+  Assert.equal(neighbor.textureSwap.textures[1], neighbor.texture)
+  Assert.deepEqual(neighbor.textureSwap.timeline, FLOWER_TIMELINE_RECORDS)
+  Assert.equal(textureAsset(neighbor.textureSwap.textures[2], bundle.textures).pixels, solidPixels(0, 0, 255))
+
+  -- The one area clip is owned by the central scene only; no neighbour
+  -- descriptor repeats it.
+  Assert.deepEqual(bundle.scene.terrainAnimations, { textureSrt = false })
+  Assert.isNil(bundle.scene.neighbors[1].terrainAnimations)
+
+  -- One shared dependency record, sorted by member id: the neighbour's member
+  -- 1 before the central's member 2 despite the central compiling first.
+  Assert.deepEqual(bundle.dependencies.fieldTextureAnimations, {
+    tableSha1 = Hashing.sha1hex(tableMember),
+    memberSha1s = {
+      { memberId = 1, sha1 = Hashing.sha1hex(member1) },
+      { memberId = 2, sha1 = Hashing.sha1hex(member2) },
+    },
+  })
+  Assert.equal(bundle.dependencies.terrainTextureSrt, false)
+end
+
+function T.buildings_never_inherit_a_terrain_swap_from_a_name_coincidence()
+  -- The fldtanime table names the building pack's own texture: a compiler
+  -- that applied the terrain collaborator to placed-building models would
+  -- annotate it here. Building models compile through the shared path without
+  -- the terrain option and must stay byte-identical to before.
+  local bundle = assert(compile({
+    fieldTextureAnimations = {
+      [0] = FieldTexAnimFixture.member({ { name = MapRomFixture.BUILDING_TEXTURE, timeline = FLOWER_TIMELINE } }),
+      [1] = replacementMember({ BASE_TEXEL, texels(0x22), texels(0x33) }),
+    },
+  }))
+  local model = onlyModel(bundle)
+  Assert.notNil(model.materials[1].texture, "the building still binds its texture")
+  Assert.isNil(model.materials[1].textureSwap, "building models never carry textureSwap")
+  Assert.isNil(bundle.scene.materials[1].textureSwap, "the unmatched terrain material stays static")
+end
+
+-- The fldtanime table is an unconditional map-compile dependency: a
+-- malformed member 0 fails the whole compile through the public nil, err
+-- boundary with the parser's structured error naming the archive/map.
+function T.a_malformed_fldtanime_table_fails_the_map_compile()
+  local bundle, err = compile({ fieldTextureAnimations = { [0] = "garbage" } })
+  Assert.isNil(bundle)
+  Assert.isTrue(Errors.is(err), "the malformed table fails with a structured error")
+  err = assert(err)
+  Assert.equal(err.code, "FIELD_TEX_ANIM_SIZE_MISMATCH")
+  Assert.equal(err.context.source.alias, "field_texture_animations")
+  Assert.equal(err.context.source.memberId, 0)
+  Assert.equal(err.context.source.mapId, MapRomFixture.MAP_ID)
+end
+
+function T.a_no_match_map_still_carries_the_table_dependency()
+  -- The table hash is unconditional; with no material matched, no replacement
+  -- member is hashed and no terrain material gains a swap.
+  local tableMember = FieldTexAnimFixture.member({})
+  local bundle = assert(compile({ fieldTextureAnimations = { [0] = tableMember } }))
+  Assert.deepEqual(bundle.dependencies.fieldTextureAnimations, {
+    tableSha1 = Hashing.sha1hex(tableMember),
+    memberSha1s = {},
+  })
+  Assert.equal(bundle.dependencies.terrainTextureSrt, false)
+  Assert.isNil(bundle.scene.materials[1].textureSwap)
+end
+
+function T.animation_sources_change_the_completion_marker()
+  local function compileWith(animations)
+    return assert(compile({
+      mapPack = flowerPack(),
+      landModel = terrainLandModel(),
+      fieldTextureAnimations = animations,
+    }))
+  end
+  local base = compileWith(flowerAnimations())
+  local changedTable = compileWith({
+    [0] = FieldTexAnimFixture.member({
+      { name = "flower01", timeline = { { 0, 19 }, { 1, 18 }, { 0, 18 }, { 2, 18 } } },
+    }),
+    [1] = replacementMember({ BASE_TEXEL, texels(0x22), texels(0x33) }),
+  })
+  Assert.isTrue(base.marker ~= changedTable.marker, "the marker must track the fldtanime table bytes")
+  local changedMember = compileWith({
+    [0] = FieldTexAnimFixture.member({ { name = "flower01", timeline = FLOWER_TIMELINE } }),
+    [1] = replacementMember({ BASE_TEXEL, texels(0x44), texels(0x33) }),
+  })
+  Assert.isTrue(base.marker ~= changedMember.marker, "the marker must track the used replacement member bytes")
+  Assert.equal(base.marker, compileWith(flowerAnimations()).marker, "identical inputs stay deterministic")
+end
+
 -- An animated building model whose display list straddles a mid-run matrix
 -- boundary compiles into a descriptor batch carrying the per-vertex source
 -- provenance (the DS transforms each vertex at submission under the
 -- then-current matrix, so the runtime needs both sources and the split to
 -- reproduce the bend).
 function T.animated_straddling_primitives_serialize_per_vertex_sources()
-  local AnimationFixture = require("tests.support.AnimationFixture")
-
   local bw = require("libs.codec.src.BinaryWriter").new()
   bw:u16(0)
   bw:u16(0)
@@ -177,7 +586,6 @@ function T.animated_straddling_primitives_serialize_per_vertex_sources()
   -- A quad display list with MTX_RESTORE slot 3 after the first two
   -- vertices: the quad straddles the boundary, so the descriptor batch must
   -- carry { leading = 2, source = "draw" } -- the pre-restore source.
-  local NB = require("tests.support.NitroBuilder")
   local vtx16xy = NB.vtx16xy
   local pack = NB.gxPack
   local straddlingQuad = pack({
@@ -227,9 +635,7 @@ function T.animated_bundle_round_trips_through_writer_readiness_and_loader()
   local CacheFs = require("libs.storage.src.CacheFs")
   local FakeCache = require("tests.support.FakeCache")
   local MapCacheWriter = require("romdump.src.digest.MapCacheWriter")
-  local MapAssetCache = require("libs.assets.src.MapAssetCache")
   local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
-  local AnimationFixture = require("tests.support.AnimationFixture")
 
   local bw = require("libs.codec.src.BinaryWriter").new()
   bw:u16(0)
@@ -245,16 +651,6 @@ function T.animated_bundle_round_trips_through_writer_readiness_and_loader()
     buildAnim = { [0] = AnimationFixture.jntDoor() },
   })
   local bundle = assert(MapAssetCompiler.compile(romFs, MapRomFixture.MAP_SYMBOL))
-  -- The scene the current producer emits predates the v5 terrain-animation
-  -- fields; complete the shape here so the round trip exercises the writer,
-  -- the readiness gate, and the loader rather than the missing producer
-  -- wiring.
-  bundle.scene.terrainAnimations = { textureSrt = false }
-  for _, material in ipairs(bundle.scene.materials) do
-    material.texWidth = 16
-    material.texHeight = 16
-    material.texMtxMode = 0
-  end
   local model = onlyModel(bundle)
   Assert.equal(model.schema, "g4-model-v2")
   Assert.equal(model.kind, "nitro-dynamic")

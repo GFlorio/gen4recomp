@@ -37,6 +37,40 @@ local function channel(color)
   return { r = r, g = g, b = b }
 end
 
+-- The decoded material's texture-matrix inputs in the shape the runtime
+-- evaluator consumes: the model's texture-matrix mode, the authored texture
+-- dimensions, and the normalized static texture-SRT state ("one" flags from
+-- the presence bits, values as authored). Shared by the dynamic model base
+-- materials and the static terrain scene materials (ModelAssetCompiler), so
+-- both emit exactly one conversion -- never a second, slightly different copy.
+---@param mat table
+---@param texMtxMode integer?
+---@return { texMtxMode: integer, texWidth: integer?, texHeight: integer?, srt?: table, srtMatrix?: table }
+function NsbmdDynamicModel.textureMatrixState(mat, texMtxMode)
+  local state = {
+    texMtxMode = texMtxMode or 0,
+    texWidth = mat.origWidth,
+    texHeight = mat.origHeight,
+  }
+  local srt = mat.textureSrt
+  if srt then
+    state.srt = {
+      transS = srt.trans and srt.trans.s or 0,
+      transT = srt.trans and srt.trans.t or 0,
+      rot = srt.rot,
+      scaleS = srt.scale and srt.scale.s or 0x1000,
+      scaleT = srt.scale and srt.scale.t or 0x1000,
+      transOne = srt.trans == nil,
+      rotOne = srt.rot == nil,
+      scaleOne = srt.scale == nil,
+    }
+    if srt.matrix then
+      state.srtMatrix = srt.matrix
+    end
+  end
+  return state
+end
+
 -- Resolve one decoded material into the definition's base material record.
 -- The four DS lighting registers (diffuse/ambient/specular/emission) are
 -- carried per channel in `colors` -- the shader and the NSBMA sampler
@@ -48,6 +82,7 @@ local function baseMaterial(mat, texMtxMode)
   local poly = DsPolygonAttr.decode(resolved.polyAttr)
   local diffuse = resolved.colors.diffuse
   local r, g, b = FixedPoint.rgb555(diffuse.rgb555)
+  local texture = NsbmdDynamicModel.textureMatrixState(mat, texMtxMode)
   local material = {
     id = mat.index,
     name = mat.name,
@@ -66,28 +101,12 @@ local function baseMaterial(mat, texMtxMode)
     alphaMode = poly.polygonAlpha < FixedPoint.RGB5_MAX and "blend" or "opaque",
     doubleSided = poly.cullMode ~= "back",
     polygonAlpha = poly.polygonAlpha,
-    texMtxMode = texMtxMode or 0,
-    texWidth = mat.origWidth,
-    texHeight = mat.origHeight,
+    texMtxMode = texture.texMtxMode,
+    texWidth = texture.texWidth,
+    texHeight = texture.texHeight,
+    srt = texture.srt,
+    srtMatrix = texture.srtMatrix,
   }
-  local srt = mat.textureSrt
-  if srt then
-    -- The static texture-SRT state in the shape the runtime evaluator
-    -- consumes: "one" flags from the presence bits, values as authored.
-    material.srt = {
-      transS = srt.trans and srt.trans.s or 0,
-      transT = srt.trans and srt.trans.t or 0,
-      rot = srt.rot,
-      scaleS = srt.scale and srt.scale.s or 0x1000,
-      scaleT = srt.scale and srt.scale.t or 0x1000,
-      transOne = srt.trans == nil,
-      rotOne = srt.rot == nil,
-      scaleOne = srt.scale == nil,
-    }
-    if srt.matrix then
-      material.srtMatrix = srt.matrix
-    end
-  end
   return material
 end
 

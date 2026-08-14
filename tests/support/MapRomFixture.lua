@@ -10,7 +10,10 @@
 -- `field_area_texture_srt` exists only when a test opts into a selected NSBTA
 -- member, and the area's `dynamicTextureType` defaults to 0xFFFF (no area
 -- texture-coordinate animation), so archives that should stay unread are absent.
--- Test-only.
+-- `extraMembers` merges additional raw members into the existing archives (for
+-- example a multi-cell matrix grid or a neighbour cell's area/land/texture
+-- members), so neighbour-ring compilation can be exercised through the full
+-- production compile. Test-only.
 
 local NB = require("tests.support.NitroBuilder")
 local LandDataBuilder = require("tests.support.LandDataBuilder")
@@ -66,6 +69,30 @@ local function matrixMember(landMemberId)
   return NB.u8(1) .. NB.u8(1) .. NB.u8(0) .. NB.u8(0) .. NB.u8(#name) .. name .. NB.u16(landMemberId)
 end
 
+-- A width x height map-matrix member with optional explicit per-cell map-header
+-- ids and land members, in the MapMatrix row-major cell order. `headers` and
+-- `modelIds` are flat arrays of width * height entries; a cell without an
+-- explicit header defaults to the compiled map's own header id, and a cell
+-- without an explicit model id defaults to `landMemberId`.
+function MapRomFixture.gridMatrix(opts)
+  local width = assert(opts.width, "gridMatrix requires a width")
+  local height = assert(opts.height, "gridMatrix requires a height")
+  local landMemberId = opts.landMemberId or MapRomFixture.LAND_DATA_MEMBER_ID
+  assert(not opts.headers or #opts.headers == width * height, "gridMatrix headers cover every cell")
+  assert(not opts.modelIds or #opts.modelIds == width * height, "gridMatrix model ids cover every cell")
+  local name = "m_labo01_"
+  local out = { NB.u8(width), NB.u8(height), NB.u8(opts.headers and 1 or 0), NB.u8(0), NB.u8(#name), name }
+  if opts.headers then
+    for _, header in ipairs(opts.headers) do
+      out[#out + 1] = NB.u16(header)
+    end
+  end
+  for i = 1, width * height do
+    out[#out + 1] = NB.u16(opts.modelIds and opts.modelIds[i] or landMemberId)
+  end
+  return table.concat(out)
+end
+
 local function areaMember(opts)
   return NB.u16(opts.buildingTexturePackId)
     .. NB.u16(opts.mapTexturePackId)
@@ -89,6 +116,9 @@ end
 --   fieldTextureAnimations / fieldAreaTextureSrt
 --                       member maps for the two terrain-animation archives;
 --                       see the archive notes in build()
+--   extraMembers        { alias = { memberId = bytes }, ... } merged into the
+--                       existing archives (overriding defaults on collision),
+--                       e.g. a multi-cell matrix or neighbour cell members
 -- Returns romFs, members -- the latter keyed by archive alias for sha assertions.
 function MapRomFixture.build(opts)
   opts = opts or {}
@@ -160,6 +190,15 @@ function MapRomFixture.build(opts)
   -- anyway trips the fixture's missing-archive assert.
   if opts.fieldAreaTextureSrt then
     members.field_area_texture_srt = opts.fieldAreaTextureSrt
+  end
+
+  -- Extra raw members (multi-cell matrix, neighbour area/land/texture cells)
+  -- merge into the existing archives.
+  for alias, byId in pairs(opts.extraMembers or {}) do
+    for memberId, bytes in pairs(byId) do
+      members[alias] = members[alias] or {}
+      members[alias][memberId] = bytes
+    end
   end
 
   local romFs = {
