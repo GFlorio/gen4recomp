@@ -8,6 +8,7 @@
 -- the graphics layer and the runner skips it explicitly on hosts without one.
 
 local Assert = require("tests.support.Assert")
+local Matrix3 = require("libs.math.src.Matrix3")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local MapRenderer = require("libs.engine.src.MapRenderer")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
@@ -517,6 +518,8 @@ function T.animated_building_loads_advances_and_renders()
   local instance = runtime.animatedInstances[1]
   Assert.equal(#runtime.buildingDraws, 1, "the animated door item exists right after load")
   local m0 = runtime.buildingDraws[1].transform
+  local normal0 = runtime.buildingDraws[1].modelNormal
+  Assert.deepEqual(normal0, Matrix3.modelNormal(m0), "load builds the frame-0 model normal")
   -- The animated draw items carry the compiled per-segment polygon state:
   -- the light mask survives descriptor -> definition -> drawItems on the
   -- loader-assembled animated model.
@@ -726,10 +729,15 @@ function T.update_advances_the_pose_driven_draw_items()
   door:open()
   runtime:updateAnimated()
   local m0 = runtime.buildingDraws[1].transform
+  local normal0 = runtime.buildingDraws[1].modelNormal
+  Assert.deepEqual(normal0, Matrix3.modelNormal(m0))
   for _ = 1, 7 do
     runtime:updateAnimated()
   end
   local m7 = runtime.buildingDraws[1].transform
+  local normal7 = runtime.buildingDraws[1].modelNormal
+  Assert.deepEqual(normal7, Matrix3.modelNormal(m7), "the fixed-tick item refresh recomputes the model normal")
+  Assert.isFalse(normal0 == normal7, "animated item production replaces the changed normal transform")
   local differs = false
   for i = 1, 16 do
     if math.abs(m0[i] - m7[i]) > 1e-3 then

@@ -16,6 +16,7 @@
 -- Neighbours are additive: an empty descriptor list yields no draws and the
 -- central scene is untouched.
 
+local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
@@ -27,6 +28,7 @@ local NeighborRing = {}
 -- The identity UV-transform matrix of scene-form materials (they carry no
 -- texture-SRT): the renderer reads the material's texMatrix directly.
 local IDENTITY_TEX_MATRIX = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
+local IDENTITY_MODEL_NORMAL = Matrix3.identity()
 
 -- Material assembly: acquire each normalized material record's image
 -- under its resolved sampler wrap. The wrap pair is part of the image
@@ -76,6 +78,7 @@ local function buildRing(pool, descriptors)
       draw.mesh = entry.mesh
       draw.material = materials[batch.material]
       draw.transform = transform
+      draw.modelNormal = IDENTITY_MODEL_NORMAL
       draw.alphaCutoff = AlphaClassifier.CUTOUT_EPSILON
       draw.center = c
       draws[#draws + 1] = draw

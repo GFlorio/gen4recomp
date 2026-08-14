@@ -26,6 +26,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local FixedPoint = require("libs.math.src.FixedPoint")
+local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")
 local ModelAnimationState = require("libs.engine.src.ModelAnimationState")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
@@ -95,6 +96,19 @@ local function identityMatrix()
 end
 
 local IDENTITY_TEX_MATRIX = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
+local IDENTITY_MODEL_NORMAL = Matrix3.identity()
+
+local function isTranslationOnly(transform)
+  return transform[1] == 1
+    and transform[2] == 0
+    and transform[3] == 0
+    and transform[5] == 0
+    and transform[6] == 1
+    and transform[7] == 0
+    and transform[9] == 0
+    and transform[10] == 0
+    and transform[11] == 1
+end
 
 -- The base material state with no animation: the definition's texture and
 -- the per-register base colors (MaterialEvaluator.baseColors), the static
@@ -277,6 +291,7 @@ end
 ---@field mesh table -- built render mesh for the item's mesh id
 ---@field material table -- effective material record
 ---@field transform number[] -- 16-element column-major matrix
+---@field modelNormal number[] -- inverse-transpose model linear transform
 ---@field alphaClass string
 ---@field alphaCutoff number -- the fragment cutoff (read only in cutout mode)
 ---@field polygonAlpha number
@@ -338,10 +353,16 @@ function ModelInstance:drawItems(renderMeshesById)
         "backend mesh record missing for " .. mesh.id .. " (a nitro definition must cover every mesh)"
       )
       local material = self:effectiveMaterial(mesh.materialIndex)
+      local usesBakedNormals = draw and draw.straddle
+      local modelNormal = IDENTITY_MODEL_NORMAL
+      if not billboardBase and not usesBakedNormals and not isTranslationOnly(transform) then
+        modelNormal = Matrix3.modelNormal(transform)
+      end
       local item = {
         mesh = renderMeshesById[mesh.id],
         material = material,
         transform = transform,
+        modelNormal = modelNormal,
         billboardBase = billboardBase,
         alphaClass = material.alphaClass,
         alphaCutoff = material.alphaCutoff,

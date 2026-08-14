@@ -35,7 +35,7 @@ attribute vec3 VertexNormal;
 uniform mat4 u_proj;
 uniform mat4 u_view;
 uniform mat4 u_model;
-uniform mat3 u_normalMatrix;
+uniform mat3 u_modelNormal;
 
 uniform bool u_lightEnabled0;
 uniform bool u_lightEnabled1;
@@ -106,7 +106,8 @@ vec3 quantizeRgb5(vec3 c)
 
 vec4 position(mat4 transform_projection, vec4 vertex_position)
 {
-  vec3 normal = normalize(u_normalMatrix * VertexNormal);
+  vec3 modelNormal = u_modelNormal * VertexNormal;
+  vec3 normal = normalize(mat3(u_view) * modelNormal);
   int src = int(floor(VertexColorSource + 0.5));
 
   if (src == 0) {

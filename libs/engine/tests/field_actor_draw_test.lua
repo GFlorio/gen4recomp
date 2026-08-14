@@ -73,6 +73,9 @@ function T.places_the_billboard_at_the_world_position_plus_the_source_anchor()
   )
   Assert.equal(item.billboardBase[15], -4)
   Assert.isTrue(item.transform == item.billboardBase, "the renderer resolves the same matrix it was handed")
+  Assert.deepEqual(item.modelNormal, { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
+  local nextItem = FieldActorDraw.item(record(), entry(99))
+  Assert.equal(item.modelNormal, nextItem.modelNormal, "ordinary actor billboards share one identity normal")
 end
 
 -- Actor billboards draw through the depth-biased billboard projection while
@@ -93,6 +96,7 @@ function T.places_a_static_model_without_a_billboard_transform()
   Assert.equal(item.transform[13], 3)
   Assert.equal(item.transform[14], 1.5)
   Assert.equal(item.transform[15], -4)
+  Assert.deepEqual(item.modelNormal, { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
 end
 
 function T.emits_every_static_model_part_with_its_own_material()
@@ -111,6 +115,7 @@ function T.emits_every_static_model_part_with_its_own_material()
   Assert.equal(items[1].material.image, asset.image)
   Assert.isNil(items[2].material.image)
   Assert.equal(items[2].alphaClass, "translucent")
+  Assert.equal(items[1].modelNormal, items[2].modelNormal, "translation-only static-model parts share one normal")
   Assert.isNil(
     items[1].submissionIndex,
     "actor items carry no submission numbers; ordered-part traversal owns submission order"

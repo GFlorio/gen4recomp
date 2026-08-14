@@ -37,6 +37,7 @@
 
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
+local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
@@ -59,6 +60,19 @@ local MapSceneLoader = {}
 -- The identity UV-transform matrix of scene-form materials (they carry no
 -- texture-SRT): the renderer reads the material's texMatrix directly.
 local IDENTITY_TEX_MATRIX = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
+local IDENTITY_MODEL_NORMAL = Matrix3.identity()
+
+local function isTranslationOnly(transform)
+  return transform[1] == 1
+    and transform[2] == 0
+    and transform[3] == 0
+    and transform[5] == 0
+    and transform[6] == 1
+    and transform[7] == 0
+    and transform[9] == 0
+    and transform[10] == 0
+    and transform[11] == 1
+end
 
 local VALID_BANDS = {}
 for _, band in ipairs(TimeOfDayProps.BANDS) do
@@ -93,6 +107,22 @@ local function buildScene(pool, cacheFs, scene, opts)
   local timeBand = opts.timeBand or TimeOfDayProps.bandForSeconds(FieldLightProfile.DEFAULT_TIME_SECONDS)
   assert(VALID_BANDS[timeBand], "unknown time-of-day band " .. tostring(timeBand))
   local bounds = { min = { math.huge, math.huge, math.huge }, max = { -math.huge, -math.huge, -math.huge } }
+  local modelNormals = {}
+
+  -- A transform table is immutable scene data. Cache its model normal once
+  -- for every static draw that shares it; translation-only transforms all
+  -- share the module identity normal.
+  local function modelNormalFor(transform)
+    if isTranslationOnly(transform) then
+      return IDENTITY_MODEL_NORMAL
+    end
+    local normal = modelNormals[transform]
+    if not normal then
+      normal = Matrix3.modelNormal(transform)
+      modelNormals[transform] = normal
+    end
+    return normal
+  end
 
   -- Grow the scene bounds by a model-space AABB under a placement transform
   -- (the image of the box is its eight transformed corners). The per-mesh
@@ -176,6 +206,7 @@ local function buildScene(pool, cacheFs, scene, opts)
       mesh = meshResource.mesh,
       material = materials[batch.material],
       transform = transform,
+      modelNormal = modelNormalFor(transform),
       billboardBase = billboardBase,
       alphaClass = state.alphaClass,
       cullMode = state.cullMode,

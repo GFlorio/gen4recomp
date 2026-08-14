@@ -3,6 +3,7 @@
 -- in model_instance_render_test exercises the actual MapRenderer.
 
 local Assert = require("tests.support.Assert")
+local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local ModelInstance = require("libs.engine.src.ModelInstance")
@@ -137,6 +138,11 @@ function T.draw_items_carry_pose_transforms()
   local items = instance:drawItems(rendersFor(instance.definition))
   Assert.equal(#items, 1)
   Assert.near(items[1].transform[1], swingCell(instance), 1e-9, "the draw transform carries the pose")
+  Assert.deepEqual(
+    items[1].modelNormal,
+    Matrix3.modelNormal(items[1].transform),
+    "the draw item carries the inverse-transpose of its produced transform"
+  )
   -- The per-segment polygon state rides on the item.
   Assert.equal(items[1].cullMode, "back")
   Assert.equal(items[1].polygonMode, "modulation")
@@ -199,6 +205,9 @@ function T.draw_items_compose_the_instance_transform()
   Assert.equal(#items, 1)
   Assert.equal(items[1].transform[13], 10)
   Assert.equal(items[1].transform[15], 20)
+  Assert.deepEqual(items[1].modelNormal, { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
+  local nextItems = instance:drawItems(rendersFor(instance.definition))
+  Assert.equal(items[1].modelNormal, nextItems[1].modelNormal, "translation-only draws share one identity normal")
   -- The center stays model-local: the render queue transforms it once.
   Assert.deepEqual(items[1].center, { 1, 1, 0 })
 end

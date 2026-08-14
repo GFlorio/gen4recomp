@@ -25,7 +25,8 @@ end
 
 -- `base` and `viewMatrix` are 16-element column-major matrices; the view matrix's
 -- linear part must be a rotation, which is true of every field camera, so its
--- inverse is its transpose. Returns a new 16-element matrix.
+-- inverse is its transpose. Returns the resolved 4x4 model matrix and its 3x3
+-- inverse-transpose model linear transform.
 function BillboardTransform.resolve(base, viewMatrix)
   assert(#base == 16 and #viewMatrix == 16, "resolve needs two 4x4 matrices")
   local sx = columnMagnitude(base, 0)
@@ -35,7 +36,7 @@ function BillboardTransform.resolve(base, viewMatrix)
   -- transpose(view rotation) scaled per column, then the base translation. Column
   -- j of the rotation transpose is row j of the rotation, i.e. viewMatrix[j+1],
   -- viewMatrix[j+5], viewMatrix[j+9].
-  return {
+  local model = {
     viewMatrix[1] * sx,
     viewMatrix[5] * sx,
     viewMatrix[9] * sx,
@@ -53,6 +54,18 @@ function BillboardTransform.resolve(base, viewMatrix)
     base[15],
     1,
   }
+  local modelNormal = {
+    viewMatrix[1] / sx,
+    viewMatrix[5] / sx,
+    viewMatrix[9] / sx,
+    viewMatrix[2] / sy,
+    viewMatrix[6] / sy,
+    viewMatrix[10] / sy,
+    viewMatrix[3] / sz,
+    viewMatrix[7] / sz,
+    viewMatrix[11] / sz,
+  }
+  return model, modelNormal
 end
 
 return BillboardTransform

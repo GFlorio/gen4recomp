@@ -234,7 +234,7 @@ function T.one_mesh_center_serves_every_consumer_and_placement()
     {
       placementIndex = 1,
       modelKey = "building",
-      transform = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 0, 0, 1 },
+      transform = { 2, 0, 0, 0, 0, 3, 0, 0, 0, 0, 4, 0, 5, 0, 0, 1 },
     },
   }
   luaFiles[MapAssetCache.modelPath("building")] = {
@@ -248,6 +248,13 @@ function T.one_mesh_center_serves_every_consumer_and_placement()
   Assert.deepEqual(runtime.mapDraws[1].center, expectedCenter, "the terrain draw carries the mesh center")
   Assert.deepEqual(runtime.buildingDraws[1].center, expectedCenter, "placement 0 carries the same mesh center")
   Assert.deepEqual(runtime.buildingDraws[2].center, expectedCenter, "placement 1 carries the same mesh center")
+  Assert.deepEqual(runtime.mapDraws[1].modelNormal, { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
+  Assert.deepEqual(runtime.buildingDraws[1].modelNormal, { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
+  Assert.deepEqual(
+    runtime.buildingDraws[2].modelNormal,
+    { 0.5, 0, 0, 0, 1 / 3, 0, 0, 0, 0.25 },
+    "a static building carries the inverse-transpose of its final transform"
+  )
   local a = runtime.mapProps.placements[1].bounds
   local b = runtime.mapProps.placements[2].bounds
   Assert.equal(a, b, "both placements share one cached descriptor AABB")

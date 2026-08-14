@@ -13,6 +13,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local FieldActorPose = require("libs.engine.src.FieldActorPose")
+local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
@@ -25,6 +26,7 @@ local FieldActorDraw = {}
 -- The identity UV-transform matrix of actor materials (actors carry no
 -- texture-SRT): the renderer reads the material's texMatrix directly.
 local IDENTITY_TEX_MATRIX = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
+local IDENTITY_MODEL_NORMAL = Matrix3.identity()
 
 local function requireMesh(entry, meshIndex, record)
   local mesh = entry.meshes and entry.meshes[meshIndex]
@@ -73,6 +75,9 @@ function FieldActorDraw.item(record, entry, partIndex)
     mesh = requireMesh(entry, render.kind == "staticModel" and (partIndex or 1) or frameIndex, record),
     material = { image = image, alphaClass = part.alphaClass, texMatrix = IDENTITY_TEX_MATRIX },
     transform = transform,
+    -- Actor billboards and current static-model placements are translation
+    -- only, so every actor item shares the same immutable normal transform.
+    modelNormal = IDENTITY_MODEL_NORMAL,
     billboardBase = billboardBase,
     -- Actor quads draw through the depth-biased billboard projection (see
     -- FieldCamera:billboardProjection); static-model actors keep the world

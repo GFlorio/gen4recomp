@@ -1,4 +1,4 @@
--- 3x3 column-major matrix math used by the renderer's normal-matrix path.
+-- 3x3 column-major matrix math used by the renderer's normal-transform paths.
 -- Keeps the same indexing convention as Matrix4 (m[col*3 + row + 1]) so the
 -- two modules compose cleanly. Pure domain module: no love, arithmetic only.
 
@@ -80,6 +80,17 @@ end
 -- Transform a 3-vector by a 3x3 matrix.
 function Matrix3.transform(m, x, y, z)
   return m[1] * x + m[4] * y + m[7] * z, m[2] * x + m[5] * y + m[8] * z, m[3] * x + m[6] * y + m[9] * z
+end
+
+-- Model normal transform: inverse-transpose of a 4x4 model matrix's linear
+-- component. Translation has no effect. A singular model transform has no
+-- normal transform and is invalid input.
+---@param model number[] -- 4x4 column-major model matrix
+---@return number[] -- 3x3 column-major inverse-transpose
+function Matrix3.modelNormal(model)
+  local inv = Matrix3.inverse(Matrix3.from4x4(model))
+  assert(inv, "singular model transform has no normal matrix")
+  return Matrix3.transpose(inv)
 end
 
 -- Normal matrix: inverse-transpose of the upper 3x3 of (view * model).

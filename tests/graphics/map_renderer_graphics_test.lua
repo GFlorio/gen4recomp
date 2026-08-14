@@ -16,6 +16,7 @@ local T = {}
 
 -- Spelled explicitly to keep these smokes independent of Matrix4.
 local IDENTITY = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 }
+local IDENTITY_NORMAL = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
 
 local function fixedCamera()
   local function identity()
@@ -59,11 +60,11 @@ function T.shader_has_required_lighting_uniforms(scope)
   shader:send("u_matEmission", { 0, 0, 0 })
 end
 
-function T.shader_has_normal_matrix_uniform(scope)
+function T.shader_has_model_normal_uniform(scope)
   local renderer = scope:own(MapRenderer.new())
 
   -- Sent as a 3x3 column-major matrix (nine values).
-  renderer.shader:send("u_normalMatrix", "column", { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
+  renderer.shader:send("u_modelNormal", "column", IDENTITY_NORMAL)
 end
 
 function T.shader_has_polygon_light_mask_uniform(scope)
@@ -111,6 +112,7 @@ function T.an_actor_billboard_draw_leaks_no_render_state(scope)
     mesh = mesh,
     material = { alphaClass = "cutout", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
     transform = IDENTITY,
+    modelNormal = IDENTITY_NORMAL,
     billboardBase = IDENTITY,
     alphaClass = "cutout",
     cullMode = "back",
@@ -143,7 +145,7 @@ function T.literal_color_triangle_ignores_light_direction(scope)
   shader:send("u_proj", "column", IDENTITY)
   shader:send("u_view", "column", IDENTITY)
   shader:send("u_model", "column", IDENTITY)
-  shader:send("u_normalMatrix", "column", { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
+  shader:send("u_modelNormal", "column", IDENTITY_NORMAL)
 
   -- Two light directions that would change a lit vertex, but must not affect a
   -- literal-color one.
@@ -194,6 +196,7 @@ function T.draw_restores_exact_caller_state_on_real_graphics(scope)
     mesh = mesh,
     material = { alphaClass = "cutout", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
     transform = IDENTITY,
+    modelNormal = IDENTITY_NORMAL,
     billboardBase = IDENTITY,
     alphaClass = "cutout",
     cullMode = "back",
@@ -208,6 +211,7 @@ function T.draw_restores_exact_caller_state_on_real_graphics(scope)
     mesh = mesh,
     alphaClass = "wireframe",
     transform = IDENTITY,
+    modelNormal = IDENTITY_NORMAL,
     cullMode = "none",
     polygonAlpha = 1.0,
     polygonMode = "modulation",
@@ -297,6 +301,7 @@ function T.polygon_light_mask_changes_the_rendered_result(scope)
           mesh = mesh,
           material = { alphaClass = "opaque", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
           transform = IDENTITY,
+          modelNormal = IDENTITY_NORMAL,
           alphaClass = "opaque",
           cullMode = "back",
           polygonAlpha = 1.0,
@@ -376,6 +381,7 @@ function T.emission_passes_through_for_static_materials(scope)
         mesh = mesh,
         material = { alphaClass = "opaque", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
         transform = IDENTITY,
+        modelNormal = IDENTITY_NORMAL,
         alphaClass = "opaque",
         cullMode = "back",
         polygonAlpha = 1.0,
@@ -450,6 +456,7 @@ function T.stored_material_colors_never_dim_the_profile(scope)
           texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 },
         },
         transform = IDENTITY,
+        modelNormal = IDENTITY_NORMAL,
         alphaClass = "opaque",
         cullMode = "back",
         polygonAlpha = 1.0,
@@ -521,6 +528,7 @@ function T.color_animated_materials_replace_the_profile(scope)
           texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 },
         },
         transform = IDENTITY,
+        modelNormal = IDENTITY_NORMAL,
         alphaClass = "opaque",
         cullMode = "back",
         polygonAlpha = 1.0,
@@ -593,6 +601,7 @@ function T.lit_then_unlit_scene_does_not_inherit_lighting(scope)
     mesh = mesh,
     material = { alphaClass = "opaque", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
     transform = IDENTITY,
+    modelNormal = IDENTITY_NORMAL,
     alphaClass = "opaque",
     cullMode = "back",
     polygonAlpha = 1.0,
@@ -765,6 +774,7 @@ local function specularFrame(renderer, scope, normal, vectorFx12)
         mesh = litMesh(scope, normal),
         material = { alphaClass = "opaque", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
         transform = IDENTITY,
+        modelNormal = IDENTITY_NORMAL,
         alphaClass = "opaque",
         cullMode = "back",
         polygonAlpha = 1.0,
