@@ -23,6 +23,8 @@
 local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
 local WarpSystem = require("libs.engine.src.WarpSystem")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
+local FieldTransition = require("libs.engine.src.FieldTransition")
+local StartMenuEligibility = require("libs.engine.src.StartMenuEligibility")
 
 ---@class FieldSessionOptions
 ---@field versionId string
@@ -40,6 +42,7 @@ local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractio
 ---@field menuHost FieldMenuHost
 ---@field contextChoice ContextChoiceProvider
 ---@field signpost FieldSignpostController
+---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
 ---@field coverage fun(session: FieldSession)?
 
 ---@class FieldSession.Interactions
@@ -61,6 +64,7 @@ local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractio
 ---@field menuHost FieldMenuHost
 ---@field contextChoice ContextChoiceProvider
 ---@field signpost FieldSignpostController the fixed-tick signpost controller (save-gate interrogation only; the scheduler steps it)
+---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
 ---@field coverage fun(session: FieldSession)?
 ---@field tick integer
 ---@field accumulator number
@@ -107,6 +111,14 @@ function FieldSession.new(options)
   assert(options.menuHost and options.menuHost.isModal and options.menuHost.advance, "field session menu host required")
   assert(options.contextChoice and options.contextChoice.isActive, "field session context choice required")
   assert(options.signpost and options.signpost.isModal, "field session signpost controller required")
+  assert(
+    options.applicationHost
+      and options.applicationHost.isActive
+      and options.applicationHost.updateFixed
+      and options.applicationHost.requestOpen
+      and options.applicationHost.takeReopen,
+    "field session application host required"
+  )
   assert(options.interactions and options.interactions.resolve, "field session interaction resolver required")
   return setmetatable({
     versionId = options.versionId,
@@ -124,6 +136,7 @@ function FieldSession.new(options)
     menuHost = options.menuHost,
     contextChoice = options.contextChoice,
     signpost = options.signpost,
+    applicationHost = options.applicationHost,
     coverage = options.coverage,
     tick = 0,
     accumulator = 0,
@@ -132,6 +145,25 @@ end
 
 function FieldSession:actorTarget()
   return { x = self.player.worldX, y = self.player.worldY, z = self.player.worldZ }
+end
+
+-- The strict §17.2 eligibility snapshot: every condition the Start Menu open
+-- gate evaluates at the settled field boundary. The application host is
+-- closed on this path by construction (the active-host branch above owns
+-- every active tick).
+---@return table
+function FieldSession:_menuEligibilitySnapshot()
+  return {
+    playerMotion = self.player.motion,
+    transitionIdle = self.transition.phase == FieldTransition.PHASES.idle,
+    dialogueModal = self.dialogue:isModal(),
+    signpostModal = self.signpost:isModal(),
+    scriptMenuModal = self.menuHost:isModal(),
+    contextChoiceActive = self.contextChoice:isActive(),
+    applicationActive = self.applicationHost:isActive(),
+    foregroundScript = self.scriptScheduler:playerMovementLocked(),
+    movementLocked = self.scriptScheduler:playerMovementLocked(),
+  }
 end
 
 function FieldSession:_advanceTick()
@@ -162,6 +194,28 @@ function FieldSession:updateFixed(inputSnapshot)
     if self.transition.completed and self.input.clearEdges then
       self.input:clearEdges()
     end
+    self:_advanceTick()
+    return
+  end
+
+  -- Application ownership: while the application host is active (Start Menu
+  -- or a child application, in any of its phases) it is the one modal owner
+  -- -- the session steps only it, once per fixed tick, and freezes world
+  -- simulation (no player/actors/scheduler/interaction/movement). Opening a
+  -- second incompatible modal is a programming invariant, asserted here.
+  if self.applicationHost:isActive() then
+    assert(
+      not self.dialogue:isModal() and not self.signpost:isModal() and not self.menuHost:isModal(),
+      "the application host owns the tick; no other modal may be active"
+    )
+    local uiEvents = self.input:uiSnapshot(self.tick + 1)
+    -- While the Start Menu is active, the menu button has the same close
+    -- semantics as HGSS X: a fresh menu edge becomes the controller's menu
+    -- event. A child application's own input policy applies instead.
+    if inputSnapshot.menuPressed then
+      uiEvents[#uiEvents + 1] = { type = "menu" }
+    end
+    self.applicationHost:updateFixed(self.tick + 1, uiEvents)
     self:_advanceTick()
     return
   end
@@ -231,6 +285,33 @@ function FieldSession:updateFixed(inputSnapshot)
   if movementLockedAtTickStart or self.scriptScheduler:playerMovementLocked() then
     self:_advanceTick()
     return
+  end
+
+  -- Start Menu arbitration: a pending script reopen request (opcode 61's
+  -- startMenuReopen service) opens the menu unconditionally at this point,
+  -- then the menu edge is gated by the §17.2 idle-boundary eligibility check
+  -- (checked after the single script-scheduler step established the field
+  -- lock state, before actor stepping, interaction resolution, warps, or
+  -- player movement). A successful open consumes the tick; when the Menu
+  -- and Action edges arrive together at an eligible boundary the menu wins
+  -- and the Action edge is cleared.
+  if self.applicationHost:takeReopen(self.tick + 1) then
+    self:_advanceTick()
+    return
+  end
+  if inputSnapshot.menuPressed then
+    local decision = StartMenuEligibility.decide(self:_menuEligibilitySnapshot(), {
+      menuPressed = true,
+      actionPressed = inputSnapshot.actionPressed,
+    })
+    if decision.menu == "open" then
+      if decision.action == "clear" then
+        self.input:clearEdges()
+      end
+      self.applicationHost:requestOpen(self.tick + 1)
+      self:_advanceTick()
+      return
+    end
   end
 
   if self.transition.suppression then

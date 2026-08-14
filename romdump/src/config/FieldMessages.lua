@@ -18,14 +18,17 @@ return {
       { path = "src/data/map_headers.h" },
       { path = "files/msgdata/msg/msg_0542_T20.gmm" },
       { path = "files/msgdata/msg/msg_0543_T20R0101.gmm" },
+      { path = "files/msgdata/msg/msg_0196.gmm" },
     },
   },
   -- Message banks selected for the demo scenario : the
   -- two town banks plus every New Bark interior bank (544-549), because the
-  -- bound scripts of the New Bark slice reference their maps' own banks, and
+  -- bound scripts of the New Bark slice reference their maps' own banks,
   -- bank 191 because the vanilla 749-752 menus (common.pokemart and the
-  -- New Bark slice's menus) resolve their items there.
-  banks = { 542, 543, 544, 545, 546, 547, 548, 549, 191 },
+  -- New Bark slice's menus) resolve their items there, and bank 196 (the
+  -- msg_0196 Start Menu label bank the canonical action definitions
+  -- reference; see the sStartMenuActions idents in src/start_menu.c).
+  banks = { 542, 543, 544, 545, 546, 547, 548, 549, 191, 196 },
   -- Font 0 is the field dialogue font (src/font.c sFontArcParam[0]).
   fontId = 0,
   fontGlyphMember = 0,

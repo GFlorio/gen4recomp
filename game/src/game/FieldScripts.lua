@@ -166,6 +166,7 @@ end
 ---@field auxiliaryUi AuxiliaryFieldUi logical auxiliary field UI state
 ---@field contextChoice ContextChoiceProvider contextual two-choice provider
 ---@field menu FieldMenuHost modal field menu host
+---@field startMenuReopen table|nil optional { request: fun() } service for the opcode-61 Start Menu reopen (absent -> SCRIPT_SERVICE_MISSING on use)
 
 ---@class FieldScripts
 ---@field registry table
@@ -344,6 +345,7 @@ function FieldScripts.new(opts)
       scriptMenu = menuHost,
       signpost = signpostHost,
       windowStyles = opts.windowStyles,
+      startMenuReopen = opts.startMenuReopen,
       advanceAsync = advanceAsync,
     },
     taskRegistry = liveTaskRegistry,

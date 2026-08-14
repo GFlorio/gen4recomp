@@ -213,6 +213,17 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
     menuHost = menuHost,
     contextChoice = contextChoice,
     signpost = signpost,
+    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
+    applicationHost = {
+      isActive = function()
+        return false
+      end,
+      updateFixed = function() end,
+      requestOpen = function() end,
+      takeReopen = function()
+        return false
+      end,
+    },
     interactions = interactions,
   })
 

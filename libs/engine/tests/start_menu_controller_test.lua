@@ -340,7 +340,11 @@ function T.confirm_launches_the_selected_application_with_the_select_sound()
   controller:updateFixed({ { type = "navigate", direction = "down" } })
   controller:updateFixed({ { type = "confirm" } })
   Assert.deepEqual(audio.requests, { "start_menu.open", "start_menu.select" })
-  Assert.deepEqual(controller:takeResult(), { kind = "launch", applicationId = "trainer_card" })
+  Assert.deepEqual(controller:takeResult(), {
+    kind = "launch",
+    applicationId = "trainer_card",
+    actionId = "vanilla.trainer_card",
+  })
   Assert.equal(controller:status().open, false, "a taken result ends the menu lifetime")
 end
 
@@ -384,7 +388,7 @@ function T.a_terminal_event_ends_the_ticks_processing()
   )
   Assert.deepEqual(
     confirmFirst:takeResult(),
-    { kind = "launch", applicationId = "pokedex" },
+    { kind = "launch", applicationId = "pokedex", actionId = "vanilla.pokedex" },
     "a confirm before a cancel in one tick must win"
   )
 end
@@ -413,7 +417,11 @@ function T.pointer_down_up_on_the_same_action_slot_activates()
   Assert.equal(controller:status().cursorSlotId, 6, "pointer down selects the pressed slot")
   controller:updateFixed({ { type = "pointer_up", pointerId = "touch:1", x = x, y = y, dragged = false } })
   Assert.deepEqual(audio.requests, { "start_menu.open", "start_menu.select" })
-  Assert.deepEqual(controller:takeResult(), { kind = "launch", applicationId = "trainer_card" })
+  Assert.deepEqual(controller:takeResult(), {
+    kind = "launch",
+    applicationId = "trainer_card",
+    actionId = "vanilla.trainer_card",
+  })
 end
 
 function T.pointer_down_up_mismatch_and_drag_discard_the_activation()
@@ -467,7 +475,26 @@ function T.pointer_capture_ignores_other_pointers()
   Assert.isNil(controller:takeResult(), "a second pointer cannot steal the capture")
   Assert.equal(controller:status().open, true)
   controller:updateFixed({ { type = "pointer_up", pointerId = "touch:1", x = firstX, y = firstY, dragged = false } })
-  Assert.deepEqual(controller:takeResult(), { kind = "launch", applicationId = "trainer_card" })
+  Assert.deepEqual(controller:takeResult(), {
+    kind = "launch",
+    applicationId = "trainer_card",
+    actionId = "vanilla.trainer_card",
+  })
+end
+
+-- §22.1/§41: a resize cancels the active pointer capture, so a press held
+-- across a layout change cannot activate a different post-resize slot.
+function T.cancel_pointer_capture_discards_the_held_press()
+  local controller = newController()
+  local x, y = slotCenter(6)
+  controller:updateFixed({ { type = "pointer_down", pointerId = "touch:1", x = x, y = y } })
+  controller:cancelPointerCapture()
+  controller:updateFixed({ { type = "pointer_up", pointerId = "touch:1", x = x, y = y, dragged = false } })
+  Assert.isNil(controller:takeResult(), "a cancelled capture cannot activate")
+  Assert.equal(controller:status().open, true)
+  controller:updateFixed({ { type = "pointer_down", pointerId = "touch:1", x = x, y = y } })
+  controller:updateFixed({ { type = "pointer_up", pointerId = "touch:1", x = x, y = y, dragged = false } })
+  Assert.notNil(controller:takeResult(), "a fresh press after the cancellation works normally")
 end
 
 function T.pointer_press_outside_any_slot_does_not_move_selection()

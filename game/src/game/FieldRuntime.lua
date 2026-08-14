@@ -11,6 +11,8 @@ local FieldActorDefinitionProvider = require("libs.engine.src.FieldActorDefiniti
 local AuxiliaryFieldUi = require("libs.engine.src.AuxiliaryFieldUi")
 local ContextChoiceProvider = require("libs.engine.src.ContextChoiceProvider")
 local FieldActorManager = require("libs.engine.src.FieldActorManager")
+local FieldApplicationHost = require("libs.engine.src.FieldApplicationHost")
+local FieldApplicationRegistry = require("libs.engine.src.FieldApplicationRegistry")
 local FieldCamera = require("libs.engine.src.FieldCamera")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local FieldDialogueController = require("libs.engine.src.FieldDialogueController")
@@ -32,6 +34,7 @@ local FieldSave = require("libs.engine.src.FieldSave")
 local FieldScenario = require("libs.engine.src.FieldScenario")
 local FieldSaveStore = require("libs.engine.src.FieldSaveStore")
 local FieldScripts = require("game.src.game.FieldScripts")
+local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local FieldSession = require("libs.engine.src.FieldSession")
 local FieldSignpostController = require("libs.engine.src.FieldSignpostController")
 local FieldTransition = require("libs.engine.src.FieldTransition")
@@ -43,11 +46,15 @@ local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local NeighborRing = require("libs.engine.src.NeighborRing")
 local ScriptSave = require("libs.engine.src.script.ScriptSave")
+local StartMenuController = require("libs.engine.src.StartMenuController")
+local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
+local StartMenuRegistry = require("libs.engine.src.StartMenuRegistry")
 local TargetSpawns = require("data.manifests.field_spawns")
 local FieldPresentation = require("data.manifests.field_presentation")
 local FieldScenarioManifest = require("data.manifests.field_scenario")
 local FieldPlayerManifest = require("data.manifests.field_player")
 local RepoFs = require("game.src.game.RepoFs")
+local UiSfxPlayer = require("game.src.game.UiSfxPlayer")
 local WindowConfig = require("game.src.WindowConfig")
 local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 
@@ -62,6 +69,9 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field presentation boolean?
 ---@field scriptHosts table? deterministic host boundaries for script effects
 ---@field windowStyleDescriptors table[]? mod window-style descriptors registered after the built-ins and before the registry seals
+---@field development boolean? §20 product mode: developer mode exposes capability-missing canonical Start Menu actions disabled; the flag is boot configuration, never persisted in FieldSave
+---@field applicationDescriptors table[]? boot-config application factories ({ id, factory }) registered before the application registry seals
+---@field startMenuDescriptors table[]? boot-config mod Start Menu action descriptors registered before the start menu registry seals
 
 ---@class FieldRuntimeScriptHosts
 ---@field audio table?
@@ -95,6 +105,13 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field windowStyles FieldWindowStyleRegistry the sealed per-runtime window style catalogue
 ---@field windowStyleDescriptors table[]? boot-config mod style descriptors registered before the registry seals
 ---@field scriptHosts FieldRuntimeScriptHosts?
+---@field development boolean the §20 product mode (boot configuration, never persisted)
+---@field applicationDescriptors table[]? boot-config application factories registered before the registry seals
+---@field startMenuDescriptors table[]? boot-config mod Start Menu action descriptors registered before the registry seals
+---@field applications FieldApplicationRegistry the sealed per-runtime application catalogue
+---@field applicationHost FieldApplicationHost the one application modal owner the session steps
+---@field startMenuRegistry StartMenuRegistry the sealed per-runtime mod Start Menu action catalogue
+---@field uiSfx UiSfxPlayer? the presentation UI-SFX player (non-presentation runtimes route through the script audio seam)
 local FieldRuntime = {}
 FieldRuntime.__index = FieldRuntime
 
@@ -186,6 +203,9 @@ function FieldRuntime.new(versionId, mapIdOrSymbol, options)
     presentation = options.presentation == true,
     scriptHosts = options.scriptHosts,
     windowStyleDescriptors = options.windowStyleDescriptors,
+    applicationDescriptors = options.applicationDescriptors,
+    startMenuDescriptors = options.startMenuDescriptors,
+    development = options.development == true,
     errorText = nil,
     zoom = FieldZoom.new(options.zoomConfig or FieldPresentation.zoom),
   }, FieldRuntime)
@@ -230,6 +250,7 @@ function FieldRuntime:_load()
       self.windowStyles:register(descriptor)
     end
     self.windowStyles:seal()
+    self.uiManifest = uiManifest
     local frameIndexes = {}
     for frame = 0, uiManifest.dialogueFrames.count - 1 do
       frameIndexes[frame] = true
@@ -442,6 +463,41 @@ function FieldRuntime:_load()
     self.cancelKeys = cancelBindings()
     self.menuKeys = menuBindings()
 
+    -- The field application catalogue: the Start Menu itself is the one
+    -- concrete production application (its factory is the runtime's menu
+    -- composition step); every other destination arrives through the
+    -- boot-config descriptor seam. The registry seals before any dispatch,
+    -- and canonical unimplemented destinations get capability state, never
+    -- dummy factories. The mod Start Menu action catalogue follows the same
+    -- build-then-seal lifetime. The presentation composition also acquires
+    -- the smallest UI-SFX player for the Start Menu effects; non-presentation
+    -- runtimes route the semantic sound requests through the script audio
+    -- seam instead.
+    self.applications = FieldApplicationRegistry.new()
+    self.applications:register({
+      id = "start_menu",
+      factory = function(rememberedActionId)
+        return self:_composeStartMenu(rememberedActionId)
+      end,
+    })
+    for _, descriptor in ipairs(self.applicationDescriptors or {}) do
+      self.applications:register(descriptor)
+    end
+    self.applications:seal()
+    self.startMenuRegistry = StartMenuRegistry.new({
+      canonicalIds = StartMenuPolicy.canonicalOrder(),
+      capacity = #uiManifest.startMenu.slots - 1,
+    })
+    for _, descriptor in ipairs(self.startMenuDescriptors or {}) do
+      self.startMenuRegistry:register(descriptor)
+    end
+    self.startMenuRegistry:seal()
+    self.uiSfx = self.presentation and UiSfxPlayer.new({ cacheFs = cacheFs, sounds = uiManifest.sounds }) or nil
+    self.applicationHost = FieldApplicationHost.new({
+      registry = self.applications,
+      input = self.input,
+    })
+
     -- Interaction discovery: the resolver is pure and consults the manager's
     -- occupancy index; bound interactions run through the script client and
     -- the binding audit guarantees every interactable event is bound.
@@ -485,6 +541,11 @@ function FieldRuntime:_load()
       auxiliaryUi = self.auxiliaryFieldUi,
       contextChoice = self.contextChoiceProvider,
       menu = self.menuHost,
+      startMenuReopen = {
+        request = function()
+          self.applicationHost:requestReopen()
+        end,
+      },
     })
     -- The strict schema makes the world and scripts buckets required: a
     -- restored save always carries both, so restore is unconditional.
@@ -510,6 +571,7 @@ function FieldRuntime:_load()
       menuHost = self.menuHost,
       contextChoice = self.contextChoiceProvider,
       signpost = self.signpost,
+      applicationHost = self.applicationHost,
       interactions = {
         resolve = function(_, snapshot)
           return self.interactionResolver:resolve(snapshot)
@@ -537,7 +599,16 @@ function FieldRuntime:update(dt)
   if self.scripts.warmup then
     self.scripts.warmup:update()
   end
+  if self.uiSfx then
+    self.uiSfx:update()
+  end
   self.session:update(dt)
+  -- The application host retains factory/composition failures with the
+  -- original error; the runtime surfaces them on its fatal-error channel
+  -- and freezes instead of resuming field simulation.
+  if self.applicationHost:error() and not self.errorText then
+    self.errorText = tostring(self.applicationHost:error())
+  end
   if self.transition.error and not self.errorText then
     local context = self.transition.warpContext
     if context then
@@ -599,6 +670,95 @@ end
 
 function FieldRuntime:releaseMenu()
   requireLiveInput(self):releaseMenu("runtime")
+end
+
+-- The Start Menu composition step: build the strict §19.1 policy snapshot
+-- from the authoritative world state and the sealed application-id set,
+-- merge the sealed mod actions, resolve every label through the message
+-- provider (the bank is acquired once and released on success or failure,
+-- §18), and construct the controller with the §20 product mode and the
+-- selection remembered across a child-application round trip. The factory
+-- must return a fully usable controller or raise.
+---@param rememberedActionId string?
+---@return StartMenuController
+function FieldRuntime:_composeStartMenu(rememberedActionId)
+  local world = self.scripts.worldState
+  local flags = FieldScriptSymbols.flagsByName
+  local capabilities = self.applications:ids()
+  local entries = self.startMenuRegistry:compose(
+    StartMenuPolicy.build({
+      context = "normal_field",
+      progression = {
+        hasPokedex = world:isFlagSet(flags.FLAG_GOT_POKEDEX),
+        hasStarter = world:isFlagSet(flags.FLAG_GOT_STARTER),
+        bagUnlocked = false,
+        hasPokegear = world:isFlagSet(flags.FLAG_GOT_POKEGEAR),
+      },
+      capabilities = capabilities,
+    }),
+    capabilities
+  )
+  local resolved = {}
+  local acquiredBanks = {}
+  local ok, resolveErr = pcall(function()
+    local bankCache = {}
+    for _, entry in ipairs(entries) do
+      local bank, messageId = entry.message:match("^msg%.hgss%.(%d+)%.(%d+)$")
+      assert(bank ~= nil, "start menu action labels must be message refs: " .. tostring(entry.message))
+      local bankId = assert(tonumber(bank))
+      local bank = bankCache[bankId]
+      if bank == nil then
+        local artifact, bankErr = self.messageProvider:acquireBank(bankId)
+        if artifact == nil then
+          local err = bankErr --[[@as Errors.Error]]
+          Errors.raise(err.code, err.message, { bankId = bankId, cause = err.context })
+        end
+        bank = assert(artifact)
+        bankCache[bankId] = bank
+        acquiredBanks[#acquiredBanks + 1] = bankId
+      end
+      local template, err = self.messageProvider:get(bankId, tonumber(messageId))
+      if not template then
+        error(err, 0)
+      end
+      resolved[#resolved + 1] = {
+        id = entry.id,
+        message = template.text,
+        targetApplication = entry.targetApplication,
+        present = entry.present,
+        vanillaEnabled = entry.vanillaEnabled,
+        capabilityAvailable = entry.capabilityAvailable,
+        enabled = entry.enabled,
+        normalVisible = entry.normalVisible,
+        developerVisible = entry.developerVisible,
+        displayPosition = entry.displayPosition,
+      }
+    end
+  end)
+  for _, bankId in ipairs(acquiredBanks) do
+    self.messageProvider:releaseBank(bankId)
+  end
+  if not ok then
+    error(resolveErr, 0)
+  end
+  local audioFacade = {
+    play = function(_, requestId)
+      local hosts = self.scriptHosts
+      if hosts and hosts.audio then
+        hosts.audio:play(requestId)
+      elseif self.uiSfx then
+        self.uiSfx:play(requestId)
+      end
+    end,
+  }
+  return StartMenuController.new({
+    entries = resolved,
+    development = self.development,
+    slots = self.uiManifest.startMenu.slots,
+    cursorFrames = self.uiManifest.startMenu.cursor.frames,
+    audio = audioFacade,
+    rememberedActionId = rememberedActionId,
+  })
 end
 
 -- Save the current field session (developer F1 bind, autosave after warp, and
@@ -746,6 +906,7 @@ function FieldRuntime:resizePresentation(width, height, screenTopology)
   self.viewport:resize(width, height)
   self.menuHost:resize(width, height)
   self.menuHost:setScreenTopology(screenTopology)
+  self.applicationHost:setScreenTopology(screenTopology)
   self:_updateCameraProjection()
 end
 
@@ -764,6 +925,17 @@ function FieldRuntime:_releaseAll()
     self.signpost:dispose()
   end
   self.signpost = nil
+  -- The application host disposes its active controller exactly once and
+  -- releases the modal input lifetime; it must run before the input is
+  -- cleared below.
+  if self.applicationHost then
+    self.applicationHost:dispose()
+  end
+  self.applicationHost, self.applications, self.startMenuRegistry = nil, nil, nil
+  if self.uiSfx then
+    self.uiSfx:dispose()
+  end
+  self.uiSfx = nil
   if self.messageProvider then
     self.messageProvider:dispose()
   end
@@ -787,7 +959,7 @@ function FieldRuntime:_releaseAll()
   self.viewport, self.input, self.menuHost = nil, nil, nil
   self.auxiliaryFieldUi, self.contextChoiceProvider, self.interactionResolver = nil, nil, nil
   self.eventState, self.avatar, self.actorConfig, self.playerData = nil, nil, nil, nil
-  self.windowStyles = nil
+  self.windowStyles, self.uiManifest = nil, nil
 end
 
 -- End the state's lifetime: persist the field session if one is live, then

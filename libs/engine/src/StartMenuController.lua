@@ -292,11 +292,17 @@ end
 -- Activation of the selected action: the source plays SEQ_SE_DP_SELECT before
 -- the availability gate, so a disabled entry still requests the select sound
 -- but records nothing (FieldSystem_StartMenuActionIsAvailable, start_menu.c).
+-- The launch result carries the action id so the application host can
+-- restore the selection by id when the child application returns (§27.1).
 function StartMenuController:_activate(position)
   self._audio:play(StartMenuController.SOUND_SELECT)
   local action = assert(self._visibleActions[position], "cannot activate an empty display position")
   if action.enabled then
-    self._result = { kind = "launch", applicationId = assert(action.targetApplication) }
+    self._result = {
+      kind = "launch",
+      applicationId = assert(action.targetApplication),
+      actionId = action.id,
+    }
     self._closed = true
   end
 end
@@ -436,6 +442,14 @@ end
 function StartMenuController:dispose()
   self._result = nil
   self._closed = true
+end
+
+-- §22.1/§41 resize contract: a press held across a layout change must not
+-- activate a different post-resize slot, so the application host cancels an
+-- active pointer capture when the screen topology changes.
+function StartMenuController:cancelPointerCapture()
+  self._pointerId = nil
+  self._pointerDown = nil
 end
 
 ---@class StartMenuController.Status

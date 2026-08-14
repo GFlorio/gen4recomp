@@ -54,6 +54,11 @@ local function fixture()
   members[191] = FieldMessageBank.encodeForTests({
     { 0x012F, 0x0150, 0x0151, 0x01DE, 0xFFFF },
   }, 0xD191)
+  -- Bank 196 (the Start Menu label bank) joined the selected set with the
+  -- field-application deliverable; one short message with its own key.
+  members[196] = FieldMessageBank.encodeForTests({
+    { 0x012F, 0x0150, 0x0151, 0x01DE, 0xFFFF },
+  }, 0xC196)
   local romFs = {
     resolvedNarc = function(_, alias)
       Assert.equal(alias, "messages")
@@ -95,7 +100,7 @@ end
 function T.compiles_tokenized_lossless_banks()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldMessageCompiler.compile(romFs, sha1, hashLua))
-  Assert.deepEqual(bundle.index.bankIds, { 542, 543, 544, 545, 546, 547, 548, 549, 191 })
+  Assert.deepEqual(bundle.index.bankIds, { 542, 543, 544, 545, 546, 547, 548, 549, 191, 196 })
   Assert.equal(bundle.index.schema, FieldMessageCache.INDEX_SCHEMA)
 
   local bank = bundle.banks[542]
@@ -116,6 +121,7 @@ function T.compiles_tokenized_lossless_banks()
   Assert.equal(bundle.dependencies.bank542MemberSha1, "member-542-sha")
   Assert.equal(bundle.dependencies.bank543MemberSha1, "member-543-sha")
   Assert.equal(bundle.dependencies.bank191MemberSha1, "member-191-sha")
+  Assert.equal(bundle.dependencies.bank196MemberSha1, "member-196-sha")
   Assert.equal(bundle.marker, "field-message-cache-v1:rom-sha:dependency-sha")
 end
 

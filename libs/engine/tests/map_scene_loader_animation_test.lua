@@ -1134,6 +1134,17 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
         return false
       end,
     },
+    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
+    applicationHost = {
+      isActive = function()
+        return false
+      end,
+      updateFixed = function() end,
+      requestOpen = function() end,
+      takeReopen = function()
+        return false
+      end,
+    },
     interactions = {
       resolve = function()
         return nil
