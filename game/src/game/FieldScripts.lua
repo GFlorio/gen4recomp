@@ -15,6 +15,7 @@ local ScriptErrors = require("libs.engine.src.script.errors")
 local ScriptActorWorld = require("libs.engine.src.script.ScriptActorWorld")
 local ScriptDialogueHost = require("libs.engine.src.script.ScriptDialogueHost")
 local ScriptMenuHost = require("libs.engine.src.script.ScriptMenuHost")
+local ScriptSignpostHost = require("libs.engine.src.script.ScriptSignpostHost")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
 local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
 local ScriptMapsService = require("libs.engine.src.script.ScriptMapsService")
@@ -148,6 +149,7 @@ end
 ---@field layout fun(formatted: table): table
 ---@field fontDef table
 ---@field frameIndex integer|nil player-selected HGSS user-frame index for dialogue requests
+---@field signpost FieldSignpostController the fixed-tick signpost controller the host advances
 ---@field transition FieldTransition
 ---@field mapLoader FieldMapLoader
 ---@field sourceMap RuntimeFieldMap
@@ -170,6 +172,7 @@ end
 ---@field dialogueHost ScriptDialogueHost
 ---@field mapsService ScriptMapsService
 ---@field menuHost ScriptMenuHost
+---@field signpostHost ScriptSignpostHost
 ---@field player ScriptPlayerFacade
 ---@field cacheFs table CacheFs-shaped
 ---@field overrideFs table read-shaped filesystem for data/scripts/overrides
@@ -200,6 +203,7 @@ function FieldScripts.new(opts)
     opts.dialogue and opts.messageProvider and opts.layout and opts.fontDef,
     "field scripts require the dialogue stack"
   )
+  assert(opts.signpost and opts.signpost.isModal, "field scripts require the signpost controller")
   assert(
     opts.transition and opts.mapLoader and opts.sourceMap and opts.auxiliaryUi and opts.menu and opts.contextChoice,
     "field scripts require transition, auxiliary UI, context choice, and menu host"
@@ -275,6 +279,15 @@ function FieldScripts.new(opts)
       return dialogueHost:resolveMessage(message, {}, {})
     end,
   })
+  -- The signpost host reuses the dialogue host's public message-resolution
+  -- operation through injection; it never reaches an underscored helper or
+  -- duplicates substitution semantics.
+  local signpostHost = ScriptSignpostHost.new({
+    controller = opts.signpost,
+    resolveMessage = function(message, bindings, textArgs)
+      return dialogueHost:resolveMessage(message, bindings, textArgs)
+    end,
+  })
 
   local platform = setmetatable({
     registry = registry,
@@ -289,6 +302,7 @@ function FieldScripts.new(opts)
     dialogueHost = dialogueHost,
     mapsService = mapsService,
     menuHost = menuHost,
+    signpostHost = signpostHost,
     player = player,
   }, FieldScripts)
 
@@ -299,6 +313,9 @@ function FieldScripts.new(opts)
   local advanceAsync = function()
     opts.auxiliaryUi:advance()
     dialogueHost:advance(scheduler:currentInput())
+    -- The signpost controller is pure and fixed-tick: exactly one step per
+    -- scheduler tick, commands and printer together.
+    signpostHost:advance()
   end
   scheduler = Scheduler.new({
     services = {
@@ -319,6 +336,7 @@ function FieldScripts.new(opts)
       contextChoice = opts.contextChoice,
       menu = opts.menu,
       scriptMenu = menuHost,
+      signpost = signpostHost,
       advanceAsync = advanceAsync,
     },
     taskRegistry = liveTaskRegistry,

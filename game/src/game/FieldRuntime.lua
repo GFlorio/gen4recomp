@@ -33,6 +33,7 @@ local FieldScenario = require("libs.engine.src.FieldScenario")
 local FieldSaveStore = require("libs.engine.src.FieldSaveStore")
 local FieldScripts = require("game.src.game.FieldScripts")
 local FieldSession = require("libs.engine.src.FieldSession")
+local FieldSignpostController = require("libs.engine.src.FieldSignpostController")
 local FieldTransition = require("libs.engine.src.FieldTransition")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldWindowStyleRegistry = require("libs.engine.src.FieldWindowStyleRegistry")
@@ -81,6 +82,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field playerData table the validated profile/options authority (FieldPlayerData shape)
 ---@field session FieldSession
 ---@field dialogue FieldDialogueController?
+---@field signpost FieldSignpostController the fixed-tick signpost controller (script-owned via ScriptSignpostHost)
 ---@field auxiliaryFieldUi AuxiliaryFieldUi?
 ---@field contextChoiceProvider ContextChoiceProvider?
 ---@field menuHost FieldMenuHost?
@@ -396,8 +398,24 @@ function FieldRuntime:_load()
         { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines }
       )
     end
+    -- The signpost window presents one 27x4-tile window: the single-window
+    -- lines shape the signpost controller captures is the first page of the
+    -- same paginated dialogue layout. Overflow beyond the window is the
+    -- signpost text path's concern, not this adapter's.
+    local signpostLayout = function(formatted)
+      local result = layoutMessage(formatted)
+      return { lines = (result.pages[1] or { lines = {} }).lines }
+    end
     self.dialogue = FieldDialogueController.new({
       layout = layoutMessage,
+      ticksPerGlyph = FieldPlayerData.ticksPerGlyph(self.playerData.options.textSpeed),
+    })
+    -- The signpost controller is fixed-tick and pure; the script platform
+    -- advances it once per scheduler tick through the signpost host. The
+    -- text-speed cadence is captured from the player options at construction,
+    -- the same single authority as the dialogue controller.
+    self.signpost = FieldSignpostController.new({
+      layout = signpostLayout,
       ticksPerGlyph = FieldPlayerData.ticksPerGlyph(self.playerData.options.textSpeed),
     })
     self.auxiliaryFieldUi = restored and AuxiliaryFieldUi.restore(restored.auxiliaryUi) or AuxiliaryFieldUi.new()
@@ -435,6 +453,7 @@ function FieldRuntime:_load()
       layout = layoutMessage,
       fontDef = fontDef,
       frameIndex = self.playerData.options.textFrame,
+      signpost = self.signpost,
       transition = self.transition,
       mapLoader = self.mapLoader,
       sourceMap = self.runtimeMap,
@@ -470,6 +489,7 @@ function FieldRuntime:_load()
       scriptClient = self.scripts.client,
       menuHost = self.menuHost,
       contextChoice = self.contextChoiceProvider,
+      signpost = self.signpost,
       interactions = {
         resolve = function(_, snapshot)
           return self.interactionResolver:resolve(snapshot)
@@ -712,6 +732,10 @@ function FieldRuntime:_releaseAll()
     self.dialogue:dispose()
   end
   self.dialogue = nil
+  if self.signpost then
+    self.signpost:dispose()
+  end
+  self.signpost = nil
   if self.messageProvider then
     self.messageProvider:dispose()
   end
@@ -749,6 +773,12 @@ function FieldRuntime:dispose()
   if self.dialogue then
     self.dialogue:dispose()
     self.dialogue = nil
+  end
+  -- The same transient gate applies to the signpost: a presented window is
+  -- cancelled before the save attempt, never persisted.
+  if self.signpost then
+    self.signpost:dispose()
+    self.signpost = nil
   end
   self:saveSession("Field session saved")
   self:_releaseAll()

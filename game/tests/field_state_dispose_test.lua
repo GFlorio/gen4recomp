@@ -91,6 +91,7 @@ end
 local function disposableState()
   local resources = {
     dialogue = fakeResource("dispose"),
+    signpost = fakeResource("dispose"),
     dialogueRenderer = fakeResource("release"),
     messageProvider = fakeResource("dispose"),
     actors = fakeResource("dispose"),
@@ -101,6 +102,7 @@ local function disposableState()
   }
   local runtime = setmetatable({
     dialogue = resources.dialogue,
+    signpost = resources.signpost,
     messageProvider = resources.messageProvider,
     actors = resources.actors,
     avatarAsset = {},
@@ -133,6 +135,7 @@ function T.dispose_saves_and_releases_each_resource_exactly_once()
   local runtime = state.runtime --[[@as any]]
   state:dispose()
   Assert.equal(resources.dialogue.calls, 1)
+  Assert.equal(resources.signpost.calls, 1, "disposal cancels the signpost controller once")
   Assert.equal(resources.dialogueRenderer.calls, 1)
   Assert.equal(resources.messageProvider.calls, 1)
   Assert.equal(resources.actors.calls, 1)
@@ -149,6 +152,7 @@ function T.dispose_is_a_no_op_on_repeat_calls()
   state:dispose()
   state:dispose()
   Assert.equal(resources.dialogue.calls, 1)
+  Assert.equal(resources.signpost.calls, 1, "repeat disposal never releases the signpost twice")
   Assert.equal(resources.renderer.calls, 1)
   Assert.equal(resources.saveStore.calls, 1)
 end
@@ -208,6 +212,7 @@ function T.reset_routes_through_the_shared_teardown_path()
   runtime:reset()
   Assert.equal(resources.saveStore.calls, 1, "reset wipes the save store")
   Assert.equal(resources.dialogue.calls, 1, "reset releases the dialogue")
+  Assert.equal(resources.signpost.calls, 1, "reset releases the signpost controller")
   Assert.equal(resources.messageProvider.calls, 1, "reset releases the message provider")
   Assert.equal(resources.actors.calls, 1, "reset releases the actors")
   Assert.equal(resources.actorAssets.releaseCalls, 1, "reset releases the avatar acquisition")
@@ -233,6 +238,7 @@ function T.reset_routes_through_the_shared_teardown_path()
     "playerVisual",
     "avatarAsset",
     "dialogue",
+    "signpost",
     "messageProvider",
     "actors",
     "actorAssets",

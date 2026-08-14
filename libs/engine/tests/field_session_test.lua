@@ -99,6 +99,11 @@ local function baseOptions(overrides)
         return false
       end,
     },
+    signpost = {
+      isModal = function()
+        return false
+      end,
+    },
     interactions = {
       resolve = function()
         return nil
@@ -177,6 +182,7 @@ function T.required_collaborators_are_validated_at_construction()
     "scriptClient",
     "menuHost",
     "contextChoice",
+    "signpost",
     "interactions",
   }
   for _, missing in ipairs(required) do
@@ -195,6 +201,7 @@ function T.required_collaborator_methods_are_validated_at_construction()
     { key = "transition", method = "start", label = "transition.start" },
     { key = "dialogue", method = "isModal", label = "dialogue.isModal" },
     { key = "currentMap", method = "updateAnimated", label = "currentMap.updateAnimated" },
+    { key = "signpost", method = "isModal", label = "signpost.isModal" },
   }
   for _, case in ipairs(cases) do
     local options = baseOptions({})

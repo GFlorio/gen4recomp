@@ -284,6 +284,28 @@ function T.refuses_mid_step_and_mid_transition_capture()
     },
   }
   Assert.isTrue(FieldSave.canCapture(closed))
+  -- A presented signpost window is transient state: capture stays closed
+  -- until the signpost hides.
+  local signpostOpen = {
+    player = { motion = "idle" },
+    transition = { phase = "idle" },
+    signpost = {
+      isModal = function()
+        return true
+      end,
+    },
+  }
+  Assert.isFalse(FieldSave.canCapture(signpostOpen))
+  local signpostClosed = {
+    player = { motion = "idle" },
+    transition = { phase = "idle" },
+    signpost = {
+      isModal = function()
+        return false
+      end,
+    },
+  }
+  Assert.isTrue(FieldSave.canCapture(signpostClosed))
 end
 
 function T.stale_surface_id_resamples_nearest_saved_height()

@@ -223,7 +223,8 @@ function FieldSave.validate(record, opts)
 end
 
 -- True only when a stable tile boundary can be captured: the player idle, no
--- transition active, and no half-open modal dialogue.
+-- transition active, and no half-open modal dialogue or presented signpost
+-- window.
 ---@param session FieldSession?
 ---@return boolean?
 function FieldSave.canCapture(session)
@@ -232,6 +233,7 @@ function FieldSave.canCapture(session)
     and session.player.motion == "idle"
     and (not session.transition or session.transition.phase == FieldTransition.PHASES.idle)
     and (not session.dialogue or not session.dialogue:isModal())
+    and (not session.signpost or not session.signpost:isModal())
 end
 
 -- Capture the record: the identity/location fields plus the world and
