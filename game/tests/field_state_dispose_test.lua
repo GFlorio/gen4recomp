@@ -182,7 +182,6 @@ local function resetState()
   runtime.input = {}
   runtime.menuHost = {}
   runtime.eventState = {}
-  runtime.envelope = {}
   runtime.interactionResolver = {}
   runtime.contextChoiceProvider = {}
   runtime.playerVisual = {}
@@ -223,7 +222,6 @@ function T.reset_routes_through_the_shared_teardown_path()
     "input",
     "menuHost",
     "eventState",
-    "envelope",
     "interactionResolver",
     "auxiliaryFieldUi",
     "contextChoiceProvider",

@@ -39,7 +39,6 @@ local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractio
 ---@field scriptClient ScriptInteractionClient
 ---@field menuHost FieldMenuHost
 ---@field contextChoice ContextChoiceProvider
----@field coverage fun(session: FieldSession)?
 
 ---@class FieldSession.Interactions
 ---@field resolve fun(self: FieldSession.Interactions, snapshot: InteractionResolverSnapshot): InteractionIntent?
@@ -59,7 +58,6 @@ local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractio
 ---@field scriptClient ScriptInteractionClient
 ---@field menuHost FieldMenuHost
 ---@field contextChoice ContextChoiceProvider
----@field coverage fun(session: FieldSession)?
 ---@field tick integer
 ---@field accumulator number
 local FieldSession = {}
@@ -116,7 +114,6 @@ function FieldSession.new(options)
     scriptClient = options.scriptClient,
     menuHost = options.menuHost,
     contextChoice = options.contextChoice,
-    coverage = options.coverage,
     tick = 0,
     accumulator = 0,
   }, FieldSession)
@@ -323,9 +320,6 @@ function FieldSession:updateFixed(inputSnapshot)
     self.playerVisual:updateFixed(walkingAtTickStart)
   end
   self.camera:updateFixed(self:actorTarget())
-  if self.coverage then
-    self.coverage(self)
-  end
   self:_advanceTick()
 end
 

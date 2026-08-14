@@ -148,26 +148,6 @@ local function spawnSurface(runtimeMap, localX, localZ)
   return best
 end
 
-local function terrainEnvelope(terrain)
-  local minY, maxY = math.huge, -math.huge
-  for _, plate in ipairs(terrain.plates) do
-    if plate.walkable ~= false then
-      local corners = {
-        { plate.minX, plate.minZ },
-        { plate.maxX, plate.minZ },
-        { plate.maxX, plate.maxZ },
-        { plate.minX, plate.maxZ },
-      }
-      for _, point in ipairs(corners) do
-        local y = terrain:sampleHeight(plate.id, point[1], point[2])
-        minY, maxY = math.min(minY, y), math.max(maxY, y)
-      end
-    end
-  end
-  assert(minY <= maxY, "field terrain has no walkable height envelope")
-  return { minY = minY, maxY = maxY }
-end
-
 ---@param versionId string
 ---@param mapIdOrSymbol string|integer|nil
 ---@param options FieldRuntimeOptions|nil
@@ -228,11 +208,11 @@ function FieldRuntime:_load()
 
     -- FieldMapLoader owns the simulation assets (field data, collision,
     -- terrain) through the pure asset paths for every composition. The visual
-    -- scene loader and neighbor coverage ring are presentation-only
+    -- scene loader and finite neighbor ring are presentation-only
     -- collaborators: a non-presentation runtime simply leaves them out.
     self.mapLoader = FieldMapLoader.new(cacheFs, world, {
       sceneLoader = self.presentation and MapSceneLoader or nil,
-      coverageLoader = self.presentation and NeighborRing or nil,
+      neighborLoader = self.presentation and NeighborRing or nil,
     })
     local restored
     if self.resumeSave then
@@ -290,9 +270,6 @@ function FieldRuntime:_load()
     local width, height = self.viewportWidth, self.viewportHeight
     self.viewport = FieldViewport.new(width, height, { mode = "expanded" })
     self:_updateCameraProjection()
-    self.envelope = terrainEnvelope(self.runtimeMap.terrain)
-    self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
-
     -- Event state: a persisted save owns the flags/vars and wins over the
     -- demo scenario. Only a fresh boot (no save) seeds the scenario. The v2
     -- save's world bucket carries the numeric flag/var maps in the
@@ -450,9 +427,6 @@ function FieldRuntime:_load()
           return self.interactionResolver:resolve(snapshot)
         end,
       },
-      coverage = function()
-        self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
-      end,
     })
   end)
   -- Construction is binary: a failed boot releases everything acquired so
@@ -587,13 +561,13 @@ end
 
 -- Fallible warp preparation, run by FieldTransition while the source map is
 -- still the authoritative current map: construct the destination player and
--- camera, compute the terrain envelope and player visual, then enter the
+-- camera and player visual, then enter the
 -- destination actors last. Every earlier step is pure construction and
 -- enterMap is internally transactional, so a failure at any point aborts the
 -- transition with the source map's ownership untouched.
 ---@param resolution table
 ---@param facing FieldDirection
----@return table prepared destination player, camera, envelope, and player visual
+---@return table prepared destination player, camera, and player visual
 function FieldRuntime:_prepareSwap(resolution, facing)
   assert(self.transition.fadeAlpha == 1, "field map swap must be hidden by fade")
   local runtimeMap = resolution.destinationMap
@@ -616,12 +590,10 @@ function FieldRuntime:_prepareSwap(resolution, facing)
     player = player,
     spriteId = self.avatar.spriteId,
   })
-  local envelope = terrainEnvelope(runtimeMap.terrain)
   self.actors:enterMap(runtimeMap, self.eventState)
   return {
     player = player,
     camera = camera,
-    envelope = envelope,
     playerVisual = playerVisual,
   }
 end
@@ -649,12 +621,10 @@ function FieldRuntime:_commitSwap(resolution, facing, prepared)
   self.playerVisual = prepared.playerVisual
   self.session.playerVisual = prepared.playerVisual
   self.camera = prepared.camera
-  self.envelope = prepared.envelope
   self.session.currentMap = runtimeMap
   self.session.player = prepared.player
   self.session.camera = prepared.camera
   self.scripts:onMapSwap(prepared.player, runtimeMap)
-  self.mapLoader:updateCoverage(runtimeMap, prepared.camera, prepared.envelope)
 end
 
 function FieldRuntime:_updateCameraProjection()
@@ -663,16 +633,14 @@ function FieldRuntime:_updateCameraProjection()
   self.camera:setZoom(self.zoom:effectiveZoom())
 end
 
--- Re-apply the user's zoom change to the camera projection and the coverage
--- ring.
+-- Re-apply the user's zoom change to the camera projection.
 function FieldRuntime:applyZoomChange()
   self:_updateCameraProjection()
-  self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
 end
 
 -- Presentation viewport resize owned by the runtime: the viewport and menu
--- host geometry, the new screen topology, the camera projection, and the
--- coverage ring update together.
+-- host geometry, the new screen topology, and the camera projection update
+-- together.
 ---@param width integer
 ---@param height integer
 ---@param screenTopology ScreenTopology
@@ -681,7 +649,6 @@ function FieldRuntime:resizePresentation(width, height, screenTopology)
   self.menuHost:resize(width, height)
   self.menuHost:setScreenTopology(screenTopology)
   self:_updateCameraProjection()
-  self.mapLoader:updateCoverage(self.runtimeMap, self.camera, self.envelope)
 end
 
 -- The one teardown path shared by reset and dispose: release every owned
@@ -715,7 +682,7 @@ function FieldRuntime:_releaseAll()
   self.actors, self.actorAssets, self.mapLoader = nil, nil, nil
   self.session, self.saveStore, self.scripts = nil, nil, nil
   self.transition, self.camera, self.player, self.runtimeMap = nil, nil, nil, nil
-  self.viewport, self.envelope, self.input, self.menuHost = nil, nil, nil, nil
+  self.viewport, self.input, self.menuHost = nil, nil, nil
   self.auxiliaryFieldUi, self.contextChoiceProvider, self.interactionResolver = nil, nil, nil
   self.eventState, self.avatar, self.actorConfig = nil, nil, nil
 end
