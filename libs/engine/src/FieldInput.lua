@@ -1,9 +1,9 @@
 -- Converts directional and semantic button edges into deterministic fixed-tick
 -- snapshots. The most recently pressed held direction wins; each press edge is
 -- consumed once so FieldPlayer can buffer it without depending on render
--- cadence. Action and Cancel are semantic buttons: any number of physical
--- bindings collapse into one edge per tick, held state is separate from the
--- edge, and focus loss or a transition commit clears them.
+-- cadence. Action, Cancel, and Menu are semantic buttons: any number of
+-- physical bindings collapse into one edge per tick, held state is separate
+-- from the edge, and focus loss or a transition commit clears them.
 -- Each semantic button tracks the physical sources that hold it down (opaque
 -- identities such as "key:enter", "key:space", "gamepad:1:a" supplied by the
 -- caller): a button stays down until the last source is released, and a
@@ -19,6 +19,9 @@
 ---@field cancelSources table<string, boolean>
 ---@field cancelDown boolean
 ---@field cancelPressed boolean
+---@field menuSources table<string, boolean>
+---@field menuDown boolean
+---@field menuPressed boolean
 ---@field pressedDirection string?
 ---@field uiDirections table<string, { sources: table<string, boolean>, order: integer }>
 ---@field uiNextOrder integer
@@ -124,6 +127,9 @@ function FieldInput.new(options)
     cancelSources = {},
     cancelDown = false,
     cancelPressed = false,
+    menuSources = {},
+    menuDown = false,
+    menuPressed = false,
     uiDirections = {},
     uiNextOrder = 0,
     uiRepeatDelay = uiRepeatDelay,
@@ -264,6 +270,35 @@ function FieldInput:releaseCancel(source)
   self.cancelSources[source] = nil
   if not next(self.cancelSources) then
     self.cancelDown = false
+  end
+end
+
+-- The semantic Menu button (the Start Menu open/close edge): the same
+-- source-aware model as Action/Cancel. FieldState maps keyboard "m" and the
+-- gamepad west face ("x") to it; the session checks the edge at the idle
+-- field boundary and the application host translates a fresh press into the
+-- menu-close semantics while the Start Menu owns the tick.
+
+---@param source string
+function FieldInput:pressMenu(source)
+  requireSource(source)
+  if self.menuSources[source] then
+    return
+  end
+  local wasDown = next(self.menuSources) ~= nil
+  self.menuSources[source] = true
+  self.menuDown = true
+  if not wasDown then
+    self.menuPressed = true
+  end
+end
+
+---@param source string
+function FieldInput:releaseMenu(source)
+  requireSource(source)
+  self.menuSources[source] = nil
+  if not next(self.menuSources) then
+    self.menuDown = false
   end
 end
 
@@ -450,6 +485,7 @@ function FieldInput:beginUi(tick)
   self.uiPressedDirection = nil
   self.uiConfirmPressed = nil
   self.uiCancelPressed = nil
+  self.menuPressed = nil
   self.uiPointerEvents = {}
   self.uiPointers = {}
   self.uiActive = true
@@ -520,6 +556,7 @@ function FieldInput:snapshot()
     heldDirection = self:heldDirection(),
     actionDown = self.actionDown,
     cancelDown = self.cancelDown,
+    menuDown = self.menuDown,
   }
   if self.pressedDirection then
     snapshot.pressedDirection = self.pressedDirection
@@ -530,9 +567,13 @@ function FieldInput:snapshot()
   if self.cancelPressed then
     snapshot.cancelPressed = true
   end
+  if self.menuPressed then
+    snapshot.menuPressed = true
+  end
   self.pressedDirection = nil
   self.actionPressed = nil
   self.cancelPressed = nil
+  self.menuPressed = nil
   return snapshot
 end
 
@@ -542,6 +583,7 @@ function FieldInput:clearEdges()
   self.pressedDirection = nil
   self.actionPressed = nil
   self.cancelPressed = nil
+  self.menuPressed = nil
 end
 
 -- Focus loss clears held and edge state entirely, including every physical
@@ -555,6 +597,8 @@ function FieldInput:clearAll()
   self.actionDown = false
   self.cancelSources = {}
   self.cancelDown = false
+  self.menuSources = {}
+  self.menuDown = false
   self.uiDirections = {}
   self:clearUi()
   self.stickDirections = {}
@@ -570,5 +614,7 @@ end
 ---@field actionPressed boolean?
 ---@field cancelDown boolean
 ---@field cancelPressed boolean?
+---@field menuDown boolean
+---@field menuPressed boolean?
 
 return FieldInput

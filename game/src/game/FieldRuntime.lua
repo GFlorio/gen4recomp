@@ -89,6 +89,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field menuHost FieldMenuHost?
 ---@field actionKeys table<string, boolean>?
 ---@field cancelKeys table<string, boolean>?
+---@field menuKeys table<string, boolean>?
 ---@field saveFs SaveFs?
 ---@field presentation boolean
 ---@field windowStyles FieldWindowStyleRegistry the sealed per-runtime window style catalogue
@@ -112,6 +113,15 @@ end
 local function cancelBindings()
   local keys = {}
   for _, key in ipairs(FieldPresentation.input and FieldPresentation.input.cancel or {}) do
+    keys[key] = true
+  end
+  return keys
+end
+
+---@return table<string, boolean>
+local function menuBindings()
+  local keys = {}
+  for _, key in ipairs(FieldPresentation.input and FieldPresentation.input.menu or {}) do
     keys[key] = true
   end
   return keys
@@ -430,6 +440,7 @@ function FieldRuntime:_load()
     self.contextChoiceProvider = ContextChoiceProvider.new()
     self.actionKeys = actionBindings()
     self.cancelKeys = cancelBindings()
+    self.menuKeys = menuBindings()
 
     -- Interaction discovery: the resolver is pure and consults the manager's
     -- occupancy index; bound interactions run through the script client and
@@ -580,6 +591,14 @@ end
 
 function FieldRuntime:releaseCancel()
   requireLiveInput(self):releaseCancel("runtime")
+end
+
+function FieldRuntime:pressMenu()
+  requireLiveInput(self):pressMenu("runtime")
+end
+
+function FieldRuntime:releaseMenu()
+  requireLiveInput(self):releaseMenu("runtime")
 end
 
 -- Save the current field session (developer F1 bind, autosave after warp, and

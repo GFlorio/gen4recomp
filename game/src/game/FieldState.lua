@@ -256,7 +256,7 @@ function FieldState:_drawHud()
       self.runtime.player.motion
     ),
     self.runtime.saveStatus or "save not written this run",
-    "WASD/arrows move   Z/Space/Enter action   X/Backspace cancel   -/= zoom"
+    "WASD/arrows move   Z/Space/Enter action   X/Backspace cancel   M menu   -/= zoom"
       .. "   0 reset zoom   F1 save   F2 reset   Esc quit",
   }
   lg.setColor(0, 0, 0, 0.55)
@@ -288,6 +288,9 @@ function FieldState:keypressed(key, scancode, isrepeat)
   end
   if self.runtime.cancelKeys[key] then
     self.runtime.input:pressCancel("key:" .. key)
+  end
+  if self.runtime.menuKeys[key] then
+    self.runtime.input:pressMenu("key:" .. key)
   end
   if key == "-" or key == "kp-" then
     self.runtime.zoom:zoomOut()
@@ -321,6 +324,10 @@ function FieldState:keyreleased(key, scancode)
     self.runtime.input:releaseCancel("key:" .. key)
     return
   end
+  if self.runtime.menuKeys[key] then
+    self.runtime.input:releaseMenu("key:" .. key)
+    return
+  end
   local direction = KEY_DIRECTIONS[key]
   if direction then
     self.runtime.input:releaseDirection("key:" .. key)
@@ -336,9 +343,10 @@ function FieldState:focus(focused)
   end
 end
 
--- Gamepad Action is the south face button ("a") and Cancel the east face
--- button ("b"), mapped alongside the keyboard bindings. The physical source
--- identity includes the joystick id so two pads cannot alias one button.
+-- Gamepad Action is the south face button ("a"), Cancel the east face
+-- button ("b"), and Menu the west face button ("x"), mapped alongside the
+-- keyboard bindings. The physical source identity includes the joystick id
+-- so two pads cannot alias one button.
 ---@param joystick love.Joystick
 ---@param button string
 function FieldState:gamepadpressed(joystick, button)
@@ -348,6 +356,9 @@ function FieldState:gamepadpressed(joystick, button)
   end
   if button == "b" then
     self.runtime.input:pressCancel(source)
+  end
+  if button == "x" then
+    self.runtime.input:pressMenu(source)
   end
   local direction = GAMEPAD_DIRECTIONS[button]
   if direction then
@@ -364,6 +375,9 @@ function FieldState:gamepadreleased(joystick, button)
   end
   if button == "b" then
     self.runtime.input:releaseCancel(source)
+  end
+  if button == "x" then
+    self.runtime.input:releaseMenu(source)
   end
   local direction = GAMEPAD_DIRECTIONS[button]
   if direction then

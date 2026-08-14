@@ -56,6 +56,7 @@ local function hostCallbacks(game)
       input = game.runtime.input,
       actionKeys = game.runtime.actionKeys,
       cancelKeys = game.runtime.cancelKeys,
+      menuKeys = game.runtime.menuKeys,
     },
   }, FieldState)
 end
