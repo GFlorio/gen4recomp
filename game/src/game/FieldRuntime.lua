@@ -51,6 +51,13 @@ local StartMenuController = require("libs.engine.src.StartMenuController")
 local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
 local TrainerCardController = require("libs.engine.src.TrainerCardController")
+local AudioAssetProvider = require("libs.engine.src.audio.AudioAssetProvider")
+local FieldMusicController = require("libs.engine.src.audio.FieldMusicController")
+local GameSound = require("libs.engine.src.audio.GameSound")
+local SequencePlayer = require("libs.engine.src.audio.SequencePlayer")
+local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
+local VoiceMixer = require("libs.engine.src.audio.VoiceMixer")
+local LoveAudioSink = require("game.src.game.audio.LoveAudioSink")
 local TargetSpawns = require("data.manifests.field_spawns")
 local FieldPresentation = require("data.manifests.field_presentation")
 local FieldScenarioManifest = require("data.manifests.field_scenario")
@@ -69,6 +76,8 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field saveFs SaveFs?
 ---@field presentation boolean?
 ---@field scriptHosts table? deterministic host boundaries for script effects
+---@field dayNight (fun(): string)? deterministic day/night source for the field-music policy
+---@field audioOutput table? love.audio-shaped audio-output namespace for the LÖVE sink
 
 ---@class FieldRuntimeScriptHosts
 ---@field audio table?
@@ -104,9 +113,18 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field applications FieldApplicationRegistry the immutable per-runtime destination application catalogue
 ---@field applicationHost FieldApplicationHost the one application modal owner the session steps
 ---@field startMenuPlacement StartMenuLayout.Placement? the one Start Menu placement record rendering and pointer mapping share
+---@field dayNight fun(): string?
+---@field audioOutput table?
+---@field audio GameSound? production-composed audio service (absent when a recording adapter is injected)
+---@field fieldMusic FieldMusicController? production-composed field-music policy (absent with a recording adapter)
+---@field audioSink LoveAudioSink? production-composed LÖVE output sink (absent without an audio-output host)
 local FieldRuntime = {}
 FieldRuntime.__index = FieldRuntime
 
+-- The audio-output sample rate of the production composition (the mixer and
+-- the LÖVE sink render at this rate, the DS SPU rate; source waves are
+-- ratio-scaled, so the pitch is preserved at any output rate).
+local AUDIO_SAMPLE_RATE = 32768
 local CAMERA_PROFILES_PATH = FieldCameraCache.profilesPath()
 local DEFAULT_MAP = "MAP_NEW_BARK_ELMS_LAB_1F"
 ---@return table<string, boolean>
@@ -194,6 +212,8 @@ function FieldRuntime.new(versionId, mapIdOrSymbol, options)
     saveFs = options.saveFs,
     presentation = options.presentation == true,
     scriptHosts = options.scriptHosts,
+    dayNight = options.dayNight,
+    audioOutput = options.audioOutput,
     errorText = nil,
     zoom = FieldZoom.new(options.zoomConfig or FieldPresentation.zoom),
   }, FieldRuntime)
@@ -494,6 +514,12 @@ function FieldRuntime:_load()
       end,
     })
 
+    -- The production audio composition lives in _composeAudio: extracted out
+    -- of this closure (rather than inlined here) so its module-level
+    -- collaborators are not upvalues of this already large boot closure,
+    -- which sits close to LuaJIT's 60-upvalue-per-function limit.
+    local audioService = self:_composeAudio(cacheFs)
+
     -- The field-script platform (the script override system): registry over
     -- the compiled cache + data/scripts/overrides, composition, bindings,
     -- scheduler, and interaction client. Bound interactions run through the
@@ -520,7 +546,7 @@ function FieldRuntime:_load()
       mapLoader = self.mapLoader,
       sourceMap = self.runtimeMap,
       seedText = self.versionId .. ":" .. self.runtimeMap.mapId,
-      audio = self.scriptHosts and self.scriptHosts.audio,
+      audio = audioService,
       camera = self.scriptHosts and self.scriptHosts.camera,
       screen = self.scriptHosts and self.scriptHosts.screen,
       events = self.scriptHosts and self.scriptHosts.events,
@@ -558,6 +584,10 @@ function FieldRuntime:_load()
       contextChoice = self.contextChoiceProvider,
       signpost = self.signpost,
       applicationHost = self.applicationHost,
+      -- The session's fixed-tick audio collaborator is the production
+      -- GameSound only; a recording script adapter is a script service, not
+      -- a session collaborator.
+      audio = self.audio,
       interactions = {
         resolve = function(_, snapshot)
           return self.interactionResolver:resolve(snapshot)
@@ -591,6 +621,12 @@ function FieldRuntime:update(dt)
   -- and freezes instead of resuming field simulation.
   if self.applicationHost:error() and not self.errorText then
     self.errorText = tostring(self.applicationHost:error())
+  end
+  -- The audio output clock: pump PCM from the engine into the host sink once
+  -- per runtime update, separate from the field fixed tick (the sink never
+  -- advances game-semantic audio state).
+  if self.audioSink then
+    self.audioSink:update()
   end
   if self.transition.error and not self.errorText then
     local context = self.transition.warpContext
@@ -688,6 +724,63 @@ function FieldRuntime:_composeStartMenu(rememberedActionId)
     cursorFrames = self.uiManifest.startMenu.cursor.frames,
     rememberedActionId = rememberedActionId,
   })
+end
+
+-- The production audio composition: when no recording script audio adapter
+-- is injected, builds the real stack (AudioAssetProvider -> VoiceMixer ->
+-- SequencePlayer -> GameSound) plus the field-music policy controller, wires
+-- GameSound as the script audio service and the session's fixed-tick audio
+-- collaborator, and starts the current map's header music. The LÖVE sink is
+-- built over the injected audio-output host boundary (acceptance fakes it);
+-- production defaults to love.audio, and a host with no audio module has no
+-- sink to pump. The day/night source defaults to the wall-clock IsNighttime
+-- predicate (hours 0-3 and 20-23, the bandForHour nite band); tests and
+-- hosts inject a deterministic one.
+---@param cacheFs CacheFs
+---@return table audioService the GameSound instance, or the injected recording adapter
+function FieldRuntime:_composeAudio(cacheFs)
+  local audioService = self.scriptHosts and self.scriptHosts.audio
+  if audioService ~= nil then
+    return audioService
+  end
+  local provider = AudioAssetProvider.new(cacheFs)
+  local mixer = VoiceMixer.new({ sampleRate = AUDIO_SAMPLE_RATE })
+  local player = SequencePlayer.new({
+    sampleRate = AUDIO_SAMPLE_RATE,
+    mixer = mixer,
+    provider = provider,
+  })
+  local dayNight = self.dayNight
+    or function()
+      return TimeOfDayProps.bandForHour(os.date("*t").hour) == "nite" and "night" or "day"
+    end
+  self.fieldMusic = FieldMusicController.new({ dayNight = dayNight })
+  self.audio = GameSound.new({
+    provider = provider,
+    player = player,
+    mapMusic = function()
+      return self.fieldMusic:mapHeaderMusic(self.runtimeMap)
+    end,
+  })
+  local audioOutput = self.audioOutput or love.audio
+  if audioOutput ~= nil then
+    self.audioSink = LoveAudioSink.new({
+      audio = audioOutput,
+      engine = {
+        render = function(_, frames)
+          return self.audio:render(frames)
+        end,
+      },
+      sampleRate = AUDIO_SAMPLE_RATE,
+    })
+  end
+  local reference = self.fieldMusic:mapHeaderMusic(self.runtimeMap)
+  if reference ~= nil then
+    self.audio:playMusic(reference)
+  else
+    self.audio:stopMusic()
+  end
+  return self.audio
 end
 
 -- Save the current field session (developer F1 bind, autosave after warp, and
@@ -811,6 +904,18 @@ function FieldRuntime:_commitSwap(resolution, facing, prepared)
   self.session.currentMap = runtimeMap
   self.session.player = prepared.player
   self.session.camera = prepared.camera
+  -- The field-music policy follows the destination map: the composition
+  -- starts the destination's header music (replacing the old map's BGM on
+  -- the shared BGM player), so a warp never leaves the source map's music
+  -- orphaned.
+  if self.fieldMusic then
+    local reference = self.fieldMusic:mapHeaderMusic(runtimeMap)
+    if reference ~= nil then
+      self.audio:playMusic(reference)
+    else
+      self.audio:stopMusic()
+    end
+  end
   self.scripts:onMapSwap(prepared.player, runtimeMap)
 end
 
@@ -882,7 +987,11 @@ function FieldRuntime:_releaseAll()
   if self.mapLoader then
     self.mapLoader:release()
   end
+  if self.audioSink then
+    self.audioSink:release()
+  end
   self.actors, self.actorAssets, self.mapLoader = nil, nil, nil
+  self.audio, self.audioSink, self.fieldMusic = nil, nil, nil
   self.session, self.saveStore, self.scripts = nil, nil, nil
   self.transition, self.camera, self.player, self.runtimeMap = nil, nil, nil, nil
   self.viewport, self.input, self.menuHost = nil, nil, nil

@@ -1,7 +1,8 @@
 -- The g4 sequence-IR interpreter. It owns NNS-style players,
 -- active sequences, tracks, program counters, track wait counters, call
--- stacks, loops, tempo, and track parameters, and drives a VoiceMixer with
--- voice commands. It interprets project instruction IR, never SSEQ. The
+-- stacks, loops, tempo, player variables (setvar and variable operands),
+-- and track parameters, and drives a VoiceMixer with voice commands. It
+-- interprets project instruction IR, never SSEQ. The
 -- tick clock is the NNS relationship verified from GBATEK ("DS Sound Files -
 -- SSEQ"): a quarter note is 48 ticks and tempo is BPM (1..240, default
 -- 120). Ticks come from an exact integer accumulator per player instance:
@@ -14,10 +15,17 @@
 -- re-triggered note restarts its sample. Tempo changes apply to the
 -- accumulator rate from the next frame (the accumulator keeps its residue,
 -- like the DS timer). Tracks are monophonic: a note occupies its track for
--- its whole duration. loop_end jumps back to its target while the loop
--- count is positive (loop_begin count 0, as in the real HGSS jingle, plays
--- the body once). Random amount operands resolve through a deterministic
--- per-play RNG. Rendering is per-frame, so command boundaries inside a
+-- its whole duration. Fresh tracks gate notes by their duration (the NNS
+-- noteWait default); 0xC7 note_wait clears the flag so composers pair notes
+-- with explicit 0x80 waits, and a ringing note's own length bounds its
+-- ring independently of gates (the NNS channel length). loop_end jumps back
+-- to its target while the loop count is positive (loop_begin count 0, as in
+-- the real HGSS jingle, plays the body once). Random amount operands resolve
+-- through a deterministic per-play RNG; variable operands through the
+-- instance's player variables. The corpus-reachable commands whose effects
+-- V1 does not model (LFO modulation, pitch sweep, portamento, per-track
+-- envelope overrides, the reserved no-ops) are accepted without effect.
+-- Rendering is per-frame, so command boundaries inside a
 -- buffer apply at their sample index, and the accumulator and waits are
 -- instance state carried across render calls, so chunk sizes never change
 -- the result. play(sequence, bank) starts the sequence on its player id;
@@ -70,16 +78,25 @@ local function newRng()
   end
 end
 
--- Resolves a normalized amount operand: a plain value passes through, a
--- random record draws from the per-play RNG, anything else (e.g. a variable
--- operand, which the player has no variable state to resolve) is an
--- attributed failure.
-local function resolveAmount(amount, rng)
+-- Resolves a normalized amount operand against the player instance: a plain
+-- value passes through, a random record draws from the instance's per-play
+-- RNG, a variable record reads the instance's player variable (setvar), and
+-- anything else (an unknown shape or a variable record without a var id) is
+-- an attributed failure.
+local function resolveAmount(amount, instance)
   if type(amount) == "number" then
     return amount
   end
   if amount.kind == "random" then
-    return amount.min + math.floor(rng() * (amount.max - amount.min + 1))
+    return amount.min + math.floor(instance.rng() * (amount.max - amount.min + 1))
+  end
+  if amount.kind == "variable" then
+    if type(amount.var) ~= "number" then
+      Errors.raise(FieldErrors.AUDIO_PLAYER_UNSUPPORTED_AMOUNT, "variable amount requires a var id", {
+        kind = amount.kind,
+      })
+    end
+    return instance.vars[amount.var] or 0
   end
   Errors.raise(FieldErrors.AUDIO_PLAYER_UNSUPPORTED_AMOUNT, "unsupported amount operand in sequence", {
     kind = amount.kind,
@@ -93,6 +110,16 @@ local function newTrack(entry)
     gated = false,
     wait = 0,
     channel = nil,
+    -- The ringing note's remaining length in ticks (the NNS channel length):
+    -- it counts down independently of gates, so a note never rings past its
+    -- own duration into a later wait.
+    channelLength = 0,
+    -- Note gating: fresh tracks gate notes by their duration (the NNS
+    -- TrackStart initialization sets noteWait); 0xC7 note_wait clears it so
+    -- composers pair notes with explicit waits.
+    noteWait = true,
+    priority = nil,
+    cmp = false,
     program = 0,
     volume = 127,
     expression = 127,
@@ -138,12 +165,12 @@ end
 -- around 64), and the priorities and channel mask from the sequence's
 -- player record.
 local function startNote(self, instance, track, key, velocity)
+  -- A program the bank does not define is a silent note (the NNS
+  -- SND_ReadInstData failure path): the real corpus references instruments
+  -- whose SBNK records are unused/placeholder and the DS plays silence.
   local instrument = instance.bank.instruments[track.program]
   if instrument == nil then
-    Errors.raise(FieldErrors.AUDIO_PLAYER_INSTRUMENT_UNKNOWN, "no instrument for program " .. tostring(track.program), {
-      program = track.program,
-      bankId = instance.bank.id,
-    })
+    return nil
   end
   local voice = selectVoice(instrument, key)
   if voice == nil then
@@ -164,36 +191,64 @@ local function startNote(self, instance, track, key, velocity)
   spec.expression = track.expression
   spec.envelope = voice.envelope
   spec.pan = clamp(voice.pan + track.pan - 64, 0, 127)
-  spec.channelPriority = sequence.player.channelPriority
+  -- A 0xC6 priority command overrides the player record's channel priority
+  -- for the track's notes (the NNS channel priority sums the player and
+  -- track priorities; the override is the V1 approximation).
+  spec.channelPriority = track.priority or sequence.player.channelPriority
   spec.playerPriority = sequence.player.playerPriority
   spec.channelMask = instance.channelMask
   return self._mixer:noteOn(spec)
 end
 
 -- Executes one instruction, mutating the track, and returns the next
--- program counter. Gating instructions (note/rest) set the track's wait;
--- fin ends the track; open_track spawns the target track and lets the
--- current track continue; loop_end jumps while its count is positive.
+-- program counter. Gating instructions (note/rest/wait) set the track's
+-- wait; fin/end ends the track; open_track spawns the target track and
+-- lets the current track continue; loop_end jumps while its count is
+-- positive.
 local function execute(self, instance, track, instruction)
   local op = instruction.op
   if op == "note" then
+    -- A track is monophonic: a new note replaces a still-ringing one (the
+    -- mixer channel the track owns).
+    if track.channel ~= nil then
+      self._mixer:noteOff(track.channel)
+    end
     track.channel = startNote(self, instance, track, instruction.key, instruction.velocity)
-    track.gated = true
-    track.wait = instruction.duration
+    track.channelLength = instruction.duration
+    if track.noteWait then
+      track.gated = true
+      track.wait = instruction.duration
+    end
     return track.pc + 1
   end
   if op == "rest" then
-    track.channel = nil
+    if track.channel ~= nil then
+      self._mixer:noteOff(track.channel)
+      track.channel = nil
+    end
     track.gated = true
     track.wait = instruction.duration
     return track.pc + 1
   end
-  if op == "fin" then
+  if op == "wait" then
+    -- 0x80: gate the track without releasing a ringing note (the note's own
+    -- channel length bounds its ring).
+    track.gated = true
+    track.wait = instruction.duration
+    return track.pc + 1
+  end
+  if op == "fin" or op == "end" then
     track.ended = true
     return nil
   end
   if op == "program" then
-    track.program = instruction.program
+    -- 0x81 with a variable operand (the corpus' variable-program
+    -- references) selects the program the variable names.
+    if instruction.amount ~= nil then
+      track.program = resolveAmount(instruction.amount, instance)
+    else
+      track.program = instruction.program
+    end
   elseif op == "jump" then
     return instruction.target
   elseif op == "call" then
@@ -209,19 +264,47 @@ local function execute(self, instance, track, instruction)
     end
     instance.tracks[instruction.track] = newTrack(instruction.target)
   elseif op == "tempo" then
-    instance.tempo = resolveAmount(instruction.amount, instance.rng)
+    instance.tempo = resolveAmount(instruction.amount, instance)
   elseif op == "pan" then
-    track.pan = resolveAmount(instruction.amount, instance.rng)
+    track.pan = resolveAmount(instruction.amount, instance)
   elseif op == "volume" then
-    track.volume = resolveAmount(instruction.amount, instance.rng)
+    track.volume = resolveAmount(instruction.amount, instance)
   elseif op == "expression" then
-    track.expression = resolveAmount(instruction.amount, instance.rng)
+    track.expression = resolveAmount(instruction.amount, instance)
   elseif op == "transpose" then
-    track.transpose = resolveAmount(instruction.amount, instance.rng)
+    track.transpose = resolveAmount(instruction.amount, instance)
   elseif op == "pitch_bend" then
-    track.bend = resolveAmount(instruction.amount, instance.rng)
+    track.bend = resolveAmount(instruction.amount, instance)
   elseif op == "pitch_bend_range" then
-    track.bendRange = resolveAmount(instruction.amount, instance.rng)
+    track.bendRange = resolveAmount(instruction.amount, instance)
+  elseif op == "note_wait" then
+    -- 0xC7 sets/clears the note-gating flag (u8, nonzero = set).
+    track.noteWait = resolveAmount(instruction.amount, instance) ~= 0
+  elseif op == "priority" then
+    track.priority = resolveAmount(instruction.amount, instance)
+  elseif op == "setvar" then
+    instance.vars[instruction.var] = resolveAmount(instruction.amount, instance)
+  elseif op == "cmp_ne" then
+    track.cmp = instance.vars[instruction.var] ~= resolveAmount(instruction.amount, instance)
+  elseif op == "nop" then
+    -- The reserved no-op opcodes of the corpus (0x82-0x8F, 0x90-0x92,
+    -- 0x96-0x9F, 0xA3-0xAF, 0xB7, 0xBE-0xBF, 0xD8-0xDF, 0xE2, 0xE4-0xEF,
+    -- 0xF0-0xFB, 0xFE): the SDK consumes them without effect.
+  elseif
+    op == "mod_depth"
+    or op == "mod_speed"
+    or op == "mod_type"
+    or op == "mod_range"
+    or op == "mod_delay"
+    or op == "sweep"
+    or op == "portamento_key"
+    or op == "portamento_time"
+    or op == "release"
+  then
+    -- Corpus-reachable commands whose effects V1 does not model (LFO
+    -- modulation state, pitch sweep, portamento, per-track envelope
+    -- overrides): the frozen vocabulary guarantees their shape; the engine
+    -- accepts them without effect.
   elseif op == "loop_begin" then
     assert(type(instruction.count) == "number", "loop_begin requires a count")
     track.loopStack[#track.loopStack + 1] = { remaining = instruction.count }
@@ -242,15 +325,20 @@ local function execute(self, instance, track, instruction)
   return track.pc + 1
 end
 
--- Executes instructions until the track is gated (waiting on a note/rest)
--- or ended, with a bounded step budget so a runaway non-gating loop fails
--- instead of hanging.
+-- Executes instructions until the track is gated (waiting on a note/rest/
+-- wait) or ended, with a bounded step budget so a runaway non-gating loop
+-- fails instead of hanging. A conditional instruction (the 0xA2 prefix)
+-- executes only while the track comparison holds.
 local function fetch(self, instance, track)
   local steps = 0
   while not track.ended and not track.gated do
     local instruction = instance.sequence.program.instructions[track.pc]
     assert(instruction, "program counter past the instruction list")
-    track.pc = execute(self, instance, track, instruction)
+    if instruction.conditional and not track.cmp then
+      track.pc = track.pc + 1
+    else
+      track.pc = execute(self, instance, track, instruction)
+    end
     steps = steps + 1
     if steps > MAX_UNGATED_STEPS then
       Errors.raise(
@@ -316,6 +404,7 @@ function SequencePlayer:play(sequence, bank)
     tempo = DEFAULT_TEMPO,
     acc = 0,
     rng = newRng(),
+    vars = {},
     tracks = { [0] = newTrack(sequence.program.entry) },
   }
 end
@@ -324,10 +413,11 @@ end
 -- sequencer advances once per output frame: not-gated tracks fetch their
 -- next instruction first, the mixer renders the frame, then each instance's
 -- tick accumulator adds tempo*48 (a tick fires per sampleRate*60 units) and
--- every tick decrements each gated track's integer wait, releasing
--- completed gates and fetching the following instructions. Per-frame
--- processing with instance-carried state keeps rendering independent of
--- chunk size.
+-- every tick decrements each ringing channel's remaining length (releasing
+-- it at zero, independently of gates) and each gated track's integer wait,
+-- releasing completed gates and fetching the following instructions.
+-- Per-frame processing with instance-carried state keeps rendering
+-- independent of chunk size.
 ---@param frames integer
 ---@return integer[]
 function SequencePlayer:render(frames)
@@ -348,13 +438,18 @@ function SequencePlayer:render(frames)
       while instance.acc >= self._sampleRate * 60 do
         instance.acc = instance.acc - self._sampleRate * 60
         for _, track in pairs(instance.tracks) do
+          if track.channel ~= nil then
+            track.channelLength = track.channelLength - 1
+            if track.channelLength <= 0 then
+              self._mixer:noteOff(track.channel)
+              track.channel = nil
+            end
+          end
+        end
+        for _, track in pairs(instance.tracks) do
           if track.gated then
             track.wait = track.wait - 1
             if track.wait <= 0 then
-              if track.channel ~= nil then
-                self._mixer:noteOff(track.channel)
-                track.channel = nil
-              end
               track.gated = false
               if not track.ended then
                 fetch(self, instance, track)

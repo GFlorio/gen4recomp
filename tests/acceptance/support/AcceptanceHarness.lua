@@ -176,7 +176,12 @@ function AcceptanceHarness:_newRuntime(versionId, map, namespace, save, faults, 
   runtimeOptions.saveFs = SaveFs.forVersion(versionId, saveBackend(faults, lifecycle, namespace))
   runtimeOptions.resumeSave = save == "resume"
   runtimeOptions.resetSave = save == "fresh"
-  runtimeOptions.scriptHosts = RecordingScriptHosts.new()
+  -- `audioHost = "production"` omits the recording audio adapter so the
+  -- production composition wires the real GameSound at scriptHosts.audio
+  -- (the field-audio acceptance scenarios); the default keeps the recording
+  -- adapter for every other scenario.
+  runtimeOptions.scriptHosts =
+    RecordingScriptHosts.new({ audio = fieldOptions and fieldOptions.audioHost ~= "production" })
   return self.runtimeFactory(versionId, map, runtimeOptions)
 end
 

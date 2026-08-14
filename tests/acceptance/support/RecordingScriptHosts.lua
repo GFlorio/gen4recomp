@@ -1,10 +1,15 @@
 -- Deterministic recording adapters for the real field-script host boundaries.
 -- They acknowledge effects immediately, while retaining their semantic order.
+-- `options.audio = false` omits the audio adapter so the production composition
+-- can wire the real GameSound at the scriptHosts.audio slot (the field-audio
+-- acceptance scenarios); camera/screen/events remain recorded.
 
 local RecordingScriptHosts = {}
 
----@return table { effects: string[], audio: table, events: table }
-function RecordingScriptHosts.new()
+---@param options { audio: boolean? }|nil
+---@return table { effects: string[], audio: table|nil, events: table }
+function RecordingScriptHosts.new(options)
+  options = options or {}
   local effects = {}
   local audio = { current = nil, fadeActive = false }
   local events = { records = {} }
@@ -56,7 +61,11 @@ function RecordingScriptHosts.new()
     self.records[#self.records + 1] = { name = name, payload = payload }
   end
 
-  return { effects = effects, audio = audio, events = events }
+  local hosts = { effects = effects, events = events }
+  if options.audio ~= false then
+    hosts.audio = audio
+  end
+  return hosts
 end
 
 return RecordingScriptHosts

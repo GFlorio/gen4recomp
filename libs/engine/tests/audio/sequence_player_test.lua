@@ -532,7 +532,11 @@ function T.playing_a_sequence_with_a_mismatched_bank_fails()
   end)
 end
 
-function T.playing_an_unknown_instrument_fails()
+function T.playing_an_unknown_instrument_is_silent()
+  -- A program the bank does not define is a silent note: the NNS
+  -- SND_ReadInstData failure path skips the note, and the real corpus
+  -- references placeholder/unused instruments (48 sequences) that the DS
+  -- plays as silence, never as a fault.
   local player, provider = engine({
     [0] = seq({
       { op = "program", program = 9 },
@@ -541,9 +545,9 @@ function T.playing_an_unknown_instrument_fails()
     }),
   })
   play(player, provider)
-  throwsCode("AUDIO_PLAYER_INSTRUMENT_UNKNOWN", function()
-    player:render(500)
-  end)
+  local pcm = player:render(600)
+  Assert.deepEqual(left(pcm, 600), zeros(600), "a missing instrument is a silent note")
+  Assert.isFalse(player:isPlaying())
 end
 
 function T.unsupported_ops_amounts_and_runaway_loops_fail_loudly()
@@ -720,6 +724,164 @@ function T.an_ended_or_never_played_player_reports_free()
   Assert.isFalse(player:isPlaying())
   player:stopPlayer(2)
   player:stopPlayer(9)
+end
+
+-- The real HGSS corpus vocabulary: 0x80 `wait` gates the track without
+-- releasing a ringing note, 0xFF `end` terminates like the fixture `fin`,
+-- and 0xC7 `note_wait` clears the note-gating flag (fresh tracks start with
+-- it set, per the NNS TrackStart initialization), so composers pair every
+-- note with explicit waits. The note's own duration bounds its ring
+-- independently of gates (the NNS channel length).
+function T.wait_gates_the_track_while_the_note_rings_its_own_length()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 2 },
+      { op = "wait", duration = 1 },
+      { op = "wait", duration = 1 },
+      { op = "wait", duration = 1 },
+      { op = "end" },
+    }),
+  })
+  play(player, provider)
+  local pcm = player:render(2000)
+  Assert.deepEqual(
+    left(pcm, 2000),
+    concat(wavePattern(WAVE_A, 1000), zeros(1000)),
+    "a note whose gating is cleared rings exactly its own duration; the waits gate without releasing it"
+  )
+  Assert.isFalse(player:isPlaying(), "end terminates the track like fin")
+end
+
+function T.note_wait_clearing_makes_subsequent_notes_ungated()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "fin" },
+    }),
+  })
+  play(player, provider)
+  local pcm = player:render(1000)
+  Assert.deepEqual(
+    left(pcm, 1000),
+    concat(wavePattern(WAVE_A, 500), zeros(500)),
+    "with the note-gating flag cleared the second note replaces the first immediately"
+  )
+end
+
+-- 0xC6 `priority` overrides the note's channel allocation priority; without
+-- the command the player record's channelPriority applies unchanged (the
+-- voice-spec contract above).
+function T.priority_overrides_the_player_channel_priority_for_its_notes()
+  local notes = {}
+  local stubMixer = {
+    noteOn = function(_, spec)
+      notes[#notes + 1] = spec
+      return 3
+    end,
+    noteOff = function() end,
+    render = function(_, frames)
+      local out = {}
+      for i = 1, frames * 2 do
+        out[i] = 0
+      end
+      return out
+    end,
+  }
+  local player, provider = engine({
+    [0] = seq(
+      { { op = "priority", amount = 12 }, { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "fin" } },
+      { channelPriority = 32 }
+    ),
+  }, { mixer = stubMixer })
+  player:play(provider:sequence(0), provider:bank(12))
+  player:render(500)
+  Assert.equal(notes[1].channelPriority, 12, "the priority command overrides the player channel priority")
+end
+
+-- The corpus-reachable commands whose effects V1 does not model (LFO
+-- modulation parameters, pitch sweep, portamento, per-track envelope
+-- overrides, reserved no-ops) are accepted without fault: they carry the
+-- frozen vocabulary shapes and must never fail a reachable sequence.
+function T.modulation_sweep_portamento_and_envelope_commands_are_accepted()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "nop" },
+      { op = "mod_depth", amount = 100 },
+      { op = "mod_speed", amount = 10 },
+      { op = "mod_range", amount = 3 },
+      { op = "mod_delay", amount = 16 },
+      { op = "mod_type", amount = 1 },
+      { op = "wait", duration = 1 },
+      { op = "sweep", amount = -100 },
+      { op = "portamento_key", amount = 64 },
+      { op = "portamento_time", amount = 8 },
+      { op = "release", amount = 90 },
+      { op = "wait", duration = 1 },
+      { op = "end" },
+    }),
+  })
+  play(player, provider)
+  local pcm = player:render(1500)
+  Assert.deepEqual(
+    left(pcm, 1500),
+    concat(wavePattern(WAVE_A, 500), zeros(1000)),
+    "the unmodeled commands gate nothing and release nothing"
+  )
+  Assert.isFalse(player:isPlaying())
+end
+
+-- 0xB0 `setvar` writes player variables and variable amount operands read
+-- them back (the real 0x81-variable program references in the corpus).
+function T.setvar_and_variable_amounts_resolve_from_player_variables()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "setvar", var = 0, amount = 1 },
+      { op = "program", program = 0, amount = { kind = "variable", var = 0 } },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "fin" },
+    }),
+  })
+  play(player, provider)
+  local pcm = player:render(1000)
+  Assert.deepEqual(
+    left(pcm, 1000),
+    concat(wavePattern(WAVE_B, 500), zeros(500)),
+    "the variable amount selects the program the variable names"
+  )
+end
+
+-- 0xBD `cmp_ne` sets the track comparison and a conditional instruction
+-- executes only while it holds (the 0xA2 prefix mechanism of the frozen
+-- vocabulary; no conditional instruction occurs in the real corpus).
+function T.cmp_ne_gates_conditional_instructions()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "setvar", var = 0, amount = 1 },
+      { op = "cmp_ne", var = 0, amount = 2 },
+      { conditional = true, op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "fin" },
+    }),
+    [1] = seq({
+      { op = "setvar", var = 0, amount = 1 },
+      { op = "cmp_ne", var = 0, amount = 1 },
+      { conditional = true, op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "fin" },
+    }, { id = 1, symbol = "SEQ_FALSE" }),
+  })
+  player:play(provider:sequence(0), provider:bank(12))
+  local pcm = player:render(1000)
+  Assert.deepEqual(
+    left(pcm, 1000),
+    concat(wavePattern(WAVE_A, 500), zeros(500)),
+    "a true comparison runs the conditional note"
+  )
+  player:play(provider:sequence(1), provider:bank(12))
+  local silent = player:render(1000)
+  Assert.deepEqual(left(silent, 1000), zeros(1000), "a false comparison skips the conditional note")
 end
 
 return { tests = T }

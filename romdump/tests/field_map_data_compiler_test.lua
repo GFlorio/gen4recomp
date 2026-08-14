@@ -94,7 +94,7 @@ function T.compiles_catalog_identity_source_and_events()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldMapDataCompiler.compile(romFs, 60, sha1, hashLua))
   Assert.equal(bundle.mapId, 60)
-  Assert.equal(bundle.field.schema, "g4-field-map-v1")
+  Assert.equal(bundle.field.schema, "g4-field-map-v2")
   Assert.equal(bundle.field.mapSymbol, "MAP_NEW_BARK")
   Assert.equal(bundle.field.cameraType, 0)
   -- Source identity lives only in the dependency record; the runtime asset
@@ -109,6 +109,17 @@ function T.compiles_catalog_identity_source_and_events()
 
   local again = assert(FieldMapDataCompiler.compile(romFs, "MAP_NEW_BARK", sha1, hashLua))
   Assert.equal(LuaWriter.encode(bundle.field), LuaWriter.encode(again.field))
+end
+
+function T.map_header_music_fields_are_emitted_from_the_frozen_catalog()
+  -- The frozen catalog's dayMusic/nightMusic become the generated field
+  -- record's music block (map 60 = GS_T_WAKABA, map 61 = GS_UTSUGI_RABO),
+  -- so runtime music policy never branches on map ids.
+  local romFs, sha1, hashLua = fixture()
+  local newBark = assert(FieldMapDataCompiler.compile(romFs, 60, sha1, hashLua))
+  Assert.deepEqual(newBark.field.music, { day = "GS_T_WAKABA", night = "GS_T_WAKABA" })
+  local elmsLab = assert(FieldMapDataCompiler.compile(romFs, 61, sha1, hashLua))
+  Assert.deepEqual(elmsLab.field.music, { day = "GS_UTSUGI_RABO", night = "GS_UTSUGI_RABO" })
 end
 
 function T.map_header_message_and_script_banks_are_emitted()

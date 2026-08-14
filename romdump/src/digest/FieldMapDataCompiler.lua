@@ -66,6 +66,13 @@ local function compileMap(romFs, map, source, sha1hex, hashLua)
     -- bank; it reads these fields.
     messageBankId = map.messageMemberId,
     scriptBankId = map.scriptsMemberId,
+    -- The map-header day/night music references (the frozen catalog's
+    -- dayMusic/nightMusic); the field-music policy selects the day or night
+    -- branch at runtime from this generated record.
+    music = {
+      day = map.dayMusic,
+      night = map.nightMusic,
+    },
     events = {
       background = decoded.backgroundEvents,
       objects = decoded.objectEvents,
