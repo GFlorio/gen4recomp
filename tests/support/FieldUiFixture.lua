@@ -93,6 +93,79 @@ function FieldUiFixture.framePixels(frame)
   return table.concat(rows)
 end
 
+-- Tile i of the signpost frame strip: a distinct solid color, so a wrong
+-- placement (or a divider swap for tile 8) is a pixel mismatch in the
+-- goldens.
+local function signpostTileColor(i)
+  return (40 + i * 12) % 256, (90 + i * 7) % 220, (210 - i * 9) % 180
+end
+
+-- Tile t of a wayfinding row: distinct within the row, and the two rows
+-- (y=0 and y=16 in the atlas) use distinct color families so a wrong-row
+-- sample is a mismatch.
+local function wayfindingTileColor(row, tile)
+  return (50 + tile * 9) % 256, (120 + row * 40) % 256, (30 + tile * 11) % 256
+end
+
+-- The raw 8x8 RGBA bytes of one signpost frame-strip tile.
+---@param tile integer
+---@return string rgba
+function FieldUiFixture.signpostTilePixels(tile)
+  local r, g, b = signpostTileColor(tile)
+  return string.rep(string.char(r, g, b, 255), 64)
+end
+
+-- The whole signpost frame strip: 18 distinct tiles in one 144x8 row, laid
+-- out pixel-row by pixel-row (concatenating 8x8 tile blocks would not match
+-- the 144-wide row layout).
+---@return string png
+function FieldUiFixture.signpostTilesBytes()
+  local bytes = {}
+  for y = 0, 7 do
+    for x = 0, 143 do
+      local r, g, b = signpostTileColor(math.floor(x / 8))
+      bytes[#bytes + 1] = string.char(r, g, b, 255)
+    end
+  end
+  return PngWriter.encode(144, 8, table.concat(bytes))
+end
+
+-- The raw RGBA bytes of one wayfinding atlas row (the manifest rect for
+-- type 0 is y=0, for type 1 y=16): 24 distinct tiles in a 192x8 pixel row.
+---@param rowY integer
+---@return string rgba
+function FieldUiFixture.wayfindingRowPixels(rowY)
+  local row = math.floor(rowY / 8)
+  local bytes = {}
+  for y = 0, 7 do
+    for x = 0, 191 do
+      local r, g, b = wayfindingTileColor(row, math.floor(x / 8))
+      bytes[#bytes + 1] = string.char(r, g, b, 255)
+    end
+  end
+  return table.concat(bytes)
+end
+
+-- The wayfinding atlas: rows y=0 and y=16 carry the type 0/1 graphic rows;
+-- the other rows are fully transparent so a wrong-row sample is a mismatch.
+---@return string png
+function FieldUiFixture.wayfindingBytes()
+  local rows = {}
+  for block = 0, 3 do
+    if block == 0 or block == 2 then
+      local rgba = FieldUiFixture.wayfindingRowPixels(block * 8)
+      for i = 0, 7 do
+        rows[#rows + 1] = rgba:sub(i * 768 + 1, (i + 1) * 768)
+      end
+    else
+      for _ = 1, 8 do
+        rows[#rows + 1] = string.rep(string.char(0, 0, 0, 0), 192)
+      end
+    end
+  end
+  return PngWriter.encode(192, 32, table.concat(rows))
+end
+
 -- The signpost source-type map in the generated manifest shape: every corpus
 -- type with its raw number preserved, types 0/1 carrying wayfinding atlas
 -- rects. The on-screen 56px graphic region is NOT the atlas rect; the style
@@ -157,14 +230,8 @@ function FieldUiFixture.cacheWithFontAndFrames()
   local cache = FieldDialogueFixture.cacheWithFont()
   cache:writeLua(FieldUiAssetCache.manifestPath(), FieldUiFixture.manifest())
   cache:write(FieldUiFixture.STRIP_PATH, FieldUiFixture.stripBytes())
-  cache:write(
-    FieldUiFixture.SIGNPOST_TILES_PATH,
-    PngWriter.encode(144, 8, string.rep(string.char(90, 90, 90, 255), 144 * 8))
-  )
-  cache:write(
-    FieldUiFixture.WAYFINDING_PATH,
-    PngWriter.encode(192, 32, string.rep(string.char(60, 120, 60, 255), 192 * 32))
-  )
+  cache:write(FieldUiFixture.SIGNPOST_TILES_PATH, FieldUiFixture.signpostTilesBytes())
+  cache:write(FieldUiFixture.WAYFINDING_PATH, FieldUiFixture.wayfindingBytes())
   return cache
 end
 
