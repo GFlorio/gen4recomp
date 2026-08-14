@@ -130,6 +130,30 @@ function T.round_trip_reuses_both_resident_map_aggregates()
   loader:release()
 end
 
+-- A required-cache-file read failure must keep the underlying cause's own
+-- message visible in the raised error's formatted text, not merely its bare
+-- error code, since presentation surfaces this text directly to the player.
+function T.required_cache_file_failure_preserves_the_underlying_cause_message()
+  local cache, world, sceneLoader = fixture(1)
+  local scenePath = "data/generated/maps/0000/scene.lua"
+  local underlying = Errors.new("READ_FAILED", "distinctive injected read failure", { path = scenePath })
+  local realLoadLua = cache.loadLua
+  cache.loadLua = function(_, path)
+    if path == scenePath then
+      return nil, underlying
+    end
+    return realLoadLua(cache, path)
+  end
+  local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader })
+  local err = Assert.throws(function()
+    loader:load(0)
+  end)
+  Assert.isTrue(
+    tostring(err):find("distinctive injected read failure", 1, true) ~= nil,
+    "the formatted error keeps the underlying cause message"
+  )
+end
+
 function T.composes_neighbor_collision_and_terrain_into_runtime_map()
   local cache, world, _, _, files = fixture(1)
   local collisionPath = "data/generated/maps/0000/neighbors/3/collision.g4collision"
