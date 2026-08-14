@@ -42,6 +42,10 @@ local ALIAS_TO_SYMBOL = {
   trainer_parties = "NARC_poketool_trainer_trpoke",
   land_data = "NARC_fielddata_landdata_land_data",
   field_actor_models = "NARC_data_mmodel_mmodel",
+  start_menu = "NARC_a_0_1_4",
+  dialogue_frames = "NARC_a_0_3_8",
+  signpost_graphics = "NARC_a_0_3_6",
+  trainer_card_graphics = "NARC_a_0_4_9",
   field_static_models = "NARC_a_1_0_3",
   -- Map-asset archives. Symbolic decomp names are not exposed
   -- for these in the pinned catalog, so they resolve through the a/G/D/F path.

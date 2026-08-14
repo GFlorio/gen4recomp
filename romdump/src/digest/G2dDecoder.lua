@@ -1,0 +1,393 @@
+-- Strict decoder for the Nitro G2D container formats used by HGSS UI
+-- resources: the "RGCN/RCSN/RECN/RNAN" containers (and their uncompressed
+-- RLCN-wrapped siblings) plus the RAHC (char tiles), TTLP/PLTT (palette),
+-- NRCS (screen), KBEC (cell) and KNBA (animation) chunks. Container magics
+-- and chunk IDs are stored byte-swapped (e.g. "RGCN" for NCGR, "RAHC" for
+-- CHAR) as documented by GBATEK's "Nitro Character Tiles / BG Maps Screens /
+-- OBJ Animations / OBJ Metatile Cells" pages. The runtime never consumes
+-- these structures; the FieldUiCompiler turns them into generated assets.
+-- Pure module: no love dependency.
+
+local Errors = require("libs.errors.src.Errors")
+local BinaryReader = require("libs.codec.src.BinaryReader")
+local FieldFontDecoder = require("romdump.src.digest.FieldFontDecoder")
+
+local G2dDecoder = {}
+
+-- The container/chunk IDs are stored byte-swapped; the swap yields the
+-- canonical name.
+local function swapped(reader, offset)
+  return string.reverse(reader:ascii(offset, 4))
+end
+
+local function _blocks(reader, opts)
+  if reader:length() < 4 then
+    Errors.raise("G2D_TRUNCATED", "G2D resource is shorter than its magic", { size = reader:length() })
+  end
+  local magic = swapped(reader, 0)
+  if not opts.magics[magic] then
+    Errors.raise("G2D_MAGIC_INVALID", "unknown G2D container magic", { magic = magic })
+  end
+  if reader:length() < 0x10 then
+    Errors.raise("G2D_TRUNCATED", "G2D resource is shorter than its 16-byte header", { size = reader:length() })
+  end
+  local byteOrder = reader:u16le(4)
+  if byteOrder ~= 0xFEFF then
+    Errors.raise("G2D_BYTE_ORDER_INVALID", "G2D byte order is not 0xFEFF", { byteOrder = byteOrder })
+  end
+  local declaredSize = reader:u32le(8)
+  if declaredSize > reader:length() then
+    Errors.raise("G2D_TRUNCATED", "G2D resource declares " .. declaredSize .. " bytes but has " .. reader:length(), {
+      declared = declaredSize,
+      size = reader:length(),
+    })
+  end
+  local headerSize = reader:u16le(12)
+  local blockCount = reader:u16le(14)
+  if headerSize < 0x10 or headerSize + 8 * blockCount > declaredSize then
+    Errors.raise("G2D_BLOCK_INVALID", "G2D header claims an invalid block table", {
+      headerSize = headerSize,
+      blockCount = blockCount,
+    })
+  end
+  local blocks = {}
+  local offset = headerSize
+  for _ = 1, blockCount do
+    if offset + 8 > declaredSize then
+      Errors.raise("G2D_BLOCK_INVALID", "G2D block header extends past the declared size", { offset = offset })
+    end
+    local name = swapped(reader, offset)
+    local size = reader:u32le(offset + 4)
+    if size < 8 or offset + size > declaredSize then
+      Errors.raise("G2D_BLOCK_INVALID", "G2D block " .. name .. " extends past the declared size", {
+        name = name,
+        size = size,
+        offset = offset,
+      })
+    end
+    blocks[name] = { payload = offset + 8, size = size - 8 }
+    offset = offset + size
+  end
+  return magic, blocks
+end
+
+local function blocks(data, opts, label)
+  local reader = BinaryReader.new(data, label)
+  local ok, magic, blks = pcall(_blocks, reader, opts)
+  if not ok then
+    error(magic, 0)
+  end
+  return magic, blks, reader
+end
+
+local function mustBlock(blks, name)
+  local blk = blks[name]
+  if not blk then
+    Errors.raise("G2D_CHUNK_MISSING", "G2D resource has no " .. name .. " chunk", { chunk = name })
+  end
+  return blk
+end
+
+local CONTAINER_MAGICS = {
+  NCGR = true,
+  NSCR = true,
+  NCER = true,
+  NANR = true,
+  NCLR = true,
+  RLCN = true,
+}
+
+---@param data string
+---@param opts? { label?: string }
+---@return { depth: integer, tiles: string }?
+---@return Errors.Error?
+function G2dDecoder.decodeChar(data, opts)
+  assert(type(data) == "string", "G2dDecoder.decodeChar requires a string")
+  opts = opts or {}
+  local ok, result = pcall(function()
+    local _, blks, reader = blocks(data, { magics = CONTAINER_MAGICS }, opts.label or "g2d-char")
+    local blk = mustBlock(blks, "CHAR")
+    if blk.size < 0x18 then
+      Errors.raise("G2D_CHUNK_INVALID", "CHAR chunk is shorter than its header", { size = blk.size })
+    end
+    local depth = reader:u32le(blk.payload + 4)
+    if depth ~= 3 and depth ~= 4 then
+      Errors.raise("G2D_CHUNK_INVALID", "CHAR depth " .. depth .. " is not 3 (4bpp) or 4 (8bpp)", { depth = depth })
+    end
+    local tileBytes = reader:u32le(blk.payload + 0x10)
+    local tileOffset = reader:u32le(blk.payload + 0x14)
+    if tileBytes == 0 or tileOffset + tileBytes > blk.size then
+      Errors.raise("G2D_CHUNK_INVALID", "CHAR tile region exceeds the chunk", {
+        tileBytes = tileBytes,
+        tileOffset = tileOffset,
+        chunkSize = blk.size,
+      })
+    end
+    return {
+      depth = depth,
+      tiles = reader:bytes(blk.payload + tileOffset, tileBytes),
+    }
+  end)
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result --[[@as Errors.Error]]
+  end
+  error(result)
+end
+
+---@param data string
+---@param opts? { label?: string }
+---@return { width: integer, height: integer, entries: table[] }?
+---@return Errors.Error?
+function G2dDecoder.decodeScreen(data, opts)
+  assert(type(data) == "string", "G2dDecoder.decodeScreen requires a string")
+  opts = opts or {}
+  local ok, result = pcall(function()
+    local _, blks, reader = blocks(data, { magics = CONTAINER_MAGICS }, opts.label or "g2d-screen")
+    local blk = mustBlock(blks, "SCRN")
+    if blk.size < 12 then
+      Errors.raise("G2D_CHUNK_INVALID", "SCRN chunk is shorter than its header", { size = blk.size })
+    end
+    local width = reader:u16le(blk.payload)
+    local height = reader:u16le(blk.payload + 2)
+    local dataSize = reader:u32le(blk.payload + 8)
+    if width == 0 or height == 0 or width % 8 ~= 0 or height % 8 ~= 0 then
+      Errors.raise(
+        "G2D_CHUNK_INVALID",
+        "SCRN dimensions must be multiples of 8 pixels",
+        { width = width, height = height }
+      )
+    end
+    if dataSize % 2 ~= 0 or 12 + dataSize > blk.size then
+      Errors.raise("G2D_CHUNK_INVALID", "SCRN entry data exceeds the chunk", {
+        dataSize = dataSize,
+        chunkSize = blk.size,
+      })
+    end
+    local entries = {}
+    local count = math.floor(dataSize / 2)
+    for i = 0, count - 1 do
+      local e = reader:u16le(blk.payload + 12 + i * 2)
+      entries[i + 1] = {
+        tile = e % 1024,
+        flipH = math.floor(e / 1024) % 2 == 1,
+        flipV = math.floor(e / 2048) % 2 == 1,
+        palette = math.floor(e / 4096),
+      }
+    end
+    return { width = width, height = height, entries = entries }
+  end)
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result --[[@as Errors.Error]]
+  end
+  error(result)
+end
+
+---@param data string
+---@param opts? { label?: string }
+---@return { colors: { r: integer, g: integer, b: integer }[] }?
+---@return Errors.Error?
+function G2dDecoder.decodePalette(data, opts)
+  assert(type(data) == "string", "G2dDecoder.decodePalette requires a string")
+  opts = opts or {}
+  if data:sub(1, 4) == "RLCN" then
+    -- RLCN-wrapped TTLP palette data (NNS_G2dGetUnpackedPaletteData).
+    local pal, err = FieldFontDecoder.decodePalette(data, { label = opts.label })
+    if not pal then
+      return nil, err
+    end
+    return { colors = pal.colors }
+  end
+  local ok, result = pcall(function()
+    local _, blks, reader = blocks(data, { magics = CONTAINER_MAGICS }, opts.label or "g2d-palette")
+    local blk = mustBlock(blks, "PLTT")
+    if blk.size < 12 then
+      Errors.raise("G2D_CHUNK_INVALID", "PLTT chunk is shorter than its header", { size = blk.size })
+    end
+    local depth = string.byte(reader:bytes(blk.payload, 1))
+    local colorCount = reader:u16le(blk.payload + 2)
+    local dataOffset = reader:u32le(blk.payload + 8)
+    if depth ~= 3 and depth ~= 4 then
+      Errors.raise("G2D_CHUNK_INVALID", "PLTT depth " .. depth .. " is not 3 (4bpp) or 4 (8bpp)", { depth = depth })
+    end
+    if colorCount == 0 or dataOffset + colorCount * 2 > blk.size then
+      Errors.raise("G2D_CHUNK_INVALID", "PLTT color data exceeds the chunk", {
+        colorCount = colorCount,
+        dataOffset = dataOffset,
+        chunkSize = blk.size,
+      })
+    end
+    local colors = {}
+    for i = 0, colorCount - 1 do
+      local word = reader:u16le(blk.payload + dataOffset + i * 2)
+      local function expand(v)
+        return math.floor((v * 255 + 15) / 31)
+      end
+      colors[i + 1] = {
+        r = expand(math.floor(word / 1024) % 32),
+        g = expand(math.floor(word / 32) % 32),
+        b = expand(word % 32),
+      }
+    end
+    return { colors = colors }
+  end)
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result --[[@as Errors.Error]]
+  end
+  error(result)
+end
+
+---@param data string
+---@param opts? { label?: string }
+---@return { cells: { objs: { x: integer, y: integer, tile: integer, flipH: boolean, flipV: boolean, palette: integer }[] }[] }?
+---@return Errors.Error?
+function G2dDecoder.decodeCell(data, opts)
+  assert(type(data) == "string", "G2dDecoder.decodeCell requires a string")
+  opts = opts or {}
+  local ok, result = pcall(function()
+    local _, blks, reader = blocks(data, { magics = CONTAINER_MAGICS }, opts.label or "g2d-cell")
+    local blk = mustBlock(blks, "CEBK")
+    if blk.size < 0x20 then
+      Errors.raise("G2D_CHUNK_INVALID", "CELL chunk is shorter than its header", { size = blk.size })
+    end
+    local cellCount = reader:u16le(blk.payload)
+    local entrySize = reader:u16le(blk.payload + 2)
+    local tableOffset = reader:u32le(blk.payload + 4)
+    if entrySize ~= 0 and entrySize ~= 1 then
+      Errors.raise("G2D_CHUNK_INVALID", "CELL entry size " .. entrySize .. " is not 0 (8 bytes) or 1 (16 bytes)", {
+        entrySize = entrySize,
+      })
+    end
+    local stride = entrySize == 0 and 8 or 16
+    if cellCount == 0 or tableOffset + cellCount * stride > blk.size then
+      Errors.raise("G2D_CHUNK_INVALID", "CELL metatile table exceeds the chunk", {
+        cellCount = cellCount,
+        tableOffset = tableOffset,
+        chunkSize = blk.size,
+      })
+    end
+    local cells = {}
+    local attrTable = blk.payload + tableOffset + cellCount * stride
+    for c = 0, cellCount - 1 do
+      local base = blk.payload + tableOffset + c * stride
+      local numObjs = reader:u16le(base)
+      local objOffset = reader:u32le(base + 4)
+      if attrTable - blk.payload + objOffset + numObjs * 6 > blk.size then
+        Errors.raise("G2D_CHUNK_INVALID", "CELL OBJ table exceeds the chunk", {
+          numObjs = numObjs,
+          objOffset = objOffset,
+          chunkSize = blk.size,
+        })
+      end
+      local objs = {}
+      for o = 0, numObjs - 1 do
+        local obase = attrTable + objOffset + o * 6
+        -- OAM-ordered attributes: attr0 carries y, attr1 carries x, attr2
+        -- carries the tile index, flips, and palette.
+        local attr0 = reader:u16le(obase)
+        local attr1 = reader:u16le(obase + 2)
+        local attr2 = reader:u16le(obase + 4)
+        local x = attr1 % 512
+        if x >= 256 then
+          x = x - 512
+        end
+        local y = attr0 % 256
+        if y >= 128 then
+          y = y - 256
+        end
+        objs[o + 1] = {
+          x = x,
+          y = y,
+          tile = attr2 % 1024,
+          flipH = math.floor(attr2 / 1024) % 2 == 1,
+          flipV = math.floor(attr2 / 2048) % 2 == 1,
+          palette = math.floor(attr2 / 4096),
+        }
+      end
+      cells[c + 1] = { objs = objs }
+    end
+    return { cells = cells }
+  end)
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result --[[@as Errors.Error]]
+  end
+  error(result)
+end
+
+---@param data string
+---@param opts? { label?: string }
+---@return { anims: { frames: { cell: integer, duration: integer }[] }[] }?
+---@return Errors.Error?
+function G2dDecoder.decodeAnimation(data, opts)
+  assert(type(data) == "string", "G2dDecoder.decodeAnimation requires a string")
+  opts = opts or {}
+  local ok, result = pcall(function()
+    local _, blks, reader = blocks(data, { magics = CONTAINER_MAGICS }, opts.label or "g2d-animation")
+    local blk = mustBlock(blks, "ABNK")
+    if blk.size < 0x18 then
+      Errors.raise("G2D_CHUNK_INVALID", "ANIM chunk is shorter than its header", { size = blk.size })
+    end
+    local animCount = reader:u16le(blk.payload)
+    local frameCount = reader:u16le(blk.payload + 2)
+    local animsOffset = reader:u32le(blk.payload + 4)
+    local framesOffset = reader:u32le(blk.payload + 8)
+    local dataOffset = reader:u32le(blk.payload + 12)
+    if animCount == 0 or animsOffset + animCount * 16 > blk.size then
+      Errors.raise("G2D_CHUNK_INVALID", "ANIM animation table exceeds the chunk", {
+        animCount = animCount,
+        animsOffset = animsOffset,
+        chunkSize = blk.size,
+      })
+    end
+    if framesOffset + frameCount * 8 > blk.size then
+      Errors.raise("G2D_CHUNK_INVALID", "ANIM frame table exceeds the chunk", {
+        frameCount = frameCount,
+        framesOffset = framesOffset,
+        chunkSize = blk.size,
+      })
+    end
+    local anims = {}
+    for a = 0, animCount - 1 do
+      local abase = blk.payload + animsOffset + a * 16
+      local numFrames = reader:u32le(abase)
+      local firstFrame = reader:u32le(abase + 12)
+      if firstFrame + numFrames * 8 > blk.size then
+        Errors.raise("G2D_CHUNK_INVALID", "ANIM animation frame range exceeds the chunk", {
+          numFrames = numFrames,
+          firstFrame = firstFrame,
+          chunkSize = blk.size,
+        })
+      end
+      local frames = {}
+      for f = 0, numFrames - 1 do
+        local fbase = blk.payload + framesOffset + (firstFrame + f) * 8
+        local frameData = reader:u32le(fbase)
+        local duration = reader:u16le(fbase + 4)
+        local cell = reader:u16le(blk.payload + dataOffset + frameData)
+        frames[f + 1] = { cell = cell, duration = duration }
+      end
+      anims[a + 1] = { frames = frames }
+    end
+    return { anims = anims }
+  end)
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result --[[@as Errors.Error]]
+  end
+  error(result)
+end
+
+return G2dDecoder

@@ -56,6 +56,11 @@ DerivedAssetContract.scripts = {
   provenanceSchema = "g4-script-provenance-v1",
 }
 
+DerivedAssetContract.fieldUi = {
+  cacheFormat = "field-ui-cache-v1",
+  schema = "g4-field-ui-v1",
+}
+
 -- The mesh batch format constants (magic, version, stride, header size,
 -- index widths) have their own owner (G4MeshFormat); the vertex-layout
 -- version aliases that owner's version, so nothing mesh-shaped lives here.
