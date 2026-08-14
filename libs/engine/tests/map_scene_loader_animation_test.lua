@@ -347,10 +347,9 @@ local function sceneWith(instances, descriptors, doorTiles)
   backend:write(dir .. "/scene.lua", LuaWriter.encode(scene))
   for _, desc in pairs(descriptors) do
     backend:write(MapAssetCache.modelPath(desc.key), LuaWriter.encode(desc))
-    if desc.kind == "nitro-dynamic" then
-      for _, batch in ipairs(desc.dynamic.batches) do
-        backend:write(batch.geometry, MeshWriter.encode(doorQuad()))
-      end
+    local batches = desc.kind == "nitro-dynamic" and desc.dynamic.batches or desc.batches
+    for _, batch in ipairs(batches) do
+      backend:write(batch.geometry, MeshWriter.encode(doorQuad()))
     end
   end
   backend:write(dir .. "/collision.g4collision", collisionGrid(doorTiles))
@@ -1403,6 +1402,56 @@ function T.static_only_terrain_srt_is_initialized_by_the_loader()
   end
   runtime:updateAnimated()
   Assert.equal(runtime.mapDraws[1].material.texMatrix, matrix, "a static scene tick leaves the matrix untouched")
+  runtime:release()
+end
+
+-- A static building's descriptor materials never pass through the terrain
+-- animator (its bindings cover scene terrain materials only), yet every
+-- draw material the renderer sends u_texMatrix for must still carry a
+-- matrix: the loader seeds descriptor materials with identity.
+function T.static_building_draw_materials_carry_a_tex_matrix()
+  local geometry = "assets/generated/maps/geometry/wall.g4mesh"
+  local desc = {
+    schema = "g4-model-descriptor-v1",
+    key = "building:wall",
+    kind = "static",
+    batches = {
+      {
+        geometry = geometry,
+        material = 0,
+        alphaClass = "opaque",
+        cullMode = "back",
+        polygonAlpha = 31,
+        polygonMode = "modulation",
+        lightMask = 0,
+        polygonId = 0,
+        translucentDepthWrite = false,
+        depthEqual = false,
+      },
+    },
+    materials = {
+      {
+        id = 0,
+        name = "wall",
+        texture = MapAssetCache.texturePath("wall"),
+        wrap = { x = "repeat", y = "repeat" },
+      },
+    },
+  }
+  local cache = sceneWith(
+    { { placementIndex = 0, modelKey = "building:wall", transform = identityMatrix() } },
+    { desc }
+  )
+  local runtime = MapSceneLoader.load(
+    cache,
+    assert(cache:loadLua(MapAssetCache.mapDir(61) .. "/scene.lua")),
+    { meshBuilder = fakeMeshBuilder, imageBuilder = recordingImageBuilder({}) }
+  )
+  Assert.deepEqual(
+    runtime.buildingDraws[1].material.texMatrix,
+    identity9(),
+    "a static building draw material carries the identity tex matrix"
+  )
   runtime:release()
 end
 

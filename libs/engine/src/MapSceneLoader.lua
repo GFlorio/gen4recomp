@@ -57,6 +57,14 @@ local TerrainMaterialAnimator = require("libs.engine.src.TerrainMaterialAnimator
 
 local MapSceneLoader = {}
 
+-- The identity UV-transform matrix every assembled material starts with:
+-- the renderer sends u_texMatrix for every draw, so a material can never
+-- lack a matrix. The terrain animator replaces scene terrain materials'
+-- matrices at construction (the static srt, or the area clip's frame-0
+-- sample); model descriptor materials are never animator bindings and keep
+-- the identity seed.
+local IDENTITY_TEX_MATRIX = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
+
 local VALID_BANDS = {}
 for _, band in ipairs(TimeOfDayProps.BANDS) do
   VALID_BANDS[band] = true
@@ -65,9 +73,7 @@ end
 -- Material assembly: acquire each normalized material record's image
 -- under its resolved sampler wrap. The wrap pair is part of the image
 -- identity, so materials with the same pixels but different wraps resolve to
--- independent images. The terrain animator initializes every material's
--- texMatrix at construction (the static srt, or the area clip's frame-0
--- sample).
+-- independent images.
 local function materialsById(list, pool)
   local byId = {}
   for id, record in pairs(SceneDescriptor.materials(list)) do
@@ -75,6 +81,7 @@ local function materialsById(list, pool)
       id = record.id,
       name = record.name,
       image = pool:imageFor(record.texture, record.wrap.x, record.wrap.y),
+      texMatrix = IDENTITY_TEX_MATRIX,
     }
   end
   return byId
