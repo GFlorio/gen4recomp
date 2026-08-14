@@ -242,6 +242,43 @@ T["warmup slices by time budget and finish completes the remainder"] = function(
   Assert.isTrue(warmup:isComplete())
 end
 
+T["warmup uses the two millisecond default budget"] = function()
+  local files = {}
+  for index = 1, 3 do
+    local id = string.format("warmup.default.%d", index)
+    files[id] = string.format(
+      'local S = require("gen4.script")\nreturn S.script { api = 1, id = %q, steps = { S.stop() } }\n',
+      id
+    )
+  end
+  local cache = scriptCache(files)
+  local fs = overrideFs({})
+  local clock = 0
+  local processed = 0
+  local registry = {
+    cacheScriptHash = function()
+      processed = processed + 1
+    end,
+    fingerprint = function()
+      return ("0"):rep(64)
+    end,
+    restoreFingerprint = function() end,
+  }
+  local warmup = RegistryWarmup.new({
+    registry = registry,
+    cacheFs = cache,
+    overrideFs = fs,
+    snapshotKey = assert(RegistrySnapshot.key(cache, fs)),
+    clock = function()
+      clock = clock + 0.001
+      return clock
+    end,
+  })
+  warmup:update()
+  Assert.equal(processed, 2, "the default budget must process two 1 ms work units")
+  Assert.isFalse(warmup:isComplete(), "the default budget must leave remaining work for a later update")
+end
+
 -- 11. An unparsable generated file fails the warm-up loudly: no snapshot is
 -- written and the failure is returned.
 T["warmup records a failure on unparsable content"] = function()
