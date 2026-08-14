@@ -11,6 +11,7 @@
 local Errors = require("libs.errors.src.Errors")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local FieldActorMesh = require("libs.engine.src.FieldActorMesh")
+local BillboardTransform = require("libs.engine.src.BillboardTransform")
 
 ---@class FieldActorAssetProvider
 ---@field private _cacheFs CacheFs
@@ -125,6 +126,16 @@ local function buildQuads(self, visual, imageWidth, imageHeight)
   return quads
 end
 
+local function billboardScales(visual)
+  local scales = {}
+  local render = visual.render
+  if render.kind ~= "staticModel" and render.geometry.baseTransform then
+    local _, scale = BillboardTransform.components(render.geometry.baseTransform)
+    scales[render.geometry] = scale
+  end
+  return scales
+end
+
 local function load(self, spriteId)
   local visual = self._cacheFs:loadLua(FieldActorCache.visualPath(spriteId))
   if type(visual) ~= "table" or visual.schema ~= FieldActorCache.SCHEMA then
@@ -135,7 +146,12 @@ local function load(self, spriteId)
     )
   end
 
-  local entry = { spriteId = spriteId, visual = visual, references = 0 }
+  local entry = {
+    spriteId = spriteId,
+    visual = visual,
+    billboardScales = billboardScales(visual),
+    references = 0,
+  }
   local data = self._cacheFs:read(visual.render.image)
   if not data then
     Errors.raise(

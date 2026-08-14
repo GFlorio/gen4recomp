@@ -6,8 +6,8 @@
 -- material's render state, resolves every placed building instance through
 -- its model descriptor, and loads the scene's collision asset into a
 -- CollisionGrid (the door-ownership pass resolves against it). A billboard
--- batch keeps the base transform the renderer resolves against the camera
--- each frame instead of a baked matrix. The build is the GPU-acquisition half
+-- batch keeps its camera-independent base center and scale for the shader
+-- instead of a baked camera-facing matrix. The build is the GPU-acquisition half
 -- of scene loading: pure descriptor normalization (material wrap resolution,
 -- the material-keyed sampler-wrap map, per-mesh centers/AABBs, model bounds
 -- folds) lives in SceneDescriptor, and the pool mesh entry caches each
@@ -54,6 +54,7 @@ local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
 local DoorTiles = require("libs.engine.src.DoorTiles")
 local SceneDescriptor = require("libs.engine.src.SceneDescriptor")
+local BillboardTransform = require("libs.engine.src.BillboardTransform")
 
 local MapSceneLoader = {}
 
@@ -181,17 +182,18 @@ local function buildScene(pool, cacheFs, scene, opts)
 
   -- One draw item for one batch under `instanceTransform` (identity for terrain,
   -- the placement matrix for a building). A billboard batch's geometry is in
-  -- billboard-local space and its matrix depends on the camera, so the composed
-  -- transform becomes `billboardBase` for the renderer to resolve each frame; its
-  -- static equivalent seeds `transform` and the scene bounds. Draw items carry no
+  -- billboard-local space and its orientation depends on the camera, so the
+  -- composed base supplies the shader's world center and scale; its static
+  -- equivalent seeds `transform` and the scene bounds. Draw items carry no
   -- submission numbers: final queue traversal orders every part and draw in
   -- source order, positionally.
   local function drawItem(batch, materials, instanceTransform)
     local meshResource = pool:meshFor(batch.geometry)
-    local billboardBase
+    local billboardBase, billboardCenter, billboardScale
     if batch.transformMode == PoseContract.BILLBOARD then
       billboardBase =
         Matrix4.multiply(instanceTransform, assert(batch.baseTransform, "billboard batch is missing baseTransform"))
+      billboardCenter, billboardScale = BillboardTransform.components(billboardBase)
     elseif batch.transformMode ~= nil then
       Errors.raise(
         "MAP_SCENE_UNSUPPORTED_TRANSFORM_MODE",
@@ -206,8 +208,10 @@ local function buildScene(pool, cacheFs, scene, opts)
       mesh = meshResource.mesh,
       material = materials[batch.material],
       transform = transform,
-      modelNormal = modelNormalFor(transform),
+      modelNormal = billboardBase and IDENTITY_MODEL_NORMAL or modelNormalFor(transform),
       billboardBase = billboardBase,
+      billboardCenter = billboardCenter,
+      billboardScale = billboardScale,
       alphaClass = state.alphaClass,
       cullMode = state.cullMode,
       alphaCutoff = state.alphaCutoff,

@@ -1,8 +1,8 @@
--- Rebuilds the model matrix of a billboard draw against the live camera. A BB
--- shape cannot be baked at compile time, so MapAssetCompiler ships its geometry
--- in billboard-local space plus the position matrix the SBC command captured
--- (`baseTransform`, already composed with any placement transform); this module
--- turns that pair into the matrix the DS would have installed.
+-- Describes the camera-independent placement data of a billboard draw and, for
+-- the exceptional straddle path, rebuilds the model matrix against the live
+-- camera. A BB shape cannot be baked at compile time, so MapAssetCompiler ships
+-- its geometry in billboard-local space plus the position matrix the SBC command
+-- captured (`baseTransform`).
 --
 -- NitroSystem g3d/src/sbc.c NNSi_G3dFuncSbc_BB reads the matrix in force, then
 -- loads the position matrix with the translation of that matrix expressed in view
@@ -23,15 +23,31 @@ local function columnMagnitude(m, col)
   return math.sqrt(a * a + b * b + c * c)
 end
 
+-- Extract the camera-independent data the renderer needs for an ordinary full
+-- billboard. The base rotation is deliberately discarded by Nitro BB semantics;
+-- only its translation and basis-column magnitudes survive.
+---@param base number[]
+---@return number[] center
+---@return number[] scale
+function BillboardTransform.components(base)
+  assert(#base == 16, "billboard base needs a 4x4 matrix")
+  local scale = {
+    columnMagnitude(base, 0),
+    columnMagnitude(base, 1),
+    columnMagnitude(base, 2),
+  }
+  assert(scale[1] > 0 and scale[2] > 0 and scale[3] > 0, "billboard scale must be non-zero")
+  return { base[13], base[14], base[15] }, scale
+end
+
 -- `base` and `viewMatrix` are 16-element column-major matrices; the view matrix's
 -- linear part must be a rotation, which is true of every field camera, so its
 -- inverse is its transpose. Returns the resolved 4x4 model matrix and its 3x3
 -- inverse-transpose model linear transform.
 function BillboardTransform.resolve(base, viewMatrix)
   assert(#base == 16 and #viewMatrix == 16, "resolve needs two 4x4 matrices")
-  local sx = columnMagnitude(base, 0)
-  local sy = columnMagnitude(base, 1)
-  local sz = columnMagnitude(base, 2)
+  local center, scale = BillboardTransform.components(base)
+  local sx, sy, sz = scale[1], scale[2], scale[3]
 
   -- transpose(view rotation) scaled per column, then the base translation. Column
   -- j of the rotation transpose is row j of the rotation, i.e. viewMatrix[j+1],
@@ -49,9 +65,9 @@ function BillboardTransform.resolve(base, viewMatrix)
     viewMatrix[7] * sz,
     viewMatrix[11] * sz,
     0,
-    base[13],
-    base[14],
-    base[15],
+    center[1],
+    center[2],
+    center[3],
     1,
   }
   local modelNormal = {

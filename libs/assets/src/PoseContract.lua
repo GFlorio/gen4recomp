@@ -11,7 +11,7 @@
 
 -- The transform mode of a draw, mesh batch, or actor model:
 --   "static"    geometry transformed by the ordinary joint/draw matrix
---   "billboard" camera-facing geometry, rebuilt each frame from the
+--   "billboard" camera-facing geometry, oriented in the vertex shader from the
 --               captured base transform (see the PoseDrawMatrix contract)
 ---@alias TransformMode "static" | "billboard"
 

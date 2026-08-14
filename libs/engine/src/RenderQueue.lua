@@ -56,6 +56,20 @@ local function viewSpaceZ(viewMatrix, x, y, z)
   return viewZ
 end
 
+-- A full billboard is identity-oriented in view space. Its model-space center
+-- therefore contributes directly along the view axes after component-wise
+-- scaling, without resolving a camera-facing world matrix.
+local function itemViewSpaceZ(item, viewMatrix)
+  if item.billboardCenter == nil then
+    local wx, wy, wz = Matrix4.transformPoint(item.transform, item.center[1], item.center[2], item.center[3])
+    return viewSpaceZ(viewMatrix, wx, wy, wz)
+  end
+  assert(item.billboardScale, "billboard item requires billboardScale")
+  local _, _, viewCenterZ =
+    Matrix4.transformPoint(viewMatrix, item.billboardCenter[1], item.billboardCenter[2], item.billboardCenter[3])
+  return viewCenterZ + item.center[3] * item.billboardScale[3]
+end
+
 local function clear(items)
   for i = #items, 1, -1 do
     items[i] = nil
@@ -98,9 +112,8 @@ function RenderQueue.buildInto(parts, viewMatrix, scratch)
       if mode == AlphaClassifier.TRANSLUCENT then
         entryCount = entryCount + 1
         local entry = entries[entryCount] or {}
-        local wx, wy, wz = Matrix4.transformPoint(item.transform, item.center[1], item.center[2], item.center[3])
         entry.item = item
-        entry.viewZ = viewSpaceZ(viewMatrix, wx, wy, wz)
+        entry.viewZ = itemViewSpaceZ(item, viewMatrix)
         entry.position = position
         entries[entryCount] = entry
       elseif mode == AlphaClassifier.CUTOUT then

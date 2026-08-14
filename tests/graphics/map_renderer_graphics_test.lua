@@ -67,6 +67,14 @@ function T.shader_has_model_normal_uniform(scope)
   renderer.shader:send("u_modelNormal", "column", IDENTITY_NORMAL)
 end
 
+function T.shader_has_billboard_uniforms(scope)
+  local shader = scope:own(MapRenderer.new()).shader
+
+  shader:send("u_billboard", true)
+  shader:send("u_billboardCenter", { 3, 4, 5 })
+  shader:send("u_billboardScale", { 2, 3, 4 })
+end
+
 function T.shader_has_polygon_light_mask_uniform(scope)
   local shader = scope:own(MapRenderer.new()).shader
 
@@ -114,6 +122,8 @@ function T.an_actor_billboard_draw_leaks_no_render_state(scope)
     transform = IDENTITY,
     modelNormal = IDENTITY_NORMAL,
     billboardBase = IDENTITY,
+    billboardCenter = { 0, 0, 0 },
+    billboardScale = { 1, 1, 1 },
     alphaClass = "cutout",
     cullMode = "back",
     polygonAlpha = 1.0,
@@ -198,6 +208,8 @@ function T.draw_restores_exact_caller_state_on_real_graphics(scope)
     transform = IDENTITY,
     modelNormal = IDENTITY_NORMAL,
     billboardBase = IDENTITY,
+    billboardCenter = { 0, 0, 0 },
+    billboardScale = { 1, 1, 1 },
     alphaClass = "cutout",
     cullMode = "back",
     polygonAlpha = 1.0,

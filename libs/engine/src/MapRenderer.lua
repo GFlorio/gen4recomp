@@ -1,6 +1,6 @@
 -- Draws a loaded runtime scene in real 3D. It owns the shader, the per-frame
--- camera matrices, and the depth/cull/blend state, resolves each billboard draw
--- against the frame's camera through BillboardTransform, and runs four passes:
+-- camera matrices, and the depth/cull/blend state, sends ordinary billboard
+-- placement directly to the vertex shader, and runs four passes:
 -- opaque (depth write on), cutout (depth write on, shader discards alpha-zero
 -- fragments), translucent (depth test on, write governed by polygon bit 11),
 -- and wireframe edges. Opaque, cutout, and wireframe passes additionally stamp
@@ -432,9 +432,9 @@ end
 -- straddling item draws its baked world-space scratch mesh with an identity
 -- model). `alphaClass` was selected by the queue pass and is passed through
 -- without reclassifying the item.
-function MapRenderer:_drawItem(item, polygonIdOverride, projection, alphaClass)
+function MapRenderer:_drawItem(item, polygonIdOverride, projection, alphaClass, viewMatrix)
   if item.straddle then
-    self:_drawStraddle(item, polygonIdOverride, projection, alphaClass)
+    self:_drawStraddle(item, polygonIdOverride, projection, alphaClass, viewMatrix)
     return
   end
   self:_drawMesh(
@@ -442,9 +442,11 @@ function MapRenderer:_drawItem(item, polygonIdOverride, projection, alphaClass)
     polygonIdOverride,
     projection,
     item.transform,
-    assert(item.modelNormal, "render item requires modelNormal"),
+    item.billboardCenter and IDENTITY_MODEL_NORMAL or assert(item.modelNormal, "render item requires modelNormal"),
     item.mesh,
-    alphaClass
+    alphaClass,
+    item.billboardCenter,
+    item.billboardScale
   )
 end
 
@@ -456,7 +458,7 @@ end
 -- path): a scratch mesh is created, drawn, and released within this call, on
 -- the failure path as well as the success path. The scratch carries the
 -- source mesh's vertex map, so index order is preserved exactly.
-function MapRenderer:_drawStraddle(item, polygonIdOverride, projection, alphaClass)
+function MapRenderer:_drawStraddle(item, polygonIdOverride, projection, alphaClass, viewMatrix)
   local lg = assert(self._graphics)
   local scratch
   local ok, err = pcall(function()
@@ -467,9 +469,17 @@ function MapRenderer:_drawStraddle(item, polygonIdOverride, projection, alphaCla
     for i = 1, item.mesh:getVertexCount() do
       vertices[i] = { item.mesh:getVertex(i) }
     end
+    local transform = item.transform
+    if item.billboardBase then
+      -- A billboarded straddle still has mixed submission transforms, so keep
+      -- the proven CPU bend until that exceptional combination has an exact
+      -- view-space equivalent.
+      transform =
+        BillboardTransform.resolve(item.billboardBase, assert(viewMatrix, "straddle billboard needs a view matrix"))
+    end
     scratch = lg.newMesh(
       VertexFormat.LAYOUT,
-      MapRenderer.bakeStraddle(vertices, item.straddle.leading, item.straddle.transform, item.transform),
+      MapRenderer.bakeStraddle(vertices, item.straddle.leading, item.straddle.transform, transform),
       "triangles",
       "static"
     )
@@ -477,7 +487,17 @@ function MapRenderer:_drawStraddle(item, polygonIdOverride, projection, alphaCla
     if map and #map > 0 then
       scratch:setVertexMap(map)
     end
-    self:_drawMesh(item, polygonIdOverride, projection, IDENTITY_MODEL, IDENTITY_MODEL_NORMAL, scratch, alphaClass)
+    self:_drawMesh(
+      item,
+      polygonIdOverride,
+      projection,
+      IDENTITY_MODEL,
+      IDENTITY_MODEL_NORMAL,
+      scratch,
+      alphaClass,
+      nil,
+      nil
+    )
   end)
   if scratch then
     scratch:release()
@@ -487,16 +507,35 @@ function MapRenderer:_drawStraddle(item, polygonIdOverride, projection, alphaCla
   end
 end
 
--- The common draw body: bind the model/normal matrices, the material's
+-- The common draw body: bind the model/normal matrices or billboard placement,
+-- the material's
 -- uniforms/texture/cull state, draw the mesh, and count the call.
-function MapRenderer:_drawMesh(item, polygonIdOverride, projection, modelMatrix, modelNormal, mesh, alphaClass)
+function MapRenderer:_drawMesh(
+  item,
+  polygonIdOverride,
+  projection,
+  modelMatrix,
+  modelNormal,
+  mesh,
+  alphaClass,
+  billboardCenter,
+  billboardScale
+)
   local lg = assert(self._graphics)
   local mat = item.material
   local shader = self.shader
 
   shader:send("u_proj", "column", projection)
-  shader:send("u_model", "column", modelMatrix)
-  shader:send("u_modelNormal", "column", modelNormal)
+  local isBillboard = billboardCenter ~= nil
+  shader:send("u_billboard", isBillboard)
+  if isBillboard then
+    assert(billboardScale, "billboard draw requires billboardScale")
+    shader:send("u_billboardCenter", billboardCenter)
+    shader:send("u_billboardScale", billboardScale)
+  else
+    shader:send("u_model", "column", modelMatrix)
+    shader:send("u_modelNormal", "column", modelNormal)
+  end
 
   -- The effective DS material registers: the field profile's colors, with
   -- any playing NSBMA color clip's sampled colors replacing them (see
@@ -554,18 +593,20 @@ end
 -- same per-vertex bend dispatch as the filled passes: the first `leading`
 -- vertices are baked under the straddle transform into a released scratch
 -- mesh, exactly like _drawStraddle.
-function MapRenderer:_drawWireframe(item, projection, alphaClass)
+function MapRenderer:_drawWireframe(item, projection, alphaClass, viewMatrix)
   if item.straddle then
-    self:_drawWireframeStraddle(item, projection, alphaClass)
+    self:_drawWireframeStraddle(item, projection, alphaClass, viewMatrix)
     return
   end
   self:_drawWireframeMesh(
     item,
     projection,
     item.transform,
-    assert(item.modelNormal, "render item requires modelNormal"),
+    item.billboardCenter and IDENTITY_MODEL_NORMAL or assert(item.modelNormal, "render item requires modelNormal"),
     item.mesh,
-    alphaClass
+    alphaClass,
+    item.billboardCenter,
+    item.billboardScale
   )
 end
 
@@ -573,7 +614,7 @@ end
 -- the straddle transform (leading) and the item transform (trailing) into a
 -- scratch mesh, draw it with an identity model, and release the scratch
 -- within the call -- on the failure path as well as the success path.
-function MapRenderer:_drawWireframeStraddle(item, projection, alphaClass)
+function MapRenderer:_drawWireframeStraddle(item, projection, alphaClass, viewMatrix)
   local lg = assert(self._graphics)
   local scratch
   local ok, err = pcall(function()
@@ -581,9 +622,16 @@ function MapRenderer:_drawWireframeStraddle(item, projection, alphaClass)
     for i = 1, item.mesh:getVertexCount() do
       vertices[i] = { item.mesh:getVertex(i) }
     end
+    local transform = item.transform
+    if item.billboardBase then
+      -- The wireframe straddle follows the same exceptional CPU fallback as
+      -- the filled path.
+      transform =
+        BillboardTransform.resolve(item.billboardBase, assert(viewMatrix, "straddle billboard needs a view matrix"))
+    end
     scratch = lg.newMesh(
       VertexFormat.LAYOUT,
-      MapRenderer.bakeStraddle(vertices, item.straddle.leading, item.straddle.transform, item.transform),
+      MapRenderer.bakeStraddle(vertices, item.straddle.leading, item.straddle.transform, transform),
       "triangles",
       "static"
     )
@@ -591,7 +639,7 @@ function MapRenderer:_drawWireframeStraddle(item, projection, alphaClass)
     if map and #map > 0 then
       scratch:setVertexMap(map)
     end
-    self:_drawWireframeMesh(item, projection, IDENTITY_MODEL, IDENTITY_MODEL_NORMAL, scratch, alphaClass)
+    self:_drawWireframeMesh(item, projection, IDENTITY_MODEL, IDENTITY_MODEL_NORMAL, scratch, alphaClass, nil, nil)
   end)
   if scratch then
     scratch:release()
@@ -604,13 +652,30 @@ end
 -- The common wireframe draw body: bind the model/normal matrices, the
 -- profile registers, and the rear-plane id, then draw the mesh. The pass owns
 -- shader, depth, blend, and wireframe state outside the item loop.
-function MapRenderer:_drawWireframeMesh(item, projection, modelMatrix, modelNormal, mesh, alphaClass)
+function MapRenderer:_drawWireframeMesh(
+  item,
+  projection,
+  modelMatrix,
+  modelNormal,
+  mesh,
+  alphaClass,
+  billboardCenter,
+  billboardScale
+)
   local lg = assert(self._graphics)
   local shader = self.shader
 
   shader:send("u_proj", "column", projection)
-  shader:send("u_model", "column", modelMatrix)
-  shader:send("u_modelNormal", "column", modelNormal)
+  local isBillboard = billboardCenter ~= nil
+  shader:send("u_billboard", isBillboard)
+  if isBillboard then
+    assert(billboardScale, "billboard draw requires billboardScale")
+    shader:send("u_billboardCenter", billboardCenter)
+    shader:send("u_billboardScale", billboardScale)
+  else
+    shader:send("u_model", "column", modelMatrix)
+    shader:send("u_modelNormal", "column", modelNormal)
+  end
   -- Wireframe polygons are static field geometry: the effective registers
   -- are the field profile's.
   local profileColors = self._lightMaterialColors
@@ -656,17 +721,6 @@ function MapRenderer:draw(runtime, camera, worldParts, viewport, alpha)
 
   local viewMatrix = camera:view(alpha)
 
-  -- Billboard draws own no baked matrix: resolve each one against this frame's
-  -- camera before anything reads `transform`, so u_model, the normal matrix,
-  -- translucent sorting, and every pass all use the same orientation.
-  for _, part in ipairs(parts) do
-    for _, d in ipairs(part) do
-      if d.billboardBase then
-        d.transform, d.modelNormal = BillboardTransform.resolve(d.billboardBase, viewMatrix)
-      end
-    end
-  end
-
   -- Two projections, computed once per frame: the world projection and the
   -- depth-biased billboard copy (see FieldCamera:billboardProjection). Only
   -- actor billboards opt into the biased matrix; map/building billboards and
@@ -690,13 +744,13 @@ function MapRenderer:draw(runtime, camera, worldParts, viewport, alpha)
     -- Pass 1: opaque, depth test + write.
     for _, d in ipairs(queue.opaque) do
       local projection = d.billboardProjection and billboardProjection or worldProjection
-      self:_drawItem(d, nil, projection, AlphaClassifier.OPAQUE)
+      self:_drawItem(d, nil, projection, AlphaClassifier.OPAQUE, viewMatrix)
     end
 
     -- Pass 2: cutout, depth test + write, shader discards alpha-zero fragments.
     for _, d in ipairs(queue.cutout) do
       local projection = d.billboardProjection and billboardProjection or worldProjection
-      self:_drawItem(d, nil, projection, AlphaClassifier.CUTOUT)
+      self:_drawItem(d, nil, projection, AlphaClassifier.CUTOUT, viewMatrix)
     end
 
     -- Pass 3: blended, depth test on, write governed by polygon state. The
@@ -717,7 +771,13 @@ function MapRenderer:draw(runtime, camera, worldParts, viewport, alpha)
         lastDepthCompare, lastDepthWrite = depthCompare, depthWrite
       end
       local projection = d.billboardProjection and billboardProjection or worldProjection
-      self:_drawItem(d, TRANSLUCENT_SENTINEL_ID / MapRenderer.REAR_PLANE_ID, projection, AlphaClassifier.TRANSLUCENT)
+      self:_drawItem(
+        d,
+        TRANSLUCENT_SENTINEL_ID / MapRenderer.REAR_PLANE_ID,
+        projection,
+        AlphaClassifier.TRANSLUCENT,
+        viewMatrix
+      )
     end
 
     -- Pass 4: wireframe edges (polygon alpha zero). These count as opaque for
@@ -732,7 +792,7 @@ function MapRenderer:draw(runtime, camera, worldParts, viewport, alpha)
       lg.setWireframe(true)
       for _, d in ipairs(queue.wireframe) do
         local projection = d.billboardProjection and billboardProjection or worldProjection
-        self:_drawWireframe(d, projection, AlphaClassifier.WIREFRAME)
+        self:_drawWireframe(d, projection, AlphaClassifier.WIREFRAME, viewMatrix)
       end
       lg.setWireframe(false)
     end

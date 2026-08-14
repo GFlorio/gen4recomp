@@ -30,9 +30,9 @@
 --
 -- BB cannot be resolved here, because the matrix it installs depends on the
 -- camera. It is therefore reported in two halves: the position matrix the
--- command captured (`baseTransform`, pose-dependent) and the billboard
--- marker; the runtime rebuilds the real matrix each frame
--- (BillboardTransform).
+-- command captured (`baseTransform`, pose-dependent) and the billboard marker;
+-- the renderer derives camera-independent center/scale data for the shader.
+-- The exceptional straddle path may still rebuild the matrix on the CPU.
 --
 -- NODEMIX blends matrix-stack slots through the joints' inverse bind poses.
 -- Only the position sum is reproduced; the rigid-bind-pose invariant that
