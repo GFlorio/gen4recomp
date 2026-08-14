@@ -34,6 +34,33 @@ local function fresh()
   App.importer = nil
 end
 
+local function withInputState(fn)
+  fresh()
+  local calls = {}
+  local state = {}
+  for _, name in ipairs({
+    "gamepadaxis",
+    "mousepressed",
+    "mousemoved",
+    "mousereleased",
+    "wheelmoved",
+    "touchpressed",
+    "touchmoved",
+    "touchreleased",
+  }) do
+    state[name] = function(_, ...)
+      calls[name] = { ... }
+    end
+  end
+  App.setState(state)
+
+  local ok, err = pcall(fn, calls)
+  App.setState(nil)
+  if not ok then
+    error(err, 0)
+  end
+end
+
 -- One harness for every App-level seam a test can touch: fresh module state,
 -- the App opts the boot/draw paths read, the RomImporter.isReady seam, a
 -- FieldState.new capture (so boot tests never construct a real runtime), and
@@ -156,6 +183,33 @@ function T.quit_after_replacement_never_revisits_the_old_state()
   App.quit()
   Assert.equal(first.disposed, 1)
   Assert.equal(second.disposed, 1)
+end
+
+function T.input_callbacks_preserve_the_complete_host_argument_tuple()
+  local joystick = {}
+  local cases = {
+    { "gamepadaxis", { joystick, "leftx", 0.75 } },
+    { "mousepressed", { 12.5, 34.5, 1, true, 2 } },
+    { "mousemoved", { 15.5, 36.5, 3, 2, false } },
+    { "mousereleased", { 15.5, 36.5, 1, true, 2 } },
+    { "wheelmoved", { 2, -3 } },
+    { "touchpressed", { "finger-1", 3.5, 4.5, 0.25, 0.5, 0.8 } },
+    { "touchmoved", { "finger-1", 5.5, 6.5, 0.25, 0.5, 0.8 } },
+    { "touchreleased", { "finger-1", 5.5, 6.5, 0.25, 0.5, 0.8 } },
+  }
+
+  withInputState(function(calls)
+    for _, case in ipairs(cases) do
+      local name, expected = case[1], case[2]
+      App[name](table.unpack(expected))
+      local actual = calls[name]
+      Assert.notNil(actual, "App." .. name .. " must reach the active state")
+      Assert.equal(#actual, #expected, "App." .. name .. " must preserve every host argument")
+      for index, value in ipairs(expected) do
+        Assert.equal(actual[index], value, "App." .. name .. " argument " .. index .. " changed")
+      end
+    end
+  end)
 end
 
 function T.actor_preview_dispose_releases_exactly_once_and_is_repeat_safe()

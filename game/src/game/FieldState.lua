@@ -300,7 +300,9 @@ end
 ---@param x number
 ---@param y number
 ---@param button integer
-function FieldState:mousepressed(x, y, button)
+---@param istouch boolean?
+---@param presses integer?
+function FieldState:mousepressed(x, y, button, istouch, presses)
   if button == 1 then
     self.runtime.input:pointerDown("mouse:1", x, y)
   end
@@ -320,7 +322,9 @@ end
 ---@param x number
 ---@param y number
 ---@param button integer
-function FieldState:mousereleased(x, y, button)
+---@param istouch boolean?
+---@param presses integer?
+function FieldState:mousereleased(x, y, button, istouch, presses)
   if button == 1 then
     self.runtime.input:pointerUp("mouse:1", x, y)
   end
