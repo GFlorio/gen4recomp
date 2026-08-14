@@ -466,13 +466,17 @@ function FieldRuntime:_load()
 end
 
 function FieldRuntime:update(dt)
+  if self.errorText then
+    return
+  end
+
   -- The background registry warm-up (snapshot-miss boot) runs one time
   -- slice per frame; the first save finishes whatever it has not.
   if self.scripts.warmup then
     self.scripts.warmup:update()
   end
   self.session:update(dt)
-  if self.transition.error then
+  if self.transition.error and not self.errorText then
     local context = self.transition.warpContext
     if context then
       self.errorText = string.format(
