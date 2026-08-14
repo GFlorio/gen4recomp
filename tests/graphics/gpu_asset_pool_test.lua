@@ -89,7 +89,7 @@ local function fakeGraphics(opts)
       if opts.failOnNewImage == newImageCalls then
         error("injected newImage failure")
       end
-      local image = { released = false, index = newImageCalls }
+      local image = { released = false, releaseCount = 0, index = newImageCalls }
       image.setFilter = function() end
       image.setWrap = function(_, wx, wy)
         if opts.failSetWrapOn == image.index then
@@ -99,6 +99,7 @@ local function fakeGraphics(opts)
       end
       image.release = function()
         image.released = true
+        image.releaseCount = image.releaseCount + 1
       end
       images[#images + 1] = image
       return image
@@ -184,6 +185,30 @@ function T.build_keeps_objects_and_returns_the_value_on_success()
   Assert.equal(result, "built", "the build returns the builder's value")
   Assert.equal(graphics.images[1].released, false, "a successful construction keeps its objects")
   Assert.equal(#pool.images, 1)
+end
+
+-- The guarded acquire and the build rollback interact: when the Nth acquire
+-- fails AFTER recording its own object (a setWrap failure), the guarded
+-- acquire pops and releases that object, and the build rollback releases the
+-- earlier ones -- every created object is released exactly once, never twice,
+-- and nothing stays owned. This is the failure-sequence contract the loaders
+-- rely on when an alternate-image creation fails inside a scene build.
+function T.build_releases_everything_exactly_once_when_the_failed_acquire_created_its_object()
+  local graphics = fakeGraphics({ failSetWrapOn = 3 })
+  local pool = GpuAssetPool.new(fakeCacheFs(), { graphics = graphics })
+  local err = Assert.throws(function()
+    pool:build(function()
+      pool:imageFor(TEX_PATH, "clamp", "clamp")
+      pool:imageFor(TEX_PATH, "repeat", "repeat")
+      pool:imageFor(TEX_PATH, "repeat", "clamp")
+    end)
+  end)
+  Assert.isTrue(tostring(err):find("injected setWrap failure", 1, true) ~= nil, "rethrows the configuration failure")
+  Assert.equal(#graphics.images, 3, "the base and two alternates were all created")
+  for _, image in ipairs(graphics.images) do
+    Assert.equal(image.releaseCount, 1, "every created image is released exactly once")
+  end
+  Assert.equal(#pool.images, 0, "the pool owns nothing after the failed construction")
 end
 
 -- Post-construction failure: a single lazy acquire failing while the live
