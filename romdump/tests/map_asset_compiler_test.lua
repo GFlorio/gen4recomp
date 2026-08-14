@@ -375,9 +375,9 @@ function T.the_selected_area_nsbta_lands_in_scene_terrain_animations()
     dynamicTextureType = 0,
     fieldAreaTextureSrt = { [0] = srtBytes },
   }))
-  local clip = bundle.scene.terrainAnimations and bundle.scene.terrainAnimations.textureSrt
+  local clip = bundle.scene.terrainAnimations.textureSrt
   Assert.isTrue(type(clip) == "table", "the selected NSBTA compiles into scene.terrainAnimations.textureSrt")
-  assert(clip ~= false, "the selected NSBTA compiles into scene.terrainAnimations.textureSrt")
+  ---@cast clip table
   Assert.equal(clip.name, "en_sp1")
   Assert.equal(clip.id, "en_sp1")
   Assert.equal(clip.category, "material")
