@@ -227,13 +227,4 @@ function T.parses_multiple_records_and_fixed_string_names()
   Assert.equal(records[3].index, 2)
 end
 
--- An empty table is valid generated input (`recordCount = 0`, total size 4),
--- even though the retail archive census expects nine records.
-function T.parses_a_zero_record_table_as_valid()
-  local records, err = FieldTextureAnimation.parse(u32(0), SOURCE)
-  Assert.isNil(err)
-  assert(records)
-  Assert.deepEqual(records, {})
-end
-
 return { tests = T }

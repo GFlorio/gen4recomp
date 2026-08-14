@@ -18,7 +18,7 @@ local BinaryReader = require("libs.codec.src.BinaryReader")
 
 local FieldTextureAnimation = {}
 
--- Owner-local error codes, referenced by tests instead of literals.
+-- Structured error codes owned by this module.
 FieldTextureAnimation.ERROR_SIZE = "FIELD_TEX_ANIM_SIZE_MISMATCH"
 FieldTextureAnimation.ERROR_EMPTY_NAME = "FIELD_TEX_ANIM_EMPTY_NAME"
 FieldTextureAnimation.ERROR_DUPLICATE_NAME = "FIELD_TEX_ANIM_DUPLICATE_NAME"

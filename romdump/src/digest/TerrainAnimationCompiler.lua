@@ -28,7 +28,7 @@ local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
 local TerrainAnimationCompiler = {}
 TerrainAnimationCompiler.__index = TerrainAnimationCompiler
 
--- Owner-local error codes, referenced by tests instead of literals.
+-- Structured error codes owned by this module.
 TerrainAnimationCompiler.ERROR_MEMBER_OUT_OF_RANGE = "TERRAIN_ANIM_MEMBER_OUT_OF_RANGE"
 TerrainAnimationCompiler.ERROR_TEXTURE_INDEX = "TERRAIN_ANIM_TEXTURE_INDEX_OUT_OF_RANGE"
 TerrainAnimationCompiler.ERROR_TEXTURE_INCOMPATIBLE = "TERRAIN_ANIM_TEXTURE_INCOMPATIBLE"
