@@ -18,12 +18,12 @@
 -- in the filled passes and the wireframe pass alike: the shared mesh's vertex
 -- data is CPU-baked under the two transforms into a scratch mesh drawn with an
 -- identity model and released within the frame -- the pool-shared mesh is
--- never mutated. Resource construction is transactional: a failed shader or
--- canvas allocation releases everything already created, and a canvas
--- recreation keeps the previous target set usable until the replacement is
--- complete. It builds no persistent meshes or textures and reads no ROM/NARC
--- data -- those belong to the loader and compiler; here everything is already
--- resident.
+-- never mutated. Resource construction is transactional: a failed shader,
+-- canvas allocation, or target configuration releases everything already
+-- created, and a canvas recreation keeps the previous target set usable until
+-- the replacement is complete. It builds no persistent meshes or textures and
+-- reads no ROM/NARC data -- those belong to the loader and compiler; here
+-- everything is already resident.
 
 local RenderQueue = require("libs.engine.src.RenderQueue")
 local BillboardTransform = require("libs.engine.src.BillboardTransform")
@@ -47,6 +47,10 @@ local DsLighting = require("libs.engine.src.DsLighting")
 ---@field depth love.Canvas?
 ---@field canvasW integer?
 ---@field canvasH integer?
+---@field _sceneTargets { [1]: love.Canvas, [2]: love.Canvas, depthstencil: love.Canvas }?
+---@field _lightMaterialColorCache { diffuse: number[], ambient: number[], specular: number[], emission: number[] }
+---@field _lightVectorCache number[][]
+---@field _lightColorCache number[][]
 ---@field _queueScratch RenderQueueScratch
 local MapRenderer = {}
 MapRenderer.__index = MapRenderer
@@ -145,6 +149,24 @@ function MapRenderer.new(opts)
     edgeColors = colors,
     edgeAlpha = edgeMarking.alpha or 0.5,
     stats = { drawCalls = 0, triangles = 0, meshCount = 0, textureCount = 0 },
+    _lightMaterialColorCache = {
+      diffuse = { 0, 0, 0 },
+      ambient = { 0, 0, 0 },
+      specular = { 0, 0, 0 },
+      emission = { 0, 0, 0 },
+    },
+    _lightVectorCache = {
+      { 0, 0, 0 },
+      { 0, 0, 0 },
+      { 0, 0, 0 },
+      { 0, 0, 0 },
+    },
+    _lightColorCache = {
+      { 0, 0, 0 },
+      { 0, 0, 0 },
+      { 0, 0, 0 },
+      { 0, 0, 0 },
+    },
     _queueScratch = {
       opaque = {},
       cutout = {},
@@ -160,6 +182,8 @@ function MapRenderer.new(opts)
   local ok, err = pcall(function()
     renderer.shader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.map))
     renderer.edgeShader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.edge))
+    renderer.edgeShader:send("u_edgeColors", unpack(renderer.edgeColors))
+    renderer.edgeShader:send("u_edgeAlpha", renderer.edgeAlpha)
   end)
   if not ok then
     renderer:release()
@@ -180,18 +204,25 @@ function MapRenderer:_releaseCanvases()
   end
   self.sceneColor, self.idDepth, self.depth = nil, nil, nil
   self.canvasW, self.canvasH = nil, nil
+  self._sceneTargets = nil
 end
 
--- Recreate the render targets at a new size. The replacement set is built
--- fully before the live one is released: a failed allocation releases only
--- the partial new canvases and leaves the previous targets and their recorded
--- size in place, so the renderer keeps working at the old size.
+local function sendEdgeTargetUniforms(shader, idDepth, w, h)
+  shader:send("u_idTex", idDepth)
+  shader:send("u_texelSize", { 1 / w, 1 / h })
+  shader:send("u_edgeRadius", MapRenderer.fieldEdgeRadiusPixels(h))
+end
+
+-- Recreate the render targets at a new size. The replacement set is allocated
+-- and configured before the live one is released. A failed allocation or
+-- shader send releases only the staged canvases, restores the previous edge
+-- configuration, and leaves the published targets and size in place.
 function MapRenderer:_ensureCanvases(w, h)
   if self.sceneColor and self.canvasW == w and self.canvasH == h then
     return
   end
   local lg = assert(self._graphics)
-  local sceneColor, idDepth, depth
+  local sceneColor, idDepth, depth, sceneTargets
   local ok, err = pcall(function()
     sceneColor = lg.newCanvas(w, h)
     -- Red holds the normalized polygon ID, green the linear eye-space depth in
@@ -201,8 +232,13 @@ function MapRenderer:_ensureCanvases(w, h)
     idDepth = lg.newCanvas(w, h, { format = "rg32f" })
     idDepth:setFilter("nearest", "nearest")
     depth = lg.newCanvas(w, h, { format = "depth24stencil8", readable = false })
+    sceneTargets = { sceneColor, idDepth, depthstencil = depth }
+    sendEdgeTargetUniforms(self.edgeShader, idDepth, w, h)
   end)
   if not ok then
+    if self.idDepth then
+      pcall(sendEdgeTargetUniforms, self.edgeShader, self.idDepth, self.canvasW, self.canvasH)
+    end
     if sceneColor then
       sceneColor:release()
     end
@@ -217,6 +253,7 @@ function MapRenderer:_ensureCanvases(w, h)
   self:_releaseCanvases()
   self.sceneColor, self.idDepth, self.depth = sceneColor, idDepth, depth
   self.canvasW, self.canvasH = w, h
+  self._sceneTargets = sceneTargets
 end
 
 -- Field cameras have an authored, immutable distance. DS-pixel effects scale
@@ -235,32 +272,43 @@ local function alphaModeId(alphaClass)
   return 0 -- opaque / wireframe (wireframe is drawn separately)
 end
 
--- Decode a polygon's 4-bit light mask (GBATEK POLYGON_ATTR bits 0-3) into the
--- compact per-draw u_lightMask uniform: one 0/1 float per light. The shader
--- gates each profile light with its component, so a polygon only receives the
--- lights its mask admits -- the global profile enabled state alone is not
--- enough. LÖVE's GLSL version has no integer bitwise operators, so the decode
--- happens here once per draw instead.
-function MapRenderer.lightMaskUniforms(m)
-  assert(m >= 0 and m <= 15 and m % 1 == 0, "light mask must be a 4-bit integer, got " .. tostring(m))
-  return {
-    m % 2 >= 1 and 1.0 or 0.0,
-    m % 4 >= 2 and 1.0 or 0.0,
-    m % 8 >= 4 and 1.0 or 0.0,
-    m % 16 >= 8 and 1.0 or 0.0,
+-- Decode every polygon 4-bit light mask (GBATEK POLYGON_ATTR bits 0-3) once.
+-- The shader gates each profile light with one component, and the renderer
+-- treats these shared values as immutable.
+local LIGHT_MASK_UNIFORMS = {}
+for mask = 0, 15 do
+  LIGHT_MASK_UNIFORMS[mask] = {
+    mask % 2 >= 1 and 1.0 or 0.0,
+    mask % 4 >= 2 and 1.0 or 0.0,
+    mask % 8 >= 4 and 1.0 or 0.0,
+    mask % 16 >= 8 and 1.0 or 0.0,
   }
 end
 
-local function rgb555ToFloat3(packed)
-  local r = (packed % 32) / FixedPoint.RGB5_MAX
-  local g = (math.floor(packed / 32) % 32) / FixedPoint.RGB5_MAX
-  local b = (math.floor(packed / 1024) % 32) / FixedPoint.RGB5_MAX
-  return { r, g, b }
+-- Public validation helper for test-facing/item-construction code. Draw paths
+-- index the immutable precomputed mask directly and allocate nothing; callers
+-- receive their own copy and cannot mutate that render-path cache.
+---@param m integer
+---@return number[]
+function MapRenderer.lightMaskUniforms(m)
+  local uniform = type(m) == "number" and LIGHT_MASK_UNIFORMS[m]
+  assert(uniform, "light mask must be a 4-bit integer, got " .. tostring(m))
+  return { uniform[1], uniform[2], uniform[3], uniform[4] }
 end
 
-local function fx12ToFloat3(vec)
-  return { vec[1] / FixedPoint.FX32_SCALE, vec[2] / FixedPoint.FX32_SCALE, vec[3] / FixedPoint.FX32_SCALE }
+local function decodeRgb555(target, packed)
+  target[1] = (packed % 32) / FixedPoint.RGB5_MAX
+  target[2] = (math.floor(packed / 32) % 32) / FixedPoint.RGB5_MAX
+  target[3] = (math.floor(packed / 1024) % 32) / FixedPoint.RGB5_MAX
 end
+
+local function decodeFx12(target, vec)
+  target[1] = vec[1] / FixedPoint.FX32_SCALE
+  target[2] = vec[2] / FixedPoint.FX32_SCALE
+  target[3] = vec[3] / FixedPoint.FX32_SCALE
+end
+
+local ZERO_COLOR = { 0, 0, 0 }
 
 -- Select the active profile record, bind the light uniforms, and keep the
 -- profile's material registers for the per-item composition in _drawMesh /
@@ -275,34 +323,51 @@ function MapRenderer:_sendLighting(runtime)
   local shader = self.shader
   local profile = runtime.lighting
   if not profile or not profile.records then
-    self._lightMaterialColors = nil
+    if not self._lightingLit then
+      return
+    end
     for i = 0, 3 do
       shader:send("u_lightEnabled" .. i, false)
-      shader:send("u_lightVector" .. i, { 0, 0, 0 })
-      shader:send("u_lightColor" .. i, { 0, 0, 0 })
+      shader:send("u_lightVector" .. i, ZERO_COLOR)
+      shader:send("u_lightColor" .. i, ZERO_COLOR)
     end
+    self._lightingLit = false
+    self._lightingProfile = nil
+    self._lightingRecord = nil
+    self._lightMaterialColors = nil
     return
   end
 
   local record = FieldLightProfile.select(profile, runtime.fieldTimeSeconds or FieldLightProfile.DEFAULT_TIME_SECONDS)
-  self._lightMaterialColors = {
-    diffuse = rgb555ToFloat3(record.diffuseRgb555),
-    ambient = rgb555ToFloat3(record.ambientRgb555),
-    specular = rgb555ToFloat3(record.specularRgb555),
-    emission = rgb555ToFloat3(record.emissionRgb555),
-  }
+  if self._lightingLit and self._lightingProfile == profile and self._lightingRecord == record then
+    return
+  end
+
+  local materialColors = self._lightMaterialColorCache
+  decodeRgb555(materialColors.diffuse, record.diffuseRgb555)
+  decodeRgb555(materialColors.ambient, record.ambientRgb555)
+  decodeRgb555(materialColors.specular, record.specularRgb555)
+  decodeRgb555(materialColors.emission, record.emissionRgb555)
 
   for i = 1, 4 do
     local light = record.lights[i]
+    local vector = self._lightVectorCache[i]
+    local color = self._lightColorCache[i]
     shader:send("u_lightEnabled" .. (i - 1), light and light.enabled or false)
     if light then
-      shader:send("u_lightVector" .. (i - 1), fx12ToFloat3(light.vectorFx12))
-      shader:send("u_lightColor" .. (i - 1), rgb555ToFloat3(light.colorRgb555))
+      decodeFx12(vector, light.vectorFx12)
+      decodeRgb555(color, light.colorRgb555)
     else
-      shader:send("u_lightVector" .. (i - 1), { 0, 0, 0 })
-      shader:send("u_lightColor" .. (i - 1), { 0, 0, 0 })
+      vector[1], vector[2], vector[3] = 0, 0, 0
+      color[1], color[2], color[3] = 0, 0, 0
     end
+    shader:send("u_lightVector" .. (i - 1), vector)
+    shader:send("u_lightColor" .. (i - 1), color)
   end
+  self._lightingLit = true
+  self._lightingProfile = profile
+  self._lightingRecord = record
+  self._lightMaterialColors = materialColors
 end
 
 -- The effective DS material register for one channel of one draw item: the
@@ -311,7 +376,6 @@ end
 -- except channels a playing NSBMA color clip drives -- the clip replaces
 -- the register. With no profile the register resets to zero so a later lit
 -- scene cannot inherit stale material colors.
-local ZERO_COLOR = { 0, 0, 0 }
 local function effectiveMaterialColor(value, colorsAnimated, profileColor)
   if value ~= nil and colorsAnimated then
     return value
@@ -504,7 +568,7 @@ function MapRenderer:_drawMesh(
   shader:send("u_polygonAlpha", item.polygonAlpha)
   shader:send("u_polygonMode", item.polygonMode == "decal" and 1 or 0)
   shader:send("u_polygonId", polygonIdOverride or item.polygonId / MapRenderer.REAR_PLANE_ID)
-  shader:send("u_lightMask", MapRenderer.lightMaskUniforms(item.lightMask))
+  shader:send("u_lightMask", LIGHT_MASK_UNIFORMS[item.lightMask])
   lg.setMeshCullMode(item.cullMode)
   lg.draw(mesh)
   self.stats.drawCalls = self.stats.drawCalls + 1
@@ -574,15 +638,12 @@ function MapRenderer:_drawWireframeStraddle(item, viewMatrix, projection, alphaC
 end
 
 -- The common wireframe draw body: bind the model/normal matrices, the
--- profile registers, and the rear-plane id, then draw the mesh with
--- wireframe mode on.
+-- profile registers, and the rear-plane id, then draw the mesh. The pass owns
+-- shader, depth, blend, and wireframe state outside the item loop.
 function MapRenderer:_drawWireframeMesh(item, viewMatrix, projection, modelMatrix, normalMatrix, mesh, alphaClass)
   local lg = assert(self._graphics)
   local shader = self.shader
 
-  lg.setShader(shader)
-  lg.setDepthMode("less", true)
-  lg.setBlendMode("alpha")
   shader:send("u_proj", "column", projection)
   shader:send("u_model", "column", modelMatrix)
   shader:send("u_normalMatrix", "column", normalMatrix)
@@ -602,12 +663,10 @@ function MapRenderer:_drawWireframeMesh(item, viewMatrix, projection, modelMatri
   -- Wireframe polygons stamp the rear-plane sentinel, normalized by the id
   -- domain exactly like every other id (255/255 == 1.0).
   shader:send("u_polygonId", MapRenderer.REAR_PLANE_ID / MapRenderer.REAR_PLANE_ID)
-  shader:send("u_lightMask", MapRenderer.lightMaskUniforms(item.lightMask))
+  shader:send("u_lightMask", LIGHT_MASK_UNIFORMS[item.lightMask])
   mesh:setTexture()
   lg.setMeshCullMode(item.cullMode)
-  lg.setWireframe(true)
   lg.draw(mesh)
-  lg.setWireframe(false)
   self.stats.drawCalls = self.stats.drawCalls + 1
 end
 
@@ -624,9 +683,7 @@ function MapRenderer:draw(runtime, camera, worldParts, viewport, alpha)
   local lg = assert(self._graphics)
   local parts = worldParts or {}
 
-  self.stats = {
-    drawCalls = 0,
-  }
+  self.stats.drawCalls = 0
 
   local rectangle = viewport.worldViewport
   local w = math.max(1, math.floor(rectangle.width + 0.5))
@@ -653,11 +710,7 @@ function MapRenderer:draw(runtime, camera, worldParts, viewport, alpha)
   local worldProjection = camera:projection()
   local billboardProjection = camera:billboardProjection()
 
-  local function projectionFor(item)
-    return item.billboardProjection and billboardProjection or worldProjection
-  end
-
-  local sceneTargets = { self.sceneColor, self.idDepth, depthstencil = self.depth }
+  local sceneTargets = assert(self._sceneTargets)
 
   local function doDraw()
     lg.setCanvas(sceneTargets)
@@ -672,12 +725,14 @@ function MapRenderer:draw(runtime, camera, worldParts, viewport, alpha)
 
     -- Pass 1: opaque, depth test + write.
     for _, d in ipairs(queue.opaque) do
-      self:_drawItem(d, viewMatrix, nil, projectionFor(d), AlphaClassifier.OPAQUE)
+      local projection = d.billboardProjection and billboardProjection or worldProjection
+      self:_drawItem(d, viewMatrix, nil, projection, AlphaClassifier.OPAQUE)
     end
 
     -- Pass 2: cutout, depth test + write, shader discards alpha-zero fragments.
     for _, d in ipairs(queue.cutout) do
-      self:_drawItem(d, viewMatrix, nil, projectionFor(d), AlphaClassifier.CUTOUT)
+      local projection = d.billboardProjection and billboardProjection or worldProjection
+      self:_drawItem(d, viewMatrix, nil, projection, AlphaClassifier.CUTOUT)
     end
 
     -- Pass 3: blended, depth test on, write governed by polygon state. The
@@ -686,14 +741,23 @@ function MapRenderer:draw(runtime, camera, worldParts, viewport, alpha)
     -- edge pass never outlines them. The ID/depth attachment carries alpha 1,
     -- so it is replaced -- not alpha-blended -- even while the colour
     -- attachment blends.
-    for _, d in ipairs(queue.translucent) do
-      lg.setDepthMode(d.depthEqual and "lequal" or "less", d.translucentDepthWrite or false)
+    local lastDepthCompare, lastDepthWrite = "less", true
+    if #queue.translucent > 0 then
       lg.setBlendMode("alpha", "alphamultiply")
+    end
+    for _, d in ipairs(queue.translucent) do
+      local depthCompare = d.depthEqual and "lequal" or "less"
+      local depthWrite = d.translucentDepthWrite or false
+      if depthCompare ~= lastDepthCompare or depthWrite ~= lastDepthWrite then
+        lg.setDepthMode(depthCompare, depthWrite)
+        lastDepthCompare, lastDepthWrite = depthCompare, depthWrite
+      end
+      local projection = d.billboardProjection and billboardProjection or worldProjection
       self:_drawItem(
         d,
         viewMatrix,
         TRANSLUCENT_SENTINEL_ID / MapRenderer.REAR_PLANE_ID,
-        projectionFor(d),
+        projection,
         AlphaClassifier.TRANSLUCENT
       )
     end
@@ -703,8 +767,16 @@ function MapRenderer:draw(runtime, camera, worldParts, viewport, alpha)
     -- 255/255 == 1.0, the same sentinel the wireframe draw body writes (see
     -- _drawWireframeMesh), never the item's own polygon id.
     lg.setCanvas(sceneTargets)
-    for _, d in ipairs(queue.wireframe) do
-      self:_drawWireframe(d, viewMatrix, projectionFor(d), AlphaClassifier.WIREFRAME)
+    if #queue.wireframe > 0 then
+      lg.setShader(self.shader)
+      lg.setDepthMode("less", true)
+      lg.setBlendMode("alpha")
+      lg.setWireframe(true)
+      for _, d in ipairs(queue.wireframe) do
+        local projection = d.billboardProjection and billboardProjection or worldProjection
+        self:_drawWireframe(d, viewMatrix, projection, AlphaClassifier.WIREFRAME)
+      end
+      lg.setWireframe(false)
     end
 
     -- Composite the scene canvas back to the screen through the edge shader,
@@ -714,11 +786,6 @@ function MapRenderer:draw(runtime, camera, worldParts, viewport, alpha)
     lg.setBlendMode("alpha")
     lg.setColor(1, 1, 1, 1)
     lg.setShader(self.edgeShader)
-    self.edgeShader:send("u_idTex", self.idDepth)
-    self.edgeShader:send("u_texelSize", { 1 / w, 1 / h })
-    self.edgeShader:send("u_edgeColors", unpack(self.edgeColors))
-    self.edgeShader:send("u_edgeAlpha", self.edgeAlpha)
-    self.edgeShader:send("u_edgeRadius", MapRenderer.fieldEdgeRadiusPixels(h))
     lg.draw(self.sceneColor, rectangle.x, rectangle.y, 0, rectangle.width / w, rectangle.height / h)
     lg.setShader()
   end
