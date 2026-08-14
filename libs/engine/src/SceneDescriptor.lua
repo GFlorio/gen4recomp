@@ -1,18 +1,20 @@
--- Pure normalization of the compiled scene and model descriptors into the
--- records the loaders (MapSceneLoader, NeighborRing) assemble with GPU
--- resources: the GPU side of loading lives in those loaders, never here.
--- Scene and model material lists share one shape, so the sampler-wrap
--- resolution and the id index live here once; the material-to-wrap map an
--- animated model's pattern variants sample with, the per-mesh model-space
--- center/AABB the pool entry caches, and the per-model bounds fold over those
--- per-mesh AABBs are pure folds over the descriptor records and decoded
--- vertices. The scene-form material records the compilers emit always carry
--- their sampler state and the required lists are always present, so
--- normalization is strict: a missing wrap or list is malformed generated
--- data and raises, never a default. No love, no pool, no acquisition. The
--- per-mesh bounds shape is {minX,maxX,minY,maxY,minZ,maxZ}, shared with the
--- runtime placement records; the model bounds fold allocates a fresh table
--- per model, never aliasing a pooled mesh entry's cached AABB.
+-- Pure folds over the compiled scene and model descriptors the loaders
+-- (MapSceneLoader, NeighborRing) assemble with GPU resources: the GPU side
+-- of loading lives in those loaders, never here. Scene and model material
+-- lists share one shape, so the sampler-wrap resolution and the id index
+-- live here once; the material-to-wrap map an animated model's pattern
+-- variants sample with, the per-mesh model-space center/AABB the pool entry
+-- caches, and the per-model bounds fold over those per-mesh AABBs are pure
+-- folds over the descriptor records and decoded vertices. The scene-form
+-- material records the compilers emit always carry their sampler state and
+-- the required lists are always present, so the folds are strict: a missing
+-- wrap or list is malformed generated data and raises, never a default. The
+-- indexed records are the original descriptor records -- SceneDescriptor
+-- records are read-only, and the loaders construct separate mutable runtime
+-- tables. No love, no pool, no acquisition. The per-mesh bounds shape is
+-- {minX,maxX,minY,maxY,minZ,maxZ}, shared with the runtime placement
+-- records; the model bounds fold allocates a fresh table per model, never
+-- aliasing a pooled mesh entry's cached AABB.
 
 local Errors = require("libs.errors.src.Errors")
 local ErrorCodes = require("libs.assets.src.ErrorCodes")
@@ -36,37 +38,22 @@ function SceneDescriptor.wrap(record)
   return wrap
 end
 
--- Normalize a scene-form material list into id-indexed records carrying the
--- resolved sampler wrap; the image itself is GPU-side work. A missing list
--- is malformed scene data, never an empty map. Terrain materials also carry
--- their texture-matrix inputs (texWidth/texHeight/texMtxMode, the optional
--- static srt, and the optional textureSwap descriptor): those ride the
--- normalized record for the terrain animator, present only when the compiled
--- record carries them (Lua omits nil fields). Each normalized record is a
--- fresh table, so runtime fields (image, texMatrix) written onto it never
--- alias back into the scene descriptor; the srt and textureSwap tables are
--- referenced, not copied -- the runtime treats them as immutable.
+-- Index a scene-form material list by id, validating each record's sampler
+-- wrap; a missing list is malformed scene data, never an empty map. The
+-- indexed records are the original descriptor records: SceneDescriptor
+-- records are read-only, and the loaders construct separate mutable runtime
+-- tables (image, texMatrix) before any mutation. The srt and textureSwap
+-- tables are referenced, not copied -- the runtime treats them as immutable.
 ---@param list table[]
----@return table<number, { id: number, name: string, texture: string?, wrap: { x: string, y: string }, texWidth?: number, texHeight?: number, texMtxMode?: number, srt?: table, textureSwap?: table }>
+---@return table<number, table>
 function SceneDescriptor.materials(list)
   if type(list) ~= "table" then
     Errors.raise(ErrorCodes.SCENE_DESC_BAD_MATERIALS, "a material list is required", {})
   end
   local byId = {}
   for _, record in ipairs(list) do
-    local wrap = SceneDescriptor.wrap(record)
-    local normalized = {
-      id = record.id,
-      name = record.name,
-      texture = record.texture,
-      wrap = wrap,
-      texWidth = record.texWidth,
-      texHeight = record.texHeight,
-      texMtxMode = record.texMtxMode,
-      srt = record.srt,
-      textureSwap = record.textureSwap,
-    }
-    byId[record.id] = normalized
+    SceneDescriptor.wrap(record)
+    byId[record.id] = record
   end
   return byId
 end
