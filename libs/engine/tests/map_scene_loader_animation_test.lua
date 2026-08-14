@@ -18,6 +18,7 @@ local FakeCache = require("tests.support.FakeCache")
 local LuaWriter = require("libs.codec.src.LuaWriter")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
+local TextureSrtEvaluator = require("libs.engine.src.TextureSrtEvaluator")
 
 local T = {}
 
@@ -451,33 +452,32 @@ end
 
 -- ---- terrain animation fixtures ----
 
--- The new-bark-like swap schedule: 0 for 18 ticks, 1 for 18, 0 for 18,
--- 2 for 18, loop.
-local function flowerTimeline()
+-- The new-bark-like replacement schedule: R0 for 18 ticks, R1 for 18, R0
+-- for 18, R2 for 18, loop.
+local function flowerSteps()
   return {
-    { textureIndex = 0, durationTicks = 18 },
-    { textureIndex = 1, durationTicks = 18 },
-    { textureIndex = 0, durationTicks = 18 },
-    { textureIndex = 2, durationTicks = 18 },
+    { texture = "a.png", durationTicks = 18 },
+    { texture = "b.png", durationTicks = 18 },
+    { texture = "a.png", durationTicks = 18 },
+    { texture = "c.png", durationTicks = 18 },
   }
 end
 
--- A scene-form terrain material with a texture-swap descriptor; the frame-0
--- invariant of the generated contract (textures[1] == material.texture)
--- holds by construction.
-local function swapMaterial(id, name, textures, timeline)
+-- A scene-form terrain material with a texture-swap descriptor. The initial
+-- image `baseTexture` is the map texture pack's bound image and is NOT part
+-- of the replacement schedule.
+local function swapMaterial(id, name, baseTexture, steps)
   return {
     id = id,
     name = name,
-    texture = textures[1],
+    texture = baseTexture,
     wrap = { x = "repeat", y = "repeat" },
     texWidth = 16,
     texHeight = 16,
     texMtxMode = 0,
     textureSwap = {
       name = name,
-      textures = textures,
-      timeline = timeline,
+      steps = steps,
     },
   }
 end
@@ -1224,49 +1224,55 @@ end
 
 -- Every swap-frame image is acquired inside the load transaction: the pool's
 -- acquired set at commit time (runtime.stats.textureCount, computed inside
--- the build) covers the base texture plus every alternate frame, and each
--- frame path is built exactly once.
+-- the build) covers the base texture plus every replacement step, and each
+-- unique step path is built exactly once (repeated paths dedup through the
+-- pool).
 function T.all_swap_frames_are_acquired_inside_the_load_transaction()
-  local textures = { "a.png", "b.png", "c.png" }
-  local cache, scene = terrainScene({ swapMaterial(0, "flower01", textures, flowerTimeline()) }, false)
+  local cache, scene = terrainScene({ swapMaterial(0, "flower01", "base.png", flowerSteps()) }, false)
   local images = {}
   local runtime = MapSceneLoader.load(cache, scene, { imageBuilder = trackingImageBuilder(images) })
-  Assert.equal(runtime.stats.textureCount, 3, "base and both alternates are pooled before the transaction commits")
+  Assert.equal(
+    runtime.stats.textureCount,
+    4,
+    "base and the three unique steps are pooled before the transaction commits"
+  )
   local built = {}
   for _, image in ipairs(images) do
     built[#built + 1] = image.path
   end
-  Assert.deepEqual(built, textures, "every swap-frame path is built exactly once")
+  Assert.deepEqual(
+    built,
+    { "base.png", "a.png", "b.png", "c.png" },
+    "base first, then each unique step path exactly once"
+  )
   runtime:release()
 end
 
 -- Same path/wrap deduplicates through the pool: two same-name materials
--- (one playback group) with identical frames cost one pooled image per
+-- (one playback group) with identical steps cost one pooled image per
 -- unique path, never one per material.
 function T.same_path_and_wrap_dedup_through_the_pool()
-  local textures = { "a.png", "b.png", "c.png" }
   local materials = {
-    swapMaterial(0, "flower", textures, flowerTimeline()),
-    swapMaterial(1, "flower", textures, flowerTimeline()),
+    swapMaterial(0, "flower", "base.png", flowerSteps()),
+    swapMaterial(1, "flower", "base.png", flowerSteps()),
   }
   local cache, scene = terrainScene(materials, false)
   local images = {}
   local runtime = MapSceneLoader.load(cache, scene, { imageBuilder = trackingImageBuilder(images) })
-  Assert.equal(#images, 3, "one pool image per unique path/wrap across the group")
-  Assert.equal(runtime.stats.textureCount, 3)
+  Assert.equal(#images, 4, "one pool image per unique path/wrap across the group")
+  Assert.equal(runtime.stats.textureCount, 4)
   runtime:release()
 end
 
 -- A terrain-only tick mutates the runtime draw materials in place: the
--- texture-swap frame image switches and the targeted material's texMatrix
+-- texture-swap step image switches and the targeted material's texMatrix
 -- advances, while the draw array, its items, their meshes, and the
 -- untargeted matrix keep their identities -- no draw-list rebuild and no
 -- geometry re-acquisition on a terrain-only update.
 function T.terrain_frame_and_matrix_mutate_in_place_without_rebuilding_draws()
-  local textures = { "a.png", "b.png", "c.png" }
   local clip = terrainSrtClip(4, { 0x0, 0x1000, 0x2000, 0x3000 })
   local materials = {
-    swapMaterial(0, "flower01", textures, flowerTimeline()),
+    swapMaterial(0, "flower01", "base.png", flowerSteps()),
     {
       id = 1,
       name = "water",
@@ -1287,7 +1293,11 @@ function T.terrain_frame_and_matrix_mutate_in_place_without_rebuilding_draws()
   local flowerMatrix0 = flower.texMatrix
   local waterMatrix0 = water.texMatrix
   local meshes = { draws[1].mesh, draws[2].mesh }
-  Assert.equal(flowerImage0.path, "a.png", "load establishes frame 0 without advancing")
+  Assert.equal(
+    flowerImage0.path,
+    "base.png",
+    "load binds the base image and leaves it in place -- never the first replacement step"
+  )
 
   for _ = 1, 19 do
     runtime:updateAnimated()
@@ -1298,7 +1308,7 @@ function T.terrain_frame_and_matrix_mutate_in_place_without_rebuilding_draws()
   Assert.equal(draws[2].material, water)
   Assert.equal(draws[1].mesh, meshes[1], "the mesh identity is unchanged")
   Assert.equal(draws[2].mesh, meshes[2])
-  Assert.equal(flower.image.path, "b.png", "the frame image switched to entry 2 at tick 19")
+  Assert.equal(flower.image.path, "b.png", "the step image switched to step 2 at tick 19")
   Assert.isFalse(flower.image == flowerImage0, "the switched image is a different pooled image")
   Assert.equal(flower.texMatrix, flowerMatrix0, "an untargeted matrix keeps its table identity")
   Assert.near(water.texMatrix[7], -3, 1e-9, "the SRT sample advanced to frame 3 (0x3000 scroll)")
@@ -1307,34 +1317,32 @@ function T.terrain_frame_and_matrix_mutate_in_place_without_rebuilding_draws()
 end
 
 -- A failure on an Nth alternate-frame creation rolls back the whole load
--- transaction: every earlier image (base and already-built alternates) is
+-- transaction: every earlier image (base and already-built steps) is
 -- released exactly once, the failed creation is never owned, and the pool
 -- re-raises the image build failure.
 function T.failure_on_an_alternate_frame_creation_releases_resources_exactly_once()
-  local textures = { "a.png", "b.png", "c.png" }
-  local cache, scene = terrainScene({ swapMaterial(0, "flower01", textures, flowerTimeline()) }, false)
+  local cache, scene = terrainScene({ swapMaterial(0, "flower01", "base.png", flowerSteps()) }, false)
   local images = {}
   local err = Assert.throws(function()
     MapSceneLoader.load(cache, scene, { imageBuilder = failingImageBuilder(images, 3) })
   end)
   Assert.isTrue(tostring(err):find("injected alternate-image failure", 1, true) ~= nil, "the frame failure propagates")
-  Assert.equal(#images, 3, "base, frame 1, and the failing frame 2 creation all ran")
+  Assert.equal(#images, 3, "base, step 1, and the failing step 2 creation all ran")
   Assert.equal(images[1].releases, 1, "the base image is released exactly once")
-  Assert.equal(images[2].releases, 1, "the earlier alternate is released exactly once")
+  Assert.equal(images[2].releases, 1, "the earlier step image is released exactly once")
   Assert.equal(images[3].releases, 0, "the failed creation is never owned, so never released")
 end
 
--- Release after a successful load releases every base and alternate image
+-- Release after a successful load releases every base and step image
 -- exactly once through the scene's one pool owner.
 function T.release_after_a_successful_load_releases_every_image_exactly_once()
-  local textures = { "a.png", "b.png", "c.png" }
-  local cache, scene = terrainScene({ swapMaterial(0, "flower01", textures, flowerTimeline()) }, false)
+  local cache, scene = terrainScene({ swapMaterial(0, "flower01", "base.png", flowerSteps()) }, false)
   local images = {}
   local runtime = MapSceneLoader.load(cache, scene, { imageBuilder = trackingImageBuilder(images) })
   runtime:release()
-  Assert.equal(#images, 3)
+  Assert.equal(#images, 4)
   for _, image in ipairs(images) do
-    Assert.equal(image.releases, 1, "base and alternates are released exactly once")
+    Assert.equal(image.releases, 1, "base and step images are released exactly once")
   end
 end
 
@@ -1359,6 +1367,42 @@ function T.no_animation_scenes_update_safely()
   runtime:updateAnimated()
   Assert.equal(runtime.mapDraws, draws, "a no-animation scene tick leaves the draws untouched")
   Assert.equal(#images, 1)
+  runtime:release()
+end
+
+-- A fully static terrain scene (non-identity static srt, no textureSwap, no
+-- area SRT clip) still gets its matrix through the real loader/animator
+-- boundary: load initializes texMatrix from the record's static srt -- never
+-- the identity assembly -- and the scene tick leaves it untouched.
+function T.static_only_terrain_srt_is_initialized_by_the_loader()
+  local srt = {
+    scaleS = 0x1000,
+    scaleT = 0x1000,
+    transS = 0x100,
+    transT = 0,
+    scaleOne = true,
+    transOne = false,
+  }
+  local material = {
+    id = 0,
+    name = "soil",
+    texture = "soil.png",
+    wrap = { x = "repeat", y = "repeat" },
+    texWidth = 16,
+    texHeight = 16,
+    texMtxMode = 0,
+    srt = srt,
+  }
+  local cache, scene = terrainScene({ material }, false)
+  local runtime = MapSceneLoader.load(cache, scene, { imageBuilder = trackingImageBuilder({}) })
+  local matrix = runtime.mapDraws[1].material.texMatrix
+  Assert.near(matrix[7], -1 / 16, 1e-9, "the static srt matrix is non-identity")
+  local expected = TextureSrtEvaluator.matrix(material, nil)
+  for i = 1, 9 do
+    Assert.near(matrix[i], expected[i], 1e-9, "texMatrix cell " .. tostring(i))
+  end
+  runtime:updateAnimated()
+  Assert.equal(runtime.mapDraws[1].material.texMatrix, matrix, "a static scene tick leaves the matrix untouched")
   runtime:release()
 end
 

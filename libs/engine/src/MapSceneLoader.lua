@@ -57,10 +57,10 @@ local TerrainMaterialAnimator = require("libs.engine.src.TerrainMaterialAnimator
 
 local MapSceneLoader = {}
 
--- The identity UV-transform matrix scene-form materials start with (they
--- carry no texture-SRT until the terrain animator replaces the matrix of a
--- scene that has animation inputs): the renderer reads the material's
--- texMatrix directly.
+-- The identity UV-transform matrix scene-form materials start with: the
+-- terrain animator replaces every material's matrix at construction (the
+-- static srt, or the area clip's frame-0 sample), so this only seeds the
+-- table before that pass.
 local IDENTITY_TEX_MATRIX = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
 
 local VALID_BANDS = {}
@@ -203,27 +203,33 @@ local function buildScene(pool, cacheFs, scene, opts)
 
   -- The terrain animation playback state of this scene: one animator over
   -- the scene-form material records and the runtime tables the draw items
-  -- reference, constructed INSIDE the pool build so every alternate frame
-  -- image is acquired (through the pool, deduplicated per path/wrap) before
-  -- the transaction commits and a construction failure releases everything
-  -- acquired so far through the pool's build rollback. The draw items keep
-  -- pointing at the same runtime tables, so the animator's in-place image
-  -- and texMatrix swaps update future draws without rebuilding mapDraws.
-  -- Construction samples frame 0 and never advances a clock. A scene with
-  -- no terrain-animation input (no texture-swap records, no area SRT clip)
-  -- gets no animator: its materials keep the identity matrix assembly.
-  local terrainAnimator
-  local srtClip = scene.terrainAnimations and scene.terrainAnimations.textureSrt
-  if srtClip or SceneDescriptor.hasTextureSwap(scene.materials) then
-    terrainAnimator = TerrainMaterialAnimator.new(
-      scene.materials,
-      mapMaterials,
-      srtClip or false,
-      function(path, wrapX, wrapY)
-        return pool:imageFor(path, wrapX, wrapY)
-      end
-    )
+  -- reference, constructed UNCONDITIONALLY -- a fully static scene gets an
+  -- animator with no groups and no area player whose construction still
+  -- initializes every material's static texMatrix -- and INSIDE the pool
+  -- build, so every replacement step image is acquired (through the pool,
+  -- deduplicated per path/wrap) before the transaction commits and a
+  -- construction failure releases everything acquired so far through the
+  -- pool's build rollback. The draw items keep pointing at the same runtime
+  -- tables, so the animator's in-place image and texMatrix swaps update
+  -- future draws without rebuilding mapDraws. Construction samples frame 0
+  -- and never advances a clock.
+  local bindings = {}
+  for _, record in ipairs(scene.materials) do
+    bindings[#bindings + 1] = {
+      record = record,
+      runtime = assert(
+        mapMaterials[record.id],
+        "no runtime material table for scene material id " .. tostring(record.id)
+      ),
+    }
   end
+  local terrainAnimator = TerrainMaterialAnimator.new(
+    bindings,
+    scene.terrainAnimations and scene.terrainAnimations.textureSrt or false,
+    function(path, wrapX, wrapY)
+      return pool:imageFor(path, wrapX, wrapY)
+    end
+  )
 
   -- Placed building instances: resolve each modelKey's descriptor (batches +
   -- its own materials) and instance it at the placement transform. The
@@ -382,16 +388,14 @@ local function buildScene(pool, cacheFs, scene, opts)
 
   -- Advance every animated instance by one fixed step, then refresh: the one
   -- authoritative animation-clock entry point of the scene. The terrain
-  -- animator takes its one tick first (texture-swap frames and the area SRT
-  -- sample), mutating the shared runtime material tables in place; the
-  -- refresh is unconditional -- every tick rebuilds all animated items, so
-  -- control ops never need to mark anything dirty. Terrain draws are never
-  -- rebuilt: they reference the same material tables, so the swapped image
-  -- and matrix show up on the next render.
+  -- animator takes its one tick first (texture-swap step images and the
+  -- area SRT sample), mutating the shared runtime material tables in place;
+  -- the refresh is unconditional -- every tick rebuilds all animated items,
+  -- so control ops never need to mark anything dirty. Terrain draws are
+  -- never rebuilt: they reference the same material tables, so the swapped
+  -- image and matrix show up on the next render.
   local function updateAnimated()
-    if terrainAnimator then
-      terrainAnimator:updateFixed()
-    end
+    terrainAnimator:updateFixed()
     for _, instance in ipairs(animatedInstances) do
       instance:updateFixed()
     end

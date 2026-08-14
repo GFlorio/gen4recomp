@@ -46,6 +46,9 @@ local function material(id, texPath, wrap)
     texture = texPath,
     wrap = wrap,
     diffuse = { r = 255, g = 255, b = 255, a = 255 },
+    texWidth = 16,
+    texHeight = 16,
+    texMtxMode = 0,
   }
 end
 

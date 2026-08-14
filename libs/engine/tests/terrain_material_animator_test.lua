@@ -1,12 +1,15 @@
 -- TerrainMaterialAnimator tests: the terrain texture-swap clock (the field
 -- manager's per-tick counter state machine over the compiled fldtanime
 -- schedule) and the looping area texture-SRT playback (the compiled NSBTA
--- clip), composed over scene-form material records and the runtime material
--- tables the loaders' draw items reference. Construction must select frame 0
--- without advancing either clock, acquire every swap-frame image once, and
--- never mutate the generated descriptor records; updateFixed must advance
--- each shared clock exactly once, assign only preloaded images, and perform
--- no acquisition. The texture-matrix math is pinned against the existing
+-- clip), composed over { record, runtime } bindings the loaders build from
+-- the scene-form material records and the runtime material tables the draw
+-- items reference. Construction must leave the runtime material on its
+-- initial image (the loader bound the base material.texture), acquire every
+-- replacement step image once, initialize every binding's texMatrix (static
+-- srt or the clip's frame-0 sample), and never mutate the generated
+-- descriptor records; updateFixed must advance each shared clock exactly
+-- once, assign images only when a step boundary crosses, and perform no
+-- acquisition. The texture-matrix math is pinned against the existing
 -- MaterialEvaluator behavior through ModelInstance, so the extracted
 -- TextureSrtEvaluator must compose identically. Pure domain; no rendering,
 -- no love.
@@ -51,33 +54,32 @@ local function scrollClip(frames, transKeys)
   }
 end
 
--- The new-bark-like swap schedule: 0 for 18 ticks, 1 for 18, 0 for 18,
--- 2 for 18, loop (a four-entry cycle of 72 ticks).
-local function flowerTimeline()
+-- The new-bark-like replacement schedule: R0 for 18 ticks, R1 for 18, R0
+-- for 18, R2 for 18, loop (a four-step cycle of 72 ticks).
+local function flowerSteps()
   return {
-    { textureIndex = 0, durationTicks = 18 },
-    { textureIndex = 1, durationTicks = 18 },
-    { textureIndex = 0, durationTicks = 18 },
-    { textureIndex = 2, durationTicks = 18 },
+    { texture = "r0.png", durationTicks = 18 },
+    { texture = "r1.png", durationTicks = 18 },
+    { texture = "r0.png", durationTicks = 18 },
+    { texture = "r2.png", durationTicks = 18 },
   }
 end
 
--- A scene-form terrain material with a texture-swap descriptor; the frame-0
--- invariant of the generated contract (textures[1] == material.texture)
--- holds by construction.
-local function swapRecord(id, name, textures, timeline)
+-- A scene-form terrain material with a texture-swap descriptor. The initial
+-- image `baseTexture` is the map texture pack's bound image and is NOT part
+-- of the replacement schedule.
+local function swapRecord(id, name, baseTexture, steps)
   return {
     id = id,
     name = name,
-    texture = textures[1],
+    texture = baseTexture,
     wrap = { x = "repeat", y = "repeat" },
     texWidth = 16,
     texHeight = 16,
     texMtxMode = 0,
     textureSwap = {
       name = name,
-      textures = textures,
-      timeline = timeline,
+      steps = steps,
     },
   }
 end
@@ -98,16 +100,6 @@ local function staticRecord(id, name, opts)
   }
 end
 
--- The runtime material tables draw items reference: one per record id, with
--- the image and texMatrix the animator owns.
-local function runtimeMaterials(records)
-  local byId = {}
-  for _, record in ipairs(records) do
-    byId[record.id] = { id = record.id, name = record.name, image = nil, texMatrix = nil }
-  end
-  return byId
-end
-
 -- A resolver backed by nothing GPU-side: returns a plain preloaded-image
 -- table carrying the wrap tag, memoized per path+wrap so identity assertions
 -- hold (the pool dedups the same way); records every call. Returns the
@@ -126,6 +118,25 @@ local function fakeImageResolver()
     return image
   end
   return resolve, calls, images
+end
+
+-- The loader-side emulation: one runtime material table per record with the
+-- base image already bound (the loader's pool resolved material.texture).
+-- Returns the binding list.
+local function bindings(records, resolve)
+  local out = {}
+  for _, record in ipairs(records) do
+    out[#out + 1] = {
+      record = record,
+      runtime = {
+        id = record.id,
+        name = record.name,
+        image = record.texture and resolve(record.texture, record.wrap.x, record.wrap.y) or nil,
+        texMatrix = nil,
+      },
+    }
+  end
+  return out
 end
 
 local function assertResolved(calls, path, wrapX, wrapY)
@@ -161,79 +172,106 @@ local IDENTITY = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
 
 -- ---- texture-swap clock ----
 
--- Construction selects frame 0: the runtime material carries the preloaded
--- first-schedule image, every alternate image was acquired under the
--- material's wrap, the base texMatrix is set, and no tick has run (the image
--- is still the frame-0 entry after construction, not the frame-1 entry).
-function T.construction_selects_frame_zero_and_does_not_advance()
-  local textures = { "a.png", "b.png", "c.png" }
-  local record = swapRecord(0, "flower01", textures, flowerTimeline())
-  local runtime = runtimeMaterials({ record })
+-- 14.1: construction leaves the runtime material on the base image -- never
+-- the first replacement step's image -- acquires every step image under the
+-- material's wrap, and consumes no tick.
+function T.initial_base_image_is_left_in_place_and_no_tick_is_consumed()
+  local base = "base.png"
+  local record = swapRecord(0, "flower01", base, flowerSteps())
   local resolve, calls, images = fakeImageResolver()
-  local animator = TerrainMaterialAnimator.new({ record }, runtime, false, resolve)
+  local list = bindings({ record }, resolve)
+  local runtime = list[1].runtime
+  local animator = TerrainMaterialAnimator.new(list, false, resolve)
   Assert.notNil(animator.updateFixed)
-  for _, path in ipairs(textures) do
-    assertResolved(calls, path, "repeat", "repeat")
+  for _, step in ipairs(flowerSteps()) do
+    assertResolved(calls, step.texture, "repeat", "repeat")
   end
-  Assert.equal(runtime[0].image, images["a.png@repeat|repeat"], "frame-0 image selected at construction")
-  for i = 1, 9 do
-    Assert.near(runtime[0].texMatrix[i], IDENTITY[i], 1e-9)
-  end
-  -- One update later the clock advances: construction consumed no tick.
+  Assert.equal(runtime.image, images[base .. "@repeat|repeat"], "the runtime material keeps the base image")
   animator:updateFixed()
-  Assert.equal(runtime[0].image, images["a.png@repeat|repeat"], "first switch comes after the entry's 18 ticks")
+  Assert.equal(
+    runtime.image,
+    images[base .. "@repeat|repeat"],
+    "the first switch comes only after the first step's 18 ticks"
+  )
 end
 
--- The exact field-manager counter behavior for an 18-tick entry: the first
--- switch lands on the 19th update, every later entry gets its own full 18
--- ticks, and the cursor wraps to entry 1 on the 73rd update (72 ticks per
--- cycle for the 0,1,0,2 schedule).
-function T.boundary_ticks_of_an_18_tick_entry_follow_the_clock()
-  local textures = { "a.png", "b.png", "c.png" }
-  local record = swapRecord(0, "flower01", textures, flowerTimeline())
-  local runtime = runtimeMaterials({ record })
-  local resolve, _, images = fakeImageResolver()
-  local animator = TerrainMaterialAnimator.new({ record }, runtime, false, resolve)
-  local function image()
-    return runtime[0].image
-  end
-  local function advance(ticks)
-    for _ = 1, ticks do
-      animator:updateFixed()
-    end
-  end
-  advance(18)
-  Assert.equal(image(), images["a.png@repeat|repeat"], "entry 1 (index 0) runs its full 18 ticks")
-  advance(1)
-  Assert.equal(image(), images["b.png@repeat|repeat"], "first switch is exactly at tick 19")
-  advance(17)
-  Assert.equal(image(), images["b.png@repeat|repeat"], "entry 2 (index 1) runs its full 18 ticks")
-  advance(1)
-  Assert.equal(image(), images["a.png@repeat|repeat"], "entry 3 (index 0) begins at tick 37")
-  advance(18)
-  Assert.equal(image(), images["c.png@repeat|repeat"], "entry 4 (index 2) begins at tick 55")
-  advance(17)
-  Assert.equal(image(), images["c.png@repeat|repeat"], "entry 4 runs its full 18 ticks")
-  advance(1)
-  Assert.equal(image(), images["a.png@repeat|repeat"], "the cursor wraps to entry 1 at tick 73")
-end
-
--- Adjacent entries with the same textureIndex are distinct schedule entries:
--- each contributes its own duration window. The schedule 0 for 18, 0 for 18,
--- 1 for 18 must switch to index 1 at tick 37, not at tick 19 as a collapsed
--- pair would.
-function T.repeated_texture_index_zero_entries_follow_the_schedule()
-  local textures = { "a.png", "b.png" }
-  local record = swapRecord(0, "flower01", textures, {
-    { textureIndex = 0, durationTicks = 18 },
-    { textureIndex = 0, durationTicks = 18 },
-    { textureIndex = 1, durationTicks = 18 },
+-- 14.2: for a duration-1 step the first transition lands on the SECOND
+-- update and advances to step 2, never to step 1's image.
+function T.first_transition_switches_on_the_second_update_for_duration_one()
+  local record = swapRecord(0, "flower", "base.png", {
+    { texture = "r0.png", durationTicks = 1 },
+    { texture = "r1.png", durationTicks = 1 },
   })
-  local runtime = runtimeMaterials({ record })
   local resolve, _, images = fakeImageResolver()
-  local animator = TerrainMaterialAnimator.new({ record }, runtime, false, resolve)
+  local list = bindings({ record }, resolve)
+  local runtime = list[1].runtime
+  local animator = TerrainMaterialAnimator.new(list, false, resolve)
+  animator:updateFixed()
+  Assert.equal(runtime.image, images["base.png@repeat|repeat"], "update 1 stays on the base image")
+  animator:updateFixed()
+  Assert.equal(runtime.image, images["r1.png@repeat|repeat"], "update 2 enters replacement step 2")
+end
+
+-- 14.3: after the second step's duration expires the schedule wraps to
+-- replacement step 1 -- actual replacement step zero appears after the wrap.
+function T.wrap_returns_to_replacement_step_zero()
+  local record = swapRecord(0, "flower", "base.png", {
+    { texture = "r0.png", durationTicks = 1 },
+    { texture = "r1.png", durationTicks = 1 },
+  })
+  local resolve, _, images = fakeImageResolver()
+  local list = bindings({ record }, resolve)
+  local runtime = list[1].runtime
+  local animator = TerrainMaterialAnimator.new(list, false, resolve)
+  for _ = 1, 3 do
+    animator:updateFixed()
+  end
+  Assert.equal(runtime.image, images["r0.png@repeat|repeat"], "the wrap enters replacement step 1")
+end
+
+-- 14.4: a single-step schedule shows the base image for its duration, then
+-- replacement step 1 forever.
+function T.single_step_schedule_stays_on_replacement_zero_after_the_boundary()
+  local record = swapRecord(0, "flower", "base.png", { { texture = "r0.png", durationTicks = 1 } })
+  local resolve, _, images = fakeImageResolver()
+  local list = bindings({ record }, resolve)
+  local runtime = list[1].runtime
+  local animator = TerrainMaterialAnimator.new(list, false, resolve)
+  animator:updateFixed()
+  Assert.equal(runtime.image, images["base.png@repeat|repeat"], "the first duration interval shows the base")
+  animator:updateFixed()
+  Assert.equal(runtime.image, images["r0.png@repeat|repeat"], "the first schedule boundary enters step 1")
+  animator:updateFixed()
+  Assert.equal(runtime.image, images["r0.png@repeat|repeat"], "the single step repeats itself")
+end
+
+-- A zero-duration step follows the same state machine: the transition fires
+-- on the very first update because zero ticks have already elapsed.
+function T.zero_duration_step_transitions_on_the_first_update()
+  local record = swapRecord(0, "flower", "base.png", {
+    { texture = "r0.png", durationTicks = 0 },
+    { texture = "r1.png", durationTicks = 1 },
+  })
+  local resolve, _, images = fakeImageResolver()
+  local list = bindings({ record }, resolve)
+  local runtime = list[1].runtime
+  local animator = TerrainMaterialAnimator.new(list, false, resolve)
+  animator:updateFixed()
+  Assert.equal(runtime.image, images["r1.png@repeat|repeat"], "a zero-duration step crosses on update 1")
+end
+
+-- The exact field-manager counter behavior for an 18-tick step: the first
+-- switch lands on the 19th update, every later step gets its own full 18
+-- ticks, and the cursor wraps to step 1 on the 73rd update (72 ticks per
+-- cycle for the r0,r1,r0,r2 schedule).
+function T.boundary_ticks_of_an_18_tick_step_follow_the_clock()
+  local record = swapRecord(0, "flower01", "base.png", flowerSteps())
+  local resolve, _, images = fakeImageResolver()
+  local list = bindings({ record }, resolve)
+  local runtime = list[1].runtime
+  local animator = TerrainMaterialAnimator.new(list, false, resolve)
   local function image()
-    return runtime[0].image
+    return runtime.image
   end
   local function advance(ticks)
     for _ = 1, ticks do
@@ -241,111 +279,77 @@ function T.repeated_texture_index_zero_entries_follow_the_schedule()
     end
   end
   advance(18)
-  Assert.equal(image(), images["a.png@repeat|repeat"])
-  advance(18)
-  Assert.equal(image(), images["a.png@repeat|repeat"], "the second index-0 entry runs its own 18-tick window")
+  Assert.equal(image(), images["base.png@repeat|repeat"], "step 1 (R0) runs its full 18 ticks")
   advance(1)
-  Assert.equal(image(), images["b.png@repeat|repeat"], "index 1 begins at tick 37, after both index-0 windows")
+  Assert.equal(image(), images["r1.png@repeat|repeat"], "the first switch is exactly at tick 19")
   advance(17)
-  Assert.equal(image(), images["b.png@repeat|repeat"])
+  Assert.equal(image(), images["r1.png@repeat|repeat"], "step 2 (R1) runs its full 18 ticks")
   advance(1)
-  Assert.equal(image(), images["a.png@repeat|repeat"], "the three-entry cycle wraps at tick 55")
+  Assert.equal(image(), images["r0.png@repeat|repeat"], "step 3 (R0) begins at tick 37")
+  advance(18)
+  Assert.equal(image(), images["r2.png@repeat|repeat"], "step 4 (R2) begins at tick 55")
+  advance(17)
+  Assert.equal(image(), images["r2.png@repeat|repeat"], "step 4 runs its full 18 ticks")
+  advance(1)
+  Assert.equal(image(), images["r0.png@repeat|repeat"], "the cursor wraps to step 1 at tick 73")
 end
 
 -- Two materials sharing one animation name stay in phase: one shared
--- cursor/counter drives both runtime tables, so every switch lands on the
--- same tick with the same index.
+-- stepIndex/ticksInStep pair drives both runtime tables, so every switch
+-- lands on the same tick with the same step.
 function T.two_materials_in_one_group_remain_in_phase()
-  local textures = { "a.png", "b.png", "c.png" }
-  local a = swapRecord(0, "flower", textures, flowerTimeline())
-  local b = swapRecord(1, "flower", textures, flowerTimeline())
-  local runtime = runtimeMaterials({ a, b })
+  local a = swapRecord(0, "flower", "base-a.png", flowerSteps())
+  local b = swapRecord(1, "flower", "base-b.png", flowerSteps())
   local resolve, _, images = fakeImageResolver()
-  local animator = TerrainMaterialAnimator.new({ a, b }, runtime, false, resolve)
+  local list = bindings({ a, b }, resolve)
+  local animator = TerrainMaterialAnimator.new(list, false, resolve)
   for _ = 1, 18 do
     animator:updateFixed()
   end
-  Assert.equal(runtime[0].image, images["a.png@repeat|repeat"])
-  Assert.equal(runtime[1].image, images["a.png@repeat|repeat"])
+  Assert.equal(list[1].runtime.image, images["base-a.png@repeat|repeat"])
+  Assert.equal(list[2].runtime.image, images["base-b.png@repeat|repeat"])
   animator:updateFixed()
-  Assert.equal(runtime[0].image, images["b.png@repeat|repeat"], "both materials switch at tick 19")
-  Assert.equal(runtime[1].image, images["b.png@repeat|repeat"])
+  Assert.equal(list[1].runtime.image, images["r1.png@repeat|repeat"], "both materials switch at tick 19")
+  Assert.equal(list[2].runtime.image, images["r1.png@repeat|repeat"])
   for _ = 1, 54 do
     animator:updateFixed()
   end
-  Assert.equal(runtime[0].image, images["a.png@repeat|repeat"], "both materials wrap at tick 73")
-  Assert.equal(runtime[1].image, images["a.png@repeat|repeat"])
+  Assert.equal(list[1].runtime.image, images["r0.png@repeat|repeat"], "both materials wrap at tick 73")
+  Assert.equal(list[2].runtime.image, images["r0.png@repeat|repeat"])
 end
 
--- Same-name materials may hold different image arrays (neighbors compile
--- against their own texture packs): one cursor/counter drives the group, and
--- on a switch each material selects the entry's zero-based index from its
--- own array.
-function T.same_name_materials_select_corresponding_indices_from_their_own_arrays()
-  local a = swapRecord(0, "flower", { "a0.png", "a1.png", "a2.png" }, flowerTimeline())
-  local b = swapRecord(1, "flower", { "b0.png", "b1.png", "b2.png" }, flowerTimeline())
-  local runtime = runtimeMaterials({ a, b })
+-- Same-name materials may hold different replacement paths (neighbors
+-- compile against their own packs): one clock drives the group, and on a
+-- switch each material selects the step from its own preloaded array.
+function T.same_name_materials_select_their_own_paths_in_phase()
+  local a = swapRecord(0, "flower", "base-a.png", {
+    { texture = "a0.png", durationTicks = 18 },
+    { texture = "a1.png", durationTicks = 18 },
+    { texture = "a2.png", durationTicks = 18 },
+  })
+  local b = swapRecord(1, "flower", "base-b.png", {
+    { texture = "b0.png", durationTicks = 18 },
+    { texture = "b1.png", durationTicks = 18 },
+    { texture = "b2.png", durationTicks = 18 },
+  })
   local resolve, _, images = fakeImageResolver()
-  local animator = TerrainMaterialAnimator.new({ a, b }, runtime, false, resolve)
+  local list = bindings({ a, b }, resolve)
+  local animator = TerrainMaterialAnimator.new(list, false, resolve)
   for _ = 1, 19 do
     animator:updateFixed()
   end
-  Assert.equal(runtime[0].image, images["a1.png@repeat|repeat"])
-  Assert.equal(runtime[1].image, images["b1.png@repeat|repeat"], "index 1 of its own array at tick 19")
-  for _ = 1, 36 do
-    animator:updateFixed()
-  end
-  Assert.equal(runtime[0].image, images["a2.png@repeat|repeat"])
-  Assert.equal(runtime[1].image, images["b2.png@repeat|repeat"], "index 2 of its own array at tick 55")
+  Assert.equal(list[1].runtime.image, images["a1.png@repeat|repeat"], "member a enters step 2 at tick 19")
+  Assert.equal(list[2].runtime.image, images["b1.png@repeat|repeat"], "member b enters step 2 at tick 19")
   for _ = 1, 18 do
     animator:updateFixed()
   end
-  Assert.equal(runtime[0].image, images["a0.png@repeat|repeat"])
-  Assert.equal(runtime[1].image, images["b0.png@repeat|repeat"], "index 0 of its own array after the wrap")
-end
-
--- Equal animation names must not carry conflicting timelines: any structural
--- difference is a runtime programming invariant violation, including two
--- timelines that describe the same schedule through different entry
--- structure (no normalization/collapse is allowed before the comparison).
-function T.conflicting_same_name_timelines_fail()
-  local a = swapRecord(0, "flower", { "a.png", "b.png" }, {
-    { textureIndex = 0, durationTicks = 18 },
-    { textureIndex = 1, durationTicks = 18 },
-  })
-  local b = swapRecord(1, "flower", { "a.png", "b.png" }, {
-    { textureIndex = 0, durationTicks = 18 },
-    { textureIndex = 1, durationTicks = 9 },
-    { textureIndex = 1, durationTicks = 9 },
-  })
-  Assert.throws(function()
-    TerrainMaterialAnimator.new({ a, b }, runtimeMaterials({ a, b }), false, fakeImageResolver())
-  end, "conflicting timelines must fail construction")
-end
-
-function T.structurally_different_but_equivalent_timelines_fail()
-  local a = swapRecord(0, "flower", { "a.png", "b.png" }, {
-    { textureIndex = 0, durationTicks = 18 },
-    { textureIndex = 0, durationTicks = 18 },
-    { textureIndex = 1, durationTicks = 18 },
-  })
-  local b = swapRecord(1, "flower", { "a.png", "b.png" }, {
-    { textureIndex = 0, durationTicks = 36 },
-    { textureIndex = 1, durationTicks = 18 },
-  })
-  Assert.throws(function()
-    TerrainMaterialAnimator.new({ a, b }, runtimeMaterials({ a, b }), false, fakeImageResolver())
-  end, "timelines must be compared structurally, never collapsed")
-end
-
--- Same-name materials with differently sized image arrays cannot share one
--- cursor: construction must fail instead of silently selecting one array.
-function T.differently_sized_texture_arrays_fail()
-  local a = swapRecord(0, "flower", { "a0.png", "a1.png", "a2.png" }, flowerTimeline())
-  local b = swapRecord(1, "flower", { "b0.png", "b1.png" }, flowerTimeline())
-  Assert.throws(function()
-    TerrainMaterialAnimator.new({ a, b }, runtimeMaterials({ a, b }), false, fakeImageResolver())
-  end, "differently sized arrays in one group must fail construction")
+  Assert.equal(list[1].runtime.image, images["a2.png@repeat|repeat"], "member a enters step 3 at tick 37")
+  Assert.equal(list[2].runtime.image, images["b2.png@repeat|repeat"], "member b enters step 3 at tick 37")
+  for _ = 1, 18 do
+    animator:updateFixed()
+  end
+  Assert.equal(list[1].runtime.image, images["a0.png@repeat|repeat"], "member a wraps to step 1 at tick 55")
+  Assert.equal(list[2].runtime.image, images["b0.png@repeat|repeat"], "member b wraps to step 1 at tick 55")
 end
 
 -- ---- texture-SRT playback ----
@@ -357,24 +361,24 @@ end
 function T.srt_starts_at_frame_zero_changes_after_one_update_and_loops_at_frame_count()
   local clip = scrollClip(4, { 0x0, 0x1000, 0x2000, 0x3000 })
   local record = staticRecord(0, "water", { texture = "water.png" })
-  local runtime = runtimeMaterials({ record })
   local resolve, _, _ = fakeImageResolver()
-  local animator = TerrainMaterialAnimator.new({ record }, runtime, clip, resolve)
-  Assert.near(runtime[0].texMatrix[7], 0, 1e-9, "frame 0 samples the identity matrix")
+  local list = bindings({ record }, resolve)
+  local animator = TerrainMaterialAnimator.new(list, clip, resolve)
+  Assert.near(list[1].runtime.texMatrix[7], 0, 1e-9, "frame 0 samples the identity matrix")
   animator:updateFixed()
-  Assert.near(runtime[0].texMatrix[7], -1, 1e-9, "frame 1 scrolls one full texture width")
+  Assert.near(list[1].runtime.texMatrix[7], -1, 1e-9, "frame 1 scrolls one full texture width")
   animator:updateFixed()
-  Assert.near(runtime[0].texMatrix[7], -2, 1e-9, "frame 2 scrolls two texture widths")
-  Assert.near(runtime[0].texMatrix[1], 1, 1e-9)
-  Assert.near(runtime[0].texMatrix[5], 1, 1e-9)
-  Assert.near(runtime[0].texMatrix[8], 0, 1e-9)
+  Assert.near(list[1].runtime.texMatrix[7], -2, 1e-9, "frame 2 scrolls two texture widths")
+  Assert.near(list[1].runtime.texMatrix[1], 1, 1e-9)
+  Assert.near(list[1].runtime.texMatrix[5], 1, 1e-9)
+  Assert.near(list[1].runtime.texMatrix[8], 0, 1e-9)
   animator:updateFixed()
   animator:updateFixed()
-  Assert.near(runtime[0].texMatrix[7], 0, 1e-9, "the loop wraps at frameCount back to frame 0")
+  Assert.near(list[1].runtime.texMatrix[7], 0, 1e-9, "the loop wraps at frameCount back to frame 0")
 end
 
--- A targeted material's matrix follows the clip; an untargeted material
--- keeps its base matrix (the same table object) across updates; an
+-- 14.6: a targeted material's matrix follows the clip; an untargeted
+-- material keeps its base matrix (the same table object) across updates; an
 -- untextured material carries the identity matrix untouched.
 function T.targeted_and_untargeted_materials_behave_independently()
   local clip = scrollClip(4, { 0x0, 0x1000, 0x2000, 0x3000 })
@@ -389,23 +393,47 @@ function T.targeted_and_untargeted_materials_behave_independently()
   local water = staticRecord(0, "water", { texture = "water.png" })
   local flower = staticRecord(1, "flower", { texture = "flower.png", srt = srt })
   local plain = staticRecord(2, "plain", { texture = nil, texWidth = 0, texHeight = 0 })
-  local records = { water, flower, plain }
-  local runtime = runtimeMaterials(records)
   local resolve, _, _ = fakeImageResolver()
-  local animator = TerrainMaterialAnimator.new(records, runtime, clip, resolve)
-  Assert.near(runtime[1].texMatrix[7], -1 / 16, 1e-9, "untargeted material holds its static base matrix")
-  local flowerMatrix = runtime[1].texMatrix
-  local plainMatrix = runtime[2].texMatrix
+  local list = bindings({ water, flower, plain }, resolve)
+  local animator = TerrainMaterialAnimator.new(list, clip, resolve)
+  Assert.near(list[2].runtime.texMatrix[7], -1 / 16, 1e-9, "untargeted material holds its static base matrix")
+  local flowerMatrix = list[2].runtime.texMatrix
+  local plainMatrix = list[3].runtime.texMatrix
   animator:updateFixed()
   animator:updateFixed()
   animator:updateFixed()
-  Assert.near(runtime[0].texMatrix[7], -3, 1e-9, "the targeted material follows the clip")
-  Assert.equal(runtime[1].texMatrix, flowerMatrix, "untargeted matrix is never replaced")
-  Assert.near(runtime[1].texMatrix[7], -1 / 16, 1e-9, "untargeted matrix value unchanged")
-  Assert.equal(runtime[2].texMatrix, plainMatrix, "untextured matrix is never replaced")
+  Assert.near(list[1].runtime.texMatrix[7], -3, 1e-9, "the targeted material follows the clip")
+  Assert.equal(list[2].runtime.texMatrix, flowerMatrix, "untargeted matrix is never replaced")
+  Assert.near(list[2].runtime.texMatrix[7], -1 / 16, 1e-9, "untargeted matrix value unchanged")
+  Assert.equal(list[3].runtime.texMatrix, plainMatrix, "untextured matrix is never replaced")
   for i = 1, 9 do
-    Assert.near(runtime[2].texMatrix[i], IDENTITY[i], 1e-9)
+    Assert.near(list[3].runtime.texMatrix[i], IDENTITY[i], 1e-9)
   end
+end
+
+-- Every binding gets its static matrix at construction even with no clip
+-- and no swap: a fully static scene still initializes texMatrix from the
+-- record's static srt (or identity when absent).
+function T.static_srt_is_initialized_for_every_binding_without_a_clip()
+  local srt = {
+    scaleS = 0x1000,
+    scaleT = 0x1000,
+    transS = 0x100,
+    transT = 0,
+    scaleOne = true,
+    transOne = false,
+  }
+  local static = staticRecord(0, "soil", { texture = "soil.png", srt = srt })
+  local plain = staticRecord(1, "plain", { texture = nil, texWidth = 0, texHeight = 0 })
+  local resolve, _, _ = fakeImageResolver()
+  local list = bindings({ static, plain }, resolve)
+  local animator = TerrainMaterialAnimator.new(list, false, resolve)
+  assertMatrixEqual(list[1].runtime.texMatrix, TextureSrtEvaluator.matrix(static, nil), "static srt")
+  Assert.near(list[1].runtime.texMatrix[7], -1 / 16, 1e-9, "the static srt matrix is non-identity")
+  assertMatrixEqual(list[2].runtime.texMatrix, TextureSrtEvaluator.matrix(plain, nil), "no srt")
+  local matrix = list[1].runtime.texMatrix
+  animator:updateFixed()
+  Assert.equal(list[1].runtime.texMatrix, matrix, "no clip leaves matrices untouched")
 end
 
 -- ---- parity with the existing MaterialEvaluator ----
@@ -443,9 +471,9 @@ function T.base_srt_composes_exactly_like_material_evaluator()
   }
   for _, variant in ipairs(variants) do
     local record = staticRecord(0, "soil", { texture = "soil.png", srt = variant.srt })
-    local runtime = runtimeMaterials({ record })
     local resolve, _, _ = fakeImageResolver()
-    local animator = TerrainMaterialAnimator.new({ record }, runtime, false, resolve)
+    local list = bindings({ record }, resolve)
+    local animator = TerrainMaterialAnimator.new(list, false, resolve)
     local definition = ModelDefinition.new({
       key = "fixture:soil",
       nodes = {
@@ -480,7 +508,7 @@ function T.base_srt_composes_exactly_like_material_evaluator()
     })
     local instance = ModelInstance.new(definition)
     instance:evaluateMaterials()
-    assertMatrixEqual(runtime[0].texMatrix, instance.materialState[0].texMatrix, variant.label .. " animator")
+    assertMatrixEqual(list[1].runtime.texMatrix, instance.materialState[0].texMatrix, variant.label .. " animator")
     assertMatrixEqual(
       TextureSrtEvaluator.matrix(record, nil),
       instance.materialState[0].texMatrix,
@@ -505,9 +533,9 @@ function T.sampled_srt_composes_exactly_like_material_evaluator()
     rotOne = false,
   }
   local record = staticRecord(0, "water", { texture = "water.png", srt = srt })
-  local runtime = runtimeMaterials({ record })
   local resolve, _, _ = fakeImageResolver()
-  local animator = TerrainMaterialAnimator.new({ record }, runtime, clip, resolve)
+  local list = bindings({ record }, resolve)
+  local animator = TerrainMaterialAnimator.new(list, clip, resolve)
   local definition = ModelDefinition.new({
     key = "fixture:water",
     nodes = {
@@ -544,7 +572,7 @@ function T.sampled_srt_composes_exactly_like_material_evaluator()
   instance:play("scroll")
   instance:evaluateMaterials()
   assertMatrixEqual(
-    runtime[0].texMatrix,
+    list[1].runtime.texMatrix,
     instance.materialState[0].texMatrix,
     "frame 0 replaces the static srt with the sample"
   )
@@ -552,7 +580,7 @@ function T.sampled_srt_composes_exactly_like_material_evaluator()
     instance:updateFixed()
     instance:evaluateMaterials()
     animator:updateFixed()
-    assertMatrixEqual(runtime[0].texMatrix, instance.materialState[0].texMatrix, "frame " .. tostring(frame))
+    assertMatrixEqual(list[1].runtime.texMatrix, instance.materialState[0].texMatrix, "frame " .. tostring(frame))
   end
 end
 
@@ -562,14 +590,14 @@ end
 -- the compiled clip: the animator consumes them read-only.
 function T.generated_descriptors_are_unchanged_after_construction_and_updates()
   local clip = scrollClip(4, { 0x0, 0x1000, 0x2000, 0x3000 })
-  local swap = swapRecord(0, "flower", { "a.png", "b.png", "c.png" }, flowerTimeline())
+  local swap = swapRecord(0, "flower", "base.png", flowerSteps())
   local water = staticRecord(1, "water", { texture = "water.png" })
   local records = { swap, water }
   local clipCopy = deepCopy(clip)
   local recordsCopy = deepCopy(records)
-  local runtime = runtimeMaterials(records)
   local resolve, _, _ = fakeImageResolver()
-  local animator = TerrainMaterialAnimator.new(records, runtime, clip, resolve)
+  local list = bindings(records, resolve)
+  local animator = TerrainMaterialAnimator.new(list, clip, resolve)
   for _ = 1, 80 do
     animator:updateFixed()
   end
@@ -582,12 +610,12 @@ end
 -- frames add none.
 function T.no_image_resolver_call_during_update_fixed()
   local clip = scrollClip(4, { 0x0, 0x1000, 0x2000, 0x3000 })
-  local swap = swapRecord(0, "flower", { "a.png", "b.png", "c.png" }, flowerTimeline())
+  local swap = swapRecord(0, "flower", "base.png", flowerSteps())
   local water = staticRecord(1, "water", { texture = "water.png" })
-  local runtime = runtimeMaterials({ swap, water })
   local resolve, calls, _ = fakeImageResolver()
-  local animator = TerrainMaterialAnimator.new({ swap, water }, runtime, clip, resolve)
-  Assert.isTrue(#calls > 0, "construction acquires the swap-frame images")
+  local list = bindings({ swap, water }, resolve)
+  local animator = TerrainMaterialAnimator.new(list, clip, resolve)
+  Assert.isTrue(#calls > 0, "construction acquires the swap-step images")
   local callsAtConstruction = #calls
   for _ = 1, 80 do
     animator:updateFixed()

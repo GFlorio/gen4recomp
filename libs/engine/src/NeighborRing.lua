@@ -14,15 +14,16 @@
 -- cell descriptor or a terrain-animator construction failure -- releases
 -- every GPU object the construction acquired.
 -- Terrain animation spans the whole ring: one TerrainMaterialAnimator over
--- every cell's runtime material tables (cell material ids repeat per cell, so
--- each record is re-keyed into the animator's single id space) plays the
--- central scene's area texture-SRT clip -- passed as `opts.textureSrt`, the
--- central scene owns the clip -- and the shared per-name texture-swap clocks
--- with one cursor per animation name across all cells, all frames acquired
--- inside the ring's own pool build. ring:updateAnimated() advances that one
--- animator; empty neighbours, cells without animation inputs, and a missing
--- clip keep it a safe no-op. Neighbours are additive: an empty descriptor
--- list yields no draws and the central scene is untouched.
+-- every cell's { record, runtime } bindings (the original descriptor records
+-- are referenced directly -- cell material ids repeat per cell but nothing
+-- needs a global id space) plays the central scene's area texture-SRT clip
+-- -- passed as `opts.textureSrt`, the central scene owns the clip -- and
+-- the shared per-name texture-swap clocks with one stepIndex/ticksInStep
+-- pair per animation name across all cells, all step images acquired inside
+-- the ring's own pool build. ring:updateAnimated() advances that one
+-- animator; empty neighbours keep it a safe no-op. Neighbours are additive:
+-- an empty descriptor list yields no draws and the central scene is
+-- untouched.
 
 local Matrix4 = require("libs.math.src.Matrix4")
 local FixedPoint = require("libs.math.src.FixedPoint")
@@ -33,10 +34,10 @@ local TerrainMaterialAnimator = require("libs.engine.src.TerrainMaterialAnimator
 
 local NeighborRing = {}
 
--- The identity UV-transform matrix scene-form materials start with (they
--- carry no texture-SRT until the terrain animator replaces the matrix of a
--- ring that has animation inputs): the renderer reads the material's
--- texMatrix directly.
+-- The identity UV-transform matrix scene-form materials start with: the
+-- terrain animator replaces every material's matrix at construction (the
+-- static srt, or the area clip's frame-0 sample), so this only seeds the
+-- table before that pass.
 local IDENTITY_TEX_MATRIX = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
 
 -- Material assembly: acquire each normalized material record's image
@@ -66,30 +67,23 @@ end
 -- owned by the central scene: the ring never selects a clip per neighbour.
 local function buildRing(pool, descriptors, clip)
   -- One draw per (cell, batch), with the cell's 32-tile world offset baked into
-  -- the transform and the sort center. Cell material ids repeat per cell, so
-  -- the animator's record list re-keys each record into one flat id space
-  -- while the per-cell runtime tables stay keyed by their own ids.
+  -- the transform and the sort center, and one { record, runtime } binding per
+  -- source material: the original descriptor records are immutable and are
+  -- referenced directly, so no synthetic id space is needed.
   local draws = {}
-  local terrainRecords = {}
-  local terrainMaterials = {}
+  local bindings = {}
   for _, cell in ipairs(descriptors) do
     local ox, oz = cell.offsetTilesX, cell.offsetTilesZ
     local transform = Matrix4.translate(ox, 0, oz)
     local materials = materialsById(cell.materials, pool)
     for _, record in ipairs(cell.materials) do
-      local id = #terrainRecords
-      terrainRecords[#terrainRecords + 1] = {
-        id = id,
-        name = record.name,
-        texture = record.texture,
-        wrap = record.wrap,
-        texWidth = record.texWidth,
-        texHeight = record.texHeight,
-        texMtxMode = record.texMtxMode,
-        srt = record.srt,
-        textureSwap = record.textureSwap,
+      bindings[#bindings + 1] = {
+        record = record,
+        runtime = assert(
+          materials[record.id],
+          "no runtime material table for neighbor material id " .. tostring(record.id)
+        ),
       }
-      terrainMaterials[id] = materials[record.id]
     end
     for _, batch in ipairs(cell.batches) do
       local entry = pool:meshFor(batch.geometry)
@@ -113,22 +107,15 @@ local function buildRing(pool, descriptors, clip)
     end
   end
 
-  -- One terrain animator across every cell: all cells share the area SRT
-  -- player and one cursor/counter per texture-swap name, and every frame
-  -- image is acquired inside this build (deduplicated per path/wrap through
-  -- the pool) before the transaction commits. A ring with no animation input
-  -- gets no animator; ring:updateAnimated() stays a safe no-op.
-  local terrainAnimator
-  if clip or SceneDescriptor.hasTextureSwap(terrainRecords) then
-    terrainAnimator = TerrainMaterialAnimator.new(
-      terrainRecords,
-      terrainMaterials,
-      clip or false,
-      function(path, wrapX, wrapY)
-        return pool:imageFor(path, wrapX, wrapY)
-      end
-    )
-  end
+  -- One terrain animator across every cell, constructed unconditionally: all
+  -- cells share the area SRT player and one stepIndex/ticksInStep pair per
+  -- texture-swap name, every step image is acquired inside this build
+  -- (deduplicated per path/wrap through the pool) before the transaction
+  -- commits, and construction initializes every cell material's static
+  -- texMatrix. ring:updateAnimated() stays a safe no-op on empty rings.
+  local terrainAnimator = TerrainMaterialAnimator.new(bindings, clip or false, function(path, wrapX, wrapY)
+    return pool:imageFor(path, wrapX, wrapY)
+  end)
 
   local ring = {
     draws = draws,
@@ -139,9 +126,7 @@ local function buildRing(pool, descriptors, clip)
     },
   }
   function ring:updateAnimated()
-    if terrainAnimator then
-      terrainAnimator:updateFixed()
-    end
+    terrainAnimator:updateFixed()
   end
   function ring:release()
     pool:release()

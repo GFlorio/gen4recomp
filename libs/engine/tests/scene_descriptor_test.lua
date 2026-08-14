@@ -65,12 +65,7 @@ end
 -- The sampler-wrap map is keyed by material id (base texture and pattern
 -- variants of one material share its wrap): a texture path does not uniquely
 -- imply a wrap -- two materials can share pixels under different wraps -- so
--- a path-keyed map would silently overwrite one sampler with the other. The
--- path-keyed twin (wrapByTexture) exists for the terrain animator's shared
--- image resolution, where the pool key IS the path: every base texture and
--- textureSwap.textures entry must resolve under its owning material's
--- sampler state, and a path under two different wraps is ambiguous and
--- raises rather than depending on iteration order.
+-- a path-keyed map would silently overwrite one sampler with the other.
 function T.wrap_by_material_maps_each_material_to_its_wrap()
   local list = {
     {
@@ -168,11 +163,11 @@ end
 local function flowerSwap()
   return {
     name = "flower01",
-    textures = { "base.png", "alt1.png", "alt2.png" },
-    timeline = {
-      { textureIndex = 0, durationTicks = 18 },
-      { textureIndex = 1, durationTicks = 18 },
-      { textureIndex = 2, durationTicks = 18 },
+    steps = {
+      { texture = "alt1.png", durationTicks = 18 },
+      { texture = "alt2.png", durationTicks = 18 },
+      { texture = "alt1.png", durationTicks = 18 },
+      { texture = "alt3.png", durationTicks = 18 },
     },
   }
 end
@@ -209,39 +204,6 @@ function T.materials_return_fresh_records_without_aliasing_runtime_fields()
   for k, v in pairs(before) do
     Assert.equal(records[1][k], v, "descriptor field " .. tostring(k) .. " is untouched")
   end
-end
-
--- The path-keyed sampler map covers the base texture and every
--- textureSwap.textures entry: the terrain animator's shared image resolution
--- keys by path, so every swap frame must resolve under the owning material's
--- sampler state.
-function T.wrap_by_texture_maps_every_base_and_swap_path()
-  local byPath = SceneDescriptor.wrapByTexture({
-    terrainMaterial(flowerSwap()),
-    { id = 1, name = "soil", texture = "soil.png", wrap = { x = "clamp", y = "clamp" } },
-  })
-  Assert.deepEqual(byPath["base.png"], { x = "repeat", y = "repeat" })
-  Assert.deepEqual(byPath["alt1.png"], { x = "repeat", y = "repeat" })
-  Assert.deepEqual(byPath["alt2.png"], { x = "repeat", y = "repeat" })
-  Assert.deepEqual(byPath["soil.png"], { x = "clamp", y = "clamp" })
-end
-
--- One texture path under two different wraps makes the path-keyed map
--- ambiguous: normalization raises a structured error instead of silently
--- depending on iteration order. The same wrap for a shared path is
--- unambiguous.
-function T.wrap_by_texture_raises_on_a_conflicting_wrap_for_one_path()
-  throwsCode("SCENE_DESC_CONFLICTING_WRAP", function()
-    SceneDescriptor.wrapByTexture({
-      { id = 0, name = "a", texture = "shared.png", wrap = { x = "clamp", y = "clamp" } },
-      { id = 1, name = "b", texture = "shared.png", wrap = { x = "repeat", y = "repeat" } },
-    })
-  end)
-  local byPath = SceneDescriptor.wrapByTexture({
-    { id = 0, name = "a", texture = "shared.png", wrap = { x = "clamp", y = "clamp" } },
-    { id = 1, name = "b", texture = "shared.png", wrap = { x = "clamp", y = "clamp" } },
-  })
-  Assert.deepEqual(byPath["shared.png"], { x = "clamp", y = "clamp" })
 end
 
 return {
