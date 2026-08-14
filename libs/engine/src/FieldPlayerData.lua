@@ -9,6 +9,7 @@
 -- required saved player-data bucket.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 
 local FieldPlayerData = {}
 
@@ -62,14 +63,14 @@ end
 ---@return table validated copy
 local function validate(record, context)
   if type(record) ~= "table" then
-    Errors.raise("PLAYER_DATA_INVALID", "player data must be a table", {})
+    Errors.raise(FieldErrors.PLAYER_DATA_INVALID, "player data must be a table", {})
   end
   local profile = record.profile
   if type(profile) ~= "table" then
-    Errors.raise("PLAYER_DATA_INVALID", "player profile must be a table", {})
+    Errors.raise(FieldErrors.PLAYER_DATA_INVALID, "player profile must be a table", {})
   end
   if type(profile.name) ~= "string" then
-    Errors.raise("PLAYER_DATA_NAME_INVALID", "player name must be a string", { name = profile.name })
+    Errors.raise(FieldErrors.PLAYER_DATA_NAME_INVALID, "player name must be a string", { name = profile.name })
   end
   local glyphs = 0
   eachGlyph(profile.name, function()
@@ -77,7 +78,7 @@ local function validate(record, context)
   end)
   if glyphs < FieldPlayerData.MIN_NAME_GLYPHS or glyphs > FieldPlayerData.MAX_NAME_GLYPHS then
     Errors.raise(
-      "PLAYER_DATA_NAME_INVALID",
+      FieldErrors.PLAYER_DATA_NAME_INVALID,
       "player name must be " .. FieldPlayerData.MIN_NAME_GLYPHS .. ".." .. FieldPlayerData.MAX_NAME_GLYPHS .. " glyphs",
       { name = profile.name, glyphs = glyphs }
     )
@@ -85,14 +86,14 @@ local function validate(record, context)
   eachGlyph(profile.name, function(glyph)
     if context.charmap[glyph] == nil then
       Errors.raise(
-        "PLAYER_DATA_NAME_INVALID",
+        FieldErrors.PLAYER_DATA_NAME_INVALID,
         "player name contains a character the generated field font cannot encode",
         { character = glyph }
       )
     end
   end)
   if FieldPlayerData.GENDERS[profile.gender] ~= true then
-    Errors.raise("PLAYER_DATA_GENDER_INVALID", "player gender must be one of the gendered-message values", {
+    Errors.raise(FieldErrors.PLAYER_DATA_GENDER_INVALID, "player gender must be one of the gendered-message values", {
       gender = profile.gender,
     })
   end
@@ -103,24 +104,32 @@ local function validate(record, context)
     or trainerId < 0
     or trainerId > FieldPlayerData.MAX_TRAINER_ID
   then
-    Errors.raise("PLAYER_DATA_TRAINER_ID_INVALID", "player trainer id must be an integer in 0..65535", {
+    Errors.raise(FieldErrors.PLAYER_DATA_TRAINER_ID_INVALID, "player trainer id must be an integer in 0..65535", {
       trainerId = trainerId,
     })
   end
   local options = record.options
   if type(options) ~= "table" then
-    Errors.raise("PLAYER_DATA_INVALID", "player gameplay options must be a table", {})
+    Errors.raise(FieldErrors.PLAYER_DATA_INVALID, "player gameplay options must be a table", {})
   end
   local textFrame = options.textFrame
   if type(textFrame) ~= "number" or textFrame % 1 ~= 0 or context.frameIndexes[textFrame] ~= true then
-    Errors.raise("PLAYER_DATA_TEXT_FRAME_INVALID", "text frame index must resolve to an imported frame style", {
-      textFrame = textFrame,
-    })
+    Errors.raise(
+      FieldErrors.PLAYER_DATA_TEXT_FRAME_INVALID,
+      "text frame index must resolve to an imported frame style",
+      {
+        textFrame = textFrame,
+      }
+    )
   end
   if FieldPlayerData.TEXT_SPEEDS[options.textSpeed] == nil then
-    Errors.raise("PLAYER_DATA_TEXT_SPEED_INVALID", "text speed must be an explicitly supported gameplay value", {
-      textSpeed = options.textSpeed,
-    })
+    Errors.raise(
+      FieldErrors.PLAYER_DATA_TEXT_SPEED_INVALID,
+      "text speed must be an explicitly supported gameplay value",
+      {
+        textSpeed = options.textSpeed,
+      }
+    )
   end
   return {
     profile = {
