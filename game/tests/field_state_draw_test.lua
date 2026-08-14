@@ -8,6 +8,7 @@
 local Assert = require("tests.support.Assert")
 local FieldState = require("game.src.game.FieldState")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
+local ScreenTopology = require("libs.engine.src.ScreenTopology")
 
 local T = {}
 
@@ -198,6 +199,16 @@ function T.draw_passes_the_scene_runtime_and_queries_the_menu_host()
           return false
         end,
       },
+      signpost = {
+        isModal = function()
+          return false
+        end,
+      },
+      applicationHost = {
+        status = function()
+          return { phase = "closed", fadeAlpha = 0 }
+        end,
+      },
       menuHost = {
         presentation = function()
           presentations = presentations + 1
@@ -205,6 +216,14 @@ function T.draw_passes_the_scene_runtime_and_queries_the_menu_host()
         end,
       },
     },
+    topologyProvider = function()
+      return ScreenTopology.oneDisplay({
+        id = "main",
+        rect = { x = 0, y = 0, width = 640, height = 480 },
+        touch = false,
+        role = "world",
+      })
+    end,
     renderer = {
       draw = function(_, scene, camera, worldParts)
         received = { scene = scene, camera = camera, worldParts = worldParts }
@@ -270,7 +289,25 @@ function T.draw_without_a_menu_host_is_a_programming_error()
           return false
         end,
       },
+      signpost = {
+        isModal = function()
+          return false
+        end,
+      },
+      applicationHost = {
+        status = function()
+          return { phase = "closed", fadeAlpha = 0 }
+        end,
+      },
     },
+    topologyProvider = function()
+      return ScreenTopology.oneDisplay({
+        id = "main",
+        rect = { x = 0, y = 0, width = 640, height = 480 },
+        touch = false,
+        role = "world",
+      })
+    end,
     worldParts = {},
     renderer = { draw = function() end },
   }, FieldState)

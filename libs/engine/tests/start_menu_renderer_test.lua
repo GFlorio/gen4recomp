@@ -6,6 +6,9 @@
 -- durations) and never repeats source coordinates; a quad failure after the
 -- background and cursor images exist must release both, and a missing
 -- manifest, background, or cursor asset is a typed error. Drawing the
+-- surface consumes the StartMenuLayout placement record -- the same record
+-- hit testing maps through -- so rendering and hit testing share one
+-- transform and there is never a second set of scaled rectangles; the
 -- surface uses only the two generated images -- no generic field-menu theme
 -- colors or primitives -- and a draw that raises must still balance the
 -- transform stack and restore every captured graphics state. The
@@ -17,8 +20,9 @@ local Errors = require("libs.errors.src.Errors")
 local FakeCache = require("tests.support.FakeCache")
 local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
+local ScreenTopology = require("libs.engine.src.ScreenTopology")
+local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 local StartMenuRenderer = require("libs.engine.src.StartMenuRenderer")
-local FieldViewport = require("libs.engine.src.FieldViewport")
 
 local T = {}
 
@@ -36,6 +40,7 @@ local function fakeGraphics(opts)
   local pushDepth = 0
   local draws = {}
   local primitives = {}
+  local transforms = {}
   local state = {
     canvas = opts.canvas,
     shader = opts.shader,
@@ -55,6 +60,7 @@ local function fakeGraphics(opts)
     images = images,
     draws = draws,
     primitives = primitives,
+    transforms = transforms,
     pushDepth = function()
       return pushDepth
     end,
@@ -89,8 +95,12 @@ local function fakeGraphics(opts)
     pop = function()
       pushDepth = pushDepth - 1
     end,
-    translate = function() end,
-    scale = function() end,
+    translate = function(x, y)
+      transforms[#transforms + 1] = { "translate", x, y }
+    end,
+    scale = function(x, y)
+      transforms[#transforms + 1] = { "scale", x, y }
+    end,
     setColor = function(r, g, b, a)
       state.color = { r, g, b, a }
     end,
@@ -161,8 +171,17 @@ local function fakeGraphics(opts)
   }
 end
 
-local function canonicalViewport()
-  return FieldViewport.new(256, 192, { mode = "expanded" })
+-- The canonical placement record through the real pure layout module: the
+-- 256x192 surface resolved onto a canonical 256x192 host. Rendering and hit
+-- testing consume the same record shape, so a draw regression against the
+-- transform is a mismatch.
+local function canonicalPlacement()
+  return StartMenuLayout.resolve(ScreenTopology.oneDisplay({
+    id = "main",
+    rect = { x = 0, y = 0, width = 256, height = 192 },
+    touch = false,
+    role = "world",
+  }))
 end
 
 local function menuCache()
@@ -290,7 +309,7 @@ function T.the_manifest_geometry_is_the_authority_not_a_hard_coded_grid()
 
   -- The cursor derives its placement from the manifest slot rect: centered
   -- over the presented slot, sized by the manifest frame rect.
-  renderer:draw({ cursorSlotId = 1, cursorFrameIndex = 0 }, canonicalViewport())
+  renderer:draw({ cursorSlotId = 1, cursorFrameIndex = 0 }, canonicalPlacement())
   local backgroundDraw = lg.draws[1]
   Assert.deepEqual(
     { backgroundDraw.quad.x, backgroundDraw.quad.y, backgroundDraw.quad.w, backgroundDraw.quad.h },
@@ -315,7 +334,7 @@ end
 function T.draws_the_background_and_the_cursor_over_the_presented_slot()
   local lg = fakeGraphics({ imageSizes = { { 256, 192 }, { 16, 32 } } })
   local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), graphics = lg })
-  renderer:draw({ cursorSlotId = 1, cursorFrameIndex = 0 }, canonicalViewport())
+  renderer:draw({ cursorSlotId = 1, cursorFrameIndex = 0 }, canonicalPlacement())
   renderer:release()
 
   Assert.equal(#lg.draws, 2, "one background draw and one cursor draw")
@@ -343,7 +362,7 @@ function T.cursor_frame_index_selects_the_frame_quad()
   local function cursorQuad(frameIndex)
     local lg = fakeGraphics({ imageSizes = { { 256, 192 }, { 16, 32 } } })
     local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), graphics = lg })
-    renderer:draw({ cursorSlotId = 5, cursorFrameIndex = frameIndex }, canonicalViewport())
+    renderer:draw({ cursorSlotId = 5, cursorFrameIndex = frameIndex }, canonicalPlacement())
     renderer:release()
     return lg.draws[2].quad
   end
@@ -357,13 +376,13 @@ function T.rejects_unknown_slot_ids_and_frame_indexes()
   local lg = fakeGraphics({ imageSizes = { { 256, 192 }, { 16, 32 } } })
   local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), graphics = lg })
   Assert.throws(function()
-    renderer:draw({ cursorSlotId = 0, cursorFrameIndex = 0 }, canonicalViewport())
+    renderer:draw({ cursorSlotId = 0, cursorFrameIndex = 0 }, canonicalPlacement())
   end, "slot 0 is outside the generated slot set")
   Assert.throws(function()
-    renderer:draw({ cursorSlotId = 11, cursorFrameIndex = 0 }, canonicalViewport())
+    renderer:draw({ cursorSlotId = 11, cursorFrameIndex = 0 }, canonicalPlacement())
   end, "slot 11 is outside the generated slot set")
   Assert.throws(function()
-    renderer:draw({ cursorSlotId = 1, cursorFrameIndex = 2 }, canonicalViewport())
+    renderer:draw({ cursorSlotId = 1, cursorFrameIndex = 2 }, canonicalPlacement())
   end, "frame 2 is outside the generated frame set")
   renderer:release()
 end
@@ -374,7 +393,7 @@ end
 function T.draws_only_the_generated_images_with_no_generic_menu_styling()
   local lg = fakeGraphics({ imageSizes = { { 256, 192 }, { 16, 32 } } })
   local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), graphics = lg })
-  renderer:draw({ cursorSlotId = 3, cursorFrameIndex = 0 }, canonicalViewport())
+  renderer:draw({ cursorSlotId = 3, cursorFrameIndex = 0 }, canonicalPlacement())
   renderer:release()
 
   Assert.equal(#lg.primitives, 0, "no themed primitives are drawn")
@@ -385,6 +404,58 @@ function T.draws_only_the_generated_images_with_no_generic_menu_styling()
     Assert.equal(call.color[3], 1)
     Assert.equal(call.color[4], 1)
   end
+end
+
+-- The record transform is the render placement: the surface draws under
+-- translate(frame origin) + scale(placement scale), with the draw coordinates
+-- staying canonical. The record's inverse is exactly what hit testing maps
+-- through (StartMenuLayout.hostToLogical), so rendering and hit testing share
+-- one transform with no second set of scaled rectangles.
+function T.draw_consumes_the_placement_record_transform()
+  local lg = fakeGraphics({ imageSizes = { { 256, 192 }, { 16, 32 } } })
+  local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), graphics = lg })
+  renderer:draw({ cursorSlotId = 2, cursorFrameIndex = 0 }, {
+    surfaceId = "main",
+    frame = { x = 1440, y = 360, width = 480, height = 360 },
+    scale = 1.875,
+    logicalWidth = 256,
+    logicalHeight = 192,
+  })
+  renderer:release()
+
+  Assert.deepEqual(lg.transforms, {
+    { "translate", 1440, 360 },
+    { "scale", 1.875, 1.875 },
+  }, "the placement record drives the render transform")
+  Assert.equal(#lg.draws, 2)
+  local backgroundDraw = lg.draws[1]
+  Assert.equal(backgroundDraw.x, 0, "the draw coordinates stay canonical under the record transform")
+  Assert.equal(backgroundDraw.y, 0)
+  local slot = FieldUiFixture.START_MENU_SLOTS[2]
+  Assert.equal(lg.draws[2].x, slot.x + slot.width / 2 - 8, "the cursor stays centered on the canonical slot")
+  Assert.equal(lg.draws[2].y, slot.y + slot.height / 2 - 8)
+end
+
+-- The placement record is the renderer's required second argument: a draw
+-- without it (or with a partial record) is a programming fault, never a
+-- silent fallback to some other placement.
+function T.rejects_a_missing_or_partial_placement_record()
+  local lg = fakeGraphics({ imageSizes = { { 256, 192 }, { 16, 32 } } })
+  local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), graphics = lg })
+  local nilPlacement = nil ---@type any
+  local noFrame = { scale = 1 } ---@type any
+  local noScale = { frame = { x = 0, y = 0, width = 256, height = 192 } } ---@type any
+  Assert.throws(function()
+    renderer:draw({ cursorSlotId = 1, cursorFrameIndex = 0 }, nilPlacement)
+  end, "a nil placement record must be rejected")
+  Assert.throws(function()
+    renderer:draw({ cursorSlotId = 1, cursorFrameIndex = 0 }, noFrame)
+  end, "a placement record without a frame must be rejected")
+  Assert.throws(function()
+    renderer:draw({ cursorSlotId = 1, cursorFrameIndex = 0 }, noScale)
+  end, "a placement record without a scale must be rejected")
+  Assert.equal(#lg.draws, 0, "no rejected draw reaches the graphics namespace")
+  renderer:release()
 end
 
 -- A failure between graphics.push() and graphics.pop() must still pop the
@@ -408,7 +479,7 @@ function T.draw_failure_balances_transform_stack_and_restores_state()
   local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), graphics = lg })
 
   local err = Assert.throws(function()
-    renderer:draw({ cursorSlotId = 1, cursorFrameIndex = 0 }, canonicalViewport())
+    renderer:draw({ cursorSlotId = 1, cursorFrameIndex = 0 }, canonicalPlacement())
   end)
   Assert.isTrue(tostring(err):find("injected draw failure", 1, true) ~= nil, "rethrows the draw failure")
   Assert.equal(lg.pushDepth(), 0, "the transform stack is balanced after a failed draw")
@@ -428,8 +499,8 @@ function T.release_frees_the_images_and_draw_after_release_is_a_noop()
   Assert.isNil(renderer._cursorImage)
   Assert.isNil(renderer._backgroundQuad)
   Assert.isNil(renderer._cursorQuads)
-  renderer:draw(nil, canonicalViewport())
-  renderer:draw({ cursorSlotId = 1, cursorFrameIndex = 0 }, canonicalViewport())
+  renderer:draw(nil, canonicalPlacement())
+  renderer:draw({ cursorSlotId = 1, cursorFrameIndex = 0 }, canonicalPlacement())
   Assert.equal(#lg.draws, 0, "a released renderer draws nothing")
 end
 

@@ -2,42 +2,55 @@
 -- surface renders pixel-exact against an independently composed reference
 -- (the fixture's own slot art with the cursor frame centered over the
 -- presented slot, and the real generated assets from the shared derived
--- cache when a UI class is present), every graphics state the draw touched
--- is proven restored against the real driver, and release frees the owned
--- images. The construction/draw failure paths are injected fakes and stay in
--- start_menu_renderer_test.lua.
+-- cache when a UI class is present), the surface also renders pixel-exact
+-- through a non-canonical placement record from the real layout module (the
+-- record transform drives the draw, not a second set of scaled rectangles),
+-- every graphics state the draw touched is proven restored against the real
+-- driver, and release frees the owned images. The construction/draw failure
+-- paths are injected fakes and stay in start_menu_renderer_test.lua.
 
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
+local ScreenTopology = require("libs.engine.src.ScreenTopology")
+local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 local StartMenuRenderer = require("libs.engine.src.StartMenuRenderer")
-local FieldViewport = require("libs.engine.src.FieldViewport")
 
 local T = {}
 
 local CANONICAL_WIDTH = 256
 local CANONICAL_HEIGHT = 192
 
-local function canonicalViewport()
-  return FieldViewport.new(CANONICAL_WIDTH, CANONICAL_HEIGHT, { mode = "expanded" })
+-- The placement record for a canonical 256x192 host, resolved through the
+-- real pure layout module: the same record hit testing maps through.
+local function canonicalPlacement()
+  return StartMenuLayout.resolve(ScreenTopology.oneDisplay({
+    id = "main",
+    rect = { x = 0, y = 0, width = CANONICAL_WIDTH, height = CANONICAL_HEIGHT },
+    touch = false,
+    role = "world",
+  }))
 end
 
--- Renders one canonical surface presentation into a real canvas and returns
--- its ImageData.
+-- Renders one surface presentation into a real canvas through the placement
+-- record and returns its ImageData.
 ---@param scope GraphicsScope
 ---@param cacheFs CacheFs
 ---@param cursorSlotId integer
 ---@param cursorFrameIndex integer
+---@param placement StartMenuLayout.Placement
+---@param width integer
+---@param height integer
 ---@return love.ImageData
-local function canonicalRender(scope, cacheFs, cursorSlotId, cursorFrameIndex)
+local function canonicalRender(scope, cacheFs, cursorSlotId, cursorFrameIndex, placement, width, height)
   local lg = love.graphics
   local renderer = scope:own(StartMenuRenderer.new({ cacheFs = cacheFs }))
-  local canvas = scope:own(lg.newCanvas(CANONICAL_WIDTH, CANONICAL_HEIGHT))
+  local canvas = scope:own(lg.newCanvas(width, height))
   lg.setCanvas(canvas)
   lg.clear(0, 0, 0, 0)
-  renderer:draw({ cursorSlotId = cursorSlotId, cursorFrameIndex = cursorFrameIndex }, canonicalViewport())
+  renderer:draw({ cursorSlotId = cursorSlotId, cursorFrameIndex = cursorFrameIndex }, placement)
   lg.setCanvas()
   return scope:own(canvas:newImageData())
 end
@@ -115,19 +128,62 @@ local function fixtureReference(cursorSlotId, cursorFrameIndex)
   return reference
 end
 
+-- The independent reference at a non-canonical host resolution: the fixture
+-- surface replicated into scale x scale blocks per canonical pixel (the
+-- deterministic nearest output of an integer-scale record transform). Built
+-- without the renderer and without the layout module, so a wrong record
+-- frame/scale in the render path is a mismatch.
+---@param cursorSlotId integer
+---@param cursorFrameIndex integer
+---@param scale integer
+---@return love.ImageData
+local function scaledFixtureReference(cursorSlotId, cursorFrameIndex, scale)
+  local width, height = CANONICAL_WIDTH * scale, CANONICAL_HEIGHT * scale
+  local reference = love.image.newImageData(width, height)
+  local function block(x, y, r, g, b, a)
+    for dy = 0, scale - 1 do
+      for dx = 0, scale - 1 do
+        reference:setPixel(x * scale + dx, y * scale + dy, r, g, b, a)
+      end
+    end
+  end
+  for y = 0, CANONICAL_HEIGHT - 1 do
+    for x = 0, CANONICAL_WIDTH - 1 do
+      local slotId = FieldUiFixture.slotIdAt(x, y)
+      if slotId then
+        local sr, sg, sb = FieldUiFixture.startMenuSlotColor(slotId)
+        block(x, y, sr / 255, sg / 255, sb / 255, 1)
+      else
+        block(x, y, 0, 0, 0, 0)
+      end
+    end
+  end
+  local slot = FieldUiFixture.START_MENU_SLOTS[cursorSlotId]
+  local frame = FieldUiFixture.START_MENU_CURSOR_FRAMES[cursorFrameIndex + 1]
+  local cr, cg, cb = FieldUiFixture.startMenuCursorColor(cursorFrameIndex + 1)
+  local originX = slot.x + slot.width / 2 - frame.width / 2
+  local originY = slot.y + slot.height / 2 - frame.height / 2
+  for y = 0, frame.height - 1 do
+    for x = 0, frame.width - 1 do
+      block(originX + x, originY + y, cr / 255, cg / 255, cb / 255, 1)
+    end
+  end
+  return reference
+end
+
 -- Canonical golden: the full Start Menu surface from the fixture assets
 -- matches the independent reference pixel for pixel, with the cursor frame
 -- centered over the default (first) slot.
 function T.canonical_golden_matches_the_fixture_surface_pixel_for_pixel(scope)
-  local rendered = canonicalRender(scope, FieldUiFixture.startMenuCache(), 1, 0)
+  local rendered = canonicalRender(scope, FieldUiFixture.startMenuCache(), 1, 0, canonicalPlacement(), 256, 192)
   assertPixelsEqual(fixtureReference(1, 0), rendered, "fixture surface golden")
 end
 
 -- The fixture's two cursor frames are distinct artwork at the same slot
 -- position: the frame index selects the atlas row, never the placement.
 function T.cursor_frames_are_distinct_artwork_at_the_same_position(scope)
-  local frame0 = canonicalRender(scope, FieldUiFixture.startMenuCache(), 4, 0)
-  local frame1 = canonicalRender(scope, FieldUiFixture.startMenuCache(), 4, 1)
+  local frame0 = canonicalRender(scope, FieldUiFixture.startMenuCache(), 4, 0, canonicalPlacement(), 256, 192)
+  local frame1 = canonicalRender(scope, FieldUiFixture.startMenuCache(), 4, 1, canonicalPlacement(), 256, 192)
   assertPixelsEqual(fixtureReference(4, 1), frame1, "fixture cursor frame 1 golden")
 
   local quantize = function(v)
@@ -145,6 +201,23 @@ function T.cursor_frames_are_distinct_artwork_at_the_same_position(scope)
   Assert.equal(f0a, 255, "the cursor pixel is opaque")
   Assert.isTrue(f0r ~= f1r or f0g ~= f1g or f0b ~= f1b, "cursor frames have distinct artwork")
   Assert.equal(f0a, f1a, "the cursor frames occupy the same position")
+end
+
+-- Record-transform golden: at a non-canonical host resolution the surface
+-- renders pixel-exact through the placement record resolved by the real
+-- layout module -- the record's frame and scale drive the draw, and the
+-- canonical surface never reflows internally.
+function T.scaled_golden_matches_the_fixture_surface_through_the_record_transform(scope)
+  local placement = StartMenuLayout.resolve(ScreenTopology.oneDisplay({
+    id = "main",
+    rect = { x = 0, y = 0, width = 512, height = 384 },
+    touch = false,
+    role = "world",
+  }))
+  Assert.equal(placement.scale, 2, "the 512x384 host resolves an integer scale of 2")
+  Assert.deepEqual(placement.frame, { x = 0, y = 0, width = 512, height = 384 })
+  local rendered = canonicalRender(scope, FieldUiFixture.startMenuCache(), 1, 0, placement, 512, 384)
+  assertPixelsEqual(scaledFixtureReference(1, 0, 2), rendered, "scaled record golden")
 end
 
 -- Canonical golden: the real generated Start Menu assets render pixel-exact
@@ -186,7 +259,7 @@ function T.canonical_golden_matches_the_real_generated_surface_pixel_for_pixel(s
   local frame = frames[1]
   blend(reference, cursorPixels, slot.x + slot.width / 2 - frame.width / 2, slot.y + slot.height / 2 - frame.height / 2)
 
-  local rendered = canonicalRender(scope, cache, 1, 0)
+  local rendered = canonicalRender(scope, cache, 1, 0, canonicalPlacement(), 256, 192)
   assertPixelsEqual(reference, rendered, "real generated surface golden")
 end
 
@@ -204,7 +277,15 @@ function T.restores_graphics_state_after_draw(scope)
   lg.setColor(0.2, 0.4, 0.6, 0.8)
   lg.setScissor(4, 8, 32, 16)
 
-  renderer:draw({ cursorSlotId = 1, cursorFrameIndex = 0 }, FieldViewport.new(1280, 720, { mode = "expanded" }))
+  renderer:draw(
+    { cursorSlotId = 1, cursorFrameIndex = 0 },
+    StartMenuLayout.resolve(ScreenTopology.oneDisplay({
+      id = "main",
+      rect = { x = 0, y = 0, width = 1280, height = 720 },
+      touch = false,
+      role = "world",
+    }))
+  )
 
   local function assertRestored(canvasExpected, shaderExpected)
     Assert.equal(lg.getCanvas(), canvasExpected)

@@ -6,8 +6,12 @@ local FieldActorAssetProvider = require("libs.engine.src.FieldActorAssetProvider
 local FieldActorDraw = require("libs.engine.src.FieldActorDraw")
 local FieldDialogueRenderer = require("libs.engine.src.FieldDialogueRenderer")
 local FieldMenuRenderer = require("libs.engine.src.FieldMenuRenderer")
+local FieldSignpostRenderer = require("libs.engine.src.FieldSignpostRenderer")
 local MapRenderer = require("libs.engine.src.MapRenderer")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
+local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
+local StartMenuRenderer = require("libs.engine.src.StartMenuRenderer")
+local TrainerCardRenderer = require("libs.engine.src.TrainerCardRenderer")
 
 local KEY_DIRECTIONS =
   { w = "north", up = "north", s = "south", down = "south", a = "west", left = "west", d = "east", right = "east" }
@@ -25,6 +29,10 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@field renderer any
 ---@field dialogueRenderer any
 ---@field menuRenderer FieldMenuRenderer?
+---@field signpostRenderer FieldSignpostRenderer?
+---@field startMenuRenderer StartMenuRenderer?
+---@field trainerCardRenderer TrainerCardRenderer?
+---@field _startMenuLayout StartMenuLayout.Placement? the placement record for the current topology (rendering and the application fade)
 ---@field presentationActorAssets FieldActorAssetProvider?
 ---@field _presentationSpriteRefs table<integer, boolean>
 ---@field _lastActorManager any?
@@ -85,6 +93,16 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
       MapRenderer.new({ clearColor = WindowConfig.BACKGROUND_COLOR, rasterScale = WindowConfig.WORLD_RASTER_SCALE })
     self.dialogueRenderer = FieldDialogueRenderer.new({ cacheFs = runtime.cacheFs })
     self.menuRenderer = FieldMenuRenderer.new()
+    -- The §27.2 composition: the signpost renderer resolves its per-type
+    -- geometry through the sealed window style registry, the Start Menu and
+    -- Trainer Card renderers draw the generated application surfaces. The
+    -- state owns and releases their GPU resources; controllers stay pure.
+    self.signpostRenderer = FieldSignpostRenderer.new({
+      cacheFs = runtime.cacheFs,
+      windowStyles = runtime.windowStyles,
+    })
+    self.startMenuRenderer = StartMenuRenderer.new({ cacheFs = runtime.cacheFs })
+    self.trainerCardRenderer = TrainerCardRenderer.new({ cacheFs = runtime.cacheFs })
     local width, height = love.graphics.getDimensions()
     runtime.menuHost:setScreenTopology(self.topologyProvider(width, height))
     runtime.menuHost:setPresentationMetrics(function(text)
@@ -211,9 +229,15 @@ function FieldState:draw()
     return
   end
   local width, height = lg.getDimensions()
+  local topology = self.topologyProvider(width, height)
   if self.runtime.viewport.width ~= width or self.runtime.viewport.height ~= height then
-    self.runtime:resizePresentation(width, height, self.topologyProvider(width, height))
+    self.runtime:resizePresentation(width, height, topology)
   end
+  -- The StartMenuLayout placement record for the current topology: the same
+  -- pure derivation the application host maps hit-test points through, so
+  -- rendering and hit testing share one record with no second set of scaled
+  -- rectangles.
+  self._startMenuLayout = StartMenuLayout.resolve(topology)
   local alpha = self.runtime.session:renderAlpha()
   self.renderer:draw(
     self.runtime.runtimeMap.sceneRuntime,
@@ -222,15 +246,36 @@ function FieldState:draw()
     self.runtime.viewport,
     alpha
   )
+  -- The §27.2 field/application fade: the host-owned application fade covers
+  -- the surface being transitioned (the world viewport plus the Start Menu
+  -- placement frame), then the unrelated warp fade over the world viewport.
+  local hostStatus = self.runtime.applicationHost:status()
+  if hostStatus.fadeAlpha > 0 then
+    self:_drawApplicationFade(hostStatus.fadeAlpha)
+  end
   if self.runtime.transition.fadeAlpha > 0 then
     local rectangle = self.runtime.viewport.worldViewport
     lg.setColor(0, 0, 0, self.runtime.transition.fadeAlpha)
     lg.rectangle("fill", rectangle.x, rectangle.y, rectangle.width, rectangle.height)
   end
-  -- The dialogue UI composites after the world and the fade, inside the
-  -- centered 4:3 reference frame, and before the developer HUD.
-  if self.runtime.dialogue:isModal() then
-    self.dialogueRenderer:draw(self.runtime.dialogue, self.runtime.viewport)
+  -- Dialogue or signpost attached to the world surface, and only while the
+  -- application host presents no modal surface: during a full application
+  -- neither is drawn underneath it. The session's at-most-one-owner assert
+  -- keeps at most one of the two live in a tick.
+  if not hostStatus.menu and not hostStatus.application then
+    if self.runtime.dialogue:isModal() then
+      self.dialogueRenderer:draw(self.runtime.dialogue, self.runtime.viewport)
+    end
+    if self.runtime.signpost:isModal() then
+      self.signpostRenderer:draw(self.runtime.signpost, self.runtime.viewport, alpha)
+    end
+  end
+  -- The one active application surface: the Start Menu through its placement
+  -- record, or the Trainer Card in the viewport; never both.
+  if hostStatus.menu then
+    self.startMenuRenderer:draw(hostStatus.menu, assert(self._startMenuLayout))
+  elseif hostStatus.application then
+    self.trainerCardRenderer:draw(hostStatus.application, self.runtime.viewport)
   end
   local presentation = self.runtime.menuHost:presentation()
   if presentation then
@@ -239,6 +284,23 @@ function FieldState:draw()
   if self.development then
     self:_drawHud()
   end
+end
+
+-- The application fade rectangle: the union of the world viewport and the
+-- Start Menu placement frame, so on a dual-display topology the auxiliary
+-- surface region goes black with the world and no menu surface can stay
+-- visible while only the world viewport fades.
+---@param alpha number
+function FieldState:_drawApplicationFade(alpha)
+  local lg = love.graphics
+  local world = self.runtime.viewport.worldViewport
+  local frame = assert(self._startMenuLayout, "the application fade requires the placement record").frame
+  local x = math.min(world.x, frame.x)
+  local y = math.min(world.y, frame.y)
+  local x2 = math.max(world.x + world.width, frame.x + frame.width)
+  local y2 = math.max(world.y + world.height, frame.y + frame.height)
+  lg.setColor(0, 0, 0, alpha)
+  lg.rectangle("fill", x, y, x2 - x, y2 - y)
 end
 
 -- The playtest HUD: map identity, the player's field state, the save status,
@@ -465,6 +527,19 @@ function FieldState:dispose()
     self.dialogueRenderer:release()
     self.dialogueRenderer = nil
   end
+  if self.signpostRenderer then
+    self.signpostRenderer:release()
+    self.signpostRenderer = nil
+  end
+  if self.startMenuRenderer then
+    self.startMenuRenderer:release()
+    self.startMenuRenderer = nil
+  end
+  if self.trainerCardRenderer then
+    self.trainerCardRenderer:release()
+    self.trainerCardRenderer = nil
+  end
+  self._startMenuLayout = nil
   -- Draw items borrow provider-owned GPU objects; they must not outlive the
   -- presentation residency that made those objects valid.
   self._actorRecords = nil
