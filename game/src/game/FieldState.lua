@@ -32,7 +32,7 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@field _actorRecords table[]
 ---@field _actorDrawStorage FieldActorDrawStorage
 ---@field _actorAssetLookup fun(spriteId: integer): table
----@field worldParts table[][] ordered map, building, neighbor, and actor draw arrays
+---@field worldParts table[][] ordered map, static building, animated building, neighbor, and actor draw arrays
 ---@field development boolean product mode (default) hides the playtest HUD and ignores the F1/F2 developer binds
 ---@field topologyProvider fun(width: number, height: number): ScreenTopology
 local FieldState = {}
@@ -180,18 +180,21 @@ function FieldState:_actorDraws(alpha)
   return FieldActorDraw.itemsInto(records, assetLookup, storage)
 end
 
--- Refresh the persistent ordered scene parts: map geometry, buildings, the
--- neighbour ring, then actors. Queue traversal preserves this source order,
--- so equal-depth translucent ties break map before building before neighbour
--- before actor. Scene draw arrays live on the runtime map's scene runtime and
--- are read every frame because animated updates replace buildingDraws.
+-- Refresh the persistent ordered scene parts: map geometry, static buildings,
+-- animated buildings, the neighbour ring, then actors. Queue traversal
+-- preserves this source order, so equal-depth translucent ties break map
+-- before static building before animated building before neighbour before
+-- actor. Scene draw arrays live on the runtime map's scene runtime and are
+-- read every frame because animated updates replace animatedBuildingDraws;
+-- staticBuildingDraws is built once at load and never replaces its table.
 function FieldState:_worldParts(alpha)
   local sceneRuntime = self.runtime.runtimeMap.sceneRuntime
   local worldParts = self.worldParts
   worldParts[1] = sceneRuntime.mapDraws
-  worldParts[2] = sceneRuntime.buildingDraws
-  worldParts[3] = self.runtime.runtimeMap.neighborRuntime and self.runtime.runtimeMap.neighborRuntime.draws or NO_DRAWS
-  worldParts[4] = self:_actorDraws(alpha)
+  worldParts[2] = sceneRuntime.staticBuildingDraws
+  worldParts[3] = sceneRuntime.animatedBuildingDraws
+  worldParts[4] = self.runtime.runtimeMap.neighborRuntime and self.runtime.runtimeMap.neighborRuntime.draws or NO_DRAWS
+  worldParts[5] = self:_actorDraws(alpha)
   return worldParts
 end
 
@@ -450,7 +453,7 @@ function FieldState:dispose()
   self._actorDrawStorage = nil
   self._actorAssetLookup = nil
   if self.worldParts then
-    self.worldParts[4] = nil
+    self.worldParts[5] = nil
   end
   if self.presentationActorAssets then
     for spriteId in pairs(self._presentationSpriteRefs or {}) do

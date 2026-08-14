@@ -19,7 +19,7 @@ local function drawableState(development)
       runtimeMap = {
         mapId = 61,
         mapSymbol = "MAP_NEW_BARK",
-        sceneRuntime = { mapDraws = {}, buildingDraws = {} },
+        sceneRuntime = { mapDraws = {}, staticBuildingDraws = {}, animatedBuildingDraws = {} },
       },
       player = { fieldX = 3, fieldZ = 7, worldY = 1.5, surfaceId = 0, facing = "east", motion = "idle" },
       playerVisual = {
