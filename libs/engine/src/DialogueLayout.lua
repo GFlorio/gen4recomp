@@ -6,6 +6,7 @@
 -- and every later token is ignored.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 
 ---@class DialogueLayout
 local DialogueLayout = {}
@@ -117,7 +118,7 @@ function DialogueLayout.layout(tokens, metrics, opts)
       local advance = tokenWidth(token)
       if advance == nil then
         Errors.raise(
-          "FONT_GLYPH_MISSING",
+          FieldErrors.FONT_GLYPH_MISSING,
           "no advance for glyph code " .. string.format("0x%04X", token.code),
           { code = token.code }
         )

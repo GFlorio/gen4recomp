@@ -1,7 +1,9 @@
--- Shared window configuration for the game app. love.conf (executed by the
--- LÖVE binary before any game module exists) and the field runtime both
--- resolve the reference window size from this one module so the two defaults
--- cannot drift apart.
+-- Shared window/presentation configuration for the game app. love.conf
+-- (executed by the LÖVE binary before any game module exists) and the field
+-- runtime both resolve the reference window size from this one module so the
+-- two defaults cannot drift apart; the same is true of the background color,
+-- which App applies to the LÖVE window and FieldState injects into
+-- MapRenderer so the scene canvas clears to the identical color.
 
 local WindowConfig = {}
 
@@ -9,6 +11,10 @@ local WindowConfig = {}
 -- field viewport falls back to it when no explicit size is configured.
 WindowConfig.REFERENCE_WIDTH = 640
 WindowConfig.REFERENCE_HEIGHT = 480
+
+-- The game's window/scene background color (RGBA, 0..1). Chosen to sit behind
+-- the field's rendered geometry, not a DS-authentic value.
+WindowConfig.BACKGROUND_COLOR = { 0.08, 0.09, 0.12, 1 }
 
 -- Parses one environment-provided window dimension (positive integer) or
 -- reports a clear rejection. `raw` is the raw env value: nil means the

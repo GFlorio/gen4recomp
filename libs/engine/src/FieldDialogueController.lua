@@ -6,6 +6,7 @@
 -- function and stay immutable while the reveal cursor advances over them.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 
 ---@class FieldDialogueController
 ---@field _layout fun(message: FieldMessageProvider.FormattedMessage): DialogueLayout.Result
@@ -252,7 +253,7 @@ function FieldDialogueController:open(request)
   )
   if self._state ~= "CLOSED" then
     Errors.raise(
-      "DIALOGUE_ALREADY_OPEN",
+      FieldErrors.DIALOGUE_ALREADY_OPEN,
       "a dialogue is already open; open() while modal is not allowed",
       { requestId = self._request and self._request.id }
     )

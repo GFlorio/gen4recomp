@@ -1,11 +1,13 @@
--- Centralized error identifiers, protocol strings, and names. The audit's
--- raw error identifiers must be raised through per-subsystem
--- constant tables (the script/errors.lua pattern), never as bare literals at
--- raise sites; the shared protocol strings (task types, scheduler states,
--- transition phases, common map-error codes) must be named constants at both
--- producer and consumer; and the misleading names must be renamed. This is a
--- repo-content scan: it reads production source files and never executes the
--- game.
+-- Centralized error identifiers, protocol strings, and names. Raw error
+-- identifiers must be raised through per-subsystem constant tables (the
+-- script/errors.lua pattern), never as bare literals at raise sites: a fixed
+-- list of codes outside the field engine (storage/cache/import), and a shape
+-- scan of the field engine/game-field roots that catches any bare-literal
+-- raise/new call regardless of the identifier's name. The shared protocol
+-- strings (task types, scheduler states, transition phases, common map-error
+-- codes) must be named constants at both producer and consumer; and the
+-- misleading names must be renamed. This is a repo-content scan: it reads
+-- production source files and never executes the game.
 
 local T = {
   metadata = {
@@ -30,19 +32,12 @@ local PRODUCTION_ROOTS = {
 }
 
 -- Raw error identifiers the audit names for per-subsystem centralization,
--- with the owner file(s) at HEAD. FieldEventState's whole family is listed,
--- not just the two codes the audit cites, because the per-subsystem table
--- covers the file's raise sites. ACTOR_FACING_INVALID is the added member
--- of the actor family (raised in WarpSystem and FieldObjectActor); the warp
--- resolution codes are the standardized unknown-destination codes
--- (raised in WarpSystem).
+-- with the owner file(s) at HEAD, for subsystems outside the field engine
+-- (storage/cache/import). Field-layer codes are no longer tracked by this
+-- positive inventory: `field_engine_and_game_field_have_no_bare_error_literals`
+-- below scans the field engine/game-field roots by shape instead, so a new
+-- field-layer raw identifier fails automatically without being added here.
 local CENTRALIZED_CODES = {
-  "EVENT_STATE_TOO_LARGE",
-  "EVENT_FLAG_VALUE_INVALID",
-  "EVENT_VAR_VALUE_INVALID",
-  "EVENT_FLAG_ID_INVALID",
-  "EVENT_VAR_ID_INVALID",
-  "RENDER_QUEUE_UNKNOWN_ALPHA_CLASS",
   "IMPORT_BUSY",
   "IMPORT_NOT_NDS",
   "SAVE_PATH_INVALID",
@@ -66,16 +61,30 @@ local CENTRALIZED_CODES = {
   "MAP_CACHE_READBACK_FAILED",
   "MAP_CACHE_MISSING_ASSET",
   "MAP_CACHE_SCENE_INVALID",
-  "ACTOR_OCCUPANCY_CONFLICT",
-  "ACTOR_FACING_INVALID",
-  "TERRAIN_SURFACE_NOT_FOUND",
-  "TERRAIN_SURFACE_AMBIGUOUS",
-  "TERRAIN_SURFACE_DISCONNECTED",
-  "FIELD_MAP_UNKNOWN",
-  "FIELD_DESTINATION_MAP_UNKNOWN",
-  "FIELD_DESTINATION_WARP_UNKNOWN",
-  "FIELD_DYNAMIC_WARP_UNSUPPORTED",
 }
+
+-- Field engine/game-field production roots: the field runtime, its renderer,
+-- and the game app's field composition. The script subsystem keeps its own
+-- catalogue (script/errors.lua) and is excluded here rather than tracked by
+-- FieldErrors -- a raw literal inside it is that catalogue's own concern, not
+-- this audit's.
+local FIELD_ENGINE_ROOTS = {
+  "libs/engine/src",
+  "game/src/game",
+}
+
+local FIELD_ENGINE_EXCLUDED_PREFIXES = {
+  "libs/engine/src/script/",
+}
+
+local function isExcludedFromFieldAudit(path)
+  for _, prefix in ipairs(FIELD_ENGINE_EXCLUDED_PREFIXES) do
+    if path:sub(1, #prefix) == prefix then
+      return true
+    end
+  end
+  return false
+end
 
 -- Consumer-side raw literals of the shared protocol strings: a named
 -- constant must be referenced at both producer and consumer. `= ?` matches
@@ -106,10 +115,10 @@ end
 
 -- Real-filesystem enumeration, UNIX-only by intent like the test runner's
 -- own file adapter (tests/runner/RepoFiles.lua).
-local function productionFiles()
+local function filesUnder(roots)
   local files = {}
-  for _, root in ipairs(PRODUCTION_ROOTS) do
-    local command = "find '" .. root .. "' -type f -print 2>/dev/null"
+  for _, root in ipairs(roots) do
+    local command = "find '" .. root .. "' -type f -name '*.lua' -print 2>/dev/null"
     local pipe = assert(io.popen(command, "r"), "cannot list " .. root .. ": io.popen unavailable")
     for line in pipe:lines() do
       files[#files + 1] = line
@@ -118,6 +127,10 @@ local function productionFiles()
   end
   table.sort(files)
   return files
+end
+
+local function productionFiles()
+  return filesUnder(PRODUCTION_ROOTS)
 end
 
 -- Match a raise-site literal even across the multiline form
@@ -162,6 +175,43 @@ function T.tests.centralized_error_codes_have_no_raw_raise_sites()
   end
   if #violations > 0 then
     error("raw centralized error-code literals at raise sites:\n  " .. table.concat(violations, "\n  "), 0)
+  end
+end
+
+-- Any bare-literal first argument of an `Errors.raise`/`Errors.new` call,
+-- anywhere: this is a shape check, not a lookup against a hand-maintained
+-- code list, so a brand-new raw identifier fails automatically without the
+-- audit needing to learn its name first. `%s` spans the newline of the
+-- common multiline call form.
+local BARE_RAISE_SITE_PATTERN = 'Errors%.raise%(%s*"[A-Z][A-Z0-9_]*"'
+local BARE_NEW_SITE_PATTERN = 'Errors%.new%(%s*"[A-Z][A-Z0-9_]*"'
+
+-- The field engine (libs/engine/src, minus the script subsystem's own
+-- catalogue) and the game's field composition (game/src/game) must raise
+-- through named `FieldErrors`/`ScriptErrors` constants, never bare literals.
+-- Unlike `centralized_error_codes_have_no_raw_raise_sites`, this does not
+-- enumerate codes: it rejects the shape of a bare-literal raise/new call, so
+-- a future new raw identifier in these roots fails without being added here.
+function T.tests.field_engine_and_game_field_have_no_bare_error_literals()
+  local files = {}
+  for _, path in ipairs(filesUnder(FIELD_ENGINE_ROOTS)) do
+    if not isExcludedFromFieldAudit(path) then
+      files[#files + 1] = path
+    end
+  end
+  local violations = {}
+  for _, site in ipairs(collect(BARE_RAISE_SITE_PATTERN, files)) do
+    violations[#violations + 1] = site .. " raises a bare error-code literal"
+  end
+  for _, site in ipairs(collect(BARE_NEW_SITE_PATTERN, files)) do
+    violations[#violations + 1] = site .. " constructs a bare error-code literal"
+  end
+  if #violations > 0 then
+    error(
+      "bare error-code literals in the field engine/game-field roots (use a named FieldErrors/ScriptErrors constant):\n  "
+        .. table.concat(violations, "\n  "),
+      0
+    )
   end
 end
 

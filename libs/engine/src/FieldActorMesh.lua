@@ -11,6 +11,7 @@
 -- stays testable headless. Build once per resident sprite, never during a draw.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local VertexFormat = require("libs.assets.src.VertexFormat")
 
 local FieldActorMesh = {}
@@ -62,7 +63,7 @@ function FieldActorMesh.build(graphics, visual)
   for _, geometry in ipairs(geometries) do
     if not (geometry and geometry.vertices and geometry.indices) then
       Errors.raise(
-        "FIELD_ACTOR_GEOMETRY_MISSING",
+        FieldErrors.FIELD_ACTOR_GEOMETRY_MISSING,
         "compiled visual for spriteId " .. tostring(visual.spriteId) .. " carries no geometry",
         { spriteId = visual.spriteId }
       )
@@ -70,7 +71,7 @@ function FieldActorMesh.build(graphics, visual)
   end
   if #geometries == 0 then
     Errors.raise(
-      "FIELD_ACTOR_GEOMETRY_MISSING",
+      FieldErrors.FIELD_ACTOR_GEOMETRY_MISSING,
       "compiled visual for spriteId " .. tostring(visual.spriteId) .. " carries no geometry",
       { spriteId = visual.spriteId }
     )

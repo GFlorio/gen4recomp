@@ -37,6 +37,7 @@ local DsLighting = require("libs.engine.src.DsLighting")
 
 ---@class MapRenderer
 ---@field _graphics love.Graphics
+---@field clearColor number[]
 ---@field shader love.Shader
 ---@field edgeShader love.Shader
 ---@field edgeColors table<integer, number[]>
@@ -92,9 +93,12 @@ end
 -- reference too.
 local CUTOUT_EPSILON = AlphaClassifier.CUTOUT_EPSILON
 
--- App background color; the scene canvas is cleared to it so the final blit
--- matches the previous direct-to-screen output exactly.
-local BG_COLOR = { 0.08, 0.09, 0.12, 1 }
+-- Fallback scene clear color for callers that do not inject one (e.g. unit
+-- tests exercising draw behavior unrelated to background color). Production
+-- always injects the game's own color (see MapRenderer.new opts.clearColor);
+-- libs/engine must not import game-level config, so this default is the
+-- renderer's own and intentionally distinct from any game-chosen value.
+local DEFAULT_CLEAR_COLOR = { 0, 0, 0, 1 }
 local IDENTITY_MODEL = Matrix4.identity()
 local IDENTITY_MODEL_NORMAL = Matrix3.identity()
 
@@ -128,7 +132,7 @@ MapRenderer.REAR_PLANE_ID = 255
 -- stays clear of the real 6-bit IDs (0-63) and the 255 rear-plane/wireframe id.
 local TRANSLUCENT_SENTINEL_ID = 254
 
----@param opts { edgeMarking?: { colors?: number[][], alpha?: number }, graphics?: love.Graphics, readSource?: fun(path: string): string }?
+---@param opts { edgeMarking?: { colors?: number[][], alpha?: number }, graphics?: love.Graphics, clearColor?: number[], readSource?: fun(path: string): string }?
 function MapRenderer.new(opts)
   opts = opts or {}
   local edgeMarking = opts.edgeMarking or {}
@@ -148,6 +152,7 @@ function MapRenderer.new(opts)
   local readSource = opts.readSource or defaultReadSource
   local renderer = setmetatable({
     _graphics = graphics,
+    clearColor = opts.clearColor or DEFAULT_CLEAR_COLOR,
     edgeColors = colors,
     edgeAlpha = edgeMarking.alpha or 0.5,
     stats = { drawCalls = 0, triangles = 0, meshCount = 0, textureCount = 0 },
@@ -321,9 +326,9 @@ local ZERO_COLOR = { 0, 0, 0 }
 -- inherit lights or material colors from a lit scene drawn earlier with the
 -- same renderer. (u_lightMask needs no reset: every draw path sends it
 -- before drawing.)
-function MapRenderer:_sendLighting(runtime)
+function MapRenderer:_sendLighting(sceneRuntime)
   local shader = self.shader
-  local profile = runtime.lighting
+  local profile = sceneRuntime.lighting
   if not profile or not profile.records then
     if not self._lightingLit then
       return
@@ -340,7 +345,8 @@ function MapRenderer:_sendLighting(runtime)
     return
   end
 
-  local record = FieldLightProfile.select(profile, runtime.fieldTimeSeconds or FieldLightProfile.DEFAULT_TIME_SECONDS)
+  local record =
+    FieldLightProfile.select(profile, sceneRuntime.fieldTimeSeconds or FieldLightProfile.DEFAULT_TIME_SECONDS)
   if self._lightingLit and self._lightingProfile == profile and self._lightingRecord == record then
     return
   end
@@ -707,7 +713,7 @@ end
 -- state the actors render at. FieldViewport limits the render-target size and
 -- places the result inside the host drawable.
 ---@param worldParts table[][]?
-function MapRenderer:draw(runtime, camera, worldParts, viewport, alpha)
+function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
   assert(viewport and viewport.worldViewport, "MapRenderer requires a FieldViewport")
   local lg = assert(self._graphics)
   local parts = worldParts or {}
@@ -732,13 +738,13 @@ function MapRenderer:draw(runtime, camera, worldParts, viewport, alpha)
 
   local function doDraw()
     lg.setCanvas(sceneTargets)
-    lg.clear(BG_COLOR, ID_CLEAR, false, true)
+    lg.clear(self.clearColor, ID_CLEAR, false, true)
     lg.setShader(self.shader)
     lg.setDepthMode("less", true)
     lg.setBlendMode("alpha")
     self.shader:send("u_view", "column", viewMatrix)
 
-    self:_sendLighting(runtime)
+    self:_sendLighting(sceneRuntime)
     local queue = RenderQueue.buildInto(parts, viewMatrix, self._queueScratch)
 
     -- Pass 1: opaque, depth test + write.

@@ -45,6 +45,7 @@ local Matrix4 = require("libs.math.src.Matrix4")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
 local PoseContract = require("libs.assets.src.PoseContract")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
@@ -199,7 +200,7 @@ local function buildScene(pool, cacheFs, scene, opts)
       billboardCenter, billboardScale = BillboardTransform.components(billboardBase)
     elseif batch.transformMode ~= nil then
       Errors.raise(
-        "MAP_SCENE_UNSUPPORTED_TRANSFORM_MODE",
+        FieldErrors.MAP_SCENE_UNSUPPORTED_TRANSFORM_MODE,
         "unknown batch transform mode " .. tostring(batch.transformMode),
         { transformMode = batch.transformMode, geometry = batch.geometry }
       )
@@ -260,7 +261,7 @@ local function buildScene(pool, cacheFs, scene, opts)
         batches = desc.dynamic.batches
       else
         Errors.raise(
-          "MAP_SCENE_UNKNOWN_MODEL_KIND",
+          FieldErrors.MAP_SCENE_UNKNOWN_MODEL_KIND,
           "model descriptor " .. modelKey .. " has unknown kind " .. tostring(desc.kind),
           { modelKey = modelKey, kind = desc.kind }
         )
@@ -296,7 +297,7 @@ local function buildScene(pool, cacheFs, scene, opts)
       end
     elseif desc.descriptor.kind ~= "nitro-dynamic" then
       Errors.raise(
-        "MAP_SCENE_UNKNOWN_MODEL_KIND",
+        FieldErrors.MAP_SCENE_UNKNOWN_MODEL_KIND,
         "model descriptor " .. inst.modelKey .. " has unknown kind " .. tostring(desc.descriptor.kind),
         { modelKey = inst.modelKey, kind = desc.descriptor.kind }
       )
@@ -507,7 +508,7 @@ function MapSceneLoader.load(cacheFs, scene, opts)
   opts = opts or {}
   if not scene or scene.schema ~= MapAssetCache.SCENE_SCHEMA then
     Errors.raise(
-      "MAP_SCENE_UNSUPPORTED_SCHEMA",
+      FieldErrors.MAP_SCENE_UNSUPPORTED_SCHEMA,
       "expected " .. MapAssetCache.SCENE_SCHEMA .. ", got " .. tostring(scene and scene.schema or nil),
       { schema = scene and scene.schema or nil }
     )

@@ -54,6 +54,7 @@ local function fakeGraphics(opts)
     blend = {},
     depth = {},
     wireframe = {},
+    clear = {},
   }
   local state = {
     canvas = opts.canvas,
@@ -160,7 +161,9 @@ local function fakeGraphics(opts)
         error("injected draw failure")
       end
     end,
-    clear = function() end,
+    clear = function(sceneColor)
+      calls.clear[#calls.clear + 1] = sceneColor
+    end,
   }
 end
 
@@ -256,8 +259,8 @@ function T.rejects_stale_scene_schema()
   )
 end
 
--- The exact restoration contract (spec 30.31): every captured caller state
--- comes back equal to its pre-draw value, never a hard-coded default.
+-- Exact caller-state restoration: every captured caller state comes back
+-- equal to its pre-draw value, never a hard-coded default.
 -- The empty scene draws nothing, so canvas, shader, blend, depth, and color
 -- are the states the renderer actually dirtied here; the wireframe/cull
 -- restore is exercised in the failing-draw test, where the wireframe pass
@@ -281,6 +284,28 @@ function T.draw_restores_exact_caller_state()
   assertRestoredState(lg, canvas, shader)
   renderer:release()
   assertResourcesReleased(lg)
+end
+
+-- libs/engine must not import a game-level config, so the game's background
+-- color is injected as opts.clearColor rather than hardcoded: the renderer
+-- clears the scene canvas to exactly the table it was given, and falls back
+-- to its own default when the caller (e.g. a test uninterested in
+-- background color) omits it.
+function T.draw_clears_the_scene_canvas_to_the_injected_color()
+  local lg = fakeGraphics()
+  local injected = { 0.5, 0.6, 0.7, 1 }
+  local renderer = MapRenderer.new({ graphics = lg, clearColor = injected })
+  local scene = emptySceneCamera()
+  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+  Assert.equal(lg.calls.clear[1], injected, "scene canvas clears to the injected color")
+end
+
+function T.draw_without_an_injected_color_uses_a_renderer_default()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+  Assert.isTrue(lg.calls.clear[1] ~= nil, "scene canvas still clears when no color is injected")
 end
 
 -- A draw failure must not leak the scene's state either: the wireframe item
@@ -325,8 +350,8 @@ function T.draw_failure_restores_exact_state_and_rethrows()
   assertResourcesReleased(lg)
 end
 
--- Construction is transactional (spec 30.32): when the second shader fails,
--- the first must be released and the failure must reach the caller.
+-- Construction is transactional: when the second shader fails, the first
+-- must be released and the failure must reach the caller.
 function T.new_releases_first_shader_when_second_shader_fails()
   local lg = fakeGraphics({ failOnNewShader = 2 })
   local err = Assert.throws(function()
@@ -648,9 +673,9 @@ function T.draw_renders_only_given_parts_into_persistent_scratch()
   renderer:release()
 end
 
--- The compact per-draw uniform (spec 30.33): one vec4 of 0/1 floats, bit i =
--- light i of the polygon's 4-bit mask. Different masks decode to different
--- uniforms and mask 0 to all-off.
+-- Per-polygon light-mask encoding: one vec4 of 0/1 floats, bit i = light i
+-- of the polygon's 4-bit mask. Different masks decode to different uniforms
+-- and mask 0 to all-off.
 function T.light_mask_uniforms_decode_polygon_bits()
   Assert.deepEqual(MapRenderer.lightMaskUniforms(0), { 0, 0, 0, 0 })
   Assert.deepEqual(MapRenderer.lightMaskUniforms(1), { 1, 0, 0, 0 })

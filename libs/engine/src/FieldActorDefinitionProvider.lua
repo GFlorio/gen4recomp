@@ -3,6 +3,7 @@
 -- work through FieldActorAssetProvider.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 
 ---@class FieldActorDefinitionProvider: FieldActorAssets
@@ -19,7 +20,7 @@ function FieldActorDefinitionProvider.new(cacheFs)
   local index = FieldActorCache.loadIndex(cacheFs)
   if type(index) ~= "table" or index.schema ~= FieldActorCache.INDEX_SCHEMA then
     Errors.raise(
-      "FIELD_ACTOR_INDEX_UNAVAILABLE",
+      FieldErrors.FIELD_ACTOR_INDEX_UNAVAILABLE,
       "no compiled field-actor index at " .. FieldActorCache.indexPath(),
       { path = FieldActorCache.indexPath() }
     )
@@ -38,7 +39,7 @@ end
 function FieldActorDefinitionProvider:acquire(spriteId)
   if not self:knows(spriteId) then
     Errors.raise(
-      "FIELD_ACTOR_SPRITE_NOT_COMPILED",
+      FieldErrors.FIELD_ACTOR_SPRITE_NOT_COMPILED,
       "spriteId " .. tostring(spriteId) .. " is not in the compiled actor set",
       { spriteId = spriteId }
     )
@@ -48,7 +49,7 @@ function FieldActorDefinitionProvider:acquire(spriteId)
     local visual = self._cacheFs:loadLua(FieldActorCache.visualPath(spriteId))
     if type(visual) ~= "table" or visual.schema ~= FieldActorCache.SCHEMA then
       Errors.raise(
-        "FIELD_ACTOR_VISUAL_UNAVAILABLE",
+        FieldErrors.FIELD_ACTOR_VISUAL_UNAVAILABLE,
         "no " .. FieldActorCache.SCHEMA .. " definition for spriteId " .. spriteId,
         { spriteId = spriteId, path = FieldActorCache.visualPath(spriteId) }
       )
@@ -67,14 +68,14 @@ function FieldActorDefinitionProvider:release(spriteId)
   local entry = self._entries[spriteId]
   if not entry then
     Errors.raise(
-      "FIELD_ACTOR_RELEASE_UNKNOWN",
+      FieldErrors.FIELD_ACTOR_RELEASE_UNKNOWN,
       "released spriteId " .. tostring(spriteId) .. ", which is not resident",
       { spriteId = spriteId }
     )
   end
   if entry.references == 0 then
     Errors.raise(
-      "FIELD_ACTOR_RELEASE_UNBALANCED",
+      FieldErrors.FIELD_ACTOR_RELEASE_UNBALANCED,
       "released spriteId " .. spriteId .. " more times than it was acquired",
       { spriteId = spriteId }
     )

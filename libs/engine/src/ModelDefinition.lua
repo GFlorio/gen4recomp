@@ -34,6 +34,7 @@
 -- Pure domain module: no love.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local PolygonState = require("libs.assets.src.PolygonState")
 
 local ModelDefinition = {}
@@ -42,31 +43,31 @@ ModelDefinition.__index = ModelDefinition
 function ModelDefinition.new(definition)
   assert(type(definition) == "table", "ModelDefinition.new requires a table")
   if type(definition.key) ~= "string" or #definition.key == 0 then
-    Errors.raise("MODEL_DEF_NO_KEY", "model definition requires a non-empty key", {})
+    Errors.raise(FieldErrors.MODEL_DEF_NO_KEY, "model definition requires a non-empty key", {})
   end
   -- A record that still carries `sourceBackend` is a stale-schema artifact;
   -- it fails loudly at the load boundary.
   if definition.sourceBackend ~= nil then
     Errors.raise(
-      "MODEL_DEF_BAD_SOURCE_BACKEND",
+      FieldErrors.MODEL_DEF_BAD_SOURCE_BACKEND,
       "sourceBackend is not part of the model definition record; a definition is nitro by construction",
       { sourceBackend = definition.sourceBackend }
     )
   end
   if type(definition.nodes) ~= "table" or #definition.nodes == 0 then
-    Errors.raise("MODEL_DEF_NO_NODES", "model definition requires at least one node", {})
+    Errors.raise(FieldErrors.MODEL_DEF_NO_NODES, "model definition requires at least one node", {})
   end
   if type(definition.meshes) ~= "table" or #definition.meshes == 0 then
-    Errors.raise("MODEL_DEF_NO_MESHES", "model definition requires a meshes list", {})
+    Errors.raise(FieldErrors.MODEL_DEF_NO_MESHES, "model definition requires a meshes list", {})
   end
   if type(definition.materials) ~= "table" or #definition.materials == 0 then
-    Errors.raise("MODEL_DEF_NO_MATERIALS", "model definition requires a materials list", {})
+    Errors.raise(FieldErrors.MODEL_DEF_NO_MATERIALS, "model definition requires a materials list", {})
   end
   if type(definition.animations) ~= "table" then
-    Errors.raise("MODEL_DEF_BAD_ANIMATIONS", "animations must be a table", {})
+    Errors.raise(FieldErrors.MODEL_DEF_BAD_ANIMATIONS, "animations must be a table", {})
   end
   if definition.backend ~= nil and type(definition.backend) ~= "table" then
-    Errors.raise("MODEL_DEF_BAD_BACKEND", "backend payload must be a table or nil", {})
+    Errors.raise(FieldErrors.MODEL_DEF_BAD_BACKEND, "backend payload must be a table or nil", {})
   end
 
   -- Semantic animation lookup: by clip name first, then by any semantic role
@@ -77,7 +78,7 @@ function ModelDefinition.new(definition)
   for _, clip in ipairs(definition.animations) do
     if byName[clip.name] then
       Errors.raise(
-        "MODEL_DEF_DUPLICATE_ANIMATION",
+        FieldErrors.MODEL_DEF_DUPLICATE_ANIMATION,
         "model " .. definition.key .. " has two clips named " .. clip.name,
         { name = clip.name }
       )
@@ -88,14 +89,14 @@ function ModelDefinition.new(definition)
     for _, semantic in ipairs(clip.semanticNames) do
       if bySemantic[semantic] then
         Errors.raise(
-          "MODEL_DEF_DUPLICATE_SEMANTIC",
+          FieldErrors.MODEL_DEF_DUPLICATE_SEMANTIC,
           "model " .. definition.key .. " maps role " .. semantic .. " twice",
           { semantic = semantic, name = clip.name }
         )
       end
       if byName[semantic] then
         Errors.raise(
-          "MODEL_DEF_NAME_SEMANTIC_COLLISION",
+          FieldErrors.MODEL_DEF_NAME_SEMANTIC_COLLISION,
           "model " .. definition.key .. " clip name " .. semantic .. " collides with a semantic role",
           { semantic = semantic, name = clip.name }
         )
@@ -167,7 +168,7 @@ function ModelDefinition.fromNitroDescriptor(desc, opts)
   -- The loader supplies the key through opts when it knows the model key.
   local key = opts.key or desc.key
   if not key then
-    Errors.raise("NITRO_DESC_NO_KEY", "model descriptor requires a key (desc.key or opts.key)", {})
+    Errors.raise(FieldErrors.NITRO_DESC_NO_KEY, "model descriptor requires a key (desc.key or opts.key)", {})
   end
   local program = desc.dynamic.transformProgram
   local nodes = {}

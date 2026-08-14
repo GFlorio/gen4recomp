@@ -43,6 +43,7 @@ local WarpSystem = require("libs.engine.src.WarpSystem")
 local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
 local FieldGrid = require("libs.engine.src.FieldGrid")
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local AnimationClip = require("libs.assets.src.AnimationClip")
 local ModelAnimationState = require("libs.engine.src.ModelAnimationState")
 
@@ -72,7 +73,7 @@ local DOOR_TIE_EPSILON_SQ = 1e-4
 
 local function raiseUnknown(definition, animation)
   Errors.raise(
-    "MAP_PROP_ANIM_UNKNOWN",
+    FieldErrors.MAP_PROP_ANIM_UNKNOWN,
     "map prop has no animation named " .. tostring(animation) .. " (model " .. definition.key .. ")",
     { animation = animation, modelKey = definition.key }
   )
@@ -111,7 +112,7 @@ function MapProps.new(opts)
         -- whether or not the newcomer is nominally nearer -- the transform
         -- data does not distinguish them.
         Errors.raise(
-          "MAP_PROP_AMBIGUOUS_DOOR",
+          FieldErrors.MAP_PROP_AMBIGUOUS_DOOR,
           "door tile ("
             .. tile.x
             .. ","
@@ -132,7 +133,7 @@ function MapProps.new(opts)
     end
     if not best then
       Errors.raise(
-        "MAP_PROP_UNCOVERED_DOOR",
+        FieldErrors.MAP_PROP_UNCOVERED_DOOR,
         "door tile (" .. tile.x .. "," .. tile.z .. ") has no building placement",
         { x = tile.x, z = tile.z }
       )
@@ -140,7 +141,7 @@ function MapProps.new(opts)
     local nearestDistance = math.sqrt(best.distance)
     if nearestDistance > MapProps.MAX_DOOR_PIVOT_DISTANCE_TILES then
       Errors.raise(
-        "MAP_PROP_UNCOVERED_DOOR",
+        FieldErrors.MAP_PROP_UNCOVERED_DOOR,
         "door tile ("
           .. tile.x
           .. ","

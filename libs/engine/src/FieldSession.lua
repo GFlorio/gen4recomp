@@ -188,7 +188,11 @@ function FieldSession:updateFixed(inputSnapshot)
   -- advances script-owned asynchronous work, polls tasks, promotes completed
   -- handoffs, runs ready contexts to yield, and resolves at most one new
   -- interaction. The session never steps the scheduler twice per tick.
-  local scriptOwnedInput = self.scriptScheduler:playerMovementLocked()
+  -- Sampled before the scheduler runs this tick, so it reflects the
+  -- pre-scheduler lock state even though the scheduler step below can
+  -- itself release the lock; the post-scheduler observation right below
+  -- the step call is a second, deliberately distinct read.
+  local movementLockedAtTickStart = self.scriptScheduler:playerMovementLocked()
   local schedulerInput = {
     heldDirection = inputSnapshot.heldDirection,
     pressedDirection = inputSnapshot.pressedDirection,
@@ -218,7 +222,7 @@ function FieldSession:updateFixed(inputSnapshot)
   end
   -- A foreground root owns the field or a player lock suppresses movement
   -- and new triggers; the tick is consumed.
-  if scriptOwnedInput or self.scriptScheduler:playerMovementLocked() then
+  if movementLockedAtTickStart or self.scriptScheduler:playerMovementLocked() then
     self:_advanceTick()
     return
   end

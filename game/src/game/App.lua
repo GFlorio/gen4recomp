@@ -5,6 +5,7 @@
 -- coupling lives here and in the launcher/game UI states. Headless ROM/asset
 -- flows live in the romdump app, not here.
 
+local WindowConfig = require("game.src.WindowConfig")
 local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
 local FieldState = require("game.src.game.FieldState")
@@ -59,7 +60,7 @@ function App.load(opts)
   App.opts = opts or {}
   App.importer = nil
   App.setState(nil)
-  love.graphics.setBackgroundColor(0.08, 0.09, 0.12)
+  love.graphics.setBackgroundColor(unpack(WindowConfig.BACKGROUND_COLOR))
   App.saveDir = love.filesystem.getSaveDirectory()
 
   if App.opts.actors then

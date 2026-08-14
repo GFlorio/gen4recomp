@@ -10,6 +10,7 @@
 -- balances its transform push even when drawing raises.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
@@ -69,7 +70,7 @@ function FieldDialogueRenderer.new(opts)
   local data = cacheFs:read(FieldFontCache.atlasPath(fontId))
   if not data then
     Errors.raise(
-      "FONT_ATLAS_MISSING",
+      FieldErrors.FONT_ATLAS_MISSING,
       "font atlas missing at " .. FieldFontCache.atlasPath(fontId),
       { fontId = fontId, path = FieldFontCache.atlasPath(fontId) }
     )

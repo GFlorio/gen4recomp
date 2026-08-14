@@ -87,7 +87,7 @@ function FieldObjectActor:pushFacingOverride(request)
   assert(type(request) == "table" and type(request.owner) == "string", "a facing override requires an owner")
   if self.interactionFacingOverride then
     Errors.raise(
-      "ACTOR_OVERRIDE_OWNER_MISMATCH",
+      FieldErrors.ACTOR_OVERRIDE_OWNER_MISMATCH,
       "actor " .. self.actorId .. " already has a facing override owned by " .. self.interactionFacingOverride.owner,
       { actorId = self.actorId, owner = self.interactionFacingOverride.owner, requestedBy = request.owner }
     )
@@ -105,7 +105,7 @@ end
 function FieldObjectActor:releaseFacingOverride(token)
   if self.interactionFacingOverride == nil or self.interactionFacingOverride ~= token then
     Errors.raise(
-      "ACTOR_OVERRIDE_OWNER_MISMATCH",
+      FieldErrors.ACTOR_OVERRIDE_OWNER_MISMATCH,
       "released a facing override that actor " .. self.actorId .. " does not hold",
       { actorId = self.actorId }
     )

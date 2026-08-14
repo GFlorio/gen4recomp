@@ -28,6 +28,7 @@
 --  the end of the replay, tile space (engine units)
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local ErrorCodes = require("libs.assets.src.ErrorCodes")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local JointAnimBlend = require("libs.engine.src.JointAnimBlend")
@@ -67,7 +68,7 @@ local function nodeSrt(program, attachments)
     local clip = attachment.clip
     if not clip.compiled then
       Errors.raise(
-        "POSE_NITRO_JOINT_CLIP_NOT_COMPILED",
+        FieldErrors.POSE_NITRO_JOINT_CLIP_NOT_COMPILED,
         "joint clip "
           .. clip.id
           .. " on model "
@@ -130,7 +131,7 @@ function NitroPoseBackend.evaluate(instance)
   local backend = def.backend
   if not backend or not backend.program then
     Errors.raise(
-      "POSE_NITRO_NO_TRANSFORM_PROGRAM",
+      FieldErrors.POSE_NITRO_NO_TRANSFORM_PROGRAM,
       "model " .. def.key .. " has no compiled transform program in its backend payload",
       { modelKey = def.key }
     )
@@ -157,7 +158,7 @@ function NitroPoseBackend.evaluate(instance)
     local draw = result.draws[mesh.drawIndex + 1]
     if not draw then
       Errors.raise(
-        "POSE_NITRO_DRAW_MISSING",
+        FieldErrors.POSE_NITRO_DRAW_MISSING,
         "dynamic mesh "
           .. meshId
           .. " references draw "

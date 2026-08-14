@@ -27,6 +27,7 @@
 -- different frames on different instances. Pure domain module.
 
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 local AnimationClip = require("libs.assets.src.AnimationClip")
 local AnimationPlayer = require("libs.engine.src.AnimationPlayer")
 
@@ -52,7 +53,7 @@ end
 function ModelAnimationState:attach(clip, opts)
   if not AnimationClip.CATEGORIES[clip.category] then
     Errors.raise(
-      "ANIM_STATE_BAD_CATEGORY",
+      FieldErrors.ANIM_STATE_BAD_CATEGORY,
       "clip " .. clip.id .. " has unknown category " .. tostring(clip.category),
       {}
     )
@@ -60,7 +61,7 @@ function ModelAnimationState:attach(clip, opts)
   local binding = self.definition:binding(clip)
   if next(binding.map) == nil then
     Errors.raise(
-      "ANIM_STATE_ZERO_BINDING",
+      FieldErrors.ANIM_STATE_ZERO_BINDING,
       "clip "
         .. clip.id
         .. " binds zero model elements of "
@@ -74,7 +75,7 @@ function ModelAnimationState:attach(clip, opts)
   for _, attachment in ipairs(group) do
     if attachment.clip.kind == clip.kind then
       Errors.raise(
-        "ANIM_STATE_SAME_KIND_IN_USE",
+        FieldErrors.ANIM_STATE_SAME_KIND_IN_USE,
         "clip "
           .. clip.id
           .. " (kind "

@@ -53,6 +53,7 @@
 
 local WarpSystem = require("libs.engine.src.WarpSystem")
 local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 
 ---@class FieldTransition
 ---@field loader FieldMapLoader
@@ -150,7 +151,7 @@ local function beginSourceChoreography(self)
     local door = self.doorAt(self.sourceMap, self.sourceWarp.x, self.sourceWarp.z)
     if not door then
       Errors.raise(
-        "MAP_TRANSITION_UNRESOLVED_SOURCE_DOOR",
+        FieldErrors.MAP_TRANSITION_UNRESOLVED_SOURCE_DOOR,
         "door-kind warp on map "
           .. self.sourceMap.mapId
           .. " at ("
@@ -194,7 +195,7 @@ local function advanceSourceChoreo(self)
         local ok = self.player:scriptedStep(self.facing)
         if not ok then
           Errors.raise(
-            "MAP_TRANSITION_INGRESS_FAILED",
+            FieldErrors.MAP_TRANSITION_INGRESS_FAILED,
             "the ingress step from the door anchor resolves no terrain destination",
             { mapId = self.sourceMap.mapId, x = self.sourceWarp.x, z = self.sourceWarp.z }
           )
@@ -253,7 +254,7 @@ local function advanceDestinationChoreo(self)
         local ok = self.player:scriptedStep(self.facing)
         if not ok then
           Errors.raise(
-            "MAP_TRANSITION_EGRESS_FAILED",
+            FieldErrors.MAP_TRANSITION_EGRESS_FAILED,
             "the egress step from the transition anchor resolves no terrain destination",
             { mapId = self.resolution.destinationMap.mapId }
           )

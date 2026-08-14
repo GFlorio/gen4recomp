@@ -184,8 +184,8 @@ function T.literal_color_triangle_ignores_light_direction(scope)
   end
 end
 
--- The exact restoration contract on a real driver (spec 30.31): with
--- non-default caller state (a bound canvas, an active shader, add blending,
+-- Exact caller-state restoration on a real driver: with non-default caller
+-- state (a bound canvas, an active shader, add blending,
 -- depth testing, wireframe, back-face culling, a tinted color) every modified
 -- state must come back to the exact captured value -- the scene's cutout
 -- actor and a wireframe item dirty cull mode and the wireframe state during
@@ -268,8 +268,8 @@ function T.draw_restores_exact_caller_state_on_real_graphics(scope)
   Assert.equal(sh, 16, "scissor height is untouched")
 end
 
--- End-to-end mask behavior (spec 30.33): the same triangle, material, and
--- profile render different colors under different polygon light masks. The
+-- End-to-end per-polygon light-mask behavior: the same triangle, material,
+-- and profile render different colors under different polygon light masks. The
 -- lit mask draws the head-on white light, the zero mask renders
 -- emission-only (black). Canvas readbacks come back Y-inverted on some GL
 -- drivers, so each triangle is sampled at both its canonical position and
@@ -563,9 +563,9 @@ function T.color_animated_materials_replace_the_profile(scope)
   Assert.isTrue(peak >= 0.6 * scale, "the animated diffuse renders at its own value, not the profile's")
 end
 
--- A runtime with no lighting profile must not inherit the previous lit
--- scene's light/material uniforms (spec 30.35): the profile-less draw
--- explicitly sends disabled lights and zero material colors, so a
+-- A scene with no lighting profile must not inherit the previous lit
+-- scene's light/material uniforms: the profile-less draw explicitly sends
+-- disabled lights and zero material colors, so a
 -- NORMAL-lit vertex and a field-diffuse vertex both render dark after a
 -- bright lit frame instead of the lit frame's values. Canvas readbacks come
 -- back Y-inverted on some GL drivers, so each triangle is sampled at both
@@ -666,7 +666,12 @@ function T.lit_then_unlit_scene_does_not_inherit_lighting(scope)
 end
 
 function T.a_straddling_item_bends_its_leading_vertices(scope)
-  local renderer = scope:own(MapRenderer.new())
+  -- An arbitrary injected clear color distinguishable from the drawn
+  -- triangles: this test asserts against it directly, not against
+  -- MapRenderer's fallback default (libs/engine carries no opinion about
+  -- what color a game wants; only that it clears to whatever it is given).
+  local clearColor = { 0.08, 0.09, 0.12, 1 }
+  local renderer = scope:own(MapRenderer.new({ clearColor = clearColor }))
   local lg = love.graphics
 
   -- Leading triangle (green) at y in [0.2, 0.5]; trailing triangle (red) at
@@ -725,9 +730,9 @@ function T.a_straddling_item_bends_its_leading_vertices(scope)
   -- Where the unbaked leading triangle would have drawn (world y in
   -- [0.2, 0.5]): nothing but the background color.
   local br, bg, bb = pixelAt(0, 0.35)
-  Assert.near(br, 0.08, 0.05, "unbaked position red")
-  Assert.near(bg, 0.09, 0.05, "unbaked position green")
-  Assert.near(bb, 0.12, 0.05, "unbaked position blue")
+  Assert.near(br, clearColor[1], 0.05, "unbaked position red")
+  Assert.near(bg, clearColor[2], 0.05, "unbaked position green")
+  Assert.near(bb, clearColor[3], 0.05, "unbaked position blue")
 end
 
 -- A lighting profile with one white light and a specular-only material
