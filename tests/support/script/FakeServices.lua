@@ -317,6 +317,7 @@ end
 ---@field resolveComposition fun(scriptId: string): table|nil|nil
 ---@field menu table
 ---@field scriptMenu table
+---@field signpost ScriptSignpostHost|nil
 ---@field auxiliaryUi AuxiliaryFieldUi
 local FakeServices = {}
 FakeServices.__index = FakeServices

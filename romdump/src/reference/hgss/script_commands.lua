@@ -373,6 +373,7 @@ return {
       widths = {},
     },
     [55] = {
+      classification = "yield_next_tick",
       name = "ScrCmd_DirectionSignpost",
       widths = {
         [1] = 1,
@@ -382,6 +383,7 @@ return {
       },
     },
     [56] = {
+      classification = "yield_next_tick",
       name = "ScrCmd_SetSignpostMap",
       widths = {
         [1] = 1,

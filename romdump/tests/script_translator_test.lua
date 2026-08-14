@@ -461,11 +461,10 @@ T["field menu operations verify as supported"] = function()
   Assert.equal(report.unsupportedCount, 0)
 end
 
--- 12. Opcodes 55-60 carry no execution classification yet: the decoder-only
--- step keeps them explicit unsupported nodes whose operands survive lowering
--- untouched, and they never enter the SUPPORTED set. The later signpost
--- runtime work adds each classification atomically with support.
-T["signpost commands stay unclassified with preserved operands"] = function()
+-- 12. Opcodes 55 and 56 carry the yield_next_tick classification (their
+-- runtime support landed atomically with it); 57-60 stay classification-free
+-- explicit unsupported nodes whose operands survive lowering untouched.
+T["signpost 55/56 classify as yields while 57-60 stay unsupported"] = function()
   local bytes = ScriptFixture.member({
     scripts = {
       {
@@ -490,16 +489,18 @@ T["signpost commands stay unclassified with preserved operands"] = function()
       },
     },
   })
-  for opcode = 55, 60 do
+  for opcode = 57, 60 do
     Assert.equal(CommandCatalog.classification(opcode), CommandCatalog.UNSUPPORTED)
     Assert.isNil(CommandCatalog.SUPPORTED[opcode], "opcode " .. opcode .. " is not marked supported")
   end
+  Assert.equal(CommandCatalog.classification(55), CommandCatalog.YIELD)
+  Assert.equal(CommandCatalog.classification(56), CommandCatalog.YIELD)
+  Assert.isTrue(CommandCatalog.SUPPORTED[55], "opcode 55 is supported")
+  Assert.isTrue(CommandCatalog.SUPPORTED[56], "opcode 56 is supported")
   local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 5, "synthetic", { msgBank = 543, catalog = CATALOG }))
   local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
-  Assert.equal(#lowered.unsupported, 6)
+  Assert.equal(#lowered.unsupported, 4)
   local expected = {
-    { command = 55, originalName = "ScrCmd_DirectionSignpost", arguments = { 0, 1, 4, "VAR_SPECIAL_x8008" } },
-    { command = 56, originalName = "ScrCmd_SetSignpostMap", arguments = { 2, 0 } },
     { command = 57, originalName = "ScrCmd_SetSignpostAction", arguments = { 3 } },
     { command = 58, originalName = "ScrCmd_WaitSignpostAction", arguments = {} },
     { command = 59, originalName = "ScrCmd_TrainerTips", arguments = { 0, "VAR_SPECIAL_x8008" } },
@@ -513,8 +514,55 @@ T["signpost commands stay unclassified with preserved operands"] = function()
     Assert.deepEqual(step.arguments, contract.arguments, "opcode " .. contract.command .. " keeps its operands")
   end
   local report = Verifier.verifyScript(Structurer.structure(lowered, 0), ir.scripts[0], ir, lowered.omissions)
-  Assert.equal(report.unsupportedCount, 6)
+  Assert.equal(report.unsupportedCount, 4)
   Assert.isFalse(report.complete)
+end
+
+-- 13. The canonical lowering shapes for opcodes 55 and 56: the raw
+-- type/map (and the unused 55 output) survive exactly as source data, the
+-- message id is bank-qualified from the member, and both nodes verify as
+-- supported yield boundaries with provenance.
+T["direction and set signpost lower to canonical nodes"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          -- DirectionSignpost: message, type, map, unused out.
+          {
+            op = 55,
+            args = {
+              { value = 0, width = 1 },
+              { value = 1, width = 1 },
+              { value = 4, width = 2 },
+              { value = 0x8008, width = 2 },
+            },
+          },
+          -- SetSignpostMap: type, map.
+          { op = 56, args = { { value = 2, width = 1 }, { value = 0, width = 2 } } },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 5, "synthetic", { msgBank = 543, catalog = CATALOG }))
+  local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+  Assert.deepEqual(lowered.items[1], {
+    op = "signpost_direction",
+    message = { message = "external", bank = 543, id = 0 },
+    sourceAppearance = { game = "hgss", type = 1, map = 4 },
+    sourceUnusedOut = "VAR_SPECIAL_x8008",
+    provenance = { offsets = { 32 }, opcodes = { 55 } },
+  })
+  Assert.deepEqual(lowered.items[2], {
+    op = "signpost_set",
+    sourceAppearance = { game = "hgss", type = 2, map = 0 },
+    provenance = { offsets = { 40 }, opcodes = { 56 } },
+  })
+  local report = Verifier.verifyScript(Structurer.structure(lowered, 0), ir.scripts[0], ir, lowered.omissions)
+  Assert.isTrue(report.ok, report.problems[1] and report.problems[1].message or "signpost 55/56 must verify")
+  Assert.equal(report.unsupportedCount, 0)
+  Assert.isTrue(report.complete)
 end
 
 return { tests = T }

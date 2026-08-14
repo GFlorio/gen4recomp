@@ -145,6 +145,57 @@ function T.rejects_unknown_operation()
   Assert.equal(err.context.path, "steps/0")
 end
 
+function T.signpost_operations_validate_canonical_shapes()
+  valid(S.script({
+    api = 1,
+    id = "x",
+    steps = {
+      {
+        op = "signpost_direction",
+        message = { message = "external", bank = 542, id = 34 },
+        sourceAppearance = { game = "hgss", type = 0, map = 11 },
+        sourceUnusedOut = "VAR_SPECIAL_RESULT",
+      },
+      {
+        op = "signpost_set",
+        sourceAppearance = { game = "hgss", type = 2, map = 0 },
+      },
+      S.stop(),
+    },
+  }))
+end
+
+function T.signpost_operations_reject_malformed_shapes()
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "signpost_direction", sourceAppearance = { game = "hgss", type = 0, map = 1 } } },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "signpost_set" } },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "signpost_set", sourceAppearance = { game = "hgss", type = 0, map = 1 }, command = "show" } },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = {
+      {
+        op = "signpost_direction",
+        message = "msg.hgss.0542.00034",
+        sourceAppearance = { game = "hgss", type = 0, map = 1 },
+        sourceUnusedOut = "VAR_SPECIAL_RESULT",
+        extra = true,
+      },
+    },
+  })
+end
+
 function T.rejects_inert_say_options()
   invalidCode("SCRIPT_SCHEMA_INVALID", {
     api = 1,

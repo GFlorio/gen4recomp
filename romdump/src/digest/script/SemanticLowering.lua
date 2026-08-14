@@ -361,6 +361,35 @@ local HANDLERS = {
   [54] = function()
     return { op = "hold_message" }
   end,
+  [55] = function(ins, memberIr)
+    -- DirectionSignpost message, type, map, out: the source handler never
+    -- reads or writes the last operand, so it is preserved as source data
+    -- only. The message id is a direct index into the member's message bank
+    -- (the decoder does not bank-resolve 55); the runtime resolves it.
+    assert(memberIr.messageBank ~= nil, "direction signpost requires a script message bank")
+    return {
+      op = "signpost_direction",
+      message = { message = "external", bank = memberIr.messageBank, id = operandValue(ins.operands[1]) },
+      sourceAppearance = {
+        game = "hgss",
+        type = operandValue(ins.operands[2]),
+        map = operandValue(ins.operands[3]),
+      },
+      sourceUnusedOut = operandValue(ins.operands[4]),
+    }
+  end,
+  [56] = function(ins)
+    -- SetSignpostMap type, map: writes the source appearance and queues
+    -- SHOW without executing it (the field signpost update runs it later).
+    return {
+      op = "signpost_set",
+      sourceAppearance = {
+        game = "hgss",
+        type = operandValue(ins.operands[1]),
+        map = operandValue(ins.operands[2]),
+      },
+    }
+  end,
   [63] = function(ins)
     return { op = "ask_yes_no", result = varRef(ins.operands[1] or 0) }
   end,
