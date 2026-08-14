@@ -65,7 +65,7 @@ local function loadRequired(cacheFs, path, code)
   if value == nil then
     Errors.raise(code, "required field cache file is unavailable", {
       path = path,
-      cause = err and err.code,
+      cause = err and Errors.format(err),
     })
   end
   return value --[[@as table]]
