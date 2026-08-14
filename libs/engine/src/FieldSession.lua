@@ -42,6 +42,7 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field contextChoice ContextChoiceProvider
 ---@field signpost FieldSignpostController
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
+---@field audio { updateFixed: fun(self: table) }?
 
 ---@class FieldSession.Interactions
 ---@field resolve fun(self: FieldSession.Interactions, snapshot: InteractionResolverSnapshot): InteractionIntent?
@@ -63,6 +64,7 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field contextChoice ContextChoiceProvider
 ---@field signpost FieldSignpostController the fixed-tick signpost controller (save-gate interrogation only; the scheduler steps it)
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
+---@field audio { updateFixed: fun(self: table), isSaveStable: fun(self: table): boolean? }?
 ---@field tick integer
 ---@field accumulator number
 local FieldSession = {}
@@ -117,6 +119,9 @@ function FieldSession.new(options)
     "field session application host required"
   )
   assert(options.interactions and options.interactions.resolve, "field session interaction resolver required")
+  if options.audio then
+    assert(type(options.audio.updateFixed) == "function", "field session audio update required")
+  end
   return setmetatable({
     versionId = options.versionId,
     currentMap = options.currentMap,
@@ -134,6 +139,7 @@ function FieldSession.new(options)
     contextChoice = options.contextChoice,
     signpost = options.signpost,
     applicationHost = options.applicationHost,
+    audio = options.audio,
     tick = 0,
     accumulator = 0,
   }, FieldSession)
@@ -164,6 +170,12 @@ function FieldSession:_advanceTick()
 end
 
 function FieldSession:updateFixed(inputSnapshot)
+  -- The audio service advances once per field fixed tick, before every
+  -- early return (transition, dialogue, script lock), so fades, fanfares
+  -- and post-wait state never stall behind dialogue or movement.
+  if self.audio then
+    self.audio:updateFixed()
+  end
   inputSnapshot = inputSnapshot or self.input:snapshot()
   -- The door/stair choreography drives the player during the locked
   -- transition: the pose clock hears the walking state at tick start, the

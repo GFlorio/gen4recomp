@@ -528,4 +528,47 @@ function T.event_state_over_the_safety_limit_is_rejected()
   end)
 end
 
+-- Audio introduces transient script-observable state (fades, fanfares,
+-- cries, awaited effects) that the save model does not serialize: a session
+-- with an audio collaborator may only be captured while it reports stable.
+-- Ordinary continuous map BGM stays stable, so the gate lives entirely in
+-- the audio predicate.
+function T.unstable_audio_blocks_capture_and_stable_audio_allows_it()
+  local audioState = { stable = false }
+  local audio = {
+    isSaveStable = function()
+      return audioState.stable
+    end,
+  }
+  local s = session(runtimeMap("terrain-a", { flat(11, 4) }))
+  s.audio = audio
+  Assert.isFalse(FieldSave.canCapture(s), "an active fade/fanfare/cry/awaited effect blocks capture")
+  audioState.stable = true
+  Assert.isTrue(FieldSave.canCapture(s), "stable audio never blocks capture")
+  -- A nil stability answer must never allow capture: the audio backend that
+  -- cannot report stability behaves like unstable audio.
+  audioState.stable = nil
+  Assert.isFalse(FieldSave.canCapture(s))
+  -- The capture boundary enforces the gate through canCapture.
+  audioState.stable = true
+  local saved = FieldSave.capture(s, {
+    avatarId = "hero",
+    world = world(),
+    scenario = "pre-script-demo-v1",
+    scriptsBucket = {},
+    auxiliaryUi = { requested = "shown", state = "shown" },
+  })
+  Assert.deepEqual(saved, record())
+end
+
+-- Sessions without an audio collaborator keep the existing stability
+-- contract: the audio gate is absent, not always-open or always-closed.
+function T.sessions_without_audio_keep_the_existing_capture_contract()
+  local map = runtimeMap("terrain-a", { flat(11, 4) })
+  Assert.isTrue(FieldSave.canCapture(session(map)))
+  local walking = session(map)
+  walking.player.motion = "walking"
+  Assert.isFalse(FieldSave.canCapture(walking))
+end
+
 return { tests = T }

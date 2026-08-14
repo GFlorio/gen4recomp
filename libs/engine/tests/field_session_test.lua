@@ -2002,4 +2002,113 @@ function T.a_successful_open_consumes_the_tick_without_stepping_the_world()
   Assert.equal(session.tick, 1)
 end
 
+
+-- The audio collaborator is optional, but a session that has one must
+-- advance it once near the start of every fixed tick, before the tick's
+-- early returns (transition, dialogue, script lock), so fades, fanfares and
+-- post-wait state never stall behind dialogue or movement.
+function T.audio_update_fixed_runs_once_per_tick_before_the_early_returns()
+  local log = {}
+  local state = { transitionLocked = false, dialogueModal = false, scriptLocked = false }
+  local audio = {
+    updateFixed = function()
+      log[#log + 1] = "audio"
+    end,
+  }
+  local transition = {
+    phase = "idle",
+    locked = false,
+    updateFixed = function(self)
+      log[#log + 1] = "transition"
+      self.locked = state.transitionLocked
+    end,
+    start = function()
+      error("idle transition must never start a warp", 2)
+    end,
+  }
+  local map = {
+    mapId = 61,
+    fieldData = { events = { warps = {} } },
+    updateAnimated = function()
+      log[#log + 1] = "map"
+    end,
+  }
+  local dialogue = {
+    isModal = function()
+      return state.dialogueModal
+    end,
+    step = function()
+      log[#log + 1] = "dialogue"
+    end,
+  }
+  local scheduler = {
+    step = function()
+      log[#log + 1] = "scheduler"
+    end,
+    playerMovementLocked = function()
+      return state.scriptLocked
+    end,
+  }
+  local player = {
+    fieldX = 4,
+    fieldZ = 13,
+    worldX = 0,
+    worldY = 0,
+    worldZ = 0,
+    surfaceId = 0,
+    facing = "south",
+    motion = "idle",
+    updateFixed = function()
+      log[#log + 1] = "player"
+    end,
+    collapseRenderInterpolation = function() end,
+  }
+  local camera = {
+    updateFixed = function()
+      log[#log + 1] = "camera"
+    end,
+  }
+  local s = FieldSession.new(baseOptions({
+    audio = audio,
+    currentMap = map,
+    player = player,
+    camera = camera,
+    transition = transition,
+    dialogue = dialogue,
+    scriptScheduler = scheduler,
+  }))
+
+  local segments = {}
+  local previous = 0
+  local function runTick(label)
+    s:updateFixed({})
+    segments[label] = { from = previous + 1, to = #log }
+    previous = #log
+  end
+  runTick("ordinary")
+  state.transitionLocked = true
+  runTick("transition")
+  state.transitionLocked = false
+  state.dialogueModal = true
+  runTick("dialogue")
+  state.dialogueModal = false
+  state.scriptLocked = true
+  runTick("script")
+
+  local expected = {
+    ordinary = { "audio", "transition", "map", "scheduler", "player", "camera" },
+    transition = { "audio", "transition", "map", "camera" },
+    dialogue = { "audio", "transition", "map", "dialogue" },
+    script = { "audio", "transition", "map", "scheduler" },
+  }
+  for label, order in pairs(expected) do
+    local segment = segments[label]
+    local got = {}
+    for i = segment.from, segment.to do
+      got[#got + 1] = log[i]
+    end
+    Assert.deepEqual(got, order, "the " .. label .. " tick calls audio first, exactly once, and returns early")
+  end
+end
+
 return { tests = T }

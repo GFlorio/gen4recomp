@@ -376,6 +376,35 @@ function SequencePlayer:stop()
   self._players = {}
 end
 
+-- Releases the voices of the sequence on `playerId` and removes it; a
+-- player with no active instance is a no-op.
+---@param playerId integer
+function SequencePlayer:stopPlayer(playerId)
+  local instance = self._players[playerId]
+  if instance == nil then
+    return
+  end
+  releaseInstance(self, instance)
+  self._players[playerId] = nil
+end
+
+-- True while the sequence on `playerId` still has a running track; a player
+-- whose sequence has ended (or was never started) reports free.
+---@param playerId integer
+---@return boolean
+function SequencePlayer:isPlayerPlaying(playerId)
+  local instance = self._players[playerId]
+  if instance == nil then
+    return false
+  end
+  for _, track in pairs(instance.tracks) do
+    if not track.ended then
+      return true
+    end
+  end
+  return false
+end
+
 -- True while any track of any active sequence is still running.
 function SequencePlayer:isPlaying()
   for _, instance in pairs(self._players) do

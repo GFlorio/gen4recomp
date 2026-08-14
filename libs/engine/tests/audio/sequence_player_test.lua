@@ -673,4 +673,53 @@ function T.note_commands_carry_the_full_voice_spec()
   Assert.deepEqual(noteOffs, { 3 }, "the note releases the channel the mixer assigned")
 end
 
+-- The per-player queries GameSound builds its wait and stop semantics on:
+-- a player is playing while any of its tracks run, and stopping one player
+-- releases exactly that player's voices.
+function T.stop_player_releases_only_that_player()
+  local bgm = seq({
+    { op = "program", program = 0 },
+    { op = "note", key = 60, velocity = 127, duration = 1 },
+    { op = "jump", target = 2 },
+  }, { playerId = 1 })
+  local effect = seq(
+    { { op = "program", program = 1 }, { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "fin" } },
+    {
+      id = 1,
+      symbol = "SEQ_EFFECT",
+      playerId = 2,
+    }
+  )
+  local player, provider = engine({ [0] = bgm, [1] = effect })
+  player:play(provider:sequence(0), provider:bank(12))
+  player:play(provider:sequence(1), provider:bank(12))
+  player:render(200)
+  Assert.isTrue(player:isPlayerPlaying(1))
+  Assert.isTrue(player:isPlayerPlaying(2))
+  player:stopPlayer(2)
+  Assert.isFalse(player:isPlayerPlaying(2), "the stopped player reports free")
+  Assert.isTrue(player:isPlayerPlaying(1), "the other player keeps running")
+  -- 200 frames rendered before the stop, so this chunk stays inside the
+  -- bgm's continuing 500-frame note window: no retrigger phase shift.
+  local pcm = player:render(300)
+  local expected = {}
+  for i = 1, 300 do
+    expected[i] = WAVE_A[(200 + i - 1) % 8 + 1]
+  end
+  Assert.deepEqual(left(pcm, 300), expected, "only the bgm survives the effect stop")
+  Assert.isTrue(player:isPlaying())
+end
+
+function T.an_ended_or_never_played_player_reports_free()
+  local player, provider =
+    engine({ [0] = seq({ { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "fin" } }, { playerId = 2 }) })
+  Assert.isFalse(player:isPlayerPlaying(2), "a player with no instance reports free")
+  player:play(provider:sequence(0), provider:bank(12))
+  player:render(600)
+  Assert.isFalse(player:isPlayerPlaying(2), "a player whose sequence ended reports free")
+  Assert.isFalse(player:isPlaying())
+  player:stopPlayer(2)
+  player:stopPlayer(9)
+end
+
 return { tests = T }
