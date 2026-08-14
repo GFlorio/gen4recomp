@@ -112,8 +112,29 @@ The resolved per-batch polygon state (not the material) carries:
 * `translucentDepthWrite`, `depthEqual`, `farClipEnabled`, `oneDotEnabled`,
   `fogEnabled`.
 
-Materials carry only texture, wrap/flip, and a diffuse color retained for
-modulation/decal semantics.
+Materials carry the texture, wrap/flip, and a diffuse color retained for
+modulation/decal semantics. Terrain scene materials additionally carry their
+texture-matrix inputs (`texWidth`, `texHeight`, `texMtxMode`, and the
+normalized static `srt`), and, when the map's `fldtanime` table animates them,
+a `textureSwap` replacement schedule.
+
+## Terrain animation
+
+Terrain texture animation is compiled into the scene descriptor and driven at
+field time by `TerrainMaterialAnimator`:
+
+* `material.texture` is the initial terrain image the map binds at load.
+* `material.textureSwap = { name, steps }` is the replacement schedule:
+  each step references the image HGSS uploads on entering that schedule entry,
+  with its `durationTicks`. The initial `material.texture` is not part of the
+  schedule; step images are swapped in only when a step's duration expires.
+* Terrain texture SRT (the area NSBTA clip) is initialized at scene load from
+  frame zero and re-sampled once per fixed tick; a material without a clip
+  target keeps its static `srt` matrix.
+
+The asset cache validates the generated schedule (including that same-name
+schedules agree across central and neighbor cells) and that terrain
+`texMtxMode` is `0`.
 
 ## Vertex color sources and G4M2
 
@@ -262,7 +283,12 @@ actors draw with the world projection, exactly as on the DS.
   blend is not computed separately: it follows from the position blend while each
   bind pose is rigid, which the compiler checks per joint and raises
   `NSBMD_SBC_NODEMIX_NONRIGID_BIND_POSE` if violated.
-* Scene v3 / G4M2 / cache v5 explicit versioning and invalidation.
+* Building/model animation (NSBCA joints, NSBTP pattern, NSBMA color, NSBTA
+  texture SRT) through the dynamic-model path and `MaterialEvaluator`, including
+  door roles and the time-of-day banded clips.
+* Terrain texture swap and terrain texture SRT (see "Terrain animation"),
+  stepped at fixed-tick time by `TerrainMaterialAnimator`.
+* Scene v5 / G4M2 / cache v7 explicit versioning and invalidation.
 
 ### Deferred / approximate
 
@@ -277,7 +303,6 @@ one, the compiler raises a structured error instead of rendering incorrectly.
 * Shadow polygons.
 * Exact fixed-point clipping/raster interpolation.
 * Local shininess-table rendering (table data is parsed but not used).
-* Animated materials/textures/joints.
 * `BBY` yaw-only billboards, `CALLDL` external display lists, non-rigid `NODEMIX`
   bind poses, and the Si3D scaling rule.
 

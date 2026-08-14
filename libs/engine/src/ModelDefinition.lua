@@ -35,6 +35,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local PolygonState = require("libs.assets.src.PolygonState")
+local AnimationClip = require("libs.assets.src.AnimationClip")
 
 local ModelDefinition = {}
 ModelDefinition.__index = ModelDefinition
@@ -245,14 +246,14 @@ function ModelDefinition:binding(clip)
     )
     local map = {}
     local trackByMaterial
-    if clip.category == "joint" then
+    if clip.category == AnimationClip.CATEGORIES.joint then
       for _, track in ipairs(clip.tracks) do
         local target = track.target
         if type(target) == "number" and self:node(target) then
           map[target] = target
         end
       end
-    elseif clip.category == "material" then
+    elseif clip.category == AnimationClip.CATEGORIES.material then
       trackByMaterial = {}
       for i, track in ipairs(clip.tracks) do
         for j, material in ipairs(self.materials) do

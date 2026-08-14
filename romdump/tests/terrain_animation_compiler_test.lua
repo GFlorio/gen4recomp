@@ -128,7 +128,7 @@ local function compileScene(opts)
     modelArchive = "land_data",
     modelMemberId = LAND_MEMBER_ID,
     modelName = "map0",
-    terrainAnimations = scene.compiler,
+    terrainAnimationCompiler = scene.compiler,
   })
   scene.meshes = meshes
   scene.textures = textures
@@ -441,7 +441,7 @@ function T.dependencies_carry_the_table_hash_and_only_used_member_hashes()
         modelArchive = "land_data",
         modelMemberId = LAND_MEMBER_ID,
         modelName = "map0",
-        terrainAnimations = scene.compiler,
+        terrainAnimationCompiler = scene.compiler,
       })
     return compiled
   end
@@ -467,7 +467,7 @@ end
 -- The texture-matrix fields are a terrain-material contract: compileModel
 -- emits them for the map and neighbor roles, and never for placed-building
 -- models -- the fields are role-scoped while the textureSwap annotation is
--- option-scoped (context.terrainAnimations presence).
+-- option-scoped (context.terrainAnimationCompiler presence).
 function T.terrain_fields_are_scoped_to_terrain_roles()
   local scene = buildScene(animationSceneOpts())
   local function compileModel(role)
@@ -609,7 +609,7 @@ function T.a_replacement_member_is_read_once_across_matching_materials()
       modelArchive = "land_data",
       modelMemberId = LAND_MEMBER_ID,
       modelName = "map0",
-      terrainAnimations = compiler,
+      terrainAnimationCompiler = compiler,
     })
   end
 

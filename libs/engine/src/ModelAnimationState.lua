@@ -33,13 +33,16 @@ local AnimationPlayer = require("libs.engine.src.AnimationPlayer")
 local ModelAnimationState = {}
 ModelAnimationState.__index = ModelAnimationState
 
-ModelAnimationState.GROUPS = { "joint", "material" }
+ModelAnimationState.GROUPS = { AnimationClip.CATEGORIES.joint, AnimationClip.CATEGORIES.material }
 
 function ModelAnimationState.new(definition)
   assert(type(definition) == "table" and definition.key ~= nil, "ModelAnimationState.new requires a ModelDefinition")
   return setmetatable({
     definition = definition,
-    groups = { joint = {}, material = {} },
+    groups = {
+      [AnimationClip.CATEGORIES.joint] = {},
+      [AnimationClip.CATEGORIES.material] = {},
+    },
   }, ModelAnimationState)
 end
 

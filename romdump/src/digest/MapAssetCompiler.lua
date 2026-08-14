@@ -327,7 +327,7 @@ local function _compile(romFs, idOrSymbol, opts)
   -- fldtanime table and serves every central and neighbor terrain compile,
   -- so all matched replacement members land in one dependency record, and
   -- the one area NSBTA clip is compiled from the central area's selection.
-  local terrainAnimations = TerrainAnimationCompiler.new(romFs, {
+  local terrainAnimationCompiler = TerrainAnimationCompiler.new(romFs, {
     mapId = mapId,
     dynamicTextureType = area.dynamicTextureType,
   })
@@ -396,7 +396,7 @@ local function _compile(romFs, idOrSymbol, opts)
     modelArchive = "land_data",
     modelMemberId = resolved.landDataMemberId,
     modelName = mapModel.name,
-    terrainAnimations = terrainAnimations,
+    terrainAnimationCompiler = terrainAnimationCompiler,
   })
 
   -- Materials whose names the pack they bind to does not define. They draw
@@ -559,7 +559,7 @@ local function _compile(romFs, idOrSymbol, opts)
       mapId = mapId,
       mapSymbol = resolved.map.symbol,
       neighborCells = neighborCells,
-      terrainAnimations = terrainAnimations,
+      terrainAnimationCompiler = terrainAnimationCompiler,
     })
     for sha1, b in pairs(chunk.meshes) do
       meshes[sha1] = b
@@ -596,7 +596,7 @@ local function _compile(romFs, idOrSymbol, opts)
   -- The one area texture-coordinate clip (or false) is compiled once after
   -- every central and neighbor terrain compile so the dependency record
   -- covers the whole ring; the neighbor areas' own selections are ignored.
-  local textureSrt = terrainAnimations:compileTextureSrt()
+  local textureSrt = terrainAnimationCompiler:compileTextureSrt()
 
   -- Dependency record -> hash -> marker.
   local buildingModelShas = {}
@@ -646,7 +646,7 @@ local function _compile(romFs, idOrSymbol, opts)
   -- dependency: the fldtanime table hash unconditionally, only the used
   -- replacement members, and the selected area NSBTA member -- merged before
   -- the marker hash so any animation source change invalidates the map.
-  local terrainAnimDeps = terrainAnimations:dependencies()
+  local terrainAnimDeps = terrainAnimationCompiler:dependencies()
   dependencies.fieldTextureAnimations = terrainAnimDeps.fieldTextureAnimations
   dependencies.terrainTextureSrt = terrainAnimDeps.terrainTextureSrt
   local marker = MapAssetCache.marker(romSha1, mapId, Hashing.hashLua(dependencies))

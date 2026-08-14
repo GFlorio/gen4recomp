@@ -35,6 +35,7 @@ local PoseContract = require("libs.assets.src.PoseContract")
 local MaterialEvaluator = require("libs.engine.src.MaterialEvaluator")
 local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 local PolygonState = require("libs.assets.src.PolygonState")
+local AnimationClip = require("libs.assets.src.AnimationClip")
 
 ---@class MaterialRGB
 ---@field r integer
@@ -221,7 +222,11 @@ end
 -- matrix and the base texture's alpha classification are part of the
 -- effective state.
 function ModelInstance:evaluateMaterials()
-  MaterialEvaluator.evaluate(self.definition, self.animationState:attachments("material"), self.materialState)
+  MaterialEvaluator.evaluate(
+    self.definition,
+    self.animationState:attachments(AnimationClip.CATEGORIES.material),
+    self.materialState
+  )
 end
 
 -- The effective render material record for a material index: definition

@@ -43,9 +43,9 @@ end
 -- Compile land member `landMemberId`, textured through the map-texture pack of
 -- `areaMemberId` (the cell's own area-data member), into
 -- { batches, materials, meshes, textures, collision, terrain }. The optional
--- `context.terrainAnimations` map-scoped terrain-animation compiler rides the
--- compileModel call so the cell's materials annotate against the same
--- fldtanime records and dependency set as the central terrain.
+-- `context.terrainAnimationCompiler` map-scoped terrain-animation compiler
+-- rides the compileModel call so the cell's materials annotate against the
+-- same fldtanime records and dependency set as the central terrain.
 function NeighborChunkCompiler.compile(romFs, landMemberId, areaMemberId, context)
   local areaBytes = readMember(assert(romFs:openNarc("area_data")), "area_data", areaMemberId)
   local area = assert(AreaData.decode(areaBytes, { alias = "area_data", memberId = areaMemberId }))
@@ -72,7 +72,7 @@ function NeighborChunkCompiler.compile(romFs, landMemberId, areaMemberId, contex
     mapSymbol = context and context.mapSymbol or nil,
     role = "neighbor",
     neighborCells = context and context.neighborCells or nil,
-    terrainAnimations = context and context.terrainAnimations or nil,
+    terrainAnimationCompiler = context and context.terrainAnimationCompiler or nil,
     areaDataMemberId = areaMemberId,
     landDataMemberId = landMemberId,
     textureArchive = "map_textures",

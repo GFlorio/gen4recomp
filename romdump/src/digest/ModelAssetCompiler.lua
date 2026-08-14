@@ -14,9 +14,9 @@ local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local Hashing = require("romdump.src.digest.Hashing")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
-local NsbmdDynamicModel = require("romdump.src.digest.NsbmdDynamicModel")
 local PoseContract = require("libs.assets.src.PoseContract")
 local PolygonState = require("libs.assets.src.PolygonState")
+local TextureMatrixState = require("romdump.src.digest.TextureMatrixState")
 
 local ModelAssetCompiler = {}
 
@@ -54,10 +54,11 @@ end
 -- accumulators; return { batches (scene refs), materials, unresolved } -- the
 -- last being the materials whose names the bound pack does not define, tagged
 -- with the model they came from so a caller can report them. When the caller
--- passes a map-scoped terrain-animation compiler in `context.terrainAnimations`
--- (the option's presence selects annotation, not the role), every material
--- whose texture name an fldtanime record names gets a textureSwap record and
--- its alternate frames join the shared texture accumulator.
+-- passes a map-scoped terrain-animation compiler in
+-- `context.terrainAnimationCompiler` (the option's presence selects
+-- annotation, not the role), every material whose texture name an fldtanime
+-- record names gets a textureSwap record and its alternate frames join the
+-- shared texture accumulator.
 local function compileModel(model, texturePack, meshes, textures, context)
   local mat = MaterialCompiler.compile(model.materials, texturePack, { context = context })
   for sha1, tex in pairs(mat.textures) do
@@ -96,16 +97,16 @@ local function compileModel(model, texturePack, meshes, textures, context)
   if context.role == "map" or context.role == "neighbor" then
     terrainStateById = {}
     for _, mat in ipairs(model.materials) do
-      terrainStateById[mat.index] = NsbmdDynamicModel.textureMatrixState(mat, model.info.texMtxMode)
+      terrainStateById[mat.index] = TextureMatrixState.fromMaterial(mat, model.info.texMtxMode)
     end
   end
 
   local materials = sceneMaterials(mat.materials, terrainStateById)
-  if context.terrainAnimations then
+  if context.terrainAnimationCompiler then
     for i, m in ipairs(mat.materials) do
       -- A matched record yields a textureSwap record; an unmatched material
       -- or one that failed texture binding leaves the field omitted.
-      local swap = context.terrainAnimations:annotateMaterial(model.materials[i], m, texturePack, textures)
+      local swap = context.terrainAnimationCompiler:annotateMaterial(model.materials[i], m, texturePack, textures)
       if swap then
         materials[i].textureSwap = swap
       end

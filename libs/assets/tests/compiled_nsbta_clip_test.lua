@@ -114,8 +114,8 @@ function T.rate_4_requires_anchor_keys_for_the_last_frame()
   end))
 end
 
--- The incorrect fixture shape from the earlier cache validation: a 360-frame
--- rate-1 clip cannot sample from eight keys.
+-- A rate-1 curve needs one key per frame: a 360-frame clip cannot sample
+-- from eight keys.
 function T.a_360_frame_rate_1_curve_needs_360_keys()
   assertInvalid(clip(function(c)
     c.frameCount = 360

@@ -30,6 +30,7 @@
 local Errors = require("libs.errors.src.Errors")
 local ErrorCodes = require("libs.assets.src.ErrorCodes")
 local FixedPoint = require("libs.math.src.FixedPoint")
+local AnimationClip = require("libs.assets.src.AnimationClip")
 local JointAnimBlend = require("libs.engine.src.JointAnimBlend")
 local NitroJointState = require("libs.engine.src.NitroJointState")
 local CompiledNsbcaSampler = require("libs.engine.src.CompiledNsbcaSampler")
@@ -137,7 +138,7 @@ function NitroPoseBackend.evaluate(instance)
   end
   local program = backend.program
 
-  local srt = nodeSrt(program, instance.animationState:attachments("joint"))
+  local srt = nodeSrt(program, instance.animationState:attachments(AnimationClip.CATEGORIES.joint))
   local provider = {
     nodeSRT = function(nodeIndex)
       return srt[nodeIndex]
