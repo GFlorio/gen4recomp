@@ -31,19 +31,6 @@ local function resolve(romFs)
   return assert(MapResolver.resolve(romFs, "MAP_NEW_BARK"))
 end
 
--- The production-generated New Bark scene descriptor: the artifact the
--- runtime consumes, compiled by the current producer into the version's
--- derived cache. The conformance contract is the generated behavior, so
--- these tests assert the scene rather than re-parsing the ROM.
-local function generatedScene(versionId)
-  local cache = CacheFs.forVersion(versionId)
-  local scene = assert(
-    cache:loadLua(MapAssetCache.mapDir(60) .. "/scene.lua"),
-    "New Bark's generated scene is present in the derived cache"
-  )
-  return scene
-end
-
 local function isFinite(n)
   return type(n) == "number" and n == n and n ~= math.huge and n ~= -math.huge
 end
@@ -455,9 +442,10 @@ end
 -- New Bark's terrain texture swaps conform to the known retail schedule:
 -- flower01 and flower02 each cycle the exact 0,1,0,2 / 18-tick schedule as
 -- direct playback steps, and flower03 stays static because the archive has
--- no record for it. Asserted on the generated scene descriptor.
-function T.terrain_flower_swaps_conform(romFs, versionId)
-  local scene = generatedScene(versionId)
+-- no record for it. Asserted on the scene compiled from the supplied ROM.
+function T.terrain_flower_swaps_conform(romFs)
+  local bundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK"))
+  local scene = bundle.scene
   local byName = {}
   for _, m in ipairs(scene.materials) do
     byName[m.name] = m
@@ -489,11 +477,14 @@ end
 
 -- The area texture-coordinate animation: New Bark's dynamicTextureType
 -- selects the area00_ani NSBTA, compiled into a data-only clip with 360
--- frames and the eight expected material targets.
-function T.terrain_area_srt_clip_conforms(romFs, versionId)
-  local scene = generatedScene(versionId)
-  local clip = scene.terrainAnimations and scene.terrainAnimations.textureSrt
+-- frames and the eight expected material targets. Asserted on the scene
+-- compiled from the supplied ROM.
+function T.terrain_area_srt_clip_conforms(romFs)
+  local bundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK"))
+  local scene = bundle.scene
+  local clip = scene.terrainAnimations.textureSrt
   Assert.isTrue(type(clip) == "table", "the generated scene carries the area texture-SRT clip")
+  ---@cast clip table
   Assert.equal(clip.id, "area00_ani")
   Assert.equal(clip.name, "area00_ani")
   Assert.equal(clip.kind, "texsrt")
