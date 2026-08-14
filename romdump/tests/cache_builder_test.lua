@@ -29,6 +29,9 @@ local FAKE_PATHS = {
   "romdump.src.digest.FieldFontCompiler",
   "romdump.src.digest.FieldFontCacheWriter",
   "libs.assets.src.FieldFontCache",
+  "romdump.src.digest.FieldUiCompiler",
+  "romdump.src.digest.FieldUiCacheWriter",
+  "libs.assets.src.FieldUiAssetCache",
   "romdump.src.digest.script.ScriptCompiler",
   "romdump.src.digest.ScriptCacheWriter",
   "libs.assets.src.ScriptCache",
@@ -127,6 +130,7 @@ local function newEnv()
       { mapId = 7, marker = "fd-7" },
     },
     fontBundle = { fontId = 5, marker = "font-v1" },
+    uiBundle = { marker = "ui-v1" },
     messageBundle = { marker = "msg-v1", index = { bankIds = { 4, 8 } } },
     scriptBundle = { marker = "scr-v1", index = { resourceCount = 2, scriptMemberCount = 9 } },
   }
@@ -245,6 +249,9 @@ local function makeFakes()
   fakes.FieldFontCompiler.compile = function()
     return env.fontBundle
   end
+  fakes.FieldUiCompiler.compile = function()
+    return env.uiBundle
+  end
   fakes.FieldMessageCompiler.compile = function()
     return env.messageBundle
   end
@@ -320,6 +327,7 @@ function T.current_build_logs_every_class_and_stages_and_publishes_the_world_man
     "build-cache: heartgold map 3 field data current",
     "build-cache: heartgold map 7 field data current",
     "build-cache: heartgold field font current",
+    "build-cache: heartgold field ui current",
     "build-cache: heartgold field messages current",
     "build-cache: heartgold scripts current",
     "build-cache: heartgold map 2 current",
@@ -387,6 +395,7 @@ function T.stale_classes_compile_with_counts_in_pipeline_order()
     FieldActorCacheWriter = true,
     FieldMapDataCache = true,
     FieldFontCacheWriter = true,
+    FieldUiCacheWriter = true,
     FieldMessageCacheWriter = true,
     ScriptCacheWriter = true,
     MapAssetCache = true,
@@ -401,6 +410,7 @@ function T.stale_classes_compile_with_counts_in_pipeline_order()
     "build-cache: heartgold map 3 field data compiled",
     "build-cache: heartgold map 7 field data compiled",
     "build-cache: heartgold field font compiled",
+    "build-cache: heartgold field ui compiled",
     "build-cache: heartgold field messages compiled (2 banks)",
     "build-cache: heartgold scripts compiled (2 resources, 9 members)",
     "build-cache: heartgold map 2 compiled",
@@ -424,9 +434,9 @@ function T.compile_exclusions_fail_the_build_unless_allowed()
   local report, err = CacheBuilder.buildVersions({ "heartgold" }, { log = capture.log })
   Assert.isNil(report)
   Assert.equal(err, "cache preparation failed")
-  Assert.equal(capture.lines[8], "build-cache: heartgold map 2 current")
+  Assert.equal(capture.lines[9], "build-cache: heartgold map 2 current")
   Assert.equal(
-    capture.lines[9],
+    capture.lines[10],
     "build-cache: heartgold map 5 excluded: MAP_SCHEMA_INVALID: injected compile rejection"
   )
   Assert.deepEqual(env.worldStage.compileExcluded, {
@@ -439,11 +449,11 @@ function T.compile_exclusions_fail_the_build_unless_allowed()
     },
   })
   Assert.equal(
-    capture.lines[10],
+    capture.lines[11],
     "build-cache: heartgold world.lua staged (1 maps, 0 unresolved cells, 1 compile-excluded)"
   )
   Assert.equal(
-    capture.lines[11],
+    capture.lines[12],
     "build-cache: compile exclusions remain; " .. "rerun with --allow-compile-exclusions to accept them"
   )
   Assert.equal(env.worldPublishes, 0, "an unaccepted-exclusion build must never publish its staged world")
@@ -457,10 +467,10 @@ function T.compile_exclusions_fail_the_build_unless_allowed()
   Assert.isNil(err2)
   Assert.deepEqual(report2, { published = true, complete = false, exclusionCount = 1 })
   Assert.equal(
-    accepted.lines[10],
+    accepted.lines[11],
     "build-cache: heartgold world.lua staged (1 maps, 0 unresolved cells, 1 compile-excluded)"
   )
-  Assert.equal(accepted.lines[11], "build-cache: heartgold world.lua published")
+  Assert.equal(accepted.lines[12], "build-cache: heartgold world.lua published")
   Assert.equal(env.worldPublishes, 1, "an accepted-exclusion build publishes its staged world")
   -- A build that accepted compile exclusions is not a strict success and must
   -- never publish the successful-build attestation.
@@ -617,6 +627,7 @@ function T.producer_mismatch_forces_every_writer_and_publishes_after_strict_succ
     "FieldMapDataCacheWriter.write",
     "FieldMapDataCacheWriter.write",
     "FieldMessageCacheWriter.write",
+    "FieldUiCacheWriter.write",
     "MapCacheWriter.write",
     "MapCacheWriter.write",
     "ScriptCacheWriter.write",

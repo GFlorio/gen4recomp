@@ -80,7 +80,7 @@ end
 
 function T.alias_list_is_complete_and_deterministic()
   local list = HgssArchives.aliasList()
-  Assert.equal(#list, 33)
+  Assert.equal(#list, 37)
   -- Sorted ascending by narcId.
   for i = 2, #list do
     Assert.isTrue(list[i - 1].narcId < list[i].narcId, "aliasList not sorted by narcId")

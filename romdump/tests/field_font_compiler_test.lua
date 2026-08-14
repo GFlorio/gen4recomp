@@ -9,6 +9,7 @@ local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local LuaWriter = require("libs.codec.src.LuaWriter")
+local PngReader = require("tests.support.PngReader")
 
 local T = {}
 
@@ -147,52 +148,6 @@ local function fixture()
   end
 end
 
--- PngWriter emits a stored-DEFLATE, filter-0 RGBA PNG; this test-side reader
--- recovers the raw RGBA rows so pixel colors can be asserted directly.
-local function pngRgba(png)
-  Assert.equal(png:sub(1, 8), string.char(137, 80, 78, 71, 13, 10, 26, 10))
-  local width = string.byte(png, 17) * 16777216
-    + string.byte(png, 18) * 65536
-    + string.byte(png, 19) * 256
-    + string.byte(png, 20)
-  local height = string.byte(png, 21) * 16777216
-    + string.byte(png, 22) * 65536
-    + string.byte(png, 23) * 256
-    + string.byte(png, 24)
-  -- Find the IDAT payload (first chunk after IHDR).
-  local idatLen = string.byte(png, 34) * 16777216
-    + string.byte(png, 35) * 65536
-    + string.byte(png, 36) * 256
-    + string.byte(png, 37)
-  local payload = png:sub(42, 41 + idatLen)
-  -- Skip the zlib header (2 bytes), then consume stored DEFLATE blocks.
-  local pos = 3
-  local raw = {}
-  repeat
-    local final = string.byte(payload, pos)
-    local len = string.byte(payload, pos + 1) + string.byte(payload, pos + 2) * 256
-    raw[#raw + 1] = payload:sub(pos + 5, pos + 4 + len)
-    pos = pos + 5 + len
-  until final % 2 == 1
-  local rows = table.concat(raw)
-  Assert.equal(#rows, height * (width * 4 + 1))
-  local rgba = {}
-  for y = 0, height - 1 do
-    local row = rows:sub(y * (width * 4 + 1) + 2, (y + 1) * (width * 4 + 1))
-    Assert.equal(string.byte(rows, y * (width * 4 + 1) + 1), 0, "filter must be 0")
-    rgba[#rgba + 1] = row
-  end
-  return width, height, table.concat(rgba)
-end
-
-local function px(rgba, width, x, y)
-  local offset = (y * width + x) * 4 + 1
-  return string.byte(rgba, offset),
-    string.byte(rgba, offset + 1),
-    string.byte(rgba, offset + 2),
-    string.byte(rgba, offset + 3)
-end
-
 function T.compiles_font_def_and_atlas()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldFontCompiler.compile(romFs, sha1, hashLua))
@@ -222,30 +177,30 @@ function T.compiles_font_def_and_atlas()
   -- (right=0xAA shadow, left=0x55 fg), so every quadrant's left half is
   -- fg (slot 1, 0x296B -> 82,90,90) and its right half is shadow
   -- (slot 2, 0x5EF5 -> 189,189,173), resolved at colors[slot+1].
-  local atlasWidth, _, rgba = pngRgba(bundle.atlas)
+  local atlasWidth, _, rgba = PngReader.rgba(bundle.atlas)
   Assert.equal(atlasWidth, 1024)
-  local r, g, b, a = px(rgba, atlasWidth, 0, 0)
+  local r, g, b, a = PngReader.pixel(rgba, atlasWidth, 0, 0)
   Assert.equal(a, 255)
   Assert.equal(r, 82)
   Assert.equal(g, 90)
   Assert.equal(b, 90)
-  local r2, g2, b2, a2 = px(rgba, atlasWidth, 4, 0)
+  local r2, g2, b2, a2 = PngReader.pixel(rgba, atlasWidth, 4, 0)
   Assert.equal(a2, 255)
   Assert.equal(r2, 189)
   Assert.equal(g2, 189)
   Assert.equal(b2, 173)
-  local r3, g3, b3, a3 = px(rgba, atlasWidth, 0, 8)
+  local r3, g3, b3, a3 = PngReader.pixel(rgba, atlasWidth, 0, 8)
   Assert.equal(a3, 255) -- BL tile repeats the same pattern
   Assert.equal(r3, 82)
-  local r4, g4, b4, a4 = px(rgba, atlasWidth, 12, 8)
+  local r4, g4, b4, a4 = PngReader.pixel(rgba, atlasWidth, 12, 8)
   Assert.equal(a4, 255)
   Assert.equal(r4, 189) -- BR right half carries the shadow too
   -- Background-slot pixels (value 3) composite as transparent so glyph cells
   -- never paint opaque rectangles over the narrower glyphs before them.
-  local r5, g5, b5, a5 = px(rgba, atlasWidth, 5, 0)
+  local r5, g5, b5, a5 = PngReader.pixel(rgba, atlasWidth, 5, 0)
   Assert.equal(a5, 0)
   Assert.equal(r5, 0)
-  local r6, g6, b6, a6 = px(rgba, atlasWidth, 7, 0)
+  local r6, g6, b6, a6 = PngReader.pixel(rgba, atlasWidth, 7, 0)
   Assert.equal(a6, 0)
 end
 

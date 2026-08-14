@@ -10,6 +10,7 @@ local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local ScriptCache = require("libs.assets.src.ScriptCache")
 local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
+local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 
 local DerivedCacheAudit = {}
 
@@ -18,6 +19,7 @@ local REQUIRED_MARKERS = {
   FieldCameraCache.markerPath(),
   FieldFontCache.markerPath(),
   FieldMessageCache.markerPath(),
+  FieldUiAssetCache.markerPath(),
   ScriptCache.markerPath(),
 }
 
