@@ -47,6 +47,7 @@ local DsLighting = require("libs.engine.src.DsLighting")
 ---@field depth love.Canvas?
 ---@field canvasW integer?
 ---@field canvasH integer?
+---@field _queueScratch RenderQueueScratch
 local MapRenderer = {}
 MapRenderer.__index = MapRenderer
 
@@ -144,6 +145,13 @@ function MapRenderer.new(opts)
     edgeColors = colors,
     edgeAlpha = edgeMarking.alpha or 0.5,
     stats = { drawCalls = 0, triangles = 0, meshCount = 0, textureCount = 0 },
+    _queueScratch = {
+      opaque = {},
+      cutout = {},
+      translucent = {},
+      wireframe = {},
+      translucentEntries = {},
+    },
   }, MapRenderer)
   -- Shader construction is transactional: a failure while creating the second
   -- shader (or reading its source) releases the first (and any other
@@ -603,18 +611,18 @@ function MapRenderer:_drawWireframeMesh(item, viewMatrix, projection, modelMatri
   self.stats.drawCalls = self.stats.drawCalls + 1
 end
 
--- `worldDraws` is the flattened scene draw list -- map geometry, building
--- batches, the neighbour ring, and actors -- concatenated in desired source
--- order by SceneAssembly, whose flat-list position is the queue's
--- deterministic tie-breaker; the renderer draws exactly
--- this list and no other scene state. `alpha` is the render interpolation
+-- `worldParts` contains ordered arrays of map geometry, building batches, the
+-- neighbour ring, and actors. Their traversal position is the queue's
+-- deterministic tie-breaker; the renderer draws exactly these parts and no
+-- other scene state. `alpha` is the render interpolation
 -- factor forwarded to the camera so the scene is viewed from the same smoothed
 -- state the actors render at. FieldViewport limits the render-target size and
 -- places the result inside the host drawable.
-function MapRenderer:draw(runtime, camera, worldDraws, viewport, alpha)
+---@param worldParts table[][]?
+function MapRenderer:draw(runtime, camera, worldParts, viewport, alpha)
   assert(viewport and viewport.worldViewport, "MapRenderer requires a FieldViewport")
   local lg = assert(self._graphics)
-  local draws = worldDraws or {}
+  local parts = worldParts or {}
 
   self.stats = {
     drawCalls = 0,
@@ -630,9 +638,11 @@ function MapRenderer:draw(runtime, camera, worldDraws, viewport, alpha)
   -- Billboard draws own no baked matrix: resolve each one against this frame's
   -- camera before anything reads `transform`, so u_model, the normal matrix,
   -- translucent sorting, and every pass all use the same orientation.
-  for _, d in ipairs(draws) do
-    if d.billboardBase then
-      d.transform = BillboardTransform.resolve(d.billboardBase, viewMatrix)
+  for _, part in ipairs(parts) do
+    for _, d in ipairs(part) do
+      if d.billboardBase then
+        d.transform = BillboardTransform.resolve(d.billboardBase, viewMatrix)
+      end
     end
   end
 
@@ -658,7 +668,7 @@ function MapRenderer:draw(runtime, camera, worldDraws, viewport, alpha)
     self.shader:send("u_view", "column", viewMatrix)
 
     self:_sendLighting(runtime)
-    local queue = RenderQueue.build(draws, viewMatrix)
+    local queue = RenderQueue.buildInto(parts, viewMatrix, self._queueScratch)
 
     -- Pass 1: opaque, depth test + write.
     for _, d in ipairs(queue.opaque) do

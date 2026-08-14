@@ -1,5 +1,5 @@
 -- FieldState presentation reads resolve through the canonical runtime
--- objects: the flattened scene reads mapDraws/buildingDraws off
+-- objects: ordered world parts read mapDraws/buildingDraws off
 -- `runtimeMap.sceneRuntime`, the renderer receives that scene runtime, and
 -- the developer HUD reports the player's state. The runtime-level actor and
 -- runtime aliases are gone, so these reads must not depend on them.
@@ -78,6 +78,7 @@ local function presentationState(assets, actorIds)
     runtime = runtime,
     presentationActorAssets = assets,
     _presentationSpriteRefs = {},
+    worldParts = {},
   }, FieldState),
     actors,
     runtime
@@ -88,6 +89,7 @@ end
 local function stateWith(runtime)
   return setmetatable({
     runtime = runtime,
+    worldParts = {},
     renderer = {
       draw = function()
         error("renderer should be stubbed by the test")
@@ -96,28 +98,45 @@ local function stateWith(runtime)
   }, FieldState)
 end
 
-function T.world_draws_read_the_scene_runtime_of_the_runtime_map()
+function T.world_parts_refresh_replaced_scene_neighbor_and_actor_draws()
+  local mapDraws = { { kind = "map" } }
+  local buildingDraws = { { kind = "building" } }
+  local neighborDraws = { { kind = "neighbor" } }
   local sceneRuntime = {
-    mapDraws = { { kind = "map" } },
-    buildingDraws = { { kind = "building" } },
+    mapDraws = mapDraws,
+    buildingDraws = buildingDraws,
   }
   local state = stateWith({
-    runtimeMap = { sceneRuntime = sceneRuntime },
-    playerVisual = {
-      drawRecord = function()
-        return { visible = false }
-      end,
-    },
-    actors = {
-      drawRecords = function()
-        return {}
-      end,
-    },
+    runtimeMap = { sceneRuntime = sceneRuntime, neighborRuntime = { draws = neighborDraws } },
   })
-  local draws = state:_worldDraws(0.5)
-  Assert.equal(#draws, 2)
-  Assert.equal(draws[1].kind, "map")
-  Assert.equal(draws[2].kind, "building")
+  local actorDraws = { { kind = "actor" } }
+  local currentActorDraws = actorDraws
+  state._actorDraws = function(_, alpha)
+    Assert.equal(alpha, 0.5)
+    return currentActorDraws
+  end
+
+  local parts = state:_worldParts(0.5)
+  Assert.isTrue(parts == state.worldParts, "FieldState retains one parts array")
+  Assert.isTrue(parts[1] == mapDraws)
+  Assert.isTrue(parts[2] == buildingDraws)
+  Assert.isTrue(parts[3] == neighborDraws)
+  Assert.isTrue(parts[4] == actorDraws)
+
+  local nextMapDraws = { { kind = "next-map" } }
+  local nextBuildingDraws = { { kind = "animated-building" } }
+  local nextActorDraws = { { kind = "next-actor" } }
+  sceneRuntime.mapDraws = nextMapDraws
+  sceneRuntime.buildingDraws = nextBuildingDraws
+  state.runtime.runtimeMap.neighborRuntime = nil
+  currentActorDraws = nextActorDraws
+
+  local refreshed = state:_worldParts(0.5)
+  Assert.isTrue(refreshed == parts, "refresh does not replace the parts array")
+  Assert.isTrue(refreshed[1] == nextMapDraws)
+  Assert.isTrue(refreshed[2] == nextBuildingDraws, "fixed-tick building replacement reaches the renderer")
+  Assert.deepEqual(refreshed[3], {})
+  Assert.isTrue(refreshed[4] == nextActorDraws)
 end
 
 -- A live presentation runtime always carries the transition, dialogue, and
@@ -168,15 +187,20 @@ function T.draw_passes_the_scene_runtime_and_queries_the_menu_host()
       },
     },
     renderer = {
-      draw = function(_, scene, camera, worldDraws)
-        received = { scene = scene, camera = camera, worldDraws = worldDraws }
+      draw = function(_, scene, camera, worldParts)
+        received = { scene = scene, camera = camera, worldParts = worldParts }
       end,
     },
+    worldParts = {},
   }, FieldState)
   state:draw()
   Assert.equal(received.scene, sceneRuntime, "the renderer receives the runtime map's scene runtime")
   Assert.equal(received.camera, nil, "the draw path forwards the state's camera (absent in this fake)")
-  Assert.equal(#received.worldDraws, 2)
+  Assert.isTrue(received.worldParts == state.worldParts)
+  Assert.isTrue(received.worldParts[1] == sceneRuntime.mapDraws)
+  Assert.isTrue(received.worldParts[2] == sceneRuntime.buildingDraws)
+  Assert.deepEqual(received.worldParts[3], {})
+  Assert.deepEqual(received.worldParts[4], {})
   Assert.equal(presentations, 1, "draw always queries the menu host presentation")
 end
 
@@ -219,6 +243,7 @@ function T.draw_without_a_menu_host_is_a_programming_error()
         end,
       },
     },
+    worldParts = {},
     renderer = { draw = function() end },
   }, FieldState)
   Assert.throws(function()

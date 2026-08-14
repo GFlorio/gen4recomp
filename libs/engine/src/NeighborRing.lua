@@ -48,7 +48,7 @@ end
 -- Build the ring against an already-created pool, inside the build
 -- wrapper load() opens. Raises on any failure; the wrapper releases the pool
 -- in that case. Draws carry no submission numbers: the final scene assembly
--- (SceneAssembly) orders every draw in source order, positionally. The
+-- queue traversal orders every part and draw in source order, positionally. The
 -- draw-state field set is the shared PolygonState schema the compiler emits on every batch
 -- (lightMask included), with polygonAlpha normalized to the renderer's 0..1
 -- unit.

@@ -1,11 +1,11 @@
--- Pure render-queue builder. Combines the flattened scene's draw items (map,
--- building, neighbour, and actor), partitions them into opaque / cutout /
--- translucent / wireframe passes, preserves flat-list order for
+-- Pure render-queue builder. Traverses ordered scene parts (map, building,
+-- neighbour, and actor), partitions their draw items into opaque / cutout /
+-- translucent / wireframe passes, preserves source order for
 -- opaque/cutout/wireframe, and sorts translucent draws approximately
 -- back-to-front in camera space using the item center and the view matrix.
--- The item's position in the flat scene list is the deterministic tie-breaker
--- for equal-depth translucent draws: SceneAssembly concatenates parts in
--- desired source order, so the queue never invents cross-group ordering. This
+-- The item's traversal position across ordered parts is the deterministic
+-- tie-breaker for equal-depth translucent draws, so the queue never invents
+-- cross-group ordering. This
 -- is an explicit approximation of DS auto sorting, not a claim of exact
 -- hardware ordering. Pure domain module: no love, arithmetic only.
 --
@@ -51,42 +51,72 @@ end
 -- from the camera. The camera looks down -Z in view space, so objects in
 -- front of the camera carry negative view-space Z and a more negative value
 -- means farther away; sorting ascending therefore places far objects first.
-local function viewSpaceZ(viewMatrix, center)
-  local _, _, z = Matrix4.transformPoint(viewMatrix, center[1], center[2], center[3])
-  return z
+local function viewSpaceZ(viewMatrix, x, y, z)
+  local _, _, viewZ = Matrix4.transformPoint(viewMatrix, x, y, z)
+  return viewZ
 end
 
--- Build a draw queue from a flat list of items. Each item must expose:
---   alphaClass, transform (4x4 array),
---   center ({x,y,z} in model space).
--- `viewMatrix` is the camera's 4x4 view matrix. The item's position in the
--- flat list is the deterministic tie-breaker for equal-depth translucent
--- draws (the assembly's submission order).
-function RenderQueue.build(items, viewMatrix)
-  local opaque, cutout, translucent, wireframe = {}, {}, {}, {}
+local function clear(items)
+  for i = #items, 1, -1 do
+    items[i] = nil
+  end
+end
 
-  -- Sort entries for the translucent pass: local decorated entries carrying
-  -- the view-space Z and the item's flat-list position (the deterministic
-  -- tie-breaker), so the caller's draw records never gain sort fields from
-  -- repeated queue construction.
-  local entries = {}
-  for position, item in ipairs(items) do
-    local mode = RenderQueue.classifyAlphaClass(item)
-    if mode == AlphaClassifier.TRANSLUCENT then
-      translucent[#translucent + 1] = item
-      local wx, wy, wz = Matrix4.transformPoint(item.transform, item.center[1], item.center[2], item.center[3])
-      entries[#entries + 1] = { item = item, viewZ = viewSpaceZ(viewMatrix, { wx, wy, wz }), position = position }
-    elseif mode == AlphaClassifier.CUTOUT then
-      cutout[#cutout + 1] = item
-    elseif mode == AlphaClassifier.WIREFRAME then
-      wireframe[#wireframe + 1] = item
-    else
-      opaque[#opaque + 1] = item
+---@class RenderQueueScratch
+---@field opaque table[]
+---@field cutout table[]
+---@field translucent table[]
+---@field wireframe table[]
+---@field translucentEntries table[]
+
+-- Build into renderer-owned scratch storage. Parts are traversed in source
+-- order and share one submission position sequence, including across part
+-- boundaries. The scratch arrays retain their identities across calls.
+---@param parts table[][]
+---@param viewMatrix number[]
+---@param scratch RenderQueueScratch
+---@return RenderQueueScratch
+function RenderQueue.buildInto(parts, viewMatrix, scratch)
+  local opaque = scratch.opaque
+  local cutout = scratch.cutout
+  local translucent = scratch.translucent
+  local wireframe = scratch.wireframe
+  local entries = scratch.translucentEntries
+  assert(opaque and cutout and translucent and wireframe and entries, "render queue scratch is incomplete")
+
+  clear(opaque)
+  clear(cutout)
+  clear(translucent)
+  clear(wireframe)
+
+  local position = 0
+  local entryCount = 0
+  for _, part in ipairs(parts) do
+    for _, item in ipairs(part) do
+      position = position + 1
+      local mode = RenderQueue.classifyAlphaClass(item)
+      if mode == AlphaClassifier.TRANSLUCENT then
+        entryCount = entryCount + 1
+        local entry = entries[entryCount] or {}
+        local wx, wy, wz = Matrix4.transformPoint(item.transform, item.center[1], item.center[2], item.center[3])
+        entry.item = item
+        entry.viewZ = viewSpaceZ(viewMatrix, wx, wy, wz)
+        entry.position = position
+        entries[entryCount] = entry
+      elseif mode == AlphaClassifier.CUTOUT then
+        cutout[#cutout + 1] = item
+      elseif mode == AlphaClassifier.WIREFRAME then
+        wireframe[#wireframe + 1] = item
+      else
+        opaque[#opaque + 1] = item
+      end
     end
   end
 
-  -- Sort translucent back-to-front by view-space Z (farther first); equal-Z
-  -- ties break by flat-list position, the assembly's submission order.
+  for i = #entries, entryCount + 1, -1 do
+    entries[i] = nil
+  end
+
   table.sort(entries, function(a, b)
     if a.viewZ ~= b.viewZ then
       return a.viewZ < b.viewZ
@@ -98,12 +128,7 @@ function RenderQueue.build(items, viewMatrix)
     translucent[i] = entry.item
   end
 
-  return {
-    opaque = opaque,
-    cutout = cutout,
-    translucent = translucent,
-    wireframe = wireframe,
-  }
+  return scratch
 end
 
 return RenderQueue

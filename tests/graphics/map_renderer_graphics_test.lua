@@ -125,7 +125,7 @@ function T.an_actor_billboard_draw_leaks_no_render_state(scope)
   lg.setMeshCullMode("none")
   lg.setBlendMode("alpha")
   lg.setColor(1, 1, 1, 1)
-  renderer:draw(emptyRuntime(), fixedCamera(), { actor }, FieldViewport.new(640, 480, { mode = "strict" }))
+  renderer:draw(emptyRuntime(), fixedCamera(), { { actor } }, FieldViewport.new(640, 480, { mode = "strict" }))
 
   Assert.isNil(lg.getCanvas(), "the scene canvas is unbound")
   Assert.isNil(lg.getShader(), "the map and edge shaders are unbound")
@@ -228,7 +228,7 @@ function T.draw_restores_exact_caller_state_on_real_graphics(scope)
   lg.setColor(0.2, 0.4, 0.6, 0.8)
   lg.setScissor(4, 8, 32, 16)
 
-  renderer:draw(runtime, camera, { actor, wireframeItem }, FieldViewport.new(640, 480, { mode = "strict" }))
+  renderer:draw(runtime, camera, { { actor, wireframeItem } }, FieldViewport.new(640, 480, { mode = "strict" }))
 
   Assert.equal(lg.getCanvas(), canvas, "the pre-draw canvas is re-bound")
   Assert.equal(lg.getShader(), shader, "the pre-draw shader is re-bound")
@@ -293,17 +293,19 @@ function T.polygon_light_mask_changes_the_rendered_result(scope)
   local function sample(mask)
     renderer:draw(runtime, camera, {
       {
-        mesh = mesh,
-        material = { alphaClass = "opaque", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
-        transform = IDENTITY,
-        alphaClass = "opaque",
-        cullMode = "back",
-        polygonAlpha = 1.0,
-        polygonMode = "modulation",
-        polygonId = 0,
-        lightMask = mask,
-        alphaCutoff = 0.5 / 255,
-        center = { 0.5, 0.5, 0 },
+        {
+          mesh = mesh,
+          material = { alphaClass = "opaque", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
+          transform = IDENTITY,
+          alphaClass = "opaque",
+          cullMode = "back",
+          polygonAlpha = 1.0,
+          polygonMode = "modulation",
+          polygonId = 0,
+          lightMask = mask,
+          alphaCutoff = 0.5 / 255,
+          center = { 0.5, 0.5, 0 },
+        },
       },
     }, viewport)
     local img = renderer.sceneColor:newImageData()
@@ -370,18 +372,19 @@ function T.emission_passes_through_for_static_materials(scope)
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
   renderer:draw(runtime, camera, {
     {
-      mesh = mesh,
-      material = { alphaClass = "opaque", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
-      transform = IDENTITY,
-      alphaClass = "opaque",
-      cullMode = "back",
-      polygonAlpha = 1.0,
-      polygonMode = "modulation",
-      polygonId = 0,
-      lightMask = 0,
-      alphaCutoff = 0.5 / 255,
-      center = { 0.5, 0.5, 0 },
-      submissionIndex = 1,
+      {
+        mesh = mesh,
+        material = { alphaClass = "opaque", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
+        transform = IDENTITY,
+        alphaClass = "opaque",
+        cullMode = "back",
+        polygonAlpha = 1.0,
+        polygonMode = "modulation",
+        polygonId = 0,
+        lightMask = 0,
+        alphaCutoff = 0.5 / 255,
+        center = { 0.5, 0.5, 0 },
+      },
     },
   }, viewport)
   local img = renderer.sceneColor:newImageData()
@@ -434,27 +437,28 @@ function T.stored_material_colors_never_dim_the_profile(scope)
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
   renderer:draw(runtime, camera, {
     {
-      mesh = mesh,
-      -- A dynamic material with the four DS registers stored, but no NSBMA
-      -- clip driving them: the profile must win every channel.
-      material = {
+      {
+        mesh = mesh,
+        -- A dynamic material with the four DS registers stored, but no NSBMA
+        -- clip driving them: the profile must win every channel.
+        material = {
+          alphaClass = "opaque",
+          matDiffuse = { 100 / 255, 100 / 255, 100 / 255 },
+          matAmbient = { 0, 0, 0 },
+          matSpecular = { 0, 0, 0 },
+          matEmission = { 0, 0, 0 },
+          texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 },
+        },
+        transform = IDENTITY,
         alphaClass = "opaque",
-        matDiffuse = { 100 / 255, 100 / 255, 100 / 255 },
-        matAmbient = { 0, 0, 0 },
-        matSpecular = { 0, 0, 0 },
-        matEmission = { 0, 0, 0 },
-        texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 },
+        cullMode = "back",
+        polygonAlpha = 1.0,
+        polygonMode = "modulation",
+        polygonId = 0,
+        lightMask = 15,
+        alphaCutoff = 0.5 / 255,
+        center = { 0.5, 0.5, 0 },
       },
-      transform = IDENTITY,
-      alphaClass = "opaque",
-      cullMode = "back",
-      polygonAlpha = 1.0,
-      polygonMode = "modulation",
-      polygonId = 0,
-      lightMask = 15,
-      alphaCutoff = 0.5 / 255,
-      center = { 0.5, 0.5, 0 },
-      submissionIndex = 1,
     },
   }, viewport)
   local img = renderer.sceneColor:newImageData()
@@ -505,26 +509,27 @@ function T.color_animated_materials_replace_the_profile(scope)
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
   renderer:draw(runtime, camera, {
     {
-      mesh = mesh,
-      -- A material whose colors an NSBMA clip drives: the clip's sampled
-      -- colors are the registers, so a full-white animated diffuse renders
-      -- full, never the dim profile diffuse.
-      material = {
+      {
+        mesh = mesh,
+        -- A material whose colors an NSBMA clip drives: the clip's sampled
+        -- colors are the registers, so a full-white animated diffuse renders
+        -- full, never the dim profile diffuse.
+        material = {
+          alphaClass = "opaque",
+          matDiffuse = { 1, 1, 1 },
+          colorsAnimated = true,
+          texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 },
+        },
+        transform = IDENTITY,
         alphaClass = "opaque",
-        matDiffuse = { 1, 1, 1 },
-        colorsAnimated = true,
-        texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 },
+        cullMode = "back",
+        polygonAlpha = 1.0,
+        polygonMode = "modulation",
+        polygonId = 0,
+        lightMask = 15,
+        alphaCutoff = 0.5 / 255,
+        center = { 0.5, 0.5, 0 },
       },
-      transform = IDENTITY,
-      alphaClass = "opaque",
-      cullMode = "back",
-      polygonAlpha = 1.0,
-      polygonMode = "modulation",
-      polygonId = 0,
-      lightMask = 15,
-      alphaCutoff = 0.5 / 255,
-      center = { 0.5, 0.5, 0 },
-      submissionIndex = 1,
     },
   }, viewport)
   local img = renderer.sceneColor:newImageData()
@@ -620,7 +625,7 @@ function T.lit_then_unlit_scene_does_not_inherit_lighting(scope)
   -- head-on light, the field-diffuse triangle from its effective material
   -- register (COLOR_DIFFUSE reads u_matDiffuse, which the profile supplies
   -- for a static item -- the field engine owns every channel).
-  renderer:draw(litRuntime, camera, { item }, viewport)
+  renderer:draw(litRuntime, camera, { { item } }, viewport)
   local litImg = renderer.sceneColor:newImageData()
   local sr, sg, sb = litImg:getPixel(0, 0)
   local threshold = (sr > 1 or sg > 1 or sb > 1) and 127 or 0.5
@@ -633,7 +638,7 @@ function T.lit_then_unlit_scene_does_not_inherit_lighting(scope)
   -- which the unlit frame resets to zero -- nothing supplies the registers
   -- without a profile, so the triangle renders dark instead of inheriting
   -- the previous frame's material colors.
-  renderer:draw(unlitRuntime, camera, { item }, viewport)
+  renderer:draw(unlitRuntime, camera, { { item } }, viewport)
   local unlitImg = renderer.sceneColor:newImageData()
   Assert.isFalse(anyBright(unlitImg, normalSamples, threshold), "unlit frame inherits the previous light state")
   Assert.isFalse(anyBright(unlitImg, diffuseSamples, threshold), "unlit frame inherits the previous material state")
@@ -668,14 +673,13 @@ function T.a_straddling_item_bends_its_leading_vertices(scope)
     lightMask = 0,
     alphaCutoff = 0.5 / 255,
     center = { 0, 0, 0 },
-    submissionIndex = 1,
     straddle = {
       leading = 3,
       transform = Matrix4.translate(0, -1, 0),
     },
   }
 
-  renderer:draw(emptyRuntime(), fixedCamera(), { item }, FieldViewport.new(640, 480, { mode = "strict" }))
+  renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, FieldViewport.new(640, 480, { mode = "strict" }))
   local data = scope:own(renderer.sceneColor:newImageData())
   local w, h = renderer.canvasW, renderer.canvasH
   -- Identity view/projection and the shader's clip-y negation map a world
@@ -757,18 +761,19 @@ end
 local function specularFrame(renderer, scope, normal, vectorFx12)
   renderer:draw(specularOnlyRuntime(vectorFx12), fixedCamera(), {
     {
-      mesh = litMesh(scope, normal),
-      material = { alphaClass = "opaque", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
-      transform = IDENTITY,
-      alphaClass = "opaque",
-      cullMode = "back",
-      polygonAlpha = 1.0,
-      polygonMode = "modulation",
-      polygonId = 0,
-      lightMask = 1,
-      alphaCutoff = 0.5 / 255,
-      center = { 0.5, 0.5, 0 },
-      submissionIndex = 1,
+      {
+        mesh = litMesh(scope, normal),
+        material = { alphaClass = "opaque", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
+        transform = IDENTITY,
+        alphaClass = "opaque",
+        cullMode = "back",
+        polygonAlpha = 1.0,
+        polygonMode = "modulation",
+        polygonId = 0,
+        lightMask = 1,
+        alphaCutoff = 0.5 / 255,
+        center = { 0.5, 0.5, 0 },
+      },
     },
   }, FieldViewport.new(640, 480, { mode = "strict" }))
   return brightestSample(renderer)

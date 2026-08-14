@@ -6,7 +6,6 @@ local FieldActorDraw = require("libs.engine.src.FieldActorDraw")
 local FieldDialogueRenderer = require("libs.engine.src.FieldDialogueRenderer")
 local FieldMenuRenderer = require("libs.engine.src.FieldMenuRenderer")
 local MapRenderer = require("libs.engine.src.MapRenderer")
-local SceneAssembly = require("libs.engine.src.SceneAssembly")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
 
 local KEY_DIRECTIONS =
@@ -30,10 +29,13 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@field _lastActorManager any?
 ---@field _lastActorVisualRevision integer?
 ---@field _lastPlayerSpriteId integer?
+---@field worldParts table[][] ordered map, building, neighbor, and actor draw arrays
 ---@field development boolean product mode (default) hides the playtest HUD and ignores the F1/F2 developer binds
 ---@field topologyProvider fun(width: number, height: number): ScreenTopology
 local FieldState = {}
 FieldState.__index = FieldState
+
+local NO_DRAWS = {}
 
 local function defaultScreenTopology(width, height)
   local os = love.system and love.system.getOS and love.system.getOS() or ""
@@ -68,6 +70,7 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
     _lastActorManager = nil,
     _lastActorVisualRevision = nil,
     _lastPlayerSpriteId = nil,
+    worldParts = {},
   }, FieldState)
   local ok, err = pcall(function()
     self.renderer = MapRenderer.new()
@@ -163,19 +166,19 @@ function FieldState:_actorDraws(alpha)
   end)
 end
 
--- The flattened scene draw list: map geometry, buildings, the neighbour ring,
--- then actors. SceneAssembly owns submission ordering -- it concatenates every
--- part in this source order, so equal-depth translucent ties break
--- map before building before neighbour before actor, deterministically. Scene
--- draws live on the runtime map's scene runtime, not on the coordinator.
-function FieldState:_worldDraws(alpha)
+-- Refresh the persistent ordered scene parts: map geometry, buildings, the
+-- neighbour ring, then actors. Queue traversal preserves this source order,
+-- so equal-depth translucent ties break map before building before neighbour
+-- before actor. Scene draw arrays live on the runtime map's scene runtime and
+-- are read every frame because animated updates replace buildingDraws.
+function FieldState:_worldParts(alpha)
   local sceneRuntime = self.runtime.runtimeMap.sceneRuntime
-  return SceneAssembly.flatten({
-    sceneRuntime.mapDraws,
-    sceneRuntime.buildingDraws,
-    self.runtime.runtimeMap.neighborRuntime and self.runtime.runtimeMap.neighborRuntime.draws or {},
-    self:_actorDraws(alpha),
-  })
+  local worldParts = self.worldParts
+  worldParts[1] = sceneRuntime.mapDraws
+  worldParts[2] = sceneRuntime.buildingDraws
+  worldParts[3] = self.runtime.runtimeMap.neighborRuntime and self.runtime.runtimeMap.neighborRuntime.draws or NO_DRAWS
+  worldParts[4] = self:_actorDraws(alpha)
+  return worldParts
 end
 
 function FieldState:draw()
@@ -194,7 +197,7 @@ function FieldState:draw()
   self.renderer:draw(
     self.runtime.runtimeMap.sceneRuntime,
     self.runtime.camera,
-    self:_worldDraws(alpha),
+    self:_worldParts(alpha),
     self.runtime.viewport,
     alpha
   )

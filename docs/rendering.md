@@ -163,13 +163,13 @@ when the final 5-bit alpha is zero, implemented as `alpha < 0.5 / 255`.
 
 `RenderQueue` partitions draws into opaque / cutout / translucent / wireframe.
 Opaque and cutout keep submission order with depth test/write. Translucent draws
-are sorted back-to-front in view space (submission index breaks ties) and honor
+are sorted back-to-front in view space (submission position breaks ties) and honor
 the polygon bit-11 translucent depth-write flag. Wireframe edges are drawn with
-opaque alpha after the filled passes. Submission indices are assigned by one
-owner, `SceneAssembly`, at the final scene assembly: it numbers the flattened
-draw list monotonically in desired source order (map geometry, buildings,
-neighbour ring, actors), so cross-group tie ordering is established there and
-nowhere else.
+opaque alpha after the filled passes. `FieldState` supplies ordered arrays of
+map geometry, buildings, neighbour-ring draws, and actors. `RenderQueue`
+traverses those parts with one monotonically increasing submission position,
+so cross-part tie ordering is established without flattening or stamping the
+draw items. `MapRenderer` owns and reuses the queue scratch arrays.
 
 ## Billboards
 

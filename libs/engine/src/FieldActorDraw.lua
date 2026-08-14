@@ -19,8 +19,8 @@ local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 
 local FieldActorDraw = {}
 
--- Draw items carry no submission numbers: the final scene assembly
--- (SceneAssembly) orders every draw in source order, positionally.
+-- Draw items carry no submission numbers: queue traversal orders every part
+-- and draw in source order, positionally.
 
 -- The identity UV-transform matrix of actor materials (actors carry no
 -- texture-SRT): the renderer reads the material's texMatrix directly.
@@ -100,7 +100,7 @@ end
 -- Draw items for a whole record list. `assetFor(spriteId)` returns the resident
 -- provider entry; a record whose visual is absent is a programming fault, not a
 -- reason to skip a frame. Static-model parts are emitted one item per part, in
--- order, so the scene assembly numbers them sequentially.
+-- source order for queue traversal.
 function FieldActorDraw.items(records, assetFor)
   assert(type(assetFor) == "function", "FieldActorDraw.items needs an asset lookup")
   local items = {}

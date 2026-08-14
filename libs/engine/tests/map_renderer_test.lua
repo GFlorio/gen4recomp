@@ -259,12 +259,14 @@ function T.draw_failure_restores_exact_state_and_rethrows()
   local err = Assert.throws(function()
     renderer:draw(scene.runtime, scene.camera, {
       {
-        mesh = { setTexture = function() end },
-        alphaClass = "wireframe",
-        cullMode = "none",
-        lightMask = 0,
-        transform = identity,
-        center = { 0, 0, 0 },
+        {
+          mesh = { setTexture = function() end },
+          alphaClass = "wireframe",
+          cullMode = "none",
+          lightMask = 0,
+          transform = identity,
+          center = { 0, 0, 0 },
+        },
       },
     }, FieldViewport.new(640, 480, { mode = "strict" }))
   end)
@@ -447,11 +449,11 @@ function T.canvas_recreation_failure_keeps_renderer_usable()
   end
 end
 
--- The renderer draws exactly the flattened world list it is given; it never
--- reads scene draws out of the runtime itself. Scene geometry only reaches
--- the screen through the caller's assembly (SceneAssembly), so an empty list
--- draws nothing even when the runtime still carries map/building draws.
-function T.draw_renders_only_the_given_world_draws()
+-- The renderer draws exactly the ordered world parts it is given; it never
+-- reads scene draws out of the runtime itself. Its queue scratch and every
+-- pass array retain identity across frames, while a smaller later frame does
+-- not draw stale items retained from an earlier build.
+function T.draw_renders_only_given_parts_into_persistent_scratch()
   local lg = fakeGraphics()
   local renderer = MapRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
@@ -476,13 +478,33 @@ function T.draw_renders_only_the_given_world_draws()
   scene.runtime.buildingDraws = { drawItem("building") }
 
   -- Every draw() also issues its own composite blit, so the empty frame's
-  -- call count is the per-frame composite baseline: the empty list draws
-  -- nothing beyond it, and each item in the given list adds exactly one call.
+  -- call count is the per-frame composite baseline: empty parts draw nothing
+  -- beyond it, and each item in the given parts adds exactly one call.
   renderer:draw(scene.runtime, scene.camera, nil, viewport)
   local emptyFrame = lg.getDrawCalls()
-  renderer:draw(scene.runtime, scene.camera, { drawItem("a"), drawItem("b") }, viewport)
+  renderer:draw(scene.runtime, scene.camera, {
+    { drawItem("a") },
+    { drawItem("b") },
+  }, viewport)
   local itemFrame = lg.getDrawCalls() - emptyFrame
   Assert.equal(itemFrame - emptyFrame, 2, "each given world item is drawn exactly once")
+
+  local scratch = renderer._queueScratch
+  Assert.isTrue(type(scratch) == "table", "the renderer owns queue scratch")
+  local opaque = scratch.opaque
+  local cutout = scratch.cutout
+  local translucent = scratch.translucent
+  local wireframe = scratch.wireframe
+  local entries = scratch.translucentEntries
+
+  renderer:draw(scene.runtime, scene.camera, { { drawItem("next") } }, viewport)
+  Assert.equal(renderer.stats.drawCalls, 1, "a smaller frame retains no stale draw items")
+  Assert.isTrue(renderer._queueScratch == scratch)
+  Assert.isTrue(scratch.opaque == opaque)
+  Assert.isTrue(scratch.cutout == cutout)
+  Assert.isTrue(scratch.translucent == translucent)
+  Assert.isTrue(scratch.wireframe == wireframe)
+  Assert.isTrue(scratch.translucentEntries == entries)
 
   renderer:release()
 end
