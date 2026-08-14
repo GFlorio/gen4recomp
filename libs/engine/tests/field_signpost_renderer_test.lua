@@ -1,0 +1,675 @@
+-- Failure-path, geometry, and wipe-contract tests for the signpost renderer,
+-- driven through an injected graphics namespace: construction typed errors
+-- with release of already-acquired images, per-type frame/wayfinding/text
+-- geometry from the sealed style registry, the wipe translation (whole
+-- surface, hidden position below the screen), the active-only visibility key
+-- (the wipe-out endpoint reset never flashes), and offset interpolation
+-- clamped between fixed ticks without any call back into the controller. The
+-- canonical pixel goldens live in
+-- field_signpost_renderer_graphics_test.lua.
+
+local Assert = require("tests.support.Assert")
+local CacheFs = require("libs.storage.src.CacheFs")
+local Errors = require("libs.errors.src.Errors")
+local FakeCache = require("tests.support.FakeCache")
+local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
+local FieldSignpostController = require("libs.engine.src.FieldSignpostController")
+local FieldUiFixture = require("tests.support.FieldUiFixture")
+local FieldSignpostFixture = require("tests.support.FieldSignpostFixture")
+local FieldSignpostRenderer = require("libs.engine.src.FieldSignpostRenderer")
+local FieldViewport = require("libs.engine.src.FieldViewport")
+
+local T = {}
+
+-- Tracks created images and their release calls, records every draw with its
+-- quad and position, tracks the transform-stack depth, and holds a full
+-- settable state the renderer must restore exactly. failOnQuadCall/
+-- failOnDrawCall make the Nth construction/draw call raise; imageSizes
+-- supplies the created image dimensions in creation order.
+local function fakeGraphics(opts)
+  opts = opts or {}
+  local images = {}
+  local quadCalls, drawCalls = 0, 0
+  local pushDepth = 0
+  local draws = {}
+  local state = {
+    canvas = opts.canvas,
+    shader = opts.shader,
+    blendMode = opts.blendMode,
+    blendAlpha = opts.blendAlpha,
+    depthMode = opts.depthMode,
+    depthWrite = opts.depthWrite,
+    wireframe = opts.wireframe,
+    cullMode = opts.cullMode,
+    color = opts.color or { 1, 1, 1, 1 },
+    scissor = opts.scissor,
+  }
+  return {
+    images = images,
+    draws = draws,
+    pushDepth = function()
+      return pushDepth
+    end,
+    newImage = function()
+      local size = opts.imageSizes and opts.imageSizes[#images + 1] or { 16, 16 }
+      local image = {
+        released = false,
+        setFilter = function() end,
+        getWidth = function()
+          return size[1]
+        end,
+        getHeight = function()
+          return size[2]
+        end,
+      }
+      image.release = function()
+        image.released = true
+      end
+      images[#images + 1] = image
+      return image
+    end,
+    newQuad = function(x, y, w, h, imgW, imgH)
+      quadCalls = quadCalls + 1
+      if opts.failOnQuadCall == quadCalls then
+        error("injected newQuad failure")
+      end
+      return { x = x, y = y, w = w, h = h, imgW = imgW, imgH = imgH }
+    end,
+    push = function()
+      pushDepth = pushDepth + 1
+    end,
+    pop = function()
+      pushDepth = pushDepth - 1
+    end,
+    translate = function() end,
+    scale = function() end,
+    setColor = function(r, g, b, a)
+      state.color = { r, g, b, a }
+    end,
+    getColor = function()
+      return state.color[1], state.color[2], state.color[3], state.color[4]
+    end,
+    draw = function(image, quad, x, y)
+      drawCalls = drawCalls + 1
+      draws[#draws + 1] = { image = image, quad = quad, x = x, y = y }
+      if opts.failOnDrawCall == drawCalls then
+        error("injected draw failure")
+      end
+    end,
+    getCanvas = function()
+      return state.canvas
+    end,
+    setCanvas = function(canvas)
+      state.canvas = canvas
+    end,
+    getShader = function()
+      return state.shader
+    end,
+    setShader = function(shader)
+      state.shader = shader
+    end,
+    getBlendMode = function()
+      return state.blendMode, state.blendAlpha
+    end,
+    setBlendMode = function(mode, alpha)
+      state.blendMode, state.blendAlpha = mode, alpha
+    end,
+    getDepthMode = function()
+      return state.depthMode, state.depthWrite
+    end,
+    setDepthMode = function(mode, write)
+      state.depthMode, state.depthWrite = mode, write
+    end,
+    isWireframe = function()
+      return state.wireframe
+    end,
+    setWireframe = function(wireframe)
+      state.wireframe = wireframe
+    end,
+    getMeshCullMode = function()
+      return state.cullMode
+    end,
+    setMeshCullMode = function(mode)
+      state.cullMode = mode
+    end,
+    getScissor = function()
+      if not state.scissor then
+        return nil
+      end
+      return state.scissor[1], state.scissor[2], state.scissor[3], state.scissor[4]
+    end,
+    setScissor = function(x, y, w, h)
+      state.scissor = { x, y, w, h }
+    end,
+  }
+end
+
+-- The created images in order: font atlas (16x16), signpost strip (144x8),
+-- wayfinding atlas (192x32).
+local function uiCache()
+  return FieldUiFixture.cacheWithFontAndFrames()
+end
+
+local function renderer(lg)
+  return FieldSignpostRenderer.new({
+    cacheFs = uiCache(),
+    graphics = lg,
+    windowStyles = FieldSignpostFixture.styles(),
+  })
+end
+
+-- The draw calls per owned image.
+local function drawsFor(lg, image)
+  local out = {}
+  for _, call in ipairs(lg.draws) do
+    if call.image == image then
+      out[#out + 1] = call
+    end
+  end
+  return out
+end
+
+local function textDraws(lg)
+  return drawsFor(lg, lg.images[1])
+end
+
+local function frameDraws(lg)
+  return drawsFor(lg, lg.images[2])
+end
+
+local function wayfindingDraws(lg)
+  return drawsFor(lg, lg.images[3])
+end
+
+local function renderedDraws(opts)
+  opts = opts or {}
+  local lg = fakeGraphics(opts.graphics or {})
+  local r = renderer(lg)
+  local controller = opts.controller
+  if not controller and opts.type ~= nil then
+    controller = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), {
+      type = opts.type,
+      map = opts.map or 0,
+      offset = opts.offset,
+    })
+  end
+  r:draw(controller, FieldViewport.new(256, 192, { mode = "expanded" }), opts.alpha)
+  r:release()
+  return lg
+end
+
+function T.missing_def_is_a_typed_error()
+  local err = Assert.throws(function()
+    FieldSignpostRenderer.new({
+      cacheFs = CacheFs.forVersion("heartgold", FakeCache.new()),
+      windowStyles = FieldSignpostFixture.styles(),
+    })
+  end)
+  Assert.isTrue(Errors.is(err) and err.code == "FONT_DEF_MISSING", "raises FONT_DEF_MISSING")
+end
+
+function T.rejects_a_missing_graphics_namespace()
+  local err = Assert.throws(function()
+    ---@diagnostic disable: assign-type-mismatch
+    FieldSignpostRenderer.new({ cacheFs = uiCache(), graphics = false })
+  end)
+  Assert.isTrue(tostring(err):find("FieldSignpostRenderer requires love.graphics", 1, true) ~= nil)
+end
+
+function T.requires_a_sealed_window_style_registry()
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local err = Assert.throws(function()
+    ---@diagnostic disable: assign-type-mismatch
+    FieldSignpostRenderer.new({ cacheFs = uiCache(), graphics = lg, windowStyles = false })
+  end)
+  Assert.isTrue(tostring(err):find("FieldSignpostRenderer requires a window style registry", 1, true) ~= nil)
+end
+
+function T.missing_ui_manifest_is_a_typed_error()
+  local err = Assert.throws(function()
+    FieldSignpostRenderer.new({
+      cacheFs = FieldDialogueFixture.cacheWithFont(),
+      windowStyles = FieldSignpostFixture.styles(),
+    })
+  end)
+  Assert.isTrue(Errors.is(err) and err.code == "FIELD_UI_MANIFEST_MISSING", "raises FIELD_UI_MANIFEST_MISSING")
+end
+
+-- The manifest names the signpost strip; a cache without the PNG must not
+-- build a half-frame renderer. The already-acquired font atlas is released.
+function T.missing_signpost_strip_is_a_typed_error_and_releases_the_atlas()
+  local cache = FieldDialogueFixture.cacheWithFont()
+  cache:writeLua("data/generated/field/ui/ui.lua", FieldUiFixture.manifest())
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 } } })
+  local err = Assert.throws(function()
+    FieldSignpostRenderer.new({
+      cacheFs = cache,
+      graphics = lg,
+      windowStyles = FieldSignpostFixture.styles(),
+    })
+  end)
+  Assert.isTrue(
+    Errors.is(err) and err.code == "FIELD_UI_SIGNPOST_TILES_MISSING",
+    "raises FIELD_UI_SIGNPOST_TILES_MISSING"
+  )
+  Assert.equal(#lg.images, 1, "the font atlas was acquired before the strip failed")
+  Assert.equal(lg.images[1].released, true, "the acquired atlas was released")
+end
+
+-- Same for the wayfinding atlas: the strip exists, the wayfinding PNG does
+-- not; both acquired images are released.
+function T.missing_wayfinding_atlas_is_a_typed_error_and_releases_acquired_images()
+  local cache = uiCache()
+  cache:remove(FieldUiFixture.WAYFINDING_PATH)
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 } } })
+  local err = Assert.throws(function()
+    FieldSignpostRenderer.new({
+      cacheFs = cache,
+      graphics = lg,
+      windowStyles = FieldSignpostFixture.styles(),
+    })
+  end)
+  Assert.isTrue(Errors.is(err) and err.code == "FIELD_UI_WAYFINDING_MISSING", "raises FIELD_UI_WAYFINDING_MISSING")
+  Assert.equal(#lg.images, 1, "only the font atlas image exists when the wayfinding read fails")
+  Assert.equal(lg.images[1].released, true, "the atlas was released")
+end
+
+-- A quad failure after all three images were created must release every
+-- acquired image before the constructor rethrows.
+function T.constructor_failure_releases_all_acquired_images()
+  local lg = fakeGraphics({
+    imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } },
+    failOnQuadCall = 1,
+  })
+  local err = Assert.throws(function()
+    FieldSignpostRenderer.new({
+      cacheFs = uiCache(),
+      graphics = lg,
+      windowStyles = FieldSignpostFixture.styles(),
+    })
+  end)
+  Assert.isTrue(tostring(err):find("injected newQuad failure", 1, true) ~= nil, "rethrows the quad failure")
+  Assert.equal(#lg.images, 3, "atlas, strip, and wayfinding were created before the failure")
+  Assert.equal(lg.images[1].released, true, "the atlas was released")
+  Assert.equal(lg.images[2].released, true, "the strip was released")
+  Assert.equal(lg.images[3].released, true, "the wayfinding atlas was released")
+end
+
+-- The renderer owns exactly the font atlas, the signpost strip, and the
+-- wayfinding atlas; a full-width draw creates nothing more.
+function T.loads_exactly_the_three_owned_images()
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local r = renderer(lg)
+  Assert.equal(#lg.images, 3, "only the three owned images are created")
+  r:draw(
+    FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2 }),
+    FieldViewport.new(256, 192, { mode = "expanded" })
+  )
+  Assert.equal(#lg.images, 3, "drawing creates no further images")
+  r:release()
+end
+
+-- Visibility is keyed on status().active, never on logicalYOffset alone: an
+-- inactive controller (including the wipe-out endpoint-check state with the
+-- stored offset reset to 0) draws nothing and changes no state.
+function T.an_inactive_controller_draws_nothing_and_changes_no_state()
+  local canvas, shader = {}, {}
+  local lg = fakeGraphics({
+    canvas = canvas,
+    shader = shader,
+    blendMode = "add",
+    blendAlpha = "alphamultiply",
+    depthMode = "lequal",
+    depthWrite = true,
+    wireframe = true,
+    cullMode = "back",
+    color = { 0.2, 0.4, 0.6, 0.8 },
+    scissor = { 4, 8, 32, 16 },
+    imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } },
+  })
+  local r = renderer(lg)
+  local controller = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = 0 })
+  controller:setCommand("wipe_out")
+  for _ = 1, 4 do
+    controller:updateFixed()
+  end
+  local status = controller:status()
+  Assert.equal(status.active, false, "the endpoint check cleared the window")
+  Assert.equal(status.logicalYOffset, 0, "the stored offset reset to 0")
+  r:draw(controller, FieldViewport.new(256, 192, { mode = "expanded" }))
+  Assert.equal(#lg.draws, 0, "the cleared window never flashes at the reset position")
+  FieldDialogueFixture.assertRestoredState(lg, canvas, shader)
+  r:release()
+end
+
+-- A full-width source type: the complete frame (tiles 0..17 minus the
+-- divider 8), text at the content origin (16,152), all translated by the
+-- wipe offset.
+function T.full_width_type_draws_the_full_frame_and_text_at_the_content_origin()
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local r = renderer(lg)
+  r:draw(
+    FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2 }),
+    FieldViewport.new(256, 192, { mode = "expanded" })
+  )
+
+  local frames = frameDraws(lg)
+  Assert.isTrue(#frames > 0, "the frame is drawn")
+  for _, call in ipairs(frames) do
+    Assert.isTrue(call.quad.x ~= 64, "the divider tile 8 is not placed for a full-width type")
+  end
+  local topEdge = 0
+  local expectedX = 16
+  for _, call in ipairs(frames) do
+    if call.quad.x == 16 and call.quad.y == 0 then
+      topEdge = topEdge + 1
+      Assert.equal(call.x, expectedX, "the top edge spans the full 27 content tiles")
+      Assert.equal(call.y, 192, "the wipe offset -48 places the frame top below the screen")
+      expectedX = expectedX + 8
+    end
+  end
+  Assert.equal(topEdge, 27)
+
+  local text = textDraws(lg)
+  Assert.equal(#text, 3, "the two fixture lines carry three glyphs")
+  Assert.equal(text[1].x, 16, "full-width text starts at the content origin x=16")
+  Assert.equal(text[1].y, 200, "the whole surface is translated by the wipe offset")
+  Assert.equal(text[3].y, 216, "the second line sits one line height below")
+  r:release()
+end
+
+-- Type 0: the text window moves right of the wayfinding area, the 24-tile
+-- wayfinding row blits as the 6x4 grid at (16..64, 152..184), and the
+-- divider tile 8 spans the window height between graphic and text.
+function T.type_zero_draws_the_graphic_region_and_the_shifted_text()
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local r = renderer(lg)
+  r:draw(
+    FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 0, offset = 0 }),
+    FieldViewport.new(256, 192, { mode = "expanded" })
+  )
+
+  local text = textDraws(lg)
+  Assert.equal(text[1].x, 72, "type-0 text starts after the 56px graphic region")
+
+  local wayfinding = wayfindingDraws(lg)
+  Assert.equal(#wayfinding, 24, "the whole wayfinding row is drawn")
+  Assert.deepEqual(
+    { wayfinding[1].quad.x, wayfinding[1].quad.y },
+    { 0, 0 },
+    "grid tile 0 samples the first atlas tile of the type-0 row"
+  )
+  Assert.equal(wayfinding[1].x, 16)
+  Assert.equal(wayfinding[1].y, 152)
+  Assert.deepEqual(
+    { wayfinding[24].quad.x, wayfinding[24].quad.y },
+    { 184, 0 },
+    "the last grid tile samples the row's last atlas tile"
+  )
+  Assert.equal(wayfinding[24].x, 56, "the grid is 6 tiles wide")
+  Assert.equal(wayfinding[24].y, 176, "the grid is 4 tiles tall")
+
+  local divider = 0
+  for _, call in ipairs(frameDraws(lg)) do
+    if call.quad.x == 64 then
+      divider = divider + 1
+      Assert.equal(call.y, 152 + (divider - 1) * 8, "the divider spans the window height")
+      Assert.equal(call.x, 64)
+    end
+  end
+  Assert.equal(divider, 4)
+  r:release()
+end
+
+-- Type 1 samples the second wayfinding row (the manifest rect at y=16);
+-- the geometry is otherwise identical to type 0.
+function T.type_one_samples_the_second_wayfinding_row()
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local r = renderer(lg)
+  r:draw(
+    FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 1, offset = 0 }),
+    FieldViewport.new(256, 192, { mode = "expanded" })
+  )
+  local wayfinding = wayfindingDraws(lg)
+  Assert.equal(#wayfinding, 24)
+  Assert.equal(wayfinding[1].quad.y, 16, "type 1 samples the atlas row at y=16")
+  r:release()
+end
+
+-- The wipe offset translates the whole surface: every frame, wayfinding, and
+-- text draw at -48 sits exactly 48px below its rest position.
+function T.the_wipe_offset_translates_the_whole_surface()
+  local atRest = renderedDraws({ type = 0, offset = 0 })
+  local hidden = renderedDraws({ type = 0, offset = -48 })
+  Assert.equal(#atRest.draws, #hidden.draws, "the same surface is drawn at both offsets")
+  for i = 1, #atRest.draws do
+    Assert.equal(hidden.draws[i].x, atRest.draws[i].x, "the wipe never moves the surface horizontally")
+    Assert.equal(hidden.draws[i].y, atRest.draws[i].y + 48, "the hidden offset sits 48px below the rest position")
+    Assert.deepEqual(
+      { hidden.draws[i].quad.x, hidden.draws[i].quad.y, hidden.draws[i].quad.w, hidden.draws[i].quad.h },
+      { atRest.draws[i].quad.x, atRest.draws[i].quad.y, atRest.draws[i].quad.w, atRest.draws[i].quad.h },
+      "the same tiles are sampled"
+    )
+  end
+end
+
+-- Interpolation: with the session alpha the drawn offset lerps between the
+-- previous and the current fixed-tick offset, clamps alpha into [0, 1], and
+-- never mutates the controller. The asserted y is the last glyph drawn (the
+-- second line), so the accumulated draw list never skews the index.
+function T.interpolation_uses_the_session_alpha_between_fixed_tick_offsets()
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local r = renderer(lg)
+  local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+  local atMinus48 = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = -48 })
+  r:draw(atMinus48, viewport, 1)
+  local lastY = function()
+    local text = textDraws(lg)
+    return text[#text].y
+  end
+  Assert.equal(lastY(), 216, "the first draw snaps to the fixed-tick offset")
+
+  local atMinus32 = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = -32 })
+  r:draw(atMinus32, viewport, 0.5)
+  Assert.equal(lastY(), 208, "alpha 0.5 lands midway between -48 and -32")
+
+  r:draw(atMinus32, viewport, 0)
+  Assert.equal(lastY(), 200, "alpha 0 stays at the previous fixed-tick offset")
+
+  r:draw(atMinus32, viewport, 2)
+  Assert.equal(lastY(), 200, "alpha is clamped into [0, 1]")
+
+  local statusBefore = atMinus32:status()
+  r:draw(atMinus32, viewport, 0.25)
+  Assert.deepEqual(atMinus32:status(), statusBefore, "drawing never mutates the controller")
+  r:release()
+end
+
+-- An inactive gap snaps the interpolation: after the window disappeared, a
+-- fresh show at a different offset draws exactly there even at alpha 0.
+function T.an_inactive_gap_snaps_the_interpolation()
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local r = renderer(lg)
+  local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+  r:draw(FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = -48 }), viewport, 1)
+
+  local fresh = FieldSignpostController.new({
+    layout = function(msg)
+      ---@cast msg any
+      return { lines = msg._lines }
+    end,
+  })
+  local before = #lg.draws
+  r:draw(fresh, viewport)
+  Assert.equal(#lg.draws, before, "the fresh controller is inactive and draws nothing")
+
+  local shown = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = 0 })
+  r:draw(shown, viewport, 0)
+  local text = textDraws(lg)
+  Assert.equal(text[#text].y, 168, "alpha 0 after an inactive gap draws the current offset, not the stale one")
+  r:release()
+end
+
+-- Wipe-out: the endpoint check clears the window and resets the stored
+-- offset; the renderer must not re-present the surface at the reset position
+-- on any later draw while inactive.
+function T.wipe_out_never_flashes_the_cleared_window()
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local r = renderer(lg)
+  local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+  local controller = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = 0 })
+  r:draw(controller, viewport)
+  Assert.isTrue(#lg.draws > 0, "the shown window draws")
+  controller:setCommand("wipe_out")
+  for _ = 1, 4 do
+    controller:updateFixed()
+  end
+  local before = #lg.draws
+  r:draw(controller, viewport)
+  Assert.equal(#lg.draws, before, "no draw after the endpoint check cleared the window")
+  r:draw(controller, viewport)
+  Assert.equal(#lg.draws, before, "staying inactive draws nothing")
+  r:release()
+end
+
+-- Typed print: only the revealed glyphs are drawn, so the wipe shows the
+-- signpost text growing at the fixed cadence.
+function T.typed_print_draws_only_the_revealed_glyphs()
+  local lines = FieldSignpostFixture.textLines()
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local r = renderer(lg)
+  local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+  local controller = FieldSignpostFixture.shown(lines, { type = 2, offset = 0, text = false })
+  controller:printTyped(FieldSignpostFixture.message(lines))
+  controller:updateFixed()
+  controller:updateFixed()
+  r:draw(controller, viewport)
+  Assert.equal(#textDraws(lg), 1, "cadence 2 reveals one glyph")
+  for _ = 1, 6 do
+    controller:updateFixed()
+  end
+  r:draw(controller, viewport)
+  Assert.equal(#textDraws(lg), 4, "the finished print adds the remaining two glyphs")
+  r:release()
+end
+
+-- An active window without a source appearance (a bare SHOW) is a degenerate
+-- script state; the renderer draws the full-width box with the style's own
+-- geometry and no wayfinding.
+function T.an_active_window_without_appearance_draws_the_full_width_box()
+  local controller = FieldSignpostController.new({
+    layout = function(msg)
+      ---@cast msg any
+      return { lines = msg._lines }
+    end,
+  })
+  controller:setCommand("show")
+  controller:updateFixed()
+  controller:printInstant(FieldSignpostFixture.message(FieldSignpostFixture.textLines()))
+  Assert.isTrue(controller:status().active)
+  Assert.isNil(controller:status().sourceAppearance)
+
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local r = renderer(lg)
+  r:draw(controller, FieldViewport.new(256, 192, { mode = "expanded" }))
+  Assert.equal(#wayfindingDraws(lg), 0, "no wayfinding without a source appearance")
+  Assert.equal(textDraws(lg)[1].x, 16, "the style's own full-width geometry applies")
+  r:release()
+end
+
+-- A style without a per-source-type map (hgss.trainer_tip) draws its own
+-- full-width geometry even for a source type that the signpost style would
+-- give a graphic region.
+function T.a_style_without_a_per_type_map_uses_its_own_geometry()
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local r = renderer(lg)
+  local controller = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), {
+    type = 0,
+    offset = 0,
+    styleId = "hgss.trainer_tip",
+  })
+  r:draw(controller, FieldViewport.new(256, 192, { mode = "expanded" }))
+  Assert.equal(#wayfindingDraws(lg), 0, "trainer_tip has no wayfinding area")
+  Assert.equal(textDraws(lg)[1].x, 16, "trainer_tip text is full width")
+  r:release()
+end
+
+-- An unknown style id is a composition error: the sealed registry can never
+-- resolve it, so the draw raises after restoring the graphics state.
+function T.an_unknown_style_id_is_a_programming_error()
+  local canvas, shader = {}, {}
+  local lg = fakeGraphics({
+    canvas = canvas,
+    shader = shader,
+    blendMode = "add",
+    blendAlpha = "alphamultiply",
+    depthMode = "lequal",
+    depthWrite = true,
+    wireframe = true,
+    cullMode = "back",
+    color = { 0.2, 0.4, 0.6, 0.8 },
+    scissor = { 4, 8, 32, 16 },
+    imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } },
+  })
+  local r = renderer(lg)
+  local controller = FieldSignpostController.new({
+    layout = function(msg)
+      ---@cast msg any
+      return { lines = msg._lines }
+    end,
+    styleId = "no.such.style",
+  })
+  controller:setCommand("show")
+  controller:updateFixed()
+  Assert.throws(function()
+    r:draw(controller, FieldViewport.new(256, 192, { mode = "expanded" }))
+  end, "unknown style ids must raise")
+  FieldDialogueFixture.assertRestoredState(lg, canvas, shader)
+  r:release()
+end
+
+-- A failure between graphics.push() and graphics.pop() must still pop the
+-- transform stack and restore every captured graphics state exactly.
+function T.draw_failure_balances_transform_stack_and_restores_state()
+  local canvas, shader = {}, {}
+  local lg = fakeGraphics({
+    canvas = canvas,
+    shader = shader,
+    blendMode = "add",
+    blendAlpha = "alphamultiply",
+    depthMode = "lequal",
+    depthWrite = true,
+    wireframe = true,
+    cullMode = "back",
+    color = { 0.2, 0.4, 0.6, 0.8 },
+    scissor = { 4, 8, 32, 16 },
+    imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } },
+    failOnDrawCall = 1,
+  })
+  local r = renderer(lg)
+  local controller = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 0, offset = 0 })
+  local err = Assert.throws(function()
+    r:draw(controller, FieldViewport.new(256, 192, { mode = "expanded" }))
+  end)
+  Assert.isTrue(tostring(err):find("injected draw failure", 1, true) ~= nil, "rethrows the draw failure")
+  Assert.equal(lg.pushDepth(), 0, "the transform stack is balanced after a failed draw")
+  FieldDialogueFixture.assertRestoredState(lg, canvas, shader)
+  r:release()
+end
+
+-- Release frees every owned image; a later draw is a no-op.
+function T.release_frees_all_owned_images_and_noops_drawing()
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local r = renderer(lg)
+  r:release()
+  Assert.equal(lg.images[1].released, true)
+  Assert.equal(lg.images[2].released, true)
+  Assert.equal(lg.images[3].released, true)
+  r:draw(
+    FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2 }),
+    FieldViewport.new(256, 192, { mode = "expanded" })
+  )
+  Assert.equal(#lg.draws, 0, "drawing after release is a no-op")
+end
+
+return { tests = T }
