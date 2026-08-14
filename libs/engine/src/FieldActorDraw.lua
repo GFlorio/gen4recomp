@@ -5,9 +5,8 @@
 -- declares (modulation, full polygon alpha, polygon id 0, colour-zero cutout),
 -- so it depth-tests against map geometry and takes part in edge marking exactly
 -- as the original does. The quad is a Nitro full camera-facing billboard, so the
--- item ships a `billboardBase` -- the actor's world placement composed onto the
--- position matrix the SBC command captured -- and MapRenderer rebuilds the real
--- matrix against the live camera each frame.
+-- item ships its world-space center and base scale; the vertex shader supplies
+-- the camera-facing axes without rebuilding a model matrix on the CPU.
 --
 -- Pure domain module: matrix arithmetic only, no love dependency.
 
@@ -60,9 +59,14 @@ function FieldActorDraw.item(record, entry, partIndex)
   local anchor = geometry.anchorTiles
   local placement = Matrix4.translate(record.world.x + anchor.x, record.world.y + anchor.y, record.world.z + anchor.z)
   local isBillboard = render.kind ~= "staticModel"
-  local billboardBase
+  local billboardBase, billboardCenter, billboardScale
   if isBillboard then
     billboardBase = Matrix4.multiply(placement, geometry.baseTransform)
+    billboardCenter = { billboardBase[13], billboardBase[14], billboardBase[15] }
+    billboardScale = assert(
+      entry.billboardScales and entry.billboardScales[geometry],
+      "resident billboard visual is missing its precomputed scale"
+    )
   end
   local transform = billboardBase or placement
   local polygon = part.polygon
@@ -79,6 +83,8 @@ function FieldActorDraw.item(record, entry, partIndex)
     -- only, so every actor item shares the same immutable normal transform.
     modelNormal = IDENTITY_MODEL_NORMAL,
     billboardBase = billboardBase,
+    billboardCenter = billboardCenter,
+    billboardScale = billboardScale,
     -- Actor quads draw through the depth-biased billboard projection (see
     -- FieldCamera:billboardProjection); static-model actors keep the world
     -- projection like the DS's 3D-object task manager.

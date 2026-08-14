@@ -10,6 +10,7 @@ local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")
+local BillboardTransform = require("libs.engine.src.BillboardTransform")
 
 local T = {}
 
@@ -762,7 +763,7 @@ local function passItem(alphaClass, z, opts)
   }
 end
 
-function T.billboard_draw_refreshes_the_model_normal_with_the_live_view()
+function T.billboard_draw_sends_change_driven_data_for_nonuniform_scale()
   local lg = fakeGraphics()
   local renderer = MapRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
@@ -773,23 +774,25 @@ function T.billboard_draw_refreshes_the_model_normal_with_the_live_view()
   local item = passItem("opaque", 0)
   item.billboardBase = Matrix4.multiply(Matrix4.rotateZ(0.7), Matrix4.scale(2, 3, 4))
   item.transform = item.billboardBase
-  item.modelNormal = Matrix3.modelNormal(item.transform)
+  item.billboardCenter, item.billboardScale = BillboardTransform.components(item.billboardBase)
+  local originalTransform = item.transform
 
   renderer:draw(scene.runtime, scene.camera, { { item } }, FieldViewport.new(640, 480, { mode = "strict" }))
 
-  local sent
+  local sentCenter, sentScale, sentModel
   for _, send in ipairs(lg.shaders[1].sends) do
-    if send.name == "u_modelNormal" then
-      sent = send.values[2]
+    if send.name == "u_billboardCenter" then
+      sentCenter = send.values[1]
+    elseif send.name == "u_billboardScale" then
+      sentScale = send.values[1]
+    elseif send.name == "u_model" then
+      sentModel = send.values[2]
     end
   end
-  local nx, ny, nz = 0.31, -0.47, 0.82
-  local legacyX, legacyY, legacyZ = Matrix3.transform(Matrix3.normalMatrix(item.transform, viewMatrix), nx, ny, nz)
-  local modelX, modelY, modelZ = Matrix3.transform(assert(sent), nx, ny, nz)
-  local actualX, actualY, actualZ = Matrix3.transform(Matrix3.from4x4(viewMatrix), modelX, modelY, modelZ)
-  Assert.near(actualX, legacyX, 1e-9)
-  Assert.near(actualY, legacyY, 1e-9)
-  Assert.near(actualZ, legacyZ, 1e-9)
+  Assert.equal(sentCenter, item.billboardCenter)
+  Assert.equal(sentScale, item.billboardScale)
+  Assert.isNil(sentModel, "ordinary billboard draws do not bind a camera-facing model matrix")
+  Assert.equal(item.transform, originalTransform, "billboard drawing does not mutate the item")
   renderer:release()
 end
 
@@ -1034,6 +1037,26 @@ function T.straddle_filled_and_wireframe_paths_send_identity_model_normal()
   Assert.equal(#sent, 2, "both straddle shader paths send model-normal state")
   Assert.deepEqual(sent[1], Matrix3.identity(), "filled straddle normals are already world-baked")
   Assert.deepEqual(sent[2], Matrix3.identity(), "wireframe straddle normals are already world-baked")
+end
+
+function T.billboard_straddles_keep_the_cpu_fallback_for_the_scratch_bake()
+  local fake = straddleGraphics()
+  local renderer = MapRenderer.new({ graphics = fake })
+  local item = straddleDrawItem(sourceMesh())
+  item.billboardBase = Matrix4.multiply(Matrix4.translate(0, 0, -3), Matrix4.scale(2, 1, 1))
+  item.transform = item.billboardBase
+  item.billboardCenter, item.billboardScale = BillboardTransform.components(item.billboardBase)
+  local viewMatrix = Matrix4.rotateY(math.pi / 2)
+
+  renderer:_drawStraddle(item, nil, Matrix4.identity(), "opaque", viewMatrix)
+
+  local resolved = BillboardTransform.resolve(item.billboardBase, viewMatrix)
+  local expectedX, expectedY, expectedZ = Matrix4.transformPoint(resolved, 1, 2, 0)
+  local scratch = fake.meshes[1]
+  Assert.near(scratch.vertices[3][1], expectedX, 1e-9)
+  Assert.near(scratch.vertices[3][2], expectedY, 1e-9)
+  Assert.near(scratch.vertices[3][3], expectedZ, 1e-9)
+  Assert.isTrue(scratch.released, "the exceptional billboard scratch is still released")
 end
 
 -- The straddle draw bakes the shared mesh's vertices into a scratch mesh

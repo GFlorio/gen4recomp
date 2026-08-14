@@ -281,4 +281,19 @@ function T.transforms_rotated_translated_centers_once()
   Assert.deepEqual(ids(q, "translucent"), { 1, 2 }, "far (rotated) first, near origin last")
 end
 
+function T.sorts_billboards_from_their_view_space_center_and_scaled_model_center()
+  local billboard = item("billboard", "translucent", { 0, 0, 1 })
+  billboard.billboardCenter = { 0, 0, -32 }
+  billboard.billboardScale = { 1, 1, 2 }
+  local ordinary = item("ordinary", "translucent", { 0, 0, -29.5 })
+
+  local q = build({ { billboard, ordinary } }, Matrix4.identity())
+
+  Assert.deepEqual(
+    ids(q, "translucent"),
+    { "billboard", "ordinary" },
+    "billboard depth includes its view-space center and scaled model center"
+  )
+end
+
 return { tests = T }

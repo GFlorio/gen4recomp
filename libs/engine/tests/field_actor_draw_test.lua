@@ -22,7 +22,13 @@ local function entry(spriteId, opts)
   for index = 1, visual.render.frameCount do
     meshes[index] = { frameIndex = index }
   end
-  return { spriteId = spriteId, visual = visual, image = { id = spriteId }, meshes = meshes }
+  return {
+    spriteId = spriteId,
+    visual = visual,
+    image = { id = spriteId },
+    meshes = meshes,
+    billboardScales = { [visual.render.geometry] = { 1, 1, 1 } },
+  }
 end
 
 local function record(overrides)
@@ -72,7 +78,9 @@ function T.places_the_billboard_at_the_world_position_plus_the_source_anchor()
     "the loader's six-model-unit Y offset is applied in tiles, not baked into the atlas"
   )
   Assert.equal(item.billboardBase[15], -4)
-  Assert.isTrue(item.transform == item.billboardBase, "the renderer resolves the same matrix it was handed")
+  Assert.deepEqual(item.billboardCenter, { 3, 1.5 + 6 / 16, -4 })
+  Assert.deepEqual(item.billboardScale, { 1, 1, 1 })
+  Assert.isTrue(item.transform == item.billboardBase, "the base placement remains available to the item")
   Assert.deepEqual(item.modelNormal, { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
   local nextItem = FieldActorDraw.item(record(), entry(99))
   Assert.equal(item.modelNormal, nextItem.modelNormal, "ordinary actor billboards share one identity normal")

@@ -36,6 +36,9 @@ uniform mat4 u_proj;
 uniform mat4 u_view;
 uniform mat4 u_model;
 uniform mat3 u_modelNormal;
+uniform bool u_billboard;
+uniform vec3 u_billboardCenter;
+uniform vec3 u_billboardScale;
 
 uniform bool u_lightEnabled0;
 uniform bool u_lightEnabled1;
@@ -106,8 +109,19 @@ vec3 quantizeRgb5(vec3 c)
 
 vec4 position(mat4 transform_projection, vec4 vertex_position)
 {
-  vec3 modelNormal = u_modelNormal * VertexNormal;
-  vec3 normal = normalize(mat3(u_view) * modelNormal);
+  vec3 modelNormal;
+  vec3 normal;
+  vec4 viewPosition;
+  if (u_billboard) {
+    modelNormal = VertexNormal / u_billboardScale;
+    vec3 viewCenter = (u_view * vec4(u_billboardCenter, 1.0)).xyz;
+    viewPosition = vec4(viewCenter + vertex_position.xyz * u_billboardScale, 1.0);
+    normal = normalize(modelNormal);
+  } else {
+    modelNormal = u_modelNormal * VertexNormal;
+    viewPosition = u_view * u_model * vertex_position;
+    normal = normalize(mat3(u_view) * modelNormal);
+  }
   int src = int(floor(VertexColorSource + 0.5));
 
   if (src == 0) {
@@ -123,7 +137,7 @@ vec4 position(mat4 transform_projection, vec4 vertex_position)
   // LÖVE Canvas framebuffers are Y-inverted relative to the screen, and this
   // custom projection bypasses LÖVE's compensating flip; negate clip Y so the
   // scene renders upright (and with correct winding) into the offscreen canvas.
-  vec4 clip = u_proj * u_view * u_model * vertex_position;
+  vec4 clip = u_proj * viewPosition;
   clip.y = -clip.y;
   return clip;
 }

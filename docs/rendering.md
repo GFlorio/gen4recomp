@@ -198,10 +198,10 @@ An SBC `BB` command installs a position matrix that depends on the camera, so it
 shapes cannot be baked. Such a batch is compiled with `transformMode =
 "billboard"` and a `baseTransform`: the position matrix the command captured,
 with its translation converted to tiles, and geometry left in billboard-local
-space. `MapSceneLoader` composes that base with the placement transform;
-`MapRenderer` calls `BillboardTransform.resolve` once per draw per frame, before
-the queue is built, so `u_model`, the normal matrix, translucent sorting, and
-every pass share one matrix.
+space. `MapSceneLoader` composes that base with the placement transform and
+stores its translation and basis scales; the vertex shader supplies the
+camera-facing axes. `RenderQueue` uses the same center and scale for translucent
+sorting. Only the exceptional straddling path calls `BillboardTransform.resolve`.
 
 Following NitroSystem `sbc.c`, the resolved matrix keeps the base translation and
 the magnitude of each base basis vector and discards the base rotation:
@@ -226,7 +226,8 @@ effective `POLYGON_ATTR` all come from the ROM. `FieldActorMesh` builds one mesh
 per atlas frame -- identical geometry with the U range slid onto that frame --
 and `FieldActorDraw` turns a presentation-neutral `ActorDrawRecord` into a draw
 item whose `billboardBase` is the actor's world placement composed onto that base
-transform. Static map-object actors instead retain each NSBMD geometry and
+transform, with its center and basis scales precomputed by the actor asset
+provider. Static map-object actors instead retain each NSBMD geometry and
 polygon-state part and draw without a billboard transform. Pose selection
 (`FieldActorPose`) is independent of both paths.
 
@@ -275,7 +276,7 @@ actors draw with the world projection, exactly as on the DS.
 * A3I5/A5I3 → translucent; binary zero-alpha → cutout.
 * Culling from polygon bits 6-7.
 * Translucent bit-11 depth writes.
-* `BB` billboards, resolved per frame from the captured base transform.
+* `BB` billboards, oriented in the vertex shader from the captured base transform.
 * The field-billboard depth bias (`unk11C = 8` model units in `ov01_021E6220`):
   actor billboards render through a projection whose Z row is pulled
   0.5 · cos(pitch) tiles toward the camera, so they win same-depth ties.

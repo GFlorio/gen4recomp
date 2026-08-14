@@ -37,6 +37,7 @@ local MaterialEvaluator = require("libs.engine.src.MaterialEvaluator")
 local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 local PolygonState = require("libs.assets.src.PolygonState")
 local AnimationClip = require("libs.assets.src.AnimationClip")
+local BillboardTransform = require("libs.engine.src.BillboardTransform")
 
 ---@class MaterialRGB
 ---@field r integer
@@ -308,6 +309,8 @@ end
 ---@field depthEqual boolean
 ---@field center number[] -- model-space center, transformed by the render queue
 ---@field billboardBase number[]|nil
+---@field billboardCenter number[]|nil
+---@field billboardScale number[]|nil
 ---@field straddle { leading: integer, transform: number[] }|nil -- the DS
 --  bend: the first `leading` vertices were submitted under this transform
 --  (the pre-boundary matrix), the rest under `transform`
@@ -322,10 +325,11 @@ end
 -- (PoseState.drawMatrices): a Nitro draw is not one node matrix, so those
 -- records -- resolved from the transform program -- replace the node-matrix
 -- path, and the polygon draw state compiled per segment (cull mode, polygon
--- mode/id, depth flags) rides on the item. A billboard draw's baked geometry
--- takes the camera-facing matrix rebuilt from its captured base
--- (MapRenderer), exactly like the static building path. The center is the
--- mesh's model-space bounding-box center (stamped by the loader); the
+-- mode/id, depth flags) rides on the item. A billboard draw keeps the
+-- camera-independent center and scale derived from its captured base; the
+-- shader supplies the view-facing axes, exactly like the static building path.
+-- The remaining center is the mesh's model-space bounding-box center (stamped
+-- by the loader); the
 -- render queue transforms it once by the item transform.
 ---@return ModelDrawItem[]
 function ModelInstance:drawItems(renderMeshesById)
@@ -338,10 +342,11 @@ function ModelInstance:drawItems(renderMeshesById)
     if not (pose and pose.nodeVisible[mesh.nodeIndex] == false) then
       ---@type PoseDrawMatrix|nil
       local draw = pose and pose.drawMatrices and pose.drawMatrices[mesh.id]
-      local transform, billboardBase
+      local transform, billboardBase, billboardCenter, billboardScale
       if draw then
         if draw.transformMode == PoseContract.BILLBOARD then
           billboardBase = Matrix4.multiply(self.transform, draw.baseTransform)
+          billboardCenter, billboardScale = BillboardTransform.components(billboardBase)
           transform = billboardBase
         else
           transform = Matrix4.multiply(self.transform, draw.position)
@@ -369,6 +374,8 @@ function ModelInstance:drawItems(renderMeshesById)
         transform = transform,
         modelNormal = modelNormal,
         billboardBase = billboardBase,
+        billboardCenter = billboardCenter,
+        billboardScale = billboardScale,
         alphaClass = material.alphaClass,
         alphaCutoff = material.alphaCutoff,
         polygonAlpha = material.polygonAlpha,
