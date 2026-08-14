@@ -1,12 +1,13 @@
 -- Synthetic audio bundle and cache fixtures for the asset/cache contract
--- tests. The bundle follows the compiler-bundle shape
--- (marker/index/sequences/banks/samples/sampleMetadata/dependencies) with
--- assets matching the frozen audio shapes: zero-based sequence/bank ids,
--- content-addressed samples, semantic instruction IR with index branch
--- targets, direct/key_split/drum_set instruments, and sample/square/noise
--- voices. readyCache writes a bundle straight into a CacheFs (paths via
--- AudioCache) without the production writer, so libs/assets unit tests can
--- build ready caches without importing romdump. Test-only fixture.
+-- tests and the engine audio runtime tests. The bundle follows the
+-- compiler-bundle shape (marker/index/sequences/banks/samples/
+-- sampleMetadata/dependencies) with assets matching the frozen audio shapes:
+-- zero-based sequence/bank ids, content-addressed samples, semantic
+-- instruction IR with index branch targets, direct/key_split/drum_set
+-- instruments, and sample/square/noise voices. readyCache writes a bundle
+-- straight into a CacheFs (paths via AudioCache) without the production
+-- writer, so libs/assets unit tests and libs/engine audio tests can build
+-- ready caches without importing romdump. Test-only fixture.
 
 local AudioCache = require("libs.assets.src.AudioCache")
 local CacheFs = require("libs.storage.src.CacheFs")
@@ -19,6 +20,21 @@ local AudioFixture = {}
 -- ever valid.
 function AudioFixture.key(n)
   return string.format("%040x", n)
+end
+
+-- Encodes signed int16 samples as little-endian PCM16LE bytes.
+---@param samples integer[]
+---@return string
+function AudioFixture.pcm16le(samples)
+  local bytes = {}
+  for i = 1, #samples do
+    local s = samples[i]
+    if s < 0 then
+      s = s + 65536
+    end
+    bytes[#bytes + 1] = string.char(s % 256, math.floor(s / 256) % 256)
+  end
+  return table.concat(bytes)
 end
 
 function AudioFixture.sampleVoice(key)
@@ -46,19 +62,22 @@ function AudioFixture.noiseVoice()
   }
 end
 
-function AudioFixture.sequence(id, symbol, bankId, playerId)
-  return {
+-- A valid sequence asset. `program` overrides the default program so engine
+-- tests can author hand-written programs over the frozen
+-- instruction shapes; `player` overrides the player block fields.
+function AudioFixture.sequence(id, symbol, bankId, playerId, program, player)
+  local sequence = {
     schema = AudioCache.SEQUENCE_SCHEMA,
     id = id,
     symbol = symbol,
     bankId = bankId,
-    player = {
+    player = player or {
       id = playerId,
       initialVolume = 127,
       channelPriority = 64,
       playerPriority = 64,
     },
-    program = {
+    program = program or {
       entry = 1,
       instructions = {
         { op = "program", program = 4 },
@@ -68,16 +87,19 @@ function AudioFixture.sequence(id, symbol, bankId, playerId)
       },
     },
   }
+  return sequence
 end
 
-function AudioFixture.bank(id, symbol, waveArchives, sampleKeys)
+-- `instruments` overrides the default instrument map so engine tests can
+-- author banks over the frozen instrument/voice shapes.
+function AudioFixture.bank(id, symbol, waveArchives, sampleKeys, instruments)
   sampleKeys = sampleKeys or { AudioFixture.key(1), AudioFixture.key(2) }
   return {
     schema = AudioCache.BANK_SCHEMA,
     id = id,
     symbol = symbol,
     waveArchives = waveArchives,
-    instruments = {
+    instruments = instruments or {
       [0] = { kind = "direct", voice = AudioFixture.sampleVoice(sampleKeys[1]) },
       [1] = {
         kind = "key_split",
@@ -96,14 +118,18 @@ function AudioFixture.bank(id, symbol, waveArchives, sampleKeys)
   }
 end
 
-function AudioFixture.sampleMetadata(key)
+-- `opts` overrides frames/sampleRate/loop so engine tests can pin a wave's
+-- rate and loop window; `file` stays the canonical content-addressed path.
+function AudioFixture.sampleMetadata(key, opts)
+  opts = opts or {}
+  local frames = opts.frames or 8214
   return {
     schema = AudioCache.SAMPLE_SCHEMA,
     key = key,
     file = AudioCache.samplePath(key),
-    frames = 8214,
-    sampleRate = 32768,
-    loop = { startFrame = 0, endFrame = 8214 },
+    frames = frames,
+    sampleRate = opts.sampleRate or 32768,
+    loop = opts.loop or { startFrame = 0, endFrame = frames },
   }
 end
 
