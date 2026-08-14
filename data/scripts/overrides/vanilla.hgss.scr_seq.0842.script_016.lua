@@ -18,7 +18,7 @@ return S.script {
       member = 842,
       scriptIndex = 16,
     },
-    coverage = { complete = false, unsupportedCount = 1 },
+    coverage = { complete = true, unsupportedCount = 0 },
   },
   steps = {
     { op = "buffer_text", provenance = { offsets = { [1] = 4284 }, opcodes = { [1] = 192 } }, slot = 0, value = { text = "friend_name" } },
@@ -26,7 +26,7 @@ return S.script {
     { command = "wipe_in", op = "signpost_command", provenance = { offsets = { [1] = 4292 }, opcodes = { [1] = 57 } } },
     { op = "wait_signpost_action", provenance = { offsets = { [1] = 4295 }, opcodes = { [1] = 58 } } },
     { message = { bank = 542, id = 35, message = "external" }, op = "trainer_tips_print", provenance = { offsets = { [1] = 4297 }, opcodes = { [1] = 59 } }, result = { id = "VAR_SPECIAL_RESULT", value = "var" } },
-    { arguments = {}, command = 0, op = "unsupported", originalName = "call to unsupported script common.signpost", provenance = { offsets = { [1] = 4302 }, opcodes = { [1] = 20 } } },
+    { op = "call_common", provenance = { offsets = { [1] = 4302 }, opcodes = { [1] = 20 } }, target = "common.signpost" },
     { op = "stop", provenance = { offsets = { [1] = 4306 }, opcodes = { [1] = 2 } } },
   },
 }

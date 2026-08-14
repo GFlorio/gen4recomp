@@ -61,3 +61,52 @@ opcode and of the macro compositions:
 The opcode-55 last operand is decoded and preserved but never written
 (`DirectionSignpost` emits it into `VAR_SPECIAL_RESULT` only by convention;
 the runtime work must not make it meaningful).
+
+## Opcode 61 — the std_signpost context end
+
+`std_signpost`'s hide branch (special result 1) tails with `ScrCmd_061`, and
+the real `common.signpost` child must be fully supported for the integration
+(an unsupported node in it keeps every `CallStd 2000` call collapsed into a
+loud override fault). Audited semantics (all at the pinned commit):
+
+- `src/scrcmd_c.c:945-948`:
+  `BOOL ScrCmd_061(ScriptContext *ctx) { sub_0204031C(ctx->fieldSystem); return FALSE; }`
+  — no operands (the catalog widths `{}` are correct), and returning FALSE
+  ends the current script context.
+- `src/script_manager.c:334-339` (`sub_0204031C`): installs
+  `unk->scrctx_end_cb = sub_0203BD64` on the script environment (unless the
+  map is a mystery zone).
+- `src/start_menu.c:256+` (`sub_0203BD64`): plays `SEQ_SE_DP_WIN_OPEN` and
+  opens the Start Menu task with the context-appropriate inhibit flags.
+- `src/script_manager.c:128-140`: the end callback fires when
+  `activeScriptContextCount == 0` — i.e. when the whole script environment
+  (parent plus child contexts) has ended, which is the "restart" behavior
+  the earlier `std_signpost` corpus note observed.
+
+The corpus census (decoder probe over all scripts) shows opcode 61 appears
+exactly once — `common.signpost` at offset 1250, the hide branch — and every
+`CallStd 2000` caller's last `VAR_SPECIAL_RESULT` write is opcode 59 or
+55/60 (values 0 or 2 only), so the hide branch is unreachable in retail
+usage. Faithful runtime support is nevertheless wired: the catalog classifies
+61 as `stop`, `SemanticLowering` emits the terminal
+`{ op = "request_start_menu" }` node, and the runtime handler routes the
+reopen request through the `startMenuReopen` service (an attributed
+`SCRIPT_SERVICE_MISSING` fault when no Start Menu host is wired — never a
+silent close) and returns the stop outcome that ends the script context. The
+moment the request is delivered (the source delivers at environment end) is
+the future Start Menu application host's composition decision.
+
+## Signal_caller ends the context
+
+The wipe-out branches never reach 61 because each branch ends with
+`RestartCurrentScript` — and `ScrCmd_RestartCurrentScript`
+(`src/scrcmd_c.c:378-388`) toggles the caller signal bit and **returns
+FALSE**, ending the script context. The trailing `End` in the source
+(`_04D6: ScrCmd_057 2; RestartCurrentScript; End`) is dead code: the
+decoder terminates the run at opcode 21 and drops the following `End` as
+alignment padding before the next justified label (the same mechanism that
+drops the script-final `End`), so the translated child must end at
+`signal_caller`, never fall through to the next branch region. The runtime
+`signal_caller` handler returns the stop outcome and the compiler gives the
+signal node no next edge, matching the source; `std_signpost`'s hide branch
+is reachable only through its goto targets.

@@ -461,9 +461,9 @@ T["field menu operations verify as supported"] = function()
   Assert.equal(report.unsupportedCount, 0)
 end
 
--- 12. Opcodes 55-60 carry their execution classifications (runtime support
--- lands atomically with each).
-T["signpost 55-60 classify as supported"] = function()
+-- 12. Opcodes 55-61 carry their execution classifications (runtime support
+-- lands atomically with each; 61 is the std_signpost context end).
+T["signpost 55-61 classify as supported"] = function()
   local bytes = ScriptFixture.member({
     scripts = {
       {
@@ -483,12 +483,13 @@ T["signpost 55-60 classify as supported"] = function()
           { op = 58, args = {} },
           { op = 59, args = { { value = 0, width = 1 }, { value = 0x8008, width = 2 } } },
           { op = 60, args = { { value = 0x8008, width = 2 } } },
+          { op = 61, args = {} },
           { op = 2, args = {} },
         },
       },
     },
   })
-  for opcode = 55, 60 do
+  for opcode = 55, 61 do
     Assert.isTrue(CommandCatalog.SUPPORTED[opcode], "opcode " .. opcode .. " is not marked supported")
   end
   Assert.equal(CommandCatalog.classification(55), CommandCatalog.YIELD)
@@ -497,12 +498,13 @@ T["signpost 55-60 classify as supported"] = function()
   Assert.equal(CommandCatalog.classification(58), CommandCatalog.NATIVE_WAIT)
   Assert.equal(CommandCatalog.classification(59), CommandCatalog.NATIVE_WAIT)
   Assert.equal(CommandCatalog.classification(60), CommandCatalog.NATIVE_WAIT)
+  Assert.equal(CommandCatalog.classification(61), CommandCatalog.STOP)
   local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 5, "synthetic", { msgBank = 543, catalog = CATALOG }))
   local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
   Assert.equal(#lowered.unsupported, 0)
   local report = Verifier.verifyScript(Structurer.structure(lowered, 0), ir.scripts[0], ir, lowered.omissions)
   Assert.equal(report.unsupportedCount, 0)
-  Assert.isTrue(report.ok, report.problems[1] and report.problems[1].message or "signpost 55-60 must verify")
+  Assert.isTrue(report.ok, report.problems[1] and report.problems[1].message or "signpost 55-61 must verify")
   Assert.isTrue(report.complete)
 end
 
@@ -571,6 +573,34 @@ T["unknown signpost action command is malformed source"] = function()
       "the malformed-command error names the signpost command, got: " .. tostring(err)
     )
   end
+end
+
+-- 17. Opcode 61 (ScrCmd_061, the std_signpost context end): no operands,
+-- ends the script context and requests the Start Menu reopen hook. It
+-- lowers to the canonical terminal request_start_menu node and verifies as
+-- a stop-classified supported translation, never an unsupported node.
+T["request start menu (61) lowers to the canonical terminal node"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          { op = 61, args = {} },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 5, "synthetic", { msgBank = 543, catalog = CATALOG }))
+  local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+  Assert.deepEqual(lowered.items[1], {
+    op = "request_start_menu",
+    provenance = { offsets = { 32 }, opcodes = { 61 } },
+  })
+  local report = Verifier.verifyScript(Structurer.structure(lowered, 0), ir.scripts[0], ir, lowered.omissions)
+  Assert.equal(report.unsupportedCount, 0)
+  Assert.isTrue(report.ok, report.problems[1] and report.problems[1].message or "opcode 61 must verify")
+  Assert.isTrue(report.complete)
 end
 
 -- 16. Opcode 59 (TrainerTips) lowers to the canonical typed-print node with

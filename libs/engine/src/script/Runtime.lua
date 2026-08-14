@@ -86,7 +86,7 @@ function Runtime.evaluateValue(v, run)
     end
     return value
   elseif kind == "flag_value" then
-    local flagId = Runtime.evaluateValue(v.flag, run)
+    local flagId = Runtime.resolveIdOperand(v.flag, run)
     return run.services.world:isFlagSet(flagId) and 1 or 0
   elseif kind == "player_gender_value" then
     return run.services.player:gender()
@@ -123,6 +123,21 @@ function Runtime.evaluateValue(v, run)
     "unknown value kind " .. tostring(kind),
     { scriptId = run.instance.scriptId }
   )
+end
+
+-- Resolve an id_or_var operand to the world id it names. A variable
+-- reference names its own variable (the translator emits var refs for
+-- var-range operands, e.g. copy_var/set_var, and the source operand IS the
+-- variable id); every other form evaluates as before (a direct string or
+-- numeric id passes through, local/arg references dereference).
+---@param v any
+---@param run table
+---@return any
+function Runtime.resolveIdOperand(v, run)
+  if type(v) == "table" and v.value == "var" then
+    return v.id
+  end
+  return Runtime.evaluateValue(v, run)
 end
 
 -- Resolve a semantic message descriptor before it crosses into a host. This
@@ -196,7 +211,7 @@ function Runtime.evaluateCondition(condition, run)
       { scriptId = run.instance.scriptId }
     )
   elseif kind == "flag" then
-    local flagId = Runtime.evaluateValue(condition.id, run)
+    local flagId = Runtime.resolveIdOperand(condition.id, run)
     return run.services.world:isFlagSet(flagId) == condition.expected
   elseif kind == "not" then
     return not Runtime.evaluateCondition(condition.operand, run)
@@ -513,6 +528,19 @@ HANDLERS.stop = function(node, run)
   return Runtime.OUTCOME_STOP
 end
 
+-- ScrCmd_061 (std_signpost's hide-branch tail): no operands. The source
+-- installs the Start Menu reopen end callback (sub_0204031C ->
+-- sub_0203BD64) and returns FALSE, ending the script context. The reopen
+-- request routes through the startMenuReopen service — the future Start
+-- Menu application host consumes it when the environment ends; a missing
+-- service is an attributed fault, never a silent close. The STOP outcome
+-- ends this script context (a child context ending resumes the caller
+-- through the child-slot mechanics).
+HANDLERS.request_start_menu = function(node, run)
+  requireService(run, "startMenuReopen"):request()
+  return Runtime.OUTCOME_STOP
+end
+
 HANDLERS.yield_tick = function(node, run)
   return Runtime.OUTCOME_YIELD_TICK
 end
@@ -737,6 +765,12 @@ HANDLERS.next = function(node, run)
   return advanceChain(run, frame)
 end
 
+-- The source `ScrCmd_RestartCurrentScript` (opcode 21) toggles the caller
+-- signal bit and returns FALSE: the common-child context ENDS at the
+-- signal — it never falls through to the instructions after signal_caller
+-- (std_signpost's hide branch is reachable only through its goto targets).
+-- The stop outcome ends the child; the caller's child_script task observes
+-- the signal on its next poll.
 HANDLERS.signal_caller = function(node, run)
   local slot = run.instance.contextSlot
   if slot <= 0 then
@@ -747,7 +781,7 @@ HANDLERS.signal_caller = function(node, run)
     )
   end
   run.environment:setCallerSignal(slot - 1, false)
-  return Runtime.OUTCOME_CONTINUE
+  return Runtime.OUTCOME_STOP
 end
 
 HANDLERS.call_common = function(node, run)
@@ -764,40 +798,40 @@ HANDLERS.call_common = function(node, run)
 end
 
 HANDLERS.set_flag = function(node, run)
-  local flagId = Runtime.evaluateValue(node.flag, run)
+  local flagId = Runtime.resolveIdOperand(node.flag, run)
   run.services.world:setFlag(flagId)
   return Runtime.OUTCOME_CONTINUE
 end
 
 HANDLERS.clear_flag = function(node, run)
-  local flagId = Runtime.evaluateValue(node.flag, run)
+  local flagId = Runtime.resolveIdOperand(node.flag, run)
   run.services.world:clearFlag(flagId)
   return Runtime.OUTCOME_CONTINUE
 end
 
 HANDLERS.set_var = function(node, run)
-  local variableId = Runtime.evaluateValue(node.variable, run)
+  local variableId = Runtime.resolveIdOperand(node.variable, run)
   local value = Runtime.evaluateValue(node.value, run)
   run.services.world:setVar(variableId, value)
   return Runtime.OUTCOME_CONTINUE
 end
 
 HANDLERS.copy_var = function(node, run)
-  local destination = Runtime.evaluateValue(node.destination, run)
-  local source = Runtime.evaluateValue(node.source, run)
+  local destination = Runtime.resolveIdOperand(node.destination, run)
+  local source = Runtime.resolveIdOperand(node.source, run)
   run.services.world:setVar(destination, run.services.world:getVar(source))
   return Runtime.OUTCOME_CONTINUE
 end
 
 HANDLERS.add_var = function(node, run)
-  local variableId = Runtime.evaluateValue(node.variable, run)
+  local variableId = Runtime.resolveIdOperand(node.variable, run)
   local amount = Runtime.evaluateValue(node.amount, run)
   run.services.world:addVar(variableId, amount)
   return Runtime.OUTCOME_CONTINUE
 end
 
 HANDLERS.sub_var = function(node, run)
-  local variableId = Runtime.evaluateValue(node.variable, run)
+  local variableId = Runtime.resolveIdOperand(node.variable, run)
   local amount = Runtime.evaluateValue(node.amount, run)
   run.services.world:subVar(variableId, amount)
   return Runtime.OUTCOME_CONTINUE
@@ -995,7 +1029,7 @@ HANDLERS.wait_ticks = function(node, run)
     -- into the destination variable at execution time (ScrCmd_Wait); write it
     -- now and let the task decrement it on each poll so later reads see the
     -- live countdown.
-    local id = Runtime.evaluateValue(node.countdownVariable, run)
+    local id = Runtime.resolveIdOperand(node.countdownVariable, run)
     run.services.world:setVar(id, node.ticks)
     return blockOnTask(run, "wait_ticks", { node = node, countdownVariable = id })
   end

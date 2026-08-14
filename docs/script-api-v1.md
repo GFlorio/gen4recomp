@@ -937,6 +937,13 @@ No fields.
 | `key` | string |  |  |
 | `provenance` | source_provenance |  |  |
 
+### `request_start_menu`
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
+
 ### `reset_music`
 
 | Field | Type | Required | Default |

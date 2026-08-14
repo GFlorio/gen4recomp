@@ -114,7 +114,7 @@ local function findJoin(items, positions, entry, exit)
         return nil
       end
       return { join = join, terminal = cursor }
-    elseif item.op == "if_cond" or item.op == "stop" or item.op == "return" then
+    elseif item.op == "if_cond" or item.op == "stop" or item.op == "request_start_menu" or item.op == "return" then
       return nil
     end
     cursor = cursor + 1
