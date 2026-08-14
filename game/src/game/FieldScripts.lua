@@ -34,6 +34,8 @@ local TASK_MODULES = {
   "libs.engine.src.script.tasks.WaitInputTask",
   "libs.engine.src.script.tasks.WaitInputOrTicksTask",
   "libs.engine.src.script.tasks.WaitSignpostActionTask",
+  "libs.engine.src.script.tasks.TrainerTipsTask",
+  "libs.engine.src.script.tasks.WaitSignpostTask",
   "libs.engine.src.script.tasks.DialogueTask",
   "libs.engine.src.script.tasks.MovementTask",
   "libs.engine.src.script.tasks.MovementBarrierTask",

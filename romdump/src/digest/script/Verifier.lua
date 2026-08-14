@@ -59,6 +59,8 @@ local BLOCKING_OPS = {
   warp = true,
   call_common = true,
   wait_signpost_action = true,
+  trainer_tips_print = true,
+  wait_signpost = true,
 }
 
 -- Operations that end the run phase: yield boundaries and stops.
@@ -267,6 +269,24 @@ local CHECKERS = {
     -- exact semantic command, never a default.
     if step.command ~= SignpostCommands.semanticName(ins.operands[1].raw) then
       return "SetSignpostAction command changed by translation"
+    end
+  end,
+  [59] = function(ins, step)
+    -- TrainerTips: the message id stays the direct bank index and the
+    -- result var survives exactly.
+    local message = step.message
+    local id = type(message) == "table" and message.message == "external" and message.id
+    if id ~= ins.operands[1].raw then
+      return "TrainerTips message id changed by translation"
+    end
+    if not operandMatches(ins.operands[2].raw, step.result) then
+      return "TrainerTips result operand changed by translation"
+    end
+  end,
+  [60] = function(ins, step)
+    -- WaitSignpost: the result var survives exactly.
+    if not operandMatches(ins.operands[1].raw, step.result) then
+      return "WaitSignpost result operand changed by translation"
     end
   end,
 }

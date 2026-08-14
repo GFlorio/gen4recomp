@@ -165,6 +165,67 @@ function T.signpost_operations_validate_canonical_shapes()
   }))
 end
 
+function T.trainer_tips_and_wait_signpost_validate_canonical_shapes()
+  valid(S.script({
+    api = 1,
+    id = "x",
+    steps = {
+      {
+        op = "trainer_tips_print",
+        message = { message = "external", bank = 542, id = 34 },
+        result = S.var("VAR_SPECIAL_RESULT"),
+      },
+      {
+        op = "wait_signpost",
+        result = S.var("VAR_SPECIAL_RESULT"),
+      },
+      S.stop(),
+    },
+  }))
+end
+
+function T.trainer_tips_and_wait_signpost_reject_malformed_shapes()
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "trainer_tips_print", result = S.var("VAR_SPECIAL_RESULT") } },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = {
+      { op = "trainer_tips_print", message = { message = "external", bank = 542, id = 34 }, result = 2 },
+    },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = {
+      {
+        op = "trainer_tips_print",
+        message = { message = "external", bank = 542, id = 34 },
+        result = S.var("VAR_SPECIAL_RESULT"),
+        extra = true,
+      },
+    },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "wait_signpost" } },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "wait_signpost", result = "VAR_SPECIAL_RESULT" } },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "wait_signpost", result = S.var("VAR_SPECIAL_RESULT"), extra = true } },
+  })
+end
+
 function T.signpost_command_enum_is_exactly_the_five_semantic_strings()
   Assert.deepEqual(
     require("libs.engine.src.script.Schema").ENUMS.signpost_command,
