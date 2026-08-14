@@ -1,6 +1,6 @@
 -- Production Trainer Card composition contract: the runtime itself registers
 -- the trainer_card application before the registry seals (no boot-config
--- descriptor), its factory composes the §29.1 model from the authoritative
+-- descriptor), its factory composes the model from the authoritative
 -- player-data record, the host snapshot presents the card with the profile
 -- passthrough during the application phase, and the production save -> resume
 -- round trip proves the restored player-data bucket drives the card (never a

@@ -14,6 +14,7 @@ local Errors = require("libs.errors.src.Errors")
 local FakeCache = require("tests.support.FakeCache")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
+local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local TrainerCardRenderer = require("libs.engine.src.TrainerCardRenderer")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 
@@ -160,7 +161,7 @@ local function fakeGraphics(opts)
   }
 end
 
--- A full §29.1 presentation snapshot.
+-- A full presentation snapshot.
 local function presentation(overrides)
   local status = {
     open = true,
@@ -195,6 +196,21 @@ local function renderedGraphics(opts)
   end
   opts.imageSizes = sizes
   return fakeGraphics(opts)
+end
+
+-- The shared font atlas: the fixture charset carries 64 glyphs plus the
+-- fallback, so the text renderer creates one image and 65 glyph quads ahead
+-- of the card renderer's own image and quad.
+local function withTextRenderer(cache, lg)
+  return FieldTextRenderer.new({ cacheFs = cache, graphics = lg })
+end
+
+local function cardRenderer(graphics, cache)
+  return TrainerCardRenderer.new({
+    cacheFs = cache or fixtureCache(),
+    text = withTextRenderer(cache or fixtureCache(), graphics),
+    graphics = graphics,
+  })
 end
 
 -- The glyph quads drawn for one text string: { code, x, y } in draw order,
@@ -238,7 +254,7 @@ function T.construction_requires_a_cache_fs_and_graphics()
   local manifestOnly = CacheFs.forVersion("heartgold", FakeCache.new())
   manifestOnly:writeLua(FieldUiAssetCache.manifestPath(), FieldUiFixture.manifest())
   throwsCode("FONT_DEF_MISSING", function()
-    TrainerCardRenderer.new({ cacheFs = manifestOnly, graphics = renderedGraphics() })
+    FieldTextRenderer.new({ cacheFs = manifestOnly, graphics = renderedGraphics() })
   end)
   Assert.throws(function()
     local missingGraphics = {} ---@type any
@@ -246,50 +262,61 @@ function T.construction_requires_a_cache_fs_and_graphics()
   end)
 end
 
-function T.construction_failure_missing_card_front_releases_the_font_atlas()
+-- The card front read fails before the renderer acquires anything; the
+-- caller-owned shared text renderer stays alive.
+function T.construction_failure_missing_card_front_acquires_nothing()
   local graphics = renderedGraphics({ imageSizes = { { 512, 32 } } })
   local cache = FieldUiFixture.trainerCardCache()
   cache:remove(FieldUiFixture.TRAINER_CARD_PATH)
+  local text = withTextRenderer(cache, graphics)
   throwsCode("FIELD_UI_TRAINER_CARD_FRONT_MISSING", function()
-    TrainerCardRenderer.new({ cacheFs = cache, graphics = graphics })
+    TrainerCardRenderer.new({ cacheFs = cache, text = text, graphics = graphics })
   end)
-  Assert.equal(graphics.images[1].released, true, "the acquired font atlas is released when the card art is missing")
+  Assert.equal(graphics.images[1].released, false, "the caller-owned text renderer atlas stays alive")
+  text:release()
 end
 
 function T.construction_failure_missing_manifest_is_typed()
   local cache = fixtureCache()
   cache:remove("data/generated/field/ui/ui.lua")
   throwsCode("FIELD_UI_MANIFEST_MISSING", function()
-    TrainerCardRenderer.new({ cacheFs = cache, graphics = renderedGraphics() })
+    local graphics = renderedGraphics()
+    local text = withTextRenderer(cache, graphics)
+    TrainerCardRenderer.new({ cacheFs = cache, text = text, graphics = graphics })
   end)
 end
 
-function T.quad_failure_releases_the_acquired_images()
+-- A quad failure after the card image was created must release the acquired
+-- card image before the constructor rethrows (the 65 glyph quads belong to
+-- the caller-owned text renderer and succeed first).
+function T.quad_failure_releases_the_acquired_card_image()
   local graphics = renderedGraphics({
     imageSizes = { { 512, 32 }, { 256, 256 } },
-    failOnQuadCall = 3,
+    failOnQuadCall = 66,
   })
+  local text = withTextRenderer(fixtureCache(), graphics)
   local ok, err = pcall(function()
-    TrainerCardRenderer.new({ cacheFs = fixtureCache(), graphics = graphics })
+    TrainerCardRenderer.new({ cacheFs = fixtureCache(), text = text, graphics = graphics })
   end)
   Assert.isFalse(ok, "the quad failure must propagate")
-  Assert.equal(graphics.images[1].released, true)
-  Assert.equal(graphics.images[2].released, true)
+  Assert.equal(graphics.images[1].released, false, "the caller-owned text renderer atlas stays alive")
+  Assert.equal(graphics.images[2].released, true, "the card image was released")
+  text:release()
 end
 
 function T.resolves_the_manifest_front_surface()
-  local renderer = TrainerCardRenderer.new({ cacheFs = fixtureCache(), graphics = renderedGraphics() })
+  local renderer = cardRenderer(renderedGraphics())
   Assert.deepEqual(renderer.card.front, { x = 0, y = 0, width = 256, height = 256 })
 end
 
 function T.draw_is_a_noop_without_a_presentation()
-  local renderer = TrainerCardRenderer.new({ cacheFs = fixtureCache(), graphics = renderedGraphics() })
+  local renderer = cardRenderer(renderedGraphics())
   renderer:draw(nil, CANONICAL)
 end
 
 function T.draw_presents_the_card_art_then_the_audited_labels_and_values()
   local graphics = renderedGraphics()
-  local renderer = TrainerCardRenderer.new({ cacheFs = fixtureCache(), graphics = graphics })
+  local renderer = cardRenderer(graphics)
   renderer:draw(presentation(), CANONICAL)
 
   local firstDraw = nil ---@type any
@@ -319,7 +346,7 @@ end
 
 function T.draw_right_aligns_the_name_and_the_five_digit_trainer_id()
   local graphics = renderedGraphics()
-  local renderer = TrainerCardRenderer.new({ cacheFs = fixtureCache(), graphics = graphics })
+  local renderer = cardRenderer(graphics)
   renderer:draw(presentation({ name = "GOLD", trainerId = 12345 }), CANONICAL)
 
   -- The six audited labels precede the values in draw order; the fixture
@@ -333,14 +360,14 @@ end
 
 function T.draw_zero_pads_the_trainer_id_to_five_digits()
   local graphics = renderedGraphics()
-  local renderer = TrainerCardRenderer.new({ cacheFs = fixtureCache(), graphics = graphics })
+  local renderer = cardRenderer(graphics)
   renderer:draw(presentation({ trainerId = 0 }), CANONICAL)
   drawnGlyphs(graphics, "00000", 112 - 5 * 8, 24, 6 + 4 + 5 + 5 + 4 + 17 + 4)
 end
 
 function T.draw_renders_the_authentic_blank_for_nil_optional_fields()
   local graphics = renderedGraphics()
-  local renderer = TrainerCardRenderer.new({ cacheFs = fixtureCache(), graphics = graphics })
+  local renderer = cardRenderer(graphics)
   renderer:draw(presentation(), CANONICAL)
 
   local glyphDraws = {}
@@ -363,13 +390,15 @@ function T.draw_renders_the_authentic_blank_for_nil_optional_fields()
   end
 end
 
-function T.release_frees_the_owned_images_and_is_idempotent()
+function T.release_frees_the_owned_card_image_and_is_idempotent()
   local graphics = renderedGraphics()
-  local renderer = TrainerCardRenderer.new({ cacheFs = fixtureCache(), graphics = graphics })
+  local text = withTextRenderer(fixtureCache(), graphics)
+  local renderer = TrainerCardRenderer.new({ cacheFs = fixtureCache(), text = text, graphics = graphics })
   renderer:release()
   renderer:release()
-  Assert.equal(graphics.images[1].released, true)
-  Assert.equal(graphics.images[2].released, true)
+  Assert.equal(graphics.images[1].released, false, "the caller-owned text renderer atlas stays alive")
+  Assert.equal(graphics.images[2].released, true, "the card image was released")
+  text:release()
 end
 
 function T.draw_restores_every_graphics_state_it_touches()
@@ -385,7 +414,7 @@ function T.draw_restores_every_graphics_state_it_touches()
     color = { 0.2, 0.4, 0.6, 0.8 },
     scissor = { 4, 8, 32, 16 },
   })
-  local renderer = TrainerCardRenderer.new({ cacheFs = fixtureCache(), graphics = lg })
+  local renderer = cardRenderer(lg)
   renderer:draw(presentation(), FieldViewport.new(1280, 720, { mode = "expanded" }))
   Assert.equal(lg.pushDepth(), 0, "the transform stack is balanced")
   Assert.equal(lg.getCanvas(), "canvas")
@@ -412,7 +441,7 @@ end
 
 function T.draw_error_balances_the_transform_stack()
   local graphics = renderedGraphics({ failOnDrawCall = 1 })
-  local renderer = TrainerCardRenderer.new({ cacheFs = fixtureCache(), graphics = graphics })
+  local renderer = cardRenderer(graphics)
   local ok = pcall(function()
     renderer:draw(presentation(), CANONICAL)
   end)

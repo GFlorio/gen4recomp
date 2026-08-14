@@ -1,4 +1,4 @@
--- The read-only Trainer Card viewer controller (§29.1): it owns close input
+-- The read-only Trainer Card viewer controller: it owns close input
 -- only and has no access to Start Menu internals; a cancel edge returns
 -- { kind = "close" } to the FieldApplicationHost exactly once and requests
 -- the card's cancel effect once (the source close input step
@@ -7,14 +7,14 @@
 -- Every other input — directions, confirm, the synthesized menu edge, and
 -- pointers — changes nothing: while a child application is active its own
 -- input policy applies and the menu edge must not tear the card down
--- (§17.2). The status passes the full §29.1 model projection through
+-- The status passes the full model projection through
 -- unchanged (name/gender/trainerId plus the explicit-nil optional fields),
 -- so the renderer can choose the audited blank presentation for every value
 -- the gameplay model does not own. Pure module: no love, no I/O, no Start
 -- Menu internals.
 
 ---@class TrainerCardController
----@field _model table the §29.1 model projection
+---@field _model table the model projection
 ---@field _audio TrainerCardAudioFacade
 ---@field _result { kind: "close" }?
 ---@field _closed boolean
@@ -22,7 +22,7 @@ local TrainerCardController = {}
 TrainerCardController.__index = TrainerCardController
 
 -- The card's close effect: the same GEARCANCEL effect the Start Menu cancel
--- uses (the §21.1 semantic effect catalogue; the producer compiled sequence
+-- uses (the semantic effect catalogue; the producer compiled sequence
 -- 2368 = SEQ_SE_GS_GEARCANCEL for start_menu.cancel).
 TrainerCardController.SOUND_CANCEL = "start_menu.cancel"
 
@@ -51,7 +51,7 @@ end
 -- requests a sound only on close.
 
 -- One fixed tick. The card consumes only its own close edge; foreign input
--- is ignored (the §17.2 child-application input policy).
+-- is ignored (the child-application input policy).
 ---@param uiInput table[]
 function TrainerCardController:updateFixed(uiInput)
   assert(type(uiInput) == "table", "the trainer card input must be an event list")
@@ -73,7 +73,7 @@ function TrainerCardController:_close()
   self._closed = true
 end
 
--- The §29.1 presentation snapshot: the model projection passed through
+-- The presentation snapshot: the model projection passed through
 -- unchanged, so the renderer never re-derives the player data. Fresh table
 -- per call; the caller may not mutate controller state through it.
 ---@return table
@@ -88,7 +88,7 @@ function TrainerCardController:status()
   return status
 end
 
--- The §17.1 result contract: nil until a cancel edge, then exactly one
+-- The result contract: nil until a cancel edge, then exactly one
 -- { kind = "close" }.
 ---@return { kind: "close" }?
 function TrainerCardController:takeResult()

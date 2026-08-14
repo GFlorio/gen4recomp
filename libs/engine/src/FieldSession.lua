@@ -43,7 +43,6 @@ local StartMenuEligibility = require("libs.engine.src.StartMenuEligibility")
 ---@field contextChoice ContextChoiceProvider
 ---@field signpost FieldSignpostController
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
----@field coverage fun(session: FieldSession)?
 
 ---@class FieldSession.Interactions
 ---@field resolve fun(self: FieldSession.Interactions, snapshot: InteractionResolverSnapshot): InteractionIntent?
@@ -65,7 +64,6 @@ local StartMenuEligibility = require("libs.engine.src.StartMenuEligibility")
 ---@field contextChoice ContextChoiceProvider
 ---@field signpost FieldSignpostController the fixed-tick signpost controller (save-gate interrogation only; the scheduler steps it)
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
----@field coverage fun(session: FieldSession)?
 ---@field tick integer
 ---@field accumulator number
 local FieldSession = {}
@@ -137,7 +135,6 @@ function FieldSession.new(options)
     contextChoice = options.contextChoice,
     signpost = options.signpost,
     applicationHost = options.applicationHost,
-    coverage = options.coverage,
     tick = 0,
     accumulator = 0,
   }, FieldSession)
@@ -147,7 +144,7 @@ function FieldSession:actorTarget()
   return { x = self.player.worldX, y = self.player.worldY, z = self.player.worldZ }
 end
 
--- The strict §17.2 eligibility snapshot: every condition the Start Menu open
+-- The strict eligibility snapshot: every condition the Start Menu open
 -- gate evaluates at the settled field boundary. The application host is
 -- closed on this path by construction (the active-host branch above owns
 -- every active tick).
@@ -289,7 +286,7 @@ function FieldSession:updateFixed(inputSnapshot)
 
   -- Start Menu arbitration: a pending script reopen request (opcode 61's
   -- startMenuReopen service) opens the menu unconditionally at this point,
-  -- then the menu edge is gated by the §17.2 idle-boundary eligibility check
+  -- then the menu edge is gated by the idle-boundary eligibility check
   -- (checked after the single script-scheduler step established the field
   -- lock state, before actor stepping, interaction resolution, warps, or
   -- player movement). A successful open consumes the tick; when the Menu
@@ -411,9 +408,6 @@ function FieldSession:updateFixed(inputSnapshot)
     self.playerVisual:updateFixed(walkingAtTickStart)
   end
   self.camera:updateFixed(self:actorTarget())
-  if self.coverage then
-    self.coverage(self)
-  end
   self:_advanceTick()
 end
 

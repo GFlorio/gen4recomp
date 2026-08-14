@@ -40,11 +40,6 @@ FieldSignpostTheme.WAYFINDING_GRID_COLUMNS = 6
 FieldSignpostTheme.WAYFINDING_GRID_ROWS = 4
 FieldSignpostTheme.WAYFINDING_TILES = 24
 
--- Developer-aid marker color, matching the dialogue renderer's aid color.
-FieldSignpostTheme.colors = {
-  marker = FieldDialogueTheme.colors.marker,
-}
-
 -- The audited signpost frame tilemap. "full" is the shared
 -- DrawFrameAndWindow2 composition around the full-width box (tile 8 never
 -- placed); "graphic" (source types 0/1) keeps every placement and inserts

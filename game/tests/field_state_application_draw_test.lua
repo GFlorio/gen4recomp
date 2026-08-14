@@ -1,4 +1,4 @@
--- FieldState's §27.2 draw order: world, field/application fade, dialogue or
+-- FieldState's draw order: world, field/application fade, dialogue or
 -- signpost attached to the world surface, the one active Start Menu or
 -- Trainer Card application surface, then the developer HUD. Only the one
 -- active modal surface is drawn: a menu phase never draws the card surface

@@ -1,12 +1,12 @@
 -- Failure-path and frame-resolution tests for the dialogue renderer, driven
 -- through an injected graphics namespace so the Nth-construction and
 -- mid-draw failures can be provoked deterministically: a quad failure after
--- the atlas and frame strip exist must release what was acquired, a missing
--- generated UI manifest or frame strip is a typed error, and the player's
--- selected frame index resolves the manifest strip rect (frame 0 vs frame 1
--- sample different rows, both composed by the canonical frame tilemap). A
--- draw that raises must still balance the transform stack and restore every
--- captured graphics state. The real-context smokes live in
+-- the frame strip exists must release what was acquired, a missing generated
+-- UI manifest or frame strip is a typed error, and the player's selected
+-- frame index resolves the manifest strip rect (frame 0 vs frame 1 sample
+-- different rows, both composed by the canonical frame tilemap). A draw that
+-- raises must still balance the transform stack and restore every captured
+-- graphics state. The real-context smokes live in
 -- field_dialogue_renderer_graphics_test.lua.
 
 local Assert = require("tests.support.Assert")
@@ -16,6 +16,7 @@ local FakeCache = require("tests.support.FakeCache")
 local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
 local FieldDialogueRenderer = require("libs.engine.src.FieldDialogueRenderer")
+local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 
 local T = {}
@@ -148,9 +149,16 @@ local function uiCache()
   return FieldUiFixture.cacheWithFontAndFrames()
 end
 
+-- The shared font atlas: the fixture font carries three glyphs, so the text
+-- renderer creates one image and three glyph quads ahead of the dialogue
+-- renderer's own strip image and tile quads.
+local function withTextRenderer(cache, lg)
+  return FieldTextRenderer.new({ cacheFs = cache, graphics = lg })
+end
+
 function T.missing_def_is_a_typed_error()
   local err = Assert.throws(function()
-    FieldDialogueRenderer.new({ cacheFs = CacheFs.forVersion("heartgold", FakeCache.new()) })
+    FieldTextRenderer.new({ cacheFs = CacheFs.forVersion("heartgold", FakeCache.new()) })
   end)
   Assert.isTrue(Errors.is(err) and err.code == "FONT_DEF_MISSING", "raises FONT_DEF_MISSING")
 end
@@ -158,45 +166,51 @@ end
 function T.rejects_a_missing_graphics_namespace()
   local err = Assert.throws(function()
     ---@diagnostic disable: assign-type-mismatch
-    FieldDialogueRenderer.new({ cacheFs = uiCache(), graphics = false })
+    FieldTextRenderer.new({ cacheFs = uiCache(), graphics = false })
   end)
-  Assert.isTrue(tostring(err):find("FieldDialogueRenderer requires love.graphics", 1, true) ~= nil)
+  Assert.isTrue(tostring(err):find("FieldTextRenderer requires love.graphics", 1, true) ~= nil)
 end
 
 -- The generated UI class is a required renderer asset: without its manifest
 -- the renderer cannot resolve the frame strip at all.
 function T.missing_ui_manifest_is_a_typed_error()
+  local lg = fakeGraphics()
+  local text = withTextRenderer(FieldDialogueFixture.cacheWithFont(), lg)
   local err = Assert.throws(function()
-    FieldDialogueRenderer.new({ cacheFs = FieldDialogueFixture.cacheWithFont() })
+    FieldDialogueRenderer.new({ cacheFs = FieldDialogueFixture.cacheWithFont(), text = text, graphics = lg })
   end)
   Assert.isTrue(Errors.is(err) and err.code == "FIELD_UI_MANIFEST_MISSING", "raises FIELD_UI_MANIFEST_MISSING")
+  text:release()
 end
 
 -- The manifest names the frame strip; a cache without the PNG must not build
--- a half-frame renderer. The already-acquired font atlas is released.
-function T.missing_frame_strip_is_a_typed_error_and_releases_the_atlas()
+-- a half-frame renderer. The shared text renderer is caller-owned and stays
+-- alive; the renderer itself acquires nothing before the strip read fails.
+function T.missing_frame_strip_is_a_typed_error()
   local cache = FieldDialogueFixture.cacheWithFont()
   cache:writeLua("data/generated/field/ui/ui.lua", FieldUiFixture.manifest())
   local lg = fakeGraphics({ imageSizes = { { 16, 16 } } })
+  local text = withTextRenderer(cache, lg)
   local err = Assert.throws(function()
-    FieldDialogueRenderer.new({ cacheFs = cache, graphics = lg })
+    FieldDialogueRenderer.new({ cacheFs = cache, text = text, graphics = lg })
   end)
   Assert.isTrue(Errors.is(err) and err.code == "FIELD_UI_FRAME_ATLAS_MISSING", "raises FIELD_UI_FRAME_ATLAS_MISSING")
   Assert.equal(#lg.images, 1, "the font atlas was acquired before the strip failed")
-  Assert.equal(lg.images[1].released, true, "the acquired atlas was released")
+  Assert.equal(lg.images[1].released, false, "the caller-owned text renderer atlas stays alive")
+  text:release()
 end
 
--- A quad failure after the atlas and frame strip were created must release
--- both acquired images before the constructor rethrows.
-function T.constructor_failure_releases_atlas_and_frame_strip()
-  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 16 } }, failOnQuadCall = 1 })
+-- The shared text renderer owns the font atlas and its glyph quads: a quad
+-- failure after the atlas was created must release the acquired atlas before
+-- the constructor rethrows.
+function T.text_renderer_constructor_failure_releases_the_atlas()
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 } }, failOnQuadCall = 1 })
   local err = Assert.throws(function()
-    FieldDialogueRenderer.new({ cacheFs = uiCache(), graphics = lg })
+    FieldTextRenderer.new({ cacheFs = uiCache(), graphics = lg })
   end)
   Assert.isTrue(tostring(err):find("injected newQuad failure", 1, true) ~= nil, "rethrows the quad failure")
-  Assert.equal(#lg.images, 2, "atlas and frame strip were created before the failure")
+  Assert.equal(#lg.images, 1, "the font atlas was created before the failure")
   Assert.equal(lg.images[1].released, true, "the atlas was released")
-  Assert.equal(lg.images[2].released, true, "the frame strip was released")
 end
 
 -- A failure between graphics.push() and graphics.pop() must still pop the
@@ -217,7 +231,11 @@ function T.draw_failure_balances_transform_stack_and_restores_state()
     imageSizes = { { 16, 16 }, { 144, 16 } },
     failOnDrawCall = 1,
   })
-  local renderer = FieldDialogueRenderer.new({ cacheFs = uiCache(), graphics = lg })
+  local renderer = FieldDialogueRenderer.new({
+    cacheFs = uiCache(),
+    text = withTextRenderer(uiCache(), lg),
+    graphics = lg,
+  })
   local controller = FieldDialogueFixture.openDialogue("AB", 0)
   local viewport = FieldViewport.new(1280, 720, { mode = "expanded" })
 
@@ -231,12 +249,16 @@ function T.draw_failure_balances_transform_stack_and_restores_state()
   renderer:release()
 end
 
--- The former nine-slice window is gone: the renderer owns only the font atlas
--- and the frame strip, creates no third slice source image, and draws the
--- frame from the generated strip tiles.
+-- The former nine-slice window is gone: the renderer owns only the frame
+-- strip, creates no third slice source image, and draws the frame from the
+-- generated strip tiles.
 function T.no_nine_slice_assets_are_built()
   local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 16 } } })
-  local renderer = FieldDialogueRenderer.new({ cacheFs = uiCache(), graphics = lg })
+  local renderer = FieldDialogueRenderer.new({
+    cacheFs = uiCache(),
+    text = withTextRenderer(uiCache(), lg),
+    graphics = lg,
+  })
   Assert.equal(#lg.images, 2, "only the font atlas and the frame strip are created")
 
   local controller = FieldDialogueFixture.openDialogue("AB", 0)
@@ -251,7 +273,11 @@ end
 function T.frame_index_resolves_the_manifest_strip_tiles()
   local function renderedDraws(frameIndex)
     local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 16 } } })
-    local renderer = FieldDialogueRenderer.new({ cacheFs = uiCache(), graphics = lg })
+    local renderer = FieldDialogueRenderer.new({
+      cacheFs = uiCache(),
+      text = withTextRenderer(uiCache(), lg),
+      graphics = lg,
+    })
     local controller = FieldDialogueFixture.openDialogue("AB", frameIndex)
     renderer:draw(controller, FieldViewport.new(256, 192, { mode = "expanded" }))
     renderer:release()
@@ -291,7 +317,11 @@ end
 -- still draws its text; no frame tiles are fabricated.
 function T.request_without_a_frame_index_draws_no_frame_tiles()
   local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 16 } } })
-  local renderer = FieldDialogueRenderer.new({ cacheFs = uiCache(), graphics = lg })
+  local renderer = FieldDialogueRenderer.new({
+    cacheFs = uiCache(),
+    text = withTextRenderer(uiCache(), lg),
+    graphics = lg,
+  })
   local controller = FieldDialogueFixture.openDialogue("AB")
   renderer:draw(controller, FieldViewport.new(256, 192, { mode = "expanded" }))
   for _, call in ipairs(lg.draws) do

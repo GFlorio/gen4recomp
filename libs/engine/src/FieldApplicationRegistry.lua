@@ -3,7 +3,7 @@
 -- and dispatch happens only through the sealed registry. Duplicate ids,
 -- registration after sealing, unknown application ids, missing factories,
 -- and factories returning partial controllers are composition errors; there
--- is no process-global registry. The §17.1 minimal controller contract is
+-- is no process-global registry. The minimal controller contract is
 -- the validation shape: updateFixed(uiInput) mutates pure logical state,
 -- status() is presentation data, takeResult() returns at most one
 -- { kind = "close"|"launch" } result, and dispose() releases the logical
@@ -76,7 +76,7 @@ function FieldApplicationRegistry:has(id)
 end
 
 -- The sealed application-id set, used by the Start Menu policy adapter as
--- the §20 capability set. Fresh table per call.
+-- the application-capability set. Fresh table per call.
 ---@return string[]
 function FieldApplicationRegistry:ids()
   requireSealed(self)

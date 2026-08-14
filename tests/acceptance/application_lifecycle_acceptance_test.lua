@@ -11,7 +11,7 @@
 -- application, the destination is constructed through the registry factory
 -- and disposed exactly once on return, the menu rebuilds with the remembered
 -- selection, the closing edges leak nothing into the field, and runtime
--- disposal mid-menu defers the save and releases cleanly. The second boot
+-- disposal mid-menu releases the modal before the save attempt. The second boot
 -- pins the capability gate in developer mode (capability-missing canonical
 -- entries rendered disabled) and the destination-factory failure after
 -- fade-out: the original error is retained, no successful return to the menu
@@ -39,7 +39,7 @@ local FACTORY_FAILURE_TEXT = "acceptance injected destination factory failure"
 local FAKE_ACTION = "my_mod.fake_destination"
 local FAKE_ACTION_REF = "msg.hgss.0542.00034"
 
--- The §17.1 minimal controller contract a destination factory must return:
+-- The minimal controller contract a destination factory must return:
 -- updateFixed(uiInput) mutates pure logical state, status() is presentation
 -- data, takeResult() returns at most one { kind = "close"|"launch" } result,
 -- and dispose() releases the logical lifetime idempotently. The fake closes
@@ -327,13 +327,18 @@ function T.tests.start_menu_lifecycle_with_a_registered_destination_runs_through
     Assert.equal(hostPhase(game), "closed", "the closing menu edge must not reopen the menu")
     Assert.equal(game:snapshot().dialogue.modal, false, "the menu-key release must not trigger a field interaction")
 
-    -- Runtime disposal while the menu owns the tick: the transient save gate
-    -- holds at disposal, the exactly-once destination disposal is not
-    -- repeated, and the teardown releases cleanly.
+    -- Runtime disposal while the menu owns the tick: the modal is released
+    -- before the save attempt (the world persists like a mid-dialogue quit),
+    -- the exactly-once destination disposal is not repeated, and the
+    -- teardown releases cleanly.
     pressMenuEdge(game)
     advanceToPhase(game, "menu", 16)
     game:close()
-    Assert.equal(game.saveStatus:find("Save deferred", 1, true) ~= nil, true, "disposal mid-menu must defer the save")
+    Assert.equal(
+      game.saveStatus:find("Field session saved", 1, true) ~= nil,
+      true,
+      "disposal mid-menu must save the world: " .. tostring(game.saveStatus)
+    )
     Assert.equal(fake.disposeCount, 1, "runtime disposal must not re-dispose a returned destination")
   end, debug.traceback)
   if not ok then
@@ -386,7 +391,7 @@ function T.tests.development_menu_disables_capability_missing_actions_and_a_dest
     Assert.equal(hostPhase(game), "closed", "the host starts closed")
 
     -- Developer mode renders capability-missing canonical entries in a
-    -- disabled state (§20: developerVisible = present), while entries the
+    -- disabled state (developerVisible = present), while entries the
     -- vanilla policy itself withholds stay absent.
     pressMenuEdge(game)
     advanceToPhase(game, "menu", 16)

@@ -116,7 +116,7 @@ function T.tests.trainer_card_viewer_runs_through_production_composition_and_ret
     Assert.equal(hostStatus(game).fadeAlpha, 0, "no application fade is active at the closed boundary")
 
     -- The vanilla trainer_card action is enabled in normal mode exactly
-    -- because the production destination exists (§20 capability formula).
+    -- because the production destination exists (the capability formula).
     pressMenuEdge(game)
     advanceToPhase(game, "menu", 16)
     local actions = menuActions(game)

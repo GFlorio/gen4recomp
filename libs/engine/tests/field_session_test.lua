@@ -1735,7 +1735,7 @@ function T.while_the_host_is_active_no_other_modal_may_own_the_tick()
   end)
 end
 
--- §17.2: the menu edge is checked after the script-scheduler step and before
+-- The menu edge is checked after the script-scheduler step and before
 -- actor stepping/interaction/warps/movement; an eligible open consumes the
 -- tick so the same edge cannot also start a move or interaction.
 function T.an_eligible_menu_edge_opens_the_menu_and_consumes_the_tick()
