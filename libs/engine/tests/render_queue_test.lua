@@ -141,6 +141,13 @@ function T.transforms_center_by_item_transform()
   Assert.deepEqual(ids(q, "translucent"), { "far", "near" })
 end
 
+function T.transforms_nonzero_model_center_once_before_sorting()
+  local translated = item("translated", "translucent", { 0, 0, 1 }, Matrix4.translate(0, 0, 32))
+  local origin = item("origin", "translucent", { 0, 0, 49 }, Matrix4.identity())
+  local q = RenderQueue.build({ translated, origin }, Matrix4.identity())
+  Assert.deepEqual(ids(q, "translucent"), { "translated", "origin" })
+end
+
 -- Sorting must not attach fields (e.g. a cached `_viewZ`) to the persistent
 -- draw records, and repeated construction must not change any input item.
 function T.build_does_not_mutate_input_items()

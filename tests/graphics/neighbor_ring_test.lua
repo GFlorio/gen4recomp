@@ -1,7 +1,7 @@
 -- Tests for NeighborRing.load: it turns compiled scene.neighbors descriptors
 -- into GPU draws, reading geometry/textures from a cacheFs, baking each cell's
--- world offset into the draw transform and sort center, and deduplicating a
--- shared geometry path across cells into a single owned mesh. love-backed (it
+-- world offset into the draw transform while retaining model-space sort centers,
+-- and deduplicating a shared geometry path across cells into a single owned mesh. love-backed (it
 -- builds real meshes/images) but ROM-free: cacheFs bytes are canned in-process.
 -- load() needs a graphics context. The failure-path tests inject a fake graphics
 -- namespace: a failed cell acquire or a malformed cell descriptor must
@@ -13,16 +13,19 @@ local MeshWriter = require("libs.assets.src.MeshWriter")
 local PngWriter = require("libs.assets.src.PngWriter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local NeighborRing = require("libs.engine.src.NeighborRing")
+local RenderQueue = require("libs.engine.src.RenderQueue")
+local Matrix4 = require("libs.math.src.Matrix4")
 
 local T = {}
 
 -- One-triangle batch in the MeshWriter vertex layout.
-local function triangleBatch()
+local function triangleBatch(zOffset)
+  zOffset = zOffset or 0
   local function v(x, z)
     return {
       x = x,
       y = 0,
-      z = z,
+      z = z + zOffset,
       u = 0,
       v = 0,
       nx = 0,
@@ -42,15 +45,21 @@ end
 -- texture paths, mirroring CacheFs:read's string-or-nil contract.
 local function fakeCacheFs()
   local meshBytes = MeshWriter.encode(triangleBatch())
+  local elevatedMeshBytes = MeshWriter.encode(triangleBatch(48))
   local pngBytes = PngWriter.encode(1, 1, string.char(255, 0, 0, 255))
   local geomPath = MapAssetCache.geometryPath("aaaa")
+  local elevatedGeomPath = MapAssetCache.geometryPath("cccc")
   local texPath = MapAssetCache.texturePath("bbbb")
-  local blob = { [geomPath] = meshBytes, [texPath] = pngBytes }
+  local blob = {
+    [geomPath] = meshBytes,
+    [elevatedGeomPath] = elevatedMeshBytes,
+    [texPath] = pngBytes,
+  }
   return {
     read = function(_, path)
       return blob[path]
     end,
-  }, geomPath, texPath
+  }, geomPath, texPath, elevatedGeomPath
 end
 
 -- Injected graphics namespace tracking created images and their release calls,
@@ -107,7 +116,7 @@ local function descriptors(geomPath, texPath, wraps)
   return { cell(32, 0, 1), cell(-32, -32, 2) }
 end
 
-function T.builds_one_draw_per_cell_batch_with_offset_baked()
+function T.builds_one_draw_per_cell_batch_with_offset_in_transform()
   local cacheFs, geomPath, texPath = fakeCacheFs()
   local ring = NeighborRing.load(cacheFs, descriptors(geomPath, texPath))
 
@@ -115,12 +124,11 @@ function T.builds_one_draw_per_cell_batch_with_offset_baked()
   Assert.equal(ring.stats.cellCount, 2)
 
   -- The loader sorts from the triangle bounding-box center (1, 0, 1); each draw
-  -- bakes its cell offset into both the transform translation and sort center.
+  -- keeps that model-space center while the transform carries the cell offset.
   local d1 = ring.draws[1]
   Assert.equal(d1.transform[13], 32) -- translate X column of Matrix4
   Assert.equal(d1.transform[15], 0) -- translate Z
-  Assert.isTrue(math.abs(d1.center[1] - 33) < 1e-4, "center X offset baked")
-  Assert.isTrue(math.abs(d1.center[3] - 1) < 1e-4, "center Z offset baked")
+  Assert.deepEqual(d1.center, { 1, 0, 1 }, "center remains in model space")
 
   local d2 = ring.draws[2]
   Assert.equal(d2.transform[13], -32)
@@ -130,6 +138,54 @@ function T.builds_one_draw_per_cell_batch_with_offset_baked()
     "the ring carries no submission numbers; the flat list position is the assembly's submission order"
   )
   Assert.isNil(d2.submissionIndex)
+
+  ring:release()
+end
+
+local function translucentDescriptors(firstGeomPath, secondGeomPath, texPath)
+  local function cell(geometry, offsetTilesZ)
+    return {
+      offsetTilesX = 0,
+      offsetTilesZ = offsetTilesZ,
+      batches = {
+        {
+          geometry = geometry,
+          material = 0,
+          alphaClass = "translucent",
+          cullMode = "back",
+          polygonAlpha = 31,
+          polygonMode = "modulation",
+          lightMask = 0,
+          polygonId = 0,
+          translucentDepthWrite = false,
+          depthEqual = false,
+        },
+      },
+      materials = {
+        {
+          id = 0,
+          name = "terrain",
+          texture = texPath,
+          wrap = { x = "repeat", y = "clamp" },
+          diffuse = { r = 255, g = 255, b = 255, a = 255 },
+        },
+      },
+    }
+  end
+  return { cell(firstGeomPath, 32), cell(secondGeomPath, 0) }
+end
+
+function T.sorts_translucent_neighbors_using_one_cell_transform()
+  local cacheFs, geomPath, texPath, elevatedGeomPath = fakeCacheFs()
+  local ring = NeighborRing.load(cacheFs, translucentDescriptors(geomPath, elevatedGeomPath, texPath))
+
+  -- The first mesh center is z=1 and lives in the +32 cell, so its world-space
+  -- sort center is z=33. The second mesh center is z=49 in the origin cell.
+  -- With one transform application, the first draw is submitted first. A
+  -- pre-offset center would be transformed again to z=65 and reverse them.
+  local queue = RenderQueue.build(ring.draws, Matrix4.identity())
+  Assert.isTrue(queue.translucent[1] == ring.draws[1], "the +32 neighbor sorts at z=33")
+  Assert.isTrue(queue.translucent[2] == ring.draws[2], "the origin neighbor sorts at z=49")
 
   ring:release()
 end
