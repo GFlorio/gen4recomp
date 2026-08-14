@@ -103,6 +103,44 @@ function T.zoom_changes_projection_scale_without_moving_the_rom_camera()
   end)
 end
 
+function T.projection_caches_follow_aspect_and_zoom_invalidations()
+  local camera = FieldCamera.new(profile(), { initialTarget = { x = 0, y = 0, z = 0 } })
+  local projection = camera:projection()
+  local billboard = camera:billboardProjection()
+  Assert.equal(camera:projection(), projection, "unchanged projection inputs reuse the projection matrix")
+  Assert.equal(
+    camera:billboardProjection(),
+    billboard,
+    "unchanged projection inputs reuse the billboard projection matrix"
+  )
+
+  camera:setProjectionAspect(32 / 9)
+  local wideProjection = camera:projection()
+  local wideBillboard = camera:billboardProjection()
+  Assert.isFalse(wideProjection == projection, "aspect changes replace the projection matrix")
+  Assert.isFalse(wideBillboard == billboard, "aspect changes replace the billboard projection matrix")
+  camera:setProjectionAspect(32 / 9)
+  Assert.equal(camera:projection(), wideProjection, "repeating the current aspect does not invalidate projection")
+  Assert.equal(
+    camera:billboardProjection(),
+    wideBillboard,
+    "repeating the current aspect does not invalidate billboard projection"
+  )
+
+  camera:setZoom(0.75)
+  local zoomedProjection = camera:projection()
+  local zoomedBillboard = camera:billboardProjection()
+  Assert.isFalse(zoomedProjection == wideProjection, "zoom changes replace the projection matrix")
+  Assert.isFalse(zoomedBillboard == wideBillboard, "zoom changes replace the billboard projection matrix")
+  camera:setZoom(0.75)
+  Assert.equal(camera:projection(), zoomedProjection, "repeating the current zoom does not invalidate projection")
+  Assert.equal(
+    camera:billboardProjection(),
+    zoomedBillboard,
+    "repeating the current zoom does not invalidate billboard projection"
+  )
+end
+
 function T.canonical_projection_ignores_runtime_aspect_and_zoom()
   local camera = FieldCamera.new(profile(), { initialTarget = { x = 0, y = 0, z = 0 } })
   local canonical = camera:canonicalProjection()

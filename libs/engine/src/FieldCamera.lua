@@ -38,6 +38,10 @@ local FIELD_BILLBOARD_DEPTH_OFFSET_TILES = 0.5
 ---@field historyEnabled boolean
 ---@field canonicalAspect number
 ---@field projectionAspect number
+---@field _billboardDepthOffset number
+---@field _projectionDirty boolean
+---@field _projectionCache number[]|nil
+---@field _billboardProjectionCache number[]|nil
 local FieldCamera = {}
 FieldCamera.__index = FieldCamera
 
@@ -130,6 +134,10 @@ function FieldCamera.new(profile, options)
     canonicalAspect = canonicalAspect,
     projectionAspect = canonicalAspect,
     zoom = 1,
+    _billboardDepthOffset = FIELD_BILLBOARD_DEPTH_OFFSET_TILES * math.cos(angleIndexToRadians(profile.angleXRaw)),
+    _projectionDirty = true,
+    _projectionCache = nil,
+    _billboardProjectionCache = nil,
   }, FieldCamera)
 end
 
@@ -154,12 +162,20 @@ end
 
 function FieldCamera:setProjectionAspect(aspect)
   assert(type(aspect) == "number" and aspect > 0, "projection aspect must be positive")
+  if self.projectionAspect == aspect then
+    return
+  end
   self.projectionAspect = aspect
+  self._projectionDirty = true
 end
 
 function FieldCamera:setZoom(zoom)
   assert(type(zoom) == "number" and zoom > 0, "camera zoom must be positive")
+  if self.zoom == zoom then
+    return
+  end
   self.zoom = zoom
+  self._projectionDirty = true
 end
 
 -- `alpha` is the render interpolation factor of the current fixed step: 0 shows
@@ -187,20 +203,37 @@ function FieldCamera:_projection(aspect, zoom)
   return projection
 end
 
+function FieldCamera:_refreshProjectionCache()
+  if not self._projectionDirty then
+    return
+  end
+
+  local projection = self:_projection(self.projectionAspect, self.zoom)
+  local billboardProjection = Matrix4.toArray(projection)
+  billboardProjection[15] = billboardProjection[15] + billboardProjection[11] * self._billboardDepthOffset
+
+  self._projectionCache = projection
+  self._billboardProjectionCache = billboardProjection
+  self._projectionDirty = false
+end
+
+-- The returned matrix is persistent camera-owned state. Callers must treat it
+-- as immutable and read-only until the next projection invalidation.
+---@return number[] projection matrix
 function FieldCamera:projection()
-  return self:_projection(self.projectionAspect, self.zoom)
+  self:_refreshProjectionCache()
+  return self._projectionCache
 end
 
 -- The projection field billboards draw through: the normal projection with the
 -- DS's fixed depth pull added to the Z-row translation. Cos is even, so
 -- cos(-angleX) and cos(angleX) agree and the profile's raw pitch is enough.
--- Returns a fresh matrix; `projection()` is unaffected.
+-- The returned matrix is persistent camera-owned state. Callers must treat it
+-- as immutable and read-only until the next projection invalidation.
+---@return number[] billboard projection matrix
 function FieldCamera:billboardProjection()
-  local projection = self:projection()
-  local angleX = angleIndexToRadians(self.profile.angleXRaw)
-  local depthOffset = FIELD_BILLBOARD_DEPTH_OFFSET_TILES * math.cos(angleX)
-  projection[15] = projection[15] + projection[11] * depthOffset
-  return projection
+  self:_refreshProjectionCache()
+  return self._billboardProjectionCache
 end
 
 function FieldCamera:canonicalProjection()
