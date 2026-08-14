@@ -371,6 +371,23 @@ Schema.OPERATIONS = {
     },
   },
   open_message = { fields = {} },
+  -- Generated/advanced imported-HGSS signpost operations. The signpost
+  -- window is a persistent structure, not a dialogue box; the controller owns
+  -- the command state machine. `sourceAppearance` preserves the raw source
+  -- type/map presentation data; opcode 55's out operand is unused by the
+  -- source handler and is carried as `sourceUnusedOut` only.
+  signpost_direction = {
+    fields = {
+      message = { type = "message", required = true },
+      sourceAppearance = { type = "serializable", required = true },
+      sourceUnusedOut = { type = "serializable", required = true },
+    },
+  },
+  signpost_set = {
+    fields = {
+      sourceAppearance = { type = "serializable", required = true },
+    },
+  },
   message = {
     fields = {
       message = { type = "message", required = true },

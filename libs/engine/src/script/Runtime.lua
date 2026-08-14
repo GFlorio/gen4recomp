@@ -1166,6 +1166,35 @@ HANDLERS.open_message = function(node, run)
   requireService(run, "dialogue"):openMessage(node)
   return Runtime.OUTCOME_CONTINUE
 end
+
+-- DirectionSignpost (55): store the source appearance, select SHOW and
+-- execute it in-handler exactly like the source command's inline
+-- Signpost_DoCurrentCommand call, then read/expand and print the message
+-- instantly in the signpost window. The unused out operand is never written.
+-- Yields one tick (the source returns TRUE without installing a waiter).
+HANDLERS.signpost_direction = function(node, run)
+  requireForeground(run, "signpost_direction")
+  local host = requireService(run, "signpost")
+  -- LuaLS cannot see through Errors.raise; requireService never returns nil.
+  ---@cast host ScriptSignpostHost
+  host:setSourceAppearance(node.sourceAppearance)
+  host:setCommand("show")
+  host:advance()
+  host:printInstant(node.message, nil, run.instance.textArgs or {})
+  return Runtime.OUTCOME_YIELD_TICK
+end
+
+-- SetSignpostMap (56): store the source appearance and queue SHOW without
+-- executing it (the field signpost update runs the queued command later).
+-- Yields one tick.
+HANDLERS.signpost_set = function(node, run)
+  requireForeground(run, "signpost_set")
+  local host = requireService(run, "signpost")
+  ---@cast host ScriptSignpostHost
+  host:setSourceAppearance(node.sourceAppearance)
+  host:setCommand("show")
+  return Runtime.OUTCOME_YIELD_TICK
+end
 HANDLERS.close_message = function(node, run)
   requireService(run, "dialogue"):close(node.erase ~= false)
   return Runtime.OUTCOME_CONTINUE

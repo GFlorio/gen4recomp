@@ -65,6 +65,8 @@ local YIELD_OPS = {
   lock_all = true,
   release_all = true,
   menu_begin = true,
+  signpost_direction = true,
+  signpost_set = true,
   stop = true,
 }
 
@@ -233,6 +235,28 @@ local CHECKERS = {
   [348] = function(ins, step)
     if not operandMatches(ins.operands[1].raw, step.ticks) then
       return "WaitButtonOrDelay ticks changed by translation"
+    end
+  end,
+  [55] = function(ins, step)
+    -- DirectionSignpost: the raw type/map and the unused out operand must
+    -- survive exactly; the message id stays the direct bank index.
+    local appearance = step.sourceAppearance or {}
+    if appearance.type ~= ins.operands[2].raw or appearance.map ~= ins.operands[3].raw then
+      return "DirectionSignpost type/map changed by translation"
+    end
+    if step.sourceUnusedOut ~= ins.operands[4].raw then
+      return "DirectionSignpost out operand changed by translation"
+    end
+    local message = step.message
+    local id = type(message) == "table" and message.message == "external" and message.id
+    if id ~= ins.operands[1].raw then
+      return "DirectionSignpost message id changed by translation"
+    end
+  end,
+  [56] = function(ins, step)
+    local appearance = step.sourceAppearance or {}
+    if appearance.type ~= ins.operands[1].raw or appearance.map ~= ins.operands[2].raw then
+      return "SetSignpostMap type/map changed by translation"
     end
   end,
 }

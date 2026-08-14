@@ -1065,6 +1065,24 @@ No fields.
 | `key` | string |  |  |
 | `provenance` | source_provenance |  |  |
 
+### `signpost_direction`
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `message` | message | yes |  |
+| `provenance` | source_provenance |  |  |
+| `sourceAppearance` | serializable | yes |  |
+| `sourceUnusedOut` | serializable | yes |  |
+
+### `signpost_set`
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
+| `sourceAppearance` | serializable | yes |  |
+
 ### `stop`
 
 | Field | Type | Required | Default |
