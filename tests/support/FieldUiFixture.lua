@@ -1,13 +1,13 @@
--- Synthetic field-UI fixtures for the dialogue frame work: a generated-shape
--- `ui.lua` manifest carrying two dialogue frame strips (18 tiles of 8x8
--- stacked per frame, like the compiled class) and the PNG atlas holding them,
--- plus a cache builder that also carries the dialogue font. Frame tiles are
--- solid per-tile colors from two distinct palettes (frame 0 blue family,
--- frame 1 cream family, mirroring the real compiled frames' variety), so a
--- misplacement or wrong-frame rect is a pixel mismatch, never a wash.
+-- Synthetic field-UI fixtures for the dialogue frame and window style work: a
+-- generated-shape `ui.lua` manifest carrying two dialogue frame strips (18
+-- tiles of 8x8 stacked per frame, like the compiled class), the signpost
+-- frame strip and wayfinding atlas, and the signpost source-type map (the
+-- full 25-type corpus set, types 0/1 with wayfinding rects), plus a cache
+-- builder that also carries the dialogue font. Frame tiles are solid per-tile
+-- colors from two distinct palettes (frame 0 blue family, frame 1 cream
+-- family, mirroring the real compiled frames' variety), so a misplacement or
+-- wrong-frame rect is a pixel mismatch, never a wash.
 
-local CacheFs = require("libs.storage.src.CacheFs")
-local FakeCache = require("tests.support.FakeCache")
 local PngWriter = require("libs.assets.src.PngWriter")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
@@ -17,6 +17,40 @@ local FieldUiFixture = {}
 FieldUiFixture.STRIP_PATH = "assets/generated/field/ui/dialogue-frame-tiles.png"
 FieldUiFixture.TILES_PER_FRAME = 18
 FieldUiFixture.FRAME_COUNT = 2
+
+FieldUiFixture.SIGNPOST_TILES_PATH = "assets/generated/field/ui/signpost-tiles.png"
+FieldUiFixture.WAYFINDING_PATH = "assets/generated/field/ui/wayfinding-tiles.png"
+
+-- Every signpost source type the real scr_seq corpus uses (opcodes 55/56),
+-- the set pinned by the producer configuration; types 0/1 reserve the
+-- wayfinding graphic.
+FieldUiFixture.CORPUS_SOURCE_TYPES = {
+  0,
+  1,
+  2,
+  3,
+  4,
+  5,
+  8,
+  9,
+  10,
+  11,
+  13,
+  15,
+  16,
+  17,
+  18,
+  19,
+  20,
+  21,
+  23,
+  28,
+  29,
+  30,
+  33,
+  34,
+  39,
+}
 
 -- Palette A: blue family. Tile i is a distinct color of the family.
 local function paletteA(i)
@@ -59,8 +93,28 @@ function FieldUiFixture.framePixels(frame)
   return table.concat(rows)
 end
 
+-- The signpost source-type map in the generated manifest shape: every corpus
+-- type with its raw number preserved, types 0/1 carrying wayfinding atlas
+-- rects. The on-screen 56px graphic region is NOT the atlas rect; the style
+-- loader derives the region from the presence of the rect, never its pixels.
+---@return table
+function FieldUiFixture.signpostTypes()
+  local types = {}
+  for _, sourceType in ipairs(FieldUiFixture.CORPUS_SOURCE_TYPES) do
+    local entry = { sourceType = sourceType }
+    if sourceType == 0 then
+      entry.wayfinding = { x = 0, y = 0, width = 192, height = 8 }
+    elseif sourceType == 1 then
+      entry.wayfinding = { x = 0, y = 16, width = 192, height = 8 }
+    end
+    types[sourceType] = entry
+  end
+  return types
+end
+
 -- The manifest shape the renderer consumes: the asset entry naming the strip
--- and the frame tile rects inside it.
+-- and the frame tile rects inside it, plus the signpost frame/wayfinding
+-- assets and source-type map.
 ---@return table
 function FieldUiFixture.manifest()
   return {
@@ -71,6 +125,16 @@ function FieldUiFixture.manifest()
         width = 144,
         height = FieldUiFixture.FRAME_COUNT * 8,
       },
+      ["hgss.signpost.tiles"] = {
+        image = FieldUiFixture.SIGNPOST_TILES_PATH,
+        width = 144,
+        height = 8,
+      },
+      ["hgss.signpost.wayfinding"] = {
+        image = FieldUiFixture.WAYFINDING_PATH,
+        width = 192,
+        height = 32,
+      },
     },
     dialogueFrames = {
       count = FieldUiFixture.FRAME_COUNT,
@@ -78,6 +142,12 @@ function FieldUiFixture.manifest()
         [0] = { x = 0, y = 0, width = 144, height = 8 },
         [1] = { x = 0, y = 8, width = 144, height = 8 },
       },
+    },
+    signposts = {
+      frame = {
+        tiles = { x = 0, y = 0, width = 144, height = 8 },
+      },
+      types = FieldUiFixture.signpostTypes(),
     },
   }
 end
@@ -87,6 +157,14 @@ function FieldUiFixture.cacheWithFontAndFrames()
   local cache = FieldDialogueFixture.cacheWithFont()
   cache:writeLua(FieldUiAssetCache.manifestPath(), FieldUiFixture.manifest())
   cache:write(FieldUiFixture.STRIP_PATH, FieldUiFixture.stripBytes())
+  cache:write(
+    FieldUiFixture.SIGNPOST_TILES_PATH,
+    PngWriter.encode(144, 8, string.rep(string.char(90, 90, 90, 255), 144 * 8))
+  )
+  cache:write(
+    FieldUiFixture.WAYFINDING_PATH,
+    PngWriter.encode(192, 32, string.rep(string.char(60, 120, 60, 255), 192 * 32))
+  )
   return cache
 end
 

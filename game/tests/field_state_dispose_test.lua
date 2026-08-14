@@ -238,6 +238,7 @@ function T.reset_routes_through_the_shared_teardown_path()
     "actorAssets",
     "mapLoader",
     "playerData",
+    "windowStyles",
   }) do
     Assert.isNil(runtime[field], "reset must clear " .. field)
   end
