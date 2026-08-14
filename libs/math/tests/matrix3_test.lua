@@ -15,6 +15,18 @@ local function approxVec(a, b)
   return approx(a[1], b[1]) and approx(a[2], b[2]) and approx(a[3], b[3])
 end
 
+local function assertModelNormalEquivalent(model, label)
+  local view = Matrix4.multiply(Matrix4.rotateX(0.37), Matrix4.rotateY(-0.61))
+  local x, y, z = 0.31, -0.47, 0.82
+  local legacyX, legacyY, legacyZ = Matrix3.transform(Matrix3.normalMatrix(model, view), x, y, z)
+  local modelX, modelY, modelZ = Matrix3.transform(Matrix3.modelNormal(model), x, y, z)
+  local actualX, actualY, actualZ = Matrix3.transform(Matrix3.from4x4(view), modelX, modelY, modelZ)
+  Assert.isTrue(
+    approxVec({ actualX, actualY, actualZ }, { legacyX, legacyY, legacyZ }),
+    label .. " model normal must compose numerically with the view rotation"
+  )
+end
+
 function T.extracts_upper_3x3()
   local m4 = Matrix4.scale(2, 3, 4)
   local m3 = Matrix3.from4x4(m4)
@@ -79,6 +91,31 @@ function T.composes_view_and_model()
   local x, y, z = Matrix3.transform(n, 1, 0, 0)
   -- A model-space +X normal maps to world +Y, then view +Z.
   Assert.isTrue(approxVec({ x, y, z }, { 0, 0, 1 }), "got " .. x .. "," .. y .. "," .. z)
+end
+
+function T.model_normal_composes_with_view_for_identity()
+  assertModelNormalEquivalent(Matrix4.identity(), "identity")
+end
+
+function T.model_normal_composes_with_view_for_translation()
+  assertModelNormalEquivalent(Matrix4.translate(7, -3, 11), "translation")
+end
+
+function T.model_normal_composes_with_view_for_rotation()
+  assertModelNormalEquivalent(Matrix4.rotateZ(0.83), "rotation")
+end
+
+function T.model_normal_composes_with_view_for_uniform_scale()
+  assertModelNormalEquivalent(Matrix4.scale(2.5, 2.5, 2.5), "uniform scale")
+end
+
+function T.model_normal_composes_with_view_for_nonuniform_scale()
+  assertModelNormalEquivalent(Matrix4.scale(2, 3, 4), "nonuniform scale")
+end
+
+function T.model_normal_composes_with_view_for_rotation_and_nonuniform_scale()
+  local model = Matrix4.multiply(Matrix4.rotateY(-0.58), Matrix4.scale(2, 3, 4))
+  assertModelNormalEquivalent(model, "rotation and nonuniform scale")
 end
 
 return { tests = T }

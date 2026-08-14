@@ -5,6 +5,7 @@
 
 local Assert = require("tests.support.Assert")
 local BillboardTransform = require("libs.engine.src.BillboardTransform")
+local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")
 
 local T = {}
@@ -64,6 +65,21 @@ function T.non_uniform_base_scale_stretches_along_camera_axes()
   local m = BillboardTransform.resolve(base, view({ 10, 0, 0 }))
   assertPoint(m, 1, 0, 0, 0, 0, -2, "x stretched by 2 along the camera's right axis")
   assertPoint(m, 0, 1, 0, 0, 3, 0, "y stretched by 3 along the camera's up axis")
+end
+
+function T.resolved_model_normal_composes_with_view_like_the_legacy_normal_matrix()
+  local base = Matrix4.multiply(Matrix4.rotateZ(0.7), Matrix4.scale(2, 3, 4))
+  local viewMatrix = Matrix4.multiply(Matrix4.rotateX(0.37), Matrix4.rotateY(-0.61))
+  local model, modelNormal = BillboardTransform.resolve(base, viewMatrix)
+  Assert.notNil(modelNormal, "billboard resolution returns the matching model normal")
+
+  local nx, ny, nz = 0.31, -0.47, 0.82
+  local legacyX, legacyY, legacyZ = Matrix3.transform(Matrix3.normalMatrix(model, viewMatrix), nx, ny, nz)
+  local modelX, modelY, modelZ = Matrix3.transform(modelNormal, nx, ny, nz)
+  local actualX, actualY, actualZ = Matrix3.transform(Matrix3.from4x4(viewMatrix), modelX, modelY, modelZ)
+  Assert.near(actualX, legacyX, 1e-9)
+  Assert.near(actualY, legacyY, 1e-9)
+  Assert.near(actualZ, legacyZ, 1e-9)
 end
 
 -- A rotated base's scale is the magnitude of each basis vector, not a matrix

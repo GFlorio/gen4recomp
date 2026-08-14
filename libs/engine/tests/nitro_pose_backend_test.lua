@@ -304,6 +304,9 @@ function T.billboard_draws_report_the_captured_base()
   local items = instance:drawItems({ ["draw0.seg0"] = {} })
   Assert.notNil(items[1].billboardBase)
   Assert.equal(items[1].billboardBase[13], 160 / 16)
+  Assert.deepEqual(items[1].modelNormal, identity9())
+  local nextItems = instance:drawItems({ ["draw0.seg0"] = {} })
+  Assert.equal(items[1].modelNormal, nextItems[1].modelNormal, "billboards share one identity normal")
 end
 
 function T.restore_slot_sources_resolve_from_the_draw_snapshot()
@@ -479,11 +482,14 @@ function T.straddling_meshes_resolve_both_sources()
   -- The draw item carries both transforms and the split, so the renderer
   -- can reproduce the DS per-vertex bend (leading vertices under the old
   -- matrix, trailing under the new).
-  ---@type { transform: number[], straddle?: { leading: integer, transform: number[] } }[]
+  ---@type { transform: number[], modelNormal: number[], straddle?: { leading: integer, transform: number[] } }[]
   local items = instance:drawItems({ m = {} })
   Assert.equal(items[1].straddle.leading, 2)
   Assert.equal(items[1].straddle.transform[14], 2)
   Assert.equal(items[1].transform[13], 1)
+  Assert.deepEqual(items[1].modelNormal, identity9())
+  local nextItems = instance:drawItems({ m = {} })
+  Assert.equal(items[1].modelNormal, nextItems[1].modelNormal, "straddles share the baked-path identity normal")
 end
 
 -- The pose guard is defense in depth: the artifact gate rejects a serialized

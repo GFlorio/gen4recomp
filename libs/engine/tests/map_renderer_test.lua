@@ -8,6 +8,7 @@ local Assert = require("tests.support.Assert")
 local MapRenderer = require("libs.engine.src.MapRenderer")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local FieldViewport = require("libs.engine.src.FieldViewport")
+local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")
 
 local T = {}
@@ -311,6 +312,7 @@ function T.draw_failure_restores_exact_state_and_rethrows()
           cullMode = "none",
           lightMask = 0,
           transform = identity,
+          modelNormal = Matrix3.identity(),
           center = { 0, 0, 0 },
         },
       },
@@ -599,6 +601,7 @@ function T.draw_renders_only_given_parts_into_persistent_scratch()
       mesh = { setTexture = function() end },
       material = { alphaClass = "opaque" },
       transform = identity,
+      modelNormal = Matrix3.identity(),
       alphaClass = "opaque",
       cullMode = "back",
       polygonAlpha = 1.0,
@@ -745,6 +748,7 @@ local function passItem(alphaClass, z, opts)
     mesh = { setTexture = function() end },
     material = { texMatrix = Matrix4.identity() },
     transform = Matrix4.identity(),
+    modelNormal = Matrix3.identity(),
     alphaClass = alphaClass,
     cullMode = "back",
     polygonAlpha = 1.0,
@@ -756,6 +760,67 @@ local function passItem(alphaClass, z, opts)
     depthEqual = opts.depthEqual or false,
     translucentDepthWrite = opts.translucentDepthWrite or false,
   }
+end
+
+function T.billboard_draw_refreshes_the_model_normal_with_the_live_view()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  local viewMatrix = Matrix4.multiply(Matrix4.rotateX(0.37), Matrix4.rotateY(-0.61))
+  scene.camera.view = function()
+    return viewMatrix
+  end
+  local item = passItem("opaque", 0)
+  item.billboardBase = Matrix4.multiply(Matrix4.rotateZ(0.7), Matrix4.scale(2, 3, 4))
+  item.transform = item.billboardBase
+  item.modelNormal = Matrix3.modelNormal(item.transform)
+
+  renderer:draw(scene.runtime, scene.camera, { { item } }, FieldViewport.new(640, 480, { mode = "strict" }))
+
+  local sent
+  for _, send in ipairs(lg.shaders[1].sends) do
+    if send.name == "u_modelNormal" then
+      sent = send.values[2]
+    end
+  end
+  local nx, ny, nz = 0.31, -0.47, 0.82
+  local legacyX, legacyY, legacyZ = Matrix3.transform(Matrix3.normalMatrix(item.transform, viewMatrix), nx, ny, nz)
+  local modelX, modelY, modelZ = Matrix3.transform(assert(sent), nx, ny, nz)
+  local actualX, actualY, actualZ = Matrix3.transform(Matrix3.from4x4(viewMatrix), modelX, modelY, modelZ)
+  Assert.near(actualX, legacyX, 1e-9)
+  Assert.near(actualY, legacyY, 1e-9)
+  Assert.near(actualZ, legacyZ, 1e-9)
+  renderer:release()
+end
+
+function T.ordinary_draw_sends_the_items_precomputed_model_normal()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local item = passItem("opaque", 0)
+  item.modelNormal = { 0.5, 0, 0, 0, 1 / 3, 0, 0, 0, 0.25 }
+
+  renderer:_drawItem(item, nil, Matrix4.identity(), "opaque")
+
+  local sent
+  for _, send in ipairs(lg.shaders[1].sends) do
+    if send.name == "u_modelNormal" then
+      sent = send.values[2]
+    end
+  end
+  Assert.equal(sent, item.modelNormal, "ordinary draws send the precomputed item field without rebuilding it")
+  renderer:release()
+end
+
+function T.ordinary_draw_requires_an_explicit_model_normal()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local item = passItem("opaque", 0)
+  item.modelNormal = nil
+
+  Assert.throws(function()
+    renderer:_drawItem(item, nil, Matrix4.identity(), "opaque")
+  end)
+  renderer:release()
 end
 
 -- Pass-invariant state is established once. Translucent depth mode changes
@@ -858,11 +923,17 @@ end
 -- success path -- and never touches the pool-shared source mesh.
 local function straddleGraphics(opts)
   opts = opts or {}
-  local meshes = {}
+  local meshes, shaders = {}, {}
   return {
     meshes = meshes,
+    shaders = shaders,
     newShader = function()
-      return { send = function() end }
+      local shader = { sends = {} }
+      shader.send = function(_, name, ...)
+        shader.sends[#shader.sends + 1] = { name = name, values = { ... } }
+      end
+      shaders[#shaders + 1] = shader
+      return shader
     end,
     newMesh = function(_, vertices, _, _)
       local scratch
@@ -934,6 +1005,7 @@ local function straddleDrawItem(mesh)
     mesh = mesh,
     material = { alphaClass = "opaque" },
     transform = Matrix4.identity(),
+    modelNormal = { 2, 0, 0, 0, 3, 0, 0, 0, 4 },
     alphaClass = "opaque",
     cullMode = "back",
     polygonAlpha = 1.0,
@@ -945,6 +1017,25 @@ local function straddleDrawItem(mesh)
   }
 end
 
+function T.straddle_filled_and_wireframe_paths_send_identity_model_normal()
+  local fake = straddleGraphics()
+  local renderer = MapRenderer.new({ graphics = fake })
+  local item = straddleDrawItem(sourceMesh())
+
+  renderer:_drawStraddle(item, nil, Matrix4.identity(), "opaque")
+  renderer:_drawWireframeStraddle(item, Matrix4.identity(), "wireframe")
+
+  local sent = {}
+  for _, send in ipairs(fake.shaders[1].sends) do
+    if send.name == "u_modelNormal" then
+      sent[#sent + 1] = send.values[2]
+    end
+  end
+  Assert.equal(#sent, 2, "both straddle shader paths send model-normal state")
+  Assert.deepEqual(sent[1], Matrix3.identity(), "filled straddle normals are already world-baked")
+  Assert.deepEqual(sent[2], Matrix3.identity(), "wireframe straddle normals are already world-baked")
+end
+
 -- The straddle draw bakes the shared mesh's vertices into a scratch mesh
 -- that carries the source's vertex map, draws it, and releases it within
 -- the call -- the shared pool mesh is never mutated.
@@ -954,7 +1045,7 @@ function T.straddle_draw_bakes_into_a_released_scratch_with_the_source_map()
   local source = sourceMesh()
   local item = straddleDrawItem(source)
 
-  renderer:_drawStraddle(item, Matrix4.identity(), nil, Matrix4.identity())
+  renderer:_drawStraddle(item, nil, Matrix4.identity())
 
   Assert.equal(#fake.meshes, 1)
   local scratch = fake.meshes[1]
@@ -975,7 +1066,7 @@ function T.a_failed_straddle_draw_still_releases_the_scratch()
   local renderer = MapRenderer.new({ graphics = fake })
 
   Assert.throws(function()
-    renderer:_drawStraddle(straddleDrawItem(sourceMesh()), Matrix4.identity(), nil, Matrix4.identity())
+    renderer:_drawStraddle(straddleDrawItem(sourceMesh()), nil, Matrix4.identity())
   end)
 
   Assert.equal(#fake.meshes, 1)
@@ -994,7 +1085,7 @@ function T.wireframe_straddle_bakes_into_a_released_scratch()
   local renderer = MapRenderer.new({ graphics = fake })
   local item = straddleDrawItem(sourceMesh())
 
-  renderer:_drawWireframe(item, Matrix4.identity(), Matrix4.identity())
+  renderer:_drawWireframe(item, Matrix4.identity())
 
   Assert.equal(#fake.meshes, 1)
   local scratch = fake.meshes[1]
@@ -1016,7 +1107,7 @@ function T.wireframe_draw_without_a_straddle_uses_the_item_mesh()
   local item = straddleDrawItem(sourceMesh())
   item.straddle = nil
 
-  renderer:_drawWireframe(item, Matrix4.identity(), Matrix4.identity())
+  renderer:_drawWireframe(item, Matrix4.identity())
 
   Assert.equal(#fake.meshes, 0, "no scratch is baked for a non-straddling wireframe item")
 end
@@ -1028,7 +1119,7 @@ function T.a_failed_wireframe_straddle_draw_still_releases_the_scratch()
   local renderer = MapRenderer.new({ graphics = fake })
 
   Assert.throws(function()
-    renderer:_drawWireframe(straddleDrawItem(sourceMesh()), Matrix4.identity(), Matrix4.identity())
+    renderer:_drawWireframe(straddleDrawItem(sourceMesh()), Matrix4.identity())
   end)
 
   Assert.equal(#fake.meshes, 1)

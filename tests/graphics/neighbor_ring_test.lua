@@ -150,10 +150,12 @@ function T.builds_one_draw_per_cell_batch_with_offset_in_transform()
   Assert.equal(d1.transform[13], 32) -- translate X column of Matrix4
   Assert.equal(d1.transform[15], 0) -- translate Z
   Assert.deepEqual(d1.center, { 1, 0, 1 }, "center remains in model space")
+  Assert.deepEqual(d1.modelNormal, { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
 
   local d2 = ring.draws[2]
   Assert.equal(d2.transform[13], -32)
   Assert.equal(d2.transform[15], -32)
+  Assert.equal(d1.modelNormal, d2.modelNormal, "translation-only neighbors share one model normal")
 
   ring:release()
 end

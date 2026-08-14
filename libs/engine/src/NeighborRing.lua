@@ -26,6 +26,7 @@
 -- an empty descriptor list yields no draws and the central scene is
 -- untouched.
 
+local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
@@ -34,6 +35,10 @@ local SceneDescriptor = require("libs.engine.src.SceneDescriptor")
 local TerrainMaterialAnimator = require("libs.engine.src.TerrainMaterialAnimator")
 
 local NeighborRing = {}
+
+-- Neighbor draws are translation-only, so every neighbor item shares the
+-- same immutable identity normal transform.
+local IDENTITY_MODEL_NORMAL = Matrix3.identity()
 
 -- Material assembly: acquire each normalized material record's image
 -- under its resolved sampler wrap. The wrap pair is part of the image
@@ -97,6 +102,7 @@ local function buildRing(pool, descriptors, clip)
       draw.mesh = entry.mesh
       draw.material = materials[batch.material]
       draw.transform = transform
+      draw.modelNormal = IDENTITY_MODEL_NORMAL
       draw.alphaCutoff = AlphaClassifier.CUTOUT_EPSILON
       draw.center = c
       draws[#draws + 1] = draw
