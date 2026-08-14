@@ -1,13 +1,13 @@
 -- TerrainAnimationCompiler: contract tests for the map-scoped compiler that
 -- annotates fldtanime-matched terrain materials (`data/fldtanime.narc` in
--- pret/pokeheartgold, dump alias `field_texture_animations`) with textureSwap
--- records, decodes alternate frames from the replacement member's texels
--- under the base material's palette, compiles the area NSBTA selected by the
--- area record's dynamicTextureType (archive `field_area_texture_srt`), and
--- accumulates deterministic dependency hashes. The compiler is exercised
--- through ModelAssetCompiler.compileModel with `terrainAnimations` in the
--- context, the production route, then through compileTextureSrt() and
--- dependencies().
+-- pret/pokeheartgold, dump alias `field_texture_animations`) with
+-- textureSwap.steps records, decodes every referenced replacement frame from
+-- the replacement member's texels under the base material's palette, compiles
+-- the area NSBTA selected by the area record's dynamicTextureType (archive
+-- `field_area_texture_srt`), and accumulates deterministic dependency hashes.
+-- The compiler is exercised through ModelAssetCompiler.compileModel with the
+-- terrain compiler in the context, the production route, then through
+-- compileTextureSrt() and dependencies().
 
 local Assert = require("tests.support.Assert")
 local AnimationFixture = require("tests.support.AnimationFixture")
@@ -154,22 +154,35 @@ local function solidPixels(r, g, b)
   return string.rep(string.char(r, g, b, 255), 64)
 end
 
+local function stepDurations(swap)
+  local out = {}
+  for _, step in ipairs(swap.steps) do
+    out[#out + 1] = step.durationTicks
+  end
+  return out
+end
+
 -- Matching is by the decoded material's textureName, never its material
 -- name: the material is named m_flower01 while the record names the texture
--- flower01.
+-- flower01. The swap carries direct playback steps in schedule order.
 function T.texture_name_match_annotates_the_terrain_material()
   local scene = assert(compileScene(animationSceneOpts()))
   local material = scene.compiled.materials[1]
   Assert.equal(material.name, "m_flower01")
   Assert.equal(material.textureSwap.name, "flower01")
-  Assert.equal(#material.textureSwap.textures, 3)
-  Assert.deepEqual(material.textureSwap.timeline, {
-    { textureIndex = 0, durationTicks = 18 },
-    { textureIndex = 1, durationTicks = 18 },
-    { textureIndex = 0, durationTicks = 18 },
-    { textureIndex = 2, durationTicks = 18 },
-  })
-  Assert.equal(material.textureSwap.textures[1], material.texture)
+  Assert.equal(#material.textureSwap.steps, 4)
+  Assert.deepEqual(stepDurations(material.textureSwap), { 18, 18, 18, 18 })
+  local steps = material.textureSwap.steps
+  for i, step in ipairs(steps) do
+    Assert.isTrue(
+      type(step.texture) == "string" and step.texture:find("^assets/generated/maps/textures/") ~= nil,
+      "step " .. i .. " is a cache-relative path"
+    )
+  end
+  -- Repeated source indices repeat the same content-addressed path.
+  Assert.equal(steps[1].texture, steps[3].texture)
+  Assert.isTrue(steps[1].texture ~= steps[2].texture)
+  Assert.isTrue(steps[2].texture ~= steps[4].texture)
 end
 
 function T.an_unmatched_material_stays_static_and_reads_no_replacement_member()
@@ -190,44 +203,78 @@ function T.an_unmatched_material_stays_static_and_reads_no_replacement_member()
   Assert.equal(deps.fieldTextureAnimations.tableSha1, Hashing.sha1hex(tableMember))
 end
 
+-- The base material decodes texel index 1 -> the base palette's red; the
+-- alternate frames decode from the replacement texels under the BASE palette
+-- (green at index 2, black at index 3), never the replacement's own palette.
 function T.alters_decode_with_the_base_palette_and_replacement_texels()
   local scene = assert(compileScene(animationSceneOpts()))
   local material = scene.compiled.materials[1]
-  -- The base material decodes texel index 1 -> the base palette's red.
   Assert.equal(textureAsset(material.texture, scene.textures).pixels, solidPixels(255, 0, 0))
-  -- Frame 1 is texel index 2 with the BASE palette (green at index 2); the
-  -- replacement pack's own palette is blue at index 2 and must never be used.
-  Assert.equal(textureAsset(material.textureSwap.textures[2], scene.textures).pixels, solidPixels(0, 255, 0))
-  -- Frame 2 is texel index 3 -> the base palette's black.
-  Assert.equal(textureAsset(material.textureSwap.textures[3], scene.textures).pixels, solidPixels(0, 0, 0))
+  Assert.equal(textureAsset(material.textureSwap.steps[2].texture, scene.textures).pixels, solidPixels(0, 255, 0))
+  Assert.equal(textureAsset(material.textureSwap.steps[4].texture, scene.textures).pixels, solidPixels(0, 0, 0))
 end
 
-function T.frame_zero_deduplicates_to_the_material_texture()
-  local scene = assert(compileScene(animationSceneOpts()))
+-- The base material's image is the map pack's initially bound texture; the
+-- schedule's first replacement entry is a distinct asset compiled from the
+-- replacement member's own texels. The runtime shows the base until the first
+-- schedule switch, so the two must never be forced equal.
+function T.a_divergent_replacement_zero_compiles_as_its_own_asset()
+  local scene = assert(compileScene({
+    mapPack = {
+      textures = { { name = "flower01", texel = BASE_TEXEL } },
+      palettes = { { name = "map_pal", palette = TF.palette({ TF.BLACK, TF.RED, TF.GREEN, TF.BLUE }) } },
+    },
+    fieldTextureAnimations = {
+      [0] = FieldTexAnimFixture.member({ { name = "flower01", timeline = { { 0, 1 }, { 1, 1 } } } }),
+      -- Dictionary index 0 is green texels, index 1 blue: neither equals the
+      -- base's red texels.
+      [1] = replacementMember({ texels(0x22), texels(0x33) }),
+    },
+  }))
   local material = scene.compiled.materials[1]
-  local swap = material.textureSwap
-  Assert.equal(swap.textures[swap.timeline[1].textureIndex + 1], material.texture)
-  -- The base image plus the two distinct alternates: frame 0 shares the base.
-  local count = 0
-  for _ in pairs(scene.textures) do
-    count = count + 1
-  end
-  Assert.equal(count, 3)
+  Assert.equal(textureAsset(material.texture, scene.textures).pixels, solidPixels(255, 0, 0))
+  Assert.equal(#material.textureSwap.steps, 2)
+  Assert.equal(material.textureSwap.steps[1].durationTicks, 1)
+  Assert.equal(material.textureSwap.steps[2].durationTicks, 1)
+  Assert.isTrue(material.textureSwap.steps[1].texture ~= material.texture, "step zero is not the base image")
+  Assert.equal(textureAsset(material.textureSwap.steps[1].texture, scene.textures).pixels, solidPixels(0, 255, 0))
+  Assert.equal(textureAsset(material.textureSwap.steps[2].texture, scene.textures).pixels, solidPixels(0, 0, 255))
 end
 
-function T.repeated_schedule_indices_do_not_duplicate_texture_paths()
-  local scene = assert(compileScene(animationSceneOpts()))
-  local swap = scene.compiled.materials[1].textureSwap
-  -- The four-entry schedule repeats index 0; the path list holds the three
-  -- replacement dictionary textures once each, in dictionary order.
-  Assert.equal(#swap.textures, 3)
-  Assert.isTrue(swap.textures[1] ~= swap.textures[2])
-  Assert.isTrue(swap.textures[2] ~= swap.textures[3])
-  Assert.isTrue(swap.textures[1] ~= swap.textures[3])
+-- Compatibility is checked only for the replacement dictionary entries the
+-- live schedule actually references: an unused incompatible entry is
+-- irrelevant to playback and must not fail the compile.
+function T.only_referenced_replacement_entries_are_validated()
+  local incompatible = { { name = "alt3", width = 16, height = 8 } }
+  local function compileWithTimeline(timeline)
+    return compileScene({
+      mapPack = basePack(),
+      fieldTextureAnimations = {
+        [0] = FieldTexAnimFixture.member({ { name = "flower01", timeline = timeline } }),
+        [1] = Tex0Fixture.btx0({
+          textures = {
+            { name = "alt1", texel = BASE_TEXEL },
+            { name = "alt2", texel = texels(0x22) },
+            incompatible[1],
+          },
+          palettes = { { name = "alt_pal", palette = TF.palette(REPLACEMENT_PALETTE) } },
+        }),
+      },
+    })
+  end
+  -- The schedule references only entries 0 and 1; the incompatible entry 2
+  -- is never touched.
+  local scene = assert(compileWithTimeline({ { 0, 18 }, { 1, 18 } }))
+  Assert.equal(#scene.compiled.materials[1].textureSwap.steps, 2)
+  -- Once the schedule references entry 2, the incompatibility is diagnosed.
+  local err = throwsCode(TerrainAnimationCompiler.ERROR_TEXTURE_INCOMPATIBLE, function()
+    return compileWithTimeline({ { 0, 18 }, { 2, 18 } })
+  end)
+  Assert.isTrue(tostring(err.message):find("flower01") ~= nil, "the error names the record")
 end
 
 function T.an_out_of_range_schedule_index_fails()
-  local err = throwsCode("TERRAIN_ANIM_TEXTURE_INDEX_OUT_OF_RANGE", function()
+  local err = throwsCode(TerrainAnimationCompiler.ERROR_TEXTURE_INDEX, function()
     return compileScene({
       mapPack = basePack(),
       fieldTextureAnimations = {
@@ -239,7 +286,7 @@ function T.an_out_of_range_schedule_index_fails()
   Assert.isTrue(tostring(err.message):find("flower01") ~= nil, "the error names the record")
 end
 
-function T.incompatible_replacement_textures_fail()
+function T.incompatible_referenced_replacement_textures_fail()
   local cases = {
     width = { { name = "alt1", format = 3, width = 16, height = 8 } },
     height = { { name = "alt1", format = 3, width = 8, height = 16 } },
@@ -261,7 +308,7 @@ function T.incompatible_replacement_textures_fail()
         },
       })
     end, "incompatibility case " .. name)
-    Assert.equal(err.code, "TERRAIN_ANIM_TEXTURE_INCOMPATIBLE")
+    Assert.equal(err.code, TerrainAnimationCompiler.ERROR_TEXTURE_INCOMPATIBLE)
   end
 
   -- Auxiliary/index-data length: the base is compressed4x4 with an 8-byte
@@ -281,7 +328,7 @@ function T.incompatible_replacement_textures_fail()
       },
     })
   end, "auxiliary-data incompatibility")
-  Assert.equal(err.code, "TERRAIN_ANIM_TEXTURE_INCOMPATIBLE")
+  Assert.equal(err.code, TerrainAnimationCompiler.ERROR_TEXTURE_INCOMPATIBLE)
 end
 
 function T.dynamic_texture_type_ffff_reads_no_nsbta_member()
@@ -309,7 +356,7 @@ function T.a_selected_nsbta_compiles_the_existing_clip_shape_without_source_fiel
   Assert.deepEqual(clip.tracks, { { target = "en_sp1_3", targetIndex = 0 } })
   Assert.deepEqual(clip.semanticNames, {})
   Assert.isNil(clip.source, "the scene clip carries no physical source provenance")
-  -- The compiled payload is exactly the existing NsbtaClipCompiler shape.
+  -- The compiled payload is exactly the NsbtaClipCompiler shape.
   local decoded = assert(NitroAnimation.decode(srtBytes))
   local anim = assert(decoded.animations[1])
   local reader = BinaryReader.new(decoded.bytes, "sec")
@@ -322,6 +369,19 @@ function T.a_selected_nsbta_compiles_the_existing_clip_shape_without_source_fiel
   })
 end
 
+-- A member with several decoded animations drives the clip from animation
+-- index zero, exactly like HGSS; there is no ambiguity error.
+function T.a_multi_animation_nsbta_selects_index_zero()
+  local scene = assert(compileScene({
+    dynamicTextureType = 0,
+    fieldAreaTextureSrt = { [0] = AnimationFixture.srtMember({ "first", "second" }) },
+  }))
+  local clip = scene.compiler:compileTextureSrt()
+  assert(clip ~= false, "a selected NSBTA must compile a clip")
+  Assert.equal(clip.name, "first", "the first decoded animation is selected")
+  Assert.equal(clip.id, "first")
+end
+
 function T.an_invalid_selected_nsbta_member_fails()
   local function srtErr(dynamicTextureType, fieldAreaTextureSrt)
     return Assert.throws(function()
@@ -330,7 +390,10 @@ function T.an_invalid_selected_nsbta_member_fails()
     end)
   end
   -- Out of range: the archive has one member, the area selects member 5.
-  Assert.equal(srtErr(5, { [0] = AnimationFixture.srtWater() }).code, "TERRAIN_ANIM_SRT_MEMBER_OUT_OF_RANGE")
+  Assert.equal(
+    srtErr(5, { [0] = AnimationFixture.srtWater() }).code,
+    TerrainAnimationCompiler.ERROR_SRT_MEMBER_OUT_OF_RANGE
+  )
   -- Wrong Nitro format: a BTX0 member is not an animation resource.
   Assert.equal(
     srtErr(0, { [0] = Tex0Fixture.btx0({ textures = { "x" }, palettes = { "y" } }) }).code,
@@ -338,11 +401,9 @@ function T.an_invalid_selected_nsbta_member_fails()
   )
   -- A valid animation of the wrong kind: NSBCA is not the NSBTA the area
   -- texture-SRT selection requires.
-  Assert.equal(srtErr(0, { [0] = AnimationFixture.jntDoor() }).code, "TERRAIN_ANIM_SRT_NOT_NSBTA")
+  Assert.equal(srtErr(0, { [0] = AnimationFixture.jntDoor() }).code, TerrainAnimationCompiler.ERROR_SRT_NOT_NSBTA)
   -- An empty animation set cannot drive a clip.
-  Assert.equal(srtErr(0, { [0] = AnimationFixture.srtMember({}) }).code, "TERRAIN_ANIM_EMPTY_SET")
-  -- More than one animation in the selected member is ambiguous.
-  Assert.equal(srtErr(0, { [0] = AnimationFixture.srtMember({ "a", "b" }) }).code, "TERRAIN_ANIM_AMBIGUOUS_SET")
+  Assert.equal(srtErr(0, { [0] = AnimationFixture.srtMember({}) }).code, TerrainAnimationCompiler.ERROR_EMPTY_SET)
 end
 
 function T.dependencies_carry_the_table_hash_and_only_used_member_hashes()
@@ -476,7 +537,7 @@ function T.the_static_terrain_srt_matches_the_dynamic_base_material_conversion()
 end
 
 function T.error_contexts_name_the_record_schedule_and_source_member()
-  local err = throwsCode("TERRAIN_ANIM_TEXTURE_INDEX_OUT_OF_RANGE", function()
+  local err = throwsCode(TerrainAnimationCompiler.ERROR_TEXTURE_INDEX, function()
     return compileScene({
       mapPack = basePack(),
       fieldTextureAnimations = {
@@ -496,7 +557,7 @@ function T.error_contexts_name_the_record_schedule_and_source_member()
 end
 
 function T.error_contexts_name_material_texture_and_source_member()
-  local err = throwsCode("TERRAIN_ANIM_TEXTURE_INCOMPATIBLE", function()
+  local err = throwsCode(TerrainAnimationCompiler.ERROR_TEXTURE_INCOMPATIBLE, function()
     return compileScene({
       mapPack = basePack(),
       fieldTextureAnimations = {
@@ -563,59 +624,6 @@ function T.a_replacement_member_is_read_once_across_matching_materials()
   compile(compiler2, "map")
   Assert.equal(counts.field_texture_animations[0], 2)
   Assert.equal(counts.field_texture_animations[1], 2)
-end
-
--- The real HGSS map packs do not always ship the schedule's first entry as
--- the base texture: the sea_on/dsea_on records' base textures are the last
--- animation frame, so the replacement's frame-0 texels legitimately differ
--- from the base material (verified against the retail dump). The generated
--- contract pins the frame-0 slot to the base material's image by
--- construction -- the DS shows the bound map-pack texture until the first
--- schedule switch -- so the compile must succeed, the divergent frame-0
--- texels must emit no asset (the cycle-based runtime can never display
--- them), and a later frame whose texels equal the base's dedups to the base
--- path.
-function T.a_frame_zero_that_differs_from_the_base_dedups_to_the_material_texture()
-  local scene = assert(compileScene({
-    mapPack = basePack(),
-    fieldTextureAnimations = {
-      [0] = FieldTexAnimFixture.member({ { name = "flower01", timeline = { { 0, 18 }, { 1, 18 }, { 2, 18 } } } }),
-      -- Frame 0 (dictionary index 0) differs from the base (dictionary
-      -- index 2); frame 2 reuses the base texels: the real sea_on shape,
-      -- where the map pack ships the last animation frame.
-      [1] = replacementMember({ texels(0x22), texels(0x33), BASE_TEXEL }),
-    },
-  }))
-  local material = scene.compiled.materials[1]
-  local swap = material.textureSwap
-  -- The divergent frame-0 slot is pinned to the base image by construction.
-  Assert.equal(swap.textures[1], material.texture)
-  -- Frame 1 still decodes from the replacement texels (0x33 selects palette
-  -- index 3) under the base palette (black at index 3; the replacement's own
-  -- palette is blue there and must never be used).
-  Assert.equal(textureAsset(swap.textures[2], scene.textures).pixels, solidPixels(0, 0, 0))
-  -- The last frame's texels equal the base's, so it dedups to the base path.
-  Assert.equal(swap.textures[3], material.texture)
-  -- Only the base image and frame 1 are emitted: the divergent frame-0
-  -- texels are unreachable in the runtime cycle and produce no asset.
-  local count = 0
-  for _ in pairs(scene.textures) do
-    count = count + 1
-  end
-  Assert.equal(count, 2)
-end
-
-function T.an_all_sentinel_record_leaves_the_material_static()
-  -- A record whose schedule is entirely the sentinel has no live frames and
-  -- cannot drive a swap; the material stays static and the replacement member
-  -- (absent from the fixture, so any read trips its assert) is never read.
-  local scene = assert(compileScene({
-    mapPack = basePack(),
-    fieldTextureAnimations = { [0] = FieldTexAnimFixture.member({ { name = "flower01" } }) },
-  }))
-  Assert.isNil(scene.compiled.materials[1].textureSwap)
-  Assert.notNil(scene.compiled.materials[1].texture)
-  Assert.deepEqual(scene.compiler:dependencies().fieldTextureAnimations.memberSha1s, {})
 end
 
 return { tests = T }

@@ -2,11 +2,11 @@
 -- (`data/fldtanime.narc`, dump alias `field_texture_animations`): the retail
 -- archive has nine table records and ten members, every schedule index used
 -- by a record has a compatible replacement-dictionary entry, and every
--- texture-swap material in the generated corpus carries the retail schedule
--- with in-range indices, the frame-0 invariant, and present alternate
--- images -- the producer compiled every one of them against a matching map
--- texture pack when the derived cache was built. One pass over the whole
--- ready corpus per version.
+-- texture-swap material in the generated corpus carries the retail live
+-- schedule -- same step count, same duration sequence -- with present
+-- replacement images, so the producer compiled every referenced frame
+-- against a matching map texture pack when the derived cache was built. One
+-- pass over the whole ready corpus per version.
 
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
@@ -54,6 +54,24 @@ local function swapMaterials(scene)
         out[#out + 1] = m
       end
     end
+  end
+  return out
+end
+
+-- The retail live schedule's durations, in order.
+local function retailDurations(record)
+  local out = {}
+  for _, pair in ipairs(record.timeline) do
+    out[#out + 1] = pair.durationTicks
+  end
+  return out
+end
+
+-- A generated swap's step durations, in order.
+local function stepDurations(swap)
+  local out = {}
+  for _, step in ipairs(swap.steps) do
+    out[#out + 1] = step.durationTicks
   end
   return out
 end
@@ -119,10 +137,11 @@ function T.tests.retail_archive_and_corpus_swaps_compile(context)
 
     -- Corpus census over the generated cache: every compiled texture-swap
     -- material matched a retail record by texture name, carries the retail
-    -- schedule unchanged, satisfies the frame-0 invariant, keeps every
-    -- schedule index inside its emitted texture array, and references only
-    -- alternate images that exist -- the compile itself succeeded against
-    -- the matching map texture pack when the cache was built.
+    -- live schedule unchanged (same step count, same duration sequence), and
+    -- references only replacement images that exist -- the compile itself
+    -- succeeded against the matching map texture pack when the cache was
+    -- built. The base material's image and the schedule's first step are
+    -- independent assets: no equality between them is implied or asserted.
     local world = assert(cache:loadLua(MapAssetCache.worldPath()), versionId .. ": world manifest is loadable")
     assert(type(world.maps) == "table", versionId .. ": world manifest carries the map list")
 
@@ -145,37 +164,24 @@ function T.tests.retail_archive_and_corpus_swaps_compile(context)
             record,
             versionId .. ": swap name " .. swap.name .. " matches a retail record (map " .. map.id .. ")"
           )
-          Assert.deepEqual(
-            swap.timeline,
-            record.timeline,
-            versionId .. ": map " .. map.id .. " " .. swap.name .. " carries the retail schedule"
+          Assert.isTrue(
+            type(m.texture) == "string",
+            versionId .. ": map " .. map.id .. " " .. swap.name .. " has a base texture"
           )
           Assert.equal(
-            swap.textures[swap.timeline[1].textureIndex + 1],
-            m.texture,
-            versionId .. ": map " .. map.id .. " " .. swap.name .. " frame-0 image is the material texture"
+            #swap.steps,
+            #record.timeline,
+            versionId .. ": map " .. map.id .. " " .. swap.name .. " step count equals the retail live schedule"
           )
-          for _, pair in ipairs(swap.timeline) do
+          Assert.deepEqual(
+            stepDurations(swap),
+            retailDurations(record),
+            versionId .. ": map " .. map.id .. " " .. swap.name .. " carries the retail duration sequence"
+          )
+          for _, step in ipairs(swap.steps) do
             Assert.isTrue(
-              pair.durationTicks > 0,
-              versionId .. ": map " .. map.id .. " " .. swap.name .. " has positive durations"
-            )
-            Assert.isTrue(
-              pair.textureIndex >= 0 and pair.textureIndex < #swap.textures,
-              versionId
-                .. ": map "
-                .. map.id
-                .. " "
-                .. swap.name
-                .. " schedule index "
-                .. pair.textureIndex
-                .. " is inside its texture array"
-            )
-          end
-          for _, path in ipairs(swap.textures) do
-            Assert.isTrue(
-              cache:exists(path),
-              versionId .. ": alternate frame exists in the cache: " .. path .. " (map " .. map.id .. ")"
+              cache:exists(step.texture),
+              versionId .. ": replacement frame exists in the cache: " .. step.texture .. " (map " .. map.id .. ")"
             )
           end
           used[swap.name] = true

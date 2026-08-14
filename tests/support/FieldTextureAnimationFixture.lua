@@ -2,9 +2,10 @@
 -- a little-endian u32 record count followed by fixed 52-byte records of a
 -- NUL-padded 16-byte name and an 18-pair schedule, exactly as
 -- `FieldTextureAnimation.parse` reads it. Live pairs are packed first; the
--- remaining pairs are the { 0xFF, 0xFF } sentinel, so records always end
--- with a valid sentinel and a record with no live pairs is a valid
--- all-sentinel record. Test-only.
+-- remaining pairs are the { 0xFF, 0xFF } terminator, so records always end
+-- with a valid terminator. A record with no live pairs is malformed input
+-- (the parser rejects an empty live schedule); `member({})` builds the
+-- valid zero-record table. Test-only.
 
 local NB = require("tests.support.NitroBuilder")
 

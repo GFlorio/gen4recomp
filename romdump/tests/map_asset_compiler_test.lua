@@ -20,6 +20,7 @@ local BinaryReader = require("libs.codec.src.BinaryReader")
 local BdhcBuilder = require("tests.support.BdhcBuilder")
 local Errors = require("libs.errors.src.Errors")
 local FieldTexAnimFixture = require("tests.support.FieldTextureAnimationFixture")
+local FieldTextureAnimation = require("romdump.src.digest.FieldTextureAnimation")
 local Hashing = require("romdump.src.digest.Hashing")
 local LandDataBuilder = require("tests.support.LandDataBuilder")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
@@ -55,13 +56,8 @@ end
 -- 18, loop. Live entries only.
 local FLOWER_TIMELINE = { { 0, 18 }, { 1, 18 }, { 0, 18 }, { 2, 18 } }
 
--- The compiled timeline record shape: named entries, live only.
-local FLOWER_TIMELINE_RECORDS = {
-  { textureIndex = 0, durationTicks = 18 },
-  { textureIndex = 1, durationTicks = 18 },
-  { textureIndex = 0, durationTicks = 18 },
-  { textureIndex = 2, durationTicks = 18 },
-}
+-- The compiled textureSwap.steps durations, in schedule order.
+local FLOWER_STEP_DURATIONS = { 18, 18, 18, 18 }
 
 -- Base map texture: 8x8 palette16 texels all index 1, so a frame's decoded
 -- pixel colour identifies the palette index -- and thereby the pack -- it was
@@ -325,13 +321,21 @@ function T.central_terrain_materials_carry_the_terrain_fields_and_matched_swaps(
   Assert.equal(material.texMtxMode, 0)
   Assert.isNil(material.srt, "a terrain material without a static SRT omits the field")
 
-  -- The flower01 record matched by texture name rides the same material.
+  -- The flower01 record matched by texture name rides the same material: one
+  -- playback step per live schedule entry, in schedule order, with the retail
+  -- durations.
   Assert.equal(material.textureSwap.name, "flower01")
-  Assert.deepEqual(material.textureSwap.timeline, FLOWER_TIMELINE_RECORDS)
-  Assert.equal(#material.textureSwap.textures, 3)
-  Assert.equal(material.textureSwap.textures[1], material.texture)
+  Assert.equal(#material.textureSwap.steps, 4)
+  local durations = {}
+  for _, step in ipairs(material.textureSwap.steps) do
+    durations[#durations + 1] = step.durationTicks
+  end
+  Assert.deepEqual(durations, FLOWER_STEP_DURATIONS)
+  -- The schedule repeats source index 0, so steps 1 and 3 are the same
+  -- content-addressed path.
+  Assert.equal(material.textureSwap.steps[1].texture, material.textureSwap.steps[3].texture)
   Assert.isTrue(
-    material.textureSwap.textures[1]:find("^assets/generated/maps/textures/") ~= nil,
+    material.textureSwap.steps[1].texture:find("^assets/generated/maps/textures/") ~= nil,
     "swap frames are cache-relative paths"
   )
 
@@ -466,8 +470,7 @@ function T.neighbor_terrain_compiles_against_its_own_pack_into_one_dependency_se
   Assert.equal(central.texHeight, 8)
   Assert.equal(central.texMtxMode, 0)
   Assert.equal(central.textureSwap.name, "flower02")
-  Assert.equal(central.textureSwap.textures[1], central.texture)
-  Assert.equal(textureAsset(central.textureSwap.textures[2], bundle.textures).pixels, solidPixels(0, 255, 0))
+  Assert.equal(textureAsset(central.textureSwap.steps[2].texture, bundle.textures).pixels, solidPixels(0, 255, 0))
 
   -- The neighbour chunk binds its own pack: flower01's frames decode under the
   -- neighbour palette (blue at index 2), never the central one.
@@ -478,9 +481,12 @@ function T.neighbor_terrain_compiles_against_its_own_pack_into_one_dependency_se
   Assert.equal(neighbor.texMtxMode, 0)
   Assert.isNil(neighbor.srt)
   Assert.equal(neighbor.textureSwap.name, "flower01")
-  Assert.equal(neighbor.textureSwap.textures[1], neighbor.texture)
-  Assert.deepEqual(neighbor.textureSwap.timeline, FLOWER_TIMELINE_RECORDS)
-  Assert.equal(textureAsset(neighbor.textureSwap.textures[2], bundle.textures).pixels, solidPixels(0, 0, 255))
+  local durations = {}
+  for _, step in ipairs(neighbor.textureSwap.steps) do
+    durations[#durations + 1] = step.durationTicks
+  end
+  Assert.deepEqual(durations, FLOWER_STEP_DURATIONS)
+  Assert.equal(textureAsset(neighbor.textureSwap.steps[2].texture, bundle.textures).pixels, solidPixels(0, 0, 255))
 
   -- The one area clip is owned by the central scene only; no neighbour
   -- descriptor repeats it.
@@ -521,10 +527,10 @@ end
 -- boundary with the parser's structured error naming the archive/map.
 function T.a_malformed_fldtanime_table_fails_the_map_compile()
   local bundle, err = compile({ fieldTextureAnimations = { [0] = "garbage" } })
-  Assert.isNil(bundle)
+  Assert.isNil(bundle, "the malformed table fails the compile")
   Assert.isTrue(Errors.is(err), "the malformed table fails with a structured error")
   err = assert(err)
-  Assert.equal(err.code, "FIELD_TEX_ANIM_SIZE_MISMATCH")
+  Assert.equal(err.code, FieldTextureAnimation.ERROR_SIZE)
   Assert.equal(err.context.source.alias, "field_texture_animations")
   Assert.equal(err.context.source.memberId, 0)
   Assert.equal(err.context.source.mapId, MapRomFixture.MAP_ID)

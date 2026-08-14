@@ -103,8 +103,8 @@ local function compileModel(model, texturePack, meshes, textures, context)
   local materials = sceneMaterials(mat.materials, terrainStateById)
   if context.terrainAnimations then
     for i, m in ipairs(mat.materials) do
-      -- A matched record yields a textureSwap record; an unmatched or
-      -- all-sentinel record leaves the field omitted.
+      -- A matched record yields a textureSwap record; an unmatched material
+      -- or one that failed texture binding leaves the field omitted.
       local swap = context.terrainAnimations:annotateMaterial(model.materials[i], m, texturePack, textures)
       if swap then
         materials[i].textureSwap = swap

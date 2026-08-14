@@ -453,36 +453,33 @@ function T.no_save_spawn_map_compiles_with_free_tiles(romFs)
 end
 
 -- New Bark's terrain texture swaps conform to the known retail schedule:
--- flower01 and flower02 each cycle three images with the exact 0,1,0,2 /
--- 18-tick timeline, and flower03 stays static because the archive has no
--- record for it. Asserted on the generated scene descriptor.
+-- flower01 and flower02 each cycle the exact 0,1,0,2 / 18-tick schedule as
+-- direct playback steps, and flower03 stays static because the archive has
+-- no record for it. Asserted on the generated scene descriptor.
 function T.terrain_flower_swaps_conform(romFs, versionId)
   local scene = generatedScene(versionId)
   local byName = {}
   for _, m in ipairs(scene.materials) do
     byName[m.name] = m
   end
-  local timeline = {
-    { textureIndex = 0, durationTicks = 18 },
-    { textureIndex = 1, durationTicks = 18 },
-    { textureIndex = 0, durationTicks = 18 },
-    { textureIndex = 2, durationTicks = 18 },
-  }
+  local expectedDurations = { 18, 18, 18, 18 }
   for _, name in ipairs({ "flower01", "flower02" }) do
     local material = assert(byName[name], name .. " material is in the scene")
     local swap = assert(material.textureSwap, name .. " carries a textureSwap")
     Assert.equal(swap.name, name, name .. " swap names its playback group")
-    Assert.equal(#swap.textures, 3, name .. " references three images")
-    Assert.deepEqual(swap.timeline, timeline, name .. " carries the exact 0,1,0,2 / 18-tick timeline")
-    Assert.equal(
-      swap.textures[swap.timeline[1].textureIndex + 1],
-      material.texture,
-      name .. " frame-0 image is the material texture"
-    )
-    for _, path in ipairs(swap.textures) do
+    Assert.equal(#swap.steps, 4, name .. " carries the four-step 0,1,0,2 schedule")
+    local durations = {}
+    for _, step in ipairs(swap.steps) do
+      durations[#durations + 1] = step.durationTicks
+    end
+    Assert.deepEqual(durations, expectedDurations, name .. " carries the exact 18-tick duration sequence")
+    -- The schedule repeats source index 0, so steps 1 and 3 are the same
+    -- content-addressed image.
+    Assert.equal(swap.steps[1].texture, swap.steps[3].texture, name .. " repeats the step-zero image")
+    for _, step in ipairs(swap.steps) do
       Assert.isTrue(
-        path:find("^assets/generated/maps/textures/[0-9a-f]+%.png$") ~= nil,
-        name .. " alternate is a cache-relative path: " .. path
+        step.texture:find("^assets/generated/maps/textures/[0-9a-f]+%.png$") ~= nil,
+        name .. " alternate is a cache-relative path: " .. step.texture
       )
     end
   end
