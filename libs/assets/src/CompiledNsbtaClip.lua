@@ -65,15 +65,17 @@ local function checkChannel(channel, where, clip, invalid)
     if not STORAGES[channel.storage] then
       invalid(where .. " curve storage must be fx16 or fx32")
     end
-    if not Validate.isArray(channel.keys) then
-      invalid(where .. " curve requires a keys array")
-    elseif #channel.keys < requiredKeys(channel.rate, clip.frameCount) then
-      invalid(where .. " curve carries fewer keys than its frames demand")
-    end
-    for i, key in ipairs(channel.keys) do
-      if not isInteger(key) then
-        invalid(where .. " curve key " .. i .. " must be an integer")
+    if Validate.isArray(channel.keys) then
+      if #channel.keys < requiredKeys(channel.rate, clip.frameCount) then
+        invalid(where .. " curve carries fewer keys than its frames demand")
       end
+      for i, key in ipairs(channel.keys) do
+        if not isInteger(key) then
+          invalid(where .. " curve key " .. i .. " must be an integer")
+        end
+      end
+    else
+      invalid(where .. " curve requires a keys array")
     end
   else
     invalid(where .. " channel source must be constant or curve")

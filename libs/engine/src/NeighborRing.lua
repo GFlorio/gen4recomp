@@ -34,16 +34,11 @@ local TerrainMaterialAnimator = require("libs.engine.src.TerrainMaterialAnimator
 
 local NeighborRing = {}
 
--- The identity UV-transform matrix scene-form materials start with: the
--- terrain animator replaces every material's matrix at construction (the
--- static srt, or the area clip's frame-0 sample), so this only seeds the
--- table before that pass.
-local IDENTITY_TEX_MATRIX = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
-
 -- Material assembly: acquire each normalized material record's image
 -- under its resolved sampler wrap. The wrap pair is part of the image
 -- identity, so cells sharing a texture but sampling it differently get
--- independent configured images.
+-- independent configured images. The terrain animator initializes every
+-- material's texMatrix at construction.
 local function materialsById(list, pool)
   local byId = {}
   for id, record in pairs(SceneDescriptor.materials(list)) do
@@ -51,7 +46,6 @@ local function materialsById(list, pool)
       id = record.id,
       name = record.name,
       image = pool:imageFor(record.texture, record.wrap.x, record.wrap.y),
-      texMatrix = IDENTITY_TEX_MATRIX,
     }
   end
   return byId

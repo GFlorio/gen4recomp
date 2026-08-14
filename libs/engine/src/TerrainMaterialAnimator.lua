@@ -52,7 +52,7 @@ TerrainMaterialAnimator.__index = TerrainMaterialAnimator
 function TerrainMaterialAnimator.new(bindings, clip, resolveImage)
   assert(type(bindings) == "table", "TerrainMaterialAnimator.new requires the bindings")
   assert(
-    clip == false or (type(clip) == "table" and type(clip.tracks) == "table" and type(clip.compiled) == "table"),
+    clip == false or type(clip) == "table",
     "TerrainMaterialAnimator.new requires the compiled texsrt clip or false"
   )
   assert(type(resolveImage) == "function", "TerrainMaterialAnimator.new requires the image resolver")
@@ -63,26 +63,7 @@ function TerrainMaterialAnimator.new(bindings, clip, resolveImage)
     player = AnimationPlayer.new(clip)
     targetIndexByName = {}
     for _, track in ipairs(clip.tracks) do
-      assert(
-        type(track.target) == "string" and track.target ~= "",
-        "clip " .. tostring(clip.id) .. " has a track without a target name"
-      )
-      local targetIndex = track.targetIndex
-      assert(
-        targetIndex ~= nil and targetIndex >= 0 and targetIndex < #clip.compiled.targets,
-        "clip "
-          .. tostring(clip.id)
-          .. " track "
-          .. tostring(track.target)
-          .. " targets index "
-          .. tostring(targetIndex)
-          .. " outside the compiled targets"
-      )
-      assert(
-        targetIndexByName[track.target] == nil,
-        "clip " .. tostring(clip.id) .. " targets material " .. tostring(track.target) .. " more than once"
-      )
-      targetIndexByName[track.target] = targetIndex
+      targetIndexByName[track.target] = track.targetIndex
     end
   end
 
@@ -96,15 +77,6 @@ function TerrainMaterialAnimator.new(bindings, clip, resolveImage)
 
     local swap = record.textureSwap
     if swap then
-      assert(type(swap.name) == "string" and swap.name ~= "", "a texture-swap material has an empty animation name")
-      assert(
-        type(swap.steps) == "table" and #swap.steps > 0,
-        "animation " .. tostring(swap.name) .. " has no playback steps"
-      )
-      assert(
-        type(record.wrap) == "table" and type(record.wrap.x) == "string" and type(record.wrap.y) == "string",
-        "texture-swap material " .. tostring(record.name) .. " has no wrap state for its frame acquisition"
-      )
       local group = groupByName[swap.name]
       if not group then
         group = {
@@ -120,10 +92,6 @@ function TerrainMaterialAnimator.new(bindings, clip, resolveImage)
 
       local images = {}
       for stepIndex, step in ipairs(swap.steps) do
-        assert(
-          type(step.texture) == "string",
-          "animation " .. tostring(swap.name) .. " carries a non-string step texture"
-        )
         images[stepIndex] = resolveImage(step.texture, record.wrap.x, record.wrap.y)
       end
       group.members[#group.members + 1] = {

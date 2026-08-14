@@ -13,8 +13,7 @@
 -- through the shared clip compiler, and accumulates the dependency hashes the
 -- map completion marker needs. One instance is scoped to one map bundle so
 -- central and neighbor compiles contribute to one dependency set; there are
--- no module-global mutable caches. Pure domain module; LÖVE is needed only
--- for the Hashing helper.
+-- no module-global mutable caches. Pure domain module.
 
 local Errors = require("libs.errors.src.Errors")
 local BinaryReader = require("libs.codec.src.BinaryReader")
