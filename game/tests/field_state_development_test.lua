@@ -107,6 +107,7 @@ function T.product_mode_ignores_the_f1_and_f2_developer_binds()
     runtime = {
       actionKeys = {},
       cancelKeys = {},
+      menuKeys = {},
       saveSession = function()
         saves = saves + 1
       end,
@@ -129,6 +130,7 @@ function T.dev_mode_keeps_the_f1_and_f2_developer_binds()
     runtime = {
       actionKeys = {},
       cancelKeys = {},
+      menuKeys = {},
       saveSession = function()
         saves = saves + 1
       end,
@@ -152,6 +154,7 @@ function T.product_mode_keeps_the_documented_zoom_controls()
     runtime = {
       actionKeys = {},
       cancelKeys = {},
+      menuKeys = {},
       zoom = {
         zoomOut = function()
           zooms[#zooms + 1] = "out"

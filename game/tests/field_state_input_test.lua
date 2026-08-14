@@ -17,12 +17,17 @@ local function stateWithInput(calls)
     "pointerMove",
     "pointerUp",
     "pointerScroll",
+    "pressMenu",
+    "releaseMenu",
   }) do
     input[name] = function(_, ...)
       calls[#calls + 1] = { name, ... }
     end
   end
-  return setmetatable({ runtime = { input = input, actionKeys = {}, cancelKeys = {} } }, FieldState)
+  return setmetatable(
+    { runtime = { input = input, actionKeys = {}, cancelKeys = {}, menuKeys = { m = true } } },
+    FieldState
+  )
 end
 
 local joystick = {
@@ -94,7 +99,8 @@ end
 
 function T.focus_loss_discards_stale_stick_axes_before_refocus()
   local input = FieldInput.new()
-  local state = setmetatable({ runtime = { input = input, actionKeys = {}, cancelKeys = {} } }, FieldState)
+  local state =
+    setmetatable({ runtime = { input = input, actionKeys = {}, cancelKeys = {}, menuKeys = {} } }, FieldState)
 
   state:gamepadaxis(joystick, "leftx", -0.75)
   state:focus(false)
@@ -105,7 +111,8 @@ end
 
 function T.focus_loss_does_not_leave_a_keyboard_direction_stuck_after_refocus()
   local input = FieldInput.new()
-  local state = setmetatable({ runtime = { input = input, actionKeys = {}, cancelKeys = {} } }, FieldState)
+  local state =
+    setmetatable({ runtime = { input = input, actionKeys = {}, cancelKeys = {}, menuKeys = {} } }, FieldState)
 
   state:keypressed("down")
   state:focus(false)
@@ -114,26 +121,73 @@ function T.focus_loss_does_not_leave_a_keyboard_direction_stuck_after_refocus()
 
   Assert.deepEqual(
     input:snapshot(),
-    { heldDirection = nil, pressedDirection = "east", actionDown = false, cancelDown = false }
+    { heldDirection = nil, pressedDirection = "east", actionDown = false, cancelDown = false, menuDown = false }
   )
-  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false })
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = false })
 end
 
 function T.gamepad_dpad_and_left_stick_drive_normal_field_movement()
   local input = FieldInput.new()
-  local state = setmetatable({ runtime = { input = input, actionKeys = {}, cancelKeys = {} } }, FieldState)
+  local state =
+    setmetatable({ runtime = { input = input, actionKeys = {}, cancelKeys = {}, menuKeys = {} } }, FieldState)
 
   state:gamepadpressed(joystick, "dpdown")
   Assert.deepEqual(
     input:snapshot(),
-    { heldDirection = "south", pressedDirection = "south", actionDown = false, cancelDown = false }
+    { heldDirection = "south", pressedDirection = "south", actionDown = false, cancelDown = false, menuDown = false }
   )
   state:gamepadreleased(joystick, "dpdown")
   state:gamepadaxis(joystick, "leftx", -0.75)
   Assert.deepEqual(
     input:snapshot(),
-    { heldDirection = "west", pressedDirection = "west", actionDown = false, cancelDown = false }
+    { heldDirection = "west", pressedDirection = "west", actionDown = false, cancelDown = false, menuDown = false }
   )
+end
+
+function T.keyboard_menu_key_and_gamepad_west_face_drive_the_semantic_menu_button()
+  local calls = {}
+  local state = stateWithInput(calls)
+  state:keypressed("m")
+  state:keyreleased("m")
+  state:gamepadpressed(joystick, "x")
+  state:gamepadreleased(joystick, "x")
+  Assert.deepEqual(calls, {
+    { "pressMenu", "key:m" },
+    { "releaseMenu", "key:m" },
+    { "pressMenu", "gamepad:7:x" },
+    { "releaseMenu", "gamepad:7:x" },
+  })
+end
+
+function T.the_menu_binding_follows_the_manifest_key_table()
+  local calls = {}
+  local state = stateWithInput(calls)
+  state.runtime.menuKeys = { n = true }
+  state:keypressed("m")
+  state:keypressed("n")
+  Assert.deepEqual(calls, {
+    { "pressMenu", "key:n" },
+  })
+end
+
+function T.menu_button_edges_reach_the_runtime_input_source_aware_model()
+  local input = FieldInput.new()
+  local state =
+    setmetatable({ runtime = { input = input, actionKeys = {}, cancelKeys = {}, menuKeys = { m = true } } }, FieldState)
+
+  state:keypressed("m")
+  Assert.deepEqual(
+    input:snapshot(),
+    { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = true, menuPressed = true }
+  )
+  state:keypressed("m")
+  Assert.deepEqual(
+    input:snapshot(),
+    { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = true },
+    "a repeat press of the held menu key produces no second edge"
+  )
+  state:keyreleased("m")
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = false })
 end
 
 return { tests = T }

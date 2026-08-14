@@ -1,8 +1,9 @@
 -- Project-owned field presentation tuning. resizeCompensation controls how much
 -- window-height growth becomes additional visible world instead of larger map
 -- pixels: 0 keeps current framing, 1 keeps approximate pixel size. input is the
--- single bindings table for the semantic Action/Cancel buttons;
--- gamepad buttons are fixed by LÖVE convention (south "a" / east "b").
+-- single bindings table for the semantic Action/Cancel/Menu buttons;
+-- gamepad buttons are fixed by LÖVE convention (south "a" / east "b" / west
+-- "x" maps to the menu button).
 
 return {
   zoom = {
@@ -16,5 +17,6 @@ return {
   input = {
     action = { "z", "space", "return" },
     cancel = { "x", "backspace" },
+    menu = { "m" },
   },
 }

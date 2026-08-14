@@ -1,9 +1,9 @@
 -- Fixed-tick input snapshots choose one held direction deterministically,
 -- expose each new press exactly once for the movement buffer, and carry the
--- semantic Action/Cancel buttons as separate edges and held state. Action
--- and Cancel track their physical sources: a semantic button stays down
--- until every pressed source is released, and a repeat press from an
--- already-held source never produces a new edge.
+-- semantic Action/Cancel/Menu buttons as separate edges and held state.
+-- Action, Cancel, and Menu track their physical sources: a semantic button
+-- stays down until every pressed source is released, and a repeat press
+-- from an already-held source never produces a new edge.
 
 local Assert = require("tests.support.Assert")
 local FieldInput = require("libs.engine.src.FieldInput")
@@ -20,15 +20,18 @@ function T.physical_direction_sources_drive_field_and_ui_from_one_state_machine(
 
   Assert.deepEqual(
     input:snapshot(),
-    { heldDirection = "north", pressedDirection = "north", actionDown = false, cancelDown = false }
+    { heldDirection = "north", pressedDirection = "north", actionDown = false, cancelDown = false, menuDown = false }
   )
   Assert.deepEqual(input:uiSnapshot(0), { { type = "navigate", direction = "up" } })
 
   input:releaseDirection("key:w")
   input:releaseDirection("gamepad:7:dpup")
-  Assert.deepEqual(input:snapshot(), { heldDirection = "north", actionDown = false, cancelDown = false })
+  Assert.deepEqual(
+    input:snapshot(),
+    { heldDirection = "north", actionDown = false, cancelDown = false, menuDown = false }
+  )
   input:setStick("gamepad:7:left", 0, -0.3)
-  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false })
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = false })
 end
 
 function T.additional_sources_for_a_held_direction_do_not_repeat_ui_navigation()
@@ -67,11 +70,17 @@ function T.latest_press_wins_until_released()
   input:press("east")
   Assert.deepEqual(
     input:snapshot(),
-    { heldDirection = "east", pressedDirection = "east", actionDown = false, cancelDown = false }
+    { heldDirection = "east", pressedDirection = "east", actionDown = false, cancelDown = false, menuDown = false }
   )
-  Assert.deepEqual(input:snapshot(), { heldDirection = "east", actionDown = false, cancelDown = false })
+  Assert.deepEqual(
+    input:snapshot(),
+    { heldDirection = "east", actionDown = false, cancelDown = false, menuDown = false }
+  )
   input:release("east")
-  Assert.deepEqual(input:snapshot(), { heldDirection = "north", actionDown = false, cancelDown = false })
+  Assert.deepEqual(
+    input:snapshot(),
+    { heldDirection = "north", actionDown = false, cancelDown = false, menuDown = false }
+  )
 end
 
 function T.repeated_press_does_not_create_another_edge()
@@ -79,7 +88,10 @@ function T.repeated_press_does_not_create_another_edge()
   input:press("south")
   input:snapshot()
   input:press("south")
-  Assert.deepEqual(input:snapshot(), { heldDirection = "south", actionDown = false, cancelDown = false })
+  Assert.deepEqual(
+    input:snapshot(),
+    { heldDirection = "south", actionDown = false, cancelDown = false, menuDown = false }
+  )
 end
 
 function T.rejects_unknown_directions()
@@ -113,24 +125,28 @@ function T.action_edge_fires_once_while_held_state_persists()
   input:pressAction("key:z")
   Assert.deepEqual(
     input:snapshot(),
-    { heldDirection = nil, actionDown = true, actionPressed = true, cancelDown = false }
+    { heldDirection = nil, actionDown = true, actionPressed = true, cancelDown = false, menuDown = false }
   )
-  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = true, cancelDown = false })
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = true, cancelDown = false, menuDown = false })
   input:releaseAction("key:z")
-  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false })
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = false })
 end
 
 function T.cancel_edge_is_separate_from_action()
   local input = FieldInput.new()
   input:pressCancel("key:x")
   input:pressAction("key:z")
-  Assert.deepEqual(
-    input:snapshot(),
-    { heldDirection = nil, actionDown = true, actionPressed = true, cancelDown = true, cancelPressed = true }
-  )
-  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = true, cancelDown = true })
+  Assert.deepEqual(input:snapshot(), {
+    heldDirection = nil,
+    actionDown = true,
+    actionPressed = true,
+    cancelDown = true,
+    cancelPressed = true,
+    menuDown = false,
+  })
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = true, cancelDown = true, menuDown = false })
   input:releaseCancel("key:x")
-  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = true, cancelDown = false })
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = true, cancelDown = false, menuDown = false })
 end
 
 function T.clear_edges_keeps_held_state()
@@ -138,7 +154,10 @@ function T.clear_edges_keeps_held_state()
   input:press("west")
   input:pressAction("key:z")
   input:clearEdges()
-  Assert.deepEqual(input:snapshot(), { heldDirection = "west", actionDown = true, cancelDown = false })
+  Assert.deepEqual(
+    input:snapshot(),
+    { heldDirection = "west", actionDown = true, cancelDown = false, menuDown = false }
+  )
   input:releaseAction("key:z")
   input:release("west")
 end
@@ -149,7 +168,7 @@ function T.clear_all_drops_edges_and_held_state()
   input:pressAction("key:z")
   input:pressCancel("key:x")
   input:clearAll()
-  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false })
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = false })
 end
 
 function T.action_stays_down_until_last_keyboard_source_released()
@@ -158,12 +177,12 @@ function T.action_stays_down_until_last_keyboard_source_released()
   input:pressAction("key:space")
   Assert.deepEqual(
     input:snapshot(),
-    { heldDirection = nil, actionDown = true, actionPressed = true, cancelDown = false }
+    { heldDirection = nil, actionDown = true, actionPressed = true, cancelDown = false, menuDown = false }
   )
   input:releaseAction("key:enter")
-  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = true, cancelDown = false })
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = true, cancelDown = false, menuDown = false })
   input:releaseAction("key:space")
-  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false })
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = false })
 end
 
 function T.action_stays_down_across_keyboard_and_gamepad_sources()
@@ -172,12 +191,12 @@ function T.action_stays_down_across_keyboard_and_gamepad_sources()
   input:pressAction("gamepad:1:a")
   Assert.deepEqual(
     input:snapshot(),
-    { heldDirection = nil, actionDown = true, actionPressed = true, cancelDown = false }
+    { heldDirection = nil, actionDown = true, actionPressed = true, cancelDown = false, menuDown = false }
   )
   input:releaseAction("key:space")
-  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = true, cancelDown = false })
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = true, cancelDown = false, menuDown = false })
   input:releaseAction("gamepad:1:a")
-  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false })
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = false })
 end
 
 function T.repeat_press_from_held_action_source_creates_no_new_edge()
@@ -185,7 +204,7 @@ function T.repeat_press_from_held_action_source_creates_no_new_edge()
   input:pressAction("key:space")
   input:snapshot()
   input:pressAction("key:space")
-  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = true, cancelDown = false })
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = true, cancelDown = false, menuDown = false })
 end
 
 function T.cancel_stays_down_until_last_keyboard_source_released()
@@ -194,12 +213,12 @@ function T.cancel_stays_down_until_last_keyboard_source_released()
   input:pressCancel("key:backspace")
   Assert.deepEqual(
     input:snapshot(),
-    { heldDirection = nil, actionDown = false, cancelDown = true, cancelPressed = true }
+    { heldDirection = nil, actionDown = false, cancelDown = true, cancelPressed = true, menuDown = false }
   )
   input:releaseCancel("key:x")
-  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = true })
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = true, menuDown = false })
   input:releaseCancel("key:backspace")
-  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false })
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = false })
 end
 
 function T.cancel_stays_down_across_keyboard_and_gamepad_sources()
@@ -208,12 +227,12 @@ function T.cancel_stays_down_across_keyboard_and_gamepad_sources()
   input:pressCancel("gamepad:0:b")
   Assert.deepEqual(
     input:snapshot(),
-    { heldDirection = nil, actionDown = false, cancelDown = true, cancelPressed = true }
+    { heldDirection = nil, actionDown = false, cancelDown = true, cancelPressed = true, menuDown = false }
   )
   input:releaseCancel("gamepad:0:b")
-  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = true })
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = true, menuDown = false })
   input:releaseCancel("key:x")
-  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false })
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = false })
 end
 
 function T.repeat_press_from_held_cancel_source_creates_no_new_edge()
@@ -221,7 +240,7 @@ function T.repeat_press_from_held_cancel_source_creates_no_new_edge()
   input:pressCancel("key:x")
   input:snapshot()
   input:pressCancel("key:x")
-  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = true })
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = true, menuDown = false })
 end
 
 function T.action_edge_occurs_only_on_semantic_rise()
@@ -230,14 +249,14 @@ function T.action_edge_occurs_only_on_semantic_rise()
   input:pressAction("key:space")
   Assert.deepEqual(
     input:snapshot(),
-    { heldDirection = nil, actionDown = true, actionPressed = true, cancelDown = false }
+    { heldDirection = nil, actionDown = true, actionPressed = true, cancelDown = false, menuDown = false }
   )
   input:releaseAction("key:z")
   input:releaseAction("key:space")
   input:pressAction("key:z")
   Assert.deepEqual(
     input:snapshot(),
-    { heldDirection = nil, actionDown = true, actionPressed = true, cancelDown = false }
+    { heldDirection = nil, actionDown = true, actionPressed = true, cancelDown = false, menuDown = false }
   )
 end
 
@@ -249,22 +268,22 @@ function T.second_action_source_while_held_produces_no_new_edge()
   input:pressAction("key:enter")
   Assert.deepEqual(
     input:snapshot(),
-    { heldDirection = nil, actionDown = true, actionPressed = true, cancelDown = false }
+    { heldDirection = nil, actionDown = true, actionPressed = true, cancelDown = false, menuDown = false }
   )
   input:pressAction("key:space")
   Assert.deepEqual(
     input:snapshot(),
-    { heldDirection = nil, actionDown = true, cancelDown = false },
+    { heldDirection = nil, actionDown = true, cancelDown = false, menuDown = false },
     "a second source while the button is down produces no new edge"
   )
   input:releaseAction("key:space")
-  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = true, cancelDown = false })
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = true, cancelDown = false, menuDown = false })
   input:releaseAction("key:enter")
-  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false })
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = false })
   input:pressAction("key:enter")
   Assert.deepEqual(
     input:snapshot(),
-    { heldDirection = nil, actionDown = true, actionPressed = true, cancelDown = false },
+    { heldDirection = nil, actionDown = true, actionPressed = true, cancelDown = false, menuDown = false },
     "the edge fires again on the next rise"
   )
 end
@@ -274,22 +293,22 @@ function T.second_cancel_source_while_held_produces_no_new_edge()
   input:pressCancel("key:x")
   Assert.deepEqual(
     input:snapshot(),
-    { heldDirection = nil, actionDown = false, cancelDown = true, cancelPressed = true }
+    { heldDirection = nil, actionDown = false, cancelDown = true, cancelPressed = true, menuDown = false }
   )
   input:pressCancel("key:backspace")
   Assert.deepEqual(
     input:snapshot(),
-    { heldDirection = nil, actionDown = false, cancelDown = true },
+    { heldDirection = nil, actionDown = false, cancelDown = true, menuDown = false },
     "a second source while the button is down produces no new edge"
   )
   input:releaseCancel("key:backspace")
-  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = true })
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = true, menuDown = false })
   input:releaseCancel("key:x")
-  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false })
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = false })
   input:pressCancel("key:x")
   Assert.deepEqual(
     input:snapshot(),
-    { heldDirection = nil, actionDown = false, cancelDown = true, cancelPressed = true },
+    { heldDirection = nil, actionDown = false, cancelDown = true, cancelPressed = true, menuDown = false },
     "the edge fires again on the next rise"
   )
 end
@@ -300,14 +319,14 @@ function T.cancel_edge_occurs_only_on_semantic_rise()
   input:pressCancel("key:backspace")
   Assert.deepEqual(
     input:snapshot(),
-    { heldDirection = nil, actionDown = false, cancelDown = true, cancelPressed = true }
+    { heldDirection = nil, actionDown = false, cancelDown = true, cancelPressed = true, menuDown = false }
   )
   input:releaseCancel("key:x")
   input:releaseCancel("key:backspace")
   input:pressCancel("key:x")
   Assert.deepEqual(
     input:snapshot(),
-    { heldDirection = nil, actionDown = false, cancelDown = true, cancelPressed = true }
+    { heldDirection = nil, actionDown = false, cancelDown = true, cancelPressed = true, menuDown = false }
   )
 end
 
@@ -317,11 +336,11 @@ function T.focus_loss_clears_all_physical_sources()
   input:pressAction("gamepad:0:a")
   input:pressCancel("key:x")
   input:clearAll()
-  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false })
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = false })
   input:releaseAction("key:enter")
   input:releaseAction("gamepad:0:a")
   input:releaseCancel("key:x")
-  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false })
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = false })
 end
 
 function T.ui_snapshot_normalizes_navigation_buttons_and_key_repeat()
@@ -436,8 +455,143 @@ function T.clear_ui_flushes_modal_events_without_releasing_field_controls()
   Assert.deepEqual(input:uiSnapshot(0), {})
   Assert.deepEqual(
     input:snapshot(),
-    { heldDirection = "north", pressedDirection = "north", actionDown = false, cancelDown = false }
+    { heldDirection = "north", pressedDirection = "north", actionDown = false, cancelDown = false, menuDown = false }
   )
+end
+
+-- The semantic Menu button follows the Action/Cancel ownership model exactly:
+-- one edge per zero-to-one source transition, consumed once by a snapshot,
+-- held state separate from the edge, and focus loss clearing the sources so a
+-- stray release cannot resurrect the button. FieldState maps keyboard "m" and
+-- the gamepad west face ("x") to it; the source-aware model is pinned here.
+
+function T.menu_button_edge_fires_once_while_held_state_persists()
+  local input = FieldInput.new()
+  input:pressMenu("key:m")
+  Assert.deepEqual(
+    input:snapshot(),
+    { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = true, menuPressed = true }
+  )
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = true })
+  input:releaseMenu("key:m")
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = false })
+end
+
+function T.menu_button_stays_down_until_last_source_released()
+  local input = FieldInput.new()
+  input:pressMenu("key:m")
+  input:pressMenu("gamepad:0:x")
+  Assert.deepEqual(
+    input:snapshot(),
+    { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = true, menuPressed = true }
+  )
+  input:releaseMenu("key:m")
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = true })
+  input:releaseMenu("gamepad:0:x")
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = false })
+  input:pressMenu("key:m")
+  Assert.deepEqual(
+    input:snapshot(),
+    { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = true, menuPressed = true },
+    "the edge fires again on the next rise"
+  )
+end
+
+function T.repeat_press_from_held_menu_source_creates_no_new_edge()
+  local input = FieldInput.new()
+  input:pressMenu("key:m")
+  input:snapshot()
+  input:pressMenu("key:m")
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = true })
+end
+
+function T.menu_button_is_independent_from_action_and_cancel()
+  local input = FieldInput.new()
+  input:pressAction("key:z")
+  input:pressCancel("key:x")
+  input:pressMenu("key:m")
+  Assert.deepEqual(input:snapshot(), {
+    heldDirection = nil,
+    actionDown = true,
+    actionPressed = true,
+    cancelDown = true,
+    cancelPressed = true,
+    menuDown = true,
+    menuPressed = true,
+  })
+  input:clearAll()
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = false })
+end
+
+function T.clear_edges_keeps_the_held_menu_button_down()
+  local input = FieldInput.new()
+  input:pressMenu("key:m")
+  input:clearEdges()
+  Assert.equal(input.menuDown, true, "edge clears must keep the held menu button down")
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = true })
+end
+
+function T.menu_focus_loss_clears_sources_so_a_stray_release_cannot_resurrect()
+  local input = FieldInput.new()
+  input:pressMenu("key:m")
+  input:pressMenu("gamepad:0:x")
+  input:clearAll()
+  Assert.equal(input.menuDown, false, "focus loss must clear the held menu button")
+  input:releaseMenu("key:m")
+  input:releaseMenu("gamepad:0:x")
+  Assert.equal(input.menuDown, false, "a stray release after focus loss must not resurrect the menu button")
+  Assert.deepEqual(input:snapshot(), { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = false })
+end
+
+function T.menu_release_never_produces_a_press_edge()
+  local input = FieldInput.new()
+  input:releaseMenu("key:m")
+  Assert.deepEqual(
+    input:snapshot(),
+    { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = false },
+    "a release with no held source produces no edge"
+  )
+  input:pressMenu("key:m")
+  input:snapshot()
+  input:releaseMenu("key:m")
+  Assert.deepEqual(
+    input:snapshot(),
+    { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = false },
+    "a release must never produce a menu press edge"
+  )
+end
+
+function T.menu_begin_ui_flushes_the_pending_edge_but_keeps_held_state()
+  local input = FieldInput.new()
+  input:pressMenu("key:m")
+  input:beginUi(0)
+  Assert.deepEqual(
+    input:snapshot(),
+    { heldDirection = nil, actionDown = false, cancelDown = false, menuDown = true },
+    "the stale opening edge must not survive modal ownership begin"
+  )
+  input:releaseMenu("key:m")
+  input:pressMenu("key:m")
+  Assert.equal(input:snapshot().menuPressed, true, "a fresh press inside the modal lifetime produces a new edge")
+end
+
+function T.menu_rejects_missing_sources()
+  local input = FieldInput.new()
+  Assert.throws(function()
+    ---@diagnostic disable-next-line: missing-parameter -- intentional: a missing source must raise
+    input:pressMenu()
+  end)
+  Assert.throws(function()
+    ---@diagnostic disable-next-line: param-type-mismatch -- intentional: a nil source must raise
+    input:releaseMenu(nil)
+  end)
+  Assert.throws(function()
+    ---@diagnostic disable-next-line: param-type-mismatch -- intentional: a non-string source must raise
+    input:pressMenu(42)
+  end)
+  Assert.throws(function()
+    input:releaseMenu("")
+  end)
 end
 
 return { tests = T }
