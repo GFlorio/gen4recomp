@@ -1087,9 +1087,9 @@ end
 -- image, (2) the same quad after the clock crossed a texture-swap boundary,
 -- asserting the selected pixel changed to the second step's image, and (3)
 -- the SRT-targeted quad after a non-identity sample, asserting the sampling
--- moved to the expected texel. The production MapSceneLoader runtime
--- material tables (image + texMatrix, mutated by TerrainMaterialAnimator)
--- drive the draw; nothing here is a test-only shader.
+-- moved to the expected texel. Production MapSceneLoader runtime material
+-- tables (image + texMatrix, mutated by TerrainMaterialAnimator) drive the
+-- draw; nothing here is a test-only shader.
 function T.terrain_animation_offscreen_swap_and_srt(scope)
   local flowerFrames = {
     solidPng(16, 16, 255, 0, 0),
@@ -1139,20 +1139,19 @@ function T.terrain_animation_offscreen_swap_and_srt(scope)
   end
 
   -- The initial draw: the swap material binds its base image (red -- the
-  -- fixture's replacement step 1 shares the path) and the SRT
-  -- target samples its identity matrix (the water quad's u=0.625 samples
-  -- the blue half). Loading established the base image without advancing.
+  -- fixture's replacement step 1 shares the path) and the SRT target
+  -- samples its identity matrix (the water quad's u=0.625 samples the blue
+  -- half). Loading established the base image without advancing.
   local img0 = draw()
   assertPixel(img0, flowerX, flowerY, 1, 0, 0, "flower frame 0 renders red")
   assertPixel(img0, flowerX, flowerMirrorY, 1, 0, 0, "flower frame 0 renders red (mirror row)")
   assertPixel(img0, waterX, waterY, 0, 0, 1, "water frame 0 samples the blue half")
   assertPixel(img0, waterX, waterMirrorY, 0, 0, 1, "water frame 0 samples the blue half (mirror row)")
 
-  -- One fixed tick applies the first non-identity SRT sample: the 0x0800
-  -- transS (half a texture width -- 8 texels on the 16-wide texture) moves
-  -- the sample from the blue half to the red half. The flower clock has not
-  -- reached its first switch (tick 19), so the flower stays on the base
-  -- image.
+  -- One fixed tick applies the first non-identity SRT sample (half a
+  -- texture width -- 8 texels -- moves the sample from blue to red). The
+  -- flower clock has not reached its first switch (tick 19), so the flower
+  -- stays on the base image.
   runtime:updateAnimated()
   local img1 = draw()
   assertPixel(img1, waterX, waterY, 1, 0, 0, "water frame 1 samples the red half after the SRT move")
@@ -1161,8 +1160,8 @@ function T.terrain_animation_offscreen_swap_and_srt(scope)
 
   -- Crossing the texture-swap boundary (18 more ticks, first switch at tick
   -- 19): the runtime material image switches to the second step's image and
-  -- the quad renders blue. The 2-frame SRT clip is at frame 19 mod 2 = 1, so
-  -- the water sample stays shifted.
+  -- the quad renders blue. The 2-frame SRT clip is at frame 19 mod 2 = 1,
+  -- so the water sample stays shifted.
   for _ = 1, 18 do
     runtime:updateAnimated()
   end
