@@ -111,6 +111,7 @@ local function host(opts)
       end,
     },
     world = opts.world,
+    frameIndex = opts.frameIndex,
   }),
     controller
 end
@@ -130,6 +131,30 @@ function T.integer_text_value_renders_the_variable_value()
   local hostObject = h --[[@as { _controller: { request: { message: { text: string } }|nil } }]]
   local text = hostObject._controller.request.message.text
   Assert.equal(text, "42")
+end
+
+-- The dialogue request carries the player-selected HGSS user-frame index,
+-- captured at open time from the injected player options: every print the
+-- host starts stamps the same frame, and a host without options starts
+-- prints without one rather than inventing a frame.
+function T.start_print_stamps_the_player_frame_on_the_request()
+  local world = {
+    getVar = function()
+      return 42
+    end,
+  }
+  local binding = { [0] = { text = "integer", value = { value = "var", id = "VAR_COINS" } } }
+  local h = host({ frameIndex = 4, world = world })
+  h:openMessage({})
+  h:startPrint("msg.hgss.0542.00000", binding)
+  local hostObject = h --[[@as { _controller: { request: { frameIndex: number|nil }|nil } }]]
+  Assert.equal(hostObject._controller.request.frameIndex, 4)
+
+  local noFrameHost = host({ world = world })
+  noFrameHost:openMessage({})
+  noFrameHost:startPrint("msg.hgss.0542.00000", binding)
+  local noFrameObject = noFrameHost --[[@as { _controller: { request: { frameIndex: number|nil }|nil } }]]
+  Assert.isNil(noFrameObject._controller.request.frameIndex)
 end
 
 -- A buffered text form the host does not implement is an attributed fault,

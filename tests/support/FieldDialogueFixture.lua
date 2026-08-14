@@ -65,8 +65,9 @@ end
 -- An opened modal controller whose layout is canned, so the smoke tests
 -- exercise the renderer rather than the layout engine.
 ---@param text string
+---@param frameIndex integer|nil optional player-selected user-frame index
 ---@return FieldDialogueController
-function FieldDialogueFixture.openDialogue(text)
+function FieldDialogueFixture.openDialogue(text, frameIndex)
   local tokens = {
     { kind = "glyph", code = 1, text = "A", raw = { 1 } },
     { kind = "glyph", code = 2, text = "B", raw = { 2 } },
@@ -79,11 +80,15 @@ function FieldDialogueFixture.openDialogue(text)
       }
     end,
   })
-  controller:open({
+  local request = {
     id = "smoke",
     message = { bankId = 543, messageId = 5, text = text, tokens = tokens, hadUnresolvedSubstitutions = false },
     allowCancel = false,
-  })
+  }
+  if frameIndex ~= nil then
+    request.frameIndex = frameIndex
+  end
+  controller:open(request)
   return controller
 end
 

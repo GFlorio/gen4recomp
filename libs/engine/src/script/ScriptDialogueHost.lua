@@ -18,6 +18,7 @@ local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
 ---@field private _fontDef table
 ---@field private _player table|nil
 ---@field private _world table|nil world state { getVar(id) -> any }
+---@field private _frameIndex integer|nil player-selected user-frame index, captured at open
 ---@field private _pendingNode table|nil
 local ScriptDialogueHost = {}
 ScriptDialogueHost.__index = ScriptDialogueHost
@@ -59,7 +60,7 @@ local function resolveTextValue(descriptor, player, fontDef, world)
   )
 end
 
----@param opts table { controller, provider, layout, fontDef, player, world }
+---@param opts table { controller, provider, layout, fontDef, player, world, frameIndex? }
 ---@return ScriptDialogueHost
 function ScriptDialogueHost.new(opts)
   assert(
@@ -72,6 +73,11 @@ function ScriptDialogueHost.new(opts)
     "script dialogue host requires the generated font definition"
   )
   assert(opts.player and type(opts.player.name) == "function", "script dialogue host requires the player facade")
+  local frameIndex = opts.frameIndex
+  assert(
+    frameIndex == nil or (type(frameIndex) == "number" and frameIndex >= 0 and frameIndex % 1 == 0),
+    "script dialogue host frameIndex must be a non-negative integer"
+  )
   return setmetatable({
     _controller = opts.controller,
     _provider = opts.provider,
@@ -79,6 +85,7 @@ function ScriptDialogueHost.new(opts)
     _fontDef = opts.fontDef,
     _player = opts.player,
     _world = opts.world,
+    _frameIndex = frameIndex,
   }, ScriptDialogueHost)
 end
 
@@ -178,6 +185,7 @@ function ScriptDialogueHost:startPrint(message, bindings, textArgs)
     id = id,
     message = formatted,
     allowCancel = false,
+    frameIndex = self._frameIndex,
     metadata = {
       scriptOwned = true,
       message = message,

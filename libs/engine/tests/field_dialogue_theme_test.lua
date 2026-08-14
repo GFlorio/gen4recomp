@@ -94,6 +94,47 @@ function T.text_area_fits_two_lines_of_font_height()
   Assert.isTrue(cursor.y + cursor.height <= text.y + text.height + 1e-9)
 end
 
+-- The frame tilemap is the audited DrawFrameAndWindow2 composition
+-- (asm/render_window.s sub_0200E6B4 at the pinned decomp commit): the
+-- window content box is 27x4 tiles at (2,19), and the frame fills the full
+-- 256x192 reference canvas around it -- one tile above and below, two tiles
+-- left, three right, all 18 strip tiles placed. Tiles are given in strip
+-- order; a span entry repeats the tile across the named axis.
+function T.frame_tile_placements_match_the_draw_frame_and_window2_composition()
+  local placements = FieldDialogueTheme.frameTilePlacements(FieldDialogueTheme.box)
+  Assert.deepEqual(placements, {
+    { tile = 0, x = 0, y = 144 },
+    { tile = 1, x = 8, y = 144 },
+    { tile = 2, x = 16, y = 144, spanX = 27 },
+    { tile = 3, x = 232, y = 144 },
+    { tile = 4, x = 240, y = 144 },
+    { tile = 5, x = 248, y = 144 },
+    { tile = 6, x = 0, y = 152, spanY = 4 },
+    { tile = 7, x = 8, y = 152, spanY = 4 },
+    { tile = 9, x = 232, y = 152, spanY = 4 },
+    { tile = 10, x = 240, y = 152, spanY = 4 },
+    { tile = 11, x = 248, y = 152, spanY = 4 },
+    { tile = 12, x = 0, y = 184 },
+    { tile = 13, x = 8, y = 184 },
+    { tile = 14, x = 16, y = 184, spanX = 27 },
+    { tile = 15, x = 232, y = 184 },
+    { tile = 16, x = 240, y = 184 },
+    { tile = 17, x = 248, y = 184 },
+  }, "frame tiles compose the window around the content box")
+  -- The frame never covers the content region (16,152,216,32) and never
+  -- escapes the 256x192 reference canvas.
+  local box = FieldDialogueTheme.box
+  local function overlaps(a, b)
+    return a.x < b.x + b.width and b.x < a.x + a.width and a.y < b.y + b.height and b.y < a.y + a.height
+  end
+  for _, p in ipairs(placements) do
+    local rect = { x = p.x, y = p.y, width = 8 * (p.spanX or 1), height = 8 * (p.spanY or 1) }
+    Assert.isFalse(overlaps(rect, box), "frame tile " .. p.tile .. " must not cover the content rect")
+    Assert.isTrue(rect.x >= 0 and rect.x + rect.width <= FieldDialogueTheme.referenceWidth, "tile inside canvas")
+    Assert.isTrue(rect.y >= 0 and rect.y + rect.height <= FieldDialogueTheme.referenceHeight, "tile inside canvas")
+  end
+end
+
 function T.font_metrics_resolve_advances_with_fallback()
   local fontDef = {}
   fontDef.glyphs = {
