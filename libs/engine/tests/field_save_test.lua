@@ -306,6 +306,33 @@ function T.refuses_mid_step_and_mid_transition_capture()
     },
   }
   Assert.isTrue(FieldSave.canCapture(signpostClosed))
+  -- The application host (Start Menu, application fade, or a child
+  -- application) is transient modal state: capture stays closed in every
+  -- active phase and opens again at the settled field boundary.
+  local appHost = {
+    isActive = function()
+      return true
+    end,
+  }
+  local applicationOpen = {
+    player = { motion = "idle" },
+    transition = { phase = "idle" },
+    applicationHost = appHost,
+  }
+  Assert.isFalse(FieldSave.canCapture(applicationOpen))
+  local applicationClosed = {
+    player = { motion = "idle" },
+    transition = { phase = "idle" },
+    applicationHost = {
+      isActive = function()
+        return false
+      end,
+    },
+  }
+  Assert.isTrue(FieldSave.canCapture(applicationClosed))
+  -- A session without the host surface (older fixtures) still captures.
+  local hostless = { player = { motion = "idle" }, transition = { phase = "idle" } } ---@type any
+  Assert.isTrue(FieldSave.canCapture(hostless))
 end
 
 function T.stale_surface_id_resamples_nearest_saved_height()

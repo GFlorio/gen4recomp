@@ -531,6 +531,17 @@ T["session script phase"] = function()
         return false
       end,
     },
+    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
+    applicationHost = {
+      isActive = function()
+        return false
+      end,
+      updateFixed = function() end,
+      requestOpen = function() end,
+      takeReopen = function()
+        return false
+      end,
+    },
   })
   -- The script client starts the interaction and the tick is consumed: the
   -- player does not move while the foreground root owns the field.

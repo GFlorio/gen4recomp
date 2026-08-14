@@ -1,7 +1,8 @@
 -- FieldState composition contract: the state builds the FieldRuntime options
 -- table explicitly from the documented runtime contract -- state-only options
--- (development, topologyProvider) never reach the runtime -- and update drives
--- the runtime directly, so a disposed state is a programming error, never a
+-- (topologyProvider) never reach the runtime, while the §20 development
+-- product-mode flag crosses as a runtime option -- and update drives the
+-- runtime directly, so a disposed state is a programming error, never a
 -- silent no-op.
 
 local Assert = require("tests.support.Assert")
@@ -65,7 +66,9 @@ local function bootWithCapturedRuntimeOptions(options)
 end
 
 -- Only the documented runtime contract crosses the state boundary: adding a
--- state-only option must not silently become a runtime option.
+-- state-only option must not silently become a runtime option. The §20
+-- development product-mode flag is part of the runtime contract (the
+-- application host consumes it), so it crosses.
 function T.only_documented_runtime_options_reach_the_runtime()
   local state, captured = bootWithCapturedRuntimeOptions({
     resumeSave = true,
@@ -82,6 +85,7 @@ function T.only_documented_runtime_options_reach_the_runtime()
     resetSave = false,
     zoomConfig = { mode = "test" },
     presentation = true,
+    development = true,
   })
   state:dispose()
 end

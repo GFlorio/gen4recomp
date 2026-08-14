@@ -167,6 +167,19 @@ for _, name in ipairs(StartMenuPolicy.CONTEXTS) do
   assert(CONTEXT_MASKS[name] ~= nil, "context mask missing for " .. name)
 end
 
+-- The full semantic canonical action order in build sequence (§29.1): the
+-- mod Start Menu registry resolves before/after placement constraints
+-- against this order, never against the currently visible subset. Fresh
+-- table per call.
+---@return string[]
+function StartMenuPolicy.canonicalOrder()
+  local ids = {}
+  for index, action in ipairs(ACTIONS) do
+    ids[index] = action.id
+  end
+  return ids
+end
+
 -- The availability gates behind vanillaEnabled. The four CheckGot* gated
 -- actions read their snapshot boolean (FieldSystem_ShouldDrawStartMenuIcon,
 -- start_menu.c:535-556, gates at sys_flags.c:273-289); every other action's

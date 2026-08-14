@@ -35,6 +35,11 @@ local function runtimeWithTransitionError(transitionError)
         return nil
       end,
     },
+    applicationHost = {
+      error = function()
+        return nil
+      end,
+    },
   }, FieldRuntime)
   return runtime, calls
 end

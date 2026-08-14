@@ -53,13 +53,15 @@ end
 
 function FieldState.new(versionId, mapIdOrSymbol, options)
   options = options or {}
-  -- Only the documented runtime contract crosses the boundary; a state-only
-  -- option (development, topologyProvider) must never become a runtime option.
+  -- Only the documented runtime contract crosses the boundary: development
+  -- is the §20 product-mode flag the application host consumes (a state-only
+  -- option such as topologyProvider must never become a runtime option).
   local runtimeOptions = {
     resumeSave = options.resumeSave == true,
     resetSave = options.resetSave == true,
     zoomConfig = options.zoomConfig,
     presentation = true,
+    development = options.development == true,
   }
   -- Construction is binary: FieldRuntime.new either raised (boot failed) or
   -- returned a fully usable runtime, so presentation resources are acquired

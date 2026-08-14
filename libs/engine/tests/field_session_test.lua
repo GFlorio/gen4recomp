@@ -32,8 +32,51 @@ local function idleInput()
     snapshot = function()
       return {}
     end,
+    uiSnapshot = function()
+      return {}
+    end,
     clearEdges = function() end,
   }
+end
+
+-- The application-host boundary the session steps: closed by default, with
+-- the tick ownership and open/reopen surfaces the session calls.
+local function applicationHostFake(overrides)
+  local host = {
+    active = false,
+    openedTicks = {},
+    reopenRequests = 0,
+    updateCalls = 0,
+    events = nil,
+    activeWhileStepped = false,
+  }
+  function host:isActive()
+    return self.active
+  end
+  function host:updateFixed(tick, uiInput)
+    self.updateCalls = self.updateCalls + 1
+    self.events = uiInput
+  end
+  function host:requestOpen(tick)
+    self.openedTicks[#self.openedTicks + 1] = tick
+    self.active = true
+  end
+  function host:requestReopen()
+    self.reopenRequests = self.reopenRequests + 1
+  end
+  function host:takeReopen(tick)
+    if self.reopenRequests > 0 then
+      self.reopenRequests = self.reopenRequests - 1
+      self.openedTicks[#self.openedTicks + 1] = tick
+      self.active = true
+      return true
+    end
+    return false
+  end
+  for key, value in pairs(overrides or {}) do
+    host[key] = value
+  end
+  return host
 end
 
 local function idleActors()
@@ -104,6 +147,7 @@ local function baseOptions(overrides)
         return false
       end,
     },
+    applicationHost = applicationHostFake(),
     interactions = {
       resolve = function()
         return nil
@@ -183,6 +227,7 @@ function T.required_collaborators_are_validated_at_construction()
     "menuHost",
     "contextChoice",
     "signpost",
+    "applicationHost",
     "interactions",
   }
   for _, missing in ipairs(required) do
@@ -202,6 +247,10 @@ function T.required_collaborator_methods_are_validated_at_construction()
     { key = "dialogue", method = "isModal", label = "dialogue.isModal" },
     { key = "currentMap", method = "updateAnimated", label = "currentMap.updateAnimated" },
     { key = "signpost", method = "isModal", label = "signpost.isModal" },
+    { key = "applicationHost", method = "isActive", label = "applicationHost.isActive" },
+    { key = "applicationHost", method = "updateFixed", label = "applicationHost.updateFixed" },
+    { key = "applicationHost", method = "requestOpen", label = "applicationHost.requestOpen" },
+    { key = "applicationHost", method = "takeReopen", label = "applicationHost.takeReopen" },
   }
   for _, case in ipairs(cases) do
     local options = baseOptions({})
@@ -1612,6 +1661,174 @@ function T.modal_dialogue_ticks_advance_scene_and_coverage_once_through_the_map_
   Assert.equal(calls.aggregate, 1, "the modal-dialogue tick advances the aggregate map clock exactly once")
   Assert.equal(calls.scene, 1, "the central scene runtime advances exactly once")
   Assert.equal(calls.coverage, 1, "the coverage runtime advances exactly once")
+end
+
+-- The application host is the one application modal owner: while it is
+-- active, the session steps only the host (once per fixed tick, with the
+-- tick's UI event list plus the synthesized menu edge) and freezes world
+-- simulation -- no player step, no actor step, no scheduler step, no
+-- interaction, no movement.
+function T.application_host_owns_the_tick_and_freezes_world_simulation()
+  local stepped = { player = 0, actors = 0, scheduler = 0, map = 0 }
+  local player = defaultPlayer()
+  player.updateFixed = function()
+    stepped.player = stepped.player + 1
+    return false
+  end
+  local actors = {
+    step = function()
+      stepped.actors = stepped.actors + 1
+    end,
+  }
+  local scheduler = {
+    step = function()
+      stepped.scheduler = stepped.scheduler + 1
+    end,
+    playerMovementLocked = function()
+      return false
+    end,
+  }
+  local map = {
+    mapId = 61,
+    fieldData = { events = { warps = {} } },
+    updateAnimated = function()
+      stepped.map = stepped.map + 1
+    end,
+  }
+  local host = applicationHostFake({ active = true })
+  local input = idleInput()
+  input.uiSnapshot = function()
+    return { { type = "navigate", direction = "down" } }
+  end
+  local session = FieldSession.new(baseOptions({
+    player = player,
+    actors = actors,
+    scriptScheduler = scheduler,
+    currentMap = map,
+    applicationHost = host,
+    input = input,
+  }))
+  session:updateFixed({ menuPressed = true })
+  Assert.equal(host.updateCalls, 1, "the host is stepped exactly once per tick")
+  Assert.equal(host.events[1].type, "navigate", "the host receives the tick's UI events")
+  Assert.equal(host.events[2].type, "menu", "a menu edge while active closes through the synthesized menu event")
+  Assert.equal(stepped.player, 0, "the player is not stepped while the host owns the tick")
+  Assert.equal(stepped.actors, 0, "actors are not stepped while the host owns the tick")
+  Assert.equal(stepped.scheduler, 0, "the script scheduler is not stepped while the host owns the tick")
+  Assert.equal(stepped.map, 0, "the scene animation clock is frozen while the host owns the tick")
+  Assert.equal(session.tick, 1)
+end
+
+function T.while_the_host_is_active_no_other_modal_may_own_the_tick()
+  local dialogue = {
+    isModal = function()
+      return true
+    end,
+  }
+  local host = applicationHostFake({ active = true })
+  local session = FieldSession.new(baseOptions({
+    dialogue = dialogue,
+    applicationHost = host,
+  }))
+  Assert.throws(function()
+    session:updateFixed({})
+  end)
+end
+
+-- §17.2: the menu edge is checked after the script-scheduler step and before
+-- actor stepping/interaction/warps/movement; an eligible open consumes the
+-- tick so the same edge cannot also start a move or interaction.
+function T.an_eligible_menu_edge_opens_the_menu_and_consumes_the_tick()
+  local stepped = { player = 0, actors = 0 }
+  local player = defaultPlayer()
+  player.updateFixed = function()
+    stepped.player = stepped.player + 1
+    return false
+  end
+  local actors = {
+    step = function()
+      stepped.actors = stepped.actors + 1
+    end,
+  }
+  local host = applicationHostFake()
+  local session = FieldSession.new(baseOptions({
+    player = player,
+    actors = actors,
+    applicationHost = host,
+  }))
+  session:updateFixed({ menuPressed = true })
+  Assert.equal(host.openedTicks[1], 1, "the eligible menu edge opens the menu at the session tick")
+  Assert.equal(stepped.player, 0, "a successful open consumes the tick")
+  Assert.equal(stepped.actors, 0, "a successful open consumes the tick before actor stepping")
+  Assert.equal(session.tick, 1)
+end
+
+function T.menu_wins_over_a_simultaneous_action_edge_at_an_eligible_boundary()
+  local interactions = 0
+  local host = applicationHostFake()
+  local session = FieldSession.new(baseOptions({
+    applicationHost = host,
+    interactions = {
+      resolve = function()
+        interactions = interactions + 1
+        return {}
+      end,
+    },
+  }))
+  session:updateFixed({ menuPressed = true, actionPressed = true })
+  Assert.equal(host.openedTicks[1], 1, "the menu edge wins at an eligible boundary")
+  Assert.equal(interactions, 0, "the cleared Action edge must not trigger the facing interaction")
+end
+
+function T.an_ineligible_menu_edge_acquires_nothing()
+  local host = applicationHostFake()
+  local player = defaultPlayer()
+  player.motion = "walking"
+  local session = FieldSession.new(baseOptions({
+    player = player,
+    applicationHost = host,
+  }))
+  session:updateFixed({ menuPressed = true })
+  Assert.equal(host.openedTicks[1], nil, "an ineligible open edge must not open the menu")
+  Assert.equal(session.tick, 1, "the tick still advances normally")
+end
+
+function T.a_movement_lock_blocks_the_menu_edge()
+  local host = applicationHostFake()
+  local scheduler = {
+    step = function() end,
+    playerMovementLocked = function()
+      return true
+    end,
+  }
+  local session = FieldSession.new(baseOptions({
+    applicationHost = host,
+    scriptScheduler = scheduler,
+  }))
+  session:updateFixed({ menuPressed = true })
+  Assert.equal(host.openedTicks[1], nil, "a foreground script lock must block the open")
+end
+
+-- The script-side reopen request (opcode 61) is consumed at the same
+-- arbitration point, unconditionally: a pending reopen opens the menu and
+-- consumes the tick.
+function T.a_pending_reopen_opens_the_menu_at_the_arbitration_point()
+  local stepped = { player = 0 }
+  local player = defaultPlayer()
+  player.updateFixed = function()
+    stepped.player = stepped.player + 1
+    return false
+  end
+  local host = applicationHostFake()
+  host:requestReopen()
+  local session = FieldSession.new(baseOptions({
+    player = player,
+    applicationHost = host,
+  }))
+  session:updateFixed({})
+  Assert.equal(host.openedTicks[1], 1, "the pending reopen opens the menu")
+  Assert.equal(host.reopenRequests, 0, "the reopen request is consumed once")
+  Assert.equal(stepped.player, 0, "the reopen open consumes the tick")
 end
 
 return { tests = T }
