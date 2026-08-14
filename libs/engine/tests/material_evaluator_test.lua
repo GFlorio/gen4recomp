@@ -441,6 +441,14 @@ function T.pattern_switches_texture_and_palette_variants()
   state = instance.materialState[0]
   Assert.equal(state.texture, "sign-b.png")
   Assert.equal(state.texWidth, 32)
+  -- The matrix is composed against the CURRENT variant dimensions: the
+  -- identity cells scale by baseW/curW, so UVs normalized for the 64x64
+  -- base cover half of the 32x32 variant (m00 == m11 == 2) --
+  -- TextureSrtEvaluator's optional current-dims path, which the
+  -- static/SRT parity tests do not cover.
+  Assert.near(state.texMatrix[1], 2, 1e-9)
+  Assert.near(state.texMatrix[5], 2, 1e-9)
+  Assert.near(state.texMatrix[7], 0, 1e-9)
   -- Frame 5: the active key (frame 4) keeps texture a with palette b.
   instance:updateFixed()
   instance:updateFixed()
@@ -558,6 +566,32 @@ function T.class_migrates_with_the_selected_texture()
 end
 
 -- ---- composition and policy ----
+
+-- A record carrying a static non-identity srt composes the Maya matrix with
+-- no attachment playing: transOne = false with scale/rot one selects the
+-- translation variant, so on a 64px texture a transS of 0x100 is a
+-- sixteenth of the texture width (m02 == -1/16) -- the same texcoord
+-- fixed-point domain the sampled NSBTA tests above pin. This is the base
+-- composition the TerrainMaterialAnimator starts every terrain material
+-- from, so the evaluator must preserve it exactly.
+function T.static_srt_composes_the_maya_matrix_without_an_attachment()
+  local def = texturedDefinition()
+  def.materials[1].srt = {
+    scaleS = 0x1000,
+    scaleT = 0x1000,
+    transS = 0x100,
+    transT = 0,
+    scaleOne = true,
+    transOne = false,
+  }
+  local instance = ModelInstance.new(def)
+  instance:evaluateMaterials()
+  local m = instance.materialState[0].texMatrix
+  Assert.near(m[1], 1, 1e-9)
+  Assert.near(m[5], 1, 1e-9)
+  Assert.near(m[7], -1 / 16, 1e-9)
+  Assert.near(m[8], 0, 1e-9)
+end
 
 function T.no_attachments_restores_the_base_state()
   local def = texturedDefinition()

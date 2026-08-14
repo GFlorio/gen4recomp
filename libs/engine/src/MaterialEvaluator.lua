@@ -44,18 +44,12 @@ local Errors = require("libs.errors.src.Errors")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 local AnimationClip = require("libs.assets.src.AnimationClip")
-local NitroTexMatrix = require("libs.engine.src.NitroTexMatrix")
+local TextureSrtEvaluator = require("libs.engine.src.TextureSrtEvaluator")
 local CompiledNsbtaSampler = require("libs.engine.src.CompiledNsbtaSampler")
 local CompiledNsbtpSampler = require("libs.engine.src.CompiledNsbtpSampler")
 local CompiledNsbmaSampler = require("libs.engine.src.CompiledNsbmaSampler")
 
 local MaterialEvaluator = {}
-
--- The texture-matrix conventions by model texMtxMode. Only Maya (mode 0) is
--- transcribed; Si3D (1), 3ds Max (2) and XSI (3) have no compiled formulas
--- and no real HGSS field asset uses them (census), so they raise rather
--- than silently falling back.
-local MAYA_MODE = 0
 
 -- BGR555 (low 5 bits -> blue) — the NSBMA packed order, the OPPOSITE of
 -- FixedPoint.rgb555 (low 5 bits -> red); keep this unpacking exactly.
@@ -145,65 +139,10 @@ local function baseMaterialState(definition, materialIndex)
   }
 end
 
--- Compose the six convention cells into the shader's normalized-UV 3x3
--- (column-major). `baseW/baseH` are the texture dimensions the mesh UVs
--- were normalized against at compile time; `curW/curH` the current
--- texture's dimensions.
---
--- The linear cells are 1.3.12 fixed point (scale 4096). The translation
--- cells live in the DS TEXCOORD domain instead: TEXCOORD coordinates are
--- 1.11.4 fixed point, the display-list decoder divides them by 16 to get
--- texels, and the convention translation folds carry the matching <<4
--- factors (NitroTexMatrix). They therefore divide by an extra 16 over the
--- linear cells: one fx32 translation unit (0x1000) is exactly one texture
--- width of normalized translation.
-local function texMatrix(cells, baseW, baseH, curW, curH)
-  local scale = FixedPoint.FX32_SCALE
-  return {
-    cells[1] * baseW / (scale * curW), -- m00: u * s
-    cells[2] * baseW / (scale * curH), -- m10: v * s
-    0,
-    cells[3] * baseH / (scale * curW), -- m01: u * t
-    cells[4] * baseH / (scale * curH), -- m11: v * t
-    0,
-    cells[5] / (scale * 16 * curW), -- m02: u translation (TEXCOORD)
-    cells[6] / (scale * 16 * curH), -- m12: v translation (TEXCOORD)
-    1,
-  }
-end
-
--- The static texture-SRT state of the material record, in the same shape
--- the compiled BTA sampler returns (with "one" flags from the presence
--- bits: an absent component is identity).
-local function staticSrt(material)
-  local srt = material.srt
-  if not srt then
-    return {
-      transS = 0,
-      transT = 0,
-      rot = nil,
-      scaleS = FixedPoint.FX32_SCALE,
-      scaleT = FixedPoint.FX32_SCALE,
-      transOne = true,
-      rotOne = true,
-      scaleOne = true,
-    }
-  end
-  local out = {
-    transS = srt.transS,
-    transT = srt.transT,
-    rot = srt.rot,
-    scaleS = srt.scaleS,
-    scaleT = srt.scaleT,
-    transOne = srt.transOne,
-    rotOne = srt.rotOne,
-    scaleOne = srt.scaleOne,
-  }
-  if out.rot == nil then
-    out.rotOne = true
-  end
-  return out
-end
+-- The static texture-SRT composition lives in TextureSrtEvaluator, the
+-- single implementation shared with the terrain animator. The evaluator
+-- passes the current texture dimensions (variant-selected by an NSBTP
+-- pattern) so the matrix tracks the drawing texture.
 
 -- The texture variant a pattern key selects, or nil when the material has
 -- no variants (no pattern animation compiled).
@@ -321,40 +260,24 @@ function MaterialEvaluator.evaluate(definition, attachments, materialState)
     end
 
     -- NSBTA: the playing texture-SRT attachment drives the matrix for its
-    -- target materials; others keep the static SRT. The matrix is built
-    -- against the current texture dimensions.
-    local srt = staticSrt(material)
+    -- target materials; others keep the static SRT (a nil sample). The
+    -- matrix is built against the current texture dimensions.
+    local srt
     if texsrt then
       local track = trackForMaterial(texsrt, materialIndex)
       if track then
         srt = CompiledNsbtaSampler.sample(texsrt.clip, track.targetIndex, texsrt.player.frameFx)
       end
     end
+    local texMatrix = TextureSrtEvaluator.matrix(material, srt, tex.width, tex.height)
 
-    local mode = material.texMtxMode
-    if mode ~= MAYA_MODE then
-      Errors.raise(
-        "ANIM_MATERIAL_UNSUPPORTED_TEXMTX_MODE",
-        "model "
-          .. definition.key
-          .. " material "
-          .. tostring(material.name)
-          .. " uses texture-matrix mode "
-          .. tostring(mode)
-          .. ", which has no compiled convention (only Maya mode 0 is supported)",
-        { modelKey = definition.key, material = material.name, mode = mode }
-      )
-    end
-    local baseW = material.texWidth
-    local baseH = material.texHeight
     local curW = tex.width
     local curH = tex.height
-    if baseW == 0 or baseH == 0 or curW == 0 or curH == 0 then
+    if material.texWidth == 0 or material.texHeight == 0 or curW == 0 or curH == 0 then
       -- Untextured materials carry no texture matrix; their class follows
       -- the model contract's alphaMode unless the record carries texture
       -- metadata (then the classifier rules apply with the material's own
       -- format, not a fabricated zero).
-      local identity = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
       local alphaClass
       if material.textureFormat ~= nil then
         alphaClass = AlphaClassifier.classify(baseState.polygonAlpha, material.textureFormat, material.alphaUsage)
@@ -366,25 +289,10 @@ function MaterialEvaluator.evaluate(definition, attachments, materialState)
         colors = colors,
         colorAnimated = colorAnimated,
         polygonAlpha = baseState.polygonAlpha,
-        texMatrix = identity,
+        texMatrix = texMatrix,
         alphaClass = alphaClass,
       }
     else
-      local cells = NitroTexMatrix.maya({
-        transS = srt.transS,
-        transT = srt.transT,
-        sin = srt.rot and srt.rot.sin or 0,
-        cos = srt.rot and srt.rot.cos or 0,
-        scaleS = srt.scaleS,
-        scaleT = srt.scaleT,
-        width = curW,
-        height = curH,
-        transOne = srt.transOne,
-        rotOne = srt.rotOne,
-        scaleOne = srt.scaleOne,
-        ratioS = FixedPoint.FX32_SCALE,
-        ratioT = FixedPoint.FX32_SCALE,
-      })
       materialState[materialIndex] = {
         texture = tex.texture,
         texWidth = curW,
@@ -392,7 +300,7 @@ function MaterialEvaluator.evaluate(definition, attachments, materialState)
         colors = colors,
         colorAnimated = colorAnimated,
         polygonAlpha = baseState.polygonAlpha,
-        texMatrix = texMatrix(cells, baseW, baseH, curW, curH),
+        texMatrix = texMatrix,
         alphaClass = AlphaClassifier.classify(baseState.polygonAlpha, tex.format, tex.alphaUsage),
       }
     end
