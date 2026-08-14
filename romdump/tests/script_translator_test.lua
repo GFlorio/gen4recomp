@@ -742,4 +742,140 @@ T["direction and set signpost lower to canonical nodes"] = function()
   Assert.isTrue(report.complete)
 end
 
+-- FadeOutBGM/FadeInBGM are native waits in the pinned source
+-- (GF_SndStartFadeOutBGM + SetupNativeScript(ScrNative_GetFadeTimer), see
+-- scrcmd_sound.c), never same-tick passthroughs.
+T["fade commands classify as native waits"] = function()
+  Assert.equal(CommandCatalog.classification(84), CommandCatalog.NATIVE_WAIT)
+  Assert.equal(CommandCatalog.classification(85), CommandCatalog.NATIVE_WAIT)
+end
+
+-- PlaySE/StopSE/WaitSE/PlayFanfare read their operand through
+-- ScriptGetVar (scrcmd_sound.c), so a var-range operand must lower to a
+-- value reference, not a literal sequence name.
+T["se waits and fanfare var operands lower as value references"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          { op = 73, args = { { value = 0x4000, width = 2 } } },
+          { op = 74, args = { { value = 0x4000, width = 2 } } },
+          { op = 75, args = { { value = 0x4000, width = 2 } } },
+          { op = 78, args = { { value = 0x4000, width = 2 } } },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 843, "synthetic", { msgBank = 543, catalog = CATALOG }))
+  local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+  Assert.deepEqual(lowered.items[1].sound, { value = "var", id = "VAR_0x4000" }, "PlaySE operand is a value reference")
+  Assert.deepEqual(lowered.items[2].sound, { value = "var", id = "VAR_0x4000" }, "StopSE operand is a value reference")
+  Assert.deepEqual(lowered.items[3].sound, { value = "var", id = "VAR_0x4000" }, "WaitSE operand is a value reference")
+  Assert.deepEqual(
+    lowered.items[4].fanfare,
+    { value = "var", id = "VAR_0x4000" },
+    "PlayFanfare operand is a value reference"
+  )
+end
+
+-- both PlayCry operands are read through ScriptGetVar
+-- (PlayCryEx(var1, var0, ...) in scrcmd_sound.c), so the form operand must
+-- lower to a value reference like the species already does.
+T["play cry lowers both operands as value references"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          { op = 76, args = { { value = 0x4000, width = 2 }, { value = 0x4001, width = 2 } } },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 843, "synthetic", { msgBank = 543, catalog = CATALOG }))
+  local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+  Assert.deepEqual(lowered.items[1].species, { value = "var", id = "VAR_0x4000" })
+  Assert.deepEqual(
+    lowered.items[1].form,
+    { value = "var", id = "VAR_0x4001" },
+    "the cry form operand is a value reference"
+  )
+end
+
+-- once 84/85 are native waits, the verifier must accept the fade nodes
+-- as the blocking translation; the emitted ops stay the single combined
+-- start-and-block semantic nodes.
+T["fade scripts verify as complete with blocking fade nodes"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          { op = 84, args = { { value = 0, width = 2 }, { value = 30, width = 2 } } },
+          { op = 85, args = { { value = 30, width = 2 } } },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local _, steps, report = translate(bytes, 843, 0)
+  local ops = {}
+  for _, step in ipairs(steps) do
+    ops[#ops + 1] = step.op
+  end
+  Assert.deepEqual(ops, { "fade_music_out", "fade_music_in", "stop" })
+  Assert.equal(steps[1].durationTicks, 30)
+  Assert.equal(steps[2].durationTicks, 30)
+  Assert.isTrue(report.complete)
+end
+
+-- StopBGM reads its operand but ignores it (scrcmd_sound.c stops the
+-- currently playing BGM), so the generated node never carries a music field.
+T["stop bgm erases its source operand"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          { op = 81, args = { { value = 1500, width = 2 } } },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local _, steps, report = translate(bytes, 843, 0)
+  Assert.equal(steps[1].op, "stop_music")
+  Assert.isNil(steps[1].music, "the StopBGM operand is a documented erasure")
+  Assert.isTrue(report.complete)
+end
+
+-- the not-yet-supported sound-adjacent opcodes (83/86/88/93) stay
+-- explicit attributed unsupported nodes, never no-ops.
+T["unclassified sound commands stay attributed unsupported"] = function()
+  for _, opcode in ipairs({ 83, 86, 88, 93 }) do
+    Assert.equal(CommandCatalog.classification(opcode), CommandCatalog.UNSUPPORTED, "opcode " .. tostring(opcode))
+  end
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          { op = 86, args = { { value = 1, width = 1 }, { value = 2, width = 1 } } },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 843, "synthetic", { msgBank = 543, catalog = CATALOG }))
+  local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+  Assert.equal(#lowered.unsupported, 1)
+  Assert.equal(lowered.unsupported[1].command, 86)
+  Assert.equal(lowered.unsupported[1].originalName, "ScrCmd_086")
+  local report = Verifier.verifyScript(Structurer.structure(lowered, 0), ir.scripts[0], ir, lowered.omissions)
+  Assert.isFalse(report.complete)
+end
+
 return { tests = T }

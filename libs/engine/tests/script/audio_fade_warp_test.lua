@@ -1,8 +1,8 @@
 -- Audio, fade, and warp adapter tests :
--- sound waits with completing and fallback backends, the fade task, the
--- warp task integrated with the maps service, and the same-tick music and
--- camera operations. the target select sound works and
--- imported fade/warp nodes have stable semantics.
+-- sound waits with completing and faulting backends, the fade task, the
+-- warp task integrated with the maps service, blocking music fades, and
+-- the same-tick music and camera operations. Imported fade/warp nodes have
+-- stable semantics.
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
@@ -21,13 +21,14 @@ local T = {}
 
 ---@class FakeAudioBackend
 ---@field playing table<string, boolean>
----@field music table<string, boolean>
+---@field music { current: string|nil }
 ---@field calls table[]
+---@field fadeActive boolean|nil
 local FakeAudioBackend = {}
 FakeAudioBackend.__index = FakeAudioBackend
 
 function FakeAudioBackend.new()
-  return setmetatable({ playing = {}, music = {}, calls = {} }, FakeAudioBackend)
+  return setmetatable({ playing = {}, music = {}, calls = {}, fadeActive = nil }, FakeAudioBackend)
 end
 
 function FakeAudioBackend:play(id)
@@ -37,13 +38,16 @@ end
 
 function FakeAudioBackend:stop(id)
   self.playing[id] = nil
+  self.calls[#self.calls + 1] = { op = "stop", id = id }
 end
 
 function FakeAudioBackend:playMusic(id)
+  self.music.current = id
   self.calls[#self.calls + 1] = { op = "playMusic", id = id }
 end
 
 function FakeAudioBackend:stopMusic(id)
+  self.music.current = nil
   self.calls[#self.calls + 1] = { op = "stopMusic", id = id }
 end
 
@@ -56,15 +60,33 @@ function FakeAudioBackend:temporaryMusic(id)
 end
 
 function FakeAudioBackend:fadeMusicOut(spec)
+  self.fadeActive = true
   self.calls[#self.calls + 1] = { op = "fadeMusicOut", spec = spec }
 end
 
 function FakeAudioBackend:fadeMusicIn(spec)
+  self.fadeActive = true
   self.calls[#self.calls + 1] = { op = "fadeMusicIn", spec = spec }
 end
 
-function FakeAudioBackend:isPlaying(id)
+function FakeAudioBackend:isMusicFadeActive()
+  self.calls[#self.calls + 1] = { op = "isMusicFadeActive" }
+  return self.fadeActive == true
+end
+
+function FakeAudioBackend:isEffectPlaying(id)
+  self.calls[#self.calls + 1] = { op = "isEffectPlaying", id = id }
   return self.playing[id] == true
+end
+
+function FakeAudioBackend:isCryFinished()
+  self.calls[#self.calls + 1] = { op = "isCryFinished" }
+  return self:currentCry() == nil
+end
+
+function FakeAudioBackend:isFanfarePlaying()
+  self.calls[#self.calls + 1] = { op = "isFanfarePlaying" }
+  return self:currentFanfare() ~= nil
 end
 
 function FakeAudioBackend:currentEffect()
@@ -104,11 +126,13 @@ function FakeAudioBackend:currentFanfare()
   return nil
 end
 
--- Engine-owned async: sounds stop after their catalog duration.
+-- Engine-owned async: sounds stop and fades finish after their catalog
+-- duration.
 function FakeAudioBackend:advance()
   for id in pairs(self.playing) do
     self.playing[id] = nil
   end
+  self.fadeActive = nil
 end
 
 ---@class FakeScreenBackend
@@ -212,10 +236,10 @@ local function harness(opts)
   local registry = Registry.new()
   local composition = Composition.new(registry)
   local taskRegistry = TaskRegistry.new()
-  taskRegistry:register("wait_ticks", 1, WaitTicksTask)
-  taskRegistry:register("sound_wait", 1, SoundWaitTask)
-  taskRegistry:register("fade", 1, FadeTask)
-  taskRegistry:register("warp", 1, WarpTask)
+  taskRegistry:register(WaitTicksTask.type, WaitTicksTask.version, WaitTicksTask)
+  taskRegistry:register(SoundWaitTask.type, SoundWaitTask.version, SoundWaitTask)
+  taskRegistry:register(FadeTask.type, FadeTask.version, FadeTask)
+  taskRegistry:register(WarpTask.type, WarpTask.version, WarpTask)
   local scheduler = Scheduler.new({
     services = services,
     taskRegistry = taskRegistry,
@@ -252,6 +276,16 @@ local function script(id, steps)
   return S.script({ api = 1, id = id, steps = steps })
 end
 
+-- The recorded operation of the Nth audio-service call, or nil when the
+-- call never happened (used to pin polling contracts).
+---@param calls table[]
+---@param index integer
+---@return string|nil
+local function callOp(calls, index)
+  local call = calls[index]
+  return call and call.op or nil
+end
+
 -- 1. Sound wait with a completing backend: PlaySE at T, the wait completes
 -- when the backend reports the effect finished, continuation one tick later.
 T["sound wait backend completion"] = function()
@@ -277,7 +311,7 @@ T["sound wait backend completion"] = function()
 end
 
 -- 2. A wait whose backend cannot report completion faults instead of
--- inventing a simulated duration; a cry wait carries its own token.
+-- inventing a simulated duration; the faulting case needs no backend at all.
 T["sound wait without backend faults"] = function()
   local h = harness({ audio = false })
   local resource = script("test.sefault", {
@@ -291,7 +325,7 @@ T["sound wait without backend faults"] = function()
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
 end
 
-T["cry wait uses its named token"] = function()
+T["cry wait blocks until the cry finishes"] = function()
   local h = harness({ audio = true })
   local resource = script("test.cry", {
     S.playCry({ species = "SPECIES_CYNDAQUIL", form = 0 }),
@@ -302,7 +336,7 @@ T["cry wait uses its named token"] = function()
   startForeground(h, resource, 100)
   h.scheduler:step(100, nil)
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
-  Assert.notNil(h.audio:currentCry(), "the cry plays under its own token")
+  Assert.notNil(h.audio:currentCry(), "the cry plays under its own playing key")
   -- The engine-owned async phase ends the cry before the next tick's poll.
   h.scheduler:step(101, nil)
   h.scheduler:step(102, nil)
@@ -521,7 +555,8 @@ T["failed scripted warp faults the script"] = function()
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "the script must not continue as though the warp succeeded")
 end
 
--- 5. Music and camera operations are same-tick passthroughs.
+-- 5. Music and camera operations are same-tick passthroughs (fades are
+-- blocking and covered by the music fade tests below).
 T["music and camera same tick"] = function()
   local h = harness({ audio = true, camera = true })
   local resource = script("test.music", {
@@ -529,8 +564,6 @@ T["music and camera same tick"] = function()
     S.stopMusic({ music = "SEQ_GS_NEW_BARK" }),
     S.temporaryMusic({ music = "SEQ_GS_EVENT" }),
     S.resetMusic(),
-    S.fadeMusicOut({ durationTicks = 30 }),
-    S.fadeMusicIn({ durationTicks = 30 }),
     S.shakeCamera({ amplitudeX = 2, amplitudeY = 0, intervalTicks = 2, count = 8 }),
     S.setVar({ variable = "VAR_AFTER", value = 1 }),
     S.stop(),
@@ -542,7 +575,7 @@ T["music and camera same tick"] = function()
   for _, call in ipairs(h.audio.calls) do
     ops[#ops + 1] = call.op
   end
-  Assert.deepEqual(ops, { "playMusic", "stopMusic", "temporaryMusic", "resetMusic", "fadeMusicOut", "fadeMusicIn" })
+  Assert.deepEqual(ops, { "playMusic", "stopMusic", "temporaryMusic", "resetMusic" })
   Assert.equal(h.camera.calls[1].op, "startShake")
   Assert.equal(h.camera.calls[1].spec.count, 8)
 end
@@ -589,6 +622,218 @@ T["set object position evaluates variable-backed coordinates"] = function()
   Assert.equal(position.fieldX, 12)
   Assert.equal(position.fieldZ, 7)
   Assert.equal(position.worldY, 2.5)
+end
+
+-- 8. music fades are blocking operations. The fade node starts the fade
+-- in its execution tick and blocks until the backend reports the global
+-- music fade inactive; the following node runs only after the blocking
+-- task's normal scheduler handoff. FadeInBGM blocks the same way.
+T["music fades block until the backend reports the fade inactive"] = function()
+  local h = harness({ audio = true })
+  h.services.advanceAsync = nil
+  local MusicFadeTask = require("libs.engine.src.script.tasks.MusicFadeTask")
+  h.taskRegistry:register("music_fade", 1, MusicFadeTask)
+  local resource = script("test.fadeblock", {
+    S.fadeMusicOut({ target = 0, durationTicks = 30 }),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
+    S.fadeMusicIn({ durationTicks = 30 }),
+    S.setVar({ variable = "VAR_SECOND", value = 1 }),
+    S.stop(),
+  })
+  startForeground(h, resource, 100)
+  -- The fade starts in the command's execution tick and blocks.
+  h.scheduler:step(100, nil)
+  Assert.equal(h.audio.calls[1].op, "fadeMusicOut")
+  Assert.equal(h.audio.calls[1].spec.durationTicks, 30)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "fade out blocks; the following node must not run same tick")
+  -- While the backend reports the fade active the graph stays blocked.
+  h.scheduler:step(101, nil)
+  Assert.equal(h.audio.calls[2].op, "isMusicFadeActive")
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "VAR_AFTER stays unchanged while the fade is active")
+  -- The fade ends; the poll completes, but continuation follows only the
+  -- scheduler handoff on the next tick.
+  h.audio.fadeActive = false
+  h.scheduler:step(102, nil)
+  Assert.equal(
+    h.services.world:getVar("VAR_AFTER"),
+    0,
+    "completion during a poll must not continue the graph same tick"
+  )
+  h.scheduler:step(103, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1, "the continuation runs after the blocking task's handoff")
+  -- FadeInBGM starts in its execution tick and blocks the same way.
+  Assert.equal(h.audio.calls[4].op, "fadeMusicIn")
+  Assert.equal(h.services.world:getVar("VAR_SECOND"), 0)
+  h.scheduler:step(104, nil)
+  Assert.equal(h.services.world:getVar("VAR_SECOND"), 0, "fade in blocks while active")
+  h.audio.fadeActive = false
+  h.scheduler:step(105, nil)
+  h.scheduler:step(106, nil)
+  Assert.equal(h.services.world:getVar("VAR_SECOND"), 1)
+  local ops = {}
+  for _, call in ipairs(h.audio.calls) do
+    ops[#ops + 1] = call.op
+  end
+  Assert.deepEqual(ops, {
+    "fadeMusicOut",
+    "isMusicFadeActive",
+    "isMusicFadeActive",
+    "fadeMusicIn",
+    "isMusicFadeActive",
+    "isMusicFadeActive",
+  })
+end
+
+-- 8b. A fade without an audio service faults instead of starting
+-- silently: the task owns the service boundary and never fabricates a
+-- completed fade.
+T["music fade without backend faults"] = function()
+  local h = harness({ audio = false })
+  local MusicFadeTask = require("libs.engine.src.script.tasks.MusicFadeTask")
+  h.taskRegistry:register("music_fade", 1, MusicFadeTask)
+  local resource = script("test.fadefault", {
+    S.fadeMusicOut({ target = 0, durationTicks = 30 }),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
+    S.stop(),
+  })
+  local instanceId = startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_SERVICE_MISSING")
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+end
+
+-- 8c. wait_sound resolves a value-reference operand before the first
+-- poll: the backend sees the resolved sequence id, never the reference.
+T["wait sound evaluates a value reference before polling"] = function()
+  local h = harness({ audio = true })
+  h.services.advanceAsync = nil
+  local resource = script("test.sewaitvar", {
+    S.setVar({ variable = "VAR_SE", value = 1500 }),
+    S.playSound({ sound = S.var("VAR_SE") }),
+    S.waitSound({ sound = S.var("VAR_SE") }),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
+    S.stop(),
+  })
+  startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+  h.scheduler:step(101, nil)
+  Assert.equal(callOp(h.audio.calls, 2), "isEffectPlaying")
+  Assert.equal(h.audio.calls[2].id, 1500, "the wait polls the resolved sequence")
+  h.audio.playing[1500] = nil
+  h.scheduler:step(102, nil)
+  h.scheduler:step(103, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+end
+
+-- 9. wait_sound carries the resolved sequence and polls
+-- isEffectPlaying(sequence); completion keeps the scheduler handoff.
+T["wait sound polls the resolved sequence effect state"] = function()
+  local h = harness({ audio = true })
+  h.services.advanceAsync = nil
+  local resource = script("test.secsem", {
+    S.playSound({ sound = "SEQ_SE_DP_SELECT" }),
+    S.waitSound({ sound = "SEQ_SE_DP_SELECT" }),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
+    S.stop(),
+  })
+  startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+  -- The wait stays blocked while the backend reports the effect playing.
+  h.scheduler:step(101, nil)
+  Assert.equal(callOp(h.audio.calls, 2), "isEffectPlaying")
+  Assert.equal(h.audio.calls[2].id, "SEQ_SE_DP_SELECT")
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+  -- Ending the effect completes the poll; continuation follows the handoff.
+  h.audio.playing["SEQ_SE_DP_SELECT"] = nil
+  h.scheduler:step(102, nil)
+  Assert.equal(
+    h.services.world:getVar("VAR_AFTER"),
+    0,
+    "completion during a poll must not continue the graph same tick"
+  )
+  h.scheduler:step(103, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+end
+
+-- 10. wait_cry polls isCryFinished and wait_fanfare polls
+-- isFanfarePlaying; both stay blocked until their semantic state flips.
+T["cry and fanfare waits poll semantic completion states"] = function()
+  local h = harness({ audio = true })
+  h.services.advanceAsync = nil
+  local resource = script("test.cryfan", {
+    S.playCry({ species = "SPECIES_CYNDAQUIL", form = 0 }),
+    S.waitCry(),
+    S.playFanfare({ fanfare = "SEQ_ME_POKEGET" }),
+    S.waitFanfare(),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
+    S.stop(),
+  })
+  startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+  -- The cry wait polls isCryFinished and blocks while the cry is active.
+  h.scheduler:step(101, nil)
+  Assert.equal(callOp(h.audio.calls, 2), "isCryFinished")
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+  -- The cry ends; the wait completes and hands off one tick later.
+  h.audio.playing["cry:SPECIES_CYNDAQUIL"] = nil
+  h.scheduler:step(102, nil)
+  h.scheduler:step(103, nil)
+  -- The fanfare plays in the promotion tick; its wait polls isFanfarePlaying
+  -- from the next tick and blocks while playing.
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+  h.scheduler:step(104, nil)
+  Assert.equal(callOp(h.audio.calls, 5), "isFanfarePlaying")
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+  h.audio.playing["fanfare:SEQ_ME_POKEGET"] = nil
+  h.scheduler:step(105, nil)
+  h.scheduler:step(106, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+end
+
+-- 11. the audio handlers evaluate value references before calling the
+-- service, for effects, cries (both operands), and fanfares alike.
+T["audio handlers evaluate value references before the service call"] = function()
+  local h = harness({ audio = true })
+  local resource = script("test.audioval", {
+    S.setVar({ variable = "VAR_SE", value = 1500 }),
+    S.setVar({ variable = "VAR_SPECIES", value = 25 }),
+    S.setVar({ variable = "VAR_FORM", value = 1 }),
+    S.setVar({ variable = "VAR_FANFARE", value = 42 }),
+    S.playSound({ sound = S.var("VAR_SE") }),
+    S.stopSound({ sound = S.var("VAR_SE") }),
+    S.playCry({ species = S.var("VAR_SPECIES"), form = S.var("VAR_FORM") }),
+    S.playFanfare({ fanfare = S.var("VAR_FANFARE") }),
+    S.stop(),
+  })
+  startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  Assert.equal(h.audio.calls[1].id, 1500, "play_sound resolves the sequence reference")
+  Assert.equal(h.audio.calls[2].id, 1500, "stop_sound resolves the sequence reference")
+  Assert.equal(h.audio.calls[3].species, 25, "play_cry resolves the species reference")
+  Assert.equal(h.audio.calls[3].form, 1, "play_cry resolves the form reference")
+  Assert.equal(h.audio.calls[4].fanfare, 42, "play_fanfare resolves the fanfare reference")
+end
+
+-- 12. the StopBGM operand is a documented erasure at runtime too: a
+-- stop_music node never forwards a sound id to the service, and the
+-- currently playing BGM is stopped.
+T["stop music never forwards its source operand"] = function()
+  local h = harness({ audio = true })
+  local resource = script("test.stopbgm", {
+    S.playMusic({ music = "SEQ_GS_NEW_BARK" }),
+    S.stopMusic({ music = "SEQ_GS_OTHER" }),
+    S.stop(),
+  })
+  startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  Assert.equal(h.audio.calls[1].op, "playMusic")
+  Assert.equal(h.audio.calls[1].id, "SEQ_GS_NEW_BARK")
+  Assert.equal(h.audio.calls[2].op, "stopMusic")
+  Assert.equal(h.audio.calls[2].id, nil, "the StopBGM operand never reaches the audio service")
+  Assert.isNil(h.audio.music.current, "the currently playing BGM is stopped")
 end
 
 return { tests = T }

@@ -595,6 +595,33 @@ function T.rejects_unknown_value_kind()
   )
 end
 
+-- PlaySE/StopSE/WaitSE read their operand through ScriptGetVar and
+-- PlayCry reads both operands that way (scrcmd_sound.c), so the public sound
+-- references must accept the scalar/value-reference form like PlayFanfare.
+function T.accepts_value_reference_sound_and_cry_operands()
+  valid({
+    api = 1,
+    id = "x",
+    steps = {
+      S.playSound({ sound = S.var("VAR_SE") }),
+      S.stopSound({ sound = S.var("VAR_SE") }),
+      S.waitSound({ sound = S.var("VAR_SE") }),
+      S.playCry({ species = S.var("VAR_SPECIES"), form = S.var("VAR_FORM") }),
+      S.playFanfare({ fanfare = S.var("VAR_FANFARE") }),
+      S.stop(),
+    },
+  })
+  valid({
+    api = 1,
+    id = "x",
+    steps = {
+      S.playSound({ sound = "SEQ_SE_DP_SELECT" }),
+      S.playCry({ species = "SPECIES_CYNDAQUIL", form = 0 }),
+      S.stop(),
+    },
+  })
+end
+
 -- Numeric world ids are valid in id_or_var positions (the world store is
 -- U16-keyed and catalog symbols resolve to those ids; a mod's scratch
 -- variables beyond the catalog must be addressable by id).

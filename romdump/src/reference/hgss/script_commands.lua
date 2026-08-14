@@ -581,7 +581,7 @@ return {
       },
     },
     [84] = {
-      classification = "continue_same_tick",
+      classification = "native_wait",
       name = "ScrCmd_FadeOutBGM",
       widths = {
         [1] = 2,
@@ -589,7 +589,7 @@ return {
       },
     },
     [85] = {
-      classification = "continue_same_tick",
+      classification = "native_wait",
       name = "ScrCmd_FadeInBGM",
       widths = {
         [1] = 2,

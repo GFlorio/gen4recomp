@@ -876,6 +876,36 @@ local CASES = {
     end,
     { op = "fade_music_in", durationTicks = 30 },
   },
+  play_sound_var = {
+    function()
+      return S.playSound({ sound = S.var("VAR_SE") })
+    end,
+    { op = "play_sound", sound = { value = "var", id = "VAR_SE" } },
+  },
+  stop_sound_var = {
+    function()
+      return S.stopSound({ sound = S.var("VAR_SE") })
+    end,
+    { op = "stop_sound", sound = { value = "var", id = "VAR_SE" } },
+  },
+  wait_sound_var = {
+    function()
+      return S.waitSound({ sound = S.var("VAR_SE") })
+    end,
+    { op = "wait_sound", sound = { value = "var", id = "VAR_SE" } },
+  },
+  play_cry_form_var = {
+    function()
+      return S.playCry({ species = "SPECIES_CYNDAQUIL", form = S.var("VAR_FORM") })
+    end,
+    { op = "play_cry", species = "SPECIES_CYNDAQUIL", form = { value = "var", id = "VAR_FORM" } },
+  },
+  play_fanfare_var = {
+    function()
+      return S.playFanfare({ fanfare = S.var("VAR_FANFARE") })
+    end,
+    { op = "play_fanfare", fanfare = { value = "var", id = "VAR_FANFARE" } },
+  },
 
   -- Screen, camera, and map constructors
   fade_screen = {

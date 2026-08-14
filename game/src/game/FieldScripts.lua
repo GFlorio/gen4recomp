@@ -43,6 +43,7 @@ local TASK_MODULES = {
   "libs.engine.src.script.tasks.MovementPauseTask",
   "libs.engine.src.script.tasks.FadeTask",
   "libs.engine.src.script.tasks.SoundWaitTask",
+  "libs.engine.src.script.tasks.MusicFadeTask",
   "libs.engine.src.script.tasks.WarpTask",
   "libs.engine.src.script.tasks.ChildScriptTask",
   "libs.engine.src.script.tasks.AskYesNoTask",

@@ -58,6 +58,16 @@ local SOUND_OPERANDS = {
   [87] = { 1 }, -- TempBGM
 }
 
+-- Sound operands the pinned source reads through ScriptGetVar
+-- (scrcmd_sound.c): a var-range operand names through the vars catalog, not
+-- the sound catalog, so lowering can produce a value reference.
+local VAR_SOUND_OPERANDS = {
+  [73] = { 1 }, -- PlaySE
+  [74] = { 1 }, -- StopSE
+  [75] = { 1 }, -- WaitSE
+  [78] = { 1 }, -- PlayFanfare
+}
+
 -- Flag operands (FLAG_* names from flags.h).
 local FLAG_OPERANDS = {
   [30] = { 1 }, -- SetFlag
@@ -552,7 +562,21 @@ function ScriptBinaryDecoder.parseMember(bytes, member, sourcePath, opts)
           local raw = operand.raw
           if type(raw) == "number" then
             local named = false
-            if sounds ~= nil and SOUND_OPERANDS[ins.opcode] and SOUND_OPERANDS[ins.opcode][operandIndex] then
+            if vars ~= nil and VAR_SOUND_OPERANDS[ins.opcode] and VAR_SOUND_OPERANDS[ins.opcode][operandIndex] then
+              for _, range in ipairs(VAR_RANGES) do
+                if raw >= range.start and raw < range.finish then
+                  operand.raw = nameFor(raw, vars, "VAR")
+                  named = true
+                  break
+                end
+              end
+            end
+            if
+              not named
+              and sounds ~= nil
+              and SOUND_OPERANDS[ins.opcode]
+              and SOUND_OPERANDS[ins.opcode][operandIndex]
+            then
               operand.raw = nameFor(raw, sounds, "SEQ")
               named = true
             elseif flags ~= nil and FLAG_OPERANDS[ins.opcode] and FLAG_OPERANDS[ins.opcode][operandIndex] then

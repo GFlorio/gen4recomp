@@ -6,7 +6,7 @@ local RecordingScriptHosts = {}
 ---@return table { effects: string[], audio: table, events: table }
 function RecordingScriptHosts.new()
   local effects = {}
-  local audio = { current = nil }
+  local audio = { current = nil, fadeActive = false }
   local events = { records = {} }
 
   function audio:play(sound)
@@ -20,20 +20,20 @@ function RecordingScriptHosts.new()
     end
   end
 
-  function audio:isPlaying()
-    return false
-  end
-
   function audio:currentEffect()
     return self.current
   end
 
-  function audio:currentCry()
-    return nil
+  function audio:isEffectPlaying()
+    return false
   end
 
-  function audio:currentFanfare()
-    return nil
+  function audio:isCryFinished()
+    return true
+  end
+
+  function audio:isFanfarePlaying()
+    return false
   end
 
   function audio:playMusic(music)
@@ -47,6 +47,10 @@ function RecordingScriptHosts.new()
   function audio:playFanfare() end
   function audio:fadeMusicOut() end
   function audio:fadeMusicIn() end
+
+  function audio:isMusicFadeActive()
+    return self.fadeActive
+  end
 
   function events:emit(name, payload)
     self.records[#self.records + 1] = { name = name, payload = payload }

@@ -589,13 +589,13 @@ Schema.OPERATIONS = {
       movementId = { type = "string" },
     },
   },
-  play_sound = { fields = { sound = { type = "string", required = true } } },
-  stop_sound = { fields = { sound = { type = "string", required = true } } },
-  wait_sound = { fields = { sound = { type = "string" } } },
+  play_sound = { fields = { sound = { type = "scalar_or_value", required = true } } },
+  stop_sound = { fields = { sound = { type = "scalar_or_value", required = true } } },
+  wait_sound = { fields = { sound = { type = "scalar_or_value" } } },
   play_cry = {
     fields = {
       species = { type = "scalar_or_value", required = true },
-      form = { type = "integer", default = 0 },
+      form = { type = "scalar_or_value", default = 0 },
     },
   },
   wait_cry = { fields = {} },

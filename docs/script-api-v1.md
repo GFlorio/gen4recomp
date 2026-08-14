@@ -890,7 +890,7 @@ No fields.
 
 | Field | Type | Required | Default |
 |---|---|---|---|
-| `form` | integer |  | `0` |
+| `form` | scalar_or_value |  | `0` |
 | `key` | string |  |  |
 | `provenance` | source_provenance |  |  |
 | `species` | scalar_or_value | yes |  |
@@ -917,7 +917,7 @@ No fields.
 |---|---|---|---|
 | `key` | string |  |  |
 | `provenance` | source_provenance |  |  |
-| `sound` | string | yes |  |
+| `sound` | scalar_or_value | yes |  |
 
 ### `random`
 
@@ -1140,7 +1140,7 @@ No fields.
 |---|---|---|---|
 | `key` | string |  |  |
 | `provenance` | source_provenance |  |  |
-| `sound` | string | yes |  |
+| `sound` | scalar_or_value | yes |  |
 
 ### `sub_local`
 
@@ -1280,7 +1280,7 @@ No fields.
 |---|---|---|---|
 | `key` | string |  |  |
 | `provenance` | source_provenance |  |  |
-| `sound` | string |  |  |
+| `sound` | scalar_or_value |  |  |
 
 ### `wait_ticks`
 

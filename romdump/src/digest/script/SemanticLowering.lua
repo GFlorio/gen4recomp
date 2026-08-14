@@ -437,16 +437,18 @@ local HANDLERS = {
     return { op = "ask_yes_no", result = varRef(ins.operands[1] or 0) }
   end,
   [73] = function(ins)
-    return { op = "play_sound", sound = operandValue(ins.operands[1]) }
+    -- PlaySE reads its operand through ScriptGetVar (scrcmd_sound.c).
+    return { op = "play_sound", sound = varRef(ins.operands[1]) }
   end,
   [74] = function(ins)
-    return { op = "stop_sound", sound = operandValue(ins.operands[1]) }
+    return { op = "stop_sound", sound = varRef(ins.operands[1]) }
   end,
   [75] = function(ins)
-    return { op = "wait_sound", sound = operandValue(ins.operands[1]) }
+    return { op = "wait_sound", sound = varRef(ins.operands[1]) }
   end,
   [76] = function(ins)
-    return { op = "play_cry", species = varRef(ins.operands[1]), form = operandValue(ins.operands[2]) }
+    -- PlayCryEx reads both operands through ScriptGetVar (scrcmd_sound.c).
+    return { op = "play_cry", species = varRef(ins.operands[1]), form = varRef(ins.operands[2]) }
   end,
   [77] = function()
     return { op = "wait_cry" }

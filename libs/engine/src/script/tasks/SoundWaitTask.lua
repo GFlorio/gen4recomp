@@ -1,18 +1,21 @@
--- sound_wait task implementation : waits for a named sound,
--- cry, or fanfare through the audio backend. Every wait carries a concrete
--- completion token: `wait_sound` infers the current effect from the backend,
--- while `wait_cry` and `wait_fanfare` name their own token; a backend that
--- cannot report completion for the token is a fault, never a simulated
--- duration. Graph continuation follows the generic one-tick handoff. Pure
--- domain module: no love dependency.
+-- sound_wait task implementation : waits for a sound
+-- effect, cry, or fanfare through the audio service's semantic completion
+-- state. The wait state carries the semantic wait kind: `wait_sound` holds
+-- the resolved effect sequence and polls `isEffectPlaying(sequence)`;
+-- `wait_cry` polls `isCryFinished`; `wait_fanfare` polls
+-- `isFanfarePlaying`. A backend that cannot report completion for the kind
+-- is a fault, never a simulated duration. Graph continuation follows the
+-- generic one-tick handoff. Pure domain module: no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
+local Runtime = require("libs.engine.src.script.Runtime")
 
 local SoundWaitTask = {}
 
 SoundWaitTask.type = "sound_wait"
-SoundWaitTask.version = 1
+-- Serialized-state shape: kind + resolved sequence (was token strings).
+SoundWaitTask.version = 2
 
 ---@param spec table
 ---@param ctx table
@@ -27,47 +30,69 @@ function SoundWaitTask.create(spec, ctx)
       { scriptId = ctx.instance.scriptId }
     )
   end
-  local kind = "sound"
-  local tokenReader = "currentEffect"
+  local kind = "effect"
   if node.op == "wait_cry" then
     kind = "cry"
-    tokenReader = "currentCry"
   elseif node.op == "wait_fanfare" then
     kind = "fanfare"
-    tokenReader = "currentFanfare"
   end
-  local sound = node.sound
-  if sound == nil then
-    -- The wait names no token of its own: it waits for whatever effect,
-    -- cry, or fanfare is currently playing, resolved through the backend.
-    local audioService = audio --[[@as { currentEffect: fun(self: table): string|nil, currentCry: fun(self: table): string|nil, currentFanfare: fun(self: table): string|nil, isPlaying: fun(self: table, sound: string): boolean|nil }]]
-    if type(audioService[tokenReader]) ~= "function" then
+  if kind == "cry" then
+    local audioService = audio --[[@as { isCryFinished: fun(self: table): boolean|nil }]]
+    if type(audioService.isCryFinished) ~= "function" then
       Errors.raise(
         ScriptErrors.SCRIPT_SERVICE_MISSING,
-        "the audio service must identify the current " .. kind .. " for wait_" .. (kind == "sound" and "sound" or kind),
+        "the audio service must report isCryFinished for wait_cry",
         { scriptId = ctx.instance.scriptId }
       )
     end
-    sound = audioService[tokenReader](audioService)
+    return { kind = "cry" }
   end
-  if sound == nil then
+  if kind == "fanfare" then
+    local audioService = audio --[[@as { isFanfarePlaying: fun(self: table): boolean|nil }]]
+    if type(audioService.isFanfarePlaying) ~= "function" then
+      Errors.raise(
+        ScriptErrors.SCRIPT_SERVICE_MISSING,
+        "the audio service must report isFanfarePlaying for wait_fanfare",
+        { scriptId = ctx.instance.scriptId }
+      )
+    end
+    return { kind = "fanfare" }
+  end
+  -- The effect wait carries the resolved sequence: an explicit operand is
+  -- evaluated against the world; without one the wait infers the current
+  -- effect from the backend.
+  local sequence = node.sound
+  if sequence ~= nil then
+    sequence = Runtime.evaluateValue(sequence, { services = ctx.services, instance = ctx.instance })
+  else
+    local audioService = audio --[[@as { currentEffect: fun(self: table): any|nil }]]
+    if type(audioService.currentEffect) ~= "function" then
+      Errors.raise(
+        ScriptErrors.SCRIPT_SERVICE_MISSING,
+        "the audio service must identify the current effect for wait_sound",
+        { scriptId = ctx.instance.scriptId }
+      )
+    end
+    sequence = audioService:currentEffect()
+  end
+  if sequence == nil then
     Errors.raise(
       ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
-      "the " .. kind .. " wait has no completion token",
+      "the effect wait has no completion sequence",
       { scriptId = ctx.instance.scriptId }
     )
   end
-  local audioService = audio --[[@as { isPlaying: fun(self: table, sound: string): boolean|nil }]]
-  if type(audioService.isPlaying) ~= "function" then
+  local audioService = audio --[[@as { isEffectPlaying: fun(self: table, sequence: any): boolean|nil }]]
+  if type(audioService.isEffectPlaying) ~= "function" then
     Errors.raise(
       ScriptErrors.SCRIPT_SERVICE_MISSING,
-      "the audio service must report play state for sound waits",
+      "the audio service must report effect play state for sound waits",
       { scriptId = ctx.instance.scriptId }
     )
   end
   return {
-    kind = kind,
-    sound = sound,
+    kind = "effect",
+    sequence = sequence,
   }
 end
 
@@ -79,16 +104,38 @@ function SoundWaitTask.poll(state, ctx)
   if audio == nil then
     Errors.raise(ScriptErrors.SCRIPT_SERVICE_MISSING, "the sound wait task requires the audio service")
   end
-  local audioService = audio --[[@as { isPlaying: fun(self: table, sound: string): boolean|nil }]]
-  local playing = audioService:isPlaying(state.sound)
-  if playing == nil then
-    Errors.raise(
-      ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
-      "the audio service cannot report completion for " .. tostring(state.sound),
-      { kind = state.kind, sound = state.sound }
-    )
+  local done
+  if state.kind == "effect" then
+    local audioService = audio --[[@as { isEffectPlaying: fun(self: table, sequence: any): boolean|nil }]]
+    local playing = audioService:isEffectPlaying(state.sequence)
+    if playing == nil then
+      Errors.raise(
+        ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
+        "the audio service cannot report completion for the effect wait",
+        { kind = state.kind, sequence = state.sequence }
+      )
+    end
+    done = not playing
+  elseif state.kind == "cry" then
+    local audioService = audio --[[@as { isCryFinished: fun(self: table): boolean|nil }]]
+    local finished = audioService:isCryFinished()
+    if finished == nil then
+      Errors.raise(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "the audio service cannot report cry completion", {
+        kind = state.kind,
+      })
+    end
+    done = finished
+  else
+    local audioService = audio --[[@as { isFanfarePlaying: fun(self: table): boolean|nil }]]
+    local playing = audioService:isFanfarePlaying()
+    if playing == nil then
+      Errors.raise(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "the audio service cannot report fanfare completion", {
+        kind = state.kind,
+      })
+    end
+    done = not playing
   end
-  if playing == false then
+  if done then
     return { complete = true, state = state, result = { completed = true } }
   end
   return { complete = false, state = state }
@@ -105,6 +152,18 @@ end
 function SoundWaitTask.validate(state)
   if type(state) ~= "table" or state.kind == nil then
     return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "sound_wait state must hold its kind", { state = state })
+  end
+  if state.kind ~= "effect" and state.kind ~= "cry" and state.kind ~= "fanfare" then
+    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "sound_wait state holds an unknown kind", {
+      state = state,
+    })
+  end
+  if state.kind == "effect" and state.sequence == nil then
+    return Errors.new(
+      ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
+      "effect wait state must hold its resolved sequence",
+      { state = state }
+    )
   end
   return nil
 end

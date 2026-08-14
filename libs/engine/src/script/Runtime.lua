@@ -1146,11 +1146,11 @@ HANDLERS.unsupported = function(node, run)
 end
 
 HANDLERS.play_sound = function(node, run)
-  requireService(run, "audio"):play(node.sound)
+  requireService(run, "audio"):play(Runtime.evaluateValue(node.sound, run))
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.stop_sound = function(node, run)
-  requireService(run, "audio"):stop(node.sound)
+  requireService(run, "audio"):stop(Runtime.evaluateValue(node.sound, run))
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.play_music = function(node, run)
@@ -1158,7 +1158,9 @@ HANDLERS.play_music = function(node, run)
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.stop_music = function(node, run)
-  requireService(run, "audio"):stopMusic(node.music)
+  -- The pinned StopBGM reads its operand but ignores it: the currently
+  -- playing BGM stops, and the operand never reaches the service.
+  requireService(run, "audio"):stopMusic()
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.reset_music = function(node, run)
@@ -1170,11 +1172,11 @@ HANDLERS.temporary_music = function(node, run)
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.play_cry = function(node, run)
-  requireService(run, "audio"):playCry(Runtime.evaluateValue(node.species, run), node.form)
+  requireService(run, "audio"):playCry(Runtime.evaluateValue(node.species, run), Runtime.evaluateValue(node.form, run))
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.play_fanfare = function(node, run)
-  requireService(run, "audio"):playFanfare(node.fanfare)
+  requireService(run, "audio"):playFanfare(Runtime.evaluateValue(node.fanfare, run))
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.fade_screen = function(node, run)
@@ -1182,12 +1184,13 @@ HANDLERS.fade_screen = function(node, run)
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.fade_music_out = function(node, run)
-  requireService(run, "audio"):fadeMusicOut(node)
-  return Runtime.OUTCOME_CONTINUE
+  -- The fade node starts the fade in its execution tick and blocks until
+  -- the audio service reports the global music fade inactive (the source
+  -- command's combined start-and-native-wait semantics).
+  return blockOnTask(run, "music_fade", { node = node })
 end
 HANDLERS.fade_music_in = function(node, run)
-  requireService(run, "audio"):fadeMusicIn(node)
-  return Runtime.OUTCOME_CONTINUE
+  return blockOnTask(run, "music_fade", { node = node })
 end
 HANDLERS.shake_camera = function(node, run)
   requireService(run, "camera"):startShake(node)
