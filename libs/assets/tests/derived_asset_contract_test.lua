@@ -5,6 +5,10 @@
 
 local Assert = require("tests.support.Assert")
 local DerivedAssetContract = require("libs.assets.src.DerivedAssetContract")
+local AudioBank = require("libs.assets.src.AudioBank")
+local AudioCache = require("libs.assets.src.AudioCache")
+local AudioSample = require("libs.assets.src.AudioSample")
+local AudioSequence = require("libs.assets.src.AudioSequence")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
@@ -58,6 +62,14 @@ function T.contract_pins_the_current_asset_identities()
       cacheFormat = "field-ui-cache-v1",
       schema = "g4-field-ui-v4",
     },
+    audio = {
+      cacheFormat = "g4-audio-cache-v1",
+      indexSchema = "g4-audio-index-v1",
+      sequenceSchema = "g4-audio-sequence-v1",
+      bankSchema = "g4-audio-bank-v1",
+      sampleSchema = "g4-audio-sample-v1",
+      provenanceSchema = "g4-audio-provenance-v1",
+    },
   })
 end
 
@@ -84,6 +96,15 @@ function T.cache_modules_consume_the_contract_constants()
   Assert.equal(ScriptCache.PROVENANCE_SCHEMA, DerivedAssetContract.scripts.provenanceSchema)
   Assert.equal(FieldUiAssetCache.FORMAT, DerivedAssetContract.fieldUi.cacheFormat)
   Assert.equal(FieldUiAssetCache.SCHEMA, DerivedAssetContract.fieldUi.schema)
+  Assert.equal(AudioCache.FORMAT, DerivedAssetContract.audio.cacheFormat)
+  Assert.equal(AudioCache.INDEX_SCHEMA, DerivedAssetContract.audio.indexSchema)
+  Assert.equal(AudioCache.SEQUENCE_SCHEMA, DerivedAssetContract.audio.sequenceSchema)
+  Assert.equal(AudioCache.BANK_SCHEMA, DerivedAssetContract.audio.bankSchema)
+  Assert.equal(AudioCache.SAMPLE_SCHEMA, DerivedAssetContract.audio.sampleSchema)
+  Assert.equal(AudioCache.PROVENANCE_SCHEMA, DerivedAssetContract.audio.provenanceSchema)
+  Assert.equal(AudioSequence.SCHEMA, DerivedAssetContract.audio.sequenceSchema)
+  Assert.equal(AudioBank.SCHEMA, DerivedAssetContract.audio.bankSchema)
+  Assert.equal(AudioSample.SCHEMA, DerivedAssetContract.audio.sampleSchema)
 end
 
 return { tests = T }

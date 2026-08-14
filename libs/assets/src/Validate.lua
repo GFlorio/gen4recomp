@@ -38,4 +38,13 @@ function Validate.isNonNegativeInteger(value)
   return type(value) == "number" and value >= 0 and value % 1 == 0
 end
 
+-- True when `value` is a content-address key: 40 lowercase hex characters
+-- (sha1 shape). Audio sample keys are also file-path components, so only the
+-- lowercase hex shape is ever valid.
+---@param value any
+---@return boolean
+function Validate.isSha1Key(value)
+  return type(value) == "string" and #value == 40 and value:match("^[0-9a-f]+$") ~= nil
+end
+
 return Validate

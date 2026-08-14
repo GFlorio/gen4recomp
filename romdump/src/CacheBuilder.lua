@@ -25,6 +25,8 @@ local FieldUiCompiler = require("romdump.src.digest.FieldUiCompiler")
 local FieldUiCacheWriter = require("romdump.src.digest.FieldUiCacheWriter")
 local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
 local ScriptCacheWriter = require("romdump.src.digest.ScriptCacheWriter")
+local AudioCompiler = require("romdump.src.digest.audio.AudioCompiler")
+local AudioCacheWriter = require("romdump.src.digest.AudioCacheWriter")
 local RomFs = require("romdump.src.source.RomFs")
 local Errors = require("libs.errors.src.Errors")
 local DerivedCacheState = require("romdump.src.DerivedCacheState")
@@ -207,6 +209,16 @@ function CacheBuilder.buildVersions(versionIds, options)
         )
       else
         log(string.format("build-cache: %s scripts current", version))
+      end
+      local audioBundle, audioErr = AudioCompiler.compile(romFs)
+      if not audioBundle then
+        return versionFailure(audioErr)
+      end
+      if forced or not AudioCacheWriter.isReady(cacheFs, audioBundle.marker) then
+        AudioCacheWriter.write(cacheFs, audioBundle)
+        log(string.format("build-cache: %s audio compiled", version))
+      else
+        log(string.format("build-cache: %s audio current", version))
       end
       local entries, excluded, compileExcluded = {}, {}, {}
       for _, result in ipairs(MapAnalysis.analyze(romFs)) do

@@ -7,6 +7,7 @@ local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local DerivedCacheAudit = require("romdump.src.DerivedCacheAudit")
+local AudioCache = require("libs.assets.src.AudioCache")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
@@ -27,6 +28,7 @@ local function publishedCache()
     FieldMessageCache.markerPath(),
     FieldUiAssetCache.markerPath(),
     ScriptCache.markerPath(),
+    AudioCache.markerPath(),
     MapAssetCache.mapDir(7) .. "/complete",
     FieldMapDataCache.markerPath(7),
   }) do
@@ -48,6 +50,18 @@ function T.a_missing_published_artifact_requires_a_build()
 
   Assert.isFalse(available)
   Assert.equal(reason, "missing completion marker " .. ScriptCache.markerPath())
+end
+
+-- The audio class is one of the required markers: without it the global fast
+-- path must never declare the cache usable.
+function T.a_missing_audio_marker_requires_a_build()
+  local cache = publishedCache()
+  cache:remove(AudioCache.markerPath())
+
+  local available, reason = DerivedCacheAudit.isAvailable(cache)
+
+  Assert.isFalse(available)
+  Assert.equal(reason, "missing completion marker " .. AudioCache.markerPath())
 end
 
 function T.availability_ignores_producer_version_metadata()

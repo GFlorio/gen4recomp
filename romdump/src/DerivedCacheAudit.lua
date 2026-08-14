@@ -4,6 +4,7 @@
 -- freshness belongs to the producer fingerprint.
 
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
+local AudioCache = require("libs.assets.src.AudioCache")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
@@ -16,6 +17,7 @@ local DerivedCacheAudit = {}
 
 local REQUIRED_MARKERS = {
   FieldActorCache.markerPath(),
+  AudioCache.markerPath(),
   FieldCameraCache.markerPath(),
   FieldFontCache.markerPath(),
   FieldMessageCache.markerPath(),

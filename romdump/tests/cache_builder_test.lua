@@ -35,6 +35,8 @@ local FAKE_PATHS = {
   "romdump.src.digest.script.ScriptCompiler",
   "romdump.src.digest.ScriptCacheWriter",
   "libs.assets.src.ScriptCache",
+  "romdump.src.digest.audio.AudioCompiler",
+  "romdump.src.digest.AudioCacheWriter",
   "romdump.src.DerivedCacheState",
   "romdump.src.ProducerFingerprint",
   "romdump.src.DerivedCacheAudit",
@@ -133,6 +135,7 @@ local function newEnv()
     uiBundle = { marker = "ui-v1" },
     messageBundle = { marker = "msg-v1", index = { bankIds = { 4, 8 } } },
     scriptBundle = { marker = "scr-v1", index = { resourceCount = 2, scriptMemberCount = 9 } },
+    audioBundle = { marker = "audio-v1", index = {} },
   }
 end
 
@@ -265,6 +268,9 @@ local function makeFakes()
   fakes.ScriptCompiler.compile = function()
     return env.scriptBundle
   end
+  fakes.AudioCompiler.compile = function()
+    return env.audioBundle
+  end
   fakes.WorldManifest.stage = function(cacheFs, entries, excluded, compileExcluded)
     if env.manifestRaise ~= nil then
       error(env.manifestRaise, 0)
@@ -337,6 +343,7 @@ function T.current_build_logs_every_class_and_stages_and_publishes_the_world_man
     "build-cache: heartgold field ui current",
     "build-cache: heartgold field messages current",
     "build-cache: heartgold scripts current",
+    "build-cache: heartgold audio current",
     "build-cache: heartgold map 2 current",
     "build-cache: heartgold map 5 current",
     "build-cache: heartgold map 5 unresolved map texture: material bike_02_2_lm3 of m_name01_00_00c land_data:280 wants bike_02_2 from map_textures member 42",
@@ -405,6 +412,7 @@ function T.stale_classes_compile_with_counts_in_pipeline_order()
     FieldUiCacheWriter = true,
     FieldMessageCacheWriter = true,
     ScriptCacheWriter = true,
+    AudioCacheWriter = true,
     MapAssetCache = true,
   }
   local capture = collectLog()
@@ -420,6 +428,7 @@ function T.stale_classes_compile_with_counts_in_pipeline_order()
     "build-cache: heartgold field ui compiled",
     "build-cache: heartgold field messages compiled (2 banks)",
     "build-cache: heartgold scripts compiled (2 resources, 9 members)",
+    "build-cache: heartgold audio compiled",
     "build-cache: heartgold map 2 compiled",
     "build-cache: heartgold map 5 compiled",
     "build-cache: heartgold map 5 unresolved map texture: material bike_02_2_lm3 of m_name01_00_00c land_data:280 wants bike_02_2 from map_textures member 42",
@@ -441,6 +450,7 @@ function T.compile_exclusions_fail_the_build_unless_allowed()
   local report, err = CacheBuilder.buildVersions({ "heartgold" }, { log = capture.log })
   Assert.isNil(report)
   Assert.equal(err, "cache preparation failed")
+  Assert.equal(capture.lines[8], "build-cache: heartgold audio current")
   Assert.equal(capture.lines[9], "build-cache: heartgold map 2 current")
   Assert.equal(
     capture.lines[10],
@@ -648,6 +658,7 @@ function T.producer_mismatch_forces_every_writer_and_publishes_after_strict_succ
   end
   table.sort(writes)
   Assert.deepEqual(writes, {
+    "AudioCacheWriter.write",
     "FieldActorCacheWriter.write",
     "FieldCameraCacheWriter.write",
     "FieldFontCacheWriter.write",
