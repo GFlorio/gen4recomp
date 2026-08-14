@@ -26,6 +26,10 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@field dialogueRenderer any
 ---@field menuRenderer FieldMenuRenderer?
 ---@field presentationActorAssets FieldActorAssetProvider?
+---@field _presentationSpriteRefs table<integer, boolean>
+---@field _lastActorManager any?
+---@field _lastActorVisualRevision integer?
+---@field _lastPlayerSpriteId integer?
 ---@field development boolean product mode (default) hides the playtest HUD and ignores the F1/F2 developer binds
 ---@field topologyProvider fun(width: number, height: number): ScreenTopology
 local FieldState = {}
@@ -60,6 +64,10 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
     runtime = runtime,
     development = options.development == true,
     topologyProvider = options.topologyProvider or defaultScreenTopology,
+    _presentationSpriteRefs = {},
+    _lastActorManager = nil,
+    _lastActorVisualRevision = nil,
+    _lastPlayerSpriteId = nil,
   }, FieldState)
   local ok, err = pcall(function()
     self.renderer = MapRenderer.new()
@@ -71,6 +79,7 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
       return love.graphics.getFont():getWidth(text)
     end)
     self.presentationActorAssets = FieldActorAssetProvider.new(runtime.cacheFs)
+    self:_syncPresentationAssets()
   end)
   if not ok then
     self:dispose()
@@ -81,6 +90,63 @@ end
 
 function FieldState:update(dt)
   self.runtime:update(dt)
+  self:_syncPresentationAssets()
+end
+
+-- Keep one presentation-provider reference per distinct sprite needed by the
+-- current actor set and player. Resource construction is change-driven; draw
+-- only reads the provider's active residency.
+function FieldState:_syncPresentationAssets()
+  local runtime = assert(self.runtime, "field runtime is unavailable")
+  local assets = assert(self.presentationActorAssets, "field presentation assets are unavailable")
+  local actors = assert(runtime.actors, "field actor manager is unavailable")
+  local playerVisual = assert(runtime.playerVisual, "field player visual is unavailable")
+  local actorRevision = actors:visualRevision()
+  local playerSpriteId = assert(playerVisual.spriteId, "field player visual has no spriteId")
+  if
+    self._lastActorManager == actors
+    and self._lastActorVisualRevision == actorRevision
+    and self._lastPlayerSpriteId == playerSpriteId
+  then
+    return
+  end
+
+  local needed = {}
+  needed[playerSpriteId] = true
+  actors:collectSpriteIds(needed)
+
+  local acquired = {}
+  local ok, err = pcall(function()
+    for spriteId in pairs(needed) do
+      if not self._presentationSpriteRefs[spriteId] then
+        assets:acquire(spriteId)
+        acquired[#acquired + 1] = spriteId
+      end
+    end
+  end)
+  if not ok then
+    for _, spriteId in ipairs(acquired) do
+      assets:release(spriteId)
+    end
+    error(err, 0)
+  end
+
+  local released = {}
+  for spriteId in pairs(self._presentationSpriteRefs) do
+    if not needed[spriteId] then
+      released[#released + 1] = spriteId
+    end
+  end
+  for _, spriteId in ipairs(released) do
+    assets:release(spriteId)
+    self._presentationSpriteRefs[spriteId] = nil
+  end
+  for _, spriteId in ipairs(acquired) do
+    self._presentationSpriteRefs[spriteId] = true
+  end
+  self._lastActorVisualRevision = actorRevision
+  self._lastActorManager = actors
+  self._lastPlayerSpriteId = playerSpriteId
 end
 
 -- Every actor the frame draws: the ROM-derived player billboard first, then the
@@ -93,8 +159,7 @@ function FieldState:_actorDraws(alpha)
   end
   return FieldActorDraw.items(records, function(spriteId)
     local assets = assert(self.presentationActorAssets, "field presentation assets are unavailable")
-    local entry = assets:resident(spriteId)
-    return entry or assets:acquire(spriteId)
+    return assert(assets:resident(spriteId), "field actor presentation visual is not resident")
   end)
 end
 
@@ -363,6 +428,10 @@ function FieldState:dispose()
     self.dialogueRenderer = nil
   end
   if self.presentationActorAssets then
+    for spriteId in pairs(self._presentationSpriteRefs or {}) do
+      self.presentationActorAssets:release(spriteId)
+    end
+    self._presentationSpriteRefs = {}
     self.presentationActorAssets:dispose()
     self.presentationActorAssets = nil
   end

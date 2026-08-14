@@ -6,8 +6,82 @@
 
 local Assert = require("tests.support.Assert")
 local FieldState = require("game.src.game.FieldState")
+local FieldActorFixture = require("tests.support.FieldActorFixture")
 
 local T = {}
+
+local function actorRecord(actorId, spriteId)
+  return {
+    actorId = actorId,
+    spriteId = spriteId,
+    world = { x = 0, y = 0, z = 0 },
+    facing = "south",
+    pose = "idle",
+    poseTick = 0,
+    visible = true,
+  }
+end
+
+local function presentationEntry(spriteId)
+  local visual = FieldActorFixture.visual(spriteId, { frameCount = 2 })
+  local meshes = {}
+  for frameIndex = 1, visual.render.frameCount do
+    meshes[frameIndex] = { frameIndex = frameIndex }
+  end
+  return { spriteId = spriteId, visual = visual, image = {}, meshes = meshes }
+end
+
+local function presentationAssets(entries)
+  return {
+    entries = entries,
+    acquisitions = {},
+    releases = {},
+    acquire = function(self, spriteId)
+      self.acquisitions[spriteId] = (self.acquisitions[spriteId] or 0) + 1
+      return assert(self.entries[spriteId])
+    end,
+    resident = function(self, spriteId)
+      return self.entries[spriteId]
+    end,
+    release = function(self, spriteId)
+      self.releases[spriteId] = (self.releases[spriteId] or 0) + 1
+    end,
+    dispose = function(self)
+      self.disposed = true
+    end,
+  }
+end
+
+local function presentationState(assets, actorIds)
+  local actors = { revision = 0, spriteIds = actorIds }
+  function actors:visualRevision()
+    return self.revision
+  end
+  function actors:collectSpriteIds(out)
+    for spriteId in pairs(self.spriteIds) do
+      out[spriteId] = true
+    end
+  end
+  local runtime = {
+    update = function() end,
+    dispose = function() end,
+    actors = actors,
+    playerVisual = {
+      spriteId = 99,
+      drawRecord = function()
+        return actorRecord("field:player", 99)
+      end,
+    },
+    runtimeMap = { sceneRuntime = { mapDraws = {}, buildingDraws = {} } },
+  }
+  return setmetatable({
+    runtime = runtime,
+    presentationActorAssets = assets,
+    _presentationSpriteRefs = {},
+  }, FieldState),
+    actors,
+    runtime
+end
 
 -- A bare FieldState over a fake runtime that carries only the canonical
 -- fields: no `runtime` sceneRuntime alias and no `actor` player alias.
@@ -150,6 +224,109 @@ function T.draw_without_a_menu_host_is_a_programming_error()
   Assert.throws(function()
     state:draw()
   end)
+end
+
+function T.presentation_residency_is_distinct_change_driven_and_balanced()
+  local assets = presentationAssets({ [99] = presentationEntry(99), [34] = presentationEntry(34) })
+  local state, actors = presentationState(assets, { [99] = true })
+  state:update(0.016)
+  state:update(0.016)
+  Assert.equal(assets.acquisitions[99], 1, "player and sharing actors use one presentation reference")
+
+  actors.revision = actors.revision + 1
+  actors.spriteIds[34] = true
+  state:update(0.016)
+  Assert.equal(assets.acquisitions[34], 1, "an arriving sprite is acquired once")
+
+  actors.revision = actors.revision + 1
+  actors.spriteIds[34] = nil
+  state:update(0.016)
+  Assert.equal(assets.releases[34], 1, "a sprite is released after its last actor leaves")
+
+  state.runtime.playerVisual.spriteId = 34
+  state:update(0.016)
+  Assert.equal(assets.acquisitions[34], 2, "a changed player sprite is synchronized")
+
+  state:dispose()
+  Assert.equal(assets.releases[99], 1, "disposal releases the player reference")
+  Assert.equal(assets.releases[34], 2, "disposal releases the changed player reference")
+  Assert.isTrue(assets.disposed)
+end
+
+function T.presentation_sync_releases_partial_acquisition_on_failure()
+  local assets = presentationAssets({ [99] = presentationEntry(99), [34] = presentationEntry(34) })
+  local acquireCalls = 0
+  local released = 0
+  assets.acquire = function(self, spriteId)
+    acquireCalls = acquireCalls + 1
+    if acquireCalls == 2 then
+      error("injected presentation acquire failure")
+    end
+    return assert(self.entries[spriteId])
+  end
+  assets.release = function()
+    released = released + 1
+  end
+  local state = presentationState(assets, { [34] = true })
+  local err = Assert.throws(function()
+    state:update(0.016)
+  end)
+  Assert.isTrue(tostring(err):find("injected presentation acquire failure", 1, true) ~= nil)
+  Assert.equal(acquireCalls, 2)
+  Assert.equal(released, 1, "the earlier acquisition is released after a later failure")
+  Assert.isNil(next(state._presentationSpriteRefs))
+end
+
+function T.presentation_sync_restarts_for_a_replaced_actor_manager()
+  local assets = presentationAssets({ [99] = presentationEntry(99), [34] = presentationEntry(34) })
+  local state, actors, runtime = presentationState(assets, { [34] = true })
+  state:update(0.016)
+  Assert.equal(assets.acquisitions[99], 1)
+  Assert.equal(assets.acquisitions[34], 1)
+
+  local replacement = {
+    visualRevision = function()
+      return 0
+    end,
+    collectSpriteIds = function() end,
+  }
+  runtime.actors = replacement
+  state:update(0.016)
+
+  Assert.equal(assets.releases[34], 1, "the old manager's sprite is released")
+  Assert.equal(state._lastActorManager, replacement)
+  Assert.equal(actors.revision, 0)
+end
+
+function T.draw_rejects_a_sprite_without_presentation_residency()
+  local acquisitions = 0
+  local state = setmetatable({
+    runtime = {
+      playerVisual = {
+        drawRecord = function()
+          return actorRecord("field:player", 99)
+        end,
+      },
+      actors = {
+        drawRecords = function()
+          return {}
+        end,
+      },
+    },
+    presentationActorAssets = {
+      resident = function()
+        return nil
+      end,
+      acquire = function()
+        acquisitions = acquisitions + 1
+        return nil
+      end,
+    },
+  }, FieldState)
+  Assert.throws(function()
+    state:_actorDraws(0)
+  end)
+  Assert.equal(acquisitions, 0)
 end
 
 -- Presentation reads must go through the explicit `runtime` reference: the

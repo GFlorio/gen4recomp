@@ -284,6 +284,30 @@ function T.variable_sprite_re_resolves_at_each_object_creation()
   Assert.equal(assets.references[34], 1)
 end
 
+function T.visual_sprite_requirements_are_distinct_and_revisioned()
+  local mgr, eventState = manager({
+    object({ objectEventId = 0, eventFlag = 401 }),
+    object({ objectEventId = 1, spriteId = 99, x = 4 }),
+    object({ objectEventId = 2, spriteId = 34, x = 6 }),
+  })
+  local initialRevision = mgr:visualRevision()
+  local spriteIds = {}
+  mgr:collectSpriteIds(spriteIds)
+  Assert.isTrue(spriteIds[99])
+  Assert.isTrue(spriteIds[34])
+
+  mgr:step(1)
+  Assert.equal(mgr:visualRevision(), initialRevision, "pose changes do not change visual requirements")
+
+  eventState:setFlag(401)
+  mgr:step(2)
+  Assert.equal(mgr:visualRevision(), initialRevision + 1, "destroying an actor changes visual requirements")
+  spriteIds = {}
+  mgr:collectSpriteIds(spriteIds)
+  Assert.isTrue(spriteIds[99], "a shared sprite remains required")
+  Assert.isTrue(spriteIds[34])
+end
+
 function T.occupancy_is_keyed_by_map_cell_and_surface()
   local mgr = manager({ object({ x = 9, z = 3 }) })
   Assert.isTrue(mgr:isOccupied(61, 9, 3, 0))

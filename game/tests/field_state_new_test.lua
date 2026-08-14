@@ -7,6 +7,7 @@
 local Assert = require("tests.support.Assert")
 local LuaWriter = require("libs.codec.src.LuaWriter")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
+local FieldActorFixture = require("tests.support.FieldActorFixture")
 local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
 local FieldRuntime = require("game.src.game.FieldRuntime")
 local FieldState = require("game.src.game.FieldState")
@@ -18,7 +19,12 @@ local T = {}
 -- presentation asset provider loads.
 local function presentationCache()
   local cache = FieldDialogueFixture.cacheWithFont()
-  cache:write(FieldActorCache.indexPath(), LuaWriter.encode({ schema = FieldActorCache.INDEX_SCHEMA, spriteIds = {} }))
+  cache:write(
+    FieldActorCache.indexPath(),
+    LuaWriter.encode({ schema = FieldActorCache.INDEX_SCHEMA, spriteIds = { 0 } })
+  )
+  cache:writeLua(FieldActorCache.visualPath(0), FieldActorFixture.visual(0))
+  cache:write(FieldActorCache.atlasPath(0), FieldDialogueFixture.atlasBytes())
   return cache
 end
 
@@ -38,6 +44,13 @@ local function bootWithCapturedRuntimeOptions(options)
         setScreenTopology = function() end,
         setPresentationMetrics = function() end,
       },
+      actors = {
+        visualRevision = function()
+          return 0
+        end,
+        collectSpriteIds = function() end,
+      },
+      playerVisual = { spriteId = 0 },
       dispose = function() end,
     }, FieldRuntime)
   end
@@ -73,12 +86,25 @@ end
 
 function T.update_forwards_to_the_runtime()
   local updates = 0
-  local state =
-    setmetatable({ runtime = {
+  local state = setmetatable({
+    runtime = {
       update = function()
         updates = updates + 1
       end,
-    } }, FieldState)
+      actors = {
+        visualRevision = function()
+          return 0
+        end,
+        collectSpriteIds = function() end,
+      },
+      playerVisual = { spriteId = 0 },
+    },
+    presentationActorAssets = {
+      acquire = function() end,
+      release = function() end,
+    },
+    _presentationSpriteRefs = {},
+  }, FieldState)
   state:update(0.016)
   Assert.equal(updates, 1)
 end

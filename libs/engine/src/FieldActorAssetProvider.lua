@@ -84,7 +84,8 @@ end
 -- The resident entry for a referenced sprite, without touching its reference
 -- count: the draw path reads what the actor set already acquired.
 function FieldActorAssetProvider:resident(spriteId)
-  return self._entries[spriteId]
+  local entry = self._entries[spriteId]
+  return entry and entry.references > 0 and entry or nil
 end
 
 local function removeIdle(self, spriteId)
