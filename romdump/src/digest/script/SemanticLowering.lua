@@ -405,6 +405,26 @@ local HANDLERS = {
     -- runtime wait task polls the signpost host's command.
     return { op = "wait_signpost_action" }
   end,
+  [59] = function(ins, memberIr)
+    -- TrainerTips message, resultVar: prints into the existing signpost
+    -- window at the player's text speed. The message id is a direct index
+    -- into the member's message bank (the decoder does not bank-resolve
+    -- 59); the runtime resolves it. The result var rides the task result.
+    assert(memberIr.messageBank ~= nil, "trainer tips requires a script message bank")
+    return {
+      op = "trainer_tips_print",
+      message = { message = "external", bank = memberIr.messageBank, id = operandValue(ins.operands[1]) },
+      result = varRef(ins.operands[2]),
+    }
+  end,
+  [60] = function(ins)
+    -- WaitSignpost resultVar: waits for A/B/directional dismissal of the
+    -- presented signpost window; the result var rides the task result.
+    return {
+      op = "wait_signpost",
+      result = varRef(ins.operands[1]),
+    }
+  end,
   [63] = function(ins)
     return { op = "ask_yes_no", result = varRef(ins.operands[1] or 0) }
   end,

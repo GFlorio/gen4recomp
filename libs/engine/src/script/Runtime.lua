@@ -1224,6 +1224,27 @@ HANDLERS.wait_signpost_action = function(node, run)
   end
   return blockOnTask(run, "wait_signpost_action", {})
 end
+
+-- TrainerTips (59): print the resolved message into the existing signpost
+-- window at the player's configured text speed and block on the registered
+-- task. The task owns the source input semantics (directional interrupt
+-- stops the printer, turns the player, and completes 0; normal completion
+-- writes 2 through the scheduler result reference) and never writes world
+-- variables directly.
+HANDLERS.trainer_tips_print = function(node, run)
+  requireForeground(run, "trainer_tips_print")
+  requireService(run, "signpost")
+  return blockOnTask(run, "trainer_tips_print", { node = node })
+end
+
+-- WaitSignpost (60): always install a waiter for the A/B/directional
+-- dismissal of the presented signpost window. The task completes 0 through
+-- the scheduler result reference on any dismissal edge.
+HANDLERS.wait_signpost = function(node, run)
+  requireForeground(run, "wait_signpost")
+  requireService(run, "signpost")
+  return blockOnTask(run, "wait_signpost", { node = node })
+end
 HANDLERS.close_message = function(node, run)
   requireService(run, "dialogue"):close(node.erase ~= false)
   return Runtime.OUTCOME_CONTINUE

@@ -402,6 +402,22 @@ Schema.OPERATIONS = {
     },
   },
   wait_signpost_action = { fields = {} },
+  -- Opcode 59: type the message into the existing signpost window at the
+  -- player's configured text speed; the result var receives the completion
+  -- value through the task result (2 normal, 0 on a directional interrupt).
+  trainer_tips_print = {
+    fields = {
+      message = { type = "message", required = true },
+      result = { type = "value", required = true },
+    },
+  },
+  -- Opcode 60: wait for A/B or a directional dismissal of the presented
+  -- signpost window; the result var receives 0 through the task result.
+  wait_signpost = {
+    fields = {
+      result = { type = "value", required = true },
+    },
+  },
   message = {
     fields = {
       message = { type = "message", required = true },

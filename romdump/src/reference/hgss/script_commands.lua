@@ -403,6 +403,7 @@ return {
       widths = {},
     },
     [59] = {
+      classification = "native_wait",
       name = "ScrCmd_TrainerTips",
       widths = {
         [1] = 1,
@@ -410,6 +411,7 @@ return {
       },
     },
     [60] = {
+      classification = "native_wait",
       name = "ScrCmd_WaitSignpost",
       widths = {
         [1] = 2,

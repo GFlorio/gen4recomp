@@ -15,14 +15,16 @@ local Composition = require("libs.engine.src.script.Composition")
 local Scheduler = require("libs.engine.src.script.Scheduler")
 local FakeServices = require("tests.support.script.FakeServices")
 local WaitSignpostActionTask = require("libs.engine.src.script.tasks.WaitSignpostActionTask")
+local TrainerTipsTask = require("libs.engine.src.script.tasks.TrainerTipsTask")
+local WaitSignpostTask = require("libs.engine.src.script.tasks.WaitSignpostTask")
 
 local T = {}
 
 -- The script host surface the handlers exercise, conforming to the real
 -- ScriptSignpostHost interface. Every method records its call; the scheduler
 -- never sees a controller, so the fake is the injected boundary. The current
--- command state is a test field the wait tests flip to model the fixed-tick
--- controller returning to nop.
+-- command and print states are test fields the wait tests flip to model the
+-- fixed-tick controller returning to nop / finishing its typed print.
 local RecordingSignpostHost = {}
 RecordingSignpostHost.__index = RecordingSignpostHost
 
@@ -32,7 +34,10 @@ function RecordingSignpostHost.new()
     commands = {},
     advances = 0,
     prints = {},
+    stops = 0,
+    closes = 0,
     command = "nop",
+    printDone = false,
   }, RecordingSignpostHost)
 end
 
@@ -46,7 +51,22 @@ function RecordingSignpostHost:setSourceAppearance(appearance)
 end
 
 function RecordingSignpostHost:printInstant(message, bindings, textArgs)
-  self.prints[#self.prints + 1] = { message = message, bindings = bindings, textArgs = textArgs }
+  self.prints[#self.prints + 1] = { kind = "instant", message = message, bindings = bindings, textArgs = textArgs }
+end
+
+function RecordingSignpostHost:printTyped(message, bindings, textArgs)
+  self.prints[#self.prints + 1] = { kind = "typed", message = message, bindings = bindings, textArgs = textArgs }
+end
+
+function RecordingSignpostHost:stopPrint()
+  self.stops = self.stops + 1
+end
+
+function RecordingSignpostHost:close()
+  self:stopPrint()
+  self.closes = self.closes + 1
+  self.command = "nop"
+  self.printDone = false
 end
 
 function RecordingSignpostHost:advance()
@@ -54,7 +74,7 @@ function RecordingSignpostHost:advance()
 end
 
 function RecordingSignpostHost:status()
-  return { command = self.command }
+  return { command = self.command, printDone = self.printDone }
 end
 
 local function harness()
@@ -65,6 +85,8 @@ local function harness()
   local composition = Composition.new(registry)
   local taskRegistry = require("libs.engine.src.script.TaskRegistry").new()
   taskRegistry:register(WaitSignpostActionTask.type, WaitSignpostActionTask.version, WaitSignpostActionTask)
+  taskRegistry:register(TrainerTipsTask.type, TrainerTipsTask.version, TrainerTipsTask)
+  taskRegistry:register(WaitSignpostTask.type, WaitSignpostTask.version, WaitSignpostTask)
   local scheduler = Scheduler.new({
     services = services,
     taskRegistry = taskRegistry,
@@ -318,6 +340,271 @@ function T.wait_signpost_action_is_foreground_only_and_requires_the_host()
   missing.scheduler:step(100, {})
   Assert.equal(assert(missing.services.events:eventFor("script.error", missingInstance)).code, "SCRIPT_SERVICE_MISSING")
   Assert.equal(#missing.scheduler:tasks(), 0)
+end
+
+-- The canonical generated node shapes (opcodes 59/60 lowering output). The
+-- result vars ride the task result through the scheduler reference path.
+local TRAINER_TIPS_NODE = {
+  op = "trainer_tips_print",
+  message = { message = "external", bank = 542, id = 34 },
+  result = { value = "var", id = "VAR_SPECIAL_RESULT" },
+}
+
+local WAIT_SIGNPOST_NODE = {
+  op = "wait_signpost",
+  result = { value = "var", id = "VAR_SPECIAL_RESULT" },
+}
+
+-- 59: the handler prints the resolved message through the host at the typed
+-- cadence and blocks on the registered task; normal completion writes 2
+-- through the scheduler result reference, and the script resumes on the
+-- following tick.
+function T.trainer_tips_print_starts_a_typed_print_and_completes_two_on_normal_completion()
+  local h = harness()
+  local script = S.script({
+    api = 1,
+    id = "test.trainer_tips",
+    steps = {
+      TRAINER_TIPS_NODE,
+      S.setVar({ variable = "VAR_AFTER", value = 1 }),
+      S.stop(),
+    },
+  })
+  h.registry:installBase(script.id, script, "generated")
+  h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+
+  h.scheduler:step(100, {})
+  Assert.equal(#h.signpost.prints, 1, "59 prints through the host")
+  Assert.equal(h.signpost.prints[1].kind, "typed", "59 prints at the typed cadence, never instantly")
+  Assert.deepEqual(h.signpost.prints[1].message, { message = "external", bank = 542, id = 34 })
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "59 must block on its task")
+  local tasks = h.scheduler:tasks()
+  Assert.equal(#tasks, 1)
+  Assert.equal(tasks[1].taskType, "trainer_tips_print")
+
+  -- The task polls printDone and never completes on fixed ticks while the
+  -- print is live.
+  h.scheduler:step(101, {})
+  h.scheduler:step(102, {})
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "the wait must not finish on fixed ticks")
+  Assert.equal(#h.scheduler:tasks(), 1)
+
+  -- Normal completion: result 2 written through the scheduler result
+  -- reference on the promotion tick; the script resumes one tick later.
+  h.signpost.printDone = true
+  h.scheduler:step(103, {})
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "completion never resumes in the completion tick")
+  Assert.equal(h.services.world:getVar("VAR_SPECIAL_RESULT"), 0, "the result is not written before promotion")
+  h.scheduler:step(104, {})
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+  Assert.equal(h.services.world:getVar("VAR_SPECIAL_RESULT"), 2, "normal completion writes 2")
+end
+
+-- A directional edge pressed while the typed print is still live stops the
+-- printer, turns the player to that direction, closes the window, and
+-- completes with 0 — for every one of the four directions. The player is
+-- turned away from the pressed direction before each press so the facing
+-- assertion can never pass vacuously.
+function T.trainer_tips_directional_interrupt_stops_turns_and_writes_zero_for_every_direction()
+  local opposite = { north = "south", south = "north", west = "east", east = "west" }
+  for _, direction in ipairs({ "north", "south", "west", "east" }) do
+    local h = harness()
+    local script = S.script({
+      api = 1,
+      id = "test.trainer_tips",
+      steps = {
+        TRAINER_TIPS_NODE,
+        S.setVar({ variable = "VAR_AFTER", value = 1 }),
+        S.stop(),
+      },
+    })
+    h.registry:installBase(script.id, script, "generated")
+    h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+    h.scheduler:step(100, {})
+
+    h.services.player:turn(opposite[direction])
+    h.scheduler:step(101, { pressedDirection = direction })
+    Assert.equal(h.services.player:facing(), direction, direction .. " interrupt must turn the player")
+    Assert.equal(h.signpost.stops, 1, direction .. " interrupt must stop the printer")
+    Assert.equal(h.signpost.closes, 1, direction .. " interrupt must close the window")
+    h.scheduler:step(102, {})
+    Assert.equal(h.services.world:getVar("VAR_SPECIAL_RESULT"), 0, direction .. " interrupt writes 0")
+    Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+    Assert.equal(#h.scheduler:tasks(), 0, direction .. " interrupt must complete the task")
+  end
+end
+
+-- A/B during the print is the printer's speed-up behavior, never a
+-- dismissal: the edges must not complete the task, and the print still
+-- completes normally with 2. The print path also reads no pointer edge (the
+-- input snapshot has none), so the signpost print never speeds up on touch.
+function T.trainer_tips_ignores_ab_edges_during_the_print()
+  local h = harness()
+  local script = S.script({
+    api = 1,
+    id = "test.trainer_tips",
+    steps = {
+      TRAINER_TIPS_NODE,
+      S.setVar({ variable = "VAR_AFTER", value = 1 }),
+      S.stop(),
+    },
+  })
+  h.registry:installBase(script.id, script, "generated")
+  h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+  h.scheduler:step(100, {})
+
+  h.scheduler:step(101, { pressedAction = true })
+  Assert.equal(#h.scheduler:tasks(), 1, "A during the print must not dismiss the signpost")
+  h.scheduler:step(102, { pressedCancel = true })
+  Assert.equal(#h.scheduler:tasks(), 1, "B during the print must not dismiss the signpost")
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+
+  h.signpost.printDone = true
+  h.scheduler:step(103, {})
+  h.scheduler:step(104, {})
+  Assert.equal(h.services.world:getVar("VAR_SPECIAL_RESULT"), 2, "A/B during the print must not change the result")
+end
+
+-- 60: the handler always blocks on the registered task (no same-tick path);
+-- A and B dismiss with result 0 and close the window without turning the
+-- player.
+function T.wait_signpost_always_blocks_and_ab_dismiss_with_zero()
+  for _, edge in ipairs({ "pressedAction", "pressedCancel" }) do
+    local h = harness()
+    local script = S.script({
+      api = 1,
+      id = "test.wait_signpost",
+      steps = {
+        WAIT_SIGNPOST_NODE,
+        S.setVar({ variable = "VAR_AFTER", value = 1 }),
+        S.stop(),
+      },
+    })
+    h.registry:installBase(script.id, script, "generated")
+    h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+
+    h.scheduler:step(100, {})
+    Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "60 must always block")
+    local tasks = h.scheduler:tasks()
+    Assert.equal(#tasks, 1)
+    Assert.equal(tasks[1].taskType, "wait_signpost")
+
+    local input = {}
+    input[edge] = true
+    local before = h.services.player:facing()
+    h.scheduler:step(101, input)
+    Assert.equal(h.signpost.closes, 1, edge .. " must close the window")
+    Assert.equal(h.services.player:facing(), before, edge .. " must not turn the player")
+    h.scheduler:step(102, {})
+    Assert.equal(h.services.world:getVar("VAR_SPECIAL_RESULT"), 0, edge .. " dismissal writes 0")
+    Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+  end
+end
+
+-- A directional edge dismisses like A/B but additionally turns the player to
+-- the pressed direction — for every one of the four directions.
+function T.wait_signpost_directional_dismissal_turns_the_player_for_every_direction()
+  local opposite = { north = "south", south = "north", west = "east", east = "west" }
+  for _, direction in ipairs({ "north", "south", "west", "east" }) do
+    local h = harness()
+    local script = S.script({
+      api = 1,
+      id = "test.wait_signpost",
+      steps = {
+        WAIT_SIGNPOST_NODE,
+        S.setVar({ variable = "VAR_AFTER", value = 1 }),
+        S.stop(),
+      },
+    })
+    h.registry:installBase(script.id, script, "generated")
+    h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+    h.scheduler:step(100, {})
+
+    h.services.player:turn(opposite[direction])
+    h.scheduler:step(101, { pressedDirection = direction })
+    Assert.equal(h.services.player:facing(), direction, direction .. " dismissal must turn the player")
+    Assert.equal(h.signpost.closes, 1, direction .. " dismissal must close the window")
+    h.scheduler:step(102, {})
+    Assert.equal(h.services.world:getVar("VAR_SPECIAL_RESULT"), 0, direction .. " dismissal writes 0")
+    Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+  end
+end
+
+-- Both operations are foreground-only and require the signpost host: a
+-- background script faults with SCRIPT_BACKGROUND_FORBIDDEN and a missing
+-- service with SCRIPT_SERVICE_MISSING, each acquiring nothing.
+function T.trainer_tips_and_wait_signpost_are_foreground_only_and_require_the_host()
+  for _, node in ipairs({ TRAINER_TIPS_NODE, WAIT_SIGNPOST_NODE }) do
+    local h = harness()
+    local script = S.script({
+      api = 1,
+      id = "test.signpost_background",
+      steps = { node, S.stop() },
+    })
+    h.registry:installBase(script.id, script, "generated")
+    local composed = assert(h.composition:effective(script.id))
+    local instanceId = h.scheduler:createBackground(composed, nil, 100)
+    h.scheduler:step(100, nil)
+    Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_BACKGROUND_FORBIDDEN")
+    Assert.equal(#h.scheduler:tasks(), 0, "the background script must acquire nothing")
+    Assert.equal(#h.signpost.prints, 0)
+  end
+
+  local missing = harness()
+  missing.services.signpost = nil
+  local scriptNoService = S.script({
+    api = 1,
+    id = "test.wait_signpost_no_service",
+    steps = { WAIT_SIGNPOST_NODE, S.stop() },
+  })
+  missing.registry:installBase(scriptNoService.id, scriptNoService, "generated")
+  local missingInstance =
+    missing.scheduler:createForeground(assert(missing.composition:effective(scriptNoService.id)), nil, 100)
+  missing.scheduler:step(100, {})
+  Assert.equal(assert(missing.services.events:eventFor("script.error", missingInstance)).code, "SCRIPT_SERVICE_MISSING")
+  Assert.equal(#missing.scheduler:tasks(), 0)
+end
+
+-- Cancelling an instance while its signpost task owns the presented window
+-- releases it exactly once through the host close (stop the printer, hide
+-- the window, return the command to nop): the script fault-cleanup contract,
+-- for both task types.
+function T.trainer_tips_and_wait_signpost_cancel_closes_the_signpost_exactly_once()
+  for _, node in ipairs({ TRAINER_TIPS_NODE, WAIT_SIGNPOST_NODE }) do
+    local h = harness()
+    local script = S.script({
+      api = 1,
+      id = "test.signpost_cancel",
+      steps = { node, S.stop() },
+    })
+    h.registry:installBase(script.id, script, "generated")
+    local composed = assert(h.composition:effective(script.id))
+    local instanceId = h.scheduler:createForeground(composed, nil, 100)
+    h.scheduler:step(100, {})
+    Assert.equal(#h.scheduler:tasks(), 1)
+    Assert.equal(h.signpost.closes, 0)
+
+    h.scheduler:cancelInstance(instanceId, "test cancellation")
+    Assert.equal(h.signpost.closes, 1, "the signpost task must close the window exactly once on cancel")
+    Assert.equal(h.signpost.stops, 1, node.op .. " cancel must stop the printer")
+    Assert.equal(#h.scheduler:tasks(), 0)
+  end
+end
+
+-- The registered task state is strictly validated: non-table or markerless
+-- state is an unserializable task record, never a silent acceptance.
+function T.trainer_tips_and_wait_signpost_states_validate_strictly()
+  for _, impl in ipairs({ TrainerTipsTask, WaitSignpostTask }) do
+    local markerless = {} ---@type any
+    local nonTable = 7 ---@type any
+    local err = impl.validate(markerless)
+    ---@cast err Errors.Error
+    Assert.equal(err.code, "SCRIPT_TASK_UNSERIALIZABLE")
+    local err2 = impl.validate(nonTable)
+    ---@cast err2 Errors.Error
+    Assert.equal(err2.code, "SCRIPT_TASK_UNSERIALIZABLE")
+    Assert.isNil(impl.validate({ waiting = true }))
+  end
 end
 
 return { tests = T }

@@ -1150,6 +1150,15 @@ No fields.
 | `music` | string | yes |  |
 | `provenance` | source_provenance |  |  |
 
+### `trainer_tips_print`
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `message` | message | yes |  |
+| `provenance` | source_provenance |  |  |
+| `result` | value | yes |  |
+
 ### `unsupported`
 
 | Field | Type | Required | Default |
@@ -1212,6 +1221,14 @@ No fields.
 | `key` | string |  |  |
 | `provenance` | source_provenance |  |  |
 | `scope` | enum:movement_scope |  | `environment` |
+
+### `wait_signpost`
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
+| `result` | value | yes |  |
 
 ### `wait_signpost_action`
 
