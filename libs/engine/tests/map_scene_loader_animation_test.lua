@@ -302,6 +302,34 @@ local function ambientDescriptor()
   return desc
 end
 
+-- A static (non-animated) building descriptor: one plain quad batch, no
+-- transform program, sharing the door descriptor's material list (the
+-- material shape is kind-independent).
+local function staticBuildingDescriptor()
+  local meshSha = "mesh_static_hut_quad_000000000000000000000000000000"
+  return {
+    schema = "g4-model-descriptor-v1",
+    key = "outdoor:1:hut",
+    memberId = 1,
+    kind = "static",
+    batches = {
+      {
+        geometry = MapAssetCache.geometryPath(meshSha),
+        material = 0,
+        alphaClass = "opaque",
+        cullMode = "back",
+        polygonMode = "modulation",
+        polygonId = 0,
+        translucentDepthWrite = false,
+        depthEqual = false,
+        polygonAlpha = 31,
+        lightMask = 0,
+      },
+    },
+    materials = doorDescriptor().materials,
+  }
+end
+
 -- A minimal scene with the given building instances over the given model
 -- descriptors, in the loader test fixture shape. Writes each descriptor's
 -- referenced .g4mesh geometry into the cache. `doorTiles` (optional local
@@ -349,6 +377,10 @@ local function sceneWith(instances, descriptors, doorTiles)
     backend:write(MapAssetCache.modelPath(desc.key), LuaWriter.encode(desc))
     if desc.kind == "nitro-dynamic" then
       for _, batch in ipairs(desc.dynamic.batches) do
+        backend:write(batch.geometry, MeshWriter.encode(doorQuad()))
+      end
+    elseif desc.kind == "static" then
+      for _, batch in ipairs(desc.batches) do
         backend:write(batch.geometry, MeshWriter.encode(doorQuad()))
       end
     end
@@ -516,26 +548,26 @@ function T.animated_building_loads_advances_and_renders()
   -- the animated item exists without any tick -- and the animation clock
   -- has not advanced.
   local instance = runtime.animatedInstances[1]
-  Assert.equal(#runtime.buildingDraws, 1, "the animated door item exists right after load")
-  local m0 = runtime.buildingDraws[1].transform
-  local normal0 = runtime.buildingDraws[1].modelNormal
+  Assert.equal(#runtime.animatedBuildingDraws, 1, "the animated door item exists right after load")
+  local m0 = runtime.animatedBuildingDraws[1].transform
+  local normal0 = runtime.animatedBuildingDraws[1].modelNormal
   Assert.deepEqual(normal0, Matrix3.modelNormal(m0), "load builds the frame-0 model normal")
   -- The animated draw items carry the compiled per-segment polygon state:
   -- the light mask survives descriptor -> definition -> drawItems on the
   -- loader-assembled animated model.
-  Assert.equal(runtime.buildingDraws[1].lightMask, 5, "the animated door item carries its polygon light mask")
+  Assert.equal(runtime.animatedBuildingDraws[1].lightMask, 5, "the animated door item carries its polygon light mask")
 
   -- Advance and sync: a scripted door holds its bind pose.
   for _ = 1, 7 do
     runtime:updateAnimated()
   end
-  local m7 = runtime.buildingDraws[1].transform
+  local m7 = runtime.animatedBuildingDraws[1].transform
   for i = 1, 16 do
     Assert.near(m0[i], m7[i], 1e-3, "a scripted door holds its bind pose until played")
   end
 
   -- The production renderer draws the animated door. The renderer takes
-  -- ordered parts; the loader's sync refreshed runtime.buildingDraws.
+  -- ordered parts; the loader's sync refreshed runtime.animatedBuildingDraws.
   local renderer = MapRenderer.new()
   local identity = identityMatrix()
   local camera = {
@@ -550,7 +582,7 @@ function T.animated_building_loads_advances_and_renders()
       return identity
     end,
   }
-  renderer:draw(runtime, camera, { runtime.buildingDraws }, FieldViewport.new(320, 240, { mode = "strict" }), 1)
+  renderer:draw(runtime, camera, { runtime.animatedBuildingDraws }, FieldViewport.new(320, 240, { mode = "strict" }), 1)
   Assert.isTrue(renderer.stats.drawCalls >= 1, "the animated door draws")
 
   -- The handle surface drives the semantic role on the loader-built
@@ -728,14 +760,14 @@ function T.update_advances_the_pose_driven_draw_items()
   local door = assert(runtime.mapProps:doorAt(doorMapFor(runtime, 4, 14), 4, 14))
   door:open()
   runtime:updateAnimated()
-  local m0 = runtime.buildingDraws[1].transform
-  local normal0 = runtime.buildingDraws[1].modelNormal
+  local m0 = runtime.animatedBuildingDraws[1].transform
+  local normal0 = runtime.animatedBuildingDraws[1].modelNormal
   Assert.deepEqual(normal0, Matrix3.modelNormal(m0))
   for _ = 1, 7 do
     runtime:updateAnimated()
   end
-  local m7 = runtime.buildingDraws[1].transform
-  local normal7 = runtime.buildingDraws[1].modelNormal
+  local m7 = runtime.animatedBuildingDraws[1].transform
+  local normal7 = runtime.animatedBuildingDraws[1].modelNormal
   Assert.deepEqual(normal7, Matrix3.modelNormal(m7), "the fixed-tick item refresh recomputes the model normal")
   Assert.isFalse(normal0 == normal7, "animated item production replaces the changed normal transform")
   local differs = false
@@ -772,11 +804,52 @@ function T.draw_items_refresh_only_on_the_scene_tick()
   -- The load-time build already produced the frame-0 draw list; a control
   -- op between ticks marks nothing: the cached list stays until the scene
   -- tick rebuilds it.
-  local draws = runtime.buildingDraws
+  local draws = runtime.animatedBuildingDraws
   instance:play("door.open")
   runtime:updateAnimated()
-  Assert.isFalse(runtime.buildingDraws == draws, "updateAnimated rebuilds the items")
+  Assert.isFalse(runtime.animatedBuildingDraws == draws, "updateAnimated rebuilds the items")
   Assert.equal(instance.animationState:attachments("joint")[1].player.frameFx, 4096)
+
+  runtime:release()
+end
+
+-- A fixed tick only rebuilds the animated building list; the static building
+-- list is built once at load and its table identity never changes, and it
+-- never gets copied into the animated rebuild.
+function T.fixed_tick_does_not_copy_the_static_building_list()
+  local staticDesc = staticBuildingDescriptor()
+  local animatedDesc = doorDescriptor()
+  local cache = sceneWith({
+    {
+      placementIndex = 0,
+      modelKey = staticDesc.key,
+      transform = identityMatrix(),
+    },
+    {
+      placementIndex = 1,
+      modelKey = animatedDesc.key,
+      transform = doorTransform(),
+    },
+  }, { [staticDesc.key] = staticDesc, [animatedDesc.key] = animatedDesc }, { { x = 4, z = 14 } })
+  local runtime = MapSceneLoader.load(
+    cache,
+    assert(cache:loadLua(MapAssetCache.mapDir(61) .. "/scene.lua")),
+    { meshBuilder = fakeMeshBuilder }
+  )
+
+  Assert.equal(#runtime.staticBuildingDraws, 1, "the static building loads once")
+  Assert.equal(#runtime.animatedBuildingDraws, 1, "the animated building's frame-0 item loads once")
+  local staticList = runtime.staticBuildingDraws
+  local staticItem = staticList[1]
+
+  for _ = 1, 3 do
+    runtime:updateAnimated()
+    Assert.isTrue(runtime.staticBuildingDraws == staticList, "a fixed tick never replaces the static list")
+    Assert.isTrue(runtime.staticBuildingDraws[1] == staticItem, "the static item is never rebuilt")
+    for _, item in ipairs(runtime.animatedBuildingDraws) do
+      Assert.isFalse(item == staticItem, "the animated rebuild never copies a static item into it")
+    end
+  end
 
   runtime:release()
 end
@@ -973,7 +1046,7 @@ function T.animated_material_resolves_its_image_with_the_material_wrap()
     { meshBuilder = fakeMeshBuilder, imageBuilder = recordingImageBuilder(images) }
   )
   runtime:updateAnimated()
-  local image = runtime.buildingDraws[1].material.image
+  local image = runtime.animatedBuildingDraws[1].material.image
   Assert.notNil(image, "the animated material resolves an image")
   Assert.equal(image.path, desc.materials[1].texture)
   Assert.deepEqual(image.wraps, { { "repeat", "repeat" } }, "the image is requested with the material's wrap")
@@ -1015,7 +1088,7 @@ function T.animated_variant_texture_uses_the_material_wrap()
 
   -- The base texture first: the material's wrap applies to the base too.
   runtime:updateAnimated()
-  local baseImage = runtime.buildingDraws[1].material.image
+  local baseImage = runtime.animatedBuildingDraws[1].material.image
   Assert.deepEqual(baseImage.wraps, { { "repeat", "repeat" } }, "the base texture uses the material's wrap")
 
   -- The pattern selects the variant; the variant resolves with the same wrap.
@@ -1023,7 +1096,7 @@ function T.animated_variant_texture_uses_the_material_wrap()
   -- refreshes the draw items, so the rebuild sees the switched texture.
   instance:play("pattern")
   runtime:updateAnimated()
-  local variantImage = runtime.buildingDraws[1].material.image
+  local variantImage = runtime.animatedBuildingDraws[1].material.image
   Assert.equal(variantImage.path, variantTexture, "the pattern switches to the variant texture")
   Assert.deepEqual(variantImage.wraps, { { "repeat", "repeat" } }, "the variant texture uses its material's wrap")
   runtime:release()
@@ -1049,7 +1122,7 @@ function T.untextured_animated_materials_never_request_an_image()
   Assert.equal(#images, 0, "no image is requested for an untextured material")
   Assert.equal(runtime.stats.textureCount, 0)
   runtime:updateAnimated()
-  Assert.isNil(runtime.buildingDraws[1].material.image)
+  Assert.isNil(runtime.animatedBuildingDraws[1].material.image)
   -- Even while a clip plays, an untextured material never resolves an image.
   local instance = runtime.animatedInstances[1]
   instance:play("door.open")

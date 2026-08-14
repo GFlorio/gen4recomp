@@ -25,14 +25,17 @@
 -- knowledge that reaches this layer is the normalized scene descriptor; raw
 -- Nitro formats stopped at the compiler.
 --
--- The animated draw list is owned by the scene tick: every fixed tick
--- advances each attachment player and rebuilds the items once,
--- unconditionally -- there is no dirty-forwarding layer and no between-tick
--- refresh (control ops like the door choreography run inside session ticks,
--- so the same or next tick's updateAnimated renders them). The renderer
--- never re-evaluates poses itself. Loading builds the frame-0 list
--- immediately -- static building draws plus the animated items at their
--- initial frames -- without advancing any animation clock, so the scene is
+-- The static and animated building draws are two independent runtime lists
+-- (`staticBuildingDraws`, `animatedBuildingDraws`): the static list is built
+-- once at load and never rebuilt, since nothing about a static placement
+-- changes after load. The animated list is owned by the scene tick: every
+-- fixed tick advances each attachment player and rebuilds ONLY the animated
+-- items, unconditionally -- there is no dirty-forwarding layer, no
+-- between-tick refresh, and no copying of the static list into the rebuild
+-- (control ops like the door choreography run inside session ticks, so the
+-- same or next tick's updateAnimated renders them). The renderer never
+-- re-evaluates poses itself. Loading builds the frame-0 animated list
+-- immediately, without advancing any animation clock, so the scene is
 -- renderable the moment load returns.
 
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
@@ -280,7 +283,7 @@ local function buildScene(pool, cacheFs, scene, opts)
     return cached
   end
 
-  local buildingDraws = {}
+  local staticBuildingDraws = {}
   for _, inst in ipairs(scene.buildingInstances) do
     local desc = descriptorFor(inst.modelKey)
     -- Dynamic (animated) descriptors carry their geometry in the `dynamic`
@@ -289,7 +292,7 @@ local function buildScene(pool, cacheFs, scene, opts)
     -- generated-data failure, not a silent empty model.
     if desc.descriptor.kind == "static" then
       for _, batch in ipairs(desc.descriptor.batches) do
-        buildingDraws[#buildingDraws + 1] = drawItem(batch, desc.materials, inst.transform)
+        staticBuildingDraws[#staticBuildingDraws + 1] = drawItem(batch, desc.materials, inst.transform)
       end
     elseif desc.descriptor.kind ~= "nitro-dynamic" then
       Errors.raise(
@@ -366,16 +369,14 @@ local function buildScene(pool, cacheFs, scene, opts)
   end
 
   local runtime = {}
-  local staticBuildingDraws = buildingDraws
 
   -- The per-instance refresh pass shared by the tick update and the initial
-  -- build: it re-evaluates each pose from the current attachment frames,
-  -- appends after the static building draws.
+  -- build: it re-evaluates each pose from the current attachment frames. The
+  -- static building list is built once and never touched again -- only the
+  -- animated list is rebuilt here, so a fixed tick's cost scales with the
+  -- animated instance count, not the whole building set.
   local function refreshAnimatedItems()
     local items = {}
-    for _, item in ipairs(staticBuildingDraws) do
-      items[#items + 1] = item
-    end
     for _, instance in ipairs(animatedInstances) do
       instance:evaluatePose()
       local drawn = instance:drawItems(instance.renderMeshesById)
@@ -383,7 +384,7 @@ local function buildScene(pool, cacheFs, scene, opts)
         items[#items + 1] = item
       end
     end
-    runtime.buildingDraws = items
+    runtime.animatedBuildingDraws = items
   end
 
   -- Advance every animated instance by one fixed step, then refresh: the one
@@ -448,6 +449,7 @@ local function buildScene(pool, cacheFs, scene, opts)
   runtime.collision = collision
   runtime.bounds = bounds
   runtime.mapDraws = mapDraws
+  runtime.staticBuildingDraws = staticBuildingDraws
   -- Build the frame-0 animated items inside the load build: the scene
   -- is renderable immediately after load, and the animation clocks never
   -- advanced (the first tick's updateAnimated starts them).

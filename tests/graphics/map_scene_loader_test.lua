@@ -187,7 +187,7 @@ function T.scene_and_building_descriptor_samplers_stay_independent()
   local runtime = MapSceneLoader.load(cache, s)
   Assert.equal(runtime.stats.textureCount, 2)
   local sceneImage = runtime.mapDraws[1].material.image
-  local buildingImage = runtime.buildingDraws[1].material.image
+  local buildingImage = runtime.staticBuildingDraws[1].material.image
   Assert.isTrue(sceneImage ~= buildingImage, "scene and descriptor samplers stay independent")
   runtime:release()
 end
@@ -246,12 +246,12 @@ function T.one_mesh_center_serves_every_consumer_and_placement()
   local runtime = MapSceneLoader.load(cache, s)
   local expectedCenter = { 1, 0, 1 }
   Assert.deepEqual(runtime.mapDraws[1].center, expectedCenter, "the terrain draw carries the mesh center")
-  Assert.deepEqual(runtime.buildingDraws[1].center, expectedCenter, "placement 0 carries the same mesh center")
-  Assert.deepEqual(runtime.buildingDraws[2].center, expectedCenter, "placement 1 carries the same mesh center")
+  Assert.deepEqual(runtime.staticBuildingDraws[1].center, expectedCenter, "placement 0 carries the same mesh center")
+  Assert.deepEqual(runtime.staticBuildingDraws[2].center, expectedCenter, "placement 1 carries the same mesh center")
   Assert.deepEqual(runtime.mapDraws[1].modelNormal, { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
-  Assert.deepEqual(runtime.buildingDraws[1].modelNormal, { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
+  Assert.deepEqual(runtime.staticBuildingDraws[1].modelNormal, { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
   Assert.deepEqual(
-    runtime.buildingDraws[2].modelNormal,
+    runtime.staticBuildingDraws[2].modelNormal,
     { 0.5, 0, 0, 0, 1 / 3, 0, 0, 0, 0.25 },
     "a static building carries the inverse-transpose of its final transform"
   )
