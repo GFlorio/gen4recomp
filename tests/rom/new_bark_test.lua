@@ -520,4 +520,15 @@ function T.terrain_area_srt_clip_conforms(romFs, versionId)
   Assert.equal(#clip.compiled.targets, 8)
 end
 
+-- The compiled scene no longer records the pre-pipeline limitation: both
+-- terrain-animation pipelines are implemented, so the generated scene data
+-- must not carry the obsolete static-textures flag.
+function T.terrain_limitation_is_removed_from_the_scene(romFs, versionId)
+  local scene = generatedScene(versionId)
+  Assert.isNil(
+    scene.limitations and scene.limitations.dynamicTexturesStatic,
+    "the generated scene no longer records the dynamicTexturesStatic limitation"
+  )
+end
+
 return require("tests.rom.support.RomSuite").fromFacts(T)

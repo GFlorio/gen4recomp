@@ -13,7 +13,6 @@ local LandData = require("romdump.src.digest.LandData")
 local HgssBdhc = require("romdump.src.digest.HgssBdhc")
 local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
 local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
-local MeshCompiler = require("romdump.src.digest.MeshCompiler")
 local MaterialCompiler = require("romdump.src.digest.MaterialCompiler")
 local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
 local HgssFieldLighting = require("romdump.src.digest.HgssFieldLighting")
@@ -542,7 +541,6 @@ local function _compile(romFs, idOrSymbol, opts)
   -- Plan the eight surrounding matrix cells and compile each unique land chunk
   -- once. Geometry/textures feed the draw ring; permission and BDHC artifacts
   -- make the same cells traversable in the field runtime.
-  local NeighborChunkCompiler = require("romdump.src.digest.NeighborChunkCompiler")
   local plan = NeighborPlan.plan(resolved.matrix, resolved.matrixX, resolved.matrixZ, function(h)
     local rec = MapCatalog.areaForMapHeader(h)
     return rec and rec.areaDataMemberId or nil
@@ -684,9 +682,6 @@ local function _compile(romFs, idOrSymbol, opts)
     -- neighbor runtime receives it from the loader, never per-descriptor.
     terrainAnimations = { textureSrt = textureSrt },
     calibration = { modelExtentTilesX = exTiles, modelExtentTilesZ = ezTiles, posScale = mapModel.info.posScale },
-    limitations = {
-      dynamicTexturesStatic = true,
-    },
     -- The runtime consumes only the normalized records for time-of-day
     -- selection; the source light type, profile id, source path, and source
     -- hash are producer provenance and live in the dependency record.
