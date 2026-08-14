@@ -82,6 +82,54 @@ function love.gamepadreleased(joystick, button)
   end
 end
 
+function love.gamepadaxis(joystick, axis, value)
+  if App then
+    App.gamepadaxis(joystick, axis, value)
+  end
+end
+
+function love.mousepressed(x, y, button, istouch, presses)
+  if App then
+    App.mousepressed(x, y, button, istouch, presses)
+  end
+end
+
+function love.mousemoved(x, y, dx, dy, istouch)
+  if App then
+    App.mousemoved(x, y, dx, dy, istouch)
+  end
+end
+
+function love.mousereleased(x, y, button, istouch, presses)
+  if App then
+    App.mousereleased(x, y, button, istouch, presses)
+  end
+end
+
+function love.wheelmoved(x, y)
+  if App then
+    App.wheelmoved(x, y)
+  end
+end
+
+function love.touchpressed(id, x, y, dx, dy, pressure)
+  if App then
+    App.touchpressed(id, x, y, dx, dy, pressure)
+  end
+end
+
+function love.touchmoved(id, x, y, dx, dy, pressure)
+  if App then
+    App.touchmoved(id, x, y, dx, dy, pressure)
+  end
+end
+
+function love.touchreleased(id, x, y, dx, dy, pressure)
+  if App then
+    App.touchreleased(id, x, y, dx, dy, pressure)
+  end
+end
+
 function love.focus(focused)
   if App then
     App.focus(focused)

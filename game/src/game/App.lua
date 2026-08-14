@@ -221,9 +221,9 @@ function App.gamepadaxis(joystick, axis, value)
   end
 end
 
-function App.mousepressed(x, y, button)
+function App.mousepressed(x, y, button, istouch, presses)
   if App.state and App.state.mousepressed then
-    App.state:mousepressed(x, y, button)
+    App.state:mousepressed(x, y, button, istouch, presses)
   end
 end
 
@@ -233,9 +233,9 @@ function App.mousemoved(x, y, dx, dy, istouch)
   end
 end
 
-function App.mousereleased(x, y, button)
+function App.mousereleased(x, y, button, istouch, presses)
   if App.state and App.state.mousereleased then
-    App.state:mousereleased(x, y, button)
+    App.state:mousereleased(x, y, button, istouch, presses)
   end
 end
 
