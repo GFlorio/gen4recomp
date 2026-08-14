@@ -6,7 +6,8 @@
 -- corpus itself carries these values: SetSignpostAction 3/2/4 and the
 -- std_signpost sequence rely on the exact numbering. Pure data; no love
 -- dependency.
-return {
+
+local M = {
   schema = 1,
   source = {
     repo = "pret/pokeheartgold",
@@ -26,3 +27,23 @@ return {
     [4] = { name = "MAPSIGNCOMMAND_HIDE" },
   },
 }
+
+-- The semantic command enum string (nop/show/wipe_out/wipe_in/hide) for a
+-- raw MAPSIGNCOMMAND_* code, or nil when the code is not one of the five
+-- pinned commands. Unknown codes are malformed source at lowering; nothing
+-- ever defaults to nop.
+---@param code any
+---@return string|nil
+function M.semanticName(code)
+  local entry = M.byCode[code]
+  if type(entry) ~= "table" then
+    return nil
+  end
+  local semantic = entry.name:match("^MAPSIGNCOMMAND_([A-Z_]+)$")
+  if semantic == nil then
+    return nil
+  end
+  return semantic:lower()
+end
+
+return M

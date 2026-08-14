@@ -1065,6 +1065,14 @@ No fields.
 | `key` | string |  |  |
 | `provenance` | source_provenance |  |  |
 
+### `signpost_command`
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `command` | enum:signpost_command | yes |  |
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
+
 ### `signpost_direction`
 
 | Field | Type | Required | Default |
@@ -1205,6 +1213,13 @@ No fields.
 | `provenance` | source_provenance |  |  |
 | `scope` | enum:movement_scope |  | `environment` |
 
+### `wait_signpost_action`
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
+
 ### `wait_sound`
 
 | Field | Type | Required | Default |
@@ -1268,6 +1283,8 @@ No fields.
 `movement_scope`: environment, actors
 
 `script_kind`: field_script
+
+`signpost_command`: nop, show, wipe_out, wipe_in, hide
 
 `speed`: slower, slow, normal, fast, faster, slightly_fast, slightly_faster, fastest, run, hgss_96, hgss_97, hgss_98, hgss_99
 

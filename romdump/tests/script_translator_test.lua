@@ -461,10 +461,10 @@ T["field menu operations verify as supported"] = function()
   Assert.equal(report.unsupportedCount, 0)
 end
 
--- 12. Opcodes 55 and 56 carry the yield_next_tick classification (their
--- runtime support landed atomically with it); 57-60 stay classification-free
--- explicit unsupported nodes whose operands survive lowering untouched.
-T["signpost 55/56 classify as yields while 57-60 stay unsupported"] = function()
+-- 12. Opcodes 55-58 carry their execution classifications (runtime support
+-- lands atomically with each); 59/60 stay classification-free explicit
+-- unsupported nodes whose operands survive lowering untouched.
+T["signpost 55-58 classify while 59/60 stay unsupported"] = function()
   local bytes = ScriptFixture.member({
     scripts = {
       {
@@ -489,20 +489,22 @@ T["signpost 55/56 classify as yields while 57-60 stay unsupported"] = function()
       },
     },
   })
-  for opcode = 57, 60 do
+  for opcode = 59, 60 do
     Assert.equal(CommandCatalog.classification(opcode), CommandCatalog.UNSUPPORTED)
     Assert.isNil(CommandCatalog.SUPPORTED[opcode], "opcode " .. opcode .. " is not marked supported")
   end
   Assert.equal(CommandCatalog.classification(55), CommandCatalog.YIELD)
   Assert.equal(CommandCatalog.classification(56), CommandCatalog.YIELD)
+  Assert.equal(CommandCatalog.classification(57), CommandCatalog.YIELD)
+  Assert.equal(CommandCatalog.classification(58), CommandCatalog.NATIVE_WAIT)
   Assert.isTrue(CommandCatalog.SUPPORTED[55], "opcode 55 is supported")
   Assert.isTrue(CommandCatalog.SUPPORTED[56], "opcode 56 is supported")
+  Assert.isTrue(CommandCatalog.SUPPORTED[57], "opcode 57 is supported")
+  Assert.isTrue(CommandCatalog.SUPPORTED[58], "opcode 58 is supported")
   local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 5, "synthetic", { msgBank = 543, catalog = CATALOG }))
   local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
-  Assert.equal(#lowered.unsupported, 4)
+  Assert.equal(#lowered.unsupported, 2)
   local expected = {
-    { command = 57, originalName = "ScrCmd_SetSignpostAction", arguments = { 3 } },
-    { command = 58, originalName = "ScrCmd_WaitSignpostAction", arguments = {} },
     { command = 59, originalName = "ScrCmd_TrainerTips", arguments = { 0, "VAR_SPECIAL_x8008" } },
     { command = 60, originalName = "ScrCmd_WaitSignpost", arguments = { "VAR_SPECIAL_x8008" } },
   }
@@ -514,8 +516,75 @@ T["signpost 55/56 classify as yields while 57-60 stay unsupported"] = function()
     Assert.deepEqual(step.arguments, contract.arguments, "opcode " .. contract.command .. " keeps its operands")
   end
   local report = Verifier.verifyScript(Structurer.structure(lowered, 0), ir.scripts[0], ir, lowered.omissions)
-  Assert.equal(report.unsupportedCount, 4)
+  Assert.equal(report.unsupportedCount, 2)
   Assert.isFalse(report.complete)
+end
+
+-- 14. Opcode 57 (SetSignpostAction) lowers its raw command code 0..4 to the
+-- exact semantic command enum, and opcode 58 (WaitSignpostAction) lowers to
+-- the canonical wait node with no operands. Both verify as supported with
+-- provenance; unknown codes >= 5 are malformed source and never default to
+-- nop.
+T["set signpost action and wait signpost action lower to canonical nodes"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          { op = 57, args = { { value = 0, width = 1 } } },
+          { op = 57, args = { { value = 1, width = 1 } } },
+          { op = 57, args = { { value = 2, width = 1 } } },
+          { op = 57, args = { { value = 3, width = 1 } } },
+          { op = 57, args = { { value = 4, width = 1 } } },
+          { op = 58, args = {} },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 5, "synthetic", { msgBank = 543, catalog = CATALOG }))
+  local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+  local commands = { "nop", "show", "wipe_out", "wipe_in", "hide" }
+  for index, command in ipairs(commands) do
+    Assert.deepEqual(lowered.items[index], {
+      op = "signpost_command",
+      command = command,
+      provenance = { offsets = { 32 + (index - 1) * 3 }, opcodes = { 57 } },
+    }, "raw command " .. (index - 1) .. " must lower to " .. command)
+  end
+  Assert.deepEqual(lowered.items[6], {
+    op = "wait_signpost_action",
+    provenance = { offsets = { 47 }, opcodes = { 58 } },
+  })
+  local report = Verifier.verifyScript(Structurer.structure(lowered, 0), ir.scripts[0], ir, lowered.omissions)
+  Assert.isTrue(report.ok, report.problems[1] and report.problems[1].message or "signpost 57/58 must verify")
+  Assert.equal(report.unsupportedCount, 0)
+  Assert.isTrue(report.complete)
+end
+
+-- 15. A raw SetSignpostAction command outside the pinned 0..4 range is
+-- malformed source: lowering raises instead of defaulting to nop.
+T["unknown signpost action command is malformed source"] = function()
+  for _, raw in ipairs({ 5, 255 }) do
+    local bytes = ScriptFixture.member({
+      scripts = {
+        {
+          offset = 0x20,
+          instructions = {
+            { op = 57, args = { { value = raw, width = 1 } } },
+            { op = 2, args = {} },
+          },
+        },
+      },
+    })
+    local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 5, "synthetic", { msgBank = 543, catalog = CATALOG }))
+    local ok, err = pcall(SemanticLowering.lowerScript, ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+    Assert.isFalse(ok, "raw command " .. raw .. " must not lower silently")
+    Assert.isTrue(
+      tostring(err):find("signpost command", 1, true) ~= nil,
+      "the malformed-command error names the signpost command, got: " .. tostring(err)
+    )
+  end
 end
 
 -- 13. The canonical lowering shapes for opcodes 55 and 56: the raw

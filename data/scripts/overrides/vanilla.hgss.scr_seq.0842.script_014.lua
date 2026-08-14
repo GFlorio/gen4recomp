@@ -22,7 +22,9 @@ return S.script {
   },
   steps = {
     { message = { bank = 542, id = 34, message = "external" }, op = "signpost_direction", provenance = { offsets = { [1] = 5917 }, opcodes = { [1] = 55 } }, sourceAppearance = { game = "hgss", map = 11, type = 0 }, sourceUnusedOut = "VAR_SPECIAL_RESULT" },
-    { arguments = { [1] = 3 }, command = 57, op = "unsupported", originalName = "ScrCmd_SetSignpostAction", provenance = { offsets = { [1] = 5925 }, opcodes = { [1] = 57 } } },
+    { command = "wipe_in", op = "signpost_command", provenance = { offsets = { [1] = 5925 }, opcodes = { [1] = 57 } } },
+    { op = "wait_signpost_action", provenance = { offsets = { [1] = 5928 }, opcodes = { [1] = 58 } } },
+    { arguments = { [1] = "VAR_SPECIAL_RESULT" }, command = 60, op = "unsupported", originalName = "ScrCmd_WaitSignpost", provenance = { offsets = { [1] = 5930 }, opcodes = { [1] = 60 } } },
     { arguments = {}, command = 0, op = "unsupported", originalName = "call to unsupported script common.signpost", provenance = { offsets = { [1] = 5934 }, opcodes = { [1] = 20 } } },
     { op = "stop", provenance = { offsets = { [1] = 5938 }, opcodes = { [1] = 2 } } },
   },
