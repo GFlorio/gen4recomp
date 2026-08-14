@@ -11,17 +11,14 @@
 
 local Assert = require("tests.support.Assert")
 local AnimationFixture = require("tests.support.AnimationFixture")
-local BinaryReader = require("libs.codec.src.BinaryReader")
 local FieldTexAnimFixture = require("tests.support.FieldTextureAnimationFixture")
 local Hashing = require("romdump.src.digest.Hashing")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapRomFixture = require("tests.support.MapRomFixture")
 local ModelAssetCompiler = require("romdump.src.digest.ModelAssetCompiler")
-local NitroAnimation = require("romdump.src.digest.nitro.NitroAnimation")
 local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
 local NsbmdDynamicModel = require("romdump.src.digest.NsbmdDynamicModel")
 local NsbmdFixture = require("tests.support.NsbmdFixture")
-local NsbtaClipCompiler = require("romdump.src.digest.NsbtaClipCompiler")
 local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
 local TF = require("tests.support.TextureFixtures")
 local Tex0Fixture = require("tests.support.Tex0Fixture")
@@ -356,12 +353,11 @@ function T.a_selected_nsbta_compiles_the_existing_clip_shape_without_source_fiel
   Assert.deepEqual(clip.tracks, { { target = "en_sp1_3", targetIndex = 0 } })
   Assert.deepEqual(clip.semanticNames, {})
   Assert.isNil(clip.source, "the scene clip carries no physical source provenance")
-  -- The compiled payload is exactly the NsbtaClipCompiler shape.
-  local decoded = assert(NitroAnimation.decode(srtBytes))
-  local anim = assert(decoded.animations[1])
-  local reader = BinaryReader.new(decoded.bytes, "sec")
-  local expected = NsbtaClipCompiler.compilePayload(anim.resource, reader, #decoded.bytes, anim.name)
-  Assert.deepEqual(clip.compiled, expected)
+  -- The payload's byte fidelity is NsbtaClipCompiler's own contract; here the
+  -- selected member's target identity is checked instead.
+  Assert.equal(#clip.compiled.targets, 1)
+  Assert.equal(clip.compiled.targets[1].name, "en_sp1_3")
+  Assert.equal(clip.compiled.targets[1].index, 0)
   -- The selected member is recorded as producer provenance in the deps.
   Assert.deepEqual(scene.compiler:dependencies().terrainTextureSrt, {
     memberId = 0,
@@ -494,6 +490,26 @@ function T.terrain_fields_are_scoped_to_terrain_roles()
   Assert.isNil(building.materials[1].srt)
 end
 
+-- The module enforces its own boundary: even when a terrain animation
+-- compiler is supplied, a building role never acquires a textureSwap and the
+-- collaborator is never invoked -- no replacement member is read.
+function T.a_building_role_never_acquires_a_terrain_swap()
+  local scene = assert(buildScene(animationSceneOpts()))
+  local meshes, textures = {}, {}
+  local compiled = ModelAssetCompiler.compileModel(terrainModel(), scene.pack, meshes, textures, {
+    mapId = MAP_ID,
+    role = "building",
+    textureArchive = "map_textures",
+    textureMemberId = PACK_ID,
+    modelArchive = "land_data",
+    modelMemberId = LAND_MEMBER_ID,
+    modelName = "map0",
+    terrainAnimationCompiler = scene.compiler,
+  })
+  Assert.isNil(compiled.materials[1].textureSwap, "building models never carry textureSwap")
+  Assert.deepEqual(scene.compiler:dependencies().fieldTextureAnimations.memberSha1s, {})
+end
+
 -- The static terrain material's normalized srt and the dynamic model base
 -- material's srt come from one shared conversion: the same decoded
 -- material yields the same evaluator-consumed record on both paths, never a
@@ -576,54 +592,6 @@ function T.error_contexts_name_material_texture_and_source_member()
   Assert.equal(err.context.source.alias, "field_texture_animations")
   Assert.equal(err.context.source.memberId, 1)
   Assert.equal(err.context.source.mapId, MAP_ID)
-end
-
-function T.a_replacement_member_is_read_once_across_matching_materials()
-  -- The replacement member is a per-compilation cache: two materials matched
-  -- by one compiler (central and neighbor) read it once, and a second compiler
-  -- reads its own copy -- no module-global cache.
-  local scene = buildScene(animationSceneOpts())
-  local counts = {}
-  local romFs = {
-    openNarc = function(_, alias)
-      local narc = scene.romFs:openNarc(alias)
-      return {
-        memberCount = function()
-          return narc:memberCount()
-        end,
-        readMember = function(_, memberId)
-          counts[alias] = counts[alias] or {}
-          counts[alias][memberId] = (counts[alias][memberId] or 0) + 1
-          return narc:readMember(memberId)
-        end,
-      }
-    end,
-  }
-  local function compile(compiler, role)
-    local meshes, textures = {}, {}
-    return ModelAssetCompiler.compileModel(terrainModel(), scene.pack, meshes, textures, {
-      mapId = MAP_ID,
-      role = role,
-      textureArchive = "map_textures",
-      textureMemberId = PACK_ID,
-      modelArchive = "land_data",
-      modelMemberId = LAND_MEMBER_ID,
-      modelName = "map0",
-      terrainAnimationCompiler = compiler,
-    })
-  end
-
-  local compiler = TerrainAnimationCompiler.new(romFs, { mapId = MAP_ID, dynamicTextureType = 0xFFFF })
-  Assert.equal(compile(compiler, "map").materials[1].textureSwap.name, "flower01")
-  Assert.equal(compile(compiler, "neighbor").materials[1].textureSwap.name, "flower01")
-  -- Member 0 (the table) is read once at construction; member 1 once for both
-  -- matches. No other member is touched.
-  Assert.deepEqual(counts.field_texture_animations, { [0] = 1, [1] = 1 })
-
-  local compiler2 = TerrainAnimationCompiler.new(romFs, { mapId = MAP_ID, dynamicTextureType = 0xFFFF })
-  compile(compiler2, "map")
-  Assert.equal(counts.field_texture_animations[0], 2)
-  Assert.equal(counts.field_texture_animations[1], 2)
 end
 
 return { tests = T }

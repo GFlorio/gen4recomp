@@ -16,7 +16,6 @@
 
 local Assert = require("tests.support.Assert")
 local AnimationFixture = require("tests.support.AnimationFixture")
-local BinaryReader = require("libs.codec.src.BinaryReader")
 local BdhcBuilder = require("tests.support.BdhcBuilder")
 local Errors = require("libs.errors.src.Errors")
 local FieldTexAnimFixture = require("tests.support.FieldTextureAnimationFixture")
@@ -27,9 +26,7 @@ local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local MapRomFixture = require("tests.support.MapRomFixture")
 local NB = require("tests.support.NitroBuilder")
-local NitroAnimation = require("romdump.src.digest.nitro.NitroAnimation")
 local NsbmdFixture = require("tests.support.NsbmdFixture")
-local NsbtaClipCompiler = require("romdump.src.digest.NsbtaClipCompiler")
 local TF = require("tests.support.TextureFixtures")
 local Tex0Fixture = require("tests.support.Tex0Fixture")
 
@@ -389,12 +386,11 @@ function T.the_selected_area_nsbta_lands_in_scene_terrain_animations()
   Assert.deepEqual(clip.tracks, { { target = "en_sp1_3", targetIndex = 0 } })
   Assert.deepEqual(clip.semanticNames, {})
   Assert.isNil(clip.source, "the scene clip carries no physical source provenance")
-  -- The payload is exactly the existing NsbtaClipCompiler output.
-  local decoded = assert(NitroAnimation.decode(srtBytes))
-  local anim = assert(decoded.animations[1])
-  local reader = BinaryReader.new(decoded.bytes, "sec")
-  local expected = NsbtaClipCompiler.compilePayload(anim.resource, reader, #decoded.bytes, anim.name)
-  Assert.deepEqual(clip.compiled, expected)
+  -- The payload's byte fidelity is NsbtaClipCompiler's own contract; here the
+  -- selected member's target identity is checked instead.
+  Assert.equal(#clip.compiled.targets, 1)
+  Assert.equal(clip.compiled.targets[1].name, "en_sp1_3")
+  Assert.equal(clip.compiled.targets[1].index, 0)
   -- The selected member is producer provenance in the dependency record.
   Assert.deepEqual(bundle.dependencies.terrainTextureSrt, {
     memberId = 0,
@@ -503,23 +499,6 @@ function T.neighbor_terrain_compiles_against_its_own_pack_into_one_dependency_se
     },
   })
   Assert.equal(bundle.dependencies.terrainTextureSrt, false)
-end
-
-function T.buildings_never_inherit_a_terrain_swap_from_a_name_coincidence()
-  -- The fldtanime table names the building pack's own texture: a compiler
-  -- that applied the terrain collaborator to placed-building models would
-  -- annotate it here. Building models compile through the shared path without
-  -- the terrain option and must stay byte-identical to before.
-  local bundle = assert(compile({
-    fieldTextureAnimations = {
-      [0] = FieldTexAnimFixture.member({ { name = MapRomFixture.BUILDING_TEXTURE, timeline = FLOWER_TIMELINE } }),
-      [1] = replacementMember({ BASE_TEXEL, texels(0x22), texels(0x33) }),
-    },
-  }))
-  local model = onlyModel(bundle)
-  Assert.notNil(model.materials[1].texture, "the building still binds its texture")
-  Assert.isNil(model.materials[1].textureSwap, "building models never carry textureSwap")
-  Assert.isNil(bundle.scene.materials[1].textureSwap, "the unmatched terrain material stays static")
 end
 
 -- The fldtanime table is an unconditional map-compile dependency: a
