@@ -17,6 +17,7 @@ local FieldSignpostController = require("libs.engine.src.FieldSignpostController
 local FieldUiFixture = require("tests.support.FieldUiFixture")
 local FieldSignpostFixture = require("tests.support.FieldSignpostFixture")
 local FieldSignpostRenderer = require("libs.engine.src.FieldSignpostRenderer")
+local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 
 local T = {}
@@ -150,9 +151,17 @@ local function uiCache()
   return FieldUiFixture.cacheWithFontAndFrames()
 end
 
-local function renderer(lg)
+-- The shared font atlas: the fixture font carries three glyphs, so the text
+-- renderer creates one image and three glyph quads ahead of the signpost
+-- renderer's own strip/wayfinding images and tile quads.
+local function withTextRenderer(cache, lg)
+  return FieldTextRenderer.new({ cacheFs = cache, graphics = lg })
+end
+
+local function renderer(lg, cache)
   return FieldSignpostRenderer.new({
-    cacheFs = uiCache(),
+    cacheFs = cache or uiCache(),
+    text = withTextRenderer(cache or uiCache(), lg),
     graphics = lg,
     windowStyles = FieldSignpostFixture.styles(),
   })
@@ -169,6 +178,20 @@ local function drawsFor(lg, image)
   return out
 end
 
+local function textDraws(lg)
+  return drawsFor(lg, lg.images[1])
+end
+
+local function frameDraws(lg)
+  return drawsFor(lg, lg.images[2])
+end
+
+local function wayfindingDraws(lg)
+  return drawsFor(lg, lg.images[3])
+end
+
+-- The shared text renderer owns the font atlas (the fixture font carries
+-- three glyphs); the signpost renderer owns the strip and wayfinding images.
 local function textDraws(lg)
   return drawsFor(lg, lg.images[1])
 end
@@ -198,16 +221,6 @@ local function renderedDraws(opts)
   return lg
 end
 
-function T.missing_def_is_a_typed_error()
-  local err = Assert.throws(function()
-    FieldSignpostRenderer.new({
-      cacheFs = CacheFs.forVersion("heartgold", FakeCache.new()),
-      windowStyles = FieldSignpostFixture.styles(),
-    })
-  end)
-  Assert.isTrue(Errors.is(err) and err.code == "FONT_DEF_MISSING", "raises FONT_DEF_MISSING")
-end
-
 function T.rejects_a_missing_graphics_namespace()
   local err = Assert.throws(function()
     ---@diagnostic disable: assign-type-mismatch
@@ -226,24 +239,33 @@ function T.requires_a_sealed_window_style_registry()
 end
 
 function T.missing_ui_manifest_is_a_typed_error()
+  local lg = fakeGraphics()
+  local text = withTextRenderer(FieldDialogueFixture.cacheWithFont(), lg)
   local err = Assert.throws(function()
     FieldSignpostRenderer.new({
       cacheFs = FieldDialogueFixture.cacheWithFont(),
+      text = text,
+      graphics = lg,
       windowStyles = FieldSignpostFixture.styles(),
     })
   end)
   Assert.isTrue(Errors.is(err) and err.code == "FIELD_UI_MANIFEST_MISSING", "raises FIELD_UI_MANIFEST_MISSING")
+  text:release()
 end
 
 -- The manifest names the signpost strip; a cache without the PNG must not
--- build a half-frame renderer. The already-acquired font atlas is released.
-function T.missing_signpost_strip_is_a_typed_error_and_releases_the_atlas()
+-- build a half-frame renderer. The shared text renderer is caller-owned and
+-- stays alive; the renderer itself acquires nothing before the strip read
+-- fails.
+function T.missing_signpost_strip_is_a_typed_error()
   local cache = FieldDialogueFixture.cacheWithFont()
   cache:writeLua("data/generated/field/ui/ui.lua", FieldUiFixture.manifest())
   local lg = fakeGraphics({ imageSizes = { { 16, 16 } } })
+  local text = withTextRenderer(cache, lg)
   local err = Assert.throws(function()
     FieldSignpostRenderer.new({
       cacheFs = cache,
+      text = text,
       graphics = lg,
       windowStyles = FieldSignpostFixture.styles(),
     })
@@ -253,50 +275,60 @@ function T.missing_signpost_strip_is_a_typed_error_and_releases_the_atlas()
     "raises FIELD_UI_SIGNPOST_TILES_MISSING"
   )
   Assert.equal(#lg.images, 1, "the font atlas was acquired before the strip failed")
-  Assert.equal(lg.images[1].released, true, "the acquired atlas was released")
+  Assert.equal(lg.images[1].released, false, "the caller-owned text renderer atlas stays alive")
+  text:release()
 end
 
 -- Same for the wayfinding atlas: the strip exists, the wayfinding PNG does
--- not; both acquired images are released.
-function T.missing_wayfinding_atlas_is_a_typed_error_and_releases_acquired_images()
+-- not; the renderer acquires nothing before the read fails.
+function T.missing_wayfinding_atlas_is_a_typed_error()
   local cache = uiCache()
   cache:remove(FieldUiFixture.WAYFINDING_PATH)
-  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 } } })
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 } } })
+  local text = withTextRenderer(cache, lg)
   local err = Assert.throws(function()
     FieldSignpostRenderer.new({
       cacheFs = cache,
+      text = text,
       graphics = lg,
       windowStyles = FieldSignpostFixture.styles(),
     })
   end)
   Assert.isTrue(Errors.is(err) and err.code == "FIELD_UI_WAYFINDING_MISSING", "raises FIELD_UI_WAYFINDING_MISSING")
   Assert.equal(#lg.images, 1, "only the font atlas image exists when the wayfinding read fails")
-  Assert.equal(lg.images[1].released, true, "the atlas was released")
+  Assert.equal(lg.images[1].released, false, "the caller-owned text renderer atlas stays alive")
+  text:release()
 end
 
--- A quad failure after all three images were created must release every
--- acquired image before the constructor rethrows.
+-- A quad failure after the strip and wayfinding images were created must
+-- release every image this renderer acquired before the constructor
+-- rethrows (the three glyph quads belong to the caller-owned text renderer
+-- and succeed first).
 function T.constructor_failure_releases_all_acquired_images()
   local lg = fakeGraphics({
     imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } },
-    failOnQuadCall = 1,
+    failOnQuadCall = 4,
   })
+  local text = withTextRenderer(uiCache(), lg)
   local err = Assert.throws(function()
     FieldSignpostRenderer.new({
       cacheFs = uiCache(),
+      text = text,
       graphics = lg,
       windowStyles = FieldSignpostFixture.styles(),
     })
   end)
   Assert.isTrue(tostring(err):find("injected newQuad failure", 1, true) ~= nil, "rethrows the quad failure")
   Assert.equal(#lg.images, 3, "atlas, strip, and wayfinding were created before the failure")
-  Assert.equal(lg.images[1].released, true, "the atlas was released")
+  Assert.equal(lg.images[1].released, false, "the caller-owned text renderer atlas stays alive")
   Assert.equal(lg.images[2].released, true, "the strip was released")
   Assert.equal(lg.images[3].released, true, "the wayfinding atlas was released")
+  text:release()
 end
 
--- The renderer owns exactly the font atlas, the signpost strip, and the
--- wayfinding atlas; a full-width draw creates nothing more.
+-- The renderer owns exactly the signpost strip and the wayfinding atlas
+-- (the font atlas belongs to the shared text renderer); a full-width draw
+-- creates nothing more.
 function T.loads_exactly_the_three_owned_images()
   local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
@@ -660,9 +692,14 @@ end
 -- Release frees every owned image; a later draw is a no-op.
 function T.release_frees_all_owned_images_and_noops_drawing()
   local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
-  local r = renderer(lg)
+  local text = withTextRenderer(uiCache(), lg)
+  local r = FieldSignpostRenderer.new({
+    cacheFs = uiCache(),
+    text = text,
+    graphics = lg,
+    windowStyles = FieldSignpostFixture.styles(),
+  })
   r:release()
-  Assert.equal(lg.images[1].released, true)
   Assert.equal(lg.images[2].released, true)
   Assert.equal(lg.images[3].released, true)
   r:draw(
@@ -670,6 +707,7 @@ function T.release_frees_all_owned_images_and_noops_drawing()
     FieldViewport.new(256, 192, { mode = "expanded" })
   )
   Assert.equal(#lg.draws, 0, "drawing after release is a no-op")
+  text:release()
 end
 
 return { tests = T }

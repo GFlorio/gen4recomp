@@ -71,10 +71,11 @@ FieldDialogueTheme.cursor = {
 
 -- Colors (project-owned window; the extracted glyph atlas bakes
 -- its own ink/shadow/background colors, so text is drawn unmodified; the
--- HGSS user-frame artwork carries its own baked colors).
+-- HGSS user-frame artwork carries its own baked colors). The cursor color
+-- belongs to the dialogue presentation; developer-aid marker text uses the
+-- shared FieldTextRenderer marker color.
 FieldDialogueTheme.colors = {
   cursor = { 0.10, 0.12, 0.30, 1 },
-  marker = { 0.55, 0.25, 0.10, 1 },
 }
 
 -- The audited DrawFrameAndWindow2 tilemap: every tile of the user-frame

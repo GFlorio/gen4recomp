@@ -22,6 +22,7 @@
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
+local FieldDrawState = require("libs.engine.src.FieldDrawState")
 
 ---@class StartMenuRenderer
 ---@field _graphics love.Graphics
@@ -75,7 +76,6 @@ function StartMenuRenderer.new(opts)
     or #startMenu.cursor.frames < 1
     or type(startMenu.slots) ~= "table"
     or next(startMenu.slots) == nil
-    or type(startMenu.icons) ~= "table"
   then
     Errors.raise(FieldErrors.FIELD_UI_MANIFEST_INVALID, "field UI manifest has no start menu surface", {})
   end
@@ -103,7 +103,6 @@ function StartMenuRenderer.new(opts)
     menu = {
       background = startMenu.background,
       slots = startMenu.slots,
-      icons = startMenu.icons,
       cursor = { frames = startMenu.cursor.frames },
     },
   }, StartMenuRenderer)
@@ -213,14 +212,7 @@ function StartMenuRenderer:draw(presentation, placement)
   )
   local lg = assert(self._graphics)
 
-  local canvas = lg.getCanvas()
-  local shader = lg.getShader()
-  local blendMode, blendAlpha = lg.getBlendMode()
-  local depthMode, depthWrite = lg.getDepthMode()
-  local wireframe = lg.isWireframe()
-  local cullMode = lg.getMeshCullMode()
-  local color = { lg.getColor() }
-  local scissorX, scissorY, scissorW, scissorH = lg.getScissor()
+  local drawState = FieldDrawState.save(lg)
 
   local pushed = false
   local ok, err = pcall(function()
@@ -245,24 +237,7 @@ function StartMenuRenderer:draw(presentation, placement)
     lg.pop()
   end
 
-  lg.setCanvas(canvas)
-  lg.setShader(shader)
-  if blendMode then
-    lg.setBlendMode(blendMode, blendAlpha)
-  end
-  if depthMode then
-    lg.setDepthMode(depthMode, depthWrite)
-  end
-  lg.setWireframe(wireframe)
-  if cullMode then
-    lg.setMeshCullMode(cullMode)
-  end
-  lg.setColor(color[1], color[2], color[3], color[4])
-  if scissorX then
-    lg.setScissor(scissorX, scissorY, scissorW, scissorH)
-  else
-    lg.setScissor()
-  end
+  FieldDrawState.restore(lg, drawState)
 
   if not ok then
     error(err)
@@ -280,14 +255,15 @@ function StartMenuRenderer:release()
   self._backgroundQuad, self._cursorQuads = nil, nil
 end
 
--- The resolved manifest surface: background rect, logical slot rects, the
--- action-id -> icon-index mapping, and the cursor frames (rects plus
--- fixed-tick durations).
+-- The resolved manifest surface: background rect, logical slot rects, and
+-- the cursor frames (rects plus fixed-tick durations). The action-icon art
+-- is baked into the background PNG; the manifest's icons mapping stays the
+-- authority for action-id -> icon-index but the renderer never draws icons
+-- separately.
 
 ---@class StartMenuRenderer.Menu
 ---@field background FieldDialogueTheme.Rect
 ---@field slots table<integer, FieldDialogueTheme.Rect>
----@field icons table<string, integer>
 ---@field cursor { frames: { x: integer, y: integer, width: integer, height: integer, duration: integer }[] }
 
 return StartMenuRenderer

@@ -32,6 +32,7 @@ local SCAN_ROOTS = {
 }
 
 local SPEC_NUMBER_PATTERN = "spec %d+%.%d+"
+local SPEC_SECTION_PATTERN = "§ ?%d+%.%d+"
 
 local function readFile(path)
   local handle = assert(io.open(path, "r"), "cannot read " .. path)
@@ -58,20 +59,22 @@ function T.tests.no_temporary_spec_number_references_in_source()
   local violations = {}
   for _, path in ipairs(luaFiles()) do
     local contents = readFile(path)
-    local from = 1
-    while true do
-      local first, last = contents:find(SPEC_NUMBER_PATTERN, from)
-      if first == nil then
-        break
-      end
-      local line = 1
-      for i = 1, first do
-        if contents:sub(i, i) == "\n" then
-          line = line + 1
+    for _, pattern in ipairs({ SPEC_NUMBER_PATTERN, SPEC_SECTION_PATTERN }) do
+      local from = 1
+      while true do
+        local first, last = contents:find(pattern, from)
+        if first == nil then
+          break
         end
+        local line = 1
+        for i = 1, first do
+          if contents:sub(i, i) == "\n" then
+            line = line + 1
+          end
+        end
+        violations[#violations + 1] = path .. ":" .. line
+        from = last + 1
       end
-      violations[#violations + 1] = path .. ":" .. line
-      from = last + 1
     end
   end
   if #violations > 0 then

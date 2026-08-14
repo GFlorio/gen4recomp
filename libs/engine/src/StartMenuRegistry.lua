@@ -2,7 +2,7 @@
 -- descriptors (id, label, icon, targetApplication, placement) that carry no
 -- UI callback, and the registry is sealed before the first menu open.
 -- Placement constraints (before/after) resolve against the full semantic
--- canonical order (§29.1: the order the policy's build sequence defines, not
+-- canonical order (the order the policy's build sequence defines, not
 -- the currently visible subset, so an anchor stays meaningful while a
 -- neighboring canonical destination is absent). Duplicates, the reserved
 -- vanilla.* ids, unknown anchors, and placement cycles are rejected with
@@ -16,7 +16,7 @@ local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
 
 ---@class StartMenuRegistryOptions
----@field canonicalIds string[] the full semantic canonical action ids in build order (§29.1)
+---@field canonicalIds string[] the full semantic canonical action ids in build order
 ---@field capacity integer the generated action slot capacity (manifest slots minus the cancel slot)
 
 ---@class StartMenuRegistry
@@ -224,7 +224,7 @@ local function requireSealed(self)
 end
 
 -- Merges the sealed mod actions into the StartMenuPolicy build output. The
--- mod entries carry the same §20 projections as canonical entries (a missing
+-- mod entries carry the same visibility projections as canonical entries (a missing
 -- optional target is a capability-disabled action, never a selection-time
 -- failure). Display positions are assigned over the present entries in the
 -- merged order, with the reserved Pokégear-family positions 7/8 untouched;

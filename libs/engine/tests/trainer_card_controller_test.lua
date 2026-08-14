@@ -1,8 +1,8 @@
--- TrainerCardController contract tests: the §29.1 close-input-only card
+-- TrainerCardController contract tests: the close-input-only card
 -- controller. It owns no Start Menu internals: a cancel edge records exactly
 -- one { kind = "close" } result and requests the card's cancel effect once;
 -- every foreign input (directions/confirm/menu/pointers) changes nothing; the
--- status carries the full §29.1 model projection (the three authoritative
+-- status carries the full model projection (the three authoritative
 -- profile fields and the explicit nil optional fields) so the renderer can
 -- choose the audited blank presentation; dispose is idempotent and discards a
 -- pending result; construction requires the model and the audio facade.

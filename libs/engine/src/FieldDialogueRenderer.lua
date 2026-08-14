@@ -3,60 +3,55 @@
 -- index resolved from the generated field-UI manifest and drawn by the
 -- DrawFrameAndWindow2 tilemap), the extracted glyph atlas text (ink and
 -- shadow baked at import time), and a blinking continue cursor. It owns the
--- font definition, the font atlas, and the frame strip Images; builds glyph
--- quads once and frame quads lazily per frame index; draws after the 3D
--- world pass; and restores every graphics state it touches (canvas, shader,
--- scissor, blend, depth, color). Presentation-only by design: FieldFontLoader
--- owns runtime font definitions and the generated manifest owns frame rects.
--- Construction is failure-safe: a missing manifest or frame strip is a typed
--- error, a quad failure after the images were created releases the acquired
--- images before rethrowing, and draw() balances its transform push even when
--- drawing raises.
+-- frame strip image and builds frame quads lazily per frame index; the
+-- shared FieldTextRenderer (owned by FieldState) draws the glyph text. It
+-- draws after the 3D world pass and restores every graphics state it
+-- touches (canvas, shader, scissor, blend, depth, color). Presentation-only
+-- by design: FieldFontLoader owns runtime font definitions and the generated
+-- manifest owns frame rects. Construction is failure-safe: a missing
+-- manifest or frame strip is a typed error, a quad failure after the images
+-- were created releases the acquired images before rethrowing, and draw()
+-- balances its transform push even when drawing raises.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
-local FieldFontCache = require("libs.assets.src.FieldFontCache")
-local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
-local FieldMessageText = require("libs.assets.src.FieldMessageText")
+local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
+local FieldDrawState = require("libs.engine.src.FieldDrawState")
 
 ---@class FieldDialogueRenderer
 ---@field _cacheFs CacheFs
 ---@field _theme FieldDialogueTheme
 ---@field _graphics love.Graphics
----@field fontId integer
----@field fontDef FieldFontDef
----@field atlas love.Image?
----@field _quads table<integer, love.Quad>?
+---@field _text FieldTextRenderer the shared glyph atlas/line drawing collaborator
 ---@field _manifest table|nil the generated field-UI manifest
 ---@field _frameImage love.Image?
 ---@field _frameQuadCache table<integer, love.Quad[]>|nil per-frame tile quads, built lazily
 local FieldDialogueRenderer = {}
 FieldDialogueRenderer.__index = FieldDialogueRenderer
 
--- opts.cacheFs: version-scoped private cache holding the compiled font def,
--- the font atlas PNG, and the generated field-UI class (manifest + frame
--- strip); opts.graphics: injectable LÖVE graphics namespace; opts.theme:
--- geometry record.
+-- opts.cacheFs: version-scoped private cache holding the generated field-UI
+-- class (manifest + frame strip); opts.text: the shared FieldTextRenderer
+-- (FieldState owns exactly one); opts.graphics: injectable LÖVE graphics
+-- namespace; opts.theme: geometry record.
 
----@param opts { cacheFs: CacheFs, fontId?: integer, theme?: FieldDialogueTheme, graphics?: love.Graphics? }
+---@param opts { cacheFs: CacheFs, text: FieldTextRenderer, theme?: FieldDialogueTheme, graphics?: love.Graphics? }
 ---@return FieldDialogueRenderer
 function FieldDialogueRenderer.new(opts)
   assert(
     type(opts) == "table" and opts.cacheFs and opts.cacheFs.loadLua,
     "FieldDialogueRenderer requires a CacheFs-shaped object"
   )
-  local fontId = opts.fontId or 0
   local theme = opts.theme or FieldDialogueTheme
   local graphics = opts.graphics
   if graphics == nil then
     graphics = love and love.graphics
   end
   assert(graphics and graphics.newImage and graphics.newQuad, "FieldDialogueRenderer requires love.graphics")
+  local text = opts.text
+  assert(text and type(text.drawLine) == "function", "FieldDialogueRenderer requires the shared FieldTextRenderer")
   local cacheFs = opts.cacheFs
-
-  local def = FieldFontLoader.load(cacheFs, fontId)
 
   -- The generated field-UI class is a required renderer asset: the manifest
   -- names the frame strip and every frame's tile rects. The runtime boot
@@ -83,24 +78,12 @@ function FieldDialogueRenderer.new(opts)
     _cacheFs = cacheFs,
     _theme = theme,
     _graphics = graphics,
-    fontId = fontId,
-    fontDef = def,
-    atlas = nil,
-    _quads = nil,
+    _text = text,
     _manifest = manifest,
     _frameImage = nil,
     _frameQuadCache = nil,
   }, FieldDialogueRenderer)
 
-  local data = cacheFs:read(FieldFontCache.atlasPath(fontId))
-  if not data then
-    Errors.raise(
-      FieldErrors.FONT_ATLAS_MISSING,
-      "font atlas missing at " .. FieldFontCache.atlasPath(fontId),
-      { fontId = fontId, path = FieldFontCache.atlasPath(fontId) }
-    )
-  end
-  self.atlas = graphics.newImage(love.filesystem.newFileData(data, FieldFontCache.atlasPath(fontId)))
   local frameImagePath = frameAsset.image
   local frameData = cacheFs:read(frameImagePath)
   if not frameData then
@@ -112,27 +95,14 @@ function FieldDialogueRenderer.new(opts)
     )
   end
   local ok, err = pcall(function()
-    self.atlas:setFilter("nearest", "nearest")
     self._frameImage = graphics.newImage(love.filesystem.newFileData(frameData, frameImagePath))
     self._frameImage:setFilter("nearest", "nearest")
-    self:_buildQuads()
   end)
   if not ok then
     self:release()
     error(err)
   end
   return self
-end
-
-function FieldDialogueRenderer:_buildQuads()
-  local lg = assert(self._graphics)
-  local atlas = assert(self.atlas)
-  local width, height = atlas:getWidth(), atlas:getHeight()
-  local quads = {}
-  for code, glyph in pairs(self.fontDef.glyphs) do
-    quads[code] = lg.newQuad(glyph.x, glyph.y, glyph.w, glyph.h, width, height)
-  end
-  self._quads = quads
 end
 
 -- The 18 tile quads of one frame: each 8x8 tile of the strip row named by
@@ -156,96 +126,6 @@ function FieldDialogueRenderer:_buildFrameQuads(frameIndex, rect)
   end
   self._frameQuadCache = cache
   return quads
-end
-
--- Converts marker text to glyph runs through the compiled charmap.
--- Characters without a glyph render the compiled fallback glyph; marker text
--- is developer aid, never silently dropped.
-
----@param text string
----@return FieldDialogueRenderer.GlyphRun[]
-function FieldDialogueRenderer:_glyphRuns(text)
-  local runs = {}
-  for i = 1, #text do
-    local char = text:sub(i, i)
-    local code = self.fontDef.charmap[char]
-    if not code then
-      code = 0
-    end
-    local glyph = self.fontDef.glyphs[code] or self.fontDef.glyphs[0]
-    runs[#runs + 1] = {
-      quad = self._quads[code],
-      advance = glyph.advance + (self.fontDef.letterSpacing or 0),
-    }
-  end
-  return runs
-end
-
--- Draws one marker token's text (substitution/style/wait/unsupported) in the
--- marker color. Marker text keeps its measured layout width, so it never
--- overlaps the following glyphs; the color makes it unmistakably a marker.
-
----@param tokens MessageToken[]
----@param x number
----@param y number
----@param advanceX number[]
-function FieldDialogueRenderer:_drawMarkerTokens(tokens, x, y, advanceX)
-  local lg = assert(self._graphics)
-  local atlas = assert(self.atlas)
-  local color = self._theme.colors.marker
-  lg.setColor(color[1], color[2], color[3], color[4])
-  for _, token in ipairs(tokens) do
-    local runs = self:_glyphRuns(FieldMessageText.tokensToText({ token }))
-    for _, run in ipairs(runs) do
-      if run.quad then
-        lg.draw(self.atlas, run.quad, x, y)
-      end
-      x = x + run.advance
-    end
-    advanceX[1] = x
-  end
-end
-
--- Draws one page line at the reference-canvas position: glyphs through the
--- atlas (identity tint: the compiled ink/shadow/background colors are baked),
--- non-glyph tokens as compact markers.
-
----@param tokens MessageToken[]
----@param x number
----@param y number
-function FieldDialogueRenderer:_drawLine(tokens, x, y)
-  local lg = assert(self._graphics)
-  local atlas = assert(self.atlas)
-  local advanceX = { x }
-  local markers = {}
-  lg.setColor(1, 1, 1, 1)
-  for _, token in ipairs(tokens) do
-    if token.kind == "glyph" then
-      self:_flushMarkers(markers, advanceX, y)
-      local quad = self._quads[token.code] or self._quads[0]
-      if quad then
-        lg.draw(atlas, quad, advanceX[1], y)
-      end
-      local glyph = self.fontDef.glyphs[token.code] or self.fontDef.glyphs[0]
-      advanceX[1] = advanceX[1] + glyph.advance + (self.fontDef.letterSpacing or 0)
-    else
-      markers[#markers + 1] = token
-    end
-  end
-  self:_flushMarkers(markers, advanceX, y)
-end
-
----@param markers MessageToken[]
----@param advanceX number[]
----@param y number
-function FieldDialogueRenderer:_flushMarkers(markers, advanceX, y)
-  if #markers == 0 then
-    return
-  end
-  self:_drawMarkerTokens(markers, advanceX[1], y, advanceX)
-  for i = 1, #markers do
-    markers[i] = nil
-  end
 end
 
 -- Draws the continue cursor at the text area's bottom-right while the
@@ -304,27 +184,20 @@ function FieldDialogueRenderer:_drawFrame(status, layout)
 end
 
 -- Draws the dialogue into viewport.referenceFrame. No-op (and no state
--- touched) when the controller is closed or this renderer has no atlas.
+-- touched) when the controller is closed or this renderer is disposed.
 -- Restores canvas, shader, scissor, blend, depth, wireframe, cull, and color
 -- afterwards so the HUD and host overlays draw normally.
 
 ---@param controller FieldDialogueController
 ---@param viewport { referenceFrame: FieldDialogueTheme.Rect }
 function FieldDialogueRenderer:draw(controller, viewport)
-  if not controller or not controller:isModal() or not self.atlas then
+  if not controller or not controller:isModal() or not self._frameImage then
     return
   end
   local lg = assert(self._graphics)
   local status = controller:status()
 
-  local canvas = lg.getCanvas()
-  local shader = lg.getShader()
-  local blendMode, blendAlpha = lg.getBlendMode()
-  local depthMode, depthWrite = lg.getDepthMode()
-  local wireframe = lg.isWireframe()
-  local cullMode = lg.getMeshCullMode()
-  local color = { lg.getColor() }
-  local scissorX, scissorY, scissorW, scissorH = lg.getScissor()
+  local drawState = FieldDrawState.save(lg)
 
   local pushed = false
   local ok, err = pcall(function()
@@ -339,7 +212,7 @@ function FieldDialogueRenderer:draw(controller, viewport)
     self:_drawFrame(status, layout)
     local lineY = layout.text.y
     for _, tokens in ipairs(status.visibleLines) do
-      self:_drawLine(tokens, layout.text.x, lineY)
+      self._text:drawLine(tokens, layout.text.x, lineY)
       lineY = lineY + layout.lineHeight
     end
     self:_drawCursor(status, layout)
@@ -353,24 +226,7 @@ function FieldDialogueRenderer:draw(controller, viewport)
     lg.pop()
   end
 
-  lg.setCanvas(canvas)
-  lg.setShader(shader)
-  if blendMode then
-    lg.setBlendMode(blendMode, blendAlpha)
-  end
-  if depthMode then
-    lg.setDepthMode(depthMode, depthWrite)
-  end
-  lg.setWireframe(wireframe)
-  if cullMode then
-    lg.setMeshCullMode(cullMode)
-  end
-  lg.setColor(color[1], color[2], color[3], color[4])
-  if scissorX then
-    lg.setScissor(scissorX, scissorY, scissorW, scissorH)
-  else
-    lg.setScissor()
-  end
+  FieldDrawState.restore(lg, drawState)
 
   if not ok then
     error(err)
@@ -378,21 +234,11 @@ function FieldDialogueRenderer:draw(controller, viewport)
 end
 
 function FieldDialogueRenderer:release()
-  if self.atlas and self.atlas.release then
-    self.atlas:release()
-  end
   if self._frameImage and self._frameImage.release then
     self._frameImage:release()
   end
-  self.atlas, self._frameImage = nil, nil
-  self._quads, self._frameQuadCache = nil, nil
+  self._frameImage = nil
+  self._frameQuadCache = nil
 end
-
--- One positioned glyph of marker text: the atlas quad and the advance to the
--- next run.
-
----@class FieldDialogueRenderer.GlyphRun
----@field quad love.Quad?
----@field advance number
 
 return FieldDialogueRenderer

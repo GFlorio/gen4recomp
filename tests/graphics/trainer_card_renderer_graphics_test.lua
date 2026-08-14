@@ -13,6 +13,7 @@ local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 local TrainerCardRenderer = require("libs.engine.src.TrainerCardRenderer")
+local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 
 local T = {}
@@ -24,7 +25,7 @@ local function canonicalViewport()
   return FieldViewport.new(CANONICAL_WIDTH, CANONICAL_HEIGHT, { mode = "expanded" })
 end
 
--- The demo §29.1 presentation.
+-- The demo presentation.
 local function demoPresentation()
   return {
     open = true,
@@ -48,7 +49,8 @@ end
 ---@return love.ImageData
 local function canonicalRender(scope, cacheFs, presentation)
   local lg = love.graphics
-  local renderer = scope:own(TrainerCardRenderer.new({ cacheFs = cacheFs }))
+  local text = scope:own(FieldTextRenderer.new({ cacheFs = cacheFs }))
+  local renderer = scope:own(TrainerCardRenderer.new({ cacheFs = cacheFs, text = text }))
   local canvas = scope:own(lg.newCanvas(CANONICAL_WIDTH, CANONICAL_HEIGHT))
   lg.setCanvas(canvas)
   lg.clear(0, 0, 0, 0)
@@ -315,7 +317,11 @@ end
 
 function T.restores_graphics_state_after_draw(scope)
   local lg = love.graphics
-  local renderer = scope:own(TrainerCardRenderer.new({ cacheFs = FieldUiFixture.trainerCardCache() }))
+  local text = scope:own(FieldTextRenderer.new({ cacheFs = FieldUiFixture.trainerCardCache() }))
+  local renderer = scope:own(TrainerCardRenderer.new({
+    cacheFs = FieldUiFixture.trainerCardCache(),
+    text = text,
+  }))
 
   local canvas = scope:own(lg.newCanvas(64, 64))
   local shader = lg.getShader()
@@ -357,11 +363,14 @@ end
 -- Release is the contract here; it is still scoped so a failed assertion does
 -- not leak the renderer. The scope's later release exercises repeat safety.
 function T.release_frees_the_owned_images(scope)
-  local renderer = scope:own(TrainerCardRenderer.new({ cacheFs = FieldUiFixture.trainerCardCache() }))
+  local text = scope:own(FieldTextRenderer.new({ cacheFs = FieldUiFixture.trainerCardCache() }))
+  local renderer = scope:own(TrainerCardRenderer.new({
+    cacheFs = FieldUiFixture.trainerCardCache(),
+    text = text,
+  }))
 
   renderer:release()
 
-  Assert.isNil(renderer._atlas)
   Assert.isNil(renderer._cardImage)
 end
 

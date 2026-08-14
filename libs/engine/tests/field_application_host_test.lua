@@ -22,7 +22,7 @@ local function throws(fn)
   return Assert.throws(fn)
 end
 
--- A minimal controller honoring the §17.1 contract; the test drives its
+-- A minimal controller honoring the controller contract; the test drives its
 -- result through takeResult.
 local function fakeController(overrides)
   local controller = {
@@ -207,7 +207,7 @@ function T.tests.application_steps_the_destination_once_per_tick_until_close()
   Assert.equal(destination.updateFixedCalls, 3)
 end
 
--- The §17.1 renderer channel: during the application phase the host snapshot
+-- The renderer channel: during the application phase the host snapshot
 -- exposes the destination's own presentation (status.application), and the
 -- menu phase / fade phases expose no application surface even while the
 -- destination id is known. FieldState chooses the renderer from this channel.

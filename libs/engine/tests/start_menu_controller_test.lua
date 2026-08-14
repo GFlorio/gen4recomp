@@ -3,7 +3,7 @@
 -- capability visibility per product mode), selection with remembered-action
 -- restore, confirm/cancel/menu-key close, touch/pointer slot selection with
 -- down/up-mismatch and drag discrimination, the fixed-tick cursor animation
--- step, and the three §21.1 semantic sound requests through a required
+-- step, and the three semantic sound requests through a required
 -- application-audio facade (injected recorder; the controller never names a
 -- ROM sequence and never touches love). No application launches happen here:
 -- the controller records the takeResult contract and the host launches.
@@ -18,7 +18,7 @@ local T = {}
 local SLOTS = FieldUiFixture.START_MENU_SLOTS
 local CURSOR_FRAMES = FieldUiFixture.START_MENU_CURSOR_FRAMES
 
--- Full-progression normal-field policy entries: every §19 action present,
+-- Full-progression normal-field policy entries: every action present,
 -- every progression gate open. Visible with the matching capabilities:
 -- pokedex..options at display positions 0..6, special 9 at 7 (overwriting the
 -- running-shoes slot), special 10 at 8. Slot ids are the touch ids: cancel is
@@ -482,7 +482,7 @@ function T.pointer_capture_ignores_other_pointers()
   })
 end
 
--- §22.1/§41: a resize cancels the active pointer capture, so a press held
+-- A resize cancels the active pointer capture, so a press held
 -- across a layout change cannot activate a different post-resize slot.
 function T.cancel_pointer_capture_discards_the_held_press()
   local controller = newController()

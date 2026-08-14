@@ -7,13 +7,13 @@
 -- landed at positions 7/8), the generated manifest slot surface (the 2x5 slot
 -- grid keyed by the source touch-menu ids: slot 1 is the cancel region and
 -- touch ids 2..10 are display positions 0..8, StartMenu_HandleTouchInput
--- start_menu.c:613-659), and the generated cursor frames. The §21.1 sound
+-- start_menu.c:613-659), and the generated cursor frames. The semantic sound
 -- requests (start_menu.open/select/cancel) are emitted through a required
 -- application-audio facade; the controller never touches love and never names
 -- a ROM sequence or member number. Pointer events carry canonical logical
 -- coordinates (0..255 x 0..191); the layout host maps host coordinates before
 -- feeding the controller. No application launches happen here: the controller
--- records the §17.1 takeResult contract ({ kind = "close" } /
+-- records the takeResult contract ({ kind = "close" } /
 -- { kind = "launch", applicationId }) and the application host launches.
 
 local StartMenuCursorAnimation = require("libs.engine.src.StartMenuCursorAnimation")
@@ -59,7 +59,7 @@ local function assertInteger(value, name)
   assert(value == math.floor(value), name .. " must be an integer")
 end
 
--- Whether the entry is visible in the given product mode: the §20 projections
+-- Whether the entry is visible in the given product mode: the visibility projections
 -- (normalVisible = present and capabilityAvailable; developerVisible =
 -- present), never a re-implementation of the policy.
 ---@param entry table
@@ -175,8 +175,8 @@ local function orderedIndexAt(ordered, position)
   error("selection position is not in the visible action list", 2)
 end
 
--- Restores the remembered selection by action id (§38); falls back to the
--- first enabled action, then the first visible action (§27.1).
+-- Restores the remembered selection by action id; falls back to the
+-- first enabled action, then the first visible action.
 ---@param ordered table[]
 ---@param rememberedActionId string?
 ---@return integer position
@@ -205,7 +205,7 @@ end
 ---@field slotId integer manifest slot id
 
 -- opts.entries: the StartMenuPolicy build output (or the composition step's
--- resolved entry list of the same shape). opts.development: the §20 product
+-- resolved entry list of the same shape). opts.development: the product
 -- mode. opts.slots: the generated manifest startMenu.slots. opts.cursorFrames:
 -- the generated manifest startMenu.cursor.frames. opts.audio: the required
 -- application-audio facade (play(requestId)). opts.rememberedActionId: the
@@ -293,7 +293,7 @@ end
 -- the availability gate, so a disabled entry still requests the select sound
 -- but records nothing (FieldSystem_StartMenuActionIsAvailable, start_menu.c).
 -- The launch result carries the action id so the application host can
--- restore the selection by id when the child application returns (§27.1).
+-- restore the selection by id when the child application returns.
 function StartMenuController:_activate(position)
   self._audio:play(StartMenuController.SOUND_SELECT)
   local action = assert(self._visibleActions[position], "cannot activate an empty display position")
@@ -424,7 +424,7 @@ function StartMenuController:status()
   }
 end
 
--- The §17.1 result contract: nil until a terminal event, then exactly one
+-- The result contract: nil until a terminal event, then exactly one
 -- { kind = "close" } or { kind = "launch", applicationId }.
 ---@return { kind: "close"|"launch", applicationId?: string }?
 function StartMenuController:takeResult()
@@ -444,7 +444,7 @@ function StartMenuController:dispose()
   self._closed = true
 end
 
--- §22.1/§41 resize contract: a press held across a layout change must not
+-- The resize contract: a press held across a layout change must not
 -- activate a different post-resize slot, so the application host cancels an
 -- active pointer capture when the screen topology changes.
 function StartMenuController:cancelPointerCapture()

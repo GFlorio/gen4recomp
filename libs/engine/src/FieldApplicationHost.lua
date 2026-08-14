@@ -1,7 +1,7 @@
 -- The one application modal owner the field session steps: it owns the
 -- active application ID and controller, the transition phase machine
 -- (closed/opening_menu/menu/fading_out/application/fading_in/closing_menu,
--- plus the terminal failed state for §27.1 factory/composition failures),
+-- plus the terminal failed state for factory/composition failures),
 -- the Start Menu selection remembered across a child-application round
 -- trip, the modal input lifetime (beginUi once at open, clearUi once on
 -- final field return or disposal), dispatch through the sealed
@@ -42,8 +42,8 @@ FieldApplicationHost.__index = FieldApplicationHost
 -- fade length; the counter is the single fadeAlpha authority.
 FieldApplicationHost.FADE_TICKS = 12
 
--- The normal lifecycle phases (§17.1) plus the terminal failure state
--- (§27.1: "leave the runtime in one terminally consistent state").
+-- The normal lifecycle phases plus the terminal failure state
+-- (the runtime is left in one terminally consistent state).
 FieldApplicationHost.PHASES = {
   closed = "closed",
   opening_menu = "opening_menu",
@@ -84,11 +84,11 @@ function FieldApplicationHost.new(options)
   }, FieldApplicationHost)
 end
 
--- The §17.1/§41 presentation snapshot: the phase, the host-owned fade
+-- The presentation snapshot: the phase, the host-owned fade
 -- alpha, the active application id (while a destination owns the tick or is
 -- being entered/left), the Start Menu presentation status while the menu
 -- phases run, and the active destination's own presentation status while
--- the application phase runs (the §17.1 renderer channel: FieldState
+-- the application phase runs (the renderer channel: FieldState
 -- chooses the destination renderer from this snapshot; only the one active
 -- modal surface is presented).
 ---@return { phase: string, fadeAlpha: number, applicationId?: string, menu?: table, application?: table }
@@ -341,7 +341,7 @@ end
 -- When the world is hidden the Start Menu presentation is disposed exactly
 -- once and the destination is constructed through the registry; the
 -- destination receives its first step in its construction tick with no
--- events -- menu input was frozen for the whole fade (§27.1), so presses
+-- events -- menu input was frozen for the whole fade, so presses
 -- from the fade period must never reach the destination.
 ---@param tick integer
 ---@param uiInput table[]
@@ -355,7 +355,7 @@ function FieldApplicationHost:_stepFadeOut(tick, uiInput)
   local applicationId = assert(self._applicationId, "the fade-out requires the destination id")
   local ok, controller = pcall(self._registry.create, self._registry, applicationId)
   if not ok then
-    -- §27.1: retain the original error, release anything the failed
+    -- Retain the original error, release anything the failed
     -- factory/host acquired, and leave the runtime terminally consistent.
     self:_fail(controller)
     return

@@ -276,7 +276,6 @@ function T.resolves_the_start_menu_section_from_the_manifest()
   for id, rect in pairs(manifest.slots) do
     Assert.deepEqual(renderer.menu.slots[id], rect, "slot " .. id .. " comes from the manifest")
   end
-  Assert.deepEqual(renderer.menu.icons, manifest.icons, "the icon mapping comes from the manifest")
   Assert.equal(#renderer.menu.cursor.frames, #manifest.cursor.frames, "every cursor frame is resolved")
   for index, frame in ipairs(manifest.cursor.frames) do
     Assert.deepEqual(renderer.menu.cursor.frames[index], frame, "cursor frame " .. index .. " comes from the manifest")

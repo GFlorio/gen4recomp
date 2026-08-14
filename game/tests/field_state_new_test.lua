@@ -1,6 +1,6 @@
 -- FieldState composition contract: the state builds the FieldRuntime options
 -- table explicitly from the documented runtime contract -- state-only options
--- (topologyProvider) never reach the runtime, while the §20 development
+-- (topologyProvider) never reach the runtime, while the development
 -- product-mode flag crosses as a runtime option -- and update drives the
 -- runtime directly, so a disposed state is a programming error, never a
 -- silent no-op.
@@ -73,7 +73,7 @@ local function bootWithCapturedRuntimeOptions(options, cache)
   return state, captured
 end
 
--- The §27.2 composition: FieldState constructs the signpost, Start Menu, and
+-- The composition: FieldState constructs the signpost, Start Menu, and
 -- Trainer Card renderers against the runtime's cache and sealed window style
 -- registry, so their GPU resources are owned and released by the state
 -- (never by controllers or the registry).
@@ -91,7 +91,7 @@ local function fieldStateOptions()
 end
 
 -- Only the documented runtime contract crosses the state boundary: adding a
--- state-only option must not silently become a runtime option. The §20
+-- state-only option must not silently become a runtime option. The
 -- development product-mode flag is part of the runtime contract (the
 -- application host consumes it), so it crosses.
 function T.only_documented_runtime_options_reach_the_runtime()

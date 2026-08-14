@@ -1,4 +1,4 @@
--- Pure idle-boundary open eligibility for the Start Menu: the §17.2 gate the
+-- Pure idle-boundary open eligibility for the Start Menu: the gate the
 -- field session consults before an open edge may acquire modal focus or the
 -- world-movement pause. The menu may open only at a settled field boundary --
 -- player idle, transition idle, no dialogue/signpost/script menu/context

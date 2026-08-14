@@ -55,7 +55,7 @@ local function fixture()
     { 0x012F, 0x0150, 0x0151, 0x01DE, 0xFFFF },
   }, 0xD191)
   -- Bank 196 (the Start Menu label bank) joined the selected set with the
-  -- field-application deliverable; one short message with its own key.
+  -- field-application slice; one short message with its own key.
   members[196] = FieldMessageBank.encodeForTests({
     { 0x012F, 0x0150, 0x0151, 0x01DE, 0xFFFF },
   }, 0xC196)

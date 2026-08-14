@@ -167,7 +167,7 @@ for _, name in ipairs(StartMenuPolicy.CONTEXTS) do
   assert(CONTEXT_MASKS[name] ~= nil, "context mask missing for " .. name)
 end
 
--- The full semantic canonical action order in build sequence (§29.1): the
+-- The full semantic canonical action order in build sequence: the
 -- mod Start Menu registry resolves before/after placement constraints
 -- against this order, never against the currently visible subset. Fresh
 -- table per call.

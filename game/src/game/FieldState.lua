@@ -7,6 +7,7 @@ local FieldActorDraw = require("libs.engine.src.FieldActorDraw")
 local FieldDialogueRenderer = require("libs.engine.src.FieldDialogueRenderer")
 local FieldMenuRenderer = require("libs.engine.src.FieldMenuRenderer")
 local FieldSignpostRenderer = require("libs.engine.src.FieldSignpostRenderer")
+local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local MapRenderer = require("libs.engine.src.MapRenderer")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
 local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
@@ -32,6 +33,7 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@field signpostRenderer FieldSignpostRenderer?
 ---@field startMenuRenderer StartMenuRenderer?
 ---@field trainerCardRenderer TrainerCardRenderer?
+---@field textRenderer FieldTextRenderer? the one shared glyph atlas the UI renderers draw through
 ---@field _startMenuLayout StartMenuLayout.Placement? the placement record for the current topology (rendering and the application fade)
 ---@field presentationActorAssets FieldActorAssetProvider?
 ---@field _presentationSpriteRefs table<integer, boolean>
@@ -62,7 +64,7 @@ end
 function FieldState.new(versionId, mapIdOrSymbol, options)
   options = options or {}
   -- Only the documented runtime contract crosses the boundary: development
-  -- is the §20 product-mode flag the application host consumes (a state-only
+  -- is the product-mode flag the application host consumes (a state-only
   -- option such as topologyProvider must never become a runtime option).
   local runtimeOptions = {
     resumeSave = options.resumeSave == true,
@@ -90,18 +92,25 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
   }, FieldState)
   local ok, err = pcall(function()
     self.renderer = MapRenderer.new({ clearColor = WindowConfig.BACKGROUND_COLOR })
-    self.dialogueRenderer = FieldDialogueRenderer.new({ cacheFs = runtime.cacheFs })
+    -- The one shared field-font atlas: dialogue, signpost, and Trainer Card
+    -- text all draw through it; the state owns and releases it exactly once.
+    self.textRenderer = FieldTextRenderer.new({ cacheFs = runtime.cacheFs })
+    self.dialogueRenderer = FieldDialogueRenderer.new({ cacheFs = runtime.cacheFs, text = self.textRenderer })
     self.menuRenderer = FieldMenuRenderer.new()
-    -- The §27.2 composition: the signpost renderer resolves its per-type
-    -- geometry through the sealed window style registry, the Start Menu and
-    -- Trainer Card renderers draw the generated application surfaces. The
-    -- state owns and releases their GPU resources; controllers stay pure.
+    -- The composition: the signpost renderer resolves its per-type geometry
+    -- through the sealed window style registry, the Start Menu and Trainer
+    -- Card renderers draw the generated application surfaces. The state owns
+    -- and releases their GPU resources; controllers stay pure.
     self.signpostRenderer = FieldSignpostRenderer.new({
       cacheFs = runtime.cacheFs,
+      text = self.textRenderer,
       windowStyles = runtime.windowStyles,
     })
     self.startMenuRenderer = StartMenuRenderer.new({ cacheFs = runtime.cacheFs })
-    self.trainerCardRenderer = TrainerCardRenderer.new({ cacheFs = runtime.cacheFs })
+    self.trainerCardRenderer = TrainerCardRenderer.new({
+      cacheFs = runtime.cacheFs,
+      text = self.textRenderer,
+    })
     local width, height = love.graphics.getDimensions()
     runtime.menuHost:setScreenTopology(self.topologyProvider(width, height))
     runtime.menuHost:setPresentationMetrics(function(text)
@@ -245,7 +254,7 @@ function FieldState:draw()
     self.runtime.viewport,
     alpha
   )
-  -- The §27.2 field/application fade: the host-owned application fade covers
+  -- The field/application fade: the host-owned application fade covers
   -- the surface being transitioned (the world viewport plus the Start Menu
   -- placement frame), then the unrelated warp fade over the world viewport.
   local hostStatus = self.runtime.applicationHost:status()
@@ -537,6 +546,10 @@ function FieldState:dispose()
   if self.trainerCardRenderer then
     self.trainerCardRenderer:release()
     self.trainerCardRenderer = nil
+  end
+  if self.textRenderer then
+    self.textRenderer:release()
+    self.textRenderer = nil
   end
   self._startMenuLayout = nil
   -- Draw items borrow provider-owned GPU objects; they must not outlive the

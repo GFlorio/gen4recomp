@@ -14,6 +14,7 @@ local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 local FieldDialogueRenderer = require("libs.engine.src.FieldDialogueRenderer")
+local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local FieldDialogueController = require("libs.engine.src.FieldDialogueController")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local FieldViewport = require("libs.engine.src.FieldViewport")
@@ -24,7 +25,11 @@ local CANONICAL_WIDTH = 256
 local CANONICAL_HEIGHT = 192
 
 local function renderer(scope)
-  return scope:own(FieldDialogueRenderer.new({ cacheFs = FieldUiFixture.cacheWithFontAndFrames() }))
+  local text = scope:own(FieldTextRenderer.new({ cacheFs = FieldUiFixture.cacheWithFontAndFrames() }))
+  return scope:own(FieldDialogueRenderer.new({
+    cacheFs = FieldUiFixture.cacheWithFontAndFrames(),
+    text = text,
+  }))
 end
 
 -- Steps a fixture dialogue until its text is fully revealed and the cursor
@@ -155,12 +160,12 @@ local function assertPixelsEqual(expected, actual, label)
   end
 end
 
-function T.loads_the_font_def_and_atlas(scope)
+function T.loads_the_shared_font_and_own_frame_strip(scope)
   local dialogue = renderer(scope)
 
-  Assert.equal(dialogue.fontDef.schema, "g4-field-font-v1")
-  Assert.notNil(dialogue.atlas)
-  Assert.equal(dialogue.atlas:getWidth(), 16)
+  Assert.equal(dialogue._text.fontDef.schema, "g4-field-font-v1")
+  Assert.notNil(dialogue._text._atlas)
+  Assert.equal(dialogue._text._atlas:getWidth(), 16)
   Assert.notNil(dialogue._frameImage, "the generated frame strip is loaded")
   Assert.equal(dialogue._frameImage:getWidth(), 144)
 end
@@ -270,23 +275,26 @@ end
 
 -- Release is the contract here; it is still scoped so a failed assertion does
 -- not leak the renderer. The scope's later release exercises repeat safety.
-function T.release_frees_the_owned_atlas_and_frame_strip(scope)
-  local dialogue = scope:own(FieldDialogueRenderer.new({ cacheFs = FieldUiFixture.cacheWithFontAndFrames() }))
+function T.release_frees_the_owned_frame_strip(scope)
+  local text = scope:own(FieldTextRenderer.new({ cacheFs = FieldUiFixture.cacheWithFontAndFrames() }))
+  local dialogue = scope:own(FieldDialogueRenderer.new({
+    cacheFs = FieldUiFixture.cacheWithFontAndFrames(),
+    text = text,
+  }))
 
   dialogue:release()
 
-  Assert.isNil(dialogue.atlas)
   Assert.isNil(dialogue._frameImage)
 end
 
--- A renderer built against a cache without the atlas PNG must not report a
--- half-built object: the typed error names the missing artifact.
+-- The shared text renderer built against a cache without the atlas PNG must
+-- not report a half-built object: the typed error names the missing artifact.
 function T.a_missing_atlas_is_a_typed_error()
   local cache = FieldUiFixture.cacheWithFontAndFrames()
   cache:remove("assets/generated/field/font/font-0.png")
 
   local err = Assert.throws(function()
-    FieldDialogueRenderer.new({ cacheFs = cache })
+    FieldTextRenderer.new({ cacheFs = cache })
   end)
 
   Assert.equal(err.code, "FONT_ATLAS_MISSING")

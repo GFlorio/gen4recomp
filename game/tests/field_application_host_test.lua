@@ -165,7 +165,8 @@ end
 
 -- The per-phase disposal matrix: runtime disposal in every application
 -- phase releases the active controller exactly once, releases the modal
--- input lifetime, defers the save, and closes cleanly.
+-- input lifetime, restores the capturable boundary before the save attempt,
+-- and closes cleanly.
 function T.tests.runtime_disposal_in_every_application_phase_releases_once()
   local cases = {
     {
@@ -222,9 +223,9 @@ function T.tests.runtime_disposal_in_every_application_phase_releases_once()
       Assert.equal(game.runtime.applicationHost:status().phase, case.phase, "the journey must reach " .. case.phase)
       game:close()
       Assert.equal(
-        game.saveStatus:find("Save deferred", 1, true) ~= nil,
+        game.saveStatus:find("Field session saved", 1, true) ~= nil,
         true,
-        case.phase .. " disposal must defer the save"
+        case.phase .. " disposal must release the modal before the save attempt: " .. tostring(game.saveStatus)
       )
       local destination = registry[DESTINATION_ID]
       if case.phase == "application" then
@@ -304,7 +305,7 @@ function T.tests.the_audio_facade_routes_through_the_script_audio_seam()
   end
 end
 
--- §22.1/§41: a resize recomputes the placement and cancels an active menu
+-- A resize recomputes the placement and cancels an active menu
 -- pointer capture, so a press held across the layout change cannot activate
 -- a different post-resize slot. The production runtime exposes the resize
 -- path; the capture cancellation is observed through the activation result

@@ -71,7 +71,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field presentation boolean?
 ---@field scriptHosts table? deterministic host boundaries for script effects
 ---@field windowStyleDescriptors table[]? mod window-style descriptors registered after the built-ins and before the registry seals
----@field development boolean? §20 product mode: developer mode exposes capability-missing canonical Start Menu actions disabled; the flag is boot configuration, never persisted in FieldSave
+---@field development boolean? product mode: developer mode exposes capability-missing canonical Start Menu actions disabled; the flag is boot configuration, never persisted in FieldSave
 ---@field applicationDescriptors table[]? boot-config application factories ({ id, factory }) registered before the application registry seals
 ---@field startMenuDescriptors table[]? boot-config mod Start Menu action descriptors registered before the start menu registry seals
 
@@ -107,7 +107,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field windowStyles FieldWindowStyleRegistry the sealed per-runtime window style catalogue
 ---@field windowStyleDescriptors table[]? boot-config mod style descriptors registered before the registry seals
 ---@field scriptHosts FieldRuntimeScriptHosts?
----@field development boolean the §20 product mode (boot configuration, never persisted)
+---@field development boolean the product mode (boot configuration, never persisted)
 ---@field applicationDescriptors table[]? boot-config application factories registered before the registry seals
 ---@field startMenuDescriptors table[]? boot-config mod Start Menu action descriptors registered before the registry seals
 ---@field applications FieldApplicationRegistry the sealed per-runtime application catalogue
@@ -482,8 +482,8 @@ function FieldRuntime:_load()
         return self:_composeStartMenu(rememberedActionId)
       end,
     })
-    -- The Trainer Card viewer is the sprint's concrete destination: the
-    -- production factory composes the §29.1 read model from the authoritative
+    -- The Trainer Card viewer is the concrete destination: the
+    -- production factory composes the read model from the authoritative
     -- player-data record and the close-input-only controller. The factory
     -- must return a fully usable controller or raise.
     self.applications:register({
@@ -687,7 +687,7 @@ function FieldRuntime:releaseMenu()
   requireLiveInput(self):releaseMenu("runtime")
 end
 
--- The §21.1 application-audio facade: semantic UI sound requests route
+-- The application-audio facade: semantic UI sound requests route
 -- through the script audio seam when present (the non-rendering
 -- composition), else through the presentation UI-SFX player. Shared by the
 -- Start Menu and Trainer Card compositions; the controllers never name a
@@ -706,11 +706,11 @@ function FieldRuntime:_uiAudioFacade()
   }
 end
 
--- The Start Menu composition step: build the strict §19.1 policy snapshot
+-- The Start Menu composition step: build the strict policy snapshot
 -- from the authoritative world state and the sealed application-id set,
 -- merge the sealed mod actions, resolve every label through the message
 -- provider (the bank is acquired once and released on success or failure,
--- §18), and construct the controller with the §20 product mode and the
+-- bank), and construct the controller with the product mode and the
 -- selection remembered across a child-application round trip. The factory
 -- must return a fully usable controller or raise.
 ---@param rememberedActionId string?
@@ -1004,6 +1004,14 @@ function FieldRuntime:dispose()
   if self.signpost then
     self.signpost:dispose()
     self.signpost = nil
+  end
+  -- The application host owns the other transient modal (the Start Menu, an
+  -- application fade, or a child application): releasing it restores the
+  -- capturable idle boundary before the save attempt, so quitting mid-menu
+  -- persists the world like quitting mid-dialogue does. The release is
+  -- idempotent; the shared teardown below re-runs it as a no-op.
+  if self.applicationHost then
+    self.applicationHost:dispose()
   end
   self:saveSession("Field session saved")
   self:_releaseAll()

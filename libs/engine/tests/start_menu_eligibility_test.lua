@@ -1,4 +1,4 @@
--- Idle-boundary open eligibility for the Start Menu: the pure §17.2 gate the
+-- Idle-boundary open eligibility for the Start Menu: the pure gate the
 -- session consults before an open edge may acquire focus or movement pause.
 -- The snapshot is strict (every required key present, no `or false` defaults)
 -- and the decision contract carries the menu-wins-over-action edge rule: an

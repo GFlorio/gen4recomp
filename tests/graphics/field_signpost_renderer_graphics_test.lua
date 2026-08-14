@@ -15,6 +15,7 @@ local FieldSignpostTheme = require("libs.engine.src.FieldSignpostTheme")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
 local FieldSignpostRenderer = require("libs.engine.src.FieldSignpostRenderer")
+local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 
 local T = {}
@@ -28,8 +29,10 @@ local function quantize(v)
 end
 
 local function renderer(scope)
+  local text = scope:own(FieldTextRenderer.new({ cacheFs = FieldUiFixture.cacheWithFontAndFrames() }))
   return scope:own(FieldSignpostRenderer.new({
     cacheFs = FieldUiFixture.cacheWithFontAndFrames(),
+    text = text,
     windowStyles = FieldSignpostFixture.styles(),
   }))
 end
@@ -213,12 +216,12 @@ local function assertPixelsEqual(expected, actual, label)
   end
 end
 
-function T.loads_the_font_def_and_owned_assets(scope)
+function T.loads_the_shared_font_and_owned_assets(scope)
   local signpost = renderer(scope)
 
-  Assert.equal(signpost.fontDef.schema, "g4-field-font-v1")
-  Assert.notNil(signpost.atlas)
-  Assert.equal(signpost.atlas:getWidth(), 16)
+  Assert.equal(signpost._text.fontDef.schema, "g4-field-font-v1")
+  Assert.notNil(signpost._text._atlas)
+  Assert.equal(signpost._text._atlas:getWidth(), 16)
   Assert.notNil(signpost._tilesImage, "the signpost frame strip is loaded")
   Assert.equal(signpost._tilesImage:getWidth(), 144)
   Assert.notNil(signpost._wayfindingImage, "the wayfinding atlas is loaded")
@@ -317,7 +320,6 @@ function T.release_frees_the_owned_images(scope)
 
   signpost:release()
 
-  Assert.isNil(signpost.atlas)
   Assert.isNil(signpost._tilesImage)
   Assert.isNil(signpost._wayfindingImage)
 end
