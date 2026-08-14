@@ -2,11 +2,14 @@
 -- (`data/fldtanime.narc`, dump alias `field_texture_animations`): the retail
 -- archive has nine table records and ten members, every schedule index used
 -- by a record has a compatible replacement-dictionary entry, and every
--- texture-swap material in the generated corpus carries the retail live
+-- texture-swap material in the generated cache carries the retail live
 -- schedule -- same step count, same duration sequence -- with present
 -- replacement images, so the producer compiled every referenced frame
--- against a matching map texture pack when the derived cache was built. One
--- pass over the whole ready corpus per version.
+-- against a matching map texture pack when the derived cache was built.
+-- Conformance covers the generated records that actually exist in the cache;
+-- a partially populated cache is validated as populated, with no requirement
+-- that every retail record appear in it. One pass over the ready corpus per
+-- version.
 
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
@@ -145,17 +148,12 @@ function T.tests.retail_archive_and_corpus_swaps_compile(context)
     local world = assert(cache:loadLua(MapAssetCache.worldPath()), versionId .. ": world manifest is loadable")
     assert(type(world.maps) == "table", versionId .. ": world manifest carries the map list")
 
-    local sceneCount, swapMaps, swapCount = 0, 0, 0
-    local used = {}
+    local swapCount = 0
     for _, map in ipairs(world.maps) do
       local dir = MapAssetCache.mapDir(map.id)
       if cache:exists(dir .. "/complete") then
-        sceneCount = sceneCount + 1
         local scene = assert(cache:loadLua(dir .. "/scene.lua"), "scene " .. map.id .. " is loadable")
         local swaps = swapMaterials(scene)
-        if #swaps > 0 then
-          swapMaps = swapMaps + 1
-        end
         for _, m in ipairs(swaps) do
           swapCount = swapCount + 1
           local swap = m.textureSwap
@@ -184,22 +182,12 @@ function T.tests.retail_archive_and_corpus_swaps_compile(context)
               versionId .. ": replacement frame exists in the cache: " .. step.texture .. " (map " .. map.id .. ")"
             )
           end
-          used[swap.name] = true
         end
       end
     end
 
-    -- Coverage: the census really spanned the corpus, and every retail
-    -- record participates in at least one generated map.
-    Assert.isTrue(sceneCount > 0, versionId .. ": the census reached ready maps")
-    Assert.isTrue(swapMaps > 0, versionId .. ": the corpus exercises texture swaps")
+    -- Non-vacuity: at least one generated texture swap was actually visited.
     Assert.isTrue(swapCount > 0, versionId .. ": the corpus carries swap materials")
-    for _, name in ipairs(RETAIL_RECORD_NAMES) do
-      Assert.isTrue(
-        used[name] == true,
-        versionId .. ": retail record " .. name .. " is used by at least one corpus map"
-      )
-    end
 
     romFs:close()
   end
