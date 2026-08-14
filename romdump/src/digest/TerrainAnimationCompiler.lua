@@ -95,8 +95,10 @@ end
 -- shared content-addressed accumulator, and return the textureSwap record
 -- (or nil when no record matches, which leaves the material static and
 -- reads nothing). `record` is the MaterialCompiler record for the same
--- material: its `texture` key is the base decode, which the first live
--- schedule entry must reproduce exactly.
+-- material: its `texture` key is the base decode, and the frame-0 slot of
+-- the returned textureSwap always points at it -- the generated contract
+-- requires textures[timeline[1].textureIndex + 1] == material.texture, and
+-- the game shows the map-pack texture until the first schedule switch.
 function TerrainAnimationCompiler:annotateMaterial(modelMaterial, record, pack, textures)
   local anim = self.recordsByName[modelMaterial.textureName]
   -- An all-sentinel record has no live frames: nothing can animate, so the
@@ -180,22 +182,29 @@ function TerrainAnimationCompiler:annotateMaterial(modelMaterial, record, pack, 
         }
       )
     end
-    local frameOpts = {}
-    for k, v in pairs(baseOpts) do
-      frameOpts[k] = v
-    end
-    frameOpts.texel = replOpts.texel
-    if baseOpts.indexData then
-      frameOpts.indexData = replOpts.indexData
-    end
-    local key = MaterialCompiler.decodeTexture(tex, frameOpts, textures, modelMaterial.textureName)
     if i == frame0Index then
-      assert(
-        key == record.texture,
-        "frame 0 of terrain animation " .. anim.name .. " must decode identically to the base material texture"
-      )
+      -- The DS shows the bound map-pack texture until the first schedule
+      -- switch (`FieldTextureManager_LoadTexture`/`FieldTextureManager_Free`
+      -- in pret/pokeheartgold's overlay 1), and that texture is an authoring
+      -- snapshot, not necessarily the schedule's first entry -- the real
+      -- sea_on/dsea_on records ship the last frame as the base. The contract
+      -- (textures[timeline[1].textureIndex + 1] == material.texture) pins
+      -- the frame-0 slot to the base image by construction; divergent
+      -- entry-0 texels are never decoded, because the runtime cycle shows
+      -- the base image at every first-entry position.
+      swap.textures[i] = MapAssetCache.texturePath(record.texture)
+    else
+      local frameOpts = {}
+      for k, v in pairs(baseOpts) do
+        frameOpts[k] = v
+      end
+      frameOpts.texel = replOpts.texel
+      if baseOpts.indexData then
+        frameOpts.indexData = replOpts.indexData
+      end
+      local key = MaterialCompiler.decodeTexture(tex, frameOpts, textures, modelMaterial.textureName)
+      swap.textures[i] = MapAssetCache.texturePath(key)
     end
-    swap.textures[i] = MapAssetCache.texturePath(key)
   end
   return swap
 end

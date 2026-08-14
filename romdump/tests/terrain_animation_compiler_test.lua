@@ -565,20 +565,44 @@ function T.a_replacement_member_is_read_once_across_matching_materials()
   Assert.equal(counts.field_texture_animations[1], 2)
 end
 
-function T.frame_zero_divergence_fires_the_compiler_invariant()
-  -- The first live schedule entry must decode byte-identically to the base
-  -- material texture; a divergent replacement is a compile invariant failure,
-  -- never a silently divergent frame 0.
-  local err = Assert.throws(function()
-    return compileScene({
-      mapPack = basePack(),
-      fieldTextureAnimations = {
-        [0] = FieldTexAnimFixture.member({ { name = "flower01", timeline = { { 0, 18 } } } }),
-        [1] = replacementMember({ texels(0x22) }),
-      },
-    })
-  end)
-  Assert.isTrue(tostring(err):find("flower01") ~= nil, "the invariant failure names the record")
+-- The real HGSS map packs do not always ship the schedule's first entry as
+-- the base texture: the sea_on/dsea_on records' base textures are the last
+-- animation frame, so the replacement's frame-0 texels legitimately differ
+-- from the base material (verified against the retail dump). The generated
+-- contract pins the frame-0 slot to the base material's image by
+-- construction -- the DS shows the bound map-pack texture until the first
+-- schedule switch -- so the compile must succeed, the divergent frame-0
+-- texels must emit no asset (the cycle-based runtime can never display
+-- them), and a later frame whose texels equal the base's dedups to the base
+-- path.
+function T.a_frame_zero_that_differs_from_the_base_dedups_to_the_material_texture()
+  local scene = assert(compileScene({
+    mapPack = basePack(),
+    fieldTextureAnimations = {
+      [0] = FieldTexAnimFixture.member({ { name = "flower01", timeline = { { 0, 18 }, { 1, 18 }, { 2, 18 } } } }),
+      -- Frame 0 (dictionary index 0) differs from the base (dictionary
+      -- index 2); frame 2 reuses the base texels: the real sea_on shape,
+      -- where the map pack ships the last animation frame.
+      [1] = replacementMember({ texels(0x22), texels(0x33), BASE_TEXEL }),
+    },
+  }))
+  local material = scene.compiled.materials[1]
+  local swap = material.textureSwap
+  -- The divergent frame-0 slot is pinned to the base image by construction.
+  Assert.equal(swap.textures[1], material.texture)
+  -- Frame 1 still decodes from the replacement texels (0x33 selects palette
+  -- index 3) under the base palette (black at index 3; the replacement's own
+  -- palette is blue there and must never be used).
+  Assert.equal(textureAsset(swap.textures[2], scene.textures).pixels, solidPixels(0, 0, 0))
+  -- The last frame's texels equal the base's, so it dedups to the base path.
+  Assert.equal(swap.textures[3], material.texture)
+  -- Only the base image and frame 1 are emitted: the divergent frame-0
+  -- texels are unreachable in the runtime cycle and produce no asset.
+  local count = 0
+  for _ in pairs(scene.textures) do
+    count = count + 1
+  end
+  Assert.equal(count, 2)
 end
 
 function T.an_all_sentinel_record_leaves_the_material_static()
