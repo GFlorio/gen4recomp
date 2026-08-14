@@ -634,6 +634,32 @@ function T.draw_records_are_presentation_neutral()
   Assert.equal(record.world.y, 0)
 end
 
+function T.draw_records_reuse_live_slots_and_clear_stale_tail()
+  local mgr, eventState = manager({
+    object({ objectEventId = 0 }),
+    object({ objectEventId = 1, eventFlag = 401, spriteId = 34, x = 4 }),
+  })
+  local records = mgr:drawRecords()
+  local first = records[1]
+  local second = records[2]
+
+  eventState:setFlag(401)
+  mgr:step(1)
+  local fewer = mgr:drawRecords()
+
+  Assert.isTrue(fewer == records, "the record array is reusable")
+  Assert.isTrue(fewer[1] == first, "a live actor keeps its record slot")
+  Assert.isNil(fewer[2], "removed actors do not remain in the reused tail")
+  Assert.equal(fewer[1].actorId, "map:61:object:0")
+  Assert.equal(fewer[1].world.x, mgr:getById("map:61:object:0").worldX)
+  Assert.isTrue(second ~= fewer[1], "distinct actors do not share a record")
+
+  mgr:setPosition("map:61:object:0", { fieldX = 4, fieldZ = 3 })
+  local moved = mgr:drawRecords()
+  Assert.isTrue(moved[1] == first)
+  Assert.equal(moved[1].world.x, mgr:getById("map:61:object:0").worldX, "reused records receive current actor values")
+end
+
 function T.dispose_unsubscribes_from_the_event_state()
   local mgr, eventState = manager({ object({ eventFlag = 401 }) })
   mgr:dispose()

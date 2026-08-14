@@ -163,6 +163,44 @@ function T.items_skip_hidden_records()
   Assert.equal(items[1].actorId, "map:61:object:0")
 end
 
+function T.items_into_reuses_skeletons_clears_tail_and_keeps_shared_visuals_separate()
+  local asset = entry(99)
+  local storage = { items = {}, actorSlots = {} }
+  local records = {
+    record({ actorId = "map:61:object:0" }),
+    record({ actorId = "map:61:object:1", world = { x = 8, y = 1.5, z = -4 } }),
+  }
+  local items = FieldActorDraw.itemsInto(records, function()
+    return asset
+  end, storage)
+  local first, second = items[1], items[2]
+
+  Assert.isTrue(first ~= second, "actors sharing a visual keep distinct item tables")
+  Assert.isTrue(first.material ~= second.material, "actors sharing a visual keep distinct materials")
+  Assert.notNil(second.billboardCenter)
+  Assert.isTrue(first.billboardCenter ~= second.billboardCenter)
+  Assert.equal(second.billboardCenter[1], 8)
+
+  records[1].world.x = 9
+  records[2].visible = false
+  local fewer = FieldActorDraw.itemsInto(records, function()
+    return asset
+  end, storage)
+
+  Assert.isTrue(fewer == items, "the item array is reusable")
+  Assert.isTrue(fewer[1] == first, "a live actor keeps its item skeleton")
+  Assert.isNil(fewer[2], "removed actors do not remain in the reused tail")
+  Assert.equal(fewer[1].billboardCenter[1], 9)
+  Assert.equal(fewer[1].transform[13], 9)
+  Assert.equal(second.billboardCenter[1], 8, "one actor update does not alias another actor")
+
+  records[2].visible = true
+  local restored = FieldActorDraw.itemsInto(records, function()
+    return asset
+  end, storage)
+  Assert.isTrue(restored[2] == second, "a hidden live actor keeps its item skeleton")
+end
+
 function T.a_record_without_a_resident_visual_is_fatal()
   throwsCode("ACTOR_DRAW_VISUAL_MISSING", function()
     FieldActorDraw.items({ record() }, function()

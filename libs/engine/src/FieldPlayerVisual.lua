@@ -22,6 +22,7 @@ local Errors = require("libs.errors.src.Errors")
 ---@field spriteId integer?
 ---@field pose string
 ---@field poseTick integer
+---@field _drawRecord table
 local FieldPlayerVisual = {}
 FieldPlayerVisual.__index = FieldPlayerVisual
 
@@ -36,6 +37,7 @@ function FieldPlayerVisual.new(opts)
     pose = "idle",
     poseTick = 0,
     lastFacing = opts.player.facing,
+    _drawRecord = { world = {} },
   }, FieldPlayerVisual)
   self:setAvatar(opts.spriteId)
   return self
@@ -80,15 +82,17 @@ end
 -- `alpha` is the render interpolation factor of the current fixed step.
 function FieldPlayerVisual:drawRecord(alpha)
   local point = self.player:renderPosition(alpha)
-  return {
-    actorId = self.actorId,
-    spriteId = self.spriteId,
-    world = { x = point.x, y = point.y, z = point.z },
-    facing = self.player.facing,
-    pose = self.pose,
-    poseTick = self.poseTick,
-    visible = true,
-  }
+  local record = self._drawRecord
+  record.actorId = self.actorId
+  record.spriteId = self.spriteId
+  record.world.x = point.x
+  record.world.y = point.y
+  record.world.z = point.z
+  record.facing = self.player.facing
+  record.pose = self.pose
+  record.poseTick = self.poseTick
+  record.visible = true
+  return record
 end
 
 return FieldPlayerVisual
