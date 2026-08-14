@@ -8,8 +8,11 @@
 --
 -- SdatFixture.build(spec) returns bytes, layout where archive sections are
 -- zero-based slot maps (an absent slot is unused) and layout records the
--- emitted block offsets, file ids, and counts. SdatFixture.corrupt(bytes,
--- layout, mutation) applies exactly one corruption; mutation keys:
+-- emitted block offsets, file ids, and counts. `spec.payloads[fileId]`
+-- replaces an embedded resource wholesale with full NNS resource bytes (the
+-- 16-byte header and DATA block included, exactly as Sdat.readFile returns
+-- them) for real SSEQ/SBNK/SWAR payloads. SdatFixture.corrupt(bytes, layout,
+-- mutation) applies exactly one corruption; mutation keys:
 --   { magic=, bom=, version=, declaredSizeTooLarge=, truncated=, headerSize=,
 --     blockCount=, symbSizePastEnd=, infoSizePastEnd=, fatSizePastEnd=,
 --     fileSizePastEnd=, infoListPastEnd=, missingInfo=, missingFat=,
@@ -75,7 +78,8 @@ SdatFixture.DEFAULT = {
   symbols = true,
 }
 
--- Embedded NNS resource: 16-byte file header plus a DATA block.
+-- Embedded NNS resource: 16-byte file header plus a DATA block with four
+-- zero content bytes.
 local function resource(magic)
   local dataBlock = "DATA" .. u32(8) .. "\0\0\0\0"
   return magic .. u16(0xFEFF) .. u16(0x0100) .. u32(16 + #dataBlock) .. u16(0x10) .. u16(1) .. dataBlock
@@ -247,8 +251,11 @@ function SdatFixture.build(spec)
 
   local fatEntries, filePayload = {}, {}
   local payloadPos = 0
+  local payloads = spec.payloads or {}
   for fileId = 0, counts.files - 1 do
-    local data = resource(files[fileId].magic)
+    -- Custom payloads are full embedded NNS resources (the wrapper included,
+    -- as Sdat.readFile returns them); the default is the generic resource.
+    local data = payloads[fileId] or resource(files[fileId].magic)
     fatEntries[fileId] = { offset = payloadPos, size = #data }
     filePayload[#filePayload + 1] = data
     payloadPos = payloadPos + #data

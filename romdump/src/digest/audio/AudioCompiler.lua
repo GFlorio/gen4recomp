@@ -1,25 +1,387 @@
--- Compiles the raw sound archive into the derived audio bundle
--- (marker/index/sequences/banks/samples/sampleMetadata/dependencies). The
--- digestion pipeline that produces this bundle is not implemented yet, so
--- compile returns a structured error: a cache build must fail loudly rather
--- than silently omit the audio class.
+-- Compiles the raw sound archive (data/sound/gs_sound_data.sdat) into the
+-- derived audio bundle the cache writer consumes: every referenced sequence
+-- lowers into the project instruction IR, every bank into semantic
+-- instruments, and every referenced wave member decodes offline to
+-- content-addressed PCM16LE samples with engine-meaningful metadata. The
+-- bundle carries the marker, the index (sequences/banks/players/bySymbol),
+-- the assets, the samples, and the dependency pins; a malformed archive
+-- fails the whole compile with a structured error (an unsupported command in
+-- a referenced sequence is a build failure, never a placeholder). Pure
+-- domain module; the marker and hashes are computed through the injectable
+-- sha1hex/hashLua helpers like the other compilers.
 
 local Errors = require("libs.errors.src.Errors")
+local Hashing = require("romdump.src.digest.Hashing")
+local AudioCache = require("libs.assets.src.AudioCache")
+local Sdat = require("romdump.src.digest.audio.Sdat")
+local SequenceLowering = require("romdump.src.digest.audio.SequenceLowering")
+local Sbnk = require("romdump.src.digest.audio.Sbnk")
+local Swar = require("romdump.src.digest.audio.Swar")
+local Swav = require("romdump.src.digest.audio.Swav")
 
 local AudioCompiler = {}
 
--- The compiler boundary is (bundle | nil, structured-error), like every other
--- stage: a not-yet-implemented pipeline is a per-version source-data failure.
+local SDAT_PATH = "data/sound/gs_sound_data.sdat"
+
+local function must(value, err)
+  if value == nil then
+    error(err)
+  end
+  return value
+end
+
+local function leafKind(type)
+  if type == Sbnk.TYPE_PCM then
+    return "sample"
+  end
+  if type == Sbnk.TYPE_PSG then
+    return "square"
+  end
+  return "noise"
+end
+
+-- Zero-based tables (leaves, keys) have no reliable #; count them instead.
+local function countOf(t)
+  local count = 0
+  for _ in pairs(t) do
+    count = count + 1
+  end
+  return count
+end
+
+-- The semantic voice for a direct/leaf record. Sample voices resolve their
+-- wave member through the shared wave cache (decode once per member, dedupe
+-- by content across every bank); PSG duties become the DS high-duty fraction
+-- ((N+1)/8 per GBATEK); noise is a bare generator.
+local function voiceFromLeaf(leaf, kind, waveCache, bankId, waveArchives)
+  local voice = {
+    envelope = {
+      attack = leaf.param.attack,
+      decay = leaf.param.decay,
+      sustain = leaf.param.sustain,
+      release = leaf.param.release,
+    },
+    pan = leaf.param.pan,
+  }
+  if kind == "sample" then
+    voice.generator = {
+      kind = "sample",
+      sample = waveCache:resolve(bankId, waveArchives, leaf.param.swarSlot, leaf.param.swav),
+    }
+    voice.rootKey = leaf.param.rootKey
+  elseif kind == "square" then
+    voice.generator = { kind = "square", duty = ((leaf.param.swav % 8) + 1) / 8 }
+  else
+    voice.generator = { kind = "noise" }
+  end
+  return voice
+end
+
+-- Shared wave resolution: maps an instrument's swar slot through the bank
+-- record's wave-archive slots to the SDAT wave archives, decodes each
+-- referenced member exactly once, and dedupes samples by content key into
+-- the bundle's global sample maps.
+local WaveCache = {}
+WaveCache.__index = WaveCache
+
+function WaveCache.new(sdat, sha1hex)
+  return setmetatable({
+    sdat = sdat,
+    sha1hex = sha1hex,
+    swars = {},
+    decoded = {},
+    samples = {},
+    sampleMetadata = {},
+  }, WaveCache)
+end
+
+-- The decoded SWAR for a wave-archive id, decoded once and cached. Always
+-- returns a usable archive or raises.
+---@param waveId integer
+---@param bankId integer
+---@param slot integer
+---@return table
+function WaveCache:swarFor(waveId, bankId, slot)
+  local swar = self.swars[waveId]
+  if swar ~= nil then
+    return swar
+  end
+  local record = self.sdat.waveArchives[waveId]
+  if record == nil or record.fileId == nil then
+    Errors.raise("BANK_WAVE_ARCHIVE_UNUSED", "bank references an unused wave-archive record", {
+      bankId = bankId,
+      slot = slot,
+      waveId = waveId,
+    })
+  end
+  record = assert(record)
+  local fileId = assert(record.fileId)
+  local bytes = must(self.sdat:readFile(fileId))
+  local parsed, err = Swar.decode(bytes, "SWAR " .. waveId)
+  if parsed == nil then
+    err = assert(err)
+    err.context.bankId = bankId
+    err.context.waveId = waveId
+    error(err)
+  end
+  parsed = assert(parsed)
+  self.swars[waveId] = parsed
+  return parsed
+end
+
+function WaveCache:resolve(bankId, waveArchives, slot, member)
+  local waveId = waveArchives[slot]
+  if waveId == nil then
+    Errors.raise("BANK_WAVE_SLOT_UNASSIGNED", "instrument references an unassigned wave-archive slot", {
+      bankId = bankId,
+      slot = slot,
+    })
+  end
+  waveId = assert(waveId)
+  local swar = self:swarFor(waveId, bankId, slot)
+  local key = self.decoded[waveId .. ":" .. member]
+  if key == nil then
+    local memberBytes, memberErr = swar:readMember(member)
+    if memberBytes == nil then
+      memberErr = assert(memberErr)
+      memberErr.context.bankId = bankId
+      memberErr.context.waveId = waveId
+      error(memberErr)
+    end
+    local wave, waveErr = Swav.decode(memberBytes, "SWAV " .. waveId .. ":" .. member)
+    if wave == nil then
+      waveErr = assert(waveErr)
+      waveErr.context.bankId = bankId
+      waveErr.context.waveId = waveId
+      waveErr.context.member = member
+      error(waveErr)
+    end
+    key = self.sha1hex(wave.pcm16le)
+    self.decoded[waveId .. ":" .. member] = key
+    if self.samples[key] == nil then
+      self.samples[key] = wave.pcm16le
+      self.sampleMetadata[key] = {
+        schema = AudioCache.SAMPLE_SCHEMA,
+        key = key,
+        file = AudioCache.samplePath(key),
+        frames = wave.frames,
+        sampleRate = wave.sampleRate,
+        loop = wave.loop,
+      }
+    end
+  end
+  return key
+end
+
+local function compileSequence(sdat, symbols, id, record)
+  local bytes = must(sdat:readFile(record.fileId))
+  local symbol = symbols.sequences[id]
+  local program, err = SequenceLowering.lower(bytes, { sequenceId = id, symbol = symbol }, "SSEQ " .. id)
+  if program == nil then
+    error(err)
+  end
+  return {
+    schema = AudioCache.SEQUENCE_SCHEMA,
+    id = id,
+    symbol = symbol,
+    bankId = record.bankId,
+    player = {
+      id = record.playerId,
+      initialVolume = record.volume,
+      channelPriority = record.channelPriority,
+      playerPriority = record.playerPriority,
+    },
+    program = program,
+  }
+end
+
+local function compileBank(sdat, symbols, id, record, waveCache)
+  local bytes = must(sdat:readFile(record.fileId))
+  local ir, err = Sbnk.decode(bytes, "SBNK " .. id)
+  if ir == nil then
+    err = assert(err)
+    err.context.bankId = id
+    error(err)
+  end
+  local instruments = {}
+  for program, inst in pairs(ir.instruments) do
+    if inst.type == Sbnk.TYPE_PCM or inst.type == Sbnk.TYPE_PSG or inst.type == Sbnk.TYPE_NOISE then
+      instruments[program] = {
+        kind = "direct",
+        voice = voiceFromLeaf(inst, leafKind(inst.type), waveCache, id, record.waveArchives),
+      }
+    elseif inst.type == Sbnk.TYPE_DRUM_SET then
+      local voices = {}
+      for key = inst.minKey, inst.maxKey do
+        local leaf = inst.leaves[key - inst.minKey]
+        voices[#voices + 1] = voiceFromLeaf(leaf, leafKind(leaf.type), waveCache, id, record.waveArchives)
+      end
+      instruments[program] = {
+        kind = "drum_set",
+        lowKey = inst.minKey,
+        highKey = inst.maxKey,
+        voices = voices,
+      }
+    else
+      -- The SDK selects a key-split leaf by walking the split keys until
+      -- midiKey <= key[i]; a later key smaller than the running high is
+      -- unreachable (its window is empty), so only the monotonic ranges
+      -- become asset ranges.
+      local ranges = {}
+      local prevHigh = -1
+      for i = 0, countOf(inst.leaves) - 1 do
+        local leaf = inst.leaves[i]
+        local high = inst.keys[i]
+        if high > prevHigh then
+          ranges[#ranges + 1] = {
+            lowKey = prevHigh + 1,
+            highKey = high,
+            voice = voiceFromLeaf(leaf, leafKind(leaf.type), waveCache, id, record.waveArchives),
+          }
+          prevHigh = high
+        end
+      end
+      instruments[program] = { kind = "key_split", ranges = ranges }
+    end
+  end
+  return {
+    schema = AudioCache.BANK_SCHEMA,
+    id = id,
+    symbol = symbols.banks[id],
+    waveArchives = record.waveArchives,
+    instruments = instruments,
+  }
+end
+
+local function _compile(romFs, sha1hex, hashLua)
+  assert(
+    romFs and romFs.readSourcePath and romFs.metadata and romFs.version and romFs.fileIdForPath,
+    "compile requires a RomFs-shaped object"
+  )
+  sha1hex = sha1hex or Hashing.sha1hex
+  hashLua = hashLua or Hashing.hashLua
+
+  local sdatBytes = must(romFs:readSourcePath(SDAT_PATH))
+  local sdat, sdatErr = Sdat.open(sdatBytes, SDAT_PATH)
+  if sdat == nil then
+    error(sdatErr)
+  end
+  sdat = assert(sdat)
+  -- The SYMB block is optional; without it the compile emits no symbols.
+  -- The fallback mirrors Sdat's symbol-section shape with empty sections.
+  local symbols = sdat.symbols
+    or {
+      sequences = {},
+      sequenceArchives = {},
+      banks = {},
+      waveArchives = {},
+      players = {},
+      groups = {},
+      streamPlayers = {},
+      streams = {},
+    }
+  local waveCache = WaveCache.new(sdat, sha1hex)
+
+  local sequences = {}
+  local indexSequences = {}
+  local banks = {}
+  local indexBanks = {}
+  local bySymbol = {}
+
+  for id = 0, sdat.counts.sequences - 1 do
+    local record = sdat.sequences[id]
+    if record.fileId ~= nil then
+      local sequence = compileSequence(sdat, symbols, id, record)
+      sequences[id] = sequence
+      indexSequences[id] = {
+        id = id,
+        symbol = sequence.symbol,
+        file = AudioCache.sequencePath(id),
+        bankId = record.bankId,
+        playerId = record.playerId,
+      }
+      if sequence.symbol ~= nil then
+        bySymbol[sequence.symbol] = id
+      end
+    end
+  end
+
+  for id = 0, sdat.counts.banks - 1 do
+    local record = sdat.banks[id]
+    if record.fileId ~= nil then
+      local bank = compileBank(sdat, symbols, id, record, waveCache)
+      banks[id] = bank
+      indexBanks[id] = {
+        id = id,
+        symbol = bank.symbol,
+        file = AudioCache.bankPath(id),
+        waveArchives = record.waveArchives,
+      }
+      if bank.symbol ~= nil then
+        bySymbol[bank.symbol] = id
+      end
+    end
+  end
+
+  -- The index players section mirrors the INFO player records: used slots
+  -- carry maxSequences/channelMask/heapSize, unused slots stay bare ids.
+  local players = sdat.players
+
+  for id = 0, sdat.counts.waveArchives - 1 do
+    local record = sdat.waveArchives[id]
+    if record.fileId ~= nil then
+      local symbol = symbols.waveArchives[id]
+      if symbol ~= nil then
+        bySymbol[symbol] = id
+      end
+    end
+  end
+
+  local index = {
+    schema = AudioCache.INDEX_SCHEMA,
+    version = romFs:version(),
+    sequences = indexSequences,
+    banks = indexBanks,
+    players = players,
+    bySymbol = bySymbol,
+  }
+
+  local dependencies = {
+    cacheFormat = AudioCache.FORMAT,
+    versionRomSha1 = romFs:metadata().sha1,
+    soundArchive = {
+      path = SDAT_PATH,
+      fileId = romFs:fileIdForPath(SDAT_PATH),
+      sha1 = sha1hex(sdatBytes),
+    },
+  }
+
+  local marker = AudioCache.marker(romFs:metadata().sha1, hashLua(dependencies))
+  return {
+    marker = marker,
+    index = index,
+    sequences = sequences,
+    banks = banks,
+    samples = waveCache.samples,
+    sampleMetadata = waveCache.sampleMetadata,
+    dependencies = dependencies,
+  }
+end
+
 ---@param romFs table
----@return nil, Errors.Error
-function AudioCompiler.compile(romFs)
-  assert(romFs, "AudioCompiler.compile requires the raw dump")
-  return nil,
-    Errors.new(
-      "AUDIO_COMPILER_NOT_IMPLEMENTED",
-      "the sound archive digestion pipeline is not implemented yet",
-      { path = "data/sound/gs_sound_data.sdat" }
-    )
+---@param sha1hex? fun(bytes: string): string
+---@param hashLua? fun(value: any): string
+---@return table?|nil
+---@return Errors.Error?|nil
+function AudioCompiler.compile(romFs, sha1hex, hashLua)
+  local ok, result = pcall(_compile, romFs, sha1hex, hashLua)
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result
+  end
+  error(result)
 end
 
 return AudioCompiler

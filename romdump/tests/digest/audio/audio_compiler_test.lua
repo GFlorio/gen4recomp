@@ -1,0 +1,385 @@
+-- Audio compiler contract: a synthetic SDAT holding real SSEQ/SBNK/SWAR
+-- payloads compiles into the full writer-shaped bundle (marker/index/
+-- sequences/banks/samples/sampleMetadata/dependencies) with zero-based ids,
+-- symbolic resolution, content-addressed deduplicated samples, and every
+-- asset passing its validator. Malformed archives return nil, err; repeated
+-- compiles are byte-identical.
+
+local Assert = require("tests.support.Assert")
+local Errors = require("libs.errors.src.Errors")
+local AudioCompiler = require("romdump.src.digest.audio.AudioCompiler")
+local AudioCache = require("libs.assets.src.AudioCache")
+local AudioSequence = require("libs.assets.src.AudioSequence")
+local AudioBank = require("libs.assets.src.AudioBank")
+local AudioSample = require("libs.assets.src.AudioSample")
+local Sdat = require("romdump.src.digest.audio.Sdat")
+local SdatFixture = require("tests.support.SdatFixture")
+local SseqFixture = require("tests.support.SseqFixture")
+local SbnkFixture = require("tests.support.SbnkFixture")
+local SwarFixture = require("tests.support.SwarFixture")
+local Swav = require("romdump.src.digest.audio.Swav")
+local Hashing = require("romdump.src.digest.Hashing")
+
+local SDAT_PATH = "data/sound/gs_sound_data.sdat"
+
+local T = {}
+
+---@param e any
+---@return Errors.Error
+local function asError(e)
+  return e
+end
+
+local PCM_A = { swav = 0, swarSlot = 0, rootKey = 60, attack = 120, decay = 60, sustain = 80, release = 100, pan = 64 }
+local PCM_B = { swav = 1, swarSlot = 0, rootKey = 40, attack = 127, decay = 0, sustain = 127, release = 127, pan = 40 }
+local PSG_A = { swav = 3, swarSlot = 0, rootKey = 48, attack = 127, decay = 0, sustain = 127, release = 127, pan = 32 }
+local NOISE_A =
+  { swav = 0, swarSlot = 0, rootKey = 60, attack = 127, decay = 0, sustain = 127, release = 127, pan = 96 }
+
+local PCM8_SAMPLES = { -128, -64, 0, 64, 127, -1, 1, 2 }
+local PCM16_SAMPLES = { -32768, -1, 0, 1, 32767, -1000, 1000, 500 }
+local ADPCM_SAMPLES = {
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  3000,
+  3000,
+  3000,
+  3000,
+  3000,
+  3000,
+  3000,
+  3000,
+  -5000,
+  -5000,
+  -5000,
+  -5000,
+  -5000,
+  -5000,
+  -5000,
+  -5000,
+}
+
+local function pcm8Member()
+  return SwarFixture.pcm8(PCM8_SAMPLES, { sampleRate = 16000 })
+end
+
+local function pcm16Member()
+  return SwarFixture.pcm16(PCM16_SAMPLES, { sampleRate = 22050 })
+end
+
+local function adpcmMember()
+  return SwarFixture.adpcm(ADPCM_SAMPLES, { sampleRate = 22050 })
+end
+
+-- The content key of a member is the sha1 of its decoded PCM16LE payload.
+local function memberKey(memberBytes)
+  local wave = assert(Swav.decode(memberBytes, "fixture"))
+  return Hashing.sha1hex(wave.pcm16le)
+end
+
+local PCM8_KEY = memberKey(pcm8Member())
+
+-- Builds the two-track sequence payload: the FE header's open-track record
+-- (track 0's first command), the main program, and a call target deep in the
+-- file. Symbolic targets resolve against the fixture's own layout.
+local function sseq0Bytes()
+  return SseqFixture.build({
+    { op = "fe", mask = 3 },
+    { op = "open_track", track = 1, target = { cmd = 7 } },
+    { op = "note", key = 60, velocity = 96, duration = 24 },
+    { op = "wait", duration = 12 },
+    { op = "jump", target = { cmd = 4 } },
+    { op = "note", key = 72, velocity = 80, duration = 8 },
+    { op = "call", target = { cmd = 7 } },
+    { op = "fin" },
+  })
+end
+
+-- The synthetic archive: two sequences on two banks, one SWAR per bank, and
+-- wave members shared across instruments so content deduplication is
+-- exercised. Returns the SDAT bytes and its build layout.
+local function buildArchive(overrides)
+  local spec = {
+    sequences = {
+      [0] = { bankId = 1, volume = 120, channelPriority = 127, playerPriority = 64, playerId = 0 },
+      [2] = { bankId = 0, volume = 100, channelPriority = 64, playerPriority = 64, playerId = 1 },
+    },
+    banks = {
+      [0] = { waveArchives = { 0, 0xFFFF, 0xFFFF, 0xFFFF } },
+      [1] = { waveArchives = { 1, 0xFFFF, 0xFFFF, 0xFFFF } },
+    },
+    waveArchives = { [0] = {}, [1] = {} },
+    players = { [0] = { maxSequences = 2, channelMask = 0xC000, heapSize = 0x5E88 } },
+    extraFiles = 0,
+  }
+  if overrides ~= nil then
+    for key, value in pairs(overrides) do
+      spec[key] = value
+    end
+  end
+  local _, layout = SdatFixture.build(spec)
+  local sbnk0 = SbnkFixture.build({
+    { type = 1, param = PCM_A },
+    {
+      type = 0x10,
+      minKey = 35,
+      maxKey = 37,
+      leaves = { { type = 1, param = PCM_B }, { type = 1, param = PCM_A }, { type = 2, param = PSG_A } },
+    },
+    { type = 0x11, keys = { 48, 72 }, leaves = { { type = 1, param = PCM_A }, { type = 1, param = PCM_B } } },
+    { type = 0 },
+    { type = 2, param = PSG_A },
+    { type = 3, param = NOISE_A },
+  })
+  local sbnk1 = SbnkFixture.build({
+    {
+      type = 1,
+      param = { swav = 0, swarSlot = 0, rootKey = 60, attack = 127, decay = 0, sustain = 127, release = 127, pan = 64 },
+    },
+  })
+  local swar0 = SwarFixture.build({ pcm8Member(), pcm16Member() })
+  local swar1 = SwarFixture.build({ adpcmMember() })
+  spec.payloads = {
+    [layout.fileIds.sequences[0]] = sseq0Bytes(),
+    [layout.fileIds.sequences[2]] = SseqFixture.build({
+      { op = "program", program = 3 },
+      { op = "note", key = 64, velocity = 100, duration = 48 },
+      { op = "wait", duration = 24 },
+      { op = "fin" },
+    }),
+    [layout.fileIds.banks[0]] = sbnk0,
+    [layout.fileIds.banks[1]] = sbnk1,
+    [layout.fileIds.waveArchives[0]] = swar0,
+    [layout.fileIds.waveArchives[1]] = swar1,
+  }
+  return SdatFixture.build(spec)
+end
+
+local function fakeRomFs(bytes)
+  return {
+    _bytes = bytes,
+    readSourcePath = function(self, path)
+      Assert.equal(path, SDAT_PATH)
+      return self._bytes
+    end,
+    metadata = function()
+      return { sha1 = "fake-rom-sha1" }
+    end,
+    version = function()
+      return "heartgold"
+    end,
+    fileIdForPath = function(self, path)
+      Assert.equal(path, SDAT_PATH)
+      return 123
+    end,
+  }
+end
+
+local function compileOrFail(bytes)
+  local bundle, err = AudioCompiler.compile(fakeRomFs(bytes))
+  Assert.notNil(bundle, "expected compile to succeed: " .. tostring(err and Errors.format(err) or "no error"))
+  return assert(bundle)
+end
+
+-- The full writer-shaped bundle: marker, index, dependencies, and the four
+-- content sections, all consistent with the frozen audio contract.
+function T.compiles_the_archive_into_a_complete_bundle()
+  local bytes = buildArchive()
+  local bundle = compileOrFail(bytes)
+  local sdat = assert(Sdat.open(bytes, SDAT_PATH))
+
+  Assert.isTrue(bundle.marker:sub(1, #AudioCache.FORMAT) == AudioCache.FORMAT, "marker carries the format")
+  Assert.isTrue(bundle.marker:find("fake-rom-sha1", 1, true) ~= nil, "marker embeds the rom sha1")
+  Assert.equal(bundle.index.schema, AudioCache.INDEX_SCHEMA)
+  Assert.equal(bundle.index.version, "heartgold")
+
+  Assert.deepEqual(bundle.index.sequences[0], {
+    id = 0,
+    symbol = "SEQ_0",
+    file = AudioCache.sequencePath(0),
+    bankId = 1,
+    playerId = 0,
+  })
+  Assert.deepEqual(bundle.index.sequences[2], {
+    id = 2,
+    symbol = "SEQ_2",
+    file = AudioCache.sequencePath(2),
+    bankId = 0,
+    playerId = 1,
+  })
+  Assert.deepEqual(bundle.index.banks[0], {
+    id = 0,
+    symbol = "BANK_0",
+    file = AudioCache.bankPath(0),
+    waveArchives = { [0] = 0 },
+  })
+  Assert.equal(bundle.index.players[0].maxSequences, 2)
+  Assert.equal(bundle.index.players[0].channelMask, 0xC000)
+  Assert.equal(bundle.index.players[0].heapSize, 0x5E88)
+  Assert.equal(bundle.index.bySymbol["SEQ_0"], 0)
+  Assert.equal(bundle.index.bySymbol["SEQ_2"], 2)
+  Assert.equal(bundle.index.bySymbol["BANK_0"], 0)
+  Assert.equal(bundle.index.bySymbol["WAVE_1"], 1)
+
+  Assert.equal(bundle.dependencies.cacheFormat, AudioCache.FORMAT)
+  Assert.equal(bundle.dependencies.versionRomSha1, "fake-rom-sha1")
+  Assert.equal(bundle.dependencies.soundArchive.path, SDAT_PATH)
+  Assert.equal(bundle.dependencies.soundArchive.fileId, 123)
+  Assert.equal(bundle.dependencies.soundArchive.sha1, Hashing.sha1hex(bytes))
+  Assert.equal(sdat.counts.sequences, 3, "the fixture archive has three sequence slots")
+end
+
+-- Sequences carry the INFO identity and player parameters, and branch
+-- targets are instruction indices.
+function T.compiles_sequences_with_index_targets()
+  local bytes = buildArchive()
+  local bundle = compileOrFail(bytes)
+  local seq0 = bundle.sequences[0]
+  AudioSequence.validate(seq0)
+  Assert.equal(seq0.id, 0)
+  Assert.equal(seq0.symbol, "SEQ_0")
+  Assert.equal(seq0.bankId, 1)
+  Assert.equal(seq0.player.id, 0)
+  Assert.equal(seq0.player.initialVolume, 120)
+  Assert.equal(seq0.player.channelPriority, 127)
+  Assert.equal(seq0.player.playerPriority, 64)
+
+  Assert.equal(seq0.program.entry, 1, "entry is the header open-track record")
+  local openTrack, jump, call
+  for _, instruction in ipairs(seq0.program.instructions) do
+    if instruction.op == "open_track" then
+      openTrack = instruction
+    elseif instruction.op == "jump" then
+      jump = instruction
+    elseif instruction.op == "call" then
+      call = instruction
+    end
+  end
+  Assert.notNil(openTrack, "open_track instruction present")
+  Assert.equal(openTrack.track, 1)
+  Assert.equal(openTrack.target, 5, "open-track target is an instruction index")
+  Assert.notNil(jump, "jump instruction present")
+  Assert.equal(jump.target, 3, "jump target is an instruction index")
+  Assert.notNil(call, "call instruction present")
+  Assert.equal(call.target, 5, "call target is an instruction index")
+
+  local seq2 = bundle.sequences[2]
+  AudioSequence.validate(seq2)
+  Assert.equal(seq2.player.id, 1)
+  Assert.equal(seq2.program.instructions[1].op, "program")
+  Assert.equal(seq2.program.instructions[1].program, 3)
+end
+
+-- Banks carry normalized instruments: sample voices reference content keys,
+-- PSG duties become fractions, drums and splits keep their key ranges, and
+-- illegal records are dropped.
+function T.compiles_banks_with_semantic_instruments()
+  local bytes = buildArchive()
+  local bundle = compileOrFail(bytes)
+  local bank0 = bundle.banks[0]
+  AudioBank.validate(bank0)
+  Assert.equal(bank0.id, 0)
+  Assert.deepEqual(bank0.waveArchives, { [0] = 0 })
+
+  Assert.isNil(bank0.instruments[3], "type-0 instrument is dropped")
+
+  local direct = bank0.instruments[0]
+  Assert.equal(direct.kind, "direct")
+  Assert.deepEqual(direct.voice.generator, { kind = "sample", sample = PCM8_KEY })
+  Assert.equal(direct.voice.rootKey, 60)
+  Assert.deepEqual(direct.voice.envelope, { attack = 120, decay = 60, sustain = 80, release = 100 })
+  Assert.equal(direct.voice.pan, 64)
+
+  local drums = bank0.instruments[1]
+  Assert.equal(drums.kind, "drum_set")
+  Assert.equal(drums.lowKey, 35)
+  Assert.equal(drums.highKey, 37)
+  Assert.equal(#drums.voices, 3)
+  Assert.equal(drums.voices[1].generator.kind, "sample")
+  Assert.equal(drums.voices[3].generator.kind, "square")
+
+  local split = bank0.instruments[2]
+  Assert.equal(split.kind, "key_split")
+  Assert.equal(#split.ranges, 2)
+  Assert.deepEqual({ split.ranges[1].lowKey, split.ranges[1].highKey }, { 0, 48 })
+  Assert.deepEqual({ split.ranges[2].lowKey, split.ranges[2].highKey }, { 49, 72 })
+
+  Assert.equal(bank0.instruments[4].voice.generator.kind, "square")
+  Assert.equal(bank0.instruments[4].voice.generator.duty, 0.5)
+  Assert.equal(bank0.instruments[5].voice.generator.kind, "noise")
+
+  local bank1 = bundle.banks[1]
+  AudioBank.validate(bank1)
+  Assert.equal(bank1.instruments[0].voice.generator.sample, memberKey(adpcmMember()))
+end
+
+-- Samples are content-addressed: equal wave content shares one key, every
+-- key has metadata and payload, and the metadata matches the decoded frames.
+function T.samples_deduplicate_by_content()
+  local bytes = buildArchive()
+  local bundle = compileOrFail(bytes)
+  local keys = {}
+  for key in pairs(bundle.samples) do
+    keys[#keys + 1] = key
+  end
+  table.sort(keys)
+  Assert.equal(#keys, 3, "three unique waves across both banks")
+
+  for key, payload in pairs(bundle.samples) do
+    Assert.equal(Hashing.sha1hex(payload), key, "content-addressed")
+    local metadata = bundle.sampleMetadata[key]
+    Assert.notNil(metadata)
+    AudioSample.validate(metadata)
+    Assert.equal(metadata.key, key)
+    Assert.equal(metadata.file, AudioCache.samplePath(key))
+    Assert.equal(metadata.frames, math.floor(#payload / 2))
+  end
+  for key in pairs(bundle.sampleMetadata) do
+    Assert.notNil(bundle.samples[key], "metadata without payload")
+  end
+
+  -- The split's first voice and the drum's second voice reference the same
+  -- member as instrument 0 through different instrument paths.
+  local bank0 = bundle.banks[0]
+  Assert.equal(bank0.instruments[1].voices[2].generator.sample, PCM8_KEY)
+  Assert.equal(bank0.instruments[2].ranges[1].voice.generator.sample, PCM8_KEY)
+end
+
+-- A valid archive without the optional SYMB block compiles: the index gains
+-- no symbols, sequence/bank assets carry none, and the rest is unchanged.
+function T.compiles_archives_without_symbols()
+  local bytes = buildArchive({ symbols = false })
+  local bundle = compileOrFail(bytes)
+  Assert.equal(next(bundle.index.bySymbol), nil, "no bySymbol entries without a SYMB block")
+  Assert.equal(bundle.sequences[0].symbol, nil)
+  Assert.equal(bundle.banks[0].symbol, nil)
+  AudioSequence.validate(bundle.sequences[0])
+  AudioBank.validate(bundle.banks[0])
+end
+
+-- A malformed archive fails the compile with a structured error, never a
+-- partial bundle.
+function T.rejects_malformed_archives()
+  local bytes, layout = buildArchive()
+  local corrupted = SdatFixture.corrupt(bytes, layout, { magic = "XXXX" })
+  local bundle, err = AudioCompiler.compile(fakeRomFs(corrupted))
+  Assert.isNil(bundle)
+  Assert.isTrue(Errors.is(err))
+  Assert.equal(asError(err).code, "SDAT_BAD_MAGIC")
+end
+
+-- Compiling the same archive twice produces identical bundles.
+function T.compilation_is_deterministic()
+  local bytes = buildArchive()
+  local first = compileOrFail(bytes)
+  local second = compileOrFail(bytes)
+  Assert.deepEqual(first, second)
+end
+
+return { tests = T }
