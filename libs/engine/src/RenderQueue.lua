@@ -30,15 +30,13 @@ local ALPHA_CLASSES = {
   [AlphaClassifier.WIREFRAME] = true,
 }
 
--- Resolve the item's effective alpha class (item first, then its material's)
--- and reject anything outside the four known classes instead of defaulting to
--- opaque. Queue classification and the renderer's shader setup share this one
--- function so the pass an item lands in and the shader mode it draws with can
--- never disagree.
+-- Validate the item's renderer-facing alpha class instead of inferring it from
+-- material state. Queue classification is the authority for the pass an item
+-- lands in; the renderer receives that selected class when drawing it.
 ---@param item table
 ---@return string
-function RenderQueue.effectiveAlphaClass(item)
-  local mode = item.alphaClass or (item.material and item.material.alphaClass)
+function RenderQueue.classifyAlphaClass(item)
+  local mode = item.alphaClass
   if not ALPHA_CLASSES[mode] then
     Errors.raise(
       FieldErrors.RENDER_QUEUE_UNKNOWN_ALPHA_CLASS,
@@ -59,7 +57,7 @@ local function viewSpaceZ(viewMatrix, center)
 end
 
 -- Build a draw queue from a flat list of items. Each item must expose:
---   alphaClass (or via its material), transform (4x4 array),
+--   alphaClass, transform (4x4 array),
 --   center ({x,y,z} in model space).
 -- `viewMatrix` is the camera's 4x4 view matrix. The item's position in the
 -- flat list is the deterministic tie-breaker for equal-depth translucent
@@ -73,7 +71,7 @@ function RenderQueue.build(items, viewMatrix)
   -- repeated queue construction.
   local entries = {}
   for position, item in ipairs(items) do
-    local mode = RenderQueue.effectiveAlphaClass(item)
+    local mode = RenderQueue.classifyAlphaClass(item)
     if mode == AlphaClassifier.TRANSLUCENT then
       translucent[#translucent + 1] = item
       local wx, wy, wz = Matrix4.transformPoint(item.transform, item.center[1], item.center[2], item.center[3])

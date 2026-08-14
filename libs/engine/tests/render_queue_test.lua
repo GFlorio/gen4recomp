@@ -52,7 +52,7 @@ function T.classifies_by_alpha_class()
   Assert.deepEqual(ids(q, "wireframe"), { "d" })
 end
 
-function T.falls_back_to_material_alpha_class()
+function T.rejects_material_only_alpha_class()
   local matItem = {
     id = "mat",
     alphaClass = nil,
@@ -60,8 +60,10 @@ function T.falls_back_to_material_alpha_class()
     center = { 0, 0, 0 },
     transform = Matrix4.identity(),
   }
-  local q = RenderQueue.build({ matItem }, Matrix4.identity())
-  Assert.deepEqual(ids(q, "cutout"), { "mat" })
+  local err = throwsCode("RENDER_QUEUE_UNKNOWN_ALPHA_CLASS", function()
+    RenderQueue.build({ matItem }, Matrix4.identity())
+  end)
+  Assert.isNil(err.context.alphaClass)
 end
 
 function T.rejects_unknown_alpha_class()
@@ -78,17 +80,6 @@ function T.rejects_missing_alpha_class()
   }
   throwsCode("RENDER_QUEUE_UNKNOWN_ALPHA_CLASS", function()
     RenderQueue.build({ bare }, Matrix4.identity())
-  end)
-end
-
-function T.rejects_unknown_material_alpha_class()
-  local matItem = {
-    material = { alphaClass = "shiny" },
-    center = { 0, 0, 0 },
-    transform = Matrix4.identity(),
-  }
-  throwsCode("RENDER_QUEUE_UNKNOWN_ALPHA_CLASS", function()
-    RenderQueue.build({ matItem }, Matrix4.identity())
   end)
 end
 
