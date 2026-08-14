@@ -26,6 +26,16 @@ local Matrix4 = require("libs.math.src.Matrix4")
 
 local T = {}
 
+local function queueScratch()
+  return {
+    opaque = {},
+    cutout = {},
+    translucent = {},
+    wireframe = {},
+    translucentEntries = {},
+  }
+end
+
 -- One-triangle batch in the MeshWriter vertex layout.
 local function triangleBatch(zOffset)
   zOffset = zOffset or 0
@@ -144,11 +154,6 @@ function T.builds_one_draw_per_cell_batch_with_offset_in_transform()
   local d2 = ring.draws[2]
   Assert.equal(d2.transform[13], -32)
   Assert.equal(d2.transform[15], -32)
-  Assert.isNil(
-    d1.submissionIndex,
-    "the ring carries no submission numbers; the flat list position is the assembly's submission order"
-  )
-  Assert.isNil(d2.submissionIndex)
 
   ring:release()
 end
@@ -195,7 +200,7 @@ function T.sorts_translucent_neighbors_using_one_cell_transform()
   -- sort center is z=33. The second mesh center is z=49 in the origin cell.
   -- With one transform application, the first draw is submitted first. A
   -- pre-offset center would be transformed again to z=65 and reverse them.
-  local queue = RenderQueue.build(ring.draws, Matrix4.identity())
+  local queue = RenderQueue.buildInto({ ring.draws }, Matrix4.identity(), queueScratch())
   Assert.isTrue(queue.translucent[1] == ring.draws[1], "the +32 neighbor sorts at z=33")
   Assert.isTrue(queue.translucent[2] == ring.draws[2], "the origin neighbor sorts at z=49")
 

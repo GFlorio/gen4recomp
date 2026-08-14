@@ -693,8 +693,8 @@ function T.animated_building_loads_advances_and_renders()
     Assert.near(m0[i], m7[i], 1e-3, "a scripted door holds its bind pose until played")
   end
 
-  -- The production renderer draws the animated door. The renderer takes the
-  -- flattened scene list; the loader's sync refreshed runtime.buildingDraws.
+  -- The production renderer draws the animated door. The renderer takes
+  -- ordered parts; the loader's sync refreshed runtime.buildingDraws.
   local renderer = MapRenderer.new()
   local identity = identityMatrix()
   local camera = {
@@ -709,7 +709,7 @@ function T.animated_building_loads_advances_and_renders()
       return identity
     end,
   }
-  renderer:draw(runtime, camera, runtime.buildingDraws, FieldViewport.new(320, 240, { mode = "strict" }), 1)
+  renderer:draw(runtime, camera, { runtime.buildingDraws }, FieldViewport.new(320, 240, { mode = "strict" }), 1)
   Assert.isTrue(renderer.stats.drawCalls >= 1, "the animated door draws")
 
   -- The handle surface drives the semantic role on the loader-built

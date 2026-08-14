@@ -51,6 +51,7 @@ local function drawableState(development)
         end,
       },
     },
+    worldParts = {},
     renderer = { draw = function() end },
   }, FieldState)
 end

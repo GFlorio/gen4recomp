@@ -158,8 +158,8 @@ local function buildScene(pool, cacheFs, scene, opts)
   -- billboard-local space and its matrix depends on the camera, so the composed
   -- transform becomes `billboardBase` for the renderer to resolve each frame; its
   -- static equivalent seeds `transform` and the scene bounds. Draw items carry no
-  -- submission numbers: the final scene assembly (SceneAssembly) orders every
-  -- draw in source order, positionally.
+  -- submission numbers: final queue traversal orders every part and draw in
+  -- source order, positionally.
   local function drawItem(batch, materials, instanceTransform)
     local meshResource = pool:meshFor(batch.geometry)
     local billboardBase
@@ -369,8 +369,7 @@ local function buildScene(pool, cacheFs, scene, opts)
 
   -- The per-instance refresh pass shared by the tick update and the initial
   -- build: it re-evaluates each pose from the current attachment frames,
-  -- appends after the static building draws, and assigns each animated item
-  -- a scene-global submission index continuing the load-time sequence.
+  -- appends after the static building draws.
   local function refreshAnimatedItems()
     local items = {}
     for _, item in ipairs(staticBuildingDraws) do
@@ -380,7 +379,6 @@ local function buildScene(pool, cacheFs, scene, opts)
       instance:evaluatePose()
       local drawn = instance:drawItems(instance.renderMeshesById)
       for _, item in ipairs(drawn) do
-        item.submissionIndex = #items
         items[#items + 1] = item
       end
     end

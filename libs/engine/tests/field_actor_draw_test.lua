@@ -113,7 +113,7 @@ function T.emits_every_static_model_part_with_its_own_material()
   Assert.equal(items[2].alphaClass, "translucent")
   Assert.isNil(
     items[1].submissionIndex,
-    "actor items carry no submission numbers; the flat list position is the assembly's submission order"
+    "actor items carry no submission numbers; ordered-part traversal owns submission order"
   )
   Assert.isNil(items[2].submissionIndex)
 end
@@ -138,7 +138,7 @@ function T.selects_the_mesh_of_the_posed_frame()
   Assert.equal(walking.frameIndex, 5, "the walk clock advances into the shared frame")
 end
 
-function T.items_skip_hidden_records_and_leave_submissions_to_assembly()
+function T.items_skip_hidden_records()
   local assets = { [99] = entry(99), [29] = entry(29) }
   local items = FieldActorDraw.items({
     record(),
@@ -148,7 +148,6 @@ function T.items_skip_hidden_records_and_leave_submissions_to_assembly()
   end)
   Assert.equal(#items, 1)
   Assert.equal(items[1].actorId, "map:61:object:0")
-  Assert.isNil(items[1].submissionIndex, "the flat scene list position is the assembly's actor submission order")
 end
 
 function T.a_record_without_a_resident_visual_is_fatal()

@@ -292,7 +292,6 @@ end
 ---@field translucentDepthWrite boolean
 ---@field depthEqual boolean
 ---@field center number[] -- model-space center, transformed by the render queue
----@field submissionIndex integer|nil -- assigned by the scene flattening pass
 ---@field billboardBase number[]|nil
 ---@field straddle { leading: integer, transform: number[] }|nil -- the DS
 --  bend: the first `leading` vertices were submitted under this transform

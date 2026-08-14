@@ -279,10 +279,7 @@ end
 local function drawInstance(renderer, rt, instance, alpha)
   local items = instance:drawItems(instance.renderMeshesById)
   rt.mapDraws = items
-  for index, item in ipairs(items) do
-    item.submissionIndex = index
-  end
-  renderer:draw(rt, identityCamera(), items, FieldViewport.new(640, 480, { mode = "strict" }), alpha)
+  renderer:draw(rt, identityCamera(), { items }, FieldViewport.new(640, 480, { mode = "strict" }), alpha)
   return items
 end
 
