@@ -1,0 +1,308 @@
+-- Pure fixed-tick signpost controller: the HGSS signpost command state
+-- machine, wipe motion, and window printer. No love, no script runtime, no
+-- I/O. Command timing follows Signpost_DoCurrentCommand (asm/signpost.s at
+-- the pinned decomp commit, documented in docs/research/signpost-commands.md):
+-- SHOW and HIDE finish on their own update; WIPE_IN/WIPE_OUT make exactly
+-- three 16px motion updates and complete on the following endpoint-check
+-- update. The controller stores the source appearance/type/map and the style
+-- id but never resolves geometry, and it owns the active formatted message
+-- and its printer state, captured when printing begins.
+
+---@class FieldSignpostController
+---@field _layout fun(message: FieldMessageProvider.FormattedMessage): { lines: { tokens: MessageToken[] }[] }
+---@field _ticksPerGlyph integer
+---@field _styleId string
+---@field _command "nop"|"show"|"wipe_out"|"wipe_in"|"hide"
+---@field _offset integer
+---@field _active boolean
+---@field _sourceAppearance { game: string, type: integer, map: integer }?
+---@field _print { lines: { tokens: MessageToken[] }[], revealed: integer, revealTicks: integer, total: integer, live: boolean }?
+local FieldSignpostController = {}
+FieldSignpostController.__index = FieldSignpostController
+
+-- The five MAPSIGNCOMMAND_* values as the semantic command enum; numeric
+-- source codes never appear at runtime.
+FieldSignpostController.COMMANDS = {
+  nop = true,
+  show = true,
+  wipe_out = true,
+  wipe_in = true,
+  hide = true,
+}
+
+FieldSignpostController.DEFAULT_TICKS_PER_GLYPH = 2
+FieldSignpostController.DEFAULT_STYLE_ID = "hgss.signpost"
+
+-- The hidden signpost BG layer position and the fixed 16px wipe step:
+-- visible motion is exactly three logical steps.
+local HIDDEN_OFFSET = -48
+local WIPE_STEP = 16
+
+local function glyphCount(lines)
+  local count = 0
+  for _, ln in ipairs(lines) do
+    for _, token in ipairs(ln.tokens) do
+      if token.kind == "glyph" then
+        count = count + 1
+      end
+    end
+  end
+  return count
+end
+
+-- The token lines up to the Nth revealed glyph, with the same cut semantics
+-- as the dialogue controller: non-glyph tokens before the cut are included
+-- so markers show as soon as their position is reached; lines beyond the
+-- cut are omitted.
+
+---@param lines { tokens: MessageToken[] }[]
+---@param revealed integer
+---@return MessageToken[][]
+local function visibleLines(lines, revealed)
+  local out = {}
+  local seen = 0
+  for _, ln in ipairs(lines) do
+    local tokens = {}
+    for _, token in ipairs(ln.tokens) do
+      if token.kind == "glyph" then
+        if seen >= revealed then
+          break
+        end
+        seen = seen + 1
+      end
+      tokens[#tokens + 1] = token
+    end
+    if #tokens > 0 then
+      out[#out + 1] = tokens
+    end
+  end
+  return out
+end
+
+-- opts.layout(formattedMessage) -> { lines = { { tokens = MessageToken[] } } }
+-- opts.ticksPerGlyph (default 2; FieldPlayerData.ticksPerGlyph supplies the
+-- injected cadence), opts.styleId (default "hgss.signpost").
+
+---@class FieldSignpostControllerOptions
+---@field layout fun(message: FieldMessageProvider.FormattedMessage): { lines: { tokens: MessageToken[] }[] }
+---@field ticksPerGlyph integer?
+---@field styleId string?
+
+---@param opts FieldSignpostControllerOptions
+---@return FieldSignpostController
+function FieldSignpostController.new(opts)
+  assert(
+    type(opts) == "table" and type(opts.layout) == "function",
+    "FieldSignpostController requires a layout function"
+  )
+  local ticksPerGlyph = opts.ticksPerGlyph or FieldSignpostController.DEFAULT_TICKS_PER_GLYPH
+  assert(ticksPerGlyph >= 1 and ticksPerGlyph % 1 == 0, "ticks per glyph must be a positive integer")
+  local styleId = opts.styleId or FieldSignpostController.DEFAULT_STYLE_ID
+  assert(type(styleId) == "string" and styleId ~= "", "style id must be a non-empty string")
+  return setmetatable({
+    _layout = opts.layout,
+    _ticksPerGlyph = ticksPerGlyph,
+    _styleId = styleId,
+    _command = "nop",
+    _offset = HIDDEN_OFFSET,
+    _active = false,
+    _sourceAppearance = nil,
+    _print = nil,
+  }, FieldSignpostController)
+end
+
+-- The runtime equivalent of HGSS's field-text-box-open state: the signpost
+-- window is presented (shown, sliding in, or sliding out).
+---@return boolean
+function FieldSignpostController:isModal()
+  return self._active
+end
+
+-- The presentation snapshot: plain data only, freshly built per call, so
+-- the renderer never mutates controller state through it.
+
+---@class FieldSignpostController.Status
+---@field active boolean window presented (isModal)
+---@field command "nop"|"show"|"wipe_out"|"wipe_in"|"hide"
+---@field logicalYOffset integer stored signpost BG offset
+---@field sourceAppearance { game: string, type: integer, map: integer }?
+---@field styleId string
+---@field visibleLines MessageToken[][]
+---@field printDone boolean
+
+---@return FieldSignpostController.Status
+function FieldSignpostController:status()
+  local print = self._print
+  local appearance = self._sourceAppearance
+  return {
+    active = self._active,
+    command = self._command,
+    logicalYOffset = self._offset,
+    sourceAppearance = appearance and {
+      game = appearance.game,
+      type = appearance.type,
+      map = appearance.map,
+    } or nil,
+    styleId = self._styleId,
+    visibleLines = print and visibleLines(print.lines, print.revealed) or {},
+    printDone = print ~= nil and print.revealed >= print.total,
+  }
+end
+
+-- HGSS Signpost_SetCommand is a bare assignment with no busy guard: the
+-- low-level signpost_command operation replaces the current command, and a
+-- running wipe is superseded rather than rejected. Only updateFixed moves
+-- the command back to nop after an action completes.
+
+---@param command "nop"|"show"|"wipe_out"|"wipe_in"|"hide"
+function FieldSignpostController:setCommand(command)
+  assert(FieldSignpostController.COMMANDS[command] == true, "unknown signpost command " .. tostring(command))
+  self._command = command
+end
+
+-- Stores the script-provided source appearance (type/map) as presentation
+-- data; the controller never resolves geometry. nil clears it. The values
+-- are the raw source operands preserved by the importer.
+
+---@param appearance { game: string, type: integer, map: integer }?
+function FieldSignpostController:setSourceAppearance(appearance)
+  if appearance == nil then
+    self._sourceAppearance = nil
+    return
+  end
+  assert(type(appearance) == "table", "source appearance must be a table")
+  assert(appearance.game == "hgss", "source appearance game must be hgss")
+  for _, field in ipairs({ "type", "map" }) do
+    local value = appearance[field]
+    assert(
+      type(value) == "number" and value % 1 == 0 and value >= 0,
+      "source appearance " .. field .. " must be a non-negative integer"
+    )
+  end
+  self._sourceAppearance = {
+    game = appearance.game,
+    type = appearance.type,
+    map = appearance.map,
+  }
+end
+
+-- One field update: executes the current command, then advances the active
+-- printer. SHOW and HIDE complete on this same update (source cases 1 and 4
+-- clear the command within the case; HIDE also resets the stored BG offset to
+-- 0); wipes move one 16px step, hold the command on the update that reaches
+-- the endpoint, and complete on the following endpoint-check update.
+function FieldSignpostController:updateFixed()
+  local command = self._command
+  if command == "show" then
+    self._active = true
+    self._offset = HIDDEN_OFFSET
+    self._command = "nop"
+  elseif command == "hide" then
+    self._active = false
+    self._print = nil
+    -- The source case removes the window, clears the tile area, and resets
+    -- the BG position to 0, so a later wipe starts from the presented 0.
+    self._offset = 0
+    self._command = "nop"
+  elseif command == "wipe_in" then
+    if self._offset < 0 then
+      self._offset = math.min(self._offset + WIPE_STEP, 0)
+    else
+      self._command = "nop"
+    end
+  elseif command == "wipe_out" then
+    if self._offset > HIDDEN_OFFSET then
+      self._offset = math.max(self._offset - WIPE_STEP, HIDDEN_OFFSET)
+    else
+      -- Endpoint observed: clear the tile area and reset the stored BG
+      -- offset to 0. The cleared window must not flash at the reset
+      -- position, so the snapshot no longer presents the window.
+      self._active = false
+      self._print = nil
+      self._offset = 0
+      self._command = "nop"
+    end
+  end
+  self:_advancePrint()
+end
+
+-- Captures the message layout at print start. The layout's own error
+-- propagates on failure, leaving the prior print and command state
+-- untouched.
+
+---@param message FieldMessageProvider.FormattedMessage
+---@return { tokens: MessageToken[] }[]
+function FieldSignpostController:_captureLines(message)
+  assert(
+    type(message) == "table" and type(message.tokens) == "table",
+    "signpost print requires a formatted message with a token stream"
+  )
+  local result = self._layout(message)
+  assert(type(result) == "table" and type(result.lines) == "table", "signpost layout must return a lines table")
+  local lines = {}
+  for _, ln in ipairs(result.lines) do
+    assert(type(ln) == "table" and type(ln.tokens) == "table", "signpost layout lines must carry token arrays")
+    lines[#lines + 1] = ln
+  end
+  return lines
+end
+
+-- Instant print: the whole message is complete immediately (opcode 55
+-- prints instantly in the signpost window).
+
+---@param message FieldMessageProvider.FormattedMessage
+function FieldSignpostController:printInstant(message)
+  local lines = self:_captureLines(message)
+  local total = glyphCount(lines)
+  self._print = { lines = lines, revealed = total, revealTicks = 0, total = total, live = false }
+end
+
+-- Typed print: glyphs reveal at the injected fixed-tick cadence (Trainer
+-- Tips prints at the player's configured text speed; the controller does not
+-- choose one). The printer can be stopped with stopPrint without leaving a
+-- live printer.
+
+---@param message FieldMessageProvider.FormattedMessage
+function FieldSignpostController:printTyped(message)
+  local lines = self:_captureLines(message)
+  local total = glyphCount(lines)
+  self._print = { lines = lines, revealed = 0, revealTicks = 0, total = total, live = total > 0 }
+end
+
+-- Stops a live typed printer, freezing the revealed text; the printer never
+-- advances again. Idempotent when nothing is live.
+function FieldSignpostController:stopPrint()
+  if self._print and self._print.live then
+    self._print.live = false
+  end
+end
+
+-- Session teardown: returns the controller to its initial hidden state and
+-- releases every owned surface (command, presentation, printer, appearance)
+-- exactly once. Idempotent.
+function FieldSignpostController:dispose()
+  self._command = "nop"
+  self._active = false
+  self._offset = HIDDEN_OFFSET
+  self._sourceAppearance = nil
+  self._print = nil
+end
+
+function FieldSignpostController:_advancePrint()
+  local print = self._print
+  if not print or not print.live or print.revealed >= print.total then
+    return
+  end
+  print.revealTicks = print.revealTicks + 1
+  -- revealTicks stays below ticksPerGlyph between updates, so at most one
+  -- glyph reveals per update; revealed can never overshoot total.
+  if print.revealTicks >= self._ticksPerGlyph then
+    print.revealTicks = print.revealTicks - self._ticksPerGlyph
+    print.revealed = print.revealed + 1
+    if print.revealed >= print.total then
+      print.live = false
+    end
+  end
+end
+
+return FieldSignpostController
