@@ -669,6 +669,43 @@ function T.validate_rejects_a_texsrt_clip_with_a_model_source()
   end)
 end
 
+-- The texsrt payload contract is the shared validator's: a curve that does
+-- not cover every reachable frame is a payload the sampler reads past.
+function T.validate_rejects_a_texsrt_curve_with_insufficient_keys()
+  local desc = emittedDynamicDescriptor()
+  desc.animations[1] = emittedTexsrtClip()
+  desc.animations[1].compiled.targets[1].channels.transS =
+    { source = "curve", rate = 1, limit = 4, storage = "fx16", keys = { 0, 1, 2 } }
+  throwsCode("MODEL_DESC_INVALID", function()
+    ModelAsset.validate(desc)
+  end)
+end
+
+-- Track target names are the runtime binding keys: two tracks resolving to
+-- the same name are ambiguous even when their target indices differ.
+function T.validate_rejects_texsrt_duplicate_track_target_names()
+  local desc = emittedDynamicDescriptor()
+  desc.animations[1] = emittedTexsrtClip()
+  desc.animations[1].compiled.targets[2] = {
+    index = 1,
+    name = "wall",
+    channels = {
+      transS = { source = "constant", value = 0 },
+      transT = { source = "constant", value = 0 },
+      rot = { source = "constant", value = 0x10000000 },
+      scaleS = { source = "constant", value = 0x1000 },
+      scaleT = { source = "constant", value = 0x1000 },
+    },
+  }
+  desc.animations[1].tracks = {
+    { target = "wall", targetIndex = 0 },
+    { target = "wall", targetIndex = 1 },
+  }
+  throwsCode("MODEL_DESC_INVALID", function()
+    ModelAsset.validate(desc)
+  end)
+end
+
 function T.validate_rejects_a_color_clip_with_a_model_source()
   local desc = emittedDynamicDescriptor()
   desc.animations[1] = emittedColorClip()

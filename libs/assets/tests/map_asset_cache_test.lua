@@ -200,7 +200,7 @@ function T.referenced_paths_includes_neighbor_batches_and_materials()
   Assert.isTrue(contains(paths, neighborTerrain), "missing neighbor terrain path")
 end
 
--- ---- v5 terrain-animation contract ----
+-- ---- terrain-animation contract ----
 
 local BASE_TEX = "assets/generated/maps/textures/base.png"
 local ALT1_TEX = "assets/generated/maps/textures/alt1.png"
@@ -228,9 +228,10 @@ local function patchedScene(mutator)
   return s
 end
 
--- A textured terrain material with the textureSwap record and the v5 terrain
--- fields (texWidth/texHeight/texMtxMode).
-local function swapMaterial(texture, textures, timeline)
+-- A textured terrain material with the textureSwap record and the terrain
+-- fields (texWidth/texHeight/texMtxMode). The swap carries direct playback
+-- steps, each naming the replacement image and its duration in ticks.
+local function swapMaterial(texture, steps)
   return {
     id = 0,
     name = "flower01",
@@ -242,15 +243,15 @@ local function swapMaterial(texture, textures, timeline)
     texWidth = 16,
     texHeight = 16,
     texMtxMode = 0,
-    textureSwap = { name = "flower01", textures = textures, timeline = timeline },
+    textureSwap = { name = "flower01", steps = steps },
   }
 end
 
-local FLOWER_TIMELINE = {
-  { textureIndex = 0, durationTicks = 18 },
-  { textureIndex = 1, durationTicks = 18 },
-  { textureIndex = 0, durationTicks = 18 },
-  { textureIndex = 2, durationTicks = 18 },
+local FLOWER_STEPS = {
+  { texture = BASE_TEX, durationTicks = 18 },
+  { texture = ALT1_TEX, durationTicks = 18 },
+  { texture = BASE_TEX, durationTicks = 18 },
+  { texture = ALT2_TEX, durationTicks = 18 },
 }
 
 local function constant(value)
@@ -258,14 +259,15 @@ local function constant(value)
 end
 
 -- The data-only clip shape the terrain compiler emits (NsbtaClipCompiler
--- payload plus the clip envelope, without physical source fields).
+-- payload plus the clip envelope, without physical source fields). The
+-- rate-1 curve covers all eight frames.
 local function srtClip()
   return {
     id = "area00_ani",
     name = "area00_ani",
     category = "material",
     kind = "texsrt",
-    frameCount = 360,
+    frameCount = 8,
     tracks = {
       { target = "pond_on", targetIndex = 0 },
       { target = "sea_un", targetIndex = 1 },
@@ -328,7 +330,7 @@ local function writeSceneArtifacts(c, scene, marker, imagePaths)
   c:write(dir .. "/complete", marker)
 end
 
--- Mutator helpers for the malformed material/clip/swap batteries below.
+-- Mutator helpers for the malformed material/swap batteries below.
 local function materialPatch(mutate)
   return patchedScene(function(s)
     local m = {
@@ -354,9 +356,9 @@ end
 
 local function swapPatch(mutate)
   return patchedScene(function(s)
-    local m = swapMaterial(BASE_TEX, { BASE_TEX, ALT1_TEX }, {
-      { textureIndex = 0, durationTicks = 18 },
-      { textureIndex = 1, durationTicks = 18 },
+    local m = swapMaterial(BASE_TEX, {
+      { texture = BASE_TEX, durationTicks = 18 },
+      { texture = ALT1_TEX, durationTicks = 18 },
     })
     mutate(m)
     s.materials = { m }
@@ -398,6 +400,9 @@ function T.a_valid_false_clip_is_accepted()
   Assert.isTrue(MapAssetCache.isReady(c, 61, marker), "textureSrt = false is a valid scene")
 end
 
+-- A full valid scene: a clip, a central swap, and a neighbor cell sharing
+-- the same swap name and durations with different texture paths (neighboring
+-- cells compile the same animation against their own texture packs).
 function T.valid_clip_and_texture_swap_shapes_are_accepted()
   local c = cache()
   local marker = MapAssetCache.marker("romsha", 61, "dep")
@@ -405,9 +410,9 @@ function T.valid_clip_and_texture_swap_shapes_are_accepted()
   s.terrain = { file = MapAssetCache.terrainPath(61) }
   s.terrainAnimations = { textureSrt = srtClip() }
   s.materials = {
-    swapMaterial(BASE_TEX, { BASE_TEX, ALT1_TEX }, {
-      { textureIndex = 0, durationTicks = 18 },
-      { textureIndex = 1, durationTicks = 18 },
+    swapMaterial(BASE_TEX, {
+      { texture = BASE_TEX, durationTicks = 18 },
+      { texture = ALT1_TEX, durationTicks = 18 },
     }),
   }
   s.neighbors = {
@@ -416,9 +421,9 @@ function T.valid_clip_and_texture_swap_shapes_are_accepted()
       offsetTilesZ = 0,
       batches = {},
       materials = {
-        swapMaterial(ALT1_TEX, { ALT1_TEX, BASE_TEX }, {
-          { textureIndex = 0, durationTicks = 18 },
-          { textureIndex = 1, durationTicks = 18 },
+        swapMaterial(ALT1_TEX, {
+          { texture = ALT1_TEX, durationTicks = 18 },
+          { texture = BASE_TEX, durationTicks = 18 },
         }),
       },
     },
@@ -427,10 +432,10 @@ function T.valid_clip_and_texture_swap_shapes_are_accepted()
   Assert.isTrue(MapAssetCache.isReady(c, 61, marker), "a valid clip and textureSwap records are accepted")
 end
 
-function T.referenced_paths_includes_every_alternate_texture()
+function T.referenced_paths_includes_every_swap_step_texture()
   local s = baseScene()
   s.materials = {
-    swapMaterial(BASE_TEX, { BASE_TEX, ALT1_TEX, ALT2_TEX }, FLOWER_TIMELINE),
+    swapMaterial(BASE_TEX, FLOWER_STEPS),
   }
   s.neighbors = {
     {
@@ -438,108 +443,55 @@ function T.referenced_paths_includes_every_alternate_texture()
       offsetTilesZ = 0,
       batches = {},
       materials = {
-        swapMaterial(ALT1_TEX, { ALT1_TEX, ALT2_TEX }, {
-          { textureIndex = 0, durationTicks = 18 },
-          { textureIndex = 1, durationTicks = 18 },
-        }),
+        {
+          id = 0,
+          name = "flower02",
+          texture = ALT1_TEX,
+          texWidth = 16,
+          texHeight = 16,
+          texMtxMode = 0,
+          textureSwap = {
+            name = "flower02",
+            steps = {
+              { texture = ALT1_TEX, durationTicks = 18 },
+              { texture = ALT2_TEX, durationTicks = 18 },
+            },
+          },
+        },
       },
     },
   }
   local paths = MapAssetCache.referencedPaths(s, nil)
   for _, path in ipairs({ BASE_TEX, ALT1_TEX, ALT2_TEX }) do
-    Assert.isTrue(contains(paths, path), "missing alternate texture path " .. path)
+    Assert.isTrue(contains(paths, path), "missing swap step texture path " .. path)
   end
 end
 
-function T.a_missing_alternate_image_makes_is_ready_false()
+function T.a_missing_swap_step_image_makes_is_ready_false()
   local c = cache()
   local marker = MapAssetCache.marker("romsha", 61, "dep")
   local s = baseScene()
   s.terrain = { file = MapAssetCache.terrainPath(61) }
   s.materials = {
-    swapMaterial(BASE_TEX, { BASE_TEX, ALT1_TEX }, {
-      { textureIndex = 0, durationTicks = 18 },
-      { textureIndex = 1, durationTicks = 18 },
+    swapMaterial(BASE_TEX, {
+      { texture = BASE_TEX, durationTicks = 18 },
+      { texture = ALT1_TEX, durationTicks = 18 },
     }),
   }
   writeSceneArtifacts(c, s, marker, { BASE_TEX })
-  Assert.isFalse(MapAssetCache.isReady(c, 61, marker), "the missing alternate image keeps the map not ready")
+  Assert.isFalse(MapAssetCache.isReady(c, 61, marker), "the missing step image keeps the map not ready")
   c:write(ALT1_TEX, "png")
-  Assert.isTrue(MapAssetCache.isReady(c, 61, marker), "with the alternate present the map is ready")
+  Assert.isTrue(MapAssetCache.isReady(c, 61, marker), "with the step image present the map is ready")
 end
 
-function T.malformed_clip_shapes_raise_scene_invalid()
-  local cases = {
-    function(c)
-      c.id = ""
-    end,
-    function(c)
-      c.name = 5
-    end,
-    function(c)
-      c.category = "joint"
-    end,
-    function(c)
-      c.kind = "trs"
-    end,
-    function(c)
-      c.frameCount = 0
-    end,
-    function(c)
-      c.frameCount = 2.5
-    end,
-    function(c)
-      c.tracks = "tracks"
-    end,
-    function(c)
-      c.semanticNames = "names"
-    end,
-    function(c)
-      c.compiled = {}
-    end,
-    function(c)
-      c.compiled.targets = {}
-    end,
-    function(c)
-      c.tracks = { { target = "", targetIndex = 0 } }
-    end,
-    function(c)
-      c.tracks = { { target = "pond_on", targetIndex = -1 } }
-    end,
-    function(c)
-      c.tracks = { { target = "pond_on", targetIndex = 0.5 } }
-    end,
-    function(c)
-      c.compiled.targets[1].channels.scaleT = nil
-    end,
-    function(c)
-      c.compiled.targets[1].channels.scaleS = { source = "linear", value = 0 }
-    end,
-    function(c)
-      c.compiled.targets[1].channels.transS = constant(1.5)
-    end,
-    function(c)
-      c.compiled.targets[1].channels.transT = { source = "curve", rate = 1, limit = 0, storage = "fx16", keys = { 0 } }
-    end,
-    function(c)
-      c.compiled.targets[1].channels.transT =
-        { source = "curve", rate = 1, limit = 4, storage = "fx8", keys = { 0, 1 } }
-    end,
-    function(c)
-      c.compiled.targets[1].channels.transT = { source = "curve", rate = 1, limit = 4, storage = "fx16", keys = {} }
-    end,
-    function(c)
-      c.compiled.targets[1].channels.transT =
-        { source = "curve", rate = 1, limit = 4, storage = "fx16", keys = { 0.5 } }
-    end,
-    function(c)
-      c.compiled.targets[1].channels.transT =
-        { source = "curve", rate = 0, limit = 4, storage = "fx16", keys = { 0, 1 } }
-    end,
-  }
-  for _, mutate in ipairs(cases) do
-    raisesSceneInvalid(clipPatch(mutate))
-  end
+-- One malformed-clip case through the MAP_CACHE_SCENE_INVALID boundary: the
+-- clip contract itself lives in the shared validator, so a single proof of
+-- delegation suffices here.
+function T.malformed_nsbta_failures_delegate_to_the_shared_validator()
+  raisesSceneInvalid(clipPatch(function(c)
+    c.compiled.targets[1].channels.transS =
+      { source = "curve", rate = 1, limit = 8, storage = "fx16", keys = { 0, 1, 2 } }
+  end))
 end
 
 function T.malformed_texture_swap_shapes_raise_scene_invalid()
@@ -548,32 +500,34 @@ function T.malformed_texture_swap_shapes_raise_scene_invalid()
       m.textureSwap.name = ""
     end,
     function(m)
-      m.textureSwap.textures = {}
+      m.textureSwap.name = 5
     end,
     function(m)
-      m.textureSwap.textures = { named = 1 }
+      m.textureSwap.steps = {}
     end,
     function(m)
-      m.textureSwap.timeline = {}
+      m.textureSwap.steps = { named = 1 }
     end,
     function(m)
-      m.textureSwap.timeline = { { textureIndex = 2, durationTicks = 18 } }
+      m.textureSwap.steps = { 5 }
     end,
     function(m)
-      m.textureSwap.timeline = { { textureIndex = -1, durationTicks = 18 } }
+      m.textureSwap.steps = { { texture = "", durationTicks = 18 } }
     end,
     function(m)
-      m.textureSwap.timeline = { { textureIndex = 0, durationTicks = 0 } }
+      m.textureSwap.steps = { { texture = 5, durationTicks = 18 } }
     end,
     function(m)
-      m.textureSwap.timeline = { { textureIndex = 0, durationTicks = 2.5 } }
+      m.textureSwap.steps = { { texture = BASE_TEX } }
     end,
     function(m)
-      m.textureSwap.timeline = { 5 }
+      m.textureSwap.steps = { { texture = BASE_TEX, durationTicks = -1 } }
     end,
     function(m)
-      m.textureSwap.timeline = { { textureIndex = 1, durationTicks = 18 } }
+      m.textureSwap.steps = { { texture = BASE_TEX, durationTicks = 2.5 } }
     end,
+    -- A swap attached to an untextured material has no base image to start
+    -- from.
     function(m)
       m.texture = nil
     end,
@@ -581,6 +535,20 @@ function T.malformed_texture_swap_shapes_raise_scene_invalid()
   for _, mutate in ipairs(cases) do
     raisesSceneInvalid(swapPatch(mutate))
   end
+end
+
+function T.zero_duration_swap_steps_are_accepted()
+  local s = baseScene()
+  s.materials = {
+    swapMaterial(BASE_TEX, {
+      { texture = BASE_TEX, durationTicks = 0 },
+      { texture = ALT1_TEX, durationTicks = 18 },
+    }),
+  }
+  Assert.isTrue(
+    type(MapAssetCache.referencedPaths(s, nil)) == "table",
+    "a zero-duration step is a valid source-derived schedule entry"
+  )
 end
 
 function T.malformed_material_terrain_fields_raise_scene_invalid()
@@ -602,6 +570,23 @@ function T.malformed_material_terrain_fields_raise_scene_invalid()
     end,
     function(m)
       m.texMtxMode = "0"
+    end,
+    -- Only texture-matrix mode 0 has a compiled convention; the runtime
+    -- raises on any other mode, so generated data must fail here instead.
+    function(m)
+      m.texMtxMode = 1
+    end,
+    function(m)
+      m.texMtxMode = 2
+    end,
+    function(m)
+      m.texMtxMode = 3
+    end,
+    function(m)
+      m.texMtxMode = 4
+    end,
+    function(m)
+      m.texMtxMode = -1
     end,
     function(m)
       m.srt =
@@ -677,20 +662,6 @@ function T.the_same_material_id_in_different_lists_is_valid()
   Assert.isTrue(type(MapAssetCache.referencedPaths(s, nil)) == "table", "ids are scoped per list")
 end
 
-function T.unknown_texture_matrix_modes_raise_scene_invalid()
-  local cases = {
-    function(m)
-      m.texMtxMode = 4
-    end,
-    function(m)
-      m.texMtxMode = -1
-    end,
-  }
-  for _, mutate in ipairs(cases) do
-    raisesSceneInvalid(materialPatch(mutate))
-  end
-end
-
 function T.non_finite_numbers_raise_scene_invalid()
   local nan = 0 / 0
   local inf = math.huge
@@ -708,13 +679,6 @@ function T.non_finite_numbers_raise_scene_invalid()
       transOne = true,
       rotOne = true,
     }
-  end))
-  raisesSceneInvalid(clipPatch(function(c)
-    c.compiled.targets[1].channels.transS = constant(nan)
-  end))
-  raisesSceneInvalid(clipPatch(function(c)
-    c.compiled.targets[1].channels.transS =
-      { source = "curve", rate = 1, limit = 4, storage = "fx16", keys = { inf, 1 } }
   end))
 end
 
@@ -742,33 +706,65 @@ function T.fractional_rotation_components_raise_scene_invalid()
   end))
 end
 
-function T.non_string_swap_textures_raise_scene_invalid()
-  raisesSceneInvalid(swapPatch(function(m)
-    m.textureSwap.textures = { BASE_TEX, 5 }
+-- Every terrain material record carries the texture-matrix inputs because
+-- the terrain animator is constructed unconditionally; an untextured
+-- material carries zero authored dimensions.
+function T.untextured_materials_require_the_terrain_fields()
+  raisesSceneInvalid(patchedScene(function(s)
+    s.materials = { { id = 0, name = "untextured" } }
   end))
-  raisesSceneInvalid(swapPatch(function(m)
-    m.textureSwap.textures = { BASE_TEX, "" }
-  end))
-end
-
-function T.untextured_materials_need_no_terrain_fields()
   local s = baseScene()
-  s.materials = { { id = 0, name = "untextured" } }
+  s.materials = { { id = 0, name = "untextured", texWidth = 0, texHeight = 0, texMtxMode = 0 } }
   Assert.isTrue(
     type(MapAssetCache.referencedPaths(s, nil)) == "table",
-    "an untextured material is valid without terrain fields"
+    "an untextured material with zero authored dimensions is valid"
   )
 end
 
-function T.clip_track_index_beyond_compiled_targets_raises_scene_invalid()
-  raisesSceneInvalid(clipPatch(function(c)
-    c.tracks = { { target = "pond_on", targetIndex = 5 } }
+-- The runtime groups texture swaps by name, so every occurrence of one name
+-- must share the step count and per-step durations across the central scene
+-- and every neighbor cell; only the texture paths may differ.
+function T.same_name_swaps_with_different_timing_are_rejected()
+  raisesSceneInvalid(patchedScene(function(s)
+    s.materials = {
+      swapMaterial(BASE_TEX, {
+        { texture = BASE_TEX, durationTicks = 18 },
+        { texture = ALT1_TEX, durationTicks = 18 },
+      }),
+    }
+    s.neighbors = {
+      {
+        offsetTilesX = 1,
+        offsetTilesZ = 0,
+        batches = {},
+        materials = {
+          swapMaterial(ALT1_TEX, {
+            { texture = ALT1_TEX, durationTicks = 20 },
+            { texture = BASE_TEX, durationTicks = 18 },
+          }),
+        },
+      },
+    }
   end))
-end
-
-function T.clip_target_without_channels_raises_scene_invalid()
-  raisesSceneInvalid(clipPatch(function(c)
-    c.compiled.targets[1] = { index = 0, name = "pond_on" }
+  raisesSceneInvalid(patchedScene(function(s)
+    s.materials = {
+      swapMaterial(BASE_TEX, {
+        { texture = BASE_TEX, durationTicks = 18 },
+        { texture = ALT1_TEX, durationTicks = 18 },
+      }),
+    }
+    s.neighbors = {
+      {
+        offsetTilesX = 1,
+        offsetTilesZ = 0,
+        batches = {},
+        materials = {
+          swapMaterial(ALT1_TEX, {
+            { texture = ALT1_TEX, durationTicks = 18 },
+          }),
+        },
+      },
+    }
   end))
 end
 

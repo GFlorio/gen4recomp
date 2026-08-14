@@ -24,6 +24,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local AnimationClip = require("libs.assets.src.AnimationClip")
+local CompiledNsbtaClip = require("libs.assets.src.CompiledNsbtaClip")
 local PolygonState = require("libs.assets.src.PolygonState")
 local Validate = require("libs.assets.src.Validate")
 
@@ -429,29 +430,10 @@ local function checkTrsPayload(compiled, clip, desc)
   end
 end
 
--- NSBTA (texsrt): one target per track, each carrying the five texture-SRT
--- channels (constant or curve).
-local function checkTexsrtPayload(compiled, clip, desc)
-  local where = "animation " .. clip.id
-  if not Validate.isArray(compiled.targets) or #compiled.targets ~= #clip.tracks then
-    invalid(where .. " compiled payload must carry one target per track", desc.key)
-  end
-  for i, target in ipairs(compiled.targets) do
-    local whereT = where .. " target " .. i
-    if type(target.name) ~= "string" or not Validate.isNonNegativeInteger(target.index) then
-      invalid(whereT .. " requires a name and index", desc.key)
-    end
-    local channels = target.channels
-    if type(channels) ~= "table" then
-      invalid(whereT .. " requires channels", desc.key)
-    end
-    local plain =
-      { sources = SOURCE_LISTS.plain, limitIsFrameCount = true, storage = true, frameCount = clip.frameCount }
-    for _, name in ipairs({ "transS", "transT", "rot", "scaleS", "scaleT" }) do
-      checkChannel(channels[name], whereT .. " " .. name, desc, SOURCES_PLAIN, plain)
-    end
-  end
-end
+-- NSBTA (texsrt): the compiled payload contract is the shared validator's
+-- (five texture-SRT channels per target, exact curve key coverage, and
+-- unique track targets); ModelAsset reports its violations under
+-- MODEL_DESC_INVALID.
 
 -- NSBMA (color): one target per track, each carrying the five material
 -- registers (diffuse/ambient/specular/emission/alpha).
@@ -571,7 +553,9 @@ local function checkAnimation(clip, desc)
   if clip.kind == AnimationClip.KINDS.TRS then
     checkTrsPayload(clip.compiled, clip, desc)
   elseif clip.kind == AnimationClip.KINDS.TEXSRT then
-    checkTexsrtPayload(clip.compiled, clip, desc)
+    CompiledNsbtaClip.validate(clip, function(reason)
+      invalid(where .. ": " .. reason, desc.key)
+    end)
   elseif clip.kind == AnimationClip.KINDS.COLOR then
     checkColorPayload(clip.compiled, clip, desc)
   elseif clip.kind == AnimationClip.KINDS.PATTERN then

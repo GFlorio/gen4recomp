@@ -13,6 +13,7 @@ local Errors = require("libs.errors.src.Errors")
 local AssetErrors = require("libs.assets.src.errors")
 local Validate = require("libs.assets.src.Validate")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
+local CompiledNsbtaClip = require("libs.assets.src.CompiledNsbtaClip")
 local Contract = require("libs.assets.src.DerivedAssetContract")
 local ModelAsset = require("libs.assets.src.ModelAsset")
 
@@ -66,122 +67,26 @@ function MapAssetCache.marker(romSha1, mapId, depHash)
   return string.format("%s:%s:%d:%s", MapAssetCache.FORMAT, romSha1, mapId, depHash)
 end
 
--- ---- v5 terrain-animation subset validation ----
+-- ---- terrain-animation subset validation ----
 --
 -- The current scene schema carries the strict generated terrain-animation
 -- subset: the required terrainAnimations block (an explicit false clip or
 -- the data-only texture-SRT clip shape the producer's NsbtaClipCompiler
 -- emits), and the terrain material fields (texWidth/texHeight/texMtxMode,
 -- the optional fixed-point srt, and the optional textureSwap record). The
--- checks are structural only -- sampling a clip stays an engine
--- responsibility. Every check raises through the caller's `invalid(reason)`
--- so a malformed current-schema scene reports MAP_CACHE_SCENE_INVALID.
+-- compiled clip contract is the shared validator's; the checks here cover
+-- only the scene material fields. Every check raises through the caller's
+-- `invalid(reason)` so a malformed current-schema scene reports
+-- MAP_CACHE_SCENE_INVALID.
 
 local TERRAIN_SRT_FIELDS = { "transS", "transT", "scaleS", "scaleT" }
 local TERRAIN_SRT_ONES = { "scaleOne", "transOne", "rotOne" }
-local TEXSRT_CHANNELS = { "transS", "transT", "rot", "scaleS", "scaleT" }
-local CURVE_RATES = { [1] = true, [2] = true, [4] = true }
-
--- The Nitro texture-matrix modes (Maya 0, Si3D 1, 3ds Max 2, XSI 3). The
--- runtime has compiled formulas for mode 0 only; a mode outside the known
--- set is malformed generated data, never an identity default.
-local MAX_TEXMTX_MODE = 3
 
 -- A finite integer (rejects fractional, NaN, and infinite values).
 ---@param value any
 ---@return boolean
 local function isFiniteInteger(value)
   return type(value) == "number" and value % 1 == 0
-end
-
--- One compiled NSBTA channel: constant with an integer value, or a curve
--- with a Nitro rate, a positive integer limit, an fx16/fx32 storage, and a
--- non-empty integer keys array.
-local function checkTerrainChannel(channel, where, invalid)
-  if type(channel) ~= "table" then
-    invalid(where .. "channel is missing")
-  end
-  if channel.source == "constant" then
-    if not isFiniteInteger(channel.value) then
-      invalid(where .. "constant value must be an integer")
-    end
-  elseif channel.source == "curve" then
-    if not CURVE_RATES[channel.rate] then
-      invalid(where .. "curve rate must be 1, 2, or 4")
-    end
-    if not (isFiniteInteger(channel.limit) and channel.limit >= 1) then
-      invalid(where .. "curve limit must be a positive integer")
-    end
-    if channel.storage ~= "fx16" and channel.storage ~= "fx32" then
-      invalid(where .. "curve storage must be fx16 or fx32")
-    end
-    if not Validate.isArray(channel.keys) or #channel.keys == 0 then
-      invalid(where .. "curve requires a non-empty keys array")
-    end
-    for i, key in ipairs(channel.keys) do
-      if not isFiniteInteger(key) then
-        invalid(where .. "curve key " .. i .. " must be an integer")
-      end
-    end
-  else
-    invalid(where .. "channel source must be constant or curve")
-  end
-end
-
--- The data-only texture-SRT clip: id/name/category/kind/frameCount identity,
--- the binding tracks, and the compiled targets with all five channels. Each
--- track's targetIndex must land inside compiled.targets (the runtime samples
--- through that index); target counts may differ as long as every index is
--- valid, because one area clip is shared across chunks that use subsets.
-local function checkTerrainClip(clip, invalid)
-  local where = "terrainAnimations.textureSrt "
-  if type(clip.id) ~= "string" or #clip.id == 0 then
-    invalid(where .. "clip requires a non-empty id")
-  end
-  if type(clip.name) ~= "string" or #clip.name == 0 then
-    invalid(where .. "clip requires a non-empty name")
-  end
-  if clip.category ~= "material" then
-    invalid(where .. "clip category must be 'material'")
-  end
-  if clip.kind ~= "texsrt" then
-    invalid(where .. "clip kind must be 'texsrt'")
-  end
-  if not (isFiniteInteger(clip.frameCount) and clip.frameCount >= 1) then
-    invalid(where .. "clip frameCount must be a positive integer")
-  end
-  if not Validate.isArray(clip.tracks) then
-    invalid(where .. "clip tracks must be an array")
-  end
-  if not Validate.isArray(clip.semanticNames) then
-    invalid(where .. "clip semanticNames must be an array")
-  end
-  if type(clip.compiled) ~= "table" or not Validate.isArray(clip.compiled.targets) or #clip.compiled.targets == 0 then
-    invalid(where .. "clip compiled.targets must be a non-empty array")
-  end
-  local targets = clip.compiled.targets
-  for i, track in ipairs(clip.tracks) do
-    local whereTrack = where .. "track " .. i .. " "
-    if type(track) ~= "table" or type(track.target) ~= "string" or #track.target == 0 then
-      invalid(whereTrack .. "requires a non-empty string target")
-    end
-    if not (isFiniteInteger(track.targetIndex) and track.targetIndex >= 0) then
-      invalid(whereTrack .. "targetIndex must be a zero-based integer")
-    end
-    if not targets[track.targetIndex + 1] then
-      invalid(whereTrack .. "targetIndex is beyond the compiled targets")
-    end
-  end
-  for i, target in ipairs(targets) do
-    local whereTarget = where .. "target " .. i .. " "
-    local channels = target and target.channels
-    if type(channels) ~= "table" then
-      invalid(whereTarget .. "requires a channels table")
-    end
-    for _, name in ipairs(TEXSRT_CHANNELS) do
-      checkTerrainChannel(channels[name], whereTarget .. name .. " ", invalid)
-    end
-  end
 end
 
 -- The optional fixed-point srt table (the MaterialEvaluator shape): the four
@@ -204,71 +109,59 @@ local function checkTerrainSrt(srt, invalid)
   end
 end
 
--- The textureSwap record of one terrain material: the playback-group name,
--- the replacement frame paths, and the live schedule. The first live
--- schedule entry must reproduce the material's base texture.
+-- The textureSwap record of one terrain material: the playback-group name
+-- and the direct playback steps, each naming the replacement image for its
+-- schedule entry and the entry's duration in ticks (zero durations are
+-- valid: the source state machine can process them). The material's base
+-- texture stays outside the schedule in material.texture, so no step is
+-- compared against it.
 local function checkTextureSwap(m, invalid)
   local swap = m.textureSwap
   if type(swap) ~= "table" or type(swap.name) ~= "string" or #swap.name == 0 then
     invalid("a material textureSwap requires a non-empty name")
   end
-  local textures = swap.textures
-  if not Validate.isArray(textures) or #textures == 0 then
-    invalid("a material textureSwap requires a non-empty textures array")
+  local steps = swap.steps
+  if not Validate.isArray(steps) or #steps == 0 then
+    invalid("a material textureSwap requires a non-empty steps array")
   end
-  for i, path in ipairs(textures) do
-    if type(path) ~= "string" or #path == 0 then
-      invalid("a material textureSwap texture " .. i .. " must be a path string")
+  for i, step in ipairs(steps) do
+    local where = "a material textureSwap step " .. i .. " "
+    if type(step) ~= "table" or type(step.texture) ~= "string" or #step.texture == 0 then
+      invalid(where .. "must carry a non-empty texture path")
     end
-  end
-  local timeline = swap.timeline
-  if not Validate.isArray(timeline) or #timeline == 0 then
-    invalid("a material textureSwap requires a non-empty timeline array")
-  end
-  for i, entry in ipairs(timeline) do
-    local where = "a material textureSwap timeline entry " .. i .. " "
-    if type(entry) ~= "table" then
-      invalid(where .. "must be a record")
+    if not (isFiniteInteger(step.durationTicks) and step.durationTicks >= 0) then
+      invalid(where .. "durationTicks must be a non-negative integer")
     end
-    local index = entry.textureIndex
-    if not (isFiniteInteger(index) and index >= 0) or not textures[index + 1] then
-      invalid(where .. "textureIndex must index the textures array")
-    end
-    if not (isFiniteInteger(entry.durationTicks) and entry.durationTicks >= 1) then
-      invalid(where .. "durationTicks must be a positive integer")
-    end
-  end
-  if textures[timeline[1].textureIndex + 1] ~= m.texture then
-    invalid("a material textureSwap first frame must equal the material texture")
   end
 end
 
--- The terrain material fields: textured materials carry positive integer
--- texWidth/texHeight, an integer texMtxMode in the known Nitro mode set, and
--- an optional valid srt; an untextured material cannot carry a textureSwap.
+-- The terrain material fields: every material record carries the
+-- texture-matrix inputs because the terrain animator is constructed
+-- unconditionally -- textured materials have positive authored dimensions,
+-- untextured materials zero or more (the producer emits zero), and only
+-- texture-matrix mode 0 has a compiled convention. A textureSwap requires
+-- the bound base texture the map starts from.
 local function checkTerrainMaterial(m, invalid)
-  if type(m.texture) == "string" then
-    for _, field in ipairs({ "texWidth", "texHeight" }) do
-      local value = m[field]
-      if not (isFiniteInteger(value) and value >= 1) then
-        invalid("a material " .. field .. " must be a positive integer")
-      end
-    end
-    local mode = m.texMtxMode
-    if not (isFiniteInteger(mode) and mode >= 0 and mode <= MAX_TEXMTX_MODE) then
-      invalid("a material texMtxMode must be an integer in 0.." .. MAX_TEXMTX_MODE)
-    end
-    local srt = m.srt
-    if srt ~= nil then
-      if type(srt) ~= "table" then
-        invalid("a material srt must be a table")
-      end
-      checkTerrainSrt(srt, invalid)
+  local textured = type(m.texture) == "string"
+  for _, field in ipairs({ "texWidth", "texHeight" }) do
+    local value = m[field]
+    if not isFiniteInteger(value) or (textured and value < 1) or (not textured and value < 0) then
+      invalid("a material " .. field .. " must be a " .. (textured and "positive" or "non-negative") .. " integer")
     end
   end
+  if m.texMtxMode ~= 0 then
+    invalid("a material texMtxMode must be 0 (only the Maya texture-matrix convention is supported)")
+  end
+  local srt = m.srt
+  if srt ~= nil then
+    if type(srt) ~= "table" then
+      invalid("a material srt must be a table")
+    end
+    checkTerrainSrt(srt, invalid)
+  end
   if m.textureSwap ~= nil then
-    if type(m.texture) ~= "string" then
-      invalid("an untextured material cannot carry a textureSwap")
+    if not textured then
+      invalid("a textureSwap requires a base material texture")
     end
     checkTextureSwap(m, invalid)
   end
@@ -308,7 +201,9 @@ function MapAssetCache.referencedPaths(scene, cacheFs)
     if type(textureSrt) ~= "table" then
       invalid("terrainAnimations.textureSrt must be false or a table")
     end
-    checkTerrainClip(textureSrt, invalid)
+    CompiledNsbtaClip.validate(textureSrt, function(reason)
+      invalid("terrainAnimations.textureSrt " .. reason)
+    end)
   end
 
   if not Validate.isArray(scene.mapBatches) then
@@ -328,6 +223,37 @@ function MapAssetCache.referencedPaths(scene, cacheFs)
     paths[#paths + 1] = scene.terrain.file
   end
 
+  -- The runtime groups texture swaps by name, so every occurrence of one
+  -- name must share its step count and per-step durations across the central
+  -- scene and every neighbor cell; the texture paths may differ because
+  -- neighboring cells compile the same animation against their own packs.
+  local swapSchedules = {}
+  local function checkSwapSchedule(m)
+    local swap = m.textureSwap
+    if swap == nil then
+      return
+    end
+    local expected = swapSchedules[swap.name]
+    if expected == nil then
+      local durations = {}
+      for _, step in ipairs(swap.steps) do
+        durations[#durations + 1] = step.durationTicks
+      end
+      swapSchedules[swap.name] = { count = #swap.steps, durations = durations }
+      return
+    end
+    if #swap.steps ~= expected.count then
+      invalid("textureSwap " .. swap.name .. " carries a different step count than another material of the same name")
+    end
+    for i, step in ipairs(swap.steps) do
+      if step.durationTicks ~= expected.durations[i] then
+        invalid(
+          "textureSwap " .. swap.name .. " carries different step durations than another material of the same name"
+        )
+      end
+    end
+  end
+
   local function addBatch(b)
     if type(b) ~= "table" or type(b.geometry) ~= "string" then
       invalid("a batch does not reference a geometry path")
@@ -339,12 +265,13 @@ function MapAssetCache.referencedPaths(scene, cacheFs)
       invalid("a material is not a record with an optional texture path")
     end
     checkTerrainMaterial(m, invalid)
+    checkSwapSchedule(m)
     if m.texture then
       paths[#paths + 1] = m.texture
     end
     if m.textureSwap then
-      for _, path in ipairs(m.textureSwap.textures) do
-        paths[#paths + 1] = path
+      for _, step in ipairs(m.textureSwap.steps) do
+        paths[#paths + 1] = step.texture
       end
     end
   end
