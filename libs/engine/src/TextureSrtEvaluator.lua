@@ -19,8 +19,12 @@
 -- where D(x) reconstructs texel coordinates from the compile-time UV
 -- normalization against the base texture size. Untextured materials (zero
 -- dimensions) compose the identity matrix and carry no transform. The
--- evaluator allocates only the fresh matrix it returns; the material record
--- and the sampled state are read-only. Pure domain module.
+-- serialized contract owns the SRT invariants (TextureMatrixState emits all
+-- three "one" flags from source presence; MapAssetCache requires them), so
+-- the evaluator never repairs an incomplete table -- an absent static srt is
+-- the one shared identity state. The evaluator allocates only the fresh
+-- matrix it returns; the material record and the sampled state are
+-- read-only. Pure domain module.
 local Errors = require("libs.errors.src.Errors")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local NitroTexMatrix = require("libs.engine.src.NitroTexMatrix")
@@ -33,38 +37,22 @@ local TextureSrtEvaluator = {}
 -- rather than silently falling back.
 local MAYA_MODE = 0
 
--- The static texture-SRT state of the material record, in the same shape
--- the compiled BTA sampler returns (with "one" flags from the presence
--- bits: an absent component is identity).
-local function staticSrt(material)
-  local srt = material.srt
-  if not srt then
-    return {
-      transS = 0,
-      transT = 0,
-      rot = nil,
-      scaleS = FixedPoint.FX32_SCALE,
-      scaleT = FixedPoint.FX32_SCALE,
-      transOne = true,
-      rotOne = true,
-      scaleOne = true,
-    }
-  end
-  local out = {
-    transS = srt.transS,
-    transT = srt.transT,
-    rot = srt.rot,
-    scaleS = srt.scaleS,
-    scaleT = srt.scaleT,
-    transOne = srt.transOne,
-    rotOne = srt.rotOne,
-    scaleOne = srt.scaleOne,
-  }
-  if out.rot == nil then
-    out.rotOne = true
-  end
-  return out
-end
+-- Structured error code owned by this module.
+TextureSrtEvaluator.ERROR_UNSUPPORTED_TEXMTX_MODE = "ANIM_MATERIAL_UNSUPPORTED_TEXMTX_MODE"
+
+-- The one read-only identity static texture-SRT state (the shape a material
+-- without a static srt implies): all components present as identity, with
+-- every "one" flag set.
+local IDENTITY_SRT = {
+  transS = 0,
+  transT = 0,
+  rot = nil,
+  scaleS = FixedPoint.FX32_SCALE,
+  scaleT = FixedPoint.FX32_SCALE,
+  transOne = true,
+  rotOne = true,
+  scaleOne = true,
+}
 
 -- Compose the six convention cells into the shader's normalized-UV 3x3
 -- (column-major). `baseW/baseH` are the texture dimensions the mesh UVs
@@ -105,9 +93,10 @@ end
 
 -- The normalized-UV 3x3 texMatrix of `material`. `srtOrNil` is the sampled
 -- NSBTA state (CompiledNsbtaSampler result shape) or nil, in which case the
--- material's static `srt` is derived (absent srt = full identity). The
--- optional current dimensions default to the material's own; the model
--- evaluator passes pattern-selected variant dimensions when they differ.
+-- material's static `srt` is used directly (absent srt = the shared identity
+-- state). The optional current dimensions default to the material's own; the
+-- model evaluator passes pattern-selected variant dimensions when they
+-- differ.
 ---@param material table generated material record with texWidth/texHeight/texMtxMode and optional srt
 ---@param srtOrNil SampledTexSrtState|nil
 ---@param curWidth integer|nil
@@ -116,15 +105,12 @@ end
 function TextureSrtEvaluator.matrix(material, srtOrNil, curWidth, curHeight)
   assert(type(material) == "table", "TextureSrtEvaluator.matrix requires a material record")
 
-  local srt = srtOrNil
-  if srt == nil then
-    srt = staticSrt(material)
-  end
+  local srt = srtOrNil or material.srt or IDENTITY_SRT
 
   local mode = material.texMtxMode
   if mode ~= MAYA_MODE then
     Errors.raise(
-      "ANIM_MATERIAL_UNSUPPORTED_TEXMTX_MODE",
+      TextureSrtEvaluator.ERROR_UNSUPPORTED_TEXMTX_MODE,
       "material "
         .. tostring(material.name)
         .. " uses texture-matrix mode "

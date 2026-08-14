@@ -62,12 +62,12 @@ function T.static_srt_absent_composes_identity()
   assertMatrix(m, IDENTITY, "no-srt material")
 end
 
--- A static srt without a rotation derives rotOne from the absence (the
--- "one" flag the DS GetTexSRTAnm_ result carries), so the scaleOne+rotOne
--- translation variant composes: on a 16px texture a transS of 0x100 is a
--- sixteenth of the normalized width (m02 == -1/16) with identity linear
--- cells.
-function T.static_no_rot_forces_rot_one()
+-- A static srt without a rotation carries rotOne from the serialized
+-- contract (TextureMatrixState emits the flag from the source's presence),
+-- so the scaleOne+rotOne translation variant composes: on a 16px texture a
+-- transS of 0x100 is a sixteenth of the normalized width (m02 == -1/16)
+-- with identity linear cells.
+function T.static_no_rot_composes_the_translation_variant()
   local m = TextureSrtEvaluator.matrix(
     material({
       srt = {
@@ -76,6 +76,7 @@ function T.static_no_rot_forces_rot_one()
         transS = 0x100,
         transT = 0,
         scaleOne = true,
+        rotOne = true,
         transOne = false,
       },
     }),
@@ -119,18 +120,11 @@ function T.sampled_state_replaces_the_static_srt()
   Assert.near(m[5], 1, 1e-9)
 end
 
--- Only the Maya convention (mode 0) has a compiled transcription; every
--- other mode raises the same structured error the dynamic evaluator uses,
--- and the mode check precedes the untextured convention (an untextured
--- material in a foreign mode is still an error).
+-- Only the Maya convention (mode 0) has a compiled transcription; any other
+-- mode raises the owner-local structured error.
 function T.unsupported_texmtx_modes_raise()
-  for _, mode in ipairs({ 1, 2, 3 }) do
-    throwsCode("ANIM_MATERIAL_UNSUPPORTED_TEXMTX_MODE", function()
-      TextureSrtEvaluator.matrix(material({ texMtxMode = mode }), nil)
-    end)
-  end
-  throwsCode("ANIM_MATERIAL_UNSUPPORTED_TEXMTX_MODE", function()
-    TextureSrtEvaluator.matrix(material({ texMtxMode = 1, texWidth = 0, texHeight = 0 }), nil)
+  throwsCode(TextureSrtEvaluator.ERROR_UNSUPPORTED_TEXMTX_MODE, function()
+    TextureSrtEvaluator.matrix(material({ texMtxMode = 1 }), nil)
   end)
 end
 

@@ -7,6 +7,7 @@ local Assert = require("tests.support.Assert")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local ModelInstance = require("libs.engine.src.ModelInstance")
 local MaterialEvaluator = require("libs.engine.src.MaterialEvaluator")
+local TextureSrtEvaluator = require("libs.engine.src.TextureSrtEvaluator")
 
 local T = {}
 
@@ -582,6 +583,7 @@ function T.static_srt_composes_the_maya_matrix_without_an_attachment()
     transS = 0x100,
     transT = 0,
     scaleOne = true,
+    rotOne = true,
     transOne = false,
   }
   local instance = ModelInstance.new(def)
@@ -642,7 +644,7 @@ function T.unsupported_texture_matrix_mode_raises()
   for _, mode in ipairs({ 1, 2 }) do
     local def = texturedDefinition({ texMtxMode = mode })
     local instance = ModelInstance.new(def)
-    throwsCode("ANIM_MATERIAL_UNSUPPORTED_TEXMTX_MODE", function()
+    throwsCode(TextureSrtEvaluator.ERROR_UNSUPPORTED_TEXMTX_MODE, function()
       instance:evaluateMaterials()
     end)
   end
