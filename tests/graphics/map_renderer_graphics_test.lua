@@ -236,6 +236,86 @@ function T.literal_color_triangle_ignores_light_direction(scope)
   end
 end
 
+-- A 1x1 solid-color texture at the given alpha (0-255 scale, matching this
+-- file's other synthetic PNG helpers).
+local function solidAlphaImage(scope, r, g, b, alpha)
+  local data = love.image.newImageData(1, 1)
+  data:setPixel(0, 0, r / 255, g / 255, b / 255, alpha / 255)
+  return scope:own(love.graphics.newImage(data))
+end
+
+-- A green literal-color triangle (colorSource 0) covering the same screen
+-- area polygon_light_mask_changes_the_rendered_result samples: interior at
+-- canvas (416, 384) or its Y-mirror (416, 95), whichever the driver's
+-- readback lands on.
+local function decalTriangle(scope)
+  return scope:own(syntheticMesh({
+    { 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0 },
+    { 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0 },
+    { 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0 },
+  }))
+end
+
+local function decalItem(mesh, image)
+  return {
+    mesh = mesh,
+    material = { alphaClass = "opaque", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, image = image },
+    transform = IDENTITY,
+    modelNormal = IDENTITY_NORMAL,
+    alphaClass = "opaque",
+    cullMode = "none",
+    polygonAlpha = 1.0,
+    polygonMode = "decal",
+    polygonId = 0,
+    lightMask = 0,
+    alphaCutoff = 0.5 / 255,
+    center = { 0.5, 0.5, 0 },
+  }
+end
+
+-- The brighter of the two candidate interior samples (readbacks come back
+-- Y-inverted on some GL drivers, so exactly one of (416,384)/(416,95) is
+-- interior against the black clear color; the other reads pure background).
+local function decalInteriorSample(renderer)
+  local img = renderer.sceneColor:newImageData()
+  local a, b = { img:getPixel(416, 384) }, { img:getPixel(416, 95) }
+  local function sum(p)
+    return p[1] + p[2] + p[3]
+  end
+  return sum(a) >= sum(b) and a or b
+end
+
+-- DS DECAL keeps the texture RGB only where the texel is fully opaque
+-- (texture alpha 31/31); a fully transparent decal texel (alpha 0) must
+-- render the vertex color untouched instead (DsFragment.decalRgb6).
+function T.decal_zero_texture_alpha_renders_vertex_color(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local image = solidAlphaImage(scope, 255, 0, 0, 0)
+  local item = decalItem(decalTriangle(scope), image)
+
+  renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, FieldViewport.new(640, 480, { mode = "strict" }))
+
+  local p = decalInteriorSample(renderer)
+  local scale = p[2] > 1 and 255 or 1
+  Assert.isTrue(p[2] >= 0.5 * scale, "a fully transparent decal texel must render the vertex color's green channel")
+  Assert.isTrue(p[1] < 0.5 * scale, "a fully transparent decal texel must not render the texture's red channel")
+end
+
+-- A partially transparent DECAL texel (texture alpha strictly between 0 and
+-- 31/31) must interpolate texture and vertex RGB by that alpha, not render
+-- the texture color unconditionally (DsFragment.decalRgb6).
+function T.decal_partial_texture_alpha_blends_toward_vertex_color(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local image = solidAlphaImage(scope, 255, 0, 0, 128)
+  local item = decalItem(decalTriangle(scope), image)
+
+  renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, FieldViewport.new(640, 480, { mode = "strict" }))
+
+  local p = decalInteriorSample(renderer)
+  local scale = p[2] > 1 and 255 or 1
+  Assert.isTrue(p[2] >= 0.2 * scale, "a partially transparent decal texel must blend in the vertex color's green")
+end
+
 -- Exact caller-state restoration on a real driver: with non-default caller
 -- state (a bound canvas, an active shader, add blending,
 -- depth testing, wireframe, back-face culling, a tinted color) every modified

@@ -1,29 +1,39 @@
 // DS-shaped map/building shader. The vertex stage resolves each vertex's color
 // source (literal COLOR, field-profile diffuse, or NORMAL lighting), computes
 // DS lighting in camera/vector space, and forwards the resulting RGB. The pixel
-// stage samples the texture, applies modulation or decal combination, composes
-// the 5-bit polygon alpha, and discards alpha-zero fragments for cutout draws.
-// No fake directional light or second diffuse multiplication remains.
+// stage samples the texture, applies the exact DS MODULATE/DECAL combiner, and
+// discards alpha-zero fragments for cutout draws. No fake directional light or
+// second diffuse multiplication remains.
 //
 // The vertex-lighting algebra below (computeDsLighting, dsLightContribution,
-// quantizeRgb5) is the shared DS-lighting contract: colors enter normalized as
-// c/31, contributions sum as lightColor * (ambient + diffuse*ld + specular*ls),
-// where ls is the melonDS cos(2a) term clamp(2*ndh^2 - 1, 0, 1) gated on the
-// front-light test ld > 0 (dot(-L,N) > 0), and the result clamps to [0,1] and
-// quantizes to 5 bits by truncation (floor(c * 31.0)), matching the DS
-// hardware, which truncates its fixed-point accumulator (a single
-// full-intensity light caps at 30/31 per channel). The u_mat* uniforms carry
-// the effective DS material registers: the field profile's colors -- the HGSS
-// field engine overrides every material's stored color registers with the
-// profile -- replaced wholesale by the sampled colors of a playing NSBMA
-// material clip. The renderer composes them per draw item (effectiveMaterial-
-// Color); a static item always receives the profile.
+// quantizeVectorFx, dotFxScale) is a direct GLSL transcription of
+// libs/engine/src/DsLighting.lua -- see that module's header for the
+// authoritative domain/truncation documentation (normals in the 1.0.9 domain
+// scaled by NORMAL_FX_SCALE, light vectors in the 1.3.12 domain scaled by
+// LIGHT_FX_SCALE, colors as 5-bit (0..31) integers, and every intermediate
+// step truncated toward -infinity via floor() the same way melonDS's
+// CalculateLighting truncates via integer shifts). ds_lighting_test locks the
+// pure-Lua reference this shader mirrors. The u_mat* uniforms carry the
+// effective DS material registers, normalized c/31: the field profile's
+// colors -- the HGSS field engine overrides every material's stored color
+// registers with the profile -- replaced wholesale by the sampled colors of a
+// playing NSBMA material clip. The renderer composes them per draw item
+// (effectiveMaterialColor); a static item always receives the profile.
 // Each light additionally requires the polygon's light-mask bit: the renderer
 // sends the draw item's 4-bit mask decoded into u_lightMask (one 0/1 float per
 // light), so a light contributes only when the profile enables it AND the
-// polygon's mask admits it (GBATEK POLYGON_ATTR light mask). The pure-Lua
-// reference libs/engine/src/DsLighting.lua mirrors this algebra, and
-// ds_lighting_test locks the agreement at midrange values.
+// polygon's mask admits it (GBATEK POLYGON_ATTR light mask).
+//
+// The pixel-stage combiner (modulateRgb6, decalRgb6, expand5to6) is a direct
+// GLSL transcription of libs/engine/src/DsFragment.lua -- see that module's
+// header for the 5-bit/6-bit domain documentation. An untextured polygon
+// samples `vec4(1.0)` rather than a dedicated synthetic-texture uniform: at
+// 5-bit quantization that is exactly (31,31,31,31), which expand5to6 widens
+// to (63,63,63) -- DsFragment.syntheticTexture()'s exact value, proven to be
+// the identity element of both combiner equations by
+// modulate_component_identity_at_full_white_texture and
+// untextured_decal_polygon_renders_opaque_white in ds_fragment_test.lua. No
+// separate uniform is needed to reach that value.
 
 varying vec3 v_dsColor;
 
@@ -62,44 +72,81 @@ uniform vec3 u_matEmission;
 
 const vec3 VIEW_DIRECTION = vec3(0.0, 0.0, 1.0);
 
-vec3 dsLightContribution(vec3 normal, vec3 L, vec3 lightColor)
-{
-  float ndl = dot(L, normal);
-  float ld = max(0.0, -ndl);
+// DsLighting fixed-point domain scales (see module header).
+const float NORMAL_FX_SCALE = 512.0;
+const float LIGHT_FX_SCALE = 4096.0;
+const float RGB5_MAX = 31.0;
 
-  // Specular is the melonDS cos(2a) term behind its front-light gate
-  // (dot(-L,N) > 0, GPU3D.cpp CalculateLighting): ls = clamp(2*ndh^2 - 1,
-  // 0, 1) with H = normalize(-L + z). Ambient is not gated: melonDS adds it
-  // for every enabled light regardless of the light/normal dot.
+// Round a normalized float vector into an integer fixed-point domain,
+// matching DsLighting.quantizeVector (round to nearest, not truncate).
+vec3 quantizeVectorFx(vec3 v, float scale)
+{
+  return floor(v * scale + 0.5);
+}
+
+// Dot product of two same-scale fixed-point vectors, truncated (floor,
+// matching a hardware arithmetic right shift) back into that scale's domain.
+float dotFxScale(vec3 a, vec3 b, float scale)
+{
+  return floor(dot(a, b) / scale);
+}
+
+vec3 dsLightContribution(vec3 normalFx9, vec3 lightDirection, vec3 lightColorNorm,
+                          vec3 diffuse5, vec3 ambient5, vec3 specular5)
+{
+  vec3 lightFx12 = quantizeVectorFx(normalize(lightDirection), LIGHT_FX_SCALE);
+
+  // Dot truncates into the normal's 1.0.9 domain (DsLighting.dotNormalLight);
+  // ld is the negated, front-light-gated dot, same 0..512 domain.
+  float dot9 = floor(dot(normalFx9, lightFx12) / LIGHT_FX_SCALE);
+  float ld = clamp(-dot9, 0.0, NORMAL_FX_SCALE);
+
+  // Specular is only evaluated when ld > 0 (the melonDS front-light gate).
+  // H is quantized to 1.0.9, dotted with the normal the same truncating way
+  // to get ndh, then truncate-squared before the cos(2a)-equivalent doubling.
   float ls = 0.0;
   if (ld > 0.0) {
-    vec3 H = normalize(-L + VIEW_DIRECTION);
-    float ndh = max(0.0, dot(normal, H));
-    ls = clamp(2.0 * ndh * ndh - 1.0, 0.0, 1.0);
+    vec3 halfFx9 = quantizeVectorFx(
+      normalize(-lightFx12 / LIGHT_FX_SCALE + VIEW_DIRECTION),
+      NORMAL_FX_SCALE
+    );
+    float ndh = clamp(dotFxScale(normalFx9, halfFx9, NORMAL_FX_SCALE), 0.0, NORMAL_FX_SCALE);
+    float ndhSquared = floor((ndh * ndh) / NORMAL_FX_SCALE);
+    ls = clamp(2.0 * ndhSquared - NORMAL_FX_SCALE, 0.0, NORMAL_FX_SCALE);
   }
 
-  // The effective material registers contribute directly; the renderer has
-  // already composed the field profile over any playing NSBMA colors.
-  vec3 contrib = u_matAmbient
-    + u_matDiffuse * ld
-    + u_matSpecular * ls;
-  return lightColor * contrib;
+  // Each material term truncates its own product before joining the
+  // (ungated) ambient term; the light color then scales that per-channel
+  // sum, truncating again.
+  vec3 lightColor5 = floor(lightColorNorm * RGB5_MAX + 0.5);
+  vec3 diffuseTerm = floor((diffuse5 * ld) / NORMAL_FX_SCALE);
+  vec3 specularTerm = floor((specular5 * ls) / NORMAL_FX_SCALE);
+  vec3 termSum = ambient5 + diffuseTerm + specularTerm;
+  return floor((lightColor5 * termSum) / RGB5_MAX);
 }
 
 vec3 computeDsLighting(vec3 normal)
 {
-  vec3 acc = u_matEmission;
+  vec3 normalFx9 = quantizeVectorFx(normal, NORMAL_FX_SCALE);
+  vec3 diffuse5 = floor(u_matDiffuse * RGB5_MAX + 0.5);
+  vec3 ambient5 = floor(u_matAmbient * RGB5_MAX + 0.5);
+  vec3 specular5 = floor(u_matSpecular * RGB5_MAX + 0.5);
+  vec3 emission5 = floor(u_matEmission * RGB5_MAX + 0.5);
+
+  // Contributions from every enabled light and the emission register sum as
+  // plain integers; only the final accumulator saturates to 0..31.
+  vec3 acc = emission5;
 
   if (u_lightEnabled0 && u_lightMask.x > 0.5)
-    acc += dsLightContribution(normal, normalize(u_lightVector0), u_lightColor0);
+    acc += dsLightContribution(normalFx9, u_lightVector0, u_lightColor0, diffuse5, ambient5, specular5);
   if (u_lightEnabled1 && u_lightMask.y > 0.5)
-    acc += dsLightContribution(normal, normalize(u_lightVector1), u_lightColor1);
+    acc += dsLightContribution(normalFx9, u_lightVector1, u_lightColor1, diffuse5, ambient5, specular5);
   if (u_lightEnabled2 && u_lightMask.z > 0.5)
-    acc += dsLightContribution(normal, normalize(u_lightVector2), u_lightColor2);
+    acc += dsLightContribution(normalFx9, u_lightVector2, u_lightColor2, diffuse5, ambient5, specular5);
   if (u_lightEnabled3 && u_lightMask.w > 0.5)
-    acc += dsLightContribution(normal, normalize(u_lightVector3), u_lightColor3);
+    acc += dsLightContribution(normalFx9, u_lightVector3, u_lightColor3, diffuse5, ambient5, specular5);
 
-  return clamp(acc, 0.0, 1.0);
+  return clamp(acc, 0.0, RGB5_MAX) / RGB5_MAX;
 }
 
 vec3 quantizeRgb5(vec3 c)
@@ -153,27 +200,76 @@ uniform float u_polygonId;     // normalized 6-bit polygon ID (id / 255), sentin
 uniform mat3 u_texMatrix;      // normalized-UV transform (NSBTA texture SRT)
 uniform sampler2D MainTex;
 
+// DsFragment 5-bit (0-31) color component -> the combiner's 6-bit (0-63)
+// domain, by hardware bit-replication of the top bit into the new low bit.
+float expand5to6(float c5)
+{
+  return c5 * 2.0 + floor(c5 / 16.0);
+}
+
+vec3 expand5to6v(vec3 c5)
+{
+  return vec3(expand5to6(c5.x), expand5to6(c5.y), expand5to6(c5.z));
+}
+
+// MODULATE, one RGB component, in the 6-bit (0-63) combiner domain.
+float modulateComponent6(float texture6, float vertex6)
+{
+  return floor(((texture6 + 1.0) * (vertex6 + 1.0) - 1.0) / 64.0);
+}
+
+vec3 modulateRgb6(vec3 texture6, vec3 vertex6)
+{
+  return vec3(
+    modulateComponent6(texture6.x, vertex6.x),
+    modulateComponent6(texture6.y, vertex6.y),
+    modulateComponent6(texture6.z, vertex6.z)
+  );
+}
+
+// DECAL RGB triple, 6-bit domain: texture alpha 0 -> vertex, 31 -> texture,
+// otherwise a texture-alpha-weighted interpolation (truncating divide by the
+// alpha full scale, 31).
+vec3 decalRgb6(vec3 texture6, vec3 vertex6, float textureAlpha5)
+{
+  if (textureAlpha5 <= 0.5) {
+    return vertex6;
+  }
+  if (textureAlpha5 >= 30.5) {
+    return texture6;
+  }
+  return vertex6 + floor((texture6 - vertex6) * textureAlpha5 / 31.0);
+}
+
 void effect()
 {
   vec2 uv = (u_texMatrix * vec3(VaryingTexCoord.xy, 1.0)).xy;
   vec4 base = u_useTexture ? Texel(MainTex, uv) : vec4(1.0);
 
-  vec3 outRgb;
-  if (u_polygonMode == 1) {
-    outRgb = base.rgb;
-  } else {
-    outRgb = base.rgb * v_dsColor;
-  }
+  // Both operands enter the combiner as 5-bit components widened to the
+  // 6-bit domain (DsFragment.expand5to6); v_dsColor already arrived
+  // 5-bit-quantized from the vertex stage (quantizeRgb5).
+  vec3 texture5 = floor(base.rgb * 31.0 + 0.5);
+  vec3 vertex5 = floor(v_dsColor * 31.0 + 0.5);
+  vec3 texture6 = expand5to6v(texture5);
+  vec3 vertex6 = expand5to6v(vertex5);
 
-  float At = base.a;
-  int At5 = int(floor(At * 31.0 + 0.5));
+  float At5f = floor(base.a * 31.0 + 0.5);
+  int At5 = int(At5f);
   int Ap5 = int(floor(u_polygonAlpha * 31.0 + 0.5));
+
+  vec3 outRgb6;
   int Aout5;
   if (u_polygonMode == 1) {
+    // DECAL: polygon alpha unconditionally; RGB blended by texture alpha.
+    outRgb6 = decalRgb6(texture6, vertex6, At5f);
     Aout5 = Ap5;
   } else {
+    // MODULATE: exact DS integer-domain equations (DsFragment.lua).
+    outRgb6 = modulateRgb6(texture6, vertex6);
     Aout5 = int(floor(float((At5 + 1) * (Ap5 + 1) - 1) / 32.0));
   }
+  vec3 outRgb = outRgb6 / 63.0;
   float alpha = float(Aout5) / 31.0;
 
   if (u_alphaMode == 1 && alpha < u_alphaCutoff) {
