@@ -342,6 +342,7 @@ local function sceneWith(instances, descriptors, doorTiles)
     materials = {},
     buildingInstances = instances,
     neighbors = {},
+    terrainAnimations = { textureSrt = false },
     lighting = nil,
   }
   backend:write(dir .. "/scene.lua", LuaWriter.encode(scene))
@@ -651,6 +652,7 @@ function T.animated_building_loads_advances_and_renders()
       },
     },
     neighbors = {},
+    terrainAnimations = { textureSrt = false },
     lighting = nil,
   }
   local descriptor = doorDescriptor()
@@ -1380,6 +1382,7 @@ function T.static_only_terrain_srt_is_initialized_by_the_loader()
     transS = 0x100,
     transT = 0,
     scaleOne = true,
+    rotOne = true,
     transOne = false,
   }
   local material = {

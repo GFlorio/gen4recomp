@@ -226,7 +226,7 @@ local function buildScene(pool, cacheFs, scene, opts)
   end
   local terrainAnimator = TerrainMaterialAnimator.new(
     bindings,
-    scene.terrainAnimations and scene.terrainAnimations.textureSrt or false,
+    scene.terrainAnimations.textureSrt,
     function(path, wrapX, wrapY)
       return pool:imageFor(path, wrapX, wrapY)
     end

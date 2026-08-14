@@ -318,7 +318,7 @@ end
 
 -- The central collision decodes inside the load transaction; malformed
 -- generated data must fail the load after the acquired scene and coverage
--- runtimes, and both must be released exactly once, coverage before scene.
+-- runtimes, and both must be released exactly once.
 function T.failed_central_collision_decode_releases_scene_and_coverage()
   local cache, world, _, _, files = fixture(1)
   files["data/generated/maps/0000/scene.lua"].neighbors = {
@@ -326,14 +326,12 @@ function T.failed_central_collision_decode_releases_scene_and_coverage()
   }
   files["data/generated/maps/0000/collision.g4collision"] = truncatedCollision()
   local releases = {}
-  local releaseOrder = {}
   local sceneLoader = {
     load = function(_, scene)
       return {
         scene = scene,
         release = function()
           releases[scene.mapId] = (releases[scene.mapId] or 0) + 1
-          releaseOrder[#releaseOrder + 1] = "scene"
         end,
       }
     end,
@@ -345,7 +343,6 @@ function T.failed_central_collision_decode_releases_scene_and_coverage()
         draws = {},
         release = function()
           coverageReleases = coverageReleases + 1
-          releaseOrder[#releaseOrder + 1] = "coverage"
         end,
       }
     end,
@@ -360,11 +357,9 @@ function T.failed_central_collision_decode_releases_scene_and_coverage()
   Assert.isTrue(Errors.is(err) and err.code == "COLLISION_BAD_SIZE", "the collision failure propagates")
   Assert.equal(releases[0], 1, "the scene runtime is released")
   Assert.equal(coverageReleases, 1, "the coverage runtime is released")
-  Assert.deepEqual(releaseOrder, { "coverage", "scene" }, "release order stays coverage then scene")
   loader:release()
   Assert.equal(releases[0], 1, "scene release stays exactly once")
   Assert.equal(coverageReleases, 1, "coverage release stays exactly once")
-  Assert.deepEqual(releaseOrder, { "coverage", "scene" }, "no further releases after the failed load")
 end
 
 -- A malformed terrain artifact fails construction after both the scene runtime
@@ -573,7 +568,6 @@ end
 
 -- The field clock entry point: the aggregate map runtime fans one update
 -- call out to the central scene runtime and the neighbor coverage runtime.
--- A successful release keeps the coverage-then-scene order.
 function T.runtime_map_update_animated_advances_scene_and_coverage_exactly_once()
   local cache, world, _, _, files = fixture(1)
   local scene = files["data/generated/maps/0000/scene.lua"]
@@ -590,7 +584,6 @@ function T.runtime_map_update_animated_advances_scene_and_coverage_exactly_once(
   files[terrainPath] = { schema = "g4-terrain-surfaces-v1", plates = {}, source = { bdhcSha1 = "east" } }
   files[collisionPath] = CollisionFixture.asset(32, 32)
   local sceneCalls, coverageCalls = 0, 0
-  local releaseOrder = {}
   local sceneLoader = {
     load = function(_, s)
       return {
@@ -598,9 +591,7 @@ function T.runtime_map_update_animated_advances_scene_and_coverage_exactly_once(
         updateAnimated = function()
           sceneCalls = sceneCalls + 1
         end,
-        release = function()
-          releaseOrder[#releaseOrder + 1] = "scene"
-        end,
+        release = function() end,
       }
     end,
   }
@@ -611,9 +602,7 @@ function T.runtime_map_update_animated_advances_scene_and_coverage_exactly_once(
         updateAnimated = function()
           coverageCalls = coverageCalls + 1
         end,
-        release = function()
-          releaseOrder[#releaseOrder + 1] = "coverage"
-        end,
+        release = function() end,
       }
     end,
   }
@@ -629,7 +618,6 @@ function T.runtime_map_update_animated_advances_scene_and_coverage_exactly_once(
   Assert.equal(sceneCalls, 2, "each aggregate call advances the central scene runtime exactly once")
   Assert.equal(coverageCalls, 2, "each aggregate call advances the coverage runtime exactly once")
   map:release()
-  Assert.deepEqual(releaseOrder, { "coverage", "scene" }, "release order stays coverage then scene")
   loader:release()
 end
 

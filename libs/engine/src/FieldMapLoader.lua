@@ -294,7 +294,7 @@ function FieldMapLoader:load(idOrSymbol)
   local ok, loadErr = pcall(function()
     if self.coverageLoader and #scene.neighbors > 0 then
       coverageRuntime = self.coverageLoader.load(self.cacheFs, scene.neighbors, {
-        textureSrt = scene.terrainAnimations and scene.terrainAnimations.textureSrt or false,
+        textureSrt = scene.terrainAnimations.textureSrt,
       })
     end
 
