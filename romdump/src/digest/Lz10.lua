@@ -10,13 +10,32 @@ local Errors = require("libs.errors.src.Errors")
 
 local Lz10 = {}
 
+-- Named ownership of the protocol error codes; tests assert the constants,
+-- never the raw strings.
+Lz10.ERROR = {
+  HEADER_INVALID = "LZ10_HEADER_INVALID",
+  STREAM_INVALID = "LZ10_STREAM_INVALID",
+}
+
 local HEADER_BYTES = 4
 local MIN_MATCH_LENGTH = 3
+
+-- Every source read is preceded by a bounds check: a stream that ends in the
+-- middle of a token is malformed source, never a raw Lua indexing failure.
+local function requireSource(bytes, src, count)
+  if src + count - 1 > #bytes then
+    Errors.raise(
+      Lz10.ERROR.STREAM_INVALID,
+      "LZ10 stream ends in the middle of a token",
+      { src = src, needed = count, size = #bytes }
+    )
+  end
+end
 
 local function _decode(bytes)
   if #bytes < HEADER_BYTES or string.byte(bytes, 1) ~= 0x10 then
     Errors.raise(
-      "LZ10_HEADER_INVALID",
+      Lz10.ERROR.HEADER_INVALID,
       "LZ10 payload lacks the 0x10 header",
       { size = #bytes, first = #bytes >= 1 and string.byte(bytes, 1) or nil }
     )
@@ -26,6 +45,7 @@ local function _decode(bytes)
   local src = HEADER_BYTES + 1
   local dst = 1
   while dst <= outputSize do
+    requireSource(bytes, src, 1)
     local flags = string.byte(bytes, src)
     src = src + 1
     for bit = 7, 0, -1 do
@@ -33,10 +53,12 @@ local function _decode(bytes)
         break
       end
       if math.floor(flags / 2 ^ bit) % 2 == 0 then
+        requireSource(bytes, src, 1)
         output[dst] = string.byte(bytes, src)
         src = src + 1
         dst = dst + 1
       else
+        requireSource(bytes, src, 2)
         local b1 = string.byte(bytes, src)
         local b2 = string.byte(bytes, src + 1)
         src = src + 2
@@ -44,9 +66,16 @@ local function _decode(bytes)
         local displacement = (b1 % 16) * 256 + b2 + 1
         if displacement > dst - 1 or output[dst - displacement] == nil then
           Errors.raise(
-            "LZ10_STREAM_INVALID",
+            Lz10.ERROR.STREAM_INVALID,
             "LZ10 match at output byte " .. dst .. " reaches before the decoded start",
             { dst = dst, displacement = displacement }
+          )
+        end
+        if dst + length - 1 > outputSize then
+          Errors.raise(
+            Lz10.ERROR.STREAM_INVALID,
+            "LZ10 match at output byte " .. dst .. " extends past the declared output size",
+            { dst = dst, length = length, outputSize = outputSize }
           )
         end
         for _ = 1, length do

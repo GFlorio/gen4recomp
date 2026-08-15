@@ -1,7 +1,10 @@
 -- LZ10 decoding contract: header, flag-bit semantics (clear = literal, set =
--- match), match length/displacement encoding, and strict rejection of
--- truncated or out-of-bounds streams. Vectors are built by hand from the
--- GBATEK-documented scheme; the real ROM gated the same semantics.
+-- match), match length/displacement encoding, and strict typed rejection of
+-- every malformed stream shape the decoder can meet: a missing flag byte, a
+-- missing literal byte, a missing first or second match token byte, a match
+-- reaching before the decoded start, and a match extending past the declared
+-- output size. Vectors are built by hand from the GBATEK-documented scheme;
+-- the real ROM gated the same semantics.
 
 local Assert = require("tests.support.Assert")
 local Lz10 = require("romdump.src.digest.Lz10")
@@ -50,7 +53,7 @@ end
 function T.non_lz10_payload_is_rejected()
   local out, err = Lz10.decode("not-lz10")
   Assert.isNil(out)
-  Assert.equal(assert(err).code, "LZ10_HEADER_INVALID")
+  Assert.equal(assert(err).code, Lz10.ERROR.HEADER_INVALID)
 end
 
 -- A match whose displacement reaches before the decoded start is malformed
@@ -60,7 +63,50 @@ function T.match_before_output_start_is_rejected()
   local data = lz10(4, body)
   local out, err = Lz10.decode(data)
   Assert.isNil(out)
-  Assert.equal(assert(err).code, "LZ10_STREAM_INVALID")
+  Assert.equal(assert(err).code, Lz10.ERROR.STREAM_INVALID)
+end
+
+-- Every token location is bounds-checked: a stream that ends before its flag
+-- byte must be a typed stream error, never a raw Lua indexing failure.
+function T.missing_flag_byte_is_rejected()
+  local out, err = Lz10.decode(lz10(1, ""))
+  Assert.isNil(out)
+  Assert.equal(assert(err).code, Lz10.ERROR.STREAM_INVALID)
+end
+
+-- A flag byte promising a literal with no literal byte behind it.
+function T.missing_literal_byte_is_rejected()
+  local out, err = Lz10.decode(lz10(1, string.char(0x00)))
+  Assert.isNil(out)
+  Assert.equal(assert(err).code, Lz10.ERROR.STREAM_INVALID)
+end
+
+-- A match flag with no token bytes at all.
+function T.missing_first_match_byte_is_rejected()
+  local out, err = Lz10.decode(lz10(1, string.char(0x80)))
+  Assert.isNil(out)
+  Assert.equal(assert(err).code, Lz10.ERROR.STREAM_INVALID)
+end
+
+-- A match flag with only the first token byte: the displacement byte is
+-- still required.
+function T.missing_second_match_byte_is_rejected()
+  local out, err = Lz10.decode(lz10(1, string.char(0x80, 0x10)))
+  Assert.isNil(out)
+  Assert.equal(assert(err).code, Lz10.ERROR.STREAM_INVALID)
+end
+
+-- A match whose run length crosses the declared output size is malformed
+-- source: the decoder must reject it instead of decoding extra bytes and
+-- discarding them at concatenation.
+function T.match_extending_beyond_output_size_is_rejected()
+  -- Flags 0x10: three literals "ABC", then bit 4 set = a match with token
+  -- (0x20, 0x00): length 5, displacement 1 — valid start at dst 4, but the
+  -- run reaches output bytes 4..8 while the header declares 4.
+  local body = string.char(0x10, 0x41, 0x42, 0x43, 0x20, 0x00)
+  local out, err = Lz10.decode(lz10(4, body))
+  Assert.isNil(out)
+  Assert.equal(assert(err).code, Lz10.ERROR.STREAM_INVALID)
 end
 
 return { tests = T }

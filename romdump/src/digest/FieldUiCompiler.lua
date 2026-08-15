@@ -17,6 +17,12 @@ local manifestConfig = require("romdump.src.config.FieldUiAssets")
 
 local FieldUiCompiler = {}
 
+-- Named ownership of the compiler protocol error codes; tests assert the
+-- constant, never the raw string.
+FieldUiCompiler.ERROR = {
+  SOURCE_INVALID = "FIELD_UI_SOURCE_INVALID",
+}
+
 local function must(value, err)
   if value == nil then
     error(err or "expected a value", 0)
@@ -51,18 +57,34 @@ end
 -- the reserved transparency slot: the HGSS UI palettes fill it with a pink
 -- chroma color that the DS window/OBJ presentation never displays. Values
 -- >= 1 map to palette color `value` — colors is 1-based (colors[i] = color
--- i-1), so the lookup is value + 1 within the tile's palette bank.
-local function blitTile(rgba, atlasWidth, destX, destY, charData, tileIndex, palIndex, colors, flipH, flipV)
+-- i-1), so the lookup is value + 1 within the tile's palette bank. A tile
+-- index beyond the decoded tiles, or a palette entry the decoded palette
+-- cannot cover, is malformed source, never silent transparency.
+-- `source` names the asset/member/cell/obj that produced the reference for
+-- the typed error context.
+local function blitTile(rgba, atlasWidth, destX, destY, charData, tileIndex, palIndex, colors, flipH, flipV, source)
   local depth = charData.depth
-  local palBase = depth == 3 and palIndex * 16 or palIndex * 256
   local tileBytes = depth == 3 and 32 or 64
+  local tileCount = math.floor(#charData.tiles / tileBytes)
+  if tileIndex < 0 or tileIndex >= tileCount then
+    Errors.raise(
+      FieldUiCompiler.ERROR.SOURCE_INVALID,
+      "tile reference exceeds the decoded char data",
+      { tile = tileIndex, available = tileCount, source = source }
+    )
+  end
+  local palBase = depth == 3 and palIndex * 16 or palIndex * 256
   local function put(x, y, v)
     if v == 0 then
       return
     end
     local c = colors[palBase + v + 1]
     if not c then
-      return
+      Errors.raise(
+        FieldUiCompiler.ERROR.SOURCE_INVALID,
+        "pixel references a palette entry the decoded palette cannot cover",
+        { value = v, palette = palIndex, available = #colors, source = source }
+      )
     end
     if flipH then
       x = 7 - x
@@ -100,31 +122,43 @@ local function newRgba(width, height)
 end
 
 -- Render a screen (BG tilemap with flips) into a PNG.
-local function renderScreen(charData, palette, screen)
+local function renderScreen(charData, palette, screen, source)
   local width = screen.width
   local height = screen.height
   local rgba = newRgba(width, height)
   for row = 0, screen.height / 8 - 1 do
     for col = 0, screen.width / 8 - 1 do
       local entry = screen.entries[row * (screen.width / 8) + col + 1]
-      blitTile(rgba, width, col * 8, row * 8, charData, entry.tile, entry.palette, palette, entry.flipH, entry.flipV)
+      blitTile(
+        rgba,
+        width,
+        col * 8,
+        row * 8,
+        charData,
+        entry.tile,
+        entry.palette,
+        palette,
+        entry.flipH,
+        entry.flipV,
+        source
+      )
     end
   end
   return PngWriter.encode(width, height, concatChars(rgba))
 end
 
 -- Render a tile run (e.g. a frame's 18 tiles) into a strip atlas.
-local function renderTiles(charData, palette, tileCount, atlasWidth)
+local function renderTiles(charData, palette, tileCount, atlasWidth, source)
   local rgba = newRgba(atlasWidth, 8)
   for tile = 0, tileCount - 1 do
-    blitTile(rgba, atlasWidth, tile * 8, 0, charData, tile, 0, palette)
+    blitTile(rgba, atlasWidth, tile * 8, 0, charData, tile, 0, palette, false, false, source)
   end
   return PngWriter.encode(atlasWidth, 8, concatChars(rgba))
 end
 
 local function cellBounds(cell)
   local first = assert(cell.objs[1], "cell bounds require at least one object")
-  local minX, minY, maxX, maxY = first.x, first.y, first.x + 8, first.y + 8
+  local minX, minY, maxX, maxY = first.x, first.y, first.x + first.width, first.y + first.height
   for i = 2, #cell.objs do
     local obj = cell.objs[i]
     if obj.x < minX then
@@ -133,14 +167,51 @@ local function cellBounds(cell)
     if obj.y < minY then
       minY = obj.y
     end
-    if obj.x + 8 > maxX then
-      maxX = obj.x + 8
+    if obj.x + obj.width > maxX then
+      maxX = obj.x + obj.width
     end
-    if obj.y + 8 > maxY then
-      maxY = obj.y + 8
+    if obj.y + obj.height > maxY then
+      maxY = obj.y + obj.height
     end
   end
   return { x = minX, y = minY, width = maxX - minX, height = maxY - minY }
+end
+
+-- Blit one cell OBJ into the cursor atlas. The compiler supports the two
+-- square geometries the cursor sources actually use (8x8 and the real
+-- 32x32); any other shape/size is malformed source. Square OBJs lay their
+-- tiles out row-major from the base tile. A flipped OBJ mirrors the whole
+-- object per the OAM layout: the tile grid order is mirrored as well, and
+-- each tile is flipped in place by blitTile.
+local function blitObj(rgba, atlasWidth, row, obj, charData, palette, source)
+  if obj.shape ~= 0 or (obj.size ~= 0 and obj.size ~= 2) then
+    Errors.raise(
+      FieldUiCompiler.ERROR.SOURCE_INVALID,
+      "unsupported OBJ geometry in the start menu cursor",
+      { width = obj.width, height = obj.height, shape = obj.shape, size = obj.size, source = source }
+    )
+  end
+  local tilesPerRow = obj.width / 8
+  local rowsPerObj = obj.height / 8
+  for tileRow = 0, rowsPerObj - 1 do
+    for tileCol = 0, tilesPerRow - 1 do
+      local destCol = obj.flipH and (tilesPerRow - 1 - tileCol) or tileCol
+      local destRow = obj.flipV and (rowsPerObj - 1 - tileRow) or tileRow
+      blitTile(
+        rgba,
+        atlasWidth,
+        obj.x - row.minX + destCol * 8,
+        obj.y - row.minY + row.y + destRow * 8,
+        charData,
+        obj.tile + tileRow * tilesPerRow + tileCol,
+        obj.palette,
+        palette,
+        obj.flipH,
+        obj.flipV,
+        source
+      )
+    end
+  end
 end
 
 local function loadArchive(romFs, alias)
@@ -163,7 +234,10 @@ local function compileStartMenu(romFs, sha1hex, deps, assets, manifestAssets)
   local screen = g2d("decodeScreen", cfg.backgroundScreenMember, "start menu background screen")
   local pal = g2d("decodePalette", cfg.backgroundPaletteMember, "start menu background palette")
   local backgroundPath = FieldUiAssetCache.assetDir() .. "/start-menu.png"
-  assets[backgroundPath] = renderScreen(charData, pal.colors, screen)
+  assets[backgroundPath] = renderScreen(charData, pal.colors, screen, {
+    asset = "start menu background",
+    member = cfg.backgroundScreenMember,
+  })
   manifestAssets["hgss.start_menu.background"] = {
     image = backgroundPath,
     width = screen.width,
@@ -185,7 +259,7 @@ local function compileStartMenu(romFs, sha1hex, deps, assets, manifestAssets)
   for i, frame in ipairs(anim.frames) do
     local cell = cursorCell.cells[frame.cell + 1]
     if not cell then
-      Errors.raise("FIELD_UI_SOURCE_INVALID", "start menu cursor animation references a missing cell", {
+      Errors.raise(FieldUiCompiler.ERROR.SOURCE_INVALID, "start menu cursor animation references a missing cell", {
         cell = frame.cell,
       })
     end
@@ -208,19 +282,14 @@ local function compileStartMenu(romFs, sha1hex, deps, assets, manifestAssets)
   local cursorPath = FieldUiAssetCache.assetDir() .. "/start-menu-cursor.png"
   local rgba = newRgba(atlasWidth, atlasHeight)
   for cellIndex, row in pairs(cellRows) do
-    for _, obj in ipairs(cursorCell.cells[cellIndex + 1].objs) do
-      blitTile(
-        rgba,
-        atlasWidth,
-        obj.x - row.minX,
-        obj.y - row.minY + row.y,
-        cursorChar,
-        obj.tile,
-        obj.palette,
-        cursorPal.colors,
-        obj.flipH,
-        obj.flipV
-      )
+    local objs = cursorCell.cells[cellIndex + 1].objs
+    for objIndex, obj in ipairs(objs) do
+      blitObj(rgba, atlasWidth, row, obj, cursorChar, cursorPal.colors, {
+        asset = "start menu cursor",
+        member = cfg.cursorCellMember,
+        cell = cellIndex,
+        obj = objIndex - 1,
+      })
     end
   end
   assets[cursorPath] = PngWriter.encode(atlasWidth, atlasHeight, concatChars(rgba))
@@ -282,13 +351,16 @@ local function compileDialogueFrames(romFs, sha1hex, deps, assets, manifestAsset
     frameChar = must(frameChar, charErr)
     framePal = must(framePal, palErr)
     if math.floor(#frameChar.tiles / (frameChar.depth == 3 and 32 or 64)) ~= tilesPerFrame then
-      Errors.raise("FIELD_UI_SOURCE_INVALID", "frame " .. frame .. " has a different tile count", {
+      Errors.raise(FieldUiCompiler.ERROR.SOURCE_INVALID, "frame " .. frame .. " has a different tile count", {
         frame = frame,
         tiles = math.floor(#frameChar.tiles / (frameChar.depth == 3 and 32 or 64)),
       })
     end
     for tile = 0, tilesPerFrame - 1 do
-      blitTile(rgba, atlasWidth, tile * 8, frame * 8, frameChar, tile, 0, framePal.colors)
+      blitTile(rgba, atlasWidth, tile * 8, frame * 8, frameChar, tile, 0, framePal.colors, false, false, {
+        asset = "dialogue frame " .. frame,
+        member = cfg.firstFrameMember + frame,
+      })
     end
     frameTiles[frame] = { x = 0, y = frame * 8, width = atlasWidth, height = 8 }
     palettes[frame] = { colors = framePal.colors }
@@ -322,7 +394,10 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
   framePal = must(framePal, palErr)
   local frameTiles = math.floor(#frameChar.tiles / (frameChar.depth == 3 and 32 or 64))
   local framePath = FieldUiAssetCache.assetDir() .. "/signpost-tiles.png"
-  assets[framePath] = renderTiles(frameChar, framePal.colors, frameTiles, frameTiles * 8)
+  assets[framePath] = renderTiles(frameChar, framePal.colors, frameTiles, frameTiles * 8, {
+    asset = "signpost frame",
+    member = cfg.frameMember,
+  })
   manifestAssets["hgss.signpost.tiles"] = { image = framePath, width = frameTiles * 8, height = 8 }
   deps[#deps + 1] = { name = manifestConfig.signposts.alias .. ":frame", sha1 = sha1hex(archiveBytes) }
 
@@ -351,7 +426,7 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
         wayTiles = tiles
       elseif tiles ~= wayTiles then
         Errors.raise(
-          "FIELD_UI_SOURCE_INVALID",
+          FieldUiCompiler.ERROR.SOURCE_INVALID,
           "wayfinding member " .. member .. " has " .. tiles .. " tiles, expected " .. wayTiles,
           {
             member = member,
@@ -368,7 +443,10 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
   for index, row in ipairs(rows) do
     local wfChar = row.char
     for tile = 0, wayTiles - 1 do
-      blitTile(rgba, rowWidth, tile * 8, (index - 1) * 8, wfChar, tile, 0, framePal.colors)
+      blitTile(rgba, rowWidth, tile * 8, (index - 1) * 8, wfChar, tile, 0, framePal.colors, false, false, {
+        asset = "wayfinding " .. row.key,
+        member = row.member,
+      })
     end
     wayfinding[row.key] = { x = 0, y = (index - 1) * 8, width = rowWidth, height = 8 }
     deps[#deps + 1] = {
@@ -411,7 +489,10 @@ local function compileTrainerCard(romFs, sha1hex, deps, assets, manifestAssets)
   local pal, palErr = G2dDecoder.decodePalette(palBytes, { label = "card palette" })
   pal = must(pal, palErr)
   local path = FieldUiAssetCache.assetDir() .. "/trainer-card.png"
-  assets[path] = renderScreen(charData, pal.colors, screen)
+  assets[path] = renderScreen(charData, pal.colors, screen, {
+    asset = "trainer card front",
+    member = cfg.frontScreenMember,
+  })
   manifestAssets["hgss.trainer_card.front"] = { image = path, width = screen.width, height = screen.height }
   deps[#deps + 1] = { name = manifestConfig.trainerCard.alias .. ":narc", sha1 = sha1hex(archiveBytes) }
   return {
