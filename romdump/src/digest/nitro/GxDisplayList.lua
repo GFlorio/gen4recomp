@@ -8,13 +8,7 @@
 -- previous coordinates -- and an internal 4x4 matrix stack so a self-contained
 -- list transforms correctly. Node matrices selected via MTX_RESTORE default to
 -- identity here; the model compiler supplies them through the SBC stream. DS
--- primitives are converted to indexed triangles. The static (non-dynamic)
--- result also reports `polygonEdges`: each primitive's true GX perimeter, in
--- the same global vertex-index space as `indices`. Quad/quad-strip
--- primitives are triangulated into 2 triangles for the mesh, which
--- introduces an interior diagonal that is not a real DS polygon edge;
--- `polygonEdges` excludes it, so a wireframe consumer can draw the original
--- polygon boundary instead of every triangle edge. Unknown opcodes are fatal
+-- primitives are converted to indexed triangles. Unknown opcodes are fatal
 -- with a byte offset. Pure domain module; arithmetic only.
 --
 -- `options.dynamic` selects the transform-preserving mode: the SBC
@@ -228,7 +222,6 @@ local function newDecoder()
     primType = nil,
     vertices = {},
     indices = {},
-    polygonEdges = {},
     opcodeCounts = {},
     polygonAttrs = {}, -- set of distinct POLYGON_ATTR words issued in-list
     -- Dynamic (transform-preserving) mode state: the display-list-local
@@ -272,26 +265,10 @@ local function convertRun(d, offset, lenient)
   local n = #run
   local tail = 0
   local indices = d.dynamic and d.currentSegment.indices or d.indices
-  -- The true GX perimeter of each primitive, in the same global vertex-index
-  -- space as `indices`. For triangle/tristrip primitives the software
-  -- triangulation already matches the hardware primitive's boundary exactly
-  -- (3 edges per triangle, no interior line). For quad/quadstrip primitives
-  -- the hardware rasterizes a genuine 4-vertex quad; this decoder still
-  -- triangulates it into 2 triangles for the mesh, but that triangulation
-  -- introduces an interior diagonal that is not a real DS polygon edge, so
-  -- the perimeter here deliberately excludes it. Only computed in static
-  -- mode: wireframe polygons are static field geometry (no dynamic/animated
-  -- wireframe shape exists in the target corpus).
-  local edges = not d.dynamic and d.polygonEdges or nil
   local function tri(a, b, c)
     indices[#indices + 1] = run[a + 1]
     indices[#indices + 1] = run[b + 1]
     indices[#indices + 1] = run[c + 1]
-  end
-  local function edge(a, b)
-    if edges then
-      edges[#edges + 1] = { run[a + 1], run[b + 1] }
-    end
   end
   if t == 0 then -- separate triangles
     local complete = n - n % 3
@@ -309,9 +286,6 @@ local function convertRun(d, offset, lenient)
     end
     for i = 0, complete - 1, 3 do
       tri(i, i + 1, i + 2)
-      edge(i, i + 1)
-      edge(i + 1, i + 2)
-      edge(i + 2, i)
     end
   elseif t == 1 then -- separate quads
     local complete = n - n % 4
@@ -330,10 +304,6 @@ local function convertRun(d, offset, lenient)
     for i = 0, complete - 1, 4 do
       tri(i, i + 1, i + 2)
       tri(i, i + 2, i + 3)
-      edge(i, i + 1)
-      edge(i + 1, i + 2)
-      edge(i + 2, i + 3)
-      edge(i + 3, i)
     end
   elseif t == 2 then -- triangle strip
     if n < 3 then
@@ -346,14 +316,8 @@ local function convertRun(d, offset, lenient)
       for i = 2, n - 1 do
         if (i + parity) % 2 == 0 then
           tri(i - 2, i - 1, i)
-          edge(i - 2, i - 1)
-          edge(i - 1, i)
-          edge(i, i - 2)
         else
           tri(i - 1, i - 2, i)
-          edge(i - 1, i - 2)
-          edge(i - 2, i)
-          edge(i, i - 1)
         end
       end
       -- The next triangle would cross the boundary into the new segment.
@@ -373,10 +337,6 @@ local function convertRun(d, offset, lenient)
       for i = 0, n - 4, 2 do
         tri(i, i + 1, i + 3)
         tri(i, i + 3, i + 2)
-        edge(i, i + 1)
-        edge(i + 1, i + 3)
-        edge(i + 3, i + 2)
-        edge(i + 2, i)
       end
       if n % 2 ~= 0 and not lenient then
         error(
@@ -1003,7 +963,6 @@ local function _decode(bytes, options)
   return {
     vertices = d.vertices,
     indices = d.indices,
-    polygonEdges = d.polygonEdges,
     bounds = bounds,
     commands = commands,
     opcodeCounts = d.opcodeCounts,

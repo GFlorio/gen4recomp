@@ -378,14 +378,6 @@ one, the compiler raises a structured error instead of rendering incorrectly.
   full HeartGold field corpus census (every material resolves to
   `modulation`); compilation fails with `MAP_COMPILE_UNSUPPORTED_POLYGON_MODE`
   rather than silently approximating one if a future dump introduces it.
-* Wireframe polygon-perimeter geometry: the true GX polygon perimeter
-  (excluding triangulation diagonals) is captured at the romdump layer
-  (`GxDisplayList.polygonEdges`), but it is not yet wired into the mesh
-  compiler or renderer -- wireframe draws still use
-  `love.graphics.setWireframe(true)` over triangulated geometry, so triangle
-  diagonals remain visible on the rare wireframe shapes the corpus contains.
-  Closing this needs a CPU-side `love.graphics.line()` per-edge draw path,
-  since LÖVE 11.5's Mesh API has no line-drawing primitive.
 * Exact fixed-point clipping/raster interpolation.
 * Local shininess-table rendering (table data is parsed but not used).
 * `BBY` yaw-only billboards, `CALLDL` external display lists, non-rigid `NODEMIX`
