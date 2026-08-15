@@ -1,11 +1,14 @@
 -- Sequence lowering contract: the fixpoint walk over decoded SSEQ commands
 -- emits a project-owned program whose branch targets are instruction indices
 -- (never source offsets), whose entry is the track-0 start (the FE-header
--- open-track records included as ordinary instructions), whose packed
--- operands are normalized, and whose unsupported or malformed forms fail
--- with structured errors carrying source provenance. Unreachable trailing
--- bytes are never decoded, so corrupted bytes outside the reachable program
--- cannot fail a build.
+-- open-track records included as ordinary instructions), whose operands are
+-- normalized (plain integers or random/variable records, never clamped
+-- placeholders), whose vocabulary is the closed semantic set (reserved SDK
+-- no-ops lower declaratively to nop, the 0xD6 print_var diagnostic is
+-- dropped), and whose unsupported or malformed forms fail with structured
+-- errors carrying source provenance. Unreachable trailing bytes are never
+-- decoded, so corrupted bytes outside the reachable program cannot fail a
+-- build.
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
@@ -87,7 +90,9 @@ function T.single_track_entry_is_the_first_command()
 end
 
 -- The full semantic vocabulary lowers to lowercase semantic names, never raw
--- opcodes or offsets, and reserved commands lower to explicit no-ops.
+-- opcodes or offsets, and reserved commands lower to explicit no-ops. The
+-- 0xD6 print_var diagnostic is dropped entirely: it is never emitted into the
+-- closed IR.
 function T.lowers_the_semantic_vocabulary()
   local bytes = SseqFixture.build({
     { op = "wait", duration = 1 },
@@ -154,7 +159,6 @@ function T.lowers_the_semantic_vocabulary()
     "release",
     "loop_begin",
     "expression",
-    "print_var",
     "mute",
     "mod_delay",
     "tempo",
@@ -166,13 +170,50 @@ function T.lowers_the_semantic_vocabulary()
     "loop_end",
     "return",
   })
-  Assert.equal(program.instructions[29].var, 0)
-  Assert.equal(program.instructions[29].amount, 42)
-  -- 0xD4 loop_begin normalizes its u8 count into the count field, never an
-  -- amount operand (the player's loop frame contract).
+  Assert.equal(program.instructions[28].var, 0)
+  Assert.equal(program.instructions[28].amount, 42)
+  -- 0xD4 loop_begin normalizes its u8 count into the count operand, never an
+  -- amount field (the player's loop frame contract).
   Assert.equal(program.instructions[22].op, "loop_begin")
   Assert.equal(program.instructions[22].count, 2)
   Assert.isNil(program.instructions[22].amount)
+  -- 0xD6 print_var emits no instruction at all.
+  for _, instruction in ipairs(program.instructions) do
+    Assert.isFalse(instruction.op == "print_var", "the diagnostic never enters the closed IR")
+  end
+end
+
+-- The 0xD6 print_var command (a diagnostic with no runtime-observable game
+-- behavior) is consumed by the walk but emits no instruction: the following
+-- commands shift up by one index, and the emitted program stays inside the
+-- closed op set.
+function T.drops_print_var_instructions()
+  local bytes = SseqFixture.build({
+    { op = "wait", duration = 1 },
+    { op = "u8", command = 0xD6, amount = 1 },
+    { op = "note", key = 60, velocity = 96, duration = 24 },
+    { op = "fin" },
+  })
+  local program = lowerOrFail(bytes)
+  Assert.equal(#program.instructions, 3)
+  Assert.equal(program.instructions[1].op, "wait")
+  Assert.equal(program.instructions[2].op, "note")
+  Assert.equal(program.instructions[2].duration, 24)
+  Assert.equal(program.instructions[3].op, "end")
+end
+
+-- A dropped diagnostic at the track-0 entry never becomes an instruction:
+-- like a branch target landing on one, the sequence is a build failure with
+-- provenance rather than a silent fall-through.
+function T.an_entry_on_a_dropped_diagnostic_is_a_build_failure()
+  local bytes = SseqFixture.build({
+    { op = "u8", command = 0xD6, amount = 1 },
+    { op = "fin" },
+  })
+  local err = lowerRejects(bytes, "AUDIO_SEQUENCE_BAD_TARGET")
+  Assert.equal(err.context.sequenceId, 7)
+  Assert.equal(err.context.sequenceSymbol, "SEQ_TEST")
+  Assert.notNil(err.context.sourceOffset)
 end
 
 -- A loop pair lowers to loop_begin/count plus a loop_end whose return index
@@ -192,9 +233,12 @@ function T.lowers_loop_pairs_without_static_loop_end_targets()
   Assert.isNil(program.instructions[3].target, "loop_end never carries a static branch target")
 end
 
--- Random and variable operands normalize into amount records. Duration-class
--- randoms use the SDK's effective span between the raw u16 pair; byte-class
--- randoms keep the encoder's signed pair.
+-- Random and variable operands normalize into the operand field itself: a
+-- duration-class random becomes the note's duration record (no parallel
+-- placeholder), a variable program becomes the program record, and byte-class
+-- commands keep their amount records. Duration-class randoms use the SDK's
+-- effective span between the raw u16 pair; byte-class randoms keep the
+-- encoder's signed pair.
 function T.normalizes_packed_operand_modes()
   local bytes, layout = SseqFixture.build({
     {
@@ -218,13 +262,13 @@ function T.normalizes_packed_operand_modes()
   local program = lowerOrFail(bytes)
   local randomNote = program.instructions[1]
   Assert.equal(randomNote.op, "note")
-  Assert.equal(randomNote.duration, 100)
-  Assert.deepEqual(randomNote.amount, { kind = "random", min = 100, max = 120 })
+  Assert.deepEqual(randomNote.duration, { kind = "random", min = 100, max = 120 })
+  Assert.isNil(randomNote.amount, "the duration operand carries no parallel amount")
 
   local variableProgram = program.instructions[2]
   Assert.equal(variableProgram.op, "program")
-  Assert.equal(variableProgram.program, 0)
-  Assert.deepEqual(variableProgram.amount, { kind = "variable", var = 3 })
+  Assert.deepEqual(variableProgram.program, { kind = "variable", var = 3 })
+  Assert.isNil(variableProgram.amount)
 
   local randomPan = program.instructions[3]
   Assert.equal(randomPan.op, "pan")
@@ -235,10 +279,12 @@ function T.normalizes_packed_operand_modes()
   Assert.deepEqual(randomTranspose.amount, { kind = "random", min = -1, max = 3 })
 end
 
--- The asset contract's value ranges are enforced at the lowering: velocities
--- above the SDK volume table and durations beyond u16 clamp into range
--- instead of failing the build.
-function T.clamps_out_of_range_value_fields()
+-- The asset contract does not truncate source values: durations and program
+-- numbers beyond u16 survive verbatim (the source varlen encoding is wider
+-- than 16 bits and the real archive contains such values), so the emitted
+-- operands are never clamped placeholders. Only the note velocity, an index
+-- into the 128-entry SDK volume table, stays clamped to its 0..127 range.
+function T.preserves_out_of_range_value_fields()
   local bytes, layout = SseqFixture.build({
     { op = "note", key = 60, velocity = 193, duration = 300000 },
     { op = "wait", duration = 2089856 },
@@ -247,9 +293,24 @@ function T.clamps_out_of_range_value_fields()
   })
   local program = lowerOrFail(bytes)
   Assert.equal(program.instructions[1].velocity, 127)
-  Assert.equal(program.instructions[1].duration, 0xFFFF)
-  Assert.equal(program.instructions[2].duration, 0xFFFF)
-  Assert.equal(program.instructions[3].program, 0xFFFF)
+  Assert.equal(program.instructions[1].duration, 300000)
+  Assert.equal(program.instructions[2].duration, 2089856)
+  Assert.equal(program.instructions[3].program, 70000)
+end
+
+-- Duration-class random operands keep their full effective span: a raw u16
+-- pair whose span exceeds 0x7FFF is not truncated to the signed range. The
+-- SDK draws the operand as u16(lo) + (s16(hi) - u16(lo)) * r/65536, so the
+-- emitted min/max is the raw pair's effective range.
+function T.preserves_random_operand_spans_beyond_u16()
+  -- A0 prefix + 0x80 wait + lo = 0xC0DD (49373) + hi = 0x0000.
+  local bytes = SseqFixture.build({
+    { op = "raw", bytes = "\xA0\x80\xDD\xC0\x00\x00" },
+    { op = "fin" },
+  })
+  local program = lowerOrFail(bytes)
+  Assert.equal(program.instructions[1].op, "wait")
+  Assert.deepEqual(program.instructions[1].duration, { kind = "random", min = 0, max = 49373 })
 end
 
 -- The conditional prefix stays on the emitted instruction.

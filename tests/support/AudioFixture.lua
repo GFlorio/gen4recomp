@@ -40,7 +40,7 @@ end
 function AudioFixture.sampleVoice(key)
   return {
     generator = { kind = "sample", sample = key },
-    rootKey = 60,
+    originalKey = 60,
     envelope = { attack = 0, decay = 0, sustain = 127, release = 0 },
     pan = 64,
   }
@@ -49,6 +49,7 @@ end
 function AudioFixture.squareVoice()
   return {
     generator = { kind = "square", duty = 0.5 },
+    originalKey = 60,
     envelope = { attack = 0, decay = 0, sustain = 127, release = 0 },
     pan = 64,
   }
@@ -57,6 +58,7 @@ end
 function AudioFixture.noiseVoice()
   return {
     generator = { kind = "noise" },
+    originalKey = 60,
     envelope = { attack = 0, decay = 0, sustain = 127, release = 0 },
     pan = 64,
   }
@@ -82,7 +84,7 @@ function AudioFixture.sequence(id, symbol, bankId, playerId, program, player)
       instructions = {
         { op = "program", program = 4 },
         { op = "note", key = 60, velocity = 96, duration = 24 },
-        { op = "rest", duration = 12 },
+        { op = "wait", duration = 12 },
         { op = "jump", target = 2 },
       },
     },
@@ -118,30 +120,38 @@ function AudioFixture.bank(id, symbol, waveArchives, sampleKeys, instruments)
   }
 end
 
--- `opts` overrides frames/sampleRate/loop/loopEnabled so engine tests can
--- pin a wave's rate, loop flag, and loop window; `file` stays the canonical
--- content-addressed path. One-shot waves (loopEnabled false) must carry the
--- full-range window, mirroring the compiler's normalization.
+-- `opts` overrides frames/sampleRate/baseTimer/loop/loopEnabled so engine
+-- tests can pin a wave's rate, base timer, loop flag, and loop window;
+-- `file` stays the canonical content-addressed path. One-shot waves
+-- (loopEnabled false) must carry the full-range window, mirroring the
+-- compiler's normalization. baseTimer defaults to the DS rate/timer relation
+-- (16756991/rate), so the fixture never carries a timer that contradicts its
+-- rate.
 function AudioFixture.sampleMetadata(key, opts)
   opts = opts or {}
   local frames = opts.frames or 8214
+  local sampleRate = opts.sampleRate or 32768
   local loop = opts.loop or { startFrame = 0, endFrame = frames }
   return {
     schema = AudioCache.SAMPLE_SCHEMA,
     key = key,
     file = AudioCache.samplePath(key),
     frames = frames,
-    sampleRate = opts.sampleRate or 32768,
+    sampleRate = sampleRate,
+    baseTimer = opts.baseTimer or math.floor(16756991 / sampleRate),
     loopEnabled = opts.loopEnabled ~= false,
     loop = loop,
   }
 end
 
 -- A full E1-shaped audio bundle over a small synthetic archive: two
--- sequences on one bank, three instruments, two content-addressed samples.
+-- sequences on one bank, three instruments, two content-addressed samples
+-- whose payloads are real PCM16LE bytes matching their metadata frames.
 function AudioFixture.bundle()
   local keyA = AudioFixture.key(1)
   local keyB = AudioFixture.key(2)
+  local pcmA = AudioFixture.pcm16le({ 1000, 2000, 3000, 4000 })
+  local pcmB = AudioFixture.pcm16le({ 5000, 6000 })
   return {
     marker = AudioCache.marker("rom-sha", "dep-sha"),
     index = {
@@ -171,12 +181,12 @@ function AudioFixture.bundle()
       [12] = AudioFixture.bank(12, "BANK_TEST", { [0] = 31 }),
     },
     samples = {
-      [keyA] = "pcm-a",
-      [keyB] = "pcm-b",
+      [keyA] = pcmA,
+      [keyB] = pcmB,
     },
     sampleMetadata = {
-      [keyA] = AudioFixture.sampleMetadata(keyA),
-      [keyB] = AudioFixture.sampleMetadata(keyB),
+      [keyA] = AudioFixture.sampleMetadata(keyA, { frames = 4 }),
+      [keyB] = AudioFixture.sampleMetadata(keyB, { frames = 2 }),
     },
     dependencies = {
       cacheFormat = AudioCache.FORMAT,

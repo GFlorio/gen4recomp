@@ -31,7 +31,7 @@ local RomFs = require("romdump.src.source.RomFs")
 local SDAT_PATH = "data/sound/gs_sound_data.sdat"
 
 -- Instruction fields that only make sense while an SSEQ byte stream is being
--- interpreted (spec: source diagnostics live in a separate provenance record,
+-- interpreted (source diagnostics live in a separate provenance record,
 -- never as behavior-visible instruction fields).
 local FORBIDDEN_INSTRUCTION_FIELDS = {
   opcode = true,
@@ -241,12 +241,18 @@ function T.no_unknown_sequence_opcode_remains()
           )
         end
         seen[op] = true
-        local amount = instruction.amount
-        if type(amount) == "table" then
-          if amount.kind == "random" then
-            randomAmounts = randomAmounts + 1
-          elseif amount.kind == "variable" then
-            variableAmounts = variableAmounts + 1
+        -- Normalized operands live in the op's operand field: amount for the
+        -- byte-class commands, duration/program/count for the duration-class
+        -- commands. Both normalization shapes (random range, variable) must
+        -- occur in the corpus.
+        for _, field in ipairs({ "amount", "duration", "program", "count" }) do
+          local value = instruction[field]
+          if type(value) == "table" then
+            if value.kind == "random" then
+              randomAmounts = randomAmounts + 1
+            elseif value.kind == "variable" then
+              variableAmounts = variableAmounts + 1
+            end
           end
         end
       end
@@ -255,7 +261,7 @@ function T.no_unknown_sequence_opcode_remains()
     -- The census guarantees these operations exist in the referenced archive.
     for _, concept in ipairs({
       { name = "note", ops = { "note" } },
-      { name = "wait/rest", ops = { "wait", "rest" } },
+      { name = "wait", ops = { "wait" } },
       { name = "program", ops = { "program" } },
       { name = "jump", ops = { "jump" } },
       { name = "call", ops = { "call" } },
@@ -340,7 +346,9 @@ end
 -- Every referenced sample resolves: every sample key any bank voice references
 -- has its metadata and PCM payload, every payload is even-length signed PCM16
 -- whose frame count matches its metadata, every loop window is valid, and the
--- content address is the payload's own sha1, so equal waves share one key.
+-- content address is the semantic sample identity (decoded PCM, base timer,
+-- loop flag, loop window) — not the payload alone — so observably different
+-- waves never share a key.
 function T.every_referenced_sample_resolves()
   forEachVersion(function(ctx)
     local bundle = ctx.bundle
@@ -362,11 +370,22 @@ function T.every_referenced_sample_resolves()
       Assert.isTrue(#payload >= 2 and #payload % 2 == 0, "sample " .. key .. " payload is even non-empty PCM16")
       local metadata = bundle.sampleMetadata[key]
       Assert.notNil(metadata, "sample " .. key .. " metadata present")
-      AudioSample.validate(metadata)
+      AudioSample.validate(metadata, payload)
       Assert.equal(metadata.key, key, "sample " .. key .. " metadata key")
       Assert.equal(metadata.file, AudioCache.samplePath(key), "sample " .. key .. " metadata file")
       Assert.equal(metadata.frames, math.floor(#payload / 2), "sample " .. key .. " frames match its payload")
-      Assert.equal(Hashing.sha1hex(payload), key, "sample " .. key .. " content-addressed by its payload")
+      Assert.isTrue(metadata.baseTimer > 0, "sample " .. key .. " carries a valid base timer")
+      Assert.equal(
+        AudioCompiler.sampleKey(
+          payload,
+          metadata.baseTimer,
+          metadata.loopEnabled,
+          metadata.loop.startFrame,
+          metadata.loop.endFrame
+        ),
+        key,
+        "sample " .. key .. " content-addressed by its semantic identity"
+      )
     end
     for key in pairs(bundle.sampleMetadata) do
       Assert.notNil(bundle.samples[key], "sample " .. key .. " metadata without payload")

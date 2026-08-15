@@ -1,12 +1,13 @@
 -- Validator for the derived audio bank asset: numeric and symbolic identity,
 -- its wave-archive slot map, and a program-keyed instruments map. Instrument
 -- kinds are the semantic direct/key_split/drum_set (never SBNK record
--- types), and every leaf voice has a generator kind (sample/square/noise),
--- an envelope, and a pan; sample voices add the content-address key and root
--- key. `sampleKeys` is the shared reference walk: it collects the
--- content-address keys every voice of a bank references, returning nil when
--- the instrument shape is malformed, so a malformed shape can never be
--- mistaken for "no sample references" (AudioCache readiness relies on it).
+-- types), and every leaf voice has the common shape {generator, originalKey,
+-- envelope, pan}: sample voices add the content-address key, and
+-- square/noise voices carry their source original key like every other leaf.
+-- `sampleKeys` is the shared reference walk: it collects the content-address
+-- keys every voice of a bank references, returning nil when the instrument
+-- shape is malformed, so a malformed shape can never be mistaken for "no
+-- sample references" (AudioCache readiness relies on it).
 
 local AudioBank = {}
 
@@ -112,12 +113,14 @@ local function validateVoice(voice)
   if type(generator) ~= "table" then
     fail({ field = "voice.generator" })
   end
+  -- The common voice shape: the source original key exists for every
+  -- generator kind, including square/noise leaves.
+  if not isKey(voice.originalKey) then
+    fail({ field = "voice.originalKey" })
+  end
   if generator.kind == "sample" then
     if not Validate.isSha1Key(generator.sample) then
       fail({ field = "voice.generator.sample" })
-    end
-    if not isKey(voice.rootKey) then
-      fail({ field = "voice.rootKey" })
     end
   elseif generator.kind == "square" then
     if type(generator.duty) ~= "number" or generator.duty < 0 or generator.duty > 1 then

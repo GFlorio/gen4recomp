@@ -35,7 +35,7 @@ end
 local function voice(key)
   return {
     generator = { kind = "sample", sample = key },
-    rootKey = 60,
+    originalKey = 60,
     envelope = { attack = 127, decay = 0, sustain = 127, release = 127 },
     pan = 0,
   }

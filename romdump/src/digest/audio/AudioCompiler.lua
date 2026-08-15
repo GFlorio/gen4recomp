@@ -2,7 +2,8 @@
 -- derived audio bundle the cache writer consumes: every referenced sequence
 -- lowers into the project instruction IR, every bank into semantic
 -- instruments, and every referenced wave member decodes offline to
--- content-addressed PCM16LE samples with engine-meaningful metadata. The
+-- semantically content-addressed PCM16LE samples (decoded PCM + base timer +
+-- loop identity) with engine-meaningful metadata. The
 -- bundle carries the marker, the index (sequences/banks/players/bySymbol),
 -- the assets, the samples, and the dependency pins; a malformed archive
 -- fails the whole compile with a structured error (an unsupported command in
@@ -40,6 +41,20 @@ local function leafKind(type)
   return "noise"
 end
 
+-- The semantic sample key: the canonical deterministic hash of the complete
+-- runtime sample identity (decoded PCM, base timer, loop flag, loop window).
+-- Two waves with identical PCM but different timers or loop regions are
+-- observably different samples and must never alias under one key.
+function AudioCompiler.sampleKey(pcm, baseTimer, loopEnabled, loopStartFrame, loopEndFrame)
+  return Hashing.hashLua({
+    pcm = pcm,
+    baseTimer = baseTimer,
+    loopEnabled = loopEnabled,
+    loopStartFrame = loopStartFrame,
+    loopEndFrame = loopEndFrame,
+  })
+end
+
 -- Zero-based tables (leaves, keys) have no reliable #; count them instead.
 local function countOf(t)
   local count = 0
@@ -51,10 +66,13 @@ end
 
 -- The semantic voice for a direct/leaf record. Sample voices resolve their
 -- wave member through the shared wave cache (decode once per member, dedupe
--- by content across every bank); PSG duties become the DS high-duty fraction
--- ((N+1)/8 per GBATEK); noise is a bare generator.
+-- by semantic identity across every bank); PSG duties become the DS
+-- high-duty fraction ((N+1)/8 per GBATEK); noise is a bare generator. Every
+-- leaf carries its source original key, so the common voice shape never
+-- drops it for square/noise.
 local function voiceFromLeaf(leaf, kind, waveCache, bankId, waveArchives)
   local voice = {
+    originalKey = leaf.param.rootKey,
     envelope = {
       attack = leaf.param.attack,
       decay = leaf.param.decay,
@@ -68,7 +86,6 @@ local function voiceFromLeaf(leaf, kind, waveCache, bankId, waveArchives)
       kind = "sample",
       sample = waveCache:resolve(bankId, waveArchives, leaf.param.swarSlot, leaf.param.swav),
     }
-    voice.rootKey = leaf.param.rootKey
   elseif kind == "square" then
     voice.generator = { kind = "square", duty = ((leaf.param.swav % 8) + 1) / 8 }
   else
@@ -84,10 +101,9 @@ end
 local WaveCache = {}
 WaveCache.__index = WaveCache
 
-function WaveCache.new(sdat, sha1hex)
+function WaveCache.new(sdat)
   return setmetatable({
     sdat = sdat,
-    sha1hex = sha1hex,
     swars = {},
     decoded = {},
     samples = {},
@@ -156,7 +172,8 @@ function WaveCache:resolve(bankId, waveArchives, slot, member)
       waveErr.context.member = member
       error(waveErr)
     end
-    key = self.sha1hex(wave.pcm16le)
+    key =
+      AudioCompiler.sampleKey(wave.pcm16le, wave.baseTimer, wave.loopEnabled, wave.loop.startFrame, wave.loop.endFrame)
     self.decoded[waveId .. ":" .. member] = key
     if self.samples[key] == nil then
       self.samples[key] = wave.pcm16le
@@ -166,6 +183,7 @@ function WaveCache:resolve(bankId, waveArchives, slot, member)
         file = AudioCache.samplePath(key),
         frames = wave.frames,
         sampleRate = wave.sampleRate,
+        baseTimer = wave.baseTimer,
         loopEnabled = wave.loopEnabled,
         loop = wave.loop,
       }
@@ -281,7 +299,7 @@ local function _compile(romFs, sha1hex, hashLua)
       streamPlayers = {},
       streams = {},
     }
-  local waveCache = WaveCache.new(sdat, sha1hex)
+  local waveCache = WaveCache.new(sdat)
 
   local sequences = {}
   local indexSequences = {}

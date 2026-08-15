@@ -30,10 +30,16 @@
 -- font cacheFormat/schema v2: the compiled definition gains seven color bands
 -- and a focus-indicator PNG, and the marker hashes font member 6, so a stale
 -- pre-change font cache must not pass readiness.
+--
+-- revision 3: the audio contracts change together -- the sample metadata
+-- gains the SWAV base timer and semantically content-addressed keys, the
+-- sequence IR closes its operation vocabulary with normalized operands (no
+-- u16 truncation, rest/print_var removed), and bank voices carry the common
+-- originalKey shape for every generator kind.
 
 local DerivedAssetContract = {}
 
-DerivedAssetContract.revision = 2
+DerivedAssetContract.revision = 3
 
 DerivedAssetContract.map = {
   cacheFormat = "map-cache-v7",
@@ -91,12 +97,16 @@ DerivedAssetContract.fieldUi = {
 DerivedAssetContract.audio = {
   cacheFormat = "g4-audio-cache-v1",
   indexSchema = "g4-audio-index-v1",
-  sequenceSchema = "g4-audio-sequence-v1",
-  bankSchema = "g4-audio-bank-v1",
-  -- revision 2: the sample metadata gains the wave's loop flag, so a
-  -- one-shot wave (the DS plays it once and stops, the majority of the
-  -- HGSS archive) is never mistaken for a full-range loop.
-  sampleSchema = "g4-audio-sample-v2",
+  -- revision 2: the sequence asset closes its instruction vocabulary to the
+  -- frozen semantic op set with normalized operands (integer | random |
+  -- variable), no u16 truncation, and no rest/print_var.
+  sequenceSchema = "g4-audio-sequence-v2",
+  -- revision 2: bank voices carry the common originalKey shape for every
+  -- generator kind.
+  bankSchema = "g4-audio-bank-v2",
+  -- revision 3: the sample metadata gains the SWAV base timer (and the
+  -- content key now covers the full semantic identity).
+  sampleSchema = "g4-audio-sample-v3",
   provenanceSchema = "g4-audio-provenance-v1",
 }
 

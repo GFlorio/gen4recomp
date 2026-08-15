@@ -1,9 +1,13 @@
 -- Validator for the derived audio sample metadata: content-addressed by a
--- sha1 key that doubles as its path identity, pointing at the canonical
--- PCM16LE payload path, carrying engine-meaningful timing (frames,
--- sampleRate, the wave's loop flag, and the loop-window frames) — never raw
--- SWAV units. A one-shot wave (loopEnabled false) always carries the
--- full-range window: the flag owns the one-shot/loop distinction.
+-- sha1 key over the full semantic sample identity (decoded PCM, base timer,
+-- loop flag, loop window) that doubles as its path identity, pointing at the
+-- canonical PCM16LE payload path, carrying engine-meaningful timing (frames,
+-- sampleRate, the DS base timer, the wave's loop flag, and the loop-window
+-- frames) — never raw SWAV units. A one-shot wave (loopEnabled false) always
+-- carries the full-range window: the flag owns the one-shot/loop distinction.
+-- The exact payload size (#pcm == frames * 2 for PCM16LE) is part of the
+-- contract: load/readback paths validate the metadata together with the
+-- payload bytes.
 
 local AudioSample = {}
 
@@ -22,7 +26,10 @@ local function isNonNegativeInteger(value)
   return type(value) == "number" and value % 1 == 0 and value >= 0
 end
 
-function AudioSample.validate(metadata)
+-- `pcm` is the payload bytes when the caller can provide them (the provider
+-- load path and the cache-writer readback): the exact payload size is then
+-- part of the validation. Metadata-only callers skip the payload check.
+function AudioSample.validate(metadata, pcm)
   if type(metadata) ~= "table" then
     fail({})
   end
@@ -41,6 +48,16 @@ function AudioSample.validate(metadata)
   if type(metadata.sampleRate) ~= "number" or metadata.sampleRate % 1 ~= 0 or metadata.sampleRate <= 0 then
     fail({ field = "sampleRate" })
   end
+  -- The DS base timer is a positive u16: zero is an invalid rate and the
+  -- source field is 16 bits.
+  if
+    type(metadata.baseTimer) ~= "number"
+    or metadata.baseTimer % 1 ~= 0
+    or metadata.baseTimer < 1
+    or metadata.baseTimer > 0xFFFF
+  then
+    fail({ field = "baseTimer" })
+  end
   local loop = metadata.loop
   if type(loop) ~= "table" then
     fail({ field = "loop" })
@@ -58,6 +75,11 @@ function AudioSample.validate(metadata)
   -- compiler's normalization), so the flag and the window cannot disagree.
   if not metadata.loopEnabled and (loop.startFrame ~= 0 or loop.endFrame ~= metadata.frames) then
     fail({ field = "loopEnabled" })
+  end
+  if pcm ~= nil then
+    if type(pcm) ~= "string" or #pcm ~= metadata.frames * 2 then
+      fail({ field = "pcm" })
+    end
   end
   return true
 end

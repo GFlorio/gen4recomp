@@ -191,11 +191,13 @@ local function adpcmEncode(samples)
   return initialPredictor, initialIndex, table.concat(bytes)
 end
 
-local function member(format, loopFlag, sampleRate, pnt, len, data)
+-- `timer` overrides the timer derived from the sample rate, so tests can pin
+-- the exact base timer a member carries.
+local function member(format, loopFlag, sampleRate, pnt, len, data, timer)
   local param = u8(format)
     .. u8(loopFlag)
     .. u16(sampleRate)
-    .. u16(math.floor(16756991 / sampleRate))
+    .. u16(timer or math.floor(16756991 / sampleRate))
     .. u16(pnt)
     .. u32(len)
   return param .. data
@@ -216,7 +218,15 @@ function SwarFixture.pcm8(samples, opts)
   for _, s in ipairs(samples) do
     parts[#parts + 1] = u8(s % 256)
   end
-  return member(SwarFixture.FORMAT_PCM8, opts.loopFlag or 0, opts.sampleRate or 22050, pnt, len, table.concat(parts))
+  return member(
+    SwarFixture.FORMAT_PCM8,
+    opts.loopFlag or 0,
+    opts.sampleRate or 22050,
+    pnt,
+    len,
+    table.concat(parts),
+    opts.timer
+  )
 end
 
 -- PCM16 member: samples -32768..32767, padded to a multiple of 2.
@@ -234,7 +244,15 @@ function SwarFixture.pcm16(samples, opts)
   for _, s in ipairs(samples) do
     parts[#parts + 1] = s16le(s)
   end
-  return member(SwarFixture.FORMAT_PCM16, opts.loopFlag or 0, opts.sampleRate or 22050, pnt, len, table.concat(parts))
+  return member(
+    SwarFixture.FORMAT_PCM16,
+    opts.loopFlag or 0,
+    opts.sampleRate or 22050,
+    pnt,
+    len,
+    table.concat(parts),
+    opts.timer
+  )
 end
 
 -- ADPCM member encoded from samples (multiple of 8). The default one-shot
@@ -256,7 +274,15 @@ function SwarFixture.adpcm(samples, opts)
     len = opts.len or (dataWords - pnt + 1)
   end
   local header = u16(predictor % 0x10000) .. u8(index) .. u8(0)
-  return member(SwarFixture.FORMAT_ADPCM, opts.loopFlag or 0, opts.sampleRate or 22050, pnt, len, header .. nibbles)
+  return member(
+    SwarFixture.FORMAT_ADPCM,
+    opts.loopFlag or 0,
+    opts.sampleRate or 22050,
+    pnt,
+    len,
+    header .. nibbles,
+    opts.timer
+  )
 end
 
 -- ADPCM member from an explicit predictor/index and raw nibble bytes, for
@@ -272,7 +298,15 @@ function SwarFixture.adpcmRaw(predictor, index, nibbles, opts)
   local pnt = opts.pnt or 0
   local len = opts.len or dataWords + 1
   local header = u16(predictor % 0x10000) .. u8(index) .. u8(0)
-  return member(SwarFixture.FORMAT_ADPCM, opts.loopFlag or 0, opts.sampleRate or 22050, pnt, len, header .. nibbles)
+  return member(
+    SwarFixture.FORMAT_ADPCM,
+    opts.loopFlag or 0,
+    opts.sampleRate or 22050,
+    pnt,
+    len,
+    header .. nibbles,
+    opts.timer
+  )
 end
 
 -- Builds the full embedded SWAR file bytes with the given members.

@@ -1,10 +1,10 @@
 -- Offline SWAV member decoder: the 12-byte SNDWaveParam (format u8, loop
 -- flag u8, sample rate u16, timer u16, loop offset u16 in 4-byte words,
 -- length u32 in 4-byte words) plus sample data, converted to signed PCM16LE
--- with engine-meaningful frame and loop-window units. The size relation
--- memberSize == 12 + 4*(pnt+len) and the loop conversions follow the DS
--- channel registers as GBATEK documents them and melonDS implements them:
--- total words = pnt + len, so PCM8 yields 4*(pnt+len) frames and PCM16
+-- with engine-meaningful frame, base-timer and loop-window units. The size
+-- relation memberSize == 12 + 4*(pnt+len) and the loop conversions follow
+-- the DS channel registers as GBATEK documents them and melonDS implements
+-- them: total words = pnt + len, so PCM8 yields 4*(pnt+len) frames and PCM16
 -- 2*(pnt+len); ADPCM data starts with a 4-byte predictor/index header and
 -- decodes low nibble first to 8*(pnt+len-1) frames. Loop windows are
 -- {startFrame, endFrame}: [4*pnt, frames) / [2*pnt, frames) / [8*(pnt-1),
@@ -233,6 +233,7 @@ local function _decode(bytes, context)
   end
   local loopEnabled = u8At(bytes, 1, source) ~= 0
   local sampleRate = u16At(bytes, 2, source)
+  local timer = u16At(bytes, 4, source)
   local pnt = u16At(bytes, 6, source)
   local len = u32At(bytes, 8, source)
 
@@ -289,6 +290,9 @@ local function _decode(bytes, context)
     format = format,
     loopEnabled = loopEnabled,
     sampleRate = sampleRate,
+    -- The DS base timer drives NNS pitch calculation (SND_CalcTimer); it is
+    -- preserved verbatim, never re-derived from the rate.
+    baseTimer = timer,
     frames = frames,
     loop = loop,
     pcm16le = pcm16le,

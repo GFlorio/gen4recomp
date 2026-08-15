@@ -87,7 +87,20 @@ function T.samples_load_by_content_key_with_metadata_and_payload()
   local sample = p:loadSample(key)
   Assert.equal(sample.metadata.key, key)
   Assert.equal(sample.metadata.schema, AudioCache.SAMPLE_SCHEMA)
-  Assert.equal(sample.pcm, "pcm-a")
+  Assert.equal(sample.pcm, AudioFixture.pcm16le({ 1000, 2000, 3000, 4000 }))
+end
+
+-- The payload size contract is enforced at the load boundary: metadata whose
+-- payload is not exactly frames*2 bytes of PCM16LE is malformed, never
+-- silence.
+function T.malformed_sample_payload_byte_count_fails_load()
+  local bundle = AudioFixture.bundle()
+  local key = AudioFixture.key(1)
+  bundle.samples[key] = bundle.samples[key] .. "\0"
+  local p = provider(bundle)
+  throwsCode("AUDIO_SAMPLE_INVALID", function()
+    p:loadSample(key)
+  end)
 end
 
 function T.unknown_sample_keys_and_missing_payloads_fail()

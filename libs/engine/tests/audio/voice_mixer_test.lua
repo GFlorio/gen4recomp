@@ -51,7 +51,7 @@ local function spec(overrides)
     loopEnabled = true,
     loop = { startFrame = 0, endFrame = 8 },
     key = 60,
-    rootKey = 60,
+    originalKey = 60,
     velocity = 127,
     volume = 127,
     expression = 127,

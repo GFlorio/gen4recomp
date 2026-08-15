@@ -146,12 +146,12 @@ local function newVoice(spec, outputRate)
   voice.panLeft, voice.panRight = panFactors(spec.pan)
   if generator.kind == "sample" then
     assert(
-      spec.pcm ~= nil and spec.sampleRate ~= nil and spec.loop ~= nil and spec.rootKey ~= nil,
-      "sample voice spec requires pcm, sampleRate, loop and rootKey"
+      spec.pcm ~= nil and spec.sampleRate ~= nil and spec.loop ~= nil and spec.originalKey ~= nil,
+      "sample voice spec requires pcm, sampleRate, loop and originalKey"
     )
     assert(type(spec.loopEnabled) == "boolean", "sample voice spec requires the wave's loop flag")
     voice.pcm = decodePcm(spec.pcm)
-    voice.ratio = (spec.sampleRate / outputRate) * 2 ^ ((spec.key - spec.rootKey) / 12)
+    voice.ratio = (spec.sampleRate / outputRate) * 2 ^ ((spec.key - spec.originalKey) / 12)
     -- The DS channel starts at the sample start (the loop point only
     -- applies when the end is reached), so the pre-loop attack plays first.
     voice.pos = 0

@@ -99,6 +99,18 @@ function T.swav_decodes_pcm16()
   Assert.deepEqual(pcm16Samples(wave.pcm16le), { -32768, -1, 0, 1, 32767, -1000 })
 end
 
+-- The SWAV timer field survives decode as the semantic baseTimer (NNS pitch
+-- calculation consumes the base timer, never a derived rate), and an explicit
+-- timer is preserved verbatim rather than re-derived from the rate.
+function T.swav_preserves_the_source_base_timer()
+  local derived = decodeOrFail(SwarFixture.pcm16({ 1, 2, 3, 4 }, { sampleRate = 22050 }))
+  Assert.equal(derived.baseTimer, math.floor(16756991 / 22050))
+  Assert.equal(derived.sampleRate, 22050)
+
+  local explicit = decodeOrFail(SwarFixture.pcm16({ 1, 2, 3, 4 }, { sampleRate = 22050, timer = 4096 }))
+  Assert.equal(explicit.baseTimer, 4096)
+end
+
 -- ADPCM decodes exactly per the GBATEK/melonDS algorithm: a 4-byte header
 -- (predictor, index, pad), low nibble first, diff = step/8 plus step/4 for
 -- bit 0, step/2 for bit 1, and step for bit 2, clamping to +-0x7FFF.

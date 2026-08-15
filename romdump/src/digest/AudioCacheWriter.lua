@@ -93,12 +93,13 @@ local function stageBundle(tx, bundle)
     if type(metadata) ~= "table" then
       raiseReadback("sample metadata readback failed", { key = key })
     end
-    AudioSample.validate(metadata)
+    local payload = stage:read(AudioCache.samplePath(key))
+    if payload == nil then
+      raiseReadback("sample payload is missing", { key = key })
+    end
+    AudioSample.validate(metadata, payload)
     if metadata.key ~= key then
       raiseReadback("sample metadata key does not match its address", { key = key })
-    end
-    if stage:read(AudioCache.samplePath(key)) == nil then
-      raiseReadback("sample payload is missing", { key = key })
     end
   end
   stage:write(AudioCache.markerPath(), bundle.marker)

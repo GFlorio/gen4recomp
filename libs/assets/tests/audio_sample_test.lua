@@ -1,7 +1,9 @@
 -- AudioSample validator contract: sample metadata is content-addressed by a
 -- sha1 key that doubles as its path identity, points at the canonical PCM16LE
 -- payload path, and carries engine-meaningful timing (frames, sampleRate,
--- loop frames) — never raw SWAV units.
+-- the SWAV base timer, loop frames) — never raw SWAV units. The exact
+-- payload size (#pcm == frames * 2) is part of the contract: load/readback
+-- paths validate the metadata together with the payload bytes.
 
 local Assert = require("tests.support.Assert")
 local AudioCache = require("libs.assets.src.AudioCache")
@@ -83,6 +85,60 @@ function T.validates_frames_and_sample_rate()
   throwsCode("AUDIO_SAMPLE_INVALID", function()
     AudioSample.validate(metadata)
   end)
+end
+
+-- The SWAV base timer is preserved as a semantic field: it must be a positive
+-- integer in the source u16 range. Zero (an invalid DS rate) and out-of-range
+-- values are malformed metadata.
+function T.validates_the_base_timer()
+  local metadata = AudioFixture.sampleMetadata(AudioFixture.key(1))
+  metadata.baseTimer = nil
+  throwsCode("AUDIO_SAMPLE_INVALID", function()
+    AudioSample.validate(metadata)
+  end)
+  metadata.baseTimer = 0
+  throwsCode("AUDIO_SAMPLE_INVALID", function()
+    AudioSample.validate(metadata)
+  end)
+  metadata.baseTimer = -1
+  throwsCode("AUDIO_SAMPLE_INVALID", function()
+    AudioSample.validate(metadata)
+  end)
+  metadata.baseTimer = 1.5
+  throwsCode("AUDIO_SAMPLE_INVALID", function()
+    AudioSample.validate(metadata)
+  end)
+  metadata.baseTimer = 0x10000
+  throwsCode("AUDIO_SAMPLE_INVALID", function()
+    AudioSample.validate(metadata)
+  end)
+  metadata.baseTimer = 759
+  Assert.isTrue(AudioSample.validate(metadata), "a valid source timer is accepted")
+end
+
+-- The payload size contract: PCM16LE is exactly two bytes per frame, so a
+-- metadata record whose payload is missing, odd, or has the wrong frame count
+-- is malformed when validated together with its payload bytes.
+function T.validates_the_exact_payload_size()
+  local metadata = AudioFixture.sampleMetadata(AudioFixture.key(1), { frames = 4 })
+  local payload = AudioFixture.pcm16le({ 1, 2, 3, 4 })
+  Assert.isTrue(AudioSample.validate(metadata, payload), "frames*2 bytes of PCM16LE is valid")
+
+  throwsCode("AUDIO_SAMPLE_INVALID", function()
+    AudioSample.validate(metadata, payload .. "\0")
+  end)
+  throwsCode("AUDIO_SAMPLE_INVALID", function()
+    AudioSample.validate(metadata, payload:sub(1, -2))
+  end)
+  metadata.frames = 5
+  throwsCode("AUDIO_SAMPLE_INVALID", function()
+    AudioSample.validate(metadata, payload)
+  end)
+  throwsCode("AUDIO_SAMPLE_INVALID", function()
+    AudioSample.validate(metadata, 12345)
+  end)
+  metadata.frames = 4
+  Assert.isTrue(AudioSample.validate(metadata, payload))
 end
 
 function T.validates_the_loop_frame_window()

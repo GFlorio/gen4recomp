@@ -192,7 +192,7 @@ local function startNote(self, instance, track, key, velocity)
     spec.pcm = sample.pcm
     spec.loop = sample.metadata.loop
     spec.loopEnabled = sample.metadata.loopEnabled
-    spec.rootKey = voice.rootKey
+    spec.originalKey = voice.originalKey
   end
   local sequence = instance.sequence
   spec.key = key + track.transpose + (track.bend - 64) * track.bendRange / 128
@@ -211,11 +211,11 @@ local function startNote(self, instance, track, key, velocity)
 end
 
 -- Executes one instruction, mutating the track, and returns the next
--- program counter. Gating instructions (note/rest/wait) set the track's
--- wait; end ends the track; open_track spawns the target track and
--- lets the current track continue; loop_end jumps to its loop frame's
--- return index while the frame's count is positive (forever at count 0)
--- and falls through when the count reaches zero.
+-- program counter. Gating instructions (note/wait) set the track's wait;
+-- end ends the track; open_track spawns the target track and lets the
+-- current track continue; loop_end jumps to its loop frame's return index
+-- while the frame's count is positive (forever at count 0) and falls through
+-- when the count reaches zero.
 local function execute(self, instance, track, instruction)
   local op = instruction.op
   if op == "note" then
@@ -225,27 +225,18 @@ local function execute(self, instance, track, instruction)
       self._mixer:noteOff(track.channel)
     end
     track.channel = startNote(self, instance, track, instruction.key, instruction.velocity)
-    track.channelLength = instruction.duration
+    track.channelLength = resolveAmount(instruction.duration, instance)
     if track.noteWait then
       track.gated = true
-      track.wait = instruction.duration
+      track.wait = track.channelLength
     end
-    return track.pc + 1
-  end
-  if op == "rest" then
-    if track.channel ~= nil then
-      self._mixer:noteOff(track.channel)
-      track.channel = nil
-    end
-    track.gated = true
-    track.wait = instruction.duration
     return track.pc + 1
   end
   if op == "wait" then
     -- 0x80: gate the track without releasing a ringing note (the note's own
     -- channel length bounds its ring).
     track.gated = true
-    track.wait = instruction.duration
+    track.wait = resolveAmount(instruction.duration, instance)
     return track.pc + 1
   end
   if op == "end" then
@@ -253,13 +244,9 @@ local function execute(self, instance, track, instruction)
     return nil
   end
   if op == "program" then
-    -- 0x81 with a variable operand (the corpus' variable-program
-    -- references) selects the program the variable names.
-    if instruction.amount ~= nil then
-      track.program = resolveAmount(instruction.amount, instance)
-    else
-      track.program = instruction.program
-    end
+    -- The program operand is normalized (plain number, random, or variable):
+    -- variable-program references select the program the variable names.
+    track.program = resolveAmount(instruction.program, instance)
   elseif op == "jump" then
     return instruction.target
   elseif op == "call" then
@@ -321,10 +308,12 @@ local function execute(self, instance, track, instruction)
     -- overrides): the frozen vocabulary guarantees their shape; the engine
     -- accepts them without effect.
   elseif op == "loop_begin" then
-    assert(type(instruction.count) == "number", "loop_begin requires a count")
     -- The frame carries the count and the return index (the instruction
     -- after the begin), mirroring the SDK's loopCount/posCallStack pair.
-    track.loopStack[#track.loopStack + 1] = { remaining = instruction.count, returnIndex = track.pc + 1 }
+    track.loopStack[#track.loopStack + 1] = {
+      remaining = resolveAmount(instruction.count, instance),
+      returnIndex = track.pc + 1,
+    }
   elseif op == "loop_end" then
     local frame = track.loopStack[#track.loopStack]
     if frame == nil then
@@ -352,9 +341,9 @@ local function execute(self, instance, track, instruction)
   return track.pc + 1
 end
 
--- Executes instructions until the track is gated (waiting on a note/rest/
--- wait) or ended, with a bounded step budget so a runaway non-gating loop
--- fails instead of hanging. A conditional instruction (the 0xA2 prefix)
+-- Executes instructions until the track is gated (waiting on a note or
+-- wait) or ended, with a bounded step budget so a runaway non-gating
+-- loop fails instead of hanging. A conditional instruction (the 0xA2 prefix)
 -- executes only while the track comparison holds. A program counter past
 -- the instruction list is a fall-through past the last instruction (a
 -- top-level return, an SDK no-op): the track ends instead of reading

@@ -1,9 +1,9 @@
 -- AudioBank validator contract: a bank asset carries numeric and symbolic
 -- identity, its wave-archive slot map, and a program-keyed instruments map.
 -- Instrument kinds are the semantic direct/key_split/drum_set (never SBNK
--- record types), and every leaf voice has a generator kind
--- (sample/square/noise), an envelope, and a pan; sample voices add the
--- content-address key and root key.
+-- record types), and every leaf voice has the common shape {generator,
+-- originalKey, envelope, pan}: sample voices add the content-address key, and
+-- square/noise voices carry their source original key like every other leaf.
 
 local Assert = require("tests.support.Assert")
 local DerivedAssetContract = require("libs.assets.src.DerivedAssetContract")
@@ -134,7 +134,7 @@ function T.validates_voice_generators()
   end)
   bank.instruments[0].voice = {
     generator = { kind = "square" },
-    rootKey = 60,
+    originalKey = 60,
     envelope = { attack = 0, decay = 0, sustain = 127, release = 0 },
     pan = 64,
   }
@@ -143,7 +143,7 @@ function T.validates_voice_generators()
   end)
   bank.instruments[0].voice = {
     generator = { kind = "square", duty = 0.5 },
-    rootKey = 60,
+    originalKey = 60,
     envelope = { attack = 0, decay = 0, sustain = 127, release = 0 },
     pan = 64,
   }
@@ -156,6 +156,42 @@ function T.validates_voice_generators()
   throwsCode("AUDIO_BANK_INVALID", function()
     AudioBank.validate(bank)
   end)
+end
+
+-- The common voice shape carries the source original key for every generator
+-- kind: a missing or out-of-range originalKey is malformed for square and
+-- noise voices exactly as for sample voices, and the old rootKey-only shape
+-- (no originalKey) is rejected.
+function T.every_generator_kind_requires_an_original_key()
+  for _, voice in ipairs({
+    AudioFixture.sampleVoice(AudioFixture.key(1)),
+    AudioFixture.squareVoice(),
+    AudioFixture.noiseVoice(),
+  }) do
+    local bank = AudioFixture.bank(12, "BANK_TEST", { [0] = 31 })
+    bank.instruments[0].voice = voice
+    Assert.isTrue(AudioBank.validate(bank), "a well-formed voice with originalKey is valid")
+
+    local without = {}
+    for key, value in pairs(voice) do
+      without[key] = value
+    end
+    without.originalKey = nil
+    bank.instruments[0].voice = without
+    throwsCode("AUDIO_BANK_INVALID", function()
+      AudioBank.validate(bank)
+    end)
+
+    local outOfRange = {}
+    for key, value in pairs(voice) do
+      outOfRange[key] = value
+    end
+    outOfRange.originalKey = 128
+    bank.instruments[0].voice = outOfRange
+    throwsCode("AUDIO_BANK_INVALID", function()
+      AudioBank.validate(bank)
+    end)
+  end
 end
 
 function T.every_voice_carries_envelope_and_pan()

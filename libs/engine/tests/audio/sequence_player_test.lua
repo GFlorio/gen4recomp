@@ -42,7 +42,7 @@ local function voice(key, opts)
   opts = opts or {}
   return {
     generator = { kind = "sample", sample = key },
-    rootKey = opts.rootKey or 60,
+    originalKey = opts.originalKey or 60,
     envelope = { attack = 127, decay = 0, sustain = 127, release = 127 },
     pan = opts.pan or 0,
   }
@@ -52,6 +52,7 @@ local function square(opts)
   opts = opts or {}
   return {
     generator = { kind = "square", duty = 0.5 },
+    originalKey = 60,
     envelope = { attack = 127, decay = 0, sustain = 127, release = 127 },
     pan = opts.pan or 0,
   }
@@ -186,7 +187,7 @@ end
 
 -- wavePattern at a nonzero pitch ratio: the sample advances floor((i-1)*ratio)
 -- per frame inside the loop window (ratio 1 is wavePattern). Matches the
--- mixer's nearest-sample read of a voice pitched by (key-rootKey)/12.
+-- mixer's nearest-sample read of a voice pitched by (key-originalKey)/12.
 local function wavePatternAtRatio(wave, frames, ratio)
   local out = {}
   for i = 1, frames do
@@ -231,11 +232,11 @@ function T.a_note_occupies_the_track_for_its_whole_duration()
   )
 end
 
-function T.rests_gate_the_next_instruction()
+function T.waits_gate_the_next_instruction()
   local program = {
     { op = "program", program = 0 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
-    { op = "rest", duration = 2 },
+    { op = "wait", duration = 2 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
     { op = "end" },
   }
@@ -336,7 +337,7 @@ end
 function T.call_and_return_execute_a_subprogram()
   local program = {
     { op = "call", target = 4 },
-    { op = "rest", duration = 1 },
+    { op = "wait", duration = 1 },
     { op = "end" },
     { op = "program", program = 0 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
@@ -586,8 +587,13 @@ function T.playing_an_unknown_instrument_is_silent()
   Assert.isFalse(player:isPlaying())
 end
 
+-- Malformed programs fail loudly at the authoritative asset boundary: an
+-- unknown op or an illegally shaped amount operand is rejected by the closed
+-- sequence validator when the provider loads the asset, never accepted into
+-- the player. A structurally valid runaway loop still fails the player's
+-- host safety budget.
 function T.unsupported_ops_amounts_and_runaway_loops_fail_loudly()
-  throwsCode("AUDIO_PLAYER_UNSUPPORTED_AMOUNT", function()
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
     local player, provider = engine({
       [0] = seq({
         { op = "volume", amount = { kind = "variable" } },
@@ -597,7 +603,7 @@ function T.unsupported_ops_amounts_and_runaway_loops_fail_loudly()
     play(player, provider)
     player:render(10)
   end)
-  throwsCode("AUDIO_PLAYER_UNSUPPORTED_OP", function()
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
     local player, provider = engine({ [0] = seq({ { op = "sustain_hold" }, { op = "end" } }) })
     play(player, provider)
     player:render(10)
@@ -743,7 +749,7 @@ function T.note_commands_carry_the_full_voice_spec()
   Assert.deepEqual(spec.loop, { startFrame = 0, endFrame = 8 })
   Assert.equal(spec.loopEnabled, true, "the mixer receives the wave's loop flag")
   Assert.equal(spec.key, 64)
-  Assert.equal(spec.rootKey, 60)
+  Assert.equal(spec.originalKey, 60)
   Assert.equal(spec.velocity, 96)
   Assert.equal(spec.volume, 100, "the player volume folds into the voice volume")
   Assert.equal(spec.expression, 127)
@@ -918,7 +924,7 @@ function T.setvar_and_variable_amounts_resolve_from_player_variables()
   local player, provider = engine({
     [0] = seq({
       { op = "setvar", var = 0, amount = 1 },
-      { op = "program", program = 0, amount = { kind = "variable", var = 0 } },
+      { op = "program", program = { kind = "variable", var = 0 } },
       { op = "note", key = 60, velocity = 127, duration = 1 },
       { op = "end" },
     }),

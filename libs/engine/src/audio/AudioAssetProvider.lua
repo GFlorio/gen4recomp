@@ -148,7 +148,8 @@ end
 
 -- Loads a sample's metadata and PCM payload by content key, memoized. Both
 -- must exist; a missing or unreadable file is AUDIO_PROVIDER_SAMPLE_UNKNOWN,
--- a malformed metadata record is the sample validator's code.
+-- a malformed metadata record or payload byte count is the sample validator's
+-- code.
 function AudioAssetProvider:loadSample(key)
   local sample = self._samples[key]
   if sample ~= nil then
@@ -158,11 +159,11 @@ function AudioAssetProvider:loadSample(key)
   if type(metadata) ~= "table" then
     Errors.raise(FieldErrors.AUDIO_PROVIDER_SAMPLE_UNKNOWN, "no audio sample metadata for key " .. key, { key = key })
   end
-  AudioSample.validate(metadata)
   local pcm = self._cacheFs:read(AudioCache.samplePath(key))
   if pcm == nil then
     Errors.raise(FieldErrors.AUDIO_PROVIDER_SAMPLE_UNKNOWN, "no audio sample payload for key " .. key, { key = key })
   end
+  AudioSample.validate(metadata, pcm)
   sample = { metadata = metadata, pcm = pcm }
   self._samples[key] = sample
   return sample

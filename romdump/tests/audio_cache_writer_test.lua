@@ -41,7 +41,7 @@ T["write publishes provenance index assets and marker last"] = function()
   Assert.equal(bank.schema, AudioCache.BANK_SCHEMA)
   Assert.equal(bank.id, 12)
   local key = AudioFixture.key(1)
-  Assert.equal(cache:read(AudioCache.samplePath(key)), "pcm-a")
+  Assert.equal(cache:read(AudioCache.samplePath(key)), AudioFixture.pcm16le({ 1000, 2000, 3000, 4000 }))
   local metadata = cache:loadLua(AudioCache.sampleMetadataPath(key))
   metadata = metadata --[[@as { schema: string, key: string }]]
   Assert.equal(metadata.schema, AudioCache.SAMPLE_SCHEMA)

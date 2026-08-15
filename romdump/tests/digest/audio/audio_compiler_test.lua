@@ -77,10 +77,18 @@ local function adpcmMember()
   return SwarFixture.adpcm(ADPCM_SAMPLES, { sampleRate = 22050 })
 end
 
--- The content key of a member is the sha1 of its decoded PCM16LE payload.
+-- The semantic sample key of a member: the canonical deterministic hash of
+-- the full runtime sample identity (decoded PCM, base timer, loop flag and
+-- loop window), not the payload alone.
 local function memberKey(memberBytes)
   local wave = assert(Swav.decode(memberBytes, "fixture"))
-  return Hashing.sha1hex(wave.pcm16le)
+  return AudioCompiler.sampleKey(
+    wave.pcm16le,
+    wave.baseTimer,
+    wave.loopEnabled,
+    wave.loop.startFrame,
+    wave.loop.endFrame
+  )
 end
 
 local PCM8_KEY = memberKey(pcm8Member())
@@ -292,7 +300,7 @@ function T.compiles_banks_with_semantic_instruments()
   local direct = bank0.instruments[0]
   Assert.equal(direct.kind, "direct")
   Assert.deepEqual(direct.voice.generator, { kind = "sample", sample = PCM8_KEY })
-  Assert.equal(direct.voice.rootKey, 60)
+  Assert.equal(direct.voice.originalKey, 60)
   Assert.deepEqual(direct.voice.envelope, { attack = 120, decay = 60, sustain = 80, release = 100 })
   Assert.equal(direct.voice.pan, 64)
 
@@ -310,17 +318,22 @@ function T.compiles_banks_with_semantic_instruments()
   Assert.deepEqual({ split.ranges[1].lowKey, split.ranges[1].highKey }, { 0, 48 })
   Assert.deepEqual({ split.ranges[2].lowKey, split.ranges[2].highKey }, { 49, 72 })
 
+  -- Square and noise leaves carry their source original key like sample
+  -- leaves: the common voice shape never drops it.
   Assert.equal(bank0.instruments[4].voice.generator.kind, "square")
   Assert.equal(bank0.instruments[4].voice.generator.duty, 0.5)
+  Assert.equal(bank0.instruments[4].voice.originalKey, 48)
   Assert.equal(bank0.instruments[5].voice.generator.kind, "noise")
+  Assert.equal(bank0.instruments[5].voice.originalKey, 60)
 
   local bank1 = bundle.banks[1]
   AudioBank.validate(bank1)
   Assert.equal(bank1.instruments[0].voice.generator.sample, memberKey(adpcmMember()))
 end
 
--- Samples are content-addressed: equal wave content shares one key, every
--- key has metadata and payload, and the metadata matches the decoded frames.
+-- Samples are content-addressed by their semantic identity: equal wave
+-- content shares one key, every key has metadata and payload, and the
+-- metadata matches the decoded frames and the wave's base timer.
 function T.samples_deduplicate_by_content()
   local bytes = buildArchive()
   local bundle = compileOrFail(bytes)
@@ -332,13 +345,13 @@ function T.samples_deduplicate_by_content()
   Assert.equal(#keys, 3, "three unique waves across both banks")
 
   for key, payload in pairs(bundle.samples) do
-    Assert.equal(Hashing.sha1hex(payload), key, "content-addressed")
     local metadata = bundle.sampleMetadata[key]
     Assert.notNil(metadata)
-    AudioSample.validate(metadata)
+    AudioSample.validate(metadata, payload)
     Assert.equal(metadata.key, key)
     Assert.equal(metadata.file, AudioCache.samplePath(key))
     Assert.equal(metadata.frames, math.floor(#payload / 2))
+    Assert.isTrue(metadata.baseTimer > 0, "sample metadata carries the wave's base timer")
   end
   for key in pairs(bundle.sampleMetadata) do
     Assert.notNil(bundle.samples[key], "metadata without payload")
@@ -349,6 +362,66 @@ function T.samples_deduplicate_by_content()
   local bank0 = bundle.banks[0]
   Assert.equal(bank0.instruments[1].voices[2].generator.sample, PCM8_KEY)
   Assert.equal(bank0.instruments[2].ranges[1].voice.generator.sample, PCM8_KEY)
+end
+
+-- The sample key covers the complete runtime sample identity: the same
+-- decoded PCM at a different base timer is a different sample, and so is the
+-- same PCM with a different loop window. Key equality never aliases
+-- observably different sounds.
+function T.sample_keys_distinguish_metadata()
+  local samples = { 1, 2, 3, 4, 5, 6, 7, 8 }
+  local fast = SwarFixture.pcm16(samples, { sampleRate = 32000 })
+  local slow = SwarFixture.pcm16(samples, { sampleRate = 24000 })
+  local oneShot = SwarFixture.pcm16(samples, { sampleRate = 24000, loopFlag = 0 })
+  local looped = SwarFixture.pcm16(samples, { sampleRate = 24000, loopFlag = 1, pnt = 2, len = 2 })
+  local sbnk = SbnkFixture.build({
+    {
+      type = 1,
+      param = { swav = 0, swarSlot = 0, rootKey = 60, attack = 127, decay = 0, sustain = 127, release = 127, pan = 64 },
+    },
+    {
+      type = 1,
+      param = { swav = 1, swarSlot = 0, rootKey = 60, attack = 127, decay = 0, sustain = 127, release = 127, pan = 64 },
+    },
+    {
+      type = 1,
+      param = { swav = 2, swarSlot = 0, rootKey = 60, attack = 127, decay = 0, sustain = 127, release = 127, pan = 64 },
+    },
+    {
+      type = 1,
+      param = { swav = 3, swarSlot = 0, rootKey = 60, attack = 127, decay = 0, sustain = 127, release = 127, pan = 64 },
+    },
+  })
+  local swar = SwarFixture.build({ fast, slow, oneShot, looped })
+  local spec = {
+    sequences = { [0] = { bankId = 0, volume = 120, channelPriority = 127, playerPriority = 64, playerId = 0 } },
+    banks = { [0] = { waveArchives = { 0, 0xFFFF, 0xFFFF, 0xFFFF } } },
+    waveArchives = { [0] = {} },
+    players = { [0] = { maxSequences = 2, channelMask = 0xC000, heapSize = 0x5E88 } },
+    extraFiles = 0,
+  }
+  local _, layout = SdatFixture.build(spec)
+  spec.payloads = {
+    [layout.fileIds.sequences[0]] = SseqFixture.build({
+      { op = "program", program = 0 },
+      { op = "note", key = 60, velocity = 100, duration = 48 },
+      { op = "fin" },
+    }),
+    [layout.fileIds.banks[0]] = sbnk,
+    [layout.fileIds.waveArchives[0]] = swar,
+  }
+  local bundle = compileOrFail(SdatFixture.build(spec))
+  local function keyFor(memberBytes)
+    local wave = assert(Swav.decode(memberBytes, "fixture"))
+    local key =
+      AudioCompiler.sampleKey(wave.pcm16le, wave.baseTimer, wave.loopEnabled, wave.loop.startFrame, wave.loop.endFrame)
+    Assert.notNil(bundle.samples[key], "the metadata-distinct sample is compiled")
+    return key
+  end
+  local fastKey = keyFor(fast)
+  Assert.isFalse(fastKey == keyFor(slow), "a different base timer is a different sample")
+  Assert.isFalse(keyFor(oneShot) == keyFor(looped), "loop vs one-shot is a different sample")
+  Assert.isTrue(fastKey == keyFor(fast), "the same identity always has the same key")
 end
 
 -- A valid archive without the optional SYMB block compiles: the index gains
