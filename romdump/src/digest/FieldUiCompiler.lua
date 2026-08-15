@@ -238,7 +238,7 @@ local function compileStartMenu(romFs, sha1hex, deps, assets, manifestAssets)
     asset = "start menu background",
     member = cfg.backgroundScreenMember,
   })
-  manifestAssets["hgss.start_menu.background"] = {
+  manifestAssets[FieldUiAssetCache.ASSET.START_MENU_BACKGROUND] = {
     image = backgroundPath,
     width = screen.width,
     height = screen.height,
@@ -293,7 +293,8 @@ local function compileStartMenu(romFs, sha1hex, deps, assets, manifestAssets)
     end
   end
   assets[cursorPath] = PngWriter.encode(atlasWidth, atlasHeight, concatChars(rgba))
-  manifestAssets["hgss.start_menu.cursor"] = { image = cursorPath, width = atlasWidth, height = atlasHeight }
+  manifestAssets[FieldUiAssetCache.ASSET.START_MENU_CURSOR] =
+    { image = cursorPath, width = atlasWidth, height = atlasHeight }
 
   for _, memberId in ipairs({
     cfg.backgroundCharMember,
@@ -374,7 +375,8 @@ local function compileDialogueFrames(romFs, sha1hex, deps, assets, manifestAsset
     }
   end
   assets[tilesPath] = PngWriter.encode(atlasWidth, atlasHeight, concatChars(rgba))
-  manifestAssets["hgss.dialogue_frame.tiles"] = { image = tilesPath, width = atlasWidth, height = atlasHeight }
+  manifestAssets[FieldUiAssetCache.ASSET.DIALOGUE_FRAME_TILES] =
+    { image = tilesPath, width = atlasWidth, height = atlasHeight }
   deps[#deps + 1] = { name = manifestConfig.dialogueFrames.alias .. ":narc", sha1 = sha1hex(archiveBytes) }
   return {
     count = cfg.frameCount,
@@ -398,7 +400,7 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
     asset = "signpost frame",
     member = cfg.frameMember,
   })
-  manifestAssets["hgss.signpost.tiles"] = { image = framePath, width = frameTiles * 8, height = 8 }
+  manifestAssets[FieldUiAssetCache.ASSET.SIGNPOST_TILES] = { image = framePath, width = frameTiles * 8, height = 8 }
   deps[#deps + 1] = { name = manifestConfig.signposts.alias .. ":frame", sha1 = sha1hex(archiveBytes) }
 
   -- Wayfinding: the selected (type, map) members stacked in a shared atlas,
@@ -455,7 +457,8 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
     }
   end
   assets[wayfindingPath] = PngWriter.encode(rowWidth, atlasHeight, concatChars(rgba))
-  manifestAssets["hgss.signpost.wayfinding"] = { image = wayfindingPath, width = rowWidth, height = atlasHeight }
+  manifestAssets[FieldUiAssetCache.ASSET.SIGNPOST_WAYFINDING] =
+    { image = wayfindingPath, width = rowWidth, height = atlasHeight }
 
   local types = {}
   for _, sourceType in ipairs(cfg.sourceTypes) do
@@ -493,7 +496,8 @@ local function compileTrainerCard(romFs, sha1hex, deps, assets, manifestAssets)
     asset = "trainer card front",
     member = cfg.frontScreenMember,
   })
-  manifestAssets["hgss.trainer_card.front"] = { image = path, width = screen.width, height = screen.height }
+  manifestAssets[FieldUiAssetCache.ASSET.TRAINER_CARD_FRONT] =
+    { image = path, width = screen.width, height = screen.height }
   deps[#deps + 1] = { name = manifestConfig.trainerCard.alias .. ":narc", sha1 = sha1hex(archiveBytes) }
   return {
     front = { x = 0, y = 0, width = screen.width, height = screen.height },

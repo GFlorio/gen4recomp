@@ -77,9 +77,9 @@ local function bootWithCapturedRuntimeOptions(options, cache)
 end
 
 -- The composition: FieldState constructs the signpost, Start Menu, and
--- Trainer Card renderers against the runtime's cache and sealed window style
--- registry, so their GPU resources are owned and released by the state
--- (never by controllers or the registry).
+-- Trainer Card renderers against the runtime's cache and immutable window
+-- style catalogue, so their GPU resources are owned and released by the state
+-- (never by controllers or the catalogue).
 local function fieldStateOptions()
   return {
     topologyProvider = function()

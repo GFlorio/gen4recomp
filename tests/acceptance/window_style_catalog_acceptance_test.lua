@@ -13,7 +13,7 @@ local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local T = {
   metadata = {
     capabilities = { "rom_dump", "derived_cache" },
-    tags = { "field", "presentation", "signpost", "registry", "mod" },
+    tags = { "field", "presentation", "signpost", "catalog", "mod" },
   },
   tests = {},
 }

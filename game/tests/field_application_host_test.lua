@@ -1,5 +1,5 @@
 -- Production-composed application-host ownership contract: the runtime
--- composes the sealed destination registry (child applications only; the
+-- composes the immutable destination registry (child applications only; the
 -- start menu is the host's own factory) and the application host, the
 -- session steps the host as the one application modal owner, and runtime
 -- disposal in every application phase releases the active controller exactly

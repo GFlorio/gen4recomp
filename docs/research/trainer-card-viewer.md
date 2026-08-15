@@ -1,7 +1,7 @@
 # Trainer Card front viewer — source audit
 
-Pinned decomp: `pret/pokeheartgold` commit `008257708` ("Merge pull request #501"),
-checked out at `/workspace/tmp/refs/pokeheartgold`.
+Pinned decomp: `pret/pokeheartgold` commit `008257708` ("Merge pull request #501");
+every `src/...:line` and `asm/...` reference below is relative to that commit.
 
 This note records the source facts behind the Trainer Card front viewer
 (`TrainerCardRenderer` + `TrainerCardController`) so later card work (signature

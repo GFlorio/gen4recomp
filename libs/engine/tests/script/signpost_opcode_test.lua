@@ -973,7 +973,7 @@ function T.high_level_trainer_tip_dismisses_after_the_print_completes()
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
 end
 
--- An appearance naming an unregistered style is an attributed script fault
+-- An appearance naming an unknown style is an attributed script fault
 -- (SCRIPT_STYLE_UNKNOWN), and the handler acquires nothing before it.
 function T.high_level_sign_faults_on_an_unregistered_style()
   local h = harness()

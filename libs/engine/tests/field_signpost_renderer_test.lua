@@ -1,7 +1,7 @@
 -- Failure-path, geometry, and wipe-contract tests for the signpost renderer,
 -- driven through an injected graphics namespace: construction typed errors
 -- with release of already-acquired images, per-type frame/wayfinding/text
--- geometry from the sealed style registry, the wipe translation (whole
+-- geometry from the immutable style catalogue, the wipe translation (whole
 -- surface, hidden position below the screen), the active-only visibility key
 -- (the wipe-out endpoint reset never flashes), and stateless offset
 -- interpolation clamped between fixed ticks: the renderer holds no

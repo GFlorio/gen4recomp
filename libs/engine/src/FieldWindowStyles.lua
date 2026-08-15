@@ -45,16 +45,16 @@ FieldWindowStyles.BUILTIN = {
 }
 
 -- The semantic appearance values handwritten scripts may pass to the
--- high-level sign operations in place of a registered style id. The runtime
+-- high-level sign operations in place of a catalogued style id. The runtime
 -- resolves them to the built-in styles at script execution; any other
--- appearance string is treated as a registered style id.
+-- appearance string is treated as a catalogued style id.
 FieldWindowStyles.SEMANTIC_STYLES = {
   sign = FieldWindowStyles.BUILTIN.SIGNPOST,
   trainer_tip = FieldWindowStyles.BUILTIN.TRAINER_TIP,
 }
 
 -- Resolves a semantic appearance value to its built-in style id, or returns
--- nil when the value is a raw registered style id.
+-- nil when the value is a raw catalogued style id.
 ---@param appearance string
 ---@return string|nil
 function FieldWindowStyles.semanticStyleId(appearance)

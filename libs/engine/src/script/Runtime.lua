@@ -532,8 +532,8 @@ end
 -- ScrCmd_061 (std_signpost's hide-branch tail): no operands. The source
 -- installs the Start Menu reopen end callback (sub_0204031C ->
 -- sub_0203BD64) and returns FALSE, ending the script context. The reopen
--- request routes through the startMenuReopen service — the future Start
--- Menu application host consumes it when the environment ends; a missing
+-- request routes through the startMenuReopen service, which the Start Menu
+-- application host consumes when the environment ends; a missing
 -- service is an attributed fault, never a silent close. The STOP outcome
 -- ends this script context (a child context ending resumes the caller
 -- through the child-slot mechanics).
@@ -1282,7 +1282,7 @@ HANDLERS.wait_signpost = function(node, run)
 end
 
 -- The high-level sign ops route their requested appearance (a semantic
--- value or a registered style id) through the sealed window-style registry
+-- value or a catalogued style id) through the window style catalogue
 -- service: the style id is stamped into the controller, and a style that
 -- does not exist is an attributed script fault, never a presentation crash
 -- at draw time.
