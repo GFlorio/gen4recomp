@@ -10,16 +10,15 @@
 -- presentation snapshot, so render refresh rate cannot change the animation
 -- speed, and a missing cursor (an empty menu with no selection) is a valid
 -- state that draws the background and stops. Drawing consumes the same
--- StartMenuLayout placement
--- record hit testing maps through (hostToLogical): the surface draws under
--- translate(frame origin) + scale(placement scale) in canonical coordinates,
--- so rendering and hit testing share one record with no second set of
--- scaled rectangles. The surface is not a generic list menu: only the two
--- generated images are drawn, at identity tint, with no theme colors or
--- styled primitives. Construction is failure-safe: a missing manifest,
--- background, or cursor asset is a typed error, a quad failure after the
--- images were created releases them before rethrowing, and draw() restores
--- every graphics state it touches.
+-- StartMenuLayout placement record hit testing maps through (hostToLogical):
+-- the surface draws under translate(frame origin) + scale(placement scale)
+-- in canonical coordinates, so rendering and hit testing share one record
+-- with no second set of scaled rectangles. The surface is not a generic
+-- list menu: only the two generated images are drawn, at identity tint, with
+-- no theme colors or styled primitives. Construction is failure-safe: a
+-- missing manifest, background, or cursor asset is a typed error, a quad
+-- failure after the images were created releases them before rethrowing, and
+-- draw() restores every graphics state it touches.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")

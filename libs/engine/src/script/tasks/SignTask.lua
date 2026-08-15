@@ -47,11 +47,16 @@ function SignTask.poll(state, ctx)
     host:close()
     return { complete = true, state = state }
   end
-  -- A/B before the typed print is done is the printer's speed-up behavior,
-  -- never a dismissal; an instant print (S.sign) is always done.
-  if (input.pressedAction or input.pressedCancel) and host:status().printDone then
-    host:close()
-    return { complete = true, state = state }
+  if input.pressedAction or input.pressedCancel then
+    if host:status().printDone then
+      host:close()
+      return { complete = true, state = state }
+    end
+    -- A/B before a live typed print is done is the printer's speed-up: the
+    -- whole message fills immediately and the window stays presented, and
+    -- the task keeps waiting for the dismissal edge.
+    host:finishPrint()
+    return { complete = false, state = state }
   end
   return { complete = false, state = state }
 end
