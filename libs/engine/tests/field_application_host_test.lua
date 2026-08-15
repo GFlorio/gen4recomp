@@ -381,16 +381,22 @@ function T.tests.destination_factory_failure_after_fade_out_retains_the_error_an
   Assert.equal(host:status().phase, "failed", "the failed phase is terminal")
 end
 
-function T.tests.menu_composition_failure_at_open_acquires_nothing()
+-- A fatal Start Menu composition failure must consume the tick that opened
+-- it: the host has entered its terminal failed ownership state, so the open
+-- returns true (tick consumed), never false (which would let the field
+-- continue stepping the same tick). Nothing is acquired: no controller, no
+-- input lifetime.
+function T.tests.menu_composition_failure_at_open_consumes_the_tick()
   local host, input, registry, factory = fixture()
   factory.fn = function()
     error("injected menu composition failure")
   end
-  host:requestOpen(10)
+  Assert.equal(host:requestOpen(10), true, "a fatal composition failure must report the tick as consumed")
   Assert.equal(host:status().phase, "failed")
   Assert.equal(input.beginUiTicks[1], nil, "a failed composition never begins the modal input lifetime")
   Assert.equal(input.clearUiCalls, 0)
   Assert.isTrue(tostring(host:error()):find("injected menu composition failure", 1, true) ~= nil)
+  Assert.equal(host:isActive(), true, "the failed host stays active so the world never resumes")
 end
 
 -- A zero-action menu is not a first-class modal: the menu factory returns
@@ -505,6 +511,22 @@ function T.tests.take_reopen_with_an_unavailable_menu_is_a_noop()
   Assert.equal(host:status().phase, "closed")
   Assert.equal(input.beginUiTicks[1], nil)
   Assert.equal(host:takeReopen(21), false, "the consumed reopen request never opens twice")
+end
+
+-- A pending script reopen whose composition fails is also a tick consumer:
+-- the request is cleared and the host enters its terminal failed state, so
+-- takeReopen must report the tick as consumed, never as a no-op open.
+function T.tests.take_reopen_with_a_failing_factory_consumes_the_tick()
+  local host, input, registry, factory = fixture()
+  factory.fn = function()
+    error("injected reopen composition failure")
+  end
+  host:requestReopen()
+  Assert.equal(host:takeReopen(20), true, "a fatal reopen composition must report the tick as consumed")
+  Assert.equal(host:status().phase, "failed")
+  Assert.equal(host:isActive(), true)
+  Assert.equal(input.beginUiTicks[1], nil, "a failed reopen never begins the modal input lifetime")
+  Assert.isTrue(tostring(host:error()):find("injected reopen composition failure", 1, true) ~= nil)
 end
 
 -- The per-phase disposal matrix: runtime disposal in every phase releases

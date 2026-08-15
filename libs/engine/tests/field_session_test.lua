@@ -2,6 +2,8 @@
 -- and that the camera consumes the player's continuous 3D target.
 
 local Assert = require("tests.support.Assert")
+local FieldApplicationHost = require("libs.engine.src.FieldApplicationHost")
+local FieldApplicationRegistry = require("libs.engine.src.FieldApplicationRegistry")
 local FieldInput = require("libs.engine.src.FieldInput")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldPlayerVisual = require("libs.engine.src.FieldPlayerVisual")
@@ -1862,6 +1864,142 @@ function T.a_pending_reopen_opens_the_menu_at_the_arbitration_point()
   Assert.equal(host.openedTicks[1], 1, "the pending reopen opens the menu")
   Assert.equal(host.reopenRequests, 0, "the reopen request is consumed once")
   Assert.equal(stepped.player, 0, "the reopen open consumes the tick")
+end
+
+-- The faulting-tick freeze contract, proven through the real
+-- FieldApplicationHost: the host's open/reopen return value is the session's
+-- arbitration signal, so the real composition boundary decides whether the
+-- field continues or freezes on the tick that pressed the menu edge.
+local function applicationCompositionFixture(menuFactory)
+  local worldSteps = { player = 0, actors = 0, camera = 0, resolved = 0 }
+  local player = defaultPlayer()
+  player.updateFixed = function()
+    worldSteps.player = worldSteps.player + 1
+    return false
+  end
+  local actors = {
+    step = function()
+      worldSteps.actors = worldSteps.actors + 1
+    end,
+  }
+  local camera = {
+    updateFixed = function()
+      worldSteps.camera = worldSteps.camera + 1
+    end,
+  }
+  local input = idleInput()
+  input.beginUiTicks = {}
+  input.beginUi = function(_, tick)
+    input.beginUiTicks[#input.beginUiTicks + 1] = tick
+  end
+  input.clearUiCalls = 0
+  input.clearUi = function()
+    input.clearUiCalls = input.clearUiCalls + 1
+  end
+  local host = FieldApplicationHost.new({
+    registry = FieldApplicationRegistry.new({}),
+    menuFactory = menuFactory,
+    input = input,
+  })
+  local session = FieldSession.new(baseOptions({
+    player = player,
+    actors = actors,
+    camera = camera,
+    input = input,
+    applicationHost = host,
+    interactions = {
+      resolve = function()
+        worldSteps.resolved = worldSteps.resolved + 1
+        return nil
+      end,
+    },
+  }))
+  return session, host, input, worldSteps
+end
+
+-- A fatal Start Menu composition failure consumes the faulting tick: the
+-- host enters its terminal failed state, and the session must not fall
+-- through to actor stepping, interaction resolution, player movement, or
+-- the camera on that same tick. The simultaneous Action edge must not reach
+-- the interaction resolver either: the failed open still owns the tick.
+function T.a_fatal_menu_composition_failure_freezes_the_faulting_tick()
+  local session, host, input, world = applicationCompositionFixture(function()
+    error("injected menu composition failure")
+  end)
+  session:updateFixed({ menuPressed = true, actionPressed = true })
+  Assert.equal(host:status().phase, "failed", "the host enters its terminal failed state")
+  Assert.equal(host:isActive(), true, "the failed host stays active so later ticks freeze")
+  Assert.equal(world.player, 0, "the faulting tick must not step the player")
+  Assert.equal(world.actors, 0, "the faulting tick must not step actors")
+  Assert.equal(world.resolved, 0, "the faulting tick must not resolve interactions")
+  Assert.equal(world.camera, 0, "the faulting tick must not move the camera")
+  Assert.equal(session.tick, 1)
+end
+
+-- The pending script reopen path obeys the same contract: a throwing
+-- menuFactory consumes the faulting tick and freezes every world step.
+function T.a_failing_pending_reopen_freezes_the_faulting_tick()
+  local session, host, input, world = applicationCompositionFixture(function()
+    error("injected reopen composition failure")
+  end)
+  host:requestReopen()
+  session:updateFixed({})
+  Assert.equal(host:status().phase, "failed", "the failing reopen enters the terminal failed state")
+  Assert.equal(world.player, 0, "the faulting reopen tick must not step the player")
+  Assert.equal(world.actors, 0, "the faulting reopen tick must not step actors")
+  Assert.equal(world.camera, 0, "the faulting reopen tick must not move the camera")
+  Assert.equal(session.tick, 1)
+end
+
+-- An unavailable menu (nil factory result) stays a genuine no-op at the
+-- session boundary: the host stays closed, no UI lifetime begins, and the
+-- field continues stepping normally on the same tick.
+function T.an_unavailable_menu_leaves_the_tick_to_the_field()
+  local session, host, input, world = applicationCompositionFixture(function()
+    return nil
+  end)
+  session:updateFixed({ menuPressed = true })
+  Assert.equal(host:status().phase, "closed", "an unavailable menu is a no-op open")
+  Assert.equal(host:isActive(), false)
+  Assert.equal(input.beginUiTicks[1], nil, "an unavailable menu begins no UI lifetime")
+  Assert.equal(world.player, 1, "an unavailable menu leaves the tick to the field")
+  Assert.equal(world.actors, 1)
+  Assert.equal(world.camera, 1)
+end
+
+-- A successful open keeps its existing contract: the host enters the menu
+-- phase, beginUi happens exactly once on the opening tick, the opener tick
+-- never steps the menu controller, and the world stays frozen.
+function T.a_successful_open_consumes_the_tick_without_stepping_the_world()
+  local menu = {
+    updateFixedCalls = 0,
+    disposeCount = 0,
+  }
+  function menu:updateFixed()
+    self.updateFixedCalls = self.updateFixedCalls + 1
+  end
+  function menu:takeResult()
+    return nil
+  end
+  function menu:status()
+    return { open = true }
+  end
+  function menu:dispose()
+    self.disposeCount = self.disposeCount + 1
+  end
+  function menu:cancelPointerCapture() end
+  local session, host, input, world = applicationCompositionFixture(function()
+    return menu
+  end)
+  session:updateFixed({ menuPressed = true })
+  Assert.equal(host:status().phase, "menu", "the host enters the menu phase")
+  Assert.equal(host:isActive(), true)
+  Assert.equal(input.beginUiTicks[1], 1, "beginUi happens once on the opening tick")
+  Assert.equal(menu.updateFixedCalls, 0, "the opener tick never steps the menu controller")
+  Assert.equal(world.player, 0, "the successful open consumes the tick")
+  Assert.equal(world.actors, 0)
+  Assert.equal(world.camera, 0)
+  Assert.equal(session.tick, 1)
 end
 
 return { tests = T }

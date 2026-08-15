@@ -285,11 +285,13 @@ function FieldSession:updateFixed(inputSnapshot)
   -- then the menu edge is gated by the idle-boundary check (checked after
   -- the single script-scheduler step established the field lock state,
   -- before actor stepping, interaction resolution, warps, or player
-  -- movement). A successful open consumes the tick; a no-op open (the host
-  -- reports that the menu is currently unavailable) leaves the tick to the
-  -- field, which continues stepping normally. The input snapshot has
-  -- already consumed a simultaneous Action edge, and the menu owns the tick,
-  -- so no edge clearing is part of this policy.
+  -- movement). The host's boolean answers "did the open consume this tick?":
+  -- true for a successful open and for a fatal composition failure (the
+  -- host has entered its terminal failed state, which must freeze the rest
+  -- of this tick); false means the menu is unavailable and the field
+  -- continues stepping normally. The input snapshot has already consumed a
+  -- simultaneous Action edge, and the menu owns the tick, so no edge
+  -- clearing is part of this policy.
   if self.applicationHost:takeReopen(self.tick + 1) then
     self:_advanceTick()
     return
