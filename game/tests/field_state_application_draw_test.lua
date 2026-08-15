@@ -6,9 +6,8 @@
 -- draws the menu. The application fade covers the surface being transitioned
 -- (the world viewport plus the Start Menu placement frame), so an auxiliary
 -- menu surface can never stay visible while only the world viewport goes
--- black. The Start Menu surface renders through the StartMenuLayout record
--- resolved for the current topology -- the same pure derivation the host
--- maps hit-test points through.
+-- black. The Start Menu surface renders through the runtime-owned placement
+-- record -- the same record the host maps hit-test points through.
 
 local Assert = require("tests.support.Assert")
 local FieldState = require("game.src.game.FieldState")
@@ -89,6 +88,9 @@ local function drawableState(options)
   local sink = {}
   local topology = options.topology or worldTopology()
   local worldViewport = options.worldViewport or { x = 0, y = 0, width = 640, height = 480 }
+  -- The runtime owns the one Start Menu placement record the draw path
+  -- consumes; the fake supplies it exactly like the production runtime does.
+  local placement = StartMenuLayout.resolve(topology, { x = 0, y = 0, width = 640, height = 480 })
   local runtime = {
     errorText = nil,
     runtimeMap = {
@@ -135,6 +137,8 @@ local function drawableState(options)
         return nil
       end,
     },
+    startMenuPlacement = placement,
+    resizePresentation = function() end,
   }
   local state = setmetatable({
     development = options.development == true,
@@ -239,8 +243,8 @@ function T.menu_phase_draws_only_the_start_menu_surface_through_the_placement_re
   Assert.deepEqual(labels(sink), { "world", "menu" })
   local menuCall = sink[2]
   Assert.equal(menuCall[2], menuStatus, "the start menu renderer receives the host's menu presentation")
-  local expectedLayout = StartMenuLayout.resolve(worldTopology())
-  Assert.deepEqual(menuCall[3], expectedLayout, "the menu draws through the topology's placement record")
+  local expectedLayout = StartMenuLayout.resolve(worldTopology(), { x = 0, y = 0, width = 640, height = 480 })
+  Assert.deepEqual(menuCall[3], expectedLayout, "the menu draws through the runtime's placement record")
   Assert.equal(menuCall[3].surfaceId, "main")
   Assert.deepEqual(menuCall[3].frame, { x = 0, y = 0, width = 640, height = 480 })
   Assert.equal(menuCall[3].scale, 2.5)

@@ -1,16 +1,19 @@
 -- FieldApplicationHost contract tests: the one application modal owner the
 -- field session steps. The host owns the transition phase machine (closed/
--- opening_menu/menu/fading_out/application/fading_in/closing_menu plus the
--- terminal failed state), its own fixed-tick fade counter (fadeAlpha), the
--- Start Menu selection remembered across a child-application round trip,
--- the modal input lifetime (beginUi once at open, clearUi once on final
--- return or disposal), dispatch through the application registry, and
--- exactly-once disposal of the active controller on success, cancellation,
--- failure, reset, or runtime disposal. Fakes are the registry/input/
+-- menu/fading_out/application/fading_in plus the terminal failed state), its
+-- own fixed-tick fade counter (fadeAlpha), the Start Menu selection
+-- remembered across a child-application round trip, the modal input lifetime
+-- (beginUi once at open, clearUi once on final return, failure, or
+-- disposal), and exactly-once disposal of the active controller on success,
+-- cancellation, failure, reset, or runtime disposal. The Start Menu is not a
+-- registry entry: the host builds it through its own required menuFactory
+-- (the runtime's composition step), and the sealed application registry
+-- dispatches child destinations only. Fakes are the registry/input/
 -- controller boundaries; the pointer mapping is exercised through the real
--- StartMenuLayout record.
+-- StartMenuLayout placement record.
 
 local Assert = require("tests.support.Assert")
+local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
 local FieldApplicationHost = require("libs.engine.src.FieldApplicationHost")
 
@@ -61,13 +64,13 @@ local function fakeRegistry()
     created = {},
     controllers = {},
   }
-  -- Stored entries are either factories (functions, invoked with the
-  -- dispatch arguments) or prebuilt controllers (returned as-is).
-  function registry:create(id, ...)
+  -- Stored entries are either factories (functions) or prebuilt controllers
+  -- (returned as-is); create() takes only the application id.
+  function registry:create(id)
     local stored = assert(self.controllers[id], "test registry has no controller for " .. id)
-    self.created[#self.created + 1] = { id = id, args = { ... } }
+    self.created[#self.created + 1] = id
     if type(stored) == "function" then
-      return stored(...)
+      return stored()
     end
     return stored
   end
@@ -88,32 +91,66 @@ local function fakeInput()
   return input
 end
 
--- The test fixture: a registry holding the menu composer (id start_menu) and
--- one destination, plus the input. Controllers are created lazily per id so
--- each construction is observable.
+-- The test fixture: a registry holding one destination and a menu factory
+-- returning per-call controllers, plus the input. The factory body is
+-- swappable so composition/rebuild failures can be injected. Controllers are
+-- created lazily so each construction is observable.
 local function fixture()
   local registry = fakeRegistry()
   local input = fakeInput()
-  local host = FieldApplicationHost.new({ registry = registry, input = input })
-  return host, input, registry
+  local factory = {
+    fn = function(rememberedActionId)
+      local controller = fakeController()
+      controller.rememberedActionId = rememberedActionId
+      registry.menuControllers = registry.menuControllers or {}
+      registry.menuControllers[#registry.menuControllers + 1] = controller
+      return controller
+    end,
+  }
+  local host = FieldApplicationHost.new({
+    registry = registry,
+    menuFactory = function(rememberedActionId)
+      return factory.fn(rememberedActionId)
+    end,
+    input = input,
+  })
+  return host, input, registry, factory
 end
 
 local function openMenu(host, input, registry)
-  registry.controllers.start_menu = fakeController()
   host:requestOpen(10)
   Assert.equal(input.beginUiTicks[1], 10)
-  return registry.controllers.start_menu
+  return registry.menuControllers[1]
 end
 
-function T.tests.construction_requires_the_registry_and_input()
+-- The canonical 256x192 placement: the identity record the pointer tests map
+-- through.
+local function canonicalPlacement()
+  return StartMenuLayout.resolve(
+    ScreenTopology.oneDisplay({
+      id = "main",
+      rect = { x = 0, y = 0, width = 256, height = 192 },
+      role = "world",
+      touch = false,
+    }),
+    { x = 0, y = 0, width = 256, height = 192 }
+  )
+end
+
+function T.tests.construction_requires_the_registry_menu_factory_and_input()
   local registry = fakeRegistry()
   local input = fakeInput()
+  local menuFactory = function() end
   throws(function()
-    local partial = { input = input } ---@type any
+    local partial = { registry = registry, input = input } ---@type any
     FieldApplicationHost.new(partial)
   end)
   throws(function()
-    local partial = { registry = registry } ---@type any
+    local partial = { registry = registry, menuFactory = menuFactory } ---@type any
+    FieldApplicationHost.new(partial)
+  end)
+  throws(function()
+    local partial = { menuFactory = menuFactory, input = input } ---@type any
     FieldApplicationHost.new(partial)
   end)
   throws(function()
@@ -132,31 +169,27 @@ function T.tests.starts_closed_with_no_fade_and_no_menu()
   Assert.equal(host:isActive(), false)
 end
 
-function T.tests.open_constructs_the_menu_through_the_registry_and_begins_ui_once()
+function T.tests.open_constructs_the_menu_through_the_factory_and_begins_ui_once()
   local host, input, registry = fixture()
   local controller = openMenu(host, input, registry)
-  Assert.equal(host:status().phase, "opening_menu")
+  Assert.equal(host:status().phase, "menu", "the menu phase is entered on the opening tick")
   Assert.equal(host:status().menu.open, true)
   Assert.equal(host:isActive(), true)
-  Assert.equal(#registry.created, 1)
-  Assert.equal(registry.created[1].id, "start_menu")
-  Assert.deepEqual(registry.created[1].args, { nil })
+  Assert.equal(#registry.menuControllers, 1, "the menu factory constructs exactly one controller")
+  Assert.isNil(registry.menuControllers[1].rememberedActionId, "a fresh open has no remembered selection")
   Assert.equal(controller.disposeCount, 0)
 end
 
-function T.tests.opening_menu_arms_the_menu_phase_on_the_following_tick()
+function T.tests.menu_input_is_live_on_the_first_step()
   local host, input, registry = fixture()
-  openMenu(host, input, registry)
-  local controller = registry.controllers.start_menu
-  host:updateFixed(11, { { type = "confirm" } })
-  Assert.equal(host:status().phase, "menu")
-  host:updateFixed(12, { { type = "navigate", direction = "down" } })
+  local controller = openMenu(host, input, registry)
+  host:updateFixed(11, { { type = "navigate", direction = "down" } })
   Assert.equal(host:status().phase, "menu")
   Assert.equal(controller.updateFixedCalls, 1)
   Assert.equal(controller.receivedEvents[1].type, "navigate")
 end
 
-function T.tests.launch_freeze_menu_input_then_fades_out_and_dispatches_the_destination()
+function T.tests.launch_freezes_menu_input_then_fades_out_and_dispatches_the_destination()
   local host, _, registry = fixture()
   local menu = openMenu(host, _, registry)
   host:updateFixed(11, {})
@@ -168,9 +201,10 @@ function T.tests.launch_freeze_menu_input_then_fades_out_and_dispatches_the_dest
   Assert.equal(host:status().fadeAlpha, 0)
   Assert.equal(host:status().applicationId, "trainer_card")
   -- The menu controller is not disposed until the fade hides the world, and
-  -- it is not stepped during the fade (input is frozen).
+  -- it is not stepped during the fade (input is frozen; the two recorded
+  -- steps are the arming tick and the launch tick).
   Assert.equal(menu.disposeCount, 0)
-  Assert.equal(menu.updateFixedCalls, 1)
+  Assert.equal(menu.updateFixedCalls, 2)
   local fadeTicks = FieldApplicationHost.FADE_TICKS
   for tick = 1, fadeTicks - 1 do
     host:updateFixed(12 + tick, { { type = "cancel" } })
@@ -181,8 +215,7 @@ function T.tests.launch_freeze_menu_input_then_fades_out_and_dispatches_the_dest
   Assert.equal(host:status().phase, "application")
   Assert.equal(host:status().fadeAlpha, 1)
   Assert.equal(menu.disposeCount, 1, "the menu controller is disposed exactly once at the fade-out end")
-  Assert.equal(#registry.created, 2)
-  Assert.equal(registry.created[2].id, "trainer_card")
+  Assert.deepEqual(registry.created, { "trainer_card" }, "the destination dispatches through the registry only")
   -- The destination receives its first step in its construction tick with
   -- no events: menu input was frozen for the whole fade, so presses from the
   -- fade period must never reach the destination.
@@ -273,21 +306,22 @@ function T.tests.menu_rebuild_restores_the_remembered_selection_by_action_id()
   end
   destination.result = { kind = "close" }
   host:updateFixed(30, { { type = "cancel" } })
-  local rebuilt = fakeController()
-  registry.controllers.start_menu = rebuilt
   for tick = 31, 30 + FieldApplicationHost.FADE_TICKS do
     host:updateFixed(tick, {})
   end
   Assert.equal(host:status().phase, "menu")
-  Assert.equal(#registry.created, 3)
-  Assert.equal(registry.created[3].id, "start_menu")
-  Assert.equal(registry.created[3].args[1], "vanilla.trainer_card", "the rebuild passes the remembered action id")
+  Assert.equal(#registry.menuControllers, 2)
+  Assert.equal(
+    registry.menuControllers[2].rememberedActionId,
+    "vanilla.trainer_card",
+    "the rebuild passes the remembered action id to the menu factory"
+  )
   Assert.equal(input.beginUiTicks[1], 10, "the input lifetime is begun exactly once")
   Assert.equal(input.beginUiTicks[2], nil, "the child round trip never nests beginUi")
   Assert.equal(input.clearUiCalls, 0, "ownership is retained across the child round trip")
 end
 
-function T.tests.menu_close_disposes_controller_and_releases_ownership_once()
+function T.tests.menu_close_disposes_controller_and_releases_ownership_in_the_same_tick()
   local host, input, registry = fixture()
   local menu = openMenu(host, input, registry)
   host:updateFixed(11, {})
@@ -295,9 +329,7 @@ function T.tests.menu_close_disposes_controller_and_releases_ownership_once()
   host:updateFixed(12, { { type = "menu" } })
   Assert.equal(menu.disposeCount, 1, "the closing menu controller is disposed exactly once")
   Assert.equal(input.clearUiCalls, 1, "the final field return releases the modal input lifetime once")
-  Assert.equal(host:status().phase, "closing_menu")
-  host:updateFixed(13, {})
-  Assert.equal(host:status().phase, "closed")
+  Assert.equal(host:status().phase, "closed", "no closing phase exists: the host returns to closed on the tick")
   Assert.equal(host:isActive(), false)
   Assert.equal(host:status().fadeAlpha, 0)
 end
@@ -311,16 +343,15 @@ end
 
 function T.tests.open_while_active_is_a_programming_invariant()
   local host, _, registry = fixture()
-  registry.controllers.start_menu = fakeController()
   host:requestOpen(10)
   throws(function()
     host:requestOpen(11)
   end)
 end
 
-function T.tests.destination_factory_failure_after_fade_out_retains_the_error_and_never_reports_a_menu_return()
-  local host, _, registry = fixture()
-  local menu = openMenu(host, _, registry)
+function T.tests.destination_factory_failure_after_fade_out_retains_the_error_and_releases_ownership()
+  local host, input, registry = fixture()
+  local menu = openMenu(host, input, registry)
   host:updateFixed(11, {})
   menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
   registry.controllers.trainer_card = function()
@@ -332,16 +363,19 @@ function T.tests.destination_factory_failure_after_fade_out_retains_the_error_an
   Assert.equal(host:status().phase, "failed")
   Assert.isTrue(tostring(host:error()):find("injected destination factory failure", 1, true) ~= nil)
   Assert.equal(menu.disposeCount, 1, "the failed dispatch still disposes the menu controller exactly once")
-  local phase = host:status().phase
-  Assert.isTrue(phase ~= "menu" and phase ~= "closed", "a failed destination must not report a successful return")
+  Assert.equal(input.clearUiCalls, 1, "the failed dispatch releases the modal input lifetime")
+  Assert.isNil(host:status().applicationId, "the failed host clears the pending destination id")
+  Assert.isNil(host:status().menu)
+  Assert.isNil(host:status().application)
+  Assert.equal(host:status().fadeAlpha, 0, "the failed host clears its fade state")
   Assert.equal(host:isActive(), true, "the failed host stays active so the world never resumes")
   host:updateFixed(99, {})
   Assert.equal(host:status().phase, "failed", "the failed phase is terminal")
 end
 
 function T.tests.menu_composition_failure_at_open_acquires_nothing()
-  local host, input, registry = fixture()
-  registry.controllers.start_menu = function()
+  local host, input, registry, factory = fixture()
+  factory.fn = function()
     error("injected menu composition failure")
   end
   host:requestOpen(10)
@@ -352,8 +386,8 @@ function T.tests.menu_composition_failure_at_open_acquires_nothing()
 end
 
 function T.tests.menu_rebuild_failure_after_return_is_retained_after_the_destination_disposal()
-  local host, _, registry = fixture()
-  local menu = openMenu(host, _, registry)
+  local host, input, registry, factory = fixture()
+  local menu = openMenu(host, input, registry)
   host:updateFixed(11, {})
   menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
   local destination = fakeController()
@@ -364,7 +398,7 @@ function T.tests.menu_rebuild_failure_after_return_is_retained_after_the_destina
   destination.result = { kind = "close" }
   host:updateFixed(30, { { type = "cancel" } })
   Assert.equal(destination.disposeCount, 1)
-  registry.controllers.start_menu = function()
+  factory.fn = function()
     error("injected rebuild failure")
   end
   for tick = 31, 30 + FieldApplicationHost.FADE_TICKS do
@@ -372,27 +406,30 @@ function T.tests.menu_rebuild_failure_after_return_is_retained_after_the_destina
   end
   Assert.equal(host:status().phase, "failed")
   Assert.equal(destination.disposeCount, 1, "the returned destination is never disposed twice")
+  Assert.equal(
+    input.clearUiCalls,
+    1,
+    "the rebuild failure releases the modal input lifetime held across the round trip"
+  )
   Assert.isTrue(tostring(host:error()):find("injected rebuild failure", 1, true) ~= nil)
 end
 
 function T.tests.reopen_request_is_consumed_by_take_reopen_once()
   local host, input, registry = fixture()
-  registry.controllers.start_menu = fakeController()
   host:requestReopen()
   Assert.equal(host:takeReopen(20), true)
   Assert.equal(input.beginUiTicks[1], 20)
   Assert.equal(host:takeReopen(21), false, "a consumed reopen request never opens twice")
   local second, secondInput, secondRegistry = fixture()
-  secondRegistry.controllers.start_menu = fakeController()
   second:requestReopen()
   second:requestReopen()
   Assert.equal(second:takeReopen(22), true, "a repeated request is a single pending open")
   Assert.equal(secondInput.beginUiTicks[1], 22)
+  Assert.equal(second:status().phase, "menu")
 end
 
 function T.tests.reopen_while_active_is_a_programming_invariant()
   local host, _, registry = fixture()
-  registry.controllers.start_menu = fakeController()
   host:requestOpen(10)
   throws(function()
     host:requestReopen()
@@ -400,59 +437,64 @@ function T.tests.reopen_while_active_is_a_programming_invariant()
 end
 
 -- The per-phase disposal matrix: runtime disposal in every phase releases
--- the active controller exactly once and the modal input lifetime once.
+-- the active controller exactly once and the modal input lifetime once (the
+-- failed phase already released both through the failure cleanup).
 function T.tests.dispose_in_every_phase_releases_exactly_once()
   local cases = {
     { phase = "closed", controllers = 0, clears = 0 },
-    { phase = "opening_menu", controllers = 1, clears = 1 },
     { phase = "menu", controllers = 1, clears = 1 },
     { phase = "fading_out", controllers = 1, clears = 1 },
     { phase = "application", controllers = 1, clears = 1 },
     { phase = "fading_in", controllers = 0, clears = 1 },
-    { phase = "closing_menu", controllers = 0, clears = 1 },
     { phase = "failed", controllers = 0, clears = 1 },
   }
   for _, case in ipairs(cases) do
     local host, input, registry = fixture()
-    local menu = fakeController()
     local destination = fakeController()
-    registry.controllers.start_menu = menu
     registry.controllers.trainer_card = destination
-    if case.phase == "opening_menu" then
+    if case.phase == "menu" then
       host:requestOpen(10)
-    elseif case.phase == "menu" then
-      host:requestOpen(10)
-      host:updateFixed(11, {})
     elseif case.phase == "fading_out" then
       host:requestOpen(10)
       host:updateFixed(11, {})
-      menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
+      registry.menuControllers[1].result = {
+        kind = "launch",
+        applicationId = "trainer_card",
+        actionId = "vanilla.trainer_card",
+      }
       host:updateFixed(12, {})
     elseif case.phase == "application" then
       host:requestOpen(10)
       host:updateFixed(11, {})
-      menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
+      registry.menuControllers[1].result = {
+        kind = "launch",
+        applicationId = "trainer_card",
+        actionId = "vanilla.trainer_card",
+      }
       for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
         host:updateFixed(tick, {})
       end
     elseif case.phase == "fading_in" then
       host:requestOpen(10)
       host:updateFixed(11, {})
-      menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
+      registry.menuControllers[1].result = {
+        kind = "launch",
+        applicationId = "trainer_card",
+        actionId = "vanilla.trainer_card",
+      }
       for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
         host:updateFixed(tick, {})
       end
       destination.result = { kind = "close" }
       host:updateFixed(30, { { type = "cancel" } })
-    elseif case.phase == "closing_menu" then
-      host:requestOpen(10)
-      host:updateFixed(11, {})
-      menu.result = { kind = "close" }
-      host:updateFixed(12, { { type = "menu" } })
     elseif case.phase == "failed" then
       host:requestOpen(10)
       host:updateFixed(11, {})
-      menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
+      registry.menuControllers[1].result = {
+        kind = "launch",
+        applicationId = "trainer_card",
+        actionId = "vanilla.trainer_card",
+      }
       registry.controllers.trainer_card = function()
         error("injected failure")
       end
@@ -461,9 +503,14 @@ function T.tests.dispose_in_every_phase_releases_exactly_once()
       end
     end
     host:dispose()
+    local menu = registry.menuControllers and registry.menuControllers[1]
+    -- The menu is constructed in every non-closed phase; the failed phase
+    -- already disposed it through the fade-out path.
     local menuDisposed = case.phase ~= "closed"
     local destinationDisposed = case.phase == "application" or case.phase == "fading_in"
-    Assert.equal(menu.disposeCount, menuDisposed and 1 or 0, case.phase .. " must dispose the menu exactly once")
+    if menu then
+      Assert.equal(menu.disposeCount, menuDisposed and 1 or 0, case.phase .. " must dispose the menu exactly once")
+    end
     Assert.equal(
       destination.disposeCount,
       destinationDisposed and 1 or 0,
@@ -473,35 +520,27 @@ function T.tests.dispose_in_every_phase_releases_exactly_once()
     Assert.equal(host:status().phase, "closed")
     Assert.equal(host:isActive(), false)
     host:dispose()
-    Assert.equal(menu.disposeCount <= 1, true, case.phase .. " dispose must be idempotent")
+    if menu then
+      Assert.equal(menu.disposeCount <= 1, true, case.phase .. " dispose must be idempotent")
+    end
     Assert.equal(destination.disposeCount <= 1, true, case.phase .. " dispose must be idempotent")
     Assert.equal(input.clearUiCalls, case.clears, case.phase .. " clearUi must stay exactly once")
   end
 end
 
-function T.tests.resize_recomputes_placement_and_cancels_the_menu_pointer_capture()
+function T.tests.set_menu_placement_cancels_the_menu_pointer_capture()
   local host, _, registry = fixture()
   local menu = openMenu(host, _, registry)
   host:updateFixed(11, {})
-  host:setScreenTopology(ScreenTopology.oneDisplay({
-    id = "main",
-    rect = { x = 0, y = 0, width = 256, height = 192 },
-    role = "world",
-    touch = false,
-  }))
-  Assert.equal(menu.cancelPointerCaptureCalls, 1, "a resize cancels an active menu pointer capture")
+  host:setMenuPlacement(canonicalPlacement())
+  Assert.equal(menu.cancelPointerCaptureCalls, 1, "a placement change cancels an active menu pointer capture")
 end
 
-function T.tests.pointer_events_are_mapped_through_the_layout_for_the_menu_controller()
+function T.tests.pointer_events_are_mapped_through_the_placement_for_the_menu_controller()
   local host, _, registry = fixture()
   local menu = openMenu(host, _, registry)
   host:updateFixed(11, {})
-  host:setScreenTopology(ScreenTopology.oneDisplay({
-    id = "main",
-    rect = { x = 0, y = 0, width = 256, height = 192 },
-    role = "world",
-    touch = false,
-  }))
+  host:setMenuPlacement(canonicalPlacement())
   host:updateFixed(12, {
     { type = "pointer_down", pointerId = "p1", x = 64, y = 48 },
     { type = "pointer_move", x = 400, y = 100 },
@@ -519,12 +558,12 @@ function T.tests.pointer_events_are_mapped_through_the_layout_for_the_menu_contr
   Assert.equal(events[4], nil)
 end
 
-function T.tests.pointer_events_are_dropped_without_a_screen_topology()
+function T.tests.pointer_events_are_dropped_without_a_placement()
   local host, _, registry = fixture()
   local menu = openMenu(host, _, registry)
   host:updateFixed(11, {})
   host:updateFixed(12, { { type = "pointer_down", pointerId = "p1", x = 64, y = 48 } })
-  Assert.equal(menu.receivedEvents[1], nil, "no topology means no pointer support in the non-rendering composition")
+  Assert.equal(menu.receivedEvents[1], nil, "no placement means no pointer support in the non-rendering composition")
 end
 
 function T.tests.destination_controllers_receive_events_passthrough()
@@ -534,12 +573,7 @@ function T.tests.destination_controllers_receive_events_passthrough()
   menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
   local destination = fakeController()
   registry.controllers.trainer_card = destination
-  host:setScreenTopology(ScreenTopology.oneDisplay({
-    id = "main",
-    rect = { x = 0, y = 0, width = 256, height = 192 },
-    role = "world",
-    touch = false,
-  }))
+  host:setMenuPlacement(canonicalPlacement())
   for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
     host:updateFixed(tick, {})
   end

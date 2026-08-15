@@ -13,10 +13,16 @@
 -- sound. Every other input — directions, confirm, the synthesized menu edge,
 -- and pointers — changes nothing: while a child application is active its
 -- own input policy applies and the menu edge must not tear the card down.
--- Pure module: no love, no I/O, no Start Menu internals.
+-- The immutable profile fields (name/gender/trainerId) are copied at
+-- construction from the authoritative player profile, and the status exposes
+-- those and only those; the renderer presents the audited blank rows for
+-- every card value the gameplay model does not own. Pure module: no love, no
+-- I/O, no Start Menu internals.
 
 ---@class TrainerCardController
----@field _profile { name: string, gender: integer, trainerId: integer } the construction-time profile copy
+---@field _name string
+---@field _gender integer
+---@field _trainerId integer
 ---@field _result { kind: "close" }?
 ---@field _closed boolean
 local TrainerCardController = {}
@@ -25,21 +31,16 @@ TrainerCardController.__index = TrainerCardController
 ---@param opts { profile: { name: string, gender: integer, trainerId: integer } }
 ---@return TrainerCardController
 function TrainerCardController.new(opts)
-  assert(
-    type(opts) == "table" and type(opts.profile) == "table",
-    "the trainer card controller requires the player profile"
-  )
+  assert(type(opts) == "table" and type(opts.profile) == "table", "the trainer card controller requires the profile")
   local profile = opts.profile
   assert(
     profile.name ~= nil and profile.gender ~= nil and profile.trainerId ~= nil,
-    "the trainer card controller requires name, gender, and trainerId from the player profile"
+    "the trainer card requires name, gender, and trainerId from the player profile"
   )
   return setmetatable({
-    _profile = {
-      name = profile.name,
-      gender = profile.gender,
-      trainerId = profile.trainerId,
-    },
+    _name = profile.name,
+    _gender = profile.gender,
+    _trainerId = profile.trainerId,
     _result = nil,
     _closed = false,
   }, TrainerCardController)
@@ -67,20 +68,18 @@ function TrainerCardController:_close()
   self._closed = true
 end
 
--- The presentation snapshot: the construction-time profile copy plus the
--- open flag, nothing else. Fresh table per call; the caller may not mutate
--- controller state through it.
+-- The presentation snapshot: the copied immutable profile fields. Fresh
+-- table per call; the caller may not mutate controller state through it.
 ---@return table
 function TrainerCardController:status()
   if self._closed then
     return { open = false }
   end
-  local profile = self._profile
   return {
     open = true,
-    name = profile.name,
-    gender = profile.gender,
-    trainerId = profile.trainerId,
+    name = self._name,
+    gender = self._gender,
+    trainerId = self._trainerId,
   }
 end
 

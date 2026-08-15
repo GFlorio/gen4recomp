@@ -144,18 +144,18 @@ function T.tests.create_returns_the_factory_result()
   Assert.equal(registry:create("trainer_card"), created)
 end
 
-function T.tests.create_passes_dispatch_arguments_to_the_factory()
+function T.tests.create_calls_the_factory_with_only_the_application_id()
   local received
   local registry = sealedRegistry({
     descriptor({
-      factory = function(rememberedActionId)
-        received = rememberedActionId
+      factory = function(...)
+        received = { n = select("#", ...), ... }
         return fakeController()
       end,
     }),
   })
-  registry:create("trainer_card", "vanilla.trainer_card")
-  Assert.equal(received, "vanilla.trainer_card")
+  registry:create("trainer_card")
+  Assert.equal(received.n, 0, "destinations receive no forwarded arguments -- the menu is not a registry entry")
 end
 
 function T.tests.unknown_application_ids_are_composition_errors()

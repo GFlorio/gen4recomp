@@ -1,27 +1,29 @@
 -- StartMenuLayout places the canonical 256x192 Start Menu surface on a
 -- ScreenTopology without reflowing its internal geometry: only the whole
--- surface is positioned and scaled. resolve() returns one complete placement
--- record ({ surfaceId, frame, scale, logicalWidth, logicalHeight }): the
--- auxiliary display is the menu screen when one exists; a landscape host gets
--- a side panel right of the 4:3 world reference frame (the ultrawide model —
--- never stretched across unused horizontal space); a single 4:3 host is a
--- full-surface modal overlay; a portrait host partitions vertically with the
--- menu as a full-width lower panel, subject to minimum usable region sizes.
--- The canonical surface is always scaled uniformly, centered in the chosen
--- safe rectangle, and rounded to integer pixels at the host boundary. Hit
--- testing and rendering consume the same record through hostToLogical(), so
--- there is never a second set of scaled rectangles. Pure: no LÖVE, no I/O.
+-- surface is positioned and scaled. resolve() takes the actual world
+-- reference frame the FieldViewport computes and returns one complete
+-- placement record ({ surfaceId, frame, scale, logicalWidth,
+-- logicalHeight }): the auxiliary display is the menu screen when one
+-- exists; a landscape host gets a side panel in the real right gutter
+-- (reference frame right edge to safe right); a single 4:3 host is a
+-- full-surface modal overlay; a portrait host partitions vertically with
+-- the menu as a full-width lower panel below the reference frame, subject
+-- to minimum usable region sizes. The canonical surface is always scaled
+-- uniformly, centered in the chosen region, and rounded to integer pixels
+-- at the host boundary. Hit testing and rendering consume the same record
+-- through hostToLogical(), so there is never a second set of scaled
+-- rectangles. Pure: no LÖVE, no I/O.
 
 local StartMenuLayout = {}
 
 local CANONICAL_WIDTH = 256
 local CANONICAL_HEIGHT = 192
-local WORLD_ASPECT = 4 / 3
 
--- Minimum usable region sizes: the landscape side panel must be at least half
--- the canonical width, and a portrait partition must leave both the world
--- region and the lower panel at least half the canonical height. Below those
--- floors the layout falls back to the centered uniform fit.
+-- Minimum usable region sizes: the landscape side panel must be at least
+-- half the canonical width, and a portrait partition must leave both the
+-- world reference frame and the lower panel at least half the canonical
+-- height. Below those floors the layout falls back to the centered uniform
+-- fit.
 local MIN_SIDE_PANEL_WIDTH = CANONICAL_WIDTH / 2
 local MIN_PANEL_HEIGHT = CANONICAL_HEIGHT / 2
 local MIN_WORLD_HEIGHT = CANONICAL_HEIGHT / 2
@@ -80,35 +82,46 @@ local function centeredFit(safe)
     safe.y + math.floor((safe.height - height) / 2)
 end
 
--- The landscape side panel: the world reference frame occupies the left
--- 4:3-of-height region, the menu panel is the remaining width, and the menu
--- scales to the panel height while staying 4:3 internally. Returns nil when
--- the panel is too narrow to be usable.
-local function sidePanel(safe)
-  local worldFrameWidth = safe.height * WORLD_ASPECT
-  local panelWidth = safe.width - worldFrameWidth
+-- The landscape side panel: the actual right gutter -- the world reference
+-- frame's right edge to the safe right -- and the menu scales into it while
+-- staying 4:3 internally. Returns nil when the gutter is too narrow to be
+-- usable.
+---@param safe table
+---@param referenceFrame table
+local function sidePanel(safe, referenceFrame)
+  local gutterStart = referenceFrame.x + referenceFrame.width
+  local panelWidth = safe.x + safe.width - gutterStart
   if panelWidth < MIN_SIDE_PANEL_WIDTH then
     return nil
   end
   local scale = math.min(panelWidth / CANONICAL_WIDTH, safe.height / CANONICAL_HEIGHT)
   local width = math.floor(CANONICAL_WIDTH * scale)
   local height = math.floor(CANONICAL_HEIGHT * scale)
-  local x = math.floor(safe.x + worldFrameWidth + (panelWidth - width) / 2)
+  local x = math.floor(gutterStart + (panelWidth - width) / 2)
   local y = safe.y + math.floor((safe.height - height) / 2)
   return scale, width, height, x, y
 end
 
--- The portrait lower panel: the world stays above and the menu becomes a
--- full-width bottom panel. Returns nil when either region would drop below
--- its minimum usable size.
-local function bottomPanel(safe)
-  local scale = safe.width / CANONICAL_WIDTH
-  local height = math.floor(CANONICAL_HEIGHT * scale)
-  local worldHeight = safe.height - height
-  if height < MIN_PANEL_HEIGHT or worldHeight < MIN_WORLD_HEIGHT then
+-- The portrait lower panel: the region below the world reference frame
+-- becomes a full-width bottom panel. Returns nil when either region would
+-- drop below its minimum usable size.
+---@param safe table
+---@param referenceFrame table
+local function bottomPanel(safe, referenceFrame)
+  local panelTop = math.floor(referenceFrame.y + referenceFrame.height)
+  local panelHeight = safe.y + safe.height - panelTop
+  if referenceFrame.height < MIN_WORLD_HEIGHT then
     return nil
   end
-  return scale, safe.width, height, safe.x, safe.y + safe.height - height
+  local scale = math.min(safe.width / CANONICAL_WIDTH, panelHeight / CANONICAL_HEIGHT)
+  local height = math.floor(CANONICAL_HEIGHT * scale)
+  if height < MIN_PANEL_HEIGHT then
+    return nil
+  end
+  local width = math.floor(CANONICAL_WIDTH * scale)
+  local x = safe.x + math.floor((safe.width - width) / 2)
+  local y = panelTop + math.floor((panelHeight - height) / 2)
+  return scale, width, height, x, y
 end
 
 ---@class StartMenuLayout.Placement
@@ -123,8 +136,8 @@ end
 -- return multiple values, so they must not flow through `or`, which would
 -- collapse them to one.
 
-local function panelOrCentered(builder, safe)
-  local scale, width, height, x, y = builder(safe)
+local function panelOrCentered(builder, safe, referenceFrame)
+  local scale, width, height, x, y = builder(safe, referenceFrame)
   if scale == nil then
     return centeredFit(safe)
   end
@@ -132,21 +145,31 @@ local function panelOrCentered(builder, safe)
 end
 
 -- Resolves the complete placement record for the canonical 256x192 Start
--- Menu surface. Internal menu geometry is invariant; only the whole surface
--- is positioned and scaled.
+-- Menu surface against the actual world reference frame (FieldViewport's
+-- referenceFrame). Internal menu geometry is invariant; only the whole
+-- surface is positioned and scaled.
 
 ---@param topology ScreenTopology
+---@param referenceFrame { x: number, y: number, width: number, height: number } the world reference frame
 ---@return StartMenuLayout.Placement
-function StartMenuLayout.resolve(topology)
+function StartMenuLayout.resolve(topology, referenceFrame)
+  assert(
+    type(referenceFrame) == "table"
+      and type(referenceFrame.x) == "number"
+      and type(referenceFrame.y) == "number"
+      and type(referenceFrame.width) == "number"
+      and type(referenceFrame.height) == "number",
+    "StartMenuLayout requires the world reference frame"
+  )
   local surface = StartMenuLayout.selectSurface(topology)
   local safe = assertSafeRect(surface)
   local scale, width, height, x, y
   if surface.role == "auxiliary" then
     scale, width, height, x, y = centeredFit(safe)
   elseif safe.width < safe.height then
-    scale, width, height, x, y = panelOrCentered(bottomPanel, safe)
+    scale, width, height, x, y = panelOrCentered(bottomPanel, safe, referenceFrame)
   else
-    scale, width, height, x, y = panelOrCentered(sidePanel, safe)
+    scale, width, height, x, y = panelOrCentered(sidePanel, safe, referenceFrame)
   end
   return {
     surfaceId = surface.id,

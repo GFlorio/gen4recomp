@@ -47,8 +47,8 @@ local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local NeighborRing = require("libs.engine.src.NeighborRing")
 local ScriptSave = require("libs.engine.src.script.ScriptSave")
 local StartMenuController = require("libs.engine.src.StartMenuController")
+local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
-local StartMenuRegistry = require("libs.engine.src.StartMenuRegistry")
 local TrainerCardController = require("libs.engine.src.TrainerCardController")
 local TargetSpawns = require("data.manifests.field_spawns")
 local FieldPresentation = require("data.manifests.field_presentation")
@@ -69,9 +69,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field presentation boolean?
 ---@field scriptHosts table? deterministic host boundaries for script effects
 ---@field windowStyleDescriptors table[]? mod window-style descriptors registered after the built-ins and before the registry seals
----@field development boolean? product mode: developer mode exposes capability-missing canonical Start Menu actions disabled; the flag is boot configuration, never persisted in FieldSave
 ---@field applicationDescriptors table[]? boot-config application factories ({ id, factory }) registered before the application registry seals
----@field startMenuDescriptors table[]? boot-config mod Start Menu action descriptors registered before the start menu registry seals
 
 ---@class FieldRuntimeScriptHosts
 ---@field audio table?
@@ -105,12 +103,10 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field windowStyles FieldWindowStyleRegistry the sealed per-runtime window style catalogue
 ---@field windowStyleDescriptors table[]? boot-config mod style descriptors registered before the registry seals
 ---@field scriptHosts FieldRuntimeScriptHosts?
----@field development boolean the product mode (boot configuration, never persisted)
 ---@field applicationDescriptors table[]? boot-config application factories registered before the registry seals
----@field startMenuDescriptors table[]? boot-config mod Start Menu action descriptors registered before the registry seals
----@field applications FieldApplicationRegistry the sealed per-runtime application catalogue
+---@field applications FieldApplicationRegistry the sealed per-runtime destination application catalogue
 ---@field applicationHost FieldApplicationHost the one application modal owner the session steps
----@field startMenuRegistry StartMenuRegistry the sealed per-runtime mod Start Menu action catalogue
+---@field startMenuPlacement StartMenuLayout.Placement? the one Start Menu placement record rendering and pointer mapping share
 local FieldRuntime = {}
 FieldRuntime.__index = FieldRuntime
 
@@ -203,8 +199,6 @@ function FieldRuntime.new(versionId, mapIdOrSymbol, options)
     scriptHosts = options.scriptHosts,
     windowStyleDescriptors = options.windowStyleDescriptors,
     applicationDescriptors = options.applicationDescriptors,
-    startMenuDescriptors = options.startMenuDescriptors,
-    development = options.development == true,
     errorText = nil,
     zoom = FieldZoom.new(options.zoomConfig or FieldPresentation.zoom),
   }, FieldRuntime)
@@ -462,25 +456,18 @@ function FieldRuntime:_load()
     self.cancelKeys = cancelBindings()
     self.menuKeys = menuBindings()
 
-    -- The field application catalogue: the Start Menu itself is the one
-    -- concrete production application (its factory is the runtime's menu
-    -- composition step); every other destination arrives through the
-    -- boot-config descriptor seam. The registry seals before any dispatch,
-    -- and canonical unimplemented destinations get capability state, never
-    -- dummy factories. The mod Start Menu action catalogue follows the same
-    -- build-then-seal lifetime.
+    -- The field application catalogue: the registry holds child destinations
+    -- only -- the Trainer Card is the concrete production destination, and
+    -- every other destination arrives through the boot-config descriptor
+    -- seam. The registry seals before any dispatch, and canonical
+    -- unimplemented destinations get capability state, never dummy
+    -- factories. The Start Menu is not a registry entry: the application
+    -- host composes it through its own menu factory.
     self.applications = FieldApplicationRegistry.new()
-    self.applications:register({
-      id = "start_menu",
-      factory = function(rememberedActionId)
-        return self:_composeStartMenu(rememberedActionId)
-      end,
-    })
-    -- The Trainer Card viewer is the concrete destination: the
-    -- production factory passes the authoritative player profile, and the
-    -- close-input-only controller copies the required immutable fields at
-    -- construction. The factory must return a fully usable controller or
-    -- raise.
+    -- The Trainer Card viewer is the concrete destination: the production
+    -- factory copies the immutable profile fields from the authoritative
+    -- player-data record into the close-input-only controller. The factory
+    -- must return a fully usable controller or raise.
     self.applications:register({
       id = "trainer_card",
       factory = function()
@@ -493,18 +480,22 @@ function FieldRuntime:_load()
       self.applications:register(descriptor)
     end
     self.applications:seal()
-    self.startMenuRegistry = StartMenuRegistry.new({
-      canonicalIds = StartMenuPolicy.canonicalOrder(),
-      capacity = #uiManifest.startMenu.slots - 1,
-    })
-    for _, descriptor in ipairs(self.startMenuDescriptors or {}) do
-      self.startMenuRegistry:register(descriptor)
-    end
-    self.startMenuRegistry:seal()
     self.applicationHost = FieldApplicationHost.new({
       registry = self.applications,
+      menuFactory = function(rememberedActionId)
+        return self:_composeStartMenu(rememberedActionId)
+      end,
       input = self.input,
     })
+    -- The one Start Menu placement record: the runtime computes it from the
+    -- boot topology (so pointer input works before any resize) and re-applies
+    -- it on presentation-geometry changes; rendering and the host's pointer
+    -- mapper consume this exact record.
+    self.startMenuPlacement = nil
+    if self.screenTopology ~= nil then
+      self.startMenuPlacement = StartMenuLayout.resolve(self.screenTopology, self.viewport.referenceFrame)
+      self.applicationHost:setMenuPlacement(self.startMenuPlacement)
+    end
 
     -- Interaction discovery: the resolver is pure and consults the manager's
     -- occupancy index; bound interactions run through the script client and
@@ -677,78 +668,44 @@ function FieldRuntime:releaseMenu()
   requireLiveInput(self):releaseMenu("runtime")
 end
 
--- The Start Menu composition step: build the strict policy snapshot
--- from the authoritative world state and the sealed application-id set,
--- merge the sealed mod actions, resolve every label through the message
--- provider (the bank is acquired once and released on success or failure,
--- bank), and construct the controller with the product mode and the
--- selection remembered across a child-application round trip. The factory
--- must return a fully usable controller or raise.
+-- The Start Menu composition step: build the source policy list from the
+-- authoritative world-state unlock flags (read through FieldScriptSymbols,
+-- never raw numbers), intersect it with the sealed destination registry --
+-- an action is interactive exactly when present AND unlocked AND its
+-- destination application is registered -- and construct the controller
+-- with the selection remembered across a child-application round trip. The
+-- factory must return a fully usable controller or raise.
 ---@param rememberedActionId string?
 ---@return StartMenuController
 function FieldRuntime:_composeStartMenu(rememberedActionId)
   local world = self.scripts.worldState
   local flags = FieldScriptSymbols.flagsByName
-  local capabilities = self.applications:ids()
-  local entries = self.startMenuRegistry:compose(
-    StartMenuPolicy.build({
-      context = "normal_field",
-      progression = {
-        hasPokedex = world:isFlagSet(flags.FLAG_GOT_POKEDEX),
-        hasStarter = world:isFlagSet(flags.FLAG_GOT_STARTER),
-        bagUnlocked = false,
-        hasPokegear = world:isFlagSet(flags.FLAG_GOT_POKEGEAR),
-      },
-      capabilities = capabilities,
-    }),
-    capabilities
-  )
-  local resolved = {}
-  local acquiredBanks = {}
-  local ok, resolveErr = pcall(function()
-    local bankCache = {}
-    for _, entry in ipairs(entries) do
-      local bank, messageId = entry.message:match("^msg%.hgss%.(%d+)%.(%d+)$")
-      assert(bank ~= nil, "start menu action labels must be message refs: " .. tostring(entry.message))
-      local bankId = assert(tonumber(bank))
-      local bank = bankCache[bankId]
-      if bank == nil then
-        local artifact, bankErr = self.messageProvider:acquireBank(bankId)
-        if artifact == nil then
-          local err = bankErr --[[@as Errors.Error]]
-          Errors.raise(err.code, err.message, { bankId = bankId, cause = err.context })
-        end
-        bank = assert(artifact)
-        bankCache[bankId] = bank
-        acquiredBanks[#acquiredBanks + 1] = bankId
-      end
-      local template, err = self.messageProvider:get(bankId, tonumber(messageId))
-      if not template then
-        error(err, 0)
-      end
-      resolved[#resolved + 1] = {
+  local entries = StartMenuPolicy.build({
+    hasPokedex = world:isFlagSet(flags.FLAG_GOT_POKEDEX),
+    hasStarter = world:isFlagSet(flags.FLAG_GOT_STARTER),
+    bagUnlocked = world:isFlagSet(flags.FLAG_GOT_BAG),
+    hasPokegear = world:isFlagSet(flags.FLAG_GOT_POKEGEAR),
+    trainerCardUnlocked = world:isFlagSet(flags.FLAG_GOT_TRAINER_CARD),
+    saveUnlocked = world:isFlagSet(flags.FLAG_GOT_SAVE_BUTTON),
+    optionsUnlocked = world:isFlagSet(flags.FLAG_GOT_OPTIONS_BUTTON),
+  })
+  local interactive = {}
+  for _, entry in ipairs(entries) do
+    if
+      entry.present
+      and entry.unlocked
+      and entry.targetApplication ~= nil
+      and self.applications:has(entry.targetApplication)
+    then
+      interactive[#interactive + 1] = {
         id = entry.id,
-        message = template.text,
         targetApplication = entry.targetApplication,
-        present = entry.present,
-        vanillaEnabled = entry.vanillaEnabled,
-        capabilityAvailable = entry.capabilityAvailable,
-        enabled = entry.enabled,
-        normalVisible = entry.normalVisible,
-        developerVisible = entry.developerVisible,
         displayPosition = entry.displayPosition,
       }
     end
-  end)
-  for _, bankId in ipairs(acquiredBanks) do
-    self.messageProvider:releaseBank(bankId)
-  end
-  if not ok then
-    error(resolveErr, 0)
   end
   return StartMenuController.new({
-    entries = resolved,
-    development = self.development,
+    entries = interactive,
     slots = self.uiManifest.startMenu.slots,
     cursorFrames = self.uiManifest.startMenu.cursor.frames,
     rememberedActionId = rememberedActionId,
@@ -890,9 +847,12 @@ function FieldRuntime:applyZoomChange()
   self:_updateCameraProjection()
 end
 
--- Presentation viewport resize owned by the runtime: the viewport and menu
--- host geometry, the new screen topology, and the camera projection update
--- together.
+-- Presentation geometry sync owned by the runtime: the viewport and menu
+-- host geometry, the new screen topology, the one Start Menu placement
+-- record (recomputed from the topology and the viewport's world reference
+-- frame and handed to the application host for pointer mapping), and the
+-- camera projection update together. FieldState calls this exactly once per
+-- structural presentation-geometry change.
 ---@param width integer
 ---@param height integer
 ---@param screenTopology ScreenTopology
@@ -900,7 +860,8 @@ function FieldRuntime:resizePresentation(width, height, screenTopology)
   self.viewport:resize(width, height)
   self.menuHost:resize(width, height)
   self.menuHost:setScreenTopology(screenTopology)
-  self.applicationHost:setScreenTopology(screenTopology)
+  self.startMenuPlacement = StartMenuLayout.resolve(screenTopology, self.viewport.referenceFrame)
+  self.applicationHost:setMenuPlacement(self.startMenuPlacement)
   self:_updateCameraProjection()
 end
 
@@ -925,7 +886,7 @@ function FieldRuntime:_releaseAll()
   if self.applicationHost then
     self.applicationHost:dispose()
   end
-  self.applicationHost, self.applications, self.startMenuRegistry = nil, nil, nil
+  self.applicationHost, self.applications, self.startMenuPlacement = nil, nil, nil
   if self.messageProvider then
     self.messageProvider:dispose()
   end

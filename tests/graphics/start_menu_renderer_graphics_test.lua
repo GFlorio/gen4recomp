@@ -26,12 +26,15 @@ local CANONICAL_HEIGHT = 192
 -- The placement record for a canonical 256x192 host, resolved through the
 -- real pure layout module: the same record hit testing maps through.
 local function canonicalPlacement()
-  return StartMenuLayout.resolve(ScreenTopology.oneDisplay({
-    id = "main",
-    rect = { x = 0, y = 0, width = CANONICAL_WIDTH, height = CANONICAL_HEIGHT },
-    touch = false,
-    role = "world",
-  }))
+  return StartMenuLayout.resolve(
+    ScreenTopology.oneDisplay({
+      id = "main",
+      rect = { x = 0, y = 0, width = CANONICAL_WIDTH, height = CANONICAL_HEIGHT },
+      touch = false,
+      role = "world",
+    }),
+    { x = 0, y = 0, width = CANONICAL_WIDTH, height = CANONICAL_HEIGHT }
+  )
 end
 
 -- Renders one surface presentation into a real canvas through the placement
@@ -208,12 +211,15 @@ end
 -- layout module -- the record's frame and scale drive the draw, and the
 -- canonical surface never reflows internally.
 function T.scaled_golden_matches_the_fixture_surface_through_the_record_transform(scope)
-  local placement = StartMenuLayout.resolve(ScreenTopology.oneDisplay({
-    id = "main",
-    rect = { x = 0, y = 0, width = 512, height = 384 },
-    touch = false,
-    role = "world",
-  }))
+  local placement = StartMenuLayout.resolve(
+    ScreenTopology.oneDisplay({
+      id = "main",
+      rect = { x = 0, y = 0, width = 512, height = 384 },
+      touch = false,
+      role = "world",
+    }),
+    { x = 0, y = 0, width = 512, height = 384 }
+  )
   Assert.equal(placement.scale, 2, "the 512x384 host resolves an integer scale of 2")
   Assert.deepEqual(placement.frame, { x = 0, y = 0, width = 512, height = 384 })
   local rendered = canonicalRender(scope, FieldUiFixture.startMenuCache(), 1, 0, placement, 512, 384)
@@ -279,12 +285,15 @@ function T.restores_graphics_state_after_draw(scope)
 
   renderer:draw(
     { cursorSlotId = 1, cursorFrameIndex = 0 },
-    StartMenuLayout.resolve(ScreenTopology.oneDisplay({
-      id = "main",
-      rect = { x = 0, y = 0, width = 1280, height = 720 },
-      touch = false,
-      role = "world",
-    }))
+    StartMenuLayout.resolve(
+      ScreenTopology.oneDisplay({
+        id = "main",
+        rect = { x = 0, y = 0, width = 1280, height = 720 },
+        touch = false,
+        role = "world",
+      }),
+      { x = 0, y = 0, width = 1280, height = 720 }
+    )
   )
 
   local function assertRestored(canvasExpected, shaderExpected)

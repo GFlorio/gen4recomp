@@ -305,7 +305,11 @@ function T.tests.multibyte_player_name_validates_and_reaches_the_trainer_card_pr
 
     -- The trainer card viewer renders the player name through the shared
     -- field-text path, so the multibyte name must reach the card
-    -- presentation through the production application composition.
+    -- presentation through the production application composition. The
+    -- trainer_card action is interactive only with its unlock flag set (the
+    -- fresh planted save never earned it), so the journey unlocks the card
+    -- explicitly before opening the menu.
+    resumed:setWorldState({ flag = FieldScriptSymbols.flagsByName.FLAG_GOT_TRAINER_CARD })
     pressMenuEdge(resumed)
     advanceToPhase(resumed, "menu", 16)
     local actions = hostStatus(resumed).menu.actions
