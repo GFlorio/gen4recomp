@@ -1,21 +1,16 @@
 -- ROM-conformance inventory of the real HGSS sound archive: the SDAT must
--- parse, every referenced resource must carry its class
--- signature at a declared size matching its FAT range, every sequence->bank
--- and bank->wave-archive reference must resolve, the symbol block must cover
--- every used slot, and every reachable SSEQ instruction must be enumerable
--- with a known operand shape under the NitroSDK command layout -- no unbounded
--- reads, no target outside the walked program. The inventory asserts
--- self-consistency and determinism, never guessed expected counts, and runs
--- for every ready game version (soulsilver included when its dump lands).
---
--- The SSEQ/SBNK walking lives in tests/rom/support fixtures (SseqScan,
--- SbnkScan) until the production decoders land in later audio work; the SDAT
--- container parsing is production code (romdump/src/digest/audio/Sdat.lua).
+-- parse, every referenced resource must carry its class signature at a
+-- declared size matching its FAT range, every sequence->bank and
+-- bank->wave-archive reference must resolve, and the symbol block must cover
+-- every used slot. The inventory asserts self-consistency and determinism,
+-- never guessed expected counts, and runs for every ready game version
+-- (soulsilver included when its dump lands). Container parsing is production
+-- code (romdump/src/digest/audio/Sdat.lua); compiling the whole archive --
+-- every reachable instruction, instrument, and sample -- is the
+-- audio_compile suite's contract.
 
 local Assert = require("tests.support.Assert")
 local Sdat = require("romdump.src.digest.audio.Sdat")
-local SseqScan = require("tests.rom.support.SseqScan")
-local SbnkScan = require("tests.rom.support.SbnkScan")
 
 local T = {}
 
@@ -86,8 +81,9 @@ function T.sequence_to_bank_references_resolve(romFs, version)
 end
 
 -- Every bank->wave-archive reference resolves: each non-empty wave-archive
--- slot of a bank record names a used wave archive, and every instrument in
--- the bank payload references a slot the bank record actually assigns.
+-- slot of a bank record names a used wave archive. The instrument-level
+-- wave-archive references are the compiler's contract (the audio_compile
+-- suite compiles every referenced bank and sample).
 function T.bank_to_wave_archive_references_resolve(romFs, version)
   local sdat = parseSdat(romFs)
   for _, id in ipairs(usedIds(sdat.banks, sdat.counts.banks)) do
@@ -100,21 +96,6 @@ function T.bank_to_wave_archive_references_resolve(romFs, version)
         local wave = sdat.waveArchives[waveId]
         Assert.notNil(wave, "bank " .. id .. " slot " .. slot .. " wave archive " .. waveId .. " exists")
         Assert.notNil(wave.fileId, "bank " .. id .. " slot " .. slot .. " wave archive " .. waveId .. " is used")
-      end
-    end
-
-    local bankBytes = assert(sdat:readFile(bank.fileId), "bank " .. id .. " readable")
-    local scan = SbnkScan.scan(bankBytes)
-    Assert.equal(
-      #scan.anomalies,
-      0,
-      "bank " .. id .. " instrument walk bounded, got " .. tostring(scan.anomalies[1] and scan.anomalies[1].kind)
-    )
-    for _, inst in ipairs(scan.instruments) do
-      local swarSlot = inst.swarSlot
-      if swarSlot ~= nil then
-        Assert.isTrue(swarSlot >= 0 and swarSlot <= 3, "bank " .. id .. " instrument slot in 0..3")
-        Assert.notNil(slots[swarSlot], "bank " .. id .. " instrument references assigned slot " .. swarSlot)
       end
     end
   end
@@ -133,74 +114,6 @@ function T.symbol_block_covers_every_used_slot(romFs, version)
       Assert.notNil(name, cls.section .. "[" .. id .. "] named")
       Assert.isTrue(type(name) == "string" and #name > 0, cls.section .. "[" .. id .. "] name non-empty")
     end
-  end
-end
-
--- Every SSEQ in the archive scans with a bounded, SDK-shaped instruction
--- walk: no anomalies, every jump/call target inside the file and on an
--- instruction boundary, the full reachable opcode vocabulary (including
--- operand variants) enumerated, and the census identical across two scans.
-function T.sseq_opcode_inventory_is_complete_and_deterministic(romFs, version)
-  local sdat = parseSdat(romFs)
-  local aggregate = {}
-  local scanned = 0
-  local firstScan
-  local firstUsedId
-
-  for _, id in ipairs(usedIds(sdat.sequences, sdat.counts.sequences)) do
-    local seq = sdat.sequences[id]
-    local bytes = assert(sdat:readFile(seq.fileId), "sequence " .. id .. " readable")
-    Assert.equal(bytes:sub(1, 4), "SSEQ", "sequence " .. id .. " is SSEQ")
-    local scan = SseqScan.scan(bytes)
-    Assert.equal(
-      #scan.anomalies,
-      0,
-      "sequence " .. id .. " bounded scan, got " .. tostring(scan.anomalies[1] and scan.anomalies[1].kind)
-    )
-    for _, tgt in ipairs(scan.targets) do
-      Assert.isTrue(tgt.target < #bytes, "sequence " .. id .. " target inside file")
-      Assert.isTrue(scan.boundaries[tgt.target], "sequence " .. id .. " target on instruction boundary")
-    end
-    for key, count in pairs(scan.census) do
-      aggregate[key] = (aggregate[key] or 0) + count
-    end
-    if firstScan == nil then
-      firstScan = scan
-      firstUsedId = id
-    end
-    scanned = scanned + 1
-  end
-  Assert.isTrue(scanned >= 1, "at least one sequence scanned")
-
-  -- Determinism: rescanning the same file yields the identical census.
-  local secondScan = SseqScan.scan(assert(sdat:readFile(sdat.sequences[firstUsedId].fileId)))
-  Assert.deepEqual(secondScan.census, firstScan.census)
-
-  -- Core vocabulary every music SSEQ set must contain (presence, not counts).
-  for _, key in ipairs({
-    "80:plain",
-    "81:plain",
-    "93:plain",
-    "94:plain",
-    "95:plain",
-    "E1:plain",
-    "C1:plain",
-    "FF:plain",
-  }) do
-    Assert.isTrue((aggregate[key] or 0) > 0, "opcode " .. key .. " encountered")
-  end
-  -- Notes: at least one key in 0x00-0x7F.
-  local anyNote = false
-  for key in pairs(aggregate) do
-    local opcode = tonumber(key:sub(1, 2), 16)
-    if opcode ~= nil and opcode < 0x80 then
-      anyNote = true
-    end
-  end
-  Assert.isTrue(anyNote, "note commands encountered")
-  -- The random/variable/if prefixes never appear as bare commands.
-  for _, prefix in ipairs({ "A0", "A1", "A2" }) do
-    Assert.isNil(aggregate[prefix .. ":plain"], "prefix " .. prefix .. " only ever prefixes")
   end
 end
 

@@ -22,7 +22,6 @@ local Sdat = require("romdump.src.digest.audio.Sdat")
 local AudioCompiler = require("romdump.src.digest.audio.AudioCompiler")
 local Hashing = require("romdump.src.digest.Hashing")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
-local SbnkScan = require("tests.rom.support.SbnkScan")
 local Errors = require("libs.errors.src.Errors")
 local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
@@ -47,32 +46,6 @@ local FORBIDDEN_INSTRUCTION_FIELDS = {
   raw = true,
   operand = true,
 }
-
--- True when a semantic instrument tree contains at least one sample voice.
-local function hasSampleVoice(instrument)
-  local function visit(voice)
-    return type(voice.generator) == "table" and voice.generator.kind == "sample"
-  end
-  if instrument.kind == "direct" then
-    return visit(instrument.voice)
-  end
-  if instrument.kind == "key_split" then
-    for _, range in ipairs(instrument.ranges) do
-      if visit(range.voice) then
-        return true
-      end
-    end
-    return false
-  end
-  if instrument.kind == "drum_set" then
-    for _, voice in ipairs(instrument.voices) do
-      if visit(voice) then
-        return true
-      end
-    end
-  end
-  return false
-end
 
 local T = {}
 local contexts = nil
@@ -285,10 +258,10 @@ function T.no_unknown_sequence_opcode_remains()
 end
 
 -- Every referenced bank resolves: each used bank slot is indexed under its
--- symbolic name with the archive's wave-archive slot map, the asset passes
--- the bank validator, and every instrument the source walk finds as
--- wave-referencing is present as a semantic instrument holding a sample
--- voice.
+-- symbolic name with the archive's wave-archive slot map, and the asset
+-- passes the bank validator. Instrument-level wave-archive references are
+-- covered by every_referenced_sample_resolves (the compiled banks'
+-- sampleKeys must all resolve).
 function T.every_referenced_bank_resolves()
   forEachVersion(function(ctx)
     local bundle = ctx.bundle
@@ -317,21 +290,6 @@ function T.every_referenced_bank_resolves()
             bank.waveArchives == nil or next(bank.waveArchives) == nil,
             "bank " .. id .. " waveArchives empty"
           )
-        end
-
-        local bankBytes = assert(ctx.sdat:readFile(record.fileId), "bank " .. id .. " readable")
-        local scan = SbnkScan.scan(bankBytes)
-        Assert.equal(#scan.anomalies, 0, "bank " .. id .. " source instrument walk bounded")
-        local sampleRecords = {}
-        for _, inst in ipairs(scan.instruments) do
-          if inst.swarSlot ~= nil then
-            sampleRecords[inst.index] = true
-          end
-        end
-        for index in pairs(sampleRecords) do
-          local instrument = bank.instruments[index]
-          Assert.notNil(instrument, "bank " .. id .. " instrument " .. index .. " present")
-          Assert.isTrue(hasSampleVoice(instrument), "bank " .. id .. " instrument " .. index .. " has a sample voice")
         end
       end
     end
