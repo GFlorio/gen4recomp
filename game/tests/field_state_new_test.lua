@@ -62,6 +62,8 @@ local function bootWithCapturedRuntimeOptions(options, cache)
         collectSpriteIds = function() end,
       },
       playerVisual = { spriteId = 0 },
+      startMenuPlacement = nil,
+      resizePresentation = function() end,
       dispose = function() end,
     }, FieldRuntime)
   end
@@ -92,8 +94,8 @@ end
 
 -- Only the documented runtime contract crosses the state boundary: adding a
 -- state-only option must not silently become a runtime option. The
--- development product-mode flag is part of the runtime contract (the
--- application host consumes it), so it crosses.
+-- development flag is a state-only presentation option (the playtest HUD and
+-- developer binds), so it stays behind the boundary.
 function T.only_documented_runtime_options_reach_the_runtime()
   local options = fieldStateOptions()
   options.resumeSave = true
@@ -106,8 +108,8 @@ function T.only_documented_runtime_options_reach_the_runtime()
     resetSave = false,
     zoomConfig = { mode = "test" },
     presentation = true,
-    development = true,
   })
+  Assert.equal(state.development, true, "the state keeps the development flag for its own presentation")
   state:dispose()
 end
 

@@ -1,30 +1,35 @@
--- The pure Start Menu controller: the action display composition, selection,
--- confirm/cancel, and touch/pointer slot interaction of the HGSS Start Menu.
--- It consumes the StartMenuPolicy build output (the display-array semantics of
--- StartMenu_BuildActionLists, src/start_menu.c at the pinned decomp commit
--- 008257708: present entries write their display position with later writes
--- winning -- the reserved Pokégear-family entries 9/10 overwrite whatever
--- landed at positions 7/8), the generated manifest slot surface (the 2x5 slot
--- grid keyed by the source touch-menu ids: slot 1 is the cancel region and
--- touch ids 2..10 are display positions 0..8, StartMenu_HandleTouchInput
--- start_menu.c:613-659), and the generated cursor frames. The controller is
--- silent -- the branch does not reproduce the source Start Menu effects
--- (SEQ_SE_DP_WIN_OPEN/SELECT and SEQ_SE_GS_GEARCANCEL); it never touches
--- love and never names a ROM sequence or member number. Pointer events carry
--- canonical logical coordinates (0..255 x 0..191); the layout host maps host
--- coordinates before feeding the controller. No application launches happen
--- here: the controller records the takeResult contract ({ kind = "close" } /
+-- The pure Start Menu controller: the final interactive action display,
+-- selection, confirm/cancel, and touch/pointer slot interaction of the HGSS
+-- Start Menu, plus the folded-in fixed-tick cursor animation. It consumes
+-- the runtime-composed final action list (the intersection of the source
+-- policy with the registered destination applications; display-array
+-- positions follow StartMenu_BuildActionLists, src/start_menu.c at the
+-- pinned decomp commit 008257708), the generated manifest slot surface (the
+-- 2x5 slot grid keyed by the source touch-menu ids: slot 1 is the cancel
+-- region and touch ids 2..10 are display positions 0..8, StartMenu_
+-- HandleTouchInput start_menu.c:613-659), and the generated cursor frames
+-- (the manifest is the structural validation boundary, so the controller
+-- only reads their durations). An empty action list is first-class: the
+-- menu opens with no selection and no cursor, navigation and confirm are
+-- safe no-ops, pointer action slots are inert, and the cancel region stays
+-- live. The controller is silent -- the branch does not reproduce the
+-- source Start Menu effects (SEQ_SE_DP_WIN_OPEN/SELECT and
+-- SEQ_SE_GS_GEARCANCEL); it never touches love and never names a ROM
+-- sequence or member number. Pointer events carry canonical logical
+-- coordinates (0..255 x 0..191); the layout host maps host coordinates
+-- before feeding the controller. No application launches happen here: the
+-- controller records the takeResult contract ({ kind = "close" } /
 -- { kind = "launch", applicationId }) and the application host launches.
-
-local StartMenuCursorAnimation = require("libs.engine.src.StartMenuCursorAnimation")
 
 ---@class StartMenuController
 ---@field _visibleActions table<integer, StartMenuController.Action> ordered display positions with entries
 ---@field _orderedPositions integer[] the visible display positions in ascending order
----@field _selectedPosition integer
+---@field _selectedPosition integer? nil while the menu has no action
 ---@field _result table?
 ---@field _closed boolean
----@field _cursor StartMenuCursorAnimation
+---@field _cursorFrames { duration: integer }[] the manifest cursor frame durations
+---@field _cursorFrameIndex integer zero-based index into _cursorFrames
+---@field _cursorFrameTicks integer
 ---@field _slots table<integer, FieldDialogueTheme.Rect>
 ---@field _pointerId string?
 ---@field _pointerDown { kind: "cancel"|"action"|"none", position: integer? }?
@@ -49,19 +54,6 @@ end
 local function assertInteger(value, name)
   assertFiniteNumber(value, name)
   assert(value == math.floor(value), name .. " must be an integer")
-end
-
--- Whether the entry is visible in the given product mode: the visibility projections
--- (normalVisible = present and capabilityAvailable; developerVisible =
--- present), never a re-implementation of the policy.
----@param entry table
----@param development boolean
----@return boolean
-local function visibleInMode(entry, development)
-  if development then
-    return entry.developerVisible == true
-  end
-  return entry.normalVisible == true
 end
 
 ---@param value any
@@ -92,58 +84,60 @@ local function validateSlots(value)
   return value
 end
 
+-- The final interactive action list: every entry already passed the
+-- capability intersection, so it carries only its identity, its destination,
+-- and its canonical display position. An empty list is valid.
 ---@param value any
----@return table
+---@return table[]
 local function validateEntries(value)
-  assert(type(value) == "table" and #value > 0, "the start menu requires the policy action list")
+  assert(type(value) == "table", "the start menu requires the final action list")
   for index, entry in ipairs(value) do
     assert(type(entry) == "table", "start menu entry " .. index .. " must be a table")
     assert(type(entry.id) == "string" and entry.id ~= "", "start menu entry " .. index .. " needs an id")
     assert(
-      type(entry.message) == "string" and entry.message ~= "",
-      "start menu entry " .. index .. " needs a message ref"
+      type(entry.targetApplication) == "string" and entry.targetApplication ~= "",
+      "an interactive start menu entry needs a destination application id"
     )
+    assertInteger(entry.displayPosition, "start menu entry " .. index .. " display position")
+    assert(entry.displayPosition >= 0, "start menu entry " .. index .. " display position must be non-negative")
+  end
+  return value
+end
+
+-- The manifest cursor frames: the controller reads only the durations (the
+-- manifest itself is the structural validation boundary for the frame rects).
+---@param value any
+---@return { duration: integer }[]
+local function validateCursorFrames(value)
+  assert(type(value) == "table", "the start menu requires the manifest cursor frames")
+  assert(#value >= 1, "the cursor animation requires at least one frame")
+  for index, frame in ipairs(value) do
     assert(
-      type(entry.developerVisible) == "boolean" and type(entry.normalVisible) == "boolean",
-      "start menu entry " .. index .. " needs the visibility projections"
+      type(frame) == "table" and type(frame.duration) == "number" and frame.duration % 1 == 0 and frame.duration >= 1,
+      "cursor frame " .. index .. " needs a positive integral duration"
     )
-    assert(type(entry.enabled) == "boolean", "start menu entry " .. index .. " needs the enabled projection")
-    assert(
-      entry.targetApplication == nil or type(entry.targetApplication) == "string",
-      "start menu entry " .. index .. " target application must be an id"
-    )
-    assert(entry.enabled ~= true or entry.targetApplication ~= nil, "an enabled entry needs a target application")
   end
   return value
 end
 
 ---@param entries table[]
----@param development boolean
 ---@param slotCount integer
 ---@return table<integer, StartMenuController.Action>, table[]
-local function composeDisplay(entries, development, slotCount)
+local function composeDisplay(entries, slotCount)
   -- The source display array: visible entries write their display position
   -- (later writes win -- special 9/10 overwrite positions 7/8). The array
   -- length is the action slot count (slots 2..n), so position p = slot p+2.
   local capacity = slotCount - 1
   local display = {}
   for _, entry in ipairs(entries) do
-    if visibleInMode(entry, development) then
-      local position = entry.displayPosition
-      assertInteger(position, "visible start menu action display position")
-      assert(
-        position >= 0 and position < capacity,
-        "start menu display capacity exceeded at position " .. tostring(position)
-      )
-      display[position] = {
-        id = entry.id,
-        message = entry.message,
-        targetApplication = entry.targetApplication,
-        enabled = entry.enabled,
-        position = position,
-        slotId = position + StartMenuController.CANCEL_SLOT_ID + 1,
-      }
-    end
+    local position = entry.displayPosition
+    assert(position < capacity, "start menu display capacity exceeded at position " .. tostring(position))
+    display[position] = {
+      id = entry.id,
+      targetApplication = entry.targetApplication,
+      position = position,
+      slotId = position + StartMenuController.CANCEL_SLOT_ID + 1,
+    }
   end
   local ordered = {}
   for position = 0, capacity - 1 do
@@ -151,7 +145,6 @@ local function composeDisplay(entries, development, slotCount)
       ordered[#ordered + 1] = display[position]
     end
   end
-  assert(#ordered > 0, "the start menu has no visible actions")
   return display, ordered
 end
 
@@ -167,11 +160,11 @@ local function orderedIndexAt(ordered, position)
   error("selection position is not in the visible action list", 2)
 end
 
--- Restores the remembered selection by action id; falls back to the
--- first enabled action, then the first visible action.
+-- Restores the remembered selection by action id; falls back to the first
+-- action, then nil for an empty list.
 ---@param ordered table[]
 ---@param rememberedActionId string?
----@return integer position
+---@return integer? position
 local function initialPosition(ordered, rememberedActionId)
   if rememberedActionId ~= nil then
     for _, action in ipairs(ordered) do
@@ -180,35 +173,30 @@ local function initialPosition(ordered, rememberedActionId)
       end
     end
   end
-  for _, action in ipairs(ordered) do
-    if action.enabled then
-      return action.position
-    end
+  if ordered[1] ~= nil then
+    return ordered[1].position
   end
-  return ordered[1].position
+  return nil
 end
 
 ---@class StartMenuController.Action
 ---@field id string
----@field message string
----@field targetApplication string?
----@field enabled boolean
+---@field targetApplication string
 ---@field position integer display position (0-based)
 ---@field slotId integer manifest slot id
 
--- opts.entries: the StartMenuPolicy build output (or the composition step's
--- resolved entry list of the same shape). opts.development: the product
--- mode. opts.slots: the generated manifest startMenu.slots. opts.cursorFrames:
--- the generated manifest startMenu.cursor.frames. opts.rememberedActionId: the
--- selection remembered across a child-application round trip.
----@param opts { entries: table[], development: boolean, slots: table<integer, FieldDialogueTheme.Rect>, cursorFrames: table[], rememberedActionId?: string? }
+-- opts.entries: the runtime-composed final interactive action list (id /
+-- targetApplication / displayPosition), possibly empty. opts.slots: the
+-- generated manifest startMenu.slots. opts.cursorFrames: the generated
+-- manifest startMenu.cursor.frames. opts.rememberedActionId: the selection
+-- remembered across a child-application round trip.
+---@param opts { entries: table[], slots: table<integer, FieldDialogueTheme.Rect>, cursorFrames: table[], rememberedActionId?: string? }
 ---@return StartMenuController
 function StartMenuController.new(opts)
   assert(type(opts) == "table", "the start menu controller requires options")
   local entries = validateEntries(opts.entries)
-  assert(type(opts.development) == "boolean", "the start menu controller requires the product mode")
   local slots = validateSlots(opts.slots)
-  local display, ordered = composeDisplay(entries, opts.development, #slots)
+  local display, ordered = composeDisplay(entries, #slots)
   local orderedPositions = {}
   for index, action in ipairs(ordered) do
     orderedPositions[index] = action.position
@@ -219,7 +207,9 @@ function StartMenuController.new(opts)
     _selectedPosition = initialPosition(ordered, opts.rememberedActionId),
     _result = nil,
     _closed = false,
-    _cursor = StartMenuCursorAnimation.new(opts.cursorFrames),
+    _cursorFrames = validateCursorFrames(opts.cursorFrames),
+    _cursorFrameIndex = 0,
+    _cursorFrameTicks = 0,
     _slots = slots,
     _pointerId = nil,
     _pointerDown = nil,
@@ -258,6 +248,22 @@ local function positionOf(slotId)
   return slotId - StartMenuController.CANCEL_SLOT_ID - 1
 end
 
+-- One fixed tick of the cursor animation while a selection exists: the
+-- current manifest frame holds for its duration, then the animation moves to
+-- the next frame and wraps. No selection means no cursor is presented, so
+-- nothing advances.
+function StartMenuController:_advanceCursor()
+  if self._selectedPosition == nil then
+    return
+  end
+  local duration = self._cursorFrames[self._cursorFrameIndex + 1].duration
+  self._cursorFrameTicks = self._cursorFrameTicks + 1
+  if self._cursorFrameTicks >= duration then
+    self._cursorFrameIndex = (self._cursorFrameIndex + 1) % #self._cursorFrames
+    self._cursorFrameTicks = 0
+  end
+end
+
 function StartMenuController:_selectPosition(position)
   assert(self._visibleActions[position] ~= nil, "cannot select an empty display position")
   self._selectedPosition = position
@@ -269,18 +275,20 @@ function StartMenuController:_moveSelection(direction)
     "unknown UI direction"
   )
   local ordered = self._orderedPositions
+  if #ordered == 0 then
+    return
+  end
   local current = orderedIndexAt(ordered, self._selectedPosition)
   local delta = (direction == "up" or direction == "left") and -1 or 1
   self:_selectPosition(ordered[((current - 1 + delta) % #ordered) + 1])
 end
 
--- Activation of the selected action. A disabled entry records nothing
--- (FieldSystem_StartMenuActionIsAvailable, start_menu.c). The launch result
--- carries the action id so the application host can restore the selection
--- by id when the child application returns.
+-- Activation of the selected action. The launch result carries the action id
+-- so the application host can restore the selection by id when the child
+-- application returns.
 function StartMenuController:_activate(position)
   local action = self._visibleActions[position]
-  if action and action.enabled then
+  if action then
     self._result = {
       kind = "launch",
       applicationId = action.targetApplication,
@@ -295,20 +303,20 @@ function StartMenuController:_close()
   self._closed = true
 end
 
--- One fixed tick: the cursor animation advances exactly once, then the
--- tick's UI events are consumed. The events are the FieldInput uiSnapshot
--- shapes (navigate/confirm/cancel/pointer_down/pointer_move/pointer_up/
--- pointer_scroll) with pointer coordinates in canonical logical space, plus
--- the host-synthesized "menu" event: while the menu is active the menu
--- button has the same close semantics as HGSS X, and the application host
--- translates a fresh menu edge into it.
+-- One fixed tick: the cursor animation advances exactly once while a
+-- selection exists, then the tick's UI events are consumed. The events are
+-- the FieldInput uiSnapshot shapes (navigate/confirm/cancel/pointer_down/
+-- pointer_move/pointer_up/pointer_scroll) with pointer coordinates in
+-- canonical logical space, plus the host-synthesized "menu" event: while the
+-- menu is active the menu button has the same close semantics as HGSS X, and
+-- the application host translates a fresh menu edge into it.
 ---@param uiInput table[]
 function StartMenuController:updateFixed(uiInput)
   assert(type(uiInput) == "table", "the start menu input must be an event list")
   if self._closed then
     return
   end
-  self._cursor:updateFixed()
+  self:_advanceCursor()
   local slots = self._slots
   for _, event in ipairs(uiInput) do
     -- A terminal event (close or a successful activate) ends this tick's
@@ -320,7 +328,9 @@ function StartMenuController:updateFixed(uiInput)
     if event.type == "navigate" then
       self:_moveSelection(event.direction)
     elseif event.type == "confirm" then
-      self:_activate(self._selectedPosition)
+      if self._selectedPosition ~= nil then
+        self:_activate(self._selectedPosition)
+      end
     elseif event.type == "cancel" or event.type == "menu" then
       self:_close()
     elseif event.type == "pointer_move" then
@@ -375,8 +385,9 @@ function StartMenuController:updateFixed(uiInput)
 end
 
 -- The presentation snapshot: cursor slot/frame for the renderer plus the
--- ordered visible actions with their resolved presentation data. Fresh tables
--- per call; the caller may not mutate controller state through them.
+-- ordered visible actions. An open menu with no actions presents the cancel
+-- region and no cursor. Fresh tables per call; the caller may not mutate
+-- controller state through them.
 ---@return StartMenuController.Status
 function StartMenuController:status()
   if self._closed then
@@ -388,9 +399,7 @@ function StartMenuController:status()
     if action then
       actions[#actions + 1] = {
         id = action.id,
-        message = action.message,
         targetApplication = action.targetApplication,
-        enabled = action.enabled,
         position = action.position,
         slotId = action.slotId,
       }
@@ -398,10 +407,10 @@ function StartMenuController:status()
   end
   return {
     open = true,
-    cursorSlotId = self._selectedPosition + StartMenuController.CANCEL_SLOT_ID + 1,
-    cursorFrameIndex = self._cursor:status().frameIndex,
-    cancelSlotId = StartMenuController.CANCEL_SLOT_ID,
     actions = actions,
+    cancelSlotId = StartMenuController.CANCEL_SLOT_ID,
+    cursorSlotId = self._selectedPosition and self._selectedPosition + StartMenuController.CANCEL_SLOT_ID + 1 or nil,
+    cursorFrameIndex = self._selectedPosition and self._cursorFrameIndex or nil,
   }
 end
 
@@ -425,9 +434,9 @@ function StartMenuController:dispose()
   self._closed = true
 end
 
--- The resize contract: a press held across a layout change must not
--- activate a different post-resize slot, so the application host cancels an
--- active pointer capture when the screen topology changes.
+-- The placement-change contract: a press held across a layout change must
+-- not activate a different post-layout slot, so the application host cancels
+-- an active pointer capture when the menu placement changes.
 function StartMenuController:cancelPointerCapture()
   self._pointerId = nil
   self._pointerDown = nil
@@ -435,9 +444,9 @@ end
 
 ---@class StartMenuController.Status
 ---@field open boolean
+---@field actions StartMenuController.Action[]
+---@field cancelSlotId integer?
 ---@field cursorSlotId integer?
 ---@field cursorFrameIndex integer?
----@field cancelSlotId integer?
----@field actions StartMenuController.Action[]?
 
 return StartMenuController

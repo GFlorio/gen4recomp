@@ -1,28 +1,31 @@
 -- The one application modal owner the field session steps: it owns the
--- active application ID and controller, the transition phase machine
--- (closed/opening_menu/menu/fading_out/application/fading_in/closing_menu,
--- plus the terminal failed state for factory/composition failures),
--- the Start Menu selection remembered across a child-application round
--- trip, the modal input lifetime (beginUi once at open, clearUi once on
--- final field return or disposal), dispatch through the sealed
--- FieldApplicationRegistry, and exactly-once disposal of the active
--- controller on success, cancellation, failure, reset, or runtime disposal.
--- Its own fixed-tick fade counter exposes fadeAlpha; FieldTransition is not
--- reused (it owns warp preparation, map protection, and map swaps). The
--- host never launches a child by itself: the menu controller records
--- { kind = "launch", applicationId } results and the host dispatches them
--- through the registry only after the fade-out hides the world. Pure
--- module: no love, no I/O; pointer events are mapped through
--- StartMenuLayout's record when a screen topology is set.
+-- active controller, the transition phase machine (closed/menu/fading_out/
+-- application/fading_in, plus the terminal failed state for factory
+-- failures), the Start Menu selection remembered across a child-application
+-- round trip, the modal input lifetime (beginUi once at open, clearUi once
+-- on final field return, failure, or disposal), and exactly-once disposal of
+-- the active controller on success, cancellation, failure, reset, or runtime
+-- disposal. The Start Menu is not an application-registry entry: the host
+-- constructs it through its required menuFactory (the runtime's composition
+-- step) on open and rebuild, and dispatches child destinations through the
+-- sealed FieldApplicationRegistry. Its own fixed-tick fade counter exposes
+-- fadeAlpha; FieldTransition is not reused (it owns warp preparation, map
+-- protection, and map swaps). The host never launches a child by itself: the
+-- menu controller records { kind = "launch", applicationId } results and the
+-- host dispatches them through the registry only after the fade-out hides
+-- the world. Pure module: no love, no I/O; pointer events are mapped through
+-- the StartMenuLayout placement record the runtime supplies.
 
 local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 
 ---@class FieldApplicationHostOptions
----@field registry FieldApplicationRegistry the sealed per-runtime application catalogue
+---@field registry FieldApplicationRegistry the sealed per-runtime child-application catalogue
+---@field menuFactory fun(rememberedActionId: string?): table the Start Menu composition step (controller contract)
 ---@field input FieldInput the field input whose modal lifetime the host acquires/releases
 
 ---@class FieldApplicationHost
 ---@field _registry FieldApplicationRegistry
+---@field _menuFactory fun(rememberedActionId: string?): table
 ---@field _input FieldInput
 ---@field _phase string
 ---@field _fadeTicks integer
@@ -33,25 +36,23 @@ local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 ---@field _failure any? retained factory/composition failure
 ---@field _uiHeld boolean the modal input lifetime is held (beginUi done, clearUi pending)
 ---@field _reopenPending boolean a script reopen request awaits the session
----@field _layout table? the StartMenuLayout placement record (setScreenTopology)
+---@field _layout table? the StartMenuLayout placement record (setMenuPlacement)
 local FieldApplicationHost = {}
 FieldApplicationHost.__index = FieldApplicationHost
 
 -- The host's own fixed-tick fade counter: the same 12-tick cadence as the
--- field transition's warp fades. The spec pins the phase sequence, not the
--- fade length; the counter is the single fadeAlpha authority.
+-- field transition's warp fades. Only the fade length lives here; the phase
+-- sequence is the host's own contract.
 FieldApplicationHost.FADE_TICKS = 12
 
 -- The normal lifecycle phases plus the terminal failure state
 -- (the runtime is left in one terminally consistent state).
 FieldApplicationHost.PHASES = {
   closed = "closed",
-  opening_menu = "opening_menu",
   menu = "menu",
   fading_out = "fading_out",
   application = "application",
   fading_in = "fading_in",
-  closing_menu = "closing_menu",
   failed = "failed",
 }
 
@@ -64,12 +65,14 @@ end
 ---@return FieldApplicationHost
 function FieldApplicationHost.new(options)
   assert(options and options.registry and options.registry.create, "the application host requires the registry")
+  assert(options and type(options.menuFactory) == "function", "the application host requires the start menu factory")
   assert(
     options and options.input and options.input.beginUi and options.input.clearUi,
     "the application host requires the input"
   )
   return setmetatable({
     _registry = options.registry,
+    _menuFactory = options.menuFactory,
     _input = options.input,
     _phase = FieldApplicationHost.PHASES.closed,
     _fadeTicks = 0,
@@ -87,7 +90,7 @@ end
 -- The presentation snapshot: the phase, the host-owned fade
 -- alpha, the active application id (while a destination owns the tick or is
 -- being entered/left), the Start Menu presentation status while the menu
--- phases run, and the active destination's own presentation status while
+-- phase runs, and the active destination's own presentation status while
 -- the application phase runs (the renderer channel: FieldState
 -- chooses the destination renderer from this snapshot; only the one active
 -- modal surface is presented).
@@ -102,10 +105,7 @@ function FieldApplicationHost:status()
     status.applicationId = self._applicationId
   end
   local controller = self._controller
-  if
-    controller ~= nil
-    and (phase == FieldApplicationHost.PHASES.opening_menu or phase == FieldApplicationHost.PHASES.menu)
-  then
+  if controller ~= nil and phase == FieldApplicationHost.PHASES.menu then
     status.menu = controller:status()
   end
   if controller ~= nil and phase == FieldApplicationHost.PHASES.application then
@@ -129,10 +129,11 @@ function FieldApplicationHost:error()
 end
 
 -- The single acquisition point: constructs the Start Menu through the
--- registry (the menu application's factory is the runtime's composition
--- step), begins the modal input lifetime, and enters the opening phase. A
--- failed composition acquires nothing and leaves the host terminally
--- failed with the original error retained.
+-- menuFactory, begins the modal input lifetime, and enters the menu phase on
+-- the opening tick. The session returns immediately after the open, so the
+-- controller cannot receive input during the opener's tick. A failed
+-- composition acquires nothing and leaves the host terminally failed with
+-- the original error retained.
 ---@param tick integer
 function FieldApplicationHost:requestOpen(tick)
   assert(self._phase == FieldApplicationHost.PHASES.closed, "the application host must be closed to open the menu")
@@ -162,14 +163,14 @@ function FieldApplicationHost:takeReopen(tick)
 end
 
 -- The menu construction shared by open and reopen. The controller is built
--- through the registry factory before beginUi so a failed composition never
+-- through the menu factory before beginUi so a failed composition never
 -- begins the input lifetime; beginUi flushes stale UI edges at modal
 -- ownership begin so the opening edge cannot immediately close the menu it
 -- opened.
 ---@param tick integer
 ---@param rememberedActionId string?
 function FieldApplicationHost:_openMenu(tick, rememberedActionId)
-  local ok, controller = pcall(self._registry.create, self._registry, "start_menu", rememberedActionId)
+  local ok, controller = pcall(self._menuFactory, rememberedActionId)
   if not ok then
     self:_fail(controller)
     return
@@ -180,15 +181,22 @@ function FieldApplicationHost:_openMenu(tick, rememberedActionId)
   self._uiHeld = true
   self._fadeTicks = 0
   self._fadeAlpha = 0
-  self._phase = FieldApplicationHost.PHASES.opening_menu
+  self._phase = FieldApplicationHost.PHASES.menu
 end
 
--- Terminal failure ownership: retain the original error, release anything
--- acquired, and freeze the host. No successful return to the menu is ever
--- reported; the runtime surfaces the error and stops stepping.
+-- Terminal failure ownership: retain the original error, release the active
+-- controller and the modal input lifetime if held, clear the pending
+-- destination and fade state, and freeze the host. No successful return to
+-- the menu is ever reported; the runtime surfaces the error and stops
+-- stepping. No recovery is attempted.
 ---@param failure any
 function FieldApplicationHost:_fail(failure)
   self._failure = failure
+  self:_disposeController()
+  self:_releaseUi()
+  self._applicationId = nil
+  self._fadeTicks = 0
+  self._fadeAlpha = 0
   self._phase = FieldApplicationHost.PHASES.failed
 end
 
@@ -201,8 +209,8 @@ function FieldApplicationHost:_disposeController()
   end
 end
 
--- Releases the modal input lifetime exactly once (the final field return or
--- host disposal).
+-- Releases the modal input lifetime exactly once (the final field return,
+-- failure, or host disposal).
 function FieldApplicationHost:_releaseUi()
   if self._uiHeld then
     self._input:clearUi()
@@ -215,7 +223,7 @@ end
 -- destination's own disposal; nothing re-enters the menu.
 function FieldApplicationHost:_rebuildMenu()
   local remembered = self._rememberedActionId
-  local ok, controller = pcall(self._registry.create, self._registry, "start_menu", remembered)
+  local ok, controller = pcall(self._menuFactory, remembered)
   if not ok then
     self:_fail(controller)
     return
@@ -236,11 +244,6 @@ function FieldApplicationHost:updateFixed(tick, uiInput)
   if phase == FieldApplicationHost.PHASES.failed then
     return
   end
-  if phase == FieldApplicationHost.PHASES.opening_menu then
-    -- The opening tick arms nothing: input becomes live with the menu phase.
-    self._phase = FieldApplicationHost.PHASES.menu
-    return
-  end
   if phase == FieldApplicationHost.PHASES.menu then
     self:_stepMenu(tick, uiInput)
     return
@@ -257,18 +260,13 @@ function FieldApplicationHost:updateFixed(tick, uiInput)
     self:_stepFadeIn(tick)
     return
   end
-  if phase == FieldApplicationHost.PHASES.closing_menu then
-    self._phase = FieldApplicationHost.PHASES.closed
-    self._fadeAlpha = 0
-    return
-  end
   error("unknown application host phase " .. tostring(phase), 2)
 end
 
 -- Maps one UI event list for the menu controller: pointer events travel
--- through the StartMenuLayout record (host coordinates -> canonical logical
--- 0..255 x 0..191); events outside the menu frame are dropped. Without a
--- screen topology there is no pointer support at all. Non-pointer events and
+-- through the StartMenuLayout placement record (host coordinates -> canonical
+-- logical 0..255 x 0..191); events outside the menu frame are dropped. Without
+-- a placement there is no pointer support at all. Non-pointer events and
 -- the destination controller's events pass through unchanged (destinations
 -- own their input policy).
 ---@param uiInput table[]
@@ -333,7 +331,8 @@ function FieldApplicationHost:_stepMenu(tick, uiInput)
   else
     self:_disposeController()
     self:_releaseUi()
-    self._phase = FieldApplicationHost.PHASES.closing_menu
+    self._phase = FieldApplicationHost.PHASES.closed
+    self._fadeAlpha = 0
   end
 end
 
@@ -397,12 +396,15 @@ function FieldApplicationHost:_stepFadeIn(tick)
   self:_rebuildMenu()
 end
 
--- Recomputes the StartMenuLayout placement record for a new screen
--- topology. A press held across a resize must not activate a different
--- post-resize slot, so an active menu pointer capture is cancelled.
----@param topology table?
-function FieldApplicationHost:setScreenTopology(topology)
-  self._layout = topology ~= nil and StartMenuLayout.resolve(topology) or nil
+-- Stores the StartMenuLayout placement record the renderer and the pointer
+-- mapper share. The host may perform the inverse placement transform for
+-- pointer mapping, but it does not choose layout: the runtime computes the
+-- placement and re-applies it on presentation-geometry changes. A press held
+-- across a placement change must not activate a different post-change slot,
+-- so an active menu pointer capture is cancelled.
+---@param placement table?
+function FieldApplicationHost:setMenuPlacement(placement)
+  self._layout = placement
   local controller = self._controller
   if controller ~= nil and type(controller.cancelPointerCapture) == "function" then
     controller:cancelPointerCapture()

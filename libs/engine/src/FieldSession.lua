@@ -24,7 +24,6 @@ local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
 local WarpSystem = require("libs.engine.src.WarpSystem")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
 local FieldTransition = require("libs.engine.src.FieldTransition")
-local StartMenuEligibility = require("libs.engine.src.StartMenuEligibility")
 
 ---@class FieldSessionOptions
 ---@field versionId string
@@ -144,23 +143,20 @@ function FieldSession:actorTarget()
   return { x = self.player.worldX, y = self.player.worldY, z = self.player.worldZ }
 end
 
--- The strict eligibility snapshot: every condition the Start Menu open
--- gate evaluates at the settled field boundary. The application host is
--- closed on this path by construction (the active-host branch above owns
--- every active tick).
----@return table
-function FieldSession:_menuEligibilitySnapshot()
-  return {
-    playerMotion = self.player.motion,
-    transitionIdle = self.transition.phase == FieldTransition.PHASES.idle,
-    dialogueModal = self.dialogue:isModal(),
-    signpostModal = self.signpost:isModal(),
-    scriptMenuModal = self.menuHost:isModal(),
-    contextChoiceActive = self.contextChoice:isActive(),
-    applicationActive = self.applicationHost:isActive(),
-    foregroundScript = self.scriptScheduler:playerMovementLocked(),
-    movementLocked = self.scriptScheduler:playerMovementLocked(),
-  }
+-- The idle-boundary gate for the Start Menu open edge: the menu may open
+-- only at a settled field boundary -- player idle, transition idle, no
+-- dialogue/signpost/script menu/context choice, and no script-owned
+-- movement lock. Any non-idle player motion means "not idle"; the active
+-- application branch above has already returned before this code runs.
+---@return boolean
+local function canOpenStartMenu(self)
+  return self.player.motion == "idle"
+    and self.transition.phase == FieldTransition.PHASES.idle
+    and not self.dialogue:isModal()
+    and not self.signpost:isModal()
+    and not self.menuHost:isModal()
+    and not self.contextChoice:isActive()
+    and not self.scriptScheduler:playerMovementLocked()
 end
 
 function FieldSession:_advanceTick()
@@ -286,29 +282,20 @@ function FieldSession:updateFixed(inputSnapshot)
 
   -- Start Menu arbitration: a pending script reopen request (opcode 61's
   -- startMenuReopen service) opens the menu unconditionally at this point,
-  -- then the menu edge is gated by the idle-boundary eligibility check
-  -- (checked after the single script-scheduler step established the field
-  -- lock state, before actor stepping, interaction resolution, warps, or
-  -- player movement). A successful open consumes the tick; when the Menu
-  -- and Action edges arrive together at an eligible boundary the menu wins
-  -- and the Action edge is cleared.
+  -- then the menu edge is gated by the idle-boundary check (checked after
+  -- the single script-scheduler step established the field lock state,
+  -- before actor stepping, interaction resolution, warps, or player
+  -- movement). A successful open consumes the tick; the input snapshot has
+  -- already consumed a simultaneous Action edge, and the menu owns the tick,
+  -- so no edge clearing is part of this policy.
   if self.applicationHost:takeReopen(self.tick + 1) then
     self:_advanceTick()
     return
   end
-  if inputSnapshot.menuPressed then
-    local decision = StartMenuEligibility.decide(self:_menuEligibilitySnapshot(), {
-      menuPressed = true,
-      actionPressed = inputSnapshot.actionPressed,
-    })
-    if decision.menu == "open" then
-      if decision.action == "clear" then
-        self.input:clearEdges()
-      end
-      self.applicationHost:requestOpen(self.tick + 1)
-      self:_advanceTick()
-      return
-    end
+  if inputSnapshot.menuPressed and canOpenStartMenu(self) then
+    self.applicationHost:requestOpen(self.tick + 1)
+    self:_advanceTick()
+    return
   end
 
   if self.transition.suppression then

@@ -5,10 +5,12 @@
 -- geometry authority: the background rect, the logical slot rects, the icon
 -- mapping, and the cursor frames with their durations. Runtime code
 -- addresses slots by the manifest's own slot ids and never repeats source
--- coordinates. The cursor animation itself is pure fixed-tick state
--- (StartMenuCursorAnimation); this renderer consumes only the frame index
--- from the presentation snapshot, so render refresh rate cannot change the
--- animation speed. Drawing consumes the same StartMenuLayout placement
+-- coordinates. The cursor animation state is the controller's fixed-tick
+-- concern; this renderer consumes only the frame index from the
+-- presentation snapshot, so render refresh rate cannot change the animation
+-- speed, and a missing cursor (an empty menu with no selection) is a valid
+-- state that draws the background and stops. Drawing consumes the same
+-- StartMenuLayout placement
 -- record hit testing maps through (hostToLogical): the surface draws under
 -- translate(frame origin) + scale(placement scale) in canonical coordinates,
 -- so rendering and hit testing share one record with no second set of
@@ -184,7 +186,7 @@ end
 -- has no images. Restores canvas, shader, scissor, blend, depth, wireframe,
 -- cull, and color afterwards so the HUD and host overlays draw normally.
 
----@param presentation { cursorSlotId: integer, cursorFrameIndex: integer }?
+---@param presentation { cursorSlotId: integer?, cursorFrameIndex: integer? }?
 ---@param placement StartMenuLayout.Placement
 function StartMenuRenderer:draw(presentation, placement)
   if not presentation or not self._backgroundImage then
@@ -194,22 +196,6 @@ function StartMenuRenderer:draw(presentation, placement)
     placement ~= nil and type(placement.frame) == "table" and type(placement.scale) == "number",
     "the start menu surface requires the placement record"
   )
-  assert(
-    type(presentation.cursorSlotId) == "number" and presentation.cursorSlotId % 1 == 0,
-    "the start menu cursor requires a slot id"
-  )
-  local slot = assert(
-    self.menu.slots[presentation.cursorSlotId],
-    "cursor slot " .. tostring(presentation.cursorSlotId) .. " is outside the generated slot set"
-  )
-  assert(
-    type(presentation.cursorFrameIndex) == "number" and presentation.cursorFrameIndex % 1 == 0,
-    "the start menu cursor requires a frame index"
-  )
-  local frame = assert(
-    self.menu.cursor.frames[presentation.cursorFrameIndex + 1],
-    "cursor frame " .. tostring(presentation.cursorFrameIndex) .. " is outside the generated frame set"
-  )
   local lg = assert(self._graphics)
 
   local drawState = FieldDrawState.save(lg)
@@ -218,15 +204,34 @@ function StartMenuRenderer:draw(presentation, placement)
   local ok, err = pcall(function()
     -- Everything draws in canonical coordinates under the placement record's
     -- transform: translate(frame origin) + scale(record scale). The manifest
-    -- rects are canonical, so nothing is scaled twice.
+    -- rects are canonical, so nothing is scaled twice. A missing cursor is a
+    -- valid empty-menu state: the background is drawn and drawing stops.
     lg.push()
     pushed = true
     lg.translate(placement.frame.x, placement.frame.y)
     lg.scale(placement.scale, placement.scale)
     lg.setColor(1, 1, 1, 1)
     lg.draw(assert(self._backgroundImage), assert(self._backgroundQuad), self.menu.background.x, self.menu.background.y)
-    local x, y = self:_cursorPosition(slot, frame)
-    lg.draw(assert(self._cursorImage), assert(self._cursorQuads[presentation.cursorFrameIndex + 1]), x, y)
+    if presentation.cursorSlotId ~= nil then
+      assert(
+        type(presentation.cursorSlotId) == "number" and presentation.cursorSlotId % 1 == 0,
+        "the start menu cursor requires a slot id"
+      )
+      local slot = assert(
+        self.menu.slots[presentation.cursorSlotId],
+        "cursor slot " .. tostring(presentation.cursorSlotId) .. " is outside the generated slot set"
+      )
+      assert(
+        type(presentation.cursorFrameIndex) == "number" and presentation.cursorFrameIndex % 1 == 0,
+        "the start menu cursor requires a frame index"
+      )
+      local frame = assert(
+        self.menu.cursor.frames[presentation.cursorFrameIndex + 1],
+        "cursor frame " .. tostring(presentation.cursorFrameIndex) .. " is outside the generated frame set"
+      )
+      local x, y = self:_cursorPosition(slot, frame)
+      lg.draw(assert(self._cursorImage), assert(self._cursorQuads[presentation.cursorFrameIndex + 1]), x, y)
+    end
     lg.pop()
     pushed = false
   end)

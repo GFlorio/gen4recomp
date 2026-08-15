@@ -1,10 +1,13 @@
 -- StartMenuPolicy contract tests: the pure canonical action definitions and
--- context/progression rules. The twelve-row context matrix asserts action
--- ordering, presence, vanilla enabled state, and application-capability
--- state separately. The snapshot is strict: every required key is present,
--- no `or false` defaults. Actions carry the pinned bank-0196 message refs
--- and the reserved mod-facing ids. Source evidence:
--- docs/research/start-menu-policy.md (pret/pokeheartgold 008257708).
+-- the normal-field progression rules for the implemented field context. The
+-- strict snapshot is the seven unlock facts the runtime reads from the
+-- event-state flags; every action's output separates list presence (the
+-- source inhibit masks, start_menu.c:288-331) from the gameplay unlock gate
+-- (the CheckGot*/FLAG_GOT_* availability checks, start_menu.c:535-556), plus
+-- the canonical display position. No capability or product-mode projection
+-- lives here: the runtime intersects the registered destination
+-- applications. Source evidence: docs/research/start-menu-policy.md
+-- (pret/pokeheartgold 008257708).
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
@@ -20,82 +23,51 @@ local function throwsCode(code, fn)
   Assert.equal(err.code, code)
 end
 
-local FRESH = { hasPokedex = false, hasStarter = false, bagUnlocked = false, hasPokegear = false }
-local FULL = { hasPokedex = true, hasStarter = true, bagUnlocked = true, hasPokegear = true }
+local FRESH = {
+  hasPokedex = false,
+  hasStarter = false,
+  bagUnlocked = false,
+  hasPokegear = false,
+  trainerCardUnlocked = false,
+  saveUnlocked = false,
+  optionsUnlocked = false,
+}
 
-local function snapshot(overrides)
-  local value = {
-    context = "normal_field",
-    progression = FULL,
-    capabilities = { "trainer_card" },
+local function fullFacts()
+  return {
+    hasPokedex = true,
+    hasStarter = true,
+    bagUnlocked = true,
+    hasPokegear = true,
+    trainerCardUnlocked = true,
+    saveUnlocked = true,
+    optionsUnlocked = true,
   }
+end
+
+local function facts(overrides)
+  local value = fullFacts()
   for key, item in pairs(overrides or {}) do
     value[key] = item
   end
   return value
 end
 
--- The per-action canonical metadata contract: mod-facing id, the pinned
--- bank-0196 message ref, and the destination application id (nil when the
--- action's destination is not an application).
+-- The canonical build order (StartMenu_BuildActionLists, start_menu.c:483-523)
+-- with each action's destination application id.
 local EXPECTED_ACTIONS = {
-  pokedex = { id = "vanilla.pokedex", message = "msg.hgss.0196.00000", targetApplication = "pokedex" },
-  pokemon = { id = "vanilla.pokemon", message = "msg.hgss.0196.00001", targetApplication = "pokemon" },
-  bag = { id = "vanilla.bag", message = "msg.hgss.0196.00002", targetApplication = "bag" },
-  trainer_card = { id = "vanilla.trainer_card", message = "msg.hgss.0196.00003", targetApplication = "trainer_card" },
-  save = { id = "vanilla.save", message = "msg.hgss.0196.00004", targetApplication = "save" },
-  options = { id = "vanilla.options", message = "msg.hgss.0196.00005", targetApplication = "options" },
-  running_shoes = { id = "vanilla.running_shoes", message = "msg.hgss.0196.00006", targetApplication = nil },
-  ["7"] = { id = "vanilla.special_7", message = "msg.hgss.0196.00007", targetApplication = nil },
-  retire = { id = "vanilla.retire", message = "msg.hgss.0196.00008", targetApplication = nil },
-  ["9"] = { id = "vanilla.special_9", message = "msg.hgss.0196.00014", targetApplication = "pokegear" },
-  ["10"] = { id = "vanilla.special_10", message = "msg.hgss.0196.00014", targetApplication = "pokegear" },
-  pokegear = { id = "vanilla.pokegear", message = "msg.hgss.0196.00014", targetApplication = "pokegear" },
-  ["12"] = { id = "vanilla.special_12", message = "msg.hgss.0196.00014", targetApplication = nil },
-}
-
--- The build sequence (start_menu.c StartMenu_BuildActionLists): the twelve
--- emitted slots in insertion order; union_room swaps the pokegear slot for
--- special action 12 (start_menu.c:501-507).
-local ORDER_NORMAL = {
-  "vanilla.retire",
-  "vanilla.special_7",
-  "vanilla.pokedex",
-  "vanilla.pokemon",
-  "vanilla.bag",
-  "vanilla.pokegear",
-  "vanilla.trainer_card",
-  "vanilla.save",
-  "vanilla.options",
-  "vanilla.running_shoes",
-  "vanilla.special_9",
-  "vanilla.special_10",
-}
-
-local ORDER_UNION = {
-  "vanilla.retire",
-  "vanilla.special_7",
-  "vanilla.pokedex",
-  "vanilla.pokemon",
-  "vanilla.bag",
-  "vanilla.special_12",
-  "vanilla.trainer_card",
-  "vanilla.save",
-  "vanilla.options",
-  "vanilla.running_shoes",
-  "vanilla.special_9",
-  "vanilla.special_10",
-}
-
--- The CheckGot* progression gates behind vanillaEnabled: the four
--- snapshot booleans gate exactly these actions; every other action's
--- availability gate is canonically true (icon index 100, default TRUE in
--- FieldSystem_ShouldDrawStartMenuIcon, start_menu.c:535-556).
-local VANILLA_GATES = {
-  pokedex = "hasPokedex",
-  pokemon = "hasStarter",
-  bag = "bagUnlocked",
-  pokegear = "hasPokegear",
+  { id = "vanilla.retire", targetApplication = nil },
+  { id = "vanilla.special_7", targetApplication = nil },
+  { id = "vanilla.pokedex", targetApplication = "pokedex" },
+  { id = "vanilla.pokemon", targetApplication = "pokemon" },
+  { id = "vanilla.bag", targetApplication = "bag" },
+  { id = "vanilla.pokegear", targetApplication = "pokegear" },
+  { id = "vanilla.trainer_card", targetApplication = "trainer_card" },
+  { id = "vanilla.save", targetApplication = "save" },
+  { id = "vanilla.options", targetApplication = "options" },
+  { id = "vanilla.running_shoes", targetApplication = nil },
+  { id = "vanilla.special_9", targetApplication = "pokegear" },
+  { id = "vanilla.special_10", targetApplication = "pokegear" },
 }
 
 local function entryById(entries, id)
@@ -107,246 +79,143 @@ local function entryById(entries, id)
   error("no entry with id " .. id)
 end
 
--- The context matrix: the twelve rows. The five normal-field rows are
--- progression states; the seven special contexts use full progression so
--- their masks are asserted against the progression gates separately.
-local MATRIX = {
-  fresh_game = {
-    context = "normal_field",
-    progression = FRESH,
-    present = {
-      "vanilla.trainer_card",
-      "vanilla.save",
-      "vanilla.options",
-      "vanilla.running_shoes",
-      "vanilla.special_9",
-      "vanilla.special_10",
-    },
-  },
-  starter_obtained = {
-    context = "normal_field",
-    progression = { hasPokedex = false, hasStarter = true, bagUnlocked = false, hasPokegear = false },
-    present = {
-      "vanilla.pokemon",
-      "vanilla.trainer_card",
-      "vanilla.save",
-      "vanilla.options",
-      "vanilla.running_shoes",
-      "vanilla.special_9",
-      "vanilla.special_10",
-    },
-  },
-  pokedex_obtained = {
-    context = "normal_field",
-    progression = { hasPokedex = true, hasStarter = false, bagUnlocked = false, hasPokegear = false },
-    present = {
-      "vanilla.pokedex",
-      "vanilla.trainer_card",
-      "vanilla.save",
-      "vanilla.options",
-      "vanilla.running_shoes",
-      "vanilla.special_9",
-      "vanilla.special_10",
-    },
-  },
-  bag_unlocked = {
-    context = "normal_field",
-    progression = { hasPokedex = false, hasStarter = false, bagUnlocked = true, hasPokegear = false },
-    present = {
-      "vanilla.bag",
-      "vanilla.trainer_card",
-      "vanilla.save",
-      "vanilla.options",
-      "vanilla.running_shoes",
-      "vanilla.special_9",
-      "vanilla.special_10",
-    },
-  },
-  pokegear_obtained = {
-    context = "normal_field",
-    progression = { hasPokedex = false, hasStarter = false, bagUnlocked = false, hasPokegear = true },
-    present = {
-      "vanilla.pokegear",
-      "vanilla.trainer_card",
-      "vanilla.save",
-      "vanilla.options",
-      "vanilla.running_shoes",
-      "vanilla.special_9",
-      "vanilla.special_10",
-    },
-  },
-  amity_square = {
-    context = "amity_square",
-    progression = FULL,
-    present = {
-      "vanilla.pokedex",
-      "vanilla.pokegear",
-      "vanilla.trainer_card",
-      "vanilla.save",
-      "vanilla.options",
-      "vanilla.running_shoes",
-      "vanilla.special_9",
-      "vanilla.special_10",
-    },
-  },
-  safari = {
-    context = "safari",
-    progression = FULL,
-    present = {
-      "vanilla.retire",
-      "vanilla.pokedex",
-      "vanilla.pokemon",
-      "vanilla.bag",
-      "vanilla.pokegear",
-      "vanilla.trainer_card",
-      "vanilla.options",
-      "vanilla.running_shoes",
-      "vanilla.special_9",
-      "vanilla.special_10",
-    },
-  },
-  bug_contest = {
-    context = "bug_contest",
-    progression = FULL,
-    present = {
-      "vanilla.retire",
-      "vanilla.pokedex",
-      "vanilla.pokemon",
-      "vanilla.pokegear",
-      "vanilla.trainer_card",
-      "vanilla.options",
-      "vanilla.running_shoes",
-      "vanilla.special_9",
-      "vanilla.special_10",
-    },
-  },
-  pal_park = {
-    context = "pal_park",
-    progression = FULL,
-    present = {
-      "vanilla.retire",
-      "vanilla.pokedex",
-      "vanilla.pokemon",
-      "vanilla.pokegear",
-      "vanilla.trainer_card",
-      "vanilla.options",
-      "vanilla.running_shoes",
-      "vanilla.special_9",
-      "vanilla.special_10",
-    },
-  },
-  battle_tower_partner_room = {
-    context = "battle_tower_partner_room",
-    progression = FULL,
-    present = {
-      "vanilla.pokemon",
-      "vanilla.trainer_card",
-      "vanilla.options",
-      "vanilla.running_shoes",
-      "vanilla.special_9",
-      "vanilla.special_10",
-    },
-  },
-  colosseum = {
-    context = "colosseum",
-    progression = FULL,
-    present = {
-      "vanilla.pokemon",
-      "vanilla.bag",
-      "vanilla.trainer_card",
-      "vanilla.options",
-      "vanilla.running_shoes",
-      "vanilla.special_9",
-      "vanilla.special_10",
-    },
-  },
-  union_room = {
-    context = "union_room",
-    progression = FULL,
-    present = {
-      "vanilla.special_7",
-      "vanilla.pokedex",
-      "vanilla.pokemon",
-      "vanilla.bag",
-      "vanilla.special_12",
-      "vanilla.trainer_card",
-      "vanilla.options",
-      "vanilla.running_shoes",
-      "vanilla.special_9",
-      "vanilla.special_10",
-    },
-  },
-}
-
--- The context matrix, asserting ordering, presence, vanilla enabled state,
--- and the capability projections separately for every row.
-function T.tests.the_context_matrix_asserts_ordering_presence_vanilla_and_capability()
-  for name, row in pairs(MATRIX) do
-    local expectedOrder = row.context == "union_room" and ORDER_UNION or ORDER_NORMAL
-    local entries = StartMenuPolicy.build(snapshot({ context = row.context, progression = row.progression }))
-
-    local ids = {}
-    for _, entry in ipairs(entries) do
-      ids[#ids + 1] = entry.id
-    end
-    Assert.deepEqual(ids, expectedOrder, name .. " ordering")
-
-    local expectedPresent = {}
-    for _, id in ipairs(row.present) do
-      expectedPresent[id] = true
-    end
-
-    local presentCount = 0
-    for _, entry in ipairs(entries) do
-      local expected =
-        assert(EXPECTED_ACTIONS[entry.sourceAction], name .. " sourceAction " .. tostring(entry.sourceAction))
-      Assert.equal(entry.id, expected.id, name .. " id for " .. entry.sourceAction)
-      Assert.equal(entry.message, expected.message, name .. " message ref for " .. entry.sourceAction)
-      Assert.equal(
-        entry.targetApplication,
-        expected.targetApplication,
-        name .. " targetApplication for " .. entry.sourceAction
-      )
-
-      local isPresent = expectedPresent[entry.id] == true
-      Assert.equal(entry.present, isPresent, name .. " presence of " .. entry.id)
-
-      local gate = VANILLA_GATES[entry.sourceAction]
-      local expectedVanilla = gate == nil or row.progression[gate] == true
-      Assert.equal(entry.vanillaEnabled, expectedVanilla, name .. " vanillaEnabled of " .. entry.id)
-
-      local expectedCapability = entry.targetApplication ~= nil and entry.targetApplication == "trainer_card"
-      Assert.equal(entry.capabilityAvailable, expectedCapability, name .. " capabilityAvailable of " .. entry.id)
-      Assert.equal(
-        entry.enabled,
-        entry.vanillaEnabled and entry.capabilityAvailable,
-        name .. " enabled of " .. entry.id
-      )
-      Assert.equal(
-        entry.normalVisible,
-        isPresent and entry.capabilityAvailable,
-        name .. " normalVisible of " .. entry.id
-      )
-      Assert.equal(entry.developerVisible, isPresent, name .. " developerVisible of " .. entry.id)
-
-      local expectedPosition
-      if entry.sourceAction == "9" then
-        expectedPosition = 7
-      elseif entry.sourceAction == "10" then
-        expectedPosition = 8
-      elseif isPresent then
-        expectedPosition = presentCount
-      end
-      Assert.equal(entry.displayPosition, expectedPosition, name .. " displayPosition of " .. entry.id)
-      if isPresent then
-        presentCount = presentCount + 1
-      end
-    end
+-- Full progression: every action except RETIRE and the removed feature 7 is
+-- present; the four progression-gated actions and the three unlock-flag
+-- actions are unlocked; display positions are dense 0..6 then the
+-- unconditionally written Pokégear-family positions 7/8 (special 9
+-- overwrites whatever landed at 7 -- running shoes -- in the display array).
+function T.tests.full_progression_builds_the_canonical_list()
+  local entries = StartMenuPolicy.build(facts())
+  Assert.equal(#entries, 12, "the canonical build emits the twelve source slots")
+  for index, expected in ipairs(EXPECTED_ACTIONS) do
+    local entry = entries[index]
+    Assert.equal(entry.id, expected.id, "slot " .. index .. " id")
+    Assert.equal(entry.targetApplication, expected.targetApplication, "slot " .. index .. " destination")
+  end
+  local absent = { "vanilla.retire", "vanilla.special_7" }
+  for _, id in ipairs(absent) do
+    Assert.equal(entryById(entries, id).present, false, id .. " is unconditionally inhibited")
+  end
+  local expectedPositions = {
+    ["vanilla.pokedex"] = 0,
+    ["vanilla.pokemon"] = 1,
+    ["vanilla.bag"] = 2,
+    ["vanilla.pokegear"] = 3,
+    ["vanilla.trainer_card"] = 4,
+    ["vanilla.save"] = 5,
+    ["vanilla.options"] = 6,
+    ["vanilla.running_shoes"] = 7,
+    ["vanilla.special_9"] = 7,
+    ["vanilla.special_10"] = 8,
+  }
+  for id, position in pairs(expectedPositions) do
+    Assert.equal(entryById(entries, id).displayPosition, position, id .. " display position")
+  end
+  for _, id in ipairs({
+    "vanilla.pokedex",
+    "vanilla.pokemon",
+    "vanilla.bag",
+    "vanilla.pokegear",
+    "vanilla.trainer_card",
+    "vanilla.save",
+    "vanilla.options",
+  }) do
+    Assert.equal(entryById(entries, id).unlocked, true, id .. " is unlocked at full progression")
+  end
+  for _, id in ipairs({ "vanilla.running_shoes", "vanilla.special_9", "vanilla.special_10" }) do
+    Assert.equal(entryById(entries, id).unlocked, true, id .. " has no gameplay gate")
   end
 end
 
--- The strict snapshot: every required key is present, no `or false`
--- defaults; a missing boolean is a rejection, not a plausible default.
+-- A fresh game: no progression and no unlock flags. The unlock-flag actions
+-- stay present (the source masks do not inhibit them) but locked; the
+-- display positions stay dense over the present entries.
+function T.tests.fresh_game_lists_present_but_locked_unlock_actions()
+  local entries = StartMenuPolicy.build(facts({
+    hasPokedex = false,
+    hasStarter = false,
+    bagUnlocked = false,
+    hasPokegear = false,
+    trainerCardUnlocked = false,
+    saveUnlocked = false,
+    optionsUnlocked = false,
+  }))
+  local present = {}
+  local positions = {}
+  for _, entry in ipairs(entries) do
+    if entry.present then
+      present[#present + 1] = entry.id
+      positions[entry.id] = entry.displayPosition
+    end
+  end
+  Assert.deepEqual(present, {
+    "vanilla.trainer_card",
+    "vanilla.save",
+    "vanilla.options",
+    "vanilla.running_shoes",
+    "vanilla.special_9",
+    "vanilla.special_10",
+  })
+  Assert.deepEqual(positions, {
+    ["vanilla.trainer_card"] = 0,
+    ["vanilla.save"] = 1,
+    ["vanilla.options"] = 2,
+    ["vanilla.running_shoes"] = 3,
+    ["vanilla.special_9"] = 7,
+    ["vanilla.special_10"] = 8,
+  })
+  for _, id in ipairs({ "vanilla.trainer_card", "vanilla.save", "vanilla.options" }) do
+    Assert.equal(entryById(entries, id).unlocked, false, id .. " is locked until its flag is set")
+  end
+  Assert.equal(entryById(entries, "vanilla.pokedex").present, false, "no progression means no pokedex entry")
+  Assert.equal(entryById(entries, "vanilla.pokedex").unlocked, false)
+end
+
+-- Presence and the unlock gate are independent: a progression-gated action
+-- is present exactly when its progression fact is true, and its unlock gate
+-- follows the same fact; the flag-gated actions are present regardless.
+function T.tests.presence_and_unlock_are_independent_projections()
+  local entries = StartMenuPolicy.build(facts({
+    hasStarter = false,
+    trainerCardUnlocked = true,
+  }))
+  local pokemon = entryById(entries, "vanilla.pokemon")
+  Assert.equal(pokemon.present, false, "pokemon is inhibited without a starter")
+  Assert.equal(pokemon.unlocked, false)
+  local card = entryById(entries, "vanilla.trainer_card")
+  Assert.equal(card.present, true, "trainer card is never mask-inhibited")
+  Assert.equal(card.unlocked, true, "its flag flips only the unlock gate")
+  Assert.equal(card.displayPosition, 3, "the present list stays dense over pokedex/bag/pokegear")
+  local save = entryById(entries, "vanilla.save")
+  Assert.equal(save.unlocked, true, "the save flag is on")
+  Assert.equal(save.displayPosition, 4)
+end
+
+-- The output carries exactly the declared fields: no message ref, no
+-- capability or product-mode projections, no enabled/visible state.
+function T.tests.output_carries_only_the_declared_fields()
+  local entries = StartMenuPolicy.build(facts())
+  for _, entry in ipairs(entries) do
+    local keys = {}
+    for key in pairs(entry) do
+      keys[#keys + 1] = key
+    end
+    table.sort(keys)
+    local expected = { "id", "present", "unlocked" }
+    if entry.targetApplication ~= nil then
+      table.insert(expected, "targetApplication")
+    end
+    if entry.present then
+      table.insert(expected, "displayPosition")
+    end
+    table.sort(expected)
+    Assert.deepEqual(keys, expected, "entry " .. entry.id .. " carries only the declared fields")
+  end
+end
+
+-- The strict snapshot: every required fact is present, no `or false`
+-- defaults; a missing or malformed boolean is a rejection, not a plausible
+-- default.
 function T.tests.strict_snapshot_rejects_missing_and_malformed_input()
   throwsCode("START_MENU_POLICY_INVALID_SNAPSHOT", function()
     local value = nil ---@type any
@@ -357,189 +226,43 @@ function T.tests.strict_snapshot_rejects_missing_and_malformed_input()
     StartMenuPolicy.build(value)
   end)
   throwsCode("START_MENU_POLICY_INVALID_SNAPSHOT", function()
-    local value = snapshot()
-    value.context = nil
+    local value = facts()
+    value.hasPokedex = nil
     StartMenuPolicy.build(value)
   end)
   throwsCode("START_MENU_POLICY_INVALID_SNAPSHOT", function()
-    local value = snapshot()
-    value.progression = nil
+    local value = facts()
+    value.bagUnlocked = "yes"
     StartMenuPolicy.build(value)
   end)
   throwsCode("START_MENU_POLICY_INVALID_SNAPSHOT", function()
-    local progression = { hasPokedex = true, hasStarter = true, bagUnlocked = nil, hasPokegear = true }
-    StartMenuPolicy.build(snapshot({ progression = progression }))
-  end)
-  throwsCode("START_MENU_POLICY_INVALID_SNAPSHOT", function()
-    local progression = { hasPokedex = true, hasStarter = true, hasPokegear = true }
-    StartMenuPolicy.build(snapshot({ progression = progression }))
-  end)
-  throwsCode("START_MENU_POLICY_INVALID_SNAPSHOT", function()
-    local progression = { hasPokedex = "yes", hasStarter = true, bagUnlocked = true, hasPokegear = true }
-    StartMenuPolicy.build(snapshot({ progression = progression }))
-  end)
-  throwsCode("START_MENU_POLICY_INVALID_SNAPSHOT", function()
-    local progression =
-      { hasPokedex = true, hasStarter = true, bagUnlocked = true, hasPokegear = true, hasPokedexx = true }
-    StartMenuPolicy.build(snapshot({ progression = progression }))
-  end)
-  throwsCode("START_MENU_POLICY_INVALID_SNAPSHOT", function()
-    local value = snapshot()
-    value.extra = true
+    local value = facts()
+    value.hasPokedexx = true
     StartMenuPolicy.build(value)
   end)
   throwsCode("START_MENU_POLICY_INVALID_SNAPSHOT", function()
-    local value = snapshot()
-    value.capabilities = nil
+    local value = facts()
+    value.context = "normal_field"
     StartMenuPolicy.build(value)
   end)
-  throwsCode("START_MENU_POLICY_UNKNOWN_CONTEXT", function()
-    StartMenuPolicy.build(snapshot({ context = "safari_zone" }))
+  throwsCode("START_MENU_POLICY_INVALID_SNAPSHOT", function()
+    local value = facts()
+    value.capabilities = { "trainer_card" }
+    StartMenuPolicy.build(value)
   end)
-  throwsCode("START_MENU_POLICY_UNKNOWN_CONTEXT", function()
-    StartMenuPolicy.build(snapshot({ context = "route_1" }))
-  end)
-end
-
-function T.tests.strict_snapshot_rejects_malformed_capabilities()
-  throwsCode("START_MENU_POLICY_INVALID_CAPABILITIES", function()
-    StartMenuPolicy.build(snapshot({ capabilities = "trainer_card" }))
-  end)
-  throwsCode("START_MENU_POLICY_INVALID_CAPABILITIES", function()
-    StartMenuPolicy.build(snapshot({ capabilities = { 42 } }))
-  end)
-  throwsCode("START_MENU_POLICY_INVALID_CAPABILITIES", function()
-    StartMenuPolicy.build(snapshot({ capabilities = { "" } }))
-  end)
-  throwsCode("START_MENU_POLICY_INVALID_CAPABILITIES", function()
-    StartMenuPolicy.build(snapshot({ capabilities = { "trainer_card", "trainer_card" } }))
-  end)
-  throwsCode("START_MENU_POLICY_INVALID_CAPABILITIES", function()
-    local sparse = {} ---@type table
-    sparse[1] = "trainer_card"
-    sparse[3] = "pokedex"
-    StartMenuPolicy.build(snapshot({ capabilities = sparse }))
-  end)
-  local entries = StartMenuPolicy.build(snapshot({ capabilities = {} }))
-  Assert.equal(#entries, 12, "an empty capability set still builds the canonical list")
-end
-
--- The capability split: present/vanillaEnabled/targetApplication are
--- independent; the injected capability set flips only the capability
--- projections.
-function T.tests.the_capability_set_flips_only_the_capability_projections()
-  local base = StartMenuPolicy.build(snapshot())
-  local grown = StartMenuPolicy.build(
-    snapshot({ capabilities = { "trainer_card", "pokedex", "bag", "pokegear", "save", "options", "pokemon" } })
-  )
-
-  local pokedexBase = entryById(base, "vanilla.pokedex")
-  local pokedexGrown = entryById(grown, "vanilla.pokedex")
-  Assert.equal(pokedexBase.present, true)
-  Assert.equal(pokedexBase.vanillaEnabled, true)
-  Assert.equal(pokedexBase.capabilityAvailable, false, "pokedex is not in the injected set")
-  Assert.equal(pokedexBase.enabled, false)
-  Assert.equal(pokedexBase.normalVisible, false, "capability-missing actions hide in normal builds")
-  Assert.equal(pokedexBase.developerVisible, true, "capability-missing actions stay visible in developer builds")
-  Assert.equal(pokedexGrown.capabilityAvailable, true, "adding the application to the set flips capability")
-  Assert.equal(pokedexGrown.enabled, true)
-  Assert.equal(pokedexGrown.normalVisible, true)
-  Assert.equal(pokedexGrown.present, true, "presence is unaffected by the capability set")
-  Assert.equal(pokedexGrown.vanillaEnabled, true, "vanillaEnabled is unaffected by the capability set")
-  Assert.equal(pokedexGrown.developerVisible, true)
-
-  local bagBase = entryById(base, "vanilla.bag")
-  Assert.equal(bagBase.capabilityAvailable, false)
-  local bagGrown = entryById(grown, "vanilla.bag")
-  Assert.equal(bagGrown.capabilityAvailable, true)
-
-  local shoesBase = entryById(base, "vanilla.running_shoes")
-  Assert.equal(shoesBase.targetApplication, nil, "running shoes has no application destination")
-  Assert.equal(shoesBase.capabilityAvailable, false)
-  Assert.equal(shoesBase.present, true)
-  Assert.equal(shoesBase.enabled, false)
-  Assert.equal(shoesBase.normalVisible, false)
-  Assert.equal(shoesBase.developerVisible, true)
-end
-
--- The present-vs-unavailable distinction: in Safari the mask never
--- inhibits the progression-gated actions, so a fresh game's Safari menu
--- still lists Pokédex/Pokémon/Bag/Pokégear as present-but-unavailable.
-function T.tests.safari_with_fresh_progression_lists_present_but_unavailable_actions()
-  local entries = StartMenuPolicy.build(snapshot({ context = "safari", progression = FRESH }))
-  local pokedex = entryById(entries, "vanilla.pokedex")
-  Assert.equal(pokedex.present, true, "the Safari mask does not inhibit pokedex")
-  Assert.equal(pokedex.vanillaEnabled, false, "the availability gate still applies")
-  Assert.equal(pokedex.enabled, false)
-  Assert.equal(pokedex.normalVisible, false)
-  Assert.equal(pokedex.developerVisible, true)
-  local pokegear = entryById(entries, "vanilla.pokegear")
-  Assert.equal(pokegear.present, true)
-  Assert.equal(pokegear.vanillaEnabled, false)
-  local save = entryById(entries, "vanilla.save")
-  Assert.equal(save.present, false, "the Safari mask inhibits save")
-  Assert.equal(save.developerVisible, false, "an absent action is not developer-visible either")
-  Assert.equal(save.displayPosition, nil)
-end
-
--- Vanilla Options stays a reserved canonical action, never redirected to a
--- project destination.
-function T.tests.vanilla_options_stays_reserved_and_capability_gated()
-  local entries = StartMenuPolicy.build(snapshot())
-  local options = entryById(entries, "vanilla.options")
-  Assert.equal(options.id, "vanilla.options")
-  Assert.equal(options.targetApplication, "options", "options keeps its canonical destination")
-  Assert.equal(options.present, true)
-  Assert.equal(options.vanillaEnabled, true)
-  Assert.equal(options.capabilityAvailable, false, "options has no destination application")
-  Assert.equal(options.enabled, false)
-  Assert.equal(options.normalVisible, false)
-  Assert.equal(options.developerVisible, true)
-end
-
--- The reserved mod-facing ids are exactly the eight declared ids.
-function T.tests.the_reserved_ids_and_context_names_are_the_pinned_sets()
-  Assert.deepEqual(StartMenuPolicy.RESERVED_IDS, {
-    "vanilla.pokedex",
-    "vanilla.pokemon",
-    "vanilla.bag",
-    "vanilla.pokegear",
-    "vanilla.trainer_card",
-    "vanilla.save",
-    "vanilla.options",
-    "vanilla.running_shoes",
-  })
-  Assert.deepEqual(StartMenuPolicy.CONTEXTS, {
-    "normal_field",
-    "amity_square",
-    "safari",
-    "bug_contest",
-    "pal_park",
-    "battle_tower_partner_room",
-    "colosseum",
-    "union_room",
-  })
-  local entries = StartMenuPolicy.build(snapshot())
-  for _, entry in ipairs(entries) do
-    Assert.isTrue(
-      entry.id:sub(1, #"vanilla.") == "vanilla.",
-      "every canonical action id is mod-visible under vanilla.*"
-    )
-  end
 end
 
 -- build is a pure projection: it never mutates the snapshot and returns
 -- fresh entry tables per call.
 function T.tests.build_does_not_mutate_the_snapshot_and_returns_fresh_entries()
-  local value = snapshot()
-  local before = snapshot()
+  local value = facts()
+  local before = facts()
   local first = StartMenuPolicy.build(value)
   first[1].present = not first[1].present
   local second = StartMenuPolicy.build(value)
   Assert.deepEqual(value, before, "the snapshot is untouched")
   Assert.isTrue(first[1] ~= second[1], "each call returns fresh entry tables")
   Assert.equal(second[1].present, false, "the mutation of the first result did not leak into the second")
-  Assert.equal(second[1].message, "msg.hgss.0196.00008", "fresh entries carry the same metadata")
 end
 
 return T

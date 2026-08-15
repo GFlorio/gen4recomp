@@ -1,15 +1,18 @@
 -- Production-composed application-host ownership contract: the runtime
--- composes the sealed application registry and the application host, the
+-- composes the sealed destination registry (child applications only; the
+-- start menu is the host's own factory) and the application host, the
 -- session steps the host as the one application modal owner, and runtime
 -- disposal in every application phase releases the active controller exactly
 -- once, the modal input lifetime once, and defers the save. The boot-config
--- descriptor seam registers the destination factories; the resize contract
--- cancels an active menu pointer capture so a press held across a layout
--- change cannot activate a different post-resize slot; and the rebuild
--- restores the remembered selection by action id even when it is not the
--- first enabled action.
+-- descriptor seam registers the destination factory under a canonical
+-- vanilla destination id, unlocked through its real flag; the resize
+-- contract recomputes the shared placement and cancels an active menu
+-- pointer capture so a press held across a layout change cannot activate a
+-- different post-resize slot; and the rebuild restores the remembered
+-- selection by action id even when it is not the first enabled action.
 
 local Assert = require("tests.support.Assert")
+local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 
@@ -21,8 +24,10 @@ local T = {
   tests = {},
 }
 
-local DESTINATION_ID = "fake_destination"
-local DESTINATION_ACTION = "my_mod.fake_destination"
+-- The fake destination rides the canonical save action: the boot-config
+-- descriptor seam supplies a real registered "save" destination, and the
+-- FLAG_GOT_SAVE_BUTTON unlock makes the vanilla save action interactive.
+local DESTINATION_ID = "save"
 local FACTORY_FAILURE_TEXT = "component injected destination factory failure"
 
 local function fakeDestination(registry, id)
@@ -71,9 +76,6 @@ end
 local function bootWithRegistry(options)
   options = options or {}
   local registry = {}
-  -- The fake destination rides a mod Start Menu action after the production
-  -- trainer card (which the runtime registers itself), so the fake's
-  -- observable counters drive the disposal matrix.
   local fieldOptions = {
     applicationDescriptors = {
       {
@@ -83,24 +85,9 @@ local function bootWithRegistry(options)
         end,
       },
     },
-    startMenuDescriptors = {
-      {
-        id = DESTINATION_ACTION,
-        label = "msg.hgss.0542.00034",
-        icon = "asset.my_mod.fake_destination_icon",
-        targetApplication = DESTINATION_ID,
-        placement = { after = "vanilla.trainer_card" },
-      },
-    },
   }
-  if options.development then
-    fieldOptions.development = true
-  end
   if options.applicationDescriptors then
     fieldOptions.applicationDescriptors = options.applicationDescriptors
-  end
-  if options.startMenuDescriptors then
-    fieldOptions.startMenuDescriptors = options.startMenuDescriptors
   end
   if options.screenTopology then
     fieldOptions.screenTopology = options.screenTopology
@@ -111,6 +98,8 @@ local function bootWithRegistry(options)
     save = "fresh",
     fieldOptions = fieldOptions,
   })
+  -- The fake destination becomes interactive through its real unlock flag.
+  game:setWorldState({ flag = FieldScriptSymbols.flagsByName.FLAG_GOT_SAVE_BUTTON })
   return game, registry
 end
 
@@ -137,21 +126,6 @@ local function confirmAction(game)
   game.runtime:releaseAction()
 end
 
--- The mod fake action occupies slot 3 below the production trainer card
--- (slot 2); select it before confirming so the fake's counters drive the
--- ownership assertions.
-local function navigateToFake(game)
-  game.runtime.input:pressDirection("south", "test:navigate")
-  game:step()
-  game.runtime.input:releaseDirection("test:navigate")
-end
-
-local function launchDestination(game, maxTicks)
-  navigateToFake(game)
-  confirmAction(game)
-  advanceToPhase(game, "application", 64)
-end
-
 -- The per-phase disposal matrix: runtime disposal in every application
 -- phase releases the active controller exactly once, releases the modal
 -- input lifetime, restores the capturable boundary before the save attempt,
@@ -159,15 +133,10 @@ end
 function T.tests.runtime_disposal_in_every_application_phase_releases_once()
   local cases = {
     {
-      phase = "opening_menu",
-      walk = function(game)
-        pressMenuEdge(game)
-      end,
-    },
-    {
       phase = "menu",
       walk = function(game)
-        openMenu(game)
+        pressMenuEdge(game)
+        advanceToPhase(game, "menu", 16)
       end,
     },
     {
@@ -182,26 +151,20 @@ function T.tests.runtime_disposal_in_every_application_phase_releases_once()
       phase = "application",
       walk = function(game)
         openMenu(game)
-        launchDestination(game)
+        confirmAction(game)
+        advanceToPhase(game, "application", 64)
       end,
     },
     {
       phase = "fading_in",
       walk = function(game)
         openMenu(game)
-        launchDestination(game)
+        confirmAction(game)
+        advanceToPhase(game, "application", 64)
         game.runtime:pressCancel()
         game:step()
         game.runtime:releaseCancel()
         advanceToPhase(game, "fading_in", 64)
-      end,
-    },
-    {
-      phase = "closing_menu",
-      walk = function(game)
-        openMenu(game)
-        pressMenuEdge(game)
-        advanceToPhase(game, "closing_menu", 16)
       end,
     },
   }
@@ -246,20 +209,11 @@ function T.tests.runtime_disposal_in_the_failed_phase_releases_cleanly()
           end,
         },
       },
-      startMenuDescriptors = {
-        {
-          id = DESTINATION_ACTION,
-          label = "msg.hgss.0542.00034",
-          icon = "asset.my_mod.fake_destination_icon",
-          targetApplication = DESTINATION_ID,
-          placement = { after = "vanilla.trainer_card" },
-        },
-      },
     },
   })
   local ok, err = xpcall(function()
+    game:setWorldState({ flag = FieldScriptSymbols.flagsByName.FLAG_GOT_SAVE_BUTTON })
     openMenu(game)
-    navigateToFake(game)
     confirmAction(game)
     game:advanceUntil("the factory failure is retained", function()
       return game.runtime.errorText ~= nil
@@ -276,7 +230,7 @@ function T.tests.runtime_disposal_in_the_failed_phase_releases_cleanly()
   game:close()
 end
 
--- A resize recomputes the placement and cancels an active menu
+-- A resize recomputes the shared placement and cancels an active menu
 -- pointer capture, so a press held across the layout change cannot activate
 -- a different post-resize slot. The production runtime exposes the resize
 -- path; the capture cancellation is observed through the activation result
@@ -285,6 +239,7 @@ function T.tests.resize_cancels_an_active_menu_pointer_capture()
   local game, _ = bootWithRegistry()
   local ok, err = xpcall(function()
     local runtime = game.runtime
+    game:setWorldState({ flag = FieldScriptSymbols.flagsByName.FLAG_GOT_TRAINER_CARD })
     local function topology(width, height)
       return ScreenTopology.oneDisplay({
         id = "main",
@@ -326,7 +281,8 @@ end
 
 -- The rebuilt menu restores the selection by action id: navigating to a
 -- non-first enabled action, launching it, and returning must restore that
--- action's slot, not the first-enabled fallback.
+-- action's slot, not the first-enabled fallback. The save destination rides
+-- slot 3 below the production trainer card (slot 2).
 function T.tests.the_rebuild_restores_the_remembered_selection_by_action_id()
   local registry = {}
   local game = harness():boot({
@@ -336,37 +292,29 @@ function T.tests.the_rebuild_restores_the_remembered_selection_by_action_id()
     fieldOptions = {
       applicationDescriptors = {
         {
-          id = "my_mod.quest_log",
+          id = DESTINATION_ID,
           factory = function()
-            return fakeDestination(registry, "my_mod.quest_log")
+            return fakeDestination(registry, DESTINATION_ID)
           end,
-        },
-      },
-      startMenuDescriptors = {
-        {
-          id = "my_mod.quest_log",
-          label = "msg.hgss.0542.00034",
-          icon = "asset.my_mod.quest_log_icon",
-          targetApplication = "my_mod.quest_log",
-          placement = { after = "vanilla.trainer_card" },
         },
       },
     },
   })
   local ok, err = xpcall(function()
+    game:setWorldState({ flag = FieldScriptSymbols.flagsByName.FLAG_GOT_TRAINER_CARD })
+    game:setWorldState({ flag = FieldScriptSymbols.flagsByName.FLAG_GOT_SAVE_BUTTON })
     openMenu(game)
     local actions = game.runtime.applicationHost:status().menu.actions
     Assert.equal(#actions, 2, "both enabled actions must be visible")
-    Assert.equal(actions[2].id, "my_mod.quest_log")
-    Assert.equal(actions[2].enabled, true)
-    -- Navigate down to the mod action and launch it.
+    Assert.equal(actions[2].id, "vanilla.save")
+    -- Navigate down to the save action and launch it.
     game.runtime.input:pressDirection("south", "test:navigate")
     game:step()
     game.runtime.input:releaseDirection("test:navigate")
     Assert.equal(game.runtime.applicationHost:status().menu.cursorSlotId, 3)
     confirmAction(game)
     advanceToPhase(game, "application", 64)
-    Assert.equal(game.runtime.applicationHost:status().applicationId, "my_mod.quest_log")
+    Assert.equal(game.runtime.applicationHost:status().applicationId, DESTINATION_ID)
     game.runtime:pressCancel()
     game:step()
     game.runtime:releaseCancel()
@@ -376,7 +324,7 @@ function T.tests.the_rebuild_restores_the_remembered_selection_by_action_id()
       3,
       "the rebuild must restore the remembered action, not the first-enabled fallback"
     )
-    Assert.equal(registry["my_mod.quest_log"].disposeCount, 1, "the returned destination is disposed exactly once")
+    Assert.equal(registry[DESTINATION_ID].disposeCount, 1, "the returned destination is disposed exactly once")
   end, debug.traceback)
   game:close()
   if not ok then

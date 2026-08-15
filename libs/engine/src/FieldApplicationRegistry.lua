@@ -88,17 +88,17 @@ function FieldApplicationRegistry:ids()
 end
 
 -- Dispatches one application construction through the registered factory.
--- Extra arguments are forwarded to the factory (the application host passes
--- the remembered Start Menu selection when composing the menu itself).
+-- The registry holds child destinations only; the Start Menu is composed by
+-- the application host's own menu factory, so no arguments are forwarded.
 ---@param id string
 ---@return table controller
-function FieldApplicationRegistry:create(id, ...)
+function FieldApplicationRegistry:create(id)
   requireSealed(self)
   if self._factories[id] == nil then
     Errors.raise(FieldErrors.APPLICATION_REGISTRY_UNKNOWN_ID, "unknown application id", { id = id })
   end
   local factory = assert(self._factories[id])
-  local controller = factory(...)
+  local controller = factory()
   if type(controller) ~= "table" then
     Errors.raise(
       FieldErrors.APPLICATION_REGISTRY_INVALID_CONTROLLER,

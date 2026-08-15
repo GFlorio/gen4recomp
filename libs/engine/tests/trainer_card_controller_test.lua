@@ -21,27 +21,22 @@ local function throws(fn)
 end
 
 local function demoProfile()
-  return {
-    profile = { name = "GOLD", gender = 0, trainerId = 0 },
-    options = { textFrame = 0, textSpeed = "mid" },
-  }
+  return { name = "GOLD", gender = 0, trainerId = 0 }
 end
 
 local function fixture(profile)
-  local controller = TrainerCardController.new({
-    profile = profile or demoProfile().profile,
-  })
-  return controller
+  return TrainerCardController.new({ profile = profile or demoProfile() })
 end
 
--- The card must expose only the implemented profile fields: extra keys are
--- a contract violation even when their value is nil.
 function T.tests.construction_requires_the_profile()
   throws(function()
     TrainerCardController.new({})
   end)
   throws(function()
     TrainerCardController.new({ profile = {} })
+  end)
+  throws(function()
+    TrainerCardController.new({ profile = { name = "GOLD" } })
   end)
   throws(function()
     TrainerCardController.new({ profile = { name = "GOLD", gender = 0 } })
@@ -54,6 +49,8 @@ function T.tests.construction_requires_the_profile()
   end)
 end
 
+-- The card must expose only the implemented profile fields: extra keys are
+-- a contract violation even when their value is nil.
 function T.tests.status_exposes_exactly_the_implemented_profile_fields()
   local status = fixture():status()
   Assert.equal(status.open, true)

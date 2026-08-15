@@ -8,6 +8,7 @@
 -- initial manifest).
 
 local Assert = require("tests.support.Assert")
+local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 
 local T = {
@@ -69,7 +70,15 @@ function T.tests.production_factory_registers_the_card_and_resume_drives_the_pre
       true,
       "the production runtime must register the trainer_card application itself"
     )
-    Assert.equal(#(applications:ids() or {}), 2, "the sealed registry holds the start menu and the trainer card only")
+    Assert.equal(
+      #(applications:ids() or {}),
+      1,
+      "the sealed registry holds only the trainer card -- the start menu is not a registry entry"
+    )
+
+    -- The vanilla trainer_card action becomes interactive exactly because
+    -- its unlock flag is set and the production destination exists.
+    game:setWorldState({ flag = FieldScriptSymbols.flagsByName.FLAG_GOT_TRAINER_CARD })
 
     openCard(game)
     local status = cardStatus(game)

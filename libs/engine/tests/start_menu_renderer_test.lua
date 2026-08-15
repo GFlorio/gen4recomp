@@ -176,12 +176,15 @@ end
 -- testing consume the same record shape, so a draw regression against the
 -- transform is a mismatch.
 local function canonicalPlacement()
-  return StartMenuLayout.resolve(ScreenTopology.oneDisplay({
-    id = "main",
-    rect = { x = 0, y = 0, width = 256, height = 192 },
-    touch = false,
-    role = "world",
-  }))
+  return StartMenuLayout.resolve(
+    ScreenTopology.oneDisplay({
+      id = "main",
+      rect = { x = 0, y = 0, width = 256, height = 192 },
+      touch = false,
+      role = "world",
+    }),
+    { x = 0, y = 0, width = 256, height = 192 }
+  )
 end
 
 local function menuCache()
@@ -352,6 +355,23 @@ function T.draws_the_background_and_the_cursor_over_the_presented_slot()
   local slot = FieldUiFixture.START_MENU_SLOTS[1]
   Assert.equal(cursorDraw.x, slot.x + slot.width / 2 - 8, "the cursor centers on the presented slot")
   Assert.equal(cursorDraw.y, slot.y + slot.height / 2 - 8)
+end
+
+-- A missing cursor is a valid menu state, not malformed presentation: an
+-- open menu without a selection draws the background and stops successfully.
+function T.a_missing_cursor_draws_the_background_and_stops()
+  local lg = fakeGraphics({ imageSizes = { { 256, 192 }, { 16, 32 } } })
+  local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), graphics = lg })
+  renderer:draw({ cursorSlotId = nil, cursorFrameIndex = nil }, canonicalPlacement())
+  renderer:release()
+
+  Assert.equal(#lg.draws, 1, "a menu without a cursor draws only the background")
+  Assert.equal(lg.draws[1].image, lg.images[1], "the background image is drawn")
+  Assert.deepEqual(
+    { lg.draws[1].quad.x, lg.draws[1].quad.y, lg.draws[1].quad.w, lg.draws[1].quad.h },
+    { 0, 0, 256, 192 }
+  )
+  Assert.equal(lg.pushDepth(), 0, "the transform stack is balanced")
 end
 
 -- The presented frame index selects the manifest frame's quad: frame 0

@@ -1,25 +1,29 @@
 -- Production-composed Trainer Card viewer contract: the runtime itself must
--- register the real trainer_card application (no boot-config descriptor), the
+-- register the real trainer_card application (no boot-config descriptor, and
+-- the start_menu magic id must not exist in the destination registry), the
 -- card's presentation must reach the host snapshot carrying the authoritative
 -- player profile (name/gender/trainerId from runtime.playerData through the
 -- read model), and the full journey Start Menu → card → cancel → Start Menu
 -- must run with the world paused, the save gate blocked, and the card's close
 -- edge leaking nothing into the field. One production boot in normal mode:
--- the vanilla trainer_card action is enabled exactly because the production
--- destination exists. The UI-owned audio stack (the SDAT-derived Start Menu
--- and Trainer Card effects) is removed, so the whole journey — menu open,
--- card confirm, card close, menu rebuild, menu close — must be silent; the
--- source cancel effect (SEQ_SE_GS_GEARCANCEL, overlay_trainer_card_main.s
--- ov51_021E6A54 at the pinned decomp commit) is not reproduced by this
--- branch. The menu rebuild restores the remembered selection; the final menu
--- close returns to a capturable field with zero script faults. The card
--- presentation also exposes exactly the implemented profile fields: the
--- controller copies name/gender/trainerId from the profile at construction
--- and nothing else -- no money/stars/signature or other future-card
--- scaffolding may leak through the production host snapshot.
+-- the vanilla trainer_card action becomes interactive exactly because its
+-- unlock flag is set and the production destination exists — the menu
+-- carries no resolved label text and no product-mode projection. The UI-owned
+-- audio stack (the SDAT-derived Start Menu and Trainer Card effects) is
+-- removed, so the whole journey — menu open, card confirm, card close, menu
+-- rebuild, menu close — must be silent; the source cancel effect
+-- (SEQ_SE_GS_GEARCANCEL, overlay_trainer_card_main.s ov51_021E6A54 at the
+-- pinned decomp commit) is not reproduced by this branch. The menu rebuild
+-- restores the remembered selection; the final menu close returns to a
+-- capturable field with zero script faults. The card presentation also
+-- exposes exactly the implemented profile fields: the controller copies
+-- name/gender/trainerId from the profile at construction and nothing else --
+-- no money/stars/signature or other future-card scaffolding may leak through
+-- the production host snapshot.
 
 local Assert = require("tests.support.Assert")
 local FieldSave = require("libs.engine.src.FieldSave")
+local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 
 local T = {
@@ -79,7 +83,8 @@ local function pressMenuEdge(game)
 end
 
 -- Bounded wait on the host phase; fixed tick counts are never asserted for
--- fade durations (the phase sequence is the contract, not the fade length).
+-- fade durations (the host owns the fade length; the phase sequence is its
+-- own contract).
 local function advanceToPhase(game, phase, maxTicks)
   return game:advanceUntil("start menu reaches " .. phase, function()
     return hostPhase(game) == phase
@@ -119,20 +124,29 @@ function T.tests.trainer_card_viewer_runs_through_production_composition_and_ret
       true,
       "the production runtime must register the trainer_card application without a boot-config descriptor"
     )
+    Assert.equal(
+      applications:has("start_menu"),
+      false,
+      "the start menu is not an application-registry entry and the magic id must not exist"
+    )
     Assert.equal(hostPhase(game), "closed", "the host starts closed")
     Assert.equal(hostStatus(game).fadeAlpha, 0, "no application fade is active at the closed boundary")
 
-    -- The vanilla trainer_card action is enabled in normal mode exactly
-    -- because the production destination exists (the capability formula).
+    -- The vanilla trainer_card action is interactive exactly because its
+    -- unlock flag is set and the production destination exists (the
+    -- capability formula); a fresh game without the flag composes zero
+    -- actions, so the journey unlocks the card first.
+    game:setWorldState({ flag = FieldScriptSymbols.flagsByName.FLAG_GOT_TRAINER_CARD })
     pressMenuEdge(game)
     advanceToPhase(game, "menu", 16)
     local actions = menuActions(game)
-    Assert.equal(#actions, 1, "normal mode must show only the capability-available trainer card action")
+    Assert.equal(#actions, 1, "normal mode must show only the unlocked trainer card action")
     local card = actions[1]
     Assert.notNil(card, "the trainer card action must be present")
     Assert.equal(card.id, "vanilla.trainer_card", "the first visible action is the trainer card")
     Assert.equal(card.targetApplication, CARD_APPLICATION, "the action must target the trainer card application")
-    Assert.equal(card.enabled, true, "the production destination must enable the action")
+    Assert.isNil(card.message, "the start menu carries no resolved label text")
+    Assert.isNil(card.enabled, "the final action list carries no product-mode projection")
     Assert.equal(hostStatus(game).menu.cursorSlotId, 2, "the fresh menu selects the first enabled action")
     Assert.equal(hostStatus(game).application, nil, "the menu phase must present only the menu surface")
     Assert.equal(#audioEffects(game), 0, "opening the menu must not request any UI sound")

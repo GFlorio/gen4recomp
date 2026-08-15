@@ -61,8 +61,10 @@ dedicated entry helpers `sub_0203BCDC` (union, `unk_350 = TRUE`,
 
 Context flags: `FLAG_SYS_SAFARI` 0x967 and `FLAG_SYS_PAL_PARK` 0x971
 (`include/constants/flags.h:1713,1723`), the Bug Contest check is
-`FLAG_UNK_996` (`src/sys_flags.c:216-218`). The policy never reads these:
-the game-side adapter maps them to a named context.
+`FLAG_UNK_996` (`src/sys_flags.c:216-218`). The production policy models the
+normal field context only; the special contexts below are source behavior
+the runtime cannot currently produce, so they stay out of the executable
+state space.
 
 ## Inhibit masks (list presence)
 
@@ -85,9 +87,8 @@ apply in them):
 check. `MapHeader_MapIsAmitySquare` (`src/map_header.c:222-224`) is
 **dead code in retail**: it always returns FALSE, with the comment "Leftover
 from D/P/Pl." — no retail play can reach the Amity Square inhibit. The
-`amity_square` policy context nevertheless implements the source's mask
-structure for it (normal gates + unconditional POKEMON|BAG), so the model
-matches what the code would do if the check were live.
+production policy therefore models the normal mask only (which itself never
+inhibits through the Amity branch).
 
 `FieldSystem_MapIsBattleTowerMultiPartnerSelectRoom` is declared in
 `include/unk_02066EDC.h:16`; the mask is applied when it returns TRUE.
@@ -142,21 +143,21 @@ The other unlock flags are `FLAG_GOT_TRAINER_CARD` 0x11C,
 `CheckGotPokegear`/`CheckGotPokedex`/`CheckGotMenuIconI`
 (`src/sys_flags.c:273-289`).
 
-Policy consequence (the present-vs-unavailable distinction): the four
-CheckGot-gated actions derive `vanillaEnabled` from the strict snapshot's
-progression booleans; TRAINER_CARD/SAVE/OPTIONS/RUNNING_SHOES and the
-special actions are modeled as canonically available constants because (a)
-their gates are sysflags/player-save data the pinned snapshot does not
-carry, and (b) the canonical game sets the four `FLAG_GOT_BAG+idx` unlocks
-in the very first scripted conversation (`files/fielddata/script/scr_seq/
-scr_seq_0845_T20R0201.s:29,36,42,48`), and the RUNNING_SHOES gate is
-unreachable via the action path (icon 100 → default TRUE).
+Policy consequence (the present-vs-unavailable distinction): the strict
+snapshot carries all seven unlock facts — the four `CheckGot*` progression
+gates plus the three `FLAG_GOT_BAG+idx` unlocks — and each action derives
+`present` (source mask) and `unlocked` (its availability gate) separately.
+The canonical game sets the four `FLAG_GOT_BAG+idx` unlocks in the very
+first scripted conversation (`files/fielddata/script/scr_seq/
+scr_seq_0845_T20R0201.s:29,36,42,48`), but the policy does not assume them:
+a fresh game lists the unlock-flag actions as present but locked. The
+RUNNING_SHOES gate is unreachable via the action path (icon 100 → default
+TRUE).
 
 ## Message bank
 
 The label refs are pure refs (`msg.hgss.0196.000XX`); bank 0196 is absent
-from the demo generated message cache (banks dir holds 0191, 0542-0549), so
-no producer bank-selection change is part of this deliverable. Resolution
-through `FieldMessageProvider` is the menu composition step's work: "The
-Start Menu composition step resolves them through `FieldMessageProvider`
-before constructing the controller".
+from the demo generated message cache (banks dir holds 0191, 0542-0549), and
+the runtime composes no label text at all: the compiled Start Menu surface
+has the icon art baked in, so no message-bank resolution exists in the menu
+path.

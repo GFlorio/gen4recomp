@@ -10,7 +10,6 @@ local FieldSignpostRenderer = require("libs.engine.src.FieldSignpostRenderer")
 local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local MapRenderer = require("libs.engine.src.MapRenderer")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
-local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 local StartMenuRenderer = require("libs.engine.src.StartMenuRenderer")
 local TrainerCardRenderer = require("libs.engine.src.TrainerCardRenderer")
 
@@ -34,7 +33,7 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@field startMenuRenderer StartMenuRenderer?
 ---@field trainerCardRenderer TrainerCardRenderer?
 ---@field textRenderer FieldTextRenderer? the one shared glyph atlas the UI renderers draw through
----@field _startMenuLayout StartMenuLayout.Placement? the placement record for the current topology (rendering and the application fade)
+---@field _lastGeometrySignature string? the structural presentation-geometry signature the last sync consumed
 ---@field presentationActorAssets FieldActorAssetProvider?
 ---@field _presentationSpriteRefs table<integer, boolean>
 ---@field _lastActorManager any?
@@ -63,15 +62,13 @@ end
 
 function FieldState.new(versionId, mapIdOrSymbol, options)
   options = options or {}
-  -- Only the documented runtime contract crosses the boundary: development
-  -- is the product-mode flag the application host consumes (a state-only
-  -- option such as topologyProvider must never become a runtime option).
+  -- Only the documented runtime contract crosses the boundary: a state-only
+  -- option such as topologyProvider must never become a runtime option.
   local runtimeOptions = {
     resumeSave = options.resumeSave == true,
     resetSave = options.resetSave == true,
     zoomConfig = options.zoomConfig,
     presentation = true,
-    development = options.development == true,
   }
   -- Construction is binary: FieldRuntime.new either raised (boot failed) or
   -- returned a fully usable runtime, so presentation resources are acquired
@@ -112,7 +109,13 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
       text = self.textRenderer,
     })
     local width, height = love.graphics.getDimensions()
-    runtime.menuHost:setScreenTopology(self.topologyProvider(width, height))
+    -- The initial presentation-geometry sync: pointer input must work
+    -- before the user has resized the window, so the runtime computes and
+    -- stores the Start Menu placement as soon as the graphics dimensions are
+    -- known.
+    local topology = self.topologyProvider(width, height)
+    runtime:resizePresentation(width, height, topology)
+    self:_recordGeometrySignature(width, height, topology)
     runtime.menuHost:setPresentationMetrics(function(text)
       return love.graphics.getFont():getWidth(text)
     end)
@@ -228,6 +231,36 @@ function FieldState:_worldParts(alpha)
   return worldParts
 end
 
+-- The structural presentation-geometry signature: the window dimensions plus
+-- every surface identity, role, and safe rectangle. A safe-area change with
+-- the same window dimensions must recompute the placement, and a change
+-- must not be reported while nothing structural moved (so an active Start
+-- Menu pointer capture is not cancelled unnecessarily).
+---@param width integer
+---@param height integer
+---@param topology ScreenTopology
+---@return string
+function FieldState:_geometrySignature(width, height, topology)
+  local parts = { tostring(width), tostring(height) }
+  for _, surface in ipairs(topology.surfaces) do
+    local safe = surface.safeRect or surface.rect
+    parts[#parts + 1] = string.format(
+      "|%s:%s:%d:%d:%d:%d",
+      tostring(surface.id),
+      tostring(surface.role),
+      safe.x,
+      safe.y,
+      safe.width,
+      safe.height
+    )
+  end
+  return table.concat(parts)
+end
+
+function FieldState:_recordGeometrySignature(width, height, topology)
+  self._lastGeometrySignature = self:_geometrySignature(width, height, topology)
+end
+
 function FieldState:draw()
   local lg = love.graphics
   if self.runtime.errorText then
@@ -238,14 +271,13 @@ function FieldState:draw()
   end
   local width, height = lg.getDimensions()
   local topology = self.topologyProvider(width, height)
-  if self.runtime.viewport.width ~= width or self.runtime.viewport.height ~= height then
+  if self:_geometrySignature(width, height, topology) ~= self._lastGeometrySignature then
+    -- The one geometry sync point: the runtime recomputes the shared Start
+    -- Menu placement record (rendering and the host's pointer mapper consume
+    -- the same value) and cancels any held menu pointer capture.
     self.runtime:resizePresentation(width, height, topology)
+    self:_recordGeometrySignature(width, height, topology)
   end
-  -- The StartMenuLayout placement record for the current topology: the same
-  -- pure derivation the application host maps hit-test points through, so
-  -- rendering and hit testing share one record with no second set of scaled
-  -- rectangles.
-  self._startMenuLayout = StartMenuLayout.resolve(topology)
   local alpha = self.runtime.session:renderAlpha()
   self.renderer:draw(
     self.runtime.runtimeMap.sceneRuntime,
@@ -278,10 +310,11 @@ function FieldState:draw()
       self.signpostRenderer:draw(self.runtime.signpost, self.runtime.viewport, alpha)
     end
   end
-  -- The one active application surface: the Start Menu through its placement
-  -- record, or the Trainer Card in the viewport; never both.
+  -- The one active application surface: the Start Menu through the runtime's
+  -- placement record (the same record the host maps pointer input through),
+  -- or the Trainer Card in the viewport; never both.
   if hostStatus.menu then
-    self.startMenuRenderer:draw(hostStatus.menu, assert(self._startMenuLayout))
+    self.startMenuRenderer:draw(hostStatus.menu, assert(self.runtime.startMenuPlacement))
   elseif hostStatus.application then
     self.trainerCardRenderer:draw(hostStatus.application, self.runtime.viewport)
   end
@@ -302,7 +335,7 @@ end
 function FieldState:_drawApplicationFade(alpha)
   local lg = love.graphics
   local world = self.runtime.viewport.worldViewport
-  local frame = assert(self._startMenuLayout, "the application fade requires the placement record").frame
+  local frame = assert(self.runtime.startMenuPlacement, "the application fade requires the placement record").frame
   local x = math.min(world.x, frame.x)
   local y = math.min(world.y, frame.y)
   local x2 = math.max(world.x + world.width, frame.x + frame.width)
@@ -551,7 +584,7 @@ function FieldState:dispose()
     self.textRenderer:release()
     self.textRenderer = nil
   end
-  self._startMenuLayout = nil
+  self._lastGeometrySignature = nil
   -- Draw items borrow provider-owned GPU objects; they must not outlive the
   -- presentation residency that made those objects valid.
   self._actorRecords = nil
