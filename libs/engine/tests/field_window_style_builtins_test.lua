@@ -95,7 +95,7 @@ end
 function T.tests.missing_manifest_sections_fail_loudly()
   local r = FieldWindowStyleRegistry.new()
   Assert.throws(function()
-    r:registerBuiltins({ schema = "g4-field-ui-v1", assets = {} })
+    r:registerBuiltins({ schema = "g4-field-ui-v2", assets = {} })
   end)
   local r2 = FieldWindowStyleRegistry.new()
   Assert.throws(function()

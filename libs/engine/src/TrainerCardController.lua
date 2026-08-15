@@ -1,54 +1,36 @@
 -- The read-only Trainer Card viewer controller: it owns close input
 -- only and has no access to Start Menu internals; a cancel edge returns
--- { kind = "close" } to the FieldApplicationHost exactly once and requests
--- the card's cancel effect once (the source close input step
--- ov51_021E6A54 in asm/overlay_trainer_card_main.s at the pinned decomp
--- commit plays SEQ_SE_GS_GEARCANCEL for B and returns the close state).
--- Every other input — directions, confirm, the synthesized menu edge, and
--- pointers — changes nothing: while a child application is active its own
--- input policy applies and the menu edge must not tear the card down
--- The status passes the full model projection through
--- unchanged (name/gender/trainerId plus the explicit-nil optional fields),
--- so the renderer can choose the audited blank presentation for every value
--- the gameplay model does not own. Pure module: no love, no I/O, no Start
--- Menu internals.
+-- { kind = "close" } to the FieldApplicationHost exactly once. The close
+-- input step exists in the source (ov51_021E6A54 in
+-- asm/overlay_trainer_card_main.s at the pinned decomp commit plays
+-- SEQ_SE_GS_GEARCANCEL for B and returns the close state), but this branch
+-- does not reproduce the card's cancel effect: the controller requests no
+-- sound. Every other input — directions, confirm, the synthesized menu edge,
+-- and pointers — changes nothing: while a child application is active its
+-- own input policy applies and the menu edge must not tear the card down.
+-- The status passes the full model projection through unchanged
+-- (name/gender/trainerId plus the explicit-nil optional fields), so the
+-- renderer can choose the audited blank presentation for every value the
+-- gameplay model does not own. Pure module: no love, no I/O, no Start Menu
+-- internals.
 
 ---@class TrainerCardController
 ---@field _model table the model projection
----@field _audio TrainerCardAudioFacade
 ---@field _result { kind: "close" }?
 ---@field _closed boolean
 local TrainerCardController = {}
 TrainerCardController.__index = TrainerCardController
 
--- The card's close effect: the same GEARCANCEL effect the Start Menu cancel
--- uses (the semantic effect catalogue; the producer compiled sequence
--- 2368 = SEQ_SE_GS_GEARCANCEL for start_menu.cancel).
-TrainerCardController.SOUND_CANCEL = "start_menu.cancel"
-
----@class TrainerCardAudioFacade
----@field play fun(self: TrainerCardAudioFacade, requestId: string) plays one semantic UI request
-
----@param opts { model: table, audio: TrainerCardAudioFacade }
+---@param opts { model: table }
 ---@return TrainerCardController
 function TrainerCardController.new(opts)
   assert(type(opts) == "table" and type(opts.model) == "table", "the trainer card controller requires the model")
-  local audio = opts.audio
-  assert(
-    type(audio) == "table" and type(audio.play) == "function",
-    "the trainer card controller requires an audio facade"
-  )
   return setmetatable({
     _model = opts.model,
-    _audio = audio,
     _result = nil,
     _closed = false,
   }, TrainerCardController)
 end
-
--- The card opens silently: the Start Menu's select effect already played on
--- confirm, and the source card init plays no sound. The controller therefore
--- requests a sound only on close.
 
 -- One fixed tick. The card consumes only its own close edge; foreign input
 -- is ignored (the child-application input policy).
@@ -65,10 +47,9 @@ function TrainerCardController:updateFixed(uiInput)
   end
 end
 
--- The close edge: the source plays SEQ_SE_GS_GEARCANCEL once and returns
--- the close state; the host owns the actual return path.
+-- The close edge records the close state; the host owns the actual return
+-- path.
 function TrainerCardController:_close()
-  self._audio:play(TrainerCardController.SOUND_CANCEL)
   self._result = { kind = "close" }
   self._closed = true
 end

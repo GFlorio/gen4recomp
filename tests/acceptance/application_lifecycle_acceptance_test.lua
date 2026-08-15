@@ -11,7 +11,10 @@
 -- application, the destination is constructed through the registry factory
 -- and disposed exactly once on return, the menu rebuilds with the remembered
 -- selection, the closing edges leak nothing into the field, and runtime
--- disposal mid-menu releases the modal before the save attempt. The second boot
+-- disposal mid-menu releases the modal before the save attempt. The UI-owned
+-- audio stack (the SDAT-derived Start Menu and Trainer Card effects) is
+-- removed, so every menu boundary — open, select, rebuild, close — must be
+-- silent: no sound request may reach the recording audio seam. The second boot
 -- pins the capability gate in developer mode (capability-missing canonical
 -- entries rendered disabled) and the destination-factory failure after
 -- fade-out: the original error is retained, no successful return to the menu
@@ -94,6 +97,8 @@ local function hostPhase(game)
 end
 
 local function audioEffects(game)
+  -- The recording audio seam is the contract observer: with the UI-owned
+  -- audio stack deleted, every menu boundary must leave zero entries here.
   local entries = {}
   for _, entry in ipairs(game.hosts.effects) do
     if type(entry) == "string" and entry:sub(1, 6) == "audio:" then
@@ -259,7 +264,7 @@ function T.tests.start_menu_lifecycle_with_a_registered_destination_runs_through
     Assert.equal(fakeAction.position, 1, "the mod action occupies the next display position")
     Assert.equal(fakeAction.slotId, 3, "display position 1 occupies manifest slot 3")
     Assert.equal(menu.cursorSlotId, 2, "the fresh menu selects the first enabled action")
-    Assert.equal(#audioEffects(game), 1, "opening the menu must request exactly the open sound")
+    Assert.equal(#audioEffects(game), 0, "opening the menu must not request any UI sound")
     local pausedAtOpen = game:snapshot().player
     -- The pause check doubles as the selection move: with exactly two visible
     -- actions a south move navigates the wrap-around list to the mod fake
@@ -268,13 +273,13 @@ function T.tests.start_menu_lifecycle_with_a_registered_destination_runs_through
     assertPausedAt(pausedAtOpen, game, "the open menu")
     Assert.equal(hostStatus(game).menu.cursorSlotId, 3, "the move navigates the menu to the fake destination action")
 
-    -- Confirm: the select sound fires once, then the fade-out ticks run and
+    -- Confirm: no select sound fires, then the fade-out ticks run and
     -- the destination is constructed through the registry factory only after
     -- the fade hides the world.
     runtime:pressAction()
     game:step()
     runtime:releaseAction()
-    Assert.equal(#audioEffects(game), 2, "confirming must request exactly the select sound")
+    Assert.equal(#audioEffects(game), 0, "confirming must not request any UI sound")
     advanceToPhase(game, "fading_out", 8)
     Assert.isTrue(hostStatus(game).fadeAlpha < 1, "the fade-out must be in progress while the fade phase is active")
     advanceToPhase(game, "application", 64)
@@ -300,7 +305,7 @@ function T.tests.start_menu_lifecycle_with_a_registered_destination_runs_through
     Assert.equal(fake.disposeCount, 1, "the returned destination must be disposed exactly once")
     advanceToPhase(game, "menu", 64)
     Assert.equal(fake.disposeCount, 1, "the destination must never be disposed twice")
-    Assert.equal(#audioEffects(game), 3, "the menu rebuild must request the open sound again")
+    Assert.equal(#audioEffects(game), 0, "the menu rebuild must not request any UI sound")
     local rebuiltMenu = hostStatus(game).menu ---@type any
     Assert.equal(
       rebuiltMenu.cursorSlotId,
@@ -309,12 +314,12 @@ function T.tests.start_menu_lifecycle_with_a_registered_destination_runs_through
     )
     assertPausedAt(pausedAtOpen, game, "the rebuilt menu")
 
-    -- The menu-key close: the cancel sound fires once, the host returns to
+    -- The menu-key close: no cancel sound fires, the host returns to
     -- the field, the save boundary restores, and the closing edges leak
     -- nothing into field interaction or movement.
     pressMenuEdge(game)
     advanceToPhase(game, "closed", 16)
-    Assert.equal(#audioEffects(game), 4, "closing the menu must request exactly the cancel sound")
+    Assert.equal(#audioEffects(game), 0, "closing the menu must not request any UI sound")
     Assert.equal(
       FieldSave.canCapture(game.runtime.session),
       true,

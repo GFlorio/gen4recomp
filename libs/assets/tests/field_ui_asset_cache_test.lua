@@ -60,23 +60,6 @@ local function validManifest()
       icons = { pokedex = 0, pokemon = 1 },
     },
     trainerCard = { front = { x = 0, y = 0, width = 256, height = 192 } },
-    sounds = {
-      ["start_menu.open"] = {
-        path = "assets/generated/field/ui/sounds/start-menu-open.wav",
-        sampleRate = 22050,
-        frameCount = 1000,
-      },
-      ["start_menu.select"] = {
-        path = "assets/generated/field/ui/sounds/start-menu-select.wav",
-        sampleRate = 22050,
-        frameCount = 500,
-      },
-      ["start_menu.cancel"] = {
-        path = "assets/generated/field/ui/sounds/start-menu-cancel.wav",
-        sampleRate = 22050,
-        frameCount = 800,
-      },
-    },
   }
 end
 
@@ -86,9 +69,6 @@ local function publishedCache(manifest)
   cache:write(FieldUiAssetCache.markerPath(), FieldUiAssetCache.marker("rom-sha", "dep-hash"))
   for _, entry in pairs((manifest or validManifest()).assets) do
     cache:write(entry.image, "png")
-  end
-  for _, sound in pairs((manifest or validManifest()).sounds) do
-    cache:write(sound.path, "wav")
   end
   return cache
 end
@@ -113,12 +93,6 @@ function T.ready_requires_marker_manifest_and_every_indexed_file()
   Assert.isFalse(
     FieldUiAssetCache.isReady(cache2, FieldUiAssetCache.marker("rom-sha", "dep-hash")),
     "a missing indexed file is not ready"
-  )
-  local cache3 = publishedCache()
-  cache3:remove("assets/generated/field/ui/sounds/start-menu-select.wav")
-  Assert.isFalse(
-    FieldUiAssetCache.isReady(cache3, FieldUiAssetCache.marker("rom-sha", "dep-hash")),
-    "a missing sound is not ready"
   )
 end
 
@@ -157,15 +131,6 @@ function T.rectangles_outside_their_atlas_are_rejected()
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
     m.signposts.types[2] = { sourceType = "two" }
-  end, "FIELD_UI_MANIFEST_INVALID")
-end
-
-function T.sounds_require_positive_rates_and_counts()
-  reject(function(m)
-    m.sounds["start_menu.open"].sampleRate = 0
-  end, "FIELD_UI_MANIFEST_INVALID")
-  reject(function(m)
-    m.sounds["start_menu.open"].frameCount = -3
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 

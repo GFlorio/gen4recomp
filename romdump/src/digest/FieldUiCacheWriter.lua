@@ -1,11 +1,10 @@
 -- Persists a compiled field-UI bundle through the shared staged
 -- publication primitive: provenance, the manifest, and every generated PNG
--- and WAV are written into a disposable staging root, readback-validated
--- there, and only then is the completed stage published with the marker
--- last. Staging and validation are one step; publication happens outside
--- that step's error handler, so a publish failure never triggers
--- writer-level stage cleanup that could delete the last remaining copy of
--- the previous class.
+-- are written into a disposable staging root, readback-validated there, and
+-- only then is the completed stage published with the marker last. Staging
+-- and validation are one step; publication happens outside that step's
+-- error handler, so a publish failure never triggers writer-level stage
+-- cleanup that could delete the last remaining copy of the previous class.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
@@ -39,13 +38,6 @@ local function stageBundle(tx, bundle)
     if not stage:exists(entry.image, "file") then
       Errors.raise("FIELD_UI_CACHE_READBACK_FAILED", "ui asset missing after stage: " .. entry.image, {
         image = entry.image,
-      })
-    end
-  end
-  for _, sound in pairs(manifest.sounds) do
-    if not stage:exists(sound.path, "file") then
-      Errors.raise("FIELD_UI_CACHE_READBACK_FAILED", "ui sound missing after stage: " .. sound.path, {
-        path = sound.path,
       })
     end
   end

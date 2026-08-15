@@ -6,12 +6,13 @@
 -- must run with the world paused, the save gate blocked, and the card's close
 -- edge leaking nothing into the field. One production boot in normal mode:
 -- the vanilla trainer_card action is enabled exactly because the production
--- destination exists, confirming the card and the select sound fire once, the
--- application phase presents only the card surface, and the close plays the
--- card's cancel effect (source: overlay_trainer_card_main.s ov51_021E6A54 at
--- the pinned decomp commit — B plays SEQ_SE_GS_GEARCANCEL and returns the
--- close state). The menu rebuild restores the remembered selection; the final
--- menu close returns to a capturable field with zero script faults.
+-- destination exists. The UI-owned audio stack (the SDAT-derived Start Menu
+-- and Trainer Card effects) is removed, so the whole journey — menu open,
+-- card confirm, card close, menu rebuild, menu close — must be silent; the
+-- source cancel effect (SEQ_SE_GS_GEARCANCEL, overlay_trainer_card_main.s
+-- ov51_021E6A54 at the pinned decomp commit) is not reproduced by this
+-- branch. The menu rebuild restores the remembered selection; the final menu
+-- close returns to a capturable field with zero script faults.
 
 local Assert = require("tests.support.Assert")
 local FieldSave = require("libs.engine.src.FieldSave")
@@ -38,6 +39,8 @@ local function hostPhase(game)
 end
 
 local function audioEffects(game)
+  -- The recording audio seam is the contract observer: with the UI-owned
+  -- audio stack deleted, every journey boundary must leave zero entries here.
   local entries = {}
   for _, entry in ipairs(game.hosts.effects) do
     if type(entry) == "string" and entry:sub(1, 6) == "audio:" then
@@ -128,16 +131,16 @@ function T.tests.trainer_card_viewer_runs_through_production_composition_and_ret
     Assert.equal(card.enabled, true, "the production destination must enable the action")
     Assert.equal(hostStatus(game).menu.cursorSlotId, 2, "the fresh menu selects the first enabled action")
     Assert.equal(hostStatus(game).application, nil, "the menu phase must present only the menu surface")
-    Assert.equal(#audioEffects(game), 1, "opening the menu must request exactly the open sound")
+    Assert.equal(#audioEffects(game), 0, "opening the menu must not request any UI sound")
     local pausedAtOpen = game:snapshot().player
     assertPausedAt(pausedAtOpen, game, "the open menu")
 
-    -- Confirm: the select sound fires once, then the fade-out runs and the
+    -- Confirm: no select sound fires, then the fade-out runs and the
     -- card is constructed as the active application after the world hides.
     runtime:pressAction()
     game:step()
     runtime:releaseAction()
-    Assert.equal(#audioEffects(game), 2, "confirming must request exactly the select sound")
+    Assert.equal(#audioEffects(game), 0, "confirming must not request any UI sound")
     advanceToPhase(game, "fading_out", 8)
     Assert.isTrue(hostStatus(game).fadeAlpha < 1, "the fade-out must be in progress while the fade phase is active")
     advanceToPhase(game, "application", 64)
@@ -184,15 +187,15 @@ function T.tests.trainer_card_viewer_runs_through_production_composition_and_ret
     )
     Assert.equal(hostStatus(game).application.name, profile.name, "the card must stay open under foreign input")
 
-    -- Cancel closes the card: its close edge plays the cancel effect and the
+    -- Cancel closes the card: its close edge requests no sound and the
     -- host returns to the rebuilt Start Menu with the remembered selection.
     runtime:pressCancel()
     game:step()
     runtime:releaseCancel()
     advanceToPhase(game, "fading_in", 64)
-    Assert.equal(#audioEffects(game), 3, "closing the card must request exactly the cancel sound")
+    Assert.equal(#audioEffects(game), 0, "closing the card must not request any UI sound")
     advanceToPhase(game, "menu", 64)
-    Assert.equal(#audioEffects(game), 4, "the menu rebuild must request the open sound again")
+    Assert.equal(#audioEffects(game), 0, "the menu rebuild must not request any UI sound")
     Assert.equal(hostStatus(game).menu.cursorSlotId, 2, "the rebuild must restore the trainer card selection")
     Assert.equal(hostStatus(game).application, nil, "the rebuilt menu must present only the menu surface")
     assertPausedAt(pausedAtOpen, game, "the rebuilt menu")
@@ -201,7 +204,7 @@ function T.tests.trainer_card_viewer_runs_through_production_composition_and_ret
     -- leak nothing into field interaction or movement.
     pressMenuEdge(game)
     advanceToPhase(game, "closed", 16)
-    Assert.equal(#audioEffects(game), 5, "closing the menu must request exactly the cancel sound")
+    Assert.equal(#audioEffects(game), 0, "closing the menu must not request any UI sound")
     Assert.equal(FieldSave.canCapture(runtime.session), true, "the settled field boundary must allow capture again")
     Assert.equal(game:snapshot().dialogue.modal, false, "the closing edge must not open any field dialogue")
     Assert.equal(#scriptFaults(game), 0, "the card journey must run without script faults")

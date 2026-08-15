@@ -1,12 +1,11 @@
 -- The pure Start Menu controller: visible action composition from the
 -- StartMenuPolicy build output (the source display-array overwrite semantics,
 -- capability visibility per product mode), selection with remembered-action
--- restore, confirm/cancel/menu-key close, touch/pointer slot selection with
--- down/up-mismatch and drag discrimination, the fixed-tick cursor animation
--- step, and the three semantic sound requests through a required
--- application-audio facade (injected recorder; the controller never names a
--- ROM sequence and never touches love). No application launches happen here:
--- the controller records the takeResult contract and the host launches.
+-- restore, confirm/cancel/menu-key close, and touch/pointer slot selection
+-- with down/up-mismatch and drag discrimination, plus the fixed-tick cursor
+-- animation step. The controller is silent: it never names a ROM sequence
+-- and never touches love. No application launches happen here: the
+-- controller records the takeResult contract and the host launches.
 
 local Assert = require("tests.support.Assert")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
@@ -54,30 +53,18 @@ local function freshDevPolicy()
   })
 end
 
-local function recorder()
-  local requests = {}
-  return {
-    requests = requests,
-    play = function(_, requestId)
-      requests[#requests + 1] = requestId
-    end,
-  }
-end
-
 ---@param opts table?
----@return StartMenuController, table
+---@return StartMenuController
 local function newController(opts)
   opts = opts or {}
-  local audio = opts.audio or recorder()
   local controller = StartMenuController.new({
     entries = opts.entries or fullPolicy(),
     development = opts.development == true,
     slots = opts.slots or SLOTS,
     cursorFrames = opts.cursorFrames or CURSOR_FRAMES,
-    audio = audio,
     rememberedActionId = opts.rememberedActionId,
   })
-  return controller, audio
+  return controller
 end
 
 local function slotCenter(slotId)
@@ -85,9 +72,9 @@ local function slotCenter(slotId)
   return rect.x + rect.width / 2, rect.y + rect.height / 2
 end
 
-function T.construction_requests_the_open_sound_exactly_once()
-  local _, audio = newController()
-  Assert.deepEqual(audio.requests, { "start_menu.open" }, "the open sound is requested exactly once at construction")
+function T.construction_succeeds_with_only_the_documented_options()
+  local controller = newController()
+  Assert.equal(controller:status().open, true, "a menu without any audio facade opens normally")
 end
 
 function T.visible_actions_follow_policy_positions_and_slot_ids()
@@ -268,21 +255,12 @@ function T.construction_rejects_malformed_input()
       development = false,
       slots = SLOTS,
       cursorFrames = CURSOR_FRAMES,
-      audio = recorder(),
     }
     for key, value in pairs(overrides) do
       opts[key] = value
     end
     return opts
   end
-  Assert.throws(function()
-    local opts = with({})
-    opts.audio = nil
-    StartMenuController.new(opts)
-  end, "the audio facade is required")
-  Assert.throws(function()
-    StartMenuController.new(with({ audio = {} }))
-  end, "the audio facade must play requests")
   Assert.throws(function()
     StartMenuController.new(with({ entries = {} }))
   end, "an empty menu cannot open")
@@ -332,14 +310,13 @@ function T.navigation_skips_holes_in_the_display_array()
   Assert.equal(controller:status().cursorSlotId, 9, "navigation must skip empty display positions")
 end
 
-function T.confirm_launches_the_selected_application_with_the_select_sound()
-  local controller, audio = newController()
+function T.confirm_launches_the_selected_application()
+  local controller = newController()
   controller:updateFixed({ { type = "navigate", direction = "down" } })
   controller:updateFixed({ { type = "navigate", direction = "down" } })
   controller:updateFixed({ { type = "navigate", direction = "down" } })
   controller:updateFixed({ { type = "navigate", direction = "down" } })
   controller:updateFixed({ { type = "confirm" } })
-  Assert.deepEqual(audio.requests, { "start_menu.open", "start_menu.select" })
   Assert.deepEqual(controller:takeResult(), {
     kind = "launch",
     applicationId = "trainer_card",
@@ -348,44 +325,31 @@ function T.confirm_launches_the_selected_application_with_the_select_sound()
   Assert.equal(controller:status().open, false, "a taken result ends the menu lifetime")
 end
 
-function T.confirm_on_a_disabled_action_plays_the_select_sound_but_launches_nothing()
-  local controller, audio = newController({ entries = freshDevPolicy(), development = true })
+function T.confirm_on_a_disabled_action_launches_nothing()
+  local controller = newController({ entries = freshDevPolicy(), development = true })
   controller:updateFixed({ { type = "confirm" } })
-  Assert.deepEqual(audio.requests, { "start_menu.open", "start_menu.select" })
   Assert.isNil(controller:takeResult(), "a disabled action records no result")
   Assert.equal(controller:status().open, true, "a disabled confirm keeps the menu open")
 end
 
-function T.cancel_and_the_menu_event_close_with_the_cancel_sound()
-  local controller, audio = newController()
+function T.cancel_and_the_menu_event_close()
+  local controller = newController()
   controller:updateFixed({ { type = "cancel" } })
-  Assert.deepEqual(audio.requests, { "start_menu.open", "start_menu.cancel" })
   Assert.deepEqual(controller:takeResult(), { kind = "close" })
 
-  local menuController, menuAudio = newController()
+  local menuController = newController()
   menuController:updateFixed({ { type = "menu" } })
-  Assert.deepEqual(menuAudio.requests, { "start_menu.open", "start_menu.cancel" })
   Assert.deepEqual(menuController:takeResult(), { kind = "close" })
 end
 
 function T.a_terminal_event_ends_the_ticks_processing()
-  local closeFirst, closeAudio = newController()
+  local closeFirst = newController()
   closeFirst:updateFixed({ { type = "cancel" }, { type = "confirm" } })
-  Assert.deepEqual(
-    closeAudio.requests,
-    { "start_menu.open", "start_menu.cancel" },
-    "a close stops the tick's sound requests"
-  )
   Assert.deepEqual(closeFirst:takeResult(), { kind = "close" }, "a close before a confirm in one tick must win")
   Assert.equal(closeFirst:status().open, false)
 
-  local confirmFirst, confirmAudio = newController()
+  local confirmFirst = newController()
   confirmFirst:updateFixed({ { type = "confirm" }, { type = "cancel" } })
-  Assert.deepEqual(
-    confirmAudio.requests,
-    { "start_menu.open", "start_menu.select" },
-    "a launch stops the tick's sound requests"
-  )
   Assert.deepEqual(
     confirmFirst:takeResult(),
     { kind = "launch", applicationId = "pokedex", actionId = "vanilla.pokedex" },
@@ -403,20 +367,18 @@ function T.take_result_is_exactly_once_and_terminal()
 end
 
 function T.pointer_hover_moves_selection_without_activating()
-  local controller, audio = newController()
+  local controller = newController()
   local x, y = slotCenter(5)
   controller:updateFixed({ { type = "pointer_move", pointerId = "mouse:1", x = x, y = y } })
   Assert.equal(controller:status().cursorSlotId, 5, "hover selects the hovered slot")
-  Assert.deepEqual(audio.requests, { "start_menu.open" }, "hover plays no sound")
 end
 
 function T.pointer_down_up_on_the_same_action_slot_activates()
-  local controller, audio = newController()
+  local controller = newController()
   local x, y = slotCenter(6)
   controller:updateFixed({ { type = "pointer_down", pointerId = "touch:1", x = x, y = y } })
   Assert.equal(controller:status().cursorSlotId, 6, "pointer down selects the pressed slot")
   controller:updateFixed({ { type = "pointer_up", pointerId = "touch:1", x = x, y = y, dragged = false } })
-  Assert.deepEqual(audio.requests, { "start_menu.open", "start_menu.select" })
   Assert.deepEqual(controller:takeResult(), {
     kind = "launch",
     applicationId = "trainer_card",
@@ -440,12 +402,11 @@ function T.pointer_down_up_mismatch_and_drag_discard_the_activation()
   Assert.equal(dragged:status().open, true)
 end
 
-function T.pointer_cancel_slot_down_up_closes_with_the_cancel_sound()
-  local controller, audio = newController()
+function T.pointer_cancel_slot_down_up_closes()
+  local controller = newController()
   local x, y = slotCenter(1)
   controller:updateFixed({ { type = "pointer_down", pointerId = "touch:1", x = x, y = y } })
   controller:updateFixed({ { type = "pointer_up", pointerId = "touch:1", x = x, y = y, dragged = false } })
-  Assert.deepEqual(audio.requests, { "start_menu.open", "start_menu.cancel" })
   Assert.deepEqual(controller:takeResult(), { kind = "close" })
 end
 

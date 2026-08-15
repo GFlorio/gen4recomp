@@ -1,11 +1,10 @@
 -- Readiness, paths, and strict validation for the generated HGSS field-UI
 -- class: one manifest (`ui.lua`) carrying the semantic surfaces and the
--- strict metadata sections, binary assets (PNG atlases, WAV effects) under
--- the UI asset root, and a completion marker written last with the ROM
--- SHA-1 and producer dependency hash. The manifest is the single
--- mod-facing contract for dialogue frames, signposts, the Start Menu,
--- the Trainer Card, and the three Start Menu effects; it never carries
--- NARC/member ids. A UI class is ready only when the marker matches
+-- strict metadata sections, binary assets (PNG atlases) under the UI asset
+-- root, and a completion marker written last with the ROM SHA-1 and producer
+-- dependency hash. The manifest is the single mod-facing contract for
+-- dialogue frames, signposts, the Start Menu, and the Trainer Card; it never
+-- carries NARC/member ids. A UI class is ready only when the marker matches
 -- exactly and every indexed file exists. Paths are cache-relative; all IO
 -- goes through a CacheFs.
 
@@ -34,10 +33,6 @@ function FieldUiAssetCache.provenancePath()
 end
 function FieldUiAssetCache.markerPath()
   return DATA_DIR .. "/complete"
-end
-function FieldUiAssetCache.soundPath(effectId)
-  assert(type(effectId) == "string" and effectId:match("^[%w_%.%-]+$"), "invalid effect id")
-  return ASSET_DIR .. "/sounds/" .. effectId .. ".wav"
 end
 
 function FieldUiAssetCache.marker(romSha1, depHash)
@@ -230,31 +225,6 @@ function FieldUiAssetCache.validateManifest(manifest)
     return false, err
   end
 
-  local ok, err = section("sounds", function(s)
-    for id, sound in pairs(s) do
-      if type(id) ~= "string" then
-        return false, Errors.new("FIELD_UI_MANIFEST_INVALID", "sound ids must be strings", {})
-      end
-      if type(sound) ~= "table" or type(sound.path) ~= "string" then
-        return false, Errors.new("FIELD_UI_MANIFEST_INVALID", "sound " .. id .. " must name a path", { id = id })
-      end
-      for _, field in ipairs({ "sampleRate", "frameCount" }) do
-        local v = sound[field]
-        if type(v) ~= "number" or v % 1 ~= 0 or v < 1 then
-          return false,
-            Errors.new("FIELD_UI_MANIFEST_INVALID", "sound " .. id .. " " .. field .. " must be positive", {
-              id = id,
-              field = field,
-            })
-        end
-      end
-    end
-    return true
-  end)
-  if not ok then
-    return false, err
-  end
-
   return true
 end
 
@@ -275,11 +245,6 @@ function FieldUiAssetCache.isReady(cacheFs, expectedMarker)
   end
   for _, entry in pairs(manifest.assets) do
     if not cacheFs:exists(entry.image, "file") then
-      return false
-    end
-  end
-  for _, sound in pairs(manifest.sounds) do
-    if not cacheFs:exists(sound.path, "file") then
       return false
     end
   end

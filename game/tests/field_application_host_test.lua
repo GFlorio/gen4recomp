@@ -3,12 +3,11 @@
 -- session steps the host as the one application modal owner, and runtime
 -- disposal in every application phase releases the active controller exactly
 -- once, the modal input lifetime once, and defers the save. The boot-config
--- descriptor seam registers the destination factories; the audio facade
--- routes the semantic Start Menu requests through the script audio seam;
--- the resize contract cancels an active menu pointer capture so a press
--- held across a layout change cannot activate a different post-resize slot;
--- and the rebuild restores the remembered selection by action id even when
--- it is not the first enabled action.
+-- descriptor seam registers the destination factories; the resize contract
+-- cancels an active menu pointer capture so a press held across a layout
+-- change cannot activate a different post-resize slot; and the rebuild
+-- restores the remembered selection by action id even when it is not the
+-- first enabled action.
 
 local Assert = require("tests.support.Assert")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
@@ -153,16 +152,6 @@ local function launchDestination(game, maxTicks)
   advanceToPhase(game, "application", 64)
 end
 
-local function audioEntries(game)
-  local entries = {}
-  for _, entry in ipairs(game.hosts.effects) do
-    if type(entry) == "string" and entry:sub(1, 6) == "audio:" then
-      entries[#entries + 1] = entry
-    end
-  end
-  return entries
-end
-
 -- The per-phase disposal matrix: runtime disposal in every application
 -- phase releases the active controller exactly once, releases the modal
 -- input lifetime, restores the capturable boundary before the save attempt,
@@ -287,29 +276,11 @@ function T.tests.runtime_disposal_in_the_failed_phase_releases_cleanly()
   game:close()
 end
 
--- The application-audio facade routes the semantic Start Menu requests
--- through the script audio seam: every production menu construction requests
--- exactly the open sound, and a close requests exactly the cancel sound.
-function T.tests.the_audio_facade_routes_through_the_script_audio_seam()
-  local game, _ = bootWithRegistry()
-  local ok, err = xpcall(function()
-    openMenu(game)
-    Assert.deepEqual(audioEntries(game), { "audio:start_menu.open" })
-    pressMenuEdge(game)
-    advanceToPhase(game, "closed", 16)
-    Assert.deepEqual(audioEntries(game), { "audio:start_menu.open", "audio:start_menu.cancel" })
-  end, debug.traceback)
-  game:close()
-  if not ok then
-    error(err, 0)
-  end
-end
-
 -- A resize recomputes the placement and cancels an active menu
 -- pointer capture, so a press held across the layout change cannot activate
 -- a different post-resize slot. The production runtime exposes the resize
 -- path; the capture cancellation is observed through the activation result
--- (without it, the same-slot release would play the select sound and launch).
+-- (without it, the same-slot release would launch the destination).
 function T.tests.resize_cancels_an_active_menu_pointer_capture()
   local game, _ = bootWithRegistry()
   local ok, err = xpcall(function()
@@ -336,13 +307,16 @@ function T.tests.resize_cancels_an_active_menu_pointer_capture()
     runtime:resizePresentation(1024, 768, topology(1024, 768))
     runtime.input:pointerUp("touch:1", 768, 76)
     game:step()
-    Assert.deepEqual(audioEntries(game), { "audio:start_menu.open" }, "the cancelled press must not activate")
     Assert.equal(game.runtime.applicationHost:status().phase, "menu", "the menu must stay open")
     -- A fresh press after the resize lands on the same slot and activates.
     runtime.input:pointerDown("touch:1", 768, 76)
     runtime.input:pointerUp("touch:1", 768, 76)
     game:step()
-    Assert.deepEqual(audioEntries(game), { "audio:start_menu.open", "audio:start_menu.select" })
+    Assert.equal(
+      game.runtime.applicationHost:status().phase,
+      "fading_out",
+      "the fresh press after the resize must activate the slot"
+    )
   end, debug.traceback)
   game:close()
   if not ok then

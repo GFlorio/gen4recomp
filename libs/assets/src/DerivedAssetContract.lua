@@ -10,6 +10,9 @@
 -- revision 2: the compiled NSBTP payload drops the redundant
 -- keyCount/numTextures/numPalettes counts (sampler and gate trust the
 -- arrays).
+--
+-- fieldUi schema 2: the generated field-UI manifest drops the sounds
+-- section (the branch no longer compiles Start Menu effects).
 
 local DerivedAssetContract = {}
 
@@ -58,7 +61,7 @@ DerivedAssetContract.scripts = {
 
 DerivedAssetContract.fieldUi = {
   cacheFormat = "field-ui-cache-v1",
-  schema = "g4-field-ui-v1",
+  schema = "g4-field-ui-v2",
 }
 
 -- The mesh batch format constants (magic, version, stride, header size,
