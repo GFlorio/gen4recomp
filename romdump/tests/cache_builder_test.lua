@@ -249,7 +249,14 @@ local function makeFakes()
   fakes.FieldFontCompiler.compile = function()
     return env.fontBundle
   end
-  fakes.FieldUiCompiler.compile = function()
+  fakes.FieldUiCompiler.compile = function(romFs)
+    if env.failCompilers[romFs.version] ~= nil then
+      local failure = env.failCompilers[romFs.version]
+      if Errors.is(failure) then
+        return nil, failure
+      end
+      error(failure, 0)
+    end
     return env.uiBundle
   end
   fakes.FieldMessageCompiler.compile = function()
@@ -494,6 +501,26 @@ function T.a_failed_version_continues_and_closes_its_romfs()
   )
   Assert.equal(capture.lines[2], "build-cache: soulsilver field cameras current")
   Assert.deepEqual(env.closes, { "heartgold", "soulsilver" })
+  Assert.equal(env.worldPublishes, 0, "a later version failure must keep the staged world unpublished")
+  Assert.equal(env.worldAborts, 1, "the staged world of the failed batch is discarded")
+end
+
+-- A typed field-UI compile failure is an ordinary per-version source-data
+-- failure: the version reports the typed code, no field-UI class is written,
+-- the staged world is discarded, and the remaining versions run to
+-- completion.
+function T.a_failed_ui_compile_reports_and_skips_the_ui_publish()
+  env = newEnv()
+  env.failCompilers.heartgold = Errors.new("FIELD_UI_SOURCE_INVALID", "unsupported cursor geometry")
+  local capture = collectLog()
+  local report, err = CacheBuilder.buildVersions({ "heartgold", "soulsilver" }, { log = capture.log })
+  Assert.isNil(report)
+  Assert.equal(err, "cache preparation failed")
+  Assert.equal(capture.lines[1], "build-cache: heartgold failed: FIELD_UI_SOURCE_INVALID: unsupported cursor geometry")
+  Assert.equal(capture.lines[2], "build-cache: soulsilver field cameras current")
+  for _, call in ipairs(env.calls) do
+    Assert.isTrue(call ~= "FieldUiCacheWriter.write", "a failed UI compile must never publish a field-UI class")
+  end
   Assert.equal(env.worldPublishes, 0, "a later version failure must keep the staged world unpublished")
   Assert.equal(env.worldAborts, 1, "the staged world of the failed batch is discarded")
 end

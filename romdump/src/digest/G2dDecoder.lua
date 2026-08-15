@@ -14,6 +14,18 @@ local FieldFontDecoder = require("romdump.src.digest.FieldFontDecoder")
 
 local G2dDecoder = {}
 
+-- Named ownership of the protocol error codes; tests assert the constants,
+-- never the raw strings.
+G2dDecoder.ERROR = {
+  TRUNCATED = "G2D_TRUNCATED",
+  MAGIC_INVALID = "G2D_MAGIC_INVALID",
+  BYTE_ORDER_INVALID = "G2D_BYTE_ORDER_INVALID",
+  BLOCK_INVALID = "G2D_BLOCK_INVALID",
+  CHUNK_DUPLICATE = "G2D_CHUNK_DUPLICATE",
+  CHUNK_MISSING = "G2D_CHUNK_MISSING",
+  CHUNK_INVALID = "G2D_CHUNK_INVALID",
+}
+
 -- The container/chunk IDs are stored byte-swapped; the swap yields the
 -- canonical name.
 local function swapped(reader, offset)
@@ -22,30 +34,38 @@ end
 
 local function _blocks(reader, opts)
   if reader:length() < 4 then
-    Errors.raise("G2D_TRUNCATED", "G2D resource is shorter than its magic", { size = reader:length() })
+    Errors.raise(G2dDecoder.ERROR.TRUNCATED, "G2D resource is shorter than its magic", { size = reader:length() })
   end
   local magic = swapped(reader, 0)
   if not opts.magics[magic] then
-    Errors.raise("G2D_MAGIC_INVALID", "unknown G2D container magic", { magic = magic })
+    Errors.raise(G2dDecoder.ERROR.MAGIC_INVALID, "unknown G2D container magic", { magic = magic })
   end
   if reader:length() < 0x10 then
-    Errors.raise("G2D_TRUNCATED", "G2D resource is shorter than its 16-byte header", { size = reader:length() })
+    Errors.raise(
+      G2dDecoder.ERROR.TRUNCATED,
+      "G2D resource is shorter than its 16-byte header",
+      { size = reader:length() }
+    )
   end
   local byteOrder = reader:u16le(4)
   if byteOrder ~= 0xFEFF then
-    Errors.raise("G2D_BYTE_ORDER_INVALID", "G2D byte order is not 0xFEFF", { byteOrder = byteOrder })
+    Errors.raise(G2dDecoder.ERROR.BYTE_ORDER_INVALID, "G2D byte order is not 0xFEFF", { byteOrder = byteOrder })
   end
   local declaredSize = reader:u32le(8)
   if declaredSize > reader:length() then
-    Errors.raise("G2D_TRUNCATED", "G2D resource declares " .. declaredSize .. " bytes but has " .. reader:length(), {
-      declared = declaredSize,
-      size = reader:length(),
-    })
+    Errors.raise(
+      G2dDecoder.ERROR.TRUNCATED,
+      "G2D resource declares " .. declaredSize .. " bytes but has " .. reader:length(),
+      {
+        declared = declaredSize,
+        size = reader:length(),
+      }
+    )
   end
   local headerSize = reader:u16le(12)
   local blockCount = reader:u16le(14)
   if headerSize < 0x10 or headerSize + 8 * blockCount > declaredSize then
-    Errors.raise("G2D_BLOCK_INVALID", "G2D header claims an invalid block table", {
+    Errors.raise(G2dDecoder.ERROR.BLOCK_INVALID, "G2D header claims an invalid block table", {
       headerSize = headerSize,
       blockCount = blockCount,
     })
@@ -54,16 +74,27 @@ local function _blocks(reader, opts)
   local offset = headerSize
   for _ = 1, blockCount do
     if offset + 8 > declaredSize then
-      Errors.raise("G2D_BLOCK_INVALID", "G2D block header extends past the declared size", { offset = offset })
+      Errors.raise(
+        G2dDecoder.ERROR.BLOCK_INVALID,
+        "G2D block header extends past the declared size",
+        { offset = offset }
+      )
     end
     local name = swapped(reader, offset)
     local size = reader:u32le(offset + 4)
     if size < 8 or offset + size > declaredSize then
-      Errors.raise("G2D_BLOCK_INVALID", "G2D block " .. name .. " extends past the declared size", {
+      Errors.raise(G2dDecoder.ERROR.BLOCK_INVALID, "G2D block " .. name .. " extends past the declared size", {
         name = name,
         size = size,
         offset = offset,
       })
+    end
+    if blocks[name] ~= nil then
+      Errors.raise(
+        G2dDecoder.ERROR.CHUNK_DUPLICATE,
+        "G2D resource carries duplicate " .. name .. " chunks",
+        { chunk = name, offset = offset }
+      )
     end
     blocks[name] = { payload = offset + 8, size = size - 8 }
     offset = offset + size
@@ -83,7 +114,7 @@ end
 local function mustBlock(blks, name)
   local blk = blks[name]
   if not blk then
-    Errors.raise("G2D_CHUNK_MISSING", "G2D resource has no " .. name .. " chunk", { chunk = name })
+    Errors.raise(G2dDecoder.ERROR.CHUNK_MISSING, "G2D resource has no " .. name .. " chunk", { chunk = name })
   end
   return blk
 end
@@ -97,6 +128,16 @@ local CONTAINER_MAGICS = {
   RLCN = true,
 }
 
+-- OBJ pixel dimensions per GBATEK's OAM size table, indexed by attr0 shape
+-- (bits 14-15) then attr1 size (bits 14-15). Square objects are 8/16/32/64;
+-- wide and tall objects cover the intermediate sizes. The decoder exposes
+-- shape/size so consumers can reject geometries they do not support.
+local OBJ_DIMENSIONS = {
+  { { 8, 8 }, { 16, 16 }, { 32, 32 }, { 64, 64 } },
+  { { 16, 8 }, { 32, 8 }, { 32, 16 }, { 64, 32 } },
+  { { 8, 16 }, { 8, 32 }, { 16, 32 }, { 32, 64 } },
+}
+
 ---@param data string
 ---@param opts? { label?: string }
 ---@return { depth: integer, tiles: string }?
@@ -108,16 +149,28 @@ function G2dDecoder.decodeChar(data, opts)
     local _, blks, reader = blocks(data, { magics = CONTAINER_MAGICS }, opts.label or "g2d-char")
     local blk = mustBlock(blks, "CHAR")
     if blk.size < 0x18 then
-      Errors.raise("G2D_CHUNK_INVALID", "CHAR chunk is shorter than its header", { size = blk.size })
+      Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "CHAR chunk is shorter than its header", { size = blk.size })
     end
     local depth = reader:u32le(blk.payload + 4)
     if depth ~= 3 and depth ~= 4 then
-      Errors.raise("G2D_CHUNK_INVALID", "CHAR depth " .. depth .. " is not 3 (4bpp) or 4 (8bpp)", { depth = depth })
+      Errors.raise(
+        G2dDecoder.ERROR.CHUNK_INVALID,
+        "CHAR depth " .. depth .. " is not 3 (4bpp) or 4 (8bpp)",
+        { depth = depth }
+      )
     end
     local tileBytes = reader:u32le(blk.payload + 0x10)
     local tileOffset = reader:u32le(blk.payload + 0x14)
-    if tileBytes == 0 or tileOffset + tileBytes > blk.size then
-      Errors.raise("G2D_CHUNK_INVALID", "CHAR tile region exceeds the chunk", {
+    local tileSize = depth == 3 and 32 or 64
+    if tileBytes == 0 or tileBytes % tileSize ~= 0 then
+      Errors.raise(
+        G2dDecoder.ERROR.CHUNK_INVALID,
+        "CHAR tile region must be an exact positive multiple of the " .. tileSize .. "-byte tile size",
+        { tileBytes = tileBytes, tileSize = tileSize }
+      )
+    end
+    if tileOffset + tileBytes > blk.size then
+      Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "CHAR tile region exceeds the chunk", {
         tileBytes = tileBytes,
         tileOffset = tileOffset,
         chunkSize = blk.size,
@@ -148,20 +201,32 @@ function G2dDecoder.decodeScreen(data, opts)
     local _, blks, reader = blocks(data, { magics = CONTAINER_MAGICS }, opts.label or "g2d-screen")
     local blk = mustBlock(blks, "SCRN")
     if blk.size < 12 then
-      Errors.raise("G2D_CHUNK_INVALID", "SCRN chunk is shorter than its header", { size = blk.size })
+      Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "SCRN chunk is shorter than its header", { size = blk.size })
     end
     local width = reader:u16le(blk.payload)
     local height = reader:u16le(blk.payload + 2)
     local dataSize = reader:u32le(blk.payload + 8)
     if width == 0 or height == 0 or width % 8 ~= 0 or height % 8 ~= 0 then
       Errors.raise(
-        "G2D_CHUNK_INVALID",
+        G2dDecoder.ERROR.CHUNK_INVALID,
         "SCRN dimensions must be multiples of 8 pixels",
         { width = width, height = height }
       )
     end
-    if dataSize % 2 ~= 0 or 12 + dataSize > blk.size then
-      Errors.raise("G2D_CHUNK_INVALID", "SCRN entry data exceeds the chunk", {
+    -- The entry bytes must match the tile geometry exactly: metadata
+    -- describing one geometry while supplying another amount of map data is
+    -- malformed source, not a partial map.
+    local expectedBytes = width / 8 * (height / 8) * 2
+    if dataSize ~= expectedBytes then
+      Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "SCRN data size does not match the screen dimensions", {
+        width = width,
+        height = height,
+        dataSize = dataSize,
+        expectedBytes = expectedBytes,
+      })
+    end
+    if 12 + dataSize > blk.size then
+      Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "SCRN entry data exceeds the chunk", {
         dataSize = dataSize,
         chunkSize = blk.size,
       })
@@ -207,16 +272,20 @@ function G2dDecoder.decodePalette(data, opts)
     local _, blks, reader = blocks(data, { magics = CONTAINER_MAGICS }, opts.label or "g2d-palette")
     local blk = mustBlock(blks, "PLTT")
     if blk.size < 12 then
-      Errors.raise("G2D_CHUNK_INVALID", "PLTT chunk is shorter than its header", { size = blk.size })
+      Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "PLTT chunk is shorter than its header", { size = blk.size })
     end
     local depth = string.byte(reader:bytes(blk.payload, 1))
     local colorCount = reader:u16le(blk.payload + 2)
     local dataOffset = reader:u32le(blk.payload + 8)
     if depth ~= 3 and depth ~= 4 then
-      Errors.raise("G2D_CHUNK_INVALID", "PLTT depth " .. depth .. " is not 3 (4bpp) or 4 (8bpp)", { depth = depth })
+      Errors.raise(
+        G2dDecoder.ERROR.CHUNK_INVALID,
+        "PLTT depth " .. depth .. " is not 3 (4bpp) or 4 (8bpp)",
+        { depth = depth }
+      )
     end
     if colorCount == 0 or dataOffset + colorCount * 2 > blk.size then
-      Errors.raise("G2D_CHUNK_INVALID", "PLTT color data exceeds the chunk", {
+      Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "PLTT color data exceeds the chunk", {
         colorCount = colorCount,
         dataOffset = dataOffset,
         chunkSize = blk.size,
@@ -247,7 +316,7 @@ end
 
 ---@param data string
 ---@param opts? { label?: string }
----@return { cells: { objs: { x: integer, y: integer, tile: integer, flipH: boolean, flipV: boolean, palette: integer }[] }[] }?
+---@return { cells: { objs: { x: integer, y: integer, tile: integer, flipH: boolean, flipV: boolean, palette: integer, shape: integer, size: integer, width: integer, height: integer }[] }[] }?
 ---@return Errors.Error?
 function G2dDecoder.decodeCell(data, opts)
   assert(type(data) == "string", "G2dDecoder.decodeCell requires a string")
@@ -256,19 +325,21 @@ function G2dDecoder.decodeCell(data, opts)
     local _, blks, reader = blocks(data, { magics = CONTAINER_MAGICS }, opts.label or "g2d-cell")
     local blk = mustBlock(blks, "CEBK")
     if blk.size < 0x20 then
-      Errors.raise("G2D_CHUNK_INVALID", "CELL chunk is shorter than its header", { size = blk.size })
+      Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "CELL chunk is shorter than its header", { size = blk.size })
     end
     local cellCount = reader:u16le(blk.payload)
     local entrySize = reader:u16le(blk.payload + 2)
     local tableOffset = reader:u32le(blk.payload + 4)
     if entrySize ~= 0 and entrySize ~= 1 then
-      Errors.raise("G2D_CHUNK_INVALID", "CELL entry size " .. entrySize .. " is not 0 (8 bytes) or 1 (16 bytes)", {
-        entrySize = entrySize,
-      })
+      Errors.raise(
+        G2dDecoder.ERROR.CHUNK_INVALID,
+        "CELL entry size " .. entrySize .. " is not 0 (8 bytes) or 1 (16 bytes)",
+        { entrySize = entrySize }
+      )
     end
     local stride = entrySize == 0 and 8 or 16
     if cellCount == 0 or tableOffset + cellCount * stride > blk.size then
-      Errors.raise("G2D_CHUNK_INVALID", "CELL metatile table exceeds the chunk", {
+      Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "CELL metatile table exceeds the chunk", {
         cellCount = cellCount,
         tableOffset = tableOffset,
         chunkSize = blk.size,
@@ -281,7 +352,7 @@ function G2dDecoder.decodeCell(data, opts)
       local numObjs = reader:u16le(base)
       local objOffset = reader:u32le(base + 4)
       if attrTable - blk.payload + objOffset + numObjs * 6 > blk.size then
-        Errors.raise("G2D_CHUNK_INVALID", "CELL OBJ table exceeds the chunk", {
+        Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "CELL OBJ table exceeds the chunk", {
           numObjs = numObjs,
           objOffset = objOffset,
           chunkSize = blk.size,
@@ -290,8 +361,10 @@ function G2dDecoder.decodeCell(data, opts)
       local objs = {}
       for o = 0, numObjs - 1 do
         local obase = attrTable + objOffset + o * 6
-        -- OAM-ordered attributes: attr0 carries y, attr1 carries x, attr2
-        -- carries the tile index, flips, and palette.
+        -- OAM-ordered attributes (GBATEK "OAM (Object Attribute Mapping)"):
+        -- attr0 carries y and the shape bits (14-15), attr1 carries x, the
+        -- flips (12-13) and the size bits (14-15), attr2 carries the tile
+        -- index and the palette bank (12-15).
         local attr0 = reader:u16le(obase)
         local attr1 = reader:u16le(obase + 2)
         local attr2 = reader:u16le(obase + 4)
@@ -303,13 +376,27 @@ function G2dDecoder.decodeCell(data, opts)
         if y >= 128 then
           y = y - 256
         end
+        local shape = math.floor(attr0 / 16384)
+        if shape == 3 then
+          Errors.raise(
+            G2dDecoder.ERROR.CHUNK_INVALID,
+            "CELL OBJ carries the reserved OAM shape bits",
+            { attr0 = attr0 }
+          )
+        end
+        local size = math.floor(attr1 / 16384)
+        local dims = OBJ_DIMENSIONS[shape + 1][size + 1]
         objs[o + 1] = {
           x = x,
           y = y,
           tile = attr2 % 1024,
-          flipH = math.floor(attr2 / 1024) % 2 == 1,
-          flipV = math.floor(attr2 / 2048) % 2 == 1,
+          flipH = math.floor(attr1 / 4096) % 2 == 1,
+          flipV = math.floor(attr1 / 8192) % 2 == 1,
           palette = math.floor(attr2 / 4096),
+          shape = shape,
+          size = size,
+          width = dims[1],
+          height = dims[2],
         }
       end
       cells[c + 1] = { objs = objs }
@@ -336,7 +423,7 @@ function G2dDecoder.decodeAnimation(data, opts)
     local _, blks, reader = blocks(data, { magics = CONTAINER_MAGICS }, opts.label or "g2d-animation")
     local blk = mustBlock(blks, "ABNK")
     if blk.size < 0x18 then
-      Errors.raise("G2D_CHUNK_INVALID", "ANIM chunk is shorter than its header", { size = blk.size })
+      Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "ANIM chunk is shorter than its header", { size = blk.size })
     end
     local animCount = reader:u16le(blk.payload)
     local frameCount = reader:u16le(blk.payload + 2)
@@ -344,14 +431,14 @@ function G2dDecoder.decodeAnimation(data, opts)
     local framesOffset = reader:u32le(blk.payload + 8)
     local dataOffset = reader:u32le(blk.payload + 12)
     if animCount == 0 or animsOffset + animCount * 16 > blk.size then
-      Errors.raise("G2D_CHUNK_INVALID", "ANIM animation table exceeds the chunk", {
+      Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "ANIM animation table exceeds the chunk", {
         animCount = animCount,
         animsOffset = animsOffset,
         chunkSize = blk.size,
       })
     end
     if framesOffset + frameCount * 8 > blk.size then
-      Errors.raise("G2D_CHUNK_INVALID", "ANIM frame table exceeds the chunk", {
+      Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "ANIM frame table exceeds the chunk", {
         frameCount = frameCount,
         framesOffset = framesOffset,
         chunkSize = blk.size,
@@ -362,8 +449,18 @@ function G2dDecoder.decodeAnimation(data, opts)
       local abase = blk.payload + animsOffset + a * 16
       local numFrames = reader:u32le(abase)
       local firstFrame = reader:u32le(abase + 12)
-      if firstFrame + numFrames * 8 > blk.size then
-        Errors.raise("G2D_CHUNK_INVALID", "ANIM animation frame range exceeds the chunk", {
+      -- firstFrame is a frame index and numFrames a frame count: the range
+      -- must fit the frame table total, then its actual byte span must fit
+      -- the chunk. Never mix frame indexes with chunk-byte sizes.
+      if firstFrame + numFrames > frameCount then
+        Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "ANIM animation frame range exceeds the frame table", {
+          numFrames = numFrames,
+          firstFrame = firstFrame,
+          frameCount = frameCount,
+        })
+      end
+      if framesOffset + (firstFrame + numFrames) * 8 > blk.size then
+        Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "ANIM animation frame range exceeds the chunk", {
           numFrames = numFrames,
           firstFrame = firstFrame,
           chunkSize = blk.size,
@@ -374,6 +471,14 @@ function G2dDecoder.decodeAnimation(data, opts)
         local fbase = blk.payload + framesOffset + (firstFrame + f) * 8
         local frameData = reader:u32le(fbase)
         local duration = reader:u16le(fbase + 4)
+        -- The cell index read must be inside the chunk.
+        if dataOffset + frameData + 2 > blk.size then
+          Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "ANIM frame data exceeds the chunk", {
+            frameData = frameData,
+            dataOffset = dataOffset,
+            chunkSize = blk.size,
+          })
+        end
         local cell = reader:u16le(blk.payload + dataOffset + frameData)
         frames[f + 1] = { cell = cell, duration = duration }
       end

@@ -40,7 +40,6 @@ return {
     firstFrameMember = 2,
     frameCount = 20,
     firstPaletteMember = 26,
-    tilesPerFrame = 20,
   },
   signposts = {
     alias = "signpost_graphics",

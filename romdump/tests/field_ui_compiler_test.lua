@@ -15,6 +15,8 @@ local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local LuaWriter = require("libs.codec.src.LuaWriter")
 local PngReader = require("tests.support.PngReader")
+local Lz10 = require("romdump.src.digest.Lz10")
+local G2dDecoder = require("romdump.src.digest.G2dDecoder")
 
 local T = {}
 
@@ -99,7 +101,9 @@ local function cellData(objs)
   local metatile = u16(#objs) .. u16(0) .. u32(0)
   local attr = {}
   for _, o in ipairs(objs) do
-    attr[#attr + 1] = u16(o.y) .. u16(o.x) .. u16(o.tile + o.pal * 4096)
+    attr[#attr + 1] = u16((o.y % 256) + (o.shape or 0) * 16384)
+      .. u16((o.x % 512) + (o.flipH and 4096 or 0) + (o.flipV and 8192 or 0) + (o.size or 0) * 16384)
+      .. u16(o.tile + o.pal * 4096)
   end
   return container("RECN", {
     block("CEBK", u16(1) .. u16(0) .. u32(0x18) .. u32(0) .. string.rep("\0", 12) .. metatile .. table.concat(attr)),
@@ -157,27 +161,40 @@ local function palette16()
   return paletteData(colors)
 end
 
+-- A fixture palette: explicit color arrays (for under-sized palette tests)
+-- or the full 16-color ramp.
+local function paletteOr16(colors)
+  if colors then
+    return paletteData(colors)
+  end
+  return palette16()
+end
+
 -- A synthetic RomFs whose four UI NARCs carry minimal valid members: 20
 -- dialogue frames, 25 signpost types, the wayfinding members (2..0x35, the
 -- type-0 0x21+map and type-1 2+map ranges the producer selects), the start
--- menu bg + cursor, and the card front.
-local function fixture(cursorObjs)
+-- menu bg + cursor, and the card front. Palettes carry 16 colors so every
+-- tile value the fixture chars emit is covered. `opts` allows per-test
+-- source tampering: cursor OBJ geometry, the background screen entry, the
+-- background palette colors, and a whole-member tamper hook.
+local function fixture(opts)
+  opts = opts or {}
   local function frameMembers(count)
     local members = {}
     for i = 1, count do
       members[i] = lz10Wrap(charData(20))
     end
     for i = 1, count do
-      members[count + i] = lz10Wrap(paletteData({ 0x7FFF, 0x296B }))
+      members[count + i] = lz10Wrap(paletteOr16(opts.framePalette))
     end
     return members
   end
   local startMenuMembers = {}
   startMenuMembers[13] = lz10Wrap(charData(128))
-  startMenuMembers[14] = lz10Wrap(fullScreen(0xE000))
-  startMenuMembers[16] = lz10Wrap(paletteData({ 0x7FFF, 0x001F }))
-  startMenuMembers[62] = lz10Wrap(paletteData({ 0x7FFF, 0x001F }))
-  startMenuMembers[63] = lz10Wrap(cellData(cursorObjs or { { x = 0, y = 0, tile = 0, pal = 0 } }))
+  startMenuMembers[14] = lz10Wrap(fullScreen(opts.screenEntry or 0))
+  startMenuMembers[16] = lz10Wrap(paletteOr16(opts.bgPalette))
+  startMenuMembers[62] = lz10Wrap(palette16())
+  startMenuMembers[63] = lz10Wrap(cellData(opts.cursor or { { x = 0, y = 0, tile = 0, pal = 0 } }))
   startMenuMembers[64] = lz10Wrap(animData({ { duration = 3, cell = 0 }, { duration = 3, cell = 0 } }))
   startMenuMembers[65] = lz10Wrap(charData(17))
   local startMenu = {}
@@ -201,7 +218,7 @@ local function fixture(cursorObjs)
     card[i] = string.rep("\0", 4)
   end
   card[42] = charData(128)
-  card[48] = fullScreen(0xE000)
+  card[48] = fullScreen(0)
   card[12] = paletteData({ 0x7FFF, 0x001F })
 
   local function narcFile(alias)
@@ -217,12 +234,15 @@ local function fixture(cursorObjs)
         members[2 + i] = lz10Wrap(charData(20))
       end
       for i = 1, 20 do
-        members[26 + i] = lz10Wrap(paletteData({ 0x7FFF, 0x296B }))
+        members[26 + i] = lz10Wrap(paletteOr16(opts.framePalette))
       end
     elseif alias == "signpost_graphics" then
       members = signposts
     else
       members = card
+    end
+    if opts.tamper then
+      members = opts.tamper(alias, members)
     end
     return narc(members)
   end
@@ -322,9 +342,9 @@ end
 
 -- The manifest asset entries must describe the actual PNGs: pixel value v
 -- maps to palette color v (the fixture's frame tiles carry value 1, which is
--- the fixture's second palette color 0x296B = (82,90,90), not the first
--- 0x7FFF = white), out-of-palette values are transparent, and every declared
--- atlas dimension matches the encoded image.
+-- the fixture's second palette color 0x736 = (8,206,181), not the first
+-- 0x39B), every tile value the fixture emits is covered by the 16-color
+-- palette, and every declared atlas dimension matches the encoded image.
 function T.atlas_pixels_and_dimensions_follow_the_source_mapping()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
@@ -338,22 +358,25 @@ function T.atlas_pixels_and_dimensions_follow_the_source_mapping()
   local frameWidth, _, frameRgba =
     PngReader.rgba(bundle.assets[bundle.manifest.assets["hgss.dialogue_frame.tiles"].image])
   local r, g, b, a = PngReader.pixel(frameRgba, frameWidth, 0, 0)
-  Assert.equal(r, 82)
-  Assert.equal(g, 90)
-  Assert.equal(b, 90)
+  Assert.equal(r, 8)
+  Assert.equal(g, 206)
+  Assert.equal(b, 181)
   Assert.equal(a, 255)
-  -- Tile 1 carries value 2 and tile 14 value 15, which the two-color
-  -- fixture palette cannot cover.
-  local _, _, _, a2 = PngReader.pixel(frameRgba, frameWidth, 8, 0)
-  Assert.equal(a2, 0)
-  local _, _, _, a3 = PngReader.pixel(frameRgba, frameWidth, 14 * 8, 0)
-  Assert.equal(a3, 0)
+  -- Tile 1 carries value 2 and tile 14 value 15; the 16-color palette covers
+  -- both, each through its own distinct entry.
+  local r2, g2, b2, a2 = PngReader.pixel(frameRgba, frameWidth, 8, 0)
+  Assert.equal(a2, 255)
+  Assert.deepEqual({ r2, g2, b2 }, { 16, 181, 140 })
+  local r3, g3, b3, a3 = PngReader.pixel(frameRgba, frameWidth, 14 * 8, 0)
+  Assert.equal(a3, 255)
+  Assert.deepEqual({ r3, g3, b3 }, { 115, 107, 132 })
 
-  -- The start menu background screen references palette bank 14, which the
-  -- two-color fixture palette cannot cover: every pixel stays transparent.
+  -- The start menu background screen references tile 0 of palette bank 0,
+  -- which the fixture palette covers: every pixel is the value-1 color.
   local bgWidth, _, bgRgba = PngReader.rgba(bundle.assets[bundle.manifest.assets["hgss.start_menu.background"].image])
-  local _, _, _, bgA = PngReader.pixel(bgRgba, bgWidth, 10, 10)
-  Assert.equal(bgA, 0)
+  local rB, gB, bB, aB = PngReader.pixel(bgRgba, bgWidth, 10, 10)
+  Assert.equal(aB, 255)
+  Assert.deepEqual({ rB, gB, bB }, { 8, 206, 181 })
 end
 
 -- Every (type, map) pair gets its own atlas row, and the map-0 and map-1
@@ -377,7 +400,9 @@ end
 -- cellBounds must span the actual objects: with strictly positive object
 -- coordinates the zero-origin initialization would widen every extent.
 function T.cell_bounds_cover_all_positive_object_coordinates()
-  local romFs, sha1, hashLua = fixture({ { x = 8, y = 8, tile = 0, pal = 0 }, { x = 16, y = 16, tile = 1, pal = 0 } })
+  local romFs, sha1, hashLua = fixture({
+    cursor = { { x = 8, y = 8, tile = 0, pal = 0 }, { x = 16, y = 16, tile = 1, pal = 0 } },
+  })
   local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
   local frame = bundle.manifest.startMenu.cursor.frames[1]
   Assert.deepEqual({ frame.width, frame.height }, { 16, 16 }, "bounds span exactly x 8..24, y 8..24")
@@ -386,11 +411,141 @@ end
 -- Same for negative-origin objects: with every extent below zero the
 -- zero-origin initialization would inflate the bounds to the origin.
 function T.cell_bounds_cover_negative_origin_object_coordinates()
-  local romFs, sha1, hashLua =
-    fixture({ { x = -16, y = -16, tile = 0, pal = 0 }, { x = -24, y = -24, tile = 1, pal = 0 } })
+  local romFs, sha1, hashLua = fixture({
+    cursor = { { x = -16, y = -16, tile = 0, pal = 0 }, { x = -24, y = -24, tile = 1, pal = 0 } },
+  })
   local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
   local frame = bundle.manifest.startMenu.cursor.frames[1]
   Assert.deepEqual({ frame.width, frame.height }, { 16, 16 }, "bounds span exactly x -24..-8, y -24..-8")
+end
+
+-- The real start-menu cursor is a 32x32 square OBJ (attr0 shape 0, attr1
+-- size 2): all sixteen tiles must render into the compiled frame, not just
+-- the first tile as an 8x8 fragment.
+function T.square_32x32_cursor_objs_compile_all_sixteen_tiles()
+  local romFs, sha1, hashLua = fixture({
+    cursor = { { x = 8, y = 8, tile = 0, pal = 0, size = 2 } },
+  })
+  local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local frame = bundle.manifest.startMenu.cursor.frames[1]
+  Assert.equal(frame.width, 32)
+  Assert.equal(frame.height, 32)
+  local path = bundle.manifest.assets["hgss.start_menu.cursor"].image
+  local width, height, rgba = PngReader.rgba(bundle.assets[path])
+  Assert.equal(width, 32)
+  Assert.equal(height, 32)
+  -- Tile 14 (row 3, col 2 of the 4x4 layout) carries value 15 -> the
+  -- fixture's sixteenth palette color.
+  local r, g, b, a = PngReader.pixel(rgba, width, 2 * 8 + 4, 3 * 8 + 4)
+  Assert.equal(a, 255)
+  Assert.deepEqual({ r, g, b }, { 115, 107, 132 })
+end
+
+-- A flipped OBJ mirrors the whole object per the OAM layout: the tile grid
+-- order must mirror as well as each tile. With flipH, tile 14 (value 15)
+-- moves from grid (row 3, col 2) to (row 3, col 1), and tile 13 (value 14)
+-- takes its place.
+function T.flipped_cursor_objs_mirror_the_tile_grid()
+  local romFs, sha1, hashLua = fixture({
+    cursor = { { x = 8, y = 8, tile = 0, pal = 0, size = 2, flipH = true } },
+  })
+  local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local path = bundle.manifest.assets["hgss.start_menu.cursor"].image
+  local width, _, rgba = PngReader.rgba(bundle.assets[path])
+  local r, g, b, a = PngReader.pixel(rgba, width, 1 * 8 + 4, 3 * 8 + 4)
+  Assert.equal(a, 255)
+  Assert.deepEqual({ r, g, b }, { 115, 107, 132 }, "tile 14 renders mirrored at grid column 1")
+  local r2, g2, b2, a2 = PngReader.pixel(rgba, width, 2 * 8 + 4, 3 * 8 + 4)
+  Assert.equal(a2, 255)
+  Assert.deepEqual({ r2, g2, b2 }, { 107, 132, 173 }, "tile 13 renders at the mirrored tile 14 position")
+end
+
+-- A wide or tall OBJ is a geometry this compiler does not support: the
+-- cursor must reject it with the typed source error and enough context to
+-- name the asset, member, cell, object, and decoded dimensions.
+function T.unsupported_cursor_obj_geometry_is_a_typed_source_error()
+  local romFs, sha1, hashLua = fixture({
+    cursor = { { x = 0, y = 0, tile = 0, pal = 0, shape = 1 } },
+  })
+  local bundle, err = FieldUiCompiler.compile(romFs, sha1, hashLua)
+  Assert.isNil(bundle)
+  local typed = assert(err)
+  Assert.equal(typed.code, FieldUiCompiler.ERROR.SOURCE_INVALID)
+  Assert.equal(typed.context.width, 16)
+  Assert.equal(typed.context.height, 8)
+  Assert.equal(typed.context.source.member, 62)
+  Assert.equal(typed.context.source.cell, 0)
+  Assert.equal(typed.context.source.obj, 0)
+end
+
+-- A screen entry referencing a tile beyond the decoded char data is
+-- malformed source, not a later nil-byte arithmetic failure.
+function T.out_of_range_tile_references_are_typed_source_errors()
+  local romFs, sha1, hashLua = fixture({ screenEntry = 500 })
+  local bundle, err = FieldUiCompiler.compile(romFs, sha1, hashLua)
+  Assert.isNil(bundle)
+  local typed = assert(err)
+  Assert.equal(typed.code, FieldUiCompiler.ERROR.SOURCE_INVALID)
+  Assert.equal(typed.context.tile, 500)
+  Assert.equal(typed.context.available, 128)
+end
+
+-- A pixel value the decoded palette cannot cover is malformed source, never
+-- accidental transparency: the two-color fixture palette cannot cover
+-- palette bank 1.
+function T.out_of_palette_pixel_values_are_typed_source_errors()
+  local romFs, sha1, hashLua = fixture({
+    bgPalette = { 0x7FFF, 0x001F },
+    screenEntry = 0x1000,
+  })
+  local bundle, err = FieldUiCompiler.compile(romFs, sha1, hashLua)
+  Assert.isNil(bundle)
+  local typed = assert(err)
+  Assert.equal(typed.code, FieldUiCompiler.ERROR.SOURCE_INVALID)
+  Assert.equal(typed.context.palette, 1)
+  Assert.equal(typed.context.value, 1)
+  Assert.equal(typed.context.available, 2)
+end
+
+-- A truncated LZ10 member in a real-shaped ROM is a typed stream error at
+-- the compiler boundary, never a raw Lua exception.
+function T.truncated_lz10_members_are_typed_stream_errors()
+  local romFs, sha1, hashLua = fixture({
+    tamper = function(alias, members)
+      if alias == "start_menu" then
+        members[13] = lz10Wrap(charData(128)):sub(1, 24)
+      end
+      return members
+    end,
+  })
+  local bundle, err = FieldUiCompiler.compile(romFs, sha1, hashLua)
+  Assert.isNil(bundle)
+  Assert.equal(assert(err).code, Lz10.ERROR.STREAM_INVALID)
+end
+
+-- A member whose container repeats a logical chunk id is a typed G2D
+-- structural error at the compiler boundary, not a silent replacement.
+function T.duplicate_g2d_chunks_in_members_are_typed_errors()
+  local payload = u16(8)
+    .. u16(0x20)
+    .. u32(3)
+    .. u16(0)
+    .. u16(0)
+    .. u32(0)
+    .. u32(32)
+    .. u32(0x18)
+    .. string.rep("\1", 32)
+  local romFs, sha1, hashLua = fixture({
+    tamper = function(alias, members)
+      if alias == "start_menu" then
+        members[13] = container("RGCN", { block("CHAR", payload), block("CHAR", payload) })
+      end
+      return members
+    end,
+  })
+  local bundle, err = FieldUiCompiler.compile(romFs, sha1, hashLua)
+  Assert.isNil(bundle)
+  Assert.equal(assert(err).code, G2dDecoder.ERROR.CHUNK_DUPLICATE)
 end
 
 function T.writer_commits_marker_last_and_reads_back()
