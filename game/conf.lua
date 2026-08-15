@@ -4,9 +4,10 @@
 -- and allocates canvases, meshes, and images for real, so a windowless run would
 -- report work it never did. The window is hidden, unfocused, and vsync-free so
 -- the suite neither steals the desktop nor paces itself against a monitor; the
--- host modules no test needs (audio, sound, joystick, touch) stay off. An
--- ordinary boot gets a normal resizable window. Test detection is a plain scan
--- of `arg` because LÖVE modules are not up yet.
+-- audio and sound modules stay on so the LÖVE audio-output smoke test can
+-- exercise the real host API headless, while the host modules no test needs
+-- (joystick, touch) stay off. An ordinary boot gets a normal resizable window.
+-- Test detection is a plain scan of `arg` because LÖVE modules are not up yet.
 
 -- Requires the shared window reference. love.conf runs before main.lua, so the
 -- repo-root package.path it installs is not available yet; the module resolves
@@ -28,8 +29,6 @@ function love.conf(t)
   t.modules.physics = false
 
   if isTest() then
-    t.modules.audio = false
-    t.modules.sound = false
     t.modules.joystick = false
     t.modules.touch = false
 

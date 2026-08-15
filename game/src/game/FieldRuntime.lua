@@ -77,7 +77,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field presentation boolean?
 ---@field scriptHosts table? deterministic host boundaries for script effects
 ---@field dayNight (fun(): string)? deterministic day/night source for the field-music policy
----@field audioOutput table? love.audio-shaped audio-output namespace for the LÖVE sink
+---@field audioOutput table? { audio: table, sound: table } audio-output host namespaces for the LÖVE sink (defaults to love.audio + love.sound)
 
 ---@class FieldRuntimeScriptHosts
 ---@field audio table?
@@ -732,10 +732,11 @@ end
 -- GameSound as the script audio service and the session's fixed-tick audio
 -- collaborator, and starts the current map's header music. The LÖVE sink is
 -- built over the injected audio-output host boundary (acceptance fakes it);
--- production defaults to love.audio, and a host with no audio module has no
--- sink to pump. The day/night source defaults to the wall-clock IsNighttime
--- predicate (hours 0-3 and 20-23, the bandForHour nite band); tests and
--- hosts inject a deterministic one.
+-- production defaults to the love.audio + love.sound namespaces, and a host
+-- with no audio module has no sink to pump. The sink receives the
+-- SequencePlayer as its renderer. The day/night source defaults to the
+-- wall-clock IsNighttime predicate (hours 0-3 and 20-23, the bandForHour
+-- nite band); tests and hosts inject a deterministic one.
 ---@param cacheFs CacheFs
 ---@return table audioService the GameSound instance, or the injected recording adapter
 function FieldRuntime:_composeAudio(cacheFs)
@@ -762,15 +763,15 @@ function FieldRuntime:_composeAudio(cacheFs)
       return self.fieldMusic:mapHeaderMusic(self.runtimeMap)
     end,
   })
-  local audioOutput = self.audioOutput or love.audio
+  local audioOutput = self.audioOutput
+  if audioOutput == nil and love.audio ~= nil then
+    audioOutput = { audio = love.audio, sound = love.sound }
+  end
   if audioOutput ~= nil then
     self.audioSink = LoveAudioSink.new({
-      audio = audioOutput,
-      engine = {
-        render = function(_, frames)
-          return self.audio:render(frames)
-        end,
-      },
+      audio = audioOutput.audio,
+      sound = audioOutput.sound,
+      renderer = player,
       sampleRate = AUDIO_SAMPLE_RATE,
     })
   end

@@ -1,47 +1,92 @@
 -- Deterministic recording stand-in for the LÖVE audio-output host boundary.
--- It is shaped like the love.audio namespace the production LoveAudioSink
--- consumes (newQueueableSource + QueueableSource queue/play/stop/pause/
--- isPlaying/getFreeBufferCount/release), records every PCM chunk handed to the
--- host, and never touches an audio device. Chunks are little-endian s16
--- interleaved PCM (the engine render contract), decoded here for the
--- non-silence probes the field-audio scenarios assert.
+-- It is shaped like the production LoveAudioSink's host contract: the
+-- `audio` namespace creates queueable sources whose `queue` accepts only
+-- SoundData-shaped payloads -- the real LÖVE binding rejects everything else,
+-- in particular a Lua byte string -- and the `sound` namespace creates
+-- SoundData-shaped buffers (total sample count, 1-based channel indices,
+-- float samples in [-1, 1]). It records every chunk handed to the host and
+-- never touches an audio device; the non-silence probes read the queued
+-- samples the way the host would decode them.
 
 local FakeAudioOutput = {}
 FakeAudioOutput.__index = FakeAudioOutput
 
-local BYTES_PER_SAMPLE = 2
+local CHANNELS = 2
 local FREE_BUFFER_COUNT = 2
 
--- Decodes the little-endian s16 interleaved stereo chunk far enough to tell
--- whether it contains any nonzero sample (the non-silence probe the
--- field-audio scenarios assert).
----@param data string
----@return boolean nonZero
-local function isNonZero(data)
-  for index = 1, #data - 1, 2 do
-    local lo = string.byte(data, index)
-    local hi = string.byte(data, index + 1)
-    local sample = hi * 256 + lo
-    if sample >= 32768 then
-      sample = sample - 65536
-    end
-    if sample ~= 0 then
-      return true
-    end
-  end
-  return false
+-- The SoundData-shaped record the `sound` namespace creates.
+local SoundData = {}
+SoundData.__index = SoundData
+
+function SoundData:getSampleRate()
+  return self.sampleRate
 end
+
+function SoundData:getBitDepth()
+  return self.bitDepth
+end
+
+function SoundData:getChannelCount()
+  return self.channels
+end
+
+function SoundData:getSampleCount()
+  return self.sampleCount
+end
+
+function SoundData:getSample(i, channel)
+  assert(
+    i >= 0 and channel >= 1 and channel <= self.channels and i * self.channels + (channel - 1) < self.sampleCount,
+    "sample out of range"
+  )
+  return self.samples[i * self.channels + (channel - 1)] or 0
+end
+
+function SoundData:setSample(i, channel, sample)
+  assert(
+    i >= 0 and channel >= 1 and channel <= self.channels and i * self.channels + (channel - 1) < self.sampleCount,
+    "sample out of range"
+  )
+  self.samples[i * self.channels + (channel - 1)] = sample
+end
+
+function SoundData:release() end
 
 function FakeAudioOutput.new()
   local chunks = {}
   local source = {}
 
+  -- Whether a queued payload satisfies the real LÖVE SoundData contract the
+  -- sink builds; a Lua byte string never does.
+  local function isSoundData(data)
+    return type(data) == "table"
+      and type(data.getSample) == "function"
+      and type(data.getSampleCount) == "function"
+      and type(data.getChannelCount) == "function"
+  end
+
+  -- Reads the queued SoundData at handoff time (the host copies what it
+  -- decodes) and records whether it contains any nonzero sample.
+  local function record(chunks, data)
+    local nonZero = false
+    local frames = math.floor(data:getSampleCount() / data:getChannelCount())
+    for index = 0, frames - 1 do
+      for channel = 1, data:getChannelCount() do
+        if data:getSample(index, channel) ~= 0 then
+          nonZero = true
+          break
+        end
+      end
+      if nonZero then
+        break
+      end
+    end
+    chunks[#chunks + 1] = { nonZero = nonZero }
+  end
+
   function source:queue(data)
-    assert(
-      type(data) == "string" and #data > 0 and #data % (BYTES_PER_SAMPLE * 2) == 0,
-      "queued PCM must be s16 interleaved"
-    )
-    chunks[#chunks + 1] = { nonZero = isNonZero(data) }
+    assert(isSoundData(data), "queued payload must be SoundData-shaped (got " .. type(data) .. ")")
+    record(chunks, data)
   end
 
   function source:play()
@@ -49,10 +94,6 @@ function FakeAudioOutput.new()
   end
 
   function source:stop()
-    self.playing = false
-  end
-
-  function source:pause()
     self.playing = false
   end
 
@@ -64,29 +105,42 @@ function FakeAudioOutput.new()
     return FREE_BUFFER_COUNT
   end
 
-  function source:release()
-    self.released = true
-  end
+  function source:release() end
+
+  local sound = {
+    newSoundData = function(samples, sampleRate, bitDepth, channels)
+      assert(type(samples) == "number" and type(sampleRate) == "number" and type(bitDepth) == "number")
+      assert(type(channels) == "number")
+      return setmetatable({
+        sampleRate = sampleRate,
+        bitDepth = bitDepth,
+        channels = channels,
+        sampleCount = samples,
+        samples = {},
+      }, SoundData)
+    end,
+  }
 
   local self = setmetatable({
     chunks = chunks,
+    audio = {
+      newQueueableSource = function(sampleRate, bitDepth, channels)
+        assert(type(sampleRate) == "number" and type(bitDepth) == "number" and type(channels) == "number")
+        return setmetatable({
+          sampleRate = sampleRate,
+          bitDepth = bitDepth,
+          channels = channels,
+          playing = false,
+        }, { __index = source })
+      end,
+    },
+    sound = sound,
   }, FakeAudioOutput)
-
-  function self.newQueueableSource(sampleRate, bitDepth, channels)
-    assert(type(sampleRate) == "number" and type(bitDepth) == "number" and type(channels) == "number")
-    return setmetatable({
-      sampleRate = sampleRate,
-      bitDepth = bitDepth,
-      channels = channels,
-      playing = false,
-      released = false,
-    }, { __index = source })
-  end
 
   return self
 end
 
--- True once any queued PCM chunk contained a nonzero sample (the music is
+-- True once any queued chunk contained a nonzero sample (the music is
 -- actually rendering into the host boundary).
 function FakeAudioOutput:anyNonSilent()
   for _, chunk in ipairs(self.chunks) do
