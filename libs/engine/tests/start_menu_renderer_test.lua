@@ -26,6 +26,10 @@ local StartMenuRenderer = require("libs.engine.src.StartMenuRenderer")
 
 local T = {}
 
+-- The runtime-validated manifest every construction passes in: the renderer
+-- never reloads it from the cache itself.
+local MANIFEST = FieldUiFixture.manifest()
+
 -- Tracks created images and their release calls, records every draw with its
 -- quad, position, and the color at draw time, records any themed-primitive
 -- call (rectangle/polygon/print must never be used for this surface), tracks
@@ -191,32 +195,22 @@ local function menuCache()
   return FieldUiFixture.startMenuCache()
 end
 
-function T.missing_manifest_is_a_typed_error()
+-- The runtime-validated manifest is a required constructor input: the
+-- renderer never reloads the manifest from the cache itself, so a
+-- construction without one is rejected.
+function T.missing_manifest_is_rejected()
   local err = Assert.throws(function()
     StartMenuRenderer.new({ cacheFs = CacheFs.forVersion("heartgold", FakeCache.new()) })
   end)
-  Assert.isTrue(Errors.is(err) and err.code == "FIELD_UI_MANIFEST_MISSING", "raises FIELD_UI_MANIFEST_MISSING")
+  Assert.isTrue(tostring(err):find("requires the runtime-validated field-UI manifest", 1, true) ~= nil)
 end
 
 function T.rejects_a_missing_graphics_namespace()
   local err = Assert.throws(function()
     ---@diagnostic disable: assign-type-mismatch
-    StartMenuRenderer.new({ cacheFs = menuCache(), graphics = false })
+    StartMenuRenderer.new({ cacheFs = menuCache(), manifest = MANIFEST, graphics = false })
   end)
   Assert.isTrue(tostring(err):find("StartMenuRenderer requires love.graphics", 1, true) ~= nil)
-end
-
--- The manifest must carry the whole startMenu surface: without the section
--- the renderer cannot resolve anything it draws.
-function T.missing_start_menu_section_is_a_typed_error()
-  local cache = menuCache()
-  local manifest = FieldUiFixture.manifest()
-  manifest.startMenu = nil
-  cache:writeLua("data/generated/field/ui/ui.lua", manifest)
-  local err = Assert.throws(function()
-    StartMenuRenderer.new({ cacheFs = cache })
-  end)
-  Assert.isTrue(Errors.is(err) and err.code == "FIELD_UI_MANIFEST_INVALID", "raises FIELD_UI_MANIFEST_INVALID")
 end
 
 -- The manifest names the background and cursor assets; a cache without the
@@ -225,7 +219,7 @@ function T.missing_background_asset_is_a_typed_error()
   local cache = menuCache()
   cache:remove(FieldUiFixture.START_MENU_BACKGROUND_PATH)
   local err = Assert.throws(function()
-    StartMenuRenderer.new({ cacheFs = cache })
+    StartMenuRenderer.new({ cacheFs = cache, manifest = MANIFEST })
   end)
   Assert.isTrue(
     Errors.is(err) and err.code == "FIELD_UI_START_MENU_BACKGROUND_MISSING",
@@ -240,7 +234,7 @@ function T.missing_cursor_asset_is_a_typed_error_and_releases_the_background()
   cache:remove(FieldUiFixture.START_MENU_CURSOR_PATH)
   local lg = fakeGraphics({ imageSizes = { { 256, 192 } } })
   local err = Assert.throws(function()
-    StartMenuRenderer.new({ cacheFs = cache, graphics = lg })
+    StartMenuRenderer.new({ cacheFs = cache, manifest = MANIFEST, graphics = lg })
   end)
   Assert.isTrue(
     Errors.is(err) and err.code == "FIELD_UI_START_MENU_CURSOR_MISSING",
@@ -258,7 +252,7 @@ function T.constructor_failure_releases_background_and_cursor()
     failOnQuadCall = 2,
   })
   local err = Assert.throws(function()
-    StartMenuRenderer.new({ cacheFs = menuCache(), graphics = lg })
+    StartMenuRenderer.new({ cacheFs = menuCache(), manifest = MANIFEST, graphics = lg })
   end)
   Assert.isTrue(tostring(err):find("injected newQuad failure", 1, true) ~= nil, "rethrows the quad failure")
   Assert.equal(#lg.images, 2, "background and cursor were created before the failure")
@@ -272,7 +266,7 @@ end
 -- the renderer must not carry its own copy of the geometry.
 function T.resolves_the_start_menu_section_from_the_manifest()
   local lg = fakeGraphics({ imageSizes = { { 256, 192 }, { 16, 32 } } })
-  local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), graphics = lg })
+  local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), manifest = MANIFEST, graphics = lg })
   local manifest = FieldUiFixture.manifest().startMenu
 
   Assert.deepEqual(renderer.menu.background, manifest.background, "the background rect comes from the manifest")
@@ -300,10 +294,8 @@ function T.the_manifest_geometry_is_the_authority_not_a_hard_coded_grid()
     { x = 0, y = 8, width = 8, height = 8, duration = 4 },
     { x = 8, y = 8, width = 8, height = 8, duration = 9 },
   }
-  cache:writeLua("data/generated/field/ui/ui.lua", manifest)
-
   local lg = fakeGraphics({ imageSizes = { { 256, 192 }, { 16, 32 } } })
-  local renderer = StartMenuRenderer.new({ cacheFs = cache, graphics = lg })
+  local renderer = StartMenuRenderer.new({ cacheFs = cache, manifest = manifest, graphics = lg })
   Assert.deepEqual(renderer.menu.slots[1], { x = 10, y = 20, width = 100, height = 30 })
   Assert.deepEqual(renderer.menu.slots[2], { x = 120, y = 20, width = 100, height = 30 })
   Assert.deepEqual(renderer.menu.cursor.frames[1], { x = 0, y = 8, width = 8, height = 8, duration = 4 })
@@ -335,7 +327,7 @@ end
 -- frame centered over the presented slot.
 function T.draws_the_background_and_the_cursor_over_the_presented_slot()
   local lg = fakeGraphics({ imageSizes = { { 256, 192 }, { 16, 32 } } })
-  local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), graphics = lg })
+  local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), manifest = MANIFEST, graphics = lg })
   renderer:draw({ cursorSlotId = 1, cursorFrameIndex = 0 }, canonicalPlacement())
   renderer:release()
 
@@ -361,7 +353,7 @@ end
 -- open menu without a selection draws the background and stops successfully.
 function T.a_missing_cursor_draws_the_background_and_stops()
   local lg = fakeGraphics({ imageSizes = { { 256, 192 }, { 16, 32 } } })
-  local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), graphics = lg })
+  local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), manifest = MANIFEST, graphics = lg })
   renderer:draw({ cursorSlotId = nil, cursorFrameIndex = nil }, canonicalPlacement())
   renderer:release()
 
@@ -380,7 +372,7 @@ end
 function T.cursor_frame_index_selects_the_frame_quad()
   local function cursorQuad(frameIndex)
     local lg = fakeGraphics({ imageSizes = { { 256, 192 }, { 16, 32 } } })
-    local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), graphics = lg })
+    local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), manifest = MANIFEST, graphics = lg })
     renderer:draw({ cursorSlotId = 5, cursorFrameIndex = frameIndex }, canonicalPlacement())
     renderer:release()
     return lg.draws[2].quad
@@ -393,7 +385,7 @@ end
 -- are programming faults, never silently clamped or dropped.
 function T.rejects_unknown_slot_ids_and_frame_indexes()
   local lg = fakeGraphics({ imageSizes = { { 256, 192 }, { 16, 32 } } })
-  local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), graphics = lg })
+  local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), manifest = MANIFEST, graphics = lg })
   Assert.throws(function()
     renderer:draw({ cursorSlotId = 0, cursorFrameIndex = 0 }, canonicalPlacement())
   end, "slot 0 is outside the generated slot set")
@@ -411,7 +403,7 @@ end
 -- or text primitives may appear.
 function T.draws_only_the_generated_images_with_no_generic_menu_styling()
   local lg = fakeGraphics({ imageSizes = { { 256, 192 }, { 16, 32 } } })
-  local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), graphics = lg })
+  local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), manifest = MANIFEST, graphics = lg })
   renderer:draw({ cursorSlotId = 3, cursorFrameIndex = 0 }, canonicalPlacement())
   renderer:release()
 
@@ -432,7 +424,7 @@ end
 -- one transform with no second set of scaled rectangles.
 function T.draw_consumes_the_placement_record_transform()
   local lg = fakeGraphics({ imageSizes = { { 256, 192 }, { 16, 32 } } })
-  local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), graphics = lg })
+  local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), manifest = MANIFEST, graphics = lg })
   renderer:draw({ cursorSlotId = 2, cursorFrameIndex = 0 }, {
     surfaceId = "main",
     frame = { x = 1440, y = 360, width = 480, height = 360 },
@@ -460,7 +452,7 @@ end
 -- silent fallback to some other placement.
 function T.rejects_a_missing_or_partial_placement_record()
   local lg = fakeGraphics({ imageSizes = { { 256, 192 }, { 16, 32 } } })
-  local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), graphics = lg })
+  local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), manifest = MANIFEST, graphics = lg })
   local nilPlacement = nil ---@type any
   local noFrame = { scale = 1 } ---@type any
   local noScale = { frame = { x = 0, y = 0, width = 256, height = 192 } } ---@type any
@@ -495,7 +487,7 @@ function T.draw_failure_balances_transform_stack_and_restores_state()
     imageSizes = { { 256, 192 }, { 16, 32 } },
     failOnDrawCall = 2,
   })
-  local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), graphics = lg })
+  local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), manifest = MANIFEST, graphics = lg })
 
   local err = Assert.throws(function()
     renderer:draw({ cursorSlotId = 1, cursorFrameIndex = 0 }, canonicalPlacement())
@@ -510,7 +502,7 @@ end
 -- is a no-op (with or without a presentation) and a second release is safe.
 function T.release_frees_the_images_and_draw_after_release_is_a_noop()
   local lg = fakeGraphics({ imageSizes = { { 256, 192 }, { 16, 32 } } })
-  local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), graphics = lg })
+  local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), manifest = MANIFEST, graphics = lg })
   renderer:release()
   renderer:release()
 

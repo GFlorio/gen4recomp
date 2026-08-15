@@ -16,6 +16,18 @@ local FieldUiAssetCache = {}
 FieldUiAssetCache.FORMAT = Contract.fieldUi.cacheFormat
 FieldUiAssetCache.SCHEMA = Contract.fieldUi.schema
 
+-- The generated field-UI asset protocol ids: one constant table so the
+-- producer, the cache validation, and the renderers never repeat the raw
+-- strings.
+FieldUiAssetCache.ASSET = {
+  DIALOGUE_FRAME_TILES = "hgss.dialogue_frame.tiles",
+  SIGNPOST_TILES = "hgss.signpost.tiles",
+  SIGNPOST_WAYFINDING = "hgss.signpost.wayfinding",
+  START_MENU_BACKGROUND = "hgss.start_menu.background",
+  START_MENU_CURSOR = "hgss.start_menu.cursor",
+  TRAINER_CARD_FRONT = "hgss.trainer_card.front",
+}
+
 -- One error code for every malformed generated class: the manifest is the
 -- single strict structural boundary, so all violations share the code while
 -- the message names the exact broken field.
@@ -137,7 +149,8 @@ function FieldUiAssetCache.validateManifest(manifest)
       return false, Errors.new(MANIFEST_INVALID, "dialogueFrames.frameTiles must be a table", {})
     end
     for frame = 0, s.count - 1 do
-      local ok, err = rectInAtlas(s.frameTiles[frame], "hgss.dialogue_frame.tiles", "frame " .. frame .. " tiles")
+      local ok, err =
+        rectInAtlas(s.frameTiles[frame], FieldUiAssetCache.ASSET.DIALOGUE_FRAME_TILES, "frame " .. frame .. " tiles")
       if not ok then
         return false, err
       end
@@ -155,7 +168,7 @@ function FieldUiAssetCache.validateManifest(manifest)
     if type(s.frame) ~= "table" then
       return false, Errors.new(MANIFEST_INVALID, "signposts.frame must be a table", {})
     end
-    local ok, err = rectInAtlas(s.frame.tiles, "hgss.signpost.tiles", "signpost frame tiles")
+    local ok, err = rectInAtlas(s.frame.tiles, FieldUiAssetCache.ASSET.SIGNPOST_TILES, "signpost frame tiles")
     if not ok then
       return false, err
     end
@@ -186,7 +199,8 @@ function FieldUiAssetCache.validateManifest(manifest)
                 map = map,
               })
           end
-          local ok, err = rectInAtlas(rect, "hgss.signpost.wayfinding", "signpost wayfinding map " .. map)
+          local ok, err =
+            rectInAtlas(rect, FieldUiAssetCache.ASSET.SIGNPOST_WAYFINDING, "signpost wayfinding map " .. map)
           if not ok then
             return false, err
           end
@@ -200,7 +214,7 @@ function FieldUiAssetCache.validateManifest(manifest)
   end
 
   local ok, err = section("startMenu", function(s)
-    local ok, err = rectInAtlas(s.background, "hgss.start_menu.background", "start menu background")
+    local ok, err = rectInAtlas(s.background, FieldUiAssetCache.ASSET.START_MENU_BACKGROUND, "start menu background")
     if not ok then
       return false, err
     end
@@ -208,7 +222,7 @@ function FieldUiAssetCache.validateManifest(manifest)
       return false, Errors.new(MANIFEST_INVALID, "startMenu.cursor must carry at least one frame", {})
     end
     for _, frameEntry in ipairs(s.cursor.frames) do
-      local ok, err = rectInAtlas(frameEntry, "hgss.start_menu.cursor", "start menu cursor frame")
+      local ok, err = rectInAtlas(frameEntry, FieldUiAssetCache.ASSET.START_MENU_CURSOR, "start menu cursor frame")
       if not ok then
         return false, err
       end
@@ -234,7 +248,7 @@ function FieldUiAssetCache.validateManifest(manifest)
       if slot == nil then
         return false, Errors.new(MANIFEST_INVALID, "startMenu.slots must be the dense 1..10 grid", {})
       end
-      local ok, err = rectInAtlas(slot, "hgss.start_menu.background", "start menu slot " .. id)
+      local ok, err = rectInAtlas(slot, FieldUiAssetCache.ASSET.START_MENU_BACKGROUND, "start menu slot " .. id)
       if not ok then
         return false, err
       end
@@ -246,7 +260,7 @@ function FieldUiAssetCache.validateManifest(manifest)
   end
 
   local ok, err = section("trainerCard", function(s)
-    local ok, err = rectInAtlas(s.front, "hgss.trainer_card.front", "trainer card front")
+    local ok, err = rectInAtlas(s.front, FieldUiAssetCache.ASSET.TRAINER_CARD_FRONT, "trainer card front")
     if not ok then
       return false, err
     end

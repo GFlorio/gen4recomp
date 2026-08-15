@@ -13,10 +13,11 @@
 -- for values gameplay does not own stay empty and the source-gated POKéDEX
 -- row is not drawn at all: nothing is fabricated. Text draws through the
 -- shared FieldTextRenderer (owned by FieldState); this renderer owns only
--- the card front image. Construction is failure-safe: a missing manifest or
--- card front is a typed error, a quad failure after the image was created
--- releases it before rethrowing, and draw() restores every graphics state
--- it touches.
+-- the card front image. Construction is failure-safe: a missing card front
+-- is a typed error, a quad failure after the image was created releases it
+-- before rethrowing, and draw() restores every graphics state it touches.
+-- The runtime-validated manifest is injected explicitly; this renderer never
+-- reloads it from the cache.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
@@ -50,15 +51,16 @@ TrainerCardRenderer.TRAINER_ID_RIGHT_EDGE = 112
 TrainerCardRenderer.TRAINER_ID_DIGITS = 5
 
 -- opts.cacheFs: version-scoped private cache holding the generated field-UI
--- class (manifest + card front PNG); opts.text: the shared FieldTextRenderer
--- (FieldState owns exactly one); opts.graphics: injectable LÖVE graphics
--- namespace.
+-- class (card front PNG); opts.manifest: the already-validated generated
+-- field-UI manifest the runtime loaded once (FieldRuntime.uiManifest);
+-- opts.text: the shared FieldTextRenderer (FieldState owns exactly one);
+-- opts.graphics: injectable LÖVE graphics namespace.
 
----@param opts { cacheFs: CacheFs, text: FieldTextRenderer, graphics?: love.Graphics? }
+---@param opts { cacheFs: CacheFs, manifest: table, text: FieldTextRenderer, graphics?: love.Graphics? }
 ---@return TrainerCardRenderer
 function TrainerCardRenderer.new(opts)
   assert(
-    type(opts) == "table" and opts.cacheFs and opts.cacheFs.loadLua,
+    type(opts) == "table" and opts.cacheFs and opts.cacheFs.read,
     "TrainerCardRenderer requires a CacheFs-shaped object"
   )
   local graphics = opts.graphics
@@ -69,29 +71,18 @@ function TrainerCardRenderer.new(opts)
   local text = opts.text
   assert(text and type(text.drawText) == "function", "TrainerCardRenderer requires the shared FieldTextRenderer")
   local cacheFs = opts.cacheFs
+  local manifest = opts.manifest
+  assert(type(manifest) == "table", "TrainerCardRenderer requires the runtime-validated field-UI manifest")
 
   -- The generated field-UI class is a required renderer asset: the manifest
   -- names the card front PNG and its rect. The runtime boot already validates
   -- the full manifest; the renderer resolves what it draws.
-  local manifest = cacheFs:loadLua(FieldUiAssetCache.manifestPath())
-  if type(manifest) ~= "table" then
-    Errors.raise(
-      FieldErrors.FIELD_UI_MANIFEST_MISSING,
-      "field UI manifest missing at " .. FieldUiAssetCache.manifestPath(),
-      { path = FieldUiAssetCache.manifestPath() }
-    )
-  end
-  local uiManifest = manifest --[[@as table]]
-  local trainerCard = uiManifest.trainerCard
-  local frontAsset = uiManifest.assets and uiManifest.assets["hgss.trainer_card.front"]
-  if
-    type(trainerCard) ~= "table"
-    or type(trainerCard.front) ~= "table"
-    or type(frontAsset) ~= "table"
-    or type(frontAsset.image) ~= "string"
-  then
-    Errors.raise(FieldErrors.FIELD_UI_MANIFEST_INVALID, "field UI manifest has no trainer card front surface", {})
-  end
+  local trainerCard = assert(manifest.trainerCard, "the field-UI manifest must carry the trainer card section")
+  local frontAsset = assert(
+    manifest.assets[FieldUiAssetCache.ASSET.TRAINER_CARD_FRONT],
+    "the field-UI manifest must carry the trainer card front asset"
+  )
+  local cardPath = assert(frontAsset.image, "the trainer card front asset must name an image path")
 
   local self = setmetatable({
     _graphics = graphics,
@@ -103,7 +94,6 @@ function TrainerCardRenderer.new(opts)
     },
   }, TrainerCardRenderer)
 
-  local cardPath = frontAsset.image
   local cardData = cacheFs:read(cardPath)
   local ok, err = pcall(function()
     if not cardData then

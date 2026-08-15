@@ -92,20 +92,31 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
     -- The one shared field-font atlas: dialogue, signpost, and Trainer Card
     -- text all draw through it; the state owns and releases it exactly once.
     self.textRenderer = FieldTextRenderer.new({ cacheFs = runtime.cacheFs })
-    self.dialogueRenderer = FieldDialogueRenderer.new({ cacheFs = runtime.cacheFs, text = self.textRenderer })
+    self.dialogueRenderer = FieldDialogueRenderer.new({
+      cacheFs = runtime.cacheFs,
+      manifest = runtime.uiManifest,
+      text = self.textRenderer,
+    })
     self.menuRenderer = FieldMenuRenderer.new()
     -- The composition: the signpost renderer resolves its per-type geometry
-    -- through the immutable window style catalogue, the Start Menu and
-    -- Trainer Card renderers draw the generated application surfaces. The
-    -- state owns and releases their GPU resources; controllers stay pure.
+    -- through the immutable window style catalogue, and the Start Menu and
+    -- Trainer Card renderers draw the generated application surfaces. Every
+    -- renderer consumes the one manifest the runtime already validated;
+    -- none of them reloads it. The state owns and releases their GPU
+    -- resources; controllers stay pure.
     self.signpostRenderer = FieldSignpostRenderer.new({
       cacheFs = runtime.cacheFs,
+      manifest = runtime.uiManifest,
       text = self.textRenderer,
       windowStyles = runtime.windowStyles,
     })
-    self.startMenuRenderer = StartMenuRenderer.new({ cacheFs = runtime.cacheFs })
+    self.startMenuRenderer = StartMenuRenderer.new({
+      cacheFs = runtime.cacheFs,
+      manifest = runtime.uiManifest,
+    })
     self.trainerCardRenderer = TrainerCardRenderer.new({
       cacheFs = runtime.cacheFs,
+      manifest = runtime.uiManifest,
       text = self.textRenderer,
     })
     local width, height = love.graphics.getDimensions()
@@ -327,21 +338,56 @@ function FieldState:draw()
   end
 end
 
--- The application fade rectangle: the union of the world viewport and the
--- Start Menu placement frame, so on a dual-display topology the auxiliary
--- surface region goes black with the world and no menu surface can stay
--- visible while only the world viewport fades.
+-- The application fade coverage: the world viewport plus the Start Menu
+-- placement frame as a set of non-overlapping rectangles, so the union of
+-- separated surfaces is painted once each and the gap between them never is.
+-- The world rect is always painted; the frame contributes only the strips
+-- outside its intersection with the world (a fully contained frame adds
+-- nothing, so no region is alpha-doubled).
+---@param world ScreenTopology.Rectangle
+---@param frame ScreenTopology.Rectangle
+---@return ScreenTopology.Rectangle[]
+local function fadeRects(world, frame)
+  local rects = { world }
+  local ix = math.max(world.x, frame.x)
+  local iy = math.max(world.y, frame.y)
+  local ix2 = math.min(world.x + world.width, frame.x + frame.width)
+  local iy2 = math.min(world.y + world.height, frame.y + frame.height)
+  if ix2 <= ix or iy2 <= iy then
+    -- Disjoint surfaces: the frame is painted in full.
+    rects[#rects + 1] = frame
+    return rects
+  end
+  if frame.x < ix then
+    rects[#rects + 1] = { x = frame.x, y = frame.y, width = ix - frame.x, height = frame.height }
+  end
+  if frame.x + frame.width > ix2 then
+    rects[#rects + 1] = { x = ix2, y = frame.y, width = frame.x + frame.width - ix2, height = frame.height }
+  end
+  if frame.y < iy then
+    rects[#rects + 1] = { x = ix, y = frame.y, width = ix2 - ix, height = iy - frame.y }
+  end
+  if frame.y + frame.height > iy2 then
+    rects[#rects + 1] = { x = ix, y = iy2, width = ix2 - ix, height = frame.y + frame.height - iy2 }
+  end
+  return rects
+end
+
+-- The application fade: the union of the world viewport and the Start Menu
+-- placement frame, so on a dual-display topology the auxiliary surface region
+-- goes black with the world and no menu surface can stay visible while only
+-- the world viewport fades. Disjoint surfaces paint as separate rectangles
+-- (the gap between them stays untouched), and overlapping regions are
+-- painted once, never twice.
 ---@param alpha number
 function FieldState:_drawApplicationFade(alpha)
   local lg = love.graphics
   local world = self.runtime.viewport.worldViewport
   local frame = assert(self.runtime.startMenuPlacement, "the application fade requires the placement record").frame
-  local x = math.min(world.x, frame.x)
-  local y = math.min(world.y, frame.y)
-  local x2 = math.max(world.x + world.width, frame.x + frame.width)
-  local y2 = math.max(world.y + world.height, frame.y + frame.height)
   lg.setColor(0, 0, 0, alpha)
-  lg.rectangle("fill", x, y, x2 - x, y2 - y)
+  for _, rect in ipairs(fadeRects(world, frame)) do
+    lg.rectangle("fill", rect.x, rect.y, rect.width, rect.height)
+  end
 end
 
 -- The playtest HUD: map identity, the player's field state, the save status,
@@ -421,17 +467,17 @@ end
 ---@param key string
 ---@param scancode string?
 function FieldState:keyreleased(key, scancode)
+  -- Release mirrors press: one physical key may drive several held semantic
+  -- states (e.g. Action bound to an arrow key), so every matching binding
+  -- releases, never just the first.
   if self.runtime.actionKeys[key] then
     self.runtime.input:releaseAction("key:" .. key)
-    return
   end
   if self.runtime.cancelKeys[key] then
     self.runtime.input:releaseCancel("key:" .. key)
-    return
   end
   if self.runtime.menuKeys[key] then
     self.runtime.input:releaseMenu("key:" .. key)
-    return
   end
   local direction = KEY_DIRECTIONS[key]
   if direction then

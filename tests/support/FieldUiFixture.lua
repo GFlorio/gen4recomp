@@ -382,32 +382,32 @@ function FieldUiFixture.manifest()
   return {
     schema = FieldUiAssetCache.SCHEMA,
     assets = {
-      ["hgss.dialogue_frame.tiles"] = {
+      [FieldUiAssetCache.ASSET.DIALOGUE_FRAME_TILES] = {
         image = FieldUiFixture.STRIP_PATH,
         width = 144,
         height = FieldUiFixture.FRAME_COUNT * 8,
       },
-      ["hgss.signpost.tiles"] = {
+      [FieldUiAssetCache.ASSET.SIGNPOST_TILES] = {
         image = FieldUiFixture.SIGNPOST_TILES_PATH,
         width = 144,
         height = 8,
       },
-      ["hgss.signpost.wayfinding"] = {
+      [FieldUiAssetCache.ASSET.SIGNPOST_WAYFINDING] = {
         image = FieldUiFixture.WAYFINDING_PATH,
         width = 192,
         height = 32,
       },
-      ["hgss.start_menu.background"] = {
+      [FieldUiAssetCache.ASSET.START_MENU_BACKGROUND] = {
         image = FieldUiFixture.START_MENU_BACKGROUND_PATH,
         width = 256,
         height = 192,
       },
-      ["hgss.start_menu.cursor"] = {
+      [FieldUiAssetCache.ASSET.START_MENU_CURSOR] = {
         image = FieldUiFixture.START_MENU_CURSOR_PATH,
         width = 16,
         height = 32,
       },
-      ["hgss.trainer_card.front"] = {
+      [FieldUiAssetCache.ASSET.TRAINER_CARD_FRONT] = {
         image = FieldUiFixture.TRAINER_CARD_PATH,
         width = 256,
         height = 256,

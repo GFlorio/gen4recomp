@@ -48,6 +48,7 @@ local function bootWithCapturedRuntimeOptions(options, cache)
     captured = runtimeOptions
     return setmetatable({
       cacheFs = cache or presentationCache(),
+      uiManifest = FieldUiFixture.manifest(),
       windowStyles = {
         resolve = function() end,
       },

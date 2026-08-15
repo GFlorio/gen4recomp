@@ -4,30 +4,28 @@
 -- and Trainer Card renderers all need. FieldState owns exactly one instance
 -- (a renderer never acquires an independent atlas) and injects it; the
 -- renderer owns only its own frame/card images. Glyph ink and shadow colors
--- are baked at import time, so text draws at identity tint; non-glyph tokens
--- render as compact developer-aid markers that keep their measured layout
--- width, never silently dropped. Construction is failure-safe: a missing
--- font atlas is a typed error, and a quad failure after the image was
--- created releases it before rethrowing.
+-- are baked at import time, so text draws at identity tint; control tokens
+-- in a line draw nothing but keep their measured layout width, so following
+-- glyphs stay exactly where the paginator placed them -- production
+-- presentation never invents diagnostic marker text. Construction is
+-- failure-safe: a missing font atlas is a typed error, and a quad failure
+-- after the image was created releases it before rethrowing.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
+local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
-local FieldMessageText = require("libs.assets.src.FieldMessageText")
 local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 
 ---@class FieldTextRenderer
 ---@field fontDef FieldFontDef
+---@field _nonGlyphWidth fun(token: MessageToken): integer the one control-token width measurement (the dialogue theme's metrics, shared with the paginator)
 ---@field _graphics love.Graphics
 ---@field _atlas love.Image?
 ---@field _quads table<integer, love.Quad>?
 local FieldTextRenderer = {}
 FieldTextRenderer.__index = FieldTextRenderer
-
--- Developer-aid marker color for non-glyph tokens, matching the aid color of
--- the dialogue theme.
-FieldTextRenderer.MARKER_COLOR = { 0.55, 0.25, 0.10, 1 }
 
 -- opts.cacheFs: version-scoped private cache holding the compiled font def
 -- and atlas PNG; opts.graphics: injectable LÖVE graphics namespace.
@@ -45,8 +43,12 @@ function FieldTextRenderer.new(opts)
     graphics = love and love.graphics
   end
   assert(graphics and graphics.newImage and graphics.newQuad, "FieldTextRenderer requires love.graphics")
+  local fontDef = FieldFontLoader.load(opts.cacheFs, fontId)
   local self = setmetatable({
-    fontDef = FieldFontLoader.load(opts.cacheFs, fontId),
+    fontDef = fontDef,
+    -- The paginator's own measurement: a control token in a drawn line must
+    -- advance by exactly the width layout gave it.
+    _nonGlyphWidth = FieldDialogueTheme.fontMetrics(fontDef).nonGlyphWidth,
     _graphics = graphics,
     _atlas = nil,
     _quads = nil,
@@ -82,69 +84,12 @@ function FieldTextRenderer:_buildQuads()
   self._quads = quads
 end
 
--- Converts marker text to glyph runs through the compiled charmap.
--- Characters without a glyph render the compiled fallback glyph; marker text
--- is developer aid, never silently dropped.
-
----@param text string
----@return { quad: love.Quad?, advance: number }[]
-function FieldTextRenderer:_glyphRuns(text)
-  local runs = {}
-  for char in Utf8Glyphs.iter(text) do
-    local code = self.fontDef.charmap[char]
-    if not code then
-      code = 0
-    end
-    local glyph = self.fontDef.glyphs[code] or self.fontDef.glyphs[0]
-    runs[#runs + 1] = {
-      quad = assert(self._quads)[code],
-      advance = glyph.advance + (self.fontDef.letterSpacing or 0),
-    }
-  end
-  return runs
-end
-
--- Draws one marker token's text (substitution/style/wait/unsupported) in the
--- marker color. Marker text keeps its measured layout width, so it never
--- overlaps the following glyphs; the color makes it unmistakably a marker.
-
----@param tokens MessageToken[]
----@param x number
----@param y number
----@param advanceX number[]
-function FieldTextRenderer:_drawMarkerTokens(tokens, x, y, advanceX)
-  local lg = assert(self._graphics)
-  local atlas = assert(self._atlas)
-  local color = FieldTextRenderer.MARKER_COLOR
-  lg.setColor(color[1], color[2], color[3], color[4])
-  for _, token in ipairs(tokens) do
-    local runs = self:_glyphRuns(FieldMessageText.tokensToText({ token }))
-    for _, run in ipairs(runs) do
-      if run.quad then
-        lg.draw(atlas, run.quad, x, y)
-      end
-      x = x + run.advance
-    end
-    advanceX[1] = x
-  end
-end
-
----@param markers MessageToken[]
----@param advanceX number[]
----@param y number
-function FieldTextRenderer:_flushMarkers(markers, advanceX, y)
-  if #markers == 0 then
-    return
-  end
-  self:_drawMarkerTokens(markers, advanceX[1], y, advanceX)
-  for i = 1, #markers do
-    markers[i] = nil
-  end
-end
-
 -- Draws one page line at the reference-canvas position: glyphs through the
--- atlas (identity tint: the compiled ink/shadow/background colors are baked),
--- non-glyph tokens as compact markers.
+-- atlas at identity tint (the compiled ink/shadow/background colors are
+-- baked). Control tokens draw nothing but advance by their measured control
+-- token width -- the same measurement the paginator used -- so following
+-- glyphs stay exactly where layout placed them and no diagnostic text ever
+-- appears in production presentation.
 
 ---@param tokens MessageToken[]
 ---@param x number
@@ -153,23 +98,21 @@ function FieldTextRenderer:drawLine(tokens, x, y)
   local lg = assert(self._graphics)
   local atlas = assert(self._atlas)
   local quads = assert(self._quads)
-  local advanceX = { x }
-  local markers = {}
+  local def = self.fontDef
+  local letterSpacing = def.letterSpacing or 0
   lg.setColor(1, 1, 1, 1)
   for _, token in ipairs(tokens) do
     if token.kind == "glyph" then
-      self:_flushMarkers(markers, advanceX, y)
       local quad = quads[token.code] or quads[0]
       if quad then
-        lg.draw(atlas, quad, advanceX[1], y)
+        lg.draw(atlas, quad, x, y)
       end
-      local glyph = self.fontDef.glyphs[token.code] or self.fontDef.glyphs[0]
-      advanceX[1] = advanceX[1] + glyph.advance + (self.fontDef.letterSpacing or 0)
+      local glyph = def.glyphs[token.code] or def.glyphs[0]
+      x = x + glyph.advance + letterSpacing
     else
-      markers[#markers + 1] = token
+      x = x + self._nonGlyphWidth(token)
     end
   end
-  self:_flushMarkers(markers, advanceX, y)
 end
 
 -- Draws one plain text string at the reference-canvas position (the audited

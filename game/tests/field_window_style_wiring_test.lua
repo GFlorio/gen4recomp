@@ -16,25 +16,24 @@ local T = {
   tests = {},
 }
 
-function T.tests.runtime_composes_the_immutable_window_style_catalogue()
+function T.tests.runtime_composes_the_window_style_catalogue()
   local game = AcceptanceHarness.new({ versions = { "heartgold" } }):boot({
     versionId = "heartgold",
     map = "MAP_NEW_BARK",
     save = "fresh",
   })
   local ok, err = xpcall(function()
-    local registry = game.runtime.windowStyles
-    Assert.isTrue(type(registry) == "table", "the runtime must expose the window style catalogue")
-    Assert.isTrue(type(registry.resolve) == "function", "the catalogue must answer style-id queries")
+    local styles = game.runtime.windowStyles
+    Assert.isTrue(type(styles) == "table", "the runtime must expose the window style catalogue")
 
-    local dialogue = assert(registry:resolve("hgss.dialogue"))
+    local dialogue = assert(styles:resolve("hgss.dialogue"))
     Assert.equal(dialogue.role, "dialogue")
     Assert.isNil(dialogue.assets, "styles carry no asset-replacement ids")
-    local signpost = assert(registry:resolve("hgss.signpost"))
+    local signpost = assert(styles:resolve("hgss.signpost"))
     Assert.isNil(signpost.assets)
     Assert.isTrue(type(signpost.types[0]) == "table", "the real manifest type map must flow through")
     Assert.isTrue(signpost.types[0].graphicRegion ~= nil, "type 0 keeps its wayfinding region")
-    Assert.equal(assert(registry:resolve("hgss.trainer_tip")).role, "trainer_tip")
+    Assert.equal(assert(styles:resolve("hgss.trainer_tip")).role, "trainer_tip")
   end, debug.traceback)
   game:close()
   if not ok then
@@ -42,10 +41,9 @@ function T.tests.runtime_composes_the_immutable_window_style_catalogue()
   end
 end
 
--- A boot-config mod style descriptor is a complete record merged into the
--- immutable catalogue: the resolved record carries the mod's own identity
--- and fields.
-function T.tests.boot_config_mod_style_descriptors_merge_at_construction()
+-- A boot-config complete custom descriptor resolves through the runtime
+-- catalogue alongside the built-ins.
+function T.tests.boot_config_custom_style_resolves_through_the_runtime_catalogue()
   local game = AcceptanceHarness.new({ versions = { "heartgold" } }):boot({
     versionId = "heartgold",
     map = "MAP_NEW_BARK",
@@ -61,8 +59,8 @@ function T.tests.boot_config_mod_style_descriptors_merge_at_construction()
     },
   })
   local ok, err = xpcall(function()
-    local registry = game.runtime.windowStyles
-    local mod = assert(registry:resolve("mod.route_sign"), "the mod style must resolve through the catalogue")
+    local styles = game.runtime.windowStyles
+    local mod = assert(styles:resolve("mod.route_sign"), "the mod style must resolve through the runtime catalogue")
     Assert.equal(mod.role, "signpost")
     Assert.equal(mod.id, "mod.route_sign", "the mod style reports its own id")
     Assert.isNil(mod.assets, "the mod style carries no asset-replacement ids")

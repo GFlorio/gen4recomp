@@ -28,6 +28,8 @@ local function withGame(fn)
     map = "MAP_NEW_BARK",
     save = "fresh",
     fieldOptions = {
+      -- The catalog accepts only complete custom descriptors: a full record
+      -- (id, role, contentGeometry) with no base/inheritance.
       windowStyleDescriptors = {
         {
           id = "mod.route_sign",

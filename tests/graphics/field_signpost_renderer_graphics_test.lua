@@ -32,6 +32,7 @@ local function renderer(scope)
   local text = scope:own(FieldTextRenderer.new({ cacheFs = FieldUiFixture.cacheWithFontAndFrames() }))
   return scope:own(FieldSignpostRenderer.new({
     cacheFs = FieldUiFixture.cacheWithFontAndFrames(),
+    manifest = FieldUiFixture.manifest(),
     text = text,
     windowStyles = FieldSignpostFixture.styles(),
   }))

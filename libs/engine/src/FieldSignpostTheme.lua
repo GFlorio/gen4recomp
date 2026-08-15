@@ -24,7 +24,6 @@ local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 ---@field wayfindingPlacements fun(region: FieldDialogueTheme.Rect): { tile: integer, x: integer, y: integer }[]
 ---@field wipeY fun(logicalYOffset: number): number
 local FieldSignpostTheme = {}
-FieldSignpostTheme.__index = FieldSignpostTheme
 
 -- The signpost frame surrounds the full-width 27x4-tile box for every source
 -- type (the DIALOG_BOX_* constants from src/dialog_box.c); types 0/1 only

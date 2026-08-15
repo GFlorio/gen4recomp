@@ -35,15 +35,22 @@ local function demoPresentation()
 end
 
 -- Renders one canonical card presentation into a real canvas and returns its
--- ImageData.
+-- ImageData. The manifest drives the front rect and asset path, so the caller
+-- passes the manifest the cache belongs to (the fixture manifest for fixture
+-- caches, the real generated manifest for the shared derived cache).
 ---@param scope GraphicsScope
 ---@param cacheFs CacheFs
+---@param manifest table
 ---@param presentation table
 ---@return love.ImageData
-local function canonicalRender(scope, cacheFs, presentation)
+local function canonicalRender(scope, cacheFs, manifest, presentation)
   local lg = love.graphics
   local text = scope:own(FieldTextRenderer.new({ cacheFs = cacheFs }))
-  local renderer = scope:own(TrainerCardRenderer.new({ cacheFs = cacheFs, text = text }))
+  local renderer = scope:own(TrainerCardRenderer.new({
+    cacheFs = cacheFs,
+    manifest = manifest,
+    text = text,
+  }))
   local canvas = scope:own(lg.newCanvas(CANONICAL_WIDTH, CANONICAL_HEIGHT))
   lg.setCanvas(canvas)
   lg.clear(0, 0, 0, 0)
@@ -159,7 +166,7 @@ end
 -- independent reference pixel for pixel.
 function T.canonical_golden_matches_the_fixture_card_pixel_for_pixel(scope)
   local presentation = demoPresentation()
-  local rendered = canonicalRender(scope, FieldUiFixture.trainerCardCache(), presentation)
+  local rendered = canonicalRender(scope, FieldUiFixture.trainerCardCache(), FieldUiFixture.manifest(), presentation)
   assertPixelsEqual(fixtureReference(presentation), rendered, "fixture trainer card golden")
 end
 
@@ -169,7 +176,7 @@ function T.profile_values_render_at_the_audited_anchors(scope)
   local presentation = demoPresentation()
   presentation.name = "ABCDEFG"
   presentation.trainerId = 65535
-  local rendered = canonicalRender(scope, FieldUiFixture.trainerCardCache(), presentation)
+  local rendered = canonicalRender(scope, FieldUiFixture.trainerCardCache(), FieldUiFixture.manifest(), presentation)
   assertPixelsEqual(fixtureReference(presentation), rendered, "boundary profile golden")
 end
 
@@ -179,7 +186,7 @@ end
 -- never invented statistics).
 function T.unimplemented_value_rows_never_fabricate_values(scope)
   local presentation = demoPresentation()
-  local rendered = canonicalRender(scope, FieldUiFixture.trainerCardCache(), presentation)
+  local rendered = canonicalRender(scope, FieldUiFixture.trainerCardCache(), FieldUiFixture.manifest(), presentation)
   local fabricated = fixtureReference(presentation)
   -- Fabricate a money value glyph run at the money row (16,48) + the label
   -- width: the reference must then differ from the render.
@@ -218,7 +225,7 @@ function T.canonical_golden_matches_the_real_generated_card_pixel_for_pixel(scop
     return
   end
   local manifest = assert(cache:loadLua(FieldUiAssetCache.manifestPath()), "the manifest must load")
-  local front = manifest.assets["hgss.trainer_card.front"]
+  local front = manifest.assets[FieldUiAssetCache.ASSET.TRAINER_CARD_FRONT]
   Assert.notNil(front, "the generated class indexes the trainer card front")
   local trainerCard = assert(manifest.trainerCard, "the generated class carries the trainer card section")
   local fontDef = assert(cache:loadLua("data/generated/field/font/font-0.lua"), "the real font def must load")
@@ -280,7 +287,7 @@ function T.canonical_golden_matches_the_real_generated_card_pixel_for_pixel(scop
   local trainerId = string.format("%05d", 0)
   pasteRealText(trainerId, TrainerCardRenderer.TRAINER_ID_RIGHT_EDGE - measureText(trainerId), 24)
 
-  local rendered = canonicalRender(scope, cache, demoPresentation())
+  local rendered = canonicalRender(scope, cache, manifest, demoPresentation())
   assertPixelsEqual(reference, rendered, "real generated trainer card golden")
 end
 
@@ -289,6 +296,7 @@ function T.restores_graphics_state_after_draw(scope)
   local text = scope:own(FieldTextRenderer.new({ cacheFs = FieldUiFixture.trainerCardCache() }))
   local renderer = scope:own(TrainerCardRenderer.new({
     cacheFs = FieldUiFixture.trainerCardCache(),
+    manifest = FieldUiFixture.manifest(),
     text = text,
   }))
 
@@ -335,6 +343,7 @@ function T.release_frees_the_owned_images(scope)
   local text = scope:own(FieldTextRenderer.new({ cacheFs = FieldUiFixture.trainerCardCache() }))
   local renderer = scope:own(TrainerCardRenderer.new({
     cacheFs = FieldUiFixture.trainerCardCache(),
+    manifest = FieldUiFixture.manifest(),
     text = text,
   }))
 

@@ -28,6 +28,7 @@ local function renderer(scope)
   local text = scope:own(FieldTextRenderer.new({ cacheFs = FieldUiFixture.cacheWithFontAndFrames() }))
   return scope:own(FieldDialogueRenderer.new({
     cacheFs = FieldUiFixture.cacheWithFontAndFrames(),
+    manifest = FieldUiFixture.manifest(),
     text = text,
   }))
 end
@@ -215,12 +216,14 @@ function T.draws_inside_the_reference_frame_at_every_host_aspect(scope)
     local viewport = FieldViewport.new(size[1], size[2], { mode = "expanded" })
     dialogue:draw(controller, viewport)
 
+    -- Layout geometry stays in reference-canvas coordinates (the draw
+    -- applies the single origin+scale transform), so the box must fit the
+    -- reference canvas at every host aspect.
     local layout = FieldDialogueTheme.layout(viewport.referenceFrame)
-    local box = FieldDialogueTheme.screenRect(layout, layout.box)
-    local frame = viewport.referenceFrame
-    Assert.isTrue(box.x >= frame.x, "box inside frame at " .. size[1] .. "x" .. size[2])
-    Assert.isTrue(box.x + box.width <= frame.x + frame.width + 1e-9)
-    Assert.isTrue(box.y >= frame.y and box.y + box.height <= frame.y + frame.height + 1e-9)
+    local box = layout.box
+    Assert.isTrue(box.x >= 0, "box in reference space at " .. size[1] .. "x" .. size[2])
+    Assert.isTrue(box.x + box.width <= FieldDialogueTheme.referenceWidth + 1e-9)
+    Assert.isTrue(box.y >= 0 and box.y + box.height <= FieldDialogueTheme.referenceHeight + 1e-9)
   end
 end
 
@@ -279,6 +282,7 @@ function T.release_frees_the_owned_frame_strip(scope)
   local text = scope:own(FieldTextRenderer.new({ cacheFs = FieldUiFixture.cacheWithFontAndFrames() }))
   local dialogue = scope:own(FieldDialogueRenderer.new({
     cacheFs = FieldUiFixture.cacheWithFontAndFrames(),
+    manifest = FieldUiFixture.manifest(),
     text = text,
   }))
 

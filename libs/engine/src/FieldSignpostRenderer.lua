@@ -13,11 +13,13 @@
 -- current fixed-tick offset uses the session render alpha, clamped into
 -- [0, 1], and is a pure function of the controller's paired wipe history:
 -- the renderer holds no interpolation state and never calls back into the
--- controller. Resolved styles are cached per styleId because resolve()
--- hands out copies. Construction is failure-safe: a missing manifest,
--- strip, or wayfinding atlas is a typed error, a quad failure after the
--- images were created releases them before rethrowing, and draw() restores
--- every graphics state it touched.
+-- controller. Resolved style records are the catalogue's stored records
+-- (never copies), so each draw resolves fresh without caching. Construction
+-- is failure-safe: a missing strip or wayfinding atlas is a typed error, a
+-- quad failure after the images were created releases them before
+-- rethrowing, and draw() restores every graphics state it touched. The
+-- runtime-validated manifest is injected explicitly; this renderer never
+-- reloads it from the cache.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
@@ -28,31 +30,29 @@ local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local FieldDrawState = require("libs.engine.src.FieldDrawState")
 
 ---@class FieldSignpostRenderer
----@field _cacheFs CacheFs
 ---@field _graphics love.Graphics
 ---@field _windowStyles FieldWindowStyles
 ---@field _text FieldTextRenderer the shared glyph atlas/line drawing collaborator
----@field _manifest table|nil the generated field-UI manifest
+---@field _manifest table the generated field-UI manifest
 ---@field _tilesImage love.Image? the signpost frame strip
 ---@field _wayfindingImage love.Image? the wayfinding atlas
 ---@field _tileQuads love.Quad[]? the 18 strip tile quads
 ---@field _wayfindingQuadCache table<string, love.Quad[]>|nil per-(type,map) row quads, built lazily
----@field _resolvedStyleId string? the styleId the cached resolved style belongs to
----@field _resolvedStyle table? the cached deep copy returned by the registry
 local FieldSignpostRenderer = {}
 FieldSignpostRenderer.__index = FieldSignpostRenderer
 
 -- opts.cacheFs: version-scoped private cache holding the generated field-UI
--- class; opts.text: the shared FieldTextRenderer (FieldState owns exactly
--- one); opts.graphics: injectable LÖVE graphics namespace; opts.windowStyles:
--- the immutable per-runtime window style catalogue the controller's styleId
--- resolves in.
+-- class; opts.manifest: the already-validated generated field-UI manifest
+-- the runtime loaded once (FieldRuntime.uiManifest); opts.text: the shared
+-- FieldTextRenderer (FieldState owns exactly one); opts.graphics: injectable
+-- LÖVE graphics namespace; opts.windowStyles: the per-runtime window style
+-- catalogue the controller's styleId resolves in.
 
----@param opts { cacheFs: CacheFs, text: FieldTextRenderer, windowStyles: FieldWindowStyles, graphics?: love.Graphics? }
+---@param opts { cacheFs: CacheFs, manifest: table, text: FieldTextRenderer, windowStyles: FieldWindowStyles, graphics?: love.Graphics? }
 ---@return FieldSignpostRenderer
 function FieldSignpostRenderer.new(opts)
   assert(
-    type(opts) == "table" and opts.cacheFs and opts.cacheFs.loadLua,
+    type(opts) == "table" and opts.cacheFs and opts.cacheFs.read,
     "FieldSignpostRenderer requires a CacheFs-shaped object"
   )
   local graphics = opts.graphics
@@ -63,45 +63,36 @@ function FieldSignpostRenderer.new(opts)
   local windowStyles = opts.windowStyles
   assert(
     windowStyles and type(windowStyles.resolve) == "function",
-    "FieldSignpostRenderer requires a window style registry"
+    "FieldSignpostRenderer requires a window style catalogue"
   )
   local text = opts.text
   assert(text and type(text.drawLine) == "function", "FieldSignpostRenderer requires the shared FieldTextRenderer")
   local cacheFs = opts.cacheFs
+  local manifest = opts.manifest
+  assert(type(manifest) == "table", "FieldSignpostRenderer requires the runtime-validated field-UI manifest")
 
   -- The generated field-UI class is a required renderer asset: the manifest
   -- names the signpost strip, the wayfinding atlas, and the strip's tile
-  -- rect. The runtime boot already validates the full manifest; the renderer
+  -- rect. The runtime boot already validated the full manifest; the renderer
   -- resolves what it draws.
-  local manifest = cacheFs:loadLua(FieldUiAssetCache.manifestPath())
-  if type(manifest) ~= "table" then
-    Errors.raise(
-      FieldErrors.FIELD_UI_MANIFEST_MISSING,
-      "field UI manifest missing at " .. FieldUiAssetCache.manifestPath(),
-      { path = FieldUiAssetCache.manifestPath() }
-    )
-  end
-  local uiManifest = manifest --[[@as table]]
-  local manifestAssets = uiManifest.assets
-  if type(manifestAssets) ~= "table" then
-    Errors.raise(FieldErrors.FIELD_UI_MANIFEST_INVALID, "field UI manifest has no assets", {})
-  end
-  local tilesAsset = manifestAssets["hgss.signpost.tiles"]
-  local wayfindingAsset = manifestAssets["hgss.signpost.wayfinding"]
-  local frameTiles = uiManifest.signposts and uiManifest.signposts.frame and uiManifest.signposts.frame.tiles
-  if
-    type(tilesAsset) ~= "table"
-    or type(tilesAsset.image) ~= "string"
-    or type(wayfindingAsset) ~= "table"
-    or type(wayfindingAsset.image) ~= "string"
-    or type(frameTiles) ~= "table"
-    or type(frameTiles.width) ~= "number"
-  then
-    Errors.raise(FieldErrors.FIELD_UI_MANIFEST_INVALID, "field UI manifest has no signpost frame/wayfinding assets", {})
-  end
+  local tilesAsset = assert(
+    manifest.assets[FieldUiAssetCache.ASSET.SIGNPOST_TILES],
+    "the field-UI manifest must carry the signpost tiles asset"
+  )
+  local wayfindingAsset = assert(
+    manifest.assets[FieldUiAssetCache.ASSET.SIGNPOST_WAYFINDING],
+    "the field-UI manifest must carry the signpost wayfinding asset"
+  )
+  local tilesPath = assert(tilesAsset.image, "the signpost tiles asset must name an image path")
+  local wayfindingPath = assert(wayfindingAsset.image, "the wayfinding asset must name an image path")
+  assert(
+    type(manifest.signposts) == "table"
+      and type(manifest.signposts.frame) == "table"
+      and type(manifest.signposts.frame.tiles) == "table",
+    "the field-UI manifest must carry the signpost frame section"
+  )
 
   local self = setmetatable({
-    _cacheFs = cacheFs,
     _graphics = graphics,
     _windowStyles = windowStyles,
     _text = text,
@@ -110,11 +101,8 @@ function FieldSignpostRenderer.new(opts)
     _wayfindingImage = nil,
     _tileQuads = nil,
     _wayfindingQuadCache = nil,
-    _resolvedStyleId = nil,
-    _resolvedStyle = nil,
   }, FieldSignpostRenderer)
 
-  local tilesPath = tilesAsset.image
   local tilesData = cacheFs:read(tilesPath)
   if not tilesData then
     self:release()
@@ -122,7 +110,6 @@ function FieldSignpostRenderer.new(opts)
       path = tilesPath,
     })
   end
-  local wayfindingPath = wayfindingAsset.image
   local wayfindingData = cacheFs:read(wayfindingPath)
   if not wayfindingData then
     self:release()
@@ -215,7 +202,8 @@ function FieldSignpostRenderer:_drawFrame(status, graphicRegion, wipe)
   end
   if graphicRegion then
     local appearance = assert(status.sourceAppearance)
-    local types = assert(self._manifest and self._manifest.signposts and self._manifest.signposts.types)
+    local types =
+      assert(self._manifest.signposts and self._manifest.signposts.types, "the manifest must carry signpost types")
     -- The exact (type, map) pair selects the row; a type requiring graphic
     -- art without a manifest row for its pair is a manifest/source-contract
     -- failure, never a fallback to another map's row.
@@ -277,15 +265,10 @@ function FieldSignpostRenderer:draw(controller, viewport, alpha)
     lg.translate(layout.origin.x, layout.origin.y)
     lg.scale(layout.scale, layout.scale)
     local wipe = self:_wipeY(status, alpha)
-    -- resolve() hands out a fresh copy per call, so the resolved style is
-    -- cached per styleId and re-resolved only when the style id changes.
-    if self._resolvedStyleId ~= status.styleId then
-      local style = self._windowStyles:resolve(status.styleId)
-      assert(style ~= nil, "unknown window style " .. tostring(status.styleId))
-      self._resolvedStyle = style
-      self._resolvedStyleId = status.styleId
-    end
-    local style = assert(self._resolvedStyle)
+    -- resolve() returns the catalogue's stored record (never a copy), so the
+    -- style is resolved fresh on every draw without caching.
+    local style =
+      assert(self._windowStyles:resolve(status.styleId), "unknown window style " .. tostring(status.styleId))
     local appearance = status.sourceAppearance
     local typeRecord = appearance and style.types and style.types[appearance.type]
     local contentGeometry = (typeRecord and typeRecord.contentGeometry) or style.contentGeometry
@@ -322,7 +305,6 @@ function FieldSignpostRenderer:release()
   end
   self._tilesImage, self._wayfindingImage = nil, nil
   self._tileQuads, self._wayfindingQuadCache = nil, nil
-  self._resolvedStyleId, self._resolvedStyle = nil, nil
 end
 
 return FieldSignpostRenderer
