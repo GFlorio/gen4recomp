@@ -1,17 +1,21 @@
 -- Runtime owner of the derived audio cache. It loads the audio index
 -- eagerly at construction, resolves sequences and banks by numeric id
--- or symbolic name through the index's bySymbol map, and loads sequence,
--- bank, and sample assets lazily with per-asset memoization and strict
--- validation (the asset validators raise AUDIO_*_INVALID on malformed
--- files). Loading policy: index eager; sequence/bank/sample lazy +
--- memoized; no eviction in V1. It is the only module that reads the audio
--- cache: it never parses SDAT/SSEQ and never plays notes. Missing or
--- malformed artifacts are structured failures, never silence, and the
--- completion marker is not consulted (there is no expected marker value at
--- runtime; readiness is the cache builder's business).
+-- or symbolic name through the index's per-class symbol maps
+-- (sequenceBySymbol/bankBySymbol), and loads sequence, bank, and sample
+-- assets lazily with per-asset memoization and strict validation (the asset
+-- validators raise AUDIO_*_INVALID on malformed files). Samples arrive as
+-- metadata plus the provider-decoded PCM array, decoded exactly once per key
+-- and shared across consumers. Loading policy: index eager; sequence/bank/
+-- sample descriptors lazy + memoized, loaded assets stay cached for the
+-- process lifetime. It is the only module that reads the audio cache: it
+-- never parses SDAT/SSEQ and never plays notes. Missing or malformed
+-- artifacts are structured failures, never silence, and the completion
+-- marker is not consulted (there is no expected marker value at runtime;
+-- readiness is the cache builder's business).
 
 local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
+local AudioErrors = require("libs.engine.src.audio.AudioErrors")
+local AssetErrors = require("libs.assets.src.AudioErrors")
 local AudioCache = require("libs.assets.src.AudioCache")
 local AudioSequence = require("libs.assets.src.AudioSequence")
 local AudioBank = require("libs.assets.src.AudioBank")
@@ -27,13 +31,13 @@ local AudioSample = require("libs.assets.src.AudioSample")
 ---@field sequence fun(self: AudioAssetProvider, idOrSymbol: integer|string): table
 ---@field bank fun(self: AudioAssetProvider, idOrSymbol: integer|string): table
 ---@field player fun(self: AudioAssetProvider, id: integer): table
----@field loadSample fun(self: AudioAssetProvider, key: string): { metadata: table, pcm: string }
+---@field loadSample fun(self: AudioAssetProvider, key: string): { metadata: table, pcm: integer[] }
 
 local AudioAssetProvider = {}
 AudioAssetProvider.__index = AudioAssetProvider
 
 local function unavailable(path)
-  Errors.raise(FieldErrors.AUDIO_PROVIDER_INDEX_UNAVAILABLE, "no usable audio cache index at " .. path, { path = path })
+  Errors.raise(AudioErrors.AUDIO_PROVIDER_INDEX_UNAVAILABLE, "no usable audio cache index at " .. path, { path = path })
 end
 
 function AudioAssetProvider.new(cacheFs)
@@ -51,21 +55,21 @@ function AudioAssetProvider.new(cacheFs)
   }, AudioAssetProvider)
 end
 
--- Resolves a numeric id or bySymbol name to a numeric id in `section`,
--- or nil when the reference is unknown.
+-- Resolves a numeric id or a per-class symbol-map name to a numeric id in
+-- `section`, or nil when the reference is unknown.
 ---@param section table
----@param bySymbol table?
+---@param symbolMap table?
 ---@param idOrSymbol integer|string
 ---@return integer?
-local function resolveId(section, bySymbol, idOrSymbol)
+local function resolveId(section, symbolMap, idOrSymbol)
   if type(idOrSymbol) == "number" then
     if section[idOrSymbol] ~= nil then
       return idOrSymbol
     end
     return nil
   end
-  if type(idOrSymbol) == "string" and bySymbol and bySymbol[idOrSymbol] ~= nil then
-    local id = bySymbol[idOrSymbol]
+  if type(idOrSymbol) == "string" and symbolMap and symbolMap[idOrSymbol] ~= nil then
+    local id = symbolMap[idOrSymbol]
     if section[id] ~= nil then
       return id
     end
@@ -97,10 +101,10 @@ local function loadAsset(memo, cacheFs, id, path, validate, invalidCode)
 end
 
 function AudioAssetProvider:sequence(idOrSymbol)
-  local id = resolveId(self._index.sequences, self._index.bySymbol, idOrSymbol)
+  local id = resolveId(self._index.sequences, self._index.sequenceBySymbol, idOrSymbol)
   if id == nil then
     Errors.raise(
-      FieldErrors.AUDIO_PROVIDER_SEQUENCE_UNKNOWN,
+      AudioErrors.AUDIO_PROVIDER_SEQUENCE_UNKNOWN,
       "no indexed audio sequence for reference " .. tostring(idOrSymbol),
       {
         reference = idOrSymbol,
@@ -113,15 +117,15 @@ function AudioAssetProvider:sequence(idOrSymbol)
     id --[[@as integer]],
     AudioCache.sequencePath(id),
     AudioSequence.validate,
-    "AUDIO_SEQUENCE_INVALID"
+    AssetErrors.AUDIO_SEQUENCE_INVALID
   )
 end
 
 function AudioAssetProvider:bank(idOrSymbol)
-  local id = resolveId(self._index.banks, self._index.bySymbol, idOrSymbol)
+  local id = resolveId(self._index.banks, self._index.bankBySymbol, idOrSymbol)
   if id == nil then
     Errors.raise(
-      FieldErrors.AUDIO_PROVIDER_BANK_UNKNOWN,
+      AudioErrors.AUDIO_PROVIDER_BANK_UNKNOWN,
       "no indexed audio bank for reference " .. tostring(idOrSymbol),
       {
         reference = idOrSymbol,
@@ -134,22 +138,40 @@ function AudioAssetProvider:bank(idOrSymbol)
     id --[[@as integer]],
     AudioCache.bankPath(id),
     AudioBank.validate,
-    "AUDIO_BANK_INVALID"
+    AssetErrors.AUDIO_BANK_INVALID
   )
 end
 
 function AudioAssetProvider:player(id)
   local player = self._index.players and self._index.players[id]
   if type(player) ~= "table" then
-    Errors.raise(FieldErrors.AUDIO_PROVIDER_PLAYER_UNKNOWN, "no indexed audio player " .. tostring(id), { id = id })
+    Errors.raise(AudioErrors.AUDIO_PROVIDER_PLAYER_UNKNOWN, "no indexed audio player " .. tostring(id), { id = id })
   end
   return player
 end
 
--- Loads a sample's metadata and PCM payload by content key, memoized. Both
--- must exist; a missing or unreadable file is AUDIO_PROVIDER_SAMPLE_UNKNOWN,
--- a malformed metadata record or payload byte count is the sample validator's
--- code.
+-- Decodes the PCM16LE payload into the shared 1-based int16 sample array.
+---@param bytes string
+---@return integer[]
+local function decodePcm(bytes)
+  local samples = {}
+  for index = 0, #bytes / 2 - 1 do
+    local low = bytes:byte(index * 2 + 1)
+    local high = bytes:byte(index * 2 + 2)
+    local value = low + high * 256
+    if value >= 32768 then
+      value = value - 65536
+    end
+    samples[index + 1] = value
+  end
+  return samples
+end
+
+-- Loads a sample's metadata and decoded PCM array by content key, memoized.
+-- Both files must exist; a missing or unreadable file is
+-- AUDIO_PROVIDER_SAMPLE_UNKNOWN, a malformed metadata record or payload byte
+-- count is the sample validator's code. The decoded array is created once
+-- per key and shared (consumers must not mutate it).
 function AudioAssetProvider:loadSample(key)
   local sample = self._samples[key]
   if sample ~= nil then
@@ -157,14 +179,17 @@ function AudioAssetProvider:loadSample(key)
   end
   local metadata = self._cacheFs:loadLua(AudioCache.sampleMetadataPath(key))
   if type(metadata) ~= "table" then
-    Errors.raise(FieldErrors.AUDIO_PROVIDER_SAMPLE_UNKNOWN, "no audio sample metadata for key " .. key, { key = key })
+    Errors.raise(AudioErrors.AUDIO_PROVIDER_SAMPLE_UNKNOWN, "no audio sample metadata for key " .. key, { key = key })
   end
-  local pcm = self._cacheFs:read(AudioCache.samplePath(key))
-  if pcm == nil then
-    Errors.raise(FieldErrors.AUDIO_PROVIDER_SAMPLE_UNKNOWN, "no audio sample payload for key " .. key, { key = key })
+  local bytes = self._cacheFs:read(AudioCache.samplePath(key))
+  if bytes == nil then
+    Errors.raise(AudioErrors.AUDIO_PROVIDER_SAMPLE_UNKNOWN, "no audio sample payload for key " .. key, { key = key })
   end
-  AudioSample.validate(metadata, pcm)
-  sample = { metadata = metadata, pcm = pcm }
+  AudioSample.validate(metadata, bytes --[[@as string]])
+  sample = {
+    metadata = metadata,
+    pcm = decodePcm(bytes --[[@as string]]),
+  }
   self._samples[key] = sample
   return sample
 end

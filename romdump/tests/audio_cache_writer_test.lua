@@ -143,6 +143,47 @@ T["sample metadata key must match its address"] = function()
   Assert.isNil(cache:read(AudioCache.indexPath()))
 end
 
+-- Readback and readiness are one rule set: every malformed cross-file
+-- relation must fail the staged write AND read as not ready. No second
+-- inspection vocabulary may drift from the staging gate.
+T["readback and readiness agree on malformed cross-file relations"] = function()
+  local relations = {
+    {
+      name = "unknown sequence reference",
+      breakBundle = function(bundle)
+        bundle.sequences[37] = nil
+      end,
+    },
+    {
+      name = "sequence bank id does not resolve",
+      breakBundle = function(bundle)
+        bundle.index.sequences[37].bankId = 99
+      end,
+    },
+    {
+      name = "bank sample reference without metadata",
+      breakBundle = function(bundle)
+        bundle.banks[12].instruments[0].voice.generator.sample = AudioFixture.key(99)
+      end,
+    },
+    {
+      name = "sample payload byte count mismatch",
+      breakBundle = function(bundle)
+        local key = AudioFixture.key(1)
+        bundle.samples[key] = bundle.samples[key] .. "\0"
+      end,
+    },
+  }
+  for _, relation in ipairs(relations) do
+    local broken = AudioFixture.bundle()
+    relation.breakBundle(broken)
+    Assert.throws(function()
+      AudioCacheWriter.write(versionCache(), broken)
+    end, relation.name .. " fails the write")
+    Assert.isFalse(AudioCache.isReady(AudioFixture.readyCache(broken), broken.marker), relation.name .. " is not ready")
+  end
+end
+
 -- A failed rebuild leaves the previous ready artifact untouched, the stage
 -- clean, and a retry publishes the new artifact.
 T["failed rebuild preserves the previous audio artifact"] = function()

@@ -25,7 +25,7 @@
 -- GameSound never renders.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
+local AudioErrors = require("libs.engine.src.audio.AudioErrors")
 local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 
 ---@class GameSound
@@ -190,7 +190,7 @@ end
 ---@param form integer
 function GameSound:playCry(species, form)
   if self._cry == nil then
-    Errors.raise(FieldErrors.AUDIO_CRY_UNAVAILABLE, "no cry subsystem is available", {
+    Errors.raise(AudioErrors.AUDIO_CRY_UNAVAILABLE, "no cry subsystem is available", {
       species = species,
       form = form,
     })
@@ -268,7 +268,7 @@ end
 -- than a guess.
 function GameSound:resetMusic()
   if self._mapMusic == nil then
-    Errors.raise(FieldErrors.AUDIO_MAP_MUSIC_UNAVAILABLE, "no map-music resolver is available", {})
+    Errors.raise(AudioErrors.AUDIO_MAP_MUSIC_UNAVAILABLE, "no map-music resolver is available", {})
   end
   local reference = self._mapMusic()
   if reference == nil then
@@ -282,7 +282,7 @@ end
 -- is an attributed failure, never a no-op.
 ---@param idOrSymbol integer|string
 function GameSound:temporaryMusic(idOrSymbol)
-  Errors.raise(FieldErrors.AUDIO_TEMPORARY_MUSIC_UNSUPPORTED, "temporary music is unavailable", {
+  Errors.raise(AudioErrors.AUDIO_TEMPORARY_MUSIC_UNSUPPORTED, "temporary music is unavailable", {
     reference = idOrSymbol,
   })
 end

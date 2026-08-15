@@ -4,21 +4,23 @@
 -- types), and every leaf voice has the common shape {generator, originalKey,
 -- envelope, pan}: sample voices add the content-address key, and
 -- square/noise voices carry their source original key like every other leaf.
--- `sampleKeys` is the shared reference walk: it collects the content-address
--- keys every voice of a bank references, returning nil when the instrument
--- shape is malformed, so a malformed shape can never be mistaken for "no
--- sample references" (AudioCache readiness relies on it).
+-- `sampleKeys` is the shared reference walk: callers validate the bank first,
+-- then collect the content-address keys every voice references through a walk
+-- that trusts voice fields (their grammar is the validator's). It returns nil
+-- when the instrument shape is malformed, so a malformed shape can never be
+-- mistaken for "no sample references" (AudioCacheValidator relies on it).
 
 local AudioBank = {}
 
 local Validate = require("libs.assets.src.Validate")
 local Errors = require("libs.errors.src.Errors")
+local AudioErrors = require("libs.assets.src.AudioErrors")
 local Contract = require("libs.assets.src.DerivedAssetContract")
 
 AudioBank.SCHEMA = Contract.audio.bankSchema
 
 local function fail(context)
-  Errors.raise("AUDIO_BANK_INVALID", "malformed audio bank asset", context)
+  Errors.raise(AudioErrors.AUDIO_BANK_INVALID, "malformed audio bank asset", context)
 end
 
 local function isIntegerInRange(value, low, high)
@@ -73,9 +75,9 @@ local function walkVoices(instruments, visit)
 end
 
 -- The content-address keys every voice of `bank` references, or nil when the
--- instrument shape is malformed. The same walk backs AudioBank.validate and
--- AudioCache readiness, so reference resolution and validation can never
--- drift apart.
+-- instrument shape is malformed. The walk trusts voice fields (the caller
+-- validates first): it only fails on instrument-map shapes, so validation and
+-- reference resolution cannot drift apart.
 ---@param bank table
 ---@return string[]|nil
 function AudioBank.sampleKeys(bank)
@@ -84,17 +86,12 @@ function AudioBank.sampleKeys(bank)
   end
   local keys, seen = {}, {}
   local ok = walkVoices(bank.instruments, function(voice)
-    if type(voice.generator) ~= "table" then
-      return false
-    end
     local generator = voice.generator
-    if generator.kind == "sample" then
-      if type(generator.sample) ~= "string" then
-        return false
-      end
-      if not seen[generator.sample] then
-        seen[generator.sample] = true
-        keys[#keys + 1] = generator.sample
+    if type(generator) == "table" and generator.kind == "sample" then
+      local key = generator.sample
+      if not seen[key] then
+        seen[key] = true
+        keys[#keys + 1] = key
       end
     end
     return true

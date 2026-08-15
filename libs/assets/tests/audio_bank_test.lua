@@ -229,4 +229,21 @@ function T.sample_keys_are_nil_only_on_malformed_shapes()
   Assert.isNil(AudioBank.sampleKeys(bank), "an empty drum_set voice list is malformed, not sample-free")
 end
 
+-- sampleKeys is a trusted reference walk, not a second validator: voice
+-- field validity (envelope, pan, originalKey) is the validator's grammar,
+-- and the walk never re-validates it — a voice the validator rejects still
+-- contributes its keys, so the walk and the validator cannot drift apart.
+function T.sample_keys_do_not_revalidate_voice_fields()
+  local bank = AudioFixture.bank(12, "BANK_TEST", { [0] = 31 })
+  bank.instruments[0].voice.envelope.attack = 0xFFFF
+  throwsCode("AUDIO_BANK_INVALID", function()
+    AudioBank.validate(bank)
+  end)
+  Assert.deepEqual(
+    AudioBank.sampleKeys(bank),
+    { AudioFixture.key(1), AudioFixture.key(2) },
+    "the walk trusts the validator for voice fields"
+  )
+end
+
 return { tests = T }

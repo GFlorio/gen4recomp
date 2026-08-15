@@ -62,7 +62,7 @@
 -- ids mix.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
+local AudioErrors = require("libs.engine.src.audio.AudioErrors")
 local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 local bit = require("bit")
 
@@ -169,13 +169,13 @@ local function resolveAmount(self, amount, instance)
   end
   if amount.kind == "variable" then
     if type(amount.var) ~= "number" then
-      Errors.raise(FieldErrors.AUDIO_PLAYER_UNSUPPORTED_AMOUNT, "variable amount requires a var id", {
+      Errors.raise(AudioErrors.AUDIO_PLAYER_UNSUPPORTED_AMOUNT, "variable amount requires a var id", {
         kind = amount.kind,
       })
     end
     return varRead(self, instance, amount.var)
   end
-  Errors.raise(FieldErrors.AUDIO_PLAYER_UNSUPPORTED_AMOUNT, "unsupported amount operand in sequence", {
+  Errors.raise(AudioErrors.AUDIO_PLAYER_UNSUPPORTED_AMOUNT, "unsupported amount operand in sequence", {
     kind = amount.kind,
   })
 end
@@ -616,7 +616,7 @@ local function execute(self, instance, track, instruction)
       return frame.returnIndex
     end
   else
-    Errors.raise(FieldErrors.AUDIO_PLAYER_UNSUPPORTED_OP, "unsupported sequence instruction op", {
+    Errors.raise(AudioErrors.AUDIO_PLAYER_UNSUPPORTED_OP, "unsupported sequence instruction op", {
       op = op,
       pc = track.pc,
     })
@@ -647,7 +647,7 @@ local function fetch(self, instance, track)
     steps = steps + 1
     if steps > HOST_SAFETY_STEP_BUDGET then
       Errors.raise(
-        FieldErrors.AUDIO_PLAYER_UNBOUNDED_EXECUTION,
+        AudioErrors.AUDIO_PLAYER_UNBOUNDED_EXECUTION,
         "sequence executed too many instructions without a wait",
         {
           playerId = instance.id,
@@ -720,7 +720,7 @@ function SequencePlayer:play(sequence, bank)
   assert(sequence and bank, "play requires a sequence and a bank")
   if bank.id ~= sequence.bankId then
     Errors.raise(
-      FieldErrors.AUDIO_PLAYER_BANK_MISMATCH,
+      AudioErrors.AUDIO_PLAYER_BANK_MISMATCH,
       "bank " .. tostring(bank.id) .. " does not match sequence bankId " .. tostring(sequence.bankId),
       {
         bankId = bank.id,

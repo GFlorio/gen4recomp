@@ -69,7 +69,7 @@ local function musicId(game, symbol)
     game.runtime.cacheFs:loadLua(AudioCache.indexPath()),
     "the generated audio index must load through the runtime cache"
   )
-  local id = index.bySymbol[symbol]
+  local id = index.sequenceBySymbol[symbol]
   assert(id ~= nil, symbol .. " must resolve in the generated audio index")
   return id
 end

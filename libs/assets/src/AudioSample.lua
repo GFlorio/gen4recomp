@@ -13,13 +13,14 @@ local AudioSample = {}
 
 local Validate = require("libs.assets.src.Validate")
 local Errors = require("libs.errors.src.Errors")
+local AudioErrors = require("libs.assets.src.AudioErrors")
 local AudioCache = require("libs.assets.src.AudioCache")
 local Contract = require("libs.assets.src.DerivedAssetContract")
 
 AudioSample.SCHEMA = Contract.audio.sampleSchema
 
 local function fail(context)
-  Errors.raise("AUDIO_SAMPLE_INVALID", "malformed audio sample metadata", context)
+  Errors.raise(AudioErrors.AUDIO_SAMPLE_INVALID, "malformed audio sample metadata", context)
 end
 
 local function isNonNegativeInteger(value)

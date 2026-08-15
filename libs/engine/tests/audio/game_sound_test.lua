@@ -113,7 +113,7 @@ end
 local function engineBundle(sequences)
   local keyA, keyB, keyC = AudioFixture.key(1), AudioFixture.key(2), AudioFixture.key(3)
   local bundle = AudioFixture.bundle()
-  local indexSequences, indexPlayers, indexBanks, bySymbol = {}, {}, {}, {}
+  local indexSequences, indexPlayers, indexBanks, sequenceBySymbol = {}, {}, {}, {}
   for id, sequence in pairs(sequences) do
     indexSequences[id] = {
       id = id,
@@ -122,7 +122,7 @@ local function engineBundle(sequences)
       bankId = sequence.bankId,
       playerId = sequence.player.id,
     }
-    bySymbol[sequence.symbol] = id
+    sequenceBySymbol[sequence.symbol] = id
     if indexPlayers[sequence.player.id] == nil then
       indexPlayers[sequence.player.id] = {
         id = sequence.player.id,
@@ -136,7 +136,8 @@ local function engineBundle(sequences)
   bundle.index.sequences = indexSequences
   bundle.index.players = indexPlayers
   bundle.index.banks = indexBanks
-  bundle.index.bySymbol = bySymbol
+  bundle.index.sequenceBySymbol = sequenceBySymbol
+  bundle.index.bankBySymbol = { BANK_TEST = 12 }
   bundle.sequences = sequences
   bundle.banks = { [12] = bank() }
   bundle.samples = {

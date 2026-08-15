@@ -17,6 +17,7 @@ local AudioSequence = {}
 
 local Validate = require("libs.assets.src.Validate")
 local Errors = require("libs.errors.src.Errors")
+local AudioErrors = require("libs.assets.src.AudioErrors")
 local Contract = require("libs.assets.src.DerivedAssetContract")
 
 AudioSequence.SCHEMA = Contract.audio.sequenceSchema
@@ -85,7 +86,7 @@ local VARIABLE_MAX = 31
 local TRACK_MAX = 15
 
 local function fail(context)
-  Errors.raise("AUDIO_SEQUENCE_INVALID", "malformed audio sequence asset", context)
+  Errors.raise(AudioErrors.AUDIO_SEQUENCE_INVALID, "malformed audio sequence asset", context)
 end
 
 local function isIntegerInRange(value, low, high)

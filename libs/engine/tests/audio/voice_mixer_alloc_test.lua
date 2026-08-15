@@ -62,7 +62,7 @@ end
 local function spec(overrides)
   local s = {
     generator = { kind = "sample", sample = AudioFixture.key(1) },
-    pcm = AudioFixture.pcm16le(WAVE_A),
+    pcm = WAVE_A,
     sampleRate = SAMPLE_RATE,
     baseTimer = 8006,
     loopEnabled = true,
@@ -213,8 +213,8 @@ end
 -- is observable (any other channel is free and would be allocated first).
 function T.stolen_channels_revoke_the_previous_voice_handle()
   local mixer = newMixer()
-  local pcmA = AudioFixture.pcm16le({ 5120, 5120, 5120, 5120, 5120, 5120, 5120, 5120 })
-  local pcmB = AudioFixture.pcm16le({ 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096 })
+  local pcmA = { 5120, 5120, 5120, 5120, 5120, 5120, 5120, 5120 }
+  local pcmB = { 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096 }
   local old = mixer:noteOn(spec({ pcm = pcmA, pan = 0 })) --[[@as { channel: integer, generation: integer }]]
   local replacement = mixer:noteOn(spec({ pcm = pcmB, pan = 0, playerPriority = 80, channelMask = 0x0010 })) --[[@as { channel: integer, generation: integer }]]
   Assert.deepEqual(
@@ -236,7 +236,7 @@ end
 -- offset pushed after the first block changes the volume register or the
 -- hardware pan register from the following 250-frame block on.
 function T.track_control_updates_apply_at_the_next_control_step()
-  local pcm = AudioFixture.pcm16le({ 5120, 5120, 5120, 5120, 5120, 5120, 5120, 5120 })
+  local pcm = { 5120, 5120, 5120, 5120, 5120, 5120, 5120, 5120 }
   local function run(overrides, update)
     local mixer = newMixer()
     local handle = mixer:noteOn(spec(overrides)) --[[@as { channel: integer, generation: integer }]]
@@ -277,8 +277,7 @@ function T.update_voice_retunes_the_key_at_the_next_control_step()
     local second = mixer:render(secondLength)
     return first, second
   end
-  local first, second =
-    run({ pcm = AudioFixture.pcm16le(WAVE16), pan = 0, loop = { startFrame = 0, endFrame = 16 } }, CONTROL, 300)
+  local first, second = run({ pcm = WAVE16, pan = 0, loop = { startFrame = 0, endFrame = 16 } }, CONTROL, 300)
   Assert.equal(leftAt(first, CONTROL), 1000, "key 60 plays at unity pitch through the first block")
   Assert.equal(leftAt(second, CONTROL - 1), 300, "the frame before the boundary still reads at unity pitch")
   Assert.equal(leftAt(second, CONTROL), 400, "the boundary frame's own read hears the retune")
@@ -286,7 +285,7 @@ function T.update_voice_retunes_the_key_at_the_next_control_step()
   Assert.equal(leftAt(second, CONTROL + 2), 800, "key 72 reads every other sample from the next frame")
   Assert.equal(leftAt(second, CONTROL + 3), 1000, "key 72 reads every other sample from the next frame")
 
-  local pcm = AudioFixture.pcm16le({ 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 })
+  local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   first, second = run({
     pcm = pcm,
     pan = 0,
@@ -304,7 +303,7 @@ end
 -- like the other pending values: db[64] = -119 moves the register from 0x7F
 -- to 0x141.
 function T.update_voice_velocity_changes_the_volume_at_the_next_control_step()
-  local pcm = AudioFixture.pcm16le({ 5120, 5120, 5120, 5120, 5120, 5120, 5120, 5120 })
+  local pcm = { 5120, 5120, 5120, 5120, 5120, 5120, 5120, 5120 }
   local mixer = newMixer()
   local handle = mixer:noteOn(spec({ pcm = pcm, pan = 0, loop = { startFrame = 0, endFrame = 8 } })) --[[@as { channel: integer, generation: integer }]]
   local first = mixer:render(CONTROL)
@@ -323,7 +322,7 @@ end
 function T.lfo_pan_target_moves_the_hardware_register()
   local mixer = newMixer()
   mixer:noteOn(spec({
-    pcm = AudioFixture.pcm16le({ 6400, 6400, 6400, 6400, 6400, 6400, 6400, 6400 }),
+    pcm = { 6400, 6400, 6400, 6400, 6400, 6400, 6400, 6400 },
     lfo = { target = 2, depth = 127, range = 1, speed = 16, delay = 2 },
   }))
   local out = mixer:render(1750)
@@ -349,7 +348,7 @@ end
 function T.lfo_pitch_and_volume_targets_affect_their_calculations()
   local pitchMixer = newMixer()
   pitchMixer:noteOn(spec({
-    pcm = AudioFixture.pcm16le(WAVE16),
+    pcm = WAVE16,
     loop = { startFrame = 0, endFrame = 16 },
     lfo = { target = 0, depth = 127, range = 1, speed = 16, delay = 0 },
     pan = 0,
@@ -360,7 +359,7 @@ function T.lfo_pitch_and_volume_targets_affect_their_calculations()
 
   local volumeMixer = newMixer()
   volumeMixer:noteOn(spec({
-    pcm = AudioFixture.pcm16le({ 1280, 1280, 1280, 1280, 1280, 1280, 1280, 1280 }),
+    pcm = { 1280, 1280, 1280, 1280, 1280, 1280, 1280, 1280 },
     pan = 0,
     velocity = 100,
     lfo = { target = 1, depth = 127, range = 1, speed = 16, delay = 0 },
@@ -387,7 +386,7 @@ function T.sweep_ramps_pitch_over_its_length()
   local function run(autoSweep, frames)
     local mixer = newMixer()
     mixer:noteOn(spec({
-      pcm = AudioFixture.pcm16le(WAVE16),
+      pcm = WAVE16,
       loop = { startFrame = 0, endFrame = 16 },
       sweepPitch = 768,
       sweepLength = 4,

@@ -1,8 +1,10 @@
 -- AudioCache contract: the g4-audio cache layout, the contract constants,
--- and the strict-readiness gate. Readiness verifies the exact marker, the
--- index schema, every indexed sequence/bank file with matching schema and
--- identity, sequence bank-id resolution, and every bank-referenced sample's
--- metadata and PCM payload. A missing artifact is never silence.
+-- and the strict-readiness gate. Readiness verifies the exact marker and the
+-- authoritative cross-file walk (AudioCacheValidator): the index schema and
+-- sections, every indexed sequence/bank file with its leaf validator passing
+-- and its identity matching, sequence bank-id resolution, and every
+-- bank-referenced sample's metadata and PCM payload. A missing artifact is
+-- never silence.
 
 local Assert = require("tests.support.Assert")
 local AudioCache = require("libs.assets.src.AudioCache")
@@ -136,6 +138,32 @@ function T.bank_sample_reference_without_metadata_is_not_ready()
   bundle.banks[12].instruments[0].voice.generator.sample = AudioFixture.key(99)
   local cache = AudioFixture.readyCache(bundle)
   Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "bank sample ids must resolve into sample metadata")
+end
+
+-- Readiness runs the authoritative asset validators, never a weaker
+-- presence-only or shape-walk-only check: content that fails its validator
+-- is not ready even when every referenced file exists and every reference
+-- resolves.
+function T.sequence_content_failing_its_validator_is_not_ready()
+  local bundle = AudioFixture.bundle()
+  bundle.sequences[0].program = nil
+  local cache = AudioFixture.readyCache(bundle)
+  Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "an indexed sequence must pass its validator")
+end
+
+function T.bank_content_failing_its_validator_is_not_ready()
+  local bundle = AudioFixture.bundle()
+  bundle.banks[12].instruments[0].voice.envelope.attack = 0xFFFF
+  local cache = AudioFixture.readyCache(bundle)
+  Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "an indexed bank must pass its validator")
+end
+
+function T.sample_payload_with_wrong_byte_count_is_not_ready()
+  local bundle = AudioFixture.bundle()
+  local key = AudioFixture.key(1)
+  bundle.samples[key] = bundle.samples[key] .. "\0"
+  local cache = AudioFixture.readyCache(bundle)
+  Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "payload byte count must match the metadata frames")
 end
 
 return { tests = T }

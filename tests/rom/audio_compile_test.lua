@@ -124,8 +124,8 @@ end
 
 -- The real archive compiles into the full E1-shaped bundle: every section the
 -- writer consumes is present, the marker and dependencies pin the exact ROM
--- and sound archive identity, and the index carries the player and bySymbol
--- sections.
+-- and sound archive identity, and the index carries the player and the
+-- per-class symbol sections.
 function T.compiles_the_real_sound_archive_into_a_complete_bundle()
   forEachVersion(function(ctx)
     local bundle = ctx.bundle
@@ -134,7 +134,7 @@ function T.compiles_the_real_sound_archive_into_a_complete_bundle()
     Assert.isTrue(bundle.marker:find(ctx.metadata.sha1, 1, true) ~= nil, "marker embeds the version rom sha1")
     Assert.equal(bundle.index.schema, AudioCache.INDEX_SCHEMA, "index schema")
     Assert.equal(bundle.index.version, ctx.versionId, "index version")
-    for _, section in ipairs({ "sequences", "banks", "players", "bySymbol" }) do
+    for _, section in ipairs({ "sequences", "banks", "players", "sequenceBySymbol", "bankBySymbol" }) do
       Assert.equal(type(bundle.index[section]), "table", "index." .. section .. " is a table")
     end
     for _, section in ipairs({ "sequences", "banks", "samples", "sampleMetadata" }) do
@@ -186,7 +186,7 @@ function T.every_referenced_sequence_compiles()
         Assert.equal(entry.playerId, record.playerId, "sequence " .. id .. " index playerId")
         local symbol = ctx.sdat.symbols.sequences[id]
         Assert.equal(entry.symbol, symbol, "sequence " .. id .. " index symbol")
-        Assert.equal(bundle.index.bySymbol[symbol], id, "sequence " .. id .. " bySymbol resolves")
+        Assert.equal(bundle.index.sequenceBySymbol[symbol], id, "sequence " .. id .. " symbol resolves")
 
         local sequence = bundle.sequences[id]
         Assert.notNil(sequence, "sequence " .. id .. " asset present")
@@ -303,7 +303,7 @@ function T.every_referenced_bank_resolves()
         Assert.equal(entry.file, AudioCache.bankPath(id), "bank " .. id .. " index file")
         local symbol = ctx.sdat.symbols.banks[id]
         Assert.equal(entry.symbol, symbol, "bank " .. id .. " index symbol")
-        Assert.equal(bundle.index.bySymbol[symbol], id, "bank " .. id .. " bySymbol resolves")
+        Assert.equal(bundle.index.bankBySymbol[symbol], id, "bank " .. id .. " symbol resolves")
 
         local bank = bundle.banks[id]
         Assert.notNil(bank, "bank " .. id .. " asset present")
@@ -402,17 +402,17 @@ function T.every_referenced_sample_resolves()
 end
 
 -- Every day/night music reference of the frozen map catalog resolves to a
--- compiled sequence through the index's symbol table, so field music can be
--- addressed semantically without raw sequence ids.
+-- compiled sequence through the index's per-class sequence symbol table, so
+-- field music can be addressed semantically without raw sequence ids.
 function T.all_map_day_night_music_references_resolve()
   forEachVersion(function(ctx)
-    local bySymbol = ctx.bundle.index.bySymbol
-    Assert.equal(type(bySymbol), "table", "index bySymbol is a table")
+    local sequenceBySymbol = ctx.bundle.index.sequenceBySymbol
+    Assert.equal(type(sequenceBySymbol), "table", "index sequenceBySymbol is a table")
     local maps = 0
     for record in MapCatalog.all() do
       maps = maps + 1
       for _, field in ipairs({ "dayMusic", "nightMusic" }) do
-        local id = bySymbol["SEQ_" .. record[field]]
+        local id = sequenceBySymbol["SEQ_" .. record[field]]
         Assert.notNil(id, record.symbol .. " " .. field .. " " .. tostring(record[field]) .. " resolves to a sequence")
         Assert.notNil(ctx.bundle.index.sequences[id], record.symbol .. " " .. field .. " sequence compiled")
       end

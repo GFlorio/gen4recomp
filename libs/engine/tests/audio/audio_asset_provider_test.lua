@@ -1,10 +1,13 @@
 -- AudioAssetProvider contract: the runtime owner of the generated audio cache.
 -- It loads the index eagerly at construction, resolves sequences/banks by
--- numeric id or symbol, and loads sequence/bank/sample assets lazily and
--- memoized with strict validation. The contract is authored against
+-- numeric id or per-class symbol map (sequenceBySymbol/bankBySymbol), and
+-- loads sequence/bank/sample assets lazily and memoized with strict
+-- validation. Samples arrive as metadata plus the provider-decoded PCM
+-- array, decoded exactly once per key. The contract is authored against
 -- hand-written project-owned synthetic assets; nothing
 -- here touches a ROM. Loading policy: index eager, sequence/bank/
--- sample descriptors lazy + memoized, no eviction in V1.
+-- sample descriptors lazy + memoized, loaded assets stay cached for the
+-- process lifetime.
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
@@ -65,6 +68,22 @@ function T.constructs_from_a_ready_cache_and_resolves_ids_and_symbols()
   Assert.equal(p:player(1).maxSequences, 16)
 end
 
+-- Symbols resolve per asset class: the same symbol may name a sequence and
+-- a bank, and each lookup walks its own map, so a cross-class collision is
+-- never ambiguous.
+function T.symbol_collisions_across_classes_resolve_per_class()
+  local bundle = AudioFixture.bundle()
+  bundle.index.sequences[37].symbol = "SHARED"
+  bundle.index.banks[12].symbol = "SHARED"
+  bundle.index.sequenceBySymbol.SHARED = 37
+  bundle.index.bankBySymbol.SHARED = 12
+  bundle.sequences[37].symbol = "SHARED"
+  bundle.banks[12].symbol = "SHARED"
+  local p = provider(bundle)
+  Assert.equal(p:sequence("SHARED").id, 37)
+  Assert.equal(p:bank("SHARED").id, 12)
+end
+
 function T.unknown_references_raise_structured_errors()
   local p = provider(AudioFixture.bundle())
   throwsCode("AUDIO_PROVIDER_SEQUENCE_UNKNOWN", function()
@@ -81,13 +100,13 @@ function T.unknown_references_raise_structured_errors()
   end)
 end
 
-function T.samples_load_by_content_key_with_metadata_and_payload()
+function T.samples_load_by_content_key_with_metadata_and_decoded_pcm()
   local p = provider(AudioFixture.bundle())
   local key = AudioFixture.key(1)
   local sample = p:loadSample(key)
   Assert.equal(sample.metadata.key, key)
   Assert.equal(sample.metadata.schema, AudioCache.SAMPLE_SCHEMA)
-  Assert.equal(sample.pcm, AudioFixture.pcm16le({ 1000, 2000, 3000, 4000 }))
+  Assert.deepEqual(sample.pcm, { 1000, 2000, 3000, 4000 }, "the provider hands over the decoded PCM array")
 end
 
 -- The payload size contract is enforced at the load boundary: metadata whose
@@ -137,8 +156,10 @@ function T.loading_is_lazy_and_memoized()
   Assert.equal(p:bank(12), bank)
   Assert.equal(count(AudioCache.bankPath(12)), 1)
   local key = AudioFixture.key(1)
-  p:loadSample(key)
-  p:loadSample(key)
+  local first = p:loadSample(key)
+  local second = p:loadSample(key)
+  Assert.equal(type(first.pcm), "table", "the provider decodes the payload once")
+  Assert.isTrue(second.pcm == first.pcm, "the decoded array is shared; loading twice decodes once")
   Assert.equal(count(AudioCache.sampleMetadataPath(key)), 1, "sample metadata is read once")
   Assert.equal(count(AudioCache.samplePath(key)), 1, "the PCM payload is read once")
   Assert.equal(count(AudioCache.sequencePath(37)), 0, "unrequested assets are never read")

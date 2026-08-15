@@ -1,12 +1,12 @@
 -- Stable error codes for the engine field layer: event state, actors,
 -- terrain surfaces, render-queue classification, warp resolution, map
 -- loading/saving, field coordinates, transitions, scenario/dialogue state,
--- animated models/materials, scene/mesh/GPU asset loading, and the audio
--- playback subsystem (provider asset resolution and sequence interpretation).
+-- animated models/materials, scene/mesh/GPU asset loading.
 -- Every module in this layer raises Errors with exactly these codes; modules
 -- must reference the named constants, never bare literals, so a rename stays
 -- in one place. The script subsystem keeps its own catalogue
--- (script/errors.lua). Pure domain module: no love dependency.
+-- (script/errors.lua); the audio subsystem keeps its own
+-- (audio/AudioErrors.lua). Pure domain module: no love dependency.
 
 local FieldErrors = {}
 
@@ -158,20 +158,5 @@ FieldErrors.FIELD_SAVE_SURFACE_NOT_FOUND = "FIELD_SAVE_SURFACE_NOT_FOUND"
 FieldErrors.FIELD_SAVE_SURFACE_AMBIGUOUS = "FIELD_SAVE_SURFACE_AMBIGUOUS"
 FieldErrors.FIELD_SAVE_VERSION_MISMATCH = "FIELD_SAVE_VERSION_MISMATCH"
 FieldErrors.FIELD_SAVE_PLAYER_DATA_INVALID = "FIELD_SAVE_PLAYER_DATA_INVALID"
-
-FieldErrors.AUDIO_PROVIDER_INDEX_UNAVAILABLE = "AUDIO_PROVIDER_INDEX_UNAVAILABLE"
-FieldErrors.AUDIO_PROVIDER_SEQUENCE_UNKNOWN = "AUDIO_PROVIDER_SEQUENCE_UNKNOWN"
-FieldErrors.AUDIO_PROVIDER_BANK_UNKNOWN = "AUDIO_PROVIDER_BANK_UNKNOWN"
-FieldErrors.AUDIO_PROVIDER_PLAYER_UNKNOWN = "AUDIO_PROVIDER_PLAYER_UNKNOWN"
-FieldErrors.AUDIO_PROVIDER_SAMPLE_UNKNOWN = "AUDIO_PROVIDER_SAMPLE_UNKNOWN"
-
-FieldErrors.AUDIO_PLAYER_BANK_MISMATCH = "AUDIO_PLAYER_BANK_MISMATCH"
-FieldErrors.AUDIO_PLAYER_UNSUPPORTED_AMOUNT = "AUDIO_PLAYER_UNSUPPORTED_AMOUNT"
-FieldErrors.AUDIO_PLAYER_UNSUPPORTED_OP = "AUDIO_PLAYER_UNSUPPORTED_OP"
-FieldErrors.AUDIO_PLAYER_UNBOUNDED_EXECUTION = "AUDIO_PLAYER_UNBOUNDED_EXECUTION"
-
-FieldErrors.AUDIO_CRY_UNAVAILABLE = "AUDIO_CRY_UNAVAILABLE"
-FieldErrors.AUDIO_MAP_MUSIC_UNAVAILABLE = "AUDIO_MAP_MUSIC_UNAVAILABLE"
-FieldErrors.AUDIO_TEMPORARY_MUSIC_UNSUPPORTED = "AUDIO_TEMPORARY_MUSIC_UNSUPPORTED"
 
 return FieldErrors

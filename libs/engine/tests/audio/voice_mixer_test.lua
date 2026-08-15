@@ -77,7 +77,7 @@ end
 local function spec(overrides)
   local s = {
     generator = { kind = "sample", sample = AudioFixture.key(1) },
-    pcm = AudioFixture.pcm16le(WAVE_A),
+    pcm = WAVE_A,
     sampleRate = SAMPLE_RATE,
     baseTimer = 8006,
     loopEnabled = true,
@@ -128,7 +128,7 @@ end
 function T.volume_path_sums_the_nns_decibel_domain()
   local function renderWith(overrides, frames)
     local mixer = newMixer()
-    local merged = { pcm = AudioFixture.pcm16le(CONST_5120), pan = 0 }
+    local merged = { pcm = CONST_5120, pan = 0 }
     for key, value in pairs(overrides or {}) do
       merged[key] = value
     end
@@ -172,7 +172,7 @@ end
 function T.pan_registers_combine_instrument_track_and_hardware_domains()
   local function renderAt(overrides)
     local mixer = newMixer()
-    local merged = { pcm = AudioFixture.pcm16le(CONST_6400) }
+    local merged = { pcm = CONST_6400 }
     for key, value in pairs(overrides or {}) do
       merged[key] = value
     end
@@ -229,7 +229,7 @@ end
 -- advances once per output sample.
 function T.envelope_attack_uses_the_sdk_recurrence_at_the_control_cadence()
   local mixer = newMixer()
-  local pcm = AudioFixture.pcm16le({ 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 })
+  local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   mixer:noteOn(spec({ pcm = pcm, pan = 0, envelope = { attack = 100, decay = 127, sustain = 127, release = 127 } }))
   local out = mixer:render(5750)
   local pins = {
@@ -259,7 +259,7 @@ end
 -- (0x140); sustain holds the clamped value.
 function T.envelope_decay_clamps_to_the_sustain_target()
   local mixer = newMixer()
-  local pcm = AudioFixture.pcm16le({ 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 })
+  local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   mixer:noteOn(spec({ pcm = pcm, pan = 0, envelope = { attack = 127, decay = 100, sustain = 64, release = 127 } }))
   local out = mixer:render(13500)
   local pins = {
@@ -284,7 +284,7 @@ end
 -- fires at the next control step (noteOff here lands between steps 2 and 3,
 -- at frame 300).
 function T.envelope_release_decays_to_the_sdk_stop_threshold()
-  local pcm = AudioFixture.pcm16le({ 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 })
+  local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   local function releaseRun(velocity, releaseByte, frames)
     local mixer = newMixer()
     local handle = mixer:noteOn(spec({
@@ -320,9 +320,7 @@ end
 function T.sample_voices_pitch_through_the_calculated_timer()
   local function renderAt(key, frames)
     local mixer = newMixer()
-    mixer:noteOn(
-      spec({ pcm = AudioFixture.pcm16le(WAVE16), loop = { startFrame = 0, endFrame = 16 }, key = key, pan = 0 })
-    )
+    mixer:noteOn(spec({ pcm = WAVE16, loop = { startFrame = 0, endFrame = 16 }, key = key, pan = 0 }))
     return mixer:render(frames)
   end
   local pcm = renderAt(60, 8)
@@ -397,7 +395,7 @@ function T.loops_wrap_inside_the_window_and_one_shots_stop()
   Assert.equal(leftAt(shot, 12), 0, "the one-shot stops at the window end")
 
   local held = newMixer()
-  local pcm2048 = AudioFixture.pcm16le({ 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 })
+  local pcm2048 = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   local handle = held:noteOn(spec({ pcm = pcm2048, pan = 0 })) --[[@as { channel: integer, generation: integer }]]
   local before = held:render(12)
   Assert.equal(leftAt(before, 12), 2048, "the looping voice holds")
@@ -411,8 +409,8 @@ end
 function T.mixing_sums_saturates_and_rendering_is_chunk_independent()
   local mixer = newMixer()
   local loud = { 30000, -30000, 30000, -30000, 30000, -30000, 30000, -30000 }
-  mixer:noteOn(spec({ pcm = AudioFixture.pcm16le(loud), pan = 0 }))
-  mixer:noteOn(spec({ pcm = AudioFixture.pcm16le(loud), pan = 0 }))
+  mixer:noteOn(spec({ pcm = loud, pan = 0 }))
+  mixer:noteOn(spec({ pcm = loud, pan = 0 }))
   local pcm = mixer:render(8)
   local expected = { 32767, -32768, 32767, -32768, 32767, -32768, 32767, -32768 }
   for frame = 1, 8 do
@@ -422,7 +420,7 @@ function T.mixing_sums_saturates_and_rendering_is_chunk_independent()
   local function playChunked(chunks)
     local m = newMixer()
     m:noteOn(spec({
-      pcm = AudioFixture.pcm16le({ 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }),
+      pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 },
       pan = 0,
       envelope = { attack = 0, decay = 127, sustain = 127, release = 127 },
     }))

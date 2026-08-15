@@ -230,10 +230,16 @@ function T.compiles_the_archive_into_a_complete_bundle()
   Assert.equal(bundle.index.players[0].maxSequences, 2)
   Assert.equal(bundle.index.players[0].channelMask, 0xC000)
   Assert.equal(bundle.index.players[0].heapSize, 0x5E88)
-  Assert.equal(bundle.index.bySymbol["SEQ_0"], 0)
-  Assert.equal(bundle.index.bySymbol["SEQ_2"], 2)
-  Assert.equal(bundle.index.bySymbol["BANK_0"], 0)
-  Assert.equal(bundle.index.bySymbol["WAVE_1"], 1)
+  Assert.equal(bundle.index.sequenceBySymbol["SEQ_0"], 0)
+  Assert.equal(bundle.index.sequenceBySymbol["SEQ_2"], 2)
+  Assert.equal(bundle.index.bankBySymbol["BANK_0"], 0)
+  local indexedSymbols = {}
+  for _, map in ipairs({ bundle.index.sequenceBySymbol, bundle.index.bankBySymbol }) do
+    for symbol in pairs(map) do
+      indexedSymbols[symbol] = true
+    end
+  end
+  Assert.isNil(indexedSymbols["WAVE_1"], "wave-archive symbols are not indexed")
 
   Assert.equal(bundle.dependencies.cacheFormat, AudioCache.FORMAT)
   Assert.equal(bundle.dependencies.versionRomSha1, "fake-rom-sha1")
@@ -429,11 +435,47 @@ end
 function T.compiles_archives_without_symbols()
   local bytes = buildArchive({ symbols = false })
   local bundle = compileOrFail(bytes)
-  Assert.equal(next(bundle.index.bySymbol), nil, "no bySymbol entries without a SYMB block")
+  Assert.equal(next(bundle.index.sequenceBySymbol), nil, "no sequence symbols without a SYMB block")
+  Assert.equal(next(bundle.index.bankBySymbol), nil, "no bank symbols without a SYMB block")
   Assert.equal(bundle.sequences[0].symbol, nil)
   Assert.equal(bundle.banks[0].symbol, nil)
   AudioSequence.validate(bundle.sequences[0])
   AudioBank.validate(bundle.banks[0])
+end
+
+-- The symbol maps are per class: a symbol shared by a sequence and a bank
+-- survives in both maps, so a cross-class collision is never ambiguous.
+function T.symbols_colliding_across_classes_stay_unambiguous()
+  local spec = {
+    sequences = { [0] = { bankId = 0, volume = 120, channelPriority = 127, playerPriority = 64, playerId = 0 } },
+    banks = { [0] = { waveArchives = { 0, 0xFFFF, 0xFFFF, 0xFFFF } } },
+    waveArchives = { [0] = {} },
+    players = { [0] = { maxSequences = 2, channelMask = 0xC000, heapSize = 0x5E88 } },
+    symbolNames = {
+      sequences = { [0] = "SHARED" },
+      banks = { [0] = "SHARED" },
+    },
+    extraFiles = 0,
+  }
+  local sbnk0 = SbnkFixture.build({
+    { type = 1, param = PCM_A },
+  })
+  local swar0 = SwarFixture.build({ pcm8Member(), pcm16Member() })
+  local _, layout = SdatFixture.build(spec)
+  spec.payloads = {
+    [layout.fileIds.sequences[0]] = SseqFixture.build({
+      { op = "program", program = 0 },
+      { op = "note", key = 60, velocity = 100, duration = 48 },
+      { op = "fin" },
+    }),
+    [layout.fileIds.banks[0]] = sbnk0,
+    [layout.fileIds.waveArchives[0]] = swar0,
+  }
+  local bundle = compileOrFail(SdatFixture.build(spec))
+  Assert.equal(bundle.index.sequenceBySymbol["SHARED"], 0)
+  Assert.equal(bundle.index.bankBySymbol["SHARED"], 0)
+  Assert.equal(bundle.sequences[0].symbol, "SHARED")
+  Assert.equal(bundle.banks[0].symbol, "SHARED")
 end
 
 -- A malformed archive fails the compile with a structured error, never a

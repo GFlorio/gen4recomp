@@ -11,7 +11,9 @@
 -- emitted block offsets, file ids, and counts. `spec.payloads[fileId]`
 -- replaces an embedded resource wholesale with full NNS resource bytes (the
 -- 16-byte header and DATA block included, exactly as Sdat.readFile returns
--- them) for real SSEQ/SBNK/SWAR payloads. SdatFixture.corrupt(bytes, layout,
+-- them) for real SSEQ/SBNK/SWAR payloads; `spec.symbolNames[section][id]`
+-- overrides the generated SYMB name of a slot (defaults to the section
+-- prefix plus the id). SdatFixture.corrupt(bytes, layout,
 -- mutation) applies exactly one corruption; mutation keys:
 --   { magic=, bom=, version=, declaredSizeTooLarge=, truncated=, headerSize=,
 --     blockCount=, symbSizePastEnd=, infoSizePastEnd=, fatSizePastEnd=,
@@ -216,16 +218,19 @@ local function buildSymbols(spec, counts)
   return block(counts, "SYMB", function(parts, listOffsets, stringStart)
     local strings = {}
     local stringOffset = stringStart
+    local customNames = spec.symbolNames or {}
     for _, section in ipairs(SECTION_ORDER) do
       local slotOffsets = {}
+      local names = customNames[section] or {}
       for id = 0, counts[section] - 1 do
         local record = (spec[section] or {})[id]
         if record == nil then
           slotOffsets[id] = 0
         else
           slotOffsets[id] = stringOffset
-          strings[#strings + 1] = SYMBOL_PREFIX[section] .. id .. "\0"
-          stringOffset = stringOffset + #SYMBOL_PREFIX[section] + #tostring(id) + 1
+          local name = (names[id] or (SYMBOL_PREFIX[section] .. id)) .. "\0"
+          strings[#strings + 1] = name
+          stringOffset = stringOffset + #name
         end
       end
       parts[#parts + 1] = u32(counts[section])

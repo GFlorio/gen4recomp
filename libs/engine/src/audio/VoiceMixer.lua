@@ -116,28 +116,6 @@ local function clamp(value, low, high)
   return value
 end
 
-local function int16At(bytes, index)
-  local low = bytes:byte(index * 2 + 1)
-  local high = bytes:byte(index * 2 + 2)
-  local value = low + high * 256
-  if value >= 32768 then
-    value = value - 65536
-  end
-  return value
-end
-
--- Decodes the PCM16LE payload into a table of int16 samples.
----@param bytes string
----@return integer[]
-local function decodePcm(bytes)
-  assert(#bytes % 2 == 0, "PCM16LE payload has an odd byte count")
-  local samples = {}
-  for index = 0, #bytes / 2 - 1 do
-    samples[index + 1] = int16At(bytes, index)
-  end
-  return samples
-end
-
 -- Saturates the summed sample at the int16 bounds.
 ---@param value integer
 ---@return integer
@@ -296,7 +274,9 @@ local function newVoice(spec)
     baseTimer = PSG_BASE_TIMER,
   }
   if generator.kind == "sample" then
-    voice.pcm = decodePcm(spec.pcm)
+    -- The spec carries the provider-decoded PCM array (shared, immutable);
+    -- the mixer never decodes payload bytes.
+    voice.pcm = spec.pcm
     voice.baseTimer = spec.baseTimer
     voice.sampleRate = spec.sampleRate
     voice.pos = 0

@@ -3,16 +3,14 @@
 -- is one of the independently rebuildable derived classes: changing the
 -- sound-archive compiler must not disturb the raw ROM dump or any other
 -- class. Readiness verifies more than the completion marker: the exact
--- marker, the index schema, every indexed sequence and bank with matching
--- schema and identity, sequence bank-id resolution, and every
--- bank-referenced sample's metadata and PCM payload. A missing artifact is
--- never interpreted as silence. Paths are cache-relative; all IO goes
--- through a CacheFs.
+-- marker and the authoritative cross-file walk (AudioCacheValidator) over
+-- the index, every indexed sequence and bank (schema, identity, bank-id
+-- resolution, leaf validation), and every bank-referenced sample's metadata
+-- and PCM payload. A missing artifact is never interpreted as silence. Paths
+-- are cache-relative; all IO goes through a CacheFs.
 
 local AudioCache = {}
 
-local Validate = require("libs.assets.src.Validate")
-local AudioBank = require("libs.assets.src.AudioBank")
 local Contract = require("libs.assets.src.DerivedAssetContract")
 
 AudioCache.FORMAT = Contract.audio.cacheFormat
@@ -57,63 +55,18 @@ function AudioCache.marker(romSha1, depHash)
   return string.format("%s:%s:%s", AudioCache.FORMAT, romSha1, depHash)
 end
 
--- True only if the marker is exact, the index loads with the expected schema,
--- every indexed sequence file carries the expected schema and matching
--- identity and its bank id resolves into the index, every indexed bank file
--- carries the expected schema and matching identity, and every sample key a
--- bank references has both its metadata file (with the expected schema and a
--- key matching its address) and its PCM payload.
+-- True only if the marker is exact and the authoritative cross-file walk
+-- (AudioCacheValidator) finds no problem: the index schema and sections, every
+-- indexed sequence/bank asset with its validator passing and its identity
+-- matching, sequence bank-id resolution, and every bank-referenced sample's
+-- metadata (schema, address-matching key) and PCM payload. The validator
+-- requires this module for its paths, so it is loaded here rather than at
+-- module scope (the walk is never needed before isReady runs).
 function AudioCache.isReady(cacheFs, expectedMarker)
   if cacheFs:read(AudioCache.markerPath()) ~= expectedMarker then
     return false
   end
-  local index = cacheFs:loadLua(AudioCache.indexPath())
-  if type(index) ~= "table" or index.schema ~= AudioCache.INDEX_SCHEMA then
-    return false
-  end
-  if type(index.sequences) ~= "table" or type(index.banks) ~= "table" then
-    return false
-  end
-  for id, entry in pairs(index.sequences) do
-    if
-      type(id) ~= "number"
-      or id < 0
-      or id % 1 ~= 0
-      or type(entry) ~= "table"
-      or entry.id ~= id
-      or type(entry.bankId) ~= "number"
-      or index.banks[entry.bankId] == nil
-    then
-      return false
-    end
-    local sequence = cacheFs:loadLua(AudioCache.sequencePath(id))
-    if type(sequence) ~= "table" or sequence.schema ~= AudioCache.SEQUENCE_SCHEMA or sequence.id ~= entry.id then
-      return false
-    end
-  end
-  for id, entry in pairs(index.banks) do
-    if type(id) ~= "number" or id < 0 or id % 1 ~= 0 or type(entry) ~= "table" or entry.id ~= id then
-      return false
-    end
-    local bank = cacheFs:loadLua(AudioCache.bankPath(id))
-    if type(bank) ~= "table" or bank.schema ~= AudioCache.BANK_SCHEMA or bank.id ~= entry.id then
-      return false
-    end
-    local keys = AudioBank.sampleKeys(bank)
-    if keys == nil then
-      return false
-    end
-    for _, key in ipairs(keys) do
-      local metadata = cacheFs:loadLua(AudioCache.sampleMetadataPath(key))
-      if type(metadata) ~= "table" or metadata.schema ~= AudioCache.SAMPLE_SCHEMA or metadata.key ~= key then
-        return false
-      end
-      if not cacheFs:exists(AudioCache.samplePath(key), "file") then
-        return false
-      end
-    end
-  end
-  return true
+  return require("libs.assets.src.AudioCacheValidator").validate(cacheFs) == nil
 end
 
 return AudioCache

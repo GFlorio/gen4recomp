@@ -36,10 +36,13 @@
 -- sequence IR closes its operation vocabulary with normalized operands (no
 -- u16 truncation, rest/print_var removed), and bank voices carry the common
 -- originalKey shape for every generator kind.
+-- revision 4: the audio index splits its single bySymbol map into the
+-- per-class sequenceBySymbol/bankBySymbol maps (wave-archive symbols are no
+-- longer indexed).
 
 local DerivedAssetContract = {}
 
-DerivedAssetContract.revision = 3
+DerivedAssetContract.revision = 4
 
 DerivedAssetContract.map = {
   cacheFormat = "map-cache-v7",
@@ -96,7 +99,9 @@ DerivedAssetContract.fieldUi = {
 
 DerivedAssetContract.audio = {
   cacheFormat = "g4-audio-cache-v1",
-  indexSchema = "g4-audio-index-v1",
+  -- revision 4: the index carries the per-class symbol maps
+  -- sequenceBySymbol/bankBySymbol instead of one bySymbol map.
+  indexSchema = "g4-audio-index-v2",
   -- revision 2: the sequence asset closes its instruction vocabulary to the
   -- frozen semantic op set with normalized operands (integer | random |
   -- variable), no u16 truncation, and no rest/print_var.

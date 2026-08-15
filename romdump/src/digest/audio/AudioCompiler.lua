@@ -4,12 +4,13 @@
 -- instruments, and every referenced wave member decodes offline to
 -- semantically content-addressed PCM16LE samples (decoded PCM + base timer +
 -- loop identity) with engine-meaningful metadata. The
--- bundle carries the marker, the index (sequences/banks/players/bySymbol),
--- the assets, the samples, and the dependency pins; a malformed archive
--- fails the whole compile with a structured error (an unsupported command in
--- a referenced sequence is a build failure, never a placeholder). Pure
--- domain module; the marker and hashes are computed through the injectable
--- sha1hex/hashLua helpers like the other compilers.
+-- bundle carries the marker, the index (sequences/banks/players plus the
+-- per-class symbol maps sequenceBySymbol/bankBySymbol; wave-archive symbols
+-- are deliberately not indexed), the assets, the samples, and the dependency
+-- pins; a malformed archive fails the whole compile with a structured error
+-- (an unsupported command in a referenced sequence is a build failure, never
+-- a placeholder). Pure domain module; the marker and hashes are computed
+-- through the injectable sha1hex/hashLua helpers like the other compilers.
 
 local Errors = require("libs.errors.src.Errors")
 local Hashing = require("romdump.src.digest.Hashing")
@@ -305,7 +306,8 @@ local function _compile(romFs, sha1hex, hashLua)
   local indexSequences = {}
   local banks = {}
   local indexBanks = {}
-  local bySymbol = {}
+  local sequenceBySymbol = {}
+  local bankBySymbol = {}
 
   for id = 0, sdat.counts.sequences - 1 do
     local record = sdat.sequences[id]
@@ -320,7 +322,7 @@ local function _compile(romFs, sha1hex, hashLua)
         playerId = record.playerId,
       }
       if sequence.symbol ~= nil then
-        bySymbol[sequence.symbol] = id
+        sequenceBySymbol[sequence.symbol] = id
       end
     end
   end
@@ -337,7 +339,7 @@ local function _compile(romFs, sha1hex, hashLua)
         waveArchives = record.waveArchives,
       }
       if bank.symbol ~= nil then
-        bySymbol[bank.symbol] = id
+        bankBySymbol[bank.symbol] = id
       end
     end
   end
@@ -346,23 +348,14 @@ local function _compile(romFs, sha1hex, hashLua)
   -- carry maxSequences/channelMask/heapSize, unused slots stay bare ids.
   local players = sdat.players
 
-  for id = 0, sdat.counts.waveArchives - 1 do
-    local record = sdat.waveArchives[id]
-    if record.fileId ~= nil then
-      local symbol = symbols.waveArchives[id]
-      if symbol ~= nil then
-        bySymbol[symbol] = id
-      end
-    end
-  end
-
   local index = {
     schema = AudioCache.INDEX_SCHEMA,
     version = romFs:version(),
     sequences = indexSequences,
     banks = indexBanks,
     players = players,
-    bySymbol = bySymbol,
+    sequenceBySymbol = sequenceBySymbol,
+    bankBySymbol = bankBySymbol,
   }
 
   local dependencies = {

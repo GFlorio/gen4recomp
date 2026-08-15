@@ -126,7 +126,7 @@ local function buildBundle(sequences, opts)
   opts = opts or {}
   local keyA, keyB, keyC = AudioFixture.key(1), AudioFixture.key(2), AudioFixture.key(3)
   local bundle = AudioFixture.bundle()
-  local indexSequences, indexPlayers, bySymbol = {}, {}, {}
+  local indexSequences, indexPlayers, sequenceBySymbol = {}, {}, {}
   for id, sequence in pairs(sequences) do
     indexSequences[id] = {
       id = id,
@@ -135,7 +135,7 @@ local function buildBundle(sequences, opts)
       bankId = sequence.bankId,
       playerId = sequence.player.id,
     }
-    bySymbol[sequence.symbol] = id
+    sequenceBySymbol[sequence.symbol] = id
     indexPlayers[sequence.player.id] = {
       id = sequence.player.id,
       maxSequences = 16,
@@ -146,7 +146,8 @@ local function buildBundle(sequences, opts)
   bundle.index.sequences = indexSequences
   bundle.index.players = indexPlayers
   bundle.index.banks = { [12] = { id = 12, symbol = "BANK_TEST", file = AudioCache.bankPath(12), waveArchives = {} } }
-  bundle.index.bySymbol = bySymbol
+  bundle.index.sequenceBySymbol = sequenceBySymbol
+  bundle.index.bankBySymbol = { BANK_TEST = 12 }
   bundle.sequences = sequences
   bundle.banks = { [12] = opts.bank or testBank() }
   bundle.samples = {
@@ -1149,7 +1150,7 @@ function T.note_spec_carries_the_migrated_mixer_fields()
   local spec = mixer.log.noteOns[1]
   Assert.deepEqual(spec.generator, { kind = "sample", sample = AudioFixture.key(1) })
   Assert.equal(spec.sampleRate, SAMPLE_RATE)
-  Assert.equal(spec.pcm, AudioFixture.pcm16le(WAVE_A), "the mixer receives the decoded PCM bytes")
+  Assert.deepEqual(spec.pcm, WAVE_A, "the mixer receives the provider-decoded PCM array")
   Assert.deepEqual(spec.loop, { startFrame = 0, endFrame = 8 })
   Assert.equal(spec.loopEnabled, true, "the mixer receives the wave's loop flag")
   Assert.equal(spec.key, 64)

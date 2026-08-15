@@ -167,9 +167,11 @@ function AudioFixture.bundle()
       players = {
         [1] = { id = 1, maxSequences = 16, channelMask = 0xFFFF, heapSize = 0x2000 },
       },
-      bySymbol = {
+      sequenceBySymbol = {
         ["SEQ_TEST_A"] = 0,
         ["SEQ_TEST_B"] = 37,
+      },
+      bankBySymbol = {
         ["BANK_TEST"] = 12,
       },
     },
