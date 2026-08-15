@@ -5,14 +5,17 @@
 -- never chooses one). The poll reads only the fixed-tick input edges: a
 -- directional edge before the print completes is the source interruption
 -- (ScrCmd_TrainerTips / NativeScript_WaitTrainerTips, src/scrcmd_c.c at the
--- pinned decomp commit) — the printer stops, the player turns to that
--- direction, the window closes, and the task completes 0; normal completion
--- (printDone) completes 2 and leaves the window open. A/B during the print
--- is the printer's speed-up behavior, never a dismissal, and the print path
--- reads no pointer edge (the script input snapshot has none), so touch can
--- never speed the print up. The completion value flows through the scheduler
--- result reference (node.result), never a direct world write. Pure domain
--- module: no love dependency.
+-- pinned decomp commit) — the explicit cleanup cuts the print off and
+-- closes the window, the player turns to that direction, and the task
+-- completes 0; A/B during the
+-- print is the instant-fill operation (the whole message reveals through
+-- host:finishPrint, the window stays open, and the task completes 2, the
+-- same result as normal completion); on a live-print tick the direction wins
+-- over A/B. A completed print completes 2 before any edge is considered,
+-- and the print path reads no pointer edge (the script input snapshot has
+-- none), so touch can never fill the print. The completion value flows
+-- through the scheduler result reference (node.result), never a direct world
+-- write. Pure domain module: no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -62,19 +65,27 @@ function TrainerTipsTask.poll(state, ctx)
   end
   local input = ctx.input or {}
   if input.pressedDirection then
-    -- The directional interruption: the host close stops the printer, hides
-    -- the window, and returns the command to nop; the player turns to the
-    -- pressed direction and the task completes 0.
+    -- The directional interruption: the host cleanup clears the printer and
+    -- closes the window, returning the command to idle; the player turns to
+    -- the pressed direction and the task completes 0. Direction wins over
+    -- A/B on the same live-print tick.
     ctx.services.player:turn(input.pressedDirection)
     host:close()
     return { complete = true, state = state, result = 0 }
+  end
+  if input.pressedAction or input.pressedCancel then
+    -- The instant-fill operation: the whole message reveals immediately, the
+    -- window stays presented, and the task completes with the normal
+    -- print-complete result 2.
+    host:finishPrint()
+    return { complete = true, state = state, result = 2 }
   end
   return { complete = false, state = state }
 end
 
 -- Fault/cancellation cleanup: the task owns the live print it started, so
--- closing the signpost stops the printer, hides the window, returns the
--- command to nop, and releases modal ownership exactly once. A task that
+-- closing the signpost clears the printer and window, returns the command
+-- to idle, and releases modal ownership exactly once. A task that
 -- already completed owns nothing.
 ---@param state table
 ---@param reason string

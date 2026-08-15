@@ -82,10 +82,17 @@ function ScriptSignpostHost:printTyped(message, bindings, textArgs)
   self._controller:printTyped(formatted)
 end
 
--- Stop a live typed printer, freezing the revealed text (directional
--- interruption and fault cleanup both call this).
-function ScriptSignpostHost:stopPrint()
-  self._controller:stopPrint()
+-- The instant-fill operation (Trainer Tips A/B speed-up): reveal the whole
+-- message immediately without dismissing the window. Direct pass-through;
+-- the controller owns the printer state.
+function ScriptSignpostHost:finishPrint()
+  self._controller:finishPrint()
+end
+
+-- The semantic command-idle query, straight from the controller.
+---@return boolean
+function ScriptSignpostHost:isCommandIdle()
+  return self._controller:isCommandIdle()
 end
 
 -- The presentation snapshot, straight from the controller: plain data, no
@@ -102,15 +109,12 @@ function ScriptSignpostHost:advance()
   self._controller:updateFixed()
 end
 
--- Fault/cancellation cleanup: stop any active printer, close the signpost
--- window, return the command to nop, and release modal ownership exactly
--- once (the controller's hide case also restores the default style).
--- Idempotent: a second close has no further effect.
+-- Fault/cancellation cleanup: the controller's explicit cleanup releases the
+-- window, printer, command, stored offset, and routed style on the call —
+-- never a fixed-tick step from outside the scheduler. Idempotent: a second
+-- close has no further effect.
 function ScriptSignpostHost:close()
-  local controller = self._controller
-  controller:stopPrint()
-  controller:setCommand("hide")
-  controller:updateFixed()
+  self._controller:hideImmediately()
 end
 
 return ScriptSignpostHost

@@ -12,8 +12,12 @@
 -- nop. Opcode 59 (TrainerTips) types its message into the existing signpost
 -- window at the player text speed and completes only through the scheduler
 -- result reference: 2 on normal completion, 0 on a directional interrupt
--- (which stops the printer and turns the player); A/B during the print is
--- the printer's speed-up behavior, never a dismissal. Opcode 60
+-- (which cuts off the print and turns the player); A/B during the print is
+-- the instant-fill operation — the whole message reveals on the input tick,
+-- the window stays visible, and the task still completes with the normal
+-- print-complete result 2, with the direction preferred when it arrives on
+-- the same live-print tick. Pointer/touch input never reaches the print
+-- path. Opcode 60
 -- (WaitSignpost) always installs a waiter and completes on A/B (result 0,
 -- window closed) or a direction (result 0, window closed, player turned);
 -- touch and mouse map to the semantic A edge. After the signpost opcode
@@ -185,6 +189,53 @@ local function advanceSetSignpostMapThroughWipe(game)
     return signpostStatus(game).command == "nop"
   end, 8)
   Assert.equal(#scriptFaults(game), 0, "the wait must not complete before the signpost command is nop")
+end
+
+-- The number of glyph tokens the signpost window currently shows; the fill
+-- contract is observable as a jump from a partial print to the whole
+-- message.
+local function visibleGlyphCount(game)
+  local count = 0
+  for _, tokens in ipairs(signpostStatus(game).visibleLines) do
+    for _, token in ipairs(tokens) do
+      if token.kind == "glyph" then
+        count = count + 1
+      end
+    end
+  end
+  return count
+end
+
+-- Walk the real set-signpost-map script into the middle of its live typed
+-- print: opcode 59 has started and at least one glyph is already revealed,
+-- so an A/B edge still lands on a live print.
+local function advanceToLivePrint(game)
+  game:startScript(SET_SIGNPOST_MAP)
+  Assert.equal(#scriptFaults(game), 0, "the set-signpost-map script must not fault at opcode 56")
+  advanceSetSignpostMapThroughWipe(game)
+  game:step()
+  Assert.equal(
+    #scriptFaults(game),
+    0,
+    "opcode 59 must not fault: TrainerTips starts a typed print, got: " .. faultCode(scriptFaults(game))
+  )
+  Assert.isFalse(signpostStatus(game).printDone, "opcode 59 must type at the player text speed, not instantly")
+  Assert.isTrue(signpostStatus(game).active, "the signpost stays presented while Trainer Tips prints")
+  game:advanceUntil("the typed print is partway through", function()
+    return visibleGlyphCount(game) >= 1
+  end, 16)
+  Assert.isFalse(signpostStatus(game).printDone, "the print must still be live when the edge arrives")
+  return game
+end
+
+-- The shared post-fill contract for A and B: the window stays modal, the
+-- command is untouched, the whole message is revealed on the input tick,
+-- and no script fault is produced.
+local function assertFillContract(game, label)
+  Assert.isTrue(signpostStatus(game).active, label .. " must not dismiss the signpost")
+  Assert.equal(signpostStatus(game).command, "nop", label .. " must not change the signpost command")
+  Assert.isTrue(signpostStatus(game).printDone, label .. " must reveal the whole message on the input tick")
+  Assert.equal(#scriptFaults(game), 0, label .. " must not fault, got: " .. faultCode(scriptFaults(game)))
 end
 
 -- The real New Bark town direction sign (DirectionSignpostEx): opcode 55
@@ -413,68 +464,216 @@ function T.tests.trainer_tips_directional_interrupt_stops_the_print_turns_and_wr
   end)
 end
 
--- A/B during the Trainer Tips print is the text printer's speed-up
--- behavior, not a dismissal: pressing A mid-print must keep the signpost
--- window open and the script must still complete normally with result 2,
--- then the real std_signpost child waits for its own dismissal.
-function T.tests.trainer_tips_a_during_print_is_not_a_dismissal()
+-- A during the live Trainer Tips print is the instant-fill operation, not
+-- a dismissal and not a no-op: the whole message reveals on the input tick,
+-- the signpost window stays open, the command is unchanged, and the task
+-- finishes with the normal print-complete result 2. The script then resumes
+-- into the real std_signpost child, which waits for its own dismissal and
+-- wipes the sign out.
+function T.tests.trainer_tips_a_during_print_fills_the_window_and_completes_with_result_two()
   withGame(function(game)
-    game:startScript(SET_SIGNPOST_MAP)
-    Assert.equal(#scriptFaults(game), 0, "the set-signpost-map script must not fault at opcode 56")
-    advanceSetSignpostMapThroughWipe(game)
+    advanceToLivePrint(game)
+    local before = visibleGlyphCount(game)
 
-    -- One tick past nop: opcode 59 starts its typed print instead of
-    -- faulting.
-    game:step()
-    Assert.equal(
-      #scriptFaults(game),
-      0,
-      "opcode 59 must not fault: TrainerTips starts a typed print, got: " .. faultCode(scriptFaults(game))
-    )
-    Assert.isFalse(signpostStatus(game).printDone, "opcode 59 must type at the player text speed, not instantly")
-
-    -- A mid-print must not dismiss: the window stays open and the script
-    -- still completes normally with result 2.
     game:pressAction()
-    Assert.isTrue(signpostStatus(game).active, "A during the print must not dismiss the signpost")
-    Assert.equal(signpostStatus(game).command, "nop")
-    Assert.equal(#scriptFaults(game), 0, "A during the print must not fault, got: " .. faultCode(scriptFaults(game)))
+    assertFillContract(game, "A during the print")
+    Assert.isTrue(visibleGlyphCount(game) > before, "A must reveal more than the partial print showed")
 
-    game:advanceUntil("the trainer tips print completes", function()
-      return signpostStatus(game).printDone
-    end, 64)
-    Assert.equal(#scriptFaults(game), 0, "the print completion must not fault")
-
-    -- The real std_signpost child then waits for its own dismissal and
-    -- wipes the sign out.
-    game:step()
+    -- The script resumes into the real std_signpost child on the following
+    -- scheduler tick, which copies the completion result 2.
+    game:advanceUntil("opcode 59 writes its completion result 2", function()
+      return game.runtime.scripts.worldState:getVar(SPECIAL_RESULT) == 2
+    end, 8)
     Assert.equal(
       #scriptFaults(game),
       0,
       "the std_signpost child must not fault, got: " .. faultCode(scriptFaults(game))
     )
     Assert.isTrue(signpostStatus(game).active, "the std_signpost child keeps the window open while it waits")
-    game:step()
-    Assert.equal(
-      #scriptFaults(game),
-      0,
-      "the std_signpost child must not fault, got: " .. faultCode(scriptFaults(game))
-    )
-    Assert.isTrue(signpostStatus(game).active, "the std_signpost child keeps the window open while it waits")
-    Assert.equal(
-      game.runtime.scripts.worldState:getVar(SPECIAL_RESULT),
-      2,
-      "A during the print must not change the normal completion result 2"
-    )
-    Assert.isTrue(signpostStatus(game).active, "the signpost window stays open after a button-speed-up completion")
 
     game:pressAction()
-    assertStdSignpostWipeOut(game, "trainer tips button-speed-up completion")
+    assertStdSignpostWipeOut(game, "trainer tips instant fill")
     Assert.equal(
       game.runtime.scripts.worldState:getVar(SPECIAL_RESULT),
       0,
       "the std_signpost WaitSignpost must write its dismissal result 0"
     )
+  end)
+end
+
+-- B (the cancel edge) performs the same instant fill as A: the whole
+-- message reveals on the input tick, the window stays open, the command is
+-- unchanged, and the task finishes with result 2.
+function T.tests.trainer_tips_b_during_print_fills_the_window_and_completes_with_result_two()
+  withGame(function(game)
+    advanceToLivePrint(game)
+    local before = visibleGlyphCount(game)
+
+    game.runtime:pressCancel()
+    game:step()
+    game.runtime:releaseCancel()
+    assertFillContract(game, "B during the print")
+    Assert.isTrue(visibleGlyphCount(game) > before, "B must reveal more than the partial print showed")
+
+    game:advanceUntil("opcode 59 writes its completion result 2", function()
+      return game.runtime.scripts.worldState:getVar(SPECIAL_RESULT) == 2
+    end, 8)
+    Assert.equal(#scriptFaults(game), 0, "B during the print must not fault, got: " .. faultCode(scriptFaults(game)))
+    Assert.isTrue(signpostStatus(game).active, "the signpost window stays open after a B fill completion")
+  end)
+end
+
+-- Direction and A/B on the same live-print tick: the direction wins. The
+-- print is interrupted rather than filled, the player turns to the pressed
+-- direction, the window closes, and the task completes 0 — the source
+-- directional-interruption path, unchanged by the fill operation.
+function T.tests.trainer_tips_direction_and_action_same_tick_prefers_the_direction()
+  withGame(function(game)
+    advanceToLivePrint(game)
+
+    local before = game:snapshot().player.facing
+    local pressed = before == "south" and "west" or "south"
+    game.runtime:press(pressed)
+    game.runtime:pressAction()
+    game:step()
+    game.runtime:release(pressed)
+    game.runtime:releaseAction()
+
+    Assert.isFalse(signpostStatus(game).printDone, "the direction must interrupt the print instead of filling it")
+    Assert.isFalse(signpostStatus(game).active, "the directional interrupt must close the signpost window")
+    Assert.equal(signpostStatus(game).command, "nop")
+    Assert.equal(game:snapshot().player.facing, pressed, "the directional interrupt must turn the player")
+    Assert.equal(#scriptFaults(game), 0, "the same-tick edge must not fault, got: " .. faultCode(scriptFaults(game)))
+
+    assertStdSignpostWipeOut(game, "trainer tips same-tick direction and action")
+    Assert.equal(
+      game.runtime.scripts.worldState:getVar(SPECIAL_RESULT),
+      0,
+      "opcode 59 must write its directional interrupt result 0"
+    )
+  end)
+end
+
+-- Pointer/touch input is not a script input edge: while the Trainer Tips
+-- print is live, pointer events must neither fill the print nor complete
+-- the task — the print keeps typing at the player cadence and completes
+-- with the normal result 2.
+function T.tests.pointer_input_cannot_fill_the_trainer_tips_print()
+  withGame(function(game)
+    advanceToLivePrint(game)
+    local resultBefore = game.runtime.scripts.worldState:getVar(SPECIAL_RESULT)
+
+    game.runtime.input:pointerDown("mouse:1", 400, 300)
+    game:step()
+    game.runtime.input:pointerMove("mouse:1", 420, 310)
+    game.runtime.input:pointerUp("mouse:1", 420, 310)
+    game:step()
+
+    Assert.isFalse(signpostStatus(game).printDone, "pointer input must not fill the typed print")
+    Assert.equal(signpostStatus(game).command, "nop", "pointer input must not touch the signpost command")
+    Assert.equal(
+      game.runtime.scripts.worldState:getVar(SPECIAL_RESULT),
+      resultBefore,
+      "pointer input must not complete the print task"
+    )
+
+    -- The print still completes at the ordinary cadence with result 2.
+    game:advanceUntil("the trainer tips print completes at its normal cadence", function()
+      return signpostStatus(game).printDone
+    end, 64)
+    game:advanceUntil("opcode 59 writes its completion result 2", function()
+      return game.runtime.scripts.worldState:getVar(SPECIAL_RESULT) == 2
+    end, 8)
+    Assert.equal(#scriptFaults(game), 0, "the print completion must not fault, got: " .. faultCode(scriptFaults(game)))
+  end)
+end
+
+-- The required wait_signpost_action fault/cancellation contract: a script
+-- that presents the signpost, starts a wipe, and blocks in
+-- wait_signpost_action must release everything when its execution
+-- environment is cancelled. After scheduler teardown the signpost is
+-- inactive, the printer is absent, the command is idle, and no modal
+-- ownership remains.
+function T.tests.wait_signpost_action_environment_cancel_leaves_no_modal_ownership()
+  withGame(function(game)
+    game:startScript(DIRECTION_SIGNPOST)
+    Assert.equal(#scriptFaults(game), 0, "the direction-signpost script must not fault at opcode 55")
+    Assert.isTrue(signpostStatus(game).active, "opcode 55 must present the signpost window immediately")
+    game:step()
+    Assert.equal(signpostStatus(game).command, "wipe_in", "opcode 57 must queue its source command")
+    game:step()
+    Assert.equal(signpostStatus(game).command, "wipe_in", "opcode 58 must block while the wipe is busy")
+    Assert.equal(
+      signpostStatus(game).logicalYOffset,
+      -32,
+      "the wipe must be mid-motion when the environment is cancelled"
+    )
+
+    local scheduler = game.runtime.scripts.scheduler
+    local environmentId = assert(scheduler:foregroundEnvironmentId(), "the signpost script must own the foreground")
+    scheduler:cancelEnvironment(environmentId, "acceptance injected cancellation")
+
+    local status = signpostStatus(game)
+    Assert.isFalse(status.active, "the cancelled wait must leave the signpost inactive")
+    Assert.isFalse(status.printDone, "the cancelled wait must leave no printer behind")
+    Assert.deepEqual(status.visibleLines, {}, "the cancelled wait must leave no printer behind")
+    Assert.equal(status.command, "nop", "the cancelled wait must leave the command idle")
+
+    local snapshot = game:snapshot()
+    Assert.isFalse(snapshot.dialogue.modal, "no dialogue modal may remain after the cancellation")
+    Assert.isFalse(snapshot.fieldLocked, "the field must be unlocked after the cancellation")
+    Assert.equal(#scheduler:liveInstances(), 0, "no script instance may remain after the cancellation")
+    Assert.equal(#scheduler:tasks(), 0, "no task record may remain after the cancellation")
+    Assert.isNil(scheduler:foregroundEnvironmentId(), "no foreground environment may remain after the cancellation")
+
+    game:step()
+    Assert.isFalse(signpostStatus(game).active, "the signpost must stay inactive on later ticks")
+    Assert.equal(signpostStatus(game).command, "nop", "the command must stay idle on later ticks")
+  end)
+end
+
+-- The controller-owned wipe interpolation history (the renderer contract
+-- published to W3): every status read exposes a previous/current
+-- logical-offset pair, the previous offset of each read equals the current
+-- offset of the immediately preceding read, and both fields initialize and
+-- reset coherently. This is the exact state a stateless renderer
+-- interpolates against, independent of render-call count.
+function T.tests.signpost_status_exposes_paired_wipe_interpolation_history()
+  withGame(function(game)
+    game:startScript(DIRECTION_SIGNPOST)
+    local status = signpostStatus(game)
+    Assert.equal(status.previousLogicalYOffset, status.logicalYOffset, "the interpolation pair must start coherent")
+    Assert.isTrue(
+      type(status.previousLogicalYOffset) == "number" and status.previousLogicalYOffset % 1 == 0,
+      "previousLogicalYOffset must be an integer"
+    )
+    local priorCurrent = status.logicalYOffset
+
+    -- Opcode 57 queues WIPE_IN one tick later without executing it.
+    game:step()
+    status = signpostStatus(game)
+    Assert.equal(status.previousLogicalYOffset, priorCurrent, "each read must pair with the previous tick's offset")
+    Assert.equal(status.command, "wipe_in")
+    priorCurrent = status.logicalYOffset
+
+    -- The wipe then moves exactly one 16px step per fixed tick, with the
+    -- history pair following the motion.
+    local expected = { -32, -16, 0 }
+    for _, offset in ipairs(expected) do
+      game:step()
+      status = signpostStatus(game)
+      Assert.equal(status.previousLogicalYOffset, priorCurrent, "each read must pair with the previous tick's offset")
+      Assert.equal(status.logicalYOffset, offset, "the wipe must move one 16px step per tick")
+      priorCurrent = status.logicalYOffset
+    end
+
+    -- The endpoint-check update returns the command to nop with both
+    -- history fields reset coherently to the presented offset.
+    game:step()
+    status = signpostStatus(game)
+    Assert.equal(status.command, "nop")
+    Assert.equal(status.previousLogicalYOffset, 0)
+    Assert.equal(status.logicalYOffset, 0)
   end)
 end
 

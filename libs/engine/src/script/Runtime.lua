@@ -1244,17 +1244,17 @@ HANDLERS.signpost_command = function(node, run)
   return Runtime.OUTCOME_YIELD_TICK
 end
 
--- WaitSignpostAction (58): block until the signpost command returns to nop.
--- On entry the command may already be nop (the source returns immediately),
--- in which case the script continues in the same tick; otherwise a
--- registered task polls the host's command each tick and completes only when
--- it is nop again. Opcode 58 has no result operand, so no result reference
--- rides along.
+-- WaitSignpostAction (58): block until the signpost command is idle. On
+-- entry the command may already be idle (the source returns immediately), in
+-- which case the script continues in the same tick; otherwise a registered
+-- task polls the host's semantic idle query each tick and completes only
+-- when the command is idle again. Opcode 58 has no result operand, so no
+-- result reference rides along.
 HANDLERS.wait_signpost_action = function(node, run)
   requireForeground(run, "wait_signpost_action")
   local host = requireService(run, "signpost")
   ---@cast host ScriptSignpostHost
-  if host:status().command == "nop" then
+  if host:isCommandIdle() then
     return Runtime.OUTCOME_CONTINUE
   end
   return blockOnTask(run, "wait_signpost_action", {})
@@ -1263,9 +1263,9 @@ end
 -- TrainerTips (59): print the resolved message into the existing signpost
 -- window at the player's configured text speed and block on the registered
 -- task. The task owns the source input semantics (directional interrupt
--- stops the printer, turns the player, and completes 0; normal completion
--- writes 2 through the scheduler result reference) and never writes world
--- variables directly.
+-- stops the printer, turns the player, and completes 0; A/B fills the
+-- print and completes 2; normal completion writes 2 through the scheduler
+-- result reference) and never writes world variables directly.
 HANDLERS.trainer_tips_print = function(node, run)
   requireForeground(run, "trainer_tips_print")
   requireService(run, "signpost")
