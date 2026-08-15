@@ -3,8 +3,10 @@
 -- noise only 14-15 (GBATEK "NDS Sound" hardware chapter: format 3 is
 -- PSG-only on those ranges); allocation and priority stealing operate inside
 -- the intersection of the generator range and the player's channelMask.
--- Sample voices render nearest-sample (no interpolation), loop
--- inside their metadata loop window, and end only on noteOff. Square duty
+-- Sample voices render nearest-sample (no interpolation), start at the
+-- sample start and wrap inside their metadata loop window (the DS channel
+-- begins at its source address -- melonDS SPUChannel::Start -- and loops at
+-- the end), and end only on noteOff. Square duty
 -- cycles are 8 samples starting at LOW (GBATEK: HIGH=(N+1)*12.5%, period 8,
 -- duty starts at the LOW period); noise is the GBATEK 15-bit LFSR
 -- (X=X SHR 1; carry -> LOW and X XOR 6000h, else HIGH; init 7FFFh). The
@@ -46,6 +48,7 @@ local function spec(overrides)
     generator = { kind = "sample", sample = AudioFixture.key(1) },
     sampleRate = SAMPLE_RATE,
     pcm = AudioFixture.pcm16le(WAVE_A),
+    loopEnabled = true,
     loop = { startFrame = 0, endFrame = 8 },
     key = 60,
     rootKey = 60,
@@ -129,8 +132,8 @@ function T.sample_voice_loops_inside_its_loop_window()
   local pcm = mixer:render(8)
   Assert.deepEqual(
     frameRange(pcm, 1, 8, 1),
-    { 300, 400, 500, 600, 300, 400, 500, 600 },
-    "frames outside the window are never played"
+    { 100, 200, 300, 400, 500, 600, 300, 400 },
+    "the voice plays the pre-loop region first, then wraps into the window"
   )
 end
 
@@ -147,6 +150,25 @@ function T.sample_voice_loops_until_released()
   local after = mixer:render(8)
   for i = 1, 8 do
     Assert.equal(leftAt(after, i), 0, "release 127 ends the voice immediately")
+  end
+end
+
+-- A one-shot wave (loop flag clear) plays its window once and the voice
+-- stops at the end, like the DS channel's repeat-mode-2 stop; the note then
+-- holds in silence.
+function T.one_shot_sample_voices_stop_at_the_wave_end()
+  local mixer = newMixer()
+  local channel = mixer:noteOn(spec({ loopEnabled = false }))
+  local pcm = mixer:render(12)
+  Assert.deepEqual(
+    frameRange(pcm, 1, 12, 1),
+    { 100, 200, 300, 400, 500, 600, 700, 800, 0, 0, 0, 0 },
+    "the one-shot wave plays once and falls silent"
+  )
+  mixer:noteOff(channel)
+  local after = mixer:render(8)
+  for i = 1, 8 do
+    Assert.equal(leftAt(after, i), 0, "the ended voice stays silent")
   end
 end
 

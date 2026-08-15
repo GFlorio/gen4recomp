@@ -67,7 +67,7 @@ function T.contract_pins_the_current_asset_identities()
       indexSchema = "g4-audio-index-v1",
       sequenceSchema = "g4-audio-sequence-v1",
       bankSchema = "g4-audio-bank-v1",
-      sampleSchema = "g4-audio-sample-v1",
+      sampleSchema = "g4-audio-sample-v2",
       provenanceSchema = "g4-audio-provenance-v1",
     },
   })

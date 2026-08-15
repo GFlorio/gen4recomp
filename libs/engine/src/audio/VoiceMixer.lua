@@ -6,8 +6,13 @@
 -- occupied a new note steals the channel holding the lowest
 -- (playerPriority, channelPriority, then oldest) voice inside the same
 -- allowed set. Sample voices render nearest-sample (no interpolation),
--- loop inside their metadata loop window, and end only on
--- noteOff. Square duty cycles are 8 samples starting at LOW
+-- play from the sample start and wrap inside their metadata loop window
+-- (the DS channel starts at its source address -- melonDS SPUChannel::Start
+-- zeroes the read offset -- and wraps to the loop point at the end, so the
+-- pre-loop attack region plays on the first pass); a wave whose metadata
+-- loop flag is clear is one-shot and the voice stops at the window end
+-- (the DS repeat-mode-2 stop, the majority of the HGSS archive), and only
+-- looping voices end on noteOff. Square duty cycles are 8 samples starting at LOW
 -- (GBATEK: HIGH=(N+1)*12.5%); noise is the GBATEK 15-bit LFSR
 -- (X=X SHR 1; carry -> LOW and X=X XOR 6000h, else HIGH; init 7FFFh).
 -- The envelope is a project-defined linear model over the frozen 0..127
@@ -144,10 +149,14 @@ local function newVoice(spec, outputRate)
       spec.pcm ~= nil and spec.sampleRate ~= nil and spec.loop ~= nil and spec.rootKey ~= nil,
       "sample voice spec requires pcm, sampleRate, loop and rootKey"
     )
+    assert(type(spec.loopEnabled) == "boolean", "sample voice spec requires the wave's loop flag")
     voice.pcm = decodePcm(spec.pcm)
     voice.ratio = (spec.sampleRate / outputRate) * 2 ^ ((spec.key - spec.rootKey) / 12)
-    voice.pos = spec.loop.startFrame
+    -- The DS channel starts at the sample start (the loop point only
+    -- applies when the end is reached), so the pre-loop attack plays first.
+    voice.pos = 0
     voice.loop = spec.loop
+    voice.loopEnabled = spec.loopEnabled
   elseif generator.kind == "square" then
     voice.high = math.floor(generator.duty * 8 + 0.5)
     voice.ratio = 2 ^ ((spec.key - 60) / 12)
@@ -290,9 +299,18 @@ function VoiceMixer:render(frames)
         if voice.generator.kind == "sample" then
           sample = voice.pcm[math.floor(voice.pos) + 1]
           voice.pos = voice.pos + voice.ratio
-          local span = voice.loop.endFrame - voice.loop.startFrame
-          while voice.pos >= voice.loop.endFrame do
-            voice.pos = voice.pos - span
+          if voice.pos >= voice.loop.endFrame then
+            if voice.loopEnabled then
+              local span = voice.loop.endFrame - voice.loop.startFrame
+              while voice.pos >= voice.loop.endFrame do
+                voice.pos = voice.pos - span
+              end
+            else
+              -- One-shot wave: the DS channel stops at the sample end
+              -- (repeat-mode 2); the boundary sample still sounds and the
+              -- voice is removed, so the note holds in silence.
+              self._channels[channel] = nil
+            end
           end
         else
           if voice.generator.kind == "noise" then

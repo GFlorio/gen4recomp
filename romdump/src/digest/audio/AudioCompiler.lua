@@ -166,6 +166,7 @@ function WaveCache:resolve(bankId, waveArchives, slot, member)
         file = AudioCache.samplePath(key),
         frames = wave.frames,
         sampleRate = wave.sampleRate,
+        loopEnabled = wave.loopEnabled,
         loop = wave.loop,
       }
     end

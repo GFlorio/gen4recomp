@@ -4,10 +4,11 @@
 -- and track parameters, and drives a VoiceMixer with voice commands. It
 -- interprets project instruction IR, never SSEQ. The
 -- tick clock is the NNS relationship verified from GBATEK ("DS Sound Files -
--- SSEQ"): a quarter note is 48 ticks and tempo is BPM (1..240, default
--- 120). Ticks come from an exact integer accumulator per player instance:
--- every output frame adds tempo*48, and a tick fires each time the
--- accumulator reaches sampleRate*60 (the frames-per-tick identity
+-- SSEQ") and the ARM7 NitroSDK player (SND_seq.c: SND_TIMER_RATE 240 at the
+-- 192 Hz sound interval): a quarter note is 48 ticks and tempo is BPM
+-- (1..240, default 120). Ticks come from an exact integer accumulator per
+-- player instance: every output frame adds tempo*48, and a tick fires each
+-- time the accumulator reaches sampleRate*60 (the frames-per-tick identity
 -- sampleRate*60/(tempo*48) without float drift) -- NOT the 30 Hz field tick
 -- and not MIDI PPQN. A track's wait is an integer tick count; a note-off
 -- lands on the tick boundary after the boundary frame's render, so a
@@ -18,9 +19,17 @@
 -- its whole duration. Fresh tracks gate notes by their duration (the NNS
 -- noteWait default); 0xC7 note_wait clears the flag so composers pair notes
 -- with explicit 0x80 waits, and a ringing note's own length bounds its
--- ring independently of gates (the NNS channel length). loop_end jumps back
--- to its target while the loop count is positive (loop_begin count 0, as in
--- the real HGSS jingle, plays the body once). Random amount operands resolve
+-- ring independently of gates (the NNS channel length). Loops follow the
+-- ARM7 player (SND_seq.c): loop_begin pushes a frame holding the count and
+-- the return index (the instruction after the begin, the SDK's
+-- posCallStack); loop_end decrements and jumps back while the count is
+-- positive, exits when it reaches zero, jumps forever while the count is
+-- zero (the SDK's loopCount 0 -- the real SEQ_GS_P_SAFARI_ROAD), and is a
+-- no-op with no active frame (the SDK's call-depth-0 case, reached by real
+-- tracks whose loop code is dead). A return with no active call is likewise
+-- a no-op (the SDK's depth-0 0xFD: real tracks end with a top-level
+-- return, whose fall-through past the program tail ends the track).
+-- Random amount operands resolve
 -- through a deterministic per-play RNG; variable operands through the
 -- instance's player variables. The corpus-reachable commands whose effects
 -- V1 does not model (LFO modulation, pitch sweep, portamento, per-track
@@ -182,6 +191,7 @@ local function startNote(self, instance, track, key, velocity)
     spec.sampleRate = sample.metadata.sampleRate
     spec.pcm = sample.pcm
     spec.loop = sample.metadata.loop
+    spec.loopEnabled = sample.metadata.loopEnabled
     spec.rootKey = voice.rootKey
   end
   local sequence = instance.sequence
@@ -202,9 +212,10 @@ end
 
 -- Executes one instruction, mutating the track, and returns the next
 -- program counter. Gating instructions (note/rest/wait) set the track's
--- wait; fin/end ends the track; open_track spawns the target track and
--- lets the current track continue; loop_end jumps while its count is
--- positive.
+-- wait; end ends the track; open_track spawns the target track and
+-- lets the current track continue; loop_end jumps to its loop frame's
+-- return index while the frame's count is positive (forever at count 0)
+-- and falls through when the count reaches zero.
 local function execute(self, instance, track, instruction)
   local op = instruction.op
   if op == "note" then
@@ -237,7 +248,7 @@ local function execute(self, instance, track, instruction)
     track.wait = instruction.duration
     return track.pc + 1
   end
-  if op == "fin" or op == "end" then
+  if op == "end" then
     track.ended = true
     return nil
   end
@@ -255,8 +266,12 @@ local function execute(self, instance, track, instruction)
     track.callStack[#track.callStack + 1] = track.pc + 1
     return instruction.target
   elseif op == "return" then
-    assert(#track.callStack > 0, "return with an empty call stack")
-    return table.remove(track.callStack)
+    -- The SDK's 0xFD with an empty call stack (depth 0) is a no-op: real
+    -- tracks end with a top-level return, and mid-program top-level
+    -- returns fall through to the next instruction.
+    if #track.callStack > 0 then
+      return table.remove(track.callStack)
+    end
   elseif op == "open_track" then
     local previous = instance.tracks[instruction.track]
     if previous ~= nil and previous.channel ~= nil then
@@ -307,15 +322,27 @@ local function execute(self, instance, track, instruction)
     -- accepts them without effect.
   elseif op == "loop_begin" then
     assert(type(instruction.count) == "number", "loop_begin requires a count")
-    track.loopStack[#track.loopStack + 1] = { remaining = instruction.count }
+    -- The frame carries the count and the return index (the instruction
+    -- after the begin), mirroring the SDK's loopCount/posCallStack pair.
+    track.loopStack[#track.loopStack + 1] = { remaining = instruction.count, returnIndex = track.pc + 1 }
   elseif op == "loop_end" then
     local frame = track.loopStack[#track.loopStack]
-    assert(frame, "loop_end without a matching loop_begin")
-    if frame.remaining > 0 then
+    if frame == nil then
+      -- The SDK's 0xFC at call depth 0 is a no-op; the real corpus has
+      -- tracks whose loop code is never entered (dead bytes), so an
+      -- unmatched loop_end must never fault.
+    elseif frame.remaining > 0 then
       frame.remaining = frame.remaining - 1
-      return instruction.target
+      if frame.remaining == 0 then
+        table.remove(track.loopStack)
+      else
+        return frame.returnIndex
+      end
+    else
+      -- Count 0 loops forever (the SDK's loopCount-0 branch; the real
+      -- SEQ_GS_P_SAFARI_ROAD rings until the game stops it).
+      return frame.returnIndex
     end
-    table.remove(track.loopStack)
   else
     Errors.raise(FieldErrors.AUDIO_PLAYER_UNSUPPORTED_OP, "unsupported sequence instruction op", {
       op = op,
@@ -328,12 +355,18 @@ end
 -- Executes instructions until the track is gated (waiting on a note/rest/
 -- wait) or ended, with a bounded step budget so a runaway non-gating loop
 -- fails instead of hanging. A conditional instruction (the 0xA2 prefix)
--- executes only while the track comparison holds.
+-- executes only while the track comparison holds. A program counter past
+-- the instruction list is a fall-through past the last instruction (a
+-- top-level return, an SDK no-op): the track ends instead of reading
+-- beyond the program.
 local function fetch(self, instance, track)
   local steps = 0
   while not track.ended and not track.gated do
     local instruction = instance.sequence.program.instructions[track.pc]
-    assert(instruction, "program counter past the instruction list")
+    if instruction == nil then
+      track.ended = true
+      break
+    end
     if instruction.conditional and not track.cmp then
       track.pc = track.pc + 1
     else

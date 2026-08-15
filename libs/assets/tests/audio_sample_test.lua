@@ -107,4 +107,25 @@ function T.validates_the_loop_frame_window()
   Assert.isTrue(AudioSample.validate(metadata), "a loop ending on the last frame is valid")
 end
 
+function T.validates_the_loop_flag()
+  local metadata = AudioFixture.sampleMetadata(AudioFixture.key(1))
+  metadata.loopEnabled = nil
+  throwsCode("AUDIO_SAMPLE_INVALID", function()
+    AudioSample.validate(metadata)
+  end)
+  metadata.loopEnabled = 1
+  throwsCode("AUDIO_SAMPLE_INVALID", function()
+    AudioSample.validate(metadata)
+  end)
+  -- One-shot waves always carry the full-range window; the flag owns the
+  -- one-shot/loop distinction.
+  metadata.loopEnabled = false
+  metadata.loop = { startFrame = 100, endFrame = 8214 }
+  throwsCode("AUDIO_SAMPLE_INVALID", function()
+    AudioSample.validate(metadata)
+  end)
+  metadata.loop = { startFrame = 0, endFrame = 8214 }
+  Assert.isTrue(AudioSample.validate(metadata), "a one-shot wave with the full-range window is valid")
+end
+
 return { tests = T }

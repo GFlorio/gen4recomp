@@ -93,7 +93,10 @@ DerivedAssetContract.audio = {
   indexSchema = "g4-audio-index-v1",
   sequenceSchema = "g4-audio-sequence-v1",
   bankSchema = "g4-audio-bank-v1",
-  sampleSchema = "g4-audio-sample-v1",
+  -- revision 2: the sample metadata gains the wave's loop flag, so a
+  -- one-shot wave (the DS plays it once and stops, the majority of the
+  -- HGSS archive) is never mistaken for a full-range loop.
+  sampleSchema = "g4-audio-sample-v2",
   provenanceSchema = "g4-audio-provenance-v1",
 }
 

@@ -1,7 +1,9 @@
 -- Validator for the derived audio sample metadata: content-addressed by a
 -- sha1 key that doubles as its path identity, pointing at the canonical
 -- PCM16LE payload path, carrying engine-meaningful timing (frames,
--- sampleRate, loop frames) — never raw SWAV units.
+-- sampleRate, the wave's loop flag, and the loop-window frames) — never raw
+-- SWAV units. A one-shot wave (loopEnabled false) always carries the
+-- full-range window: the flag owns the one-shot/loop distinction.
 
 local AudioSample = {}
 
@@ -43,11 +45,19 @@ function AudioSample.validate(metadata)
   if type(loop) ~= "table" then
     fail({ field = "loop" })
   end
+  if type(metadata.loopEnabled) ~= "boolean" then
+    fail({ field = "loopEnabled" })
+  end
   if not isNonNegativeInteger(loop.startFrame) or not isNonNegativeInteger(loop.endFrame) then
     fail({ field = "loop" })
   end
   if loop.startFrame >= loop.endFrame or loop.endFrame > metadata.frames then
     fail({ field = "loop" })
+  end
+  -- A one-shot wave loops nowhere: its window is the full range (the
+  -- compiler's normalization), so the flag and the window cannot disagree.
+  if not metadata.loopEnabled and (loop.startFrame ~= 0 or loop.endFrame ~= metadata.frames) then
+    fail({ field = "loopEnabled" })
   end
   return true
 end

@@ -168,6 +168,28 @@ function T.lowers_the_semantic_vocabulary()
   })
   Assert.equal(program.instructions[29].var, 0)
   Assert.equal(program.instructions[29].amount, 42)
+  -- 0xD4 loop_begin normalizes its u8 count into the count field, never an
+  -- amount operand (the player's loop frame contract).
+  Assert.equal(program.instructions[22].op, "loop_begin")
+  Assert.equal(program.instructions[22].count, 2)
+  Assert.isNil(program.instructions[22].amount)
+end
+
+-- A loop pair lowers to loop_begin/count plus a loop_end whose return index
+-- is resolved dynamically by the player (the SDK's posCallStack at the
+-- executed begin), so the emitted loop_end carries no static target.
+function T.lowers_loop_pairs_without_static_loop_end_targets()
+  local bytes, layout = SseqFixture.build({
+    { op = "u8", command = 0xD4, amount = 0 },
+    { op = "note", key = 60, velocity = 96, duration = 24 },
+    { op = "nop_op", command = 0xFC },
+    { op = "fin" },
+  })
+  local program = lowerOrFail(bytes)
+  Assert.equal(program.instructions[1].op, "loop_begin")
+  Assert.equal(program.instructions[1].count, 0)
+  Assert.equal(program.instructions[3].op, "loop_end")
+  Assert.isNil(program.instructions[3].target, "loop_end never carries a static branch target")
 end
 
 -- Random and variable operands normalize into amount records. Duration-class

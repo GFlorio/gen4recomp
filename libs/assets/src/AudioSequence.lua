@@ -5,10 +5,10 @@
 -- {kind=random min max} / {kind=variable} records. The instruction
 -- vocabulary itself is not closed here: the semantic name set is frozen with
 -- the opcode inventory, so validation is structural (every instruction has a
--- non-empty semantic op; note/rest/program/jump/call carry their required
--- fields; any instruction's duration/amount/target fields must be well
--- formed). Source provenance may ride along for diagnostics but is never
--- behavior-visible.
+-- non-empty semantic op; note/rest/program/jump/call/loop_begin carry their
+-- required fields; any instruction's duration/amount/target fields must be
+-- well formed). Source provenance may ride along for diagnostics but is
+-- never behavior-visible.
 
 local AudioSequence = {}
 
@@ -125,6 +125,10 @@ function AudioSequence.validate(sequence)
     elseif op == "jump" or op == "call" then
       if not isTarget(instruction.target, #program.instructions) then
         fail({ field = "program.instructions[" .. index .. "].target" })
+      end
+    elseif op == "loop_begin" then
+      if not isIntegerInRange(instruction.count, 0, 0xFFFF) then
+        fail({ field = "program.instructions[" .. index .. "].count" })
       end
     end
     if instruction.amount ~= nil and not isValidAmount(instruction.amount) then

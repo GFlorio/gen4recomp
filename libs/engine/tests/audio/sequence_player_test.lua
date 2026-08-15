@@ -2,16 +2,18 @@
 -- It owns players, sequences, tracks, program counters, track wait counters,
 -- call stacks, loops, tempo, and track parameters, and drives a VoiceMixer
 -- with voice commands. The tick clock is the NNS relationship verified from
--- GBATEK (SSEQ section): a quarter note is 48 ticks and tempo is BPM
--- (1..240, default 120); ticks come from an exact integer accumulator
--- (tempo*48 per output frame, one tick per sampleRate*60 accumulator units)
--- so waits are integer ticks and timing never drifts -- NOT a 30 Hz field
--- tick and not MIDI PPQN. Tracks are monophonic: a note occupies its track
--- for its whole duration. Loops: loop_end jumps back to its target while
--- the loop count is positive (the count is how many times the body is
--- re-entered; loop_begin with count 0, as in the real HGSS jingle seq 1353,
--- plays the body once). Every retrigger restarts the sample at its loop
--- start (DS hardware behavior). Commands whose tick boundary falls inside a
+-- GBATEK (SSEQ section) and the ARM7 player (SND_seq.c): a quarter note is
+-- 48 ticks and tempo is BPM (1..240, default 120); ticks come from an exact
+-- integer accumulator (tempo*48 per output frame, one tick per
+-- sampleRate*60 accumulator units) so waits are integer ticks and timing
+-- never drifts -- NOT a 30 Hz field tick and not MIDI PPQN. Tracks are
+-- monophonic: a note occupies its track for its whole duration. Loops
+-- follow the ARM7 player: loop_end jumps back to its frame's return index
+-- (the instruction after the begin) while the count is positive, the body
+-- runs `count` times, count 0 loops forever (the real SEQ_GS_P_SAFARI_ROAD),
+-- and an unmatched loop_end is a no-op (the SDK's call-depth-0 case).
+-- Every retrigger restarts the sample at its start (DS hardware behavior).
+-- Commands whose tick boundary falls inside a
 -- render apply at that sample index, and rendering is independent of chunk
 -- size. play(sequence, bank) starts the sequence on its player (same player
 -- id replaces the running sequence; different player ids mix).
@@ -195,7 +197,7 @@ end
 
 function T.plays_a_note_and_ends_the_sequence()
   local player, provider =
-    engine({ [0] = seq({ { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "fin" } }) })
+    engine({ [0] = seq({ { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "end" } }) })
   local before = player:render(8)
   for i = 1, 16 do
     Assert.equal(before[i], 0, "nothing plays before play()")
@@ -208,7 +210,7 @@ function T.plays_a_note_and_ends_the_sequence()
     concat(wavePattern(WAVE_A, 500), zeros(100)),
     "a 1-tick note at tempo 120 is 500 frames at 48 kHz"
   )
-  Assert.isFalse(player:isPlaying(), "the fin ends the sequence")
+  Assert.isFalse(player:isPlaying(), "the end terminates the sequence")
 end
 
 function T.a_note_occupies_the_track_for_its_whole_duration()
@@ -217,7 +219,7 @@ function T.a_note_occupies_the_track_for_its_whole_duration()
     { op = "note", key = 60, velocity = 127, duration = 2 },
     { op = "program", program = 1 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
-    { op = "fin" },
+    { op = "end" },
   }
   local player, provider = engine({ [0] = seq(program) })
   play(player, provider)
@@ -235,7 +237,7 @@ function T.rests_gate_the_next_instruction()
     { op = "note", key = 60, velocity = 127, duration = 1 },
     { op = "rest", duration = 2 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
-    { op = "fin" },
+    { op = "end" },
   }
   local player, provider = engine({ [0] = seq(program) })
   play(player, provider)
@@ -249,7 +251,7 @@ function T.tempo_is_bpm_with_48_ticks_per_quarter_note()
       [0] = seq({
         { op = "tempo", amount = tempo },
         { op = "note", key = 60, velocity = 127, duration = 1 },
-        { op = "fin" },
+        { op = "end" },
       }),
     })
     play(player, provider)
@@ -272,7 +274,7 @@ function T.program_changes_select_other_instruments()
     { op = "note", key = 60, velocity = 127, duration = 1 },
     { op = "program", program = 1 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
-    { op = "fin" },
+    { op = "end" },
   }
   local player, provider = engine({ [0] = seq(program) })
   play(player, provider)
@@ -297,11 +299,45 @@ function T.jump_loops_back_to_its_target()
   Assert.isTrue(player:isPlaying(), "an open loop keeps playing")
 end
 
+-- The SDK's 0xFD with no active call (call depth 0) is a no-op: real tracks
+-- end with a top-level return, so a return reached without a call must fall
+-- through (and past the program tail the track ends) instead of faulting.
+function T.top_level_returns_are_no_ops_and_the_program_tail_ends_the_track()
+  local midProgram = {
+    { op = "note", key = 60, velocity = 127, duration = 1 },
+    { op = "return" },
+    { op = "note", key = 60, velocity = 127, duration = 1 },
+    { op = "end" },
+  }
+  local player, provider = engine({ [0] = seq(midProgram) })
+  play(player, provider)
+  local pcm = player:render(1000)
+  Assert.deepEqual(
+    left(pcm, 1000),
+    concat(wavePattern(WAVE_A, 500), wavePattern(WAVE_A, 500)),
+    "a top-level return falls through to the next instruction like the SDK"
+  )
+
+  local trailing = {
+    { op = "note", key = 60, velocity = 127, duration = 1 },
+    { op = "return" },
+  }
+  local tailPlayer, tailProvider = engine({ [0] = seq(trailing) })
+  play(tailPlayer, tailProvider)
+  local tailPcm = tailPlayer:render(1000)
+  Assert.deepEqual(
+    left(tailPcm, 1000),
+    concat(wavePattern(WAVE_A, 500), zeros(500)),
+    "a trailing top-level return falls past the program tail and ends the track"
+  )
+  Assert.isFalse(tailPlayer:isPlaying())
+end
+
 function T.call_and_return_execute_a_subprogram()
   local program = {
     { op = "call", target = 4 },
     { op = "rest", duration = 1 },
-    { op = "fin" },
+    { op = "end" },
     { op = "program", program = 0 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
     { op = "return" },
@@ -322,10 +358,10 @@ function T.open_track_plays_a_second_voice_in_parallel()
     { op = "open_track", track = 1, target = 5 },
     { op = "program", program = 0 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
-    { op = "fin" },
+    { op = "end" },
     { op = "program", program = 1 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
-    { op = "fin" },
+    { op = "end" },
   }
   local player, provider = engine({ [0] = seq(program) })
   play(player, provider)
@@ -348,13 +384,13 @@ function T.pitch_bend_and_transpose_shift_the_pitch_ratio()
     { op = "pitch_bend_range", amount = 48 },
     { op = "pitch_bend", amount = 96 },
     { op = "note", key = 60, velocity = 127, duration = 2 },
-    { op = "fin" },
+    { op = "end" },
   }, 1000)
   Assert.deepEqual(bend, wavePattern({ 1000, 3000, 5000, 7000 }, 1000), "bend 96 at range 48 is +12 semitones: ratio 2")
   local transpose = renderFor({
     { op = "transpose", amount = -12 },
     { op = "note", key = 60, velocity = 127, duration = 2 },
-    { op = "fin" },
+    { op = "end" },
   }, 1000)
   Assert.deepEqual(
     transpose,
@@ -375,13 +411,13 @@ function T.volume_and_expression_scale_the_gain_linearly()
   local expression = renderFor({
     { op = "expression", amount = 64 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
-    { op = "fin" },
+    { op = "end" },
   })
   Assert.equal(expression[1], math.floor(1000 * 64 / 127 + 0.5), "expression scales linearly, rounded")
   local volume = renderFor({
     { op = "volume", amount = 64 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
-    { op = "fin" },
+    { op = "end" },
   })
   Assert.equal(volume[1], math.floor(1000 * 64 / 127 + 0.5), "volume scales linearly, rounded")
 end
@@ -395,7 +431,7 @@ function T.pan_moves_notes_across_the_stereo_field()
       [0] = seq({
         { op = "pan", amount = pan },
         { op = "note", key = 60, velocity = 127, duration = 1 },
-        { op = "fin" },
+        { op = "end" },
       }),
     }, { bank = bank })
     play(player, provider)
@@ -419,7 +455,7 @@ function T.random_operands_resolve_deterministically_per_play()
   local program = {
     { op = "pan", amount = { kind = "random", min = 0, max = 127 } },
     { op = "note", key = 60, velocity = 127, duration = 1 },
-    { op = "fin" },
+    { op = "end" },
   }
   local a, providerA = engine({ [0] = seq(program) })
   play(a, providerA)
@@ -434,7 +470,7 @@ function T.the_player_initial_volume_scales_the_voice()
   local function renderWith(initialVolume)
     local player, provider = engine({
       [0] = seq(
-        { { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "fin" } },
+        { { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "end" } },
         { initialVolume = initialVolume }
       ),
     })
@@ -447,9 +483,9 @@ end
 
 function T.playing_on_the_same_player_replaces_the_sequence()
   local first =
-    { { op = "program", program = 0 }, { op = "note", key = 60, velocity = 127, duration = 2 }, { op = "fin" } }
+    { { op = "program", program = 0 }, { op = "note", key = 60, velocity = 127, duration = 2 }, { op = "end" } }
   local second =
-    { { op = "program", program = 1 }, { op = "note", key = 60, velocity = 127, duration = 2 }, { op = "fin" } }
+    { { op = "program", program = 1 }, { op = "note", key = 60, velocity = 127, duration = 2 }, { op = "end" } }
   local player, provider = engine({
     [0] = seq(first),
     [1] = seq(second, { id = 1, symbol = "SEQ_TEST_B", playerId = 1 }),
@@ -468,9 +504,9 @@ end
 
 function T.sequences_on_different_players_mix()
   local programA =
-    { { op = "program", program = 0 }, { op = "note", key = 60, velocity = 127, duration = 2 }, { op = "fin" } }
+    { { op = "program", program = 0 }, { op = "note", key = 60, velocity = 127, duration = 2 }, { op = "end" } }
   local programB =
-    { { op = "program", program = 1 }, { op = "note", key = 60, velocity = 127, duration = 2 }, { op = "fin" } }
+    { { op = "program", program = 1 }, { op = "note", key = 60, velocity = 127, duration = 2 }, { op = "end" } }
   local player, provider = engine({
     [0] = seq(programA, { playerId = 1 }),
     [1] = seq(programB, { id = 1, symbol = "SEQ_TEST_B", playerId = 2 }),
@@ -488,7 +524,7 @@ end
 
 function T.stop_releases_all_voices()
   local player, provider =
-    engine({ [0] = seq({ { op = "note", key = 60, velocity = 127, duration = 2 }, { op = "fin" } }) })
+    engine({ [0] = seq({ { op = "note", key = 60, velocity = 127, duration = 2 }, { op = "end" } }) })
   play(player, provider)
   local first = player:render(200)
   Assert.equal(left(first, 200)[1], 1000)
@@ -504,7 +540,7 @@ function T.render_is_deterministic_and_chunk_independent()
   local program = {
     { op = "tempo", amount = 128 },
     { op = "note", key = 60, velocity = 127, duration = 3 },
-    { op = "fin" },
+    { op = "end" },
   }
   local function playChunked(chunks)
     local player, provider = engine({ [0] = seq(program) })
@@ -541,7 +577,7 @@ function T.playing_an_unknown_instrument_is_silent()
     [0] = seq({
       { op = "program", program = 9 },
       { op = "note", key = 60, velocity = 127, duration = 1 },
-      { op = "fin" },
+      { op = "end" },
     }),
   })
   play(player, provider)
@@ -555,14 +591,14 @@ function T.unsupported_ops_amounts_and_runaway_loops_fail_loudly()
     local player, provider = engine({
       [0] = seq({
         { op = "volume", amount = { kind = "variable" } },
-        { op = "fin" },
+        { op = "end" },
       }),
     })
     play(player, provider)
     player:render(10)
   end)
   throwsCode("AUDIO_PLAYER_UNSUPPORTED_OP", function()
-    local player, provider = engine({ [0] = seq({ { op = "sustain_hold" }, { op = "fin" } }) })
+    local player, provider = engine({ [0] = seq({ { op = "sustain_hold" }, { op = "end" } }) })
     play(player, provider)
     player:render(10)
   end)
@@ -578,7 +614,7 @@ function T.key_split_instruments_select_by_note_key()
     { op = "program", program = 2 },
     { op = "note", key = 30, velocity = 127, duration = 1 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
-    { op = "fin" },
+    { op = "end" },
   }
   local player, provider = engine({ [0] = seq(program) })
   play(player, provider)
@@ -596,7 +632,7 @@ function T.drum_set_voices_select_by_key_and_out_of_range_is_silent()
     { op = "note", key = 35, velocity = 127, duration = 1 },
     { op = "note", key = 36, velocity = 127, duration = 1 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
-    { op = "fin" },
+    { op = "end" },
   }
   local player, provider = engine({ [0] = seq(program) })
   play(player, provider)
@@ -618,17 +654,58 @@ function T.loop_begin_and_loop_end_repeat_the_body()
   local program = {
     { op = "loop_begin", count = 2 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
-    { op = "loop_end", target = 2 },
-    { op = "fin" },
+    { op = "loop_end" },
+    { op = "end" },
   }
   local player, provider = engine({ [0] = seq(program) })
   play(player, provider)
   local pcm = player:render(2000)
   Assert.deepEqual(
     left(pcm, 2000),
-    concat(concat(wavePattern(WAVE_A, 500), wavePattern(WAVE_A, 500)), concat(wavePattern(WAVE_A, 500), zeros(500))),
-    "count 2 re-enters the body twice, then falls through; each re-entry restarts the sample fresh"
+    concat(concat(wavePattern(WAVE_A, 500), wavePattern(WAVE_A, 500)), zeros(1000)),
+    "count 2 runs the body twice (the SDK decrements at loop_end and exits at zero), then falls through"
   )
+  Assert.isFalse(player:isPlaying())
+end
+
+-- The SDK's loopCount 0 never decrements: loop_end jumps back forever, so a
+-- count-0 loop rings until the sequence is stopped (the real
+-- SEQ_GS_P_SAFARI_ROAD map music).
+function T.loop_begin_count_zero_loops_forever()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "loop_begin", count = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "loop_end" },
+    }),
+  })
+  play(player, provider)
+  local pcm = player:render(2000)
+  Assert.deepEqual(
+    left(pcm, 2000),
+    concat(
+      concat(wavePattern(WAVE_A, 500), wavePattern(WAVE_A, 500)),
+      concat(wavePattern(WAVE_A, 500), wavePattern(WAVE_A, 500))
+    ),
+    "count 0 re-enters the body forever"
+  )
+  Assert.isTrue(player:isPlaying(), "a count-0 loop never ends on its own")
+end
+
+-- The SDK's 0xFC with no active loop frame (call depth 0) is a no-op; the
+-- real corpus contains tracks whose loop code is dead bytes, so an
+-- unmatched loop_end must fall through without faulting.
+function T.unmatched_loop_end_is_a_no_op()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "loop_end" },
+      { op = "end" },
+    }),
+  })
+  play(player, provider)
+  local pcm = player:render(1000)
+  Assert.deepEqual(left(pcm, 1000), concat(wavePattern(WAVE_A, 500), zeros(500)))
   Assert.isFalse(player:isPlaying())
 end
 
@@ -652,7 +729,7 @@ function T.note_commands_carry_the_full_voice_spec()
   }
   local player, provider = engine({
     [0] = seq(
-      { { op = "note", key = 64, velocity = 96, duration = 1 }, { op = "fin" } },
+      { { op = "note", key = 64, velocity = 96, duration = 1 }, { op = "end" } },
       { initialVolume = 100, channelPriority = 32, playerPriority = 16 }
     ),
   }, { mixer = stubMixer })
@@ -664,6 +741,7 @@ function T.note_commands_carry_the_full_voice_spec()
   Assert.equal(spec.sampleRate, SAMPLE_RATE)
   Assert.equal(spec.pcm, AudioFixture.pcm16le(WAVE_A), "the mixer receives the decoded PCM bytes")
   Assert.deepEqual(spec.loop, { startFrame = 0, endFrame = 8 })
+  Assert.equal(spec.loopEnabled, true, "the mixer receives the wave's loop flag")
   Assert.equal(spec.key, 64)
   Assert.equal(spec.rootKey, 60)
   Assert.equal(spec.velocity, 96)
@@ -687,7 +765,7 @@ function T.stop_player_releases_only_that_player()
     { op = "jump", target = 2 },
   }, { playerId = 1 })
   local effect = seq(
-    { { op = "program", program = 1 }, { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "fin" } },
+    { { op = "program", program = 1 }, { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "end" } },
     {
       id = 1,
       symbol = "SEQ_EFFECT",
@@ -716,7 +794,7 @@ end
 
 function T.an_ended_or_never_played_player_reports_free()
   local player, provider =
-    engine({ [0] = seq({ { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "fin" } }, { playerId = 2 }) })
+    engine({ [0] = seq({ { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "end" } }, { playerId = 2 }) })
   Assert.isFalse(player:isPlayerPlaying(2), "a player with no instance reports free")
   player:play(provider:sequence(0), provider:bank(12))
   player:render(600)
@@ -727,7 +805,7 @@ function T.an_ended_or_never_played_player_reports_free()
 end
 
 -- The real HGSS corpus vocabulary: 0x80 `wait` gates the track without
--- releasing a ringing note, 0xFF `end` terminates like the fixture `fin`,
+-- releasing a ringing note, 0xFF `end` terminates the track,
 -- and 0xC7 `note_wait` clears the note-gating flag (fresh tracks start with
 -- it set, per the NNS TrackStart initialization), so composers pair every
 -- note with explicit waits. The note's own duration bounds its ring
@@ -750,7 +828,7 @@ function T.wait_gates_the_track_while_the_note_rings_its_own_length()
     concat(wavePattern(WAVE_A, 1000), zeros(1000)),
     "a note whose gating is cleared rings exactly its own duration; the waits gate without releasing it"
   )
-  Assert.isFalse(player:isPlaying(), "end terminates the track like fin")
+  Assert.isFalse(player:isPlaying(), "end terminates the track")
 end
 
 function T.note_wait_clearing_makes_subsequent_notes_ungated()
@@ -759,7 +837,7 @@ function T.note_wait_clearing_makes_subsequent_notes_ungated()
       { op = "note_wait", amount = 0 },
       { op = "note", key = 60, velocity = 127, duration = 1 },
       { op = "note", key = 60, velocity = 127, duration = 1 },
-      { op = "fin" },
+      { op = "end" },
     }),
   })
   play(player, provider)
@@ -792,7 +870,7 @@ function T.priority_overrides_the_player_channel_priority_for_its_notes()
   }
   local player, provider = engine({
     [0] = seq(
-      { { op = "priority", amount = 12 }, { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "fin" } },
+      { { op = "priority", amount = 12 }, { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "end" } },
       { channelPriority = 32 }
     ),
   }, { mixer = stubMixer })
@@ -842,7 +920,7 @@ function T.setvar_and_variable_amounts_resolve_from_player_variables()
       { op = "setvar", var = 0, amount = 1 },
       { op = "program", program = 0, amount = { kind = "variable", var = 0 } },
       { op = "note", key = 60, velocity = 127, duration = 1 },
-      { op = "fin" },
+      { op = "end" },
     }),
   })
   play(player, provider)
@@ -863,13 +941,13 @@ function T.cmp_ne_gates_conditional_instructions()
       { op = "setvar", var = 0, amount = 1 },
       { op = "cmp_ne", var = 0, amount = 2 },
       { conditional = true, op = "note", key = 60, velocity = 127, duration = 1 },
-      { op = "fin" },
+      { op = "end" },
     }),
     [1] = seq({
       { op = "setvar", var = 0, amount = 1 },
       { op = "cmp_ne", var = 0, amount = 1 },
       { conditional = true, op = "note", key = 60, velocity = 127, duration = 1 },
-      { op = "fin" },
+      { op = "end" },
     }, { id = 1, symbol = "SEQ_FALSE" }),
   })
   player:play(provider:sequence(0), provider:bank(12))

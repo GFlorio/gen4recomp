@@ -287,7 +287,17 @@ local function toInstruction(command, indexOf, identity)
     instruction.var = command.var
     instruction.amount = amountValue(command.value)
   elseif opcode <= 0xEF then
-    instruction.amount = amountValue(command.value)
+    if opcode == 0xD4 then
+      -- 0xD4 loop_begin: the u8 loop count is a value field (the player's
+      -- loop frame), never an amount operand.
+      local count, amount = normalizeValue(command.value, DURATION_MAX, false)
+      instruction.count = count
+      if amount ~= nil then
+        instruction.amount = amount
+      end
+    else
+      instruction.amount = amountValue(command.value)
+    end
   end
   return instruction
 end

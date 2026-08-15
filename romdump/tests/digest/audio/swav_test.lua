@@ -128,9 +128,11 @@ function T.swav_round_trips_adpcm()
 end
 
 -- Loop windows convert from the DS word units for every format; a one-shot
--- wave gets the full-range window.
+-- wave gets the full-range window and its loop flag stays false, a looping
+-- wave carries the flag true.
 function T.swav_converts_loop_windows()
   local pcm8 = decodeOrFail(SwarFixture.pcm8({ 1, 2, 3, 4, 5, 6, 7, 8 }, { loopFlag = 1, pnt = 1, len = 1 }))
+  Assert.equal(pcm8.loopEnabled, true)
   Assert.deepEqual(pcm8.loop, { startFrame = 4, endFrame = 8 })
 
   local pcm16 = decodeOrFail(SwarFixture.pcm16({ 1, 2, 3, 4, 5, 6, 7, 8 }, { loopFlag = 1, pnt = 2, len = 2 }))
@@ -142,6 +144,10 @@ function T.swav_converts_loop_windows()
   local withIntro = decodeOrFail(SwarFixture.adpcmRaw(0, 0, string.rep("\0", 12), { loopFlag = 1, pnt = 2, len = 2 }))
   Assert.equal(withIntro.frames, 24)
   Assert.deepEqual(withIntro.loop, { startFrame = 8, endFrame = 24 })
+
+  local oneShot = decodeOrFail(SwarFixture.pcm8({ 1, 2, 3, 4, 5, 6, 7, 8 }, { loopFlag = 0 }))
+  Assert.equal(oneShot.loopEnabled, false)
+  Assert.deepEqual(oneShot.loop, { startFrame = 0, endFrame = 8 })
 end
 
 -- A member whose size does not match its pnt+len accounting is malformed.

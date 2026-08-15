@@ -71,17 +71,17 @@ local function defaultSequences()
     [1] = seq(1, "SEQ_TEST_EFFECT", 2, {
       { op = "program", program = 1 },
       { op = "note", key = 60, velocity = 127, duration = 1 },
-      { op = "fin" },
+      { op = "end" },
     }),
     [2] = seq(2, "SEQ_TEST_FANFARE", 3, {
       { op = "program", program = 2 },
       { op = "note", key = 60, velocity = 127, duration = 1 },
-      { op = "fin" },
+      { op = "end" },
     }),
     [3] = seq(3, "SEQ_TEST_EFFECT_B", 2, {
       { op = "program", program = 1 },
       { op = "note", key = 60, velocity = 127, duration = 2 },
-      { op = "fin" },
+      { op = "end" },
     }),
     [4] = seq(4, "SEQ_TEST_BGM_B", 1, {
       { op = "program", program = 1 },

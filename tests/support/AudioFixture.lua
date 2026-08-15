@@ -118,18 +118,22 @@ function AudioFixture.bank(id, symbol, waveArchives, sampleKeys, instruments)
   }
 end
 
--- `opts` overrides frames/sampleRate/loop so engine tests can pin a wave's
--- rate and loop window; `file` stays the canonical content-addressed path.
+-- `opts` overrides frames/sampleRate/loop/loopEnabled so engine tests can
+-- pin a wave's rate, loop flag, and loop window; `file` stays the canonical
+-- content-addressed path. One-shot waves (loopEnabled false) must carry the
+-- full-range window, mirroring the compiler's normalization.
 function AudioFixture.sampleMetadata(key, opts)
   opts = opts or {}
   local frames = opts.frames or 8214
+  local loop = opts.loop or { startFrame = 0, endFrame = frames }
   return {
     schema = AudioCache.SAMPLE_SCHEMA,
     key = key,
     file = AudioCache.samplePath(key),
     frames = frames,
     sampleRate = opts.sampleRate or 32768,
-    loop = opts.loop or { startFrame = 0, endFrame = frames },
+    loopEnabled = opts.loopEnabled ~= false,
+    loop = loop,
   }
 end
 
