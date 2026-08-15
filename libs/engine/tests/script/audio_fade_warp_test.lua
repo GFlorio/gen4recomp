@@ -89,13 +89,6 @@ function FakeAudioBackend:isFanfarePlaying()
   return self:currentFanfare() ~= nil
 end
 
-function FakeAudioBackend:currentEffect()
-  for id in pairs(self.playing) do
-    return id
-  end
-  return nil
-end
-
 function FakeAudioBackend:playCry(species, form)
   local token = "cry:" .. tostring(species)
   self.playing[token] = true

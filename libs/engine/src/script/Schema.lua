@@ -591,7 +591,7 @@ Schema.OPERATIONS = {
   },
   play_sound = { fields = { sound = { type = "scalar_or_value", required = true } } },
   stop_sound = { fields = { sound = { type = "scalar_or_value", required = true } } },
-  wait_sound = { fields = { sound = { type = "scalar_or_value" } } },
+  wait_sound = { fields = { sound = { type = "scalar_or_value", required = true } } },
   play_cry = {
     fields = {
       species = { type = "scalar_or_value", required = true },
@@ -1097,11 +1097,7 @@ Schema.CONSTRUCTORS = {
     rows = {
       { signature = "S.playSound(spec)", canonical = "op=play_sound", notes = "spec={sound}." },
       { signature = "S.stopSound(spec)", canonical = "op=stop_sound", notes = "spec={sound}." },
-      {
-        signature = "S.waitSound(spec)",
-        canonical = "op=wait_sound",
-        notes = "spec={sound=nil}; missing ID waits for the currently tracked effect.",
-      },
+      { signature = "S.waitSound(spec)", canonical = "op=wait_sound", notes = "spec={sound}." },
       { signature = "S.playCry(spec)", canonical = "op=play_cry", notes = "spec={species,form=0}." },
       { signature = "S.waitCry(spec)", canonical = "op=wait_cry", notes = "spec optional." },
       { signature = "S.playFanfare(spec)", canonical = "op=play_fanfare", notes = "spec={fanfare}." },

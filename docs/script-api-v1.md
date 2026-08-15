@@ -205,7 +205,7 @@ Constructors return ordinary serializable Lua tables. Direct table form is alway
 |---|---|---|
 | `S.playSound(spec)` | `op=play_sound` | spec={sound}. |
 | `S.stopSound(spec)` | `op=stop_sound` | spec={sound}. |
-| `S.waitSound(spec)` | `op=wait_sound` | spec={sound=nil}; missing ID waits for the currently tracked effect. |
+| `S.waitSound(spec)` | `op=wait_sound` | spec={sound}. |
 | `S.playCry(spec)` | `op=play_cry` | spec={species,form=0}. |
 | `S.waitCry(spec)` | `op=wait_cry` | spec optional. |
 | `S.playFanfare(spec)` | `op=play_fanfare` | spec={fanfare}. |
@@ -1280,7 +1280,7 @@ No fields.
 |---|---|---|---|
 | `key` | string |  |  |
 | `provenance` | source_provenance |  |  |
-| `sound` | scalar_or_value |  |  |
+| `sound` | scalar_or_value | yes |  |
 
 ### `wait_ticks`
 

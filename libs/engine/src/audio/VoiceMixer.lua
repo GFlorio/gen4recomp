@@ -591,6 +591,9 @@ function VoiceMixer:noteOff(handle)
     return
   end
   voice.released = true
+  -- A released voice is never left suspended: the release must ring out and
+  -- free the channel even when the suspension owner replaced the player.
+  voice.suspended = false
   voice.envStatus = "release"
   -- The stop is precomputed from the queued (not yet applied) pending
   -- values: the pending apply precedes the first release decrement at the
@@ -624,13 +627,28 @@ function VoiceMixer:updateVoice(handle, partial)
   voice.pending.dirty = true
 end
 
+-- Suspends or resumes the voice a handle names (the sequence player's
+-- transport pause). A suspended voice contributes nothing to renders, does
+-- not advance its sample position, and runs no control steps -- it freezes
+-- in place until it is unsuspended. A stale or dead handle is harmless.
+---@param handle { channel: integer, generation: integer }
+---@param suspended boolean
+function VoiceMixer:suspendVoice(handle, suspended)
+  local voice = self._channels[handle.channel]
+  if voice == nil or voice.generation ~= handle.generation or voice.dead then
+    return
+  end
+  voice.suspended = suspended
+end
+
 -- Renders `frames` output frames of interleaved stereo int16 PCM
 -- (2*frames entries). Voices read at their position, advance
 -- with the current ratio, and run a control step at the end of every
 -- control-period frame on the mixer's absolute frame count; queued track
 -- values are applied and the registers resynced at the start of the next
 -- control-period frame. The mix sums and saturates at the int16 bounds;
--- chunk sizes never change the result.
+-- chunk sizes never change the result. Suspended voices are inert: no
+-- reads, no advances, no applies, no control steps.
 ---@param frames integer
 ---@return integer[]
 function VoiceMixer:render(frames)
@@ -642,7 +660,7 @@ function VoiceMixer:render(frames)
     if (self._frameCount + 1) % self._controlPeriod == 0 then
       for channel = 0, CHANNEL_COUNT - 1 do
         local voice = self._channels[channel]
-        if voice ~= nil and voice.pending.dirty then
+        if voice ~= nil and not voice.suspended and voice.pending.dirty then
           applyPending(voice)
           syncRegisters(voice)
           if voice.dead then
@@ -654,7 +672,7 @@ function VoiceMixer:render(frames)
     local left, right = 0, 0
     for channel = 0, CHANNEL_COUNT - 1 do
       local voice = self._channels[channel]
-      if voice ~= nil then
+      if voice ~= nil and not voice.suspended then
         local sample = sampleAt(voice)
         -- The one-shot boundary sample still sounds; the voice is
         -- removed after this frame.
@@ -673,7 +691,7 @@ function VoiceMixer:render(frames)
     if self._frameCount % self._controlPeriod == 0 then
       for channel = 0, CHANNEL_COUNT - 1 do
         local voice = self._channels[channel]
-        if voice ~= nil then
+        if voice ~= nil and not voice.suspended then
           if not voice.dead then
             controlStep(voice, true)
           end

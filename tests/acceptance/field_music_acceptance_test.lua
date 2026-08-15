@@ -111,7 +111,6 @@ function T.tests.boot_starts_the_generated_maps_header_music_for_day_and_night()
       Assert.deepEqual(map.fieldData.music, { day = "GS_T_WAKABA", night = "GS_T_WAKABA" })
       -- The controller resolves the day branch into the audio reference.
       Assert.equal(dayGame.runtime.fieldMusic:mapHeaderMusic(map), NEW_BARK_MUSIC)
-      Assert.equal(dayGame.runtime.fieldMusic:effectiveMusic(map), NEW_BARK_MUSIC)
       -- The boot started the map-header music through the composition.
       Assert.equal(audio:currentMusic(), musicId(dayGame, NEW_BARK_MUSIC))
       -- The audio-output host actually receives the music.
@@ -205,9 +204,10 @@ function T.tests.wait_sound_state_blocks_until_the_effect_ends_and_the_bgm_conti
   end)
 end
 
--- F5: a fanfare suspends the map BGM player while keeping its reference, and
--- after the playback + post-wait interval the same reference is restored and
--- renders again.
+-- F5: a fanfare PAUSES the map BGM player (the HGSS PlayFanfare
+-- NNS_SndPlayerPause transport pause: the sequence stays held and resumes at
+-- its preserved position) while keeping its reference; after the playback +
+-- post-wait interval the same reference is restored and renders again.
 function T.tests.a_fanfare_suspends_the_map_bgm_and_restores_it()
   withProductionAudio(TOWN, day, function(game, fake)
     local audio = requireAudio(game)
@@ -215,7 +215,10 @@ function T.tests.a_fanfare_suspends_the_map_bgm_and_restores_it()
     audio:playFanfare("SEQ_ME_ITEM")
     Assert.isTrue(audio:isFanfarePlaying(), "the fanfare must be playing")
     Assert.equal(audio:currentMusic(), wakaba, "the fanfare must keep the suspended BGM reference")
-    Assert.isFalse(audio:isEffectPlaying(NEW_BARK_MUSIC), "the BGM player must be suspended while the fanfare plays")
+    Assert.isTrue(
+      audio:isEffectPlaying(NEW_BARK_MUSIC),
+      "the BGM player is paused, not stopped, while the fanfare plays"
+    )
 
     game:advanceUntil("the fanfare ends, the post-wait passes, and the BGM resumes", function()
       return not audio:isFanfarePlaying() and audio:isEffectPlaying(NEW_BARK_MUSIC)
@@ -228,9 +231,10 @@ function T.tests.a_fanfare_suspends_the_map_bgm_and_restores_it()
 end
 
 -- F6/F7: a fade-out blocks (the isMusicFadeActive poll the MusicFadeTask
--- waits on) for exactly its requested field ticks; a fade-out to 0 stops the
--- BGM player while the reference survives, and the matching fade-in restarts
--- the reference and blocks for its own duration.
+-- waits on) for exactly its requested field ticks; a fade never stops the
+-- BGM player (a fade-out to 0 leaves it running silent at the target level),
+-- and the matching fade-in ramps the same player back to full without
+-- replaying it.
 function T.tests.music_fades_block_for_their_requested_durations()
   withProductionAudio(TOWN, day, function(game)
     local audio = requireAudio(game)
@@ -244,11 +248,14 @@ function T.tests.music_fades_block_for_their_requested_durations()
     game:step()
     Assert.isFalse(audio:isMusicFadeActive(), "the fade must complete at exactly its requested duration")
     Assert.equal(audio:currentMusic(), wakaba, "the fade-out to 0 must keep the reference for a later fade-in")
-    Assert.isFalse(audio:isEffectPlaying(NEW_BARK_MUSIC), "the fade-out to 0 must stop the BGM player")
+    Assert.isTrue(
+      audio:isEffectPlaying(NEW_BARK_MUSIC),
+      "a fade never stops the BGM player; it keeps playing at the target level"
+    )
 
     audio:fadeMusicIn({ durationTicks = 20 })
     Assert.isTrue(audio:isMusicFadeActive(), "the fade-in must be active in its start tick")
-    Assert.isTrue(audio:isEffectPlaying(NEW_BARK_MUSIC), "the fade-in must restart the reference at its start")
+    Assert.isTrue(audio:isEffectPlaying(NEW_BARK_MUSIC), "the fade-in never replays the BGM; the player kept running")
     for _ = 1, 19 do
       game:step()
     end

@@ -1615,6 +1615,113 @@ function T.variable_arithmetic_wraps_and_truncates_like_the_sdk()
   end
 end
 
+-- The transport pause (the NNS SND_PlayerPause the HGSS PlayFanfare path
+-- uses): pausePlayer freezes the player's tick timeline and suspends its
+-- voices -- silent, sample position frozen, no control-step pushes --
+-- and resumePlayer continues the timeline exactly where it froze, so the
+-- note's gate expiry and retrigger land on the original tick schedule and
+-- the sample phase continues in place.
+function T.pause_freezes_the_timeline_and_resume_continues_in_place()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "program", program = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "jump", target = 2 },
+    }),
+  })
+  play(player, provider)
+  player:render(200)
+  player:pausePlayer(1)
+  local held = left(player:render(600), 600)
+  Assert.deepEqual(held, zeros(600), "a paused player contributes nothing")
+  player:resumePlayer(1)
+  -- The gate froze 300 frames short of its original expiry at frame 500, so
+  -- it expires at frame 1100 and the retriggered note starts at 1101.
+  local resumed = sumSegments({
+    segment(waveAt(WAVE_A, 1, 801, 200), 1, 801, 1400, 1100),
+    segment(waveAt(WAVE_A, 1, 1101), 1, 1101, 1400),
+  }, 1400)
+  Assert.deepEqual(
+    left(player:render(600), 600),
+    slice(resumed, 801, 1400),
+    "the resumed player continues on its original tick timeline"
+  )
+end
+
+-- Pause and resume follow the NNS player-state guard: pausing an unknown
+-- player or an already-paused player, and resuming an unknown or unpaused
+-- player, are no-ops -- a fanfare without a BGM must never fault.
+function T.pause_and_resume_are_no_ops_outside_the_play_state()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "program", program = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 8 },
+      { op = "end" },
+    }),
+  })
+  player:pausePlayer(3)
+  player:resumePlayer(3)
+  play(player, provider)
+  player:pausePlayer(1)
+  player:pausePlayer(1)
+  Assert.deepEqual(left(player:render(100), 100), zeros(100), "the double pause leaves the player suspended")
+  player:resumePlayer(1)
+  player:resumePlayer(1)
+  local pcm = left(player:render(200), 200)
+  Assert.isTrue(pcm[1] ~= 0 and pcm[200] ~= 0, "the resume restores the voice")
+end
+
+-- A new sequence on a paused player replaces the suspended one: the
+-- replacement releases the suspended voices and they ring out -- a released
+-- voice is never left suspended where no render can ever free it.
+function T.playing_on_a_paused_player_releases_the_suspended_voices()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "program", program = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 8 },
+      { op = "end" },
+    }),
+  })
+  play(player, provider)
+  player:render(200)
+  player:pausePlayer(1)
+  player:play(provider:sequence(0), provider:bank(12))
+  local expected = sumSegments({
+    segment(waveAt(WAVE_A, 1, 201), 1, 201, 1000, 200),
+    segment(waveAt(WAVE_A, 1, 201), 8, 201, 1000),
+  }, 1000)
+  Assert.deepEqual(
+    left(player:render(800), 800),
+    slice(expected, 201, 1000),
+    "the replaced voice rings its release tail under the fresh note"
+  )
+end
+
+-- The per-player fader (the GameSound fade hook): setFader stores the
+-- volume-domain level and the control-step push delivers its dB-domain
+-- attenuation to the player's voices.
+function T.the_player_fader_reaches_the_update_voice_push_in_the_db_domain()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 8 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer })
+  play(player, provider)
+  player:setFader(1, 42)
+  player:render(300)
+  local push
+  for _, update in ipairs(mixer.log.updates) do
+    if update.partial.fader ~= nil then
+      push = update
+    end
+  end
+  Assert.notNil(push, "the player pushes a fader at its control cadence")
+  Assert.equal(push.partial.fader, NnsSoundMath.decibelSquare(42), "the level reaches the mixer in the dB domain")
+end
+
 -- 0xBD `cmp_ne` sets the track comparison and a conditional instruction
 -- executes only while it holds (the 0xA2 prefix mechanism of the frozen
 -- vocabulary; no conditional instruction occurs in the real corpus).

@@ -58,23 +58,19 @@ function SoundWaitTask.create(spec, ctx)
     end
     return { kind = "fanfare" }
   end
-  -- The effect wait carries the resolved sequence: an explicit operand is
-  -- evaluated against the world; without one the wait infers the current
-  -- effect from the backend.
+  -- The effect wait carries the resolved sequence: HGSS WaitSE always reads
+  -- an explicit operand (scrcmd_sound.c ScrCmd_WaitSE via ScriptGetVar),
+  -- the lowering always emits one, and the schema requires it -- an
+  -- operand-less wait is not a valid producer shape and faults.
   local sequence = node.sound
-  if sequence ~= nil then
-    sequence = Runtime.evaluateValue(sequence, { services = ctx.services, instance = ctx.instance })
-  else
-    local audioService = audio --[[@as { currentEffect: fun(self: table): any|nil }]]
-    if type(audioService.currentEffect) ~= "function" then
-      Errors.raise(
-        ScriptErrors.SCRIPT_SERVICE_MISSING,
-        "the audio service must identify the current effect for wait_sound",
-        { scriptId = ctx.instance.scriptId }
-      )
-    end
-    sequence = audioService:currentEffect()
+  if sequence == nil then
+    Errors.raise(
+      ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
+      "the effect wait has no completion sequence",
+      { scriptId = ctx.instance.scriptId }
+    )
   end
+  sequence = Runtime.evaluateValue(sequence, { services = ctx.services, instance = ctx.instance })
   if sequence == nil then
     Errors.raise(
       ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,

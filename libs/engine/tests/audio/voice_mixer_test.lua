@@ -443,4 +443,54 @@ function T.mixing_sums_saturates_and_rendering_is_chunk_independent()
   Assert.deepEqual(left, right, "chunk size does not change the rendered PCM")
 end
 
+-- The transport pause hook (the NNS SND_PlayerPause the sequence player's
+-- pausePlayer uses): a suspended voice reads nothing, advances nothing, and
+-- runs no control steps -- its sample position and envelope freeze in place
+-- -- and resumes exactly where it stopped.
+function T.suspended_voices_freeze_in_place_and_resume_exactly()
+  local mixer = newMixer()
+  local handle = mixer:noteOn(spec({ pan = 0 })) --[[@as { channel: integer, generation: integer }]]
+  local before = mixer:render(200)
+  Assert.equal(leftAt(before, 200), WAVE_A[(200 - 1) % 8 + 1], "the voice sounds before the suspension")
+  mixer:suspendVoice(handle, true)
+  local held = mixer:render(100)
+  for frame = 1, 100 do
+    Assert.equal(leftAt(held, frame), 0, "the suspended voice contributes nothing")
+  end
+  mixer:suspendVoice(handle, false)
+  local resumed = mixer:render(50)
+  Assert.equal(
+    leftAt(resumed, 50),
+    WAVE_A[(200 + 50 - 1) % 8 + 1],
+    "the voice resumes at the sample position it froze at"
+  )
+end
+
+-- A note-off on a suspended voice un-suspends it: the release must always
+-- ring out and free the channel, never leak a suspended voice that no
+-- render can reach.
+function T.note_off_un_suspends_a_voice_so_its_release_proceeds()
+  local mixer = newMixer()
+  local handle = mixer:noteOn(spec({ pan = 0 })) --[[@as { channel: integer, generation: integer }]]
+  mixer:render(100)
+  mixer:suspendVoice(handle, true)
+  mixer:noteOff(handle)
+  local tail = mixer:render(600)
+  local sounding = 0
+  for frame = 1, 600 do
+    if leftAt(tail, frame) ~= 0 then
+      sounding = sounding + 1
+    end
+  end
+  Assert.isTrue(sounding > 0, "the release rings out instead of staying suspended")
+  local after = mixer:render(100)
+  for frame = 1, 100 do
+    Assert.equal(leftAt(after, frame), 0, "the release ended and the channel freed")
+  end
+  local nextHandle = assert(mixer:noteOn(spec({ pan = 0 })))
+  Assert.equal(nextHandle.channel, handle.channel, "the freed channel is reusable")
+  local fresh = mixer:render(8)
+  Assert.isTrue(leftAt(fresh, 1) ~= 0, "the fresh note sounds on the reused channel")
+end
+
 return { tests = T }

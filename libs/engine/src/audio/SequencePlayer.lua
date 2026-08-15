@@ -76,6 +76,9 @@ local bit = require("bit")
 ---@field render fun(self: SequencePlayer, frames: integer): integer[]
 ---@field stop fun(self: SequencePlayer)
 ---@field isPlaying fun(self: SequencePlayer): boolean
+---@field setFader fun(self: SequencePlayer, playerId: integer, level: integer)
+---@field pausePlayer fun(self: SequencePlayer, playerId: integer)
+---@field resumePlayer fun(self: SequencePlayer, playerId: integer)
 
 local SequencePlayer = {}
 SequencePlayer.__index = SequencePlayer
@@ -663,6 +666,19 @@ local function releaseInstance(self, instance)
   end
 end
 
+-- Suspends or resumes every active voice of the instance in the mixer (the
+-- transport pause: silent, sample positions frozen).
+local function suspendInstance(self, instance, suspended)
+  for trackId = 0, TRACK_COUNT - 1 do
+    local track = instance.tracks[trackId]
+    if track ~= nil then
+      for index = 1, #track.voices do
+        self._mixer:suspendVoice(track.voices[index].handle, suspended)
+      end
+    end
+  end
+end
+
 function SequencePlayer.new(opts)
   assert(
     opts and opts.sampleRate and opts.mixer and opts.provider,
@@ -728,6 +744,15 @@ function SequencePlayer:play(sequence, bank)
     -- The player-level volume (the NNS player->volume): starts at the
     -- sequence's initial volume; master_volume commands change it.
     volume = sequence.player.initialVolume,
+    -- The player-level fader (the NNS player fader NNS_SndPlayerMoveVolume
+    -- drives): a volume-domain level, full by default; GameSound's fade
+    -- state moves it and the control-step push delivers its dB-domain
+    -- attenuation to the player's voices.
+    fader = 127,
+    -- The transport pause flag (NNS SND_PlayerPause): while paused the
+    -- timeline freezes, no control values are pushed, and the voices are
+    -- suspended in the mixer.
+    paused = false,
     localVars = {},
     tracks = { [0] = newTrack(sequence.program.entry) },
   }
@@ -736,11 +761,57 @@ function SequencePlayer:play(sequence, bank)
   fetch(self, instance, instance.tracks[0])
 end
 
+-- Sets the player's fader level (0..127, the volume domain -- the NNS
+-- player fader NNS_SndPlayerMoveVolume drives). The attenuation reaches the
+-- player's voices at the next control-step push as a dB-domain fader
+-- (NnsSoundMath.decibelSquare; the mixer clamps at -0x8000). The GameSound
+-- fade state is the caller; a player with no active instance is a no-op.
+---@param playerId integer
+---@param level integer
+function SequencePlayer:setFader(playerId, level)
+  assert(level >= 0 and level <= 127 and level % 1 == 0, "fader level must be an integer in 0..127")
+  local instance = self._players[playerId]
+  if instance == nil then
+    return
+  end
+  instance.fader = level
+end
+
+-- Pauses the sequence on `playerId` (the NNS SND_PlayerPause transport
+-- pause the HGSS PlayFanfare path uses): the instance stays held
+-- (isPlayerPlaying stays true) but its tick timeline freezes, no control
+-- values are pushed, and its voices suspend in the mixer -- silent, sample
+-- position and envelope frozen in place. A player with no active instance,
+-- or one already paused, is a no-op.
+---@param playerId integer
+function SequencePlayer:pausePlayer(playerId)
+  local instance = self._players[playerId]
+  if instance == nil or instance.paused then
+    return
+  end
+  instance.paused = true
+  suspendInstance(self, instance, true)
+end
+
+-- Resumes the paused sequence on `playerId`: the frozen timeline continues
+-- and the suspended voices resume at their preserved positions. A player
+-- with no active instance, or one not paused, is a no-op.
+---@param playerId integer
+function SequencePlayer:resumePlayer(playerId)
+  local instance = self._players[playerId]
+  if instance == nil or not instance.paused then
+    return
+  end
+  instance.paused = false
+  suspendInstance(self, instance, false)
+end
+
 -- Pushes the current track values to every active voice handle at the
 -- player's main cadence (the NNS TrackUpdateChannel per main): the values
--- apply at the next mixer control step.
+-- apply at the next mixer control step. The player fader rides the same
+-- push as a dB-domain attenuation.
 local function pushTrackValues(self, instance)
-  local partial = {}
+  local partial = { fader = NnsSoundMath.decibelSquare(instance.fader) }
   for trackId = 0, TRACK_COUNT - 1 do
     local track = instance.tracks[trackId]
     if track ~= nil then
@@ -777,7 +848,7 @@ function SequencePlayer:render(frames)
     if active then
       for playerId = 0, PLAYER_COUNT - 1 do
         local instance = self._players[playerId]
-        if instance ~= nil then
+        if instance ~= nil and not instance.paused then
           for trackId = 0, TRACK_COUNT - 1 do
             local track = instance.tracks[trackId]
             if track ~= nil and not track.ended and not track.gated and not track.noteFinishWait then
@@ -789,7 +860,7 @@ function SequencePlayer:render(frames)
       if (self._frameCount + 1) % self._controlPeriod == 0 then
         for playerId = 0, PLAYER_COUNT - 1 do
           local instance = self._players[playerId]
-          if instance ~= nil then
+          if instance ~= nil and not instance.paused then
             pushTrackValues(self, instance)
           end
         end
@@ -799,7 +870,7 @@ function SequencePlayer:render(frames)
       out[#out + 1] = pcm[2]
       for playerId = 0, PLAYER_COUNT - 1 do
         local instance = self._players[playerId]
-        if instance ~= nil then
+        if instance ~= nil and not instance.paused then
           instance.acc = instance.acc + instance.tempo * 48
           while instance.acc >= self._sampleRate * 60 do
             instance.acc = instance.acc - self._sampleRate * 60

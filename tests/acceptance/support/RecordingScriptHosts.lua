@@ -25,10 +25,6 @@ function RecordingScriptHosts.new(options)
     end
   end
 
-  function audio:currentEffect()
-    return self.current
-  end
-
   function audio:isEffectPlaying()
     return false
   end

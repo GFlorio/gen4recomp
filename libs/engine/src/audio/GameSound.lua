@@ -4,24 +4,29 @@
 -- BGM (play/stop/replace/current), effects (play/stop; waits follow the
 -- HGSS IsSEPlaying model -- resolve the sequence's player and test that
 -- player's playback state, never an individual host-source token), the
--- fanfare state machine (pause the BGM player, play through the fanfare
--- sequence's own player, hold a 15-tick post-play wait advanced on field
--- fixed ticks, then resume the paused BGM; the post-wait length is the u16
--- 0x0F that the HGSS PlayFanfare path sets), fixed-tick fades (a fade
--- command while a fade is active is skipped; no current BGM means the fade
--- never starts; a fade-out to target 0 stops the BGM but keeps the
--- current-music reference for a later fade-in; the fade timer is frozen
--- while a fanfare is active, per the HGSS DoSoundUpdateFrame trace), the
--- cry boundary (a reachable cry without a cry subsystem is an attributed
--- failure until the cry data path lands), and the save-stability predicate
--- (false while a fade, fanfare, cry, or playable effect transient is
--- active; ordinary continuous map BGM never blocks saving). All polls
--- return booleans, never nil. The only injectable boundaries are the cry
--- subsystem and the map-music resolver (the field-music policy owner);
--- everything else runs the real engine audio.
+-- fanfare state machine (the HGSS PlayFanfare path: the BGM player is
+-- PAUSED -- its sequence stays held and resumes at its preserved position
+-- after the fanfare and its 15-tick post-play wait, which advances on
+-- field fixed ticks and is the u16 0x0F the HGSS path sets), fixed-tick
+-- fades (the HGSS GF_SndStartFadeOutBGM/FadeInBGM model: the fade state
+-- carries starting level/target/total duration/elapsed, the level ramps
+-- linearly per tick into a dB-domain attenuation the player pushes to the
+-- mixer's per-voice fader, a fade-out while one is active is skipped while
+-- a fade-in restarts from silence, a fade never stops the BGM player, and
+-- the fade timer is frozen while a fanfare is active per the HGSS
+-- DoSoundUpdateFrame trace), the cry boundary (a reachable cry without a
+-- cry subsystem is an attributed failure; the cry data path is a separate
+-- subsystem), and the save-stability predicate (false while a fade,
+-- fanfare, cry, or playable effect transient is active; ordinary
+-- continuous map BGM never blocks saving). All polls return booleans,
+-- never nil. The only injectable boundaries are the cry subsystem and the
+-- map-music resolver (the field-music policy owner); everything else runs
+-- the real engine audio. PCM rendering is the output sink's business:
+-- GameSound never renders.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
+local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 
 ---@class GameSound
 ---@field private _provider AudioAssetProvider
@@ -29,7 +34,7 @@ local FieldErrors = require("libs.engine.src.FieldErrors")
 ---@field private _cry table?
 ---@field private _mapMusic fun(): integer|string|nil?
 ---@field private _currentMusic integer?
----@field private _currentEffect integer?
+---@field private _musicLevel integer
 ---@field private _effectPlayers table<integer, boolean>
 ---@field private _fanfare table?
 ---@field private _musicFade table?
@@ -38,7 +43,6 @@ local FieldErrors = require("libs.engine.src.FieldErrors")
 ---@field play fun(self: GameSound, idOrSymbol: integer|string)
 ---@field stop fun(self: GameSound, idOrSymbol: integer|string)
 ---@field isEffectPlaying fun(self: GameSound, idOrSymbol: integer|string): boolean
----@field currentEffect fun(self: GameSound): integer?
 ---@field playMusic fun(self: GameSound, idOrSymbol: integer|string)
 ---@field stopMusic fun(self: GameSound)
 ---@field currentMusic fun(self: GameSound): integer?
@@ -53,7 +57,6 @@ local FieldErrors = require("libs.engine.src.FieldErrors")
 ---@field temporaryMusic fun(self: GameSound, idOrSymbol: integer|string)
 ---@field updateFixed fun(self: GameSound)
 ---@field isSaveStable fun(self: GameSound): boolean
----@field render fun(self: GameSound, frames: integer): integer[]
 
 local GameSound = {}
 GameSound.__index = GameSound
@@ -82,7 +85,7 @@ function GameSound.new(opts)
     _cry = opts.cry,
     _mapMusic = opts.mapMusic,
     _currentMusic = nil,
-    _currentEffect = nil,
+    _musicLevel = 127,
     _effectPlayers = {},
     _fanfare = nil,
     _musicFade = nil,
@@ -118,7 +121,6 @@ end
 ---@param idOrSymbol integer|string
 function GameSound:play(idOrSymbol)
   local sequence = self:_startSequence(idOrSymbol)
-  self._currentEffect = sequence.id
   self._effectPlayers[sequence.player.id] = true
 end
 
@@ -140,16 +142,10 @@ function GameSound:isEffectPlaying(idOrSymbol)
   return self._player:isPlayerPlaying(sequence.player.id)
 end
 
--- The most recent effect started on any player (the infer-the-current-
--- effect path for an operand-less WaitSE), or nil before any effect.
----@return integer?
-function GameSound:currentEffect()
-  return self._currentEffect
-end
-
 ---@param idOrSymbol integer|string
 function GameSound:playMusic(idOrSymbol)
   self._currentMusic = self:_startSequence(idOrSymbol).id
+  self._musicLevel = 127
 end
 
 -- Stops the current BGM and drops the reference; the StopBGM operand is an
@@ -166,12 +162,17 @@ function GameSound:currentMusic()
   return self._currentMusic
 end
 
--- The fanfare machine: pause the BGM player (the reference is kept for the
--- resume), play the fanfare through its own player, then hold the post-play
--- wait on field ticks before resuming the paused BGM.
+-- The fanfare machine, per the HGSS PlayFanfare path: the BGM player is
+-- PAUSED (its sequence stays held and resumes at its preserved position
+-- after the fanfare and its post-play wait), the fanfare plays through its
+-- own player, then the post-play wait is held on field ticks before the
+-- pause lifts. Without a current BGM the pause is a no-op.
 ---@param idOrSymbol integer|string
 function GameSound:playFanfare(idOrSymbol)
-  self:_stopBgmPlayer()
+  if self._currentMusic ~= nil then
+    local bgm = self._provider:sequence(self._currentMusic)
+    self._player:pausePlayer(bgm.player.id)
+  end
   local sequence = self:_startSequence(idOrSymbol)
   self._fanfare = { playerId = sequence.player.id, ticks = FANFARE_POST_WAIT_TICKS }
 end
@@ -182,9 +183,9 @@ function GameSound:isFanfarePlaying()
 end
 
 -- The cry boundary. Without an injected cry subsystem a reachable cry is
--- an attributed failure (the cry data path is its own workstream); with
--- one, the subsystem owns playback and the facade tracks activity for the
--- wait and stability predicates.
+-- an attributed failure; the cry data path is a separate subsystem and
+-- plays through it when injected, with the facade tracking activity for
+-- the wait and stability predicates.
 ---@param species integer
 ---@param form integer
 function GameSound:playCry(species, form)
@@ -210,31 +211,50 @@ function GameSound:isCryFinished()
   return false
 end
 
--- Starts a fade-out in the command's own tick. A fade while one is already
--- active is skipped (the HGSS fade timer is nonzero); with no current BGM
--- the fade never starts and the script wait completes immediately. The
--- timer advances on field fixed ticks; the fade is frozen while a fanfare
--- is active.
+-- Starts a fade-out from the current music level to the target level over
+-- the requested ticks (the HGSS GF_SndStartFadeOutBGM model: the first
+-- script operand is a target LEVEL, 0..127). A fade while one is already
+-- active is skipped -- the HGSS fade timer is nonzero, so the volume move
+-- is ignored -- and with no current BGM the fade never starts and the
+-- script wait completes immediately.
 ---@param spec { target: integer, durationTicks: integer }
 function GameSound:fadeMusicOut(spec)
   if self._musicFade ~= nil or self._currentMusic == nil then
     return
   end
   assert(spec.target ~= nil and spec.durationTicks, "fade-out spec requires a target and a duration")
-  self._musicFade = { target = spec.target, ticks = spec.durationTicks }
+  assert(spec.target >= 0 and spec.target <= 127, "fade-out target must be a level in 0..127")
+  assert(spec.durationTicks > 0 and spec.durationTicks % 1 == 0, "fade-out duration must be a positive tick count")
+  self._musicFade = {
+    startingLevel = self._musicLevel,
+    target = spec.target,
+    totalDuration = spec.durationTicks,
+    elapsed = 0,
+  }
 end
 
--- Restores the current-music reference (restarting it, per the HGSS
--- fade-in path which starts the BGM at volume zero) and runs the same
--- fixed-tick timer.
+-- Starts a fade-in: the BGM first snaps to silence, then ramps to full
+-- over the requested ticks (the HGSS GF_SndStartFadeInBGM path, which
+-- moves the volume to 0 with a zero-length ramp before the real one).
+-- Unlike a fade-out there is no active-fade guard: a fade-in issued while
+-- a fade is active replaces it (snap + new duration). The BGM player is
+-- never replayed -- the fade only moves the level of the still-playing
+-- player.
 ---@param spec { durationTicks: integer }
 function GameSound:fadeMusicIn(spec)
-  if self._musicFade ~= nil or self._currentMusic == nil then
+  if self._currentMusic == nil then
     return
   end
   assert(spec.durationTicks, "fade-in spec requires a duration")
-  self:playMusic(self._currentMusic)
-  self._musicFade = { ticks = spec.durationTicks }
+  assert(spec.durationTicks > 0 and spec.durationTicks % 1 == 0, "fade-in duration must be a positive tick count")
+  self._musicFade = {
+    startingLevel = 0,
+    target = 127,
+    totalDuration = spec.durationTicks,
+    elapsed = 0,
+  }
+  self._musicLevel = 0
+  self:_pushMusicLevel(0)
 end
 
 ---@return boolean
@@ -258,19 +278,20 @@ function GameSound:resetMusic()
   self:playMusic(reference)
 end
 
--- The temporary-music path belongs to the field scene-music state flow
--- (a later deliverable); until then a reachable call is an attributed
--- failure, never a no-op.
+-- The temporary-music path has no current implementation: a reachable call
+-- is an attributed failure, never a no-op.
 ---@param idOrSymbol integer|string
 function GameSound:temporaryMusic(idOrSymbol)
-  Errors.raise(FieldErrors.AUDIO_TEMPORARY_MUSIC_UNSUPPORTED, "temporary music is not supported yet", {
+  Errors.raise(FieldErrors.AUDIO_TEMPORARY_MUSIC_UNSUPPORTED, "temporary music is unavailable", {
     reference = idOrSymbol,
   })
 end
 
 -- Advances the game-semantic audio state once per field fixed tick: the
 -- fanfare post-play wait (and the resume it ends with) and the music fade
--- timer, which is frozen while a fanfare is active.
+-- timer, which is frozen while a fanfare is active (the HGSS
+-- DoSoundUpdateFrame trace only decrements the fade timer while no fanfare
+-- is playing).
 function GameSound:updateFixed()
   if self._fanfare ~= nil and not self._player:isPlayerPlaying(self._fanfare.playerId) then
     self._fanfare.ticks = self._fanfare.ticks - 1
@@ -279,11 +300,35 @@ function GameSound:updateFixed()
     end
   end
   if self._musicFade ~= nil and self._fanfare == nil then
-    self._musicFade.ticks = self._musicFade.ticks - 1
-    if self._musicFade.ticks <= 0 then
-      self:_completeMusicFade()
-    end
+    self:_advanceMusicFade()
   end
+end
+
+-- One field tick of the active fade: the level ramps linearly from the
+-- starting level toward the target in the volume domain (the NNS fader's
+-- s32 interpolation), the player's fader follows, and the fade completes --
+-- and the script wait unblocks -- exactly when the elapsed reaches the
+-- total duration. A fade never stops the BGM player: it keeps playing at
+-- the faded level.
+function GameSound:_advanceMusicFade()
+  local fade = self._musicFade
+  fade.elapsed = fade.elapsed + 1
+  local level = fade.startingLevel
+    + NnsSoundMath.cDiv(fade.elapsed * (fade.target - fade.startingLevel), fade.totalDuration)
+  self:_pushMusicLevel(level)
+  if fade.elapsed >= fade.totalDuration then
+    self._musicFade = nil
+    self._musicLevel = fade.target
+  end
+end
+
+-- Moves the current BGM player's fader to the volume-domain level; the
+-- player converts it to the dB-domain attenuation at its next control-step
+-- push.
+---@param level integer
+function GameSound:_pushMusicLevel(level)
+  local bgm = self._provider:sequence(self._currentMusic)
+  self._player:setFader(bgm.player.id, level)
 end
 
 -- False while any script-observable transient is active (music fade,
@@ -302,34 +347,16 @@ function GameSound:isSaveStable()
   return true
 end
 
--- Renders stereo PCM through the underlying engine player (the LÖVE sink
--- consumes this on the audio output clock, separate from the field tick).
----@param frames integer
----@return integer[]
-function GameSound:render(frames)
-  return self._player:render(frames)
-end
-
--- Releases the fanfare player and replays the BGM reference paused at
--- playFanfare (playback position preservation is not a V1 requirement,
--- same stance as save resume).
+-- Releases the fanfare player and lifts the BGM player's pause: the BGM
+-- sequence never stopped, so it resumes at its preserved position on its
+-- original tick timeline -- the fanfare does not replay it.
 function GameSound:_completeFanfare()
   local playerId = self._fanfare.playerId
   self._fanfare = nil
   self._player:stopPlayer(playerId)
   if self._currentMusic ~= nil then
-    self:playMusic(self._currentMusic)
-  end
-end
-
--- Ends the active fade: a fade-out to target 0 stops the BGM player while
--- the current-music reference survives for a later fade-in; other targets
--- leave the BGM running.
-function GameSound:_completeMusicFade()
-  local fade = self._musicFade
-  self._musicFade = nil
-  if fade.target == 0 then
-    self:_stopBgmPlayer()
+    local bgm = self._provider:sequence(self._currentMusic)
+    self._player:resumePlayer(bgm.player.id)
   end
 end
 
