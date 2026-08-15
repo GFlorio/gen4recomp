@@ -1,23 +1,29 @@
--- Production-composed application host contract: the runtime exposes a
--- sealed per-runtime application registry containing child destinations only
--- (the start_menu magic id is gone; trainer_card is production-registered
--- and the boot-config descriptor seam supplies the fake destination this
--- journey launches), the runtime owns no Start Menu mod registry, and the
--- normal-field menu policy reads the real unlock flags — a destination
--- becomes interactive exactly when present AND unlocked AND registered. One
--- boot walks the full lifecycle with a registered destination: ineligible
--- open edges acquire nothing, the menu opens at an idle boundary, world
--- simulation stays paused across the child application, the destination is
--- constructed through the registry factory and disposed exactly once on
--- return, the menu rebuilds with the remembered selection, the closing edges
--- leak nothing into the field, and runtime disposal mid-menu releases the
--- modal before the save attempt. The UI-owned audio stack is removed, so
--- every menu boundary — open, select, rebuild, close — must be silent: no
--- sound request may reach the recording audio seam. The second boot pins the
+-- Production-composed application host contract: the runtime composes the
+-- per-runtime application registry (child destinations only; trainer_card is
+-- production-registered and the boot-config descriptor seam supplies the
+-- fake destination this journey launches) and the normal-field menu policy
+-- reads the real unlock flags — a destination becomes interactive exactly
+-- when present AND unlocked AND registered. One boot walks the F2 journey
+-- with a registered destination: ineligible open edges acquire nothing, the
+-- menu opens at an idle boundary, world simulation stays paused across the
+-- child application, the destination is constructed through the registry
+-- factory only after the fade hides the world and receives no synthetic
+-- first update in its construction tick, the menu rebuilds with the
+-- remembered selection, the closing edges leak nothing into the field, the
+-- field simulation resumes after the close, and runtime disposal mid-menu
+-- releases the modal before the save attempt. Present-but-unimplemented
+-- source actions keep their canonical display positions ahead of the
+-- implemented destinations, so the displayed slots are not renumbered by the
+-- capability intersection. The UI-owned audio stack is removed, so every
+-- menu boundary — open, select, rebuild, close — must be silent: no sound
+-- request may reach the recording audio seam. The second boot pins the
 -- destination-factory failure after fade-out: the original error is
 -- retained, the pending destination id is cleared, the modal input lifetime
 -- is released, no controller is stranded, and the runtime stays terminally
--- frozen.
+-- frozen. The third boot pins the zero-action no-op: with no implemented
+-- destination the menu press opens nothing, acquires no UI lifetime, and
+-- the field continues; the same edge opens the menu once a destination is
+-- unlocked.
 
 local Assert = require("tests.support.Assert")
 local FieldSave = require("libs.engine.src.FieldSave")
@@ -38,6 +44,16 @@ local T = {
 -- the journey launches the fake through the production registry factory.
 local FAKE_DESTINATION = "save"
 local FACTORY_FAILURE_TEXT = "acceptance injected destination factory failure"
+
+local UNLOCK_FLAGS = {
+  FieldScriptSymbols.flagsByName.FLAG_GOT_POKEDEX,
+  FieldScriptSymbols.flagsByName.FLAG_GOT_STARTER,
+  FieldScriptSymbols.flagsByName.FLAG_GOT_BAG,
+  FieldScriptSymbols.flagsByName.FLAG_GOT_POKEGEAR,
+  FieldScriptSymbols.flagsByName.FLAG_GOT_TRAINER_CARD,
+  FieldScriptSymbols.flagsByName.FLAG_GOT_SAVE_BUTTON,
+  FieldScriptSymbols.flagsByName.FLAG_GOT_OPTIONS_BUTTON,
+}
 
 -- The minimal controller contract a destination factory must return:
 -- updateFixed(uiInput) mutates pure logical state, status() is presentation
@@ -179,27 +195,25 @@ function T.tests.start_menu_lifecycle_with_a_registered_destination_runs_through
     local applications = runtime.applications
     Assert.isTrue(
       type(applications) == "table",
-      "the production runtime must expose the sealed application registry, got: " .. tostring(applications)
+      "the production runtime must expose the application registry, got: " .. tostring(applications)
     )
     ---@diagnostic disable-next-line: need-check-nil -- asserted by the preceding isTrue contract
-    Assert.equal(applications.sealed, true, "the application registry must be sealed once populated")
     Assert.isTrue(type(applications.has) == "function", "the application registry must answer application-id queries")
     Assert.equal(
       applications:has(FAKE_DESTINATION),
       true,
-      "a boot-config application descriptor must populate the registry before the seal"
+      "a boot-config application descriptor must populate the registry"
     )
     Assert.equal(applications:has("trainer_card"), true, "the trainer card must remain a registered destination")
-    Assert.equal(
-      applications:has("start_menu"),
-      false,
-      "the start menu is not an application-registry entry and the magic id must not exist"
-    )
-    ---@diagnostic disable-next-line: undefined-field -- the deleted mod registry is exactly what the contract pins absent
-    Assert.isNil(runtime.startMenuRegistry, "the mod start menu registry must not exist")
 
     -- The normal-field policy input is the real unlock authority: the fake
-    -- destination becomes interactive exactly because its flag is set.
+    -- destination becomes interactive exactly because its flag is set. The
+    -- pokedex/starter flags additionally compose present-but-unimplemented
+    -- source actions ahead of the implemented destinations, so the canonical
+    -- display positions (and their slot mapping) must survive the capability
+    -- intersection unchanged.
+    game:setWorldState({ flag = FieldScriptSymbols.flagsByName.FLAG_GOT_POKEDEX })
+    game:setWorldState({ flag = FieldScriptSymbols.flagsByName.FLAG_GOT_STARTER })
     game:setWorldState({ flag = FieldScriptSymbols.flagsByName.FLAG_GOT_TRAINER_CARD })
     game:setWorldState({ flag = FieldScriptSymbols.flagsByName.FLAG_GOT_SAVE_BUTTON })
 
@@ -252,25 +266,29 @@ function T.tests.start_menu_lifecycle_with_a_registered_destination_runs_through
     Assert.notNil(card, "the trainer card action must be visible once its destination is registered")
     Assert.isNil(card.message, "the start menu carries no resolved label text")
     Assert.isNil(card.enabled, "the final action list carries no product-mode projection")
-    Assert.equal(card.position, 0, "the trainer card is the first present action")
-    Assert.equal(card.slotId, 2, "display position 0 occupies manifest slot 2")
+    Assert.equal(
+      card.position,
+      2,
+      "the trainer card keeps canonical display position 2 behind the unimplemented pokedex/pokemon actions"
+    )
+    Assert.equal(card.slotId, 4, "display position 2 occupies manifest slot 4")
     Assert.equal(card.targetApplication, "trainer_card", "the action must target the production trainer card")
     local saveAction = actionById(actions, "vanilla.save") ---@type any
     Assert.notNil(saveAction, "the save action must be visible once its flag and destination exist")
     Assert.isNil(saveAction.message, "the save action carries no resolved label text")
     Assert.isNil(saveAction.enabled, "the save action carries no product-mode projection")
-    Assert.equal(saveAction.position, 1, "the save action occupies the next display position")
-    Assert.equal(saveAction.slotId, 3, "display position 1 occupies manifest slot 3")
+    Assert.equal(saveAction.position, 3, "the save action keeps canonical display position 3")
+    Assert.equal(saveAction.slotId, 5, "display position 3 occupies manifest slot 5")
     Assert.equal(saveAction.targetApplication, FAKE_DESTINATION, "the action must target the registered destination")
-    Assert.equal(menu.cursorSlotId, 2, "the fresh menu selects the first enabled action")
+    Assert.equal(menu.cursorSlotId, 4, "the fresh menu selects the first enabled action (display position 2, slot 4)")
     Assert.equal(#audioEffects(game), 0, "opening the menu must not request any UI sound")
     local pausedAtOpen = game:snapshot().player
     -- The pause check doubles as the selection move: with exactly two visible
     -- actions a south move navigates the wrap-around list to the save
-    -- action (slot 3), which the round trip must then restore by action id.
+    -- action (slot 5), which the round trip must then restore by action id.
     game:move("south")
     assertPausedAt(pausedAtOpen, game, "the open menu")
-    Assert.equal(hostStatus(game).menu.cursorSlotId, 3, "the move navigates the menu to the save destination action")
+    Assert.equal(hostStatus(game).menu.cursorSlotId, 5, "the move navigates the menu to the save destination action")
 
     -- Confirm: no select sound fires, then the fade-out ticks run and
     -- the destination is constructed through the registry factory only after
@@ -285,9 +303,19 @@ function T.tests.start_menu_lifecycle_with_a_registered_destination_runs_through
     Assert.equal(hostStatus(game).fadeAlpha, 1, "the application phase must run fully faded out")
     Assert.equal(hostStatus(game).applicationId, FAKE_DESTINATION, "the host must name the active destination")
     Assert.notNil(fake, "the destination must be constructed through the registered factory")
-    Assert.isTrue(
-      fake.updateFixedCalls >= 1,
-      "the host must step the active destination controller once per fixed tick"
+    -- The destination is constructed on the tick the fade completes but must
+    -- receive no synthetic first update there: its first updateFixed arrives
+    -- on the next tick, with that tick's real event list.
+    Assert.equal(
+      fake.updateFixedCalls,
+      0,
+      "the destination must not receive a synthetic first update in its construction tick"
+    )
+    game:step()
+    Assert.equal(
+      fake.updateFixedCalls,
+      1,
+      "the destination must receive its first real updateFixed on the tick after construction"
     )
     assertPausedAt(pausedAtOpen, game, "the child application")
     game:move("north")
@@ -308,7 +336,7 @@ function T.tests.start_menu_lifecycle_with_a_registered_destination_runs_through
     local rebuiltMenu = hostStatus(game).menu ---@type any
     Assert.equal(
       rebuiltMenu.cursorSlotId,
-      3,
+      5,
       "the rebuild must restore the remembered save destination selection by action id"
     )
     assertPausedAt(pausedAtOpen, game, "the rebuilt menu")
@@ -330,6 +358,21 @@ function T.tests.start_menu_lifecycle_with_a_registered_destination_runs_through
     game:step()
     Assert.equal(hostPhase(game), "closed", "the closing menu edge must not reopen the menu")
     Assert.equal(game:snapshot().dialogue.modal, false, "the menu-key release must not trigger a field interaction")
+
+    -- The F2 journey completes: the closed boundary resumes field simulation
+    -- and movement works again.
+    local resumedAt = game:snapshot()
+    runtime:press("west")
+    game:step()
+    runtime:release("west")
+    game:advanceUntil("the resumed walk completes", function(snapshot)
+      return snapshot.player.motion == "idle"
+    end, 24)
+    Assert.equal(
+      game:snapshot().player.fieldX,
+      resumedAt.player.fieldX - 1,
+      "the field simulation must resume after the final menu close"
+    )
 
     -- Runtime disposal while the menu owns the tick: the modal is released
     -- before the save attempt (the world persists like a mid-dialogue quit),
@@ -418,23 +461,89 @@ function T.tests.a_destination_factory_fault_after_fade_is_retained_and_cleanup_
     local applications = runtime.applications
     Assert.isTrue(
       type(applications) == "table",
-      "the production runtime must expose the sealed application registry, got: " .. tostring(applications)
+      "the production runtime must expose the application registry, got: " .. tostring(applications)
     )
     Assert.equal(
       applications:has(FAKE_DESTINATION),
       true,
-      "a boot-config application descriptor must populate the registry before the seal"
-    )
-    Assert.equal(
-      applications:has("start_menu"),
-      false,
-      "the start menu is not an application-registry entry and the magic id must not exist"
+      "a boot-config application descriptor must populate the registry"
     )
   end, debug.traceback)
   if not ok then
     error(err, 0)
   end
   Assert.equal(game:renderAttempts(), 0, "the failure path must not render")
+  game:close()
+end
+
+-- The zero-action no-op replaces the deleted blank-menu acceptance: with no
+-- implemented destination the menu press must open nothing — the host stays
+-- closed, no controller is constructed, no modal input lifetime is acquired,
+-- no failure is recorded, and the field keeps simulating — while the same
+-- open edge still opens the real menu once an unlock flag makes a
+-- destination interactive. One boot proves both halves.
+function T.tests.zero_action_menu_press_is_a_noop_and_the_field_continues()
+  local game = AcceptanceHarness.new():boot({
+    versionId = "heartgold",
+    map = "MAP_NEW_BARK",
+    save = "fresh",
+  })
+  local ok, err = xpcall(function()
+    local runtime = game.runtime
+    local world = runtime.scripts.worldState
+
+    -- The fixture precondition: a fresh boot seeds only scenario object
+    -- flags, so every menu unlock flag starts unset.
+    for _, flag in ipairs(UNLOCK_FLAGS) do
+      Assert.equal(world:isFlagSet(flag), false, "the fresh boot must leave every menu unlock flag unset")
+    end
+
+    -- Zero interactive destinations: the menu edge is a no-op. The host
+    -- stays closed and presents no menu surface, no UI lifetime is acquired,
+    -- the save gate stays open, and no failure is recorded.
+    pressMenuEdge(game)
+    Assert.equal(hostPhase(game), "closed", "a zero-action menu press must not open a blank menu")
+    Assert.equal(runtime.errorText, nil, "a zero-action menu press must not fail the runtime")
+    Assert.equal(hostStatus(game).menu, nil, "a zero-action menu press must not present a menu surface")
+    Assert.equal(runtime.input.uiActive, false, "a zero-action menu press must not acquire the modal input lifetime")
+    Assert.equal(
+      FieldSave.canCapture(runtime.session),
+      true,
+      "a zero-action menu press must leave the field capturable"
+    )
+
+    -- The field continues normally: the world keeps simulating and the
+    -- player can still move.
+    local before = game:snapshot()
+    runtime:press("west")
+    game:step()
+    runtime:release("west")
+    game:advanceUntil("the no-op walk completes", function(snapshot)
+      return snapshot.player.motion == "idle"
+    end, 24)
+    Assert.equal(
+      game:snapshot().player.fieldX,
+      before.player.fieldX - 1,
+      "the field simulation must continue after the zero-action menu press"
+    )
+
+    -- The same open edge composes the real menu once a destination becomes
+    -- interactive: unlocking the trainer card makes the next press open it.
+    game:setWorldState({ flag = FieldScriptSymbols.flagsByName.FLAG_GOT_TRAINER_CARD })
+    pressMenuEdge(game)
+    advanceToPhase(game, "menu", 16)
+    local actions = menuActions(game)
+    Assert.equal(#actions, 1, "the unlocked trainer card must be the only interactive destination")
+    Assert.equal(actions[1].id, "vanilla.trainer_card", "the unlocked destination must be the trainer card")
+    Assert.equal(hostStatus(game).menu.cursorSlotId, 2, "the menu must select the unlocked trainer card")
+    pressMenuEdge(game)
+    advanceToPhase(game, "closed", 16)
+    Assert.equal(FieldSave.canCapture(runtime.session), true, "closing the menu must restore the capturable boundary")
+  end, debug.traceback)
+  if not ok then
+    error(err, 0)
+  end
+  Assert.equal(game:renderAttempts(), 0, "the zero-action contract must not render")
   game:close()
 end
 

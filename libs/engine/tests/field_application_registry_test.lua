@@ -1,6 +1,7 @@
 -- FieldApplicationRegistry contract tests: the per-runtime application
--- catalogue is populated before use and sealed; duplicate ids, registration
--- after sealing, unknown application ids, missing factories, and factories
+-- catalogue is immutable after construction -- descriptors are validated at
+-- new(), and has/create dispatch against the stored factory map. Duplicate
+-- ids, malformed descriptors, unknown application ids, and factories
 -- returning partial controllers are composition errors. No process-global
 -- registry exists: every instance is independent.
 
@@ -50,90 +51,51 @@ local function descriptorWithout(field)
   return value
 end
 
-local function sealedRegistry(descriptors)
-  local registry = FieldApplicationRegistry.new()
-  for _, entry in ipairs(descriptors) do
-    registry:register(entry)
-  end
-  registry:seal()
-  return registry
+local function registry(descriptors)
+  return FieldApplicationRegistry.new(descriptors or {})
 end
 
 function T.tests.registries_are_per_runtime_instances()
-  local first = FieldApplicationRegistry.new()
-  local second = FieldApplicationRegistry.new()
-  first:register(descriptor())
-  first:seal()
-  second:seal()
+  local first = registry({ descriptor() })
+  local second = registry()
   Assert.equal(first:has("trainer_card"), true)
   Assert.equal(second:has("trainer_card"), false)
 end
 
-function T.tests.registration_validation_rejects_malformed_descriptors()
-  local registry = FieldApplicationRegistry.new()
+function T.tests.construction_validates_descriptors()
   throwsCode("APPLICATION_REGISTRY_INVALID_DESCRIPTOR", function()
-    registry:register(descriptor({ id = "" }))
+    registry({ descriptor({ id = "" }) })
   end)
   throwsCode("APPLICATION_REGISTRY_INVALID_DESCRIPTOR", function()
-    registry:register(descriptorWithout("id"))
+    registry({ descriptorWithout("id") })
   end)
   throwsCode("APPLICATION_REGISTRY_INVALID_DESCRIPTOR", function()
-    registry:register(descriptorWithout("factory"))
+    registry({ descriptorWithout("factory") })
   end)
   throwsCode("APPLICATION_REGISTRY_INVALID_DESCRIPTOR", function()
-    registry:register(descriptor({ factory = "not a function" }))
+    registry({ descriptor({ factory = "not a function" }) })
   end)
   throwsCode("APPLICATION_REGISTRY_INVALID_DESCRIPTOR", function()
     local notATable = "not a table" ---@type any
-    registry:register(notATable)
+    registry({ notATable })
   end)
 end
 
 function T.tests.duplicate_ids_are_composition_errors()
-  local registry = FieldApplicationRegistry.new()
-  registry:register(descriptor())
   throwsCode("APPLICATION_REGISTRY_DUPLICATE_ID", function()
-    registry:register(descriptor())
+    registry({ descriptor(), descriptor() })
   end)
 end
 
-function T.tests.registration_after_sealing_is_a_composition_error()
-  local registry = sealedRegistry({ descriptor() })
-  throwsCode("APPLICATION_REGISTRY_ALREADY_SEALED", function()
-    registry:register(descriptor({ id = "another" }))
-  end)
-end
-
-function T.tests.double_sealing_is_rejected()
-  local registry = FieldApplicationRegistry.new()
-  registry:register(descriptor())
-  registry:seal()
-  throwsCode("APPLICATION_REGISTRY_ALREADY_SEALED", function()
-    registry:seal()
-  end)
-end
-
-function T.tests.queries_before_sealing_are_rejected()
-  local registry = FieldApplicationRegistry.new()
-  registry:register(descriptor())
-  throwsCode("APPLICATION_REGISTRY_NOT_SEALED", function()
-    registry:has("trainer_card")
-  end)
-  throwsCode("APPLICATION_REGISTRY_NOT_SEALED", function()
-    registry:create("trainer_card")
-  end)
-end
-
-function T.tests.has_answers_the_sealed_id_set()
-  local registry = sealedRegistry({ descriptor() })
-  Assert.equal(registry:has("trainer_card"), true)
-  Assert.equal(registry:has("pokedex"), false)
-  Assert.equal(registry.sealed, true)
+function T.tests.has_answers_the_constructed_id_set()
+  local applications = registry({ descriptor() })
+  Assert.equal(applications:has("trainer_card"), true)
+  Assert.equal(applications:has("pokedex"), false)
 end
 
 function T.tests.create_returns_the_factory_result()
   local created
-  local registry = sealedRegistry({
+  local applications = registry({
     descriptor({
       factory = function()
         created = fakeController()
@@ -141,12 +103,12 @@ function T.tests.create_returns_the_factory_result()
       end,
     }),
   })
-  Assert.equal(registry:create("trainer_card"), created)
+  Assert.equal(applications:create("trainer_card"), created)
 end
 
 function T.tests.create_calls_the_factory_with_only_the_application_id()
   local received
-  local registry = sealedRegistry({
+  local applications = registry({
     descriptor({
       factory = function(...)
         received = { n = select("#", ...), ... }
@@ -154,14 +116,14 @@ function T.tests.create_calls_the_factory_with_only_the_application_id()
       end,
     }),
   })
-  registry:create("trainer_card")
+  applications:create("trainer_card")
   Assert.equal(received.n, 0, "destinations receive no forwarded arguments -- the menu is not a registry entry")
 end
 
 function T.tests.unknown_application_ids_are_composition_errors()
-  local registry = sealedRegistry({ descriptor() })
+  local applications = registry({ descriptor() })
   throwsCode("APPLICATION_REGISTRY_UNKNOWN_ID", function()
-    registry:create("pokedex")
+    applications:create("pokedex")
   end)
 end
 
@@ -213,9 +175,9 @@ function T.tests.partial_controllers_are_composition_errors()
     },
   }
   for _, case in ipairs(cases) do
-    local registry = sealedRegistry({ descriptor({ factory = case.factory }) })
+    local applications = registry({ descriptor({ factory = case.factory }) })
     throwsCode("APPLICATION_REGISTRY_INVALID_CONTROLLER", function()
-      registry:create("trainer_card")
+      applications:create("trainer_card")
     end)
   end
 end

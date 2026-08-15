@@ -29,7 +29,11 @@ local function withGame(fn)
     save = "fresh",
     fieldOptions = {
       windowStyleDescriptors = {
-        { id = "mod.route_sign", base = "hgss.signpost" },
+        {
+          id = "mod.route_sign",
+          role = "signpost",
+          contentGeometry = { x = 16, y = 152, width = 216, height = 32 },
+        },
       },
     },
   })

@@ -12,6 +12,7 @@ local AuxiliaryFieldUi = require("libs.engine.src.AuxiliaryFieldUi")
 local ContextChoiceProvider = require("libs.engine.src.ContextChoiceProvider")
 local FieldActorManager = require("libs.engine.src.FieldActorManager")
 local FieldApplicationHost = require("libs.engine.src.FieldApplicationHost")
+local FieldApplicationIds = require("libs.engine.src.FieldApplicationIds")
 local FieldApplicationRegistry = require("libs.engine.src.FieldApplicationRegistry")
 local FieldCamera = require("libs.engine.src.FieldCamera")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
@@ -39,7 +40,7 @@ local FieldSession = require("libs.engine.src.FieldSession")
 local FieldSignpostController = require("libs.engine.src.FieldSignpostController")
 local FieldTransition = require("libs.engine.src.FieldTransition")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
-local FieldWindowStyleRegistry = require("libs.engine.src.FieldWindowStyleRegistry")
+local FieldWindowStyles = require("libs.engine.src.FieldWindowStyles")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local FieldZoom = require("libs.engine.src.FieldZoom")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
@@ -68,8 +69,8 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field saveFs SaveFs?
 ---@field presentation boolean?
 ---@field scriptHosts table? deterministic host boundaries for script effects
----@field windowStyleDescriptors table[]? mod window-style descriptors registered after the built-ins and before the registry seals
----@field applicationDescriptors table[]? boot-config application factories ({ id, factory }) registered before the application registry seals
+---@field windowStyleDescriptors table[]? mod window-style complete descriptors merged into the immutable style catalogue
+---@field applicationDescriptors table[]? boot-config application factories ({ id, factory }) merged into the immutable application catalogue
 
 ---@class FieldRuntimeScriptHosts
 ---@field audio table?
@@ -100,11 +101,11 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field menuKeys table<string, boolean>?
 ---@field saveFs SaveFs?
 ---@field presentation boolean
----@field windowStyles FieldWindowStyleRegistry the sealed per-runtime window style catalogue
----@field windowStyleDescriptors table[]? boot-config mod style descriptors registered before the registry seals
+---@field windowStyles FieldWindowStyles the immutable per-runtime window style catalogue
+---@field windowStyleDescriptors table[]? boot-config mod style complete descriptors merged into the catalogue
 ---@field scriptHosts FieldRuntimeScriptHosts?
----@field applicationDescriptors table[]? boot-config application factories registered before the registry seals
----@field applications FieldApplicationRegistry the sealed per-runtime destination application catalogue
+---@field applicationDescriptors table[]? boot-config application factories merged into the catalogue
+---@field applications FieldApplicationRegistry the immutable per-runtime destination application catalogue
 ---@field applicationHost FieldApplicationHost the one application modal owner the session steps
 ---@field startMenuPlacement StartMenuLayout.Placement? the one Start Menu placement record rendering and pointer mapping share
 local FieldRuntime = {}
@@ -234,15 +235,10 @@ function FieldRuntime:_load()
     )
     assert(FieldUiAssetCache.validateManifest(uiManifest), "field UI manifest is invalid")
     -- The window-style catalogue is composed per runtime from the same
-    -- generated manifest and sealed before the script platform exists.
-    -- Mod styles register after the built-ins and before the seal through
-    -- the boot-config descriptors (the pre-seal registration seam).
-    self.windowStyles = FieldWindowStyleRegistry.new()
-    self.windowStyles:registerBuiltins(uiManifest)
-    for _, descriptor in ipairs(self.windowStyleDescriptors or {}) do
-      self.windowStyles:register(descriptor)
-    end
-    self.windowStyles:seal()
+    -- generated manifest, with the boot-config mod descriptors merged in at
+    -- construction: built-ins plus validated complete mod records, immutable
+    -- from then on.
+    self.windowStyles = FieldWindowStyles.new(uiManifest, self.windowStyleDescriptors or {})
     self.uiManifest = uiManifest
     local frameIndexes = {}
     for frame = 0, uiManifest.dialogueFrames.count - 1 do
@@ -459,27 +455,28 @@ function FieldRuntime:_load()
     -- The field application catalogue: the registry holds child destinations
     -- only -- the Trainer Card is the concrete production destination, and
     -- every other destination arrives through the boot-config descriptor
-    -- seam. The registry seals before any dispatch, and canonical
+    -- seam. The catalogue is immutable after construction; canonical
     -- unimplemented destinations get capability state, never dummy
     -- factories. The Start Menu is not a registry entry: the application
     -- host composes it through its own menu factory.
-    self.applications = FieldApplicationRegistry.new()
-    -- The Trainer Card viewer is the concrete destination: the production
-    -- factory copies the immutable profile fields from the authoritative
-    -- player-data record into the close-input-only controller. The factory
-    -- must return a fully usable controller or raise.
-    self.applications:register({
-      id = "trainer_card",
-      factory = function()
-        return TrainerCardController.new({
-          profile = self.playerData.profile,
-        })
-      end,
-    })
+    local applicationDescriptors = {
+      -- The Trainer Card viewer is the concrete destination: the production
+      -- factory copies the immutable profile fields from the authoritative
+      -- player-data record into the close-input-only controller. The factory
+      -- must return a fully usable controller or raise.
+      {
+        id = FieldApplicationIds.TRAINER_CARD,
+        factory = function()
+          return TrainerCardController.new({
+            profile = self.playerData.profile,
+          })
+        end,
+      },
+    }
     for _, descriptor in ipairs(self.applicationDescriptors or {}) do
-      self.applications:register(descriptor)
+      applicationDescriptors[#applicationDescriptors + 1] = descriptor
     end
-    self.applications:seal()
+    self.applications = FieldApplicationRegistry.new(applicationDescriptors)
     self.applicationHost = FieldApplicationHost.new({
       registry = self.applications,
       menuFactory = function(rememberedActionId)
@@ -668,19 +665,20 @@ function FieldRuntime:releaseMenu()
   requireLiveInput(self):releaseMenu("runtime")
 end
 
--- The Start Menu composition step: build the source policy list from the
--- authoritative world-state unlock flags (read through FieldScriptSymbols,
--- never raw numbers), intersect it with the sealed destination registry --
--- an action is interactive exactly when present AND unlocked AND its
--- destination application is registered -- and construct the controller
--- with the selection remembered across a child-application round trip. The
--- factory must return a fully usable controller or raise.
+-- The Start Menu composition step: build the final interactive action list
+-- from the authoritative world-state unlock flags (read through
+-- FieldScriptSymbols, never raw numbers) and the registered destination
+-- capabilities, and construct the controller with the selection remembered
+-- across a child-application round trip. With no interactive action the
+-- menu is unavailable and the factory returns nil -- a zero-action Start
+-- Menu is never constructed -- so the application host treats the open as a
+-- no-op and the field continues.
 ---@param rememberedActionId string?
----@return StartMenuController
+---@return StartMenuController? nil when no action is interactive
 function FieldRuntime:_composeStartMenu(rememberedActionId)
   local world = self.scripts.worldState
   local flags = FieldScriptSymbols.flagsByName
-  local entries = StartMenuPolicy.build({
+  local entries = StartMenuPolicy.availableActions({
     hasPokedex = world:isFlagSet(flags.FLAG_GOT_POKEDEX),
     hasStarter = world:isFlagSet(flags.FLAG_GOT_STARTER),
     bagUnlocked = world:isFlagSet(flags.FLAG_GOT_BAG),
@@ -688,24 +686,14 @@ function FieldRuntime:_composeStartMenu(rememberedActionId)
     trainerCardUnlocked = world:isFlagSet(flags.FLAG_GOT_TRAINER_CARD),
     saveUnlocked = world:isFlagSet(flags.FLAG_GOT_SAVE_BUTTON),
     optionsUnlocked = world:isFlagSet(flags.FLAG_GOT_OPTIONS_BUTTON),
-  })
-  local interactive = {}
-  for _, entry in ipairs(entries) do
-    if
-      entry.present
-      and entry.unlocked
-      and entry.targetApplication ~= nil
-      and self.applications:has(entry.targetApplication)
-    then
-      interactive[#interactive + 1] = {
-        id = entry.id,
-        targetApplication = entry.targetApplication,
-        displayPosition = entry.displayPosition,
-      }
-    end
+  }, function(applicationId)
+    return self.applications:has(applicationId)
+  end)
+  if #entries == 0 then
+    return nil
   end
   return StartMenuController.new({
-    entries = interactive,
+    entries = entries,
     slots = self.uiManifest.startMenu.slots,
     cursorFrames = self.uiManifest.startMenu.cursor.frames,
     rememberedActionId = rememberedActionId,

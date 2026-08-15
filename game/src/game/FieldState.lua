@@ -95,9 +95,9 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
     self.dialogueRenderer = FieldDialogueRenderer.new({ cacheFs = runtime.cacheFs, text = self.textRenderer })
     self.menuRenderer = FieldMenuRenderer.new()
     -- The composition: the signpost renderer resolves its per-type geometry
-    -- through the sealed window style registry, the Start Menu and Trainer
-    -- Card renderers draw the generated application surfaces. The state owns
-    -- and releases their GPU resources; controllers stay pure.
+    -- through the immutable window style catalogue, the Start Menu and
+    -- Trainer Card renderers draw the generated application surfaces. The
+    -- state owns and releases their GPU resources; controllers stay pure.
     self.signpostRenderer = FieldSignpostRenderer.new({
       cacheFs = runtime.cacheFs,
       text = self.textRenderer,

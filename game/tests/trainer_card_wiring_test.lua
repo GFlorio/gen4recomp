@@ -1,5 +1,5 @@
 -- Production Trainer Card composition contract: the runtime itself registers
--- the trainer_card application before the registry seals (no boot-config
+-- the trainer_card application at catalogue construction (no boot-config
 -- descriptor), its factory passes the authoritative player profile and the
 -- controller copies the immutable fields at construction, the host snapshot
 -- presents the card with exactly the implemented profile fields during the
@@ -64,16 +64,11 @@ function T.tests.production_factory_registers_the_card_and_resume_drives_the_pre
     local runtime = game.runtime
     ---@diagnostic disable-next-line: undefined-field -- the runtime application-registry surface is the contract under test
     local applications = runtime.applications
-    Assert.isTrue(type(applications) == "table", "the runtime must expose the sealed application registry")
+    Assert.isTrue(type(applications) == "table", "the runtime must expose the application registry")
     Assert.equal(
       applications:has("trainer_card"),
       true,
       "the production runtime must register the trainer_card application itself"
-    )
-    Assert.equal(
-      #(applications:ids() or {}),
-      1,
-      "the sealed registry holds only the trainer card -- the start menu is not a registry entry"
     )
 
     -- The vanilla trainer_card action becomes interactive exactly because

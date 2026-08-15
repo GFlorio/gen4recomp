@@ -1,10 +1,9 @@
 -- FieldRuntime window-style composition contract: the production runtime
--- constructs the FieldWindowStyleRegistry from the generated field-UI
--- manifest it already loads, seals it before the script platform exists,
--- and exposes it as `runtime.windowStyles`. Style definitions are boot
--- configuration, never persisted state. Boot-config mod descriptors
--- register after the built-ins and before the seal (the pre-seal
--- registration seam the high-level sign operations resolve against).
+-- constructs the immutable FieldWindowStyles catalogue from the generated
+-- field-UI manifest it already loads and exposes it as `runtime.windowStyles`.
+-- Style definitions are boot configuration, never persisted state; boot-config
+-- mod descriptors are complete records merged into the catalogue at
+-- construction.
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
@@ -17,7 +16,7 @@ local T = {
   tests = {},
 }
 
-function T.tests.runtime_composes_and_seals_the_window_style_registry()
+function T.tests.runtime_composes_the_immutable_window_style_catalogue()
   local game = AcceptanceHarness.new({ versions = { "heartgold" } }):boot({
     versionId = "heartgold",
     map = "MAP_NEW_BARK",
@@ -25,8 +24,8 @@ function T.tests.runtime_composes_and_seals_the_window_style_registry()
   })
   local ok, err = xpcall(function()
     local registry = game.runtime.windowStyles
-    Assert.isTrue(type(registry) == "table", "the runtime must expose the window style registry")
-    Assert.equal(registry.sealed, true, "the runtime registry must be sealed before scripts run")
+    Assert.isTrue(type(registry) == "table", "the runtime must expose the window style catalogue")
+    Assert.isTrue(type(registry.resolve) == "function", "the catalogue must answer style-id queries")
 
     local dialogue = assert(registry:resolve("hgss.dialogue"))
     Assert.equal(dialogue.role, "dialogue")
@@ -43,10 +42,10 @@ function T.tests.runtime_composes_and_seals_the_window_style_registry()
   end
 end
 
--- A boot-config mod style descriptor registers after the built-ins and
--- before the seal: the resolved record inherits the base's geometry and
--- role and carries the mod's own identity.
-function T.tests.boot_config_mod_style_descriptors_register_before_the_seal()
+-- A boot-config mod style descriptor is a complete record merged into the
+-- immutable catalogue: the resolved record carries the mod's own identity
+-- and fields.
+function T.tests.boot_config_mod_style_descriptors_merge_at_construction()
   local game = AcceptanceHarness.new({ versions = { "heartgold" } }):boot({
     versionId = "heartgold",
     map = "MAP_NEW_BARK",
@@ -55,18 +54,18 @@ function T.tests.boot_config_mod_style_descriptors_register_before_the_seal()
       windowStyleDescriptors = {
         {
           id = "mod.route_sign",
-          base = "hgss.signpost",
+          role = "signpost",
+          contentGeometry = { x = 16, y = 152, width = 216, height = 32 },
         },
       },
     },
   })
   local ok, err = xpcall(function()
     local registry = game.runtime.windowStyles
-    Assert.equal(registry.sealed, true)
-    local mod = assert(registry:resolve("mod.route_sign"), "the mod style must resolve through the sealed registry")
-    Assert.equal(mod.role, "signpost", "the mod style inherits the base role")
+    local mod = assert(registry:resolve("mod.route_sign"), "the mod style must resolve through the catalogue")
+    Assert.equal(mod.role, "signpost")
     Assert.equal(mod.id, "mod.route_sign", "the mod style reports its own id")
-    Assert.isNil(mod.assets, "the mod style inherits no asset-replacement ids")
+    Assert.isNil(mod.assets, "the mod style carries no asset-replacement ids")
     Assert.deepEqual(mod.contentGeometry, { x = 16, y = 152, width = 216, height = 32 })
   end, debug.traceback)
   game:close()

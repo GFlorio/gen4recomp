@@ -60,6 +60,7 @@ local function applicationHostFake(overrides)
   function host:requestOpen(tick)
     self.openedTicks[#self.openedTicks + 1] = tick
     self.active = true
+    return true
   end
   function host:requestReopen()
     self.reopenRequests = self.reopenRequests + 1
@@ -1778,6 +1779,38 @@ function T.menu_wins_over_a_simultaneous_action_edge_at_an_eligible_boundary()
   session:updateFixed({ menuPressed = true, actionPressed = true })
   Assert.equal(host.openedTicks[1], 1, "the menu edge wins at an eligible boundary")
   Assert.equal(interactions, 0, "the cleared Action edge must not trigger the facing interaction")
+end
+
+-- A zero-action menu open is a no-op at the session boundary too: when the
+-- host reports that nothing opened (requestOpen false), the tick is not
+-- consumed by the open and the field continues stepping normally.
+function T.an_open_that_opens_nothing_leaves_the_tick_to_the_field()
+  local stepped = { player = 0, actors = 0 }
+  local player = defaultPlayer()
+  player.updateFixed = function()
+    stepped.player = stepped.player + 1
+    return false
+  end
+  local actors = {
+    step = function()
+      stepped.actors = stepped.actors + 1
+    end,
+  }
+  local host = applicationHostFake()
+  host.requestOpen = function(_, tick)
+    host.openedTicks[#host.openedTicks + 1] = tick
+    return false
+  end
+  local session = FieldSession.new(baseOptions({
+    player = player,
+    actors = actors,
+    applicationHost = host,
+  }))
+  session:updateFixed({ menuPressed = true })
+  Assert.equal(host.openedTicks[1], 1, "the eligible edge still reaches the open gate")
+  Assert.equal(stepped.player, 1, "a no-op open must not consume the tick from the field")
+  Assert.equal(stepped.actors, 1, "a no-op open must leave the field stepping normally")
+  Assert.equal(session.tick, 1)
 end
 
 function T.an_ineligible_menu_edge_acquires_nothing()

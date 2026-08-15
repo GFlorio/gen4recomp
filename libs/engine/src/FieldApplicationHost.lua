@@ -7,25 +7,29 @@
 -- the active controller on success, cancellation, failure, reset, or runtime
 -- disposal. The Start Menu is not an application-registry entry: the host
 -- constructs it through its required menuFactory (the runtime's composition
--- step) on open and rebuild, and dispatches child destinations through the
--- sealed FieldApplicationRegistry. Its own fixed-tick fade counter exposes
--- fadeAlpha; FieldTransition is not reused (it owns warp preparation, map
--- protection, and map swaps). The host never launches a child by itself: the
--- menu controller records { kind = "launch", applicationId } results and the
--- host dispatches them through the registry only after the fade-out hides
--- the world. Pure module: no love, no I/O; pointer events are mapped through
--- the StartMenuLayout placement record the runtime supplies.
+-- step) on open and rebuild; a menuFactory result of nil means the menu is
+-- currently unavailable (no interactive actions) and the open is a no-op --
+-- the host stays closed and the field continues. The host dispatches child
+-- destinations through the immutable FieldApplicationRegistry. Its own
+-- fixed-tick fade counter exposes fadeAlpha; FieldTransition is not reused
+-- (it owns warp preparation, map protection, and map swaps). The host never
+-- launches a child by itself: the menu controller records
+-- { kind = "launch", applicationId } results and the host dispatches them
+-- through the registry only after the fade-out hides the world. Pointer
+-- events are mapped through the StartMenuLayout placement record the runtime
+-- supplies; scroll events are not forwarded to the Start Menu. Pure module:
+-- no love, no I/O.
 
 local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 
 ---@class FieldApplicationHostOptions
----@field registry FieldApplicationRegistry the sealed per-runtime child-application catalogue
----@field menuFactory fun(rememberedActionId: string?): table the Start Menu composition step (controller contract)
+---@field registry FieldApplicationRegistry the immutable per-runtime child-application catalogue
+---@field menuFactory fun(rememberedActionId: string?): table? the Start Menu composition step (nil = menu currently unavailable)
 ---@field input FieldInput the field input whose modal lifetime the host acquires/releases
 
 ---@class FieldApplicationHost
 ---@field _registry FieldApplicationRegistry
----@field _menuFactory fun(rememberedActionId: string?): table
+---@field _menuFactory fun(rememberedActionId: string?): table?
 ---@field _input FieldInput
 ---@field _phase string
 ---@field _fadeTicks integer
@@ -128,12 +132,15 @@ end
 -- the opening tick. The session returns immediately after the open, so the
 -- controller cannot receive input during the opener's tick. A failed
 -- composition acquires nothing and leaves the host terminally failed with
--- the original error retained.
+-- the original error retained; a nil menuFactory result means the menu is
+-- currently unavailable and the open is a no-op (nothing acquired, host
+-- stays closed). Returns whether an open occurred.
 ---@param tick integer
+---@return boolean opened
 function FieldApplicationHost:requestOpen(tick)
   assert(self._phase == FieldApplicationHost.PHASES.closed, "the application host must be closed to open the menu")
   assert(tick == math.floor(tick) and tick >= 0, "the menu open requires a non-negative tick")
-  self:_openMenu(tick, nil)
+  return self:_openMenu(tick, nil)
 end
 
 -- Script-side reopen request (the opcode-61 startMenuReopen service): the
@@ -145,7 +152,7 @@ function FieldApplicationHost:requestReopen()
 end
 
 -- Consumes a pending script reopen request by opening the menu; returns
--- whether an open happened.
+-- whether an open happened (an unavailable menu is a consumed no-op).
 ---@param tick integer
 ---@return boolean
 function FieldApplicationHost:takeReopen(tick)
@@ -153,22 +160,25 @@ function FieldApplicationHost:takeReopen(tick)
     return false
   end
   self._reopenPending = false
-  self:_openMenu(tick, nil)
-  return true
+  return self:_openMenu(tick, nil)
 end
 
 -- The menu construction shared by open and reopen. The controller is built
 -- through the menu factory before beginUi so a failed composition never
 -- begins the input lifetime; beginUi flushes stale UI edges at modal
 -- ownership begin so the opening edge cannot immediately close the menu it
--- opened.
+-- opened. A nil factory result leaves the host closed and acquires nothing.
 ---@param tick integer
 ---@param rememberedActionId string?
+---@return boolean opened
 function FieldApplicationHost:_openMenu(tick, rememberedActionId)
   local ok, controller = pcall(self._menuFactory, rememberedActionId)
   if not ok then
     self:_fail(controller)
-    return
+    return false
+  end
+  if controller == nil then
+    return false
   end
   self._controller = controller
   self._rememberedActionId = rememberedActionId
@@ -177,6 +187,7 @@ function FieldApplicationHost:_openMenu(tick, rememberedActionId)
   self._fadeTicks = 0
   self._fadeAlpha = 0
   self._phase = FieldApplicationHost.PHASES.menu
+  return true
 end
 
 -- Terminal failure ownership: retain the original error, release the active
@@ -215,12 +226,22 @@ end
 
 -- Rebuilds the Start Menu after a child-application return with the
 -- remembered selection by action id. A failed rebuild is retained after the
--- destination's own disposal; nothing re-enters the menu.
+-- destination's own disposal; nothing re-enters the menu. An unavailable
+-- menu (nil factory result) releases the modal lifetime and returns to the
+-- field.
 function FieldApplicationHost:_rebuildMenu()
   local remembered = self._rememberedActionId
   local ok, controller = pcall(self._menuFactory, remembered)
   if not ok then
     self:_fail(controller)
+    return
+  end
+  if controller == nil then
+    self:_releaseUi()
+    self._applicationId = nil
+    self._fadeTicks = 0
+    self._fadeAlpha = 0
+    self._phase = FieldApplicationHost.PHASES.closed
     return
   end
   self._controller = controller
@@ -240,60 +261,49 @@ function FieldApplicationHost:updateFixed(tick, uiInput)
     return
   end
   if phase == FieldApplicationHost.PHASES.menu then
-    self:_stepMenu(tick, uiInput)
+    self:_stepMenu(uiInput)
     return
   end
   if phase == FieldApplicationHost.PHASES.fading_out then
-    self:_stepFadeOut(tick, uiInput)
+    self:_stepFadeOut()
     return
   end
   if phase == FieldApplicationHost.PHASES.application then
-    self:_stepApplication(tick, uiInput)
+    self:_stepApplication(uiInput)
     return
   end
   if phase == FieldApplicationHost.PHASES.fading_in then
-    self:_stepFadeIn(tick)
+    self:_stepFadeIn()
     return
   end
   error("unknown application host phase " .. tostring(phase), 2)
 end
 
--- Maps one UI event list for the menu controller: pointer events travel
--- through the StartMenuLayout placement record (host coordinates -> canonical
--- logical 0..255 x 0..191); events outside the menu frame are dropped. Without
--- a placement there is no pointer support at all. Non-pointer events and
--- the destination controller's events pass through unchanged (destinations
--- own their input policy).
+-- Maps one UI event list for the menu controller: pointer events are
+-- consumed by the host (mapped through the StartMenuLayout placement record
+-- into canonical logical 0..255 x 0..191 and dropped outside the menu frame;
+-- without a placement there is no pointer support at all), unsupported
+-- pointer scroll events are dropped rather than taught to the controller,
+-- and non-pointer events pass through unchanged.
 ---@param uiInput table[]
----@param mapPointers boolean
 ---@return table[]
-function FieldApplicationHost:_mapEvents(uiInput, mapPointers)
-  if not mapPointers then
-    return uiInput
-  end
-  if self._layout == nil then
-    local withoutPointers = {}
-    for _, event in ipairs(uiInput) do
-      if not (type(event) == "table" and type(event.x) == "number" and type(event.y) == "number") then
-        withoutPointers[#withoutPointers + 1] = event
-      end
-    end
-    return withoutPointers
-  end
+function FieldApplicationHost:_mapMenuEvents(uiInput)
   local mapped = {}
   for _, event in ipairs(uiInput) do
     if type(event) == "table" and type(event.x) == "number" and type(event.y) == "number" then
-      local x, y = StartMenuLayout.hostToLogical(self._layout, event.x, event.y)
-      if x ~= nil then
-        mapped[#mapped + 1] = {
-          type = event.type,
-          pointerId = event.pointerId,
-          x = x,
-          y = y,
-          dragged = event.dragged,
-        }
+      if self._layout ~= nil then
+        local x, y = StartMenuLayout.hostToLogical(self._layout, event.x, event.y)
+        if x ~= nil then
+          mapped[#mapped + 1] = {
+            type = event.type,
+            pointerId = event.pointerId,
+            x = x,
+            y = y,
+            dragged = event.dragged,
+          }
+        end
       end
-    else
+    elseif not (type(event) == "table" and event.type == "pointer_scroll") then
       mapped[#mapped + 1] = event
     end
   end
@@ -304,11 +314,10 @@ end
 -- the recorded result is dispatched. A launch freezes further menu input
 -- and starts the fade-out; a close disposes the menu exactly once and
 -- releases the input lifetime on the final field return.
----@param tick integer
 ---@param uiInput table[]
-function FieldApplicationHost:_stepMenu(tick, uiInput)
+function FieldApplicationHost:_stepMenu(uiInput)
   local controller = assert(self._controller, "the menu phase requires the menu controller")
-  controller:updateFixed(self:_mapEvents(uiInput, true))
+  controller:updateFixed(self:_mapMenuEvents(uiInput))
   local result = controller:takeResult()
   if result == nil then
     return
@@ -334,12 +343,10 @@ end
 -- The fade-out: the host's own fixed-tick counter moves fadeAlpha 0 -> 1.
 -- When the world is hidden the Start Menu presentation is disposed exactly
 -- once and the destination is constructed through the registry; the
--- destination receives its first step in its construction tick with no
--- events -- menu input was frozen for the whole fade, so presses
--- from the fade period must never reach the destination.
----@param tick integer
----@param uiInput table[]
-function FieldApplicationHost:_stepFadeOut(tick, uiInput)
+-- destination's first step arrives on the tick after construction -- menu
+-- input was frozen for the whole fade, so presses from the fade period must
+-- never reach the destination.
+function FieldApplicationHost:_stepFadeOut()
   self._fadeTicks = self._fadeTicks + 1
   self._fadeAlpha = math.min(1, self._fadeTicks / FieldApplicationHost.FADE_TICKS)
   if self._fadeTicks < FieldApplicationHost.FADE_TICKS then
@@ -356,17 +363,15 @@ function FieldApplicationHost:_stepFadeOut(tick, uiInput)
   end
   self._controller = controller
   self._phase = FieldApplicationHost.PHASES.application
-  controller:updateFixed({})
 end
 
 -- The application phase: the destination is stepped once per fixed tick
 -- with the tick's events; its close result disposes it exactly once and
 -- starts the fade-in back to the rebuilt menu.
----@param tick integer
 ---@param uiInput table[]
-function FieldApplicationHost:_stepApplication(tick, uiInput)
+function FieldApplicationHost:_stepApplication(uiInput)
   local controller = assert(self._controller, "the application phase requires the destination controller")
-  controller:updateFixed(self:_mapEvents(uiInput, false))
+  controller:updateFixed(uiInput)
   local result = controller:takeResult()
   if result == nil then
     return
@@ -381,8 +386,7 @@ end
 -- The fade-in: the counter moves fadeAlpha 1 -> 0; at the fully restored
 -- boundary the menu is rebuilt from current policy/capabilities with the
 -- remembered selection and input arms again.
----@param tick integer
-function FieldApplicationHost:_stepFadeIn(tick)
+function FieldApplicationHost:_stepFadeIn()
   self._fadeTicks = self._fadeTicks + 1
   self._fadeAlpha = math.max(0, 1 - self._fadeTicks / FieldApplicationHost.FADE_TICKS)
   if self._fadeTicks < FieldApplicationHost.FADE_TICKS then

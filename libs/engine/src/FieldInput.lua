@@ -136,6 +136,7 @@ function FieldInput.new(options)
     uiRepeatInterval = uiRepeatInterval,
     uiPointerEvents = {},
     uiPointers = {},
+    uiActive = false,
     stickDirections = {},
     stickAxes = {},
     uiStickPressThreshold = uiStickPressThreshold,

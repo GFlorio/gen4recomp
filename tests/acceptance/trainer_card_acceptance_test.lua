@@ -1,17 +1,16 @@
 -- Production-composed Trainer Card viewer contract: the runtime itself must
--- register the real trainer_card application (no boot-config descriptor, and
--- the start_menu magic id must not exist in the destination registry), the
--- card's presentation must reach the host snapshot carrying the authoritative
--- player profile (name/trainerId from runtime.playerData through the
--- read model), and the full journey Start Menu → card → cancel → Start Menu
--- must run with the world paused, the save gate blocked, and the card's close
--- edge leaking nothing into the field. One production boot in normal mode:
--- the vanilla trainer_card action becomes interactive exactly because its
--- unlock flag is set and the production destination exists — the menu
--- carries no resolved label text and no product-mode projection. The UI-owned
--- audio stack (the SDAT-derived Start Menu and Trainer Card effects) is
--- removed, so the whole journey — menu open, card confirm, card close, menu
--- rebuild, menu close — must be silent; the source cancel effect
+-- register the real trainer_card application (no boot-config descriptor),
+-- the card's presentation must reach the host snapshot carrying the
+-- authoritative player profile (name/trainerId from runtime.playerData
+-- through the read model), and the full journey Start Menu → card → cancel →
+-- Start Menu must run with the world paused, the save gate blocked, and the
+-- card's close edge leaking nothing into the field. One production boot in
+-- normal mode: the vanilla trainer_card action becomes interactive exactly
+-- because its unlock flag is set and the production destination exists — the
+-- menu carries no resolved label text and no product-mode projection. The
+-- UI-owned audio stack (the SDAT-derived Start Menu and Trainer Card effects)
+-- is removed, so the whole journey — menu open, card confirm, card close,
+-- menu rebuild, menu close — must be silent; the source cancel effect
 -- (SEQ_SE_GS_GEARCANCEL, overlay_trainer_card_main.s ov51_021E6A54 at the
 -- pinned decomp commit) is not reproduced by this branch. The menu rebuild
 -- restores the remembered selection; the final menu close returns to a
@@ -112,7 +111,7 @@ function T.tests.trainer_card_viewer_runs_through_production_composition_and_ret
     local applications = runtime.applications
     Assert.isTrue(
       type(applications) == "table",
-      "the production runtime must expose the sealed application registry, got: " .. tostring(applications)
+      "the production runtime must expose the application registry, got: " .. tostring(applications)
     )
     ---@diagnostic disable-next-line: undefined-field -- the runtime player-data surface is the contract under test
     local profile = runtime.playerData.profile
@@ -124,11 +123,6 @@ function T.tests.trainer_card_viewer_runs_through_production_composition_and_ret
       applications:has(CARD_APPLICATION),
       true,
       "the production runtime must register the trainer_card application without a boot-config descriptor"
-    )
-    Assert.equal(
-      applications:has("start_menu"),
-      false,
-      "the start menu is not an application-registry entry and the magic id must not exist"
     )
     Assert.equal(hostPhase(game), "closed", "the host starts closed")
     Assert.equal(hostStatus(game).fadeAlpha, 0, "no application fade is active at the closed boundary")
