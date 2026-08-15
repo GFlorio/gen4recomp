@@ -1,7 +1,7 @@
 -- Compiles the generated HGSS field-UI class: the Start Menu background and
 -- cursor, the twenty user dialogue frames, the corpus signpost frame and
 -- wayfinding graphics, and the Trainer Card front — all as decoded PNG
--- atlases and the strict g4-field-ui-v2 manifest. Source member selection
+-- atlases and the strict g4-field-ui-v3 manifest. Source member selection
 -- lives in romdump/src/config/FieldUiAssets.lua; this module owns the HGSS
 -- decode and the normalized bundle. The runtime consumes only the manifest
 -- and the generated files, never this module. Pure module: no love
@@ -123,8 +123,10 @@ local function renderTiles(charData, palette, tileCount, atlasWidth)
 end
 
 local function cellBounds(cell)
-  local minX, minY, maxX, maxY = 0, 0, 0, 0
-  for _, obj in ipairs(cell.objs) do
+  local first = assert(cell.objs[1], "cell bounds require at least one object")
+  local minX, minY, maxX, maxY = first.x, first.y, first.x + 8, first.y + 8
+  for i = 2, #cell.objs do
+    local obj = cell.objs[i]
     if obj.x < minX then
       minX = obj.x
     end
@@ -253,15 +255,6 @@ local function compileStartMenu(romFs, sha1hex, deps, assets, manifestAssets)
       [9] = { x = 0, y = 152, width = 128, height = 38 },
       [10] = { x = 128, y = 152, width = 128, height = 38 },
     },
-    icons = {
-      pokedex = 0,
-      pokemon = 1,
-      bag = 2,
-      pokegear = 3,
-      trainerCard = 4,
-      save = 5,
-      options = 6,
-    },
   }
 end
 
@@ -333,48 +326,54 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
   manifestAssets["hgss.signpost.tiles"] = { image = framePath, width = frameTiles * 8, height = 8 }
   deps[#deps + 1] = { name = manifestConfig.signposts.alias .. ":frame", sha1 = sha1hex(archiveBytes) }
 
-  -- Wayfinding: the four corpus members stacked in a shared atlas. All four
-  -- carry the same tile count in the real dump (24 tiles = 192 px wide).
+  -- Wayfinding: the selected (type, map) members stacked in a shared atlas,
+  -- one row per pair. All members carry the same tile count in the real
+  -- dump (24 tiles = 192 px wide).
   local wayfindingPath = FieldUiAssetCache.assetDir() .. "/wayfinding-tiles.png"
   local wayfinding = {}
-  local keys = {}
-  for key in pairs(cfg.wayfinding) do
-    keys[#keys + 1] = key
+  local rows = {}
+  local wayfindingTypes = {}
+  for sourceType in pairs(cfg.wayfinding) do
+    wayfindingTypes[#wayfindingTypes + 1] = sourceType
   end
-  table.sort(keys)
-  local decoded = {}
+  table.sort(wayfindingTypes)
   local wayTiles
-  for index, key in ipairs(keys) do
-    local wfBytes = decodeMember(archive, cfg.wayfinding[key], "wayfinding " .. key)
-    local wfChar, wfErr = G2dDecoder.decodeChar(wfBytes, { label = "wayfinding " .. key })
-    wfChar = must(wfChar, wfErr)
-    local tiles = math.floor(#wfChar.tiles / (wfChar.depth == 3 and 32 or 64))
-    if not wayTiles then
-      wayTiles = tiles
-    elseif tiles ~= wayTiles then
-      Errors.raise(
-        "FIELD_UI_SOURCE_INVALID",
-        "wayfinding member " .. cfg.wayfinding[key] .. " has " .. tiles .. " tiles, expected " .. wayTiles,
-        {
-          member = cfg.wayfinding[key],
-          tiles = tiles,
-        }
-      )
+  for _, sourceType in ipairs(wayfindingTypes) do
+    local spec = cfg.wayfinding[sourceType]
+    for _, map in ipairs(spec.maps) do
+      local member = spec.memberBase + map
+      local key = sourceType .. "." .. map
+      local wfBytes = decodeMember(archive, member, "wayfinding " .. key)
+      local wfChar, wfErr = G2dDecoder.decodeChar(wfBytes, { label = "wayfinding " .. key })
+      wfChar = must(wfChar, wfErr)
+      local tiles = math.floor(#wfChar.tiles / (wfChar.depth == 3 and 32 or 64))
+      if not wayTiles then
+        wayTiles = tiles
+      elseif tiles ~= wayTiles then
+        Errors.raise(
+          "FIELD_UI_SOURCE_INVALID",
+          "wayfinding member " .. member .. " has " .. tiles .. " tiles, expected " .. wayTiles,
+          {
+            member = member,
+            tiles = tiles,
+          }
+        )
+      end
+      rows[#rows + 1] = { key = key, member = member, bytes = wfBytes, char = wfChar }
     end
-    decoded[key] = { bytes = wfBytes, char = wfChar }
   end
   local rowWidth = wayTiles * 8
-  local atlasHeight = #keys * 8
+  local atlasHeight = #rows * 8
   local rgba = newRgba(rowWidth, atlasHeight)
-  for index, key in ipairs(keys) do
-    local wfChar = decoded[key].char
+  for index, row in ipairs(rows) do
+    local wfChar = row.char
     for tile = 0, wayTiles - 1 do
       blitTile(rgba, rowWidth, tile * 8, (index - 1) * 8, wfChar, tile, 0, framePal.colors)
     end
-    wayfinding[key] = { x = 0, y = (index - 1) * 8, width = rowWidth, height = 8 }
+    wayfinding[row.key] = { x = 0, y = (index - 1) * 8, width = rowWidth, height = 8 }
     deps[#deps + 1] = {
-      name = manifestConfig.signposts.alias .. ":wayfinding:" .. key,
-      sha1 = sha1hex(decoded[key].bytes),
+      name = manifestConfig.signposts.alias .. ":wayfinding:" .. row.key,
+      sha1 = sha1hex(row.bytes),
     }
   end
   assets[wayfindingPath] = PngWriter.encode(rowWidth, atlasHeight, concatChars(rgba))
@@ -383,9 +382,13 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
   local types = {}
   for _, sourceType in ipairs(cfg.sourceTypes) do
     local typeEntry = { sourceType = sourceType }
-    local wayKey = (sourceType == 0 or sourceType == 1) and (sourceType .. ".0") or nil
-    if wayKey and wayfinding[wayKey] then
-      typeEntry.wayfinding = wayfinding[wayKey]
+    local spec = cfg.wayfinding[sourceType]
+    if spec then
+      local mapRects = {}
+      for _, map in ipairs(spec.maps) do
+        mapRects[map] = wayfinding[sourceType .. "." .. map]
+      end
+      typeEntry.wayfinding = mapRects
     end
     types[sourceType] = typeEntry
   end

@@ -34,8 +34,10 @@ types 0 and 1 loads the wayfinding graphic from member `map + 0x21`
 (type 0, `sub_0200EC84` +0x21 branch) or `map + 2` (type 1). The corpus scan
 (`tests/rom/field_ui_assets_test.lua` sources; opcodes 55/56 of the real
 scr_seq) uses types {0,1,2,3,4,5,8,9,10,11,13,15,16,17,18,19,20,21,23,28,29,
-30,33,34,39} with (type,map) = (0,0),(0,1),(1,0),(1,1), i.e. wayfinding
-members 33, 34, 2, 3. The wipe motion (BG y-offset -48, +16/frame) is
+30,33,34,39}; the wayfinding-capable types present at type 0 maps 1..20 and
+type 1 maps 1,2,3,4,5,6,8,10,13,14,15,19,21 (member = map + 0x21 or map + 2,
+so members 33..53 and 2..23). The generated manifest carries a wayfinding row
+per (type, map) pair. The wipe motion (BG y-offset -48, +16/frame) is
 `src/field/signpost.c`.
 
 ## Trainer Card — `NARC_a_0_4_9` (a/0/4/9, narcId 49)
@@ -48,7 +50,7 @@ members 33, 34, 2, 3. The wipe motion (BG y-offset -48, +16/frame) is
 ## Generated layout
 
 `romdump/src/config/FieldUiAssets.lua` records every member number; the
-generated manifest (`g4-field-ui-v2`) carries only semantic ids and
+generated manifest (`g4-field-ui-v3`) carries only semantic ids and
 rectangles. No sound archive is selected: the source Start Menu effects
 (SEQ_SE_DP_SELECT = 1500, SEQ_SE_DP_WIN_OPEN = 1532, SEQ_SE_GS_GEARCANCEL =
 2368 in the pinned `sndseq.lua` catalog) are out of scope for this branch —

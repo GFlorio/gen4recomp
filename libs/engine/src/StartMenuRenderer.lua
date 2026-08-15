@@ -257,9 +257,7 @@ end
 
 -- The resolved manifest surface: background rect, logical slot rects, and
 -- the cursor frames (rects plus fixed-tick durations). The action-icon art
--- is baked into the background PNG; the manifest's icons mapping stays the
--- authority for action-id -> icon-index but the renderer never draws icons
--- separately.
+-- is baked into the background PNG; the manifest carries no icon mapping.
 
 ---@class StartMenuRenderer.Menu
 ---@field background FieldDialogueTheme.Rect

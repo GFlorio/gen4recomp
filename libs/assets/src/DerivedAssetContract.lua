@@ -11,6 +11,11 @@
 -- keyCount/numTextures/numPalettes counts (sampler and gate trust the
 -- arrays).
 --
+-- fieldUi schema 3: signpost wayfinding becomes a per-(type,map) rect table
+-- (signposts.types[N].wayfinding[map]) and the manifest drops the
+-- startMenu.icons mapping (no runtime consumer remains; the icon art is
+-- baked into the background surface).
+--
 -- fieldUi schema 2: the generated field-UI manifest drops the sounds
 -- section (the branch no longer compiles Start Menu effects).
 
@@ -66,7 +71,7 @@ DerivedAssetContract.scripts = {
 
 DerivedAssetContract.fieldUi = {
   cacheFormat = "field-ui-cache-v1",
-  schema = "g4-field-ui-v2",
+  schema = "g4-field-ui-v3",
 }
 
 -- The mesh batch format constants (magic, version, stride, header size,

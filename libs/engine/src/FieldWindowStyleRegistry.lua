@@ -1,15 +1,18 @@
 -- Per-runtime window style catalogue: built-in HGSS styles are loaded from
 -- the generated field-UI manifest and sealed before
 -- scripts/applications run; mods register derived styles against them. A
--- style carries presentation information only (frame/mapGraphic asset ids,
--- content geometry, text colors, per-source-type signpost geometry) -- never
--- input, script wait behavior, result values, or message sources. Signpost
--- content geometry follows the HGSS signpost window: source types 0/1
--- reserve a seven-tile (56px) wayfinding graphic on the left of the ordinary
--- 27x4-tile window (`LoadMapSignpostFrameAndGraphic`, asm/render_window.s at
--- the pinned decomp commit), text then starts at x=72 with width 160; every
--- other source type uses the full 16,152,216,32 content rect (DIALOG_BOX_*
--- constants, src/dialog_box.c, 8px/tile).
+-- style carries presentation information only (id, base, role,
+-- contentGeometry, graphicRegion, per-source-type signpost geometry) --
+-- never frame/mapGraphic asset replacement ids, text colors, input, script
+-- wait behavior, result values, or message sources: the renderer loads the
+-- fixed generated HGSS assets itself, and no renderer consumes text colors.
+-- Signpost content geometry follows the HGSS signpost window: source types
+-- 0/1 reserve a seven-tile (56px) wayfinding graphic on the left of the
+-- ordinary 27x4-tile window (`LoadMapSignpostFrameAndGraphic`,
+-- asm/render_window.s at the pinned decomp commit), text then starts at
+-- x=72 with width 160; every other source type uses the full
+-- 16,152,216,32 content rect (DIALOG_BOX_* constants, src/dialog_box.c,
+-- 8px/tile).
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
@@ -50,10 +53,8 @@ function FieldWindowStyleRegistry.semanticStyleId(appearance)
   return FieldWindowStyleRegistry.SEMANTIC_STYLES[appearance]
 end
 
-local VALID_ASSET_KEYS = { frame = true, mapGraphic = true }
-
 -- Canonical HGSS signpost content geometry: types 0/1 reserve the wayfinding
--- graphic; the per-type presence of a wayfinding rect in the generated
+-- graphic; the per-type presence of a wayfinding map in the generated
 -- manifest selects the region.
 local FULL_WIDTH_TEXT = { x = 16, y = 152, width = 216, height = 32 }
 local GRAPHIC_TEXT = { x = 72, y = 152, width = 160, height = 32 }
@@ -72,8 +73,9 @@ local function isRect(value)
   return value.width > 0 and value.height > 0
 end
 
--- Deep copy without freezing; used for descriptor storage and the working
--- copy during inheritance resolution.
+-- Deep copy without freezing; used for descriptor storage, inheritance
+-- resolution, and every resolve() result, so a caller can never mutate the
+-- sealed catalogue through a returned record.
 ---@param value table
 ---@return table
 local function copy(value)
@@ -84,20 +86,15 @@ local function copy(value)
   return out
 end
 
--- The fields a derived descriptor may overlay onto its base's flat record.
--- `id` and `base` are handled separately; assets merge per key.
-local OVERLAY_FIELDS = { "role", "contentGeometry", "textColors", "graphicRegion", "types" }
+-- The fields a derived descriptor may overlay onto its base's flat record;
+-- `id` and `base` are handled separately.
+local OVERLAY_FIELDS = { "role", "contentGeometry", "graphicRegion", "types" }
 
 local function overlay(flat, descriptor)
   for _, field in ipairs(OVERLAY_FIELDS) do
     local value = descriptor[field]
     if value ~= nil then
       flat[field] = type(value) == "table" and copy(value) or value
-    end
-  end
-  if descriptor.assets then
-    for key, value in pairs(descriptor.assets) do
-      flat.assets[key] = value
     end
   end
 end
@@ -158,19 +155,8 @@ function FieldWindowStyleRegistry:_storeDescriptor(descriptor, allowReserved)
   if role ~= nil and not FieldWindowStyleRegistry.ROLES[role] then
     invalidDescriptor(id, "unknown window style role", { role = role })
   end
-  if base == nil and (role == nil or descriptor.assets == nil or descriptor.contentGeometry == nil) then
-    invalidDescriptor(id, "a base-less window style requires role, assets, and contentGeometry")
-  end
-  local assets = descriptor.assets
-  if assets ~= nil then
-    if type(assets) ~= "table" or next(assets) == nil then
-      invalidDescriptor(id, "window style assets must be a non-empty table")
-    end
-    for key, value in pairs(assets) do
-      if not VALID_ASSET_KEYS[key] or type(value) ~= "string" or value == "" then
-        invalidDescriptor(id, "window style assets must name frame/mapGraphic asset ids", { asset = key })
-      end
-    end
+  if base == nil and (role == nil or descriptor.contentGeometry == nil) then
+    invalidDescriptor(id, "a base-less window style requires role and contentGeometry")
   end
   if descriptor.contentGeometry ~= nil and not isRect(descriptor.contentGeometry) then
     invalidDescriptor(id, "window style contentGeometry must be a non-empty integer rectangle")
@@ -178,22 +164,19 @@ function FieldWindowStyleRegistry:_storeDescriptor(descriptor, allowReserved)
   if descriptor.graphicRegion ~= nil and not isRect(descriptor.graphicRegion) then
     invalidDescriptor(id, "window style graphicRegion must be a non-empty integer rectangle")
   end
-  if descriptor.textColors ~= nil and type(descriptor.textColors) ~= "table" then
-    invalidDescriptor(id, "window style textColors must be a table")
-  end
   local types = descriptor.types
   if types ~= nil then
     if type(types) ~= "table" then
       invalidDescriptor(id, "window style types must be a table")
     end
-    for _, entry in pairs(types) do
-      if
-        type(entry) ~= "table"
-        or type(entry.sourceType) ~= "number"
-        or entry.sourceType % 1 ~= 0
-        or entry.sourceType < 0
-      then
-        invalidDescriptor(id, "window style type entries must carry a non-negative integral sourceType")
+    for key, entry in pairs(types) do
+      if type(key) ~= "number" or key % 1 ~= 0 or key < 0 then
+        invalidDescriptor(id, "window style type keys must be non-negative integers", { key = key })
+      end
+      if type(entry) ~= "table" or entry.sourceType ~= key then
+        invalidDescriptor(id, "window style type entries must be keyed by their own sourceType", {
+          key = key,
+        })
       end
       if entry.contentGeometry ~= nil and not isRect(entry.contentGeometry) then
         invalidDescriptor(id, "window style type contentGeometry must be a rectangle")
@@ -207,7 +190,7 @@ function FieldWindowStyleRegistry:_storeDescriptor(descriptor, allowReserved)
   self._order[#self._order + 1] = id
 end
 
--- Public registration for mods: full descriptors (role/assets/contentGeometry
+-- Public registration for mods: full descriptors (role/contentGeometry
 -- required) or derived descriptors (base required, everything else optional
 -- and inherited from the base at seal).
 ---@param descriptor table
@@ -220,21 +203,11 @@ end
 -- and hgss.trainer_tip are thin full-width records; hgss.signpost carries a
 -- per-source-type record for every type the manifest declares, preserving
 -- the raw source numbers, with the wayfinding region exactly where the
--- manifest gives a type a wayfinding rect.
+-- manifest gives a type a wayfinding map. The built-ins carry presentation
+-- fields only: the renderer loads the generated HGSS assets directly.
 ---@param manifest table the validated FieldUiAssetCache manifest
 function FieldWindowStyleRegistry:registerBuiltins(manifest)
   assert(type(manifest) == "table", "registerBuiltins requires the generated field-UI manifest")
-  local function requireAsset(id)
-    assert(
-      type(manifest.assets) == "table"
-        and type(manifest.assets[id]) == "table"
-        and type(manifest.assets[id].image) == "string",
-      "the field-UI manifest must index " .. id
-    )
-  end
-  requireAsset("hgss.dialogue_frame.tiles")
-  requireAsset("hgss.signpost.tiles")
-  requireAsset("hgss.signpost.wayfinding")
   local signposts = manifest.signposts
   assert(
     type(signposts) == "table" and type(signposts.frame) == "table" and type(signposts.types) == "table",
@@ -268,20 +241,17 @@ function FieldWindowStyleRegistry:registerBuiltins(manifest)
   self:_storeDescriptor({
     id = "hgss.dialogue",
     role = "dialogue",
-    assets = { frame = "hgss.dialogue_frame.tiles" },
     contentGeometry = FULL_WIDTH_TEXT,
   }, true)
   self:_storeDescriptor({
     id = "hgss.signpost",
     role = "signpost",
-    assets = { frame = "hgss.signpost.tiles", mapGraphic = "hgss.signpost.wayfinding" },
     contentGeometry = FULL_WIDTH_TEXT,
     types = types,
   }, true)
   self:_storeDescriptor({
     id = "hgss.trainer_tip",
     role = "trainer_tip",
-    assets = { frame = "hgss.signpost.tiles" },
     contentGeometry = FULL_WIDTH_TEXT,
   }, true)
 end
@@ -318,6 +288,10 @@ function FieldWindowStyleRegistry:seal()
     else
       flat = copy(descriptor)
     end
+    -- A resolved record's identity is its own: a derived style must never
+    -- report the base style's id, and resolved records are flat.
+    flat.id = id
+    flat.base = nil
     resolving[id] = nil
     resolved[id] = flat
     return resolved[id]
@@ -329,17 +303,23 @@ function FieldWindowStyleRegistry:seal()
   self.sealed = true
 end
 
--- Returns the sealed flat record for a style id, or nil for an unknown id
--- (the nil contract is pinned by the unit tests; the annotation is kept
--- non-optional so consumers of the sealed registry read field access as
--- plain lookup). The registry must be sealed first; resolving before seal is
--- a programming error.
+-- Returns a deep copy of the sealed flat record for a style id, or nil for
+-- an unknown id (the nil contract is pinned by the unit tests; the
+-- annotation is kept non-optional so consumers of the sealed registry read
+-- field access as plain lookup). The registry must be sealed first;
+-- resolving before seal is a programming error. Copies keep the sealed
+-- catalogue immutable: callers that resolve per frame (like the renderer)
+-- cache the copy themselves.
 ---@param id string
 ---@return table
 function FieldWindowStyleRegistry:resolve(id)
   assert(type(id) == "string" and id ~= "", "window style id must be a non-empty string")
   if not self._resolved then
     Errors.raise(FieldErrors.WINDOW_STYLE_NOT_SEALED, "the window style registry is not sealed", {})
+  end
+  local record = self._resolved[id]
+  if record then
+    return copy(record)
   end
   return self._resolved[id]
 end

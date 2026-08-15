@@ -1,11 +1,12 @@
 -- Synthetic field-UI fixtures for the dialogue frame, window style, signpost,
 -- and Start Menu surface work: a generated-shape `ui.lua` manifest carrying
 -- two dialogue frame strips (18 tiles of 8x8 stacked per frame, like the
--- compiled class), the signpost frame strip and wayfinding atlas, the
--- signpost source-type map (the full 25-type corpus set, types 0/1 with
--- wayfinding rects), and the Start Menu surface (background, slot grid, icon
--- mapping, cursor frames), plus cache builders that carry the dialogue font
--- and/or the Start Menu assets. Frame tiles are solid per-tile colors from
+-- compiled class), the signpost frame strip and wayfinding atlas (one
+-- per-(type,map) row, map 0 and map 1 visibly distinct), the signpost
+-- source-type map (the full 25-type corpus set, types 0/1 with per-map
+-- wayfinding rects), and the Start Menu surface (background, slot grid,
+-- cursor frames), plus cache builders that carry the dialogue font and/or
+-- the Start Menu assets. Frame tiles are solid per-tile colors from
 -- two distinct palettes (frame 0 blue family, frame 1 cream family, mirroring
 -- the real compiled frames' variety) and each Start Menu slot/cursor frame is
 -- a distinct color, so a misplacement or wrong rect is a pixel mismatch,
@@ -109,8 +110,8 @@ local function signpostTileColor(i)
   return (40 + i * 12) % 256, (90 + i * 7) % 220, (210 - i * 9) % 180
 end
 
--- Tile t of a wayfinding row: distinct within the row, and the two rows
--- (y=0 and y=16 in the atlas) use distinct color families so a wrong-row
+-- Tile t of a wayfinding row: distinct within the row, and every atlas row
+-- (one per (type, map) pair) uses a distinct color family so a wrong-row
 -- sample is a mismatch.
 local function wayfindingTileColor(row, tile)
   return (50 + tile * 9) % 256, (120 + row * 40) % 256, (30 + tile * 11) % 256
@@ -139,8 +140,8 @@ function FieldUiFixture.signpostTilesBytes()
   return PngWriter.encode(144, 8, table.concat(bytes))
 end
 
--- The raw RGBA bytes of one wayfinding atlas row (the manifest rect for
--- type 0 is y=0, for type 1 y=16): 24 distinct tiles in a 192x8 pixel row.
+-- The raw RGBA bytes of one wayfinding atlas row (each (type, map) pair has
+-- its own row): 24 distinct tiles in a 192x8 pixel row.
 ---@param rowY integer
 ---@return string rgba
 function FieldUiFixture.wayfindingRowPixels(rowY)
@@ -155,21 +156,17 @@ function FieldUiFixture.wayfindingRowPixels(rowY)
   return table.concat(bytes)
 end
 
--- The wayfinding atlas: rows y=0 and y=16 carry the type 0/1 graphic rows;
--- the other rows are fully transparent so a wrong-row sample is a mismatch.
+-- The wayfinding atlas: one row per (type, map) pair in the manifest --
+-- type 0 at rows y=0 (map 0) and y=8 (map 1), type 1 at rows y=16 (map 0)
+-- and y=24 (map 1). Every row has its own color family, so a wrong-row
+-- sample is a mismatch.
 ---@return string png
 function FieldUiFixture.wayfindingBytes()
   local rows = {}
   for block = 0, 3 do
-    if block == 0 or block == 2 then
-      local rgba = FieldUiFixture.wayfindingRowPixels(block * 8)
-      for i = 0, 7 do
-        rows[#rows + 1] = rgba:sub(i * 768 + 1, (i + 1) * 768)
-      end
-    else
-      for _ = 1, 8 do
-        rows[#rows + 1] = string.rep(string.char(0, 0, 0, 0), 192)
-      end
+    local rgba = FieldUiFixture.wayfindingRowPixels(block * 8)
+    for i = 0, 7 do
+      rows[#rows + 1] = rgba:sub(i * 768 + 1, (i + 1) * 768)
     end
   end
   return PngWriter.encode(192, 32, table.concat(rows))
@@ -190,18 +187,6 @@ FieldUiFixture.START_MENU_SLOTS = {
   [8] = { x = 128, y = 114, width = 128, height = 38 },
   [9] = { x = 0, y = 152, width = 128, height = 38 },
   [10] = { x = 128, y = 152, width = 128, height = 38 },
-}
-
--- The action-id -> icon-index mapping the manifest carries (the
--- sActionToIconIndex authority); the fixture mirrors the compiled class.
-FieldUiFixture.START_MENU_ICONS = {
-  pokedex = 0,
-  pokemon = 1,
-  bag = 2,
-  pokegear = 3,
-  trainerCard = 4,
-  save = 5,
-  options = 6,
 }
 
 -- Two distinct cursor frames in a 16x32 atlas (frame 1 row y=0, frame 2 row
@@ -352,18 +337,26 @@ function FieldUiFixture.cardFontAtlasBytes()
 end
 
 -- The signpost source-type map in the generated manifest shape: every corpus
--- type with its raw number preserved, types 0/1 carrying wayfinding atlas
--- rects. The on-screen 56px graphic region is NOT the atlas rect; the style
--- loader derives the region from the presence of the rect, never its pixels.
+-- type with its raw number preserved, types 0/1 carrying a per-map wayfinding
+-- table (map -> atlas rect; each pair has its own atlas row, so the map-0 and
+-- map-1 rects are visibly distinct). The on-screen 56px graphic region is NOT
+-- the atlas rect; the style loader derives the region from the presence of
+-- the table, never its pixels.
 ---@return table
 function FieldUiFixture.signpostTypes()
   local types = {}
   for _, sourceType in ipairs(FieldUiFixture.CORPUS_SOURCE_TYPES) do
     local entry = { sourceType = sourceType }
     if sourceType == 0 then
-      entry.wayfinding = { x = 0, y = 0, width = 192, height = 8 }
+      entry.wayfinding = {
+        [0] = { x = 0, y = 0, width = 192, height = 8 },
+        [1] = { x = 0, y = 8, width = 192, height = 8 },
+      }
     elseif sourceType == 1 then
-      entry.wayfinding = { x = 0, y = 16, width = 192, height = 8 }
+      entry.wayfinding = {
+        [0] = { x = 0, y = 16, width = 192, height = 8 },
+        [1] = { x = 0, y = 24, width = 192, height = 8 },
+      }
     end
     types[sourceType] = entry
   end
@@ -415,6 +408,10 @@ function FieldUiFixture.manifest()
         [0] = { x = 0, y = 0, width = 144, height = 8 },
         [1] = { x = 0, y = 8, width = 144, height = 8 },
       },
+      palettes = {
+        [0] = { colors = { { r = 1, g = 2, b = 3 } } },
+        [1] = { colors = { { r = 4, g = 5, b = 6 } } },
+      },
     },
     signposts = {
       frame = {
@@ -426,7 +423,6 @@ function FieldUiFixture.manifest()
       background = { x = 0, y = 0, width = 256, height = 192 },
       cursor = { frames = FieldUiFixture.START_MENU_CURSOR_FRAMES },
       slots = FieldUiFixture.START_MENU_SLOTS,
-      icons = FieldUiFixture.START_MENU_ICONS,
     },
     trainerCard = {
       front = { x = 0, y = 0, width = 256, height = 256 },

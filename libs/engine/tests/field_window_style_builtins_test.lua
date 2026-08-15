@@ -1,9 +1,10 @@
 -- FieldWindowStyleRegistry built-in loading contract: the three HGSS styles
--- are registered from the generated field-UI manifest shape (asset ids and
--- per-source-type wayfinding presence come from the manifest, not hard-coded
--- atlas rects), hgss.signpost preserves the raw corpus source numbers and
--- resolves the canonical type-0/1 graphic-region geometry, and the other
--- built-ins are thin full-width records.
+-- are registered from the generated field-UI manifest shape (per-source-type
+-- wayfinding presence comes from the manifest, not hard-coded atlas rects),
+-- hgss.signpost preserves the raw corpus source numbers and resolves the
+-- canonical type-0/1 graphic-region geometry, and the other built-ins are
+-- thin full-width records. Built-in records carry presentation fields only:
+-- never asset-replacement ids or text colors.
 
 local Assert = require("tests.support.Assert")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
@@ -28,25 +29,25 @@ local function hasGraphicRegion(sourceType)
   return sourceType == 0 or sourceType == 1
 end
 
-function T.tests.the_three_builtins_resolve_with_their_manifest_asset_ids()
+function T.tests.the_three_builtins_resolve_with_presentation_fields_only()
   local r = builtinRegistry()
   local dialogue = assert(r:resolve("hgss.dialogue"))
   Assert.equal(dialogue.id, "hgss.dialogue")
   Assert.equal(dialogue.role, "dialogue")
-  Assert.equal(dialogue.assets.frame, "hgss.dialogue_frame.tiles")
+  Assert.isNil(dialogue.assets, "built-ins never advertise asset replacement")
+  Assert.isNil(dialogue.textColors, "built-ins never carry text colors")
   Assert.deepEqual(dialogue.contentGeometry, FULL_WIDTH_TEXT)
   Assert.isNil(dialogue.types, "the dialogue style carries no per-type map")
 
   local trainerTip = assert(r:resolve("hgss.trainer_tip"))
   Assert.equal(trainerTip.role, "trainer_tip")
-  Assert.equal(trainerTip.assets.frame, "hgss.signpost.tiles")
+  Assert.isNil(trainerTip.assets)
   Assert.deepEqual(trainerTip.contentGeometry, FULL_WIDTH_TEXT)
   Assert.isNil(trainerTip.types, "the trainer-tip style carries no per-type map")
 
   local signpost = assert(r:resolve("hgss.signpost"))
   Assert.equal(signpost.role, "signpost")
-  Assert.equal(signpost.assets.frame, "hgss.signpost.tiles")
-  Assert.equal(signpost.assets.mapGraphic, "hgss.signpost.wayfinding")
+  Assert.isNil(signpost.assets)
   Assert.deepEqual(signpost.contentGeometry, FULL_WIDTH_TEXT, "the style-level geometry is the full window")
 end
 
@@ -73,15 +74,15 @@ end
 
 function T.tests.wayfinding_presence_in_the_manifest_drives_the_graphic_region()
   local manifest = FieldUiFixture.manifest()
-  manifest.signposts.types[5].wayfinding = { x = 0, y = 24, width = 192, height = 8 }
+  manifest.signposts.types[5].wayfinding = { [0] = { x = 0, y = 24, width = 192, height = 8 } }
   local signpost = assert(builtinRegistry(manifest):resolve("hgss.signpost"))
   Assert.deepEqual(
     signpost.types[5].contentGeometry,
     GRAPHIC_TEXT,
-    "a manifest wayfinding rect gives the type the graphic text region"
+    "a manifest wayfinding map gives the type the graphic text region"
   )
   Assert.deepEqual(signpost.types[5].graphicRegion, GRAPHIC_REGION)
-  Assert.isNil(signpost.types[3].graphicRegion, "a type without a wayfinding rect stays full width")
+  Assert.isNil(signpost.types[3].graphicRegion, "a type without a wayfinding map stays full width")
 end
 
 function T.tests.builtins_cannot_be_replaced_by_mods()
@@ -89,13 +90,13 @@ function T.tests.builtins_cannot_be_replaced_by_mods()
   r:registerBuiltins(FieldUiFixture.manifest())
   r:seal()
   Assert.isNil(assert(r:resolve("hgss.dialogue")).types, "hgss.dialogue keeps its own record shape")
-  Assert.equal(assert(r:resolve("hgss.trainer_tip")).assets.frame, "hgss.signpost.tiles")
+  Assert.equal(assert(r:resolve("hgss.trainer_tip")).role, "trainer_tip")
 end
 
 function T.tests.missing_manifest_sections_fail_loudly()
   local r = FieldWindowStyleRegistry.new()
   Assert.throws(function()
-    r:registerBuiltins({ schema = "g4-field-ui-v2", assets = {} })
+    r:registerBuiltins({ schema = "g4-field-ui-v3", assets = {} })
   end)
   local r2 = FieldWindowStyleRegistry.new()
   Assert.throws(function()

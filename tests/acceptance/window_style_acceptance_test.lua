@@ -3,8 +3,12 @@
 -- before scripts run, and the built-in hgss.dialogue / hgss.signpost /
 -- hgss.trainer_tip styles must carry the canonical signpost presentation
 -- geometry for every source type found in the script corpus, preserving the
--- raw source type numbers. Style definitions carry no input or script
--- behavior, and nothing here renders.
+-- raw source type numbers. Styles own only presentation records (id, base,
+-- role, contentGeometry, graphicRegion, types): they must not advertise
+-- frame/mapGraphic asset replacement or text colors, a derived style must
+-- report its own identity rather than its base's, and resolve() must hand
+-- out copies so a caller can never mutate the sealed catalogue. Style
+-- definitions carry no input or script behavior, and nothing here renders.
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
@@ -77,6 +81,25 @@ local function assertStyleGeometry(style, sourceType, label)
   end
 end
 
+-- The shared presentation-record contract of every resolved style: no
+-- frame/mapGraphic asset replacement (the renderer loads the fixed generated
+-- HGSS assets itself), no text colors, and a preserved identity.
+local function assertPresentationRecord(style, id, label)
+  Assert.isNil(style.assets, label .. " must not advertise frame/mapGraphic asset replacement")
+  Assert.isNil(style.textColors, label .. " must not carry text colors")
+  Assert.equal(style.id, id, label .. " must report its own id")
+end
+
+-- resolve() hands out a copy: mutating a returned record must never reach
+-- the sealed catalogue, so a later resolve of the same style is unchanged.
+local function assertResolveReturnsCopies(registry, id, label)
+  local first = assert(registry:resolve(id))
+  local originalX = first.contentGeometry.x
+  first.contentGeometry.x = 999
+  local second = assert(registry:resolve(id))
+  Assert.equal(second.contentGeometry.x, originalX, label .. " resolve must return a deep copy, not the sealed record")
+end
+
 function T.tests.sealed_runtime_registry_resolves_builtin_styles_for_every_corpus_signpost_type()
   local harness = AcceptanceHarness.new()
   local game = harness:boot({ versionId = "heartgold", map = "MAP_NEW_BARK", save = "fresh" })
@@ -93,39 +116,69 @@ function T.tests.sealed_runtime_registry_resolves_builtin_styles_for_every_corpu
     Assert.isTrue(type(dialogue) == "table", "hgss.dialogue must resolve as a built-in style")
     Assert.equal(dialogue.role, "dialogue", "the dialogue style must declare its role")
     Assert.deepEqual(dialogue.contentGeometry, FULL_WIDTH_TEXT, "dialogue content geometry")
-    Assert.isTrue(
-      type(dialogue.assets) == "table" and type(dialogue.assets.frame) == "string" and dialogue.assets.frame ~= "",
-      "the dialogue style must load a generated frame asset"
-    )
 
     local trainerTip = registry:resolve("hgss.trainer_tip")
     Assert.isTrue(type(trainerTip) == "table", "hgss.trainer_tip must resolve as a built-in style")
     Assert.equal(trainerTip.role, "trainer_tip", "the trainer-tip style must declare its role")
     Assert.deepEqual(trainerTip.contentGeometry, FULL_WIDTH_TEXT, "trainer-tip content geometry")
-    Assert.isTrue(
-      type(trainerTip.assets) == "table" and type(trainerTip.assets.frame) == "string" and trainerTip.assets.frame ~= "",
-      "the trainer-tip style must load a generated frame asset"
-    )
 
     local signpost = registry:resolve("hgss.signpost")
     Assert.isTrue(type(signpost) == "table", "hgss.signpost must resolve as a built-in style")
     Assert.equal(signpost.role, "signpost", "the signpost style must declare its role")
     Assert.deepEqual(signpost.contentGeometry, FULL_WIDTH_TEXT, "signpost content geometry")
-    Assert.equal(
-      signpost.assets.frame,
-      "hgss.signpost.tiles",
-      "the signpost style must load the generated signpost frame asset"
-    )
-    Assert.equal(
-      signpost.assets.mapGraphic,
-      "hgss.signpost.wayfinding",
-      "the signpost style must load the generated wayfinding graphic assets"
-    )
 
     for _, sourceType in ipairs(CORPUS_SOURCE_TYPES) do
       assertStyleGeometry(signpost, sourceType, "every corpus signpost source type must resolve")
     end
 
+    assertResolveReturnsCopies(registry, "hgss.signpost", "the signpost style")
+    assertPresentationRecord(dialogue, "hgss.dialogue", "the dialogue style")
+    assertPresentationRecord(trainerTip, "hgss.trainer_tip", "the trainer-tip style")
+    assertPresentationRecord(signpost, "hgss.signpost", "the signpost style")
+    Assert.equal(game:renderAttempts(), 0, "style definitions must not render")
+  end, debug.traceback)
+  game:close()
+  if not ok then
+    error(err, 0)
+  end
+end
+
+-- A boot-config derived style resolves through the production pre-seal
+-- registration seam with its own flat identity (id, no base) and the
+-- base's presentation inherited, and resolve() copies protect both the
+-- derived record and the sealed catalogue from caller mutation.
+function T.tests.boot_config_derived_style_reports_its_own_identity_and_returns_copies()
+  local harness = AcceptanceHarness.new()
+  local game = harness:boot({
+    versionId = "heartgold",
+    map = "MAP_NEW_BARK",
+    save = "fresh",
+    fieldOptions = {
+      windowStyleDescriptors = {
+        {
+          id = "mod.route_sign",
+          base = "hgss.signpost",
+        },
+      },
+    },
+  })
+  local ok, err = xpcall(function()
+    ---@diagnostic disable-next-line: undefined-field -- the runtime registry surface is the contract under test
+    local registry = game.runtime.windowStyles
+    Assert.isTrue(type(registry) == "table", "the production runtime must expose the sealed window style registry")
+    Assert.equal(registry.sealed, true, "the runtime registry must be sealed before scripts run")
+
+    local mod = registry:resolve("mod.route_sign")
+    Assert.isTrue(type(mod) == "table", "the mod style must resolve through the sealed registry")
+    Assert.equal(mod.id, "mod.route_sign", "a derived style must never report its base's id")
+    Assert.isNil(mod.base, "a resolved style must never report a base")
+    Assert.equal(mod.role, "signpost", "the derived style inherits the base role")
+    Assert.deepEqual(mod.contentGeometry, FULL_WIDTH_TEXT, "the derived style inherits the base content geometry")
+    assertStyleGeometry(mod, 0, "the derived style inherits the graphic-region geometry")
+    assertStyleGeometry(mod, 2, "the derived style inherits the full-width geometry")
+
+    assertResolveReturnsCopies(registry, "mod.route_sign", "the derived style")
+    assertPresentationRecord(mod, "mod.route_sign", "the derived style")
     Assert.equal(game:renderAttempts(), 0, "style definitions must not render")
   end, debug.traceback)
   game:close()

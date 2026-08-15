@@ -3,9 +3,10 @@
 -- with release of already-acquired images, per-type frame/wayfinding/text
 -- geometry from the sealed style registry, the wipe translation (whole
 -- surface, hidden position below the screen), the active-only visibility key
--- (the wipe-out endpoint reset never flashes), and offset interpolation
--- clamped between fixed ticks without any call back into the controller. The
--- canonical pixel goldens live in
+-- (the wipe-out endpoint reset never flashes), and stateless offset
+-- interpolation clamped between fixed ticks: the renderer holds no
+-- interpolation state and lerps the controller's paired wipe history without
+-- ever calling back into it. The canonical pixel goldens live in
 -- field_signpost_renderer_graphics_test.lua.
 
 local Assert = require("tests.support.Assert")
@@ -176,18 +177,6 @@ local function drawsFor(lg, image)
     end
   end
   return out
-end
-
-local function textDraws(lg)
-  return drawsFor(lg, lg.images[1])
-end
-
-local function frameDraws(lg)
-  return drawsFor(lg, lg.images[2])
-end
-
-local function wayfindingDraws(lg)
-  return drawsFor(lg, lg.images[3])
 end
 
 -- The shared text renderer owns the font atlas (the fixture font carries
@@ -453,9 +442,9 @@ function T.type_zero_draws_the_graphic_region_and_the_shifted_text()
   r:release()
 end
 
--- Type 1 samples the second wayfinding row (the manifest rect at y=16);
+-- Type 1 map 0 samples the type-1 map-0 row (the manifest rect at y=16);
 -- the geometry is otherwise identical to type 0.
-function T.type_one_samples_the_second_wayfinding_row()
+function T.type_one_samples_the_map_zero_row()
   local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
   r:draw(
@@ -464,7 +453,35 @@ function T.type_one_samples_the_second_wayfinding_row()
   )
   local wayfinding = wayfindingDraws(lg)
   Assert.equal(#wayfinding, 24)
-  Assert.equal(wayfinding[1].quad.y, 16, "type 1 samples the atlas row at y=16")
+  Assert.equal(wayfinding[1].quad.y, 16, "type 1 map 0 samples the atlas row at y=16")
+  r:release()
+end
+
+-- The (type, map) pair selects the row: a type-0 map-1 appearance samples
+-- the map-1 atlas row (y=8), never the map-0 row (y=0).
+function T.type_zero_map_one_samples_the_map_one_row()
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local r = renderer(lg)
+  r:draw(
+    FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 0, map = 1, offset = 0 }),
+    FieldViewport.new(256, 192, { mode = "expanded" })
+  )
+  local wayfinding = wayfindingDraws(lg)
+  Assert.equal(#wayfinding, 24)
+  Assert.equal(wayfinding[1].quad.y, 8, "map 1 samples the map-1 atlas row, not the map-0 row")
+  r:release()
+end
+
+-- A type requiring graphic art without a manifest row for its exact
+-- (type, map) pair is a manifest/source-contract failure: the lookup never
+-- falls back to another map's row.
+function T.a_missing_type_map_pair_is_a_manifest_contract_failure()
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local r = renderer(lg)
+  local controller = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 0, map = 2, offset = 0 })
+  Assert.throws(function()
+    r:draw(controller, FieldViewport.new(256, 192, { mode = "expanded" }))
+  end, "a missing (type, map) row must raise")
   r:release()
 end
 
@@ -485,41 +502,52 @@ function T.the_wipe_offset_translates_the_whole_surface()
   end
 end
 
--- Interpolation: with the session alpha the drawn offset lerps between the
--- previous and the current fixed-tick offset, clamps alpha into [0, 1], and
--- never mutates the controller. The asserted y is the last glyph drawn (the
--- second line), so the accumulated draw list never skews the index.
-function T.interpolation_uses_the_session_alpha_between_fixed_tick_offsets()
+-- Interpolation is a pure function of the controller's paired wipe history:
+-- the drawn offset lerps between status.previousLogicalYOffset and
+-- status.logicalYOffset by the session alpha, clamped into [0, 1], and the
+-- renderer holds no interpolation state of its own. One unchanged controller
+-- (mid-wipe at previous -48, current -32) rendered at every alpha must hit
+-- the same positions regardless of render order or repeated calls, and
+-- drawing must never mutate the controller.
+function T.interpolation_is_stateless_over_the_paired_wipe_history()
   local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
   local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
-  local atMinus48 = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = -48 })
-  r:draw(atMinus48, viewport, 1)
+  local controller = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = -32 })
+  local status = controller:status()
+  Assert.equal(status.previousLogicalYOffset, -48, "the fixture wipes one step from -48")
+  Assert.equal(status.logicalYOffset, -32, "the fixture holds the mid-wipe current offset")
   local lastY = function()
     local text = textDraws(lg)
     return text[#text].y
   end
-  Assert.equal(lastY(), 216, "the first draw snaps to the fixed-tick offset")
-
-  local atMinus32 = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = -32 })
-  r:draw(atMinus32, viewport, 0.5)
-  Assert.equal(lastY(), 208, "alpha 0.5 lands midway between -48 and -32")
-
-  r:draw(atMinus32, viewport, 0)
-  Assert.equal(lastY(), 200, "alpha 0 stays at the previous fixed-tick offset")
-
-  r:draw(atMinus32, viewport, 2)
-  Assert.equal(lastY(), 200, "alpha is clamped into [0, 1]")
-
-  local statusBefore = atMinus32:status()
-  r:draw(atMinus32, viewport, 0.25)
-  Assert.deepEqual(atMinus32:status(), statusBefore, "drawing never mutates the controller")
+  local function expect(alpha, y)
+    r:draw(controller, viewport, alpha)
+    Assert.equal(lastY(), y, "alpha " .. string.format("%.2f", alpha) .. " lerps the paired history")
+  end
+  expect(0.00, 216)
+  expect(0.25, 212)
+  expect(0.50, 208)
+  expect(0.75, 204)
+  expect(1.00, 200)
+  -- Repeated calls and a different order hit the same positions: the
+  -- previous/current pair never moves.
+  expect(1.00, 200)
+  expect(0.00, 216)
+  expect(0.50, 208)
+  expect(0.25, 212)
+  expect(0.75, 204)
+  -- Alpha clamps into [0, 1] instead of extrapolating.
+  expect(2, 200)
+  expect(-1, 216)
+  Assert.deepEqual(controller:status(), status, "drawing never mutates the controller")
   r:release()
 end
 
--- An inactive gap snaps the interpolation: after the window disappeared, a
--- fresh show at a different offset draws exactly there even at alpha 0.
-function T.an_inactive_gap_snaps_the_interpolation()
+-- An inactive draw is a no-op and poisons nothing: the next active draw
+-- interpolates purely from that controller's own paired history, exactly as
+-- a fresh renderer would.
+function T.an_inactive_gap_leaves_the_next_draw_pure()
   local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
   local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
@@ -532,13 +560,17 @@ function T.an_inactive_gap_snaps_the_interpolation()
     end,
   })
   local before = #lg.draws
-  r:draw(fresh, viewport)
-  Assert.equal(#lg.draws, before, "the fresh controller is inactive and draws nothing")
+  r:draw(fresh, viewport, 0)
+  Assert.equal(#lg.draws, before, "the inactive controller draws nothing")
 
   local shown = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = 0 })
+  local status = shown:status()
+  Assert.equal(status.previousLogicalYOffset, -16, "the wipe history pair of the shown controller")
+  Assert.equal(status.logicalYOffset, 0)
   r:draw(shown, viewport, 0)
-  local text = textDraws(lg)
-  Assert.equal(text[#text].y, 168, "alpha 0 after an inactive gap draws the current offset, not the stale one")
+  Assert.equal(textDraws(lg)[#textDraws(lg)].y, 184, "alpha 0 draws the pair's previous offset, never a stale one")
+  r:draw(shown, viewport, 1)
+  Assert.equal(textDraws(lg)[#textDraws(lg)].y, 168, "alpha 1 draws the pair's current offset")
   r:release()
 end
 
@@ -623,6 +655,41 @@ function T.a_style_without_a_per_type_map_uses_its_own_geometry()
   r:draw(controller, FieldViewport.new(256, 192, { mode = "expanded" }))
   Assert.equal(#wayfindingDraws(lg), 0, "trainer_tip has no wayfinding area")
   Assert.equal(textDraws(lg)[1].x, 16, "trainer_tip text is full width")
+  r:release()
+end
+
+-- resolve() returns a fresh copy per call, so the renderer caches the
+-- resolved style per styleId: draws under the same style id never call
+-- resolve() again, and a style-id change re-resolves exactly once.
+function T.the_resolved_style_is_cached_per_style_id()
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local registry = FieldSignpostFixture.styles()
+  local resolveCalls = 0
+  local originalResolve = registry.resolve
+  ---@diagnostic disable: duplicate-set-field
+  registry.resolve = function(self, id)
+    resolveCalls = resolveCalls + 1
+    return originalResolve(self, id)
+  end
+  local r = FieldSignpostRenderer.new({
+    cacheFs = uiCache(),
+    text = withTextRenderer(uiCache(), lg),
+    graphics = lg,
+    windowStyles = registry,
+  })
+  local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+  r:draw(FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = 0 }), viewport)
+  r:draw(FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = 0 }), viewport)
+  Assert.equal(resolveCalls, 1, "repeated draws under the same style id resolve once")
+  r:draw(
+    FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = 0, styleId = "hgss.trainer_tip" }),
+    viewport
+  )
+  r:draw(
+    FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = 0, styleId = "hgss.trainer_tip" }),
+    viewport
+  )
+  Assert.equal(resolveCalls, 2, "a style-id change re-resolves exactly once")
   r:release()
 end
 

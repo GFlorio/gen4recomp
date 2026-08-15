@@ -30,10 +30,9 @@ function T.tests.runtime_composes_and_seals_the_window_style_registry()
 
     local dialogue = assert(registry:resolve("hgss.dialogue"))
     Assert.equal(dialogue.role, "dialogue")
-    Assert.equal(dialogue.assets.frame, "hgss.dialogue_frame.tiles")
+    Assert.isNil(dialogue.assets, "styles carry no asset-replacement ids")
     local signpost = assert(registry:resolve("hgss.signpost"))
-    Assert.equal(signpost.assets.frame, "hgss.signpost.tiles")
-    Assert.equal(signpost.assets.mapGraphic, "hgss.signpost.wayfinding")
+    Assert.isNil(signpost.assets)
     Assert.isTrue(type(signpost.types[0]) == "table", "the real manifest type map must flow through")
     Assert.isTrue(signpost.types[0].graphicRegion ~= nil, "type 0 keeps its wayfinding region")
     Assert.equal(assert(registry:resolve("hgss.trainer_tip")).role, "trainer_tip")
@@ -46,7 +45,7 @@ end
 
 -- A boot-config mod style descriptor registers after the built-ins and
 -- before the seal: the resolved record inherits the base's geometry and
--- assets with the descriptor's overlay applied.
+-- role and carries the mod's own identity.
 function T.tests.boot_config_mod_style_descriptors_register_before_the_seal()
   local game = AcceptanceHarness.new({ versions = { "heartgold" } }):boot({
     versionId = "heartgold",
@@ -57,7 +56,6 @@ function T.tests.boot_config_mod_style_descriptors_register_before_the_seal()
         {
           id = "mod.route_sign",
           base = "hgss.signpost",
-          assets = { frame = "asset.my_mod.notice_frame" },
         },
       },
     },
@@ -67,8 +65,8 @@ function T.tests.boot_config_mod_style_descriptors_register_before_the_seal()
     Assert.equal(registry.sealed, true)
     local mod = assert(registry:resolve("mod.route_sign"), "the mod style must resolve through the sealed registry")
     Assert.equal(mod.role, "signpost", "the mod style inherits the base role")
-    Assert.equal(mod.assets.frame, "asset.my_mod.notice_frame", "the descriptor overlays its frame asset")
-    Assert.equal(mod.assets.mapGraphic, "hgss.signpost.wayfinding", "unoverlaid base assets stay inherited")
+    Assert.equal(mod.id, "mod.route_sign", "the mod style reports its own id")
+    Assert.isNil(mod.assets, "the mod style inherits no asset-replacement ids")
     Assert.deepEqual(mod.contentGeometry, { x = 16, y = 152, width = 216, height = 32 })
   end, debug.traceback)
   game:close()

@@ -53,12 +53,13 @@ local function block(magic, payload)
   return swap4(magic) .. u32(8 + #payload) .. payload
 end
 
--- 4bpp char data: `tiles` tiles, tile t all value (t % 15) + 1.
-local function charData(tiles)
+-- 4bpp char data: `tiles` tiles, tile t all value ((t + base) % 15) + 1, so
+-- members with different bases decode to visibly distinct tile runs.
+local function charData(tiles, base)
   local payload = u16(8) .. u16(0x20) .. u32(3) .. u16(0) .. u16(0) .. u32(0) .. u32(tiles * 32) .. u32(0x18)
   local body = {}
   for t = 0, tiles - 1 do
-    body[#body + 1] = string.rep(string.char((t % 15 + 1) * 0x11), 32)
+    body[#body + 1] = string.rep(string.char((((t + (base or 0)) % 15) + 1) * 0x11), 32)
   end
   return container("RGCN", { block("CHAR", payload .. table.concat(body)) })
 end
@@ -85,11 +86,12 @@ local function paletteData(colors)
   for _, c in ipairs(colors) do
     body[#body + 1] = u16(c)
   end
-  -- RLCN-wrapped TTLP: the TTLP chunk magic is stored in its normal order.
-  -- Layout (per FieldFontDecoder): depth u32, unk u32, paletteBytes u32,
-  -- dataOffset u32; the colors follow the 20-byte field area, so the data
-  -- offset is 16.
-  local ttlp = "TTLP" .. u32(8 + 20 + #body) .. u32(3) .. u32(0) .. u32(#colors * 2) .. u32(16) .. table.concat(body)
+  local bodyBytes = table.concat(body)
+  -- RLCN-wrapped TTLP: the TTLP chunk is the magic+size header, the
+  -- depth/unk/paletteBytes/dataOffset field area, then the colors; the data
+  -- offset is 16 (the field area after the chunk header), so the exact chunk
+  -- size is 24 + data bytes.
+  local ttlp = "TTLP" .. u32(24 + #bodyBytes) .. u32(3) .. u32(0) .. u32(#colors * 2) .. u32(16) .. bodyBytes
   return "RLCN" .. string.char(0xFF, 0xFE) .. u16(0x0100) .. u32(0x10 + #ttlp) .. u16(0x10) .. u16(1) .. ttlp
 end
 
@@ -145,10 +147,21 @@ local function narc(members)
     .. gmifBlock
 end
 
+-- A 16-color palette so wayfinding members with distinct tile runs are
+-- visibly distinct rows in the compiled atlas.
+local function palette16()
+  local colors = {}
+  for i = 1, 16 do
+    colors[i] = i * 0x39B
+  end
+  return paletteData(colors)
+end
+
 -- A synthetic RomFs whose four UI NARCs carry minimal valid members: 20
--- dialogue frames, 25 signpost types, the four wayfinding members, the start
+-- dialogue frames, 25 signpost types, the wayfinding members (2..0x35, the
+-- type-0 0x21+map and type-1 2+map ranges the producer selects), the start
 -- menu bg + cursor, and the card front.
-local function fixture()
+local function fixture(cursorObjs)
   local function frameMembers(count)
     local members = {}
     for i = 1, count do
@@ -164,7 +177,7 @@ local function fixture()
   startMenuMembers[14] = lz10Wrap(fullScreen(0xE000))
   startMenuMembers[16] = lz10Wrap(paletteData({ 0x7FFF, 0x001F }))
   startMenuMembers[62] = lz10Wrap(paletteData({ 0x7FFF, 0x001F }))
-  startMenuMembers[63] = lz10Wrap(cellData({ { x = 0, y = 0, tile = 0, pal = 0 } }))
+  startMenuMembers[63] = lz10Wrap(cellData(cursorObjs or { { x = 0, y = 0, tile = 0, pal = 0 } }))
   startMenuMembers[64] = lz10Wrap(animData({ { duration = 3, cell = 0 }, { duration = 3, cell = 0 } }))
   startMenuMembers[65] = lz10Wrap(charData(17))
   local startMenu = {}
@@ -174,12 +187,12 @@ local function fixture()
 
   local signpostMembers = {}
   signpostMembers[1] = charData(20)
-  signpostMembers[2] = paletteData({ 0x7FFF, 0x001F })
-  for _, memberId in ipairs({ 2, 3, 0x21, 0x22 }) do
-    signpostMembers[memberId + 1] = charData(26)
+  signpostMembers[2] = palette16()
+  for memberId = 2, 0x35 do
+    signpostMembers[memberId + 1] = charData(26, memberId % 16)
   end
   local signposts = {}
-  for i = 1, 0x23 do
+  for i = 1, 0x36 do
     signposts[i] = signpostMembers[i] or string.rep("\0", 4)
   end
 
@@ -273,9 +286,16 @@ function T.compiles_the_manifest_and_all_assets()
   local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
   Assert.equal(bundle.manifest.schema, FieldUiAssetCache.SCHEMA)
   Assert.equal(bundle.manifest.dialogueFrames.count, 20)
-  Assert.equal(bundle.manifest.signposts.types[0].sourceType, 0)
-  Assert.isTrue(bundle.manifest.signposts.types[0].wayfinding ~= nil)
-  Assert.isNil(bundle.manifest.signposts.types[2].wayfinding)
+  local type0 = bundle.manifest.signposts.types[0]
+  Assert.equal(type0.sourceType, 0)
+  Assert.isTrue(type0.wayfinding[0] ~= nil, "type 0 map 0 carries a wayfinding row")
+  Assert.isTrue(type0.wayfinding[20] ~= nil, "type 0 map 20 (the corpus maximum) carries a wayfinding row")
+  Assert.isTrue(type0.wayfinding[0].y ~= type0.wayfinding[1].y, "the map-0 and map-1 rows are distinct atlas rows")
+  Assert.isTrue(
+    bundle.manifest.signposts.types[1].wayfinding[21] ~= nil,
+    "type 1 map 21 (the corpus maximum) carries a wayfinding row"
+  )
+  Assert.isNil(bundle.manifest.signposts.types[2].wayfinding, "type 2 has no map graphic")
   Assert.equal(bundle.manifest.startMenu.slots[10].x, 128)
   local assetCount = 0
   for _ in pairs(bundle.assets) do
@@ -334,6 +354,43 @@ function T.atlas_pixels_and_dimensions_follow_the_source_mapping()
   local bgWidth, _, bgRgba = PngReader.rgba(bundle.assets[bundle.manifest.assets["hgss.start_menu.background"].image])
   local _, _, _, bgA = PngReader.pixel(bgRgba, bgWidth, 10, 10)
   Assert.equal(bgA, 0)
+end
+
+-- Every (type, map) pair gets its own atlas row, and the map-0 and map-1
+-- rows of the same type decode to different pixels, so a consumer sampling
+-- the wrong map's row is a visible mismatch.
+function T.wayfinding_map_rows_are_distinct_atlas_rows_with_distinct_pixels()
+  local romFs, sha1, hashLua = fixture()
+  local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local atlas = bundle.assets[bundle.manifest.assets["hgss.signpost.wayfinding"].image]
+  local width, _, rgba = PngReader.rgba(atlas)
+  local type0 = bundle.manifest.signposts.types[0]
+  local rect0 = assert(type0.wayfinding[0], "type 0 map 0 row")
+  local rect1 = assert(type0.wayfinding[1], "type 0 map 1 row")
+  Assert.isTrue(rect0.y ~= rect1.y, "map 0 and map 1 must be separate atlas rows")
+  local function rowPixels(rect)
+    return rgba:sub(rect.y * width * 4 + 1, (rect.y + rect.height) * width * 4)
+  end
+  Assert.isTrue(rowPixels(rect0) ~= rowPixels(rect1), "map 0 and map 1 rows must decode to distinct pixels")
+end
+
+-- cellBounds must span the actual objects: with strictly positive object
+-- coordinates the zero-origin initialization would widen every extent.
+function T.cell_bounds_cover_all_positive_object_coordinates()
+  local romFs, sha1, hashLua = fixture({ { x = 8, y = 8, tile = 0, pal = 0 }, { x = 16, y = 16, tile = 1, pal = 0 } })
+  local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local frame = bundle.manifest.startMenu.cursor.frames[1]
+  Assert.deepEqual({ frame.width, frame.height }, { 16, 16 }, "bounds span exactly x 8..24, y 8..24")
+end
+
+-- Same for negative-origin objects: with every extent below zero the
+-- zero-origin initialization would inflate the bounds to the origin.
+function T.cell_bounds_cover_negative_origin_object_coordinates()
+  local romFs, sha1, hashLua =
+    fixture({ { x = -16, y = -16, tile = 0, pal = 0 }, { x = -24, y = -24, tile = 1, pal = 0 } })
+  local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local frame = bundle.manifest.startMenu.cursor.frames[1]
+  Assert.deepEqual({ frame.width, frame.height }, { 16, 16 }, "bounds span exactly x -24..-8, y -24..-8")
 end
 
 function T.writer_commits_marker_last_and_reads_back()
