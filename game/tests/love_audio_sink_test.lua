@@ -328,10 +328,15 @@ end
 -- depth, channels), the 1-based channel accessor, and real
 -- love.audio.newQueueableSource/queue/play all work headless, so the smoke
 -- test runs the sink against the actual host API. A wrong constructor or
--- accessor signature raises against the real binding.
+-- accessor signature raises against the real binding. The standard test
+-- command keeps love.audio and love.sound disabled (hermetic suite), so this
+-- test skips there and only exercises the real API when a host has the sound
+-- modules available, e.g. a LÖVE run outside the standard suite.
 function T.real_love_sound_and_audio_namespaces_accept_the_sinks_queueing(context)
   if not (love and love.audio and love.sound and love.audio.newQueueableSource and love.sound.newSoundData) then
-    context:skip("host has no sound module (love.sound/love.audio)")
+    context:skip(
+      "the test command keeps love.audio/love.sound disabled; run on a host with the sound modules to check signatures"
+    )
   end
   local probe = love.audio.newQueueableSource(SAMPLE_RATE, BIT_DEPTH, CHANNELS)
   local free = probe:getFreeBufferCount()
