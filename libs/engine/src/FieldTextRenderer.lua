@@ -5,22 +5,20 @@
 -- (a renderer never acquires an independent atlas) and injects it; the
 -- renderer owns only its own frame/card images. Glyph ink and shadow colors
 -- are baked at import time, so text draws at identity tint; control tokens
--- in a line draw nothing but keep their measured layout width, so following
--- glyphs stay exactly where the paginator placed them -- production
--- presentation never invents diagnostic marker text. Construction is
+-- in a line draw nothing and take no width, exactly as the paginator
+-- measured them -- the serialized marker spelling is an editing contract,
+-- not presentation geometry. Construction is
 -- failure-safe: a missing font atlas is a typed error, and a quad failure
 -- after the image was created releases it before rethrowing.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
-local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
 local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 
 ---@class FieldTextRenderer
 ---@field fontDef FieldFontDef
----@field _nonGlyphWidth fun(token: MessageToken): integer the one control-token width measurement (the dialogue theme's metrics, shared with the paginator)
 ---@field _graphics love.Graphics
 ---@field _atlas love.Image?
 ---@field _quads table<integer, love.Quad>?
@@ -46,9 +44,6 @@ function FieldTextRenderer.new(opts)
   local fontDef = FieldFontLoader.load(opts.cacheFs, fontId)
   local self = setmetatable({
     fontDef = fontDef,
-    -- The paginator's own measurement: a control token in a drawn line must
-    -- advance by exactly the width layout gave it.
-    _nonGlyphWidth = FieldDialogueTheme.fontMetrics(fontDef).nonGlyphWidth,
     _graphics = graphics,
     _atlas = nil,
     _quads = nil,
@@ -86,10 +81,10 @@ end
 
 -- Draws one page line at the reference-canvas position: glyphs through the
 -- atlas at identity tint (the compiled ink/shadow/background colors are
--- baked). Control tokens draw nothing but advance by their measured control
--- token width -- the same measurement the paginator used -- so following
--- glyphs stay exactly where layout placed them and no diagnostic text ever
--- appears in production presentation.
+-- baked). Control tokens draw nothing and take no width, matching the
+-- paginator's widthless measurement, so following glyphs start exactly where
+-- layout placed them and no diagnostic text ever appears in production
+-- presentation.
 
 ---@param tokens MessageToken[]
 ---@param x number
@@ -109,8 +104,6 @@ function FieldTextRenderer:drawLine(tokens, x, y)
       end
       local glyph = def.glyphs[token.code] or def.glyphs[0]
       x = x + glyph.advance + letterSpacing
-    else
-      x = x + self._nonGlyphWidth(token)
     end
   end
 end

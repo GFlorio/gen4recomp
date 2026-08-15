@@ -12,7 +12,6 @@
 -- All geometry is pure so the box layout is testable headlessly at every
 -- host aspect; the LÖVE renderer draws exactly what this module computes.
 
-local FieldMessageText = require("libs.assets.src.FieldMessageText")
 local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 
 ---@class FieldDialogueTheme
@@ -158,10 +157,10 @@ function FieldDialogueTheme.layout(referenceFrame)
 end
 
 -- The layout metrics object the paginator consumes: glyph advances from the
--- generated font definition, falling back to the compiled fallback glyph, and
--- the typeset width of control tokens measured through the same charmap the
--- text renderer advances them with (the renderer draws no marker text).
--- Returns a table with glyphWidth(code) and nonGlyphWidth(token).
+-- generated font definition, falling back to the compiled fallback glyph.
+-- Control tokens carry no width: none of the controls implemented today has
+-- spatial semantics, and the serialized marker spelling is not presentation
+-- geometry. Returns a table with glyphWidth(code) only.
 
 ---@param fontDef FieldFontDef
 ---@return FieldDialogueTheme.Metrics
@@ -170,23 +169,10 @@ function FieldDialogueTheme.fontMetrics(fontDef)
     type(fontDef) == "table" and type(fontDef.glyphs) == "table",
     "font metrics require a g4-field-font-v1 definition"
   )
-  local function glyphAdvance(code)
-    local glyph = fontDef.glyphs[code] or fontDef.glyphs[0]
-    return glyph and glyph.advance or 0
-  end
   return {
     glyphWidth = function(code)
       local glyph = fontDef.glyphs[code] or fontDef.glyphs[0]
       return glyph and glyph.advance
-    end,
-    nonGlyphWidth = function(token)
-      local text = FieldMessageText.tokensToText({ token })
-      local measured = 0
-      for char in Utf8Glyphs.iter(text) do
-        local code = fontDef.charmap[char] or 0
-        measured = measured + glyphAdvance(code) + (fontDef.letterSpacing or 0)
-      end
-      return measured
     end,
   }
 end
@@ -231,11 +217,13 @@ end
 ---@field cursor FieldDialogueTheme.Rect
 ---@field lineHeight number
 
--- Metrics consumed by DialogueLayout: glyph advances and measured
--- non-glyph token widths.
+-- Metrics consumed by DialogueLayout: glyph advances from the generated font
+-- definition. Non-glyph tokens get no width here, so DialogueLayout measures
+-- them as widthless. The optional nonGlyphWidth field types DialogueLayout's
+-- generic control-width hook for metrics objects that choose to provide one.
 
 ---@class FieldDialogueTheme.Metrics
 ---@field glyphWidth fun(code: integer): integer?
----@field nonGlyphWidth fun(token: MessageToken): integer
+---@field nonGlyphWidth? fun(token: MessageToken): integer
 
 return FieldDialogueTheme

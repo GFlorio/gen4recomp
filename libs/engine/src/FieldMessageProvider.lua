@@ -185,8 +185,8 @@ end
 -- Builds a new token sequence from the template. resolvers maps extended
 -- control codes to `function(control, args, context) -> replacementTokens`.
 -- Replacement tokens must be glyph-kind tokens; they are spliced in verbatim.
--- Unresolved substitution tokens stay in the stream (visible markers, traced
--- by the caller) and the result flags them.
+-- Unresolved substitution tokens stay in the stream (traced by the caller)
+-- and the result flags them.
 function FieldMessageProvider:format(template, context, resolvers)
   assert(template and template.tokens, "format requires a MessageTemplate")
   context = context or {}

@@ -4,10 +4,18 @@
 -- reference-space dimensions and two full 16px text lines inside the 32px
 -- height. Layout returns reference-canvas geometry plus one origin/scale
 -- mapping; the renderer applies that transform itself, so layout rects
--- always stay in reference space.
+-- always stay in reference space. Production-metrics coverage at the bottom
+-- proves the theme's font metrics feed the paginator without marker-string
+-- width: style controls leave layout unchanged and resolved substitutions
+-- keep their replacement glyph advances.
 
 local Assert = require("tests.support.Assert")
+local CacheFs = require("libs.storage.src.CacheFs")
+local DialogueLayout = require("libs.engine.src.DialogueLayout")
+local FakeCache = require("tests.support.FakeCache")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
+local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
+local FieldUiFixture = require("tests.support.FieldUiFixture")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 
 local T = {}
@@ -143,6 +151,79 @@ function T.font_metrics_resolve_advances_with_fallback()
   local metrics = FieldDialogueTheme.fontMetrics(fontDef)
   Assert.equal(metrics.glyphWidth(1), 6)
   Assert.equal(metrics.glyphWidth(99), 4, "unknown codes use the fallback glyph")
+end
+
+-- The visible glyph text of one laid-out line (non-glyph tokens skipped).
+local function textOf(line)
+  local out = {}
+  for _, token in ipairs(line.tokens) do
+    if token.kind == "glyph" then
+      out[#out + 1] = token.text
+    end
+  end
+  return table.concat(out)
+end
+
+-- Production metrics: FieldDialogueTheme.fontMetrics must not give a style
+-- control a marker-string width, so [style-control, glyphs] lays out with the
+-- same line widths and wrap positions as [glyphs] alone.
+function T.style_controls_do_not_change_production_line_width_or_wrap()
+  local def = FieldUiFixture.cardFontDef()
+  local metrics = FieldDialogueTheme.fontMetrics(def)
+  local glyphs = assert(FieldMessageProvider.asciiGlyphTokens("AAAA", def))
+  local styled = { { kind = "style", control = 0xFF00, args = { 1 }, raw = { 0xFFFE, 0xFF00, 1, 1 } } }
+  for i, token in ipairs(glyphs) do
+    styled[i + 1] = token
+  end
+  -- "AAAA" (4 x 8px) exceeds the 24px line: the wrap must land identically.
+  local opts = { width = 24, maxLines = 2 }
+  local withControl = DialogueLayout.layout(styled, metrics, opts)
+  local alone = DialogueLayout.layout(glyphs, metrics, opts)
+  Assert.equal(#withControl.pages, #alone.pages, "the style control adds no page")
+  for p = 1, #alone.pages do
+    Assert.equal(#withControl.pages[p].lines, #alone.pages[p].lines, "page " .. p .. " wraps identically")
+    for l = 1, #alone.pages[p].lines do
+      Assert.equal(withControl.pages[p].lines[l].width, alone.pages[p].lines[l].width)
+      Assert.equal(textOf(withControl.pages[p].lines[l]), textOf(alone.pages[p].lines[l]))
+    end
+  end
+end
+
+-- Production metrics: a resolved player-name substitution splices real glyph
+-- tokens into the stream (FieldMessageProvider:format + asciiGlyphTokens), and
+-- those replacement glyphs contribute their actual advances -- the fixture's
+-- multibyte É contributes 6, each ASCII letter 8 -- never a marker width.
+function T.resolved_substitutions_contribute_replacement_glyph_widths()
+  local def = FieldUiFixture.cardFontDefWithMultibyte()
+  local provider = FieldMessageProvider.new(CacheFs.forVersion("heartgold", FakeCache.new()))
+  local name = "\195\137" .. "GOLD" -- ÉGOLD
+  local formatted = provider:format({
+    bankId = 0,
+    messageId = 0,
+    tokens = {
+      { kind = "substitution", control = 0x0103, args = { 0, 0 }, raw = { 0xFFFE, 0x0103, 0x0002, 0, 0 } },
+      { kind = "eos", raw = { 0xFFFF } },
+    },
+  }, { playerName = name }, {
+    [0x0103] = function()
+      return FieldMessageProvider.asciiGlyphTokens(name, def)
+    end,
+  })
+  Assert.isFalse(formatted.hadUnresolvedSubstitutions)
+  local layout = DialogueLayout.layout(
+    formatted.tokens,
+    FieldDialogueTheme.fontMetrics(def),
+    { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines }
+  )
+  Assert.equal(#layout.pages, 1)
+  local line = layout.pages[1].lines[1]
+  -- É (6) + G O L D (4 x 8) = 38
+  Assert.equal(line.width, 6 + 4 * 8, "replacement glyphs keep their real advances")
+  local codes = {}
+  for _, token in ipairs(line.tokens) do
+    codes[token.code] = true
+  end
+  Assert.isTrue(codes[360], "the resolved multibyte glyph rides in the laid-out line")
 end
 
 return { tests = T }

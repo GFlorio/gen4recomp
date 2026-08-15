@@ -91,17 +91,17 @@ function T.draw_line_visits_each_multibyte_glyph_once()
   text:release()
 end
 
--- Production presentation never invents diagnostic marker text: a control
--- token in a line draws nothing, but keeps its measured layout width so the
--- following glyph starts exactly where the paginator placed it.
-function T.draw_line_draws_no_marker_for_control_tokens_but_keeps_their_width()
+-- Production presentation never invents diagnostic marker text and never
+-- reserves marker-string width: a control token in a line draws nothing and
+-- does not advance x, so the following glyph starts at the original x.
+function T.control_tokens_draw_nothing_and_do_not_offset_the_following_glyph()
   local lg, draws = fakeGraphics()
   local text = FieldTextRenderer.new({ cacheFs = fixtureCache(), graphics = lg })
   local wait = { kind = "wait", control = 514, name = "WAIT", args = {} }
   local glyph = { kind = "glyph", code = 1, text = "A", raw = { 1 } }
   text:drawLine({ wait, glyph }, 10, 20)
   Assert.equal(#draws, 1, "the control token draws no marker text")
-  Assert.equal(draws[1].x, 10 + 6 * ASCII_ADVANCE, "the glyph starts after the measured marker width of {WAIT}")
+  Assert.equal(draws[1].x, 10, "WAIT occupies zero pixels; the glyph starts at the original x")
   Assert.equal(draws[1].y, 20)
   text:release()
 end
