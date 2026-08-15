@@ -180,6 +180,29 @@ function T.player_data_bucket_round_trips_exactly()
   Assert.deepEqual(restored.playerData, modified)
 end
 
+-- Canonicalization is part of the save boundary contract: both public
+-- boundaries retain the canonical player-data record the model produces, so
+-- the deserialized input bucket -- with its unknown keys -- never becomes
+-- the record the runtime consumes. The input table itself is never the
+-- returned player data; the model's own canonicalization of values is the
+-- FieldPlayerData suite's contract.
+function T.player_data_validation_retains_the_canonical_record()
+  local map = runtimeMap("terrain-a", { flat(11, 4) })
+  local planted = {
+    profile = { name = "GOLD", gender = 0, trainerId = 7, transientThing = 123 },
+    options = { textFrame = 0, textSpeed = "mid", futureThing = true },
+    extraTopLevel = true,
+  }
+  local valid =
+    assert(FieldSave.validate(record({ playerData = planted }), { playerDataContext = playerDataContext() }))
+  Assert.isFalse(rawequal(valid.playerData, planted), "the validated record must not carry the input player-data table")
+  local restored = assert(restore(record({ playerData = planted }), map))
+  Assert.isFalse(rawequal(restored.playerData, planted), "restore must not return the deserialized input bucket")
+  Assert.keySet(restored.playerData, "options,profile", "restore must drop the extra top-level key")
+  Assert.keySet(restored.playerData.profile, "gender,name,trainerId", "restore must drop profile.transientThing")
+  Assert.keySet(restored.playerData.options, "textFrame,textSpeed", "restore must drop options.futureThing")
+end
+
 -- The current schema requires the player-data bucket: an old or hand-edited
 -- record missing it is rejected with the structured player-data error, never
 -- defaulted or upgraded.

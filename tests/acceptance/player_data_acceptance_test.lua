@@ -9,7 +9,10 @@
 -- containing a real multibyte field-font glyph is accepted and reaches the
 -- trainer card presentation through production composition, while an
 -- arbitrary empty player-data bucket is rejected -- the resume boundary must
--- never pass player data it did not validate.
+-- never pass player data it did not validate. The resume boundary also
+-- canonicalizes the bucket: unknown keys are discarded (not rejected) while
+-- every known field survives, and the runtime record is the canonical copy,
+-- never the deserialized input table.
 
 local Assert = require("tests.support.Assert")
 local LuaWriter = require("libs.codec.src.LuaWriter")
@@ -242,6 +245,66 @@ function T.tests.current_schema_save_with_arbitrary_player_data_is_rejected()
   resumePlantedRecord(function(record)
     record.playerData = {}
   end, "FIELD_SAVE_PLAYER_DATA_INVALID")
+end
+
+-- The resume boundary must hand the runtime the canonical player-data
+-- record, not the deserialized input bucket. Extra keys planted in the
+-- bucket (profile.transientThing, options.futureThing, extraTopLevel) are
+-- discarded by canonicalization -- they must not reject the resume, and
+-- they must not survive it -- while every known field keeps its exact
+-- value. The same scenario pins the fresh canonical record shape on the
+-- first boot.
+function T.tests.extra_player_data_fields_are_dropped_by_canonicalization()
+  local planted = {
+    profile = {
+      name = "GOLD",
+      gender = 0,
+      trainerId = 1234,
+      transientThing = 123,
+    },
+    options = {
+      textFrame = 0,
+      textSpeed = "mid",
+      futureThing = true,
+    },
+    extraTopLevel = "not part of the model",
+  }
+  local first, resumed = plantAndResume(function(record)
+    record.playerData = planted
+  end, "acceptance/player-data/canonicalization")
+  local ok, err = xpcall(function()
+    -- The fresh boot owns a canonical record: exactly the model keys.
+    Assert.keySet(first.runtime.playerData, "options,profile", "the fresh player data must be the canonical record")
+    Assert.keySet(
+      first.runtime.playerData.profile,
+      "gender,name,trainerId",
+      "the fresh profile must carry exactly the model fields"
+    )
+    Assert.keySet(
+      first.runtime.playerData.options,
+      "textFrame,textSpeed",
+      "the fresh options must carry exactly the model fields"
+    )
+
+    -- The planted extras must not reject the resume: canonicalization
+    -- discards them rather than failing on them.
+    Assert.equal(resumed.saveStatus, "Resumed saved field session")
+    local canonical = resumed.runtime.playerData
+    Assert.equal(canonical.profile.name, "GOLD", "the canonical profile keeps the name")
+    Assert.equal(canonical.profile.gender, 0, "the canonical profile keeps the gender")
+    Assert.equal(canonical.profile.trainerId, 1234, "the canonical profile keeps the trainer id")
+    Assert.equal(canonical.options.textFrame, 0, "the canonical options keep the text frame")
+    Assert.equal(canonical.options.textSpeed, "mid", "the canonical options keep the text speed")
+    Assert.keySet(canonical, "options,profile", "canonicalization must drop the extra top-level key")
+    Assert.keySet(canonical.profile, "gender,name,trainerId", "canonicalization must drop profile.transientThing")
+    Assert.keySet(canonical.options, "textFrame,textSpeed", "canonicalization must drop options.futureThing")
+    Assert.equal(resumed:renderAttempts(), 0, "the canonicalization resume must not render")
+  end, debug.traceback)
+  resumed:close()
+  first:close()
+  if not ok then
+    error(err, 0)
+  end
 end
 
 -- A player name containing a real multibyte field-font glyph: É (U+00C9) is

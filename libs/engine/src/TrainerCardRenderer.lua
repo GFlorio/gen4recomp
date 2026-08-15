@@ -9,7 +9,7 @@
 -- messages 0..6); the player name is right-aligned to x=240 and the trainer
 -- id (five digits, zero-padded per the source's String16_FormatInteger)
 -- right-aligned to x=112 on the y=24 row. The presentation carries only the
--- implemented profile fields (name, gender, trainerId), so the label rows
+-- implemented profile fields (name, trainerId), so the label rows
 -- for values gameplay does not own stay empty and the source-gated POKéDEX
 -- row is not drawn at all: nothing is fabricated. Text draws through the
 -- shared FieldTextRenderer (owned by FieldState); this renderer owns only

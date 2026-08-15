@@ -1,8 +1,10 @@
 -- TrainerCardController contract tests: the close-input-only card
 -- controller receives the authoritative player profile and copies the
--- required immutable fields (name/gender/trainerId) at construction, so
--- later mutation of the caller's profile cannot change the open card.
--- Status exposes exactly those fields plus the open flag -- no future-card
+-- required immutable fields (name/trainerId) at construction, so later
+-- mutation of the caller's profile cannot change the open card. Gender is
+-- not a card presentation field: the controller does not require it and the
+-- status never carries it, even when the input profile does. Status exposes
+-- exactly the implemented fields plus the open flag -- no future-card
 -- placeholder keys -- and every call returns a fresh table. It owns no Start
 -- Menu internals: a cancel edge records exactly one { kind = "close" }
 -- result; every foreign input (directions/confirm/menu/pointers) changes
@@ -39,14 +41,11 @@ function T.tests.construction_requires_the_profile()
     TrainerCardController.new({ profile = { name = "GOLD" } })
   end)
   throws(function()
-    TrainerCardController.new({ profile = { name = "GOLD", gender = 0 } })
-  end)
-  throws(function()
-    TrainerCardController.new({ profile = { name = "GOLD", trainerId = 0 } })
-  end)
-  throws(function()
     TrainerCardController.new({ profile = { gender = 0, trainerId = 0 } })
   end)
+  -- Gender is not a card presentation field: a profile without it is a
+  -- valid construction input.
+  Assert.notNil(TrainerCardController.new({ profile = { name = "GOLD", trainerId = 0 } }))
 end
 
 -- The card must expose only the implemented profile fields: extra keys are
@@ -55,16 +54,23 @@ function T.tests.status_exposes_exactly_the_implemented_profile_fields()
   local status = fixture():status()
   Assert.equal(status.open, true)
   Assert.equal(status.name, "GOLD")
-  Assert.equal(status.gender, 0)
   Assert.equal(status.trainerId, 0)
-  Assert.keySet(status, "gender,name,open,trainerId")
+  Assert.keySet(status, "name,open,trainerId")
+end
+
+-- The card presentation never carries gender, even when the input profile
+-- does: gender is not a card presentation field.
+function T.tests.profile_gender_is_not_carried_into_the_presentation()
+  local controller = TrainerCardController.new({ profile = { name = "GOLD", gender = 1, trainerId = 0 } })
+  local status = controller:status()
+  Assert.isNil(status.gender, "the card presentation must not expose gender")
+  Assert.keySet(status, "name,open,trainerId")
 end
 
 function T.tests.status_passes_boundary_profile_values_through()
-  local controller = fixture({ name = "ABCDEFG", gender = 1, trainerId = 65535 })
+  local controller = fixture({ name = "ABCDEFG", trainerId = 65535 })
   local status = controller:status()
   Assert.equal(status.name, "ABCDEFG")
-  Assert.equal(status.gender, 1)
   Assert.equal(status.trainerId, 65535)
 end
 

@@ -71,6 +71,36 @@ function T.spec_demo_record_validates_and_returns_a_copy()
   Assert.equal(record().options.textSpeed, "mid")
 end
 
+-- Canonicalization is the boundary contract: unknown keys are discarded,
+-- never rejected, and the returned record is a fresh table -- the caller's
+-- input never becomes the runtime record.
+function T.unknown_keys_are_discarded_by_canonicalization()
+  local input = {
+    profile = {
+      name = "GOLD",
+      gender = 0,
+      trainerId = 7,
+      transientThing = 123,
+    },
+    options = {
+      textFrame = 1,
+      textSpeed = "fast",
+      futureThing = true,
+    },
+    extraTopLevel = "not part of the model",
+  }
+  local validated = assert(FieldPlayerData.validate(input, context()))
+  Assert.isFalse(rawequal(validated, input), "validation must not return the caller's table")
+  Assert.equal(validated.profile.name, "GOLD", "the canonical record keeps the known fields")
+  Assert.equal(validated.profile.gender, 0)
+  Assert.equal(validated.profile.trainerId, 7)
+  Assert.equal(validated.options.textFrame, 1)
+  Assert.equal(validated.options.textSpeed, "fast")
+  Assert.keySet(validated, "options,profile", "canonicalization must drop the extra top-level key")
+  Assert.keySet(validated.profile, "gender,name,trainerId", "canonicalization must drop profile.transientThing")
+  Assert.keySet(validated.options, "textFrame,textSpeed", "canonicalization must drop options.futureThing")
+end
+
 function T.over_seven_glyph_names_are_rejected()
   throwsCode("PLAYER_DATA_NAME_INVALID", function()
     local _, err =

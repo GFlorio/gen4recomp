@@ -84,9 +84,8 @@ function T.tests.production_factory_registers_the_card_and_resume_drives_the_pre
     local status = cardStatus(game)
     Assert.isTrue(type(status) == "table", "the host must present the card application")
     Assert.equal(status.name, runtime.playerData.profile.name)
-    Assert.equal(status.gender, runtime.playerData.profile.gender)
     Assert.equal(status.trainerId, runtime.playerData.profile.trainerId)
-    Assert.keySet(status, "gender,name,open,trainerId", "the card exposes only the implemented profile fields")
+    Assert.keySet(status, "name,open,trainerId", "the card exposes only the implemented profile fields")
 
     -- The saved bucket wins over the initial manifest after a resume: return
     -- to the field (the settled boundary allows the disposal save), mutate
@@ -99,7 +98,6 @@ function T.tests.production_factory_registers_the_card_and_resume_drives_the_pre
     pressMenuEdge(game)
     advanceToPhase(game, "closed", 16)
     runtime.playerData.profile.name = "HIKARI"
-    runtime.playerData.profile.gender = 1
     runtime.playerData.profile.trainerId = 54321
     local resumed = game:restart({ save = "resume" })
     Assert.equal(resumed.saveStatus:find("Resumed", 1, true) ~= nil, true, "the resume boot must restore the save")
@@ -107,7 +105,6 @@ function T.tests.production_factory_registers_the_card_and_resume_drives_the_pre
     openCard(resumed)
     local resumedStatus = cardStatus(resumed)
     Assert.equal(resumedStatus.name, "HIKARI", "the resumed card presents the saved name, not the manifest")
-    Assert.equal(resumedStatus.gender, 1)
     Assert.equal(resumedStatus.trainerId, 54321)
   end, debug.traceback)
   if not ok then

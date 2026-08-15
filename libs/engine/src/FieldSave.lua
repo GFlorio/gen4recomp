@@ -9,8 +9,11 @@
 -- boundary itself validates the world bucket through the authoritative
 -- event-state and rng validators, so a save store cannot skip world
 -- validation. Validation covers stable simulation state only; no dialogue,
--- facing override, or actor position is persisted. This is not a Nintendo
--- DS save format.
+-- facing override, or actor position is persisted. Validation also
+-- canonicalizes the player-data bucket through the model, and the validated
+-- record and restore keep that canonical copy: unknown bucket keys are
+-- discarded (never rejected), and the deserialized input table never becomes
+-- the runtime record. This is not a Nintendo DS save format.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
@@ -176,9 +179,12 @@ end
 -- The player-data bucket, validated through the authoritative model with the
 -- caller's injected context (the generated font charmap and the imported
 -- frame-index set). The bucket is required; a missing or invalid record is
--- rejected, never defaulted or upgraded. The context itself is a required
--- composition contract: without it no call path may accept player data, so a
--- missing context is a programming fault, not a validation downgrade.
+-- rejected, never defaulted or upgraded. Returns the canonical player-data
+-- record the model produces (unknown keys discarded), so the validated save
+-- record never hands the runtime the raw deserialized bucket. The context
+-- itself is a required composition contract: without it no call path may
+-- accept player data, so a missing context is a programming fault, not a
+-- validation downgrade.
 local function validatePlayerData(record, opts)
   if type(record.playerData) ~= "table" then
     Errors.raise(FieldErrors.FIELD_SAVE_PLAYER_DATA_INVALID, "field save player data bucket is required", {})
@@ -195,9 +201,13 @@ local function validatePlayerData(record, opts)
       cause = err.code,
     })
   end
+  return valid
 end
 
--- Strict schema validation (raising). Used by save and restore paths.
+-- Strict schema validation (raising). Returns a shallow copy of the record
+-- whose player-data bucket is the canonical record produced by the player
+-- model: the deserialized bucket is validated exactly once here, and restore
+-- operates on this canonical record.
 local function validate(record, opts)
   if type(record) ~= "table" then
     Errors.raise(FieldErrors.FIELD_SAVE_INVALID, "field save must be a table", {})
@@ -211,8 +221,13 @@ local function validate(record, opts)
   validateWorld(record)
   validateScripts(record, opts)
   validateAuxiliaryUi(record)
-  validatePlayerData(record, opts)
-  return record
+  local canonicalPlayerData = validatePlayerData(record, opts)
+  local canonical = {}
+  for key, value in pairs(record) do
+    canonical[key] = value
+  end
+  canonical.playerData = canonicalPlayerData
+  return canonical
 end
 
 function FieldSave.validate(record, opts)
@@ -330,57 +345,57 @@ end
 
 -- Strict restore of the only schema. Returns the restored location plus the
 -- persisted avatar id, world and scripts buckets, auxiliary UI state, and
--- the player-data bucket, so the caller rebuilds exactly what the save
--- holds. `opts.scriptsValidate` is the domain validator wired by the game
--- layer (ScriptSave.validate for the scripts bucket); `opts.playerDataContext`
--- is the player-data validation context; the world bucket is validated by
--- this boundary itself.
+-- the canonical player-data record, so the caller rebuilds exactly what the
+-- save holds. `opts.scriptsValidate` is the domain validator wired by the
+-- game layer (ScriptSave.validate for the scripts bucket);
+-- `opts.playerDataContext` is the player-data validation context; the world
+-- bucket is validated by this boundary itself.
 local function restore(record, loader, expectedVersionId, opts)
-  validate(record, opts)
-  if record.versionId ~= expectedVersionId then
+  local canonical = validate(record, opts)
+  if canonical.versionId ~= expectedVersionId then
     Errors.raise(
       FieldErrors.FIELD_SAVE_VERSION_MISMATCH,
       "field save belongs to another imported version",
-      { expected = expectedVersionId, actual = record.versionId }
+      { expected = expectedVersionId, actual = canonical.versionId }
     )
   end
-  local runtimeMap = loader:load(record.mapId)
-  local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, record.fieldX, record.fieldZ)
+  local runtimeMap = loader:load(canonical.mapId)
+  local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, canonical.fieldX, canonical.fieldZ)
   local surface
   if
-    record.terrainDependencyHash == runtimeMap.terrainDependencyHash
+    canonical.terrainDependencyHash == runtimeMap.terrainDependencyHash
     and runtimeMap.terrain:contains(
-      record.surfaceId,
+      canonical.surfaceId,
       localX + FieldCoordinates.TILE_CENTER_OFFSET,
       localZ + FieldCoordinates.TILE_CENTER_OFFSET
     )
   then
     surface = runtimeMap.terrain:sample(
-      record.surfaceId,
+      canonical.surfaceId,
       localX + FieldCoordinates.TILE_CENTER_OFFSET,
       localZ + FieldCoordinates.TILE_CENTER_OFFSET
     )
   else
-    surface = closestSurface(runtimeMap, localX, localZ, record.worldY)
+    surface = closestSurface(runtimeMap, localX, localZ, canonical.worldY)
   end
   local suppression
-  if WarpSystem.findAt(runtimeMap, record.fieldX, record.fieldZ) then
-    suppression = { mapId = runtimeMap.mapId, fieldX = record.fieldX, fieldZ = record.fieldZ }
+  if WarpSystem.findAt(runtimeMap, canonical.fieldX, canonical.fieldZ) then
+    suppression = { mapId = runtimeMap.mapId, fieldX = canonical.fieldX, fieldZ = canonical.fieldZ }
   end
   return {
     runtimeMap = runtimeMap,
-    fieldX = record.fieldX,
-    fieldZ = record.fieldZ,
+    fieldX = canonical.fieldX,
+    fieldZ = canonical.fieldZ,
     worldY = surface.worldY,
     surfaceId = surface.surfaceId,
-    facing = record.facing,
+    facing = canonical.facing,
     suppression = suppression,
-    avatar = record.avatar,
-    scenario = record.scenario,
-    world = record.world,
-    scripts = record.scripts,
-    auxiliaryUi = record.auxiliaryUi,
-    playerData = record.playerData,
+    avatar = canonical.avatar,
+    scenario = canonical.scenario,
+    world = canonical.world,
+    scripts = canonical.scripts,
+    auxiliaryUi = canonical.auxiliaryUi,
+    playerData = canonical.playerData,
   }
 end
 
