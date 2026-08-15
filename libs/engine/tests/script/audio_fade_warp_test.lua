@@ -695,6 +695,69 @@ T["music fade without backend faults"] = function()
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
 end
 
+-- 8b2. The fade task against the REAL GameSound: the fade starts in the
+-- command's execution tick and the task completes exactly when the fade
+-- reaches its target -- the isMusicFadeActive poll flips at the target tick,
+-- never before -- for the fade-out and the fade-in path alike.
+T["music fade task completes exactly when the real fade reaches its target"] = function()
+  local AudioAssetProvider = require("libs.engine.src.audio.AudioAssetProvider")
+  local AudioFixture = require("tests.support.AudioFixture")
+  local GameSound = require("libs.engine.src.audio.GameSound")
+  local SequencePlayer = require("libs.engine.src.audio.SequencePlayer")
+  local VoiceMixer = require("libs.engine.src.audio.VoiceMixer")
+  local provider = AudioAssetProvider.new(AudioFixture.readyCache(AudioFixture.bundle()))
+  local mixer = VoiceMixer.new({ sampleRate = 48000 })
+  local player = SequencePlayer.new({
+    sampleRate = 48000,
+    mixer = mixer,
+    provider = provider,
+  })
+  local sound = GameSound.new({ provider = provider, player = player })
+  local h = harness({ audio = false })
+  h.services.audio = sound
+  h.services.advanceAsync = function()
+    sound:updateFixed()
+  end
+  local MusicFadeTask = require("libs.engine.src.script.tasks.MusicFadeTask")
+  h.taskRegistry:register("music_fade", 1, MusicFadeTask)
+  local resource = script("test.fadereal", {
+    S.playMusic({ music = "SEQ_TEST_A" }),
+    S.fadeMusicOut({ target = 0, durationTicks = 30 }),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
+    S.fadeMusicIn({ durationTicks = 20 }),
+    S.setVar({ variable = "VAR_SECOND", value = 1 }),
+    S.stop(),
+  })
+  startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  Assert.isTrue(sound:isMusicFadeActive(), "the fade starts in the command's execution tick")
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+  for tick = 101, 129 do
+    h.scheduler:step(tick, nil)
+  end
+  Assert.isTrue(sound:isMusicFadeActive(), "the fade still blocks before its target tick")
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+  h.scheduler:step(130, nil)
+  Assert.isFalse(sound:isMusicFadeActive(), "the fade completes at exactly its requested duration")
+  Assert.equal(
+    h.services.world:getVar("VAR_AFTER"),
+    0,
+    "completion during a poll must not continue the graph same tick"
+  )
+  h.scheduler:step(131, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1, "the continuation runs the tick after the fade completes")
+  Assert.isTrue(sound:isMusicFadeActive(), "the fade-in starts in its execution tick")
+  for tick = 132, 150 do
+    h.scheduler:step(tick, nil)
+  end
+  Assert.isTrue(sound:isMusicFadeActive(), "the fade-in still blocks before its target tick")
+  Assert.equal(h.services.world:getVar("VAR_SECOND"), 0)
+  h.scheduler:step(151, nil)
+  Assert.isFalse(sound:isMusicFadeActive(), "the fade-in completes at exactly its requested duration")
+  h.scheduler:step(152, nil)
+  Assert.equal(h.services.world:getVar("VAR_SECOND"), 1, "the fade-in continuation runs through the script layer")
+end
+
 -- 8c. wait_sound resolves a value-reference operand before the first
 -- poll: the backend sees the resolved sequence id, never the reference.
 T["wait sound evaluates a value reference before polling"] = function()

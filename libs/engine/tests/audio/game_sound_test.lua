@@ -15,8 +15,11 @@
 -- the fade timer is frozen while a fanfare is active per DoSoundUpdateFrame),
 -- the cry boundary (a reachable cry without a cry subsystem is an attributed
 -- failure until a cry data path exists), and the save-stability predicate
--- (false while a fade, fanfare, cry, or playable effect transient is
--- active). PCM rendering is the output sink's business: GameSound never
+-- (always true: every script wait on transient audio -- fades, fanfares,
+-- cries, awaited effects -- persists as task state and completes immediately
+-- against the fresh audio service built at load, so no capture bisects a
+-- persisted game-semantic operation and a looping effect can never hold a
+-- save hostage). PCM rendering is the output sink's business: GameSound never
 -- renders. All polls return booleans, never nil. The only injectable
 -- boundaries are the cry subsystem and the map-music resolver; everything
 -- else runs the real engine audio.
@@ -338,7 +341,7 @@ function T.effects_overlap_bgm_and_report_player_completion()
   sound:playMusic("SEQ_TEST_BGM")
   sound:play(1)
   Assert.isTrue(sound:isEffectPlaying(1), "the effect is playing on its player")
-  Assert.isFalse(sound:isSaveStable(), "an effect that can be awaited blocks saving")
+  Assert.isTrue(sound:isSaveStable(), "an awaited effect never blocks saving: transient audio is discarded on load")
   local pcm = player:render(600)
   Assert.deepEqual(left(pcm, 500), mixedAB(500), "the effect overlaps the bgm")
   -- The tick at frame 500 releases both notes; their release lag and tail
@@ -421,7 +424,7 @@ function T.fanfare_pauses_the_bgm_player_and_resumes_at_its_preserved_position()
   player:render(200)
   sound:playFanfare("SEQ_TEST_FANFARE")
   Assert.isTrue(sound:isFanfarePlaying())
-  Assert.isFalse(sound:isSaveStable(), "a fanfare blocks saving")
+  Assert.isTrue(sound:isSaveStable(), "a fanfare never blocks saving: transient audio is discarded on load")
   -- The BGM player is paused, not stopped: its sequence is still held.
   Assert.isTrue(sound:isEffectPlaying("SEQ_TEST_BGM"), "the bgm player is paused, not stopped, during the fanfare")
   -- The paused bgm is silent; only the fanfare sounds (its note expires at
@@ -433,7 +436,7 @@ function T.fanfare_pauses_the_bgm_player_and_resumes_at_its_preserved_position()
     "the fanfare plays alone; the paused bgm contributes no release tail"
   )
   Assert.isTrue(sound:isFanfarePlaying(), "the post-fanfare wait interval is still fanfare-playing")
-  Assert.isFalse(sound:isSaveStable())
+  Assert.isTrue(sound:isSaveStable(), "the fanfare never blocks saving, mid-interval too")
   for _ = 1, FANFARE_POST_WAIT_TICKS - 1 do
     sound:updateFixed()
   end
@@ -477,7 +480,7 @@ function T.fade_out_ramps_the_volume_to_the_target_level_over_its_ticks()
   player:render(200)
   sound:fadeMusicOut({ target = 0, durationTicks = 30 })
   Assert.isTrue(sound:isMusicFadeActive())
-  Assert.isFalse(sound:isSaveStable(), "a music fade blocks saving")
+  Assert.isTrue(sound:isSaveStable(), "a music fade never blocks saving: transient audio is discarded on load")
   -- tick 0: the fade starts from the full level.
   Assert.equal(advanceFade(sound, player, spy, 0), 0, "tick 0 starts from the full level")
   Assert.equal(maxAbs(measureFade(player)), 8000, "the bgm is at full volume while the fade starts")
@@ -497,7 +500,7 @@ function T.fade_out_ramps_the_volume_to_the_target_level_over_its_ticks()
   -- not jump to stop early -- and the wait unblocks.
   Assert.equal(advanceFade(sound, player, spy, 1), -32768, "tick N reaches the -0x8000 target attenuation")
   Assert.isFalse(sound:isMusicFadeActive(), "the fade completes at exactly durationTicks updates")
-  Assert.isTrue(sound:isSaveStable(), "a completed fade no longer blocks saving")
+  Assert.isTrue(sound:isSaveStable(), "the fade never blocks saving, completed or active")
   -- The BGM player was never stopped: the reference survives and the player
   -- still holds the sequence, silent at the target level (HGSS keeps the
   -- BGM player running after a fade-out to 0).
@@ -663,7 +666,7 @@ function T.cry_with_a_subsystem_reports_completion_and_stability()
   sound:playCry(133, 1)
   Assert.deepEqual(played, { { species = 133, form = 1 } })
   Assert.isFalse(sound:isCryFinished(), "the cry is still active")
-  Assert.isFalse(sound:isSaveStable(), "an active cry blocks saving")
+  Assert.isTrue(sound:isSaveStable(), "an active cry never blocks saving: transient audio is discarded on load")
   cryState.finished = true
   Assert.isTrue(sound:isCryFinished())
   Assert.isTrue(sound:isSaveStable())

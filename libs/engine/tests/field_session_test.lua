@@ -263,6 +263,32 @@ function T.required_collaborator_methods_are_validated_at_construction()
   end
 end
 
+-- A session with an audio collaborator requires BOTH its fixed-tick
+-- advancement and its save-stability predicate at construction: the save
+-- boundary calls isSaveStable unconditionally, so a missing predicate must
+-- be a composition fault at construction, never a loose-fake workaround
+-- discovered at capture time. A session without audio has no audio gate at
+-- all.
+function T.audio_collaborator_requires_update_fixed_and_save_stability_at_construction()
+  local complete = {
+    updateFixed = function() end,
+    isSaveStable = function()
+      return true
+    end,
+  }
+  Assert.notNil(FieldSession.new(baseOptions({ audio = complete })))
+  for _, method in ipairs({ "updateFixed", "isSaveStable" }) do
+    local partial = {
+      updateFixed = function() end,
+      isSaveStable = function() end,
+    }
+    partial[method] = nil
+    local ok, err = pcall(FieldSession.new, baseOptions({ audio = partial }))
+    Assert.isFalse(ok, "a session with audio must require audio." .. method .. ": " .. tostring(err))
+  end
+  Assert.notNil(FieldSession.new(baseOptions({})))
+end
+
 function T.fixed_ticks_are_render_cadence_independent()
   local a = session()
   a:update(1 / 30)
@@ -2013,6 +2039,9 @@ function T.audio_update_fixed_runs_once_per_tick_before_the_early_returns()
   local audio = {
     updateFixed = function()
       log[#log + 1] = "audio"
+    end,
+    isSaveStable = function()
+      return true
     end,
   }
   local transition = {

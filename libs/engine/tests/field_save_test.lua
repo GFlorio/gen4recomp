@@ -528,11 +528,14 @@ function T.event_state_over_the_safety_limit_is_rejected()
   end)
 end
 
--- Audio introduces transient script-observable state (fades, fanfares,
--- cries, awaited effects) that the save model does not serialize: a session
--- with an audio collaborator may only be captured while it reports stable.
--- Ordinary continuous map BGM stays stable, so the gate lives entirely in
--- the audio predicate.
+-- The save gate honors the audio collaborator's stability answer: the
+-- session contract guarantees the predicate exists (validated at session
+-- construction), so capture code calls it unconditionally and never
+-- second-guesses it. The policy -- which transient audio states answer
+-- true -- lives in the collaborator (GameSound), whose predicate is always
+-- true: every script wait on transient audio persists as task state and
+-- completes immediately against the fresh audio service built at load, so
+-- no capture bisects a persisted game-semantic operation.
 function T.unstable_audio_blocks_capture_and_stable_audio_allows_it()
   local audioState = { stable = false }
   local audio = {
@@ -542,7 +545,7 @@ function T.unstable_audio_blocks_capture_and_stable_audio_allows_it()
   }
   local s = session(runtimeMap("terrain-a", { flat(11, 4) }))
   s.audio = audio
-  Assert.isFalse(FieldSave.canCapture(s), "an active fade/fanfare/cry/awaited effect blocks capture")
+  Assert.isFalse(FieldSave.canCapture(s), "audio answering unstable blocks capture")
   audioState.stable = true
   Assert.isTrue(FieldSave.canCapture(s), "stable audio never blocks capture")
   -- A nil stability answer must never allow capture: the audio backend that

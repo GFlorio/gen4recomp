@@ -16,13 +16,15 @@
 -- the fade timer is frozen while a fanfare is active per the HGSS
 -- DoSoundUpdateFrame trace), the cry boundary (a reachable cry without a
 -- cry subsystem is an attributed failure; the cry data path is a separate
--- subsystem), and the save-stability predicate (false while a fade,
--- fanfare, cry, or playable effect transient is active; ordinary
--- continuous map BGM never blocks saving). All polls return booleans,
--- never nil. The only injectable boundaries are the cry subsystem and the
--- map-music resolver (the field-music policy owner); everything else runs
--- the real engine audio. PCM rendering is the output sink's business:
--- GameSound never renders.
+-- subsystem), and the save-stability predicate (always true: every script
+-- wait on transient audio -- fades, fanfares, cries, awaited effects --
+-- persists as task state and completes immediately against the fresh audio
+-- service built at load, so no capture bisects a persisted game-semantic
+-- operation and a looping effect can never hold a save hostage). All polls
+-- return booleans, never nil. The only injectable boundaries are the cry
+-- subsystem and the map-music resolver (the field-music policy owner);
+-- everything else runs the real engine audio. PCM rendering is the output
+-- sink's business: GameSound never renders.
 
 local Errors = require("libs.errors.src.Errors")
 local AudioErrors = require("libs.engine.src.audio.AudioErrors")
@@ -35,7 +37,6 @@ local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 ---@field private _mapMusic fun(): integer|string|nil?
 ---@field private _currentMusic integer?
 ---@field private _musicLevel integer
----@field private _effectPlayers table<integer, boolean>
 ---@field private _fanfare table?
 ---@field private _musicFade table?
 ---@field private _cryActive boolean
@@ -86,7 +87,6 @@ function GameSound.new(opts)
     _mapMusic = opts.mapMusic,
     _currentMusic = nil,
     _musicLevel = 127,
-    _effectPlayers = {},
     _fanfare = nil,
     _musicFade = nil,
     _cryActive = false,
@@ -120,8 +120,7 @@ end
 -- what an HGSS WaitSE observes through the player-state query.
 ---@param idOrSymbol integer|string
 function GameSound:play(idOrSymbol)
-  local sequence = self:_startSequence(idOrSymbol)
-  self._effectPlayers[sequence.player.id] = true
+  self:_startSequence(idOrSymbol)
 end
 
 -- Stops the player the sequence plays on, leaving every other player (in
@@ -331,19 +330,14 @@ function GameSound:_pushMusicLevel(level)
   self._player:setFader(bgm.player.id, level)
 end
 
--- False while any script-observable transient is active (music fade,
--- fanfare, cry, a playable effect) so the field save boundary can refuse
--- capture; ordinary continuous map BGM is stable.
+-- Always true: transient audio (fades, fanfares, cries, awaited effects) is
+-- discarded on load -- restored wait tasks poll the fresh audio service and
+-- complete immediately -- so no capture bisects a persisted game-semantic
+-- operation. Ordinary continuous map BGM is equally stable. The field save
+-- gate still honors this answer (nil/false blocks), keeping one
+-- authoritative policy implementation here.
 ---@return boolean
 function GameSound:isSaveStable()
-  if self._musicFade ~= nil or self._fanfare ~= nil or self._cryActive then
-    return false
-  end
-  for playerId in pairs(self._effectPlayers) do
-    if self._player:isPlayerPlaying(playerId) then
-      return false
-    end
-  end
   return true
 end
 

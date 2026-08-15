@@ -42,7 +42,7 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field contextChoice ContextChoiceProvider
 ---@field signpost FieldSignpostController
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
----@field audio { updateFixed: fun(self: table) }?
+---@field audio { updateFixed: fun(self: table), isSaveStable: fun(self: table): boolean }?
 
 ---@class FieldSession.Interactions
 ---@field resolve fun(self: FieldSession.Interactions, snapshot: InteractionResolverSnapshot): InteractionIntent?
@@ -64,7 +64,7 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field contextChoice ContextChoiceProvider
 ---@field signpost FieldSignpostController the fixed-tick signpost controller (save-gate interrogation only; the scheduler steps it)
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
----@field audio { updateFixed: fun(self: table), isSaveStable: fun(self: table): boolean? }?
+---@field audio { updateFixed: fun(self: table), isSaveStable: fun(self: table): boolean }?
 ---@field tick integer
 ---@field accumulator number
 local FieldSession = {}
@@ -121,6 +121,7 @@ function FieldSession.new(options)
   assert(options.interactions and options.interactions.resolve, "field session interaction resolver required")
   if options.audio then
     assert(type(options.audio.updateFixed) == "function", "field session audio update required")
+    assert(type(options.audio.isSaveStable) == "function", "field session audio save-stability predicate required")
   end
   return setmetatable({
     versionId = options.versionId,

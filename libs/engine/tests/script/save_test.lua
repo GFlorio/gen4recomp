@@ -80,13 +80,16 @@ end
 
 -- Capture the scripts bucket and restore it into a fresh scheduler attached
 -- to the same services; returns the resumed scheduler and its recorder.
+-- `scheduler` overrides the captured scheduler (a previously resumed one).
 ---@param h SaveHarness
 ---@param tick integer
+---@param scheduler Scheduler|nil
 ---@return Scheduler, Diagnostics.TraceRecorder
-local function saveAndResume(h, tick)
-  local bucket = ScriptSave.capture(h.scheduler, tick, { registryFingerprint = h.registry:fingerprint() })
+local function saveAndResume(h, tick, scheduler)
+  scheduler = scheduler or h.scheduler
+  local bucket = ScriptSave.capture(scheduler, tick, { registryFingerprint = h.registry:fingerprint() })
   local recorder = Diagnostics.newTraceRecorder()
-  local scheduler = Scheduler.new({
+  local resumed = Scheduler.new({
     services = h.services,
     taskRegistry = h.taskRegistry,
     trace = function(record)
@@ -96,8 +99,8 @@ local function saveAndResume(h, tick)
       return h.composition:effective(id)
     end,
   })
-  ScriptSave.restore(bucket, scheduler, tick, {})
-  return scheduler, recorder
+  ScriptSave.restore(bucket, resumed, tick, {})
+  return resumed, recorder
 end
 
 -- Run a scenario uninterruptedly and compare the resumed trace suffix with
@@ -702,6 +705,68 @@ T["mid-script save restores at the production load tick"] = function()
     resumed:step(tick, nil)
   end
   Assert.equal(h.services.world:getVar("VAR_A"), 1, "the resumed wait completes at the rebased tick")
+end
+
+-- The save-stability policy evidence: a save taken while a script waits on
+-- transient audio (an awaited SE, then a music fade) restores into a fresh
+-- boot whose audio service is empty. The persisted wait tasks poll the
+-- fresh service, report completion immediately, and the script continues
+-- exactly once -- no deadlock, no re-run, no fault -- so transient audio is
+-- intentionally discarded on load and never needs to block capture.
+T["mid-audio-wait saves resume against a fresh audio service"] = function()
+  local SoundWaitTask = require("libs.engine.src.script.tasks.SoundWaitTask")
+  local MusicFadeTask = require("libs.engine.src.script.tasks.MusicFadeTask")
+  local freshAudio = function()
+    return {
+      playing = {},
+      fadeActive = false,
+      play = function(self, id)
+        self.playing[id] = true
+      end,
+      isEffectPlaying = function(self, id)
+        return self.playing[id] == true
+      end,
+      fadeMusicOut = function(self)
+        self.fadeActive = true
+      end,
+      isMusicFadeActive = function(self)
+        return self.fadeActive
+      end,
+    }
+  end
+  local h = harness()
+  h.taskRegistry:register(SoundWaitTask.type, SoundWaitTask.version, SoundWaitTask)
+  h.taskRegistry:register(MusicFadeTask.type, MusicFadeTask.version, MusicFadeTask)
+  h.services.audio = freshAudio()
+  local resource = script("test.audiowait", {
+    S.playSound({ sound = "SEQ_SE_DP_SELECT" }),
+    S.waitSound({ sound = "SEQ_SE_DP_SELECT" }),
+    S.fadeMusicOut({ target = 0, durationTicks = 5 }),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
+    S.stop(),
+  })
+  local instanceId = startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  h.scheduler:step(101, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "the script is mid-wait on the effect at save time")
+
+  -- Resume 1: a fresh boot with an empty audio service. The awaited-SE task
+  -- completes on its first eligible poll and the script continues.
+  h.services.audio = freshAudio()
+  local resumed = saveAndResume(h, 101)
+  resumed:step(102, nil)
+  resumed:step(103, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "the resumed script is blocked on its music fade")
+  Assert.isTrue(h.services.audio.fadeActive, "the resumed script starts its fade against the fresh service")
+
+  -- Resume 2: another fresh boot mid-fade-wait. The fade task completes on
+  -- the empty service and the script continuation runs exactly once.
+  h.services.audio = freshAudio()
+  local resumed2 = saveAndResume(h, 104, resumed)
+  resumed2:step(105, nil)
+  resumed2:step(106, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1, "the resumed script completes its continuation once")
+  Assert.isNil(h.services.events:eventFor("script.error", instanceId), "no wait faults on a fresh audio service")
 end
 
 -- The record-level counterpart of the production-load-tick test: capture

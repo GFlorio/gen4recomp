@@ -245,9 +245,10 @@ end
 -- transition active, no half-open modal dialogue, presented signpost
 -- window, or active application (the Start Menu, an application fade, or a
 -- child application), and -- when the session has an audio collaborator --
--- that audio reports save-stable (no fade, fanfare, cry, or awaited effect).
--- A nil stability answer reads as unstable; a session without audio skips
--- the gate entirely.
+-- that audio reports save-stable. Which transient audio states answer true
+-- is the collaborator's policy (GameSound's predicate is always true); the
+-- gate only honors the answer. A nil stability answer reads as unstable; a
+-- session without audio skips the gate entirely.
 ---@param session FieldSession?
 ---@return boolean?
 function FieldSave.canCapture(session)
