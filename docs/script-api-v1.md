@@ -112,8 +112,8 @@ Constructors return ordinary serializable Lua tables. Direct table form is alway
 
 | Signature | Canonical | Notes |
 |---|---|---|
-| `S.sign(message, opts)` | `op=sign` | opts={appearance="sign",wait=true}; appearance is a registered style id or the semantic "sign". |
-| `S.trainerTip(message, opts)` | `op=trainer_tip` | opts={appearance="trainer_tip"}; types at the player text speed and waits for dismissal. |
+| `S.sign(spec)` | `op=sign` | spec={message,appearance="sign"}; appearance is a registered style id or the semantic "sign". |
+| `S.trainerTip(spec)` | `op=trainer_tip` | spec={message,appearance="trainer_tip"}; types at the player text speed and waits for dismissal. |
 | `S.signpostSet(spec)` | `op=signpost_set` | Generated/advanced imported-HGSS form; spec={sourceAppearance={game,type,map}}. |
 | `S.signpostCommand(command)` | `op=signpost_command` | Generated/advanced; command is one of the semantic strings (nop/show/wipe_out/wipe_in/hide). |
 | `S.waitSignpostAction(spec)` | `op=wait_signpost_action` | Generated/advanced imported-HGSS form; spec optional. |
@@ -1086,7 +1086,6 @@ No fields.
 | `key` | string |  |  |
 | `message` | message | yes |  |
 | `provenance` | source_provenance |  |  |
-| `wait` | boolean |  | `true` |
 
 ### `signal_caller`
 
@@ -1111,7 +1110,6 @@ No fields.
 | `message` | message | yes |  |
 | `provenance` | source_provenance |  |  |
 | `sourceAppearance` | serializable | yes |  |
-| `sourceUnusedOut` | serializable | yes |  |
 
 ### `signpost_set`
 

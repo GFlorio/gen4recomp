@@ -25,7 +25,14 @@
 -- (std_signpost): the child copies the special result, branches on it, and
 -- for results 0/2 queues WIPE_OUT and signals the caller, so the whole
 -- cleanup runs from the actual ROM-derived script material with zero script
--- faults. Rendering stays trapped.
+-- faults. The child context ends at its signal_caller tail (opcode 21):
+-- the source commands that follow the signal in the same script (the next
+-- branch's wipe/hide) never run, and the executable semantic program keeps
+-- signal_caller terminal with no linear continuation. The executable nodes
+-- also carry no sourceUnusedOut (opcode 55's audited, unused result
+-- operand), and a high-level sign opened after an imported signpost
+-- dismissal must not inherit the imported source appearance. Rendering
+-- stays trapped.
 
 local Assert = require("tests.support.Assert")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
@@ -41,14 +48,20 @@ local T = {
 
 local DIRECTION_SIGNPOST = "vanilla.hgss.scr_seq.0842.script_014"
 local SET_SIGNPOST_MAP = "vanilla.hgss.scr_seq.0842.script_013"
+local DEMO_SIGNPOST = "demo.signpost"
 
 -- The result operand of opcodes 55/59/60 (VAR_SPECIAL_RESULT, 0x800C): 55
 -- never writes it, 59/60 write their completion value through the scheduler
 -- result reference.
 local SPECIAL_RESULT = FieldScriptSymbols.variablesByName.VAR_SPECIAL_RESULT
 
-local function withGame(fn)
-  local game = AcceptanceHarness.new():boot({ versionId = "heartgold", map = "MAP_NEW_BARK", save = "fresh" })
+local function withGame(fn, fieldOptions)
+  local game = AcceptanceHarness.new():boot({
+    versionId = "heartgold",
+    map = "MAP_NEW_BARK",
+    save = "fresh",
+    fieldOptions = fieldOptions,
+  })
   local ok, err = xpcall(function()
     fn(game)
     Assert.equal(game:renderAttempts(), 0)
@@ -57,6 +70,54 @@ local function withGame(fn)
   if not ok then
     error(err, 0)
   end
+end
+
+-- Journeys that run the high-level demo script boot with the same
+-- mod.route_sign style descriptor as the high-level-sign acceptance suite.
+local function withDemoCapableGame(fn)
+  withGame(fn, {
+    windowStyleDescriptors = {
+      { id = "mod.route_sign", base = "hgss.signpost" },
+    },
+  })
+end
+
+-- The scheduler recorded the script's normal completion.
+local function scriptEndedAt(game, scriptId)
+  for _, record in ipairs(game.hosts.events.records) do
+    if record.name == "script.ended" and record.payload.scriptId == scriptId and record.payload.completed == true then
+      return true
+    end
+  end
+  return false
+end
+
+-- Executable semantic nodes carry no sourceUnusedOut: opcode 55's final
+-- operand is audited as unused, only raw decoded operands, provenance, and
+-- audit data may keep it, and the compiled graph is the executable program,
+-- so no node in it may carry the field.
+local function assertNoSourceUnusedOut(game, scriptId, label)
+  local composed = assert(game.runtime.scripts.composition:effective(scriptId))
+  local graph = assert(composed.entries[1].graph, label .. " must compile to an executable graph")
+  for _, node in pairs(graph.nodes) do
+    Assert.isNil(node.sourceUnusedOut, label .. " must carry no sourceUnusedOut in executable nodes")
+  end
+end
+
+-- Opcode 21 is terminal in the executable program: every signal_caller node
+-- has no linear continuation edge, and the script actually ends its contexts
+-- through the signal tail.
+local function assertSignalCallerTerminal(game, scriptId, label)
+  local composed = assert(game.runtime.scripts.composition:effective(scriptId))
+  local graph = assert(composed.entries[1].graph, label .. " must compile to an executable graph")
+  local count = 0
+  for _, node in pairs(graph.nodes) do
+    if node.op == "signal_caller" then
+      count = count + 1
+      Assert.isNil(node.next, label .. ": signal_caller must be terminal, never a linear continuation")
+    end
+  end
+  Assert.isTrue(count > 0, label .. " must end its contexts through signal_caller")
 end
 
 local function scriptFaults(game)
@@ -125,6 +186,21 @@ local function assertStdSignpostWipeOut(game, label)
     label .. ": the std_signpost wipe-out must complete without faulting, got: " .. faultCode(scriptFaults(game))
   )
   Assert.isFalse(signpostStatus(game).active, label .. ": the signpost must stay closed after the cleanup")
+
+  -- The child context ends at its signal_caller tail (opcode 21): the
+  -- source commands that follow the signal in the same script (the next
+  -- branch's wipe/hide) must never run. Probing past the wipe-out proves no
+  -- command is re-queued by an accidental continuation.
+  for _ = 1, 8 do
+    game:step()
+    Assert.equal(signpostStatus(game).command, "nop", label .. ": nothing may run after the child's signal_caller tail")
+    Assert.isFalse(signpostStatus(game).active, label .. ": the signpost must stay closed after the signal tail")
+  end
+  Assert.equal(
+    #scriptFaults(game),
+    0,
+    label .. ": the signal tail probe must not fault, got: " .. faultCode(scriptFaults(game))
+  )
 end
 
 -- Walk the stable, previously pinned journey of the direction-signpost script (55 at
@@ -249,6 +325,10 @@ end
 function T.tests.direction_signpost_shows_immediately_yields_once_and_never_writes_its_out_operand()
   withGame(function(game)
     assertNoHighLevelSignOps(game, DIRECTION_SIGNPOST, "the direction-signpost override")
+    -- The executable program keeps the audited unused operand out of the
+    -- semantic IR and keeps the real child's signal_caller terminal.
+    assertNoSourceUnusedOut(game, DIRECTION_SIGNPOST, "the direction-signpost program")
+    assertSignalCallerTerminal(game, "common.signpost", "the std_signpost child program")
     game:setWorldState({ variable = SPECIAL_RESULT, value = 77 })
     game:startScript(DIRECTION_SIGNPOST)
 
@@ -585,6 +665,91 @@ function T.tests.pointer_input_cannot_fill_the_trainer_tips_print()
       return game.runtime.scripts.worldState:getVar(SPECIAL_RESULT) == 2
     end, 8)
     Assert.equal(#scriptFaults(game), 0, "the print completion must not fault, got: " .. faultCode(scriptFaults(game)))
+  end)
+end
+
+-- Stale imported source appearance cannot leak into high-level signs: the
+-- controller deliberately preserves the imported type/map appearance
+-- through low-level hide/wipe-out (the low-level escape hatch), so a
+-- high-level sign opened after an imported signpost dismissal must
+-- explicitly clear it. One boot runs both real imported journeys: the
+-- type-0 direction signpost and the type-2 trainer-tips script each
+-- dismiss, and then the high-level demo script opens twice — every high-level
+-- open (S.sign and S.trainerTip) must present with no source appearance.
+function T.tests.imported_signpost_appearance_cannot_leak_into_high_level_signs()
+  withDemoCapableGame(function(game)
+    -- Journey 1: the imported type-0 direction signpost presents with its
+    -- source appearance and dismisses through the real std_signpost cleanup.
+    game:startScript(DIRECTION_SIGNPOST)
+    Assert.deepEqual(signpostStatus(game).sourceAppearance, { game = "hgss", type = 0, map = 11 })
+    advanceDirectionSignpostThroughWipe(game)
+    game:step() -- opcode 60 installs its waiter
+    game:pressAction() -- dismissal
+    assertStdSignpostWipeOut(game, "imported direction-signpost dismissal")
+    game:advanceUntil("the imported direction-signpost script ends", function()
+      return scriptEndedAt(game, DIRECTION_SIGNPOST)
+    end, 8)
+
+    -- The high-level sign opens right after the imported type-0 dismissal:
+    -- its semantic presentation must not inherit the stale appearance.
+    game:startScript(DEMO_SIGNPOST)
+    local status = signpostStatus(game)
+    Assert.isTrue(status.active, "S.sign must present the window immediately")
+    Assert.isNil(status.sourceAppearance, "S.sign must not inherit the imported type-0 appearance")
+    Assert.isTrue(status.printDone, "S.sign must print its message instantly")
+    game:pressAction()
+    game:advanceUntil("S.trainerTip opens its typed print", function()
+      local tip = signpostStatus(game)
+      return tip.active and not tip.printDone
+    end, 8)
+    Assert.isNil(signpostStatus(game).sourceAppearance, "S.trainerTip must not inherit the imported type-0 appearance")
+    game:advanceUntil("the trainer tip print completes", function()
+      return signpostStatus(game).printDone
+    end, 64)
+    game:pressAction()
+    game:advanceUntil("the demo script ends after the first run", function()
+      return scriptEndedAt(game, DEMO_SIGNPOST)
+    end, 8)
+
+    -- Journey 2: the imported type-2 trainer-tips script presents with its
+    -- own source appearance, types, and dismisses the same way.
+    game:startScript(SET_SIGNPOST_MAP)
+    Assert.deepEqual(signpostStatus(game).sourceAppearance, { game = "hgss", type = 2, map = 0 })
+    advanceSetSignpostMapThroughWipe(game)
+    game:step() -- opcode 59 starts the typed print
+    game:advanceUntil("the imported trainer-tips print completes", function()
+      return signpostStatus(game).printDone
+    end, 64)
+    game:step() -- the std_signpost child installs its waiter
+    game:pressAction() -- dismissal
+    assertStdSignpostWipeOut(game, "imported trainer-tips dismissal")
+    game:advanceUntil("the imported trainer-tips script ends", function()
+      return scriptEndedAt(game, SET_SIGNPOST_MAP)
+    end, 8)
+
+    -- The second high-level run opens with no source appearance again.
+    game:startScript(DEMO_SIGNPOST)
+    status = signpostStatus(game)
+    Assert.isTrue(status.active, "S.sign must present the window immediately")
+    Assert.isNil(status.sourceAppearance, "S.sign must not inherit the imported type-2 appearance")
+    game:pressAction()
+    game:advanceUntil("S.trainerTip opens its typed print again", function()
+      local tip = signpostStatus(game)
+      return tip.active and not tip.printDone
+    end, 8)
+    Assert.isNil(signpostStatus(game).sourceAppearance, "S.trainerTip must not inherit the imported type-2 appearance")
+    game:advanceUntil("the trainer tip print completes again", function()
+      return signpostStatus(game).printDone
+    end, 64)
+    game:pressAction()
+    game:advanceUntil("the demo script ends after the second run", function()
+      return scriptEndedAt(game, DEMO_SIGNPOST)
+    end, 8)
+    Assert.equal(
+      #scriptFaults(game),
+      0,
+      "the imported-to-high-level journey must run without faulting, got: " .. faultCode(scriptFaults(game))
+    )
   end)
 end
 

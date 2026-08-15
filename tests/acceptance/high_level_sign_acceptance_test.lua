@@ -74,6 +74,22 @@ function T.tests.high_level_sign_script_presents_and_dismisses_without_source_ap
   withGame(function(game)
     game:startScript(DEMO_SIGNPOST)
 
+    -- The executable program owns the complete blocking lifecycle: the sign
+    -- nodes carry the canonical one-table spec (message + appearance) with
+    -- no nonblocking wait flag anywhere in the semantic IR.
+    local composed = assert(game.runtime.scripts.composition:effective(DEMO_SIGNPOST))
+    local graph = assert(composed.entries[1].graph, "the demo script must compile to an executable graph")
+    local signCount = 0
+    for _, node in pairs(graph.nodes) do
+      if node.op == "sign" then
+        signCount = signCount + 1
+        Assert.isNil(node.wait, "high-level sign nodes must always be blocking")
+        Assert.notNil(node.message, "high-level sign nodes carry the canonical message spec")
+        Assert.equal(node.appearance, "mod.route_sign", "high-level sign nodes carry the canonical appearance spec")
+      end
+    end
+    Assert.isTrue(signCount > 0, "the demo script must compile sign nodes")
+
     -- S.sign presents the window immediately with the requested registered
     -- style id and no source type/map data; the message prints instantly.
     local status = signpostStatus(game)

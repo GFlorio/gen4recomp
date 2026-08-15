@@ -55,6 +55,7 @@ local function fakeController()
   function controller:printInstant(message)
     self.calls[#self.calls + 1] = "printInstant"
     self.instant = message
+    self.printDone = true
   end
   function controller:printTyped(message)
     self.calls[#self.calls + 1] = "printTyped"
@@ -78,6 +79,9 @@ local function fakeController()
   end
   function controller:isCommandIdle()
     return self.command == "nop"
+  end
+  function controller:isPrintDone()
+    return self.printDone == true
   end
   function controller:status()
     return { active = self.active, command = self.command, printDone = false }
@@ -206,6 +210,17 @@ function T.set_style_id_forwards_the_requested_style()
   Assert.equal(controller.styleId, "mod.route_sign", "the requested style id reaches the controller")
 end
 
+-- Style routing is the high-level semantic presentation: routing a style
+-- clears any stored source appearance, so an imported signpost's type/map
+-- data can never leak into a later high-level sign.
+function T.set_style_id_clears_a_stored_source_appearance()
+  local controller = fakeController()
+  local h, _, _ = host({ controller = controller })
+  h:setSourceAppearance({ game = "hgss", type = 0, map = 11 })
+  h:setStyleId("mod.route_sign")
+  Assert.isNil(controller.appearance, "style routing must clear the stored source appearance")
+end
+
 -- The close teardown returns the routed style to the default with the rest
 -- of the presentation, so a high-level flow never leaks its style into a
 -- later flow.
@@ -286,6 +301,16 @@ function T.is_command_idle_forwards_the_controller_query()
   Assert.isTrue(h:isCommandIdle(), "the idle query follows the controller's command")
   controller:setCommand("wipe_in")
   Assert.isFalse(h:isCommandIdle(), "a busy command is not idle through the host")
+end
+
+-- The semantic print query comes straight from the controller; the host
+-- keeps no print state of its own.
+function T.is_print_done_forwards_the_controller_query()
+  local controller = fakeController()
+  local h, _, _ = host({ controller = controller })
+  Assert.isFalse(h:isPrintDone(), "the print query follows the controller's printer")
+  controller:printInstant({})
+  Assert.isTrue(h:isPrintDone(), "a completed controller print is done through the host")
 end
 
 -- The close teardown is the controller's explicit cleanup: no scheduled

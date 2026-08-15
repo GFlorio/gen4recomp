@@ -20,11 +20,11 @@ local M = {
     },
   },
   byCode = {
-    [0] = { name = "MAPSIGNCOMMAND_NOP" },
-    [1] = { name = "MAPSIGNCOMMAND_SHOW" },
-    [2] = { name = "MAPSIGNCOMMAND_WIPE_OUT" },
-    [3] = { name = "MAPSIGNCOMMAND_WIPE_IN" },
-    [4] = { name = "MAPSIGNCOMMAND_HIDE" },
+    [0] = { sourceName = "MAPSIGNCOMMAND_NOP", semantic = "nop" },
+    [1] = { sourceName = "MAPSIGNCOMMAND_SHOW", semantic = "show" },
+    [2] = { sourceName = "MAPSIGNCOMMAND_WIPE_OUT", semantic = "wipe_out" },
+    [3] = { sourceName = "MAPSIGNCOMMAND_WIPE_IN", semantic = "wipe_in" },
+    [4] = { sourceName = "MAPSIGNCOMMAND_HIDE", semantic = "hide" },
   },
 }
 
@@ -39,11 +39,7 @@ function M.semanticName(code)
   if type(entry) ~= "table" then
     return nil
   end
-  local semantic = entry.name:match("^MAPSIGNCOMMAND_([A-Z_]+)$")
-  if semantic == nil then
-    return nil
-  end
-  return semantic:lower()
+  return entry.semantic
 end
 
 return M

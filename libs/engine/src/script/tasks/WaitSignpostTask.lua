@@ -10,6 +10,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
+local SignpostAccess = require("libs.engine.src.script.tasks.SignpostAccess")
 
 local WaitSignpostTask = {}
 
@@ -17,9 +18,8 @@ WaitSignpostTask.type = "wait_signpost"
 WaitSignpostTask.version = 1
 
 ---@param spec table
----@param ctx table
 ---@return table state
-function WaitSignpostTask.create(spec, ctx)
+function WaitSignpostTask.create(spec)
   assert(spec.node, "wait signpost requires its graph node")
   return { waiting = true }
 end
@@ -28,16 +28,7 @@ end
 ---@param ctx table
 ---@return table
 function WaitSignpostTask.poll(state, ctx)
-  local host = ctx.services.signpost
-  if host == nil then
-    Errors.raise(
-      ScriptErrors.SCRIPT_SERVICE_MISSING,
-      "signpost service is unavailable",
-      { scriptId = ctx.instance.scriptId }
-    )
-  end
-  -- LuaLS cannot see through Errors.raise; the raise never returns nil.
-  ---@cast host ScriptSignpostHost
+  local host = SignpostAccess.requireSignpost(ctx)
   local input = ctx.input or {}
   if input.pressedAction or input.pressedCancel then
     host:close()

@@ -154,7 +154,6 @@ function T.signpost_operations_validate_canonical_shapes()
         op = "signpost_direction",
         message = { message = "external", bank = 542, id = 34 },
         sourceAppearance = { game = "hgss", type = 0, map = 11 },
-        sourceUnusedOut = "VAR_SPECIAL_RESULT",
       },
       {
         op = "signpost_set",
@@ -167,7 +166,7 @@ end
 
 -- The high-level sign operations: message is required; appearance is the
 -- registered-style-id-or-semantic string (any non-empty string, the sealed
--- registry resolves it at runtime) and wait defaults to true.
+-- registry resolves it at runtime) and the sign always blocks.
 function T.high_level_sign_operations_validate_canonical_shapes()
   valid(S.script({
     api = 1,
@@ -177,7 +176,6 @@ function T.high_level_sign_operations_validate_canonical_shapes()
         op = "sign",
         message = "msg.hgss.0542.00034",
         appearance = "mod.route_sign",
-        wait = true,
       },
       {
         op = "trainer_tip",
@@ -361,7 +359,6 @@ function T.signpost_operations_reject_malformed_shapes()
         op = "signpost_direction",
         message = "msg.hgss.0542.00034",
         sourceAppearance = { game = "hgss", type = 0, map = 1 },
-        sourceUnusedOut = "VAR_SPECIAL_RESULT",
         extra = true,
       },
     },

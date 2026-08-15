@@ -21,7 +21,7 @@ return S.script {
     coverage = { complete = true, unsupportedCount = 0 },
   },
   steps = {
-    { message = { bank = 542, id = 34, message = "external" }, op = "signpost_direction", provenance = { offsets = { [1] = 5917 }, opcodes = { [1] = 55 } }, sourceAppearance = { game = "hgss", map = 11, type = 0 }, sourceUnusedOut = "VAR_SPECIAL_RESULT" },
+    { message = { bank = 542, id = 34, message = "external" }, op = "signpost_direction", provenance = { offsets = { [1] = 5917 }, opcodes = { [1] = 55 } }, sourceAppearance = { game = "hgss", map = 11, type = 0 } },
     { command = "wipe_in", op = "signpost_command", provenance = { offsets = { [1] = 5925 }, opcodes = { [1] = 57 } } },
     { op = "wait_signpost_action", provenance = { offsets = { [1] = 5928 }, opcodes = { [1] = 58 } } },
     { op = "wait_signpost", provenance = { offsets = { [1] = 5930 }, opcodes = { [1] = 60 } }, result = { id = "VAR_SPECIAL_RESULT", value = "var" } },

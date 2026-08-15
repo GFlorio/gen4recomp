@@ -97,29 +97,35 @@ end
 
 -- The five signpost window commands (MAPSIGNCOMMAND_*) are the source-faithful
 -- command contract opcodes 57/58 decode: exactly 0..4, complete, and uniquely
--- named. The corpus and std_signpost scripts carry real command values, so the
--- mapping is pinned here once.
+-- named. The catalog encodes each code's source name and its semantic command
+-- explicitly (never a runtime prefix-strip), and semanticName resolves the
+-- exact mapping. The corpus and std_signpost scripts carry real command
+-- values, so the mapping is pinned here once.
 function T.signpost_command_constants_are_complete()
   Assert.equal(signpostCommands.schema, 1)
   local expected = {
-    { 0, "MAPSIGNCOMMAND_NOP" },
-    { 1, "MAPSIGNCOMMAND_SHOW" },
-    { 2, "MAPSIGNCOMMAND_WIPE_OUT" },
-    { 3, "MAPSIGNCOMMAND_WIPE_IN" },
-    { 4, "MAPSIGNCOMMAND_HIDE" },
+    { 0, "MAPSIGNCOMMAND_NOP", "nop" },
+    { 1, "MAPSIGNCOMMAND_SHOW", "show" },
+    { 2, "MAPSIGNCOMMAND_WIPE_OUT", "wipe_out" },
+    { 3, "MAPSIGNCOMMAND_WIPE_IN", "wipe_in" },
+    { 4, "MAPSIGNCOMMAND_HIDE", "hide" },
   }
   local seen = {}
   for _, entry in ipairs(expected) do
     local record = assert(signpostCommands.byCode[entry[1]], "command " .. entry[1] .. " recorded")
-    Assert.equal(record.name, entry[2])
-    Assert.isNil(seen[record.name])
-    seen[record.name] = true
+    Assert.equal(record.sourceName, entry[2])
+    Assert.equal(record.semantic, entry[3])
+    Assert.equal(signpostCommands.semanticName(entry[1]), entry[3])
+    Assert.isNil(seen[record.sourceName])
+    seen[record.sourceName] = true
   end
   local count = 0
   for _ in pairs(signpostCommands.byCode) do
     count = count + 1
   end
   Assert.equal(count, 5)
+  Assert.isNil(signpostCommands.semanticName(5), "a code outside the pinned 0..4 range resolves to nothing")
+  Assert.isNil(signpostCommands.semanticName("2"), "a non-numeric code resolves to nothing")
 end
 
 return { tests = T }

@@ -1306,10 +1306,11 @@ end
 
 -- The high-level S.sign operation: present the signpost window with the
 -- requested style id (no source type/map data), print the message
--- instantly, and either continue in the same tick (wait=false) or block on
--- the registered sign task until an A/B/directional dismissal closes the
--- window. The open composes the same host/controller primitives the
--- imported operations use.
+-- instantly, and block on the registered sign task until an A/B or
+-- directional dismissal closes the window. The open composes the same
+-- host/controller primitives the imported operations use; the sign task
+-- owns the complete open -> dismiss -> close lifecycle, so the sign is
+-- always blocking.
 HANDLERS.sign = function(node, run)
   requireForeground(run, "sign")
   local host = requireService(run, "signpost")
@@ -1318,10 +1319,7 @@ HANDLERS.sign = function(node, run)
   host:setCommand("show")
   host:advance()
   host:printInstant(node.message, nil, run.instance.textArgs or {})
-  if node.wait then
-    return blockOnTask(run, "sign", { node = node })
-  end
-  return Runtime.OUTCOME_CONTINUE
+  return blockOnTask(run, "sign", { node = node })
 end
 
 -- The high-level S.trainerTip operation: present the signpost window with

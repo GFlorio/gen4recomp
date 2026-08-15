@@ -116,6 +116,12 @@ local function findJoin(items, positions, entry, exit)
       return { join = join, terminal = cursor }
     elseif item.op == "if_cond" or item.op == "stop" or item.op == "request_start_menu" or item.op == "return" then
       return nil
+    elseif item.op == "signal_caller" then
+      -- The caller signal ends the script context (RestartCurrentScript
+      -- returns FALSE): the fallthrough chain never continues past it, so
+      -- the region scan stops here and the peel cannot swallow the
+      -- post-signal code into a branch.
+      return nil
     end
     cursor = cursor + 1
   end

@@ -502,28 +502,18 @@ function M.menuExec(spec)
 end
 
 -- High-level signpost constructors: the semantic mod-facing S.sign /
--- S.trainerTip operations. The message is positional; every other option
--- rides one canonical spec table with the schema defaults. The six
+-- S.trainerTip operations take the canonical one-table spec (the schema
+-- field names); there is no positional message form. The six
 -- generated/advanced forms below map 1:1 onto the imported signpost
 -- operations and are never rewritten into the high-level helpers.
-function M.sign(message, opts)
-  assert(message ~= nil, "sign message is required")
-  local given = {}
-  for key, value in pairs(opts or {}) do
-    given[key] = value
-  end
-  given.message = message
-  return op("sign", given)
+function M.sign(spec)
+  assert(type(spec) == "table", "sign spec must be a table")
+  return op("sign", spec)
 end
 
-function M.trainerTip(message, opts)
-  assert(message ~= nil, "trainer tip message is required")
-  local given = {}
-  for key, value in pairs(opts or {}) do
-    given[key] = value
-  end
-  given.message = message
-  return op("trainer_tip", given)
+function M.trainerTip(spec)
+  assert(type(spec) == "table", "trainer tip spec must be a table")
+  return op("trainer_tip", spec)
 end
 
 function M.signpostSet(spec)

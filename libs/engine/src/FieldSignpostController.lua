@@ -179,6 +179,15 @@ function FieldSignpostController:isCommandIdle()
   return self._command == "nop"
 end
 
+-- The semantic print query: true exactly when the active printer has
+-- revealed every glyph. Tasks ask this question directly; the renderer
+-- snapshot (status) is not the print authority.
+---@return boolean
+function FieldSignpostController:isPrintDone()
+  local print = self._print
+  return print ~= nil and print.revealed >= print.total
+end
+
 -- Stores the script-provided source appearance (type/map) as presentation
 -- data; the controller never resolves geometry. nil clears it. The values
 -- are the raw source operands preserved by the importer.

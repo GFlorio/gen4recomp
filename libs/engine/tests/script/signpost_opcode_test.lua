@@ -86,8 +86,17 @@ function RecordingSignpostHost:isCommandIdle()
   return self.command == "nop"
 end
 
+-- The semantic print query: the fixed-tick controller's own printer state.
+-- Tasks ask this method; the renderer snapshot (status) is not the print
+-- authority.
+function RecordingSignpostHost:isPrintDone()
+  return self.printDone
+end
+
+-- The renderer snapshot: presentation state only. The print completion is
+-- a semantic query (isPrintDone), never renderer data.
 function RecordingSignpostHost:status()
-  return { command = self.command, printDone = self.printDone }
+  return { command = self.command }
 end
 
 local function harness()
@@ -132,11 +141,12 @@ local function harness()
 end
 
 -- The canonical generated node shapes (opcode 55 and 56 lowering output).
+-- Opcode 55's final operand is audited as unused by the source handler and
+-- never reaches the semantic node.
 local DIRECTION_NODE = {
   op = "signpost_direction",
   message = { message = "external", bank = 542, id = 34 },
   sourceAppearance = { game = "hgss", type = 0, map = 11 },
-  sourceUnusedOut = "VAR_SPECIAL_RESULT",
 }
 
 local SET_NODE = {
@@ -803,15 +813,14 @@ function T.request_start_menu_requires_the_reopen_service()
 end
 
 -- The high-level sign operations: S.sign presents the window with the
--- requested style (never source type/map data) and prints instantly; with
--- wait=true the registered sign task blocks until an A/B/directional
--- dismissal closes the window, and the script resumes on the following
--- tick. No result reference rides along.
+-- requested style (never source type/map data) and prints instantly; the
+-- registered sign task always blocks until an A/B/directional dismissal
+-- closes the window, and the script resumes on the following tick. No
+-- result reference rides along.
 local SIGN_NODE = {
   op = "sign",
   message = "msg.hgss.0542.00034",
   appearance = "mod.route_sign",
-  wait = true,
 }
 
 local TRAINER_TIP_NODE = {
@@ -837,7 +846,7 @@ function T.high_level_sign_presents_with_the_style_prints_instantly_and_waits_fo
   Assert.equal(#h.signpost.prints, 1, "S.sign prints its message instantly")
   Assert.equal(h.signpost.prints[1].kind, "instant")
   Assert.equal(#h.signpost.appearances, 0, "S.sign must never carry source type/map data")
-  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "wait=true must block on the sign task")
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "S.sign always blocks on the sign task")
   local tasks = h.scheduler:tasks()
   Assert.equal(#tasks, 1)
   Assert.equal(tasks[1].taskType, "sign")
@@ -874,16 +883,17 @@ function T.high_level_sign_directional_dismissal_turns_the_player()
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
 end
 
--- wait=false opens the window and continues in the same tick: no sign task
--- is created and the next node runs in the start tick.
-function T.high_level_sign_with_wait_false_continues_in_the_same_tick()
+-- A high-level sign opened after an imported appearance store must not
+-- inherit the imported source appearance: the style-routing boundary clears
+-- it before the window opens.
+function T.high_level_sign_clears_any_stored_source_appearance()
   local h = harness()
   local script = S.script({
     api = 1,
-    id = "test.sign",
+    id = "test.sign_after_imported",
     steps = {
-      { op = "sign", message = "msg.hgss.0542.00034", appearance = "sign", wait = false },
-      S.setVar({ variable = "VAR_AFTER", value = 1 }),
+      SET_NODE,
+      SIGN_NODE,
       S.stop(),
     },
   })
@@ -891,10 +901,18 @@ function T.high_level_sign_with_wait_false_continues_in_the_same_tick()
   h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
 
   h.scheduler:step(100, {})
-  Assert.deepEqual(h.signpost.styles, { "hgss.signpost" }, "the semantic appearance resolves to the built-in")
-  Assert.equal(h.signpost.advances, 1, "the window must be presented in-handler")
-  Assert.equal(#h.scheduler:tasks(), 0, "wait=false must not create a sign task")
-  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1, "wait=false must continue in the same tick")
+  Assert.deepEqual(
+    h.signpost.appearances,
+    { { game = "hgss", type = 2, map = 0 } },
+    "the imported appearance is stored"
+  )
+  h.scheduler:step(101, {})
+  Assert.deepEqual(
+    h.signpost.appearances,
+    { { game = "hgss", type = 2, map = 0 }, nil },
+    "the high-level sign must clear the stored source appearance"
+  )
+  Assert.deepEqual(h.signpost.styles, { "mod.route_sign" })
 end
 
 -- S.trainerTip types at the player cadence and blocks; a directional edge

@@ -90,8 +90,7 @@ end
 
 -- The routed style ends with the presentation it styled: the hide case and
 -- the wipe-out endpoint check return it to the construction default, so a
--- high-level flow (including the advanced wait=false + wipe_out path) never
--- leaks its style into a later flow.
+-- high-level flow never leaks its style into a later flow.
 function T.presentation_end_restores_the_routed_style()
   local c = controller({}, { styleId = "hgss.signpost" })
   c:setStyleId("mod.route_sign")
@@ -498,6 +497,29 @@ function T.finish_print_without_a_live_print_is_a_noop_and_idempotent()
   c:finishPrint()
   Assert.isTrue(c:status().printDone, "a second finishPrint is a no-op")
   Assert.equal(revealedGlyphs(c:status()), 1)
+end
+
+-- The semantic print query is the controller's own: true exactly when the
+-- active printer has revealed every glyph, false without a print, during a
+-- typed reveal, and after the presentation ends.
+function T.is_print_done_is_the_semantic_print_query()
+  local lines = { line({ glyph("A", 1), glyph("B", 2) }) }
+  local c = controller(lines, { ticksPerGlyph = 2 })
+  Assert.isFalse(c:isPrintDone(), "no print means no completed print")
+  c:printInstant(message(lines))
+  Assert.isTrue(c:isPrintDone(), "an instant print is complete immediately")
+  c:printTyped(message(lines))
+  Assert.isFalse(c:isPrintDone(), "a typed print is not complete at reveal start")
+  c:updateFixed()
+  Assert.isFalse(c:isPrintDone(), "no glyph reveals on the first update")
+  c:updateFixed()
+  Assert.isFalse(c:isPrintDone(), "the first of two glyphs is not the whole message")
+  c:updateFixed()
+  c:updateFixed()
+  Assert.isTrue(c:isPrintDone(), "the final reveal completes the print")
+  c:setCommand("hide")
+  c:updateFixed()
+  Assert.isFalse(c:isPrintDone(), "the presentation end clears the printer")
 end
 
 -- The explicit cleanup operation: the window, printer, command, offset, and
