@@ -217,11 +217,11 @@ end
 local function loadArchive(romFs, alias)
   local info = must(romFs:resolvedNarc(alias), "unresolved NARC alias " .. alias)
   local archive = must(romFs:openNarc(alias), "failed to open " .. alias)
-  return info, archive, must(romFs:read(info.fileId), "missing archive bytes " .. alias)
+  return archive, must(romFs:read(info.fileId), "missing archive bytes " .. alias)
 end
 
 local function compileStartMenu(romFs, sha1hex, deps, assets, manifestAssets)
-  local info, archive, archiveBytes = loadArchive(romFs, manifestConfig.startMenu.alias)
+  local archive, archiveBytes = loadArchive(romFs, manifestConfig.startMenu.alias)
   local cfg = manifestConfig.startMenu
   local memberBytes = {}
   local function g2d(kind, memberId, label)
@@ -329,7 +329,7 @@ local function compileStartMenu(romFs, sha1hex, deps, assets, manifestAssets)
 end
 
 local function compileDialogueFrames(romFs, sha1hex, deps, assets, manifestAssets)
-  local info, archive, archiveBytes = loadArchive(romFs, manifestConfig.dialogueFrames.alias)
+  local archive, archiveBytes = loadArchive(romFs, manifestConfig.dialogueFrames.alias)
   local cfg = manifestConfig.dialogueFrames
   local tilesPath = FieldUiAssetCache.assetDir() .. "/dialogue-frame-tiles.png"
   -- Pack all frames: each frame's tiles in a row, frames stacked, each frame
@@ -343,7 +343,6 @@ local function compileDialogueFrames(romFs, sha1hex, deps, assets, manifestAsset
   local atlasHeight = cfg.frameCount * 8
   local rgba = newRgba(atlasWidth, atlasHeight)
   local frameTiles = {}
-  local palettes = {}
   for frame = 0, cfg.frameCount - 1 do
     local frameCharBytes = decodeMember(archive, cfg.firstFrameMember + frame, "frame " .. frame .. " char")
     local framePalBytes = decodeMember(archive, cfg.firstPaletteMember + frame, "frame " .. frame .. " palette")
@@ -364,7 +363,6 @@ local function compileDialogueFrames(romFs, sha1hex, deps, assets, manifestAsset
       })
     end
     frameTiles[frame] = { x = 0, y = frame * 8, width = atlasWidth, height = 8 }
-    palettes[frame] = { colors = framePal.colors }
     deps[#deps + 1] = {
       name = manifestConfig.dialogueFrames.alias .. ":member:" .. (cfg.firstFrameMember + frame),
       sha1 = sha1hex(frameCharBytes),
@@ -381,12 +379,11 @@ local function compileDialogueFrames(romFs, sha1hex, deps, assets, manifestAsset
   return {
     count = cfg.frameCount,
     frameTiles = frameTiles,
-    palettes = palettes,
   }
 end
 
 local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
-  local info, archive, archiveBytes = loadArchive(romFs, manifestConfig.signposts.alias)
+  local archive, archiveBytes = loadArchive(romFs, manifestConfig.signposts.alias)
   local cfg = manifestConfig.signposts
   local frameCharBytes = decodeMember(archive, cfg.frameMember, "signpost frame char")
   local framePalBytes = decodeMember(archive, cfg.paletteMember, "signpost frame palette")
@@ -480,7 +477,7 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
 end
 
 local function compileTrainerCard(romFs, sha1hex, deps, assets, manifestAssets)
-  local info, archive, archiveBytes = loadArchive(romFs, manifestConfig.trainerCard.alias)
+  local archive, archiveBytes = loadArchive(romFs, manifestConfig.trainerCard.alias)
   local cfg = manifestConfig.trainerCard
   local charBytes = decodeMember(archive, cfg.frontCharMember, "card char")
   local charData, charErr = G2dDecoder.decodeChar(charBytes, { label = "card char" })

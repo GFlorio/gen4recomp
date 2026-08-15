@@ -94,7 +94,8 @@ reopen request through the `startMenuReopen` service (an attributed
 `SCRIPT_SERVICE_MISSING` fault when no Start Menu host is wired — never a
 silent close) and returns the stop outcome that ends the script context. The
 moment the request is delivered (the source delivers at environment end) is
-the future Start Menu application host's composition decision.
+the Start Menu application host's composition decision (the runtime consumes
+the queued request at its post-scheduler arbitration point).
 
 ## Signal_caller ends the context
 

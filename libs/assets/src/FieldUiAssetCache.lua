@@ -154,9 +154,6 @@ function FieldUiAssetCache.validateManifest(manifest)
       if not ok then
         return false, err
       end
-      if type(s.palettes) ~= "table" or s.palettes[frame] == nil then
-        return false, Errors.new(MANIFEST_INVALID, "dialogueFrames.palettes must cover every frame", {})
-      end
     end
     return true
   end)

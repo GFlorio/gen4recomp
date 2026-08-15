@@ -251,17 +251,11 @@ function FieldSignpostRenderer:draw(controller, viewport, alpha)
     return
   end
   local lg = assert(self._graphics)
-
-  local drawState = FieldDrawState.save(lg)
-
-  local pushed = false
-  local ok, err = pcall(function()
+  FieldDrawState.protectedDraw(lg, function()
     -- Everything draws in reference-canvas coordinates under one
     -- translate(origin) + scale transform; the per-type geometry from the
     -- style catalogue is already reference-space, so nothing is scaled twice.
     local layout = FieldDialogueTheme.layout(viewport.referenceFrame)
-    lg.push()
-    pushed = true
     lg.translate(layout.origin.x, layout.origin.y)
     lg.scale(layout.scale, layout.scale)
     local wipe = self:_wipeY(status, alpha)
@@ -279,21 +273,7 @@ function FieldSignpostRenderer:draw(controller, viewport, alpha)
       self._text:drawLine(tokens, contentGeometry.x, lineY)
       lineY = lineY + FieldSignpostTheme.LINE_HEIGHT
     end
-    lg.pop()
-    pushed = false
   end)
-
-  -- Finally-style cleanup: a draw error must not leave the transform stack
-  -- unbalanced for the caller's next frame.
-  if pushed then
-    lg.pop()
-  end
-
-  FieldDrawState.restore(lg, drawState)
-
-  if not ok then
-    error(err)
-  end
 end
 
 function FieldSignpostRenderer:release()

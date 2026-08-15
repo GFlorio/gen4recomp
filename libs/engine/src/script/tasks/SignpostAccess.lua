@@ -25,4 +25,18 @@ function SignpostAccess.requireSignpost(ctx)
   return host --[[@as ScriptSignpostHost]]
 end
 
+-- Shared fault/cancellation teardown for the signpost task implementations:
+-- records the cancellation reason and closes the signpost the task owns
+-- when the live task context still carries the service (the scheduler
+-- injects it into live contexts; a nil context is a teardown path).
+---@param state table
+---@param reason string
+---@param ctx table|nil
+function SignpostAccess.closeOnCancel(state, reason, ctx)
+  state.cancelled = reason
+  if ctx ~= nil and ctx.services ~= nil and ctx.services.signpost ~= nil then
+    ctx.services.signpost:close()
+  end
+end
+
 return SignpostAccess

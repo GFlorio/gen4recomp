@@ -172,17 +172,11 @@ function StartMenuRenderer:draw(presentation, placement)
     "the start menu surface requires the placement record"
   )
   local lg = assert(self._graphics)
-
-  local drawState = FieldDrawState.save(lg)
-
-  local pushed = false
-  local ok, err = pcall(function()
+  FieldDrawState.protectedDraw(lg, function()
     -- Everything draws in canonical coordinates under the placement record's
     -- transform: translate(frame origin) + scale(record scale). The manifest
     -- rects are canonical, so nothing is scaled twice. A missing cursor is a
     -- valid empty-menu state: the background is drawn and drawing stops.
-    lg.push()
-    pushed = true
     lg.translate(placement.frame.x, placement.frame.y)
     lg.scale(placement.scale, placement.scale)
     lg.setColor(1, 1, 1, 1)
@@ -207,21 +201,7 @@ function StartMenuRenderer:draw(presentation, placement)
       local x, y = self:_cursorPosition(slot, frame)
       lg.draw(assert(self._cursorImage), assert(self._cursorQuads[presentation.cursorFrameIndex + 1]), x, y)
     end
-    lg.pop()
-    pushed = false
   end)
-
-  -- Finally-style cleanup: a draw error must not leave the transform stack
-  -- unbalanced for the caller's next frame.
-  if pushed then
-    lg.pop()
-  end
-
-  FieldDrawState.restore(lg, drawState)
-
-  if not ok then
-    error(err)
-  end
 end
 
 function StartMenuRenderer:release()

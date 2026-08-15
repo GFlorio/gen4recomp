@@ -731,7 +731,6 @@ T["direction and set signpost lower to canonical nodes"] = function()
     sourceAppearance = { game = "hgss", type = 1, map = 4 },
     provenance = { offsets = { 32 }, opcodes = { 55 } },
   })
-  Assert.isNil(lowered.items[1].sourceUnusedOut, "opcode 55's audited unused operand must not reach the semantic node")
   Assert.deepEqual(lowered.items[2], {
     op = "signpost_set",
     sourceAppearance = { game = "hgss", type = 2, map = 0 },

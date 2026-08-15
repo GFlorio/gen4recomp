@@ -419,10 +419,6 @@ function FieldUiFixture.manifest()
         [0] = { x = 0, y = 0, width = 144, height = 8 },
         [1] = { x = 0, y = 8, width = 144, height = 8 },
       },
-      palettes = {
-        [0] = { colors = { { r = 1, g = 2, b = 3 } } },
-        [1] = { colors = { { r = 4, g = 5, b = 6 } } },
-      },
     },
     signposts = {
       frame = {

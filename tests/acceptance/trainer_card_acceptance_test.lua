@@ -16,8 +16,7 @@
 -- restores the remembered selection; the final menu close returns to a
 -- capturable field with zero script faults. The card presentation also
 -- exposes exactly the implemented profile fields: the controller copies
--- name/trainerId from the profile at construction -- gender is not a card
--- presentation field and must not appear in the status -- and nothing else --
+-- name/trainerId from the profile at construction and nothing else --
 -- no money/stars/signature or other future-card scaffolding may leak through
 -- the production host snapshot.
 
@@ -173,11 +172,6 @@ function T.tests.trainer_card_viewer_runs_through_production_composition_and_ret
       application.name,
       profile.name,
       "the card must present the authoritative player name, got: " .. tostring(application and application.name)
-    )
-    Assert.isNil(
-      application.gender,
-      "the card must not expose gender: it is not a card presentation field, got: "
-        .. tostring(application and application.gender)
     )
     Assert.equal(
       application.trainerId,

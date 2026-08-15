@@ -13,10 +13,8 @@ local T = {}
 
 local function validManifest()
   local frameTiles = {}
-  local palettes = {}
   for frame = 0, 19 do
     frameTiles[frame] = { x = 0, y = 0, width = 160, height = 8 }
-    palettes[frame] = { colors = { { r = 1, g = 2, b = 3 } } }
   end
   local slots = {}
   for id = 1, 10 do
@@ -48,7 +46,6 @@ local function validManifest()
     dialogueFrames = {
       count = 20,
       frameTiles = frameTiles,
-      palettes = palettes,
     },
     signposts = {
       frame = { tiles = { x = 0, y = 0, width = 160, height = 8 } },
@@ -149,18 +146,6 @@ function T.missing_sections_are_rejected()
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
     m.startMenu = nil
-  end, "FIELD_UI_MANIFEST_INVALID")
-end
-
--- Every dialogue palette entry is required, not just the first and last:
--- the controller indexes palettes[frame] for any frame the manifest
--- declares.
-function T.every_dialogue_palette_is_required()
-  reject(function(m)
-    m.dialogueFrames.palettes[7] = nil
-  end, "FIELD_UI_MANIFEST_INVALID")
-  reject(function(m)
-    m.dialogueFrames.palettes[19] = nil
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 

@@ -11,6 +11,10 @@
 -- keyCount/numTextures/numPalettes counts (sampler and gate trust the
 -- arrays).
 --
+-- fieldUi schema 4: the manifest drops the per-frame dialogueFrames.palettes
+-- records (the palette colors are baked into the compiled frame-strip PNG;
+-- no runtime consumer exists).
+--
 -- fieldUi schema 3: signpost wayfinding becomes a per-(type,map) rect table
 -- (signposts.types[N].wayfinding[map]) and the manifest drops the
 -- startMenu.icons mapping (no runtime consumer remains; the icon art is
@@ -71,7 +75,7 @@ DerivedAssetContract.scripts = {
 
 DerivedAssetContract.fieldUi = {
   cacheFormat = "field-ui-cache-v1",
-  schema = "g4-field-ui-v3",
+  schema = "g4-field-ui-v4",
 }
 
 -- The mesh batch format constants (magic, version, stride, header size,

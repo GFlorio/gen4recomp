@@ -2,7 +2,8 @@
 -- mod API. A custom-style sign and a Trainer Tip run through S.sign /
 -- S.trainerTip with no source-only type/map data; the messages are the real
 -- New Bark sign texts from the generated message bank 542. The custom style
--- id is registered per runtime before the window-style registry seals.
+-- id is registered per runtime through the window-style catalogue
+-- construction.
 
 local S = require("gen4.script")
 
