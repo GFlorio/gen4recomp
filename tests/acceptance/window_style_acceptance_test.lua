@@ -100,6 +100,14 @@ local function assertResolveReturnsCopies(registry, id, label)
   Assert.equal(second.contentGeometry.x, originalX, label .. " resolve must return a deep copy, not the sealed record")
 end
 
+-- resolve() may return nil for an unknown id; the tests assert the id
+-- resolves and hand the asserted record onward.
+local function resolveStyle(registry, id, message)
+  local style = registry:resolve(id)
+  Assert.isTrue(type(style) == "table", message)
+  return assert(style, message)
+end
+
 function T.tests.sealed_runtime_registry_resolves_builtin_styles_for_every_corpus_signpost_type()
   local harness = AcceptanceHarness.new()
   local game = harness:boot({ versionId = "heartgold", map = "MAP_NEW_BARK", save = "fresh" })
@@ -112,18 +120,15 @@ function T.tests.sealed_runtime_registry_resolves_builtin_styles_for_every_corpu
     )
     Assert.equal(registry.sealed, true, "the runtime registry must be sealed before scripts run")
 
-    local dialogue = registry:resolve("hgss.dialogue")
-    Assert.isTrue(type(dialogue) == "table", "hgss.dialogue must resolve as a built-in style")
+    local dialogue = resolveStyle(registry, "hgss.dialogue", "hgss.dialogue must resolve as a built-in style")
     Assert.equal(dialogue.role, "dialogue", "the dialogue style must declare its role")
     Assert.deepEqual(dialogue.contentGeometry, FULL_WIDTH_TEXT, "dialogue content geometry")
 
-    local trainerTip = registry:resolve("hgss.trainer_tip")
-    Assert.isTrue(type(trainerTip) == "table", "hgss.trainer_tip must resolve as a built-in style")
+    local trainerTip = resolveStyle(registry, "hgss.trainer_tip", "hgss.trainer_tip must resolve as a built-in style")
     Assert.equal(trainerTip.role, "trainer_tip", "the trainer-tip style must declare its role")
     Assert.deepEqual(trainerTip.contentGeometry, FULL_WIDTH_TEXT, "trainer-tip content geometry")
 
-    local signpost = registry:resolve("hgss.signpost")
-    Assert.isTrue(type(signpost) == "table", "hgss.signpost must resolve as a built-in style")
+    local signpost = resolveStyle(registry, "hgss.signpost", "hgss.signpost must resolve as a built-in style")
     Assert.equal(signpost.role, "signpost", "the signpost style must declare its role")
     Assert.deepEqual(signpost.contentGeometry, FULL_WIDTH_TEXT, "signpost content geometry")
 
@@ -168,8 +173,7 @@ function T.tests.boot_config_derived_style_reports_its_own_identity_and_returns_
     Assert.isTrue(type(registry) == "table", "the production runtime must expose the sealed window style registry")
     Assert.equal(registry.sealed, true, "the runtime registry must be sealed before scripts run")
 
-    local mod = registry:resolve("mod.route_sign")
-    Assert.isTrue(type(mod) == "table", "the mod style must resolve through the sealed registry")
+    local mod = resolveStyle(registry, "mod.route_sign", "the mod style must resolve through the sealed registry")
     Assert.equal(mod.id, "mod.route_sign", "a derived style must never report its base's id")
     Assert.isNil(mod.base, "a resolved style must never report a base")
     Assert.equal(mod.role, "signpost", "the derived style inherits the base role")

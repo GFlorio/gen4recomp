@@ -304,14 +304,11 @@ function FieldWindowStyleRegistry:seal()
 end
 
 -- Returns a deep copy of the sealed flat record for a style id, or nil for
--- an unknown id (the nil contract is pinned by the unit tests; the
--- annotation is kept non-optional so consumers of the sealed registry read
--- field access as plain lookup). The registry must be sealed first;
--- resolving before seal is a programming error. Copies keep the sealed
--- catalogue immutable: callers that resolve per frame (like the renderer)
--- cache the copy themselves.
+-- an unknown id. The registry must be sealed first; resolving before seal is
+-- a programming error. Copies keep the sealed catalogue immutable: callers
+-- that resolve per frame (like the renderer) cache the copy themselves.
 ---@param id string
----@return table
+---@return table?
 function FieldWindowStyleRegistry:resolve(id)
   assert(type(id) == "string" and id ~= "", "window style id must be a non-empty string")
   if not self._resolved then

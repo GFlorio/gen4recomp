@@ -56,11 +56,6 @@ FieldApplicationHost.PHASES = {
   failed = "failed",
 }
 
-local PHASE_NAMES = {}
-for name in pairs(FieldApplicationHost.PHASES) do
-  PHASE_NAMES[name] = true
-end
-
 ---@param options FieldApplicationHostOptions
 ---@return FieldApplicationHost
 function FieldApplicationHost.new(options)
@@ -405,9 +400,10 @@ end
 ---@param placement table?
 function FieldApplicationHost:setMenuPlacement(placement)
   self._layout = placement
-  local controller = self._controller
-  if controller ~= nil and type(controller.cancelPointerCapture) == "function" then
-    controller:cancelPointerCapture()
+  -- Only the menu controller ever holds a pointer capture; destinations own
+  -- their input policy and capture none.
+  if self._phase == FieldApplicationHost.PHASES.menu and self._controller ~= nil then
+    self._controller:cancelPointerCapture()
   end
 end
 

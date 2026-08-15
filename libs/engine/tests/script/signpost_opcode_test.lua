@@ -920,20 +920,20 @@ function T.high_level_trainer_tip_types_then_waits_for_dismissal()
   Assert.equal(#tasks, 1)
   Assert.equal(tasks[1].taskType, "sign")
 
-  -- A/B during the live print is speed-up, not a dismissal.
+  -- A/B during the live print is the printer's speed-up: the whole message
+  -- fills immediately, the window stays presented, and the task keeps
+  -- waiting for the dismissal edge.
   h.scheduler:step(101, { pressedAction = true })
   Assert.equal(#h.scheduler:tasks(), 1, "A during the print must not dismiss the trainer tip")
-  Assert.equal(h.signpost.closes, 0)
-  h.scheduler:step(102, { pressedCancel = true })
-  Assert.equal(#h.scheduler:tasks(), 1, "B during the print must not dismiss the trainer tip")
+  Assert.equal(h.signpost.fills, 1, "A during the live print must fill the remaining message")
   Assert.equal(h.signpost.closes, 0)
 
-  -- A directional edge during the print is the source interruption.
+  -- A directional edge after the fill is still the source interruption.
   h.services.player:turn("south")
-  h.scheduler:step(103, { pressedDirection = "east" })
+  h.scheduler:step(102, { pressedDirection = "east" })
   Assert.equal(h.services.player:facing(), "east", "the interrupt must turn the player")
   Assert.equal(h.signpost.closes, 1, "the interrupt must close the window")
-  h.scheduler:step(104, {})
+  h.scheduler:step(103, {})
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
 end
 
