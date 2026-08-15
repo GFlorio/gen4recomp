@@ -2,9 +2,9 @@
 -- card renderer, driven through an injected graphics namespace: construction
 -- typed errors with release of already-acquired images, the audited front
 -- label/value anchors resolved against the synthetic font (right-aligned
--- name and five-digit trainer id), the nil optional fields rendering the
--- authentic blank presentation (no value text, no pokedex row, nothing in
--- the reserved signature region), the card surface drawn at the manifest
+-- name and five-digit trainer id), the presentation carrying only the
+-- implemented profile fields so the unimplemented value rows stay blank
+-- (no value text, no pokedex row), the card surface drawn at the manifest
 -- front rect, and draw-time state restoration. The canonical pixel goldens
 -- live in trainer_card_renderer_graphics_test.lua.
 
@@ -17,6 +17,7 @@ local FieldUiFixture = require("tests.support.FieldUiFixture")
 local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local TrainerCardRenderer = require("libs.engine.src.TrainerCardRenderer")
 local FieldViewport = require("libs.engine.src.FieldViewport")
+local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 
 local T = {}
 
@@ -161,19 +162,13 @@ local function fakeGraphics(opts)
   }
 end
 
--- A full presentation snapshot.
+-- A full presentation snapshot: the implemented profile fields only.
 local function presentation(overrides)
   local status = {
     open = true,
     name = "GOLD",
     gender = 0,
     trainerId = 0,
-    money = nil,
-    playTime = nil,
-    badges = nil,
-    pokedexOwned = nil,
-    stars = nil,
-    signature = nil,
   }
   for key, value in pairs(overrides or {}) do
     status[key] = value
@@ -214,15 +209,16 @@ local function cardRenderer(graphics, cache)
 end
 
 -- The glyph quads drawn for one text string: { code, x, y } in draw order,
--- advancing by the fixture's 8px advances. The renderer draws every text in
+-- advancing by the font's advances. The renderer draws every text in
 -- one pass, so the expected run is compared against the glyph draws starting
--- at offset (the number of glyphs already verified).
-local function drawnGlyphs(graphics, text, originX, originY, offset)
-  local fontDef = FieldUiFixture.cardFontDef()
+-- at offset (the number of glyphs already verified). Iteration goes through
+-- the shared UTF-8 glyph iterator, so expectations stay correct for
+-- multibyte names.
+local function drawnGlyphs(graphics, text, originX, originY, offset, fontDef)
+  local fontDef = fontDef or FieldUiFixture.cardFontDef()
   local runs = {}
   local x = originX
-  for i = 1, #text do
-    local char = text:sub(i, i)
+  for char in Utf8Glyphs.iter(text) do
     local code = fontDef.charmap[char] or 0
     local glyph = fontDef.glyphs[code] or fontDef.glyphs[0]
     runs[#runs + 1] = { code = code, x = x, y = originY, advance = glyph.advance }
@@ -358,6 +354,26 @@ function T.draw_right_aligns_the_name_and_the_five_digit_trainer_id()
   Assert.equal(idRuns[#idRuns].x + 8, 112, "the trainer id right edge is the audited anchor")
 end
 
+-- A multibyte player name (É = U+00C9, a real two-byte glyph at code 360 in
+-- the fixture font) travels the same shared text path: one run per glyph
+-- sequence, right-aligned against the audited anchor by the glyph-advance
+-- measurement, never per byte.
+function T.draw_right_aligns_a_multibyte_name_through_the_shared_text_path()
+  local graphics = renderedGraphics()
+  local multibyte = FieldUiFixture.cardFontDefWithMultibyte()
+  local renderer = cardRenderer(graphics, FieldUiFixture.trainerCardCache(multibyte))
+  renderer:draw(presentation({ name = "\195\137lise", trainerId = 12345 }), CANONICAL)
+
+  local labelGlyphs = 6 + 4 + 5 + 5 + 4 + 17
+  -- É advances 6px; l/i/s/e advance 8px each, so the name is 38px wide.
+  local nameRuns = drawnGlyphs(graphics, "\195\137lise", 240 - 38, 24, labelGlyphs, multibyte)
+  Assert.equal(#nameRuns, 5, "the multibyte name is five glyphs, not six bytes")
+  Assert.equal(nameRuns[1].code, 360, "the first glyph is the encoded É, not the fallback")
+  Assert.equal(nameRuns[#nameRuns].x + 8, 240, "the name right edge is the audited anchor")
+  local idRuns = drawnGlyphs(graphics, "12345", 112 - 5 * 8, 24, labelGlyphs + 5)
+  Assert.equal(idRuns[#idRuns].x + 8, 112, "the trainer id right edge is the audited anchor")
+end
+
 function T.draw_zero_pads_the_trainer_id_to_five_digits()
   local graphics = renderedGraphics()
   local renderer = cardRenderer(graphics)
@@ -365,7 +381,11 @@ function T.draw_zero_pads_the_trainer_id_to_five_digits()
   drawnGlyphs(graphics, "00000", 112 - 5 * 8, 24, 6 + 4 + 5 + 5 + 4 + 17 + 4)
 end
 
-function T.draw_renders_the_authentic_blank_for_nil_optional_fields()
+-- The presentation carries only the implemented profile fields, so the card
+-- draws exactly the audited labels plus the name and the five-digit id: no
+-- money/score/time/adventure value rows are fabricated and the source-gated
+-- pokedex row stays blank.
+function T.draw_renders_the_authentic_blank_for_unimplemented_value_rows()
   local graphics = renderedGraphics()
   local renderer = cardRenderer(graphics)
   renderer:draw(presentation(), CANONICAL)
@@ -376,13 +396,11 @@ function T.draw_renders_the_authentic_blank_for_nil_optional_fields()
       glyphDraws[#glyphDraws + 1] = draw
     end
   end
-  -- The six audited labels plus the name and the five-digit id only: no
-  -- money/pokedex/score/time/adventure values are fabricated.
+  -- The six audited labels plus the name and the five-digit id only.
   Assert.equal(#glyphDraws, 6 + 4 + 5 + 5 + 4 + 17 + 4 + 5)
-  -- Nothing is drawn inside the reserved signature region (below the last
-  -- audited text row).
+  -- Nothing below the last audited text row: the bottom band stays art-only.
   for _, draw in ipairs(glyphDraws) do
-    Assert.isFalse(draw.y >= TrainerCardRenderer.SIGNATURE_REGION.y, "no text may enter the reserved signature region")
+    Assert.isFalse(draw.y >= 160, "no text may enter the art-only band below the audited rows")
   end
   -- No pokedex row: the audited label prints only with pokedex data.
   for _, draw in ipairs(glyphDraws) do

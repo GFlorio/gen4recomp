@@ -27,6 +27,7 @@ local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldSave = require("libs.engine.src.FieldSave")
 local FieldSaveStore = require("libs.engine.src.FieldSaveStore")
 local FieldTransition = require("libs.engine.src.FieldTransition")
+local PlayerDataContext = require("tests.support.PlayerDataContext")
 local SceneLoaderFixture = require("tests.rom.support.SceneLoaderFixture")
 local SaveFs = require("libs.storage.src.SaveFs")
 local FieldScenarioManifest = require("data.manifests.field_scenario")
@@ -62,10 +63,16 @@ local function autosaveRoundTrip(harness)
       options = { textFrame = 0, textSpeed = "mid" },
     },
   })
-  local store = FieldSaveStore.new(SaveFs.forVersion(harness.versionId, FakeCache.new()), { avatars = { hero = true } })
+  local store = FieldSaveStore.new(SaveFs.forVersion(harness.versionId, FakeCache.new()), {
+    avatars = { hero = true },
+    playerDataContext = PlayerDataContext.new(),
+  })
   store:save(record)
   local loaded = assert(store:load(), "the published save reloads")
-  local restored = assert(FieldSave.restore(loaded, harness.loader, harness.versionId), "the save restores")
+  local restored = assert(
+    FieldSave.restore(loaded, harness.loader, harness.versionId, { playerDataContext = PlayerDataContext.new() }),
+    "the save restores"
+  )
   return record, restored
 end
 

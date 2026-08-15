@@ -1,10 +1,11 @@
 -- Production Trainer Card composition contract: the runtime itself registers
 -- the trainer_card application before the registry seals (no boot-config
--- descriptor), its factory composes the model from the authoritative
--- player-data record, the host snapshot presents the card with the profile
--- passthrough during the application phase, and the production save -> resume
--- round trip proves the restored player-data bucket drives the card (never a
--- re-read of the initial manifest).
+-- descriptor), its factory passes the authoritative player profile and the
+-- controller copies the immutable fields at construction, the host snapshot
+-- presents the card with exactly the implemented profile fields during the
+-- application phase, and the production save -> resume round trip proves the
+-- restored player-data bucket drives the card (never a re-read of the
+-- initial manifest).
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
@@ -76,8 +77,7 @@ function T.tests.production_factory_registers_the_card_and_resume_drives_the_pre
     Assert.equal(status.name, runtime.playerData.profile.name)
     Assert.equal(status.gender, runtime.playerData.profile.gender)
     Assert.equal(status.trainerId, runtime.playerData.profile.trainerId)
-    Assert.equal(status.money, nil)
-    Assert.equal(status.signature, nil)
+    Assert.keySet(status, "gender,name,open,trainerId", "the card exposes only the implemented profile fields")
 
     -- The saved bucket wins over the initial manifest after a resume: return
     -- to the field (the settled boundary allows the disposal save), mutate

@@ -50,7 +50,6 @@ local StartMenuController = require("libs.engine.src.StartMenuController")
 local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
 local StartMenuRegistry = require("libs.engine.src.StartMenuRegistry")
 local TrainerCardController = require("libs.engine.src.TrainerCardController")
-local TrainerCardModel = require("libs.engine.src.TrainerCardModel")
 local TargetSpawns = require("data.manifests.field_spawns")
 local FieldPresentation = require("data.manifests.field_presentation")
 local FieldScenarioManifest = require("data.manifests.field_scenario")
@@ -478,14 +477,15 @@ function FieldRuntime:_load()
       end,
     })
     -- The Trainer Card viewer is the concrete destination: the
-    -- production factory composes the read model from the authoritative
-    -- player-data record and the close-input-only controller. The factory
-    -- must return a fully usable controller or raise.
+    -- production factory passes the authoritative player profile, and the
+    -- close-input-only controller copies the required immutable fields at
+    -- construction. The factory must return a fully usable controller or
+    -- raise.
     self.applications:register({
       id = "trainer_card",
       factory = function()
         return TrainerCardController.new({
-          model = TrainerCardModel.new(self.playerData),
+          profile = self.playerData.profile,
         })
       end,
     })

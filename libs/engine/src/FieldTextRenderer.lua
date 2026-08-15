@@ -15,6 +15,7 @@ local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
 local FieldMessageText = require("libs.assets.src.FieldMessageText")
+local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 
 ---@class FieldTextRenderer
 ---@field fontDef FieldFontDef
@@ -89,8 +90,7 @@ end
 ---@return { quad: love.Quad?, advance: number }[]
 function FieldTextRenderer:_glyphRuns(text)
   local runs = {}
-  for i = 1, #text do
-    local char = text:sub(i, i)
+  for char in Utf8Glyphs.iter(text) do
     local code = self.fontDef.charmap[char]
     if not code then
       code = 0
@@ -183,8 +183,8 @@ function FieldTextRenderer:drawText(text, x, y)
   local atlas = assert(self._atlas)
   local quads = assert(self._quads)
   local def = self.fontDef
-  for i = 1, #text do
-    local code = def.charmap[text:sub(i, i)]
+  for char in Utf8Glyphs.iter(text) do
+    local code = def.charmap[char]
     if not code then
       code = 0
     end
@@ -204,8 +204,8 @@ end
 function FieldTextRenderer:textWidth(text)
   local def = self.fontDef
   local width = 0
-  for i = 1, #text do
-    local code = def.charmap[text:sub(i, i)]
+  for char in Utf8Glyphs.iter(text) do
+    local code = def.charmap[char]
     if not code then
       code = 0
     end

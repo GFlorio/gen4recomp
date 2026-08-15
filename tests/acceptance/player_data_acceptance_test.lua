@@ -4,7 +4,12 @@
 -- faulting for a missing service, the record survives a fresh-session -> save
 -- -> resume round trip, and the current save schema requires the player-data
 -- bucket (a record missing it, or at the previous schema, is rejected with
--- the structured error at the resume boundary).
+-- the structured error at the resume boundary). The player-data bucket is
+-- validated strictly through the generated field-font charmap: a player name
+-- containing a real multibyte field-font glyph is accepted and reaches the
+-- trainer card presentation through production composition, while an
+-- arbitrary empty player-data bucket is rejected -- the resume boundary must
+-- never pass player data it did not validate.
 
 local Assert = require("tests.support.Assert")
 local LuaWriter = require("libs.codec.src.LuaWriter")
@@ -155,15 +160,18 @@ local function currentSessionRecord(game)
       registryFingerprint = game.runtime.scripts:registryFingerprint(),
     }),
     auxiliaryUi = { requested = "shown", state = "shown" },
+    playerData = game.runtime.playerData,
   }
 end
 
--- Plant a mutated session record at the live save path and resume it through
--- the production resume boundary. The first runtime must stay alive until the
--- resume boot reads the planted file (its own disposal save would overwrite
--- it), and both boots share one isolated namespace.
-local function resumePlantedRecord(mutate, expectedCode)
-  local namespace = "acceptance/player-data/planted"
+-- Plant a mutated session record at the live save path and boot a resume
+-- through the production resume boundary, both runtimes sharing one isolated
+-- namespace. The first runtime must stay alive until the resume boot reads
+-- the planted file (its disposal save would overwrite it). Both runtimes are
+-- returned; the caller asserts the resume outcome and closes them in
+-- acquisition order. On a planting/boot failure the first runtime is closed
+-- before rethrowing so the render trap cannot stay installed.
+local function plantAndResume(mutate, namespace)
   local harness = AcceptanceHarness.new({
     saveNamespace = function()
       return namespace
@@ -180,6 +188,23 @@ local function resumePlantedRecord(mutate, expectedCode)
     local written = love.filesystem.write(namespace .. "/" .. FieldSave.PATH, LuaWriter.encode(record))
     Assert.isTrue(written, "the planted save record must be written into the acceptance namespace")
     resumed = harness:boot({ versionId = "heartgold", map = TOWN, save = "resume" })
+  end, debug.traceback)
+  if not ok then
+    if resumed then
+      resumed:close()
+    end
+    first:close()
+    error(err, 0)
+  end
+  return first, resumed
+end
+
+-- Plant a mutated record and assert the resume boundary rejects it with the
+-- structured error: rejection assertions run inside a guarded body so any
+-- failure still closes both runtimes in order.
+local function resumePlantedRecord(mutate, expectedCode)
+  local first, resumed = plantAndResume(mutate, "acceptance/player-data/planted")
+  local ok, err = xpcall(function()
     assert(resumed.saveStatus, "the resume boot must report a save status")
     Assert.isTrue(
       resumed.saveStatus:find("Save ignored:", 1, true) ~= nil,
@@ -191,9 +216,7 @@ local function resumePlantedRecord(mutate, expectedCode)
     )
     Assert.equal(resumed:renderAttempts(), 0)
   end, debug.traceback)
-  if resumed then
-    resumed:close()
-  end
+  resumed:close()
   first:close()
   if not ok then
     error(err, 0)
@@ -208,6 +231,106 @@ function T.tests.current_schema_save_missing_the_player_data_bucket_is_rejected(
   resumePlantedRecord(function(record)
     record.playerData = nil
   end, "FIELD_SAVE_PLAYER_DATA_INVALID")
+end
+
+-- An arbitrary empty player-data bucket must never pass strict validation:
+-- the resume boundary always supplies the player-data validation context
+-- (the generated charmap and frame-index set), so a current-schema record
+-- whose bucket is a bare table is rejected with the structured error. There
+-- is no public path where a record with unvalidated player data resumes.
+function T.tests.current_schema_save_with_arbitrary_player_data_is_rejected()
+  resumePlantedRecord(function(record)
+    record.playerData = {}
+  end, "FIELD_SAVE_PLAYER_DATA_INVALID")
+end
+
+-- A player name containing a real multibyte field-font glyph: É (U+00C9) is
+-- a two-byte UTF-8 sequence present in the generated charmap (glyph 360), so
+-- "Élise" is a five-glyph name every glyph of which the generated field font
+-- can encode. Validation must count and encode glyphs, never bytes: the
+-- planted current-schema record must resume successfully and the resumed
+-- profile must round-trip the exact name to the trainer card presentation
+-- through production composition (the shared text path of the card viewer).
+local MULTIBYTE_NAME = "Élise"
+
+local function hostStatus(game)
+  local host = game.runtime.applicationHost
+  ---@diagnostic disable-next-line: undefined-field -- the runtime application-host surface is the contract under test
+  return host:status()
+end
+
+-- The menu-key open edge through the production input pipeline: press, one
+-- fixed tick, release.
+local function pressMenuEdge(game)
+  game.runtime:pressMenu()
+  game:step()
+  game.runtime:releaseMenu()
+end
+
+local function advanceToPhase(game, phase, maxTicks)
+  return game:advanceUntil("start menu reaches " .. phase, function()
+    return hostStatus(game).phase == phase
+  end, maxTicks)
+end
+
+function T.tests.multibyte_player_name_validates_and_reaches_the_trainer_card_presentation()
+  local first, resumed = plantAndResume(function(record)
+    record.playerData = {
+      profile = {
+        name = MULTIBYTE_NAME,
+        gender = record.playerData.profile.gender,
+        trainerId = record.playerData.profile.trainerId,
+      },
+      options = {
+        textFrame = record.playerData.options.textFrame,
+        textSpeed = record.playerData.options.textSpeed,
+      },
+    }
+  end, "acceptance/player-data/multibyte")
+  local ok, err = xpcall(function()
+    local profile = first.runtime.playerData.profile
+    Assert.equal(resumed.saveStatus, "Resumed saved field session")
+    Assert.equal(
+      resumed.runtime.scripts.player:name(),
+      MULTIBYTE_NAME,
+      "the resumed profile must carry the multibyte player name"
+    )
+    local resumedProfile = resumed.runtime.playerData.profile
+    Assert.equal(resumedProfile.gender, profile.gender, "the multibyte name must not disturb the profile gender")
+    Assert.equal(
+      resumedProfile.trainerId,
+      profile.trainerId,
+      "the multibyte name must not disturb the profile trainer id"
+    )
+
+    -- The trainer card viewer renders the player name through the shared
+    -- field-text path, so the multibyte name must reach the card
+    -- presentation through the production application composition.
+    pressMenuEdge(resumed)
+    advanceToPhase(resumed, "menu", 16)
+    local actions = hostStatus(resumed).menu.actions
+    Assert.equal(#actions, 1, "the resumed field must keep the trainer card action available")
+    resumed.runtime:pressAction()
+    resumed:step()
+    resumed.runtime:releaseAction()
+    advanceToPhase(resumed, "application", 64)
+    local application = hostStatus(resumed).application
+    Assert.isTrue(
+      type(application) == "table",
+      "the host snapshot must present the active card application, got: " .. tostring(application)
+    )
+    Assert.equal(
+      application.name,
+      MULTIBYTE_NAME,
+      "the card presentation must carry the multibyte player name, got: " .. tostring(application and application.name)
+    )
+    Assert.equal(resumed:renderAttempts(), 0, "the multibyte card journey must not render")
+  end, debug.traceback)
+  resumed:close()
+  first:close()
+  if not ok then
+    error(err, 0)
+  end
 end
 
 -- The save schema moves forward with the player-data bucket; a

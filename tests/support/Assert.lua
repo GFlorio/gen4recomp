@@ -106,4 +106,19 @@ function Assert.throws(fn, msg)
   return err
 end
 
+-- Assert the exact key set of a table, sorted and comma-joined: a contract
+-- that a table exposes exactly the given keys, so extra keys are violations
+-- even when their value is nil.
+---@param t table
+---@param expected string
+---@param msg string|nil
+function Assert.keySet(t, expected, msg)
+  local keys = {}
+  for key in pairs(t) do
+    keys[#keys + 1] = key
+  end
+  table.sort(keys)
+  Assert.equal(table.concat(keys, ","), expected, msg or ("expected key set " .. expected))
+end
+
 return Assert

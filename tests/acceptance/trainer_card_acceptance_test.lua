@@ -12,7 +12,11 @@
 -- source cancel effect (SEQ_SE_GS_GEARCANCEL, overlay_trainer_card_main.s
 -- ov51_021E6A54 at the pinned decomp commit) is not reproduced by this
 -- branch. The menu rebuild restores the remembered selection; the final menu
--- close returns to a capturable field with zero script faults.
+-- close returns to a capturable field with zero script faults. The card
+-- presentation also exposes exactly the implemented profile fields: the
+-- controller copies name/gender/trainerId from the profile at construction
+-- and nothing else -- no money/stars/signature or other future-card
+-- scaffolding may leak through the production host snapshot.
 
 local Assert = require("tests.support.Assert")
 local FieldSave = require("libs.engine.src.FieldSave")
@@ -75,7 +79,7 @@ local function pressMenuEdge(game)
 end
 
 -- Bounded wait on the host phase; fixed tick counts are never asserted for
--- fade durations (the spec pins the phase sequence, not the fade length).
+-- fade durations (the phase sequence is the contract, not the fade length).
 local function advanceToPhase(game, phase, maxTicks)
   return game:advanceUntil("start menu reaches " .. phase, function()
     return hostPhase(game) == phase
@@ -170,6 +174,11 @@ function T.tests.trainer_card_viewer_runs_through_production_composition_and_ret
       application.trainerId,
       profile.trainerId,
       "the card must present the authoritative trainer id, got: " .. tostring(application and application.trainerId)
+    )
+    Assert.keySet(
+      application,
+      "gender,name,open,trainerId",
+      "the card presentation must expose only the implemented profile fields"
     )
     Assert.equal(FieldSave.canCapture(runtime.session), false, "the active card must block save capture")
     assertPausedAt(pausedAtOpen, game, "the active card")

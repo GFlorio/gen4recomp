@@ -1,0 +1,127 @@
+-- Cross-module UTF-8 contract: the fixture font carries one real multibyte
+-- glyph (É, U+00C9, two-byte UTF-8, compiled-code 360 with advance 6), and
+-- every consumer that turns text into glyphs must iterate full UTF-8
+-- sequences, never bytes. The player name containing the glyph validates
+-- against the fixture charmap, the shared text renderer produces one glyph
+-- run per sequence with the encoded glyph's own quad and advance, drawn text
+-- visits the atlas once per sequence, and the dialogue theme's measurement
+-- returns exactly the glyph's advance. The trainer card path through the
+-- shared renderer is covered in trainer_card_renderer_test.lua.
+
+local Assert = require("tests.support.Assert")
+local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
+local FieldPlayerData = require("libs.engine.src.FieldPlayerData")
+local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
+local FieldUiFixture = require("tests.support.FieldUiFixture")
+
+local T = {}
+
+local MULTIBYTE = "\195\137" -- É = U+00C9
+local MULTIBYTE_CODE = 360
+local MULTIBYTE_ADVANCE = 6
+local ASCII_ADVANCE = 8
+
+-- The card font plus the real multibyte glyph, written through the same
+-- cache builder the card renderer tests use.
+local function fixtureCache()
+  return FieldUiFixture.trainerCardCache(FieldUiFixture.cardFontDefWithMultibyte())
+end
+
+-- A minimal graphics namespace: enough image/quad creation for the renderer
+-- constructor and draw recording for the draw operations under test.
+local function fakeGraphics()
+  local draws = {}
+  return {
+    newImage = function()
+      return {
+        setFilter = function() end,
+        getWidth = function()
+          return 512
+        end,
+        getHeight = function()
+          return 32
+        end,
+      }
+    end,
+    newQuad = function(x, y, w, h, imgW, imgH)
+      return { x = x, y = y, w = w, h = h, imgW = imgW, imgH = imgH }
+    end,
+    setColor = function() end,
+    draw = function(image, quad, x, y)
+      draws[#draws + 1] = { image = image, quad = quad, x = x, y = y }
+    end,
+  },
+    draws
+end
+
+local function renderer()
+  return FieldTextRenderer.new({ cacheFs = fixtureCache(), graphics = fakeGraphics() })
+end
+
+-- The player name containing the multibyte glyph validates against the
+-- fixture charmap: glyph count and encodability are sequence-based, so a
+-- seven-glyph name of two-byte sequences is within the 1..7 limit.
+function T.multibyte_player_name_validates_against_the_fixture_charmap()
+  local def = FieldUiFixture.cardFontDefWithMultibyte()
+  local context = { charmap = def.charmap, frameIndexes = { [0] = true } }
+  local record = {
+    profile = { name = MULTIBYTE, gender = 0, trainerId = 0 },
+    options = { textFrame = 0, textSpeed = "mid" },
+  }
+  local validated = assert(FieldPlayerData.validate(record, context))
+  Assert.equal(validated.profile.name, MULTIBYTE)
+  local seven = {
+    profile = { name = string.rep(MULTIBYTE, 7), gender = 1, trainerId = 65535 },
+    options = { textFrame = 0, textSpeed = "fast" },
+  }
+  Assert.notNil(FieldPlayerData.validate(seven, context), "seven two-byte glyphs are seven glyphs, not fourteen bytes")
+end
+
+-- The glyph run for the two-byte sequence is exactly one run carrying the
+-- encoded glyph's quad and advance, never two fallback runs per byte.
+function T.one_multibyte_glyph_is_one_run_with_its_own_quad_and_advance()
+  local lg = fakeGraphics()
+  local text = FieldTextRenderer.new({ cacheFs = fixtureCache(), graphics = lg })
+  local runs = text:_glyphRuns(MULTIBYTE)
+  Assert.equal(#runs, 1, "a two-byte glyph is one run, not one per byte")
+  Assert.equal(runs[1].advance, MULTIBYTE_ADVANCE)
+  local runQuad = runs[1].quad ---@type { x: number }
+  Assert.equal(
+    runQuad.x,
+    (MULTIBYTE_CODE - 1) * ASCII_ADVANCE,
+    "the run uses the encoded glyph's quad, not the fallback"
+  )
+  text:release()
+end
+
+-- The measured width of the multibyte glyph is exactly its own advance, and
+-- a mixed name sums per glyph.
+function T.text_width_measures_glyph_advances_not_bytes()
+  local text = renderer()
+  Assert.equal(text:textWidth(MULTIBYTE), MULTIBYTE_ADVANCE)
+  Assert.equal(text:textWidth(MULTIBYTE .. "lise"), MULTIBYTE_ADVANCE + 4 * ASCII_ADVANCE)
+  text:release()
+end
+
+-- Drawn text visits the atlas once per glyph sequence at the reference
+-- position with the encoded glyph's quad.
+function T.draw_text_draws_each_multibyte_glyph_once()
+  local lg, draws = fakeGraphics()
+  local text = FieldTextRenderer.new({ cacheFs = fixtureCache(), graphics = lg })
+  text:drawText(MULTIBYTE, 10, 20)
+  Assert.equal(#draws, 1, "a two-byte glyph draws once, not per byte")
+  Assert.equal(draws[1].quad.x, (MULTIBYTE_CODE - 1) * ASCII_ADVANCE)
+  Assert.equal(draws[1].x, 10)
+  Assert.equal(draws[1].y, 20)
+  text:release()
+end
+
+-- The dialogue theme's plain-text measurement returns exactly the glyph's
+-- advance, matching the shared renderer's own measurement.
+function T.dialogue_theme_measurement_uses_glyph_advances()
+  local def = FieldUiFixture.cardFontDefWithMultibyte()
+  local measured = FieldDialogueTheme.measureText(def)(MULTIBYTE)
+  Assert.equal(measured, MULTIBYTE_ADVANCE)
+end
+
+return { tests = T }

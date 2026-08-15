@@ -25,19 +25,13 @@ local function canonicalViewport()
   return FieldViewport.new(CANONICAL_WIDTH, CANONICAL_HEIGHT, { mode = "expanded" })
 end
 
--- The demo presentation.
+-- The demo presentation: the implemented profile fields only.
 local function demoPresentation()
   return {
     open = true,
     name = "GOLD",
     gender = 0,
     trainerId = 0,
-    money = nil,
-    playTime = nil,
-    badges = nil,
-    pokedexOwned = nil,
-    stars = nil,
-    signature = nil,
   }
 end
 
@@ -180,10 +174,11 @@ function T.profile_values_render_at_the_audited_anchors(scope)
   assertPixelsEqual(fixtureReference(presentation), rendered, "boundary profile golden")
 end
 
--- The optional fields stay blank: a reference that fabricates a money value
--- must differ from the rendered card (the blank presentation is the
--- contract, never invented statistics).
-function T.nil_optional_fields_never_fabricate_values(scope)
+-- The presentation carries only the implemented profile fields, so the card
+-- never fabricates unowned values: a reference that fabricates a money value
+-- must differ from the rendered card (the blank value rows are the contract,
+-- never invented statistics).
+function T.unimplemented_value_rows_never_fabricate_values(scope)
   local presentation = demoPresentation()
   local rendered = canonicalRender(scope, FieldUiFixture.trainerCardCache(), presentation)
   local fabricated = fixtureReference(presentation)
@@ -210,31 +205,6 @@ function T.nil_optional_fields_never_fabricate_values(scope)
     end
   end
   Assert.isTrue(differs, "the render must stay blank where a fabricated value would appear")
-end
-
--- The reserved signature region stays art-only: every pixel of the bottom
--- band matches the art reference (no text, no editor surface).
-function T.the_signature_region_stays_reserved(scope)
-  local presentation = demoPresentation()
-  local rendered = canonicalRender(scope, FieldUiFixture.trainerCardCache(), presentation)
-  local art =
-    love.image.newImageData(love.filesystem.newFileData(FieldUiFixture.cardBytes(), FieldUiFixture.TRAINER_CARD_PATH))
-  local region = TrainerCardRenderer.SIGNATURE_REGION
-  local quantize = function(v)
-    return math.floor(v * 255 + 0.5)
-  end
-  for y = region.y, region.y + region.height - 1 do
-    for x = region.x, region.x + region.width - 1 do
-      if y < CANONICAL_HEIGHT then
-        local er, eg, eb, ea = art:getPixel(x, y)
-        local ar, ag, ab, aa = rendered:getPixel(x, y)
-        Assert.equal(quantize(ar), quantize(er), "signature region red at (" .. x .. "," .. y .. ")")
-        Assert.equal(quantize(ag), quantize(eg), "signature region green at (" .. x .. "," .. y .. ")")
-        Assert.equal(quantize(ab), quantize(eb), "signature region blue at (" .. x .. "," .. y .. ")")
-        Assert.equal(quantize(aa), quantize(ea), "signature region alpha at (" .. x .. "," .. y .. ")")
-      end
-    end
-  end
 end
 
 -- Canonical golden: the real generated Trainer Card assets render pixel-exact

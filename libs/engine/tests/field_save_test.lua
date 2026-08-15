@@ -131,7 +131,7 @@ local function restore(value, map)
       Assert.equal(mapId, 60)
       return map
     end,
-  }, "heartgold")
+  }, "heartgold", { playerDataContext = playerDataContext() })
 end
 
 local function throwsCode(code, fn)
@@ -189,6 +189,21 @@ function T.missing_player_data_bucket_is_rejected()
     missing.playerData = nil
     local _, err = FieldSave.validate(missing)
     error(err)
+  end)
+end
+
+-- The player-data validation context is a required composition contract:
+-- without the generated charmap and frame-index set no call path may accept
+-- player data, so a missing context is a loud programming fault, never a
+-- silent validation downgrade.
+function T.missing_player_data_context_is_a_composition_fault()
+  Assert.throws(function()
+    FieldSave.validate(record())
+  end)
+  Assert.throws(function()
+    FieldSave.restore(record(), {
+      load = function() end,
+    }, "heartgold")
   end)
 end
 
@@ -422,7 +437,10 @@ function T.invalid_avatar_identifiers_are_rejected()
     error(err)
   end)
   -- The compiled set accepts the built player graphics.
-  Assert.notNil(FieldSave.validate(record({ avatar = "heroine" }), { avatars = { hero = true, heroine = true } }))
+  Assert.notNil(FieldSave.validate(record({ avatar = "heroine" }), {
+    avatars = { hero = true, heroine = true },
+    playerDataContext = playerDataContext(),
+  }))
 end
 
 function T.invalid_scenario_ids_are_rejected()
@@ -452,7 +470,7 @@ function T.valid_world_passes_deep_validation()
     variables = { [0x4020] = 97 },
     rng = { state = 42, calls = 3 },
   })
-  local valid = assert(FieldSave.validate(record({ world = value })))
+  local valid = assert(FieldSave.validate(record({ world = value }), { playerDataContext = playerDataContext() }))
   Assert.deepEqual(valid.world, value)
 end
 

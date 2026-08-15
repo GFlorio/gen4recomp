@@ -13,6 +13,7 @@ local FieldSession = require("libs.engine.src.FieldSession")
 local FieldSave = require("libs.engine.src.FieldSave")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local Hashing = require("romdump.src.digest.Hashing")
+local PlayerDataContext = require("tests.support.PlayerDataContext")
 
 local T = {}
 
@@ -326,7 +327,7 @@ function T.upper_new_bark_staircase_state_reloads_on_the_same_surface(romFs, ver
       Assert.equal(mapId, resolved.map.id)
       return runtimeMap
     end,
-  }, versionId))
+  }, versionId, { playerDataContext = PlayerDataContext.new() }))
   Assert.equal(restored.surfaceId, 0)
   near(restored.worldY, player.worldY)
   Assert.isTrue(restored.worldY > 4, "upper staircase save must remain elevated")

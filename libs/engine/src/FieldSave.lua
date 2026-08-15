@@ -176,20 +176,24 @@ end
 -- The player-data bucket, validated through the authoritative model with the
 -- caller's injected context (the generated font charmap and the imported
 -- frame-index set). The bucket is required; a missing or invalid record is
--- rejected, never defaulted or upgraded.
+-- rejected, never defaulted or upgraded. The context itself is a required
+-- composition contract: without it no call path may accept player data, so a
+-- missing context is a programming fault, not a validation downgrade.
 local function validatePlayerData(record, opts)
   if type(record.playerData) ~= "table" then
     Errors.raise(FieldErrors.FIELD_SAVE_PLAYER_DATA_INVALID, "field save player data bucket is required", {})
   end
   local context = opts and opts.playerDataContext
-  if context then
-    local valid, err = FieldPlayerData.validate(record.playerData, context)
-    if not valid then
-      ---@cast err Errors.Error
-      Errors.raise(FieldErrors.FIELD_SAVE_PLAYER_DATA_INVALID, "field save player data is invalid: " .. tostring(err), {
-        cause = err.code,
-      })
-    end
+  assert(
+    type(context) == "table" and type(context.charmap) == "table" and type(context.frameIndexes) == "table",
+    "field save player-data validation requires the generated charmap and frame-index context"
+  )
+  local valid, err = FieldPlayerData.validate(record.playerData, context)
+  if not valid then
+    ---@cast err Errors.Error
+    Errors.raise(FieldErrors.FIELD_SAVE_PLAYER_DATA_INVALID, "field save player data is invalid: " .. tostring(err), {
+      cause = err.code,
+    })
   end
 end
 

@@ -1,5 +1,10 @@
--- The read-only Trainer Card viewer controller: it owns close input
--- only and has no access to Start Menu internals; a cancel edge returns
+-- The read-only Trainer Card viewer controller: it receives the
+-- authoritative player profile and copies the required immutable fields
+-- (name, gender, trainerId) at construction, so the open card never changes
+-- when the caller's profile record is later replaced or mutated. Status
+-- exposes exactly those fields plus the open flag; no unimplemented card
+-- statistic is modeled as a placeholder. It owns close input only and has
+-- no access to Start Menu internals; a cancel edge returns
 -- { kind = "close" } to the FieldApplicationHost exactly once. The close
 -- input step exists in the source (ov51_021E6A54 in
 -- asm/overlay_trainer_card_main.s at the pinned decomp commit plays
@@ -8,25 +13,33 @@
 -- sound. Every other input — directions, confirm, the synthesized menu edge,
 -- and pointers — changes nothing: while a child application is active its
 -- own input policy applies and the menu edge must not tear the card down.
--- The status passes the full model projection through unchanged
--- (name/gender/trainerId plus the explicit-nil optional fields), so the
--- renderer can choose the audited blank presentation for every value the
--- gameplay model does not own. Pure module: no love, no I/O, no Start Menu
--- internals.
+-- Pure module: no love, no I/O, no Start Menu internals.
 
 ---@class TrainerCardController
----@field _model table the model projection
+---@field _profile { name: string, gender: integer, trainerId: integer } the construction-time profile copy
 ---@field _result { kind: "close" }?
 ---@field _closed boolean
 local TrainerCardController = {}
 TrainerCardController.__index = TrainerCardController
 
----@param opts { model: table }
+---@param opts { profile: { name: string, gender: integer, trainerId: integer } }
 ---@return TrainerCardController
 function TrainerCardController.new(opts)
-  assert(type(opts) == "table" and type(opts.model) == "table", "the trainer card controller requires the model")
+  assert(
+    type(opts) == "table" and type(opts.profile) == "table",
+    "the trainer card controller requires the player profile"
+  )
+  local profile = opts.profile
+  assert(
+    profile.name ~= nil and profile.gender ~= nil and profile.trainerId ~= nil,
+    "the trainer card controller requires name, gender, and trainerId from the player profile"
+  )
   return setmetatable({
-    _model = opts.model,
+    _profile = {
+      name = profile.name,
+      gender = profile.gender,
+      trainerId = profile.trainerId,
+    },
     _result = nil,
     _closed = false,
   }, TrainerCardController)
@@ -54,19 +67,21 @@ function TrainerCardController:_close()
   self._closed = true
 end
 
--- The presentation snapshot: the model projection passed through
--- unchanged, so the renderer never re-derives the player data. Fresh table
--- per call; the caller may not mutate controller state through it.
+-- The presentation snapshot: the construction-time profile copy plus the
+-- open flag, nothing else. Fresh table per call; the caller may not mutate
+-- controller state through it.
 ---@return table
 function TrainerCardController:status()
   if self._closed then
     return { open = false }
   end
-  local status = { open = true }
-  for field, value in pairs(self._model) do
-    status[field] = value
-  end
-  return status
+  local profile = self._profile
+  return {
+    open = true,
+    name = profile.name,
+    gender = profile.gender,
+    trainerId = profile.trainerId,
+  }
 end
 
 -- The result contract: nil until a cancel edge, then exactly one

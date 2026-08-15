@@ -13,6 +13,7 @@
 -- host aspect; the LÖVE renderer draws exactly what this module computes.
 
 local FieldMessageText = require("libs.assets.src.FieldMessageText")
+local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 
 ---@class FieldDialogueTheme
 ---@field schema string
@@ -200,8 +201,7 @@ function FieldDialogueTheme.fontMetrics(fontDef)
     nonGlyphWidth = function(token)
       local text = FieldMessageText.tokensToText({ token })
       local measured = 0
-      for i = 1, #text do
-        local char = text:sub(i, i)
+      for char in Utf8Glyphs.iter(text) do
         local code = fontDef.charmap[char] or 0
         measured = measured + glyphAdvance(code) + (fontDef.letterSpacing or 0)
       end
@@ -222,8 +222,8 @@ function FieldDialogueTheme.measureText(fontDef)
   return function(text)
     assert(type(text) == "string", "text measurement requires a string")
     local measured = 0
-    for i = 1, #text do
-      local code = fontDef.charmap[text:sub(i, i)] or 0
+    for char in Utf8Glyphs.iter(text) do
+      local code = fontDef.charmap[char] or 0
       local glyph = fontDef.glyphs[code] or fontDef.glyphs[0]
       measured = measured + (glyph and glyph.advance or 0) + (fontDef.letterSpacing or 0)
     end
