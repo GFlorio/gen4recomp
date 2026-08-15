@@ -53,9 +53,11 @@ on the y=24 row. The player name is right-aligned to x=240 on the same row.
 `ov51_021E6A54` (the main-card input step): B (gSystem pressed bit 2) plays
 `SEQ_SE_GS_GEARCANCEL` and returns state 5 (close); A (bit 1) plays
 `SEQ_SE_DP_SELECT` and enters state 4 (the flip sub-state machine, out of
-scope); L/R return state 3. The card's close therefore requests the same
-semantic effect as the Start Menu cancel
-(`start_menu.cancel` = sequence 2368 = `SEQ_SE_GS_GEARCANCEL`).
+scope); L/R return state 3. This branch does not reproduce the card's
+cancel effect: `TrainerCardController` requests no sound on close (the
+Start Menu is silent too), so the effect catalogue entries
+(`start_menu.cancel` = sequence 2368 = `SEQ_SE_GS_GEARCANCEL`) are not
+compiled.
 
 ## Signature
 
@@ -82,6 +84,6 @@ band. The renderer never draws in it.
 - Money/play time/badges/pokedex/stars/signature are always nil in the current
   model (no authoritative gameplay source), so the viewer renders no value
   text and no value-formatting code exists (no dead branches).
-- The card opens silently (the Start Menu select already played); only the
-  close requests `start_menu.cancel`.
+- The card requests no sound: the branch does not reproduce the close
+  effect, and the viewer keeps no effect wiring for a future audio branch.
 - Back-side/flip interaction and the signature editor are out of scope (§27).

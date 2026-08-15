@@ -1,8 +1,7 @@
 -- ROM-conformance facts for the generated field-UI class: the real private
--- dump compiles the bundle (frames, signposts, Start Menu, Trainer Card,
--- and the three Start Menu effects), every indexed file passes
--- FieldUiAssetCache.isReady, and the compile is deterministic. Asserts only
--- non-copyright structural facts.
+-- dump compiles the bundle (frames, signposts, Start Menu, Trainer Card),
+-- every indexed file passes FieldUiAssetCache.isReady, and the compile is
+-- deterministic. Asserts only non-copyright structural facts.
 
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
@@ -26,9 +25,6 @@ function T.compiled_ui_assets_are_ready_and_stable(romFs, version)
   Assert.isTrue(bundle.manifest.signposts.types[2].wayfinding == nil, "type 2 is full width")
   Assert.equal(bundle.manifest.startMenu.background.width, 256)
   Assert.equal(bundle.manifest.trainerCard.front.width, 256)
-  Assert.equal(bundle.manifest.sounds["start_menu.open"].sampleRate, 22050)
-  Assert.equal(bundle.manifest.sounds["start_menu.select"].sampleRate, 22077)
-  Assert.equal(bundle.manifest.sounds["start_menu.cancel"].sampleRate, 22077)
 
   -- Recompiling is deterministic and the published class is fully ready.
   local second = assert(FieldUiCompiler.compile(romFs))

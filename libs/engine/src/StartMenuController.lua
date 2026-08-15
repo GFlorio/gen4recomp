@@ -7,19 +7,16 @@
 -- landed at positions 7/8), the generated manifest slot surface (the 2x5 slot
 -- grid keyed by the source touch-menu ids: slot 1 is the cancel region and
 -- touch ids 2..10 are display positions 0..8, StartMenu_HandleTouchInput
--- start_menu.c:613-659), and the generated cursor frames. The semantic sound
--- requests (start_menu.open/select/cancel) are emitted through a required
--- application-audio facade; the controller never touches love and never names
--- a ROM sequence or member number. Pointer events carry canonical logical
--- coordinates (0..255 x 0..191); the layout host maps host coordinates before
--- feeding the controller. No application launches happen here: the controller
--- records the takeResult contract ({ kind = "close" } /
+-- start_menu.c:613-659), and the generated cursor frames. The controller is
+-- silent -- the branch does not reproduce the source Start Menu effects
+-- (SEQ_SE_DP_WIN_OPEN/SELECT and SEQ_SE_GS_GEARCANCEL); it never touches
+-- love and never names a ROM sequence or member number. Pointer events carry
+-- canonical logical coordinates (0..255 x 0..191); the layout host maps host
+-- coordinates before feeding the controller. No application launches happen
+-- here: the controller records the takeResult contract ({ kind = "close" } /
 -- { kind = "launch", applicationId }) and the application host launches.
 
 local StartMenuCursorAnimation = require("libs.engine.src.StartMenuCursorAnimation")
-
----@class StartMenuAudioFacade
----@field play fun(self: StartMenuAudioFacade, requestId: string) plays one semantic UI request (start_menu.open/select/cancel)
 
 ---@class StartMenuController
 ---@field _visibleActions table<integer, StartMenuController.Action> ordered display positions with entries
@@ -28,7 +25,6 @@ local StartMenuCursorAnimation = require("libs.engine.src.StartMenuCursorAnimati
 ---@field _result table?
 ---@field _closed boolean
 ---@field _cursor StartMenuCursorAnimation
----@field _audio StartMenuAudioFacade
 ---@field _slots table<integer, FieldDialogueTheme.Rect>
 ---@field _pointerId string?
 ---@field _pointerDown { kind: "cancel"|"action"|"none", position: integer? }?
@@ -38,10 +34,6 @@ StartMenuController.__index = StartMenuController
 -- The cancel touch region is the manifest's slot 1 (the source touch menu id
 -- 1); display position p occupies slot id p+2 (touch id p+2).
 StartMenuController.CANCEL_SLOT_ID = 1
-
-StartMenuController.SOUND_OPEN = "start_menu.open"
-StartMenuController.SOUND_SELECT = "start_menu.select"
-StartMenuController.SOUND_CANCEL = "start_menu.cancel"
 
 ---@param value any
 ---@param name string
@@ -207,18 +199,15 @@ end
 -- opts.entries: the StartMenuPolicy build output (or the composition step's
 -- resolved entry list of the same shape). opts.development: the product
 -- mode. opts.slots: the generated manifest startMenu.slots. opts.cursorFrames:
--- the generated manifest startMenu.cursor.frames. opts.audio: the required
--- application-audio facade (play(requestId)). opts.rememberedActionId: the
+-- the generated manifest startMenu.cursor.frames. opts.rememberedActionId: the
 -- selection remembered across a child-application round trip.
----@param opts { entries: table[], development: boolean, slots: table<integer, FieldDialogueTheme.Rect>, cursorFrames: table[], audio: StartMenuAudioFacade, rememberedActionId?: string? }
+---@param opts { entries: table[], development: boolean, slots: table<integer, FieldDialogueTheme.Rect>, cursorFrames: table[], rememberedActionId?: string? }
 ---@return StartMenuController
 function StartMenuController.new(opts)
   assert(type(opts) == "table", "the start menu controller requires options")
   local entries = validateEntries(opts.entries)
   assert(type(opts.development) == "boolean", "the start menu controller requires the product mode")
   local slots = validateSlots(opts.slots)
-  local audio = opts.audio
-  assert(type(audio) == "table" and type(audio.play) == "function", "the start menu requires an audio facade")
   local display, ordered = composeDisplay(entries, opts.development, #slots)
   local orderedPositions = {}
   for index, action in ipairs(ordered) do
@@ -231,14 +220,10 @@ function StartMenuController.new(opts)
     _result = nil,
     _closed = false,
     _cursor = StartMenuCursorAnimation.new(opts.cursorFrames),
-    _audio = audio,
     _slots = slots,
     _pointerId = nil,
     _pointerDown = nil,
   }, StartMenuController)
-  -- The open sound is the last construction step: a failed composition never
-  -- requested it (the source plays SEQ_SE_DP_WIN_OPEN at menu creation).
-  audio:play(StartMenuController.SOUND_OPEN)
   return self
 end
 
@@ -289,18 +274,16 @@ function StartMenuController:_moveSelection(direction)
   self:_selectPosition(ordered[((current - 1 + delta) % #ordered) + 1])
 end
 
--- Activation of the selected action: the source plays SEQ_SE_DP_SELECT before
--- the availability gate, so a disabled entry still requests the select sound
--- but records nothing (FieldSystem_StartMenuActionIsAvailable, start_menu.c).
--- The launch result carries the action id so the application host can
--- restore the selection by id when the child application returns.
+-- Activation of the selected action. A disabled entry records nothing
+-- (FieldSystem_StartMenuActionIsAvailable, start_menu.c). The launch result
+-- carries the action id so the application host can restore the selection
+-- by id when the child application returns.
 function StartMenuController:_activate(position)
-  self._audio:play(StartMenuController.SOUND_SELECT)
-  local action = assert(self._visibleActions[position], "cannot activate an empty display position")
-  if action.enabled then
+  local action = self._visibleActions[position]
+  if action and action.enabled then
     self._result = {
       kind = "launch",
-      applicationId = assert(action.targetApplication),
+      applicationId = action.targetApplication,
       actionId = action.id,
     }
     self._closed = true
@@ -308,7 +291,6 @@ function StartMenuController:_activate(position)
 end
 
 function StartMenuController:_close()
-  self._audio:play(StartMenuController.SOUND_CANCEL)
   self._result = { kind = "close" }
   self._closed = true
 end
@@ -330,8 +312,7 @@ function StartMenuController:updateFixed(uiInput)
   local slots = self._slots
   for _, event in ipairs(uiInput) do
     -- A terminal event (close or a successful activate) ends this tick's
-    -- processing: later events must not request another sound or overwrite
-    -- the recorded result.
+    -- processing: later events must not overwrite the recorded result.
     if self._closed then
       break
     end

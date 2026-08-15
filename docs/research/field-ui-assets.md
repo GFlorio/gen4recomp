@@ -45,18 +45,11 @@ members 33, 34, 2, 3. The wipe motion (BG y-offset -48, +16/frame) is
 0x2C/0x3C (11/28/44/60); the generated class currently bakes the front face
 (char 41 + screen 47 + palette 11).
 
-## Effects — `data/sound/gs_sound_data.sdat`
-
-The pinned `sndseq.lua` catalog maps SEQ_SE_DP_SELECT = 1500,
-SEQ_SE_DP_WIN_OPEN = 1532, SEQ_SE_GS_GEARCANCEL = 2368. The SDAT/SSEQ/SBNK/
-SWAR layouts follow GBATEK's "DS Sound Files" pages; the offline renderer
-implements only the commands those three sequences exercise. Regional
-instruments in bank 700 use a 12-byte entry (32-bit swar reference, swav
-byte, note, ADSR bytes) rather than GBATEK's 10-byte direct shape; the
-swar resolves to the bank's first SWAR.
-
 ## Generated layout
 
 `romdump/src/config/FieldUiAssets.lua` records every member number; the
-generated manifest (`g4-field-ui-v1`) carries only semantic ids and
-rectangles.
+generated manifest (`g4-field-ui-v2`) carries only semantic ids and
+rectangles. No sound archive is selected: the source Start Menu effects
+(SEQ_SE_DP_SELECT = 1500, SEQ_SE_DP_WIN_OPEN = 1532, SEQ_SE_GS_GEARCANCEL =
+2368 in the pinned `sndseq.lua` catalog) are out of scope for this branch —
+the branch does not reproduce them.

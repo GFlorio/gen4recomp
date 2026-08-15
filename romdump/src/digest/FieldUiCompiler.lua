@@ -1,23 +1,17 @@
 -- Compiles the generated HGSS field-UI class: the Start Menu background and
 -- cursor, the twenty user dialogue frames, the corpus signpost frame and
--- wayfinding graphics, the Trainer Card front, and the three Start Menu
--- effects — all as decoded PNG atlases, WAV effects, and the strict
--- g4-field-ui-v1 manifest. Source member selection lives in
--- romdump/src/config/FieldUiAssets.lua; this module owns the HGSS decode
--- and the normalized bundle. The runtime consumes only the manifest and
--- the generated files, never this module. Pure module: no love dependency.
+-- wayfinding graphics, and the Trainer Card front — all as decoded PNG
+-- atlases and the strict g4-field-ui-v2 manifest. Source member selection
+-- lives in romdump/src/config/FieldUiAssets.lua; this module owns the HGSS
+-- decode and the normalized bundle. The runtime consumes only the manifest
+-- and the generated files, never this module. Pure module: no love
+-- dependency.
 
 local Errors = require("libs.errors.src.Errors")
 local Hashing = require("romdump.src.digest.Hashing")
 local PngWriter = require("libs.assets.src.PngWriter")
-local WavWriter = require("libs.assets.src.WavWriter")
 local Lz10 = require("romdump.src.digest.Lz10")
 local G2dDecoder = require("romdump.src.digest.G2dDecoder")
-local SdatDecoder = require("romdump.src.digest.SdatDecoder")
-local SseqDecoder = require("romdump.src.digest.SseqDecoder")
-local SbnkDecoder = require("romdump.src.digest.SbnkDecoder")
-local SwarDecoder = require("romdump.src.digest.SwarDecoder")
-local SseqRenderer = require("romdump.src.digest.SseqRenderer")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local manifestConfig = require("romdump.src.config.FieldUiAssets")
 
@@ -422,58 +416,6 @@ local function compileTrainerCard(romFs, sha1hex, deps, assets, manifestAssets)
   }
 end
 
-local function compileSounds(romFs, sha1hex, deps, assets)
-  local sdatBytes = must(romFs:readSourcePath(manifestConfig.sounds.sdatPath), "missing SDAT")
-  local sdat, sdatErr = SdatDecoder.open(sdatBytes, "gs_sound_data.sdat")
-  sdat = must(sdat, sdatErr)
-  local effects = {}
-  for id, spec in pairs(manifestConfig.sounds.effects) do
-    local seqInfo, seqErr = sdat:sequence(spec.sequenceId)
-    seqInfo = must(seqInfo, seqErr)
-    local bankInfo, bankErr = sdat:bank(seqInfo.bank)
-    bankInfo = must(bankInfo, bankErr)
-    local sseqBytes, sseqReadErr = sdat:readFile(seqInfo.fileId)
-    sseqBytes = must(sseqBytes, sseqReadErr)
-    local sseq, sseqErr = SseqDecoder.decode(sseqBytes)
-    sseq = must(sseq, sseqErr)
-    local bankBytes, bankReadErr = sdat:readFile(bankInfo.fileId)
-    bankBytes = must(bankBytes, bankReadErr)
-    local bank, bankDecodeErr = SbnkDecoder.decode(bankBytes)
-    bank = must(bank, bankDecodeErr)
-    -- The instrument's swar field is the index into the bank's own SWAR
-    -- list (GBATEK BANK Info Entry), so the decoded SWARs are passed in
-    -- that order.
-    local swars = {}
-    for position, swarIndex in ipairs(bankInfo.swarIds) do
-      if swarIndex ~= 0xFFFF then
-        local swarInfo, swarErr = sdat:swar(swarIndex)
-        swarInfo = must(swarInfo, swarErr)
-        local swarBytes, swarReadErr = sdat:readFile(swarInfo.fileId)
-        swarBytes = must(swarBytes, swarReadErr)
-        local swar, swarDecodeErr = SwarDecoder.decode(swarBytes)
-        swars[position] = must(swar, swarDecodeErr)
-      end
-    end
-    local rendered, renderErr = SseqRenderer.render(sseq, bank, swars)
-    if not rendered then
-      error(renderErr, 0)
-    end
-    local path = FieldUiAssetCache.soundPath(id)
-    local wav, wavErr = WavWriter.encode(rendered.sampleRate, 1, rendered.pcm16)
-    assets[path] = must(wav, wavErr)
-    effects[id] = {
-      path = path,
-      sampleRate = rendered.sampleRate,
-      frameCount = rendered.frameCount,
-    }
-    deps[#deps + 1] = {
-      name = manifestConfig.sounds.sdatPath .. ":sequence:" .. spec.sequenceId,
-      sha1 = sha1hex(sdatBytes),
-    }
-  end
-  return effects
-end
-
 local function compileAll(romFs, sha1hex, hashLua)
   local assets = {}
   local manifestAssets = {}
@@ -484,7 +426,6 @@ local function compileAll(romFs, sha1hex, hashLua)
   local dialogueFrames = compileDialogueFrames(romFs, sha1hex, deps, assets, manifestAssets)
   local signposts = compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
   local trainerCard = compileTrainerCard(romFs, sha1hex, deps, assets, manifestAssets)
-  local sounds = compileSounds(romFs, sha1hex, deps, assets)
 
   local manifest = {
     schema = FieldUiAssetCache.SCHEMA,
@@ -494,7 +435,6 @@ local function compileAll(romFs, sha1hex, hashLua)
     signposts = signposts,
     startMenu = startMenu,
     trainerCard = trainerCard,
-    sounds = sounds,
   }
   local ok, err = FieldUiAssetCache.validateManifest(manifest)
   if not ok then

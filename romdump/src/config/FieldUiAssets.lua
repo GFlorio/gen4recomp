@@ -1,16 +1,16 @@
 -- Source-only member selection for the generated HGSS field-UI class. Every
--- NARC alias/member number and the sound archive path live here and in the
--- dependencies/provenance records; the generated manifest never carries
--- them. Member numbers are zero-based per the repository convention. The
--- wayfinding selection is the corpus-audited set: the real scr_seq material
--- uses types {0,1,2,3,4,5,8,9,10,11,13,15,16,17,18,19,20,21,23,28,29,30,33,
--- 34,39} with type/map operands (0,0), (0,1), (1,0), (1,1); per
--- LoadMapSignpostFrameAndGraphic (asm/render_window.s at the pinned decomp
--- commit) the wayfinding member is map + 0x21 for type 0 and map + 2 for
--- type 1. Start Menu members follow src/start_menu.c, dialogue frames
--- LoadUserFrameGfx2 (member = frame + 2, palette = frame + 0x1A),
--- Trainer Card members src/overlay_trainer_card_main.s, and the three
--- effects the pinned sndseq catalog ids 1532/1500/2368.
+-- NARC alias/member number lives here and in the dependencies/provenance
+-- records; the generated manifest never carries them. Member numbers are
+-- zero-based per the repository convention. The wayfinding selection is the
+-- corpus-audited set: the real scr_seq material uses types {0,1,2,3,4,5,8,9,
+-- 10,11,13,15,16,17,18,19,20,21,23,28,29,30,33,34,39} with type/map operands
+-- (0,0), (0,1), (1,0), (1,1); per LoadMapSignpostFrameAndGraphic
+-- (asm/render_window.s at the pinned decomp commit) the wayfinding member
+-- is map + 0x21 for type 0 and map + 2 for type 1. Start Menu members follow
+-- src/start_menu.c, dialogue frames LoadUserFrameGfx2 (member = frame + 2,
+-- palette = frame + 0x1A), Trainer Card members src/overlay_trainer_card_main.s.
+-- No sound archive is selected: the branch does not reproduce the source
+-- Start Menu effects.
 
 return {
   schema = 1,
@@ -21,7 +21,6 @@ return {
       { path = "src/start_menu.c" },
       { path = "asm/render_window.s" },
       { path = "src/overlay_trainer_card_main.s" },
-      { path = "include/constants/sndseq.h" },
     },
   },
   startMenu = {
@@ -62,13 +61,5 @@ return {
     frontCharMember = 41,
     frontScreenMember = 47,
     frontPaletteMember = 11,
-  },
-  sounds = {
-    sdatPath = "data/sound/gs_sound_data.sdat",
-    effects = {
-      ["start_menu.open"] = { sequenceId = 1532 },
-      ["start_menu.select"] = { sequenceId = 1500 },
-      ["start_menu.cancel"] = { sequenceId = 2368 },
-    },
   },
 }

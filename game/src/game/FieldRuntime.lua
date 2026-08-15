@@ -56,7 +56,6 @@ local FieldPresentation = require("data.manifests.field_presentation")
 local FieldScenarioManifest = require("data.manifests.field_scenario")
 local FieldPlayerManifest = require("data.manifests.field_player")
 local RepoFs = require("game.src.game.RepoFs")
-local UiSfxPlayer = require("game.src.game.UiSfxPlayer")
 local WindowConfig = require("game.src.WindowConfig")
 local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 
@@ -113,7 +112,6 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field applications FieldApplicationRegistry the sealed per-runtime application catalogue
 ---@field applicationHost FieldApplicationHost the one application modal owner the session steps
 ---@field startMenuRegistry StartMenuRegistry the sealed per-runtime mod Start Menu action catalogue
----@field uiSfx UiSfxPlayer? the presentation UI-SFX player (non-presentation runtimes route through the script audio seam)
 local FieldRuntime = {}
 FieldRuntime.__index = FieldRuntime
 
@@ -471,10 +469,7 @@ function FieldRuntime:_load()
     -- boot-config descriptor seam. The registry seals before any dispatch,
     -- and canonical unimplemented destinations get capability state, never
     -- dummy factories. The mod Start Menu action catalogue follows the same
-    -- build-then-seal lifetime. The presentation composition also acquires
-    -- the smallest UI-SFX player for the Start Menu effects; non-presentation
-    -- runtimes route the semantic sound requests through the script audio
-    -- seam instead.
+    -- build-then-seal lifetime.
     self.applications = FieldApplicationRegistry.new()
     self.applications:register({
       id = "start_menu",
@@ -491,7 +486,6 @@ function FieldRuntime:_load()
       factory = function()
         return TrainerCardController.new({
           model = TrainerCardModel.new(self.playerData),
-          audio = self:_uiAudioFacade(),
         })
       end,
     })
@@ -507,7 +501,6 @@ function FieldRuntime:_load()
       self.startMenuRegistry:register(descriptor)
     end
     self.startMenuRegistry:seal()
-    self.uiSfx = self.presentation and UiSfxPlayer.new({ cacheFs = cacheFs, sounds = uiManifest.sounds }) or nil
     self.applicationHost = FieldApplicationHost.new({
       registry = self.applications,
       input = self.input,
@@ -614,9 +607,6 @@ function FieldRuntime:update(dt)
   if self.scripts.warmup then
     self.scripts.warmup:update()
   end
-  if self.uiSfx then
-    self.uiSfx:update()
-  end
   self.session:update(dt)
   -- The application host retains factory/composition failures with the
   -- original error; the runtime surfaces them on its fatal-error channel
@@ -685,25 +675,6 @@ end
 
 function FieldRuntime:releaseMenu()
   requireLiveInput(self):releaseMenu("runtime")
-end
-
--- The application-audio facade: semantic UI sound requests route
--- through the script audio seam when present (the non-rendering
--- composition), else through the presentation UI-SFX player. Shared by the
--- Start Menu and Trainer Card compositions; the controllers never name a
--- ROM sequence or member number.
----@return { play: fun(_: table, requestId: string) }
-function FieldRuntime:_uiAudioFacade()
-  return {
-    play = function(_, requestId)
-      local hosts = self.scriptHosts
-      if hosts and hosts.audio then
-        hosts.audio:play(requestId)
-      elseif self.uiSfx then
-        self.uiSfx:play(requestId)
-      end
-    end,
-  }
 end
 
 -- The Start Menu composition step: build the strict policy snapshot
@@ -775,13 +746,11 @@ function FieldRuntime:_composeStartMenu(rememberedActionId)
   if not ok then
     error(resolveErr, 0)
   end
-  local audioFacade = self:_uiAudioFacade()
   return StartMenuController.new({
     entries = resolved,
     development = self.development,
     slots = self.uiManifest.startMenu.slots,
     cursorFrames = self.uiManifest.startMenu.cursor.frames,
-    audio = audioFacade,
     rememberedActionId = rememberedActionId,
   })
 end
@@ -957,10 +926,6 @@ function FieldRuntime:_releaseAll()
     self.applicationHost:dispose()
   end
   self.applicationHost, self.applications, self.startMenuRegistry = nil, nil, nil
-  if self.uiSfx then
-    self.uiSfx:dispose()
-  end
-  self.uiSfx = nil
   if self.messageProvider then
     self.messageProvider:dispose()
   end

@@ -1,11 +1,10 @@
 -- Deterministic field-UI compilation and cache publication using synthetic
--- source archives: every decode path (char/screen/palette/cell/animation/
--- sdat) runs against hand-built members, malformed source and generated
--- metadata are rejected at the owning layer, and the publication matrix
--- (stage write failure, stage validation failure, first/second publish
--- rename failure) reuses ArtifactPublisher through a FakeCache so the
--- previous ready class stays readable and the marker never claims an
--- incomplete class.
+-- source archives: every decode path (char/screen/palette/cell/animation)
+-- runs against hand-built members, malformed source and generated metadata
+-- are rejected at the owning layer, and the publication matrix (stage write
+-- failure, stage validation failure, first/second publish rename failure)
+-- reuses ArtifactPublisher through a FakeCache so the previous ready class
+-- stays readable and the marker never claims an incomplete class.
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
@@ -146,145 +145,9 @@ local function narc(members)
     .. gmifBlock
 end
 
-local function sdatFixture(seqFileId, bankFileId, swarFileId)
-  local function blz(data)
-    local head = string.char(
-      0,
-      0,
-      0,
-      #data % 65536 % 256,
-      math.floor(#data / 256) % 256,
-      math.floor(#data / 65536) % 256,
-      0xC,
-      0
-    ) .. string.char(0, 0, 0, 0)
-    local flags = string.char(0)
-    local chunks = {}
-    for i = 1, #data, 8 do
-      chunks[#chunks + 1] = flags .. data:sub(i, math.min(i + 7, #data))
-    end
-    return head .. table.concat(chunks)
-  end
-  local sseq = "SSEQ"
-    .. string.char(0xFF, 0xFE)
-    .. u16(0x0100)
-    .. u32(0x1C + 1 + 4 + 8)
-    .. u16(0x10)
-    .. u16(1)
-    .. "DATA"
-    .. u32(8 + 4 + 1 + 4 + 8)
-    .. u32(0x1C)
-    .. string.char(1)
-    .. u32(5)
-    .. string.char(0xE1, 0x78, 0x00, 0x81, 0x00, 0x48, 0x10, 0xFF)
-  local instrument = u16(0) .. u16(0) .. string.char(60, 127, 127, 127, 127, 64)
-  local sbnk = "SBNK"
-    .. string.char(0xFF, 0xFE)
-    .. u16(0x0100)
-    .. u32(0x1C + 0x20 + 4 + 4 + 10)
-    .. u16(0x10)
-    .. u16(1)
-    .. "DATA"
-    .. u32(8 + 0x20 + 4 + 4 + 10)
-    .. string.rep("\0", 0x20)
-    .. u32(1)
-    .. string.char(1)
-    .. u16(0x40)
-    .. string.char(0)
-    .. instrument
-  local sample = string.char(1, 0) .. u16(8000) .. u16(0) .. u16(0) .. u32(1) .. string.char(0x00, 0x00, 0xFF, 0x7F)
-  local swar = "SWAR"
-    .. string.char(0xFF, 0xFE)
-    .. u16(0x0100)
-    .. u32(0x1C + 0x20 + 4 + 4 + #sample)
-    .. u16(0x10)
-    .. u16(1)
-    .. "DATA"
-    .. u32(8 + 0x20 + 4 + 4 + #sample)
-    .. string.rep("\0", 0x20)
-    .. u32(1)
-    .. u32(0x40)
-    .. sample
-  local files = { blz(sseq), blz(sbnk), blz(swar) }
-  local info = string.rep("\0", 32)
-  -- one sequence (fileId 0, bank 0), one bank (fileId 1, swar 0), one swar
-  -- (fileId 2): build the lists after the pointer area.
-  local function list(offset, entries)
-    local pointers = {}
-    local body = {}
-    local base = offset + 4 + #entries * 4
-    for _, e in ipairs(entries) do
-      pointers[#pointers + 1] = u32(base)
-      body[#body + 1] = e
-      base = base + #e
-    end
-    return u32(#entries) .. table.concat(pointers) .. table.concat(body)
-  end
-  local seqEntry = u16(0) .. u16(0) .. u16(0) .. string.char(2, 0, 0, 0) .. u16(0)
-  local bankEntry = u16(1) .. u16(0) .. u16(0) .. u16(0xFFFF) .. u16(0xFFFF) .. u16(0xFFFF)
-  local swarEntry = u16(2) .. u16(0)
-  -- The three effects live at sequence ids 1532/1500/2368; every other id is
-  -- a placeholder record so the indices align.
-  local seqEntries = {}
-  for id = 0, 2369 do
-    seqEntries[id] = seqEntry
-  end
-  local seqList = list(0x28, seqEntries)
-  local bankList = list(0x28 + #seqList, { bankEntry })
-  local swarList = list(0x28 + #seqList + #bankList, { swarEntry })
-  info = u32(0x28)
-    .. u32(0)
-    .. u32(0x28 + #seqList)
-    .. u32(0x28 + #seqList + #bankList)
-    .. string.rep("\0", 16)
-    .. seqList
-    .. bankList
-    .. swarList
-  local filePayload = {}
-  local offset = 0
-  for _, bytes in ipairs(files) do
-    filePayload[#filePayload + 1] = bytes
-    offset = offset + #bytes
-  end
-  local fatSize = 4 + #files * 16
-  local fileSectionStart = 0x40 + 8 + #info + 8 + fatSize
-  local fat = u32(#files)
-  for i = 1, #files do
-    fat = fat .. u32(fileSectionStart + 0x10 + (i > 1 and 0 or 0)) .. u32(#files[i]) .. string.rep("\0", 8)
-  end
-  -- Correct per-file offsets.
-  fat = u32(#files)
-  local running = 0
-  for i = 1, #files do
-    fat = fat .. u32(fileSectionStart + 0x10 + running) .. u32(#files[i]) .. string.rep("\0", 8)
-    running = running + #files[i]
-  end
-  local function sdatSection(magic, payload)
-    return magic .. u32(8 + #payload) .. payload
-  end
-  local infoSection = sdatSection("INFO", info)
-  local fatSection = sdatSection("FAT ", fat)
-  local fileBlock = sdatSection("FILE", u32(#files) .. u32(0) .. table.concat(filePayload))
-  local body = infoSection .. fatSection .. fileBlock
-  return "SDAT"
-    .. string.char(0xFF, 0xFE)
-    .. u16(0x0100)
-    .. u32(0x40 + #body)
-    .. u16(0x40)
-    .. u16(3)
-    .. u32(0x40)
-    .. u32(#infoSection)
-    .. u32(0x40 + #infoSection)
-    .. u32(#fatSection)
-    .. u32(0x40 + #infoSection + #fatSection)
-    .. u32(#fileBlock)
-    .. string.rep("\0", 0x40 - 0x10 - 24)
-    .. body
-end
-
--- A synthetic RomFs whose four UI NARCs and the SDAT carry minimal valid
--- members: 20 dialogue frames, 25 signpost types, the four wayfinding
--- members, the start menu bg + cursor, the card front, and one effect.
+-- A synthetic RomFs whose four UI NARCs carry minimal valid members: 20
+-- dialogue frames, 25 signpost types, the four wayfinding members, the start
+-- menu bg + cursor, and the card front.
 local function fixture()
   local function frameMembers(count)
     local members = {}
@@ -368,7 +231,6 @@ local function fixture()
       alias = "trainer_card_graphics",
     },
   }
-  local sdatBytes = sdatFixture()
   local romFs = {
     resolvedNarc = function(_, alias)
       return archives[alias]
@@ -386,14 +248,7 @@ local function fixture()
       if fileId == 13 then
         return narcFile("trainer_card_graphics")
       end
-      if fileId == "data/sound/gs_sound_data.sdat" then
-        return sdatBytes
-      end
       Assert.fail("unexpected read " .. tostring(fileId))
-    end,
-    readSourcePath = function(_, path)
-      Assert.equal(path, "data/sound/gs_sound_data.sdat")
-      return sdatBytes
     end,
     openNarc = function(_, alias)
       local Narc = require("romdump.src.source.Narc")
@@ -422,12 +277,11 @@ function T.compiles_the_manifest_and_all_assets()
   Assert.isTrue(bundle.manifest.signposts.types[0].wayfinding ~= nil)
   Assert.isNil(bundle.manifest.signposts.types[2].wayfinding)
   Assert.equal(bundle.manifest.startMenu.slots[10].x, 128)
-  Assert.equal(bundle.manifest.sounds["start_menu.open"].sampleRate, 8000)
   local assetCount = 0
   for _ in pairs(bundle.assets) do
     assetCount = assetCount + 1
   end
-  Assert.equal(assetCount, 9)
+  Assert.equal(assetCount, 6)
   for path, bytes in pairs(bundle.assets) do
     Assert.isTrue(path:find("^assets/generated/field/ui/") ~= nil)
     Assert.isTrue(#bytes > 0)
