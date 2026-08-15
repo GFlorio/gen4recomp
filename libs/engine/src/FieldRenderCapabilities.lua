@@ -54,10 +54,12 @@ FieldRenderCapabilities.alphaClasses = {
   wireframe = true,
 }
 
--- depthEqual maps to host `lequal` (docs/rendering.md "Deferred /
--- approximate": exact DS Z/W tolerance is not implemented, but the flag is
--- read and does select a real depth-compare mode).
-FieldRenderCapabilities.depthEqual = true
+-- depthEqual: PolygonState.validate raises POLYGON_STATE_DEPTH_EQUAL_UNSUPPORTED
+-- at compile time (docs/rendering.md "Deferred / approximate"), and
+-- MapRenderer's translucent pass no longer branches on it -- host `lequal` is
+-- retired, not merely unused. Corpus-provable-absent, so declared unsupported
+-- rather than presenting the retired host compare mode as a real DS behavior.
+FieldRenderCapabilities.depthEqual = false
 
 -- Bit-11 translucentDepthWrite toggles the host depth-write mask for
 -- translucent draws (MapRenderer's per-item `depthWrite` selection).

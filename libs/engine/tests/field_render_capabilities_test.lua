@@ -41,12 +41,19 @@ end
 
 -- GX states with a real (if approximate) code path in the current renderer.
 function T.declares_states_the_renderer_actually_implements_supported()
-  Assert.isTrue(FieldRenderCapabilities.depthEqual, "depthEqual maps to host lequal")
   Assert.isTrue(FieldRenderCapabilities.translucentDepthWrite, "bit-11 drives host depth-write toggling")
   Assert.isTrue(FieldRenderCapabilities.wireframe, "love.graphics.setWireframe draws the wireframe pass")
   Assert.isTrue(FieldRenderCapabilities.billboard, "u_billboard drives the whole billboard vertex path")
   Assert.isTrue(FieldRenderCapabilities.fog, "map.glsl reads u_polygonFogEnabled/u_fogEnabled and applies DsFog")
   Assert.isTrue(FieldRenderCapabilities.mirroredRepeat, "SceneDescriptor.wrap folds flip+repeat into mirroredrepeat")
+end
+
+-- depthEqual is corpus-provable-absent (PolygonState.validate raises
+-- POLYGON_STATE_DEPTH_EQUAL_UNSUPPORTED at compile time) and MapRenderer's
+-- translucent pass no longer branches on it, so it must not be declared
+-- supported.
+function T.declares_depth_equal_unsupported()
+  Assert.isFalse(FieldRenderCapabilities.depthEqual)
 end
 
 return { tests = T }

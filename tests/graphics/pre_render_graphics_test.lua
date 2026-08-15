@@ -209,9 +209,9 @@ function T.cutout_item_preflight_stops_before_its_first_mesh_draw(scope)
 end
 
 -- Translucent pass: proves the alphamultiply blend-mode switch and the
--- per-item depth-compare/write toggle (depthEqual, translucentDepthWrite) run
--- -- along with the translucent-sentinel polygon id override -- before the
--- trap fires on the item's mesh draw.
+-- per-item depth-write toggle (translucentDepthWrite) run -- along with the
+-- item's own real polygon ID and translucent-attribute flag sends -- before
+-- the trap fires on the item's mesh draw.
 function T.translucent_item_preflight_stops_before_its_first_mesh_draw(scope)
   assertPassStopsBeforeItsFirstDraw(scope, translucentTriangleItem(scope), "translucent")
 end
