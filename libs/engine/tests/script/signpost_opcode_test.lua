@@ -103,7 +103,7 @@ local function harness()
   local services = FakeServices.new()
   local signpost = RecordingSignpostHost.new()
   services.signpost = signpost
-  -- The sealed window-style registry surface the high-level sign handlers
+  -- The immutable window-style catalogue surface the high-level sign handlers
   -- resolve appearances against: the three built-ins plus a registered mod
   -- style.
   local styles = { "hgss.signpost", "hgss.trainer_tip", "mod.route_sign" }

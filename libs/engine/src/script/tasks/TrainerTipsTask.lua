@@ -74,10 +74,7 @@ end
 ---@param reason string
 ---@param ctx table|nil
 function TrainerTipsTask.cancel(state, reason, ctx)
-  state.cancelled = reason
-  if ctx ~= nil and ctx.services ~= nil and ctx.services.signpost ~= nil then
-    ctx.services.signpost:close()
-  end
+  SignpostAccess.closeOnCancel(state, reason, ctx)
 end
 
 ---@param state table

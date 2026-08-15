@@ -56,4 +56,31 @@ function FieldDrawState.restore(lg, state)
   end
 end
 
+-- Runs one draw closure under the renderer save/restore contract: the
+-- caller's state is captured, a transform stack is pushed for the closure
+-- (which may raise), the stack is popped even on failure, the exact saved
+-- state is restored, and any draw error re-raises after the cleanup, so a
+-- failing renderer never leaves the transform stack unbalanced or the
+-- graphics state changed for the caller's next frame.
+---@param lg love.Graphics
+---@param draw fun()
+function FieldDrawState.protectedDraw(lg, draw)
+  local state = FieldDrawState.save(lg)
+  local pushed = false
+  local ok, err = pcall(function()
+    lg.push()
+    pushed = true
+    draw()
+    lg.pop()
+    pushed = false
+  end)
+  if pushed then
+    lg.pop()
+  end
+  FieldDrawState.restore(lg, state)
+  if not ok then
+    error(err)
+  end
+end
+
 return FieldDrawState

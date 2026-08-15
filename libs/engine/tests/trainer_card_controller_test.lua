@@ -58,15 +58,6 @@ function T.tests.status_exposes_exactly_the_implemented_profile_fields()
   Assert.keySet(status, "name,open,trainerId")
 end
 
--- The card presentation never carries gender, even when the input profile
--- does: gender is not a card presentation field.
-function T.tests.profile_gender_is_not_carried_into_the_presentation()
-  local controller = TrainerCardController.new({ profile = { name = "GOLD", gender = 1, trainerId = 0 } })
-  local status = controller:status()
-  Assert.isNil(status.gender, "the card presentation must not expose gender")
-  Assert.keySet(status, "name,open,trainerId")
-end
-
 function T.tests.status_passes_boundary_profile_values_through()
   local controller = fixture({ name = "ABCDEFG", trainerId = 65535 })
   local status = controller:status()

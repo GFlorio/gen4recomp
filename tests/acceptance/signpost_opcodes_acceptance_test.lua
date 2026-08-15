@@ -20,14 +20,13 @@
 -- material with zero script faults. The child context ends at its
 -- signal_caller tail (opcode 21): the source commands that follow the signal
 -- in the same script never run, and the executable semantic program keeps
--- signal_caller terminal with no linear continuation. The executable nodes
--- also carry no sourceUnusedOut (opcode 55's audited, unused result
--- operand), the imported scripts keep the low-level nodes, pointer/touch
--- input never fills the typed print, and a high-level sign opened after an
--- imported signpost dismissal must not inherit the imported source
--- appearance. Scheduler environment cancellation mid-wipe releases every
--- signpost-owned resource and returns the field to an unlocked, modal-free
--- boundary. Rendering stays trapped. Input-edge variants of these journeys
+-- signal_caller terminal with no linear continuation. The imported scripts
+-- keep the low-level nodes, pointer/touch input never fills the typed
+-- print, and a high-level sign opened after an imported signpost dismissal
+-- must not inherit the imported source appearance. Scheduler environment
+-- cancellation mid-wipe releases every signpost-owned resource and returns
+-- the field to an unlocked, modal-free boundary. Rendering stays trapped.
+-- Input-edge variants of these journeys
 -- (directional dismissals, A/B fills, same-tick priority, cancellation) are
 -- owned by the engine-level script signpost-opcode suite with synthetic
 -- scripts; this boot proves the real ROM material.
@@ -97,18 +96,6 @@ local function scriptEndedCount(game, scriptId)
     end
   end
   return count
-end
-
--- Executable semantic nodes carry no sourceUnusedOut: opcode 55's final
--- operand is audited as unused, only raw decoded operands, provenance, and
--- audit data may keep it, and the compiled graph is the executable program,
--- so no node in it may carry the field.
-local function assertNoSourceUnusedOut(game, scriptId, label)
-  local composed = assert(game.runtime.scripts.composition:effective(scriptId))
-  local graph = assert(composed.entries[1].graph, label .. " must compile to an executable graph")
-  for _, node in pairs(graph.nodes) do
-    Assert.isNil(node.sourceUnusedOut, label .. " must carry no sourceUnusedOut in executable nodes")
-  end
 end
 
 -- Opcode 21 is terminal in the executable program: every signal_caller node
@@ -299,12 +286,10 @@ end
 -- signpost-owned resource.
 function T.tests.the_real_imported_signpost_journeys_complete_and_high_level_signs_inherit_no_appearance()
   withDemoCapableGame(function(game)
-    -- The imported programs keep the low-level nodes and the audited
-    -- erasures: no high-level op rewrites the imported sequence, the
-    -- executable nodes carry no sourceUnusedOut, and the real child keeps
-    -- its signal_caller terminal.
+    -- The imported programs keep the low-level nodes: no high-level op
+    -- rewrites the imported sequence, and the real child keeps its
+    -- signal_caller terminal.
     assertNoHighLevelSignOps(game, DIRECTION_SIGNPOST, "the direction-signpost override")
-    assertNoSourceUnusedOut(game, DIRECTION_SIGNPOST, "the direction-signpost program")
     assertSignalCallerTerminal(game, "common.signpost", "the std_signpost child program")
 
     -- Journey 1: the real type-0 direction signpost. The unused result

@@ -165,8 +165,8 @@ function T.signpost_operations_validate_canonical_shapes()
 end
 
 -- The high-level sign operations: message is required; appearance is the
--- registered-style-id-or-semantic string (any non-empty string, the sealed
--- registry resolves it at runtime) and the sign always blocks.
+-- registered-style-id-or-semantic string (any non-empty string, the
+-- catalogue resolves it at runtime) and the sign always blocks.
 function T.high_level_sign_operations_validate_canonical_shapes()
   valid(S.script({
     api = 1,

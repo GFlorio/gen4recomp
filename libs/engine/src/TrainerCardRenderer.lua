@@ -139,14 +139,8 @@ function TrainerCardRenderer:draw(presentation, viewport)
   local lg = assert(self._graphics)
   assert(type(presentation.name) == "string", "the card presentation requires the player name")
   assert(type(presentation.trainerId) == "number", "the card presentation requires the trainer id")
-
-  local drawState = FieldDrawState.save(lg)
-
-  local pushed = false
-  local ok, err = pcall(function()
+  FieldDrawState.protectedDraw(lg, function()
     local layout = FieldDialogueTheme.layout(viewport.referenceFrame)
-    lg.push()
-    pushed = true
     lg.translate(layout.origin.x, layout.origin.y)
     lg.scale(layout.scale, layout.scale)
     lg.setColor(1, 1, 1, 1)
@@ -158,21 +152,7 @@ function TrainerCardRenderer:draw(presentation, viewport)
     self._text:drawText(name, TrainerCardRenderer.NAME_RIGHT_EDGE - self._text:textWidth(name), 24)
     local trainerId = string.format("%0" .. TrainerCardRenderer.TRAINER_ID_DIGITS .. "d", presentation.trainerId)
     self._text:drawText(trainerId, TrainerCardRenderer.TRAINER_ID_RIGHT_EDGE - self._text:textWidth(trainerId), 24)
-    lg.pop()
-    pushed = false
   end)
-
-  -- Finally-style cleanup: a draw error must not leave the transform stack
-  -- unbalanced for the caller's next frame.
-  if pushed then
-    lg.pop()
-  end
-
-  FieldDrawState.restore(lg, drawState)
-
-  if not ok then
-    error(err)
-  end
 end
 
 function TrainerCardRenderer:release()

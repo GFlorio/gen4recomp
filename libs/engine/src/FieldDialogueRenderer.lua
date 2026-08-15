@@ -187,17 +187,11 @@ function FieldDialogueRenderer:draw(controller, viewport)
   end
   local lg = assert(self._graphics)
   local status = controller:status()
-
-  local drawState = FieldDrawState.save(lg)
-
-  local pushed = false
-  local ok, err = pcall(function()
+  FieldDrawState.protectedDraw(lg, function()
     -- Everything draws in reference-canvas coordinates under one
     -- translate(origin) + scale transform; the theme never returns
     -- screen-mapped rects, so nothing is scaled twice.
     local layout = self._theme.layout(viewport.referenceFrame)
-    lg.push()
-    pushed = true
     lg.translate(layout.origin.x, layout.origin.y)
     lg.scale(layout.scale, layout.scale)
     self:_drawFrame(status, layout)
@@ -207,21 +201,7 @@ function FieldDialogueRenderer:draw(controller, viewport)
       lineY = lineY + layout.lineHeight
     end
     self:_drawCursor(status, layout)
-    lg.pop()
-    pushed = false
   end)
-
-  -- Finally-style cleanup: a draw error must not leave the transform stack
-  -- unbalanced for the caller's next frame.
-  if pushed then
-    lg.pop()
-  end
-
-  FieldDrawState.restore(lg, drawState)
-
-  if not ok then
-    error(err)
-  end
 end
 
 function FieldDialogueRenderer:release()
