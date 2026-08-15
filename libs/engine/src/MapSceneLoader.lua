@@ -96,11 +96,13 @@ end
 local function materialsById(list, pool)
   local byId = {}
   for id, record in pairs(SceneDescriptor.materials(list)) do
+    local wrap = SceneDescriptor.wrap(record)
     byId[id] = {
       id = record.id,
       name = record.name,
-      image = pool:imageFor(record.texture, record.wrap.x, record.wrap.y),
+      image = pool:imageFor(record.texture, wrap.x, wrap.y),
       texMatrix = IDENTITY_TEX_MATRIX,
+      wrap = wrap,
     }
   end
   return byId

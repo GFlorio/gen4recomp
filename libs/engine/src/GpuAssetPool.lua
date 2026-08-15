@@ -35,9 +35,10 @@ local GpuAssetPool = {}
 GpuAssetPool.__index = GpuAssetPool
 
 -- LÖVE's real WrapMode vocabulary this pool configures Image:setWrap with;
--- "mirroredrepeat" is SceneDescriptor.wrap's resolved DS mirrored-repeat mode
--- (a repeated axis whose NSBTX material sets the flip bit).
-local WRAP_MODES = { clamp = true, ["repeat"] = true, mirroredrepeat = true }
+-- SceneDescriptor.MIRRORED_REPEAT is SceneDescriptor.wrap's resolved DS
+-- mirrored-repeat mode (a repeated axis whose NSBTX material sets the flip
+-- bit).
+local WRAP_MODES = { clamp = true, ["repeat"] = true, [SceneDescriptor.MIRRORED_REPEAT] = true }
 
 -- Release the last object of an owned list -- the failed acquisition's own --
 -- after `revert` undid its dedup-cache bookkeeping. The pop happens only when

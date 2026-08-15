@@ -93,9 +93,10 @@ function TerrainMaterialAnimator.new(bindings, clip, resolveImage)
         groupByName[swap.name] = group
       end
 
+      local wrap = assert(runtime.wrap, "TerrainMaterialAnimator requires the runtime material's resolved wrap")
       local images = {}
       for scheduleIndex, step in ipairs(swap.steps) do
-        images[scheduleIndex] = resolveImage(step.texture, record.wrap.x, record.wrap.y)
+        images[scheduleIndex] = resolveImage(step.texture, wrap.x, wrap.y)
       end
       group.members[#group.members + 1] = {
         runtime = runtime,

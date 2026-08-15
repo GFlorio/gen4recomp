@@ -1343,6 +1343,127 @@ function T.same_path_and_wrap_dedup_through_the_pool()
   runtime:release()
 end
 
+-- ---- sampler wrap normalization (loader boundary) ----
+--
+-- SceneDescriptor.wrap() is the one owner of the raw wrap/flip -> resolved
+-- sampler fold. These tests prove the RESOLVED value is what the GPU pool's
+-- image is configured with (image:setWrap), never the raw descriptor
+-- wrap/flip pair -- the actual loader-boundary bug (materialsById used to
+-- pass record.wrap.x/y straight through, discarding record.flip before the
+-- pool ever saw it).
+
+-- A central map material's raw descriptor state is `wrap.x = "repeat"` with
+-- `flip.x = true` (the NSBTX TEXIMAGE_PARAM flip bit). The image the pool
+-- builds must be configured with the resolved DS mirrored-repeat mode, not
+-- the raw "repeat".
+function T.central_map_material_with_flip_resolves_to_mirrored_repeat()
+  local material = {
+    id = 0,
+    name = "ground",
+    texture = "ground.png",
+    wrap = { x = "repeat", y = "repeat" },
+    flip = { x = true, y = false },
+    texWidth = 16,
+    texHeight = 16,
+    texMtxMode = 0,
+  }
+  local cache, scene = terrainScene({ material }, false)
+  local images = {}
+  local runtime = MapSceneLoader.load(cache, scene, { imageBuilder = recordingImageBuilder(images) })
+  Assert.deepEqual(
+    images[1].wraps,
+    { { "mirroredrepeat", "repeat" } },
+    "a flipped repeat axis must reach the image as the resolved mirrored-repeat sampler, not raw repeat"
+  )
+  runtime:release()
+end
+
+-- Clamp is inert to flip (mirroring never applies without wraparound):
+-- SceneDescriptor.wrap keeps a flipped clamped axis clamped, and that must
+-- stay true once the resolved value crosses the loader boundary.
+function T.clamp_with_flip_remains_clamp_through_the_loader()
+  local material = {
+    id = 0,
+    name = "wall",
+    texture = "wall.png",
+    wrap = { x = "clamp", y = "clamp" },
+    flip = { x = true, y = true },
+    texWidth = 16,
+    texHeight = 16,
+    texMtxMode = 0,
+  }
+  local cache, scene = terrainScene({ material }, false)
+  local images = {}
+  local runtime = MapSceneLoader.load(cache, scene, { imageBuilder = recordingImageBuilder(images) })
+  Assert.deepEqual(images[1].wraps, { { "clamp", "clamp" } }, "a flipped clamp axis stays clamp")
+  runtime:release()
+end
+
+-- Two materials sampling the SAME texture path under different resolved
+-- wraps must stay separately pooled: the (path, wrapX, wrapY) cache identity
+-- is unaffected by resolving wrap before acquisition.
+function T.same_texture_under_different_resolved_wraps_stays_separately_pooled()
+  local materials = {
+    {
+      id = 0,
+      name = "a",
+      texture = "shared.png",
+      wrap = { x = "repeat", y = "repeat" },
+      flip = { x = true, y = false },
+      texWidth = 16,
+      texHeight = 16,
+      texMtxMode = 0,
+    },
+    {
+      id = 1,
+      name = "b",
+      texture = "shared.png",
+      wrap = { x = "repeat", y = "repeat" },
+      flip = { x = false, y = false },
+      texWidth = 16,
+      texHeight = 16,
+      texMtxMode = 0,
+    },
+  }
+  local cache, scene = terrainScene(materials, false)
+  local images = {}
+  local runtime = MapSceneLoader.load(cache, scene, { imageBuilder = recordingImageBuilder(images) })
+  Assert.equal(#images, 2, "distinct resolved wraps over the same path stay separately pooled")
+  Assert.deepEqual(images[1].wraps, { { "mirroredrepeat", "repeat" } })
+  Assert.deepEqual(images[2].wraps, { { "repeat", "repeat" } })
+  runtime:release()
+end
+
+-- The terrain texture-swap animator must acquire its replacement images
+-- under the SAME resolved sampler as the base image -- base and every
+-- replacement step share one material's wrap, flip included. This is the
+-- TerrainMaterialAnimator half of the bug: it read record.wrap directly.
+function T.terrain_swap_replacement_images_share_the_resolved_mirrored_repeat_wrap()
+  local material = {
+    id = 0,
+    name = "flower01",
+    texture = "base.png",
+    wrap = { x = "repeat", y = "repeat" },
+    flip = { x = true, y = false },
+    texWidth = 16,
+    texHeight = 16,
+    texMtxMode = 0,
+    textureSwap = { name = "flower01", steps = flowerSteps() },
+  }
+  local cache, scene = terrainScene({ material }, false)
+  local images = {}
+  local runtime = MapSceneLoader.load(cache, scene, { imageBuilder = recordingImageBuilder(images) })
+  Assert.equal(#images, 4, "base plus the three unique replacement steps")
+  for _, image in ipairs(images) do
+    Assert.deepEqual(
+      image.wraps,
+      { { "mirroredrepeat", "repeat" } },
+      "replacement image " .. image.path .. " uses the same resolved wrap as the base"
+    )
+  end
+  runtime:release()
+end
+
 -- A terrain-only tick mutates the runtime draw materials in place: the
 -- texture-swap step image switches and the targeted material's texMatrix
 -- advances, while the draw array, its items, their meshes, and the

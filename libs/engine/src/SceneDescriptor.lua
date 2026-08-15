@@ -21,6 +21,11 @@ local ErrorCodes = require("libs.assets.src.ErrorCodes")
 
 local SceneDescriptor = {}
 
+-- The one Lua owner of the resolved DS mirrored-repeat sampler string.
+-- GpuAssetPool's WRAP_MODES references this constant rather than
+-- duplicating the literal.
+SceneDescriptor.MIRRORED_REPEAT = "mirroredrepeat"
+
 local WRAP_MODES = { clamp = true, ["repeat"] = true }
 
 -- Fold a resolved axis wrap with the NSBTX flip bit for that axis: DS mirrored
@@ -29,7 +34,7 @@ local WRAP_MODES = { clamp = true, ["repeat"] = true }
 -- wins.
 local function foldAxis(mode, flip)
   if mode == "repeat" and flip then
-    return "mirroredrepeat"
+    return SceneDescriptor.MIRRORED_REPEAT
   end
   return mode
 end

@@ -14,6 +14,7 @@
 local Assert = require("tests.support.Assert")
 local TerrainMaterialAnimator = require("libs.engine.src.TerrainMaterialAnimator")
 local TextureSrtEvaluator = require("libs.engine.src.TextureSrtEvaluator")
+local SceneDescriptor = require("libs.engine.src.SceneDescriptor")
 
 local T = {}
 
@@ -116,18 +117,21 @@ local function fakeImageResolver()
 end
 
 -- The loader-side emulation: one runtime material table per record with the
--- base image already bound (the loader's pool resolved material.texture).
--- Returns the binding list.
+-- base image already bound (the loader's pool resolved material.texture)
+-- under the resolved sampler wrap (SceneDescriptor.wrap), matching what
+-- MapSceneLoader/NeighborRing actually build. Returns the binding list.
 local function bindings(records, resolve)
   local out = {}
   for _, record in ipairs(records) do
+    local wrap = SceneDescriptor.wrap(record)
     out[#out + 1] = {
       record = record,
       runtime = {
         id = record.id,
         name = record.name,
-        image = record.texture and resolve(record.texture, record.wrap.x, record.wrap.y) or nil,
+        image = record.texture and resolve(record.texture, wrap.x, wrap.y) or nil,
         texMatrix = nil,
+        wrap = wrap,
       },
     }
   end
