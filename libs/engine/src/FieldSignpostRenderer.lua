@@ -217,10 +217,6 @@ function FieldSignpostRenderer:_drawFrame(status, graphicRegion, wipe)
         .. ","
         .. tostring(appearance.map)
     )
-    assert(
-      manifestRect.width == FieldSignpostTheme.WAYFINDING_TILES * 8 and manifestRect.height == 8,
-      "the wayfinding row must be the 24-tile grid source"
-    )
     local wayfinding = assert(self._wayfindingImage)
     local key = appearance.type .. ":" .. appearance.map
     local quads = self:_wayfindingQuads(key, manifestRect)

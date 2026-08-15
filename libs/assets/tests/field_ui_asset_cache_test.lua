@@ -11,10 +11,13 @@ local FakeCache = require("tests.support.FakeCache")
 
 local T = {}
 
+-- A valid manifest models the audited HGSS geometry: every dialogue frame
+-- strip and the signpost frame are 18 tiles (144x8), every wayfinding row is
+-- 24 tiles (192x8).
 local function validManifest()
   local frameTiles = {}
   for frame = 0, 19 do
-    frameTiles[frame] = { x = 0, y = 0, width = 160, height = 8 }
+    frameTiles[frame] = { x = 0, y = 0, width = 144, height = 8 }
   end
   local slots = {}
   for id = 1, 10 do
@@ -26,13 +29,13 @@ local function validManifest()
     assets = {
       ["hgss.dialogue_frame.tiles"] = {
         image = "assets/generated/field/ui/dialogue-frame-tiles.png",
-        width = 160,
-        height = 8,
+        width = 144,
+        height = 160,
       },
-      ["hgss.signpost.tiles"] = { image = "assets/generated/field/ui/signpost-tiles.png", width = 160, height = 8 },
+      ["hgss.signpost.tiles"] = { image = "assets/generated/field/ui/signpost-tiles.png", width = 144, height = 8 },
       ["hgss.signpost.wayfinding"] = {
         image = "assets/generated/field/ui/wayfinding-tiles.png",
-        width = 208,
+        width = 192,
         height = 16,
       },
       ["hgss.start_menu.background"] = { image = "assets/generated/field/ui/start-menu.png", width = 256, height = 192 },
@@ -48,13 +51,13 @@ local function validManifest()
       frameTiles = frameTiles,
     },
     signposts = {
-      frame = { tiles = { x = 0, y = 0, width = 160, height = 8 } },
+      frame = { tiles = { x = 0, y = 0, width = 144, height = 8 } },
       types = {
         [0] = {
           sourceType = 0,
           wayfinding = {
-            [0] = { x = 0, y = 0, width = 208, height = 8 },
-            [1] = { x = 0, y = 8, width = 208, height = 8 },
+            [0] = { x = 0, y = 0, width = 192, height = 8 },
+            [1] = { x = 0, y = 8, width = 192, height = 8 },
           },
         },
         [2] = { sourceType = 2 },
@@ -186,10 +189,34 @@ function T.signpost_type_and_wayfinding_validation_is_strict()
     m.signposts.types[2].wayfinding = {}
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    m.signposts.types[0].wayfinding[-1] = { x = 0, y = 0, width = 208, height = 8 }
+    m.signposts.types[0].wayfinding[-1] = { x = 0, y = 0, width = 192, height = 8 }
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    m.signposts.types[0].wayfinding[1] = { x = 0, y = 0, width = 209, height = 8 }
+    m.signposts.types[0].wayfinding[1] = { x = 0, y = 0, width = 193, height = 8 }
+  end, "FIELD_UI_MANIFEST_INVALID")
+end
+
+-- The generated class is pinned to the audited HGSS strip
+-- geometry — every dialogue frame strip and the signpost frame are the
+-- 18-tile 144x8 row, every wayfinding row is the 24-tile 192x8 row. A
+-- corrupted row dimension must be rejected by manifest validation before any
+-- renderer draw, even when the wrong rect still fits inside its atlas (136
+-- and 184 are the wrong-but-in-atlas sizes of the 17-tile and 23-tile rows).
+function T.ui_row_geometry_must_match_the_hgss_strip_contract()
+  reject(function(m)
+    m.dialogueFrames.frameTiles[0].width = 136
+  end, "FIELD_UI_MANIFEST_INVALID")
+  reject(function(m)
+    m.dialogueFrames.frameTiles[1].height = 16
+  end, "FIELD_UI_MANIFEST_INVALID")
+  reject(function(m)
+    m.signposts.frame.tiles.width = 136
+  end, "FIELD_UI_MANIFEST_INVALID")
+  reject(function(m)
+    m.signposts.types[0].wayfinding[0].width = 184
+  end, "FIELD_UI_MANIFEST_INVALID")
+  reject(function(m)
+    m.signposts.types[0].wayfinding[0].height = 16
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 

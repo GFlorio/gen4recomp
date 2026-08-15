@@ -170,25 +170,16 @@ local function paletteOr16(colors)
   return palette16()
 end
 
--- A synthetic RomFs whose four UI NARCs carry minimal valid members: 20
--- dialogue frames, 25 signpost types, the wayfinding members (2..0x35, the
--- type-0 0x21+map and type-1 2+map ranges the producer selects), the start
--- menu bg + cursor, and the card front. Palettes carry 16 colors so every
--- tile value the fixture chars emit is covered. `opts` allows per-test
--- source tampering: cursor OBJ geometry, the background screen entry, the
+-- A synthetic RomFs whose four UI NARCs carry minimal valid members matching
+-- the audited HGSS geometry: 20 dialogue frames of 18 tiles, the signpost
+-- frame of 18 tiles, the wayfinding members (2..0x35, the type-0 0x21+map
+-- and type-1 2+map ranges the producer selects) of 24 tiles, the start menu
+-- bg + cursor, and the card front. Palettes carry 16 colors so every tile
+-- value the fixture chars emit is covered. `opts` allows per-test source
+-- tampering: cursor OBJ geometry, the background screen entry, the
 -- background palette colors, and a whole-member tamper hook.
 local function fixture(opts)
   opts = opts or {}
-  local function frameMembers(count)
-    local members = {}
-    for i = 1, count do
-      members[i] = lz10Wrap(charData(20))
-    end
-    for i = 1, count do
-      members[count + i] = lz10Wrap(paletteOr16(opts.framePalette))
-    end
-    return members
-  end
   local startMenuMembers = {}
   startMenuMembers[13] = lz10Wrap(charData(128))
   startMenuMembers[14] = lz10Wrap(fullScreen(opts.screenEntry or 0))
@@ -203,10 +194,10 @@ local function fixture(opts)
   end
 
   local signpostMembers = {}
-  signpostMembers[1] = charData(20)
+  signpostMembers[1] = charData(18)
   signpostMembers[2] = palette16()
   for memberId = 2, 0x35 do
-    signpostMembers[memberId + 1] = charData(26, memberId % 16)
+    signpostMembers[memberId + 1] = charData(24, memberId % 16)
   end
   local signposts = {}
   for i = 1, 0x36 do
@@ -231,7 +222,7 @@ local function fixture(opts)
         members[i] = string.rep("\0", 4)
       end
       for i = 1, 20 do
-        members[2 + i] = lz10Wrap(charData(20))
+        members[2 + i] = lz10Wrap(charData(18))
       end
       for i = 1, 20 do
         members[26 + i] = lz10Wrap(paletteOr16(opts.framePalette))
@@ -547,6 +538,69 @@ function T.duplicate_g2d_chunks_in_members_are_typed_errors()
   local bundle, err = FieldUiCompiler.compile(romFs, sha1, hashLua)
   Assert.isNil(bundle)
   Assert.equal(assert(err).code, G2dDecoder.ERROR.CHUNK_DUPLICATE)
+end
+
+-- Every geometry class is pinned to the audited HGSS shape
+-- (18 dialogue frame tiles, 18 signpost frame tiles, 24 wayfinding tiles),
+-- not merely internally consistent. The tamper rewrites the whole class to
+-- the wrong count: corrupting one dialogue/wayfinding member alone would be
+-- caught by the cross-member consistency checks and would mask the
+-- class-wide wrong geometry the renderer cannot consume.
+local function compileWithTileCounts(geometry)
+  local romFs, sha1, hashLua = fixture({
+    tamper = function(alias, members)
+      if alias == "dialogue_frames" and geometry.dialogueTiles then
+        for i = 1, 20 do
+          members[2 + i] = lz10Wrap(charData(geometry.dialogueTiles))
+        end
+      elseif alias == "signpost_graphics" then
+        if geometry.signpostTiles then
+          members[1] = charData(geometry.signpostTiles)
+        end
+        if geometry.wayfindingTiles then
+          for memberId = 2, 0x35 do
+            members[memberId + 1] = charData(geometry.wayfindingTiles, memberId % 16)
+          end
+        end
+      end
+      return members
+    end,
+  })
+  return FieldUiCompiler.compile(romFs, sha1, hashLua)
+end
+
+function T.dialogue_frame_tile_counts_must_be_exactly_eighteen()
+  for _, tiles in ipairs({ 17, 19 }) do
+    local bundle, err = compileWithTileCounts({ dialogueTiles = tiles })
+    Assert.isNil(bundle, "a " .. tiles .. "-tile dialogue frame class must not compile")
+    local typed = assert(err)
+    Assert.equal(typed.code, FieldUiCompiler.ERROR.SOURCE_INVALID)
+    Assert.equal(typed.context.frame, 0)
+    Assert.equal(typed.context.member, 2)
+    Assert.equal(typed.context.tiles, tiles)
+  end
+end
+
+function T.signpost_frame_tile_counts_must_be_exactly_eighteen()
+  for _, tiles in ipairs({ 17, 19 }) do
+    local bundle, err = compileWithTileCounts({ signpostTiles = tiles })
+    Assert.isNil(bundle, "a " .. tiles .. "-tile signpost frame must not compile")
+    local typed = assert(err)
+    Assert.equal(typed.code, FieldUiCompiler.ERROR.SOURCE_INVALID)
+    Assert.equal(typed.context.member, 0)
+    Assert.equal(typed.context.tiles, tiles)
+  end
+end
+
+function T.wayfinding_tile_counts_must_be_exactly_twenty_four()
+  for _, tiles in ipairs({ 23, 25 }) do
+    local bundle, err = compileWithTileCounts({ wayfindingTiles = tiles })
+    Assert.isNil(bundle, "a " .. tiles .. "-tile wayfinding class must not compile")
+    local typed = assert(err)
+    Assert.equal(typed.code, FieldUiCompiler.ERROR.SOURCE_INVALID)
+    Assert.equal(typed.context.member, 0x21)
+    Assert.equal(typed.context.tiles, tiles)
+  end
 end
 
 function T.writer_commits_marker_last_and_reads_back()
