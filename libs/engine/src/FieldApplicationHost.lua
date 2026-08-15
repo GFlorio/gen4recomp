@@ -9,8 +9,11 @@
 -- constructs it through its required menuFactory (the runtime's composition
 -- step) on open and rebuild; a menuFactory result of nil means the menu is
 -- currently unavailable (no interactive actions) and the open is a no-op --
--- the host stays closed and the field continues. The host dispatches child
--- destinations through the immutable FieldApplicationRegistry. Its own
+-- the host stays closed and the field continues. An open whose composition
+-- throws is a terminal failure: the host enters its failed phase, which owns
+-- the tick, so the session must not run any later world phase that tick.
+-- The host dispatches child destinations through the immutable
+-- FieldApplicationRegistry. Its own
 -- fixed-tick fade counter exposes fadeAlpha; FieldTransition is not reused
 -- (it owns warp preparation, map protection, and map swaps). The host never
 -- launches a child by itself: the menu controller records
@@ -130,13 +133,14 @@ end
 -- The single acquisition point: constructs the Start Menu through the
 -- menuFactory, begins the modal input lifetime, and enters the menu phase on
 -- the opening tick. The session returns immediately after the open, so the
--- controller cannot receive input during the opener's tick. A failed
--- composition acquires nothing and leaves the host terminally failed with
--- the original error retained; a nil menuFactory result means the menu is
--- currently unavailable and the open is a no-op (nothing acquired, host
--- stays closed). Returns whether an open occurred.
+-- controller cannot receive input during the opener's tick. Returns whether
+-- the open consumed the tick: true for a successful open and for a fatal
+-- composition failure (the terminal failed state owns the tick); false only
+-- when the factory returns nil -- the menu is unavailable and the field may
+-- continue on that tick. A failed composition acquires nothing: no
+-- controller, no input lifetime, only the retained error.
 ---@param tick integer
----@return boolean opened
+---@return boolean consumed
 function FieldApplicationHost:requestOpen(tick)
   assert(self._phase == FieldApplicationHost.PHASES.closed, "the application host must be closed to open the menu")
   assert(tick == math.floor(tick) and tick >= 0, "the menu open requires a non-negative tick")
@@ -151,10 +155,13 @@ function FieldApplicationHost:requestReopen()
   self._reopenPending = true
 end
 
--- Consumes a pending script reopen request by opening the menu; returns
--- whether an open happened (an unavailable menu is a consumed no-op).
+-- Consumes a pending script reopen request by opening the menu. Returns
+-- whether the open consumed the tick: true for a successful open and for a
+-- fatal composition failure (the terminal failed state owns the tick); false
+-- when there was no pending request or the menu is unavailable, so the field
+-- continues that tick. The pending request itself is cleared either way.
 ---@param tick integer
----@return boolean
+---@return boolean consumed
 function FieldApplicationHost:takeReopen(tick)
   if not self._reopenPending then
     return false
@@ -167,15 +174,18 @@ end
 -- through the menu factory before beginUi so a failed composition never
 -- begins the input lifetime; beginUi flushes stale UI edges at modal
 -- ownership begin so the opening edge cannot immediately close the menu it
--- opened. A nil factory result leaves the host closed and acquires nothing.
+-- opened. Returns whether the open consumed the tick: true when the menu
+-- opened and when a composition failure entered the terminal failed state
+-- (which owns the tick); false when the factory returns nil -- the menu is
+-- unavailable and the host stays closed.
 ---@param tick integer
 ---@param rememberedActionId string?
----@return boolean opened
+---@return boolean consumed
 function FieldApplicationHost:_openMenu(tick, rememberedActionId)
   local ok, controller = pcall(self._menuFactory, rememberedActionId)
   if not ok then
     self:_fail(controller)
-    return false
+    return true
   end
   if controller == nil then
     return false
