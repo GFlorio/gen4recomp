@@ -39,10 +39,13 @@
 -- revision 4: the audio index splits its single bySymbol map into the
 -- per-class sequenceBySymbol/bankBySymbol maps (wave-archive symbols are no
 -- longer indexed).
+-- revision 5: the sequence and bank assets drop source-record mirror fields
+-- with no runtime consumer (the sequence's channelPriority and the bank and
+-- index entries' waveArchives).
 
 local DerivedAssetContract = {}
 
-DerivedAssetContract.revision = 4
+DerivedAssetContract.revision = 5
 
 DerivedAssetContract.map = {
   cacheFormat = "map-cache-v7",
@@ -105,10 +108,12 @@ DerivedAssetContract.audio = {
   -- revision 2: the sequence asset closes its instruction vocabulary to the
   -- frozen semantic op set with normalized operands (integer | random |
   -- variable), no u16 truncation, and no rest/print_var.
-  sequenceSchema = "g4-audio-sequence-v2",
+  -- revision 3: the sequence asset drops the unused channelPriority field.
+  sequenceSchema = "g4-audio-sequence-v3",
   -- revision 2: bank voices carry the common originalKey shape for every
   -- generator kind.
-  bankSchema = "g4-audio-bank-v2",
+  -- revision 3: the bank asset drops the unused waveArchives mirror field.
+  bankSchema = "g4-audio-bank-v3",
   -- revision 3: the sample metadata gains the SWAV base timer (and the
   -- content key now covers the full semantic identity).
   sampleSchema = "g4-audio-sample-v3",

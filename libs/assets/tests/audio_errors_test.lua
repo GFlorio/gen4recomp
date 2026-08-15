@@ -38,7 +38,7 @@ function T.asset_validators_raise_the_shared_codes()
   throwsCode(AudioErrors.AUDIO_SEQUENCE_INVALID, function()
     AudioSequence.validate(sequence)
   end)
-  local bank = AudioFixture.bank(12, "BANK_TEST", { [0] = 31 })
+  local bank = AudioFixture.bank(12, "BANK_TEST")
   bank.instruments = {}
   throwsCode(AudioErrors.AUDIO_BANK_INVALID, function()
     AudioBank.validate(bank)

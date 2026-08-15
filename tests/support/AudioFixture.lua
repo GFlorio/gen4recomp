@@ -76,7 +76,6 @@ function AudioFixture.sequence(id, symbol, bankId, playerId, program, player)
     player = player or {
       id = playerId,
       initialVolume = 127,
-      channelPriority = 64,
       playerPriority = 64,
     },
     program = program or {
@@ -94,13 +93,12 @@ end
 
 -- `instruments` overrides the default instrument map so engine tests can
 -- author banks over the frozen instrument/voice shapes.
-function AudioFixture.bank(id, symbol, waveArchives, sampleKeys, instruments)
+function AudioFixture.bank(id, symbol, sampleKeys, instruments)
   sampleKeys = sampleKeys or { AudioFixture.key(1), AudioFixture.key(2) }
   return {
     schema = AudioCache.BANK_SCHEMA,
     id = id,
     symbol = symbol,
-    waveArchives = waveArchives,
     instruments = instruments or {
       [0] = { kind = "direct", voice = AudioFixture.sampleVoice(sampleKeys[1]) },
       [1] = {
@@ -162,7 +160,7 @@ function AudioFixture.bundle()
         [37] = { id = 37, symbol = "SEQ_TEST_B", file = AudioCache.sequencePath(37), bankId = 12, playerId = 1 },
       },
       banks = {
-        [12] = { id = 12, symbol = "BANK_TEST", file = AudioCache.bankPath(12), waveArchives = { [0] = 31 } },
+        [12] = { id = 12, symbol = "BANK_TEST", file = AudioCache.bankPath(12) },
       },
       players = {
         [1] = { id = 1, maxSequences = 16, channelMask = 0xFFFF, heapSize = 0x2000 },
@@ -180,7 +178,7 @@ function AudioFixture.bundle()
       [37] = AudioFixture.sequence(37, "SEQ_TEST_B", 12, 1),
     },
     banks = {
-      [12] = AudioFixture.bank(12, "BANK_TEST", { [0] = 31 }),
+      [12] = AudioFixture.bank(12, "BANK_TEST"),
     },
     samples = {
       [keyA] = pcmA,

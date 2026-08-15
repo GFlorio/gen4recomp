@@ -105,7 +105,7 @@ function T.validates_the_player_block()
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
-  sequence.player = { id = 1, initialVolume = 127, channelPriority = 64, playerPriority = 64 }
+  sequence.player = { id = 1, initialVolume = 127, playerPriority = 64 }
   sequence.player.id = 0.5
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
@@ -116,7 +116,7 @@ function T.validates_the_player_block()
     AudioSequence.validate(sequence)
   end)
   sequence.player.initialVolume = 127
-  sequence.player.channelPriority = nil
+  sequence.player.playerPriority = -1
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)

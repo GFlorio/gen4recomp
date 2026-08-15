@@ -155,19 +155,6 @@ function AudioBank.validate(bank)
   if bank.symbol ~= nil and (type(bank.symbol) ~= "string" or bank.symbol == "") then
     fail({ field = "symbol" })
   end
-  if bank.waveArchives ~= nil then
-    if type(bank.waveArchives) ~= "table" then
-      fail({ field = "waveArchives" })
-    end
-    for slot, waveId in pairs(bank.waveArchives) do
-      if not isIntegerInRange(slot, 0, 3) then
-        fail({ field = "waveArchives.slot" })
-      end
-      if not isIntegerInRange(waveId, 0, 0xFFFF) then
-        fail({ field = "waveArchives.waveId" })
-      end
-    end
-  end
   if type(bank.instruments) ~= "table" or next(bank.instruments) == nil then
     fail({ field = "instruments" })
   end

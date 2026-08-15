@@ -23,7 +23,7 @@ local T = {}
 
 function T.contract_pins_the_current_asset_identities()
   Assert.deepEqual(DerivedAssetContract, {
-    revision = 4,
+    revision = 5,
     map = {
       cacheFormat = "map-cache-v7",
       sceneSchema = "g4-map-scene-v6",
@@ -65,8 +65,8 @@ function T.contract_pins_the_current_asset_identities()
     audio = {
       cacheFormat = "g4-audio-cache-v1",
       indexSchema = "g4-audio-index-v2",
-      sequenceSchema = "g4-audio-sequence-v2",
-      bankSchema = "g4-audio-bank-v2",
+      sequenceSchema = "g4-audio-sequence-v3",
+      bankSchema = "g4-audio-bank-v3",
       sampleSchema = "g4-audio-sample-v3",
       provenanceSchema = "g4-audio-provenance-v1",
     },

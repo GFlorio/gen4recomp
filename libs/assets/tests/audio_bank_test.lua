@@ -23,11 +23,11 @@ function T.schema_constant_follows_the_contract()
 end
 
 function T.accepts_a_well_formed_bank()
-  Assert.isTrue(AudioBank.validate(AudioFixture.bank(12, "BANK_TEST", { [0] = 31 })))
+  Assert.isTrue(AudioBank.validate(AudioFixture.bank(12, "BANK_TEST")))
 end
 
 function T.validates_schema_identity_and_symbol()
-  local bank = AudioFixture.bank(12, "BANK_TEST", { [0] = 31 })
+  local bank = AudioFixture.bank(12, "BANK_TEST")
   bank.schema = nil
   throwsCode("AUDIO_BANK_INVALID", function()
     AudioBank.validate(bank)
@@ -48,24 +48,8 @@ function T.validates_schema_identity_and_symbol()
   end)
 end
 
-function T.validates_the_wave_archive_slot_map()
-  local bank = AudioFixture.bank(12, "BANK_TEST", { [0] = 31 })
-  bank.waveArchives = { [4] = 31 }
-  throwsCode("AUDIO_BANK_INVALID", function()
-    AudioBank.validate(bank)
-  end)
-  bank.waveArchives = { [0] = -1 }
-  throwsCode("AUDIO_BANK_INVALID", function()
-    AudioBank.validate(bank)
-  end)
-  bank.waveArchives = { [0] = 1.5 }
-  throwsCode("AUDIO_BANK_INVALID", function()
-    AudioBank.validate(bank)
-  end)
-end
-
 function T.validates_instrument_kinds()
-  local bank = AudioFixture.bank(12, "BANK_TEST", { [0] = 31 })
+  local bank = AudioFixture.bank(12, "BANK_TEST")
   bank.instruments = {}
   throwsCode("AUDIO_BANK_INVALID", function()
     AudioBank.validate(bank)
@@ -85,7 +69,7 @@ function T.validates_instrument_kinds()
 end
 
 function T.validates_key_split_and_drum_set_shapes()
-  local bank = AudioFixture.bank(12, "BANK_TEST", { [0] = 31 })
+  local bank = AudioFixture.bank(12, "BANK_TEST")
   bank.instruments[1] = { kind = "key_split", ranges = "wide" }
   throwsCode("AUDIO_BANK_INVALID", function()
     AudioBank.validate(bank)
@@ -108,7 +92,7 @@ function T.validates_key_split_and_drum_set_shapes()
   end)
   -- The malformed cases above mutate instruments in place; validate the valid
   -- drum set against a clean bank.
-  bank = AudioFixture.bank(12, "BANK_TEST", { [0] = 31 })
+  bank = AudioFixture.bank(12, "BANK_TEST")
   bank.instruments[2] = {
     kind = "drum_set",
     lowKey = 35,
@@ -119,7 +103,7 @@ function T.validates_key_split_and_drum_set_shapes()
 end
 
 function T.validates_voice_generators()
-  local bank = AudioFixture.bank(12, "BANK_TEST", { [0] = 31 })
+  local bank = AudioFixture.bank(12, "BANK_TEST")
   bank.instruments[0].voice = { generator = { kind = "sample" } }
   throwsCode("AUDIO_BANK_INVALID", function()
     AudioBank.validate(bank)
@@ -168,7 +152,7 @@ function T.every_generator_kind_requires_an_original_key()
     AudioFixture.squareVoice(),
     AudioFixture.noiseVoice(),
   }) do
-    local bank = AudioFixture.bank(12, "BANK_TEST", { [0] = 31 })
+    local bank = AudioFixture.bank(12, "BANK_TEST")
     bank.instruments[0].voice = voice
     Assert.isTrue(AudioBank.validate(bank), "a well-formed voice with originalKey is valid")
 
@@ -195,7 +179,7 @@ function T.every_generator_kind_requires_an_original_key()
 end
 
 function T.every_voice_carries_envelope_and_pan()
-  local bank = AudioFixture.bank(12, "BANK_TEST", { [0] = 31 })
+  local bank = AudioFixture.bank(12, "BANK_TEST")
   bank.instruments[0].voice.envelope = nil
   throwsCode("AUDIO_BANK_INVALID", function()
     AudioBank.validate(bank)
@@ -219,7 +203,7 @@ end
 -- bank) from "malformed shape" (nil), so readiness can never mistake a broken
 -- bank for one without samples.
 function T.sample_keys_are_nil_only_on_malformed_shapes()
-  local bank = AudioFixture.bank(12, "BANK_TEST", { [0] = 31 })
+  local bank = AudioFixture.bank(12, "BANK_TEST")
   Assert.deepEqual(AudioBank.sampleKeys(bank), { AudioFixture.key(1), AudioFixture.key(2) })
   bank.instruments = {}
   Assert.isNil(AudioBank.sampleKeys(bank), "an empty instruments map is malformed, not sample-free")
@@ -234,7 +218,7 @@ end
 -- and the walk never re-validates it — a voice the validator rejects still
 -- contributes its keys, so the walk and the validator cannot drift apart.
 function T.sample_keys_do_not_revalidate_voice_fields()
-  local bank = AudioFixture.bank(12, "BANK_TEST", { [0] = 31 })
+  local bank = AudioFixture.bank(12, "BANK_TEST")
   bank.instruments[0].voice.envelope.attack = 0xFFFF
   throwsCode("AUDIO_BANK_INVALID", function()
     AudioBank.validate(bank)

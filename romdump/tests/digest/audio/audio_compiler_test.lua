@@ -225,7 +225,6 @@ function T.compiles_the_archive_into_a_complete_bundle()
     id = 0,
     symbol = "BANK_0",
     file = AudioCache.bankPath(0),
-    waveArchives = { [0] = 0 },
   })
   Assert.equal(bundle.index.players[0].maxSequences, 2)
   Assert.equal(bundle.index.players[0].channelMask, 0xC000)
@@ -261,7 +260,6 @@ function T.compiles_sequences_with_index_targets()
   Assert.equal(seq0.bankId, 1)
   Assert.equal(seq0.player.id, 0)
   Assert.equal(seq0.player.initialVolume, 120)
-  Assert.equal(seq0.player.channelPriority, 127)
   Assert.equal(seq0.player.playerPriority, 64)
 
   Assert.equal(seq0.program.entry, 1, "entry is the header open-track record")
@@ -299,7 +297,6 @@ function T.compiles_banks_with_semantic_instruments()
   local bank0 = bundle.banks[0]
   AudioBank.validate(bank0)
   Assert.equal(bank0.id, 0)
-  Assert.deepEqual(bank0.waveArchives, { [0] = 0 })
 
   Assert.isNil(bank0.instruments[3], "type-0 instrument is dropped")
 

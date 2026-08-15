@@ -208,7 +208,6 @@ local function compileSequence(sdat, symbols, id, record)
     player = {
       id = record.playerId,
       initialVolume = record.volume,
-      channelPriority = record.channelPriority,
       playerPriority = record.playerPriority,
     },
     program = program,
@@ -268,7 +267,6 @@ local function compileBank(sdat, symbols, id, record, waveCache)
     schema = AudioCache.BANK_SCHEMA,
     id = id,
     symbol = symbols.banks[id],
-    waveArchives = record.waveArchives,
     instruments = instruments,
   }
 end
@@ -336,7 +334,6 @@ local function _compile(romFs, sha1hex, hashLua)
         id = id,
         symbol = bank.symbol,
         file = AudioCache.bankPath(id),
-        waveArchives = record.waveArchives,
       }
       if bank.symbol ~= nil then
         bankBySymbol[bank.symbol] = id

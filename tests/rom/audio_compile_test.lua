@@ -172,7 +172,6 @@ function T.every_referenced_sequence_compiles()
         end
         Assert.equal(sequence.player.id, record.playerId, "sequence " .. id .. " player id")
         Assert.equal(sequence.player.initialVolume, record.volume, "sequence " .. id .. " initialVolume")
-        Assert.equal(sequence.player.channelPriority, record.channelPriority, "sequence " .. id .. " channelPriority")
         Assert.equal(sequence.player.playerPriority, record.playerPriority, "sequence " .. id .. " playerPriority")
       end
     end
@@ -283,14 +282,6 @@ function T.every_referenced_bank_resolves()
         AudioBank.validate(bank)
         Assert.equal(bank.id, id, "bank " .. id .. " asset id")
         Assert.equal(bank.symbol, symbol, "bank " .. id .. " asset symbol")
-        if next(record.waveArchives) ~= nil then
-          Assert.deepEqual(bank.waveArchives, record.waveArchives, "bank " .. id .. " waveArchives")
-        else
-          Assert.isTrue(
-            bank.waveArchives == nil or next(bank.waveArchives) == nil,
-            "bank " .. id .. " waveArchives empty"
-          )
-        end
       end
     end
     for id in pairs(bundle.index.banks) do
