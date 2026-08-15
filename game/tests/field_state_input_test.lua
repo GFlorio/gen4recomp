@@ -97,6 +97,51 @@ function T.releasing_one_of_two_keys_for_the_same_direction_releases_its_own_sou
   })
 end
 
+-- Release mirrors press: one physical key may drive several held semantic
+-- states (Action, Cancel, Menu, and a direction all bound to one key), and
+-- every matching binding releases, never just the first -- so an overlap can
+-- never leave a held state stuck after the key is released.
+function T.releasing_a_key_releases_every_semantic_state_it_pressed()
+  local calls = {}
+  local input = {}
+  for _, name in ipairs({
+    "pressAction",
+    "releaseAction",
+    "pressCancel",
+    "releaseCancel",
+    "pressMenu",
+    "releaseMenu",
+    "pressDirection",
+    "releaseDirection",
+  }) do
+    input[name] = function(_, ...)
+      calls[#calls + 1] = { name, ... }
+    end
+  end
+  local state = setmetatable({
+    runtime = {
+      input = input,
+      actionKeys = { w = true },
+      cancelKeys = { w = true },
+      menuKeys = { w = true },
+    },
+  }, FieldState)
+
+  state:keypressed("w")
+  state:keyreleased("w")
+
+  Assert.deepEqual(calls, {
+    { "pressAction", "key:w" },
+    { "pressCancel", "key:w" },
+    { "pressMenu", "key:w" },
+    { "pressDirection", "north", "key:w" },
+    { "releaseAction", "key:w" },
+    { "releaseCancel", "key:w" },
+    { "releaseMenu", "key:w" },
+    { "releaseDirection", "key:w" },
+  })
+end
+
 function T.focus_loss_discards_stale_stick_axes_before_refocus()
   local input = FieldInput.new()
   local state =

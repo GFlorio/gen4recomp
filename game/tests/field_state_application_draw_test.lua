@@ -285,16 +285,54 @@ function T.application_phase_draws_only_the_card_surface_and_keeps_the_world_fad
   Assert.equal(cardCall[3], state.runtime.viewport, "the card draws into the viewport")
 end
 
--- The application fade covers the surface being transitioned: on a dual
--- display the world viewport AND the auxiliary Start Menu placement frame go
--- black together, so no auxiliary menu can stay visible while only the world
--- viewport fades.
-function T.the_application_fade_covers_the_world_and_the_start_menu_placement_frame()
+-- The application fade covers the actual union of the world viewport and the
+-- Start Menu placement frame: disjoint surfaces are painted as separate
+-- rectangles, so the gap between them is never covered and no region is
+-- painted twice (a bounding box would paint the gap; blindly drawing both
+-- rects would double the alpha where they overlap).
+function T.the_application_fade_paints_disjoint_surfaces_separately_and_never_the_gap()
   local state, sink = drawableState({
     hostStatus = { phase = "fading_out", fadeAlpha = 0.5 },
     topology = dualTopology(),
     worldViewport = { x = 0, y = 0, width = 256, height = 192 },
   })
+  -- Separate the menu surface from the world with a real gap: the placement
+  -- record is runtime-owned, but the draw path must follow it exactly.
+  state.runtime.startMenuPlacement.frame = { x = 320, y = 0, width = 256, height = 192 }
+  local restore = spyGraphics(sink)
+  local ok, err = pcall(function()
+    state:draw()
+  end)
+  restore()
+  if not ok then
+    error(err, 0)
+  end
+
+  Assert.deepEqual(labels(sink), { "world", "rect", "rect" })
+  local rects = {}
+  for i = 2, #sink do
+    rects[#rects + 1] = { sink[i][5], sink[i][6], sink[i][7], sink[i][8], sink[i][9], sink[i][10] }
+  end
+  Assert.deepEqual(rects[1], { 0.5, "fill", 0, 0, 256, 192 }, "the world viewport is painted in full at the fade alpha")
+  Assert.deepEqual(rects[2], { 0.5, "fill", 320, 0, 256, 192 }, "the disjoint menu frame is painted separately")
+  -- The gap between the surfaces (256..320) is never covered: every painted
+  -- rectangle stays inside one of the two surfaces.
+  for _, rect in ipairs(rects) do
+    local x, y, w, h = rect[3], rect[4], rect[5], rect[6]
+    local covered = (x < 256 and x + w <= 256) or (x >= 320)
+    Assert.isTrue(covered, "no fade rectangle may span the gap between surfaces")
+  end
+  Assert.equal(#sink, 3, "no modal surface is drawn during the fade")
+end
+
+-- A menu frame fully inside (or equal to) the world viewport adds nothing:
+-- the union is exactly the world rect, so no region is alpha-doubled.
+function T.the_application_fade_never_doubles_alpha_for_a_contained_menu_frame()
+  local state, sink = drawableState({
+    hostStatus = { phase = "fading_out", fadeAlpha = 0.5 },
+    topology = worldTopology(),
+  })
+  state.runtime.startMenuPlacement.frame = { x = 64, y = 48, width = 320, height = 240 }
   local restore = spyGraphics(sink)
   local ok, err = pcall(function()
     state:draw()
@@ -307,16 +345,86 @@ function T.the_application_fade_covers_the_world_and_the_start_menu_placement_fr
   Assert.deepEqual(labels(sink), { "world", "rect" })
   local fadeCall = sink[2]
   Assert.deepEqual(
-    { fadeCall[2], fadeCall[3], fadeCall[4], fadeCall[5] },
-    { 0, 0, 0, 0.5 },
-    "the fade runs at the host fade alpha"
+    { fadeCall[6], fadeCall[7], fadeCall[8], fadeCall[9], fadeCall[10] },
+    { "fill", 0, 0, 640, 480 },
+    "a contained menu frame adds no rectangle: the world rect alone is the union"
+  )
+end
+
+-- A menu frame to the right of the world viewport with a partial overlap
+-- contributes only its non-overlapping strip: the overlap region is painted
+-- once (by the world rect) and the strip covers the rest.
+function T.the_application_fade_paints_only_the_non_overlapping_strip_of_a_partial_overlap()
+  local state, sink = drawableState({
+    hostStatus = { phase = "fading_out", fadeAlpha = 0.5 },
+    topology = worldTopology(),
+    worldViewport = { x = 0, y = 0, width = 256, height = 192 },
+  })
+  state.runtime.startMenuPlacement.frame = { x = 128, y = 0, width = 384, height = 192 }
+  local restore = spyGraphics(sink)
+  local ok, err = pcall(function()
+    state:draw()
+  end)
+  restore()
+  if not ok then
+    error(err, 0)
+  end
+
+  Assert.deepEqual(labels(sink), { "world", "rect", "rect" })
+  Assert.deepEqual(
+    { sink[2][6], sink[2][7], sink[2][8], sink[2][9], sink[2][10] },
+    { "fill", 0, 0, 256, 192 },
+    "the world viewport is painted in full"
   )
   Assert.deepEqual(
-    { fadeCall[6], fadeCall[7], fadeCall[8], fadeCall[9], fadeCall[10] },
-    { "fill", 0, 0, 512, 192 },
-    "the fade covers the world viewport and the auxiliary placement frame"
+    { sink[3][6], sink[3][7], sink[3][8], sink[3][9], sink[3][10] },
+    { "fill", 256, 0, 256, 192 },
+    "only the non-overlapping right strip of the menu frame is painted"
   )
-  Assert.equal(#sink, 2, "no modal surface is drawn during the fade")
+  Assert.equal(#sink, 3, "the overlapping band is painted exactly once")
+end
+
+-- The same partial overlap extending past the world top and bottom paints
+-- the right strip plus the two vertical strips: every strip stays outside
+-- the intersection, so no region receives alpha twice.
+function T.the_application_fade_paints_the_strips_around_a_corner_overlap()
+  local state, sink = drawableState({
+    hostStatus = { phase = "fading_out", fadeAlpha = 0.5 },
+    topology = worldTopology(),
+    worldViewport = { x = 0, y = 0, width = 256, height = 192 },
+  })
+  state.runtime.startMenuPlacement.frame = { x = 128, y = -64, width = 384, height = 320 }
+  local restore = spyGraphics(sink)
+  local ok, err = pcall(function()
+    state:draw()
+  end)
+  restore()
+  if not ok then
+    error(err, 0)
+  end
+
+  Assert.deepEqual(labels(sink), { "world", "rect", "rect", "rect", "rect" })
+  Assert.deepEqual(
+    { sink[2][6], sink[2][7], sink[2][8], sink[2][9], sink[2][10] },
+    { "fill", 0, 0, 256, 192 },
+    "the world viewport is painted in full"
+  )
+  Assert.deepEqual(
+    { sink[3][6], sink[3][7], sink[3][8], sink[3][9], sink[3][10] },
+    { "fill", 256, -64, 256, 320 },
+    "the right strip covers the menu frame outside the world width"
+  )
+  Assert.deepEqual(
+    { sink[4][6], sink[4][7], sink[4][8], sink[4][9], sink[4][10] },
+    { "fill", 128, -64, 128, 64 },
+    "the top strip covers the menu frame above the world"
+  )
+  Assert.deepEqual(
+    { sink[5][6], sink[5][7], sink[5][8], sink[5][9], sink[5][10] },
+    { "fill", 128, 192, 128, 64 },
+    "the bottom strip covers the menu frame below the world"
+  )
+  Assert.equal(#sink, 5, "the overlap region is painted exactly once (by the world rect)")
 end
 
 return { tests = T }

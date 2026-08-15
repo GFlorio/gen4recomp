@@ -21,6 +21,10 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 
 local T = {}
 
+-- The runtime-validated manifest every construction passes in: the renderer
+-- never reloads it from the cache itself.
+local MANIFEST = FieldUiFixture.manifest()
+
 local CANONICAL = FieldViewport.new(256, 192, { mode = "expanded" })
 
 local function throwsCode(code, fn)
@@ -203,6 +207,7 @@ end
 local function cardRenderer(graphics, cache)
   return TrainerCardRenderer.new({
     cacheFs = cache or fixtureCache(),
+    manifest = MANIFEST,
     text = withTextRenderer(cache or fixtureCache(), graphics),
     graphics = graphics,
   })
@@ -266,20 +271,23 @@ function T.construction_failure_missing_card_front_acquires_nothing()
   cache:remove(FieldUiFixture.TRAINER_CARD_PATH)
   local text = withTextRenderer(cache, graphics)
   throwsCode("FIELD_UI_TRAINER_CARD_FRONT_MISSING", function()
-    TrainerCardRenderer.new({ cacheFs = cache, text = text, graphics = graphics })
+    TrainerCardRenderer.new({ cacheFs = cache, manifest = MANIFEST, text = text, graphics = graphics })
   end)
   Assert.equal(graphics.images[1].released, false, "the caller-owned text renderer atlas stays alive")
   text:release()
 end
 
-function T.construction_failure_missing_manifest_is_typed()
-  local cache = fixtureCache()
-  cache:remove("data/generated/field/ui/ui.lua")
-  throwsCode("FIELD_UI_MANIFEST_MISSING", function()
-    local graphics = renderedGraphics()
-    local text = withTextRenderer(cache, graphics)
-    TrainerCardRenderer.new({ cacheFs = cache, text = text, graphics = graphics })
+-- The runtime-validated manifest is a required constructor input: the
+-- renderer never reloads the manifest from the cache itself, so a
+-- construction without one is rejected.
+function T.construction_failure_missing_manifest_is_rejected()
+  local graphics = renderedGraphics()
+  local text = withTextRenderer(fixtureCache(), graphics)
+  local err = Assert.throws(function()
+    TrainerCardRenderer.new({ cacheFs = fixtureCache(), text = text, graphics = graphics })
   end)
+  Assert.isTrue(tostring(err):find("requires the runtime-validated field-UI manifest", 1, true) ~= nil)
+  text:release()
 end
 
 -- A quad failure after the card image was created must release the acquired
@@ -292,7 +300,7 @@ function T.quad_failure_releases_the_acquired_card_image()
   })
   local text = withTextRenderer(fixtureCache(), graphics)
   local ok, err = pcall(function()
-    TrainerCardRenderer.new({ cacheFs = fixtureCache(), text = text, graphics = graphics })
+    TrainerCardRenderer.new({ cacheFs = fixtureCache(), manifest = MANIFEST, text = text, graphics = graphics })
   end)
   Assert.isFalse(ok, "the quad failure must propagate")
   Assert.equal(graphics.images[1].released, false, "the caller-owned text renderer atlas stays alive")
@@ -411,7 +419,12 @@ end
 function T.release_frees_the_owned_card_image_and_is_idempotent()
   local graphics = renderedGraphics()
   local text = withTextRenderer(fixtureCache(), graphics)
-  local renderer = TrainerCardRenderer.new({ cacheFs = fixtureCache(), text = text, graphics = graphics })
+  local renderer = TrainerCardRenderer.new({
+    cacheFs = fixtureCache(),
+    manifest = MANIFEST,
+    text = text,
+    graphics = graphics,
+  })
   renderer:release()
   renderer:release()
   Assert.equal(graphics.images[1].released, false, "the caller-owned text renderer atlas stays alive")

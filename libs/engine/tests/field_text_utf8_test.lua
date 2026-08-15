@@ -77,20 +77,32 @@ function T.multibyte_player_name_validates_against_the_fixture_charmap()
   Assert.notNil(FieldPlayerData.validate(seven, context), "seven two-byte glyphs are seven glyphs, not fourteen bytes")
 end
 
--- The glyph run for the two-byte sequence is exactly one run carrying the
--- encoded glyph's quad and advance, never two fallback runs per byte.
-function T.one_multibyte_glyph_is_one_run_with_its_own_quad_and_advance()
-  local lg = fakeGraphics()
+-- The glyph run for the two-byte sequence in a drawn line is exactly one
+-- atlas visit carrying the encoded glyph's quad and advance, never two
+-- fallback runs per byte.
+function T.draw_line_visits_each_multibyte_glyph_once()
+  local lg, draws = fakeGraphics()
   local text = FieldTextRenderer.new({ cacheFs = fixtureCache(), graphics = lg })
-  local runs = text:_glyphRuns(MULTIBYTE)
-  Assert.equal(#runs, 1, "a two-byte glyph is one run, not one per byte")
-  Assert.equal(runs[1].advance, MULTIBYTE_ADVANCE)
-  local runQuad = runs[1].quad ---@type { x: number }
-  Assert.equal(
-    runQuad.x,
-    (MULTIBYTE_CODE - 1) * ASCII_ADVANCE,
-    "the run uses the encoded glyph's quad, not the fallback"
-  )
+  text:drawLine({ { kind = "glyph", code = 360, text = MULTIBYTE, raw = { 360 } } }, 10, 20)
+  Assert.equal(#draws, 1, "a two-byte glyph draws once, not per byte")
+  Assert.equal(draws[1].quad.x, (MULTIBYTE_CODE - 1) * ASCII_ADVANCE)
+  Assert.equal(draws[1].x, 10)
+  Assert.equal(draws[1].y, 20)
+  text:release()
+end
+
+-- Production presentation never invents diagnostic marker text: a control
+-- token in a line draws nothing, but keeps its measured layout width so the
+-- following glyph starts exactly where the paginator placed it.
+function T.draw_line_draws_no_marker_for_control_tokens_but_keeps_their_width()
+  local lg, draws = fakeGraphics()
+  local text = FieldTextRenderer.new({ cacheFs = fixtureCache(), graphics = lg })
+  local wait = { kind = "wait", control = 514, name = "WAIT", args = {} }
+  local glyph = { kind = "glyph", code = 1, text = "A", raw = { 1 } }
+  text:drawLine({ wait, glyph }, 10, 20)
+  Assert.equal(#draws, 1, "the control token draws no marker text")
+  Assert.equal(draws[1].x, 10 + 6 * ASCII_ADVANCE, "the glyph starts after the measured marker width of {WAIT}")
+  Assert.equal(draws[1].y, 20)
   text:release()
 end
 

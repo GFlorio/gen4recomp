@@ -73,11 +73,16 @@ local function withGame(fn, fieldOptions)
 end
 
 -- Journeys that run the high-level demo script boot with the same
--- mod.route_sign style descriptor as the high-level-sign acceptance suite.
+-- mod.route_sign complete style descriptor as the high-level-sign acceptance
+-- suite (the catalogue accepts only complete records, never bases).
 local function withDemoCapableGame(fn)
   withGame(fn, {
     windowStyleDescriptors = {
-      { id = "mod.route_sign", base = "hgss.signpost" },
+      {
+        id = "mod.route_sign",
+        role = "signpost",
+        contentGeometry = { x = 16, y = 152, width = 216, height = 32 },
+      },
     },
   })
 end

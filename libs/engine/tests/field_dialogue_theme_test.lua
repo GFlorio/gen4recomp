@@ -3,7 +3,8 @@
 -- 4:3 reference canvas at 4:3, 16:9, and ultrawide aspects, with constant
 -- reference-space dimensions and two full 16px text lines inside the 32px
 -- height. Layout returns reference-canvas geometry plus one origin/scale
--- mapping; screenRect() projects any rect.
+-- mapping; the renderer applies that transform itself, so layout rects
+-- always stay in reference space.
 
 local Assert = require("tests.support.Assert")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
@@ -15,8 +16,14 @@ local function frame(width, height)
   return FieldViewport.new(width, height, { mode = "expanded" }).referenceFrame
 end
 
-local function screen(layout, rect)
-  return FieldDialogueTheme.screenRect(layout, rect)
+-- The reference-space box must stay inside the reference canvas at every
+-- host aspect: the renderer draws it under one origin+scale transform, so a
+-- screen-mapped rect here would be scaled twice and pushed off-screen.
+local function assertBoxInsideReferenceCanvas(layout, label)
+  local box = layout.box
+  Assert.isTrue(box.x >= 0 and box.y >= 0, label .. " box in reference space")
+  Assert.isTrue(box.x + box.width <= FieldDialogueTheme.referenceWidth + 1e-9, label .. " box inside canvas width")
+  Assert.isTrue(box.y + box.height <= FieldDialogueTheme.referenceHeight + 1e-9, label .. " box inside canvas height")
 end
 
 function T.box_is_the_canonical_hgss_content_rect()
@@ -54,42 +61,34 @@ function T.layout_maps_inside_the_reference_frame_at_43()
   local layout = FieldDialogueTheme.layout(frame(960, 720))
   Assert.near(layout.scale, 720 / 192)
   Assert.deepEqual(layout.origin, { x = 0, y = 0 })
-  local box = screen(layout, layout.box)
-  Assert.near(box.width, 216 * layout.scale)
-  Assert.isTrue(box.x >= 0 and box.y >= 0, "box inside frame")
-  Assert.isTrue(box.x + box.width <= 960 + 1e-9)
-  Assert.isTrue(box.y + box.height <= 720 + 1e-9)
+  assertBoxInsideReferenceCanvas(layout, "4:3")
 end
 
 function T.layout_maps_inside_the_centered_frame_at_169()
   local reference = frame(1280, 720)
   Assert.near(reference.width, 720 * 4 / 3)
   Assert.near(reference.x, (1280 - reference.width) / 2)
-  local layout = FieldDialogueTheme.layout(reference)
-  local box = screen(layout, layout.box)
-  Assert.isTrue(box.x >= reference.x and box.x + box.width <= reference.x + reference.width + 1e-9)
-  Assert.isTrue(box.y >= reference.y and box.y + box.height <= reference.y + reference.height + 1e-9)
+  assertBoxInsideReferenceCanvas(FieldDialogueTheme.layout(reference), "16:9")
 end
 
 function T.layout_maps_inside_the_centered_frame_ultrawide()
   local reference = frame(1920, 720)
   local layout = FieldDialogueTheme.layout(reference)
-  local box = screen(layout, layout.box)
-  Assert.isTrue(
-    box.x >= reference.x and box.x + box.width <= reference.x + reference.width + 1e-9,
-    "box does not spill into ultrawide gutters"
-  )
-  Assert.isTrue(box.y >= reference.y and box.y + box.height <= reference.y + reference.height + 1e-9)
+  Assert.near(reference.x, (1920 - reference.width) / 2)
+  assertBoxInsideReferenceCanvas(layout, "ultrawide")
 end
 
 function T.text_area_fits_two_lines_of_font_height()
   local layout = FieldDialogueTheme.layout(frame(960, 720))
-  local box = screen(layout, layout.box)
-  local text = screen(layout, layout.text)
-  Assert.isTrue(text.y + layout.lineHeight * layout.scale * FieldDialogueTheme.maxLines <= box.y + box.height + 1e-9)
-  Assert.near(text.width, FieldDialogueTheme.textWidth * layout.scale)
+  local text = layout.text
+  local box = layout.box
+  Assert.isTrue(
+    text.y + layout.lineHeight * FieldDialogueTheme.maxLines <= box.y + box.height + 1e-9,
+    "two lines fit the content height"
+  )
+  Assert.near(text.width, FieldDialogueTheme.textWidth)
   -- The cursor sits inside the text area's bottom-right corner.
-  local cursor = screen(layout, layout.cursor)
+  local cursor = layout.cursor
   Assert.isTrue(cursor.x >= text.x and cursor.x + cursor.width <= text.x + text.width + 1e-9)
   Assert.isTrue(cursor.y + cursor.height <= text.y + text.height + 1e-9)
 end

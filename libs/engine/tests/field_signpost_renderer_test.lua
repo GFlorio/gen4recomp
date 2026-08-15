@@ -23,6 +23,10 @@ local FieldViewport = require("libs.engine.src.FieldViewport")
 
 local T = {}
 
+-- The runtime-validated manifest every construction passes in: the renderer
+-- never reloads it from the cache itself.
+local MANIFEST = FieldUiFixture.manifest()
+
 -- Tracks created images and their release calls, records every draw with its
 -- quad and position, tracks the transform-stack depth, and holds a full
 -- settable state the renderer must restore exactly. failOnQuadCall/
@@ -162,6 +166,7 @@ end
 local function renderer(lg, cache)
   return FieldSignpostRenderer.new({
     cacheFs = cache or uiCache(),
+    manifest = MANIFEST,
     text = withTextRenderer(cache or uiCache(), lg),
     graphics = lg,
     windowStyles = FieldSignpostFixture.styles(),
@@ -213,21 +218,24 @@ end
 function T.rejects_a_missing_graphics_namespace()
   local err = Assert.throws(function()
     ---@diagnostic disable: assign-type-mismatch
-    FieldSignpostRenderer.new({ cacheFs = uiCache(), graphics = false })
+    FieldSignpostRenderer.new({ cacheFs = uiCache(), manifest = MANIFEST, graphics = false })
   end)
   Assert.isTrue(tostring(err):find("FieldSignpostRenderer requires love.graphics", 1, true) ~= nil)
 end
 
-function T.requires_a_sealed_window_style_registry()
+function T.requires_a_window_style_catalogue()
   local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
   local err = Assert.throws(function()
     ---@diagnostic disable: assign-type-mismatch
-    FieldSignpostRenderer.new({ cacheFs = uiCache(), graphics = lg, windowStyles = false })
+    FieldSignpostRenderer.new({ cacheFs = uiCache(), manifest = MANIFEST, graphics = lg, windowStyles = false })
   end)
-  Assert.isTrue(tostring(err):find("FieldSignpostRenderer requires a window style registry", 1, true) ~= nil)
+  Assert.isTrue(tostring(err):find("FieldSignpostRenderer requires a window style catalogue", 1, true) ~= nil)
 end
 
-function T.missing_ui_manifest_is_a_typed_error()
+-- The runtime-validated manifest is a required constructor input: the
+-- renderer never reloads the manifest from the cache itself, so a
+-- construction without one is rejected.
+function T.missing_ui_manifest_is_rejected()
   local lg = fakeGraphics()
   local text = withTextRenderer(FieldDialogueFixture.cacheWithFont(), lg)
   local err = Assert.throws(function()
@@ -238,7 +246,7 @@ function T.missing_ui_manifest_is_a_typed_error()
       windowStyles = FieldSignpostFixture.styles(),
     })
   end)
-  Assert.isTrue(Errors.is(err) and err.code == "FIELD_UI_MANIFEST_MISSING", "raises FIELD_UI_MANIFEST_MISSING")
+  Assert.isTrue(tostring(err):find("requires the runtime-validated field-UI manifest", 1, true) ~= nil)
   text:release()
 end
 
@@ -248,12 +256,12 @@ end
 -- fails.
 function T.missing_signpost_strip_is_a_typed_error()
   local cache = FieldDialogueFixture.cacheWithFont()
-  cache:writeLua("data/generated/field/ui/ui.lua", FieldUiFixture.manifest())
   local lg = fakeGraphics({ imageSizes = { { 16, 16 } } })
   local text = withTextRenderer(cache, lg)
   local err = Assert.throws(function()
     FieldSignpostRenderer.new({
       cacheFs = cache,
+      manifest = MANIFEST,
       text = text,
       graphics = lg,
       windowStyles = FieldSignpostFixture.styles(),
@@ -278,6 +286,7 @@ function T.missing_wayfinding_atlas_is_a_typed_error()
   local err = Assert.throws(function()
     FieldSignpostRenderer.new({
       cacheFs = cache,
+      manifest = MANIFEST,
       text = text,
       graphics = lg,
       windowStyles = FieldSignpostFixture.styles(),
@@ -302,6 +311,7 @@ function T.constructor_failure_releases_all_acquired_images()
   local err = Assert.throws(function()
     FieldSignpostRenderer.new({
       cacheFs = uiCache(),
+      manifest = MANIFEST,
       text = text,
       graphics = lg,
       windowStyles = FieldSignpostFixture.styles(),
@@ -658,42 +668,7 @@ function T.a_style_without_a_per_type_map_uses_its_own_geometry()
   r:release()
 end
 
--- resolve() returns a fresh copy per call, so the renderer caches the
--- resolved style per styleId: draws under the same style id never call
--- resolve() again, and a style-id change re-resolves exactly once.
-function T.the_resolved_style_is_cached_per_style_id()
-  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
-  local registry = FieldSignpostFixture.styles()
-  local resolveCalls = 0
-  local originalResolve = registry.resolve
-  ---@diagnostic disable: duplicate-set-field
-  registry.resolve = function(self, id)
-    resolveCalls = resolveCalls + 1
-    return originalResolve(self, id)
-  end
-  local r = FieldSignpostRenderer.new({
-    cacheFs = uiCache(),
-    text = withTextRenderer(uiCache(), lg),
-    graphics = lg,
-    windowStyles = registry,
-  })
-  local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
-  r:draw(FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = 0 }), viewport)
-  r:draw(FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = 0 }), viewport)
-  Assert.equal(resolveCalls, 1, "repeated draws under the same style id resolve once")
-  r:draw(
-    FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = 0, styleId = "hgss.trainer_tip" }),
-    viewport
-  )
-  r:draw(
-    FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = 0, styleId = "hgss.trainer_tip" }),
-    viewport
-  )
-  Assert.equal(resolveCalls, 2, "a style-id change re-resolves exactly once")
-  r:release()
-end
-
--- An unknown style id is a composition error: the sealed registry can never
+-- An unknown style id is a composition error: the catalogue can never
 -- resolve it, so the draw raises after restoring the graphics state.
 function T.an_unknown_style_id_is_a_programming_error()
   local canvas, shader = {}, {}
@@ -762,6 +737,7 @@ function T.release_frees_all_owned_images_and_noops_drawing()
   local text = withTextRenderer(uiCache(), lg)
   local r = FieldSignpostRenderer.new({
     cacheFs = uiCache(),
+    manifest = MANIFEST,
     text = text,
     graphics = lg,
     windowStyles = FieldSignpostFixture.styles(),

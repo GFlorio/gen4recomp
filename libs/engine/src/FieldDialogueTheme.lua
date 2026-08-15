@@ -27,10 +27,9 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field textWidth integer
 ---@field textHeight integer
 ---@field cursor { width: integer, height: integer, offsetX: integer, offsetY: integer, blinkTicks: integer }
----@field colors { cursor: number[], marker: number[] }
+---@field colors { cursor: number[] }
 ---@field frameTilePlacements fun(box: FieldDialogueTheme.Rect): { tile: integer, x: integer, y: integer, spanX?: integer, spanY?: integer }[]
 ---@field layout fun(referenceFrame: FieldDialogueTheme.Rect): FieldDialogueTheme.Layout
----@field screenRect fun(layout: FieldDialogueTheme.Layout, rect: FieldDialogueTheme.Rect): FieldDialogueTheme.Rect
 ---@field fontMetrics fun(fontDef: FieldFontDef): FieldDialogueTheme.Metrics
 ---@field measureText fun(fontDef: FieldFontDef): fun(text: string): number
 local FieldDialogueTheme = {}
@@ -73,8 +72,7 @@ FieldDialogueTheme.cursor = {
 -- Colors (project-owned window; the extracted glyph atlas bakes
 -- its own ink/shadow/background colors, so text is drawn unmodified; the
 -- HGSS user-frame artwork carries its own baked colors). The cursor color
--- belongs to the dialogue presentation; developer-aid marker text uses the
--- shared FieldTextRenderer marker color.
+-- belongs to the dialogue presentation.
 FieldDialogueTheme.colors = {
   cursor = { 0.10, 0.12, 0.30, 1 },
 }
@@ -120,10 +118,9 @@ end
 -- Reference-to-screen mapping for one viewport. The reference canvas scales
 -- uniformly into the centered 4:3 referenceFrame, so wide hosts keep the box
 -- inside the canonical frame. All geometry is returned in
--- reference-canvas coordinates; the renderer applies origin + scale once, and
--- screenRect() maps any returned rect to screen pixels. Never return
--- screen-mapped rects here: draw() applies the transform, and double mapping
--- pushes the box off-screen.
+-- reference-canvas coordinates; the renderer applies origin + scale once.
+-- Never return screen-mapped rects here: draw() applies the transform, and
+-- double mapping pushes the box off-screen.
 
 ---@param referenceFrame FieldDialogueTheme.Rect
 ---@return FieldDialogueTheme.Layout
@@ -160,27 +157,11 @@ function FieldDialogueTheme.layout(referenceFrame)
   }
 end
 
--- Maps a reference-space rect (as returned by layout) into screen pixels.
-
----@param layout FieldDialogueTheme.Layout
----@param rect FieldDialogueTheme.Rect
----@return FieldDialogueTheme.Rect
-function FieldDialogueTheme.screenRect(layout, rect)
-  assert(type(layout) == "table" and layout.origin and layout.scale, "screenRect requires a layout")
-  assert(type(rect) == "table" and rect.x and rect.y and rect.width and rect.height, "screenRect requires a rect")
-  return {
-    x = layout.origin.x + rect.x * layout.scale,
-    y = layout.origin.y + rect.y * layout.scale,
-    width = rect.width * layout.scale,
-    height = rect.height * layout.scale,
-  }
-end
-
 -- The layout metrics object the paginator consumes: glyph advances from the
 -- generated font definition, falling back to the compiled fallback glyph, and
--- the typeset width of marker tokens measured through the
--- same charmap the renderer draws them with. Returns a table with
--- glyphWidth(code) and nonGlyphWidth(token).
+-- the typeset width of control tokens measured through the same charmap the
+-- text renderer advances them with (the renderer draws no marker text).
+-- Returns a table with glyphWidth(code) and nonGlyphWidth(token).
 
 ---@param fontDef FieldFontDef
 ---@return FieldDialogueTheme.Metrics

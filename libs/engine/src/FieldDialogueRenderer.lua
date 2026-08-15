@@ -8,10 +8,11 @@
 -- draws after the 3D world pass and restores every graphics state it
 -- touches (canvas, shader, scissor, blend, depth, color). Presentation-only
 -- by design: FieldFontLoader owns runtime font definitions and the generated
--- manifest owns frame rects. Construction is failure-safe: a missing
--- manifest or frame strip is a typed error, a quad failure after the images
--- were created releases the acquired images before rethrowing, and draw()
--- balances its transform push even when drawing raises.
+-- manifest owns frame rects. Construction is failure-safe: a missing frame
+-- strip is a typed error, a quad failure after the images were created
+-- releases the acquired images before rethrowing, and draw() balances its
+-- transform push even when drawing raises. The runtime-validated manifest is
+-- injected explicitly; this renderer never reloads it from the cache.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
@@ -21,26 +22,27 @@ local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local FieldDrawState = require("libs.engine.src.FieldDrawState")
 
 ---@class FieldDialogueRenderer
----@field _cacheFs CacheFs
 ---@field _theme FieldDialogueTheme
 ---@field _graphics love.Graphics
 ---@field _text FieldTextRenderer the shared glyph atlas/line drawing collaborator
----@field _manifest table|nil the generated field-UI manifest
+---@field _manifest table the generated field-UI manifest
 ---@field _frameImage love.Image?
 ---@field _frameQuadCache table<integer, love.Quad[]>|nil per-frame tile quads, built lazily
 local FieldDialogueRenderer = {}
 FieldDialogueRenderer.__index = FieldDialogueRenderer
 
 -- opts.cacheFs: version-scoped private cache holding the generated field-UI
--- class (manifest + frame strip); opts.text: the shared FieldTextRenderer
--- (FieldState owns exactly one); opts.graphics: injectable LÖVE graphics
--- namespace; opts.theme: geometry record.
+-- class (frame strip PNGs); opts.manifest: the already-validated generated
+-- field-UI manifest the runtime loaded once (FieldRuntime.uiManifest);
+-- opts.text: the shared FieldTextRenderer (FieldState owns exactly one);
+-- opts.graphics: injectable LÖVE graphics namespace; opts.theme: geometry
+-- record.
 
----@param opts { cacheFs: CacheFs, text: FieldTextRenderer, theme?: FieldDialogueTheme, graphics?: love.Graphics? }
+---@param opts { cacheFs: CacheFs, manifest: table, text: FieldTextRenderer, theme?: FieldDialogueTheme, graphics?: love.Graphics? }
 ---@return FieldDialogueRenderer
 function FieldDialogueRenderer.new(opts)
   assert(
-    type(opts) == "table" and opts.cacheFs and opts.cacheFs.loadLua,
+    type(opts) == "table" and opts.cacheFs and opts.cacheFs.read,
     "FieldDialogueRenderer requires a CacheFs-shaped object"
   )
   local theme = opts.theme or FieldDialogueTheme
@@ -52,30 +54,20 @@ function FieldDialogueRenderer.new(opts)
   local text = opts.text
   assert(text and type(text.drawLine) == "function", "FieldDialogueRenderer requires the shared FieldTextRenderer")
   local cacheFs = opts.cacheFs
+  local manifest = opts.manifest
+  assert(type(manifest) == "table", "FieldDialogueRenderer requires the runtime-validated field-UI manifest")
 
   -- The generated field-UI class is a required renderer asset: the manifest
   -- names the frame strip and every frame's tile rects. The runtime boot
-  -- already validates the full manifest; the renderer resolves what it draws.
-  local manifest = cacheFs:loadLua(FieldUiAssetCache.manifestPath())
-  if type(manifest) ~= "table" then
-    Errors.raise(
-      FieldErrors.FIELD_UI_MANIFEST_MISSING,
-      "field UI manifest missing at " .. FieldUiAssetCache.manifestPath(),
-      { path = FieldUiAssetCache.manifestPath() }
-    )
-  end
-  local uiManifest = manifest --[[@as table]]
-  local manifestAssets = uiManifest.assets
-  if type(manifestAssets) ~= "table" then
-    Errors.raise(FieldErrors.FIELD_UI_MANIFEST_INVALID, "field UI manifest has no assets", {})
-  end
-  local frameAsset = manifestAssets["hgss.dialogue_frame.tiles"]
-  if type(frameAsset) ~= "table" or type(frameAsset.image) ~= "string" then
-    Errors.raise(FieldErrors.FIELD_UI_MANIFEST_INVALID, "field UI manifest has no dialogue frame strip", {})
-  end
+  -- already validated the full manifest, so the renderer only resolves what
+  -- it draws.
+  local frameAsset = assert(
+    manifest.assets[FieldUiAssetCache.ASSET.DIALOGUE_FRAME_TILES],
+    "the field-UI manifest must carry the dialogue frame strip asset"
+  )
+  local frameImagePath = assert(frameAsset.image, "the dialogue frame strip asset must name an image path")
 
   local self = setmetatable({
-    _cacheFs = cacheFs,
     _theme = theme,
     _graphics = graphics,
     _text = text,
@@ -84,7 +76,6 @@ function FieldDialogueRenderer.new(opts)
     _frameQuadCache = nil,
   }, FieldDialogueRenderer)
 
-  local frameImagePath = frameAsset.image
   local frameData = cacheFs:read(frameImagePath)
   if not frameData then
     self:release()
@@ -168,7 +159,7 @@ function FieldDialogueRenderer:_drawFrame(status, layout)
   end
   local lg = assert(self._graphics)
   local image = assert(self._frameImage)
-  local frames = assert(self._manifest and self._manifest.dialogueFrames)
+  local frames = assert(self._manifest.dialogueFrames)
   local rect = frames.frameTiles[frameIndex]
   assert(rect ~= nil, "dialogue frame index " .. tostring(frameIndex) .. " is outside the generated frame set")
   local quads = self:_buildFrameQuads(frameIndex, rect)

@@ -16,9 +16,10 @@
 -- with no second set of scaled rectangles. The surface is not a generic
 -- list menu: only the two generated images are drawn, at identity tint, with
 -- no theme colors or styled primitives. Construction is failure-safe: a
--- missing manifest, background, or cursor asset is a typed error, a quad
--- failure after the images were created releases them before rethrowing, and
--- draw() restores every graphics state it touches.
+-- missing background or cursor asset is a typed error, a quad failure after
+-- the images were created releases them before rethrowing, and draw()
+-- restores every graphics state it touches. The runtime-validated manifest
+-- is injected explicitly; this renderer never reloads it from the cache.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
@@ -36,14 +37,15 @@ local StartMenuRenderer = {}
 StartMenuRenderer.__index = StartMenuRenderer
 
 -- opts.cacheFs: version-scoped private cache holding the generated field-UI
--- class (manifest + Start Menu PNGs); opts.graphics: injectable LÖVE
--- graphics namespace.
+-- class (Start Menu PNGs); opts.manifest: the already-validated generated
+-- field-UI manifest the runtime loaded once (FieldRuntime.uiManifest);
+-- opts.graphics: injectable LÖVE graphics namespace.
 
----@param opts { cacheFs: CacheFs, graphics?: love.Graphics? }
+---@param opts { cacheFs: CacheFs, manifest: table, graphics?: love.Graphics? }
 ---@return StartMenuRenderer
 function StartMenuRenderer.new(opts)
   assert(
-    type(opts) == "table" and opts.cacheFs and opts.cacheFs.loadLua,
+    type(opts) == "table" and opts.cacheFs and opts.cacheFs.read,
     "StartMenuRenderer requires a CacheFs-shaped object"
   )
   local graphics = opts.graphics
@@ -52,48 +54,24 @@ function StartMenuRenderer.new(opts)
   end
   assert(graphics and graphics.newImage and graphics.newQuad, "StartMenuRenderer requires love.graphics")
   local cacheFs = opts.cacheFs
+  local manifest = opts.manifest
+  assert(type(manifest) == "table", "StartMenuRenderer requires the runtime-validated field-UI manifest")
 
   -- The generated field-UI class is a required renderer asset: the manifest
   -- names the Start Menu background/cursor PNGs and every rect. The runtime
-  -- boot already validates the full manifest; the renderer resolves what it
+  -- boot already validated the full manifest; the renderer resolves what it
   -- draws.
-  local manifest = cacheFs:loadLua(FieldUiAssetCache.manifestPath())
-  if type(manifest) ~= "table" then
-    Errors.raise(
-      FieldErrors.FIELD_UI_MANIFEST_MISSING,
-      "field UI manifest missing at " .. FieldUiAssetCache.manifestPath(),
-      { path = FieldUiAssetCache.manifestPath() }
-    )
-  end
-  local uiManifest = manifest --[[@as table]]
-  local assets = uiManifest.assets
-  local startMenu = uiManifest.startMenu
-  if
-    type(assets) ~= "table"
-    or type(startMenu) ~= "table"
-    or type(startMenu.background) ~= "table"
-    or type(startMenu.cursor) ~= "table"
-    or type(startMenu.cursor.frames) ~= "table"
-    or #startMenu.cursor.frames < 1
-    or type(startMenu.slots) ~= "table"
-    or next(startMenu.slots) == nil
-  then
-    Errors.raise(FieldErrors.FIELD_UI_MANIFEST_INVALID, "field UI manifest has no start menu surface", {})
-  end
-  local backgroundAsset = assets["hgss.start_menu.background"]
-  local cursorAsset = assets["hgss.start_menu.cursor"]
-  if
-    type(backgroundAsset) ~= "table"
-    or type(backgroundAsset.image) ~= "string"
-    or type(cursorAsset) ~= "table"
-    or type(cursorAsset.image) ~= "string"
-  then
-    Errors.raise(
-      FieldErrors.FIELD_UI_MANIFEST_INVALID,
-      "field UI manifest has no start menu background/cursor assets",
-      {}
-    )
-  end
+  local startMenu = assert(manifest.startMenu, "the field-UI manifest must carry the start menu section")
+  local backgroundAsset = assert(
+    manifest.assets[FieldUiAssetCache.ASSET.START_MENU_BACKGROUND],
+    "the field-UI manifest must carry the start menu background asset"
+  )
+  local cursorAsset = assert(
+    manifest.assets[FieldUiAssetCache.ASSET.START_MENU_CURSOR],
+    "the field-UI manifest must carry the start menu cursor asset"
+  )
+  local backgroundPath = assert(backgroundAsset.image, "the start menu background asset must name an image path")
+  local cursorPath = assert(cursorAsset.image, "the start menu cursor asset must name an image path")
 
   local self = setmetatable({
     _graphics = graphics,
@@ -108,7 +86,6 @@ function StartMenuRenderer.new(opts)
     },
   }, StartMenuRenderer)
 
-  local backgroundPath = backgroundAsset.image
   local backgroundData = cacheFs:read(backgroundPath)
   if not backgroundData then
     Errors.raise(
@@ -120,7 +97,6 @@ function StartMenuRenderer.new(opts)
     )
   end
   self._backgroundImage = graphics.newImage(love.filesystem.newFileData(backgroundData, backgroundPath))
-  local cursorPath = cursorAsset.image
   local cursorData = cacheFs:read(cursorPath)
   if not cursorData then
     self:release()

@@ -21,6 +21,10 @@ local FieldViewport = require("libs.engine.src.FieldViewport")
 
 local T = {}
 
+-- The runtime-validated manifest every construction passes in: the renderer
+-- never reloads it from the cache itself.
+local MANIFEST = FieldUiFixture.manifest()
+
 -- Tracks created images and their release calls, records every draw with its
 -- quad and position, tracks the transform-stack depth, and holds a full
 -- settable state the renderer must restore exactly.
@@ -171,15 +175,16 @@ function T.rejects_a_missing_graphics_namespace()
   Assert.isTrue(tostring(err):find("FieldTextRenderer requires love.graphics", 1, true) ~= nil)
 end
 
--- The generated UI class is a required renderer asset: without its manifest
--- the renderer cannot resolve the frame strip at all.
-function T.missing_ui_manifest_is_a_typed_error()
+-- The runtime-validated manifest is a required constructor input: the
+-- renderer never reloads the manifest from the cache itself, so a
+-- construction without one is rejected.
+function T.missing_ui_manifest_is_rejected()
   local lg = fakeGraphics()
   local text = withTextRenderer(FieldDialogueFixture.cacheWithFont(), lg)
   local err = Assert.throws(function()
     FieldDialogueRenderer.new({ cacheFs = FieldDialogueFixture.cacheWithFont(), text = text, graphics = lg })
   end)
-  Assert.isTrue(Errors.is(err) and err.code == "FIELD_UI_MANIFEST_MISSING", "raises FIELD_UI_MANIFEST_MISSING")
+  Assert.isTrue(tostring(err):find("requires the runtime-validated field-UI manifest", 1, true) ~= nil)
   text:release()
 end
 
@@ -188,11 +193,10 @@ end
 -- alive; the renderer itself acquires nothing before the strip read fails.
 function T.missing_frame_strip_is_a_typed_error()
   local cache = FieldDialogueFixture.cacheWithFont()
-  cache:writeLua("data/generated/field/ui/ui.lua", FieldUiFixture.manifest())
   local lg = fakeGraphics({ imageSizes = { { 16, 16 } } })
   local text = withTextRenderer(cache, lg)
   local err = Assert.throws(function()
-    FieldDialogueRenderer.new({ cacheFs = cache, text = text, graphics = lg })
+    FieldDialogueRenderer.new({ cacheFs = cache, manifest = MANIFEST, text = text, graphics = lg })
   end)
   Assert.isTrue(Errors.is(err) and err.code == "FIELD_UI_FRAME_ATLAS_MISSING", "raises FIELD_UI_FRAME_ATLAS_MISSING")
   Assert.equal(#lg.images, 1, "the font atlas was acquired before the strip failed")
@@ -233,6 +237,7 @@ function T.draw_failure_balances_transform_stack_and_restores_state()
   })
   local renderer = FieldDialogueRenderer.new({
     cacheFs = uiCache(),
+    manifest = MANIFEST,
     text = withTextRenderer(uiCache(), lg),
     graphics = lg,
   })
@@ -256,6 +261,7 @@ function T.no_nine_slice_assets_are_built()
   local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 16 } } })
   local renderer = FieldDialogueRenderer.new({
     cacheFs = uiCache(),
+    manifest = MANIFEST,
     text = withTextRenderer(uiCache(), lg),
     graphics = lg,
   })
@@ -275,6 +281,7 @@ function T.frame_index_resolves_the_manifest_strip_tiles()
     local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 16 } } })
     local renderer = FieldDialogueRenderer.new({
       cacheFs = uiCache(),
+      manifest = MANIFEST,
       text = withTextRenderer(uiCache(), lg),
       graphics = lg,
     })
@@ -319,6 +326,7 @@ function T.request_without_a_frame_index_draws_no_frame_tiles()
   local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 16 } } })
   local renderer = FieldDialogueRenderer.new({
     cacheFs = uiCache(),
+    manifest = MANIFEST,
     text = withTextRenderer(uiCache(), lg),
     graphics = lg,
   })

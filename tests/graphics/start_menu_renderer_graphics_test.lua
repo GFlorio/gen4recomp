@@ -38,7 +38,9 @@ local function canonicalPlacement()
 end
 
 -- Renders one surface presentation into a real canvas through the placement
--- record and returns its ImageData.
+-- record and returns its ImageData. The manifest drives the rects, so the
+-- caller passes the manifest the cache belongs to (the fixture manifest for
+-- fixture caches, the real generated manifest for the shared derived cache).
 ---@param scope GraphicsScope
 ---@param cacheFs CacheFs
 ---@param cursorSlotId integer
@@ -47,9 +49,9 @@ end
 ---@param width integer
 ---@param height integer
 ---@return love.ImageData
-local function canonicalRender(scope, cacheFs, cursorSlotId, cursorFrameIndex, placement, width, height)
+local function canonicalRender(scope, cacheFs, manifest, cursorSlotId, cursorFrameIndex, placement, width, height)
   local lg = love.graphics
-  local renderer = scope:own(StartMenuRenderer.new({ cacheFs = cacheFs }))
+  local renderer = scope:own(StartMenuRenderer.new({ cacheFs = cacheFs, manifest = manifest }))
   local canvas = scope:own(lg.newCanvas(width, height))
   lg.setCanvas(canvas)
   lg.clear(0, 0, 0, 0)
@@ -178,15 +180,42 @@ end
 -- matches the independent reference pixel for pixel, with the cursor frame
 -- centered over the default (first) slot.
 function T.canonical_golden_matches_the_fixture_surface_pixel_for_pixel(scope)
-  local rendered = canonicalRender(scope, FieldUiFixture.startMenuCache(), 1, 0, canonicalPlacement(), 256, 192)
+  local rendered = canonicalRender(
+    scope,
+    FieldUiFixture.startMenuCache(),
+    FieldUiFixture.manifest(),
+    1,
+    0,
+    canonicalPlacement(),
+    256,
+    192
+  )
   assertPixelsEqual(fixtureReference(1, 0), rendered, "fixture surface golden")
 end
 
 -- The fixture's two cursor frames are distinct artwork at the same slot
 -- position: the frame index selects the atlas row, never the placement.
 function T.cursor_frames_are_distinct_artwork_at_the_same_position(scope)
-  local frame0 = canonicalRender(scope, FieldUiFixture.startMenuCache(), 4, 0, canonicalPlacement(), 256, 192)
-  local frame1 = canonicalRender(scope, FieldUiFixture.startMenuCache(), 4, 1, canonicalPlacement(), 256, 192)
+  local frame0 = canonicalRender(
+    scope,
+    FieldUiFixture.startMenuCache(),
+    FieldUiFixture.manifest(),
+    4,
+    0,
+    canonicalPlacement(),
+    256,
+    192
+  )
+  local frame1 = canonicalRender(
+    scope,
+    FieldUiFixture.startMenuCache(),
+    FieldUiFixture.manifest(),
+    4,
+    1,
+    canonicalPlacement(),
+    256,
+    192
+  )
   assertPixelsEqual(fixtureReference(4, 1), frame1, "fixture cursor frame 1 golden")
 
   local quantize = function(v)
@@ -222,7 +251,8 @@ function T.scaled_golden_matches_the_fixture_surface_through_the_record_transfor
   )
   Assert.equal(placement.scale, 2, "the 512x384 host resolves an integer scale of 2")
   Assert.deepEqual(placement.frame, { x = 0, y = 0, width = 512, height = 384 })
-  local rendered = canonicalRender(scope, FieldUiFixture.startMenuCache(), 1, 0, placement, 512, 384)
+  local rendered =
+    canonicalRender(scope, FieldUiFixture.startMenuCache(), FieldUiFixture.manifest(), 1, 0, placement, 512, 384)
   assertPixelsEqual(scaledFixtureReference(1, 0, 2), rendered, "scaled record golden")
 end
 
@@ -238,8 +268,8 @@ function T.canonical_golden_matches_the_real_generated_surface_pixel_for_pixel(s
     return
   end
   local manifest = assert(cache:loadLua(FieldUiAssetCache.manifestPath()), "the manifest must load")
-  local background = manifest.assets["hgss.start_menu.background"]
-  local cursor = manifest.assets["hgss.start_menu.cursor"]
+  local background = manifest.assets[FieldUiAssetCache.ASSET.START_MENU_BACKGROUND]
+  local cursor = manifest.assets[FieldUiAssetCache.ASSET.START_MENU_CURSOR]
   Assert.notNil(background, "the generated class indexes the start menu background")
   Assert.notNil(cursor, "the generated class indexes the start menu cursor")
   local startMenu = assert(manifest.startMenu, "the generated class carries the start menu section")
@@ -265,13 +295,15 @@ function T.canonical_golden_matches_the_real_generated_surface_pixel_for_pixel(s
   local frame = frames[1]
   blend(reference, cursorPixels, slot.x + slot.width / 2 - frame.width / 2, slot.y + slot.height / 2 - frame.height / 2)
 
-  local rendered = canonicalRender(scope, cache, 1, 0, canonicalPlacement(), 256, 192)
+  local rendered = canonicalRender(scope, cache, manifest, 1, 0, canonicalPlacement(), 256, 192)
   assertPixelsEqual(reference, rendered, "real generated surface golden")
 end
 
 function T.restores_graphics_state_after_draw(scope)
   local lg = love.graphics
-  local renderer = scope:own(StartMenuRenderer.new({ cacheFs = FieldUiFixture.startMenuCache() }))
+  local renderer = scope:own(
+    StartMenuRenderer.new({ cacheFs = FieldUiFixture.startMenuCache(), manifest = FieldUiFixture.manifest() })
+  )
 
   local canvas = scope:own(lg.newCanvas(64, 64))
   local shader = lg.getShader()
@@ -324,7 +356,9 @@ end
 -- Release is the contract here; it is still scoped so a failed assertion does
 -- not leak the renderer. The scope's later release exercises repeat safety.
 function T.release_frees_the_owned_images(scope)
-  local renderer = scope:own(StartMenuRenderer.new({ cacheFs = FieldUiFixture.startMenuCache() }))
+  local renderer = scope:own(
+    StartMenuRenderer.new({ cacheFs = FieldUiFixture.startMenuCache(), manifest = FieldUiFixture.manifest() })
+  )
 
   renderer:release()
 
