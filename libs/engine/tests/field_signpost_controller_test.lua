@@ -3,7 +3,7 @@
 -- 16px motion updates with the command held at the endpoint and complete on
 -- the following endpoint-check update), the presentation snapshot, and
 -- the window printer (instant completion, injected fixed-cadence typed
--- reveal, stoppable without a live printer). No render-frame timing.
+-- reveal, instant fill). No render-frame timing.
 
 local Assert = require("tests.support.Assert")
 local FieldSignpostController = require("libs.engine.src.FieldSignpostController")
@@ -63,6 +63,7 @@ function T.fresh_controller_is_hidden_with_the_default_presentation()
   Assert.equal(status.active, false)
   Assert.equal(status.command, "nop")
   Assert.equal(status.logicalYOffset, -48, "the hidden signpost BG starts at -48")
+  Assert.equal(status.previousLogicalYOffset, -48, "the interpolation history starts coherent with the offset")
   Assert.isNil(status.sourceAppearance)
   Assert.equal(status.styleId, "hgss.signpost", "the default style id is hgss.signpost")
   Assert.deepEqual(status.visibleLines, {})
@@ -144,6 +145,7 @@ function T.status_exposes_the_presentation_snapshot()
   Assert.deepEqual(status, {
     active = true,
     command = "wipe_in",
+    previousLogicalYOffset = -48,
     logicalYOffset = -32,
     sourceAppearance = { game = "hgss", type = 0, map = 42 },
     styleId = "hgss.signpost",
@@ -367,31 +369,6 @@ function T.injected_ticks_per_glyph_drives_the_reveal_cadence()
   Assert.equal(revealedGlyphs(slow:status()), 1, "cadence 3 reveals at tick 3")
 end
 
--- A typed print can be stopped without leaving a live printer: the revealed
--- text freezes, printDone stays false, and later updates never advance it.
-function T.stopped_print_freezes_without_a_live_printer()
-  local lines = { line({ glyph("A", 1), glyph("B", 2), glyph("C", 3) }) }
-  local c = controller(lines)
-  c:printTyped(message(lines))
-  c:updateFixed()
-  c:updateFixed()
-  Assert.equal(revealedGlyphs(c:status()), 1)
-  c:stopPrint()
-  c:updateFixed()
-  c:updateFixed()
-  c:updateFixed()
-  Assert.equal(revealedGlyphs(c:status()), 1, "the frozen text never advances again")
-  Assert.equal(c:status().printDone, false, "a stopped print is not done")
-end
-
-function T.stopping_without_a_live_printer_is_a_noop()
-  local c = controller({})
-  c:stopPrint()
-  c:printInstant(message({ line({ glyph("A", 1) }) }))
-  c:stopPrint()
-  Assert.equal(c:status().printDone, true, "an already-finished print is not affected")
-end
-
 -- A new print replaces the previous text only through the explicit print
 -- request path; layout is captured when the new print begins.
 function T.a_new_print_replaces_text_only_through_the_print_request()
@@ -469,6 +446,197 @@ function T.dispose_resets_to_the_initial_hidden_state_and_is_idempotent()
   Assert.isFalse(c:isModal())
   c:dispose()
   Assert.equal(c:status().command, "nop", "a second dispose is a no-op")
+end
+
+-- The instant-fill operation: a live typed printer reveals the whole message
+-- on the call, stops advancing, and leaves every other presentation field
+-- untouched. Idempotent, and a no-op without a print.
+function T.finish_print_fills_a_live_typed_print_and_touches_nothing_else()
+  local lines = {
+    line({ glyph("A", 1), glyph("B", 2), glyph("C", 3) }),
+    line({ glyph("D", 4) }),
+  }
+  local c = controller(lines)
+  c:setSourceAppearance({ game = "hgss", type = 0, map = 42 })
+  c:setCommand("show")
+  c:updateFixed()
+  c:printTyped(message(lines))
+  c:updateFixed()
+  c:updateFixed()
+  Assert.equal(revealedGlyphs(c:status()), 1, "the print must be partway when the fill lands")
+  local before = c:status()
+  c:finishPrint()
+  local status = c:status()
+  Assert.isTrue(status.printDone, "finishPrint must complete the print")
+  Assert.equal(revealedGlyphs(status), 4, "finishPrint must reveal the whole message")
+  Assert.equal(status.active, before.active, "finishPrint must not alter active")
+  Assert.equal(status.command, before.command, "finishPrint must not alter the command")
+  Assert.equal(status.logicalYOffset, before.logicalYOffset, "finishPrint must not alter the offset")
+  Assert.equal(
+    status.previousLogicalYOffset,
+    before.previousLogicalYOffset,
+    "finishPrint must not alter the history pair"
+  )
+  Assert.equal(status.styleId, before.styleId, "finishPrint must not alter the style")
+  Assert.deepEqual(status.sourceAppearance, before.sourceAppearance, "finishPrint must not alter the source appearance")
+  c:updateFixed()
+  c:updateFixed()
+  Assert.equal(revealedGlyphs(c:status()), 4, "the filled printer never advances again")
+  Assert.isTrue(c:status().printDone)
+end
+
+function T.finish_print_without_a_live_print_is_a_noop_and_idempotent()
+  local c = controller({ line({ glyph("A", 1) }) })
+  local fresh = c:status()
+  c:finishPrint()
+  Assert.deepEqual(c:status(), fresh, "finishPrint without a print changes nothing")
+  c:printInstant(message({ line({ glyph("A", 1) }) }))
+  c:finishPrint()
+  Assert.isTrue(c:status().printDone, "finishPrint on a finished print stays finished")
+  c:printTyped(message({ line({ glyph("A", 1) }) }))
+  c:finishPrint()
+  c:finishPrint()
+  Assert.isTrue(c:status().printDone, "a second finishPrint is a no-op")
+  Assert.equal(revealedGlyphs(c:status()), 1)
+end
+
+-- The explicit cleanup operation: the window, printer, command, offset, and
+-- routed style return to the completed-hide presentation on the call (no
+-- updateFixed needed), the history pair rests coherently at the rest offset,
+-- and the source appearance survives. Idempotent.
+function T.hide_immediately_clears_the_presentation_and_is_idempotent()
+  local lines = { line({ glyph("A", 1) }) }
+  local c = controller(lines)
+  c:setSourceAppearance({ game = "hgss", type = 0, map = 42 })
+  c:setStyleId("mod.route_sign")
+  c:setCommand("show")
+  c:updateFixed()
+  c:printInstant(message(lines))
+  c:setCommand("wipe_in")
+  c:updateFixed()
+  Assert.isTrue(c:isModal())
+  c:hideImmediately()
+  local status = c:status()
+  Assert.equal(status.active, false, "hideImmediately closes the window")
+  Assert.equal(status.command, "nop", "hideImmediately returns the command to idle")
+  Assert.equal(status.logicalYOffset, 0, "hideImmediately resets the stored BG offset")
+  Assert.equal(status.previousLogicalYOffset, 0, "hideImmediately rests the history pair coherently")
+  Assert.equal(status.styleId, "hgss.signpost", "hideImmediately restores the default style")
+  Assert.deepEqual(status.visibleLines, {}, "hideImmediately clears the printer")
+  Assert.equal(status.printDone, false)
+  Assert.deepEqual(
+    status.sourceAppearance,
+    { game = "hgss", type = 0, map = 42 },
+    "hideImmediately keeps the source appearance"
+  )
+  Assert.isFalse(c:isModal())
+  c:hideImmediately()
+  Assert.equal(c:status().command, "nop", "a second hideImmediately is a no-op")
+  Assert.equal(c:status().logicalYOffset, 0)
+end
+
+-- The semantic command-idle query: true exactly when no command is scheduled;
+-- the "nop" spelling is the controller's own protocol.
+function T.is_command_idle_is_the_semantic_idle_query()
+  local c = controller({})
+  Assert.isTrue(c:isCommandIdle(), "a fresh controller is idle")
+  c:setCommand("show")
+  Assert.isFalse(c:isCommandIdle(), "a scheduled command is not idle")
+  c:updateFixed()
+  Assert.isTrue(c:isCommandIdle(), "a completed show returns to idle")
+  c:setCommand("wipe_in")
+  c:updateFixed()
+  Assert.isFalse(c:isCommandIdle(), "a running wipe is not idle")
+  for _ = 1, 3 do
+    c:updateFixed()
+  end
+  Assert.isTrue(c:isCommandIdle(), "the wipe endpoint check returns to idle")
+end
+
+-- The wipe interpolation history: each updateFixed captures the offset at its
+-- start, so every status read pairs with the previous read's current offset,
+-- and the wipe-in endpoint rests the pair at (0, 0).
+function T.wipe_history_pairs_every_update_and_rests_coherently()
+  local c = controller({})
+  local status = c:status()
+  Assert.equal(status.previousLogicalYOffset, status.logicalYOffset, "the pair starts coherent")
+  Assert.equal(status.previousLogicalYOffset, -48)
+  c:setCommand("show")
+  c:updateFixed()
+  status = c:status()
+  Assert.equal(status.previousLogicalYOffset, -48, "the show update captures the hidden offset")
+  Assert.equal(status.logicalYOffset, -48)
+  c:setCommand("wipe_in")
+  local prior = status.logicalYOffset
+  for _, offset in ipairs({ -32, -16, 0 }) do
+    c:updateFixed()
+    status = c:status()
+    Assert.equal(status.previousLogicalYOffset, prior, "each read pairs with the previous read's current")
+    Assert.equal(status.logicalYOffset, offset, "the wipe moves one 16px step per update")
+    prior = status.logicalYOffset
+  end
+  c:updateFixed()
+  status = c:status()
+  Assert.equal(status.command, "nop")
+  Assert.equal(status.previousLogicalYOffset, 0, "the wipe-in endpoint restarts the pair at the rest offset")
+  Assert.equal(status.logicalYOffset, 0)
+end
+
+-- Every reset path rests both history fields together instead of leaving a
+-- stale previous offset behind: the hide update, the wipe-out endpoint check,
+-- the explicit cleanup, and dispose.
+function T.every_reset_path_rests_the_history_pair_together()
+  local function shown(c)
+    c:setCommand("show")
+    c:updateFixed()
+    c:setCommand("wipe_in")
+    for _ = 1, 4 do
+      c:updateFixed()
+    end
+  end
+  local c = controller({})
+  shown(c)
+  c:setCommand("hide")
+  c:updateFixed()
+  Assert.equal(c:status().previousLogicalYOffset, 0, "the hide update rests the previous offset")
+  Assert.equal(c:status().logicalYOffset, 0, "the hide update rests the current offset")
+
+  local c2 = controller({})
+  shown(c2)
+  c2:setCommand("wipe_out")
+  for _ = 1, 4 do
+    c2:updateFixed()
+  end
+  Assert.equal(c2:status().previousLogicalYOffset, 0, "the wipe-out endpoint check rests the previous offset")
+  Assert.equal(c2:status().logicalYOffset, 0, "the wipe-out endpoint check rests the current offset")
+
+  local c3 = controller({})
+  shown(c3)
+  c3:hideImmediately()
+  Assert.equal(c3:status().previousLogicalYOffset, 0, "hideImmediately rests the previous offset")
+  Assert.equal(c3:status().logicalYOffset, 0, "hideImmediately rests the current offset")
+
+  local c4 = controller({})
+  c4:setCommand("show")
+  c4:updateFixed()
+  c4:dispose()
+  Assert.equal(c4:status().previousLogicalYOffset, -48, "dispose returns the pair to the initial hidden state")
+  Assert.equal(c4:status().logicalYOffset, -48)
+end
+
+-- A typed print of an empty message is instantly complete and leaves no live
+-- printer behind, so a fill or a later update stays harmless.
+function T.typed_print_of_an_empty_message_is_instantly_complete_and_harmless()
+  local c = controller({})
+  c:printTyped(message({}))
+  local status = c:status()
+  Assert.isTrue(status.printDone, "an empty typed print is complete immediately")
+  Assert.deepEqual(status.visibleLines, {})
+  c:updateFixed()
+  c:updateFixed()
+  Assert.isTrue(c:status().printDone, "the completed empty print never advances")
+  c:finishPrint()
+  Assert.isTrue(c:status().printDone, "a fill on the empty print stays harmless")
 end
 
 return { tests = T }

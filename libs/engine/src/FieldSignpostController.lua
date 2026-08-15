@@ -6,7 +6,12 @@
 -- three 16px motion updates and complete on the following endpoint-check
 -- update. The controller stores the source appearance/type/map and the style
 -- id but never resolves geometry, and it owns the active formatted message
--- and its printer state, captured when printing begins.
+-- and its printer state, captured when printing begins. It also owns the
+-- wipe interpolation history (the offset captured at the start of each
+-- update alongside the current one) so rendering can interpolate without
+-- mutating any state, and the explicit operations the script runtime calls
+-- outside the fixed-tick path: the instant fill, the semantic idle query,
+-- and the immediate cleanup.
 
 ---@class FieldSignpostController
 ---@field _layout fun(message: FieldMessageProvider.FormattedMessage): { lines: { tokens: MessageToken[] }[] }
@@ -14,6 +19,7 @@
 ---@field _defaultStyleId string the construction style id setStyleId(nil) restores
 ---@field _styleId string
 ---@field _command "nop"|"show"|"wipe_out"|"wipe_in"|"hide"
+---@field _previousOffset integer the offset captured at the start of the most recent updateFixed
 ---@field _offset integer
 ---@field _active boolean
 ---@field _sourceAppearance { game: string, type: integer, map: integer }?
@@ -106,6 +112,7 @@ function FieldSignpostController.new(opts)
     _defaultStyleId = styleId,
     _styleId = styleId,
     _command = "nop",
+    _previousOffset = HIDDEN_OFFSET,
     _offset = HIDDEN_OFFSET,
     _active = false,
     _sourceAppearance = nil,
@@ -126,6 +133,7 @@ end
 ---@class FieldSignpostController.Status
 ---@field active boolean window presented (isModal)
 ---@field command "nop"|"show"|"wipe_out"|"wipe_in"|"hide"
+---@field previousLogicalYOffset integer stored BG offset captured at the start of the most recent updateFixed
 ---@field logicalYOffset integer stored signpost BG offset
 ---@field sourceAppearance { game: string, type: integer, map: integer }?
 ---@field styleId string
@@ -139,6 +147,7 @@ function FieldSignpostController:status()
   return {
     active = self._active,
     command = self._command,
+    previousLogicalYOffset = self._previousOffset,
     logicalYOffset = self._offset,
     sourceAppearance = appearance and {
       game = appearance.game,
@@ -160,6 +169,14 @@ end
 function FieldSignpostController:setCommand(command)
   assert(FieldSignpostController.COMMANDS[command] == true, "unknown signpost command " .. tostring(command))
   self._command = command
+end
+
+-- The semantic command-idle query: true exactly when no command is scheduled.
+-- The "nop" spelling is the controller's own protocol; callers ask the
+-- semantic question.
+---@return boolean
+function FieldSignpostController:isCommandIdle()
+  return self._command == "nop"
 end
 
 -- Stores the script-provided source appearance (type/map) as presentation
@@ -188,26 +205,22 @@ function FieldSignpostController:setSourceAppearance(appearance)
   }
 end
 
--- One field update: executes the current command, then advances the active
--- printer. SHOW and HIDE complete on this same update (source cases 1 and 4
--- clear the command within the case; HIDE also resets the stored BG offset to
--- 0); wipes move one 16px step, hold the command on the update that reaches
--- the endpoint, and complete on the following endpoint-check update.
+-- One field update: captures the current offset as the previous offset for
+-- the renderer's interpolation pair, executes the current command, then
+-- advances the active printer. SHOW and HIDE complete on this same update
+-- (source cases 1 and 4 clear the command within the case; HIDE also resets
+-- the stored BG offset to 0); wipes move one 16px step, hold the command on
+-- the update that reaches the endpoint, and complete on the following
+-- endpoint-check update.
 function FieldSignpostController:updateFixed()
+  self._previousOffset = self._offset
   local command = self._command
   if command == "show" then
     self._active = true
     self._offset = HIDDEN_OFFSET
     self._command = "nop"
   elseif command == "hide" then
-    self._active = false
-    self._print = nil
-    -- The source case removes the window, clears the tile area, and resets
-    -- the BG position to 0, so a later wipe starts from the presented 0.
-    -- The routed style ends with the presentation it styled.
-    self._offset = 0
-    self._command = "nop"
-    self._styleId = self._defaultStyleId
+    self:_resetPresentation()
   elseif command == "wipe_in" then
     if self._offset < 0 then
       self._offset = math.min(self._offset + WIPE_STEP, 0)
@@ -222,14 +235,24 @@ function FieldSignpostController:updateFixed()
       -- offset to 0. The cleared window must not flash at the reset
       -- position, so the snapshot no longer presents the window; the
       -- routed style ends with the presentation.
-      self._active = false
-      self._print = nil
-      self._offset = 0
-      self._command = "nop"
-      self._styleId = self._defaultStyleId
+      self:_resetPresentation()
     end
   end
   self:_advancePrint()
+end
+
+-- The completed-hide presentation: window closed, printer cleared, command
+-- idle, stored BG offset (and its history pair) at the presented rest 0,
+-- routed style returned to the construction default. One authoritative
+-- implementation shared by the hide update, the wipe-out endpoint check, and
+-- the explicit cleanup operation.
+function FieldSignpostController:_resetPresentation()
+  self._active = false
+  self._print = nil
+  self._previousOffset = 0
+  self._offset = 0
+  self._command = "nop"
+  self._styleId = self._defaultStyleId
 end
 
 -- Captures the message layout at print start. The layout's own error
@@ -265,8 +288,7 @@ end
 
 -- Typed print: glyphs reveal at the injected fixed-tick cadence (Trainer
 -- Tips prints at the player's configured text speed; the controller does not
--- choose one). The printer can be stopped with stopPrint without leaving a
--- live printer.
+-- choose one); finishPrint fills the whole message on demand.
 
 ---@param message FieldMessageProvider.FormattedMessage
 function FieldSignpostController:printTyped(message)
@@ -275,12 +297,26 @@ function FieldSignpostController:printTyped(message)
   self._print = { lines = lines, revealed = 0, revealTicks = 0, total = total, live = total > 0 }
 end
 
--- Stops a live typed printer, freezing the revealed text; the printer never
--- advances again. Idempotent when nothing is live.
-function FieldSignpostController:stopPrint()
-  if self._print and self._print.live then
-    self._print.live = false
+-- The instant-fill operation (Trainer Tips A/B speed-up): a live typed
+-- printer reveals the whole message immediately and stops advancing. The
+-- window stays presented and every other presentation field is untouched;
+-- without a print, or on an already-completed print, it is a no-op.
+-- Idempotent.
+function FieldSignpostController:finishPrint()
+  local print = self._print
+  if print == nil then
+    return
   end
+  print.revealed = print.total
+  print.revealTicks = 0
+  print.live = false
+end
+
+-- Explicit cleanup (script fault/cancellation teardown): returns the
+-- controller to the completed-hide presentation on the call, without a
+-- fixed-tick update from outside the scheduler. Idempotent.
+function FieldSignpostController:hideImmediately()
+  self:_resetPresentation()
 end
 
 -- Routes a script-requested window style id into the presentation (the
@@ -300,6 +336,7 @@ end
 function FieldSignpostController:dispose()
   self._command = "nop"
   self._active = false
+  self._previousOffset = HIDDEN_OFFSET
   self._offset = HIDDEN_OFFSET
   self._sourceAppearance = nil
   self._print = nil

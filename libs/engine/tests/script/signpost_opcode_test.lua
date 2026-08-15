@@ -35,7 +35,7 @@ function RecordingSignpostHost.new()
     commands = {},
     advances = 0,
     prints = {},
-    stops = 0,
+    fills = 0,
     closes = 0,
     styles = {},
     command = "nop",
@@ -65,12 +65,14 @@ function RecordingSignpostHost:printTyped(message, bindings, textArgs)
   self.prints[#self.prints + 1] = { kind = "typed", message = message, bindings = bindings, textArgs = textArgs }
 end
 
-function RecordingSignpostHost:stopPrint()
-  self.stops = self.stops + 1
+function RecordingSignpostHost:finishPrint()
+  self.fills = self.fills + 1
+  self.printDone = true
 end
 
+-- The host's explicit cleanup: the presented window and printer are cleared
+-- and the command returns to idle on the call.
 function RecordingSignpostHost:close()
-  self:stopPrint()
   self.closes = self.closes + 1
   self.command = "nop"
   self.printDone = false
@@ -78,6 +80,10 @@ end
 
 function RecordingSignpostHost:advance()
   self.advances = self.advances + 1
+end
+
+function RecordingSignpostHost:isCommandIdle()
+  return self.command == "nop"
 end
 
 function RecordingSignpostHost:status()
@@ -422,11 +428,11 @@ function T.trainer_tips_print_starts_a_typed_print_and_completes_two_on_normal_c
   Assert.equal(h.services.world:getVar("VAR_SPECIAL_RESULT"), 2, "normal completion writes 2")
 end
 
--- A directional edge pressed while the typed print is still live stops the
--- printer, turns the player to that direction, closes the window, and
--- completes with 0 — for every one of the four directions. The player is
--- turned away from the pressed direction before each press so the facing
--- assertion can never pass vacuously.
+-- A directional edge pressed while the typed print is still live interrupts
+-- the print (the host cleanup clears the window and printer), turns the
+-- player to that direction, and completes with 0 — for every one of the
+-- four directions. The player is turned away from the pressed direction
+-- before each press so the facing assertion can never pass vacuously.
 function T.trainer_tips_directional_interrupt_stops_turns_and_writes_zero_for_every_direction()
   local opposite = { north = "south", south = "north", west = "east", east = "west" }
   for _, direction in ipairs({ "north", "south", "west", "east" }) do
@@ -447,7 +453,6 @@ function T.trainer_tips_directional_interrupt_stops_turns_and_writes_zero_for_ev
     h.services.player:turn(opposite[direction])
     h.scheduler:step(101, { pressedDirection = direction })
     Assert.equal(h.services.player:facing(), direction, direction .. " interrupt must turn the player")
-    Assert.equal(h.signpost.stops, 1, direction .. " interrupt must stop the printer")
     Assert.equal(h.signpost.closes, 1, direction .. " interrupt must close the window")
     h.scheduler:step(102, {})
     Assert.equal(h.services.world:getVar("VAR_SPECIAL_RESULT"), 0, direction .. " interrupt writes 0")
@@ -456,11 +461,47 @@ function T.trainer_tips_directional_interrupt_stops_turns_and_writes_zero_for_ev
   end
 end
 
--- A/B during the print is the printer's speed-up behavior, never a
--- dismissal: the edges must not complete the task, and the print still
--- completes normally with 2. The print path also reads no pointer edge (the
--- input snapshot has none), so the signpost print never speeds up on touch.
-function T.trainer_tips_ignores_ab_edges_during_the_print()
+-- A/B during the live print is the instant-fill operation, never a
+-- dismissal: the whole message reveals on the input tick through
+-- host:finishPrint, the window is never closed, and the task completes with
+-- the normal print-complete result 2. The print path also reads no pointer
+-- edge (the input snapshot has none), so the signpost print never fills on
+-- touch.
+function T.trainer_tips_ab_during_the_live_print_fills_and_completes_two()
+  for _, edge in ipairs({ "pressedAction", "pressedCancel" }) do
+    local h = harness()
+    local script = S.script({
+      api = 1,
+      id = "test.trainer_tips",
+      steps = {
+        TRAINER_TIPS_NODE,
+        S.setVar({ variable = "VAR_AFTER", value = 1 }),
+        S.stop(),
+      },
+    })
+    h.registry:installBase(script.id, script, "generated")
+    h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+    h.scheduler:step(100, {})
+
+    local input = {}
+    input[edge] = true
+    h.scheduler:step(101, input)
+    Assert.equal(h.signpost.fills, 1, edge .. " during the print must fill the whole message")
+    Assert.isTrue(h.signpost.printDone, edge .. " must complete the print on the input tick")
+    Assert.equal(h.signpost.closes, 0, edge .. " must not dismiss the signpost")
+    Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "the task completes in the input tick")
+
+    h.scheduler:step(102, {})
+    Assert.equal(h.services.world:getVar("VAR_SPECIAL_RESULT"), 2, edge .. " during the print writes the result 2")
+    Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+    Assert.equal(#h.scheduler:tasks(), 0, edge .. " during the print must complete the task")
+  end
+end
+
+-- Direction and A on the same live-print tick: the direction wins — the
+-- print is interrupted rather than filled, the player turns, the window
+-- closes, and the task completes 0.
+function T.trainer_tips_direction_and_action_on_the_same_tick_prefers_the_direction()
   local h = harness()
   local script = S.script({
     api = 1,
@@ -475,16 +516,40 @@ function T.trainer_tips_ignores_ab_edges_during_the_print()
   h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
   h.scheduler:step(100, {})
 
-  h.scheduler:step(101, { pressedAction = true })
-  Assert.equal(#h.scheduler:tasks(), 1, "A during the print must not dismiss the signpost")
-  h.scheduler:step(102, { pressedCancel = true })
-  Assert.equal(#h.scheduler:tasks(), 1, "B during the print must not dismiss the signpost")
-  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+  h.services.player:turn("south")
+  h.scheduler:step(101, { pressedDirection = "west", pressedAction = true })
+  Assert.equal(h.services.player:facing(), "west", "the direction wins the same-tick edge")
+  Assert.equal(h.signpost.closes, 1, "the direction interrupts the signpost")
+  Assert.equal(h.signpost.fills, 0, "the same-tick A must not fill the print")
+  h.scheduler:step(102, {})
+  Assert.equal(h.services.world:getVar("VAR_SPECIAL_RESULT"), 0, "the direction writes its interrupt result 0")
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+end
+
+-- An edge on the tick the print is already complete is after the fact: the
+-- completion branch wins (result 2) and the fill operation never runs.
+function T.trainer_tips_already_complete_with_a_completes_two_without_filling()
+  local h = harness()
+  local script = S.script({
+    api = 1,
+    id = "test.trainer_tips",
+    steps = {
+      TRAINER_TIPS_NODE,
+      S.setVar({ variable = "VAR_AFTER", value = 1 }),
+      S.stop(),
+    },
+  })
+  h.registry:installBase(script.id, script, "generated")
+  h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+  h.scheduler:step(100, {})
 
   h.signpost.printDone = true
-  h.scheduler:step(103, {})
-  h.scheduler:step(104, {})
-  Assert.equal(h.services.world:getVar("VAR_SPECIAL_RESULT"), 2, "A/B during the print must not change the result")
+  h.scheduler:step(101, { pressedAction = true })
+  Assert.equal(h.signpost.fills, 0, "the completion branch wins before the fill branch")
+  Assert.equal(h.signpost.closes, 0)
+  h.scheduler:step(102, {})
+  Assert.equal(h.services.world:getVar("VAR_SPECIAL_RESULT"), 2, "the completed print still writes 2")
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
 end
 
 -- 60: the handler always blocks on the registered task (no same-tick path);
@@ -588,9 +653,9 @@ function T.trainer_tips_and_wait_signpost_are_foreground_only_and_require_the_ho
 end
 
 -- Cancelling an instance while its signpost task owns the presented window
--- releases it exactly once through the host close (stop the printer, hide
--- the window, return the command to nop): the script fault-cleanup contract,
--- for both task types.
+-- releases it exactly once through the host close (the explicit cleanup
+-- clears the printer, hides the window, and returns the command to idle):
+-- the script fault-cleanup contract, for both task types.
 function T.trainer_tips_and_wait_signpost_cancel_closes_the_signpost_exactly_once()
   for _, node in ipairs({ TRAINER_TIPS_NODE, WAIT_SIGNPOST_NODE }) do
     local h = harness()
@@ -608,9 +673,43 @@ function T.trainer_tips_and_wait_signpost_cancel_closes_the_signpost_exactly_onc
 
     h.scheduler:cancelInstance(instanceId, "test cancellation")
     Assert.equal(h.signpost.closes, 1, "the signpost task must close the window exactly once on cancel")
-    Assert.equal(h.signpost.stops, 1, node.op .. " cancel must stop the printer")
     Assert.equal(#h.scheduler:tasks(), 0)
   end
+end
+
+-- Cancelling an instance blocked in wait_signpost_action releases the
+-- signpost through the task's own cancel: the wait task owns the presented
+-- window it blocks on, and its cancel callback closes the host exactly once.
+function T.wait_signpost_action_cancel_closes_the_signpost_exactly_once()
+  local h = harness()
+  h.signpost.command = "wipe_in"
+  local script = S.script({
+    api = 1,
+    id = "test.wait_signpost_action_cancel",
+    steps = { { op = "wait_signpost_action" }, S.stop() },
+  })
+  h.registry:installBase(script.id, script, "generated")
+  local composed = assert(h.composition:effective(script.id))
+  local instanceId = h.scheduler:createForeground(composed, nil, 100)
+  h.scheduler:step(100, {})
+  Assert.equal(#h.scheduler:tasks(), 1)
+  Assert.equal(h.signpost.closes, 0)
+
+  h.scheduler:cancelInstance(instanceId, "test cancellation")
+  Assert.equal(h.signpost.closes, 1, "the wait task must close the window exactly once on cancel")
+  Assert.equal(#h.scheduler:tasks(), 0)
+end
+
+-- The wait task's own cancel marks its state with the reason and closes the
+-- signpost only when the service is reachable; a context without one (the
+-- scheduler tears down environments with the task record) never faults.
+function T.wait_signpost_action_cancel_marks_state_and_is_safe_without_a_service()
+  local state = {}
+  WaitSignpostActionTask.cancel(state, "reason", nil)
+  Assert.equal(state.cancelled, "reason")
+  local noService = {}
+  WaitSignpostActionTask.cancel(noService, "reason", { services = {} })
+  Assert.equal(noService.cancelled, "reason")
 end
 
 -- The registered task state is strictly validated: non-table or markerless
@@ -947,7 +1046,6 @@ function T.high_level_sign_cancel_closes_the_signpost_exactly_once()
 
   h.scheduler:cancelInstance(instanceId, "test cancellation")
   Assert.equal(h.signpost.closes, 1, "the sign task must close the window exactly once on cancel")
-  Assert.equal(h.signpost.stops, 1, "the sign task cancel must stop the printer")
   Assert.equal(#h.scheduler:tasks(), 0)
 end
 

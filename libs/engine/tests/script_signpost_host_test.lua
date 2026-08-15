@@ -4,7 +4,8 @@
 -- underscored helper or duplicated substitution semantics); configuration
 -- and window/printer requests pass through presentation-neutral; the host
 -- never writes world variables; modal ownership is the controller's alone;
--- and close() releases that ownership exactly once.
+-- and close() releases that ownership exactly once through the controller's
+-- explicit cleanup.
 
 local Assert = require("tests.support.Assert")
 local ScriptSignpostHost = require("libs.engine.src.script.ScriptSignpostHost")
@@ -12,8 +13,9 @@ local ScriptSignpostHost = require("libs.engine.src.script.ScriptSignpostHost")
 local T = {}
 
 -- A controller fake faithful to the real surface the host touches: the bare
--- command assignment, the same-update SHOW/HIDE completion, printer requests,
--- and modal ownership on the presented window.
+-- command assignment, the same-update SHOW/HIDE completion, the explicit
+-- cleanup, printer requests, the semantic idle query, and modal ownership on
+-- the presented window.
 local function fakeController()
   local controller = {
     command = "nop",
@@ -22,7 +24,7 @@ local function fakeController()
     calls = {},
     instant = nil,
     typed = nil,
-    stops = 0,
+    finishes = 0,
     updates = 0,
     releases = 0,
   }
@@ -37,14 +39,18 @@ local function fakeController()
       self.active = true
       self.command = "nop"
     elseif self.command == "hide" then
-      if self.active then
-        self.releases = self.releases + 1
-      end
-      self.active = false
-      self.print = nil
-      self.command = "nop"
-      self.styleId = self.defaultStyleId or "hgss.signpost"
+      self:hideImmediately()
     end
+  end
+  function controller:hideImmediately()
+    self.calls[#self.calls + 1] = "hideImmediately"
+    if self.active then
+      self.releases = self.releases + 1
+    end
+    self.active = false
+    self.print = nil
+    self.command = "nop"
+    self.styleId = self.defaultStyleId or "hgss.signpost"
   end
   function controller:printInstant(message)
     self.calls[#self.calls + 1] = "printInstant"
@@ -54,9 +60,10 @@ local function fakeController()
     self.calls[#self.calls + 1] = "printTyped"
     self.typed = message
   end
-  function controller:stopPrint()
-    self.calls[#self.calls + 1] = "stopPrint"
-    self.stops = self.stops + 1
+  function controller:finishPrint()
+    self.calls[#self.calls + 1] = "finishPrint"
+    self.finishes = self.finishes + 1
+    self.printDone = true
   end
   function controller:setSourceAppearance(appearance)
     self.calls[#self.calls + 1] = "setSourceAppearance"
@@ -68,6 +75,9 @@ local function fakeController()
   end
   function controller:isModal()
     return self.active
+  end
+  function controller:isCommandIdle()
+    return self.command == "nop"
   end
   function controller:status()
     return { active = self.active, command = self.command, printDone = false }
@@ -250,9 +260,37 @@ function T.status_forwards_the_controller_snapshot()
   Assert.deepEqual(h:status(), { active = true, command = "nop", printDone = false })
 end
 
--- Fault/cancellation cleanup: stop any active printer, close the signpost
--- window, return the command to nop, and release modal ownership exactly
--- once before the script error propagates.
+-- The instant-fill request passes through to the controller verbatim: the
+-- host resolves no message and performs no other operation.
+function T.finish_print_forwards_the_fill_request()
+  local controller = fakeController()
+  local resolved = 0
+  local h, _, _ = host({
+    controller = controller,
+    resolver = function()
+      resolved = resolved + 1
+      return {}
+    end,
+  })
+  h:finishPrint()
+  Assert.equal(controller.finishes, 1, "the fill request reaches the controller exactly once")
+  Assert.deepEqual(controller.calls, { "finishPrint" }, "finishPrint performs no other operation")
+  Assert.equal(resolved, 0, "finishPrint never resolves a message")
+end
+
+-- The semantic idle query comes straight from the controller; the host keeps
+-- no idle state of its own.
+function T.is_command_idle_forwards_the_controller_query()
+  local controller = fakeController()
+  local h, _, _ = host({ controller = controller })
+  Assert.isTrue(h:isCommandIdle(), "the idle query follows the controller's command")
+  controller:setCommand("wipe_in")
+  Assert.isFalse(h:isCommandIdle(), "a busy command is not idle through the host")
+end
+
+-- The close teardown is the controller's explicit cleanup: no scheduled
+-- command, no fixed-tick step from the host — the window, printer, command,
+-- and routed style are released on the call, exactly once.
 function T.close_releases_modal_ownership_exactly_once()
   local controller = fakeController()
   local h, _, _ = host({ controller = controller })
@@ -264,7 +302,12 @@ function T.close_releases_modal_ownership_exactly_once()
   Assert.isFalse(h:isModal(), "close releases modal ownership")
   Assert.equal(controller.command, "nop", "close returns the command to nop")
   Assert.equal(controller.releases, 1, "modal ownership is released exactly once")
-  Assert.equal(controller.stops, 1, "close stops any active printer")
+  Assert.isNil(controller.print, "close clears the printer")
+  Assert.deepEqual(
+    controller.calls,
+    { "setCommand", "updateFixed", "printInstant", "hideImmediately" },
+    "close performs the explicit cleanup, never a fixed-tick step"
+  )
   h:close()
   Assert.isFalse(h:isModal(), "a second close has no further effect")
   Assert.equal(controller.releases, 1, "a second close does not release again")

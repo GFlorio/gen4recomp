@@ -57,7 +57,7 @@ function SignTask.poll(state, ctx)
 end
 
 -- Fault/cancellation cleanup: the task owns the presented window, so
--- closing the signpost stops the printer, hides the window, returns the
+-- closing the signpost clears the printer, hides the window, returns the
 -- command to nop, restores the default style, and releases modal ownership
 -- exactly once.
 ---@param state table
