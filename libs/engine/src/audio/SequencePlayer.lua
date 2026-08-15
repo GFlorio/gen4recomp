@@ -97,6 +97,12 @@ local TRACK_COUNT = 16
 -- control step per outputRate/192 frames, and the player's per-main track
 -- value pushes and its release-end computations align with that cadence.
 local SOUND_INTERVAL = 192
+-- The tick relationship (GBATEK "DS Sound Files - SSEQ" and the ARM7
+-- SND_TIMER_RATE 240 at the 192 Hz sound interval): a quarter note is 48
+-- ticks, so per output frame the accumulator gains tempo*TICKS_PER_QUARTER
+-- and a tick fires each time it reaches sampleRate*SECONDS_PER_MINUTE.
+local TICKS_PER_QUARTER = 48
+local SECONDS_PER_MINUTE = 60
 -- The envelope's fully-attenuated start (SND_exChannel.c ExChannelStart):
 -- the -723 dB floor scaled by the envelope's 128 shift.
 local ENV_START = 723 * 128
@@ -849,9 +855,9 @@ local function spanLength(self, remaining)
   for playerId = 0, PLAYER_COUNT - 1 do
     local instance = self._players[playerId]
     if instance ~= nil and not instance.paused then
-      local ticksPerFrame = instance.tempo * 48
+      local ticksPerFrame = instance.tempo * TICKS_PER_QUARTER
       if ticksPerFrame > 0 then
-        local framesToTick = math.ceil((self._sampleRate * 60 - instance.acc) / ticksPerFrame)
+        local framesToTick = math.ceil((self._sampleRate * SECONDS_PER_MINUTE - instance.acc) / ticksPerFrame)
         if framesToTick <= span then
           for trackId = 0, TRACK_COUNT - 1 do
             local track = instance.tracks[trackId]
@@ -927,9 +933,9 @@ function SequencePlayer:render(frames)
       for playerId = 0, PLAYER_COUNT - 1 do
         local instance = self._players[playerId]
         if instance ~= nil and not instance.paused then
-          instance.acc = instance.acc + instance.tempo * 48
-          while instance.acc >= self._sampleRate * 60 do
-            instance.acc = instance.acc - self._sampleRate * 60
+          instance.acc = instance.acc + instance.tempo * TICKS_PER_QUARTER
+          while instance.acc >= self._sampleRate * SECONDS_PER_MINUTE do
+            instance.acc = instance.acc - self._sampleRate * SECONDS_PER_MINUTE
             for trackId = 0, TRACK_COUNT - 1 do
               local track = instance.tracks[trackId]
               if track ~= nil then

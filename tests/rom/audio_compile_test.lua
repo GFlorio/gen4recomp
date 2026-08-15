@@ -8,10 +8,10 @@
 -- emitted as instruction indices, and every day/night music reference of the
 -- frozen map catalog resolving to a compiled sequence. The expensive compile
 -- runs once per ready game version in beforeAll and the scenarios assert the
--- resulting bundle; playback scenarios are not here -- the runtime deliverable
--- that plays these assets does not exist yet. Counts are derived from the
--- dump, never guessed, and the suite runs for every ready version (soulsilver
--- included when its dump lands).
+-- resulting bundle; playback over these assets is the engine runtime suites'
+-- and the acceptance field-music scenarios' contract, not asserted here.
+-- Counts are derived from the dump, never guessed, and the suite runs for
+-- every ready version (soulsilver included when its dump lands).
 
 local Assert = require("tests.support.Assert")
 local AudioCache = require("libs.assets.src.AudioCache")

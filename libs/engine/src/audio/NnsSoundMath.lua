@@ -780,7 +780,7 @@ local PITCH_TABLE = {
   65418,
 }
 
--- The ARM7 BIOS volume table, indexed by dB value + SND_VOL_DB_MIN (723):
+-- The ARM7 BIOS volume table, indexed by dB value - VOL_DB_MIN (723):
 -- SVC_GetVolumeTable(value + 723).
 local VOLUME_TABLE = {
   0,
@@ -1704,6 +1704,9 @@ local LFO_SIN = {
 }
 
 local VOL_DB_MIN = -723
+-- The BIOS pitch-table size: the octave normalization in calcTimer reduces
+-- every pitch into 0..PITCH_TABLE_SIZE-1 (768 u16 entries).
+local PITCH_TABLE_SIZE = 768
 
 -- SND_CalcTimer: the integer pitch domain (key - originalKey) * 0x40 plus
 -- bend/sweep/LFO contributions through the BIOS pitch table, with the
@@ -1716,11 +1719,11 @@ function NnsSoundMath.calcTimer(timer, pitch)
   local normalized = -pitch
   while normalized < 0 do
     octave = octave - 1
-    normalized = normalized + 768
+    normalized = normalized + PITCH_TABLE_SIZE
   end
-  while normalized >= 768 do
+  while normalized >= PITCH_TABLE_SIZE do
     octave = octave + 1
-    normalized = normalized - 768
+    normalized = normalized - PITCH_TABLE_SIZE
   end
   local result = (PITCH_TABLE[normalized + 1] + 0x10000) * timer
   local shift = octave - 16
@@ -1752,7 +1755,7 @@ function NnsSoundMath.calcChannelVolume(value)
   elseif value > 0 then
     value = 0
   end
-  local result = VOLUME_TABLE[value + 723 + 1]
+  local result = VOLUME_TABLE[value - VOL_DB_MIN + 1]
   local div
   if value < -240 then
     div = 3

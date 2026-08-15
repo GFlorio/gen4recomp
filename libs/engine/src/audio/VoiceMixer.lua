@@ -92,6 +92,11 @@ local SAMPLE_DATA_SHIFT = { 0, 1, 2, 4 }
 local PSG_BASE_TIMER = 8006
 local DS_SAMPLE_CLOCK = 16756991
 
+-- The pan-center bias of the NNS pan domains: the instrument pan enters as
+-- pan - PAN_CENTER (initPan), the track offset is a signed deviation, and
+-- the final hardware register is initPan + userPan + PAN_CENTER.
+local PAN_CENTER = 0x40
+
 -- The envelope starts fully attenuated (SND_exChannel.c ExChannelStart);
 -- the release stops when the dB sum crosses the SDK threshold, computed by
 -- NnsSoundMath.releaseStopSteps.
@@ -247,7 +252,7 @@ local function newVoice(spec)
     envDecay = NnsSoundMath.decayCoefficient(spec.envelope.decay),
     envSustain = spec.envelope.sustain,
     envRelease = NnsSoundMath.decayCoefficient(spec.envelope.release),
-    initPan = spec.pan - 0x40,
+    initPan = spec.pan - PAN_CENTER,
     pending = {
       trackVolume = spec.trackVolume,
       expression = spec.expression,
@@ -268,7 +273,7 @@ local function newVoice(spec)
     -- The last-synced registers (the volume feeds the allocation tie-break).
     volume = 0,
     timer = 0,
-    pan = 0,
+    hardwarePan = 0,
     ratio = 0,
     released = false,
     dead = false,
@@ -428,8 +433,8 @@ local function syncRegisters(voice)
     timer = bit.band(timer, 0xFFFC)
   end
   voice.timer = timer
-  pan = pan + 0x40
-  voice.pan = clamp(pan, 0, 127)
+  pan = pan + PAN_CENTER
+  voice.hardwarePan = clamp(pan, 0, 127)
   voice.ratio = voiceRatio(voice)
   return true
 end
@@ -659,7 +664,7 @@ function VoiceMixer:renderInto(out, frames)
         -- The one-shot boundary sample still sounds; the voice is
         -- removed after this frame.
         local gain = registerGain(voice.volume)
-        local panLeft, panRight = panMix(voice.pan)
+        local panLeft, panRight = panMix(voice.hardwarePan)
         left = left + math.floor(sample * gain * panLeft + 0.5)
         right = right + math.floor(sample * gain * panRight + 0.5)
         if voice.dead then
