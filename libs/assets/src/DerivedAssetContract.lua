@@ -18,7 +18,9 @@ DerivedAssetContract.revision = 2
 DerivedAssetContract.map = {
   cacheFormat = "map-cache-v7",
   -- v6: scenes carry the real HGSS field edge-color table (scene.edgeColors).
-  sceneSchema = "g4-map-scene-v6",
+  -- v7: every batch record carries fogEnabled (PolygonState.FIELDS), the
+  -- per-polygon fog gate the map shader now reads.
+  sceneSchema = "g4-map-scene-v7",
   terrainSchema = "g4-terrain-surfaces-v1",
   collisionVersion = 1,
 }

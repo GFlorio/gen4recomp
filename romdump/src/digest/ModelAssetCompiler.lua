@@ -151,7 +151,6 @@ local function compileModel(model, texturePack, meshes, textures, context)
       -- they are authoring metadata the runtime does not consume.
       record.farClipEnabled = poly.farClipEnabled
       record.oneDotEnabled = poly.oneDotEnabled
-      record.fogEnabled = poly.fogEnabled
       batches[#batches + 1] = record
     end
   end

@@ -183,7 +183,7 @@ function T.failed_rebuild_preserves_the_previous_model_descriptor()
   second.scene.buildingInstances = { { placementIndex = 0, modelKey = secondModelKey } }
   second.models = {
     [secondModelKey] = {
-      schema = "g4-model-v2",
+      schema = "g4-model-v3",
       key = secondModelKey,
       memberId = 1,
       kind = "static",
@@ -198,6 +198,7 @@ function T.failed_rebuild_preserves_the_previous_model_descriptor()
           depthEqual = false,
           polygonAlpha = 31,
           lightMask = 5,
+          fogEnabled = false,
         },
       },
     },

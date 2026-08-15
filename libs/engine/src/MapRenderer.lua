@@ -434,6 +434,31 @@ function MapRenderer:_sendEdgeColors(sceneRuntime)
   self._edgeColorsProfile = edgeColors
 end
 
+-- The DS SDK's idle fog state (GX_g3x.c: reg_G3X_FOG_COLOR = reg_G3X_FOG_OFFSET
+-- = 0 on init; the field engine's FogData is Heap-cleared by Fog_New before any
+-- weather/event script calls G3X_SetFog), sent once per frame: the global
+-- DISP3DCNT gate off, black color, a zeroed 32-entry density table, and a zero
+-- depth offset. No per-area HGSS fog color/table/offset source was found under
+-- tmp/refs (unlike the edge-color tables, which are per-area ROM/decomp
+-- constants); the field engine sets these registers live from weather/event
+-- scripts rather than a compiled-in per-area table, so wiring that live source
+-- is future work. Sending this real, ROM-confirmed idle default (rather than a
+-- fabricated color/table) keeps the shader's fog gate/combiner path exercised
+-- and correct while it is off; DsFog.applies' per-polygon gate still reaches
+-- the shader unconditionally per draw (see u_polygonFogEnabled sends below).
+local FOG_ZERO_TABLE = {}
+for i = 1, 32 do
+  FOG_ZERO_TABLE[i] = 0
+end
+
+function MapRenderer:_sendFog()
+  local shader = self.shader
+  shader:send("u_fogEnabled", false)
+  shader:send("u_fogColor", ZERO_COLOR)
+  shader:send("u_fogTable", FOG_ZERO_TABLE)
+  shader:send("u_fogOffset", 0)
+end
+
 -- The effective DS material register for one channel of one draw item: the
 -- field profile supplies every channel (the HGSS field policy clears the
 -- materials' color ownership, so stored colors alone never reach the DS),
@@ -635,6 +660,9 @@ function MapRenderer:_drawMesh(
   -- the polygon ID -- translucent draws still send their own real ID above.
   shader:send("u_translucentAttribute", alphaClass == AlphaClassifier.TRANSLUCENT)
   shader:send("u_lightMask", LIGHT_MASK_UNIFORMS[item.lightMask])
+  -- This draw's own POLYGON_ATTR FOG_ENABLE bit (DsFog.applies' second gate);
+  -- the global gate/color/table/offset are frame-invariant (_sendFog).
+  shader:send("u_polygonFogEnabled", item.fogEnabled == true)
   lg.setMeshCullMode(item.cullMode)
   lg.draw(mesh)
   self.stats.drawCalls = self.stats.drawCalls + 1
@@ -748,6 +776,7 @@ function MapRenderer:_drawWireframeMesh(
   -- Wireframe counts as opaque for edge marking (GBATEK): never translucent.
   shader:send("u_translucentAttribute", false)
   shader:send("u_lightMask", LIGHT_MASK_UNIFORMS[item.lightMask])
+  shader:send("u_polygonFogEnabled", item.fogEnabled == true)
   mesh:setTexture()
   lg.setMeshCullMode(item.cullMode)
   lg.draw(mesh)
@@ -796,6 +825,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
 
     self:_sendLighting(sceneRuntime)
     self:_sendEdgeColors(sceneRuntime)
+    self:_sendFog()
     local queue = RenderQueue.buildInto(parts, viewMatrix, self._queueScratch)
 
     -- Pass 1: opaque, depth test + write.

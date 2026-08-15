@@ -34,6 +34,16 @@
 // modulate_component_identity_at_full_white_texture and
 // untextured_decal_polygon_renders_opaque_white in ds_fragment_test.lua. No
 // separate uniform is needed to reach that value.
+//
+// The post-combiner fog pass (fogDensityAt, fogBlendColor) is a direct GLSL
+// transcription of libs/engine/src/DsFog.lua -- see that module's header for
+// the density-table/blend domain documentation. Fog applies only when both
+// u_fogEnabled (the global DISP3DCNT gate) and u_polygonFogEnabled (this
+// draw's POLYGON_ATTR FOG_ENABLE bit, PolygonState's fogEnabled field) are
+// set (DsFog.applies); the density index derives from the same
+// dsWbufferDepth quantity the edge pass already reads, offset by
+// u_fogOffset and divided into the table's 32 steps -- real DS depth, never
+// an invented camera near/far falloff.
 
 varying vec3 v_dsColor;
 
@@ -201,6 +211,20 @@ uniform bool u_translucentAttribute; // translucent identity, separate from poly
 uniform mat3 u_texMatrix;      // normalized-UV transform (NSBTA texture SRT)
 uniform sampler2D MainTex;
 
+// DsFog (see file header): the global gate, this draw's own polygon gate,
+// the fog color (normalized c/31, blended in the 6-bit combiner domain like
+// every other color here), the 32-entry density table (0..127), and the
+// depth offset in the same 24-bit domain as dsWbufferDepth.
+uniform bool u_fogEnabled;
+uniform bool u_polygonFogEnabled;
+uniform vec3 u_fogColor;
+// The 32-entry density table packed as 8 vec4s (LOVE's Shader:send flattens
+// a single 32-number Lua table into this array in order: table[1..4] ->
+// u_fogTable[0], table[5..8] -> u_fogTable[1], etc.), read back out via
+// fogDensityAt below.
+uniform vec4 u_fogTable[8];
+uniform float u_fogOffset;
+
 // DsFragment 5-bit (0-31) color component -> the combiner's 6-bit (0-63)
 // domain, by hardware bit-replication of the top bit into the new low bit.
 float expand5to6(float c5)
@@ -259,6 +283,46 @@ float dsWbufferDepth(float linearEyeDepth)
   return floor(fraction * DS_DEPTH_MAX);
 }
 
+// DsFog.densityAt: index the 32-entry table, clamping out-of-range indices
+// to entry 0 or 31 rather than wrapping. The table is packed 4-per-vec4
+// (see u_fogTable's declaration above).
+float fogDensityAt(int index)
+{
+  int clamped = index;
+  if (clamped < 0) {
+    clamped = 0;
+  } else if (clamped > 31) {
+    clamped = 31;
+  }
+  vec4 group = u_fogTable[clamped / 4];
+  int component = clamped - (clamped / 4) * 4;
+  if (component == 0) {
+    return group.x;
+  } else if (component == 1) {
+    return group.y;
+  } else if (component == 2) {
+    return group.z;
+  }
+  return group.w;
+}
+
+// DsFog.blendColor, 6-bit combiner domain (fogColor6/fragmentRgb6 both
+// already widened like every other color in this shader).
+vec3 fogBlendColor(vec3 fragmentRgb6, vec3 fogColor6, float density)
+{
+  return floor((fragmentRgb6 * (127.0 - density) + fogColor6 * density) / 127.0);
+}
+
+// DsFog's depth-index derivation: the fragment's own DS-quantized depth
+// (the same value the edge pass compares), offset and divided into the
+// table's 32 steps. Not yet melonDS-verified (same disclosed scope cut as
+// DsDepth.lua); the density table/gates it feeds are exact.
+int fogTableIndex(float dsDepth)
+{
+  float steps = DS_DEPTH_MAX / 32.0;
+  return int(floor((dsDepth - u_fogOffset) / steps));
+}
+
 void effect()
 {
   vec2 uv = (u_texMatrix * vec3(VaryingTexCoord.xy, 1.0)).xy;
@@ -287,6 +351,16 @@ void effect()
     outRgb6 = modulateRgb6(texture6, vertex6);
     Aout5 = int(floor(float((At5 + 1) * (Ap5 + 1) - 1) / 32.0));
   }
+  float dsDepth = dsWbufferDepth(1.0 / gl_FragCoord.w);
+
+  // Post-combiner fog (DsFog.applies/densityAt/blendColor): both the global
+  // and per-polygon gates must be set, matching GBATEK's two-gate fog rule.
+  if (u_fogEnabled && u_polygonFogEnabled) {
+    float density = fogDensityAt(fogTableIndex(dsDepth));
+    vec3 fogColor6 = expand5to6v(floor(u_fogColor * 31.0 + 0.5));
+    outRgb6 = fogBlendColor(outRgb6, fogColor6, density);
+  }
+
   vec3 outRgb = outRgb6 / 63.0;
   float alpha = float(Aout5) / 31.0;
 
@@ -301,6 +375,6 @@ void effect()
   // near/far to resolve short-object silhouettes, hence the linear domain.
   // Blue: the translucent-attribute flag, a separate logical field from the
   // polygon ID (never an invented sentinel carved out of the ID domain).
-  love_Canvases[1] = vec4(u_polygonId, dsWbufferDepth(1.0 / gl_FragCoord.w), u_translucentAttribute ? 1.0 : 0.0, 1.0);
+  love_Canvases[1] = vec4(u_polygonId, dsDepth, u_translucentAttribute ? 1.0 : 0.0, 1.0);
 }
 #endif

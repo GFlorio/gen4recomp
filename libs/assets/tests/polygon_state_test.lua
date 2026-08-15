@@ -26,6 +26,7 @@ local function validRecord()
     depthEqual = false,
     polygonAlpha = 31,
     lightMask = 5,
+    fogEnabled = false,
   }
 end
 
@@ -38,6 +39,7 @@ function T.fields_is_the_full_shared_draw_state_list()
     "depthEqual",
     "polygonAlpha",
     "lightMask",
+    "fogEnabled",
   })
 end
 
@@ -77,6 +79,7 @@ function T.validate_rejects_out_of_range_values()
     { field = "polygonMode", value = "lit" },
     { field = "translucentDepthWrite", value = 1 },
     { field = "depthEqual", value = "false" },
+    { field = "fogEnabled", value = "false" },
   }
   for _, case in ipairs(cases) do
     local record = validRecord()
@@ -106,7 +109,6 @@ function T.copy_carries_exactly_the_shared_fields()
   local record = validRecord()
   record.farClipEnabled = true
   record.oneDotEnabled = false
-  record.fogEnabled = true
   local copy = PolygonState.copy(record)
   Assert.deepEqual(copy, validRecord())
   Assert.isTrue(copy ~= record, "copy must not alias the source record")

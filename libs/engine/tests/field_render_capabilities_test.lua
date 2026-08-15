@@ -45,14 +45,8 @@ function T.declares_states_the_renderer_actually_implements_supported()
   Assert.isTrue(FieldRenderCapabilities.translucentDepthWrite, "bit-11 drives host depth-write toggling")
   Assert.isTrue(FieldRenderCapabilities.wireframe, "love.graphics.setWireframe draws the wireframe pass")
   Assert.isTrue(FieldRenderCapabilities.billboard, "u_billboard drives the whole billboard vertex path")
-end
-
--- GX states the shader/compiler never touch at all -- captured as metadata
--- (fogEnabled, material.flip) but never read by GpuAssetPool or map.glsl.
--- Declaring these true would be aspirational, not descriptive.
-function T.declares_unimplemented_states_unsupported()
-  Assert.isFalse(FieldRenderCapabilities.fog, "no fog uniform or pass exists")
-  Assert.isFalse(FieldRenderCapabilities.mirroredRepeat, "GpuAssetPool.WRAP_MODES only has clamp/repeat")
+  Assert.isTrue(FieldRenderCapabilities.fog, "map.glsl reads u_polygonFogEnabled/u_fogEnabled and applies DsFog")
+  Assert.isTrue(FieldRenderCapabilities.mirroredRepeat, "SceneDescriptor.wrap folds flip+repeat into mirroredrepeat")
 end
 
 return { tests = T }

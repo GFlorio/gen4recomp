@@ -62,6 +62,40 @@ function T.materials_requires_a_list()
   end)
 end
 
+-- A repeat-wrapped axis whose NSBTX material also sets the flip bit is DS
+-- mirrored repeat, not plain repeat -- the compiler preserves that
+-- distinction as a separate `flip` field (MaterialCompiler/ModelAsset), and
+-- SceneDescriptor.wrap folds it into the resolved sampler wrap the GPU pool
+-- actually samples with.
+function T.repeat_with_flip_resolves_to_mirrored_repeat()
+  local record = {
+    id = 0,
+    name = "mat0",
+    texture = "tex.png",
+    wrap = { x = "repeat", y = "repeat" },
+    flip = { x = true, y = false },
+  }
+  Assert.deepEqual(
+    SceneDescriptor.wrap(record),
+    { x = "mirroredrepeat", y = "repeat" },
+    "a flipped repeat axis must resolve to the exact DS mirrored-repeat sampler mode, not collapse to plain repeat"
+  )
+end
+
+-- A flip bit on a clamped axis has no DS-visible effect (mirroring only
+-- matters under repeat), so clamp is preserved rather than becoming a bogus
+-- "mirroredrepeat clamp" mode.
+function T.flip_on_a_clamped_axis_is_inert()
+  local record = {
+    id = 0,
+    name = "mat0",
+    texture = "tex.png",
+    wrap = { x = "clamp", y = "repeat" },
+    flip = { x = true, y = true },
+  }
+  Assert.deepEqual(SceneDescriptor.wrap(record), { x = "clamp", y = "mirroredrepeat" })
+end
+
 -- The sampler-wrap map is keyed by material id (base texture and pattern
 -- variants of one material share its wrap): a texture path does not uniquely
 -- imply a wrap -- two materials can share pixels under different wraps -- so

@@ -34,7 +34,10 @@ local FieldErrors = require("libs.engine.src.FieldErrors")
 local GpuAssetPool = {}
 GpuAssetPool.__index = GpuAssetPool
 
-local WRAP_MODES = { clamp = true, ["repeat"] = true }
+-- LÖVE's real WrapMode vocabulary this pool configures Image:setWrap with;
+-- "mirroredrepeat" is SceneDescriptor.wrap's resolved DS mirrored-repeat mode
+-- (a repeated axis whose NSBTX material sets the flip bit).
+local WRAP_MODES = { clamp = true, ["repeat"] = true, mirroredrepeat = true }
 
 -- Release the last object of an owned list -- the failed acquisition's own --
 -- after `revert` undid its dedup-cache bookkeeping. The pop happens only when

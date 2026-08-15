@@ -190,7 +190,7 @@ local function doorDescriptor()
   -- quad under (the geometry path is arbitrary within this test).
   local meshSha = "mesh_door_quad_0000000000000000000000000000000000"
   return {
-    schema = "g4-model-v2",
+    schema = "g4-model-v3",
     key = "outdoor:26:door",
     memberId = 26,
     kind = "nitro-dynamic",

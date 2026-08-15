@@ -76,6 +76,32 @@ function T.quad_becomes_two_triangles()
   Assert.deepEqual(r.indices, { 0, 1, 2, 0, 2, 3 })
 end
 
+-- A quad polygon is triangulated into two triangles sharing a synthetic
+-- diagonal (0-2) that is not a real DS polygon edge. A ROM-corpus scan
+-- (HeartGold) found every wireframe-classified (polygonAlpha == 0) field
+-- shape in the corpus is submitted as a quad or quad strip (vtype 1/3) --
+-- never a plain triangle -- so MapRenderer's current
+-- love.graphics.setWireframe(true) pass over the triangulated mesh draws that
+-- diagonal as a visible edge on every wireframe polygon the corpus actually
+-- has, which is a real correctness bug, not a hypothetical one. The decoder
+-- keeps each primitive run's true perimeter alongside the triangulated
+-- indices, so a wireframe consumer can draw the perimeter instead of every
+-- triangle edge.
+function T.quad_perimeter_is_distinguishable_from_the_triangulation_diagonal()
+  local r = assert(Gx.decode(dl({
+    { op = 0x40, p = { 1 } }, -- BEGIN quads
+    vtx16(0, 0, 0),
+    vtx16(1, 0, 0),
+    vtx16(1, 1, 0),
+    vtx16(0, 1, 0),
+    { op = 0x41 },
+  })))
+  Assert.notNil(r.polygonEdges, "decode must report each primitive run's true GX perimeter edges")
+  -- The quad's real perimeter is 0-1, 1-2, 2-3, 3-0; the diagonal the
+  -- triangulation introduces (0-2) must not appear.
+  Assert.deepEqual(r.polygonEdges, { { 0, 1 }, { 1, 2 }, { 2, 3 }, { 3, 0 } })
+end
+
 function T.triangle_strip_winding()
   local r = assert(Gx.decode(dl({
     { op = 0x40, p = { 2 } }, -- BEGIN triangle strip

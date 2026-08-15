@@ -98,6 +98,7 @@ local function buildRing(pool, descriptors, clip)
         lightMask = batch.lightMask,
         polygonAlpha = batch.polygonAlpha / FixedPoint.RGB5_MAX,
         alphaClass = batch.alphaClass,
+        fogEnabled = batch.fogEnabled,
       }
       draw.mesh = entry.mesh
       draw.material = materials[batch.material]

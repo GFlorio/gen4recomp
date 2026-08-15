@@ -1,19 +1,21 @@
 -- The one polygon draw-state schema shared by the compiler emission, the
 -- serialized-artifact validator, and the runtime backend records: the
 -- static batch compiler (ModelAssetCompiler) and the dynamic segment path
--- (MapAssetCompiler) write the seven fields on both batch kinds,
+-- (MapAssetCompiler) write these fields on both batch kinds,
 -- ModelAsset.validate gates them at the artifact boundary, and the runtime
 -- backend records (ModelDefinition, ModelInstance) copy and consume them.
--- The static batch extras (farClipEnabled, oneDotEnabled, fogEnabled) are
--- authoring metadata the runtime does not consume, so they stay outside the
--- shared schema. No draw-state class hierarchy. Pure domain module.
+-- The static batch extras (farClipEnabled, oneDotEnabled) are authoring
+-- metadata the runtime does not consume, so they stay outside the shared
+-- schema. fogEnabled is included: the map shader's fog pass reads it per
+-- draw item, the same way lightMask/cullMode do. No draw-state class
+-- hierarchy. Pure domain module.
 
 local Errors = require("libs.errors.src.Errors")
 
 local PolygonState = {}
 
--- The seven polygon draw-state fields every serialized batch record carries
--- (the shape DsPolygonAttr.decode normalizes the DS POLYGON_ATTR word into).
+-- The polygon draw-state fields every serialized batch record carries (the
+-- shape DsPolygonAttr.decode normalizes the DS POLYGON_ATTR word into).
 PolygonState.FIELDS = {
   "cullMode",
   "polygonMode",
@@ -22,6 +24,7 @@ PolygonState.FIELDS = {
   "depthEqual",
   "polygonAlpha",
   "lightMask",
+  "fogEnabled",
 }
 
 -- The emitted cull-mode vocabulary: a polygon rendering neither surface is
@@ -93,6 +96,9 @@ function PolygonState.validate(record, context)
       "batch depthEqual = true is not supported: the HGSS field corpus never exercises DS depth-equal",
       { where = context }
     )
+  end
+  if type(record.fogEnabled) ~= "boolean" then
+    invalid("fogEnabled must be a boolean")
   end
 end
 

@@ -185,6 +185,7 @@ local function buildScene(pool, cacheFs, scene, opts)
       polygonAlpha = batch.polygonAlpha / FixedPoint.RGB5_MAX,
       alphaClass = batch.alphaClass,
       alphaCutoff = AlphaClassifier.CUTOUT_EPSILON,
+      fogEnabled = batch.fogEnabled,
     }
   end
 
@@ -229,6 +230,7 @@ local function buildScene(pool, cacheFs, scene, opts)
       polygonId = state.polygonId,
       translucentDepthWrite = state.translucentDepthWrite,
       depthEqual = state.depthEqual,
+      fogEnabled = state.fogEnabled,
       center = meshResource.center,
     }
   end

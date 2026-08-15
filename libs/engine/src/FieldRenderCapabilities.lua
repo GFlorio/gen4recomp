@@ -63,22 +63,31 @@ FieldRenderCapabilities.depthEqual = true
 -- translucent draws (MapRenderer's per-item `depthWrite` selection).
 FieldRenderCapabilities.translucentDepthWrite = true
 
--- Fog: `fogEnabled` is decoded and carried as metadata through the compiler
--- (MapAssetCompiler, ModelAssetCompiler, FieldActorModel/StaticModel) but no
--- fog uniform, table, or pass exists in map.glsl or MapRenderer. Not
--- implemented.
-FieldRenderCapabilities.fog = false
+-- Fog: `fogEnabled` is a real PolygonState.FIELDS member reaching every draw
+-- item (map/building/dynamic batches and field actors alike); map.glsl reads
+-- it as u_polygonFogEnabled and applies DsFog's exact combiner (density
+-- table lookup + color blend) gated by u_fogEnabled, its global companion.
+-- No per-area HGSS fog color/table/offset source was found under tmp/refs
+-- (unlike the edge-color tables); the field engine sets these registers
+-- live from weather/event scripts rather than a compiled-in per-area table.
+-- MapRenderer currently sends the DS SDK's confirmed idle default every
+-- frame (disabled, black, a zeroed table, zero offset -- GX_g3x.c's init
+-- state / the field engine's Heap-cleared FogData before any script calls
+-- G3X_SetFog), so fog never visibly fires yet; wiring a live weather-driven
+-- source is future work, tracked as a documented approximation rather than
+-- an unimplemented state.
+FieldRenderCapabilities.fog = true
 
 -- Wireframe: MapRenderer draws a real wireframe pass
 -- (love.graphics.setWireframe over the triangulated mesh); geometrically
 -- approximate (Story 11 notes triangle diagonals can show) but a real path.
 FieldRenderCapabilities.wireframe = true
 
--- Mirrored repeat: material.flip is decoded and validated
--- (MaterialCompiler, ModelAsset schema) but never read downstream --
--- GpuAssetPool/SceneDescriptor's WRAP_MODES only recognize "clamp" and
--- "repeat". Not implemented.
-FieldRenderCapabilities.mirroredRepeat = false
+-- Mirrored repeat: SceneDescriptor.wrap folds a repeated axis with the
+-- material's flip bit into LÖVE's real "mirroredrepeat" WrapMode (a flip on
+-- a clamped axis stays inert, since mirroring only has an effect under
+-- repeat); GpuAssetPool passes the resolved mode straight to Image:setWrap.
+FieldRenderCapabilities.mirroredRepeat = true
 
 -- Billboard: the whole camera-facing billboard vertex path (u_billboard,
 -- u_billboardCenter/Scale, BillboardTransform) is implemented and is how

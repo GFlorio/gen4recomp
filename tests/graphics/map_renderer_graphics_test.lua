@@ -90,6 +90,25 @@ function T.shader_has_polygon_light_mask_uniform(scope)
   shader:send("u_lightMask", { 0, 1, 0, 1 })
 end
 
+-- The ROM census proves fogEnabled is exercised by most HGSS field
+-- materials, so the fidelity shader carries a per-fragment fog gate, the
+-- global fog color, and the 32-entry density table -- applied
+-- post-composition (GBATEK "3D Display - Fog"), not invented distance fog
+-- from camera near/far.
+function T.shader_has_fog_uniforms(scope)
+  local shader = scope:own(MapRenderer.new()).shader
+
+  local zeroFogTable = {}
+  for i = 1, 32 do
+    zeroFogTable[i] = 0
+  end
+
+  shader:send("u_fogEnabled", true)
+  shader:send("u_fogColor", { 0.5, 0.5, 0.5 })
+  shader:send("u_fogTable", zeroFogTable)
+  shader:send("u_fogOffset", 0)
+end
+
 -- The DS composites edge color by RGB replacement, not an alpha-mix
 -- scalar, so the fidelity shader carries no alpha-mix uniform to blend
 -- against. Absence is checked the same way presence is checked elsewhere in

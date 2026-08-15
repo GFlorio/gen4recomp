@@ -122,6 +122,7 @@ local function writeItem(record, entry, partIndex, item)
   item.polygonId = polygon.polygonId
   item.translucentDepthWrite = polygon.translucentDepthWrite
   item.depthEqual = polygon.depthEqual
+  item.fogEnabled = polygon.fogEnabled
   item.center = geometry.center or item.center or { 0, geometry.bounds.height / 2, 0 }
   item.actorId = record.actorId
   item.spriteId = record.spriteId

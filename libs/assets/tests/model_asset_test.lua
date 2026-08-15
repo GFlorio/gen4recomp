@@ -132,9 +132,10 @@ end
 -- ---- authoritative artifact validation ----
 --
 -- The fixtures are the exact shapes MapAssetCompiler emits today (schema
--- g4-model-v2): dynamic batches carry the full polygon draw-state field set
--- (cullMode, polygonMode, polygonId, translucentDepthWrite, depthEqual,
--- polygonAlpha, lightMask) plus id/nodeIndex/materialIndex/drawIndex, dynamic
+-- ModelAsset.SCHEMA): dynamic batches carry the full polygon draw-state field
+-- set (cullMode, polygonMode, polygonId, translucentDepthWrite, depthEqual,
+-- polygonAlpha, lightMask, fogEnabled) plus id/nodeIndex/materialIndex/
+-- drawIndex, dynamic
 -- materials carry the four-channel colors block and the render fields, and
 -- animation records carry the clip envelope plus a compiled payload whose
 -- shape follows the clip kind. The valid shape must pass; each malformed
@@ -172,6 +173,7 @@ local function emittedDynamicBatch()
     depthEqual = false,
     polygonAlpha = 31,
     lightMask = 5,
+    fogEnabled = false,
   }
 end
 
@@ -188,10 +190,10 @@ local function emittedStaticBatch()
     polygonId = 0,
     translucentDepthWrite = false,
     depthEqual = false,
+    fogEnabled = true,
     -- The static-only extra fields stay outside the shared draw-state schema.
     farClipEnabled = true,
     oneDotEnabled = false,
-    fogEnabled = true,
   }
 end
 

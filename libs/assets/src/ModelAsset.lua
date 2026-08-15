@@ -30,7 +30,9 @@ local Validate = require("libs.assets.src.Validate")
 
 local ModelAsset = {}
 
-ModelAsset.SCHEMA = "g4-model-v2"
+-- v3: every batch record carries fogEnabled (PolygonState.FIELDS), the
+-- per-polygon fog gate the map shader now reads.
+ModelAsset.SCHEMA = "g4-model-v3"
 ModelAsset.KINDS = { static = true, ["nitro-dynamic"] = true }
 
 -- Structured error code owned by this module.

@@ -6,6 +6,7 @@ local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local CollisionFixture = require("tests.support.CollisionFixture")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
+local ModelAsset = require("libs.assets.src.ModelAsset")
 
 local T = {}
 
@@ -94,7 +95,8 @@ function T.not_ready_when_model_descriptor_references_missing_asset()
   c:write(
     modelPath,
     string.format(
-      "return { schema = 'g4-model-v2', key = %q, memberId = 1, kind = 'static', batches = { { geometry = %q } }, materials = {} }\n",
+      "return { schema = %q, key = %q, memberId = 1, kind = 'static', batches = { { geometry = %q } }, materials = {} }\n",
+      ModelAsset.SCHEMA,
       modelKey,
       meshPath
     )
@@ -148,7 +150,8 @@ function T.not_ready_when_a_variant_texture_is_missing()
   c:write(
     modelPath,
     string.format(
-      "return { schema = 'g4-model-v2', key = %q, memberId = 1, kind = 'static', batches = {}, materials = { { id = 0, name = 'wall', texture = %q, textureFormat = 3, wrap = { x = 'clamp', y = 'clamp' }, flip = { x = false, y = false }, diffuse = { r = 255, g = 255, b = 255, a = 255 }, variants = { { name = 'sign.a', texture = %q } } } } }\n",
+      "return { schema = %q, key = %q, memberId = 1, kind = 'static', batches = {}, materials = { { id = 0, name = 'wall', texture = %q, textureFormat = 3, wrap = { x = 'clamp', y = 'clamp' }, flip = { x = false, y = false }, diffuse = { r = 255, g = 255, b = 255, a = 255 }, variants = { { name = 'sign.a', texture = %q } } } } }\n",
+      ModelAsset.SCHEMA,
       modelKey,
       baseTexture,
       variantTexture
@@ -176,7 +179,7 @@ function T.referenced_paths_includes_neighbor_batches_and_materials()
   local neighborCollision = "data/generated/maps/0060/neighbors/3/collision.g4collision"
   local neighborTerrain = "data/generated/maps/0060/neighbors/3/terrain.lua"
   local scene = {
-    schema = "g4-map-scene-v6",
+    schema = "g4-map-scene-v7",
     mapId = 61,
     mapBatches = {},
     materials = {},

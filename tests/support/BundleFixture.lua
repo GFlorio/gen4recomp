@@ -41,7 +41,7 @@ function BundleFixture.minimal(mapId)
   end
 
   local scene = {
-    schema = "g4-map-scene-v6",
+    schema = "g4-map-scene-v7",
     mapId = mapId,
     mapBatches = { { geometry = MapAssetCache.geometryPath(meshSha), material = 0, node = 0 } },
     materials = {
@@ -79,7 +79,7 @@ function BundleFixture.minimal(mapId)
     textures = { [texSha] = { pixels = string.char(10, 20, 30, 255), width = 1, height = 1 } },
     models = {
       [modelKey] = {
-        schema = "g4-model-v2",
+        schema = "g4-model-v3",
         key = modelKey,
         memberId = 1,
         kind = "static",

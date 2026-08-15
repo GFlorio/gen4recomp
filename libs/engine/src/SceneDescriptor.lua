@@ -23,9 +23,23 @@ local SceneDescriptor = {}
 
 local WRAP_MODES = { clamp = true, ["repeat"] = true }
 
+-- Fold a resolved axis wrap with the NSBTX flip bit for that axis: DS mirrored
+-- repeat only has a visible effect under repeat -- flip on a clamped axis is
+-- inert, since mirroring never applies without wraparound -- so clamp always
+-- wins.
+local function foldAxis(mode, flip)
+  if mode == "repeat" and flip then
+    return "mirroredrepeat"
+  end
+  return mode
+end
+
 -- Resolve a material record's sampler wrap. The compiler emits the wrap pair
 -- on every material, so a missing or unknown wrap is malformed generated
--- data and raises instead of degrading to clamp.
+-- data and raises instead of degrading to clamp. `record.flip` (present when
+-- the material's NSBTX TEXIMAGE_PARAM sets a flip bit) folds a repeated axis
+-- into the exact DS mirrored-repeat sampler mode; its absence means no axis
+-- ever flips.
 function SceneDescriptor.wrap(record)
   local wrap = record.wrap
   if type(wrap) ~= "table" or not WRAP_MODES[wrap.x] or not WRAP_MODES[wrap.y] then
@@ -35,7 +49,11 @@ function SceneDescriptor.wrap(record)
       { material = record.id }
     )
   end
-  return wrap
+  local flip = record.flip
+  if not flip or (not flip.x and not flip.y) then
+    return wrap
+  end
+  return { x = foldAxis(wrap.x, flip.x), y = foldAxis(wrap.y, flip.y) }
 end
 
 -- Index a scene-form material list by id, validating each record's sampler
