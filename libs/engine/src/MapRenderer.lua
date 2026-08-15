@@ -35,8 +35,6 @@ local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
 local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local DsLighting = require("libs.engine.src.DsLighting")
-local DsDepth = require("libs.engine.src.DsDepth")
-local DsBlend = require("libs.engine.src.DsBlend")
 
 ---@class MapRenderer
 ---@field _graphics love.Graphics
@@ -106,14 +104,18 @@ local DEFAULT_CLEAR_COLOR = { 0, 0, 0, 1 }
 local IDENTITY_MODEL = Matrix4.identity()
 local IDENTITY_MODEL_NORMAL = Matrix3.identity()
 
+-- 24-bit rear-plane depth: the maximum value the shader's quantized
+-- depth domain can represent (see DS_DEPTH_MAX in map.glsl).
+local DS_DEPTH_MAX = 0xFFFFFF
+
 -- Rear-plane entry for the polygon-ID/depth/translucent-attribute target: the
 -- rear-plane sentinel (MapRenderer.REAR_PLANE_ID) at the farthest quantized
--- depth (DsDepth.MAX_DEPTH), not translucent (blue channel 0). Clearing depth
+-- depth (DS_DEPTH_MAX), not translucent (blue channel 0). Clearing depth
 -- to the maximum makes background neighbours read as farther than any real
 -- geometry -- that is what outlines silhouettes against the background
 -- (GBATEK: at the screen borders edges are resolved against the rear plane's
 -- polygon_id).
-local ID_CLEAR = { 1, DsDepth.MAX_DEPTH, 0, 1 }
+local ID_CLEAR = { 1, DS_DEPTH_MAX, 0, 1 }
 
 -- DS framebuffer height. Edge marking is one hardware pixel wide, so the
 -- post-process samples that many framebuffer pixels out to keep the outline at
@@ -127,7 +129,7 @@ local MAX_EDGE_RADIUS = 8
 -- map.glsl documents it). Translucent fragments stamp their own real polygon
 -- ID -- never a sentinel carved out of this domain -- and are told apart from
 -- opaque fragments by the target's separate translucent-attribute channel
--- (see u_translucentAttribute in map.glsl and DsEdgeMarking's edge predicate).
+-- (see u_translucentAttribute and the edge predicate in map.glsl).
 MapRenderer.MAX_POLYGON_ID = 63
 MapRenderer.REAR_PLANE_ID = 255
 
@@ -244,9 +246,9 @@ function MapRenderer:_ensureCanvases(w, h)
     -- stays DS-relative instead of blurring into the host resolution.
     sceneColor:setFilter("nearest", "nearest")
     -- Red holds the normalized polygon ID, green the DS-quantized W-buffer
-    -- depth (DsDepth.wbufferDepth's 24-bit integer domain, stored as a float),
-    -- blue the translucent-attribute flag (0 opaque/wireframe, 1 translucent
-    -- -- see u_translucentAttribute in map.glsl and DsEdgeMarking's edge
+    -- depth (a 24-bit integer domain, stored as a float; see dsWbufferDepth
+    -- in map.glsl), blue the translucent-attribute flag (0 opaque/wireframe,
+    -- 1 translucent -- see u_translucentAttribute in map.glsl's edge
     -- predicate). The format must be 32-bit float: the quantized depth spans
     -- the full 24-bit domain, which 16-bit floats cannot resolve exactly.
     idDepth = lg.newCanvas(w, h, { format = "rgba32f" })
@@ -444,8 +446,8 @@ end
 -- scripts rather than a compiled-in per-area table, so wiring that live source
 -- is future work. Sending this real, ROM-confirmed idle default (rather than a
 -- fabricated color/table) keeps the shader's fog gate/combiner path exercised
--- and correct while it is off; DsFog.applies' per-polygon gate still reaches
--- the shader unconditionally per draw (see u_polygonFogEnabled sends below).
+-- and correct while it is off; each draw's own per-polygon fog gate still
+-- reaches the shader unconditionally (see u_polygonFogEnabled sends below).
 local FOG_ZERO_TABLE = {}
 for i = 1, 32 do
   FOG_ZERO_TABLE[i] = 0
@@ -660,7 +662,7 @@ function MapRenderer:_drawMesh(
   -- the polygon ID -- translucent draws still send their own real ID above.
   shader:send("u_translucentAttribute", alphaClass == AlphaClassifier.TRANSLUCENT)
   shader:send("u_lightMask", LIGHT_MASK_UNIFORMS[item.lightMask])
-  -- This draw's own POLYGON_ATTR FOG_ENABLE bit (DsFog.applies' second gate);
+  -- This draw's own POLYGON_ATTR FOG_ENABLE bit (the per-polygon gate);
   -- the global gate/color/table/offset are frame-invariant (_sendFog).
   shader:send("u_polygonFogEnabled", item.fogEnabled == true)
   lg.setMeshCullMode(item.cullMode)
@@ -848,26 +850,25 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
     -- The ID/depth attachment carries alpha 1, so it is replaced -- not
     -- alpha-blended -- even while the colour attachment blends.
     --
-    -- DsBlend contract vs. host blend state: host `setBlendMode("alpha",
-    -- "alphamultiply")` reproduces DsBlend.blendRgb6's RGB equation exactly
-    -- in shape (Dst' = Src*SrcAlpha + Dst*(1-SrcAlpha); only the 5/6-bit vs.
+    -- DS blend contract vs. host blend state: host `setBlendMode("alpha",
+    -- "alphamultiply")` reproduces the DS RGB blend equation exactly in shape
+    -- (Dst' = Src*SrcAlpha + Dst*(1-SrcAlpha); only the 5/6-bit vs.
     -- continuous-float quantization differs, which is immaterial to the
     -- equation), so no shader/compositor replacement is needed for RGB.
-    -- DsBlend.blendAlpha5's max(SrcAlpha, DstAlpha) destination-alpha result
-    -- has no host fixed-function blend-factor equivalent, and
-    -- DsBlend.rejectsSelfBlend has no fixed-function equivalent at all --
-    -- both would require an auxiliary compositor that reads the
-    -- previously-written pixel while writing the current one. Neither gap is
-    -- closed here: nothing downstream of this pass samples sceneColor's own
-    -- alpha channel (the final composite draws it through edgeShader at full
-    -- opacity, and 2D UI draws independently afterward), so destination
-    -- alpha is provably unobserved; self-blend rejection has no corpus
-    -- evidence it is ever exercised (no field content census measures
-    -- same-polygon-ID overlapping-triangle occurrence), so building the
-    -- ping-pong compositor the spec allows for this case would add real
+    -- The DS destination-alpha result (max(SrcAlpha, DstAlpha)) has no host
+    -- fixed-function blend-factor equivalent, and DS self-blend rejection has
+    -- no fixed-function equivalent at all -- both would require an auxiliary
+    -- compositor that reads the previously-written pixel while writing the
+    -- current one. Neither gap is closed here: nothing downstream of this
+    -- pass samples sceneColor's own alpha channel (the final composite draws
+    -- it through edgeShader at full opacity, and 2D UI draws independently
+    -- afterward), so destination alpha is provably unobserved; self-blend
+    -- rejection has no corpus evidence it is ever exercised (no field content
+    -- census measures same-polygon-ID overlapping-triangle occurrence), so
+    -- building the ping-pong compositor this would require would add real
     -- complexity against a currently unproven need. Depth-write policy is
     -- the one part of the contract with an observable per-item effect, so it
-    -- is the one part actually routed through DsBlend below.
+    -- is the one part actually implemented below.
     local lastDepthWrite = true
     if #queue.translucent > 0 then
       lg.setBlendMode("alpha", "alphamultiply")
@@ -878,7 +879,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
       -- rejection): the renderer never branches on d.depthEqual and always
       -- compares "less", even if a defensively-constructed item still
       -- carries the field. Host `lequal` is retired, not merely unused.
-      local depthWrite = DsBlend.shouldWriteDepth(false, d.translucentDepthWrite)
+      local depthWrite = d.translucentDepthWrite
       if depthWrite ~= lastDepthWrite then
         lg.setDepthMode("less", depthWrite)
         lastDepthWrite = depthWrite

@@ -320,7 +320,7 @@ end
 
 -- DS DECAL keeps the texture RGB only where the texel is fully opaque
 -- (texture alpha 31/31); a fully transparent decal texel (alpha 0) must
--- render the vertex color untouched instead (DsFragment.decalRgb6).
+-- render the vertex color untouched instead (GBATEK DECAL texel format).
 function T.decal_zero_texture_alpha_renders_vertex_color(scope)
   local renderer = scope:own(MapRenderer.new())
   local image = solidAlphaImage(scope, 255, 0, 0, 0)
@@ -336,7 +336,7 @@ end
 
 -- A partially transparent DECAL texel (texture alpha strictly between 0 and
 -- 31/31) must interpolate texture and vertex RGB by that alpha, not render
--- the texture color unconditionally (DsFragment.decalRgb6).
+-- the texture color unconditionally (GBATEK DECAL texel format).
 function T.decal_partial_texture_alpha_blends_toward_vertex_color(scope)
   local renderer = scope:own(MapRenderer.new())
   local image = solidAlphaImage(scope, 255, 0, 0, 128)
