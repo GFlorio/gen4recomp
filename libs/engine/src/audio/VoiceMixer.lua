@@ -10,10 +10,12 @@
 --     (127 -> 128) >> sSampleDataShiftTable.
 --   * The envelope is the SDK state machine (SND_SetExChannelAttack
 --     coefficients, CalcDecayCoeff decay/release with the 127/126 special
---     cases, DecibelSquare[sustain]<<7 decay target, release stopped at
---     vol <= -723), advanced once per control step -- 192 Hz, one step per
---     outputRate/192 frames (SND_TIMER_RATE 240 at the 192 Hz sound
---     interval). The noteOn itself is the note's first control step.
+--     cases, DecibelSquare[sustain]<<7 decay target, release stopped when
+--     the dB sum crosses the vol <= -723 threshold at the step count
+--     NnsSoundMath.releaseStopSteps precomputed), advanced once per control
+--     step -- 192 Hz, one step per outputRate/192 frames (SND_TIMER_RATE
+--     240 at the 192 Hz sound interval). The noteOn itself is the note's
+--     first control step.
 --   * Pitch is the integer domain (key - originalKey)*0x40 through
 --     SND_CalcTimer (BIOS pitch table); square timers are masked with
 --     0xFFFC and square/noise use the 8006 base timer; the host phase
@@ -46,13 +48,6 @@
 -- chunk size. Output is interleaved stereo int16; mixing sums and
 -- saturates at +-32767/+-32768; per-voice host gains round with
 -- floor(x+0.5).
---
--- A compatibility surface is retained for the sequence player, which
--- still drives the mixer with the previous voice spec (a folded `volume`,
--- a `channelPriority`, a pre-mixed `pan`, no baseTimer) and treats the
--- returned channel number as the note handle. Those voices keep the
--- previous gain law, pitch ratios, pan curve and release behavior; the
--- NNS model above serves the {channel, generation} handle spec.
 
 local bit = require("bit")
 local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
@@ -63,8 +58,8 @@ local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 ---@field private _frameCount integer
 ---@field private _controlPeriod integer
 ---@field new fun(opts: { sampleRate: integer }): VoiceMixer
----@field noteOn fun(self: VoiceMixer, spec: table): integer | { channel: integer, generation: integer } | nil
----@field noteOff fun(self: VoiceMixer, handle: integer | { channel: integer, generation: integer })
+---@field noteOn fun(self: VoiceMixer, spec: table): { channel: integer, generation: integer } | nil
+---@field noteOff fun(self: VoiceMixer, handle: { channel: integer, generation: integer })
 ---@field updateVoice fun(self: VoiceMixer, handle: { channel: integer, generation: integer }, partial: table)
 ---@field render fun(self: VoiceMixer, frames: integer): integer[]
 
@@ -96,11 +91,10 @@ local SAMPLE_DATA_SHIFT = { 0, 1, 2, 4 }
 local PSG_BASE_TIMER = 8006
 local DS_SAMPLE_CLOCK = 16756991
 
--- The envelope starts fully attenuated and the release stops when the dB
--- sum crosses the SDK threshold (SND_exChannel.c ExChannelStart,
--- SND_VOL_DB_MIN).
+-- The envelope starts fully attenuated (SND_exChannel.c ExChannelStart);
+-- the release stops when the dB sum crosses the SDK threshold, computed by
+-- NnsSoundMath.releaseStopSteps.
 local ENV_START = -92544
-local VOL_DB_MIN = -723
 
 -- The 192 Hz sound interval (SND_main.c SndThread); control steps fire
 -- every outputRate/192 frames.
@@ -155,19 +149,6 @@ local function saturate(value)
     return -32768
   end
   return value
-end
-
--- C-style integer division truncation toward zero (the SDK's `/` on
--- possibly negative operands).
----@param x integer
----@param y integer
----@return integer
-local function cDiv(x, y)
-  local q = math.floor(x / y)
-  if x < 0 and x % y ~= 0 then
-    q = q + 1
-  end
-  return q
 end
 
 -- ExChannelVolumeCmp: the allocation tie-break compares the last-synced
@@ -267,18 +248,16 @@ local function dutyIndex(duty)
 end
 
 -- ---------------------------------------------------------------------------
--- NNS-model voices
+-- Voices
 
--- The per-note voice state of the NNS model: the SDK channel fields, the
--- track-pushed user values pending the next control step, and the
--- generator playback state.
+-- The per-note voice state: the SDK channel fields, the track-pushed user
+-- values pending the next control step, and the generator playback state.
 ---@param spec table
 ---@return table
 local function newVoice(spec)
   local generator = spec.generator
   assert(spec.originalKey ~= nil, "voice spec requires the original key")
   local voice = {
-    model = "new",
     generator = generator,
     midiKey = spec.key,
     rootMidiKey = spec.originalKey,
@@ -362,6 +341,14 @@ local function applyPending(voice)
   if pending.sweepCounter ~= nil then
     voice.sweepCounter = pending.sweepCounter
   end
+  -- The tie partials: key retunes the pitch path, velocity re-enters the
+  -- dB sum; both leave the envelope and the release/attack status alone.
+  if pending.key ~= nil then
+    voice.midiKey = pending.key
+  end
+  if pending.velocity ~= nil then
+    voice.velocity = pending.velocity
+  end
   pending.dirty = false
 end
 
@@ -419,8 +406,11 @@ end
 
 -- SND_ExChannelMain: the vol/pitch/pan computation and the register sync
 -- from the current channel state (without advancing the envelope/sweep/LFO
--- state machines). The release-stop threshold and the -0x8000 volume-LFO
--- guard live here; the PSG timer is masked with 0xFFFC.
+-- state machines). The release stop fires when the noteOff-precomputed
+-- releaseStepsRemaining is exhausted (the count NnsSoundMath
+-- .releaseStopSteps derived from the dB sum and the release recurrence);
+-- the -0x8000 volume-LFO guard lives here; the PSG timer is masked with
+-- 0xFFFC.
 ---@param voice table
 ---@return boolean -- false when the voice hit the release stop threshold
 local function syncRegisters(voice)
@@ -439,7 +429,7 @@ local function syncRegisters(voice)
   end
   local sweep = 0
   if voice.sweepPitch ~= 0 and voice.sweepCounter < voice.sweepLength then
-    sweep = cDiv(voice.sweepPitch * (voice.sweepLength - voice.sweepCounter), voice.sweepLength)
+    sweep = NnsSoundMath.cDiv(voice.sweepPitch * (voice.sweepLength - voice.sweepCounter), voice.sweepLength)
     pitch = pitch + sweep
   end
   local pan = voice.initPan
@@ -447,7 +437,7 @@ local function syncRegisters(voice)
     pan = pan + lfo
   end
   pan = pan + voice.userPan
-  if voice.released and voice.envStatus == "release" and vol <= VOL_DB_MIN then
+  if voice.released and voice.envStatus == "release" and voice.releaseStepsRemaining <= 0 then
     voice.dead = true
     return false
   end
@@ -485,6 +475,7 @@ local function controlStep(voice, advanceSweep)
     end
   elseif voice.envStatus == "release" then
     voice.envAttenuation = voice.envAttenuation - voice.envRelease
+    voice.releaseStepsRemaining = voice.releaseStepsRemaining - 1
   end
   if advanceSweep and voice.autoSweep and voice.sweepPitch ~= 0 and voice.sweepCounter < voice.sweepLength then
     voice.sweepCounter = voice.sweepCounter + 1
@@ -536,146 +527,6 @@ local function sampleAt(voice)
 end
 
 -- ---------------------------------------------------------------------------
--- Legacy-model voices (the pre-handle voice spec)
-
--- The level the legacy envelope holds at (stage, stageFrame): attack ramps
--- 0..1, decay ramps 1..sustain/127, sustain holds, release ramps from its
--- start level to 0.
----@param stage string
----@param stageFrame integer
----@param adsr table
----@param sustainLevel number
----@param releaseStart number
----@return number
-local function levelAt(stage, stageFrame, adsr, sustainLevel, releaseStart)
-  local duration = (127 - adsr[stage]) * 8
-  if stage == "attack" then
-    return stageFrame / duration
-  end
-  if stage == "decay" then
-    return 1 - (stageFrame / duration) * (1 - sustainLevel)
-  end
-  if stage == "sustain" then
-    return sustainLevel
-  end
-  return releaseStart * (1 - stageFrame / duration)
-end
-
--- Advances the legacy envelope by one frame and returns the per-frame
--- level multiplier, or nil when the voice ended (release ramp complete).
----@param voice table
----@return number?
-local function legacyEnvelopeAdvance(voice)
-  while true do
-    if voice.stage == "dead" then
-      return nil
-    end
-    local duration = (127 - voice.adsr[voice.stage]) * 8
-    if voice.stageFrame < duration then
-      break
-    end
-    if voice.stage == "release" then
-      voice.stage = "dead"
-      return nil
-    end
-    if voice.stage == "sustain" then
-      break
-    end
-    voice.stage = voice.nextStage[voice.stage]
-    voice.stageFrame = 0
-  end
-  local level = levelAt(voice.stage, voice.stageFrame, voice.adsr, voice.sustainLevel, voice.releaseStart)
-  voice.stageFrame = voice.stageFrame + 1
-  return level
-end
-
--- The legacy pan curve: pan 0 = left only, 127 = right only, 64 = equal
--- full gain on both sides.
-local function panFactors(pan)
-  return math.min(1, (127 - pan) / 63), math.min(1, pan / 63)
-end
-
----@param spec table
----@param outputRate integer
----@return table
-local function newLegacyVoice(spec, outputRate)
-  local generator = spec.generator
-  local panLeft, panRight = panFactors(spec.pan)
-  local voice = {
-    model = "legacy",
-    generator = generator,
-    adsr = spec.envelope,
-    sustainLevel = spec.envelope.sustain / 127,
-    stage = "attack",
-    stageFrame = 0,
-    nextStage = { attack = "decay", decay = "sustain", sustain = "sustain", release = "dead" },
-    releaseStart = 0,
-    gain = (spec.velocity / 127) * (spec.volume / 127) * (spec.expression / 127),
-    -- The pre-handle spec carries the final pan, folded by the player.
-    panLeft = panLeft,
-    panRight = panRight,
-  }
-  if generator.kind == "sample" then
-    assert(
-      spec.pcm ~= nil and spec.sampleRate ~= nil and spec.loop ~= nil and spec.originalKey ~= nil,
-      "sample voice spec requires pcm, sampleRate, loop and originalKey"
-    )
-    assert(type(spec.loopEnabled) == "boolean", "sample voice spec requires the wave's loop flag")
-    voice.pcm = decodePcm(spec.pcm)
-    voice.ratio = (spec.sampleRate / outputRate) * 2 ^ ((spec.key - spec.originalKey) / 12)
-    voice.pos = 0
-    voice.loop = spec.loop
-    voice.loopEnabled = spec.loopEnabled
-  elseif generator.kind == "square" then
-    voice.high = math.floor(generator.duty * 8 + 0.5)
-    voice.ratio = 2 ^ ((spec.key - 60) / 12)
-    voice.phase = 0
-  else
-    voice.ratio = 2 ^ ((spec.key - 60) / 12)
-    voice.phase = 0
-    voice.lfsr = 0x7FFF
-  end
-  return voice
-end
-
--- Reads one legacy-model sample and advances the playback state.
----@param voice table
----@return integer
-local function legacySampleAt(voice)
-  if voice.generator.kind == "sample" then
-    local sample = voice.pcm[math.floor(voice.pos) + 1]
-    voice.pos = voice.pos + voice.ratio
-    if voice.pos >= voice.loop.endFrame then
-      if voice.loopEnabled then
-        local span = voice.loop.endFrame - voice.loop.startFrame
-        while voice.pos >= voice.loop.endFrame do
-          voice.pos = voice.pos - span
-        end
-      else
-        voice.stage = "dead"
-      end
-    end
-    return sample
-  end
-  if voice.generator.kind == "noise" then
-    local sample = voice.lfsr % 2 == 1 and -32767 or 32767
-    voice.phase = voice.phase + voice.ratio
-    while voice.phase >= 1 do
-      voice.phase = voice.phase - 1
-      if voice.lfsr % 2 == 1 then
-        voice.lfsr = bit.bxor(bit.rshift(voice.lfsr, 1), 0x6000)
-      else
-        voice.lfsr = bit.rshift(voice.lfsr, 1)
-      end
-    end
-    return sample
-  end
-  local sample = (math.floor(voice.phase) % 8) < (8 - voice.high) and -32767 or 32767
-  voice.phase = voice.phase + voice.ratio
-  return sample
-end
-
--- ---------------------------------------------------------------------------
 -- Mixer
 
 function VoiceMixer.new(opts)
@@ -688,44 +539,26 @@ function VoiceMixer.new(opts)
   }, VoiceMixer)
 end
 
--- Starts a voice for `spec`. The NNS spec (trackVolume/trackPriority,
--- {channel, generation} handle) uses the SDK channel model; the legacy
--- spec (volume/channelPriority, channel-number handle) keeps the previous
--- voice model. Returns nil when the note is rejected (no allowed channel
--- or priority below the chosen occupied channel's).
+-- Starts a voice for `spec` (the NNS spec: trackVolume/trackPriority,
+-- {channel, generation} handle). Returns nil when the note is rejected (no
+-- allowed channel or priority below the chosen occupied channel's).
 ---@param spec table
----@return integer | { channel: integer, generation: integer } | nil
+---@return { channel: integer, generation: integer } | nil
 function VoiceMixer:noteOn(spec)
   assert(spec and spec.generator and spec.envelope, "voice spec requires a generator and envelope")
   assert(
     spec.key ~= nil and spec.velocity ~= nil and spec.playerPriority ~= nil and spec.channelMask ~= nil,
     "voice spec requires key/velocity/playerPriority/channelMask"
   )
-  local legacy = spec.volume ~= nil
-  if not legacy then
-    assert(
-      spec.trackVolume ~= nil and spec.expression ~= nil and spec.playerVolume ~= nil,
-      "voice spec requires trackVolume/expression/playerVolume"
-    )
-    assert(spec.pan ~= nil and spec.trackPriority ~= nil, "voice spec requires pan/trackPriority")
-  else
-    assert(
-      spec.expression ~= nil and spec.pan ~= nil and spec.channelPriority ~= nil,
-      "voice spec requires expression/pan/channelPriority"
-    )
-  end
-  local priority = spec.playerPriority + (spec.trackPriority or spec.channelPriority)
+  assert(
+    spec.trackVolume ~= nil and spec.expression ~= nil and spec.playerVolume ~= nil,
+    "voice spec requires trackVolume/expression/playerVolume"
+  )
+  assert(spec.pan ~= nil and spec.trackPriority ~= nil, "voice spec requires pan/trackPriority")
+  local priority = spec.playerPriority + spec.trackPriority
   local channel, victim = allocateChannel(self, spec.generator.kind, spec.channelMask, priority)
   if channel == nil then
     return nil
-  end
-  local voice
-  if legacy then
-    voice = newLegacyVoice(spec, self._sampleRate)
-    voice.priority = priority
-    voice.generation = victim and victim.generation + 1 or 0
-    self._channels[channel] = voice
-    return channel
   end
   if spec.generator.kind == "sample" then
     assert(
@@ -734,7 +567,7 @@ function VoiceMixer:noteOn(spec)
     )
     assert(type(spec.loopEnabled) == "boolean", "sample voice spec requires the wave's loop flag")
   end
-  voice = newVoice(spec)
+  local voice = newVoice(spec)
   voice._outputRate = self._sampleRate
   voice.priority = priority
   voice.generation = victim and victim.generation + 1 or 0
@@ -747,37 +580,42 @@ end
 
 -- Starts the release of the voice a handle names. A stale handle (channel
 -- stolen, generation replaced) and a dead voice are harmless no-ops, as is
--- a note-off for a voice already releasing. The legacy channel-number
--- handle starts the legacy release model.
----@param handle integer | { channel: integer, generation: integer }
+-- a note-off for a voice already releasing. The release runs
+-- releaseStepsRemaining control steps (NnsSoundMath.releaseStopSteps from
+-- the current dB-sum inputs and release coefficient) before the voice
+-- stops.
+---@param handle { channel: integer, generation: integer }
 function VoiceMixer:noteOff(handle)
-  if type(handle) == "number" then
-    local voice = self._channels[handle]
-    if voice == nil or voice.model ~= "legacy" or voice.stage == "dead" then
-      return
-    end
-    if voice.stage ~= "release" then
-      voice.releaseStart = levelAt(voice.stage, voice.stageFrame, voice.adsr, voice.sustainLevel, voice.releaseStart)
-      voice.stage = "release"
-      voice.stageFrame = 0
-    end
-    return
-  end
   local voice = self._channels[handle.channel]
-  if voice == nil or voice.model ~= "new" or voice.generation ~= handle.generation or voice.released or voice.dead then
+  if voice == nil or voice.generation ~= handle.generation or voice.released or voice.dead then
     return
   end
   voice.released = true
   voice.envStatus = "release"
+  -- The stop is precomputed from the queued (not yet applied) pending
+  -- values: the pending apply precedes the first release decrement at the
+  -- next control step.
+  voice.releaseStepsRemaining = NnsSoundMath.releaseStopSteps({
+    velocity = voice.velocity,
+    envAttenuation = voice.envAttenuation,
+    trackVolume = voice.pending.trackVolume,
+    expression = voice.pending.expression,
+    playerVolume = voice.pending.playerVolume,
+    fader = voice.pending.fader,
+    releaseCoeff = voice.envRelease,
+  })
 end
 
 -- Queues track-level control values for the voice a handle names; they are
--- applied at the next control step. A stale or dead handle is harmless.
+-- applied at the next control step. The `key` partial retunes the voice
+-- through the note's pitch path (the timer/ratio recompute) without
+-- touching the envelope or the release/attack status; `velocity` updates
+-- the velocity in the volume dB sum. A stale or dead handle is harmless.
 ---@param handle { channel: integer, generation: integer }
 ---@param partial table
 function VoiceMixer:updateVoice(handle, partial)
   local voice = self._channels[handle.channel]
-  if voice == nil or voice.model ~= "new" or voice.generation ~= handle.generation or voice.released or voice.dead then
+  if voice == nil or voice.generation ~= handle.generation or voice.released or voice.dead then
     return
   end
   for key, value in pairs(partial) do
@@ -787,7 +625,7 @@ function VoiceMixer:updateVoice(handle, partial)
 end
 
 -- Renders `frames` output frames of interleaved stereo int16 PCM
--- (2*frames entries). New-model voices read at their position, advance
+-- (2*frames entries). Voices read at their position, advance
 -- with the current ratio, and run a control step at the end of every
 -- control-period frame on the mixer's absolute frame count; queued track
 -- values are applied and the registers resynced at the start of the next
@@ -804,7 +642,7 @@ function VoiceMixer:render(frames)
     if (self._frameCount + 1) % self._controlPeriod == 0 then
       for channel = 0, CHANNEL_COUNT - 1 do
         local voice = self._channels[channel]
-        if voice ~= nil and voice.model == "new" and voice.pending.dirty then
+        if voice ~= nil and voice.pending.dirty then
           applyPending(voice)
           syncRegisters(voice)
           if voice.dead then
@@ -817,26 +655,15 @@ function VoiceMixer:render(frames)
     for channel = 0, CHANNEL_COUNT - 1 do
       local voice = self._channels[channel]
       if voice ~= nil then
-        if voice.model == "legacy" then
-          local level = legacyEnvelopeAdvance(voice)
-          if level == nil then
-            self._channels[channel] = nil
-          else
-            local sample = legacySampleAt(voice)
-            left = left + math.floor(sample * voice.gain * level * voice.panLeft + 0.5)
-            right = right + math.floor(sample * voice.gain * level * voice.panRight + 0.5)
-          end
-        else
-          local sample = sampleAt(voice)
-          -- The one-shot boundary sample still sounds; the voice is
-          -- removed after this frame.
-          local gain = registerGain(voice.volume)
-          local panLeft, panRight = panMix(voice.pan)
-          left = left + math.floor(sample * gain * panLeft + 0.5)
-          right = right + math.floor(sample * gain * panRight + 0.5)
-          if voice.dead then
-            self._channels[channel] = nil
-          end
+        local sample = sampleAt(voice)
+        -- The one-shot boundary sample still sounds; the voice is
+        -- removed after this frame.
+        local gain = registerGain(voice.volume)
+        local panLeft, panRight = panMix(voice.pan)
+        left = left + math.floor(sample * gain * panLeft + 0.5)
+        right = right + math.floor(sample * gain * panRight + 0.5)
+        if voice.dead then
+          self._channels[channel] = nil
         end
       end
     end
@@ -846,7 +673,7 @@ function VoiceMixer:render(frames)
     if self._frameCount % self._controlPeriod == 0 then
       for channel = 0, CHANNEL_COUNT - 1 do
         local voice = self._channels[channel]
-        if voice ~= nil and voice.model == "new" then
+        if voice ~= nil then
           if not voice.dead then
             controlStep(voice, true)
           end

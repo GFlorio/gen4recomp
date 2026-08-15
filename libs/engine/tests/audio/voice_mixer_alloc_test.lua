@@ -262,6 +262,59 @@ function T.track_control_updates_apply_at_the_next_control_step()
   Assert.equal(rightAt(second, CONTROL), 3200, "pan range 64 scales the offset to register 80")
 end
 
+-- updateVoice retunes a live voice at the next control step: `key`
+-- re-enters the note's pitch path (midiKey -> SND_CalcTimer -> timer/ratio)
+-- without touching the envelope state or the release/attack status, so a
+-- tied note keeps its attack progression. Key 72 doubles the read rate
+-- (timer 4003) from the boundary frame on; the attack-100 register pins
+-- show the curve continued from step 3 instead of restarting.
+function T.update_voice_retunes_the_key_at_the_next_control_step()
+  local function run(overrides, firstLength, secondLength)
+    local mixer = newMixer()
+    local handle = mixer:noteOn(spec(overrides)) --[[@as { channel: integer, generation: integer }]]
+    local first = mixer:render(firstLength)
+    mixer:updateVoice(handle, { key = 72 })
+    local second = mixer:render(secondLength)
+    return first, second
+  end
+  local first, second =
+    run({ pcm = AudioFixture.pcm16le(WAVE16), pan = 0, loop = { startFrame = 0, endFrame = 16 } }, CONTROL, 300)
+  Assert.equal(leftAt(first, CONTROL), 1000, "key 60 plays at unity pitch through the first block")
+  Assert.equal(leftAt(second, CONTROL - 1), 300, "the frame before the boundary still reads at unity pitch")
+  Assert.equal(leftAt(second, CONTROL), 400, "the boundary frame's own read hears the retune")
+  Assert.equal(leftAt(second, CONTROL + 1), 600, "key 72 reads every other sample from the next frame")
+  Assert.equal(leftAt(second, CONTROL + 2), 800, "key 72 reads every other sample from the next frame")
+  Assert.equal(leftAt(second, CONTROL + 3), 1000, "key 72 reads every other sample from the next frame")
+
+  local pcm = AudioFixture.pcm16le({ 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 })
+  first, second = run({
+    pcm = pcm,
+    pan = 0,
+    loop = { startFrame = 0, endFrame = 8 },
+    envelope = { attack = 100, decay = 127, sustain = 127, release = 127 },
+  }, 500, 750)
+  Assert.equal(leftAt(first, CONTROL), 13, "attack step 1 holds register 0x30D through the first block")
+  Assert.equal(leftAt(first, CONTROL + 1), 96, "attack step 2 reaches register 0x360")
+  Assert.equal(leftAt(second, CONTROL), 320, "the retune leaves the step-3 register untouched")
+  Assert.equal(leftAt(second, CONTROL + 1), 664, "attack step 4 continues from the retuned voice")
+  Assert.equal(leftAt(second, 750), 1040, "the attack continues toward the sustain register")
+end
+
+-- updateVoice velocity reaches the volume dB sum at the next control step
+-- like the other pending values: db[64] = -119 moves the register from 0x7F
+-- to 0x141.
+function T.update_voice_velocity_changes_the_volume_at_the_next_control_step()
+  local pcm = AudioFixture.pcm16le({ 5120, 5120, 5120, 5120, 5120, 5120, 5120, 5120 })
+  local mixer = newMixer()
+  local handle = mixer:noteOn(spec({ pcm = pcm, pan = 0, loop = { startFrame = 0, endFrame = 8 } })) --[[@as { channel: integer, generation: integer }]]
+  local first = mixer:render(CONTROL)
+  mixer:updateVoice(handle, { velocity = 64 })
+  local second = mixer:render(CONTROL)
+  Assert.equal(leftAt(first, CONTROL), 5120, "velocity 127 holds the full register")
+  Assert.equal(leftAt(second, CONTROL - 1), 5120, "the frame before the boundary keeps the old velocity")
+  Assert.equal(leftAt(second, CONTROL), 1300, "velocity 64 reaches register 0x141 at the next control step")
+end
+
 -- The LFO state machine (SND_UpdateLfo counter, delay counter and
 -- SND_SinIdx table) runs per control step; a pan-target LFO feeds the
 -- hardware register through ExChannelLfoUpdate (sin*depth*range*64>>14).

@@ -1766,6 +1766,45 @@ function NnsSoundMath.calcChannelVolume(value)
   return result + div * 256
 end
 
+-- The release-stop step count (SND_exChannel.c ExChannelMain with
+-- SND_UpdateExChannelEnvelope release): the control steps until the dB sum
+-- decibelSquare(velocity) + envAttenuation>>7 + decibelSquare(trackVolume)
+-- + decibelSquare(expression) + decibelSquare(playerVolume) + fader falls
+-- to <= SND_VOL_DB_MIN (-723) while the envelope decrements by the release
+-- coefficient once per control step. `envAttenuation` is the value before
+-- the first decrement (the state at noteOff); the step that crosses the
+-- threshold is the release's last step.
+---@param state { velocity: integer, envAttenuation: integer, trackVolume: integer, expression: integer, playerVolume: integer, fader: integer, releaseCoeff: integer }
+---@return integer
+function NnsSoundMath.releaseStopSteps(state)
+  local fixed = NnsSoundMath.decibelSquare(state.velocity)
+    + NnsSoundMath.decibelSquare(state.trackVolume)
+    + NnsSoundMath.decibelSquare(state.expression)
+    + NnsSoundMath.decibelSquare(state.playerVolume)
+    + state.fader
+  local env = state.envAttenuation
+  local steps = 0
+  repeat
+    env = env - state.releaseCoeff
+    steps = steps + 1
+  until fixed + math.floor(env / 128) <= VOL_DB_MIN
+  return steps
+end
+
+-- C-style integer division truncating toward zero (the SDK's `/` on
+-- possibly negative operands), including a negative divisor.
+---@param x integer
+---@param y integer
+---@return integer
+function NnsSoundMath.cDiv(x, y)
+  local q = math.floor(x / y)
+  local remainder = x - q * y
+  if remainder ~= 0 and (x < 0) ~= (y < 0) then
+    q = q + 1
+  end
+  return q
+end
+
 -- SNDi_DecibelSquareTable lookup.
 ---@param index integer
 ---@return integer

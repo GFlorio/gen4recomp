@@ -124,9 +124,9 @@ end
 -- tests can pin a wave's rate, base timer, loop flag, and loop window;
 -- `file` stays the canonical content-addressed path. One-shot waves
 -- (loopEnabled false) must carry the full-range window, mirroring the
--- compiler's normalization. baseTimer defaults to the DS rate/timer relation
--- (16756991/rate), so the fixture never carries a timer that contradicts its
--- rate.
+-- compiler's normalization. baseTimer defaults to 8006, the DS base timer
+-- (16756991/2093); it is the value the mixer suites pin, and it makes
+-- octave ratios exact (key 72 -> ratio exactly 2.0).
 function AudioFixture.sampleMetadata(key, opts)
   opts = opts or {}
   local frames = opts.frames or 8214
@@ -138,7 +138,7 @@ function AudioFixture.sampleMetadata(key, opts)
     file = AudioCache.samplePath(key),
     frames = frames,
     sampleRate = sampleRate,
-    baseTimer = opts.baseTimer or math.floor(16756991 / sampleRate),
+    baseTimer = opts.baseTimer or 8006,
     loopEnabled = opts.loopEnabled ~= false,
     loop = loop,
   }

@@ -195,6 +195,14 @@ local function mixedAB(frames)
   return out
 end
 
+-- The expected-PCM model (release cadence) is shared with the
+-- sequence-player suite; see tests/support/AudioPattern.lua.
+local AudioPattern = require("tests.support.AudioPattern")
+local waveAt = AudioPattern.waveAt
+local segment = AudioPattern.segment
+local sumSegments = AudioPattern.sumSegments
+local slice = AudioPattern.slice
+
 -- The post-fanfare wait interval in field ticks: the HGSS fanfare machine
 -- counts down a u16 timer set to 0x0F at PlayFanfare (PlayFanfare -> the
 -- timer-set helper in the sound code), decremented once the fanfare player
@@ -210,7 +218,18 @@ function T.bgm_plays_tracks_current_music_and_stops()
   Assert.isTrue(sound:isSaveStable(), "ordinary continuous map bgm is stable")
   sound:stopMusic()
   Assert.isNil(sound:currentMusic())
-  Assert.deepEqual(left(sound:render(500), 500), zeros(500), "stopMusic silences the bgm")
+  -- The tick at frame 500 retriggers the looping bgm's note before
+  -- stopMusic runs, so the ring-out is the old voice plus the retriggered
+  -- voice (both released at frame 500).
+  local after = sumSegments({
+    segment(waveAt(WAVE_A, 1, 1), 1, 1, 1000, 500),
+    segment(waveAt(WAVE_A, 1, 501), 1, 501, 1000, 500),
+  }, 1000)
+  Assert.deepEqual(
+    left(sound:render(500), 500),
+    slice(after, 501, 1000),
+    "stopMusic releases the voices: they ring to the next control step, then the release tail"
+  )
   Assert.isTrue(sound:isSaveStable())
 end
 
@@ -220,7 +239,15 @@ function T.play_music_replaces_the_running_bgm_on_its_player()
   sound:render(100)
   sound:playMusic("SEQ_TEST_BGM_B")
   Assert.equal(sound:currentMusic(), 4)
-  Assert.deepEqual(left(sound:render(500), 500), wavePattern(WAVE_B, 500), "only the replacement bgm is audible")
+  local after = sumSegments({
+    segment(waveAt(WAVE_A, 1, 1), 1, 1, 600, 100),
+    segment(waveAt(WAVE_B, 1, 101), 1, 101, 600),
+  }, 600)
+  Assert.deepEqual(
+    left(sound:render(500), 500),
+    slice(after, 101, 600),
+    "the released bgm rings its release tail under the replacement"
+  )
 end
 
 function T.effects_overlap_bgm_and_report_player_completion()
@@ -231,11 +258,18 @@ function T.effects_overlap_bgm_and_report_player_completion()
   Assert.isFalse(sound:isSaveStable(), "an effect that can be awaited blocks saving")
   local pcm = sound:render(600)
   Assert.deepEqual(left(pcm, 500), mixedAB(500), "the effect overlaps the bgm")
-  local tail = {}
-  for i = 1, 100 do
-    tail[i] = pcm[(500 + i) * 2 - 1]
-  end
-  Assert.deepEqual(tail, wavePattern(WAVE_A, 100), "the bgm outlives the effect")
+  -- The tick at frame 500 releases both notes; their release lag and tail
+  -- overlap the bgm's retrigger at frame 501.
+  local expected = sumSegments({
+    segment(waveAt(WAVE_A, 1, 1), 1, 1, 600, 500),
+    segment(waveAt(WAVE_A, 1, 501), 1, 501, 600),
+    segment(waveAt(WAVE_B, 1, 1), 1, 1, 600, 500),
+  }, 600)
+  Assert.deepEqual(
+    slice(expected, 501, 600),
+    slice(left(pcm, 600), 501, 600),
+    "the release tails overlap the retrigger"
+  )
   Assert.isFalse(sound:isEffectPlaying(1), "the effect completed; the bgm player is untouched")
   Assert.isTrue(sound:isSaveStable())
 end
@@ -253,11 +287,20 @@ function T.effect_waits_follow_the_sequence_player_state()
   sound:play(1)
   sound:play(3)
   Assert.isTrue(sound:isEffectPlaying(1), "a later effect on the same player keeps the player busy")
-  Assert.deepEqual(left(sound:render(500), 500), wavePattern(WAVE_B, 500), "the replacement effect plays")
+  -- The replaced effect rings its release tail under the replacement.
+  local expected = sumSegments({
+    segment(waveAt(WAVE_B, 1, 1), 1, 1, 1500, 0),
+    segment(waveAt(WAVE_B, 1, 1), 1, 1, 1500, 1000),
+  }, 1500)
+  Assert.deepEqual(
+    left(sound:render(500), 500),
+    slice(expected, 1, 500),
+    "the replacement effect rings over the released effect's tail"
+  )
   Assert.isTrue(sound:isEffectPlaying(1), "the replacement effect keeps its player busy through its window")
   Assert.deepEqual(
     left(sound:render(500), 500),
-    wavePattern(WAVE_B, 500),
+    slice(expected, 501, 1000),
     "the replacement effect plays its full duration"
   )
   sound:render(200)
@@ -273,18 +316,14 @@ function T.stop_effect_stops_only_its_player()
   Assert.deepEqual(left(sound:render(200), 200), mixedAB(200), "bgm and effect are both audible")
   sound:stop(1)
   Assert.isFalse(sound:isEffectPlaying(1))
-  -- The bgm has run 400 frames when this chunk starts; its 500-frame note
-  -- retriggers fresh at its tick boundary inside the chunk (the DS sample
-  -- restart the player suite pins), so the expected wave restarts there.
-  local expected = {}
-  for i = 1, 500 do
-    local bgmFrame = 400 + i
-    if bgmFrame > 500 then
-      bgmFrame = bgmFrame - 500
-    end
-    expected[i] = WAVE_A[(bgmFrame - 1) % 8 + 1]
-  end
-  Assert.deepEqual(left(sound:render(500), 500), expected, "the bgm survives the effect stop")
+  -- The stopped effect rings its release tail while the bgm keeps looping
+  -- (its own tick release overlaps the retrigger at frame 501).
+  local expected = sumSegments({
+    segment(waveAt(WAVE_A, 1, 1), 1, 1, 900, 500),
+    segment(waveAt(WAVE_A, 1, 501), 1, 501, 900),
+    segment(waveAt(WAVE_B, 1, 1), 1, 1, 900, 400),
+  }, 900)
+  Assert.deepEqual(left(sound:render(500), 500), slice(expected, 401, 900), "the bgm survives the effect stop")
 end
 
 function T.current_effect_returns_the_most_recent_effect()
@@ -306,17 +345,39 @@ function T.fanfare_pauses_bgm_plays_and_resumes_after_the_post_wait()
   sound:playFanfare("SEQ_TEST_FANFARE")
   Assert.isTrue(sound:isFanfarePlaying())
   Assert.isFalse(sound:isSaveStable(), "a fanfare blocks saving")
-  Assert.deepEqual(left(sound:render(500), 500), wavePattern(WAVE_C, 500), "the fanfare plays through its own player")
+  -- The paused bgm rings its release tail under the fanfare; the fanfare
+  -- note (dur 1, started at frame 201) expires at the next tick (frame 500).
+  local during = sumSegments({
+    segment(waveAt(WAVE_A, 1, 1), 1, 1, 700, 200),
+    segment(waveAt(WAVE_C, 1, 201), 1, 201, 700, 500),
+  }, 700)
+  Assert.deepEqual(
+    left(sound:render(500), 500),
+    slice(during, 201, 700),
+    "the fanfare plays while the paused bgm's release tail rings out"
+  )
   Assert.isTrue(sound:isFanfarePlaying(), "the post-fanfare wait interval is still fanfare-playing")
   Assert.isFalse(sound:isSaveStable())
   for _ = 1, FANFARE_POST_WAIT_TICKS - 1 do
     sound:updateFixed()
   end
   Assert.isTrue(sound:isFanfarePlaying(), "the interval holds for its full length")
-  Assert.deepEqual(left(sound:render(100), 100), zeros(100), "the bgm stays suspended through the interval")
+  local held = sumSegments({ segment(waveAt(WAVE_C, 1, 201), 1, 201, 800, 500) }, 800)
+  Assert.deepEqual(
+    left(sound:render(100), 100),
+    slice(held, 701, 800),
+    "the fanfare's release rings through the interval; the bgm stays suspended"
+  )
   sound:updateFixed()
   Assert.isFalse(sound:isFanfarePlaying(), "the interval expired")
-  Assert.deepEqual(left(sound:render(500), 500), wavePattern(WAVE_A, 500), "the prior bgm resumes")
+  -- The resumed bgm starts fresh at 801; the fanfare's own release tail
+  -- (it expired at frame 500) still rings through frame 1000, so the
+  -- resumed window sums the fanfare tail under the bgm.
+  local resumed = sumSegments({
+    segment(waveAt(WAVE_C, 1, 201), 1, 201, 1300, 500),
+    segment(waveAt(WAVE_A, 1, 801), 1, 801, 500),
+  }, 1300)
+  Assert.deepEqual(left(sound:render(500), 500), slice(resumed, 801, 1300), "the prior bgm resumes")
   Assert.isTrue(sound:isSaveStable())
 end
 
@@ -336,7 +397,15 @@ function T.fade_out_takes_exactly_duration_ticks_then_stops_the_bgm()
   Assert.isTrue(sound:isMusicFadeActive(), "the fade holds through durationTicks-1 updates")
   sound:updateFixed()
   Assert.isFalse(sound:isMusicFadeActive())
-  Assert.deepEqual(left(sound:render(500), 500), zeros(500), "the fade-out stopped the bgm")
+  -- The stopped bgm rings its release tail (the note had played 200 frames;
+  -- the stop lands at absolute frame 200, so the release lag runs to the
+  -- next control step at frame 250).
+  local after = sumSegments({ segment(waveAt(WAVE_A, 1, 1), 1, 201, 500, 200) }, 700)
+  Assert.deepEqual(
+    left(sound:render(500), 500),
+    slice(after, 201, 700),
+    "the fade-out stopped the bgm; its release tail rings out"
+  )
   Assert.equal(sound:currentMusic(), 0, "the current-music reference survives for fade-in")
   Assert.isTrue(sound:isSaveStable())
 end
@@ -357,7 +426,14 @@ function T.fade_in_restores_the_current_bgm_after_its_ticks()
   Assert.isTrue(sound:isMusicFadeActive())
   sound:updateFixed()
   Assert.isFalse(sound:isMusicFadeActive())
-  Assert.deepEqual(left(sound:render(500), 500), wavePattern(WAVE_A, 500), "the current bgm plays again")
+  -- The resumed bgm's first frames sum two voices: the old note (released
+  -- at frame 200 when the fade-out stopped the bgm) rings its tail while
+  -- the restarted note begins at frame 201.
+  local resumed = sumSegments({
+    segment(waveAt(WAVE_A, 1, 1), 1, 1, 700, 200),
+    segment(waveAt(WAVE_A, 1, 201), 1, 201, 700),
+  }, 700)
+  Assert.deepEqual(left(sound:render(500), 500), slice(resumed, 201, 700), "the current bgm plays again")
 end
 
 -- HGSS ignores a fade command while a fade is already active (the fade
