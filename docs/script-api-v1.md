@@ -112,7 +112,7 @@ Constructors return ordinary serializable Lua tables. Direct table form is alway
 
 | Signature | Canonical | Notes |
 |---|---|---|
-| `S.sign(message, opts)` | `op=sign` | opts={appearance="sign",mapGraphic=nil,wait=true}; appearance is a registered style id or the semantic "sign". |
+| `S.sign(message, opts)` | `op=sign` | opts={appearance="sign",wait=true}; appearance is a registered style id or the semantic "sign". |
 | `S.trainerTip(message, opts)` | `op=trainer_tip` | opts={appearance="trainer_tip"}; types at the player text speed and waits for dismissal. |
 | `S.signpostSet(spec)` | `op=signpost_set` | Generated/advanced imported-HGSS form; spec={sourceAppearance={game,type,map}}. |
 | `S.signpostCommand(command)` | `op=signpost_command` | Generated/advanced; command is one of the semantic strings (nop/show/wipe_out/wipe_in/hide). |
@@ -1084,7 +1084,6 @@ No fields.
 |---|---|---|---|
 | `appearance` | string |  | `sign` |
 | `key` | string |  |  |
-| `mapGraphic` | string |  |  |
 | `message` | message | yes |  |
 | `provenance` | source_provenance |  |  |
 | `wait` | boolean |  | `true` |

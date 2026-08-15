@@ -21,7 +21,15 @@ function T.compiled_ui_assets_are_ready_and_stable(romFs, version)
 
   -- The class covers every section the manifest contract requires.
   Assert.equal(bundle.manifest.dialogueFrames.count, 20)
-  Assert.isTrue(bundle.manifest.signposts.types[0].wayfinding ~= nil, "type 0 reserves the wayfinding region")
+  local type0 = bundle.manifest.signposts.types[0]
+  Assert.isTrue(type0.wayfinding ~= nil, "type 0 reserves the wayfinding region")
+  Assert.isTrue(type0.wayfinding[11] ~= nil, "the real corpus pair (type 0, map 11) must carry a wayfinding row")
+  Assert.isTrue(type0.wayfinding[20] ~= nil, "the real corpus pair (type 0, map 20) must carry a wayfinding row")
+  Assert.isTrue(type0.wayfinding[0].y ~= type0.wayfinding[1].y, "the map-0 and map-1 rows are distinct atlas rows")
+  Assert.isTrue(
+    bundle.manifest.signposts.types[1].wayfinding[21] ~= nil,
+    "the real corpus pair (type 1, map 21) must carry a wayfinding row"
+  )
   Assert.isTrue(bundle.manifest.signposts.types[2].wayfinding == nil, "type 2 is full width")
   Assert.equal(bundle.manifest.startMenu.background.width, 256)
   Assert.equal(bundle.manifest.trainerCard.front.width, 256)

@@ -5,15 +5,19 @@
 -- FieldTextRenderer glyph text, all translated by the logical wipe offset --
 -- the whole signpost BG layer slides, and the hidden -48 position sits below
 -- the screen. Per type geometry comes from the sealed window style registry;
--- the strip and wayfinding rows are the generated field-UI manifest assets.
--- Visibility is keyed on status().active, never on logicalYOffset alone, so
--- the wipe-out endpoint-check reset can never flash the cleared window at
--- the reset position. Interpolation between the previous and the current
--- fixed-tick offset uses the session render alpha, clamped into [0, 1], and
--- never calls back into the controller. Construction is failure-safe: a
--- missing manifest, strip, or wayfinding atlas is a typed error, a quad
--- failure after the images were created releases them before rethrowing, and
--- draw() restores every graphics state it touched.
+-- the strip and wayfinding rows are the generated field-UI manifest assets,
+-- with the wayfinding row selected by the appearance's exact (type, map)
+-- pair. Visibility is keyed on status().active, never on logicalYOffset
+-- alone, so the wipe-out endpoint-check reset can never flash the cleared
+-- window at the reset position. Interpolation between the previous and the
+-- current fixed-tick offset uses the session render alpha, clamped into
+-- [0, 1], and is a pure function of the controller's paired wipe history:
+-- the renderer holds no interpolation state and never calls back into the
+-- controller. Resolved styles are cached per styleId because resolve()
+-- hands out copies. Construction is failure-safe: a missing manifest,
+-- strip, or wayfinding atlas is a typed error, a quad failure after the
+-- images were created releases them before rethrowing, and draw() restores
+-- every graphics state it touched.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
@@ -32,9 +36,9 @@ local FieldDrawState = require("libs.engine.src.FieldDrawState")
 ---@field _tilesImage love.Image? the signpost frame strip
 ---@field _wayfindingImage love.Image? the wayfinding atlas
 ---@field _tileQuads love.Quad[]? the 18 strip tile quads
----@field _wayfindingQuadCache table<integer, love.Quad[]>|nil per-type row quads, built lazily
----@field _lastOffset number? previous fixed-tick wipe offset (interpolation)
----@field _activeLast boolean the last draw saw an active window (interpolation snaps across inactive gaps)
+---@field _wayfindingQuadCache table<string, love.Quad[]>|nil per-(type,map) row quads, built lazily
+---@field _resolvedStyleId string? the styleId the cached resolved style belongs to
+---@field _resolvedStyle table? the cached deep copy returned by the registry
 local FieldSignpostRenderer = {}
 FieldSignpostRenderer.__index = FieldSignpostRenderer
 
@@ -106,8 +110,8 @@ function FieldSignpostRenderer.new(opts)
     _wayfindingImage = nil,
     _tileQuads = nil,
     _wayfindingQuadCache = nil,
-    _lastOffset = nil,
-    _activeLast = false,
+    _resolvedStyleId = nil,
+    _resolvedStyle = nil,
   }, FieldSignpostRenderer)
 
   local tilesPath = tilesAsset.image
@@ -151,15 +155,15 @@ function FieldSignpostRenderer:_buildQuads()
   self._tileQuads = tileQuads
 end
 
--- The 24 tile quads of one wayfinding row (the manifest rect for the source
--- type). Built lazily per type and cached, so a session that only ever shows
--- full-width signs never materializes the rows.
----@param sourceType integer
+-- The 24 tile quads of one wayfinding row (the manifest rect for the exact
+-- (type, map) pair). Built lazily per pair and cached, so a session that
+-- only ever shows full-width signs never materializes the rows.
+---@param key string the "type.map" pair
 ---@param rect { x: integer, y: integer, width: integer, height: integer }
 ---@return love.Quad[]
-function FieldSignpostRenderer:_wayfindingQuads(sourceType, rect)
+function FieldSignpostRenderer:_wayfindingQuads(key, rect)
   local cache = self._wayfindingQuadCache or {}
-  local quads = cache[sourceType]
+  local quads = cache[key]
   if quads == nil then
     local lg = assert(self._graphics)
     local image = assert(self._wayfindingImage)
@@ -167,7 +171,7 @@ function FieldSignpostRenderer:_wayfindingQuads(sourceType, rect)
     for tile = 0, rect.width / 8 - 1 do
       quads[tile] = lg.newQuad(rect.x + tile * 8, rect.y, 8, 8, image:getWidth(), image:getHeight())
     end
-    cache[sourceType] = quads
+    cache[key] = quads
   end
   self._wayfindingQuadCache = cache
   return quads
@@ -175,22 +179,17 @@ end
 
 -- The wipe translation for this render: the current fixed-tick offset,
 -- interpolated from the previous fixed-tick offset by the session render
--- alpha (clamped into [0, 1]) when the window has been active continuously.
--- An inactive gap snaps, so a fresh show never slides in from a stale
--- offset. Only reads the snapshot; the controller is never called back.
+-- alpha (clamped into [0, 1]). Pure: only the status pair is read, the
+-- renderer holds no interpolation state, and the controller is never called
+-- back, so repeated draws under the same status hit the same positions.
 ---@param status FieldSignpostController.Status
 ---@param alpha number?
 ---@return number
 function FieldSignpostRenderer:_wipeY(status, alpha)
+  local a = math.min(math.max(alpha or 1, 0), 1)
+  local previous = status.previousLogicalYOffset
   local current = status.logicalYOffset
-  local drawn = current
-  if alpha ~= nil and self._activeLast then
-    assert(self._lastOffset ~= nil, "interpolation requires the previous fixed-tick offset")
-    drawn = self._lastOffset + (current - self._lastOffset) * math.min(math.max(alpha, 0), 1)
-  end
-  self._activeLast = true
-  self._lastOffset = current
-  return FieldSignpostTheme.wipeY(drawn)
+  return FieldSignpostTheme.wipeY(previous + (current - previous) * a)
 end
 
 -- Draws the signpost frame strip by the audited tilemap, and for source
@@ -217,17 +216,26 @@ function FieldSignpostRenderer:_drawFrame(status, graphicRegion, wipe)
   if graphicRegion then
     local appearance = assert(status.sourceAppearance)
     local types = assert(self._manifest and self._manifest.signposts and self._manifest.signposts.types)
-    local manifestRect = types[appearance.type] and types[appearance.type].wayfinding
+    -- The exact (type, map) pair selects the row; a type requiring graphic
+    -- art without a manifest row for its pair is a manifest/source-contract
+    -- failure, never a fallback to another map's row.
+    local manifestRect = types[appearance.type]
+      and types[appearance.type].wayfinding
+      and types[appearance.type].wayfinding[appearance.map]
     assert(
       manifestRect ~= nil,
-      "the generated manifest must index the wayfinding row for signpost type " .. tostring(appearance.type)
+      "the generated manifest must index the wayfinding row for signpost (type, map) "
+        .. tostring(appearance.type)
+        .. ","
+        .. tostring(appearance.map)
     )
     assert(
       manifestRect.width == FieldSignpostTheme.WAYFINDING_TILES * 8 and manifestRect.height == 8,
       "the wayfinding row must be the 24-tile grid source"
     )
     local wayfinding = assert(self._wayfindingImage)
-    local quads = self:_wayfindingQuads(appearance.type, manifestRect)
+    local key = appearance.type .. ":" .. appearance.map
+    local quads = self:_wayfindingQuads(key, manifestRect)
     for _, placement in ipairs(FieldSignpostTheme.wayfindingPlacements(graphicRegion)) do
       lg.draw(wayfinding, assert(quads[placement.tile]), placement.x, placement.y + wipe)
     end
@@ -250,8 +258,8 @@ function FieldSignpostRenderer:draw(controller, viewport, alpha)
   -- The window is presented only while the controller owns it: keying on
   -- status().active (never logicalYOffset alone) is what keeps the wipe-out
   -- endpoint-check reset from flashing the cleared window at position 0.
+  -- An inactive draw touches no renderer state.
   if not status.active then
-    self._activeLast = false
     return
   end
   local lg = assert(self._graphics)
@@ -269,8 +277,15 @@ function FieldSignpostRenderer:draw(controller, viewport, alpha)
     lg.translate(layout.origin.x, layout.origin.y)
     lg.scale(layout.scale, layout.scale)
     local wipe = self:_wipeY(status, alpha)
-    local style =
-      assert(self._windowStyles:resolve(status.styleId), "unknown window style " .. tostring(status.styleId))
+    -- resolve() hands out a fresh copy per call, so the resolved style is
+    -- cached per styleId and re-resolved only when the style id changes.
+    if self._resolvedStyleId ~= status.styleId then
+      local style = self._windowStyles:resolve(status.styleId)
+      assert(style ~= nil, "unknown window style " .. tostring(status.styleId))
+      self._resolvedStyle = style
+      self._resolvedStyleId = status.styleId
+    end
+    local style = assert(self._resolvedStyle)
     local appearance = status.sourceAppearance
     local typeRecord = appearance and style.types and style.types[appearance.type]
     local contentGeometry = (typeRecord and typeRecord.contentGeometry) or style.contentGeometry
@@ -307,7 +322,7 @@ function FieldSignpostRenderer:release()
   end
   self._tilesImage, self._wayfindingImage = nil, nil
   self._tileQuads, self._wayfindingQuadCache = nil, nil
-  self._lastOffset, self._activeLast = nil, false
+  self._resolvedStyleId, self._resolvedStyle = nil, nil
 end
 
 return FieldSignpostRenderer

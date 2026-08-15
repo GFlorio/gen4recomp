@@ -431,9 +431,6 @@ Schema.OPERATIONS = {
       -- A registered style id or the semantic "sign" (resolved to the
       -- hgss.signpost built-in at script execution).
       appearance = { type = "string", default = "sign" },
-      -- Reserved mod-facing wayfinding graphic asset id; the style's own
-      -- assets carry the map graphic.
-      mapGraphic = { type = "string" },
       wait = { type = "boolean", default = true },
     },
   },
@@ -902,7 +899,7 @@ Schema.CONSTRUCTORS = {
       {
         signature = "S.sign(message, opts)",
         canonical = "op=sign",
-        notes = 'opts={appearance="sign",mapGraphic=nil,wait=true}; appearance is a registered style id or the semantic "sign".',
+        notes = 'opts={appearance="sign",wait=true}; appearance is a registered style id or the semantic "sign".',
       },
       {
         signature = "S.trainerTip(message, opts)",

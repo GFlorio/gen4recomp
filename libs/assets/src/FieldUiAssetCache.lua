@@ -16,6 +16,11 @@ local FieldUiAssetCache = {}
 FieldUiAssetCache.FORMAT = Contract.fieldUi.cacheFormat
 FieldUiAssetCache.SCHEMA = Contract.fieldUi.schema
 
+-- One error code for every malformed generated class: the manifest is the
+-- single strict structural boundary, so all violations share the code while
+-- the message names the exact broken field.
+local MANIFEST_INVALID = "FIELD_UI_MANIFEST_INVALID"
+
 local DATA_DIR = "data/generated/field/ui"
 local ASSET_DIR = "assets/generated/field/ui"
 
@@ -47,32 +52,31 @@ end
 ---@return boolean, Errors.Error?
 function FieldUiAssetCache.validateManifest(manifest)
   if type(manifest) ~= "table" then
-    return false, Errors.new("FIELD_UI_MANIFEST_INVALID", "manifest is not a table", {})
+    return false, Errors.new(MANIFEST_INVALID, "manifest is not a table", {})
   end
   if manifest.schema ~= FieldUiAssetCache.SCHEMA then
     return false,
-      Errors.new("FIELD_UI_MANIFEST_INVALID", "manifest schema mismatch", {
+      Errors.new(MANIFEST_INVALID, "manifest schema mismatch", {
         schema = manifest.schema,
         expected = FieldUiAssetCache.SCHEMA,
       })
   end
   if type(manifest.reference) ~= "table" or manifest.reference.width ~= 256 or manifest.reference.height ~= 192 then
     return false,
-      Errors.new("FIELD_UI_MANIFEST_INVALID", "manifest reference must be the 256x192 field screen", {
+      Errors.new(MANIFEST_INVALID, "manifest reference must be the 256x192 field screen", {
         reference = manifest.reference,
       })
   end
   if type(manifest.assets) ~= "table" or next(manifest.assets) == nil then
-    return false, Errors.new("FIELD_UI_MANIFEST_INVALID", "manifest assets must be a non-empty table", {})
+    return false, Errors.new(MANIFEST_INVALID, "manifest assets must be a non-empty table", {})
   end
   local atlasSizes = {}
   for key, entry in pairs(manifest.assets) do
     if type(key) ~= "string" or key == "" then
-      return false, Errors.new("FIELD_UI_MANIFEST_INVALID", "asset key must be a non-empty string", {})
+      return false, Errors.new(MANIFEST_INVALID, "asset key must be a non-empty string", {})
     end
     if type(entry) ~= "table" or type(entry.image) ~= "string" or entry.image == "" then
-      return false,
-        Errors.new("FIELD_UI_MANIFEST_INVALID", "asset " .. key .. " must name an image path", { key = key })
+      return false, Errors.new(MANIFEST_INVALID, "asset " .. key .. " must name an image path", { key = key })
     end
     local function sizeField(field)
       local v = entry[field]
@@ -80,37 +84,34 @@ function FieldUiAssetCache.validateManifest(manifest)
     end
     if not sizeField("width") or not sizeField("height") then
       return false,
-        Errors.new("FIELD_UI_MANIFEST_INVALID", "asset " .. key .. " needs positive integral dimensions", {
+        Errors.new(MANIFEST_INVALID, "asset " .. key .. " needs positive integral dimensions", {
           key = key,
         })
-    end
-    if atlasSizes[key] then
-      return false, Errors.new("FIELD_UI_MANIFEST_INVALID", "duplicate asset key " .. key, { key = key })
     end
     atlasSizes[key] = { width = entry.width, height = entry.height }
   end
 
   local function rectInAtlas(rect, atlasKey, what)
     if type(rect) ~= "table" then
-      return false, Errors.new("FIELD_UI_MANIFEST_INVALID", what .. " must be a rectangle", { what = what })
+      return false, Errors.new(MANIFEST_INVALID, what .. " must be a rectangle", { what = what })
     end
     for _, field in ipairs({ "x", "y", "width", "height" }) do
       local v = rect[field]
       if type(v) ~= "number" or v % 1 ~= 0 or v < 0 then
         return false,
-          Errors.new("FIELD_UI_MANIFEST_INVALID", what .. " " .. field .. " must be a non-negative integer", {
+          Errors.new(MANIFEST_INVALID, what .. " " .. field .. " must be a non-negative integer", {
             what = what,
             field = field,
           })
       end
     end
     if rect.width == 0 or rect.height == 0 then
-      return false, Errors.new("FIELD_UI_MANIFEST_INVALID", what .. " must be non-empty", { what = what })
+      return false, Errors.new(MANIFEST_INVALID, what .. " must be non-empty", { what = what })
     end
     local atlas = atlasSizes[atlasKey]
     if not atlas or rect.x + rect.width > atlas.width or rect.y + rect.height > atlas.height then
       return false,
-        Errors.new("FIELD_UI_MANIFEST_INVALID", what .. " escapes its atlas " .. atlasKey, {
+        Errors.new(MANIFEST_INVALID, what .. " escapes its atlas " .. atlasKey, {
           what = what,
           atlas = atlasKey,
         })
@@ -121,7 +122,7 @@ function FieldUiAssetCache.validateManifest(manifest)
   local function section(name, checker)
     if type(manifest[name]) ~= "table" then
       return false,
-        Errors.new("FIELD_UI_MANIFEST_INVALID", "manifest section " .. name .. " must be a table", {
+        Errors.new(MANIFEST_INVALID, "manifest section " .. name .. " must be a table", {
           section = name,
         })
     end
@@ -130,19 +131,19 @@ function FieldUiAssetCache.validateManifest(manifest)
 
   local ok, err = section("dialogueFrames", function(s)
     if type(s.count) ~= "number" or s.count % 1 ~= 0 or s.count < 1 then
-      return false, Errors.new("FIELD_UI_MANIFEST_INVALID", "dialogueFrames.count must be a positive integer", {})
+      return false, Errors.new(MANIFEST_INVALID, "dialogueFrames.count must be a positive integer", {})
     end
     if type(s.frameTiles) ~= "table" then
-      return false, Errors.new("FIELD_UI_MANIFEST_INVALID", "dialogueFrames.frameTiles must be a table", {})
+      return false, Errors.new(MANIFEST_INVALID, "dialogueFrames.frameTiles must be a table", {})
     end
     for frame = 0, s.count - 1 do
       local ok, err = rectInAtlas(s.frameTiles[frame], "hgss.dialogue_frame.tiles", "frame " .. frame .. " tiles")
       if not ok then
         return false, err
       end
-    end
-    if type(s.palettes) ~= "table" or s.palettes[0] == nil or s.palettes[s.count - 1] == nil then
-      return false, Errors.new("FIELD_UI_MANIFEST_INVALID", "dialogueFrames.palettes must cover every frame", {})
+      if type(s.palettes) ~= "table" or s.palettes[frame] == nil then
+        return false, Errors.new(MANIFEST_INVALID, "dialogueFrames.palettes must cover every frame", {})
+      end
     end
     return true
   end)
@@ -152,24 +153,43 @@ function FieldUiAssetCache.validateManifest(manifest)
 
   local ok, err = section("signposts", function(s)
     if type(s.frame) ~= "table" then
-      return false, Errors.new("FIELD_UI_MANIFEST_INVALID", "signposts.frame must be a table", {})
+      return false, Errors.new(MANIFEST_INVALID, "signposts.frame must be a table", {})
     end
     local ok, err = rectInAtlas(s.frame.tiles, "hgss.signpost.tiles", "signpost frame tiles")
     if not ok then
       return false, err
     end
     if type(s.types) ~= "table" then
-      return false, Errors.new("FIELD_UI_MANIFEST_INVALID", "signposts.types must be a table", {})
+      return false, Errors.new(MANIFEST_INVALID, "signposts.types must be a table", {})
     end
-    for _, typeEntry in pairs(s.types) do
-      if type(typeEntry) ~= "table" or type(typeEntry.sourceType) ~= "number" or typeEntry.sourceType % 1 ~= 0 then
+    for key, typeEntry in pairs(s.types) do
+      if type(key) ~= "number" or key % 1 ~= 0 or key < 0 then
+        return false, Errors.new(MANIFEST_INVALID, "signpost type keys must be non-negative integers", { key = key })
+      end
+      if type(typeEntry) ~= "table" or typeEntry.sourceType ~= key then
         return false,
-          Errors.new("FIELD_UI_MANIFEST_INVALID", "signpost type entries must carry an integral sourceType", {})
+          Errors.new(MANIFEST_INVALID, "signpost type entries must be keyed by their own sourceType", {
+            key = key,
+          })
       end
       if typeEntry.wayfinding ~= nil then
-        local ok, err = rectInAtlas(typeEntry.wayfinding, "hgss.signpost.wayfinding", "signpost wayfinding")
-        if not ok then
-          return false, err
+        -- A type either has per-map wayfinding or none: the producer omits
+        -- the field for types without a map graphic, so an empty table is a
+        -- producer bug, not a plausible contract state.
+        if type(typeEntry.wayfinding) ~= "table" or next(typeEntry.wayfinding) == nil then
+          return false, Errors.new(MANIFEST_INVALID, "signpost wayfinding must be a non-empty per-map table", {})
+        end
+        for map, rect in pairs(typeEntry.wayfinding) do
+          if type(map) ~= "number" or map % 1 ~= 0 or map < 0 then
+            return false,
+              Errors.new(MANIFEST_INVALID, "signpost wayfinding map keys must be non-negative integers", {
+                map = map,
+              })
+          end
+          local ok, err = rectInAtlas(rect, "hgss.signpost.wayfinding", "signpost wayfinding map " .. map)
+          if not ok then
+            return false, err
+          end
         end
       end
     end
@@ -184,8 +204,8 @@ function FieldUiAssetCache.validateManifest(manifest)
     if not ok then
       return false, err
     end
-    if type(s.cursor) ~= "table" or type(s.cursor.frames) ~= "table" then
-      return false, Errors.new("FIELD_UI_MANIFEST_INVALID", "startMenu.cursor must carry frames", {})
+    if type(s.cursor) ~= "table" or type(s.cursor.frames) ~= "table" or #s.cursor.frames < 1 then
+      return false, Errors.new(MANIFEST_INVALID, "startMenu.cursor must carry at least one frame", {})
     end
     for _, frameEntry in ipairs(s.cursor.frames) do
       local ok, err = rectInAtlas(frameEntry, "hgss.start_menu.cursor", "start menu cursor frame")
@@ -193,20 +213,31 @@ function FieldUiAssetCache.validateManifest(manifest)
         return false, err
       end
       if type(frameEntry.duration) ~= "number" or frameEntry.duration % 1 ~= 0 or frameEntry.duration < 1 then
-        return false, Errors.new("FIELD_UI_MANIFEST_INVALID", "cursor frame duration must be a positive integer", {})
+        return false, Errors.new(MANIFEST_INVALID, "cursor frame duration must be a positive integer", {})
       end
     end
+    -- The producer compiles the HGSS touch surface: ten slots in a complete
+    -- 1..10 grid (the touch handler maps touch ids 1..10). The manifest pins
+    -- the dense grid so the controller never rediscovers slot assumptions.
     if type(s.slots) ~= "table" then
-      return false, Errors.new("FIELD_UI_MANIFEST_INVALID", "startMenu.slots must be a table", {})
+      return false, Errors.new(MANIFEST_INVALID, "startMenu.slots must be a table", {})
     end
-    for id, slot in pairs(s.slots) do
-      local ok, err = rectInAtlas(slot, "hgss.start_menu.background", "start menu slot " .. tostring(id))
+    local slotCount = 0
+    for _ in pairs(s.slots) do
+      slotCount = slotCount + 1
+    end
+    if slotCount ~= 10 then
+      return false, Errors.new(MANIFEST_INVALID, "startMenu.slots must be exactly the ten-slot grid", {})
+    end
+    for id = 1, 10 do
+      local slot = s.slots[id]
+      if slot == nil then
+        return false, Errors.new(MANIFEST_INVALID, "startMenu.slots must be the dense 1..10 grid", {})
+      end
+      local ok, err = rectInAtlas(slot, "hgss.start_menu.background", "start menu slot " .. id)
       if not ok then
         return false, err
       end
-    end
-    if type(s.icons) ~= "table" then
-      return false, Errors.new("FIELD_UI_MANIFEST_INVALID", "startMenu.icons must be a table", {})
     end
     return true
   end)

@@ -18,6 +18,10 @@ local function validManifest()
     frameTiles[frame] = { x = 0, y = 0, width = 160, height = 8 }
     palettes[frame] = { colors = { { r = 1, g = 2, b = 3 } } }
   end
+  local slots = {}
+  for id = 1, 10 do
+    slots[id] = { x = (id % 2 == 1 and 0 or 128), y = math.floor((id - 1) / 2) * 38, width = 128, height = 38 }
+  end
   return {
     schema = FieldUiAssetCache.SCHEMA,
     reference = { width = 256, height = 192 },
@@ -31,7 +35,7 @@ local function validManifest()
       ["hgss.signpost.wayfinding"] = {
         image = "assets/generated/field/ui/wayfinding-tiles.png",
         width = 208,
-        height = 8,
+        height = 16,
       },
       ["hgss.start_menu.background"] = { image = "assets/generated/field/ui/start-menu.png", width = 256, height = 192 },
       ["hgss.start_menu.cursor"] = {
@@ -49,15 +53,20 @@ local function validManifest()
     signposts = {
       frame = { tiles = { x = 0, y = 0, width = 160, height = 8 } },
       types = {
-        [0] = { sourceType = 0, wayfinding = { x = 0, y = 0, width = 208, height = 8 } },
+        [0] = {
+          sourceType = 0,
+          wayfinding = {
+            [0] = { x = 0, y = 0, width = 208, height = 8 },
+            [1] = { x = 0, y = 8, width = 208, height = 8 },
+          },
+        },
         [2] = { sourceType = 2 },
       },
     },
     startMenu = {
       background = { x = 0, y = 0, width = 256, height = 192 },
       cursor = { frames = { { x = 0, y = 0, width = 32, height = 32, duration = 3 } } },
-      slots = { [2] = { x = 0, y = 0, width = 128, height = 38 } },
-      icons = { pokedex = 0, pokemon = 1 },
+      slots = slots,
     },
     trainerCard = { front = { x = 0, y = 0, width = 256, height = 192 } },
   }
@@ -140,6 +149,62 @@ function T.missing_sections_are_rejected()
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
     m.startMenu = nil
+  end, "FIELD_UI_MANIFEST_INVALID")
+end
+
+-- Every dialogue palette entry is required, not just the first and last:
+-- the controller indexes palettes[frame] for any frame the manifest
+-- declares.
+function T.every_dialogue_palette_is_required()
+  reject(function(m)
+    m.dialogueFrames.palettes[7] = nil
+  end, "FIELD_UI_MANIFEST_INVALID")
+  reject(function(m)
+    m.dialogueFrames.palettes[19] = nil
+  end, "FIELD_UI_MANIFEST_INVALID")
+end
+
+-- The start menu surface contract: at least one cursor frame, the dense
+-- 1..10 slot grid (the touch surface the producer hard-codes), and every
+-- slot rect inside the background atlas.
+function T.start_menu_surface_validation_is_strict()
+  reject(function(m)
+    m.startMenu.cursor.frames = {}
+  end, "FIELD_UI_MANIFEST_INVALID")
+  reject(function(m)
+    m.startMenu.slots[1] = nil
+  end, "FIELD_UI_MANIFEST_INVALID")
+  reject(function(m)
+    m.startMenu.slots[3] = nil
+  end, "FIELD_UI_MANIFEST_INVALID")
+  reject(function(m)
+    m.startMenu.slots[11] = { x = 0, y = 0, width = 128, height = 38 }
+  end, "FIELD_UI_MANIFEST_INVALID")
+  reject(function(m)
+    m.startMenu.slots[5] = { x = 200, y = 0, width = 128, height = 38 }
+  end, "FIELD_UI_MANIFEST_INVALID")
+  reject(function(m)
+    m.startMenu.slots = { [0] = { x = 0, y = 0, width = 128, height = 38 } }
+  end, "FIELD_UI_MANIFEST_INVALID")
+end
+
+-- Signpost type entries must be keyed by their own sourceType, and every
+-- map-specific wayfinding record is a validated atlas rectangle.
+function T.signpost_type_and_wayfinding_validation_is_strict()
+  reject(function(m)
+    m.signposts.types[2].sourceType = 3
+  end, "FIELD_UI_MANIFEST_INVALID")
+  reject(function(m)
+    m.signposts.types[7] = {}
+  end, "FIELD_UI_MANIFEST_INVALID")
+  reject(function(m)
+    m.signposts.types[2].wayfinding = {}
+  end, "FIELD_UI_MANIFEST_INVALID")
+  reject(function(m)
+    m.signposts.types[0].wayfinding[-1] = { x = 0, y = 0, width = 208, height = 8 }
+  end, "FIELD_UI_MANIFEST_INVALID")
+  reject(function(m)
+    m.signposts.types[0].wayfinding[1] = { x = 0, y = 0, width = 209, height = 8 }
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 

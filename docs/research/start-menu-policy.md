@@ -32,9 +32,8 @@ Icons — `src/start_menu.c:161-174` `sActionToIconIndex`:
 BAG 2, POKEGEAR 3, TRAINER_CARD 4, SAVE 5, OPTIONS 6; RUNNING_SHOES, 7,
 RETIRE, 9, 10 are 100 ("no icon"). Quirk: the reconstructed table has 12
 entries for the 13-action enum, so `sActionToIconIndex[START_MENU_ACTION_12]`
-is out of bounds of the reconstructed table; the producer's compiled
-`startMenu.icons` manifest mapping (the generated class already carries it) is the runtime authority,
-and the policy does not carry icons.
+is out of bounds of the reconstructed table. The icon art is baked into the
+start menu background surface, so the policy does not carry icons.
 
 Handlers (selection routing, useful reference for the later controller work): Pokedex/Pokemon/Bag/
 TrainerCard/Save/Options handlers (`src/start_menu.c:177-182`),
