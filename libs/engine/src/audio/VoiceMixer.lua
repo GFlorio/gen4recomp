@@ -61,6 +61,7 @@ local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 ---@field noteOn fun(self: VoiceMixer, spec: table): { channel: integer, generation: integer } | nil
 ---@field noteOff fun(self: VoiceMixer, handle: { channel: integer, generation: integer })
 ---@field updateVoice fun(self: VoiceMixer, handle: { channel: integer, generation: integer }, partial: table)
+---@field renderInto fun(self: VoiceMixer, out: integer[], frames: integer)
 ---@field render fun(self: VoiceMixer, frames: integer): integer[]
 
 local VoiceMixer = {}
@@ -621,18 +622,19 @@ function VoiceMixer:suspendVoice(handle, suspended)
   voice.suspended = suspended
 end
 
--- Renders `frames` output frames of interleaved stereo int16 PCM
--- (2*frames entries). Voices read at their position, advance
+-- Renders `frames` output frames of interleaved stereo int16 PCM (2*frames
+-- entries) appended to `out` after its current end, so a caller-owned
+-- buffer is reused across span renders instead of allocating a fresh result
+-- table per call. Voices read at their position, advance
 -- with the current ratio, and run a control step at the end of every
 -- control-period frame on the mixer's absolute frame count; queued track
 -- values are applied and the registers resynced at the start of the next
 -- control-period frame. The mix sums and saturates at the int16 bounds;
 -- chunk sizes never change the result. Suspended voices are inert: no
 -- reads, no advances, no applies, no control steps.
+---@param out integer[]
 ---@param frames integer
----@return integer[]
-function VoiceMixer:render(frames)
-  local out = {}
+function VoiceMixer:renderInto(out, frames)
   for frame = 1, frames do
     -- Queued track values apply at the start of the next control-period
     -- frame (the registers resync with the current channel state), so the
@@ -682,6 +684,16 @@ function VoiceMixer:render(frames)
       end
     end
   end
+end
+
+-- The per-call render pattern: a fresh result table holding `frames` frames
+-- of interleaved stereo int16 PCM, rendered through the same span machinery
+-- as renderInto.
+---@param frames integer
+---@return integer[]
+function VoiceMixer:render(frames)
+  local out = {}
+  self:renderInto(out, frames)
   return out
 end
 

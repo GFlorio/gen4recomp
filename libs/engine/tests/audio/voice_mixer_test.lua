@@ -441,6 +441,49 @@ function T.mixing_sums_saturates_and_rendering_is_chunk_independent()
   Assert.deepEqual(left, right, "chunk size does not change the rendered PCM")
 end
 
+-- The batched render contract: renderInto(output, frames) appends a span
+-- of interleaved stereo PCM to a caller-owned table -- no fresh result table
+-- per call, so a span render reuses the caller's buffer -- and is
+-- byte-identical to the per-call render pattern, chunk independent, and
+-- stable across control-step boundaries. render(frames) stays as the thin
+-- per-call wrapper over the same span machinery.
+function T.render_into_appends_spans_byte_identical_to_render()
+  local wave = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
+  local function viaRenderInto(chunks)
+    local mixer = newMixer()
+    mixer:noteOn(spec({ pcm = wave, pan = 0, envelope = { attack = 0, decay = 127, sustain = 127, release = 127 } }))
+    local out = {}
+    for _, frames in ipairs(chunks) do
+      mixer:renderInto(out, frames)
+    end
+    return out
+  end
+  local function viaRender(chunks)
+    local mixer = newMixer()
+    mixer:noteOn(spec({ pcm = wave, pan = 0, envelope = { attack = 0, decay = 127, sustain = 127, release = 127 } }))
+    local out = {}
+    for _, frames in ipairs(chunks) do
+      local pcm = mixer:render(frames)
+      for i = 1, #pcm do
+        out[#out + 1] = pcm[i]
+      end
+    end
+    return out
+  end
+  local whole = viaRenderInto({ 400 })
+  Assert.deepEqual(
+    whole,
+    viaRender({ 400 }),
+    "a span rendered into a caller buffer is byte-identical to the per-call render pattern"
+  )
+  Assert.deepEqual(whole, viaRenderInto({ 200, 200 }), "renderInto spans are chunk independent")
+  Assert.deepEqual(
+    whole,
+    viaRenderInto({ 249, 151 }),
+    "a renderInto split across a control-step boundary is byte-identical"
+  )
+end
+
 -- The transport pause hook (the NNS SND_PlayerPause the sequence player's
 -- pausePlayer uses): a suspended voice reads nothing, advances nothing, and
 -- runs no control steps -- its sample position and envelope freeze in place

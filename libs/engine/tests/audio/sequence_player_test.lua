@@ -202,7 +202,7 @@ end
 -- {channel, generation} handle, noteOff/updateVoice take handles, and every
 -- call is logged for assertions.
 local function stubMixer()
-  local log = { noteOns = {}, noteOffs = {}, updates = {} }
+  local log = { noteOns = {}, noteOffs = {}, updates = {}, renders = {} }
   local mixer = {
     log = log,
     noteOn = function(_, spec)
@@ -215,12 +215,11 @@ local function stubMixer()
     updateVoice = function(_, handle, partial)
       log.updates[#log.updates + 1] = { handle = handle, partial = partial }
     end,
-    render = function(_, frames)
-      local out = {}
+    renderInto = function(_, out, frames)
+      log.renders[#log.renders + 1] = frames
       for i = 1, frames * 2 do
-        out[i] = 0
+        out[#out + 1] = 0
       end
-      return out
     end,
   }
   return mixer
@@ -684,6 +683,36 @@ function T.stop_releases_all_voices()
   )
 end
 
+-- The batched render contract: the player asks the mixer for spans that end
+-- at the next event boundary (a control-push frame, a sequence tick, the
+-- buffer end) instead of one frame at a time. A 1000-frame render of a held
+-- note has four control pushes (frames 250/500/750/1000), so it must cost at
+-- most one mixer call per span -- five calls -- never one call per frame.
+-- The mixer-side timing (pushes delivered before the control-step frame,
+-- noteOffs after their tick's frame) is pinned by the exact-PCM vectors
+-- elsewhere in this suite.
+function T.the_player_renders_mixer_spans_until_event_boundaries()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 8 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer })
+  play(player, provider)
+  player:render(1000)
+  local total = 0
+  for _, frames in ipairs(mixer.log.renders) do
+    total = total + frames
+  end
+  Assert.equal(total, 1000, "the mixer spans partition the requested window exactly")
+  Assert.isTrue(
+    #mixer.log.renders <= 5,
+    "one span per control push (4 pushes in 1000 frames) plus the closing span, never one call per frame"
+  )
+end
+
 function T.render_is_deterministic_and_chunk_independent()
   local program = {
     { op = "tempo", amount = 128 },
@@ -704,6 +733,13 @@ function T.render_is_deterministic_and_chunk_independent()
   end
   local one = playChunked({ 2000 })
   Assert.deepEqual(one, playChunked({ 700, 700, 600 }), "fractional ticks per frame are chunk-size independent")
+  Assert.deepEqual(one, playChunked({ 1000, 1000 }), "render(1000)+render(1000) equals render(2000)")
+  Assert.deepEqual(one, playChunked({ 400, 600, 1000 }), "render(400)+render(600)+render(1000) equals render(2000)")
+  Assert.deepEqual(
+    one,
+    playChunked({ 250, 250, 250, 250, 250, 250, 250, 250 }),
+    "splits at the control-period boundary stay byte-identical"
+  )
   Assert.deepEqual(one, playChunked({ 2000 }), "playback is reproducible")
 end
 
@@ -891,6 +927,30 @@ end
 -- release that is many ticks, materially different from a one-tick wait. The
 -- release override (release 126 -> 7 control steps) makes the finish
 -- observable: the marker note must not start at the one-tick boundary.
+-- A silent zero-length note (an instrument the bank does not define has no
+-- release to wait for) still gates the track with a zero-length wait: the
+-- gate releases at the first tick and the following note sounds from the
+-- frame after that tick. The finish-wait countdown of zero clears after one
+-- frame, so it must never delay the release fetch to a later span boundary.
+function T.silent_zero_length_notes_release_their_gate_at_the_first_tick()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "program", program = 9 },
+      { op = "note", key = 60, velocity = 127, duration = 0 },
+      { op = "program", program = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "end" },
+    }),
+  })
+  play(player, provider)
+  local pcm = left(player:render(1000), 1000)
+  for frame = 1, 500 do
+    Assert.equal(pcm[frame], 0, "the silent note sounds nothing through the first tick")
+  end
+  Assert.equal(pcm[501], WAVE_A[1], "the marker note starts at the frame after the first tick")
+  Assert.equal(pcm[502], WAVE_A[2], "the marker note continues its wave")
+end
+
 function T.zero_length_notes_wait_for_the_note_to_finish()
   local player, provider = engine({
     [0] = seq({

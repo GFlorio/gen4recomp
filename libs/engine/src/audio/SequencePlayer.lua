@@ -46,7 +46,10 @@
 -- skips, negative shifts shift right). LFO modulation, pitch sweep and
 -- portamento commands are accepted without effect.
 --
--- Rendering is per-frame, so command boundaries inside a buffer apply at
+-- Rendering asks the mixer for spans that end at the next event boundary
+-- (the frame before a control push, a tick that releases a gate, a
+-- note-finish expiry, or the end of the requested window) instead of one
+-- frame at a time, so command boundaries inside a buffer still apply at
 -- their sample index, and the accumulator, waits, and the frame count are
 -- instance/player state carried across render calls, so chunk sizes never
 -- change the result. Players process ascending player number and tracks
@@ -826,6 +829,50 @@ local function pushTrackValues(self, instance)
   end
 end
 
+-- The frames until the next event boundary from the current position: the
+-- span of output frames the mixer can render in one call without breaking
+-- the per-frame delivery order. A span may open on a control-push frame
+-- (its push is delivered before the render) but must end before the next
+-- one, because a push must be delivered before the mixer renders the push
+-- frame. A tick that releases a gate issues its notes between the tick
+-- frame's render and the next frame's, so the span ends on such a tick; a
+-- voice-expiry noteOff only needs to land before the render covering the
+-- next control step, which the push boundary already guarantees. A
+-- note-finish countdown expiry releases a fetch that issues commands, so
+-- its clear frame ends the span. The end of the requested window is always
+-- a boundary. Ticks are at least one control period apart, so at most one
+-- falls inside the push-capped span and checking the first one suffices.
+local function spanLength(self, remaining)
+  local span = remaining
+  local period = self._controlPeriod
+  span = math.min(span, period - (self._frameCount + 1) % period)
+  for playerId = 0, PLAYER_COUNT - 1 do
+    local instance = self._players[playerId]
+    if instance ~= nil and not instance.paused then
+      local ticksPerFrame = instance.tempo * 48
+      if ticksPerFrame > 0 then
+        local framesToTick = math.ceil((self._sampleRate * 60 - instance.acc) / ticksPerFrame)
+        if framesToTick <= span then
+          for trackId = 0, TRACK_COUNT - 1 do
+            local track = instance.tracks[trackId]
+            if track ~= nil and track.gated and track.wait <= 1 then
+              span = math.min(span, framesToTick)
+              break
+            end
+          end
+        end
+      end
+      for trackId = 0, TRACK_COUNT - 1 do
+        local track = instance.tracks[trackId]
+        if track ~= nil and track.noteFinishWait and track.finishWaitFrames ~= nil then
+          span = math.min(span, math.max(track.finishWaitFrames, 1))
+        end
+      end
+    end
+  end
+  return span
+end
+
 -- Renders `frames` output frames of interleaved stereo int16 PCM. The
 -- sequencer advances once per output frame: not-gated tracks fetch their
 -- next instruction first, the per-main values push at the control-period
@@ -834,40 +881,49 @@ end
 -- every tick decrements each ringing voice's remaining length (releasing it
 -- at zero, independently of gates) and each gated track's integer wait,
 -- releasing completed gates and fetching the following instructions; the
--- note-finish hold counts down per frame. Players and tracks process
--- ascending over the fixed NNS domains. The mixer renders only while at
--- least one player is active, so idle frames never shift the control
--- cadence a later play sees. Per-frame processing with instance-carried
--- state keeps rendering independent of chunk size.
+-- note-finish hold counts down per frame. The mixer renders in spans that
+-- end at the next event boundary (spanLength) instead of one frame at a
+-- time, preserving the per-frame delivery order of pushes, note-offs and
+-- gate-release notes without a mixer call per frame. Players and tracks
+-- process ascending over the fixed NNS domains. The mixer renders only
+-- while at least one player is active, so idle frames never shift the
+-- control cadence a later play sees. Instance-carried state keeps rendering
+-- independent of chunk size.
 ---@param frames integer
 ---@return integer[]
 function SequencePlayer:render(frames)
   local out = {}
-  for frame = 1, frames do
-    local active = next(self._players) ~= nil or self._everPlayed
-    if active then
+  local remaining = frames
+  while remaining > 0 do
+    if not (next(self._players) ~= nil or self._everPlayed) then
+      for i = 1, remaining * 2 do
+        out[#out + 1] = 0
+      end
+      break
+    end
+    for playerId = 0, PLAYER_COUNT - 1 do
+      local instance = self._players[playerId]
+      if instance ~= nil and not instance.paused then
+        for trackId = 0, TRACK_COUNT - 1 do
+          local track = instance.tracks[trackId]
+          if track ~= nil and not track.ended and not track.gated and not track.noteFinishWait then
+            fetch(self, instance, track)
+          end
+        end
+      end
+    end
+    local span = spanLength(self, remaining)
+    assert(span >= 1, "a render span must advance the frame count")
+    if (self._frameCount + 1) % self._controlPeriod == 0 then
       for playerId = 0, PLAYER_COUNT - 1 do
         local instance = self._players[playerId]
         if instance ~= nil and not instance.paused then
-          for trackId = 0, TRACK_COUNT - 1 do
-            local track = instance.tracks[trackId]
-            if track ~= nil and not track.ended and not track.gated and not track.noteFinishWait then
-              fetch(self, instance, track)
-            end
-          end
+          pushTrackValues(self, instance)
         end
       end
-      if (self._frameCount + 1) % self._controlPeriod == 0 then
-        for playerId = 0, PLAYER_COUNT - 1 do
-          local instance = self._players[playerId]
-          if instance ~= nil and not instance.paused then
-            pushTrackValues(self, instance)
-          end
-        end
-      end
-      local pcm = self._mixer:render(1)
-      out[#out + 1] = pcm[1]
-      out[#out + 1] = pcm[2]
+    end
+    self._mixer:renderInto(out, span)
+    for frame = 1, span do
       for playerId = 0, PLAYER_COUNT - 1 do
         local instance = self._players[playerId]
         if instance ~= nil and not instance.paused then
@@ -881,8 +937,9 @@ function SequencePlayer:render(frames)
                 -- release it and drop it from the collection, in collection
                 -- order. The zero-length note's release-end countdown
                 -- starts at its expiry.
-                local remaining = {}
-                for index = 1, #track.voices do
+                local write = 1
+                local count = #track.voices
+                for index = 1, count do
                   local voice = track.voices[index]
                   voice.length = voice.length - 1
                   if voice.length <= 0 then
@@ -891,10 +948,13 @@ function SequencePlayer:render(frames)
                       track.finishWaitFrames = framesToReleaseEnd(self, voice.finishSteps)
                     end
                   else
-                    remaining[#remaining + 1] = voice
+                    track.voices[write] = voice
+                    write = write + 1
                   end
                 end
-                track.voices = remaining
+                for index = write, count do
+                  track.voices[index] = nil
+                end
               end
             end
             for trackId = 0, TRACK_COUNT - 1 do
@@ -923,10 +983,8 @@ function SequencePlayer:render(frames)
         end
       end
       self._frameCount = self._frameCount + 1
-    else
-      out[#out + 1] = 0
-      out[#out + 1] = 0
     end
+    remaining = remaining - span
   end
   return out
 end
