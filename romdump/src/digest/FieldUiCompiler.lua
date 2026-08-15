@@ -333,13 +333,10 @@ local function compileDialogueFrames(romFs, sha1hex, deps, assets, manifestAsset
   local cfg = manifestConfig.dialogueFrames
   local tilesPath = FieldUiAssetCache.assetDir() .. "/dialogue-frame-tiles.png"
   -- Pack all frames: each frame's tiles in a row, frames stacked, each frame
-  -- rendered with its own palette. The tile count comes from the decoded
-  -- char data (the source members carry 18 tiles each in the real dump).
-  local frameChar0Bytes = decodeMember(archive, cfg.firstFrameMember, "frame 0 char")
-  local frameChar0, frame0Err = G2dDecoder.decodeChar(frameChar0Bytes, { label = "frame 0 char" })
-  frameChar0 = must(frameChar0, frame0Err)
-  local tilesPerFrame = math.floor(#frameChar0.tiles / (frameChar0.depth == 3 and 32 or 64))
-  local atlasWidth = tilesPerFrame * 8
+  -- rendered with its own palette. The strip width is the fixed generated
+  -- contract (18 tiles per frame in the real dump); a frame carrying any
+  -- other count is malformed source the renderer could never place.
+  local atlasWidth = FieldUiAssetCache.GEOMETRY.FRAME_TILES * 8
   local atlasHeight = cfg.frameCount * 8
   local rgba = newRgba(atlasWidth, atlasHeight)
   local frameTiles = {}
@@ -350,13 +347,19 @@ local function compileDialogueFrames(romFs, sha1hex, deps, assets, manifestAsset
     local framePal, palErr = G2dDecoder.decodePalette(framePalBytes, { label = "frame " .. frame .. " palette" })
     frameChar = must(frameChar, charErr)
     framePal = must(framePal, palErr)
-    if math.floor(#frameChar.tiles / (frameChar.depth == 3 and 32 or 64)) ~= tilesPerFrame then
-      Errors.raise(FieldUiCompiler.ERROR.SOURCE_INVALID, "frame " .. frame .. " has a different tile count", {
-        frame = frame,
-        tiles = math.floor(#frameChar.tiles / (frameChar.depth == 3 and 32 or 64)),
-      })
+    local tiles = math.floor(#frameChar.tiles / (frameChar.depth == 3 and 32 or 64))
+    if tiles ~= FieldUiAssetCache.GEOMETRY.FRAME_TILES then
+      Errors.raise(
+        FieldUiCompiler.ERROR.SOURCE_INVALID,
+        "dialogue frame " .. frame .. " must carry exactly " .. FieldUiAssetCache.GEOMETRY.FRAME_TILES .. " tiles",
+        {
+          frame = frame,
+          member = cfg.firstFrameMember + frame,
+          tiles = tiles,
+        }
+      )
     end
-    for tile = 0, tilesPerFrame - 1 do
+    for tile = 0, tiles - 1 do
       blitTile(rgba, atlasWidth, tile * 8, frame * 8, frameChar, tile, 0, framePal.colors, false, false, {
         asset = "dialogue frame " .. frame,
         member = cfg.firstFrameMember + frame,
@@ -392,17 +395,31 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
   frameChar = must(frameChar, charErr)
   framePal = must(framePal, palErr)
   local frameTiles = math.floor(#frameChar.tiles / (frameChar.depth == 3 and 32 or 64))
+  if frameTiles ~= FieldUiAssetCache.GEOMETRY.FRAME_TILES then
+    Errors.raise(
+      FieldUiCompiler.ERROR.SOURCE_INVALID,
+      "the signpost frame must carry exactly " .. FieldUiAssetCache.GEOMETRY.FRAME_TILES .. " tiles",
+      {
+        member = cfg.frameMember,
+        tiles = frameTiles,
+      }
+    )
+  end
   local framePath = FieldUiAssetCache.assetDir() .. "/signpost-tiles.png"
   assets[framePath] = renderTiles(frameChar, framePal.colors, frameTiles, frameTiles * 8, {
     asset = "signpost frame",
     member = cfg.frameMember,
   })
   manifestAssets[FieldUiAssetCache.ASSET.SIGNPOST_TILES] = { image = framePath, width = frameTiles * 8, height = 8 }
-  deps[#deps + 1] = { name = manifestConfig.signposts.alias .. ":frame", sha1 = sha1hex(archiveBytes) }
+  -- The whole-archive hash intentionally invalidates on any signpost member
+  -- change; the per-wayfinding-member hashes below additionally pin each
+  -- selected (type, map) row individually.
+  deps[#deps + 1] = { name = manifestConfig.signposts.alias .. ":narc", sha1 = sha1hex(archiveBytes) }
 
   -- Wayfinding: the selected (type, map) members stacked in a shared atlas,
-  -- one row per pair. All members carry the same tile count in the real
-  -- dump (24 tiles = 192 px wide).
+  -- one row per pair. Every member is pinned to the fixed 24-tile contract
+  -- (the real dump's 24 tiles = 192 px wide), so the row width is fixed, not
+  -- derived from the first member.
   local wayfindingPath = FieldUiAssetCache.assetDir() .. "/wayfinding-tiles.png"
   local wayfinding = {}
   local rows = {}
@@ -411,7 +428,6 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
     wayfindingTypes[#wayfindingTypes + 1] = sourceType
   end
   table.sort(wayfindingTypes)
-  local wayTiles
   for _, sourceType in ipairs(wayfindingTypes) do
     local spec = cfg.wayfinding[sourceType]
     for _, map in ipairs(spec.maps) do
@@ -421,12 +437,14 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
       local wfChar, wfErr = G2dDecoder.decodeChar(wfBytes, { label = "wayfinding " .. key })
       wfChar = must(wfChar, wfErr)
       local tiles = math.floor(#wfChar.tiles / (wfChar.depth == 3 and 32 or 64))
-      if not wayTiles then
-        wayTiles = tiles
-      elseif tiles ~= wayTiles then
+      if tiles ~= FieldUiAssetCache.GEOMETRY.WAYFINDING_TILES then
         Errors.raise(
           FieldUiCompiler.ERROR.SOURCE_INVALID,
-          "wayfinding member " .. member .. " has " .. tiles .. " tiles, expected " .. wayTiles,
+          "wayfinding member "
+            .. member
+            .. " must carry exactly "
+            .. FieldUiAssetCache.GEOMETRY.WAYFINDING_TILES
+            .. " tiles",
           {
             member = member,
             tiles = tiles,
@@ -436,12 +454,12 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
       rows[#rows + 1] = { key = key, member = member, bytes = wfBytes, char = wfChar }
     end
   end
-  local rowWidth = wayTiles * 8
+  local rowWidth = FieldUiAssetCache.GEOMETRY.WAYFINDING_TILES * 8
   local atlasHeight = #rows * 8
   local rgba = newRgba(rowWidth, atlasHeight)
   for index, row in ipairs(rows) do
     local wfChar = row.char
-    for tile = 0, wayTiles - 1 do
+    for tile = 0, FieldUiAssetCache.GEOMETRY.WAYFINDING_TILES - 1 do
       blitTile(rgba, rowWidth, tile * 8, (index - 1) * 8, wfChar, tile, 0, framePal.colors, false, false, {
         asset = "wayfinding " .. row.key,
         member = row.member,

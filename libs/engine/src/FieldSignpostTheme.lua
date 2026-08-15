@@ -33,11 +33,11 @@ FieldSignpostTheme.WINDOW_BOX = FieldDialogueTheme.box
 -- Two 16px text lines fill the 32px window height, like the dialogue box.
 FieldSignpostTheme.LINE_HEIGHT = FieldDialogueTheme.lineHeight
 
--- The wayfinding row is 24 tiles and blits as a 6-wide by 4-tall grid
--- (sub_0200EF84: tile base+30 + i*6 + j at (windowX-7+j, windowY+i)).
+-- The wayfinding row blits as a 6-wide by 4-tall grid (sub_0200EF84: tile
+-- base+30 + i*6 + j at (windowX-7+j, windowY+i)); the row itself is the
+-- generated 24-tile strip the asset contract pins.
 FieldSignpostTheme.WAYFINDING_GRID_COLUMNS = 6
 FieldSignpostTheme.WAYFINDING_GRID_ROWS = 4
-FieldSignpostTheme.WAYFINDING_TILES = 24
 
 -- The audited signpost frame tilemap. "full" is the shared
 -- DrawFrameAndWindow2 composition around the full-width box (tile 8 never

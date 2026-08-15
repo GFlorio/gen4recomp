@@ -16,6 +16,17 @@ local FieldUiAssetCache = {}
 FieldUiAssetCache.FORMAT = Contract.fieldUi.cacheFormat
 FieldUiAssetCache.SCHEMA = Contract.fieldUi.schema
 
+-- The audited HGSS field-UI strip geometry is a generated-class invariant,
+-- not a tunable: dialogue and signpost frame members carry 18 tiles (a
+-- 144x8 strip) and every wayfinding member carries 24 tiles (a 192x8
+-- strip). The producer and the manifest validator consume these numbers
+-- from this one protocol owner; renderers read the resulting rects from
+-- the validated manifest.
+FieldUiAssetCache.GEOMETRY = {
+  FRAME_TILES = 18,
+  WAYFINDING_TILES = 24,
+}
+
 -- The generated field-UI asset protocol ids: one constant table so the
 -- producer, the cache validation, and the renderers never repeat the raw
 -- strings.
@@ -131,6 +142,27 @@ function FieldUiAssetCache.validateManifest(manifest)
     return true
   end
 
+  -- A rect must be an exact HGSS strip (`width` x 8) inside its atlas. The
+  -- exact strip shape is the generated-class contract (dialogue/signpost
+  -- frames are the 18-tile 144x8 row, wayfinding rows the 24-tile 192x8
+  -- row); the atlas-bound check additionally proves the rect is addressable
+  -- in its PNG.
+  local function stripInAtlas(rect, atlasKey, what, width)
+    local ok, err = rectInAtlas(rect, atlasKey, what)
+    if not ok then
+      return false, err
+    end
+    if rect.width ~= width or rect.height ~= 8 then
+      return false,
+        Errors.new(MANIFEST_INVALID, what .. " must be the " .. width .. "x8 HGSS strip", {
+          what = what,
+          width = rect.width,
+          height = rect.height,
+        })
+    end
+    return true
+  end
+
   local function section(name, checker)
     if type(manifest[name]) ~= "table" then
       return false,
@@ -149,8 +181,12 @@ function FieldUiAssetCache.validateManifest(manifest)
       return false, Errors.new(MANIFEST_INVALID, "dialogueFrames.frameTiles must be a table", {})
     end
     for frame = 0, s.count - 1 do
-      local ok, err =
-        rectInAtlas(s.frameTiles[frame], FieldUiAssetCache.ASSET.DIALOGUE_FRAME_TILES, "frame " .. frame .. " tiles")
+      local ok, err = stripInAtlas(
+        s.frameTiles[frame],
+        FieldUiAssetCache.ASSET.DIALOGUE_FRAME_TILES,
+        "frame " .. frame .. " tiles",
+        FieldUiAssetCache.GEOMETRY.FRAME_TILES * 8
+      )
       if not ok then
         return false, err
       end
@@ -165,7 +201,12 @@ function FieldUiAssetCache.validateManifest(manifest)
     if type(s.frame) ~= "table" then
       return false, Errors.new(MANIFEST_INVALID, "signposts.frame must be a table", {})
     end
-    local ok, err = rectInAtlas(s.frame.tiles, FieldUiAssetCache.ASSET.SIGNPOST_TILES, "signpost frame tiles")
+    local ok, err = stripInAtlas(
+      s.frame.tiles,
+      FieldUiAssetCache.ASSET.SIGNPOST_TILES,
+      "signpost frame tiles",
+      FieldUiAssetCache.GEOMETRY.FRAME_TILES * 8
+    )
     if not ok then
       return false, err
     end
@@ -196,8 +237,12 @@ function FieldUiAssetCache.validateManifest(manifest)
                 map = map,
               })
           end
-          local ok, err =
-            rectInAtlas(rect, FieldUiAssetCache.ASSET.SIGNPOST_WAYFINDING, "signpost wayfinding map " .. map)
+          local ok, err = stripInAtlas(
+            rect,
+            FieldUiAssetCache.ASSET.SIGNPOST_WAYFINDING,
+            "signpost wayfinding map " .. map,
+            FieldUiAssetCache.GEOMETRY.WAYFINDING_TILES * 8
+          )
           if not ok then
             return false, err
           end
