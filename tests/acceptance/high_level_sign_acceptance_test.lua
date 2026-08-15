@@ -1,7 +1,7 @@
 -- Production-composed contract for the high-level sign mod API: the
 -- handwritten demo override script (demo.signpost) runs S.sign and
 -- S.trainerTip through the real production composition. S.sign must present
--- the signpost window immediately with the requested registered style id and
+-- the signpost window immediately with the requested catalogued style id and
 -- no source-only type/map data, print its message instantly, and dismiss on
 -- the A edge; S.trainerTip then presents with the semantic trainer_tip
 -- style, types at the player text speed, and dismisses the same way. The
@@ -101,7 +101,7 @@ function T.tests.high_level_sign_script_presents_and_dismisses_without_source_ap
     local status = signpostStatus(game)
     Assert.equal(#scriptFaults(game), 0, "S.sign must not fault at open, got: " .. faultCode(scriptFaults(game)))
     Assert.isTrue(status.active, "S.sign must present the signpost window immediately")
-    Assert.equal(status.styleId, "mod.route_sign", "S.sign must route the requested registered style id")
+    Assert.equal(status.styleId, "mod.route_sign", "S.sign must route the requested catalogued style id")
     Assert.isNil(status.sourceAppearance, "S.sign must not carry source-only type/map data")
     Assert.isTrue(status.printDone, "S.sign must print its message instantly")
 

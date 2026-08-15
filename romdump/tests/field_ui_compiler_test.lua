@@ -356,7 +356,7 @@ function T.atlas_pixels_and_dimensions_follow_the_source_mapping()
   end
 
   local frameWidth, _, frameRgba =
-    PngReader.rgba(bundle.assets[bundle.manifest.assets["hgss.dialogue_frame.tiles"].image])
+    PngReader.rgba(bundle.assets[bundle.manifest.assets[FieldUiAssetCache.ASSET.DIALOGUE_FRAME_TILES].image])
   local r, g, b, a = PngReader.pixel(frameRgba, frameWidth, 0, 0)
   Assert.equal(r, 8)
   Assert.equal(g, 206)
@@ -373,7 +373,8 @@ function T.atlas_pixels_and_dimensions_follow_the_source_mapping()
 
   -- The start menu background screen references tile 0 of palette bank 0,
   -- which the fixture palette covers: every pixel is the value-1 color.
-  local bgWidth, _, bgRgba = PngReader.rgba(bundle.assets[bundle.manifest.assets["hgss.start_menu.background"].image])
+  local bgWidth, _, bgRgba =
+    PngReader.rgba(bundle.assets[bundle.manifest.assets[FieldUiAssetCache.ASSET.START_MENU_BACKGROUND].image])
   local rB, gB, bB, aB = PngReader.pixel(bgRgba, bgWidth, 10, 10)
   Assert.equal(aB, 255)
   Assert.deepEqual({ rB, gB, bB }, { 8, 206, 181 })
@@ -385,7 +386,7 @@ end
 function T.wayfinding_map_rows_are_distinct_atlas_rows_with_distinct_pixels()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
-  local atlas = bundle.assets[bundle.manifest.assets["hgss.signpost.wayfinding"].image]
+  local atlas = bundle.assets[bundle.manifest.assets[FieldUiAssetCache.ASSET.SIGNPOST_WAYFINDING].image]
   local width, _, rgba = PngReader.rgba(atlas)
   local type0 = bundle.manifest.signposts.types[0]
   local rect0 = assert(type0.wayfinding[0], "type 0 map 0 row")
@@ -430,7 +431,7 @@ function T.square_32x32_cursor_objs_compile_all_sixteen_tiles()
   local frame = bundle.manifest.startMenu.cursor.frames[1]
   Assert.equal(frame.width, 32)
   Assert.equal(frame.height, 32)
-  local path = bundle.manifest.assets["hgss.start_menu.cursor"].image
+  local path = bundle.manifest.assets[FieldUiAssetCache.ASSET.START_MENU_CURSOR].image
   local width, height, rgba = PngReader.rgba(bundle.assets[path])
   Assert.equal(width, 32)
   Assert.equal(height, 32)
@@ -450,7 +451,7 @@ function T.flipped_cursor_objs_mirror_the_tile_grid()
     cursor = { { x = 8, y = 8, tile = 0, pal = 0, size = 2, flipH = true } },
   })
   local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
-  local path = bundle.manifest.assets["hgss.start_menu.cursor"].image
+  local path = bundle.manifest.assets[FieldUiAssetCache.ASSET.START_MENU_CURSOR].image
   local width, _, rgba = PngReader.rgba(bundle.assets[path])
   local r, g, b, a = PngReader.pixel(rgba, width, 1 * 8 + 4, 3 * 8 + 4)
   Assert.equal(a, 255)

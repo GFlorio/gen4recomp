@@ -3,9 +3,9 @@
 Source audit for the pure `StartMenuPolicy` module (action definitions,
 context inhibit masks, progression gates, availability gates). All decomp
 evidence is pinned to pret/pokeheartgold commit `008257708` (Merge pull
-request #501; the checkout in `/workspace/tmp/refs/pokeheartgold`). The
-in-repo reference catalogs pin the older `7e25c842`; every claim below was
-re-verified against the pinned checkout.
+request #501); every `src/...:line` reference below is relative to that
+commit. The in-repo reference catalogs pin the older `7e25c842`; every
+claim below was re-verified against `008257708`.
 
 ## Canonical actions
 

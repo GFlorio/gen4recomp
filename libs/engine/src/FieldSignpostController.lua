@@ -13,6 +13,8 @@
 -- outside the fixed-tick path: the instant fill, the semantic idle query,
 -- and the immediate cleanup.
 
+local FieldWindowStyles = require("libs.engine.src.FieldWindowStyles")
+
 ---@class FieldSignpostController
 ---@field _layout fun(message: FieldMessageProvider.FormattedMessage): { lines: { tokens: MessageToken[] }[] }
 ---@field _ticksPerGlyph integer
@@ -38,7 +40,7 @@ FieldSignpostController.COMMANDS = {
 }
 
 FieldSignpostController.DEFAULT_TICKS_PER_GLYPH = 2
-FieldSignpostController.DEFAULT_STYLE_ID = "hgss.signpost"
+FieldSignpostController.DEFAULT_STYLE_ID = FieldWindowStyles.BUILTIN.SIGNPOST
 
 -- The hidden signpost BG layer position and the fixed 16px wipe step:
 -- visible motion is exactly three logical steps.
@@ -88,7 +90,7 @@ end
 
 -- opts.layout(formattedMessage) -> { lines = { { tokens = MessageToken[] } } }
 -- opts.ticksPerGlyph (default 2; FieldPlayerData.ticksPerGlyph supplies the
--- injected cadence), opts.styleId (default "hgss.signpost").
+-- injected cadence), opts.styleId (default FieldWindowStyles.BUILTIN.SIGNPOST).
 
 ---@class FieldSignpostControllerOptions
 ---@field layout fun(message: FieldMessageProvider.FormattedMessage): { lines: { tokens: MessageToken[] }[] }

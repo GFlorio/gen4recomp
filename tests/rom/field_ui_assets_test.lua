@@ -152,7 +152,7 @@ function T.dialogue_frame_styles_are_distinct_artwork_with_identical_geometry(ro
   local frames = bundle.manifest.dialogueFrames
   Assert.isTrue(frames.count >= 2, "the class carries at least two frame styles")
 
-  local strip = bundle.assets[bundle.manifest.assets["hgss.dialogue_frame.tiles"].image]
+  local strip = bundle.assets[bundle.manifest.assets[FieldUiAssetCache.ASSET.DIALOGUE_FRAME_TILES].image]
   local width, height, rgba = PngReader.rgba(strip)
 
   local function rectPixels(rect)

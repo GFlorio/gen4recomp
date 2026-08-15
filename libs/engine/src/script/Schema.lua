@@ -419,17 +419,17 @@ Schema.OPERATIONS = {
     },
   },
   -- High-level handwritten-signpost operations (the mod-facing S.sign /
-  -- S.trainerTip API). They present the signpost window with a registered
+  -- S.trainerTip API). They present the signpost window with a catalogued
   -- style id or a semantic appearance value -- never source-only type/map
   -- data -- and delegate to the same ScriptSignpostHost /
   -- FieldSignpostController primitives as the imported operations; the
-  -- registered sign task owns the complete open -> dismiss -> close
+  -- sign task owns the complete open -> dismiss -> close
   -- lifecycle, so S.sign is always blocking. Imported ROM scripts never
   -- lower to these operations.
   sign = {
     fields = {
       message = { type = "message", required = true },
-      -- A registered style id or the semantic "sign" (resolved to the
+      -- A catalogued style id or the semantic "sign" (resolved to the
       -- hgss.signpost built-in at script execution).
       appearance = { type = "string", default = "sign" },
     },
@@ -894,12 +894,12 @@ Schema.CONSTRUCTORS = {
   },
   {
     section = "Signpost constructors",
-    notes = "S.sign and S.trainerTip are the high-level semantic surface: they present the signpost window with a registered style id or the semantic appearance value (never source-only type/map data) and delegate to the same signpost host/controller primitives as the imported operations. The six generated/advanced forms map 1:1 onto the imported signpost operations.",
+    notes = "S.sign and S.trainerTip are the high-level semantic surface: they present the signpost window with a catalogued style id or the semantic appearance value (never source-only type/map data) and delegate to the same signpost host/controller primitives as the imported operations. The six generated/advanced forms map 1:1 onto the imported signpost operations.",
     rows = {
       {
         signature = "S.sign(spec)",
         canonical = "op=sign",
-        notes = 'spec={message,appearance="sign"}; appearance is a registered style id or the semantic "sign".',
+        notes = 'spec={message,appearance="sign"}; appearance is a catalogued style id or the semantic "sign".',
       },
       {
         signature = "S.trainerTip(spec)",

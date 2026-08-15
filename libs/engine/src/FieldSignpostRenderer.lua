@@ -4,7 +4,7 @@
 -- wayfinding row as a 6x4 grid and the divider tile 8), the shared
 -- FieldTextRenderer glyph text, all translated by the logical wipe offset --
 -- the whole signpost BG layer slides, and the hidden -48 position sits below
--- the screen. Per type geometry comes from the sealed window style registry;
+-- the screen. Per type geometry comes from the window style catalogue;
 -- the strip and wayfinding rows are the generated field-UI manifest assets,
 -- with the wayfinding row selected by the appearance's exact (type, map)
 -- pair. Visibility is keyed on status().active, never on logicalYOffset
@@ -258,7 +258,7 @@ function FieldSignpostRenderer:draw(controller, viewport, alpha)
   local ok, err = pcall(function()
     -- Everything draws in reference-canvas coordinates under one
     -- translate(origin) + scale transform; the per-type geometry from the
-    -- style registry is already reference-space, so nothing is scaled twice.
+    -- style catalogue is already reference-space, so nothing is scaled twice.
     local layout = FieldDialogueTheme.layout(viewport.referenceFrame)
     lg.push()
     pushed = true
