@@ -1552,10 +1552,11 @@ function T.wait_gates_the_track_while_the_note_rings_its_own_length()
 end
 
 -- The corpus-reachable track-state commands the player does not model (LFO
--- modulation parameters, pitch sweep, portamento) plus the envelope override
--- commands are accepted without fault: they carry the frozen vocabulary
--- shapes and must never fail a reachable sequence.
-function T.modulation_sweep_portamento_and_envelope_commands_are_accepted()
+-- modulation parameters, pitch sweep, portamento) are accepted without
+-- fault: they carry the frozen vocabulary shapes and must never fail a
+-- reachable sequence. The envelope override commands are not here -- they
+-- have real semantics, pinned by envelope_overrides_apply_only_when_set_and_persist.
+function T.modulation_sweep_and_portamento_commands_are_accepted()
   local player, provider = engine({
     [0] = seq({
       { op = "note", key = 60, velocity = 127, duration = 1 },
@@ -1569,7 +1570,6 @@ function T.modulation_sweep_portamento_and_envelope_commands_are_accepted()
       { op = "sweep", amount = -100 },
       { op = "portamento_key", amount = 64 },
       { op = "portamento_time", amount = 8 },
-      { op = "release", amount = 90 },
       { op = "wait", duration = 1 },
       { op = "end" },
     }),
@@ -1785,32 +1785,7 @@ end
 
 -- 0xBD `cmp_ne` sets the track comparison and a conditional instruction
 -- executes only while it holds (the 0xA2 prefix mechanism of the frozen
--- vocabulary; no conditional instruction occurs in the real corpus).
-function T.cmp_ne_gates_conditional_instructions()
-  local player, provider = engine({
-    [0] = seq({
-      { op = "setvar", var = 0, amount = 1 },
-      { op = "cmp_ne", var = 0, amount = 2 },
-      { conditional = true, op = "note", key = 60, velocity = 127, duration = 1 },
-      { op = "end" },
-    }),
-    [1] = seq({
-      { op = "setvar", var = 0, amount = 1 },
-      { op = "cmp_ne", var = 0, amount = 1 },
-      { conditional = true, op = "note", key = 60, velocity = 127, duration = 1 },
-      { op = "end" },
-    }, { id = 1, symbol = "SEQ_FALSE" }),
-  })
-  player:play(provider:sequence(0), provider:bank(12))
-  local pcm = player:render(1000)
-  Assert.deepEqual(
-    left(pcm, 1000),
-    sumSegments({ noteSegment(WAVE_A, 1, 1, 1, 1000) }, 1000),
-    "a true comparison runs the conditional note"
-  )
-  player:play(provider:sequence(1), provider:bank(12))
-  local silent = player:render(1000)
-  Assert.deepEqual(left(silent, 1000), zeros(1000), "a false comparison skips the conditional note")
-end
-
+-- vocabulary; no conditional instruction occurs in the real corpus). All six
+-- comparison operators drive the same flag in
+-- every_comparison_operator_drives_conditional_execution.
 return { tests = T }
