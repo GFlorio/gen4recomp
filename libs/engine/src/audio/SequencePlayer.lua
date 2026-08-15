@@ -3,7 +3,8 @@
 -- loops, tempo, player variables, and track parameters, and drives a
 -- VoiceMixer with the migrated voice spec ({channel, generation} handles,
 -- trackVolume/playerVolume never folded, raw track pan offset, bend folded
--- into key). It interprets project instruction IR, never SSEQ. The tick
+-- into key as exact dyadic semitones, and the TrackPlayNote sweep/LFO
+-- fields). It interprets project instruction IR, never SSEQ. The tick
 -- clock is the NNS relationship verified from GBATEK ("DS Sound Files -
 -- SSEQ") and the ARM7 NitroSDK player (SND_seq.c: SND_TIMER_RATE 240 at the
 -- 192 Hz sound interval): a quarter note is 48 ticks and tempo is BPM
@@ -24,8 +25,10 @@
 -- {handle, length} pairs (never a single channel), tie, mute, program,
 -- priority (default 64), volume/expression 127, the raw pan offset
 -- (default 0; the 0xC0 pan command stores amount-64), transpose, bend 64,
--- bend range 2, nullable envelope stage overrides (0xD0-0xD3, applied to a
--- note only when set), the comparison flag, and the call/loop stacks.
+-- bend range 2, the mod snapshot (target 0, depth 0, range 1, speed 16,
+-- delay 0), sweepPitch 0, portamentoKey 60, portamentoTime 0, the
+-- portamento flag, nullable envelope stage overrides (0xD0-0xD3, applied to
+-- a note only when set), the comparison flag, and the call/loop stacks.
 -- Fresh tracks gate notes by their duration; 0xC7 note_wait clears the flag
 -- so composers pair notes with explicit 0x80 waits, and each ringing
 -- voice's own length bounds its ring independently of gates (the NNS
@@ -43,8 +46,10 @@
 -- injected or default RNG (created once at construction, never reseeded per
 -- play); variables live in the SDK 16-local/16-global domain with s16
 -- arithmetic (addvar/subvar/mulvar/divvar/shiftvar/randomvar, div-by-zero
--- skips, negative shifts shift right). LFO modulation, pitch sweep and
--- portamento commands are accepted without effect.
+-- skips, negative shifts shift right). The mod commands set the LFO
+-- snapshot every noteOn spec carries; the sweep/portamento commands set the
+-- note's TrackPlayNote sweep fields (the track sweep plus the portamento
+-- contribution, and the sweep length derived from portamentoTime).
 --
 -- Rendering asks the mixer for spans that end at the next event boundary
 -- (the frame before a control push, a tick that releases a gate, a
@@ -219,6 +224,16 @@ local function newTrack(entry)
     transpose = 0,
     bend = 64,
     bendRange = DEFAULT_BEND_RANGE,
+    -- The LFO parameter snapshot (TrackInit via SND_InitLfoParam: target 0,
+    -- depth 0, range 1, speed 16, delay 0); the mod commands set the fields
+    -- and every noteOn spec carries a fresh copy.
+    mod = { target = 0, depth = 0, range = 1, speed = 16, delay = 0 },
+    -- The pitch-sweep/portamento state (TrackInit): the s16 sweepPitch, the
+    -- portamento key/time pair and the portamento flag.
+    sweepPitch = 0,
+    portamentoKey = 60,
+    portamentoTime = 0,
+    portamento = false,
     -- Per-track envelope stage overrides (the NNS 0xD0-0xD3 commands), nil
     -- until set; a set override replaces exactly that stage of a note's
     -- envelope.
@@ -268,10 +283,18 @@ local function effectiveEnvelope(track, voice)
   }
 end
 
--- The note's effective key: the note key plus transpose and pitch-bend
--- semitones (bend 64 is no bend; the mixer has no bend field).
+-- The note's effective key: the note key plus transpose and the pitch-bend
+-- semitones (bend 64 is no bend; the mixer has no bend field). The bend
+-- contribution is the SDK integer pitch domain (TrackUpdateChannel:
+-- pitch = pitchBend * (bendRange << 6) >> 7): the signed >> 7 is an
+-- arithmetic shift, so the fold is floor((bend - 64) * bendRange / 2) pitch
+-- units (the values are small, exact in double; floor(-576 / 128) = -5, not
+-- the truncation -4), carried as pitchUnits/64 -- an exact dyadic semitone
+-- -- so the mixer's (midiKey - originalKey) * 0x40 reproduces the SDK
+-- integer (never a fractional PITCH_TABLE index).
 local function noteKey(track, key)
-  return key + track.transpose + (track.bend - 64) * track.bendRange / 128
+  local pitchUnits = math.floor((track.bend - 64) * track.bendRange / 2)
+  return key + track.transpose + pitchUnits / 64
 end
 
 -- The control steps until the note's release stops (NnsSoundMath
@@ -310,10 +333,13 @@ end
 -- Starts the note's voice on the mixer and returns its {channel, generation}
 -- handle (or nil for a silent note). The voice spec carries the decoded PCM,
 -- wave rate and loop window from the provider, the effective key (note key
--- plus transpose and pitch-bend semitones), the raw track pan offset and the
+-- plus transpose and the bend pitch units), the raw track pan offset, the
 -- track/player priorities and channel mask from the sequence's player record
--- (nothing is folded into the track volume).
-local function startNote(self, instance, track, key, velocity)
+-- (nothing is folded into the track volume), the TrackPlayNote sweep fields
+-- (the track sweep plus the portamento contribution, the sweep length from
+-- portamentoTime, autoSweep, and the counter at 0) and a fresh TrackUpdate
+-- Channel lfo snapshot of the track mod state.
+local function startNote(self, instance, track, key, velocity, length)
   -- A program the bank does not define is a silent note (the NNS
   -- SND_ReadInstData failure path): the real corpus references instruments
   -- whose SBNK records are unused/placeholder and the DS plays silence.
@@ -350,6 +376,32 @@ local function startNote(self, instance, track, key, velocity)
   spec.trackPriority = track.priority
   spec.playerPriority = sequence.player.playerPriority
   spec.channelMask = instance.channelMask
+  -- TrackPlayNote: the sweep starts from the track sweepPitch; a note under
+  -- portamento adds (portamentoKey - midiKey) << 6 units (the sums stay in
+  -- the s16 domain). With no portamento time the sweep length is the note
+  -- length and the sweep does not advance on its own; with one it is
+  -- time^2 * |sweepPitch| >> 11 and the mixer advances it per control step.
+  spec.sweepPitch = track.sweepPitch
+  if track.portamento then
+    local midiKey = clamp(key + track.transpose, 0, 127)
+    spec.sweepPitch = toS16(spec.sweepPitch + (track.portamentoKey - midiKey) * 64)
+  end
+  if track.portamentoTime == 0 then
+    spec.sweepLength = length
+    spec.autoSweep = false
+  else
+    local magnitude = spec.sweepPitch < 0 and -spec.sweepPitch or spec.sweepPitch
+    spec.sweepLength = math.floor(track.portamentoTime * track.portamentoTime * magnitude / 2048)
+    spec.autoSweep = true
+  end
+  spec.sweepCounter = 0
+  spec.lfo = {
+    target = track.mod.target,
+    depth = track.mod.depth,
+    range = track.mod.range,
+    speed = track.mod.speed,
+    delay = track.mod.delay,
+  }
   return self._mixer:noteOn(spec), voice
 end
 
@@ -400,7 +452,7 @@ local function execute(self, instance, track, instruction)
             or nil
         end
       else
-        local handle, voice = startNote(self, instance, track, instruction.key, instruction.velocity)
+        local handle, voice = startNote(self, instance, track, instruction.key, instruction.velocity, length)
         if handle ~= nil then
           entry = { handle = handle, length = length }
           if track.noteWait and length == 0 then
@@ -586,21 +638,31 @@ local function execute(self, instance, track, instruction)
     -- The reserved no-op opcodes of the corpus (0x82-0x8F, 0x90-0x92,
     -- 0x96-0x9F, 0xA3-0xAF, 0xB7, 0xBE-0xBF, 0xD8-0xDF, 0xE2, 0xE4-0xEF,
     -- 0xF0-0xFB, 0xFE): the SDK consumes them without effect.
-  elseif
-    op == "mod_depth"
-    or op == "mod_speed"
-    or op == "mod_type"
-    or op == "mod_range"
-    or op == "mod_delay"
-    or op == "sweep"
-    or op == "portamento_key"
-    or op == "portamento"
-    or op == "portamento_time"
-  then
-    -- Corpus-reachable commands whose effects this engine does not model
-    -- (LFO modulation state, pitch sweep, portamento): the frozen
-    -- vocabulary guarantees their shape; the engine accepts them without
-    -- effect.
+  elseif op == "mod_depth" then
+    -- 0xCA-0xCD/0xE0: the mod fields are u8/u16 binary values stored as
+    -- their C types, so out-of-domain amounts wrap.
+    track.mod.depth = resolveAmount(self, instruction.amount, instance) % 256
+  elseif op == "mod_speed" then
+    track.mod.speed = resolveAmount(self, instruction.amount, instance) % 256
+  elseif op == "mod_type" then
+    track.mod.target = resolveAmount(self, instruction.amount, instance) % 256
+  elseif op == "mod_range" then
+    track.mod.range = resolveAmount(self, instruction.amount, instance) % 256
+  elseif op == "mod_delay" then
+    track.mod.delay = resolveAmount(self, instruction.amount, instance) % 65536
+  elseif op == "sweep" then
+    -- 0xE3: the s16 track sweep pitch.
+    track.sweepPitch = toS16(resolveAmount(self, instruction.amount, instance))
+  elseif op == "portamento_key" then
+    -- 0xC9: stores the u8 key plus transpose and sets the portamento flag.
+    track.portamentoKey = (resolveAmount(self, instruction.amount, instance) + track.transpose) % 256
+    track.portamento = true
+  elseif op == "portamento" then
+    -- 0xCE: the flag is the operand's truthiness.
+    track.portamento = resolveAmount(self, instruction.amount, instance) ~= 0
+  elseif op == "portamento_time" then
+    -- 0xCF: the u8 sweep time.
+    track.portamentoTime = resolveAmount(self, instruction.amount, instance) % 256
   elseif op == "loop_begin" then
     -- The frame carries the count and the return index (the instruction
     -- after the begin), mirroring the SDK's loopCount/posCallStack pair.

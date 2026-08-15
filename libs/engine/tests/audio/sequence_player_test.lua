@@ -1193,7 +1193,10 @@ end
 -- The voice spec is the migrated mixer contract: trackVolume + playerVolume
 -- (never folded), trackPriority + playerPriority, the raw trackPanOffset,
 -- the instrument pan, bend folded into `key` (the mixer has no bend field),
--- and a {channel, generation} handle back. The old folded fields must not
+-- and a {channel, generation} handle back. The track-state commands now have
+-- real semantics, so the spec also always carries the TrackPlayNote sweep
+-- fields (sweepPitch, sweepLength, autoSweep) and the TrackUpdateChannel lfo
+-- snapshot with the TrackInit defaults. The old folded fields must not
 -- survive.
 function T.note_spec_carries_the_migrated_mixer_fields()
   local mixer = stubMixer()
@@ -1227,6 +1230,14 @@ function T.note_spec_carries_the_migrated_mixer_fields()
   Assert.isNil(spec.volume, "the old folded volume field is gone")
   Assert.isNil(spec.channelPriority, "the old channelPriority field is gone")
   Assert.isNil(spec.bend, "bend folds into key; the mixer has no bend field")
+  Assert.deepEqual(
+    spec.lfo,
+    { target = 0, depth = 0, range = 1, speed = 16, delay = 0 },
+    "the spec always carries the lfo snapshot with the TrackInit defaults (SND_InitLfoParam)"
+  )
+  Assert.equal(spec.sweepPitch, 0, "the spec always carries the track sweep pitch (TrackInit 0)")
+  Assert.equal(spec.sweepLength, 1, "portamentoTime 0 makes the note length the sweep length")
+  Assert.equal(spec.autoSweep, false, "portamentoTime 0 disables the autoSweep advance (TrackPlayNote)")
   Assert.deepEqual(
     mixer.log.noteOffs,
     { { channel = 3, generation = 0 } },
@@ -1550,37 +1561,197 @@ function T.wait_gates_the_track_while_the_note_rings_its_own_length()
   Assert.isFalse(player:isPlaying(), "end terminates the track")
 end
 
--- The corpus-reachable track-state commands the player does not model (LFO
--- modulation parameters, pitch sweep, portamento) are accepted without
--- fault: they carry the frozen vocabulary shapes and must never fail a
--- reachable sequence. The envelope override commands are not here -- they
--- have real semantics, pinned by envelope_overrides_apply_only_when_set_and_persist.
-function T.modulation_sweep_and_portamento_commands_are_accepted()
+-- The bend fold is the SDK integer domain (SND_seq.c TrackUpdateChannel:
+-- pitch = pitchBend * (bendRange << 6) >> 7, with pitchBend = bend - 64 in
+-- the project IR), so the folded pitch units are floor((bend-64)*bendRange/2)
+-- and the key carries them as exact dyadic semitones (pitchUnits/64). The
+-- mixer's (key - originalKey) * 0x40 then yields the SDK integer again --
+-- the odd-product case the old fractional fold (bend-64)*bendRange/128
+-- semitones got wrong: bend 67 at range 3 folds floor(3*3/2) = 4 pitch
+-- units (+1/16 semitone), bend 61 at range 3 folds floor(-3*3/2) = -5 (the
+-- signed shift floors: -4.5 folds to -5, not the truncation -4).
+function T.bend_folds_floor_pitch_units_for_odd_products()
+  local mixer = stubMixer()
   local player, provider = engine({
     [0] = seq({
+      { op = "note_wait", amount = 0 },
       { op = "note", key = 60, velocity = 127, duration = 1 },
-      { op = "nop" },
-      { op = "mod_depth", amount = 100 },
-      { op = "mod_speed", amount = 10 },
-      { op = "mod_range", amount = 3 },
-      { op = "mod_delay", amount = 16 },
-      { op = "mod_type", amount = 1 },
-      { op = "wait", duration = 1 },
-      { op = "sweep", amount = -100 },
-      { op = "portamento_key", amount = 64 },
-      { op = "portamento_time", amount = 8 },
-      { op = "wait", duration = 1 },
+      { op = "pitch_bend_range", amount = 3 },
+      { op = "pitch_bend", amount = 67 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "pitch_bend", amount = 61 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
       { op = "end" },
     }),
-  })
+  }, { mixer = mixer })
   play(player, provider)
-  local pcm = player:render(1500)
-  Assert.deepEqual(
-    left(pcm, 1500),
-    sumSegments({ noteSegment(WAVE_A, 1, 1, 1, 1500) }, 1500),
-    "the track-state commands gate nothing and release nothing"
+  player:render(100)
+  Assert.equal(mixer.log.noteOns[1].key, 60, "no bend: the key is the note key")
+  Assert.equal(
+    mixer.log.noteOns[2].key,
+    60 + 4 / 64,
+    "bend 67 at range 3 folds floor(3*3/2) = 4 pitch units = +1/16 semitone"
   )
-  Assert.isFalse(player:isPlaying())
+  Assert.equal(
+    mixer.log.noteOns[3].key,
+    60 - 5 / 64,
+    "bend 61 at range 3 folds floor(-3*3/2) = -5 pitch units = -5/64 semitone (the shift floors, it does not truncate toward zero)"
+  )
+end
+
+-- The odd-product fold through the real mixer (vectors verified by driving
+-- the landed mixer directly): pitch +4 is calcTimer(8006, 4) = 7977, pitch
+-- -5 is calcTimer(8006, -5) = 8042, and the rendered PCM is the exact
+-- NNS-calculated ratio over the note's window. The old unfractioned fold
+-- never renders at all: pitch 4.5 is a fractional PITCH_TABLE index.
+function T.bend_odd_products_render_the_sdk_integer_pitch()
+  local function renderFor(prefix)
+    local player, provider = engine({ [0] = seq(prefix) })
+    play(player, provider)
+    return left(player:render(1000), 1000)
+  end
+  local function patternAt(ratio, frames)
+    local out = {}
+    for i = 1, frames do
+      out[i] = WAVE_A[math.floor((i - 1) * ratio) % 8 + 1]
+    end
+    return out
+  end
+  local up = renderFor({
+    { op = "pitch_bend_range", amount = 3 },
+    { op = "pitch_bend", amount = 67 },
+    { op = "note", key = 60, velocity = 127, duration = 2 },
+    { op = "end" },
+  })
+  Assert.deepEqual(
+    up,
+    patternAt(sampleRatio(60 + 4 / 64, 60), 1000),
+    "bend 67 at range 3 renders the +4 pitch-unit timer (calcTimer(8006, 4) = 7977)"
+  )
+  local down = renderFor({
+    { op = "pitch_bend_range", amount = 3 },
+    { op = "pitch_bend", amount = 61 },
+    { op = "note", key = 60, velocity = 127, duration = 2 },
+    { op = "end" },
+  })
+  Assert.deepEqual(
+    down,
+    patternAt(sampleRatio(60 - 5 / 64, 60), 1000),
+    "bend 61 at range 3 renders the -5 pitch-unit timer (calcTimer(8006, -5) = 8042)"
+  )
+end
+
+-- The sweep/portamento commands wire the TrackPlayNote channel state into
+-- the noteOn spec (SND_seq.c): 0xE3 sweep stores the s16 track sweepPitch;
+-- 0xC9 portamento_key stores amount + transpose and sets the portamento
+-- flag; a noteOn while portamento is on adds (portamentoKey - midiKey) << 6
+-- pitch units; portamentoTime 0 carries the note length as sweepLength with
+-- autoSweep false, a nonzero time carries
+-- portamentoTime^2 * |sweepPitch| >> 11 with autoSweep true; 0xCE
+-- portamento 0 clears the flag and the contribution.
+function T.sweep_and_portamento_commands_wire_the_note_sweep_spec()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "sweep", amount = -100 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "portamento_key", amount = 64 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "portamento_time", amount = 8 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "portamento", amount = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "portamento", amount = 1 },
+      { op = "transpose", amount = -12 },
+      { op = "portamento_key", amount = 64 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer })
+  play(player, provider)
+  player:render(100)
+  local specs = mixer.log.noteOns
+  Assert.equal(#specs, 6, "the commands gate nothing: every note allocates in the first pass")
+  Assert.deepEqual(
+    { sweepPitch = specs[1].sweepPitch, sweepLength = specs[1].sweepLength, autoSweep = specs[1].autoSweep },
+    { sweepPitch = 0, sweepLength = 1, autoSweep = false },
+    "a fresh track: no sweep, portamentoTime 0 makes the note length the sweep length"
+  )
+  Assert.deepEqual(
+    { sweepPitch = specs[2].sweepPitch, sweepLength = specs[2].sweepLength, autoSweep = specs[2].autoSweep },
+    { sweepPitch = -100, sweepLength = 1, autoSweep = false },
+    "the sweep command sets the track sweepPitch; the next noteOn's spec carries it"
+  )
+  Assert.deepEqual(
+    { sweepPitch = specs[3].sweepPitch, sweepLength = specs[3].sweepLength, autoSweep = specs[3].autoSweep },
+    { sweepPitch = -100 + (64 - 60) * 64, sweepLength = 1, autoSweep = false },
+    "portamento_key 64 adds (portamentoKey - midiKey) << 6 = 256 to the track sweep"
+  )
+  Assert.deepEqual(
+    { sweepPitch = specs[4].sweepPitch, sweepLength = specs[4].sweepLength, autoSweep = specs[4].autoSweep },
+    { sweepPitch = 156, sweepLength = 4, autoSweep = true },
+    "portamento_time 8 carries the SDK sweep length (8^2 * |156| >> 11 = 4) and keeps autoSweep"
+  )
+  Assert.deepEqual(
+    { sweepPitch = specs[5].sweepPitch, sweepLength = specs[5].sweepLength, autoSweep = specs[5].autoSweep },
+    { sweepPitch = -100, sweepLength = 3, autoSweep = true },
+    "portamento 0 clears the flag: the note carries only the track sweep (8^2 * 100 >> 11 = 3)"
+  )
+  Assert.deepEqual(
+    { sweepPitch = specs[6].sweepPitch, sweepLength = specs[6].sweepLength, autoSweep = specs[6].autoSweep },
+    { sweepPitch = -100 + (52 - 48) * 64, sweepLength = 4, autoSweep = true },
+    "portamento_key stores amount + transpose (52); the note's midiKey is 48, so the contribution is still 256"
+  )
+end
+
+-- The mod commands wire the TrackUpdateChannel lfo snapshot (SND_seq.c
+-- 0xCA-0xCD, 0xE0) into the next noteOn's spec with the TrackInit defaults
+-- (SND_InitLfoParam) when unset. The commands gate nothing and release
+-- nothing: both notes allocate in the first pass and each voice rings its
+-- own length.
+function T.mod_commands_wire_the_note_lfo_spec()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "mod_depth", amount = 100 },
+      { op = "mod_speed", amount = 10 },
+      { op = "mod_type", amount = 1 },
+      { op = "mod_range", amount = 3 },
+      { op = "mod_delay", amount = 16 },
+      { op = "note", key = 60, velocity = 127, duration = 2 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer })
+  play(player, provider)
+  Assert.equal(#mixer.log.noteOns, 2, "the mod commands gate nothing: both notes allocate in the first pass")
+  Assert.equal(#mixer.log.noteOffs, 0, "the mod commands release nothing")
+  Assert.deepEqual(
+    mixer.log.noteOns[1].lfo,
+    { target = 0, depth = 0, range = 1, speed = 16, delay = 0 },
+    "an unset mod is the TrackInit lfo (SND_InitLfoParam)"
+  )
+  Assert.deepEqual(
+    mixer.log.noteOns[2].lfo,
+    { target = 1, depth = 100, range = 3, speed = 10, delay = 16 },
+    "mod_depth/mod_speed/mod_type/mod_range/mod_delay wire the lfo snapshot"
+  )
+  player:render(500)
+  Assert.deepEqual(
+    mixer.log.noteOffs,
+    { { channel = 3, generation = 0 } },
+    "the first voice's own length expires at its tick"
+  )
+  player:render(500)
+  Assert.deepEqual(
+    mixer.log.noteOffs,
+    { { channel = 3, generation = 0 }, { channel = 3, generation = 0 } },
+    "the second voice rings its own longer length"
+  )
+  Assert.isFalse(player:isPlaying(), "the sequence ends after the notes ring out")
 end
 
 -- 0xB0 `setvar` writes player variables and variable amount operands read
