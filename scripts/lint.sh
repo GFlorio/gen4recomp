@@ -23,13 +23,13 @@ echo "==> temporary-spec reference guard"
 # temporary phase/deliverable identifiers ("D12", "DEV-06", "pre-D4") in
 # source, tests, data, and permanent docs. The patterns are narrow on
 # purpose: bare "section"/"slice" and project concepts like the playable
-# "New Bark slice" stay legal. lint.sh is excluded because it contains the
-# patterns itself.
+# "New Bark slice" stay legal. lint.sh and the architecture guard test are
+# excluded because they contain the patterns themselves.
 if grep -RInE --include='*.lua' --include='*.md' --include='*.sh' --include='*.toml' \
   -e 'tmp/spec' -e 'spec section' -e 'Workstream' -e 'milestone' -e 'slice [0-9]' \
   -e 'WS[0-9]' -e 'under development' -e 'provisional' -e 'may change in a future API' \
   -e '\bD[0-9]+\b' -e '\bDEV-[0-9]+\b' -e 'pre-D[0-9]+' \
-  --exclude='lint.sh' \
+  --exclude='lint.sh' --exclude='temporary_spec_number_test.lua' \
   README.md docs data libs game romdump tests scripts gen4; then
   echo "lint: temporary-spec references found; replace them with durable reasoning" >&2
   exit 1

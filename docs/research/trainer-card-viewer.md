@@ -73,17 +73,21 @@ band. The renderer never draws in it.
 ## Viewer decisions (deviations from a full source clone)
 
 - The front labels ("ID No.", "NAME", "MONEY", "SCORE", "TIME", "ADVENTURE
-  STARTED") and the text anchors live in the renderer as audited constants
-  (spec §29.1 assigns "label messages, coordinates, colors ... [to] the
-  generated UI metadata/renderer"; bank 727 is not part of the demo message
-  selection and no producer change was made). The Start Menu label rule (§18
-  "do not hard-code the English labels") governs the menu, not the card.
+  STARTED") and the text anchors live in the renderer as audited constants:
+  they are the bank-727 window labels from the table above, and bank 727 is
+  not part of the demo message selection, so no producer change was made to
+  generate them. This is the same static-surface stance as the Start Menu:
+  the menu's label plumbing was deleted because its renderer draws only the
+  compiled background and cursor, so menu labels had no consumer; the card
+  renderer does draw text, so it hard-codes the audited constants instead.
 - The POKéDEX row is not drawn: its source label AND value are gated on a
-  data bit, and the §29.1 model always projects `pokedexOwned = nil`, so the
-  audited blank presentation omits the row.
+  data bit (window 3 above), and the model always projects
+  `pokedexOwned = nil` because no authoritative gameplay source for the bit
+  exists yet, so the audited blank presentation omits the row.
 - Money/play time/badges/pokedex/stars/signature are always nil in the current
   model (no authoritative gameplay source), so the viewer renders no value
   text and no value-formatting code exists (no dead branches).
 - The card requests no sound: the branch does not reproduce the close
   effect, and the viewer keeps no effect wiring for a future audio branch.
-- Back-side/flip interaction and the signature editor are out of scope (§27).
+- Back-side/flip interaction and the signature editor are out of scope for
+  the front-only viewer (see "Card art" and "Signature" above).

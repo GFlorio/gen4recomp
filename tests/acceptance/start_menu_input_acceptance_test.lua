@@ -43,8 +43,11 @@ function T.tests.production_input_pipeline_carries_the_semantic_menu_button_and_
     Assert.equal(runtime.actionKeys["z"], true, "the existing Action binding construction must be unchanged")
     Assert.equal(runtime.cancelKeys["x"], true, "keyboard x must remain the existing Cancel binding")
 
-    -- The spec-pinned semantic menu button on the production-composed input,
-    -- following the Action/Cancel ownership model exactly.
+    -- The semantic menu button on the production-composed input, following
+    -- the Action/Cancel ownership model exactly: the menu is a distinct
+    -- edge from Action/Cancel because the source's start-menu task closes
+    -- on X as well as B (src/start_menu.c:576), and the session routes a
+    -- fresh menu edge to the controller while the menu owns the tick.
     local input = runtime.input ---@type any
     Assert.isTrue(
       type(input) == "table" and type(input.pressMenu) == "function",
