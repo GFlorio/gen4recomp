@@ -12,7 +12,7 @@ The pipeline has four stages:
 1. **Parse** raw Nitro formats (`Nsbmd`, `Nsbtx`, `GxDisplayList`) independently
    of LÖVE.
 2. **Compile** a map + its placed buildings into derived, content-addressed
-   assets: `g4-map-scene-v5` descriptors, `G4M2` mesh batches, and PNG textures.
+   assets: `g4-map-scene-v7` descriptors, `G4M2` mesh batches, and PNG textures.
 3. **Load** the derived cache into runtime GPU objects (`MapSceneLoader`).
 4. **Draw** with the DS-shaped shader and render queue (`MapRenderer`).
 
@@ -171,6 +171,21 @@ A batch is classified into one of four ordering classes:
 | texture alpha has zero and no partial | `cutout` |
 | otherwise | `opaque` |
 
+The RGB fragment combiner is the DS integer-domain equation (GBATEK's
+MODULATE/DECAL blending modes; `libs/engine/src/DsFragment.lua` is the pure
+reference, `map.glsl`'s `modulateRgb6`/`decalRgb6` its GLSL transcription),
+not floating-point multiplication. Both the texture sample and the vertex
+color enter as 5-bit (0-31) components, widened to the combiner's 6-bit
+(0-63) domain by hardware bit-replication (`expand5to6`: `c5*2 +
+floor(c5/16)`). MODULATE is
+`floor(((texture6+1)*(vertex6+1)-1)/64)` per channel. DECAL keeps the
+polygon alpha as output alpha and blends RGB by the texel's own alpha:
+texture alpha 0 keeps the vertex color, 31 keeps the texture color,
+otherwise the two interpolate by that alpha. An untextured polygon samples
+`vec4(1.0)`, which is exactly `DsFragment.syntheticTexture()`'s (63,63,63,31)
+after quantization -- the identity element of both equations, so no separate
+synthetic-texture uniform exists.
+
 The shader composes 5-bit alpha as:
 
 ```text
@@ -191,6 +206,33 @@ map geometry, buildings, neighbour-ring draws, and actors. `RenderQueue`
 traverses those parts with one monotonically increasing submission position,
 so cross-part tie ordering is established without flattening or stamping the
 draw items. `MapRenderer` owns and reuses the queue scratch arrays.
+
+## Edge marking
+
+HGSS field rendering enables DS edge marking with two real per-area color
+tables (`romdump.src.digest.HgssFieldEdgeColors.TABLE_A`/`TABLE_B`, each eight
+RGB555 entries), selected by `AreaData.lightTypeRaw`: zero selects table A,
+non-zero selects table B. `MapAssetCompiler` resolves the table once per area
+into `scene.edgeColors`, a required scene field (not a `MapRenderer`
+constructor invariant); the renderer caches the table by reference and only
+resends `u_edgeColors` when the active scene's table changes.
+
+The edge predicate is the DS rule, not a linear-eye-space heuristic: a pixel
+is an edge when an orthogonal neighbor's polygon ID differs from the
+center's AND the center is strictly in front of that neighbor
+(`DsEdgeMarking.isEdgePixel`, table-indexed by `centerPolygonId >> 3`). The
+compared depth is `DsDepth`'s quantized 24-bit domain, derived from the same
+W-buffer-shaped value the shader also stores; there is no
+`DEPTH_STEP_TOLERANCE` fudge factor. An edge pixel's output is hardware-style
+RGB replacement (`vec4(edgeColor, scene.a)`), never an alpha-mix with the
+scene color, and there is no separate edge-opacity uniform.
+
+The opaque polygon ID, the DS-quantized depth, and translucent identity are
+three independent logical attributes, carried as separate channels of one
+`rgba32f` attachment (R = polygon ID, G = depth, B = translucent flag) rather
+than one value overloaded to mean several things. In particular, a
+translucent fragment's real polygon ID survives (used by later
+self-blend-rejection work), never replaced by an invented sentinel ID.
 
 ## Billboards
 
@@ -276,6 +318,19 @@ actors draw with the world projection, exactly as on the DS.
 * A3I5/A5I3 → translucent; binary zero-alpha → cutout.
 * Culling from polygon bits 6-7.
 * Translucent bit-11 depth writes.
+* MODULATE/DECAL fragment combiner in the DS integer domain, not floating
+  multiplication (see "Alpha classification and fragment contract" above).
+* The real HGSS field edge-color tables, per-area table selection, the
+  strict DS edge predicate/depth representation, RGB-replacement edge
+  compositing, and the three-way opaque-ID/depth/translucent-identity
+  attribute split (see "Edge marking" above).
+* Mirrored texture repeat (`TEXIMAGE_PARAM` flip bits), mapped to LÖVE's
+  `mirroredrepeat` wrap mode.
+* Global DS fog: the two-gate (`DISP3DCNT` + per-polygon `FOG_ENABLE`) rule,
+  the 32-entry density table, and the post-combiner blend (`DsFog.lua`,
+  applied in `map.glsl` from the same DS-quantized depth the edge pass
+  reads). The per-area/time-of-day source of the fog color/table/offset
+  themselves is not: see "Deferred / approximate."
 * `BB` billboards, oriented in the vertex shader from the captured base transform.
 * The field-billboard depth bias (`unk11C = 8` model units in `ov01_021E6220`):
   actor billboards render through a projection whose Z row is pulled
@@ -296,12 +351,41 @@ actors draw with the world projection, exactly as on the DS.
 These are documented rather than silently approximated. If a target map needs
 one, the compiler raises a structured error instead of rendering incorrectly.
 
-* Polygon-ID same-ID translucent self-blend rejection.
-* Exact DS automatic translucent Y sorting (we use approximate back-to-front).
-* Exact DS framebuffer blend equation and destination-alpha behavior.
-* DS Z/W "equal" tolerance (`depthEqual` maps to `lequal`).
-* Fog.
-* Shadow polygons.
+* Polygon-ID same-ID translucent self-blend rejection: `DsBlend.rejectsSelfBlend`
+  defines the rule, but the renderer does not implement it (no auxiliary
+  compositor exists, and no corpus content has been found to produce that
+  overdraw pattern).
+* Exact DS automatic translucent Y sorting: HGSS field content is confirmed
+  (via decomp) to genuinely use `GX_SORTMODE_AUTO`, but the exact hardware
+  vertex-selection rule was never independently confirmed against melonDS, so
+  the renderer keeps the pre-existing approximate object-center-Z
+  back-to-front sort rather than tuning an unconfirmed rule.
+* Destination-alpha (`max(SrcAlpha, DstAlpha)`): the RGB blend equation
+  itself already matches `DsBlend.blendRgb6`'s shape, but nothing downstream
+  reads the scene color's alpha channel, so this part of the contract is
+  unimplemented and currently unobservable.
+* Per-area/time-of-day fog color/table/offset source data: the fog gate,
+  table, and post-combiner math are implemented exactly (see "Implemented
+  exactly" above), but no decompiled reference in this checkout identifies
+  where HGSS selects them per area/weather, so the renderer sends the DS
+  SDK's real idle-default fog state (disabled, black, zero table, zero
+  offset) globally rather than live per-area data.
+* `depthEqual`/`translucentDepthWrite`: never exercised anywhere in the
+  target field corpus; `PolygonState.validate` raises
+  `POLYGON_STATE_DEPTH_EQUAL_UNSUPPORTED` rather than approximating the DS
+  Z/W "equal" tolerance with the host's `lequal` compare.
+* Shadow polygons and the `toon`/`highlight` polygon modes: absent from the
+  full HeartGold field corpus census (every material resolves to
+  `modulation`); compilation fails with `MAP_COMPILE_UNSUPPORTED_POLYGON_MODE`
+  rather than silently approximating one if a future dump introduces it.
+* Wireframe polygon-perimeter geometry: the true GX polygon perimeter
+  (excluding triangulation diagonals) is captured at the romdump layer
+  (`GxDisplayList.polygonEdges`), but it is not yet wired into the mesh
+  compiler or renderer -- wireframe draws still use
+  `love.graphics.setWireframe(true)` over triangulated geometry, so triangle
+  diagonals remain visible on the rare wireframe shapes the corpus contains.
+  Closing this needs a CPU-side `love.graphics.line()` per-edge draw path,
+  since LÖVE 11.5's Mesh API has no line-drawing primitive.
 * Exact fixed-point clipping/raster interpolation.
 * Local shininess-table rendering (table data is parsed but not used).
 * `BBY` yaw-only billboards, `CALLDL` external display lists, non-rigid `NODEMIX`
@@ -320,7 +404,7 @@ Derived map caches carry the persisted format/schema identities:
 
 ```lua
 MapAssetCache.FORMAT              = "map-cache-v7"
-scene.schema                      = "g4-map-scene-v5"
+scene.schema                      = "g4-map-scene-v7"
 terrain.schema                    = "g4-terrain-surfaces-v1"
 collision version                 = 1
 VertexFormat.VERSION              = 2

@@ -26,7 +26,9 @@ local function stubGraphics(created, opts)
       function image:getHeight()
         return 32
       end
-      function image:setFilter() end
+      function image:setFilter(min, mag)
+        self.filter = { min, mag }
+      end
       function image:release()
         self.released = true
       end
@@ -85,6 +87,16 @@ function T.acquire_loads_once_and_shares_the_entry()
   Assert.equal(p:stats().loads, 1)
   Assert.equal(p:stats().hits, 1)
   Assert.equal(p:stats().references, 2)
+end
+
+-- DS textures are point-sampled: nearest atlas sampling must survive into
+-- the actual GPU image every actor draws with, never the host's smoothing
+-- default.
+function T.acquired_atlas_image_is_nearest_filtered()
+  local created = {}
+  local p = provider({ 0 }, nil, created)
+  p:acquire(0)
+  Assert.deepEqual(created[1].filter, { "nearest", "nearest" })
 end
 
 function T.builds_one_quad_and_one_billboard_mesh_per_frame()

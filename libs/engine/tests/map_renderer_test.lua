@@ -11,6 +11,8 @@ local FieldViewport = require("libs.engine.src.FieldViewport")
 local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")
 local BillboardTransform = require("libs.engine.src.BillboardTransform")
+local FieldActorDraw = require("libs.engine.src.FieldActorDraw")
+local FieldActorFixture = require("tests.support.FieldActorFixture")
 
 local T = {}
 
@@ -985,6 +987,60 @@ function T.translucent_draws_send_their_own_polygon_id_not_an_invented_sentinel(
     item.polygonId / MapRenderer.REAR_PLANE_ID,
     "translucent items send their real polygon id, never a sentinel outside the item's own attributes"
   )
+  renderer:release()
+end
+
+-- An ordinary field actor is not a separate sprite renderer -- FieldActorDraw.item builds the
+-- exact same render-item shape terrain/building queueing does, so it must
+-- reach MapRenderer's one shared _drawMesh path and send the same uniform
+-- contract, carrying the ROM's own actor polygon state (modulation,
+-- lightMask 1, polygonId 0, cutout alpha) rather than a hard-coded/actor-only
+-- substitute. Built through the real production FieldActorDraw/
+-- FieldActorFixture path, not a hand-authored item table.
+function T.actor_draw_item_reaches_the_shared_world_pipeline_with_its_rom_polygon_state()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+
+  local function stubMesh()
+    return { setTexture = function() end }
+  end
+  local visual = FieldActorFixture.visual(99)
+  local entry = {
+    visual = visual,
+    image = { id = 99 },
+    meshes = { stubMesh(), stubMesh(), stubMesh(), stubMesh(), stubMesh() },
+    billboardScales = { [visual.render.geometry] = { 1, 1, 1 } },
+  }
+  local record = {
+    actorId = "map:1:object:0",
+    spriteId = 99,
+    world = { x = 2, y = 0, z = -6 },
+    facing = "south",
+    pose = "idle",
+    poseTick = 0,
+    visible = true,
+  }
+  local item = FieldActorDraw.item(record, entry)
+  Assert.equal(item.alphaClass, "cutout", "the fixture's actor material is the ROM's cutout class")
+
+  renderer:draw(scene.runtime, scene.camera, { { item } }, FieldViewport.new(640, 480, { mode = "strict" }))
+
+  local shader = lg.shaders[1]
+  local sent = {}
+  for _, send in ipairs(shader.sends) do
+    sent[send.name] = send.values[1]
+  end
+  Assert.equal(sent.u_polygonMode, 0, "the actor's modulation material sends the modulation combiner id")
+  Assert.equal(sent.u_polygonId, 0 / MapRenderer.REAR_PLANE_ID, "the actor's polygon id 0 rides the real id channel")
+  Assert.equal(sent.u_alphaMode, 1, "the actor's cutout class sends the cutout alpha-mode id")
+  Assert.deepEqual(sent.u_lightMask, MapRenderer.lightMaskUniforms(1), "light mask 1 decodes to bit 0 only")
+  Assert.isFalse(sent.u_translucentAttribute, "an opaque/cutout actor draw is not the translucent identity")
+  Assert.notNil(
+    sent.u_billboardCenter,
+    "the actor's billboard projection selection reaches the shared billboard branch"
+  )
+  Assert.equal(#lg.shaders, 2, "the actor drew through the one map shader, no separate sprite shader was created")
   renderer:release()
 end
 
