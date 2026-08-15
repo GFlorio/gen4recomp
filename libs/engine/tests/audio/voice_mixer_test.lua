@@ -1,22 +1,47 @@
--- VoiceMixer contract: a deterministic 16-voice DS-like mixer. Sixteen
--- channels; sample voices allocate any channel, square only channels 8-13,
--- noise only 14-15 (GBATEK "NDS Sound" hardware chapter: format 3 is
--- PSG-only on those ranges); allocation and priority stealing operate inside
--- the intersection of the generator range and the player's channelMask.
--- Sample voices render nearest-sample (no interpolation), start at the
--- sample start and wrap inside their metadata loop window (the DS channel
--- begins at its source address -- melonDS SPUChannel::Start -- and loops at
--- the end), and end only on noteOff. Square duty
--- cycles are 8 samples starting at LOW (GBATEK: HIGH=(N+1)*12.5%, period 8,
--- duty starts at the LOW period); noise is the GBATEK 15-bit LFSR
--- (X=X SHR 1; carry -> LOW and X XOR 6000h, else HIGH; init 7FFFh). The
--- envelope is a project-defined linear model over the frozen 0..127 ADSR
--- bytes (attack/decay/release ramp over (127-v)*8 frames, 127 = instant;
--- sustain is a level; 127 = stay at max). Gain = velocity/127 * volume/127 *
--- expression/127; pan 0 = left only, 127 = right only, 64 = equal both.
--- Mixing sums and saturates at +-32767/+-32768. Commands issued between
--- renders apply at the start of the next render. Output is interleaved
--- stereo int16 (2*frames entries).
+-- VoiceMixer rendering-core contract: a deterministic 16-channel DS sound
+-- engine per the ARM7 NitroSDK (tmp/refs/pokediamond/arm7/lib/src/
+-- SND_exChannel.c, SND_util.c, SND_bank.c, SND_seq.c) and GBATEK ("DS
+-- Sound" chapter). The mixer owns per-voice NNS channel behavior and the
+-- physical host boundary; allocation, per-note control updates, LFO and
+-- sweep live in the sibling voice_mixer_alloc_test.lua suite.
+--   * Volume is a dB-like integer sum per control step
+--     (SNDi_DecibelSquareTable[velocity] + envAttenuation>>7
+--     + DecibelSquare[trackVolume] + DecibelSquare[expression]
+--     + DecibelSquare[playerVolume] + fader), converted once per step by
+--     SND_CalcChannelVolume; no per-stage float gain.
+--   * The envelope is the SDK state machine (SND_SetExChannelAttack
+--     coefficients and the 19-entry high table, CalcDecayCoeff decay/release
+--     with the 127/126 special cases, DecibelSquare[sustain]<<7 target,
+--     release stopped at the SDK vol <= -723 threshold), advanced once per
+--     control step -- 192 Hz, i.e. one step per 250 output frames at 48 kHz
+--     (SND_TIMER_RATE 240 at the 192 Hz sound interval, the cadence the
+--     sequence player already derives its tick clock from). The noteOn
+--     itself is the note's first control step; subsequent steps fire every
+--     CONTROL_PERIOD frames on the mixer's absolute frame count.
+--   * Pitch is the integer domain (key - originalKey)*0x40 with
+--     SND_CalcTimer(baseTimer, pitch) (BIOS pitch table); PSG timers are
+--     masked with 0xFFFC; PSG/noise use the 8006 base timer. The host phase
+--     increment is sampleRate*baseTimer/(timer*outputRate) -- the calculated
+--     NDS timer feeds the physical boundary, never a MIDI frequency.
+--   * Pan has three distinct domains: the instrument pan (0..127,
+--     initPan = pan-64), the track pan offset (starts 0), and the final
+--     hardware register (initPan + userPan + 0x40, clamped 0..127). The
+--     register feeds the linear hardware mix L=(128-N)/128, R=N/128 with
+--     register 127 interpreted as N=128 (GBATEK "7bit Volume and Panning
+--     Values").
+--   * Square duty stays the discrete 0..7 index (8-sample cycle starting at
+--     LOW, HIGH=(d+1)*12.5%); noise is the 15-bit LFSR from 7FFFh.
+-- Output is interleaved stereo int16; mixing sums and saturates at
+-- +-32767/+-32768; per-voice host gains use the register mantissa N/128 and
+-- the divider shift {0,1,2,4}. Commands between renders apply at the next
+-- control step; rendering is independent of chunk size.
+--
+-- The voice/spec shapes follow the frozen contracts: voice = {generator,
+-- originalKey, envelope, pan}; sample descriptor = {schema, key, file,
+-- frames, sampleRate, baseTimer, loopEnabled, loop}. Every expected value
+-- below is a known vector transcribed from the SDK sources or the NDS ARM7
+-- BIOS tables (getpitchtbl/getvoltbl hardware dumps); the tests never
+-- reimplement the SDK algorithms.
 
 local Assert = require("tests.support.Assert")
 local AudioFixture = require("tests.support.AudioFixture")
@@ -29,53 +54,50 @@ local SAMPLE_RATE = 48000
 -- Distinct small-amplitude waves so voice sums never clip and every voice is
 -- identifiable in the mix.
 local WAVE_A = { 100, 200, 300, 400, 500, 600, 700, 800 }
-local CONST = { 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000 }
+local WAVE16 = {}
+for i = 1, 16 do
+  WAVE16[i] = i * 100
+end
+-- Constant waves for the volume-path and pan-register pins: every expected
+-- register gain below is an exact integer multiple of the sample, so the
+-- pinned products (sample * N/128 / 2^shift * pan mix) are exact.
+local CONST_5120 = { 5120, 5120, 5120, 5120, 5120, 5120, 5120, 5120 }
+local CONST_6400 = { 6400, 6400, 6400, 6400, 6400, 6400, 6400, 6400 }
 
-local function wave(n)
-  local w = {}
-  for i = 1, 8 do
-    w[i] = (100 + n * 10) * i
-  end
-  return w
+local function newMixer(rate)
+  return VoiceMixer.new({ sampleRate = rate or SAMPLE_RATE })
 end
 
-local function newMixer()
-  return VoiceMixer.new({ sampleRate = SAMPLE_RATE })
-end
-
+-- The frozen voice shape plus the per-note inputs: generator, originalKey,
+-- envelope, pan, key, velocity, trackVolume/expression/playerVolume,
+-- channelMask, trackPriority, playerPriority, and the optional channel-side
+-- controls (trackPanOffset 0, panRange 127, fader 0, sweepPitch 0,
+-- sweepLength 0, autoSweep true, lfo {target 0=pitch/1=volume/2=pan,
+-- depth 0, range 1, speed 16, delay 0}).
 local function spec(overrides)
   local s = {
     generator = { kind = "sample", sample = AudioFixture.key(1) },
-    sampleRate = SAMPLE_RATE,
     pcm = AudioFixture.pcm16le(WAVE_A),
+    sampleRate = SAMPLE_RATE,
+    baseTimer = 8006,
     loopEnabled = true,
     loop = { startFrame = 0, endFrame = 8 },
     key = 60,
     originalKey = 60,
     velocity = 127,
-    volume = 127,
+    trackVolume = 127,
     expression = 127,
-    envelope = { attack = 127, decay = 0, sustain = 127, release = 127 },
-    pan = 0,
-    channelPriority = 64,
-    playerPriority = 64,
+    playerVolume = 127,
+    envelope = { attack = 127, decay = 127, sustain = 127, release = 127 },
+    pan = 64,
     channelMask = 0xFFFF,
+    trackPriority = 64,
+    playerPriority = 64,
   }
   for key, value in pairs(overrides or {}) do
     s[key] = value
   end
   return s
-end
-
--- Builds the interleaved stereo array a voice renders as: the left channel
--- carries `left` (per-frame samples), the right channel stays zero.
-local function stereo(left)
-  local out = {}
-  for i = 1, #left do
-    out[#out + 1] = left[i]
-    out[#out + 1] = 0
-  end
-  return out
 end
 
 local function leftAt(pcm, frame)
@@ -84,14 +106,6 @@ end
 
 local function rightAt(pcm, frame)
   return pcm[frame * 2]
-end
-
-local function frameRange(pcm, first, last, channel)
-  local out = {}
-  for frame = first, last do
-    out[#out + 1] = pcm[frame * 2 - (2 - (channel or 1))]
-  end
-  return out
 end
 
 function T.renders_silence_without_voices()
@@ -103,366 +117,330 @@ function T.renders_silence_without_voices()
   end
 end
 
-function T.sample_voice_renders_the_wave_at_unity_pitch()
-  local mixer = newMixer()
-  local channel = mixer:noteOn(spec())
-  Assert.equal(channel, 0, "the first sample voice takes channel 0")
-  local pcm = mixer:render(8)
-  Assert.deepEqual(pcm, stereo(WAVE_A), "wave sample n at frame n")
-  Assert.deepEqual(frameRange(pcm, 1, 8, 2), { 0, 0, 0, 0, 0, 0, 0, 0 }, "pan 0 keeps the right channel silent")
+-- The exact NNS volume path: velocity through SNDi_DecibelSquareTable, the
+-- envelope attenuation (0 after the instant attack), the track volume, the
+-- expression (second volume) and the player volume, all summed in the
+-- dB-like integer domain (SND_seq.c TrackUpdateChannel), plus the external
+-- fader, converted once by SND_CalcChannelVolume. Expected values are the
+-- volume register mantissa N/128 (register 127 = N 128) divided by
+-- sSampleDataShiftTable {0,1,2,4} -- GBATEK "7bit Volume and Panning
+-- Values" and "Channel/Mixer Bit-Widths".
+function T.volume_path_sums_the_nns_decibel_domain()
+  local function renderWith(overrides, frames)
+    local mixer = newMixer()
+    local merged = { pcm = AudioFixture.pcm16le(CONST_5120), pan = 0 }
+    for key, value in pairs(overrides or {}) do
+      merged[key] = value
+    end
+    mixer:noteOn(spec(merged))
+    return mixer:render(frames)
+  end
+  local cases = {
+    { name = "all 127 is the full register", overrides = {}, expected = 5120 },
+    { name = "velocity 64 (db[64] = -119 -> 0x141)", overrides = { velocity = 64 }, expected = 1300 },
+    { name = "track volume 64 is the same decibel point", overrides = { trackVolume = 64 }, expected = 1300 },
+    { name = "expression 100 (db[100] = -42 -> 0x4F)", overrides = { expression = 100 }, expected = 3160 },
+    { name = "player volume 100 is the same decibel point", overrides = { playerVolume = 100 }, expected = 3160 },
+    {
+      name = "all 100 sums four equal -42 terms (-168 -> 0x24A)",
+      overrides = { velocity = 100, trackVolume = 100, expression = 100, playerVolume = 100 },
+      expected = 740,
+    },
+    { name = "velocity 0 (db[0] = -32768 -> 0x300 silence)", overrides = { velocity = 0 }, expected = 0 },
+    {
+      name = "all 0 is silence",
+      overrides = { velocity = 0, trackVolume = 0, expression = 0, playerVolume = 0 },
+      expected = 0,
+    },
+    { name = "fader -200 (-200 -> 0x233)", overrides = { fader = -200 }, expected = 510 },
+    { name = "fader far below the floor clamps to silence", overrides = { fader = -40000 }, expected = 0 },
+  }
+  for _, case in ipairs(cases) do
+    local pcm = renderWith(case.overrides, 1)
+    Assert.equal(leftAt(pcm, 1), case.expected, case.name)
+    Assert.equal(rightAt(pcm, 1), 0, case.name .. " (pan 0)")
+  end
 end
 
-function T.sample_voice_pitch_follows_the_key_in_semitones()
+-- The three pan domains stay distinct: the instrument pan (SND_NoteOn
+-- initPan = pan - 64), the track pan offset (TrackUpdateChannel, starts 0),
+-- and the hardware register (SND_ExChannelMain: initPan + userPan + 0x40
+-- clamped 0..127; panRange scaling of the offset when panRange != 127).
+-- The register feeds the linear hardware mix (128-N)/128 and N/128 with
+-- register 127 read as N=128, so the center is half volume on each side,
+-- not a full-gain curve.
+function T.pan_registers_combine_instrument_track_and_hardware_domains()
+  local function renderAt(overrides)
+    local mixer = newMixer()
+    local merged = { pcm = AudioFixture.pcm16le(CONST_6400) }
+    for key, value in pairs(overrides or {}) do
+      merged[key] = value
+    end
+    mixer:noteOn(spec(merged))
+    return mixer:render(1)
+  end
+  local cases = {
+    { name = "instrument 0 is the left extreme", overrides = { pan = 0 }, left = 6400, right = 0 },
+    { name = "instrument 127 is the right extreme", overrides = { pan = 127 }, left = 0, right = 6400 },
+    { name = "instrument 64 is half volume on both sides", overrides = { pan = 64 }, left = 3200, right = 3200 },
+    { name = "register 63 is the asymmetric linear point", overrides = { pan = 63 }, left = 3250, right = 3150 },
+    { name = "register 126 leaves 1/64 on the left", overrides = { pan = 126 }, left = 100, right = 6300 },
+    { name = "instrument 100 with no track offset", overrides = { pan = 100 }, left = 1400, right = 5000 },
+    {
+      name = "instrument 64 plus a positive track offset",
+      overrides = { pan = 64, trackPanOffset = 63 },
+      left = 0,
+      right = 6400,
+    },
+    {
+      name = "instrument 64 plus a negative track offset",
+      overrides = { pan = 64, trackPanOffset = -64 },
+      left = 6400,
+      right = 0,
+    },
+    {
+      name = "instrument 0 plus a positive offset reaches center",
+      overrides = { pan = 0, trackPanOffset = 64 },
+      left = 3200,
+      right = 3200,
+    },
+    { name = "clamping at the right extreme", overrides = { pan = 127, trackPanOffset = 64 }, left = 0, right = 6400 },
+    { name = "clamping at the left extreme", overrides = { pan = 64, trackPanOffset = -127 }, left = 6400, right = 0 },
+    {
+      name = "pan range scales the track offset only",
+      overrides = { pan = 64, trackPanOffset = 32, panRange = 64 },
+      left = 2400,
+      right = 4000,
+    },
+  }
+  for _, case in ipairs(cases) do
+    local pcm = renderAt(case.overrides)
+    Assert.equal(leftAt(pcm, 1), case.left, case.name)
+    Assert.equal(rightAt(pcm, 1), case.right, case.name)
+  end
+end
+
+-- SND_SetExChannelAttack: attack 100 maps to the 255-attack branch
+-- (coefficient 155); the envelope runs envAttenuation =
+-- -((-envAttenuation * coeff) >> 8) once per control step (250 output
+-- frames), reaching 0 after exactly 22 steps (known recurrence vectors:
+-- env -438, -266, -161, -5 at steps 1, 2, 3, 10, register 0x30D, 0x360,
+-- 0x250, 0x79). The first step applies at noteOn; the envelope never
+-- advances once per output sample.
+function T.envelope_attack_uses_the_sdk_recurrence_at_the_control_cadence()
+  local mixer = newMixer()
+  local pcm = AudioFixture.pcm16le({ 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 })
+  mixer:noteOn(spec({ pcm = pcm, pan = 0, envelope = { attack = 100, decay = 127, sustain = 127, release = 127 } }))
+  local out = mixer:render(5750)
+  local pins = {
+    { 250, 13, "step 1 (env -438, register 0x30D)" },
+    { 500, 96, "step 2 (env -266, register 0x360)" },
+    { 750, 320, "step 3 (env -161, register 0x250)" },
+    { 2500, 1936, "step 10 (env -5, register 0x79)" },
+    { 5500, 2048, "step 22 completes the attack (env 0, register 0x7F)" },
+    { 5750, 2048, "sustain 127 holds the full register" },
+  }
+  for _, pin in ipairs(pins) do
+    Assert.equal(leftAt(out, pin[1]), pin[2], "attack pin frame " .. pin[1] .. ": " .. pin[3])
+  end
+
+  local fast = newMixer()
+  fast:noteOn(spec({ pcm = pcm, pan = 0, envelope = { attack = 120, decay = 127, sustain = 127, release = 127 } }))
+  local fastOut = fast:render(2000)
+  Assert.equal(leftAt(fastOut, 250), 264, "attack 120 uses the high-range table coefficient 63 (register 0x242)")
+  Assert.equal(leftAt(fastOut, 500), 1232, "attack 120 step 2 (register 0x4D)")
+  Assert.equal(leftAt(fastOut, 2000), 2048, "attack 120 completes after 8 steps")
+end
+
+-- SND_UpdateExChannelEnvelope decay: with sustain 64 the envelope moves
+-- toward DecibelSquare[64] << 7 = -15232 (env -119), decrementing by the
+-- CalcDecayCoeff(100) = 295 value per control step and clamping to the
+-- target (register 0x141 = 65/256) instead of passing through env -120
+-- (0x140); sustain holds the clamped value.
+function T.envelope_decay_clamps_to_the_sustain_target()
+  local mixer = newMixer()
+  local pcm = AudioFixture.pcm16le({ 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 })
+  mixer:noteOn(spec({ pcm = pcm, pan = 0, envelope = { attack = 127, decay = 100, sustain = 64, release = 127 } }))
+  local out = mixer:render(13500)
+  local pins = {
+    { 250, 2048, "attack 127 is instant" },
+    { 500, 1984, "decay step 1 (env -3, register 0x7C)" },
+    { 1000, 1888, "decay step 3 (env -7, register 0x76)" },
+    { 13000, 528, "decay step 51 (env -118, register 0x142)" },
+    { 13250, 520, "decay step 52 clamps to the sustain target (register 0x141)" },
+    { 13500, 520, "sustain holds the target" },
+  }
+  for _, pin in ipairs(pins) do
+    Assert.equal(leftAt(out, pin[1]), pin[2], "decay pin frame " .. pin[1] .. ": " .. pin[3])
+  end
+end
+
+-- SND_ReleaseExChannel release: the envelope decrements by the
+-- CalcDecayCoeff(release) value per control step; the channel stops when
+-- the dB sum crosses the SDK threshold vol <= -723 (SND_VOL_DB_MIN), so a
+-- quieter velocity reaches the threshold sooner. Release 127 (coeff
+-- 0xFFFF) takes one step to the near-silent register 0x306 and one more to
+-- stop; the noteOff itself never kills the voice -- the first release step
+-- fires at the next control step (noteOff here lands between steps 2 and 3,
+-- at frame 300).
+function T.envelope_release_decays_to_the_sdk_stop_threshold()
+  local pcm = AudioFixture.pcm16le({ 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 })
+  local function releaseRun(velocity, releaseByte, frames)
+    local mixer = newMixer()
+    local handle = mixer:noteOn(spec({
+      pcm = pcm,
+      pan = 0,
+      velocity = velocity,
+      envelope = { attack = 127, decay = 127, sustain = 127, release = releaseByte },
+    })) --[[@as { channel: integer, generation: integer }]]
+    mixer:render(300)
+    mixer:noteOff(handle)
+    return mixer:render(frames)
+  end
+  local before = releaseRun(127, 100, 200)
+  Assert.equal(leftAt(before, 200), 2048, "the voice holds until the release step")
+  local out = releaseRun(127, 100, 78700)
+  Assert.equal(leftAt(out, 78201), 1, "velocity 127: last sounding release step (register 0x301)")
+  Assert.equal(leftAt(out, 78451), 0, "velocity 127: stop at release step 314 (vol <= -723)")
+  local quiet = releaseRun(64, 100, 65700)
+  Assert.equal(leftAt(quiet, 200), 520, "velocity 64 sustains at register 0x141 until the release step")
+  Assert.equal(leftAt(quiet, 65201), 1, "velocity 64: last sounding release step (register 0x301)")
+  Assert.equal(leftAt(quiet, 65451), 0, "velocity 64: stop at release step 262")
+  local fast = releaseRun(127, 127, 700)
+  Assert.equal(leftAt(fast, 201), 6, "release 127: one step at register 0x306")
+  Assert.equal(leftAt(fast, 451), 0, "release 127: stops on the second release step")
+end
+
+-- Pitch is the integer domain (key - originalKey)*0x40 through
+-- SND_CalcTimer(baseTimer, pitch) (NDS ARM7 BIOS pitch table); the host
+-- phase increment is sampleRate*baseTimer/(timer*outputRate), so at the
+-- octaves the ratios are exactly 2 and 1/2, and one semitone up (timer
+-- 7556) drifts the read position by the exact rational 8006/7556 (frame 18
+-- reads the third sample while unity reads the second).
+function T.sample_voices_pitch_through_the_calculated_timer()
   local function renderAt(key, frames)
     local mixer = newMixer()
-    mixer:noteOn(spec({ key = key }))
-    return frameRange(mixer:render(frames), 1, frames, 1)
+    mixer:noteOn(
+      spec({ pcm = AudioFixture.pcm16le(WAVE16), loop = { startFrame = 0, endFrame = 16 }, key = key, pan = 0 })
+    )
+    return mixer:render(frames)
   end
-  Assert.deepEqual(renderAt(72, 8), { 100, 300, 500, 700, 100, 300, 500, 700 }, "an octave up reads every other sample")
-  Assert.deepEqual(
-    renderAt(48, 8),
-    { 100, 100, 200, 200, 300, 300, 400, 400 },
-    "an octave down reads each sample twice"
-  )
-end
-
-function T.sample_voice_loops_inside_its_loop_window()
-  local mixer = newMixer()
-  mixer:noteOn(spec({ loop = { startFrame = 2, endFrame = 6 } }))
-  local pcm = mixer:render(8)
-  Assert.deepEqual(
-    frameRange(pcm, 1, 8, 1),
-    { 100, 200, 300, 400, 500, 600, 300, 400 },
-    "the voice plays the pre-loop region first, then wraps into the window"
-  )
-end
-
-function T.sample_voice_loops_until_released()
-  local mixer = newMixer()
-  local channel = mixer:noteOn(spec())
-  local pcm = mixer:render(12)
-  Assert.deepEqual(
-    frameRange(pcm, 1, 12, 1),
-    { 100, 200, 300, 400, 500, 600, 700, 800, 100, 200, 300, 400 },
-    "a full loop repeats past the wave end"
-  )
-  mixer:noteOff(channel)
-  local after = mixer:render(8)
-  for i = 1, 8 do
-    Assert.equal(leftAt(after, i), 0, "release 127 ends the voice immediately")
+  local pcm = renderAt(60, 8)
+  for frame = 1, 8 do
+    Assert.equal(leftAt(pcm, frame), WAVE16[frame], "key 60 plays the wave at unity pitch")
   end
-end
-
--- A one-shot wave (loop flag clear) plays its window once and the voice
--- stops at the end, like the DS channel's repeat-mode-2 stop; the note then
--- holds in silence.
-function T.one_shot_sample_voices_stop_at_the_wave_end()
-  local mixer = newMixer()
-  local channel = mixer:noteOn(spec({ loopEnabled = false }))
-  local pcm = mixer:render(12)
-  Assert.deepEqual(
-    frameRange(pcm, 1, 12, 1),
-    { 100, 200, 300, 400, 500, 600, 700, 800, 0, 0, 0, 0 },
-    "the one-shot wave plays once and falls silent"
-  )
-  mixer:noteOff(channel)
-  local after = mixer:render(8)
-  for i = 1, 8 do
-    Assert.equal(leftAt(after, i), 0, "the ended voice stays silent")
+  local up = renderAt(72, 8)
+  local expectedUp = { 100, 300, 500, 700, 900, 1100, 1300, 1500 }
+  for frame = 1, 8 do
+    Assert.equal(leftAt(up, frame), expectedUp[frame], "an octave up reads every other sample (timer 4003)")
   end
+  local down = renderAt(48, 8)
+  local expectedDown = { 100, 100, 200, 200, 300, 300, 400, 400 }
+  for frame = 1, 8 do
+    Assert.equal(leftAt(down, frame), expectedDown[frame], "an octave down reads each sample twice (timer 16012)")
+  end
+  local sharp = renderAt(61, 20)
+  for frame = 1, 17 do
+    Assert.equal(leftAt(sharp, frame), WAVE16[(frame - 1) % 16 + 1], "one semitone up matches unity early")
+  end
+  Assert.equal(leftAt(sharp, 18), 300, "one semitone up reads the third sample at frame 18 (timer 7556)")
 end
 
-function T.square_voice_renders_gbatek_duty_cycles()
+-- PSG runs only on channels 8..13 and noise only on 14..15, both with the
+-- 8006 base timer at the original key (never 2^((key-60)/12)); the square
+-- timer is masked with 0xFFFC. At a 16756991 Hz mixer rate the DS sample
+-- clock translation is exactly 1/timer, so the duty-cycle boundaries and
+-- the 15-bit noise LFSR land on exact frames: duty d starts LOW for
+-- (7-d)*timer frames then HIGH for (d+1)*timer frames; the LFSR from
+-- 7FFFh outputs 14 LOW states then a HIGH run (GBATEK noise LFSR).
+function T.psg_and_noise_use_the_base_timer_masks_and_lfsr()
+  local DS_RATE = 16756991
   local function squareAt(duty, key, frames)
-    local mixer = newMixer()
-    mixer:noteOn(spec({ generator = { kind = "square", duty = duty }, key = key }))
-    return frameRange(mixer:render(frames), 1, frames, 1)
+    local mixer = newMixer(DS_RATE)
+    mixer:noteOn(spec({ generator = { kind = "square", duty = duty }, key = key, channelMask = 0x3F00, pan = 0 }))
+    return mixer:render(frames)
   end
-  Assert.deepEqual(squareAt(0.5, 60, 16), {
-    -32767,
-    -32767,
-    -32767,
-    -32767,
-    32767,
-    32767,
-    32767,
-    32767,
-    -32767,
-    -32767,
-    -32767,
-    -32767,
-    32767,
-    32767,
-    32767,
-    32767,
-  }, "duty 0.5 is 4 LOW then 4 HIGH, starting at LOW, at +-7FFF")
-  Assert.deepEqual(
-    squareAt(0.25, 60, 8),
-    { -32767, -32767, -32767, -32767, -32767, -32767, 32767, 32767 },
-    "duty 0.25 is 6 LOW then 2 HIGH"
-  )
-  Assert.deepEqual(
-    squareAt(0.5, 72, 8),
-    { -32767, -32767, 32767, 32767, -32767, -32767, 32767, 32767 },
-    "an octave up halves the 8-sample period"
-  )
+  local out = squareAt(1 / 8, 60, 64033)
+  Assert.equal(leftAt(out, 56028), -32767, "key 60 duty 0: LOW through frame 7*8004 (masked timer)")
+  Assert.equal(leftAt(out, 56029), 32767, "key 60 duty 0: HIGH from frame 7*8004+1")
+  Assert.equal(leftAt(out, 64032), 32767, "key 60 duty 0: HIGH through frame 8*8004")
+  Assert.equal(leftAt(out, 64033), -32767, "key 60 duty 0: the cycle restarts LOW")
+  local octave = squareAt(1 / 8, 72, 32001)
+  Assert.equal(leftAt(octave, 28000), -32767, "key 72 (timer 4000): LOW through frame 7*4000")
+  Assert.equal(leftAt(octave, 28001), 32767, "key 72: HIGH from frame 7*4000+1")
+  local masked = squareAt(1 / 8, 59, 59376)
+  Assert.equal(leftAt(masked, 59360), -32767, "key 59: the masked timer 8480 keeps frame 7*8480 LOW")
+  Assert.equal(leftAt(masked, 59361), 32767, "key 59: the masked timer 8480 turns HIGH at frame 7*8480+1")
+  local noise = newMixer(DS_RATE)
+  noise:noteOn(spec({ generator = { kind = "noise" }, key = 60, channelMask = 0xC000, pan = 0 }))
+  local noisePcm = noise:render(128097)
+  Assert.equal(leftAt(noisePcm, 112084), -32767, "noise: 14 LOW LFSR states through frame 14*8006")
+  Assert.equal(leftAt(noisePcm, 112085), 32767, "noise: the HIGH run starts at frame 14*8006+1")
+  Assert.equal(leftAt(noisePcm, 128096), 32767, "noise: HIGH through state 15")
+  Assert.equal(leftAt(noisePcm, 128097), 32767, "noise: the LFSR run continues past state 15")
 end
 
-function T.noise_voice_renders_the_deterministic_lfsr()
+-- Sample voices start at the sample start and wrap inside their loop
+-- window; a one-shot wave stops at the window end; a looping voice holds
+-- until noteOff, whose release follows the control cadence.
+function T.loops_wrap_inside_the_window_and_one_shots_stop()
   local mixer = newMixer()
-  mixer:noteOn(spec({ generator = { kind = "noise" } }))
-  local pcm = mixer:render(16)
-  Assert.deepEqual(frameRange(pcm, 1, 16, 1), {
-    -32767,
-    -32767,
-    -32767,
-    -32767,
-    -32767,
-    -32767,
-    -32767,
-    -32767,
-    -32767,
-    -32767,
-    -32767,
-    -32767,
-    -32767,
-    -32767,
-    32767,
-    32767,
-  }, "the GBATEK LFSR from X=7FFFh: 14 LOWs then 2 HIGHs")
-end
-
-function T.pan_routes_voices_across_channels()
-  local function renderAt(pan)
-    local mixer = newMixer()
-    mixer:noteOn(spec({ pan = pan }))
-    return mixer:render(8)
-  end
-  local left = renderAt(0)
-  Assert.deepEqual(frameRange(left, 1, 8, 2), { 0, 0, 0, 0, 0, 0, 0, 0 }, "pan 0 keeps the right channel silent")
-  local right = renderAt(127)
-  Assert.deepEqual(frameRange(right, 1, 8, 1), { 0, 0, 0, 0, 0, 0, 0, 0 }, "pan 127 keeps the left channel silent")
-  Assert.deepEqual(frameRange(right, 1, 8, 2), WAVE_A, "pan 127 renders the full wave on the right")
-  local center = renderAt(64)
-  for frame = 1, 8 do
-    Assert.equal(leftAt(center, frame), rightAt(center, frame), "pan 64 is equal on both channels")
-    Assert.isTrue(leftAt(center, frame) > 0, "pan 64 is audible")
-  end
-end
-
-function T.velocity_volume_and_expression_scale_the_gain()
-  local function renderWith(overrides)
-    local mixer = newMixer()
-    mixer:noteOn(spec(overrides))
-    return frameRange(mixer:render(8), 1, 8, 1)
-  end
-  local full = renderWith({ pcm = AudioFixture.pcm16le(CONST) })
-  Assert.deepEqual(full, CONST, "all knobs at 127 is unity gain")
-  local velocity = renderWith({ pcm = AudioFixture.pcm16le(CONST), velocity = 64 })
-  Assert.equal(velocity[1], math.floor(5000 * 64 / 127 + 0.5), "velocity scales linearly, rounded")
-  local volume = renderWith({ pcm = AudioFixture.pcm16le(CONST), volume = 64 })
-  Assert.equal(volume[1], math.floor(5000 * 64 / 127 + 0.5), "volume scales linearly, rounded")
-  local expression = renderWith({ pcm = AudioFixture.pcm16le(CONST), expression = 64 })
-  Assert.equal(expression[1], math.floor(5000 * 64 / 127 + 0.5), "expression scales linearly, rounded")
-end
-
-function T.envelope_sustain_holds_and_release_ends_the_voice()
-  local mixer = newMixer()
-  local channel = mixer:noteOn(spec({ pcm = AudioFixture.pcm16le(CONST) }))
-  local held = mixer:render(16)
-  for frame = 1, 16 do
-    Assert.equal(leftAt(held, frame), 5000, "sustain 127 holds the full level")
-  end
-  mixer:noteOff(channel)
-  local released = mixer:render(8)
-  for frame = 1, 8 do
-    Assert.equal(leftAt(released, frame), 0, "release 127 is instant")
-  end
-
-  local mixer2 = newMixer()
-  local channel2 = mixer2:noteOn(
-    spec({ pcm = AudioFixture.pcm16le(CONST), envelope = { attack = 127, decay = 0, sustain = 127, release = 0 } })
-  )
-  mixer2:render(8)
-  mixer2:noteOff(channel2)
-  local fading = mixer2:render(1017)
-  Assert.equal(leftAt(fading, 1), 5000, "release starts at the held level")
-  Assert.isTrue(leftAt(fading, 2) < leftAt(fading, 1), "release ramps down")
-  Assert.equal(
-    leftAt(fading, 509),
-    math.floor(5000 * 0.5 + 0.5),
-    "release 0 reaches half level halfway through its 1016-frame ramp"
-  )
-  Assert.equal(leftAt(fading, 1017), 0, "release 0 ends the voice after its ramp")
-end
-
-function T.envelope_attack_ramps_and_sustain_zero_decays_to_silence()
-  local mixer = newMixer()
-  mixer:noteOn(
-    spec({ pcm = AudioFixture.pcm16le(CONST), envelope = { attack = 0, decay = 0, sustain = 0, release = 127 } })
-  )
-  local pcm = mixer:render(4096)
-  Assert.equal(leftAt(pcm, 1), 0, "a slow attack starts at silence")
-  Assert.isTrue(leftAt(pcm, 2) > leftAt(pcm, 1), "the attack ramps up")
-  Assert.equal(
-    leftAt(pcm, 509),
-    math.floor(5000 * 0.5 + 0.5),
-    "attack 0 reaches half level halfway through its 1016-frame ramp"
-  )
-  Assert.equal(leftAt(pcm, 1017), 5000, "the attack completes at full level")
-  Assert.equal(leftAt(pcm, 1525), math.floor(5000 * 0.5 + 0.5), "decay to sustain level 0 halfways through its ramp")
-  Assert.equal(leftAt(pcm, 2033), 0, "sustain 0 decays to silence while held")
-  Assert.equal(leftAt(pcm, 4096), 0, "the voice stays silent")
-end
-
-function T.sixteen_voice_limit_with_priority_stealing()
-  local mixer = newMixer()
-  local waveA = spec()
-  for i = 1, 16 do
-    local channel = mixer:noteOn(waveA)
-    Assert.notNil(channel, "sixteen voices fit")
-  end
-  local sixteen = mixer:render(8)
-  local expected = {}
-  for i = 1, 8 do
-    expected[i] = WAVE_A[i] * 16
-  end
-  Assert.deepEqual(frameRange(sixteen, 1, 8, 1), expected, "all sixteen voices mix")
-
-  local waveB = spec({ pcm = AudioFixture.pcm16le(wave(2)), channelPriority = 100 })
-  local stolen = mixer:noteOn(waveB)
-  Assert.notNil(stolen, "the seventeenth note steals a channel instead of being dropped")
-  local mixed = mixer:render(8)
-  local expectedMixed = {}
-  for i = 1, 8 do
-    expectedMixed[i] = WAVE_A[i] * 15 + wave(2)[i]
-  end
-  Assert.deepEqual(frameRange(mixed, 1, 8, 1), expectedMixed, "the lowest-priority voice was replaced")
-  mixer:noteOff(stolen)
-  local after = mixer:render(8)
-  local expectedAfter = {}
-  for i = 1, 8 do
-    expectedAfter[i] = WAVE_A[i] * 15
-  end
-  Assert.deepEqual(frameRange(after, 1, 8, 1), expectedAfter, "the stolen channel now carries the new voice")
-end
-
-function T.same_priority_stealing_takes_the_oldest_voice()
-  local mixer = newMixer()
-  local waveA = spec()
-  local waveB = spec({ pcm = AudioFixture.pcm16le(wave(2)) })
-  local waveC = spec({ pcm = AudioFixture.pcm16le(wave(3)) })
-  for i = 1, 16 do
-    mixer:noteOn(waveA)
-  end
-  mixer:noteOn(waveB)
-  mixer:noteOn(waveC)
+  mixer:noteOn(spec({ loop = { startFrame = 2, endFrame = 6 }, pan = 0 }))
   local pcm = mixer:render(8)
-  local expected = {}
-  for i = 1, 8 do
-    expected[i] = WAVE_A[i] * 14 + wave(2)[i] + wave(3)[i]
-  end
-  Assert.deepEqual(frameRange(pcm, 1, 8, 1), expected, "equal priorities evict the two oldest voices")
+  Assert.equal(leftAt(pcm, 7), 300, "the voice plays the pre-loop region first, then wraps into the window")
+  Assert.equal(leftAt(pcm, 8), 400, "the loop window repeats")
+
+  local oneShot = newMixer()
+  oneShot:noteOn(spec({ loopEnabled = false, pan = 0 }))
+  local shot = oneShot:render(12)
+  Assert.equal(leftAt(shot, 8), 800, "the one-shot wave plays its window")
+  Assert.equal(leftAt(shot, 12), 0, "the one-shot stops at the window end")
+
+  local held = newMixer()
+  local pcm2048 = AudioFixture.pcm16le({ 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 })
+  local handle = held:noteOn(spec({ pcm = pcm2048, pan = 0 })) --[[@as { channel: integer, generation: integer }]]
+  local before = held:render(12)
+  Assert.equal(leftAt(before, 12), 2048, "the looping voice holds")
+  held:noteOff(handle)
+  local after = held:render(500)
+  Assert.equal(leftAt(after, 238), 2048, "the voice keeps sounding until the next control step")
+  Assert.equal(leftAt(after, 239), 6, "release 127 reaches register 0x306 at the control step")
+  Assert.equal(leftAt(after, 489), 0, "release 127 stops the voice on the following control step")
 end
 
-function T.player_priority_dominates_channel_priority_when_stealing()
-  local mixer = newMixer()
-  local waveA = spec()
-  local waveB = spec({ pcm = AudioFixture.pcm16le(wave(2)), playerPriority = 16, channelPriority = 1 })
-  for i = 1, 15 do
-    mixer:noteOn(waveA)
-  end
-  mixer:noteOn(waveB)
-  mixer:noteOn(spec({ pcm = AudioFixture.pcm16le(wave(3)), playerPriority = 64, channelPriority = 64 }))
-  local pcm = mixer:render(8)
-  local expected = {}
-  for i = 1, 8 do
-    expected[i] = WAVE_A[i] * 15 + wave(3)[i]
-  end
-  Assert.deepEqual(
-    frameRange(pcm, 1, 8, 1),
-    expected,
-    "the whole lower-priority player's voice is stolen even though its channel priority is the highest"
-  )
-end
-
-function T.psg_voices_are_restricted_to_psg_capable_channels()
-  local function renderWith(generator, channelMask, frames)
-    local mixer = newMixer()
-    local channel = mixer:noteOn(spec({ generator = generator, channelMask = channelMask }))
-    return channel, frameRange(mixer:render(frames), 1, frames, 1)
-  end
-  local squareSilent, squareOut = renderWith({ kind = "square", duty = 0.5 }, 0x00FF, 8)
-  Assert.isNil(squareSilent, "a square voice has no channel inside mask 0x00FF (0-7)")
-  for i = 1, 8 do
-    Assert.equal(squareOut[i], 0)
-  end
-  local noiseSilent, noiseOut = renderWith({ kind = "noise" }, 0x00FF, 8)
-  Assert.isNil(noiseSilent, "a noise voice has no channel inside mask 0x00FF (0-7)")
-  for i = 1, 8 do
-    Assert.equal(noiseOut[i], 0)
-  end
-  local _, squareOn13 = renderWith({ kind = "square", duty = 0.5 }, 0x2000, 8)
-  Assert.notNil(squareOn13[1], "channel 13 is square-capable")
-  local squareOn14, _ = renderWith({ kind = "square", duty = 0.5 }, 0x4000, 8)
-  Assert.isNil(squareOn14, "channel 14 is noise-only, not square-capable")
-  local noiseOn14, noise14 = renderWith({ kind = "noise" }, 0x4000, 8)
-  Assert.notNil(noiseOn14, "channel 14 is noise-capable")
-  Assert.equal(noise14[1], -32767)
-end
-
-function T.sample_voices_allocate_only_within_the_player_mask()
-  local mixer = newMixer()
-  local mask = 0x0003
-  local waveA = spec({ channelMask = mask })
-  local waveB = spec({ pcm = AudioFixture.pcm16le(wave(2)), channelMask = mask })
-  local waveC = spec({ pcm = AudioFixture.pcm16le(wave(3)), channelMask = mask })
-  local waveD = spec({ pcm = AudioFixture.pcm16le(wave(4)), channelMask = mask })
-  mixer:noteOn(waveA)
-  mixer:noteOn(waveB)
-  local channelC = mixer:noteOn(waveC)
-  local channelD = mixer:noteOn(waveD)
-  Assert.notNil(channelC)
-  Assert.notNil(channelD)
-  local pcm = mixer:render(8)
-  local expected = {}
-  for i = 1, 8 do
-    expected[i] = wave(3)[i] + wave(4)[i]
-  end
-  Assert.deepEqual(frameRange(pcm, 1, 8, 1), expected, "the two oldest voices were evicted inside the mask")
-  mixer:noteOff(channelC)
-  local after = mixer:render(8)
-  Assert.deepEqual(frameRange(after, 1, 8, 1), wave(4), "the evicted slot carried wave C")
-end
-
-function T.mixing_sums_and_saturates()
+function T.mixing_sums_saturates_and_rendering_is_chunk_independent()
   local mixer = newMixer()
   local loud = { 30000, -30000, 30000, -30000, 30000, -30000, 30000, -30000 }
-  mixer:noteOn(spec({ pcm = AudioFixture.pcm16le(loud) }))
-  mixer:noteOn(spec({ pcm = AudioFixture.pcm16le(loud) }))
+  mixer:noteOn(spec({ pcm = AudioFixture.pcm16le(loud), pan = 0 }))
+  mixer:noteOn(spec({ pcm = AudioFixture.pcm16le(loud), pan = 0 }))
   local pcm = mixer:render(8)
-  Assert.deepEqual(
-    frameRange(pcm, 1, 8, 1),
-    { 32767, -32768, 32767, -32768, 32767, -32768, 32767, -32768 },
-    "the mix saturates at the int16 bounds"
-  )
-end
+  local expected = { 32767, -32768, 32767, -32768, 32767, -32768, 32767, -32768 }
+  for frame = 1, 8 do
+    Assert.equal(leftAt(pcm, frame), expected[frame], "the mix saturates at the int16 bounds")
+  end
 
-function T.render_is_deterministic_and_chunk_independent()
   local function playChunked(chunks)
-    local mixer = newMixer()
-    mixer:noteOn(spec())
+    local m = newMixer()
+    m:noteOn(spec({
+      pcm = AudioFixture.pcm16le({ 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }),
+      pan = 0,
+      envelope = { attack = 0, decay = 127, sustain = 127, release = 127 },
+    }))
     local out = {}
     for _, frames in ipairs(chunks) do
-      local pcm = mixer:render(frames)
-      for i = 1, #pcm do
-        out[#out + 1] = pcm[i]
+      local part = m:render(frames)
+      for i = 1, #part do
+        out[#out + 1] = part[i]
       end
     end
     return out
   end
-  Assert.deepEqual(playChunked({ 120 }), playChunked({ 40, 40, 40 }), "chunk size does not change the rendered PCM")
-  Assert.deepEqual(playChunked({ 120 }), playChunked({ 120 }), "rendering is reproducible")
+  local whole = playChunked({ 400 })
+  local split = playChunked({ 200, 200 })
+  Assert.deepEqual(whole, split, "chunk boundaries do not move the control steps")
+  local left = playChunked({ 120 })
+  local right = playChunked({ 40, 40, 40 })
+  Assert.deepEqual(left, right, "chunk size does not change the rendered PCM")
 end
 
 return { tests = T }
