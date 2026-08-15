@@ -30,7 +30,6 @@ local function demoPresentation()
   return {
     open = true,
     name = "GOLD",
-    gender = 0,
     trainerId = 0,
   }
 end

@@ -1,10 +1,11 @@
 -- The read-only Trainer Card viewer controller: it receives the
 -- authoritative player profile and copies the required immutable fields
--- (name, gender, trainerId) at construction, so the open card never changes
--- when the caller's profile record is later replaced or mutated. Status
--- exposes exactly those fields plus the open flag; no unimplemented card
--- statistic is modeled as a placeholder. It owns close input only and has
--- no access to Start Menu internals; a cancel edge returns
+-- (name, trainerId) at construction, so the open card never changes when the
+-- caller's profile record is later replaced or mutated. Status exposes
+-- exactly those fields plus the open flag; no unimplemented card statistic is
+-- modeled as a placeholder. Gender is not a card presentation field: the
+-- controller neither requires nor carries it. It owns close input only and
+-- has no access to Start Menu internals; a cancel edge returns
 -- { kind = "close" } to the FieldApplicationHost exactly once. The close
 -- input step exists in the source (ov51_021E6A54 in
 -- asm/overlay_trainer_card_main.s at the pinned decomp commit plays
@@ -13,33 +14,34 @@
 -- sound. Every other input — directions, confirm, the synthesized menu edge,
 -- and pointers — changes nothing: while a child application is active its
 -- own input policy applies and the menu edge must not tear the card down.
--- The immutable profile fields (name/gender/trainerId) are copied at
--- construction from the authoritative player profile, and the status exposes
--- those and only those; the renderer presents the audited blank rows for
--- every card value the gameplay model does not own. Pure module: no love, no
--- I/O, no Start Menu internals.
+-- The immutable profile fields are copied at construction from the
+-- authoritative player profile, and the status exposes those and only those;
+-- the renderer presents the audited blank rows for every card value the
+-- gameplay model does not own. Pure module: no love, no I/O, no Start Menu
+-- internals.
 
 ---@class TrainerCardController
 ---@field _name string
----@field _gender integer
 ---@field _trainerId integer
 ---@field _result { kind: "close" }?
 ---@field _closed boolean
 local TrainerCardController = {}
 TrainerCardController.__index = TrainerCardController
 
----@param opts { profile: { name: string, gender: integer, trainerId: integer } }
+-- The profile is already canonical before it reaches the controller (the
+-- player-data model validates it at the runtime boundary), so construction
+-- only asserts the fields the card copies.
+---@param opts { profile: { name: string, trainerId: integer } }
 ---@return TrainerCardController
 function TrainerCardController.new(opts)
   assert(type(opts) == "table" and type(opts.profile) == "table", "the trainer card controller requires the profile")
   local profile = opts.profile
   assert(
-    profile.name ~= nil and profile.gender ~= nil and profile.trainerId ~= nil,
-    "the trainer card requires name, gender, and trainerId from the player profile"
+    profile.name ~= nil and profile.trainerId ~= nil,
+    "the trainer card requires name and trainerId from the player profile"
   )
   return setmetatable({
     _name = profile.name,
-    _gender = profile.gender,
     _trainerId = profile.trainerId,
     _result = nil,
     _closed = false,
@@ -78,20 +80,17 @@ function TrainerCardController:status()
   return {
     open = true,
     name = self._name,
-    gender = self._gender,
     trainerId = self._trainerId,
   }
 end
 
 -- The result contract: nil until a cancel edge, then exactly one
--- { kind = "close" }.
+-- { kind = "close" }. _close already records the closed state; consuming the
+-- result must not re-close.
 ---@return { kind: "close" }?
 function TrainerCardController:takeResult()
   local result = self._result
   self._result = nil
-  if result ~= nil then
-    self._closed = true
-  end
   return result
 end
 

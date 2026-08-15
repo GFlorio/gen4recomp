@@ -2,7 +2,7 @@
 -- register the real trainer_card application (no boot-config descriptor, and
 -- the start_menu magic id must not exist in the destination registry), the
 -- card's presentation must reach the host snapshot carrying the authoritative
--- player profile (name/gender/trainerId from runtime.playerData through the
+-- player profile (name/trainerId from runtime.playerData through the
 -- read model), and the full journey Start Menu → card → cancel → Start Menu
 -- must run with the world paused, the save gate blocked, and the card's close
 -- edge leaking nothing into the field. One production boot in normal mode:
@@ -17,7 +17,8 @@
 -- restores the remembered selection; the final menu close returns to a
 -- capturable field with zero script faults. The card presentation also
 -- exposes exactly the implemented profile fields: the controller copies
--- name/gender/trainerId from the profile at construction and nothing else --
+-- name/trainerId from the profile at construction -- gender is not a card
+-- presentation field and must not appear in the status -- and nothing else --
 -- no money/stars/signature or other future-card scaffolding may leak through
 -- the production host snapshot.
 
@@ -179,10 +180,10 @@ function T.tests.trainer_card_viewer_runs_through_production_composition_and_ret
       profile.name,
       "the card must present the authoritative player name, got: " .. tostring(application and application.name)
     )
-    Assert.equal(
+    Assert.isNil(
       application.gender,
-      profile.gender,
-      "the card must present the authoritative player gender, got: " .. tostring(application and application.gender)
+      "the card must not expose gender: it is not a card presentation field, got: "
+        .. tostring(application and application.gender)
     )
     Assert.equal(
       application.trainerId,
@@ -191,7 +192,7 @@ function T.tests.trainer_card_viewer_runs_through_production_composition_and_ret
     )
     Assert.keySet(
       application,
-      "gender,name,open,trainerId",
+      "name,open,trainerId",
       "the card presentation must expose only the implemented profile fields"
     )
     Assert.equal(FieldSave.canCapture(runtime.session), false, "the active card must block save capture")
