@@ -57,7 +57,7 @@ local function voice(key)
 end
 
 local function bank()
-  return AudioFixture.bank(12, "BANK_TEST", nil, { AudioFixture.key(1), AudioFixture.key(2), AudioFixture.key(3) }, {
+  return AudioFixture.bank(12, "BANK_TEST", { AudioFixture.key(1), AudioFixture.key(2), AudioFixture.key(3) }, {
     [0] = { kind = "direct", voice = voice(AudioFixture.key(1)) },
     [1] = { kind = "direct", voice = voice(AudioFixture.key(2)) },
     [2] = { kind = "direct", voice = voice(AudioFixture.key(3)) },
@@ -68,7 +68,6 @@ local function seq(id, symbol, playerId, instructions)
   return AudioFixture.sequence(id, symbol, 12, playerId, { entry = 1, instructions = instructions }, {
     id = playerId,
     initialVolume = 127,
-    channelPriority = 64,
     playerPriority = 64,
   })
 end
@@ -135,7 +134,7 @@ local function engineBundle(sequences)
       }
     end
   end
-  indexBanks[12] = { id = 12, symbol = "BANK_TEST", file = AudioCache.bankPath(12), waveArchives = {} }
+  indexBanks[12] = { id = 12, symbol = "BANK_TEST", file = AudioCache.bankPath(12) }
   bundle.index.sequences = indexSequences
   bundle.index.players = indexPlayers
   bundle.index.banks = indexBanks

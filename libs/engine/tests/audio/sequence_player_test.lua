@@ -90,7 +90,7 @@ local function square(opts)
 end
 
 local function testBank()
-  return AudioFixture.bank(12, "BANK_TEST", nil, { AudioFixture.key(1), AudioFixture.key(2) }, {
+  return AudioFixture.bank(12, "BANK_TEST", { AudioFixture.key(1), AudioFixture.key(2) }, {
     [0] = { kind = "direct", voice = voice(AudioFixture.key(1)) },
     [1] = { kind = "direct", voice = voice(AudioFixture.key(2)) },
     [2] = {
@@ -117,7 +117,6 @@ local function seq(instructions, opts)
   }, {
     id = opts.playerId or 1,
     initialVolume = opts.initialVolume or 127,
-    channelPriority = opts.channelPriority or 64,
     playerPriority = opts.playerPriority or 64,
   })
 end
@@ -145,7 +144,7 @@ local function buildBundle(sequences, opts)
   end
   bundle.index.sequences = indexSequences
   bundle.index.players = indexPlayers
-  bundle.index.banks = { [12] = { id = 12, symbol = "BANK_TEST", file = AudioCache.bankPath(12), waveArchives = {} } }
+  bundle.index.banks = { [12] = { id = 12, symbol = "BANK_TEST", file = AudioCache.bankPath(12) } }
   bundle.index.sequenceBySymbol = sequenceBySymbol
   bundle.index.bankBySymbol = { BANK_TEST = 12 }
   bundle.sequences = sequences
@@ -531,7 +530,7 @@ function T.volume_and_expression_use_the_nns_decibel_domain()
 end
 
 function T.pan_moves_notes_across_the_stereo_field()
-  local bank = AudioFixture.bank(12, "BANK_TEST", nil, { AudioFixture.key(1) }, {
+  local bank = AudioFixture.bank(12, "BANK_TEST", { AudioFixture.key(1) }, {
     [0] = { kind = "direct", voice = voice(AudioFixture.key(1), { pan = 64 }) },
   })
   local function renderFor(pan)
@@ -1201,7 +1200,7 @@ function T.note_spec_carries_the_migrated_mixer_fields()
   local player, provider = engine({
     [0] = seq(
       { { op = "note", key = 64, velocity = 96, duration = 1 }, { op = "end" } },
-      { initialVolume = 100, channelPriority = 32, playerPriority = 16 }
+      { initialVolume = 100, playerPriority = 16 }
     ),
   }, { mixer = mixer })
   play(player, provider)
@@ -1247,7 +1246,7 @@ function T.priority_is_track_state_defaulting_to_64()
       { op = "priority", amount = 12 },
       { op = "note", key = 60, velocity = 127, duration = 1 },
       { op = "end" },
-    }, { channelPriority = 32, playerPriority = 16 }),
+    }, { playerPriority = 16 }),
   }, { mixer = mixer })
   play(player, provider)
   player:render(100)
@@ -1348,7 +1347,7 @@ end
 -- tracks per player). A contested allocation (one free channel) therefore
 -- always goes to the highest-numbered track of a player.
 function T.contested_allocation_follows_ascending_track_order()
-  local bank = AudioFixture.bank(12, "BANK_TEST", nil, {
+  local bank = AudioFixture.bank(12, "BANK_TEST", {
     AudioFixture.key(1),
     AudioFixture.key(2),
     AudioFixture.key(3),
@@ -1396,7 +1395,7 @@ end
 -- played last, but at the first tick every track retriggers and the ascending
 -- player order hands the single channel to the highest-numbered player (15).
 function T.contested_allocation_is_identical_across_player_play_orders()
-  local bank = AudioFixture.bank(12, "BANK_TEST", nil, {
+  local bank = AudioFixture.bank(12, "BANK_TEST", {
     AudioFixture.key(1),
     AudioFixture.key(2),
   }, {

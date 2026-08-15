@@ -276,7 +276,9 @@ end
 
 -- The control steps until the note's release stops (NnsSoundMath
 -- .releaseStopSteps with the note's own inputs): envAttenuation is the
--- mixer's envelope after the note's first control step, so the player's
+-- mixer's envelope after the note's first control step, and the fader is
+-- the instance's current dB-domain level -- the same value the mixer's
+-- noteOff precomputation reads from the pending fader -- so the player's
 -- countdown matches the mixer's release-stop computation.
 local function releaseStepsForNote(instance, track, velocity, envelope)
   local attack = NnsSoundMath.attackCoefficient(envelope.attack)
@@ -287,7 +289,7 @@ local function releaseStepsForNote(instance, track, velocity, envelope)
     trackVolume = clamp(track.volume, 0, 127),
     expression = clamp(track.expression, 0, 127),
     playerVolume = clamp(instance.volume, 0, 127),
-    fader = 0,
+    fader = NnsSoundMath.decibelSquare(instance.fader),
     releaseCoeff = NnsSoundMath.decayCoefficient(envelope.release),
   })
 end
