@@ -1,13 +1,22 @@
--- ROM-conformance regression assertion for the specular decision: whether any
--- HGSS field material sets SPE_EMI bit 15 (useShininessTable) decided between
--- dropping the shininess-table surface and adding a shared-table path. The
--- corpus finding is recorded in the implementation notes (2026-08-13: no
--- material of any field model class sets bit 15), and this assertion pins it:
--- a future ROM/dump whose materials carry the bit fails loudly here instead
--- of silently changing rendering. The census walk covers every model class
--- the field renderer draws -- map models, placed-building models, and
--- field-actor models (shared actor archive plus static-model archive) -- over
--- the whole map catalog.
+-- ROM-conformance regression assertion for two independent corpus decisions
+-- that share the same expensive census walk (map models, placed-building
+-- models, and both field-actor archives over the whole map catalog), so both
+-- are tallied in one pass rather than decoding the corpus twice:
+--
+-- 1. Specular: whether any HGSS field material sets SPE_EMI bit 15
+--    (useShininessTable), decided between dropping the shininess-table
+--    surface and adding a shared-table path. The corpus finding is recorded
+--    in the implementation notes (2026-08-13: no material of any field model
+--    class sets bit 15).
+-- 2. Depth-equal: whether any material resolves POLYGON_ATTR depth-equal
+--    (bit 14). Unlike bit 15, this reads the material's *effective*
+--    polygon-attr word (DsMaterial.resolve, the same merge
+--    MeshCompiler.materialState applies), since depthEqual is a bit the
+--    field-global/material merge can in principle move. Both findings are
+--    zero today; a future ROM/dump whose materials carry either bit fails
+--    loudly here instead of silently changing rendering or reaching the
+--    renderer's compile-time rejection contract
+--    (libs/assets/tests/polygon_state_test.lua) unexpectedly.
 
 local Assert = require("tests.support.Assert")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
@@ -15,20 +24,26 @@ local MapResolver = require("romdump.src.digest.MapResolver")
 local AreaData = require("romdump.src.digest.AreaData")
 local LandData = require("romdump.src.digest.LandData")
 local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
+local DsMaterial = require("romdump.src.digest.nitro.DsMaterial")
+local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
 
 local T = {}
 
 local MODEL_MAGIC = "BMD0"
 
 local function countMaterials(nsbmd)
-  local materials, bit15 = 0, 0
+  local materials, bit15, depthEqual = 0, 0, 0
   for _, mat in ipairs(nsbmd.models[1].materials) do
     materials = materials + 1
     if mat.useShininessTable then
       bit15 = bit15 + 1
     end
+    local resolved = DsMaterial.resolve(mat, DsMaterial.HGSS_FIELD_DEFAULTS, DsMaterial.applyFieldPolicy(mat))
+    if DsPolygonAttr.decode(resolved.polyAttr).depthEqual then
+      depthEqual = depthEqual + 1
+    end
   end
-  return materials, bit15
+  return materials, bit15, depthEqual
 end
 
 -- Decode one model member and fold its materials into `bucket`. Malformed
@@ -41,16 +56,17 @@ local function foldModel(bucket, bytes, opts)
     return
   end
   bucket.models = bucket.models + 1
-  local materials, bit15 = countMaterials(nsbmd)
+  local materials, bit15, depthEqual = countMaterials(nsbmd)
   bucket.materials = bucket.materials + materials
   bucket.bit15 = bucket.bit15 + bit15
+  bucket.depthEqual = bucket.depthEqual + depthEqual
 end
 
 local function newTally()
   return {
-    map = { resolved = 0, excluded = 0, models = 0, materials = 0, bit15 = 0, decodeFailures = 0 },
-    buildings = { placements = 0, models = 0, materials = 0, bit15 = 0, decodeFailures = 0 },
-    actors = { models = 0, nonModels = 0, materials = 0, bit15 = 0, decodeFailures = 0, archives = {} },
+    map = { resolved = 0, excluded = 0, models = 0, materials = 0, bit15 = 0, depthEqual = 0, decodeFailures = 0 },
+    buildings = { placements = 0, models = 0, materials = 0, bit15 = 0, depthEqual = 0, decodeFailures = 0 },
+    actors = { models = 0, nonModels = 0, materials = 0, bit15 = 0, depthEqual = 0, decodeFailures = 0, archives = {} },
   }
 end
 
@@ -116,7 +132,8 @@ end
 local function censusActorModels(romFs, tally)
   for _, alias in ipairs({ "field_actor_models", "field_static_models" }) do
     local narc = assert(romFs:openNarc(alias))
-    local archive = { alias = alias, models = 0, nonModels = 0, materials = 0, bit15 = 0, decodeFailures = 0 }
+    local archive =
+      { alias = alias, models = 0, nonModels = 0, materials = 0, bit15 = 0, depthEqual = 0, decodeFailures = 0 }
     tally.actors.archives[#tally.actors.archives + 1] = archive
     local count = narc:memberCount()
     for memberId = 0, count - 1 do
@@ -134,6 +151,7 @@ local function censusActorModels(romFs, tally)
     actors.nonModels = actors.nonModels + archive.nonModels
     actors.materials = actors.materials + archive.materials
     actors.bit15 = actors.bit15 + archive.bit15
+    actors.depthEqual = actors.depthEqual + archive.depthEqual
     actors.decodeFailures = actors.decodeFailures + archive.decodeFailures
   end
 end
@@ -148,7 +166,8 @@ end
 
 -- One pass over the corpus (all catalog records, all actor archive members);
 -- every postcondition is asserted against the same census result, and the
--- recorded bit-15 finding is pinned as a regression assertion.
+-- recorded bit-15 and depth-equal findings are pinned as regression
+-- assertions.
 function T.field_material_corpus_keeps_the_recorded_bit15_finding(romFs)
   local tally = newTally()
   censusMapModels(romFs, tally)
@@ -186,6 +205,17 @@ function T.field_material_corpus_keeps_the_recorded_bit15_finding(romFs)
     tally.map.bit15 + tally.buildings.bit15 + tally.actors.bit15,
     0,
     "the field corpus must keep the recorded bit-15 finding"
+  )
+
+  -- No field material of any class resolves POLYGON_ATTR depth-equal
+  -- (effective, post field-global/material merge). The renderer's
+  -- compile-time rejection (POLYGON_STATE_DEPTH_EQUAL_UNSUPPORTED) depends
+  -- on this absence staying true; a dump whose materials start requiring it
+  -- must fail here, at the corpus level, before reaching that rejection.
+  Assert.equal(
+    tally.map.depthEqual + tally.buildings.depthEqual + tally.actors.depthEqual,
+    0,
+    "the field corpus must keep the recorded depth-equal absence"
   )
 end
 

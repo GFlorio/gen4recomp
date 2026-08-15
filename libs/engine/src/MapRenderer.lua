@@ -36,6 +36,7 @@ local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local DsLighting = require("libs.engine.src.DsLighting")
 local DsDepth = require("libs.engine.src.DsDepth")
+local DsBlend = require("libs.engine.src.DsBlend")
 
 ---@class MapRenderer
 ---@field _graphics love.Graphics
@@ -816,16 +817,41 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
     -- translucent-attribute flag so the edge pass never outlines them itself.
     -- The ID/depth attachment carries alpha 1, so it is replaced -- not
     -- alpha-blended -- even while the colour attachment blends.
-    local lastDepthCompare, lastDepthWrite = "less", true
+    --
+    -- DsBlend contract vs. host blend state: host `setBlendMode("alpha",
+    -- "alphamultiply")` reproduces DsBlend.blendRgb6's RGB equation exactly
+    -- in shape (Dst' = Src*SrcAlpha + Dst*(1-SrcAlpha); only the 5/6-bit vs.
+    -- continuous-float quantization differs, which is immaterial to the
+    -- equation), so no shader/compositor replacement is needed for RGB.
+    -- DsBlend.blendAlpha5's max(SrcAlpha, DstAlpha) destination-alpha result
+    -- has no host fixed-function blend-factor equivalent, and
+    -- DsBlend.rejectsSelfBlend has no fixed-function equivalent at all --
+    -- both would require an auxiliary compositor that reads the
+    -- previously-written pixel while writing the current one. Neither gap is
+    -- closed here: nothing downstream of this pass samples sceneColor's own
+    -- alpha channel (the final composite draws it through edgeShader at full
+    -- opacity, and 2D UI draws independently afterward), so destination
+    -- alpha is provably unobserved; self-blend rejection has no corpus
+    -- evidence it is ever exercised (no field content census measures
+    -- same-polygon-ID overlapping-triangle occurrence), so building the
+    -- ping-pong compositor the spec allows for this case would add real
+    -- complexity against a currently unproven need. Depth-write policy is
+    -- the one part of the contract with an observable per-item effect, so it
+    -- is the one part actually routed through DsBlend below.
+    local lastDepthWrite = true
     if #queue.translucent > 0 then
       lg.setBlendMode("alpha", "alphamultiply")
     end
     for _, d in ipairs(queue.translucent) do
-      local depthCompare = d.depthEqual and "lequal" or "less"
-      local depthWrite = d.translucentDepthWrite or false
-      if depthCompare ~= lastDepthCompare or depthWrite ~= lastDepthWrite then
-        lg.setDepthMode(depthCompare, depthWrite)
-        lastDepthCompare, lastDepthWrite = depthCompare, depthWrite
+      -- Depth-equal is a corpus-provable-absent DS state (see
+      -- PolygonState.validate's POLYGON_STATE_DEPTH_EQUAL_UNSUPPORTED
+      -- rejection): the renderer never branches on d.depthEqual and always
+      -- compares "less", even if a defensively-constructed item still
+      -- carries the field. Host `lequal` is retired, not merely unused.
+      local depthWrite = DsBlend.shouldWriteDepth(false, d.translucentDepthWrite)
+      if depthWrite ~= lastDepthWrite then
+        lg.setDepthMode("less", depthWrite)
+        lastDepthWrite = depthWrite
       end
       local projection = d.billboardProjection and billboardProjection or worldProjection
       self:_drawItem(d, projection, AlphaClassifier.TRANSLUCENT, viewMatrix)

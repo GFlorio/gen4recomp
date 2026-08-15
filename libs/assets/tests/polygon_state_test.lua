@@ -87,6 +87,21 @@ function T.validate_rejects_out_of_range_values()
   end
 end
 
+-- The HGSS field render-state corpus census found zero materials of any
+-- model class (map, building, field actor) resolving POLYGON_ATTR
+-- depth-equal (see tests/rom/specular_shininess_census_test.lua). The
+-- renderer must not present host `lequal` as an implemented DS depth-equal
+-- behavior, so a batch that claims depthEqual fails compilation here, at the
+-- one shared draw-state validator, rather than silently reaching
+-- MapRenderer.
+function T.validate_rejects_depth_equal_true()
+  local record = validRecord()
+  record.depthEqual = true
+  throwsCode("POLYGON_STATE_DEPTH_EQUAL_UNSUPPORTED", function()
+    PolygonState.validate(record, "batch")
+  end)
+end
+
 function T.copy_carries_exactly_the_shared_fields()
   local record = validRecord()
   record.farClipEnabled = true

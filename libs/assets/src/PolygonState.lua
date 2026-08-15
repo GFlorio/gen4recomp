@@ -80,6 +80,20 @@ function PolygonState.validate(record, context)
   if type(record.depthEqual) ~= "boolean" then
     invalid("depthEqual must be a boolean")
   end
+  if record.depthEqual then
+    -- The HGSS field render-state census (map, building, and both field
+    -- actor archives) never resolves POLYGON_ATTR depth-equal to true; see
+    -- tests/rom/specular_shininess_census_test.lua. Rather than keep
+    -- presenting the host `lequal` depth mode as an implemented DS
+    -- depth-equal behavior, fail compilation loudly the moment a batch
+    -- claims it, mirroring MAP_COMPILE_UNSUPPORTED_POLYGON_MODE's precedent
+    -- for other corpus-provable-absent states.
+    Errors.raise(
+      "POLYGON_STATE_DEPTH_EQUAL_UNSUPPORTED",
+      "batch depthEqual = true is not supported: the HGSS field corpus never exercises DS depth-equal",
+      { where = context }
+    )
+  end
 end
 
 -- Copy the shared field set into a new record: the runtime backend record

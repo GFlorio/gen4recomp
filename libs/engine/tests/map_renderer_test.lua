@@ -1052,7 +1052,16 @@ function T.ordinary_draw_requires_an_explicit_model_normal()
 end
 
 -- Pass-invariant state is established once. Translucent depth mode changes
--- only when its compare/write tuple changes in sorted order.
+-- only when its write toggle changes in sorted order.
+--
+-- The corpus census found zero HGSS field materials resolving depth-equal
+-- (see tests/rom/specular_shininess_census_test.lua), and the compiler-time
+-- rejection contract (libs/assets/tests/polygon_state_test.lua) means a
+-- compiled item can never carry depthEqual = true. The translucent pass
+-- itself always compares "less", regardless of an item's depthEqual field (a
+-- defensive item here still sets it, to prove the renderer no longer
+-- branches on it -- not merely that the compiler happens not to produce it).
+-- Host `lequal` is retired, not merely unused.
 function T.draw_sets_wireframe_and_translucent_state_once_per_run()
   local lg = fakeGraphics()
   local renderer = MapRenderer.new({ graphics = lg })
@@ -1068,11 +1077,18 @@ function T.draw_sets_wireframe_and_translucent_state_once_per_run()
 
   renderer:draw(scene.runtime, scene.camera, { items }, FieldViewport.new(640, 480, { mode = "strict" }))
 
+  -- The translucent RGB blend switch itself is a separate compositor-
+  -- architecture decision (see the implementation notes); this test only
+  -- pins depth-equal's retirement.
   Assert.equal(callCount(lg.calls.blend, { mode = "alpha", alpha = "alphamultiply" }), 1)
   Assert.equal(callCount(lg.calls.depth, { mode = "less", write = false }), 1)
-  Assert.equal(callCount(lg.calls.depth, { mode = "lequal", write = false }), 1)
-  Assert.equal(callCount(lg.calls.depth, { mode = "lequal", write = true }), 1)
-  Assert.equal(callCount(lg.calls.depth, { mode = "less", write = true }), 2, "filled and wireframe passes")
+  Assert.equal(
+    callCount(lg.calls.depth, { mode = "less", write = true }),
+    3,
+    "translucent write-on, filled, and wireframe passes"
+  )
+  Assert.equal(callCount(lg.calls.depth, { mode = "lequal", write = false }), 0, "lequal is retired, not merely unused")
+  Assert.equal(callCount(lg.calls.depth, { mode = "lequal", write = true }), 0, "lequal is retired, not merely unused")
   local wireframeEnables = 0
   for _, enabled in ipairs(lg.calls.wireframe) do
     if enabled then

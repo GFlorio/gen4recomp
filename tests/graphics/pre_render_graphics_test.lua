@@ -75,10 +75,14 @@ local function cutoutTriangleItem(scope)
   return baseItem(scope, "cutout")
 end
 
--- A translucent item exercises the depth-compare/write toggle the translucent
--- pass derives per item (depthEqual -> "lequal", translucentDepthWrite ->
--- write enabled) and the alphamultiply blend mode the pass switches to before
--- drawing any translucent item.
+-- A translucent item exercises the depth-write toggle the translucent pass
+-- derives per item (translucentDepthWrite -> write enabled) and the
+-- alphamultiply blend mode the pass switches to before drawing any
+-- translucent item. depthEqual is still set here to prove the sentinel fires
+-- regardless of its value; MapRenderer's own retirement of the depthEqual ->
+-- "lequal" branch is pinned in map_renderer_test.lua, not here -- this test
+-- only proves the pass reaches its first mesh draw, never depth-mode
+-- specifics.
 local function translucentTriangleItem(scope)
   local item = baseItem(scope, "translucent")
   item.depthEqual = true
