@@ -1,14 +1,15 @@
 -- TrainerCardController contract tests: the close-input-only card
--- controller. It owns no Start Menu internals: a cancel edge records exactly
--- one { kind = "close" } result; every foreign input
--- (directions/confirm/menu/pointers) changes nothing; the status carries the
--- full model projection (the three authoritative profile fields and the
--- explicit nil optional fields) so the renderer can choose the audited blank
--- presentation; dispose is idempotent and discards a pending result; and
--- construction requires the model. The controller requests no sound.
+-- controller receives the authoritative player profile and copies the
+-- required immutable fields (name/gender/trainerId) at construction, so
+-- later mutation of the caller's profile cannot change the open card.
+-- Status exposes exactly those fields plus the open flag -- no future-card
+-- placeholder keys -- and every call returns a fresh table. It owns no Start
+-- Menu internals: a cancel edge records exactly one { kind = "close" }
+-- result; every foreign input (directions/confirm/menu/pointers) changes
+-- nothing; dispose is idempotent and discards a pending result; and
+-- construction requires the profile. The controller requests no sound.
 
 local Assert = require("tests.support.Assert")
-local TrainerCardModel = require("libs.engine.src.TrainerCardModel")
 local TrainerCardController = require("libs.engine.src.TrainerCardController")
 
 local T = {
@@ -28,41 +29,56 @@ end
 
 local function fixture(profile)
   local controller = TrainerCardController.new({
-    model = TrainerCardModel.new(profile or demoProfile()),
+    profile = profile or demoProfile().profile,
   })
   return controller
 end
 
-function T.tests.construction_requires_the_model()
+-- The card must expose only the implemented profile fields: extra keys are
+-- a contract violation even when their value is nil.
+function T.tests.construction_requires_the_profile()
   throws(function()
     TrainerCardController.new({})
   end)
+  throws(function()
+    TrainerCardController.new({ profile = {} })
+  end)
+  throws(function()
+    TrainerCardController.new({ profile = { name = "GOLD", gender = 0 } })
+  end)
+  throws(function()
+    TrainerCardController.new({ profile = { name = "GOLD", trainerId = 0 } })
+  end)
+  throws(function()
+    TrainerCardController.new({ profile = { gender = 0, trainerId = 0 } })
+  end)
 end
 
-function T.tests.status_carries_the_full_model_projection()
-  local controller = fixture()
-  local status = controller:status()
+function T.tests.status_exposes_exactly_the_implemented_profile_fields()
+  local status = fixture():status()
   Assert.equal(status.open, true)
   Assert.equal(status.name, "GOLD")
   Assert.equal(status.gender, 0)
   Assert.equal(status.trainerId, 0)
-  Assert.equal(status.money, nil)
-  Assert.equal(status.playTime, nil)
-  Assert.equal(status.badges, nil)
-  Assert.equal(status.pokedexOwned, nil)
-  Assert.equal(status.stars, nil)
-  Assert.equal(status.signature, nil)
+  Assert.keySet(status, "gender,name,open,trainerId")
 end
 
 function T.tests.status_passes_boundary_profile_values_through()
-  local controller = fixture({
-    profile = { name = "ABCDEFG", gender = 1, trainerId = 65535 },
-    options = { textFrame = 0, textSpeed = "mid" },
-  })
+  local controller = fixture({ name = "ABCDEFG", gender = 1, trainerId = 65535 })
   local status = controller:status()
   Assert.equal(status.name, "ABCDEFG")
   Assert.equal(status.gender, 1)
   Assert.equal(status.trainerId, 65535)
+end
+
+function T.tests.construction_copies_the_required_fields()
+  local profile = { name = "GOLD", gender = 0, trainerId = 0 }
+  local controller = TrainerCardController.new({ profile = profile })
+  profile.name = "HIKARI"
+  profile.trainerId = 1
+  local status = controller:status()
+  Assert.equal(status.name, "GOLD", "the card keeps the construction-time profile copy")
+  Assert.equal(status.trainerId, 0)
 end
 
 function T.tests.a_cancel_edge_records_one_close_result()

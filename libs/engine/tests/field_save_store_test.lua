@@ -12,10 +12,21 @@ local FieldSave = require("libs.engine.src.FieldSave")
 local FieldSaveStore = require("libs.engine.src.FieldSaveStore")
 local ScriptSave = require("libs.engine.src.script.ScriptSave")
 local FakeCache = require("tests.support.FakeCache")
+local PlayerDataContext = require("tests.support.PlayerDataContext")
 
 local T = {}
 
 local SAVE_TEMP = "saves/heartgold/" .. FieldSave.PATH .. ".tmp"
+
+-- The store's save/load boundary requires the player-data validation context
+-- (mirroring the runtime composition), so every fixture supplies it.
+local function store(saveFs, opts)
+  local value = { playerDataContext = PlayerDataContext.new() }
+  for key, item in pairs(opts or {}) do
+    value[key] = item
+  end
+  return FieldSaveStore.new(saveFs, value)
+end
 
 local function record(versionId, overrides)
   local value = {
@@ -46,7 +57,7 @@ end
 
 function T.atomic_save_publishes_without_leaving_temporary_file()
   local backend = FakeCache.new()
-  local store = FieldSaveStore.new(SaveFs.forVersion("heartgold", backend))
+  local store = store(SaveFs.forVersion("heartgold", backend))
   store:save(record("heartgold"))
   Assert.deepEqual(assert(store:load()), record("heartgold"))
   Assert.isNil(backend.files[SAVE_TEMP])
@@ -55,8 +66,8 @@ end
 
 function T.imported_versions_have_independent_saves()
   local backend = FakeCache.new()
-  local hg = FieldSaveStore.new(SaveFs.forVersion("heartgold", backend))
-  local ss = FieldSaveStore.new(SaveFs.forVersion("soulsilver", backend))
+  local hg = store(SaveFs.forVersion("heartgold", backend))
+  local ss = store(SaveFs.forVersion("soulsilver", backend))
   hg:save(record("heartgold"))
   ss:save(record("soulsilver"))
   Assert.equal(assert(hg:load()).versionId, "heartgold")
@@ -77,7 +88,7 @@ function T.load_rejects_unknown_schemas()
     terrainDependencyHash = "terrain",
     facing = "south",
   })
-  local store = FieldSaveStore.new(saveFs)
+  local store = store(saveFs)
   local loaded, loadErr = store:load()
   Assert.isNil(loaded)
   Assert.isTrue(
@@ -95,7 +106,7 @@ function T.load_rejects_a_malformed_world_bucket()
   local value = record("heartgold")
   value.world.rng = {}
   saveFs:writeLua(FieldSave.PATH, value)
-  local store = FieldSaveStore.new(saveFs)
+  local store = store(saveFs)
   local loaded, loadErr = store:load()
   Assert.isNil(loaded)
   Assert.isTrue(
@@ -106,8 +117,7 @@ end
 
 function T.save_validates_the_compiled_avatar_set()
   local backend = FakeCache.new()
-  local store =
-    FieldSaveStore.new(SaveFs.forVersion("heartgold", backend), { avatars = { hero = true, heroine = true } })
+  local store = store(SaveFs.forVersion("heartgold", backend), { avatars = { hero = true, heroine = true } })
   local err = Assert.throws(function()
     store:save(record("heartgold", { avatar = "rival" }))
   end)
@@ -122,7 +132,7 @@ end
 
 function T.reset_removes_stable_and_temporary_files()
   local backend = FakeCache.new()
-  local store = FieldSaveStore.new(SaveFs.forVersion("heartgold", backend))
+  local store = store(SaveFs.forVersion("heartgold", backend))
   store:save(record("heartgold"))
   backend.files[SAVE_TEMP] = "partial"
   store:reset()
@@ -137,7 +147,7 @@ function T.reset_does_not_touch_the_cache()
   local cacheFs = CacheFs.forVersion("heartgold", backend)
   cacheFs:write("rom-dump.complete", "MARKER")
   cacheFs:write("romfs/a/0/0/2", "DATA")
-  local store = FieldSaveStore.new(SaveFs.forVersion("heartgold", backend))
+  local store = store(SaveFs.forVersion("heartgold", backend))
   store:save(record("heartgold"))
   store:reset()
   Assert.isNil(store:load())
@@ -161,7 +171,7 @@ end
 function T.load_rejects_a_deeply_malformed_scripts_bucket()
   local backend = FakeCache.new()
   local saveFs = SaveFs.forVersion("heartgold", backend)
-  local store = FieldSaveStore.new(saveFs, {
+  local store = store(saveFs, {
     scriptsValidate = function(bucket)
       return ScriptSave.validate(bucket, {})
     end,
@@ -191,7 +201,7 @@ end
 function T.load_rejects_a_deeply_invalid_player_data_bucket()
   local backend = FakeCache.new()
   local saveFs = SaveFs.forVersion("heartgold", backend)
-  local store = FieldSaveStore.new(saveFs, {
+  local store = store(saveFs, {
     playerDataContext = {
       charmap = { G = 1, O = 2, L = 3, D = 4 },
       frameIndexes = { [0] = true },

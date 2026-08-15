@@ -9,6 +9,7 @@ local FieldActorManager = require("libs.engine.src.FieldActorManager")
 local FieldEventState = require("libs.engine.src.FieldEventState")
 local FieldSave = require("libs.engine.src.FieldSave")
 local FieldScenario = require("libs.engine.src.FieldScenario")
+local PlayerDataContext = require("tests.support.PlayerDataContext")
 local RomRuntimeMap = require("tests.support.RomRuntimeMap")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 local WarpSystem = require("libs.engine.src.WarpSystem")
@@ -112,7 +113,8 @@ function T.field_state_avatar_and_events_resume_on_both_target_maps(romFs, versi
         options = { textFrame = 0, textSpeed = "mid" },
       },
     })
-    local restored = assert(FieldSave.restore(saved, loader, versionId))
+    local restored =
+      assert(FieldSave.restore(saved, loader, versionId, { playerDataContext = PlayerDataContext.new() }))
     Assert.equal(restored.runtimeMap.mapId, map.mapId)
     Assert.equal(restored.fieldX, case.fieldX)
     Assert.equal(restored.fieldZ, case.fieldZ)
@@ -164,7 +166,7 @@ function T.a_resumed_event_store_keeps_scenario_actors_hidden(romFs)
     load = function(_, mapId)
       return assert(maps[mapId])
     end,
-  }, "heartgold"))
+  }, "heartgold", { playerDataContext = PlayerDataContext.new() }))
   local revived = FieldEventState.new({
     flags = restored.world.flags,
     vars = restored.world.variables,

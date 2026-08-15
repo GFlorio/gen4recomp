@@ -10,6 +10,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
+local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 
 local FieldPlayerData = {}
 
@@ -39,20 +40,6 @@ function FieldPlayerData.ticksPerGlyph(textSpeed)
   return cadence
 end
 
--- Iterate the UTF-8 glyphs of a string (leading byte determines the width),
--- matching the generated field font's text iteration.
----@param text string
----@param fn fun(glyph: string)
-local function eachGlyph(text, fn)
-  local position = 1
-  while position <= #text do
-    local byte = text:byte(position)
-    local width = byte < 0x80 and 1 or byte < 0xE0 and 2 or byte < 0xF0 and 3 or 4
-    fn(text:sub(position, math.min(position + width - 1, #text)))
-    position = position + width
-  end
-end
-
 -- Strict validation (raising). The record must be exactly the model shape:
 -- the profile (name/gender/trainerId) and the options (textFrame/textSpeed)
 -- tables, every field within its strict range, the name encodable by the
@@ -73,9 +60,9 @@ local function validate(record, context)
     Errors.raise(FieldErrors.PLAYER_DATA_NAME_INVALID, "player name must be a string", { name = profile.name })
   end
   local glyphs = 0
-  eachGlyph(profile.name, function()
+  for _ in Utf8Glyphs.iter(profile.name) do
     glyphs = glyphs + 1
-  end)
+  end
   if glyphs < FieldPlayerData.MIN_NAME_GLYPHS or glyphs > FieldPlayerData.MAX_NAME_GLYPHS then
     Errors.raise(
       FieldErrors.PLAYER_DATA_NAME_INVALID,
@@ -83,7 +70,7 @@ local function validate(record, context)
       { name = profile.name, glyphs = glyphs }
     )
   end
-  eachGlyph(profile.name, function(glyph)
+  for glyph in Utf8Glyphs.iter(profile.name) do
     if context.charmap[glyph] == nil then
       Errors.raise(
         FieldErrors.PLAYER_DATA_NAME_INVALID,
@@ -91,7 +78,7 @@ local function validate(record, context)
         { character = glyph }
       )
     end
-  end)
+  end
   if FieldPlayerData.GENDERS[profile.gender] ~= true then
     Errors.raise(FieldErrors.PLAYER_DATA_GENDER_INVALID, "player gender must be one of the gendered-message values", {
       gender = profile.gender,

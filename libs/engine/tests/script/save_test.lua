@@ -9,6 +9,7 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
+local PlayerDataContext = require("tests.support.PlayerDataContext")
 local S = require("gen4.script")
 local Registry = require("libs.engine.src.script.Registry")
 local Composition = require("libs.engine.src.script.Composition")
@@ -533,6 +534,7 @@ T["field save v3 round trip"] = function()
         end
         return nil
       end,
+      playerDataContext = PlayerDataContext.new(),
     }
   )
   Assert.isTrue(restored ~= nil, tostring(err))

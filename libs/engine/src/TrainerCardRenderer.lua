@@ -8,16 +8,13 @@
 -- "TIME", "ADVENTURE STARTED") are the fixed card layout (msgdata bank 727
 -- messages 0..6); the player name is right-aligned to x=240 and the trainer
 -- id (five digits, zero-padded per the source's String16_FormatInteger)
--- right-aligned to x=112 on the y=24 row. Every value the model does
--- not own (money/play time/badges/pokedex/stars/signature) renders the
--- audited blank presentation: the label rows stay empty and the POKéDEX row
--- (source-gated) is not drawn at all, so nothing is fabricated. The bottom
--- band below the last text row is the reserved signature region: the
--- renderer never draws there and exposes the reservation as a named record
--- so the future editor needs no redesign. Text draws through the shared
--- FieldTextRenderer (owned by FieldState); this renderer owns only the card
--- front image. Construction is failure-safe: a missing manifest or card
--- front is a typed error, a quad failure after the image was created
+-- right-aligned to x=112 on the y=24 row. The presentation carries only the
+-- implemented profile fields (name, gender, trainerId), so the label rows
+-- for values gameplay does not own stay empty and the source-gated POKéDEX
+-- row is not drawn at all: nothing is fabricated. Text draws through the
+-- shared FieldTextRenderer (owned by FieldState); this renderer owns only
+-- the card front image. Construction is failure-safe: a missing manifest or
+-- card front is a typed error, a quad failure after the image was created
 -- releases it before rethrowing, and draw() restores every graphics state
 -- it touches.
 
@@ -51,11 +48,6 @@ TrainerCardRenderer.LABEL_ANCHORS = {
 TrainerCardRenderer.NAME_RIGHT_EDGE = 240
 TrainerCardRenderer.TRAINER_ID_RIGHT_EDGE = 112
 TrainerCardRenderer.TRAINER_ID_DIGITS = 5
-
--- The signature display reservation: the bottom band of the card front
--- below the last audited text row (y=160). The renderer never draws in it;
--- the future signature editor owns this region.
-TrainerCardRenderer.SIGNATURE_REGION = { x = 0, y = 160, width = 256, height = 32 }
 
 -- opts.cacheFs: version-scoped private cache holding the generated field-UI
 -- class (manifest + card front PNG); opts.text: the shared FieldTextRenderer
@@ -141,12 +133,12 @@ end
 
 -- Draws the canonical card front into viewport.referenceFrame: the card art
 -- over the manifest front rect, then the audited labels and the two
--- authoritative values (right-aligned per the source prints). The optional
--- model fields are nil in every current profile, so their rows render the
--- authentic blank presentation; nothing is drawn inside the reserved
--- signature region. No-op (and no state touched) when this renderer has no
--- images. Restores canvas, shader, scissor, blend, depth, wireframe, cull,
--- and color afterwards.
+-- authoritative values (right-aligned per the source prints). The
+-- presentation carries only the implemented profile fields, so the label
+-- rows for unimplemented values stay empty and nothing is fabricated.
+-- No-op (and no state touched) when this renderer has no images. Restores
+-- canvas, shader, scissor, blend, depth, wireframe, cull, and color
+-- afterwards.
 
 ---@param presentation table?
 ---@param viewport { referenceFrame: FieldDialogueTheme.Rect }

@@ -321,6 +321,17 @@ function FieldUiFixture.cardFontDef()
   }
 end
 
+-- The card font plus one real multibyte glyph: É (U+00C9, a two-byte UTF-8
+-- sequence) at compiled code 360 with advance 6, mirroring the generated
+-- heartgold field font, so multibyte names exercise the shared text path.
+---@return FieldFontDef
+function FieldUiFixture.cardFontDefWithMultibyte()
+  local def = FieldUiFixture.cardFontDef()
+  def.glyphs[360] = { x = (360 - 1) * 8, y = 0, w = 8, h = 16, advance = 6, bearingX = 0, bearingY = 0 }
+  def.charmap["\195\137"] = 360
+  return def
+end
+
 -- The card font atlas: glyph codes 1..64 in the first 512x16 row, the
 -- fallback in the second row.
 ---@return string png
@@ -443,12 +454,13 @@ function FieldUiFixture.cacheWithFontAndFrames()
 end
 
 -- The trainer card front viewer fixture: the card font (the full label/value
--- charset), the field-UI manifest with the trainerCard section, and the
--- synthetic 256x256 card front art.
+-- charset, or the caller's own font definition), the field-UI manifest with
+-- the trainerCard section, and the synthetic 256x256 card front art.
+---@param fontDef FieldFontDef?
 ---@return CacheFs
-function FieldUiFixture.trainerCardCache()
+function FieldUiFixture.trainerCardCache(fontDef)
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
-  cache:writeLua("data/generated/field/font/font-0.lua", FieldUiFixture.cardFontDef())
+  cache:writeLua("data/generated/field/font/font-0.lua", fontDef or FieldUiFixture.cardFontDef())
   cache:write("assets/generated/field/font/font-0.png", FieldUiFixture.cardFontAtlasBytes())
   cache:writeLua(FieldUiAssetCache.manifestPath(), FieldUiFixture.manifest())
   cache:write(FieldUiFixture.TRAINER_CARD_PATH, FieldUiFixture.cardBytes())
