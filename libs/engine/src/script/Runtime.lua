@@ -9,7 +9,7 @@
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local ScriptEnvironment = require("libs.engine.src.script.ScriptEnvironment")
-local FieldWindowStyleRegistry = require("libs.engine.src.FieldWindowStyleRegistry")
+local FieldWindowStyles = require("libs.engine.src.FieldWindowStyles")
 local MovementPauseTask = require("libs.engine.src.script.tasks.MovementPauseTask")
 local MovementTask = require("libs.engine.src.script.tasks.MovementTask")
 
@@ -1292,8 +1292,8 @@ end
 local function resolveSignpostStyle(run, appearance)
   local styles = requireService(run, "windowStyles")
   -- LuaLS cannot see through Errors.raise; requireService never returns nil.
-  ---@cast styles FieldWindowStyleRegistry
-  local styleId = FieldWindowStyleRegistry.semanticStyleId(appearance) or appearance
+  ---@cast styles FieldWindowStyles
+  local styleId = FieldWindowStyles.semanticStyleId(appearance) or appearance
   if styles:resolve(styleId) == nil then
     Errors.raise(
       ScriptErrors.SCRIPT_STYLE_UNKNOWN,

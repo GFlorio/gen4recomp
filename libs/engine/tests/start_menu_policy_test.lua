@@ -1,27 +1,22 @@
 -- StartMenuPolicy contract tests: the pure canonical action definitions and
 -- the normal-field progression rules for the implemented field context. The
--- strict snapshot is the seven unlock facts the runtime reads from the
--- event-state flags; every action's output separates list presence (the
--- source inhibit masks, start_menu.c:288-331) from the gameplay unlock gate
--- (the CheckGot*/FLAG_GOT_* availability checks, start_menu.c:535-556), plus
--- the canonical display position. No capability or product-mode projection
--- lives here: the runtime intersects the registered destination
--- applications. Source evidence: docs/research/start-menu-policy.md
--- (pret/pokeheartgold 008257708).
+-- facts are the seven unlock values the runtime reads from the event-state
+-- flags (the CheckGot*/FLAG_GOT_* gates, start_menu.c:535-556) as ordinary
+-- internal data; each source action still separates list presence (the
+-- source inhibit masks, start_menu.c:288-331) from the gameplay unlock gate.
+-- availableActions returns the final interactive list the runtime needs:
+-- every source action is processed in canonical insertion order so
+-- present-but-unimplemented actions keep their display positions, and an
+-- entry is interactive exactly when present AND unlocked AND its destination
+-- application is registered (the hasApplication predicate). Source evidence:
+-- docs/research/start-menu-policy.md (pret/pokeheartgold 008257708).
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.errors.src.Errors")
 local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
 
 local T = {
   tests = {},
 }
-
-local function throwsCode(code, fn)
-  local err = Assert.throws(fn)
-  Assert.isTrue(Errors.is(err), "expected a structured error")
-  Assert.equal(err.code, code)
-end
 
 local FRESH = {
   hasPokedex = false,
@@ -53,216 +48,150 @@ local function facts(overrides)
   return value
 end
 
--- The canonical build order (StartMenu_BuildActionLists, start_menu.c:483-523)
--- with each action's destination application id.
-local EXPECTED_ACTIONS = {
-  { id = "vanilla.retire", targetApplication = nil },
-  { id = "vanilla.special_7", targetApplication = nil },
-  { id = "vanilla.pokedex", targetApplication = "pokedex" },
-  { id = "vanilla.pokemon", targetApplication = "pokemon" },
-  { id = "vanilla.bag", targetApplication = "bag" },
-  { id = "vanilla.pokegear", targetApplication = "pokegear" },
-  { id = "vanilla.trainer_card", targetApplication = "trainer_card" },
-  { id = "vanilla.save", targetApplication = "save" },
-  { id = "vanilla.options", targetApplication = "options" },
-  { id = "vanilla.running_shoes", targetApplication = nil },
-  { id = "vanilla.special_9", targetApplication = "pokegear" },
-  { id = "vanilla.special_10", targetApplication = "pokegear" },
+local ALL_APPLICATIONS = {
+  pokedex = true,
+  pokemon = true,
+  bag = true,
+  pokegear = true,
+  trainer_card = true,
+  save = true,
+  options = true,
 }
 
-local function entryById(entries, id)
-  for _, entry in ipairs(entries) do
-    if entry.id == id then
-      return entry
+local function available(factSnapshot, applications)
+  return StartMenuPolicy.availableActions(factSnapshot, function(applicationId)
+    return applications[applicationId] == true
+  end)
+end
+
+local function actionById(actions, id)
+  for _, action in ipairs(actions) do
+    if action.id == id then
+      return action
     end
   end
-  error("no entry with id " .. id)
+  return nil
 end
 
--- Full progression: every action except RETIRE and the removed feature 7 is
--- present; the four progression-gated actions and the three unlock-flag
--- actions are unlocked; display positions are dense 0..6 then the
--- unconditionally written Pokégear-family positions 7/8 (special 9
--- overwrites whatever landed at 7 -- running shoes -- in the display array).
-function T.tests.full_progression_builds_the_canonical_list()
-  local entries = StartMenuPolicy.build(facts())
-  Assert.equal(#entries, 12, "the canonical build emits the twelve source slots")
-  for index, expected in ipairs(EXPECTED_ACTIONS) do
-    local entry = entries[index]
-    Assert.equal(entry.id, expected.id, "slot " .. index .. " id")
-    Assert.equal(entry.targetApplication, expected.targetApplication, "slot " .. index .. " destination")
-  end
-  local absent = { "vanilla.retire", "vanilla.special_7" }
-  for _, id in ipairs(absent) do
-    Assert.equal(entryById(entries, id).present, false, id .. " is unconditionally inhibited")
-  end
-  local expectedPositions = {
-    ["vanilla.pokedex"] = 0,
-    ["vanilla.pokemon"] = 1,
-    ["vanilla.bag"] = 2,
-    ["vanilla.pokegear"] = 3,
-    ["vanilla.trainer_card"] = 4,
-    ["vanilla.save"] = 5,
-    ["vanilla.options"] = 6,
-    ["vanilla.running_shoes"] = 7,
-    ["vanilla.special_9"] = 7,
-    ["vanilla.special_10"] = 8,
-  }
-  for id, position in pairs(expectedPositions) do
-    Assert.equal(entryById(entries, id).displayPosition, position, id .. " display position")
-  end
-  for _, id in ipairs({
-    "vanilla.pokedex",
-    "vanilla.pokemon",
-    "vanilla.bag",
-    "vanilla.pokegear",
-    "vanilla.trainer_card",
-    "vanilla.save",
-    "vanilla.options",
-  }) do
-    Assert.equal(entryById(entries, id).unlocked, true, id .. " is unlocked at full progression")
-  end
-  for _, id in ipairs({ "vanilla.running_shoes", "vanilla.special_9", "vanilla.special_10" }) do
-    Assert.equal(entryById(entries, id).unlocked, true, id .. " has no gameplay gate")
-  end
-end
-
--- A fresh game: no progression and no unlock flags. The unlock-flag actions
--- stay present (the source masks do not inhibit them) but locked; the
--- display positions stay dense over the present entries.
-function T.tests.fresh_game_lists_present_but_locked_unlock_actions()
-  local entries = StartMenuPolicy.build(facts({
-    hasPokedex = false,
-    hasStarter = false,
-    bagUnlocked = false,
-    hasPokegear = false,
-    trainerCardUnlocked = false,
-    saveUnlocked = false,
-    optionsUnlocked = false,
-  }))
-  local present = {}
-  local positions = {}
-  for _, entry in ipairs(entries) do
-    if entry.present then
-      present[#present + 1] = entry.id
-      positions[entry.id] = entry.displayPosition
-    end
-  end
-  Assert.deepEqual(present, {
-    "vanilla.trainer_card",
-    "vanilla.save",
-    "vanilla.options",
-    "vanilla.running_shoes",
-    "vanilla.special_9",
-    "vanilla.special_10",
+-- Full progression with every destination registered: the seven application
+-- actions plus the unconditionally written Pokégear-family entries 9/10 are
+-- interactive, display positions are dense over the present entries
+-- (0..6 then 7/8 for the specials), and actions without a destination
+-- (RETIRE, feature 7, running shoes) never appear.
+function T.tests.full_progression_returns_the_final_interactive_list()
+  local actions = available(facts(), ALL_APPLICATIONS)
+  Assert.deepEqual(actions, {
+    { id = "vanilla.pokedex", targetApplication = "pokedex", displayPosition = 0 },
+    { id = "vanilla.pokemon", targetApplication = "pokemon", displayPosition = 1 },
+    { id = "vanilla.bag", targetApplication = "bag", displayPosition = 2 },
+    { id = "vanilla.pokegear", targetApplication = "pokegear", displayPosition = 3 },
+    { id = "vanilla.trainer_card", targetApplication = "trainer_card", displayPosition = 4 },
+    { id = "vanilla.save", targetApplication = "save", displayPosition = 5 },
+    { id = "vanilla.options", targetApplication = "options", displayPosition = 6 },
+    { id = "vanilla.special_9", targetApplication = "pokegear", displayPosition = 7 },
+    { id = "vanilla.special_10", targetApplication = "pokegear", displayPosition = 8 },
   })
-  Assert.deepEqual(positions, {
-    ["vanilla.trainer_card"] = 0,
-    ["vanilla.save"] = 1,
-    ["vanilla.options"] = 2,
-    ["vanilla.running_shoes"] = 3,
-    ["vanilla.special_9"] = 7,
-    ["vanilla.special_10"] = 8,
+end
+
+-- A fresh game with no destinations registered: nothing is interactive.
+function T.tests.fresh_game_with_no_registered_destinations_is_empty()
+  Assert.deepEqual(available(FRESH, {}), {})
+end
+
+-- Present-but-unimplemented source actions keep their canonical display
+-- positions ahead of the implemented destinations: with the bag/pokegear
+-- progression missing, the trainer card sits at position 2 behind the
+-- present pokedex/pokemon entries even when only the card and save are
+-- registered.
+function T.tests.unimplemented_present_actions_keep_display_positions()
+  local actions = available(
+    facts({
+      bagUnlocked = false,
+      hasPokegear = false,
+      optionsUnlocked = false,
+    }),
+    {
+      trainer_card = true,
+      save = true,
+    }
+  )
+  Assert.deepEqual(actions, {
+    { id = "vanilla.trainer_card", targetApplication = "trainer_card", displayPosition = 2 },
+    { id = "vanilla.save", targetApplication = "save", displayPosition = 3 },
   })
-  for _, id in ipairs({ "vanilla.trainer_card", "vanilla.save", "vanilla.options" }) do
-    Assert.equal(entryById(entries, id).unlocked, false, id .. " is locked until its flag is set")
-  end
-  Assert.equal(entryById(entries, "vanilla.pokedex").present, false, "no progression means no pokedex entry")
-  Assert.equal(entryById(entries, "vanilla.pokedex").unlocked, false)
 end
 
--- Presence and the unlock gate are independent: a progression-gated action
--- is present exactly when its progression fact is true, and its unlock gate
--- follows the same fact; the flag-gated actions are present regardless.
-function T.tests.presence_and_unlock_are_independent_projections()
-  local entries = StartMenuPolicy.build(facts({
-    hasStarter = false,
-    trainerCardUnlocked = true,
-  }))
-  local pokemon = entryById(entries, "vanilla.pokemon")
-  Assert.equal(pokemon.present, false, "pokemon is inhibited without a starter")
-  Assert.equal(pokemon.unlocked, false)
-  local card = entryById(entries, "vanilla.trainer_card")
-  Assert.equal(card.present, true, "trainer card is never mask-inhibited")
-  Assert.equal(card.unlocked, true, "its flag flips only the unlock gate")
-  Assert.equal(card.displayPosition, 3, "the present list stays dense over pokedex/bag/pokegear")
-  local save = entryById(entries, "vanilla.save")
-  Assert.equal(save.unlocked, true, "the save flag is on")
-  Assert.equal(save.displayPosition, 4)
+-- The unlock gate is part of the final filter: a present but locked action
+-- is not interactive even when its destination is registered, and the
+-- positions of the interactive actions stay dense over the present list.
+function T.tests.present_but_locked_actions_stay_inactive()
+  local actions = available(facts({ trainerCardUnlocked = false }), ALL_APPLICATIONS)
+  Assert.isNil(actionById(actions, "vanilla.trainer_card"), "a locked action must not be interactive")
+  local save = assert(actionById(actions, "vanilla.save"))
+  Assert.equal(save.displayPosition, 5, "positions stay dense over the present list, not the interactive list")
 end
 
--- The output carries exactly the declared fields: no message ref, no
--- capability or product-mode projections, no enabled/visible state.
+-- Presence gates still follow the source inhibit masks: a progression-gated
+-- action without its progression fact is neither present nor interactive,
+-- and the positions of the later actions compress over the present list.
+function T.tests.presence_gates_follow_the_source_inhibit_masks()
+  local actions = available(facts({ hasPokedex = false }), ALL_APPLICATIONS)
+  Assert.isNil(actionById(actions, "vanilla.pokedex"), "an inhibited action is not interactive")
+  Assert.equal(assert(actionById(actions, "vanilla.pokemon")).displayPosition, 0)
+  Assert.equal(assert(actionById(actions, "vanilla.trainer_card")).displayPosition, 3)
+end
+
+-- The output records carry exactly the declared fields: id, destination,
+-- and display position. No present/unlocked projection, no sourceAction.
 function T.tests.output_carries_only_the_declared_fields()
-  local entries = StartMenuPolicy.build(facts())
-  for _, entry in ipairs(entries) do
+  for _, action in ipairs(available(facts(), ALL_APPLICATIONS)) do
     local keys = {}
-    for key in pairs(entry) do
+    for key in pairs(action) do
       keys[#keys + 1] = key
     end
     table.sort(keys)
-    local expected = { "id", "present", "unlocked" }
-    if entry.targetApplication ~= nil then
-      table.insert(expected, "targetApplication")
-    end
-    if entry.present then
-      table.insert(expected, "displayPosition")
-    end
-    table.sort(expected)
-    Assert.deepEqual(keys, expected, "entry " .. entry.id .. " carries only the declared fields")
+    Assert.deepEqual(keys, { "displayPosition", "id", "targetApplication" }, "action " .. action.id)
   end
 end
 
--- The strict snapshot: every required fact is present, no `or false`
--- defaults; a missing or malformed boolean is a rejection, not a plausible
--- default.
-function T.tests.strict_snapshot_rejects_missing_and_malformed_input()
-  throwsCode("START_MENU_POLICY_INVALID_SNAPSHOT", function()
-    local value = nil ---@type any
-    StartMenuPolicy.build(value)
-  end)
-  throwsCode("START_MENU_POLICY_INVALID_SNAPSHOT", function()
-    local value = "normal_field" ---@type any
-    StartMenuPolicy.build(value)
-  end)
-  throwsCode("START_MENU_POLICY_INVALID_SNAPSHOT", function()
+-- The facts are ordinary internal data: the seven required booleans are
+-- asserted (a missing or malformed fact is a programming fault), but
+-- additional keys are tolerated and never read.
+function T.tests.facts_are_internal_data_with_asserted_booleans()
+  Assert.throws(function()
     local value = facts()
     value.hasPokedex = nil
-    StartMenuPolicy.build(value)
+    available(value, ALL_APPLICATIONS)
   end)
-  throwsCode("START_MENU_POLICY_INVALID_SNAPSHOT", function()
+  Assert.throws(function()
     local value = facts()
     value.bagUnlocked = "yes"
-    StartMenuPolicy.build(value)
+    available(value, ALL_APPLICATIONS)
   end)
-  throwsCode("START_MENU_POLICY_INVALID_SNAPSHOT", function()
-    local value = facts()
-    value.hasPokedexx = true
-    StartMenuPolicy.build(value)
+  Assert.throws(function()
+    available(nil, ALL_APPLICATIONS)
   end)
-  throwsCode("START_MENU_POLICY_INVALID_SNAPSHOT", function()
-    local value = facts()
-    value.context = "normal_field"
-    StartMenuPolicy.build(value)
-  end)
-  throwsCode("START_MENU_POLICY_INVALID_SNAPSHOT", function()
-    local value = facts()
-    value.capabilities = { "trainer_card" }
-    StartMenuPolicy.build(value)
-  end)
+  local withExtras = facts()
+  withExtras.context = "normal_field"
+  withExtras.capabilities = { "trainer_card" }
+  Assert.equal(#available(withExtras, ALL_APPLICATIONS), 9, "unknown fact keys are ordinary data, not errors")
 end
 
--- build is a pure projection: it never mutates the snapshot and returns
--- fresh entry tables per call.
-function T.tests.build_does_not_mutate_the_snapshot_and_returns_fresh_entries()
+-- availableActions is a pure projection: it never mutates the facts or the
+-- predicate state and returns fresh records per call.
+function T.tests.available_actions_is_pure()
   local value = facts()
   local before = facts()
-  local first = StartMenuPolicy.build(value)
-  first[1].present = not first[1].present
-  local second = StartMenuPolicy.build(value)
-  Assert.deepEqual(value, before, "the snapshot is untouched")
-  Assert.isTrue(first[1] ~= second[1], "each call returns fresh entry tables")
-  Assert.equal(second[1].present, false, "the mutation of the first result did not leak into the second")
+  local seen = {}
+  local first = StartMenuPolicy.availableActions(value, function(applicationId)
+    seen[applicationId] = true
+    return ALL_APPLICATIONS[applicationId] == true
+  end)
+  first[1].displayPosition = 999
+  local second = available(value, ALL_APPLICATIONS)
+  Assert.deepEqual(value, before, "the facts are untouched")
+  Assert.equal(second[1].displayPosition, 0, "the mutation of the first result did not leak into the second")
+  Assert.equal(seen.pokedex, true, "the predicate is consulted for every application action")
 end
 
 return T

@@ -7,7 +7,7 @@
 -- disposal), and exactly-once disposal of the active controller on success,
 -- cancellation, failure, reset, or runtime disposal. The Start Menu is not a
 -- registry entry: the host builds it through its own required menuFactory
--- (the runtime's composition step), and the sealed application registry
+-- (the runtime's composition step), and the immutable application registry
 -- dispatches child destinations only. Fakes are the registry/input/
 -- controller boundaries; the pointer mapping is exercised through the real
 -- StartMenuLayout placement record.
@@ -118,7 +118,8 @@ local function fixture()
 end
 
 local function openMenu(host, input, registry)
-  host:requestOpen(10)
+  local opened = host:requestOpen(10)
+  Assert.equal(opened, true, "an open with available actions must succeed")
   Assert.equal(input.beginUiTicks[1], 10)
   return registry.menuControllers[1]
 end
@@ -216,11 +217,17 @@ function T.tests.launch_freezes_menu_input_then_fades_out_and_dispatches_the_des
   Assert.equal(host:status().fadeAlpha, 1)
   Assert.equal(menu.disposeCount, 1, "the menu controller is disposed exactly once at the fade-out end")
   Assert.deepEqual(registry.created, { "trainer_card" }, "the destination dispatches through the registry only")
-  -- The destination receives its first step in its construction tick with
-  -- no events: menu input was frozen for the whole fade, so presses from the
-  -- fade period must never reach the destination.
-  Assert.equal(destination.updateFixedCalls, 1)
-  Assert.equal(#destination.receivedEvents, 0, "the fade-period input never reaches the destination")
+  -- The destination is constructed on the fade-completion tick but receives
+  -- no synthetic first update there: its first updateFixed arrives on the
+  -- next tick with that tick's event list.
+  Assert.equal(
+    destination.updateFixedCalls,
+    0,
+    "the destination must not receive a synthetic first update in its construction tick"
+  )
+  host:updateFixed(13 + fadeTicks, { { type = "confirm" } })
+  Assert.equal(destination.updateFixedCalls, 1, "the first real update arrives on the tick after construction")
+  Assert.equal(destination.receivedEvents[1].type, "confirm", "the destination receives that tick's real events")
 end
 
 function T.tests.application_steps_the_destination_once_per_tick_until_close()
@@ -234,10 +241,11 @@ function T.tests.application_steps_the_destination_once_per_tick_until_close()
     host:updateFixed(tick, {})
   end
   Assert.equal(host:status().phase, "application")
+  Assert.equal(destination.updateFixedCalls, 0, "construction itself never steps the destination")
   host:updateFixed(30, { { type = "cancel" } })
   Assert.equal(destination.receivedEvents[1].type, "cancel", "the destination receives the tick events")
   host:updateFixed(31, {})
-  Assert.equal(destination.updateFixedCalls, 3)
+  Assert.equal(destination.updateFixedCalls, 2)
 end
 
 -- The renderer channel: during the application phase the host snapshot
@@ -385,6 +393,24 @@ function T.tests.menu_composition_failure_at_open_acquires_nothing()
   Assert.isTrue(tostring(host:error()):find("injected menu composition failure", 1, true) ~= nil)
 end
 
+-- A zero-action menu is not a first-class modal: the menu factory returns
+-- nil to say "menu currently unavailable", and the open is a no-op -- the
+-- host stays closed, nothing is constructed, no input lifetime begins, no
+-- failure is recorded, and the field continues normally.
+function T.tests.menu_factory_returning_nil_is_a_noop_open()
+  local host, input, registry, factory = fixture()
+  factory.fn = function()
+    return nil
+  end
+  Assert.equal(host:requestOpen(10), false, "an unavailable menu must report that nothing opened")
+  Assert.equal(host:status().phase, "closed", "a no-op open must leave the host closed")
+  Assert.equal(host:status().menu, nil)
+  Assert.equal(host:isActive(), false, "a no-op open must not own the tick")
+  Assert.equal(host:error(), nil, "a no-op open must not record a failure")
+  Assert.equal(input.beginUiTicks[1], nil, "a no-op open must not begin the modal input lifetime")
+  Assert.equal(#(registry.menuControllers or {}), 0, "a no-op open must not construct a controller")
+end
+
 function T.tests.menu_rebuild_failure_after_return_is_retained_after_the_destination_disposal()
   local host, input, registry, factory = fixture()
   local menu = openMenu(host, input, registry)
@@ -414,6 +440,37 @@ function T.tests.menu_rebuild_failure_after_return_is_retained_after_the_destina
   Assert.isTrue(tostring(host:error()):find("injected rebuild failure", 1, true) ~= nil)
 end
 
+-- When no action is interactive anymore after a child-application return,
+-- the rebuild releases the modal lifetime and returns to the field instead
+-- of presenting a blank menu: the child was already disposed exactly once
+-- and the save boundary is restored.
+function T.tests.menu_unavailable_at_rebuild_returns_to_the_field()
+  local host, input, registry, factory = fixture()
+  local menu = openMenu(host, input, registry)
+  host:updateFixed(11, {})
+  menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
+  local destination = fakeController()
+  registry.controllers.trainer_card = destination
+  for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
+    host:updateFixed(tick, {})
+  end
+  destination.result = { kind = "close" }
+  host:updateFixed(30, { { type = "cancel" } })
+  Assert.equal(destination.disposeCount, 1)
+  factory.fn = function()
+    return nil
+  end
+  for tick = 31, 30 + FieldApplicationHost.FADE_TICKS do
+    host:updateFixed(tick, {})
+  end
+  Assert.equal(host:status().phase, "closed", "an unavailable rebuild must return to the field")
+  Assert.equal(host:isActive(), false)
+  Assert.equal(destination.disposeCount, 1, "the returned destination is never disposed twice")
+  Assert.equal(input.clearUiCalls, 1, "the modal input lifetime is released once on the field return")
+  Assert.equal(host:error(), nil, "an unavailable rebuild must not record a failure")
+  Assert.equal(host:status().fadeAlpha, 0, "the returned host must not keep fade state")
+end
+
 function T.tests.reopen_request_is_consumed_by_take_reopen_once()
   local host, input, registry = fixture()
   host:requestReopen()
@@ -434,6 +491,20 @@ function T.tests.reopen_while_active_is_a_programming_invariant()
   throws(function()
     host:requestReopen()
   end)
+end
+
+-- A reopen with no interactive actions is consumed as a no-op: the pending
+-- request is cleared, nothing opens, and the host stays closed.
+function T.tests.take_reopen_with_an_unavailable_menu_is_a_noop()
+  local host, input, registry, factory = fixture()
+  factory.fn = function()
+    return nil
+  end
+  host:requestReopen()
+  Assert.equal(host:takeReopen(20), false, "an unavailable reopen must report that nothing opened")
+  Assert.equal(host:status().phase, "closed")
+  Assert.equal(input.beginUiTicks[1], nil)
+  Assert.equal(host:takeReopen(21), false, "the consumed reopen request never opens twice")
 end
 
 -- The per-phase disposal matrix: runtime disposal in every phase releases
@@ -553,16 +624,17 @@ function T.tests.pointer_events_are_mapped_through_the_placement_for_the_menu_co
   Assert.equal(events[1].y, 48)
   Assert.equal(events[2].type, "pointer_up", "an event outside the menu frame is dropped")
   Assert.equal(events[2].x, 64)
-  Assert.equal(events[3].type, "pointer_scroll", "scroll events pass through unchanged")
-  Assert.equal(events[3].dx, 0)
-  Assert.equal(events[4], nil)
+  Assert.equal(events[3], nil, "pointer scroll events are not forwarded to the start menu")
 end
 
 function T.tests.pointer_events_are_dropped_without_a_placement()
   local host, _, registry = fixture()
   local menu = openMenu(host, _, registry)
   host:updateFixed(11, {})
-  host:updateFixed(12, { { type = "pointer_down", pointerId = "p1", x = 64, y = 48 } })
+  host:updateFixed(12, {
+    { type = "pointer_down", pointerId = "p1", x = 64, y = 48 },
+    { type = "pointer_scroll", pointerId = "p1", dx = 0, dy = -1 },
+  })
   Assert.equal(menu.receivedEvents[1], nil, "no placement means no pointer support in the non-rendering composition")
 end
 

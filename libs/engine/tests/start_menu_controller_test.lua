@@ -1,18 +1,18 @@
--- The pure Start Menu controller: final interactive action display, optional
+-- The pure Start Menu controller: final interactive action display,
 -- selection, the folded-in fixed-tick cursor animation, confirm/cancel/
--- menu-key close, and touch/pointer slot interaction. The controller receives
--- the runtime-composed final action list (each entry already intersected with
--- the registered destination capabilities, carrying only id /
--- targetApplication / displayPosition) and the generated manifest slot
+-- menu-key close, and touch/pointer slot interaction. The controller
+-- receives the runtime-composed final action list (each entry already
+-- intersected with the registered destination capabilities, carrying only
+-- id / targetApplication / displayPosition) and the generated manifest slot
 -- surface; it carries no labels, no product-mode projections, and no
--- capability or progression knowledge. An empty action list is first-class:
--- the menu opens with no selection, navigation/confirm are safe no-ops,
--- pointer action slots are inert, the cancel region stays live, and no cursor
--- is presented or animated. The cursor animation is the manifest frame
--- durations stepped exactly once per fixed tick while a selection exists.
--- The controller is silent: it never names a ROM sequence and never touches
--- love. No application launches happen here: the controller records the
--- takeResult contract and the host launches.
+-- capability or progression knowledge. The final list is never empty -- the
+-- menu factory returns nil when no action is interactive -- so the
+-- controller's invariants are that at least one action exists, every
+-- display position fits the slot surface, and the selection always resolves.
+-- The cursor animation is the manifest frame durations stepped exactly once
+-- per fixed tick. The controller is silent: it never names a ROM sequence
+-- and never touches love. No application launches happen here: the
+-- controller records the takeResult contract and the host launches.
 
 local Assert = require("tests.support.Assert")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
@@ -38,11 +38,6 @@ local function fullEntries()
     { id = "vanilla.special_9", targetApplication = "pokegear", displayPosition = 7 },
     { id = "vanilla.special_10", targetApplication = "pokegear", displayPosition = 8 },
   }
-end
-
--- A fresh-game interactive list: only the trainer card destination exists.
-local function freshEntries()
-  return { { id = "vanilla.trainer_card", targetApplication = "trainer_card", displayPosition = 0 } }
 end
 
 ---@param opts table?
@@ -108,67 +103,6 @@ end
 function T.selection_falls_back_to_the_first_action_when_the_remembered_id_is_absent()
   local controller = newController({ rememberedActionId = "vanilla.running_shoes" })
   Assert.equal(controller:status().cursorSlotId, 2, "an absent remembered id falls back to the first action")
-end
-
--- The empty menu is a first-class state: constructing it succeeds, the
--- presentation carries no selection and no cursor, and the cancel region
--- stays live.
-function T.an_empty_menu_opens_with_no_selection_and_no_cursor()
-  local controller = newController({ entries = {} })
-  local status = controller:status()
-  Assert.equal(status.open, true)
-  Assert.deepEqual(status.actions, {})
-  Assert.equal(status.cancelSlotId, 1)
-  Assert.isNil(status.cursorSlotId, "an empty menu must not select an action")
-  Assert.isNil(status.cursorFrameIndex, "an empty menu must not present a cursor")
-  Assert.isNil(controller:takeResult())
-end
-
-function T.empty_menu_navigation_and_confirm_are_safe_noops()
-  local controller = newController({ entries = {} })
-  for _, direction in ipairs({ "up", "down", "left", "right" }) do
-    controller:updateFixed({ { type = "navigate", direction = direction } })
-  end
-  Assert.equal(controller:status().open, true, "navigation must leave the empty menu open")
-  Assert.deepEqual(controller:status().actions, {}, "navigation must not fabricate actions")
-  controller:updateFixed({ { type = "confirm" } })
-  Assert.isNil(controller:takeResult(), "confirm on no selection records no result")
-  Assert.equal(controller:status().open, true, "confirm must leave the empty menu open")
-end
-
-function T.empty_menu_cancel_and_menu_events_close()
-  local cancelController = newController({ entries = {} })
-  cancelController:updateFixed({ { type = "cancel" } })
-  Assert.deepEqual(cancelController:takeResult(), { kind = "close" })
-
-  local menuController = newController({ entries = {} })
-  menuController:updateFixed({ { type = "menu" } })
-  Assert.deepEqual(menuController:takeResult(), { kind = "close" })
-end
-
-function T.empty_menu_pointer_slots_are_inert_and_the_cancel_region_closes()
-  local controller = newController({ entries = {} })
-  local actionX, actionY = slotCenter(2)
-  controller:updateFixed({ { type = "pointer_move", pointerId = "mouse:1", x = actionX, y = actionY } })
-  Assert.isNil(controller:status().cursorSlotId, "hovering an action slot with no action changes nothing")
-  controller:updateFixed({ { type = "pointer_down", pointerId = "touch:1", x = actionX, y = actionY } })
-  controller:updateFixed({ { type = "pointer_up", pointerId = "touch:1", x = actionX, y = actionY, dragged = false } })
-  Assert.isNil(controller:takeResult(), "an action-slot tap must not launch from an empty menu")
-  Assert.equal(controller:status().open, true)
-
-  local cancelX, cancelY = slotCenter(1)
-  controller:updateFixed({ { type = "pointer_down", pointerId = "touch:1", x = cancelX, y = cancelY } })
-  controller:updateFixed({ { type = "pointer_up", pointerId = "touch:1", x = cancelX, y = cancelY, dragged = false } })
-  Assert.deepEqual(controller:takeResult(), { kind = "close" })
-end
-
-function T.empty_menu_cursor_animation_never_advances()
-  local controller = newController({ entries = {} })
-  for _ = 1, 64 do
-    controller:updateFixed({})
-  end
-  Assert.isNil(controller:status().cursorFrameIndex, "no selection means no cursor animation")
-  Assert.isNil(controller:status().cursorSlotId)
 end
 
 function T.directional_navigation_moves_and_wraps_across_visible_positions()
@@ -376,8 +310,7 @@ function T.pointer_over_an_empty_display_position_changes_nothing()
 end
 
 -- The cursor animation is folded into the controller: the manifest frame
--- durations are stepped exactly once per fixed tick while a selection
--- exists.
+-- durations are stepped exactly once per fixed tick.
 function T.cursor_animation_advances_on_fixed_ticks_while_selected()
   local controller = newController()
   -- Fixture frames: frame 0 holds 22 ticks, frame 1 holds 11.
@@ -398,7 +331,10 @@ function T.dispose_is_idempotent_and_discards_a_pending_result()
   Assert.isNil(controller:takeResult(), "dispose discards the pending result")
 end
 
-function T.construction_rejects_malformed_input()
+-- The constructor guards the real controller invariants: the final list is
+-- never empty (the menu factory returns nil instead), every display position
+-- fits the manifest slot surface, and the cursor animation has frames.
+function T.construction_guards_the_controller_invariants()
   local function with(overrides)
     local opts = {
       entries = fullEntries(),
@@ -411,28 +347,16 @@ function T.construction_rejects_malformed_input()
     return opts
   end
   Assert.throws(function()
-    StartMenuController.new(with({ entries = { { id = "", targetApplication = "save", displayPosition = 0 } } }))
-  end, "entries need an id")
-  Assert.throws(function()
-    StartMenuController.new(with({ entries = { { id = "vanilla.save", displayPosition = 0 } } }))
-  end, "interactive entries need a destination")
-  Assert.throws(function()
-    StartMenuController.new(with({ entries = { { id = "vanilla.save", targetApplication = "save" } } }))
-  end, "entries need a display position")
+    StartMenuController.new(with({ entries = {} }))
+  end, "a blank menu is never constructed -- the factory returns nil")
   Assert.throws(function()
     StartMenuController.new(
       with({ entries = { { id = "vanilla.save", targetApplication = "save", displayPosition = 9 } } })
     )
   end, "a position beyond the slot capacity is rejected")
   Assert.throws(function()
-    StartMenuController.new(with({ slots = {} }))
-  end, "the manifest slot surface is required")
-  Assert.throws(function()
     StartMenuController.new(with({ cursorFrames = {} }))
   end, "the cursor animation requires frames")
-  Assert.throws(function()
-    StartMenuController.new(with({ cursorFrames = { { duration = 0 } } }))
-  end, "cursor frame durations must be positive")
 end
 
 return { tests = T }

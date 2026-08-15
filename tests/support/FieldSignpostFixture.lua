@@ -1,12 +1,12 @@
 -- Synthetic signpost-renderer fixtures shared by the fake-graphics unit suite
 -- and the canonical goldens: a FieldSignpostController opened through a canned
--- layout in a chosen source-type/wipe/print state, and a sealed
--- FieldWindowStyleRegistry built from the field-UI fixture manifest. The
+-- layout in a chosen source-type/wipe/print state, and the immutable
+-- FieldWindowStyles catalogue built from the field-UI fixture manifest. The
 -- standard text is two glyph lines (A, B of the fixture font) so goldens can
 -- paste the glyph colors independently.
 
 local FieldSignpostController = require("libs.engine.src.FieldSignpostController")
-local FieldWindowStyleRegistry = require("libs.engine.src.FieldWindowStyleRegistry")
+local FieldWindowStyles = require("libs.engine.src.FieldWindowStyles")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
 
 local FieldSignpostFixture = {}
@@ -43,14 +43,11 @@ function FieldSignpostFixture.textLines()
   }
 end
 
--- The sealed hgss.* style registry the fixture manifest drives (the same
--- builtins FieldRuntime registers from the generated manifest).
----@return FieldWindowStyleRegistry
+-- The immutable hgss.* style catalogue the fixture manifest drives (the same
+-- builtins FieldRuntime builds from the generated manifest).
+---@return FieldWindowStyles
 function FieldSignpostFixture.styles()
-  local registry = FieldWindowStyleRegistry.new()
-  registry:registerBuiltins(FieldUiFixture.manifest())
-  registry:seal()
-  return registry
+  return FieldWindowStyles.new(FieldUiFixture.manifest(), {})
 end
 
 -- A controller shown at the chosen source type, wiped to the chosen offset

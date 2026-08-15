@@ -1,26 +1,27 @@
 -- Pure HGSS Start Menu action policy for the implemented normal field
 -- context: the canonical action definitions and the progression rules that
--- build the menu's source list. The strict input is the seven unlock facts
--- the runtime reads from the event-state flags (the four CheckGot*
--- progression gates plus the three FLAG_GOT_BAG+idx unlocks); each output
--- entry separates list presence (the source inhibit masks,
--- StartMenu_GetStartMenuButtonInhibitFlags_Normal, start_menu.c:288-331)
--- from the gameplay unlock gate (FieldSystem_StartMenuActionIsAvailable,
--- start_menu.c:531-556, gates at sys_flags.c:273-289) and carries the
--- canonical display-array position. The policy knows nothing about
--- applications: the runtime intersects the registered destination
--- capabilities against this source list. Pure domain module: no love, no
--- I/O; the caller supplies one strict snapshot (every required key present,
--- no `or false` defaults). Source evidence: src/start_menu.c at the pinned
--- decomp commit 008257708; full audit in docs/research/start-menu-policy.md.
+-- build the menu's final interactive list. The facts are the seven unlock
+-- values the runtime reads from the event-state flags (the four CheckGot*
+-- progression gates plus the three FLAG_GOT_BAG+idx unlocks) as ordinary
+-- internal data; each source action still separates list presence (the
+-- source inhibit masks, StartMenu_GetStartMenuButtonInhibitFlags_Normal,
+-- start_menu.c:288-331) from the gameplay unlock gate
+-- (FieldSystem_StartMenuActionIsAvailable, start_menu.c:531-556, gates at
+-- sys_flags.c:273-289). availableActions processes every source action in
+-- canonical insertion order -- present-but-unimplemented actions keep their
+-- canonical display positions -- and returns the final records the runtime
+-- needs: an entry is interactive exactly when present AND unlocked AND its
+-- destination application is registered (the hasApplication predicate).
+-- Pure domain module: no love, no I/O. Source evidence: src/start_menu.c at
+-- the pinned decomp commit 008257708; full audit in
+-- docs/research/start-menu-policy.md.
 
-local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
+local FieldApplicationIds = require("libs.engine.src.FieldApplicationIds")
 
 local StartMenuPolicy = {}
 
--- The seven required unlock facts of the strict snapshot: the four
--- progression gates and the three flag-gated unlocks.
+-- The seven unlock facts of the internal snapshot: the four progression
+-- gates and the three flag-gated unlocks.
 local FACT_FIELDS = {
   "hasPokedex",
   "hasStarter",
@@ -39,113 +40,109 @@ local FACT_FIELDS = {
 -- unconditionally inhibited, a fact key = inhibited while that fact is
 -- false, absent = never inhibited); `unlockedBy` is the availability gate
 -- fact key (absent = always available, matching the source's icon-index-100
--- default TRUE). `targetApplication` is the destination application id (nil
--- when the destination is not an application: RUNNING_SHOES is a controller
--- toggle, RETIRE is a field action, 7 is a removed feature).
+-- default TRUE). `targetApplication` is the destination application id from
+-- FieldApplicationIds (nil when the destination is not an application:
+-- RUNNING_SHOES is a controller toggle, RETIRE is a field action, 7 is a
+-- removed feature).
 local ACTIONS = {
   { sourceAction = "retire", id = "vanilla.retire", inhibitedBy = true },
   { sourceAction = "7", id = "vanilla.special_7", inhibitedBy = true },
   {
     sourceAction = "pokedex",
     id = "vanilla.pokedex",
-    targetApplication = "pokedex",
+    targetApplication = FieldApplicationIds.POKEDEX,
     inhibitedBy = "hasPokedex",
     unlockedBy = "hasPokedex",
   },
   {
     sourceAction = "pokemon",
     id = "vanilla.pokemon",
-    targetApplication = "pokemon",
+    targetApplication = FieldApplicationIds.POKEMON,
     inhibitedBy = "hasStarter",
     unlockedBy = "hasStarter",
   },
   {
     sourceAction = "bag",
     id = "vanilla.bag",
-    targetApplication = "bag",
+    targetApplication = FieldApplicationIds.BAG,
     inhibitedBy = "bagUnlocked",
     unlockedBy = "bagUnlocked",
   },
   {
     sourceAction = "pokegear",
     id = "vanilla.pokegear",
-    targetApplication = "pokegear",
+    targetApplication = FieldApplicationIds.POKEGEAR,
     inhibitedBy = "hasPokegear",
     unlockedBy = "hasPokegear",
   },
   {
     sourceAction = "trainer_card",
     id = "vanilla.trainer_card",
-    targetApplication = "trainer_card",
+    targetApplication = FieldApplicationIds.TRAINER_CARD,
     unlockedBy = "trainerCardUnlocked",
   },
-  { sourceAction = "save", id = "vanilla.save", targetApplication = "save", unlockedBy = "saveUnlocked" },
-  { sourceAction = "options", id = "vanilla.options", targetApplication = "options", unlockedBy = "optionsUnlocked" },
+  {
+    sourceAction = "save",
+    id = "vanilla.save",
+    targetApplication = FieldApplicationIds.SAVE,
+    unlockedBy = "saveUnlocked",
+  },
+  {
+    sourceAction = "options",
+    id = "vanilla.options",
+    targetApplication = FieldApplicationIds.OPTIONS,
+    unlockedBy = "optionsUnlocked",
+  },
   { sourceAction = "running_shoes", id = "vanilla.running_shoes" },
-  { sourceAction = "9", id = "vanilla.special_9", targetApplication = "pokegear", displayPosition = 7 },
-  { sourceAction = "10", id = "vanilla.special_10", targetApplication = "pokegear", displayPosition = 8 },
+  {
+    sourceAction = "9",
+    id = "vanilla.special_9",
+    targetApplication = FieldApplicationIds.POKEGEAR,
+    displayPosition = 7,
+  },
+  {
+    sourceAction = "10",
+    id = "vanilla.special_10",
+    targetApplication = FieldApplicationIds.POKEGEAR,
+    displayPosition = 8,
+  },
 }
 
-local function invalidSnapshot(message, context)
-  Errors.raise(FieldErrors.START_MENU_POLICY_INVALID_SNAPSHOT, message, context)
-end
-
--- Strict snapshot validation (raising): exactly the seven unlock facts, all
--- booleans. Missing keys and unknown keys are errors, never defaults.
----@param value table
----@return table facts
-local function validateSnapshot(value)
-  if type(value) ~= "table" then
-    invalidSnapshot("the start menu policy snapshot must be a table")
-  end
-  for key in pairs(value) do
-    local known = false
-    for _, field in ipairs(FACT_FIELDS) do
-      if key == field then
-        known = true
-      end
-    end
-    if not known then
-      invalidSnapshot("unknown start menu policy fact", { key = key })
-    end
-  end
+-- Builds the final interactive action list for one facts snapshot: all
+-- source actions are processed in canonical insertion order, so
+-- present-but-unimplemented actions keep their canonical display positions,
+-- and an entry is interactive exactly when present AND unlocked AND its
+-- destination application is registered. Fresh records per call; the facts
+-- are never mutated.
+---@param value table the seven unlock facts (asserted booleans, unknown keys tolerated)
+---@param hasApplication fun(applicationId: string): boolean the application-capability predicate
+---@return { id: string, targetApplication: string, displayPosition: integer }[]
+function StartMenuPolicy.availableActions(value, hasApplication)
+  assert(type(value) == "table", "the start menu policy requires the unlock facts")
   for _, field in ipairs(FACT_FIELDS) do
-    if type(value[field]) ~= "boolean" then
-      invalidSnapshot("the unlock fact is required", { field = field })
-    end
+    assert(type(value[field]) == "boolean", "the start menu policy requires boolean unlock facts")
   end
-  return value
-end
-
--- Builds the ordered action list for one strict snapshot. Returns the
--- canonical build slots (12), each with present / unlocked /
--- targetApplication / displayPosition modeled separately; the runtime
--- intersects the registered destination capabilities. Fresh tables per call;
--- the snapshot is never mutated.
----@param value table the strict snapshot (the seven unlock facts)
----@return table[]
-function StartMenuPolicy.build(value)
-  local facts = validateSnapshot(value)
-  local entries = {}
+  assert(type(hasApplication) == "function", "the start menu policy requires the application-capability predicate")
+  local actions = {}
   local presentCount = 0
   for _, definition in ipairs(ACTIONS) do
     local inhibitedBy = definition.inhibitedBy
-    local present = inhibitedBy == nil or (inhibitedBy ~= true and facts[inhibitedBy] == true)
+    local present = inhibitedBy == nil or (inhibitedBy ~= true and value[inhibitedBy] == true)
     local unlockedBy = definition.unlockedBy
-    local unlocked = unlockedBy == nil or facts[unlockedBy] == true
-    local entry = {
-      id = definition.id,
-      targetApplication = definition.targetApplication,
-      present = present,
-      unlocked = unlocked,
-    }
+    local unlocked = unlockedBy == nil or value[unlockedBy] == true
+    local targetApplication = definition.targetApplication
+    if present and unlocked and targetApplication ~= nil and hasApplication(targetApplication) then
+      actions[#actions + 1] = {
+        id = definition.id,
+        targetApplication = targetApplication,
+        displayPosition = definition.displayPosition or presentCount,
+      }
+    end
     if present then
-      entry.displayPosition = definition.displayPosition or presentCount
       presentCount = presentCount + 1
     end
-    entries[#entries + 1] = entry
   end
-  return entries
+  return actions
 end
 
 return StartMenuPolicy

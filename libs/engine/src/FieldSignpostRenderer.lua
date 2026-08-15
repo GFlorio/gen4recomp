@@ -30,7 +30,7 @@ local FieldDrawState = require("libs.engine.src.FieldDrawState")
 ---@class FieldSignpostRenderer
 ---@field _cacheFs CacheFs
 ---@field _graphics love.Graphics
----@field _windowStyles FieldWindowStyleRegistry
+---@field _windowStyles FieldWindowStyles
 ---@field _text FieldTextRenderer the shared glyph atlas/line drawing collaborator
 ---@field _manifest table|nil the generated field-UI manifest
 ---@field _tilesImage love.Image? the signpost frame strip
@@ -45,10 +45,10 @@ FieldSignpostRenderer.__index = FieldSignpostRenderer
 -- opts.cacheFs: version-scoped private cache holding the generated field-UI
 -- class; opts.text: the shared FieldTextRenderer (FieldState owns exactly
 -- one); opts.graphics: injectable LÖVE graphics namespace; opts.windowStyles:
--- the sealed per-runtime window style registry the controller's styleId
+-- the immutable per-runtime window style catalogue the controller's styleId
 -- resolves in.
 
----@param opts { cacheFs: CacheFs, text: FieldTextRenderer, windowStyles: FieldWindowStyleRegistry, graphics?: love.Graphics? }
+---@param opts { cacheFs: CacheFs, text: FieldTextRenderer, windowStyles: FieldWindowStyles, graphics?: love.Graphics? }
 ---@return FieldSignpostRenderer
 function FieldSignpostRenderer.new(opts)
   assert(
