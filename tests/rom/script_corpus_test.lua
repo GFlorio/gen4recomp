@@ -5,7 +5,6 @@
 -- and the verifier must never fault.
 
 local Assert = require("tests.support.Assert")
-local ScriptBinaryDecoder = require("romdump.src.digest.script.ScriptBinaryDecoder")
 local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
 local SemanticLowering = require("romdump.src.digest.script.SemanticLowering")
 local Structurer = require("romdump.src.digest.script.Structurer")
@@ -13,33 +12,16 @@ local Verifier = require("romdump.src.digest.script.Verifier")
 local SourceCatalog = require("romdump.src.digest.script.SourceCatalog")
 local CommandCatalog = require("romdump.src.digest.script.CommandCatalog")
 local ScriptMembers = require("romdump.src.reference.hgss.script_members")
+local FieldScripts = require("tests.rom.support.FieldScripts")
 local S = require("gen4.script")
 
 local T = {}
 
-local function decodeAll(romFs)
-  local archive = assert(romFs:openNarc("field_scripts"))
-  local catalog = {
-    sounds = require("romdump.src.reference.hgss.sndseq").byId,
-    flags = require("romdump.src.reference.hgss.flags").byId,
-    vars = require("romdump.src.reference.hgss.vars").byId,
-    maps = require("romdump.src.reference.hgss.maps").byId,
-    spawns = require("romdump.src.reference.hgss.spawns").byId,
-  }
-  return archive, ScriptBinaryDecoder.decodeArchive(archive, ScriptMembers.banks, "romfs/scr_seq.narc", catalog)
-end
-
-local function scrub(items)
-  for _, item in ipairs(items) do
-    if item.op == "if" then
-      scrub(item.yes)
-      scrub(item.no)
-    end
-    item.movementComplete = nil
-    item.movementUnsupported = nil
-    item.yieldsNextTick = nil
-    item.sourceNotes = nil
-  end
+local function scrub(step)
+  step.movementComplete = nil
+  step.movementUnsupported = nil
+  step.yieldsNextTick = nil
+  step.sourceNotes = nil
 end
 
 -- 1. The whole corpus decodes without drift, translates without unexpected
@@ -47,45 +29,51 @@ end
 -- finding is the bug-contest script's Return reachable at call-stack height
 -- zero (member 151 script 5, the retail's own structure, also present in the
 -- pinned scr_seq_0151.s reconstruction).
+-- The audio-op census rides the same pass: temporary music, cries, and cry
+-- waits are all reachable in retail field scripts, so the production
+-- service must execute each of them -- none may be rejected at import, and
+-- none may fail only when executed.
 T["corpus decodes and validates"] = function(romFs)
-  local archive, memberIrs = decodeAll(romFs)
-  local stdCatalog = SourceCatalog.catalog()
+  local archive, memberIrs = FieldScripts.decode(romFs)
   local scriptCount = 0
   local decodeNotes = 0
   local problems = {}
-  for member = 0, archive:memberCount() - 1 do
-    local ir = memberIrs[member]
-    if ir ~= nil then
-      for index, script in pairs(ir.scripts) do
-        scriptCount = scriptCount + 1
-        if script.decodeNote ~= nil then
-          decodeNotes = decodeNotes + 1
-        end
-        local lowered = SemanticLowering.lowerScript(script, ir, { stdCatalog = stdCatalog })
-        local steps = Structurer.structure(lowered, index)
-        local report = Verifier.verifyScript(steps, script, ir, lowered.omissions)
-        if not report.ok then
-          problems[#problems + 1] = { member = member, scriptIndex = index, messages = report.problems }
-        end
-        scrub(steps)
-        local ok, err = S.validate({ api = 1, id = "check", steps = steps })
-        if not ok then
-          error("script " .. member .. "/" .. index .. " fails validation: " .. tostring(err))
-        end
-      end
+  local audioOpCounts = {}
+  FieldScripts.eachScript(archive, memberIrs, function(member, index, steps, lowered)
+    scriptCount = scriptCount + 1
+    local script = memberIrs[member].scripts[index]
+    if script.decodeNote ~= nil then
+      decodeNotes = decodeNotes + 1
     end
-  end
+    local report = Verifier.verifyScript(steps, script, memberIrs[member], lowered.omissions)
+    if not report.ok then
+      problems[#problems + 1] = { member = member, scriptIndex = index, messages = report.problems }
+    end
+    FieldScripts.eachStep(steps, function(step)
+      if step.op == "temporary_music" or step.op == "play_cry" or step.op == "wait_cry" then
+        audioOpCounts[step.op] = (audioOpCounts[step.op] or 0) + 1
+      end
+    end)
+    FieldScripts.eachStep(steps, scrub)
+    local ok, err = S.validate({ api = 1, id = "check", steps = steps })
+    if not ok then
+      error("script " .. member .. "/" .. index .. " fails validation: " .. tostring(err))
+    end
+  end)
   Assert.isTrue(scriptCount > 2000, "expected the full script corpus")
   Assert.equal(decodeNotes, 0)
   Assert.equal(#problems, 1)
   Assert.equal(problems[1].member, 151)
   Assert.equal(problems[1].scriptIndex, 5)
+  Assert.isTrue((audioOpCounts.temporary_music or 0) >= 1, "retail field scripts reach temporary music")
+  Assert.isTrue((audioOpCounts.play_cry or 0) >= 1, "retail field scripts reach cry playback")
+  Assert.isTrue((audioOpCounts.wait_cry or 0) >= 1, "retail field scripts wait on cries")
 end
 
 -- 2. The vertical-slice goldens keep their canonical shapes: the elms-lab
 -- script 0, the lab sign sequence, and the New Bark woman dialogue.
 T["vertical-slice goldens"] = function(romFs)
-  local _, memberIrs = decodeAll(romFs)
+  local _, memberIrs = FieldScripts.decode(romFs)
   local stdCatalog = SourceCatalog.catalog()
   local function opsOf(member, scriptIndex)
     local ir = memberIrs[member]

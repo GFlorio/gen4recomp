@@ -10,6 +10,10 @@
 -- runs once per ready game version in beforeAll and the scenarios assert the
 -- resulting bundle; playback over these assets is the engine runtime suites'
 -- and the acceptance field-music scenarios' contract, not asserted here.
+-- The suite also pins the retail corpus facts the runtime contracts rely on:
+-- no reachable conditional command, every reachable open_track inside its FE
+-- track mask, one active sequence per field player id, and the field-script
+-- BGM/fanfare/effect player roles never colliding with the BGM players.
 -- Counts are derived from the dump, never guessed, and the suite runs for
 -- every ready version (soulsilver included when its dump lands).
 
@@ -19,9 +23,11 @@ local AudioSequence = require("libs.assets.src.AudioSequence")
 local AudioBank = require("libs.assets.src.AudioBank")
 local AudioSample = require("libs.assets.src.AudioSample")
 local Sdat = require("romdump.src.digest.audio.Sdat")
+local Sseq = require("romdump.src.digest.audio.Sseq")
 local AudioCompiler = require("romdump.src.digest.audio.AudioCompiler")
 local Hashing = require("romdump.src.digest.Hashing")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
+local FieldScripts = require("tests.rom.support.FieldScripts")
 local Errors = require("libs.errors.src.Errors")
 local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
@@ -93,6 +99,57 @@ local function forEachVersion(fn)
       error(ctx.versionId .. ": " .. tostring(err), 0)
     end
   end
+end
+
+-- The retail SSEQ census walk: the fixpoint scan over a sequence's raw bytes
+-- that the compiler's reachability must stay equivalent to. The walk starts
+-- at the data offset, skips the optional FE track-mask header, queues the
+-- 0x93/0x94/0x95 branch targets, and stops at a jump/return/end like the
+-- lowering walk. Returns the decoded commands in walk order, the FE track
+-- mask (nil when absent), and every reachable open_track destination track.
+local function censusSequence(bytes, dataOffset)
+  local endPos = #bytes
+  local pos = dataOffset
+  local mask = nil
+  if pos < endPos and string.byte(bytes, pos + 1) == 0xFE then
+    mask = string.byte(bytes, pos + 2) + string.byte(bytes, pos + 3) * 256
+    pos = pos + 3
+  end
+  local queue = { pos }
+  local seen = {}
+  local commands = {}
+  local openTracks = {}
+  while #queue > 0 do
+    local start = table.remove(queue)
+    if not seen[start] and start < endPos then
+      pos = start
+      while pos < endPos and not seen[pos] do
+        seen[pos] = true
+        local command = assert(Sseq.decodeCommand(bytes, pos, endPos, "census"))
+        commands[#commands + 1] = command
+        pos = command.next
+        if command.opcode == 0x93 or command.opcode == 0x94 or command.opcode == 0x95 then
+          queue[#queue + 1] = command.target
+        end
+        if command.opcode == 0x93 then
+          openTracks[#openTracks + 1] = command.track
+        end
+        if command.opcode == 0x94 or command.opcode == 0xFF or command.opcode == 0xFD then
+          break
+        end
+      end
+    end
+  end
+  return commands, mask, openTracks
+end
+
+-- Every structured step of every field script of the version context,
+-- through the production decoder/lowering/structuring pipeline.
+local function eachScriptStep(ctx, fn)
+  local archive, memberIrs = FieldScripts.decode(ctx.romFs)
+  FieldScripts.eachScript(archive, memberIrs, function(_, _, steps)
+    FieldScripts.eachStep(steps, fn)
+  end)
 end
 
 -- The real archive compiles into the full E1-shaped bundle: every section the
@@ -370,6 +427,196 @@ function T.all_map_day_night_music_references_resolve()
   end)
 end
 
+-- No reachable SSEQ command in any ready version uses the 0xA2 conditional
+-- prefix: the census walks every used sequence's raw bytes with the
+-- lowering-identical fixpoint and counts zero conditional commands, so the
+-- emitted corpus carries no conditional instruction either. The comparison
+-- commands can only ever be semantic no-ops, and a reachable conditional
+-- prefix is a compiler failure for the current project contract.
+function T.no_reachable_conditional_command()
+  forEachVersion(function(ctx)
+    local conditional = 0
+    local checked = 0
+    for id = 0, ctx.sdat.counts.sequences - 1 do
+      local record = ctx.sdat.sequences[id]
+      if record ~= nil and record.fileId ~= nil then
+        checked = checked + 1
+        local bytes = assert(ctx.sdat:readFile(record.fileId))
+        local seq = assert(Sseq.open(bytes, "sequence " .. id))
+        local commands = censusSequence(bytes, seq.dataOffset)
+        for _, command in ipairs(commands) do
+          if command.conditional then
+            conditional = conditional + 1
+          end
+        end
+      end
+      local sequence = ctx.bundle.sequences[id]
+      if sequence ~= nil then
+        for _, instruction in ipairs(sequence.program.instructions) do
+          Assert.isNil(instruction.conditional, "sequence " .. id .. " emits a conditional instruction")
+        end
+      end
+    end
+    Assert.isTrue(checked >= 1, "the census walked used sequences")
+    Assert.equal(conditional, 0, "no reachable 0xA2 conditional prefix")
+  end)
+end
+
+-- Every reachable open_track destination of every retail sequence is
+-- allocated by that sequence's FE track mask, and a sequence without an FE
+-- header never opens a track. The retail invariant proves that no reachable
+-- open_track can fail allocation, so no runtime allocation-failure or
+-- global track-pool contention path is ever exercised by the supported
+-- corpus.
+function T.reachable_open_track_targets_stay_inside_the_fe_mask()
+  forEachVersion(function(ctx)
+    local checked = 0
+    for id = 0, ctx.sdat.counts.sequences - 1 do
+      local record = ctx.sdat.sequences[id]
+      if record ~= nil and record.fileId ~= nil then
+        checked = checked + 1
+        local bytes = assert(ctx.sdat:readFile(record.fileId))
+        local seq = assert(Sseq.open(bytes, "sequence " .. id))
+        local _, mask, openTracks = censusSequence(bytes, seq.dataOffset)
+        for _, track in ipairs(openTracks) do
+          Assert.notNil(mask, "sequence " .. id .. " opens track " .. track .. " without an FE mask")
+          Assert.isTrue(
+            math.floor(mask / 2 ^ track) % 2 == 1,
+            "sequence "
+              .. id
+              .. " opens track "
+              .. track
+              .. " not allocated by its FE mask 0x"
+              .. string.format("%04X", mask)
+          )
+        end
+      end
+    end
+    Assert.isTrue(checked >= 1, "the census walked used sequences")
+  end)
+end
+
+-- Every player record a used sequence references exists and declares at
+-- least one playable sequence; the only player declaring more than one is
+-- the intro/PV player (it hosts the opening movie sequences and the
+-- end-of-archive sentinels, never field audio). Every player the field
+-- flows can reach therefore admits exactly one simultaneous sequence, so
+-- one-active-sequence-per-player-id replacement is the supported HGSS
+-- behavior and playback identity through the archive player id is
+-- unambiguous there.
+function T.only_the_intro_player_declares_multiple_sequence_slots()
+  forEachVersion(function(ctx)
+    local referenced = {}
+    for id = 0, ctx.sdat.counts.sequences - 1 do
+      local record = ctx.sdat.sequences[id]
+      if record ~= nil and record.fileId ~= nil then
+        referenced[record.playerId] = true
+      end
+    end
+    Assert.isTrue(next(referenced) ~= nil, "used sequences reference players")
+    local multi = {}
+    for playerId in pairs(referenced) do
+      local player = ctx.sdat.players[playerId]
+      Assert.notNil(player, "player " .. playerId .. " referenced by a sequence exists")
+      Assert.isTrue(player.maxSequences >= 1, "player " .. playerId .. " declares a usable slot count")
+      if player.maxSequences > 1 then
+        multi[#multi + 1] = playerId
+      end
+    end
+    table.sort(multi)
+    Assert.deepEqual(multi, { 0 }, "only the intro/PV player declares multiple sequence slots")
+  end)
+end
+
+-- The field-script audio roles of the real archive: every constant
+-- BGM/fanfare/effect reference resolves to a compiled sequence, map music
+-- always plays on one fixed player id, the fanfare and effect player ids
+-- never intersect the BGM player ids (so no fanfare or effect can collide
+-- with the active BGM player), and every player a role can reach declares
+-- exactly one sequence slot. Fanfares may also be selected dynamically
+-- (variable operands), while BGM/effect references are always constants.
+-- The BGM role spans two player ids (the field slot and the special
+-- scripted-music slot), so replacing the current BGM can switch active
+-- player slots and must explicitly stop the previous one.
+function T.field_script_audio_roles_never_collide_with_the_bgm_player()
+  forEachVersion(function(ctx)
+    local bySymbol = ctx.bundle.index.sequenceBySymbol
+    local players = {
+      bgm = {},
+      fanfare = {},
+      effect = {},
+      waitEffect = {},
+    }
+    local variableFanfares = 0
+    local function resolve(operand)
+      local sequenceId = bySymbol[operand]
+      Assert.notNil(sequenceId, "script audio reference " .. operand .. " resolves to a compiled sequence")
+      return ctx.sdat.sequences[assert(sequenceId)].playerId
+    end
+    eachScriptStep(ctx, function(step)
+      local op = step.op
+      if op == "play_music" then
+        players.bgm[resolve(step.music)] = true
+      elseif op == "play_fanfare" then
+        if type(step.fanfare) == "string" then
+          players.fanfare[resolve(step.fanfare)] = true
+        else
+          variableFanfares = variableFanfares + 1
+        end
+      elseif op == "play_sound" or op == "stop_sound" then
+        Assert.isTrue(type(step.sound) == "string", op .. " operands are constants")
+        players.effect[resolve(step.sound)] = true
+      elseif op == "wait_sound" then
+        Assert.isTrue(type(step.sound) == "string", "wait_sound operands are constants")
+        players.waitEffect[resolve(step.sound)] = true
+      end
+    end)
+    Assert.isTrue(variableFanfares >= 1, "retail scripts select fanfares dynamically")
+    Assert.isTrue(next(players.bgm) ~= nil, "field scripts play BGM")
+    Assert.isTrue(next(players.effect) ~= nil, "field scripts play effects")
+    local function intersects(a, b)
+      for playerId in pairs(a) do
+        if b[playerId] then
+          return true
+        end
+      end
+      return false
+    end
+    Assert.isFalse(intersects(players.bgm, players.fanfare), "a fanfare never shares a player id with the BGM players")
+    Assert.isFalse(intersects(players.bgm, players.effect), "an effect never shares a player id with the BGM players")
+    for playerId in pairs(players.waitEffect) do
+      Assert.isTrue(players.effect[playerId] == true, "WaitSE observes only effect players")
+    end
+
+    local mapPlayers = {}
+    for record in MapCatalog.all() do
+      for _, field in ipairs({ "dayMusic", "nightMusic" }) do
+        local sequenceId = bySymbol["SEQ_" .. record[field]]
+        Assert.notNil(sequenceId, record.symbol .. " " .. field .. " resolves to a compiled sequence")
+        mapPlayers[ctx.sdat.sequences[assert(sequenceId)].playerId] = true
+      end
+    end
+    local count = 0
+    local only = nil
+    for playerId in pairs(mapPlayers) do
+      count = count + 1
+      only = playerId
+    end
+    Assert.equal(count, 1, "map music always plays on one fixed player id")
+    Assert.isTrue(players.bgm[assert(only)] == true, "the map-music player is a BGM player")
+
+    for role in pairs(players) do
+      for playerId in pairs(players[role]) do
+        Assert.equal(
+          ctx.sdat.players[playerId].maxSequences,
+          1,
+          role .. " player " .. playerId .. " declares exactly one sequence slot"
+        )
+      end
+    end
+  end)
+end
+
 return {
   metadata = { capabilities = { "rom_dump" } },
   beforeAll = T.beforeAll,
@@ -381,5 +628,9 @@ return {
     every_referenced_bank_resolves = T.every_referenced_bank_resolves,
     every_referenced_sample_resolves = T.every_referenced_sample_resolves,
     all_map_day_night_music_references_resolve = T.all_map_day_night_music_references_resolve,
+    no_reachable_conditional_command = T.no_reachable_conditional_command,
+    reachable_open_track_targets_stay_inside_the_fe_mask = T.reachable_open_track_targets_stay_inside_the_fe_mask,
+    only_the_intro_player_declares_multiple_sequence_slots = T.only_the_intro_player_declares_multiple_sequence_slots,
+    field_script_audio_roles_never_collide_with_the_bgm_player = T.field_script_audio_roles_never_collide_with_the_bgm_player,
   },
 }
