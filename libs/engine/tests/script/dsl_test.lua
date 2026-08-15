@@ -910,29 +910,30 @@ local CASES = {
   },
 
   -- Signpost constructors: the high-level S.sign / S.trainerTip operations
-  -- (defaults come from the schema) and the six generated/advanced forms
-  -- mapping 1:1 onto the imported signpost operations.
+  -- take the canonical one-table spec (defaults come from the schema) and
+  -- the six generated/advanced forms map 1:1 onto the imported signpost
+  -- operations.
   sign = {
     function()
-      return S.sign("msg.hgss.0542.00034", { appearance = "mod.route_sign", wait = true })
+      return S.sign({ message = "msg.hgss.0542.00034", appearance = "mod.route_sign" })
     end,
-    { op = "sign", message = "msg.hgss.0542.00034", appearance = "mod.route_sign", wait = true },
+    { op = "sign", message = "msg.hgss.0542.00034", appearance = "mod.route_sign" },
   },
   sign_defaults = {
     function()
-      return S.sign("msg.hgss.0542.00034")
+      return S.sign({ message = "msg.hgss.0542.00034" })
     end,
-    { op = "sign", message = "msg.hgss.0542.00034", appearance = "sign", wait = true },
+    { op = "sign", message = "msg.hgss.0542.00034", appearance = "sign" },
   },
   trainer_tip = {
     function()
-      return S.trainerTip("msg.hgss.0542.00036", { appearance = "trainer_tip" })
+      return S.trainerTip({ message = "msg.hgss.0542.00036", appearance = "trainer_tip" })
     end,
     { op = "trainer_tip", message = "msg.hgss.0542.00036", appearance = "trainer_tip" },
   },
   trainer_tip_defaults = {
     function()
-      return S.trainerTip("msg.hgss.0542.00036")
+      return S.trainerTip({ message = "msg.hgss.0542.00036" })
     end,
     { op = "trainer_tip", message = "msg.hgss.0542.00036", appearance = "trainer_tip" },
   },
@@ -959,14 +960,12 @@ local CASES = {
       return S.signpostDirection({
         message = { message = "external", bank = 542, id = 34 },
         sourceAppearance = { game = "hgss", type = 0, map = 11 },
-        sourceUnusedOut = "VAR_SPECIAL_RESULT",
       })
     end,
     {
       op = "signpost_direction",
       message = { message = "external", bank = 542, id = 34 },
       sourceAppearance = { game = "hgss", type = 0, map = 11 },
-      sourceUnusedOut = "VAR_SPECIAL_RESULT",
     },
   },
   trainer_tips_print = {
@@ -1147,15 +1146,24 @@ function T.script_does_not_mutate_given_spec()
   Assert.equal(script.kind, "field_script")
 end
 
--- The high-level sign constructors take the message positionally and must
--- not mutate the caller's options table.
+-- The high-level sign constructors take one canonical spec table and must
+-- not mutate the caller's table.
 function T.sign_constructors_do_not_mutate_given_options()
-  local signOpts = { appearance = "mod.route_sign", wait = true }
-  S.sign("msg.hgss.0542.00034", signOpts)
-  Assert.deepEqual(signOpts, { appearance = "mod.route_sign", wait = true })
-  local tipOpts = { appearance = "trainer_tip" }
-  S.trainerTip("msg.hgss.0542.00036", tipOpts)
-  Assert.deepEqual(tipOpts, { appearance = "trainer_tip" })
+  local signSpec = { message = "msg.hgss.0542.00034", appearance = "mod.route_sign" }
+  S.sign(signSpec)
+  Assert.deepEqual(signSpec, { message = "msg.hgss.0542.00034", appearance = "mod.route_sign" })
+  local tipSpec = { message = "msg.hgss.0542.00036", appearance = "trainer_tip" }
+  S.trainerTip(tipSpec)
+  Assert.deepEqual(tipSpec, { message = "msg.hgss.0542.00036", appearance = "trainer_tip" })
+end
+
+-- There is no positional message form: the high-level sign constructors
+-- accept exactly the canonical one-table spec.
+function T.sign_constructors_reject_positional_message_forms()
+  local ok, err = pcall(S.sign, "msg.hgss.0542.00034", { appearance = "mod.route_sign" })
+  Assert.isFalse(ok, "S.sign must not accept a positional message, got: " .. tostring(err))
+  local ok2, err2 = pcall(S.trainerTip, "msg.hgss.0542.00036")
+  Assert.isFalse(ok2, "S.trainerTip must not accept a positional message, got: " .. tostring(err2))
 end
 
 -- Every raw handler sees ctx.apiVersion == 1.

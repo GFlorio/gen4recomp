@@ -10,11 +10,12 @@ return S.script({
   api = 1,
   id = "demo.signpost",
   steps = {
-    S.sign("msg.hgss.0542.00034", {
+    S.sign({
+      message = "msg.hgss.0542.00034",
       appearance = "mod.route_sign",
-      wait = true,
     }),
-    S.trainerTip("msg.hgss.0542.00036", {
+    S.trainerTip({
+      message = "msg.hgss.0542.00036",
       appearance = "trainer_tip",
     }),
     S.stop(),

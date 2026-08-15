@@ -76,11 +76,14 @@ local YIELD_OPS = {
 }
 
 -- Operations that end the script context (a stop-classified instruction
--- must be covered by one of these): plain completion and the opcode-61
--- context end that requests the Start Menu reopen hook.
+-- must be covered by one of these): plain completion, the opcode-61
+-- context end that requests the Start Menu reopen hook, and the opcode-21
+-- caller signal (RestartCurrentScript returns FALSE, ending the child
+-- context at the signal).
 local TERMINAL_OPS = {
   stop = true,
   request_start_menu = true,
+  signal_caller = true,
 }
 
 -- The documented multi-instruction folds (they own a timing profile of their
@@ -251,14 +254,14 @@ local CHECKERS = {
     end
   end,
   [55] = function(ins, step)
-    -- DirectionSignpost: the raw type/map and the unused out operand must
-    -- survive exactly; the message id stays the direct bank index.
+    -- DirectionSignpost: the raw type/map must survive exactly and the
+    -- message id stays the direct bank index. The final operand is an
+    -- intentional, audited erasure: the source handler never reads or
+    -- writes it, so the semantic node drops it (the raw decoded operands
+    -- keep it for source auditing).
     local appearance = step.sourceAppearance or {}
     if appearance.type ~= ins.operands[2].raw or appearance.map ~= ins.operands[3].raw then
       return "DirectionSignpost type/map changed by translation"
-    end
-    if step.sourceUnusedOut ~= ins.operands[4].raw then
-      return "DirectionSignpost out operand changed by translation"
     end
     local message = step.message
     local id = type(message) == "table" and message.message == "external" and message.id

@@ -641,10 +641,65 @@ T["trainer tips and wait signpost lower to canonical nodes"] = function()
   Assert.isTrue(report.complete)
 end
 
+-- 18. Opcode 21 (signal_caller) is a terminal context end: a conditional
+-- fallthrough chain that reaches the signal must not be peeled into a
+-- structured branch (the post-signal code would land inside the branch),
+-- and the verifier must accept the stop-classified translation. Post-signal
+-- code decodes only when a branch target justifies it (the decoder ends
+-- the script walk at the signal), so the conditional target lands inside
+-- the post-signal run.
+T["signal_caller ends the fallthrough chain and stays terminal"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          -- 0x20: compare (6 bytes) -> 0x26
+          { op = 17, args = { { value = 1, width = 2 }, { value = 2, width = 2 } } },
+          -- 0x26: GoToIf (7 bytes) -> 0x2D, target 0x2F (post-signal code)
+          { op = 28, args = { { value = 1, width = 1 }, { target = 0x2F, width = 4 } } },
+          -- 0x2D: signal_caller (2 bytes) -> 0x2F
+          { op = 21, args = {} },
+          -- 0x2F: Goto (6 bytes) -> 0x35, target 0x3B
+          { op = 22, args = { { target = 0x3B, width = 4 } } },
+          -- 0x35: SetVar (6 bytes) -> 0x3B
+          { op = 41, args = { { value = 0x4001, width = 2 }, { value = 5, width = 2 } } },
+          -- 0x3B: End (2 bytes) -> 0x3D
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 5, "synthetic", { msgBank = 543, catalog = CATALOG }))
+  local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+  local steps = Structurer.structure(lowered, 0)
+  local report = Verifier.verifyScript(steps, ir.scripts[0], ir, lowered.omissions)
+  Assert.isTrue(report.ok, report.problems[1] and report.problems[1].message or "signal_caller must verify as terminal")
+  Assert.isTrue(report.complete)
+  -- The peel must not run: the goto_if fallback survives, and the post-signal
+  -- Goto sits at the top level directly after the signal — never inside a
+  -- branch that an accidental continuation could re-enter.
+  local flat = {}
+  local function walk(list)
+    for _, step in ipairs(list) do
+      if step.op == "if" then
+        flat[#flat + 1] = "if"
+        walk(step.yes)
+        walk(step.no)
+      elseif step.op ~= "label" then
+        flat[#flat + 1] = step.op
+      end
+    end
+  end
+  walk(steps)
+  Assert.deepEqual(flat, { "goto_if", "signal_caller", "goto", "set_var", "stop" })
+end
+
 -- 13. The canonical lowering shapes for opcodes 55 and 56: the raw
--- type/map (and the unused 55 output) survive exactly as source data, the
--- message id is bank-qualified from the member, and both nodes verify as
--- supported yield boundaries with provenance.
+-- type/map survive exactly as source data, the message id is bank-qualified
+-- from the member, and both nodes verify as supported yield boundaries with
+-- provenance. Opcode 55's final operand is audited as unused by the source
+-- handler and is erased from the semantic node.
 T["direction and set signpost lower to canonical nodes"] = function()
   local bytes = ScriptFixture.member({
     scripts = {
@@ -674,9 +729,9 @@ T["direction and set signpost lower to canonical nodes"] = function()
     op = "signpost_direction",
     message = { message = "external", bank = 543, id = 0 },
     sourceAppearance = { game = "hgss", type = 1, map = 4 },
-    sourceUnusedOut = "VAR_SPECIAL_x8008",
     provenance = { offsets = { 32 }, opcodes = { 55 } },
   })
+  Assert.isNil(lowered.items[1].sourceUnusedOut, "opcode 55's audited unused operand must not reach the semantic node")
   Assert.deepEqual(lowered.items[2], {
     op = "signpost_set",
     sourceAppearance = { game = "hgss", type = 2, map = 0 },

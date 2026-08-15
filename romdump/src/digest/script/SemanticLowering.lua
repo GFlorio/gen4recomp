@@ -363,10 +363,12 @@ local HANDLERS = {
     return { op = "hold_message" }
   end,
   [55] = function(ins, memberIr)
-    -- DirectionSignpost message, type, map, out: the source handler never
-    -- reads or writes the last operand, so it is preserved as source data
-    -- only. The message id is a direct index into the member's message bank
-    -- (the decoder does not bank-resolve 55); the runtime resolves it.
+    -- DirectionSignpost message, type, map: the source handler never reads
+    -- or writes the final operand (audited unused), so it is erased here —
+    -- the raw decoded instruction operands keep it for source auditing, the
+    -- semantic node does not. The message id is a direct index into the
+    -- member's message bank (the decoder does not bank-resolve 55); the
+    -- runtime resolves it.
     assert(memberIr.messageBank ~= nil, "direction signpost requires a script message bank")
     return {
       op = "signpost_direction",
@@ -376,7 +378,6 @@ local HANDLERS = {
         type = operandValue(ins.operands[2]),
         map = operandValue(ins.operands[3]),
       },
-      sourceUnusedOut = operandValue(ins.operands[4]),
     }
   end,
   [56] = function(ins)

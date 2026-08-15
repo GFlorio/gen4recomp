@@ -377,13 +377,13 @@ Schema.OPERATIONS = {
   -- Generated/advanced imported-HGSS signpost operations. The signpost
   -- window is a persistent structure, not a dialogue box; the controller owns
   -- the command state machine. `sourceAppearance` preserves the raw source
-  -- type/map presentation data; opcode 55's out operand is unused by the
-  -- source handler and is carried as `sourceUnusedOut` only.
+  -- type/map presentation data. Opcode 55's final operand is audited as
+  -- unused by the source handler and stays in the raw decoded operands;
+  -- executable nodes never carry it.
   signpost_direction = {
     fields = {
       message = { type = "message", required = true },
       sourceAppearance = { type = "serializable", required = true },
-      sourceUnusedOut = { type = "serializable", required = true },
     },
   },
   signpost_set = {
@@ -423,15 +423,15 @@ Schema.OPERATIONS = {
   -- style id or a semantic appearance value -- never source-only type/map
   -- data -- and delegate to the same ScriptSignpostHost /
   -- FieldSignpostController primitives as the imported operations; the
-  -- registered sign task owns the open -> dismiss -> close lifecycle.
-  -- Imported ROM scripts never lower to these operations.
+  -- registered sign task owns the complete open -> dismiss -> close
+  -- lifecycle, so S.sign is always blocking. Imported ROM scripts never
+  -- lower to these operations.
   sign = {
     fields = {
       message = { type = "message", required = true },
       -- A registered style id or the semantic "sign" (resolved to the
       -- hgss.signpost built-in at script execution).
       appearance = { type = "string", default = "sign" },
-      wait = { type = "boolean", default = true },
     },
   },
   trainer_tip = {
@@ -897,14 +897,14 @@ Schema.CONSTRUCTORS = {
     notes = "S.sign and S.trainerTip are the high-level semantic surface: they present the signpost window with a registered style id or the semantic appearance value (never source-only type/map data) and delegate to the same signpost host/controller primitives as the imported operations. The six generated/advanced forms map 1:1 onto the imported signpost operations.",
     rows = {
       {
-        signature = "S.sign(message, opts)",
+        signature = "S.sign(spec)",
         canonical = "op=sign",
-        notes = 'opts={appearance="sign",wait=true}; appearance is a registered style id or the semantic "sign".',
+        notes = 'spec={message,appearance="sign"}; appearance is a registered style id or the semantic "sign".',
       },
       {
-        signature = "S.trainerTip(message, opts)",
+        signature = "S.trainerTip(spec)",
         canonical = "op=trainer_tip",
-        notes = 'opts={appearance="trainer_tip"}; types at the player text speed and waits for dismissal.',
+        notes = 'spec={message,appearance="trainer_tip"}; types at the player text speed and waits for dismissal.',
       },
       {
         signature = "S.signpostSet(spec)",

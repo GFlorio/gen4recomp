@@ -19,6 +19,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
+local SignpostAccess = require("libs.engine.src.script.tasks.SignpostAccess")
 
 local TrainerTipsTask = {}
 
@@ -30,16 +31,7 @@ TrainerTipsTask.version = 1
 ---@return table state
 function TrainerTipsTask.create(spec, ctx)
   local node = assert(spec.node, "trainer tips requires its graph node")
-  local host = ctx.services.signpost
-  if host == nil then
-    Errors.raise(
-      ScriptErrors.SCRIPT_SERVICE_MISSING,
-      "signpost service is unavailable",
-      { scriptId = ctx.instance.scriptId }
-    )
-  end
-  -- LuaLS cannot see through Errors.raise; the raise never returns nil.
-  ---@cast host ScriptSignpostHost
+  local host = SignpostAccess.requireSignpost(ctx)
   host:printTyped(node.message, nil, ctx.instance.textArgs or {})
   return { waiting = true }
 end
@@ -48,19 +40,10 @@ end
 ---@param ctx table
 ---@return table
 function TrainerTipsTask.poll(state, ctx)
-  local host = ctx.services.signpost
-  if host == nil then
-    Errors.raise(
-      ScriptErrors.SCRIPT_SERVICE_MISSING,
-      "signpost service is unavailable",
-      { scriptId = ctx.instance.scriptId }
-    )
-  end
-  -- LuaLS cannot see through Errors.raise; the raise never returns nil.
-  ---@cast host ScriptSignpostHost
+  local host = SignpostAccess.requireSignpost(ctx)
   -- Completion wins: an edge in the tick the print finished is after the
   -- fact, exactly like the source printer's "before printing completes".
-  if host:status().printDone then
+  if host:isPrintDone() then
     return { complete = true, state = state, result = 2 }
   end
   local input = ctx.input or {}

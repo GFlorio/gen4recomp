@@ -53,11 +53,14 @@ end
 
 -- Style routing for the high-level sign operations: the script-requested
 -- window style id (a registered id or a semantic appearance already resolved
--- by the runtime) is stamped into the controller's presentation. The host
--- never resolves geometry from it.
+-- by the runtime) is stamped into the controller's presentation, and any
+-- stored source appearance is cleared — the high-level semantic sign never
+-- inherits an imported signpost's type/map presentation. The host never
+-- resolves geometry from it.
 ---@param styleId string
 function ScriptSignpostHost:setStyleId(styleId)
   self._controller:setStyleId(styleId)
+  self._controller:setSourceAppearance(nil)
 end
 
 -- Print the whole message instantly in the signpost window (the immediate
@@ -93,6 +96,13 @@ end
 ---@return boolean
 function ScriptSignpostHost:isCommandIdle()
   return self._controller:isCommandIdle()
+end
+
+-- The semantic print query, straight from the controller: tasks ask whether
+-- the print is complete without building the renderer-oriented snapshot.
+---@return boolean
+function ScriptSignpostHost:isPrintDone()
+  return self._controller:isPrintDone()
 end
 
 -- The presentation snapshot, straight from the controller: plain data, no

@@ -7,12 +7,13 @@
 -- waiting marker. The poll reads only the fixed-tick input edges: a
 -- directional edge closes the window and turns the player (the source
 -- interruption for a live typed print, the dismissal otherwise); an A/B
--- edge before a live typed print is done is the printer's speed-up, never a
--- dismissal. The task carries no result reference. Pure domain module: no
+-- edge before the live typed print is done is the printer's speed-up, never
+-- a dismissal. The task carries no result reference. Pure domain module: no
 -- love dependency.
 
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
+local SignpostAccess = require("libs.engine.src.script.tasks.SignpostAccess")
 
 local SignTask = {}
 
@@ -20,9 +21,8 @@ SignTask.type = "sign"
 SignTask.version = 1
 
 ---@param spec table
----@param ctx table
 ---@return table state
-function SignTask.create(spec, ctx)
+function SignTask.create(spec)
   assert(spec.node, "sign task requires its graph node")
   return { waiting = true }
 end
@@ -31,16 +31,7 @@ end
 ---@param ctx table
 ---@return table
 function SignTask.poll(state, ctx)
-  local host = ctx.services.signpost
-  if host == nil then
-    Errors.raise(
-      ScriptErrors.SCRIPT_SERVICE_MISSING,
-      "signpost service is unavailable",
-      { scriptId = ctx.instance.scriptId }
-    )
-  end
-  -- LuaLS cannot see through Errors.raise; the raise never returns nil.
-  ---@cast host ScriptSignpostHost
+  local host = SignpostAccess.requireSignpost(ctx)
   local input = ctx.input or {}
   if input.pressedDirection then
     ctx.services.player:turn(input.pressedDirection)
@@ -48,7 +39,7 @@ function SignTask.poll(state, ctx)
     return { complete = true, state = state }
   end
   if input.pressedAction or input.pressedCancel then
-    if host:status().printDone then
+    if host:isPrintDone() then
       host:close()
       return { complete = true, state = state }
     end

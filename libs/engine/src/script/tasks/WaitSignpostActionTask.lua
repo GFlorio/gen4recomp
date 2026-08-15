@@ -11,16 +11,15 @@
 
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
+local SignpostAccess = require("libs.engine.src.script.tasks.SignpostAccess")
 
 local WaitSignpostActionTask = {}
 
 WaitSignpostActionTask.type = "wait_signpost_action"
 WaitSignpostActionTask.version = 1
 
----@param spec table
----@param ctx table
 ---@return table state
-function WaitSignpostActionTask.create(spec, ctx)
+function WaitSignpostActionTask.create()
   return {}
 end
 
@@ -32,18 +31,9 @@ end
 ---@param ctx table
 ---@return table
 function WaitSignpostActionTask.poll(state, ctx)
-  local host = ctx.services.signpost
-  if host == nil then
-    Errors.raise(
-      ScriptErrors.SCRIPT_SERVICE_MISSING,
-      "signpost service is unavailable",
-      { scriptId = ctx.instance.scriptId }
-    )
-  end
-  -- LuaLS cannot see through Errors.raise; the raise never returns nil.
-  ---@cast host ScriptSignpostHost
+  local host = SignpostAccess.requireSignpost(ctx)
   if host:isCommandIdle() then
-    return { complete = true, state = state, result = nil }
+    return { complete = true, state = state }
   end
   return { complete = false, state = state }
 end
