@@ -69,8 +69,6 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field saveFs SaveFs?
 ---@field presentation boolean?
 ---@field scriptHosts table? deterministic host boundaries for script effects
----@field windowStyleDescriptors table[]? mod window-style complete descriptors merged into the immutable style catalogue
----@field applicationDescriptors table[]? boot-config application factories ({ id, factory }) merged into the immutable application catalogue
 
 ---@class FieldRuntimeScriptHosts
 ---@field audio table?
@@ -102,9 +100,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field saveFs SaveFs?
 ---@field presentation boolean
 ---@field windowStyles FieldWindowStyles the immutable per-runtime window style catalogue
----@field windowStyleDescriptors table[]? boot-config mod style complete descriptors merged into the catalogue
 ---@field scriptHosts FieldRuntimeScriptHosts?
----@field applicationDescriptors table[]? boot-config application factories merged into the catalogue
 ---@field applications FieldApplicationRegistry the immutable per-runtime destination application catalogue
 ---@field applicationHost FieldApplicationHost the one application modal owner the session steps
 ---@field startMenuPlacement StartMenuLayout.Placement? the one Start Menu placement record rendering and pointer mapping share
@@ -198,8 +194,6 @@ function FieldRuntime.new(versionId, mapIdOrSymbol, options)
     saveFs = options.saveFs,
     presentation = options.presentation == true,
     scriptHosts = options.scriptHosts,
-    windowStyleDescriptors = options.windowStyleDescriptors,
-    applicationDescriptors = options.applicationDescriptors,
     errorText = nil,
     zoom = FieldZoom.new(options.zoomConfig or FieldPresentation.zoom),
   }, FieldRuntime)
@@ -234,11 +228,9 @@ function FieldRuntime:_load()
       "field UI cache is cold -- run `scripts/buildcache.sh` first"
     )
     assert(FieldUiAssetCache.validateManifest(uiManifest), "field UI manifest is invalid")
-    -- The window-style catalogue is composed per runtime from the same
-    -- generated manifest, with the boot-config mod descriptors merged in at
-    -- construction: built-ins plus validated complete mod records, immutable
-    -- from then on.
-    self.windowStyles = FieldWindowStyles.new(uiManifest, self.windowStyleDescriptors or {})
+    -- The window-style catalogue is composed per runtime from the generated
+    -- manifest: the production-owned built-in styles, immutable from then on.
+    self.windowStyles = FieldWindowStyles.new(uiManifest)
     self.uiManifest = uiManifest
     local frameIndexes = {}
     for frame = 0, uiManifest.dialogueFrames.count - 1 do
@@ -454,17 +446,15 @@ function FieldRuntime:_load()
     self.menuKeys = menuBindings()
 
     -- The field application catalogue: the registry holds child destinations
-    -- only -- the Trainer Card is the concrete production destination, and
-    -- every other destination arrives through the boot-config descriptor
-    -- seam. The catalogue is immutable after construction; canonical
+    -- only, and the runtime registers the production destinations itself --
+    -- the Trainer Card is the concrete one. Its factory copies the immutable
+    -- profile fields from the authoritative player-data record into the
+    -- close-input-only controller, and must return a fully usable controller
+    -- or raise. The catalogue is immutable after construction; canonical
     -- unimplemented destinations get capability state, never dummy
     -- factories. The Start Menu is not a registry entry: the application
     -- host composes it through its own menu factory.
-    local applicationDescriptors = {
-      -- The Trainer Card viewer is the concrete destination: the production
-      -- factory copies the immutable profile fields from the authoritative
-      -- player-data record into the close-input-only controller. The factory
-      -- must return a fully usable controller or raise.
+    self.applications = FieldApplicationRegistry.new({
       {
         id = FieldApplicationIds.TRAINER_CARD,
         factory = function()
@@ -473,11 +463,7 @@ function FieldRuntime:_load()
           })
         end,
       },
-    }
-    for _, descriptor in ipairs(self.applicationDescriptors or {}) do
-      applicationDescriptors[#applicationDescriptors + 1] = descriptor
-    end
-    self.applications = FieldApplicationRegistry.new(applicationDescriptors)
+    })
     self.applicationHost = FieldApplicationHost.new({
       registry = self.applications,
       menuFactory = function(rememberedActionId)
