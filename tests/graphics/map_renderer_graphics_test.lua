@@ -331,6 +331,68 @@ function T.decal_partial_texture_alpha_blends_toward_vertex_color(scope)
   Assert.isTrue(p[2] >= 0.2 * scale, "a partially transparent decal texel must blend in the vertex color's green")
 end
 
+-- A literal-color vertex triangle (colorSource 0) for the MODULATE test
+-- below: r/g/b are set per call so a nontrivial, non-identity vertex color
+-- can be paired with a nontrivial texture color.
+local function modulateTriangle(scope, r, g, b)
+  return scope:own(syntheticMesh({
+    { 0, 0, 0, 0, 0, 0, 0, 1, r, g, b, 1, 0 },
+    { 1, 0, 0, 1, 0, 0, 0, 1, r, g, b, 1, 0 },
+    { 0, 1, 0, 0, 1, 0, 0, 1, r, g, b, 1, 0 },
+  }))
+end
+
+-- MODULATE, the DS integer combiner (map.glsl's modulateRgb6/
+-- modulateComponent6), at a nontrivial midrange value -- not an
+-- identity/full-white or zero edge case. Both operands enter 5-bit
+-- quantized then widened to 6-bit (expand5to6) before combining:
+--   modulateComponent6(t6, v6) = floor(((t6+1)*(v6+1)-1)/64)
+-- Texture (200,100,50)/255 -> texture5 = floor(c*31+0.5) = (24,12,6) ->
+-- texture6 = expand5to6 = (49,24,12). A literal vertex color (colorSource 0)
+-- (128,64,200)/255 is truncated, not rounded, by the vertex stage's
+-- quantizeRgb5 (floor(c*31), no +0.5) -> vertex5 = (15,7,24) -> vertex6 =
+-- (30,14,49). Per channel: R floor((50*31-1)/64)=24, G
+-- floor((25*15-1)/64)=5, B floor((13*50-1)/64)=10.
+function T.modulate_combines_texture_and_vertex_color_at_a_nontrivial_midrange_value(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local image = solidAlphaImage(scope, 200, 100, 50, 255)
+  local item = decalItem(modulateTriangle(scope, 128 / 255, 64 / 255, 200 / 255), image)
+  item.polygonMode = "modulation"
+
+  renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, FieldViewport.new(640, 480, { mode = "strict" }))
+
+  local p = decalInteriorSample(renderer)
+  local scale = p[1] > 1 and 255 or 1
+  Assert.near(p[1], 24 / 63 * scale, 1, "modulate red channel: floor((50*31-1)/64) = 24")
+  Assert.near(p[2], 5 / 63 * scale, 1, "modulate green channel: floor((25*15-1)/64) = 5")
+  Assert.near(p[3], 10 / 63 * scale, 1, "modulate blue channel: floor((13*50-1)/64) = 10")
+end
+
+-- A cutout fragment whose combined alpha falls below alphaCutoff must
+-- discard rather than write a below-threshold pixel: DS cutout draws
+-- (grass, fences) render exactly two states, transparent or opaque, never a
+-- partial blend (GBATEK POLYGON_ATTR alpha=0 -> transparent). A fully
+-- transparent texel (textureAlpha5 = 0) makes the MODULATE alpha combiner
+-- floor(((0+1)*(31+1)-1)/32) = 0, normalized alpha 0, below alphaCutoff --
+-- the fragment must discard, leaving the injected clear color untouched
+-- rather than blending toward it.
+function T.cutout_zero_alpha_fragment_discards_instead_of_rendering(scope)
+  local clearColor = { 0.1, 0.2, 0.3, 1 }
+  local renderer = scope:own(MapRenderer.new({ clearColor = clearColor }))
+  local image = solidAlphaImage(scope, 255, 0, 0, 0)
+  local item = decalItem(decalTriangle(scope), image)
+  item.polygonMode = "modulation"
+  item.alphaClass = "cutout"
+
+  renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, FieldViewport.new(640, 480, { mode = "strict" }))
+
+  local p = decalInteriorSample(renderer)
+  local scale = p[1] > 1 and 255 or 1
+  Assert.near(p[1], clearColor[1] * scale, 0.05 * scale, "a discarded cutout fragment leaves the clear color's red")
+  Assert.near(p[2], clearColor[2] * scale, 0.05 * scale, "a discarded cutout fragment leaves the clear color's green")
+  Assert.near(p[3], clearColor[3] * scale, 0.05 * scale, "a discarded cutout fragment leaves the clear color's blue")
+end
+
 -- Exact caller-state restoration on a real driver: with non-default caller
 -- state (a bound canvas, an active shader, add blending,
 -- depth testing, wireframe, back-face culling, a tinted color) every modified
@@ -1407,6 +1469,120 @@ function T.edge_shader_never_indexes_the_color_table_for_a_sentinel_center(scope
   Assert.near(r, 100 / 255, 1 / 255, "sentinel center must render the unmodified scene color's red channel")
   Assert.near(g, 150 / 255, 1 / 255, "sentinel center must render the unmodified scene color's green channel")
   Assert.near(b, 200 / 255, 1 / 255, "sentinel center must render the unmodified scene color's blue channel")
+end
+
+-- Shared 3x1 fixture for the four edge-predicate anchors below: pixel 1 is
+-- always the center under test, pixels 0/2 its left/right neighbors
+-- (u_edgeRadius=1 samples only the immediate neighbor). Drives edge.glsl
+-- directly, the same idiom
+-- edge_shader_never_indexes_the_color_table_for_a_sentinel_center uses, so
+-- the id/depth/translucent-flag inputs are exact and independent of any
+-- particular mesh/camera geometry. Returns the center pixel's rendered RGB.
+local function runEdgePass(scope, pixels, edgeColors)
+  local edgeShader = scope:own(MapRenderer.new()).edgeShader
+
+  local idData = love.image.newImageData(3, 1, "rgba32f")
+  for i, p in ipairs(pixels) do
+    idData:setPixel(i - 1, 0, p.id / 255, p.depth, p.translucent and 1 or 0, 1)
+  end
+  local idImage = scope:own(love.graphics.newImage(idData))
+  idImage:setFilter("nearest", "nearest")
+
+  -- A center scene color distinct from every u_edgeColors entry below, so
+  -- "no edge" (unmodified scene) is distinguishable from "edge" (a table
+  -- entry) or a garbage/out-of-range read.
+  local sceneData = love.image.newImageData(3, 1)
+  sceneData:setPixel(0, 0, 0.2, 0.2, 0.2, 1)
+  sceneData:setPixel(1, 0, 200 / 255, 210 / 255, 220 / 255, 1)
+  sceneData:setPixel(2, 0, 0.2, 0.2, 0.2, 1)
+  local sceneImage = scope:own(love.graphics.newImage(sceneData))
+  sceneImage:setFilter("nearest", "nearest")
+
+  local target = scope:own(love.graphics.newCanvas(3, 1))
+  love.graphics.setCanvas(target)
+  love.graphics.clear(0, 0, 0, 1)
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.setShader(edgeShader)
+  edgeShader:send("u_idTex", idImage)
+  edgeShader:send("u_texelSize", { 1 / 3, 1 })
+  edgeShader:send("u_edgeRadius", 1)
+  edgeShader:send("u_edgeColors", unpack(edgeColors))
+  love.graphics.draw(sceneImage, 0, 0)
+  love.graphics.setShader()
+  love.graphics.setCanvas()
+
+  local out = target:newImageData()
+  return { out:getPixel(1, 0) }
+end
+
+-- Eight distinct, non-uniform edge colors (the same fixture the sentinel
+-- test uses): entry i is (i/10, i/10, i/10), so an edge render is
+-- distinguishable from every other entry and from the scene color.
+local function eightEdgeColors()
+  local colors = {}
+  for i = 0, 7 do
+    colors[i + 1] = { i / 10, i / 10, i / 10 }
+  end
+  return colors
+end
+
+-- Edge behavior anchor 1: a real, differently-id'd neighbor strictly
+-- farther than the center (the center is "in front") marks an edge,
+-- rendering u_edgeColors[centerId/8] -- id 20 -> entry 20/8 = 2 -> (0.2,
+-- 0.2, 0.2).
+function T.edge_shader_marks_a_differently_id_neighbor_when_center_is_in_front(scope)
+  local out = runEdgePass(scope, {
+    { id = 10, depth = 1000 },
+    { id = 20, depth = 500 },
+    { id = 20, depth = 500 },
+  }, eightEdgeColors())
+  Assert.near(out[1], 0.2, 1 / 255, "a marked edge renders u_edgeColors[centerId/8] (entry 2, 0.2,0.2,0.2)")
+  Assert.near(out[2], 0.2, 1 / 255)
+  Assert.near(out[3], 0.2, 1 / 255)
+end
+
+-- Edge behavior anchor 2: a differently-id'd neighbor at the SAME depth as
+-- the center is not strictly "in front" (the comparison has no tolerance),
+-- so no edge fires even though the id differs -- this is what suppresses
+-- coplanar boundaries between adjacent same-depth batches.
+function T.edge_shader_does_not_mark_a_differently_id_neighbor_at_equal_depth(scope)
+  local out = runEdgePass(scope, {
+    { id = 10, depth = 500 },
+    { id = 20, depth = 500 },
+    { id = 20, depth = 500 },
+  }, eightEdgeColors())
+  Assert.near(out[1], 200 / 255, 1 / 255, "equal depth must not mark: unmodified scene color")
+  Assert.near(out[2], 210 / 255, 1 / 255)
+  Assert.near(out[3], 220 / 255, 1 / 255)
+end
+
+-- Edge behavior anchor 3: a neighbor sharing the center's own polygon id
+-- never marks, regardless of depth -- a same-id boundary is never a real
+-- silhouette.
+function T.edge_shader_does_not_mark_a_same_id_neighbor(scope)
+  local out = runEdgePass(scope, {
+    { id = 20, depth = 1000 },
+    { id = 20, depth = 500 },
+    { id = 20, depth = 500 },
+  }, eightEdgeColors())
+  Assert.near(out[1], 200 / 255, 1 / 255, "same polygon id must not mark: unmodified scene color")
+  Assert.near(out[2], 210 / 255, 1 / 255)
+  Assert.near(out[3], 220 / 255, 1 / 255)
+end
+
+-- Edge behavior anchor 4: a translucent center (the blue-channel
+-- translucent-attribute flag) is never an edge center, even under the exact
+-- neighbor/depth shape that marks an opaque center (anchor 1's own
+-- fixture) -- translucent draws occlude but are never outlined themselves.
+function T.edge_shader_never_marks_a_translucent_center(scope)
+  local out = runEdgePass(scope, {
+    { id = 10, depth = 1000 },
+    { id = 20, depth = 500, translucent = true },
+    { id = 20, depth = 500 },
+  }, eightEdgeColors())
+  Assert.near(out[1], 200 / 255, 1 / 255, "a translucent center must not mark: unmodified scene color")
+  Assert.near(out[2], 210 / 255, 1 / 255)
+  Assert.near(out[3], 220 / 255, 1 / 255)
 end
 
 return GraphicsSmoke.suite(T)
