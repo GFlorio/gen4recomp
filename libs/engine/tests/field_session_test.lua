@@ -55,7 +55,7 @@ local function applicationHostFake(overrides)
   function host:isActive()
     return self.active
   end
-  function host:updateFixed(tick, uiInput)
+  function host:updateFixed(uiInput)
     self.updateCalls = self.updateCalls + 1
     self.events = uiInput
   end
