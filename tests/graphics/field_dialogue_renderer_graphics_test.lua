@@ -161,7 +161,7 @@ local function assertPixelsEqual(expected, actual, label)
   end
 end
 
-function T.loads_the_shared_font_and_own_frame_strip(scope)
+function T.loads_the_shared_font_atlas_and_own_frame_strip(scope)
   local dialogue = renderer(scope)
 
   Assert.equal(dialogue._text.fontDef.schema, "g4-field-font-v1")
@@ -289,19 +289,6 @@ function T.release_frees_the_owned_frame_strip(scope)
   dialogue:release()
 
   Assert.isNil(dialogue._frameImage)
-end
-
--- The shared text renderer built against a cache without the atlas PNG must
--- not report a half-built object: the typed error names the missing artifact.
-function T.a_missing_atlas_is_a_typed_error()
-  local cache = FieldUiFixture.cacheWithFontAndFrames()
-  cache:remove("assets/generated/field/font/font-0.png")
-
-  local err = Assert.throws(function()
-    FieldTextRenderer.new({ cacheFs = cache })
-  end)
-
-  Assert.equal(err.code, "FONT_ATLAS_MISSING")
 end
 
 return GraphicsSmoke.suite(T)

@@ -354,8 +354,8 @@ end
 ---@class StartMenuController.Status
 ---@field open boolean
 ---@field actions StartMenuController.Action[]
----@field cancelSlotId integer?
----@field cursorSlotId integer?
----@field cursorFrameIndex integer?
+---@field cancelSlotId integer
+---@field cursorSlotId integer
+---@field cursorFrameIndex integer
 
 return StartMenuController

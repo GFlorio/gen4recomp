@@ -25,129 +25,10 @@ local T = {}
 -- never reloads it from the cache itself.
 local MANIFEST = FieldUiFixture.manifest()
 
--- Tracks created images and their release calls, records every draw with its
--- quad and position, tracks the transform-stack depth, and holds a full
--- settable state the renderer must restore exactly.
--- failOnQuadCall/failOnDrawCall make the Nth construction/draw call raise.
--- imageSizes supplies the created image dimensions in creation order.
-local function fakeGraphics(opts)
-  opts = opts or {}
-  local images = {}
-  local quadCalls, drawCalls = 0, 0
-  local pushDepth = 0
-  local draws = {}
-  local state = {
-    canvas = opts.canvas,
-    shader = opts.shader,
-    blendMode = opts.blendMode,
-    blendAlpha = opts.blendAlpha,
-    depthMode = opts.depthMode,
-    depthWrite = opts.depthWrite,
-    wireframe = opts.wireframe,
-    cullMode = opts.cullMode,
-    color = opts.color or { 1, 1, 1, 1 },
-    scissor = opts.scissor,
-  }
-  return {
-    images = images,
-    draws = draws,
-    pushDepth = function()
-      return pushDepth
-    end,
-    newImage = function()
-      local size = opts.imageSizes and opts.imageSizes[#images + 1] or { 16, 16 }
-      local image = {
-        released = false,
-        setFilter = function() end,
-        getWidth = function()
-          return size[1]
-        end,
-        getHeight = function()
-          return size[2]
-        end,
-      }
-      image.release = function()
-        image.released = true
-      end
-      images[#images + 1] = image
-      return image
-    end,
-    newQuad = function(x, y, w, h, imgW, imgH)
-      quadCalls = quadCalls + 1
-      if opts.failOnQuadCall == quadCalls then
-        error("injected newQuad failure")
-      end
-      return { x = x, y = y, w = w, h = h, imgW = imgW, imgH = imgH }
-    end,
-    push = function()
-      pushDepth = pushDepth + 1
-    end,
-    pop = function()
-      pushDepth = pushDepth - 1
-    end,
-    translate = function() end,
-    scale = function() end,
-    setColor = function(r, g, b, a)
-      state.color = { r, g, b, a }
-    end,
-    getColor = function()
-      return state.color[1], state.color[2], state.color[3], state.color[4]
-    end,
-    draw = function(image, quad, x, y)
-      drawCalls = drawCalls + 1
-      draws[#draws + 1] = { image = image, quad = quad, x = x, y = y }
-      if opts.failOnDrawCall == drawCalls then
-        error("injected draw failure")
-      end
-    end,
-    polygon = function() end,
-    getCanvas = function()
-      return state.canvas
-    end,
-    setCanvas = function(canvas)
-      state.canvas = canvas
-    end,
-    getShader = function()
-      return state.shader
-    end,
-    setShader = function(shader)
-      state.shader = shader
-    end,
-    getBlendMode = function()
-      return state.blendMode, state.blendAlpha
-    end,
-    setBlendMode = function(mode, alpha)
-      state.blendMode, state.blendAlpha = mode, alpha
-    end,
-    getDepthMode = function()
-      return state.depthMode, state.depthWrite
-    end,
-    setDepthMode = function(mode, write)
-      state.depthMode, state.depthWrite = mode, write
-    end,
-    isWireframe = function()
-      return state.wireframe
-    end,
-    setWireframe = function(wireframe)
-      state.wireframe = wireframe
-    end,
-    getMeshCullMode = function()
-      return state.cullMode
-    end,
-    setMeshCullMode = function(mode)
-      state.cullMode = mode
-    end,
-    getScissor = function()
-      if not state.scissor then
-        return nil
-      end
-      return state.scissor[1], state.scissor[2], state.scissor[3], state.scissor[4]
-    end,
-    setScissor = function(x, y, w, h)
-      state.scissor = { x, y, w, h }
-    end,
-  }
-end
+-- The fake graphics namespace records every draw/transform/primitive and
+-- holds the settable state the renderers must restore exactly; the shared
+-- helper is tests/support/FakeGraphics.lua.
+local fakeGraphics = require("tests.support.FakeGraphics").new
 
 local function uiCache()
   return FieldUiFixture.cacheWithFontAndFrames()
@@ -215,6 +96,19 @@ function T.text_renderer_constructor_failure_releases_the_atlas()
   Assert.isTrue(tostring(err):find("injected newQuad failure", 1, true) ~= nil, "rethrows the quad failure")
   Assert.equal(#lg.images, 1, "the font atlas was created before the failure")
   Assert.equal(lg.images[1].released, true, "the atlas was released")
+end
+
+-- The shared text renderer built against a cache without the atlas PNG must
+-- not report a half-built object: the typed error names the missing artifact.
+function T.text_renderer_missing_atlas_is_a_typed_error()
+  local cache = uiCache()
+  cache:remove("assets/generated/field/font/font-0.png")
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 } } })
+  local err = Assert.throws(function()
+    FieldTextRenderer.new({ cacheFs = cache, graphics = lg })
+  end)
+  Assert.isTrue(Errors.is(err) and err.code == "FONT_ATLAS_MISSING", "raises FONT_ATLAS_MISSING")
+  Assert.equal(#lg.images, 0, "no image was created before the atlas read failed")
 end
 
 -- A failure between graphics.push() and graphics.pop() must still pop the
